@@ -298,6 +298,8 @@ UI 摘要合并本批全部 App 进程的完整控件标识与访问动作，冷
 
 检查项为 `minimum-platforms`、`distribution-signing`、`system-autofill`、`photos`、`calendar-permissions`、`notifications`、`external-handoff`、`web-interactions`、`widget`、`watch`、`feedback-delivery`，失败观察以 `--outcome failed` 登记，附件可保留实际影像或结构化诊断，发布门禁继续要求每项成功。记录结构保存操作、结果、明确的 passed/failed 状态、实际观察时间和登记时间、附件路径、完整 Base64 内容、字节数和 SHA-256；发布检查重新解码并核对内容摘要，固定源路径后续覆盖时保留已采集证据，CI 沿同一 JSON 获取完整附件。人工验收的全部检查项共同参与采集区间时效核对。
 
+`feedback-delivery` 的结构化收件证明保存正式 App 报告、存储键、接收时间、投递状态及邮件正文，并采集 `To`、`Message-ID` 和 `X-BIT101-Report-ID` 邮件头。收件地址与 Worker 配置一致，邮件头、正文和存储记录共同绑定报告编号；提供方消息标识按存储返回值保留，邮件 `Message-ID` 按实际收件头核对。
+
 影像附件通过 ImageIO、Core Graphics 和 AVFoundation 实际解码，视频读取完整视频轨道。`minimum-platforms` 附件使用结构化 JSON，`schemaVersion` 为 1，`platforms` 包含 `iOS` 与 `watchOS`。每端登记 `deviceIdentifier`、`deviceModel`、`systemVersion`、`systemBuild`、`capturedAt`、`checks` 及 `evidence`；系统主版本与小版本匹配对应平台各目标的最高部署要求，补丁版本达到部署要求，当前覆盖 iOS 17.0 与 watchOS 10.0。
 
 iOS 的 `checks` 包含 `cold-start-session`、`offline-persistence`、`media-and-navigation`，Watch 包含 `snapshot-receive`、`timeline-render`、`clear-and-retry`；每项保存 `operation`、`result` 与 `outcome`，成功状态为 `passed`。每端的影像 `evidence` 保存 `path`、`sha256`、`byteCount`、`dataBase64`，与普通附件采用相同解码和时效校验。常规自动化记录所选 iPhone 系统身份，最低部署版本专项补充对应实体设备的核心验收。反馈专项从 App 提交正式报告，核对报告持久化及维护者邮件送达，并将报告编号、存储键和邮件收件证据保存在验收附件。

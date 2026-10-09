@@ -79,7 +79,35 @@ case "$ACTION" in
   delete)
     key="${2:-}"
     [[ "$key" == report:* ]] || { echo "请提供 report: 开头的报告键。" >&2; exit 64; }
-    (cd "$WRANGLER_DIR" && "$WRANGLER" kv key delete "$key" --remote --namespace-id "$NAMESPACE_ID")
+    python3 - "$key" "$WRANGLER" "$WRANGLER_DIR" "$NAMESPACE_ID" "$OUTPUT_DIR/delete-authorization.json" <<'PYDELETE'
+import json
+from pathlib import Path
+import subprocess
+import sys
+from urllib.request import Request, urlopen
+import uuid
+
+key, wrangler, directory, namespace, filename = sys.argv[1:]
+grant = str(uuid.uuid4())
+grant_key = 'report-delete-grant:' + grant
+path = Path(filename)
+configuration = json.loads((Path(directory).parent / 'ErrorReportWorker/wrangler.jsonc').read_text())
+domain = next(route['pattern'] for route in configuration['routes'] if route.get('custom_domain'))
+def run(*arguments, check=True):
+    return subprocess.run([wrangler, 'kv', 'key', *arguments, '--remote', '--namespace-id', namespace],
+        cwd=directory, check=check, stdout=subprocess.DEVNULL)
+try:
+    path.write_text(json.dumps({'key': key}))
+    run('put', grant_key, '--path', str(path), '--ttl', '300')
+    request = Request('https://' + domain + '/api/error-reports', method='DELETE',
+        data=json.dumps({'key': key, 'grant': grant}).encode(), headers={'Content-Type': 'application/json'})
+    with urlopen(request, timeout=30) as response:
+        if json.load(response).get('deleted') is not True: raise ValueError('报告删除需要队列与存储共同确认。')
+finally:
+    run('delete', grant_key, check=False)
+    path.unlink(missing_ok=True)
+print('报告已删除：' + key)
+PYDELETE
     ;;
   fetch) ;;
 esac
@@ -203,6 +231,7 @@ CLOUDFLARE_STATE=success
 if REPORT_COUNT="$(python3 - "$OUTPUT_DIR/error-report-keys.json" "$STAGING_DIR" "$WRANGLER_DIR" "$NAMESPACE_ID" "$OUTPUT_DIR/report-keys.txt" <<'PY'
 import json
 import base64
+import hashlib
 import pathlib
 import os
 import subprocess
@@ -223,12 +252,33 @@ processed = {
     for line in processed_path.read_text(encoding="utf-8").splitlines()
     if line.strip()
 } if processed_path.exists() else set()
-keys = [
-    item["name"] for item in items
-    if item.get("name", "").startswith("report:")
-]
-local_reports = {path.name for path in output_dir.glob("*/*/report_*.json")}
-keys_to_fetch = [key for key in keys if key not in processed or key.replace(":", "_") + ".json" not in local_reports]
+local_reports = {path.name: path for path in output_dir.glob("*/*/report_*.json")}
+
+def attachment_suffix(attachment):
+    kind = attachment.get("contentType", "image/jpeg")
+    return {"image/jpeg": ".jpg", "image/png": ".png", "image/heic": ".heic"}.get(kind, ".bin") if isinstance(kind, str) else ".bin"
+
+def cache_complete(item):
+    key = item["name"]
+    path = local_reports.get(key.replace(":", "_") + ".json")
+    if key not in processed or path is None: return False
+    try:
+        saved = json.loads(path.read_text())
+        delivery = saved.get("emailDelivery", {})
+        status = delivery.get("status")
+        remote_status = item.get("metadata", {}).get("emailStatus")
+        if status == "pending" or remote_status and status != remote_status: return False
+        attachments = saved["report"].get("attachments", [])
+        if not isinstance(attachments, list) or saved.get("inboxAttachmentErrors"): return False
+        for index, attachment in enumerate(attachments, 1):
+            asset = path.parent / (path.stem + "_附件") / f"图片-{index:02d}{attachment_suffix(attachment)}"
+            if asset.stat().st_size != attachment["bytes"]: return False
+            with asset.open("rb") as stream:
+                if hashlib.file_digest(stream, "sha256").hexdigest() != attachment["sha256"]: return False
+        return True
+    except (OSError, ValueError, KeyError, TypeError, AttributeError): return False
+
+keys_to_fetch = [item["name"] for item in items if item.get("name", "").startswith("report:") and not cache_complete(item)]
 
 def fetch(key):
     result = subprocess.run(
@@ -276,11 +326,11 @@ def fetch(key):
                 downloaded_attachments.append(dict(attachment, error=f"附件解码失败：{error}"))
                 attachment_errors += 1
                 continue
-            content_type = attachment.get("contentType", "image/jpeg")
-            extension = {"image/jpeg": ".jpg", "image/png": ".png", "image/heic": ".heic"}.get(content_type, ".bin") if isinstance(content_type, str) else ".bin"
+            extension = attachment_suffix(attachment)
             (attachment_dir / f"图片-{index:02d}{extension}").write_bytes(data)
             downloaded_attachments.append(
-                {key: value for key, value in attachment.items() if key != "data"} | {"bytes": len(data)}
+                {key: value for key, value in attachment.items() if key != "data"}
+                    | {"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
             )
         report["attachments"] = downloaded_attachments
         item["report"] = report

@@ -109,22 +109,40 @@ def evidence_content_complete(check: str, data: bytes) -> bool:
         except (ValueError, TypeError, KeyError, OSError): return False
     if check == 'feedback-delivery':
         try:
+            from email.utils import getaddresses
             proof = json.loads(data)
             if not isinstance(proof, dict) or not all(isinstance(proof.get(field), str) for field in
                     ('reportID', 'storageKey', 'emailRecipient', 'emailMessageID', 'emailBody')): return False
             report = str(uuid.UUID(proof['reportID']))
-            delivery = proof['storedReport']['emailDelivery']
+            stored = proof['storedReport']
+            payload = stored['report']
+            delivery = stored['emailDelivery']
+            if not isinstance(payload, dict): return False
+            mode = payload.get('mode')
+            fields = ('comment',) if mode == 'suggestion' else ('errorTitle', 'errorMessage')
+            if mode not in {'sanitized', 'raw', 'suggestion'} or payload.get('isDevelopmentBuild') is not False \
+                    or not all(isinstance(payload.get(field), str) and payload[field].strip() for field in fields): return False
+            if not all(payload.get(field) is None or isinstance(payload[field], str) for field in
+                    ('appVersion', 'build', 'deviceModel', 'systemVersion', 'networkStatus', 'contact')): return False
+            headers = proof['emailHeaders']
+            if not isinstance(headers, dict) or not all(isinstance(key, str) and isinstance(value, str) for key, value in headers.items()): return False
+            normalized = {key.casefold(): value.strip() for key, value in headers.items()}
+            if len(normalized) != len(headers): return False
+            configuration = json.loads((Path(__file__).resolve().parents[1] / 'Cloudflare/ErrorReportWorker/wrangler.jsonc').read_text())
+            recipient = next(binding['destination_address'] for binding in configuration['send_email'] if binding['name'] == 'REPORT_EMAIL')
+            received = stored['receivedAt']
+            datetime.fromisoformat(received.replace('Z', '+00:00'))
             return capability_observations_complete(check, 'delivery', proof.get('capabilities')) \
-                and proof['reportID'] == report and proof['storageKey'].startswith('report:') \
-                and proof['storageKey'].endswith(':' + report) and proof['storedReport']['id'] == report \
-                and isinstance(proof['storedReport']['report'], dict) \
+                and proof['reportID'] == report and proof['storageKey'] == 'report:' + received + ':' + report and stored['id'] == report \
                 and isinstance(delivery, dict) and delivery.get('status') == 'sent' \
                 and type(delivery.get('attempts')) is int and delivery['attempts'] > 0 \
                 and isinstance(delivery.get('messageID'), str) and bool(delivery['messageID'].strip()) \
-                and bool(re.fullmatch(r'[^\s@]+@[^\s@]+', proof['emailRecipient'])) \
+                and proof['emailRecipient'].casefold() == recipient.casefold() \
+                and [address.casefold() for _, address in getaddresses([normalized['to']])] == [recipient.casefold()] \
                 and bool(re.fullmatch(r'<[^\s<>@]+@[^\s<>@]+>', proof['emailMessageID'])) \
-                and report in proof['emailBody']
-        except (ValueError, TypeError, KeyError, AttributeError): return False
+                and normalized['message-id'] == proof['emailMessageID'] and normalized['x-bit101-report-id'] == report \
+                and '报告编号：' + report in proof['emailBody'] and '接收时间：' + received in proof['emailBody']
+        except (ValueError, TypeError, KeyError, AttributeError, OSError, StopIteration): return False
     recognized = png_complete(data) or data.startswith(b'\xff\xd8\xff') and data.endswith(b'\xff\xd9') \
         or data.startswith(b'%PDF-') and data.rstrip().endswith(b'%%EOF') \
         or len(data) >= 16 and data[4:8] == b'ftyp' and b'moov' in data

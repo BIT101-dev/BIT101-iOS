@@ -1,6 +1,7 @@
 """Resolve business network API signatures and calls from compiler source facts."""
 import re
 import ast
+import warnings
 from swift_source_index import argument_parameter_bindings, matching_functions, visible_variables
 
 NETWORK_FOUNDATION_MODULES = {'TransportCore', 'CommunityTransport', 'MediaKit'}
@@ -12,8 +13,10 @@ NETWORK_HARNESS_TYPES = {'ReleaseNetworkSmokeRunner', 'ReleaseNetworkSmokeDepend
 def constant_boolean(condition: str, resolve) -> bool | None:
     expression = re.sub(r'!(?!=)', ' not ', condition.replace('&&', ' and ').replace('||', ' or '))
     expression = re.sub(r'\btrue\b', 'True', re.sub(r'\bfalse\b', 'False', expression)).strip()
-    if '"' in expression or "'" in expression: return None
-    try: node = ast.parse(expression, mode='eval').body
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', SyntaxWarning)
+            node = ast.parse(expression, mode='eval').body
     except SyntaxError: return None
     def value(node):
         if isinstance(node, ast.Constant) and isinstance(node.value, bool): return node.value

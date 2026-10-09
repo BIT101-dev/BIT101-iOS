@@ -133,7 +133,7 @@ function json(data, status = 200) {
       "Cache-Control": "no-store",
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Headers": "content-type",
-      "Access-Control-Allow-Methods": "POST, OPTIONS"
+      "Access-Control-Allow-Methods": "POST, DELETE, OPTIONS"
     }
   };
   return status === 204 ? new Response(null, options) : Response.json(data, options);
@@ -240,28 +240,49 @@ function reportEmailBody(id, receivedAt, report) {
 
 export class ReportEmailDelivery extends DurableObject {
   async fetch(request) {
-    if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
-    const job = await request.json();
-    if (!await this.ctx.storage.get("job")) {
-      await this.ctx.storage.put("job", { ...job, delivery: { status: "pending", attempts: 0 } });
-      await this.ctx.storage.setAlarm(Date.now());
-    }
-    return json({ queued: true }, 201);
+    if (!["POST", "DELETE"].includes(request.method)) return json({ error: "method_not_allowed" }, 405);
+    const incoming = await request.json();
+    return this.ctx.blockConcurrencyWhile(async () => {
+      const job = await this.ctx.storage.get("job");
+      if (request.method === "DELETE") {
+        if (job && job.key !== incoming.key) return json({ error: "report_identity_mismatch" }, 409);
+        if (job) {
+          await this.ctx.storage.put("job", { ...job, deleted: true });
+          await this.ctx.storage.setAlarm(Date.parse(job.receivedAt) + REPORT_RETENTION_SECONDS * 1000);
+        }
+        await this.env.ERROR_REPORTS.delete(incoming.key);
+        return json({ deleted: true });
+      }
+      if (job?.deleted) return json({ error: "report_deleted" }, 410);
+      if (!job) {
+        await this.ctx.storage.put("job", { ...incoming, delivery: { status: "pending", attempts: 0 } });
+        await this.ctx.storage.setAlarm(Date.now());
+      }
+      return json({ queued: true }, 201);
+    });
   }
 
   async alarm(info = { retryCount: 0 }) {
-    const job = await this.ctx.storage.get("job");
+    let job = await this.ctx.storage.get("job");
     if (!job) return;
     const expires = Date.parse(job.receivedAt) + REPORT_RETENTION_SECONDS * 1000;
     if (Date.now() >= expires) { await this.ctx.storage.deleteAll(); return; }
+    if (job.deleted) return;
     let stored, record, failure;
     try {
       stored = await this.env.ERROR_REPORTS.getWithMetadata(job.key);
       if (!stored.value) throw new Error("Report storage is pending");
       record = JSON.parse(stored.value);
       if (job.delivery.status === "pending") {
-        job.delivery.attempts += 1;
-        await this.ctx.storage.put("job", job);
+        const admitted = await this.ctx.blockConcurrencyWhile(async () => {
+          const current = await this.ctx.storage.get("job");
+          if (!current || current.deleted) return false;
+          job = current;
+          job.delivery.attempts += 1;
+          await this.ctx.storage.put("job", job);
+          return true;
+        });
+        if (!admitted) return;
         const category = record.report.mode === "suggestion" ? "用户建议" : "错误报告";
         const sent = await this.env.REPORT_EMAIL.send({
           from: "error-report@aihelpme.dev", to: "idleassetsd@gmail.com",
@@ -277,33 +298,56 @@ export class ReportEmailDelivery extends DurableObject {
         job.delivery.lastError = emailText(forceRedact(error.message || error.name || "Error"), 300);
       }
     }
-    job.delivery.updatedAt = new Date().toISOString();
-    await this.ctx.storage.put("job", job);
-    if (record) {
-      try {
-        await this.env.ERROR_REPORTS.put(job.key, JSON.stringify({ ...record, emailDelivery: job.delivery }), {
-          metadata: { ...stored.metadata, emailStatus: job.delivery.status }, expiration: Math.floor(expires / 1000)
-        });
-      } catch (error) { failure = error; }
-    }
-    if (failure) {
-      job.retryFailures = (job.retryFailures || 0) + 1;
+    await this.ctx.blockConcurrencyWhile(async () => {
+      const current = await this.ctx.storage.get("job");
+      if (!current || current.deleted) return;
+      job.delivery.updatedAt = new Date().toISOString();
       await this.ctx.storage.put("job", job);
-      if (info.retryCount < 6) throw failure;
-      const delay = Math.min(MAX_EMAIL_RETRY_DELAY_MS, 2000 * 2 ** Math.min(job.retryFailures, 11));
-      await this.ctx.storage.setAlarm(Math.min(expires, Date.now() + delay));
-      console.error("REPORT_EMAIL_DELIVERY_PENDING", { reportID: job.id, status: job.delivery.status, attempts: job.delivery.attempts });
-      return;
-    }
-    await this.ctx.storage.setAlarm(expires);
+      if (record) {
+        try {
+          await this.env.ERROR_REPORTS.put(job.key, JSON.stringify({ ...record, emailDelivery: job.delivery }), {
+            metadata: { ...stored.metadata, emailStatus: job.delivery.status }, expiration: Math.floor(expires / 1000)
+          });
+        } catch (error) { failure = error; }
+      }
+      if (failure) {
+        job.retryFailures = (job.retryFailures || 0) + 1;
+        await this.ctx.storage.put("job", job);
+        if (info.retryCount < 6) throw failure;
+        const delay = Math.min(MAX_EMAIL_RETRY_DELAY_MS, 2000 * 2 ** Math.min(job.retryFailures, 11));
+        await this.ctx.storage.setAlarm(Math.min(expires, Date.now() + delay));
+        console.error("REPORT_EMAIL_DELIVERY_PENDING", { reportID: job.id, status: job.delivery.status, attempts: job.delivery.attempts });
+        return;
+      }
+      await this.ctx.storage.setAlarm(expires);
+    });
   }
+}
+
+async function deleteReport(report, env) {
+  if (typeof report?.key !== "string" || !report.key.startsWith("report:")
+    || !/^[0-9a-f-]{36}$/.test(report.grant || "")) return json({ error: "invalid_deletion" }, 400);
+  const grantKey = `report-delete-grant:${report.grant}`;
+  const grant = await env.ERROR_REPORTS.get(grantKey);
+  if (!grant || JSON.parse(grant).key !== report.key) return json({ error: "deletion_not_authorized" }, 403);
+  const id = report.key.split(":").at(-1);
+  if (env.REPORT_EMAIL_DELIVERY && /^[0-9a-f-]{36}$/.test(id)) {
+    const response = await env.REPORT_EMAIL_DELIVERY.get(env.REPORT_EMAIL_DELIVERY.idFromName(id)).fetch("https://delivery/delete", {
+      method: "DELETE", body: JSON.stringify({ key: report.key })
+    });
+    if (!response.ok) return response;
+  } else {
+    await env.ERROR_REPORTS.delete(report.key);
+  }
+  await env.ERROR_REPORTS.delete(grantKey);
+  return json({ deleted: true });
 }
 
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (request.method === "OPTIONS") return json({}, 204);
-    if (url.pathname !== "/api/error-reports" || request.method !== "POST") {
+    if (url.pathname !== "/api/error-reports" || !["POST", "DELETE"].includes(request.method)) {
       return json({ error: "not_found" }, 404);
     }
     if (!env.ERROR_REPORTS) return json({ error: "storage_not_configured" }, 503);
@@ -328,6 +372,10 @@ export default {
       if (body === null) return json({ error: "payload_too_large" }, 413);
       report = JSON.parse(body);
     } catch { return json({ error: "invalid_json" }, 400); }
+    if (request.method === "DELETE") {
+      try { return await deleteReport(report, env); }
+      catch { return json({ error: "storage_unavailable" }, 503); }
+    }
     if (!validReport(report, request)) return json({ error: "invalid_report" }, 400);
     if (report.attachments != null && !Array.isArray(report.attachments)) return json({ error: "invalid_attachment" }, 400);
     if (Array.isArray(report.attachments)) {

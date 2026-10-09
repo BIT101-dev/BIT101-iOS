@@ -107,10 +107,15 @@ def evidence_fixture(check: str) -> bytes:
         return json.dumps({'schemaVersion': 1, 'platforms': platforms}).encode()
     if check == 'feedback-delivery':
         identifier = '00000000-0000-4000-8000-000000000001'
-        return json.dumps({'reportID': identifier, 'storageKey': 'report:received:' + identifier, 'capabilities': observations('delivery'),
-            'storedReport': {'id': identifier, 'report': {'mode': 'error'},
-                'emailDelivery': {'status': 'sent', 'attempts': 1, 'messageID': 'provider-fixture'}}, 'emailRecipient': 'recipient@example.invalid',
-            'emailMessageID': '<receipt@example.invalid>', 'emailBody': '报告编号 ' + identifier}).encode()
+        received = '2000-01-01T00:00:00.000Z'
+        configuration = json.loads((Path(__file__).resolve().parents[1] / 'Cloudflare/ErrorReportWorker/wrangler.jsonc').read_text())
+        recipient = next(binding['destination_address'] for binding in configuration['send_email'] if binding['name'] == 'REPORT_EMAIL')
+        return json.dumps({'reportID': identifier, 'storageKey': 'report:' + received + ':' + identifier, 'capabilities': observations('delivery'),
+            'storedReport': {'id': identifier, 'receivedAt': received,
+                'report': {'mode': 'sanitized', 'isDevelopmentBuild': False, 'errorTitle': 'fixture', 'errorMessage': 'fixture failure'},
+                'emailDelivery': {'status': 'sent', 'attempts': 1, 'messageID': 'provider-fixture'}}, 'emailRecipient': recipient,
+            'emailHeaders': {'To': recipient, 'Message-ID': '<receipt@example.invalid>', 'X-BIT101-Report-ID': identifier},
+            'emailMessageID': '<receipt@example.invalid>', 'emailBody': '报告编号：' + identifier + '\n接收时间：' + received}).encode()
     def chunk(kind, content):
         return struct.pack('>I', len(content)) + kind + content + struct.pack('>I', zlib.crc32(kind + content))
     return b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', 1, 1, 8, 2, 0, 0, 0)) \
@@ -241,6 +246,18 @@ def run_self_test() -> None:
         changed = copy.deepcopy(receipt)
         changed['storedReport']['emailDelivery'][key] = value
         assert not evidence_content_complete('feedback-delivery', json.dumps(changed).encode())
+    for location, key, value in [('emailHeaders', 'To', 'different@example.invalid'),
+            ('emailHeaders', 'Message-ID', '<other@example.invalid>'), ('emailHeaders', 'X-BIT101-Report-ID', str(uuid.uuid4())),
+            ('report', 'mode', 'error'), ('report', 'errorTitle', ''), ('report', 'isDevelopmentBuild', True)]:
+        changed = copy.deepcopy(receipt)
+        (changed['storedReport']['report'] if location == 'report' else changed[location])[key] = value
+        assert not evidence_content_complete('feedback-delivery', json.dumps(changed).encode())
+    for key, value in [('emailRecipient', 'different@example.invalid'), ('emailBody', receipt['reportID'])]:
+        changed = dict(receipt, **{key: value})
+        assert not evidence_content_complete('feedback-delivery', json.dumps(changed).encode())
+    changed = copy.deepcopy(receipt)
+    changed['storedReport']['report'] = {}
+    assert not evidence_content_complete('feedback-delivery', json.dumps(changed).encode())
     from validation_manual import scenario_complete, MANUAL_SCENARIOS
     for check in MANUAL_SCENARIOS:
         proof = json.loads(evidence_fixture(check))

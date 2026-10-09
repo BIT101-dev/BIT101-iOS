@@ -129,7 +129,7 @@ export class QuotaFixture extends ReportQuota {
     diagnostics: [{ statusCode: { toString: null }, elapsedMilliseconds: { toString: null }, method: { toString: null } }] };
   assert.doesNotThrow(() => reportEmailSubject("fixture", malformedLegacy));
   assert.doesNotThrow(() => reportEmailBody("fixture", "fixture", malformedLegacy));
-  let saved = 0, sent = 0, offline = true, failStatusWrite = false, failJobWrite = false, alarmAt;
+  let saved = 0, sent = 0, offline = true, failStatusWrite = false, failJobWrite = false, alarmAt, duringSend;
   const emails = [];
   const records = new Map(), jobs = new Map();
   const storage = {
@@ -141,6 +141,8 @@ export class QuotaFixture extends ReportQuota {
   };
   const emailEnv = {
     ERROR_REPORTS: {
+      async get(key) { return records.get(key)?.value || null; },
+      async delete(key) { records.delete(key); },
       async getWithMetadata(key) { return records.get(key) || { value: null }; },
       async put(key, value, options) {
         if (options.expiration && failStatusWrite) throw new Error("status storage unavailable");
@@ -149,11 +151,22 @@ export class QuotaFixture extends ReportQuota {
       }
     },
     REPORT_QUOTA: { idFromName() {}, get() { return { async fetch() { return Response.json({ allowed: true }); } }; } },
-    REPORT_EMAIL: { send(message) { sent += 1; emails.push(message); if (offline) throw new Error("offline"); return { messageId: "fixture-receipt" }; } }
+    REPORT_EMAIL: { async send(message) {
+      sent += 1; emails.push(message); if (offline) throw new Error("offline");
+      if (duringSend) { const callback = duringSend; duringSend = null; await callback(); }
+      return { messageId: "fixture-receipt" };
+    } }
   };
-  const delivery = new ReportEmailDelivery({ storage }, emailEnv);
+  let serial = Promise.resolve();
+  const delivery = new ReportEmailDelivery({ storage, blockConcurrencyWhile(callback) {
+    const work = serial.then(callback); serial = work.catch(() => {}); return work;
+  } }, emailEnv);
   emailEnv.REPORT_EMAIL_DELIVERY = { idFromName(id) { return id; }, get(id) { return {
-    async fetch(url, options) { assert.equal(JSON.parse(options.body).id, id); return delivery.fetch(new Request(url, options)); }
+    async fetch(url, options) {
+      const input = JSON.parse(options.body);
+      assert.equal(options.method === "DELETE" ? input.key.split(":").at(-1) : input.id, id);
+      return delivery.fetch(new Request(url, options));
+    }
   }; } };
   const accepted = await feedback.fetch(new Request("https://feedback.invalid/api/error-reports", { method: "POST", headers: { "CF-Connecting-IP": "192.0.2.1" }, body: JSON.stringify({ mode: "suggestion", comment: "fixture" }) }), {
     ...emailEnv
@@ -202,6 +215,21 @@ export class QuotaFixture extends ReportQuota {
   assert(alarmAt > Date.now() && alarmAt < Date.parse(job.receivedAt) + 30 * 24 * 60 * 60 * 1000);
   failStatusWrite = false; await delivery.alarm({ retryCount: 0 });
   assert.equal(sent, sentBeforeStatusRecovery);
+  const grant = crypto.randomUUID(), grantKey = "report-delete-grant:" + grant;
+  const deletion = () => feedback.fetch(new Request("https://feedback.invalid/api/error-reports", {
+    method: "DELETE", headers: { "CF-Connecting-IP": "192.0.2.1" }, body: JSON.stringify({ key: job.key, grant })
+  }), emailEnv);
+  assert.equal((await deletion()).status, 403); assert(records.has(job.key));
+  records.set(grantKey, { value: JSON.stringify({ key: "report:other" }) });
+  assert.equal((await deletion()).status, 403); assert(records.has(job.key));
+  records.set(grantKey, { value: JSON.stringify({ key: job.key }) });
+  jobs.set("job", { ...job, delivery: { status: "pending", attempts: 0 } });
+  duringSend = async () => { assert.equal((await deletion()).status, 200); };
+  await delivery.alarm();
+  assert(!records.has(job.key)); assert(!records.has(grantKey)); assert.equal(jobs.get("job").deleted, true);
+  const sentAfterDeletion = sent;
+  await delivery.alarm(); assert.equal(sent, sentAfterDeletion); assert(!records.has(job.key));
+  assert.equal((await delivery.fetch(new Request("https://delivery/queue", { method: "POST", body: JSON.stringify(job) }))).status, 410);
   jobs.set("job", { ...job, receivedAt: "2000-01-01T00:00:00Z" }); const attempts = sent;
   await delivery.alarm(); assert.equal(jobs.size, 0); assert.equal(sent, attempts);
   const appNames = JSON.parse("[" + fs.readFileSync("../../BIT101-iOS/Shared/Client/ErrorReportSupport.swift", "utf8").match(/protectedNames = \[([\s\S]*?)\]/)[1] + "]");
