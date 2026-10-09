@@ -138,6 +138,21 @@ struct NetworkSmokeCoverageTests {
         var components = try #require(URLComponents(string: "bit101://network-smoke/bit101"))
         components.queryItems = [.init(name: "fixtures", value: String(decoding: encoded, as: UTF8.self))]
         #expect(ReleaseNetworkSmokeLaunchRequest(url: try #require(components.url))?.fixtures?.posterID == 41)
+        var environment = ["BIT101_NETWORK_SMOKE_FIXTURES": String(decoding: encoded, as: UTF8.self),
+            "BIT101_VALIDATION_RUN_ID": "fixture", "BIT101_NETWORK_SMOKE_TERM": "2026-2027-1",
+            "BIT101_COMMUNITY_FOLLOW_TARGET": "2", "BIT101_COMMUNITY_SMOKE_ACCOUNT": "1"]
+        let environmentRequest = try #require(ReleaseNetworkSmokeLaunchRequest(scope: .bit101, environment: environment))
+        #expect(environmentRequest.fixtures?.posterID == 41 && environmentRequest.fixtures?.courseID == 43)
+        #expect(environmentRequest.scope == .bit101 && environmentRequest.runID == "fixture" && environmentRequest.capture == .none)
+        #expect(environmentRequest.term == "2026-2027-1" && environmentRequest.communityFollowTarget == 2
+            && environmentRequest.communityExpectedAccount == 1)
+        for (key, value) in [("BIT101_NETWORK_SMOKE_CAPTURE", "invalid"), ("BIT101_NETWORK_SMOKE_FIXTURES", "{}"),
+            ("BIT101_COMMUNITY_FOLLOW_TARGET", "0"), ("BIT101_COMMUNITY_SMOKE_ACCOUNT", "invalid")] {
+            let original = environment[key]
+            environment[key] = value
+            #expect(ReleaseNetworkSmokeLaunchRequest(scope: .bit101, environment: environment) == nil)
+            environment[key] = original
+        }
         for value in [NetworkSmokeFixtures(posterID: 0, courseID: 43, courseNumber: "COURSE", paperID: 45),
             NetworkSmokeFixtures(posterID: 41, courseID: 43, courseNumber: " COURSE", paperID: 45)] {
             #expect(!value.isValid)

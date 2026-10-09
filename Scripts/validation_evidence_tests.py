@@ -527,6 +527,13 @@ def network_route_identity_self_test() -> None:
     assert not network_requests_complete(required, changed)
     changed['requestEvidence'][0]['requests'][1]['query']['page'] = '999'
     assert not network_requests_complete(required, changed)
+    original = proof['requestEvidence'][0]['requests']
+    for pages in ((0, 99, 1), (0, 1, 1), (0, 1, 3), (0, 1, 2)):
+        changed = deepcopy(proof)
+        rows = [deepcopy(original[0]) for _ in pages]
+        for row, page in zip(rows, pages): row['query']['page'] = row['finalQuery']['page'] = str(page)
+        changed['requestEvidence'][0]['requests'] = rows
+        assert network_requests_complete(required, changed) == (pages == (0, 1, 2)), pages
     cursors = network_trace_fixture({'requiredProbes': ['消息列表-系统通知']})
     cursor_probe = cursors['requestEvidence'][0]
     assert complete(cursor_probe['probe'], cursor_probe['requests'])

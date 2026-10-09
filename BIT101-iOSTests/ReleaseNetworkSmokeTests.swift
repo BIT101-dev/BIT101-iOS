@@ -24,7 +24,13 @@ nonisolated final class ReleaseNetworkSmokeTests: XCTestCase {
             XCTFail("BIT101_NETWORK_SMOKE_SCOPE 无效")
             return
         }
-        let report = await ReleaseNetworkSmokeRunner().run(scope: scope)
+        guard let request = ReleaseNetworkSmokeLaunchRequest(scope: scope, environment: ProcessInfo.processInfo.environment) else {
+            XCTFail("网络 Smoke 环境参数需要有效的采样、课程、维护对象及专用账号配置")
+            return
+        }
+        let report = await ReleaseNetworkSmokeRunner().run(scope: request.scope, runID: request.runID,
+            capture: request.capture, term: request.term, communityFollowTarget: request.communityFollowTarget,
+            communityExpectedAccount: request.communityExpectedAccount, fixtures: request.fixtures)
         XCTAssertEqual(report.scope, scope)
         XCTAssertTrue(report.executedProbes.contains("BIT101 登录状态"))
         XCTAssertTrue(report.passed, report.failureMessage)

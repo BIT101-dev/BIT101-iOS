@@ -601,17 +601,28 @@ def native_interaction_inventory(syntax: dict[str, dict]) -> dict[str, dict[str,
     return inventory
 
 
+def resolved_interaction_name(types, path, call):
+    from swift_source_index import canonical_type_scope
+    name = call["value"].removesuffix(".init")
+    if call_name(name) in INTERACTION_KINDS: return call_name(name)
+    resolved = types.terminal_name(path, name, call["scope"] + call.get("lexicalScope", []))
+    parts = canonical_type_scope([resolved])
+    return parts[-1] if parts else call_name(name)
+
+
 def interaction_source_inventory(syntax: dict[str, dict]) -> dict[str, dict[str, int]]:
+    from swift_type_index import SwiftTypeIndex
+    types = SwiftTypeIndex(syntax)
     components = {scope[0] for path, facts in syntax.items()
         if "/DesignSystemKit/" in path or "/CommunityUI/" in path
-        for scope in view_scopes(facts) if any(call_name(call["value"]) in INTERACTION_KINDS
+        for scope in view_scopes(facts) if any(resolved_interaction_name(types, path, call) in INTERACTION_KINDS
             and call["scope"][:len(scope)] == scope for call in facts["calls"])}
     inventory = {}
     for path, facts in syntax.items():
         if "Tests/" in path or "UITest" in Path(path).name: continue
         for scope in {tuple(call["scope"]) for call in facts["calls"]}:
-            controls = Counter(call_name(call["value"]) for call in facts["calls"]
-                if tuple(call["scope"]) == scope and call_name(call["value"]) in INTERACTION_KINDS | components
+            controls = Counter(resolved_interaction_name(types, path, call) for call in facts["calls"]
+                if tuple(call["scope"]) == scope and resolved_interaction_name(types, path, call) in INTERACTION_KINDS | components
                 and call["value"] not in {"onSubmit", "onDelete", "onMove"})
             if controls:
                 inventory[Path(path).relative_to(ROOT).as_posix() + ":" + (".".join(scope) or "global")] = dict(sorted(controls.items()))
@@ -673,6 +684,8 @@ def interaction_selector(control: dict, syntax: dict) -> tuple[str, tuple[str, .
 
 def source_runtime_interaction_findings(syntax: dict[str, dict], documented: dict[str, tuple[dict, set]], evidence: list[dict]) -> list[str]:
     from validation_evidence import active_swift_source
+    from swift_type_index import SwiftTypeIndex
+    types = SwiftTypeIndex(syntax)
     actions = {"refreshable": "refresh", "onSubmit": "submit", "onDelete": "delete", "onMove": "move", "searchable": "search", "contextMenu": "press", "swipeActions": "gesture", "ShareLink": "tap", "accessibilityAction": "accessibility", "keyboardShortcut": "keyboard"}
     native_actions = {"Button": "tap", "NavigationLink": "tap", "Menu": "tap", "Link": "tap", "PhotosPicker": "tap",
         "Toggle": "tap", "Picker": "selection", "DatePicker": "selection", "TextField": "input",
@@ -686,7 +699,8 @@ def source_runtime_interaction_findings(syntax: dict[str, dict], documented: dic
     for path, facts in syntax.items():
         if "Tests/" in path or "UITest" in Path(path).name: continue
         active = active_swift_source(Path(path).read_text(), "ui").encode() if Path(path).is_file() else None
-        for control in facts.get("accessibilityControls", []):
+        for control in facts.get("accessibilityControls", []) + facts.get("accessibilityControlCandidates", []):
+            control = dict(control, name=resolved_interaction_name(types, path, dict(control, value=control["name"])))
             if control["name"] not in native_actions.keys() | gestures | actions.keys(): continue
             if active is not None and active[control["start"]:control["start"] + 1] == b" ": continue
             source = Path(path).relative_to(ROOT).as_posix() + ":" + (".".join(control["scope"]) or "global")

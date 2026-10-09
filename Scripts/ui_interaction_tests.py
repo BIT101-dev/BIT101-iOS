@@ -29,6 +29,17 @@ def interaction_inventory_boundary_findings() -> list[str]:
         if not source_inventory_findings(changed, manifest, {"ExampleUITests/testScreen"}): findings.append("UI 清单自测：新增页面与交互进入门禁")
     if not source_inventory_findings(original, manifest, set()): findings.append("UI 清单自测：验收用例删除进入门禁")
     evidence = [{"scope": "ExampleUITests/testScreen / 页面", "label": "入口", "identifier": "", "actions": ["tap"]}]
+    for declaration, invocation in [('typealias Alias = Button<Text>', 'Alias("入口") {}'),
+            ('typealias Generic<T: View> = SwiftUI.Button<T>; typealias Alias = Generic<Text>', 'Alias("入口") {}'),
+            ('typealias alias = Button<Text>', 'alias("入口") {}'),
+            ('typealias Alias = Button<Text>', 'Alias(action: {}) { Text("入口") }')]:
+        aliased = swift_syntax_index_sources({path: declaration + '; struct Screen: View { var body: some View { ' + invocation + ' } }'})
+        if interaction_source_inventory(aliased) != interaction_source_inventory(original):
+            findings.append("UI 别名清单自测：泛型与连续别名沿控件类型归属")
+        if not source_runtime_interaction_findings(aliased, manifest, []):
+            findings.append("UI 别名清单自测：控件入口需要实际访问证据")
+        if source_runtime_interaction_findings(aliased, manifest, evidence):
+            findings.append("UI 别名清单自测：原生控件证据沿别名匹配")
     if source_runtime_interaction_findings(original, manifest, evidence): findings.append("UI 清单自测：源码声明对应实际访问")
     changed = swift_syntax_index_sources({path: 'struct Screen: View { var body: some View { Button("入口") {}; if expanded { Button("新增条件分支") {} } } }'})
     expanded = {key: (controls, {"ExampleUITests/testScreen"}) for key, controls in interaction_source_inventory(changed).items()}

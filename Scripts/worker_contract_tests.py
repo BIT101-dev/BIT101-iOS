@@ -189,8 +189,19 @@ export class QuotaFixture extends ReportQuota {
   jobs.set("job", { ...job, delivery: { status: "pending", attempts: 0 } }); offline = true;
   for (let retryCount = 0; retryCount < 6; retryCount++) await assert.rejects(delivery.alarm({ retryCount }));
   await delivery.alarm({ retryCount: 6 });
-  assert.equal(jobs.get("job").delivery.status, "failed"); assert.equal(jobs.get("job").delivery.attempts, 7);
-  assert.equal(JSON.parse(records.get(job.key).value).emailDelivery.status, "failed");
+  assert.equal(jobs.get("job").delivery.status, "pending"); assert.equal(jobs.get("job").delivery.attempts, 7);
+  assert.equal(JSON.parse(records.get(job.key).value).emailDelivery.status, "pending");
+  assert(alarmAt > Date.now() && alarmAt < Date.parse(job.receivedAt) + 30 * 24 * 60 * 60 * 1000);
+  offline = false; await delivery.alarm({ retryCount: 0 });
+  assert.equal(jobs.get("job").delivery.status, "sent"); assert.equal(jobs.get("job").delivery.attempts, 8);
+  assert.equal(JSON.parse(records.get(job.key).value).emailDelivery.status, "sent");
+  failStatusWrite = true;
+  for (let retryCount = 0; retryCount < 6; retryCount++) await assert.rejects(delivery.alarm({ retryCount }));
+  const sentBeforeStatusRecovery = sent;
+  await delivery.alarm({ retryCount: 6 });
+  assert(alarmAt > Date.now() && alarmAt < Date.parse(job.receivedAt) + 30 * 24 * 60 * 60 * 1000);
+  failStatusWrite = false; await delivery.alarm({ retryCount: 0 });
+  assert.equal(sent, sentBeforeStatusRecovery);
   jobs.set("job", { ...job, receivedAt: "2000-01-01T00:00:00Z" }); const attempts = sent;
   await delivery.alarm(); assert.equal(jobs.size, 0); assert.equal(sent, attempts);
   const appNames = JSON.parse("[" + fs.readFileSync("../../BIT101-iOS/Shared/Client/ErrorReportSupport.swift", "utf8").match(/protectedNames = \[([\s\S]*?)\]/)[1] + "]");
@@ -203,7 +214,9 @@ export class QuotaFixture extends ReportQuota {
     const masked = forceRedact(value); assert(!masked.includes("SENSITIVE_VALUE") && !masked.includes("TAIL_VALUE") && masked.includes("[REDACTED]"));
     if (value.includes("available")) assert(masked.includes("available"));
   }
-  for (const value of ['<meta name="csrf-token" content="SENSITIVE_VALUE">', '<meta content="SENSITIVE_VALUE" property="csrf&#45;token">',
+  for (const value of ['<span id="login-page-flowkey">SENSITIVE_VALUE</span>', '<span id="login-page-flowkey">SENSITIVE_VALUE',
+    '<meta http-equiv="Set-Cookie" content="SENSITIVE_VALUE">',
+    '<meta name="csrf-token" content="SENSITIVE_VALUE">', '<meta content="SENSITIVE_VALUE" property="csrf&#45;token">',
     '<script>const csrfToken = "SENSITIVE_VALUE;TAIL_VALUE";</script>', "<script>var _token = 'SENSITIVE_VALUE;TAIL_VALUE';</script>",
     '<script>window["csrfToken"] = "SENSITIVE_VALUE";</script>', 'csrf_token=SENSITIVE_VALUE',
     '<input type="password" value="SENSITIVE_VALUE">', '<input TYPE=pass&#x77;ord value="SENSITIVE_VALUE">',

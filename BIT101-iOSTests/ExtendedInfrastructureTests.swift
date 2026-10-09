@@ -61,6 +61,9 @@ struct ExtendedInfrastructureTests {
     }
 
     @Test(arguments: [
+        #"<span id="login-page-flowkey">SENSITIVE_VALUE</span>"#,
+        #"<span id="login-page-flowkey">SENSITIVE_VALUE"#,
+        #"<meta http-equiv="Set-Cookie" content="SENSITIVE_VALUE">"#,
         #"<meta name="csrf-token" content="SENSITIVE_VALUE">"#,
         #"<meta content="SENSITIVE_VALUE" property="csrf&#45;token">"#,
         #"<script>const csrfToken = "SENSITIVE_VALUE;TAIL_VALUE";</script>"#,

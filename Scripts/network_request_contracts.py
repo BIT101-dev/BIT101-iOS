@@ -56,7 +56,7 @@ class RequestContract:
         initial = str(sys.maxsize) if self.paging == 'last_id' else '0'
         normalized = [initial if value is None and self.paging == 'page' else value for value in values]
         if len(rows) < 2 or normalized[0] != initial: return False
-        if self.paging == 'page': return '1' in normalized[1:]
+        if self.paging == 'page': return normalized == [str(page) for page in range(len(rows))]
         return all(isinstance(cursor, str) and re.fullmatch(r'[1-9]\d*', cursor)
             and isinstance(minimum := previous.get('responseMinimumID'), str) and re.fullmatch(r'\d+', minimum)
             and str(max(1, int(minimum))) == cursor for previous, cursor in zip(rows, normalized[1:]))

@@ -26,6 +26,7 @@ struct FileFacts: Encodable {
     let listStyleModifiers: [FeedbackModifierFact]
     let accessibilityModifiers: [FeedbackModifierFact]
     let accessibilityControls: [AccessibilityControlFact]
+    let accessibilityControlCandidates: [AccessibilityControlFact]
     let functionRanges: [FunctionRangeFact]
     let accessorRanges: [FunctionRangeFact]
     let callableRanges: [FunctionRangeFact]
@@ -205,6 +206,7 @@ final class FactVisitor: SyntaxVisitor {
     private(set) var listStyleModifiers: [FeedbackModifierFact] = []
     private(set) var accessibilityModifiers: [FeedbackModifierFact] = []
     private(set) var accessibilityControls: [AccessibilityControlFact] = []
+    private(set) var accessibilityControlCandidates: [AccessibilityControlFact] = []
     private(set) var functionRanges: [FunctionRangeFact] = []
     private(set) var accessorRanges: [FunctionRangeFact] = []
     private(set) var callableRanges: [FunctionRangeFact] = []
@@ -537,7 +539,9 @@ final class FactVisitor: SyntaxVisitor {
                 containers: listContainers
             ))
         }
-        if ["Button", "NavigationLink", "Menu", "Picker", "Toggle", "DatePicker", "Link", "PhotosPicker", "LabeledContent", "TextField", "SecureField", "TextEditor", "Slider", "Stepper", "ScrollView", "List", "TabView", "ShareLink", "refreshable", "onSubmit", "onDelete", "onMove", "searchable", "contextMenu", "swipeActions", "onTapGesture", "onLongPressGesture", "gesture", "simultaneousGesture", "highPriorityGesture", "accessibilityAction", "keyboardShortcut"].contains(calledName)
+        let interactionNames = ["Button", "NavigationLink", "Menu", "Picker", "Toggle", "DatePicker", "Link", "PhotosPicker", "LabeledContent", "TextField", "SecureField", "TextEditor", "Slider", "Stepper", "ScrollView", "List", "TabView", "ShareLink", "refreshable", "onSubmit", "onDelete", "onMove", "searchable", "contextMenu", "swipeActions", "onTapGesture", "onLongPressGesture", "gesture", "simultaneousGesture", "highPriorityGesture", "accessibilityAction", "keyboardShortcut"]
+        if (interactionNames.contains(calledName)
+            || node.calledExpression.is(DeclReferenceExprSyntax.self) || calledName == "init" || calledName.first?.isUppercase == true)
             && (!["refreshable", "onSubmit", "onDelete", "onMove", "searchable", "contextMenu", "swipeActions"].contains(calledName) || node.calledExpression.is(MemberAccessExprSyntax.self))
             && !(calledName == "onTapGesture" && node.arguments.isEmpty && node.trailingClosure?.statements.isEmpty == true) {
             let labelArgument = node.arguments.first(where: { $0.label?.text == "label" })
@@ -557,7 +561,7 @@ final class FactVisitor: SyntaxVisitor {
                 case "PhotosPicker", "Link":
                     return trailingClosure
                 default:
-                    return nil
+                    return interactionNames.contains(calledName) ? nil : trailingClosure
                 }
             }()
             let labelSyntax: Syntax?
@@ -593,7 +597,7 @@ final class FactVisitor: SyntaxVisitor {
                     break
                 }
             }
-            accessibilityControls.append(AccessibilityControlFact(
+            let control = AccessibilityControlFact(
                 name: calledName,
                 invocation: node.trimmedDescription,
                 label: labelSyntax?.trimmedDescription ?? "",
@@ -607,7 +611,9 @@ final class FactVisitor: SyntaxVisitor {
                 modifiers: modifiers.joined(),
                 callback: node.trailingClosure?.trimmedDescription ?? "",
                 carrierInvocation: carrier.trimmedDescription
-            ))
+            )
+            if interactionNames.contains(calledName) { accessibilityControls.append(control) }
+            else { accessibilityControlCandidates.append(control) }
 
             switch calledName {
             case "Button":
@@ -961,6 +967,7 @@ func indexSource(_ source: String, as key: String) {
         listStyleModifiers: visitor.listStyleModifiers,
         accessibilityModifiers: visitor.accessibilityModifiers,
         accessibilityControls: visitor.accessibilityControls,
+        accessibilityControlCandidates: visitor.accessibilityControlCandidates,
         functionRanges: visitor.functionRanges,
         accessorRanges: visitor.accessorRanges,
         callableRanges: visitor.callableRanges,

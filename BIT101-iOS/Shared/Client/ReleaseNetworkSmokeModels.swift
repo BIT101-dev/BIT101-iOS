@@ -413,7 +413,7 @@ nonisolated struct NetworkSmokeFixtures: Codable, Sendable {
     }
 }
 
-/// ReleaseNetworkSmokeLaunchRequest 解析 `bit101://network-smoke/...` 触发参数。
+/// ReleaseNetworkSmokeLaunchRequest 统一解析深链与 XCTest 环境中的网络验收参数。
 struct ReleaseNetworkSmokeLaunchRequest: Codable, Sendable {
     let scope: NetworkSmokeScope
     let runID: String
@@ -434,6 +434,23 @@ struct ReleaseNetworkSmokeLaunchRequest: Codable, Sendable {
         else { return nil }
         try? AppFileDirectories.files.removeItem(at: pendingFileURL)
         return try? JSONDecoder().decode(Self.self, from: data)
+    }
+
+    init?(scope: NetworkSmokeScope, environment: [String: String]) {
+        var components = URLComponents()
+        components.scheme = "bit101"
+        components.host = "network-smoke"
+        components.path = "/" + scope.rawValue
+        components.queryItems = [
+            ("run", "BIT101_VALIDATION_RUN_ID"), ("capture", "BIT101_NETWORK_SMOKE_CAPTURE"),
+            ("term", "BIT101_NETWORK_SMOKE_TERM"), ("fixtures", "BIT101_NETWORK_SMOKE_FIXTURES"),
+            ("follow-target", "BIT101_COMMUNITY_FOLLOW_TARGET"), ("expected-account", "BIT101_COMMUNITY_SMOKE_ACCOUNT")
+        ].compactMap { name, key in
+            guard let value = environment[key], !value.isEmpty else { return nil }
+            return URLQueryItem(name: name, value: value)
+        }
+        guard let url = components.url else { return nil }
+        self.init(url: url)
     }
 
     init?(url: URL) {
@@ -460,8 +477,14 @@ struct ReleaseNetworkSmokeLaunchRequest: Codable, Sendable {
             capture = .none
         }
 
-        self.communityFollowTarget = components?.queryItems?.first(where: { $0.name == "follow-target" })?.value.flatMap(Int.init)
-        self.communityExpectedAccount = components?.queryItems?.first(where: { $0.name == "expected-account" })?.value.flatMap(Int.init)
+        if let value = components?.queryItems?.first(where: { $0.name == "follow-target" })?.value {
+            guard let target = Int(value), target > 0 else { return nil }
+            self.communityFollowTarget = target
+        }
+        if let value = components?.queryItems?.first(where: { $0.name == "expected-account" })?.value {
+            guard let account = Int(value), account > 0 else { return nil }
+            self.communityExpectedAccount = account
+        }
         if let value = components?.queryItems?.first(where: { $0.name == "fixtures" })?.value {
             guard let fixtures = try? JSONDecoder().decode(NetworkSmokeFixtures.self, from: Data(value.utf8)), fixtures.isValid else { return nil }
             self.fixtures = fixtures

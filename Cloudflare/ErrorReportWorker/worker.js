@@ -7,6 +7,7 @@ const MAX_BODY_BYTES = MAX_ATTACHMENTS * 4 * Math.ceil(MAX_ATTACHMENT_BYTES / 3)
 const MAX_REPORTS_PER_DAY = 1000;
 const REPORT_RETENTION_SECONDS = 30 * 24 * 60 * 60;
 const MAX_REPORTS_PER_SOURCE_PER_DAY = 100;
+const MAX_EMAIL_RETRY_DELAY_MS = 60 * 60 * 1000;
 
 async function readReportBody(request) {
   const reader = request.body?.getReader();
@@ -60,12 +61,12 @@ const SECRET_JSON = new RegExp(`("[^"]*(?:${SECRET_NAMES})[^"]*"\\s*:\\s*")(?:\\
 const SECRET_TEXT = new RegExp("(\\b[\\w$-]*(?:" + SECRET_NAMES + ")[\\w$-]*(?:[\"']\\]?)?\\s*[=:]\\s*)(?:\"(?:\\\\.|[^\"\\\\])*(?:\"|$)|'(?:\\\\.|[^'\\\\])*(?:'|$)|[^&\\r\\n,;]+)", "gi");
 
 function redactHTML(value) {
-  return value.replace(/<(?:input|meta)\b(?:[^>"']|"[^"]*(?:"|$)|'[^']*(?:'|$))*(?:>|$)|<textarea\b(?:[^>"']|"[^"]*"|'[^']*')*>[\s\S]*?(?:<\/textarea\s*>|$)/gi, tag => {
-    const fields = [...tag.matchAll(/\b(?:id|name|type|property)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi)]
+  return value.replace(/<(?:input|meta)\b(?:[^>"']|"[^"]*(?:"|$)|'[^']*(?:'|$))*(?:>|$)|<(?:textarea|span)\b(?:[^>"']|"[^"]*"|'[^']*')*>[\s\S]*?(?:<\/(?:textarea|span)\s*>|$)/gi, tag => {
+    const fields = [...tag.matchAll(/\b(?:id|name|type|property|http-equiv)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi)]
       .map(match => decodedHTMLAttribute(match[1] ?? match[2] ?? match[3]));
     if (!fields.some(field => SECRET_KEYS.test(field) || /^(?:login-page-flowkey|login-croypto)$/i.test(field))) return tag;
     const masked = tag.replace(/(\b(?:value|content)\s*=\s*)(?:"[^"]*(?:"|$)|'[^']*(?:'|$)|[^\s"'=<>`]+)/gi, '$1"[REDACTED]"');
-    return /^<textarea\b/i.test(tag) ? masked.replace(/(>)[\s\S]*(<\/textarea\s*>|$)/gi, "$1[REDACTED]$2") : masked;
+    return /^<(?:textarea|span)\b/i.test(tag) ? masked.replace(/(>)[\s\S]*(<\/(?:textarea|span)\s*>|$)/gi, "$1[REDACTED]$2") : masked;
   });
 }
 
@@ -274,7 +275,6 @@ export class ReportEmailDelivery extends DurableObject {
       failure = error;
       if (job.delivery.status === "pending") {
         job.delivery.lastError = emailText(forceRedact(error.message || error.name || "Error"), 300);
-        if (info.retryCount >= 6) job.delivery.status = "failed";
       }
     }
     job.delivery.updatedAt = new Date().toISOString();
@@ -286,8 +286,15 @@ export class ReportEmailDelivery extends DurableObject {
         });
       } catch (error) { failure = error; }
     }
-    if (failure && info.retryCount < 6) throw failure;
-    if (failure) console.error("REPORT_EMAIL_DELIVERY_FAILED", { reportID: job.id, status: job.delivery.status, attempts: job.delivery.attempts });
+    if (failure) {
+      job.retryFailures = (job.retryFailures || 0) + 1;
+      await this.ctx.storage.put("job", job);
+      if (info.retryCount < 6) throw failure;
+      const delay = Math.min(MAX_EMAIL_RETRY_DELAY_MS, 2000 * 2 ** Math.min(job.retryFailures, 11));
+      await this.ctx.storage.setAlarm(Math.min(expires, Date.now() + delay));
+      console.error("REPORT_EMAIL_DELIVERY_PENDING", { reportID: job.id, status: job.delivery.status, attempts: job.delivery.attempts });
+      return;
+    }
     await this.ctx.storage.setAlarm(expires);
   }
 }

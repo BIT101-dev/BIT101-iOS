@@ -37,8 +37,8 @@ enum ErrorReportRedactor {
     }
 
     private static func redactHTML(_ value: String) -> String {
-        guard let tags = try? NSRegularExpression(pattern: #"<(?:input|meta)\b(?:[^>"']|"[^"]*(?:"|$)|'[^']*(?:'|$))*(?:>|$)|<textarea\b(?:[^>"']|"[^"]*"|'[^']*')*>[\s\S]*?(?:</textarea\s*>|$)"#, options: .caseInsensitive),
-              let fields = try? NSRegularExpression(pattern: #"\b(?:id|name|type|property)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))"#, options: .caseInsensitive)
+        guard let tags = try? NSRegularExpression(pattern: #"<(?:input|meta)\b(?:[^>"']|"[^"]*(?:"|$)|'[^']*(?:'|$))*(?:>|$)|<(?:textarea|span)\b(?:[^>"']|"[^"]*"|'[^']*')*>[\s\S]*?(?:</(?:textarea|span)\s*>|$)"#, options: .caseInsensitive),
+              let fields = try? NSRegularExpression(pattern: #"\b(?:id|name|type|property|http-equiv)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))"#, options: .caseInsensitive)
         else { return value }
         var output = value
         for tag in tags.matches(in: value, range: NSRange(value.startIndex..., in: value)).reversed() {
@@ -53,8 +53,8 @@ enum ErrorReportRedactor {
             }) else { continue }
             var masked = text.replacingOccurrences(of: #"(?i)(\b(?:value|content)\s*=\s*)(?:"[^"]*(?:"|$)|'[^']*(?:'|$)|[^\s"'=<>`]+)"#,
                 with: "$1\"[REDACTED]\"", options: .regularExpression)
-            if text.lowercased().hasPrefix("<textarea") {
-                masked = masked.replacingOccurrences(of: #"(?i)(>)[\s\S]*(</textarea\s*>|$)"#, with: "$1[REDACTED]$2", options: .regularExpression)
+            if text.lowercased().hasPrefix("<textarea") || text.lowercased().hasPrefix("<span") {
+                masked = masked.replacingOccurrences(of: #"(?i)(>)[\s\S]*(</(?:textarea|span)\s*>|$)"#, with: "$1[REDACTED]$2", options: .regularExpression)
             }
             output.replaceSubrange(range, with: masked)
         }
