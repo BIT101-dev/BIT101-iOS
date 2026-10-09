@@ -2,6 +2,8 @@
 import Foundation
 import Testing
 import UIKit
+import WebKit
+import Combine
 import ClientCore
 import ScoreDomain
 import ScorePorts
@@ -21,6 +23,75 @@ import TransportCore
 @Suite("Network smoke coverage")
 @MainActor
 struct NetworkSmokeCoverageTests {
+    @Test(.timeLimit(.minutes(1)), arguments: ["provisional", "navigation", "process"])
+    func galleryWebFailuresRenderTheRetryDocument(path: String) async throws {
+        let coordinator = GalleryWebCoordinator(credentials: .init(cookie: { "fixture" }, changes: Empty().eraseToAnyPublisher()), openExternal: { _ in })
+        let webView = WKWebView()
+        webView.navigationDelegate = coordinator
+        switch path {
+        case "provisional": coordinator.webView(webView, didFailProvisionalNavigation: nil, withError: URLError(.notConnectedToInternet))
+        case "navigation": coordinator.webView(webView, didFail: nil, withError: URLError(.networkConnectionLost))
+        default: coordinator.webViewWebContentProcessDidTerminate(webView)
+        }
+        var text = ""
+        let deadline = Date.now.addingTimeInterval(5)
+        repeat {
+            text = try await webView.evaluateJavaScript("document.body?.innerText ?? ''") as? String ?? ""
+            if text.contains("重新加载") { break }
+            try await Task.sleep(for: .milliseconds(50))
+        } while Date.now < deadline
+        #expect(text.contains("话廊网页加载失败") && text.contains("重新加载"))
+        #expect(try await webView.evaluateJavaScript("document.querySelector('a')?.href") as? String == "https://bit101.cn/gallery")
+    }
+
+    private final class BotFeed: GalleryFeedServicing {
+        var pages: [Int] = []
+        func fetchBotFeed(startPage: Int) async throws -> GalleryPageBatch<CommunityPoster> {
+            pages.append(startPage)
+            return .init(items: [], nextSourcePage: startPage + 5, canLoadMore: startPage < 10, sourceIDs: [startPage + 1])
+        }
+        func fetchFeed(kind: GalleryFeedKind, page: Int?) async throws -> GalleryPageBatch<CommunityPoster> { throw URLError(.unsupportedURL) }
+        func fetchRecommendPage(sourcePage: Int) async throws -> GalleryPageBatch<CommunityPoster> { throw URLError(.unsupportedURL) }
+        func searchPosters(query: GallerySearchQuery, page: Int?) async throws -> GalleryPageBatch<CommunityPoster> { throw URLError(.unsupportedURL) }
+    }
+
+    @Test func emptyBotBatchesContinueThroughTheirSourceCursor() async {
+        let service = BotFeed()
+        let model = GalleryViewModel(service: service)
+        await model.refresh(feed: .bot)
+        #expect(service.pages == [0] && model.state(for: .bot).nextPage == 5 && model.state(for: .bot).canLoadMore)
+        await model.enqueueLoadMore(for: .bot, currentPoster: nil).value
+        #expect(service.pages == [0, 5] && model.state(for: .bot).nextPage == 10 && !model.state(for: .bot).isLoadingMore)
+        await model.enqueueLoadMore(for: .bot, currentPoster: nil).value
+        #expect(service.pages == [0, 5, 10] && model.state(for: .bot).nextPage == 15 && !model.state(for: .bot).canLoadMore)
+    }
+
+    private final class SelectorTransport: HTTPTransport {
+        func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+            let url = try #require(request.url)
+            return (Data(), try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)))
+        }
+    }
+
+    @Test(arguments: ["correct", "wrong", "missing"])
+    func requestEvidenceChecksTheSelectedTermAndBuilding(selection: String) async throws {
+        let client = HTTPClient(transport: SelectorTransport(), observer: nil)
+        var request = URLRequest(url: AppURL.required("https://jxzxehallapp.bit.edu.cn/jwapp/sys/kxjasbyMobile/kxjasbyController/cxkxjasqk.do"))
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.httpBody = HTTPFormEncoding.body([("XNXQDM", "2025-2026-1")] + (selection == "missing" ? [] : [("JXLDM", selection == "correct" ? "selected-building" : "wrong-building")]))
+        let collector = NetworkSmokeRequestCollector()
+        let operation = { try await client.send(request) }
+        let expected = ["XNXQDM": "2025-2026-1", "JXLDM": "selected-building"]
+        if selection == "correct" { _ = try await collector.perform(operation, required: true, expectedParameters: expected) }
+        else {
+            await #expect(throws: NetworkSmokeRequestError.self) {
+                try await collector.perform(operation, required: true, expectedParameters: expected)
+            }
+        }
+        #expect(collector.requests.count == 1 && HTTPRequestEvidenceContext.didReceive == nil)
+    }
+
     @Test func maintainedFixturesValidateAndTravelThroughBothLaunchEntrypoints() throws {
         let fixture = NetworkSmokeFixtures(posterID: 41, courseID: 43, courseNumber: "COURSE", paperID: 45)
         let encoded = try JSONEncoder().encode(fixture)

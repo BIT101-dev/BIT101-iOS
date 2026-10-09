@@ -9,6 +9,45 @@ import TransportCore
 
 @MainActor
 struct ServiceContractTests {
+#if os(macOS)
+    @Test(arguments: ["话廊最新列表", "话廊关注流", "话廊热门流", "话廊推荐流", "话廊机器人流", "话廊搜索"])
+    func productionGalleryRequestsPassThePythonSmokeContract(probe: String) async throws {
+        let transport = Transport([(200, "[]"), (200, "[]")])
+        let session = CommunitySession(httpClient: HTTPClient(transport: transport, observer: nil),
+            baseURL: AppURL.required("https://bit101.flwfdd.xyz"),
+            credentials: { .init(identity: .init(accountIdentifier: "contracts"), cookie: "fixture") }, refresh: { _ in })
+        let service = GalleryService(session: session, preferences: {
+            .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
+        })
+        var requests: [HTTPRequestEvidence] = []
+        try await HTTPRequestEvidenceContext.$didReceive.withValue({ requests.append($0) }) {
+            for page in 0...1 {
+                switch probe {
+                case "话廊搜索": _ = try await service.searchPosters(query: .init(text: " BIT101 "), page: page == 0 ? nil : page)
+                case "话廊推荐流": _ = try await service.fetchRecommendPage(sourcePage: page)
+                case "话廊机器人流": _ = try await service.fetchBotFeed(startPage: page)
+                default:
+                    let kind: GalleryFeedKind = probe == "话廊关注流" ? .follow : (probe == "话廊热门流" ? .hot : .newest)
+                    _ = try await service.fetchFeed(kind: kind, page: page == 0 ? nil : page)
+                }
+            }
+        }
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["python3", "-B", root.appendingPathComponent("Scripts/network_request_contracts.py").path]
+        let input = Pipe(), errors = Pipe()
+        process.standardInput = input
+        process.standardError = errors
+        try process.run()
+        let rows = try JSONSerialization.jsonObject(with: JSONEncoder().encode(requests))
+        try input.fileHandleForWriting.write(contentsOf: JSONSerialization.data(withJSONObject: ["probe": probe, "requests": rows]))
+        try input.fileHandleForWriting.close()
+        process.waitUntilExit()
+        #expect(process.terminationStatus == 0, Comment(rawValue: String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)))
+    }
+#endif
+
     @Test func repeatedCommentPagesAdvanceUntilNewContent() async throws {
         func comment(_ id: Int) -> String {
             #"{"id":\#(id),"obj":"poster1","images":[],"user":\#(user),"anonymous":false,"create_time":"","update_time":"","like":false,"like_num":0,"comment_num":0,"own":true,"rate":0,"reply_user":\#(user),"reply_obj":"","text":"评论","sub":[]}"#
@@ -101,7 +140,17 @@ struct ServiceContractTests {
         }
     }
 
-    @Test func botFilteringContinuesBeyondFiveHiddenSourcePages() async throws {
+    @Test func botBatchesDeduplicateOverlappingSourcePages() async throws {
+        let first = poster(id: 1, bot: true), second = poster(id: 2, bot: true), third = poster(id: 3, bot: true)
+        let transport = Transport([(200, "[" + first + "," + second + "]"), (200, "[" + second + "," + third + "]"), (200, "[]")])
+        let service = GalleryService(session: session(transport), preferences: {
+            .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
+        })
+        let batch = try await service.fetchBotFeed(startPage: 0)
+        #expect(batch.items.map(\.id) == [1, 2, 3] && batch.nextSourcePage == 3 && !batch.canLoadMore)
+    }
+
+    @Test func botFilteringPreservesItsCursorAcrossBoundedBatches() async throws {
         let hidden = (1...5).map { poster(id: $0, bot: true) }
         let visible = poster(id: 8, bot: true, userID: 2)
         let transport = Transport(hidden.map { (200, "[" + $0 + "]") } + [(200, "[" + visible + "]"), (200, "[]")])
@@ -109,10 +158,10 @@ struct ServiceContractTests {
             CommunityPreferenceSnapshot(hideBots: false, hiddenUserIDs: [1], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
         })
         let batch = try await service.fetchBotFeed(startPage: 0)
-        #expect(batch.items.map(\.id) == [8])
-        #expect(batch.nextSourcePage == 6 && batch.canLoadMore)
+        #expect(batch.items.isEmpty && batch.sourceIDs == Array(1...5))
+        #expect(batch.nextSourcePage == 5 && batch.canLoadMore && transport.requests.count == 5)
         let end = try await service.fetchBotFeed(startPage: batch.nextSourcePage)
-        #expect(end.items.isEmpty && end.nextSourcePage == 7 && end.canLoadMore == false)
+        #expect(end.items.map(\.id) == [8] && end.nextSourcePage == 7 && end.canLoadMore == false)
         #expect(transport.requests.count == 7)
     }
 

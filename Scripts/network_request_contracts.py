@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Match smoke responses to business routes and explicit pagination requests."""
 from dataclasses import dataclass, field
 import re
@@ -48,18 +49,18 @@ def community(path: str, *, query: dict | None = None, minimum: int = 1, paging:
     return RequestContract(re.escape(API), path, method, query or {}, minimum, paging, statuses=statuses)
 
 
-def teaching(path: str, method: str = 'GET') -> RequestContract:
-    return RequestContract(SCHOOL, VPN + re.escape(path), method)
+def teaching(path: str, method: str = 'GET', *, query: dict | None = None) -> RequestContract:
+    return RequestContract(SCHOOL, VPN + re.escape(path), method, query or {})
 
 
 CONTRACTS = {
     'BIT101 登录状态': [community('/user/check')],
-    '话廊最新列表': [community('/posters', query={'mode': 'search', 'order': 'new', 'uid': '-1'}, paging='page')],
-    '话廊关注流': [community('/posters', query={'mode': 'follow', 'order': None, 'uid': None}, paging='page')],
-    '话廊热门流': [community('/posters', query={'mode': 'hot', 'order': None, 'uid': None}, paging='page')],
-    '话廊推荐流': [community('/posters', query={'mode': None, 'order': None, 'uid': None}, paging='page')],
-    '话廊机器人流': [community('/posters', query={'mode': 'search', 'order': 'new', 'uid': '-1'}, paging='page')],
-    '话廊搜索': [community('/posters', query={'mode': 'search', 'order': 'new', 'uid': None}, paging='page')],
+    '话廊最新列表': [community('/posters', query={'mode': 'search', 'order': 'new', 'uid': '-1', 'search': None, 'hide_bot': None}, paging='page')],
+    '话廊关注流': [community('/posters', query={'mode': 'follow', 'order': None, 'uid': None, 'search': None, 'hide_bot': None}, paging='page')],
+    '话廊热门流': [community('/posters', query={'mode': 'hot', 'order': None, 'uid': None, 'search': None, 'hide_bot': None}, paging='page')],
+    '话廊推荐流': [community('/posters', query={'mode': None, 'order': None, 'uid': None, 'search': None, 'hide_bot': None}, paging='page')],
+    '话廊机器人流': [community('/posters', query={'mode': 'search', 'order': 'new', 'uid': '-1', 'search': None, 'hide_bot': None}, paging='page')],
+    '话廊搜索': [community('/posters', query={'mode': 'search', 'order': 'new', 'uid': '-1', 'search': 'BIT101', 'hide_bot': None}, paging='page')],
     '话廊帖子详情': [community(r'/posters/\d+')],
     '话廊帖子评论': [community('/reaction/comments', query={'obj': r'poster\d+'}, paging='page')],
     '帖子声明列表': [community('/posters/claims')],
@@ -83,12 +84,12 @@ CONTRACTS = {
     '生产学校会话': [teaching('/jwapp/sys/wdkbby/modules/jshkcb/dqxnxq.do')],
     '教学中心接口预热': [teaching('/jwapp/sys/funauthapp/api/getAppConfig/wdkbby-5959167891382285.do'), teaching('/jwapp/i18n.do')],
     '切换学期列表': [teaching('/jwapp/sys/wdkbby/modules/jshkcb/xnxqcx.do')],
-    '课表、考试与首周同步': [teaching(path, 'POST') for path in (
+    '课表、考试与首周同步': [teaching(path, 'POST', query={'XNXQDM': '.+'}) for path in (
         '/jwapp/sys/wdkbby/modules/xskcb/cxxszhxqkb.do', '/jwapp/sys/wdksapMobile/modules/ksap/cxxsksap.do',
         '/jwapp/sys/wdkbby/wdkbByController/cxzkbrq.do')],
     '空教室校区列表': [teaching('/jwapp/sys/kxjasbyMobile/modules/jxllb/ggzdpx.do')],
     '空教室教学楼列表': [teaching('/jwapp/sys/kxjasbyMobile/modules/jxllb/cxjxl.do')],
-    '空教室占用数据': [teaching('/jwapp/sys/kxjasbyMobile/kxjasbyController/cxkxjasqk.do', 'POST')],
+    '空教室占用数据': [teaching('/jwapp/sys/kxjasbyMobile/kxjasbyController/cxkxjasqk.do', 'POST', query={'XNXQDM': '.+', 'JXLDM': '.+'})],
     '课程中心原生认证': [RequestContract(r'zy-eclass\.bit\.edu\.cn', '/api/my-courses', 'POST')],
     '课程中心 DDL 下载': [RequestContract(r'zy-eclass\.bit\.edu\.cn', '/api/my-courses', 'POST')],
     '乐学日历订阅地址': [RequestContract(r'(?:lexue|webvpn)\.bit\.edu\.cn', VPN + '/calendar/export.php', 'POST')],
@@ -132,9 +133,15 @@ def contracts_for(probe: str) -> list[RequestContract]:
     return CONTRACTS.get(probe, [])
 
 
-def complete(probe: str, requests: list[dict]) -> bool:
+def complete(probe: str, requests: list[dict], expected_parameters: dict | None = None) -> bool:
     contracts = contracts_for(probe)
     matched = bool(contracts) and all(contract.complete(requests) for contract in contracts)
+    selectors = {'课表、考试与首周同步': {'XNXQDM'}, '空教室占用数据': {'XNXQDM', 'JXLDM'}}.get(probe, set())
+    if matched and selectors:
+        if not isinstance(expected_parameters, dict) or set(expected_parameters) != selectors \
+                or not all(isinstance(value, str) and value for value in expected_parameters.values()): return False
+        matched = all(all(row.get('query', {}).get(key) == expected for key, expected in expected_parameters.items())
+            for row in requests if any(contract.matches(row) for contract in contracts))
     if matched and probe == '生产共享会话':
         return len(requests) == 3 and contracts[0].matches(requests[0]) \
             and contracts[1].matches(requests[1]) and contracts[0].matches(requests[2])
@@ -149,3 +156,11 @@ def complete(probe: str, requests: list[dict]) -> bool:
             and all(any(isinstance(obj, str) and re.fullmatch(kind + r'\d+', obj) and count >= 2
                 for obj, count in likes.items()) for kind in ('poster', 'paper', 'course'))
     return matched
+
+
+if __name__ == '__main__':
+    import json
+    payload = json.load(sys.stdin)
+    passed = complete(payload['probe'], payload['requests'], payload.get('expectedParameters'))
+    if not passed: print('生产请求与 Smoke 合同存在差异：' + payload['probe'], file=sys.stderr)
+    raise SystemExit(0 if passed else 1)

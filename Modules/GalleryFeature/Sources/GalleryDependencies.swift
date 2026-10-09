@@ -1,15 +1,26 @@
 import CommunityCore
 #if os(iOS)
 import CommunityUI
+import Combine
 import CommunityTransport
 import TransportCore
 import Observation
 
 /// 话廊按首页、消息、详情、举报、编辑和图片上传分别注入服务。
+public struct GalleryWebCredentials {
+    let cookie: () -> String
+    let changes: AnyPublisher<Void, Never>
+    public init(cookie: @escaping () -> String, changes: AnyPublisher<Void, Never>) {
+        self.cookie = cookie
+        self.changes = changes
+    }
+}
+
 @MainActor
 @Observable
 public final class GalleryDependencies {
-    let session: CommunitySession
+    let webCredentials: GalleryWebCredentials
+    let currentIdentity: () -> CommunitySessionIdentity
     let feed: any GalleryFeedServicing
     let messageService: any GalleryMessageServicing
     let posterDetail: any GalleryPosterDetailServicing
@@ -22,7 +33,8 @@ public final class GalleryDependencies {
     let networkPath: NetworkPathState
 
     public init(
-        session: CommunitySession,
+        webCredentials: GalleryWebCredentials,
+        currentIdentity: @escaping () -> CommunitySessionIdentity,
         feed: any GalleryFeedServicing,
         messageService: any GalleryMessageServicing,
         posterDetail: any GalleryPosterDetailServicing,
@@ -34,7 +46,8 @@ public final class GalleryDependencies {
         drafts: any GalleryComposerDraftStoring,
         networkPath: NetworkPathState
     ) {
-        self.session = session
+        self.webCredentials = webCredentials
+        self.currentIdentity = currentIdentity
         self.feed = feed
         self.messageService = messageService
         self.posterDetail = posterDetail

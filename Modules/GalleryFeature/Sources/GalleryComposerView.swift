@@ -38,7 +38,7 @@ private struct GalleryComposerScene: View {
         let imagePreparer = ComposerImagePreparer()
         _viewModel = StateObject(wrappedValue: GalleryComposerViewModel(editingPoster: editingPoster,
             service: dependencies.composer, images: dependencies.images, drafts: dependencies.drafts,
-            currentIdentity: { dependencies.session.currentCredentials.identity },
+            currentIdentity: dependencies.currentIdentity,
             prepareImageData: { try? await imagePreparer.prepare($0) }))
     }
 

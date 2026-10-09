@@ -413,7 +413,7 @@ final class ReleaseNetworkSmokeRunner {
         }
         let term = requestedScheduleTerm ?? currentTerm
         if let term {
-            let syncPayload = await probe("课表、考试与首周同步", area: .schedule, scope: scope) {
+            let syncPayload = await probe("课表、考试与首周同步", area: .schedule, scope: scope, expectedParameters: ["XNXQDM": term]) {
                 let payload = try await schedule.syncCourses(term: term)
                 guard payload.term == term else { throw URLError(.badServerResponse) }
                 try Self.validateCourseSyncPayload(payload)
@@ -432,7 +432,7 @@ final class ReleaseNetworkSmokeRunner {
                     try await schedule.fetchBuildings(campusCode: campus.code)
                 }
                 if let building = buildings?.first {
-                    _ = await probe("空教室占用数据", area: .schedule, scope: scope) {
+                    _ = await probe("空教室占用数据", area: .schedule, scope: scope, expectedParameters: ["XNXQDM": term, "JXLDM": building.id]) {
                         try await schedule.fetchClassrooms(buildingID: building.id, term: term)
                     }
                 } else {
@@ -685,6 +685,7 @@ final class ReleaseNetworkSmokeRunner {
         _ name: String,
         area: NetworkSmokeArea,
         scope: NetworkSmokeScope,
+        expectedParameters: [String: String] = [:],
         operation: () async throws -> Value
     ) async -> Value? {
         guard scope.includes(area) else { return nil }
@@ -692,7 +693,7 @@ final class ReleaseNetworkSmokeRunner {
         let startedAt = Date()
         let smsStart = submittedSMSPurposes.count
         do {
-            let value = try await captureNetworkRequests(name, required: scope != .communityCleanup) {
+            let value = try await captureNetworkRequests(name, required: scope != .communityCleanup, expectedParameters: expectedParameters) {
                 try await self.operationWithSchoolAuthentication(operation)
             }
             verifiedSMSProbes += submittedSMSPurposes.dropFirst(smsStart).map { SchoolSMSProbeEvidence(purpose: $0, probe: name) }
@@ -728,11 +729,11 @@ final class ReleaseNetworkSmokeRunner {
     }
 
     private func captureNetworkRequests<Value>(
-        _ name: String, required: Bool, operation: () async throws -> Value
+        _ name: String, required: Bool, expectedParameters: [String: String] = [:], operation: () async throws -> Value
     ) async throws -> Value {
         let collector = NetworkSmokeRequestCollector()
-        defer { requestEvidence.append(NetworkSmokeRequestEvidence(probe: name, requests: collector.requests)) }
-        return try await collector.perform(operation, required: required && dependencies.requiresRequestEvidence)
+        defer { requestEvidence.append(NetworkSmokeRequestEvidence(probe: name, requests: collector.requests, expectedParameters: expectedParameters)) }
+        return try await collector.perform(operation, required: required && dependencies.requiresRequestEvidence, expectedParameters: expectedParameters)
     }
 
     private func recordFailure(

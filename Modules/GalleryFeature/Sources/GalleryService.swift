@@ -258,16 +258,18 @@ public struct GalleryService {
     /// 该分栏沿用独立的隐藏设置语义。
     ///
     /// 机器人帖子在整体帖子流里占比并不高，所以这里采用“多抓几页 + 本地筛”的做法。
-    /// 已取得可见内容的批次按扫描阈值结束；连续过滤页继续读取至可见内容或源流末尾。
+    /// 每批最多扫描五页，后续查询沿源游标继续。
     public func fetchBotFeed(startPage: Int) async throws -> GalleryPageBatch<CommunityPoster> {
         var sourcePage = startPage
         var collected: [CommunityPoster] = []
+        var collectedIDs = Set<Int>()
         var canLoadMore = true
         let maxScanCount = 5
         var scanned = 0
+        var sourceIDs: [Int] = []
         var progress = CommunityPageProgress<Int>()
 
-        while canLoadMore && collected.count < 12 && (scanned < maxScanCount || collected.isEmpty) {
+        while canLoadMore && collected.count < 12 && scanned < maxScanCount {
             try Task.checkCancellation()
             let rawPosters = try await fetchRawPosters(
                 mode: "search",
@@ -279,7 +281,8 @@ public struct GalleryService {
             )
             let visible = await applyGalleryFilters(rawPosters)
             try progress.record(rawPosters.map(\.id))
-            collected.append(contentsOf: visible.filter { GalleryBotClassifier.matches(tags: $0.tags) })
+            sourceIDs.append(contentsOf: rawPosters.map(\.id))
+            collected.append(contentsOf: visible.filter { GalleryBotClassifier.matches(tags: $0.tags) && collectedIDs.insert($0.id).inserted })
             canLoadMore = !rawPosters.isEmpty
             sourcePage += 1
             scanned += 1
@@ -288,7 +291,8 @@ public struct GalleryService {
         return GalleryPageBatch<CommunityPoster>(
             items: await applyGalleryFilters(collected),
             nextSourcePage: sourcePage,
-            canLoadMore: canLoadMore
+            canLoadMore: canLoadMore,
+            sourceIDs: sourceIDs
         )
     }
 

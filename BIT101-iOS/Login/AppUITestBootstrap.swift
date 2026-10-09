@@ -93,6 +93,9 @@ enum AppUITestBootstrap {
               let account = environment["BIT101_UI_TEST_ACCOUNT"], !account.isEmpty else { return }
         do {
             _ = try await UITestLoginService().login(studentID: account, password: "ui-test-password")
+            if environment["BIT101_UI_TEST_BOT_PAGING"] == "1" {
+                AppSettingsStore.shared.updateGallerySettings(hideBotPosterInSearch: false)
+            }
             if environment["BIT101_UI_TEST_MEDIA"] == "1" {
                 let image = ComposerImageDraftSnapshot(filename: "ui-image.png", previewData: mediaData, uploadData: mediaData)
                 let drafts = AppAccountStores.shared.composerDrafts
@@ -256,7 +259,19 @@ final class UITestHTTPTransport: HTTPTransport {
                 createdPosters.append(poster)
                 payload = ["id": id]
             } else {
-                payload = page == "0" ? ([poster] + createdPosters).filter { !deletedIDs.contains($0["id"] as? Int ?? 0) } : []
+                if AppUITestBootstrap.environment["BIT101_UI_TEST_BOT_PAGING"] == "1",
+                   query.contains(where: { $0.name == "mode" && $0.value == "search" }),
+                   query.contains(where: { $0.name == "order" && $0.value == "new" }) {
+                    try await Task.sleep(for: .milliseconds(100))
+                    let sourcePage = Int(page) ?? 0
+                    var item = poster
+                    item["id"] = sourcePage + 100
+                    item["tags"] = sourcePage == 10 ? ["bot"] : ["测试"]
+                    item["title"] = sourcePage == 10 ? "机器人分页话题" : "普通分页话题"
+                    payload = sourcePage <= 10 ? [item] : []
+                } else {
+                    payload = page == "0" ? ([poster] + createdPosters).filter { !deletedIDs.contains($0["id"] as? Int ?? 0) } : []
+                }
             }
         case "papers":
             if method == "POST" {

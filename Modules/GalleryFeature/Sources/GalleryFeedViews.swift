@@ -55,6 +55,12 @@ struct GalleryFeedView: View {
                             systemImage: "bubble.left.and.bubble.right",
                             message: feedIdentity == "search" ? "换个关键词试试。" : "当前分区还没有可展示的话题。"
                         )
+                        if feedIdentity == GalleryFeedKind.bot.rawValue, feedState.canLoadMore {
+                            if feedState.isLoadingMore { AppInlineLoadingState() }
+                            else {
+                                botContinuation
+                            }
+                        }
                     }
                 } else {
                     LazyVStack(spacing: AppDesignSystem.Spacing.none) {
@@ -84,6 +90,8 @@ struct GalleryFeedView: View {
 
                         if feedState.isLoadingMore {
                             AppInlineLoadingState()
+                        } else if feedIdentity == GalleryFeedKind.bot.rawValue, feedState.canLoadMore {
+                            botContinuation
                         }
                     }
                     .scrollTargetLayout()
@@ -155,6 +163,12 @@ struct GalleryFeedView: View {
     private var prefetchTriggerPosterID: Int? {
         guard prefetchTriggerThreshold > 0, !visiblePosters.isEmpty else { return nil }
         return visiblePosters[max(visiblePosters.count - prefetchTriggerThreshold, 0)].id
+    }
+
+    private var botContinuation: some View {
+        Button("继续查找话题") { onLoadMore(visiblePosters.last) }
+            .buttonStyle(.bordered)
+            .accessibilityIdentifier("gallery.bot.continue")
     }
 
     /// 刷新完成后，把滚动位置尽量恢复到刷新前的顶部帖子。

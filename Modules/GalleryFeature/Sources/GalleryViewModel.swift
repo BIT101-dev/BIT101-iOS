@@ -117,7 +117,7 @@ final class GalleryViewModel: ObservableObject {
     }
 
     @discardableResult
-    func enqueueLoadMore(for feed: GalleryFeedKind, currentPoster: CommunityPoster) -> Task<Void, Never> {
+    func enqueueLoadMore(for feed: GalleryFeedKind, currentPoster: CommunityPoster?) -> Task<Void, Never> {
         return enqueueInteractionTask(key: "load-more:\(feed.rawValue)") { [weak self] in
             await self?.loadMoreIfNeeded(for: feed, currentPoster: currentPoster)
         }
@@ -300,13 +300,13 @@ final class GalleryViewModel: ObservableObject {
     ///
     /// 普通 feed 直接请求下一页；推荐 feed 则优先消费本地预取页，必要时继续向后跳过空页。
     func loadMoreIfNeeded(for feed: GalleryFeedKind, currentPoster: CommunityPoster?) async {
-        guard let currentPoster else { return }
         let generation = refreshGenerations[feed] ?? 0
         let state = state(for: feed)
 
         guard
             state.status == .loaded,
-            state.shouldLoadMore(currentID: currentPoster.id)
+            state.canLoadMore, !state.isLoadingMore,
+            currentPoster.map({ state.shouldLoadMore(currentID: $0.id) }) ?? (feed.isBotFeed && state.posters.isEmpty)
         else {
             return
         }
@@ -335,7 +335,7 @@ final class GalleryViewModel: ObservableObject {
                 updated.appendUniqueItems(batch.items)
                 updated.nextPage = batch.nextSourcePage
                 updated.canLoadMore = batch.canLoadMore
-            } while updated.canLoadMore && updated.posters.count == state.posters.count
+            } while updated.canLoadMore && updated.posters.count == state.posters.count && !feed.isBotFeed
             updated.isLoadingMore = false
             feedStates[feed] = updated
             if feed == .recommend, updated.canLoadMore { recommendPrefetch.start(from: updated.nextPage) }

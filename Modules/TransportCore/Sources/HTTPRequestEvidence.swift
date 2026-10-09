@@ -11,11 +11,21 @@ public nonisolated struct HTTPRequestEvidence: Codable, Sendable {
         self.responseMinimumID = responseMinimumID
         method = request.httpMethod ?? "GET"
         var endpoint = (request.url ?? response.url).flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
-        let allowed = Set(["page", "last_id", "obj", "order", "mode", "type", "uid", "detail"])
+        let allowed = Set(["page", "last_id", "obj", "order", "mode", "type", "uid", "detail", "search", "hide_bot", "XNXQDM", "JXLDM"])
         var parameters: [String: String] = Dictionary((endpoint?.queryItems ?? []).compactMap { item in
             guard allowed.contains(item.name), let value = item.value else { return nil }
             return (item.name, value)
         }, uniquingKeysWith: { first, _ in first })
+        if request.value(forHTTPHeaderField: "Content-Type")?.hasPrefix("application/x-www-form-urlencoded") == true,
+           let body = request.httpBody, let encoded = String(data: body, encoding: .utf8),
+           let form = URLComponents(string: "?" + encoded.replacingOccurrences(of: "+", with: "%20"))?.queryItems {
+            for item in form where ["XNXQDM", "JXLDM"].contains(item.name) {
+                parameters[item.name] = item.value
+            }
+            if let encoded = form.first(where: { $0.name == "requestParamStr" })?.value,
+               let object = try? JSONSerialization.jsonObject(with: Data(encoded.utf8)) as? [String: Any],
+               let term = object["XNXQDM"] as? String { parameters["XNXQDM"] = term }
+        }
         if request.value(forHTTPHeaderField: "Content-Type")?.hasPrefix("application/json") == true,
            let body = request.httpBody,
            let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any] {

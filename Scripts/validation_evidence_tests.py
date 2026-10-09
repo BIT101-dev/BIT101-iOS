@@ -100,6 +100,10 @@ def run_self_test(subject) -> int:
             assert subject.compilation_condition('canImport(MapKit) && canImport(WidgetKit) && canImport(CoreLocation)', group)
         assert not subject.compilation_condition('canImport(UnregisteredFramework)', 'all')
         assert subject.compilation_condition('swift(>=5.0) && compiler(>=5.0)', 'all')
+        assert subject.compilation_condition('swift(>=6.0)', 'all')
+        assert not subject.compilation_condition('swift(>=6.0)', 'all', language_mode='5')
+        assert subject.compilation_condition('swift(>=5.0) && !swift(>=6.0)', 'modules', language_mode='5')
+        assert subject.compilation_condition('swift(>=6.0)', 'modules', language_mode='6')
         try:
             subject.compilation_condition('unsupportedPredicate(value)', 'all')
         except ValueError: pass
@@ -359,7 +363,8 @@ def run_self_test(subject) -> int:
         assert not subject.smoke_summary('network', dict(network, requestedTerm='historical', validatedTerm='historical'))['passed']
         assert not subject.smoke_summary('network', dict(network, validatedTerm='other'))['passed']
         assert not subject.smoke_summary('network', dict(network, currentTerm=None))['passed']
-        assert subject.smoke_summary('network', dict(network, requestedTerm='historical', validatedTerm='historical'), full=False)['passed']
+        historical = network_trace_fixture(dict(network, requestedTerm='historical', validatedTerm='historical'))
+        assert subject.smoke_summary('network', historical, full=False)['passed']
         assert subject.smoke_summary('network', {'passed': True, 'scope': 'all', 'executedProbes': ['unrelated']})['passed'] is False
         network['coverageGaps'] = ['fixture']
         network['failures'] = ['具体失败原因']
@@ -437,9 +442,12 @@ def network_trace_fixture(value: dict) -> dict:
         contracts = contracts_for(name)
         assert contracts, name
         requests = []
+        expected = {'XNXQDM': value.get('validatedTerm', 'fixture-current')} if name in {'课表、考试与首周同步', '空教室占用数据'} else {}
+        if name == '空教室占用数据': expected['JXLDM'] = 'fixture-building'
         for contract in contracts:
             for index in range(max(contract.minimum, 2 if contract.paging else 1)):
                 query = {key: example(pattern) for key, pattern in contract.query.items() if pattern is not None}
+                query.update(expected)
                 if contract.paging == 'page': query['page'] = str(index)
                 if contract.paging == 'last_id': query['last_id'] = str(sys.maxsize) if index == 0 else '1'
                 request = {'method': contract.method, 'endpoint': 'https://' + example(contract.host) + example(contract.path),
@@ -453,7 +461,7 @@ def network_trace_fixture(value: dict) -> dict:
                 assert contract.matches(request), (name, request)
                 requests.append(request)
         if name == '生产共享会话': requests.insert(1, requests.pop())
-        rows.append({'probe': name, 'requests': requests})
+        rows.append({'probe': name, 'requests': requests, 'expectedParameters': expected})
     value['requestEvidenceRequired'] = True
     value['requestEvidence'] = rows
     return value
@@ -518,6 +526,7 @@ def network_route_identity_self_test() -> None:
         '话廊最新列表': {'mode': 'search', 'order': 'new', 'uid': '-1'},
         '话廊关注流': {'mode': 'follow'}, '话廊热门流': {'mode': 'hot'}, '话廊推荐流': {},
         '话廊机器人流': {'mode': 'search', 'order': 'new', 'uid': '-1'},
+        '话廊搜索': {'mode': 'search', 'order': 'new', 'uid': '-1', 'search': 'BIT101'},
         '文章列表-最新': {}, '文章列表-高赞': {'order': 'like'}, '文章列表-热评': {'order': 'comment'},
     }
     for probe, parameters in variants.items():
@@ -525,13 +534,26 @@ def network_route_identity_self_test() -> None:
         requests = [{'method': 'GET', 'endpoint': endpoint, 'statusCode': 200,
                      'query': dict(parameters, page=str(page))} for page in (0, 1)]
         assert complete(probe, requests), probe
-        for key in ('order',) if probe.startswith('文章') else ('mode', 'order', 'uid'):
+        for key in ('order',) if probe.startswith('文章') else ('mode', 'order', 'uid', 'search', 'hide_bot'):
             changed = deepcopy(requests)
             for row in changed:
                 if key in row['query']: row['query'].pop(key)
                 else: row['query'][key] = 'unexpected'
             assert not complete(probe, changed), (probe, key)
     assert not complete('文章列表-未知', requests)
+    for probe, paths, expected in [
+        ('课表、考试与首周同步', ['/jwapp/sys/wdkbby/modules/xskcb/cxxszhxqkb.do',
+            '/jwapp/sys/wdksapMobile/modules/ksap/cxxsksap.do', '/jwapp/sys/wdkbby/wdkbByController/cxzkbrq.do'], {'XNXQDM': '2025-2026-1'}),
+        ('空教室占用数据', ['/jwapp/sys/kxjasbyMobile/kxjasbyController/cxkxjasqk.do'], {'XNXQDM': '2025-2026-1', 'JXLDM': 'fixture-building'}),
+    ]:
+        rows = [{'method': 'POST', 'endpoint': 'https://jxzxehallapp.bit.edu.cn' + path, 'statusCode': 200, 'query': dict(expected)} for path in paths]
+        assert complete(probe, rows, expected) and not complete(probe, rows)
+        for key in expected:
+            changed = deepcopy(rows)
+            changed[0]['query'][key] = 'wrong-selection'
+            assert not complete(probe, changed, expected)
+            changed[0]['query'].pop(key)
+            assert not complete(probe, changed, expected)
     login = {'method': 'GET', 'endpoint': 'https://bit101.flwfdd.xyz/user/check', 'statusCode': 200, 'query': {}}
     assert complete('BIT101 登录状态', [dict(login, statusCode=401), login])
     for status in (100, 302, 401, 403, 500):

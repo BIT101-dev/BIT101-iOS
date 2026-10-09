@@ -143,7 +143,9 @@ final class AppCommunityDependencies {
         suggestion = DeveloperSuggestionDependencies(drafts: drafts, submit: submitSuggestion)
         let galleryService = GalleryService(session: session, preferences: { preferences.snapshot })
         gallery = GalleryDependencies(
-            session: session, feed: galleryService, messageService: galleryService, posterDetail: galleryService,
+            webCredentials: .init(cookie: { session.fakeCookie }, changes: session.credentialsChanges.map { _ in () }.eraseToAnyPublisher()),
+            currentIdentity: { session.currentCredentials.identity },
+            feed: galleryService, messageService: galleryService, posterDetail: galleryService,
             reporting: galleryService, composer: galleryService, images: galleryService, preferences: preferences,
             messages: messages, drafts: drafts, networkPath: networkPath
         )

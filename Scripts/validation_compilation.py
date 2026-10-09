@@ -35,7 +35,7 @@ def prepare_cache(recorded: dict, group: str, environment: str, conditions: set[
 
 
 @cache
-def compilation_condition(condition: str, group: str) -> bool:
+def compilation_condition(condition: str, group: str, *, language_mode: str = '6') -> bool:
     condition = condition.strip()
     group = group.removeprefix("build-")
     group = {"network-smoke": "network", "icloud-smoke": "icloud"}.get(group, group)
@@ -52,7 +52,7 @@ def compilation_condition(condition: str, group: str) -> bool:
     environment_group = "modules" if native else "build-ui"
     environment = environment_context(environment_group)
     context_signature = hashlib.sha256(json.dumps([environment, Path(__file__).read_text()], sort_keys=True).encode()).hexdigest()
-    signature = hashlib.sha256(json.dumps([condition, target, sorted(enabled)], sort_keys=True).encode()).hexdigest()
+    signature = hashlib.sha256(json.dumps([condition, target, sorted(enabled), language_mode], sort_keys=True).encode()).hexdigest()
     cache_root = ROOT / ".build/static-audit"
     cache_root.mkdir(parents=True, exist_ok=True)
     with (cache_root / "compilation-conditions.lock").open("a") as lock:
@@ -77,7 +77,7 @@ def compilation_condition(condition: str, group: str) -> bool:
         source = f'#if {condition}\n#error("BIT101_CONDITION_TRUE")\n#else\n#error("BIT101_CONDITION_FALSE")\n#endif\n'
         with (module_cache.parent / "cache.lock").open("a") as compiler_lock:
             fcntl.flock(compiler_lock, fcntl.LOCK_EX)
-            result = subprocess.run([compiler, "-typecheck", "-target", target, "-sdk", sdk,
+            result = subprocess.run([compiler, "-typecheck", "-swift-version", language_mode, "-target", target, "-sdk", sdk,
                 "-module-cache-path", str(module_cache), *frameworks, *[flag for value in sorted(enabled) for flag in ("-D", value)], "-"],
                 input=source, capture_output=True, text=True)
         errors = set(re.findall(r"error: ([^\n]+)", result.stderr))

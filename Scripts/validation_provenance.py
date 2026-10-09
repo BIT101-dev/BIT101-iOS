@@ -65,8 +65,12 @@ def network_requests_complete(required: set[str], value: dict) -> bool:
             query = request.get('query', {})
             cursor = request.get('responseMinimumID')
             if cursor is not None and (not isinstance(cursor, str) or re.fullmatch(r'\d+', cursor) is None): return False
-            if not isinstance(query, dict) or not set(query) <= {'page', 'last_id', 'obj', 'order', 'mode', 'type', 'uid', 'detail'} \
+            if not isinstance(query, dict) or not set(query) <= {'page', 'last_id', 'obj', 'order', 'mode', 'type', 'uid', 'detail', 'search', 'hide_bot', 'XNXQDM', 'JXLDM'} \
                     or not all(isinstance(key, str) and isinstance(item, str) for key, item in query.items()): return False
-        if complete(row['probe'], row['requests']): observed.add(row['probe'])
+        expected = row.get('expectedParameters', {})
+        if not isinstance(expected, dict) or not set(expected) <= {'XNXQDM', 'JXLDM'} \
+                or not all(isinstance(item, str) for item in expected.values()): return False
+        if value.get('validatedTerm') and expected.get('XNXQDM') != value['validatedTerm'] and 'XNXQDM' in expected: return False
+        if complete(row['probe'], row['requests'], expected): observed.add(row['probe'])
     if value.get('scope') == 'community-cleanup': required = required - {'社区写入与清理'}
     return bool(required) and required <= observed

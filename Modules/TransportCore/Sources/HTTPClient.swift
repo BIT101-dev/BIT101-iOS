@@ -116,8 +116,10 @@ public struct HTTPClient {
         var receivedResponse: URLResponse?
         let result: HTTPResponse
         do {
-            let (data, response) = try await transport.data(for: request,
-                maximumBytes: maximumBytes ?? HTTPResponseResourceLimits.maximumStructuredBytes)
+            let (data, response) = try await HTTPRequestEvidenceContext.$didReceive.withValue(nil) {
+                try await transport.data(for: request,
+                    maximumBytes: maximumBytes ?? HTTPResponseResourceLimits.maximumStructuredBytes)
+            }
             receivedData = data
             receivedResponse = response
             try Task.checkCancellation()

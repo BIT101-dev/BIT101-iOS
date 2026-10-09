@@ -432,6 +432,19 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
     }
 
     @MainActor
+    @objc func testBotFeedContinuesAcrossEmptyScanBatches() {
+        app = configureApp(resetStorage: true, content: true, botPaging: true, initialTab: "gallery")
+        tapHeader(app.segmentedControls.buttons["机器人"])
+        let continuation = app.buttons["gallery.bot.continue"]
+        continuation.tapBriefly()
+        assertUI(waitUntil(NSPredicate(format: "exists == false"), on: continuation), "扫描期间应展示加载状态。")
+        assertUI(waitUntil(NSPredicate(format: "exists == true"), on: continuation), "空批完成后应恢复继续查询入口。")
+        assertUI(textElement("机器人分页话题").exists == false, "首批续页保持空状态和继续入口。")
+        continuation.tapBriefly()
+        assertUI(textElement("机器人分页话题").appears(timeout: 5), "继续查询应展示后续源页中的机器人帖子。")
+    }
+
+    @MainActor
     @objc func testGalleryFeedAndSurfaceSwipesMessagesAndSearchResultRoutes() {
         app = configureApp(resetStorage: true, content: true, initialTab: "gallery")
         assertUI(!app.segmentedControls.buttons["机器人"].exists, "隐藏机器人时顶部分栏应同步隐藏。")

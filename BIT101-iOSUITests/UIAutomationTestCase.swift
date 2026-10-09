@@ -600,6 +600,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         nativeInteraction: Bool = true,
         school: Bool = false,
         media: Bool = false,
+        botPaging: Bool = false,
         failureOnce: Bool = false,
         reportFailureOnce: Bool = false,
         update: String? = nil,
@@ -652,6 +653,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         application.launchEnvironment["BIT101_UI_TEST_ANIMATIONS"] = animations ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_SCHOOL"] = school ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_MEDIA"] = media ? "1" : "0"
+        application.launchEnvironment["BIT101_UI_TEST_BOT_PAGING"] = botPaging ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_FAILURE_ONCE"] = failureOnce ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_REPORT_FAILURE_ONCE"] = reportFailureOnce ? "1" : "0"
         if let update { application.launchEnvironment["BIT101_UI_TEST_UPDATE"] = update }

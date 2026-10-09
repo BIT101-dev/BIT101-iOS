@@ -146,6 +146,7 @@ for failure in summary.get('testFailures', []):
     text += f"{failure.get('testIdentifierString', '?')}: {failure.get('failureText', '?')}\n"
 Path(sys.argv[2]).write_text(text)
 if int(sys.argv[5]) or summary.get('result') != 'Passed' or summary.get('failedTests') or summary.get('skippedTests') or not expected or executed != expected:
+    print(text, file=sys.stderr)
     raise SystemExit('模拟器复验需要全部筛选用例通过，并匹配实际执行库存。')
 print(f"模拟器复验通过：{summary['passedTests']} 项；结果用于本机定向复验。")
 PYRESULT

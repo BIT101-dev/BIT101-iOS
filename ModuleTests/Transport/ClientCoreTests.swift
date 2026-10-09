@@ -289,11 +289,24 @@ private final class RecordingObserver: HTTPClientObserving {
 struct ClientCoreTests {
     private let url = AppURL.required("https://example.invalid/module-test")
 
-    @Test(arguments: [200, 401])
-    func requestEvidenceFollowsChildTasksAndRestoresItsScope(status: Int) async throws {
+    private struct ForwardingTransport: HTTPTransport {
+        let base: any HTTPTransport
+        func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+            try await data(for: request, maximumBytes: nil)
+        }
+        func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
+            let response = try await HTTPClient(transport: base, observer: nil).send(request, accepting: 100 ..< 600, maximumBytes: maximumBytes)
+            return (response.data, response.response)
+        }
+    }
+
+    @Test(arguments: [200, 401], [0, 1, 2])
+    func requestEvidenceFollowsChildTasksAndRestoresItsScope(status: Int, layers: Int) async throws {
         let endpoint = AppURL.required("https://student:password@example.invalid/probe?token=secret#private")
         let response = try #require(HTTPURLResponse(url: endpoint, statusCode: status, httpVersion: nil, headerFields: nil))
-        let client = HTTPClient(transport: StubTransport(result: .success((Data(), response))), observer: nil)
+        var transport: any HTTPTransport = StubTransport(result: .success((Data(), response)))
+        for _ in 0 ..< layers { transport = ForwardingTransport(base: transport) }
+        let client = HTTPClient(transport: transport, observer: nil)
         var evidence: [HTTPRequestEvidence] = []
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
@@ -337,6 +350,20 @@ struct ClientCoreTests {
         #expect(evidence.query == (object == "private" ? [:] : ["obj": object]))
         let encoded = String(decoding: try JSONEncoder().encode(evidence), as: UTF8.self)
         #expect(!encoded.contains("secret") && !encoded.contains("private"))
+    }
+
+    @Test func requestEvidencePreservesBusinessSelectorsAndRedactsFormCredentials() throws {
+        let url = AppURL.required("https://example.invalid/probe?search=BIT101&hide_bot=true&token=secret")
+        let response = try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data("XNXQDM=2025-2026-1&JXLDM=B%2B%26+Room&password=secret".utf8)
+        let evidence = HTTPRequestEvidence(request: request, response: response)
+        #expect(evidence.query == ["search": "BIT101", "hide_bot": "true", "XNXQDM": "2025-2026-1", "JXLDM": "B+& Room"])
+        request.httpBody = Data("requestParamStr=%7B%22XNXQDM%22%3A%222025-2026-1%22%2C%22ZC%22%3A%221%22%7D&password=secret".utf8)
+        #expect(HTTPRequestEvidence(request: request, response: response).query == ["search": "BIT101", "hide_bot": "true", "XNXQDM": "2025-2026-1"])
+        #expect(!String(decoding: try JSONEncoder().encode(evidence), as: UTF8.self).contains("secret"))
     }
 
     @Test func ordinaryResponsesUseTheDefaultBudgetIncludingExplicitNil() async throws {

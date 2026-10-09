@@ -51,9 +51,13 @@ struct NetworkClientTests {
     @MainActor
     func smokeEvidenceRequiresTransportAndRestoresTaskScope() async throws {
         let url = try makeTestURL("https://student:password@example.invalid/probe?token=secret#private")
-        let client = HTTPClient(transport: MockHTTPTransport { _ in
-            (Data(), try #require(HTTPURLResponse(url: url, statusCode: 401, httpVersion: nil, headerFields: nil)))
-        }, observer: nil)
+        let state = TeachingCenterSessionState(cookieStorage: try #require(URLSessionConfiguration.ephemeral.httpCookieStorage))
+        var sends = 0
+        let transport = SchoolCookieTransport(state: state) { _ in MockHTTPTransport { _ in
+            sends += 1
+            return (Data(), try #require(HTTPURLResponse(url: url, statusCode: 401, httpVersion: nil, headerFields: nil)))
+        } }
+        let client = HTTPClient(transport: transport, observer: nil)
         let collector = NetworkSmokeRequestCollector()
         await #expect(throws: NetworkSmokeRequestError.self) {
             try await collector.perform({ 1 }, required: true)
@@ -69,6 +73,7 @@ struct NetworkClientTests {
         #expect(HTTPRequestEvidenceContext.didReceive == nil)
         await #expect(throws: HTTPClientError.self) { try await client.send(URLRequest(url: url)) }
         #expect(collector.requests.count == 1)
+        #expect(sends == 2)
     }
 
     private final class ScoreCredentials: SchoolCredentialsProviding {

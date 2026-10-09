@@ -2,7 +2,6 @@
 import MediaKit
 import CommunityUI
 import TransportCore
-import CommunityTransport
 import CommunityCore
 import DesignSystemKit
 //
@@ -170,8 +169,8 @@ private struct GalleryRootViewScene: View {
         @Environment(\.openURL) private var openURL
         let url: URL
 
-        func makeCoordinator() -> Coordinator {
-            Coordinator(session: dependencies.session, openExternal: { url in openURL(url) })
+        func makeCoordinator() -> GalleryWebCoordinator {
+            GalleryWebCoordinator(credentials: dependencies.webCredentials, openExternal: { url in openURL(url) })
         }
 
         func makeUIView(context: Context) -> WKWebView {
@@ -189,84 +188,7 @@ private struct GalleryRootViewScene: View {
             context.coordinator.synchronizeCredentials(in: webView)
         }
 
-        final class Coordinator: NSObject, WKNavigationDelegate {
-            let session: CommunitySession
-            let openExternal: (URL) -> Void
-            init(session: CommunitySession, openExternal: @escaping (URL) -> Void) {
-                self.session = session
-                self.openExternal = openExternal
-            }
-            private var credentialsSubscription: AnyCancellable?
 
-            func observeCredentials(in webView: WKWebView) {
-                credentialsSubscription = session.credentialsChanges.sink { [weak self, weak webView] _ in
-                    guard let webView else { return }
-                    self?.synchronizeCredentials(in: webView)
-                }
-            }
-
-            func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
-                guard navigationAction.targetFrame?.isMainFrame != false,
-                      !GalleryWebRequestFactory.isTrustedPage(navigationAction.request.url) else {
-                    return .allow
-                }
-                if navigationAction.navigationType == .linkActivated,
-                   let url = navigationAction.request.url, ["https", "http"].contains(url.scheme?.lowercased() ?? "") {
-                    openExternal(url)
-                }
-                return .cancel
-            }
-
-            func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse) async -> WKNavigationResponsePolicy {
-                navigationResponse.isForMainFrame
-                    && !GalleryWebRequestFactory.isTrustedPage(navigationResponse.response.url) ? .cancel : .allow
-            }
-
-            func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
-                synchronizeCredentials(in: webView)
-            }
-
-            func synchronizeCredentials(in webView: WKWebView) {
-                guard !webView.isLoading, GalleryWebRequestFactory.isTrustedPage(webView.url) else { return }
-                let fakeCookie = session.fakeCookie
-                guard
-                    let encodedCookieData = try? JSONEncoder().encode(fakeCookie),
-                    let encodedCookie = String(data: encodedCookieData, encoding: .utf8)
-                else { return }
-                let script = """
-                (() => {
-                    if (location.origin !== 'https://bit101.cn') return;
-                    const current = localStorage.getItem('store');
-                    let store = {};
-                    try {
-                        const parsed = current ? JSON.parse(current) : {};
-                        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-                            store = parsed;
-                        }
-                    } catch (_) {}
-                    if (store.fake_cookie === \(encodedCookie)) return false;
-                    store.fake_cookie = \(encodedCookie);
-                    localStorage.setItem('store', JSON.stringify(store));
-                    return true;
-                })();
-                """
-                webView.evaluateJavaScript(script) { [weak webView] result, error in
-                    if error == nil, result as? Bool == true { webView?.reload() }
-                }
-            }
-
-            func webView(
-                _ webView: WKWebView,
-                didFail navigation: WKNavigation?,
-                withError _: Error
-            ) {
-                let padding = Int(AppDesignSystem.Spacing.section)
-                webView.loadHTMLString(
-                    "<body style=\"font: \(AppDesignSystem.Typography.webBodyCSS); padding: \(padding)px;\">话廊网页加载失败，请稍后重试。</body>",
-                    baseURL: nil
-                )
-            }
-        }
     }
 
     private func openRequestedPosterIfNeeded() async {
@@ -309,7 +231,6 @@ private struct GalleryRootViewScene: View {
                     viewModel.enqueuePrefetch(for: viewModel.selectedFeed, currentPoster: poster)
                 },
                 onLoadMore: { poster in
-                    guard let poster else { return }
                     viewModel.enqueueLoadMore(for: viewModel.selectedFeed, currentPoster: poster)
                 }
             )
@@ -427,6 +348,105 @@ private struct GalleryRootViewScene: View {
         }
     }
 
+}
+
+final class GalleryWebCoordinator: NSObject, WKNavigationDelegate {
+    let credentials: GalleryWebCredentials
+    let openExternal: (URL) -> Void
+    init(credentials: GalleryWebCredentials, openExternal: @escaping (URL) -> Void) {
+        self.credentials = credentials
+        self.openExternal = openExternal
+    }
+    private var credentialsSubscription: AnyCancellable?
+    private var isShowingFailure = false
+
+    func observeCredentials(in webView: WKWebView) {
+        credentialsSubscription = credentials.changes.sink { [weak self, weak webView] _ in
+            guard let webView else { return }
+            self?.synchronizeCredentials(in: webView)
+        }
+    }
+
+    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
+        if isShowingFailure, navigationAction.request.url?.absoluteString == "about:blank" { return .allow }
+        if navigationAction.navigationType == .linkActivated,
+           GalleryWebRequestFactory.isTrustedPage(navigationAction.request.url) { isShowingFailure = false }
+        guard navigationAction.targetFrame?.isMainFrame != false,
+              !GalleryWebRequestFactory.isTrustedPage(navigationAction.request.url) else {
+            return .allow
+        }
+        if navigationAction.navigationType == .linkActivated,
+           let url = navigationAction.request.url, ["https", "http"].contains(url.scheme?.lowercased() ?? "") {
+            openExternal(url)
+        }
+        return .cancel
+    }
+
+    func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse) async -> WKNavigationResponsePolicy {
+        if isShowingFailure, navigationResponse.response.url?.absoluteString == "about:blank" { return .allow }
+        return navigationResponse.isForMainFrame
+            && !GalleryWebRequestFactory.isTrustedPage(navigationResponse.response.url) ? .cancel : .allow
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
+        synchronizeCredentials(in: webView)
+    }
+
+    func synchronizeCredentials(in webView: WKWebView) {
+        guard !isShowingFailure, !webView.isLoading, GalleryWebRequestFactory.isTrustedPage(webView.url) else { return }
+        let fakeCookie = credentials.cookie()
+        guard
+            let encodedCookieData = try? JSONEncoder().encode(fakeCookie),
+            let encodedCookie = String(data: encodedCookieData, encoding: .utf8)
+        else { return }
+        let script = """
+        (() => {
+            if (location.origin !== 'https://bit101.cn') return;
+            const current = localStorage.getItem('store');
+            let store = {};
+            try {
+                const parsed = current ? JSON.parse(current) : {};
+                if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                    store = parsed;
+                }
+            } catch (_) {}
+            if (store.fake_cookie === \(encodedCookie)) return false;
+            store.fake_cookie = \(encodedCookie);
+            localStorage.setItem('store', JSON.stringify(store));
+            return true;
+        })();
+        """
+        webView.evaluateJavaScript(script) { [weak webView] result, error in
+            if error == nil, result as? Bool == true { webView?.reload() }
+        }
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        didFail navigation: WKNavigation?,
+        withError error: Error
+    ) {
+        showLoadFailure(in: webView, error: error)
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation?, withError error: Error) {
+        showLoadFailure(in: webView, error: error)
+    }
+
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        showLoadFailure(in: webView, error: URLError(.networkConnectionLost))
+    }
+
+    private func showLoadFailure(in webView: WKWebView, error: Error) {
+        let failure = error as NSError
+        guard !(failure.domain == NSURLErrorDomain && failure.code == NSURLErrorCancelled) else { return }
+        isShowingFailure = true
+        let padding = Int(AppDesignSystem.Spacing.section)
+        webView.loadHTMLString(
+            "<body style=\"font: \(AppDesignSystem.Typography.webBodyCSS); padding: \(padding)px;\">话廊网页加载失败。<p><a href=\"https://bit101.cn/gallery\">重新加载</a></p></body>",
+            baseURL: nil
+        )
+    }
 }
 
 #endif
