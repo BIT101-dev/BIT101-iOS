@@ -15,7 +15,8 @@ public final class ScoreFilterPreferenceStore: ScoreFilterPreferencesStoring {
     public init(defaults: UserDefaults, session: @escaping () -> AppStorageSession) {
         self.session = session
         store = AccountScopedCodableStore(
-            keyPrefix: "score.filter.preferences", defaults: defaults, sessionProvider: session
+            keyPrefix: "score.filter.preferences", defaults: defaults, sessionProvider: session,
+            snapshotKeys: ScoreFilterPreferenceSnapshot.storageKeys
         )
     }
 

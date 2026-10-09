@@ -177,6 +177,48 @@ struct NetworkSmokeSMSPromptTests {
 @MainActor
 struct AppSettingsPersistenceBoundaryTests {
     @Test(arguments: [false, true])
+    func settingsEditsRetainFutureFieldsAcrossLegacyMigration(legacy: Bool) throws {
+        let domain = "BIT101AppTests.settings-format"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let session = AppStorageSession(accountIdentifier: "settings-format")
+        let key = session.key(AppSettingsStore.storageKeyPrefix)
+        defaults.set(Data(#"{"galleryUseWebView":true,"futureSetting":{"values":[1,2]}}"#.utf8),
+            forKey: legacy ? AppSettingsStore.legacyStorageKey : key)
+        let settings = AppSettingsStore(defaults: defaults, session: { session })
+        settings.updateGallerySettings(hideAnonymousContent: true)
+        settings.markSharedScheduleImportGuideSeen()
+        #expect(settings.storageIssue == nil && settings.galleryUseWebView)
+        let data = try #require(defaults.data(forKey: key))
+        let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(object["schemaVersion"] as? Int == 1)
+        #expect(object["galleryStrictUserFilter"] as? Bool == true)
+        #expect((object["futureSetting"] as? [String: Any])?["values"] as? [Int] == [1, 2])
+        if legacy { #expect(defaults.object(forKey: AppSettingsStore.legacyStorageKey) == nil) }
+    }
+
+    @Test(arguments: ["99", "true", "null", "\"1\""], [false, true])
+    func unsupportedSettingsFormatsRetainTheirBytes(version: String, unscopedLegacy: Bool) throws {
+        let domain = "BIT101AppTests.settings-future"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let session = AppStorageSession(accountIdentifier: "future-settings")
+        let scopedKey = session.key(AppSettingsStore.storageKeyPrefix)
+        let key = unscopedLegacy ? AppSettingsStore.legacyStorageKey : scopedKey
+        let source = Data(("{\"schemaVersion\":" + version + ",\"galleryUseWebView\":true}").utf8)
+        defaults.set(source, forKey: key)
+        let settings = AppSettingsStore(defaults: defaults, session: { session })
+        #expect(settings.storageIssue != nil)
+        settings.updateGallerySettings(hideAnonymousContent: true)
+        settings.markSharedScheduleImportGuideSeen()
+        settings.reloadForCurrentAccount()
+        #expect(settings.storageIssue != nil && defaults.data(forKey: key) == source)
+        if unscopedLegacy { #expect(defaults.object(forKey: scopedKey) == nil) }
+    }
+
+    @Test(arguments: [false, true])
     func corruptSettingsRetainTheirSourceThroughLoadEditsAndAccountReload(_ legacy: Bool) throws {
         let domain = "BIT101AppTests.settings-corruption"
         let defaults = try #require(UserDefaults(suiteName: domain))

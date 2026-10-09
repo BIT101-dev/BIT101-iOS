@@ -20,11 +20,17 @@ class RequestContract:
     paging: str = ''
     scheme: str = 'https'
     statuses: range | tuple[int, ...] = range(200, 300)
+    port: int | None = 443
 
     def matches(self, request: dict) -> bool:
-        endpoint = urlsplit(request['endpoint'])
+        try:
+            endpoint = urlsplit(request['endpoint'])
+            declared_port = endpoint.port
+            port = declared_port if declared_port is not None else (443 if endpoint.scheme == 'https' else 80)
+        except ValueError: return False
         query = request.get('query', {})
         return endpoint.scheme == self.scheme and request['statusCode'] in self.statuses \
+            and (self.port is None or port == self.port) \
             and request['method'] == self.method and re.fullmatch(self.host, endpoint.hostname or '') is not None \
             and re.fullmatch(self.path, endpoint.path) is not None \
             and all(key not in query if pattern is None else re.fullmatch(pattern, query.get(key, '')) is not None
@@ -105,7 +111,7 @@ CONTRACTS = {
     '话廊网页详情': [RequestContract(r'open\.aihelpme\.dev', r'/gallery/\d+')],
     '学业课程网页详情': [RequestContract(r'open\.aihelpme\.dev', r'/course/\d+')],
     '文章网页详情': [RequestContract(r'open\.aihelpme\.dev', r'/paper/\d+')],
-    '话廊图片下载': [RequestContract(r'.+', '/.+')],
+    '话廊图片下载': [RequestContract(r'.+', '/.+', port=None)],
     '反馈接口跨域预检': [RequestContract(r'feedback\.aihelpme\.dev', '/api/error-reports', 'OPTIONS')],
     'feedback.aihelpme.dev 写入恢复': [RequestContract(r'feedback\.aihelpme\.dev', '/api/error-reports', 'POST')],
     'App Store 更新接口': [RequestContract(r'(?:itunes|apps)\.apple\.com', '/lookup')],

@@ -235,10 +235,29 @@ public nonisolated struct ScoreSummary: Sendable {
 
 /// 成绩页本地筛选偏好快照。
 public nonisolated struct ScoreFilterPreferenceSnapshot: Codable, Equatable, Sendable {
+    private let schemaVersion = 1
     public var selectedTerms: [String] = []
     public var selectedCourseTypes: [String] = []
     public var sortIndex: String?
     public var sortOrder: String?
+
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case schemaVersion, selectedTerms, selectedCourseTypes, sortIndex, sortOrder
+    }
+
+    public static var storageKeys: Set<String> { Set(CodingKeys.allCases.map(\.rawValue)) }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if container.contains(.schemaVersion), try container.decode(Int.self, forKey: .schemaVersion) != 1 {
+            throw DecodingError.dataCorruptedError(forKey: .schemaVersion, in: container, debugDescription: "Unsupported score preference format")
+        }
+        selectedTerms = try container.decode([String].self, forKey: .selectedTerms)
+        selectedCourseTypes = try container.decode([String].self, forKey: .selectedCourseTypes)
+        sortIndex = try container.decodeIfPresent(String.self, forKey: .sortIndex)
+        sortOrder = try container.decodeIfPresent(String.self, forKey: .sortOrder)
+    }
+
     public init(selectedTerms: [String] = [], selectedCourseTypes: [String] = [], sortIndex: String? = nil, sortOrder: String? = nil) {
         self.selectedTerms = selectedTerms
         self.selectedCourseTypes = selectedCourseTypes

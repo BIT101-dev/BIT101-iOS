@@ -13,6 +13,7 @@ import Foundation
 ///
 /// 设置快照统一承接 UI 层的修改、读写、账号隔离和默认值。
 struct AppSettingsSnapshot: Codable, Equatable {
+    private let schemaVersion = 1
     /// 机器人隐藏设置同时控制普通帖子过滤与顶部机器人分栏。
     var galleryHideBotPosterInSearch = true
     /// 话廊普通内容中需要隐藏的用户 UID。
@@ -28,7 +29,8 @@ struct AppSettingsSnapshot: Codable, Equatable {
     /// 当前账号是否已经看过“鸣谢 LINUX DO”提示。
     var hasShownLinuxDoThanksNotice = false
 
-    enum CodingKeys: String, CodingKey {
+    enum CodingKeys: String, CodingKey, CaseIterable {
+        case schemaVersion
         case galleryHideBotPosterInSearch
         case galleryHiddenUserIDs
         case galleryHideAnonymousContent = "galleryStrictUserFilter"
@@ -40,8 +42,13 @@ struct AppSettingsSnapshot: Codable, Equatable {
 
     init() {}
 
+    static var storageKeys: Set<String> { Set(CodingKeys.allCases.map(\.rawValue)) }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        if container.contains(.schemaVersion), try container.decode(Int.self, forKey: .schemaVersion) != 1 {
+            throw DecodingError.dataCorruptedError(forKey: .schemaVersion, in: container, debugDescription: "Unsupported settings format")
+        }
         galleryHideBotPosterInSearch = try container.decodeIfPresent(Bool.self, forKey: .galleryHideBotPosterInSearch) ?? true
         galleryHiddenUserIDs = try container.decodeIfPresent([Int].self, forKey: .galleryHiddenUserIDs) ?? []
         galleryHideAnonymousContent = try container.decodeIfPresent(Bool.self, forKey: .galleryHideAnonymousContent) ?? false
@@ -122,6 +129,7 @@ final class AppSettingsStore: ObservableObject {
     private let defaults: UserDefaults
     private let session: () -> AppStorageSession
     private let snapshotStore: AccountScopedCodableStore<AppSettingsSnapshot>
+    private var snapshotReadBlocked = false
     /// 初始化当前账号的设置快照。
     init(
         defaults: UserDefaults = AppFileDirectories.defaults,
@@ -131,7 +139,7 @@ final class AppSettingsStore: ObservableObject {
         self.session = session
         snapshotStore = AccountScopedCodableStore(
             keyPrefix: Self.storageKeyPrefix, defaults: defaults, sessionProvider: session,
-            guestIdentifier: Self.defaultAccountIdentifier
+            guestIdentifier: Self.defaultAccountIdentifier, snapshotKeys: AppSettingsSnapshot.storageKeys
         )
         load()
     }
@@ -218,6 +226,7 @@ final class AppSettingsStore: ObservableObject {
     /// 把设置恢复到默认值。
     func resetToDefaults() {
         snapshotStore.remove()
+        snapshotReadBlocked = false
         snapshot = AppSettingsSnapshot()
         setHidesCourseHistoryMakeupOutliers(true)
         setAutomaticUpdateChecksEnabled(true)
@@ -242,14 +251,18 @@ final class AppSettingsStore: ObservableObject {
         loadAutomaticUpdatePreference()
         storageIssue = nil
         let accountID = currentAccountIdentifier
-        let stored = snapshotStore.read()
+        var stored = snapshotStore.read()
+        if case .missing = stored {
+            stored = Self.migrateLegacySnapshotIfNeeded(for: accountID, defaults: defaults)
+        }
+        snapshotReadBlocked = false
         if case .unreadable = stored {
+            snapshotReadBlocked = true
             snapshot = AppSettingsSnapshot()
             storageIssue = "账号设置读取失败，原始数据已保留。请先恢复数据，再保存设置。"
             return
         }
-        guard let snapshot = stored.value
-                ?? Self.migrateLegacySnapshotIfNeeded(for: accountID, defaults: defaults) else {
+        guard let snapshot = stored.value else {
             self.snapshot = AppSettingsSnapshot()
             self.snapshot.firstOpenDate = Date()
             defaults.set(true, forKey: galleryBotFilterDefaultMigrationKey)
@@ -300,7 +313,7 @@ final class AppSettingsStore: ObservableObject {
 
     /// 通过公共账号仓库保存快照，并发布本地保存事件。
     private func save(syncPreferences: Bool = false) {
-        guard snapshotStore.save(snapshot) else {
+        guard !snapshotReadBlocked, snapshotStore.save(snapshot) else {
             storageIssue = "账号设置保存受阻，原始数据已保留。请先恢复数据，再保存设置。"
             return
         }
@@ -325,18 +338,15 @@ final class AppSettingsStore: ObservableObject {
     }
 
     /// 把账号隔离前的快照迁移到当前账号分区。
-    private static func migrateLegacySnapshotIfNeeded(for accountID: String, defaults: UserDefaults) -> AppSettingsSnapshot? {
-        guard accountID != defaultAccountIdentifier else { return nil }
-        guard
-            let data = defaults.data(forKey: legacyStorageKey),
-            let snapshot = try? JSONDecoder().decode(AppSettingsSnapshot.self, from: data)
-        else {
-            return nil
-        }
+    private static func migrateLegacySnapshotIfNeeded(for accountID: String, defaults: UserDefaults) -> AccountScopedValueRead<AppSettingsSnapshot> {
+        guard accountID != defaultAccountIdentifier,
+              let stored = defaults.object(forKey: legacyStorageKey) else { return .missing }
+        guard let data = stored as? Data,
+              let snapshot = try? JSONDecoder().decode(AppSettingsSnapshot.self, from: data) else { return .unreadable }
 
         defaults.set(data, forKey: storageKey(for: accountID))
         defaults.removeObject(forKey: legacyStorageKey)
-        return snapshot
+        return .value(snapshot)
     }
 
     private var galleryBotFilterDefaultMigrationKey: String {

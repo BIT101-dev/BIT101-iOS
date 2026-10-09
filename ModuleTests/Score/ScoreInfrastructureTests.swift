@@ -368,6 +368,58 @@ struct ScoreInfrastructureBoundaryTests {
 
 @MainActor
 struct ScorePublicContractTests {
+    @Test(arguments: [false, true])
+    func filterPreferenceEditsRetainFutureFieldsAndClearKnownOptionalFields(legacy: Bool) throws {
+        let domain = "BIT101ModulesTests.score-filter-format"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        var session = AppStorageSession(accountIdentifier: "filter-format")
+        let key = session.key("score.filter.preferences")
+        let sourceKey = legacy ? session.legacyKey("score.filter.preferences") : key
+        defaults.set(Data(#"{"selectedTerms":["old"],"selectedCourseTypes":[],"sortIndex":"score","sortOrder":"descending","futureSetting":{"enabled":true,"values":[1,2]}}"#.utf8), forKey: sourceKey)
+        let store = ScoreFilterPreferenceStore(defaults: defaults, session: { session })
+        #expect(store.load()?.selectedTerms == ["old"])
+        #expect(store.save(selectedTerms: ["new"], selectedCourseTypes: [], sortIndex: .score, sortOrder: .ascending))
+        store.applySynced(.init())
+        let data = try #require(defaults.data(forKey: key))
+        let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(object["schemaVersion"] as? Int == 1)
+        #expect(object["sortIndex"] == nil && object["sortOrder"] == nil)
+        #expect((object["futureSetting"] as? [String: Any])?["values"] as? [Int] == [1, 2])
+        #expect(defaults.object(forKey: session.legacyKey("score.filter.preferences")) == nil)
+        session = AppStorageSession(accountIdentifier: "other-filter-format")
+        #expect(store.save(selectedTerms: [], selectedCourseTypes: [], sortIndex: .term, sortOrder: .ascending))
+        let otherData = try #require(defaults.data(forKey: session.key("score.filter.preferences")))
+        let other = try #require(try JSONSerialization.jsonObject(with: otherData) as? [String: Any])
+        #expect(other["futureSetting"] == nil)
+        session = AppStorageSession(accountIdentifier: "filter-format")
+        #expect(store.load()?.sortOrder == nil)
+    }
+
+    @Test(arguments: ["99", "true", "null", "\"1\""], [false, true])
+    func unsupportedFilterPreferenceFormatsRetainTheirBytes(version: String, legacy: Bool) throws {
+        let domain = "BIT101ModulesTests.score-filter-future"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let session = AppStorageSession(accountIdentifier: "future-filter")
+        let key = legacy ? session.legacyKey("score.filter.preferences") : session.key("score.filter.preferences")
+        let source = Data(("{\"schemaVersion\":" + version + ",\"selectedTerms\":[],\"selectedCourseTypes\":[]}").utf8)
+        defaults.set(source, forKey: key)
+        let store = ScoreFilterPreferenceStore(defaults: defaults, session: { session })
+        #expect(store.hasUnreadableSnapshot && store.load() == nil)
+        #expect(!store.save(selectedTerms: [], selectedCourseTypes: [], sortIndex: .score, sortOrder: .ascending))
+        store.applySynced(.init())
+        #expect(defaults.data(forKey: key) == source)
+        if legacy { #expect(defaults.object(forKey: session.key("score.filter.preferences")) == nil) }
+    }
+
+    @Test(arguments: [#"{}"#, #"{"selectedTerms":[]}"#, #"{"selectedCourseTypes":[]}"#, #"{"selectedTerms":null,"selectedCourseTypes":[]}"#])
+    func incompleteFilterPreferencesRetainTheReadFailure(_ source: String) {
+        #expect(throws: (any Error).self) { try JSONDecoder().decode(ScoreFilterPreferenceSnapshot.self, from: Data(source.utf8)) }
+    }
+
     @Test("Memory backend shares the production file service contract")
     func fileServiceContract() throws {
         let files = ModuleScoreFiles()

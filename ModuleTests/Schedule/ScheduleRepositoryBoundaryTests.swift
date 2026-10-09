@@ -9,6 +9,45 @@ import Testing
 
 @MainActor
 struct ScheduleRepositoryBoundaryTests {
+    private final class ClockClassroomService: ScheduleClassroomServicing {
+        var campusRequests: [String?] = []
+        func fetchCurrentTermOnly() async throws -> String { "test-term" }
+        func prepareTeachingCenterAccess() async throws {}
+        func fetchCampuses() async throws -> [CampusRecord] {
+            [CampusRecord(id: "A", name: "校区A", code: "A"), CampusRecord(id: "B", name: "校区B", code: "B")]
+        }
+        func fetchBuildings(campusCode: String?) async throws -> [BuildingRecord] {
+            campusRequests.append(campusCode)
+            let code = campusCode ?? ""
+            return [BuildingRecord(id: "fallback", name: "默认楼", buildingCode: "fallback", campusName: "校区" + code, campusCode: code),
+                BuildingRecord(id: code, name: code + "楼", buildingCode: code, campusName: "校区" + code, campusCode: code)]
+        }
+        func fetchClassrooms(buildingID: String, term: String) async throws -> [ClassroomRecord] { [] }
+    }
+
+    @Test(arguments: [7, 10])
+    func classroomDefaultsFollowTheInjectedCourseClock(hour: Int) async throws {
+        let firstDay = try #require(ScheduleDateCodec.parseDate("2001-01-01"))
+        let courses = ["B", "A"].enumerated().map { index, code in
+            CourseRecord(id: code, term: "test-term", name: code, teacher: "", classroom: code + "楼101", description: "",
+                weeks: [1], weekday: 1, startSection: index + 1, endSection: index + 1, campus: "校区" + code,
+                number: code, credit: 1, hour: 1, type: "", category: "", department: "")
+        }
+        var initial = ScheduleCache()
+        initial.currentTerm = "test-term"
+        initial.timeTable = [TimeSlot(id: 1, start: "08:00", end: "09:00"), TimeSlot(id: 2, start: "11:00", end: "12:00")]
+        initial.courseData.store(TermScheduleSnapshot(term: "test-term", firstDayString: "2001-01-01", courses: courses, exams: [], updatedAt: firstDay))
+        let repository = makeRepository(load: { _ in .loaded(initial) }, save: { _, _, _ in })
+        await repository.loadIfNeeded()
+        let service = ClockClassroomService()
+        let model = ScheduleClassroomViewModel(service: service, repository: repository, now: { firstDay.addingTimeInterval(Double(hour) * 3600) })
+        await model.refreshClassroomPage()
+        let expected = hour == 7 ? "B" : "A"
+        #expect(service.campusRequests == [expected])
+        #expect(model.cache.selectedCampusCode == expected && model.selectedBuildingID == expected)
+        #expect(model.notice == nil)
+    }
+
     @Test func classroomResultsFollowMinuteAndDayBoundaries() async throws {
         var now = try #require(ScheduleDateCodec.parseDate("2026-09-07")).addingTimeInterval(7 * 3600 + 59 * 60)
         var initial = ScheduleCache()

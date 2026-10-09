@@ -556,6 +556,10 @@ def network_route_identity_self_test() -> None:
             assert not complete(probe, changed, expected)
     login = {'method': 'GET', 'endpoint': 'https://bit101.flwfdd.xyz/user/check', 'statusCode': 200, 'query': {}}
     assert complete('BIT101 登录状态', [dict(login, statusCode=401), login])
+    assert complete('BIT101 登录状态', [dict(login, endpoint='https://bit101.flwfdd.xyz:443/user/check')])
+    for port in ('0', '80', '8443', '65536', 'invalid'):
+        assert not complete('BIT101 登录状态', [dict(login, endpoint='https://bit101.flwfdd.xyz:' + port + '/user/check')])
+    assert complete('话廊图片下载', [dict(login, endpoint='https://image.invalid:8443/image.png')])
     for status in (100, 302, 401, 403, 500):
         assert not complete('BIT101 登录状态', [dict(login, statusCode=status)])
     assert not complete('BIT101 登录状态', [dict(login, endpoint=login['endpoint'].replace('https:', 'http:'))])

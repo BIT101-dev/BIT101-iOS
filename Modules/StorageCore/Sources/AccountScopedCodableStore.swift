@@ -23,17 +23,21 @@ public struct AccountScopedCodableStore<Value: Codable> {
     private let defaults: UserDefaults
     private let session: () -> AppStorageSession
     private let guestIdentifier: String
+    /// 快照声明已知键后，保存保留其余扩展字段，并清空缺省的已知可选字段。
+    private let snapshotKeys: Set<String>?
 
     public init(
         keyPrefix: String,
         defaults: UserDefaults,
         sessionProvider: @escaping () -> AppStorageSession,
-        guestIdentifier: String = "guest"
+        guestIdentifier: String = "guest",
+        snapshotKeys: Set<String>? = nil
     ) {
         self.keyPrefix = keyPrefix
         self.defaults = defaults
         self.session = sessionProvider
         self.guestIdentifier = guestIdentifier
+        self.snapshotKeys = snapshotKeys
     }
 
     public func load() -> Value? { read().value }
@@ -69,8 +73,17 @@ public struct AccountScopedCodableStore<Value: Codable> {
     public func save(_ value: Value) -> Bool {
         if case .unreadable = read() { return false }
         do {
-            let data = try JSONEncoder().encode(value)
+            var data = try JSONEncoder().encode(value)
             let key = storageKey
+            if let snapshotKeys {
+                guard let encoded = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                    throw CocoaError(.coderInvalidValue)
+                }
+                let stored = try defaults.data(forKey: key).map { try JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? nil
+                let fields = (stored ?? [:]).filter { !snapshotKeys.contains($0.key) }
+                    .merging(encoded) { _, new in new }
+                data = try JSONSerialization.data(withJSONObject: fields)
+            }
             defaults.set(data, forKey: key)
             let legacyKey = session().legacyKey(keyPrefix, guestIdentifier: guestIdentifier)
             if legacyKey != key, let data = defaults.data(forKey: legacyKey), decode(data) != nil {

@@ -515,7 +515,7 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
     private func nextUpcomingCourse() -> CourseRecord? {
         guard let firstDay = cache.firstDay else { return nil }
         let slotMap = Dictionary(uniqueKeysWithValues: cache.timeTable.map { ($0.id, $0) })
-        let now = Date()
+        let now = self.now()
 
         return cache.courses
             .compactMap { course -> (CourseRecord, Date)? in
