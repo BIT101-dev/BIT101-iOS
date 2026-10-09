@@ -9,6 +9,7 @@ import PaperFeature
 import ScheduleContracts
 import ScheduleSharedStore
 import Foundation
+import OSLog
 import ClientCore
 import GalleryFeature
 import CourseFeature
@@ -415,6 +416,7 @@ nonisolated struct NetworkSmokeFixtures: Codable, Sendable {
 
 /// ReleaseNetworkSmokeLaunchRequest 统一解析深链与 XCTest 环境中的网络验收参数。
 struct ReleaseNetworkSmokeLaunchRequest: Codable, Sendable {
+    private static let logger = Logger(subsystem: "BIT101", category: "NetworkSmoke")
     let scope: NetworkSmokeScope
     let runID: String
     let capture: NetworkSmokeCapture
@@ -428,11 +430,15 @@ struct ReleaseNetworkSmokeLaunchRequest: Codable, Sendable {
         AppFileDirectories.documentFileURL(named: "network-smoke-request.json")
     }
 
-    static func readPendingFile() -> Self? {
-        guard let pendingFileURL,
-              let data = try? AppFileDirectories.files.readData(at: pendingFileURL)
+    static func readPendingFile(files: any AppFileService = AppFileDirectories.files, at fileURL: URL? = nil) -> Self? {
+        guard let pendingFileURL = fileURL ?? Self.pendingFileURL,
+              let data = try? files.readData(at: pendingFileURL)
         else { return nil }
-        try? AppFileDirectories.files.removeItem(at: pendingFileURL)
+        do { try files.removeItem(at: pendingFileURL) }
+        catch {
+            logger.error("消费网络验收请求遇到错误：\(String(describing: error), privacy: .private)")
+            return nil
+        }
         return try? JSONDecoder().decode(Self.self, from: data)
     }
 

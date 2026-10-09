@@ -394,10 +394,12 @@ actor ScoreCacheDiskRepository {
               let data = try? files.readData(at: url),
               (try? decodeStoredData(data)) != nil
         else { return }
-        try? files.removeItem(at: url)
-        let directory = url.deletingLastPathComponent()
-        if (try? files.contentsOfDirectory(at: directory, options: []).isEmpty) == true {
-            try? files.removeItem(at: directory)
+        do {
+            try files.removeItem(at: url)
+            let directory = url.deletingLastPathComponent()
+            if try files.contentsOfDirectory(at: directory, options: []).isEmpty { try files.removeItem(at: directory) }
+        } catch {
+            Self.logger.error("清理成绩迁移文件遇到错误：\(String(describing: error), privacy: .private)")
         }
     }
 }

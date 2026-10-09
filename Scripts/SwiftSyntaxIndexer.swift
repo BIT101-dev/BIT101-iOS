@@ -36,6 +36,7 @@ struct FileFacts: Encodable {
     let members: [ScopedFact]
     let forceUnwraps: [ScopedFact]
     let emptyCatchClauses: [ScopedFact]
+    let discardedOptionalTries: [ScopedFact]
     let expressions: [ScopedFact]
     let bindings: [ScopedFact]
     let controlFlow: [ScopedFact]
@@ -216,6 +217,7 @@ final class FactVisitor: SyntaxVisitor {
     private(set) var members: [ScopedFact] = []
     private(set) var forceUnwraps: [ScopedFact] = []
     private(set) var emptyCatchClauses: [ScopedFact] = []
+    private(set) var discardedOptionalTries: [ScopedFact] = []
     private(set) var expressions: [ScopedFact] = []
     private(set) var bindings: [ScopedFact] = []
     private(set) var controlFlow: [ScopedFact] = []
@@ -738,6 +740,9 @@ final class FactVisitor: SyntaxVisitor {
     }
 
     override func visit(_ node: TryExprSyntax) -> SyntaxVisitorContinueKind {
+        if node.questionOrExclamationMark?.text == "?" && (node.parent?.is(CodeBlockItemSyntax.self) == true || node.parent?.trimmedDescription.replacingOccurrences(of: #"\s+"#, with: "", options: .regularExpression).hasPrefix("_=") == true) {
+            discardedOptionalTries.append(fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset))
+        }
         if node.questionOrExclamationMark?.text == "!" {
             forceUnwraps.append(fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset))
         }
@@ -977,6 +982,7 @@ func indexSource(_ source: String, as key: String) {
         members: visitor.members,
         forceUnwraps: visitor.forceUnwraps,
         emptyCatchClauses: visitor.emptyCatchClauses,
+        discardedOptionalTries: visitor.discardedOptionalTries,
         expressions: visitor.expressions,
         bindings: visitor.bindings,
         controlFlow: visitor.controlFlow,

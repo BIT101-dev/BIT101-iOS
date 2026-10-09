@@ -125,7 +125,8 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
                 images: images
             )
             try write(stored, to: fileURL)
-            try? removeObsoleteAssetRevisions(for: "gallery.json", keeping: revision, session: session)
+            do { try removeObsoleteAssetRevisions(for: "gallery.json", keeping: revision, session: session) }
+            catch { Self.logger.error("清理发帖草稿资产遇到错误：\(String(describing: error), privacy: .private)") }
             return true
         } catch {
             if let newRevision { removeAssets(for: "gallery.json", revision: newRevision, session: session) }
@@ -181,7 +182,8 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
                 images: images
             )
             try write(stored, to: fileURL)
-            try? removeObsoleteAssetRevisions(for: "suggestion.json", keeping: revision, session: session)
+            do { try removeObsoleteAssetRevisions(for: "suggestion.json", keeping: revision, session: session) }
+            catch { Self.logger.error("清理建议草稿资产遇到错误：\(String(describing: error), privacy: .private)") }
             return true
         } catch {
             if let newRevision { removeAssets(for: "suggestion.json", revision: newRevision, session: session) }
@@ -242,8 +244,14 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
 
     private func removeMigratedSource(_ sourceURL: URL?, filename: String, session: AppStorageSession) {
         guard let sourceURL, sourceURL != currentFileURL(for: filename, session: session) else { return }
-        try? files.removeItem(at: sourceURL)
-        try? files.removeItem(at: sourceURL.appendingPathExtension("assets"))
+        removeFile(sourceURL)
+        removeFile(sourceURL.appendingPathExtension("assets"))
+    }
+
+    private func removeFile(_ url: URL) {
+        do { try files.removeItem(at: url) }
+        catch let error as CocoaError where error.code == .fileNoSuchFile || error.code == .fileReadNoSuchFile { return }
+        catch { Self.logger.error("清理草稿文件遇到错误：\(String(describing: error), privacy: .private)") }
     }
 
     @MainActor
@@ -337,7 +345,7 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
             }
             return (revision, references)
         } catch {
-            try? files.removeItem(at: directory)
+            removeFile(directory)
             throw error
         }
     }
@@ -367,8 +375,8 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
     fileprivate func remove(filename: String, session: AppStorageSession) {
         for url in Set([currentFileURL(for: filename, session: session),
                         legacyAccountFileURL(for: filename, session: session), directoryURL.appendingPathComponent(filename)]) {
-            try? files.removeItem(at: url)
-            try? files.removeItem(at: url.appendingPathExtension("assets"))
+            removeFile(url)
+            removeFile(url.appendingPathExtension("assets"))
         }
     }
 
@@ -405,7 +413,7 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
     }
 
     private func removeAssets(for filename: String, revision: String, session: AppStorageSession) {
-        try? files.removeItem(at: assetDirectoryURL(for: filename, revision: revision, session: session))
+        removeFile(assetDirectoryURL(for: filename, revision: revision, session: session))
     }
 
     private func removeObsoleteAssetRevisions(

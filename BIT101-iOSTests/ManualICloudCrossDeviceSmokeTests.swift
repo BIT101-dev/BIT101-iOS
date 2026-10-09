@@ -35,10 +35,39 @@ nonisolated enum ICloudSmokeEvidence {
         guard let payload, !payload.rows.isEmpty, localVersion == expectedVersion else { return false }
         return (try? fingerprint(payload)) == expected
     }
+
+    @MainActor
+    static func cleanupConfirmed(account: String, coordinationKey: String, objectForKey: @MainActor (String) -> Any?,
+                                 cloudRecordDeleted: @MainActor () async throws -> Bool) async -> Bool {
+        let keys = ExperimentalPreferenceSyncDomain.allCases.map { "preference-sync.v2.\(account).\($0.rawValue)" }
+            + [coordinationKey]
+        guard keys.allSatisfy({ objectForKey($0) == nil }) else { return false }
+        return (try? await cloudRecordDeleted()) == true
+    }
 }
 
 @Suite("iCloud smoke evidence")
 struct ICloudSmokeEvidenceTests {
+    @Test @MainActor
+    func cleanupRequiresEveryRemoteKeyAndServerDeletion() async {
+        let account = "fixture"
+        let coordination = "coordination.fixture"
+        let keys = ExperimentalPreferenceSyncDomain.allCases.map { "preference-sync.v2.\(account).\($0.rawValue)" } + [coordination]
+        for key in keys {
+            var queriedRecord = false
+            let confirmed = await ICloudSmokeEvidence.cleanupConfirmed(account: account, coordinationKey: coordination,
+                objectForKey: { $0 == key ? Data([1]) : nil }, cloudRecordDeleted: { queriedRecord = true; return true })
+            #expect(!confirmed && !queriedRecord)
+        }
+        for deleted in [false, true] {
+            let confirmed = await ICloudSmokeEvidence.cleanupConfirmed(account: account, coordinationKey: coordination,
+                objectForKey: { _ in nil }, cloudRecordDeleted: { deleted })
+            #expect(confirmed == deleted)
+        }
+        let offline = await ICloudSmokeEvidence.cleanupConfirmed(account: account, coordinationKey: coordination,
+            objectForKey: { _ in nil }, cloudRecordDeleted: { throw URLError(.notConnectedToInternet) })
+        #expect(!offline)
+    }
     @Test("Concurrent smoke runs have separate cloud account identities")
     func runAccountsAreIsolated() throws {
         let first = "00000000-0000-0000-0000-000000000001"
@@ -268,13 +297,7 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
         try save(completed)
         coordinator.setEnabled(false)
         print("ICLOUD_SMOKE_MAC_RECEIVED_AND_PUBLISHED token=\(coordination.token)")
-        let cleaned = await waitUntil {
-            guard ExperimentalPreferenceSyncDomain.allCases.allSatisfy({
-                self.cloud.object(forKey: "preference-sync.v2.\(coordination.account).\($0.rawValue)") == nil
-            }), self.cloud.object(forKey: self.coordinationKey(account: coordination.account)) == nil else { return false }
-            return (try? await self.cloudRecordWasDeleted()) == true
-        }
-        XCTAssertTrue(cleaned, "Mac 应接收验收 KVS 删除，并确认 CloudKit 记录已删除")
+        await verifyCloudCleanup(account: coordination.account)
         try clearLocalSmokeFiles()
     }
 
@@ -461,10 +484,19 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
     }
 
     @MainActor
-    func testMacCleanup() throws {
-        _ = try smokeSession
+    func testMacCleanup() async throws {
+        await verifyCloudCleanup(account: try smokeSession.accountDirectoryName)
         clearLocalSmokePreferences()
         try clearLocalSmokeFiles()
+    }
+
+    @MainActor
+    private func verifyCloudCleanup(account: String) async {
+        let cleaned = await waitUntil {
+            await ICloudSmokeEvidence.cleanupConfirmed(account: account, coordinationKey: self.coordinationKey(account: account),
+                objectForKey: { self.cloud.object(forKey: $0) }, cloudRecordDeleted: { try await self.cloudRecordWasDeleted() })
+        }
+        XCTAssertTrue(cleaned, "Mac 应接收验收 KVS 与协调键删除，并确认 CloudKit 记录已删除")
     }
 
     @MainActor

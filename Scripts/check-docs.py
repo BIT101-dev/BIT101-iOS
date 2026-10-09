@@ -11,7 +11,7 @@ from urllib.parse import unquote, urlsplit
 import runpy
 import shutil
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.dont_write_bytecode = True
@@ -100,13 +100,16 @@ def link_targets(source: str) -> tuple[list[str], list[str]]:
 
 def document_findings(name: str, documents: dict[str, str], filenames: set[str]) -> list[str]:
     targets, errors = link_targets(documents[name])
+    directories = {str(parent) for filename in filenames for parent in PurePosixPath(filename).parents}
     for target in targets:
         parsed = urlsplit(target)
         if parsed.scheme or parsed.netloc: continue
         destination = posixpath.normpath(posixpath.join(posixpath.dirname(name), unquote(parsed.path))) if parsed.path else name
-        if destination not in filenames:
-            errors.append(f'文档链接需要有效文件：{target}')
-        elif parsed.fragment and destination in documents and unquote(parsed.fragment) not in heading_anchors(documents[destination]):
+        if destination not in filenames | directories:
+            errors.append(f'文档链接需要有效文件或目录：{target}')
+            continue
+        document = posixpath.normpath(posixpath.join(destination, 'README.md')) if destination in directories else destination
+        if parsed.fragment and document in documents and unquote(parsed.fragment) not in heading_anchors(documents[document]):
             errors.append(f'文档链接需要有效标题锚点：{target}')
     return [f'{name}: {error}' for error in errors]
 
@@ -125,6 +128,12 @@ def link_self_test() -> None:
         'docs/Help.md': 'Setup\n=====\n[back](../README.md#guide)\n'}
     assert document_findings('README.md', documents, set(documents)) == []
     assert document_findings('docs/Help.md', documents, set(documents)) == []
+    for source in ('[module](Modules/)', '[docs](docs/)', '[root](./#guide)'):
+        changed = dict(documents, **{'README.md': '# Guide\n' + source})
+        assert not document_findings('README.md', changed, set(documents) | {'Modules/Example/Sources/View.swift'})
+    for source in ('[bad](Missing/)', '[bad](../Modules/)', '[bad](./#missing)'):
+        changed = dict(documents, **{'README.md': source})
+        assert document_findings('README.md', changed, set(documents) | {'Modules/Example/Sources/View.swift'})
     for source in ('[bad](#missing)', '[bad](docs/Help.md#missing)', '[bad][missing]', '[bad](missing.md)', '[bad][details]\n[details]: docs/Help.md#missing'):
         assert document_findings('README.md', dict(documents, **{'README.md': source}), set(documents))
     assert link_targets('[nested [label]](file(with).md)')[0] == ['file(with).md']

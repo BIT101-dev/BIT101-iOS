@@ -161,6 +161,20 @@ struct NetworkSmokeCoverageTests {
         }
     }
 
+    @Test func pendingSmokeRequestRequiresSuccessfulConsumption() throws {
+        let files = PreferenceMemoryFiles()
+        let url = files.temporaryDirectoryURL.appending(path: "network-smoke-request.json")
+        let data = Data(#"{"scope":"bit101","runID":"fixture","capture":"none"}"#.utf8)
+        try files.writeData(data, to: url, options: [.atomic])
+        files.setFailures(removal: true)
+        #expect(ReleaseNetworkSmokeLaunchRequest.readPendingFile(files: files, at: url) == nil)
+        #expect(try files.readData(at: url) == data)
+        files.setFailures()
+        #expect(ReleaseNetworkSmokeLaunchRequest.readPendingFile(files: files, at: url)?.runID == "fixture")
+        #expect(!files.fileExists(at: url))
+        #expect(ReleaseNetworkSmokeLaunchRequest.readPendingFile(files: files, at: url) == nil)
+    }
+
     @Test func imageProbeUsesAnAvailableResourceAcrossTheSampledList() {
         let empty = CommunityImage(mid: "empty", url: "", lowUrl: "")
         let image = CommunityImage(mid: "image", url: "https://image.invalid/full", lowUrl: "https://image.invalid/low")

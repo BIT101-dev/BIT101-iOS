@@ -244,6 +244,20 @@ def cancellation_findings(path: Path, source: str, facts: dict | None) -> list[s
     return findings
 
 
+def discarded_file_write_findings(path: Path, source: str, facts: dict) -> list[str]:
+    if any(path.is_relative_to(ROOT / name) for name in ("BIT101-iOSTests", "BIT101-iOSUITests", "ModuleTests")): return []
+    cache_paths = {ROOT / "Modules/MediaKit/Sources/RemoteImageCache.swift", ROOT / "Modules/MediaKit/Sources/CachedRemoteImage.swift"}
+    if path in cache_paths: return []
+    errors = []
+    for clause in facts.get("discardedOptionalTries", []):
+        end = clause["start"] + len(clause["value"].encode())
+        calls = [call for call in facts.get("calls", []) if clause["start"] <= call["start"] < end]
+        if calls and calls[0]["value"].rsplit(".", 1)[-1] in {"removeItem", "writeData", "createDirectory", "moveItem", "copyItem"}:
+            line = source.encode()[:clause["start"]].count(b"\n") + 1
+            errors.append(f"{path.relative_to(ROOT)}:{line}: 文件写入与删除需要处理错误或记录诊断")
+    return errors
+
+
 def source_findings(syntax_index: dict[str, dict] | None = None) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     review: list[str] = []
@@ -293,6 +307,7 @@ def source_findings(syntax_index: dict[str, dict] | None = None) -> tuple[list[s
         errors.extend(cancellation_findings(path, source, syntax_index.get(str(path)) if syntax_index else None))
         add_matches(errors, path, masked_source, unsafe_concurrency_escape, "禁止绕过 Swift 并发安全检查：请表达真实隔离或使用锁/Actor")
         facts = syntax_index.get(str(path)) if syntax_index else None
+        if facts: errors.extend(discarded_file_write_findings(path, source, facts))
         for clause in (facts or {}).get("emptyCatchClauses", []):
             line = source.encode()[:clause["start"]].count(b"\n") + 1
             errors.append(f"{name}:{line}: 禁止静默吞掉异常；请记录诊断或显式处理错误")

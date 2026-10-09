@@ -108,6 +108,16 @@ let comparison = left != right
 struct Handler { var value: String!; func read() -> String { value }; func catches() { do {} catch _ {}; do {} catch let error {}; do {} catch is Error {}; do {} catch { handle(error) } } }
 '''
     unwrap_facts = swift_syntax_index_sources({"Unwrap.swift": unwrap_source})["Unwrap.swift"]
+    from code_quality_rules import discarded_file_write_findings
+    write_path = ROOT / "Modules/CommunityPersistence/Sources/Example.swift"
+    write_source = 'func update() { try? files.removeItem(at: url); _ = try? files.writeData(data, to: url); let result = try? files.createDirectory(at: url); let data = try? files.readData(at: url) }'
+    write_facts = swift_syntax_index_sources({str(write_path): write_source})[str(write_path)]
+    if len(discarded_file_write_findings(write_path, write_source, write_facts)) != 2:
+        findings.append("代码质量自测：文件副作用的丢弃结果需要错误处理，已消费结果沿调用方处理")
+    if discarded_file_write_findings(ROOT / "Modules/MediaKit/Sources/RemoteImageCache.swift", write_source, write_facts):
+        findings.append("代码质量自测：图片缓存沿已有可选写盘合同处理")
+    if discarded_file_write_findings(ROOT / "ModuleTests/Support/Fixture.swift", write_source, write_facts):
+        findings.append("代码质量自测：夹具准备和清理沿测试生命周期处理")
     if len(unwrap_facts["forceUnwraps"]) != 7 or len(unwrap_facts["emptyCatchClauses"]) != 3 or not any(path.is_relative_to(ROOT / "BIT101-iOSUITests") for path in swift_files()):
         findings.append("代码质量规则边界自检失败：全部测试目录的解包、强制 try 与类型转换识别")
     view_source = "struct SampleView: View { let request = URLRequest(url: url) }"
