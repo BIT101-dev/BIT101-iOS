@@ -4,7 +4,7 @@ import re
 from urllib.parse import urlsplit
 from validation_policy import NETWORK_GROUPS
 
-LIVE_GROUPS = NETWORK_GROUPS | {"icloud", "icloud-cleanup", "manual-device"}
+LIVE_GROUPS = NETWORK_GROUPS | {"audit", "icloud", "icloud-cleanup", "manual-device"}
 LIVE_EVIDENCE_LIFETIME = timedelta(days=1)
 
 

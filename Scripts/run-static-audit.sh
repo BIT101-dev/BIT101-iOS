@@ -7,6 +7,25 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT_DIR/Scripts/script-support.sh"
 bit101_acquire_script_lock "$ROOT_DIR/.build/static-audit/audit.lock" BIT101_STATIC_AUDIT_LOCK_HELD "$0" "$@"
+LOG_DIR="$ROOT_DIR/.build/static-audit"
+AUDIT_STARTED=$SECONDS
+group_processes=()
+BIT101_VALIDATION_STARTED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+export BIT101_VALIDATION_STARTED_AT
+finish_audit() {
+  local audit_status=$?
+  trap - EXIT INT TERM
+  for pid in "${group_processes[@]}"; do if (( pid > 0 )); then kill "$pid" 2>/dev/null || true; fi; done
+  for pid in "${group_processes[@]}"; do if (( pid > 0 )); then wait "$pid" 2>/dev/null || true; fi; done
+  local record_status=0
+  python3 "$ROOT_DIR/Scripts/validation_evidence.py" record audit "$audit_status" || record_status=$?
+  if (( audit_status == 0 )); then audit_status=$record_status; fi
+  if (( audit_status == 0 )); then echo "静态审计通过 · 10 组 · $(( SECONDS - AUDIT_STARTED )) 秒"; fi
+  exit "$audit_status"
+}
+trap finish_audit EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 if [[ -z "${SWIFT_FRONTEND:-}" ]]; then
   SWIFT_FRONTEND="$(xcrun --find swift-frontend 2>/dev/null || true)"
@@ -15,8 +34,6 @@ if [[ -z "$SWIFT_FRONTEND" || ! -x "$SWIFT_FRONTEND" ]]; then
   echo "[失败] 找不到可用的 swift-frontend；请检查当前 Xcode 工具链" >&2
   exit 1
 fi
-LOG_DIR="$ROOT_DIR/.build/static-audit"
-AUDIT_STARTED=$SECONDS
 BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest audit)"
 BIT101_VALIDATION_RUN_ID="$(uuidgen)"
 export BIT101_VALIDATION_SOURCE_DIGEST BIT101_VALIDATION_RUN_ID
@@ -102,7 +119,6 @@ run_group artifact-hygiene artifact_hygiene || failed_groups+=(artifact-hygiene)
 if (( ${#failed_groups} )); then cat "$LOG_DIR/artifact-hygiene.log" >&2; fi
 group_names=(swift-parse shell-parse python-parse worker-parse dependency-audit module-boundary git-diff docs checkers)
 group_commands=(swift_parse shell_parse python_parse worker_parse dependency_audit module_boundary_audit git_check docs_check checker_audit)
-group_processes=()
 for (( index = 1; index <= ${#group_names}; index++ )); do
   run_group "$group_names[$index]" "$group_commands[$index]" &
   group_processes+=($!)
@@ -111,8 +127,10 @@ for (( index = 1; index <= ${#group_names}; index++ )); do
   name="$group_names[$index]"
   group_failed=false
   if wait "$group_processes[$index]"; then
+    group_processes[$index]=0
     [[ "$name" == checkers ]] || continue
   else
+    group_processes[$index]=0
     failed_groups+=($name)
     group_failed=true
   fi
@@ -121,8 +139,6 @@ for (( index = 1; index <= ${#group_names}; index++ )); do
 done
 if (( ${#failed_groups[@]} > 0 )); then
   printf '[失败汇总] %s\n' "${(j:, :)failed_groups}" >&2
-  python3 "$ROOT_DIR/Scripts/validation_evidence.py" record audit 1 || true
   exit 1
 fi
-python3 "$ROOT_DIR/Scripts/validation_evidence.py" record audit 0
-echo "静态审计通过 · 10 组 · $(( SECONDS - AUDIT_STARTED )) 秒"
+exit 0

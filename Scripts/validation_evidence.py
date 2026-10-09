@@ -10,7 +10,7 @@ import re
 from pathlib import Path
 import subprocess
 import sys
-from code_quality_rules import mask_literals_and_comments
+from swift_source_index import swift_code as mask_literals_and_comments
 from functools import cache
 from contextlib import contextmanager
 sys.dont_write_bytecode = True
@@ -19,10 +19,9 @@ from validation_inputs import includes_input, repository_input_names
 from validation_policy import TEST_GROUPS, RELEASE_GROUPS, DEFAULT_VERIFY_GROUPS, FORMAL_RUNTIME_SUITES, MODULE_COVERAGE_FLOORS, IOS_MODULE_COVERAGE_FLOORS
 from validation_test_areas import TEST_AREA_SUITES
 from validation_compilation import compilation_condition
-from validation_manual import MANUAL_DEVICE_CHECKS, capture as capture_manual, complete as manual_complete, distribution_matches_archive
 from validate_distribution import archive_build_summary, valid_archive_provenance, valid_executable_uuids, distribution_contracts
 from validation_environment import environment_context, complete_environment, toolchain_identity
-from validation_provenance import LIVE_GROUPS, NETWORK_GROUPS, evidence_current, producing_run_matches, utc_now
+from validation_provenance import LIVE_GROUPS, NETWORK_GROUPS, evidence_current, producing_run_matches, sampling_evidence_current, utc_now
 
 ROOT = Path(__file__).resolve().parents[1]
 REPORT = ROOT / ".build/extended-automation/validation-evidence.json"
@@ -410,6 +409,7 @@ def complete_summary(group: str, summary: dict) -> bool:
         return all(summary.get(key, {}).get("exitCode") == 0 and successful_test_counts(summary.get(key, {}))
             for key in ("cleanup", "macCleanup"))
     if group == "manual-device":
+        from validation_manual import complete as manual_complete
         checks = summary.get("checks", {})
         return manual_complete(checks)
     if group == "build-archive":
@@ -421,7 +421,7 @@ def complete_summary(group: str, summary: dict) -> bool:
     if group == "restore":
         from validation_restore import complete as restore_complete
         return restore_complete(summary)
-    return summary.get("kind") == "audit"
+    return summary.get("kind") == "audit" and (group != "audit" or sampling_evidence_current(summary))
 
 
 def release_findings(report: dict, digest: str, *, recorded_environment: bool = False) -> list[str]:
@@ -447,6 +447,7 @@ def release_findings(report: dict, digest: str, *, recorded_environment: bool = 
         errors.append("发布编译工具链及 SDK 与已绑定证据存在差异，请重新验收。")
     groups = report.get("groups", {})
     observation = groups.get("manual-device", {}).get("summary", {}).get("checks", {}).get("distribution-signing", {})
+    from validation_manual import distribution_matches_archive
     if not distribution_matches_archive(observation, groups.get("build-archive", {})):
         errors.append("最终分发签名需要对应已验证归档的源码摘要、运行标识与可执行文件 UUID。")
     return errors
@@ -500,6 +501,8 @@ def record(group: str, status: int, scope: str, started_digest: str) -> int:
             if group in NETWORK_GROUPS: row["summary"]["inputDigest"] = started_digest
     else:
         row["summary"] = {"passed": status == 0, "kind": "build" if group.startswith("build-") else "restore" if group == "restore" else "audit"}
+        if group == "audit":
+            row["summary"].update(startedAt=os.getenv("BIT101_VALIDATION_STARTED_AT", ""), finishedAt=row["recordedAt"])
         if group == "restore" and status == 0:
             from validation_restore import summary as restore_summary
             try: row["summary"] = restore_summary(run_id, started_digest)
@@ -684,6 +687,7 @@ def main() -> int:
         print(f"{args.group} 需要完整子流程结果并匹配当前验证输入。", file=sys.stderr)
         return 1
     if args.action == "manual":
+        from validation_manual import MANUAL_DEVICE_CHECKS, capture as capture_manual, complete as manual_complete, distribution_matches_archive
         if args.group not in MANUAL_DEVICE_CHECKS or args.evidence is None:
             parser.error("真机专项需要有效检查项及操作、观察结果和本地附件。")
         try: observation = capture_manual(args.operation, args.result, args.evidence, args.group, args.outcome, args.observed_at)

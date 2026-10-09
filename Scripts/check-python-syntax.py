@@ -8,21 +8,52 @@ root = Path(sys.argv[1])
 
 def compile_embedded_python(source, path):
     headers = re.compile(r"<<(?P<tabs>-)?[ \t]*(?P<quote>['\"]?)(?P<label>[A-Za-z_]\w*)(?P=quote)(?=[ \t\n;|&<>]|$)")
-    for header in headers.finditer(source):
-        opening = source[source.rfind("\n", 0, header.start()) + 1:header.start()]
-        if not header["label"].startswith("PY") and not re.search(r"(?:^|[\s(;|&])(?:[^\s'\"]*/)?python(?:\d+(?:\.\d+)*)?(?=\s|$)", opening):
+    interpreter = re.compile(r"(?:^|[\s(;|&])(?:[^\s'\"]*/)?python(?:\d+(?:\.\d+)*)?(?=\s|$)")
+    visible = [" "] * len(source)
+    contexts = ["command"]
+    position = line_start = 0
+    while position < len(source):
+        character, context = source[position], contexts[-1]
+        if character == "\\" and context != "'":
+            position += 2
             continue
+        if context in {"'", '"'}:
+            if character == context: contexts.pop()
+            elif context == '"' and source.startswith("$(", position):
+                contexts.append("command"); position += 1
+            position += 1
+            continue
+        if character == "#" and (position == 0 or source[position - 1] in " \t\n;|&()"):
+            newline = source.find("\n", position)
+            position = len(source) if newline < 0 else newline
+            continue
+        if character in "'\"":
+            contexts.append(character); position += 1
+            continue
+        if character == "(": contexts.append("command")
+        elif character == ")" and len(contexts) > 1: contexts.pop()
+        header = headers.match(source, position)
+        if header is None:
+            visible[position] = character
+            if character == "\n": line_start = position + 1
+            position += 1
+            continue
+        opening = "".join(visible[line_start:position])
+        is_python = header["label"].startswith("PY") or interpreter.search(opening) is not None
         body = []
         opening_end = source.find("\n", header.end())
         if opening_end < 0: raise SyntaxError(f"{path}: Python heredoc 正文缺失")
+        position = opening_end + 1
         for line in source[opening_end + 1:].splitlines(keepends=True):
+            position += len(line)
             line = line.lstrip("\t") if header["tabs"] else line
             if line.rstrip("\r\n") == header["label"]:
                 break
             body.append(line)
         else:
             raise SyntaxError(f"{path}: Python heredoc 结束标记缺失")
-        compile("".join(body), str(path), "exec")
+        if is_python: compile("".join(body), str(path), "exec")
+        line_start = position
 
 for opening in ["<<PY", "<< 'PY'", '<<"PY"', "<<'PY'", "<<-PY", "<<'PY' >/dev/null", "<<'PY' | cat", "<<'PY' 2>&1", "<<'EOF'", '<<"END_SCRIPT"']:
     label = "EOF" if "EOF" in opening else "END_SCRIPT" if "END_SCRIPT" in opening else "PY"
@@ -36,6 +67,13 @@ for opening in ["<<PY", "<< 'PY'", '<<"PY"', "<<'PY'", "<<-PY", "<<'PY' >/dev/nu
         raise AssertionError(f"Python heredoc 语法审计遗漏：{opening}")
 
 compile_embedded_python("cat <<'EOF'\nif True\nEOF\n", "shell-text-self-test")
+for source in ("# python3 <<'PY'\n", "echo value # python3 <<'PY'\n", 'echo "python3 <<PY"\n',
+               "cat <<'EOF'\n# python3 <<'PY'\nEOF\n"):
+    compile_embedded_python(source, "shell-lexical-self-test")
+for source in ("python3 - \\\n <<'EOF'\nif True\nEOF\n", 'value="$(python3 - <<\'EOF\'\nif True\nEOF\n)"\n'):
+    try: compile_embedded_python(source, "shell-continuation-self-test")
+    except SyntaxError: pass
+    else: raise AssertionError("Python heredoc 语法审计需要覆盖续行及命令替换")
 
 for path in sorted((root / "Scripts").glob("*.py")):
     compile(path.read_text(encoding="utf-8"), str(path), "exec")

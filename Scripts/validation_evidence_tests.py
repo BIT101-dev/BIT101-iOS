@@ -234,15 +234,15 @@ def run_self_test(subject) -> int:
         missing['ScheduleSync'] = {'coveredLines': 75, 'executableLines': 100}
         assert not subject.coverage_complete('modules', dict(summaries['modules'], coverage=missing))
         summaries['ui']['uiInventory'] = {'observed': 1, 'visited': 1, 'pending': [], 'scope': 'mounted-controls', 'unidentifiedControls': 0, 'pendingDisabled': [], 'identityScope': 'testCaseNavigationPresentationAndOccurrence'}
-        summaries['audit'] = {'passed': True, 'kind': 'audit'}
+        summaries['audit'] = {'passed': True, 'kind': 'audit', 'startedAt': subject.utc_now().isoformat(), 'finishedAt': subject.utc_now().isoformat()}
         summaries['restore'] = dict(passed=True, kind='restore', initialized=True, sessionRecovered=True, active=True, processAlive=True, processIdentifier=1, runID='00000000-0000-4000-8000-000000000001', inputDigest=subject.source_digest('restore'), startedAt=subject.utc_now().isoformat(), finishedAt=subject.utc_now().isoformat())
         provenance = {'inputDigest': subject.source_digest('build-archive'), 'runID': 'fixture-run'}
         distribution_proof = distribution_fixture()[1]
         summaries['build-archive'] = {'passed': True, 'kind': 'build', 'archiveProvenance': provenance,
             'executables': {row['identifier']: row['executableUUIDs'] for row in distribution_proof['bundles']}}
-        from validation_manual import capture, complete
+        from validation_manual import MANUAL_DEVICE_CHECKS, capture, complete
         checks = {}
-        for name in subject.MANUAL_DEVICE_CHECKS: checks[name] = captured_fixture(name, provenance)
+        for name in MANUAL_DEVICE_CHECKS: checks[name] = captured_fixture(name, provenance)
         summaries['manual-device'] = {'passed': True, 'checks': checks}
         assert complete(checks)
         stale = json.loads(json.dumps(checks))
@@ -262,7 +262,7 @@ def run_self_test(subject) -> int:
             next(iter(changed.values()))['evidence'][field] = value
             assert not complete(changed)
         assert not subject.complete_summary('manual-device', {'passed': True, 'checks': {}})
-        assert not subject.complete_summary('manual-device', {'passed': True, 'checks': {name: 'pass' for name in subject.MANUAL_DEVICE_CHECKS}})
+        assert not subject.complete_summary('manual-device', {'passed': True, 'checks': {name: 'pass' for name in MANUAL_DEVICE_CHECKS}})
         summaries['network'] = subject.smoke_summary('network', network_trace_fixture({'passed': True, 'scope': 'all', 'executedProbes': sorted(subject.network_inventory()), 'requiredProbes': sorted(subject.network_inventory()), 'currentTerm': 'fixture-current', 'validatedTerm': 'fixture-current'}))
         sms = network_trace_fixture({'passed': True, 'scope': 'school', 'executedProbes': sorted(subject.network_inventory('school')), 'requiredProbes': sorted(subject.network_inventory('school')), 'schoolSMSCoverage': 'verified', 'verifiedSMSProbes': [{'purpose': purpose, 'probe': sorted(subject.SCHOOL_SMS_PROBES[purpose])[0]} for purpose in subject.school_sms_inventory()]})
         sms.update(authenticatedSchoolProbes=sms['verifiedSMSProbes'], requestedSMSPurposes=sorted(subject.school_sms_inventory()), currentTerm='fixture-current', validatedTerm='fixture-current')

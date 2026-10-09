@@ -20,6 +20,32 @@ def script_command_boundary_findings() -> list[str]:
     import plistlib
 
     findings = []
+    isolated_digest = '''from pathlib import Path
+from unittest.mock import patch
+import sys
+original_read = Path.read_text
+def read(path, *args, **kwargs):
+    if path.name == 'PerformanceWorkloads.json': raise ValueError('invalid workload fixture')
+    return original_read(path, *args, **kwargs)
+with patch.object(Path, 'read_text', read):
+    import validation_evidence
+    with patch.object(validation_evidence, 'source_digest', return_value='fixture'), patch.object(sys, 'argv', ['validation_evidence.py', 'digest']):
+        raise SystemExit(validation_evidence.main())
+'''
+    result = subprocess.run([sys.executable, '-B', '-c', isolated_digest], cwd=SCRIPT_ROOT, capture_output=True, text=True)
+    if result.returncode or result.stdout.strip() != 'fixture':
+        findings.append('基础证据摘要自测：人工性能配置按所属操作加载')
+    audit_source = (SCRIPT_ROOT / 'run-static-audit.sh').read_text()
+    audit_exit = 'finish_audit() {' + audit_source.split('finish_audit() {', 1)[1].split('\nif [[ -z "${SWIFT_FRONTEND:-}"', 1)[0]
+    for action, expected, recording in (('exit 0', 0, 0), ('exit 7', 7, 0), ('kill -s INT $$', 130, 0),
+                                       ('kill -s TERM $$', 143, 0), ('exit 0', 9, 9), ('exit 7', 7, 9)):
+        harness = f'''ROOT_DIR=/fixture AUDIT_STARTED=$SECONDS group_processes=()
+python3() {{ print -r -- "RECORD $*"; return {recording}; }}
+'''
+        result = subprocess.run(['zsh', '-c', harness + audit_exit + '\n' + action], capture_output=True, text=True)
+        original = expected if not recording else 0 if action == 'exit 0' else 7
+        if result.returncode != expected or result.stdout.count(f'RECORD /fixture/Scripts/validation_evidence.py record audit {original}') != 1:
+            findings.append('静态审计退出自测：完成、失败及信号统一登记，保留原始失败状态')
     simulator = subprocess.run(['zsh', str(SCRIPT_ROOT / 'simulator-tests.sh'), 'info'],
         env=dict(os.environ, BIT101_SIMULATOR_AUTHORIZED='0'), capture_output=True, text=True)
     if simulator.returncode != 64 or '显式授权' not in simulator.stderr:

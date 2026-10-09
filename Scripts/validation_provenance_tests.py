@@ -37,7 +37,7 @@ def run_self_test(recorder) -> None:
                 patch.object(module.subprocess, "check_output", return_value="head"), \
                 patch("validation_performance.bundle_digest", return_value="a" * 64), patch("validation_performance.current_commit", return_value="head"), \
                 patch("validation_performance.extract_measurements", return_value={"records": {}}), \
-                patch.dict(os.environ, BIT101_VALIDATION_RUN_ID=run_id), redirect_stderr(StringIO()):
+                patch.dict(os.environ, BIT101_VALIDATION_RUN_ID=run_id, BIT101_VALIDATION_STARTED_AT=utc_now().isoformat()), redirect_stderr(StringIO()):
             assert recorder(group, 0, "full", start) == expected, (group, artifact)
             assert saved.call_args.args[0]["groups"][group]["exitCode"] == expected
             if group in {"all", "ui"} and expected == 0:
@@ -76,7 +76,7 @@ def run_self_test(recorder) -> None:
     assert not sampling_evidence_current(dict(fresh, startedAt=now.isoformat()), now)
     assert not sampling_evidence_current({"startedAt": "invalid", "finishedAt": "invalid"}, now)
     assert not sampling_evidence_current({}, now)
-    for group in ("network", "icloud", "manual-device"):
+    for group in ("audit", "network", "icloud", "manual-device"):
       for summary, expected, label in ((fresh, 0, "通过"),
             (dict(fresh, finishedAt=(now - timedelta(days=2)).isoformat()), 1, "待复验")):
           row = dict(group_row, summary=dict(summary, passed=True))

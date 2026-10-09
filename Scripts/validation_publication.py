@@ -69,7 +69,7 @@ def self_test() -> None:
         receipt = release_receipt(report, 'v1.0', digest)
         assert 'secret' not in json.dumps(receipt) and '"device":' not in json.dumps(receipt)
         assert not receipt_findings(receipt, 'v1.0', 'commit', digest)
-        for fault in ('commit', 'tag', 'group', 'private', 'digest', 'failed', 'stale', 'toolchain'):
+        for fault in ('commit', 'tag', 'group', 'private', 'digest', 'failed', 'stale', 'stale-audit', 'toolchain'):
             changed = json.loads(json.dumps(receipt))
             if fault == 'commit': changed['releaseCommit'] = 'other'
             if fault == 'tag': changed['tag'] = 'v2.0'
@@ -78,6 +78,7 @@ def self_test() -> None:
             if fault == 'digest': changed['groups']['all']['inputDigest'] = 'b' * 64
             if fault == 'failed': changed['groups']['all']['passed'] = False
             if fault == 'stale': changed['groups']['manual-device']['sampling']['startedAt'] = '2000-01-01T00:00:00+00:00'
+            if fault == 'stale-audit': changed['groups']['audit']['sampling']['startedAt'] = '2000-01-01T00:00:00+00:00'
             if fault == 'toolchain': changed['groups']['all']['toolchain'] = {'xcode': 'other'}
             assert receipt_findings(changed, 'v1.0', 'commit', digest), fault
     core = core_exchange(report | {'mergeCommit': 'commit', 'performanceBaseline': {'records': {'fixture': 'approved'}}})
