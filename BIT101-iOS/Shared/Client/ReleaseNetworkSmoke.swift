@@ -80,6 +80,9 @@ final class ReleaseNetworkSmokeRunner {
     private var verifiedSMSProbes: [SchoolSMSProbeEvidence] = []
     private var authenticatedSchoolProbes: [SchoolSMSProbeEvidence] = []
     private var requestedSMSPurposes: [String] = []
+    private var requestedScheduleTerm: String?
+    private var currentScheduleTerm: String?
+    private var validatedScheduleTerm: String?
 
     init(dependencies: ReleaseNetworkSmokeDependencies = .init()) { self.dependencies = dependencies }
 
@@ -116,6 +119,10 @@ final class ReleaseNetworkSmokeRunner {
         verifiedSMSProbes = []
         authenticatedSchoolProbes = []
         requestedSMSPurposes = []
+        let normalizedTerm = requestedTerm?.trimmingCharacters(in: .whitespacesAndNewlines)
+        requestedScheduleTerm = normalizedTerm?.isEmpty == false ? normalizedTerm : nil
+        currentScheduleTerm = nil
+        validatedScheduleTerm = nil
         if let handler = schoolSMSCodeHandler {
             schoolSMSHandler = { [weak self] request in
                 self?.requestedSMSPurposes.append(request.purpose)
@@ -393,19 +400,19 @@ final class ReleaseNetworkSmokeRunner {
         _ = await probe("生产学校会话", area: .schedule, scope: scope) { try await productionSchedule.fetchCurrentTermOnly() }
         schoolSMSSchedule = schedule
         let currentTerm = await probe("当前学期", area: .schedule, scope: scope) { try await schedule.fetchCurrentTermOnly() }
+        currentScheduleTerm = currentTerm
         _ = await probe("切换学期列表", area: .schedule, scope: scope) {
             try await schedule.fetchAvailableTerms()
         }
-        let normalizedRequestedTerm = requestedTerm?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let term = normalizedRequestedTerm?.isEmpty == false
-            ? normalizedRequestedTerm
-            : currentTerm
+        let term = requestedScheduleTerm ?? currentTerm
         if let term {
             let syncPayload = await probe("课表、考试与首周同步", area: .schedule, scope: scope) {
                 let payload = try await schedule.syncCourses(term: term)
+                guard payload.term == term else { throw URLError(.badServerResponse) }
                 try Self.validateCourseSyncPayload(payload)
                 return payload
             }
+            validatedScheduleTerm = syncPayload?.term
             if capture == .scheduleCache, let syncPayload {
                 scheduleCache = captureScheduleCache(from: syncPayload)
             }
@@ -559,6 +566,9 @@ final class ReleaseNetworkSmokeRunner {
         report.requestedSMSPurposes = requestedSMSPurposes
         report.communityWriteEvidence = communityWriteEvidence
         report.productionSessionEvidence = productionSessionEvidence
+        report.requestedTerm = requestedScheduleTerm
+        report.currentTerm = currentScheduleTerm
+        report.validatedTerm = validatedScheduleTerm
         do {
             try dependencies.writeReport(report)
         } catch {

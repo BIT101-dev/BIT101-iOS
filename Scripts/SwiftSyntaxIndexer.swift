@@ -67,6 +67,10 @@ struct ScopedFact: Encodable {
     var receiverCall: String? = nil
     var closureArguments: [[Int]]? = nil
     var calledExpression: String? = nil
+    var bindingName: String? = nil
+    var bindingType: String? = nil
+    var initializerCall: String? = nil
+    var initializerReference: String? = nil
 }
 
 struct SelectionControlFact: Encodable {
@@ -146,6 +150,7 @@ struct FunctionRangeFact: Encodable {
     var bodyStart: Int? = nil
     var isExported: Bool = false
     var referenceTarget: String? = nil
+    var returnedCall: String? = nil
 }
 
 struct FunctionParameterFact: Encodable {
@@ -313,7 +318,7 @@ final class FactVisitor: SyntaxVisitor {
                 FunctionParameterFact(label: $0.firstName.text == "_" ? "" : $0.firstName.text, type: $0.type.trimmedDescription,
                     hasDefault: $0.defaultValue != nil, variadic: $0.ellipsis != nil, name: ($0.secondName ?? $0.firstName).text)
             }, bodyStart: node.body?.positionAfterSkippingLeadingTrivia.utf8Offset,
-            isExported: functionIsExported(node)
+            isExported: functionIsExported(node), returnedCall: returnedCall(node.body?.statements)
         ))
         functionStack.append((node.name.text, scope, closureDepth))
         if let body = node.body, body.statements.count == 1,
@@ -411,6 +416,7 @@ final class FactVisitor: SyntaxVisitor {
         calls.append(call)
         var invocation = fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset)
         invocation.calledExpression = calledExpression
+        invocation.receiverCall = call.receiverCall
         invocation.argumentLabels = node.arguments.map { $0.label?.text ?? "" }
         invocation.arguments = node.arguments.map { $0.expression.trimmedDescription }
         invocation.argumentRanges = node.arguments.map {
@@ -714,6 +720,12 @@ final class FactVisitor: SyntaxVisitor {
         return value.tokens(viewMode: .sourceAccurate).map(\.text).joined()
     }
 
+    private func returnedCall(_ statements: CodeBlockItemListSyntax?) -> String? {
+        guard let statements, statements.count == 1, let item = statements.first?.item else { return nil }
+        let expression = item.as(ExprSyntax.self) ?? item.as(ReturnStmtSyntax.self)?.expression
+        return expression?.as(FunctionCallExprSyntax.self)?.calledExpression.tokens(viewMode: .sourceAccurate).map(\.text).joined()
+    }
+
     override func visit(_ node: SequenceExprSyntax) -> SyntaxVisitorContinueKind {
         expressions.append(fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset))
         let parts = Array(node.elements)
@@ -728,7 +740,12 @@ final class FactVisitor: SyntaxVisitor {
     }
 
     override func visit(_ node: PatternBindingSyntax) -> SyntaxVisitorContinueKind {
-        bindings.append(fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset))
+        var binding = fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset)
+        binding.bindingName = node.pattern.as(IdentifierPatternSyntax.self)?.identifier.text
+        binding.bindingType = node.typeAnnotation?.type.trimmedDescription
+        binding.initializerCall = node.initializer?.value.as(FunctionCallExprSyntax.self)?.calledExpression.tokens(viewMode: .sourceAccurate).map(\.text).joined()
+        binding.initializerReference = functionReference(node.initializer?.value)
+        bindings.append(binding)
         if let declaration = node.parent?.parent?.as(VariableDeclSyntax.self), declaration.parent?.is(MemberBlockItemSyntax.self) == true,
            node.initializer != nil, !declaration.modifiers.contains(where: { ["static", "class", "lazy"].contains($0.name.text) }) {
             initializers.append(FunctionRangeFact(name: "init", returnType: nil, returnsView: false, scope: scope,
@@ -744,7 +761,8 @@ final class FactVisitor: SyntaxVisitor {
                 returnType: node.typeAnnotation?.type.trimmedDescription, returnsView: false, scope: scope,
                 start: node.positionAfterSkippingLeadingTrivia.utf8Offset,
                 end: node.endPositionBeforeTrailingTrivia.utf8Offset, lexicalScope: lexicalScope, parameters: [],
-                referenceTarget: functionReference(node.initializer?.value)))
+                referenceTarget: functionReference(node.initializer?.value),
+                returnedCall: returnedCall(node.initializer?.value.as(ClosureExprSyntax.self)?.statements)))
         }
         if let pattern = node.pattern.as(IdentifierPatternSyntax.self),
            let type = node.typeAnnotation?.type

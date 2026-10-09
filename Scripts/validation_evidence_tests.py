@@ -196,6 +196,12 @@ def run_self_test(subject) -> int:
         summaries['modules']['coverage'] = {name: {'coveredLines': floor, 'executableLines': 100} for name, floor in subject.MODULE_COVERAGE_FLOORS.items()}
         summaries['all']['coverage'] = {'BIT101-iOS.app': {'coveredLines': 35, 'executableLines': 100}}
         summaries['all']['coverage'].update({'iOS/' + name: {'coveredLines': floor, 'executableLines': 100} for name, floor in subject.IOS_MODULE_COVERAGE_FLOORS.items()})
+        summaries['ui']['coverage'] = dict(summaries['all']['coverage'])
+        assert subject.coverage_complete('ui', summaries['ui'])
+        assert not subject.coverage_complete('ui', dict(summaries['ui'], coverage={}))
+        ui_missing = dict(summaries['ui']['coverage'])
+        ui_missing['iOS/ScoreFeature'] = {'coveredLines': 0, 'executableLines': 100}
+        assert not subject.coverage_complete('ui', dict(summaries['ui'], coverage=ui_missing))
         assert subject.coverage_complete('all', summaries['all'])
         ios_missing = dict(summaries['all']['coverage'])
         ios_missing.pop('iOS/MediaKit')
@@ -241,9 +247,9 @@ def run_self_test(subject) -> int:
             assert not complete(changed)
         assert not subject.complete_summary('manual-device', {'passed': True, 'checks': {}})
         assert not subject.complete_summary('manual-device', {'passed': True, 'checks': {name: 'pass' for name in subject.MANUAL_DEVICE_CHECKS}})
-        summaries['network'] = subject.smoke_summary('network', {'passed': True, 'scope': 'all', 'executedProbes': sorted(subject.network_inventory()), 'requiredProbes': sorted(subject.network_inventory())})
+        summaries['network'] = subject.smoke_summary('network', {'passed': True, 'scope': 'all', 'executedProbes': sorted(subject.network_inventory()), 'requiredProbes': sorted(subject.network_inventory()), 'currentTerm': 'fixture-current', 'validatedTerm': 'fixture-current'})
         sms = {'passed': True, 'scope': 'school', 'executedProbes': sorted(subject.network_inventory('school')), 'requiredProbes': sorted(subject.network_inventory('school')), 'schoolSMSCoverage': 'verified', 'verifiedSMSProbes': [{'purpose': purpose, 'probe': sorted(subject.SCHOOL_SMS_PROBES[purpose])[0]} for purpose in subject.school_sms_inventory()]}
-        sms.update(authenticatedSchoolProbes=sms['verifiedSMSProbes'], requestedSMSPurposes=sorted(subject.school_sms_inventory()))
+        sms.update(authenticatedSchoolProbes=sms['verifiedSMSProbes'], requestedSMSPurposes=sorted(subject.school_sms_inventory()), currentTerm='fixture-current', validatedTerm='fixture-current')
         assert set(subject.SCHOOL_SMS_PROBES) == subject.school_sms_inventory()
         writes = {'passed': True, 'scope': 'community-writes', 'executedProbes': sorted(subject.network_inventory('community-writes')), 'requiredProbes': sorted(subject.network_inventory('community-writes')), 'communityWriteEvidence': ['验收账号 user1', '服务端确认删除 poster1', '服务端确认删除 paper2', '点赞恢复 poster1', '点赞恢复 paper2', '点赞恢复 course3', '图片提交 poster1', '图片提交 comment10', '关注恢复 user4'] + [f'服务端确认删除 comment{id}' for id in range(10, 16)] + [f'创建 comment{id} 目标 {parent}' for id, parent in [(10, 'poster1'), (11, 'comment10'), (12, 'paper2'), (13, 'comment12'), (14, 'course3'), (15, 'comment14')]]}
         assert subject.community_writes_complete(writes['communityWriteEvidence'])
@@ -334,8 +340,12 @@ def run_self_test(subject) -> int:
         summaries['ui']['passedTests'] = summaries['ui']['totalTests']
         summaries['ui']['uiInventory']['pending'] = ['new-control']
         assert subject.complete_summary('ui', summaries['ui']) is False
-        network = {'passed': True, 'scope': 'all', 'executedProbes': sorted(subject.network_inventory()), 'requiredProbes': sorted(subject.network_inventory())}
+        network = {'passed': True, 'scope': 'all', 'executedProbes': sorted(subject.network_inventory()), 'requiredProbes': sorted(subject.network_inventory()), 'currentTerm': 'fixture-current', 'validatedTerm': 'fixture-current'}
         assert subject.smoke_summary('network', network)['passed']
+        assert not subject.smoke_summary('network', dict(network, requestedTerm='historical', validatedTerm='historical'))['passed']
+        assert not subject.smoke_summary('network', dict(network, validatedTerm='other'))['passed']
+        assert not subject.smoke_summary('network', dict(network, currentTerm=None))['passed']
+        assert subject.smoke_summary('network', dict(network, requestedTerm='historical', validatedTerm='historical'), full=False)['passed']
         assert subject.smoke_summary('network', {'passed': True, 'scope': 'all', 'executedProbes': ['unrelated']})['passed'] is False
         network['coverageGaps'] = ['fixture']
         network['failures'] = ['具体失败原因']

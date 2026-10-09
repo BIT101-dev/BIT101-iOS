@@ -35,6 +35,11 @@ def run_self_test(rules: dict) -> None:
     assert graph_errors({'CourseDomain': {'ScoreDomain'}, 'ScoreDomain': set()})
     assert graph_errors({'ScheduleInfrastructure': {'ScoreInfrastructure'}, 'ScoreInfrastructure': set()})
     assert graph_errors({'ScheduleInfrastructure': {'ScheduleDomain'}, 'ScheduleDomain': set()}) == []
+    for dependency in ('ScheduleDomain', 'SchedulePorts', 'CommunityCore'):
+        assert graph_errors({'ScoreFeature': {dependency}, dependency: set()})
+    assert graph_errors({'GalleryFeature': {'CommunityCore', 'MediaKit'}, 'CommunityCore': set(), 'MediaKit': set()}) == []
+    assert graph_errors({'MapFeature': {'ScheduleContracts'}, 'ScheduleContracts': set()}) == []
+    assert graph_errors({'MapFeature': {'SchedulePorts'}, 'SchedulePorts': set()})
     registered_modules = set(IOS_MODULE_COVERAGE_FLOORS)
     assert rules["coverage_registry_findings"](registered_modules) == []
     assert rules["coverage_registry_findings"](registered_modules | {"NewModule"})

@@ -30,11 +30,19 @@ if bundle and Path(bundle).is_dir():
         summary = json.loads(result.stdout)
         for key in ("totalTestCount", "passedTests", "failedTests", "skippedTests", "testFailures"):
             row[key] = summary.get(key, [] if key == "testFailures" else 0)
-if generated_bundle is not None:
-    shutil.rmtree(generated_bundle)
 if row.get("totalTestCount", 0) != 1 or row.get("passedTests", 0) != 1 or row.get("failedTests", 0) or row.get("skippedTests", 0):
     row["exitCode"] = exit_code or 1
     print(f"[失败] {stage} 要求一项用例执行并通过。")
+if generated_bundle is not None:
+    if row["exitCode"] == 0:
+        shutil.rmtree(generated_bundle)
+    else:
+        retained_bundle = generated_bundle.parent / "test-results.xcresult"
+        if generated_bundle != retained_bundle:
+            if retained_bundle.exists():
+                shutil.rmtree(retained_bundle)
+            shutil.move(str(generated_bundle), str(retained_bundle))
+        row["resultBundle"] = str(retained_bundle)
 row["recordedAt"] = datetime.now(timezone.utc).isoformat()
 path = Path(report_path)
 report = json.loads(path.read_text()) if path.is_file() else {"stages": []}

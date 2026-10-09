@@ -24,6 +24,20 @@ def repository_swift_files() -> list[Path]:
     return sorted(path for name in roots for path in (ROOT / name).rglob("*.swift"))
 
 
+@cache
+def indexer_toolchain(compiler: Path, host_modules: Path) -> dict:
+    from validation_environment import environment_context
+    files = [compiler, host_modules / "libSwiftSyntax.dylib", host_modules / "libSwiftParser.dylib"]
+    for module in ("SwiftSyntax", "SwiftParser"):
+        files.extend(sorted((host_modules / (module + ".swiftmodule")).rglob("*")))
+    digests = {}
+    for path in files:
+        if path.is_file():
+            with path.open("rb") as stream:
+                digests[str(path)] = hashlib.file_digest(stream, "sha256").hexdigest()
+    return {"environment": environment_context("audit"), "artifacts": digests}
+
+
 def _run_swift_syntax_index(request: dict, *, regex_only: bool = False) -> dict[str, dict]:
     swift = os.environ.get("SWIFT")
     if not swift:
@@ -44,14 +58,10 @@ def _run_swift_syntax_index(request: dict, *, regex_only: bool = False) -> dict[
         compiler_cache = ROOT / ".build/compiler-cache"
         module_cache = compiler_cache / "ModuleCache.noindex"
         module_cache.mkdir(parents=True, exist_ok=True)
-        signature = hashlib.sha256(source.read_bytes() + str(compiler).encode() + str(module_cache).encode()).hexdigest()
+        toolchain = json.dumps(indexer_toolchain(compiler, host_modules), sort_keys=True).encode()
+        signature = hashlib.sha256(source.read_bytes() + Path(__file__).read_bytes() + toolchain + str(module_cache).encode()).hexdigest()
         source_changed = not signature_file.exists() or signature_file.read_text() != signature
-        toolchain_modified = max(
-            compiler.stat().st_mtime_ns,
-            (host_modules / "libSwiftSyntax.dylib").stat().st_mtime_ns,
-            (host_modules / "libSwiftParser.dylib").stat().st_mtime_ns,
-        )
-        if source_changed or not executable.exists() or executable.stat().st_mtime_ns < toolchain_modified:
+        if source_changed or not executable.exists():
             executable.unlink(missing_ok=True)
             sdk = subprocess.check_output(["xcrun", "--sdk", "macosx", "--show-sdk-path"], text=True).strip()
             environment = dict(os.environ, CLANG_MODULE_CACHE_PATH=str(module_cache))

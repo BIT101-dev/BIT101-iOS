@@ -33,7 +33,8 @@ def includes_input(name: str, group: str) -> bool:
         tests = root == "BIT101-iOSUITests" or name == "docs/UI_INTERACTION_COVERAGE.md"
         scripts = TEST_SCRIPTS | {"ui_source_facts.py", "ui_explanatory_text.py", "ui_rules.py", "ui_design_contracts.py", "ui_inventory.py"}
     elif host in NETWORK_GROUPS:
-        tests = name == "BIT101-iOSTests/ReleaseNetworkSmokeTests.swift" or root == "Cloudflare" and path.suffix != ".md"
+        tests = name in {"BIT101-iOSTests/ReleaseNetworkSmokeTests.swift", "BIT101-iOSTests/NetworkSmokeCoverageTests.swift"} \
+            or root == "Cloudflare" and path.suffix != ".md"
         scripts = TEST_SCRIPTS | {"release-network-smoke.sh"}
     elif host == "icloud":
         tests = name == "BIT101-iOSTests/ManualICloudCrossDeviceSmokeTests.swift"

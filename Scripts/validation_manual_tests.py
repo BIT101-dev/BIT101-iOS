@@ -52,6 +52,22 @@ def evidence_fixture(check: str) -> bytes:
                 scenarios[name]['windowSize'] = dict(zip(('width', 'height'), size))
             scenarios['split-view']['screenWidth'] = 1024
             scenarios['resize']['previousWindowSize'] = {'width': 512, 'height': 768}
+        if check == 'performance-baseline':
+            from validation_manual import PERFORMANCE_WORKLOADS
+            for name, row in scenarios.items():
+                test, workload = PERFORMANCE_WORKLOADS[name]
+                current = {'testIdentifier': test, 'sourceCommit': 'a' * 40, 'input': workload, 'capturedAt': row['capturedAt'],
+                    'environment': {'deviceIdentifier': 'fixture-phone', 'deviceModel': 'iPhone', 'systemVersion': '26.0',
+                        'systemBuild': 'fixture', 'xcodeBuild': 'fixture', 'configuration': 'Release', 'compilerSHA256': 'a' * 64,
+                        'compilationConditions': ['DEBUG', 'BIT101_AUTOMATED_TESTING']},
+                    'resultBundle': {'path': '.build/extended-automation/test-results.xcresult', 'sha256': 'a' * 64},
+                    'metrics': {'clockSeconds': {'samples': [0.1] * 10, 'mean': 0.1},
+                        'peakPhysicalMemoryBytes': {'samples': [1024] * 10, 'mean': 1024}}}
+                baseline = copy.deepcopy(current)
+                baseline.update(capturedAt=(utc_now() - timedelta(days=1)).isoformat(), approvedAt=(utc_now() - timedelta(hours=1)).isoformat(), approvedBy='maintainer')
+                baseline['resultBundle']['sha256'] = 'b' * 64
+                for metric in baseline['metrics'].values(): metric['maximumRegressionPercent'] = 10
+                row['measurement'] = {'current': current, 'baseline': baseline}
         return json.dumps({'schemaVersion': 1, 'deviceFamily': 'iPad', 'deviceIdentifier': 'fixture-pad', 'scenarios': scenarios}).encode()
     if check == 'distribution-signing': return json.dumps(distribution_fixture()[1]).encode()
     if check == 'minimum-platforms':
@@ -210,6 +226,30 @@ def run_self_test() -> None:
                 changed = copy.deepcopy(proof)
                 changed['scenarios'][name][key] = value
                 assert not scenario_complete(check, changed)
+    performance = json.loads(evidence_fixture('performance-baseline'))
+    for name, row in performance['scenarios'].items():
+        changed = copy.deepcopy(performance)
+        del changed['scenarios'][name]['measurement']
+        assert not scenario_complete('performance-baseline', changed)
+        from validation_manual import performance_comparison_complete
+        measurement = row['measurement']
+        for field, value in [('deviceIdentifier', 'other-phone'), ('configuration', 'Debug'), ('compilerSHA256', '')]:
+            changed = copy.deepcopy(measurement)
+            changed['current']['environment'][field] = value
+            assert not performance_comparison_complete(name, changed)
+        for field, value in [('sourceCommit', 'invalid'), ('input', {}), ('resultBundle', {}), ('metrics', {})]:
+            changed = copy.deepcopy(measurement)
+            changed['current'][field] = value
+            assert not performance_comparison_complete(name, changed)
+        for metric in measurement['current']['metrics']:
+            for values in ({'samples': [10000] * 10, 'mean': 10000}, {'samples': [float('nan')], 'mean': float('nan')},
+                    {'samples': [0.1] * 10, 'mean': 999}, {'samples': [], 'mean': 0}):
+                changed = copy.deepcopy(measurement)
+                changed['current']['metrics'][metric] = values
+                assert not performance_comparison_complete(name, changed)
+        changed = copy.deepcopy(measurement)
+        changed['baseline']['approvedBy'] = ''
+        assert not performance_comparison_complete(name, changed)
     pad = json.loads(evidence_fixture('ipad-layout'))
     assert not scenario_complete('ipad-layout', pad | {'deviceFamily': 'iPhone'})
     for name in pad['scenarios']:

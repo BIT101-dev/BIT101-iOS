@@ -278,7 +278,12 @@ def smoke_summary(group: str, value: dict, *, full: bool = True) -> dict:
         projected_sms = group == "school-sms" and reported_scope == "all"
         raw_required = required
         if projected_sms: required = network_inventory("school")
+        current_term = value.get("currentTerm")
+        term_complete = not full or group not in {"network", "school-sms"} or (
+            value.get("requestedTerm") is None and isinstance(current_term, str) and bool(current_term.strip())
+            and value.get("validatedTerm") == current_term)
         return {"passed": value.get("passed") is True and (reported_scope == expected_scope or projected_sms)
+                and term_complete
                 and (not projected_sms or raw_required == network_inventory("all"))
                 and (group != "community-writes" or community_writes_complete(value.get("communityWriteEvidence", [])))
                 and required == network_inventory(expected_scope) and bool(required) and required <= executed
@@ -289,6 +294,7 @@ def smoke_summary(group: str, value: dict, *, full: bool = True) -> dict:
                 "schoolSMSCoverage": value.get("schoolSMSCoverage"),
                 "communityWriteEvidence": value.get("communityWriteEvidence", []),
                 "productionSessionEvidence": value.get("productionSessionEvidence", []),
+                **{name: value.get(name) for name in ("requestedTerm", "currentTerm", "validatedTerm")},
                 "diagnostics": {name: value.get(name, []) for name in ("failures", "coverageGaps", "authenticationBlockers", "skippedProbes")},
                 "runID": value.get("runID"), "inputDigest": value.get("inputDigest"),
                 "verifiedSMSProbes": sms_steps,
@@ -327,7 +333,8 @@ def successful_test_counts(summary: dict) -> bool:
 def coverage_complete(group: str, summary: dict) -> bool:
     floors = MODULE_COVERAGE_FLOORS if group == "modules" else {
         "BIT101-iOS.app": 35, **{"iOS/" + name: floor for name, floor in IOS_MODULE_COVERAGE_FLOORS.items()}
-    } if group == "all" else {}
+    } if group == "all" else {"BIT101-iOS.app": 0, **{"iOS/" + name: 0
+        for name in IOS_MODULE_COVERAGE_FLOORS if name.endswith(("Feature", "UI"))}} if group == "ui" else {}
     if group == "modules" and {path.name for path in (ROOT / "Modules").iterdir() if path.is_dir()} \
             - {"ScheduleActivityContracts"} != set(floors):
         return False

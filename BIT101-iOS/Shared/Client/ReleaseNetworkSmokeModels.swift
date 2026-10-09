@@ -223,6 +223,9 @@ struct ReleaseNetworkSmokeReport: Codable {
     var requestedSMSPurposes: [String] = []
     var communityWriteEvidence: [String] = []
     var productionSessionEvidence: [String] = []
+    var requestedTerm: String? = nil
+    var currentTerm: String? = nil
+    var validatedTerm: String? = nil
 
     var elapsed: TimeInterval {
         finishedAt.timeIntervalSince(startedAt)

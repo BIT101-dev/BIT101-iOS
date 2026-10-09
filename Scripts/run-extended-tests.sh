@@ -479,13 +479,12 @@ run_tests() {
     test_action=build-for-testing
   else
     execution_args+=(-resultBundlePath "$RESULT_BUNDLE")
-    if [[ "$MODE" != catalyst && "$MODE" != catalyst-release-runtime && "$MODE" != ui ]]; then
+    if [[ "$MODE" != catalyst && "$MODE" != catalyst-release-runtime ]]; then
       rm -f "$DERIVED_ROOT/Build/ProfileData/$BIT101_XCODE_DEVICE_ID/"*.profdata(N)
     fi
   fi
   if [[ "$MODE" == "ui" ]]; then
     execution_args+=(-parallel-testing-enabled NO)
-    coverage_args=(-enableCodeCoverage NO ENABLE_CODE_COVERAGE=NO)
   fi
   if (( ${#TEST_SELECTIONS[@]} > 0 )); then
     only_testing=()
@@ -608,7 +607,7 @@ if summary.get("totalTestCount", 0) == 0:
 
 coverage = None
 coverage_error = None
-if mode not in {"catalyst", "catalyst-release-runtime", "ui"}:
+if mode not in {"catalyst", "catalyst-release-runtime"}:
     coverage_result = subprocess.run([
         "xcrun", "xccov", "view", "--report", "--json", result_bundle,
     ], capture_output=True, text=True)
@@ -632,7 +631,7 @@ lines = [
     "",
     "## UI 交互覆盖" if mode == "ui" else "## 逐 target 行覆盖率",
 ]
-if coverage is None:
+if coverage is None or mode == "ui":
     if mode == "ui":
         lines.append("交互覆盖依据 docs/UI_INTERACTION_COVERAGE.md；常规场景复用 App 进程，核心持久化场景结束进程后验证冷启动恢复。")
         diagnostics = Path(report_path).parent / "diagnostics"
@@ -721,7 +720,7 @@ if coverage is None:
         lines.append("设备测试汇总已采集；Xcode 覆盖率归档诊断如下。")
         if coverage_error:
             lines.append(coverage_error)
-else:
+if coverage is not None:
     target_rows = coverage.get("targets", [])
     for target in target_rows:
         fraction = target.get("lineCoverage")
@@ -772,7 +771,7 @@ lines += ["验证输入：" + os.environ["BIT101_VALIDATION_SOURCE_DIGEST"], "�
 report = "\n".join(lines) + "\n"
 Path(report_path).write_text(report, encoding="utf-8")
 print(lines[4])
-if mode not in {"catalyst", "catalyst-release-runtime", "ui"} and coverage is None:
+if mode not in {"catalyst", "catalyst-release-runtime"} and coverage is None:
     if coverage_error:
         print(coverage_error)
     raise SystemExit("覆盖率采集失败。")

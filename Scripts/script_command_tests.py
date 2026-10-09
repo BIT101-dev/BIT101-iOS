@@ -42,6 +42,14 @@ xcrun() {
 }
 '''
     export_source = (SCRIPT_ROOT / "run-extended-tests.sh").read_text().replace('source "$ROOT_DIR/Scripts/script-support.sh"', frame)
+    scope_source = (SCRIPT_ROOT / "release-network-smoke.sh").read_text().replace('source "$ROOT_DIR/Scripts/script-support.sh"', frame).split('RUN_ID="', 1)[0]
+    for arguments, term, expected in ((['all'], '', 'network full'), (['all'], 'historical', 'network selected'),
+            (['school', 'sms'], '', 'school-sms full'), (['school', 'sms'], 'historical', 'school-sms selected')):
+        result = subprocess.run(['zsh', '-c', scope_source + '\nprint -r -- "$validation_group $validation_scope"',
+            str(SCRIPT_ROOT / 'release-network-smoke.sh'), *arguments], capture_output=True, text=True,
+            env=dict(os.environ, BIT101_NETWORK_SMOKE_TERM=term))
+        if result.returncode or result.stdout.splitlines()[-1:] != [expected]:
+            findings.append('网络学期自测：覆盖学期采样沿定向范围登记')
     export_source = export_source[:export_source.index('if [[ "${1:-}" == -h')]
     export_source = export_source.replace('  python3 - "$DERIVED_ROOT/test-results.xcresult"', '  exit 86\n  python3 - "$DERIVED_ROOT/test-results.xcresult"')
     for arguments in (["report", "json"], ["diagnostics"], ["activities", "test"], ["screenshot", "test"]):
@@ -188,7 +196,9 @@ def ui_metrics_boundary_findings() -> list[str]:
     diagnostic = Path("/audit/diagnostics/StandardOutputAndStandardError.txt")
     original_read, original_open, original_rglob = Path.read_text, Path.open, Path.rglob
     def run(arguments, **kwargs):
-        return subprocess.CompletedProcess(arguments, 0, json.dumps(summary) if "summary" in arguments else "", "")
+        response = summary if "summary" in arguments else {'targets': [{'name': 'BIT101-iOS.app', 'lineCoverage': 0.5,
+            'coveredLines': 50, 'executableLines': 100}]} if 'xccov' in arguments else None
+        return subprocess.CompletedProcess(arguments, 0, json.dumps(response) if response is not None else "", "")
     with patch.object(sys, "argv", ["metrics", "/audit/result.xcresult", "/audit/test-metrics.txt", "ui", "1", "device", str(ROOT)]), \
             patch.object(subprocess, "run", side_effect=run), patch.object(subprocess, "check_output", return_value='[]'), \
             patch.object(shutil, "rmtree"), patch.object(Path, "rglob", lambda path, pattern: [diagnostic]
@@ -196,10 +206,12 @@ def ui_metrics_boundary_findings() -> list[str]:
             patch.object(Path, "read_text", lambda path, *args, **kwargs: output if path == diagnostic else original_read(path, *args, **kwargs)), \
             patch.object(Path, "open", lambda path, *args, **kwargs: StringIO() if path == Path("/audit/ui-tests.log") else original_open(path, *args, **kwargs)), \
             patch.object(Path, "write_text", lambda path, value, **kwargs: report.__setitem__(path, value)), \
+            patch('validation_evidence.ios_module_coverage', return_value={'ScoreFeature': (30, 100)}), \
             patch.dict(os.environ, BIT101_VALIDATION_SOURCE_DIGEST="digest", BIT101_VALIDATION_RUN_ID="run"), redirect_stdout(StringIO()):
         exec(compile(source, "ui-metrics-self-test", "exec"), {})
     result = json.loads(next(line.split("：", 1)[1] for line in report[Path("/audit/test-metrics.txt")].splitlines() if line.startswith("控件库存：")))
     if result["processIdentifiers"] == ["10", "20"] and result["observed"] == 3 and result["visited"] == 2 \
-            and result["pending"] == ["10:pending"] and {row["identifier"] for row in result["visitedControls"]} == {"first", "second"}:
+            and result["pending"] == ["10:pending"] and {row["identifier"] for row in result["visitedControls"]} == {"first", "second"} \
+            and '- iOS/ScoreFeature: 30.00% (30/100 lines)' in report[Path('/audit/test-metrics.txt')]:
         return []
     return ["UI 指标自测：冷启动前后的实际库存与待访问项共同保留"]

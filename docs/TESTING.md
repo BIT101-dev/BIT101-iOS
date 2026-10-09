@@ -16,7 +16,7 @@
 
 脚本按完整工作流组织，公共设备选择与日志处理集中在 `Scripts/script-support.sh`。入口数量保持精简，同一工作流通过参数选择操作；优化以执行耗时、重复调用和终端信息价值为依据。静态审计复用索引器并缓存路径判断。
 
-iCloud 验收在同一主机共用用户级流程锁，每次运行沿所属标识选择独立云端验收账号，恢复使用固定报告中的所属标识。构建安装、行为测试和独立 Smoke 共用流程锁，锁覆盖宿主安装、执行、固定报告写入及常规 App 恢复；聚合验证的子流程复用所持有的锁。iCloud 后台任务加载共享阶段函数，阶段计数沿宿主的结构化测试结果读取，生成的阶段结果完成归集后清理。iCloud 清理结果及其阶段计数单独保存，独立恢复形成 `icloud-cleanup` 证据，业务阶段用于双向同步验收。iCloud 成绩验收使用无害的合成完整载荷、独立验收账号和内存仓库，覆盖成绩 KVS 与课表 CloudKit，成绩密文沿真实 iCloud 钥匙串传递密钥，完成后清理验收云端键、密钥及偏好。重置验收偏好前完成遗留密钥删除，删除失败时保留密钥标识。跨设备阶段共享五分钟传播期限，外部变更通知与钥匙串等待驱动重新核对，KVS 同步请求沿启动和写入触发。采样宿主独立启动，网络与 iCloud 专项各自组装所需服务。学校网络探针使用独立内存 Cookie 容器和已保存凭据重新启动认证，各认证目的保留实际短信挑战与业务继续证据。原始课表响应采样由当前 Smoke 服务实例持有。双端清理验收从远端确认验收 KVS 键、协调键与 CloudKit 记录均已删除。
+iCloud 验收在同一主机共用用户级流程锁，每次运行沿所属标识选择独立云端验收账号，恢复使用固定报告中的所属标识。构建安装、行为测试和独立 Smoke 共用流程锁，锁覆盖宿主安装、执行、固定报告写入及常规 App 恢复；聚合验证的子流程复用所持有的锁。iCloud 后台任务加载共享阶段函数，阶段计数沿宿主的结构化测试结果读取，通过阶段完成归集后清理生成结果；失败阶段将原始结果包及附件保留到所属宿主 `Logs/Test/test-results.xcresult`，阶段报告记录诊断位置。iCloud 清理结果及其阶段计数单独保存，独立恢复形成 `icloud-cleanup` 证据，业务阶段用于双向同步验收。iCloud 成绩验收使用无害的合成完整载荷、独立验收账号和内存仓库，覆盖成绩 KVS 与课表 CloudKit，成绩密文沿真实 iCloud 钥匙串传递密钥，完成后清理验收云端键、密钥及偏好。重置验收偏好前完成遗留密钥删除，删除失败时保留密钥标识。跨设备阶段共享五分钟传播期限，外部变更通知与钥匙串等待驱动重新核对，KVS 同步请求沿启动和写入触发。采样宿主独立启动，网络与 iCloud 专项各自组装所需服务。学校网络探针使用独立内存 Cookie 容器和已保存凭据重新启动认证，各认证目的保留实际短信挑战与业务继续证据。原始课表响应采样由当前 Smoke 服务实例持有。双端清理验收从远端确认验收 KVS 键、协调键与 CloudKit 记录均已删除。
 
 | 工作流 | 入口 |
 | --- | --- |
@@ -153,7 +153,7 @@ Scripts/run-extended-tests.sh ui CustomSchedule DDLEditor
 
 稳定的 `accessibilityIdentifier` 用于字段、编辑入口和共用搜索排序菜单（`search.sort`）定位；主 Tab 使用实际标签栏内的按钮名称。普通按钮定位与状态读取复用 App 内渲染查询，原生 XCTest 核对可触达状态并执行触摸、滚动、输入和平台控件操作。公共查询合同显式切换快速动作路径，并与原生状态比较。动态列表按当前查询位置重新定位，导航动作等待目标页面。手势从同一次快照读取滚动范围，通过 App 原点与固定坐标执行，横向标签列表依据高度排除。失败的原生元素树和截图保存在既有 `.xcresult`，状态等待失败同样采集附件。
 
-UI 组采集逐用例结果和耗时，交互覆盖依据 `docs/UI_INTERACTION_COVERAGE.md`；逻辑测试组采集生产源码行覆盖率。UI 测试构建关闭行覆盖率插桩，宿主关闭系统调试日志，测试计划通过 `uiTestingScreenshotsLifetime: keepNever` 关闭自动截屏 / 录屏。业务断言失败时仍手动保存截图和元素树，附件和摘要复用同一次元素树快照。[Apple 的 Xcode 发行说明](https://developer.apple.com/documentation/xcode-release-notes/xcode-15-release-notes/)说明了自动录屏及测试计划配置。
+UI 组采集逐用例结果、耗时及生产源码行覆盖率，交互覆盖依据 `docs/UI_INTERACTION_COVERAGE.md`；逻辑测试组采集生产源码行覆盖率。UI 测试构建启用行覆盖率插桩，宿主关闭系统调试日志，测试计划通过 `uiTestingScreenshotsLifetime: keepNever` 关闭自动截屏 / 录屏。业务断言失败时仍手动保存截图和元素树，附件和摘要复用同一次元素树快照。[Apple 的 Xcode 发行说明](https://developer.apple.com/documentation/xcode-release-notes/xcode-15-release-notes/)说明了自动录屏及测试计划配置。
 
 UI 专用 scheme 使用 Release 直接启动配置，脚本先增量构建测试宿主，再通过生成的同一份 `.xctestrun` 执行 `test-without-building`；目标 App 的主线程及线程性能诊断选项由运行配置统一设置。此流程沿用共享编译缓存和固定产物路径。菜单的控件入口沿用 [UIControl.performPrimaryAction](https://developer.apple.com/documentation/uikit/uicontrol/performprimaryaction()) 的公开行为。[Apple 性能测试指导](https://developer.apple.com/documentation/xcode/writing-and-running-performance-tests)说明了 Release 和直接启动设置，[命令行测试说明](https://developer.apple.com/library/archive/technotes/tn2339/_index.html)说明了构建与测试分离的执行方式。
 
@@ -202,6 +202,8 @@ Scripts/check-module-boundaries.py
 正式运行组 `release-runtime` 沿正式 Release 编译条件执行组装合同，验收账号会话、实际网络状态、公共警告中心及反馈环境。完整验收同时核对实际执行用例与生产代码行覆盖率。`validation_evidence.py` 维护 macOS 可执行模块、iOS 可执行模块和 App 宿主的覆盖率基线；新增模块同步补充基线与消费者测试。`validation_test_areas.py` 登记账号代际、后台会话验证、取消、同步冲突、上传失败恢复及成绩快照比较的关键状态转换合同，静态审计核对其行为用例持续存在。UI 和 Catalyst 的验收分别沿用控件库存及平台测试结果。学校自动请求审计沿 App 与账号生命周期调用链追踪生产学校请求入口，故障注入覆盖入口改名和包装方法。通知回归核对时区与绝对触发时间，日历事务回归核对失败批次清理与后续提交隔离。
 
 ## 网络与 iCloud Smoke
+
+学校采样报告记录 `requestedTerm`、`currentTerm`、`validatedTerm`，同步响应沿请求学期核对。`BIT101_NETWORK_SMOKE_TERM` 指定学期的网络及短信采样登记为定向验证；完整网络及学校短信验收沿服务端当前学期执行。
 
 网络 Smoke 使用正式 App 保存的会话、Cookie 与本地业务缓存，专用 Release 宿主完成探针后恢复常规 App。探针 HTTP 传输关闭 URLCache，并逐请求强制从远端读取；学校业务缓存审计沿原有存储端口执行。Smoke 组装使用只读业务端口、外部 HTTP 客户端及反馈探针依赖，离线回归验证完整成功、中段失败、后续探针继续、报告保存与下一范围状态重置：
 
@@ -302,4 +304,12 @@ GitHub Actions 的 `.github/workflows/ci.yml` 使用 `xcode-27` runner，先执�
 
 共享预览目录的媒体环境共同接收同一 `MediaPreviewStorage`，文件创建、所有权登记、清理和关闭消费同一协调器。回归合同覆盖创建期间的后台清理，以及不同环境启动清理和关闭预览时保留其他活动消费者。
 
-`MaintenancePerformanceTests` 沿 XCTest 默认测量选项记录十万条分页追加与重复页去重、静态图片实际解码的时钟与物理内存指标。测量结果随完整行为组保存到固定 XCTest 结果包，性能基线沿同一真机 runner 的 XCTest 默认基线参数维护。`performance-baseline` 人工专项分别用 `pagination`、`image-decoding` 两个场景记录真实结果包与上一份已批准基线的比较，核对相同硬件、编译条件及输入规模；沿既有结构化影像格式登记，并参与完整发布验收。大输入正确性合同继续核对稳定顺序及增量索引工作量。
+`MaintenancePerformanceTests` 沿 XCTest 默认测量选项记录十万条分页追加与重复页去重、静态图片实际解码的时钟与物理内存指标。测量结果随完整行为组保存到固定 XCTest 结果包，性能基线沿同一真机 runner 的 XCTest 默认基线参数维护。`performance-baseline` 人工专项用 `pagination`、`image-decoding` 两个场景登记结构化比较及影像，参与完整发布验收。大输入正确性合同核对稳定顺序及增量索引工作量。
+
+每个性能场景的 `measurement` 包含 `current` 与 `baseline`。两份记录保存 `testIdentifier`、`sourceCommit`、`capturedAt`、`environment`、`input`、`resultBundle`、`metrics`；当前采样沿实际观察时间登记，批准基线保存 `approvedBy`、`approvedAt`。`environment` 核对相同的设备标识、设备型号、系统版本与构建、Xcode 构建、编译器摘要、Release 配置及 `compilationConditions`。`resultBundle` 保存原始 XCTest 结果包路径和 SHA-256，两个采样拥有各自的摘要。
+
+`metrics` 分别记录 `clockSeconds`、`peakPhysicalMemoryBytes` 的原始 `samples` 和 `mean`；登记时将 XCTest 显示单位换算为秒及字节。批准基线的两个指标各自保存 `maximumRegressionPercent`，验收核对采样次数、平均值及批准的退化上限。分页输入为 `pages: 1000`、`itemsPerPage: 100`、`passes: 2`；图片输入为 `width: 1024`、`height: 1024`、`format: PNG`。实际指标与基线由验收人员从结果包登记，比较合同校验结构、环境及数值。
+
+SwiftSyntax 索引器缓存沿源码、工具链环境、编译器、SwiftSyntax / SwiftParser 库及模块内容摘要复用。网络能力检测沿编译器类型、初始化表达式、依赖工厂返回值和局部别名识别生产服务，局部同名变量沿词法作用域解析。模块门禁按业务归属限制 Domain、Ports、Core 等依赖；社区功能共用 Community 业务合同，基础 Client、Storage、Transport、DesignSystem、Media 模块承担公共职责。地图通过明确登记的 `MapFeature → ScheduleContracts` 依赖复用地点显示规范化，跨业务合同沿允许依赖表评审。
+
+UI 自动化同时采集交互库存及宿主与 Feature / UI 模块的行覆盖率，完整验收要求各展示模块产生实际执行行。界面状态断言、控件交互记录及行覆盖率共同支撑展示逻辑审查。

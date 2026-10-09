@@ -824,7 +824,9 @@ exit {initial}
         result = summary if sys.argv[3] == "testPhoneRoundTrip" else completed
         return subprocess.CompletedProcess([], 0, json.dumps(result))
     with patch.object(Path, "is_file", lambda path: str(path) in state), patch.object(Path, "is_dir", return_value=True), \
-         patch.object(Path, "glob", side_effect=lambda *args: iter([Path("/smoke/generated.xcresult")])), patch.object(shutil, "rmtree"), \
+         patch.object(Path, "glob", side_effect=lambda *args: iter([Path("/smoke/generated.xcresult")])), \
+         patch.object(Path, "exists", return_value=False), patch.object(shutil, "rmtree") as remove_bundle, \
+         patch.object(shutil, "move") as retain_bundle, \
          patch.object(Path, "read_text", read), patch.object(Path, "write_text", write), \
          patch.object(subprocess, "run", side_effect=result_response) as result_tool:
         for stage, process_status, expected in (("testPhoneRoundTrip", "65", 65), ("testCleanup", "0", 0)):
@@ -842,10 +844,18 @@ exit {initial}
             completed = {"totalTestCount": int(bool(log)), "passedTests": int(log == "passed"),
                          "failedTests": int(log == "failed"), "skippedTests": int(log == "skipped")}
             result_tool.side_effect = result_response
+            remove_bundle.reset_mock()
+            retain_bundle.reset_mock()
             with patch.object(sys, "argv", ["record", "/smoke/report.json", "/smoke/results.xcresult", "testCleanup", "0", "/smoke/log"]), redirect_stdout(StringIO()):
                 try:
                     exec(compile(match[1], "smoke-cleanup-record", "exec"), {})
                 except SystemExit as error:
                     if error.code != expected:
                         findings.append(f"Smoke 清理验收自测失败：{log or '零用例'}")
+            cleanup = json.loads(state["/smoke/report.json"])["cleanup"]
+            if expected and (remove_bundle.called or retain_bundle.call_args.args != ("/smoke/generated.xcresult", "/smoke/test-results.xcresult")
+                    or cleanup.get("resultBundle") != "/smoke/test-results.xcresult"):
+                findings.append("Smoke 结果自测：失败阶段保留固定路径原始结果包")
+            if not expected and (retain_bundle.called or not remove_bundle.called or "resultBundle" in cleanup):
+                findings.append("Smoke 结果自测：成功阶段完成归集后清理原始结果包")
     return findings

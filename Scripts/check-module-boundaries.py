@@ -182,6 +182,14 @@ def layer(module: str) -> str | None:
 
 FOUNDATIONAL_IMPORTS = {"Foundation", "Combine", "Observation", "CryptoKit", "Compression", "OSLog", "os", "CoreFoundation"}
 PLATFORM_EXCEPTIONS = {"ScheduleActivityContracts": {"ActivityKit"}, "TransportCore": {"Network"}}
+SHARED_MODULES = {"ClientCore", "StorageCore", "TransportCore", "DesignSystemKit", "MediaKit"}
+CROSS_BUSINESS_CONTRACTS = {("MapFeature", "ScheduleContracts")}
+
+
+def business_family(module: str) -> str:
+    name = module.removesuffix(layer(module) or "")
+    if name.startswith("Schedule"): return "Schedule"
+    return "Community" if name in {"Community", "Gallery", "Course", "Paper", "Mine"} else name
 
 
 def platform_errors(module: str, imports: set[str]) -> list[str]:
@@ -213,8 +221,9 @@ def graph_errors(manifest: dict[str, set[str]]) -> list[str]:
                 errors.append(f"unknown dependency: {module} -> {dependency}")
             if source_layer and dependency_layer and dependency_layer not in LAYERS[source_layer]:
                 errors.append(f"{source_layer.lower()} boundary: {module} -> {dependency}")
-            if source_layer in {"Domain", "Infrastructure"} and dependency_layer == source_layer \
-                    and module.removesuffix(source_layer) != dependency.removesuffix(dependency_layer):
+            if source_layer and dependency_layer and dependency not in SHARED_MODULES \
+                    and business_family(module) != business_family(dependency) \
+                    and (module, dependency) not in CROSS_BUSINESS_CONTRACTS:
                 errors.append(f"business domain boundary: {module} -> {dependency}")
     return errors
 

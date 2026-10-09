@@ -58,6 +58,7 @@ elif [[ "$SMOKE_SCOPE" != all ]]; then
   validation_scope=selected
 fi
 if [[ "$SMS_MODE" == sms && "$SMOKE_SCOPE" == school ]]; then validation_group=school-sms; validation_scope=full; fi
+if [[ -n "$SMOKE_TERM" && ( "$SMOKE_SCOPE" == all || "$SMOKE_SCOPE" == school || "$SMOKE_SCOPE" == schedule ) ]]; then validation_scope=selected; fi
 RUN_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
 BIT101_VALIDATION_RUN_ID="$RUN_ID"
 BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest "$validation_group")"
@@ -117,7 +118,7 @@ PY
   python3 "$ROOT_DIR/Scripts/validation_evidence.py" record "$validation_group" "$smoke_status" "$validation_scope" || smoke_status=$?
   if [[ "$SMS_MODE" == sms && "$SMOKE_SCOPE" == all ]]; then
     BIT101_VALIDATION_SOURCE_DIGEST="$SCHOOL_SMS_STARTED_DIGEST" \
-      python3 "$ROOT_DIR/Scripts/validation_evidence.py" record school-sms "$smoke_status" full || smoke_status=$?
+      python3 "$ROOT_DIR/Scripts/validation_evidence.py" record school-sms "$smoke_status" "$validation_scope" || smoke_status=$?
   fi
   exit "$smoke_status"
 }

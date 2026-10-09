@@ -2,12 +2,14 @@
 import base64
 import hashlib
 import json
+import math
 import re
 import struct
 import uuid
 import zlib
 from validation_provenance import sampling_evidence_current, utc_now
 from pathlib import Path
+from datetime import datetime
 from validate_distribution import valid_archive_provenance
 from validation_media import media_complete
 from validation_policy import MAXIMUM_ATTACHMENT_BYTES, MAXIMUM_REPORT_BYTES
@@ -25,6 +27,10 @@ MANUAL_SCENARIOS = {
 MANUAL_DEVICE_CHECKS.update(MANUAL_SCENARIOS)
 BASELINE_CHECKS = {'iOS': {'cold-start-session', 'offline-persistence', 'media-and-navigation'},
     'watchOS': {'snapshot-receive', 'timeline-render', 'clear-and-retry'}}
+PERFORMANCE_WORKLOADS = {
+    'pagination': ('MaintenancePerformanceTests/testCommunityPaginationPerformance', {'pages': 1000, 'itemsPerPage': 100, 'passes': 2}),
+    'image-decoding': ('MaintenancePerformanceTests/testStillImageDecodingPerformance', {'width': 1024, 'height': 1024, 'format': 'PNG'}),
+}
 
 
 def capture(operation: str, result: str, evidence: Path, check: str, outcome: str, observed_at: str) -> dict:
@@ -126,6 +132,7 @@ def scenario_complete(check: str, proof: dict) -> bool:
                 or not all(isinstance(row.get(key), str) and row[key].strip() for key in ('operation', 'result', 'capturedAt')) \
                 or not sampling_evidence_current({'startedAt': row['capturedAt'], 'finishedAt': row['capturedAt']}) \
                 or not isinstance(row.get('evidence'), dict) or not artifact_complete(row['evidence'], 'photos'): return False
+        if check == 'performance-baseline' and not performance_comparison_complete(name, row.get('measurement')): return False
         if check == 'ipad-layout':
             size = row.get('windowSize', {})
             if not isinstance(size, dict) or not all(type(size.get(axis)) is int and size[axis] > 0 for axis in ('width', 'height')): return False
@@ -136,6 +143,49 @@ def scenario_complete(check: str, proof: dict) -> bool:
                     or not all(type(row['previousWindowSize'].get(axis)) is int and row['previousWindowSize'][axis] > 0 for axis in ('width', 'height'))
                     or row['previousWindowSize'] == size): return False
     return True
+
+
+def performance_comparison_complete(name: str, measurement: dict) -> bool:
+    try:
+        if not isinstance(measurement, dict): return False
+        current, baseline = measurement['current'], measurement['baseline']
+        test, workload = PERFORMANCE_WORKLOADS[name]
+        for record in (current, baseline):
+            if not isinstance(record, dict) or record.get('testIdentifier') != test or record.get('input') != workload \
+                    or not re.fullmatch(r'(?:[0-9a-f]{40}|[0-9a-f]{64})', record.get('sourceCommit', '')): return False
+            environment = record['environment']
+            if not isinstance(environment, dict) or not all(isinstance(environment.get(key), str) and environment[key].strip()
+                    for key in ('deviceIdentifier', 'deviceModel', 'systemVersion', 'systemBuild', 'xcodeBuild', 'configuration', 'compilerSHA256')) \
+                    or environment['configuration'] != 'Release' or not re.fullmatch(r'[0-9a-f]{64}', environment['compilerSHA256']) \
+                    or not isinstance(environment.get('compilationConditions'), list) \
+                    or not all(isinstance(condition, str) and re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', condition) for condition in environment['compilationConditions']) \
+                    or not {'DEBUG', 'BIT101_AUTOMATED_TESTING'} <= set(environment['compilationConditions']): return False
+            bundle = record['resultBundle']
+            if not isinstance(bundle, dict) or not isinstance(bundle.get('path'), str) or not bundle['path'].endswith('.xcresult') \
+                    or not re.fullmatch(r'[0-9a-f]{64}', bundle.get('sha256', '')): return False
+            if set(record['metrics']) != {'clockSeconds', 'peakPhysicalMemoryBytes'}: return False
+            for metric in record['metrics'].values():
+                samples, mean = metric['samples'], metric['mean']
+                if not isinstance(samples, list) or not samples or not all(type(sample) in (int, float) and math.isfinite(sample) and sample >= 0 for sample in samples) \
+                        or type(mean) not in (int, float) or not math.isfinite(mean) or mean <= 0 \
+                        or not math.isclose(mean, sum(samples) / len(samples)): return False
+        if current['environment'] != baseline['environment'] or current['resultBundle']['sha256'] == baseline['resultBundle']['sha256'] \
+                or not sampling_evidence_current({'startedAt': current['capturedAt'], 'finishedAt': current['capturedAt']}) \
+                or not isinstance(baseline.get('approvedBy'), str) or not baseline['approvedBy'].strip(): return False
+        times = [datetime.fromisoformat(value.replace('Z', '+00:00')) for value in
+            (baseline['capturedAt'], baseline['approvedAt'], current['capturedAt'])]
+        if any(value.tzinfo is None for value in times) or not times[0] <= times[1] <= times[2]: return False
+        for name, metric in current['metrics'].items():
+            approved = baseline['metrics'][name]
+            limit = approved['maximumRegressionPercent']
+            maximum = approved['mean'] * (1 + limit / 100) if type(limit) in (int, float) else math.nan
+            if type(limit) not in (int, float) or not math.isfinite(limit) or limit < 0 \
+                    or not math.isfinite(maximum) \
+                    or len(metric['samples']) != len(approved['samples']) \
+                    or metric['mean'] > maximum: return False
+        return True
+    except (KeyError, TypeError, ValueError, AttributeError, OverflowError):
+        return False
 
 
 def baseline_complete(proof: dict) -> bool:

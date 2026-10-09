@@ -101,7 +101,7 @@ def reachable_smoke_calls(index: dict) -> dict[str, list[dict]]:
             if fact.get('receiverCall'):
                 candidates.add(fact['receiverCall'] + '.' + expression.rsplit('.', 1)[-1])
             for target in candidates: edges[key].update(by_name.get(target, set()))
-            if 'calledExpression' in fact: calls[key].append(fact)
+            if 'calledExpression' in fact: calls[key].append(dict(fact, path=path))
     reached = set(by_name.get('ReleaseNetworkSmokeRunner.run', set()))
     waiting = list(reached)
     while waiting:
@@ -114,23 +114,68 @@ def reachable_smoke_calls(index: dict) -> dict[str, list[dict]]:
     return result
 
 
+def smoke_receiver_resolver(index: dict):
+    from swift_source_index import visible_variables
+    from swift_type_index import SwiftTypeIndex
+    types = SwiftTypeIndex(index)
+    variables, factories = {}, {}
+    for path, facts in index.items():
+        bindings = [dict(binding, name=binding['bindingName'], type=binding.get('bindingType', ''))
+            for binding in facts.get('bindings', []) if binding.get('bindingName')]
+        variables[path] = dict(facts, typedVariables=facts.get('typedVariables', []) + bindings,
+            functionRanges=facts.get('functionRanges', []))
+        for function in facts.get('functionRanges', []) + facts.get('callableRanges', []):
+            owner = types.resolve(path, '.'.join(function['scope']), aliases=False)
+            if owner:
+                factories.setdefault((owner, function['name']), []).append((path, function))
+
+    def resolve(path, expression, reference, seen=frozenset()):
+        key = (path, expression, reference['start'])
+        if key in seen: return None
+        seen = seen | {key}
+        nominal = types.resolve(path, expression, reference['scope'])
+        if nominal: return nominal
+        explicit_self = expression.startswith('self.')
+        name = expression.removeprefix('self.')
+        candidates = visible_variables(variables[path], reference, name, explicit_self)
+        if candidates:
+            variable = candidates[-1]
+            if initializer := variable.get('initializerCall') or variable.get('initializerReference'):
+                target = resolve(path, initializer, variable, seen)
+                if target: return target
+            return types.resolve(path, variable.get('type', ''), variable['scope'])
+        if '.' not in expression: return None
+        receiver, method = expression.rsplit('.', 1)
+        owner = types.resolve(path, '.'.join(reference['scope']), aliases=False) if receiver in {'self', 'Self'} \
+            else resolve(path, receiver, reference, seen)
+        targets = set()
+        for factory_path, factory in factories.get((owner, method), []):
+            target = resolve(factory_path, factory.get('returnedCall') or factory.get('referenceTarget') or '', factory, seen)
+            if target: targets.add(target)
+        return next(iter(targets)) if len(targets) == 1 else None
+
+    def owner(call):
+        expression = call.get('calledExpression', '')
+        receiver = call.get('receiverCall') or (expression.rsplit('.', 1)[0] if '.' in expression else '')
+        target = resolve(call['path'], receiver, call)
+        return '.'.join([target[0], *target[1]]) if target else None
+    return owner
+
+
 def network_capability_findings(index: dict) -> list[str]:
     from pathlib import Path
     from validation_manual import MANUAL_SCENARIOS
     from validation_policy import NETWORK_GROUPS
     actual = {name: set() for name in NETWORK_CAPABILITIES}
-    bindings = {'gallery': 'GalleryFeature.GalleryService', 'courses': 'CourseFeature.CourseService',
-        'papers': 'PaperFeature.PaperService', 'mine': 'MineFeature.MineService'}
-    services = {owner.split('.')[1]: owner for owner in actual}
+    receiver_owner = smoke_receiver_resolver(index)
     observed = {'network': set(), 'community-writes': set()}
     edges = {}
     for route, calls in reachable_smoke_calls(index).items():
         for call in calls:
             expression = call.get('calledExpression') or ''
             method = expression.rsplit('.', 1)[-1]
-            receiver = expression.split('.', 1)[0]
-            owner = bindings.get(receiver) or services.get(call.get('receiverCall'))
-            if owner: observed[route].add((owner, method))
+            owner = receiver_owner(call)
+            if owner in actual: observed[route].add((owner, method))
     overloads = []
     for path, facts in index.items():
         parts = Path(path).parts
@@ -173,18 +218,32 @@ def network_capability_self_test() -> None:
     from validation_evidence import compilation_condition
     assert compilation_condition('RELEASE_NETWORK_SMOKE', 'network')
     assert not compilation_condition('DEBUG', 'network')
-    index = {f'Modules/{name.split(".")[0]}/Sources/Service.swift': {'functionRanges': [{'name': method, 'scope': [name.split(".")[1]], 'isExported': True, 'start': 0, 'end': 1}
+    index = {f'Modules/{name.split(".")[0]}/Sources/Service.swift': {
+        'declarations': [{'kind': 'struct', 'name': name.split('.')[1], 'scope': [], 'inheritedTypes': [], 'isExported': True}],
+        'functionRanges': [{'name': method, 'scope': [name.split(".")[1]], 'isExported': True, 'start': 0, 'end': 1}
         for method in methods]} for name, methods in NETWORK_CAPABILITIES.items()}
     bindings = {'GalleryService': 'gallery', 'CourseService': 'courses', 'PaperService': 'papers', 'MineService': 'mine'}
     entries = (('network', 'ReleaseNetworkSmoke.swift', ['ReleaseNetworkSmokeRunner'], 'run'),
         ('community-writes', 'CommunityWriteSmoke.swift', ['CommunityWriteSmoke', 'Operations'], 'production'))
     for route, file, scope, entry in entries:
-        calls = [{'calledExpression': bindings[owner.split('.')[1]] + '.' + method, 'start': 10}
+        calls = [{'calledExpression': bindings[owner.split('.')[1]] + '.' + method, 'start': 10, 'scope': scope}
             for owner, methods in NETWORK_CAPABILITIES.items() for method, target in methods.items() if target == route]
-        index[file] = {'functionRanges': [{'name': entry, 'scope': scope, 'start': 0, 'end': 100}], 'invocations': calls}
-    index['ReleaseNetworkSmoke.swift']['invocations'].append({'calledExpression': 'CommunityWriteSmoke.Operations.production', 'start': 10})
+        index[file] = {'functionRanges': [{'name': entry, 'scope': scope, 'start': 0, 'end': 100}], 'invocations': calls,
+            'typedVariables': [{'name': bindings[owner.split('.')[1]], 'type': owner, 'scope': scope, 'start': 0}
+                for owner in NETWORK_CAPABILITIES]}
+    index['ReleaseNetworkSmoke.swift']['invocations'].append({'calledExpression': 'CommunityWriteSmoke.Operations.production', 'start': 10, 'scope': ['ReleaseNetworkSmokeRunner']})
     assert network_capability_findings(index) == []
     from copy import deepcopy
+    unbound = deepcopy(index)
+    unbound['ReleaseNetworkSmoke.swift']['typedVariables'] = []
+    assert any('实际服务调用' in error for error in network_capability_findings(unbound))
+    renamed = deepcopy(index)
+    for facts in (renamed['ReleaseNetworkSmoke.swift'], renamed['CommunityWriteSmoke.swift']):
+        for variable in facts['typedVariables']:
+            if variable['name'] == 'gallery': variable['name'] = 'feedClient'
+        for call in facts['invocations']:
+            call['calledExpression'] = call['calledExpression'].replace('gallery.', 'feedClient.')
+    assert not network_capability_findings(renamed)
     unused = deepcopy(index)
     unused['ReleaseNetworkSmoke.swift']['functionRanges'][0]['scope'] = ['UnusedHelper']
     assert any('实际服务调用' in error for error in network_capability_findings(unused))
@@ -194,13 +253,31 @@ def network_capability_self_test() -> None:
     queued = deepcopy(index)
     queued['ReleaseNetworkSmoke.swift']['callableRanges'] = [{'name': 'queued', 'scope': ['ReleaseNetworkSmokeRunner'], 'start': 5, 'end': 20}]
     assert any('实际服务调用' in error for error in network_capability_findings(queued))
-    invocation = {'calledExpression': 'runInParallel', 'start': 30, 'arguments': ['queued']}
+    invocation = {'calledExpression': 'runInParallel', 'start': 30, 'arguments': ['queued'], 'scope': ['ReleaseNetworkSmokeRunner']}
     queued['ReleaseNetworkSmoke.swift']['invocations'].append(invocation)
     assert not network_capability_findings(queued)
     invocation['calledExpression'] = 'storeCallback'
     assert any('实际服务调用' in error for error in network_capability_findings(queued))
     from pathlib import Path
     from swift_source_index import swift_syntax_index_sources
+    receiver_sources = {
+        'Modules/GalleryFeature/Sources/Service.swift': 'public struct GalleryService {}',
+        'BIT101-iOS/Shared/Client/ReleaseNetworkSmokeModels.swift': 'import GalleryFeature; struct Dependencies { var makeFeed: () -> GalleryService = { GalleryService() } }',
+        'BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift': '''import GalleryFeature
+            struct Dummy {}; struct ReleaseNetworkSmokeRunner { let dependencies: Dependencies
+                func run() { let feedClient = dependencies.makeFeed(); feedClient.fetchFeed()
+                    let alias = feedClient; alias.fetchFeed()
+                    do { let feedClient = Dummy(); feedClient.fetchFeed() }
+                    unknown.fetchFeed(); GalleryFeature.GalleryService().fetchFeed()
+                }
+            }''',
+    }
+    receiver_index = swift_syntax_index_sources(receiver_sources)
+    receiver_owner = smoke_receiver_resolver(receiver_index)
+    receiver_path = 'BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift'
+    owners = [receiver_owner(dict(call, path=receiver_path)) for call in receiver_index[receiver_path]['invocations']
+        if call['calledExpression'].endswith('.fetchFeed')]
+    assert owners == ['GalleryFeature.GalleryService', 'GalleryFeature.GalleryService', 'BIT101-iOS.Dummy', None, 'GalleryFeature.GalleryService']
     sources = {
         'ReleaseNetworkSmoke.swift': 'struct ReleaseNetworkSmokeRunner { func run() { dependencies.productionSessionProbe() } }',
         'ReleaseNetworkSmokeModels.swift': 'struct ReleaseNetworkSmokeDependencies { var productionSessionProbe: () -> Void = NetworkSmokeProductionSession.run }',

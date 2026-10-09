@@ -1,0 +1,181 @@
+import TransportCore
+import CommunityCore
+import DesignSystemKit
+@testable import PaperFeature
+@testable import CourseFeature
+@testable import GalleryFeature
+@testable import MineFeature
+import Foundation
+import Testing
+
+@Suite("Paper search state machine")
+struct PaperSearchViewModelTests {
+    private final class ServiceStub: PaperListServicing {
+        private(set) var requests: [(search: String?, order: PaperSortOrder, page: Int)] = []
+        var result: Result<[PaperSummary], Error>
+        var metadata: (Int) async throws -> PaperDetail = { _ in throw URLError(.unsupportedURL) }
+
+        init(result: Result<[PaperSummary], Error>) { self.result = result }
+
+        func fetchPapers(search: String?, order: PaperSortOrder, page: Int) async throws -> [PaperSummary] {
+            requests.append((search, order, page))
+            return try result.get()
+        }
+
+        func fetchPaper(id: Int) async throws -> PaperDetail {
+            try await metadata(id)
+        }
+    }
+
+    @Test @MainActor
+    func listPaginationKeepsTheSuccessfulConditionsAfterEditingAndRefreshFailure() async {
+        let paper = PaperSummary(id: 1, title: "A", intro: "", likeNum: 0, commentNum: 0, updateTime: "")
+        let service = ServiceStub(result: .success([paper]))
+        let model = PaperListViewModel(service: service)
+        model.searchText = "A"; model.selectedOrder = .like
+        await model.refresh()
+        model.searchText = "B"; model.selectedOrder = .newest
+        service.result = .failure(URLError(.timedOut))
+        await model.refresh()
+        service.result = .success([])
+        await model.loadMoreIfNeeded(currentPaper: paper)
+        #expect(service.requests.last?.search == "A" && service.requests.last?.order == .like)
+        #expect(service.requests.last?.page == 1 && model.state.items == [paper])
+    }
+
+    @Test @MainActor
+    func searchPaginationKeepsItsSubmittedConditionsWhileEditing() async {
+        let paper = PaperSummary(id: 1, title: "A", intro: "", likeNum: 0, commentNum: 0, updateTime: "")
+        let service = ServiceStub(result: .success([paper]))
+        let model = PaperSearchViewModel(service: service)
+        model.searchText = "A"; model.selectedOrder = .like
+        await model.performSearch()
+        model.searchText = "B"; model.selectedOrder = .newest
+        service.result = .success([])
+        await model.loadMoreIfNeeded(currentPaper: paper)
+        #expect(service.requests.last?.search == "A" && service.requests.last?.order == .like)
+        #expect(service.requests.last?.page == 1 && model.state.items == [paper])
+    }
+
+    @Test(arguments: [false, true]) @MainActor
+    func metadataRefreshRejectsEarlierRequestsAndReflectsAnonymity(search: Bool) async throws {
+        let paper = PaperSummary(id: 1, title: "fixture", intro: "", likeNum: 0, commentNum: 0, updateTime: "")
+        let service = ServiceStub(result: .success([paper]))
+        let original = PaperDetail(id: 1, title: "fixture", intro: "", content: "", createTime: "", updateTime: "",
+            updateUser: listUser(1), anonymous: false, likeNum: 0, commentNum: 0, publicEdit: true, like: false, own: true)
+        let edited = PaperDetail(id: 1, title: "fixture", intro: "", content: "", createTime: "", updateTime: "",
+            updateUser: listUser(2), anonymous: true, likeNum: 0, commentNum: 0, publicEdit: true, like: false, own: true)
+        let list = PaperListViewModel(service: service)
+        let results = PaperSearchViewModel(service: service)
+        results.searchText = "fixture"
+        let refresh: @MainActor () async -> Void
+        let load: @MainActor () async -> Void
+        let preview: @MainActor () -> PaperPreviewMetadata?
+        if search {
+            refresh = { await results.performSearch() }
+            load = { await results.loadPreviewMetadataIfNeeded(for: paper) }
+            preview = { results.previewMetadata(for: paper.id) }
+        } else {
+            refresh = { await list.refresh() }
+            load = { await list.loadPreviewMetadataIfNeeded(for: paper) }
+            preview = { list.previewMetadata(for: paper.id) }
+        }
+        service.metadata = { _ in original }
+        await refresh(); await load()
+        #expect(preview()?.authorName == original.updateUser.nickname)
+        await refresh()
+        #expect(preview() == nil)
+        let gate = ListRequestGate<PaperDetail>()
+        service.metadata = { _ in await gate.request() }
+        let earlier = Task { await load() }
+        await gate.waitUntilRequested()
+        await refresh()
+        service.metadata = { _ in edited }
+        await load()
+        gate.finish(original)
+        await earlier.value
+        #expect(preview()?.isAnonymous == true)
+        #expect(preview()?.avatarURL == nil)
+        #expect(preview()?.authorName == edited.previewMetadata.authorName)
+        if search { results.reset(); #expect(preview() == nil) }
+    }
+
+    @Test @MainActor func paperListRetriesItsCancelledBootstrapWhenThePageReturns() async {
+        let paper = PaperSummary(id: 1, title: "fixture", intro: "", likeNum: 0, commentNum: 0, updateTime: "")
+        let service = ServiceStub(result: .failure(CancellationError()))
+        let model = PaperListViewModel(service: service)
+        await model.bootstrapIfNeeded()
+        #expect(model.state.status == .idle)
+        service.result = .success([paper])
+        await model.bootstrapIfNeeded()
+        await model.bootstrapIfNeeded()
+        #expect(model.state.items == [paper] && model.state.status == .loaded)
+        #expect(service.requests.count == 2)
+    }
+
+    @Test("Blank searches reset populated results locally")
+    @MainActor
+    func blankSearchResetsLocally() async {
+        let paper = PaperSummary(
+            id: 1,
+            title: "标题",
+            intro: "摘要",
+            likeNum: 1,
+            commentNum: 1,
+            updateTime: "2026-08-09"
+        )
+        let service = ServiceStub(result: .success([paper]))
+        let viewModel = PaperSearchViewModel(service: service)
+        viewModel.searchText = "Swift"
+
+        await viewModel.performSearch()
+
+        viewModel.searchText = "   "
+
+        await viewModel.performSearch()
+
+        #expect(service.requests.count == 1)
+        #expect(viewModel.state.status == .idle)
+        #expect(viewModel.state.items.isEmpty)
+    }
+
+    @Test("Cancellation restores the idle search state with alert clear")
+    @MainActor
+    func cancellationIsSilent() async {
+        let service = ServiceStub(result: .failure(CancellationError()))
+        let viewModel = PaperSearchViewModel(service: service)
+        viewModel.searchText = "Swift"
+
+        await viewModel.performSearch()
+
+        #expect(viewModel.state.status == .idle)
+        #expect(viewModel.state.items.isEmpty)
+        #expect(viewModel.alert == nil)
+    }
+
+    @Test("Search parameters are normalized and forwarded")
+    @MainActor
+    func forwardsNormalizedSearch() async {
+        let paper = PaperSummary(
+            id: 7,
+            title: "标题",
+            intro: "摘要",
+            likeNum: 1,
+            commentNum: 2,
+            updateTime: "2026-08-09"
+        )
+        let service = ServiceStub(result: .success([paper]))
+        let viewModel = PaperSearchViewModel(service: service)
+        viewModel.searchText = "  Swift  "
+        viewModel.selectedOrder = .like
+
+        await viewModel.performSearch()
+
+        #expect(service.requests.count == 1)
+        #expect(service.requests.first?.search == "Swift")
+        #expect(service.requests.first?.order == .like)
+        #expect(service.requests.first?.page == 0)
+        #expect(viewModel.state.items == [paper])
+        #expect(viewModel.state.status == .loaded)
+    }
+}
