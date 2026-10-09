@@ -186,6 +186,15 @@ struct Handler { var value: String!; func read() -> String { value }; func catch
             findings.append("代码质量规则边界自检失败：模块与插值中的客户端规则")
     if client_source_findings(module_path, '// print("value")\nlet example = "DateFormatter()"'):
         findings.append("代码质量规则边界自检失败：模块文案进入执行代码规则")
+    for constructor in ("DateFormatter.init()", "typealias Formatter = DateFormatter; Formatter()",
+                        "typealias Formatter = Foundation.ISO8601DateFormatter; Formatter.init()",
+                        "let formatter: RelativeDateTimeFormatter = .init()"):
+        source = f"struct ExampleView: View {{ func render() {{ {constructor} }} }}"
+        if not any("AppDateText" in value for value in client_source_findings(module_path, source)):
+            findings.append("社区日期构造自测：别名、显式与推断构造")
+    source = "struct DateFormatter {}; struct ExampleView: View { let formatter = DateFormatter() }"
+    if client_source_findings(module_path, source):
+        findings.append("社区日期构造自测：同名业务类型归属")
     for source, expected in (("import TransportCore\nimport MediaKit\nimport TransportCore\n", 1),
                              ("#if os(iOS)\nimport UIKit\n#else\nimport UIKit\n#endif\n", 0),
                              ('let example = "import UIKit"\n// import UIKit\nimport UIKit\n', 0)):

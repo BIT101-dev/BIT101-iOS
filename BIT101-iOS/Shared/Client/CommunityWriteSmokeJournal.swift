@@ -77,6 +77,28 @@ extension CommunityWriteSmoke {
                 let recordedParents = try values.decodeIfPresent([String].self, forKey: .parents) ?? []
                 commentAttempts = recordedParents.filter { !commentParents.values.contains($0) }
             }
+            try validate()
+        }
+
+        func validate() throws {
+            let prefix = "功能验收 "
+            let runID = marker.dropFirst(prefix.count)
+            guard marker.hasPrefix(prefix), !runID.trimmingCharacters(in: .whitespaces).isEmpty,
+                  runID.count <= 128, runID.unicodeScalars.allSatisfy({ $0.value >= 0x20 && $0.value != 0x7F }),
+                  account > 0, targets.allSatisfy({ $0.id > 0 }), comments.allSatisfy({ $0 > 0 }),
+                  likes.allSatisfy({ $0.target.id > 0 }), followTarget.map({ $0 > 0 }) ?? true,
+                  attempts.allSatisfy({ $0 != .course }),
+                  (parents + commentAttempts + Array(commentParents.values)).allSatisfy(Self.validParent),
+                  commentParents.keys.allSatisfy({ $0 > 0 && comments.contains($0) }) else {
+                throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "社区恢复记录的验收标记或对象标识异常"))
+            }
+        }
+
+        private static func validParent(_ value: String) -> Bool {
+            for prefix in Kind.allCases.map(\.rawValue) + ["comment"] where value.hasPrefix(prefix) {
+                if let id = Int(value.dropFirst(prefix.count)), id > 0 { return value == prefix + String(id) }
+            }
+            return false
         }
 
         func encode(to encoder: Encoder) throws {

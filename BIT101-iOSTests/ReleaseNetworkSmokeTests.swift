@@ -310,7 +310,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
     @Test func journalSurvivesRestartAndRetainsTheRecoveryRecordOnStorageFailure() throws {
         let files = PreferenceMemoryFiles(requireExistingParentDirectories: true)
         let directory = files.temporaryDirectoryURL.appendingPathComponent("NetworkSmoke", isDirectory: true)
-        let original = try JSONEncoder().encode(CommunityWriteSmoke.Journal(marker: "recovery", account: 1))
+        let original = try JSONEncoder().encode(CommunityWriteSmoke.Journal(marker: "功能验收 recovery", account: 1))
         var legacyRemoved = false
         #expect(try CommunityWriteSmoke.loadJournal(files: files, directory: directory, legacyData: original,
             removeLegacy: { legacyRemoved = true }) == original)
@@ -344,7 +344,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
 
     @Test func declaredSmokeAccountIsCheckedBeforeRecoveryAndOnlineWrites() async throws {
         let world = CommunityWorld(stage: "success")
-        let original = try JSONEncoder().encode(CommunityWriteSmoke.Journal(marker: "fixture", account: 1))
+        let original = try JSONEncoder().encode(CommunityWriteSmoke.Journal(marker: "功能验收 fixture", account: 1))
         world.pending = original
         for account in [nil, 2] as [Int?] {
             await #expect(throws: (any Error).self) { try await world.smoke.run(marker: "fixture", expectedAccount: account) }
@@ -420,7 +420,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
     func historicalJournalMigratesItsRecoveryIdentifiers(legacyPreferences: Bool) throws {
         let files = PreferenceMemoryFiles(requireExistingParentDirectories: true)
         let directory = files.temporaryDirectoryURL.appendingPathComponent("NetworkSmoke", isDirectory: true)
-        let original = Data(#"{"marker":"fixture","account":1,"targets":[{"kind":"poster","id":101}],"comments":[201]}"#.utf8)
+        let original = Data(#"{"marker":"功能验收 fixture","account":1,"targets":[{"kind":"poster","id":101}],"comments":[201]}"#.utf8)
         if !legacyPreferences { try CommunityWriteSmoke.saveJournal(original, files: files, directory: directory) }
         var removed = false
         let loaded = try CommunityWriteSmoke.loadJournal(files: files, directory: directory,
@@ -454,8 +454,8 @@ struct ReleaseNetworkSmokeLifecycleTests {
 
     @Test func historicalJournalRecoversItsCreatedObject() async throws {
         let world = CommunityWorld(stage: "success")
-        world.contents["poster101"] = .init(text: "fixture", owned: true, liked: false)
-        world.pending = Data(#"{"marker":"fixture","account":1,"targets":[{"kind":"poster","id":101}]}"#.utf8)
+        world.contents["poster101"] = .init(text: "功能验收 fixture", owned: true, liked: false)
+        world.pending = Data(#"{"marker":"功能验收 fixture","account":1,"targets":[{"kind":"poster","id":101}]}"#.utf8)
         _ = try await world.smoke.run(marker: "fixture", cleanupOnly: true)
         #expect(world.contents["poster101"] == nil)
         #expect(world.contents["poster77"]?.text == "原有内容" && world.pending == nil)
@@ -538,7 +538,46 @@ struct ReleaseNetworkSmokeLifecycleTests {
         let evidence = try await restarted.smoke.run(marker: "fixture", cleanupOnly: true)
         #expect(restarted.pending == nil)
         #expect(evidence.contains("服务端清理确认完成"))
-        #expect(restarted.commentDeletionRequests == [comment.id])
+        #expect(restarted.commentDeletionRequests.isEmpty)
+    }
+
+    @Test(arguments: ["marker", "account", "target", "comment", "parent", "follow"])
+    func invalidRecoveryIdentityKeepsTheJournalAndExistingContent(field: String) async throws {
+        let world = CommunityWorld(stage: "success")
+        var journal = CommunityWriteSmoke.Journal(marker: "功能验收 fixture", account: 1)
+        journal.attempts = [.poster, .paper]
+        var payload = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(journal)) as? [String: Any])
+        switch field {
+        case "marker": payload["marker"] = ""
+        case "account": payload["account"] = 0
+        case "target": payload["targets"] = [["kind": "poster", "id": 0]]
+        case "comment": payload["comments"] = [-1]
+        case "parent": payload["parents"] = ["course0"]
+        default: payload["followTarget"] = 0
+        }
+        let original = try JSONSerialization.data(withJSONObject: payload)
+        world.pending = original
+        await #expect(throws: DecodingError.self) { try await world.smoke.run(marker: "fixture", cleanupOnly: true) }
+        #expect(world.pending == original && world.commentDeletionRequests.isEmpty)
+        #expect(world.contents["poster77"]?.text == "原有内容" && world.followsTarget)
+    }
+
+    @Test(arguments: ["功能验收 fixture-other", "原有内容"])
+    func recoveryPreservesCommentsAndContentWithDifferentText(text: String) async throws {
+        let world = CommunityWorld(stage: "success")
+        let comment = try await world.operations.comment("poster77", text, { _ in }, {})
+        world.contents["poster77"] = .init(text: text, owned: true, liked: true)
+        var journal = CommunityWriteSmoke.Journal(marker: "功能验收 fixture", account: 1)
+        journal.targets = [.init(kind: .poster, id: 77)]
+        journal.likes = [.init(target: journal.targets[0], original: false)]
+        journal.parents = ["poster77"]
+        journal.comments = [comment.id]
+        journal.commentParents = [comment.id: "poster77"]
+        world.pending = try JSONEncoder().encode(journal)
+        await #expect(throws: (any Error).self) { try await world.smoke.run(marker: "fixture", cleanupOnly: true) }
+        #expect(world.pending != nil && world.commentDeletionRequests.isEmpty)
+        #expect(world.contents["poster77"]?.text == text && world.contents["poster77"]?.liked == true)
+        #expect(world.rows["poster77"]?.map(\.id) == [comment.id])
     }
 
     private final class CommunityWorld {

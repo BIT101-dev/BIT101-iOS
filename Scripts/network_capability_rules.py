@@ -51,22 +51,26 @@ def control_flow_outcomes(facts: dict, branch: dict, conditions: dict) -> set[st
     """Track normal continuation and explicit exits through compiler block facts."""
     rows = facts.get('controlFlow', [])
     normal = {'normal'}
-    def block_outcomes(bounds):
+    def block_outcomes(bounds, *, nested=True):
         if not bounds: return normal
         lexical = branch.get('lexicalScope', [])
         alternative = next((row for row in rows if row['start'] == bounds[0]
             and row.get('lexicalScope', []) == lexical and row.get('thenRange')), None)
-        if alternative: return control_flow_outcomes(facts, alternative, conditions)
+        if nested and alternative: return control_flow_outcomes(facts, alternative, conditions)
         outcomes = normal
         direct = sorted((row for row in rows if bounds[0] <= row['start'] < bounds[1]
-            and row.get('scope') == branch.get('scope') and row.get('lexicalScope', []) == lexical + [bounds[0]]),
+            and row.get('scope') == branch.get('scope') and row.get('lexicalScope', []) == lexical + ([bounds[0]] if nested else [])),
             key=lambda row: row['start'])
+        covered_until = bounds[0]
         for row in direct:
+            if row['start'] < covered_until: continue
             if 'normal' not in outcomes: break
             if row.get('deadRange'):
                 following = {row['value'].split()[0]}
-            elif row.get('thenRange') or row.get('elseRange'):
+            elif row.get('thenRange') or row.get('elseRange') or row.get('branchRanges'):
                 following = control_flow_outcomes(facts, row, conditions)
+                spans = [row[key] for key in ('thenRange', 'elseRange') if row.get(key)] + row.get('branchRanges', [])
+                covered_until = max([span[1] for span in spans] + [row.get('followingRange', [row['start']])[0]])
             else: continue
             outcomes = outcomes - normal | following
         return outcomes
@@ -74,12 +78,23 @@ def control_flow_outcomes(facts: dict, branch: dict, conditions: dict) -> set[st
     if identity not in conditions: conditions[identity] = branch_condition(facts, branch)
     value = conditions[identity]
     kind = branch['value'].split()[0]
+    if kind == 'switch':
+        result, following = set(), normal
+        for bounds in reversed(branch.get('branchRanges', [])):
+            outcome = block_outcomes(bounds, nested=False)
+            following = outcome - {'fallthrough'} | (following if 'fallthrough' in outcome else set())
+            result |= following
+        return result - {'break'} | (normal if 'break' in result or not branch.get('branchRanges') else set())
     if kind == 'guard':
         return normal if value is True else block_outcomes(branch.get('elseRange')) | (normal if value is None else set())
     body = block_outcomes(branch.get('thenRange'))
-    if kind == 'while':
-        if value is False: return normal
-        return body - {'normal', 'break', 'continue'} | (normal if value is None or 'break' in body else set())
+    if kind == 'do':
+        alternatives = set().union(*(block_outcomes(bounds) for bounds in branch.get('branchRanges', [])))
+        return body | alternatives
+    if kind in {'while', 'repeat'}:
+        if kind == 'while' and value is False: return normal
+        exits = 'break' in body or value is not True and bool({'normal', 'continue'} & body)
+        return body - {'normal', 'break', 'continue'} | (normal if exits or kind == 'while' and value is None else set())
     alternative = block_outcomes(branch.get('elseRange'))
     return body if value is True else alternative if value is False else body | alternative
 
@@ -104,7 +119,7 @@ def call_can_execute(facts: dict, call: dict) -> bool:
         if empty and body and body[0] <= call['start'] < body[1]: return False
         if branch['start'] not in conditions: conditions[branch['start']] = branch_condition(facts, branch)
         value = conditions[branch['start']]
-        excluded = branch.get('elseRange') if value is True else branch.get('thenRange') if value is False else None
+        excluded = branch.get('elseRange') if value is True else branch.get('thenRange') if value is False and not branch['value'].startswith('repeat') else None
         if excluded and excluded[0] <= call['start'] < excluded[1]: return False
         following = branch.get('followingRange')
         if following and following[0] <= call['start'] < following[1] and not hoisted(following, branch) \

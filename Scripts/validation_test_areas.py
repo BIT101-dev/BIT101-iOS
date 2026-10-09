@@ -484,6 +484,15 @@ def network_capability_self_test() -> None:
         ('while true { break }', True), ('while true { continue }', False), ('while true {}', False),
         ('while true { if false { break } }', False), ('while true { if condition { break } }', True),
         ('while true { while true { break } }', False),
+        ('repeat { return } while false', False), ('repeat { continue } while false', True),
+        ('repeat { break } while true', True), ('repeat {} while true', False),
+        ('do { return } catch { return }', False), ('do { return } catch { consume() }', True),
+        ('do { throw error } catch { return }', False), ('do { consume() } catch { return }', True),
+        ('switch value { case .a: return; case .b: return }', False),
+        ('switch value { case .a: return; default: break }', True),
+        ('switch value { case .a: fallthrough; default: return }', False),
+        ('switch value { case .a: fallthrough; default: consume() }', True),
+        ('while true { switch value { case .a: break; default: break } }', False),
     ]
     fixtures = {prefix: 'func run() { ' + prefix + '; service.fetch() }' for prefix, _ in successors}
     successor_index = swift_syntax_index_sources(fixtures)
@@ -491,7 +500,9 @@ def network_capability_self_test() -> None:
         facts = successor_index[prefix]
         call = next(row for row in facts['invocations'] if row['calledExpression'] == 'service.fetch')
         assert call_can_execute(facts, call) == expected, prefix
-    for prefix in ('guard false else { return }', 'if true { return }', 'while true { return }'):
+    for prefix in ('guard false else { return }', 'if true { return }', 'while true { return }',
+                   'repeat { return } while false', 'do { return } catch { return }',
+                   'switch value { case .a: return; default: return }'):
         terminated = dict(sources)
         terminated['ReleaseNetworkSmoke.swift'] = sources['ReleaseNetworkSmoke.swift'].replace(
             'dependencies.productionSessionProbe()', prefix + '; dependencies.productionSessionProbe()')

@@ -18,6 +18,7 @@ import CourseFeature
 @testable import MineFeature
 @testable import PaperFeature
 import TransportCore
+import StorageCore
 @testable import BIT101_iOS
 
 @Suite("Network smoke coverage")
@@ -648,6 +649,9 @@ extension ReleaseNetworkSmokeLifecycleTests {
             : stage == "emergency-redirect-failure" ? "update.aihelpme.dev" : nil
         let external = External(image: image, redirectHost: redirectHost, aasaStage: stage)
         let association = External(image: image, aasaStage: stage)
+        let externalClient = HTTPClient(transport: external, observer: nil)
+        let media = AppMedia.makeEnvironment(files: PreferenceMemoryFiles(),
+            imageHTTPClient: externalClient, avatarHTTPClient: externalClient)
         var reports: [ReleaseNetworkSmokeReport] = []
         var feedback = 0
         var rawWrites = 0
@@ -658,7 +662,8 @@ extension ReleaseNetworkSmokeLifecycleTests {
                 #expect(runID == stage)
                 if stage == "raw-write-failure" { throw CocoaError(.fileWriteNoPermission) }
             }, makeGallery: { services }, makeCourses: { services }, makePapers: { services }, makeMine: { services },
-            productionSessionProbe: { sessionEvidence }, externalHTTPClient: HTTPClient(transport: external, observer: nil), aasaHTTPClient: HTTPClient(transport: association, observer: nil),
+            productionSessionProbe: { sessionEvidence }, externalHTTPClient: externalClient,
+            imageProbe: { try await media.verifyRemoteImage(at: $0) }, aasaHTTPClient: HTTPClient(transport: association, observer: nil),
             feedbackProbe: { _ in feedback += 1 },
             loadScheduleCache: { ScheduleCache() }, makeScores: { services }, makeSchedule: { handler in services.rawResponse = handler; return services },
             makeProductionSchedule: { productionServices }, makeEclassSchedule: { services })

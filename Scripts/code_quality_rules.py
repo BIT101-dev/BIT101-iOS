@@ -38,10 +38,6 @@ DIRECT_STDOUT_LOG = re.compile(r"\b(?:print|debugPrint|NSLog)\s*\(")
 
 DIRECT_VIEW_REQUEST = re.compile(r"\bURLRequest\s*\(")
 
-DIRECT_DATE_FORMATTER = re.compile(
-    r"\b(?:DateFormatter|ISO8601DateFormatter|RelativeDateTimeFormatter)\s*\("
-)
-
 STDOUT_EXCEPTIONS = {"BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift"}
 
 
@@ -62,6 +58,11 @@ def ast_has_identifier(facts: dict, name: str) -> bool:
 
 
 def ast_has_view_request(facts: dict, type_index: dict | None = None, context: dict[str, dict] | None = None, *, resolver=None) -> bool:
+    return ast_has_view_construction(facts, {"URLRequest", "Foundation.URLRequest"}, type_index, context, resolver=resolver)
+
+
+def ast_has_view_construction(facts: dict, constructed_types: set[str], type_index: dict | None = None,
+                              context: dict[str, dict] | None = None, *, resolver=None) -> bool:
     from swift_type_index import SwiftTypeIndex
     context = {"source": facts} if context is None else context
     origin = next((path for path, entry in context.items() if entry is facts), "source")
@@ -87,7 +88,7 @@ def ast_has_view_request(facts: dict, type_index: dict | None = None, context: d
                 value = reference['type']
                 continue
             key = resolver.resolve(reference_file, value, reference['scope'], aliases=False)
-            if key is None: return value in {"URLRequest", "Foundation.URLRequest"}
+            if key is None: return value in constructed_types
             if key not in resolver.aliases: return False
             reference_file = resolver.paths[key]
             reference = {'scope': list(key[1][:-1]), 'lexicalScope': []}
@@ -212,7 +213,7 @@ def uses_application_support_storage(member: dict) -> bool:
     )
 
 
-def client_source_findings(path: Path, source: str, facts: dict | None = None) -> list[str]:
+def client_source_findings(path: Path, source: str, facts: dict | None = None, context: dict | None = None, *, resolver=None) -> list[str]:
     if not any(path.is_relative_to(root) for root in PRODUCTION_ROOTS):
         return []
     errors: list[str] = []
@@ -222,7 +223,13 @@ def client_source_findings(path: Path, source: str, facts: dict | None = None) -
         add_matches(errors, path, code, DIRECT_STDOUT_LOG, "诊断输出使用所属模块的 Logger")
     community_roots = tuple(ROOT / "Modules" / module for module in ("CourseFeature", "GalleryFeature", "PaperFeature", "MineFeature", "CommunityUI"))
     if any(path.is_relative_to(root) for root in community_roots) and is_view_source(path, code):
-        add_matches(errors, path, code, DIRECT_DATE_FORMATTER, "社区日期解析统一使用 AppDateText")
+        if facts is None:
+            from swift_source_index import swift_syntax_index_sources
+            facts = swift_syntax_index_sources({str(path): source})[str(path)]
+        formatter_types = {prefix + name for prefix in ("", "Foundation.")
+            for name in ("DateFormatter", "ISO8601DateFormatter", "RelativeDateTimeFormatter")}
+        if ast_has_view_construction(facts, formatter_types, context=context, resolver=resolver):
+            errors.append(f"{name}: 社区日期解析统一使用 AppDateText")
     return errors
 
 
@@ -280,7 +287,8 @@ def source_findings(syntax_index: dict[str, dict] | None = None) -> tuple[list[s
         masked_source = mask_literals_and_comments(source)
         name = relative(path)
 
-        errors.extend(client_source_findings(path, source, syntax_index.get(str(path)) if syntax_index else None))
+        errors.extend(client_source_findings(path, source, syntax_index.get(str(path)) if syntax_index else None,
+            syntax_index, resolver=request_types))
 
         if source and not source.endswith("\n"):
             errors.append(f"{name}: 文件末尾缺少换行")

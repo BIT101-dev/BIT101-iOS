@@ -81,6 +81,7 @@ struct ScopedFact: Encodable {
     var booleanValue: Bool? = nil
     var deadRange: [Int]? = nil
     var followingRange: [Int]? = nil
+    var branchRanges: [[Int]]? = nil
     var isExpressionReference: Bool = false
 }
 
@@ -272,6 +273,15 @@ final class FactVisitor: SyntaxVisitor {
         }
         return item
     }
+    private func recordFlow(_ node: some SyntaxProtocol, condition: String? = nil,
+        body: Syntax? = nil, alternative: Syntax? = nil, branches: [Syntax] = []) -> SyntaxVisitorContinueKind {
+        func range(_ node: Syntax) -> [Int] { [node.positionAfterSkippingLeadingTrivia.utf8Offset, node.endPositionBeforeTrailingTrivia.utf8Offset] }
+        var item = controlFlowFact(node)
+        item.condition = condition; item.thenRange = body.map(range); item.elseRange = alternative.map(range)
+        item.branchRanges = branches.isEmpty ? nil : branches.map(range)
+        controlFlow.append(item)
+        return .visitChildren
+    }
     private func escapingParameters(_ type: TypeSyntax) -> [Int] {
         if let attributed = type.as(AttributedTypeSyntax.self) { return escapingParameters(attributed.baseType) }
         guard let function = type.as(FunctionTypeSyntax.self) else { return [] }
@@ -432,18 +442,18 @@ final class FactVisitor: SyntaxVisitor {
     }
 
     override func visit(_ node: ThrowStmtSyntax) -> SyntaxVisitorContinueKind {
-        recordTermination(Syntax(node))
-        return .visitChildren
+        recordTermination(Syntax(node)); return .visitChildren
     }
 
     override func visit(_ node: BreakStmtSyntax) -> SyntaxVisitorContinueKind {
-        recordTermination(Syntax(node))
-        return .visitChildren
+        recordTermination(Syntax(node)); return .visitChildren
     }
 
     override func visit(_ node: ContinueStmtSyntax) -> SyntaxVisitorContinueKind {
-        recordTermination(Syntax(node))
-        return .visitChildren
+        recordTermination(Syntax(node)); return .visitChildren
+    }
+    override func visit(_ node: FallThroughStmtSyntax) -> SyntaxVisitorContinueKind {
+        recordTermination(Syntax(node)); return .visitChildren
     }
 
     override func visit(_ node: ClassDeclSyntax) -> SyntaxVisitorContinueKind {
@@ -888,37 +898,27 @@ final class FactVisitor: SyntaxVisitor {
         return .visitChildren
     }
     override func visit(_ node: IfExprSyntax) -> SyntaxVisitorContinueKind {
-        var item = controlFlowFact(node)
-        item.condition = node.conditions.trimmedDescription
-        item.thenRange = [node.body.positionAfterSkippingLeadingTrivia.utf8Offset, node.body.endPositionBeforeTrailingTrivia.utf8Offset]
-        if let alternative = node.elseBody {
-            item.elseRange = [alternative.positionAfterSkippingLeadingTrivia.utf8Offset, alternative.endPositionBeforeTrailingTrivia.utf8Offset]
-        }
-        controlFlow.append(item)
-        return .visitChildren
+        recordFlow(node, condition: node.conditions.trimmedDescription, body: Syntax(node.body), alternative: node.elseBody.map { Syntax($0) })
     }
-
     override func visit(_ node: SwitchCaseSyntax) -> SyntaxVisitorContinueKind {
         controlFlow.append(fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset))
         return .visitChildren
     }
-
+    override func visit(_ node: SwitchExprSyntax) -> SyntaxVisitorContinueKind {
+        recordFlow(node, branches: node.cases.compactMap { $0.as(SwitchCaseSyntax.self).map { Syntax($0.statements) } })
+    }
+    override func visit(_ node: DoStmtSyntax) -> SyntaxVisitorContinueKind {
+        recordFlow(node, body: Syntax(node.body), branches: node.catchClauses.map { Syntax($0.body) })
+    }
+    override func visit(_ node: RepeatStmtSyntax) -> SyntaxVisitorContinueKind {
+        recordFlow(node, condition: node.condition.trimmedDescription, body: Syntax(node.body))
+    }
     override func visit(_ node: WhileStmtSyntax) -> SyntaxVisitorContinueKind {
-        var item = controlFlowFact(node)
-        item.condition = node.conditions.trimmedDescription
-        item.thenRange = [node.body.positionAfterSkippingLeadingTrivia.utf8Offset, node.body.endPositionBeforeTrailingTrivia.utf8Offset]
-        controlFlow.append(item)
-        return .visitChildren
+        recordFlow(node, condition: node.conditions.trimmedDescription, body: Syntax(node.body))
     }
-
     override func visit(_ node: GuardStmtSyntax) -> SyntaxVisitorContinueKind {
-        var item = controlFlowFact(node)
-        item.condition = node.conditions.trimmedDescription
-        item.elseRange = [node.body.positionAfterSkippingLeadingTrivia.utf8Offset, node.body.endPositionBeforeTrailingTrivia.utf8Offset]
-        controlFlow.append(item)
-        return .visitChildren
+        recordFlow(node, condition: node.conditions.trimmedDescription, alternative: Syntax(node.body))
     }
-
     override func visit(_ node: IdentifierTypeSyntax) -> SyntaxVisitorContinueKind {
         typeNames.append(fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset))
         return .visitChildren
