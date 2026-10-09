@@ -100,6 +100,9 @@ def run_self_test(subject) -> int:
         assert subject.compilation_condition('DEBUG || RELEASE_NETWORK_SMOKE', 'all')
         assert not subject.compilation_condition('os(macOS) || targetEnvironment(macCatalyst)', 'all')
         assert subject.compilation_condition('BIT101_UI_TESTING && !targetEnvironment(macCatalyst)', 'ui')
+        assert subject.compilation_condition('DEBUG && ICLOUD_CROSS_DEVICE_SMOKE', 'icloud')
+        assert subject.compilation_condition('DEBUG && ICLOUD_CROSS_DEVICE_SMOKE', 'build-icloud-smoke')
+        assert not subject.compilation_condition('DEBUG', 'release')
         assert subject.compilation_condition('EXTENDED_AUTOMATION && BIT101_AUTOMATED_TESTING && BIT101_UI_TESTING && !DEBUG', 'ui')
         from ui_rules import check_ui_test_inventory
         original_rglob, original_read = (Path.rglob, Path.read_text)
@@ -247,16 +250,16 @@ def run_self_test(subject) -> int:
             assert not complete(changed)
         assert not subject.complete_summary('manual-device', {'passed': True, 'checks': {}})
         assert not subject.complete_summary('manual-device', {'passed': True, 'checks': {name: 'pass' for name in subject.MANUAL_DEVICE_CHECKS}})
-        summaries['network'] = subject.smoke_summary('network', {'passed': True, 'scope': 'all', 'executedProbes': sorted(subject.network_inventory()), 'requiredProbes': sorted(subject.network_inventory()), 'currentTerm': 'fixture-current', 'validatedTerm': 'fixture-current'})
-        sms = {'passed': True, 'scope': 'school', 'executedProbes': sorted(subject.network_inventory('school')), 'requiredProbes': sorted(subject.network_inventory('school')), 'schoolSMSCoverage': 'verified', 'verifiedSMSProbes': [{'purpose': purpose, 'probe': sorted(subject.SCHOOL_SMS_PROBES[purpose])[0]} for purpose in subject.school_sms_inventory()]}
+        summaries['network'] = subject.smoke_summary('network', network_trace_fixture({'passed': True, 'scope': 'all', 'executedProbes': sorted(subject.network_inventory()), 'requiredProbes': sorted(subject.network_inventory()), 'currentTerm': 'fixture-current', 'validatedTerm': 'fixture-current'}))
+        sms = network_trace_fixture({'passed': True, 'scope': 'school', 'executedProbes': sorted(subject.network_inventory('school')), 'requiredProbes': sorted(subject.network_inventory('school')), 'schoolSMSCoverage': 'verified', 'verifiedSMSProbes': [{'purpose': purpose, 'probe': sorted(subject.SCHOOL_SMS_PROBES[purpose])[0]} for purpose in subject.school_sms_inventory()]})
         sms.update(authenticatedSchoolProbes=sms['verifiedSMSProbes'], requestedSMSPurposes=sorted(subject.school_sms_inventory()), currentTerm='fixture-current', validatedTerm='fixture-current')
         assert set(subject.SCHOOL_SMS_PROBES) == subject.school_sms_inventory()
-        writes = {'passed': True, 'scope': 'community-writes', 'executedProbes': sorted(subject.network_inventory('community-writes')), 'requiredProbes': sorted(subject.network_inventory('community-writes')), 'communityWriteEvidence': ['验收账号 user1', '服务端确认删除 poster1', '服务端确认删除 paper2', '点赞恢复 poster1', '点赞恢复 paper2', '点赞恢复 course3', '图片提交 poster1', '图片提交 comment10', '关注恢复 user4'] + [f'服务端确认删除 comment{id}' for id in range(10, 16)] + [f'创建 comment{id} 目标 {parent}' for id, parent in [(10, 'poster1'), (11, 'comment10'), (12, 'paper2'), (13, 'comment12'), (14, 'course3'), (15, 'comment14')]]}
+        writes = network_trace_fixture({'passed': True, 'scope': 'community-writes', 'executedProbes': sorted(subject.network_inventory('community-writes')), 'requiredProbes': sorted(subject.network_inventory('community-writes')), 'communityWriteEvidence': ['验收账号 user1', '服务端确认删除 poster1', '服务端确认删除 paper2', '点赞恢复 poster1', '点赞恢复 paper2', '点赞恢复 course3', '图片提交 poster1', '图片提交 comment10', '关注恢复 user4'] + [f'服务端确认删除 comment{id}' for id in range(10, 16)] + [f'创建 comment{id} 目标 {parent}' for id, parent in [(10, 'poster1'), (11, 'comment10'), (12, 'paper2'), (13, 'comment12'), (14, 'course3'), (15, 'comment14')]]})
         assert subject.community_writes_complete(writes['communityWriteEvidence'])
         assert not subject.community_writes_complete(writes['communityWriteEvidence'][:5] + ['服务端确认删除 comment42'] * 6)
         assert not subject.community_writes_complete([item.replace('目标 comment14', '目标 comment10') for item in writes['communityWriteEvidence']])
         assert not subject.community_writes_complete([item.replace('创建 comment15', '创建 comment14') for item in writes['communityWriteEvidence']])
-        cleanup = {'passed': True, 'scope': 'community-cleanup', 'executedProbes': sorted(subject.network_inventory('community-cleanup')), 'requiredProbes': sorted(subject.network_inventory('community-cleanup'))}
+        cleanup = network_trace_fixture({'passed': True, 'scope': 'community-cleanup', 'executedProbes': sorted(subject.network_inventory('community-cleanup')), 'requiredProbes': sorted(subject.network_inventory('community-cleanup'))})
         assert subject.smoke_summary('community-cleanup', cleanup)['passed']
         assert not subject.smoke_summary('community-writes', cleanup, full=False)['passed']
         with patch(f'{module_name}.test_inventory', return_value={'Suite/first', 'Suite/second', 'Other/third'}):
@@ -282,7 +285,7 @@ def run_self_test(subject) -> int:
         assert not subject.smoke_summary('school-sms', dict(authenticated, authenticatedSchoolProbes=[]))['passed']
         mixed = dict(sms, requestedSMSPurposes=[sms['verifiedSMSProbes'][0]['purpose']], verifiedSMSProbes=sms['verifiedSMSProbes'][:1])
         assert subject.smoke_summary('school-sms', mixed)['passed']
-        full_sms = dict(sms, scope='all', requiredProbes=sorted(subject.network_inventory('all')), executedProbes=sorted(subject.network_inventory('all')))
+        full_sms = network_trace_fixture(dict(sms, scope='all', requiredProbes=sorted(subject.network_inventory('all')), executedProbes=sorted(subject.network_inventory('all'))))
         assert subject.smoke_summary('network', full_sms)['passed']
         projected = subject.smoke_summary('school-sms', full_sms)
         assert subject.complete_summary('school-sms', projected)
@@ -340,7 +343,7 @@ def run_self_test(subject) -> int:
         summaries['ui']['passedTests'] = summaries['ui']['totalTests']
         summaries['ui']['uiInventory']['pending'] = ['new-control']
         assert subject.complete_summary('ui', summaries['ui']) is False
-        network = {'passed': True, 'scope': 'all', 'executedProbes': sorted(subject.network_inventory()), 'requiredProbes': sorted(subject.network_inventory()), 'currentTerm': 'fixture-current', 'validatedTerm': 'fixture-current'}
+        network = network_trace_fixture({'passed': True, 'scope': 'all', 'executedProbes': sorted(subject.network_inventory()), 'requiredProbes': sorted(subject.network_inventory()), 'currentTerm': 'fixture-current', 'validatedTerm': 'fixture-current'})
         assert subject.smoke_summary('network', network)['passed']
         assert not subject.smoke_summary('network', dict(network, requestedTerm='historical', validatedTerm='historical'))['passed']
         assert not subject.smoke_summary('network', dict(network, validatedTerm='other'))['passed']
@@ -354,10 +357,12 @@ def run_self_test(subject) -> int:
         assert failed_summary['diagnostics']['coverageGaps'] == ['fixture']
         network['failures'] = []
         assert subject.smoke_summary('network', network)['passed'] is False
-        ddl = {'passed': True, 'scope': 'ddl', 'executedProbes': sorted(subject.network_inventory('ddl')), 'requiredProbes': sorted(subject.network_inventory('ddl'))}
+        ddl = network_trace_fixture({'passed': True, 'scope': 'ddl', 'executedProbes': sorted(subject.network_inventory('ddl')), 'requiredProbes': sorted(subject.network_inventory('ddl'))})
         assert len(subject.network_inventory('ddl')) == 5 and subject.smoke_summary('ddl', ddl)['passed']
         ddl_summary = subject.smoke_summary('ddl', ddl)
         assert subject.complete_summary('ddl', ddl_summary)
+        assert not subject.smoke_summary('network', dict(network, requestEvidence=[]))['passed']
+        assert not subject.smoke_summary('network', dict(network, requestEvidenceRequired=False))['passed']
         network_recording_self_test(subject, {'network': network, 'ddl': ddl, 'school-sms': sms,
             'community-writes': writes, 'community-cleanup': cleanup})
 
@@ -404,3 +409,10 @@ def network_recording_self_test(subject, results) -> None:
                 assert subject.record(group, 0, 'full', 'current') == (0 if passed else 1), group
                 with patch.object(sys, 'argv', ['validation_evidence.py', 'check-group', group]):
                     assert subject.main() == (0 if passed else 1), group
+
+
+def network_trace_fixture(value: dict) -> dict:
+    value['requestEvidenceRequired'] = True
+    value['requestEvidence'] = [{'probe': name, 'requests': [{'method': 'GET', 'endpoint': 'https://fixture.invalid/probe', 'statusCode': 200}]}
+        for name in value.get('requiredProbes', [])]
+    return value

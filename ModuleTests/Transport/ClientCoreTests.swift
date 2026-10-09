@@ -288,6 +288,35 @@ private final class RecordingObserver: HTTPClientObserving {
 struct ClientCoreTests {
     private let url = AppURL.required("https://example.invalid/module-test")
 
+    @Test(arguments: [200, 401])
+    func requestEvidenceFollowsChildTasksAndRestoresItsScope(status: Int) async throws {
+        let endpoint = AppURL.required("https://student:password@example.invalid/probe?token=secret#private")
+        let response = try #require(HTTPURLResponse(url: endpoint, statusCode: status, httpVersion: nil, headerFields: nil))
+        let client = HTTPClient(transport: StubTransport(result: .success((Data(), response))), observer: nil)
+        var evidence: [HTTPRequestEvidence] = []
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        try await HTTPRequestEvidenceContext.$didReceive.withValue({ evidence.append($0) }) {
+            let child = Task { try await client.send(request) }
+            if status == 200 {
+                let value = try await child.value
+                #expect(value.statusCode == status)
+            }
+            else { await #expect(throws: HTTPClientError.self) { try await child.value } }
+        }
+        let recorded = try #require(evidence.first)
+        #expect(evidence.count == 1)
+        #expect(recorded.endpoint == "https://example.invalid/probe")
+        #expect(recorded.method == "POST" && recorded.statusCode == status)
+        #expect(HTTPRequestEvidenceContext.didReceive == nil)
+        let decoded = try JSONDecoder().decode(HTTPRequestEvidence.self, from: JSONEncoder().encode(recorded))
+        #expect(decoded.endpoint == recorded.endpoint && decoded.statusCode == status)
+        request.url = nil
+        request.httpMethod = nil
+        #expect(HTTPRequestEvidence(request: request, response: response).method == "GET")
+        #expect(HTTPRequestEvidence(request: request, response: response).endpoint == recorded.endpoint)
+    }
+
     @Test func ordinaryResponsesUseTheDefaultBudgetIncludingExplicitNil() async throws {
         let response = try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
         let base = StubTransport(result: .success((Data(count: HTTPResponseResourceLimits.maximumStructuredBytes + 1), response)))

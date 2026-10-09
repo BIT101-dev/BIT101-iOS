@@ -47,6 +47,30 @@ private func makeTestURL(_ value: String) throws -> URL {
 
 @Suite("Network stack")
 struct NetworkClientTests {
+    @Test("Smoke requests bind actual responses to the operation and redact URL credentials")
+    @MainActor
+    func smokeEvidenceRequiresTransportAndRestoresTaskScope() async throws {
+        let url = try makeTestURL("https://student:password@example.invalid/probe?token=secret#private")
+        let client = HTTPClient(transport: MockHTTPTransport { _ in
+            (Data(), try #require(HTTPURLResponse(url: url, statusCode: 401, httpVersion: nil, headerFields: nil)))
+        }, observer: nil)
+        let collector = NetworkSmokeRequestCollector()
+        await #expect(throws: NetworkSmokeRequestError.self) {
+            try await collector.perform({ 1 }, required: true)
+        }
+        #expect(collector.requests.isEmpty)
+        _ = try await collector.perform({
+            await #expect(throws: HTTPClientError.self) { try await client.send(URLRequest(url: url)) }
+            return 1
+        }, required: true)
+        let evidence = try #require(collector.requests.first)
+        #expect(evidence.endpoint == "https://example.invalid/probe")
+        #expect(evidence.method == "GET" && evidence.statusCode == 401)
+        #expect(HTTPRequestEvidenceContext.didReceive == nil)
+        await #expect(throws: HTTPClientError.self) { try await client.send(URLRequest(url: url)) }
+        #expect(collector.requests.count == 1)
+    }
+
     private final class ScoreCredentials: SchoolCredentialsProviding {
         var schoolSessionIdentity = SchoolSessionIdentity(accountIdentifier: "score-contract", generation: 0)
         var currentStudentID: String { schoolSessionIdentity.accountIdentifier }

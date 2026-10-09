@@ -115,6 +115,7 @@ public struct HTTPClient {
             guard let httpResponse = response as? HTTPURLResponse else {
                 throw HTTPClientError.invalidResponse
             }
+            HTTPRequestEvidenceContext.didReceive?(HTTPRequestEvidence(request: request, response: httpResponse))
             guard statusCodes.contains(httpResponse.statusCode) else {
                 let message = try await Self.errorMessageInBackground(from: data)
                 throw HTTPClientError.unacceptableStatus(

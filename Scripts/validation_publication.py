@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from validation_environment import environment_context, toolchain_identity
 from validation_policy import RELEASE_GROUPS
-from validation_provenance import evidence_current
+from validation_provenance import evidence_current, complete_group_row
 from validation_merge import CORE_GROUPS
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,7 +16,7 @@ CORE_REPORT = ROOT / '.build/extended-automation/core-validation-evidence.json'
 def release_receipt(report: dict, tag: str, digest) -> dict:
     rows = {}
     for group in sorted(RELEASE_GROUPS):
-        original = report['groups'][group]
+        original = complete_group_row(report['groups'][group])
         summary = original['summary']
         toolchain = toolchain_identity(original['environment'])
         rows[group] = {'passed': True, 'scope': 'full', 'toolchain': toolchain,
@@ -51,7 +51,7 @@ def receipt_findings(receipt: dict, tag: str, commit: str, digest) -> list[str]:
 
 def core_exchange(report: dict) -> dict:
     return {key: value for key, value in report.items() if key in {'mergeCommit', 'testedCommit', 'sourceDigest'}} | {
-        'groups': {name: row for name, row in report.get('groups', {}).items() if name in CORE_GROUPS | {'modules'}}}
+        'groups': {name: complete_group_row(row) for name, row in report.get('groups', {}).items() if name in CORE_GROUPS | {'modules'}}}
 
 
 def self_test() -> None:

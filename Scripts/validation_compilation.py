@@ -8,7 +8,7 @@ import re
 import subprocess
 from functools import cache
 from validation_environment import environment_context
-from validation_policy import NETWORK_GROUPS
+from validation_policy import workflow_conditions
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -17,14 +17,10 @@ ROOT = Path(__file__).resolve().parents[1]
 def compilation_condition(condition: str, group: str) -> bool:
     condition = condition.strip()
     group = group.removeprefix("build-")
-    group = {"release": "all", "network-smoke": "network", "icloud-smoke": "icloud"}.get(group, group)
+    group = {"network-smoke": "network", "icloud-smoke": "icloud"}.get(group, group)
     if any(character in condition for character in "\n\r#;{}"):
         raise ValueError(f"编译条件需要单行 Swift 表达式：{condition}")
-    enabled = {"DEBUG", "EXTENDED_AUTOMATION", "BIT101_AUTOMATED_TESTING"} if group in {
-        "all", "catalyst", "schedule", "infrastructure", "login", "extensions"} else {
-        "EXTENDED_AUTOMATION", "BIT101_AUTOMATED_TESTING", "BIT101_UI_TESTING"} if group == "ui" else set()
-    if group in NETWORK_GROUPS: enabled = {"RELEASE_NETWORK_SMOKE"}
-    if group in {"icloud", "icloud-cleanup"}: enabled = {"ICLOUD_CROSS_DEVICE_SMOKE"}
+    enabled = set(workflow_conditions(group))
     catalyst = group in {"catalyst", "catalyst-release-runtime"}
     native = group == "modules"
     architecture = os.uname().machine if native or catalyst else "arm64"

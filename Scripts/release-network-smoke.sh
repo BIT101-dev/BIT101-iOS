@@ -136,7 +136,7 @@ if bit101_run_logged "$BUILD_LOG" "Release 网络采样构建输出" xcodebuild 
   -configuration Release \
   -destination "platform=iOS,id=$DEVICE_ID" \
   -derivedDataPath "$DERIVED_DATA" \
-  "BIT101_WORKFLOW_CONDITIONS=RELEASE_NETWORK_SMOKE" \
+  "BIT101_WORKFLOW_CONDITIONS=$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" conditions network)" \
   -allowProvisioningUpdates; then
   BUILD_STATUS=0
 else

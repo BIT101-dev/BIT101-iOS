@@ -1,5 +1,5 @@
 """Require current core physical-device evidence before merging product changes."""
-from validation_provenance import sampling_evidence_current
+from validation_provenance import sampling_evidence_current, complete_group_row
 from validation_environment import complete_environment, environment_context, toolchain_identity
 
 CORE_GROUPS = {'all', 'release-runtime', 'ui', 'restore'}
@@ -10,7 +10,7 @@ def findings(report: dict, *, digest, complete, commit: str, recorded_environmen
     if report.get('mergeCommit', report.get('releaseCommit')) != commit:
         errors.append('合并验收需要绑定当前提交。')
     for group in sorted(CORE_GROUPS):
-        row = report.get('groups', {}).get(group, {})
+        row = complete_group_row(report.get('groups', {}).get(group, {}))
         recorded = row.get('recordedAt', '')
         if group == 'restore' and any(row.get('summary', {}).get(key) != row.get(key) for key in ('runID', 'inputDigest')):
             errors.append('restore 的就绪信号需要对应所属运行与输入摘要。')

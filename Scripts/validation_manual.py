@@ -12,7 +12,7 @@ from pathlib import Path
 from datetime import datetime
 from validate_distribution import valid_archive_provenance
 from validation_media import media_complete
-from validation_policy import MAXIMUM_ATTACHMENT_BYTES, MAXIMUM_REPORT_BYTES
+from validation_policy import MAXIMUM_ATTACHMENT_BYTES, MAXIMUM_REPORT_BYTES, workflow_conditions
 
 MANUAL_DEVICE_CHECKS = {"system-autofill", "photos", "calendar-permissions", "notifications", "external-handoff", "web-interactions", "widget", "watch", "feedback-delivery", "distribution-signing", "minimum-platforms"}
 MANUAL_SCENARIOS = {
@@ -21,7 +21,6 @@ MANUAL_SCENARIOS = {
     'gallery-report': {'submit-and-confirm'},
     'account-lifecycle': {'sign-in-a', 'refresh-credentials-a', 'sign-out-a', 'sign-in-b', 'restore-a'},
     'community-variants': {'course-search', 'gallery-search-filters', 'comment-sorting', 'anonymous-poster', 'anonymous-paper', 'restore-content'},
-    'performance-baseline': {'pagination', 'image-decoding'},
     'ipad-layout': {'portrait', 'landscape', 'split-view', 'resize'},
 }
 MANUAL_DEVICE_CHECKS.update(MANUAL_SCENARIOS)
@@ -30,7 +29,18 @@ BASELINE_CHECKS = {'iOS': {'cold-start-session', 'offline-persistence', 'media-a
 PERFORMANCE_WORKLOADS = {
     'pagination': ('MaintenancePerformanceTests/testCommunityPaginationPerformance', {'pages': 1000, 'itemsPerPage': 100, 'passes': 2, 'states': ['MinePagedState', 'GalleryMessageListState']}),
     'image-decoding': ('MaintenancePerformanceTests/testStillImageDecodingPerformance', {'width': 1024, 'height': 1024, 'format': 'PNG'}),
+    'startup': ('MaintenancePerformanceUITests/testStartupPerformance', {'operation': 'terminate-launch-schedule-ready', 'storage': 'reset'}),
+    'schedule-layout': ('MaintenancePerformanceUITests/testScheduleWeekLayoutPerformance', {'weekSwitchPairs': 10, 'animations': True}),
+    'long-article': ('MaintenancePerformanceTests/testLongArticleRenderingPerformance', {'paragraphs': 40, 'repetitionsPerParagraph': 64}),
+    'gif-decoding': ('MaintenancePerformanceTests/testGIFDecodingPerformance', {'width': 256, 'height': 256, 'frames': 24, 'cache': 'cleared-per-sample'}),
+    'widget-timeline': ('MaintenancePerformanceTests/testWidgetTimelinePerformance', {'courses': 200, 'weeks': 20, 'occurrences': 4000}),
 }
+MANUAL_SCENARIOS['performance-baseline'] = set(PERFORMANCE_WORKLOADS)
+MANUAL_DEVICE_CHECKS.add('performance-baseline')
+
+
+def performance_group(test: str) -> str:
+    return 'ui' if test.startswith('MaintenancePerformanceUITests/') else 'all'
 
 
 def capture(operation: str, result: str, evidence: Path, check: str, outcome: str, observed_at: str) -> dict:
@@ -162,7 +172,7 @@ def performance_comparison_complete(name: str, measurement: dict) -> bool:
                     or environment['configuration'] != 'Release' or not re.fullmatch(r'[0-9a-f]{64}', environment['compilerSHA256']) \
                     or not isinstance(environment.get('compilationConditions'), list) \
                     or not all(isinstance(condition, str) and re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', condition) for condition in environment['compilationConditions']) \
-                    or not {'DEBUG', 'BIT101_AUTOMATED_TESTING'} <= set(environment['compilationConditions']): return False
+                    or environment['compilationConditions'] != sorted(workflow_conditions(performance_group(test))): return False
             bundle = record['resultBundle']
             if not isinstance(bundle, dict) or not isinstance(bundle.get('path'), str) or not bundle['path'].endswith('.xcresult') \
                     or not re.fullmatch(r'[0-9a-f]{64}', bundle.get('sha256', '')): return False

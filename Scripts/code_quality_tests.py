@@ -484,6 +484,29 @@ def workflow_lock_boundary_findings() -> list[str]:
         output, _ = second.communicate(timeout=5)
         if first.returncode != 143 or second.returncode or output.strip() != "entered":
             raise ValueError("信号清理完成后释放锁并保持退出状态")
+        first = subprocess.Popen(["zsh", str(worker), "hold"], stdout=subprocess.PIPE,
+                                 stderr=subprocess.PIPE, text=True, env=environment)
+        processes.append(first)
+        if line(first) != "entered": raise ValueError("超时竞争测试取得锁")
+        second = subprocess.Popen(["zsh", str(worker)], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, env=dict(other_checkout, BIT101_WORKFLOW_TIMEOUT_SECONDS="0.5"))
+        processes.append(second)
+        output, _ = second.communicate(timeout=5)
+        if second.returncode != 124 or "[超时]" not in output or "entered" in output:
+            raise ValueError("竞争工作流沿等待预算结束")
+        with release.open("w") as stream: stream.write("done\n")
+        first.communicate(timeout=5)
+        timed = subprocess.Popen(["zsh", str(worker), "signal"], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, env=dict(environment, BIT101_WORKFLOW_TIMEOUT_SECONDS="0.5"))
+        processes.append(timed)
+        if line(timed) != "entered": raise ValueError("执行超时测试取得锁")
+        if not line(timed).startswith("[超时]") or line(timed) != "cleanup":
+            raise ValueError("执行预算触发恢复清理")
+        with release.open("w") as stream: stream.write("done\n")
+        timed.communicate(timeout=5)
+        recovered = subprocess.run(["zsh", str(worker)], capture_output=True, text=True, env=environment, timeout=5)
+        if timed.returncode != 124 or recovered.returncode or recovered.stdout.strip() != "entered":
+            raise ValueError("超时恢复完成后释放全局与工作区锁")
     except (ValueError, OSError, subprocess.TimeoutExpired) as error:
         findings.append(f"工作流锁自测：{error}")
     finally:

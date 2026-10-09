@@ -354,16 +354,22 @@ iOS 的 `checks` 包含 `cold-start-session`、`offline-persistence`、`media-an
 
 共享预览目录的媒体环境共同接收同一 `MediaPreviewStorage`，文件创建、所有权登记、清理和关闭消费同一协调器。回归合同覆盖创建期间的后台清理，以及不同环境启动清理和关闭预览时保留其他活动消费者。
 
-`MaintenancePerformanceTests` 沿 XCTest 默认测量选项记录“我的”及消息中心实际分页状态的十万条追加与重复页去重、静态图片实际解码的时钟与物理内存指标。测量结果随完整行为组保存到固定 XCTest 结果包，性能基线沿同一真机 runner 的 XCTest 默认基线参数维护。`performance-baseline` 人工专项用 `pagination`、`image-decoding` 两个场景登记结构化比较及影像，参与完整发布验收。大输入正确性合同核对稳定顺序及增量索引工作量。
+`MaintenancePerformanceTests` 沿 XCTest 默认测量选项记录实际分页、PNG 解码、长文章解析与纯文本生成、GIF 解码及 Widget 时间线计算的时钟与物理内存指标。`MaintenancePerformanceUITests` 记录清空夹具存储后的进程结束、启动至课表就绪，以及启用动画的课表往返切周布局；UI 内存指标采集目标 App 进程。性能基线沿同一真机 runner 的 XCTest 默认参数维护。
+
+`performance-baseline` 人工专项登记 `pagination`、`image-decoding`、`startup`、`schedule-layout`、`long-article`、`gif-decoding`、`widget-timeline` 七个场景的结构化比较及影像，参与完整发布验收。行为场景归属 `all`，启动与课表布局归属 `ui`；每条采样保留所属完整测试组的执行证据。
 
 每个性能场景的 `measurement` 包含 `current` 与 `baseline`。两份记录保存 `testIdentifier`、`sourceCommit`、`capturedAt`、`environment`、`input`、`resultBundle`、`metrics`；当前采样沿实际观察时间登记，批准基线保存 `approvedBy`、`approvedAt`。`environment` 核对相同的设备标识、设备型号、系统版本与构建、Xcode 构建、编译器摘要、Release 配置及 `compilationConditions`。`resultBundle` 保存固定 XCTest 结果包路径和 SHA-256，两个采样拥有各自的摘要。`execution` 保存所属运行、构建输入、源码提交及完整环境；`xcresultMetrics` 保留工具导出的原始指标。
 
-`metrics` 分别记录 `clockSeconds`、`peakPhysicalMemoryBytes` 的原始 `samples` 和 `mean`；登记时将 XCTest 显示单位换算为秒及字节。批准基线的两个指标各自保存 `maximumRegressionPercent`，验收核对采样次数、平均值及批准的退化上限。分页输入为 `pages: 1000`、`itemsPerPage: 100`、`passes: 2`，状态为 `MinePagedState` 与 `GalleryMessageListState`；图片输入为 `width: 1024`、`height: 1024`、`format: PNG`。
+`metrics` 分别记录 `clockSeconds`、`peakPhysicalMemoryBytes` 的原始 `samples` 和 `mean`；登记时将 XCTest 显示单位换算为秒及字节。批准基线的两个指标各自保存 `maximumRegressionPercent`，验收核对采样次数、平均值及批准的退化上限。分页输入为 `pages: 1000`、`itemsPerPage: 100`、`passes: 2`，状态为 `MinePagedState` 与 `GalleryMessageListState`；图片输入为 `width: 1024`、`height: 1024`、`format: PNG`。长文章输入为 40 段、每段重复 64 次；GIF 为 256 × 256、24 帧，每次测量清空解码缓存；时间线为 200 门课程、20 周及 4000 次课程；课表每次测量执行十组往返切周。输入登记共用 `Scripts/validation_manual.py` 的工作负载表。
 
-完整真机行为组完成时，将原始性能指标、结果包摘要与运行身份写入统一验证报告。运行 `Scripts/run-extended-tests.sh performance baseline 批准人` 从该报告保存批准基线，退化上限沿 XCTest 实际默认参数提取；显式百分比参数用于经过批准的调整。后续候选完成真机行为组或聚合验证后，运行 `Scripts/run-extended-tests.sh performance current`。两份记录统一覆盖 `.build/extended-automation/performance-measurements.json` 的对应字段，再填入人工场景附件。
+完整真机行为及 UI 组完成时，将原始性能指标、结果包摘要与运行身份写入统一验证报告。运行 `Scripts/run-extended-tests.sh performance baseline 批准人` 从该报告保存批准基线，退化上限沿 XCTest 实际默认参数提取；显式百分比参数用于经过批准的调整。后续候选完成真机行为与 UI 组或聚合验证后，运行 `Scripts/run-extended-tests.sh performance current`。两份记录统一覆盖 `.build/extended-automation/performance-measurements.json` 的对应字段，再填入人工场景附件。
 
-采集核对工作树及暂存区相对 HEAD 的构建输入、结果包摘要、运行标识、设备与工具链，登记人工附件时核对行为组完成时保存的原始指标与批准基线。共享文件服务契约同时验收内存及本机后端的目录、枚举、递归清理与失败注入。文档审计沿当前内容和 Git index 分别核对文件、标题锚点与引用式链接。
+采集核对工作树及暂存区相对 HEAD 的构建输入、结果包摘要、运行标识、设备与工具链，登记人工附件时核对所属测试组完成时保存的原始指标与批准基线。共享文件服务契约同时验收内存及本机后端的目录、枚举、递归清理与失败注入。文档审计沿当前内容和 Git index 分别核对文件、标题锚点与引用式链接。
 
 SwiftSyntax 索引器缓存沿源码、工具链环境、编译器、SwiftSyntax / SwiftParser 库及模块内容摘要复用。网络能力检测沿编译器类型、初始化表达式、依赖工厂返回值和局部别名识别生产服务，局部同名变量沿词法作用域解析。模块门禁按业务归属限制 Domain、Ports、Core 等依赖；社区功能共用 Community 业务合同，基础 Client、Storage、Transport、DesignSystem、Media 模块承担公共职责。地图通过明确登记的 `MapFeature → ScheduleContracts` 依赖复用地点显示规范化，跨业务合同沿允许依赖表评审。
 
 UI 自动化同时采集交互库存及宿主与 Feature / UI 模块的行覆盖率，完整验收要求各展示模块产生实际执行行。界面状态断言、控件交互记录及行覆盖率共同支撑展示逻辑审查。
+
+工作流锁的等待与执行预算共用 45 分钟默认值，执行超时向进程组发送终止信号并保留恢复清理阶段；恢复结束释放设备及工作区锁。测试执行显式启用 XCTest 超时管理。物理设备 CI Job 登记执行预算，取消与超时恢复沿脚本锁边界合同验收。编译条件由 `validation_policy.workflow_conditions` 统一提供给执行脚本与源码库存，iCloud 使用 `DEBUG ICLOUD_CROSS_DEVICE_SMOKE`。
+
+成功的关键词复验沿同一输入摘要与环境复用此前完整组的证据，完整证据保留原运行标识、采样时间及性能指标。复验失败或构建输入变化进入对应分组的重新验收。网络 smoke 保存每个探针的实际 HTTP 方法、端点及状态码，端点移除凭据、查询参数及片段；完整验收核对这些请求记录。

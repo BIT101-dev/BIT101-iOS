@@ -37,7 +37,7 @@ if [[ "${1:-}" == report || "${1:-}" == screenshot || "${1:-}" == activities || 
     if [[ -f "$DERIVED_ROOT/test-failures.txt" ]]; then cat "$DERIVED_ROOT/test-failures.txt"; fi
     exit 0
   fi
-  python3 - "$DERIVED_ROOT/test-results.xcresult" "${2:-}" "$1" <<'PY'
+  python3 - "$DERIVED_ROOT/test-results.xcresult" "${2:-}" "$1" "$ROOT_DIR/Scripts" <<'PY'
 import json
 import shutil
 import subprocess
@@ -45,6 +45,17 @@ import sys
 from pathlib import Path
 
 bundle = Path(sys.argv[1])
+if sys.argv[2] == "performance":
+    sys.path.insert(0, sys.argv[4])
+    from validation_provenance import complete_group_row
+    from validation_evidence import REPORT
+    report = json.loads(REPORT.read_text())
+    for group in ("all", "ui"):
+        row = complete_group_row(report.get("groups", {}).get(group, {}))
+        for name, record in row.get("performance", {}).get("records", {}).items():
+            print(json.dumps({"scenario": name, "test": record["testIdentifier"], "metrics": record["xcresultMetrics"]}))
+    raise SystemExit(0)
+
 if not (bundle / "database.sqlite3").is_file() or (bundle / "Staging").exists():
     raise SystemExit("测试结果可在运行结束后通过 report 读取。")
 
@@ -56,11 +67,6 @@ if sys.argv[2] == "performance-schema":
     subprocess.run(["xcrun", "xcresulttool", "get", "test-results", "metrics", "--schema", "--path", str(bundle)], check=True)
     raise SystemExit(0)
 
-if sys.argv[2] == "performance":
-    for test in ("MaintenancePerformanceTests/testCommunityPaginationPerformance", "MaintenancePerformanceTests/testStillImageDecodingPerformance"):
-        value = json.loads(subprocess.check_output(["xcrun", "xcresulttool", "get", "test-results", "metrics", "--path", str(bundle), "--test-id", test + "()"], text=True))
-        print(json.dumps({"test": test, "metrics": value}))
-    raise SystemExit(0)
 
 if sys.argv[2] == "coverage":
     print(subprocess.check_output(["xcrun", "xccov", "view", "--report", "--json", str(bundle)], text=True))
@@ -161,7 +167,6 @@ acquire_test_lock() {
 }
 TEST_BUNDLE="BIT101-iOSTests"
 TEST_SCHEME="BIT101-iOS"
-CONDITIONS="DEBUG EXTENDED_AUTOMATION BIT101_AUTOMATED_TESTING"
 RESULT_BUNDLE="$DERIVED_ROOT/test-results.xcresult"
 typeset -aU TEST_SELECTIONS
 TEST_SELECTIONS=()
@@ -266,7 +271,6 @@ fi
 if [[ "$MODE" == "ui" ]]; then
   TEST_BUNDLE="BIT101-iOSUITests"
   TEST_SCHEME="BIT101-iOS-UIAutomation"
-  CONDITIONS="EXTENDED_AUTOMATION BIT101_AUTOMATED_TESTING BIT101_UI_TESTING"
 fi
 
 for selection in "$@"; do
@@ -534,6 +538,7 @@ run_tests() {
     test_action=test-without-building
   fi
   if [[ "$BUILD_ONLY" == false && "$MODE" != catalyst && "$MODE" != catalyst-release-runtime ]]; then DEVICE_TEST_EXECUTION_STARTED=true; fi
+  if [[ "$BUILD_ONLY" == false ]]; then execution_args+=(-test-timeouts-enabled YES); fi
   echo "[$test_action] $group"
   if bit101_run_logged "$log" "$group 输出" xcodebuild "$test_action" -quiet \
     "${project_args[@]}" \
@@ -794,18 +799,20 @@ if mode not in {"catalyst", "catalyst-release-runtime"} and coverage is None:
 PY
 }
 
+CONDITIONS="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" conditions "$MODE")"
+
 case "$MODE" in
   release)
-    run_tests all-tests ""
+    run_tests all-tests "$CONDITIONS"
     ;;
   release-runtime|catalyst-release-runtime)
-    run_tests ReleaseRuntimeContractTests ""
+    run_tests ReleaseRuntimeContractTests "$CONDITIONS"
     ;;
   network-smoke)
-    run_tests ReleaseNetworkSmokeTests "RELEASE_NETWORK_SMOKE"
+    run_tests ReleaseNetworkSmokeTests "$CONDITIONS"
     ;;
   icloud-smoke)
-    run_tests ICloudCrossDeviceSmokeTests "DEBUG ICLOUD_CROSS_DEVICE_SMOKE"
+    run_tests ICloudCrossDeviceSmokeTests "$CONDITIONS"
     ;;
   all)
     run_tests all-tests "$CONDITIONS"

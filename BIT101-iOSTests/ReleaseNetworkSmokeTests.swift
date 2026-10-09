@@ -283,7 +283,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
         var reports: [String] = []
         var loginCalls = 0
         var rawCleanupCalls = 0
-        let dependencies = ReleaseNetworkSmokeDependencies(checkLogin: { loginCalls += 1; return "fixture" }, writeReport: { reports.append($0.runID) },
+        let dependencies = ReleaseNetworkSmokeDependencies(requiresRequestEvidence: false, checkLogin: { loginCalls += 1; return "fixture" }, writeReport: { reports.append($0.runID) },
             clearRawCourseResponse: { rawCleanupCalls += 1; throw CocoaError(.fileWriteNoPermission) },
             communityWriteProbe: { id, _, _, _ in
                 runs.append(id)
@@ -658,7 +658,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
         let image = try #require(UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1)).image { $0.fill(CGRect(x: 0, y: 0, width: 1, height: 1)) }.pngData())
         let scores = Scores(stage: stage, image: image)
         var stored: ReleaseNetworkSmokeReport?
-        let dependencies = ReleaseNetworkSmokeDependencies(checkLogin: { "fixture" }, writeReport: { stored = $0 },
+        let dependencies = ReleaseNetworkSmokeDependencies(requiresRequestEvidence: false, checkLogin: { "fixture" }, writeReport: { stored = $0 },
             clearRawCourseResponse: {}, writeRawCourseResponse: { _, _ in Issue.record("成绩单流程使用独立探针") }, makeScores: { scores })
         let handler: SchoolSMSCodeHandler = { _ in
             if stage == "cancelled" { throw CancellationError() }
@@ -680,7 +680,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
         var loginCalls = 0
         var reportCalls = 0
         var stored: ReleaseNetworkSmokeReport?
-        let dependencies = ReleaseNetworkSmokeDependencies(
+        let dependencies = ReleaseNetworkSmokeDependencies(requiresRequestEvidence: false,
             checkLogin: {
                 loginCalls += 1
                 if stage == "login" { throw URLError(.notConnectedToInternet) }

@@ -4,7 +4,7 @@
 
 用户要求 UI 自动化覆盖每一个可点击、可滑动和可交互部位。维护范围按控件与操作语义清点：点击、文本输入与键盘提交、选择与开关、列表滚动与下拉刷新、分区横滑、课表周次拖动、长按菜单、双指缩放、Sheet 下滑关闭，以及确认、取消、成功、失败和重试分支。日期、周次、评分等值域由控件类型与业务状态断言承接。
 
-用例分布在 [日程与社区流程](../BIT101-iOSUITests/LoginAndScheduleUITests.swift) 和 [综合交互流程](../BIT101-iOSUITests/InteractionCoverageUITests.swift)，共 56 项：`LoginAndScheduleUITests` 21 项、`InteractionCoverageUITests` 35 项，共用 `UIAutomationTestCase`。完整批次顺序执行，常规场景复用 App 进程并校验同一进程 ID；话廊偏好、学校 DDL 完成状态和自定义日程场景结束旧进程，以新进程恢复会话和磁盘数据。同页操作复用创建、导航和编辑过程，下表保留逐控件与业务分支的映射；同一流程可以对应多行。业务交互采用原生触摸、滚动和系统键盘；公共查询合同显式验收快速查询及控件动作与原生状态的一致性。运行耗时与操作类型从真机运行的固定指标文件读取。
+用例分布在 [日程与社区流程](../BIT101-iOSUITests/LoginAndScheduleUITests.swift) 和 [综合交互流程](../BIT101-iOSUITests/InteractionCoverageUITests.swift)，共用 `UIAutomationTestCase`；[性能场景](../BIT101-iOSUITests/MaintenancePerformanceUITests.swift) 独立测量 App 启动与切周布局。完整批次顺序执行，常规场景复用 App 进程并校验同一进程 ID；话廊偏好、学校 DDL 完成状态和自定义日程场景结束旧进程，以新进程恢复会话和磁盘数据。同页操作复用创建、导航和编辑过程，下表保留逐控件与业务分支的映射；同一流程可以对应多行。业务交互采用原生触摸、滚动和系统键盘；公共查询合同显式验收快速查询及控件动作与原生状态的一致性。运行耗时与操作类型从真机运行的固定指标文件读取。
 
 ## 公共组件验收归属
 
@@ -163,7 +163,7 @@ Scripts/run-extended-tests.sh build ui
 Scripts/run-static-audit.sh
 ```
 
-完整验收要求全部 56 项实际执行并通过。报告记录构建与运行耗时、包含常规 App 恢复的工作流总耗时、用例耗时合计、最慢十项、App 启动次数、进程 ID、系统交互动作、App 内界面查询、共享原生快照读取、控件无障碍激活、UIKit 控件事件、输入更新、键盘完成动作、场景准备耗时、界面快照请求与阶段耗时估计。动作前观察当前呈现页面的完整无障碍树，按测试场景与导航路径隔离控件，再以标识或类型与文案及同页出现次序记录全部已挂载的按钮、输入、选择、链接和可调整控件；禁用状态单独核对断言。完整批次要求当前库存全部访问，并核对具备可识别语义的控件；运行库存记录当次呈现页面，逐页矩阵和业务断言维护页面与分支范围。快照阶段耗时由相邻日志事件估算，可与交互阶段重叠。编译使用 `ui-tests-build.log`，运行使用 `ui-tests.log`，结果使用固定 `test-results.xcresult`、`test-metrics.txt` 和按需导出的 `diagnostics/`；真机初始化阻塞与实际用例失败分别记录。
+完整验收要求源码库存中的全部用例实际执行并通过。报告记录构建与运行耗时、包含常规 App 恢复的工作流总耗时、用例耗时合计、最慢十项、App 启动次数、进程 ID、系统交互动作、App 内界面查询、共享原生快照读取、控件无障碍激活、UIKit 控件事件、输入更新、键盘完成动作、场景准备耗时、界面快照请求与阶段耗时估计。动作前观察当前呈现页面的完整无障碍树，按测试场景与导航路径隔离控件，再以标识或类型与文案及同页出现次序记录全部已挂载的按钮、输入、选择、链接和可调整控件；禁用状态单独核对断言。完整批次要求当前库存全部访问，并核对具备可识别语义的控件；运行库存记录当次呈现页面，逐页矩阵和业务断言维护页面与分支范围。快照阶段耗时由相邻日志事件估算，可与交互阶段重叠。编译使用 `ui-tests-build.log`，运行使用 `ui-tests.log`，结果使用固定 `test-results.xcresult`、`test-metrics.txt` 和按需导出的 `diagnostics/`；真机初始化阻塞与实际用例失败分别记录。
 
 动画专项场景使用系统默认窗口速度并验证动画启用状态。登录键盘提交与建议草稿往返使用原生触摸和系统键盘；同一进程的场景配置切换会更新所选交互路径。
 
@@ -297,3 +297,10 @@ SwiftSyntax 清点每个源码作用域的控件、输入、滚动和手势声�
 | `Modules/ScoreFeature/Sources/ScoreRootView.swift:TrustedTranscriptPage` | `{"AppEmptyState":1,"AppFailureState":1,"AppSMSVerificationSheet":1,"Button":1,"ScrollView":1}` | `InteractionCoverageUITests/testTrustedTranscriptSMSRetryPreviewAndCancellation` |
 
 滚动容器使用稳定身份参与源码与运行证据核对。UI 用例在操作前验收当前容器：可滚动内容通过原生滑动核对位置变化并恢复起始位置，完整显示的内容核对边界并记录 `scroll-fit`；容器动作与子控件动作分别核对。底栏选中项变化记录 `tab-switch`，用于 TabView 的独立切换证据。
+
+## UI 性能场景
+
+| 用例 | 验收内容 |
+| --- | --- |
+| `MaintenancePerformanceUITests/testStartupPerformance` | 重置夹具存储，结束 App 进程并启动至课表就绪，采集时钟及 App 物理内存 |
+| `MaintenancePerformanceUITests/testScheduleWeekLayoutPerformance` | 启用动画，课表执行十组前后切周，核对周次及采集布局耗时与 App 物理内存 |

@@ -15,6 +15,19 @@ RELEASE_GROUPS = {"modules", "all", "release-runtime", "catalyst", "catalyst-rel
 BUILD_HOSTS = {"release", "release-runtime", "ui", "network-smoke", "icloud-smoke", "modules", "catalyst", "catalyst-release-runtime"}
 VERIFY_GROUPS = ("modules", "all", "release-runtime", "catalyst", "catalyst-release-runtime", "ui", "network", "community-writes", "ddl", "icloud", "build-archive", "audit")
 DEFAULT_VERIFY_GROUPS = tuple(group for group in VERIFY_GROUPS if group != "ddl")
+
+
+def workflow_conditions(group: str) -> tuple[str, ...]:
+    group = group.removeprefix('build-')
+    group = {'network-smoke': 'network', 'icloud-smoke': 'icloud', 'icloud-cleanup': 'icloud'}.get(group, group)
+    if group in {'all', 'catalyst', 'schedule', 'infrastructure', 'login', 'extensions'}:
+        return ('DEBUG', 'EXTENDED_AUTOMATION', 'BIT101_AUTOMATED_TESTING')
+    if group == 'ui': return ('EXTENDED_AUTOMATION', 'BIT101_AUTOMATED_TESTING', 'BIT101_UI_TESTING')
+    if group in NETWORK_GROUPS: return ('RELEASE_NETWORK_SMOKE',)
+    if group == 'icloud': return ('DEBUG', 'ICLOUD_CROSS_DEVICE_SMOKE')
+    return ()
+
+
 FORMAL_RUNTIME_SUITES = {"ReleaseRuntimeContractTests", "ExtendedLoginTests", "LoginStorageTests", "LoginBootstrapTests", "NetworkClientTests"}
 MODULE_COVERAGE_FLOORS = {
     "ClientCore": 63, "CommunityCore": 87, "CommunityPersistence": 98, "CommunityTransport": 80,

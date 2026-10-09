@@ -69,6 +69,7 @@ run_phone_test() {
     result_args=(-resultBundlePath "$RESULT_BUNDLE")
   fi
   bit101_run_logged "$log" "$method" xcodebuild test-without-building "${common_args[@]}" \
+    -test-timeouts-enabled YES \
     -destination "platform=iOS,id=$DEVICE_ID" -derivedDataPath "$DERIVED_ROOT/Phone" \
     "${result_args[@]}" "-only-testing:$TEST_CLASS/$method" || test_status=$?
   record_result "$method" "$test_status" "$log"

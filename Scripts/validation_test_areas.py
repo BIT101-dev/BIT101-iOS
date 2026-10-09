@@ -123,6 +123,7 @@ NETWORK_CAPABILITIES = {
 def reachable_smoke_calls(index: dict) -> dict[str, list[dict]]:
     from pathlib import Path
     from validation_evidence import active_swift_source
+    from network_capability_rules import call_can_execute
     files = {'ReleaseNetworkSmoke.swift', 'ReleaseNetworkSmokeModels.swift',
         'NetworkSmokeProductionSession.swift', 'CommunityWriteSmoke.swift'}
     nodes, by_name, active_sources = {}, {}, {}
@@ -148,6 +149,7 @@ def reachable_smoke_calls(index: dict) -> dict[str, list[dict]]:
         active = active_sources[path]
         for fact in facts.get('invocations', []):
             if active is not None and active[fact['start']:fact['start'] + 1] in {b' ', b'\n', b'\r'}: continue
+            if not call_can_execute(facts, fact): continue
             containing = [key for key in nodes if key[0] == path and key[1] <= fact['start'] < key[2]]
             if not containing: continue
             key = min(containing, key=lambda item: item[2] - item[1])
@@ -183,7 +185,7 @@ def network_capability_findings(index: dict) -> list[str]:
     from pathlib import Path
     from validation_manual import MANUAL_DEVICE_CHECKS
     from validation_policy import NETWORK_GROUPS
-    from network_capability_rules import business_methods, method_signature, matching_api_calls
+    from network_capability_rules import business_methods, method_signature, matching_api_calls, call_can_execute
     actual = business_methods(index)
     receiver_owner = smoke_receiver_resolver(index)
     observed = {'network': set(), 'community-writes': set()}
@@ -204,7 +206,7 @@ def network_capability_findings(index: dict) -> list[str]:
             key = (owner, method_signature(function))
             edges[key] = set()
             for call in index[path].get('invocations', []):
-                if not function['start'] <= call['start'] < function['end']: continue
+                if not function['start'] <= call['start'] < function['end'] or not call_can_execute(index[path], call): continue
                 expression = (call.get('calledExpression') or '').removeprefix('self.')
                 if '.' in expression: continue
                 matches = matching_api_calls(index, functions, dict(call, path=path))
@@ -329,6 +331,17 @@ def network_capability_self_test() -> None:
     unused_reference = dict(sources)
     unused_reference['ReleaseNetworkSmoke.swift'] = sources['ReleaseNetworkSmoke.swift'].replace('dependencies.productionSessionProbe()', 'let unused = dependencies.productionSessionProbe')
     assert 'mine.fetchMyInfo' not in reached(unused_reference)
+    for condition, expected in [('false', False), ('!true', False), ('true', True), ('!false', True)]:
+        branch = dict(sources)
+        branch['ReleaseNetworkSmoke.swift'] = sources['ReleaseNetworkSmoke.swift'].replace(
+            'dependencies.productionSessionProbe()', f'if {condition} {{ dependencies.productionSessionProbe() }}')
+        assert ('mine.fetchMyInfo' in reached(branch)) == expected
+    disabled = dict(sources)
+    disabled['ReleaseNetworkSmoke.swift'] = sources['ReleaseNetworkSmoke.swift'].replace(
+        'dependencies.productionSessionProbe()', 'let enabled = false; if enabled { dependencies.productionSessionProbe() }')
+    assert 'mine.fetchMyInfo' not in reached(disabled)
+    disabled['ReleaseNetworkSmoke.swift'] = disabled['ReleaseNetworkSmoke.swift'].replace('let enabled', 'var enabled')
+    assert 'mine.fetchMyInfo' in reached(disabled)
     courses = index['Modules/CourseFeature/Sources/CourseService.swift']['functionRanges']
     courses.append({'name': 'newEndpoint', 'scope': ['CourseService'], 'isExported': True, 'start': 0, 'end': 1})
     assert network_capability_findings(index)
@@ -389,7 +402,8 @@ def network_discovery_self_test() -> None:
     from network_capability_rules import business_methods
     for module, name in [('GalleryFeature', 'NewGalleryClient'), ('NewForumFeature', 'PostRepository')]:
         path = f'Modules/{module}/Sources/Client.swift'
-        source = f'import TransportCore; public struct {name} {{ let client: HTTPClient; public func fetchItems() async throws {{ _ = try await client.send(request) }} }}'
-        index = swift_syntax_index_sources({path: source})
-        assert f'{module}.{name}' in business_methods(index)
-        assert any('新增生产服务' in error for error in network_capability_findings(index))
+        for kind in ('HTTPClient', 'Requester', 'NestedRequester'):
+            source = f'import TransportCore; typealias Requester = HTTPClient; typealias NestedRequester = Requester; public struct {name} {{ let client: {kind}; public func fetchItems() async throws {{ _ = try await client.send(request) }} }}'
+            index = swift_syntax_index_sources({path: source})
+            assert f'{module}.{name}' in business_methods(index), kind
+            assert any('新增生产服务' in error for error in network_capability_findings(index)), kind

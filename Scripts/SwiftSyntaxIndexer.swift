@@ -61,6 +61,9 @@ struct ScopedFact: Encodable {
     let start: Int
     let lexicalScope: [Int]
     var argumentLabels: [String]? = nil
+    var condition: String? = nil
+    var thenRange: [Int]? = nil
+    var elseRange: [Int]? = nil
     var arguments: [String]? = nil
     var argumentRanges: [[Int]]? = nil
     var isTestingTest: Bool? = nil
@@ -71,6 +74,7 @@ struct ScopedFact: Encodable {
     var bindingType: String? = nil
     var initializerCall: String? = nil
     var initializerReference: String? = nil
+    var booleanValue: Bool? = nil
     var isExpressionReference: Bool = false
 }
 
@@ -752,6 +756,10 @@ final class FactVisitor: SyntaxVisitor {
         binding.bindingType = node.typeAnnotation?.type.trimmedDescription
         binding.initializerCall = node.initializer?.value.as(FunctionCallExprSyntax.self)?.calledExpression.tokens(viewMode: .sourceAccurate).map(\.text).joined()
         binding.initializerReference = functionReference(node.initializer?.value)
+        if node.parent?.parent?.as(VariableDeclSyntax.self)?.bindingSpecifier.text == "let",
+           let literal = node.initializer?.value.as(BooleanLiteralExprSyntax.self) {
+            binding.booleanValue = literal.literal.text == "true"
+        }
         bindings.append(binding)
         if let declaration = node.parent?.parent?.as(VariableDeclSyntax.self), declaration.parent?.is(MemberBlockItemSyntax.self) == true,
            node.initializer != nil, !declaration.modifiers.contains(where: { ["static", "class", "lazy"].contains($0.name.text) }) {
@@ -801,7 +809,13 @@ final class FactVisitor: SyntaxVisitor {
     }
 
     override func visit(_ node: IfExprSyntax) -> SyntaxVisitorContinueKind {
-        controlFlow.append(fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset))
+        var item = fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset)
+        item.condition = node.conditions.trimmedDescription
+        item.thenRange = [node.body.positionAfterSkippingLeadingTrivia.utf8Offset, node.body.endPositionBeforeTrailingTrivia.utf8Offset]
+        if let alternative = node.elseBody {
+            item.elseRange = [alternative.positionAfterSkippingLeadingTrivia.utf8Offset, alternative.endPositionBeforeTrailingTrivia.utf8Offset]
+        }
+        controlFlow.append(item)
         return .visitChildren
     }
 

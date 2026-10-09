@@ -9,6 +9,13 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     @MainActor private static var sessionProcess: String?
     @MainActor private static var sessionScene: String?
     @MainActor private static let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+    @MainActor static func endSharedSession() {
+        captureControlInventory()
+        sessionApplication?.terminate()
+        sessionApplication = nil
+        sessionProcess = nil
+        sessionScene = nil
+    }
     @MainActor private var checkingScrollContainers = false
     @MainActor private var preparingScene = false
     @MainActor private var checkedScrollContainers = Set<String>()

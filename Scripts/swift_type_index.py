@@ -115,6 +115,13 @@ class SwiftTypeIndex:
         key = self.resolve(path, '.'.join(scope), aliases=False) if scope else None
         return (key[0],) + key[1] if key else (self.units[path],) + canonical_type_scope(scope)
 
+    def terminal_name(self, path: str, name: str, scope=(), seen=frozenset()) -> str:
+        name = re.sub(r'\bany\b|\s+', '', name).rstrip('?!')
+        key = self.resolve(path, name, scope, aliases=False)
+        if key in self.aliases and key not in seen:
+            return self.terminal_name(self.paths[key], self.aliases[key], key[1][:-1], seen | {key})
+        return '.'.join([key[0], *key[1]]) if key else name
+
 
 class SwiftBindingTypes:
     """Share declaration, variable and factory types used by semantic call audits."""

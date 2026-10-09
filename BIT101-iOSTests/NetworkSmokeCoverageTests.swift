@@ -409,7 +409,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
         var feedback = 0
         var rawWrites = 0
         let sessionEvidence = ["初始账号资料 ID：1", "无效凭据切换：认证拒绝", "恢复账号资料 ID：1"]
-        let dependencies = ReleaseNetworkSmokeDependencies(checkLogin: { "fixture" }, writeReport: { reports.append($0) },
+        let dependencies = ReleaseNetworkSmokeDependencies(requiresRequestEvidence: false, checkLogin: { "fixture" }, writeReport: { reports.append($0) },
             clearRawCourseResponse: {}, writeRawCourseResponse: { _, runID in
                 rawWrites += 1
                 #expect(runID == stage)

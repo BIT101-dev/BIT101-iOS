@@ -53,9 +53,11 @@ def evidence_fixture(check: str) -> bytes:
             scenarios['split-view']['screenWidth'] = 1024
             scenarios['resize']['previousWindowSize'] = {'width': 512, 'height': 768}
         if check == 'performance-baseline':
-            from validation_manual import PERFORMANCE_WORKLOADS
+            from validation_manual import PERFORMANCE_WORKLOADS, performance_group
+            from validation_policy import workflow_conditions
             for name, row in scenarios.items():
                 test, workload = PERFORMANCE_WORKLOADS[name]
+                group = performance_group(test)
                 current = {'testIdentifier': test, 'sourceCommit': 'a' * 40, 'input': workload, 'capturedAt': row['capturedAt'],
                     'environment': {'deviceIdentifier': 'fixture-phone', 'deviceModel': 'iPhone', 'systemVersion': '26.0',
                         'systemBuild': 'fixture', 'xcodeBuild': 'fixture', 'configuration': 'Release', 'compilerSHA256': 'a' * 64,
@@ -70,10 +72,10 @@ def evidence_fixture(check: str) -> bytes:
                     'sdks': {'iPhoneOS': {'Version': '26.0'}},
                     'device': {'identifier': 'fixture-phone', 'model': 'iPhone', 'systemVersion': '26.0', 'systemBuild': 'fixture'}}
                 current['sourceCommit'] = current_commit()
-                current['environment']['compilationConditions'] = ['BIT101_AUTOMATED_TESTING', 'DEBUG', 'EXTENDED_AUTOMATION']
+                current['environment']['compilationConditions'] = sorted(workflow_conditions(group))
                 from validation_performance import normalize_metrics
-                current['execution'] = {'group': 'all', 'runID': 'fixture-run', 'environment': context,
-                    'sourceCommit': current['sourceCommit'], 'inputDigest': source_digest('all', environment=context), 'bundleSHA256': 'a' * 64}
+                current['execution'] = {'group': group, 'runID': 'fixture-run', 'environment': context,
+                    'sourceCommit': current['sourceCommit'], 'inputDigest': source_digest(group, environment=context), 'bundleSHA256': 'a' * 64}
                 current['xcresultMetrics'] = [{'testIdentifier': test + '()', 'testRuns': [{'device': {'deviceId': 'fixture-phone'},
                     'metrics': [{'identifier': 'com.apple.dt.XCTMetric_Clock.time.monotonic', 'unitOfMeasurement': 's', 'measurements': [0.1] * 10},
                         {'identifier': 'com.apple.dt.XCTMetric_Memory.physical_peak', 'unitOfMeasurement': 'kB', 'measurements': [1.024] * 10}]}]}]

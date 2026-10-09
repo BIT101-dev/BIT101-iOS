@@ -9,6 +9,25 @@ NETWORK_HARNESS_TYPES = {'ReleaseNetworkSmokeRunner', 'ReleaseNetworkSmokeDepend
     'NetworkSmokeProductionSession', 'ReleaseNetworkSmokeSchoolClient'}
 
 
+def call_can_execute(facts: dict, call: dict) -> bool:
+    for branch in facts.get('controlFlow', []):
+        condition = re.sub(r'[\s()]', '', branch.get('condition') or '')
+        value = {'true': True, 'false': False, '!true': False, '!false': True}.get(condition)
+        if value is None and re.fullmatch(r'!?[A-Za-z_]\w*', condition):
+            name = condition.removeprefix('!')
+            lexical = branch.get('lexicalScope', [])
+            bindings = [node for node in facts.get('bindings', []) if node.get('bindingName') == name
+                and node.get('scope') == branch.get('scope') and node['start'] <= branch['start']
+                and lexical[:len(node.get('lexicalScope', []))] == node.get('lexicalScope', [])]
+            if bindings:
+                node = max(bindings, key=lambda item: (len(item.get('lexicalScope', [])), item['start']))
+                value = node.get('booleanValue')
+                if value is not None and condition.startswith('!'): value = not value
+        excluded = branch.get('elseRange') if value is True else branch.get('thenRange') if value is False else None
+        if excluded and excluded[0] <= call['start'] < excluded[1]: return False
+    return True
+
+
 def method_signature(function: dict) -> str:
     return function['name'] + '(' + ','.join(parameter['label'] + ':' + re.sub(r'\s+', '', parameter['type'])
         for parameter in function.get('parameters', [])) + ')'
@@ -40,7 +59,7 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
             if not node['scope'] or node.get('lexicalScope') or not active(path, node): continue
             identity = owner(path, node['scope'])
             target = types.resolve(path, node.get('type', ''), node['scope'])
-            kind = re.sub(r'\bany\b|\s+', '', node.get('type', '')).rstrip('?!')
+            kind = types.terminal_name(path, node.get('type', ''), node['scope'])
             if kind.rsplit('.', 1)[-1] in NETWORK_TRANSPORT_TYPES: network_owners.add(identity)
             if target: dependencies.setdefault(identity, set()).add('.'.join([target[0], *target[1]]))
         for call in facts.get('invocations', []):

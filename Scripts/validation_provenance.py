@@ -1,6 +1,7 @@
 """Associate workflow results with their producing run and network sampling interval."""
 from datetime import datetime, timedelta, timezone
 import re
+from urllib.parse import urlsplit
 from validation_policy import NETWORK_GROUPS
 
 LIVE_GROUPS = NETWORK_GROUPS | {"icloud", "icloud-cleanup", "manual-device"}
@@ -32,3 +33,34 @@ def sampling_evidence_current(summary: dict, now: datetime | None = None) -> boo
 
 def evidence_current(group: str, summary: dict) -> bool:
     return group not in LIVE_GROUPS or sampling_evidence_current(summary)
+
+
+def complete_group_row(row: dict) -> dict:
+    full = row.get('lastFullRun', {})
+    if row.get('scope') == 'selected' and row.get('exitCode') == 0 and row.get('summary', {}).get('passed') is True \
+            and full.get('scope') == 'full' and full.get('exitCode') == 0 \
+            and full.get('summary', {}).get('passed') is True \
+            and row.get('inputDigest') and row['inputDigest'] == full.get('inputDigest') \
+            and row.get('environment') == full.get('environment'):
+        return full
+    return row
+
+
+def network_requests_complete(required: set[str], value: dict) -> bool:
+    if value.get('requestEvidenceRequired') is not True: return False
+    rows = value.get('requestEvidence', [])
+    if not isinstance(rows, list): return False
+    observed = set()
+    for row in rows:
+        if not isinstance(row, dict) or not isinstance(row.get('probe'), str) or not isinstance(row.get('requests'), list): return False
+        if not row['requests']: continue
+        for request in row['requests']:
+            if not isinstance(request, dict): return False
+            try: endpoint = urlsplit(request.get('endpoint', ''))
+            except (TypeError, ValueError): return False
+            if not endpoint.hostname or endpoint.scheme not in {'http', 'https'} or endpoint.username or endpoint.password \
+                    or endpoint.query or endpoint.fragment or request.get('method') not in {'GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'} \
+                    or type(request.get('statusCode')) is not int or not 100 <= request['statusCode'] < 600: return False
+        observed.add(row.get('probe'))
+    if value.get('scope') == 'community-cleanup': required = required - {'社区写入与清理'}
+    return bool(required) and required <= observed

@@ -7,7 +7,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PROJECT="$ROOT_DIR/BIT101-iOS.xcodeproj"
 DERIVED_ROOT="$ROOT_DIR/.build/icloud-cross-device-smoke"
-CONDITIONS="DEBUG ICLOUD_CROSS_DEVICE_SMOKE"
+CONDITIONS="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" conditions icloud)"
 TEST_CLASS="BIT101-iOSTests/ICloudCrossDeviceSmokeTests"
 RESULT_BUNDLE="$DERIVED_ROOT/test-results.xcresult"
 SUMMARY_PATH="$DERIVED_ROOT/report.json"
@@ -272,6 +272,7 @@ MAC_LOG="$DERIVED_ROOT/mac-receive.log"
 MAC_STATUS=0
 rm -rf "$DERIVED_ROOT/Mac/Logs/Test"
 bit101_run_logged "$MAC_LOG" "Mac Catalyst 接收测试" xcodebuild test-without-building "${common_args[@]}" \
+  -test-timeouts-enabled YES \
   -destination 'platform=macOS,variant=Mac Catalyst' -derivedDataPath "$DERIVED_ROOT/Mac" \
   ONLY_ACTIVE_ARCH=YES \
   "-only-testing:$TEST_CLASS/testMacReceiveAndRestore" || MAC_STATUS=$?

@@ -23,6 +23,7 @@ def run_self_test(recorder) -> None:
         ("all", "current", "run", "验证输入：old\n验证运行：run\n", 1),
         ("all", "current", "run", "验证输入：current\n验证运行：old\n", 1),
         ("all", "current", "run", "验证输入：current\n验证运行：run\n", 0),
+        ("ui", "current", "run", "验证输入：current\n验证运行：run\n", 0),
         ("network", "current", "run", json.dumps({"runID": "old"}), 1),
         ("network", "current", "run", json.dumps({"runID": "run"}), 0),
     ):
@@ -39,7 +40,7 @@ def run_self_test(recorder) -> None:
                 patch.dict(os.environ, BIT101_VALIDATION_RUN_ID=run_id), redirect_stderr(StringIO()):
             assert recorder(group, 0, "full", start) == expected, (group, artifact)
             assert saved.call_args.args[0]["groups"][group]["exitCode"] == expected
-            if group == "all" and expected == 0:
+            if group in {"all", "ui"} and expected == 0:
                 assert saved.call_args.args[0]["groups"][group]["resultBundleSHA256"] == "a" * 64
                 assert saved.call_args.args[0]["groups"][group]["sourceCommit"] == "head"
     group_row = {"scope": "full", "exitCode": 0, "runID": "run", "inputDigest": "current", "summary": summary}
@@ -49,11 +50,20 @@ def run_self_test(recorder) -> None:
                 patch.object(module, "source_digest", return_value=digest), patch.object(Path, "is_file", return_value=True), \
                 patch.object(Path, "read_text", return_value=json.dumps({"groups": {"all": group_row}})), redirect_stderr(StringIO()):
             assert module.main() == expected
+    selected = dict(group_row, scope='selected', lastFullRun=group_row)
+    for status in (0, 1):
+        selected['exitCode'] = status
+        with patch.object(sys, 'argv', ['validation_evidence.py', 'check-group', 'all']), \
+                patch.object(module, 'report_lock', side_effect=nullcontext), patch.object(module, 'complete_summary', return_value=True), \
+                patch.object(module, 'source_digest', return_value='current'), patch.object(Path, 'is_file', return_value=True), \
+                patch.object(Path, 'read_text', return_value=json.dumps({'groups': {'all': selected}})), redirect_stderr(StringIO()):
+            assert module.main() == status
     artifact_lock_self_test(module)
     selected_coverage_self_test(module)
     baseline_policy_self_test(module)
     report_budget_self_test(module)
     aggregate_failure_self_test(module)
+    complete_run_reuse_self_test()
     now = utc_now()
     fresh = {"startedAt": (now - timedelta(minutes=2)).isoformat(), "finishedAt": (now - timedelta(minutes=1)).isoformat()}
     assert sampling_evidence_current(fresh, now)
@@ -170,3 +180,17 @@ def aggregate_failure_self_test(module) -> None:
         result = subprocess.run(["zsh", "-c", harness + step + "\nverify_step all command\nprint next-group"], capture_output=True, text=True)
         assert (result.returncode == 0) == (command_status == evidence_status == 0)
         assert ("next-group" in result.stdout) == (result.returncode == 0)
+
+
+def complete_run_reuse_self_test() -> None:
+    from copy import deepcopy
+    from validation_provenance import complete_group_row
+    full = {'scope': 'full', 'exitCode': 0, 'summary': {'passed': True}, 'inputDigest': 'same', 'environment': {'device': 'phone'}}
+    selected = dict(full, scope='selected', lastFullRun=full)
+    assert complete_group_row(selected) is full
+    for name, value in [('exitCode', 1), ('inputDigest', 'changed'), ('environment', {'device': 'other'}), ('summary', {'passed': False})]:
+        changed = dict(selected, **{name: value})
+        assert complete_group_row(changed) is changed
+    changed = deepcopy(selected)
+    changed['lastFullRun']['exitCode'] = 1
+    assert complete_group_row(changed) is changed

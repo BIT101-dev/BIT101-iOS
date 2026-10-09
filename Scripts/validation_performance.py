@@ -5,7 +5,7 @@ import math
 from pathlib import Path
 import subprocess
 from validation_environment import complete_environment, environment_context
-from validation_provenance import utc_now
+from validation_provenance import utc_now, complete_group_row
 
 ROOT = Path(__file__).resolve().parents[1]
 BUNDLE = ROOT / '.build/extended-automation/test-results.xcresult'
@@ -45,12 +45,13 @@ def normalize_metrics(raw: list, test: str, device: str) -> dict:
     return result
 
 
-def measurement_environment(context: dict) -> dict:
+def measurement_environment(context: dict, group: str = 'all') -> dict:
+    from validation_policy import workflow_conditions
     device = context['device']
     return {'deviceIdentifier': device['identifier'], 'deviceModel': device['model'],
         'systemVersion': device['systemVersion'], 'systemBuild': device['systemBuild'],
         'xcodeBuild': context['xcode']['DTXcodeBuild'], 'compilerSHA256': context['compiler']['sha256'],
-        'configuration': 'Release', 'compilationConditions': ['BIT101_AUTOMATED_TESTING', 'DEBUG', 'EXTENDED_AUTOMATION']}
+        'configuration': 'Release', 'compilationConditions': sorted(workflow_conditions(group))}
 
 
 def current_commit() -> str:
@@ -61,8 +62,12 @@ def record_complete(record: dict, *, current: bool) -> bool:
     try:
         execution = record['execution']
         context = execution['environment']
-        if execution.get('group') != 'all' or not complete_environment('all', context) \
-                or record['environment'] != measurement_environment(context) \
+        from validation_manual import PERFORMANCE_WORKLOADS, performance_group
+        test = record['testIdentifier']
+        if test not in {row[0] for row in PERFORMANCE_WORKLOADS.values()}: return False
+        group = performance_group(test)
+        if execution.get('group') != group or not complete_environment(group, context) \
+                or record['environment'] != measurement_environment(context, group) \
                 or execution['sourceCommit'] != record['sourceCommit'] \
                 or not execution.get('runID') or not execution.get('inputDigest') \
                 or record['resultBundle']['path'] != '.build/extended-automation/test-results.xcresult' \
@@ -73,28 +78,29 @@ def record_complete(record: dict, *, current: bool) -> bool:
             return False
         if current:
             from validation_evidence import source_digest
-            if record['sourceCommit'] != current_commit() or execution['inputDigest'] != source_digest('all', environment=context): return False
+            if record['sourceCommit'] != current_commit() or execution['inputDigest'] != source_digest(group, environment=context): return False
         return True
     except (KeyError, TypeError, ValueError, OSError, subprocess.CalledProcessError):
         return False
 
 
-def extract_measurements(row: dict) -> dict:
-    from validation_manual import PERFORMANCE_WORKLOADS
+def extract_measurements(row: dict, group: str = 'all') -> dict:
+    from validation_manual import PERFORMANCE_WORKLOADS, performance_group
     context = row['environment']
     summary = json.loads(subprocess.check_output(['xcrun', 'xcresulttool', 'get', 'test-results', 'summary', '--path', str(BUNDLE)], text=True))
     if summary.get('result') != 'Passed': raise ValueError('性能结果包需要成功执行。')
     sha = bundle_digest(BUNDLE)
     if row.get('resultBundleSHA256') != sha:
         raise ValueError('性能结果包需要匹配所属构建运行的摘要与源码提交。')
-    execution = {'group': 'all', 'runID': row['runID'], 'inputDigest': row['inputDigest'],
+    execution = {'group': group, 'runID': row['runID'], 'inputDigest': row['inputDigest'],
         'sourceCommit': row['sourceCommit'], 'environment': context, 'bundleSHA256': sha}
     records = {}
     for name, (test, workload) in PERFORMANCE_WORKLOADS.items():
+        if performance_group(test) != group: continue
         raw = json.loads(subprocess.check_output(['xcrun', 'xcresulttool', 'get', 'test-results', 'metrics',
             '--path', str(BUNDLE), '--test-id', test + '()'], text=True))
         records[name] = {'testIdentifier': test, 'sourceCommit': execution['sourceCommit'], 'input': workload,
-            'capturedAt': row['recordedAt'], 'environment': measurement_environment(context), 'execution': execution,
+            'capturedAt': row['recordedAt'], 'environment': measurement_environment(context, group), 'execution': execution,
             'resultBundle': {'path': str(BUNDLE.relative_to(ROOT)), 'sha256': sha}, 'xcresultMetrics': raw,
             'metrics': normalize_metrics(raw, test, context['device']['identifier'])}
     if bundle_digest(BUNDLE) != sha: raise ValueError('性能结果包需要保持完整采样期间的内容身份。')
@@ -105,29 +111,35 @@ def uncommitted_inputs() -> list[str]:
     from validation_inputs import includes_input
     tracked = subprocess.check_output(['git', 'diff', '--name-only', '-z', 'HEAD', '--'], cwd=ROOT)
     untracked = subprocess.check_output(['git', 'ls-files', '-z', '--others', '--exclude-standard'], cwd=ROOT)
-    return [name for name in (tracked + untracked).decode().split('\0') if name and includes_input(name, 'all')]
+    return [name for name in (tracked + untracked).decode().split('\0')
+        if name and any(includes_input(name, group) for group in ('all', 'ui'))]
 
 
 def capture_current() -> dict:
     from validation_evidence import REPORT, source_digest
-    row = json.loads(REPORT.read_text())['groups']['all']
-    context = environment_context('all')
-    if row.get('exitCode') != 0 or row.get('scope') != 'full' or row.get('environment') != context \
-            or row.get('inputDigest') != source_digest('all') or not complete_environment('all', context):
-        raise ValueError('性能采样需要当前源码、工具链及实体设备上成功执行的完整行为组。')
     if uncommitted_inputs(): raise ValueError('性能采样需要已提交的构建输入。')
-    proof = row['performance']
-    from validation_manual import PERFORMANCE_WORKLOADS
-    if proof.get('schemaVersion') != 1 or set(proof['records']) != set(PERFORMANCE_WORKLOADS):
-        raise ValueError('性能采样需要全部登记工作负载的原始指标。')
-    for record in proof['records'].values():
-        execution = record['execution']
-        if not record_complete(record, current=True) or record['capturedAt'] != row['recordedAt'] \
-                or any(execution[key] != row[field]
-                for key, field in [('runID', 'runID'), ('inputDigest', 'inputDigest'), ('sourceCommit', 'sourceCommit'),
-                    ('environment', 'environment'), ('bundleSHA256', 'resultBundleSHA256')]):
-            raise ValueError('性能采样需要匹配所属行为组完成时提取的原始指标。')
-    return proof
+    groups = json.loads(REPORT.read_text())['groups']
+    from validation_manual import PERFORMANCE_WORKLOADS, performance_group
+    records = {}
+    for group in ('all', 'ui'):
+        row = complete_group_row(groups[group])
+        context = environment_context(group)
+        if row.get('exitCode') != 0 or row.get('scope') != 'full' or row.get('environment') != context \
+                or row.get('inputDigest') != source_digest(group) or not complete_environment(group, context):
+            raise ValueError('性能采样需要当前源码、工具链及实体设备上成功执行的完整行为与 UI 组。')
+        proof = row['performance']
+        expected = {name for name, (test, _) in PERFORMANCE_WORKLOADS.items() if performance_group(test) == group}
+        if proof.get('schemaVersion') != 1 or set(proof['records']) != expected:
+            raise ValueError('性能采样需要全部登记工作负载的原始指标。')
+        for record in proof['records'].values():
+            execution = record['execution']
+            if not record_complete(record, current=True) or record['capturedAt'] != row['recordedAt'] \
+                    or any(execution[key] != row[field]
+                    for key, field in [('runID', 'runID'), ('inputDigest', 'inputDigest'), ('sourceCommit', 'sourceCommit'),
+                        ('environment', 'environment'), ('bundleSHA256', 'resultBundleSHA256')]):
+                raise ValueError('性能采样需要匹配所属测试组完成时提取的原始指标。')
+        records.update(proof['records'])
+    return {'schemaVersion': 1, 'records': records}
 
 
 def validate_capture(proof: dict) -> None:

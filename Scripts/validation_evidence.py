@@ -251,7 +251,9 @@ def smoke_summary(group: str, value: dict, *, full: bool = True) -> dict:
         term_complete = not full or group not in {"network", "school-sms"} or (
             value.get("requestedTerm") is None and isinstance(current_term, str) and bool(current_term.strip())
             and value.get("validatedTerm") == current_term)
+        from validation_provenance import network_requests_complete
         return {"passed": value.get("passed") is True and (reported_scope == expected_scope or projected_sms)
+                and network_requests_complete(required, value)
                 and term_complete
                 and (not projected_sms or raw_required == network_inventory("all"))
                 and (group != "community-writes" or community_writes_complete(value.get("communityWriteEvidence", [])))
@@ -263,6 +265,8 @@ def smoke_summary(group: str, value: dict, *, full: bool = True) -> dict:
                 "schoolSMSCoverage": value.get("schoolSMSCoverage"),
                 "communityWriteEvidence": value.get("communityWriteEvidence", []),
                 "productionSessionEvidence": value.get("productionSessionEvidence", []),
+                "requestEvidence": value.get("requestEvidence", []),
+                "requestEvidenceRequired": value.get("requestEvidenceRequired"),
                 **{name: value.get(name) for name in ("requestedTerm", "currentTerm", "validatedTerm")},
                 "diagnostics": {name: value.get(name, []) for name in ("failures", "coverageGaps", "authenticationBlockers", "skippedProbes")},
                 "runID": value.get("runID"), "inputDigest": value.get("inputDigest"),
@@ -368,8 +372,10 @@ def complete_summary(group: str, summary: dict) -> bool:
                 complete = not source_runtime_interaction_findings(syntax_index(), documented_interactions(), inventory.get("visitedControls", []))
         return complete
     if group in NETWORK_GROUPS:
+        from validation_provenance import network_requests_complete
         expected_scope = "all" if group == "network" else "school" if group == "school-sms" else group
         return summary.get("scope") == expected_scope and set(summary.get("requiredProbes", [])) == network_inventory(expected_scope) \
+            and network_requests_complete(network_inventory(expected_scope), summary) \
             and (group != "community-writes" or community_writes_complete(summary.get("communityWriteEvidence", []))) \
             and (group != "school-sms" or school_authentication_complete(summary)) \
             and set(summary["requiredProbes"]) <= set(summary.get("probeInventory", [])) and all(
@@ -403,7 +409,8 @@ def release_findings(report: dict, digest: str, *, recorded_environment: bool = 
     if report.get("sourceDigest") != digest:
         errors.append("验证源码摘要与当前仓库内容存在差异。")
     for name in sorted(RELEASE_GROUPS):
-        row = report.get("groups", {}).get(name, {})
+        from validation_provenance import complete_group_row
+        row = complete_group_row(report.get("groups", {}).get(name, {}))
         inputs = source_digest(name, environment=row.get("environment", {})) if recorded_environment else source_digest(name)
         if row.get("inputDigest") != inputs:
             errors.append(f"{name} 的验证输入已变化，请重新执行该组。")
@@ -450,7 +457,7 @@ def record(group: str, status: int, scope: str, started_digest: str) -> int:
                 print("测试指标需要来自本次验证运行。", file=sys.stderr)
             try:
                 row["summary"] = test_summary(text)
-                if group == "all" and status == 0:
+                if group in {"all", "ui"} and status == 0:
                     from validation_performance import bundle_digest, BUNDLE, current_commit
                     row["resultBundleSHA256"] = bundle_digest(BUNDLE)
                     row["sourceCommit"] = current_commit()
@@ -522,10 +529,10 @@ def record(group: str, status: int, scope: str, started_digest: str) -> int:
             elif status == 0 and scope == "full":
                 row["coverageBaseline"] = advance(row["summary"].get("coverage", {}), baseline)
         report["groups"][group] = row
-        if group == "all" and status == 0 and scope == "full":
+        if group in {"all", "ui"} and status == 0 and scope == "full":
             from validation_performance import extract_measurements
             try:
-                row["performance"] = extract_measurements(row)
+                row["performance"] = extract_measurements(row, group)
             except (OSError, ValueError, KeyError, TypeError, subprocess.CalledProcessError) as error:
                 status = row["exitCode"] = 1
                 row["summary"]["passed"] = False
@@ -595,7 +602,8 @@ def community_recovery_self_test() -> list[str]:
     from contextlib import nullcontext
     from io import StringIO
     from contextlib import redirect_stderr
-    cleanup = {"runID": "fixture-run", "scope": "community-cleanup", "passed": True, "requiredProbes": ["cleanup"], "executedProbes": ["cleanup"]}
+    from validation_evidence_tests import network_trace_fixture
+    cleanup = network_trace_fixture({"runID": "fixture-run", "scope": "community-cleanup", "passed": True, "requiredProbes": ["cleanup"], "executedProbes": ["cleanup"]})
     write_row = {"exitCode": 0, "scope": "full", "summary": {"passed": True}}
     previous = {"sourceDigest": "source", "groups": {"community-writes": write_row}}
     cleanup_environment = {"host": {"system": "fixture"}, "developer": "/fixture", "xcode": {"version": "fixture"},
@@ -615,7 +623,7 @@ def community_recovery_self_test() -> list[str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["digest", "record", "bind", "check", "check-group", "summary", "suites", "self-test", "manual", "verify-defaults", "runtime-suites", "bind-merge", "check-merge", "baseline"])
+    parser.add_argument("action", choices=["digest", "record", "bind", "check", "check-group", "summary", "suites", "self-test", "manual", "verify-defaults", "runtime-suites", "conditions", "bind-merge", "check-merge", "baseline"])
     parser.add_argument("group", nargs="?", default="")
     parser.add_argument("status", nargs="?", type=int, default=0)
     parser.add_argument("--operation", default="", help="实际执行操作")
@@ -626,6 +634,10 @@ def main() -> int:
     parser.add_argument("--recorded-environment", action="store_true", help="核对已绑定证据的记录环境和当前发布工具链")
     parser.add_argument("scope", nargs="?", default="full")
     args = parser.parse_args()
+    if args.action == "conditions":
+        from validation_policy import workflow_conditions
+        print(' '.join(workflow_conditions(args.group)))
+        return 0
     if args.action == "runtime-suites":
         print("\n".join(sorted(FORMAL_RUNTIME_SUITES)))
         return 0
@@ -637,7 +649,8 @@ def main() -> int:
     if args.action == "check-group":
         with report_lock():
             report = json.loads(REPORT.read_text()) if REPORT.is_file() else {}
-            row = report.get("groups", {}).get(args.group, {})
+            from validation_provenance import complete_group_row
+            row = complete_group_row(report.get("groups", {}).get(args.group, {}))
         if row.get("exitCode") == 0 and row.get("scope") == "full" and row.get("runID") \
                 and row.get("inputDigest") == source_digest(args.group) and evidence_current(args.group, row.get("summary", {})) \
                 and complete_summary(args.group, row.get("summary", {})):

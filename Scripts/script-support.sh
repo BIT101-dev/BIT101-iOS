@@ -15,33 +15,58 @@ bit101_acquire_script_lock() {
   if [[ "${${(P)workflow_flag}:-0}" != "1" ]]; then
     exec python3 - "$workflow_lock" "$workflow_flag" "$@" <<'PYLOCK'
 import fcntl
+import math
 import os
 from pathlib import Path
 import signal
 import subprocess
 import sys
+import time
 
 lock_path = Path(sys.argv[1])
 lock_path.parent.mkdir(parents=True, exist_ok=True)
 with lock_path.open("a") as lock:
-    try:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        print("[等待] 既有工作流正在使用固定产物与设备。", flush=True)
-        fcntl.flock(lock, fcntl.LOCK_EX)
+    timeout = float(os.environ.get("BIT101_WORKFLOW_TIMEOUT_SECONDS", 45 * 60))
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise SystemExit("工作流执行预算需要有限正数。")
+    deadline = time.monotonic() + timeout
+    announced = False
+    while True:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            break
+        except BlockingIOError:
+            if not announced:
+                print("[等待] 既有工作流正在使用固定产物与设备。", flush=True)
+                announced = True
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                print("[超时] 工作流锁等待已达到执行预算。", flush=True)
+                raise SystemExit(124)
+            time.sleep(min(0.1, remaining))
     environment = dict(os.environ)
     environment[sys.argv[2]] = "1"
     script = Path(sys.argv[3])
     command = ["zsh", "-c", script.read_text(), str(script), *sys.argv[4:]]
-    process = subprocess.Popen(command, env=environment, start_new_session=True)
+    owns_process_group = os.environ.get("BIT101_DEVICE_WORKFLOW_LOCK_HELD") != "1"
+    process = subprocess.Popen(command, env=environment, start_new_session=owns_process_group)
     def interrupt(signum, _frame):
         try:
-            os.killpg(process.pid, signum)
+            if owns_process_group: os.killpg(process.pid, signum)
         except ProcessLookupError:
             pass
     for signum in (signal.SIGINT, signal.SIGTERM):
         signal.signal(signum, interrupt)
-    status = process.wait()
+    try:
+        status = process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        print("[超时] 工作流已达到执行预算，正在恢复与结束。", flush=True)
+        os.killpg(process.pid if owns_process_group else os.getpgrp(), signal.SIGTERM)
+        try: process.wait(timeout=5 * 60)
+        except subprocess.TimeoutExpired:
+            os.killpg(process.pid if owns_process_group else os.getpgrp(), signal.SIGKILL)
+            process.wait()
+        raise SystemExit(124)
     raise SystemExit(status if status >= 0 else 128 - status)
 PYLOCK
   fi

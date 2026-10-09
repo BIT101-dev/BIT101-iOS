@@ -229,6 +229,8 @@ struct ReleaseNetworkSmokeReport: Codable {
     var requestedTerm: String? = nil
     var currentTerm: String? = nil
     var validatedTerm: String? = nil
+    var requestEvidence: [NetworkSmokeRequestEvidence] = []
+    var requestEvidenceRequired = true
 
     var elapsed: TimeInterval {
         finishedAt.timeIntervalSince(startedAt)
@@ -369,6 +371,7 @@ extension ScheduleService: NetworkSmokeScheduleServicing {}
 
 @MainActor
 struct ReleaseNetworkSmokeDependencies {
+    var requiresRequestEvidence = true
     var checkLogin: @MainActor () async throws -> String? = { try await LoginService().checkLogin() }
     var writeReport: @MainActor (ReleaseNetworkSmokeReport) throws -> Void = ReleaseNetworkSmokeReportStore.write
     var clearRawCourseResponse: @MainActor () throws -> Void = ReleaseNetworkSmokeReportStore.clearRawCourseResponse

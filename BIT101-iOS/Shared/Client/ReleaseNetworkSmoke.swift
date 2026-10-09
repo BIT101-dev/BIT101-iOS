@@ -73,6 +73,7 @@ final class ReleaseNetworkSmokeRunner {
     private var executedProbes: [String] = []
     private var skippedProbes: [String] = []
     private var coverageGaps: [String] = []
+    private var requestEvidence: [NetworkSmokeRequestEvidence] = []
     private var schoolSMSHandler: SchoolSMSCodeHandler?
     private var schoolSMSSchedule: (any NetworkSmokeScheduleServicing)?
     private var smsSubmissions = 0
@@ -114,6 +115,7 @@ final class ReleaseNetworkSmokeRunner {
         executedProbes = []
         skippedProbes = []
         coverageGaps = []
+        requestEvidence = []
         smsSubmissions = 0
         submittedSMSPurposes = []
         verifiedSMSProbes = []
@@ -147,7 +149,9 @@ final class ReleaseNetworkSmokeRunner {
         executedProbes.append("BIT101 登录状态")
         let loginStartedAt = Date()
         do {
-            let loginResult = try await dependencies.checkLogin()
+            let loginResult = try await captureNetworkRequests("BIT101 登录状态", required: true) {
+                try await self.dependencies.checkLogin()
+            }
             guard let signedInStudentID = loginResult, !signedInStudentID.isEmpty else {
                 recordFailure("BIT101 登录状态", "真机没有有效登录状态，无法执行发布前网络冒烟测试", area: .authentication, scope: scope)
                 return await finishReport(runID: runID, scope: scope, startedAt: startedAt)
@@ -572,6 +576,8 @@ final class ReleaseNetworkSmokeRunner {
         report.requestedTerm = requestedScheduleTerm
         report.currentTerm = currentScheduleTerm
         report.validatedTerm = validatedScheduleTerm
+        report.requestEvidence = requestEvidence
+        report.requestEvidenceRequired = dependencies.requiresRequestEvidence
         do {
             try dependencies.writeReport(report)
         } catch {
@@ -687,7 +693,9 @@ final class ReleaseNetworkSmokeRunner {
         let startedAt = Date()
         let smsStart = submittedSMSPurposes.count
         do {
-            let value = try await operationWithSchoolAuthentication(operation)
+            let value = try await captureNetworkRequests(name, required: scope != .communityCleanup) {
+                try await self.operationWithSchoolAuthentication(operation)
+            }
             verifiedSMSProbes += submittedSMSPurposes.dropFirst(smsStart).map { SchoolSMSProbeEvidence(purpose: $0, probe: name) }
             let canonicalPurposes = ["当前学期": "webvpn", "生产学校会话": "webvpn", "乐学日历订阅地址": "webvpn",
                 "课程中心原生认证": "school_sso_second_factor", "成绩认证接口": "jwb", "可信成绩单接口": "jwb_cjd"]
@@ -718,6 +726,14 @@ final class ReleaseNetworkSmokeRunner {
             try await schedule.submitSMSCodeForTeachingCenterAuthentication(code, for: challenge)
             return try await operation()
         }
+    }
+
+    private func captureNetworkRequests<Value>(
+        _ name: String, required: Bool, operation: () async throws -> Value
+    ) async throws -> Value {
+        let collector = NetworkSmokeRequestCollector()
+        defer { requestEvidence.append(NetworkSmokeRequestEvidence(probe: name, requests: collector.requests)) }
+        return try await collector.perform(operation, required: required && dependencies.requiresRequestEvidence)
     }
 
     private func recordFailure(
