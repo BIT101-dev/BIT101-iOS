@@ -1,5 +1,6 @@
 #if DEBUG
 import XCTest
+@testable import BIT101_iOS
 import UIKit
 import CommunityCore
 @testable import MediaKit
@@ -85,6 +86,40 @@ nonisolated final class MaintenancePerformanceTests: XCTestCase {
         measure(metrics: [XCTClockMetric(), XCTMemoryMetric()]) {
             let decoded = BoundedStillImageDecoder.image(from: data)
             XCTAssertEqual(decoded?.size, image.size)
+        }
+    }
+
+    @MainActor
+    func testLocalPreviewFirstPagePerformance() throws {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 512, height: 384), format: format)
+        let images = (0..<64).map { index in renderer.image { context in
+            UIColor(hue: CGFloat(index) / 64, saturation: 1, brightness: 1, alpha: 1).setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 512, height: 384))
+        } }
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+        let client = HTTPClient(transport: session, observer: nil)
+        let media = MediaEnvironment(files: AppFileDirectories.files,
+            previewStorage: MediaPreviewStorage(files: AppFileDirectories.files), defaults: AppFileDirectories.defaults,
+            imageHTTPClient: client, avatarHTTPClient: client)
+        let coordinator = ImageQuickLookPresenter.Coordinator(media: media)
+        measure(metrics: [XCTClockMetric(), XCTMemoryMetric()]) {
+            let completed = expectation(description: "local preview first page")
+            Task { @MainActor in
+                let request = ImagePreviewRequest(localImages: images, initialIndex: 63)
+                media.beginPreview(owner: request.id)
+                defer { media.endPreview(owner: request.id); completed.fulfill() }
+                do {
+                    let prepared = try await coordinator.prepareInitialItems(for: request, media: media)
+                    XCTAssertEqual(prepared.items.count, 64)
+                    XCTAssertEqual(prepared.initialIndex, 63)
+                    let selected = prepared.items[63].url
+                    XCTAssertTrue(prepared.items.dropLast().allSatisfy { $0.url != selected })
+                } catch { XCTFail("Local preview error: \(error)") }
+            }
+            wait(for: [completed], timeout: 60)
         }
     }
 

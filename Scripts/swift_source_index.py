@@ -281,19 +281,25 @@ def visible_variables(facts: dict, reference: dict, name: str, explicit_self: bo
     return sorted(candidates, key=lambda variable: (len(variable["scope"]), len(variable.get("lexicalScope", [])), variable.get("start", 0)))
 
 
+def argument_parameter_bindings(parameters: list[dict], labels: list[str]) -> list[list[dict]]:
+    """Align supplied arguments with parameters, including defaults and variadic arguments."""
+    if not parameters: return [[]] if not labels else []
+    parameter, remaining = parameters[0], parameters[1:]
+    bindings = argument_parameter_bindings(remaining, labels) if parameter["hasDefault"] else []
+    if parameter["variadic"]:
+        for count in range(len(labels) + 1):
+            if all(label == (parameter["label"] if index == 0 else "") for index, label in enumerate(labels[:count])):
+                bindings.extend([parameter] * count + tail for tail in argument_parameter_bindings(remaining, labels[count:]))
+    elif labels and labels[0] == parameter["label"]:
+        bindings.extend([parameter] + tail for tail in argument_parameter_bindings(remaining, labels[1:]))
+    return bindings
+
+
 def matching_functions(facts: dict, name: str, call: dict) -> list[dict]:
-    def matches(parameters: list[dict], labels: list[str]) -> bool:
-        if not parameters: return not labels
-        parameter, remaining = parameters[0], parameters[1:]
-        if parameter["hasDefault"] and matches(remaining, labels): return True
-        if parameter["variadic"]:
-            return any(matches(remaining, labels[count:]) for count in range(len(labels) + 1)
-                if all(label == (parameter["label"] if index == 0 else "") for index, label in enumerate(labels[:count])))
-        return bool(labels) and labels[0] == parameter["label"] and matches(remaining, labels[1:])
     return [function for function in facts["functionRanges"] if function["name"] == name
         and call["scope"][:len(function["scope"])] == function["scope"]
         and call.get("lexicalScope", [])[:len(function["lexicalScope"])] == function["lexicalScope"]
-        and matches(function["parameters"], call.get("argumentLabels", []))]
+        and argument_parameter_bindings(function["parameters"], call.get("argumentLabels", []))]
 
 
 def compilation_type_context(index: dict, path: str | None = None) -> tuple:

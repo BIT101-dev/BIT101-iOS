@@ -22,7 +22,8 @@ class RequestContract:
         query = request.get('query', {})
         return request['method'] == self.method and re.fullmatch(self.host, endpoint.hostname or '') is not None \
             and re.fullmatch(self.path, endpoint.path) is not None \
-            and all(re.fullmatch(pattern, query.get(key, '')) is not None for key, pattern in self.query.items())
+            and all(key not in query if pattern is None else re.fullmatch(pattern, query.get(key, '')) is not None
+                for key, pattern in self.query.items())
 
     def complete(self, requests: list[dict]) -> bool:
         rows = [request for request in requests if self.matches(request)]
@@ -46,12 +47,12 @@ def teaching(path: str, method: str = 'GET') -> RequestContract:
 
 CONTRACTS = {
     'BIT101 登录状态': [community('/user/check')],
-    '话廊最新列表': [community('/posters', paging='page')],
-    '话廊关注流': [community('/posters', paging='page')],
-    '话廊热门流': [community('/posters', paging='page')],
-    '话廊推荐流': [community('/posters', paging='page')],
-    '话廊机器人流': [community('/posters', paging='page')],
-    '话廊搜索': [community('/posters', query={'mode': 'search'}, paging='page')],
+    '话廊最新列表': [community('/posters', query={'mode': 'search', 'order': 'new', 'uid': '-1'}, paging='page')],
+    '话廊关注流': [community('/posters', query={'mode': 'follow', 'order': None, 'uid': None}, paging='page')],
+    '话廊热门流': [community('/posters', query={'mode': 'hot', 'order': None, 'uid': None}, paging='page')],
+    '话廊推荐流': [community('/posters', query={'mode': None, 'order': None, 'uid': None}, paging='page')],
+    '话廊机器人流': [community('/posters', query={'mode': 'search', 'order': 'new', 'uid': '-1'}, paging='page')],
+    '话廊搜索': [community('/posters', query={'mode': 'search', 'order': 'new', 'uid': None}, paging='page')],
     '话廊帖子详情': [community(r'/posters/\d+')],
     '话廊帖子评论': [community('/reaction/comments', query={'obj': r'poster\d+'}, paging='page')],
     '帖子声明列表': [community('/posters/claims')],
@@ -61,7 +62,7 @@ CONTRACTS = {
     '学业课程详情': [community(r'/courses/\d+')],
     '学业课程评论': [community('/reaction/comments', query={'obj': r'course\d+'}, paging='page')],
     '学业课程历史成绩': [community('/courses/histories/.+')],
-    '文章列表': [community('/papers', paging='page')],
+    '文章列表': [community('/papers', query={'order': None}, paging='page')],
     '文章详情': [community(r'/papers/\d+')],
     '文章评论': [community('/reaction/comments', query={'obj': r'paper\d+'}, paging='page')],
     '我的资料': [community('/user/info/0')],
@@ -81,9 +82,9 @@ CONTRACTS = {
     '空教室校区列表': [teaching('/jwapp/sys/kxjasbyMobile/modules/jxllb/ggzdpx.do')],
     '空教室教学楼列表': [teaching('/jwapp/sys/kxjasbyMobile/modules/jxllb/cxjxl.do')],
     '空教室占用数据': [teaching('/jwapp/sys/kxjasbyMobile/kxjasbyController/cxkxjasqk.do', 'POST')],
-    '课程中心原生认证': [RequestContract(r'zy-eclass\.bit\.edu\.cn', '/api/my-courses')],
-    '课程中心 DDL 下载': [RequestContract(r'zy-eclass\.bit\.edu\.cn', '/api/my-courses')],
-    '乐学日历订阅地址': [RequestContract(r'(?:lexue|webvpn)\.bit\.edu\.cn', VPN + '/calendar/export.php')],
+    '课程中心原生认证': [RequestContract(r'zy-eclass\.bit\.edu\.cn', '/api/my-courses', 'POST')],
+    '课程中心 DDL 下载': [RequestContract(r'zy-eclass\.bit\.edu\.cn', '/api/my-courses', 'POST')],
+    '乐学日历订阅地址': [RequestContract(r'(?:lexue|webvpn)\.bit\.edu\.cn', VPN + '/calendar/export.php', 'POST')],
     '乐学 DDL 下载': [RequestContract(r'(?:lexue|webvpn)\.bit\.edu\.cn', VPN + '/calendar/export_execute.php')],
     '成绩认证接口': [RequestContract(r'login\.bit101\.flwfdd\.xyz', '/api/auth/start', 'POST')],
     '成绩简略列表': [RequestContract(r'login\.bit101\.flwfdd\.xyz', '/api/jwb/bit101/score', 'POST', {'detail': 'false'})],
@@ -109,7 +110,10 @@ CONTRACTS = {
 def contracts_for(probe: str) -> list[RequestContract]:
     if probe.startswith('消息列表-'):
         return [community('/messages', query={'type': re.escape(probe.removeprefix('消息列表-'))}, paging='last_id')]
-    if probe.startswith('文章列表-'): return [community('/papers', paging='page')]
+    if probe.startswith('文章列表-'):
+        orders = {'最新': None, '高赞': 'like', '热评': 'comment'}
+        title = probe.removeprefix('文章列表-')
+        return [community('/papers', query={'order': orders[title]}, paging='page')] if title in orders else []
     return CONTRACTS.get(probe, [])
 
 

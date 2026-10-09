@@ -422,7 +422,7 @@ struct MediaDependencyTests {
         #expect(files.removeContents(of: files.temporaryDirectoryURL))
         let owner = UUID()
         media.beginPreview(owner: owner)
-        let local = try media.localPreviewFile(data: bytes, owner: owner)
+        let local = try await media.localPreviewFile(data: bytes, owner: owner)
         #expect(try files.readData(at: local) == bytes)
         media.endPreview(owner: owner)
         #expect(files.fileExists(at: local) == false)
@@ -468,8 +468,8 @@ struct MediaDependencyTests {
         let second = UUID()
         media.beginPreview(owner: first)
         media.beginPreview(owner: second)
-        let firstFile = try media.localPreviewFile(data: bytes, owner: first)
-        let secondFile = try media.localPreviewFile(data: bytes, owner: second)
+        let firstFile = try await media.localPreviewFile(data: bytes, owner: first)
+        let secondFile = try await media.localPreviewFile(data: bytes, owner: second)
         #expect(firstFile == secondFile)
         #expect(files.totalRegularFileSize(at: files.temporaryDirectoryURL) == 0)
         media.endPreview(owner: first)
@@ -478,7 +478,7 @@ struct MediaDependencyTests {
         #expect(previewFiles.fileExists(at: secondFile))
         media.endPreview(owner: second)
         #expect(previewFiles.fileExists(at: secondFile) == false)
-        #expect(throws: CancellationError.self) { try media.localPreviewFile(data: bytes, owner: second) }
+        await #expect(throws: CancellationError.self) { try await media.localPreviewFile(data: bytes, owner: second) }
         let legacy = ImageCacheDirectories.gallery(using: previewFiles).appending(path: "local-legacy.png")
         let orphan = ImageCacheDirectories.gallery(using: previewFiles).appending(path: "preview-local-orphan.png")
         try previewFiles.writeData(bytes, to: orphan, options: [.atomic])
@@ -498,13 +498,13 @@ struct MediaDependencyTests {
             imageHTTPClient: client, avatarHTTPClient: client)
         let ownerA = UUID(), ownerB = UUID(), bytes = try png(width: 2)
         first.beginPreview(owner: ownerA)
-        let file = try first.localPreviewFile(data: bytes, owner: ownerA)
+        let file = try await first.localPreviewFile(data: bytes, owner: ownerA)
         let second = MediaEnvironment(files: files, previewStorage: storage, defaults: AppFileDirectories.defaults,
             imageHTTPClient: client, avatarHTTPClient: client)
         await second.enforceCurrentLimit()
         #expect(files.fileExists(at: file))
         second.beginPreview(owner: ownerB)
-        #expect(try second.localPreviewFile(data: bytes, owner: ownerB) == file)
+        #expect(try await second.localPreviewFile(data: bytes, owner: ownerB) == file)
         first.endPreview(owner: ownerA)
         await first.enforceCurrentLimit()
         #expect(try files.readData(at: file) == bytes)
@@ -643,10 +643,31 @@ struct MediaDependencyTests {
         #expect(files.totalRegularFileSize(at: files.temporaryDirectoryURL) == 0)
     }
 
-    @Test(.timeLimit(.minutes(1))) func gifFramesAndReducedMotionReadInjectedBytes() async throws {
+    @Test func localPreviewPreparesTheSelectedPageAndRetainsAllPagePositions() async throws {
+        let files = PreferenceMemoryFiles()
+        let media = environment(files: files, previewFiles: files, transport: Images(bytes: Data()))
+        let images = try (1...64).map { try #require(UIImage(data: png(width: $0))) }
+        let request = ImagePreviewRequest(localImages: images, initialIndex: 63)
+        media.beginPreview(owner: request.id)
+        let coordinator = ImageQuickLookPresenter.Coordinator(media: media)
+        let prepared = try await coordinator.prepareInitialItems(for: request, media: media)
+        #expect(prepared.initialIndex == 63 && prepared.items.count == 64)
+        let selectedFile = prepared.items[63].url
+        #expect(UIImage(data: try files.readData(at: selectedFile))?.size.width == 64)
+        #expect(prepared.items.dropLast().allSatisfy { $0.url != selectedFile })
+        let localFiles = try files.contentsOfDirectory(at: ImageCacheDirectories.gallery(using: files), options: [])
+            .filter { $0.lastPathComponent.hasPrefix("preview-local-") }
+        #expect(localFiles == [selectedFile])
+        media.endPreview(owner: request.id)
+        #expect(files.fileExists(at: selectedFile) == false)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [0.4, 0.02])
+    func gifFramesAndReducedMotionReadInjectedBytes(firstDelay: Double) async throws {
+        let secondDelay = firstDelay == 0.4 ? 0.1 : 0.5
         let data = NSMutableData()
         let destination = try #require(CGImageDestinationCreateWithData(data, UTType.gif.identifier as CFString, 2, nil))
-        for (color, delay) in [(UIColor.systemRed, 0.4), (UIColor.systemBlue, 0.1)] {
+        for (color, delay) in [(UIColor.systemRed, firstDelay), (UIColor.systemBlue, secondDelay)] {
             let image = try #require(UIImage(data: png(width: 1, color: color))?.cgImage)
             CGImageDestinationAddImage(destination, image, [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFDelayTime: delay]] as CFDictionary)
         }
@@ -661,8 +682,15 @@ struct MediaDependencyTests {
         let firstPixels = try #require(frames.first?.cgImage?.dataProvider?.data) as Data
         let firstFrameCount = frames.filter { ($0.cgImage?.dataProvider?.data as Data?) == firstPixels }.count
         let firstDuration = animated.duration * Double(firstFrameCount) / Double(frames.count)
-        #expect(abs(firstDuration - 0.4) < 0.001)
-        #expect(abs(animated.duration - firstDuration - 0.1) < 0.001)
+        #expect(abs(firstDuration - firstDelay) < 0.001)
+        #expect(abs(animated.duration - firstDuration - secondDelay) < 0.001)
+        var unique = Set<ObjectIdentifier>()
+        let actualBytes = frames.reduce(0) { bytes, frame in
+            guard let pixels = frame.cgImage, unique.insert(ObjectIdentifier(pixels)).inserted else { return bytes }
+            return bytes + pixels.bytesPerRow * pixels.height
+        }
+        #expect(unique.count == 2 && frames.count > unique.count)
+        #expect(MediaDisplayBudget.pixelBytes(animated) == actualBytes)
         #expect(await media.animatedDecoder.image(at: file, reduceMotion: true)?.images == nil)
         #expect(await media.animatedDecoder.image(at: file, reduceMotion: true)?.size.width == 1)
         let view = UIImageView()

@@ -124,10 +124,14 @@ export class QuotaFixture extends ReportQuota {
   const bodySource = fs.readFileSync("../ErrorReportWorker/worker.js", "utf8")
     .replace('import { DurableObject } from "cloudflare:workers";', 'class DurableObject { constructor(ctx, env) { this.ctx = ctx; this.env = env; } }') + "\nexport { readReportBody, MAX_BODY_BYTES, forceRedact, PROTECTED_NAMES };";
   const { default: feedback, ReportEmailDelivery, readReportBody, MAX_BODY_BYTES, forceRedact, PROTECTED_NAMES } = await import("data:text/javascript;base64," + Buffer.from(bodySource).toString("base64"));
-  let saved = 0, sent = 0, offline = true, failStatusWrite = false, alarmAt;
+  let saved = 0, sent = 0, offline = true, failStatusWrite = false, failJobWrite = false, alarmAt;
+  const emails = [];
   const records = new Map(), jobs = new Map();
   const storage = {
-    async get(key) { return structuredClone(jobs.get(key)); }, async put(key, value) { jobs.set(key, structuredClone(value)); },
+    async get(key) { return structuredClone(jobs.get(key)); }, async put(key, value) {
+      if (value.delivery.status === "sent" && failJobWrite) { failJobWrite = false; throw new Error("job storage unavailable"); }
+      jobs.set(key, structuredClone(value));
+    },
     async setAlarm(at) { alarmAt = at; }, async deleteAll() { jobs.clear(); }
   };
   const emailEnv = {
@@ -140,7 +144,7 @@ export class QuotaFixture extends ReportQuota {
       }
     },
     REPORT_QUOTA: { idFromName() {}, get() { return { async fetch() { return Response.json({ allowed: true }); } }; } },
-    REPORT_EMAIL: { send() { sent += 1; if (offline) throw new Error("offline"); return { messageId: "fixture-receipt" }; } }
+    REPORT_EMAIL: { send(message) { sent += 1; emails.push(message); if (offline) throw new Error("offline"); return { messageId: "fixture-receipt" }; } }
   };
   const delivery = new ReportEmailDelivery({ storage }, emailEnv);
   emailEnv.REPORT_EMAIL_DELIVERY = { idFromName(id) { return id; }, get(id) { return {
@@ -161,6 +165,16 @@ export class QuotaFixture extends ReportQuota {
   assert.equal(stored.emailDelivery.status, "sent"); assert.equal(stored.emailDelivery.messageID, "fixture-receipt");
   assert.equal(records.get(job.key).metadata.emailStatus, "sent");
   assert.equal(alarmAt, Date.parse(job.receivedAt) + 30 * 24 * 60 * 60 * 1000);
+  jobs.set("job", { ...job, delivery: { status: "pending", attempts: 0 } }); failJobWrite = true;
+  const beforeJobFailure = sent;
+  await assert.rejects(delivery.alarm({ retryCount: 0 }));
+  assert.equal(jobs.get("job").delivery.status, "pending"); assert.equal(jobs.get("job").delivery.attempts, 1);
+  await delivery.alarm({ retryCount: 1 });
+  assert.equal(sent, beforeJobFailure + 2); assert.equal(jobs.get("job").delivery.attempts, 2);
+  assert.equal(emails.at(-1).headers["X-BIT101-Report-ID"], job.id);
+  assert.equal(emails.at(-1).subject, emails.at(-2).subject);
+  assert.equal(emails.at(-1).text, emails.at(-2).text);
+  await delivery.alarm({ retryCount: 2 }); assert.equal(sent, beforeJobFailure + 2);
   jobs.set("job", { ...job, delivery: { status: "pending", attempts: 0 } }); offline = true;
   for (let retryCount = 0; retryCount < 6; retryCount++) await assert.rejects(delivery.alarm({ retryCount }));
   await delivery.alarm({ retryCount: 6 });

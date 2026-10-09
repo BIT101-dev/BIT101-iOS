@@ -354,9 +354,9 @@ iOS 的 `checks` 包含 `cold-start-session`、`offline-persistence`、`media-an
 
 共享预览目录的媒体环境共同接收同一 `MediaPreviewStorage`，文件创建、所有权登记、清理和关闭消费同一协调器。回归合同覆盖创建期间的后台清理，以及不同环境启动清理和关闭预览时保留其他活动消费者。
 
-`MaintenancePerformanceTests` 沿 XCTest 默认测量选项记录实际分页、PNG 解码、长文章解析与纯文本生成、GIF 解码、Widget 时间线计算及 32 MiB URLSession 响应聚合的时钟与物理内存指标。`MaintenancePerformanceUITests` 记录清空夹具存储后的进程结束、启动至课表就绪，以及启用动画的课表往返切周布局；UI 内存指标采集目标 App 进程。性能基线沿同一真机 runner 的 XCTest 默认参数维护。
+`MaintenancePerformanceTests` 沿 XCTest 默认测量选项记录实际分页、PNG 解码、长文章解析与纯文本生成、GIF 解码、Widget 时间线计算、32 MiB URLSession 响应聚合，以及 64 页本地图片的首个预览文件编码与写盘的时钟和物理内存指标。`MaintenancePerformanceUITests` 记录清空夹具存储后的进程结束、启动至课表就绪，以及启用动画的课表往返切周布局；UI 内存指标采集目标 App 进程。性能基线沿同一真机 runner 的 XCTest 默认参数维护。
 
-`performance-baseline` 人工专项登记 `pagination`、`image-decoding`、`startup`、`schedule-layout`、`long-article`、`gif-decoding`、`widget-timeline`、`response-aggregation` 八个场景的结构化比较及影像，参与完整发布验收。行为场景归属 `all`，启动与课表布局归属 `ui`；每条采样保留所属完整测试组的执行证据。
+`performance-baseline` 人工专项登记 `pagination`、`image-decoding`、`startup`、`schedule-layout`、`long-article`、`gif-decoding`、`widget-timeline`、`response-aggregation`、`local-preview` 九个场景的结构化比较及影像，参与完整发布验收。行为场景归属 `all`，启动与课表布局归属 `ui`；每条采样保留所属完整测试组的执行证据。
 
 每个性能场景的 `measurement` 包含 `current` 与 `baseline`。两份记录保存 `testIdentifier`、`sourceCommit`、`capturedAt`、`environment`、`input`、`resultBundle`、`metrics`；当前采样沿实际观察时间登记，批准基线保存 `approvedBy`、`approvedAt`。`environment` 核对相同的设备标识、设备型号、系统版本与构建、Xcode 构建、编译器摘要、Release 配置及 `compilationConditions`。`resultBundle` 保存固定 XCTest 结果包路径和 SHA-256，两个采样拥有各自的摘要。`execution` 保存所属运行、构建输入、源码提交及完整环境；`xcresultMetrics` 保留工具导出的原始指标。
 

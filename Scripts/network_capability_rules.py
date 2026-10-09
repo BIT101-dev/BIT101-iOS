@@ -1,7 +1,7 @@
 """Resolve business network API signatures and calls from compiler source facts."""
 import re
 from pathlib import Path
-from swift_source_index import matching_functions, visible_variables
+from swift_source_index import argument_parameter_bindings, matching_functions, visible_variables
 
 NETWORK_FOUNDATION_MODULES = {'TransportCore', 'CommunityTransport', 'MediaKit'}
 NETWORK_TRANSPORT_TYPES = {'HTTPClient', 'HTTPTransport', 'URLSession', 'CommunityAPIClient', 'CommunitySession'}
@@ -112,6 +112,7 @@ def matching_api_calls(index: dict, functions: list[tuple[str, dict]], call: dic
         match = re.fullmatch(r'([\w.]+)\(.*\)', value, re.DOTALL)
         return match[1] if match else None
     arguments = list(map(argument_type, call.get('arguments', [])))
-    return [(path, function) for path, function in candidates if len(function['parameters']) == len(arguments)
-        and all(kind is None or re.sub(r'\s+', '', parameter['type']).removeprefix('Swift.') == kind
-            for kind, parameter in zip(arguments, function['parameters']))]
+    return [(path, function) for path, function in candidates if any(
+        all(kind is None or re.sub(r'\s+', '', parameter['type']).removeprefix('Swift.') == kind
+            for kind, parameter in zip(arguments, binding))
+        for binding in argument_parameter_bindings(function['parameters'], call.get('argumentLabels', [])))]

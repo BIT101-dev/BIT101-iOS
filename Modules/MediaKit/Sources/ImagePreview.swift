@@ -143,7 +143,11 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
                     }
 
                     upgradeTask = Task { [weak self, media] in
-                        await self?.upgradeRemoteItems(for: request, initialIndex: prepared.initialIndex, media: media)
+                        if case .local = request.source {
+                            await self?.prepareRemainingLocalItems(for: request, initialIndex: prepared.initialIndex, media: media)
+                        } else {
+                            await self?.upgradeRemoteItems(for: request, initialIndex: prepared.initialIndex, media: media)
+                        }
                     }
                 } catch {
                     guard !Task.isCancelled else { return }
@@ -184,27 +188,20 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
         }
 
         /// 用户点击的图片先准备可读文件；其它图片使用缓存或占位，高清资源在预览展示后继续准备。
-        private func prepareInitialItems(
+        func prepareInitialItems(
             for request: ImagePreviewRequest,
             media: MediaEnvironment
         ) async throws -> (items: [MutableQuickLookItem], initialIndex: Int) {
             switch request.source {
             case let .local(images):
-                var prepared: [MutableQuickLookItem] = []
-                var sourceIndexes: [Int] = []
-                for (index, image) in images.enumerated() {
-                    try Task.checkCancellation()
-                    guard let data = image.pngData() else { continue }
-                    let file = try media.localPreviewFile(data: data, owner: request.id)
-                    prepared.append(MutableQuickLookItem(url: file))
-                    sourceIndexes.append(index)
-                }
-                guard !prepared.isEmpty else { throw QuickLookPreparationError.noImages }
-                let requestedIndex = min(max(request.initialIndex, 0), images.count - 1)
-                let preparedIndex = sourceIndexes.firstIndex(of: requestedIndex)
-                    ?? sourceIndexes.firstIndex(where: { $0 > requestedIndex })
-                    ?? prepared.count - 1
-                return (prepared, preparedIndex)
+                guard !images.isEmpty else { throw QuickLookPreparationError.noImages }
+                let initialIndex = min(max(request.initialIndex, 0), images.count - 1)
+                let cachedPlaceholder = try await media.images.placeholderFile()
+                let placeholder = try await media.previewFile(at: cachedPlaceholder, owner: request.id)
+                placeholderURL = placeholder
+                let prepared = images.map { _ in MutableQuickLookItem(url: placeholder) }
+                prepared[initialIndex].url = try await media.localPreviewFile(image: images[initialIndex], owner: request.id)
+                return (prepared, initialIndex)
 
             case let .remote(images):
                 guard !images.isEmpty else { throw QuickLookPreparationError.noImages }
@@ -242,6 +239,20 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
                     prepared[initialIndex].url = try await media.previewFile(at: cached, owner: request.id)
                 }
                 return (prepared, initialIndex)
+            }
+        }
+
+        private func prepareRemainingLocalItems(for request: ImagePreviewRequest, initialIndex: Int, media: MediaEnvironment) async {
+            guard case let .local(images) = request.source else { return }
+            for index in images.indices where index != initialIndex {
+                guard !Task.isCancelled, requestID == request.id, self.media === media else { return }
+                guard let file = try? await media.localPreviewFile(image: images[index], owner: request.id) else { continue }
+                guard !Task.isCancelled, requestID == request.id, items.indices.contains(index), self.media === media else { return }
+                items[index].url = file
+                if previewController?.currentPreviewItemIndex == index {
+                    if isPreviewPresentationComplete { refreshCurrentPreviewItemSmoothly() }
+                    else { pendingCurrentRefresh = true }
+                }
             }
         }
 
@@ -331,7 +342,7 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
 }
 
 /// Quick Look 会在需要时重新读取该对象的 URL，因此高清下载完成后可以原地替换。
-private final class MutableQuickLookItem: NSObject, QLPreviewItem {
+final class MutableQuickLookItem: NSObject, QLPreviewItem {
     var url: URL
     var previewItemTitle: String? { nil }
     var previewItemURL: URL? { url }

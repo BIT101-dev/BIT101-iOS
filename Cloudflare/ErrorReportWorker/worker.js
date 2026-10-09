@@ -248,11 +248,13 @@ export class ReportEmailDelivery extends DurableObject {
       record = JSON.parse(stored.value);
       if (job.delivery.status === "pending") {
         job.delivery.attempts += 1;
+        await this.ctx.storage.put("job", job);
         const category = record.report.mode === "suggestion" ? "用户建议" : "错误报告";
         const sent = await this.env.REPORT_EMAIL.send({
           from: "error-report@aihelpme.dev", to: "idleassetsd@gmail.com",
-          subject: reportEmailSubject(category, record.report),
-          text: reportEmailBody(job.id, job.receivedAt, record.report)
+          subject: `${reportEmailSubject(category, record.report)} [${job.id}]`,
+          text: reportEmailBody(job.id, job.receivedAt, record.report),
+          headers: { "X-BIT101-Report-ID": job.id }
         });
         job.delivery = { status: "sent", attempts: job.delivery.attempts, messageID: sent?.messageId || "" };
       }

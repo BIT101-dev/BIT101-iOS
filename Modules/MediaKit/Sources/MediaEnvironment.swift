@@ -5,6 +5,7 @@ import Foundation
 import CryptoKit
 import OSLog
 import Observation
+import UIKit
 
 public nonisolated enum RemoteImageResourceLimits {
     public static let maximumEncodedBytes = 32 * 1_024 * 1_024
@@ -77,17 +78,38 @@ public final class MediaEnvironment {
         Task { await enforceCurrentLimit() }
     }
 
-    func localPreviewFile(data: Data, owner: UUID) throws -> URL {
+    func localPreviewFile(image: UIImage, owner: UUID) async throws -> URL {
+        let data = try await Self.previewData(image)
+        return try await localPreviewFile(data: data, owner: owner)
+    }
+
+    @concurrent
+    private static func previewData(_ image: UIImage) async throws -> Data {
         try Task.checkCancellation()
-        guard previewOwnership.contains(owner) else { throw CancellationError() }
-        let directory = ImageCacheDirectories.gallery(using: previewFiles)
+        guard let data = image.pngData() else { throw CocoaError(.fileWriteUnknown) }
+        return data
+    }
+
+    func localPreviewFile(data: Data, owner: UUID) async throws -> URL {
+        let file = try await Self.materializeLocalPreview(data: data, files: previewFiles, ownership: previewOwnership, owner: owner)
+        guard !Task.isCancelled, previewOwnership.contains(owner) else {
+            removePreviewFile(file)
+            throw CancellationError()
+        }
+        temporaryPreviewFiles[owner, default: []].insert(file)
+        return file
+    }
+
+    @concurrent
+    private static func materializeLocalPreview(data: Data, files: any AppFileService,
+                                               ownership: PreviewFileOwnership, owner: UUID) async throws -> URL {
+        try Task.checkCancellation()
+        let directory = ImageCacheDirectories.gallery(using: files)
         let file = directory.appendingPathComponent("preview-local-\(SHA256.hash(data: data).hexString).png")
-        let files = previewFiles
-        try previewOwnership.materializeAndPin(file, using: files, owner: owner) {
+        try ownership.materializeAndPin(file, using: files, owner: owner) {
             try files.createDirectory(at: directory)
             if !files.fileExists(at: file) { try files.writeData(data, to: file, options: [.atomic]) }
         }
-        temporaryPreviewFiles[owner, default: []].insert(file)
         return file
     }
 

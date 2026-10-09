@@ -142,7 +142,9 @@ def run_self_test(rules: dict) -> None:
     assert platform_errors("ScheduleDomain", raw_imports("import `UIKit`"))
     for source in ("Foundation.UserDefaults.`standard`", "`UserDefaults`.standard", "let prefs: `UserDefaults` = .`standard`"):
         assert ownership_errors("GalleryFeature", source) and service_boundary_errors("BIT101-iOS/Example.swift", source)
-    assert graph_errors({"Leaf": set(), "First": {"Leaf"}, "Second": {"Leaf"}}) == []
+    assert graph_errors({"ScheduleLeafCore": set(), "ScheduleFirstCore": {"ScheduleLeafCore"}, "ScheduleSecondCore": {"ScheduleLeafCore"}}) == []
+    assert graph_errors({'ScheduleDomain': {'ScheduleHelpers'}, 'ScheduleHelpers': {'ScoreFeature'}, 'ScoreFeature': set()}) \
+        == ['ScheduleHelpers requires a declared architectural layer suffix']
     assert any("cycle" in error for error in graph_errors({"First": {"Second"}, "Second": {"First"}}))
     assert any("feature boundary" in error for error in graph_errors({"FirstFeature": {"SecondFeature"}, "SecondFeature": set()}))
     assert any("infrastructure boundary" in error for error in graph_errors({"ScoreInfrastructure": {"ScoreFeature"}, "ScoreFeature": set()}))

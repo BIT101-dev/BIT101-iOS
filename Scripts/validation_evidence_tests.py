@@ -425,7 +425,7 @@ def network_trace_fixture(value: dict) -> dict:
         requests = []
         for contract in contracts:
             for index in range(max(contract.minimum, 2 if contract.paging else 1)):
-                query = {key: example(pattern) for key, pattern in contract.query.items()}
+                query = {key: example(pattern) for key, pattern in contract.query.items() if pattern is not None}
                 if contract.paging == 'page': query['page'] = str(index)
                 if contract.paging == 'last_id' and index: query['last_id'] = '0'
                 request = {'method': contract.method, 'endpoint': 'https://' + example(contract.host) + example(contract.path),
@@ -454,3 +454,28 @@ def network_route_identity_self_test() -> None:
     changed = deepcopy(proof)
     changed['requestEvidence'][0]['requests'][1]['query']['page'] = '0'
     assert not network_requests_complete(required, changed)
+    from network_request_contracts import complete
+    for probe, endpoint in [('课程中心原生认证', 'https://zy-eclass.bit.edu.cn/api/my-courses'),
+                            ('课程中心 DDL 下载', 'https://zy-eclass.bit.edu.cn/api/my-courses'),
+                            ('乐学日历订阅地址', 'https://lexue.bit.edu.cn/calendar/export.php')]:
+        request = {'method': 'POST', 'endpoint': endpoint, 'statusCode': 200, 'query': {}}
+        assert complete(probe, [request]), probe
+        assert not complete(probe, [dict(request, method='GET')]), probe
+    variants = {
+        '话廊最新列表': {'mode': 'search', 'order': 'new', 'uid': '-1'},
+        '话廊关注流': {'mode': 'follow'}, '话廊热门流': {'mode': 'hot'}, '话廊推荐流': {},
+        '话廊机器人流': {'mode': 'search', 'order': 'new', 'uid': '-1'},
+        '文章列表-最新': {}, '文章列表-高赞': {'order': 'like'}, '文章列表-热评': {'order': 'comment'},
+    }
+    for probe, parameters in variants.items():
+        endpoint = 'https://bit101.flwfdd.xyz/' + ('papers' if probe.startswith('文章') else 'posters')
+        requests = [{'method': 'GET', 'endpoint': endpoint, 'statusCode': 200,
+                     'query': dict(parameters, page=str(page))} for page in (0, 1)]
+        assert complete(probe, requests), probe
+        for key in ('order',) if probe.startswith('文章') else ('mode', 'order', 'uid'):
+            changed = deepcopy(requests)
+            for row in changed:
+                if key in row['query']: row['query'].pop(key)
+                else: row['query'][key] = 'unexpected'
+            assert not complete(probe, changed), (probe, key)
+    assert not complete('文章列表-未知', requests)

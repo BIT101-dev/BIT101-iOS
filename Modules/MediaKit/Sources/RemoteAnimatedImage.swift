@@ -37,11 +37,7 @@ actor RemoteAnimatedImageDecoder {
         guard let data = RemoteImageResourceLimits.cachedData(at: file, using: files) else { return nil }
         guard let decoded = Self.animatedImage(from: data, reduceMotion: reduceMotion, budget: maximumDecodedBytes,
                                                maximumPixelSize: maximumPixelSize) else { return nil }
-        let pixelCost = (decoded.images ?? [decoded]).reduce(0) { total, frame in
-            let width = Int(frame.size.width * frame.scale)
-            let height = Int(frame.size.height * frame.scale)
-            return total + width * height * 4
-        }
+        let pixelCost = MediaDisplayBudget.pixelBytes(decoded)
         images.setObject(decoded, forKey: key, cost: max(pixelCost, data.count))
         return decoded
     }

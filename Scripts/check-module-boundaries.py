@@ -150,6 +150,8 @@ def graph_errors(manifest: dict[str, set[str]]) -> list[str]:
         visited.add(module)
 
     for module, dependencies in manifest.items():
+        if layer(module) is None:
+            errors.append(f"{module} requires a declared architectural layer suffix")
         visit(module, ())
         for dependency in dependencies:
             source_layer, dependency_layer = layer(module), layer(dependency)
@@ -615,8 +617,6 @@ def main() -> int:
         source_root = root / info["path"]
         if info["type"] != "regular" or info["path"] != f"Modules/{module}/Sources":
             errors.append(f"{module} requires a regular target at Modules/{module}/Sources")
-        if layer(module) is None:
-            errors.append(f"{module} requires a declared architectural layer suffix")
         if not source_root.is_dir():
             errors.append(f"{module} source root missing: {source_root}")
             continue

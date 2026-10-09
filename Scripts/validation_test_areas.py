@@ -412,6 +412,19 @@ def critical_findings(inventories: dict[str, set[str]]) -> list[str]:
 def network_discovery_self_test() -> None:
     from swift_source_index import swift_syntax_index_sources
     from network_capability_rules import business_methods
+    from network_capability_rules import matching_api_calls
+    for parameters, invocation in [('name: KIND, page: Int = 0', 'name: "hello"'),
+                                   ('page: Int = 0, name: KIND', 'name: "hello"'),
+                                   ('name: KIND...', 'name: "hello", "world"')]:
+        source = 'public struct Client { ' + '; '.join(
+            f'public func fetch({parameters.replace("KIND", kind)}) {{}}' for kind in ('String', 'Int')) \
+            + f' }}; func smoke() {{ Client().fetch({invocation}) }}'
+        path = 'Modules/GalleryFeature/Sources/Client.swift'
+        index = swift_syntax_index_sources({path: source})
+        functions = [(path, function) for function in index[path]['functionRanges'] if function['name'] == 'fetch']
+        call = next(call for call in index[path]['invocations'] if call['calledExpression'].endswith('.fetch'))
+        matches = matching_api_calls(index, functions, dict(call, path=path))
+        assert len(matches) == 1 and any(parameter['type'] == 'String' for parameter in matches[0][1]['parameters']), parameters
     for module, name in [('GalleryFeature', 'NewGalleryClient'), ('NewForumFeature', 'PostRepository')]:
         path = f'Modules/{module}/Sources/Client.swift'
         for kind in ('HTTPClient', 'Requester', 'NestedRequester'):
