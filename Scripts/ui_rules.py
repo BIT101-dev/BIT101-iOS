@@ -16,7 +16,7 @@ from ui_design_contracts import (
     DIRECT_SEMANTIC_COLOR_RULES, DIRECT_STROKE_GEOMETRY, DIRECT_THUMBNAIL_GEOMETRY,
     DIRECT_VISUAL_RULES, FIXED_GEOMETRY_CONTRACTS, LOCAL_APP_ALERT_BINDINGS, PADDING_LITERAL,
     PAGE_THEME_CONTRACTS, PAGE_THEME_RULES, PLAIN_LIST_EXCEPTIONS, REPEATED_DESIGN_TOKEN,
-    STACK_SPACING_LITERAL, THEME_SENSITIVE_ROOTS,
+    STACK_SPACING_LITERAL, THEME_SENSITIVE_ROOTS, VISUAL_CONTRACT_OWNERS,
 )
 
 from ui_source_facts import (
@@ -459,10 +459,29 @@ def swift_contract_tokens(value: str) -> str:
     return re.sub(r'"(?:\\.|[^"\\])*"|\s+', lambda match: match[0] if match[0].startswith('"') else '', mask_comments(value))
 
 
-def visual_contract_present(relative_path: str, marker: str, sources: dict[Path, str]) -> bool:
+def visual_contract_present(relative_path: str, marker: str, sources: dict[Path, str], syntax: dict | None = None) -> bool:
+    from swift_source_index import swift_syntax_index_sources
     directory = source_path(relative_path).parent
+    scope, entry = VISUAL_CONTRACT_OWNERS[relative_path]
+    syntax = syntax or swift_syntax_index_sources({str(path): source for path, source in sources.items()})
+    syntax = {path: facts for path, facts in syntax.items() if Path(path).is_relative_to(directory)}
     expected = swift_contract_tokens(marker)
-    return any(expected in swift_contract_tokens(source) for path, source in sources.items() if path.is_relative_to(directory))
+    for facts in syntax.values():
+        if entry is None:
+            selected = rendered_scope_facts(facts, list(scope), syntax)
+            nodes = selected.get('invocations', []) + selected.get('expressions', [])
+        elif entry == 'tabAccent':
+            nodes = [node for node in facts.get('bindings', []) if tuple(node['scope']) == scope
+                and node.get('bindingName') == entry]
+            expected = swift_contract_tokens(marker.removeprefix('public static let '))
+        else:
+            functions = [function for function in facts.get('functionRanges', [])
+                if tuple(function['scope']) == scope and function['name'] == entry]
+            nodes = [node for kind in ('invocations', 'bindings') for node in facts.get(kind, [])
+                if any(function['start'] <= node['start'] < function['end'] for function in functions)]
+        if any(tuple(node['scope']) == scope and expected in swift_contract_tokens(node['value']) for node in nodes):
+            return True
+    return False
 
 
 def check_registered_visual_contracts(errors: list[str]) -> None:
@@ -472,9 +491,10 @@ def check_registered_visual_contracts(errors: list[str]) -> None:
         MAP_THEME_COLOR_CONTRACT,
     )
     sources = {path: source_text(path) for path in swift_files()}
+    syntax = syntax_index()
     for relative_path, marker in contracts:
-        if not visual_contract_present(relative_path, marker, sources):
-            errors.append(f"{source_path(relative_path).parent.relative_to(ROOT)}: 模块视觉契约需要对应当前表达式（{marker}）")
+        if not visual_contract_present(relative_path, marker, sources, syntax):
+            errors.append(f"{'.'.join(VISUAL_CONTRACT_OWNERS[relative_path][0])}: 视觉契约需要对应所属渲染或实现表达式（{marker}）")
 
 
 def is_reviewed_fixed_geometry(
@@ -488,6 +508,7 @@ def is_reviewed_fixed_geometry(
     normalized_node = swift_contract_tokens(node["value"])
     return any(
         path.is_relative_to(source_path(entry_path).parent) and reviewed_paths.get(entry_path) is pattern
+        and tuple(node.get('scope', [])) == VISUAL_CONTRACT_OWNERS[entry_path][0]
         and swift_contract_tokens(marker) in swift_contract_tokens(source)
         and swift_contract_tokens(marker) in normalized_node
         for entry_path, marker in FIXED_GEOMETRY_CONTRACTS
@@ -498,6 +519,7 @@ def is_registered_cgfloat_contract(path: Path, node: dict) -> bool:
     normalized_node = swift_contract_tokens(node["value"])
     return any(
         path.is_relative_to(source_path(entry_path).parent) and swift_contract_tokens(marker) in normalized_node
+        and tuple(node.get('scope', [])) == VISUAL_CONTRACT_OWNERS[entry_path][0]
         for entry_path, marker in FIXED_GEOMETRY_CONTRACTS
     )
 

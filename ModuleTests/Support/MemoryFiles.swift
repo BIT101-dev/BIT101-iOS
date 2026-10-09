@@ -80,7 +80,10 @@ package nonisolated final class ModuleScoreFiles: AppFileService, Sendable {
     package func setBackupExcluded(_ excluded: Bool, at url: URL, recursively: Bool) throws {}
     package func contentsOfDirectory(at url: URL, options: FileManager.DirectoryEnumerationOptions) throws -> [URL] {
         return state.withLock { state in
-            return Array(Set(state.data.keys).union(state.directories)).filter { $0.deletingLastPathComponent().path == url.path }
+            return Array(Set(state.data.keys).union(state.directories)).filter {
+                $0.deletingLastPathComponent().path == url.path &&
+                    (!options.contains(.skipsHiddenFiles) || !$0.lastPathComponent.hasPrefix("."))
+            }
         }
     }
     package func regularFileSize(at url: URL) -> Int? {
@@ -102,8 +105,13 @@ package nonisolated final class ModuleScoreFiles: AppFileService, Sendable {
     package func removeContents(of directory: URL) -> Bool {
         return state.withLock { state in
             let prefix = directory.path + "/"
+            let hasContents = state.data.keys.contains { $0.path.hasPrefix(prefix) } ||
+                state.directories.contains { $0.path.hasPrefix(prefix) }
+            guard hasContents else { return true }
+            guard !state.failsRemoval else { return false }
             state.data = state.data.filter { !$0.key.path.hasPrefix(prefix) }
             state.dates = state.dates.filter { !$0.key.path.hasPrefix(prefix) }
+            state.options = state.options.filter { !$0.key.path.hasPrefix(prefix) }
             state.directories = Set(state.directories.filter { !$0.path.hasPrefix(prefix) })
             return true
         }

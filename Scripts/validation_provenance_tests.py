@@ -35,6 +35,7 @@ def run_self_test(recorder) -> None:
                 patch.object(Path, "is_file", return_value=True), patch.object(Path, "read_text", side_effect=values), \
                 patch.object(module.subprocess, "check_output", return_value="head"), \
                 patch("validation_performance.bundle_digest", return_value="a" * 64), patch("validation_performance.current_commit", return_value="head"), \
+                patch("validation_performance.extract_measurements", return_value={"records": {}}), \
                 patch.dict(os.environ, BIT101_VALIDATION_RUN_ID=run_id), redirect_stderr(StringIO()):
             assert recorder(group, 0, "full", start) == expected, (group, artifact)
             assert saved.call_args.args[0]["groups"][group]["exitCode"] == expected
@@ -52,6 +53,7 @@ def run_self_test(recorder) -> None:
     selected_coverage_self_test(module)
     baseline_policy_self_test(module)
     report_budget_self_test(module)
+    aggregate_failure_self_test(module)
     now = utc_now()
     fresh = {"startedAt": (now - timedelta(minutes=2)).isoformat(), "finishedAt": (now - timedelta(minutes=1)).isoformat()}
     assert sampling_evidence_current(fresh, now)
@@ -157,3 +159,14 @@ def report_budget_self_test(module) -> None:
             assert committed.called == accepted
             assert stream.tell() <= limit
             cleanup.assert_called_once_with(missing_ok=True)
+
+
+def aggregate_failure_self_test(module) -> None:
+    import re
+    source = (module.ROOT / "Scripts/run-extended-tests.sh").read_text()
+    step = re.search(r"(?ms)^  verify_step\(\) \{.*?^  \}", source)[0]
+    for command_status, evidence_status in ((0, 0), (7, 0), (0, 7)):
+        harness = f"ROOT_DIR=/repo; SECONDS=0; command() {{ return {command_status}; }}; python3() {{ return {evidence_status}; }};\n"
+        result = subprocess.run(["zsh", "-c", harness + step + "\nverify_step all command\nprint next-group"], capture_output=True, text=True)
+        assert (result.returncode == 0) == (command_status == evidence_status == 0)
+        assert ("next-group" in result.stdout) == (result.returncode == 0)

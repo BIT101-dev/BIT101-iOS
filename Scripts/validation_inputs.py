@@ -5,6 +5,7 @@ from validation_policy import APP_TEST_GROUPS, TEST_GROUPS, NETWORK_GROUPS, RELE
 
 PRODUCT_ROOTS = {"Modules", "BIT101-iOS", "BIT101-iOS.xcodeproj", "BIT101ScheduleWidgets", "BIT101Watch", "BIT101WatchWidgets"}
 PRODUCT_FILES = {"Package.swift", "AppInfo.plist"}
+SHARED_TEST_FILES = {"ModuleTests/Support/FileServiceContract.swift"}
 VALIDATION_SCRIPTS = {"validation_evidence.py", "validation_inputs.py", "validation_policy.py", "validation_coverage.py", "validation_merge.py", "validation_environment.py", "validation_provenance.py", "validation_test_areas.py", "validation_manual.py", "validation_restore.py", "validation_media.py", "ManualEvidenceProbe.swift", "validate_distribution.py", "validate_versions.py", "swift_source_index.py", "SwiftSyntaxIndexer.swift", "code_quality_rules.py", "audit_callback_rules.py", "ci_wiring_rules.py", "check-module-boundaries.py"}
 VALIDATION_SCRIPTS.add("swift_type_index.py")
 VALIDATION_SCRIPTS.update({"validation_publication.py", "validation_compilation.py", "validation_performance.py", "network_capability_rules.py"})
@@ -33,11 +34,10 @@ def includes_input(name: str, group: str) -> bool:
         tests = root == "BIT101-iOSUITests" or name == "docs/UI_INTERACTION_COVERAGE.md"
         scripts = TEST_SCRIPTS | {"ui_source_facts.py", "ui_explanatory_text.py", "ui_rules.py", "ui_design_contracts.py", "ui_inventory.py"}
     elif host in NETWORK_GROUPS:
-        tests = name in {"BIT101-iOSTests/ReleaseNetworkSmokeTests.swift", "BIT101-iOSTests/NetworkSmokeCoverageTests.swift"} \
-            or root == "Cloudflare" and path.suffix != ".md"
+        tests = root == "BIT101-iOSTests" or root == "Cloudflare" and path.suffix != ".md"
         scripts = TEST_SCRIPTS | {"release-network-smoke.sh"}
     elif host == "icloud":
-        tests = name == "BIT101-iOSTests/ManualICloudCrossDeviceSmokeTests.swift"
+        tests = root == "BIT101-iOSTests"
         scripts = TEST_SCRIPTS | {"run_icloud_cross_device_smoke.sh", "icloud-smoke-support.sh"}
     elif host in {"restore", "archive", "manual-device"}:
         tests = False
@@ -45,7 +45,8 @@ def includes_input(name: str, group: str) -> bool:
         if host == "manual-device": product = product or root == "Cloudflare" and path.suffix != ".md"
     else:
         raise ValueError(f"需要登记验证组的输入范围：{group}")
-    return product or tests or root == "Scripts" and path.name in scripts
+    return product or tests or name in SHARED_TEST_FILES and host in APP_TEST_GROUPS | NETWORK_GROUPS | {"icloud"} \
+        or root == "Scripts" and path.name in scripts
 
 
 def self_test() -> None:
@@ -72,6 +73,9 @@ def self_test() -> None:
     assert not includes_input("ModuleTests/Sync/ScheduleSyncTests.swift", "manual-device")
     assert includes_input("docs/UI_INTERACTION_COVERAGE.md", "ui")
     assert includes_input("Cloudflare/OpenWorker/worker.js", "network")
+    for group in ("icloud", "build-icloud-smoke", "network", "build-network-smoke"):
+        assert includes_input("BIT101-iOSTests/InfrastructureTests.swift", group)
+        assert includes_input("BIT101-iOSTests/Fixtures/schedule-service-response.json", group)
     assert not includes_input("Cloudflare/README.md", "network")
     for name in ("Cloudflare/ErrorReportWorker/worker.js", "Cloudflare/ErrorReportWorker/wrangler.jsonc", "Cloudflare/OpenWorker/worker.js"):
         assert includes_input(name, "manual-device")

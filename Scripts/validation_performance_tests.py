@@ -6,6 +6,9 @@ import validation_performance as subject
 
 
 def run_self_test() -> None:
+    with patch.object(subject.subprocess, 'check_output', side_effect=[b'Modules/StorageCore/Sources/AppFileService.swift\0', b'']) as git:
+        assert subject.uncommitted_inputs() == ['Modules/StorageCore/Sources/AppFileService.swift']
+        assert git.call_args_list[0].args[0] == ['git', 'diff', '--name-only', '-z', 'HEAD', '--']
     test = 'MaintenancePerformanceTests/testCommunityPaginationPerformance'
     raw = [{'testIdentifier': test + '()', 'testRuns': [{'device': {'deviceId': 'phone'}, 'metrics': [
         {'identifier': 'com.apple.dt.XCTMetric_Clock.time.monotonic', 'unitOfMeasurement': 's', 'measurements': [0.1, 0.2]},
@@ -39,3 +42,37 @@ def run_self_test() -> None:
         try: subject.validate_capture(changed)
         except ValueError: pass
         else: raise AssertionError('手填采样需要匹配实际 xcresult 指标')
+    producing_run_capture_self_test()
+
+
+def producing_run_capture_self_test() -> None:
+    import json
+    from validation_manual import PERFORMANCE_WORKLOADS
+    environment = {'device': {'identifier': 'phone', 'model': 'iPhone', 'systemVersion': '17', 'systemBuild': 'build'},
+        'xcode': {'DTXcodeBuild': 'xcode'}, 'compiler': {'sha256': 'a' * 64}}
+    row = {'exitCode': 0, 'scope': 'full', 'inputDigest': 'digest', 'runID': 'run', 'sourceCommit': 'commit',
+        'recordedAt': 'captured', 'environment': environment, 'resultBundleSHA256': 'b' * 64}
+    def exported(command, **kwargs):
+        if 'summary' in command: return '{"result":"Passed"}'
+        return json.dumps([{'testIdentifier': command[-1], 'testRuns': [{'device': {'deviceId': 'phone'}, 'metrics': [
+            {'identifier': identifier, 'unitOfMeasurement': unit, 'measurements': [1, 2]}
+            for identifier, unit, _ in subject.METRICS.values()]}]}])
+    with patch.object(subject.subprocess, 'check_output', side_effect=exported), \
+            patch.object(subject, 'bundle_digest', return_value='b' * 64):
+        row['performance'] = subject.extract_measurements(row)
+    assert set(row['performance']['records']) == set(PERFORMANCE_WORKLOADS)
+    with patch.object(Path, 'read_text', return_value=json.dumps({'groups': {'all': row}})), \
+            patch.object(subject, 'environment_context', return_value=environment), \
+            patch.object(subject, 'complete_environment', return_value=True), \
+            patch.object(subject, 'uncommitted_inputs', return_value=[]), \
+            patch.object(subject, 'record_complete', return_value=True), \
+            patch('validation_evidence.source_digest', return_value='digest'), \
+            patch.object(subject.subprocess, 'check_output', side_effect=AssertionError('后续宿主的结果包沿独立运行继续复用')):
+        assert subject.capture_current() == row['performance']
+        for field, value in [('runID', 'other'), ('resultBundleSHA256', 'c' * 64), ('sourceCommit', 'other')]:
+            changed = deepcopy(row)
+            changed[field] = value
+            with patch.object(Path, 'read_text', return_value=json.dumps({'groups': {'all': changed}})):
+                try: subject.capture_current()
+                except ValueError: pass
+                else: raise AssertionError('采样需要匹配完成时的生产运行')

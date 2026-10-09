@@ -114,3 +114,137 @@ class SwiftTypeIndex:
     def function_scope(self, path: str, scope):
         key = self.resolve(path, '.'.join(scope), aliases=False) if scope else None
         return (key[0],) + key[1] if key else (self.units[path],) + canonical_type_scope(scope)
+
+
+class SwiftBindingTypes:
+    """Share declaration, variable and factory types used by semantic call audits."""
+    def __init__(self, index: dict, types: SwiftTypeIndex | None = None):
+        self.index = index
+        self.types = types or SwiftTypeIndex(index)
+        self.type_ids = {namespace + "." + ".".join(owner): (namespace, owner) for namespace, owner in self.types.records}
+        self.return_types = {(self.types.function_scope(path, function["scope"]), function["name"]): (function["returnType"], path)
+            for path, facts in index.items() for function in facts.get("functionRanges", []) if function.get("returnType")}
+        self.reference_paths = {id(node): path for path, facts in index.items()
+            for node in facts.get("calls", []) + facts.get("members", []) + facts.get("scopedIdentifiers", [])}
+        self.aliases = [(path, alias, self.variable_scope(path, alias)) for path, facts in index.items()
+            for alias in facts.get("typeAliases", [])]
+        self.variable_types = {}
+        for path, facts in index.items():
+            for variable in facts.get("typedVariables", []):
+                self.variable_types[(self.variable_scope(path, variable), variable["name"])] = variable["type"]
+            for binding in facts.get("bindings", []):
+                scope = self.variable_scope(path, binding)
+                initializer = re.match(r"(\w+)\s*=\s*(?:try\??\s+)?(?:await\s+)?([A-Z]\w*)[.(]", binding["value"])
+                if initializer: self.variable_types[(scope, initializer[1])] = initializer[2]
+                returned = re.match(r"(\w+)\s*=\s*(?:try\??\s+)?(?:await\s+)?(\w+)\.(\w+)\(", binding["value"])
+                if returned and (returned_type := self.method_return(path, (returned[2],), returned[3])):
+                    self.variable_types[(scope, returned[1])] = returned_type
+                decoded = re.match(r"(\w+)\s*=.*?\.decode\(\s*(\w+)\.self", binding["value"])
+                if decoded: self.variable_types[(scope, decoded[1])] = decoded[2]
+
+    def variable_scope(self, path, node):
+        owner = (node["ownerNamespace"],) + tuple(node["scope"]) if node.get("ownerNamespace") else self.types.function_scope(path, node["scope"])
+        return owner + tuple(f"@{path}:{start}" for start in node.get("lexicalScope", []))
+
+    def canonical_type(self, value, scope, path):
+        if value in self.type_ids: return value
+        owner_scope = tuple(part for part in scope[1:] if not part.startswith("@"))
+        key = self.types.resolve(path, value, owner_scope)
+        return key[0] + "." + ".".join(key[1]) if key else value.rsplit(".", 1)[-1].rstrip("?!")
+
+    def method_return(self, path, owner, name):
+        key = self.types.resolve(path, ".".join(owner)) if owner else None
+        scope = (key[0],) + key[1] if key else self.types.function_scope(path, owner)
+        result = self.return_types.get((scope, name))
+        return self.canonical_type(result[0], scope, result[1]) if result else None
+
+    def receiver_type(self, call, path=None):
+        path = path or self.reference_paths.get(id(call), "")
+        scope = self.variable_scope(path, call)
+        if constructor := call.get("receiverCall"):
+            constructor = constructor.removesuffix(".init")
+            if constructor.rsplit(".", 1)[-1][:1].isupper():
+                return self.canonical_type(constructor, scope, path)
+            owner, _, method = constructor.rpartition(".")
+            owners = [tuple(owner.split("."))] if owner else [tuple(call["scope"][:length]) for length in range(len(call["scope"]), -1, -1)]
+            return next((returned for owner in owners if (returned := self.method_return(path, owner, method or constructor))), None)
+        parts = call.get("calledExpression", call.get("value", "")).replace("?", "").split(".")[:-1]
+        if parts and parts[0] == "self":
+            parts.pop(0)
+            scope = self.types.function_scope(path, call["scope"])
+        resolved = None
+        for length in range(len(parts), 0, -1):
+            if self.types.resolve(path, ".".join(parts[:length])) is not None:
+                resolved = self.canonical_type(".".join(parts[:length]), scope, path)
+                parts = parts[length:]
+                break
+        for part in parts:
+            if part == "shared" and resolved: continue
+            if resolved is None and part[:1].isupper():
+                resolved = self.canonical_type(part, scope, path)
+                continue
+            identity = self.type_ids.get(resolved)
+            owned_type = (identity[0],) + identity[1] if identity else None
+            lookup_scopes = [scope[:length] for length in range(len(scope), 0, -1)] if resolved is None \
+                else [owner for owner, field in self.variable_types if owner == owned_type and field == part]
+            resolved = next((self.variable_types[(owner, part)] for owner in lookup_scopes if (owner, part) in self.variable_types), None)
+            if resolved is None: return None
+            resolved = self.canonical_type(resolved, scope, path)
+        return resolved
+
+
+def receiver_resolver(index: dict):
+    from swift_source_index import visible_variables
+    from swift_type_index import SwiftTypeIndex, SwiftBindingTypes
+    types = SwiftTypeIndex(index)
+    binding_types = SwiftBindingTypes(index, types)
+    variables, factories = {}, {}
+    for path, facts in index.items():
+        bindings = [dict(binding, name=binding['bindingName'], type=binding.get('bindingType', ''))
+            for binding in facts.get('bindings', []) if binding.get('bindingName')]
+        variables[path] = dict(facts, typedVariables=facts.get('typedVariables', []) + bindings,
+            functionRanges=facts.get('functionRanges', []))
+        for function in facts.get('functionRanges', []) + facts.get('callableRanges', []):
+            owner = types.resolve(path, '.'.join(function['scope']), aliases=False)
+            if owner:
+                factories.setdefault((owner, function['name']), []).append((path, function))
+
+    def resolve(path, expression, reference, seen=frozenset()):
+        key = (path, expression, reference['start'])
+        if key in seen: return None
+        seen = seen | {key}
+        nominal = types.resolve(path, expression, reference['scope'])
+        if nominal: return nominal
+        explicit_self = expression.startswith('self.')
+        name = expression.removeprefix('self.')
+        candidates = visible_variables(variables[path], reference, name, explicit_self)
+        if candidates:
+            variable = candidates[-1]
+            if initializer := variable.get('initializerCall') or variable.get('initializerReference'):
+                target = resolve(path, initializer, variable, seen)
+                if target: return target
+            variable_owner = types.resolve(path, '.'.join(variable['scope']), aliases=False)
+            assigned = {target for factory_path, factory in factories.get((variable_owner, variable['name']), [])
+                if factory.get('referenceTarget') and (target := resolve(factory_path, factory['referenceTarget'], factory, seen))}
+            if len(assigned) == 1: return next(iter(assigned))
+            return types.resolve(path, variable.get('type', ''), variable['scope'])
+        if '.' not in expression: return None
+        receiver, method = expression.rsplit('.', 1)
+        owner = types.resolve(path, '.'.join(reference['scope']), aliases=False) if receiver in {'self', 'Self'} \
+            else resolve(path, receiver, reference, seen)
+        targets = set()
+        for factory_path, factory in factories.get((owner, method), []):
+            target = resolve(factory_path, factory.get('returnedCall') or factory.get('referenceTarget') or '', factory, seen)
+            if not target: target = types.resolve(factory_path, factory.get('returnType') or '', factory['scope'])
+            if target: targets.add(target)
+        return next(iter(targets)) if len(targets) == 1 else None
+
+    def owner(call):
+        expression = call.get('calledExpression', '')
+        receiver = call.get('receiverCall') or (expression.rsplit('.', 1)[0] if '.' in expression else '')
+        target = resolve(call['path'], receiver, call)
+        if target is None:
+            declared = binding_types.receiver_type(call, call['path'])
+            target = types.resolve(call['path'], declared or '', call['scope'])
+        return '.'.join([target[0], *target[1]]) if target else None
+    return owner

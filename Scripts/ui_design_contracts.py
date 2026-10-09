@@ -124,6 +124,16 @@ PAGE_THEME_CONTRACTS = (
     ),
 )
 
+VISUAL_CONTRACT_OWNERS = {
+    "Modules/CourseFeature/Sources/CourseCommentViews.swift": (("CourseCommentImagesView",), None),
+    "Modules/GalleryFeature/Sources/GalleryComposerView.swift": (("GalleryComposerScene",), None),
+    "Modules/CourseFeature/Sources/CourseHistoryGradesViews.swift": (("CourseHistoryGradesChart",), None),
+    "Modules/CommunityUI/Sources/CommunityDesignSystem.swift": (("ComposerDraftImageCompressor",), "render"),
+    "Modules/ScheduleFeature/Sources/ScheduleLinearCalendarViews.swift": (("LinearScheduleCalendarView",), None),
+    "Modules/ScheduleFeature/Sources/ScheduleCourseCardViews.swift": (("ScheduleCardTextView", "AdaptiveCardTextView"), "fittingFont"),
+    "Modules/MapFeature/Sources/CampusMapScreen.swift": (("AppDesignSystem", "Map"), "tabAccent"),
+}
+
 
 THEME_SENSITIVE_ROOTS = (
     "Modules/DesignSystemKit/Sources",

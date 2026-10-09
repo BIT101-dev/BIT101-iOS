@@ -522,6 +522,15 @@ def record(group: str, status: int, scope: str, started_digest: str) -> int:
             elif status == 0 and scope == "full":
                 row["coverageBaseline"] = advance(row["summary"].get("coverage", {}), baseline)
         report["groups"][group] = row
+        if group == "all" and status == 0 and scope == "full":
+            from validation_performance import extract_measurements
+            try:
+                row["performance"] = extract_measurements(row)
+            except (OSError, ValueError, KeyError, TypeError, subprocess.CalledProcessError) as error:
+                status = row["exitCode"] = 1
+                row["summary"]["passed"] = False
+                row["summary"]["performanceCaptureError"] = str(error)
+                print(f"性能指标采集失败：{error}", file=sys.stderr)
         report["testedCommit"] = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
         write_report(report)
     return status

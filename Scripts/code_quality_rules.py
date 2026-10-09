@@ -374,78 +374,12 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
         for category in ("callableRanges", "functionRanges") for function in facts.get(category, [])}
     from swift_type_index import SwiftTypeIndex
     types = SwiftTypeIndex(syntax_index)
-    type_ids = {namespace + "." + ".".join(owner): (namespace, owner) for namespace, owner in types.records}
-    return_types = {(types.function_scope(path, function["scope"]), function["name"]): (function["returnType"], path)
-        for path, facts in syntax_index.items() for function in facts.get("functionRanges", []) if function.get("returnType")}
-    reference_paths = {id(node): path for path, facts in syntax_index.items()
-        for node in facts["calls"] + facts.get("members", []) + facts.get("scopedIdentifiers", [])}
+    from swift_type_index import SwiftBindingTypes
+    bindings = SwiftBindingTypes(syntax_index, types)
+    type_ids, variable_types, aliases = bindings.type_ids, bindings.variable_types, bindings.aliases
+    variable_scope, receiver_type = bindings.variable_scope, bindings.receiver_type
+    canonical_type, reference_paths = bindings.canonical_type, bindings.reference_paths
     call_ids = {id(call) for facts in syntax_index.values() for call in facts["calls"]}
-
-    def variable_scope(path, node):
-        owner = (node["ownerNamespace"],) + tuple(node["scope"]) if node.get("ownerNamespace") else types.function_scope(path, node["scope"])
-        return owner + tuple(f"@{path}:{start}" for start in node.get("lexicalScope", []))
-
-    aliases = [(path, alias, variable_scope(path, alias)) for path, facts in syntax_index.items()
-        for alias in facts.get("typeAliases", [])]
-    def canonical_type(value, scope, path):
-        if value in type_ids: return value
-        owner_scope = tuple(part for part in scope[1:] if not part.startswith("@"))
-        key = types.resolve(path, value, owner_scope)
-        return key[0] + "." + ".".join(key[1]) if key else value.rsplit(".", 1)[-1].rstrip("?!")
-
-    def method_return(path, owner, name):
-        key = types.resolve(path, ".".join(owner)) if owner else None
-        scope = (key[0],) + key[1] if key else types.function_scope(path, owner)
-        result = return_types.get((scope, name))
-        return canonical_type(result[0], scope, result[1]) if result else None
-
-    variable_types = {}
-    for path, facts in syntax_index.items():
-        for variable in facts.get("typedVariables", []):
-            variable_types[(variable_scope(path, variable), variable["name"])] = variable["type"]
-        for binding in facts.get("bindings", []):
-            scope = variable_scope(path, binding)
-            initializer = re.match(r"(\w+)\s*=\s*(?:try\??\s+)?(?:await\s+)?([A-Z]\w*)[.(]", binding["value"])
-            if initializer: variable_types[(scope, initializer[1])] = initializer[2]
-            returned = re.match(r"(\w+)\s*=\s*(?:try\??\s+)?(?:await\s+)?(\w+)\.(\w+)\(", binding["value"])
-            if returned and (returned_type := method_return(path, (returned[2],), returned[3])):
-                variable_types[(scope, returned[1])] = returned_type
-            decoded = re.match(r"(\w+)\s*=.*?\.decode\(\s*(\w+)\.self", binding["value"])
-            if decoded: variable_types[(scope, decoded[1])] = decoded[2]
-
-    def receiver_type(call):
-        path = reference_paths.get(id(call), "")
-        scope = variable_scope(path, call)
-        if constructor := call.get("receiverCall"):
-            constructor = constructor.removesuffix(".init")
-            if constructor.rsplit(".", 1)[-1][:1].isupper():
-                return canonical_type(constructor, scope, path)
-            owner, _, method = constructor.rpartition(".")
-            owners = [tuple(owner.split("."))] if owner else [tuple(call["scope"][:length]) for length in range(len(call["scope"]), -1, -1)]
-            return next((returned for owner in owners if (returned := method_return(path, owner, method or constructor))), None)
-        parts = call["value"].replace("?", "").split(".")[:-1]
-        if parts and parts[0] == "self":
-            parts.pop(0)
-            scope = types.function_scope(path, call["scope"])
-        resolved = None
-        for length in range(len(parts), 0, -1):
-            if types.resolve(path, ".".join(parts[:length])) is not None:
-                resolved = canonical_type(".".join(parts[:length]), scope, path)
-                parts = parts[length:]
-                break
-        for part in parts:
-            if part == "shared" and resolved: continue
-            if resolved is None and part[:1].isupper():
-                resolved = canonical_type(part, scope, path)
-                continue
-            identity = type_ids.get(resolved)
-            owned_type = (identity[0],) + identity[1] if identity else None
-            lookup_scopes = [scope[:length] for length in range(len(scope), 0, -1)] if resolved is None \
-                else [owner for owner, field in variable_types if owner == owned_type and field == part]
-            resolved = next((variable_types[(owner, part)] for owner in lookup_scopes if (owner, part) in variable_types), None)
-            if resolved is None: return None
-            resolved = canonical_type(resolved, scope, reference_paths.get(id(call), ""))
-        return resolved
 
     explicit_initializers = {types.function_scope(path, function["scope"]) for path, facts in syntax_index.items()
         for function in facts.get("initializers", []) if function.get("isExplicitInitializer")}

@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		B10100000000000000000013 /* FileServiceContract.swift in Tests */ = {isa = PBXBuildFile; fileRef = B10100000000000000000014 /* FileServiceContract.swift */; };
 		0D6CC15DA5636384C904E0AD /* BIT101WatchWidgetsBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 796D7A3D2666B8F0197201E6 /* BIT101WatchWidgetsBundle.swift */; };
 		31C4ED6573B18E57E68C9998 /* WatchScheduleSyncManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72A1F6AF2FB00A16DDC8068E /* WatchScheduleSyncManager.swift */; };
 		32D8F834E87443B18CE8F6B1 /* WatchScheduleStatusModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7C00AD7820D43C986738C15 /* WatchScheduleStatusModel.swift */; };
@@ -106,6 +107,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		B10100000000000000000014 /* FileServiceContract.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModuleTests/Support/FileServiceContract.swift; sourceTree = SOURCE_ROOT; };
 		027903073181F16453D11398 /* BIT101Watch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BIT101Watch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		0382F3A6842C7256F74D4FCC /* BIT101ScheduleWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BIT101ScheduleWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		111111111111111111111112 /* BIT101-iOSTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "BIT101-iOSTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -210,7 +212,7 @@
 		};
 		D2FF4C8D2F729DB4000FA1C1 = {
 			isa = PBXGroup;
-			children = (
+			children = ( B10100000000000000000014 /* FileServiceContract.swift */,
 				D2FF4C982F729DB4000FA1C1 /* BIT101-iOS */, 111111111111111111111113 /* BIT101-iOSTests */, D2FF4C972F729DB4000FA1C1 /* Products */,
 				CDE5796C86F63D4361DA19D7 /* Frameworks */, 004DE69434B9FEF2A654EB3C /* BIT101ScheduleWidgets */, C5319C351048C6B74D7C2653 /* Shared */,
 				FB4A15B914D492D0DE350199 /* BIT101Watch */, 25E8641FD8E3B4363BD33FB6 /* BIT101WatchWidgets */, 4E1DE56998160DCFD328522D /* WatchSync */,
@@ -474,7 +476,7 @@
 
 /* Begin PBXSourcesBuildPhase section */
 		0EF4EDC316C0A2A17A0BF63F /* Sources */ = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = ( C8618324F1CB0A8EB9CB55F9 /* BIT101ScheduleWidgetsBundle.swift in Sources */, 85798F727C7A8202CDFECFA1 /* BIT101ScheduleWidgets.swift in Sources */, ); runOnlyForDeploymentPostprocessing = 0; };
-		111111111111111111111114 /* Sources */ = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = ( B10100000000000000000012 /* WatchScheduleStatusModel.swift in Tests */, ); runOnlyForDeploymentPostprocessing = 0; };
+		111111111111111111111114 /* Sources */ = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = ( B10100000000000000000013 /* FileServiceContract.swift in Tests */, B10100000000000000000012 /* WatchScheduleStatusModel.swift in Tests */, ); runOnlyForDeploymentPostprocessing = 0; };
 		2322558692781FE16FC88427 /* Sources */ = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = ( 0D6CC15DA5636384C904E0AD /* BIT101WatchWidgetsBundle.swift in Sources */, 8FD3C2B3B8C6D5E68B474DD7 /* BIT101WatchScheduleWidget.swift in Sources */, ); runOnlyForDeploymentPostprocessing = 0; };
 		B7329DD3099B96EF917410BF /* Sources */ = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = ( 86E934E59E093F63ED817276 /* BIT101WatchApp.swift in Sources */, 32D8F834E87443B18CE8F6B1 /* WatchScheduleStatusModel.swift in Sources */, F52E9C051CAF65D91825FB7A /* WatchScheduleRootView.swift in Sources */, 31C4ED6573B18E57E68C9998 /* WatchScheduleSyncManager.swift in Sources */, ); runOnlyForDeploymentPostprocessing = 0; };
 		D2FF4C922F729DB4000FA1C1 /* Sources */ = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };

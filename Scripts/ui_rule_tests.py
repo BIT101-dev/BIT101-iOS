@@ -33,11 +33,15 @@ from ui_rules import (
 
 def ast_marker_boundary_findings() -> list[str]:
     marker = 'StrokeStyle(lineWidth: 2, dash: [5, 4])'
-    contract = 'Modules/CourseFeature/Sources/Original.swift'
+    contract = 'Modules/CourseFeature/Sources/CourseHistoryGradesViews.swift'
     moved = ROOT / 'Modules/CourseFeature/Sources/Moved.swift'
-    assert visual_contract_present(contract, marker, {moved: 'StrokeStyle(\n lineWidth: 2,\n dash: [5, 4]\n)'})
+    template = 'struct CourseHistoryGradesChart: View { var body: some View { Text("chart").lineStyle(MARKER) } }'
+    assert visual_contract_present(contract, marker, {moved: template.replace('MARKER', 'StrokeStyle(\n lineWidth: 2,\n dash: [5, 4]\n)')})
     assert not visual_contract_present(contract, marker, {moved: '// ' + marker})
     assert not visual_contract_present(contract, marker, {moved: marker.replace('[5, 4]', '[5, 3]')})
+    assert not visual_contract_present(contract, marker, {moved: 'func unused() { _ = ' + marker + ' }'})
+    assert not visual_contract_present(contract, marker, {moved: 'struct CourseHistoryGradesChart: View { var body: some View { Text("chart") }; func unused() -> some View { Text("unused").lineStyle(' + marker + ') } }'})
+    assert not visual_contract_present(contract, marker, {moved: template.replace('CourseHistoryGradesChart', 'OtherChart').replace('MARKER', marker)})
     facts = {
         "declarations": [{"kind": "struct", "name": "SampleView"}],
         "calls": [{"value": "AppFailureState", "scope": ["SampleView"]}],
@@ -774,7 +778,7 @@ struct VisualRuleSample: View {
         reviewed_path,
         reviewed_source,
         DIRECT_THUMBNAIL_GEOMETRY,
-        {"value": reviewed_source},
+        {"value": reviewed_source, "scope": ["CourseCommentImagesView"]},
     ):
         findings.append("UI 检查器自测：登记几何变体未精确命中")
     unregistered_source = "thumbnailButton(image: anotherImage, index: 1, width: 52)"

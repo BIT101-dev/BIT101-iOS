@@ -35,7 +35,18 @@ def inventory_findings(suites: set[str]) -> list[str]:
         + [f"行为测试领域归属需要清理：{suite}" for suite in sorted(registered - suites)]
 
 
-NETWORK_CAPABILITIES = {'BIT101-iOS.AppUpdateChecker': {'releaseToPresentAtLaunch()': 'web-interactions',
+NETWORK_CAPABILITIES = {
+ 'BIT101-iOS.BIT101APIClient': {
+     'fetchSchoolLoginContext()': 'first-login',
+     'loginSchool(studentID:String,password:String,salt:String,execution:String)': 'first-login',
+     'webVPNVerifyInit(studentID:String)': 'first-login',
+     'webVPNVerify(studentID:String,password:String,execution:String,cookie:String,salt:String)': 'first-login',
+     'register(password:String,token:String,code:String)': 'first-login',
+     'checkBIT101Login(fakeCookie:String)': 'account-lifecycle'},
+ 'BIT101-iOS.FeedbackSubmissionClient': {'submit(:Payload)': 'feedback-delivery', 'submitNetworkSmoke(runID:String)': 'network'},
+ 'BIT101-iOS.NetworkDiagnosisRunner': {'run()': 'web-interactions'},
+ 'BIT101-iOS.AppUpdatePromptCoordinator': {'noticeToPresentAtLaunch()': 'web-interactions', 'checkManually()': 'web-interactions'},
+ 'BIT101-iOS.AppUpdateChecker': {'releaseToPresentAtLaunch()': 'web-interactions',
                                  'checkManually()': 'web-interactions'},
  'BIT101-iOS.EmergencyUpdateChecker': {'noticeToPresentAtLaunch()': 'web-interactions'},
  'BIT101-iOS.LoginService': {'checkLogin()': 'network',
@@ -164,56 +175,8 @@ def reachable_smoke_calls(index: dict) -> dict[str, list[dict]]:
 
 
 def smoke_receiver_resolver(index: dict):
-    from swift_source_index import visible_variables
-    from swift_type_index import SwiftTypeIndex
-    types = SwiftTypeIndex(index)
-    variables, factories = {}, {}
-    for path, facts in index.items():
-        bindings = [dict(binding, name=binding['bindingName'], type=binding.get('bindingType', ''))
-            for binding in facts.get('bindings', []) if binding.get('bindingName')]
-        variables[path] = dict(facts, typedVariables=facts.get('typedVariables', []) + bindings,
-            functionRanges=facts.get('functionRanges', []))
-        for function in facts.get('functionRanges', []) + facts.get('callableRanges', []):
-            owner = types.resolve(path, '.'.join(function['scope']), aliases=False)
-            if owner:
-                factories.setdefault((owner, function['name']), []).append((path, function))
-
-    def resolve(path, expression, reference, seen=frozenset()):
-        key = (path, expression, reference['start'])
-        if key in seen: return None
-        seen = seen | {key}
-        nominal = types.resolve(path, expression, reference['scope'])
-        if nominal: return nominal
-        explicit_self = expression.startswith('self.')
-        name = expression.removeprefix('self.')
-        candidates = visible_variables(variables[path], reference, name, explicit_self)
-        if candidates:
-            variable = candidates[-1]
-            if initializer := variable.get('initializerCall') or variable.get('initializerReference'):
-                target = resolve(path, initializer, variable, seen)
-                if target: return target
-            variable_owner = types.resolve(path, '.'.join(variable['scope']), aliases=False)
-            assigned = {target for factory_path, factory in factories.get((variable_owner, variable['name']), [])
-                if factory.get('referenceTarget') and (target := resolve(factory_path, factory['referenceTarget'], factory, seen))}
-            if len(assigned) == 1: return next(iter(assigned))
-            return types.resolve(path, variable.get('type', ''), variable['scope'])
-        if '.' not in expression: return None
-        receiver, method = expression.rsplit('.', 1)
-        owner = types.resolve(path, '.'.join(reference['scope']), aliases=False) if receiver in {'self', 'Self'} \
-            else resolve(path, receiver, reference, seen)
-        targets = set()
-        for factory_path, factory in factories.get((owner, method), []):
-            target = resolve(factory_path, factory.get('returnedCall') or factory.get('referenceTarget') or '', factory, seen)
-            if not target: target = types.resolve(factory_path, factory.get('returnType') or '', factory['scope'])
-            if target: targets.add(target)
-        return next(iter(targets)) if len(targets) == 1 else None
-
-    def owner(call):
-        expression = call.get('calledExpression', '')
-        receiver = call.get('receiverCall') or (expression.rsplit('.', 1)[0] if '.' in expression else '')
-        target = resolve(call['path'], receiver, call)
-        return '.'.join([target[0], *target[1]]) if target else None
-    return owner
+    from swift_type_index import receiver_resolver
+    return receiver_resolver(index)
 
 
 def network_capability_findings(index: dict) -> list[str]:
@@ -378,9 +341,13 @@ def network_capability_self_test() -> None:
     with patch.dict(NETWORK_CAPABILITIES['CourseFeature.CourseService'], **{'fetchComments(includeReplies:Bool)': 'gallery-report'}):
         assert not network_capability_findings(index)
     courses.pop()
+    course_facts = index['Modules/CourseFeature/Sources/CourseService.swift']
+    course_facts['typedVariables'] = [{'name': 'client', 'type': 'HTTPClient', 'scope': ['NewService'], 'start': 0}]
     courses.append({'name': 'fetchCourse', 'scope': ['NewService'], 'isExported': True, 'start': 0, 'end': 1})
     assert any('新增生产服务' in error for error in network_capability_findings(index))
     courses.pop()
+    course_facts.pop('typedVariables')
+    network_discovery_self_test()
     scores = index['Modules/ScoreInfrastructure/Sources/ScoreService.swift']['functionRanges']
     scores.append({'name': 'newEndpoint', 'scope': ['ScoreService'], 'isExported': True, 'start': 0, 'end': 1})
     assert any('ScoreService' in error and 'newEndpoint()' in error for error in network_capability_findings(index))
@@ -415,3 +382,14 @@ CRITICAL_CONTRACTS = {
 def critical_findings(inventories: dict[str, set[str]]) -> list[str]:
     return [f"关键状态转换合同需要保留测试：{behavior} → {test}" for group, contracts in CRITICAL_CONTRACTS.items()
         for behavior, test in contracts.items() if test not in inventories[group]]
+
+
+def network_discovery_self_test() -> None:
+    from swift_source_index import swift_syntax_index_sources
+    from network_capability_rules import business_methods
+    for module, name in [('GalleryFeature', 'NewGalleryClient'), ('NewForumFeature', 'PostRepository')]:
+        path = f'Modules/{module}/Sources/Client.swift'
+        source = f'import TransportCore; public struct {name} {{ let client: HTTPClient; public func fetchItems() async throws {{ _ = try await client.send(request) }} }}'
+        index = swift_syntax_index_sources({path: source})
+        assert f'{module}.{name}' in business_methods(index)
+        assert any('新增生产服务' in error for error in network_capability_findings(index))

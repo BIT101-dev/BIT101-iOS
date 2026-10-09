@@ -3,9 +3,10 @@ import re
 from pathlib import Path
 from swift_source_index import matching_functions, visible_variables
 
-BUSINESS_NETWORK_MODULES = {'GalleryFeature', 'CourseFeature', 'PaperFeature', 'MineFeature',
-    'ScheduleInfrastructure', 'ScoreInfrastructure'}
-APP_NETWORK_TYPES = {'LoginService', 'AppUpdateChecker', 'EmergencyUpdateChecker', 'SettingsNetworkService'}
+NETWORK_FOUNDATION_MODULES = {'TransportCore', 'CommunityTransport', 'MediaKit'}
+NETWORK_TRANSPORT_TYPES = {'HTTPClient', 'HTTPTransport', 'URLSession', 'CommunityAPIClient', 'CommunitySession'}
+NETWORK_HARNESS_TYPES = {'ReleaseNetworkSmokeRunner', 'ReleaseNetworkSmokeDependencies', 'CommunityWriteSmoke',
+    'NetworkSmokeProductionSession', 'ReleaseNetworkSmokeSchoolClient'}
 
 
 def method_signature(function: dict) -> str:
@@ -21,18 +22,51 @@ def signature_function(signature: str, scope: list[str]) -> dict:
 
 def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
     from validation_evidence import active_swift_source
+    from validation_test_areas import NETWORK_CAPABILITIES
+    from swift_type_index import SwiftTypeIndex, compilation_unit
+    types = SwiftTypeIndex(index)
+    network_owners = set(NETWORK_CAPABILITIES)
+    dependencies = {}
+    active_sources = {path: active_swift_source(Path(path).read_text(), 'network').encode()
+        if Path(path).is_file() else None for path in index}
+    def owner(path, scope): return '.'.join([compilation_unit(path), *scope])
+    def active(path, node):
+        source = active_sources[path]
+        return source is None or source[node['start']:node['start'] + 1] not in {b' ', b'\n', b'\r'}
+    for path, facts in index.items():
+        module = compilation_unit(path)
+        if module in NETWORK_FOUNDATION_MODULES or module.endswith('Tests'): continue
+        for node in facts.get('typedVariables', []):
+            if not node['scope'] or node.get('lexicalScope') or not active(path, node): continue
+            identity = owner(path, node['scope'])
+            target = types.resolve(path, node.get('type', ''), node['scope'])
+            kind = re.sub(r'\bany\b|\s+', '', node.get('type', '')).rstrip('?!')
+            if kind.rsplit('.', 1)[-1] in NETWORK_TRANSPORT_TYPES: network_owners.add(identity)
+            if target: dependencies.setdefault(identity, set()).add('.'.join([target[0], *target[1]]))
+        for call in facts.get('invocations', []):
+            if not call['scope'] or not active(path, call): continue
+            expression = call.get('calledExpression', '')
+            if expression.removesuffix('.init').rsplit('.', 1)[-1] in NETWORK_TRANSPORT_TYPES | {'URLRequest'} \
+                    or expression.split('.', 1)[0] in NETWORK_TRANSPORT_TYPES:
+                network_owners.add(owner(path, call['scope']))
+    changed = True
+    while changed:
+        added = {identity for identity, targets in dependencies.items() if targets & network_owners} - network_owners
+        changed = bool(added)
+        network_owners.update(added)
     result = {}
     for path, facts in index.items():
-        parts = Path(path).parts
-        module = parts[parts.index('Modules') + 1] if 'Modules' in parts else 'BIT101-iOS'
-        active = active_swift_source(Path(path).read_text(), 'network').encode() if Path(path).is_file() else None
+        module = compilation_unit(path)
+        if module in NETWORK_FOUNDATION_MODULES or module.endswith('Tests'): continue
         for function in facts.get('functionRanges', []):
             scope = function['scope']
-            if not scope or function.get('lexicalScope'): continue
-            if active is not None and active[function['start']:function['start'] + 1] in {b' ', b'\n', b'\r'}: continue
-            if module in BUSINESS_NETWORK_MODULES and scope[-1].endswith('Service') and function.get('isExported') \
-                    or module == 'BIT101-iOS' and scope[-1] in APP_NETWORK_TYPES and function.get('isAsync') and not function.get('isPrivate'):
-                result.setdefault('.'.join([module, *scope]), []).append((path, function))
+            if not scope or function.get('lexicalScope') or not active(path, function): continue
+            identity = owner(path, scope)
+            if scope[0] in NETWORK_HARNESS_TYPES or identity not in network_owners: continue
+            target = types.resolve(path, '.'.join(scope), aliases=False)
+            if target and 'HTTPTransport' in types.bases(target): continue
+            if function.get('isExported') or module == 'BIT101-iOS' and function.get('isAsync') and not function.get('isPrivate'):
+                result.setdefault(identity, []).append((path, function))
     return result
 
 

@@ -6,6 +6,8 @@ import fcntl
 import re
 import subprocess
 import posixpath
+import unicodedata
+from urllib.parse import unquote, urlsplit
 import runpy
 import shutil
 import sys
@@ -16,25 +18,116 @@ sys.dont_write_bytecode = True
 file_checks = runpy.run_path(str(ROOT / "Scripts/check-file-lengths.py"))
 
 
+def markdown_prose(source: str) -> str:
+    lines, fence = [], None
+    for line in re.sub(r"<!--.*?-->", "", source, flags=re.DOTALL).splitlines():
+        match = re.match(r"^ {0,3}(`{3,}|~{3,})", line)
+        if match:
+            marker = match[1]
+            if fence is None: fence = marker
+            elif marker[0] == fence[0] and len(marker) >= len(fence): fence = None
+            lines.append("")
+        else: lines.append(line if fence is None else "")
+    return "\n".join(lines)
+
+
+def heading_anchors(source: str) -> set[str]:
+    anchors, counts = set(), {}
+    lines = markdown_prose(source).splitlines()
+    for index, line in enumerate(lines):
+        atx = re.match(r"^ {0,3}#{1,6}\s+(.+?)(?:\s+#+\s*)?$", line)
+        setext = index + 1 < len(lines) and re.fullmatch(r" {0,3}(?:=+|-+)\s*", lines[index + 1])
+        if not atx and not (setext and line.strip()): continue
+        label = atx[1] if atx else line.strip()
+        label = re.sub(r"\[([^]]+)\]\([^)]*\)", r"\1", label)
+        label = re.sub(r"<[^>]+>|[`*~]", "", label).lower()
+        slug = ''.join(char for char in label if unicodedata.category(char)[0] in {'L', 'N', 'M'} or char in ' _-').replace(' ', '-')
+        duplicate = counts.get(slug, 0)
+        counts[slug] = duplicate + 1
+        anchors.add(slug + (f'-{duplicate}' if duplicate else ''))
+    anchors.update(re.findall(r'<(?:a|[^>]+)\s[^>]*(?:id|name)=["\']([^"\']+)', source))
+    return anchors
+
+
+def link_targets(source: str) -> tuple[list[str], list[str]]:
+    source = markdown_prose(source)
+    source = re.sub(r'(`+)(.*?)\1', lambda match: ' ' * len(match[0]), source, flags=re.DOTALL)
+    definitions = {}
+    def reference(value): return ' '.join(value.split()).casefold()
+    def destination(value):
+        value = value.lstrip()
+        if value.startswith('<'): return value[1:value.index('>')] if '>' in value else value
+        return re.split(r'\s+["\']', value, maxsplit=1)[0].strip()
+    definition_pattern = r'^ {0,3}\[([^]\n]+)\]:\s*(.+)$'
+    for match in re.finditer(definition_pattern, source, re.MULTILINE):
+        definitions[reference(match[1])] = destination(match[2])
+    source = re.sub(definition_pattern, '', source, flags=re.MULTILINE)
+    targets, errors = [], []
+    cursor = 0
+    while cursor < len(source):
+        start = source.find('[', cursor)
+        if start < 0: break
+        if start > 0 and source[start - 1] == '\\': cursor = start + 1; continue
+        depth, end = 1, start + 1
+        while end < len(source) and depth:
+            if source[end] == '\\': end += 2; continue
+            if source[end] == '[': depth += 1
+            elif source[end] == ']': depth -= 1
+            end += 1
+        if depth: break
+        label = source[start + 1:end - 1]
+        cursor = end
+        if source[end:end + 1] == '(':
+            depth, close = 1, end + 1
+            while close < len(source) and depth:
+                if source[close] == '\\': close += 2; continue
+                if source[close] == '(': depth += 1
+                elif source[close] == ')': depth -= 1
+                close += 1
+            if depth: continue
+            targets.append(destination(source[end + 1:close - 1]))
+            cursor = close
+        elif source[end:end + 1] == '[':
+            close = source.find(']', end + 1)
+            if close < 0: continue
+            key = reference(source[end + 1:close] or label)
+            if key in definitions: targets.append(definitions[key])
+            else: errors.append(f'引用式链接需要定义：{key}')
+            cursor = close + 1
+        elif reference(label) in definitions: targets.append(definitions[reference(label)])
+    return targets, errors
+
+
+def document_findings(name: str, documents: dict[str, str], filenames: set[str]) -> list[str]:
+    targets, errors = link_targets(documents[name])
+    for target in targets:
+        parsed = urlsplit(target)
+        if parsed.scheme or parsed.netloc: continue
+        destination = posixpath.normpath(posixpath.join(posixpath.dirname(name), unquote(parsed.path))) if parsed.path else name
+        if destination not in filenames:
+            errors.append(f'文档链接需要有效文件：{target}')
+        elif parsed.fragment and destination in documents and unquote(parsed.fragment) not in heading_anchors(documents[destination]):
+            errors.append(f'文档链接需要有效标题锚点：{target}')
+    return [f'{name}: {error}' for error in errors]
+
+
 def findings(staged: bool = False, root: Path = ROOT) -> list[str]:
     contents = file_checks["index_files"](root) if staged else None
-    names = subprocess.check_output([
-        "git", "ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", "*.md",
-    ], cwd=root, text=True).split("\0") if contents is None else [name for name in contents if name.endswith(".md")]
-    errors = []
-    for name in sorted(set(names) - {""}):
-        path = root / name
-        if "Fixtures" in path.parts or (contents is None and not path.is_file()):
-            continue
-        source = contents[name].decode() if contents is not None else path.read_text()
-        for target in re.findall(r"\[[^\]]+\]\(([^)]+)\)", source):
-            if target.startswith(("http://", "https://", "mailto:", "#")):
-                continue
-            destination = target.split("#", 1)[0]
-            exists = posixpath.normpath(str(Path(name).parent / destination)) in contents if contents is not None else (path.parent / destination).resolve().is_file()
-            if not exists:
-                errors.append(f"{name}: 文档链接需要有效文件：{target}")
-    return errors
+    if contents is None:
+        names = subprocess.check_output(['git', 'ls-files', '--cached', '--others', '--exclude-standard', '-z'], cwd=root, text=True).split("\0")
+        contents = {name: (root / name).read_bytes() for name in names if name and (root / name).is_file()}
+    documents = {name: data.decode() for name, data in contents.items() if name.endswith('.md') and 'Fixtures' not in Path(name).parts}
+    return [error for name in sorted(documents) for error in document_findings(name, documents, set(contents))]
+
+
+def link_self_test() -> None:
+    documents = {'README.md': '# Guide\n## Usage\n## Usage\n## 中文标题\n[use](#usage) [dup](#usage-1) [中文](#中文标题)\n[ref][details] [details][] [details]\n[details]: <docs/Help.md#setup> "title"\n`[ignored](missing)`\n```swift\n[ignored](missing)\n```',
+        'docs/Help.md': 'Setup\n=====\n[back](../README.md#guide)\n'}
+    assert document_findings('README.md', documents, set(documents)) == []
+    assert document_findings('docs/Help.md', documents, set(documents)) == []
+    for source in ('[bad](#missing)', '[bad](docs/Help.md#missing)', '[bad][missing]', '[bad](missing.md)', '[bad][details]\n[details]: docs/Help.md#missing'):
+        assert document_findings('README.md', dict(documents, **{'README.md': source}), set(documents))
+    assert link_targets('[nested [label]](file(with).md)')[0] == ['file(with).md']
 
 
 def staged_self_test() -> None:
@@ -75,6 +168,7 @@ def main() -> int:
     parser.add_argument("--staged", action="store_true", help="validate links against the complete Git index")
     args = parser.parse_args()
     staged_self_test()
+    link_self_test()
     errors = findings(staged=args.staged)
     if errors:
         print("\n".join(errors))

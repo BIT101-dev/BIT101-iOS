@@ -355,7 +355,9 @@ nonisolated final class PreferenceMemoryFiles: AppFileService, Sendable {
     var temporaryDirectoryURL: URL { URL(fileURLWithPath: "/preference-sync") }
     func directoryURL(_ directory: FileManager.SearchPathDirectory) -> URL? { temporaryDirectoryURL }
     func appGroupContainerURL(identifier: String) -> URL? { temporaryDirectoryURL }
-    func fileExists(at url: URL) -> Bool { state.withLock { $0.data[url] != nil } }
+    func fileExists(at url: URL) -> Bool {
+        state.withLock { $0.data[url] != nil || $0.directories.contains { $0.path == url.path } }
+    }
     func readData(at url: URL) throws -> Data {
         let intercept = state.withLock { state in
             let callback = state.nextRead
@@ -383,14 +385,29 @@ nonisolated final class PreferenceMemoryFiles: AppFileService, Sendable {
     func removeItem(at url: URL) throws {
         try state.withLock { state in
             if state.failsRemoval { throw CocoaError(.fileWriteNoPermission) }
-            state.data[url] = nil
+            let prefix = url.path + "/"
+            state.data = state.data.filter { $0.key.path != url.path && !$0.key.path.hasPrefix(prefix) }
+            state.directories = state.directories.filter { $0.path != url.path && !$0.path.hasPrefix(prefix) }
         }
     }
-    func createDirectory(at url: URL) throws { _ = state.withLock { $0.directories.insert(url) } }
+    func createDirectory(at url: URL) throws {
+        state.withLock { state in
+            var directory = url
+            while directory.path != "/" {
+                state.directories.insert(directory)
+                directory.deleteLastPathComponent()
+            }
+        }
+    }
     func setPrivateFileProtection(at url: URL) throws {}
     func setBackupExcluded(_ excluded: Bool, at url: URL, recursively: Bool) throws {}
     func contentsOfDirectory(at url: URL, options: FileManager.DirectoryEnumerationOptions) throws -> [URL] {
-        state.withLock { state in state.data.keys.filter { $0.deletingLastPathComponent() == url } }
+        state.withLock { state in
+            Array(Set(state.data.keys).union(state.directories)).filter {
+                $0.deletingLastPathComponent().path == url.path &&
+                    (!options.contains(.skipsHiddenFiles) || !$0.lastPathComponent.hasPrefix("."))
+            }
+        }
     }
     func regularFileSize(at url: URL) -> Int? { state.withLock { $0.data[url]?.count } }
     func isRegularFile(at url: URL) -> Bool { regularFileSize(at: url) != nil }
@@ -398,6 +415,9 @@ nonisolated final class PreferenceMemoryFiles: AppFileService, Sendable {
     func setModificationDate(_ date: Date, at url: URL) throws {}
     func removeContents(of directory: URL) -> Bool {
         return state.withLock { state in
+            let hasContents = state.data.keys.contains { $0.path.hasPrefix(directory.path + "/") } ||
+                state.directories.contains { $0.path.hasPrefix(directory.path + "/") }
+            guard hasContents else { return true }
             guard !state.failsRemoval else { return false }
             state.data = state.data.filter { !$0.key.path.hasPrefix(directory.path + "/") }
             state.directories = state.directories.filter { !$0.path.hasPrefix(directory.path + "/") }
@@ -481,6 +501,14 @@ struct LoginBootstrapTests {
 
 @Suite("Shared infrastructure")
 struct InfrastructureTests {
+    @Test("File backends share directory, recursive cleanup and failure contracts")
+    func fileServiceContract() throws {
+        let files = PreferenceMemoryFiles(requireExistingParentDirectories: true)
+        try verifyFileServiceContract(files, root: URL(fileURLWithPath: "/file-service-contract"),
+            setRemovalFailure: { files.setFailures(removal: $0) })
+        try verifyFileServiceContract(LocalAppFileService(),
+            root: FileManager.default.temporaryDirectory.appendingPathComponent("file-service-contract", isDirectory: true))
+    }
 #if BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING
     @Test("Behavior host uses isolated account resources and blocks external transport")
     @MainActor

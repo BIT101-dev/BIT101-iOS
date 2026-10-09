@@ -216,7 +216,6 @@ if [[ "$MODE" == "verify" ]]; then
     bit101_require_device || exit 1
   fi
   export BIT101_DEFER_APP_RESTORE=1
-  verification_failures=()
   finish_verification() {
     local verification_status=$?
     trap - EXIT ZERR INT TERM
@@ -245,8 +244,8 @@ if [[ "$MODE" == "verify" ]]; then
     if (( step_status == 0 )); then
       echo "[验证通过] $label · $(( SECONDS - started_at )) 秒"
     else
-      verification_failures+=("$label")
       echo "[验证失败] $label · $(( SECONDS - started_at )) 秒" >&2
+      exit 1
     fi
   }
   for group in "${verification_groups[@]}"; do
@@ -261,10 +260,6 @@ if [[ "$MODE" == "verify" ]]; then
       audit) verify_step audit "$ROOT_DIR/Scripts/run-static-audit.sh" ;;
     esac
   done
-  if (( ${#verification_failures[@]} > 0 )); then
-    echo "[失败汇总] ${(j:, :)verification_failures}" >&2
-    exit 1
-  fi
   exit 0
 fi
 

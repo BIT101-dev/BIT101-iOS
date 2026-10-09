@@ -332,6 +332,12 @@ struct ScoreInfrastructureBoundaryTests {
 
 @MainActor
 struct ScorePublicContractTests {
+    @Test("Memory backend shares the production file service contract")
+    func fileServiceContract() throws {
+        let files = ModuleScoreFiles()
+        try verifyFileServiceContract(files, root: URL(fileURLWithPath: "/file-service-contract"),
+            setRemovalFailure: { files.setFailures(removal: $0) })
+    }
     private final class Cache: ScoreCaching {
         let changeSubject = PassthroughSubject<AppStorageSession, Never>()
         var changes: AnyPublisher<AppStorageSession, Never> { changeSubject.eraseToAnyPublisher() }
