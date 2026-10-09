@@ -11,6 +11,12 @@ NETWORK_HARNESS_TYPES = {'ReleaseNetworkSmokeRunner', 'ReleaseNetworkSmokeDepend
 
 def call_can_execute(facts: dict, call: dict) -> bool:
     for branch in facts.get('controlFlow', []):
+        dead = branch.get('deadRange')
+        if dead and dead[0] <= call['start'] < dead[1]:
+            hoisted = any(function['start'] >= dead[0] and function['start'] <= call['start'] < function['end']
+                and function.get('lexicalScope', []) == branch.get('lexicalScope', [])
+                for function in facts.get('functionRanges', []))
+            if not hoisted: return False
         condition = re.sub(r'[\s()]', '', branch.get('condition') or '')
         value = {'true': True, 'false': False, '!true': False, '!false': True}.get(condition)
         if value is None and re.fullmatch(r'!?[A-Za-z_]\w*', condition):
@@ -56,7 +62,7 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
         module = compilation_unit(path)
         if module in NETWORK_FOUNDATION_MODULES or module.endswith('Tests'): continue
         for node in facts.get('typedVariables', []):
-            if not node['scope'] or node.get('lexicalScope') or not active(path, node): continue
+            if not node['scope'] or not active(path, node): continue
             identity = owner(path, node['scope'])
             target = types.resolve(path, node.get('type', ''), node['scope'])
             kind = types.terminal_name(path, node.get('type', ''), node['scope'])

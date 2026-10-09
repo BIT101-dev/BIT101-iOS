@@ -1,7 +1,6 @@
 #if os(iOS)
 import StorageCore
 import DesignSystemKit
-import CryptoKit
 import ImageIO
 import SwiftUI
 import UIKit
@@ -30,12 +29,12 @@ actor RemoteAnimatedImageDecoder {
 
     func image(at file: URL, reduceMotion: Bool, maximumPixelSize: Int? = nil) -> UIImage? {
         guard !Task.isCancelled else { return nil }
-        guard let data = RemoteImageResourceLimits.cachedData(at: file, using: files) else { return nil }
-        let key = "\(SHA256.hash(data: data).description)|reduce-motion:\(reduceMotion)|pixels:\(maximumPixelSize ?? 0)" as NSString
+        guard let identity = files.atomicFileIdentity(at: file) else { return nil }
+        let key = "\(files.canonicalFileURL(file).path)|\(identity)|reduce-motion:\(reduceMotion)|pixels:\(maximumPixelSize ?? 0)" as NSString
         if let cached = images.object(forKey: key) {
             return cached
         }
-
+        guard let data = RemoteImageResourceLimits.cachedData(at: file, using: files) else { return nil }
         guard let decoded = Self.animatedImage(from: data, reduceMotion: reduceMotion, budget: maximumDecodedBytes,
                                                maximumPixelSize: maximumPixelSize) else { return nil }
         let pixelCost = (decoded.images ?? [decoded]).reduce(0) { total, frame in
@@ -203,7 +202,7 @@ struct RemoteAnimatedImage: UIViewRepresentable {
             task = Task { [weak self, weak imageView, media] in
                 defer { if self?.requestGeneration == generation { self?.task = nil } }
                 do {
-                    let file = try await media.images.file(for: url, variant: .original)
+                    let file = try await media.images.file(for: url)
                     guard !Task.isCancelled else { return }
                     let decoded = await media.animatedDecoder.image(
                         at: file,

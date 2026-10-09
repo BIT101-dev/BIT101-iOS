@@ -174,6 +174,7 @@ nonisolated struct AutomatedTestAppFileService: AppFileService {
     func setBackupExcluded(_ excluded: Bool, at url: URL, recursively: Bool) throws { try local.setBackupExcluded(excluded, at: url, recursively: recursively) }
     func contentsOfDirectory(at url: URL, options: FileManager.DirectoryEnumerationOptions) throws -> [URL] { try local.contentsOfDirectory(at: url, options: options) }
     func regularFileSize(at url: URL) -> Int? { local.regularFileSize(at: url) }
+    func atomicFileIdentity(at url: URL) -> String? { local.atomicFileIdentity(at: url) }
     func isRegularFile(at url: URL) -> Bool { local.isRegularFile(at: url) }
     func modificationDate(at url: URL) -> Date? { local.modificationDate(at: url) }
     func setModificationDate(_ date: Date, at url: URL) throws { try local.setModificationDate(date, at: url) }

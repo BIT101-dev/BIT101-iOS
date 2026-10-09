@@ -603,13 +603,14 @@ def community_recovery_self_test() -> list[str]:
     from io import StringIO
     from contextlib import redirect_stderr
     from validation_evidence_tests import network_trace_fixture
-    cleanup = network_trace_fixture({"runID": "fixture-run", "scope": "community-cleanup", "passed": True, "requiredProbes": ["cleanup"], "executedProbes": ["cleanup"]})
+    cleanup = network_trace_fixture({"runID": "fixture-run", "scope": "community-cleanup", "passed": True,
+        "requiredProbes": ["BIT101 登录状态"], "executedProbes": ["BIT101 登录状态"]})
     write_row = {"exitCode": 0, "scope": "full", "summary": {"passed": True}}
     previous = {"sourceDigest": "source", "groups": {"community-writes": write_row}}
     cleanup_environment = {"host": {"system": "fixture"}, "developer": "/fixture", "xcode": {"version": "fixture"},
         "compiler": {"modified": 1, "size": 100, "sha256": "a" * 64}, "sdks": {"fixture": {"Version": "1"}}, "device": {
         "identifier": "fixture-phone", "systemVersion": "fixture-os", "systemBuild": "fixture-build"}}
-    with patch(f"{__name__}.source_digest", return_value="source"), patch(f"{__name__}.network_inventory", return_value={"cleanup"}), \
+    with patch(f"{__name__}.source_digest", return_value="source"), patch(f"{__name__}.network_inventory", return_value={"BIT101 登录状态"}), \
             patch(f"{__name__}.environment_context", return_value=cleanup_environment), \
             patch.dict(os.environ, BIT101_VALIDATION_RUN_ID="fixture-run"), \
             patch(f"{__name__}.report_lock", side_effect=nullcontext), patch(f"{__name__}.write_report") as saved, \

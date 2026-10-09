@@ -38,11 +38,6 @@ struct GalleryImageCachePreferences {
     }
 }
 
-enum RemoteImageCacheVariant: String, Sendable {
-    case thumbnail = "low"
-    case original = "high"
-}
-
 nonisolated enum ImageCacheDirectories {
     static func gallery(using files: any AppFileService) -> URL {
         files.directoryURL(.cachesDirectory)?.appending(path: "BIT101GalleryImages", directoryHint: .isDirectory)
@@ -188,6 +183,11 @@ actor RemoteImageCache {
     private let directory: URL
     private var downloads: [String: DownloadOperation] = [:]
     private var generation: UInt64 = 0
+    private let validatedFiles: NSCache<NSURL, NSString> = {
+        let cache = NSCache<NSURL, NSString>()
+        cache.countLimit = 80
+        return cache
+    }()
     var waitingConsumerCount: Int { downloads.values.reduce(0) { $0 + $1.waiters.count } }
     private let supportedExtensions = ["jpg", "jpeg", "png", "gif", "heic", "heif", "webp", "bin"]
     init(files: any AppFileService, quota: ImageCacheDiskQuota, httpClient: HTTPClient,
@@ -196,19 +196,25 @@ actor RemoteImageCache {
         self.quota = quota
         self.download = download ?? { try await httpClient.send(URLRequest(url: $0), maximumBytes: RemoteImageResourceLimits.maximumEncodedBytes) }
         directory = ImageCacheDirectories.gallery(using: files)
+        for file in (try? files.contentsOfDirectory(at: directory, options: [])) ?? []
+            where file.lastPathComponent.hasPrefix("low-") || file.lastPathComponent.hasPrefix("high-") {
+            try? files.removeItem(at: file)
+        }
     }
 
     /// 返回已有缓存并刷新其 LRU 时间，不发起网络请求。
-    func cachedFile(for remoteURL: URL, variant: RemoteImageCacheVariant) async -> URL? {
+    func cachedFile(for remoteURL: URL) async -> URL? {
         let owner = generation
-        let prefix = filePrefix(for: remoteURL, variant: variant)
+        let prefix = filePrefix(for: remoteURL)
         for extensionName in supportedExtensions {
             let file = directory.appendingPathComponent("\(prefix).\(extensionName)")
             guard files.fileExists(at: file) else { continue }
-            guard hasData(at: file), isDecodableImage(at: file) else {
+            guard let identity = files.atomicFileIdentity(at: file), hasData(at: file) else { continue }
+            guard validatedFiles.object(forKey: file as NSURL) as String? == identity || isDecodableImage(at: file) else {
                 try? files.removeItem(at: file)
                 continue
             }
+            validatedFiles.setObject(identity as NSString, forKey: file as NSURL)
             touch(file)
             await quota.enforce(protecting: Set([file]))
             guard owner == generation, !Task.isCancelled else { return nil }
@@ -218,16 +224,16 @@ actor RemoteImageCache {
     }
 
     /// 获取缓存文件；同一 URL 的并发请求会合并成一次下载。
-    func file(for remoteURL: URL, variant: RemoteImageCacheVariant) async throws -> URL {
+    func file(for remoteURL: URL) async throws -> URL {
         try Task.checkCancellation()
         let owner = generation
-        if let cached = await cachedFile(for: remoteURL, variant: variant) {
+        if let cached = await cachedFile(for: remoteURL) {
             return cached
         }
         try Task.checkCancellation()
         guard owner == generation else { throw CancellationError() }
 
-        let requestKey = "\(variant.rawValue):\(remoteURL.absoluteString)"
+        let requestKey = remoteURL.absoluteString
         let waiter = UUID()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -244,7 +250,7 @@ actor RemoteImageCache {
                         let response = try await download(remoteURL)
                         result = .success(DownloadResult(data: response.data, mimeType: response.response.mimeType))
                     } catch { result = .failure(error) }
-                    await finishDownload(result, key: requestKey, id: id, remoteURL: remoteURL, variant: variant)
+                    await finishDownload(result, key: requestKey, id: id, remoteURL: remoteURL)
                 }
                 downloads[requestKey] = DownloadOperation(id: id, task: task, waiters: [waiter: continuation])
             }
@@ -254,7 +260,7 @@ actor RemoteImageCache {
     }
 
     private func finishDownload(_ result: Result<DownloadResult, any Error>, key: String, id: UUID,
-                                remoteURL: URL, variant: RemoteImageCacheVariant) async {
+                                remoteURL: URL) async {
         guard downloads[key]?.id == id else { return }
         let completed: Result<URL, any Error>
         do {
@@ -263,7 +269,7 @@ actor RemoteImageCache {
                 throw CocoaError(.fileReadCorruptFile)
             }
             let ext = preferredExtension(for: remoteURL, mimeType: result.mimeType)
-            let target = directory.appendingPathComponent("\(filePrefix(for: remoteURL, variant: variant)).\(ext)")
+            let target = directory.appendingPathComponent("\(filePrefix(for: remoteURL)).\(ext)")
             if !files.fileExists(at: target) {
                 try files.createDirectory(at: directory)
                 try files.writeData(result.data, to: target, options: [.atomic])
@@ -287,6 +293,7 @@ actor RemoteImageCache {
 
     func clearAll() {
         generation &+= 1
+        validatedFiles.removeAllObjects()
         let pending = downloads.values
         downloads.removeAll()
         for operation in pending {
@@ -335,9 +342,9 @@ actor RemoteImageCache {
         await quota.usedBytes()
     }
 
-    private func filePrefix(for url: URL, variant: RemoteImageCacheVariant) -> String {
+    private func filePrefix(for url: URL) -> String {
         let digest = SHA256.hash(data: Data(url.absoluteString.utf8)).hexString
-        return "\(variant.rawValue)-\(digest)"
+        return digest
     }
 
     private func preferredExtension(for url: URL, mimeType: String?) -> String {
@@ -429,12 +436,12 @@ actor GalleryThumbnailDecoder {
 
     func image(at file: URL, maximumPixelSize: Int? = nil) -> UIImage? {
         guard !Task.isCancelled else { return nil }
-        guard let data = RemoteImageResourceLimits.cachedData(at: file, using: files) else { return nil }
-        let key = "\(SHA256.hash(data: data).hexString)|pixels:\(maximumPixelSize ?? 0)" as NSString
+        guard let identity = files.atomicFileIdentity(at: file) else { return nil }
+        let key = "\(files.canonicalFileURL(file).path)|\(identity)|pixels:\(maximumPixelSize ?? 0)" as NSString
         if let cached = images.object(forKey: key) {
             return cached
         }
-
+        guard let data = RemoteImageResourceLimits.cachedData(at: file, using: files) else { return nil }
         guard let decoded = BoundedStillImageDecoder.image(from: data, maximumDecodedBytes: images.totalCostLimit,
                                                           maximumPixelSize: maximumPixelSize),
               let pixels = decoded.cgImage else { return nil }
@@ -480,7 +487,7 @@ public struct RemoteCachedStillImage: View {
             guard image == nil else { return }
             guard let url else { return }
             do {
-                let file = try await media.images.file(for: url, variant: .thumbnail)
+                let file = try await media.images.file(for: url)
                 guard !Task.isCancelled else { return }
                 let decoded = await media.stillDecoder.image(at: file, maximumPixelSize: pixelSize)
                 guard !Task.isCancelled else { return }
@@ -549,7 +556,7 @@ public struct RemoteProgressiveStillImage: View {
     private func loadThumbnail() async {
         guard let thumbnailURL else { return }
         do {
-            let file = try await media.images.file(for: thumbnailURL, variant: .thumbnail)
+            let file = try await media.images.file(for: thumbnailURL)
             guard !Task.isCancelled else { return }
             let decoded = await media.stillDecoder.image(at: file, maximumPixelSize: pixelSize)
             guard !Task.isCancelled else { return }
@@ -566,7 +573,7 @@ public struct RemoteProgressiveStillImage: View {
               originalURL != thumbnailURL
         else { return }
         do {
-            let file = try await media.images.file(for: originalURL, variant: .original)
+            let file = try await media.images.file(for: originalURL)
             guard !Task.isCancelled else { return }
             let decoded = await media.stillDecoder.image(at: file, maximumPixelSize: pixelSize)
             guard !Task.isCancelled, let decoded else { return }

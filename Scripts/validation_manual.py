@@ -34,6 +34,7 @@ PERFORMANCE_WORKLOADS = {
     'long-article': ('MaintenancePerformanceTests/testLongArticleRenderingPerformance', {'paragraphs': 40, 'repetitionsPerParagraph': 64}),
     'gif-decoding': ('MaintenancePerformanceTests/testGIFDecodingPerformance', {'width': 256, 'height': 256, 'frames': 24, 'cache': 'cleared-per-sample'}),
     'widget-timeline': ('MaintenancePerformanceTests/testWidgetTimelinePerformance', {'courses': 200, 'weeks': 20, 'occurrences': 4000}),
+    'response-aggregation': ('MaintenancePerformanceTests/testBoundedResponseAggregationPerformance', {'bytes': 32 * 1024 * 1024, 'chunkBytes': 64 * 1024, 'transport': 'URLSession'}),
 }
 MANUAL_SCENARIOS['performance-baseline'] = set(PERFORMANCE_WORKLOADS)
 MANUAL_DEVICE_CHECKS.add('performance-baseline')

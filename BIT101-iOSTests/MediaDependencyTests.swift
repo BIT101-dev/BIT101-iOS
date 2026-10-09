@@ -12,6 +12,32 @@ import UniformTypeIdentifiers
 
 @MainActor
 struct MediaDependencyTests {
+    @Test func resourceFilesAndDecodedHitsReuseTheirIdentityAndFollowAtomicReplacement() async throws {
+        let files = PreferenceMemoryFiles()
+        let transport = Images(bytes: try png(width: 2))
+        let media = environment(files: files, previewFiles: files, transport: transport)
+        let url = AppURL.required("https://example.invalid/shared.png")
+        let first = try await media.images.file(for: url)
+        let original = try await media.images.file(for: url)
+        #expect(first == original && transport.requests == 1)
+        #expect(try files.contentsOfDirectory(at: ImageCacheDirectories.gallery(using: files), options: []).count == 1)
+        let image = try #require(await media.stillDecoder.image(at: first))
+        let reads = files.readCount(at: first)
+        #expect(await media.stillDecoder.image(at: first) === image)
+        #expect(files.readCount(at: first) == reads)
+        let animated = try #require(await media.animatedDecoder.image(at: first, reduceMotion: true))
+        let animatedReads = files.readCount(at: first)
+        #expect(await media.animatedDecoder.image(at: first, reduceMotion: true) === animated)
+        #expect(files.readCount(at: first) == animatedReads)
+        _ = try await media.images.file(for: url)
+        let cachedReads = files.readCount(at: first)
+        _ = try await media.images.file(for: url)
+        #expect(files.readCount(at: first) == cachedReads)
+        try files.writeData(try png(width: 3), to: first, options: [.atomic])
+        #expect(await media.stillDecoder.image(at: first)?.size.width == 3)
+        #expect(await media.animatedDecoder.image(at: first, reduceMotion: true)?.size.width == 3)
+    }
+
     @Test func linkifiedTextPreservesLinksWithinTheDisplayBudget() async {
         let source = "阅读 https://bit101.cn/paper/42 与正文"
         let rendered = await communityLinkifiedText(source)
@@ -176,12 +202,11 @@ struct MediaDependencyTests {
         let media = environment(files: files, previewFiles: files, transport: transport)
         let url = AppURL.required("https://example.invalid/bounded.png")
         let loader = CachedRemoteImageLoader()
-        let variant: RemoteImageCacheVariant = scope == "original" ? .original : .thumbnail
         if scope == "avatar" {
             await loader.load(url: url, media: media)
             #expect(loader.image == nil)
         } else {
-            await #expect(throws: HTTPClientError.self) { try await media.images.file(for: url, variant: variant) }
+            await #expect(throws: HTTPClientError.self) { try await media.images.file(for: url) }
             #expect(await media.images.waitingConsumerCount == 0)
         }
         let directory = try #require(files.directoryURL(.cachesDirectory))
@@ -190,7 +215,7 @@ struct MediaDependencyTests {
             await loader.load(url: url, media: media)
             #expect(loader.image?.size.width == 2)
         } else {
-            #expect(try files.readData(at: await media.images.file(for: url, variant: variant)) == transport.bytes)
+            #expect(try files.readData(at: await media.images.file(for: url)) == transport.bytes)
         }
         #expect(transport.requests == 2)
     }
@@ -312,11 +337,11 @@ struct MediaDependencyTests {
         let url = AppURL.required("https://example.invalid/preview.png")
         let request = ImagePreviewRequest(remoteImages: [.init(thumbnailURL: url, originalURL: url)], initialIndex: 0)
         coordinator.receive(request, from: host, media: first)
-        let oldFile = try await first.images.file(for: url, variant: .original)
+        let oldFile = try await first.images.file(for: url)
         _ = try await first.previewFile(at: oldFile, owner: request.id)
         coordinator.receive(request, from: host, media: second)
         await #expect(throws: CancellationError.self) { try await first.previewFile(at: oldFile, owner: request.id) }
-        let newFile = try await second.images.file(for: url, variant: .original)
+        let newFile = try await second.images.file(for: url)
         let preview = try await second.previewFile(at: newFile, owner: request.id)
         #expect(UIImage(data: try secondFiles.readData(at: newFile))?.size.width == 2)
         coordinator.cancel()
@@ -340,10 +365,10 @@ struct MediaDependencyTests {
         let first = environment(files: firstFiles, previewFiles: previewFiles, transport: firstTransport)
         let second = environment(files: secondFiles, previewFiles: PreferenceMemoryFiles(), transport: secondTransport)
         let url = AppURL.required("https://example.invalid/image.png")
-        let firstURL = try await first.images.file(for: url, variant: .thumbnail)
-        let secondURL = try await second.images.file(for: url, variant: .thumbnail)
+        let firstURL = try await first.images.file(for: url)
+        let secondURL = try await second.images.file(for: url)
         #expect(firstURL == secondURL)
-        #expect(try await first.images.file(for: url, variant: .thumbnail) == firstURL)
+        #expect(try await first.images.file(for: url) == firstURL)
         #expect(firstTransport.requests == 1)
         #expect(await first.stillDecoder.image(at: firstURL)?.size.width == 1)
         #expect(await second.stillDecoder.image(at: secondURL)?.size.width == 2)
@@ -381,7 +406,7 @@ struct MediaDependencyTests {
         let media = environment(files: files, previewFiles: files, transport: transport)
         let url = AppURL.required("https://example.invalid/image.png")
         _ = await media.avatars.storeAndDecode(bytes, for: url)
-        let original = try await media.images.file(for: url, variant: .original)
+        let original = try await media.images.file(for: url)
         #expect(files.removeContents(of: files.temporaryDirectoryURL))
         await media.clearCaches()
         _ = await media.avatars.storeAndDecode(bytes, for: url)
@@ -389,7 +414,7 @@ struct MediaDependencyTests {
         #expect(await reopened.avatars.data(for: url) == bytes)
         #expect(await reopened.avatars.image(for: url)?.size.width == 2)
         #expect(!files.fileExists(at: original))
-        let downloaded = try await media.images.file(for: url, variant: .original)
+        let downloaded = try await media.images.file(for: url)
         #expect(try await media.previewFile(at: downloaded) == downloaded)
         #expect(try files.readData(at: downloaded) == bytes)
         #expect(transport.requests == 2)
@@ -419,11 +444,11 @@ struct MediaDependencyTests {
         media.cacheLimitMB = 1
         let owner = UUID()
         media.beginPreview(owner: owner)
-        let first = try await media.images.file(for: AppURL.required("https://example.invalid/first.png"), variant: .original)
+        let first = try await media.images.file(for: AppURL.required("https://example.invalid/first.png"))
         _ = try await media.previewFile(at: first, owner: owner)
-        let second = try await media.images.file(for: AppURL.required("https://example.invalid/second.png"), variant: .original)
+        let second = try await media.images.file(for: AppURL.required("https://example.invalid/second.png"))
         _ = try await media.previewFile(at: second, owner: owner)
-        let third = try await media.images.file(for: AppURL.required("https://example.invalid/third.png"), variant: .original)
+        let third = try await media.images.file(for: AppURL.required("https://example.invalid/third.png"))
         await media.enforceCurrentLimit()
         #expect(files.fileExists(at: first))
         #expect(files.fileExists(at: second))
@@ -518,11 +543,11 @@ struct MediaDependencyTests {
         let bytes = try png(width: 2)
         let media = environment(files: files, previewFiles: files, transport: Images(bytes: bytes))
         let url = AppURL.required("https://example.invalid/decoded.png")
-        let original = try await media.images.file(for: url, variant: .original)
+        let original = try await media.images.file(for: url)
         let still = try #require(await media.stillDecoder.image(at: original))
         let animated = try #require(await media.animatedDecoder.image(at: original, reduceMotion: true))
         await media.clearCaches()
-        let restored = try await media.images.file(for: url, variant: .original)
+        let restored = try await media.images.file(for: url)
         let newStill = try #require(await media.stillDecoder.image(at: restored))
         let newAnimated = try #require(await media.animatedDecoder.image(at: restored, reduceMotion: true))
         #expect(newStill !== still)
@@ -542,13 +567,13 @@ struct MediaDependencyTests {
         let cache = RemoteImageCache(files: files, quota: quota,
             httpClient: HTTPClient(transport: Images(bytes: bytes), observer: nil))
         let url = AppURL.required("https://example.invalid/quota.png")
-        let preparation = Task { try await cache.file(for: url, variant: .original) }
+        let preparation = Task { try await cache.file(for: url) }
         while limit.pending == nil { await Task.yield() }
         await cache.clearAll()
         limit.pending?.resume(returning: 0)
         await #expect(throws: CancellationError.self) { try await preparation.value }
         #expect(await cache.usedBytes() == 0)
-        let restored = try await cache.file(for: url, variant: .original)
+        let restored = try await cache.file(for: url)
         #expect(try files.readData(at: restored) == bytes)
     }
 
@@ -593,9 +618,9 @@ struct MediaDependencyTests {
         let files = PreferenceMemoryFiles()
         let media = environment(files: files, previewFiles: files, transport: transport)
         let url = AppURL.required("https://example.invalid/old.png")
-        let first = Task { try await media.images.file(for: url, variant: .original) }
+        let first = Task { try await media.images.file(for: url) }
         while transport.pending == nil { await Task.yield() }
-        let second = Task { try await media.images.file(for: url, variant: .original) }
+        let second = Task { try await media.images.file(for: url) }
         while await media.images.waitingConsumerCount < 2 { await Task.yield() }
         first.cancel()
         if case .success = await first.result { Issue.record("取消的等待者应立即结束") }
@@ -608,7 +633,7 @@ struct MediaDependencyTests {
         let transport = DelayedImages(bytes: try png(width: 2))
         let files = PreferenceMemoryFiles()
         let media = environment(files: files, previewFiles: files, transport: transport)
-        let download = Task { try await media.images.file(for: AppURL.required("https://example.invalid/old.png"), variant: .original) }
+        let download = Task { try await media.images.file(for: AppURL.required("https://example.invalid/old.png")) }
         while transport.pending == nil { await Task.yield() }
         await media.clearCaches()
         if case .success = await download.result { Issue.record("缓存清理应终止既有下载") }

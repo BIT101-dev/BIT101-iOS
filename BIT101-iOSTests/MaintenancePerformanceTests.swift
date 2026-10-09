@@ -9,9 +9,51 @@ import ScheduleContracts
 @testable import PaperFeature
 @testable import MineFeature
 @testable import GalleryFeature
+import TransportCore
+
+private nonisolated final class PerformanceResponseProtocol: URLProtocol {
+    static let bytes = Data(repeating: 1, count: 32 * 1_024 * 1_024)
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        guard let url = request.url,
+              let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil,
+                  headerFields: ["Content-Length": String(Self.bytes.count)]) else { return }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        for offset in stride(from: 0, to: Self.bytes.count, by: 64 * 1_024) {
+            autoreleasepool {
+                client?.urlProtocol(self, didLoad: Self.bytes.subdata(in: offset ..< offset + 64 * 1_024))
+            }
+        }
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
 
 nonisolated final class MaintenancePerformanceTests: XCTestCase {
     private nonisolated struct Item: Identifiable { let id: Int }
+
+    @MainActor
+    func testBoundedResponseAggregationPerformance() throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PerformanceResponseProtocol.self]
+        configuration.urlCache = nil
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let client = HTTPClient(transport: session, observer: nil)
+        let request = URLRequest(url: try XCTUnwrap(URL(string: "https://performance.invalid/media")))
+        measure(metrics: [XCTClockMetric(), XCTMemoryMetric()]) {
+            let completed = expectation(description: "bounded response aggregation")
+            Task { @MainActor in
+                do {
+                    let result = try await client.send(request, maximumBytes: PerformanceResponseProtocol.bytes.count)
+                    XCTAssertEqual(result.data, PerformanceResponseProtocol.bytes)
+                } catch { XCTFail("Bounded transport error: \(error)") }
+                completed.fulfill()
+            }
+            wait(for: [completed], timeout: 60)
+        }
+    }
 
     @MainActor
     func testCommunityPaginationPerformance() throws {

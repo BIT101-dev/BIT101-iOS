@@ -17,6 +17,8 @@ package nonisolated final class ModuleScoreFiles: AppFileService, Sendable {
         var failsRemoval = false
         var options: [URL: Data.WritingOptions] = [:]
         var reads: [URL: Int] = [:]
+        var revisions: [URL: UInt64] = [:]
+        var revision: UInt64 = 0
     }
     package func setFailures(writing: Bool = false, removal: Bool = false, reading: Bool = false) {
         return state.withLock { state in
@@ -52,6 +54,8 @@ package nonisolated final class ModuleScoreFiles: AppFileService, Sendable {
         return try state.withLock { state in
             if state.failsWriting { throw CocoaError(.fileWriteNoPermission) }
             state.data[url] = value
+            state.revision &+= 1
+            state.revisions[url] = state.revision
             state.dates[url] = Date()
             state.options[url] = options
         }
@@ -71,6 +75,7 @@ package nonisolated final class ModuleScoreFiles: AppFileService, Sendable {
             if state.failsRemoval { throw CocoaError(.fileWriteNoPermission) }
             let prefix = url.path + "/"
             state.data = state.data.filter { $0.key.path != url.path && !$0.key.path.hasPrefix(prefix) }
+            state.revisions = state.revisions.filter { state.data[$0.key] != nil }
             state.dates = state.dates.filter { $0.key.path != url.path && !$0.key.path.hasPrefix(prefix) }
             state.options = state.options.filter { $0.key.path != url.path && !$0.key.path.hasPrefix(prefix) }
             state.directories = Set(state.directories.filter { $0.path != url.path && !$0.path.hasPrefix(prefix) })
@@ -92,6 +97,9 @@ package nonisolated final class ModuleScoreFiles: AppFileService, Sendable {
         }
     }
     package func isRegularFile(at url: URL) -> Bool { regularFileSize(at: url) != nil }
+    package func atomicFileIdentity(at url: URL) -> String? {
+        state.withLock { state in state.data[url].flatMap { _ in state.revisions[url].map(String.init) } }
+    }
     package func modificationDate(at url: URL) -> Date? {
         return state.withLock { state in
             return state.dates[url]
@@ -110,6 +118,7 @@ package nonisolated final class ModuleScoreFiles: AppFileService, Sendable {
             guard hasContents else { return true }
             guard !state.failsRemoval else { return false }
             state.data = state.data.filter { !$0.key.path.hasPrefix(prefix) }
+            state.revisions = state.revisions.filter { state.data[$0.key] != nil }
             state.dates = state.dates.filter { !$0.key.path.hasPrefix(prefix) }
             state.options = state.options.filter { !$0.key.path.hasPrefix(prefix) }
             state.directories = Set(state.directories.filter { !$0.path.hasPrefix(prefix) })

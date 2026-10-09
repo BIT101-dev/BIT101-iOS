@@ -22,11 +22,20 @@ extension URLSession: HTTPTransport {
         defer { bytes.task.cancel() }
         guard response.expectedContentLength <= Int64(maximumBytes) else { throw HTTPClientError.responseTooLarge }
         var data = Data()
+        if response.expectedContentLength > 0 { data.reserveCapacity(Int(response.expectedContentLength)) }
+        var chunk: [UInt8] = []
+        chunk.reserveCapacity(64 * 1_024)
         for try await byte in bytes {
-            try Task.checkCancellation()
-            guard data.count < maximumBytes else { throw HTTPClientError.responseTooLarge }
-            data.append(byte)
+            guard data.count + chunk.count < maximumBytes else { throw HTTPClientError.responseTooLarge }
+            chunk.append(byte)
+            if chunk.count == 64 * 1_024 {
+                try Task.checkCancellation()
+                data.append(contentsOf: chunk)
+                chunk.removeAll(keepingCapacity: true)
+            }
         }
+        try Task.checkCancellation()
+        data.append(contentsOf: chunk)
         return (data, response)
     }
 }

@@ -8,6 +8,7 @@ from pathlib import Path
 from swift_source_index import swift_syntax_index_sources
 
 def run_self_test(subject) -> int:
+    network_route_identity_self_test()
     module_name = subject.__name__
     original_is_file = Path.is_file
     from unittest.mock import patch
@@ -412,7 +413,44 @@ def network_recording_self_test(subject, results) -> None:
 
 
 def network_trace_fixture(value: dict) -> dict:
+    from network_request_contracts import contracts_for
+    def example(pattern):
+        import re
+        pattern = re.sub(r'\(\?:([^()]*)\)', lambda match: match[1].split('|')[0], pattern)
+        return pattern.replace('[0-9a-f]+', 'a').replace(r'\d+', '1').replace(r'\.', '.').replace(r'\-', '-').replace('.+', 'fixture').replace('?', '')
+    rows = []
+    for name in value.get('requiredProbes', []):
+        contracts = contracts_for(name)
+        assert contracts, name
+        requests = []
+        for contract in contracts:
+            for index in range(max(contract.minimum, 2 if contract.paging else 1)):
+                query = {key: example(pattern) for key, pattern in contract.query.items()}
+                if contract.paging == 'page': query['page'] = str(index)
+                if contract.paging == 'last_id' and index: query['last_id'] = '0'
+                request = {'method': contract.method, 'endpoint': 'https://' + example(contract.host) + example(contract.path),
+                    'statusCode': 200, 'query': query}
+                assert contract.matches(request), (name, request)
+                requests.append(request)
+        rows.append({'probe': name, 'requests': requests})
     value['requestEvidenceRequired'] = True
-    value['requestEvidence'] = [{'probe': name, 'requests': [{'method': 'GET', 'endpoint': 'https://fixture.invalid/probe', 'statusCode': 200}]}
-        for name in value.get('requiredProbes', [])]
+    value['requestEvidence'] = rows
     return value
+
+
+def network_route_identity_self_test() -> None:
+    from copy import deepcopy
+    from validation_provenance import network_requests_complete
+    required = {'文章评论'}
+    proof = network_trace_fixture({'requiredProbes': sorted(required)})
+    assert network_requests_complete(required, proof)
+    for key, value in [('endpoint', 'https://example.invalid/unrelated'), ('method', 'POST'), ('query', {'obj': 'course1', 'page': '0'})]:
+        changed = deepcopy(proof)
+        for request in changed['requestEvidence'][0]['requests']: request[key] = value
+        assert not network_requests_complete(required, changed)
+    changed = deepcopy(proof)
+    changed['requestEvidence'][0]['requests'].pop()
+    assert not network_requests_complete(required, changed)
+    changed = deepcopy(proof)
+    changed['requestEvidence'][0]['requests'][1]['query']['page'] = '0'
+    assert not network_requests_complete(required, changed)

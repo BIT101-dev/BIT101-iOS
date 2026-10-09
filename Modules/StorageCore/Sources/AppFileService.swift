@@ -44,6 +44,8 @@ public nonisolated protocol AppFileService: Sendable {
     func setBackupExcluded(_ excluded: Bool, at url: URL, recursively: Bool) throws
     func contentsOfDirectory(at url: URL, options: FileManager.DirectoryEnumerationOptions) throws -> [URL]
     func regularFileSize(at url: URL) -> Int?
+    /// Identity of immutable bytes replaced through an atomic write.
+    func atomicFileIdentity(at url: URL) -> String?
     func isRegularFile(at url: URL) -> Bool
     func modificationDate(at url: URL) -> Date?
     func setModificationDate(_ date: Date, at url: URL) throws
@@ -149,6 +151,14 @@ public nonisolated struct LocalAppFileService: AppFileService, Sendable {
     public func regularFileSize(at url: URL) -> Int? {
         guard isRegularFile(at: url) else { return nil }
         return try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize
+    }
+
+    public func atomicFileIdentity(at url: URL) -> String? {
+        guard let attributes = try? manager.attributesOfItem(atPath: url.path),
+              attributes[.type] as? FileAttributeType == .typeRegular,
+              let device = attributes[.systemNumber], let inode = attributes[.systemFileNumber],
+              let size = attributes[.size] else { return nil }
+        return "\(device):\(inode):\(size)"
     }
 
     public func isRegularFile(at url: URL) -> Bool {

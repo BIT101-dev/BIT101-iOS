@@ -11,13 +11,20 @@ import Testing
 
 @MainActor
 struct SchedulePersistenceTests {
+    @Test func localFilesHonorTheSharedAtomicIdentityAndDirectoryContract() throws {
+        let files = LocalAppFileService()
+        let root = files.temporaryDirectoryURL.appendingPathComponent("BIT101-FileServiceContract", isDirectory: true)
+        try verifyFileServiceContract(files, root: root)
+    }
+
     @Test func backupEligibilityRestoresExistingUserDirectoriesAndPreservesBytes() throws {
         let support = try #require(FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first)
         let root = support.appendingPathComponent("BIT101Tests-BackupPolicy", isDirectory: true)
         let directory = root.appendingPathComponent("drafts", isDirectory: true)
         let files = LocalAppFileService()
         func exclusion(_ url: URL) throws -> Bool? {
-            let fresh = URL(fileURLWithPath: url.path, isDirectory: url.hasDirectoryPath)
+            var fresh = URL(fileURLWithPath: url.path, isDirectory: url.hasDirectoryPath)
+            fresh.removeAllCachedResourceValues()
             return try fresh.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup
         }
         try files.createDirectory(at: directory)
@@ -27,7 +34,10 @@ struct SchedulePersistenceTests {
         try files.writeData(original, to: file, options: .atomic)
         for excluded in [true, false, true, false] {
             try files.setBackupExcluded(excluded, at: root, recursively: true)
-            for target in [root, directory, file] { #expect((try exclusion(target) == true) == excluded) }
+            for target in [root, directory, file] {
+                let actual = try exclusion(target) == true
+                #expect(actual == excluded)
+            }
             #expect(try files.readData(at: file) == original)
         }
         try files.writeData(Data("edited".utf8), to: file, options: .atomic)

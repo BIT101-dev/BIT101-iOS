@@ -342,6 +342,18 @@ def network_capability_self_test() -> None:
     assert 'mine.fetchMyInfo' not in reached(disabled)
     disabled['ReleaseNetworkSmoke.swift'] = disabled['ReleaseNetworkSmoke.swift'].replace('let enabled', 'var enabled')
     assert 'mine.fetchMyInfo' in reached(disabled)
+    for statement in ('return', 'throw URLError(.cancelled)'):
+        terminated = dict(sources)
+        terminated['ReleaseNetworkSmoke.swift'] = sources['ReleaseNetworkSmoke.swift'].replace(
+            'dependencies.productionSessionProbe()', statement + '; dependencies.productionSessionProbe()')
+        assert 'mine.fetchMyInfo' not in reached(terminated), statement
+    conditional = dict(sources)
+    conditional['ReleaseNetworkSmoke.swift'] = sources['ReleaseNetworkSmoke.swift'].replace(
+        'dependencies.productionSessionProbe()', 'if condition { return }; dependencies.productionSessionProbe()')
+    assert 'mine.fetchMyInfo' in reached(conditional)
+    hoisted = dict(sources)
+    hoisted['ReleaseNetworkSmoke.swift'] = 'struct ReleaseNetworkSmokeRunner { func run() { helper(); return; func helper() { dependencies.productionSessionProbe() } } }'
+    assert 'mine.fetchMyInfo' in reached(hoisted)
     courses = index['Modules/CourseFeature/Sources/CourseService.swift']['functionRanges']
     courses.append({'name': 'newEndpoint', 'scope': ['CourseService'], 'isExported': True, 'start': 0, 'end': 1})
     assert network_capability_findings(index)
@@ -403,7 +415,10 @@ def network_discovery_self_test() -> None:
     for module, name in [('GalleryFeature', 'NewGalleryClient'), ('NewForumFeature', 'PostRepository')]:
         path = f'Modules/{module}/Sources/Client.swift'
         for kind in ('HTTPClient', 'Requester', 'NestedRequester'):
-            source = f'import TransportCore; typealias Requester = HTTPClient; typealias NestedRequester = Requester; public struct {name} {{ let client: {kind}; public func fetchItems() async throws {{ _ = try await client.send(request) }} }}'
-            index = swift_syntax_index_sources({path: source})
-            assert f'{module}.{name}' in business_methods(index), kind
-            assert any('新增生产服务' in error for error in network_capability_findings(index)), kind
+            for injection in ('member', 'parameter'):
+                member = f'let client: {kind};' if injection == 'member' else ''
+                parameters = '' if injection == 'member' else f'client: {kind}, request: URLRequest'
+                source = f'import TransportCore; typealias Requester = HTTPClient; typealias NestedRequester = Requester; public struct {name} {{ {member} public func fetchItems({parameters}) async throws {{ _ = try await client.send(request) }} }}'
+                index = swift_syntax_index_sources({path: source})
+                assert f'{module}.{name}' in business_methods(index), (kind, injection)
+                assert any('新增生产服务' in error for error in network_capability_findings(index)), (kind, injection)

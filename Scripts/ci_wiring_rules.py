@@ -130,7 +130,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
     trusted = "github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository"
     if physical.get("if") != trusted or physical.get("needs") != "static-audit" \
             or physical.get("runs-on") != ["self-hosted", "macOS", "xcode-27", "bit101-device"] \
-            or type(physical.get("timeout-minutes")) is not int or physical['timeout-minutes'] <= 0 \
+            or type(physical.get("timeout-minutes")) is not int or physical['timeout-minutes'] < 60 \
             or physical.get("continue-on-error", False) is not False:
         errors.append(".github/workflows/ci.yml: 真机 Job 需要受信仓库来源、实体设备运行器与静态审计依赖")
     physical_commands = {command for command, _ in run_commands(physical, include_always=True)}

@@ -11,11 +11,9 @@ enum NetworkSmokePaging {
         let first = try await load(0)
         try checkIdentity(identity)
         try checkProgress(first: [], next: first.map(\.id))
-        if !first.isEmpty {
-            let second = try await load(1)
-            try checkIdentity(identity)
-            try checkProgress(first: first.map(\.id), next: second.map(\.id))
-        }
+        let second = try await load(1)
+        try checkIdentity(identity)
+        try checkProgress(first: first.map(\.id), next: second.map(\.id))
         return first
     }
 
@@ -26,13 +24,11 @@ enum NetworkSmokePaging {
         try checkProgress(first: [], next: first.sourceIDs)
         guard first.nextSourcePage > 0, !first.canLoadMore || !first.sourceIDs.isEmpty
         else { throw URLError(.cannotParseResponse) }
-        if first.canLoadMore {
-            let second = try await load(first.nextSourcePage)
-            try checkIdentity(identity)
-            try checkProgress(first: first.sourceIDs, next: second.sourceIDs)
-            guard second.nextSourcePage > first.nextSourcePage, !second.canLoadMore || !second.sourceIDs.isEmpty
-            else { throw URLError(.cannotParseResponse) }
-        }
+        let second = try await load(first.nextSourcePage)
+        try checkIdentity(identity)
+        try checkProgress(first: first.sourceIDs, next: second.sourceIDs)
+        guard second.nextSourcePage > first.nextSourcePage, !second.canLoadMore || !second.sourceIDs.isEmpty
+        else { throw URLError(.cannotParseResponse) }
         return first
     }
 
@@ -40,12 +36,11 @@ enum NetworkSmokePaging {
         let identity = AppAccountSession.storage.communityCredentials.identity
         let first = try await load(nil)
         try checkIdentity(identity)
-        if let cursor = first.map(\.id).min() {
-            guard cursor > 0 else { throw URLError(.cannotParseResponse) }
-            let second = try await load(cursor)
-            try checkIdentity(identity)
-            guard second.allSatisfy({ $0.id > 0 && $0.id < cursor }) else { throw URLError(.cannotParseResponse) }
-        }
+        let cursor = first.map(\.id).min() ?? 0
+        guard first.isEmpty || cursor > 0 else { throw URLError(.cannotParseResponse) }
+        let second = try await load(cursor)
+        try checkIdentity(identity)
+        guard second.allSatisfy({ $0.id > 0 && $0.id < cursor }) else { throw URLError(.cannotParseResponse) }
         return first
     }
 

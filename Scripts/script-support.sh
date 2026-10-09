@@ -29,7 +29,8 @@ with lock_path.open("a") as lock:
     timeout = float(os.environ.get("BIT101_WORKFLOW_TIMEOUT_SECONDS", 45 * 60))
     if not math.isfinite(timeout) or timeout <= 0:
         raise SystemExit("工作流执行预算需要有限正数。")
-    deadline = time.monotonic() + timeout
+    deadline = float(os.environ.get("BIT101_WORKFLOW_DEADLINE", time.monotonic() + timeout))
+    if not math.isfinite(deadline): raise SystemExit("工作流截止时间需要有限值。")
     announced = False
     while True:
         try:
@@ -46,6 +47,7 @@ with lock_path.open("a") as lock:
             time.sleep(min(0.1, remaining))
     environment = dict(os.environ)
     environment[sys.argv[2]] = "1"
+    environment["BIT101_WORKFLOW_DEADLINE"] = str(deadline)
     script = Path(sys.argv[3])
     command = ["zsh", "-c", script.read_text(), str(script), *sys.argv[4:]]
     owns_process_group = os.environ.get("BIT101_DEVICE_WORKFLOW_LOCK_HELD") != "1"
@@ -58,7 +60,7 @@ with lock_path.open("a") as lock:
     for signum in (signal.SIGINT, signal.SIGTERM):
         signal.signal(signum, interrupt)
     try:
-        status = process.wait(timeout=timeout)
+        status = process.wait(timeout=max(0, deadline - time.monotonic())) if owns_process_group else process.wait()
     except subprocess.TimeoutExpired:
         print("[超时] 工作流已达到执行预算，正在恢复与结束。", flush=True)
         os.killpg(process.pid if owns_process_group else os.getpgrp(), signal.SIGTERM)

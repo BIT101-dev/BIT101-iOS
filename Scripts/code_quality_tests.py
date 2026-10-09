@@ -421,6 +421,7 @@ def workflow_lock_boundary_findings() -> list[str]:
     "验证竞争工作流排队及父子流程锁复用。"
     import select
     import shlex
+    import time
 
     fixture = ROOT / ".build/static-audit/workflow-lock-self-test"
     worker = fixture / "worker.sh"
@@ -435,6 +436,7 @@ def workflow_lock_boundary_findings() -> list[str]:
         findings.append("工作流环境自测：Python 自测断言沿默认优化级别执行")
     environment.pop("BIT101_EXTENDED_TESTS_LOCK_HELD", None)
     environment.pop("BIT101_DEVICE_WORKFLOW_LOCK_HELD", None)
+    environment.pop("BIT101_WORKFLOW_DEADLINE", None)
     environment["BIT101_LOCK_TEST_CHECKOUT"] = str(fixture)
     try:
         shutil.rmtree(fixture, ignore_errors=True)
@@ -443,8 +445,8 @@ def workflow_lock_boundary_findings() -> list[str]:
             '"$HOME/Library/Caches/BIT101-iOS/device-workflow.lock"', shlex.quote(str(fixture / "device-workflow.lock")))
         worker.write_text('ROOT_DIR="$BIT101_LOCK_TEST_CHECKOUT"\n' + support + '\n'
                          'bit101_acquire_workflow_lock "$0" "$@"\nprint entered\n'
-                         'if [[ "${1:-}" == signal ]]; then\n'
-                         '  trap \'print cleanup; read -r reply < "$ROOT_DIR/release"; exit 143\' TERM\n'
+                         'if [[ "${1:-}" == signal || "${1:-}" == budget ]]; then\n'
+                         '  trap \'print cleanup; if [[ "$1" == signal ]]; then read -r reply < "$ROOT_DIR/release"; fi; exit 143\' TERM\n'
                          'fi\n'
                          'if (( $# > 0 )); then read -r reply < "$ROOT_DIR/release"; fi\n')
         def line(process):
@@ -507,6 +509,21 @@ def workflow_lock_boundary_findings() -> list[str]:
         recovered = subprocess.run(["zsh", str(worker)], capture_output=True, text=True, env=environment, timeout=5)
         if timed.returncode != 124 or recovered.returncode or recovered.stdout.strip() != "entered":
             raise ValueError("超时恢复完成后释放全局与工作区锁")
+        first = subprocess.Popen(["zsh", str(worker), "hold"], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, env=environment)
+        processes.append(first)
+        if line(first) != "entered": raise ValueError("共享预算测试取得锁")
+        started = time.monotonic()
+        second = subprocess.Popen(["zsh", str(worker), "budget"], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, env=dict(environment, BIT101_WORKFLOW_TIMEOUT_SECONDS="1"))
+        processes.append(second)
+        if not line(second).startswith("[等待]"): raise ValueError("共享预算测试进入排队")
+        time.sleep(0.4)
+        with release.open("w") as stream: stream.write("done\n")
+        first.communicate(timeout=5)
+        output, _ = second.communicate(timeout=5)
+        if second.returncode != 124 or "entered" not in output or "cleanup" not in output or time.monotonic() - started >= 1.3:
+            raise ValueError("等待与执行沿同一截止时间消费预算")
     except (ValueError, OSError, subprocess.TimeoutExpired) as error:
         findings.append(f"工作流锁自测：{error}")
     finally:

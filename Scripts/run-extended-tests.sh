@@ -59,6 +59,18 @@ if sys.argv[2] == "performance":
 if not (bundle / "database.sqlite3").is_file() or (bundle / "Staging").exists():
     raise SystemExit("测试结果可在运行结束后通过 report 读取。")
 
+if sys.argv[2] == "performance-run":
+    sys.path.insert(0, sys.argv[4])
+    from validation_manual import PERFORMANCE_WORKLOADS
+    from validation_evidence import test_summary, normalized_test_id
+    executed = {normalized_test_id(test) for test in test_summary((bundle.parent / "test-metrics.txt").read_text())['executedTests']}
+    for name, (test, _) in PERFORMANCE_WORKLOADS.items():
+        if test not in executed: continue
+        value = json.loads(subprocess.check_output(['xcrun', 'xcresulttool', 'get', 'test-results', 'metrics',
+            '--path', str(bundle), '--test-id', test + '()'], text=True))
+        print(json.dumps({'scenario': name, 'test': test, 'metrics': value}))
+    raise SystemExit(0)
+
 if sys.argv[2] == "json":
     print(subprocess.check_output(["xcrun", "xcresulttool", "get", "test-results", "tests", "--path", str(bundle)], text=True))
     raise SystemExit(0)

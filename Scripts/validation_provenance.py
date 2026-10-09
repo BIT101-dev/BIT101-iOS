@@ -47,6 +47,7 @@ def complete_group_row(row: dict) -> dict:
 
 
 def network_requests_complete(required: set[str], value: dict) -> bool:
+    from network_request_contracts import complete
     if value.get('requestEvidenceRequired') is not True: return False
     rows = value.get('requestEvidence', [])
     if not isinstance(rows, list): return False
@@ -61,6 +62,9 @@ def network_requests_complete(required: set[str], value: dict) -> bool:
             if not endpoint.hostname or endpoint.scheme not in {'http', 'https'} or endpoint.username or endpoint.password \
                     or endpoint.query or endpoint.fragment or request.get('method') not in {'GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'} \
                     or type(request.get('statusCode')) is not int or not 100 <= request['statusCode'] < 600: return False
-        observed.add(row.get('probe'))
+            query = request.get('query', {})
+            if not isinstance(query, dict) or not set(query) <= {'page', 'last_id', 'obj', 'order', 'mode', 'type', 'uid', 'detail'} \
+                    or not all(isinstance(key, str) and isinstance(item, str) for key, item in query.items()): return False
+        if complete(row['probe'], row['requests']): observed.add(row['probe'])
     if value.get('scope') == 'community-cleanup': required = required - {'社区写入与清理'}
     return bool(required) and required <= observed

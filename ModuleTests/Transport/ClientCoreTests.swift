@@ -250,8 +250,9 @@ private nonisolated final class BoundedResponseProtocol: URLProtocol {
             return
         }
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: Data(repeating: 1, count: 8))
-        client?.urlProtocol(self, didLoad: Data(repeating: 2, count: 8))
+        let count = url.path == "/chunks" ? 64 * 1_024 + 8 : 8
+        client?.urlProtocol(self, didLoad: Data(repeating: 1, count: count))
+        client?.urlProtocol(self, didLoad: Data(repeating: 2, count: count))
         client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() {}
@@ -315,6 +316,9 @@ struct ClientCoreTests {
         request.httpMethod = nil
         #expect(HTTPRequestEvidence(request: request, response: response).method == "GET")
         #expect(HTTPRequestEvidence(request: request, response: response).endpoint == recorded.endpoint)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data(#"{"detail":true,"password":"secret"}"#.utf8)
+        #expect(HTTPRequestEvidence(request: request, response: response).query == ["detail": "true"])
     }
 
     @Test func ordinaryResponsesUseTheDefaultBudgetIncludingExplicitNil() async throws {
@@ -344,7 +348,7 @@ struct ClientCoreTests {
         #expect(observer.events == ["willSend", "didFinish"])
     }
 
-    @Test(.timeLimit(.minutes(1)), arguments: ["declared", "streamed"])
+    @Test(.timeLimit(.minutes(1)), arguments: ["declared", "streamed", "chunks"])
     func productionSessionBoundsDeclaredAndStreamedBodies(path: String) async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [BoundedResponseProtocol.self]
@@ -352,9 +356,10 @@ struct ClientCoreTests {
         defer { session.invalidateAndCancel() }
         let client = HTTPClient(transport: UncachedHTTPTransport(base: session), observer: nil)
         let request = URLRequest(url: AppURL.required("https://example.invalid/\(path)"))
-        let result = try await client.send(request, maximumBytes: 16)
-        #expect(result.data == Data(repeating: 1, count: 8) + Data(repeating: 2, count: 8))
-        await #expect(throws: HTTPClientError.self) { try await client.send(request, maximumBytes: 15) }
+        let count = path == "chunks" ? 64 * 1_024 + 8 : 8
+        let result = try await client.send(request, maximumBytes: count * 2)
+        #expect(result.data == Data(repeating: 1, count: count) + Data(repeating: 2, count: count))
+        await #expect(throws: HTTPClientError.self) { try await client.send(request, maximumBytes: count * 2 - 1) }
     }
 
     @Test func remoteReadPolicyPreservesFailuresAndLeavesTheCallerRequestIntact() async throws {

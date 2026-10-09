@@ -106,10 +106,10 @@ struct NetworkSmokeCoverageTests {
         }
     }
 
-    @Test func terminalArrayAvoidsAContinuationAndMessagesUseTheirActualCursor() async throws {
+    @Test func terminalPagesExerciseContinuationAndMessagesUseTheirActualCursor() async throws {
         var pages: [Int] = []
         let empty: [CommunityUser] = try await NetworkSmokePaging.arrayPage { page in pages.append(page); return [] }
-        #expect(empty.isEmpty && pages == [0])
+        #expect(empty.isEmpty && pages == [0, 1])
         let data = Data(#"{"from_user":{},"id":9,"link_obj":"poster1","obj":"poster1","text":"","update_time":""}"#.utf8)
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
@@ -117,6 +117,9 @@ struct NetworkSmokeCoverageTests {
         var cursors: [Int?] = []
         _ = try await NetworkSmokePaging.messages { cursor in cursors.append(cursor); return cursor == nil ? [message] : [] }
         #expect(cursors == [nil, 9])
+        cursors = []
+        _ = try await NetworkSmokePaging.messages { cursor in cursors.append(cursor); return [] }
+        #expect(cursors == [nil, 0])
         await #expect(throws: URLError.self) {
             _ = try await NetworkSmokePaging.messages { _ in [message] }
         }
@@ -230,12 +233,15 @@ extension ReleaseNetworkSmokeLifecycleTests {
                 rate: 0, replyUser: user, replyObj: "", text: "fixture", sub: [])
         }
         func fetchFeed(kind: GalleryFeedKind, page: Int?) async throws -> GalleryPageBatch<CommunityPoster> {
-            observed.insert("gallery-\(kind.rawValue)"); return .init(items: [poster], nextSourcePage: (page ?? 0) + 1, canLoadMore: false)
+            observed.insert("gallery-\(kind.rawValue)"); return posterPage(page ?? 0)
         }
-        func fetchRecommendPage(sourcePage: Int) async throws -> GalleryPageBatch<CommunityPoster> { GalleryPageBatch<CommunityPoster>(items: [poster], nextSourcePage: 1, canLoadMore: false) }
-        func fetchBotFeed(startPage: Int) async throws -> GalleryPageBatch<CommunityPoster> { GalleryPageBatch<CommunityPoster>(items: [poster], nextSourcePage: 1, canLoadMore: false) }
+        private func posterPage(_ page: Int) -> GalleryPageBatch<CommunityPoster> {
+            .init(items: page == 0 ? [poster] : [], nextSourcePage: page + 1, canLoadMore: false)
+        }
+        func fetchRecommendPage(sourcePage: Int) async throws -> GalleryPageBatch<CommunityPoster> { posterPage(sourcePage) }
+        func fetchBotFeed(startPage: Int) async throws -> GalleryPageBatch<CommunityPoster> { posterPage(startPage) }
         func searchPosters(query: GallerySearchQuery, page: Int?) async throws -> GalleryPageBatch<CommunityPoster> {
-            .init(items: [poster], nextSourcePage: (page ?? 0) + 1, canLoadMore: false)
+            posterPage(page ?? 0)
         }
         func fetchMessageUnreadCounts() async throws -> GalleryMessageUnreadCounts { GalleryMessageUnreadCounts() }
         func fetchMessages(type: GalleryMessageType, lastID: Int?) async throws -> [GalleryMessage] { [] }

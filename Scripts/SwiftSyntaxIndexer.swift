@@ -75,6 +75,7 @@ struct ScopedFact: Encodable {
     var initializerCall: String? = nil
     var initializerReference: String? = nil
     var booleanValue: Bool? = nil
+    var deadRange: [Int]? = nil
     var isExpressionReference: Bool = false
 }
 
@@ -376,6 +377,7 @@ final class FactVisitor: SyntaxVisitor {
     }
 
     override func visit(_ node: ReturnStmtSyntax) -> SyntaxVisitorContinueKind {
+        recordTermination(Syntax(node))
         if let function = functionStack.last,
            closureDepth == function.closureDepth,
            let expression = node.expression
@@ -387,6 +389,28 @@ final class FactVisitor: SyntaxVisitor {
                 start: expression.positionAfterSkippingLeadingTrivia.utf8Offset
             ))
         }
+        return .visitChildren
+    }
+
+    private func recordTermination(_ node: Syntax) {
+        guard let list = node.parent?.parent?.as(CodeBlockItemListSyntax.self) else { return }
+        var item = fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset)
+        item.deadRange = [node.endPositionBeforeTrailingTrivia.utf8Offset, list.endPositionBeforeTrailingTrivia.utf8Offset]
+        controlFlow.append(item)
+    }
+
+    override func visit(_ node: ThrowStmtSyntax) -> SyntaxVisitorContinueKind {
+        recordTermination(Syntax(node))
+        return .visitChildren
+    }
+
+    override func visit(_ node: BreakStmtSyntax) -> SyntaxVisitorContinueKind {
+        recordTermination(Syntax(node))
+        return .visitChildren
+    }
+
+    override func visit(_ node: ContinueStmtSyntax) -> SyntaxVisitorContinueKind {
+        recordTermination(Syntax(node))
         return .visitChildren
     }
 

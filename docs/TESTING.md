@@ -354,9 +354,9 @@ iOS 的 `checks` 包含 `cold-start-session`、`offline-persistence`、`media-an
 
 共享预览目录的媒体环境共同接收同一 `MediaPreviewStorage`，文件创建、所有权登记、清理和关闭消费同一协调器。回归合同覆盖创建期间的后台清理，以及不同环境启动清理和关闭预览时保留其他活动消费者。
 
-`MaintenancePerformanceTests` 沿 XCTest 默认测量选项记录实际分页、PNG 解码、长文章解析与纯文本生成、GIF 解码及 Widget 时间线计算的时钟与物理内存指标。`MaintenancePerformanceUITests` 记录清空夹具存储后的进程结束、启动至课表就绪，以及启用动画的课表往返切周布局；UI 内存指标采集目标 App 进程。性能基线沿同一真机 runner 的 XCTest 默认参数维护。
+`MaintenancePerformanceTests` 沿 XCTest 默认测量选项记录实际分页、PNG 解码、长文章解析与纯文本生成、GIF 解码、Widget 时间线计算及 32 MiB URLSession 响应聚合的时钟与物理内存指标。`MaintenancePerformanceUITests` 记录清空夹具存储后的进程结束、启动至课表就绪，以及启用动画的课表往返切周布局；UI 内存指标采集目标 App 进程。性能基线沿同一真机 runner 的 XCTest 默认参数维护。
 
-`performance-baseline` 人工专项登记 `pagination`、`image-decoding`、`startup`、`schedule-layout`、`long-article`、`gif-decoding`、`widget-timeline` 七个场景的结构化比较及影像，参与完整发布验收。行为场景归属 `all`，启动与课表布局归属 `ui`；每条采样保留所属完整测试组的执行证据。
+`performance-baseline` 人工专项登记 `pagination`、`image-decoding`、`startup`、`schedule-layout`、`long-article`、`gif-decoding`、`widget-timeline`、`response-aggregation` 八个场景的结构化比较及影像，参与完整发布验收。行为场景归属 `all`，启动与课表布局归属 `ui`；每条采样保留所属完整测试组的执行证据。
 
 每个性能场景的 `measurement` 包含 `current` 与 `baseline`。两份记录保存 `testIdentifier`、`sourceCommit`、`capturedAt`、`environment`、`input`、`resultBundle`、`metrics`；当前采样沿实际观察时间登记，批准基线保存 `approvedBy`、`approvedAt`。`environment` 核对相同的设备标识、设备型号、系统版本与构建、Xcode 构建、编译器摘要、Release 配置及 `compilationConditions`。`resultBundle` 保存固定 XCTest 结果包路径和 SHA-256，两个采样拥有各自的摘要。`execution` 保存所属运行、构建输入、源码提交及完整环境；`xcresultMetrics` 保留工具导出的原始指标。
 
@@ -370,6 +370,8 @@ SwiftSyntax 索引器缓存沿源码、工具链环境、编译器、SwiftSyntax
 
 UI 自动化同时采集交互库存及宿主与 Feature / UI 模块的行覆盖率，完整验收要求各展示模块产生实际执行行。界面状态断言、控件交互记录及行覆盖率共同支撑展示逻辑审查。
 
-工作流锁的等待与执行预算共用 45 分钟默认值，执行超时向进程组发送终止信号并保留恢复清理阶段；恢复结束释放设备及工作区锁。测试执行显式启用 XCTest 超时管理。物理设备 CI Job 登记执行预算，取消与超时恢复沿脚本锁边界合同验收。编译条件由 `validation_policy.workflow_conditions` 统一提供给执行脚本与源码库存，iCloud 使用 `DEBUG ICLOUD_CROSS_DEVICE_SMOKE`。
+工作流锁的等待与执行预算共用 45 分钟默认值，执行超时向进程组发送终止信号并保留恢复清理阶段；恢复结束释放设备及工作区锁。测试执行显式启用 XCTest 超时管理。物理设备 CI Job 使用 60 分钟上限，覆盖 45 分钟工作流预算、5 分钟恢复清理及前后步骤，取消与超时恢复沿脚本锁边界合同验收。编译条件由 `validation_policy.workflow_conditions` 统一提供给执行脚本与源码库存，iCloud 使用 `DEBUG ICLOUD_CROSS_DEVICE_SMOKE`。
 
-成功的关键词复验沿同一输入摘要与环境复用此前完整组的证据，完整证据保留原运行标识、采样时间及性能指标。复验失败或构建输入变化进入对应分组的重新验收。网络 smoke 保存每个探针的实际 HTTP 方法、端点及状态码，端点移除凭据、查询参数及片段；完整验收核对这些请求记录。
+成功的关键词复验沿同一输入摘要与环境复用此前完整组的证据，完整证据保留原运行标识、采样时间及性能指标。复验失败或构建输入变化进入对应分组的重新验收。网络 smoke 保存每个探针的实际 HTTP 方法、端点及状态码，端点移除凭据、查询参数及片段；完整验收沿 `Scripts/network_request_contracts.py` 核对业务端点、HTTP 方法、所需调用数量及分页查询。列表首屏为空时继续请求续页，消息空首屏使用零游标验收终止边界；首屏、续页与实际参数共同保存在请求证据中。
+
+`Scripts/run-extended-tests.sh report performance-run` 读取当前 XCTest 结果包中实际执行的性能用例，供 Catalyst 与真机采样检查。响应聚合沿 64 KiB 块追加字节并检查取消，声明长度通过边界检查后预留存储；传输合同分别验收声明长度与实际接收长度。
