@@ -43,9 +43,10 @@ def report_lock():
         yield
 
 
-def write_report(report: dict) -> None:
+def write_report(report: dict, *, path: Path | None = None) -> None:
     from validation_policy import MAXIMUM_REPORT_BYTES
-    incoming = REPORT.with_suffix(".incoming")
+    destination = path if path is not None else REPORT
+    incoming = destination.with_suffix(".incoming")
     size = 1
     try:
         with incoming.open('wb') as stream:
@@ -55,7 +56,7 @@ def write_report(report: dict) -> None:
                 if size > MAXIMUM_REPORT_BYTES: raise ValueError('聚合验收证据需要控制在 128 MiB 以内。')
                 stream.write(data)
             stream.write(b'\n')
-        incoming.replace(REPORT)
+        incoming.replace(destination)
     finally:
         incoming.unlink(missing_ok=True)
 

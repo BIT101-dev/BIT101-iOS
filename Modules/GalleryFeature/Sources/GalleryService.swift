@@ -26,6 +26,7 @@ nonisolated enum GalleryWebRequestFactory {
 public enum GalleryServiceError: LocalizedError {
     case notLoggedIn
     case invalidResponse
+    case missingPoster
     case uploadFailed
     case reportFailed
 
@@ -36,6 +37,8 @@ public enum GalleryServiceError: LocalizedError {
             return "当前登录状态无效，请重新登录后再查看话廊。"
         case .invalidResponse:
             return "服务器返回了无法识别的数据。"
+        case .missingPoster:
+            return "帖子已删除或暂时无法访问。"
         case .uploadFailed:
             return "图片上传失败。"
         case .reportFailed:
@@ -47,6 +50,10 @@ public enum GalleryServiceError: LocalizedError {
 extension GalleryServiceError: CommunityAPIServiceError {
     public static var communityNotLoggedIn: Self { .notLoggedIn }
     public static var communityInvalidResponse: Self { .invalidResponse }
+    public static func communityResourceFailure(path: String, message: String?) -> Self? {
+        let parts = path.split(separator: "/")
+        return parts.count == 2 && parts[0] == "posters" && Int(parts[1]) != nil && message == "帖子不存在Orz" ? .missingPoster : nil
+    }
 }
 
 enum GalleryContentFilter {

@@ -255,6 +255,48 @@ struct ServiceContractTests {
         }
     }
 
+    @Test(arguments: [(false, false), (false, true), (true, false)], [400, 404, 500])
+    func resourceAbsenceHasAServiceTypeAcrossCredentialRecovery(fixture: (Bool, Bool), status: Int) async throws {
+        let (paper, refresh) = fixture
+        let response = paper ? #"{"message":"文章不存在Orz"}"# : #"{"message":"帖子不存在Orz"}"#
+        let transport = Transport((refresh ? [(401, #"{"message":"expired"}"#)] : []) + [(status, response)])
+        do {
+            if paper { _ = try await PaperService(session: session(transport)).fetchPaper(id: 17) }
+            else { _ = try await GalleryService(session: session(transport), preferences: { .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false) }).fetchPoster(id: 17) }
+            Issue.record("已知缺失响应需要沿服务错误传播")
+        } catch {
+            if paper {
+                guard case PaperServiceError.missingPaper = error else { throw error }
+                #expect(error.localizedDescription == "文章已删除或暂时无法访问。")
+            } else {
+                guard case GalleryServiceError.missingPoster = error else { throw error }
+                #expect(error.localizedDescription == "帖子已删除或暂时无法访问。")
+            }
+        }
+        #expect(transport.requests.count == (refresh ? 2 : 1))
+    }
+
+    @Test(arguments: [false, true], [false, true])
+    func resourceClassificationKeepsUnknownRoutesAndListFailuresVisible(paper: Bool, list: Bool) async throws {
+        let response = list ? (paper ? #"{"message":"文章不存在Orz"}"# : #"{"message":"帖子不存在Orz"}"#) : #"{"message":"Not Found"}"#
+        let transport = Transport([(404, response)])
+        do {
+            if paper {
+                let service = PaperService(session: session(transport))
+                if list { _ = try await service.fetchPapers(search: nil, order: .newest, page: 0) }
+                else { _ = try await service.fetchPaper(id: 17) }
+            } else {
+                let service = GalleryService(session: session(transport), preferences: { .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false) })
+                if list { _ = try await service.fetchFeed(kind: .newest, page: 0) }
+                else { _ = try await service.fetchPoster(id: 17) }
+            }
+            Issue.record("服务失败需要保留原请求状态")
+        } catch {
+            let failure = error as NSError
+            #expect(failure.code == 404 && failure.domain == (paper ? "BIT101.Paper" : "BIT101.Gallery"))
+        }
+    }
+
     @Test func publicPaperPagesKeepAnonymousAccessAndDecodeAuthorDetails() async throws {
         let detail = #"{"id":17,"title":"文章","intro":"摘要","content":"正文","create_time":"","update_time":"","update_user":\#(user),"anonymous":false,"like_num":3,"comment_num":4,"public_edit":true,"like":false,"own":true}"#
         let transport = Transport([(200, "[" + paper + "]"), (200, "[]"), (200, detail), (200, "[]")])

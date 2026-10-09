@@ -129,8 +129,12 @@ class SwiftBindingTypes:
         self.index = index
         self.types = types or SwiftTypeIndex(index)
         self.type_ids = {namespace + "." + ".".join(owner): (namespace, owner) for namespace, owner in self.types.records}
-        self.return_types = {(self.types.function_scope(path, function["scope"]), function["name"]): (function["returnType"], path)
-            for path, facts in index.items() for function in facts.get("functionRanges", []) if function.get("returnType")}
+        self.return_types = {}
+        for path, facts in index.items():
+            for function in facts.get('functionRanges', []):
+                if function.get('returnType'):
+                    key = (self.types.function_scope(path, function['scope']), function['name'])
+                    self.return_types.setdefault(key, []).append((function, path))
         self.reference_paths = {id(node): path for path, facts in index.items()
             for node in facts.get("calls", []) + facts.get("members", []) + facts.get("scopedIdentifiers", [])}
         self.aliases = [(path, alias, self.variable_scope(path, alias)) for path, facts in index.items()
@@ -144,7 +148,8 @@ class SwiftBindingTypes:
                 initializer = re.match(r"(\w+)\s*=\s*(?:try\??\s+)?(?:await\s+)?([A-Z]\w*)[.(]", binding["value"])
                 if initializer: self.variable_types[(scope, initializer[1])] = initializer[2]
                 returned = re.match(r"(\w+)\s*=\s*(?:try\??\s+)?(?:await\s+)?(\w+)\.(\w+)\(", binding["value"])
-                if returned and (returned_type := self.method_return(path, (returned[2],), returned[3])):
+                if returned and (returned_type := self.method_return(path, (returned[2],), returned[3],
+                        self.factory_invocation(path, binding, returned[2] + '.' + returned[3]))):
                     self.variable_types[(scope, returned[1])] = returned_type
                 decoded = re.match(r"(\w+)\s*=.*?\.decode\(\s*(\w+)\.self", binding["value"])
                 if decoded: self.variable_types[(scope, decoded[1])] = decoded[2]
@@ -159,11 +164,35 @@ class SwiftBindingTypes:
         key = self.types.resolve(path, value, owner_scope)
         return key[0] + "." + ".".join(key[1]) if key else value.rsplit(".", 1)[-1].rstrip("?!")
 
-    def method_return(self, path, owner, name):
+    def factory_invocation(self, path, reference, expression):
+        end = reference['start'] + len(reference.get('value', '').encode())
+        return next((call for call in self.index[path].get('invocations', [])
+            if call['calledExpression'] == expression and reference['start'] <= call['start'] < end), None)
+
+    def method_return(self, path, owner, name, invocation=None):
+        from swift_source_index import argument_parameter_bindings
         key = self.types.resolve(path, ".".join(owner)) if owner else None
         scope = (key[0],) + key[1] if key else self.types.function_scope(path, owner)
-        result = self.return_types.get((scope, name))
-        return self.canonical_type(result[0], scope, result[1]) if result else None
+        candidates = self.return_types.get((scope, name), [])
+        if invocation:
+            candidates = [(function, source) for function, source in candidates
+                if argument_parameter_bindings(function['parameters'], invocation.get('argumentLabels', []))]
+            if len(candidates) > 1:
+                def argument_type(argument):
+                    if re.fullmatch(r'".*"', argument, re.DOTALL): return 'String'
+                    if re.fullmatch(r'[+-]?\d[\d_]*', argument): return 'Int'
+                    if argument in {'true', 'false'}: return 'Bool'
+                    variable_scope = self.variable_scope(path, invocation)
+                    return next((self.variable_types[(owner, argument)] for length in range(len(variable_scope), 0, -1)
+                        if (owner := variable_scope[:length], argument) in self.variable_types), None)
+                argument_types = [argument_type(argument) for argument in invocation.get('arguments', [])]
+                candidates = [(function, source) for function, source in candidates if any(
+                    all(actual is None or self.canonical_type(parameter['type'].rstrip('?!'), scope, source)
+                        == self.canonical_type(actual, self.variable_scope(path, invocation), path)
+                        for actual, parameter in zip(argument_types, parameters))
+                    for parameters in argument_parameter_bindings(function['parameters'], invocation.get('argumentLabels', [])))]
+        results = {self.canonical_type(function['returnType'], scope, source) for function, source in candidates}
+        return next(iter(results)) if len(results) == 1 else None
 
     def receiver_type(self, call, path=None):
         path = path or self.reference_paths.get(id(call), "")
@@ -174,7 +203,8 @@ class SwiftBindingTypes:
                 return self.canonical_type(constructor, scope, path)
             owner, _, method = constructor.rpartition(".")
             owners = [tuple(owner.split("."))] if owner else [tuple(call["scope"][:length]) for length in range(len(call["scope"]), -1, -1)]
-            return next((returned for owner in owners if (returned := self.method_return(path, owner, method or constructor))), None)
+            invocation = self.factory_invocation(path, call, call['receiverCall'])
+            return next((returned for owner in owners if (returned := self.method_return(path, owner, method or constructor, invocation))), None)
         parts = call.get("calledExpression", call.get("value", "")).replace("?", "").split(".")[:-1]
         if parts and parts[0] == "self":
             parts.pop(0)

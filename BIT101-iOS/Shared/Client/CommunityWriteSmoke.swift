@@ -18,16 +18,17 @@ final class CommunityWriteSmoke {
     struct Content { let text: String; let owned: Bool; let liked: Bool; var imageMids: [String] = [] }
     struct Operations {
         typealias RecordImage = @MainActor (String) throws -> Void
+        typealias RecordSubmission = @MainActor () throws -> Void
         var identity: () -> CommunitySessionIdentity
         var account: () async throws -> Int
         var course: () async throws -> Int
-        var create: (Kind, String, RecordImage) async throws -> Int
+        var create: (Kind, String, RecordImage, RecordSubmission) async throws -> Int
         var find: (Kind, String) async throws -> [Int]
         var read: (Kind, Int) async throws -> Content?
         var edit: (Kind, Int, String) async throws -> Void
         var delete: (Kind, Int) async throws -> Void
         var comments: (String) async throws -> [CommunityComment]
-        var comment: (String, String, RecordImage) async throws -> CommunityComment
+        var comment: (String, String, RecordImage, RecordSubmission) async throws -> CommunityComment
         var deleteComment: (Int) async throws -> Void
         var like: (Kind, Int) async throws -> Bool
 
@@ -39,22 +40,30 @@ final class CommunityWriteSmoke {
             Self(identity: identity,
                 account: { try await Self.checked(identity, owner) { try await account() } },
                 course: { try await Self.checked(identity, owner) { try await course() } },
-                create: { kind, text, record in try await Self.checked(identity, owner) {
-                    try await create(kind, text) { mid in
+                create: { kind, text, record, submit in try await Self.checked(identity, owner) {
+                    try await create(kind, text, { mid in
                         guard identity() == owner else { throw CancellationError() }
                         try record(mid)
-                    }
+                    }, {
+                        try Task.checkCancellation()
+                        guard identity() == owner else { throw CancellationError() }
+                        try submit()
+                    })
                 } },
                 find: { kind, text in try await Self.checked(identity, owner) { try await find(kind, text) } },
                 read: { kind, id in try await Self.checked(identity, owner) { try await read(kind, id) } },
                 edit: { kind, id, text in try await Self.checked(identity, owner) { try await edit(kind, id, text) } },
                 delete: { kind, id in try await Self.checked(identity, owner) { try await delete(kind, id) } },
                 comments: { object in try await Self.checked(identity, owner) { try await comments(object) } },
-                comment: { object, text, record in try await Self.checked(identity, owner) {
-                    try await comment(object, text) { mid in
+                comment: { object, text, record, submit in try await Self.checked(identity, owner) {
+                    try await comment(object, text, { mid in
                         guard identity() == owner else { throw CancellationError() }
                         try record(mid)
-                    }
+                    }, {
+                        try Task.checkCancellation()
+                        guard identity() == owner else { throw CancellationError() }
+                        try submit()
+                    })
                 } },
                 deleteComment: { id in try await Self.checked(identity, owner) { try await deleteComment(id) } },
                 like: { kind, id in try await Self.checked(identity, owner) { try await like(kind, id) } }, followTarget: followTarget,
@@ -72,10 +81,10 @@ final class CommunityWriteSmoke {
             return try result.get()
         }
 
-        static func isMissingContent(_ error: NSError, kind: Kind) -> Bool {
+        static func isMissingContent(_ error: any Error, kind: Kind) -> Bool {
             switch kind {
-            case .paper: return error.domain == "BIT101.Paper" && error.localizedDescription == "文章不存在Orz"
-            case .poster: return error.domain == "BIT101.Gallery" && error.localizedDescription == "帖子不存在Orz"
+            case .paper: if case PaperServiceError.missingPaper = error { return true }; return false
+            case .poster: if case GalleryServiceError.missingPoster = error { return true }; return false
             case .course: return false
             }
         }
@@ -86,17 +95,20 @@ final class CommunityWriteSmoke {
             return Self(identity: { AppAccountSession.storage.communityCredentials.identity }, account: { try await mine.fetchMyInfo().user.id }, course: {
                 guard let course = try await courses.fetchCourses(search: "", page: 0).first else { throw URLError(.zeroByteResource) }
                 return course.id
-            }, create: { kind, text, record in
+            }, create: { kind, text, record, submit in
                 switch kind {
                 case .poster:
                     let image = try await gallery.uploadImage(data: CommunityWriteMedia.jpeg(), filename: "smoke.jpg")
                     guard !image.mid.isEmpty else { throw URLError(.cannotParseResponse) }
                     try record(image.mid)
+                    try submit()
                     let id = try await gallery.createPoster(title: "功能验收", text: text,
                         imageMids: [image.mid], anonymous: false, tags: [], claimID: 0, isPublic: false)
                     return id
-                case .paper: return try await papers.createPaper(title: text, intro: text,
-                    content: PaperEditorContentBuilder.editorJSON(from: text), anonymous: false, publicEdit: false)
+                case .paper:
+                    try submit()
+                    return try await papers.createPaper(title: text, intro: text,
+                        content: PaperEditorContentBuilder.editorJSON(from: text), anonymous: false, publicEdit: false)
                 case .course: throw URLError(.unsupportedURL)
                 }
             }, find: { kind, text in
@@ -117,7 +129,7 @@ final class CommunityWriteSmoke {
                             do {
                                 let detail = try await papers.fetchPaper(id: row.id)
                                 if detail.own && PaperEditorContentBuilder.plainText(from: detail.content).contains(text) { result.insert(row.id) }
-                            } catch let error as NSError where Self.isMissingContent(error, kind: .paper) { continue }
+                            } catch let error where Self.isMissingContent(error, kind: .paper) { continue }
                         }
                     }
                     page += 1
@@ -135,7 +147,7 @@ final class CommunityWriteSmoke {
                         let value = try await courses.fetchCourse(id: id)
                         return Content(text: "", owned: false, liked: value.like)
                     }
-                } catch let error as NSError where Self.isMissingContent(error, kind: kind) {
+                } catch let error where Self.isMissingContent(error, kind: kind) {
                     return nil
                 }
             }, edit: { kind, id, text in
@@ -166,14 +178,20 @@ final class CommunityWriteSmoke {
                     for row in rows { result[row.id] = row }
                     page += 1
                 }
-            }, comment: { object, text, record in
+            }, comment: { object, text, record, submit in
                 let value: CommunityComment
-                if object.hasPrefix("course") { value = try await courses.createComment(objectID: object, text: text, rate: 6) }
-                else if object.hasPrefix("paper") { value = try await papers.createComment(objectID: object, text: text) }
+                if object.hasPrefix("course") {
+                    try submit()
+                    value = try await courses.createComment(objectID: object, text: text, rate: 6)
+                } else if object.hasPrefix("paper") {
+                    try submit()
+                    value = try await papers.createComment(objectID: object, text: text)
+                }
                 else {
                     let image = try await gallery.uploadCommentImage(data: CommunityWriteMedia.jpeg(), filename: "smoke.jpg")
                     guard !image.mid.isEmpty else { throw URLError(.cannotParseResponse) }
                     try record(image.mid)
+                    try submit()
                     value = try await gallery.createComment(objectID: object, text: text, imageMids: [image.mid])
                     guard !image.mid.isEmpty, value.images.map(\.mid) == [image.mid] else { throw URLError(.cannotParseResponse) }
                 }
@@ -273,15 +291,19 @@ final class CommunityWriteSmoke {
             journal.followTarget = nil; try persist(journal)
             for kind in [Kind.poster, .paper] {
                 try Task.checkCancellation()
-                journal.attempts.append(kind); try persist(journal)
                 operation = "创建 " + kind.rawValue
                 var uploadedImage: String?
                 let id: Int
                 do {
-                    id = try await operations.create(kind, journal.marker) { mid in
+                    id = try await operations.create(kind, journal.marker, { mid in
                         uploadedImage = mid
                         journal.evidence.append("共享验收图片 \(mid)"); try self.persist(journal)
-                    }
+                    }, {
+                        var pending = journal
+                        pending.attempts.append(kind)
+                        try self.persist(pending)
+                        journal = pending
+                    })
                 } catch {
                     if Self.creationWasRejected(error) {
                         journal.attempts.removeAll { $0 == kind }; try persist(journal)
@@ -364,11 +386,15 @@ final class CommunityWriteSmoke {
     }
 
     private func createComment(_ parent: String, journal: inout Journal, operations: Operations) async throws -> CommunityComment {
-        journal.commentAttempts.append(parent); try persist(journal)
         do {
-            let comment = try await operations.comment(parent, journal.marker) { mid in
+            let comment = try await operations.comment(parent, journal.marker, { mid in
                 journal.evidence.append("共享验收图片 \(mid)"); try self.persist(journal)
-            }
+            }, {
+                var pending = journal
+                pending.commentAttempts.append(parent)
+                try self.persist(pending)
+                journal = pending
+            })
             guard comment.id > 0, !journal.comments.contains(comment.id) else { throw failure("验收评论标识重复或无效") }
             journal.comments.append(comment.id); journal.evidence.append("创建 comment\(comment.id) 目标 \(parent)")
             journal.commentParents[comment.id] = parent

@@ -9,6 +9,7 @@ import Foundation
 public enum PaperServiceError: LocalizedError {
     case notLoggedIn
     case invalidResponse
+    case missingPaper
 
     public var errorDescription: String? {
         switch self {
@@ -16,6 +17,8 @@ public enum PaperServiceError: LocalizedError {
             return "当前登录状态无效，请重新登录后再查看文章。"
         case .invalidResponse:
             return "服务器返回了无法识别的数据。"
+        case .missingPaper:
+            return "文章已删除或暂时无法访问。"
         }
     }
 }
@@ -23,6 +26,10 @@ public enum PaperServiceError: LocalizedError {
 extension PaperServiceError: CommunityAPIServiceError {
     public static var communityNotLoggedIn: Self { .notLoggedIn }
     public static var communityInvalidResponse: Self { .invalidResponse }
+    public static func communityResourceFailure(path: String, message: String?) -> Self? {
+        let parts = path.split(separator: "/")
+        return parts.count == 2 && parts[0] == "papers" && Int(parts[1]) != nil && message == "文章不存在Orz" ? .missingPaper : nil
+    }
 }
 
 /// 文章模块网络层。

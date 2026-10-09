@@ -24,6 +24,19 @@ def self_test():
         indexer_toolchain.cache_clear()
     from code_quality_rules import automatic_school_fetch_findings, ast_has_view_request
     from ui_rules import native_interaction_inventory
+    factories = ['func makeBootstrap(_ value: Int) -> SchoolBootstrap { SchoolBootstrap() }',
+        'func makeBootstrap(_ value: String) -> SafeBootstrap { SafeBootstrap() }']
+    for declarations in (factories, list(reversed(factories))):
+        for argument, restricted in [('1', True), ('"safe"', False), ('unknown', True)]:
+            source = '''
+class ScheduleCloudSyncManager { func refreshFromCloudIfNeeded() async {} }
+struct SchoolBootstrap { let cloud = ScheduleCloudSyncManager(); func start() async { await cloud.refreshFromCloudIfNeeded() } }
+struct SafeBootstrap { func start() async {} }
+''' + '\n'.join(declarations) + f'''
+struct OverloadedApp: App {{ var body: some Scene {{ WindowGroup {{ Text("sample").task {{ await makeBootstrap({argument}).start() }} }} }} }}
+'''
+            facts = swift_syntax_index_sources({str(ROOT / 'BIT101-iOS/Overloaded.swift'): source})
+            assert bool(automatic_school_fetch_findings(facts)) == restricted, (declarations, argument)
     assert canonical_type_scope(['Module.Wrapper<(Int) -> Void>.Holder<[Other.Model]>.Control']) == ('Module', 'Wrapper', 'Holder', 'Control')
     generic_path = str(ROOT / 'BIT101-iOS/Generic.swift')
     generics = swift_syntax_index_sources({generic_path: '''

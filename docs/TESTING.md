@@ -276,7 +276,7 @@ Scripts/run_icloud_cross_device_smoke.sh cleanup
 完整测试输出写入对应固定日志，终端显示汇总和失败摘要；模块日志保留 Swift Testing 的 suite、用例及参数执行记录。模块测试汇总七个消费者二进制，采集逐模块生产源码行覆盖率，真机测试采集逐 target 行覆盖率，并通过 LLVM 汇总 App 及嵌入框架的生产模块覆盖率；设备 profile 在测试前清理并由本批运行重新生成，指标固定覆盖 `test-metrics.txt`。模块覆盖率统计 macOS 宿主编译的可执行源码，iOS 界面由真机行为与 UI 用例补充。模块报告记录统计范围及总覆盖行数，CI 将逐模块指标写入 GitHub Job Summary，沿工作流执行记录保留覆盖率趋势。各 Job 使用 [upload-artifact](https://github.com/actions/upload-artifact) 的零压缩级别保存完整日志、指标与结果包，采用仓库默认保留周期。覆盖率采集异常进入失败状态；Catalyst 使用 runtime 提供的测试汇总。
 测试入口先取得用户级 `~/Library/Caches/BIT101-iOS/device-workflow.lock`，再取得工作副本内 `.build/extended-automation.lock`，串行协调同一 Mac 各工作副本中的 App 安装、启动、执行与恢复，以及固定产物目录。聚合验证内的分组继承这两级锁和设备快照，首个失败结束分组执行并保留其原始结果包、指标与附件，结束时统一恢复常规 App。恢复钩子覆盖函数内部错误和执行中断，保留原始失败状态码；常规 App 恢复结果记录为独立证据。编译宿主时保留既有测试结果包、指标和运行日志，编译日志使用固定 `<分组>-build.log`。长流程从入口读取完整脚本到内存后执行，加锁等待结束时读取当前版本。SwiftSyntax 索引器在 `.build/static-audit/` 编译并复用，源码或工具链变化时覆盖重编译，编译与调用共用文件锁。
 
-GitHub Actions 的 `.github/workflows/ci.yml` 使用 `xcode-27` runner，先执行静态审计与包级测试，再并行执行 iOS 宿主构建 Job 和独立的 Catalyst 行为 Job。Catalyst Job 执行行为用例及正式编译条件下的生产行为及组装合同；iOS Job 顺序编译正式 Release、UI 和两种 Smoke 的测试宿主，App 依赖图同时编译 Watch 和两种 Widget，Swift / Clang 警告按错误处理。工作流通过系统 Ruby YAML 解析器核对 pull_request 和 push 自动触发、三个 Job 的默认执行、bash shell 继承、静态依赖及各自必备入口。版本、plist 和 PR 基线在静态 job 校验，手动 `release_check` 校验公开版本。
+GitHub Actions 的 `.github/workflows/ci.yml` 使用带 `self-hosted`、`macOS`、`xcode-27`、`bit101-ci` 标签的隔离 runner，先执行静态审计与包级测试，再并行执行 iOS 宿主构建 Job 和独立的 Catalyst 行为 Job。Catalyst Job 执行行为用例及正式编译条件下的生产行为及组装合同；iOS Job 顺序编译正式 Release、UI 和两种 Smoke 的测试宿主，App 依赖图同时编译 Watch 和两种 Widget，Swift / Clang 警告按错误处理。工作流通过系统 Ruby YAML 解析器核对 pull_request 和 push 自动触发、三个 Job 的默认执行、bash shell 继承、静态依赖及各自必备入口。版本、plist 和 PR 基线在静态 job 校验，手动 `release_check` 校验公开版本。
 
 本机承接真机行为、UI、网络和 iCloud 验证；发布操作按对应授权执行。
 
@@ -292,9 +292,9 @@ UI 摘要合并本批全部 App 进程的完整控件标识与访问动作，冷
 
 检查项为 `minimum-platforms`、`distribution-signing`、`system-autofill`、`photos`、`calendar-permissions`、`notifications`、`external-handoff`、`web-interactions`、`widget`、`watch`、`feedback-delivery`，失败观察以 `--outcome failed` 登记，附件可保留实际影像或结构化诊断，发布门禁继续要求每项成功。记录结构保存操作、结果、明确的 passed/failed 状态、实际观察时间和登记时间、附件路径、完整 Base64 内容、字节数和 SHA-256；发布检查重新解码并核对内容摘要，固定源路径后续覆盖时保留已采集证据，CI 沿同一 JSON 获取完整附件。人工验收的全部检查项共同参与采集区间时效核对。
 
-影像附件通过 ImageIO、Core Graphics 和 AVFoundation 实际解码，视频读取完整视频轨道。`minimum-platforms` 附件使用结构化 JSON，`schemaVersion` 为 1，`platforms` 包含 `iOS` 与 `watchOS`。每端登记 `deviceIdentifier`、`deviceModel`、`systemVersion`、`systemBuild`、`capturedAt`、`checks` 及 `evidence`；系统主版本匹配工程的最低部署主版本，当前覆盖 iOS 17.x 与 watchOS 10.x。
+影像附件通过 ImageIO、Core Graphics 和 AVFoundation 实际解码，视频读取完整视频轨道。`minimum-platforms` 附件使用结构化 JSON，`schemaVersion` 为 1，`platforms` 包含 `iOS` 与 `watchOS`。每端登记 `deviceIdentifier`、`deviceModel`、`systemVersion`、`systemBuild`、`capturedAt`、`checks` 及 `evidence`；系统主版本与小版本匹配对应平台各目标的最高部署要求，补丁版本达到部署要求，当前覆盖 iOS 17.0 与 watchOS 10.0。
 
-iOS 的 `checks` 包含 `cold-start-session`、`offline-persistence`、`media-and-navigation`，Watch 包含 `snapshot-receive`、`timeline-render`、`clear-and-retry`；每项保存 `operation`、`result` 与 `outcome`，成功状态为 `passed`。每端的影像 `evidence` 保存 `path`、`sha256`、`byteCount`、`dataBase64`，与普通附件采用相同解码和时效校验。常规自动化记录所选 iPhone 系统身份，最低主版本专项补充对应实体设备的核心验收。反馈专项从 App 提交正式报告，核对报告持久化及维护者邮件送达，并将报告编号、存储键和邮件收件证据保存在验收附件。
+iOS 的 `checks` 包含 `cold-start-session`、`offline-persistence`、`media-and-navigation`，Watch 包含 `snapshot-receive`、`timeline-render`、`clear-and-retry`；每项保存 `operation`、`result` 与 `outcome`，成功状态为 `passed`。每端的影像 `evidence` 保存 `path`、`sha256`、`byteCount`、`dataBase64`，与普通附件采用相同解码和时效校验。常规自动化记录所选 iPhone 系统身份，最低部署版本专项补充对应实体设备的核心验收。反馈专项从 App 提交正式报告，核对报告持久化及维护者邮件送达，并将报告编号、存储键和邮件收件证据保存在验收附件。
 
 全部完成后形成 `manual-device` 证据。专项记录读取执行设备的系统身份，源码或执行环境变更后重新验收。发布标签采用 `v` 加工程 `MARKETING_VERSION`，静态审计核对标签与工程版本对应。发布提交完成后执行 `python3 Scripts/validation_evidence.py bind`，仓库内容已完整提交、完整通过且源码摘要一致时绑定提交；CI 将各 Job 的已执行结果写入 GitHub Job Summary。版本发布通过 `v*` 标签触发强制验收，发布 Job 承接静态审计、iOS 编译和 Catalyst 行为结果，并从对应 GitHub Release 下载固定绑定证据附件。手动工作流开启 `release_check` 时填写 `validation_tag`，两个入口沿同一发布验收 Job 消费固定证据路径。
 
@@ -328,7 +328,7 @@ iOS 的 `checks` 包含 `cold-start-session`、`offline-persistence`、`media-an
 
 仓库内分支和维护者手动触发执行真机 Job；fork PR 由维护者审查代码后，将 GitHub 的 `refs/pull/编号/merge` 对应提交保存到仓库内 `review-validation` 分支；从该分支手动启动工作流并填写 `review_pr`。工作流核对当前 PR 合并提交，沿其目标提交载入覆盖率基准，再完成四个 Job 和真机证据绑定。维护者随后重新运行原 PR 的合并验收 Job；门禁按原合并 SHA 与 PR 编号查找仓库内成功的手动运行，核对四个实际 Job、有效产物及绑定证据。PR 或目标提交更新后沿新合并提交重新验收。
 
-运行器设置与设备自动化授权沿 [GitHub 自托管运行器文档](https://docs.github.com/en/actions/how-tos/manage-runners/self-hosted-runners/use-in-a-workflow) 和本项目真机流程配置。
+常规与 fork Job 在独立的 `bit101-ci` macOS 宿主执行，使用可重建的隔离用户环境保存构建工具与公共缓存。`bit101-device` 标签归属真机专用宿主，设备连接及 GitHub、Cloudflare、Apple 授权保存在该宿主。两个角色使用各自的标签与宿主；运行器设置与设备自动化授权沿 [GitHub 自托管运行器文档](https://docs.github.com/en/actions/how-tos/manage-runners/self-hosted-runners/use-in-a-workflow) 和本项目真机流程配置。
 
 完整模块与 iOS 行为组按每模块的整数百分比维护覆盖率基准。`Scripts/validation_policy.py` 保存版本化的 macOS 与 iOS 阈值；完整验收提高覆盖率后同步提高相应阈值并提交评审。PR 的静态与真机 Job 通过 `ci_evidence.py baseline` 从目标提交读取这两组字典，以 Python AST 字面量解析并核对阈值，再由 `validation_evidence.py baseline` 载入。基准随 Git 提交长期保存，读取过程独立于历史工作流、真机状态和产物保留期。筛选复验在统一 JSON 内保留 `coverageBaseline` 和 `lastFullRun`；完整运行沿历史本机基准检测退化并推进成功结果。目标提交阈值、当前版本阈值与本机历史基准共同参与验收。
 
@@ -346,7 +346,9 @@ iOS 的 `checks` 包含 `cold-start-session`、`offline-persistence`、`media-an
 
 `community-variants` 人工专项覆盖课程搜索、话廊搜索筛选、帖子与文章的三种评论排序、匿名帖子、匿名文章及创建内容恢复；场景键为 `course-search`、`gallery-search-filters`、`comment-sorting`、`anonymous-poster`、`anonymous-paper`、`restore-content`。使用已授权的专用账号，保存实际请求结果和页面证据，确认验收内容删除。`account-lifecycle` 专项在正式 App 中顺序执行 `sign-in-a`、`refresh-credentials-a`、`sign-out-a`、`sign-in-b`、`restore-a`，核对真实凭据续期、退出清理、资料与业务缓存切换、订阅更新及恢复账号。两个专项复用结构化人工场景格式与固定 `manual-scenarios.json` 附件，参与完整发布验收。
 
-社区图片探针复用 `CommunityWriteMedia` 中固定的一像素 JPEG 字节；上传返回的 MID 在创建帖子或评论前持久记录于同一事务日志，资源记录保存成功后继续创建内容。公开服务端 [ImageService.Save](https://github.com/BIT101-dev/BIT101-GO/blob/main/api/service/image.go) 按内容 MD5 生成 MID 并复用已存在图片，[路由](https://github.com/BIT101-dev/BIT101-GO/blob/main/api/router.go) 将图片作为独立共享资源提供上传。验收帖子和评论沿服务端读取与删除确认清理，共享验收图片持续复用；恢复证据保留其 MID。实际线上资源策略沿已部署服务端契约核对。
+社区图片探针复用 `CommunityWriteMedia` 中固定的一像素 JPEG 字节；上传返回的 MID 在创建帖子或评论前持久记录于同一事务日志，资源记录保存成功后，在提交业务创建请求前保存待确认记录。上传或提交记录保存失败时沿已创建对象完成清理；业务请求结果未知时持续查找并保留恢复记录。公开服务端 [ImageService.Save](https://github.com/BIT101-dev/BIT101-GO/blob/main/api/service/image.go) 按内容 MD5 生成 MID 并复用已存在图片，[路由](https://github.com/BIT101-dev/BIT101-GO/blob/main/api/router.go) 将图片作为独立共享资源提供上传。验收帖子和评论沿服务端读取与删除确认清理，共享验收图片持续复用；恢复证据保留其 MID。实际线上资源策略沿已部署服务端契约核对。
+
+文章与帖子详情的已知缺失响应由服务层转换为明确的错误类型，恢复器沿类型确认缺失；后端业务响应转换集中在各服务的接口错误定义中。通用路由失败与其他服务错误保留验收失败结果。iCloud smoke 阶段、初始身份与退出报告复用证据原子写入器，写入中断时保留原恢复身份。
 
 网络能力审计将公开方法与对应 smoke 入口中的服务调用关联，服务内部的转调沿 SwiftSyntax 函数范围与调用事实继续追踪。新增生产 Client、Repository 或服务沿实际传输依赖与公开函数事实发现，并同步登记验收归属；读探针与写探针分别核对实际调用，人工专项承接有明确外部副作用的变体。接收者与专用工厂沿 smoke 的组装角色登记，动态执行结果继续由真实探针及服务消费者合同验收。
 

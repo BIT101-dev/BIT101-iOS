@@ -124,13 +124,14 @@ entitlements["com.apple.developer.icloud-container-environment"] = "Production"
 Path(sys.argv[2]).write_bytes(plistlib.dumps(entitlements))
 PY
 if ! $CLEANUP_ONLY; then
-  python3 - "$SUMMARY_PATH" "$RUN_ID" <<'PY'
+  PYTHONPATH="$ROOT_DIR/Scripts${PYTHONPATH:+:$PYTHONPATH}" python3 - "$SUMMARY_PATH" "$RUN_ID" <<'PY'
 import json
 from datetime import datetime, timezone
 from pathlib import Path
 import sys
+from validation_evidence import write_report
 
-Path(sys.argv[1]).write_text(json.dumps({"runID": sys.argv[2], "startedAt": datetime.now(timezone.utc).isoformat(), "stages": []}) + "\n")
+write_report({"runID": sys.argv[2], "startedAt": datetime.now(timezone.utc).isoformat(), "stages": []}, path=Path(sys.argv[1]))
 PY
 fi
 
@@ -168,11 +169,12 @@ finish_smoke() {
       if (( smoke_status == 0 )); then smoke_status=1; fi
     fi
   fi
-  python3 - "$SUMMARY_PATH" "$smoke_status" "$CLEANUP_ONLY" <<'PY'
+  PYTHONPATH="$ROOT_DIR/Scripts${PYTHONPATH:+:$PYTHONPATH}" python3 - "$SUMMARY_PATH" "$smoke_status" "$CLEANUP_ONLY" <<'PY'
 import json
 from datetime import datetime, timezone
 from pathlib import Path
 import sys
+from validation_evidence import write_report
 
 path = Path(sys.argv[1])
 report = json.loads(path.read_text()) if path.is_file() else {"stages": []}
@@ -182,7 +184,7 @@ if sys.argv[3] == "true":
 else:
     report["exitCode"] = int(sys.argv[2])
     report["finishedAt"] = datetime.now(timezone.utc).isoformat()
-path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
+write_report(report, path=path)
 PY
   report_result "$SUMMARY_PATH"
   python3 "$ROOT_DIR/Scripts/validation_evidence.py" record "$validation_group" "$smoke_status" || smoke_status=$?

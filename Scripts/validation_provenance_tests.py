@@ -169,6 +169,36 @@ def report_budget_self_test(module) -> None:
             assert committed.called == accepted
             assert stream.tell() <= limit
             cleanup.assert_called_once_with(missing_ok=True)
+    import shutil
+    fixture = module.ROOT / '.build/static-audit/report-write-self-test'
+    fixture.mkdir(parents=True, exist_ok=True)
+    destination = fixture / 'report.json'
+    original = json.dumps({'runID': 'retained-cloud-owner', 'stages': []}).encode()
+    try:
+        for failure in ('write', 'replace'):
+            destination.write_bytes(original)
+            original_open = Path.open
+            class InterruptedStream:
+                def __enter__(self):
+                    self.stream = original_open(destination.with_suffix('.incoming'), 'wb')
+                    return self
+                def write(self, data):
+                    self.stream.write(data[:1])
+                    raise OSError('interrupted report write')
+                def __exit__(self, *args): self.stream.close()
+            override = patch.object(Path, 'open', return_value=InterruptedStream()) if failure == 'write' \
+                else patch.object(Path, 'replace', side_effect=OSError('interrupted report commit'))
+            with override:
+                try: module.write_report({'runID': 'new-owner', 'stages': []}, path=destination)
+                except OSError: pass
+                else: raise AssertionError('写入故障需要保留原恢复记录')
+            assert destination.read_bytes() == original
+            assert json.loads(destination.read_text())['runID'] == 'retained-cloud-owner'
+            assert not destination.with_suffix('.incoming').exists()
+        module.write_report({'runID': 'new-owner', 'stages': []}, path=destination)
+        assert json.loads(destination.read_text())['runID'] == 'new-owner'
+    finally:
+        shutil.rmtree(fixture)
 
 
 def aggregate_failure_self_test(module) -> None:

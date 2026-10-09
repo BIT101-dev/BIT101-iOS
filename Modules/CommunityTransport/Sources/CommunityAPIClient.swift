@@ -15,6 +15,11 @@ public enum CommunityRetryPolicy {
 public protocol CommunityAPIServiceError: Error {
     static var communityNotLoggedIn: Self { get }
     static var communityInvalidResponse: Self { get }
+    static func communityResourceFailure(path: String, message: String?) -> Self?
+}
+
+extension CommunityAPIServiceError {
+    public static func communityResourceFailure(path: String, message: String?) -> Self? { nil }
 }
 
 /// `CommunityAPIClient` 统一处理 BIT101 社区后端的认证、URL、HTTP 状态码和 JSON 边界。
@@ -216,6 +221,7 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
             } catch let HTTPClientError.unacceptableStatus(retryCode, retryMessage) {
                 try validateIdentity(identity)
                 if retryCode == 401 { throw Failure.communityNotLoggedIn }
+                if method == "GET", let failure = Failure.communityResourceFailure(path: path, message: retryMessage) { throw failure }
                 throw NSError(
                     domain: errorDomain,
                     code: retryCode,
@@ -231,6 +237,7 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
         } catch let HTTPClientError.unacceptableStatus(code, message) {
             try validateIdentity(identity)
             if code == 401 { throw Failure.communityNotLoggedIn }
+            if method == "GET", let failure = Failure.communityResourceFailure(path: path, message: message) { throw failure }
             throw NSError(
                 domain: errorDomain,
                 code: code,

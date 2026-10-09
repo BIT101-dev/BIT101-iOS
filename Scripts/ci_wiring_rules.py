@@ -34,6 +34,9 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
         if {"paths", "paths-ignore"} & mapping(mapping(workflow.get("on")).get(event)).keys():
             errors.append(f".github/workflows/ci.yml: {event} 需要覆盖全部仓库路径")
     jobs = mapping(workflow.get("jobs"))
+    for name, job in jobs.items():
+        if name != 'physical-device' and mapping(job).get('runs-on') != ['self-hosted', 'macOS', 'xcode-27', 'bit101-ci']:
+            errors.append(f'.github/workflows/ci.yml: {name} 需要独立的 bit101-ci 隔离运行器')
     workflow_defaults = mapping(mapping(workflow.get("defaults")).get("run"))
     default_shell = workflow_defaults.get("shell", "bash")
 
@@ -248,6 +251,11 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
     ]
     findings = ["代码质量规则边界自检失败：CI 自动触发与 shell 继承门禁"
                 for changed in mutations if not ci_wiring_findings(changed)]
+    for name in ('static-audit', 'release-build', 'catalyst-tests', 'release-acceptance', 'merge-acceptance'):
+        unsafe = re.sub(rf'(?s)(  {name}:.*?)runs-on: \[self-hosted, macOS, xcode-27, bit101-ci\]',
+            r'\1runs-on: xcode-27', workflow_source, count=1)
+        if not any('隔离运行器' in item for item in ci_wiring_findings(unsafe)):
+            findings.append(f'代码质量规则边界自检失败：{name} 的运行器隔离')
     if not ci_wiring_findings(workflow_source.replace("run: npm ci", "run: echo skipped", 1)):
         findings.append("代码质量规则边界自检失败：Worker 冷启动依赖准备")
     for command in ("Scripts/run-static-audit.sh", "Scripts/run-extended-tests.sh modules",

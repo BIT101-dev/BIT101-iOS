@@ -205,17 +205,18 @@ def performance_comparison_complete(name: str, measurement: dict) -> bool:
 
 
 def baseline_complete(proof: dict) -> bool:
-    from validate_distribution import distribution_contracts
+    from validate_distribution import distribution_contracts, minimum_os_version
     if not isinstance(proof, dict) or proof.get('schemaVersion') != 1 or not isinstance(proof.get('platforms'), dict) \
             or set(proof['platforms']) != set(BASELINE_CHECKS): return False
     contracts = distribution_contracts()
     for platform, required in BASELINE_CHECKS.items():
         row = proof['platforms'][platform]
-        minimum = min(int(contract['minimumOSVersion'].split('.')[0]) for contract in contracts.values() if contract['platform'] == platform)
+        minimum = max(minimum_os_version(contract['minimumOSVersion']) for contract in contracts.values() if contract['platform'] == platform)
         if not isinstance(row, dict) or not all(isinstance(row.get(key), str) and row[key].strip() for key in
                 ('deviceIdentifier', 'deviceModel', 'systemVersion', 'systemBuild', 'capturedAt')) \
                 or not re.fullmatch(r'\d+\.\d+(?:\.\d+)?', row['systemVersion']) \
-                or int(row['systemVersion'].split('.')[0]) != minimum \
+                or minimum_os_version(row['systemVersion'])[:2] != minimum[:2] \
+                or minimum_os_version(row['systemVersion']) < minimum \
                 or not sampling_evidence_current({'startedAt': row['capturedAt'], 'finishedAt': row['capturedAt']}) \
                 or not isinstance(row.get('checks'), dict) or set(row['checks']) != required \
                 or not all(isinstance(check, dict) and check.get("outcome") == "passed" and all(isinstance(check.get(key), str) and check[key].strip()

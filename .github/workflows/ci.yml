@@ -34,7 +34,7 @@ concurrency:
 jobs:
   static-audit:
     name: Static audit (Apple toolchain)
-    runs-on: xcode-27
+    runs-on: [self-hosted, macOS, xcode-27, bit101-ci]
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
@@ -98,7 +98,7 @@ jobs:
   release-build:
     name: Release app and extension builds
     needs: static-audit
-    runs-on: xcode-27
+    runs-on: [self-hosted, macOS, xcode-27, bit101-ci]
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
@@ -146,7 +146,7 @@ jobs:
   catalyst-tests:
     name: Mac Catalyst behavior tests
     needs: static-audit
-    runs-on: xcode-27
+    runs-on: [self-hosted, macOS, xcode-27, bit101-ci]
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
@@ -245,7 +245,7 @@ jobs:
     name: Release acceptance with bound device evidence
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' && inputs.release_check
     needs: [static-audit, release-build, catalyst-tests]
-    runs-on: xcode-27
+    runs-on: [self-hosted, macOS, xcode-27, bit101-ci]
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
@@ -264,7 +264,7 @@ jobs:
     name: Core physical-device acceptance
     if: always() && github.event_name == 'pull_request'
     needs: [static-audit, release-build, catalyst-tests, physical-device]
-    runs-on: xcode-27
+    runs-on: [self-hosted, macOS, xcode-27, bit101-ci]
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7

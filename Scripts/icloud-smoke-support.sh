@@ -1,7 +1,7 @@
 #!/bin/zsh
 
 record_result() {
-  python3 - "$SUMMARY_PATH" "$RESULT_BUNDLE" "$1" "$2" "$3" <<'PY'
+  PYTHONPATH="$ROOT_DIR/Scripts${PYTHONPATH:+:$PYTHONPATH}" python3 - "$SUMMARY_PATH" "$RESULT_BUNDLE" "$1" "$2" "$3" <<'PY'
 import json
 import os
 from pathlib import Path
@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 import shutil
 import subprocess
 import sys
+from validation_evidence import write_report
 
 report_path, bundle, stage, process_status, log_path = sys.argv[1:]
 exit_code = int(process_status)
@@ -53,7 +54,7 @@ if stage == "testCleanup":
     report["cleanup"] = row
 else:
     report["stages"].append(row)
-path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
+write_report(report, path=path)
 raise SystemExit(row["exitCode"])
 PY
 }

@@ -7,10 +7,12 @@ import sys
 root = Path(sys.argv[1])
 
 def compile_embedded_python(source, path):
-    headers = re.compile(r"<<(?P<tabs>-)?[ \t]*(?P<quote>['\"]?)(?P<label>PY\w*)(?P=quote)[ \t]*$", re.MULTILINE)
+    headers = re.compile(r"<<(?P<tabs>-)?[ \t]*(?P<quote>['\"]?)(?P<label>PY\w*)(?P=quote)(?=[ \t\n;|&<>]|$)")
     for header in headers.finditer(source):
         body = []
-        for line in source[header.end() + 1:].splitlines(keepends=True):
+        opening_end = source.find("\n", header.end())
+        if opening_end < 0: raise SyntaxError(f"{path}: Python heredoc 正文缺失")
+        for line in source[opening_end + 1:].splitlines(keepends=True):
             line = line.lstrip("\t") if header["tabs"] else line
             if line.rstrip("\r\n") == header["label"]:
                 break
@@ -19,7 +21,7 @@ def compile_embedded_python(source, path):
             raise SyntaxError(f"{path}: Python heredoc 结束标记缺失")
         compile("".join(body), str(path), "exec")
 
-for opening in ["<<PY", "<< 'PY'", '<<"PY"', "<<'PY'", "<<-PY"]:
+for opening in ["<<PY", "<< 'PY'", '<<"PY"', "<<'PY'", "<<-PY", "<<'PY' >/dev/null", "<<'PY' | cat", "<<'PY' 2>&1"]:
     prefix = "\t" if opening == "<<-PY" else ""
     compile_embedded_python(f"python3 - {opening}\n{prefix}pass\n{prefix}PY\n", "heredoc-self-test")
     try:

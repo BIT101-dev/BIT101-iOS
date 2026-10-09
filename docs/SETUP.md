@@ -155,7 +155,7 @@ gh auth login
 (cd Cloudflare/EmergencyUpdateWorker && npx --no-install wrangler login)
 ```
 
-账号凭据保存在本机。GitHub、Cloudflare 和 Apple 签名分别使用各自的授权。
+GitHub、Cloudflare 和 Apple 签名分别使用各自的授权，账号凭据保存在受信开发或真机宿主。CI 使用隔离的 `bit101-ci` 宿主承接常规与 fork 任务，真机宿主使用 `bit101-device` 标签。角色、标签与验收流程见 [构建与测试](TESTING.md)。
 
 测试、静态审计、网络 Smoke 和 iCloud Smoke 按用户明确指定的范围执行；分组、入口和固定产物见 [构建与测试](TESTING.md)。iCloud 双向验证使用同一 Apple ID 的 iPhone 与 Catalyst。线上资源部署按对应授权和 [Cloudflare 资源文档](../Cloudflare/README.md)执行。
 

@@ -871,7 +871,8 @@ exit {initial}
          patch.object(Path, "glob", side_effect=lambda *args: iter([Path("/smoke/generated.xcresult")])), \
          patch.object(Path, "exists", return_value=False), patch.object(shutil, "rmtree") as remove_bundle, \
          patch.object(shutil, "move") as retain_bundle, \
-         patch.object(Path, "read_text", read), patch.object(Path, "write_text", write), \
+         patch.object(Path, "read_text", read), \
+         patch('validation_evidence.write_report', side_effect=lambda report, *, path: write(path, json.dumps(report))), \
          patch.object(subprocess, "run", side_effect=result_response) as result_tool:
         for stage, process_status, expected in (("testPhoneRoundTrip", "65", 65), ("testCleanup", "0", 0)):
             with patch.object(sys, "argv", ["record", "/smoke/report.json", "/smoke/results.xcresult", stage, process_status, "/smoke/log"]), redirect_stdout(StringIO()):

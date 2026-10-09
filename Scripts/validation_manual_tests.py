@@ -93,7 +93,8 @@ def evidence_fixture(check: str) -> bytes:
         contracts = distribution.distribution_contracts()
         platforms = {}
         for platform, checks in BASELINE_CHECKS.items():
-            version = min(value['minimumOSVersion'] for value in contracts.values() if value['platform'] == platform)
+            version = max((value['minimumOSVersion'] for value in contracts.values() if value['platform'] == platform),
+                key=distribution.minimum_os_version)
             platforms[platform] = {'deviceIdentifier': platform + '-fixture', 'deviceModel': platform + '-device',
                 'systemVersion': version, 'systemBuild': 'fixture-build', 'capturedAt': utc_now().isoformat(),
                 'checks': {name: {'operation': '实际操作', 'result': '观察结果', 'outcome': 'passed'} for name in checks},
@@ -307,11 +308,22 @@ def run_self_test() -> None:
     assert not complete(duplicated)
     baseline = json.loads(evidence_fixture('minimum-platforms'))
     for platform in baseline['platforms']:
+        major, minor, _ = distribution.minimum_os_version(baseline['platforms'][platform]['systemVersion'])
+        later_minor = f'{major}.{minor + 1}'
         for key, value in [('systemVersion', '99.0'), ('systemVersion', 'invalid'), ('systemBuild', ''),
+                ('systemVersion', later_minor),
                 ('deviceIdentifier', ''), ('checks', {}), ('evidence', {}), ('capturedAt', '2000-01-01T00:00:00+00:00')]:
             changed = copy.deepcopy(baseline)
             changed['platforms'][platform][key] = value
             assert not evidence_content_complete('minimum-platforms', json.dumps(changed).encode()), (platform, key)
+        contracts = distribution.distribution_contracts()
+        for contract in contracts.values():
+            if contract['platform'] == platform: contract['minimumOSVersion'] = f'{major}.{minor}.2'
+        with patch('validate_distribution.distribution_contracts', return_value=contracts):
+            for candidate, accepted in [(f'{major}.{minor}.1', False), (f'{major}.{minor}.2', True), (f'{major}.{minor}.3', True)]:
+                changed = copy.deepcopy(baseline)
+                changed['platforms'][platform]['systemVersion'] = candidate
+                assert evidence_content_complete('minimum-platforms', json.dumps(changed).encode()) == accepted
     failed_baseline = copy.deepcopy(baseline)
     next(iter(failed_baseline['platforms']['iOS']['checks'].values()))['outcome'] = 'failed'
     assert not evidence_content_complete('minimum-platforms', json.dumps(failed_baseline).encode())

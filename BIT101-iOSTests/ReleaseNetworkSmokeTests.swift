@@ -142,7 +142,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
             credentials: { .init(identity: .init(accountIdentifier: "fixture"), cookie: "fixture") }, refresh: { _ in })
         let operations = CommunityWriteSmoke.Operations.production(papers: PaperService(session: session))
         let text = "功能验收 <正文> & 内容\n第二行"
-        let id = try await operations.create(.paper, text, { _ in })
+        let id = try await operations.create(.paper, text, { _ in }, {})
         #expect(try await operations.read(.paper, id)?.text == text)
         try await operations.edit(.paper, id, text + " 编辑")
         #expect(try await operations.read(.paper, id)?.text == text + " 编辑")
@@ -168,29 +168,33 @@ struct ReleaseNetworkSmokeLifecycleTests {
             baseURL: AppURL.required("https://example.invalid"),
             credentials: { .init(identity: .init(accountIdentifier: "fixture"), cookie: "fixture") }, refresh: { _ in })
         let operations = CommunityWriteSmoke.Operations.production(courses: CourseService(session: session))
-        let comment = try await operations.comment("course42", "功能验收", { _ in })
+        let comment = try await operations.comment("course42", "功能验收", { _ in }, {})
         #expect(comment.rate == 6 && transport.comments == 1)
     }
 
-    @Test(arguments: [(CommunityWriteSmoke.Kind.paper, "BIT101.Paper", "文章不存在Orz", true),
-        (.poster, "BIT101.Gallery", "帖子不存在Orz", true), (.paper, "BIT101.Gallery", "文章不存在Orz", false),
-        (.paper, "BIT101.Paper", "服务暂时繁忙", false), (.course, "BIT101.Paper", "文章不存在Orz", false)], [404, 500])
-    func knownResourceAbsenceKeepsOtherServerFailuresVisible(fixture: (CommunityWriteSmoke.Kind, String, String, Bool), status: Int) {
-        let (kind, domain, message, missing) = fixture
-        let error = NSError(domain: domain, code: status, userInfo: [NSLocalizedDescriptionKey: message])
-        #expect(CommunityWriteSmoke.Operations.isMissingContent(error, kind: kind) == missing)
+    @Test func resourceRecoveryConsumesTypedServiceFailures() {
+        #expect(CommunityWriteSmoke.Operations.isMissingContent(PaperServiceError.missingPaper, kind: .paper))
+        #expect(CommunityWriteSmoke.Operations.isMissingContent(GalleryServiceError.missingPoster, kind: .poster))
+        #expect(!CommunityWriteSmoke.Operations.isMissingContent(GalleryServiceError.missingPoster, kind: .paper))
+        #expect(!CommunityWriteSmoke.Operations.isMissingContent(PaperServiceError.missingPaper, kind: .course))
+        #expect(!CommunityWriteSmoke.Operations.isMissingContent(NSError(domain: "BIT101.Paper", code: 404,
+            userInfo: [NSLocalizedDescriptionKey: "文章不存在Orz"]), kind: .paper))
     }
 
     private final class MissingRoute: HTTPTransport {
+        var knownContent = false
+        var status = 404
         func data(for request: URLRequest) async throws -> (Data, URLResponse) {
             let url = try #require(request.url)
-            return (Data(#"{"message":"Not Found"}"#.utf8),
-                try #require(HTTPURLResponse(url: url, statusCode: 404, httpVersion: nil, headerFields: nil)))
+            let message = knownContent ? (url.path.hasPrefix("/papers/") ? "文章不存在Orz" : "帖子不存在Orz") : "Not Found"
+            return (try JSONSerialization.data(withJSONObject: ["message": message]),
+                try #require(HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil)))
         }
     }
 
-    @Test func routeFailuresRemainVisibleThroughProductionReadAndCommentOperations() async {
-        let session = CommunitySession(httpClient: HTTPClient(transport: MissingRoute(), observer: nil),
+    @Test func routeFailuresRemainVisibleThroughProductionReadAndCommentOperations() async throws {
+        let route = MissingRoute()
+        let session = CommunitySession(httpClient: HTTPClient(transport: route, observer: nil),
             baseURL: AppURL.required("https://example.invalid"),
             credentials: { .init(identity: .init(accountIdentifier: "fixture"), cookie: "fixture") }, refresh: { _ in })
         let operations = CommunityWriteSmoke.Operations.production(papers: PaperService(session: session),
@@ -202,6 +206,14 @@ struct ReleaseNetworkSmokeLifecycleTests {
         }
         await #expect(throws: (any Error).self) { try await operations.comments("poster1") }
         await #expect(throws: (any Error).self) { try await operations.deleteComment(1) }
+        route.knownContent = true
+        for status in [400, 404, 500] {
+            route.status = status
+            for kind in [CommunityWriteSmoke.Kind.paper, .poster] {
+                #expect(try await operations.read(kind, 1) == nil)
+            }
+            await #expect(throws: (any Error).self) { try await operations.comments("poster1") }
+        }
     }
 
     @Test func journalSurvivesRestartAndRetainsTheRecoveryRecordOnStorageFailure() throws {
@@ -360,8 +372,8 @@ struct ReleaseNetworkSmokeLifecycleTests {
 
     @Test func historicalJournalRecoversCourseCommentsAndReplies() async throws {
         let world = CommunityWorld(stage: "success")
-        let comment = try await world.operations.comment("course1", "功能验收 legacy", { _ in })
-        let reply = try await world.operations.comment("comment\(comment.id)", "功能验收 legacy", { _ in })
+        let comment = try await world.operations.comment("course1", "功能验收 legacy", { _ in }, {})
+        let reply = try await world.operations.comment("comment\(comment.id)", "功能验收 legacy", { _ in }, {})
         world.pending = Data("""
         {"marker":"功能验收 legacy","account":1,"targets":[{"kind":"course","id":1}],"comments":[\(comment.id),\(reply.id)]}
         """.utf8)
@@ -374,7 +386,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
 
     @Test func unmappedCommentKeepsAmbiguousFailuresUntilParentAbsenceIsConfirmed() async throws {
         let world = CommunityWorld(stage: "silent-comment-delete")
-        let comment = try await world.operations.comment("course1", "功能验收 fixture", { _ in })
+        let comment = try await world.operations.comment("course1", "功能验收 fixture", { _ in }, {})
         var journal = CommunityWriteSmoke.Journal(marker: "功能验收 fixture", account: 1)
         journal.comments = [comment.id]
         world.pending = try JSONEncoder().encode(journal)
@@ -398,7 +410,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
     func routeFailuresPreserveRecoveryUntilTheServerConfirmsCleanup(stage: String) async throws {
         let world = CommunityWorld(stage: stage)
         world.contents["poster123"] = .init(text: "功能验收 fixture", owned: true, liked: false)
-        let comment = try await world.operations.comment("poster123", "功能验收 fixture", { _ in })
+        let comment = try await world.operations.comment("poster123", "功能验收 fixture", { _ in }, {})
         var journal = CommunityWriteSmoke.Journal(marker: "功能验收 fixture", account: 1)
         journal.targets = [.init(kind: .poster, id: 123)]
         journal.parents = ["poster123"]
@@ -419,7 +431,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
     @Test(arguments: [false, true])
     func restartedCleanupConfirmsAnAlreadyDeletedCommentFromItsPersistedParent(legacy: Bool) async throws {
         let original = CommunityWorld(stage: "success")
-        let comment = try await original.operations.comment("course1", "功能验收 fixture", { _ in })
+        let comment = try await original.operations.comment("course1", "功能验收 fixture", { _ in }, {})
         var journal = CommunityWriteSmoke.Journal(marker: "功能验收 fixture", account: 1)
         journal.parents = ["course1"]
         journal.comments = [comment.id]
@@ -467,12 +479,15 @@ struct ReleaseNetworkSmokeLifecycleTests {
                 identity: .init(id: 1, color: "", text: "", createTime: "", updateTime: "", deleteTime: nil))
         }
         var operations: CommunityWriteSmoke.Operations {
-            .init(identity: { .init(accountIdentifier: String(self.account)) }, account: { self.account }, course: { 1 }, create: { kind, text, record in
+            .init(identity: { .init(accountIdentifier: String(self.account)) }, account: { self.account }, course: { 1 }, create: { kind, text, record, submit in
+                if self.stage == "upload-poster" { throw URLError(.networkConnectionLost) }
+                if self.stage == "cancel-before-poster" { self.cancel?() }
                 if self.stage == "invalid-paper" && kind == .paper {
                     throw NSError(domain: "BIT101.Paper", code: 400, userInfo: [NSLocalizedDescriptionKey: "参数错误awa"])
                 }
                 if self.stage == "signed-out-paper" && kind == .paper { throw PaperServiceError.notLoggedIn }
                 if self.stage == "broken-image" { try record("fixture-image") }
+                try submit()
                 self.nextID += 1
                 let id = self.nextID
                 self.contents[kind.rawValue + String(id)] = .init(text: text, owned: true, liked: false,
@@ -521,7 +536,10 @@ struct ReleaseNetworkSmokeLifecycleTests {
                     throw NSError(domain: "BIT101.Gallery", code: 500, userInfo: [NSLocalizedDescriptionKey: "获取顶级对象失败Orz"])
                 }
                 return self.rows[parent] ?? []
-            }, comment: { object, text, _ in
+            }, comment: { object, text, _, submit in
+                if self.stage == "upload-comment" { throw URLError(.networkConnectionLost) }
+                if self.stage == "cancel-before-comment" { self.cancel?() }
+                try submit()
                 self.nextID += 1
                 @MainActor func makeComment(_ id: Int) -> CommunityComment { CommunityComment(id: id, obj: object, images: [.init(mid: "fixture-image", url: "", lowUrl: "")], user: self.user, anonymous: false,
                     createTime: "", updateTime: "", like: false, likeNum: 0, commentNum: 0, own: true, rate: 0,
@@ -611,7 +629,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
     func interruptedCleanupRetainsPersistedJournalForItsOriginalAccount(operation: String) async throws {
         let world = CommunityWorld(stage: "switch-" + operation)
         world.contents["poster123"] = .init(text: "功能验收 fixture", owned: true, liked: false)
-        let comment = try await world.operations.comment("poster123", "功能验收 fixture", { _ in })
+        let comment = try await world.operations.comment("poster123", "功能验收 fixture", { _ in }, {})
         world.pending = Data(#"{"marker":"功能验收 fixture","account":1,"attempts":[],"targets":[{"kind":"poster","id":123}],"parents":["poster123"],"comments":[\#(comment.id)],"likes":[],"evidence":[]}"#.utf8)
         await #expect(throws: CancellationError.self) { try await world.smoke.run(marker: "fixture", cleanupOnly: true) }
         #expect(world.pending != nil)
@@ -631,7 +649,8 @@ struct ReleaseNetworkSmokeLifecycleTests {
         #expect(world.rows.values.allSatisfy { $0.isEmpty })
     }
 
-    @Test(arguments: ["success", "lost-poster", "lost-reply", "cancelled", "cleanup-failure", "duplicate-comments", "invalid-paper", "signed-out-paper", "broken-image"])
+    @Test(arguments: ["success", "lost-poster", "lost-reply", "cancelled", "cleanup-failure", "duplicate-comments", "invalid-paper", "signed-out-paper", "broken-image",
+        "upload-poster", "upload-comment", "cancel-before-poster", "cancel-before-comment"])
     func communityWritesCleanAfterLostResponsesCancellationAndResume(stage: String) async throws {
         let world = CommunityWorld(stage: stage)
         let task = Task { try await world.smoke.run(marker: "fixture", expectedAccount: 1) }
@@ -656,6 +675,27 @@ struct ReleaseNetworkSmokeLifecycleTests {
         #expect(world.pending == nil)
         #expect(Set(world.contents.keys) == ["poster77", "course1"])
         #expect(world.contents["course1"]?.liked == true)
+        #expect(world.rows.values.allSatisfy { $0.isEmpty })
+    }
+
+    @Test(arguments: [false, true])
+    func failedSubmissionJournalWritePreservesRecoverableObjects(comment: Bool) async throws {
+        let world = CommunityWorld(stage: "success")
+        var injected = false
+        let smoke = CommunityWriteSmoke(operations: world.operations, load: { world.pending }, save: { data in
+            if let data {
+                let journal = try JSONDecoder().decode(CommunityWriteSmoke.Journal.self, from: data)
+                let recordsSubmission = comment ? !journal.commentAttempts.isEmpty : !journal.attempts.isEmpty
+                if recordsSubmission && !injected {
+                    injected = true
+                    throw CocoaError(.fileWriteNoPermission)
+                }
+            }
+            world.pending = data
+        })
+        await #expect(throws: (any Error).self) { try await smoke.run(marker: "fixture", expectedAccount: 1) }
+        #expect(injected && world.pending == nil)
+        #expect(Set(world.contents.keys) == ["poster77", "course1"])
         #expect(world.rows.values.allSatisfy { $0.isEmpty })
     }
 

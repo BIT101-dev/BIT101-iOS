@@ -137,6 +137,7 @@ struct NetworkSmokeCoverageTests {
         var calls: [(String, String)] = []
         var referenced: [[String]] = []
         var brokenReference = false
+        var failUpload = false
         var onUpload: (() -> Void)?
         private var image: [String: Any] { ["mid": "uploaded", "url": "https://example.invalid/image.jpg", "low_url": ""] }
         private var user: [String: Any] {
@@ -149,6 +150,7 @@ struct NetworkSmokeCoverageTests {
             calls.append((url.path, method))
             let result: [String: Any]
             if url.path == "/upload/image" {
+                if failUpload { throw URLError(.networkConnectionLost) }
                 #expect(request.value(forHTTPHeaderField: "Content-Type")?.hasPrefix("multipart/form-data;") == true)
                 let body = try #require(request.httpBody)
                 #expect(body.range(of: Data([0xFF, 0xD8])) != nil)
@@ -185,31 +187,41 @@ struct NetworkSmokeCoverageTests {
         })
         var operations = CommunityWriteSmoke.Operations.production(gallery: gallery)
         var uploads: [String] = []
-        #expect(try await operations.create(.poster, "fixture", { uploads.append($0) }) == 9)
-        #expect(try await operations.comment("poster9", "fixture", { uploads.append($0) }).images.map(\.mid) == ["uploaded"])
+        #expect(try await operations.create(.poster, "fixture", { uploads.append($0) }, {}) == 9)
+        #expect(try await operations.comment("poster9", "fixture", { uploads.append($0) }, {}).images.map(\.mid) == ["uploaded"])
         #expect(uploads == ["uploaded", "uploaded"])
         let imageData = try CommunityWriteMedia.jpeg()
         #expect(imageData == (try CommunityWriteMedia.jpeg()) && UIImage(data: imageData)?.size == CGSize(width: 1, height: 1))
         #expect(route.referenced == [["uploaded"], ["uploaded"]])
         #expect(route.calls.filter { $0.0 == "/upload/image" }.count == 2)
         route.brokenReference = true
-        let created = try await operations.create(.poster, "fixture", { _ in })
+        let created = try await operations.create(.poster, "fixture", { _ in }, {})
         #expect(try await operations.read(.poster, created)?.imageMids != ["uploaded"])
         let writes = route.calls.filter { $0.1 == "POST" && $0.0 != "/upload/image" }.count
         for comment in [false, true] {
             await #expect(throws: CocoaError.self) {
                 let record: CommunityWriteSmoke.Operations.RecordImage = { _ in throw CocoaError(.fileWriteNoPermission) }
-                if comment { _ = try await operations.comment("poster9", "fixture", record) }
-                else { _ = try await operations.create(.poster, "fixture", record) }
+                if comment { _ = try await operations.comment("poster9", "fixture", record, {}) }
+                else { _ = try await operations.create(.poster, "fixture", record, {}) }
             }
         }
         #expect(route.calls.filter { $0.1 == "POST" && $0.0 != "/upload/image" }.count == writes)
+        route.failUpload = true
+        for comment in [false, true] {
+            await #expect(throws: (any Error).self) {
+                let submit: CommunityWriteSmoke.Operations.RecordSubmission = { Issue.record("图片上传完成后记录业务提交") }
+                if comment { _ = try await operations.comment("poster9", "fixture", { _ in }, submit) }
+                else { _ = try await operations.create(.poster, "fixture", { _ in }, submit) }
+            }
+        }
+        #expect(route.calls.filter { $0.1 == "POST" && $0.0 != "/upload/image" }.count == writes)
+        route.failUpload = false
         var identity = CommunitySessionIdentity(accountIdentifier: "fixture")
         operations.identity = { identity }
         let scoped = operations.scoped(to: identity)
         route.onUpload = { identity = .init(accountIdentifier: "other") }
         await #expect(throws: CancellationError.self) {
-            _ = try await scoped.create(.poster, "fixture") { _ in Issue.record("上传完成后沿账号归属保存资源") }
+            _ = try await scoped.create(.poster, "fixture", { _ in Issue.record("上传完成后沿账号归属保存资源") }, {})
         }
         #expect(route.calls.filter { $0.1 == "POST" && $0.0 != "/upload/image" }.count == writes)
     }
