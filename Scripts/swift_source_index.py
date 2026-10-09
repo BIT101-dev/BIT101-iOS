@@ -123,6 +123,7 @@ def swift_syntax_index_sources(sources: dict[str, str]) -> dict[str, dict]:
         ],
     })
     for name, source in sources.items():
+        index[name]["source"] = source
         REGEX_RANGES_BY_SOURCE[source] = character_regex_ranges(source, index[name]["regexRanges"])
     return index
 

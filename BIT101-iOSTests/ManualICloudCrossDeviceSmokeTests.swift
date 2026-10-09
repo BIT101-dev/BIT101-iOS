@@ -461,6 +461,13 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
     }
 
     @MainActor
+    func testMacCleanup() throws {
+        _ = try smokeSession
+        clearLocalSmokePreferences()
+        try clearLocalSmokeFiles()
+    }
+
+    @MainActor
     private func restorePhoneState() async throws {
         let account = try smokeSession.accountDirectoryName
         for domain in ExperimentalPreferenceSyncDomain.allCases {

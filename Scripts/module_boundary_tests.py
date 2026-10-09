@@ -321,6 +321,18 @@ def run_self_test(rules: dict) -> None:
     consumer = "Modules/GalleryFeature/Sources/Consumer.swift"
     assert ownership_errors("GalleryFeature", "import StorageCore; let store = Second.standard", consumer, imported)
     assert service_boundary_errors(consumer, "import StorageCore; let store = StorageCore.Second.standard", imported)
+    from network_capability_rules import business_methods
+    from validation_test_areas import reachable_smoke_calls
+    from unittest.mock import patch
+    aliased = "typealias C=CommunitySession; public struct ExampleService { let client: C; public func f() async throws { return } }"
+    originals = {"Modules/NewForumFeature/Sources/Service.swift": aliased,
+        "BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift":
+            "typealias C=CommunitySession; struct ReleaseNetworkSmokeRunner { let client: C; func run() { mine.fetchMyInfo() } }"}
+    expanded = {path: rules["expanded_resource_source"](source, (), path) for path, source in originals.items()}
+    index = swift_syntax_index_sources(expanded)
+    with patch.object(Path, "is_file", return_value=True), patch.object(Path, "read_text", lambda path, *args, **kwargs: originals[str(path)]):
+        assert "NewForumFeature.ExampleService" in business_methods(index)
+        assert "mine.fetchMyInfo" in {call["calledExpression"] for call in reachable_smoke_calls(index)["network"]}
     assert ownership_errors("GalleryFeature", "import StorageCore; struct Second { static let standard = 1 }; let store = Second.standard", consumer, imported) == []
     assert ownership_errors("GalleryFeature", "import StorageCore; let store = Local.standard; let hidden = Hidden.standard", consumer, imported) == []
     assert ownership_errors("GalleryFeature", 'typealias Preferences = UserDefaults; let text = "Preferences.standard"') == []

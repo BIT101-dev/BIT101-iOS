@@ -308,7 +308,9 @@ def run_self_test(subject) -> int:
         assert subject.smoke_summary('school-sms', dict(sms, verifiedSMSProbes=sms['verifiedSMSProbes'][:1]))['passed'] is False
         summaries['icloud'] = icloud_summary({'exitCode': 0, 'stages': [dict(test, stage=name, totalTestCount=1, exitCode=0) for name in ('testPhoneRoundTrip', 'testMacReceiveAndRestore')]})
         assert summaries['icloud']['cleanup']['kind'] == 'round-trip'
+        assert summaries['icloud']['macCleanup']['kind'] == 'round-trip'
         assert not subject.complete_summary('icloud', dict(summaries['icloud'], cleanup={'exitCode': 1}))
+        assert not subject.complete_summary('icloud', dict(summaries['icloud'], macCleanup={'exitCode': 1}))
         groups = {name: {'exitCode': 0, 'scope': 'full', 'summary': summary, 'inputDigest': subject.source_digest(name), 'environment': subject.environment_context(name)} for name, summary in summaries.items()}
         groups['build-archive']['runID'] = provenance['runID']
         groups['restore']['runID'] = summaries['restore']['runID']
@@ -388,7 +390,11 @@ def run_self_test(subject) -> int:
         assert icloud_summary({'exitCode': 0, 'stages': stages, 'cleanup': cleanup})['passed'] is False
         assert not subject.smoke_summary('icloud-cleanup', {'cleanup': cleanup, 'cleanupExitCode': 0})['passed']
         cleanup['passedTests'] = 1
-        assert subject.smoke_summary('icloud-cleanup', {'exitCode': 1, 'cleanup': cleanup, 'cleanupExitCode': 0})['passed']
+        mac_cleanup = dict(cleanup, stage='testMacCleanup')
+        restored = {'exitCode': 1, 'cleanup': cleanup, 'macCleanup': mac_cleanup, 'cleanupExitCode': 0}
+        assert subject.smoke_summary('icloud-cleanup', restored)['passed']
+        assert not subject.smoke_summary('icloud-cleanup', dict(restored, macCleanup={}))['passed']
+        assert not icloud_summary({'exitCode': 0, 'stages': stages, 'macCleanup': dict(mac_cleanup, exitCode=1)})['passed']
         stages[1]['passedTests'] = 0
         assert icloud_summary({'exitCode': 0, 'stages': stages})['passed'] is False
         return 0

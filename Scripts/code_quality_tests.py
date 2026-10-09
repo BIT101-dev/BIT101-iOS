@@ -764,6 +764,8 @@ set -euo pipefail
 PHONE_TESTS_STARTED=true
 PHONE_CLEANED_UP=false
 PHONE_TEST_PID=""
+MAC_TESTS_STARTED=false
+MAC_CLEANED_UP=false
 CLEANUP_ONLY=false
 SUMMARY_PATH=/smoke/report.json
 validation_group=icloud
@@ -925,4 +927,22 @@ exit {initial}
                 findings.append("Smoke 结果自测：失败阶段保留固定路径原始结果包")
             if not expected and (retain_bundle.called or not remove_bundle.called or "resultBundle" in cleanup):
                 findings.append("Smoke 结果自测：成功阶段完成归集后清理原始结果包")
+        for exit_code in (0, 65):
+            completed = {"totalTestCount": 1, "passedTests": int(exit_code == 0), "failedTests": int(exit_code != 0),
+                "skippedTests": 0, "testFailures": summary["testFailures"] if exit_code else []}
+            remove_bundle.reset_mock()
+            retain_bundle.reset_mock()
+            with patch.object(Path, "glob", return_value=iter([Path("/smoke/test-results.xcresult"), Path("/smoke/generated.xcresult")])), \
+                    patch.object(Path, "exists", lambda path: path.name == "test-results.xcresult"), \
+                    patch.object(sys, "argv", ["record", "/smoke/report.json", "", "testMacCleanup", str(exit_code), "/smoke/log"]), redirect_stdout(StringIO()):
+                try:
+                    exec(compile(match[1], "mac-cleanup-record", "exec"), {})
+                except SystemExit as error:
+                    if error.code != exit_code:
+                        findings.append("Mac 恢复自测：清理状态码传播")
+            cleanup = json.loads(state["/smoke/report.json"])["macCleanup"]
+            if retain_bundle.called or remove_bundle.call_args.args != (Path("/smoke/generated.xcresult"),) \
+                    or exit_code and (cleanup.get("preservedResultBundle") != "/smoke/test-results.xcresult"
+                        or cleanup.get("testFailures") != summary["testFailures"]):
+                findings.append("Mac 恢复自测：保留业务结果包与清理失败诊断")
     return findings

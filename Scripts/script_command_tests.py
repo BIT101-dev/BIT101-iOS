@@ -34,6 +34,32 @@ def script_command_boundary_findings() -> list[str]:
         if result.returncode != (original or restore_result) or result.stdout.count('RESTORE') != (1 if restore_result else 2):
             findings.append('模拟器恢复自测：退出时恢复常规包并保留测试失败状态')
     support = SCRIPT_ROOT / "script-support.sh"
+    icloud_source = (SCRIPT_ROOT / 'run_icloud_cross_device_smoke.sh').read_text()
+    recovery = 'finish_smoke() {' + icloud_source.split('finish_smoke() {', 1)[1].split('\ntrap finish_smoke', 1)[0]
+    for original, phone_status, mac_status in ((0, 0, 0), (7, 0, 0), (0, 9, 0), (0, 0, 9), (7, 9, 9)):
+        stub = f'''ROOT_DIR=/fixture SUMMARY_PATH=/fixture/report CLEANUP_ONLY=false validation_group=icloud
+PHONE_TEST_PID= PHONE_TESTS_STARTED=true PHONE_CLEANED_UP=false MAC_TESTS_STARTED=true MAC_CLEANED_UP=false
+run_phone_test() {{ print PHONE; return {phone_status}; }}
+run_mac_cleanup() {{ print MAC; return {mac_status}; }}
+python3() {{ :; }}
+report_result() {{ :; }}
+'''
+        result = subprocess.run(['zsh', '-c', stub + recovery + '\ntrap finish_smoke EXIT\nexit "$1"',
+            'icloud-recovery-test', str(original)], env=dict(os.environ, BIT101_DEFER_APP_RESTORE='1'), capture_output=True, text=True)
+        if result.returncode != (original or int(bool(phone_status or mac_status))) \
+                or result.stdout.splitlines().count('PHONE') != 1 or result.stdout.splitlines().count('MAC') != 1:
+            findings.append('iCloud 恢复自测：双端清理独立执行并保留原始失败状态')
+    pending = icloud_source.split('pending_cleanup="$(python3 - "$SUMMARY_PATH" <<\'PY\'\n', 1)[1].split('\nPY\n', 1)[0]
+    passed = dict(exitCode=0, totalTestCount=1, passedTests=1, failedTests=0, skippedTests=0)
+    prior_stages = [dict(passed, stage=stage) for stage in ('testPhoneRoundTrip', 'testMacReceiveAndRestore')]
+    for overrides, expected in (({}, ''), ({'macCleanup': dict(passed, exitCode=1)}, 'cleanup'),
+            ({'cleanup': dict(passed, exitCode=1)}, 'cleanup'), ({'stages': prior_stages[:1]}, 'cleanup')):
+        output = StringIO()
+        with patch.object(sys, 'argv', ['pending-cleanup', '/fixture']), \
+                patch.object(Path, 'read_text', return_value=json.dumps(dict({'stages': prior_stages}, **overrides))), redirect_stdout(output):
+            exec(compile(pending, '<icloud-pending-cleanup>', 'exec'), {})
+        if output.getvalue().strip() != expected:
+            findings.append('iCloud 恢复自测：双端恢复通过后进入新验收账号')
     report_program = (SCRIPT_ROOT / 'run-extended-tests.sh').read_text().split(
         ' <<\'PY\'\n', 1)[1].split('\nPY\n', 1)[0]
     for has_info, staging in ((True, False), (True, True), (False, False)):
@@ -70,6 +96,12 @@ xcrun() {
 '''
     export_source = (SCRIPT_ROOT / "run-extended-tests.sh").read_text().replace('source "$ROOT_DIR/Scripts/script-support.sh"', frame)
     scope_source = (SCRIPT_ROOT / "release-network-smoke.sh").read_text().replace('source "$ROOT_DIR/Scripts/script-support.sh"', frame).split('RUN_ID="', 1)[0]
+    for capture in ('rawCourseResponse', 'scheduleCache'):
+        for scope in ('all', 'school', 'schedule', 'bit101', 'ddl', 'transcript', 'community-writes', 'community-cleanup'):
+            result = subprocess.run(['zsh', '-c', scope_source, str(SCRIPT_ROOT / 'release-network-smoke.sh'), scope],
+                env=dict(os.environ, BIT101_NETWORK_SMOKE_CAPTURE=capture, BIT101_NETWORK_SMOKE_FIXTURES=''), capture_output=True, text=True)
+            if (result.returncode == 0) != (scope in ('all', 'school', 'schedule')):
+                findings.append('网络采样自测：课表采样与执行范围匹配')
     valid_fixture = dict(posterID=1, courseID=2, courseNumber='COURSE', paperID=3)
     for value, valid in ((valid_fixture, True), ({}, False), (dict(valid_fixture, posterID=True), False),
             (dict(valid_fixture, courseID=0), False), (dict(valid_fixture, courseNumber=' COURSE'), False)):

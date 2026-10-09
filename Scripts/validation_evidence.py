@@ -278,24 +278,31 @@ def smoke_summary(group: str, value: dict, *, full: bool = True) -> dict:
                 **{name: len(value.get(name, [])) for name in ("failures", "coverageGaps", "authenticationBlockers", "skippedProbes")}}
     if group == "icloud-cleanup":
         cleanup = value.get("cleanup", {})
+        mac_cleanup = value.get("macCleanup", {})
         return {"passed": value.get("cleanupExitCode") == 0 and cleanup.get("exitCode") == 0
-                and successful_test_counts(cleanup), "cleanup": cleanup, "startedAt": cleanup.get("recordedAt"), "finishedAt": cleanup.get("recordedAt")}
+                and successful_test_counts(cleanup) and mac_cleanup.get("exitCode") == 0
+                and successful_test_counts(mac_cleanup), "cleanup": cleanup, "macCleanup": mac_cleanup,
+                "startedAt": cleanup.get("recordedAt"), "finishedAt": mac_cleanup.get("recordedAt")}
     stages = [{name: row.get(name, 0) for name in
                ("stage", "exitCode", "totalTestCount", "passedTests", "failedTests", "skippedTests")}
               for row in value.get("stages", [])]
     expected = {"testPhoneRoundTrip", "testMacReceiveAndRestore"}
     cleanup = value.get("cleanup")
+    mac_cleanup = value.get("macCleanup")
     cleanup_passed = value.get("cleanupExitCode", 0) == 0 and (cleanup is None or
         cleanup.get("exitCode") == 0 and cleanup.get("totalTestCount") == cleanup.get("passedTests") == 1
         and cleanup.get("failedTests") == cleanup.get("skippedTests") == 0)
-    passed = value.get("exitCode") == 0 and cleanup_passed and set(value.get("validatedDomains", [])) == ICLOUD_DOMAINS \
+    mac_cleanup_passed = mac_cleanup is None or mac_cleanup.get("exitCode") == 0 and successful_test_counts(mac_cleanup)
+    passed = value.get("exitCode") == 0 and cleanup_passed and mac_cleanup_passed and set(value.get("validatedDomains", [])) == ICLOUD_DOMAINS \
         and value.get("cloudKitEnvironment") == "Production" and len(stages) == 2 and {row["stage"] for row in stages} == expected and all(
         row["exitCode"] == 0 and row["totalTestCount"] == row["passedTests"] > 0
         and row["failedTests"] == row["skippedTests"] == 0 for row in stages)
     cleanup_evidence = dict(cleanup, kind="standalone") if cleanup is not None else dict(
         next((row for row in stages if row["stage"] == "testPhoneRoundTrip"), {}), kind="round-trip")
+    mac_cleanup_evidence = dict(mac_cleanup, kind="standalone") if mac_cleanup is not None else dict(
+        next((row for row in stages if row["stage"] == "testMacReceiveAndRestore"), {}), kind="round-trip")
     return {"passed": passed, "stages": stages, "validatedDomains": value.get("validatedDomains", []),
-            "cloudKitEnvironment": value.get("cloudKitEnvironment"), "cleanup": cleanup_evidence,
+            "cloudKitEnvironment": value.get("cloudKitEnvironment"), "cleanup": cleanup_evidence, "macCleanup": mac_cleanup_evidence,
             "startedAt": value.get("startedAt"), "finishedAt": value.get("finishedAt")}
 
 
@@ -386,10 +393,12 @@ def complete_summary(group: str, summary: dict) -> bool:
         cleanup = summary.get("cleanup", {})
         return set(summary.get("validatedDomains", [])) == ICLOUD_DOMAINS and summary.get("cloudKitEnvironment") == "Production" \
             and cleanup.get("exitCode") == 0 and successful_test_counts(cleanup) \
+            and summary.get("macCleanup", {}).get("exitCode") == 0 and successful_test_counts(summary.get("macCleanup", {})) \
             and len(stages) == 2 and {row.get("stage") for row in stages} == {"testPhoneRoundTrip", "testMacReceiveAndRestore"} and all(
             row.get("exitCode") == 0 and successful_test_counts(row) for row in stages)
     if group == "icloud-cleanup":
-        return summary.get("cleanup", {}).get("exitCode") == 0 and successful_test_counts(summary.get("cleanup", {}))
+        return all(summary.get(key, {}).get("exitCode") == 0 and successful_test_counts(summary.get(key, {}))
+            for key in ("cleanup", "macCleanup"))
     if group == "manual-device":
         checks = summary.get("checks", {})
         return manual_complete(checks)
@@ -548,7 +557,9 @@ def record(group: str, status: int, scope: str, started_digest: str) -> int:
 def recover_community_smoke(script: Path, directory: Path, run_id: str, original_status: int) -> int:
     names = ("build.log", "console.log", "report/network-smoke-summary.txt", "report/release-network-smoke.json")
     original = {name: (directory / name).read_bytes() for name in names if (directory / name).exists()}
-    status = subprocess.run([str(script), "community-cleanup"], env=dict(os.environ, BIT101_DEFER_APP_RESTORE="1")).returncode
+    status = subprocess.run([str(script), "community-cleanup"],
+        env=dict(os.environ, BIT101_DEFER_APP_RESTORE="1", BIT101_NETWORK_SMOKE_CAPTURE="none",
+                 BIT101_NETWORK_SMOKE_TERM="", BIT101_NETWORK_SMOKE_FIXTURES="")).returncode
     report_name = names[-1]
     child_path = directory / report_name
     try:
@@ -587,6 +598,8 @@ def community_recovery_self_test() -> list[str]:
             "communityWriteEvidence": ["created poster1"]}
         files = {report: json.dumps(parent).encode(), console: b"original failure", directory / "build.log": b"original build"}
         def clean(*args, **kwargs):
+            assert kwargs['env']['BIT101_NETWORK_SMOKE_CAPTURE'] == 'none'
+            assert kwargs['env']['BIT101_NETWORK_SMOKE_TERM'] == kwargs['env']['BIT101_NETWORK_SMOKE_FIXTURES'] == ''
             files[report] = json.dumps({"runID": "cleanup", "scope": "community-cleanup", "passed": cleanup_status == 0}).encode()
             if cleanup_status == 8: files[report] = b"partial report"
             files[console] = b"cleanup outcome"

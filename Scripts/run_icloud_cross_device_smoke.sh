@@ -43,6 +43,8 @@ else:
     rows = report.get("stages", [])
     if "cleanup" in report:
         rows = [*rows, report["cleanup"]]
+    if "macCleanup" in report:
+        rows = [*rows, report["macCleanup"]]
 for row in rows:
     print(f"{row['stage']}：通过 {row.get('passedTests', 0)}，失败 {row.get('failedTests', 0)}，跳过 {row.get('skippedTests', 0)}，状态 {row.get('exitCode', '?')}")
     for failure in row.get("testFailures", []):
@@ -75,10 +77,12 @@ from pathlib import Path
 import sys
 
 report = json.loads(Path(sys.argv[1]).read_text())
-cleanup = report.get("cleanup", {})
 phone = next((row for row in report.get("stages", []) if row.get("stage") == "testPhoneRoundTrip"), {})
-cleared = any(row.get("exitCode") == 0 and row.get("totalTestCount") == row.get("passedTests") == 1
-              and row.get("failedTests", 0) == row.get("skippedTests", 0) == 0 for row in (cleanup, phone))
+mac = next((row for row in report.get("stages", []) if row.get("stage") == "testMacReceiveAndRestore"), {})
+def successful(row):
+    return row.get("exitCode") == 0 and row.get("totalTestCount") == row.get("passedTests") == 1 \
+        and row.get("failedTests", 0) == row.get("skippedTests", 0) == 0
+cleared = successful(report.get("cleanup", phone)) and successful(report.get("macCleanup", mac))
 print("" if cleared else "cleanup")
 PY
 )"
@@ -148,6 +152,8 @@ source "$ROOT_DIR/Scripts/icloud-smoke-support.sh"
 PHONE_TESTS_STARTED=false
 PHONE_CLEANED_UP=false
 PHONE_TEST_PID=""
+MAC_TESTS_STARTED=false
+MAC_CLEANED_UP=false
 finish_smoke() {
   local smoke_status=$?
   trap - EXIT ZERR INT TERM
@@ -158,6 +164,12 @@ finish_smoke() {
   if $PHONE_TESTS_STARTED && ! $PHONE_CLEANED_UP; then
     echo "[恢复] 实验开关与 Smoke 协调数据"
     if ! run_phone_test testCleanup; then
+      if (( smoke_status == 0 )); then smoke_status=1; fi
+    fi
+  fi
+  if $MAC_TESTS_STARTED && ! $MAC_CLEANED_UP; then
+    echo "[恢复] Mac 本地验收数据与密钥"
+    if ! run_mac_cleanup; then
       if (( smoke_status == 0 )); then smoke_status=1; fi
     fi
   fi
@@ -205,8 +217,11 @@ bit101_run_logged "$DERIVED_ROOT/build.log" "iCloud 真机测试构建" \
 
 if $CLEANUP_ONLY; then
   PHONE_TESTS_STARTED=true
+  MAC_TESTS_STARTED=true
   run_phone_test testCleanup
   PHONE_CLEANED_UP=true
+  run_mac_cleanup
+  MAC_CLEANED_UP=true
   exit 0
 fi
 
@@ -272,6 +287,7 @@ PYWORKER
 PHONE_TEST_PID=$!
 MAC_LOG="$DERIVED_ROOT/mac-receive.log"
 MAC_STATUS=0
+MAC_TESTS_STARTED=true
 rm -rf "$DERIVED_ROOT/Mac/Logs/Test"
 bit101_run_logged "$MAC_LOG" "Mac Catalyst 接收测试" xcodebuild test-without-building "${common_args[@]}" \
   -test-timeouts-enabled YES \
@@ -283,4 +299,5 @@ wait "$PHONE_TEST_PID" || PHONE_STATUS=$?
 PHONE_TEST_PID=""
 if (( PHONE_STATUS == 0 )); then PHONE_CLEANED_UP=true; fi
 record_result testMacReceiveAndRestore "$MAC_STATUS" "$MAC_LOG"
+MAC_CLEANED_UP=true
 exit "$PHONE_STATUS"

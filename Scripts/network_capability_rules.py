@@ -1,6 +1,5 @@
 """Resolve business network API signatures and calls from compiler source facts."""
 import re
-from pathlib import Path
 from swift_source_index import argument_parameter_bindings, matching_functions, visible_variables
 
 NETWORK_FOUNDATION_MODULES = {'TransportCore', 'CommunityTransport', 'MediaKit'}
@@ -60,8 +59,8 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
         for base in bases:
             if inherited := types.resolve(types.paths[target], base):
                 network_owners.add('.'.join([inherited[0], *inherited[1]]))
-    active_sources = {path: active_swift_source(Path(path).read_text(), 'network').encode()
-        if Path(path).is_file() else None for path in index}
+    active_sources = {path: active_swift_source(facts['source'], 'network').encode()
+        if 'source' in facts else None for path, facts in index.items()}
     def owner(path, scope): return '.'.join([compilation_unit(path), *scope])
     def active(path, node):
         source = active_sources[path]

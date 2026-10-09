@@ -26,7 +26,7 @@ fixed_children = {
         "release-receipt.json", "core-validation-evidence.json", "simulator-device.json", "simulator.log", "restore.log"} | {name + ".log" for name in TEST_GROUPS}
         | {"build-" + name + ".log" for name in BUILD_HOSTS},
     ".build/icloud-cross-device-smoke": {"Phone", "Mac", "test-results.xcresult", "report.json", "signing.entitlements",
-        "build.log", "mac-build.log", "mac-receive.log", "testPhoneRoundTrip.log", "testCleanup.log"},
+        "build.log", "mac-build.log", "mac-receive.log", "mac-cleanup.log", "testPhoneRoundTrip.log", "testCleanup.log"},
     ".build/release-network-smoke": derived_names | {"build.log", "console.log", "report"},
     ".build/release-network-smoke/report": {"network-smoke-summary.txt", "release-network-smoke.json",
         "raw-course-response.json", "network-smoke-request.json"},

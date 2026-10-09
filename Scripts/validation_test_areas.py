@@ -155,7 +155,6 @@ def manual_capabilities(check: str, scenario: str) -> set[str]:
 
 
 def reachable_smoke_calls(index: dict) -> dict[str, list[dict]]:
-    from pathlib import Path
     from validation_evidence import active_swift_source
     from network_capability_rules import call_can_execute
     from swift_type_index import compilation_unit
@@ -166,7 +165,7 @@ def reachable_smoke_calls(index: dict) -> dict[str, list[dict]]:
     nodes, by_name, active_sources = {}, {}, {}
     for path, facts in index.items():
         if path not in files: continue
-        active = active_swift_source(Path(path).read_text(), 'network').encode() if Path(path).is_file() else None
+        active = active_swift_source(facts['source'], 'network').encode() if 'source' in facts else None
         active_sources[path] = active
         for function in facts.get('functionRanges', []) + facts.get('callableRanges', []):
             if active is not None and active[function['start']:function['start'] + 1] in {b' ', b'\n', b'\r'}: continue

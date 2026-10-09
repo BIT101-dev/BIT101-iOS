@@ -41,6 +41,10 @@ case "$SMOKE_CAPTURE" in
   ""|none|scheduleCache|rawCourseResponse) ;;
   *) echo "BIT101_NETWORK_SMOKE_CAPTURE 参数无效。" >&2; exit 64 ;;
 esac
+if [[ "$SMOKE_CAPTURE" == scheduleCache || "$SMOKE_CAPTURE" == rawCourseResponse ]]; then
+  [[ "$SMOKE_SCOPE" == all || "$SMOKE_SCOPE" == school || "$SMOKE_SCOPE" == schedule ]] \
+    || { echo "课表采样使用 all、school 或 schedule 范围。" >&2; exit 64; }
+fi
 if [[ -n "$SMOKE_FIXTURES" ]]; then
   python3 - "$SMOKE_FIXTURES" <<'PYFIXTURES' || { echo "BIT101_NETWORK_SMOKE_FIXTURES 需要有效的 posterID、courseID、courseNumber 和 paperID。" >&2; exit 64; }
 import json

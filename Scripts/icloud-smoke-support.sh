@@ -18,9 +18,11 @@ row = {
     "exitCode": exit_code,
 }
 generated_bundle = None
-if stage in {"testCleanup", "testMacReceiveAndRestore"}:
-    host = "Mac" if stage == "testMacReceiveAndRestore" else "Phone"
+if stage in {"testCleanup", "testMacReceiveAndRestore", "testMacCleanup"}:
+    host = "Phone" if stage == "testCleanup" else "Mac"
     bundles = list((Path(log_path).parent / host / "Logs/Test").glob("*.xcresult"))
+    if stage == "testMacCleanup":
+        bundles = [path for path in bundles if path.name != "test-results.xcresult"]
     bundle = str(bundles[0]) if len(bundles) == 1 else ""
     generated_bundle = bundles[0] if len(bundles) == 1 else None
 if bundle and Path(bundle).is_dir():
@@ -39,11 +41,17 @@ if generated_bundle is not None:
         shutil.rmtree(generated_bundle)
     else:
         retained_bundle = generated_bundle.parent / "test-results.xcresult"
-        if generated_bundle != retained_bundle:
+        if stage == "testMacCleanup" and retained_bundle.exists():
+            row["preservedResultBundle"] = str(retained_bundle)
+            row["logPath"] = log_path
+            shutil.rmtree(generated_bundle)
+        elif generated_bundle != retained_bundle:
             if retained_bundle.exists():
                 shutil.rmtree(retained_bundle)
             shutil.move(str(generated_bundle), str(retained_bundle))
-        row["resultBundle"] = str(retained_bundle)
+            row["resultBundle"] = str(retained_bundle)
+        else:
+            row["resultBundle"] = str(retained_bundle)
 row["recordedAt"] = datetime.now(timezone.utc).isoformat()
 path = Path(report_path)
 report = json.loads(path.read_text()) if path.is_file() else {"stages": []}
@@ -52,6 +60,8 @@ report["cloudKitEnvironment"] = "Production"
 report["runID"] = os.environ.get("BIT101_VALIDATION_RUN_ID", "")
 if stage == "testCleanup":
     report["cleanup"] = row
+elif stage == "testMacCleanup":
+    report["macCleanup"] = row
 else:
     report["stages"].append(row)
 write_report(report, path=path)
@@ -74,4 +84,21 @@ run_phone_test() {
     -destination "platform=iOS,id=$DEVICE_ID" -derivedDataPath "$DERIVED_ROOT/Phone" \
     "${result_args[@]}" "-only-testing:$TEST_CLASS/$method" || test_status=$?
   record_result "$method" "$test_status" "$log"
+}
+
+run_mac_cleanup() {
+  local log="$DERIVED_ROOT/mac-cleanup.log"
+  local test_status=0
+  python3 - "$DERIVED_ROOT/Mac/Logs/Test" <<'PYCLEANLOGS'
+from pathlib import Path
+import shutil
+import sys
+for path in Path(sys.argv[1]).glob('*.xcresult'):
+    if path.name != 'test-results.xcresult': shutil.rmtree(path)
+PYCLEANLOGS
+  bit101_run_logged "$log" "Mac 本地验收清理" xcodebuild test "${common_args[@]}" \
+    -test-timeouts-enabled YES -destination 'platform=macOS,variant=Mac Catalyst' \
+    -derivedDataPath "$DERIVED_ROOT/Mac" ONLY_ACTIVE_ARCH=YES \
+    "-only-testing:$TEST_CLASS/testMacCleanup" || test_status=$?
+  record_result testMacCleanup "$test_status" "$log"
 }
