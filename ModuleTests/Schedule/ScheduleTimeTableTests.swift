@@ -8,6 +8,17 @@ import Testing
 
 @MainActor
 struct ScheduleTimeTableTests {
+    @Test func classroomCalculatorRunsInBackground() async {
+        let result = await Self.backgroundClassrooms()
+        #expect(result.count == 5_000 && result.allSatisfy(\.isFreeNow))
+    }
+
+    @concurrent
+    private static func backgroundClassrooms() async -> [ClassroomAvailability] {
+        ClassroomAvailabilityCalculator.availabilities(records: (0..<10_000).map {
+            ClassroomRecord(id: String($0), name: String($0), busyTimeCodes: $0.isMultiple(of: 2) ? [1] : []) },
+            timeTable: [TimeSlot(id: 1, start: "08:00", end: "08:45")], selectedSections: [], nowMinutes: 8 * 60)
+    }
     @Test(arguments: ["invalid", "reverse", "overlap", "id", "order"])
     func invalidTablesFailAtCacheAndShareBoundaries(kind: String) throws {
         let first = TimeSlot(id: 1, start: "08:00", end: "08:45")

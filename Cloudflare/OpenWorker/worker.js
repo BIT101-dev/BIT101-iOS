@@ -11,6 +11,42 @@ const AASA = {
 const APP_STORE_URL = "https://apps.apple.com/cn/app/bit101/id6761147125";
 const APP_LOOKUP_URL = "https://itunes.apple.com/lookup?id=6761147125&country=cn";
 const SHARE_ICON_URL = "https://open.aihelpme.dev/share-icon.jpg";
+const MAX_ICON_BYTES = 32 * 1024 * 1024;
+
+async function readBounded(response, maximumBytes, signal) {
+  if (Number(response.headers.get("Content-Length")) > maximumBytes || !response.body) throw new Error("Asset body unavailable");
+  const reader = response.body.getReader(), chunks = [];
+  let size = 0;
+  const cancel = () => { void reader.cancel().catch(() => {}); };
+  signal.addEventListener("abort", cancel, { once: true });
+  try {
+    while (true) {
+      if (signal.aborted) throw new Error("Asset request expired");
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > maximumBytes) throw new Error("Asset body too large");
+      chunks.push(value);
+    }
+    if (signal.aborted) throw new Error("Asset request expired");
+  } finally {
+    signal.removeEventListener("abort", cancel); cancel(); reader.releaseLock();
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  return bytes;
+}
+
+function validIcon(bytes, type) {
+  if (type === "image/jpeg") return bytes.length > 4 && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255
+    && bytes.at(-2) === 255 && bytes.at(-1) === 217;
+  if (type !== "image/png" || bytes.length < 45) return false;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  return [137, 80, 78, 71, 13, 10, 26, 10].every((value, index) => bytes[index] === value)
+    && view.getUint32(8) === 13 && view.getUint32(12) === 0x49484452 && view.getUint32(16) > 0 && view.getUint32(20) > 0
+    && view.getUint32(bytes.length - 12) === 0 && view.getUint32(bytes.length - 8) === 0x49454e44;
+}
 
 function escapeHTML(value) {
   return value.replace(/[&<>"']/g, character => ({
@@ -149,32 +185,26 @@ export default {
     }
 
     if (url.pathname === "/share-icon.jpg") {
-      let upstream;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 30000);
       try {
-        const lookup = await fetch(APP_LOOKUP_URL);
+        const lookup = await fetch(APP_LOOKUP_URL, { signal: controller.signal });
         if (!lookup.ok) throw new Error("App metadata unavailable");
-        const metadata = await lookup.json();
+        const metadata = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(await readBounded(lookup, 8 * 1024 * 1024, controller.signal)));
         const icon = new URL(metadata.results?.find(item => item.trackId === 6761147125)?.artworkUrl512);
         if (icon.protocol !== "https:" || icon.port || icon.username || icon.password
             || !(icon.hostname === "mzstatic.com" || icon.hostname.endsWith(".mzstatic.com"))) {
           throw new Error("App artwork unavailable");
         }
-        upstream = await fetch(icon);
+        const upstream = await fetch(icon, { signal: controller.signal });
+        const type = (upstream.headers.get("Content-Type") || "").split(";")[0].trim().toLowerCase();
+        if (!upstream.ok) return new Response("Share icon unavailable", { status: upstream.status, headers: { "Cache-Control": "no-store" } });
+        const bytes = await readBounded(upstream, MAX_ICON_BYTES, controller.signal);
+        if (!validIcon(bytes, type)) throw new Error("App artwork invalid");
+        return new Response(bytes, { headers: { "Cache-Control": "public, max-age=604800", "Content-Type": type } });
       } catch {
         return new Response("Share icon unavailable", { status: 502, headers: { "Cache-Control": "no-store" } });
-      }
-      if (!upstream.ok || !upstream.headers.get("Content-Type")?.startsWith("image/")) {
-        return new Response("Share icon unavailable", {
-          status: upstream.ok ? 502 : upstream.status,
-          headers: { "Cache-Control": "no-store" }
-        });
-      }
-      return new Response(upstream.body, {
-        headers: {
-          "Cache-Control": "public, max-age=604800",
-          "Content-Type": upstream.headers.get("Content-Type")
-        }
-      });
+      } finally { clearTimeout(timeout); controller.abort(); }
     }
 
     const match = url.pathname.match(/^\/(gallery|course|paper)\/(\d+)\/?$/);

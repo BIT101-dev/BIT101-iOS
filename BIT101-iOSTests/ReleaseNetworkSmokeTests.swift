@@ -57,6 +57,38 @@ import MediaKit
 @Suite("Network smoke lifecycle")
 @MainActor
 struct ReleaseNetworkSmokeLifecycleTests {
+    @Test func unsentCreationReleasesItsRecoveryAttempt() async throws {
+        let world = CommunityWorld(stage: "unsent-poster")
+        await #expect(throws: (any Error).self) { try await world.smoke.run(marker: "fixture", expectedAccount: 1) }
+        #expect(world.pending == nil && Set(world.contents.keys) == ["poster77", "course1"])
+        world.stage = "success"
+        _ = try await world.smoke.run(marker: "fixture", expectedAccount: 1)
+        #expect(world.pending == nil)
+    }
+    @Test func productionSubmissionSeparatesAdmissionFailureFromUncertainTransportFailure() async throws {
+        let route = MissingRoute()
+        let observer = AdmissionObserver()
+        let client = HTTPClient(transport: route, observer: observer)
+        let request = URLRequest(url: AppURL.required("https://example.invalid/probe"))
+        await #expect(throws: CommunityWriteSmoke.SubmissionNotSent.self) {
+            try await CommunityWriteSmoke.Operations.submission { _ = try await client.send(request) }
+        }
+        observer.reject = false
+        await #expect(throws: HTTPClientError.self) {
+            try await CommunityWriteSmoke.Operations.submission { _ = try await client.send(request) }
+        }
+        await #expect(throws: CommunityWriteSmoke.SubmissionNotSent.self) {
+            try await CommunityWriteSmoke.Operations.submission { throw CancellationError() }
+        }
+    }
+
+    private final class AdmissionObserver: HTTPClientObserving {
+        var reject = true
+        func willSend(_ request: URLRequest) async throws {
+            if reject { throw URLError(.notConnectedToInternet) }
+        }
+        func didFinish(request: URLRequest, data: Data?, response: URLResponse?, error: (any Error)?, elapsed: TimeInterval) async {}
+    }
     private func correctedSchedulePayload(courses: [CourseRecord]? = nil, date: String = "2026-11-09") throws -> CourseSyncPayload {
         let rows: [[String: Any]] = (1...2).map { index in
             ["KCH": "course-\(index)", "KCM": "课程\(index)", "SKXQ": index, "KSJC": 1, "JSJC": 2,
@@ -180,13 +212,20 @@ struct ReleaseNetworkSmokeLifecycleTests {
 
     private final class CourseWrites: HTTPTransport {
         var comments = 0
+        var courseNumber = "fixture"
+        var paths: [String] = []
         func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+            let url = try #require(request.url); paths.append(url.path)
+            if request.httpMethod == "GET" {
+                let data = try JSONSerialization.data(withJSONObject: ["id": 42, "name": "fixture", "number": courseNumber,
+                    "like_num": 0, "comment_num": 0, "rate": 0, "teachers_name": "", "teachers_number": "", "like": false])
+                return (data, try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)))
+            }
             let body = try #require(request.httpBody)
             let payload = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
             #expect(payload["obj"] as? String == "course42" && payload["rate"] as? Int == 6)
             comments += 1
             let response = Data(#"{"id":1,"obj":"course42","images":[],"user":{"id":1,"nickname":"功能验收","avatar":{"mid":"","url":"","low_url":""},"motto":"","identity":{"id":1,"color":"","text":"","create_time":"","update_time":""},"create_time":""},"anonymous":false,"create_time":"","update_time":"","like":false,"like_num":0,"comment_num":0,"own":true,"rate":6,"reply_user":{"id":1,"nickname":"功能验收","avatar":{"mid":"","url":"","low_url":""},"motto":"","identity":{"id":1,"color":"","text":"","create_time":"","update_time":""},"create_time":""},"reply_obj":"","text":"功能验收","sub":[]}"#.utf8)
-            let url = try #require(request.url)
             return (response, try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)))
         }
     }
@@ -199,6 +238,20 @@ struct ReleaseNetworkSmokeLifecycleTests {
         let operations = CommunityWriteSmoke.Operations.production(courses: CourseService(session: session))
         let comment = try await operations.comment("course42", "功能验收", { _ in }, {})
         #expect(comment.rate == 6 && transport.comments == 1)
+    }
+
+    @Test func writeCourseTargetUsesItsMaintainedIdentity() async throws {
+        let route = CourseWrites()
+        let session = CommunitySession(httpClient: HTTPClient(transport: route, observer: nil), baseURL: AppURL.required("https://example.invalid"),
+            credentials: { .init(identity: .init(accountIdentifier: "fixture"), cookie: "fixture") }, refresh: { _ in })
+        let fixture = NetworkSmokeFixtures(posterID: 1, courseID: 42, courseNumber: "fixture", paperID: 1)
+        let operations = CommunityWriteSmoke.Operations.production(courses: CourseService(session: session), courseFixture: fixture)
+        #expect(try await operations.course() == 42)
+        route.courseNumber = "other"
+        await #expect(throws: URLError.self) { try await operations.course() }
+        let missing = CommunityWriteSmoke.Operations.production(courses: CourseService(session: session))
+        await #expect(throws: URLError.self) { try await missing.course() }
+        #expect(route.paths == ["/courses/42", "/courses/42"] && route.comments == 0)
     }
 
     @Test func resourceRecoveryConsumesTypedServiceFailures() {
@@ -329,7 +382,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
         var rawCleanupCalls = 0
         let dependencies = ReleaseNetworkSmokeDependencies(requiresRequestEvidence: false, checkLogin: { loginCalls += 1; return "fixture" }, writeReport: { reports.append($0.runID) },
             clearRawCourseResponse: { rawCleanupCalls += 1; throw CocoaError(.fileWriteNoPermission) },
-            communityWriteProbe: { id, _, _, _ in
+            communityWriteProbe: { id, _, _, _, _ in
                 runs.append(id)
                 if id == "first" {
                     await withCheckedContinuation { waiting = $0; entered = true; reached?.resume(); reached = nil }
@@ -520,6 +573,9 @@ struct ReleaseNetworkSmokeLifecycleTests {
                 if self.stage == "signed-out-paper" && kind == .paper { throw PaperServiceError.notLoggedIn }
                 if self.stage == "broken-image" { try record("fixture-image") }
                 try submit()
+                if self.stage == "unsent-poster" {
+                    throw CommunityWriteSmoke.SubmissionNotSent(underlying: CancellationError())
+                }
                 self.nextID += 1
                 let id = self.nextID
                 self.contents[kind.rawValue + String(id)] = .init(text: text, owned: true, liked: false,

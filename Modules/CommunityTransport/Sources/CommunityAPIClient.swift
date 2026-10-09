@@ -193,6 +193,7 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
 
         do {
             let response = try await httpClient.send(request)
+            try validateResponse(response, request: request)
             try validateIdentity(identity)
             return response
         } catch let HTTPClientError.unacceptableStatus(code, _) where code == 401 && authentication == .required && retryPolicy == .afterCredentialRefresh {
@@ -216,6 +217,7 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
 
             do {
                 let response = try await httpClient.send(request)
+                try validateResponse(response, request: request)
                 try validateIdentity(identity)
                 return response
             } catch let HTTPClientError.unacceptableStatus(retryCode, retryMessage) {
@@ -249,6 +251,13 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
         } catch {
             try validateIdentity(identity)
             throw error
+        }
+    }
+
+    private func validateResponse(_ response: HTTPResponse, request: URLRequest) throws {
+        let evidence = HTTPRequestEvidence(request: request, response: response.response, finalRequest: response.finalRequest)
+        guard response.response.url == request.url, evidence.method == evidence.finalMethod else {
+            throw Failure.communityInvalidResponse
         }
     }
 

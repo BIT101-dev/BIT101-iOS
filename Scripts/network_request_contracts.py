@@ -21,20 +21,32 @@ class RequestContract:
     scheme: str = 'https'
     statuses: range | tuple[int, ...] = range(200, 300)
     port: int | None = 443
+    final_host: str = ''
+    final_path: str = ''
 
     def matches(self, request: dict) -> bool:
         try:
             endpoint = urlsplit(request['endpoint'])
             declared_port = endpoint.port
             port = declared_port if declared_port is not None else (443 if endpoint.scheme == 'https' else 80)
+            final = urlsplit(request.get('finalEndpoint', ''))
+            final_port = final.port if final.port is not None else (443 if final.scheme == 'https' else 80)
         except ValueError: return False
         query = request.get('query', {})
-        return endpoint.scheme == self.scheme and request['statusCode'] in self.statuses \
+        final_query = request.get('finalQuery', {})
+        return endpoint.scheme == self.scheme and final.scheme == self.scheme and request['statusCode'] in self.statuses \
             and (self.port is None or port == self.port) \
+            and (self.port is None or final_port == self.port) \
+            and request.get('finalMethod') == self.method \
+            and re.fullmatch(self.final_host or self.host, final.hostname or '') is not None \
+            and re.fullmatch(self.final_path or self.path, final.path) is not None \
             and request['method'] == self.method and re.fullmatch(self.host, endpoint.hostname or '') is not None \
             and re.fullmatch(self.path, endpoint.path) is not None \
             and all(key not in query if pattern is None else re.fullmatch(pattern, query.get(key, '')) is not None
-                for key, pattern in self.query.items())
+                for key, pattern in self.query.items()) \
+            and all(key not in final_query if pattern is None else re.fullmatch(pattern, final_query.get(key, '')) is not None
+                for key, pattern in self.query.items()) \
+            and all(query.get(key) == final_query.get(key) for key in ('page', 'last_id'))
 
     def complete(self, requests: list[dict]) -> bool:
         rows = [request for request in requests if self.matches(request)]
@@ -68,17 +80,17 @@ CONTRACTS = {
     '话廊机器人流': [community('/posters', query={'mode': 'search', 'order': 'new', 'uid': '-1', 'search': None, 'hide_bot': None}, paging='page')],
     '话廊搜索': [community('/posters', query={'mode': 'search', 'order': 'new', 'uid': '-1', 'search': 'BIT101', 'hide_bot': None}, paging='page')],
     '话廊帖子详情': [community(r'/posters/\d+')],
-    '话廊帖子评论': [community('/reaction/comments', query={'obj': r'poster\d+'}, paging='page')],
+    '话廊帖子评论': [community('/reaction/comments', query={'obj': r'poster\d+', 'order': 'new'}, paging='page')],
     '帖子声明列表': [community('/posters/claims')],
     '社区举报类型': [community('/manage/report_types')],
     '消息未读数': [community('/messages/unread_nums')],
-    '学业课程列表': [community('/courses', paging='page')],
+    '学业课程列表': [community('/courses', query={'order': 'new', 'search': None}, paging='page')],
     '学业课程详情': [community(r'/courses/\d+')],
-    '学业课程评论': [community('/reaction/comments', query={'obj': r'course\d+'}, paging='page')],
+    '学业课程评论': [community('/reaction/comments', query={'obj': r'course\d+', 'order': 'new'}, paging='page')],
     '学业课程历史成绩': [community('/courses/histories/.+')],
     '文章列表': [community('/papers', query={'order': None}, paging='page')],
     '文章详情': [community(r'/papers/\d+')],
-    '文章评论': [community('/reaction/comments', query={'obj': r'paper\d+'}, paging='page')],
+    '文章评论': [community('/reaction/comments', query={'obj': r'paper\d+', 'order': 'new'}, paging='page')],
     '我的资料': [community('/user/info/0')],
     '生产共享会话': [community('/user/info/0', minimum=2), community('/user/info/0', statuses=(401,))],
     '我的关注': [community('/user/followings', paging='page')],
@@ -107,7 +119,7 @@ CONTRACTS = {
         RequestContract(r'jwb\.bit\.edu\.cn', '/cjd/ScoreReport2/Index')],
     'App 链接关联配置': [RequestContract(r'open\.aihelpme\.dev', '/.well-known/apple-app-site-association')],
     '分享图标下载': [RequestContract(r'open\.aihelpme\.dev', '/share-icon.jpg')],
-    'open.aihelpme.dev 首页跳转': [RequestContract(r'open\.aihelpme\.dev', '/?')],
+    'open.aihelpme.dev 首页跳转': [RequestContract(r'open\.aihelpme\.dev', '/?', final_host=r'bit101\.cn', final_path='/gallery/')],
     '话廊网页详情': [RequestContract(r'open\.aihelpme\.dev', r'/gallery/\d+')],
     '学业课程网页详情': [RequestContract(r'open\.aihelpme\.dev', r'/course/\d+')],
     '文章网页详情': [RequestContract(r'open\.aihelpme\.dev', r'/paper/\d+')],
@@ -155,8 +167,8 @@ def complete(probe: str, requests: list[dict], expected_parameters: dict | None 
     if matched and selectors:
         if not isinstance(expected_parameters, dict) or set(expected_parameters) != selectors \
                 or not all(isinstance(value, str) and value for value in expected_parameters.values()): return False
-        matched = all(all((unquote(urlsplit(row['endpoint']).path) if key == 'path' else row.get('query', {}).get(key)) == expected
-            for key, expected in expected_parameters.items())
+        matched = all(all((unquote(urlsplit(row[field]).path) if key == 'path' else row.get(query_field, {}).get(key)) == expected
+            for key, expected in expected_parameters.items() for field, query_field in (('endpoint', 'query'), ('finalEndpoint', 'finalQuery')))
             for row in requests if any(contract.matches(row) for contract in contracts))
     if matched and probe == '生产共享会话':
         return len(requests) == 3 and contracts[0].matches(requests[0]) \

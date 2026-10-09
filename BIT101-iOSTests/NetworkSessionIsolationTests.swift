@@ -47,6 +47,11 @@ private nonisolated final class CommunityIsolationServer: Sendable {
     }
 
     private func reply(_ connection: NWConnection, request: String) {
+        if request.hasPrefix("POST /redirect ") {
+            let response = Data("HTTP/1.1 303 See Other\r\nLocation: /final\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8)
+            connection.send(content: response, completion: .contentProcessed { _ in connection.cancel() })
+            return
+        }
         let body = request.lowercased().contains("\r\nfake-cookie: cookie-b\r\n") ? "B" : "A"
         let response = Data(("HTTP/1.1 200 OK\r\nCache-Control: public, max-age=3600\r\n" +
             "Content-Length: 1\r\nConnection: close\r\n\r\n" + body).utf8)
@@ -89,11 +94,31 @@ private final class CommunityLoopbackTransport: HTTPTransport {
         var components = URLComponents(url: try #require(request.url), resolvingAgainstBaseURL: false)
         components?.scheme = "http"
         local.url = try #require(components?.url)
-        return try await NetworkSessionPool.productionCommunity.data(for: local)
+        let (data, response) = try await NetworkSessionPool.productionCommunity.data(for: local)
+        let http = try #require(response as? HTTPURLResponse)
+        let original = try #require(request.url)
+        let mapped = try #require(HTTPURLResponse(url: original, statusCode: http.statusCode,
+            httpVersion: nil, headerFields: nil))
+        return (data, mapped)
     }
 }
 
 extension NetworkClientTests {
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
+    func productionTransportRecordsPostRedirectAsFinalGet() async throws {
+        let server = try CommunityIsolationServer(); defer { server.stop() }
+        let base = try await server.url()
+        let session = URLSession(configuration: .ephemeral); defer { session.invalidateAndCancel() }
+        let client = HTTPClient(transport: UncachedHTTPTransport(base: session), observer: nil)
+        var request = URLRequest(url: base.appending(path: "redirect")); request.httpMethod = "POST"
+        var captured: HTTPRequestEvidence?
+        try await HTTPRequestEvidenceContext.$didReceive.withValue({ captured = $0 }) { _ = try await client.send(request) }
+        let evidence = try #require(captured)
+        #expect(evidence.method == "POST" && evidence.finalMethod == "GET")
+        #expect(evidence.finalEndpoint == base.appending(path: "final").absoluteString)
+        #expect(server.requests.count == 2 && server.requests.last?.hasPrefix("GET /final ") == true)
+    }
     @Test(.timeLimit(.minutes(1)))
     @MainActor
     func productionCommunityPoolIsolatesAccountSwitchesFromCookiesCacheAndLateResponses() async throws {

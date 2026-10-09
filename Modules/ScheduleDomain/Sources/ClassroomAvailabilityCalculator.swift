@@ -5,14 +5,14 @@
 
 import Foundation
 
-public enum ClassroomSectionMatch {
+public nonisolated enum ClassroomSectionMatch: Sendable {
     case full
     case partial
     case none
 }
 
 /// 把学校接口的教室占用数据转换为可展示状态的纯计算器。
-public enum ClassroomAvailabilityCalculator {
+public nonisolated enum ClassroomAvailabilityCalculator {
     public static func availabilities(
         records: [ClassroomRecord],
         timeTable: [TimeSlot],

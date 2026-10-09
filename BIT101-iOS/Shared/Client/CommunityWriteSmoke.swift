@@ -77,8 +77,21 @@ final class CommunityWriteSmoke {
             let result: Result<Value, any Error>
             do { result = .success(try await operation()) }
             catch { result = .failure(error) }
+            if case let .failure(error) = result, error is SubmissionNotSent { throw error }
             guard identity() == owner else { throw CancellationError() }
             return try result.get()
+        }
+
+        static func submission<Value>(_ operation: () async throws -> Value) async throws -> Value {
+            var started = false
+            do {
+                return try await HTTPRequestEvidenceContext.$willStart.withValue({ started = true }) {
+                    try await operation()
+                }
+            } catch {
+                if started { throw error }
+                throw SubmissionNotSent(underlying: error)
+            }
         }
 
         static func isMissingContent(_ error: any Error, kind: Kind) -> Bool {
@@ -90,10 +103,12 @@ final class CommunityWriteSmoke {
         }
 
         static func production(papers: PaperService = PaperService(), courses: CourseService = CourseService(),
-            gallery: GalleryService = GalleryService(), followTarget: Int? = nil) -> Self {
+            gallery: GalleryService = GalleryService(), followTarget: Int? = nil, courseFixture: NetworkSmokeFixtures? = nil) -> Self {
             let mine = MineService()
             return Self(identity: { AppAccountSession.storage.communityCredentials.identity }, account: { try await mine.fetchMyInfo().user.id }, course: {
-                guard let course = try await courses.fetchCourses(search: "", page: 0).first else { throw URLError(.zeroByteResource) }
+                guard let fixture = courseFixture, fixture.isValid else { throw URLError(.badURL) }
+                let course = try await courses.fetchCourse(id: fixture.courseID)
+                guard course.id == fixture.courseID, course.number == fixture.courseNumber else { throw URLError(.cannotParseResponse) }
                 return course.id
             }, create: { kind, text, record, submit in
                 switch kind {
@@ -101,14 +116,17 @@ final class CommunityWriteSmoke {
                     let image = try await gallery.uploadImage(data: CommunityWriteMedia.jpeg(), filename: "smoke.jpg")
                     guard !image.mid.isEmpty else { throw URLError(.cannotParseResponse) }
                     try record(image.mid)
-                    try submit()
-                    let id = try await gallery.createPoster(title: "功能验收", text: text,
-                        imageMids: [image.mid], anonymous: false, tags: [], claimID: 0, isPublic: false)
-                    return id
+                    return try await Self.submission {
+                        try submit()
+                        return try await gallery.createPoster(title: "功能验收", text: text,
+                            imageMids: [image.mid], anonymous: false, tags: [], claimID: 0, isPublic: false)
+                    }
                 case .paper:
-                    try submit()
-                    return try await papers.createPaper(title: text, intro: text,
-                        content: PaperEditorContentBuilder.editorJSON(from: text), anonymous: false, publicEdit: false)
+                    return try await Self.submission {
+                        try submit()
+                        return try await papers.createPaper(title: text, intro: text,
+                            content: PaperEditorContentBuilder.editorJSON(from: text), anonymous: false, publicEdit: false)
+                    }
                 case .course: throw URLError(.unsupportedURL)
                 }
             }, find: { kind, text in
@@ -181,18 +199,24 @@ final class CommunityWriteSmoke {
             }, comment: { object, text, record, submit in
                 let value: CommunityComment
                 if object.hasPrefix("course") {
-                    try submit()
-                    value = try await courses.createComment(objectID: object, text: text, rate: 6)
+                    value = try await Self.submission {
+                        try submit()
+                        return try await courses.createComment(objectID: object, text: text, rate: 6)
+                    }
                 } else if object.hasPrefix("paper") {
-                    try submit()
-                    value = try await papers.createComment(objectID: object, text: text)
+                    value = try await Self.submission {
+                        try submit()
+                        return try await papers.createComment(objectID: object, text: text)
+                    }
                 }
                 else {
                     let image = try await gallery.uploadCommentImage(data: CommunityWriteMedia.jpeg(), filename: "smoke.jpg")
                     guard !image.mid.isEmpty else { throw URLError(.cannotParseResponse) }
                     try record(image.mid)
-                    try submit()
-                    value = try await gallery.createComment(objectID: object, text: text, imageMids: [image.mid])
+                    value = try await Self.submission {
+                        try submit()
+                        return try await gallery.createComment(objectID: object, text: text, imageMids: [image.mid])
+                    }
                     guard !image.mid.isEmpty, value.images.map(\.mid) == [image.mid] else { throw URLError(.cannotParseResponse) }
                 }
                 try await Task.sleep(for: .seconds(1))
@@ -214,6 +238,10 @@ final class CommunityWriteSmoke {
         }
     }
     private let operations: Operations
+    struct SubmissionNotSent: LocalizedError {
+        let underlying: any Error
+        var errorDescription: String? { underlying.localizedDescription }
+    }
     private let load: () throws -> Data?
     private let save: (Data?) throws -> Void
     private static let journalKey = "network-smoke.community-writes.pending"
@@ -273,6 +301,7 @@ final class CommunityWriteSmoke {
             recoveredEvidence = previous.evidence
         }
         guard !cleanupOnly else { return recoveredEvidence + ["服务端清理确认完成"] }
+        let course = try await operations.course()
         var journal = Journal(marker: "功能验收 " + marker, account: account)
         journal.evidence.append("验收账号 user\(account)")
         var businessError: (any Error)?
@@ -329,7 +358,6 @@ final class CommunityWriteSmoke {
                 guard try await operations.read(kind, id)?.text == edited else { throw failure("验收编辑结果异常") }
             }
             operation = "选择课程"
-            let course = try await operations.course()
             journal.targets.append(Target(kind: .course, id: course)); try persist(journal)
             for target in journal.targets {
                 operation = "点赞 " + target.kind.rawValue
@@ -377,6 +405,7 @@ final class CommunityWriteSmoke {
     private func persist(_ journal: Journal) throws { try save(JSONEncoder().encode(journal)) }
 
     private static func creationWasRejected(_ error: any Error) -> Bool {
+        if error is SubmissionNotSent { return true }
         switch error {
         case GalleryServiceError.notLoggedIn, PaperServiceError.notLoggedIn, CourseServiceError.notLoggedIn: return true
         default: break

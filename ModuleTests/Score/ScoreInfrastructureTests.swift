@@ -13,6 +13,19 @@ import os
 
 @MainActor
 struct ScoreInfrastructureBoundaryTests {
+    @Test(arguments: ["缓考", "", "nan", "inf", "-1", "101"])
+    func statisticsExcludeUnavailableAndInvalidScores(score: String) {
+        func row(_ number: String, _ value: String, credit: String = "4") -> ScoreRow {
+            ScoreRow(index: 0, headers: ["课程编号", "成绩", "学分"], values: [number, value, credit])
+        }
+        let summary = ScoreSummary.make(from: [row("math", "80"), row("math", score), row("pending", score), row("bad-credit", "90", credit: "inf")])
+        #expect(summary.selectedCourseCount == 1 && summary.totalCredit == 4)
+        #expect(summary.weightedAverageScore == 80 && summary.weightedAverageGPA == 3.25)
+        let unavailable = ScoreSummary.make(from: [row("pending", score)])
+        #expect(unavailable.selectedCourseCount == 0 && unavailable.weightedAverageScore == nil && unavailable.weightedAverageGPA == nil)
+        let failed = ScoreSummary.make(from: [row("failed", "不及格")])
+        #expect(failed.totalCredit == 4 && failed.weightedAverageScore == 0 && failed.weightedAverageGPA == 0)
+    }
     @Test(arguments: [false, true])
     func scoreCacheReadsCheckTheirByteBudgetBeforeLoading(oversized: Bool) async throws {
         let domain = "BIT101ModulesTests.score-byte-budget"

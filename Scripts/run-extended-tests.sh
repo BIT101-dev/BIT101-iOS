@@ -398,6 +398,7 @@ if ! $BUILD_ONLY; then
   if [[ "$MODE" != "modules" ]]; then rm -rf "$RESULT_BUNDLE"; fi
   rm -rf "$DERIVED_ROOT/diagnostics"
   rm -f "$DERIVED_ROOT/test-metrics.txt" "$DERIVED_ROOT/test-failures.txt"
+  if [[ "$MODE" == ui ]]; then : > "$DERIVED_ROOT/ui-tests.log"; fi
 fi
 
 if [[ "$MODE" == "modules" ]]; then

@@ -171,6 +171,17 @@ private final class SequenceTransport: HTTPTransport {
 
 @MainActor
 struct CommunityTransportTests {
+    @Test(arguments: ["https://other.invalid/posters", "https://example.invalid/unrelated", "https://example.invalid/posters?page=999"])
+    func successfulResponsesKeepTheirBusinessRequestLocation(target: String) async throws {
+        let response = try #require(HTTPURLResponse(url: AppURL.required(target), statusCode: 200, httpVersion: nil, headerFields: nil))
+        let transport = StubTransport(result: .success((Data("[]".utf8), response)))
+        let client = CommunityAPIClient<ModuleCommunityError>(httpClient: HTTPClient(transport: transport, observer: nil),
+            baseURL: AppURL.required("https://example.invalid"), errorDomain: "fixture",
+            credentials: { .init(identity: .init(accountIdentifier: "fixture"), cookie: "fixture") })
+        await #expect(throws: ModuleCommunityError.invalidResponse) {
+            let _: [Int] = try await client.request(path: "posters", queryItems: [URLQueryItem(name: "page", value: "0")])
+        }
+    }
     @Test func authenticatedRetryUsesRefreshedCookie() async throws {
         let transport = SequenceTransport([(401, Data()), (200, Data("result".utf8))])
         var cookie = "original-cookie"
@@ -287,6 +298,50 @@ private final class RecordingObserver: HTTPClientObserving {
 
 @MainActor
 struct ClientCoreTests {
+    @Test func finalRequestEvidenceSurvivesTransportWrappers() async throws {
+        let origin = AppURL.required("https://example.invalid/submit?obj=paper1&token=secret")
+        let target = AppURL.required("https://other.invalid/final?obj=paper2&token=private")
+        var request = URLRequest(url: origin); request.httpMethod = "POST"
+        let response = try #require(HTTPURLResponse(url: target, statusCode: 200, httpVersion: nil, headerFields: nil))
+        let base = FinalRequestTransport(base: StubTransport(result: .success((Data(), response))), finalRequest: URLRequest(url: target))
+        let client = HTTPClient(transport: ForwardingTransport(base: base), observer: nil)
+        var evidence: HTTPRequestEvidence?
+        try await HTTPRequestEvidenceContext.$didReceive.withValue({ evidence = $0 }) { _ = try await client.send(request) }
+        let captured = try #require(evidence)
+        #expect(captured.method == "POST" && captured.finalMethod == "GET")
+        #expect(captured.endpoint == "https://example.invalid/submit" && captured.finalEndpoint == "https://other.invalid/final")
+        #expect(captured.query["obj"] == "paper1" && captured.finalQuery == ["obj": "paper2"])
+        #expect(HTTPRequestEvidence(request: request, response: response).finalMethod == "")
+    }
+
+    private struct FinalRequestTransport: HTTPTransport {
+        let base: any HTTPTransport
+        let finalRequest: URLRequest
+        func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+            HTTPRequestEvidenceContext.didReceiveFinalRequest?(finalRequest)
+            return try await base.data(for: request)
+        }
+    }
+
+    @Test func admissionFailuresPreserveUnsentRequestState() async throws {
+        let transport = StubTransport(result: .failure(URLError(.timedOut)))
+        let observer = RecordingObserver(); observer.failure = URLError(.notConnectedToInternet)
+        let client = HTTPClient(transport: transport, observer: observer)
+        var started = false
+        await #expect(throws: URLError.self) {
+            try await HTTPRequestEvidenceContext.$willStart.withValue({ started = true }) {
+                _ = try await client.send(URLRequest(url: url))
+            }
+        }
+        #expect(!started && transport.requests.isEmpty)
+        observer.failure = nil
+        await #expect(throws: URLError.self) {
+            try await HTTPRequestEvidenceContext.$willStart.withValue({ started = true }) {
+                _ = try await client.send(URLRequest(url: url))
+            }
+        }
+        #expect(started && transport.requests.count == 1)
+    }
     private let url = AppURL.required("https://example.invalid/module-test")
 
     private struct ForwardingTransport: HTTPTransport {

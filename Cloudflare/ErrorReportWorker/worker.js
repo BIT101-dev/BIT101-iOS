@@ -32,6 +32,9 @@ async function readReportBody(request) {
 
 function validReport(report, request) {
   if (!report || typeof report !== "object" || Array.isArray(report)) return false;
+  for (const key of ["appVersion", "build", "deviceModel", "systemVersion", "networkStatus", "contact"]) {
+    if (report[key] != null && typeof report[key] !== "string") return false;
+  }
   if (report.diagnostics != null && (!Array.isArray(report.diagnostics)
     || report.diagnostics.some(record => !record || typeof record !== "object" || Array.isArray(record)))) return false;
   if (report.mode === "network-smoke") {
@@ -58,12 +61,20 @@ const SECRET_TEXT = new RegExp(`(\\b(?:${SECRET_NAMES})\\s*[=:]\\s*)[^&\\r\\n,;]
 
 function redactHTML(value) {
   return value.replace(/<input\b(?:[^>"']|"[^"]*(?:"|$)|'[^']*(?:'|$))*(?:>|$)|<textarea\b(?:[^>"']|"[^"]*"|'[^']*')*>[\s\S]*?(?:<\/textarea\s*>|$)/gi, tag => {
-    const fields = [...tag.matchAll(/\b(?:id|name)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi)]
-      .map(match => match[1] ?? match[2] ?? match[3]);
+    const fields = [...tag.matchAll(/\b(?:id|name|type)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi)]
+      .map(match => decodedHTMLAttribute(match[1] ?? match[2] ?? match[3]));
     if (!fields.some(field => SECRET_KEYS.test(field) || /^(?:login-page-flowkey|login-croypto)$/i.test(field))) return tag;
     const masked = tag.replace(/(\bvalue\s*=\s*)(?:"[^"]*(?:"|$)|'[^']*(?:'|$)|[^\s"'=<>`]+)/gi, '$1"[REDACTED]"');
     return /^<textarea\b/i.test(tag) ? masked.replace(/(>)[\s\S]*(<\/textarea\s*>|$)/gi, "$1[REDACTED]$2") : masked;
   });
+}
+
+function decodedHTMLAttribute(value) {
+  const named = { lowbar: "_", UnderBar: "_", hyphen: "-", amp: "&" };
+  return value.replace(/&#(?:[xX]([0-9a-fA-F]+)|([0-9]+));?/g, (match, hex, decimal) => {
+    const number = parseInt(hex ?? decimal, hex ? 16 : 10);
+    return number <= 0x10FFFF && !(number >= 0xD800 && number <= 0xDFFF) ? String.fromCodePoint(number) : match;
+  }).replace(/&(lowbar|UnderBar|hyphen|amp);/g, (_, name) => named[name]);
 }
 
 function decodedPercent(value) {
@@ -129,18 +140,19 @@ function json(data, status = 200) {
 
 export class ReportQuota extends DurableObject {
   async fetch(request) {
-    const { source, smoke } = await request.json();
-    const sourceLimit = smoke ? MAX_REPORTS_PER_SOURCE_PER_DAY
+    const { source, smoke, admission } = await request.json();
+    let sourceLimit = smoke ? MAX_REPORTS_PER_SOURCE_PER_DAY
       : Number(this.env?.REPORT_SOURCE_DAILY_LIMIT ?? MAX_REPORTS_PER_SOURCE_PER_DAY);
     if (!Number.isSafeInteger(sourceLimit) || sourceLimit < 1 || sourceLimit > MAX_REPORTS_PER_DAY) {
       return Response.json({ allowed: false, error: "invalid_source_quota" }, { status: 503 });
     }
-    const key = smoke ? "smoke" : "daily";
+    if (admission) sourceLimit = 2 * Math.max(sourceLimit, MAX_REPORTS_PER_SOURCE_PER_DAY);
+    const key = admission ? "admission" : smoke ? "smoke" : "daily";
     const day = new Date().toISOString().slice(0, 10);
     const result = this.ctx.storage.transactionSync(() => {
       const previous = this.ctx.storage.kv.get(key);
       const current = previous?.day === day ? previous : { day, count: 0 };
-      if (current.count >= MAX_REPORTS_PER_DAY) return { allowed: false, error: "daily_limit_reached" };
+      if (current.count >= MAX_REPORTS_PER_DAY * (admission ? 2 : 1)) return { allowed: false, error: "daily_limit_reached" };
       const sources = current.sources ?? {};
       const count = sources[source] ?? 0;
       if (count >= sourceLimit) return { allowed: false, error: "source_limit_reached" };
@@ -153,7 +165,7 @@ export class ReportQuota extends DurableObject {
 }
 
 function emailText(value, limit = 1200) {
-  const text = value == null ? "" : String(value).trim();
+  const text = value == null ? "" : (typeof value === "object" ? JSON.stringify(value) : String(value)).trim();
   if (text.length <= limit) return text;
   return `${text.slice(0, limit)}…`;
 }
@@ -168,8 +180,8 @@ function listText(value, limit) {
 
 function reportEmailSubject(category, report) {
   const title = emailLine(report.errorTitle || report.comment || "新报告");
-  const version = report.appVersion || "未知版本";
-  const build = report.build || "?";
+  const version = emailLine(report.appVersion || "未知版本");
+  const build = emailLine(report.build || "?");
   return `BIT101 ${category} · ${title} · ${version} (${build})`.slice(0, 180);
 }
 
@@ -181,13 +193,13 @@ function reportEmailBody(id, receivedAt, report) {
     `报告编号：${id}`,
     `接收时间：${receivedAt}`,
     `类型：${report.mode === "suggestion" ? "用户建议" : "错误报告"}`,
-    `构建：${report.isDevelopmentBuild ? "开发版" : "正式版"} ${report.appVersion || "?"} (${report.build || "?"})`,
-    `设备：${report.deviceModel || "?"}`,
-    `系统：${report.systemVersion || "?"}`,
-    `语言环境：${context.locale || "?"}`,
-    `时区：${context.timeZone || "?"}`,
-    `界面：${context.interfaceStyle || "?"} · 方向：${context.orientation || "?"}`,
-    `网络：${context.networkStatus || report.networkStatus || "?"}`,
+    `构建：${report.isDevelopmentBuild ? "开发版" : "正式版"} ${emailLine(report.appVersion || "?")} (${emailLine(report.build || "?")})`,
+    `设备：${emailLine(report.deviceModel || "?")}`,
+    `系统：${emailLine(report.systemVersion || "?")}`,
+    `语言环境：${emailLine(context.locale || "?")}`,
+    `时区：${emailLine(context.timeZone || "?")}`,
+    `界面：${emailLine(context.interfaceStyle || "?")} · 方向：${emailLine(context.orientation || "?")}`,
+    `网络：${emailLine(context.networkStatus || report.networkStatus || "?")}`,
     "",
     `标题：${emailText(report.errorTitle || "")}`,
     `消息：${emailText(report.errorMessage || "")}`
@@ -200,18 +212,18 @@ function reportEmailBody(id, receivedAt, report) {
 
   lines.push(
     "",
-    `诊断记录：${summary.total ?? diagnostics.length} 条，失败 ${summary.failed ?? 0} 条`,
-    `状态码统计：${Object.entries(summary.statusCodes || {}).map(([code, count]) => `${code}×${count}`).join("、") || "暂无"}`
+    `诊断记录：${emailLine(summary.total ?? diagnostics.length)} 条，失败 ${emailLine(summary.failed ?? 0)} 条`,
+    `状态码统计：${Object.entries(summary.statusCodes || {}).map(([code, count]) => `${code}×${emailLine(count)}`).join("、") || "暂无"}`
   );
   if (summary.latestFailure) lines.push(`最近错误：${emailText(summary.latestFailure)}`);
 
   if (diagnostics.length) {
     lines.push("", "关键请求：");
     for (const record of diagnostics.slice(-8)) {
-      const status = record.statusCode == null ? "无状态码" : `HTTP ${record.statusCode}`;
-      const elapsed = record.elapsedMilliseconds == null ? "" : ` ${record.elapsedMilliseconds}ms`;
+      const status = record.statusCode == null ? "无状态码" : `HTTP ${emailLine(record.statusCode)}`;
+      const elapsed = record.elapsedMilliseconds == null ? "" : ` ${emailLine(record.elapsedMilliseconds)}ms`;
       const error = record.error ? ` · ${emailLine(record.error)}` : "";
-      lines.push(`- ${record.method || "?"} ${emailText(record.url, 500)} · ${status}${elapsed}${error}`);
+      lines.push(`- ${emailLine(record.method || "?")} ${emailText(record.url, 500)} · ${status}${elapsed}${error}`);
     }
   }
 
@@ -289,6 +301,18 @@ export default {
     }
     if (!env.ERROR_REPORTS) return json({ error: "storage_not_configured" }, 503);
     if (env.REPORT_EMAIL && !env.REPORT_EMAIL_DELIVERY) return json({ error: "notification_queue_not_configured" }, 503);
+    const clientIP = request.headers.get("CF-Connecting-IP");
+    if (!clientIP) return json({ error: "client_identity_unavailable" }, 503);
+    const receivedAt = new Date().toISOString();
+    const sourceBytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${receivedAt.slice(0, 10)}:${clientIP}`));
+    const source = Array.from(new Uint8Array(sourceBytes), byte => byte.toString(16).padStart(2, "0")).join("");
+    const quota = env.REPORT_QUOTA.get(env.REPORT_QUOTA.idFromName("daily"));
+    const admissionResponse = await quota.fetch("https://quota/reserve", {
+      method: "POST", body: JSON.stringify({ source, admission: true })
+    });
+    if (!admissionResponse.ok) return json({ error: "quota_unavailable" }, 503);
+    const admission = await admissionResponse.json();
+    if (!admission.allowed) return json({ error: admission.error }, 429);
     const length = Number(request.headers.get("content-length") || 0);
     if (length > MAX_BODY_BYTES) return json({ error: "payload_too_large" }, 413);
     let report;
@@ -323,7 +347,6 @@ export default {
     }
 
     const id = crypto.randomUUID();
-    const receivedAt = new Date().toISOString();
     let serializedRecord;
     try {
       const { attachments, ...metadata } = report;
@@ -335,13 +358,6 @@ export default {
         emailDelivery: { status: env.REPORT_EMAIL && report.mode !== "network-smoke" ? "pending" : "disabled", attempts: 0 } });
     } catch { return json({ error: "invalid_report" }, 400); }
 
-    const clientIP = request.headers.get("CF-Connecting-IP");
-    if (!clientIP) return json({ error: "client_identity_unavailable" }, 503);
-    const sourceBytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(
-      `${receivedAt.slice(0, 10)}:${clientIP}`
-    ));
-    const source = Array.from(new Uint8Array(sourceBytes), byte => byte.toString(16).padStart(2, "0")).join("");
-    const quota = env.REPORT_QUOTA.get(env.REPORT_QUOTA.idFromName("daily"));
     const quotaResponse = await quota.fetch("https://quota/reserve", {
       method: "POST", body: JSON.stringify({ source, smoke: report.mode === "network-smoke" })
     });

@@ -458,6 +458,8 @@ def network_trace_fixture(value: dict) -> dict:
                         request['endpoint'] = 'https://' + example(contract.host) + example(contract.path, index + 1)
                     if contract.method == 'POST' and contract.path == '/reaction/comments' and query['obj'].startswith('comment'):
                         query['obj'] = 'comment' + str(index + 1)
+                request.update(finalEndpoint=('https://' + example(contract.final_host) + example(contract.final_path))
+                    if contract.final_host else request['endpoint'], finalMethod=request['method'], finalQuery=dict(query))
                 assert contract.matches(request), (name, request)
                 for key in SELECTORS.get(name, set()) - {'XNXQDM', 'JXLDM'}:
                     from urllib.parse import unquote, urlsplit
@@ -473,10 +475,29 @@ def network_trace_fixture(value: dict) -> dict:
 def network_route_identity_self_test() -> None:
     from copy import deepcopy
     from validation_provenance import network_requests_complete
-    from network_request_contracts import complete
+    from network_request_contracts import complete as check_complete
+    def complete(probe, requests, expected=None):
+        return check_complete(probe, [dict(row, finalEndpoint=row.get('finalEndpoint', row['endpoint']),
+            finalMethod=row.get('finalMethod', row['method']), finalQuery=row.get('finalQuery', dict(row.get('query', {}))))
+            for row in requests], expected)
     required = {'文章评论'}
     proof = network_trace_fixture({'requiredProbes': sorted(required)})
     assert network_requests_complete(required, proof)
+    for key, value in [('finalEndpoint', 'https://example.invalid/reaction/comments'),
+                       ('finalMethod', 'POST'), ('finalQuery', {'obj': 'paper999', 'order': 'new', 'page': '0'})]:
+        changed = deepcopy(proof)
+        for request in changed['requestEvidence'][0]['requests']: request[key] = value
+        assert not network_requests_complete(required, changed), key
+    changed = deepcopy(proof)
+    del changed['requestEvidence'][0]['requests'][0]['finalEndpoint']
+    assert not network_requests_complete(required, changed)
+    for probe in ('话廊帖子评论', '学业课程评论', '文章评论', '学业课程列表'):
+        fixture = network_trace_fixture({'requiredProbes': [probe]})
+        for parameter in ('order', 'search') if probe == '学业课程列表' else ('order',):
+            changed = deepcopy(fixture)
+            for row in changed['requestEvidence'][0]['requests']:
+                row['query'][parameter] = row['finalQuery'][parameter] = 'invalid-order'
+            assert not network_requests_complete({probe}, changed), (probe, parameter)
     from network_request_contracts import SELECTORS
     for probe, selectors in SELECTORS.items():
         selected = network_trace_fixture({'requiredProbes': [probe]})
@@ -509,6 +530,7 @@ def network_route_identity_self_test() -> None:
     nonempty = deepcopy(cursor_probe['requests'])
     nonempty[0]['responseMinimumID'] = '9'
     nonempty[1]['query']['last_id'] = '9'
+    nonempty[1]['finalQuery']['last_id'] = '9'
     assert complete(cursor_probe['probe'], nonempty)
     for position, invalid in ((0, None), (0, '0'), (1, '0')):
         changed = deepcopy(cursor_probe['requests'])

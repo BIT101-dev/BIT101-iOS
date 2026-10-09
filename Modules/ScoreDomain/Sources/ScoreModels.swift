@@ -154,6 +154,8 @@ public nonisolated struct ScoreSummary: Sendable {
         var fallbackRows: [ScoreRow] = []
 
         for row in rows {
+            guard let grade = statisticalGrade(from: row.score), let credit = row.numericCredit,
+                  credit.isFinite, credit > 0, (grade.score * credit).isFinite else { continue }
             let courseNumber = normalizedCourseNumber(row.courseNumber)
             if courseNumber.isEmpty {
                 fallbackRows.append(row)
@@ -161,7 +163,7 @@ public nonisolated struct ScoreSummary: Sendable {
             }
 
             if let existing = bestRowsByCourse[courseNumber] {
-                if scoreValue(from: row.score) > scoreValue(from: existing.score) {
+                if grade.score > (statisticalGrade(from: existing.score)?.score ?? 0) {
                     bestRowsByCourse[courseNumber] = row
                 }
             } else {
@@ -173,16 +175,20 @@ public nonisolated struct ScoreSummary: Sendable {
         var totalCredit = 0.0
         var totalScore = 0.0
         var totalGPA = 0.0
+        var selectedCourseCount = 0
 
         for row in selectedRows {
-            guard let credit = row.numericCredit, credit > 0 else { continue }
+            guard let credit = row.numericCredit, let grade = statisticalGrade(from: row.score) else { continue }
+            guard (totalCredit + credit).isFinite, (totalScore + grade.score * credit).isFinite,
+                  (totalGPA + grade.gpa * credit).isFinite else { continue }
             totalCredit += credit
-            totalScore += scoreValue(from: row.score) * credit
-            totalGPA += gpaValue(from: row.score) * credit
+            totalScore += grade.score * credit
+            totalGPA += grade.gpa * credit
+            selectedCourseCount += 1
         }
 
         return ScoreSummary(
-            selectedCourseCount: selectedRows.count,
+            selectedCourseCount: selectedCourseCount,
             totalCredit: totalCredit,
             weightedAverageScore: totalCredit > 0 ? totalScore / totalCredit : nil,
             weightedAverageGPA: totalCredit > 0 ? totalGPA / totalCredit : nil
@@ -214,21 +220,13 @@ public nonisolated struct ScoreSummary: Sendable {
     }
 
     /// 将成绩转换为统计用百分制数值。
-    private static func scoreValue(from raw: String) -> Double {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        return gradeMapping(from: trimmed)?.score ?? Double(trimmed) ?? 0
-    }
-
-    /// 此方法将成绩转换为 GPA。
-    private static func gpaValue(from raw: String) -> Double {
-        if let mapping = gradeMapping(from: raw) {
-            return mapping.gpa
-        }
-
-        let score = Double(raw.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
-        if score < 60 { return 0 }
+    private static func statisticalGrade(from raw: String) -> (score: Double, gpa: Double)? {
+        if let mapping = gradeMapping(from: raw) { return mapping }
+        guard let score = Double(raw.trimmingCharacters(in: .whitespacesAndNewlines)),
+              score.isFinite, (0...100).contains(score) else { return nil }
+        if score < 60 { return (score, 0) }
         // 百分制使用学校公布的连续公式；等级制由上方的等级映射处理。
-        return 4 - 3 * (100 - score) * (100 - score) / 1600
+        return (score, 4 - 3 * (100 - score) * (100 - score) / 1600)
     }
 }
 

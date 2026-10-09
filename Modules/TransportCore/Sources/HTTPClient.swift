@@ -36,18 +36,23 @@ extension URLSession: HTTPTransport {
         }
         try Task.checkCancellation()
         data.append(contentsOf: chunk)
+        if let finalRequest = bytes.task.currentRequest {
+            await HTTPRequestEvidenceContext.didReceiveFinalRequest?(finalRequest)
+        }
         return (data, response)
     }
 }
 
 public nonisolated struct HTTPResponse: Sendable {
-    public init(data: Data, response: HTTPURLResponse) {
+    public init(data: Data, response: HTTPURLResponse, finalRequest: URLRequest? = nil) {
         self.data = data
         self.response = response
+        self.finalRequest = finalRequest
     }
 
     public let data: Data
     public let response: HTTPURLResponse
+    public let finalRequest: URLRequest?
 
     public var statusCode: Int { response.statusCode }
 }
@@ -114,11 +119,20 @@ public struct HTTPClient {
         let startedAt = Date()
         var receivedData: Data?
         var receivedResponse: URLResponse?
+        var finalRequest: URLRequest?
+        let parent = HTTPRequestEvidenceContext.didReceiveFinalRequest
         let result: HTTPResponse
         do {
+            try Task.checkCancellation()
+            HTTPRequestEvidenceContext.willStart?()
             let (data, response) = try await HTTPRequestEvidenceContext.$didReceive.withValue(nil) {
-                try await transport.data(for: request,
-                    maximumBytes: maximumBytes ?? HTTPResponseResourceLimits.maximumStructuredBytes)
+                try await HTTPRequestEvidenceContext.$didReceiveFinalRequest.withValue({ value in
+                    finalRequest = value
+                    parent?(value)
+                }) {
+                    try await transport.data(for: request,
+                        maximumBytes: maximumBytes ?? HTTPResponseResourceLimits.maximumStructuredBytes)
+                }
             }
             receivedData = data
             receivedResponse = response
@@ -127,7 +141,7 @@ public struct HTTPClient {
                 throw HTTPClientError.invalidResponse
             }
             if let record = HTTPRequestEvidenceContext.didReceive {
-                let evidence = await HTTPRequestEvidence.capture(request: request, response: httpResponse, body: data)
+                let evidence = await HTTPRequestEvidence.capture(request: request, response: httpResponse, body: data, finalRequest: finalRequest)
                 try Task.checkCancellation()
                 record(evidence)
             }
@@ -138,7 +152,7 @@ public struct HTTPClient {
                     message: message
                 )
             }
-            result = HTTPResponse(data: data, response: httpResponse)
+            result = HTTPResponse(data: data, response: httpResponse, finalRequest: finalRequest)
         } catch {
             await observer?.didFinish(
                 request: request, data: receivedData, response: receivedResponse, error: error,

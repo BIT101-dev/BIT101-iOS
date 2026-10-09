@@ -61,6 +61,7 @@ raise SystemExit(0 if valid else 1)
 PYFIXTURES
 fi
 if [[ "$SMOKE_SCOPE" == community-writes ]]; then
+  [[ -n "$SMOKE_FIXTURES" ]] || { echo "社区写入需要 BIT101_NETWORK_SMOKE_FIXTURES 中维护的课程对象。" >&2; exit 64; }
   python3 -c 'import sys; value=sys.argv[1]; sys.exit(0 if len(value) <= 19 and value.isascii() and value.isdecimal() and 0 < int(value) <= 2**63 - 1 else 1)' "${BIT101_COMMUNITY_SMOKE_ACCOUNT:-}" || { echo "社区写入需要明确专用账号 BIT101_COMMUNITY_SMOKE_ACCOUNT。" >&2; exit 64; }
   python3 -c 'import sys; value=sys.argv[1]; sys.exit(0 if len(value) <= 19 and value.isascii() and value.isdecimal() and 0 < int(value) <= 2**63 - 1 else 1)' "${BIT101_COMMUNITY_FOLLOW_TARGET:-}" || { echo "社区写入需要已关注的专用目标 BIT101_COMMUNITY_FOLLOW_TARGET。" >&2; exit 64; }
 fi

@@ -187,7 +187,7 @@ final class UITestHTTPTransport: HTTPTransport {
         }
         guard let url = request.url else { throw URLError(.badURL) }
         if url.host == "feedback.aihelpme.dev", AppUITestBootstrap.environment["BIT101_UI_TEST_CONTENT"] == "1" {
-            return try jsonResponse([:] as [String: String], url: url)
+            return try jsonResponse(["id": "11111111-1111-4111-8111-111111111111"], url: url, statusCode: 201)
         }
         if url.host == "itunes.apple.com", let fixture = AppUITestBootstrap.environment["BIT101_UI_TEST_UPDATE"] {
             return try jsonResponse(["results": [["version": fixture == "current" ? "0.0" : "999.0",
@@ -337,9 +337,9 @@ final class UITestHTTPTransport: HTTPTransport {
         return try jsonResponse(payload, url: url)
     }
 
-    private func jsonResponse(_ payload: Any, url: URL) throws -> (Data, URLResponse) {
+    private func jsonResponse(_ payload: Any, url: URL, statusCode: Int = 200) throws -> (Data, URLResponse) {
         let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
-        guard let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil,
+        guard let response = HTTPURLResponse(url: url, statusCode: statusCode, httpVersion: nil,
                                              headerFields: ["Content-Type": "application/json"]) else {
             throw URLError(.badServerResponse)
         }

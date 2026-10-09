@@ -66,9 +66,10 @@ export class QuotaFixture extends ReportQuota {
     assert.equal((await send({ mode: "network-smoke", runID: "maximum",
       attachments: Array.from({ length: 6 }, () => ({ data: Buffer.alloc(2 * 1024 * 1024).toString("base64") })) })).status, 201);
     const kv = await mf.getKVNamespace("ERROR_REPORTS");
+    assert.equal((await send({ mode: "sanitized", errorTitle: "fixture", errorMessage: "fixture", build: { toString: null } })).status, 400);
     for (const title of ["x".repeat(1100), "\u0000".repeat(1100), "🧪".repeat(1100)]) {
       const response = await send({ mode: "sanitized", errorTitle: title, errorMessage: "fixture",
-        appVersion: "\u0000".repeat(1100), build: { toString: null } });
+        appVersion: "\u0000".repeat(1100), build: "1" });
       assert.equal(response.status, 201);
       const id = (await response.json()).id;
       const row = (await kv.list()).keys.find(key => key.name.endsWith(id));
@@ -122,8 +123,12 @@ export class QuotaFixture extends ReportQuota {
     } finally { await configured.dispose(); }
   }
   const bodySource = fs.readFileSync("../ErrorReportWorker/worker.js", "utf8")
-    .replace('import { DurableObject } from "cloudflare:workers";', 'class DurableObject { constructor(ctx, env) { this.ctx = ctx; this.env = env; } }') + "\nexport { readReportBody, MAX_BODY_BYTES, forceRedact, PROTECTED_NAMES };";
-  const { default: feedback, ReportEmailDelivery, readReportBody, MAX_BODY_BYTES, forceRedact, PROTECTED_NAMES } = await import("data:text/javascript;base64," + Buffer.from(bodySource).toString("base64"));
+    .replace('import { DurableObject } from "cloudflare:workers";', 'class DurableObject { constructor(ctx, env) { this.ctx = ctx; this.env = env; } }') + "\nexport { readReportBody, MAX_BODY_BYTES, forceRedact, PROTECTED_NAMES, reportEmailSubject, reportEmailBody };";
+  const { default: feedback, ReportEmailDelivery, readReportBody, MAX_BODY_BYTES, forceRedact, PROTECTED_NAMES, reportEmailSubject, reportEmailBody } = await import("data:text/javascript;base64," + Buffer.from(bodySource).toString("base64"));
+  const malformedLegacy = { build: { toString: null }, context: { locale: { toString: null } }, diagnosticSummary: { total: { toString: null } },
+    diagnostics: [{ statusCode: { toString: null }, elapsedMilliseconds: { toString: null }, method: { toString: null } }] };
+  assert.doesNotThrow(() => reportEmailSubject("fixture", malformedLegacy));
+  assert.doesNotThrow(() => reportEmailBody("fixture", "fixture", malformedLegacy));
   let saved = 0, sent = 0, offline = true, failStatusWrite = false, failJobWrite = false, alarmAt;
   const emails = [];
   const records = new Map(), jobs = new Map();
@@ -153,6 +158,12 @@ export class QuotaFixture extends ReportQuota {
   const accepted = await feedback.fetch(new Request("https://feedback.invalid/api/error-reports", { method: "POST", headers: { "CF-Connecting-IP": "192.0.2.1" }, body: JSON.stringify({ mode: "suggestion", comment: "fixture" }) }), {
     ...emailEnv
   });
+  let bodyReads = 0;
+  const blockedBody = new ReadableStream({ pull(controller) { bodyReads++; controller.enqueue(new TextEncoder().encode("fixture")); } }, { highWaterMark: 0 });
+  const blocked = await feedback.fetch(new Request("https://feedback.invalid/api/error-reports", { method: "POST", headers: { "CF-Connecting-IP": "192.0.2.1" }, body: blockedBody, duplex: "half" }), {
+    ...emailEnv, REPORT_QUOTA: { idFromName() {}, get() { return { async fetch() { return Response.json({ allowed: false, error: "source_limit_reached" }); } }; } }
+  });
+  assert.equal(blocked.status, 429); assert.equal(bodyReads, 0);
   assert.equal(accepted.status, 201); assert.equal(saved, 1); assert.equal(sent, 0); assert(alarmAt);
   await assert.rejects(delivery.alarm({ retryCount: 0 }));
   assert.equal(jobs.get("job").delivery.status, "pending"); assert.equal(sent, 1);
@@ -192,6 +203,13 @@ export class QuotaFixture extends ReportQuota {
     const masked = forceRedact(value); assert(!masked.includes("SENSITIVE_VALUE") && !masked.includes("TAIL_VALUE") && masked.includes("[REDACTED]"));
     if (value.includes("available")) assert(masked.includes("available"));
   }
+  for (const value of ['<input type="password" value="SENSITIVE_VALUE">', '<input TYPE=pass&#x77;ord value="SENSITIVE_VALUE">',
+    '<input name="pass&#119;ord" value="SENSITIVE_VALUE">', '<input name="pass&#x77ord" value="SENSITIVE_VALUE">',
+    '<textarea name="access&lowbar;token">SENSITIVE_VALUE</textarea>']) {
+    assert(!forceRedact(value).includes("SENSITIVE_VALUE"));
+  }
+  const ordinaryInput = '<input type="text" name="summary" value="visible">';
+  assert.equal(forceRedact(ordinaryInput), ordinaryInput);
   const emergency = (await import("data:text/javascript;base64," + Buffer.from(fs.readFileSync("src/index.js", "utf8")).toString("base64"))).default;
   const notice = { schema_version: 1, enabled: true, notice_id: "fixture", maximum_affected_build: 100, title: "fixture", message: "fixture" };
   for (const [value, status] of [[null, 503], [{ enabled: false }, 503], [{ schema_version: 1, enabled: false }, 200], [new Error("offline"), 503], [notice, 200], [{ ...notice, title: " " }, 503], [{ ...notice, maximum_affected_build: 1e20 }, 503]]) {
@@ -234,14 +252,36 @@ export class QuotaFixture extends ReportQuota {
     }
     assert.equal((await worker.fetch(new Request(`https://open.invalid/${route}/9223372036854775807`))).status, 200);
   }
+  const jpeg = Buffer.from(fs.readFileSync("../../BIT101-iOS/Shared/Client/CommunityWriteMedia.swift", "utf8").match(/Data\(base64Encoded: "([^"]+)"/)[1], "base64");
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aZ9sAAAAASUVORK5CYII=", "base64");
   for (const [status, type, expected] of [[404, "text/html", 404], [200, "text/html", 502], [200, "image/jpeg", 200], [200, "image/png", 200]]) {
     global.fetch = async url => String(url).startsWith("https://itunes.apple.com/")
       ? Response.json({ results: [{ trackId: 6761147125, artworkUrl512: "https://is1-ssl.mzstatic.com/current.jpg" }] })
-      : new Response(type === "image/png" ? Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aZ9sAAAAASUVORK5CYII=", "base64") : "fixture", { status, headers: { "Content-Type": type } });
+      : new Response(type === "image/png" ? png : jpeg, { status, headers: { "Content-Type": type } });
     const response = await worker.fetch(new Request("https://open.invalid/share-icon.jpg"));
     assert.equal(response.status, expected);
     if (expected !== 200) assert.equal(response.headers.get("Cache-Control"), "no-store"); else assert.equal(response.headers.get("Content-Type"), type);
   }
+  for (const body of ["fixture", jpeg.subarray(0, jpeg.length - 2)]) {
+    global.fetch = async url => String(url).startsWith("https://itunes.apple.com/")
+      ? Response.json({ results: [{ trackId: 6761147125, artworkUrl512: "https://is1-ssl.mzstatic.com/current.jpg" }] })
+      : new Response(body, { headers: { "Content-Type": "image/jpeg" } });
+    assert.equal((await worker.fetch(new Request("https://open.invalid/share-icon.jpg"))).status, 502);
+  }
+  let canceledIcon = false;
+  global.fetch = async url => String(url).startsWith("https://itunes.apple.com/")
+    ? Response.json({ results: [{ trackId: 6761147125, artworkUrl512: "https://is1-ssl.mzstatic.com/current.jpg" }] })
+    : new Response(new ReadableStream({ start(controller) {
+        const chunk = new Uint8Array(8 * 1024 * 1024);
+        for (let index = 0; index < 5; index++) controller.enqueue(chunk);
+      }, cancel() { canceledIcon = true; } }), { headers: { "Content-Type": "image/jpeg" } });
+  assert.equal((await worker.fetch(new Request("https://open.invalid/share-icon.jpg"))).status, 502);
+  assert(canceledIcon);
+  const originalTimeout = global.setTimeout;
+  global.setTimeout = callback => originalTimeout(callback, 0);
+  global.fetch = async (_, { signal }) => new Promise((_, reject) => signal.addEventListener("abort", () => reject(new Error("expired")), { once: true }));
+  try { assert.equal((await worker.fetch(new Request("https://open.invalid/share-icon.jpg"))).status, 502); }
+  finally { global.setTimeout = originalTimeout; }
   for (const results of [[], [{ trackId: 1, artworkUrl512: "https://is1-ssl.mzstatic.com/icon.jpg" }],
       [{ trackId: 6761147125, artworkUrl512: "https://foreign.invalid/icon.jpg" }]]) {
     let calls = 0;

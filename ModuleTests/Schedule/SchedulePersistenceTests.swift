@@ -11,6 +11,11 @@ import Testing
 
 @MainActor
 struct SchedulePersistenceTests {
+    @Test func localFilesRejectNetworkReadAddresses() throws {
+        let files = LocalAppFileService()
+        let url = try #require(URL(string: "https://example.invalid/probe"))
+        #expect(throws: CocoaError.self) { try files.readData(at: url) }
+    }
     @Test func localFilesHonorTheSharedAtomicIdentityAndDirectoryContract() throws {
         let files = LocalAppFileService()
         let root = files.temporaryDirectoryURL.appendingPathComponent("BIT101-FileServiceContract", isDirectory: true)

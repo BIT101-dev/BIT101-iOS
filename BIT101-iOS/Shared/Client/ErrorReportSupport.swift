@@ -38,14 +38,14 @@ enum ErrorReportRedactor {
 
     private static func redactHTML(_ value: String) -> String {
         guard let tags = try? NSRegularExpression(pattern: #"<input\b(?:[^>"']|"[^"]*(?:"|$)|'[^']*(?:'|$))*(?:>|$)|<textarea\b(?:[^>"']|"[^"]*"|'[^']*')*>[\s\S]*?(?:</textarea\s*>|$)"#, options: .caseInsensitive),
-              let fields = try? NSRegularExpression(pattern: #"\b(?:id|name)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))"#, options: .caseInsensitive)
+              let fields = try? NSRegularExpression(pattern: #"\b(?:id|name|type)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))"#, options: .caseInsensitive)
         else { return value }
         var output = value
         for tag in tags.matches(in: value, range: NSRange(value.startIndex..., in: value)).reversed() {
             guard let range = Range(tag.range, in: output) else { continue }
             let text = String(output[range])
             let identifiers = fields.matches(in: text, range: NSRange(text.startIndex..., in: text)).flatMap { match in
-                (1...3).compactMap { Range(match.range(at: $0), in: text).map { String(text[$0]) } }
+                (1...3).compactMap { Range(match.range(at: $0), in: text).map { decodedHTMLAttribute(String(text[$0])) } }
             }
             guard identifiers.contains(where: { field in
                 ["login-page-flowkey", "login-croypto"].contains(field.lowercased())
@@ -57,6 +57,22 @@ enum ErrorReportRedactor {
                 masked = masked.replacingOccurrences(of: #"(?i)(>)[\s\S]*(</textarea\s*>|$)"#, with: "$1[REDACTED]$2", options: .regularExpression)
             }
             output.replaceSubrange(range, with: masked)
+        }
+        return output
+    }
+
+    private static func decodedHTMLAttribute(_ value: String) -> String {
+        guard let expression = try? NSRegularExpression(pattern: #"&#(?:[xX]([0-9a-fA-F]+)|([0-9]+));?"#) else { return value }
+        var output = value
+        for match in expression.matches(in: value, range: NSRange(value.startIndex..., in: value)).reversed() {
+            let hexadecimal = match.range(at: 1).location != NSNotFound
+            guard let digits = Range(match.range(at: hexadecimal ? 1 : 2), in: value),
+                  let number = UInt32(value[digits], radix: hexadecimal ? 16 : 10), let scalar = Unicode.Scalar(number),
+                  let range = Range(match.range, in: output) else { continue }
+            output.replaceSubrange(range, with: String(scalar))
+        }
+        for (entity, replacement) in [("&lowbar;", "_"), ("&UnderBar;", "_"), ("&hyphen;", "-"), ("&amp;", "&")] {
+            output = output.replacingOccurrences(of: entity, with: replacement)
         }
         return output
     }
@@ -215,7 +231,7 @@ struct FeedbackDiagnosticSummary: Encodable {
     }
 }
 
-private struct ErrorReportPayload: Encodable {
+struct ErrorReportPayload: Encodable {
     let mode: String
     let isDevelopmentBuild: Bool
     let comment: String?
@@ -263,6 +279,18 @@ private struct NetworkSmokeResponse: Decodable {
 
 /// 错误报告与开发者建议共用的反馈提交入口。
 struct FeedbackSubmissionClient {
+    static func validateSubmissionResponse(_ response: HTTPResponse, request: URLRequest) throws {
+        struct Receipt: Decodable { let id: String }
+        try validateResponseOwnership(response, request: request)
+        guard response.statusCode == 201, let receipt = try? JSONDecoder().decode(Receipt.self, from: response.data),
+              UUID(uuidString: receipt.id) != nil else { throw URLError(.badServerResponse) }
+    }
+
+    private static func validateResponseOwnership(_ response: HTTPResponse, request: URLRequest) throws {
+        let evidence = HTTPRequestEvidence(request: request, response: response.response, finalRequest: response.finalRequest)
+        guard response.response.url == request.url, evidence.finalMethod == request.httpMethod else { throw URLError(.badServerResponse) }
+    }
+
     static func submit<Payload: Encodable>(_ payload: Payload) async throws {
         var request = URLRequest(url: AppURL.required("https://feedback.aihelpme.dev/api/error-reports"))
         request.httpMethod = "POST"
@@ -280,6 +308,7 @@ struct FeedbackSubmissionClient {
                 message: HTTPClient.errorMessage(from: data)
             )
         }
+        try validateSubmissionResponse(response, request: request)
     }
 
 #if DEBUG || RELEASE_NETWORK_SMOKE
@@ -301,6 +330,7 @@ struct FeedbackSubmissionClient {
             )
         }
         let result = try JSONDecoder().decode(NetworkSmokeResponse.self, from: data)
+        try validateResponseOwnership(response, request: request)
         guard result.ok, result.recordVerified, result.temporaryRecordRemoved, result.quotaReserved else {
             throw URLError(.dataNotAllowed)
         }
@@ -326,9 +356,13 @@ final class ErrorReportViewModel: ObservableObject {
     let alert: any DiagnosticAlertPresentable
     private let identity = AppAccountSession.storage.schoolSessionIdentity
     private var accountSubscription: AnyCancellable?
+    private let submitReport: @MainActor (ErrorReportPayload) async throws -> Void
+    var isCurrentAccount: Bool { AppAccountSession.storage.schoolSessionIdentity == identity }
 
-    init(alert: any DiagnosticAlertPresentable) {
+    init(alert: any DiagnosticAlertPresentable,
+         submitReport: @escaping @MainActor (ErrorReportPayload) async throws -> Void = { try await FeedbackSubmissionClient.submit($0) }) {
         self.alert = alert
+        self.submitReport = submitReport
         accountSubscription = AppAccountSession.storage.changes.sink { [weak self] _ in
             guard let self, AppAccountSession.storage.schoolSessionIdentity != self.identity else { return }
             self.diagnostics = []
@@ -381,10 +415,14 @@ final class ErrorReportViewModel: ObservableObject {
             diagnosticSummary: FeedbackDiagnosticSummary(diagnostics: selected)
         )
         do {
-            try await FeedbackSubmissionClient.submit(payload)
+            try Task.checkCancellation()
+            try await submitReport(payload)
+            try Task.checkCancellation()
+            guard isCurrentAccount else { return false }
             resultMessage = "错误信息已提交，感谢你的帮助。"
             return true
         } catch {
+            guard !TaskCancellation.matches(error), isCurrentAccount else { return false }
             resultMessage = "提交失败：\(error.localizedDescription)"
             return false
         }

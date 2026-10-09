@@ -11,6 +11,7 @@ import CommunityTransport
 import StorageCore
 import Foundation
 import Testing
+import DesignSystemKit
 @testable import BIT101_iOS
 @testable import ScheduleFeature
 @testable import ScheduleInfrastructure
@@ -20,6 +21,34 @@ import ScheduleDomain
 
 @Suite("Extended infrastructure contracts")
 struct ExtendedInfrastructureTests {
+    @Test @MainActor
+    func canceledFeedbackSubmissionPreservesPageState() async {
+        var release: CheckedContinuation<Void, Never>?
+        var reached: CheckedContinuation<Void, Never>?
+        let model = ErrorReportViewModel(alert: AppAlert(title: "fixture", message: "fixture"), submitReport: { _ in
+            await withCheckedContinuation { release = $0; reached?.resume(); reached = nil }
+        })
+        let task = Task { await model.submit() }
+        if release == nil { await withCheckedContinuation { reached = $0 } }
+        task.cancel(); release?.resume()
+        #expect(await task.value == false)
+        #expect(model.resultMessage == nil && !model.isSubmitting)
+    }
+
+    @Test(arguments: ["valid", "html", "missing", "bad-id", "wrong-origin", "changed-method"])
+    @MainActor
+    func feedbackSuccessRequiresItsCreationReceipt(caseName: String) throws {
+        let endpoint = AppURL.required("https://feedback.aihelpme.dev/api/error-reports")
+        var request = URLRequest(url: endpoint); request.httpMethod = "POST"
+        let finalURL = caseName == "wrong-origin" ? AppURL.required("https://example.invalid/api/error-reports") : endpoint
+        var finalRequest = URLRequest(url: finalURL); finalRequest.httpMethod = caseName == "changed-method" ? "GET" : "POST"
+        let http = try #require(HTTPURLResponse(url: finalURL, statusCode: 201, httpVersion: nil, headerFields: nil))
+        let body = caseName == "html" ? "<html>error</html>" : caseName == "missing" ? "{}" :
+            caseName == "bad-id" ? #"{"id":"fixture"}"# : #"{"id":"11111111-1111-4111-8111-111111111111"}"#
+        let response = HTTPResponse(data: Data(body.utf8), response: http, finalRequest: finalRequest)
+        if caseName == "valid" { try FeedbackSubmissionClient.validateSubmissionResponse(response, request: request) }
+        else { #expect(throws: URLError.self) { try FeedbackSubmissionClient.validateSubmissionResponse(response, request: request) } }
+    }
     @Test("Forced redaction handles nested credentials")
     func nestedCredentialRedaction() {
         let value = #"{"profile":{"name":"张三"},"auth":{"password":"secret","access_token":"abc"}}"#
@@ -32,6 +61,11 @@ struct ExtendedInfrastructureTests {
     }
 
     @Test(arguments: [
+        #"<input type="password" value="SENSITIVE_VALUE">"#,
+        #"<input TYPE=pass&#x77;ord value='SENSITIVE_VALUE'>"#,
+        #"<input name="pass&#119;ord" value="SENSITIVE_VALUE">"#,
+        #"<input name="pass&#x77ord" value="SENSITIVE_VALUE">"#,
+        #"<textarea name="access&lowbar;token">SENSITIVE_VALUE</textarea>"#,
         #"<input id="login-page-flowkey" name="execution" value="SENSITIVE_VALUE">"#,
         #"<input id="login-croypto" value='SENSITIVE_VALUE'>"#,
         #"<input name=execution value=SENSITIVE_VALUE>"#,
@@ -50,6 +84,8 @@ struct ExtendedInfrastructureTests {
         #expect(result.contains("TAIL_VALUE") == false)
         #expect(result.contains("[REDACTED]"))
         if value.contains("available") { #expect(result.contains("available")) }
+        let ordinary = #"<input type="text" name="summary" value="visible">"#
+        #expect(ErrorReportRedactor.forced(ordinary) == ordinary)
     }
 
     @Test("Sanitized redaction hides numeric student identifiers")

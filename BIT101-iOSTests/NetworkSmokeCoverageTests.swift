@@ -421,8 +421,8 @@ extension ReleaseNetworkSmokeLifecycleTests {
             CommunityPoster(anonymous: false, claim: CommunityClaim(id: 1, text: "fixture"), commentNum: 0, createTime: "", editTime: "", id: 1, images: [user.avatar],
                 likeNum: 0, public: true, tags: [], text: "fixture", title: "fixture", updateTime: "", user: user)
         }
-        private var comment: CommunityComment {
-            CommunityComment(id: 1, obj: "fixture", images: [], user: user, anonymous: false,
+        private func comment(object: String) -> CommunityComment {
+            CommunityComment(id: 1, obj: object, images: [], user: user, anonymous: false,
                 createTime: "", updateTime: "", like: false, likeNum: 0, commentNum: 0, own: false,
                 rate: 0, replyUser: user, replyObj: "", text: "fixture", sub: [])
         }
@@ -454,7 +454,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
         func fetchComments(objectID: String, order: CommunityCommentOrder, page: Int?) async throws -> GalleryPageBatch<CommunityComment> {
             observed.insert("gallery-comments-\(page ?? 0)")
             if stage == "gallery-comment-page-failure", page != nil { throw URLError(.cannotParseResponse) }
-            if stage == "gallery-comment-page-failure" { return .init(items: [comment], nextSourcePage: 3, canLoadMore: true) }
+            if stage == "gallery-comment-page-failure" { return .init(items: [comment(object: objectID)], nextSourcePage: 3, canLoadMore: true) }
             return .init(items: [], nextSourcePage: (page ?? 0) + 1, canLoadMore: false)
         }
         func fetchClaims() async throws -> [CommunityClaim] { [poster.claim] }
@@ -473,7 +473,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
         func fetchCourseHistories(number: String) async throws -> [CourseHistoryGrade] { [] }
         func fetchComments(courseID: Int, page: Int?) async throws -> [CommunityComment] {
             observed.insert("course-comments-\(page ?? 0)")
-            if stage == "course-comment-page-failure" { return [comment] }
+            if stage == "course-comment-page-failure" { return [comment(object: "course\(courseID)")] }
             return []
         }
         func fetchPapers(search: String?, order: PaperSortOrder, page: Int) async throws -> [PaperSummary] {
@@ -491,7 +491,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
         func fetchComments(paperID: Int, order: CommunityCommentOrder, page: Int?) async throws -> [CommunityComment] {
             observed.insert("paper-comments-\(page ?? 0)")
             if stage == "paper-comment-page-failure", page != nil { throw URLError(.cannotParseResponse) }
-            return stage == "paper-comment-page-failure" ? [comment] : []
+            return stage == "paper-comment-page-failure" ? [comment(object: "paper\(paperID)")] : []
         }
         func fetchMyInfo() async throws -> MineUserInfo { observed.insert("mine"); return try await fetchUserInfo(id: 1) }
         func fetchUserInfo(id: Int) async throws -> MineUserInfo { MineUserInfo(user: user, followingNum: 0, followerNum: 0, following: false, follower: false, own: true) }

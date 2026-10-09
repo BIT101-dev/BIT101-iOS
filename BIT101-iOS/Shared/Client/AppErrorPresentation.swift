@@ -334,6 +334,8 @@ private struct AppErrorReportSheet: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel: ErrorReportViewModel
     @State private var confirmation: ErrorReportConfirmation?
+    @State private var submissionTask: Task<Void, Never>?
+    @State private var confirmationTask: Task<Void, Never>?
     @FocusState private var isContactFocused: Bool
     let onClose: (() -> Void)?
 
@@ -409,6 +411,10 @@ private struct AppErrorReportSheet: View {
                 }
             }
             .task { await viewModel.load() }
+            .onDisappear { cancelTasks() }
+            .onReceive(AppAccountSession.storage.changes) { _ in
+                if !viewModel.isCurrentAccount { cancelTasks() }
+            }
             .alert(item: $confirmation) { item in
                 switch item {
                 case .missingContact:
@@ -440,8 +446,10 @@ private struct AppErrorReportSheet: View {
 
     private func continueSubmission() {
         if viewModel.mode == .raw {
-            Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(350))
+            confirmationTask?.cancel()
+            confirmationTask = Task { @MainActor in
+                do { try await Task.sleep(for: .milliseconds(350)) } catch { return }
+                guard !Task.isCancelled, viewModel.isCurrentAccount else { return }
                 confirmation = .rawResponse
             }
         } else {
@@ -450,12 +458,19 @@ private struct AppErrorReportSheet: View {
     }
 
     private func submitAndClose() {
-        Task { if await viewModel.submit() { close() } }
+        submissionTask?.cancel()
+        submissionTask = Task { if await viewModel.submit(), !Task.isCancelled { close() } }
     }
 
     private func close() {
+        cancelTasks()
         dismiss()
         onClose?()
+    }
+
+    private func cancelTasks() {
+        submissionTask?.cancel(); submissionTask = nil
+        confirmationTask?.cancel(); confirmationTask = nil
     }
 
     @ViewBuilder

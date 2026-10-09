@@ -57,6 +57,10 @@ def network_requests_complete(required: set[str], value: dict) -> bool:
         if not row['requests']: continue
         for request in row['requests']:
             if not isinstance(request, dict): return False
+            try: final = urlsplit(request.get('finalEndpoint', ''))
+            except (TypeError, ValueError): return False
+            if not final.hostname or final.scheme not in {'http', 'https'} or final.username or final.password \
+                    or final.query or final.fragment or request.get('finalMethod') not in {'GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'}: return False
             try: endpoint = urlsplit(request.get('endpoint', ''))
             except (TypeError, ValueError): return False
             if not endpoint.hostname or endpoint.scheme not in {'http', 'https'} or endpoint.username or endpoint.password \
@@ -67,6 +71,9 @@ def network_requests_complete(required: set[str], value: dict) -> bool:
             if cursor is not None and (not isinstance(cursor, str) or re.fullmatch(r'\d+', cursor) is None): return False
             if not isinstance(query, dict) or not set(query) <= {'page', 'last_id', 'obj', 'order', 'mode', 'type', 'uid', 'detail', 'search', 'hide_bot', 'XNXQDM', 'JXLDM'} \
                     or not all(isinstance(key, str) and isinstance(item, str) for key, item in query.items()): return False
+            final_query = request.get('finalQuery')
+            if not isinstance(final_query, dict) or not set(final_query) <= {'page', 'last_id', 'obj', 'order', 'mode', 'type', 'uid', 'detail', 'search', 'hide_bot', 'XNXQDM', 'JXLDM'} \
+                    or not all(isinstance(key, str) and isinstance(item, str) for key, item in final_query.items()): return False
         expected = row.get('expectedParameters', {})
         if not isinstance(expected, dict) or not set(expected) <= {'XNXQDM', 'JXLDM', 'obj', 'uid', 'path'} \
                 or not all(isinstance(item, str) for item in expected.values()): return False

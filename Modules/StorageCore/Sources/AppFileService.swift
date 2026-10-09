@@ -90,7 +90,8 @@ public nonisolated struct LocalAppFileService: AppFileService, Sendable {
     public func canonicalFileURL(_ url: URL) -> URL { url.resolvingSymlinksInPath().standardizedFileURL }
     public func fileExists(at url: URL) -> Bool { manager.fileExists(atPath: url.path) }
     public func readData(at url: URL) throws -> Data {
-        try Data(contentsOf: url)
+        guard url.isFileURL else { throw CocoaError(.fileReadUnsupportedScheme) }
+        return try Data(contentsOf: url)
     }
 
     public func readData(at url: URL, maximumBytes: Int) throws -> Data {

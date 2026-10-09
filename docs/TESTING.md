@@ -354,7 +354,7 @@ fork PR 的常规 Job 使用 GitHub 托管的 `xcode-27` 镜像，每项任务�
 
 `community-variants` 人工专项覆盖课程搜索、话廊搜索筛选、帖子与文章的三种评论排序、匿名帖子、匿名文章及创建内容恢复；场景键为 `course-search`、`gallery-search-filters`、`comment-sorting`、`anonymous-poster`、`anonymous-paper`、`restore-content`。使用已授权的专用账号，保存实际请求结果和页面证据，确认验收内容删除。`account-lifecycle` 专项在正式 App 中顺序执行 `sign-in-a`、`refresh-credentials-a`、`sign-out-a`、`sign-in-b`、`restore-a`，核对真实凭据续期、退出清理、资料与业务缓存切换、订阅更新及恢复账号。两个专项复用结构化人工场景格式与固定 `manual-scenarios.json` 附件，参与完整发布验收。
 
-社区图片探针复用 `CommunityWriteMedia` 中固定的一像素 JPEG 字节；上传返回的 MID 在创建帖子或评论前持久记录于同一事务日志，资源记录保存成功后，在提交业务创建请求前保存待确认记录。上传或提交记录保存失败时沿已创建对象完成清理；业务请求结果未知时持续查找并保留恢复记录。公开服务端 [ImageService.Save](https://github.com/BIT101-dev/BIT101-GO/blob/main/api/service/image.go) 按内容 MD5 生成 MID 并复用已存在图片，[路由](https://github.com/BIT101-dev/BIT101-GO/blob/main/api/router.go) 将图片作为独立共享资源提供上传。验收帖子和评论沿服务端读取与删除确认清理，共享验收图片持续复用；恢复证据保留其 MID。实际线上资源策略沿已部署服务端契约核对。
+社区图片探针复用 `CommunityWriteMedia` 中固定的一像素 JPEG 字节；上传返回的 MID 在创建帖子或评论前持久记录于同一事务日志，资源记录保存成功后，在提交业务创建请求前保存待确认记录。上传或提交记录保存失败时沿已创建对象完成清理；传输准入前失败时清除待确认记录，业务请求结果未知时持续查找并保留恢复记录。课程写入探针读取 `BIT101_NETWORK_SMOKE_FIXTURES` 指定的课程，并在业务写入前核对课程编号。公开服务端 [ImageService.Save](https://github.com/BIT101-dev/BIT101-GO/blob/main/api/service/image.go) 按内容 MD5 生成 MID 并复用已存在图片，[路由](https://github.com/BIT101-dev/BIT101-GO/blob/main/api/router.go) 将图片作为独立共享资源提供上传。验收帖子和评论沿服务端读取与删除确认清理，共享验收图片持续复用；恢复证据保留其 MID。实际线上资源策略沿已部署服务端契约核对。
 
 文章与帖子详情的已知缺失响应由服务层转换为明确的错误类型，恢复器沿类型确认缺失；后端业务响应转换集中在各服务的接口错误定义中。通用路由失败与其他服务错误保留验收失败结果。iCloud smoke 阶段、初始身份与退出报告复用证据原子写入器，写入中断时保留原恢复身份。
 
@@ -386,7 +386,7 @@ UI 自动化同时采集交互库存及宿主与 Feature / UI 模块的行覆盖
 
 工作流锁的等待与执行预算共用 45 分钟默认值，执行超时向进程组发送终止信号并保留恢复清理阶段；恢复结束释放设备及工作区锁。测试执行显式启用 XCTest 超时管理。物理设备 CI Job 使用 60 分钟上限，覆盖 45 分钟工作流预算、5 分钟恢复清理及前后步骤，取消与超时恢复沿脚本锁边界合同验收。编译条件由 `validation_policy.workflow_conditions` 统一提供给执行脚本与源码库存，iCloud 使用 `DEBUG ICLOUD_CROSS_DEVICE_SMOKE`。
 
-成功的关键词复验沿同一输入摘要与环境复用此前完整组的证据，完整证据保留原运行标识、采样时间及性能指标。复验失败或构建输入变化进入对应分组的重新验收。网络 smoke 保存每个探针的实际 HTTP 方法、端点及状态码，端点移除凭据、查询参数及片段；完整验收沿 `Scripts/network_request_contracts.py` 核对业务端点、HTTP 方法、所需调用数量及分页查询。列表首屏为空时继续请求续页，消息空首屏沿正游标验收终止边界；首屏、续页与实际参数共同保存在请求证据中。
+成功的关键词复验沿同一输入摘要与环境复用此前完整组的证据，完整证据保留原运行标识、采样时间及性能指标。复验失败或构建输入变化进入对应分组的重新验收。网络 smoke 保存每个探针的起始及最终 HTTP 方法、端点、业务查询与状态码，端点移除凭据、查询参数及片段；完整验收校验重定向后的业务位置、请求方法、排序及分页参数，并沿 `Scripts/network_request_contracts.py` 核对业务端点、HTTP 方法、所需调用数量及分页查询。列表首屏为空时继续请求续页，消息空首屏沿正游标验收终止边界；首屏、续页与实际参数共同保存在请求证据中。
 
 `Scripts/run-extended-tests.sh report performance-run` 读取当前 XCTest 结果包中实际执行的性能用例，供 Catalyst 与真机采样检查。响应聚合沿 64 KiB 块追加字节并检查取消，声明长度通过边界检查后预留存储；传输合同分别验收声明长度与实际接收长度。
 

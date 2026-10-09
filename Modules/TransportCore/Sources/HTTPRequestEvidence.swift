@@ -3,15 +3,25 @@ import Foundation
 public nonisolated struct HTTPRequestEvidence: Codable, Sendable {
     public let method: String
     public let endpoint: String
+    public let finalEndpoint: String
+    public let finalMethod: String
+    public let finalQuery: [String: String]
     public let statusCode: Int
     public let query: [String: String]
     public let responseMinimumID: String?
 
-    public init(request: URLRequest, response: HTTPURLResponse, responseMinimumID: String? = nil) {
+    public init(request: URLRequest, response: HTTPURLResponse, responseMinimumID: String? = nil, finalRequest: URLRequest? = nil) {
         self.responseMinimumID = responseMinimumID
         method = request.httpMethod ?? "GET"
+        finalMethod = finalRequest?.httpMethod
+            ?? (response.url == request.url ? method : "")
+        var final = response.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
+        final?.user = nil; final?.password = nil
+        final?.query = nil; final?.fragment = nil
+        finalEndpoint = final?.string ?? ""
         var endpoint = (request.url ?? response.url).flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
         let allowed = Set(["page", "last_id", "obj", "order", "mode", "type", "uid", "detail", "search", "hide_bot", "XNXQDM", "JXLDM"])
+        let responseQuery = response.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?.queryItems ?? []
         var parameters: [String: String] = Dictionary((endpoint?.queryItems ?? []).compactMap { item in
             guard allowed.contains(item.name), let value = item.value else { return nil }
             return (item.name, value)
@@ -36,6 +46,9 @@ public nonisolated struct HTTPRequestEvidence: Codable, Sendable {
             }
         }
         query = parameters
+        finalQuery = finalMethod == "GET" ? Dictionary(responseQuery.compactMap { item in
+            guard allowed.contains(item.name), let value = item.value else { return nil }; return (item.name, value)
+        }, uniquingKeysWith: { first, _ in first }) : parameters
         endpoint?.user = nil
         endpoint?.password = nil
         endpoint?.query = nil
@@ -45,7 +58,7 @@ public nonisolated struct HTTPRequestEvidence: Codable, Sendable {
     }
 
     @concurrent
-    public static func capture(request: URLRequest, response: HTTPURLResponse, body: Data) async -> Self {
+    public static func capture(request: URLRequest, response: HTTPURLResponse, body: Data, finalRequest: URLRequest? = nil) async -> Self {
         let cursor: String?
         if let rows = try? JSONSerialization.jsonObject(with: body) as? [[String: Any]] {
             if rows.isEmpty { cursor = "0" }
@@ -55,10 +68,12 @@ public nonisolated struct HTTPRequestEvidence: Codable, Sendable {
                     ? identifiers.min().map(String.init) : nil
             }
         } else { cursor = nil }
-        return Self(request: request, response: response, responseMinimumID: cursor)
+        return Self(request: request, response: response, responseMinimumID: cursor, finalRequest: finalRequest)
     }
 }
 
 public nonisolated enum HTTPRequestEvidenceContext {
     @TaskLocal public static var didReceive: (@MainActor @Sendable (HTTPRequestEvidence) -> Void)?
+    @TaskLocal public static var willStart: (@MainActor @Sendable () -> Void)?
+    @TaskLocal public static var didReceiveFinalRequest: (@MainActor @Sendable (URLRequest) -> Void)?
 }

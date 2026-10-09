@@ -899,6 +899,14 @@ final class FactVisitor: SyntaxVisitor {
         return .visitChildren
     }
 
+    override func visit(_ node: GuardStmtSyntax) -> SyntaxVisitorContinueKind {
+        var item = fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset)
+        item.condition = node.conditions.trimmedDescription
+        item.elseRange = [node.body.positionAfterSkippingLeadingTrivia.utf8Offset, node.body.endPositionBeforeTrailingTrivia.utf8Offset]
+        controlFlow.append(item)
+        return .visitChildren
+    }
+
     override func visit(_ node: IdentifierTypeSyntax) -> SyntaxVisitorContinueKind {
         typeNames.append(fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset))
         return .visitChildren

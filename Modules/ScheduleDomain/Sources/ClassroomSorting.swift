@@ -3,7 +3,7 @@ import Foundation
 /// 按教室名自然升序排列空教室，空名称排在末尾，名称相同时按 `id` 排序。
 ///
 /// `localizedStandardCompare` 为 `101 -> 102 -> 103` 这类教室名提供人类直觉排序。
-public func classroomNameAscending(_ lhs: ClassroomAvailability, _ rhs: ClassroomAvailability) -> Bool {
+public nonisolated func classroomNameAscending(_ lhs: ClassroomAvailability, _ rhs: ClassroomAvailability) -> Bool {
     let lhsName = lhs.name.trimmingCharacters(in: .whitespacesAndNewlines)
     let rhsName = rhs.name.trimmingCharacters(in: .whitespacesAndNewlines)
 

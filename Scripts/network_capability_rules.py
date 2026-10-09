@@ -132,24 +132,40 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
         module = compilation_unit(path)
         if module in NETWORK_FOUNDATION_MODULES or module.endswith('Tests'): continue
         for node in facts.get('typedVariables', []):
-            if not node['scope'] or not active(path, node): continue
+            if not active(path, node): continue
             identity = owner(path, node['scope'])
             kind = types.terminal_name(path, node.get('type', ''), node['scope'])
             port = kind
-            if 'async' in port and '->' in port and re.search(r'\bURLRequest\b', port) \
-                    and re.search(r'\b(?:HTTPResponse|URLResponse|HTTPURLResponse)\b', port): network_owners.add(identity)
+            if 'async' in port and '->' in port and re.search(r'\b(?:URL|URLRequest)\b', port) \
+                    and re.search(r'\b(?:Data|HTTPResponse|URLResponse|HTTPURLResponse)\b', port): network_owners.add(identity)
             for source_path, name, scope in components(path, node.get('type', ''), node['scope']):
                 target = types.resolve(source_path, name, scope)
                 if types.terminal_name(source_path, name, scope).rsplit('.', 1)[-1] in NETWORK_TRANSPORT_TYPES:
                     network_owners.add(identity)
                 if target: dependencies.setdefault(identity, set()).add('.'.join([target[0], *target[1]]))
         for node in facts.get('bindings', []):
-            if not node['scope'] or node.get('lexicalScope') or not active(path, node): continue
+            if node.get('lexicalScope') or not active(path, node): continue
             if target := resolve_receiver(dict(node, path=path, calledExpression=node['bindingName'] + '.__propertyType')):
                 dependencies.setdefault(owner(path, node['scope']), set()).add(target)
         for call in facts.get('invocations', []):
-            if not call['scope'] or not active(path, call): continue
+            if not active(path, call): continue
             expression = call.get('calledExpression', '')
+            file_only = False
+            if 'contentsOf' in call.get('argumentLabels', []):
+                argument = call.get('arguments', [])[call['argumentLabels'].index('contentsOf')]
+                if re.fullmatch(r'[A-Za-z_]\w*', argument):
+                    parameter = any(function['start'] <= call['start'] < function['end']
+                        and any(item.get('name') == argument and 'inout' not in item.get('type', '')
+                            for item in function.get('parameters', []))
+                        for function in facts.get('functionRanges', []))
+                    file_only = parameter and any(branch['value'].startswith('guard ')
+                        and re.sub(r'\s+', '', branch.get('condition') or '') == argument + '.isFileURL'
+                        and branch['scope'] == call['scope'] and branch.get('lexicalScope') == call.get('lexicalScope')
+                        and branch.get('elseRange', [0, call['start'] + 1])[1] < call['start']
+                        and not any(node.get('bindingName') == argument and branch['start'] < node['start'] < call['start']
+                            for node in facts.get('bindings', [])) for branch in facts.get('controlFlow', []))
+            if expression in {'Data', 'Foundation.Data', 'Data.init', 'Foundation.Data.init'} \
+                    and 'contentsOf' in call.get('argumentLabels', []) and not file_only: network_owners.add(owner(path, call['scope']))
             if expression.removesuffix('.init').rsplit('.', 1)[-1] in NETWORK_TRANSPORT_TYPES | {'URLRequest'} \
                     or expression.split('.', 1)[0] in NETWORK_TRANSPORT_TYPES and not value_utility(path, call):
                 network_owners.add(owner(path, call['scope']))
@@ -164,9 +180,9 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
         if module in NETWORK_FOUNDATION_MODULES or module.endswith('Tests'): continue
         for function in facts.get('functionRanges', []) + [accessor for accessor in facts.get('accessorRanges', []) if accessor.get('isAsync')]:
             scope = function['scope']
-            if not scope or function.get('lexicalScope') or not active(path, function): continue
+            if function.get('lexicalScope') or not active(path, function): continue
             identity = owner(path, scope)
-            if scope[0] in NETWORK_HARNESS_TYPES or identity not in network_owners: continue
+            if scope and scope[0] in NETWORK_HARNESS_TYPES or identity not in network_owners: continue
             target = types.resolve(path, '.'.join(scope), aliases=False)
             if target and 'HTTPTransport' in types.bases(target): continue
             if function.get('isExported') or module == 'BIT101-iOS' and function.get('isAsync') and not function.get('isPrivate'):
