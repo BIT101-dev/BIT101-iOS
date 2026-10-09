@@ -357,6 +357,22 @@ final class FactVisitor: SyntaxVisitor {
     override func visit(_ node: ClosureExprSyntax) -> SyntaxVisitorContinueKind {
         closureDepth += 1
         lexicalScope.append(node.positionAfterSkippingLeadingTrivia.utf8Offset)
+        switch node.signature?.parameterClause {
+        case .simpleInput(let parameters):
+            for parameter in parameters where parameter.name.text != "_" {
+                typedVariables.append(TypedVariableFact(name: parameter.name.text, type: "", scope: scope,
+                    start: parameter.positionAfterSkippingLeadingTrivia.utf8Offset, lexicalScope: lexicalScope))
+            }
+        case .parameterClause(let clause):
+            for parameter in clause.parameters {
+                let name = parameter.secondName ?? parameter.firstName
+                guard name.text != "_" else { continue }
+                typedVariables.append(TypedVariableFact(name: name.text, type: parameter.type?.trimmedDescription ?? "", scope: scope,
+                    start: parameter.positionAfterSkippingLeadingTrivia.utf8Offset, lexicalScope: lexicalScope))
+            }
+        case nil: break
+        @unknown default: break
+        }
         return .visitChildren
     }
     override func visitPost(_ node: ClosureExprSyntax) {

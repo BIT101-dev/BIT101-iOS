@@ -17,6 +17,9 @@ struct GalleryStateContractTests {
         var failed = false
         var repeated = false
         var recommendRequests: [Int] = []
+        var searchRequests: [Int] = []
+        var searchPages: [Int: GalleryPageBatch<CommunityPoster>] = [:]
+        var failedSearchPage: Int?
         func fetchFeed(kind: GalleryFeedKind, page: Int?) async throws -> GalleryPageBatch<CommunityPoster> {
             .init(items: [GalleryStateContractTests.poster((page ?? 0) + 1)], nextSourcePage: (page ?? 0) + 1, canLoadMore: true)
         }
@@ -29,7 +32,10 @@ struct GalleryStateContractTests {
         }
         func searchPosters(query: GallerySearchQuery, page: Int?) async throws -> GalleryPageBatch<CommunityPoster> {
             queryLog.append(query)
-            if failed { throw URLError(.notConnectedToInternet) }
+            let sourcePage = page ?? 0
+            searchRequests.append(sourcePage)
+            if failed || failedSearchPage == sourcePage { throw URLError(.notConnectedToInternet) }
+            if let batch = searchPages[sourcePage] { return batch }
             return try await fetchFeed(kind: .newest, page: page)
         }
     }
@@ -70,6 +76,46 @@ struct GalleryStateContractTests {
         service.failed = false
         await model.loadMoreSearchResultsIfNeeded(currentPoster: previous.posters.last)
         #expect(service.queryLog.last?.text == "原查询" && model.searchState.posters.map(\.id) == [1, 2])
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func searchPaginationCrossesDuplicatePagesAndStopsAtTheEnd() async {
+        let service = Feed()
+        service.searchPages = [0: .init(items: [Self.poster(1)], nextSourcePage: 1, canLoadMore: true),
+            1: .init(items: [Self.poster(1)], nextSourcePage: 2, canLoadMore: true),
+            2: .init(items: [Self.poster(2)], nextSourcePage: 3, canLoadMore: true),
+            3: .init(items: [], nextSourcePage: 4, canLoadMore: false)]
+        let model = GalleryViewModel(service: service)
+        model.searchQuery.text = "搜索"
+        await model.performSearch()
+        await model.loadMoreSearchResultsIfNeeded(currentPoster: Self.poster(1))
+        #expect(model.searchState.posters.map(\.id) == [1, 2] && model.searchState.nextPage == 3)
+        #expect(service.searchRequests == [0, 1, 2] && model.alert == nil)
+        await model.loadMoreSearchResultsIfNeeded(currentPoster: Self.poster(2))
+        #expect(service.searchRequests == [0, 1, 2, 3])
+        #expect(model.searchState.posters.map(\.id) == [1, 2] && !model.searchState.canLoadMore && !model.searchState.isLoadingMore)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: ["repeated", "stalled", "failed"])
+    func searchPaginationFailuresKeepTheRetryPosition(scenario: String) async {
+        let service = Feed()
+        for page in 0...4 {
+            service.searchPages[page] = .init(items: [Self.poster(1)],
+                nextSourcePage: scenario == "stalled" && page == 1 ? 1 : page + 1, canLoadMore: true)
+        }
+        if scenario == "failed" { service.failedSearchPage = 2 }
+        let model = GalleryViewModel(service: service)
+        model.searchQuery.text = "搜索"
+        await model.performSearch()
+        await model.loadMoreSearchResultsIfNeeded(currentPoster: Self.poster(1))
+        #expect(model.searchState.posters.map(\.id) == [1] && model.searchState.nextPage == 1)
+        #expect(!model.searchState.isLoadingMore && model.searchState.canLoadMore && model.alert != nil)
+        #expect(service.searchRequests == (scenario == "repeated" ? [0, 1, 2, 3, 4] : scenario == "stalled" ? [0, 1] : [0, 1, 2]))
+        service.failedSearchPage = nil
+        service.searchPages[1] = .init(items: [Self.poster(2)], nextSourcePage: 2, canLoadMore: false)
+        await model.loadMoreSearchResultsIfNeeded(currentPoster: Self.poster(1))
+        #expect(model.searchState.posters.map(\.id) == [1, 2] && model.searchState.nextPage == 2)
+        #expect(service.searchRequests.last == 1 && !model.searchState.canLoadMore && !model.searchState.isLoadingMore)
     }
 
     @Test(.timeLimit(.minutes(1)))

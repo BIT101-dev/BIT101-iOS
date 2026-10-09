@@ -17,6 +17,49 @@ import os
 
 @MainActor
 struct CommunityDependencyBoundaryTests {
+    private final class RecoverableUnreadService: GalleryMessageServicing {
+        var error: (any Error)? = URLError(.notConnectedToInternet)
+        var counts = GalleryMessageUnreadCounts(comment: 1)
+        var cursors: [Int?] = []
+        func fetchMessageUnreadCounts() async throws -> GalleryMessageUnreadCounts {
+            if let error { throw error }
+            return counts
+        }
+        func fetchMessages(type: GalleryMessageType, lastID: Int?) async throws -> [GalleryMessage] {
+            cursors.append(lastID)
+            if lastID == nil { counts = .init(); return [] }
+            return try RecordingMessageService.messages([42])
+        }
+    }
+
+    @Test func failedUnreadSummariesKeepReadStateAndRecoverBeforeAcknowledgingMessages() async {
+        let service = RecoverableUnreadService(), store = RecordingMessageReadStore()
+        store.latestIDs = [99]
+        let model = GalleryMessageViewModel(service: service, readStore: store)
+        await model.bootstrapIfNeeded()
+        #expect(model.unreadCountsFailure != nil && model.alert != nil)
+        #expect(store.latestIDs == [99] && service.cursors.isEmpty)
+        service.error = nil
+        await model.refreshSelectedType()
+        #expect(model.unreadCountsFailure == nil && model.state(for: .comment).items.map(\.id) == [42])
+        #expect(service.cursors == [Int.max, nil])
+    }
+
+    @Test(arguments: [#"{"comment":-1}"#, #"{"follow":-1}"#, #"{"like":-1}"#, #"{"system":-1}"#,
+                      #"{"comment":9223372036854775807,"follow":1}"#])
+    func invalidUnreadCountsFailAtTheNetworkBoundary(_ source: String) {
+        #expect(throws: DecodingError.self) { try JSONDecoder().decode(GalleryMessageUnreadCounts.self, from: Data(source.utf8)) }
+    }
+
+    @Test func unreadTotalsRemainRepresentableAcrossServerAndLocalCounts() async throws {
+        let counts = try JSONDecoder().decode(GalleryMessageUnreadCounts.self, from: Data(#"{"follow":9223372036854775807}"#.utf8))
+        let service = RecoverableUnreadService(), store = RecordingMessageReadStore()
+        service.error = nil; service.counts = counts
+        let model = GalleryMessageViewModel(service: service, readStore: store)
+        await model.refreshUnreadCounts()
+        #expect(model.totalUnreadCount == Int.max)
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func draftWritesFinishBeforeCleanupAndPauseFurtherAccess(suggestion: Bool) async {
         let started = OSAllocatedUnfairLock(initialState: false)

@@ -3,6 +3,7 @@ import DesignSystemKit
 import CommunityCore
 import Combine
 import Foundation
+import OSLog
 
 private func isGalleryMessageCancellation(_ error: Error) -> Bool {
     TaskCancellation.matches(error)
@@ -10,7 +11,13 @@ private func isGalleryMessageCancellation(_ error: Error) -> Bool {
 
 private enum GalleryMessagePersistenceError: LocalizedError {
     case unavailable
-    var errorDescription: String? { "消息已读状态保存失败，原记录已保留，请重试。" }
+    case unreadSummary(String)
+    var errorDescription: String? {
+        switch self {
+        case .unavailable: "消息已读状态保存失败，原记录已保留，请重试。"
+        case .unreadSummary(let reason): "未读消息摘要读取失败：\(reason)"
+        }
+    }
 }
 
 @MainActor
@@ -21,6 +28,8 @@ final class GalleryMessageViewModel: ObservableObject {
     @Published var selectedType: GalleryMessageType = .comment
     /// 服务端返回的分类未读摘要。
     @Published private(set) var unreadCounts = GalleryMessageUnreadCounts()
+    @Published private(set) var unreadCountsFailure: String?
+    private static let logger = Logger(subsystem: "BIT101-dev.BIT101-iOS", category: "GalleryMessages")
     @Published var alert: AppAlert?
     @Published var selectedPoster: CommunityPoster?
     /// 用于强制触发依赖本地已读仓库的视图刷新。
@@ -62,7 +71,8 @@ final class GalleryMessageViewModel: ObservableObject {
     /// 这里会把“本地伪未读”和“服务端摘要”统一折算到同一个入口红点。
     var totalUnreadCount: Int {
         GalleryMessageType.allCases.reduce(0) { partialResult, type in
-            partialResult + unreadCount(for: type)
+            let sum = partialResult.addingReportingOverflow(max(0, unreadCount(for: type)))
+            return sum.overflow ? Int.max : sum.partialValue
         }
     }
 
@@ -80,7 +90,7 @@ final class GalleryMessageViewModel: ObservableObject {
 
     /// 单独刷新消息按钮上的未读红点。
     ///
-    /// 未读摘要用于悬浮按钮角标；请求失败时保持当前状态，错误提示继续留空。
+    /// 未读摘要用于悬浮按钮角标；请求失败时保留摘要并记录恢复原因。
     func refreshUnreadCounts() async {
         unreadGeneration &+= 1
         let generation = unreadGeneration
@@ -89,13 +99,18 @@ final class GalleryMessageViewModel: ObservableObject {
             try Task.checkCancellation()
             guard unreadGeneration == generation else { return }
             unreadCounts = counts
+            unreadCountsFailure = nil
         } catch {
             if isGalleryMessageCancellation(error) { return }
+            guard unreadGeneration == generation else { return }
+            unreadCountsFailure = error.localizedDescription
+            Self.logger.error("Unread summary failed: \(String(describing: error), privacy: .public)")
         }
     }
 
     /// 刷新当前选中的消息分类。
     func refreshSelectedType() async {
+        if unreadCountsFailure != nil { await refreshUnreadCounts() }
         await refresh(type: selectedType)
     }
 
@@ -121,6 +136,7 @@ final class GalleryMessageViewModel: ObservableObject {
         }
 
         do {
+            if let unreadCountsFailure { throw GalleryMessagePersistenceError.unreadSummary(unreadCountsFailure) }
             guard !readStore.hasUnreadableSnapshot else { throw GalleryMessagePersistenceError.unavailable }
             var page = GalleryMessageListState()
             page.applyFirstCursorPage(try await service.fetchMessages(type: type, lastID: Int.max))

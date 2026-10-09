@@ -229,6 +229,7 @@ struct GalleryFeedState {
     var nextPage = 0
     /// 后端是否还有更多内容可翻。
     var canLoadMore = true
+    var needsContinuation = false
 }
 
 extension GalleryFeedState: PagedItemsState {
@@ -386,6 +387,14 @@ public nonisolated struct GalleryMessageUnreadCounts: Decodable, Equatable, Send
         follow = try container.decodeIfPresent(Int.self, forKey: .follow) ?? 0
         like = try container.decodeIfPresent(Int.self, forKey: .like) ?? 0
         system = try container.decodeIfPresent(Int.self, forKey: .system) ?? 0
+        var total = 0
+        for count in [comment, follow, like, system] {
+            let sum = total.addingReportingOverflow(count)
+            guard count >= 0, !sum.overflow else {
+                throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Invalid unread counts"))
+            }
+            total = sum.partialValue
+        }
     }
 
     /// 返回消息类型对应的未读数。

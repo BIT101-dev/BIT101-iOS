@@ -450,6 +450,20 @@ def network_capability_self_test() -> None:
     assert 'mine.fetchMyInfo' in reached(disabled)
     disabled['ReleaseNetworkSmoke.swift'] = disabled['ReleaseNetworkSmoke.swift'].replace('var enabled', 'let enabled').replace('if enabled', 'while enabled')
     assert 'mine.fetchMyInfo' not in reached(disabled)
+    from network_capability_rules import call_can_execute
+    for outer in ('true', 'false'):
+        for body, expected in [
+            ('func run(enabled: Bool) { if enabled { service.fetch() } }', True),
+            ('func run(enabled: Bool) { let enabled = false; if enabled { service.fetch() } }', False),
+            ('func run(enabled: Bool) { let enabled = true; if enabled { service.fetch() } }', True),
+            ('func run() { let closure = { (enabled: Bool) in if enabled { service.fetch() } } }', True),
+            ('func run() { let closure = { enabled in if enabled { service.fetch() } } }', True),
+            ('func run() { let closure = { (enabled) in if enabled { service.fetch() } } }', True),
+            ('func run() { if enabled { service.fetch() } }', outer == 'true'),
+        ]:
+            facts = swift_syntax_index_sources({'shadowing': f'struct Runner {{ let enabled = {outer}; {body} }}'})['shadowing']
+            call = next(call for call in facts['invocations'] if call['calledExpression'] == 'service.fetch')
+            assert call_can_execute(facts, call) == expected, (outer, body)
     for statement in ('return', 'throw URLError(.cancelled)'):
         terminated = dict(sources)
         terminated['ReleaseNetworkSmoke.swift'] = sources['ReleaseNetworkSmoke.swift'].replace(

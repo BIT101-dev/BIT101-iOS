@@ -185,10 +185,10 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     ///
     /// 评论分页使用“最后几条触发”策略，评论列表接近尾部时请求下一页。
     func loadMoreCommentsIfNeeded(currentComment: CommunityComment?) async {
-        guard let currentComment else { return }
         let generation = commentRefreshGeneration
         guard commentState.status == .loaded,
-              commentState.shouldLoadMore(currentID: currentComment.id)
+              commentState.canLoadMore, !commentState.isLoadingMore,
+              currentComment.map({ commentState.shouldLoadMore(currentID: $0.id) }) ?? commentState.items.isEmpty
         else { return }
 
         commentState.isLoadingMore = true
@@ -200,19 +200,25 @@ final class GalleryPosterDetailViewModel: ObservableObject {
         let likeRevisionAtStart = commentState.likeRevision
         let result = await loadResult { [self] in
             var progress = CommunityPageProgress<Int>()
+            let initialPage = commentState.nextPage
+            var sourcePage = initialPage
             while true {
-                let batch = try await self.service.fetchComments(objectID: self.posterObjectID, order: self.commentOrder, page: commentState.nextPage)
+                let batch = try await self.service.fetchComments(objectID: self.posterObjectID, order: self.commentOrder, page: sourcePage)
                 try Task.checkCancellation()
                 guard commentRefreshGeneration == generation else { throw CancellationError() }
-                try progress.record(batch.items.map(\.id), knownIDs: commentState.pagedItems.ids)
-                if !batch.canLoadMore || batch.items.isEmpty || batch.items.contains(where: { !commentState.pagedItems.ids.contains($0.id) }) { return batch }
-                commentState.nextPage = batch.nextSourcePage
+                guard !batch.canLoadMore || (batch.nextSourcePage > sourcePage && !batch.sourceIDs.isEmpty)
+                else { throw GalleryServiceError.invalidResponse }
+                try progress.record(batch.sourceIDs, knownIDs: commentState.pagedItems.ids)
+                if !batch.canLoadMore || batch.items.isEmpty || batch.items.contains(where: { !commentState.pagedItems.ids.contains($0.id) })
+                    || batch.nextSourcePage - initialPage >= GalleryPaging.maximumSourcePages { return batch }
+                sourcePage = batch.nextSourcePage
             }
         }
 
         switch result {
         case let .success(batch):
             guard commentRefreshGeneration == generation else { return }
+            commentState.needsContinuation = batch.canLoadMore && batch.items.allSatisfy { commentState.pagedItems.ids.contains($0.id) }
             commentState.appendPage(commentState.applyingLikes(to: batch.items, since: likeRevisionAtStart))
             commentState.nextPage = batch.nextSourcePage
             commentState.canLoadMore = batch.canLoadMore
@@ -384,6 +390,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
             commentState.order = commentOrder
             commentState.nextPage = batch.nextSourcePage
             commentState.canLoadMore = batch.canLoadMore
+            commentState.needsContinuation = batch.items.isEmpty && batch.canLoadMore
             commentState.status = .loaded
         case let .failure(error):
             let cancelled = isCancellation(error)

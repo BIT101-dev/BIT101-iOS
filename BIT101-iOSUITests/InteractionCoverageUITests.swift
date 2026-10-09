@@ -435,7 +435,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
     @objc func testBotFeedContinuesAcrossEmptyScanBatches() {
         app = configureApp(resetStorage: true, content: true, botPaging: true, initialTab: "gallery")
         tapHeader(app.segmentedControls.buttons["机器人"])
-        let continuation = app.buttons["gallery.bot.continue"]
+        let continuation = app.buttons["gallery.feed.continue"]
         continuation.tapBriefly()
         assertUI(waitUntil(NSPredicate(format: "exists == false"), on: continuation), "扫描期间应展示加载状态。")
         assertUI(waitUntil(NSPredicate(format: "exists == true"), on: continuation), "空批完成后应恢复继续查询入口。")

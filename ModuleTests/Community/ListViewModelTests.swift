@@ -250,6 +250,10 @@ struct GalleryPaginationTests {
         }
         let model = GalleryViewModel(service: service)
         await model.refresh(feed: .recommend)
+        #expect(pages == Array(0...4))
+        #expect(model.state(for: .recommend).posters.isEmpty && model.state(for: .recommend).nextPage == 5)
+        #expect(model.state(for: .recommend).canLoadMore)
+        await model.loadMoreIfNeeded(for: .recommend, currentPoster: nil)
         #expect(pages == Array(0...6))
         #expect(model.state(for: .recommend).posters.map(\.id) == (emptyEnd ? [] : [7]))
         #expect(model.state(for: .recommend).nextPage == 7 && model.state(for: .recommend).canLoadMore == false)
@@ -435,6 +439,8 @@ struct GalleryPaginationTests {
             #expect(model.state(for: .recommend).nextPage == 1 && model.alert?.title == "加载更多失败")
             return
         }
+        #expect(model.state(for: .recommend).posters.map(\.id) == [1] && model.state(for: .recommend).nextPage == 6)
+        await model.loadMoreIfNeeded(for: .recommend, currentPoster: listPoster(1))
         #expect(pages == Array(0...6))
         #expect(model.state(for: .recommend).posters.map(\.id) == [1, 2])
         #expect(model.state(for: .recommend).nextPage == 7)

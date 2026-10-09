@@ -9,6 +9,18 @@ import Testing
 
 @MainActor
 struct CommunityCoreTests {
+    @Test func commentRepliesFlattenEveryLevelInSourceOrder() {
+        let user = CommunityUser.placeholder(id: 1, nickname: "作者")
+        func comment(_ id: Int, sub: [CommunityComment] = []) -> CommunityComment {
+            .init(id: id, obj: "poster1", images: [], user: user, anonymous: false, createTime: "", updateTime: "",
+                like: false, likeNum: 0, commentNum: 0, own: false, rate: 0, replyUser: user, replyObj: "",
+                text: String(id), sub: sub)
+        }
+        let root = comment(1, sub: [comment(2, sub: [comment(3, sub: [comment(4)])]), comment(5, sub: [comment(6)])])
+        #expect(root.flattenedReplies.map(\.id) == [2, 3, 4, 5, 6])
+        #expect(root.sub.map(\.id) == [2, 5] && comment(7).flattenedReplies.isEmpty)
+    }
+
     @Test func displayBudgetsRetainValidMultibyteTextAndTheOriginal() {
         for text in [String(repeating: "A", count: 100_000), String(repeating: "中", count: 100_000),
                      String(repeating: "👨‍👩‍👧‍👦é", count: 10_000)] {

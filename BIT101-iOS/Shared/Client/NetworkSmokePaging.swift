@@ -83,5 +83,13 @@ enum NetworkSmokePaging {
         guard ids.allSatisfy({ $0 > 0 })
         else { throw URLError(.badServerResponse) }
     }
+
+    static func checkComments(_ comments: [CommunityComment], for objectID: String) throws {
+        guard comments.allSatisfy({ $0.obj == objectID }) else { throw URLError(.badServerResponse) }
+    }
+
+    static func checkPosters(_ posters: [CommunityPoster], for userID: Int) throws {
+        guard userID > 0, posters.allSatisfy({ $0.user.id == userID }) else { throw URLError(.badServerResponse) }
+    }
 }
 #endif

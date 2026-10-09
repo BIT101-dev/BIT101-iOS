@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 import re
 import sys
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 API = 'bit101.flwfdd.xyz'
 SCHOOL = r'(?:jxzxehallapp|webvpn)\.bit\.edu\.cn'
@@ -83,8 +83,8 @@ CONTRACTS = {
     '生产共享会话': [community('/user/info/0', minimum=2), community('/user/info/0', statuses=(401,))],
     '我的关注': [community('/user/followings', paging='page')],
     '我的粉丝': [community('/user/followers', paging='page')],
-    '我的帖子': [community('/posters', query={'mode': 'search', 'uid': r'\d+'}, paging='page')],
-    '用户帖子': [community('/posters', query={'mode': 'search', 'uid': r'\d+'}, paging='page')],
+    '我的帖子': [community('/posters', query={'mode': 'search', 'uid': '0'}, paging='page')],
+    '用户帖子': [community('/posters', query={'mode': 'search', 'uid': r'[1-9]\d*'}, paging='page')],
     '用户资料详情': [community(r'/user/info/\d+')],
     '当前学期': [teaching('/jwapp/sys/wdkbby/modules/jshkcb/dqxnxq.do')],
     '生产学校会话': [teaching('/jwapp/sys/wdkbby/modules/jshkcb/dqxnxq.do')],
@@ -139,14 +139,24 @@ def contracts_for(probe: str) -> list[RequestContract]:
     return CONTRACTS.get(probe, [])
 
 
+SELECTORS = {
+    **{name: {'obj'} for name in ('话廊帖子评论', '学业课程评论', '文章评论')},
+    **{name: {'uid'} for name in ('我的帖子', '用户帖子')},
+    **{name: {'path'} for name in ('话廊帖子详情', '学业课程详情', '学业课程历史成绩', '文章详情',
+        '用户资料详情', '话廊网页详情', '学业课程网页详情', '文章网页详情')},
+    '课表、考试与首周同步': {'XNXQDM'}, '空教室占用数据': {'XNXQDM', 'JXLDM'},
+}
+
+
 def complete(probe: str, requests: list[dict], expected_parameters: dict | None = None) -> bool:
     contracts = contracts_for(probe)
     matched = bool(contracts) and all(contract.complete(requests) for contract in contracts)
-    selectors = {'课表、考试与首周同步': {'XNXQDM'}, '空教室占用数据': {'XNXQDM', 'JXLDM'}}.get(probe, set())
+    selectors = SELECTORS.get(probe, set())
     if matched and selectors:
         if not isinstance(expected_parameters, dict) or set(expected_parameters) != selectors \
                 or not all(isinstance(value, str) and value for value in expected_parameters.values()): return False
-        matched = all(all(row.get('query', {}).get(key) == expected for key, expected in expected_parameters.items())
+        matched = all(all((unquote(urlsplit(row['endpoint']).path) if key == 'path' else row.get('query', {}).get(key)) == expected
+            for key, expected in expected_parameters.items())
             for row in requests if any(contract.matches(row) for contract in contracts))
     if matched and probe == '生产共享会话':
         return len(requests) == 3 and contracts[0].matches(requests[0]) \

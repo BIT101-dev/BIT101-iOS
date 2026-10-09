@@ -88,7 +88,7 @@ private struct PaperCommentRow: View {
     let onLikeComment: (CommunityComment) -> Void
 
     var body: some View {
-        AppCommentThread(comment: comment, subcomments: comment.sub) { comment, isSubComment in
+        AppCommentThread(comment: comment, subcomments: comment.flattenedReplies) { comment, isSubComment in
             commentBubble(comment, isSubComment: isSubComment)
         }
     }
@@ -117,7 +117,7 @@ private struct PaperCommentRow: View {
                     .foregroundStyle(AppDesignSystem.Foreground.secondary)
             }
 
-            Text(comment.text)
+            Text(CommunityTextLimits.displayText(comment.text))
                 .font(isSubComment
                     ? AppDesignSystem.Typography.subheadline
                     : AppDesignSystem.Typography.body)

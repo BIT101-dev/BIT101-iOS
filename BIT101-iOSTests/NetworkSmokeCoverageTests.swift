@@ -92,6 +92,42 @@ struct NetworkSmokeCoverageTests {
         #expect(collector.requests.count == 1 && HTTPRequestEvidenceContext.didReceive == nil)
     }
 
+    @Test(arguments: ["obj", "uid", "path"], ["correct", "wrong", "missing"])
+    func requestEvidenceChecksTheSelectedCommunityInput(key: String, selection: String) async throws {
+        let expected = key == "obj" ? "poster17" : key == "uid" ? "23" : "/courses/histories/课程 1"
+        var components = try #require(URLComponents(string: "https://bit101.flwfdd.xyz" + (key == "path" ? "/courses/histories/17" : key == "obj" ? "/reaction/comments" : "/posters")))
+        if key == "path" { components.path = expected }
+        if key == "path", selection != "correct" {
+            components.path = selection == "wrong" ? "/courses/histories/999" : "/user/check"
+        } else if key != "path", selection != "missing" {
+            components.queryItems = [URLQueryItem(name: key, value: selection == "correct" ? expected : key == "obj" ? "poster999" : "999")]
+        }
+        let url = try #require(components.url)
+        let client = HTTPClient(transport: SelectorTransport(), observer: nil)
+        let collector = NetworkSmokeRequestCollector()
+        let operation = { try await client.send(URLRequest(url: url)) }
+        if selection == "correct" { _ = try await collector.perform(operation, required: true, expectedParameters: [key: expected]) }
+        else {
+            await #expect(throws: NetworkSmokeRequestError.self) {
+                try await collector.perform(operation, required: true, expectedParameters: [key: expected])
+            }
+        }
+        #expect(collector.requests.count == 1 && HTTPRequestEvidenceContext.didReceive == nil)
+    }
+
+    @Test func smokeResponsesKeepTheirSelectedCommentParentAndPosterAuthor() throws {
+        let user = user(23)
+        let comment = CommunityComment(id: 1, obj: "paper17", images: [], user: user, anonymous: false,
+            createTime: "", updateTime: "", like: false, likeNum: 0, commentNum: 0, own: false, rate: 0,
+            replyUser: user, replyObj: "", text: "", sub: [])
+        try NetworkSmokePaging.checkComments([comment], for: "paper17")
+        #expect(throws: URLError.self) { try NetworkSmokePaging.checkComments([comment], for: "paper999") }
+        let poster = CommunityPoster(anonymous: false, claim: .init(id: 0, text: ""), commentNum: 0, createTime: "", editTime: "",
+            id: 1, images: [], likeNum: 0, public: true, tags: [], text: "", title: "", updateTime: "", user: user)
+        try NetworkSmokePaging.checkPosters([poster], for: 23)
+        #expect(throws: URLError.self) { try NetworkSmokePaging.checkPosters([poster], for: 999) }
+    }
+
     @Test func maintainedFixturesValidateAndTravelThroughBothLaunchEntrypoints() throws {
         let fixture = NetworkSmokeFixtures(posterID: 41, courseID: 43, courseNumber: "COURSE", paperID: 45)
         let encoded = try JSONEncoder().encode(fixture)

@@ -49,8 +49,10 @@ def call_can_execute(facts: dict, call: dict) -> bool:
             bindings = [node for node in facts.get('bindings', []) if node.get('bindingName') == name
                 and node.get('scope') == branch.get('scope') and node['start'] <= branch['start']
                 and lexical[:len(node.get('lexicalScope', []))] == node.get('lexicalScope', [])]
-            if bindings:
-                node = max(bindings, key=lambda item: (len(item.get('lexicalScope', [])), item['start']))
+            variables = visible_variables({**facts, 'typedVariables': facts.get('typedVariables', []),
+                'functionRanges': facts.get('functionRanges', [])}, branch, name)
+            if candidates := bindings + variables:
+                node = max(candidates, key=lambda item: (len(item.get('scope', [])), len(item.get('lexicalScope', [])), item['start']))
                 return node.get('booleanValue')
             return None
         value = constant_boolean(branch.get('condition') or '', resolve)

@@ -19,7 +19,12 @@ final class NetworkSmokeRequestCollector {
         if required && requests.isEmpty { throw NetworkSmokeRequestError.missingResponse }
         if required {
             for (key, expected) in expectedParameters {
-                let observed = requests.compactMap { $0.query[key] }
+                let observed = requests.compactMap { request -> String? in
+                    guard key == "path" else { return request.query[key] }
+                    guard let path = URLComponents(string: request.endpoint)?.path,
+                          path.split(separator: "/").dropLast() == expected.split(separator: "/").dropLast() else { return nil }
+                    return path
+                }
                 guard !observed.isEmpty, observed.allSatisfy({ $0 == expected }) else {
                     throw NetworkSmokeRequestError.parameterMismatch(key)
                 }

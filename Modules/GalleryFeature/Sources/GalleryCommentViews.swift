@@ -20,6 +20,7 @@ struct GalleryPosterCommentsSection: View {
     let totalCommentCount: Int
     let status: CommunityLoadStatus
     let isLoadingMore: Bool
+    let canContinue: Bool
     let selectedOrder: CommunityCommentOrder
     let likingCommentIDs: Set<Int>
     let onSelectOrder: @MainActor (CommunityCommentOrder) -> Void
@@ -78,11 +79,14 @@ struct GalleryPosterCommentsSection: View {
                             }
                         }
 
-                        if isLoadingMore {
-                            AppInlineLoadingState()
-                        }
                     }
                     .appCommentSectionStyle()
+                }
+                if isLoadingMore {
+                    AppInlineLoadingState()
+                } else if canContinue {
+                    Button("继续查找评论") { onLoadMore(comments.last) }
+                        .accessibilityIdentifier("ui.gallery-comments.continue")
                 }
             }
         }
@@ -114,7 +118,7 @@ private struct GalleryCommentRow: View {
     @State private var isShowingDeleteConfirmation = false
 
     var body: some View {
-        AppCommentThread(comment: comment, subcomments: flattenedSubcomments) { comment, isSubComment in
+        AppCommentThread(comment: comment, subcomments: comment.flattenedReplies) { comment, isSubComment in
             commentBubble(comment, isSubComment: isSubComment)
         }
         .alert(
@@ -134,14 +138,6 @@ private struct GalleryCommentRow: View {
         } message: { _ in
             Text("确定删除这条评论吗？删除后无法恢复。")
         }
-    }
-
-    private var flattenedSubcomments: [CommunityComment] {
-        comment.sub.flatMap { flattenedComments(from: $0) }
-    }
-
-    private func flattenedComments(from comment: CommunityComment) -> [CommunityComment] {
-        [comment] + comment.sub.flatMap { flattenedComments(from: $0) }
     }
 
     private func commentAvatarURL(for comment: CommunityComment) -> URL? {

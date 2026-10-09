@@ -220,23 +220,24 @@ final class ReleaseNetworkSmokeRunner {
         if let fixture = validatedFixtures {
             await runInParallel([
                 {
-                    _ = await self.probe("话廊帖子详情", area: .bit101, scope: scope) {
+                    _ = await self.probe("话廊帖子详情", area: .bit101, scope: scope, expectedParameters: ["path": "/posters/\(fixture.posterID)"]) {
                         let detail = try await gallery.fetchPoster(id: fixture.posterID)
                         try Self.validateEntityIdentity(expected: fixture.posterID, actual: detail.id)
                         return detail
                     }
                 },
                 {
-                    _ = await self.probe("话廊帖子评论", area: .bit101, scope: scope) {
-                        try await NetworkSmokePaging.batch { try await gallery.fetchComments(
-                            objectID: "poster\(fixture.posterID)",
-                            order: .newest,
-                            page: $0 == 0 ? nil : $0
-                        ) }
+                    let objectID = "poster\(fixture.posterID)"
+                    _ = await self.probe("话廊帖子评论", area: .bit101, scope: scope, expectedParameters: ["obj": objectID]) {
+                        try await NetworkSmokePaging.batch {
+                            let batch = try await gallery.fetchComments(objectID: objectID, order: .newest, page: $0 == 0 ? nil : $0)
+                            try NetworkSmokePaging.checkComments(batch.items, for: objectID)
+                            return batch
+                        }
                     }
                 }
             ])
-            _ = await probe("话廊网页详情", area: .bit101, scope: scope) {
+            _ = await probe("话廊网页详情", area: .bit101, scope: scope, expectedParameters: ["path": "/gallery/\(fixture.posterID)"]) {
                 try await self.fetchHTMLCount(
                     urlString: "https://open.aihelpme.dev/gallery/\(fixture.posterID)",
                     expectedHost: "open.aihelpme.dev"
@@ -282,7 +283,7 @@ final class ReleaseNetworkSmokeRunner {
         if let fixture = validatedFixtures {
             await runInParallel([
                 {
-                    _ = await self.probe("学业课程详情", area: .bit101, scope: scope) {
+                    _ = await self.probe("学业课程详情", area: .bit101, scope: scope, expectedParameters: ["path": "/courses/\(fixture.courseID)"]) {
                         let detail = try await courses.fetchCourse(id: fixture.courseID)
                         try Self.validateEntityIdentity(expected: fixture.courseID, actual: detail.id)
                         guard detail.number == fixture.courseNumber else { throw URLError(.badServerResponse) }
@@ -290,17 +291,22 @@ final class ReleaseNetworkSmokeRunner {
                     }
                 },
                 {
-                    _ = await self.probe("学业课程评论", area: .bit101, scope: scope) {
-                        try await NetworkSmokePaging.arrayPage { try await courses.fetchComments(courseID: fixture.courseID, page: $0 == 0 ? nil : $0) }
+                    let objectID = "course\(fixture.courseID)"
+                    _ = await self.probe("学业课程评论", area: .bit101, scope: scope, expectedParameters: ["obj": objectID]) {
+                        try await NetworkSmokePaging.arrayPage {
+                            let comments = try await courses.fetchComments(courseID: fixture.courseID, page: $0 == 0 ? nil : $0)
+                            try NetworkSmokePaging.checkComments(comments, for: objectID)
+                            return comments
+                        }
                     }
                 },
                 {
-                    _ = await self.probe("学业课程历史成绩", area: .bit101, scope: scope) {
+                    _ = await self.probe("学业课程历史成绩", area: .bit101, scope: scope, expectedParameters: ["path": "/courses/histories/\(fixture.courseNumber)"]) {
                         try await courses.fetchCourseHistories(number: fixture.courseNumber)
                     }
                 },
                 {
-                    _ = await self.probe("学业课程网页详情", area: .bit101, scope: scope) {
+                    _ = await self.probe("学业课程网页详情", area: .bit101, scope: scope, expectedParameters: ["path": "/course/\(fixture.courseID)"]) {
                         try await self.fetchHTMLCount(
                             urlString: "https://open.aihelpme.dev/course/\(fixture.courseID)",
                             expectedHost: "open.aihelpme.dev"
@@ -323,7 +329,7 @@ final class ReleaseNetworkSmokeRunner {
         if let fixture = validatedFixtures {
             await runInParallel([
                 {
-                    _ = await self.probe("文章详情", area: .bit101, scope: scope) {
+                    _ = await self.probe("文章详情", area: .bit101, scope: scope, expectedParameters: ["path": "/papers/\(fixture.paperID)"]) {
                         _ = try await papers.fetchPreviewMetadata(id: fixture.paperID)
                         let detail = try await papers.fetchPaper(id: fixture.paperID)
                         try Self.validateEntityIdentity(expected: fixture.paperID, actual: detail.id)
@@ -331,12 +337,17 @@ final class ReleaseNetworkSmokeRunner {
                     }
                 },
                 {
-                    _ = await self.probe("文章评论", area: .bit101, scope: scope) {
-                        try await NetworkSmokePaging.arrayPage { try await papers.fetchComments(paperID: fixture.paperID, order: .newest, page: $0 == 0 ? nil : $0) }
+                    let objectID = "paper\(fixture.paperID)"
+                    _ = await self.probe("文章评论", area: .bit101, scope: scope, expectedParameters: ["obj": objectID]) {
+                        try await NetworkSmokePaging.arrayPage {
+                            let comments = try await papers.fetchComments(paperID: fixture.paperID, order: .newest, page: $0 == 0 ? nil : $0)
+                            try NetworkSmokePaging.checkComments(comments, for: objectID)
+                            return comments
+                        }
                     }
                 },
                 {
-                    _ = await self.probe("文章网页详情", area: .bit101, scope: scope) {
+                    _ = await self.probe("文章网页详情", area: .bit101, scope: scope, expectedParameters: ["path": "/paper/\(fixture.paperID)"]) {
                         try await self.fetchHTMLCount(urlString: "https://open.aihelpme.dev/paper/\(fixture.paperID)",
                                                      expectedHost: "open.aihelpme.dev")
                     }
@@ -363,19 +374,34 @@ final class ReleaseNetworkSmokeRunner {
         let myInfo = await probe("我的资料", area: .bit101, scope: scope) { try await mine.fetchMyInfo() }
         await runInParallel([
             { _ = await self.probe("我的关注", area: .bit101, scope: scope) { try await NetworkSmokePaging.arrayPage { try await mine.fetchFollowings(page: $0) } } },
-            { _ = await self.probe("我的粉丝", area: .bit101, scope: scope) { try await NetworkSmokePaging.arrayPage { try await mine.fetchFollowers(page: $0) } } },
-            { _ = await self.probe("我的帖子", area: .bit101, scope: scope) { try await NetworkSmokePaging.arrayPage { try await mine.fetchMyPosters(page: $0) } } }
+            { _ = await self.probe("我的粉丝", area: .bit101, scope: scope) { try await NetworkSmokePaging.arrayPage { try await mine.fetchFollowers(page: $0) } } }
         ])
         if let myInfo {
             await runInParallel([
                 {
-                    _ = await self.probe("用户资料详情", area: .bit101, scope: scope) { let detail = try await mine.fetchUserInfo(id: myInfo.user.id); try Self.validateEntityIdentity(expected: myInfo.user.id, actual: detail.user.id); return detail }
+                    _ = await self.probe("我的帖子", area: .bit101, scope: scope, expectedParameters: ["uid": "0"]) {
+                        try await NetworkSmokePaging.arrayPage {
+                            let posters = try await mine.fetchMyPosters(page: $0)
+                            try NetworkSmokePaging.checkPosters(posters, for: myInfo.user.id)
+                            return posters
+                        }
+                    }
                 },
                 {
-                    _ = await self.probe("用户帖子", area: .bit101, scope: scope) { try await NetworkSmokePaging.arrayPage { try await mine.fetchUserPosters(userID: myInfo.user.id, page: $0) } }
+                    _ = await self.probe("用户资料详情", area: .bit101, scope: scope, expectedParameters: ["path": "/user/info/\(myInfo.user.id)"]) { let detail = try await mine.fetchUserInfo(id: myInfo.user.id); try Self.validateEntityIdentity(expected: myInfo.user.id, actual: detail.user.id); return detail }
+                },
+                {
+                    _ = await self.probe("用户帖子", area: .bit101, scope: scope, expectedParameters: ["uid": String(myInfo.user.id)]) {
+                        try await NetworkSmokePaging.arrayPage {
+                            let posters = try await mine.fetchUserPosters(userID: myInfo.user.id, page: $0)
+                            try NetworkSmokePaging.checkPosters(posters, for: myInfo.user.id)
+                            return posters
+                        }
+                    }
                 }
             ])
         } else {
+            recordSkip("我的帖子", "资料探针没有可用数据", area: .bit101, scope: scope)
             recordSkip("用户资料详情", "资料探针没有可用数据", area: .bit101, scope: scope)
             recordSkip("用户帖子", "资料探针没有可用数据", area: .bit101, scope: scope)
         }

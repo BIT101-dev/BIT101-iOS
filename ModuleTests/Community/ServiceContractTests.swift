@@ -213,6 +213,45 @@ struct ServiceContractTests {
         } catch { #expect(TaskCancellation.matches(error)) }
     }
 
+    @Test(arguments: ["feed", "search", "comments"])
+    func longFilteredRunsYieldAtTheBudgetAndContinueThroughTheirSourceCursor(kind: String) async throws {
+        func comment(_ id: Int, hidden: Bool) -> String {
+            #"{"id":\#(id),"obj":"poster1","images":[],"user":\#(user),"anonymous":\#(hidden),"create_time":"","update_time":"","like":false,"like_num":0,"comment_num":0,"own":true,"rate":0,"reply_user":\#(user),"reply_obj":"","text":"fixture","sub":[]}"#
+        }
+        let rows = (1...5).map { kind == "comments" ? comment($0, hidden: true) : poster(id: $0, anonymous: true) }
+            + [kind == "comments" ? comment(6, hidden: false) : poster(id: 6)]
+        let transport = Transport(rows.map { (200, "[" + $0 + "]") } + [(200, "[]")])
+        let service = GalleryService(session: session(transport), preferences: {
+            CommunityPreferenceSnapshot(hideBots: false, hiddenUserIDs: [], hideAnonymous: true, useWebView: false, hideMakeupOutliers: false)
+        })
+        if kind == "comments" {
+            let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
+            let initial = try decoder.decode(CommunityPoster.self, from: Data(poster(id: 1).utf8))
+            let model = GalleryPosterDetailViewModel(initialPoster: initial, service: service)
+            await model.refreshComments()
+            #expect(model.commentState.items.isEmpty && model.commentState.nextPage == 5 && model.commentState.canLoadMore)
+            #expect(transport.requests.count == 5)
+            await model.loadMoreCommentsIfNeeded(currentComment: nil)
+            #expect(model.commentState.items.map(\.id) == [6] && model.commentState.nextPage == 6)
+            await model.loadMoreCommentsIfNeeded(currentComment: model.commentState.items.last)
+            #expect(!model.commentState.canLoadMore)
+        } else {
+            let model = GalleryViewModel(service: service)
+            if kind == "search" { await model.performSearch() } else { await model.refresh(feed: .newest) }
+            let first = kind == "search" ? model.searchState : model.state(for: .newest)
+            #expect(first.posters.isEmpty && first.nextPage == 5 && first.canLoadMore)
+            #expect(transport.requests.count == 5)
+            if kind == "search" { await model.loadMoreSearchResultsIfNeeded(currentPoster: nil) }
+            else { await model.loadMoreIfNeeded(for: .newest, currentPoster: nil) }
+            let next = kind == "search" ? model.searchState : model.state(for: .newest)
+            #expect(next.posters.map(\.id) == [6] && next.nextPage == 6)
+            if kind == "search" { await model.loadMoreSearchResultsIfNeeded(currentPoster: next.posters.last) }
+            else { await model.loadMoreIfNeeded(for: .newest, currentPoster: next.posters.last) }
+            #expect(!(kind == "search" ? model.searchState : model.state(for: .newest)).canLoadMore)
+        }
+        #expect(transport.requests.count == 7)
+    }
+
     @Test func filteredCommentPagesKeepTheirSourceCursorAndRawRecoveryRemainsAvailable() async throws {
         let comment = #"{"id":5,"obj":"poster1","images":[],"user":\#(user),"anonymous":false,"create_time":"","update_time":"","like":false,"like_num":0,"comment_num":0,"own":true,"rate":0,"reply_user":\#(user),"reply_obj":"","text":"fixture","sub":[]}"#
         let hidden = comment.replacingOccurrences(of: "\"anonymous\":false", with: "\"anonymous\":true")

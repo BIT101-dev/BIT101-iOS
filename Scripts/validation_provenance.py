@@ -68,7 +68,7 @@ def network_requests_complete(required: set[str], value: dict) -> bool:
             if not isinstance(query, dict) or not set(query) <= {'page', 'last_id', 'obj', 'order', 'mode', 'type', 'uid', 'detail', 'search', 'hide_bot', 'XNXQDM', 'JXLDM'} \
                     or not all(isinstance(key, str) and isinstance(item, str) for key, item in query.items()): return False
         expected = row.get('expectedParameters', {})
-        if not isinstance(expected, dict) or not set(expected) <= {'XNXQDM', 'JXLDM'} \
+        if not isinstance(expected, dict) or not set(expected) <= {'XNXQDM', 'JXLDM', 'obj', 'uid', 'path'} \
                 or not all(isinstance(item, str) for item in expected.values()): return False
         if value.get('validatedTerm') and expected.get('XNXQDM') != value['validatedTerm'] and 'XNXQDM' in expected: return False
         if complete(row['probe'], row['requests'], expected): observed.add(row['probe'])

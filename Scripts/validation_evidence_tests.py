@@ -432,11 +432,11 @@ def network_recording_self_test(subject, results) -> None:
 
 
 def network_trace_fixture(value: dict) -> dict:
-    from network_request_contracts import contracts_for
+    from network_request_contracts import contracts_for, SELECTORS
     def example(pattern, identifier=1):
         import re
         pattern = re.sub(r'\(\?:([^()]*)\)', lambda match: match[1].split('|')[0], pattern)
-        return pattern.replace('[0-9a-f]+', 'a').replace(r'\d+', str(identifier)).replace(r'\.', '.').replace(r'\-', '-').replace('.+', 'fixture').replace('?', '')
+        return pattern.replace('[0-9a-f]+', 'a').replace(r'[1-9]\d*', str(identifier)).replace(r'\d+', str(identifier)).replace(r'\.', '.').replace(r'\-', '-').replace('.+', 'fixture').replace('?', '')
     rows = []
     for name in value.get('requiredProbes', []):
         contracts = contracts_for(name)
@@ -447,7 +447,7 @@ def network_trace_fixture(value: dict) -> dict:
         for contract in contracts:
             for index in range(max(contract.minimum, 2 if contract.paging else 1)):
                 query = {key: example(pattern) for key, pattern in contract.query.items() if pattern is not None}
-                query.update(expected)
+                query.update({key: item for key, item in expected.items() if key != 'path'})
                 if contract.paging == 'page': query['page'] = str(index)
                 if contract.paging == 'last_id': query['last_id'] = str(sys.maxsize) if index == 0 else '1'
                 request = {'method': contract.method, 'endpoint': 'https://' + example(contract.host) + example(contract.path),
@@ -459,6 +459,9 @@ def network_trace_fixture(value: dict) -> dict:
                     if contract.method == 'POST' and contract.path == '/reaction/comments' and query['obj'].startswith('comment'):
                         query['obj'] = 'comment' + str(index + 1)
                 assert contract.matches(request), (name, request)
+                for key in SELECTORS.get(name, set()) - {'XNXQDM', 'JXLDM'}:
+                    from urllib.parse import unquote, urlsplit
+                    expected[key] = unquote(urlsplit(request['endpoint']).path) if key == 'path' else request['query'][key]
                 requests.append(request)
         if name == '生产共享会话': requests.insert(1, requests.pop())
         rows.append({'probe': name, 'requests': requests, 'expectedParameters': expected})
@@ -474,6 +477,18 @@ def network_route_identity_self_test() -> None:
     required = {'文章评论'}
     proof = network_trace_fixture({'requiredProbes': sorted(required)})
     assert network_requests_complete(required, proof)
+    from network_request_contracts import SELECTORS
+    for probe, selectors in SELECTORS.items():
+        selected = network_trace_fixture({'requiredProbes': [probe]})
+        row = selected['requestEvidence'][0]
+        assert complete(probe, row['requests'], row['expectedParameters'])
+        assert not complete(probe, row['requests'])
+        for key in selectors:
+            changed = deepcopy(selected)
+            for request in changed['requestEvidence'][0]['requests']:
+                if key == 'path': request['endpoint'] = request['endpoint'].rsplit('/', 1)[0] + '/999'
+                else: request['query'][key] = '999' if key == 'uid' else re.sub(r'\d+$', '999', request['query'][key]) if key == 'obj' else 'wrong'
+            assert not network_requests_complete({probe}, changed), (probe, key)
     for key, value in [('endpoint', 'https://example.invalid/unrelated'), ('method', 'POST'),
                        ('endpoint', 'http://bit101.flwfdd.xyz/reaction/comments'), ('statusCode', 500),
                        ('query', {'obj': 'course1', 'page': '0'})]:

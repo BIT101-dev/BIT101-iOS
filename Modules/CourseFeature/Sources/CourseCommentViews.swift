@@ -93,7 +93,7 @@ private struct CourseCommentRow: View {
     let onOpenUser: (CommunityUser) -> Void
 
     var body: some View {
-        AppCommentThread(comment: comment, subcomments: comment.sub) { comment, isSubComment in
+        AppCommentThread(comment: comment, subcomments: comment.flattenedReplies) { comment, isSubComment in
             commentBubble(comment, isSubComment: isSubComment)
         }
     }
@@ -154,14 +154,14 @@ private struct CourseCommentRow: View {
             (
                 Text("回复 @\(comment.replyUser.nickname)：")
                     .foregroundStyle(AppDesignSystem.Foreground.secondary) +
-                    Text(comment.text)
+                    Text(CommunityTextLimits.displayText(comment.text))
                     .foregroundStyle(AppDesignSystem.Foreground.primary)
             )
             .font(AppDesignSystem.Typography.body)
             .lineSpacing(AppDesignSystem.Comment.bodyLineSpacing)
             .frame(maxWidth: .infinity, alignment: .leading)
         } else {
-            Text(comment.text)
+            Text(CommunityTextLimits.displayText(comment.text))
                 .font(AppDesignSystem.Typography.body)
                 .foregroundStyle(AppDesignSystem.Foreground.primary)
                 .lineSpacing(AppDesignSystem.Comment.bodyLineSpacing)

@@ -17,6 +17,7 @@ public struct CommunityCommentState {
     public var nextPage = 0
     /// 服务端是否还有更多评论。
     public var canLoadMore = true
+    public var needsContinuation = false
     public private(set) var likeRevision = 0
     private var likeResults: [Int: (revision: Int, result: CommunityLikeResult)] = [:]
 

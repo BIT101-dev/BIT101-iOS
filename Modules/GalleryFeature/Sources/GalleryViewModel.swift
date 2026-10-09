@@ -218,6 +218,7 @@ final class GalleryViewModel: ObservableObject {
                     $0.status = .loaded
                     $0.nextPage = batch.nextSourcePage
                     $0.canLoadMore = batch.canLoadMore
+                    $0.needsContinuation = batch.items.isEmpty && batch.canLoadMore
                 }
             } else {
                 if feed == .recommend {
@@ -225,12 +226,13 @@ final class GalleryViewModel: ObservableObject {
                     var sourcePage = 0
                     var progress = CommunityPageProgress<Int>()
                     var batch = try await service.fetchRecommendPage(sourcePage: sourcePage)
-                    while batch.items.isEmpty, batch.canLoadMore {
+                    while true {
                         try Task.checkCancellation()
                         guard refreshGenerations[feed] == generation else { return }
-                        guard batch.nextSourcePage > sourcePage else { throw GalleryServiceError.invalidResponse }
-                        guard !batch.sourceIDs.isEmpty else { throw GalleryServiceError.invalidResponse }
+                        guard !batch.canLoadMore || (batch.nextSourcePage > sourcePage && !batch.sourceIDs.isEmpty)
+                        else { throw GalleryServiceError.invalidResponse }
                         try progress.record(batch.sourceIDs)
+                        if !batch.items.isEmpty || !batch.canLoadMore || batch.nextSourcePage >= GalleryPaging.maximumSourcePages { break }
                         sourcePage = batch.nextSourcePage
                         batch = try await service.fetchRecommendPage(sourcePage: sourcePage)
                     }
@@ -243,8 +245,9 @@ final class GalleryViewModel: ObservableObject {
                         $0.status = .loaded
                         $0.nextPage = batch.nextSourcePage
                         $0.canLoadMore = batch.canLoadMore
+                        $0.needsContinuation = uniquePosters.isEmpty && batch.canLoadMore
                     }
-                    if batch.canLoadMore {
+                    if batch.canLoadMore, !uniquePosters.isEmpty {
                         recommendPrefetch.start(from: batch.nextSourcePage)
                     }
                 } else {
@@ -258,6 +261,7 @@ final class GalleryViewModel: ObservableObject {
                         $0.status = .loaded
                         $0.nextPage = batch.nextSourcePage
                         $0.canLoadMore = batch.canLoadMore
+                        $0.needsContinuation = uniquePosters.isEmpty && batch.canLoadMore
                     }
                 }
             }
@@ -306,7 +310,7 @@ final class GalleryViewModel: ObservableObject {
         guard
             state.status == .loaded,
             state.canLoadMore, !state.isLoadingMore,
-            currentPoster.map({ state.shouldLoadMore(currentID: $0.id) }) ?? (feed.isBotFeed && state.posters.isEmpty)
+            currentPoster.map({ state.shouldLoadMore(currentID: $0.id) }) ?? state.posters.isEmpty
         else {
             return
         }
@@ -316,6 +320,7 @@ final class GalleryViewModel: ObservableObject {
         do {
             var updated = state
             var progress = CommunityPageProgress(knownIDs: state.posterIDs)
+            var emptyBatch = false
             repeat {
                 let batch: GalleryPageBatch<CommunityPoster>
                 if feed == .recommend {
@@ -332,11 +337,14 @@ final class GalleryViewModel: ObservableObject {
                 guard !batch.canLoadMore || (batch.nextSourcePage > updated.nextPage && !batch.sourceIDs.isEmpty)
                 else { throw GalleryServiceError.invalidResponse }
                 try progress.record(batch.sourceIDs)
+                emptyBatch = batch.items.isEmpty && feed != .recommend
                 updated.appendUniqueItems(batch.items)
                 updated.nextPage = batch.nextSourcePage
                 updated.canLoadMore = batch.canLoadMore
-            } while updated.canLoadMore && updated.posters.count == state.posters.count && !feed.isBotFeed
+            } while updated.canLoadMore && updated.posters.count == state.posters.count && !feed.isBotFeed && !emptyBatch
+                && updated.nextPage - state.nextPage < GalleryPaging.maximumSourcePages
             updated.isLoadingMore = false
+            updated.needsContinuation = updated.canLoadMore && updated.posters.count == state.posters.count
             feedStates[feed] = updated
             if feed == .recommend, updated.canLoadMore { recommendPrefetch.start(from: updated.nextPage) }
 
@@ -374,6 +382,7 @@ final class GalleryViewModel: ObservableObject {
             pageSearchQuery = query
             searchState.nextPage = batch.nextSourcePage
             searchState.canLoadMore = batch.canLoadMore
+            searchState.needsContinuation = uniquePosters.isEmpty && batch.canLoadMore
             searchState.status = .loaded
         } catch {
             guard searchGeneration == generation else { return }
@@ -397,26 +406,40 @@ final class GalleryViewModel: ObservableObject {
     ///
     /// 搜索结果按需加载；无关键词时保持预取请求链路空闲。
     func loadMoreSearchResultsIfNeeded(currentPoster: CommunityPoster?) async {
-        guard let currentPoster, let query = pageSearchQuery else { return }
+        guard let query = pageSearchQuery else { return }
         let generation = searchGeneration
 
         guard
             searchState.status == .loaded,
-            searchState.shouldLoadMore(currentID: currentPoster.id)
+            searchState.canLoadMore, !searchState.isLoadingMore,
+            currentPoster.map({ searchState.shouldLoadMore(currentID: $0.id) }) ?? searchState.posters.isEmpty
         else {
             return
         }
 
+        let state = searchState
         searchState.isLoadingMore = true
 
         do {
-            let batch = try await service.searchPosters(query: query, page: searchState.nextPage)
-            try Task.checkCancellation()
-            guard searchGeneration == generation else { return }
-            searchState.appendUniqueItems(batch.items)
-            searchState.isLoadingMore = false
-            searchState.nextPage = batch.nextSourcePage
-            searchState.canLoadMore = batch.canLoadMore
+            var updated = state
+            var progress = CommunityPageProgress(knownIDs: state.posterIDs)
+            var emptyBatch = false
+            repeat {
+                let batch = try await service.searchPosters(query: query, page: updated.nextPage)
+                try Task.checkCancellation()
+                guard searchGeneration == generation else { return }
+                guard !batch.canLoadMore || (batch.nextSourcePage > updated.nextPage && !batch.sourceIDs.isEmpty)
+                else { throw GalleryServiceError.invalidResponse }
+                try progress.record(batch.sourceIDs)
+                emptyBatch = batch.items.isEmpty
+                updated.appendUniqueItems(batch.items)
+                updated.nextPage = batch.nextSourcePage
+                updated.canLoadMore = batch.canLoadMore
+            } while updated.canLoadMore && updated.posters.count == state.posters.count && !emptyBatch
+                && updated.nextPage - state.nextPage < GalleryPaging.maximumSourcePages
+            updated.isLoadingMore = false
+            updated.needsContinuation = updated.canLoadMore && updated.posters.count == state.posters.count
+            searchState = updated
         } catch {
             guard searchGeneration == generation else { return }
             if isGalleryCancellation(error) {

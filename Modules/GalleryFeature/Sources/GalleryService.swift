@@ -71,6 +71,10 @@ enum GalleryContentFilter {
 }
 
 /// 话廊列表与搜索共享原始分页游标和可见帖子。
+public nonisolated enum GalleryPaging {
+    public static let maximumSourcePages = 5
+}
+
 public nonisolated struct GalleryPageBatch<Element: Identifiable & Sendable>: Sendable where Element.ID == Int {
     public init(items: [Element], nextSourcePage: Int, canLoadMore: Bool, sourceIDs: [Int]? = nil) {
         self.items = items
@@ -264,7 +268,7 @@ public struct GalleryService {
         var collected: [CommunityPoster] = []
         var collectedIDs = Set<Int>()
         var canLoadMore = true
-        let maxScanCount = 5
+        let maxScanCount = GalleryPaging.maximumSourcePages
         var scanned = 0
         var sourceIDs: [Int] = []
         var progress = CommunityPageProgress<Int>()
@@ -468,14 +472,16 @@ public struct GalleryService {
     ) async throws -> GalleryPageBatch<CommunityComment> {
         var sourcePage = page ?? 0
         var progress = CommunityPageProgress<Int>()
+        var sourceIDs: [Int] = []
         while true {
             try Task.checkCancellation()
             let raw = try await fetchRawComments(objectID: objectID, order: order, page: sourcePage == 0 ? nil : sourcePage)
             try progress.record(raw.map(\.id))
+            sourceIDs.append(contentsOf: raw.map(\.id))
             let visible = await applyGalleryFilters(raw)
             sourcePage += 1
-            if !visible.isEmpty || raw.isEmpty {
-                return GalleryPageBatch(items: visible, nextSourcePage: sourcePage, canLoadMore: !raw.isEmpty)
+            if !visible.isEmpty || raw.isEmpty || sourcePage - (page ?? 0) >= GalleryPaging.maximumSourcePages {
+                return GalleryPageBatch(items: visible, nextSourcePage: sourcePage, canLoadMore: !raw.isEmpty, sourceIDs: sourceIDs)
             }
         }
     }
@@ -571,15 +577,17 @@ public struct GalleryService {
     ) async throws -> GalleryPageBatch<CommunityPoster> {
         var sourcePage = page ?? 0
         var progress = CommunityPageProgress<Int>()
+        var sourceIDs: [Int] = []
         while true {
             try Task.checkCancellation()
             let rawPosters = try await fetchRawPosters(mode: mode, order: order, search: search, uid: uid,
                 page: sourcePage == 0 ? nil : sourcePage, hideBot: hideBot)
             try progress.record(rawPosters.map(\.id))
+            sourceIDs.append(contentsOf: rawPosters.map(\.id))
             let visible = await applyGalleryFilters(applyBotFilterIfNeeded(rawPosters, hideBot: hideBot))
             sourcePage += 1
-            if !visible.isEmpty || rawPosters.isEmpty {
-                return GalleryPageBatch<CommunityPoster>(items: visible, nextSourcePage: sourcePage, canLoadMore: !rawPosters.isEmpty)
+            if !visible.isEmpty || rawPosters.isEmpty || sourcePage - (page ?? 0) >= GalleryPaging.maximumSourcePages {
+                return GalleryPageBatch<CommunityPoster>(items: visible, nextSourcePage: sourcePage, canLoadMore: !rawPosters.isEmpty, sourceIDs: sourceIDs)
             }
         }
     }

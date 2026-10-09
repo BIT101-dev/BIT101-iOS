@@ -185,6 +185,17 @@ public nonisolated struct CommunityComment: Decodable, Identifiable, Hashable, S
     public let text: String
     public let sub: [CommunityComment]
 
+    /// 按回复树的先序顺序展示全部后代。
+    public var flattenedReplies: [CommunityComment] {
+        var replies: [CommunityComment] = []
+        var pending = Array(sub.reversed())
+        while let reply = pending.popLast() {
+            replies.append(reply)
+            pending.append(contentsOf: reply.sub.reversed())
+        }
+        return replies
+    }
+
     /// 返回替换子评论列表的评论副本。
     public nonisolated func replacingSubComments(_ sub: [CommunityComment]) -> CommunityComment {
         CommunityComment(

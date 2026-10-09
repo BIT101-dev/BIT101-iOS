@@ -221,6 +221,7 @@ private struct GalleryPosterDetailViewScene: View {
                     totalCommentCount: viewModel.poster.commentNum,
                     status: viewModel.commentState.status,
                     isLoadingMore: viewModel.commentState.isLoadingMore,
+                    canContinue: viewModel.commentState.canLoadMore && viewModel.commentState.needsContinuation,
                     selectedOrder: viewModel.commentOrder,
                     likingCommentIDs: viewModel.likingCommentIDs,
                     onSelectOrder: { order in
