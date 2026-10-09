@@ -94,7 +94,6 @@ final class CommunityWriteSmoke {
                     try record(image.mid)
                     let id = try await gallery.createPoster(title: "功能验收", text: text,
                         imageMids: [image.mid], anonymous: false, tags: [], claimID: 0, isPublic: false)
-                    guard try await gallery.fetchPoster(id: id).images.map(\.mid) == [image.mid] else { throw URLError(.cannotParseResponse) }
                     return id
                 case .paper: return try await papers.createPaper(title: text, intro: text,
                     content: PaperEditorContentBuilder.editorJSON(from: text), anonymous: false, publicEdit: false)
@@ -276,17 +275,30 @@ final class CommunityWriteSmoke {
                 try Task.checkCancellation()
                 journal.attempts.append(kind); try persist(journal)
                 operation = "创建 " + kind.rawValue
-                let id = try await operations.create(kind, journal.marker) { mid in
-                    journal.evidence.append("共享验收图片 \(mid)"); try self.persist(journal)
+                var uploadedImage: String?
+                let id: Int
+                do {
+                    id = try await operations.create(kind, journal.marker) { mid in
+                        uploadedImage = mid
+                        journal.evidence.append("共享验收图片 \(mid)"); try self.persist(journal)
+                    }
+                } catch {
+                    if Self.creationWasRejected(error) {
+                        journal.attempts.removeAll { $0 == kind }; try persist(journal)
+                    }
+                    throw error
                 }
+                guard id > 0 else { throw failure("验收内容标识无效") }
                 let target = Target(kind: kind, id: id)
                 journal.targets.append(target); journal.evidence.append("创建 \(kind.rawValue)\(id)")
+                journal.attempts.removeAll { $0 == kind }
                 try persist(journal)
                 operation = "读取 " + kind.rawValue
                 guard let created = try await operations.read(kind, id), created.owned,
                       created.text == journal.marker else { throw failure("验收内容创建结果异常") }
                 if kind == .poster {
-                    guard !created.imageMids.isEmpty else { throw failure("帖子图片引用验收待完成") }
+                    guard !created.imageMids.isEmpty,
+                          uploadedImage.map({ created.imageMids == [$0] }) ?? true else { throw failure("帖子图片引用验收待完成") }
                     journal.evidence.append("图片提交 poster\(id)")
                 }
                 let edited = journal.marker + " 编辑"
@@ -311,12 +323,7 @@ final class CommunityWriteSmoke {
                 let parent = target.kind.rawValue + String(target.id)
                 journal.parents.append(parent); try persist(journal)
                 operation = "评论 " + target.kind.rawValue
-                let comment = try await operations.comment(parent, journal.marker) { mid in
-                    journal.evidence.append("共享验收图片 \(mid)"); try self.persist(journal)
-                }
-                guard comment.id > 0, !journal.comments.contains(comment.id) else { throw failure("验收评论标识重复或无效") }
-                journal.comments.append(comment.id); journal.evidence.append("创建 comment\(comment.id) 目标 \(parent)")
-                journal.commentParents[comment.id] = parent
+                let comment = try await createComment(parent, journal: &journal, operations: operations)
                 if target.kind == .poster {
                     guard !comment.images.isEmpty else { throw failure("评论图片引用验收待完成") }
                     journal.evidence.append("图片提交 comment\(comment.id)")
@@ -326,13 +333,7 @@ final class CommunityWriteSmoke {
                 guard comment.own, comment.text == journal.marker,
                       try await operations.comments(parent).contains(where: { $0.id == comment.id }) else { throw failure("验收评论创建结果异常") }
                 operation = "回复 " + target.kind.rawValue
-                let reply = try await operations.comment(replies, journal.marker) { mid in
-                    journal.evidence.append("共享验收图片 \(mid)"); try self.persist(journal)
-                }
-                guard reply.id > 0, !journal.comments.contains(reply.id) else { throw failure("验收回复标识重复或无效") }
-                journal.comments.append(reply.id); journal.evidence.append("创建 comment\(reply.id) 目标 \(replies)")
-                journal.commentParents[reply.id] = replies
-                try persist(journal)
+                let reply = try await createComment(replies, journal: &journal, operations: operations)
                 guard reply.own, reply.text == journal.marker,
                       try await operations.comments(replies).contains(where: { $0.id == reply.id }) else { throw failure("验收回复创建结果异常") }
             }
@@ -353,6 +354,35 @@ final class CommunityWriteSmoke {
 
     private func persist(_ journal: Journal) throws { try save(JSONEncoder().encode(journal)) }
 
+    private static func creationWasRejected(_ error: any Error) -> Bool {
+        switch error {
+        case GalleryServiceError.notLoggedIn, PaperServiceError.notLoggedIn, CourseServiceError.notLoggedIn: return true
+        default: break
+        }
+        let failure = error as NSError
+        return ["BIT101.Gallery", "BIT101.Paper", "BIT101.Course"].contains(failure.domain) && (400..<500).contains(failure.code)
+    }
+
+    private func createComment(_ parent: String, journal: inout Journal, operations: Operations) async throws -> CommunityComment {
+        journal.commentAttempts.append(parent); try persist(journal)
+        do {
+            let comment = try await operations.comment(parent, journal.marker) { mid in
+                journal.evidence.append("共享验收图片 \(mid)"); try self.persist(journal)
+            }
+            guard comment.id > 0, !journal.comments.contains(comment.id) else { throw failure("验收评论标识重复或无效") }
+            journal.comments.append(comment.id); journal.evidence.append("创建 comment\(comment.id) 目标 \(parent)")
+            journal.commentParents[comment.id] = parent
+            journal.commentAttempts.removeAll { $0 == parent }
+            try persist(journal)
+            return comment
+        } catch {
+            if Self.creationWasRejected(error) {
+                journal.commentAttempts.removeAll { $0 == parent }; try persist(journal)
+            }
+            throw error
+        }
+    }
+
     private func cleanup(_ journal: inout Journal, operations: Operations, owner: CommunitySessionIdentity) async throws {
         var failures: [String] = []
         if let target = journal.followTarget {
@@ -364,16 +394,16 @@ final class CommunityWriteSmoke {
             }
             try persist(journal)
         }
-        var discovered: Set<Kind> = []
         for kind in Set(journal.attempts) {
-            if try await recoverOperation("查找 " + kind.rawValue, failures: &failures, operation: {
-                for id in try await operations.find(kind, journal.marker) {
+            _ = try await recoverOperation("查找 " + kind.rawValue, failures: &failures, operation: {
+                let identifiers = try await operations.find(kind, journal.marker)
+                guard !identifiers.isEmpty else { throw failure("验收创建结果待服务端确认") }
+                for id in identifiers {
                     let target = Target(kind: kind, id: id)
                     if !journal.targets.contains(target) { journal.targets.append(target) }
                 }
-            }) {
-                discovered.insert(kind)
-            }
+                journal.attempts.removeAll { $0 == kind }
+            })
         }
         try persist(journal)
         for like in journal.likes {
@@ -394,7 +424,9 @@ final class CommunityWriteSmoke {
             let parent = journal.parents[parentIndex]
             parentIndex += 1
             _ = try await recoverOperation("查找评论 " + parent, failures: &failures, operation: {
+                var found = false
                 for comment in try await operations.comments(parent) where comment.own && comment.text == journal.marker {
+                    found = true
                     if !journal.comments.contains(comment.id) { journal.comments.append(comment.id) }
                     journal.commentParents[comment.id] = parent
                     if !parent.hasPrefix("comment") {
@@ -402,6 +434,8 @@ final class CommunityWriteSmoke {
                         if !journal.parents.contains(replies) { journal.parents.append(replies) }
                     }
                 }
+                if found { journal.commentAttempts.removeAll { $0 == parent } }
+                guard !journal.commentAttempts.contains(parent) else { throw failure("验收评论创建结果待服务端确认") }
             })
         }
         journal.comments = journal.comments.reduce(into: [Int]()) { if !$0.contains($1) { $0.append($1) } }
@@ -411,6 +445,7 @@ final class CommunityWriteSmoke {
             if try await recoverOperation("删除 comment\(id)", failures: &failures, operation: {
                 let replies = "comment\(id)"
                 if journal.parents.contains(replies) {
+                    guard !journal.commentAttempts.contains(replies) else { throw failure("验收回复创建结果待服务端确认") }
                     guard try await operations.comments(replies).allSatisfy({ !commentIDs.contains($0.id) && !($0.own && $0.text == journal.marker) })
                     else { throw failure("验收回复清理待完成") }
                     retireComments(replies, journal: &journal)
@@ -424,6 +459,7 @@ final class CommunityWriteSmoke {
         }
         for parent in journal.parents {
             if try await recoverOperation("确认评论删除 " + parent, failures: &failures, operation: {
+                guard !journal.commentAttempts.contains(parent) else { throw failure("验收评论创建结果待服务端确认") }
                 guard try await operations.comments(parent).allSatisfy({ !commentIDs.contains($0.id) && !($0.own && $0.text == journal.marker) })
                 else { throw failure("验收评论清理待完成") }
             }) {
@@ -447,7 +483,7 @@ final class CommunityWriteSmoke {
             }
             try persist(journal)
         }
-        journal.attempts.removeAll { kind in discovered.contains(kind) && !journal.targets.contains(where: { $0.kind == kind }) }
+        if !journal.attempts.isEmpty || !journal.commentAttempts.isEmpty { failures.append("验收创建结果待服务端确认") }
         guard operations.identity() == owner else { throw failure("验收账号已切换，清理记录已保留") }
         if !failures.isEmpty { try persist(journal); throw failure(failures.joined(separator: "；")) }
         try save(nil)

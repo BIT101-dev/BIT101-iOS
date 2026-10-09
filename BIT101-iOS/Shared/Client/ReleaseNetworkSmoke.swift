@@ -930,7 +930,7 @@ final class ReleaseNetworkSmokeRunner {
     }
 
     private func fetchResponse(_ url: URL, maximumBytes: Int? = nil) async throws -> HTTPResponse {
-        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30)
+        var request = URLRequest(url: HTTPSURLUpgrade.upgradedURL(from: url), cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30)
         request.setValue("BIT101-iOS release network smoke", forHTTPHeaderField: "User-Agent")
         let response = try await self.dependencies.externalHTTPClient.send(request, accepting: 200 ..< 300, maximumBytes: maximumBytes)
         guard !response.data.isEmpty else { throw URLError(.zeroByteResource) }

@@ -56,7 +56,7 @@ def check_release() -> None:
     commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
     errors = receipt_findings(receipt, tag, commit, validation_evidence.source_digest)
     if errors: raise ValueError('\n'.join(errors))
-    print('公开发布回执通过：完整验收、源码、工具链及采样时间。')
+    print('公开发布回执通过：维护者确认、源码、工具链及采样时间。')
 
 
 def baseline(commit: str) -> None:

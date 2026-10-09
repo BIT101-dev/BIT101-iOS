@@ -444,7 +444,9 @@ def network_route_identity_self_test() -> None:
     required = {'文章评论'}
     proof = network_trace_fixture({'requiredProbes': sorted(required)})
     assert network_requests_complete(required, proof)
-    for key, value in [('endpoint', 'https://example.invalid/unrelated'), ('method', 'POST'), ('query', {'obj': 'course1', 'page': '0'})]:
+    for key, value in [('endpoint', 'https://example.invalid/unrelated'), ('method', 'POST'),
+                       ('endpoint', 'http://bit101.flwfdd.xyz/reaction/comments'), ('statusCode', 500),
+                       ('query', {'obj': 'course1', 'page': '0'})]:
         changed = deepcopy(proof)
         for request in changed['requestEvidence'][0]['requests']: request[key] = value
         assert not network_requests_complete(required, changed)
@@ -479,3 +481,8 @@ def network_route_identity_self_test() -> None:
                 else: row['query'][key] = 'unexpected'
             assert not complete(probe, changed), (probe, key)
     assert not complete('文章列表-未知', requests)
+    login = {'method': 'GET', 'endpoint': 'https://bit101.flwfdd.xyz/user/check', 'statusCode': 200, 'query': {}}
+    assert complete('BIT101 登录状态', [dict(login, statusCode=401), login])
+    for status in (100, 302, 401, 403, 500):
+        assert not complete('BIT101 登录状态', [dict(login, statusCode=status)])
+    assert not complete('BIT101 登录状态', [dict(login, endpoint=login['endpoint'].replace('https:', 'http:'))])

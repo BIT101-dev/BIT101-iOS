@@ -185,7 +185,8 @@ struct NetworkSmokeCoverageTests {
         #expect(route.referenced == [["uploaded"], ["uploaded"]])
         #expect(route.calls.filter { $0.0 == "/upload/image" }.count == 2)
         route.brokenReference = true
-        await #expect(throws: URLError.self) { _ = try await operations.create(.poster, "fixture", { _ in }) }
+        let created = try await operations.create(.poster, "fixture", { _ in })
+        #expect(try await operations.read(.poster, created)?.imageMids != ["uploaded"])
         let writes = route.calls.filter { $0.1 == "POST" && $0.0 != "/upload/image" }.count
         for comment in [false, true] {
             await #expect(throws: CocoaError.self) {

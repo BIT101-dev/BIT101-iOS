@@ -16,11 +16,14 @@ class RequestContract:
     query: dict = field(default_factory=dict)
     minimum: int = 1
     paging: str = ''
+    scheme: str = 'https'
+    statuses: range = range(200, 300)
 
     def matches(self, request: dict) -> bool:
         endpoint = urlsplit(request['endpoint'])
         query = request.get('query', {})
-        return request['method'] == self.method and re.fullmatch(self.host, endpoint.hostname or '') is not None \
+        return endpoint.scheme == self.scheme and request['statusCode'] in self.statuses \
+            and request['method'] == self.method and re.fullmatch(self.host, endpoint.hostname or '') is not None \
             and re.fullmatch(self.path, endpoint.path) is not None \
             and all(key not in query if pattern is None else re.fullmatch(pattern, query.get(key, '')) is not None
                 for key, pattern in self.query.items())

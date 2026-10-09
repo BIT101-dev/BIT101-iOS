@@ -27,6 +27,7 @@ def release_receipt(report: dict, tag: str, digest) -> dict:
 
 
 def receipt_findings(receipt: dict, tag: str, commit: str, digest) -> list[str]:
+    """Validate the maintainer's release declaration; summary digests identify locally reviewed evidence."""
     if not isinstance(receipt, dict): return ['公开发布回执需要结构化格式。']
     errors = []
     if set(receipt) != {'schemaVersion', 'tag', 'releaseCommit', 'groups'} or receipt.get('schemaVersion') != 1 \

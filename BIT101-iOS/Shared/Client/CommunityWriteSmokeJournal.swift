@@ -6,7 +6,7 @@ extension CommunityWriteSmoke {
     struct Like: Codable { let target: Target; let original: Bool }
 
     struct Journal: Codable {
-        static let currentVersion = 3
+        static let currentVersion = 4
         let schemaVersion: Int
         let marker: String
         let account: Int
@@ -15,12 +15,13 @@ extension CommunityWriteSmoke {
         var parents: [String] = []
         var comments: [Int] = []
         var commentParents: [Int: String] = [:]
+        var commentAttempts: [String] = []
         var likes: [Like] = []
         var followTarget: Int?
         var evidence: [String] = []
 
         private enum CodingKeys: String, CodingKey {
-            case schemaVersion, marker, account, attempts, targets, parents, comments, commentParents, likes, evidence, followTarget
+            case schemaVersion, marker, account, attempts, targets, parents, comments, commentParents, commentAttempts, likes, evidence, followTarget
         }
 
         init(marker: String, account: Int) {
@@ -68,6 +69,14 @@ extension CommunityWriteSmoke {
                     commentParents[id] = parts[3]
                 }
             }
+            if schemaVersion >= 4 {
+                commentAttempts = try values.decode([String].self, forKey: .commentAttempts)
+            } else {
+                attempts.removeAll { kind in targets.contains { $0.kind == kind }
+                    || evidence.contains { $0.hasPrefix("创建 \(kind.rawValue)") || $0.hasPrefix("服务端确认删除 \(kind.rawValue)") } }
+                let recordedParents = try values.decodeIfPresent([String].self, forKey: .parents) ?? []
+                commentAttempts = recordedParents.filter { !commentParents.values.contains($0) }
+            }
         }
 
         func encode(to encoder: Encoder) throws {
@@ -80,6 +89,7 @@ extension CommunityWriteSmoke {
             try values.encode(parents, forKey: .parents)
             try values.encode(comments, forKey: .comments)
             try values.encode(commentParents, forKey: .commentParents)
+            try values.encode(commentAttempts, forKey: .commentAttempts)
             try values.encode(likes, forKey: .likes)
             try values.encode(evidence, forKey: .evidence)
             try values.encodeIfPresent(followTarget, forKey: .followTarget)
