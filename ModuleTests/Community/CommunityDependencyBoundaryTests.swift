@@ -86,6 +86,7 @@ struct CommunityDependencyBoundaryTests {
                 updateUser: .placeholder(id: 1, nickname: "作者"), anonymous: false, likeNum: 0, commentNum: 0,
                 publicEdit: false, like: false, own: false)
         }
+        func fetchPreviewMetadata(id: Int) async throws -> PaperPreviewMetadata { try await fetchPaper(id: id).previewMetadata }
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: ["course", "paper", "search"], [false, true])
@@ -274,13 +275,13 @@ struct CommunityDependencyBoundaryTests {
         let model = GalleryMessageViewModel(service: service, readStore: store)
         await model.refreshUnreadCounts()
         await model.refresh(type: .comment)
-        #expect(service.cursors == [nil, 5, 3])
+        #expect(service.cursors == [Int.max, 5, 3, nil])
         #expect(model.state(for: .comment).items.map(\.id) == [6, 5, 4, 3, 2, 1])
         #expect(model.unreadCount(for: .comment) == 5)
         #expect(model.isUnread(try #require(model.state(for: .comment).items.first(where: { $0.id == 2 })), in: .comment))
         #expect(!model.isUnread(try #require(model.state(for: .comment).items.last), in: .comment))
         await model.loadMoreIfNeeded(for: .comment, currentMessage: model.state(for: .comment).items.last)
-        #expect(service.cursors == [nil, 5, 3, 1])
+        #expect(service.cursors == [Int.max, 5, 3, nil, 1])
         #expect(!model.state(for: .comment).canLoadMore)
         await model.refresh(type: .comment)
         #expect(store.unreadCount(for: .comment) == 5)
@@ -298,6 +299,45 @@ struct CommunityDependencyBoundaryTests {
         service.failure = nil
         await model.refresh(type: .comment)
         #expect(model.state(for: .comment).status == .loaded)
+    }
+
+    @Test(.serialized, arguments: [false, true]) func unreadWindowSurvivesInterruptedPaging(cancelled: Bool) async throws {
+        let domain = "BIT101ModulesTests.message-interruption"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let session = AppStorageSession(accountIdentifier: domain)
+        let store = GalleryMessageReadStore(defaults: defaults, session: { session })
+        let service = PagedMessageService()
+        service.laterPageFailure = cancelled ? CancellationError() : URLError(.timedOut)
+        let model = GalleryMessageViewModel(service: service, readStore: store)
+        await model.refreshUnreadCounts()
+        await model.refresh(type: .comment)
+        #expect(service.unread == 5 && service.cursors == [Int.max, 5])
+        #expect(store.unreadCount(for: .comment) == 0)
+        service.laterPageFailure = nil
+        service.beforeAcknowledgement = { #expect(store.unreadCount(for: .comment) == 5) }
+        let reopened = GalleryMessageReadStore(defaults: defaults, session: { session })
+        let retry = GalleryMessageViewModel(service: service, readStore: reopened)
+        await retry.bootstrapIfNeeded()
+        #expect(retry.state(for: .comment).status == .loaded)
+        #expect(service.unread == 0 && reopened.unreadCount(for: .comment) == 5)
+    }
+
+    @Test(arguments: [false, true]) func unavailableReadStorageKeepsServerUnreadAndReportsFailure(damaged: Bool) async throws {
+        let store = RecordingMessageReadStore()
+        store.hasUnreadableSnapshot = damaged
+        store.saveSucceeds = false
+        let service = PagedMessageService()
+        let model = GalleryMessageViewModel(service: service, readStore: store)
+        await model.refreshUnreadCounts()
+        await model.refresh(type: .comment)
+        #expect(service.unread == 5 && !service.cursors.contains(nil))
+        if damaged { #expect(service.cursors.isEmpty) }
+        #expect(model.alert?.title == "加载消息失败")
+        model.alert = nil
+        model.markMessageAsRead(try #require(RecordingMessageService.messages([42]).first), in: .comment)
+        #expect(model.alert?.title == "保存消息状态失败")
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: ["replacement", "cancel", "account", "error"])
@@ -490,18 +530,24 @@ struct CommunityDependencyBoundaryTests {
 
 private final class RecordingMessageReadStore: GalleryMessageReadStoring {
     var currentSession = AppStorageSession(accountIdentifier: "message-port")
+    var hasUnreadableSnapshot = false
+    var saveSucceeds = true
     let changeSubject = PassthroughSubject<AppStorageSession, Never>()
     var changes: AnyPublisher<AppStorageSession, Never> { changeSubject.eraseToAnyPublisher() }
     var latestIDs: [Int] = []
     var seenIDs: [Int] = []
     var unread = 7
-    func replaceLatestIDs(_ ids: [Int], unreadCount: Int, for type: GalleryMessageType) {
+    @discardableResult func replaceLatestIDs(_ ids: [Int], unreadCount: Int, for type: GalleryMessageType) -> Bool {
+        guard saveSucceeds && !hasUnreadableSnapshot else { return false }
         latestIDs = ids
         changeSubject.send(currentSession)
+        return true
     }
-    func markSeen(ids: [Int], for type: GalleryMessageType) {
+    @discardableResult func markSeen(ids: [Int], for type: GalleryMessageType) -> Bool {
+        guard saveSucceeds && !hasUnreadableSnapshot else { return false }
         seenIDs = ids
         changeSubject.send(currentSession)
+        return true
     }
     func unreadCount(for type: GalleryMessageType) -> Int { type == .comment ? unread : 0 }
     func isUnread(id: Int, for type: GalleryMessageType) -> Bool { id == 42 }
@@ -523,13 +569,16 @@ private struct RecordingMessageService: GalleryMessageServicing {
 private final class PagedMessageService: GalleryMessageServicing {
     var unread = 5
     var failure: (any Error)?
+    var laterPageFailure: (any Error)?
+    var beforeAcknowledgement: (() -> Void)?
     var cursors: [Int?] = []
     func fetchMessageUnreadCounts() async throws -> GalleryMessageUnreadCounts { .init(comment: unread) }
     func fetchMessages(type: GalleryMessageType, lastID: Int?) async throws -> [GalleryMessage] {
         cursors.append(lastID)
         if let failure { throw failure }
-        unread = 0
-        return try RecordingMessageService.messages(lastID == nil ? [6, 5] : lastID == 5 ? [4, 3] : lastID == 3 ? [2, 1] : [])
+        if lastID == nil { beforeAcknowledgement?(); unread = 0 }
+        if lastID != nil && lastID != Int.max, let laterPageFailure { throw laterPageFailure }
+        return try RecordingMessageService.messages(lastID == nil || lastID == Int.max ? [6, 5] : lastID == 5 ? [4, 3] : lastID == 3 ? [2, 1] : [])
     }
 }
 
@@ -583,6 +632,7 @@ private final class RecordingPaperList: PaperListServicing {
         return []
     }
     func fetchPaper(id: Int) async throws -> PaperDetail { throw CancellationError() }
+    func fetchPreviewMetadata(id: Int) async throws -> PaperPreviewMetadata { throw CancellationError() }
 }
 
 private final class RecordingPaperComposer: PaperComposerServicing {

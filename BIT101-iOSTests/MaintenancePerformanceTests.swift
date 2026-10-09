@@ -1,5 +1,6 @@
 #if DEBUG
 import XCTest
+import Combine
 @testable import BIT101_iOS
 import UIKit
 import CommunityCore
@@ -31,8 +32,17 @@ private nonisolated final class PerformanceResponseProtocol: URLProtocol {
     override func stopLoading() {}
 }
 
+@MainActor
+private struct PerformancePaperService: PaperListServicing {
+    let pages: [[PaperSummary]]
+    func fetchPapers(search: String?, order: PaperSortOrder, page: Int) async throws -> [PaperSummary] {
+        pages.indices.contains(page) ? pages[page] : []
+    }
+    func fetchPaper(id: Int) async throws -> PaperDetail { throw URLError(.unsupportedURL) }
+    func fetchPreviewMetadata(id: Int) async throws -> PaperPreviewMetadata { throw URLError(.unsupportedURL) }
+}
+
 nonisolated final class MaintenancePerformanceTests: XCTestCase {
-    private nonisolated struct Item: Identifiable { let id: Int }
 
     @MainActor
     func testBoundedResponseAggregationPerformance() throws {
@@ -58,21 +68,32 @@ nonisolated final class MaintenancePerformanceTests: XCTestCase {
 
     @MainActor
     func testCommunityPaginationPerformance() throws {
-        let pages = (0..<1_000).map { page in (page * 100 ..< (page + 1) * 100).map { Item(id: $0) } }
+        let pages = (0..<1_000).map { page in (page * 100 ..< (page + 1) * 100).map {
+            PaperSummary(id: $0, title: "文章", intro: "", likeNum: 0, commentNum: 0, updateTime: "")
+        } }
         let decoder = JSONDecoder()
         let messagePages = try pages.map { page in
             let rows = page.map { "{\"fromUser\":{},\"id\":\($0.id),\"linkObj\":\"\",\"obj\":\"\",\"text\":\"message\",\"updateTime\":\"\"}" }
             return try decoder.decode([GalleryMessage].self, from: Data(("[" + rows.joined(separator: ",") + "]").utf8))
         }
         measure(metrics: [XCTClockMetric(), XCTMemoryMetric()]) {
-            var mine = MinePagedState<Item>()
-            var messages = GalleryMessageListState()
-            for _ in 0..<2 {
-                for page in pages { mine.appendPage(page) }
-                for page in messagePages { messages.appendCursorPage(page) }
+            let completed = expectation(description: "production pagination")
+            Task { @MainActor in
+                let model = PaperListViewModel(service: PerformancePaperService(pages: pages))
+                let observation = model.objectWillChange.sink { _ in }
+                defer { observation.cancel() }
+                var messages = GalleryMessageListState()
+                for _ in 0..<2 {
+                    await model.refresh()
+                    for _ in 1..<pages.count { await model.loadMoreIfNeeded(currentPaper: model.state.items.last) }
+                    for page in messagePages { messages.appendCursorPage(page) }
+                }
+                XCTAssertEqual(model.state.items.count, 100_000)
+                XCTAssertEqual(model.state.nextPage, 1_000)
+                XCTAssertEqual(messages.items.count, 100_000)
+                completed.fulfill()
             }
-            XCTAssertEqual(mine.items.count, 100_000)
-            XCTAssertEqual(messages.items.count, 100_000)
+            wait(for: [completed], timeout: 60)
         }
     }
 

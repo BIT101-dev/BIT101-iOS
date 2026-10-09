@@ -40,11 +40,23 @@ struct ServiceContractTests {
 
     private final class Transport: HTTPTransport {
         var requests: [URLRequest] = []
+        var authenticationRequests: [URLRequest] = []
         var failure: (any Error)?
         private var responses: [(Int, String)]
-        init(_ responses: [(Int, String)]) { self.responses = responses }
+        var authenticationStatuses: [Int]
+        init(_ responses: [(Int, String)], authenticationStatuses: [Int] = []) {
+            self.responses = responses
+            self.authenticationStatuses = authenticationStatuses
+        }
         func data(for request: URLRequest) async throws -> (Data, URLResponse) {
             try Task.checkCancellation()
+            if request.url?.path == "/user/check" {
+                authenticationRequests.append(request)
+                let status = authenticationStatuses.isEmpty ? 200 : authenticationStatuses.removeFirst()
+                let url = try #require(request.url)
+                return (Data(), try #require(HTTPURLResponse(url: url, statusCode: status,
+                    httpVersion: nil, headerFields: ["Content-Type": "application/json"])))
+            }
             requests.append(request)
             if let failure { throw failure }
             let response = try #require(responses.first)
@@ -188,6 +200,49 @@ struct ServiceContractTests {
             credentials: { .init(identity: .init(accountIdentifier: "contracts"), cookie: cookie) }, refresh: { _ in })
     }
 
+    private func paperDetailBody(own: Bool, title: String = "文章") -> String {
+        "{\"id\":17,\"title\":\"\(title)\",\"intro\":\"摘要\",\"content\":\"正文\",\"create_time\":\"\",\"update_time\":\"\",\"update_user\":\(user),\"anonymous\":false,\"like_num\":3,\"comment_num\":0,\"public_edit\":false,\"like\":\(own),\"own\":\(own)}"
+    }
+
+    @Test func authenticatedPaperReadRestoresBeforePublicResponse() async throws {
+        let transport = Transport([(200, paperDetailBody(own: true)), (200, "[]")], authenticationStatuses: [401, 200])
+        var credentials = CommunityCredentials(identity: .init(accountIdentifier: "contracts"), cookie: "expired")
+        var restores = 0
+        let session = CommunitySession(httpClient: HTTPClient(transport: transport, observer: nil),
+            baseURL: AppURL.required("https://example.invalid"), credentials: { credentials }, refresh: { observed in
+                #expect(observed.cookie == "expired")
+                restores += 1
+                credentials = .init(identity: observed.identity, cookie: "fresh")
+            })
+        let service = PaperService(session: session)
+        let detail = try await service.fetchPaper(id: 17)
+        _ = try await service.fetchComments(paperID: 17, order: .oldest, page: nil)
+        #expect(detail.own && detail.like && restores == 1)
+        #expect(transport.authenticationRequests.map { $0.value(forHTTPHeaderField: "fake-cookie") } == ["expired", "fresh", "fresh"])
+        #expect(transport.requests.allSatisfy { $0.value(forHTTPHeaderField: "fake-cookie") == "fresh" })
+    }
+
+    @Test func anonymousPaperReadKeepsItsPublicContract() async throws {
+        let transport = Transport([(200, paperDetailBody(own: false))])
+        let detail = try await PaperService(session: session(transport, cookie: "")).fetchPaper(id: 17)
+        #expect(!detail.own && !detail.like && transport.authenticationRequests.isEmpty)
+        #expect(transport.requests.first?.value(forHTTPHeaderField: "fake-cookie") == nil)
+    }
+
+    @Test func paperPreviewReusesTheBodyAndMutationInvalidatesIt() async throws {
+        let transport = Transport([(200, paperDetailBody(own: true)), (200, paperDetailBody(own: true, title: "刷新")),
+            (200, paperDetailBody(own: true)), (200, #"{"like":true,"like_num":4}"#), (200, paperDetailBody(own: true, title: "修改后"))])
+        let service = PaperService(session: session(transport))
+        _ = try await service.fetchPreviewMetadata(id: 17)
+        #expect(try await service.fetchPaper(id: 17).title == "文章")
+        #expect(transport.requests.count == 1)
+        #expect(try await service.fetchPaper(id: 17).title == "刷新")
+        _ = try await service.fetchPreviewMetadata(id: 17)
+        _ = try await service.likePaper(id: 17)
+        #expect(try await service.fetchPaper(id: 17).title == "修改后")
+        #expect(transport.requests.count == 5)
+    }
+
     private func query(_ request: URLRequest) throws -> [String: String] {
         let url = try #require(request.url)
         let items = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems)
@@ -255,11 +310,12 @@ struct ServiceContractTests {
         }
     }
 
-    @Test(arguments: [(false, false), (false, true), (true, false)], [400, 404, 500])
+    @Test(arguments: [(false, false), (false, true), (true, false), (true, true)], [400, 404, 500])
     func resourceAbsenceHasAServiceTypeAcrossCredentialRecovery(fixture: (Bool, Bool), status: Int) async throws {
         let (paper, refresh) = fixture
         let response = paper ? #"{"message":"文章不存在Orz"}"# : #"{"message":"帖子不存在Orz"}"#
-        let transport = Transport((refresh ? [(401, #"{"message":"expired"}"#)] : []) + [(status, response)])
+        let transport = Transport((refresh && !paper ? [(401, #"{"message":"expired"}"#)] : []) + [(status, response)],
+            authenticationStatuses: paper && refresh ? [401, 200] : [])
         do {
             if paper { _ = try await PaperService(session: session(transport)).fetchPaper(id: 17) }
             else { _ = try await GalleryService(session: session(transport), preferences: { .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false) }).fetchPoster(id: 17) }
@@ -273,7 +329,8 @@ struct ServiceContractTests {
                 #expect(error.localizedDescription == "帖子已删除或暂时无法访问。")
             }
         }
-        #expect(transport.requests.count == (refresh ? 2 : 1))
+        #expect(transport.requests.count == (refresh && !paper ? 2 : 1))
+        if paper && refresh { #expect(transport.authenticationRequests.count == 2) }
     }
 
     @Test(arguments: [false, true], [false, true])

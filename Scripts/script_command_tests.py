@@ -90,6 +90,7 @@ xcrun() {
         ("run-extended-tests.sh", ["ui", "DDLEditor"], 86, "InteractionCoverageUITests/testDDLEditorDetailsDatePickerValidationAndCancelEditing", "DEVICE"),
         ("run-extended-tests.sh", ["ui", "test"], 86, f"{ui_test_count} 项 UI 用例", "DEVICE"),
         ("run-extended-tests.sh", ["modules"], 86, "swift test", ""),
+        ("run-extended-tests.sh", ["modules", "CommunityCoreTests"], 86, "--filter", ""),
         ("run-extended-tests.sh", [], 86, "-only-testing:BIT101-iOSTests", "DEVICE"),
         ("run-extended-tests.sh", ["NetworkClientTests"], 86, "BIT101-iOSTests/NetworkClientTests", "DEVICE"),
         ("run-extended-tests.sh", ["cache"], 0, "CACHE", ""),

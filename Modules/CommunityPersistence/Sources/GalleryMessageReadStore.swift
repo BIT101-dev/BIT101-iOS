@@ -47,14 +47,15 @@ public final class GalleryMessageReadStore: GalleryMessageReadStoring {
     }
 
     /// 回写当前账号的本地快照。
-    private func saveSnapshot(_ snapshot: GalleryMessageReadSnapshot, shouldSync: Bool = true) {
+    @discardableResult private func saveSnapshot(_ snapshot: GalleryMessageReadSnapshot, shouldSync: Bool = true) -> Bool {
         let bounded = snapshot.compacted()
-        guard snapshotStore.save(bounded) else { cachedSnapshot = nil; return }
+        guard snapshotStore.save(bounded) else { cachedSnapshot = nil; return false }
         cachedSnapshot = (session(), defaults.data(forKey: snapshotStore.storageKey), bounded)
         if shouldSync {
             saveSubject.send(session())
         }
         changeSubject.send(session())
+        return true
     }
 
     public func syncSnapshot() -> GalleryMessageReadSnapshot {
@@ -70,8 +71,9 @@ public final class GalleryMessageReadStore: GalleryMessageReadStoring {
     /// 用服务端给出的未读数量，合并当前分类的候选新消息。
     ///
     /// 当服务端未读数为 0 时保留本地结果，让用户打开列表后继续看到当前的新消息样式。
-    public func replaceLatestIDs(_ ids: [Int], unreadCount: Int, for type: GalleryMessageType) {
-        guard unreadCount > 0 else { return }
+    @discardableResult public func replaceLatestIDs(_ ids: [Int], unreadCount: Int, for type: GalleryMessageType) -> Bool {
+        guard !hasUnreadableSnapshot else { return false }
+        guard unreadCount > 0 else { return true }
 
         var snapshot = loadSnapshot()
         let latestUnread = Array(ids.prefix(unreadCount))
@@ -81,15 +83,15 @@ public final class GalleryMessageReadStore: GalleryMessageReadStoring {
         let previousLatest = Set(snapshot.latestIDsByType[type.rawValue] ?? [])
         snapshot.latestIDsByType[type.rawValue] = Array(previousLatest.union(normalizedLatest).subtracting(existingSeen)).sorted()
         snapshot.seenIDsByType[type.rawValue] = Array(existingSeen).sorted()
-        saveSnapshot(snapshot)
+        return saveSnapshot(snapshot)
     }
 
     /// 把指定消息标记为已读。
-    public func markSeen(ids: [Int], for type: GalleryMessageType) {
+    @discardableResult public func markSeen(ids: [Int], for type: GalleryMessageType) -> Bool {
         var snapshot = loadSnapshot()
         let existing = Set(snapshot.seenIDsByType[type.rawValue] ?? [])
         snapshot.seenIDsByType[type.rawValue] = normalize(Array(existing.union(ids)))
-        saveSnapshot(snapshot)
+        return saveSnapshot(snapshot)
     }
 
     /// 当前分类本地仍被视作“新消息”的数量。

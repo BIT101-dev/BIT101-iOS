@@ -229,7 +229,7 @@ Scripts/release-network-smoke.sh ddl
 
 AASA 探针使用终止重定向的独立传输，核对原始 URL、HTTP 200、JSON 内容类型、128 KB 大小上限及三个分享路径的完整配置。离线编排用例覆盖重定向、响应类型及路径排除配置错误。发布版本查询与 App 更新查询通过请求时间参数及缓存刷新头获取商店版本。
 
-消息列表探针以 `Int.max` 请求历史分页，续页采用前页最小消息 ID，空页采用正值 1，保留服务端未读提醒。[后端消息服务](https://github.com/BIT101-dev/BIT101-GO/blob/main/api/service/message.go) 将 `last_id` 为 0 的最新记录读取关联到未读数清零；离线用例覆盖空页后新消息到达时的提醒保留。报告写入异常进入失败结果，脚本通过真机控制台错误标记及时结束；原始课表采样包含本次运行标记，清理和写入错误进入报告。登录与采样、报告持久化通过依赖端口注入，离线故障用例覆盖采样清理、认证和报告写入失败及连续运行隔离。课表 Smoke 共用 `SmallTermWeekNormalizer` 的三周校正规则，并独立核对原始响应与生产解码结果；边界用例覆盖零、二、三、四周偏移。
+消息页面先以 `Int.max` 完整读取未读窗口，将候选消息成功保存到本地后，再以首屏请求确认服务端已读。损坏快照与保存失败沿页面错误呈现，跨页失败和取消保留服务端未读。`message-read` 人工专项使用专用账号核对首次打开、跨页中断及保存受阻场景。消息列表探针以 `Int.max` 请求历史分页，续页采用前页最小消息 ID，空页采用正值 1，保留服务端未读提醒。[后端消息服务](https://github.com/BIT101-dev/BIT101-GO/blob/main/api/service/message.go) 将 `last_id` 为 0 的最新记录读取关联到未读数清零；离线用例覆盖空页后新消息到达时的提醒保留。报告写入异常进入失败结果，脚本通过真机控制台错误标记及时结束；原始课表采样包含本次运行标记，清理和写入错误进入报告。登录与采样、报告持久化通过依赖端口注入，离线故障用例覆盖采样清理、认证和报告写入失败及连续运行隔离。课表 Smoke 共用 `SmallTermWeekNormalizer` 的三周校正规则，并独立核对原始响应与生产解码结果；边界用例覆盖零、二、三、四周偏移。
 
 DDL 范围覆盖社区登录、课程中心原生认证、课程中心作业读取、乐学订阅发现和 ICS 下载。原生认证探针使用独立 Cookie 容器，携带学校 SSO 会话完成课程中心认证。报告的 `eclassDDL` 记录认证结果、课程数、活动类型、有效截止时间数量、近期与未来作业数量及作业截止字段缺失数量，同时记录账号滞留天数、窗口内作业数量、课程中心缓存数量和截止时间范围。
 
@@ -334,11 +334,13 @@ fork PR 的常规 Job 使用 GitHub 托管的 `xcode-27` 镜像，每项任务�
 
 发布证据完成完整验收并执行 `python3 Scripts/validation_evidence.py bind` 后，通过 `python3 Scripts/ci_evidence.py publish v公开版本号` 生成并上传公开回执。固定本地路径与 Release 附件名为 `.build/extended-automation/release-receipt.json` 和 `release-receipt.json`。回执保存版本标签、提交、各组源码摘要、工具链、完整验收状态、原始摘要 SHA-256 与采样时间；截图、视频、邮箱、邮件正文、存储报告及设备身份保存在本地完整报告。发布命令先沿原始报告核对全部验收，再生成回执。发布 CI 下载同一标签的回执，沿 `ci_evidence.py check-release` 核对源码、工具链、全部组及采样有效期；回执表示维护者已完成完整验收的公开确认，发布资产写入权限属于该信任边界。`summaryDigest` 为本地原始摘要的比对标识，复核实际执行来源时读取维护者保留的完整报告及所属 XCTest 结果包；下载后的 CI 沿公开声明验收源码、工具链和采样有效期。详细附件沿明确授权在本地审阅。手动 `release_check` 同时填写 `validation_tag`，标签需要指向当前验收提交。发布资产按可分享的回执范围审阅，上传沿用户明确授权执行。
 
-首次登录、个人资料写入、举报与 iPad 布局使用结构化人工专项，分别登记 `first-login`、`profile-writes`、`gallery-report` 与 `ipad-layout`。`web-interactions` 分别观察网络诊断、启动更新检查、手动更新检查、学校短信续验和学校日历同步。首次登录在正式 App 中清理登录态，分别以已注册账号与授权的新账号完成 WebVPN 初始化、密码校验、注册及进入登录后的页面。资料专项使用专用账号实际保存昵称、上传并绑定头像，随后恢复原资料并重新读取核对；举报专项使用明确授权的专用帖子确认服务端接收。iPad 专项覆盖竖屏、横屏、分屏及窗口调整，核对登录、主要导航、课表、内容详情与键盘操作。iPad 沿系统旋转和窗口管理适配尺寸，配置采用支持多方向的常规模式；迁移依据 [Apple 的 iPad 全屏模式说明](https://developer.apple.com/documentation/technotes/tn3192-migrating-your-app-from-the-deprecated-uirequiresfullscreen-key)。
+首次登录、个人资料写入、举报与 iPad 布局使用结构化人工专项，分别登记 `first-login`、`profile-writes`、`gallery-report` 与 `ipad-layout`。`message-read` 核对本地已读保存与服务端分类清零；`web-interactions` 分别观察网络诊断、启动更新检查、手动更新检查、学校短信续验和学校日历同步。首次登录在正式 App 中清理登录态，分别以已注册账号与授权的新账号完成 WebVPN 初始化、密码校验、注册及进入登录后的页面。资料专项使用专用账号实际保存昵称、上传并绑定头像，随后恢复原资料并重新读取核对；举报专项使用明确授权的专用帖子确认服务端接收。iPad 专项覆盖竖屏、横屏、分屏及窗口调整，核对登录、主要导航、课表、内容详情与键盘操作。iPad 沿系统旋转和窗口管理适配尺寸，配置采用支持多方向的常规模式；迁移依据 [Apple 的 iPad 全屏模式说明](https://developer.apple.com/documentation/technotes/tn3192-migrating-your-app-from-the-deprecated-uirequiresfullscreen-key)。
 
 各专项附件使用 `schemaVersion: 1` 与 `scenarios` 字典，键名沿 `Scripts/validation_manual.py` 的 `MANUAL_SCENARIOS` 登记。每个场景记录 `operation`、`result`、`outcome: "passed"`、实际 `capturedAt` 与 `capture` 使用的影像证据结构。涉及网络能力的场景增加 `capabilities` 字典，键名为 `Scripts/validation_test_areas.py` 的完整所属类型与方法签名，各项记录实际 `operation`、`result` 与 `outcome: "passed"`；`MANUAL_CAPABILITY_SCENARIOS` 登记方法对应场景，新增方法需要独立观察。反馈投递附件在顶层使用相同 `capabilities` 结构，并保留存储与邮件回执。iPad 附件增加 `deviceFamily: "iPad"`、`deviceIdentifier`，各场景记录整数点数的 `windowSize.width/height`，分屏记录 `screenWidth`，调整窗口记录 `previousWindowSize`。结构化附件固定覆盖 `.build/extended-automation/manual-scenarios.json`，每个专项沿 `validation_evidence.py manual 专项名称` 的已有入口提交后再填写下一专项；证据内容由统一报告保存。
 
-日常开发沿模块和场景选择定向测试。发布验收将源码、工具链和完整候选产物共同绑定，实时服务与人工观察沿一天有效期核对；完整输入范围用于维持产物与证据的对应关系。专项采集围绕同一候选产物集中完成，发布流程执行完整验收。
+文章列表与搜索共享服务级的四路详情调度，同一文章的在途消费者合并请求并独立处理取消；最多四篇正文响应用于作者预览到首次详情打开的复用。详情刷新重新读取，列表刷新和文章写操作使复用缓存失效。已登录的详情与评论读取先沿社区校验接口恢复凭据，访客阅读沿公开接口执行。
+
+日常开发沿模块和场景选择定向测试，模块入口支持 `Scripts/run-extended-tests.sh modules 测试类/方法`，多个筛选合并执行并登记定向证据。发布验收将源码、工具链和完整候选产物共同绑定，实时服务与人工观察沿一天有效期核对；完整输入范围用于维持产物与证据的对应关系。专项采集围绕同一候选产物集中完成，发布流程执行完整验收。
 
 人工附件每份编码前控制在 32 MiB 内，图像解码与视频单帧使用 48 MiB 内存预算；视频长度为 30 秒以内，最多 1800 帧，PDF 最多 16 页。附件解码工具使用 30 秒执行预算，聚合 JSON 的完整编码最多 128 MiB；超出预算时保留已提交证据并呈现验收错误。短视频和系统截图分别记录所属操作与观察结果，全部人工检查共同参与发布验收。
 
@@ -358,7 +360,7 @@ fork PR 的常规 Job 使用 GitHub 托管的 `xcode-27` 镜像，每项任务�
 
 共享预览目录的媒体环境共同接收同一 `MediaPreviewStorage`，文件创建、所有权登记、清理和关闭消费同一协调器。回归合同覆盖创建期间的后台清理，以及不同环境启动清理和关闭预览时保留其他活动消费者。
 
-`MaintenancePerformanceTests` 沿 XCTest 默认测量选项记录实际分页、PNG 解码、256 块复杂内联格式的文章解析与纯文本生成、GIF 解码、Widget 时间线计算、32 MiB URLSession 响应聚合，以及 64 页本地图片的首个预览文件编码与写盘的时钟和物理内存指标。`MaintenancePerformanceUITests` 记录清空夹具存储后的进程结束、启动至课表就绪，以及启用动画的课表往返切周布局；UI 内存指标采集目标 App 进程。性能基线沿同一真机 runner 的 XCTest 默认参数维护。
+`MaintenancePerformanceTests` 沿 XCTest 默认测量选项记录 `PaperListViewModel` 的实际分页与消息列表追加、PNG 解码、256 块复杂内联格式的文章解析与纯文本生成、GIF 解码、Widget 时间线计算、32 MiB URLSession 响应聚合，以及 64 页本地图片的首个预览文件编码与写盘的时钟和物理内存指标。`MaintenancePerformanceUITests` 记录清空夹具存储后的进程结束、启动至课表就绪，以及启用动画的课表往返切周布局；UI 内存指标采集目标 App 进程。性能基线沿同一真机 runner 的 XCTest 默认参数维护。
 
 `performance-baseline` 人工专项登记 `pagination`、`image-decoding`、`startup`、`schedule-layout`、`long-article`、`gif-decoding`、`widget-timeline`、`response-aggregation`、`local-preview` 九个场景的结构化比较及影像，参与完整发布验收。行为场景归属 `all`，启动与课表布局归属 `ui`；每条采样保留所属完整测试组的执行证据。
 

@@ -83,10 +83,11 @@ public nonisolated struct GalleryMessageReadSnapshot: Codable, Equatable, Sendab
 @MainActor
 public protocol GalleryMessageReadStoring: AnyObject {
     var currentSession: AppStorageSession { get }
+    var hasUnreadableSnapshot: Bool { get }
     /// 本地保存和外部导入发布同一实例的账号变更。
     var changes: AnyPublisher<AppStorageSession, Never> { get }
-    func replaceLatestIDs(_ ids: [Int], unreadCount: Int, for type: GalleryMessageType)
-    func markSeen(ids: [Int], for type: GalleryMessageType)
+    @discardableResult func replaceLatestIDs(_ ids: [Int], unreadCount: Int, for type: GalleryMessageType) -> Bool
+    @discardableResult func markSeen(ids: [Int], for type: GalleryMessageType) -> Bool
     func unreadCount(for type: GalleryMessageType) -> Int
     func isUnread(id: Int, for type: GalleryMessageType) -> Bool
 }

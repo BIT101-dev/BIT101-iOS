@@ -2,16 +2,17 @@ import Foundation
 
 /// 连续四个非空源页缺少新标识时终止当前分页，调用方保留已加载内容和重试位置。
 public struct CommunityPageProgress<ID: Hashable> {
-    private var seen: Set<ID>
+    private let known: Set<ID>
+    private var seen: Set<ID> = []
     private var repeatedPages = 0
 
-    public init(knownIDs: [ID] = []) { seen = Set(knownIDs) }
-    public init(knownIDs: Set<ID>) { seen = knownIDs }
+    public init(knownIDs: [ID] = []) { known = Set(knownIDs) }
+    public init(knownIDs: Set<ID>) { known = knownIDs }
 
-    public mutating func record(_ ids: [ID]) throws {
+    public mutating func record(_ ids: [ID], knownIDs: Set<ID> = []) throws {
         guard !ids.isEmpty else { return }
         let previousCount = seen.count
-        seen.formUnion(ids)
+        seen.formUnion(ids.filter { !known.contains($0) && !knownIDs.contains($0) })
         repeatedPages = seen.count == previousCount ? repeatedPages + 1 : 0
         guard repeatedPages < 4 else { throw URLError(.badServerResponse) }
     }

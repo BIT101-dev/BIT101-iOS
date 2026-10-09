@@ -147,14 +147,14 @@ public final class CourseListViewModel: ObservableObject {
 
         do {
             let previousCount = state.items.count
-            var progress = CommunityPageProgress(knownIDs: state.items.map(\.id))
+            var progress = CommunityPageProgress<Int>()
             repeat {
                 try Task.checkCancellation()
                 state.isLoadingMore = true
                 let items = try await service.fetchCourses(search: search, page: state.nextPage)
                 try Task.checkCancellation()
                 guard refreshGeneration == generation else { return }
-                try progress.record(items.map(\.id))
+                try progress.record(items.map(\.id), knownIDs: state.pagedItems.ids)
                 state.appendPage(items)
             } while state.canLoadMore && state.items.count == previousCount
         } catch {

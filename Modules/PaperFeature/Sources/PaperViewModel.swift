@@ -1,13 +1,6 @@
 import TransportCore
 import DesignSystemKit
 import CommunityCore
-//
-//  PaperViewModel.swift
-//  BIT101-iOS
-//
-//  Created by Codex on 2026-04-01.
-//
-
 import Combine
 import Foundation
 
@@ -161,14 +154,14 @@ final class PaperListViewModel: ObservableObject {
 
         do {
             let previousCount = state.items.count
-            var progress = CommunityPageProgress(knownIDs: state.items.map(\.id))
+            var progress = CommunityPageProgress<Int>()
             repeat {
                 try Task.checkCancellation()
                 state.isLoadingMore = true
                 let papers = try await service.fetchPapers(search: query.search, order: query.order, page: state.nextPage)
                 try Task.checkCancellation()
                 guard refreshGeneration == generation else { return }
-                try progress.record(papers.map(\.id))
+                try progress.record(papers.map(\.id), knownIDs: state.pagedItems.ids)
                 state.appendPage(papers)
             } while state.canLoadMore && state.items.count == previousCount
         } catch {
@@ -188,10 +181,10 @@ final class PaperListViewModel: ObservableObject {
         defer { if refreshGeneration == generation { previewLoadingIDs.remove(paper.id) } }
 
         do {
-            let detail = try await service.fetchPaper(id: paper.id)
+            let metadata = try await service.fetchPreviewMetadata(id: paper.id)
             try Task.checkCancellation()
             guard refreshGeneration == generation else { return }
-            previewMetadataByPaperID[paper.id] = detail.previewMetadata
+            previewMetadataByPaperID[paper.id] = metadata
         } catch {
             guard refreshGeneration == generation, !TaskCancellation.matches(error) else { return }
             previewFailedIDs.insert(paper.id)
@@ -330,14 +323,14 @@ final class PaperSearchViewModel: ObservableObject {
 
         do {
             let previousCount = state.items.count
-            var progress = CommunityPageProgress(knownIDs: state.items.map(\.id))
+            var progress = CommunityPageProgress<Int>()
             repeat {
                 try Task.checkCancellation()
                 state.isLoadingMore = true
                 let papers = try await service.fetchPapers(search: query.search, order: query.order, page: state.nextPage)
                 try Task.checkCancellation()
                 guard searchGeneration == generation else { return }
-                try progress.record(papers.map(\.id))
+                try progress.record(papers.map(\.id), knownIDs: state.pagedItems.ids)
                 state.appendPage(papers)
             } while state.canLoadMore && state.items.count == previousCount
         } catch {
@@ -358,10 +351,10 @@ final class PaperSearchViewModel: ObservableObject {
         defer { if searchGeneration == generation { previewLoadingIDs.remove(paper.id) } }
 
         do {
-            let detail = try await service.fetchPaper(id: paper.id)
+            let metadata = try await service.fetchPreviewMetadata(id: paper.id)
             try Task.checkCancellation()
             guard searchGeneration == generation else { return }
-            previewMetadataByPaperID[paper.id] = detail.previewMetadata
+            previewMetadataByPaperID[paper.id] = metadata
         } catch {
             guard searchGeneration == generation, !TaskCancellation.matches(error) else { return }
             previewFailedIDs.insert(paper.id)
@@ -478,14 +471,13 @@ final class PaperDetailViewModel: ObservableObject {
         }
 
         let result = await loadResult { [self] in
-            let knownIDs = Set(commentState.items.map(\.id))
-            var progress = CommunityPageProgress(knownIDs: knownIDs)
+            var progress = CommunityPageProgress<Int>()
             while true {
                 let comments = try await self.service.fetchComments(paperID: self.initialPaper.id, order: order, page: commentState.nextPage)
                 try Task.checkCancellation()
                 guard commentRefreshGeneration == generation else { throw CancellationError() }
-                try progress.record(comments.map(\.id))
-                if comments.isEmpty || comments.contains(where: { !knownIDs.contains($0.id) }) { return comments }
+                try progress.record(comments.map(\.id), knownIDs: commentState.pagedItems.ids)
+                if comments.isEmpty || comments.contains(where: { !commentState.pagedItems.ids.contains($0.id) }) { return comments }
                 commentState.nextPage += 1
             }
         }

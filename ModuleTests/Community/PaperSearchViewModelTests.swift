@@ -25,6 +25,7 @@ struct PaperSearchViewModelTests {
         func fetchPaper(id: Int) async throws -> PaperDetail {
             try await metadata(id)
         }
+        func fetchPreviewMetadata(id: Int) async throws -> PaperPreviewMetadata { try await fetchPaper(id: id).previewMetadata }
     }
 
     @Test @MainActor

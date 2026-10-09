@@ -1,13 +1,6 @@
 import TransportCore
 import DesignSystemKit
 import CommunityCore
-//
-//  MineViewModel.swift
-//  BIT101-iOS
-//
-//  Created by Codex on 2026-03-24.
-//
-
 import Combine
 import Foundation
 
@@ -195,14 +188,13 @@ final class MineViewModel: ObservableObject {
         let generation = followerGeneration
         followerState.isLoadingMore = true
         do {
-            let knownIDs = Set(followerState.items.map(\.id))
-            var progress = CommunityPageProgress(knownIDs: knownIDs)
+            var progress = CommunityPageProgress<Int>()
             while true {
                 let users = try await service.fetchFollowers(page: followerState.nextPage)
                 try Task.checkCancellation()
                 guard followerGeneration == generation else { return }
-                try progress.record(users.map(\.id))
-                if users.isEmpty || users.contains(where: { !knownIDs.contains($0.id) }) {
+                try progress.record(users.map(\.id), knownIDs: followerState.pagedItems.ids)
+                if users.isEmpty || users.contains(where: { !followerState.pagedItems.ids.contains($0.id) }) {
                     appendMinePagedPage(users, to: &followerState)
                     break
                 }
@@ -271,14 +263,13 @@ final class MineViewModel: ObservableObject {
         let generation = followingGeneration
         followingState.isLoadingMore = true
         do {
-            let knownIDs = Set(followingState.items.map(\.id))
-            var progress = CommunityPageProgress(knownIDs: knownIDs)
+            var progress = CommunityPageProgress<Int>()
             while true {
                 let users = try await service.fetchFollowings(page: followingState.nextPage)
                 try Task.checkCancellation()
                 guard followingGeneration == generation else { return }
-                try progress.record(users.map(\.id))
-                if users.isEmpty || users.contains(where: { !knownIDs.contains($0.id) }) {
+                try progress.record(users.map(\.id), knownIDs: followingState.pagedItems.ids)
+                if users.isEmpty || users.contains(where: { !followingState.pagedItems.ids.contains($0.id) }) {
                     appendMinePagedPage(users, to: &followingState)
                     break
                 }
@@ -352,14 +343,13 @@ final class MineViewModel: ObservableObject {
         let generation = posterGeneration
         posterState.isLoadingMore = true
         do {
-            let knownIDs = Set(posterState.items.map(\.id))
-            var progress = CommunityPageProgress(knownIDs: knownIDs)
+            var progress = CommunityPageProgress<Int>()
             while true {
                 let posters = try await service.fetchMyPosters(page: posterState.nextPage)
                 try Task.checkCancellation()
                 guard posterGeneration == generation else { return }
-                try progress.record(posters.map(\.id))
-                if posters.isEmpty || posters.contains(where: { !knownIDs.contains($0.id) }) {
+                try progress.record(posters.map(\.id), knownIDs: posterState.pagedItems.ids)
+                if posters.isEmpty || posters.contains(where: { !posterState.pagedItems.ids.contains($0.id) }) {
                     appendMinePagedPage(posters, to: &posterState)
                     break
                 }
@@ -551,14 +541,13 @@ final class UserProfileViewModel: ObservableObject {
         let generation = posterGeneration
         posterState.isLoadingMore = true
         do {
-            let knownIDs = Set(posterState.items.map(\.id))
-            var progress = CommunityPageProgress(knownIDs: knownIDs)
+            var progress = CommunityPageProgress<Int>()
             while true {
                 let posters = try await service.fetchUserPosters(userID: userID, page: posterState.nextPage)
                 try Task.checkCancellation()
                 guard posterGeneration == generation else { return }
-                try progress.record(posters.map(\.id))
-                if posters.isEmpty || posters.contains(where: { !knownIDs.contains($0.id) }) {
+                try progress.record(posters.map(\.id), knownIDs: posterState.pagedItems.ids)
+                if posters.isEmpty || posters.contains(where: { !posterState.pagedItems.ids.contains($0.id) }) {
                     appendMinePagedPage(posters, to: &posterState)
                     break
                 }

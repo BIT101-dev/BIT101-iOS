@@ -56,8 +56,8 @@ struct CommunityCoreTests {
         #expect(store.hasUnreadableSnapshot)
         var saves = 0
         let subscription = store.localSaves.sink { _ in saves += 1 }
-        store.markSeen(ids: [1], for: .comment)
-        store.replaceLatestIDs([1, 2], unreadCount: 2, for: .comment)
+        #expect(!store.markSeen(ids: [1], for: .comment))
+        #expect(!store.replaceLatestIDs([1, 2], unreadCount: 2, for: .comment))
         var remote = GalleryMessageReadSnapshot()
         remote.seenIDsByType = ["comment": [3]]
         store.applySyncedSnapshot(remote)

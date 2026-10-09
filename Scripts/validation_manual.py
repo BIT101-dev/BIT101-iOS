@@ -19,6 +19,7 @@ MANUAL_SCENARIOS = {
     'first-login': {'registered-account', 'new-account-registration'},
     'profile-writes': {'nickname-save', 'avatar-bind', 'restore-profile'},
     'gallery-report': {'submit-and-confirm'},
+    'message-read': {'first-open', 'interrupted-paging', 'local-save-failure'},
     'account-lifecycle': {'sign-in-a', 'refresh-credentials-a', 'sign-out-a', 'sign-in-b', 'restore-a'},
     'community-variants': {'course-search', 'gallery-search-filters', 'comment-sorting', 'anonymous-poster', 'anonymous-paper', 'restore-content'},
     'web-interactions': {'network-diagnosis', 'update-launch', 'update-manual', 'school-sms', 'school-calendar'},
@@ -28,7 +29,7 @@ MANUAL_DEVICE_CHECKS.update(MANUAL_SCENARIOS)
 BASELINE_CHECKS = {'iOS': {'cold-start-session', 'offline-persistence', 'media-and-navigation'},
     'watchOS': {'snapshot-receive', 'timeline-render', 'clear-and-retry'}}
 PERFORMANCE_WORKLOADS = {
-    'pagination': ('MaintenancePerformanceTests/testCommunityPaginationPerformance', {'pages': 1000, 'itemsPerPage': 100, 'passes': 2, 'states': ['MinePagedState', 'GalleryMessageListState']}),
+    'pagination': ('MaintenancePerformanceTests/testCommunityPaginationPerformance', {'pages': 1000, 'itemsPerPage': 100, 'passes': 2, 'states': ['PaperListViewModel', 'GalleryMessageListState'], 'refreshEachPass': True}),
     'image-decoding': ('MaintenancePerformanceTests/testStillImageDecodingPerformance', {'width': 1024, 'height': 1024, 'format': 'PNG'}),
     'startup': ('MaintenancePerformanceUITests/testStartupPerformance', {'operation': 'terminate-launch-schedule-ready', 'storage': 'reset'}),
     'schedule-layout': ('MaintenancePerformanceUITests/testScheduleWeekLayoutPerformance', {'weekSwitchPairs': 10, 'animations': True}),

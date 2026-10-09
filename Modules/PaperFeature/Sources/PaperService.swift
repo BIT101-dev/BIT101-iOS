@@ -37,6 +37,8 @@ extension PaperServiceError: CommunityAPIServiceError {
 /// 文章列表和详情接口独立于话廊。文章点赞和评论沿用 reaction 接口。
 public struct PaperService {
     private let api: CommunityAPIClient<PaperServiceError>
+    private let session: CommunitySession
+    private let details = PaperDetailRequestStore()
 
     private struct LikeRequest: Encodable {
         let obj: String
@@ -96,11 +98,13 @@ public struct PaperService {
     }
 
     public init(session: CommunitySession) {
+        self.session = session
         api = session.client(errorDomain: "BIT101.Paper")
     }
 
     /// 拉取文章列表。
     public func fetchPapers(search: String?, order: PaperSortOrder, page: Int) async throws -> [PaperSummary] {
+        if page == 0 { details.invalidate() }
         var queryItems = [URLQueryItem(name: "page", value: String(page))]
         if let search, !search.isEmpty {
             queryItems.append(URLQueryItem(name: "search", value: search))
@@ -113,11 +117,33 @@ public struct PaperService {
 
     /// 拉取单篇文章详情。
     public func fetchPaper(id: Int) async throws -> PaperDetail {
-        try await api.request(path: "papers/\(id)", authentication: .optional)
+        try await validateAuthenticatedRead()
+        let credentials = session.currentCredentials
+        return try await details.detail(id: id, credentials: credentials) {
+            guard self.session.currentCredentials.identity == credentials.identity else { throw CancellationError() }
+            return try await self.api.request(path: "papers/\(id)", authentication: .optional)
+        }
+    }
+
+    public func fetchPreviewMetadata(id: Int) async throws -> PaperPreviewMetadata {
+        let credentials = session.currentCredentials
+        return try await details.preview(id: id, credentials: credentials) {
+            guard self.session.currentCredentials.identity == credentials.identity else { throw CancellationError() }
+            try await self.validateAuthenticatedRead()
+            let detail: PaperDetail = try await self.api.request(path: "papers/\(id)", authentication: .optional)
+            return detail
+        }
+    }
+
+    private func validateAuthenticatedRead() async throws {
+        if !session.fakeCookie.isEmpty {
+            try await api.requestVoid(path: "user/check", method: "GET")
+        }
     }
 
     /// 拉取文章评论。
     public func fetchComments(paperID: Int, order: CommunityCommentOrder, page: Int?) async throws -> [CommunityComment] {
+        try await validateAuthenticatedRead()
         var queryItems = [
             URLQueryItem(name: "obj", value: "paper\(paperID)"),
             URLQueryItem(name: "order", value: order.rawValue),
@@ -137,7 +163,8 @@ public struct PaperService {
     ///
     /// 文章详情评论通过 reaction 接口处理。这个方法为评论点赞提供通用入口。
     public func sendLike(objectID: String) async throws -> CommunityLikeResult {
-        try await api.request(
+        defer { details.invalidate() }
+        return try await api.request(
             path: "reaction/like",
             method: "POST",
             body: try api.encode(LikeRequest(obj: objectID))
@@ -152,7 +179,8 @@ public struct PaperService {
         replyUID: Int? = nil,
         anonymous: Bool = false
     ) async throws -> CommunityComment {
-        try await api.request(
+        defer { details.invalidate() }
+        return try await api.request(
             path: "reaction/comments",
             method: "POST",
             body: try api.encode(
@@ -176,6 +204,7 @@ public struct PaperService {
         anonymous: Bool,
         publicEdit: Bool = true
     ) async throws -> Int {
+        defer { details.invalidate() }
         let response: CreatePaperResponse = try await api.request(
             path: "papers",
             method: "POST",
@@ -201,6 +230,7 @@ public struct PaperService {
         publicEdit: Bool = true,
         lastUpdatedAt: String
     ) async throws {
+        defer { details.invalidate() }
         guard let version = AppDateText.date(from: lastUpdatedAt) else { throw PaperServiceError.invalidResponse }
         try await api.requestVoid(
             path: "papers/\(id)",
@@ -219,6 +249,7 @@ public struct PaperService {
     }
 
     public func deletePaper(id: Int) async throws {
+        defer { details.invalidate() }
         try await api.requestVoid(path: "papers/\(id)", method: "DELETE")
     }
 

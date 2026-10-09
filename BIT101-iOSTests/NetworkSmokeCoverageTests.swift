@@ -321,6 +321,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
             PaperDetail(id: stage == "entity-identity-failure" ? id + 1 : id, title: "fixture", intro: "", content: "fixture", createTime: "", updateTime: "", updateUser: user,
                 anonymous: false, likeNum: 0, commentNum: 0, publicEdit: false, like: false, own: false)
         }
+        func fetchPreviewMetadata(id: Int) async throws -> PaperPreviewMetadata { try await fetchPaper(id: id).previewMetadata }
         func fetchComments(paperID: Int, order: CommunityCommentOrder, page: Int?) async throws -> [CommunityComment] {
             observed.insert("paper-comments-\(page ?? 0)")
             if stage == "paper-comment-page-failure", page != nil { throw URLError(.cannotParseResponse) }

@@ -323,6 +323,7 @@ final class ReleaseNetworkSmokeRunner {
             await runInParallel([
                 {
                     _ = await self.probe("文章详情", area: .bit101, scope: scope) {
+                        _ = try await papers.fetchPreviewMetadata(id: paper.id)
                         let detail = try await papers.fetchPaper(id: paper.id)
                         try Self.validateEntityIdentity(expected: paper.id, actual: detail.id)
                         return detail

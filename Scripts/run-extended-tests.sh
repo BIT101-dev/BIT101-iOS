@@ -302,8 +302,8 @@ if [[ "$MODE" == ui && ${#TEST_SELECTIONS[@]} -gt 0 ]]; then
   selections="$(bit101_ui_test_selections "${TEST_SELECTIONS[@]}")" || exit 64
   TEST_SELECTIONS=("${(@f)selections}")
 fi
-if [[ ( "$MODE" == modules || "$BUILD_ONLY" == true ) && ${#TEST_SELECTIONS[@]} -gt 0 ]]; then
-  echo "模块测试与宿主编译直接使用对应操作名。" >&2
+if [[ "$BUILD_ONLY" == true && ${#TEST_SELECTIONS[@]} -gt 0 ]]; then
+  echo "宿主编译直接使用对应操作名。" >&2
   exit 64
 fi
 
@@ -406,13 +406,23 @@ if [[ "$MODE" == "modules" ]]; then
         --configuration release
   else
     echo "[测试] 模块消费者 · macOS 原生 Release"
+    MODULE_FILTER_ARGS=()
+    if (( ${#TEST_SELECTIONS[@]} > 0 )); then
+      module_filter="$(python3 - "${TEST_SELECTIONS[@]}" <<'PYFILTER'
+import re
+import sys
+print('|'.join(r'(?:^|\.)' + re.escape(value) + r'(?:/|\(|$)' for value in sys.argv[1:]))
+PYFILTER
+)"
+      MODULE_FILTER_ARGS=(--filter "$module_filter")
+    fi
     rm -f "$DERIVED_ROOT/module-events.jsonl"
     bit101_run_logged "$DERIVED_ROOT/$validation_group.log" "模块离线测试" \
       xcrun swift test --enable-code-coverage \
         --event-stream-version 0 --event-stream-output-path "$DERIVED_ROOT/module-events.jsonl" \
         --package-path "$ROOT_DIR" \
         --scratch-path "$DERIVED_ROOT" \
-        --configuration release
+        --configuration release "${MODULE_FILTER_ARGS[@]}"
     if ! CODECOV_PATH="$(xcrun swift test --show-codecov-path --package-path "$ROOT_DIR" --scratch-path "$DERIVED_ROOT" --configuration release 2>> "$DERIVED_ROOT/$validation_group.log")"; then
       echo "[失败] 模块覆盖率路径 · $DERIVED_ROOT/$validation_group.log" >&2
       exit 1
@@ -432,7 +442,8 @@ executed = []
 for line in (report_path.parent / "module-events.jsonl").read_text().splitlines():
     if line.startswith('{"'):
         event = json.loads(line)
-        if event.get("kind") == "event" and event.get("payload", {}).get("kind") == "testEnded":
+        if event.get("kind") == "event" and event.get("payload", {}).get("kind") == "testEnded" \
+                and '(' in event['payload'].get('testID', ''):
             executed.append(event["payload"]["testID"])
 if test_count == 0:
     raise SystemExit("模块测试需要实际执行用例。")

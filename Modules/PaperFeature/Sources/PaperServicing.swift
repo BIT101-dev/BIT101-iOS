@@ -2,6 +2,7 @@ import CommunityCore
 public protocol PaperListServicing {
     func fetchPapers(search: String?, order: PaperSortOrder, page: Int) async throws -> [PaperSummary]
     func fetchPaper(id: Int) async throws -> PaperDetail
+    func fetchPreviewMetadata(id: Int) async throws -> PaperPreviewMetadata
 }
 
 public protocol PaperDetailServicing {

@@ -199,14 +199,13 @@ final class GalleryPosterDetailViewModel: ObservableObject {
         }
         let likeRevisionAtStart = commentState.likeRevision
         let result = await loadResult { [self] in
-            let knownIDs = Set(commentState.items.map(\.id))
-            var progress = CommunityPageProgress(knownIDs: knownIDs)
+            var progress = CommunityPageProgress<Int>()
             while true {
                 let batch = try await self.service.fetchComments(objectID: self.posterObjectID, order: self.commentOrder, page: commentState.nextPage)
                 try Task.checkCancellation()
                 guard commentRefreshGeneration == generation else { throw CancellationError() }
-                try progress.record(batch.items.map(\.id))
-                if !batch.canLoadMore || batch.items.isEmpty || batch.items.contains(where: { !knownIDs.contains($0.id) }) { return batch }
+                try progress.record(batch.items.map(\.id), knownIDs: commentState.pagedItems.ids)
+                if !batch.canLoadMore || batch.items.isEmpty || batch.items.contains(where: { !commentState.pagedItems.ids.contains($0.id) }) { return batch }
                 commentState.nextPage = batch.nextSourcePage
             }
         }
