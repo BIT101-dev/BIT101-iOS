@@ -63,6 +63,8 @@ def network_requests_complete(required: set[str], value: dict) -> bool:
                     or endpoint.query or endpoint.fragment or request.get('method') not in {'GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'} \
                     or type(request.get('statusCode')) is not int or not 100 <= request['statusCode'] < 600: return False
             query = request.get('query', {})
+            cursor = request.get('responseTailID')
+            if cursor is not None and (not isinstance(cursor, str) or re.fullmatch(r'\d+', cursor) is None): return False
             if not isinstance(query, dict) or not set(query) <= {'page', 'last_id', 'obj', 'order', 'mode', 'type', 'uid', 'detail'} \
                     or not all(isinstance(key, str) and isinstance(item, str) for key, item in query.items()): return False
         if complete(row['probe'], row['requests']): observed.add(row['probe'])

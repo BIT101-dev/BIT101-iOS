@@ -417,10 +417,10 @@ def network_recording_self_test(subject, results) -> None:
 
 def network_trace_fixture(value: dict) -> dict:
     from network_request_contracts import contracts_for
-    def example(pattern):
+    def example(pattern, identifier=1):
         import re
         pattern = re.sub(r'\(\?:([^()]*)\)', lambda match: match[1].split('|')[0], pattern)
-        return pattern.replace('[0-9a-f]+', 'a').replace(r'\d+', '1').replace(r'\.', '.').replace(r'\-', '-').replace('.+', 'fixture').replace('?', '')
+        return pattern.replace('[0-9a-f]+', 'a').replace(r'\d+', str(identifier)).replace(r'\.', '.').replace(r'\-', '-').replace('.+', 'fixture').replace('?', '')
     rows = []
     for name in value.get('requiredProbes', []):
         contracts = contracts_for(name)
@@ -433,6 +433,12 @@ def network_trace_fixture(value: dict) -> dict:
                 if contract.paging == 'last_id' and index: query['last_id'] = '0'
                 request = {'method': contract.method, 'endpoint': 'https://' + example(contract.host) + example(contract.path),
                     'statusCode': next(iter(contract.statuses)), 'query': query}
+                if contract.paging == 'last_id': request['responseTailID'] = '0'
+                if name == '社区写入与清理':
+                    if contract.method == 'DELETE' and contract.path == r'/reaction/comments/\d+':
+                        request['endpoint'] = 'https://' + example(contract.host) + example(contract.path, index + 1)
+                    if contract.method == 'POST' and contract.path == '/reaction/comments' and query['obj'].startswith('comment'):
+                        query['obj'] = 'comment' + str(index + 1)
                 assert contract.matches(request), (name, request)
                 requests.append(request)
         if name == '生产共享会话': requests.insert(1, requests.pop())
@@ -445,6 +451,7 @@ def network_trace_fixture(value: dict) -> dict:
 def network_route_identity_self_test() -> None:
     from copy import deepcopy
     from validation_provenance import network_requests_complete
+    from network_request_contracts import complete
     required = {'文章评论'}
     proof = network_trace_fixture({'requiredProbes': sorted(required)})
     assert network_requests_complete(required, proof)
@@ -460,7 +467,26 @@ def network_route_identity_self_test() -> None:
     changed = deepcopy(proof)
     changed['requestEvidence'][0]['requests'][1]['query']['page'] = '0'
     assert not network_requests_complete(required, changed)
-    from network_request_contracts import complete
+    changed['requestEvidence'][0]['requests'][1]['query']['page'] = '999'
+    assert not network_requests_complete(required, changed)
+    cursors = network_trace_fixture({'requiredProbes': ['消息列表-系统通知']})
+    cursor_probe = cursors['requestEvidence'][0]
+    for invalid in ('999', None):
+        changed = deepcopy(cursor_probe['requests'])
+        changed[0]['responseTailID'] = invalid
+        assert not complete(cursor_probe['probe'], changed)
+    writes = network_trace_fixture({'requiredProbes': ['社区写入与清理']})['requestEvidence'][0]['requests']
+    assert complete('社区写入与清理', writes)
+    for endpoint, method in [('/upload/image', 'POST'), ('/reaction/comments', 'POST'),
+            ('/reaction/comments/', 'DELETE'), ('/reaction/like', 'POST'), ('/user/follow/', 'POST'),
+            ('/posters/', 'PUT'), ('/papers/', 'PUT')]:
+        changed = [row for row in writes if not (endpoint in row['endpoint'] and row['method'] == method)]
+        assert not complete('社区写入与清理', changed), (endpoint, method)
+    changed = deepcopy(writes)
+    for row in changed:
+        if row['method'] == 'POST' and row['endpoint'].endswith('/reaction/comments'):
+            row['query']['obj'] = 'poster1'
+    assert not complete('社区写入与清理', changed)
     for probe, endpoint in [('课程中心原生认证', 'https://zy-eclass.bit.edu.cn/api/my-courses'),
                             ('课程中心 DDL 下载', 'https://zy-eclass.bit.edu.cn/api/my-courses'),
                             ('乐学日历订阅地址', 'https://lexue.bit.edu.cn/calendar/export.php')]:

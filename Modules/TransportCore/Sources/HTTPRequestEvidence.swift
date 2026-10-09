@@ -5,8 +5,10 @@ public nonisolated struct HTTPRequestEvidence: Codable, Sendable {
     public let endpoint: String
     public let statusCode: Int
     public let query: [String: String]
+    public let responseTailID: String?
 
-    public init(request: URLRequest, response: HTTPURLResponse) {
+    public init(request: URLRequest, response: HTTPURLResponse, responseTailID: String? = nil) {
+        self.responseTailID = responseTailID
         method = request.httpMethod ?? "GET"
         var endpoint = (request.url ?? response.url).flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
         let allowed = Set(["page", "last_id", "obj", "order", "mode", "type", "uid", "detail"])
@@ -16,9 +18,12 @@ public nonisolated struct HTTPRequestEvidence: Codable, Sendable {
         }, uniquingKeysWith: { first, _ in first })
         if request.value(forHTTPHeaderField: "Content-Type")?.hasPrefix("application/json") == true,
            let body = request.httpBody,
-           let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
-           let detail = object["detail"] as? Bool {
-            parameters["detail"] = String(detail)
+           let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any] {
+            if let detail = object["detail"] as? Bool { parameters["detail"] = String(detail) }
+            if let value = object["obj"] as? String,
+               value.range(of: "^(poster|paper|course|comment)[1-9][0-9]*$", options: .regularExpression) != nil {
+                parameters["obj"] = value
+            }
         }
         query = parameters
         endpoint?.user = nil
@@ -27,6 +32,17 @@ public nonisolated struct HTTPRequestEvidence: Codable, Sendable {
         endpoint?.fragment = nil
         self.endpoint = endpoint?.string ?? ""
         statusCode = response.statusCode
+    }
+
+    @concurrent
+    public static func capture(request: URLRequest, response: HTTPURLResponse, body: Data) async -> Self {
+        let cursor: String?
+        if let rows = try? JSONSerialization.jsonObject(with: body) as? [[String: Any]] {
+            if rows.isEmpty { cursor = "0" }
+            else if let identifier = rows.last?["id"] as? Int, identifier > 0 { cursor = String(identifier) }
+            else { cursor = nil }
+        } else { cursor = nil }
+        return Self(request: request, response: response, responseTailID: cursor)
     }
 }
 
