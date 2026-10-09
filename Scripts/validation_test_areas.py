@@ -331,17 +331,20 @@ def network_capability_self_test() -> None:
     unused_reference = dict(sources)
     unused_reference['ReleaseNetworkSmoke.swift'] = sources['ReleaseNetworkSmoke.swift'].replace('dependencies.productionSessionProbe()', 'let unused = dependencies.productionSessionProbe')
     assert 'mine.fetchMyInfo' not in reached(unused_reference)
-    for condition, expected in [('false', False), ('!true', False), ('true', True), ('!false', True)]:
-        branch = dict(sources)
-        branch['ReleaseNetworkSmoke.swift'] = sources['ReleaseNetworkSmoke.swift'].replace(
-            'dependencies.productionSessionProbe()', f'if {condition} {{ dependencies.productionSessionProbe() }}')
-        assert ('mine.fetchMyInfo' in reached(branch)) == expected
+    for statement in ('if', 'while'):
+        for condition, expected in [('false', False), ('!true', False), ('true', True), ('!false', True)]:
+            branch = dict(sources)
+            branch['ReleaseNetworkSmoke.swift'] = sources['ReleaseNetworkSmoke.swift'].replace(
+                'dependencies.productionSessionProbe()', f'{statement} {condition} {{ dependencies.productionSessionProbe() }}')
+            assert ('mine.fetchMyInfo' in reached(branch)) == expected, (statement, condition)
     disabled = dict(sources)
     disabled['ReleaseNetworkSmoke.swift'] = sources['ReleaseNetworkSmoke.swift'].replace(
         'dependencies.productionSessionProbe()', 'let enabled = false; if enabled { dependencies.productionSessionProbe() }')
     assert 'mine.fetchMyInfo' not in reached(disabled)
     disabled['ReleaseNetworkSmoke.swift'] = disabled['ReleaseNetworkSmoke.swift'].replace('let enabled', 'var enabled')
     assert 'mine.fetchMyInfo' in reached(disabled)
+    disabled['ReleaseNetworkSmoke.swift'] = disabled['ReleaseNetworkSmoke.swift'].replace('var enabled', 'let enabled').replace('if enabled', 'while enabled')
+    assert 'mine.fetchMyInfo' not in reached(disabled)
     for statement in ('return', 'throw URLError(.cancelled)'):
         terminated = dict(sources)
         terminated['ReleaseNetworkSmoke.swift'] = sources['ReleaseNetworkSmoke.swift'].replace(
@@ -412,6 +415,16 @@ def critical_findings(inventories: dict[str, set[str]]) -> list[str]:
 def network_discovery_self_test() -> None:
     from swift_source_index import swift_syntax_index_sources
     from network_capability_rules import business_methods
+    leaf = 'Modules/PaperFeature/Sources/PaperService.swift'
+    wrapper = 'BIT101-iOS/Shell/NewService.swift'
+    for annotation in ('', ': PaperService'):
+        for initializer in ('PaperService()', 'Factory.make()'):
+            facts = swift_syntax_index_sources({leaf: 'public struct PaperService { public func fetchPaper(id: Int) async throws -> Int { id } }',
+                wrapper: f'''import PaperFeature
+enum Factory {{ static func make() -> PaperService {{ PaperService() }} }}
+struct NewService {{ private let paper{annotation} = {initializer}; func fetch(id: Int) async throws -> Int {{ try await paper.fetchPaper(id: id) }} }}'''
+            })
+            assert 'BIT101-iOS.NewService' in business_methods(facts), (annotation, initializer)
     utility_path = 'Modules/ClientCore/Sources/Parser.swift'
     transport_path = 'Modules/TransportCore/Sources/HTTPClient.swift'
     transport = 'public struct HTTPClient { public static func message(from data: Data) -> String? { nil }; public static func make() -> HTTPClient { HTTPClient() }; public static func fetch() async -> Data { Data() } }'

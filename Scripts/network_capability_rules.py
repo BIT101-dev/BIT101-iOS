@@ -48,8 +48,9 @@ def signature_function(signature: str, scope: list[str]) -> dict:
 def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
     from validation_evidence import active_swift_source
     from validation_test_areas import NETWORK_CAPABILITIES
-    from swift_type_index import SwiftTypeIndex, compilation_unit
+    from swift_type_index import SwiftTypeIndex, compilation_unit, receiver_resolver
     types = SwiftTypeIndex(index)
+    resolve_receiver = receiver_resolver(index)
     network_owners = set(NETWORK_CAPABILITIES)
     dependencies = {}
     active_sources = {path: active_swift_source(Path(path).read_text(), 'network').encode()
@@ -82,6 +83,10 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
             kind = types.terminal_name(path, node.get('type', ''), node['scope'])
             if kind.rsplit('.', 1)[-1] in NETWORK_TRANSPORT_TYPES: network_owners.add(identity)
             if target: dependencies.setdefault(identity, set()).add('.'.join([target[0], *target[1]]))
+        for node in facts.get('bindings', []):
+            if not node['scope'] or node.get('lexicalScope') or not active(path, node): continue
+            if target := resolve_receiver(dict(node, path=path, calledExpression=node['bindingName'] + '.__propertyType')):
+                dependencies.setdefault(owner(path, node['scope']), set()).add(target)
         for call in facts.get('invocations', []):
             if not call['scope'] or not active(path, call): continue
             expression = call.get('calledExpression', '')

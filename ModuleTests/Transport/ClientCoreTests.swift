@@ -321,7 +321,7 @@ struct ClientCoreTests {
         #expect(HTTPRequestEvidence(request: request, response: response).query == ["detail": "true"])
     }
 
-    @Test(arguments: [("[]", String?.some("0")), (#"[{"id":3,"text":"secret"},{"id":9,"text":"private"}]"#, .some("9")),
+    @Test(arguments: [("[]", String?.some("0")), (#"[{"id":3,"text":"secret"},{"id":9,"text":"private"}]"#, .some("3")),
         ("{}", nil), ("invalid", nil)], ["poster1", "comment2", "private"])
     func requestEvidenceRecordsObjectsAndResponseCursorsWithRedactedContent(fixture: (String, String?), object: String) async throws {
         let response = try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
@@ -333,7 +333,7 @@ struct ClientCoreTests {
         var captured: HTTPRequestEvidence?
         try await HTTPRequestEvidenceContext.$didReceive.withValue({ captured = $0 }) { _ = try await client.send(request) }
         let evidence = try #require(captured)
-        #expect(evidence.responseTailID == fixture.1)
+        #expect(evidence.responseMinimumID == fixture.1)
         #expect(evidence.query == (object == "private" ? [:] : ["obj": object]))
         let encoded = String(decoding: try JSONEncoder().encode(evidence), as: UTF8.self)
         #expect(!encoded.contains("secret") && !encoded.contains("private"))

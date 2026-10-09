@@ -5,10 +5,10 @@ public nonisolated struct HTTPRequestEvidence: Codable, Sendable {
     public let endpoint: String
     public let statusCode: Int
     public let query: [String: String]
-    public let responseTailID: String?
+    public let responseMinimumID: String?
 
-    public init(request: URLRequest, response: HTTPURLResponse, responseTailID: String? = nil) {
-        self.responseTailID = responseTailID
+    public init(request: URLRequest, response: HTTPURLResponse, responseMinimumID: String? = nil) {
+        self.responseMinimumID = responseMinimumID
         method = request.httpMethod ?? "GET"
         var endpoint = (request.url ?? response.url).flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
         let allowed = Set(["page", "last_id", "obj", "order", "mode", "type", "uid", "detail"])
@@ -39,10 +39,13 @@ public nonisolated struct HTTPRequestEvidence: Codable, Sendable {
         let cursor: String?
         if let rows = try? JSONSerialization.jsonObject(with: body) as? [[String: Any]] {
             if rows.isEmpty { cursor = "0" }
-            else if let identifier = rows.last?["id"] as? Int, identifier > 0 { cursor = String(identifier) }
-            else { cursor = nil }
+            else {
+                let identifiers = rows.compactMap { $0["id"] as? Int }
+                cursor = identifiers.count == rows.count && identifiers.allSatisfy({ $0 > 0 })
+                    ? identifiers.min().map(String.init) : nil
+            }
         } else { cursor = nil }
-        return Self(request: request, response: response, responseTailID: cursor)
+        return Self(request: request, response: response, responseMinimumID: cursor)
     }
 }
 

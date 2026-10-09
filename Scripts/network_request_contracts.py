@@ -1,6 +1,7 @@
 """Match smoke responses to business routes and explicit pagination requests."""
 from dataclasses import dataclass, field
 import re
+import sys
 from urllib.parse import urlsplit
 
 API = 'bit101.flwfdd.xyz'
@@ -33,12 +34,13 @@ class RequestContract:
         if len(rows) < self.minimum: return False
         if not self.paging: return True
         values = [row.get('query', {}).get(self.paging) for row in rows]
-        initial = None if self.paging == 'last_id' else '0'
-        normalized = [initial if value is None else value for value in values]
+        initial = str(sys.maxsize) if self.paging == 'last_id' else '0'
+        normalized = [initial if value is None and self.paging == 'page' else value for value in values]
         if len(rows) < 2 or normalized[0] != initial: return False
         if self.paging == 'page': return '1' in normalized[1:]
-        return all(previous.get('responseTailID') == cursor and isinstance(cursor, str)
-            and re.fullmatch(r'\d+', cursor) for previous, cursor in zip(rows, normalized[1:]))
+        return all(isinstance(cursor, str) and re.fullmatch(r'[1-9]\d*', cursor)
+            and isinstance(minimum := previous.get('responseMinimumID'), str) and re.fullmatch(r'\d+', minimum)
+            and str(max(1, int(minimum))) == cursor for previous, cursor in zip(rows, normalized[1:]))
 
 
 def community(path: str, *, query: dict | None = None, minimum: int = 1, paging: str = '', method: str = 'GET',

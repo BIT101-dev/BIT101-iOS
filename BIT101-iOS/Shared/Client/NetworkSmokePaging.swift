@@ -38,10 +38,10 @@ enum NetworkSmokePaging {
 
     static func messages(load: (Int?) async throws -> [GalleryMessage]) async throws -> [GalleryMessage] {
         let identity = AppAccountSession.storage.communityCredentials.identity
-        let first = try await load(nil)
+        let first = try await load(Int.max)
         try checkIdentity(identity)
-        let cursor = first.map(\.id).min() ?? 0
-        guard first.isEmpty || cursor > 0 else { throw URLError(.cannotParseResponse) }
+        let cursor = first.map(\.id).min() ?? 1
+        guard cursor > 0 else { throw URLError(.cannotParseResponse) }
         let second = try await load(cursor)
         try checkIdentity(identity)
         guard second.allSatisfy({ $0.id > 0 && $0.id < cursor }) else { throw URLError(.cannotParseResponse) }

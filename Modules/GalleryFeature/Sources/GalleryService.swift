@@ -545,7 +545,7 @@ public struct GalleryService {
 
     /// 拉取某个消息分类的列表。
     ///
-    /// 后端使用 `last_id` 做历史分页；首次传空会顺手把该分类未读数清零。
+    /// `last_id` 为 0 时读取最新记录并清零该分类未读数；正值用于历史分页。
     public func fetchMessages(type: GalleryMessageType, lastID: Int?) async throws -> [GalleryMessage] {
         var queryItems = [URLQueryItem(name: "type", value: type.rawValue)]
         if let lastID {

@@ -430,10 +430,10 @@ def network_trace_fixture(value: dict) -> dict:
             for index in range(max(contract.minimum, 2 if contract.paging else 1)):
                 query = {key: example(pattern) for key, pattern in contract.query.items() if pattern is not None}
                 if contract.paging == 'page': query['page'] = str(index)
-                if contract.paging == 'last_id' and index: query['last_id'] = '0'
+                if contract.paging == 'last_id': query['last_id'] = str(sys.maxsize) if index == 0 else '1'
                 request = {'method': contract.method, 'endpoint': 'https://' + example(contract.host) + example(contract.path),
                     'statusCode': next(iter(contract.statuses)), 'query': query}
-                if contract.paging == 'last_id': request['responseTailID'] = '0'
+                if contract.paging == 'last_id': request['responseMinimumID'] = '0'
                 if name == '社区写入与清理':
                     if contract.method == 'DELETE' and contract.path == r'/reaction/comments/\d+':
                         request['endpoint'] = 'https://' + example(contract.host) + example(contract.path, index + 1)
@@ -471,9 +471,19 @@ def network_route_identity_self_test() -> None:
     assert not network_requests_complete(required, changed)
     cursors = network_trace_fixture({'requiredProbes': ['消息列表-系统通知']})
     cursor_probe = cursors['requestEvidence'][0]
+    assert complete(cursor_probe['probe'], cursor_probe['requests'])
+    nonempty = deepcopy(cursor_probe['requests'])
+    nonempty[0]['responseMinimumID'] = '9'
+    nonempty[1]['query']['last_id'] = '9'
+    assert complete(cursor_probe['probe'], nonempty)
+    for position, invalid in ((0, None), (0, '0'), (1, '0')):
+        changed = deepcopy(cursor_probe['requests'])
+        if invalid is None: changed[position]['query'].pop('last_id')
+        else: changed[position]['query']['last_id'] = invalid
+        assert not complete(cursor_probe['probe'], changed), (position, invalid)
     for invalid in ('999', None):
         changed = deepcopy(cursor_probe['requests'])
-        changed[0]['responseTailID'] = invalid
+        changed[0]['responseMinimumID'] = invalid
         assert not complete(cursor_probe['probe'], changed)
     writes = network_trace_fixture({'requiredProbes': ['社区写入与清理']})['requestEvidence'][0]['requests']
     assert complete('社区写入与清理', writes)

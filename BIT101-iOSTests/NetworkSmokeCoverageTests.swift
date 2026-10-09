@@ -123,14 +123,33 @@ struct NetworkSmokeCoverageTests {
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         let message = try decoder.decode(GalleryMessage.self, from: data)
         var cursors: [Int?] = []
-        _ = try await NetworkSmokePaging.messages { cursor in cursors.append(cursor); return cursor == nil ? [message] : [] }
-        #expect(cursors == [nil, 9])
+        _ = try await NetworkSmokePaging.messages { cursor in cursors.append(cursor); return cursor == Int.max ? [message] : [] }
+        #expect(cursors == [Int.max, 9])
         cursors = []
         _ = try await NetworkSmokePaging.messages { cursor in cursors.append(cursor); return [] }
-        #expect(cursors == [nil, 0])
+        #expect(cursors == [Int.max, 1])
         await #expect(throws: URLError.self) {
             _ = try await NetworkSmokePaging.messages { _ in [message] }
         }
+    }
+
+    @Test(arguments: [false, true])
+    func messageSamplingPreservesUnreadCountsAsNewMessagesArrive(emptyFirstPage: Bool) async throws {
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let message = try decoder.decode(GalleryMessage.self,
+            from: Data(#"{"from_user":{},"id":9,"link_obj":"poster1","obj":"poster1","text":"","update_time":""}"#.utf8))
+        var messages: [GalleryMessage] = emptyFirstPage ? [] : [message]
+        var unread = 3
+        var requests = 0
+        _ = try await NetworkSmokePaging.messages { cursor in
+            requests += 1
+            if emptyFirstPage && requests == 2 { messages = [message]; unread += 1 }
+            let rows = messages.filter { cursor == nil || cursor == 0 || $0.id < (cursor ?? 0) }
+            if (cursor == nil || cursor == 0) && !rows.isEmpty { unread = 0 }
+            return rows
+        }
+        #expect(requests == 2 && unread == (emptyFirstPage ? 4 : 3))
     }
 
     private final class MediaRoute: HTTPTransport {
