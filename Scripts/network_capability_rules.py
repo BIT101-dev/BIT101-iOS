@@ -89,6 +89,9 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
             target = types.resolve(path, node.get('type', ''), node['scope'])
             kind = types.terminal_name(path, node.get('type', ''), node['scope'])
             if kind.rsplit('.', 1)[-1] in NETWORK_TRANSPORT_TYPES: network_owners.add(identity)
+            port = kind
+            if 'async' in port and '->' in port and re.search(r'\bURLRequest\b', port) \
+                    and re.search(r'\b(?:HTTPResponse|URLResponse|HTTPURLResponse)\b', port): network_owners.add(identity)
             if target: dependencies.setdefault(identity, set()).add('.'.join([target[0], *target[1]]))
         for node in facts.get('bindings', []):
             if not node['scope'] or node.get('lexicalScope') or not active(path, node): continue

@@ -241,10 +241,9 @@ nonisolated class UIAutomationTestCase: XCTestCase {
 
     @MainActor
     func fillVerificationCode(_ text: String, in field: UIElement) {
-        if UIElement.usesNativeInteraction {
-            guard let state = prepareInput(field) else { return }
-            enterWithKeyboard(text, in: field, state: state)
-        } else { enterText(text, in: field) }
+        field.press(forDuration: 0.01)
+        assertUI(app.keyboards.firstMatch.appears(timeout: 5), "完整验证码输入应等待系统键盘就绪。")
+        enterText(text, in: field)
     }
 
     @MainActor
@@ -487,6 +486,8 @@ nonisolated class UIAutomationTestCase: XCTestCase {
                     "完整显示的容器应核对内容边界：\(identifier)。")
             } else {
                 let element = app.descendants(matching: .any)[identifier]
+                let selectedButtons = element.buttons.matching(NSPredicate(format: "selected == true"))
+                    .allElementsBoundByIndex.map { ($0.identifier, $0.label) }
                 if range[1] > 0 {
                     if remaining[1] > 0 { element.swipeUp() } else { element.swipeDown() }
                 } else {
@@ -497,6 +498,12 @@ nonisolated class UIAutomationTestCase: XCTestCase {
                 XCTAssertEqual(UITestControlClient.request(parameters.merging(["command": "scroll-restore"]) { _, value in value }), "restored",
                     "容器验收应恢复起始位置：\(identifier)。")
                 UITestSnapshotReader.invalidate()
+                for (identifier, label) in selectedButtons {
+                    let button = element.buttons.matching(NSPredicate(format: "identifier == %@ AND label == %@", identifier, label)).firstMatch
+                    if !button.isSelected { button.tapBriefly() }
+                    assertUI(waitUntil(NSPredicate(format: "selected == true"), on: button, timeout: 5),
+                        "容器验收应恢复原选中项：\(label)。")
+                }
             }
             checkedScrollContainers.insert(checkIdentity)
         }

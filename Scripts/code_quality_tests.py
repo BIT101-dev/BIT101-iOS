@@ -37,6 +37,15 @@ def campus_fixture_self_test() -> None:
 
 
 def checker_boundary_findings() -> list[str]:
+    from swift_source_index import swift_code, swift_regex_ranges
+    indexed_sources = {"RegexCache.swift": 'let label = "预热索引"; let pattern = /a\\/b/; // 已有事实\n',
+        "CommentCache.swift": 'let number = 17 // 普通注释\n'}
+    swift_syntax_index_sources(indexed_sources)
+    swift_regex_ranges.cache_clear()
+    with patch('swift_source_index._run_swift_syntax_index', side_effect=AssertionError('批量事实需要复用')):
+        for source in indexed_sources.values():
+            assert len(swift_code(source)) == len(source)
+            assert '注释' not in swift_code(source)
     from swift_type_index_tests import self_test as type_index_self_test
     type_index_self_test()
     from audit_callback_rules import self_test as audit_delegate_self_test
@@ -636,18 +645,20 @@ def build_cache_boundary_findings() -> list[str]:
             findings.append("缓存自测：同类缓存目录共享")
         if not cas.is_symlink() or any((cas / name).read_bytes() != content for name in ("index", "data")):
             findings.append("缓存自测：CAS 命名空间整体保留及共享")
-        if (stats / "iphonesimulator.sdkstatcache").exists() or not (stats / "iphoneos.sdkstatcache").exists():
+        if not all((stats / name).exists() for name in ('iphonesimulator.sdkstatcache', 'iphoneos.sdkstatcache')):
             findings.append("缓存自测：SDK 统计缓存的平台归属")
         if (old / "warm").read_text() != "retain warm module" or (old / "unique").read_text() != "preserve unique module":
             findings.append("缓存自测：保留热模块及唯一模块")
         if module.read_bytes() != content or module.stat().st_mtime_ns != modified:
             findings.append("缓存自测：合并保留内容和修改时间")
-        if any((shared / name).exists() for name in ("simulator", "watch-simulator")):
-            findings.append("缓存自测：停用平台的隐式模块清理")
+        if not all((shared / name).exists() for name in ("simulator", "watch-simulator")):
+            findings.append("缓存自测：保留模拟器平台的隐式模块")
         if any((shared / name / f"{name}.pcm").read_bytes() != content for name in ("phone", "mac", "unreadable")):
             findings.append("缓存自测：保留真机、Mac 及平台归属待核对的模块")
-        if any(path.exists() for path in obsolete_paths) or obsolete_cloud_log.exists() or diagnostics.exists() or symbols.exists() or (products / "Release-iphonesimulator").exists():
-            findings.append("缓存自测：清理诊断与失效平台产物")
+        if any(path.exists() for path in obsolete_paths) or obsolete_cloud_log.exists() or diagnostics.exists() or symbols.exists():
+            findings.append("缓存自测：清理诊断与冗余符号产物")
+        if not (products / "Release-iphonesimulator").exists():
+            findings.append("缓存自测：保留模拟器增量产物")
         if debug_object.read_bytes() != content:
             findings.append("缓存自测：保留目标文件中的调试信息")
         if bundled_symbols.read_bytes() != content:

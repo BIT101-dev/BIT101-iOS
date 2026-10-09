@@ -728,6 +728,7 @@ public final class ScoreViewModel: ObservableObject {
 
     /// 保存当前筛选结果到本地偏好。
     private func persistFilterPreferences() {
+        guard preferenceSnapshot != nil || (didInitializeTermSelection && didInitializeCourseTypeSelection) else { return }
         let saved = preferenceStore.save(
             selectedTerms: didInitializeTermSelection ? selectedTerms : Set(preferenceSnapshot?.selectedTerms ?? []),
             selectedCourseTypes: didInitializeCourseTypeSelection ? selectedCourseTypes : Set(preferenceSnapshot?.selectedCourseTypes ?? []),

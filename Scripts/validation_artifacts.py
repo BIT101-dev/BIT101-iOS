@@ -23,7 +23,7 @@ fixed_children = {
         "out", "manifest.pif", "workspace-state.json", "module-events.jsonl", "test-metrics.txt", "test-failures.txt",
         "test-results.xcresult", "ui-tests.log", "ui-tests-build.log", "failure-hierarchy.txt", "diagnostics",
         "validation-evidence.json", "validation-evidence.lock", "manual-scenarios.json", "performance-measurements.json",
-        "release-receipt.json", "core-validation-evidence.json"} | {name + ".log" for name in TEST_GROUPS}
+        "release-receipt.json", "core-validation-evidence.json", "simulator-device.json", "simulator.log"} | {name + ".log" for name in TEST_GROUPS}
         | {"build-" + name + ".log" for name in BUILD_HOSTS},
     ".build/icloud-cross-device-smoke": {"Phone", "Mac", "test-results.xcresult", "report.json", "signing.entitlements",
         "build.log", "mac-build.log", "mac-receive.log", "testPhoneRoundTrip.log", "testCleanup.log"},
@@ -101,8 +101,6 @@ for parent in (root / "build", root / ".build"):
         elif relative not in allowed_dirs:
             violations.append(f"{relative}: 同类产物不得创建第二个平行目录")
 shared = root / ".build/compiler-cache"
-for cache in (shared / "SDKStatCaches.noindex").glob("*simulator*.sdkstatcache"):
-    violations.append(f"{cache.relative_to(root)}: SDK 缓存应沿当前使用的平台维护")
 for parent in (root / ".build", root / "build"):
     for directory, children, files in os.walk(parent):
         if Path(directory).is_relative_to(root / ".build/issue-report-inbox"):

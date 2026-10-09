@@ -536,3 +536,10 @@ struct NewService {{ private let paper{annotation} = {initializer}; func fetch(i
         'Modules/TransportCore/Sources/HTTPClient.swift': 'public struct HTTPClient {}; ' + protocol})
     assert 'NewForumFeature.ReadService' in business_methods(index)
     assert any('新增生产服务' in error for error in network_capability_findings(index))
+    for port, expected in [('(URLRequest) async throws -> HTTPResponse', True),
+                           ('(URLRequest) async throws -> (Data, URLResponse)', True),
+                           ('(String) async throws -> String', False)]:
+        for annotation in (port, 'Sending'):
+            source = f'typealias Sending = {port}; public struct ClosureService {{ let send: {annotation}; public func fetch() async throws {{ _ = try await send(request) }} }}'
+            index = swift_syntax_index_sources({getter_path: source})
+            assert ('NewForumFeature.ClosureService' in business_methods(index)) == expected, (port, annotation)

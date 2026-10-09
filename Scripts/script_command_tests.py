@@ -20,7 +20,24 @@ def script_command_boundary_findings() -> list[str]:
     import plistlib
 
     findings = []
+    simulator = subprocess.run(['zsh', str(SCRIPT_ROOT / 'simulator-tests.sh'), 'info'],
+        env=dict(os.environ, BIT101_SIMULATOR_AUTHORIZED='0'), capture_output=True, text=True)
+    if simulator.returncode != 64 or '显式授权' not in simulator.stderr:
+        findings.append('模拟器命令自测：执行前核对用户授权标记')
     support = SCRIPT_ROOT / "script-support.sh"
+    report_program = (SCRIPT_ROOT / 'run-extended-tests.sh').read_text().split(
+        ' <<\'PY\'\n', 1)[1].split('\nPY\n', 1)[0]
+    for has_info, staging in ((True, False), (True, True), (False, False)):
+        output = StringIO()
+        with patch.object(sys, 'argv', ['report', '/fixture/results.xcresult', 'json', 'report', str(SCRIPT_ROOT)]), \
+                patch.object(Path, 'is_file', lambda path: has_info and path.name == 'Info.plist'), \
+                patch.object(Path, 'exists', lambda path: staging and path.name == 'Staging'), \
+                patch.object(subprocess, 'check_output', return_value='{}'), redirect_stdout(output):
+            try:
+                exec(compile(report_program, '<result-report>', 'exec'), {})
+            except SystemExit as error:
+                if (error.code == 0) != (has_info and not staging):
+                    findings.append('结果包读取自测：已完成的文件存储格式沿 xcresulttool 读取')
     frame = r'''
 bit101_require_device() {
   print DEVICE

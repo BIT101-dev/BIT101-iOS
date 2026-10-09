@@ -8,6 +8,8 @@ from pathlib import Path
 from swift_source_index import swift_syntax_index_sources
 
 def run_self_test(subject) -> int:
+    from validation_compilation import self_test as compilation_cache_self_test
+    compilation_cache_self_test()
     network_route_identity_self_test()
     module_name = subject.__name__
     original_is_file = Path.is_file

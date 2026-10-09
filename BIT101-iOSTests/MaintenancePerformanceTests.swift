@@ -15,6 +15,7 @@ import TransportCore
 
 private nonisolated final class PerformanceResponseProtocol: URLProtocol {
     static let bytes = Data(repeating: 1, count: 32 * 1_024 * 1_024)
+    static let chunkBytes = 64 * 1_024
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
@@ -22,9 +23,9 @@ private nonisolated final class PerformanceResponseProtocol: URLProtocol {
               let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil,
                   headerFields: ["Content-Length": String(Self.bytes.count)]) else { return }
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        for offset in stride(from: 0, to: Self.bytes.count, by: 64 * 1_024) {
+        for offset in stride(from: 0, to: Self.bytes.count, by: Self.chunkBytes) {
             autoreleasepool {
-                client?.urlProtocol(self, didLoad: Self.bytes.subdata(in: offset ..< offset + 64 * 1_024))
+                client?.urlProtocol(self, didLoad: Self.bytes.subdata(in: offset ..< min(offset + Self.chunkBytes, Self.bytes.count)))
             }
         }
         client?.urlProtocolDidFinishLoading(self)
@@ -46,6 +47,10 @@ nonisolated final class MaintenancePerformanceTests: XCTestCase {
 
     @MainActor
     func testBoundedResponseAggregationPerformance() throws {
+        let workload = try PerformanceWorkload("response-aggregation", bundle: Bundle(for: Self.self))
+        XCTAssertEqual(PerformanceResponseProtocol.bytes.count, try workload.value("bytes", as: Int.self))
+        XCTAssertEqual(PerformanceResponseProtocol.chunkBytes, try workload.value("chunkBytes", as: Int.self))
+        XCTAssertEqual(try workload.value("transport", as: String.self), "URLSession")
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [PerformanceResponseProtocol.self]
         configuration.urlCache = nil
@@ -68,7 +73,13 @@ nonisolated final class MaintenancePerformanceTests: XCTestCase {
 
     @MainActor
     func testCommunityPaginationPerformance() throws {
-        let pages = (0..<1_000).map { page in (page * 100 ..< (page + 1) * 100).map {
+        let workload = try PerformanceWorkload("pagination", bundle: Bundle(for: Self.self))
+        let pageCount = try workload.value("pages", as: Int.self)
+        let itemsPerPage = try workload.value("itemsPerPage", as: Int.self)
+        let passes = try workload.value("passes", as: Int.self)
+        XCTAssertEqual(try workload.value("states", as: [String].self), ["PaperListViewModel", "GalleryMessageListState"])
+        XCTAssertTrue(try workload.value("refreshEachPass", as: Bool.self))
+        let pages = (0..<pageCount).map { page in (page * itemsPerPage ..< (page + 1) * itemsPerPage).map {
             PaperSummary(id: $0, title: "文章", intro: "", likeNum: 0, commentNum: 0, updateTime: "")
         } }
         let decoder = JSONDecoder()
@@ -83,14 +94,14 @@ nonisolated final class MaintenancePerformanceTests: XCTestCase {
                 let observation = model.objectWillChange.sink { _ in }
                 defer { observation.cancel() }
                 var messages = GalleryMessageListState()
-                for _ in 0..<2 {
+                for _ in 0..<passes {
                     await model.refresh()
                     for _ in 1..<pages.count { await model.loadMoreIfNeeded(currentPaper: model.state.items.last) }
                     for page in messagePages { messages.appendCursorPage(page) }
                 }
-                XCTAssertEqual(model.state.items.count, 100_000)
-                XCTAssertEqual(model.state.nextPage, 1_000)
-                XCTAssertEqual(messages.items.count, 100_000)
+                XCTAssertEqual(model.state.items.count, pageCount * itemsPerPage)
+                XCTAssertEqual(model.state.nextPage, pageCount)
+                XCTAssertEqual(messages.items.count, pageCount * itemsPerPage)
                 completed.fulfill()
             }
             wait(for: [completed], timeout: 60)
@@ -98,10 +109,13 @@ nonisolated final class MaintenancePerformanceTests: XCTestCase {
     }
 
     func testStillImageDecodingPerformance() throws {
+        let workload = try PerformanceWorkload("image-decoding", bundle: Bundle(for: Self.self))
+        let width = try workload.value("width", as: Int.self), height = try workload.value("height", as: Int.self)
+        XCTAssertEqual(try workload.value("format", as: String.self), "PNG")
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
-        let image = UIGraphicsImageRenderer(size: CGSize(width: 1024, height: 1024), format: format).image { context in
-            context.fill(CGRect(x: 0, y: 0, width: 1024, height: 1024))
+        let image = UIGraphicsImageRenderer(size: CGSize(width: width, height: height), format: format).image { context in
+            context.fill(CGRect(x: 0, y: 0, width: width, height: height))
         }
         let data = try XCTUnwrap(image.pngData())
         measure(metrics: [XCTClockMetric(), XCTMemoryMetric()]) {
@@ -112,12 +126,17 @@ nonisolated final class MaintenancePerformanceTests: XCTestCase {
 
     @MainActor
     func testLocalPreviewFirstPagePerformance() throws {
+        let workload = try PerformanceWorkload("local-preview", bundle: Bundle(for: Self.self))
+        let pageCount = try workload.value("pages", as: Int.self)
+        let width = try workload.value("width", as: Int.self), height = try workload.value("height", as: Int.self)
+        let initialIndex = try workload.value("initialIndex", as: Int.self)
+        XCTAssertEqual(try workload.value("storage", as: String.self), "disk")
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
-        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 512, height: 384), format: format)
-        let images = (0..<64).map { index in renderer.image { context in
-            UIColor(hue: CGFloat(index) / 64, saturation: 1, brightness: 1, alpha: 1).setFill()
-            context.fill(CGRect(x: 0, y: 0, width: 512, height: 384))
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: width, height: height), format: format)
+        let images = (0..<pageCount).map { index in renderer.image { context in
+            UIColor(hue: CGFloat(index) / CGFloat(pageCount), saturation: 1, brightness: 1, alpha: 1).setFill()
+            context.fill(CGRect(x: 0, y: 0, width: width, height: height))
         } }
         let session = URLSession(configuration: .ephemeral)
         defer { session.invalidateAndCancel() }
@@ -129,15 +148,15 @@ nonisolated final class MaintenancePerformanceTests: XCTestCase {
         measure(metrics: [XCTClockMetric(), XCTMemoryMetric()]) {
             let completed = expectation(description: "local preview first page")
             Task { @MainActor in
-                let request = ImagePreviewRequest(localImages: images, initialIndex: 63)
+                let request = ImagePreviewRequest(localImages: images, initialIndex: initialIndex)
                 media.beginPreview(owner: request.id)
                 defer { media.endPreview(owner: request.id); completed.fulfill() }
                 do {
                     let prepared = try await coordinator.prepareInitialItems(for: request, media: media)
-                    XCTAssertEqual(prepared.items.count, 64)
-                    XCTAssertEqual(prepared.initialIndex, 63)
-                    let selected = prepared.items[63].url
-                    XCTAssertTrue(prepared.items.dropLast().allSatisfy { $0.url != selected })
+                    XCTAssertEqual(prepared.items.count, pageCount)
+                    XCTAssertEqual(prepared.initialIndex, initialIndex)
+                    let selected = prepared.items[initialIndex].url
+                    XCTAssertTrue(prepared.items.enumerated().allSatisfy { $0.offset == initialIndex || $0.element.url != selected })
                 } catch { XCTFail("Local preview error: \(error)") }
             }
             wait(for: [completed], timeout: 60)
@@ -146,26 +165,35 @@ nonisolated final class MaintenancePerformanceTests: XCTestCase {
 
     @MainActor
     func testLongArticleRenderingPerformance() throws {
-        let paragraph = String(repeating: "<b>文章正文</b><i>内联格式</i><a href=\"https://example.invalid/paper\">链接</a><br>", count: 6)
-        let blocks = (0..<PaperContentResourceLimits.maximumBlocks).map { ["id": "block-\($0)", "type": "paragraph", "data": ["text": paragraph]] as [String: Any] }
+        let workload = try PerformanceWorkload("long-article", bundle: Bundle(for: Self.self))
+        let paragraphs = try workload.value("paragraphs", as: Int.self)
+        XCTAssertEqual(paragraphs, PaperContentResourceLimits.maximumBlocks)
+        XCTAssertEqual(try workload.value("inlineFormats", as: [String].self), ["bold", "italic", "link", "line-break"])
+        let paragraph = String(repeating: "<b>文章正文</b><i>内联格式</i><a href=\"https://example.invalid/paper\">链接</a><br>",
+            count: try workload.value("repetitionsPerParagraph", as: Int.self))
+        let blocks = (0..<paragraphs).map { ["id": "block-\($0)", "type": "paragraph", "data": ["text": paragraph]] as [String: Any] }
         let content = String(decoding: try JSONSerialization.data(withJSONObject: ["blocks": blocks]), as: UTF8.self)
         measure(metrics: [XCTClockMetric(), XCTMemoryMetric()]) {
             let rendered = PaperContentRenderer.blocks(from: content)
-            XCTAssertEqual(rendered.count, PaperContentResourceLimits.maximumBlocks)
+            XCTAssertEqual(rendered.count, paragraphs)
             XCTAssertTrue(PaperEditorContentBuilder.plainText(from: content).contains("文章正文"))
         }
     }
 
     func testGIFDecodingPerformance() throws {
+        let workload = try PerformanceWorkload("gif-decoding", bundle: Bundle(for: Self.self))
+        let frames = try workload.value("frames", as: Int.self)
+        let width = try workload.value("width", as: Int.self), height = try workload.value("height", as: Int.self)
+        XCTAssertEqual(try workload.value("cache", as: String.self), "cleared-per-sample")
         let data = NSMutableData()
-        let destination = try XCTUnwrap(CGImageDestinationCreateWithData(data, UTType.gif.identifier as CFString, 24, nil))
+        let destination = try XCTUnwrap(CGImageDestinationCreateWithData(data, UTType.gif.identifier as CFString, frames, nil))
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
-        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 256, height: 256), format: format)
-        for index in 0..<24 {
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: width, height: height), format: format)
+        for index in 0..<frames {
             let image = renderer.image { context in
-                UIColor(hue: CGFloat(index) / 24, saturation: 1, brightness: 1, alpha: 1).setFill()
-                context.fill(CGRect(x: 0, y: 0, width: 256, height: 256))
+                UIColor(hue: CGFloat(index) / CGFloat(frames), saturation: 1, brightness: 1, alpha: 1).setFill()
+                context.fill(CGRect(x: 0, y: 0, width: width, height: height))
             }
             CGImageDestinationAddImage(destination, try XCTUnwrap(image.cgImage),
                 [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFDelayTime: 0.05]] as CFDictionary)
@@ -180,7 +208,7 @@ nonisolated final class MaintenancePerformanceTests: XCTestCase {
             Task.detached {
                 await decoder.clear()
                 let image = await decoder.image(at: url, reduceMotion: false)
-                XCTAssertEqual(image?.images?.count, 24)
+                XCTAssertEqual(image?.images?.count, frames)
                 completed.fulfill()
             }
             wait(for: [completed], timeout: 5)
@@ -188,16 +216,19 @@ nonisolated final class MaintenancePerformanceTests: XCTestCase {
     }
 
     func testWidgetTimelinePerformance() throws {
+        let workload = try PerformanceWorkload("widget-timeline", bundle: Bundle(for: Self.self))
+        let courseCount = try workload.value("courses", as: Int.self), weeks = try workload.value("weeks", as: Int.self)
+        let expectedOccurrences = try workload.value("occurrences", as: Int.self)
         let firstDay = "2024-02-26"
         let now = try XCTUnwrap(ScheduleSharedDateCodec.parseDate(firstDay))
         let snapshot = ScheduleExternalSnapshot(isLoggedIn: true, studentID: "performance", firstDayString: firstDay,
-            timeTable: [.init(id: 1, start: "08:00", end: "08:45")], courses: (0..<200).map { index in
+            timeTable: [.init(id: 1, start: "08:00", end: "08:45")], courses: (0..<courseCount).map { index in
                 .init(id: "course-\(index)", name: "课程", classroom: "教学楼", teacher: "教师",
-                    weeks: Array(1...20), weekday: index % 7 + 1, startSection: 1, endSection: 1)
+                    weeks: Array(1...weeks), weekday: index % 7 + 1, startSection: 1, endSection: 1)
             })
         measure(metrics: [XCTClockMetric(), XCTMemoryMetric()]) {
             let occurrences = ScheduleOccurrenceResolver.upcomingOccurrences(from: snapshot, now: now)
-            XCTAssertEqual(occurrences.count, 4_000)
+            XCTAssertEqual(occurrences.count, expectedOccurrences)
             XCTAssertGreaterThan(ScheduleTimelineRefreshPlanner.nextRefreshDate(for: occurrences, now: now,
                 includeDisplayUntilDates: true, includeNextMidnight: true), now)
         }

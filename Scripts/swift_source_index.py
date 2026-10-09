@@ -14,6 +14,7 @@ if not __debug__:
     raise RuntimeError("验证自测需要 Python 默认优化级别；请使用 python3 -E 执行入口。")
 
 ROOT = Path(__file__).resolve().parents[1]
+REGEX_RANGES_BY_SOURCE: dict[str, dict[int, int]] = {}
 
 
 
@@ -110,27 +111,34 @@ def _run_swift_syntax_index(request: dict, *, regex_only: bool = False) -> dict[
 
 
 def swift_syntax_index(files: list[Path]) -> dict[str, dict]:
-    return _run_swift_syntax_index({"paths": [str(path) for path in files]})
+    return swift_syntax_index_sources({str(path): path.read_bytes().decode("utf-8") for path in files})
 
 
 def swift_syntax_index_sources(sources: dict[str, str]) -> dict[str, dict]:
-    return _run_swift_syntax_index({
+    index = _run_swift_syntax_index({
         "paths": [],
         "sources": [
             {"name": name, "source": source}
             for name, source in sources.items()
         ],
     })
+    for name, source in sources.items():
+        REGEX_RANGES_BY_SOURCE[source] = character_regex_ranges(source, index[name]["regexRanges"])
+    return index
+
+
+def character_regex_ranges(source: str, rows: list[dict]) -> dict[int, int]:
+    encoded = source.encode()
+    return {len(encoded[:row["start"]].decode()): len(encoded[:row["end"]].decode()) for row in rows}
 
 
 @cache
 def swift_regex_ranges(source: str) -> dict[int, int]:
     """Read literal boundaries from SwiftParser, including incomplete source fragments."""
     if "/" not in source: return {}
+    if source in REGEX_RANGES_BY_SOURCE: return REGEX_RANGES_BY_SOURCE[source]
     facts = _run_swift_syntax_index({"paths": [], "sources": [{"name": "regex-source", "source": source}]}, regex_only=True)
-    encoded = source.encode()
-    return {len(encoded[:row["start"]].decode()): len(encoded[:row["end"]].decode())
-        for row in facts["regex-source"]["regexRanges"]}
+    return character_regex_ranges(source, facts["regex-source"]["regexRanges"])
 
 
 @cache

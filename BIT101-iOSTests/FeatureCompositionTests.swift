@@ -20,6 +20,7 @@ import Combine
 import ClientCore
 import ScoreDomain
 import ScorePorts
+import ScoreInfrastructure
 @testable import ScoreFeature
 
 @MainActor
@@ -28,10 +29,11 @@ struct FeatureCompositionTests {
     private final class ScoreCache: ScoreCaching {
         var changes: AnyPublisher<AppStorageSession, Never> { Empty().eraseToAnyPublisher() }
         var loads = 0
+        var rows = [ScoreRow(index: 0, headers: ["课程名称", "成绩", "开课学期", "课程性质"],
+            values: ["composition-score", "90", "fixture", "必修"])]
         func loadSnapshot(for session: AppStorageSession?) async -> ScoreCacheSnapshot? {
             loads += 1
-            return ScoreCacheSnapshot(rows: [ScoreRow(index: 0, headers: ["课程名称", "成绩", "开课学期", "课程性质"],
-                values: ["composition-score", "90", "fixture", "必修"])], updatedAt: Date(), detailedUpdatedAt: Date())
+            return ScoreCacheSnapshot(rows: rows, updatedAt: Date(), detailedUpdatedAt: Date())
         }
         func save(rows: [ScoreRow], for session: AppStorageSession?) async -> Date? { nil }
         func saveDetailed(rows: [ScoreRow], for session: AppStorageSession?) async -> Date? { nil }
@@ -49,6 +51,34 @@ struct FeatureCompositionTests {
         func submitScoreSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { schoolRequests += 1; return challenge }
         func fetchTrustedTranscriptPages() async throws -> [Data] { schoolRequests += 1; return [] }
         func submitTranscriptSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> [Data] { schoolRequests += 1; return [] }
+    }
+
+    @Test func scoreFiltersInitializeAfterScheduleOnlyCacheAndPreserveExplicitEmptySelection() async throws {
+        let suite = "BIT101.ScoreFilterInitialization"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let session = AppStorageSession(accountIdentifier: "composition-score")
+        let preferences = ScoreFilterPreferenceStore(defaults: defaults, session: { session })
+        let cache = ScoreCache()
+        let rows = cache.rows
+        cache.rows = []
+        let course = ScoreCourseSummary(id: "pending", term: "fixture", name: "pending", number: "pending", type: "必修",
+            teacher: "", classroom: "", campus: "", description: "", creditText: "3", scheduleText: "", weeksText: "", hourText: "")
+        let model = ScoreViewModel(service: Scores(), cacheStore: cache, preferenceStore: preferences,
+            currentScoreCacheSession: { session }, scheduleCoursesChanges: Empty().eraseToAnyPublisher(),
+            loadScheduleCourses: { _ in ["fixture": [course]] })
+        await model.restoreCachedDataIfNeeded()
+        model.setSortIndex(.score)
+        #expect(model.selectedTerms == ["fixture"] && model.availableCourseTypes.isEmpty)
+        #expect(preferences.load() == nil)
+        cache.rows = rows
+        await model.applySyncedScoreCacheIfAvailable()
+        #expect(model.filteredRows == rows && model.selectedCourseTypes == ["必修"])
+        #expect(preferences.load()?.sortIndex == ScoreSortIndex.score.rawValue)
+        model.toggleAllCourseTypes()
+        await model.applySyncedScoreCacheIfAvailable()
+        #expect(model.filteredRows.isEmpty && preferences.load()?.selectedCourseTypes == [])
     }
 
     @Test(.timeLimit(.minutes(1)))

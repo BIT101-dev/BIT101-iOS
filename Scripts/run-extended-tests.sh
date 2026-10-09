@@ -9,6 +9,9 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PROJECT="$ROOT_DIR/BIT101-iOS.xcodeproj"
 source "$ROOT_DIR/Scripts/script-support.sh"
 DERIVED_ROOT="$ROOT_DIR/.build/extended-automation"
+if [[ "${1:-}" == simulator ]]; then
+  exec zsh "$ROOT_DIR/Scripts/simulator-tests.sh" "${@:2}"
+fi
 if [[ "${1:-}" == cache ]]; then
   [[ $# -eq 1 ]] || exit 64
   bit101_build_cache --maintenance
@@ -56,7 +59,7 @@ if sys.argv[2] == "performance":
             print(json.dumps({"scenario": name, "test": record["testIdentifier"], "metrics": record["xcresultMetrics"]}))
     raise SystemExit(0)
 
-if not (bundle / "database.sqlite3").is_file() or (bundle / "Staging").exists():
+if not (bundle / "Info.plist").is_file() or (bundle / "Staging").exists():
     raise SystemExit("测试结果可在运行结束后通过 report 读取。")
 
 if sys.argv[2] == "performance-run":
@@ -161,6 +164,7 @@ fi
 if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
   echo "Scripts/run-extended-tests.sh                    自动选机、运行完整行为测试"
   echo "Scripts/run-extended-tests.sh modules            本机模块测试"
+  echo "Scripts/run-extended-tests.sh simulator info|prepare|app|ui [用例]  授权后的模拟器复验"
   echo "Scripts/run-extended-tests.sh release-runtime    正式编译条件下的真机组装合同"
   echo "Scripts/run-extended-tests.sh catalyst-release-runtime  正式编译条件下的 Catalyst 组装合同"
   echo "Scripts/run-extended-tests.sh ui [用例关键词]...  真机 UI 测试，多个筛选合并执行"

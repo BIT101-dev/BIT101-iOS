@@ -1,0 +1,85 @@
+{
+  "pagination": {
+    "testIdentifier": "MaintenancePerformanceTests/testCommunityPaginationPerformance",
+    "input": {
+      "pages": 1000,
+      "itemsPerPage": 100,
+      "passes": 2,
+      "states": [
+        "PaperListViewModel",
+        "GalleryMessageListState"
+      ],
+      "refreshEachPass": true
+    }
+  },
+  "image-decoding": {
+    "testIdentifier": "MaintenancePerformanceTests/testStillImageDecodingPerformance",
+    "input": {
+      "width": 1024,
+      "height": 1024,
+      "format": "PNG"
+    }
+  },
+  "startup": {
+    "testIdentifier": "MaintenancePerformanceUITests/testStartupPerformance",
+    "input": {
+      "operation": "terminate-launch-schedule-ready",
+      "storage": "reset"
+    }
+  },
+  "schedule-layout": {
+    "testIdentifier": "MaintenancePerformanceUITests/testScheduleWeekLayoutPerformance",
+    "input": {
+      "weekSwitchPairs": 10,
+      "animations": true
+    }
+  },
+  "long-article": {
+    "testIdentifier": "MaintenancePerformanceTests/testLongArticleRenderingPerformance",
+    "input": {
+      "paragraphs": 256,
+      "repetitionsPerParagraph": 6,
+      "inlineFormats": [
+        "bold",
+        "italic",
+        "link",
+        "line-break"
+      ]
+    }
+  },
+  "gif-decoding": {
+    "testIdentifier": "MaintenancePerformanceTests/testGIFDecodingPerformance",
+    "input": {
+      "width": 256,
+      "height": 256,
+      "frames": 24,
+      "cache": "cleared-per-sample"
+    }
+  },
+  "widget-timeline": {
+    "testIdentifier": "MaintenancePerformanceTests/testWidgetTimelinePerformance",
+    "input": {
+      "courses": 200,
+      "weeks": 20,
+      "occurrences": 4000
+    }
+  },
+  "response-aggregation": {
+    "testIdentifier": "MaintenancePerformanceTests/testBoundedResponseAggregationPerformance",
+    "input": {
+      "bytes": 33554432,
+      "chunkBytes": 65536,
+      "transport": "URLSession"
+    }
+  },
+  "local-preview": {
+    "testIdentifier": "MaintenancePerformanceTests/testLocalPreviewFirstPagePerformance",
+    "input": {
+      "pages": 64,
+      "width": 512,
+      "height": 384,
+      "initialIndex": 63,
+      "storage": "disk"
+    }
+  }
+}

@@ -12,6 +12,7 @@ import ScoreFeature
 import CommunityCore
 import Foundation
 import ScheduleDomain
+import ScheduleContracts
 import ScheduleInfrastructure
 import MediaKit
 
@@ -615,12 +616,28 @@ final class ReleaseNetworkSmokeRunner {
 
     nonisolated static func validateCourseSyncPayload(_ payload: CourseSyncPayload) throws {
         guard payload.courses.allSatisfy(\.hasValidPlacement) else { throw URLError(.cannotParseResponse) }
-        let expectedOffset = SmallTermWeekNormalizer.normalize(
-            term: payload.term,
-            firstDayString: payload.sourceFirstDayString,
-            courses: payload.courses,
-            rawWeeksByCourse: payload.rawWeeksByCourse
-        ).offset
+        guard payload.rawWeeksByCourse.count == payload.courses.count else { throw URLError(.cannotParseResponse) }
+        var groups: [String: (raw: Set<Int>, displayed: Set<Int>)] = [:]
+        for (course, raw) in zip(payload.courses, payload.rawWeeksByCourse) {
+            let described = SmallTermWeekNormalizer.weeksDescribed(in: course.description)
+            let displayed = Set(course.weeks)
+            guard described.isEmpty ? displayed == Set(raw) : displayed.isSubset(of: described)
+            else { throw URLError(.cannotParseResponse) }
+            let key = "\(course.number)|\(course.name)|\(course.description)"
+            var group = groups[key, default: ([], [])]
+            group.raw.formUnion(raw)
+            group.displayed.formUnion(displayed)
+            groups[key] = group
+        }
+        let differences = groups.values.compactMap { group -> Int? in
+            let raw = group.raw.sorted(), displayed = group.displayed.sorted()
+            guard displayed.count >= 2, raw.count == displayed.count, displayed.allSatisfy({ $0 > 0 }),
+                  let firstRaw = raw.first, let firstDisplayed = displayed.first else { return nil }
+            let delta = firstRaw - firstDisplayed
+            return zip(raw, displayed).allSatisfy({ pair in pair.0 - pair.1 == delta }) ? delta : nil
+        }
+        let expectedOffset = payload.term.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("-1")
+            && differences.count >= 2 && differences.allSatisfy({ $0 == 3 }) ? 3 : 0
         guard payload.normalizationOffset == expectedOffset else {
             throw NSError(
                 domain: "BIT101.NetworkSmoke",
@@ -629,9 +646,9 @@ final class ReleaseNetworkSmokeRunner {
             )
         }
 
-        let calendar = Calendar(identifier: .gregorian)
-        guard let sourceDate = scheduleDate(payload.sourceFirstDayString),
-              let normalizedDate = scheduleDate(payload.firstDayString)
+        let calendar = ScheduleSharedDateCodec.calendar
+        guard let sourceDate = ScheduleSharedDateCodec.parseDate(payload.sourceFirstDayString),
+              let normalizedDate = ScheduleSharedDateCodec.parseDate(payload.firstDayString)
         else { throw URLError(.cannotParseResponse) }
         let dayDelta = calendar.dateComponents([.day], from: sourceDate, to: normalizedDate).day ?? 0
         guard dayDelta == expectedOffset * 7 else {
@@ -641,23 +658,6 @@ final class ReleaseNetworkSmokeRunner {
                 userInfo: [NSLocalizedDescriptionKey: "课表首周日期与周次偏移结果不一致。"]
             )
         }
-    }
-
-    private nonisolated static func scheduleDate(_ value: String) -> Date? {
-        let parts = value.split(separator: "-").compactMap { Int($0) }
-        guard value.count == 10, parts.count == 3 else { return nil }
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 8 * 3600) ?? .current
-        guard let date = calendar.date(from: DateComponents(
-            calendar: calendar,
-            timeZone: calendar.timeZone,
-            year: parts[0],
-            month: parts[1],
-            day: parts[2]
-        )) else { return nil }
-        let resolved = calendar.dateComponents([.year, .month, .day], from: date)
-        guard resolved.year == parts[0], resolved.month == parts[1], resolved.day == parts[2] else { return nil }
-        return date
     }
 
     static func freshEclassService() throws -> ScheduleService {

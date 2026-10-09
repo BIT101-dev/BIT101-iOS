@@ -6,11 +6,12 @@ from validation_policy import APP_TEST_GROUPS, TEST_GROUPS, NETWORK_GROUPS, RELE
 PRODUCT_ROOTS = {"Modules", "BIT101-iOS", "BIT101-iOS.xcodeproj", "BIT101ScheduleWidgets", "BIT101Watch", "BIT101WatchWidgets"}
 PRODUCT_FILES = {"Package.swift", "AppInfo.plist"}
 SHARED_TEST_FILES = {"ModuleTests/Support/FileServiceContract.swift"}
+PERFORMANCE_TEST_FILES = {"BIT101-iOSTests/PerformanceWorkload.swift", "BIT101-iOSTests/PerformanceWorkloads.json"}
 VALIDATION_SCRIPTS = {"validation_evidence.py", "validation_inputs.py", "validation_policy.py", "validation_coverage.py", "validation_merge.py", "validation_environment.py", "validation_provenance.py", "validation_test_areas.py", "validation_manual.py", "validation_restore.py", "validation_media.py", "ManualEvidenceProbe.swift", "validate_distribution.py", "validate_versions.py", "swift_source_index.py", "SwiftSyntaxIndexer.swift", "code_quality_rules.py", "audit_callback_rules.py", "ci_wiring_rules.py", "check-module-boundaries.py"}
 VALIDATION_SCRIPTS.add("swift_type_index.py")
 VALIDATION_SCRIPTS.update({"validation_publication.py", "validation_compilation.py", "validation_performance.py", "network_capability_rules.py", "network_request_contracts.py"})
 BUILD_SCRIPTS = {"script-support.sh", "build-install-device.sh", "ci_evidence.py"}
-TEST_SCRIPTS = BUILD_SCRIPTS | VALIDATION_SCRIPTS | {"run-extended-tests.sh"}
+TEST_SCRIPTS = BUILD_SCRIPTS | VALIDATION_SCRIPTS | {"run-extended-tests.sh", "simulator-tests.sh"}
 
 
 def includes_input(name: str, group: str) -> bool:
@@ -46,6 +47,7 @@ def includes_input(name: str, group: str) -> bool:
     else:
         raise ValueError(f"需要登记验证组的输入范围：{group}")
     return product or tests or name in SHARED_TEST_FILES and host in APP_TEST_GROUPS | NETWORK_GROUPS | {"icloud"} \
+        or name in PERFORMANCE_TEST_FILES and host in APP_TEST_GROUPS | NETWORK_GROUPS | {"ui", "icloud"} \
         or root == "Scripts" and path.name in scripts
 
 
@@ -73,6 +75,8 @@ def self_test() -> None:
     assert not includes_input("BIT101-iOS/ContentView.swift", "modules")
     assert not includes_input("ModuleTests/Sync/ScheduleSyncTests.swift", "manual-device")
     assert includes_input("docs/UI_INTERACTION_COVERAGE.md", "ui")
+    for name in PERFORMANCE_TEST_FILES:
+        assert includes_input(name, 'all') and includes_input(name, 'ui') and includes_input(name, 'build-ui')
     assert includes_input("Cloudflare/OpenWorker/worker.js", "network")
     for group in ("icloud", "build-icloud-smoke", "network", "build-network-smoke"):
         assert includes_input("BIT101-iOSTests/InfrastructureTests.swift", group)

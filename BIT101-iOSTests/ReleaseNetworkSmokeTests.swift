@@ -57,6 +57,32 @@ import MediaKit
 @Suite("Network smoke lifecycle")
 @MainActor
 struct ReleaseNetworkSmokeLifecycleTests {
+    private func correctedSchedulePayload(courses: [CourseRecord]? = nil, date: String = "2026-11-09") throws -> CourseSyncPayload {
+        let rows: [[String: Any]] = (1...2).map { index in
+            ["KCH": "course-\(index)", "KCM": "课程\(index)", "SKXQ": index, "KSJC": 1, "JSJC": 2,
+             "SKZC": "00011", "ZCMC": "1-2周", "YPSJDD": "1-2周"]
+        }
+        let data = try JSONSerialization.data(withJSONObject: ["datas": ["cxxszhxqkb": ["rows": rows]]])
+        let response = try JSONDecoder().decode(CourseResponse.self, from: data)
+        return CourseSyncPayload(term: "2026-2027-1", firstDayString: date, sourceFirstDayString: "2026-10-19",
+            normalizationOffset: 3, rawWeeksByCourse: response.parsedCourses.map(\.rawWeeks),
+            courses: courses ?? response.courseRecords, exams: [])
+    }
+
+    @Test func smokeUsesSchoolDatesAcrossDaylightSavingTransitions() throws {
+        let original = NSTimeZone.default
+        NSTimeZone.default = try #require(TimeZone(identifier: "America/New_York"))
+        defer { NSTimeZone.default = original }
+        try ReleaseNetworkSmokeRunner.validateCourseSyncPayload(correctedSchedulePayload())
+    }
+
+    @Test func smokeRejectsIncorrectPublishedWeeksAndFirstDay() throws {
+        let payload = try correctedSchedulePayload()
+        let wrongWeeks = payload.courses.map { $0.replacingWeeks([4, 5]) }
+        #expect(throws: URLError.self) { try ReleaseNetworkSmokeRunner.validateCourseSyncPayload(correctedSchedulePayload(courses: wrongWeeks)) }
+        #expect(throws: NSError.self) { try ReleaseNetworkSmokeRunner.validateCourseSyncPayload(correctedSchedulePayload(date: "2026-11-08")) }
+    }
+
     @Test(arguments: [#"{"KCM":"课程","SKXQ":8,"KSJC":1,"JSJC":2,"ZCMC":"1周"}"#,
         #"{"KCM":"课程","SKXQ":1,"KSJC":0,"JSJC":2,"ZCMC":"1周"}"#,
         #"{"KCM":"课程","SKXQ":1,"KSJC":1,"JSJC":2}"#])
@@ -112,6 +138,9 @@ struct ReleaseNetworkSmokeLifecycleTests {
         func data(for request: URLRequest) async throws -> (Data, URLResponse) {
             let url = try #require(request.url)
             let method = try #require(request.httpMethod)
+            if url.path == "/user/check" {
+                return (Data(), try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)))
+            }
             methods.append(method)
             let response: Data
             if method == "GET" {
@@ -186,6 +215,9 @@ struct ReleaseNetworkSmokeLifecycleTests {
         var status = 404
         func data(for request: URLRequest) async throws -> (Data, URLResponse) {
             let url = try #require(request.url)
+            if url.path == "/user/check" {
+                return (Data(), try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)))
+            }
             let message = knownContent ? (url.path.hasPrefix("/papers/") ? "文章不存在Orz" : "帖子不存在Orz") : "Not Found"
             return (try JSONSerialization.data(withJSONObject: ["message": message]),
                 try #require(HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil)))

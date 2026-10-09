@@ -28,17 +28,8 @@ MANUAL_SCENARIOS = {
 MANUAL_DEVICE_CHECKS.update(MANUAL_SCENARIOS)
 BASELINE_CHECKS = {'iOS': {'cold-start-session', 'offline-persistence', 'media-and-navigation'},
     'watchOS': {'snapshot-receive', 'timeline-render', 'clear-and-retry'}}
-PERFORMANCE_WORKLOADS = {
-    'pagination': ('MaintenancePerformanceTests/testCommunityPaginationPerformance', {'pages': 1000, 'itemsPerPage': 100, 'passes': 2, 'states': ['PaperListViewModel', 'GalleryMessageListState'], 'refreshEachPass': True}),
-    'image-decoding': ('MaintenancePerformanceTests/testStillImageDecodingPerformance', {'width': 1024, 'height': 1024, 'format': 'PNG'}),
-    'startup': ('MaintenancePerformanceUITests/testStartupPerformance', {'operation': 'terminate-launch-schedule-ready', 'storage': 'reset'}),
-    'schedule-layout': ('MaintenancePerformanceUITests/testScheduleWeekLayoutPerformance', {'weekSwitchPairs': 10, 'animations': True}),
-    'long-article': ('MaintenancePerformanceTests/testLongArticleRenderingPerformance', {'paragraphs': 256, 'repetitionsPerParagraph': 6, 'inlineFormats': ['bold', 'italic', 'link', 'line-break']}),
-    'gif-decoding': ('MaintenancePerformanceTests/testGIFDecodingPerformance', {'width': 256, 'height': 256, 'frames': 24, 'cache': 'cleared-per-sample'}),
-    'widget-timeline': ('MaintenancePerformanceTests/testWidgetTimelinePerformance', {'courses': 200, 'weeks': 20, 'occurrences': 4000}),
-    'response-aggregation': ('MaintenancePerformanceTests/testBoundedResponseAggregationPerformance', {'bytes': 32 * 1024 * 1024, 'chunkBytes': 64 * 1024, 'transport': 'URLSession'}),
-    'local-preview': ('MaintenancePerformanceTests/testLocalPreviewFirstPagePerformance', {'pages': 64, 'width': 512, 'height': 384, 'initialIndex': 63, 'storage': 'disk'}),
-}
+PERFORMANCE_WORKLOADS = {name: (row['testIdentifier'], row['input']) for name, row in
+    json.loads((Path(__file__).resolve().parents[1] / 'BIT101-iOSTests/PerformanceWorkloads.json').read_text()).items()}
 MANUAL_SCENARIOS['performance-baseline'] = set(PERFORMANCE_WORKLOADS)
 MANUAL_DEVICE_CHECKS.add('performance-baseline')
 

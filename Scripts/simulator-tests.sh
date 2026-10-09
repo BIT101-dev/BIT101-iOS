@@ -1,0 +1,124 @@
+#!/bin/zsh
+if [[ -z "${ZSH_EXECUTION_STRING:-}" ]]; then
+  exec zsh -c "$(<"$0")" "$0" "$@"
+fi
+set -euo pipefail
+[[ "${BIT101_SIMULATOR_AUTHORIZED:-0}" == 1 ]] || { echo "模拟器流程需要用户显式授权及 BIT101_SIMULATOR_AUTHORIZED=1。" >&2; exit 64; }
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+source "$ROOT_DIR/Scripts/script-support.sh"
+operation="${1:-info}"
+shift $(( $# > 0 ? 1 : 0 ))
+case "$operation" in info|prepare) [[ $# -eq 0 ]] || exit 64;; app|ui) [[ $# -gt 0 ]] || exit 64;; *) exit 64;; esac
+bit101_acquire_workflow_lock "$0" "$operation" "$@"
+DERIVED_ROOT="$ROOT_DIR/.build/extended-automation"
+mkdir -p "$DERIVED_ROOT"
+if SIMULATOR_DEVICE="$(python3 - "$DERIVED_ROOT/simulator-device.json" "$operation" 2>> "$DERIVED_ROOT/simulator.log" <<'PYDEVICE'
+import json
+from pathlib import Path
+import subprocess
+import sys
+
+path, operation = Path(sys.argv[1]), sys.argv[2]
+def inventory(): return json.loads(subprocess.check_output(['xcrun', 'simctl', 'list', '--json'], text=True))
+def runtimes(data): return [row for row in data['runtimes'] if row.get('isAvailable') and '.iOS-' in row['identifier']]
+data = inventory()
+available = runtimes(data)
+if operation == 'info':
+    print('可用 iOS 模拟器运行时：' + ', '.join(row['version'] for row in available))
+    raise SystemExit(0)
+if not available:
+    subprocess.run(['xcodebuild', '-downloadPlatform', 'iOS'], check=True, stdout=sys.stderr, stderr=sys.stderr)
+    data = inventory()
+    available = runtimes(data)
+if not available: raise SystemExit('iOS 模拟器运行时安装完成后需要出现在系统库存。')
+if path.is_file():
+    owned = json.loads(path.read_text())
+    device = next((row for rows in data['devices'].values() for row in rows if row['udid'] == owned['identifier']), None)
+    if device is None or not device.get('isAvailable'): raise SystemExit('项目模拟器需要恢复可用状态。')
+    identifier = owned['identifier']
+else:
+    runtime = max(available, key=lambda row: tuple(map(int, row['version'].split('.'))))
+    phone = next(row for row in runtime['supportedDeviceTypes'] if row['name'].startswith('iPhone'))
+    identifier = subprocess.check_output(['xcrun', 'simctl', 'create', 'BIT101', phone['identifier'], runtime['identifier']], text=True).strip()
+    path.write_text(json.dumps({'identifier': identifier, 'runtime': runtime['identifier']}) + '\n')
+    device = {'state': 'Shutdown'}
+if device['state'] != 'Booted': subprocess.run(['xcrun', 'simctl', 'boot', identifier], check=True, stdout=sys.stderr, stderr=sys.stderr)
+subprocess.run(['xcrun', 'simctl', 'bootstatus', identifier, '-b'], check=True, stdout=sys.stderr, stderr=sys.stderr)
+print(identifier)
+PYDEVICE
+)"; then
+  :
+else
+  echo "模拟器准备失败：$DERIVED_ROOT/simulator.log" >&2
+  exit 1
+fi
+if [[ "$operation" == info ]]; then print -r -- "$SIMULATOR_DEVICE"; exit 0; fi
+if [[ "$operation" == prepare ]]; then echo "项目模拟器已就绪。"; exit 0; fi
+mode=all
+scheme=BIT101-iOS
+bundle=BIT101-iOSTests
+selections=("$@")
+if [[ "$operation" == ui ]]; then
+  mode=ui
+  scheme=BIT101-iOS-UIAutomation
+  bundle=BIT101-iOSUITests
+  selections=("${(@f)$(bit101_ui_test_selections "$@")}")
+fi
+EXPECTED_TESTS="$(python3 - "$ROOT_DIR/Scripts" "$mode" "${selections[@]}" <<'PYSELECT'
+import json, sys
+sys.path.insert(0, sys.argv[1])
+from validation_evidence import selected_test_inventory
+print(json.dumps(sorted(selected_test_inventory(sys.argv[2], sys.argv[3:]))))
+PYSELECT
+)"
+conditions="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" conditions "$mode")"
+only_testing=()
+for selection in "${selections[@]}"; do only_testing+=("-only-testing:$bundle/$selection"); done
+destination="platform=iOS Simulator,id=$SIMULATOR_DEVICE"
+result="$DERIVED_ROOT/test-results.xcresult"
+bit101_run_logged "$DERIVED_ROOT/simulator.log" "模拟器测试宿主编译" xcodebuild build-for-testing -quiet \
+  -project "$ROOT_DIR/BIT101-iOS.xcodeproj" -scheme "$scheme" -configuration Release -derivedDataPath "$DERIVED_ROOT" \
+  -destination "$destination" "BIT101_WORKFLOW_CONDITIONS=$conditions" ENABLE_TESTABILITY=YES \
+  SWIFT_TREAT_WARNINGS_AS_ERRORS=YES GCC_TREAT_WARNINGS_AS_ERRORS=YES CODE_SIGN_IDENTITY=- "${only_testing[@]}"
+plan="$(python3 - "$DERIVED_ROOT/Build/Products" "$scheme" <<'PYPLAN'
+from pathlib import Path
+import sys
+plans = list(Path(sys.argv[1]).glob(sys.argv[2] + '_*iphonesimulator*.xctestrun'))
+if not plans: raise SystemExit('模拟器编译需要生成对应的运行配置。')
+print(max(plans, key=lambda path: path.stat().st_mtime))
+PYPLAN
+)"
+rm -rf "$result"
+rm -f "$DERIVED_ROOT/test-metrics.txt" "$DERIVED_ROOT/test-failures.txt"
+test_status=0
+bit101_run_logged "$DERIVED_ROOT/simulator.log" "模拟器复验" xcodebuild test-without-building -quiet \
+  -xctestrun "$plan" -destination "$destination" -resultBundlePath "$result" \
+  -parallel-testing-enabled NO -test-timeouts-enabled YES "${only_testing[@]}" || test_status=$?
+python3 - "$result" "$DERIVED_ROOT/test-metrics.txt" "$ROOT_DIR/Scripts" "$EXPECTED_TESTS" "$test_status" <<'PYRESULT'
+import json
+from pathlib import Path
+import subprocess
+import sys
+sys.path.insert(0, sys.argv[3])
+from validation_evidence import normalized_test_id
+def read(kind): return json.loads(subprocess.check_output(['xcrun', 'xcresulttool', 'get', 'test-results', kind, '--path', sys.argv[1]], text=True))
+summary, tree = read('summary'), read('tests')
+executed = set()
+def visit(value):
+    if isinstance(value, dict):
+        if value.get('nodeType') == 'Test Case': executed.add(normalized_test_id(value['nodeIdentifier']))
+        for child in value.values(): visit(child)
+    elif isinstance(value, list):
+        for child in value: visit(child)
+visit(tree)
+expected = set(json.loads(sys.argv[4]))
+text = (f"模拟器本机定向复验\n结果：{summary.get('result', '?')}；总计 {summary.get('totalTestCount', 0)}；"
+    f"通过 {summary.get('passedTests', 0)}；失败 {summary.get('failedTests', 0)}；跳过 {summary.get('skippedTests', 0)}\n"
+    "已执行用例：" + json.dumps(sorted(executed)) + '\n')
+for failure in summary.get('testFailures', []):
+    text += f"{failure.get('testIdentifierString', '?')}: {failure.get('failureText', '?')}\n"
+Path(sys.argv[2]).write_text(text)
+if int(sys.argv[5]) or summary.get('result') != 'Passed' or summary.get('failedTests') or summary.get('skippedTests') or not expected or executed != expected:
+    raise SystemExit('模拟器复验需要全部筛选用例通过，并匹配实际执行库存。')
+print(f"模拟器复验通过：{summary['passedTests']} 项；结果用于本机定向复验。")
+PYRESULT
