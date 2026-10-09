@@ -251,8 +251,12 @@ def discarded_file_write_findings(path: Path, source: str, facts: dict) -> list[
     errors = []
     for clause in facts.get("discardedOptionalTries", []):
         end = clause["start"] + len(clause["value"].encode())
-        calls = [call for call in facts.get("calls", []) if clause["start"] <= call["start"] < end]
-        if calls and calls[0]["value"].rsplit(".", 1)[-1] in {"removeItem", "writeData", "createDirectory", "moveItem", "copyItem"}:
+        calls = [call for call in facts.get("invocations", []) if clause["start"] <= call["start"] < end]
+        def mutates_file(call):
+            name = call['calledExpression'].rsplit('.', 1)[-1]
+            return name in {'removeItem', 'writeData', 'createDirectory', 'moveItem', 'copyItem', 'replaceItemAt'} \
+                or name == 'write' and bool({'to', 'contentsOf'}.intersection(call.get('argumentLabels', [])))
+        if any(mutates_file(call) for call in calls):
             line = source.encode()[:clause["start"]].count(b"\n") + 1
             errors.append(f"{path.relative_to(ROOT)}:{line}: 文件写入与删除需要处理错误或记录诊断")
     return errors
@@ -385,14 +389,22 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
 
     school_protocols = {"ScheduleCourseServicing", "ScheduleDDLServicing", "ScheduleClassroomServicing",
                         "ScoreListServicing", "TrustedTranscriptServicing"}
-    school_operations = {function["name"] for facts in syntax_index.values()
-        for function in facts.get("functionRanges", []) if school_protocols.intersection(function["scope"])}
+    from swift_type_index import SwiftTypeIndex
+    types = SwiftTypeIndex(syntax_index)
+    protocols = {types.resolve(path, '.'.join(declaration['scope'] + [declaration['name']]), aliases=False)
+        for path, facts in syntax_index.items() for declaration in facts.get('declarations', [])
+        if declaration['kind'] == 'protocol'}
+    school_owners = {owner for owner in protocols if owner and owner[1][-1] in school_protocols}
+    while inherited := {owner for owner in protocols - school_owners if owner and any(
+            types.resolve(types.paths[owner], base, owner[1][:-1]) in school_owners for base in types.records[owner])}:
+        school_owners.update(inherited)
+    school_scopes = {(namespace,) + scope for namespace, scope in school_owners}
+    school_operations = {function["name"] for path, facts in syntax_index.items()
+        for function in facts.get("functionRanges", []) if types.function_scope(path, function['scope']) in school_scopes}
     school_operations.update({"loadAvailableTerms", "refreshSchoolDDL"})
     functions = {}
     callable_names = {function["name"] for facts in syntax_index.values()
         for category in ("callableRanges", "functionRanges") for function in facts.get(category, [])}
-    from swift_type_index import SwiftTypeIndex
-    types = SwiftTypeIndex(syntax_index)
     from swift_type_index import SwiftBindingTypes
     bindings = SwiftBindingTypes(syntax_index, types)
     type_ids, variable_types, aliases = bindings.type_ids, bindings.variable_types, bindings.aliases

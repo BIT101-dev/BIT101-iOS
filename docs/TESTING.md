@@ -18,6 +18,8 @@
 
 源码摘要、Swift 索引与文件长度审计共用 Git 输入清单。App、模块、扩展和测试源码目录中的 Swift 文件需要纳入该清单；构建目录忽略规则覆盖到源码时，输入门禁会列出对应路径。
 
+图片网络探针复用 App 媒体组装，沿话廊与头像的专用客户端、下载协调器和显示消费者核对下载、解码及磁盘缓存。探针共用固定的隔离缓存根目录，完成后清理缓存产物。
+
 iCloud 验收在同一主机共用用户级流程锁，每次运行沿所属标识选择独立云端验收账号，恢复使用固定报告中的所属标识。构建安装、行为测试和独立 Smoke 共用流程锁，锁覆盖宿主安装、执行、固定报告写入及常规 App 恢复；聚合验证的子流程复用所持有的锁。iCloud 后台任务加载共享阶段函数，阶段计数沿宿主的结构化测试结果读取，通过阶段完成归集后清理生成结果；业务失败阶段将原始结果包及附件保留到所属宿主 `Logs/Test/test-results.xcresult`，阶段报告记录诊断位置。iCloud 清理分别执行真机云端恢复和 Mac 本地文件、偏好及密钥恢复，两端结果及阶段计数单独保存，独立恢复形成 `icloud-cleanup` 证据。失败退出完成双端恢复；后续验收先核对固定报告中的双端清理结果，恢复完成后选取新验收账号。Mac 恢复沿固定日志与结构化失败信息保存诊断，并保留业务阶段的原始结果包。业务阶段用于双向同步验收。
 
 iCloud 成绩验收使用无害的合成完整载荷、独立验收账号和磁盘仓库，覆盖成绩 KVS 与课表 CloudKit，成绩密文沿真实 iCloud 钥匙串传递密钥，同步接收与发布后重新打开日程和成绩仓库核对完整载荷，完成后清理验收云端键、密钥、独立磁盘目录及偏好。重置验收偏好前完成遗留密钥删除，删除失败时保留密钥标识。跨设备阶段共享五分钟传播期限，外部变更通知与钥匙串等待驱动重新核对，KVS 同步请求沿启动和写入触发。采样宿主独立启动，网络与 iCloud 专项各自组装所需服务。学校网络探针使用独立内存 Cookie 容器和已保存凭据重新启动认证，各认证目的保留实际短信挑战与业务继续证据。原始课表响应采样由当前 Smoke 服务实例持有。双端清理验收从远端确认验收 KVS 键、协调键与 CloudKit 记录均已删除。
@@ -241,6 +243,8 @@ DDL 范围覆盖社区登录、课程中心原生认证、课程中心作业读�
 
 授权后的完整学校认证与短信继续验收运行 `Scripts/release-network-smoke.sh all sms`，同一次全量结果分别形成 `network` 和按学校探针投影的 `school-sms` 证据；学校专项入口为 `Scripts/release-network-smoke.sh school sms`，在手机共用验证码面板完成输入，由生产服务继续认证和学校请求；四类认证、后续请求和范围探针全部成功时记录独立 `school-sms` 证据，并按成绩、可信成绩单、WebVPN / 课程中心及学校 SSO 的认证 purpose 记录成功的业务探针；服务端提出的每次短信挑战需完成提交与业务继续。已认证会话记录 `not_required`，并保留四类认证探针；存在短信挑战时记录 `verified`，请求 purpose 集合与成功短信证据同时参与完整性校验。
 
+学校短信投影按学校探针筛选请求证据与诊断，保留全局执行和常规 App 恢复故障。外围探针结果归完整网络验收记录。
+
 发布绑定核对学校认证及服务端实际提出的短信挑战；`not_required` 表示四类业务认证已完成，`verified` 表示本次请求的短信挑战均已提交并继续业务。系统权限、Widget / Watch 界面及真实照片选择由专项真机流程承接。线上详情探针核对所选列表实体的服务端标识；空列表保留相关探针的验收缺口。
 
 iCloud 双向验证要求 iPhone 与 Catalyst 使用同一 Apple ID，手机处于解锁状态，两端能够访问 iCloud KVS、生产 CloudKit 与 iCloud 钥匙串：
@@ -298,7 +302,7 @@ UI 摘要合并本批全部 App 进程的完整控件标识与访问动作，冷
 
 检查项为 `minimum-platforms`、`distribution-signing`、`system-autofill`、`photos`、`calendar-permissions`、`notifications`、`external-handoff`、`web-interactions`、`widget`、`watch`、`feedback-delivery`，失败观察以 `--outcome failed` 登记，附件可保留实际影像或结构化诊断，发布门禁继续要求每项成功。记录结构保存操作、结果、明确的 passed/failed 状态、实际观察时间和登记时间、附件路径、完整 Base64 内容、字节数和 SHA-256；发布检查重新解码并核对内容摘要，固定源路径后续覆盖时保留已采集证据，CI 沿同一 JSON 获取完整附件。人工验收的全部检查项共同参与采集区间时效核对。
 
-`feedback-delivery` 的结构化收件证明保存正式 App 报告、存储键、接收时间、投递状态及邮件正文，并采集 `To`、`Message-ID` 和 `X-BIT101-Report-ID` 邮件头。收件地址与 Worker 配置一致，邮件头、正文和存储记录共同绑定报告编号；提供方消息标识按存储返回值保留，邮件 `Message-ID` 按实际收件头核对。
+`feedback-delivery` 的结构化收件证明保存正式 App 报告、存储键、接收时间、投递状态及邮件正文，并采集 `To`、`Date`、`Message-ID` 和 `X-BIT101-Report-ID` 邮件头。收件地址与 Worker 配置一致，邮件头、正文和存储记录共同绑定报告编号；提供方消息标识按存储返回值保留，邮件 `Message-ID` 按实际收件头核对。报告接收时间沿一天采样有效期核对，邮件日期位于报告接收与验收之间，采用邮件头的秒精度比较。
 
 影像附件通过 ImageIO、Core Graphics 和 AVFoundation 实际解码，视频读取完整视频轨道。`minimum-platforms` 附件使用结构化 JSON，`schemaVersion` 为 1，`platforms` 包含 `iOS` 与 `watchOS`。每端登记 `deviceIdentifier`、`deviceModel`、`systemVersion`、`systemBuild`、`capturedAt`、`checks` 及 `evidence`；系统主版本与小版本匹配对应平台各目标的最高部署要求，补丁版本达到部署要求，当前覆盖 iOS 17.0 与 watchOS 10.0。
 
@@ -318,7 +322,7 @@ iOS 的 `checks` 包含 `cold-start-session`、`offline-persistence`、`media-an
 
 正式运行分组沿 `Scripts/validation_policy.py` 的 suite 登记执行 `ReleaseRuntimeContractTests`、`ExtendedLoginTests`、`LoginStorageTests`、`LoginBootstrapTests`、`NetworkClientTests`、`FeatureCompositionTests`、`ExperimentalPreferenceCloudSyncTests` 与 `AppExternalDisplayTests` 与 `ReminderContextTests`，覆盖生产组装、登录恢复、凭据持久化、退出清理、账号代际、页面依赖、生命周期云同步、外部展示及网络请求行为；实际执行方法集合共同参与证据核对。
 
-人工影像证据采用 PNG、JPEG、PDF 或 MP4，记录绑定所属专项；结构化反馈证据采用 JSON，必需字段为 `reportID`、`storageKey`、`storedReport`、`emailRecipient`、`emailMessageID` 与 `emailBody`。报告编号同时对应正式存储键、存储记录及收件正文，邮件 Message-ID 保存实际收件标识。
+人工影像证据采用 PNG、JPEG、PDF 或 MP4，记录绑定所属专项；结构化反馈证据采用 JSON，必需字段为 `reportID`、`storageKey`、`storedReport`、`emailRecipient`、`emailHeaders`、`emailMessageID` 与 `emailBody`。报告编号同时对应正式存储键、存储记录及收件正文，邮件 Message-ID 保存实际收件标识。
 
 执行 `Scripts/build-install-device.sh archive-signed` 生成固定签名归档，再沿 Xcode 的 App Store 导出流程取得最终分发产物，从导出载荷中选择 `.app` 目录执行 `python3 Scripts/validate_distribution.py 导出应用路径`。
 
@@ -349,6 +353,8 @@ fork PR 的常规 Job 使用 GitHub 托管的 `xcode-27` 镜像，每项任务�
 文章列表与搜索共享服务级的四路详情调度，同一文章的在途消费者合并请求并独立处理取消；最多四篇正文响应用于作者预览到首次详情打开的复用。详情刷新重新读取，列表刷新和文章写操作使复用缓存失效。已登录的详情与评论读取先沿社区校验接口恢复凭据，访客阅读沿公开接口执行。
 
 日常开发沿模块和场景选择定向测试，模块入口支持 `Scripts/run-extended-tests.sh modules 测试类/方法`，多个筛选合并执行并登记定向证据。发布验收将源码、工具链和完整候选产物共同绑定，实时服务与人工观察沿一天有效期核对；完整输入范围用于维持产物与证据的对应关系。专项采集围绕同一候选产物集中完成，发布流程执行完整验收。
+
+同源码摘要与执行环境的成功定向测试及网络复验继续保留最近的完整记录；完整记录沿原采样期限接受时效校验。
 
 人工附件每份编码前控制在 32 MiB 内，图像解码与视频单帧使用 48 MiB 内存预算；视频长度为 30 秒以内，最多 1800 帧，PDF 最多 16 页。附件解码工具使用 30 秒执行预算，聚合 JSON 的完整编码最多 128 MiB；超出预算时保留已提交证据并呈现验收错误。短视频和系统截图分别记录所属操作与观察结果，全部人工检查共同参与发布验收。
 

@@ -32,14 +32,68 @@ def constant_boolean(condition: str, resolve) -> bool | None:
     return value(node)
 
 
+def branch_condition(facts: dict, branch: dict) -> bool | None:
+    def resolve(name):
+        lexical = branch.get('lexicalScope', [])
+        bindings = [node for node in facts.get('bindings', []) if node.get('bindingName') == name
+            and node.get('scope') == branch.get('scope') and node['start'] <= branch['start']
+            and lexical[:len(node.get('lexicalScope', []))] == node.get('lexicalScope', [])]
+        variables = visible_variables({**facts, 'typedVariables': facts.get('typedVariables', []),
+            'functionRanges': facts.get('functionRanges', [])}, branch, name)
+        if candidates := bindings + variables:
+            node = max(candidates, key=lambda item: (len(item.get('scope', [])), len(item.get('lexicalScope', [])), item['start']))
+            return node.get('booleanValue')
+        return None
+    return constant_boolean(branch.get('condition') or '', resolve)
+
+
+def control_flow_outcomes(facts: dict, branch: dict, conditions: dict) -> set[str]:
+    """Track normal continuation and explicit exits through compiler block facts."""
+    rows = facts.get('controlFlow', [])
+    normal = {'normal'}
+    def block_outcomes(bounds):
+        if not bounds: return normal
+        lexical = branch.get('lexicalScope', [])
+        alternative = next((row for row in rows if row['start'] == bounds[0]
+            and row.get('lexicalScope', []) == lexical and row.get('thenRange')), None)
+        if alternative: return control_flow_outcomes(facts, alternative, conditions)
+        outcomes = normal
+        direct = sorted((row for row in rows if bounds[0] <= row['start'] < bounds[1]
+            and row.get('scope') == branch.get('scope') and row.get('lexicalScope', []) == lexical + [bounds[0]]),
+            key=lambda row: row['start'])
+        for row in direct:
+            if 'normal' not in outcomes: break
+            if row.get('deadRange'):
+                following = {row['value'].split()[0]}
+            elif row.get('thenRange') or row.get('elseRange'):
+                following = control_flow_outcomes(facts, row, conditions)
+            else: continue
+            outcomes = outcomes - normal | following
+        return outcomes
+    identity = branch['start']
+    if identity not in conditions: conditions[identity] = branch_condition(facts, branch)
+    value = conditions[identity]
+    kind = branch['value'].split()[0]
+    if kind == 'guard':
+        return normal if value is True else block_outcomes(branch.get('elseRange')) | (normal if value is None else set())
+    body = block_outcomes(branch.get('thenRange'))
+    if kind == 'while':
+        if value is False: return normal
+        return body - {'normal', 'break', 'continue'} | (normal if value is None or 'break' in body else set())
+    alternative = block_outcomes(branch.get('elseRange'))
+    return body if value is True else alternative if value is False else body | alternative
+
+
 def call_can_execute(facts: dict, call: dict) -> bool:
+    conditions = {}
+    def hoisted(bounds, branch):
+        return any(function['start'] >= bounds[0] and function['start'] <= call['start'] < function['end']
+            and function.get('lexicalScope', []) == branch.get('lexicalScope', [])
+            for function in facts.get('functionRanges', []))
     for branch in facts.get('controlFlow', []):
         dead = branch.get('deadRange')
         if dead and dead[0] <= call['start'] < dead[1]:
-            hoisted = any(function['start'] >= dead[0] and function['start'] <= call['start'] < function['end']
-                and function.get('lexicalScope', []) == branch.get('lexicalScope', [])
-                for function in facts.get('functionRanges', []))
-            if not hoisted: return False
+            if not hoisted(dead, branch): return False
         sequence = re.sub(r'[\s()]', '', branch.get('iterationSource') or '')
         bounds = re.fullmatch(r'([+-]?\d[\d_]*)(\.\.<|\.\.\.)([+-]?\d[\d_]*)', sequence)
         empty = sequence == '[]'
@@ -48,20 +102,13 @@ def call_can_execute(facts: dict, call: dict) -> bool:
             empty = lower >= upper if bounds[2] == '..<' else lower > upper
         body = branch.get('thenRange')
         if empty and body and body[0] <= call['start'] < body[1]: return False
-        def resolve(name):
-            lexical = branch.get('lexicalScope', [])
-            bindings = [node for node in facts.get('bindings', []) if node.get('bindingName') == name
-                and node.get('scope') == branch.get('scope') and node['start'] <= branch['start']
-                and lexical[:len(node.get('lexicalScope', []))] == node.get('lexicalScope', [])]
-            variables = visible_variables({**facts, 'typedVariables': facts.get('typedVariables', []),
-                'functionRanges': facts.get('functionRanges', [])}, branch, name)
-            if candidates := bindings + variables:
-                node = max(candidates, key=lambda item: (len(item.get('scope', [])), len(item.get('lexicalScope', [])), item['start']))
-                return node.get('booleanValue')
-            return None
-        value = constant_boolean(branch.get('condition') or '', resolve)
+        if branch['start'] not in conditions: conditions[branch['start']] = branch_condition(facts, branch)
+        value = conditions[branch['start']]
         excluded = branch.get('elseRange') if value is True else branch.get('thenRange') if value is False else None
         if excluded and excluded[0] <= call['start'] < excluded[1]: return False
+        following = branch.get('followingRange')
+        if following and following[0] <= call['start'] < following[1] and not hoisted(following, branch) \
+                and 'normal' not in control_flow_outcomes(facts, branch, conditions): return False
     return True
 
 

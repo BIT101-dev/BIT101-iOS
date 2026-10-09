@@ -204,13 +204,14 @@ enum AppNetworkPath {
 
 /// 媒体缓存与下载在应用入口共用同一配置。
 enum AppMedia {
-    static let environment = MediaEnvironment(
-        files: AppFileDirectories.files,
-        previewStorage: MediaPreviewStorage(files: AppFileDirectories.files),
-        defaults: AppFileDirectories.defaults,
-        imageHTTPClient: .community,
-        avatarHTTPClient: .shared
-    )
+    static let environment = makeEnvironment()
+    static func makeEnvironment(files: any AppFileService = AppFileDirectories.files,
+                                defaults: UserDefaults = AppFileDirectories.defaults,
+                                imageHTTPClient: HTTPClient = .community,
+                                avatarHTTPClient: HTTPClient = .shared) -> MediaEnvironment {
+        MediaEnvironment(files: files, previewStorage: MediaPreviewStorage(files: files), defaults: defaults,
+                         imageHTTPClient: imageHTTPClient, avatarHTTPClient: avatarHTTPClient)
+    }
 }
 
 /// 学校会话的生产实例在应用组装入口选择。

@@ -242,6 +242,8 @@ struct ScheduleModuleBoundaryTests {
                 #expect(mapped.execution == context.execution)
                 #expect(mapped.userObjectID == context.userObjectID)
                 #expect(mapped.formAction == context.formAction)
+            } else {
+                Issue.record("Expected the second-factor restoration case: \(error)")
             }
         }
         let cancelled = AppScheduleSchoolSessionRestorer(restore: { throw CancellationError() })

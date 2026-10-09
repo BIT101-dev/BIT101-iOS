@@ -241,7 +241,7 @@ actor CachedRemoteImageStore {
             return Data(referencing: cached)
         }
 
-        guard let data = RemoteImageResourceLimits.cachedData(at: fileURL, using: files) else {
+        guard let data = diskData(for: url) else {
             await quota.enforce()
             return nil
         }
@@ -250,6 +250,10 @@ actor CachedRemoteImageStore {
         guard cacheGeneration == generation else { return nil }
         memoryCache.setObject(data as NSData, forKey: key as NSString, cost: data.count)
         return data
+    }
+
+    func diskData(for url: URL) -> Data? {
+        RemoteImageResourceLimits.cachedData(at: directoryURL.appendingPathComponent(cacheKey(for: url)), using: files)
     }
 
     /// 读取缓存图片，并准备其显示位图。

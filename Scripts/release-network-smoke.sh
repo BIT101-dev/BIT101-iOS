@@ -14,6 +14,7 @@ BUILD_LOG="$DERIVED_DATA/build.log"
 CONSOLE_LOG="$DERIVED_DATA/console.log"
 console_process=""
 community_started=false
+report_ready=false
 REPORT_DIR="$DERIVED_DATA/report"
 SUMMARY_OUTPUT="$REPORT_DIR/network-smoke-summary.txt"
 APP_GROUP_ID="group.BIT101-dev.BIT101-iOS.shared"
@@ -112,6 +113,8 @@ emit_output() {
 
 restore_normal_app() {
   local smoke_status=$?
+  local school_sms_status=$smoke_status
+  if $report_ready && (( smoke_status <= 2 )); then school_sms_status=0; fi
   trap - EXIT ZERR INT TERM
   if [[ -n "$console_process" ]]; then kill "$console_process" 2>/dev/null || true; wait "$console_process" 2>/dev/null || true; fi
   if $community_started && [[ "$SMOKE_SCOPE" == community-writes ]] && (( smoke_status != 0 )); then
@@ -132,6 +135,7 @@ PY
     local restore_status=0
     if ! "$ROOT_DIR/Scripts/build-install-device.sh" >/dev/null 2>&1; then
       restore_status=1
+      school_sms_status=1
       echo "恢复正常 App 失败，当前设备可能仍运行网络采样宿主。" >&2
       [[ $smoke_status -eq 0 ]] && smoke_status=1
     fi
@@ -139,7 +143,7 @@ PY
   python3 "$ROOT_DIR/Scripts/validation_evidence.py" record "$validation_group" "$smoke_status" "$validation_scope" || smoke_status=$?
   if [[ "$SMS_MODE" == sms && "$SMOKE_SCOPE" == all ]]; then
     BIT101_VALIDATION_SOURCE_DIGEST="$SCHOOL_SMS_STARTED_DIGEST" \
-      python3 "$ROOT_DIR/Scripts/validation_evidence.py" record school-sms "$smoke_status" "$validation_scope" || smoke_status=$?
+      python3 "$ROOT_DIR/Scripts/validation_evidence.py" record school-sms "$school_sms_status" "$validation_scope" || smoke_status=$?
   fi
   exit "$smoke_status"
 }
@@ -307,4 +311,5 @@ else
   SMOKE_STATUS=$?
 fi
 emit_output "$SUMMARY_OUTPUT" "网络冒烟结果" "$SUMMARY_OUTPUT_TEXT"
+report_ready=true
 exit $SMOKE_STATUS

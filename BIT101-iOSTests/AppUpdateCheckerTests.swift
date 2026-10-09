@@ -3,7 +3,7 @@ import Testing
 @testable import BIT101_iOS
 
 @MainActor
-@Suite("App Store update reminder")
+@Suite("App Store update reminder", .serialized)
 struct AppUpdateCheckerTests {
     @Test(arguments: ["foreign", "downgrade", "port", "credentials"])
     func updateJSONFromAnotherOriginKeepsBothPromptsUnpublished(_ scenario: String) async throws {
@@ -458,12 +458,13 @@ struct AppUpdateCheckerTests {
     }
 
     private final class TestContext {
-        let suiteName = "AppUpdateCheckerTests.\(UUID().uuidString)"
+        let suiteName = "AppUpdateCheckerTests"
         let defaults: UserDefaults
         var now = Date(timeIntervalSince1970: 1_800_000_000)
 
         init() throws {
             defaults = try #require(UserDefaults(suiteName: suiteName))
+            defaults.removePersistentDomain(forName: suiteName)
         }
 
         func cleanUp() {

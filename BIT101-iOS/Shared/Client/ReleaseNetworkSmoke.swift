@@ -831,9 +831,7 @@ final class ReleaseNetworkSmokeRunner {
 
     private func fetchImageCount(urlString: String) async throws -> Int {
         guard let url = URL(string: urlString) else { throw URLError(.badURL) }
-        let response = try await fetchResponse(url, maximumBytes: RemoteImageResourceLimits.maximumEncodedBytes)
-        try Self.validateImageData(response.data)
-        return response.data.count
+        return try await dependencies.imageProbe(url)
     }
 
     private nonisolated static func validateImageData(_ data: Data) throws {

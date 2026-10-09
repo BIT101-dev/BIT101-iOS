@@ -29,6 +29,7 @@ public final class MediaEnvironment {
     let animatedDecoder: RemoteAnimatedImageDecoder
     private let previewQuota: ImageCacheDiskQuota
     private let previewFiles: any AppFileService
+    private let cacheFiles: any AppFileService
     private let preferences: GalleryImageCachePreferences
     private let previewOwnership: PreviewFileOwnership
     private var temporaryPreviewFiles: [UUID: Set<URL>] = [:]
@@ -42,6 +43,7 @@ public final class MediaEnvironment {
         avatarHTTPClient: HTTPClient
     ) {
         let preferences = GalleryImageCachePreferences(defaults: defaults)
+        cacheFiles = files
         let previewFiles = previewStorage.files
         let ownership = previewStorage.ownership
         previewOwnership = ownership
@@ -147,6 +149,18 @@ public final class MediaEnvironment {
         try Task.checkCancellation()
         if let owner, !previewOwnership.contains(owner) { throw CancellationError() }
         return file
+    }
+
+    public func verifyRemoteImage(at url: URL) async throws -> Int {
+        let file = try await images.file(for: url)
+        guard let galleryData = RemoteImageResourceLimits.cachedData(at: file, using: cacheFiles),
+              await stillDecoder.image(at: file) != nil else { throw URLError(.cannotDecodeContentData) }
+        let loader = CachedRemoteImageLoader()
+        await loader.load(url: url, media: self)
+        try Task.checkCancellation()
+        guard loader.image != nil, let avatarData = await avatars.diskData(for: url),
+              BoundedStillImageDecoder.image(from: avatarData) != nil else { throw URLError(.cannotDecodeContentData) }
+        return galleryData.count + avatarData.count
     }
 
     public func usedBytes() async -> Int64 { await images.usedBytes() }

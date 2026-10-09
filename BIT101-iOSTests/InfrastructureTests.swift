@@ -568,7 +568,7 @@ struct InfrastructureTests {
     @MainActor
     func behaviorHostIsolation() async throws {
         #expect(AppFileDirectories.defaultsDomain == "harrybit.BIT101-iOS.tests")
-        #expect(AppFileDirectories.files is AutomatedTestAppFileService)
+        #expect(AppFileDirectories.files is ScopedAppFileService)
         #expect(AppAccountSession.storage.currentStudentID.isEmpty)
         #expect(AppAccountSession.storage.fakeCookie.isEmpty)
         #expect(AppAccountSession.currentSession.accountIdentifier.hasPrefix("__automated_tests__."))

@@ -245,7 +245,19 @@ def smoke_summary(group: str, value: dict, *, full: bool = True) -> dict:
         expected_scope = ("all" if full else reported_scope) if group == "network" else "school" if group == "school-sms" else group
         projected_sms = group == "school-sms" and reported_scope == "all"
         raw_required = required
-        if projected_sms: required = network_inventory("school")
+        if projected_sms:
+            required = network_inventory("school")
+            external = network_inventory("all") - required
+            def external_diagnostic(item):
+                return isinstance(item, str) and any(item.startswith('[' + name + ']')
+                    or item.startswith(name + '（') or item == '必需探针缺失：' + name for name in external)
+            diagnostics = {name: [item for item in value.get(name, []) if not external_diagnostic(item)]
+                for name in ('failures', 'coverageGaps', 'authenticationBlockers', 'skippedProbes')}
+            removed = any(len(diagnostics[name]) != len(value.get(name, [])) for name in diagnostics)
+            value = dict(value, **diagnostics, passed=value.get('passed') is True or removed,
+                executedProbes=sorted(required & executed),
+                requestEvidence=[row for row in value.get('requestEvidence', [])
+                    if isinstance(row, dict) and row.get('probe') in required])
         current_term = value.get("currentTerm")
         term_complete = not full or group not in {"network", "school-sms"} or (
             value.get("requestedTerm") is None and isinstance(current_term, str) and bool(current_term.strip())
@@ -519,7 +531,7 @@ def record(group: str, status: int, scope: str, started_digest: str) -> int:
         report.pop("releaseCommit", None)
         report.pop("mergeCommit", None)
         previous = report["groups"].get(group, {})
-        if scope == "selected" and group in TEST_GROUPS:
+        if scope == "selected" and group in TEST_GROUPS | NETWORK_GROUPS:
             full = previous if previous.get("scope") == "full" else previous.get("lastFullRun")
             if full: row["lastFullRun"] = full
         if group in {"modules", "all"}:

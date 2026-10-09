@@ -106,15 +106,18 @@ def evidence_fixture(check: str) -> bytes:
                 'evidence': captured_fixture('photos')['evidence']}
         return json.dumps({'schemaVersion': 1, 'platforms': platforms}).encode()
     if check == 'feedback-delivery':
+        from email.utils import format_datetime
         identifier = '00000000-0000-4000-8000-000000000001'
-        received = '2000-01-01T00:00:00.000Z'
+        received_time = utc_now()
+        received = received_time.isoformat()
         configuration = json.loads((Path(__file__).resolve().parents[1] / 'Cloudflare/ErrorReportWorker/wrangler.jsonc').read_text())
         recipient = next(binding['destination_address'] for binding in configuration['send_email'] if binding['name'] == 'REPORT_EMAIL')
         return json.dumps({'reportID': identifier, 'storageKey': 'report:' + received + ':' + identifier, 'capabilities': observations('delivery'),
             'storedReport': {'id': identifier, 'receivedAt': received,
                 'report': {'mode': 'sanitized', 'isDevelopmentBuild': False, 'errorTitle': 'fixture', 'errorMessage': 'fixture failure'},
                 'emailDelivery': {'status': 'sent', 'attempts': 1, 'messageID': 'provider-fixture'}}, 'emailRecipient': recipient,
-            'emailHeaders': {'To': recipient, 'Message-ID': '<receipt@example.invalid>', 'X-BIT101-Report-ID': identifier},
+            'emailHeaders': {'To': recipient, 'Message-ID': '<receipt@example.invalid>', 'X-BIT101-Report-ID': identifier,
+                'Date': format_datetime(received_time)},
             'emailMessageID': '<receipt@example.invalid>', 'emailBody': '报告编号：' + identifier + '\n接收时间：' + received}).encode()
     def chunk(kind, content):
         return struct.pack('>I', len(content)) + kind + content + struct.pack('>I', zlib.crc32(kind + content))
@@ -242,6 +245,24 @@ def run_self_test() -> None:
         checks[name] = captured_fixture(name)
     assert complete(checks)
     receipt = json.loads(evidence_fixture('feedback-delivery'))
+    assert not evidence_content_complete('feedback-delivery', json.dumps(receipt).encode(),
+        observed_at=(utc_now() - timedelta(hours=1)).isoformat())
+    from email.utils import format_datetime
+    for moment in (utc_now() - timedelta(days=2), utc_now() + timedelta(days=1)):
+        changed = copy.deepcopy(receipt)
+        received = moment.isoformat()
+        changed['storedReport']['receivedAt'] = received
+        changed['storageKey'] = 'report:' + received + ':' + changed['reportID']
+        changed['emailBody'] = '报告编号：' + changed['reportID'] + '\n接收时间：' + received
+        changed['emailHeaders']['Date'] = format_datetime(moment)
+        assert not evidence_content_complete('feedback-delivery', json.dumps(changed).encode())
+    for date in (format_datetime(utc_now() - timedelta(days=2)), format_datetime(utc_now() + timedelta(days=1)), 'invalid'):
+        changed = copy.deepcopy(receipt)
+        changed['emailHeaders']['Date'] = date
+        assert not evidence_content_complete('feedback-delivery', json.dumps(changed).encode())
+    changed = copy.deepcopy(receipt)
+    changed['emailHeaders']['Date'] = changed['emailHeaders']['Date'].replace('+0000', '-0000')
+    assert evidence_content_complete('feedback-delivery', json.dumps(changed).encode())
     for key, value in [('status', 'pending'), ('status', 'failed'), ('attempts', 0), ('messageID', '')]:
         changed = copy.deepcopy(receipt)
         changed['storedReport']['emailDelivery'][key] = value

@@ -473,8 +473,33 @@ def network_capability_self_test() -> None:
     conditional['ReleaseNetworkSmoke.swift'] = sources['ReleaseNetworkSmoke.swift'].replace(
         'dependencies.productionSessionProbe()', 'if condition { return }; dependencies.productionSessionProbe()')
     assert 'mine.fetchMyInfo' in reached(conditional)
+    successors = [
+        ('guard false else { return }', False), ('guard true else { return }', True),
+        ('guard condition else { return }', True), ('if true { return }', False), ('if false { return }', True),
+        ('if condition { return } else { throw URLError(.cancelled) }', False),
+        ('if condition { return } else if true { return }', False),
+        ('if condition { return } else if other { return }', True),
+        ('if true { if true { return } }', False), ('if true { let closure = { return } }', True),
+        ('while true { return }', False), ('while false { return }', True), ('while condition { return }', True),
+        ('while true { break }', True), ('while true { continue }', False), ('while true {}', False),
+        ('while true { if false { break } }', False), ('while true { if condition { break } }', True),
+        ('while true { while true { break } }', False),
+    ]
+    fixtures = {prefix: 'func run() { ' + prefix + '; service.fetch() }' for prefix, _ in successors}
+    successor_index = swift_syntax_index_sources(fixtures)
+    for prefix, expected in successors:
+        facts = successor_index[prefix]
+        call = next(row for row in facts['invocations'] if row['calledExpression'] == 'service.fetch')
+        assert call_can_execute(facts, call) == expected, prefix
+    for prefix in ('guard false else { return }', 'if true { return }', 'while true { return }'):
+        terminated = dict(sources)
+        terminated['ReleaseNetworkSmoke.swift'] = sources['ReleaseNetworkSmoke.swift'].replace(
+            'dependencies.productionSessionProbe()', prefix + '; dependencies.productionSessionProbe()')
+        assert 'mine.fetchMyInfo' not in reached(terminated), prefix
     hoisted = dict(sources)
     hoisted['ReleaseNetworkSmoke.swift'] = 'struct ReleaseNetworkSmokeRunner { func run() { helper(); return; func helper() { dependencies.productionSessionProbe() } } }'
+    assert 'mine.fetchMyInfo' in reached(hoisted)
+    hoisted['ReleaseNetworkSmoke.swift'] = hoisted['ReleaseNetworkSmoke.swift'].replace('helper(); return;', 'helper(); if true { return };')
     assert 'mine.fetchMyInfo' in reached(hoisted)
     courses = index['Modules/CourseFeature/Sources/CourseService.swift']['functionRanges']
     courses.append({'name': 'newEndpoint', 'scope': ['CourseService'], 'isExported': True, 'start': 0, 'end': 1})

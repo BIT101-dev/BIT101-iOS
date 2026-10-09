@@ -80,6 +80,7 @@ struct ScopedFact: Encodable {
     var initializerReference: String? = nil
     var booleanValue: Bool? = nil
     var deadRange: [Int]? = nil
+    var followingRange: [Int]? = nil
     var isExpressionReference: Bool = false
 }
 
@@ -262,6 +263,14 @@ final class FactVisitor: SyntaxVisitor {
     }
     private func fact(_ value: String, start: Int) -> ScopedFact {
         ScopedFact(value: value, scope: scope, start: start, lexicalScope: lexicalScope)
+    }
+    private func controlFlowFact(_ node: some SyntaxProtocol) -> ScopedFact {
+        var item = fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset)
+        let parent = node.parent?.as(CodeBlockItemSyntax.self) ?? node.parent?.parent?.as(CodeBlockItemSyntax.self)
+        if let list = parent?.parent?.as(CodeBlockItemListSyntax.self) {
+            item.followingRange = [node.endPositionBeforeTrailingTrivia.utf8Offset, list.endPositionBeforeTrailingTrivia.utf8Offset]
+        }
+        return item
     }
     private func escapingParameters(_ type: TypeSyntax) -> [Int] {
         if let attributed = type.as(AttributedTypeSyntax.self) { return escapingParameters(attributed.baseType) }
@@ -733,12 +742,10 @@ final class FactVisitor: SyntaxVisitor {
         }
         return .visitChildren
     }
-
     override func visit(_ node: ForceUnwrapExprSyntax) -> SyntaxVisitorContinueKind {
         forceUnwraps.append(fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset))
         return .visitChildren
     }
-
     override func visit(_ node: TryExprSyntax) -> SyntaxVisitorContinueKind {
         if node.questionOrExclamationMark?.text == "?" && (node.parent?.is(CodeBlockItemSyntax.self) == true || node.parent?.trimmedDescription.replacingOccurrences(of: #"\s+"#, with: "", options: .regularExpression).hasPrefix("_=") == true) {
             discardedOptionalTries.append(fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset))
@@ -748,26 +755,22 @@ final class FactVisitor: SyntaxVisitor {
         }
         return .visitChildren
     }
-
     override func visit(_ node: UnresolvedAsExprSyntax) -> SyntaxVisitorContinueKind {
         if node.questionOrExclamationMark?.text == "!" {
             forceUnwraps.append(fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset))
         }
         return .visitChildren
     }
-
     override func visit(_ node: AsExprSyntax) -> SyntaxVisitorContinueKind {
         if node.questionOrExclamationMark?.text == "!" {
             forceUnwraps.append(fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset))
         }
         return .visitChildren
     }
-
     override func visit(_ node: ImplicitlyUnwrappedOptionalTypeSyntax) -> SyntaxVisitorContinueKind {
         forceUnwraps.append(fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset))
         return .visitChildren
     }
-
     override func visit(_ node: ForStmtSyntax) -> SyntaxVisitorContinueKind {
         bindings.append(ScopedFact(value: node.pattern.trimmedDescription + " in " + node.sequence.trimmedDescription,
             scope: scope, start: node.pattern.positionAfterSkippingLeadingTrivia.utf8Offset,
@@ -778,7 +781,6 @@ final class FactVisitor: SyntaxVisitor {
         controlFlow.append(loop)
         return .visitChildren
     }
-
     override func visit(_ node: InfixOperatorExprSyntax) -> SyntaxVisitorContinueKind {
         expressions.append(fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset))
         return .visitChildren
@@ -885,9 +887,8 @@ final class FactVisitor: SyntaxVisitor {
         }
         return .visitChildren
     }
-
     override func visit(_ node: IfExprSyntax) -> SyntaxVisitorContinueKind {
-        var item = fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset)
+        var item = controlFlowFact(node)
         item.condition = node.conditions.trimmedDescription
         item.thenRange = [node.body.positionAfterSkippingLeadingTrivia.utf8Offset, node.body.endPositionBeforeTrailingTrivia.utf8Offset]
         if let alternative = node.elseBody {
@@ -903,7 +904,7 @@ final class FactVisitor: SyntaxVisitor {
     }
 
     override func visit(_ node: WhileStmtSyntax) -> SyntaxVisitorContinueKind {
-        var item = fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset)
+        var item = controlFlowFact(node)
         item.condition = node.conditions.trimmedDescription
         item.thenRange = [node.body.positionAfterSkippingLeadingTrivia.utf8Offset, node.body.endPositionBeforeTrailingTrivia.utf8Offset]
         controlFlow.append(item)
@@ -911,7 +912,7 @@ final class FactVisitor: SyntaxVisitor {
     }
 
     override func visit(_ node: GuardStmtSyntax) -> SyntaxVisitorContinueKind {
-        var item = fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset)
+        var item = controlFlowFact(node)
         item.condition = node.conditions.trimmedDescription
         item.elseRange = [node.body.positionAfterSkippingLeadingTrivia.utf8Offset, node.body.endPositionBeforeTrailingTrivia.utf8Offset]
         controlFlow.append(item)

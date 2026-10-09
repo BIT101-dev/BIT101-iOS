@@ -17,6 +17,7 @@ import ScoreDomain
 import ScorePorts
 import ScoreInfrastructure
 import ScheduleInfrastructure
+import MediaKit
 
 enum NetworkSmokeScope: String, Codable, CaseIterable, Sendable {
     case all
@@ -391,6 +392,7 @@ struct ReleaseNetworkSmokeDependencies {
     }
     var productionSessionProbe: @MainActor () async throws -> [String] = NetworkSmokeProductionSession.run
     var externalHTTPClient: HTTPClient = .shared
+    var imageProbe: @MainActor (URL) async throws -> Int = ReleaseNetworkSmokeDependencies.probeRemoteImage
     var aasaHTTPClient = HTTPClient(transport: NetworkSessionPool.appLinkAssociation)
     var feedbackProbe: @MainActor (String) async throws -> Void = { try await FeedbackSubmissionClient.submitNetworkSmoke(runID: $0) }
     var loadScheduleCache: @MainActor () async -> ScheduleCache = { await ScheduleCacheStore.loadAsync() }
@@ -398,6 +400,19 @@ struct ReleaseNetworkSmokeDependencies {
     var makeSchedule: @MainActor (((Data) -> Void)?) -> any NetworkSmokeScheduleServicing = ReleaseNetworkSmokeRunner.freshSchoolService
     var makeProductionSchedule: @MainActor () -> any NetworkSmokeScheduleServicing = NetworkSmokeProductionSession.school
     var makeEclassSchedule: @MainActor () throws -> any NetworkSmokeScheduleServicing = ReleaseNetworkSmokeRunner.freshEclassService
+
+    private static func probeRemoteImage(at url: URL) async throws -> Int {
+        let files = ScopedAppFileService(root: AppFileDirectories.files.temporaryDirectoryURL
+            .appending(path: "NetworkSmokeMedia", directoryHint: .isDirectory))
+        if files.fileExists(at: files.root) { try files.removeItem(at: files.root) }
+        let media = AppMedia.makeEnvironment(files: files)
+        let outcome: Result<Int, any Error>
+        do { outcome = .success(try await media.verifyRemoteImage(at: url)) }
+        catch { outcome = .failure(error) }
+        await media.clearCaches()
+        if files.fileExists(at: files.root) { try files.removeItem(at: files.root) }
+        return try outcome.get()
+    }
 }
 #endif
 

@@ -303,6 +303,12 @@ def run_self_test(subject) -> int:
         projected = subject.smoke_summary('school-sms', full_sms)
         assert subject.complete_summary('school-sms', projected)
         assert projected['scope'] == 'school' and set(projected['requiredProbes']) == subject.network_inventory('school')
+        peripheral = dict(full_sms, passed=False, failures=['[App Store 更新接口] fixture failure'],
+            coverageGaps=['必需探针缺失：App Store 更新接口'], skippedProbes=['App Store 更新接口（fixture）'])
+        assert subject.complete_summary('school-sms', subject.smoke_summary('school-sms', peripheral))
+        assert not subject.smoke_summary('school-sms', dict(peripheral, failures=['[当前学期] fixture failure']))['passed']
+        assert not subject.smoke_summary('school-sms', dict(peripheral, failures=['网络 Smoke 报告写入失败：fixture']))['passed']
+        assert not subject.smoke_summary('school-sms', dict(full_sms, passed=False))['passed']
         assert not subject.smoke_summary('school-sms', dict(full_sms, requiredProbes=sms['requiredProbes']))['passed']
         assert not subject.smoke_summary('school-sms', dict(full_sms, verifiedSMSProbes=[]))['passed']
 
@@ -412,6 +418,7 @@ def network_recording_self_test(subject, results) -> None:
     from validation_environment import DEVICE_GROUPS
     assert set(results) == subject.NETWORK_GROUPS
     assert subject.NETWORK_GROUPS <= DEVICE_GROUPS
+    bit101_probes = sorted(subject.network_inventory('bit101'))
     for group, result in results.items():
         for passed in (True, False):
             result = dict(result, passed=passed, coverageGaps=[], runID='network-run',
@@ -429,6 +436,15 @@ def network_recording_self_test(subject, results) -> None:
                 assert subject.record(group, 0, 'full', 'current') == (0 if passed else 1), group
                 with patch.object(sys, 'argv', ['validation_evidence.py', 'check-group', group]):
                     assert subject.main() == (0 if passed else 1), group
+                if group == 'network' and passed:
+                    full = report['groups'][group]
+                    original = result
+                    result = network_trace_fixture(dict(result, scope='bit101', requiredProbes=bit101_probes, executedProbes=bit101_probes))
+                    assert subject.record(group, 0, 'selected', 'current') == 0
+                    assert report['groups'][group]['lastFullRun'] == full
+                    with patch.object(sys, 'argv', ['validation_evidence.py', 'check-group', group]):
+                        assert subject.main() == 0
+                    result = original
 
 
 def network_trace_fixture(value: dict) -> dict:

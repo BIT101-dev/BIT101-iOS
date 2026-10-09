@@ -12,6 +12,27 @@ import UniformTypeIdentifiers
 
 @MainActor
 struct MediaDependencyTests {
+    @Test(arguments: ["success", "gallery", "avatar", "cache"])
+    func productionImageProbeUsesBothClientsAndVerifiesDiskCaches(stage: String) async throws {
+        let files = PreferenceMemoryFiles()
+        let bytes = try png(width: 2)
+        let gallery = Images(bytes: stage == "gallery" ? Data("damaged".utf8) : bytes)
+        let avatar = Images(bytes: stage == "avatar" ? Data("damaged".utf8) : bytes)
+        let media = AppMedia.makeEnvironment(files: files,
+            imageHTTPClient: HTTPClient(transport: gallery, observer: nil),
+            avatarHTTPClient: HTTPClient(transport: avatar, observer: nil))
+        files.setFailures(writing: stage == "cache")
+        let url = AppURL.required("https://example.invalid/probe.png")
+        if stage == "success" {
+            #expect(try await media.verifyRemoteImage(at: url) == bytes.count * 2)
+            #expect(gallery.requests == 1 && avatar.requests == 1)
+            #expect(try await media.verifyRemoteImage(at: url) == bytes.count * 2)
+            #expect(gallery.requests == 1 && avatar.requests == 1)
+        } else {
+            await #expect(throws: (any Error).self) { try await media.verifyRemoteImage(at: url) }
+        }
+        await media.clearCaches()
+    }
     @Test(arguments: [0, RemoteImageResourceLimits.maximumEncodedBytes + 1])
     func downloadingReplacesUnusableExistingCache(byteCount: Int) async throws {
         let files = PreferenceMemoryFiles()

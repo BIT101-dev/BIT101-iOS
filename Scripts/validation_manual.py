@@ -7,9 +7,9 @@ import re
 import struct
 import uuid
 import zlib
-from validation_provenance import sampling_evidence_current, utc_now
+from validation_provenance import sampling_evidence_current, utc_now, LIVE_EVIDENCE_LIFETIME
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from validate_distribution import valid_archive_provenance
 from validation_media import media_complete
 from validation_policy import MAXIMUM_ATTACHMENT_BYTES, MAXIMUM_REPORT_BYTES, workflow_conditions
@@ -45,7 +45,7 @@ def capture(operation: str, result: str, evidence: Path, check: str, outcome: st
         raise ValueError("人工验收需要明确结果状态和实际观察时间")
     with evidence.open('rb') as stream: data = stream.read(MAXIMUM_ATTACHMENT_BYTES + 1)
     if len(data) > MAXIMUM_ATTACHMENT_BYTES: raise ValueError('人工附件需要控制在 32 MiB 以内。')
-    if not (failed_evidence_complete(data) if outcome == "failed" else evidence_content_complete(check, data)):
+    if not (failed_evidence_complete(data) if outcome == "failed" else evidence_content_complete(check, data, observed_at=observed_at)):
         raise ValueError("验收附件需要有效影像、PDF 或所属专项的结构化证据")
     if check == 'performance-baseline' and outcome == 'passed':
         from validation_performance import validate_capture
@@ -63,13 +63,13 @@ def failed_evidence_complete(data: bytes) -> bool:
     except (ValueError, TypeError): return False
 
 
-def artifact_complete(artifact: dict, check: str) -> bool:
+def artifact_complete(artifact: dict, check: str, *, observed_at: str | None = None) -> bool:
     try:
         if type(artifact.get('byteCount')) is not int or not 0 < artifact['byteCount'] <= MAXIMUM_ATTACHMENT_BYTES \
                 or not isinstance(artifact.get('dataBase64'), str) \
                 or len(artifact['dataBase64']) > 4 * ((MAXIMUM_ATTACHMENT_BYTES + 2) // 3): return False
         data = base64.b64decode(artifact["dataBase64"], validate=True)
-        return evidence_content_complete(check, data) and type(artifact["byteCount"]) is int and len(data) == artifact["byteCount"] \
+        return evidence_content_complete(check, data, observed_at=observed_at) and type(artifact["byteCount"]) is int and len(data) == artifact["byteCount"] \
             and hashlib.sha256(data).hexdigest() == artifact["sha256"] \
             and isinstance(artifact["path"], str) and bool(artifact["path"].strip())
     except (KeyError, TypeError, ValueError):
@@ -92,7 +92,7 @@ def png_complete(data: bytes) -> bool:
     return offset == len(data) and b'IDAT' in kinds and kinds[-1:] == [b'IEND']
 
 
-def evidence_content_complete(check: str, data: bytes) -> bool:
+def evidence_content_complete(check: str, data: bytes, *, observed_at: str | None = None) -> bool:
     if not data or len(data) > MAXIMUM_ATTACHMENT_BYTES: return False
     if check not in MANUAL_DEVICE_CHECKS: return False
     if check in MANUAL_SCENARIOS:
@@ -109,7 +109,7 @@ def evidence_content_complete(check: str, data: bytes) -> bool:
         except (ValueError, TypeError, KeyError, OSError): return False
     if check == 'feedback-delivery':
         try:
-            from email.utils import getaddresses
+            from email.utils import getaddresses, parsedate_to_datetime
             proof = json.loads(data)
             if not isinstance(proof, dict) or not all(isinstance(proof.get(field), str) for field in
                     ('reportID', 'storageKey', 'emailRecipient', 'emailMessageID', 'emailBody')): return False
@@ -131,7 +131,16 @@ def evidence_content_complete(check: str, data: bytes) -> bool:
             configuration = json.loads((Path(__file__).resolve().parents[1] / 'Cloudflare/ErrorReportWorker/wrangler.jsonc').read_text())
             recipient = next(binding['destination_address'] for binding in configuration['send_email'] if binding['name'] == 'REPORT_EMAIL')
             received = stored['receivedAt']
-            datetime.fromisoformat(received.replace('Z', '+00:00'))
+            received_time = datetime.fromisoformat(received.replace('Z', '+00:00'))
+            email_time = parsedate_to_datetime(normalized['date'])
+            if email_time.utcoffset() is None and normalized['date'].endswith('-0000'):
+                email_time = email_time.replace(tzinfo=timezone.utc)
+            instant = utc_now()
+            observation = datetime.fromisoformat(observed_at.replace('Z', '+00:00')) if observed_at is not None else instant
+            if received_time.utcoffset() is None or email_time.utcoffset() is None \
+                    or not timedelta() <= instant - received_time <= LIVE_EVIDENCE_LIFETIME \
+                    or observation.utcoffset() is None or not received_time <= observation <= instant \
+                    or not received_time.replace(microsecond=0) <= email_time <= observation: return False
             return capability_observations_complete(check, 'delivery', proof.get('capabilities')) \
                 and proof['reportID'] == report and proof['storageKey'] == 'report:' + received + ':' + report and stored['id'] == report \
                 and isinstance(delivery, dict) and delivery.get('status') == 'sent' \
@@ -256,7 +265,7 @@ def complete(checks: dict) -> bool:
     return set(checks) == MANUAL_DEVICE_CHECKS and all(
         isinstance(row, dict) and row.get('check') == check and row.get('outcome') == 'passed'
         and all(isinstance(row.get(field), str) and row[field].strip() for field in ("operation", "result", "capturedAt"))
-        and isinstance(row.get("evidence"), dict) and artifact_complete(row["evidence"], check)
+        and isinstance(row.get("evidence"), dict) and artifact_complete(row["evidence"], check, observed_at=row['capturedAt'])
         and sampling_evidence_current({"startedAt": row["capturedAt"], "finishedAt": row["capturedAt"]}) for check, row in checks.items())
 
 

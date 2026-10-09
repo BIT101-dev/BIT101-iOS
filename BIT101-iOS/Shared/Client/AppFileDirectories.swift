@@ -7,7 +7,10 @@ import OSLog
 enum AppFileDirectories {
     nonisolated static let files: any AppFileService = {
 #if BIT101_AUTOMATED_TESTING
-        return AutomatedTestAppFileService()
+        guard let support = AppFileSystem.files.directoryURL(.applicationSupportDirectory) else {
+            preconditionFailure("Automated test Application Support directory is unavailable")
+        }
+        return ScopedAppFileService(root: support.appending(path: "BIT101-UITests", directoryHint: .isDirectory))
 #else
         return AppFileSystem.files
 #endif
@@ -150,16 +153,10 @@ enum AppFileDirectories {
     }
 }
 
-#if BIT101_AUTOMATED_TESTING
-/// 自动验收宿主的文件与缓存目录归固定隔离根路径。
-nonisolated struct AutomatedTestAppFileService: AppFileService {
+/// 验收宿主的文件与缓存目录归调用方指定的固定隔离根路径。
+nonisolated struct ScopedAppFileService: AppFileService {
     private let local = LocalAppFileService()
-    private var root: URL {
-        guard let support = local.directoryURL(.applicationSupportDirectory) else {
-            preconditionFailure("UI test Application Support directory is unavailable")
-        }
-        return support.appending(path: "BIT101-UITests", directoryHint: .isDirectory)
-    }
+    let root: URL
     func directoryURL(_ directory: FileManager.SearchPathDirectory) -> URL? {
         root.appending(path: String(directory.rawValue), directoryHint: .isDirectory)
     }
@@ -182,5 +179,3 @@ nonisolated struct AutomatedTestAppFileService: AppFileService {
     func totalRegularFileSize(at directory: URL) -> Int64 { local.totalRegularFileSize(at: directory) }
     func canonicalFileURL(_ url: URL) -> URL { local.canonicalFileURL(url) }
 }
-
-#endif

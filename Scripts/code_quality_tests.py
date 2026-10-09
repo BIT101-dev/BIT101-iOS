@@ -122,6 +122,19 @@ struct Handler { var value: String!; func read() -> String { value }; func catch
     write_facts = swift_syntax_index_sources({str(write_path): write_source})[str(write_path)]
     if len(discarded_file_write_findings(write_path, write_source, write_facts)) != 2:
         findings.append("代码质量自测：文件副作用的丢弃结果需要错误处理，已消费结果沿调用方处理")
+    writes = {
+        'try? data.write(to: url, options: .atomic)': True,
+        'try? handle.write(contentsOf: data)': True,
+        'try? text.write(to: url, atomically: true, encoding: .utf8)': True,
+        'try? urls.forEach { try files.removeItem(at: $0) }': True,
+        'try? files.replaceItemAt(url, withItemAt: other)': True,
+        'try? client.write(value)': False,
+    }
+    write_sources = {statement: 'func update() { ' + statement + ' }' for statement in writes}
+    write_index = swift_syntax_index_sources(write_sources)
+    for statement, expected in writes.items():
+        if bool(discarded_file_write_findings(write_path, write_sources[statement], write_index[statement])) != expected:
+            findings.append("代码质量自测：Foundation 文件写入与闭包内清理沿丢弃错误门禁处理")
     if discarded_file_write_findings(ROOT / "Modules/MediaKit/Sources/RemoteImageCache.swift", write_source, write_facts):
         findings.append("代码质量自测：图片缓存沿已有可选写盘合同处理")
     if discarded_file_write_findings(ROOT / "ModuleTests/Support/Fixture.swift", write_source, write_facts):
@@ -687,7 +700,12 @@ python3() {{ if [[ "$1" == - ]]; then cat >/dev/null; fi; }}
         "restore_release",
     )
     network_traps = "\n".join(line.strip() for line in network_source.splitlines() if line.strip().startswith("trap "))
-    for initial, restore_status, expected, sms in ((7, 0, 7, "preflight"), (7, 1, 7, "preflight"), (0, 1, 1, "preflight"), (0, 0, 0, "preflight"), (0, 0, 0, "sms"), (7, 0, 7, "sms")):
+    cases = ((7, 0, 7, "preflight", False, 0), (7, 1, 7, "preflight", False, 0),
+        (0, 1, 1, "preflight", False, 0), (0, 0, 0, "preflight", False, 0),
+        (0, 0, 0, "sms", False, 0), (7, 0, 7, "sms", False, 0),
+        (1, 0, 1, "sms", True, 0), (1, 1, 1, "sms", True, 0),
+        (130, 0, 130, "sms", True, 0), (0, 0, 1, "sms", True, 1))
+    for initial, restore_status, expected, sms, ready, school_record_status in cases:
         harness = f'''
 set -euo pipefail
 DEVICE_ID=device
@@ -695,13 +713,14 @@ ROOT_DIR=/audit
 validation_group=network
 validation_scope=full
 community_started=false
+report_ready={str(ready).lower()}
 SMOKE_SCOPE=all
 SMS_MODE={sms}
 BIT101_VALIDATION_SOURCE_DIGEST=network-inputs
 SCHOOL_SMS_STARTED_DIGEST=school-inputs
 BIT101_DEFER_APP_RESTORE=0
 console_process=""
-python3() {{ print -r -- "$BIT101_VALIDATION_SOURCE_DIGEST $*"; return 0; }}
+python3() {{ print -r -- "$BIT101_VALIDATION_SOURCE_DIGEST $*"; if [[ "$*" == *'record school-sms'* ]]; then return {school_record_status}; fi; return 0; }}
 restore_release() {{ print restore; return {restore_status}; }}
 {restore}
 {network_traps}
@@ -711,9 +730,11 @@ fail_command
         result = subprocess.run(["zsh", "-c", harness], capture_output=True, text=True)
         if result.returncode != expected or result.stdout.count("restore\n") != 1:
             findings.append(f"网络 Smoke 恢复自测失败：状态 {initial}/{restore_status}")
-        if sms == "sms" and (f"network-inputs /audit/Scripts/validation_evidence.py record network {expected} full" not in result.stdout
-                or f"school-inputs /audit/Scripts/validation_evidence.py record school-sms {expected} full" not in result.stdout):
-            findings.append("全量短信验收恢复自测：两个验证范围共用结果并维持各自开始摘要")
+        network_status = initial or restore_status
+        school_status = restore_status if ready and initial <= 2 else network_status
+        if sms == "sms" and (f"network-inputs /audit/Scripts/validation_evidence.py record network {network_status} full" not in result.stdout
+                or f"school-inputs /audit/Scripts/validation_evidence.py record school-sms {school_status} full" not in result.stdout):
+            findings.append("全量短信验收恢复自测：两个验证范围维持各自结果、恢复状态与开始摘要")
 
     extended_source = (SCRIPT_ROOT / "run-extended-tests.sh").read_text()
     restore_condition = re.search(r'(?m)^if (\[\[.*\]\]); then\n  DEVICE_TEST_EXECUTION_STARTED=false', extended_source)[1]
