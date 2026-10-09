@@ -83,6 +83,14 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
 
     static let shared = ExperimentalPreferenceCloudSync(settings: .shared, stores: .shared)
 
+    private static var defaultCloudStore: any PreferenceCloudStoring {
+#if BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING
+        return AutomatedTestPreferenceCloudStore.shared
+#else
+        return NSUbiquitousKeyValueStore.default
+#endif
+    }
+
     private static let logger = Logger(subsystem: "BIT101", category: "PreferenceCloudSync")
 
     @Published private(set) var isEnabled = false
@@ -107,7 +115,7 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
         settings: AppSettingsStore,
         stores: AppAccountStores,
         defaults: UserDefaults = AppFileDirectories.defaults,
-        cloudStore: any PreferenceCloudStoring = NSUbiquitousKeyValueStore.default,
+        cloudStore: any PreferenceCloudStoring = ExperimentalPreferenceCloudSync.defaultCloudStore,
         scoreEncryption: ScoreCacheSyncEncryption? = nil,
         synchronizedDomains: Set<ExperimentalPreferenceSyncDomain> = Set(ExperimentalPreferenceSyncDomain.allCases),
         notificationCenter: NotificationCenter = .default

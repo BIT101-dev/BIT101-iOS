@@ -18,6 +18,24 @@ from code_quality_rules import (
 )
 
 
+def campus_fixture_self_test() -> None:
+    from generate_campus_map_fixture import merge_locations, FIXTURE_PATH
+    reviewed = [
+        {"campus": "中关村校区", "classroom": "历史楼", "expected": "历史楼", "review": "mapped"},
+        {"campus": "良乡校区", "classroom": "校外", "expected": None, "review": "excluded"},
+    ]
+    merged = merge_locations(reviewed, [("良乡校区", "新地点"), ("良乡校区", "校外")])
+    assert all(row in merged for row in reviewed)
+    assert len(merged) == 3 and merge_locations(reviewed, []) == reviewed
+    assert next(row for row in merged if row["classroom"] == "新地点")["review"] == "pending"
+    assert merge_locations(merged, [("良乡校区", "新地点")]) == merged
+    fixtures = json.loads(FIXTURE_PATH.read_text())
+    assert fixtures and len({(row["campus"], row["classroom"]) for row in fixtures}) == len(fixtures)
+    for row in fixtures:
+        assert row["review"] in {"mapped", "excluded"}, "地图 fixture 需要完成地点审核"
+        assert (isinstance(row["expected"], str) and bool(row["expected"])) if row["review"] == "mapped" else row["expected"] is None
+
+
 def checker_boundary_findings() -> list[str]:
     from swift_type_index_tests import self_test as type_index_self_test
     type_index_self_test()
@@ -48,6 +66,7 @@ def checker_boundary_findings() -> list[str]:
     assert critical_findings(removed)
     findings.extend(community_recovery_self_test())
     findings.extend(script_output_boundary_findings())
+    campus_fixture_self_test()
     markers = mask_literals_and_comments('// TODO\n/* FIXME /* HACK */ */\nlet text = "TODO"', keep_comments=True)
     if len(re.findall(r"\b(?:TODO|FIXME|HACK)\b", markers)) != 3:
         findings.append("代码质量规则边界自检失败：维护标记覆盖行注释及嵌套块注释")

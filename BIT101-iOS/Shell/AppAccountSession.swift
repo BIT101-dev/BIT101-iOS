@@ -5,6 +5,10 @@ import ClientCore
 /// App 选择凭据后端、学校会话清理和账号存储分区。
 enum AppAccountSession {
     static let storage: LoginStorage = {
+#if BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING
+        return LoginStorage(defaults: AppFileDirectories.defaults,
+            credentials: AutomatedTestPreferenceCloudStore.shared, clearSchoolCookies: {})
+#else
         let service: String
         let clearSchoolCookies: () -> Void
 #if BIT101_UI_TESTING
@@ -21,10 +25,14 @@ enum AppAccountSession {
 #endif
         return LoginStorage(defaults: AppFileDirectories.defaults,
             credentials: KeychainLoginCredentials(service: service), clearSchoolCookies: clearSchoolCookies)
+#endif
     }()
 
     static var currentSession: AppStorageSession {
         let studentID = storage.currentStudentID
+#if BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING
+        return AppStorageSession(accountIdentifier: "__automated_tests__.\(studentID.isEmpty ? "guest" : studentID)")
+#else
 #if BIT101_UI_TESTING
         if AppFileDirectories.isRunningUITest {
             let account = studentID.isEmpty ? "guest" : studentID
@@ -32,6 +40,7 @@ enum AppAccountSession {
         }
 #endif
         return AppStorageSession(accountIdentifier: studentID)
+#endif
     }
 
 #if BIT101_UI_TESTING
@@ -45,3 +54,19 @@ enum AppAccountSession {
     }
 #endif
 }
+
+#if BIT101_AUTOMATED_TESTING
+@MainActor
+final class AutomatedTestPreferenceCloudStore: PreferenceCloudStoring, LoginCredentialsStoring {
+    static let shared = AutomatedTestPreferenceCloudStore()
+    private var keys: [String: String] = [:]
+    func read(account: String) throws -> String { keys[account] ?? "" }
+    func save(_ value: String, account: String) throws { keys[account] = value }
+    func delete(account: String) -> Bool { keys[account] = nil; return true }
+    private(set) var dictionaryRepresentation: [String: Any] = [:]
+    func data(forKey key: String) -> Data? { dictionaryRepresentation[key] as? Data }
+    func set(_ value: Any?, forKey key: String) { dictionaryRepresentation[key] = value }
+    func synchronize() -> Bool { true }
+}
+
+#endif

@@ -389,49 +389,6 @@ extension UITestHTTPTransport {
     }
 }
 
-@MainActor
-final class UITestPreferenceCloudStore: PreferenceCloudStoring, LoginCredentialsStoring {
-    private var keys: [String: String] = [:]
-    func read(account: String) throws -> String { keys[account] ?? "" }
-    func save(_ value: String, account: String) throws { keys[account] = value }
-    func delete(account: String) -> Bool { keys[account] = nil; return true }
-    private(set) var dictionaryRepresentation: [String: Any] = [:]
-    func data(forKey key: String) -> Data? { dictionaryRepresentation[key] as? Data }
-    func set(_ value: Any?, forKey key: String) { dictionaryRepresentation[key] = value }
-    func synchronize() -> Bool { true }
-}
-
-/// UI 宿主的文件与缓存目录归固定测试根路径。
-nonisolated struct UITestAppFileService: AppFileService {
-    private let local = LocalAppFileService()
-    private var root: URL {
-        guard let support = local.directoryURL(.applicationSupportDirectory) else {
-            preconditionFailure("UI test Application Support directory is unavailable")
-        }
-        return support.appending(path: "BIT101-UITests", directoryHint: .isDirectory)
-    }
-    func directoryURL(_ directory: FileManager.SearchPathDirectory) -> URL? {
-        root.appending(path: String(directory.rawValue), directoryHint: .isDirectory)
-    }
-    func appGroupContainerURL(identifier: String) -> URL? { root.appending(path: "AppGroup", directoryHint: .isDirectory) }
-    var temporaryDirectoryURL: URL { root.appending(path: "Temporary", directoryHint: .isDirectory) }
-    func fileExists(at url: URL) -> Bool { local.fileExists(at: url) }
-    func readData(at url: URL) throws -> Data { try local.readData(at: url) }
-    func writeData(_ data: Data, to url: URL, options: Data.WritingOptions) throws { try local.writeData(data, to: url, options: options) }
-    func createDirectory(at url: URL) throws { try local.createDirectory(at: url) }
-    func removeItem(at url: URL) throws { try local.removeItem(at: url) }
-    func setPrivateFileProtection(at url: URL) throws { try local.setPrivateFileProtection(at: url) }
-    func setBackupExcluded(_ excluded: Bool, at url: URL, recursively: Bool) throws { try local.setBackupExcluded(excluded, at: url, recursively: recursively) }
-    func contentsOfDirectory(at url: URL, options: FileManager.DirectoryEnumerationOptions) throws -> [URL] { try local.contentsOfDirectory(at: url, options: options) }
-    func regularFileSize(at url: URL) -> Int? { local.regularFileSize(at: url) }
-    func isRegularFile(at url: URL) -> Bool { local.isRegularFile(at: url) }
-    func modificationDate(at url: URL) -> Date? { local.modificationDate(at: url) }
-    func setModificationDate(_ date: Date, at url: URL) throws { try local.setModificationDate(date, at: url) }
-    func removeContents(of directory: URL) -> Bool { local.removeContents(of: directory) }
-    func totalRegularFileSize(at directory: URL) -> Int64 { local.totalRegularFileSize(at: directory) }
-    func canonicalFileURL(_ url: URL) -> URL { local.canonicalFileURL(url) }
-}
-
 /// 学校交互场景使用课程、考试和空教室端口的固定响应。
 final class UITestSchoolService: ScheduleServicing {
     private var authenticated = AppUITestBootstrap.environment["BIT101_UI_TEST_SCHOOL_SMS"] != "1"

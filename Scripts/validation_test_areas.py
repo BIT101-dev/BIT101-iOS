@@ -142,6 +142,7 @@ CRITICAL_CONTRACTS = {
         "登录取消收敛": "ExtendedLoginTests/cancelledLogin",
         "分页时钟与内存测量": "MaintenancePerformanceTests/testCommunityPaginationPerformance",
         "图片解码时钟与内存测量": "MaintenancePerformanceTests/testStillImageDecodingPerformance",
+        "离线宿主资源与网络隔离": "InfrastructureTests/behaviorHostIsolation",
     },
     "modules": {
         "云端冲突决策写入基线": "ScheduleSyncTests/keepingLocalConflictPersistsTheNewBaselineThroughTheProductionRepository",

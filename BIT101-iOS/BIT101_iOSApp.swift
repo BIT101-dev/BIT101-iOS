@@ -32,7 +32,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         _: UIApplication,
         didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
-#if RELEASE_NETWORK_SMOKE || ICLOUD_CROSS_DEVICE_SMOKE
+#if RELEASE_NETWORK_SMOKE || ICLOUD_CROSS_DEVICE_SMOKE || (BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING)
         return true
 #else
 #if BIT101_UI_TESTING
@@ -143,7 +143,7 @@ struct BIT101_iOSApp: App {
     @StateObject private var networkSmokeSMS = ReleaseNetworkSmokeSMSPrompt()
 #endif
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-#if !RELEASE_NETWORK_SMOKE && !ICLOUD_CROSS_DEVICE_SMOKE
+#if !RELEASE_NETWORK_SMOKE && !ICLOUD_CROSS_DEVICE_SMOKE && !(BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING)
 #if BIT101_UI_TESTING
     @StateObject private var uiTestScene: UITestSceneState
     private var lifecycle: AppAccountLifecycle { uiTestScene.lifecycle }
@@ -166,7 +166,7 @@ struct BIT101_iOSApp: App {
         let stores = AppAccountStores.shared
         let preferenceCloudSync: ExperimentalPreferenceCloudSync
 #if BIT101_UI_TESTING
-        let cloud = UITestPreferenceCloudStore()
+        let cloud = AutomatedTestPreferenceCloudStore()
         preferenceCloudSync = ExperimentalPreferenceCloudSync(settings: settings, stores: stores, cloudStore: cloud,
             scoreEncryption: ScoreCacheSyncEncryption(defaults: AppFileDirectories.defaults, credentials: cloud))
 #else
@@ -268,6 +268,8 @@ struct BIT101_iOSApp: App {
                         onSubmit: { networkSmokeSMS.submit($0) })
                         .interactiveDismissDisabled()
                 }
+            #elseif BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING
+            Color.clear.accessibilityIdentifier("behavior-test-host")
             #else
             ContentView(transcriptService: lifecycle.transcriptService, localData: lifecycle.localData)
 #if BIT101_UI_TESTING
@@ -308,7 +310,7 @@ struct BIT101_iOSApp: App {
                 }
             #endif
         }
-        #if !RELEASE_NETWORK_SMOKE && !ICLOUD_CROSS_DEVICE_SMOKE
+        #if !RELEASE_NETWORK_SMOKE && !ICLOUD_CROSS_DEVICE_SMOKE && !(BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING)
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
 #if BIT101_UI_TESTING

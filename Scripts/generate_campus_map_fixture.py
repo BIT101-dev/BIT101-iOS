@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """从教务导出的全校课程表生成地图地点回归测试数据。
 
-脚本只读取“学校校区”和“已排时间地点”，按 (校区, 原始地点) 去重；不会把
-课程、教师或学生相关字段写入仓库。已有 fixture 中人工确认过的 expected 会被
-保留。发现新地点时默认拒绝覆盖，避免把尚未审核的地点误当成“不应显示 pin”。
+脚本读取“学校校区”和“已排时间地点”，按 (校区, 原始地点) 去重并合并历史案例。
+fixture 保存地点、人工确认的 expected 和审核状态。新地点沿显式参数写为 pending，
+审核后选择 mapped 或 excluded，回归测试核对审核完成及对应地点结果。
 """
 
 from __future__ import annotations
@@ -13,11 +13,6 @@ import json
 import re
 import warnings
 from pathlib import Path
-
-try:
-    from openpyxl import load_workbook
-except ImportError as error:
-    raise SystemExit("缺少 openpyxl，请运行：python3 -m pip install openpyxl") from error
 
 SUPPORTED_CAMPUSES = {"中关村校区", "良乡校区"}
 FIXTURE_PATH = Path(__file__).resolve().parents[1] / "BIT101-iOSTests/Fixtures/campus-map-locations.json"
@@ -30,6 +25,7 @@ TIME_PATTERN = re.compile(
 
 
 def extract_unique_locations(path: Path) -> list[tuple[str, str]]:
+    from openpyxl import load_workbook
     warnings.filterwarnings("ignore", message="Workbook contains no default style")
     workbook = load_workbook(path, read_only=True, data_only=True)
     sheet = workbook.active
@@ -54,13 +50,22 @@ def extract_unique_locations(path: Path) -> list[tuple[str, str]]:
     return sorted(locations)
 
 
+def merge_locations(old_rows: list[dict], locations: list[tuple[str, str]]) -> list[dict]:
+    retained = {(row["campus"], row["classroom"]): row for row in old_rows}
+    for campus, classroom in locations:
+        retained.setdefault((campus, classroom), {
+            "campus": campus, "classroom": classroom, "expected": None, "review": "pending",
+        })
+    return [retained[key] for key in sorted(retained)]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("xlsx", type=Path)
     parser.add_argument(
         "--allow-new",
         action="store_true",
-        help="将尚未审核的新地点以 expected=null 写入（通常不应在 CI 使用）",
+        help="将新增地点写为 review=pending，供人工审核",
     )
     args = parser.parse_args()
 
@@ -75,10 +80,7 @@ def main() -> None:
             "审核后更新 expected，或显式使用 --allow-new 生成待处理项。"
         )
 
-    rows = [
-        {"campus": campus, "classroom": classroom, "expected": decisions.get((campus, classroom))}
-        for campus, classroom in locations
-    ]
+    rows = merge_locations(old_rows, locations)
     FIXTURE_PATH.parent.mkdir(parents=True, exist_ok=True)
     FIXTURE_PATH.write_text("[\n" + ",\n".join("  " + json.dumps(row, ensure_ascii=False) for row in rows) + "\n]\n", encoding="utf-8")
     print(f"写入 {len(rows)} 条去重地点；新增待审核 {len(new_locations)} 条：{FIXTURE_PATH}")

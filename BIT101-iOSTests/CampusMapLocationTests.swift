@@ -8,9 +8,11 @@ import Testing
 private final class CampusMapFixtureBundleToken {}
 
 private struct CampusMapLocationFixture: Decodable {
+    enum Review: String, Decodable { case pending, mapped, excluded }
     let campus: String
     let classroom: String
     let expected: String?
+    let review: Review
 }
 
 @Suite("Campus map location matching")
@@ -29,8 +31,10 @@ struct CampusMapLocationTests {
             from: Data(contentsOf: url)
         )
 
-        #expect(fixtures.count == 557)
+        #expect(!fixtures.isEmpty)
+        #expect(Set(fixtures.map { [$0.campus, $0.classroom] }).count == fixtures.count)
         for fixture in fixtures {
+            try #require(fixture.review != .pending, "Awaiting location review: \(fixture.campus) / \(fixture.classroom)")
             let parsed = ScheduleDisplayNormalizer.compactLocation(for: fixture.classroom)
             #expect(
                 !parsed.lightText.isEmpty,
@@ -41,12 +45,14 @@ struct CampusMapLocationTests {
                 campusName: fixture.campus,
                 classroom: fixture.classroom
             )
-            if let expected = fixture.expected {
+            if fixture.review == .mapped {
+                let expected = try #require(fixture.expected)
                 #expect(
                     place?.name == expected,
                     "Location mismatch: \(fixture.campus) / \(fixture.classroom)"
                 )
             } else {
+                #expect(fixture.expected == nil)
                 #expect(
                     place == nil,
                     "Excluded location unexpectedly created a pin: \(fixture.campus) / \(fixture.classroom)"

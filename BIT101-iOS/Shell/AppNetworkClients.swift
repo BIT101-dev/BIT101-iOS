@@ -99,7 +99,12 @@ enum NetworkSessionPool {
             return UncachedHTTPTransport(base: URLSessionTransport.make(configuration: configuration, followsRedirects: followsRedirects))
         }
 #endif
-        return URLSessionTransport.make(configuration: configuration, followsRedirects: followsRedirects)
+        let transport = URLSessionTransport.make(configuration: configuration, followsRedirects: followsRedirects)
+#if BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING
+        return AutomatedTestHTTPTransport(base: transport)
+#else
+        return transport
+#endif
     }
 
     static let productionCommunity = communityTransport(productionPolicy: true)
@@ -170,6 +175,22 @@ enum NetworkSessionPool {
         return make(configuration: configuration, productionPolicy: productionPolicy)
     }
 }
+
+#if BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING
+private struct AutomatedTestHTTPTransport: HTTPTransport {
+    let base: any HTTPTransport
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        try await data(for: request, maximumBytes: nil)
+    }
+    func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
+        guard let host = request.url?.host?.lowercased(), ["localhost", "127.0.0.1", "::1", "[::1]"].contains(host)
+        else { throw URLError(.notConnectedToInternet) }
+        let result = try await HTTPClient(transport: base, observer: nil).send(
+            request, accepting: 100 ..< 600, maximumBytes: maximumBytes)
+        return (result.data, result.response)
+    }
+}
+#endif
 
 enum AppNetworkPath {
     static let state: NetworkPathState = {

@@ -95,7 +95,7 @@ enum AppTab: String, Identifiable, Codable {
 struct AppShellView: View {
     @Environment(AppCommunityDependencies.self) private var community
     @Environment(AppCommunityDestinations.self) private var destinations
-    private static let startupNoticeTitle = "1.8.4 版本更新"
+    private static let startupNoticeTitle = "\(AppSettingsStore.currentStartupNoticeVersion) 版本更新"
     private static let startupNoticeBody = """
     恢复手动设置学期起始日期。
     适配新版乐学。

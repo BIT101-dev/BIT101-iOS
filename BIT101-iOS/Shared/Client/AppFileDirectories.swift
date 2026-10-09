@@ -6,8 +6,8 @@ import OSLog
 /// App 持久化路径、当前账号会话和本地文件服务的统一入口。
 enum AppFileDirectories {
     nonisolated static let files: any AppFileService = {
-#if BIT101_UI_TESTING
-        return UITestAppFileService()
+#if BIT101_AUTOMATED_TESTING
+        return AutomatedTestAppFileService()
 #else
         return AppFileSystem.files
 #endif
@@ -23,6 +23,9 @@ enum AppFileDirectories {
     }
 
     nonisolated static var defaultsDomain: String {
+#if BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING
+        return "harrybit.BIT101-iOS.tests"
+#else
 #if BIT101_UI_TESTING
         if isRunningUITest { return uiTestDefaultsSuiteName }
 #endif
@@ -30,9 +33,16 @@ enum AppFileDirectories {
             preconditionFailure("App preferences domain is unavailable")
         }
         return identifier
+#endif
     }
 
     nonisolated static var defaults: UserDefaults {
+#if BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING
+        guard let suite = UserDefaults(suiteName: preparedAutomatedTestDefaultsDomain) else {
+            preconditionFailure("Automated test defaults suite is unavailable")
+        }
+        return suite
+#else
 #if BIT101_UI_TESTING
         if isRunningUITest {
             guard let suite = UserDefaults(suiteName: uiTestDefaultsSuiteName) else {
@@ -42,7 +52,18 @@ enum AppFileDirectories {
         }
 #endif
         return .standard
+#endif
     }
+
+#if BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING
+    nonisolated private static let preparedAutomatedTestDefaultsDomain: String = {
+        guard let suite = UserDefaults(suiteName: defaultsDomain) else {
+            preconditionFailure("Automated test defaults suite is unavailable")
+        }
+        suite.removePersistentDomain(forName: defaultsDomain)
+        return defaultsDomain
+    }()
+#endif
 
 #if BIT101_UI_TESTING
     nonisolated static var isRunningUITest: Bool {
@@ -128,3 +149,37 @@ enum AppFileDirectories {
         }?.appending(path: filename)
     }
 }
+
+#if BIT101_AUTOMATED_TESTING
+/// 自动验收宿主的文件与缓存目录归固定隔离根路径。
+nonisolated struct AutomatedTestAppFileService: AppFileService {
+    private let local = LocalAppFileService()
+    private var root: URL {
+        guard let support = local.directoryURL(.applicationSupportDirectory) else {
+            preconditionFailure("UI test Application Support directory is unavailable")
+        }
+        return support.appending(path: "BIT101-UITests", directoryHint: .isDirectory)
+    }
+    func directoryURL(_ directory: FileManager.SearchPathDirectory) -> URL? {
+        root.appending(path: String(directory.rawValue), directoryHint: .isDirectory)
+    }
+    func appGroupContainerURL(identifier: String) -> URL? { root.appending(path: "AppGroup", directoryHint: .isDirectory) }
+    var temporaryDirectoryURL: URL { root.appending(path: "Temporary", directoryHint: .isDirectory) }
+    func fileExists(at url: URL) -> Bool { local.fileExists(at: url) }
+    func readData(at url: URL) throws -> Data { try local.readData(at: url) }
+    func writeData(_ data: Data, to url: URL, options: Data.WritingOptions) throws { try local.writeData(data, to: url, options: options) }
+    func createDirectory(at url: URL) throws { try local.createDirectory(at: url) }
+    func removeItem(at url: URL) throws { try local.removeItem(at: url) }
+    func setPrivateFileProtection(at url: URL) throws { try local.setPrivateFileProtection(at: url) }
+    func setBackupExcluded(_ excluded: Bool, at url: URL, recursively: Bool) throws { try local.setBackupExcluded(excluded, at: url, recursively: recursively) }
+    func contentsOfDirectory(at url: URL, options: FileManager.DirectoryEnumerationOptions) throws -> [URL] { try local.contentsOfDirectory(at: url, options: options) }
+    func regularFileSize(at url: URL) -> Int? { local.regularFileSize(at: url) }
+    func isRegularFile(at url: URL) -> Bool { local.isRegularFile(at: url) }
+    func modificationDate(at url: URL) -> Date? { local.modificationDate(at: url) }
+    func setModificationDate(_ date: Date, at url: URL) throws { try local.setModificationDate(date, at: url) }
+    func removeContents(of directory: URL) -> Bool { local.removeContents(of: directory) }
+    func totalRegularFileSize(at directory: URL) -> Int64 { local.totalRegularFileSize(at: directory) }
+    func canonicalFileURL(_ url: URL) -> URL { local.canonicalFileURL(url) }
+}
+
+#endif

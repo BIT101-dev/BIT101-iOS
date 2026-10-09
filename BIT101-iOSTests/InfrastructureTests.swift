@@ -481,6 +481,35 @@ struct LoginBootstrapTests {
 
 @Suite("Shared infrastructure")
 struct InfrastructureTests {
+#if BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING
+    @Test("Behavior host uses isolated account resources and blocks external transport")
+    @MainActor
+    func behaviorHostIsolation() async throws {
+        #expect(AppFileDirectories.defaultsDomain == "harrybit.BIT101-iOS.tests")
+        #expect(AppFileDirectories.files is AutomatedTestAppFileService)
+        #expect(AppAccountSession.storage.currentStudentID.isEmpty)
+        #expect(AppAccountSession.storage.fakeCookie.isEmpty)
+        #expect(AppAccountSession.currentSession.accountIdentifier.hasPrefix("__automated_tests__."))
+        let encryption = ScoreCacheSyncEncryption.production(defaults: AppFileDirectories.defaults)
+        defer { #expect(encryption.removeActiveKey(account: "host-isolation")) }
+        let clear = Data("isolated-score".utf8)
+        let sealed = try encryption.seal(clear, account: "host-isolation")
+        let keyID = try #require(AppFileDirectories.defaults.string(forKey: "experimental.preference-cloud-sync.score-key.host-isolation"))
+        #expect(try !AutomatedTestPreferenceCloudStore.shared.read(account: "host-isolation.\(keyID)").isEmpty)
+        #expect(try encryption.open(sealed, account: "host-isolation") == clear)
+        let request = URLRequest(url: try #require(URL(string: "https://example.com")))
+        await #expect(throws: URLError(.notConnectedToInternet)) {
+            _ = try await NetworkSessionPool.productionCommunity.data(for: request)
+        }
+    }
+#endif
+
+    @Test("Startup notice follows the installed version")
+    func startupNoticeVersion() throws {
+        let version = try #require(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String)
+        #expect(AppSettingsStore.currentStartupNoticeVersion == version)
+    }
+
     private nonisolated struct TestItem: Identifiable, Equatable {
         let id: Int
     }
