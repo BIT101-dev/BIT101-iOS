@@ -2,7 +2,7 @@
 from validation_provenance import sampling_evidence_current
 from validation_environment import complete_environment, environment_context, toolchain_identity
 
-CORE_GROUPS = {'all', 'ui', 'restore'}
+CORE_GROUPS = {'all', 'release-runtime', 'ui', 'restore'}
 
 
 def findings(report: dict, *, digest, complete, commit: str, recorded_environment: bool = False) -> list[str]:

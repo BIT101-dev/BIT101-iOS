@@ -19,7 +19,7 @@ on:
         default: false
         type: boolean
       validation_tag:
-        description: Version tag containing the bound validation-evidence.json release asset
+        description: Version tag containing the bound release-receipt.json asset
         required: false
         type: string
 
@@ -212,15 +212,18 @@ jobs:
           python3 Scripts/ci_evidence.py baseline "$BIT101_BASE_COMMIT"
           python3 Scripts/validation_evidence.py baseline "$BIT101_BASE_COMMIT"
       - name: Run physical-device acceptance
-        run: Scripts/run-extended-tests.sh verify modules all ui
+        run: Scripts/run-extended-tests.sh verify modules all release-runtime ui
       - name: Bind core validation evidence
         run: python3 Scripts/validation_evidence.py bind-merge
+      - name: Export core CI evidence
+        if: always()
+        run: python3 Scripts/ci_evidence.py export-core
       - name: Publish core validation evidence
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: validation-evidence
-          path: .build/extended-automation/validation-evidence.json
+          path: .build/extended-automation/core-validation-evidence.json
           compression-level: 0
           overwrite: true
           if-no-files-found: error
@@ -254,10 +257,7 @@ jobs:
         run: |
           python3 Scripts/ci_evidence.py release "$BIT101_RELEASE_TAG"
       - name: Check release validation evidence
-        run: python3 Scripts/validation_evidence.py check --recorded-environment
-      - name: Publish validation evidence
-        if: always()
-        run: python3 Scripts/validation_evidence.py summary --recorded-environment
+        run: python3 Scripts/ci_evidence.py check-release
 
   merge-acceptance:
     name: Core physical-device acceptance

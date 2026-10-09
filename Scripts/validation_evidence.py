@@ -715,7 +715,11 @@ def inspect_report(args) -> int:
                 return 1
         for group, floors in report["coveragePolicy"].items():
             row = report.setdefault("groups", {}).setdefault(group, {})
-            row["coverageBaseline"] = {name: max(value, row.get("coverageBaseline", {}).get(name, value)) for name, value in floors.items()}
+            baseline = dict(row.get("coverageBaseline", {}))
+            for name, value in floors.items():
+                key = f"iOS/{name}" if group == "all" else name
+                baseline[key] = max(value, baseline.get(key, value))
+            row["coverageBaseline"] = baseline
         write_report(report)
         return 0
     if args.action in {"bind-merge", "check-merge"}:

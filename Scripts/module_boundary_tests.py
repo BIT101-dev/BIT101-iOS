@@ -21,6 +21,17 @@ def run_self_test(rules: dict) -> None:
     from validation_policy import IOS_MODULE_COVERAGE_FLOORS
     from validation_test_areas import network_capability_self_test
     network_capability_self_test()
+    exported = swift_syntax_index_sources({'Modules/GalleryFeature/Sources/Service.swift': '''
+        public struct GalleryService { func internalMember() {} }
+        public extension GalleryService {
+            func exportedMember() { func localHelper() {}; localHelper() }
+            internal func internalOverride() {}
+            private func privateMember() {}
+        }
+        extension GalleryService { public func explicitMember() {} }
+    '''})
+    methods = next(iter(exported.values()))['functionRanges']
+    assert {function['name'] for function in methods if function['isExported']} == {'exportedMember', 'explicitMember'}
     assert graph_errors({'CourseDomain': {'ScoreDomain'}, 'ScoreDomain': set()})
     assert graph_errors({'ScheduleInfrastructure': {'ScoreInfrastructure'}, 'ScoreInfrastructure': set()})
     assert graph_errors({'ScheduleInfrastructure': {'ScheduleDomain'}, 'ScheduleDomain': set()}) == []

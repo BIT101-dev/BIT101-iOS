@@ -138,8 +138,9 @@ struct Handler { var value: String!; func read() -> String { value }; func catch
     findings.extend(ci_trigger_shell_self_test(workflow_source) + cross_file_view_request_self_test())
     from code_quality_rules import ci_wiring_findings
     assert ci_wiring_findings(workflow_source.replace("    tags: ['v*']\n", ""))
-    assert ci_wiring_findings(workflow_source.replace("run: python3 Scripts/validation_evidence.py check --recorded-environment", "run: echo skipped"))
-    assert ci_wiring_findings(workflow_source.replace("summary --recorded-environment", "summary"))
+    assert ci_wiring_findings(workflow_source.replace("run: python3 Scripts/ci_evidence.py check-release", "run: echo skipped"))
+    assert ci_wiring_findings(workflow_source.replace("run: python3 Scripts/ci_evidence.py export-core", "run: true"))
+    assert ci_wiring_findings(workflow_source.replace("verify modules all release-runtime ui", "verify modules all ui"))
     for event in ("pull_request", "push"):
         for filtering in ("paths", "paths-ignore"):
             assert ci_wiring_findings(workflow_source.replace(event + ":\n", event + f":\n    {filtering}: ['docs/**']\n", 1))

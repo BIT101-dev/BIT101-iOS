@@ -106,10 +106,8 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
     condition = "startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' && inputs.release_check"
     if acceptance.get("if") != condition or set(acceptance.get("needs", [])) != {"static-audit", "release-build", "catalyst-tests"}:
         errors.append(".github/workflows/ci.yml: 发布验收需要承接完整编译和行为 Job")
-    if not any(command == "python3 Scripts/validation_evidence.py check --recorded-environment" for command, _ in run_commands(acceptance)):
+    if not any(command == "python3 Scripts/ci_evidence.py check-release" for command, _ in run_commands(acceptance)):
         errors.append(".github/workflows/ci.yml: 发布验收需要默认核对提交绑定证据")
-    if not any(command == "python3 Scripts/validation_evidence.py summary --recorded-environment" for command, _ in run_commands(acceptance, include_always=True)):
-        errors.append(".github/workflows/ci.yml: 发布汇总需要沿用验收的记录环境")
     merge = mapping(jobs.get("merge-acceptance"))
     if merge.get("if") != "always() && github.event_name == 'pull_request'" \
             or set(merge.get("needs", [])) != {"static-audit", "release-build", "catalyst-tests", "physical-device"} \
@@ -134,14 +132,14 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
             or physical.get("runs-on") != ["self-hosted", "macOS", "xcode-27", "bit101-device"] \
             or physical.get("continue-on-error", False) is not False:
         errors.append(".github/workflows/ci.yml: 真机 Job 需要受信仓库来源、实体设备运行器与静态审计依赖")
-    physical_commands = {command for command, _ in run_commands(physical)}
-    if not {"Scripts/run-extended-tests.sh verify modules all ui", "python3 Scripts/validation_evidence.py bind-merge"} <= physical_commands:
+    physical_commands = {command for command, _ in run_commands(physical, include_always=True)}
+    if not {"Scripts/run-extended-tests.sh verify modules all release-runtime ui", "python3 Scripts/validation_evidence.py bind-merge", "python3 Scripts/ci_evidence.py export-core"} <= physical_commands:
         errors.append(".github/workflows/ci.yml: 真机 Job 需要执行、恢复并绑定完整验收")
     publishers = [step for step in physical.get("steps", []) if isinstance(step, dict)
         and step.get("uses") == "actions/upload-artifact@v7" and mapping(step.get("with")).get("name") == "validation-evidence"]
     if len(publishers) != 1 or publishers[0].get("if") != "always()" \
             or mapping(publishers[0].get("with")) != {"name": "validation-evidence",
-                "path": ".build/extended-automation/validation-evidence.json", "compression-level": 0,
+                "path": ".build/extended-automation/core-validation-evidence.json", "compression-level": 0,
                 "overwrite": True, "if-no-files-found": "error", "include-hidden-files": True}:
         errors.append(".github/workflows/ci.yml: 真机证据需要固定产物发布与完整诊断保留")
     if mapping(workflow.get("permissions")).get("actions") != "read":
@@ -167,6 +165,10 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
             errors.append(".github/workflows/ci.yml: 提交证据读取失败需要传播")
         errors.extend(evidence_execution_findings(shell(step), key, expected))
     steps = physical.get("steps", [])
+    exports = [step for step in steps if isinstance(step, dict) and step.get('run') == 'python3 Scripts/ci_evidence.py export-core']
+    if len(exports) != 1 or exports[0].get('if') != 'always()' or not publishers \
+            or steps.index(exports[0]) >= steps.index(publishers[0]):
+        errors.append('.github/workflows/ci.yml: CI 交换需要先导出核心验证组，保留完整人工证明在本地')
     diagnostics = [step for step in steps if isinstance(step, dict) and step.get('name') == 'Preserve validation diagnostics']
     if len(diagnostics) != 1 or diagnostics[0].get('if') != 'always()' \
             or not diagnostics[0].get('uses', '').startswith('actions/upload-artifact@') \
@@ -180,7 +182,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
     if len(checkouts) != 1 or mapping(checkouts[0].get('with')).get('clean') is not False:
         errors.append('.github/workflows/ci.yml: 真机工作区需要保留共享增量编译缓存')
     load = next((i for i, step in enumerate(steps) if baseline_command in shell(step)), -1)
-    verify = next((i for i, step in enumerate(steps) if isinstance(step, dict) and step.get("run") == "Scripts/run-extended-tests.sh verify modules all ui"), -1)
+    verify = next((i for i, step in enumerate(steps) if isinstance(step, dict) and step.get("run") == "Scripts/run-extended-tests.sh verify modules all release-runtime ui"), -1)
     bind = next((i for i, step in enumerate(steps) if isinstance(step, dict) and step.get("run") == "python3 Scripts/validation_evidence.py bind-merge"), -1)
     if not 0 <= load < verify < bind:
         errors.append(".github/workflows/ci.yml: 真机证据需要沿基准、执行和提交绑定顺序生成")
@@ -267,7 +269,7 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
     skipped_catalyst = workflow_source.replace("run: Scripts/run-extended-tests.sh catalyst", "run: echo skipped", 1)
     if not any("Catalyst 行为 Job 需要执行" in item for item in ci_wiring_findings(skipped_catalyst)):
         findings.append("代码质量规则边界自检失败：并行 Catalyst 行为用例执行门禁")
-    for before, after in (("run: Scripts/run-extended-tests.sh verify modules all ui", "run: true"),
+    for before, after in (("run: Scripts/run-extended-tests.sh verify modules all release-runtime ui", "run: true"),
             ("name: validation-evidence\n", "name: other-evidence\n"),
             ('baseline "$BIT101_BASE_COMMIT"', 'baseline "wrong-commit"'),
             ("catalyst-tests, physical-device]", "catalyst-tests]")):

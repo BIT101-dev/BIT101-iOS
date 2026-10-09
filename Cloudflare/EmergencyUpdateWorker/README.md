@@ -37,3 +37,5 @@ npx wrangler deploy
 `maximum_affected_build`，App 每天最多允许用户忽略提醒到当天结束。
 
 发布入口校验标题及正文的有效内容，并将 Build 限定在 JSON 精确整数范围内。服务端对启用状态的提醒执行同一载荷校验，异常配置返回 503。
+
+紧急配置发布使用用户级固定 `~/Library/Caches/BIT101-iOS/emergency-publish.lock`，同一主机的发布与关闭流程依次执行。锁覆盖配置生成、Wrangler 上传及结果确认，同一工作副本的固定配置路径持续覆盖复用。

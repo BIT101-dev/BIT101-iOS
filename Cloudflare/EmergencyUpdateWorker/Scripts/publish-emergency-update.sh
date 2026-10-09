@@ -3,6 +3,8 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 WRANGLER="$ROOT_DIR/node_modules/.bin/wrangler"
+source "$ROOT_DIR/../../Scripts/script-support.sh"
+bit101_acquire_script_lock "$HOME/Library/Caches/BIT101-iOS/emergency-publish.lock" BIT101_EMERGENCY_PUBLISH_LOCK_HELD "$0" "$@"
 if [[ $# -eq 1 && "$1" == --disable ]]; then
   cd "$ROOT_DIR"
   "$WRANGLER" kv key put emergency-update --binding EMERGENCY_CONFIG \

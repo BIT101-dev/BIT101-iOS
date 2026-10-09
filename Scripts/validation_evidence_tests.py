@@ -26,10 +26,12 @@ def run_self_test(subject) -> int:
         coverage_self_test()
         from ci_evidence import self_test as ci_evidence_self_test
         ci_evidence_self_test()
+        from validation_publication import self_test as publication_self_test
+        publication_self_test()
         from validation_merge import findings as merge_findings
         from validation_provenance import utc_now
         core = {'mergeCommit': 'commit', 'groups': {name: {'exitCode': 0, 'scope': 'full', 'summary': {},
-            'inputDigest': 'digest', 'environment': fixture_environment, 'recordedAt': utc_now().isoformat()} for name in ('all', 'ui', 'restore')}}
+            'inputDigest': 'digest', 'environment': fixture_environment, 'recordedAt': utc_now().isoformat()} for name in ('all', 'release-runtime', 'ui', 'restore')}}
         core['groups']['restore']['summary'] = {'runID': 'run', 'inputDigest': 'digest'}
         core['groups']['restore']['runID'] = 'run'
         assert not merge_findings(core, digest=lambda *args, **kwargs: 'digest', complete=lambda *args: True, commit='commit')

@@ -98,7 +98,7 @@ def artifact_lock_self_test(module) -> None:
 
 def baseline_policy_self_test(module) -> None:
     report = {'coverageBaseCommit': 'target', 'coveragePolicy': {'modules': {'Feature': 80}, 'all': {'Feature': 70}},
-        'groups': {'modules': {'coverageBaseline': {'Feature': 85}}}}
+        'groups': {'modules': {'coverageBaseline': {'Feature': 85}}, 'all': {'coverageBaseline': {'App': 65}}}}
     for fault in ('none', 'commit', 'missing', 'value', 'extra'):
         candidate = json.loads(json.dumps(report))
         if fault == 'commit': candidate['coverageBaseCommit'] = 'other'
@@ -111,7 +111,10 @@ def baseline_policy_self_test(module) -> None:
         if fault == 'none':
             actual = saved.call_args.args[0]
             assert actual['groups']['modules']['coverageBaseline'] == {'Feature': 85}
-            assert actual['groups']['all'] == {'coverageBaseline': {'Feature': 70}}
+            assert actual['groups']['all'] == {'coverageBaseline': {'iOS/Feature': 70, 'App': 65}}
+            from validation_coverage import regressions
+            assert regressions({'iOS/Feature': {'coveredLines': 69, 'executableLines': 100}},
+                actual['groups']['all']['coverageBaseline']) == ['iOS/Feature: 69% < 70%']
         else: saved.assert_not_called()
 
 

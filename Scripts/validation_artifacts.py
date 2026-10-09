@@ -21,7 +21,8 @@ fixed_children = {
         "TestResults", "artifacts", "checkouts", "repositories", "debug", "release", "debug.yaml", "release.yaml",
         "out", "manifest.pif", "workspace-state.json", "module-events.jsonl", "test-metrics.txt", "test-failures.txt",
         "test-results.xcresult", "ui-tests.log", "ui-tests-build.log", "failure-hierarchy.txt", "diagnostics",
-        "validation-evidence.json", "validation-evidence.lock", "manual-scenarios.json"} | {name + ".log" for name in TEST_GROUPS}
+        "validation-evidence.json", "validation-evidence.lock", "manual-scenarios.json",
+        "release-receipt.json", "core-validation-evidence.json"} | {name + ".log" for name in TEST_GROUPS}
         | {"build-" + name + ".log" for name in BUILD_HOSTS},
     ".build/icloud-cross-device-smoke": {"Phone", "Mac", "test-results.xcresult", "report.json", "signing.entitlements",
         "build.log", "mac-build.log", "mac-receive.log", "testPhoneRoundTrip.log", "testCleanup.log"},

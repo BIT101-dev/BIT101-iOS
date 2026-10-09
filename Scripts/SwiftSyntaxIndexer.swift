@@ -270,6 +270,23 @@ final class FactVisitor: SyntaxVisitor {
     }
     override func visitPost(_ node: ProtocolDeclSyntax) { leave() }
 
+    private func functionIsExported(_ node: FunctionDeclSyntax) -> Bool {
+        let access = Set(["public", "package", "open", "internal", "fileprivate", "private"])
+        let exported = Set(["public", "package", "open"])
+        if let modifier = node.modifiers.first(where: { access.contains($0.name.text) }) {
+            return exported.contains(modifier.name.text)
+        }
+        var parent = node.parent
+        while let ancestor = parent {
+            if let extensionNode = ancestor.as(ExtensionDeclSyntax.self) {
+                return extensionNode.modifiers.contains { exported.contains($0.name.text) }
+            }
+            if ancestor.is(DeclSyntax.self) { return false }
+            parent = ancestor.parent
+        }
+        return false
+    }
+
     override func visit(_ node: FunctionDeclSyntax) -> SyntaxVisitorContinueKind {
         recordParameters(node.signature.parameterClause.parameters, body: node.body)
         let isTest = node.attributes.contains { element in
@@ -295,7 +312,7 @@ final class FactVisitor: SyntaxVisitor {
                 FunctionParameterFact(label: $0.firstName.text == "_" ? "" : $0.firstName.text, type: $0.type.trimmedDescription,
                     hasDefault: $0.defaultValue != nil, variadic: $0.ellipsis != nil, name: ($0.secondName ?? $0.firstName).text)
             }, bodyStart: node.body?.positionAfterSkippingLeadingTrivia.utf8Offset,
-            isExported: node.modifiers.contains { ["public", "package", "open"].contains($0.name.text) }
+            isExported: functionIsExported(node)
         ))
         functionStack.append((node.name.text, scope, closureDepth))
         if let body = node.body, body.statements.count == 1,

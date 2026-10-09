@@ -165,6 +165,10 @@ export class QuotaFixture extends ReportQuota {
   for (const args of [["1", " ", "fixture"], ["1", "fixture", " "], ["9007199254740992", "fixture", "fixture"]]) {
     assert.equal(require("node:child_process").spawnSync("zsh", ["Scripts/publish-emergency-update.sh", ...args]).status, 64);
   }
+  const publisher = fs.readFileSync("Scripts/publish-emergency-update.sh", "utf8");
+  assert(publisher.includes('source "$ROOT_DIR/../../Scripts/script-support.sh"'));
+  assert(publisher.includes('bit101_acquire_script_lock "$HOME/Library/Caches/BIT101-iOS/emergency-publish.lock" BIT101_EMERGENCY_PUBLISH_LOCK_HELD "$0" "$@"'));
+  assert(publisher.indexOf("bit101_acquire_script_lock") < publisher.indexOf('"$WRANGLER" kv key put'));
   let chunks = 0, cancelled = false;
   const stream = new ReadableStream({
     pull(controller) { chunks += 1; controller.enqueue(new Uint8Array(1024 * 1024)); },

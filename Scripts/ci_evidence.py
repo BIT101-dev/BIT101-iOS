@@ -9,6 +9,7 @@ import subprocess
 import sys
 from types import SimpleNamespace
 from pathlib import Path
+from validation_publication import RECEIPT, CORE_REPORT, release_receipt, receipt_findings, core_exchange
 
 ROOT = Path(__file__).resolve().parents[1]
 REPORT = ROOT / '.build/extended-automation/validation-evidence.json'
@@ -34,9 +35,28 @@ def download_run(run: int, repo: str) -> None:
     from validation_evidence import report_lock
     with report_lock():
         REPORT.parent.mkdir(parents=True, exist_ok=True)
-        REPORT.unlink(missing_ok=True)
+        CORE_REPORT.unlink(missing_ok=True)
         subprocess.run(['gh', 'run', 'download', str(run), '--repo', repo, '--name', ARTIFACT, '--dir', str(REPORT.parent)],
             cwd=ROOT, capture_output=True, text=True, check=True)
+        from validation_evidence import write_report
+        write_report(json.loads(CORE_REPORT.read_text()))
+
+
+def export_core() -> None:
+    from validation_evidence import report_lock
+    with report_lock():
+        CORE_REPORT.write_text(json.dumps(core_exchange(json.loads(REPORT.read_text())), ensure_ascii=False, indent=2) + '\n')
+
+
+def check_release() -> None:
+    import validation_evidence
+    receipt = json.loads(RECEIPT.read_text())
+    tag = receipt.get('tag', '') if isinstance(receipt, dict) else ''
+    version_tag(tag)
+    commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
+    errors = receipt_findings(receipt, tag, commit, validation_evidence.source_digest)
+    if errors: raise ValueError('\n'.join(errors))
+    print('公开发布回执通过：完整验收、源码、工具链及采样时间。')
 
 
 def baseline(commit: str) -> None:
@@ -115,12 +135,15 @@ def release(tag: str, *, publish: bool = False) -> None:
         with validation_evidence.report_lock():
             if validation_evidence.inspect_report(SimpleNamespace(action='check', recorded_environment=False)):
                 raise ValueError('发布证据需要完整发布验收与提交绑定。')
-            subprocess.run(['gh', 'release', 'upload', tag, str(REPORT), '--repo', repository(), '--clobber'],
+            receipt = release_receipt(json.loads(REPORT.read_text()), tag, validation_evidence.source_digest)
+            RECEIPT.write_text(json.dumps(receipt, ensure_ascii=False, indent=2) + '\n')
+            subprocess.run(['gh', 'release', 'upload', tag, str(RECEIPT), '--repo', repository(), '--clobber'],
                 cwd=ROOT, capture_output=True, text=True, check=True)
         return
     with validation_evidence.report_lock():
         REPORT.parent.mkdir(parents=True, exist_ok=True)
-        command = ['gh', 'release', 'download', tag, '--repo', repository(), '--pattern', REPORT.name,
+        RECEIPT.unlink(missing_ok=True)
+        command = ['gh', 'release', 'download', tag, '--repo', repository(), '--pattern', RECEIPT.name,
             '--dir', str(REPORT.parent), '--clobber']
         subprocess.run(command, cwd=ROOT, capture_output=True, text=True, check=True)
 
@@ -180,11 +203,15 @@ def self_test() -> None:
             if fault != 'none': download.assert_not_called()
     with patch.object(module, 'version_tag'), patch.object(module, 'repository', return_value='owner/repo'), \
             patch.object(Path, 'mkdir'), patch.object(subprocess, 'run') as command, \
+            patch.object(Path, 'read_text', return_value='{}'), patch.object(Path, 'write_text'), patch.object(Path, 'unlink'), \
+            patch.object(module, 'release_receipt', return_value={'schemaVersion': 1}), \
             patch('validation_evidence.inspect_report', return_value=0), patch('validation_evidence.report_lock'):
         release('v1.0', publish=True)
         assert command.call_args.args[0][:4] == ['gh', 'release', 'upload', 'v1.0']
+        assert command.call_args.args[0][4] == str(RECEIPT)
         release('v1.0')
         assert command.call_args.args[0][:4] == ['gh', 'release', 'download', 'v1.0']
+        assert RECEIPT.name in command.call_args.args[0]
     for target, accepted in (('commit', True), ('other', False)):
         with patch.object(subprocess, 'check_output', side_effect=[target, 'commit']):
             try: version_tag('v1.0')
@@ -202,6 +229,8 @@ def self_test() -> None:
         (['review-pr', '12'], 'review_pr', ((12,), {})),
         (['release', 'v1.0'], 'release', (('v1.0',), {'publish': False})),
         (['publish', 'v1.0'], 'release', (('v1.0',), {'publish': True})),
+        (['check-release'], 'check_release', ((), {})),
+        (['export-core'], 'export_core', ((), {})),
     ):
         with patch.object(sys, 'argv', ['ci_evidence.py', *arguments]), patch.object(module, operation, return_value='b' * 40) as execute, \
                 patch.object(sys, 'stdout', StringIO()) as output:
@@ -214,7 +243,7 @@ def self_test() -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('baseline', 'current', 'review-pr', 'release', 'publish'))
+    parser.add_argument('action', choices=('baseline', 'current', 'review-pr', 'release', 'publish', 'check-release', 'export-core'))
     parser.add_argument('identity', nargs='?', default='')
     parser.add_argument('--results', default='')
     args = parser.parse_args()
@@ -222,6 +251,8 @@ def main() -> int:
         if args.action == 'baseline': baseline(args.identity)
         elif args.action == 'current': current(args.results)
         elif args.action == 'review-pr': print(review_pr(int(args.identity)))
+        elif args.action == 'check-release': check_release()
+        elif args.action == 'export-core': export_core()
         else: release(args.identity, publish=args.action == 'publish')
         return 0
     except (ValueError, SyntaxError, KeyError, OSError, subprocess.CalledProcessError) as error:

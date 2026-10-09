@@ -698,7 +698,6 @@ def main() -> int:
                 errors.append(f"{module} imports undeclared {imported}: {', '.join(sorted(files))}")
 
     from validation_test_areas import network_capability_findings
-    errors.extend(network_capability_findings(network_index))
     for name, info in (support | tests).items():
         source_root = root / info["path"]
         if not source_root.is_dir() or not info["path"].startswith("ModuleTests/"):
@@ -718,6 +717,7 @@ def main() -> int:
         expanded = expanded_resource_source(source, imported_aliases(source, app_aliases, module_aliases), Path(path).relative_to(root).as_posix())
         if expanded != source: normalized[path] = expanded
     app_syntax.update(swift_syntax_index_sources(normalized) if normalized else {})
+    errors.extend(network_capability_findings(network_index | app_syntax))
     adapter_index = {Path(path).relative_to(root).as_posix(): facts for path, facts in app_syntax.items()}
     for path, facts in app_syntax.items():
         source = Path(path).relative_to(root).as_posix()
