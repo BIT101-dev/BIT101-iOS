@@ -12,6 +12,7 @@ NETWORK_HARNESS_TYPES = {'ReleaseNetworkSmokeRunner', 'ReleaseNetworkSmokeDepend
 def constant_boolean(condition: str, resolve) -> bool | None:
     expression = re.sub(r'!(?!=)', ' not ', condition.replace('&&', ' and ').replace('||', ' or '))
     expression = re.sub(r'\btrue\b', 'True', re.sub(r'\bfalse\b', 'False', expression)).strip()
+    if '"' in expression or "'" in expression: return None
     try: node = ast.parse(expression, mode='eval').body
     except SyntaxError: return None
     def value(node):

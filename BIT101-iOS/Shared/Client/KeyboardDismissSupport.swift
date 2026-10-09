@@ -31,9 +31,11 @@ extension View {
 /// 安装器为当前窗口安装键盘附件和保留页面操作的键盘收起手势。
 @MainActor
 struct KeyboardBackgroundTapInstaller: UIViewRepresentable {
+    @Environment(\.appInteractionEvidence) private var interactionEvidence
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeUIView(context: Context) -> WindowObserverView {
+        context.coordinator.interactionEvidence = interactionEvidence
         let view = WindowObserverView()
         view.isUserInteractionEnabled = false
         view.onWindowChange = { [weak coordinator = context.coordinator] window in
@@ -43,6 +45,7 @@ struct KeyboardBackgroundTapInstaller: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: WindowObserverView, context: Context) {
+        context.coordinator.interactionEvidence = interactionEvidence
         context.coordinator.attach(to: uiView.window)
     }
 
@@ -52,6 +55,7 @@ struct KeyboardBackgroundTapInstaller: UIViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var interactionEvidence: ((String, String) -> Void)?
         private weak var window: UIWindow?
         private lazy var recognizer: UITapGestureRecognizer = {
             let recognizer = UITapGestureRecognizer(target: self, action: #selector(didTapBackground))
@@ -105,6 +109,7 @@ struct KeyboardBackgroundTapInstaller: UIViewRepresentable {
         @objc private func didTapBackground() {
             DispatchQueue.main.async { [weak self] in
                 guard let window = self?.window, Self.focusedInput(in: window) != nil else { return }
+                self?.interactionEvidence?("interaction.KeyboardBackgroundTapInstaller.background-tap", "tap")
                 AppKeyboard.dismiss()
             }
         }

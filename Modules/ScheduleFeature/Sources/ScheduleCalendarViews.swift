@@ -13,6 +13,7 @@ import UIKit
 
 /// 空白课表区域的原生操作菜单，按真实长按坐标定位菜单。
 struct ScheduleBlankContextMenuView: UIViewRepresentable {
+    @Environment(\.appInteractionEvidence) private var interactionEvidence
     let onShare: () -> Void
     let onImport: () -> Void
     let onMenuWillPresent: () -> Void
@@ -29,6 +30,7 @@ struct ScheduleBlankContextMenuView: UIViewRepresentable {
         view.onMenuWillPresent = onMenuWillPresent
         view.onShare = onShare
         view.onImport = onImport
+        view.interactionEvidence = interactionEvidence
         return view
     }
 
@@ -36,10 +38,12 @@ struct ScheduleBlankContextMenuView: UIViewRepresentable {
         uiView.onMenuWillPresent = onMenuWillPresent
         uiView.onShare = onShare
         uiView.onImport = onImport
+        uiView.interactionEvidence = interactionEvidence
     }
 }
 
 struct ScheduleEntryInteractionView: UIViewRepresentable {
+    @Environment(\.appInteractionEvidence) private var interactionEvidence
     let entry: ScheduleCalendarEntry
     let onTap: () -> Void
     var onMenuWillPresent: (() -> Void)? = nil
@@ -59,6 +63,7 @@ struct ScheduleEntryInteractionView: UIViewRepresentable {
         view.onTap = onTap
         view.onMenuWillPresent = onMenuWillPresent
         view.onShare = onShare
+        view.interactionEvidence = interactionEvidence
         return view
     }
 
@@ -66,6 +71,7 @@ struct ScheduleEntryInteractionView: UIViewRepresentable {
         uiView.onTap = onTap
         uiView.onMenuWillPresent = onMenuWillPresent
         uiView.onShare = onShare
+        uiView.interactionEvidence = interactionEvidence
         uiView.isContextMenuInteractionEnabled = onShare != nil
         uiView.accessibilityLabel = accessibilityLabel
         uiView.accessibilityValue = entry.subtitle.isEmpty ? "" : "地点：\(entry.subtitle)"
@@ -83,6 +89,7 @@ struct ScheduleEntryInteractionView: UIViewRepresentable {
 }
 
 final class ScheduleBlankContextMenuControl: UIControl {
+    var interactionEvidence: ((String, String) -> Void)?
     var shareTitle = "分享课表"
     var showsImport = true
     var onTap: (() -> Void)? {
@@ -111,6 +118,7 @@ final class ScheduleBlankContextMenuControl: UIControl {
     }
 
     @objc private func handleTap() {
+        interactionEvidence?("interaction.ScheduleBlankContextMenuControl.tap", "tap")
         onTap?()
     }
 
@@ -141,6 +149,7 @@ final class ScheduleBlankContextMenuControl: UIControl {
                 image: Self.coloredMenuImage("square.and.arrow.up"),
                 identifier: UIAction.Identifier(self.showsImport ? "schedule.menu.share" : "schedule.course.menu.share")
             ) { [weak self] _ in
+                self?.interactionEvidence?("interaction.ScheduleBlankContextMenuControl.share", "tap")
                 self?.onShare?()
             }]
             if self.showsImport {
@@ -149,6 +158,7 @@ final class ScheduleBlankContextMenuControl: UIControl {
                     image: Self.coloredMenuImage("square.and.arrow.down"),
                     identifier: UIAction.Identifier("schedule.menu.import")
                 ) { [weak self] _ in
+                    self?.interactionEvidence?("interaction.ScheduleBlankContextMenuControl.import", "tap")
                     self?.onImport?()
                 })
             }

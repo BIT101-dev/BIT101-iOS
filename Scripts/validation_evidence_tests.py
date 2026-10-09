@@ -574,14 +574,15 @@ def network_route_identity_self_test() -> None:
         '话廊关注流': {'mode': 'follow'}, '话廊热门流': {'mode': 'hot'}, '话廊推荐流': {},
         '话廊机器人流': {'mode': 'search', 'order': 'new', 'uid': '-1'},
         '话廊搜索': {'mode': 'search', 'order': 'new', 'uid': '-1', 'search': 'BIT101'},
-        '文章列表-最新': {}, '文章列表-高赞': {'order': 'like'}, '文章列表-热评': {'order': 'comment'},
+        '文章列表-最新': {'search': 'BIT101'}, '文章列表-高赞': {'order': 'like', 'search': 'BIT101'},
+        '文章列表-热评': {'order': 'comment', 'search': 'BIT101'},
     }
     for probe, parameters in variants.items():
         endpoint = 'https://bit101.flwfdd.xyz/' + ('papers' if probe.startswith('文章') else 'posters')
         requests = [{'method': 'GET', 'endpoint': endpoint, 'statusCode': 200,
                      'query': dict(parameters, page=str(page))} for page in (0, 1)]
         assert complete(probe, requests), probe
-        for key in ('order',) if probe.startswith('文章') else ('mode', 'order', 'uid', 'search', 'hide_bot'):
+        for key in ('order', 'search') if probe.startswith('文章') else ('mode', 'order', 'uid', 'search', 'hide_bot'):
             changed = deepcopy(requests)
             for row in changed:
                 if key in row['query']: row['query'].pop(key)

@@ -505,18 +505,20 @@ private struct PaperContentBlockView: View {
 /// 映射为系统动态颜色与系统字体，适配深色模式。
 private struct PaperRichTextView: UIViewRepresentable {
     @Environment(\.openURL) private var openURL
+    @Environment(\.appInteractionEvidence) private var interactionEvidence
     let text: AttributedString
     let textStyle: UIFont.TextStyle
     let textColor: UIColor
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(openURL: openURL)
+        Coordinator(openURL: openURL, interactionEvidence: interactionEvidence)
     }
 
     func makeUIView(context: Context) -> UITextView {
         let textView = UITextView()
         textView.backgroundColor = .clear
         textView.isEditable = false
+        textView.accessibilityIdentifier = "paper.body.rich-text"
         textView.isScrollEnabled = false
         textView.isSelectable = true
         textView.adjustsFontForContentSizeCategory = true
@@ -531,6 +533,7 @@ private struct PaperRichTextView: UIViewRepresentable {
 
     func updateUIView(_ uiView: UITextView, context: Context) {
         context.coordinator.openURL = openURL
+        context.coordinator.interactionEvidence = interactionEvidence
         uiView.attributedText = normalizedAttributedText()
     }
 
@@ -574,9 +577,11 @@ private struct PaperRichTextView: UIViewRepresentable {
 
     final class Coordinator: NSObject, UITextViewDelegate {
         var openURL: OpenURLAction
+        var interactionEvidence: ((String, String) -> Void)?
 
-        init(openURL: OpenURLAction) {
+        init(openURL: OpenURLAction, interactionEvidence: ((String, String) -> Void)?) {
             self.openURL = openURL
+            self.interactionEvidence = interactionEvidence
         }
 
         func textView(
@@ -587,6 +592,7 @@ private struct PaperRichTextView: UIViewRepresentable {
             guard case let .link(url) = textItem.content else { return defaultAction }
             guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return nil }
             return UIAction(title: defaultAction.title, image: defaultAction.image) { [weak self] _ in
+                self?.interactionEvidence?("interaction.PaperRichTextView.link", "tap")
                 self?.openURL(url)
             }
         }

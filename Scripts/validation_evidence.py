@@ -15,7 +15,7 @@ from functools import cache
 from contextlib import contextmanager
 sys.dont_write_bytecode = True
 from swift_source_index import swift_syntax_index_sources
-from validation_inputs import includes_input
+from validation_inputs import includes_input, repository_input_names
 from validation_policy import TEST_GROUPS, RELEASE_GROUPS, DEFAULT_VERIFY_GROUPS, FORMAL_RUNTIME_SUITES, MODULE_COVERAGE_FLOORS, IOS_MODULE_COVERAGE_FLOORS
 from validation_test_areas import TEST_AREA_SUITES
 from validation_compilation import compilation_condition
@@ -165,9 +165,7 @@ def network_inventory(scope: str = "all") -> set[str]:
 
 
 def source_digest(group: str = "", *, environment: dict | None = None) -> str:
-    names = subprocess.check_output([
-        "git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"
-    ], cwd=ROOT).decode().split("\0")
+    names = repository_input_names(ROOT)
     digest = hashlib.sha256(group.encode() + b"\0")
     if group:
         digest.update(json.dumps(environment_context(group) if environment is None else environment, sort_keys=True).encode() + b"\0")

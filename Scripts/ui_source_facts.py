@@ -87,12 +87,8 @@ def is_view_source(path: Path, code: str) -> bool:
 
 @cache
 def swift_files() -> list[Path]:
-    return sorted(
-        path
-        for source_root in SOURCE_ROOTS
-        if source_root.is_dir()
-        for path in source_root.rglob("*.swift")
-    )
+    from swift_source_index import repository_swift_files
+    return [path for path in repository_swift_files() if any(path.is_relative_to(root) for root in SOURCE_ROOTS)]
 
 
 @cache

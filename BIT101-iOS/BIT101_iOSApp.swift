@@ -284,9 +284,6 @@ struct BIT101_iOSApp: App {
             ContentView(transcriptService: lifecycle.transcriptService, localData: lifecycle.localData)
 #if BIT101_UI_TESTING
                 .uiTestExternalURLs()
-                .environment(\.appInteractionEvidence) { identifier, action in
-                    UITestAccessibilityActions.record(identifier, action: action)
-                }
 #endif
                 .environment(lifecycle.communityDestinations)
                 .environment(lifecycle.community)
@@ -298,6 +295,11 @@ struct BIT101_iOSApp: App {
                 .environmentObject(lifecycle.settings)
                 .environmentObject(lifecycle.preferenceCloudSync)
                 .appKeyboardDismissSupport()
+#if BIT101_UI_TESTING
+                .environment(\.appInteractionEvidence) { identifier, action in
+                    UITestAccessibilityActions.record(identifier, action: action)
+                }
+#endif
                 .appPromptHost()
 #if BIT101_UI_TESTING
                 .id(uiTestScene.revision)

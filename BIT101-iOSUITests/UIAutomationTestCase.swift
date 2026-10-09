@@ -464,7 +464,8 @@ nonisolated class UIAutomationTestCase: XCTestCase {
 
     @MainActor
     func checkScrollContainers() {
-        guard !preparingScene, !checkingScrollContainers, app.state == .runningForeground else { return }
+        guard !preparingScene, !checkingScrollContainers, app.state == .runningForeground,
+              UITestControlClient.request(["command": "keyboard-state"]) == "hidden" else { return }
         checkingScrollContainers = true
         defer { checkingScrollContainers = false }
         guard let response = UITestControlClient.request(["command": "scroll-inventory"]),

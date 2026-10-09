@@ -12,6 +12,10 @@ extension InteractionCoverageUITests {
         let summary = app.descendants(matching: .any)["paper.summary.1"]
         assertUI(summary.performAccessibilityAction(named: "打开文章"), "文章卡片应提供可执行的 VoiceOver 动作。")
         assertUI(app.navigationBars["文章详情"].appears(timeout: 5), "VoiceOver 动作应打开文章详情。")
+        let richText = app.textViews.matching(identifier: "paper.body.rich-text").firstMatch
+        reveal(richText)
+        richText.tapBriefly()
+        assertUI(app.navigationBars["文章详情"].exists, "富文本正文应保留文章详情上下文。")
         let link = app.links.matching(identifier: "正文链接").firstMatch
         reveal(link)
         link.tapBriefly()
@@ -354,6 +358,9 @@ extension InteractionCoverageUITests {
         tap("上一周")
         tap("第1周")
         let course = app.buttons["学校测试课程"]
+        course.tapBriefly()
+        assertUI(app.navigationBars["课程详情"].appears(timeout: 5), "点按课程应打开课程详情。")
+        tap("取消")
         course.press(forDuration: 1)
         tap("分享课程")
         dismissShareSheet()
@@ -663,6 +670,10 @@ extension InteractionCoverageUITests {
         assertUI(!app.buttons["login.submit"].isEnabled, "空凭据应禁用登录。")
         replaceTextWithKeyboard("ui-test-student", in: app.textFields["login.student-id"])
         assertUI(!app.buttons["login.submit"].isEnabled, "仅填写账号应保持登录禁用。")
+        let submitBounds = app.buttons["login.submit"].native.frame
+        app.native.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: submitBounds.midX, dy: submitBounds.maxY + 24)).tap()
+        assertUI(app.keyboards.firstMatch.disappears(timeout: 5), "点按表单空白区域应收起系统键盘。")
         replaceTextWithKeyboard("ui-test-password", in: app.secureTextFields["login.password"])
         app.collectionViews.firstMatch.swipeUp()
         dismissKeyboard()

@@ -323,7 +323,7 @@ def source_boundary_findings() -> list[str]:
     from ui_rules import check_design_token_boundaries
     extension_probes = [ROOT / name / "VisualProbe.swift" for name in ("BIT101Watch", "BIT101ScheduleWidgets", "BIT101WatchWidgets")]
     scanned_files.cache_clear()
-    with patch.object(Path, "rglob", lambda path, pattern: iter(probe for probe in extension_probes if probe.parent == path)):
+    with patch("swift_source_index.repository_swift_files", return_value=extension_probes):
         observed = scanned_files()
     scanned_files.cache_clear()
     extension_findings = []

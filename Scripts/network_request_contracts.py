@@ -147,7 +147,7 @@ def contracts_for(probe: str) -> list[RequestContract]:
     if probe.startswith('文章列表-'):
         orders = {'最新': None, '高赞': 'like', '热评': 'comment'}
         title = probe.removeprefix('文章列表-')
-        return [community('/papers', query={'order': orders[title]}, paging='page')] if title in orders else []
+        return [community('/papers', query={'order': orders[title], 'search': 'BIT101'}, paging='page')] if title in orders else []
     return CONTRACTS.get(probe, [])
 
 

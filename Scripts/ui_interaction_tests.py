@@ -22,6 +22,7 @@ def interaction_inventory_boundary_findings() -> list[str]:
         findings.append("UI 原生清单自测：新增交互需要同步库存")
     if not source_inventory_findings(native, native_manifest, set()):
         findings.append("UI 原生清单自测：验证用例移除触发归属检查")
+    findings.extend(native_runtime_boundary_findings(path))
     if source_inventory_findings(original, manifest, {"ExampleUITests/testScreen"}): findings.append("UI 清单自测：已归属交互")
     for change in ('struct Unvisited: View { var body: some View { Button("新页面") {} } }',
                    'extension Screen { var hiddenControl: some View { Toggle("新增", isOn: .constant(false)) } }'):
@@ -139,4 +140,46 @@ def interaction_inventory_boundary_findings() -> list[str]:
         if action.startswith("accessibility:") and not source_runtime_interaction_findings(control, contract,
                 [dict(row, actions=["tap", "accessibility:其他"])]):
             findings.append("UI 辅助交互自测：自定义动作核对名称")
+    return findings
+
+
+def native_runtime_boundary_findings(path: str) -> list[str]:
+    from ui_native_interactions import NATIVE_INTERACTION_ACTIONS
+    findings = []
+    for kind, action in NATIVE_INTERACTION_ACTIONS.items():
+        declaration = ('UIAction(title: "动作", identifier: UIAction.Identifier("native")) { _ in }'
+            if kind == 'UIAction' else kind + '()')
+        source = 'class Screen { func build() { let control = ' + declaration + '; control.accessibilityIdentifier = "native" } }'
+        syntax = swift_syntax_index_sources({path: source})
+        manifest = {key: (controls, {'ExampleUITests/testNative'}) for key, controls in interaction_source_inventory(syntax).items()}
+        row = dict(scope='ExampleUITests/testNative', identifier='native', label='', instance='control', actions=['tap' if action == 'selection' else action])
+        if not source_runtime_interaction_findings(syntax, manifest, []):
+            findings.append(f'UI 原生运行自测：{kind} 需要实际访问证据')
+        if source_runtime_interaction_findings(syntax, manifest, [row]):
+            findings.append(f'UI 原生运行自测：{kind} 接受对应动作证据')
+        if not source_runtime_interaction_findings(syntax, manifest, [dict(row, actions=['keyboard'])]):
+            findings.append(f'UI 原生运行自测：{kind} 核对动作类型')
+        if not source_runtime_interaction_findings(syntax, manifest, [dict(row, scope='ExampleUITests/testOther')]):
+            findings.append(f'UI 原生运行自测：{kind} 核对所属流程')
+    for source, action in [
+        ('class Screen { func build() { let input: UITextField = .init(); input.accessibilityIdentifier = "native" } }', 'input'),
+        ('typealias Field = UITextField; class Screen { func build() { let input = Field(); input.accessibilityIdentifier = "native" } }', 'input'),
+        ('class Field: UITextField { init() { accessibilityIdentifier = "native" } }; class Screen { func build() { let input = Field() } }', 'input'),
+        ('class Screen { func build() { let input = UITextView(); input.isEditable = false; input.accessibilityIdentifier = "native" } }', 'tap'),
+        ('class Screen { var interactionEvidence: ((String,String)->Void)?; let tap = UITapGestureRecognizer(target: self, action: #selector(tapped)); func tapped() { interactionEvidence?("native", "tap") } }', 'tap'),
+        ('class Screen { var interactionEvidence: ((String,String)->Void)?; func build() { let action = UIAction(title: title) { _ in interactionEvidence?("native", "tap") } } }', 'tap'),
+    ]:
+        syntax = swift_syntax_index_sources({path: source})
+        manifest = {key: (controls, {'ExampleUITests/testNative'}) for key, controls in interaction_source_inventory(syntax).items()}
+        row = dict(scope='ExampleUITests/testNative', identifier='native', instance='control', actions=[action])
+        if not source_runtime_interaction_findings(syntax, manifest, []) or source_runtime_interaction_findings(syntax, manifest, [row]):
+            findings.append('UI 原生运行自测：隐式构造、别名、继承、只读正文和回调保留证据合同')
+    source = 'class Timeline: UIScrollView { let pinch = UIPinchGestureRecognizer(); init() { accessibilityIdentifier = "timeline"; addGestureRecognizer(pinch) } }; class Screen { func build() { let view = Timeline() } }'
+    syntax = swift_syntax_index_sources({path: source})
+    manifest = {key: (controls, {'ExampleUITests/testNative'}) for key, controls in interaction_source_inventory(syntax).items()}
+    row = dict(scope='ExampleUITests/testNative', identifier='timeline', instance='timeline', actions=['scroll'])
+    if not source_runtime_interaction_findings(syntax, manifest, [row]):
+        findings.append('UI 原生运行自测：滚动载体需要独立手势动作')
+    if source_runtime_interaction_findings(syntax, manifest, [dict(row, actions=['scroll', 'gesture'])]):
+        findings.append('UI 原生运行自测：滚动与原生手势沿同一载体分别验证')
     return findings

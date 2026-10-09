@@ -259,7 +259,7 @@ struct CourseScheduleTabView: View {
                 .accessibilityIdentifier("interaction.CourseScheduleTabView.list")
                 .appGroupedListStyle()
                 .scrollContentBackground(.hidden)
-                .scrollDisabled(calendarAxisMode == .quantized)
+                .scrollDisabled(calendarAxisMode == .quantized || activeSchedule.firstDay != nil)
                 .frame(height: listHeight, alignment: .top)
                 .zIndex(0)
                 .onPreferenceChange(ScheduleRefreshStatusContentHeightKey.self) { height in

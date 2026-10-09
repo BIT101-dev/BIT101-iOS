@@ -1,17 +1,29 @@
 """Register validation groups and select their workflow inputs."""
 from pathlib import PurePosixPath, Path
 import re
+import subprocess
 from validation_policy import APP_TEST_GROUPS, TEST_GROUPS, NETWORK_GROUPS, RELEASE_GROUPS, BUILD_HOSTS, VERIFY_GROUPS, DEFAULT_VERIFY_GROUPS
 
 PRODUCT_ROOTS = {"Modules", "BIT101-iOS", "BIT101-iOS.xcodeproj", "BIT101ScheduleWidgets", "BIT101Watch", "BIT101WatchWidgets"}
 PRODUCT_FILES = {"Package.swift", "AppInfo.plist"}
 SHARED_TEST_FILES = {"ModuleTests/Support/FileServiceContract.swift"}
 PERFORMANCE_TEST_FILES = {"BIT101-iOSTests/PerformanceWorkload.swift", "BIT101-iOSTests/PerformanceWorkloads.json"}
+SWIFT_ROOTS = ("Modules", "BIT101-iOS", "BIT101-iOSTests", "BIT101-iOSUITests", "ModuleTests",
+    "BIT101ScheduleWidgets", "BIT101Watch", "BIT101WatchWidgets")
 VALIDATION_SCRIPTS = {"validation_evidence.py", "validation_inputs.py", "validation_policy.py", "validation_coverage.py", "validation_merge.py", "validation_environment.py", "validation_provenance.py", "validation_test_areas.py", "validation_manual.py", "validation_restore.py", "validation_media.py", "ManualEvidenceProbe.swift", "validate_distribution.py", "validate_versions.py", "swift_source_index.py", "SwiftSyntaxIndexer.swift", "code_quality_rules.py", "audit_callback_rules.py", "ci_wiring_rules.py", "check-module-boundaries.py"}
 VALIDATION_SCRIPTS.add("swift_type_index.py")
 VALIDATION_SCRIPTS.update({"validation_publication.py", "validation_compilation.py", "validation_performance.py", "network_capability_rules.py", "network_request_contracts.py"})
 BUILD_SCRIPTS = {"script-support.sh", "build-install-device.sh", "ci_evidence.py"}
 TEST_SCRIPTS = BUILD_SCRIPTS | VALIDATION_SCRIPTS | {"run-extended-tests.sh", "simulator-tests.sh"}
+
+
+def repository_input_names(root: Path) -> list[str]:
+    ignored = subprocess.run(["git", "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--",
+        *(":(glob)" + name + "/**/*.swift" for name in SWIFT_ROOTS)], cwd=root, check=True, capture_output=True).stdout
+    if ignored:
+        raise ValueError("源码目录中的 Swift 文件需要纳入 Git 输入范围：" + "、".join(filter(None, ignored.decode().split("\0"))))
+    names = subprocess.check_output(["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"], cwd=root)
+    return sorted(set(names.decode().split("\0")) - {""})
 
 
 def includes_input(name: str, group: str) -> bool:
@@ -33,7 +45,7 @@ def includes_input(name: str, group: str) -> bool:
         scripts = TEST_SCRIPTS
     elif host == "ui":
         tests = root == "BIT101-iOSUITests" or name == "docs/UI_INTERACTION_COVERAGE.md"
-        scripts = TEST_SCRIPTS | {"ui_source_facts.py", "ui_explanatory_text.py", "ui_rules.py", "ui_design_contracts.py", "ui_inventory.py"}
+        scripts = TEST_SCRIPTS | {"ui_source_facts.py", "ui_explanatory_text.py", "ui_rules.py", "ui_native_interactions.py", "ui_design_contracts.py", "ui_inventory.py"}
     elif host in NETWORK_GROUPS:
         tests = root == "BIT101-iOSTests" or root == "Cloudflare" and path.suffix != ".md"
         scripts = TEST_SCRIPTS | {"release-network-smoke.sh"}
@@ -52,6 +64,15 @@ def includes_input(name: str, group: str) -> bool:
 
 
 def self_test() -> None:
+    from unittest.mock import patch
+    from types import SimpleNamespace
+    with patch.object(subprocess, 'run', return_value=SimpleNamespace(stdout=b'')), \
+            patch.object(subprocess, 'check_output', return_value=b'BIT101-iOS/App.swift\0README.md\0BIT101-iOS/App.swift\0'):
+        assert repository_input_names(Path('.')) == ['BIT101-iOS/App.swift', 'README.md']
+    with patch.object(subprocess, 'run', return_value=SimpleNamespace(stdout=b'Modules/Feature/Sources/build/Probe.swift\0')):
+        try: repository_input_names(Path('.'))
+        except ValueError as error: assert 'Probe.swift' in str(error)
+        else: raise AssertionError('忽略源码需要进入输入范围门禁。')
     for group in RELEASE_GROUPS | TEST_GROUPS | NETWORK_GROUPS | {"build-" + host for host in BUILD_HOSTS}:
         assert includes_input("Package.swift", group), group
     dispatch = (Path(__file__).with_name("run-extended-tests.sh").read_text()

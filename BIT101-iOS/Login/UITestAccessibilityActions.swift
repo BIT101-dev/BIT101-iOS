@@ -280,7 +280,7 @@ enum UITestAccessibilityActions {
             invalidate()
             let response = input(["x": String(frame[0] + frame[2] / 2), "y": String(frame[1] + frame[3] / 2),
                                   "text": parameters["text"] ?? ""])
-            if response == "entered" { record(element.attributes) }
+            if response == "entered" { record(element.attributes, action: "input") }
             return Data(response.utf8)
         }
         if steps.contains(where: { $0["type"] == "49" }), elements.first?.attributes["elementType"] as? Int == 52 {

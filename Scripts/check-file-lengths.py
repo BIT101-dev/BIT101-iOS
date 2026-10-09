@@ -3,6 +3,7 @@
 from pathlib import Path
 import subprocess
 import argparse
+from validation_inputs import repository_input_names
 
 if not __debug__:
     raise RuntimeError("验证自测需要 Python 默认优化级别；请使用 python3 -E 执行入口。")
@@ -62,9 +63,7 @@ def main() -> int:
 
 
 def working_contents() -> dict[str, str]:
-    paths = subprocess.check_output(
-        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"], cwd=ROOT
-    ).decode().split("\0")
+    paths = repository_input_names(ROOT)
     contents = {}
     for name in sorted(set(paths) - {""}):
         path = ROOT / name

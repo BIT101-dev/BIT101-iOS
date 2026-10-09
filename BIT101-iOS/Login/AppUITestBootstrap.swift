@@ -218,6 +218,7 @@ final class UITestHTTPTransport: HTTPTransport {
         let method = request.httpMethod ?? "GET"
         let payload: Any
         switch path {
+        case "user/check": payload = [:] as [String: String]
         case "posters/claims": payload = [["id": 1, "text": "日常"]]
         case "manage/report_types": payload = [["id": 1, "text": "其他"]]
         case "manage/reports": payload = [:] as [String: String]

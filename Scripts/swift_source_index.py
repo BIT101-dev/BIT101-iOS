@@ -20,9 +20,9 @@ REGEX_RANGES_BY_SOURCE: dict[str, dict[int, int]] = {}
 
 
 def repository_swift_files() -> list[Path]:
-    roots = ("Modules", "BIT101-iOS", "BIT101-iOSTests", "BIT101-iOSUITests", "ModuleTests",
-        "BIT101ScheduleWidgets", "BIT101Watch", "BIT101WatchWidgets")
-    return sorted(path for name in roots for path in (ROOT / name).rglob("*.swift"))
+    from validation_inputs import SWIFT_ROOTS, repository_input_names
+    return [ROOT / name for name in repository_input_names(ROOT)
+        if Path(name).suffix == '.swift' and Path(name).parts[0] in SWIFT_ROOTS and (ROOT / name).is_file()]
 
 
 @cache

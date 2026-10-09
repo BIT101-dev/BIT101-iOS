@@ -37,6 +37,12 @@ def campus_fixture_self_test() -> None:
 
 
 def checker_boundary_findings() -> list[str]:
+    import warnings
+    from network_capability_rules import constant_boolean
+    with warnings.catch_warnings(record=True) as observed:
+        warnings.simplefilter('always')
+        assert constant_boolean(r'key == "row.\(id)"', lambda name: None) is None
+        assert not observed
     from swift_source_index import swift_code, swift_regex_ranges
     indexed_sources = {"RegexCache.swift": 'let label = "预热索引"; let pattern = /a\\/b/; // 已有事实\n',
         "CommentCache.swift": 'let number = 17 // 普通注释\n'}

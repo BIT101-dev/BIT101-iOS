@@ -556,49 +556,7 @@ INTERACTION_KINDS = {
 }
 
 
-NATIVE_INTERACTION_KINDS = {
-    "UIAction", "UIButton", "UITextField", "UITextView", "UISwitch", "UISlider", "UIStepper",
-    "UISegmentedControl", "UIPageControl", "UIPickerView", "UIDatePicker", "UIScrollView",
-    "UITapGestureRecognizer", "UILongPressGestureRecognizer", "UIPanGestureRecognizer",
-    "UIPinchGestureRecognizer", "UISwipeGestureRecognizer", "UIRotationGestureRecognizer",
-}
-
-
-def native_interaction_inventory(syntax: dict[str, dict]) -> dict[str, dict[str, int]]:
-    from swift_source_index import canonical_type_scope, declaration_conformances, expected_argument_types
-    from swift_type_index import SwiftTypeIndex
-    types = SwiftTypeIndex(syntax)
-    owners = {}
-    def kind(type_name, scope):
-        name = canonical_type_scope([type_name.rstrip("?!")])
-        if not name: return None
-        if name[-1] in NATIVE_INTERACTION_KINDS: return name[-1]
-        owner = next((tuple(scope[:depth]) + name for depth in range(len(scope), -1, -1)
-            if tuple(scope[:depth]) + name in owners), ())
-        return next((base.removeprefix("UIKit.") for base in sorted(owners.get(owner, []))
-            if base.removeprefix("UIKit.") in NATIVE_INTERACTION_KINDS), None)
-    inventory = {}
-    for path, facts in syntax.items():
-        owners = types.conformances(path)
-        if "Tests/" in path or "UITest" in Path(path).name: continue
-        for call in facts["invocations"]:
-            called = call["value"].split("(", 1)[0].strip()
-            candidates = [called.removesuffix(".init")]
-            if called == ".init":
-                candidates = expected_argument_types(facts, call)
-                returns = [value for value in facts["functionReturns"] if value["start"] == call["start"]]
-                candidates += [function.get("returnType", "") for function in facts["functionRanges"]
-                    if function["start"] <= call["start"] < function["end"]
-                    and any(value["name"] == function["name"] and value["scope"] == function["scope"] for value in returns)]
-                for binding in facts["bindings"]:
-                    if binding["start"] <= call["start"] < binding["start"] + len(binding["value"].encode()):
-                        typed = re.match(r"\w+\s*:\s*([^=]+)=", binding["value"])
-                        if typed: candidates.append(typed[1].strip())
-            control = next((value for candidate in candidates if (value := kind(candidate, call["scope"]))), None)
-            if control:
-                source = Path(path).relative_to(ROOT).as_posix() + ":" + (".".join(call["scope"]) or "global")
-                inventory.setdefault(source, Counter())[control] += 1
-    return inventory
+from ui_native_interactions import NATIVE_INTERACTION_KINDS, native_interaction_inventory, native_runtime_controls
 
 
 def resolved_interaction_name(types, path, call):
@@ -658,6 +616,7 @@ def documented_interactions() -> dict[str, tuple[dict, set]]:
 
 
 def interaction_selector(control: dict, syntax: dict) -> tuple[str, tuple[str, ...]] | None:
+    if "nativeSelector" in control: return control["nativeSelector"]
     literal = r'"((?:[^"\\]|\\.)+)"'
     if control["name"] in {"refreshable", "onSubmit", "onDelete", "onMove"}:
         marker = re.search(r'interactionEvidence\??\(\s*' + literal, control.get("callback", control["invocation"]))
@@ -696,12 +655,14 @@ def source_runtime_interaction_findings(syntax: dict[str, dict], documented: dic
     selectors = Counter()
     contracts = {}
     expressions = {}
+    native = native_runtime_controls(syntax)
     for path, facts in syntax.items():
         if "Tests/" in path or "UITest" in Path(path).name: continue
         active = active_swift_source(Path(path).read_text(), "ui").encode() if Path(path).is_file() else None
-        for control in facts.get("accessibilityControls", []) + facts.get("accessibilityControlCandidates", []):
-            control = dict(control, name=resolved_interaction_name(types, path, dict(control, value=control["name"])))
-            if control["name"] not in native_actions.keys() | gestures | actions.keys(): continue
+        for control in facts.get("accessibilityControls", []) + facts.get("accessibilityControlCandidates", []) + native.get(path, []):
+            if "nativeAction" not in control:
+                control = dict(control, name=resolved_interaction_name(types, path, dict(control, value=control["name"])))
+                if control["name"] not in native_actions.keys() | gestures | actions.keys(): continue
             if active is not None and active[control["start"]:control["start"] + 1] == b" ": continue
             source = Path(path).relative_to(ROOT).as_posix() + ":" + (".".join(control["scope"]) or "global")
             journeys = documented.get(source, ({}, set()))[1]
@@ -712,7 +673,7 @@ def source_runtime_interaction_findings(syntax: dict[str, dict], documented: dic
                 errors.append(f"源码交互需要明确的标识或标签合同：{source} · {control['name']} · {control['start']}")
                 continue
             kind, names = selector
-            action = "tap" if control["name"] == "onTapGesture" else "press" if control["name"] == "onLongPressGesture" else "gesture" if control["name"] in gestures else actions.get(control["name"], native_actions.get(control["name"], ""))
+            action = control.get("nativeAction") or ("tap" if control["name"] == "onTapGesture" else "press" if control["name"] == "onLongPressGesture" else "gesture" if control["name"] in gestures else actions.get(control["name"], native_actions.get(control["name"], "")))
             if control["name"] == "accessibilityAction":
                 named = re.search(r'accessibilityAction\(\s*named:\s*"((?:[^"\\]|\\.)+)"', control["invocation"])
                 if named: action += ":" + named[1]
@@ -721,7 +682,8 @@ def source_runtime_interaction_findings(syntax: dict[str, dict], documented: dic
             contracts[key] = tests
             expressions.setdefault(key, set()).add(control["expression"])
     def shares_carrier(key, other):
-        return key[0] == other[0] and key[1:3] == other[1:3] and key[3] != other[3] \
+        native_carrier = len(expressions[key]) == 1 and next(iter(expressions[key])).startswith("UIKit:")
+        return (key[0] == other[0] or native_carrier) and key[1:3] == other[1:3] and key[3] != other[3] \
             and any(action in {"scroll", "keyboard"} or action.startswith("accessibility") for action in (key[3], other[3])) \
             and len(expressions[key]) == 1 and expressions[key] == expressions[other]
     demands = []
