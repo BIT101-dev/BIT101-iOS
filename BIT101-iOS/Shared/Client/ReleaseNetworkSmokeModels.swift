@@ -376,7 +376,12 @@ struct ReleaseNetworkSmokeDependencies {
     var writeReport: @MainActor (ReleaseNetworkSmokeReport) throws -> Void = ReleaseNetworkSmokeReportStore.write
     var clearRawCourseResponse: @MainActor () throws -> Void = ReleaseNetworkSmokeReportStore.clearRawCourseResponse
     var writeRawCourseResponse: @MainActor (Data, String) throws -> Void = { try ReleaseNetworkSmokeReportStore.writeRawCourseResponse($0, runID: $1) }
-    var makeGallery: @MainActor () -> any NetworkSmokeGalleryServicing = { GalleryService() }
+    var makeGallery: @MainActor () -> any NetworkSmokeGalleryServicing = {
+        GalleryService(session: .appSession(), preferences: {
+            CommunityPreferenceSnapshot(hideBots: false, hiddenUserIDs: [], hideAnonymous: false,
+                useWebView: false, hideMakeupOutliers: false)
+        })
+    }
     var makeCourses: @MainActor () -> any NetworkSmokeCourseServicing = { CourseService() }
     var makePapers: @MainActor () -> any NetworkSmokePaperServicing = { PaperService() }
     var makeMine: @MainActor () -> any NetworkSmokeMineServicing = { MineService() }

@@ -17,7 +17,7 @@ class RequestContract:
     minimum: int = 1
     paging: str = ''
     scheme: str = 'https'
-    statuses: range = range(200, 300)
+    statuses: range | tuple[int, ...] = range(200, 300)
 
     def matches(self, request: dict) -> bool:
         endpoint = urlsplit(request['endpoint'])
@@ -40,8 +40,9 @@ class RequestContract:
             (self.paging == 'last_id' or int(value) > 0) for value in normalized[1:])
 
 
-def community(path: str, *, query: dict | None = None, minimum: int = 1, paging: str = '', method: str = 'GET') -> RequestContract:
-    return RequestContract(re.escape(API), path, method, query or {}, minimum, paging)
+def community(path: str, *, query: dict | None = None, minimum: int = 1, paging: str = '', method: str = 'GET',
+              statuses: range | tuple[int, ...] = range(200, 300)) -> RequestContract:
+    return RequestContract(re.escape(API), path, method, query or {}, minimum, paging, statuses=statuses)
 
 
 def teaching(path: str, method: str = 'GET') -> RequestContract:
@@ -69,7 +70,7 @@ CONTRACTS = {
     '文章详情': [community(r'/papers/\d+')],
     '文章评论': [community('/reaction/comments', query={'obj': r'paper\d+'}, paging='page')],
     '我的资料': [community('/user/info/0')],
-    '生产共享会话': [community('/user/info/0', minimum=3)],
+    '生产共享会话': [community('/user/info/0', minimum=2), community('/user/info/0', statuses=(401,))],
     '我的关注': [community('/user/followings', paging='page')],
     '我的粉丝': [community('/user/followers', paging='page')],
     '我的帖子': [community('/posters', query={'mode': 'search', 'uid': r'\d+'}, paging='page')],
@@ -122,4 +123,8 @@ def contracts_for(probe: str) -> list[RequestContract]:
 
 def complete(probe: str, requests: list[dict]) -> bool:
     contracts = contracts_for(probe)
-    return bool(contracts) and all(contract.complete(requests) for contract in contracts)
+    matched = bool(contracts) and all(contract.complete(requests) for contract in contracts)
+    if matched and probe == '生产共享会话':
+        return len(requests) == 3 and contracts[0].matches(requests[0]) \
+            and contracts[1].matches(requests[1]) and contracts[0].matches(requests[2])
+    return matched

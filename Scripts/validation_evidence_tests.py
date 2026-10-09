@@ -15,7 +15,8 @@ def run_self_test(subject) -> int:
     from validation_inputs import self_test as input_self_test
     fixture_environment = {'host': {'system': 'fixture'}, 'developer': '/fixture', 'xcode': {'version': 'fixture'}, 'compiler': {'path': '/fixture/swift-frontend', 'modified': 1, 'size': 100, 'sha256': 'a' * 64}, 'sdks': {'fixture': {'Version': '1'}}, 'device': {'identifier': 'fixture-phone', 'systemVersion': 'fixture-os', 'systemBuild': 'fixture-build'}}
     with patch(f'{module_name}.environment_context', return_value=fixture_environment), \
-            patch('validation_merge.environment_context', return_value=fixture_environment):
+            patch('validation_merge.environment_context', return_value=fixture_environment), \
+            patch('validation_merge.performance_findings', return_value=[]):
         from validation_provenance_tests import run_self_test as provenance_self_test
         from validation_test_areas import inventory_findings
         provenance_self_test(subject.record)
@@ -36,6 +37,8 @@ def run_self_test(subject) -> int:
         core['groups']['restore']['summary'] = {'runID': 'run', 'inputDigest': 'digest'}
         core['groups']['restore']['runID'] = 'run'
         assert not merge_findings(core, digest=lambda *args, **kwargs: 'digest', complete=lambda *args: True, commit='commit')
+        with patch('validation_merge.performance_findings', return_value=['性能退化']):
+            assert merge_findings(core, digest=lambda *args, **kwargs: 'digest', complete=lambda *args: True, commit='commit') == ['性能退化']
         for name in core['groups']:
             broken = json.loads(json.dumps(core))
             broken['groups'][name]['exitCode'] = 1
@@ -429,9 +432,10 @@ def network_trace_fixture(value: dict) -> dict:
                 if contract.paging == 'page': query['page'] = str(index)
                 if contract.paging == 'last_id' and index: query['last_id'] = '0'
                 request = {'method': contract.method, 'endpoint': 'https://' + example(contract.host) + example(contract.path),
-                    'statusCode': 200, 'query': query}
+                    'statusCode': next(iter(contract.statuses)), 'query': query}
                 assert contract.matches(request), (name, request)
                 requests.append(request)
+        if name == '生产共享会话': requests.insert(1, requests.pop())
         rows.append({'probe': name, 'requests': requests})
     value['requestEvidenceRequired'] = True
     value['requestEvidence'] = rows
@@ -486,3 +490,8 @@ def network_route_identity_self_test() -> None:
     for status in (100, 302, 401, 403, 500):
         assert not complete('BIT101 登录状态', [dict(login, statusCode=status)])
     assert not complete('BIT101 登录状态', [dict(login, endpoint=login['endpoint'].replace('https:', 'http:'))])
+    account = dict(login, endpoint='https://bit101.flwfdd.xyz/user/info/0')
+    phases = [account, dict(account, statusCode=401), account]
+    assert complete('生产共享会话', phases)
+    for statuses in ((200, 200, 200), (401, 200, 200), (200, 401, 500), (200, 403, 200), (200, 401), (200, 401, 200, 200)):
+        assert not complete('生产共享会话', [dict(account, statusCode=status) for status in statuses])

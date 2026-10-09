@@ -150,6 +150,31 @@ def validate_capture(proof: dict) -> None:
             raise ValueError('性能验收需要实际结果包导出的当前采样与已批准基线。')
 
 
+def merge_findings(report: dict, commit: str) -> list[str]:
+    from validation_manual import PERFORMANCE_WORKLOADS, performance_group, performance_comparison_complete
+    try:
+        approved = report['performanceBaseline']
+        if approved.get('schemaVersion') != 1 or set(approved['records']) != set(PERFORMANCE_WORKLOADS):
+            raise ValueError()
+        errors = []
+        for group in ('all', 'ui'):
+            row = complete_group_row(report['groups'][group])
+            proof = row['performance']
+            expected = {name for name, (test, _) in PERFORMANCE_WORKLOADS.items() if performance_group(test) == group}
+            if proof.get('schemaVersion') != 1 or set(proof['records']) != expected:
+                raise ValueError()
+            for name, current in proof['records'].items():
+                if current['sourceCommit'] != commit or current['capturedAt'] != row['recordedAt'] \
+                        or any(current['execution'][key] != row[field] for key, field in (
+                            ('runID', 'runID'), ('inputDigest', 'inputDigest'), ('sourceCommit', 'sourceCommit'),
+                            ('environment', 'environment'), ('bundleSHA256', 'resultBundleSHA256'))) \
+                        or not performance_comparison_complete(name, {'current': current, 'baseline': approved['records'][name]}):
+                    errors.append(f'{name} 需要本次完整真机采样与同环境批准基线，并满足性能退化上限。')
+        return errors
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return ['合并验收需要九个性能场景的完整采样和维护者批准基线。']
+
+
 def main(arguments: list[str]) -> int:
     if arguments == ['current'] or len(arguments) in {2, 3} and arguments[0] == 'baseline':
         kind = arguments[0]
@@ -165,9 +190,16 @@ def main(arguments: list[str]) -> int:
                 for name, metric in record['metrics'].items():
                     default = next(row['maxPercentRegression'] for row in raw if row['identifier'] == METRICS[name][0])
                     metric['maximumRegressionPercent'] = default if limit is None else limit
-        stored = json.loads(MEASUREMENTS.read_text()) if MEASUREMENTS.is_file() else {'schemaVersion': 1}
-        stored[kind] = proof
-        MEASUREMENTS.write_text(json.dumps(stored, ensure_ascii=False, indent=2) + '\n')
+        from validation_evidence import REPORT, report_lock, write_report
+        with report_lock():
+            stored = json.loads(MEASUREMENTS.read_text()) if MEASUREMENTS.is_file() else {'schemaVersion': 1}
+            stored[kind] = proof
+            MEASUREMENTS.write_text(json.dumps(stored, ensure_ascii=False, indent=2) + '\n')
+            if kind == 'baseline':
+                report = json.loads(REPORT.read_text())
+                report['performanceBaseline'] = proof
+                report.pop('mergeCommit', None)
+                write_report(report)
         print(MEASUREMENTS)
         return 0
     raise ValueError('性能命令：current；baseline 批准人 [最大退化百分比]。')

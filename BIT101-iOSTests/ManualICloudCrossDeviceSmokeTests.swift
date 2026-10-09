@@ -84,7 +84,7 @@ import ScoreInfrastructure
 import StorageCore
 import XCTest
 
-/// 真机与 Catalyst 使用独立验收账号和内存仓库，验证生产协调器接收完整成绩载荷和业务版本。
+/// 真机与 Catalyst 使用独立验收账号和磁盘仓库，验证生产协调器接收完整成绩载荷和业务版本。
 nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
     private enum Stage: String, Codable {
         case preparing
@@ -108,6 +108,12 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
         get throws { AppStorageSession(accountIdentifier: try ICloudSmokeEvidence.accountIdentifier(runID: runID())) }
     }
     private let preferenceDomain = "BIT101Tests.icloud-cross-device-smoke"
+    private static var storageRoot: URL {
+        get throws {
+            try XCTUnwrap(LocalAppFileService().directoryURL(.applicationSupportDirectory))
+                .appending(path: "ICloudSmoke", directoryHint: .isDirectory)
+        }
+    }
     @MainActor private var phoneSchedule: ScheduleSmokeStore?
     @MainActor private var propagationDeadline: Date?
 
@@ -117,8 +123,7 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
         private(set) var cache = ScheduleCache()
         var status = ScheduleCloudSyncStatus.idle
         let transport = AppScheduleCloudTransport()
-        private let repository = SchedulePersistenceStore(files: PreferenceMemoryFiles(),
-            storageRoot: URL(fileURLWithPath: "/icloud-smoke"), userStateMatches: ScheduleCloudSyncState.matches)
+        private let repository: SchedulePersistenceStore
         lazy var manager = ScheduleCloudSyncManager(local: ScheduleCloudLocalStore(
             currentAccount: { self.account },
             load: { session in
@@ -139,8 +144,14 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
 
         init(session: AppStorageSession) async throws {
             account = ScheduleCloudAccount(studentID: session.accountIdentifier, session: session, generation: 1)
+            repository = SchedulePersistenceStore(files: LocalAppFileService(),
+                storageRoot: try ICloudCrossDeviceSmokeTests.storageRoot, userStateMatches: ScheduleCloudSyncState.matches)
             cache.iCloudSyncEnabled = true
-            try await replaceCache(cache, source: .cloudBaseline, expected: nil)
+            switch await repository.load(for: session) {
+            case .loaded(let saved): cache = saved
+            case .missing: try await replaceCache(cache, source: .cloudBaseline, expected: nil)
+            case .unreadable: throw CocoaError(.fileReadCorruptFile)
+            }
         }
 
         func replaceCache(_ value: ScheduleCache, source: ScheduleCacheSaveSource, expected: Date? = nil) async throws {
@@ -148,6 +159,12 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
                 legacyAccountIdentifier: account.session.legacyAccountDirectoryNameForMigration,
                 source: source, expectedUpdatedAt: expected) else { throw CocoaError(.fileWriteUnknown) }
             cache = saved
+        }
+
+        func verifyReopenedCache() async throws {
+            let reopened = try await ScheduleSmokeStore(session: account.session)
+            XCTAssertTrue(try ScheduleCloudSyncState.matches(reopened.cache, cache))
+            XCTAssertEqual(reopened.cache.updatedAt, cache.updatedAt)
         }
     }
 
@@ -175,6 +192,8 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
         let manager = try smokeCoordinator()
         let prepared = await manager.stores.scoreCache.applySynced(payload, for: nil, replacing: nil)
         XCTAssertTrue(prepared)
+        try await verifyReopenedScores(manager)
+        try await schedule.verifyReopenedCache()
         configurePreferences(stage: "phone", coordinator: manager)
         var coordination = Coordination(
             token: try runID(), account: try smokeSession.accountDirectoryName,
@@ -197,6 +216,7 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
     func testMacReceiveAndRestore() async throws {
         let coordination = try await requireCoordination(stage: .phoneUploaded, selectPhoneAccount: true)
         let phoneVersion = try XCTUnwrap(coordination.phoneVersion)
+        try clearLocalSmokeFiles()
         let coordinator = try smokeCoordinator()
         defer { coordinator.setEnabled(false); clearLocalSmokePreferences() }
         coordinator.setEnabled(true)
@@ -214,6 +234,8 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
         XCTAssertEqual(schedule.status, .synchronized)
         XCTAssertEqual(schedule.cache.primaryScheduleTitle, try runID() + "-phone")
         XCTAssertTrue(try ScheduleCloudSyncState.matches(schedule.cache, scheduleFixture(stage: "phone")))
+        try await verifyReopenedScores(coordinator)
+        try await schedule.verifyReopenedCache()
         let priorRecord = try await schedule.transport.record(named: schedule.account.recordName)
         var returningSchedule = try scheduleFixture(stage: "mac")
         returningSchedule.updatedAt = Date().addingTimeInterval(1)
@@ -240,6 +262,8 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
         )
         configurePreferences(stage: "mac", coordinator: coordinator)
         completed.preferenceVersions = try await publishPreferences(coordinator: coordinator)
+        try await verifyReopenedScores(coordinator)
+        try await schedule.verifyReopenedCache()
         completed.stage = .macRestored
         try save(completed)
         coordinator.setEnabled(false)
@@ -251,6 +275,7 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
             return (try? await self.cloudRecordWasDeleted()) == true
         }
         XCTAssertTrue(cleaned, "Mac 应接收验收 KVS 删除，并确认 CloudKit 记录已删除")
+        try clearLocalSmokeFiles()
     }
 
     @MainActor
@@ -275,6 +300,8 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
         XCTAssertEqual(schedule.status, .synchronized)
         XCTAssertEqual(schedule.cache.primaryScheduleTitle, try runID() + "-mac")
         XCTAssertTrue(try ScheduleCloudSyncState.matches(schedule.cache, scheduleFixture(stage: "mac")))
+        try await verifyReopenedScores(manager)
+        try await schedule.verifyReopenedCache()
         try await restorePhoneState()
         print("ICLOUD_SMOKE_PHONE_VERIFIED token=\(coordination.token)")
     }
@@ -288,13 +315,13 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
                 userInfo: [NSLocalizedDescriptionKey: "遗留验收成绩密钥清理待完成，恢复标识已保留"])
         }
         defaults.removePersistentDomain(forName: preferenceDomain)
-        let files = PreferenceMemoryFiles()
+        let files = LocalAppFileService()
         let stores = AppAccountStores(
             communityMessages: GalleryMessageReadStore(defaults: defaults, session: { session }),
-            composerDrafts: ComposerDraftStore(files: files, applicationSupport: files.temporaryDirectoryURL,
+            composerDrafts: ComposerDraftStore(files: files, applicationSupport: try Self.storageRoot,
                 session: { session }, prepareImageData: { $0 }),
             scoreCache: ScoreCacheStore(
-                files: files, storageRoot: files.temporaryDirectoryURL,
+                files: files, storageRoot: try Self.storageRoot,
                 defaults: defaults, session: { session }
             ),
             scoreFilterPreferences: ScoreFilterPreferenceStore(defaults: defaults, session: { session }),
@@ -304,6 +331,23 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
             settings: AppSettingsStore(defaults: defaults, session: { session }),
             stores: stores, defaults: defaults, cloudStore: cloud, synchronizedDomains: Set(ExperimentalPreferenceSyncDomain.allCases)
         )
+    }
+
+    @MainActor
+    private func verifyReopenedScores(_ coordinator: ExperimentalPreferenceCloudSync) async throws {
+        let session = try smokeSession
+        let reopened = ScoreCacheStore(files: LocalAppFileService(), storageRoot: try Self.storageRoot,
+            defaults: try XCTUnwrap(UserDefaults(suiteName: preferenceDomain)), session: { session })
+        let current = await coordinator.stores.scoreCache.syncPayload(for: nil)
+        let persisted = await reopened.syncPayload(for: nil)
+        XCTAssertEqual(try ICloudSmokeEvidence.fingerprint(XCTUnwrap(persisted)),
+                       try ICloudSmokeEvidence.fingerprint(XCTUnwrap(current)))
+    }
+
+    private func clearLocalSmokeFiles() throws {
+        let files = LocalAppFileService()
+        let root = try Self.storageRoot
+        if files.fileExists(at: root) { try files.removeItem(at: root) }
     }
 
     @MainActor
@@ -424,6 +468,7 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
         }
         try removeCoordination(account: account)
         clearLocalSmokePreferences()
+        try clearLocalSmokeFiles()
         let name = try ScheduleCloudAccount(studentID: smokeSession.accountIdentifier, session: smokeSession, generation: 1).recordName
         do {
             _ = try await CKContainer.default().privateCloudDatabase.deleteRecord(withID: CKRecord.ID(recordName: name))

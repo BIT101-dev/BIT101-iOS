@@ -51,7 +51,7 @@ def receipt_findings(receipt: dict, tag: str, commit: str, digest) -> list[str]:
 
 
 def core_exchange(report: dict) -> dict:
-    return {key: value for key, value in report.items() if key in {'mergeCommit', 'testedCommit', 'sourceDigest'}} | {
+    return {key: value for key, value in report.items() if key in {'mergeCommit', 'testedCommit', 'sourceDigest', 'performanceBaseline'}} | {
         'groups': {name: complete_group_row(row) for name, row in report.get('groups', {}).items() if name in CORE_GROUPS | {'modules'}}}
 
 
@@ -80,6 +80,7 @@ def self_test() -> None:
             if fault == 'stale': changed['groups']['manual-device']['sampling']['startedAt'] = '2000-01-01T00:00:00+00:00'
             if fault == 'toolchain': changed['groups']['all']['toolchain'] = {'xcode': 'other'}
             assert receipt_findings(changed, 'v1.0', 'commit', digest), fault
-    core = core_exchange(report | {'mergeCommit': 'commit'})
+    core = core_exchange(report | {'mergeCommit': 'commit', 'performanceBaseline': {'records': {'fixture': 'approved'}}})
     assert core['mergeCommit'] == 'commit' and set(core['groups']) == CORE_GROUPS | {'modules'}
+    assert core['performanceBaseline'] == {'records': {'fixture': 'approved'}}
     assert 'manual-device' not in core['groups'] and 'private' not in core

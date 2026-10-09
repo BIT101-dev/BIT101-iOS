@@ -43,6 +43,7 @@ def run_self_test() -> None:
         except ValueError: pass
         else: raise AssertionError('手填采样需要匹配实际 xcresult 指标')
     producing_run_capture_self_test()
+    merge_regression_self_test()
 
 
 def producing_run_capture_self_test() -> None:
@@ -83,3 +84,51 @@ def producing_run_capture_self_test() -> None:
                     try: subject.capture_current()
                     except ValueError: pass
                     else: raise AssertionError('采样需要匹配完成时的生产运行')
+
+
+def merge_regression_self_test() -> None:
+    import json
+    from contextlib import nullcontext, redirect_stdout
+    from io import StringIO
+    import validation_evidence
+    from validation_manual_tests import evidence_fixture
+    measurements = json.loads(evidence_fixture('performance-baseline'))['scenarios']
+    report = {'groups': {}, 'performanceBaseline': {'schemaVersion': 1, 'records': {}}}
+    for name, scenario in measurements.items():
+        current, baseline = scenario['measurement']['current'], scenario['measurement']['baseline']
+        execution = current['execution']
+        row = report['groups'].setdefault(execution['group'], dict(execution,
+            recordedAt=current['capturedAt'], resultBundleSHA256=execution['bundleSHA256'],
+            performance={'schemaVersion': 1, 'records': {}}))
+        current['capturedAt'] = row['recordedAt']
+        row['performance']['records'][name] = current
+        report['performanceBaseline']['records'][name] = baseline
+    commit = subject.current_commit()
+    assert not subject.merge_findings(report, commit)
+    for fault in ('missing-baseline', 'missing-current', 'run', 'regression', 'approver', 'environment', 'raw-metrics', 'commit'):
+        changed = deepcopy(report)
+        current = changed['groups']['all']['performance']['records']['pagination']
+        baseline = changed['performanceBaseline']['records']['pagination']
+        if fault == 'missing-baseline': changed.pop('performanceBaseline')
+        if fault == 'missing-current': changed['groups']['ui']['performance']['records'].pop('startup')
+        if fault == 'run': current['execution']['runID'] = 'other'
+        if fault == 'regression':
+            baseline['metrics']['clockSeconds'].update(samples=[0.01] * 10, mean=0.01)
+            baseline['xcresultMetrics'][0]['testRuns'][0]['metrics'][0]['measurements'] = [0.01] * 10
+        if fault == 'approver': baseline['approvedBy'] = ''
+        if fault == 'environment': baseline['environment']['systemBuild'] = 'other'
+        if fault == 'raw-metrics': current['xcresultMetrics'][0]['testRuns'][0]['metrics'][0]['measurements'] = [0.01] * 10
+        if fault == 'commit': current['sourceCommit'] = '0' * 40
+        assert subject.merge_findings(changed, commit), fault
+    approved = deepcopy(report['performanceBaseline'])
+    for record in approved['records'].values():
+        for metric in record['xcresultMetrics'][0]['testRuns'][0]['metrics']: metric['maxPercentRegression'] = 10
+    with patch.object(subject, 'capture_current', return_value=approved), \
+            patch.object(Path, 'is_file', return_value=True), \
+            patch.object(Path, 'read_text', return_value='{"mergeCommit":"old","groups":{}}'), \
+            patch.object(Path, 'write_text'), patch.object(validation_evidence, 'report_lock', side_effect=nullcontext), \
+            patch.object(validation_evidence, 'write_report') as writer, redirect_stdout(StringIO()):
+        assert subject.main(['baseline', 'maintainer']) == 0
+        saved = writer.call_args.args[0]
+        assert 'mergeCommit' not in saved and set(saved['performanceBaseline']['records']) == set(measurements)
+        assert all(record['approvedBy'] == 'maintainer' for record in saved['performanceBaseline']['records'].values())

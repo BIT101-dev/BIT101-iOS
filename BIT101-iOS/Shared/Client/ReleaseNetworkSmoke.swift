@@ -233,14 +233,12 @@ final class ReleaseNetworkSmokeRunner {
                     }
                 }
             ])
-            let image = poster.images.first ?? poster.user.avatar
-            let imageURL = image.lowUrl.isEmpty ? image.url : image.lowUrl
-            if imageURL.isEmpty {
-                recordSkip("话廊图片下载", "帖子没有可用图片地址", area: .bit101, scope: scope)
-            } else {
+            if let imageURL = NetworkSmokePaging.imageURL(in: (posters ?? []).flatMap(\.images) + (posters ?? []).map(\.user.avatar)) {
                 _ = await probe("话廊图片下载", area: .bit101, scope: scope) {
                     try await self.fetchImageCount(urlString: imageURL)
                 }
+            } else {
+                recordSkip("话廊图片下载", "验收列表缺少可用图片地址", area: .bit101, scope: scope)
             }
             _ = await probe("话廊网页详情", area: .bit101, scope: scope) {
                 try await self.fetchHTMLCount(

@@ -21,6 +21,14 @@ import TransportCore
 @Suite("Network smoke coverage")
 @MainActor
 struct NetworkSmokeCoverageTests {
+    @Test func imageProbeUsesAnAvailableResourceAcrossTheSampledList() {
+        let empty = CommunityImage(mid: "empty", url: "", lowUrl: "")
+        let image = CommunityImage(mid: "image", url: "https://image.invalid/full", lowUrl: "https://image.invalid/low")
+        #expect(NetworkSmokePaging.imageURL(in: [empty, image]) == image.lowUrl)
+        #expect(NetworkSmokePaging.imageURL(in: [empty]) == nil)
+        #expect(NetworkSmokePaging.imageURL(in: [CommunityImage(mid: "full", url: image.url, lowUrl: "")]) == image.url)
+    }
+
     @Test func articleUnknownBlocksKeepTheirPositionAndOfferTheOriginal() {
         let raw = #"{"blocks":[{"id":"first","type":"paragraph","data":{"text":"正文"}},{"id":"future","type":"table","data":{"content":[["单元格"]]}},{"id":"last","type":"paragraph","data":{"text":"末段"}}]}"#
         let blocks = PaperContentRenderer.blocks(from: raw)

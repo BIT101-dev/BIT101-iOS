@@ -6,6 +6,10 @@ import GalleryFeature
 #if DEBUG || RELEASE_NETWORK_SMOKE
 @MainActor
 enum NetworkSmokePaging {
+    static func imageURL(in images: [CommunityImage]) -> String? {
+        images.lazy.map { $0.lowUrl.isEmpty ? $0.url : $0.lowUrl }.first { !$0.isEmpty }
+    }
+
     static func arrayPage<Value: Identifiable>(load: (Int) async throws -> [Value]) async throws -> [Value] where Value.ID == Int {
         let identity = AppAccountSession.storage.communityCredentials.identity
         let first = try await load(0)

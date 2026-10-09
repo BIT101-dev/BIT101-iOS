@@ -1,6 +1,7 @@
 """Require current core physical-device evidence before merging product changes."""
 from validation_provenance import sampling_evidence_current, complete_group_row
 from validation_environment import complete_environment, environment_context, toolchain_identity
+from validation_performance import merge_findings as performance_findings
 
 CORE_GROUPS = {'all', 'release-runtime', 'ui', 'restore'}
 
@@ -23,4 +24,5 @@ def findings(report: dict, *, digest, complete, commit: str, recorded_environmen
                 or row.get('scope') != 'full' or row.get('exitCode') != 0 or not complete(group, row.get('summary', {})) \
                 or not sampling_evidence_current({'startedAt': recorded, 'finishedAt': recorded}):
             errors.append(f'{group} 需要当前输入的完整真机验收，并在 24 小时内执行。')
+    errors.extend(performance_findings(report, commit))
     return list(dict.fromkeys(errors))

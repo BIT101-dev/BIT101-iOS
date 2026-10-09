@@ -18,7 +18,7 @@
 
 iCloud 验收在同一主机共用用户级流程锁，每次运行沿所属标识选择独立云端验收账号，恢复使用固定报告中的所属标识。构建安装、行为测试和独立 Smoke 共用流程锁，锁覆盖宿主安装、执行、固定报告写入及常规 App 恢复；聚合验证的子流程复用所持有的锁。iCloud 后台任务加载共享阶段函数，阶段计数沿宿主的结构化测试结果读取，通过阶段完成归集后清理生成结果；失败阶段将原始结果包及附件保留到所属宿主 `Logs/Test/test-results.xcresult`，阶段报告记录诊断位置。iCloud 清理结果及其阶段计数单独保存，独立恢复形成 `icloud-cleanup` 证据，业务阶段用于双向同步验收。
 
-iCloud 成绩验收使用无害的合成完整载荷、独立验收账号和内存仓库，覆盖成绩 KVS 与课表 CloudKit，成绩密文沿真实 iCloud 钥匙串传递密钥，完成后清理验收云端键、密钥及偏好。重置验收偏好前完成遗留密钥删除，删除失败时保留密钥标识。跨设备阶段共享五分钟传播期限，外部变更通知与钥匙串等待驱动重新核对，KVS 同步请求沿启动和写入触发。采样宿主独立启动，网络与 iCloud 专项各自组装所需服务。学校网络探针使用独立内存 Cookie 容器和已保存凭据重新启动认证，各认证目的保留实际短信挑战与业务继续证据。原始课表响应采样由当前 Smoke 服务实例持有。双端清理验收从远端确认验收 KVS 键、协调键与 CloudKit 记录均已删除。
+iCloud 成绩验收使用无害的合成完整载荷、独立验收账号和磁盘仓库，覆盖成绩 KVS 与课表 CloudKit，成绩密文沿真实 iCloud 钥匙串传递密钥，同步接收与发布后重新打开日程和成绩仓库核对完整载荷，完成后清理验收云端键、密钥、独立磁盘目录及偏好。重置验收偏好前完成遗留密钥删除，删除失败时保留密钥标识。跨设备阶段共享五分钟传播期限，外部变更通知与钥匙串等待驱动重新核对，KVS 同步请求沿启动和写入触发。采样宿主独立启动，网络与 iCloud 专项各自组装所需服务。学校网络探针使用独立内存 Cookie 容器和已保存凭据重新启动认证，各认证目的保留实际短信挑战与业务继续证据。原始课表响应采样由当前 Smoke 服务实例持有。双端清理验收从远端确认验收 KVS 键、协调键与 CloudKit 记录均已删除。
 
 | 工作流 | 入口 |
 | --- | --- |
@@ -249,7 +249,7 @@ Scripts/run_icloud_cross_device_smoke.sh report
 Scripts/run_icloud_cross_device_smoke.sh cleanup
 ```
 
-该专用流程通过 `ICLOUD_CROSS_DEVICE_SMOKE` 条件编译执行“真机 → Catalyst → 真机”，同时验证成绩 KVS 与课表 CloudKit Production。两个宿主从固定验收签名配置构建，并核对实际签名环境；课表通过生产协调器完成创建、接收、更新和再次接收，旧记录锁通过真实服务端冲突验收。手机发布完整成绩缓存及本次业务域版本，Mac 核对完整载荷摘要和接收版本，修改验收仓库中的课程名称并发布更新的载荷与业务域版本；手机核对 Mac 的新版本及变更后的完整载荷摘要。课表往返同时核对手动调课、自定义日程、DDL 完成状态和显示偏好；KVS 往返同时核对设置、成绩筛选、消息已读取并集及各域版本。两个宿主构造无害的合成成绩与课表，通过公共存储端口选择独立验收账号会话、内存文件服务和验收偏好，由生产同步协调器生成版本并完成接收与发布。成绩密文通过真实 KVS 传递，独立密钥通过 iCloud 钥匙串传递。
+该专用流程通过 `ICLOUD_CROSS_DEVICE_SMOKE` 条件编译执行“真机 → Catalyst → 真机”，同时验证成绩 KVS 与课表 CloudKit Production。两个宿主从固定验收签名配置构建，并核对实际签名环境；课表通过生产协调器完成创建、接收、更新和再次接收，旧记录锁通过真实服务端冲突验收。手机发布完整成绩缓存及本次业务域版本，Mac 核对完整载荷摘要和接收版本，修改验收仓库中的课程名称并发布更新的载荷与业务域版本；手机核对 Mac 的新版本及变更后的完整载荷摘要。课表往返同时核对手动调课、自定义日程、DDL 完成状态和显示偏好；KVS 往返同时核对设置、成绩筛选、消息已读取并集及各域版本。两个宿主构造无害的合成成绩与课表，通过公共存储端口选择独立验收账号会话、本机文件服务、固定独立磁盘目录和验收偏好，由生产同步协调器生成版本并完成接收与发布。成绩密文通过真实 KVS 传递，独立密钥通过 iCloud 钥匙串传递。
 
 两个宿主预先构建后并行执行，手机在同一测试进程内发布和接收，Mac 接收手机载荷后发布新版本。测试执行复用已构建宿主，运行阶段释放公共编译缓存锁。各宿主通过测试运行环境注入的同一运行标记选择本次协调记录。每个宿主要求一项用例执行并通过；宿主结果汇总到 `.build/icloud-cross-device-smoke/report.json`，完整结果包保存最近的业务验证阶段。异常清理保留该结果包并记录独立清理状态。错误钩子覆盖函数内部失败，信号钩子处理执行中断；故障注入自测验证恢复顺序和状态码。流程结束时清理验收云端键、偏好和协调数据，并恢复常规 Release App；聚合验证由外层统一恢复 App。中断后的恢复使用既有 `cleanup` 入口。`ICloudSmokeEvidenceTests` 通过离线用例验证旧版本、空缓存和同数量内容变化的验收边界。
 
@@ -308,7 +308,7 @@ iOS 的 `checks` 包含 `cold-start-session`、`offline-persistence`、`media-an
 
 清理按独立对象推进并保存成功进度，单个对象持续失败时继续清理其他对象，账号变化沿身份边界结束。清理异常保留待清理记录，连接恢复后执行 `Scripts/release-network-smoke.sh community-cleanup`。恢复清理沿独立 `community-cleanup` 范围记录结果，完整写入验收证据继续保留。固定报告保存关注恢复、图片引用、创建标识、写入结果与服务端删除确认，发布门禁核对三个域的点赞恢复、六个不同评论标识的删除、评论及回复的创建关系，以及帖子和文章删除。
 
-正式运行分组沿 `Scripts/validation_policy.py` 的 suite 登记执行 `ReleaseRuntimeContractTests`、`ExtendedLoginTests`、`LoginStorageTests`、`LoginBootstrapTests` 与 `NetworkClientTests`，覆盖生产组装、登录恢复、凭据持久化、退出清理、账号代际及网络请求行为；实际执行方法集合共同参与证据核对。
+正式运行分组沿 `Scripts/validation_policy.py` 的 suite 登记执行 `ReleaseRuntimeContractTests`、`ExtendedLoginTests`、`LoginStorageTests`、`LoginBootstrapTests`、`NetworkClientTests`、`FeatureCompositionTests`、`ExperimentalPreferenceCloudSyncTests` 与 `AppExternalDisplayTests`，覆盖生产组装、登录恢复、凭据持久化、退出清理、账号代际、页面依赖、生命周期云同步、外部展示及网络请求行为；实际执行方法集合共同参与证据核对。
 
 人工影像证据采用 PNG、JPEG、PDF 或 MP4，记录绑定所属专项；结构化反馈证据采用 JSON，必需字段为 `reportID`、`storageKey`、`storedReport`、`emailRecipient`、`emailMessageID` 与 `emailBody`。报告编号同时对应正式存储键、存储记录及收件正文，邮件 Message-ID 保存实际收件标识。
 
@@ -362,7 +362,7 @@ iOS 的 `checks` 包含 `cold-start-session`、`offline-persistence`、`media-an
 
 `metrics` 分别记录 `clockSeconds`、`peakPhysicalMemoryBytes` 的原始 `samples` 和 `mean`；登记时将 XCTest 显示单位换算为秒及字节。批准基线的两个指标各自保存 `maximumRegressionPercent`，验收核对采样次数、平均值及批准的退化上限。分页输入为 `pages: 1000`、`itemsPerPage: 100`、`passes: 2`，状态为 `MinePagedState` 与 `GalleryMessageListState`；图片输入为 `width: 1024`、`height: 1024`、`format: PNG`。长文章输入为 40 段、每段重复 64 次；GIF 为 256 × 256、24 帧，每次测量清空解码缓存；时间线为 200 门课程、20 周及 4000 次课程；课表每次测量执行十组往返切周。输入登记共用 `Scripts/validation_manual.py` 的工作负载表。
 
-完整真机行为及 UI 组完成时，将原始性能指标、结果包摘要与运行身份写入统一验证报告。运行 `Scripts/run-extended-tests.sh performance baseline 批准人` 从该报告保存批准基线，退化上限沿 XCTest 实际默认参数提取；显式百分比参数用于经过批准的调整。后续候选完成真机行为与 UI 组或聚合验证后，运行 `Scripts/run-extended-tests.sh performance current`。两份记录统一覆盖 `.build/extended-automation/performance-measurements.json` 的对应字段，再填入人工场景附件。
+完整真机行为及 UI 组完成时，将原始性能指标、结果包摘要与运行身份写入统一验证报告。运行 `Scripts/run-extended-tests.sh performance baseline 批准人` 从该报告保存批准基线，退化上限沿 XCTest 实际默认参数提取；显式百分比参数用于经过批准的调整。后续候选完成真机行为与 UI 组或聚合验证后，运行 `Scripts/run-extended-tests.sh performance current`。两份记录统一覆盖 `.build/extended-automation/performance-measurements.json` 的对应字段，再填入人工场景附件。基线批准同时保存到统一验证报告并随核心 CI 证据交换；真机 runner 沿该固定报告保留批准基线。合并门禁从本次完整行为与 UI 组提取九个场景，核对所属运行、源码、设备及工具链，并按批准上限验收耗时与内存退化。首次配置 runner 或变更采样环境时，维护者沿同一命令批准基线并再次执行候选验收。
 
 采集核对工作树及暂存区相对 HEAD 的构建输入、结果包摘要、运行标识、设备与工具链，登记人工附件时核对所属测试组完成时保存的原始指标与批准基线。共享文件服务契约同时验收内存及本机后端的目录、枚举、递归清理与失败注入。文档审计沿当前内容和 Git index 分别核对文件、标题锚点与引用式链接。
 
@@ -375,3 +375,5 @@ UI 自动化同时采集交互库存及宿主与 Feature / UI 模块的行覆盖
 成功的关键词复验沿同一输入摘要与环境复用此前完整组的证据，完整证据保留原运行标识、采样时间及性能指标。复验失败或构建输入变化进入对应分组的重新验收。网络 smoke 保存每个探针的实际 HTTP 方法、端点及状态码，端点移除凭据、查询参数及片段；完整验收沿 `Scripts/network_request_contracts.py` 核对业务端点、HTTP 方法、所需调用数量及分页查询。列表首屏为空时继续请求续页，消息空首屏使用零游标验收终止边界；首屏、续页与实际参数共同保存在请求证据中。
 
 `Scripts/run-extended-tests.sh report performance-run` 读取当前 XCTest 结果包中实际执行的性能用例，供 Catalyst 与真机采样检查。响应聚合沿 64 KiB 块追加字节并检查取消，声明长度通过边界检查后预留存储；传输合同分别验收声明长度与实际接收长度。
+
+网络读探针沿独立话廊筛选参数采样，图片下载从采样列表的图片及头像选择有效地址。完整详情验收要求线上课程、文章和话廊各具备可读取内容及图片资源；验收账号的数据准备沿专用账号流程执行，完整报告核对各项实际成功结果。共享社区会话合同顺序核对首次成功、无效凭据的 401 拒绝及恢复成功，正式 App 的完整账号操作沿 `account-lifecycle` 专项验收。
