@@ -12,6 +12,24 @@ import UniformTypeIdentifiers
 
 @MainActor
 struct MediaDependencyTests {
+    @Test(arguments: [0, RemoteImageResourceLimits.maximumEncodedBytes + 1])
+    func downloadingReplacesUnusableExistingCache(byteCount: Int) async throws {
+        let files = PreferenceMemoryFiles()
+        let bytes = try png(width: 2)
+        let transport = Images(bytes: bytes)
+        let media = environment(files: files, previewFiles: files, transport: transport)
+        let url = AppURL.required("https://example.invalid/cache.png")
+        let original = try await media.images.file(for: url)
+        try files.writeData(Data(repeating: 0, count: byteCount), to: original, options: [.atomic])
+        #expect(await media.images.cachedFile(for: url) == nil)
+        let repaired = try await media.images.file(for: url)
+        #expect(repaired == original)
+        #expect(try files.readData(at: repaired) == bytes)
+        #expect(await media.stillDecoder.image(at: repaired)?.size.width == 2)
+        #expect(await media.images.cachedFile(for: url) == repaired)
+        #expect(transport.requests == 2)
+    }
+
     @Test func resourceFilesAndDecodedHitsReuseTheirIdentityAndFollowAtomicReplacement() async throws {
         let files = PreferenceMemoryFiles()
         let transport = Images(bytes: try png(width: 2))

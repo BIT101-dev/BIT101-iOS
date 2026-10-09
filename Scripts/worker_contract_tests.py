@@ -203,10 +203,14 @@ export class QuotaFixture extends ReportQuota {
     const masked = forceRedact(value); assert(!masked.includes("SENSITIVE_VALUE") && !masked.includes("TAIL_VALUE") && masked.includes("[REDACTED]"));
     if (value.includes("available")) assert(masked.includes("available"));
   }
-  for (const value of ['<input type="password" value="SENSITIVE_VALUE">', '<input TYPE=pass&#x77;ord value="SENSITIVE_VALUE">',
+  for (const value of ['<meta name="csrf-token" content="SENSITIVE_VALUE">', '<meta content="SENSITIVE_VALUE" property="csrf&#45;token">',
+    '<script>const csrfToken = "SENSITIVE_VALUE;TAIL_VALUE";</script>', "<script>var _token = 'SENSITIVE_VALUE;TAIL_VALUE';</script>",
+    '<script>window["csrfToken"] = "SENSITIVE_VALUE";</script>', 'csrf_token=SENSITIVE_VALUE',
+    '<input type="password" value="SENSITIVE_VALUE">', '<input TYPE=pass&#x77;ord value="SENSITIVE_VALUE">',
     '<input name="pass&#119;ord" value="SENSITIVE_VALUE">', '<input name="pass&#x77ord" value="SENSITIVE_VALUE">',
     '<textarea name="access&lowbar;token">SENSITIVE_VALUE</textarea>']) {
-    assert(!forceRedact(value).includes("SENSITIVE_VALUE"));
+    const masked = forceRedact(value);
+    assert(!masked.includes("SENSITIVE_VALUE") && !masked.includes("TAIL_VALUE"));
   }
   const ordinaryInput = '<input type="text" name="summary" value="visible">';
   assert.equal(forceRedact(ordinaryInput), ordinaryInput);

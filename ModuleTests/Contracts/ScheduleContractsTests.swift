@@ -7,6 +7,30 @@ import ScheduleDomain
 import Testing
 
 struct ScheduleContractsTests {
+    @Test func maximumSharePayloadRoundTripsThroughConcurrentCodec() async throws {
+        let weeks = Array(1...20)
+        let courses = (0..<ScheduleShareCodeCodec.maximumCourseCount).map { index in
+            sharedCourse(weeks: weeks, name: "容量课程\(index)")
+        }
+        let clock = ContinuousClock()
+        let start = clock.now
+        let code = try await ScheduleShareCodeCodec.encodeForSharing(courses: courses)
+        let encoded = clock.now
+        let payload = try await ScheduleShareCodeCodec.decodeForImport(code, using: ScheduleCache())
+        print("[性能] 分享码 \(courses.count) 门课程 · 编码 \(start.duration(to: encoded)) · 解码 \(encoded.duration(to: clock.now))")
+        #expect(payload.courses.count == courses.count)
+        #expect(payload.courses.map(\.name) == courses.map(\.name))
+        #expect(payload.courses.map(\.weeks) == courses.map(\.weeks))
+        let canceled = Task { try await ScheduleShareCodeCodec.decodeForImport(code, using: ScheduleCache()) }
+        canceled.cancel()
+        do {
+            _ = try await canceled.value
+            Issue.record("取消后的分享码仍完成导入")
+        } catch {
+            #expect(error is CancellationError)
+        }
+    }
+
     @Test func archivingSchoolSnapshotsRetainsManualCoursesAcrossReloadAndRefresh() throws {
         var cache = ScheduleCache()
         cache.currentTerm = "term"
@@ -90,8 +114,8 @@ struct ScheduleContractsTests {
         #expect(occurrences.map { ScheduleSharedDateCodec.formatDate($0.startDate) } == ["2030-09-02", "2030-09-09", "2030-09-16"])
     }
 
-    private func sharedCourse(weeks: [Int], weekday: Int = 1, first: Int = 1, last: Int = 1) -> CourseRecord {
-        CourseRecord(id: "share-validation", term: "", name: "课程", teacher: "", classroom: "", description: "", weeks: weeks,
+    private func sharedCourse(weeks: [Int], weekday: Int = 1, first: Int = 1, last: Int = 1, name: String = "课程") -> CourseRecord {
+        CourseRecord(id: "share-validation", term: "", name: name, teacher: "", classroom: "", description: "", weeks: weeks,
             weekday: weekday, startSection: first, endSection: last, campus: "", number: "", credit: 0, hour: 0, type: "", category: "", department: "")
     }
 

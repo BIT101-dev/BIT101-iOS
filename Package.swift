@@ -55,7 +55,7 @@ let package = Package(
         .target(name: "ScheduleSync", dependencies: ["ScheduleDomain", "StorageCore"], path: "Modules/ScheduleSync/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
         .target(name: "SchedulePersistence", dependencies: ["ScheduleDomain", "StorageCore"], path: "Modules/SchedulePersistence/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
         .target(name: "ScheduleDomain", dependencies: ["ScheduleContracts"], path: "Modules/ScheduleDomain/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
-        .target(name: "ScheduleInfrastructure", dependencies: ["SchedulePorts", "ClientCore", "ScheduleDomain", "TransportCore"], path: "Modules/ScheduleInfrastructure/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
+        .target(name: "ScheduleInfrastructure", dependencies: ["SchedulePorts", "ClientCore", "ScheduleDomain", "ScheduleContracts", "TransportCore"], path: "Modules/ScheduleInfrastructure/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
         .target(name: "CommunityPersistence", dependencies: ["CommunityCore", "StorageCore"], path: "Modules/CommunityPersistence/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
         .target(name: "CommunityCore", dependencies: ["StorageCore"], path: "Modules/CommunityCore/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
         .target(name: "DesignSystemKit", path: "Modules/DesignSystemKit/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),

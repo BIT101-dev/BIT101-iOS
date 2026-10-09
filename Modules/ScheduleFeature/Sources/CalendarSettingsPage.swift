@@ -1,6 +1,7 @@
 import SchedulePorts
 #if os(iOS)
 import ClientCore
+import TransportCore
 import ScheduleDomain
 import DesignSystemKit
 
@@ -58,6 +59,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
     @State private var isShowingSystemCalendarDeleteConfirmation = false
     @State private var isUpdatingSystemCalendar = false
     @State private var calendarMutationTask: Task<Void, Never>?
+    @State private var scheduleExportTask: Task<Void, Never>?
     @State private var calendarMutationGeneration = 0
     @State private var shouldOpenImportSheetAfterGuide = false
     @State private var exportedScheduleCode: ExportedScheduleCode?
@@ -344,7 +346,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
                 initialText: "",
                 appStoreURL: appStoreURL,
                 onImport: { text in
-                    try importScheduleCode(text)
+                    try await importScheduleCode(text)
                 }
             )
         }
@@ -382,9 +384,13 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
                 }
             )
         }
-        .onDisappear { cancelCalendarMutation() }
+        .onDisappear {
+            cancelCalendarMutation()
+            scheduleExportTask?.cancel()
+        }
         .onChange(of: viewModel.accountGeneration) { _, _ in
             cancelCalendarMutation()
+            scheduleExportTask?.cancel()
             isShowingSystemCalendarImportConfirmation = false
             isShowingSystemCalendarDeleteConfirmation = false
         }
@@ -501,16 +507,22 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
     ///
     /// V3 导出课程排布骨架与学分，导入端复用本机的学期、首周和时间表。
     private func exportScheduleCode(allowEmptyCourseData: Bool = false) {
+        guard scheduleExportTask == nil else { return }
         guard allowEmptyCourseData || viewModel.settingsSnapshot.hasCourses else {
             isShowingEmptyScheduleExportConfirmation = true
             return
         }
 
-        do {
-            let code = try viewModel.exportScheduleCode()
-            exportedScheduleCode = ExportedScheduleCode(code: code)
-        } catch {
-            viewModel.notice = ScheduleNotice(title: "导出失败", message: error.localizedDescription)
+        scheduleExportTask = Task { @MainActor in
+            defer { scheduleExportTask = nil }
+            do {
+                let code = try await viewModel.exportScheduleCode()
+                exportedScheduleCode = ExportedScheduleCode(code: code)
+            } catch where TaskCancellation.matches(error) {
+                return
+            } catch {
+                viewModel.notice = ScheduleNotice(title: "导出失败", message: error.localizedDescription)
+            }
         }
     }
 
@@ -532,8 +544,8 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
     /// - `BIT101SCH3:<base64(lzfse(json(compactPayload)))>`：V3 精简数组载荷，额外包含学分
     ///
     /// 导入端根据版本前缀选择解析器，UI 使用同一导入窗口。
-    private func importScheduleCode(_ text: String) throws {
-        try viewModel.importScheduleCode(text)
+    private func importScheduleCode(_ text: String) async throws {
+        try await viewModel.importScheduleCode(text)
         didImportSchedule = true
     }
 }

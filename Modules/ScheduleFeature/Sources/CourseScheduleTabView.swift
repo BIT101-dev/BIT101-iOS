@@ -52,6 +52,7 @@ struct CourseScheduleTabView: View {
     @State var isResolvingCourseShare = false
     @State var calendarMutationTask: Task<Void, Never>?
     @State var courseShareTask: Task<Void, Never>?
+    @State var scheduleExportTask: Task<Void, Never>?
     @State var courseShareGeneration = 0
     @State var prefetchedCourseID: String?
     @State var prefetchedCourseResolution: ScheduleCourseShare?
@@ -473,7 +474,7 @@ struct CourseScheduleTabView: View {
                 initialText: "",
                 appStoreURL: destinations.appStoreURL,
                 onImport: { text in
-                    try importScheduleCode(text)
+                    try await importScheduleCode(text)
                 }
             )
         }

@@ -11,12 +11,35 @@ import Foundation
 extension ScheduleViewModel {
     public var settingsSnapshot: ScheduleSettingsSnapshot { ScheduleSettingsSnapshot(courses: courseState, preferences: presentationPreferences, sync: syncState) }
 
-    public func exportScheduleCode() throws -> String {
-        try ScheduleShareCodeCodec.encodeLatest(cache: persistenceSnapshot)
+    public func exportScheduleCode(courses: [CourseRecord]? = nil) async throws -> String {
+        let generation = accountGeneration
+        let code: String
+        do {
+            code = try await ScheduleShareCodeCodec.encodeForSharing(courses: courses ?? persistenceSnapshot.courses)
+        } catch {
+            try requireCurrentShareOperation(generation)
+            throw error
+        }
+        try requireCurrentShareOperation(generation)
+        return code
     }
 
-    public func importScheduleCode(_ text: String) throws {
-        try importSharedSchedule(ScheduleShareCodeCodec.decode(text, using: persistenceSnapshot))
+    public func importScheduleCode(_ text: String) async throws {
+        let generation = accountGeneration
+        let payload: ScheduleExportPayload
+        do {
+            payload = try await ScheduleShareCodeCodec.decodeForImport(text, using: persistenceSnapshot)
+        } catch {
+            try requireCurrentShareOperation(generation)
+            throw error
+        }
+        try requireCurrentShareOperation(generation)
+        try importSharedSchedule(payload)
+    }
+
+    private func requireCurrentShareOperation(_ generation: Int) throws {
+        try Task.checkCancellation()
+        guard accountGeneration == generation else { throw CancellationError() }
     }
 
     public func importCurrentTermToSystemCalendar() async throws -> Int {

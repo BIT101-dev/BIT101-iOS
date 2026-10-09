@@ -309,7 +309,7 @@ final class UIElement: NSObject {
     func pressReturnKey() {
         Self.beforeNativeTap?()
         let identity = interactionIdentity
-        native.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+        native.typeKey(.return, modifierFlags: [])
         recordInteraction(identity, action: "keyboard")
         UITestSnapshotReader.invalidate()
     }

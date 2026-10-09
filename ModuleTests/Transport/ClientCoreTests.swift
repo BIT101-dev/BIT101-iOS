@@ -16,6 +16,19 @@ private nonisolated enum ModuleCommunityError: Error, Equatable, CommunityAPISer
 
 @MainActor
 struct ScheduleInfrastructureTests {
+    @Test func classroomOccupancyParsingPreservesEverySectionOrRejectsTheResponse() async throws {
+        for (value, expected) in [("1, 2", [1, 2]), ("", []), ("  ", [])] {
+            let data = try JSONSerialization.data(withJSONObject: ["datas": ["cxkxjasqk": ["rows": [["JASMC": "A101", "ZYJC": value]]]]])
+            let response = try JSONDecoder().decode(ClassroomListResponse.self, from: data)
+            #expect(try await response.classroomRecords().first?.busyTimeCodes == expected)
+        }
+        for value in ["bad", "1,bad", "1,,2", "0", "-1", String(Int.max)] {
+            let data = try JSONSerialization.data(withJSONObject: ["datas": ["cxkxjasqk": ["rows": [["JASMC": "A101", "ZYJC": value]]]]])
+            let response = try JSONDecoder().decode(ClassroomListResponse.self, from: data)
+            await #expect(throws: ScheduleServiceError.self) { try await response.classroomRecords() }
+        }
+    }
+
     @Test func redirectAuthenticationHeadersStayBoundToTheirOrigin() throws {
         let session = URLSession(configuration: .ephemeral)
         defer { session.invalidateAndCancel() }
@@ -699,13 +712,22 @@ extension ScheduleInfrastructureTests {
         } catch { Issue.record("Unexpected error: \(error)") }
     }
 
-    @Test func schoolBusinessFailureRetainsTheServiceMessage() async {
-        let selected = service(transport: SequenceTransport([(200, Data(#"{"data":{"success":false,"msg":"学期查询失败"}}"#.utf8))]))
+    @Test(arguments: [
+        #"{"data":{"success":false,"msg":"学期查询失败"}}"#,
+        #"{"data":{"success":false}}"#,
+        #"{"success":false,"msg":""}"#,
+        #"{"datas":{"cxxszhxqkb":{"rows":[],"extParams":{"code":3,"msg":""}}}}"#,
+        #"{"datas":{"cxxszhxqkb":{"rows":[],"extParams":{"code":3}}}}"#
+    ])
+    func schoolBusinessFailureRetainsTheServiceMessage(json: String) async {
+        let selected = service(transport: SequenceTransport([(200, Data(json.utf8))]))
         do {
             let _: CurrentTermResponse = try await selected.sendJSONRequest(baseURL: AppURL.required("https://example.invalid"), path: "/term")
             Issue.record("A school business failure must reach its consumer")
         } catch let error as ScheduleServiceError {
-            if case .schoolResponse(let message) = error { #expect(message == "学期查询失败") }
+            if case .schoolResponse(let message) = error {
+                #expect(message == (json.contains("学期查询失败") ? "学期查询失败" : "学校接口返回失败状态。"))
+            }
             else { Issue.record("Unexpected business classification: \(error)") }
         } catch { Issue.record("Unexpected error: \(error)") }
     }

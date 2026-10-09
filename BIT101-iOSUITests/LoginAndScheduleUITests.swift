@@ -294,15 +294,18 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         app.tabBars.buttons["日程"].tapBriefly()
         let sharedSegment = app.segmentedControls.buttons["测试分享课表"]
         assertUI(sharedSegment.appears(timeout: 5), "导入和改名应增加课表分栏。")
-        app.descendants(matching: .any)["schedule.variant-surface"].swipeUp()
-        assertUI(app.segmentedControls.buttons.element(boundBy: 0).label == "课表", "向上滑动应从分享课表循环到主课表。")
-        app.descendants(matching: .any)["schedule.variant-surface"].swipeDown()
-        assertUI(app.segmentedControls.buttons.element(boundBy: 0).label == "测试分享课表", "向下滑动应恢复分享课表。")
+        app.swipeUp()
+        assertUI(waitUntil(NSPredicate(format: "label == %@", "课表"), on: app.segmentedControls.buttons.element(boundBy: 0), timeout: 5), "向上滑动应从分享课表循环到主课表。")
+        app.swipeDown()
+        assertUI(waitUntil(NSPredicate(format: "label == %@", "测试分享课表"), on: app.segmentedControls.buttons.element(boundBy: 0), timeout: 5), "向下滑动应恢复分享课表。")
         openSettings("calendar")
         reveal(shared, description: "分享课表名称")
+        checkScrollContainers()
         shared.swipeLeft()
-        tap("删除")
-        assertUI(!shared.exists, "左滑删除应移除分享课表。")
+        let delete = app.buttons["删除"]
+        assertUI(delete.native.waitForExistence(timeout: 5), "左滑应显示删除操作。")
+        delete.tapBriefly()
+        assertUI(shared.disappears(timeout: 5), "删除操作应移除分享课表。")
     }
 
 

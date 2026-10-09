@@ -2,6 +2,7 @@ import SchedulePorts
 #if os(iOS)
 import DesignSystemKit
 import ScheduleDomain
+import TransportCore
 import SwiftUI
 
 extension CourseScheduleTabView {
@@ -12,6 +13,7 @@ extension CourseScheduleTabView {
     func cancelPendingActions() {
         calendarMutationTask?.cancel()
         courseShareTask?.cancel()
+        scheduleExportTask?.cancel()
         courseShareGeneration &+= 1
         isResolvingCourseShare = false
     }
@@ -129,22 +131,28 @@ extension CourseScheduleTabView {
     }
 
     func exportScheduleCode() {
+        guard scheduleExportTask == nil else { return }
         guard !activeSchedule.courses.isEmpty else {
             viewModel.notice = ScheduleNotice.userInput(title: "无法分享课表", message: "你尚未获取课表。")
             return
         }
 
-        do {
-            exportedSchedule = ScheduleCodePresentation(
-                code: try ScheduleShareCodeCodec.encodeLatest(courses: activeSchedule.courses)
-            )
-        } catch {
-            viewModel.notice = ScheduleNotice(title: "导出失败", message: error.localizedDescription)
+        let courses = activeSchedule.courses
+        scheduleExportTask = Task { @MainActor in
+            defer { scheduleExportTask = nil }
+            do {
+                let code = try await viewModel.exportScheduleCode(courses: courses)
+                exportedSchedule = ScheduleCodePresentation(code: code)
+            } catch where TaskCancellation.matches(error) {
+                return
+            } catch {
+                viewModel.notice = ScheduleNotice(title: "导出失败", message: error.localizedDescription)
+            }
         }
     }
 
-    func importScheduleCode(_ text: String) throws {
-        try viewModel.importScheduleCode(text)
+    func importScheduleCode(_ text: String) async throws {
+        try await viewModel.importScheduleCode(text)
         viewModel.notice = ScheduleNotice.informational(title: "导入成功", message: "分享的课表已导入。考试、DDL 与自定义日程不会随导入覆盖。")
     }
 

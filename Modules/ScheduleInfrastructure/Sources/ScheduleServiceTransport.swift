@@ -111,7 +111,7 @@ extension ScheduleService {
                 let normalizedPath = path.map { $0.lowercased() }
                 let isRecord = normalizedPath.contains(where: recordKeys.contains)
                 let isEnvelope = path.isEmpty || normalizedPath.last.map(envelopeKeys.contains) == true
-                if !trimmed.isEmpty, !isRecord {
+                if !isRecord {
                     let code = normalizedBusinessCode(field(dictionary, named: "code"))
                     let success = normalizedBusinessFlag(field(dictionary, named: "success"))
                     let reportsSuccess = success == true || businessMessageIndicatesSuccess(trimmed)
@@ -135,7 +135,7 @@ extension ScheduleService {
                             priority: priority,
                             depth: path.count,
                             path: path.joined(separator: "."),
-                            message: trimmed
+                            message: trimmed.isEmpty ? "学校接口返回失败状态。" : trimmed
                         ))
                     }
                 }

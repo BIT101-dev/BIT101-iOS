@@ -11,7 +11,7 @@ import Compression
 /// - 课程
 ///
 /// 载荷包含课表排布字段；DDL、考试、自定义日程和显示偏好由本机缓存维护。
-public struct ScheduleExportPayload {
+public nonisolated struct ScheduleExportPayload: Sendable {
     public let exportedAt: Date?
     public let currentTerm: String
     public let firstDayString: String
@@ -40,7 +40,7 @@ public struct ScheduleExportPayload {
     }
 }
 
-private func makeExpandedPayload(
+private nonisolated func makeExpandedPayload(
     exportedAt: Date? = nil,
     cache: ScheduleCache,
     courses: [CourseRecord]
@@ -54,7 +54,7 @@ private func makeExpandedPayload(
     )
 }
 
-private func makeExpandedCourse(
+private nonisolated func makeExpandedCourse(
     term: String,
     name: String,
     teacher: String,
@@ -130,13 +130,13 @@ private func makeExpandedCourse(
 ///
 /// ## 兼容策略
 /// 导出入口维持 `BIT101SCH3`；导入端支持 `BIT101SCH2` 至 `BIT101SCH4`。
-struct ScheduleExportCompactPayloadV2: Codable {
+nonisolated struct ScheduleExportCompactPayloadV2: Codable {
     static let formatVersion = 2
 
     /// V2 内部单门课的极简表示。
     ///
     /// 字段顺序必须稳定，因为压缩后的导入端完全依赖位置还原含义。
-    struct CompactCourse: Codable, Hashable {
+    nonisolated struct CompactCourse: Codable, Hashable {
         let name: String
         let teacher: String
         let classroom: String
@@ -286,10 +286,10 @@ struct ScheduleExportCompactPayloadV2: Codable {
 /// 课表分享编码的紧凑载荷 V3。
 ///
 /// V3 在 V2 的课程排布骨架上追加学分字段，继续作为当前导出格式。
-struct ScheduleExportCompactPayloadV3: Codable {
+nonisolated struct ScheduleExportCompactPayloadV3: Codable {
     static let formatVersion = 3
 
-    struct CompactCourse: Codable, Hashable {
+    nonisolated struct CompactCourse: Codable, Hashable {
         let name: String
         let teacher: String
         let classroom: String
@@ -407,7 +407,7 @@ struct ScheduleExportCompactPayloadV3: Codable {
 /// V4 在 V3 课程数组前加入分钟精度的导出时间。
 ///
 /// 导出入口维持 V3；V4 提供时间字段和解码支持。
-struct ScheduleExportCompactPayloadV4: Codable {
+nonisolated struct ScheduleExportCompactPayloadV4: Codable {
     static let formatVersion = 4
 
     let exportedAt: Date
@@ -455,7 +455,7 @@ struct ScheduleExportCompactPayloadV4: Codable {
     }
 }
 
-public enum ScheduleShareCodeError: LocalizedError, Equatable {
+public nonisolated enum ScheduleShareCodeError: LocalizedError, Equatable {
     case empty
     case unsupportedNewerFormat(Int)
     case invalidFormat
@@ -482,7 +482,21 @@ public enum ScheduleShareCodeError: LocalizedError, Equatable {
 }
 
 /// 课表分享码统一由此编解码；导出入口使用 V3，导入兼容 V2 至 V4。
-public enum ScheduleShareCodeCodec {
+public nonisolated enum ScheduleShareCodeCodec {
+    @concurrent public static func encodeForSharing(courses: [CourseRecord]) async throws -> String {
+        try Task.checkCancellation()
+        let code = try encodeLatest(courses: courses)
+        try Task.checkCancellation()
+        return code
+    }
+
+    @concurrent public static func decodeForImport(_ text: String, using cache: ScheduleCache) async throws -> ScheduleExportPayload {
+        try Task.checkCancellation()
+        let payload = try decode(text, using: cache)
+        try Task.checkCancellation()
+        return payload
+    }
+
     public static let maximumDecodedBytes = ScheduleExternalSnapshotCodec.maximumEncodedBytes
     public static let maximumEncodedBytes = maximumDecodedBytes * 4 / 3 + 128
     public static let maximumCourseCount = ScheduleExternalSnapshotCodec.maximumCourseCount

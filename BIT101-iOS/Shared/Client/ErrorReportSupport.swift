@@ -37,8 +37,8 @@ enum ErrorReportRedactor {
     }
 
     private static func redactHTML(_ value: String) -> String {
-        guard let tags = try? NSRegularExpression(pattern: #"<input\b(?:[^>"']|"[^"]*(?:"|$)|'[^']*(?:'|$))*(?:>|$)|<textarea\b(?:[^>"']|"[^"]*"|'[^']*')*>[\s\S]*?(?:</textarea\s*>|$)"#, options: .caseInsensitive),
-              let fields = try? NSRegularExpression(pattern: #"\b(?:id|name|type)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))"#, options: .caseInsensitive)
+        guard let tags = try? NSRegularExpression(pattern: #"<(?:input|meta)\b(?:[^>"']|"[^"]*(?:"|$)|'[^']*(?:'|$))*(?:>|$)|<textarea\b(?:[^>"']|"[^"]*"|'[^']*')*>[\s\S]*?(?:</textarea\s*>|$)"#, options: .caseInsensitive),
+              let fields = try? NSRegularExpression(pattern: #"\b(?:id|name|type|property)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))"#, options: .caseInsensitive)
         else { return value }
         var output = value
         for tag in tags.matches(in: value, range: NSRange(value.startIndex..., in: value)).reversed() {
@@ -51,7 +51,7 @@ enum ErrorReportRedactor {
                 ["login-page-flowkey", "login-croypto"].contains(field.lowercased())
                     || protectedNames.contains { field.localizedCaseInsensitiveContains($0) }
             }) else { continue }
-            var masked = text.replacingOccurrences(of: #"(?i)(\bvalue\s*=\s*)(?:"[^"]*(?:"|$)|'[^']*(?:'|$)|[^\s"'=<>`]+)"#,
+            var masked = text.replacingOccurrences(of: #"(?i)(\b(?:value|content)\s*=\s*)(?:"[^"]*(?:"|$)|'[^']*(?:'|$)|[^\s"'=<>`]+)"#,
                 with: "$1\"[REDACTED]\"", options: .regularExpression)
             if text.lowercased().hasPrefix("<textarea") {
                 masked = masked.replacingOccurrences(of: #"(?i)(>)[\s\S]*(</textarea\s*>|$)"#, with: "$1[REDACTED]$2", options: .regularExpression)
@@ -132,7 +132,7 @@ enum ErrorReportRedactor {
         for name in protectedNames {
             let escaped = NSRegularExpression.escapedPattern(for: name)
             let jsonPattern = "(?i)(\"\(escaped)\"\\s*:\\s*\")(?:\\\\.|[^\"\\\\])*(\")"
-            let keyValuePattern = "(?i)(\\b\(escaped)\\s*[=:]\\s*)[^&\\r\\n,;]+"
+            let keyValuePattern = #"(?i)(\b[\w$-]*\#(escaped)[\w$-]*(?:["']\]?)?\s*[=:]\s*)(?:"(?:\\.|[^"\\])*(?:"|$)|'(?:\\.|[^'\\])*(?:'|$)|[^&\r\n,;]+)"#
             output = output.replacingOccurrences(of: jsonPattern, with: "$1[REDACTED]$2", options: .regularExpression)
             output = output.replacingOccurrences(of: keyValuePattern, with: "$1[REDACTED]", options: .regularExpression)
         }

@@ -57,14 +57,14 @@ const SECRET_NAMES = PROTECTED_NAMES.map(value => value.replace(/[.*+?^${}()|[\]
 const SECRET_KEYS = new RegExp(SECRET_NAMES, "i");
 const SECRET_HEADERS = /((?:authorization|proxy-authorization|cookie|set-cookie)\s*[=:]\s*)[^&\r\n]+/gi;
 const SECRET_JSON = new RegExp(`("[^"]*(?:${SECRET_NAMES})[^"]*"\\s*:\\s*")(?:\\\\.|[^"\\\\])*(")`, "gi");
-const SECRET_TEXT = new RegExp(`(\\b(?:${SECRET_NAMES})\\s*[=:]\\s*)[^&\\r\\n,;]+`, "gi");
+const SECRET_TEXT = new RegExp("(\\b[\\w$-]*(?:" + SECRET_NAMES + ")[\\w$-]*(?:[\"']\\]?)?\\s*[=:]\\s*)(?:\"(?:\\\\.|[^\"\\\\])*(?:\"|$)|'(?:\\\\.|[^'\\\\])*(?:'|$)|[^&\\r\\n,;]+)", "gi");
 
 function redactHTML(value) {
-  return value.replace(/<input\b(?:[^>"']|"[^"]*(?:"|$)|'[^']*(?:'|$))*(?:>|$)|<textarea\b(?:[^>"']|"[^"]*"|'[^']*')*>[\s\S]*?(?:<\/textarea\s*>|$)/gi, tag => {
-    const fields = [...tag.matchAll(/\b(?:id|name|type)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi)]
+  return value.replace(/<(?:input|meta)\b(?:[^>"']|"[^"]*(?:"|$)|'[^']*(?:'|$))*(?:>|$)|<textarea\b(?:[^>"']|"[^"]*"|'[^']*')*>[\s\S]*?(?:<\/textarea\s*>|$)/gi, tag => {
+    const fields = [...tag.matchAll(/\b(?:id|name|type|property)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi)]
       .map(match => decodedHTMLAttribute(match[1] ?? match[2] ?? match[3]));
     if (!fields.some(field => SECRET_KEYS.test(field) || /^(?:login-page-flowkey|login-croypto)$/i.test(field))) return tag;
-    const masked = tag.replace(/(\bvalue\s*=\s*)(?:"[^"]*(?:"|$)|'[^']*(?:'|$)|[^\s"'=<>`]+)/gi, '$1"[REDACTED]"');
+    const masked = tag.replace(/(\b(?:value|content)\s*=\s*)(?:"[^"]*(?:"|$)|'[^']*(?:'|$)|[^\s"'=<>`]+)/gi, '$1"[REDACTED]"');
     return /^<textarea\b/i.test(tag) ? masked.replace(/(>)[\s\S]*(<\/textarea\s*>|$)/gi, "$1[REDACTED]$2") : masked;
   });
 }

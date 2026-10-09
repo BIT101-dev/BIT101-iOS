@@ -297,13 +297,6 @@ extension ScheduleService {
         )
 
         let result = response.datas.cxxszhxqkb
-        if result.rows.isEmpty,
-           let message = result.extParams?.msg?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !message.isEmpty
-        {
-            throw ScheduleServiceError.schoolResponse(message)
-        }
-
         guard result.rows.allSatisfy({ row in
             !(row.name ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 || !(row.courseNumber ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

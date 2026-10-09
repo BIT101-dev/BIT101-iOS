@@ -1,5 +1,6 @@
 #if os(iOS)
 import ScheduleDomain
+import TransportCore
 import DesignSystemKit
 import SwiftUI
 
@@ -231,15 +232,16 @@ public struct ScheduleExportCodeSheet: View {
 /// - 从剪贴板读取编码
 public struct ScheduleImportCodeSheet: View {
     let appStoreURL: URL
-    let onImport: (String) throws -> Void
+    let onImport: (String) async throws -> Void
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @State private var text: String
     @State private var localAlert: AppAlert?
     @State private var unsupportedFormatVersion: Int?
+    @State private var importTask: Task<Void, Never>?
 
-    public init(initialText: String, appStoreURL: URL, onImport: @escaping (String) throws -> Void) {
+    public init(initialText: String, appStoreURL: URL, onImport: @escaping (String) async throws -> Void) {
         self.onImport = onImport
         self.appStoreURL = appStoreURL
         _text = State(initialValue: initialText)
@@ -274,24 +276,32 @@ public struct ScheduleImportCodeSheet: View {
                     .buttonStyle(.bordered)
 
                     Button {
-                        do {
-                            try onImport(text)
-                            dismiss()
-                        } catch let error as ScheduleShareCodeError {
-                            if case let .unsupportedNewerFormat(version) = error {
-                                unsupportedFormatVersion = version
-                            } else {
+                        guard importTask == nil else { return }
+                        let code = text
+                        importTask = Task { @MainActor in
+                            defer { importTask = nil }
+                            do {
+                                try await onImport(code)
+                                try Task.checkCancellation()
+                                dismiss()
+                            } catch where TaskCancellation.matches(error) {
+                                return
+                            } catch let error as ScheduleShareCodeError {
+                                if case let .unsupportedNewerFormat(version) = error {
+                                    unsupportedFormatVersion = version
+                                } else {
+                                    localAlert = AppAlert.userInput(title: "导入失败", message: error.localizedDescription)
+                                }
+                            } catch {
                                 localAlert = AppAlert.userInput(title: "导入失败", message: error.localizedDescription)
                             }
-                        } catch {
-                            localAlert = AppAlert.userInput(title: "导入失败", message: error.localizedDescription)
                         }
                     } label: {
                         Label("导入", systemImage: "square.and.arrow.down")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(importTask != nil || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
             .padding(AppDesignSystem.Spacing.section)
@@ -323,6 +333,7 @@ public struct ScheduleImportCodeSheet: View {
                 Text("该课表使用 BIT101SCH\(unsupportedFormatVersion ?? 0) 格式，请更新 BIT101 后再导入。")
             }
         }
+        .onDisappear { importTask?.cancel() }
     }
 }
 

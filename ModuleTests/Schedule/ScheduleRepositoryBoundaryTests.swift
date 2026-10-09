@@ -422,8 +422,8 @@ struct ScheduleRepositoryBoundaryTests {
             service: ModuleSemesterStartDateService(), repository: repository,
             platformActions: ModuleRecordingSchedulePlatformActions()
         )
-        let code = try viewModel.exportScheduleCode()
-        try viewModel.importScheduleCode(code)
+        let code = try await viewModel.exportScheduleCode()
+        try await viewModel.importScheduleCode(code)
         let shared = try #require(repository.persistenceSnapshot.sharedSchedules.first)
         #expect(shared.courses.first?.name == "边界课程")
         #expect(shared.currentTerm == "2026-2027-1")

@@ -1,4 +1,6 @@
 import ScheduleDomain
+import ScheduleContracts
+import SchedulePorts
 //
 //  ScheduleServiceDTOs.swift
 //  BIT101-iOS
@@ -349,14 +351,18 @@ extension ClassroomListResponse {
             if index.isMultiple(of: 64) {
                 try Task.checkCancellation()
             }
+            let value = row.busyTimeString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let busy: [Int] = try value.isEmpty ? [] : value.split(separator: ",", omittingEmptySubsequences: false).map { token in
+                guard let section = Int(token.trimmingCharacters(in: .whitespacesAndNewlines)),
+                      section > 0, section <= ScheduleCourseConstraints.maximumSection
+                else { throw ScheduleServiceError.invalidResponse }
+                return section
+            }
             classrooms.append(
                 ClassroomRecord(
                     id: row.classroomName,
                     name: row.classroomName,
-                    busyTimeCodes: row.busyTimeString?
-                        .split(separator: ",")
-                        .compactMap { Int($0) }
-                        .sorted() ?? []
+                    busyTimeCodes: busy.sorted()
                 )
             )
         }

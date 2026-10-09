@@ -61,6 +61,12 @@ struct ExtendedInfrastructureTests {
     }
 
     @Test(arguments: [
+        #"<meta name="csrf-token" content="SENSITIVE_VALUE">"#,
+        #"<meta content="SENSITIVE_VALUE" property="csrf&#45;token">"#,
+        #"<script>const csrfToken = "SENSITIVE_VALUE;TAIL_VALUE";</script>"#,
+        #"<script>var _token = 'SENSITIVE_VALUE;TAIL_VALUE';</script>"#,
+        #"<script>window["csrfToken"] = "SENSITIVE_VALUE";</script>"#,
+        #"csrf_token=SENSITIVE_VALUE"#,
         #"<input type="password" value="SENSITIVE_VALUE">"#,
         #"<input TYPE=pass&#x77;ord value='SENSITIVE_VALUE'>"#,
         #"<input name="pass&#119;ord" value="SENSITIVE_VALUE">"#,

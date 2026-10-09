@@ -209,7 +209,11 @@ actor RemoteImageCache {
         for extensionName in supportedExtensions {
             let file = directory.appendingPathComponent("\(prefix).\(extensionName)")
             guard files.fileExists(at: file) else { continue }
-            guard let identity = files.atomicFileIdentity(at: file), hasData(at: file) else { continue }
+            guard let identity = files.atomicFileIdentity(at: file), hasData(at: file) else {
+                validatedFiles.removeObject(forKey: file as NSURL)
+                try? files.removeItem(at: file)
+                continue
+            }
             guard validatedFiles.object(forKey: file as NSURL) as String? == identity || isDecodableImage(at: file) else {
                 try? files.removeItem(at: file)
                 continue
@@ -270,10 +274,8 @@ actor RemoteImageCache {
             }
             let ext = preferredExtension(for: remoteURL, mimeType: result.mimeType)
             let target = directory.appendingPathComponent("\(filePrefix(for: remoteURL)).\(ext)")
-            if !files.fileExists(at: target) {
-                try files.createDirectory(at: directory)
-                try files.writeData(result.data, to: target, options: [.atomic])
-            }
+            try files.createDirectory(at: directory)
+            try files.writeData(result.data, to: target, options: [.atomic])
             touch(target)
             await quota.enforce(protecting: Set([target]))
             completed = .success(target)
