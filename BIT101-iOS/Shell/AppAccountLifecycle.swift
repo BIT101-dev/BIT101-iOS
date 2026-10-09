@@ -33,6 +33,7 @@ final class AppAccountLifecycle: ObservableObject {
         community: AppCommunityDependencies,
         scoreService: any ScoreListServicing,
         transcriptService: any TrustedTranscriptServicing,
+        diagnosisSchool: NetworkDiagnosisSchool,
         settings: AppSettingsStore,
         stores: AppAccountStores,
         preferenceCloudSync: ExperimentalPreferenceCloudSync,
@@ -53,7 +54,7 @@ final class AppAccountLifecycle: ObservableObject {
         }
         self.community = community
         self.transcriptService = transcriptService
-        self.communityDestinations = AppCommunityDestinations(dependencies: community, schedule: scheduleViewModel, media: media, localData: localData)
+        self.communityDestinations = AppCommunityDestinations(dependencies: community, schedule: scheduleViewModel, media: media, localData: localData, school: diagnosisSchool, transcript: transcriptService)
         self.settings = settings
         self.localData = localData
         self.preferenceCloudSync = preferenceCloudSync

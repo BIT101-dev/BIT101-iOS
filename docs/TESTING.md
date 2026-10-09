@@ -90,7 +90,7 @@ Scripts/run-extended-tests.sh catalyst-release-runtime
 Scripts/run-extended-tests.sh release-runtime
 ```
 
-快捷行为分组沿 `Scripts/validation_test_areas.py` 的显式领域归属选择全部 suite；静态审计核对新增 suite 的归属及失效登记，学校账号隔离同时属于登录和基础设施。完整分组核对实际执行方法集合；手选类或方法保留为定向范围。框架编译条件按宿主可用性登记，未知框架触发清单错误。包级测试由 `Package.swift` 的 Transport、Community、Schedule、Contracts、Score、Map、Sync 七个消费者 target 管理，代码位于 `ModuleTests/`，使用内存传输、文件服务、偏好和实例级变更流。覆盖话廊分页去重、预取游标与搜索代际，主页刷新、分页失败重试和账号场景隔离，日程整体格式迁移、课程编辑及权威快照，发帖编辑与上传生命周期、草稿损坏和格式版本保护、历史草稿及图片迁移、账号目录与文件保存失败保护、社区身份与恢复隔离、日程保存排队、精确版本往返与过期比较令牌、文件损坏和账号切换、生产成绩服务注入、独立成绩与消息存储端口、变更流的实例及账号归属、共享草稿图片准备和版本清理、同步冲突及地图身份规则。本地文件元数据故障测试验证读取能力及旧内容保留。社区持久化测试通过 `CommunityPersistence` 的公共入口运行。测试用内存文件服务集中于 `ModuleTests/Support`，直接依赖 StorageCore。学校课表解析沿用 `BIT101-iOSTests/Fixtures/schedule-service-response.json`。课程与文章服务契约测试覆盖分页、特殊课程号路径、Snake Case 解码、认证恢复、评论及文章写入；课程详情场景覆盖刷新代际、失败保留、评论去重、历史成绩重试、回复身份及点赞；学校响应测试覆盖业务失败、认证失效、格式变化和 HTTP 状态分类，教学中心会话覆盖认证、预热复用和短信 challenge，乐学订阅覆盖安全 URL 与已完成日程保留。云同步测试同时验收成功、待同步、失败和账号不可用状态。MapKit 页面、UIKit、Quick Look 和可信成绩单展示通过 App 宿主验证。
+快捷行为分组沿 `Scripts/validation_test_areas.py` 的显式领域归属选择全部 suite；静态审计核对新增 suite 的归属及失效登记，学校账号隔离同时属于登录和基础设施。完整分组核对实际执行方法集合；手选类或方法保留为定向范围。编译条件由当前 Swift 编译器沿宿主目标、SDK 与工作流标志求值，支持框架可用性及 Swift / 编译器版本谓词。包级测试由 `Package.swift` 的 Transport、Community、Schedule、Contracts、Score、Map、Sync 七个消费者 target 管理，代码位于 `ModuleTests/`，使用内存传输、文件服务、偏好和实例级变更流。覆盖话廊分页去重、预取游标与搜索代际，主页刷新、分页失败重试和账号场景隔离，日程整体格式迁移、课程编辑及权威快照，发帖编辑与上传生命周期、草稿损坏和格式版本保护、历史草稿及图片迁移、账号目录与文件保存失败保护、社区身份与恢复隔离、日程保存排队、精确版本往返与过期比较令牌、文件损坏和账号切换、生产成绩服务注入、独立成绩与消息存储端口、变更流的实例及账号归属、共享草稿图片准备和版本清理、同步冲突及地图身份规则。本地文件元数据故障测试验证读取能力及旧内容保留。社区持久化测试通过 `CommunityPersistence` 的公共入口运行。测试用内存文件服务集中于 `ModuleTests/Support`，直接依赖 StorageCore。学校课表解析沿用 `BIT101-iOSTests/Fixtures/schedule-service-response.json`。课程与文章服务契约测试覆盖分页、特殊课程号路径、Snake Case 解码、认证恢复、评论及文章写入；课程详情场景覆盖刷新代际、失败保留、评论去重、历史成绩重试、回复身份及点赞；学校响应测试覆盖业务失败、认证失效、格式变化和 HTTP 状态分类，教学中心会话覆盖认证、预热复用和短信 challenge，乐学订阅覆盖安全 URL 与已完成日程保留。云同步测试同时验收成功、待同步、失败和账号不可用状态。MapKit 页面、UIKit、Quick Look 和可信成绩单展示通过 App 宿主验证。
 
 `FeatureCompositionTests` 在 App 宿主组合不同的环境依赖，验证课程、Gallery → Paper、Paper、Mine、Profile、Schedule、Score 的构造归属，恢复所选课表与成绩缓存，并验证同一宿主中 Paper / Gallery 依赖替换的场景重建。`MediaDependencyTests` 验证内存存储、静态 / GIF 解码和预览字节；`SuggestionDependencyTests` 验证草稿及提交归属；同文件的 `AppLocalDataOwnershipTests` 与 `SettingsDependencyOwnershipTests` 验证清理动作顺序、失败汇总、后端隔离和设置媒体 / 账号归属。`PreferenceMergeTests` 使用独立设备偏好与云存储验证离线字段合并、已读并集、同版本收敛、可选字段清除与重载。`LoginStorageTests` 使用注入凭据后端验证事件代际、实例隔离、迁移和写入失败；提醒规划及同步状态呈现通过纯输入与账号事件验证。`ExperimentalPreferenceCloudSyncTests` 使用独立账号事件流和平台替身验证生命周期实例隔离及所选课程源向成绩场景传递。
 
@@ -292,23 +292,23 @@ GitHub Actions 的 `.github/workflows/ci.yml` 使用 `xcode-27` runner，先执�
 
 人工附件每份编码前控制在 32 MiB 内，图像解码与视频单帧使用 48 MiB 内存预算；视频长度为 30 秒以内，最多 1800 帧，PDF 最多 16 页。附件解码工具使用 30 秒执行预算，聚合 JSON 的完整编码最多 128 MiB；超出预算时保留已提交证据并呈现验收错误。短视频和系统截图分别记录所属操作与观察结果，全部人工检查共同参与发布验收。
 
-社区网络能力沿 `Scripts/validation_test_areas.py` 登记 Gallery、Course、Paper 与 Mine 生产服务的公开方法与验收入口。模块审计沿 SwiftSyntax 导出的公开函数事实核对新增、移除及无效归属，跨文件扩展沿所属模块和类型合并。网络探针覆盖列表及三类评论的后续页，话廊评论沿真实源游标继续，课程与文章评论验收重复页和解码失败。反馈预检发送 Origin、POST 和 content-type 请求头，验收浏览器需要的允许方法及允许头字段。关注写入验收同时核对取消关注和恢复关注的接口结果与远端关系。
+业务网络能力沿 `Scripts/validation_test_areas.py` 登记社区、学校、成绩、登录、资料及更新服务的方法签名与验收入口。模块审计沿 SwiftSyntax 导出的公开函数事实核对新增、移除及无效归属，跨文件扩展沿所属模块和类型合并。网络探针覆盖列表及三类评论的后续页，话廊评论沿真实源游标继续，课程与文章评论验收重复页和解码失败。反馈预检发送 Origin、POST 和 content-type 请求头，验收浏览器需要的允许方法及允许头字段。关注写入验收同时核对取消关注和恢复关注的接口结果与远端关系。
 
 `community-variants` 人工专项覆盖课程搜索、话廊搜索筛选、帖子与文章的三种评论排序、匿名帖子、匿名文章及创建内容恢复；场景键为 `course-search`、`gallery-search-filters`、`comment-sorting`、`anonymous-poster`、`anonymous-paper`、`restore-content`。使用已授权的专用账号，保存实际请求结果和页面证据，确认验收内容删除。`account-lifecycle` 专项在正式 App 中顺序执行 `sign-in-a`、`refresh-credentials-a`、`sign-out-a`、`sign-in-b`、`restore-a`，核对真实凭据续期、退出清理、资料与业务缓存切换、订阅更新及恢复账号。两个专项复用结构化人工场景格式与固定 `manual-scenarios.json` 附件，参与完整发布验收。
 
 社区图片探针复用 `CommunityWriteMedia` 中固定的一像素 JPEG 字节；上传返回的 MID 在创建帖子或评论前持久记录于同一事务日志，资源记录保存成功后继续创建内容。公开服务端 [ImageService.Save](https://github.com/BIT101-dev/BIT101-GO/blob/main/api/service/image.go) 按内容 MD5 生成 MID 并复用已存在图片，[路由](https://github.com/BIT101-dev/BIT101-GO/blob/main/api/router.go) 将图片作为独立共享资源提供上传。验收帖子和评论沿服务端读取与删除确认清理，共享验收图片持续复用；恢复证据保留其 MID。实际线上资源策略沿已部署服务端契约核对。
 
-网络能力审计将公开方法与对应 smoke 入口中的服务调用关联，服务内部的转调沿 SwiftSyntax 函数范围与调用事实继续追踪。社区四个 Feature 内新增生产 Service 同步登记验收归属；读探针与写探针分别核对实际调用，人工专项承接有明确外部副作用的变体。接收者与专用工厂沿 smoke 的组装角色登记，动态执行结果继续由真实探针及服务消费者合同验收。
+网络能力审计将公开方法与对应 smoke 入口中的服务调用关联，服务内部的转调沿 SwiftSyntax 函数范围与调用事实继续追踪。业务网络模块内新增生产 Service 同步登记验收归属；读探针与写探针分别核对实际调用，人工专项承接有明确外部副作用的变体。接收者与专用工厂沿 smoke 的组装角色登记，动态执行结果继续由真实探针及服务消费者合同验收。
 
-调用关联从 smoke 的 `run` 入口沿默认依赖回调、显式操作工厂及并行探针调度继续追踪，编译分支采用实际网络宿主条件。闲置函数和闭包形成独立调用节点；公开网络能力采用唯一方法名称，新增能力沿独立名称登记与验收，重复名称的重载进入审计修正。
+调用关联从 smoke 的 `run` 入口沿默认依赖回调、显式操作工厂及并行探针调度继续追踪，编译分支采用实际网络宿主条件。闲置函数和闭包形成独立调用节点；公开网络能力采用方法名称、参数标签及参数类型组成的签名，重载调用沿标签与实参类型解析。话廊关注、推荐、最新、热门与机器人分栏共同参与能力审计。
 
 共享预览目录的媒体环境共同接收同一 `MediaPreviewStorage`，文件创建、所有权登记、清理和关闭消费同一协调器。回归合同覆盖创建期间的后台清理，以及不同环境启动清理和关闭预览时保留其他活动消费者。
 
-`MaintenancePerformanceTests` 沿 XCTest 默认测量选项记录十万条分页追加与重复页去重、静态图片实际解码的时钟与物理内存指标。测量结果随完整行为组保存到固定 XCTest 结果包，性能基线沿同一真机 runner 的 XCTest 默认基线参数维护。`performance-baseline` 人工专项用 `pagination`、`image-decoding` 两个场景登记结构化比较及影像，参与完整发布验收。大输入正确性合同核对稳定顺序及增量索引工作量。
+`MaintenancePerformanceTests` 沿 XCTest 默认测量选项记录“我的”及消息中心实际分页状态的十万条追加与重复页去重、静态图片实际解码的时钟与物理内存指标。测量结果随完整行为组保存到固定 XCTest 结果包，性能基线沿同一真机 runner 的 XCTest 默认基线参数维护。`performance-baseline` 人工专项用 `pagination`、`image-decoding` 两个场景登记结构化比较及影像，参与完整发布验收。大输入正确性合同核对稳定顺序及增量索引工作量。
 
-每个性能场景的 `measurement` 包含 `current` 与 `baseline`。两份记录保存 `testIdentifier`、`sourceCommit`、`capturedAt`、`environment`、`input`、`resultBundle`、`metrics`；当前采样沿实际观察时间登记，批准基线保存 `approvedBy`、`approvedAt`。`environment` 核对相同的设备标识、设备型号、系统版本与构建、Xcode 构建、编译器摘要、Release 配置及 `compilationConditions`。`resultBundle` 保存原始 XCTest 结果包路径和 SHA-256，两个采样拥有各自的摘要。
+每个性能场景的 `measurement` 包含 `current` 与 `baseline`。两份记录保存 `testIdentifier`、`sourceCommit`、`capturedAt`、`environment`、`input`、`resultBundle`、`metrics`；当前采样沿实际观察时间登记，批准基线保存 `approvedBy`、`approvedAt`。`environment` 核对相同的设备标识、设备型号、系统版本与构建、Xcode 构建、编译器摘要、Release 配置及 `compilationConditions`。`resultBundle` 保存固定 XCTest 结果包路径和 SHA-256，两个采样拥有各自的摘要。`execution` 保存所属运行、构建输入、源码提交及完整环境；`xcresultMetrics` 保留工具导出的原始指标。
 
-`metrics` 分别记录 `clockSeconds`、`peakPhysicalMemoryBytes` 的原始 `samples` 和 `mean`；登记时将 XCTest 显示单位换算为秒及字节。批准基线的两个指标各自保存 `maximumRegressionPercent`，验收核对采样次数、平均值及批准的退化上限。分页输入为 `pages: 1000`、`itemsPerPage: 100`、`passes: 2`；图片输入为 `width: 1024`、`height: 1024`、`format: PNG`。实际指标与基线由验收人员从结果包登记，比较合同校验结构、环境及数值。
+`metrics` 分别记录 `clockSeconds`、`peakPhysicalMemoryBytes` 的原始 `samples` 和 `mean`；登记时将 XCTest 显示单位换算为秒及字节。批准基线的两个指标各自保存 `maximumRegressionPercent`，验收核对采样次数、平均值及批准的退化上限。分页输入为 `pages: 1000`、`itemsPerPage: 100`、`passes: 2`，状态为 `MinePagedState` 与 `GalleryMessageListState`；图片输入为 `width: 1024`、`height: 1024`、`format: PNG`。运行 `Scripts/run-extended-tests.sh performance baseline 批准人` 从真机结果包保存批准基线，退化上限沿 XCTest 实际默认参数提取；显式百分比参数用于经过批准的调整。后续候选的真机行为组完成后立即运行 `Scripts/run-extended-tests.sh performance current`。两份记录统一覆盖 `.build/extended-automation/performance-measurements.json` 的对应字段，再填入人工场景附件。采集核对已提交源码、构建输入、结果包摘要、运行标识、设备与工具链，登记人工附件时重新读取实际结果包并核对批准基线。
 
 SwiftSyntax 索引器缓存沿源码、工具链环境、编译器、SwiftSyntax / SwiftParser 库及模块内容摘要复用。网络能力检测沿编译器类型、初始化表达式、依赖工厂返回值和局部别名识别生产服务，局部同名变量沿词法作用域解析。模块门禁按业务归属限制 Domain、Ports、Core 等依赖；社区功能共用 Community 业务合同，基础 Client、Storage、Transport、DesignSystem、Media 模块承担公共职责。地图通过明确登记的 `MapFeature → ScheduleContracts` 依赖复用地点显示规范化，跨业务合同沿允许依赖表评审。
 

@@ -1,4 +1,6 @@
 import SchedulePorts
+import GalleryFeature
+import PaperFeature
 import CommunityTransport
 import ScoreDomain
 import ScorePorts
@@ -352,7 +354,16 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
             var waiting: CheckedContinuation<Void, Never>?
             var shouldWait = true
             var executed: Set<NetworkDiagnosisRunner.Step> = []
-            let runner = NetworkDiagnosisRunner(identity: { owner }, diagnose: { step in
+            let client = HTTPClient(transport: DiagnosticFailureTransport(), observer: nil)
+            let session = CommunitySession(httpClient: client, baseURL: AppURL.required("https://example.invalid"),
+                credentials: { .init(identity: owner.community, cookie: "fixture") }, refresh: { _ in })
+            let dependencies = NetworkDiagnosisDependencies(identity: { owner },
+                path: NetworkConnectionDescription(networkPath: NetworkPathState(snapshot: .init(status: .disconnected))),
+                httpClient: client, gallery: GalleryService(session: session, preferences: { .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false) }),
+                paper: PaperService(session: session),
+                school: NetworkDiagnosisSchool(identity: { owner.school }, currentTerm: { "fixture" }, syncCourses: { _ in }, ddl: {}),
+                transcript: StubTrustedTranscriptService())
+            let runner = NetworkDiagnosisRunner(dependencies: dependencies, diagnose: { step in
                 executed.insert(step)
                 if step == .currentTerm, shouldWait {
                     shouldWait = false

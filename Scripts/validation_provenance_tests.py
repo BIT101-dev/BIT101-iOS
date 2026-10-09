@@ -34,9 +34,13 @@ def run_self_test(recorder) -> None:
                 patch.object(module, "complete_summary", return_value=True), patch.object(module, "environment_context", return_value={}), \
                 patch.object(Path, "is_file", return_value=True), patch.object(Path, "read_text", side_effect=values), \
                 patch.object(module.subprocess, "check_output", return_value="head"), \
+                patch("validation_performance.bundle_digest", return_value="a" * 64), patch("validation_performance.current_commit", return_value="head"), \
                 patch.dict(os.environ, BIT101_VALIDATION_RUN_ID=run_id), redirect_stderr(StringIO()):
             assert recorder(group, 0, "full", start) == expected, (group, artifact)
             assert saved.call_args.args[0]["groups"][group]["exitCode"] == expected
+            if group == "all" and expected == 0:
+                assert saved.call_args.args[0]["groups"][group]["resultBundleSHA256"] == "a" * 64
+                assert saved.call_args.args[0]["groups"][group]["sourceCommit"] == "head"
     group_row = {"scope": "full", "exitCode": 0, "runID": "run", "inputDigest": "current", "summary": summary}
     for digest, expected in (("current", 0), ("changed", 1)):
         with patch.object(sys, "argv", ["validation_evidence.py", "check-group", "all"]), \
@@ -131,6 +135,7 @@ def selected_coverage_self_test(module) -> None:
                 patch.object(Path, "is_file", return_value=True), \
                 patch.object(Path, "read_text", side_effect=['验证输入：digest\n验证运行：run\n', json.dumps(report)]), \
                 patch.object(subprocess, "check_output", return_value="head"), \
+                patch("validation_performance.bundle_digest", return_value="a" * 64), patch("validation_performance.current_commit", return_value="head"), \
                 patch.dict(os.environ, BIT101_VALIDATION_RUN_ID="run", BIT101_VALIDATION_EXPECTED_TESTS='["Suite/testRun"]'), redirect_stderr(StringIO()):
             assert module.record("all", 0, scope, "digest") == expected
         report = saved.call_args.args[0]

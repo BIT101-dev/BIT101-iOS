@@ -35,30 +35,79 @@ def inventory_findings(suites: set[str]) -> list[str]:
         + [f"行为测试领域归属需要清理：{suite}" for suite in sorted(registered - suites)]
 
 
-NETWORK_CAPABILITIES = {
-    'GalleryFeature.GalleryService': {
-        'fetchFeed': 'network', 'fetchRecommendPage': 'network', 'searchPosters': 'network', 'fetchBotFeed': 'network',
-        'fetchClaims': 'network', 'fetchPoster': 'network', 'fetchReportTypes': 'network', 'fetchComments': 'network',
-        'fetchMessageUnreadCounts': 'network', 'fetchMessages': 'network', 'report': 'gallery-report',
-        'uploadImage': 'community-writes', 'createPoster': 'community-writes', 'deletePoster': 'community-writes',
-        'updatePoster': 'community-writes', 'fetchRawComments': 'community-writes', 'like': 'community-writes',
-        'createComment': 'community-writes', 'uploadCommentImage': 'community-writes', 'deleteComment': 'community-writes',
-    },
-    'CourseFeature.CourseService': {
-        'fetchCourses': 'network', 'fetchCourse': 'network', 'fetchCourseHistories': 'network', 'fetchComments': 'network',
-        'like': 'community-writes', 'createComment': 'community-writes',
-    },
-    'PaperFeature.PaperService': {
-        'fetchPapers': 'network', 'fetchPaper': 'network', 'fetchComments': 'network', 'likePaper': 'community-writes',
-        'sendLike': 'community-writes', 'createComment': 'community-writes', 'createPaper': 'community-writes',
-        'updatePaper': 'community-writes', 'deletePaper': 'community-writes',
-    },
-    'MineFeature.MineService': {
-        'fetchMyInfo': 'network', 'fetchUserInfo': 'network', 'followUser': 'community-writes',
-        'fetchFollowings': 'network', 'fetchFollowers': 'network', 'fetchMyPosters': 'network', 'fetchUserPosters': 'network',
-    },
-}
-
+NETWORK_CAPABILITIES = {'BIT101-iOS.AppUpdateChecker': {'releaseToPresentAtLaunch()': 'web-interactions',
+                                 'checkManually()': 'web-interactions'},
+ 'BIT101-iOS.EmergencyUpdateChecker': {'noticeToPresentAtLaunch()': 'web-interactions'},
+ 'BIT101-iOS.LoginService': {'checkLogin()': 'network',
+                             'restoreSchoolSessionIfNeeded()': 'network',
+                             'login(studentID:String,password:String)': 'first-login',
+                             'renewCommunitySession(expectedIdentity:CommunitySessionIdentity)': 'account-lifecycle'},
+ 'BIT101-iOS.SettingsNetworkService': {'fetchMyInfo()': 'profile-writes',
+                                       'updateUser(nickname:String?,motto:String?,avatarMid:String?)': 'profile-writes',
+                                       'uploadAvatar(data:Data,filename:String)': 'profile-writes',
+                                       'checkLogin()': 'account-lifecycle'},
+ 'CourseFeature.CourseService': {'fetchCourses(search:String,page:Int)': 'network',
+                                 'fetchCourse(id:Int)': 'network',
+                                 'fetchCourseHistories(number:String)': 'network',
+                                 'fetchComments(courseID:Int,page:Int?)': 'network',
+                                 'like(objectID:String)': 'community-writes',
+                                 'createComment(objectID:String,text:String,replyObjectID:String?,replyUID:Int?,anonymous:Bool,rate:Int?)': 'community-writes'},
+ 'GalleryFeature.GalleryService': {'fetchFeed(kind:GalleryFeedKind,page:Int?)': 'network',
+                                   'fetchRecommendPage(sourcePage:Int)': 'network',
+                                   'searchPosters(query:GallerySearchQuery,page:Int?)': 'network',
+                                   'fetchBotFeed(startPage:Int)': 'network',
+                                   'fetchClaims()': 'network',
+                                   'uploadImage(data:Data,filename:String)': 'community-writes',
+                                   'createPoster(title:String,text:String,imageMids:[String],anonymous:Bool,tags:[String],claimID:Int,isPublic:Bool)': 'community-writes',
+                                   'fetchPoster(id:Int)': 'network',
+                                   'deletePoster(id:Int)': 'community-writes',
+                                   'updatePoster(id:Int,title:String,text:String,imageMids:[String],plugins:String,anonymous:Bool,tags:[String],claimID:Int,isPublic:Bool)': 'community-writes',
+                                   'fetchReportTypes()': 'network',
+                                   'report(objectID:String,typeID:Int,text:String)': 'gallery-report',
+                                   'fetchComments(objectID:String,order:CommunityCommentOrder,page:Int?)': 'network',
+                                   'fetchRawComments(objectID:String,order:CommunityCommentOrder,page:Int?)': 'community-writes',
+                                   'like(objectID:String)': 'community-writes',
+                                   'createComment(objectID:String,text:String,replyObjectID:String?,replyUID:Int?,anonymous:Bool,imageMids:[String])': 'community-writes',
+                                   'uploadCommentImage(data:Data,filename:String)': 'community-writes',
+                                   'deleteComment(id:Int)': 'community-writes',
+                                   'fetchMessageUnreadCounts()': 'network',
+                                   'fetchMessages(type:GalleryMessageType,lastID:Int?)': 'network'},
+ 'MineFeature.MineService': {'fetchMyInfo()': 'network',
+                             'fetchUserInfo(id:Int)': 'network',
+                             'followUser(id:Int)': 'community-writes',
+                             'fetchFollowings(page:Int)': 'network',
+                             'fetchFollowers(page:Int)': 'network',
+                             'fetchMyPosters(page:Int)': 'network',
+                             'fetchUserPosters(userID:Int,page:Int)': 'network'},
+ 'PaperFeature.PaperService': {'fetchPapers(search:String?,order:PaperSortOrder,page:Int)': 'network',
+                               'fetchPaper(id:Int)': 'network',
+                               'fetchComments(paperID:Int,order:CommunityCommentOrder,page:Int?)': 'network',
+                               'likePaper(id:Int)': 'community-writes',
+                               'sendLike(objectID:String)': 'community-writes',
+                               'createComment(objectID:String,text:String,replyObjectID:String?,replyUID:Int?,anonymous:Bool)': 'community-writes',
+                               'createPaper(title:String,intro:String,content:String,anonymous:Bool,publicEdit:Bool)': 'community-writes',
+                               'updatePaper(id:Int,title:String,intro:String,content:String,anonymous:Bool,publicEdit:Bool,lastUpdatedAt:String)': 'community-writes',
+                               'deletePaper(id:Int)': 'community-writes'},
+ 'ScheduleInfrastructure.ScheduleService': {'fetchEclassDDLEvents(schoolSMSCodeHandler:SchoolSMSCodeHandler?)': 'network',
+                                            'fetchEclassDDLEventsForPreflight()': 'network',
+                                            'syncCourses(term:String?)': 'network',
+                                            'fetchAvailableTerms()': 'network',
+                                            'submitSMSCode(:String,for:BITLoginAuthenticationChallenge,term:String?)': 'web-interactions',
+                                            'submitSMSCodeForTeachingCenterAuthentication(:String,for:BITLoginAuthenticationChallenge)': 'network',
+                                            'fetchCurrentTermOnly()': 'network',
+                                            'prepareTeachingCenterAccess()': 'network',
+                                            'fetchCampuses()': 'network',
+                                            'fetchBuildings(campusCode:String?)': 'network',
+                                            'fetchClassrooms(buildingID:String,term:String)': 'network',
+                                            'syncDDLEvents(existingEvents:[DDLEventRecord],storedURL:String,schoolSMSCodeHandler:SchoolSMSCodeHandler?)': 'web-interactions',
+                                            'syncDDLEventsForPreflight(existingEvents:[DDLEventRecord],storedURL:String)': 'network',
+                                            'refreshLexueCalendarURL(schoolSMSCodeHandler:SchoolSMSCodeHandler?)': 'web-interactions',
+                                            'refreshLexueCalendarURLForPreflight()': 'network'},
+ 'ScoreInfrastructure.ScoreService': {'startScoreChallenge()': 'network',
+                                      'fetchScores(detail:Bool,authenticatedBy:BITLoginAuthenticationChallenge)': 'network',
+                                      'submitScoreSMSCode(:String,for:BITLoginAuthenticationChallenge)': 'network',
+                                      'fetchTrustedTranscriptPages()': 'network',
+                                      'submitTranscriptSMSCode(:String,for:BITLoginAuthenticationChallenge)': 'network'}}
 
 def reachable_smoke_calls(index: dict) -> dict[str, list[dict]]:
     from pathlib import Path
@@ -143,6 +192,10 @@ def smoke_receiver_resolver(index: dict):
             if initializer := variable.get('initializerCall') or variable.get('initializerReference'):
                 target = resolve(path, initializer, variable, seen)
                 if target: return target
+            variable_owner = types.resolve(path, '.'.join(variable['scope']), aliases=False)
+            assigned = {target for factory_path, factory in factories.get((variable_owner, variable['name']), [])
+                if factory.get('referenceTarget') and (target := resolve(factory_path, factory['referenceTarget'], factory, seen))}
+            if len(assigned) == 1: return next(iter(assigned))
             return types.resolve(path, variable.get('type', ''), variable['scope'])
         if '.' not in expression: return None
         receiver, method = expression.rsplit('.', 1)
@@ -151,6 +204,7 @@ def smoke_receiver_resolver(index: dict):
         targets = set()
         for factory_path, factory in factories.get((owner, method), []):
             target = resolve(factory_path, factory.get('returnedCall') or factory.get('referenceTarget') or '', factory, seen)
+            if not target: target = types.resolve(factory_path, factory.get('returnType') or '', factory['scope'])
             if target: targets.add(target)
         return next(iter(targets)) if len(targets) == 1 else None
 
@@ -164,52 +218,59 @@ def smoke_receiver_resolver(index: dict):
 
 def network_capability_findings(index: dict) -> list[str]:
     from pathlib import Path
-    from validation_manual import MANUAL_SCENARIOS
+    from validation_manual import MANUAL_DEVICE_CHECKS
     from validation_policy import NETWORK_GROUPS
-    actual = {name: set() for name in NETWORK_CAPABILITIES}
+    from network_capability_rules import business_methods, method_signature, matching_api_calls
+    actual = business_methods(index)
     receiver_owner = smoke_receiver_resolver(index)
     observed = {'network': set(), 'community-writes': set()}
     edges = {}
+    all_functions = {}
+    for owner in actual:
+        scope = owner.split('.')[1:]
+        all_functions[owner] = [(path, function) for path, facts in index.items() for function in facts.get('functionRanges', [])
+            if function['scope'] == scope and (Path(path).parts[Path(path).parts.index('Modules') + 1] == owner.split('.')[0]
+                if 'Modules' in Path(path).parts else owner.startswith('BIT101-iOS.'))]
     for route, calls in reachable_smoke_calls(index).items():
         for call in calls:
-            expression = call.get('calledExpression') or ''
-            method = expression.rsplit('.', 1)[-1]
             owner = receiver_owner(call)
-            if owner in actual: observed[route].add((owner, method))
-    overloads = []
-    for path, facts in index.items():
-        parts = Path(path).parts
-        if 'Modules' not in parts: continue
-        module = parts[parts.index('Modules') + 1]
-        for function in facts['functionRanges']:
-            owner = '.'.join([module, *function['scope']])
-            if owner in actual and function.get('isExported'):
-                if function['name'] in actual[owner]: overloads.append(f'{owner}.{function["name"]}')
-                actual[owner].add(function['name'])
-            elif module in {'GalleryFeature', 'CourseFeature', 'PaperFeature', 'MineFeature'} and function.get('isExported') \
-                    and function['scope'] and function['scope'][-1].endswith('Service') and owner not in actual:
-                actual.setdefault(owner, set()).add(function['name'])
-            if owner in NETWORK_CAPABILITIES:
-                key = (owner, function['name'])
-                edges[key] = {(owner, (call.get('calledExpression') or '').removeprefix('self.'))
-                    for call in facts.get('invocations', []) if function['start'] <= call['start'] < function['end']
-                    and '.' not in (call.get('calledExpression') or '').removeprefix('self.')}
+            matches = matching_api_calls(index, all_functions.get(owner, []), call)
+            if len(matches) == 1: observed[route].add((owner, method_signature(matches[0][1])))
+    for owner, functions in all_functions.items():
+        for path, function in functions:
+            key = (owner, method_signature(function))
+            edges[key] = set()
+            for call in index[path].get('invocations', []):
+                if not function['start'] <= call['start'] < function['end']: continue
+                expression = (call.get('calledExpression') or '').removeprefix('self.')
+                if '.' in expression: continue
+                matches = matching_api_calls(index, functions, dict(call, path=path))
+                if len(matches) == 1: edges[key].add((owner, method_signature(matches[0][1])))
     for calls in observed.values():
         waiting = list(calls)
         while waiting:
             for target in edges.get(waiting.pop(), set()) - calls:
                 calls.add(target); waiting.append(target)
-    errors = [f'网络能力需要唯一公开方法名称，分别登记重载能力：{name}' for name in overloads]
-    for owner in actual.keys() - NETWORK_CAPABILITIES.keys():
-        errors.append(f'新增生产服务需要网络能力验收归属：{owner}')
+    errors = [f'新增生产服务需要网络能力验收归属：{owner}' for owner in actual.keys() - NETWORK_CAPABILITIES.keys()]
     for name, routes in NETWORK_CAPABILITIES.items():
-        if actual[name] != set(routes):
-            errors.append(f'网络能力需要验收归属：{name} 新增 {sorted(actual[name] - routes.keys())}；清理 {sorted(routes.keys() - actual[name])}')
-        for method, route in routes.items():
-            if route not in NETWORK_GROUPS | MANUAL_SCENARIOS.keys():
-                errors.append(f'网络能力需要有效验收入口：{name}.{method} → {route}')
-            elif route in observed and (name, method) not in observed[route]:
-                errors.append(f'网络能力需要对应入口中的实际服务调用：{name}.{method} → {route}')
+        signatures = {method_signature(function) for _, function in actual.get(name, [])}
+        if signatures != set(routes):
+            errors.append(f'网络能力需要验收归属：{name} 新增 {sorted(signatures - routes.keys())}；清理 {sorted(routes.keys() - signatures)}')
+        for signature, route in routes.items():
+            if route not in NETWORK_GROUPS | MANUAL_DEVICE_CHECKS:
+                errors.append(f'网络能力需要有效验收入口：{name}.{signature} → {route}')
+            elif route in observed and (name, signature) not in observed[route]:
+                errors.append(f'网络能力需要对应入口中的实际服务调用：{name}.{signature} → {route}')
+    feed_cases = {case['name'] for facts in index.values() for case in facts.get('enumCases', []) if case['scope'] == ['GalleryFeedKind']}
+    modes = set()
+    for call in reachable_smoke_calls(index)['network']:
+        if receiver_owner(call) != 'GalleryFeature.GalleryService': continue
+        method = call['calledExpression'].rsplit('.', 1)[-1]
+        if method in {'fetchRecommendPage', 'fetchBotFeed'}: modes.add('recommend' if method == 'fetchRecommendPage' else 'bot')
+        if method == 'fetchFeed' and 'kind' in call.get('argumentLabels', []):
+            value = call['arguments'][call['argumentLabels'].index('kind')]
+            if value.startswith('.'): modes.add(value[1:])
+    for mode in sorted(feed_cases - modes): errors.append(f'话廊分栏需要实际网络探针：{mode}')
     return errors
 
 
@@ -218,15 +279,16 @@ def network_capability_self_test() -> None:
     from validation_evidence import compilation_condition
     assert compilation_condition('RELEASE_NETWORK_SMOKE', 'network')
     assert not compilation_condition('DEBUG', 'network')
-    index = {f'Modules/{name.split(".")[0]}/Sources/Service.swift': {
+    from network_capability_rules import signature_function
+    index = {f'Modules/{name.split(".")[0]}/Sources/{name.split(".")[1]}.swift': {
         'declarations': [{'kind': 'struct', 'name': name.split('.')[1], 'scope': [], 'inheritedTypes': [], 'isExported': True}],
-        'functionRanges': [{'name': method, 'scope': [name.split(".")[1]], 'isExported': True, 'start': 0, 'end': 1}
+        'functionRanges': [{**signature_function(method, [name.split(".")[1]]), 'isExported': True, 'isAsync': True, 'start': 0, 'end': 1}
         for method in methods]} for name, methods in NETWORK_CAPABILITIES.items()}
-    bindings = {'GalleryService': 'gallery', 'CourseService': 'courses', 'PaperService': 'papers', 'MineService': 'mine'}
+    bindings = {owner.split('.')[1]: owner.split('.')[1].removesuffix('Service').lower() for owner in NETWORK_CAPABILITIES}; bindings['GalleryService'] = 'gallery'
     entries = (('network', 'ReleaseNetworkSmoke.swift', ['ReleaseNetworkSmokeRunner'], 'run'),
         ('community-writes', 'CommunityWriteSmoke.swift', ['CommunityWriteSmoke', 'Operations'], 'production'))
     for route, file, scope, entry in entries:
-        calls = [{'calledExpression': bindings[owner.split('.')[1]] + '.' + method, 'start': 10, 'scope': scope}
+        calls = [{'calledExpression': bindings[owner.split('.')[1]] + '.' + method.split('(')[0], 'argumentLabels': [p['label'] for p in signature_function(method, [])['parameters']], 'arguments': [p['type'] + '()' for p in signature_function(method, [])['parameters']], 'start': 10, 'scope': scope}
             for owner, methods in NETWORK_CAPABILITIES.items() for method, target in methods.items() if target == route]
         index[file] = {'functionRanges': [{'name': entry, 'scope': scope, 'start': 0, 'end': 100}], 'invocations': calls,
             'typedVariables': [{'name': bindings[owner.split('.')[1]], 'type': owner, 'scope': scope, 'start': 0}
@@ -278,6 +340,14 @@ def network_capability_self_test() -> None:
     owners = [receiver_owner(dict(call, path=receiver_path)) for call in receiver_index[receiver_path]['invocations']
         if call['calledExpression'].endswith('.fetchFeed')]
     assert owners == ['GalleryFeature.GalleryService', 'GalleryFeature.GalleryService', 'BIT101-iOS.Dummy', None, 'GalleryFeature.GalleryService']
+    overload_sources = {
+        'Modules/GalleryFeature/Sources/Service.swift': 'public struct GalleryService { public func fetchFeed(id: Int) {}; public func fetchFeed(id: String) {} }',
+        'BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift': 'import GalleryFeature; struct ReleaseNetworkSmokeRunner { func run() { let service = GalleryService(); service.fetchFeed(id: 1); service.fetchFeed(id: "one") } }',
+    }
+    with patch.dict(NETWORK_CAPABILITIES, {'GalleryFeature.GalleryService': {'fetchFeed(id:Int)': 'network', 'fetchFeed(id:String)': 'network'}}, clear=True):
+        assert not network_capability_findings(swift_syntax_index_sources(overload_sources))
+        overload_sources['BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift'] = overload_sources['BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift'].replace('service.fetchFeed(id: "one")', '')
+        assert any('fetchFeed(id:String)' in error for error in network_capability_findings(swift_syntax_index_sources(overload_sources)))
     sources = {
         'ReleaseNetworkSmoke.swift': 'struct ReleaseNetworkSmokeRunner { func run() { dependencies.productionSessionProbe() } }',
         'ReleaseNetworkSmokeModels.swift': 'struct ReleaseNetworkSmokeDependencies { var productionSessionProbe: () -> Void = NetworkSmokeProductionSession.run }',
@@ -285,8 +355,9 @@ def network_capability_self_test() -> None:
     }
     def reached(expressions):
         facts = swift_syntax_index_sources(expressions)
-        with patch.object(Path, 'is_file', lambda path: str(path) in expressions), \
-                patch.object(Path, 'read_text', lambda path, *args, **kwargs: expressions[str(path)]):
+        original_is_file, original_read = Path.is_file, Path.read_text
+        with patch.object(Path, 'is_file', lambda path: str(path) in expressions or original_is_file(path)), \
+                patch.object(Path, 'read_text', lambda path, *args, **kwargs: expressions[str(path)] if str(path) in expressions else original_read(path, *args, **kwargs)):
             return {call['calledExpression'] for call in reachable_smoke_calls(facts)['network']}
     assert 'mine.fetchMyInfo' in reached(sources)
     inactive = dict(sources)
@@ -295,19 +366,25 @@ def network_capability_self_test() -> None:
     unused_reference = dict(sources)
     unused_reference['ReleaseNetworkSmoke.swift'] = sources['ReleaseNetworkSmoke.swift'].replace('dependencies.productionSessionProbe()', 'let unused = dependencies.productionSessionProbe')
     assert 'mine.fetchMyInfo' not in reached(unused_reference)
-    courses = index['Modules/CourseFeature/Sources/Service.swift']['functionRanges']
+    courses = index['Modules/CourseFeature/Sources/CourseService.swift']['functionRanges']
     courses.append({'name': 'newEndpoint', 'scope': ['CourseService'], 'isExported': True, 'start': 0, 'end': 1})
     assert network_capability_findings(index)
-    with patch.dict(NETWORK_CAPABILITIES['CourseFeature.CourseService'], newEndpoint='network'):
+    with patch.dict(NETWORK_CAPABILITIES['CourseFeature.CourseService'], **{'newEndpoint()': 'network'}):
         assert any('实际服务调用' in error for error in network_capability_findings(index))
     courses.pop()
     courses.append({'name': 'fetchComments', 'scope': ['CourseService'], 'isExported': True, 'start': 2, 'end': 3,
-        'parameters': [{'label': 'includeReplies', 'type': 'Bool'}]})
-    assert any('唯一公开方法' in error for error in network_capability_findings(index))
+        'parameters': [{'label': 'includeReplies', 'type': 'Bool', 'hasDefault': False, 'variadic': False}]})
+    assert any('fetchComments(includeReplies:Bool)' in error for error in network_capability_findings(index))
+    with patch.dict(NETWORK_CAPABILITIES['CourseFeature.CourseService'], **{'fetchComments(includeReplies:Bool)': 'gallery-report'}):
+        assert not network_capability_findings(index)
     courses.pop()
     courses.append({'name': 'fetchCourse', 'scope': ['NewService'], 'isExported': True, 'start': 0, 'end': 1})
     assert any('新增生产服务' in error for error in network_capability_findings(index))
     courses.pop()
+    scores = index['Modules/ScoreInfrastructure/Sources/ScoreService.swift']['functionRanges']
+    scores.append({'name': 'newEndpoint', 'scope': ['ScoreService'], 'isExported': True, 'start': 0, 'end': 1})
+    assert any('ScoreService' in error and 'newEndpoint()' in error for error in network_capability_findings(index))
+    scores.pop()
     with patch.dict(NETWORK_CAPABILITIES, {'CourseFeature.CourseService': {'fetchCourses': 'missing-check'}}):
         assert network_capability_findings(index)
 

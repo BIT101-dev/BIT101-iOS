@@ -28,7 +28,7 @@ MANUAL_DEVICE_CHECKS.update(MANUAL_SCENARIOS)
 BASELINE_CHECKS = {'iOS': {'cold-start-session', 'offline-persistence', 'media-and-navigation'},
     'watchOS': {'snapshot-receive', 'timeline-render', 'clear-and-retry'}}
 PERFORMANCE_WORKLOADS = {
-    'pagination': ('MaintenancePerformanceTests/testCommunityPaginationPerformance', {'pages': 1000, 'itemsPerPage': 100, 'passes': 2}),
+    'pagination': ('MaintenancePerformanceTests/testCommunityPaginationPerformance', {'pages': 1000, 'itemsPerPage': 100, 'passes': 2, 'states': ['MinePagedState', 'GalleryMessageListState']}),
     'image-decoding': ('MaintenancePerformanceTests/testStillImageDecodingPerformance', {'width': 1024, 'height': 1024, 'format': 'PNG'}),
 }
 
@@ -42,6 +42,9 @@ def capture(operation: str, result: str, evidence: Path, check: str, outcome: st
     if len(data) > MAXIMUM_ATTACHMENT_BYTES: raise ValueError('人工附件需要控制在 32 MiB 以内。')
     if not (failed_evidence_complete(data) if outcome == "failed" else evidence_content_complete(check, data)):
         raise ValueError("验收附件需要有效影像、PDF 或所属专项的结构化证据")
+    if check == 'performance-baseline' and outcome == 'passed':
+        from validation_performance import validate_capture
+        validate_capture(json.loads(data))
     return {"check": check, "operation": operation.strip(), "result": result.strip(), "outcome": outcome, "capturedAt": observed_at, "registeredAt": utc_now().isoformat(),
         "evidence": {"path": str(evidence.resolve()), "sha256": hashlib.sha256(data).hexdigest(), "byteCount": len(data), "dataBase64": base64.b64encode(data).decode("ascii")}}
 
@@ -183,7 +186,8 @@ def performance_comparison_complete(name: str, measurement: dict) -> bool:
                     or not math.isfinite(maximum) \
                     or len(metric['samples']) != len(approved['samples']) \
                     or metric['mean'] > maximum: return False
-        return True
+        from validation_performance import record_complete
+        return record_complete(current, current=True) and record_complete(baseline, current=False)
     except (KeyError, TypeError, ValueError, AttributeError, OverflowError):
         return False
 

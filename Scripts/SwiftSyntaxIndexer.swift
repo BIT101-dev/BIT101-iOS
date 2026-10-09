@@ -71,6 +71,7 @@ struct ScopedFact: Encodable {
     var bindingType: String? = nil
     var initializerCall: String? = nil
     var initializerReference: String? = nil
+    var isExpressionReference: Bool = false
 }
 
 struct SelectionControlFact: Encodable {
@@ -149,6 +150,8 @@ struct FunctionRangeFact: Encodable {
     var isExplicitInitializer: Bool = false
     var bodyStart: Int? = nil
     var isExported: Bool = false
+    var isPrivate: Bool = false
+    var isAsync: Bool = false
     var referenceTarget: String? = nil
     var returnedCall: String? = nil
 }
@@ -318,7 +321,9 @@ final class FactVisitor: SyntaxVisitor {
                 FunctionParameterFact(label: $0.firstName.text == "_" ? "" : $0.firstName.text, type: $0.type.trimmedDescription,
                     hasDefault: $0.defaultValue != nil, variadic: $0.ellipsis != nil, name: ($0.secondName ?? $0.firstName).text)
             }, bodyStart: node.body?.positionAfterSkippingLeadingTrivia.utf8Offset,
-            isExported: functionIsExported(node), returnedCall: returnedCall(node.body?.statements)
+            isExported: functionIsExported(node),
+            isPrivate: node.modifiers.contains { ["private", "fileprivate"].contains($0.name.text) },
+            isAsync: node.signature.effectSpecifiers?.asyncSpecifier != nil, returnedCall: returnedCall(node.body?.statements)
         ))
         functionStack.append((node.name.text, scope, closureDepth))
         if let body = node.body, body.statements.count == 1,
@@ -649,7 +654,9 @@ final class FactVisitor: SyntaxVisitor {
     override func visit(_ token: TokenSyntax) -> SyntaxVisitorContinueKind {
         switch token.tokenKind {
         case .identifier(let value):
-            scopedIdentifiers.append(fact(value, start: token.positionAfterSkippingLeadingTrivia.utf8Offset))
+            var reference = fact(value, start: token.positionAfterSkippingLeadingTrivia.utf8Offset)
+            reference.isExpressionReference = token.parent?.is(DeclReferenceExprSyntax.self) == true
+            scopedIdentifiers.append(reference)
         case .stringSegment(let value):
             stringSegments.append(fact(value, start: token.positionAfterSkippingLeadingTrivia.utf8Offset))
         default:
@@ -779,8 +786,13 @@ final class FactVisitor: SyntaxVisitor {
     }
 
     override func visit(_ node: OptionalBindingConditionSyntax) -> SyntaxVisitorContinueKind {
-        bindings.append(fact(node.pattern.trimmedDescription + (node.initializer.map { " " + $0.trimmedDescription } ?? ""),
-            start: node.positionAfterSkippingLeadingTrivia.utf8Offset))
+        var binding = fact(node.pattern.trimmedDescription + (node.initializer.map { " " + $0.trimmedDescription } ?? ""),
+            start: node.positionAfterSkippingLeadingTrivia.utf8Offset)
+        binding.bindingName = node.pattern.as(IdentifierPatternSyntax.self)?.identifier.text
+        binding.bindingType = node.typeAnnotation?.type.trimmedDescription
+        binding.initializerCall = node.initializer?.value.as(FunctionCallExprSyntax.self)?.calledExpression.tokens(viewMode: .sourceAccurate).map(\.text).joined()
+        binding.initializerReference = functionReference(node.initializer?.value)
+        bindings.append(binding)
         if let pattern = node.pattern.as(IdentifierPatternSyntax.self), let type = node.typeAnnotation?.type {
             typedVariables.append(TypedVariableFact(name: pattern.identifier.text, type: type.trimmedDescription,
                 scope: scope, start: node.positionAfterSkippingLeadingTrivia.utf8Offset, lexicalScope: lexicalScope))

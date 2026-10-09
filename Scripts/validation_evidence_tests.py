@@ -89,12 +89,12 @@ def run_self_test(subject) -> int:
         assert subject.compilation_condition('canImport(SwiftUI) && canImport(AppKit)', 'modules')
         for group in ('modules', 'all', 'catalyst', 'ui'):
             assert subject.compilation_condition('canImport(MapKit) && canImport(WidgetKit) && canImport(CoreLocation)', group)
+        assert not subject.compilation_condition('canImport(UnregisteredFramework)', 'all')
+        assert subject.compilation_condition('swift(>=5.0) && compiler(>=5.0)', 'all')
         try:
-            subject.compilation_condition('canImport(UnregisteredFramework)', 'all')
-        except ValueError:
-            pass
-        else:
-            raise AssertionError('未知框架需要明确登记可用性')
+            subject.compilation_condition('unsupportedPredicate(value)', 'all')
+        except ValueError: pass
+        else: raise AssertionError('Swift 编译器需要拒绝无效编译谓词')
         assert subject.compilation_condition('os(iOS) && targetEnvironment(macCatalyst) && canImport(UIKit)', 'catalyst')
         assert subject.compilation_condition('os(iOS) && !targetEnvironment(macCatalyst)', 'all')
         assert subject.compilation_condition('DEBUG || RELEASE_NETWORK_SMOKE', 'all')

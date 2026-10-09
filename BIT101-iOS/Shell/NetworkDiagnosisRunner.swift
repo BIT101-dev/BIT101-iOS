@@ -3,13 +3,9 @@ import CommunityTransport
 import ClientCore
 import ScoreDomain
 import ScorePorts
-import ScoreInfrastructure
-import ScheduleDomain
 import PaperFeature
 import GalleryFeature
 import TransportCore
-import ScoreFeature
-import ScheduleInfrastructure
 import Combine
 import Foundation
 
@@ -19,6 +15,25 @@ struct NetworkDiagnosisReport: Equatable, Sendable {
     var summary: String {
         results.joined(separator: "\n")
     }
+}
+
+@MainActor
+struct NetworkDiagnosisSchool {
+    let identity: () -> SchoolSessionIdentity
+    let currentTerm: () async throws -> String
+    let syncCourses: (String) async throws -> Void
+    let ddl: () async throws -> Void
+}
+
+@MainActor
+struct NetworkDiagnosisDependencies {
+    let identity: () -> NetworkDiagnosisRunner.Identity
+    let path: any NetworkPathProviding
+    let httpClient: HTTPClient
+    let gallery: any GalleryFeedServicing
+    let paper: any PaperListServicing
+    let school: NetworkDiagnosisSchool
+    let transcript: any TrustedTranscriptServicing
 }
 
 @MainActor
@@ -58,11 +73,11 @@ final class NetworkDiagnosisRunner: ObservableObject {
     private let identity: () -> Identity
     private let diagnose: ((Step) async -> String)?
 
-    init(identity: @escaping () -> Identity = {
-        .init(community: AppAccountSession.storage.communityCredentials.identity,
-            school: AppAccountSession.storage.schoolSessionIdentity)
-    }, diagnose: ((Step) async -> String)? = nil) {
-        self.identity = identity
+    private let dependencies: NetworkDiagnosisDependencies
+
+    init(dependencies: NetworkDiagnosisDependencies, diagnose: ((Step) async -> String)? = nil) {
+        self.dependencies = dependencies
+        identity = dependencies.identity
         self.diagnose = diagnose
     }
 
@@ -117,7 +132,7 @@ final class NetworkDiagnosisRunner: ObservableObject {
             let detail: String
             switch step {
             case .path:
-                let snapshot = NetworkConnectionDescription.shared.snapshot
+                let snapshot = dependencies.path.snapshot
                 detail = snapshot.virtualNetworkLikely
                     ? "\(snapshot.summary)，可能经过虚拟网络或代理"
                     : snapshot.summary
@@ -125,29 +140,28 @@ final class NetworkDiagnosisRunner: ObservableObject {
                 _ = try await fetch(AppURL.required("https://open.aihelpme.dev"))
                 detail = "通过"
             case .gallery:
-                _ = try await GalleryService().fetchFeed(kind: .newest, page: nil)
+                _ = try await dependencies.gallery.fetchFeed(kind: .newest, page: nil)
                 detail = "通过"
             case .paper:
-                _ = try await PaperService().fetchPapers(search: nil, order: .newest, page: 0)
+                _ = try await dependencies.paper.fetchPapers(search: nil, order: .newest, page: 0)
                 detail = "通过"
             case .currentTerm:
-                currentTermForDiagnosis = try await ScheduleServiceFactory.make().fetchCurrentTermOnly()
+                currentTermForDiagnosis = try await dependencies.school.currentTerm()
                 detail = "通过"
             case .schedule:
-                let service = ScheduleServiceFactory.make()
                 let term: String
                 if let currentTermForDiagnosis {
                     term = currentTermForDiagnosis
                 } else {
-                    term = try await service.fetchCurrentTermOnly()
+                    term = try await dependencies.school.currentTerm()
                 }
-                _ = try await service.syncCourses(term: term)
+                try await dependencies.school.syncCourses(term)
                 detail = "通过"
             case .ddl:
-                _ = try await ScheduleServiceFactory.make().fetchEclassDDLEventsForPreflight()
+                try await dependencies.school.ddl()
                 detail = "通过"
             case .transcript:
-                _ = try await ScoreService().fetchTrustedTranscriptPages()
+                _ = try await dependencies.transcript.fetchTrustedTranscriptPages()
                 detail = "通过"
             }
             return "\(step.title)：\(detail)"
@@ -163,7 +177,7 @@ final class NetworkDiagnosisRunner: ObservableObject {
     private func fetch(_ url: URL) async throws -> Data {
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 20)
         request.setValue("BIT101-iOS network diagnosis", forHTTPHeaderField: "User-Agent")
-        let response = try await HTTPClient.shared.send(request, accepting: 200 ..< 400)
+        let response = try await dependencies.httpClient.send(request, accepting: 200 ..< 400)
         guard !response.data.isEmpty else { throw URLError(.zeroByteResource) }
         return response.data
     }

@@ -1,4 +1,5 @@
 import MediaKit
+import ScorePorts
 import CommunityCore
 import CourseFeature
 import PaperFeature
@@ -26,7 +27,7 @@ final class AppCommunityDestinations {
     let settings: CommunitySettingsDestinations
     let settingsDependencies: SettingsDependencies
 
-    init(dependencies: AppCommunityDependencies, schedule: ScheduleViewModel, media: MediaEnvironment, localData: AppLocalDataService) {
+    init(dependencies: AppCommunityDependencies, schedule: ScheduleViewModel, media: MediaEnvironment, localData: AppLocalDataService, school: NetworkDiagnosisSchool, transcript: any TrustedTranscriptServicing) {
         self.media = media
         profiles = Self.profiles(dependencies: dependencies, media: media)
         posters = Self.posters(dependencies: dependencies, media: media)
@@ -41,6 +42,13 @@ final class AppCommunityDestinations {
             account: SettingsAccountDependencies(
                 service: SettingsNetworkService(session: dependencies.session, checkLogin: dependencies.checkLogin),
                 credentials: { dependencies.session.currentCredentials }
+            ),
+            networkDiagnosis: NetworkDiagnosisDependencies(
+                identity: { .init(community: dependencies.session.currentCredentials.identity, school: school.identity()) },
+                path: NetworkConnectionDescription(networkPath: dependencies.networkPath),
+                httpClient: dependencies.session.httpClient,
+                gallery: GalleryService(session: dependencies.session, preferences: { dependencies.preferences.snapshot }),
+                paper: PaperService(session: dependencies.session), school: school, transcript: transcript
             )
         )
         settingsDependencies = selectedSettings
@@ -104,6 +112,7 @@ final class AppCommunityDependencies {
     let settingsStore: AppSettingsStore
     let session: CommunitySession
     let checkLogin: () async throws -> Bool
+    let networkPath: NetworkPathState
     let gallery: GalleryDependencies
     let course: CourseDependencies
     let paper: PaperDependencies
@@ -124,6 +133,7 @@ final class AppCommunityDependencies {
         self.settingsStore = settings
         self.session = session
         self.checkLogin = checkLogin
+        self.networkPath = networkPath
         let preferences = CommunityPreferences(
             snapshot: Self.snapshot(for: settings),
             saveMakeupFilter: { settings.setHidesCourseHistoryMakeupOutliers($0) }

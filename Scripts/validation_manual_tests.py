@@ -63,9 +63,25 @@ def evidence_fixture(check: str) -> bytes:
                     'resultBundle': {'path': '.build/extended-automation/test-results.xcresult', 'sha256': 'a' * 64},
                     'metrics': {'clockSeconds': {'samples': [0.1] * 10, 'mean': 0.1},
                         'peakPhysicalMemoryBytes': {'samples': [1024] * 10, 'mean': 1024}}}
+                from validation_performance import current_commit
+                from validation_evidence import source_digest
+                context = {'host': {'system': 'fixture'}, 'developer': '/fixture',
+                    'xcode': {'DTXcodeBuild': 'fixture'}, 'compiler': {'modified': 1, 'size': 1, 'sha256': 'a' * 64},
+                    'sdks': {'iPhoneOS': {'Version': '26.0'}},
+                    'device': {'identifier': 'fixture-phone', 'model': 'iPhone', 'systemVersion': '26.0', 'systemBuild': 'fixture'}}
+                current['sourceCommit'] = current_commit()
+                current['environment']['compilationConditions'] = ['BIT101_AUTOMATED_TESTING', 'DEBUG', 'EXTENDED_AUTOMATION']
+                from validation_performance import normalize_metrics
+                current['execution'] = {'group': 'all', 'runID': 'fixture-run', 'environment': context,
+                    'sourceCommit': current['sourceCommit'], 'inputDigest': source_digest('all', environment=context), 'bundleSHA256': 'a' * 64}
+                current['xcresultMetrics'] = [{'testIdentifier': test + '()', 'testRuns': [{'device': {'deviceId': 'fixture-phone'},
+                    'metrics': [{'identifier': 'com.apple.dt.XCTMetric_Clock.time.monotonic', 'unitOfMeasurement': 's', 'measurements': [0.1] * 10},
+                        {'identifier': 'com.apple.dt.XCTMetric_Memory.physical_peak', 'unitOfMeasurement': 'kB', 'measurements': [1.024] * 10}]}]}]
+                current['metrics'] = normalize_metrics(current['xcresultMetrics'], test, 'fixture-phone')
                 baseline = copy.deepcopy(current)
                 baseline.update(capturedAt=(utc_now() - timedelta(days=1)).isoformat(), approvedAt=(utc_now() - timedelta(hours=1)).isoformat(), approvedBy='maintainer')
                 baseline['resultBundle']['sha256'] = 'b' * 64
+                baseline['execution']['bundleSHA256'] = 'b' * 64
                 for metric in baseline['metrics'].values(): metric['maximumRegressionPercent'] = 10
                 row['measurement'] = {'current': current, 'baseline': baseline}
         return json.dumps({'schemaVersion': 1, 'deviceFamily': 'iPad', 'deviceIdentifier': 'fixture-pad', 'scenarios': scenarios}).encode()
@@ -101,11 +117,13 @@ def captured_fixture(check: str, provenance: dict | None = None) -> dict:
         data = json.dumps(proof).encode()
     path = Path('/evidence/' + check)
     original = Path.open
-    with patch.object(Path, 'open', lambda value, *args, **kwargs: BytesIO(data) if value == path else original(value, *args, **kwargs)):
+    with patch.object(Path, 'open', lambda value, *args, **kwargs: BytesIO(data) if value == path else original(value, *args, **kwargs)), patch('validation_performance.validate_capture'):
         return capture('实际操作', '观察结果', path, check, 'passed', utc_now().isoformat())
 
 
 def run_self_test() -> None:
+    from validation_performance_tests import run_self_test as performance_self_test
+    performance_self_test()
     from validation_media import run_probe
     assert run_probe(b'', self_test=True)
     from validation_media import decode_probe
@@ -249,6 +267,13 @@ def run_self_test() -> None:
                 assert not performance_comparison_complete(name, changed)
         changed = copy.deepcopy(measurement)
         changed['baseline']['approvedBy'] = ''
+        assert not performance_comparison_complete(name, changed)
+        for field, value in [('sourceCommit', '0' * 40), ('resultBundle', {'path': '/does-not-exist/current.xcresult', 'sha256': 'a' * 64})]:
+            changed = copy.deepcopy(measurement)
+            changed['current'][field] = value
+            assert not performance_comparison_complete(name, changed)
+        changed = copy.deepcopy(measurement)
+        for kind in ('current', 'baseline'): changed[kind]['environment']['deviceIdentifier'] = 'unrelated-device'
         assert not performance_comparison_complete(name, changed)
     pad = json.loads(evidence_fixture('ipad-layout'))
     assert not scenario_complete('ipad-layout', pad | {'deviceFamily': 'iPhone'})

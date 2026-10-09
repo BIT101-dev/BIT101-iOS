@@ -287,7 +287,9 @@ struct ExperimentalPreferenceCloudSyncTests {
         let community = AppCommunityDependencies(settings: sync.settings, session: session, checkLogin: { true },
             messages: sync.stores.communityMessages, drafts: sync.stores.composerDrafts, submitSuggestion: { _ in }, loadCourseCredits: { [] })
         return AppAccountLifecycle(scheduleViewModel: schedule, community: community, scoreService: OfflineScoreService(),
-            transcriptService: OfflineScoreService(), settings: sync.settings, stores: sync.stores, preferenceCloudSync: sync, accountChanges: account.changes.eraseToAnyPublisher(), currentIdentity: { account.identity },
+            transcriptService: OfflineScoreService(),
+            diagnosisSchool: NetworkDiagnosisSchool(identity: { .init(accountIdentifier: account.session.accountIdentifier, generation: 0) },
+                currentTerm: { "fixture" }, syncCourses: { _ in }, ddl: {}), settings: sync.settings, stores: sync.stores, preferenceCloudSync: sync, accountChanges: account.changes.eraseToAnyPublisher(), currentIdentity: { account.identity },
             scheduleChanges: changes, loadScheduleCourses: loadCourses, media: media,
             localData: AppLocalDataService(files: PreferenceMemoryFiles(), actions: LocalDataActionsSpy().actions), externalDisplays: displays)
     }

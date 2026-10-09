@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from pathlib import Path
 import ast
-import importlib.util
 import fcntl
 import json
 import os
@@ -12,7 +11,7 @@ import shlex
 import stat
 import subprocess
 import sys
-from swift_source_index import declaration_conformances, expected_argument_types, scope_contains_type, swift_syntax_index
+from swift_source_index import declaration_conformances, expected_argument_types, scope_contains_type, swift_syntax_index, swift_code
 from contextlib import contextmanager
 from ui_source_facts import explanatory_text_report
 
@@ -120,23 +119,10 @@ def line_number(source: str, position: int) -> int:
     return source.count("\n", 0, position) + 1
 
 
-def _blank_segment(output: list[str], source: str, start: int, end: int) -> None:
-    for index in range(start, min(end, len(source))):
-        if source[index] != "\n":
-            output[index] = " "
 
 
 def mask_literals_and_comments(source: str, *, keep_comments: bool = False) -> str:
-    """复用模块检查器的 Swift 词法扫描，保留插值表达式与源码位置。"""
-    name = "check_module_boundaries_lexer"
-    if name not in sys.modules:
-        spec = importlib.util.spec_from_file_location(name, SCRIPT_ROOT / "check-module-boundaries.py")
-        if spec is None or spec.loader is None:
-            raise RuntimeError("Swift 词法扫描器加载失败")
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[name] = module
-        spec.loader.exec_module(module)
-    return sys.modules[name].swift_code(source, keep_comments=keep_comments)
+    return swift_code(source, keep_comments=keep_comments)
 
 
 def is_view_source(path: Path, code: str) -> bool:
@@ -534,7 +520,7 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
                 name = parameter.get("name", parameter["label"])
                 calls = execution_calls.get((path, tuple(function["scope"]), name), [])
                 references = [reference for reference in facts.get("scopedIdentifiers", [])
-                    if reference["value"] == name and reference["scope"] == function["scope"]
+                    if reference.get("isExpressionReference") and reference["value"] == name and reference["scope"] == function["scope"]
                     and any(start <= reference["start"] < end for start, end in callback_ranges[path][2])]
                 if any(function.get("bodyStart", function["start"]) <= reference["start"] < function["end"]
                         and not any(boundary["start"] <= reference["start"] < boundary["end"] for boundary in deferred)
@@ -553,7 +539,8 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
             if (match := re.match(r"((?:self\.)?\w+\s*)=(?!=)", expression["value"]))]
         discarded = [(expression["start"], expression["start"] + len(expression["value"].encode()))
             for expression in facts.get("expressions", []) if re.fullmatch(r"_\s*=(?!=)\s*[\w?.]+", expression["value"])]
-        references = [reference for reference in facts["calls"] + facts.get("members", []) + facts.get("scopedIdentifiers", [])
+        references = [reference for reference in facts["calls"] + facts.get("members", [])
+            + [node for node in facts.get("scopedIdentifiers", []) if node.get("isExpressionReference")]
             if (re.fullmatch(r"(?:[\w?$]+\.)*\w+", reference["value"]) or reference["value"] == ".init" or reference.get("receiverCall"))
             and not (id(reference) in identifier_ids and any(start <= reference["start"] < end for start, end in member_ranges))
             and not any(start <= reference["start"] < end for start, end in discarded)
@@ -834,6 +821,11 @@ def cross_file_view_request_self_test() -> list[str]:
             'class ScheduleCloudSyncManager { func refreshFromCloudIfNeeded() async {} }; struct Actions { let refresh: () async -> Void; func start() async { await refresh() } }; struct SampleApp: App { let cloud: ScheduleCloudSyncManager; var body: some Scene { WindowGroup { Text("sample").task { let actions = Actions(refresh: { await cloud.refreshFromCloudIfNeeded() }); ACTION } } } }'.replace('ACTION', action)})
         if bool(automatic_school_fetch_findings(stored)) != invoked:
             return ['代码质量规则边界自检失败：成员构造器保存闭包与后续调用']
+    for action, invoked in (('_ = actions', False), ('await actions.start()', True)):
+        stored = swift_syntax_index_sources({'App.swift':
+            'protocol ScheduleCourseServicing { func syncCourses(term: String) async }; struct Service: ScheduleCourseServicing { func syncCourses(term: String) async {} }; struct Actions { let syncCourses: (String) async -> Void; func start() async { await syncCourses("term") } }; struct SampleApp: App { let service: Service; var body: some Scene { WindowGroup { Text("sample").task { let actions = Actions(syncCourses: { await service.syncCourses(term: $0) }); ACTION } } } }'.replace('ACTION', action)})
+        if bool(automatic_school_fetch_findings(stored)) != invoked:
+            return ['代码质量规则边界自检失败：同名参数标签与实际执行引用']
     registered = swift_syntax_index_sources({'App.swift':
         'typealias Presenter = (_ resolve: @escaping () async -> Void) -> Void; class ScheduleCloudSyncManager { func refreshFromCloudIfNeeded() async {} }; struct Bootstrap { let cloud: ScheduleCloudSyncManager; let present: Presenter; func start() { present { await cloud.refreshFromCloudIfNeeded() } } }; struct SampleApp: App { var body: some Scene { WindowGroup { Text("sample").task { Bootstrap().start() } } } }'})
     if automatic_school_fetch_findings(registered):

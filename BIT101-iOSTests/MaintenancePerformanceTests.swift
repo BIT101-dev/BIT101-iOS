@@ -3,18 +3,29 @@ import XCTest
 import UIKit
 import CommunityCore
 import MediaKit
+@testable import MineFeature
+@testable import GalleryFeature
 
 nonisolated final class MaintenancePerformanceTests: XCTestCase {
     private nonisolated struct Item: Identifiable { let id: Int }
 
-    func testCommunityPaginationPerformance() {
+    @MainActor
+    func testCommunityPaginationPerformance() throws {
         let pages = (0..<1_000).map { page in (page * 100 ..< (page + 1) * 100).map { Item(id: $0) } }
+        let decoder = JSONDecoder()
+        let messagePages = try pages.map { page in
+            let rows = page.map { "{\"fromUser\":{},\"id\":\($0.id),\"linkObj\":\"\",\"obj\":\"\",\"text\":\"message\",\"updateTime\":\"\"}" }
+            return try decoder.decode([GalleryMessage].self, from: Data(("[" + rows.joined(separator: ",") + "]").utf8))
+        }
         measure(metrics: [XCTClockMetric(), XCTMemoryMetric()]) {
-            var storage = CommunityPagedItems<Item>()
-            for page in pages { storage.append(page) }
-            for page in pages { storage.append(page) }
-            XCTAssertEqual(storage.items.count, 100_000)
-            XCTAssertEqual(storage.ids.count, 100_000)
+            var mine = MinePagedState<Item>()
+            var messages = GalleryMessageListState()
+            for _ in 0..<2 {
+                for page in pages { mine.appendPage(page) }
+                for page in messagePages { messages.appendCursorPage(page) }
+            }
+            XCTAssertEqual(mine.items.count, 100_000)
+            XCTAssertEqual(messages.items.count, 100_000)
         }
     }
 

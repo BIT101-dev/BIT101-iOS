@@ -230,7 +230,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
                 rate: 0, replyUser: user, replyObj: "", text: "fixture", sub: [])
         }
         func fetchFeed(kind: GalleryFeedKind, page: Int?) async throws -> GalleryPageBatch<CommunityPoster> {
-            observed.insert("gallery"); return .init(items: [poster], nextSourcePage: (page ?? 0) + 1, canLoadMore: false)
+            observed.insert("gallery-\(kind.rawValue)"); return .init(items: [poster], nextSourcePage: (page ?? 0) + 1, canLoadMore: false)
         }
         func fetchRecommendPage(sourcePage: Int) async throws -> GalleryPageBatch<CommunityPoster> { GalleryPageBatch<CommunityPoster>(items: [poster], nextSourcePage: 1, canLoadMore: false) }
         func fetchBotFeed(startPage: Int) async throws -> GalleryPageBatch<CommunityPoster> { GalleryPageBatch<CommunityPoster>(items: [poster], nextSourcePage: 1, canLoadMore: false) }
@@ -425,6 +425,10 @@ extension ReleaseNetworkSmokeLifecycleTests {
         let report = await runner.run(scope: scope, runID: stage, capture: stage == "raw-write-failure" ? .rawCourseResponse : .none,
             term: stage == "historical-term-success" ? "historical-1" : nil,
             schoolSMSCodeHandler: stage.hasPrefix("all-sms-") ? smsHandler : nil)
+        if scope.includes(.bit101) {
+            #expect(services.observed.isSuperset(of: ["gallery-follow", "gallery-hot", "gallery-newest"]))
+            #expect(report.executedProbes.contains("话廊关注流") && report.executedProbes.contains("话廊热门流"))
+        }
         #expect(report.passed == !stage.hasSuffix("failure"))
         #expect(report.productionSessionEvidence == (scope.includes(.bit101) ? sessionEvidence : []))
         if stage == "all-sms-success" {

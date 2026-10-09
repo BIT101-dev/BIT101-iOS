@@ -2,7 +2,6 @@
 """Bind executed validation groups to the repository contents and release commit."""
 from __future__ import annotations
 import argparse
-import ast
 import fcntl
 import hashlib
 import json
@@ -19,6 +18,7 @@ from swift_source_index import swift_syntax_index_sources
 from validation_inputs import includes_input
 from validation_policy import TEST_GROUPS, RELEASE_GROUPS, DEFAULT_VERIFY_GROUPS, FORMAL_RUNTIME_SUITES, MODULE_COVERAGE_FLOORS, IOS_MODULE_COVERAGE_FLOORS
 from validation_test_areas import TEST_AREA_SUITES
+from validation_compilation import compilation_condition
 from validation_manual import MANUAL_DEVICE_CHECKS, capture as capture_manual, complete as manual_complete, distribution_matches_archive
 from validate_distribution import archive_build_summary, valid_archive_provenance, valid_executable_uuids, distribution_contracts
 from validation_environment import environment_context, complete_environment, toolchain_identity
@@ -60,37 +60,6 @@ def write_report(report: dict) -> None:
         incoming.unlink(missing_ok=True)
 
 
-@cache
-def compilation_condition(condition: str, group: str) -> bool:
-    enabled = {"DEBUG", "EXTENDED_AUTOMATION", "BIT101_AUTOMATED_TESTING"} if group in {"all", "catalyst"} else {"EXTENDED_AUTOMATION", "BIT101_AUTOMATED_TESTING", "BIT101_UI_TESTING"} if group == "ui" else set()
-    if group in NETWORK_GROUPS: enabled = {"RELEASE_NETWORK_SMOKE"}
-    platform = "macOS" if group == "modules" else "iOS"
-    architecture = os.uname().machine if group in {"modules", "catalyst", "catalyst-release-runtime"} else "arm64"
-    def predicate(match):
-        name, value = match.groups()
-        value = value.strip()
-        if name == "os": result = value == platform
-        elif name == "targetEnvironment": result = value == "macCatalyst" and group in {"catalyst", "catalyst-release-runtime"}
-        elif name == "arch": result = value == architecture
-        elif name == "canImport":
-            shared = {"Foundation", "Testing", "XCTest", "Swift", "Combine", "CryptoKit", "CloudKit", "SwiftUI", "EventKit", "UserNotifications",
-                      "Observation", "os", "OSLog", "Security", "CoreFoundation", "CoreGraphics", "CoreLocation", "MapKit", "WidgetKit",
-                      "WatchConnectivity", "WebKit", "Charts", "Compression", "ImageIO", "UniformTypeIdentifiers", "QuickLook", "PhotosUI",
-                      "Network", "Darwin", "Dispatch"}
-            if value in shared or (ROOT / "Modules" / value).is_dir(): result = True
-            elif value == "UIKit": result = platform == "iOS"
-            elif value == "AppKit": result = platform == "macOS"
-            elif value == "ActivityKit": result = platform == "iOS" and group not in {"catalyst", "catalyst-release-runtime"}
-            else: raise ValueError(f"测试清单需要登记框架可用性：canImport({value})")
-        else: raise ValueError(f"测试清单需要支持编译谓词：{name}({value})")
-        return str(result)
-    expression = re.sub(r"\b(\w+)\s*\(([^()]*)\)", predicate, condition)
-    expression = re.sub(r"\b[A-Za-z_]\w*\b", lambda match: match[0] if match[0] in {"True", "False"} else str(match[0] in enabled), expression)
-    expression = expression.replace("&&", " and ").replace("||", " or ").replace("!", " not ").strip()
-    tree = ast.parse(expression, mode="eval")
-    if any(type(node) not in {ast.Expression, ast.BoolOp, ast.UnaryOp, ast.And, ast.Or, ast.Not, ast.Constant} for node in ast.walk(tree)):
-        raise ValueError(f"测试清单需要支持编译条件：{condition}")
-    return bool(eval(compile(tree, "<Swift condition>", "eval"), {"__builtins__": {}}, {}))
 
 
 def active_swift_source(source: str, group: str) -> str:
@@ -481,6 +450,10 @@ def record(group: str, status: int, scope: str, started_digest: str) -> int:
                 print("测试指标需要来自本次验证运行。", file=sys.stderr)
             try:
                 row["summary"] = test_summary(text)
+                if group == "all" and status == 0:
+                    from validation_performance import bundle_digest, BUNDLE, current_commit
+                    row["resultBundleSHA256"] = bundle_digest(BUNDLE)
+                    row["sourceCommit"] = current_commit()
             except ValueError:
                 if status == 0:
                     raise

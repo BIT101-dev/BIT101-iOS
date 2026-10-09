@@ -60,6 +60,7 @@ struct SettingsDependencies {
     let media: MediaEnvironment
     let localData: AppLocalDataService
     let account: SettingsAccountDependencies
+    let networkDiagnosis: NetworkDiagnosisDependencies
 }
 
 /// 此视图展示设置中心的一级入口。
@@ -189,7 +190,7 @@ private struct SettingsRoutePage: View {
         case .ddl:
             DDLSettingsPage(viewModel: scheduleViewModel.ddl)
         case .gallery:
-            GallerySettingsPage(media: dependencies.media)
+            GallerySettingsPage(media: dependencies.media, diagnosis: dependencies.networkDiagnosis)
         case .suggestion:
             DeveloperSuggestionPage(dependencies: dependencies.suggestion)
         case .about:

@@ -514,15 +514,15 @@ struct InfrastructureTests {
         let id: Int
     }
 
-    private nonisolated struct TestPagedState: PagedItemsState {
-        var items: [TestItem] = []
+    private struct TestPagedState: PagedItemsState {
+        var pagedItems = CommunityPagedItems<TestItem>()
         var nextPage = 0
         var isLoadingMore = false
         var canLoadMore = true
     }
 
-    private nonisolated struct TestCursorState: CursorPagedItemsState {
-        var items: [TestItem] = []
+    private struct TestCursorState: CursorPagedItemsState {
+        var pagedItems = CommunityPagedItems<TestItem>()
         var nextCursor: Int?
         var isLoadingMore = false
         var canLoadMore = true

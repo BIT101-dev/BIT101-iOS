@@ -252,6 +252,8 @@ final class ReleaseNetworkSmokeRunner {
             recordSkip("话廊网页详情", reason, area: .bit101, scope: scope)
         }
         var galleryOperations: [@MainActor () async -> Void] = [
+            { _ = await self.probe("话廊关注流", area: .bit101, scope: scope) { try await NetworkSmokePaging.batch { try await gallery.fetchFeed(kind: .follow, page: $0 == 0 ? nil : $0) } } },
+            { _ = await self.probe("话廊热门流", area: .bit101, scope: scope) { try await NetworkSmokePaging.batch { try await gallery.fetchFeed(kind: .hot, page: $0 == 0 ? nil : $0) } } },
             { _ = await self.probe("话廊推荐流", area: .bit101, scope: scope) { try await NetworkSmokePaging.batch { try await gallery.fetchRecommendPage(sourcePage: $0) } } },
             { _ = await self.probe("话廊机器人流", area: .bit101, scope: scope) { try await NetworkSmokePaging.batch { try await gallery.fetchBotFeed(startPage: $0) } } },
             { _ = await self.probe("社区举报类型", area: .bit101, scope: scope) { try await gallery.fetchReportTypes() } },
@@ -399,6 +401,7 @@ final class ReleaseNetworkSmokeRunner {
         schoolSMSSchedule = productionSchedule
         _ = await probe("生产学校会话", area: .schedule, scope: scope) { try await productionSchedule.fetchCurrentTermOnly() }
         schoolSMSSchedule = schedule
+        _ = await probe("教学中心接口预热", area: .schedule, scope: scope) { try await schedule.prepareTeachingCenterAccess() }
         let currentTerm = await probe("当前学期", area: .schedule, scope: scope) { try await schedule.fetchCurrentTermOnly() }
         currentScheduleTerm = currentTerm
         _ = await probe("切换学期列表", area: .schedule, scope: scope) {

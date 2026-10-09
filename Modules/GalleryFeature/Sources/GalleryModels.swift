@@ -215,13 +215,12 @@ extension GalleryPosterDetail {
 /// 分页加载状态由 `GalleryFeedState.isLoadingMore` 管理。
 struct GalleryFeedState {
     /// 当前已经加载到客户端的帖子列表。
-    private var storage = CommunityPagedItems<CommunityPoster>()
+    var pagedItems = CommunityPagedItems<CommunityPoster>()
     var posters: [CommunityPoster] {
-        get { storage.items }
-        set { storage.replace(with: newValue) }
+        get { pagedItems.items }
+        set { pagedItems.replace(with: newValue) }
     }
-    var posterIDs: Set<Int> { storage.ids }
-    mutating func appendUniqueItems(_ posters: [CommunityPoster]) { storage.append(posters) }
+    var posterIDs: Set<Int> { pagedItems.ids }
     /// 列表当前所处的加载状态。
     var status: CommunityLoadStatus = .idle
     /// 是否正在请求下一页。
@@ -431,7 +430,7 @@ public nonisolated struct GalleryMessage: Decodable, Identifiable, Hashable, Sen
 /// 列表、分页游标和加载状态按消息类型统一存放。
 nonisolated struct GalleryMessageListState {
     /// 当前已经加载到客户端的消息列表。
-    var items: [GalleryMessage] = []
+    var pagedItems = CommunityPagedItems<GalleryMessage>()
     /// 列表当前所处的加载状态。
     var status: CommunityLoadStatus = .idle
     /// 是否正在请求下一页。

@@ -9,6 +9,8 @@ import TransportCore
 import Foundation
 import GalleryFeature
 import StorageCore
+import ScorePorts
+import ClientCore
 import Testing
 @testable import BIT101_iOS
 
@@ -213,8 +215,18 @@ struct AppLocalDataOwnershipTests {
 @MainActor
 @Suite(.serialized)
 struct SettingsDependencyOwnershipTests {
-    private struct OfflineTransport: HTTPTransport {
-        func data(for request: URLRequest) async throws -> (Data, URLResponse) { throw URLError(.notConnectedToInternet) }
+    private final class DiagnosisTranscript: TrustedTranscriptServicing {
+        var calls = 0
+        func fetchTrustedTranscriptPages() async throws -> [Data] { calls += 1; return [] }
+        func submitTranscriptSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> [Data] { [] }
+    }
+
+    private final class OfflineTransport: HTTPTransport {
+        var requests: [URL] = []
+        func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+            if let url = request.url { requests.append(url) }
+            throw URLError(.notConnectedToInternet)
+        }
     }
 
     @Test func settingsDestinationsPreserveTheirSelectedMediaAccountAndCleanupOwners() async throws {
@@ -227,7 +239,8 @@ struct SettingsDependencyOwnershipTests {
             firstDefaults.removePersistentDomain(forName: firstDomain)
             secondDefaults.removePersistentDomain(forName: secondDomain)
         }
-        let client = HTTPClient(transport: OfflineTransport(), observer: nil)
+        let transport = OfflineTransport()
+        let client = HTTPClient(transport: transport, observer: nil)
         func media(_ defaults: UserDefaults) -> MediaEnvironment {
             MediaEnvironment(files: PreferenceMemoryFiles(), previewStorage: MediaPreviewStorage(files: PreferenceMemoryFiles()), defaults: defaults,
                 imageHTTPClient: client, avatarHTTPClient: client)
@@ -245,22 +258,35 @@ struct SettingsDependencyOwnershipTests {
             messages: GalleryMessageReadStore(defaults: firstDefaults, session: { account }),
             drafts: ComposerDraftStore(files: PreferenceMemoryFiles(), applicationSupport: URL(fileURLWithPath: "/preference-sync"),
                 session: { account }, prepareImageData: ComposerDraftImageCompressor.compress),
-            submitSuggestion: { _ in }, loadCourseCredits: { [] })
+            submitSuggestion: { _ in }, loadCourseCredits: { [] }, networkPath: NetworkPathState(snapshot: .init(status: .disconnected)))
         let repository = ScheduleRepository(session: { account }, load: { _ in .missing }, save: { _, _, _ in })
         let service = SemesterStartDateService()
         let schedule = ScheduleViewModel(service: service, repository: repository, ddlService: service, classroomService: service,
             platformActions: RecordingSchedulePlatformActions(), newCustomScheduleDraft: { CustomScheduleDraft() })
+        var schoolCalls: [String] = []
+        let transcript = DiagnosisTranscript()
         let destinations = AppCommunityDestinations(dependencies: dependencies, schedule: schedule, media: firstMedia,
-            localData: AppLocalDataService(files: PreferenceMemoryFiles(), actions: effects.actions))
+            localData: AppLocalDataService(files: PreferenceMemoryFiles(), actions: effects.actions),
+            school: NetworkDiagnosisSchool(identity: { .init(accountIdentifier: account.accountIdentifier, generation: 0) },
+                currentTerm: { schoolCalls.append("term"); return "fixture" },
+                syncCourses: { schoolCalls.append($0) }, ddl: { schoolCalls.append("ddl") }), transcript: transcript)
         let selected = destinations.settingsDependencies
         #expect(selected.settings === dependencies.settingsStore)
         #expect(selected.schedule === schedule)
-        let page = GallerySettingsPage(media: selected.media)
+        let page = GallerySettingsPage(media: selected.media, diagnosis: selected.networkDiagnosis)
         #expect(page.media === firstMedia)
         page.media.cacheLimitMB = 128
         #expect(firstMedia.cacheLimitMB == 128)
         #expect(secondMedia.cacheLimitMB == originalSecondLimit)
         #expect(selected.account.credentials() == credentials)
+        let report = await NetworkDiagnosisRunner(dependencies: selected.networkDiagnosis).run()
+        let requests = transport.requests
+        #expect(report?.results.count == NetworkDiagnosisRunner.Step.allCases.count)
+        #expect(report?.summary.contains("网络路径：未连接") == true)
+        #expect(selected.networkDiagnosis.identity().community == credentials.identity)
+        #expect(requests.filter { $0.host == "example.invalid" }.count == 2)
+        #expect(requests.contains { $0.host == "open.aihelpme.dev" })
+        #expect(schoolCalls == ["term", "fixture", "ddl"] && transcript.calls == 1)
         var currentCredentials = credentials
         let checks = SettingsAccountDependencies(service: selected.account.service, credentials: { currentCredentials })
         #expect(checks.acceptsLoginCheck(true, for: credentials))

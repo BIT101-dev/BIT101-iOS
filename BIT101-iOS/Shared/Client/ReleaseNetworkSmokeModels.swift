@@ -91,6 +91,8 @@ enum NetworkSmokeArea: CaseIterable, Hashable, Sendable {
                 "分享图标下载",
                 "反馈接口跨域预检",
                 "话廊最新列表",
+                "话廊关注流",
+                "话廊热门流",
                 "话廊帖子详情",
                 "话廊帖子评论",
                 "话廊图片下载",
@@ -125,6 +127,7 @@ enum NetworkSmokeArea: CaseIterable, Hashable, Sendable {
         case .schedule:
             [
                 "当前学期",
+                "教学中心接口预热",
                 "生产学校会话",
                 "切换学期列表",
                 "课表、考试与首周同步",

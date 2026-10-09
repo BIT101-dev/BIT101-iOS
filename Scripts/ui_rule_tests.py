@@ -616,6 +616,15 @@ struct AppFixedColumnItem {}
         height: 42
     )
     """
+    for source in (r'Text("\(format("https://example.invalid"))").padding(7)',
+                   r'Text(#"\#(format("https://example.invalid"))"#).padding(7)',
+                   'Text("""\n\\(format("https://example.invalid"))\n""").padding(7)'):
+        assert PADDING_LITERAL.search(mask_literals_and_comments(source))
+        assert mask_comments(source) == source
+    interpolation = r'Text("\(format("https://example.invalid") /* padding(7) */)").padding(8)'
+    assert 'https://example.invalid' in mask_comments(interpolation)
+    assert '/* padding(7) */' not in mask_comments(interpolation)
+    assert len(mask_literals_and_comments(interpolation)) == len(interpolation)
     masked_calls = mask_literals_and_comments(wrapped_calls)
     wrapped_patterns = (
         DIRECT_ANIMATION_DURATION,

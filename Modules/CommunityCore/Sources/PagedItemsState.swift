@@ -22,28 +22,33 @@ public nonisolated struct CommunityPagedItems<Item: Identifiable> {
     public private(set) var items: [Item] = []
     public private(set) var ids: Set<Item.ID> = []
     public init() {}
-    public mutating func replace(with values: [Item]) { items = values; ids = Set(values.map(\.id)) }
+    public mutating func replace(with values: [Item]) { items = []; ids = []; append(values) }
     public mutating func append(_ values: [Item]) {
         items.append(contentsOf: values.filter { ids.insert($0.id).inserted })
     }
 }
 
-/// 页码分页列表共享的最小状态契约。
-public protocol PagedItemsState {
+public protocol CommunityItemsState {
     associatedtype Item: Identifiable
+    var pagedItems: CommunityPagedItems<Item> { get set }
+}
 
-    var items: [Item] { get set }
+extension CommunityItemsState {
+    public var items: [Item] {
+        get { pagedItems.items }
+        set { pagedItems.replace(with: newValue) }
+    }
+    public mutating func appendUniqueItems(_ newItems: [Item]) { pagedItems.append(newItems) }
+}
+
+/// 页码分页列表共享的最小状态契约。
+public protocol PagedItemsState: CommunityItemsState {
     var nextPage: Int { get set }
     var isLoadingMore: Bool { get set }
     var canLoadMore: Bool { get set }
-    mutating func appendUniqueItems(_ newItems: [Item])
 }
 
 extension PagedItemsState {
-    public mutating func appendUniqueItems(_ newItems: [Item]) {
-        var seen = Set(items.map(\.id))
-        items.append(contentsOf: newItems.filter { seen.insert($0.id).inserted })
-    }
     public mutating func resetPagination() {
         items = []
         nextPage = 0
@@ -52,8 +57,7 @@ extension PagedItemsState {
     }
 
     public mutating func applyFirstPage(_ newItems: [Item]) {
-        var seen = Set<Item.ID>()
-        items = newItems.filter { seen.insert($0.id).inserted }
+        pagedItems.replace(with: newItems)
         nextPage = 1
         isLoadingMore = false
         canLoadMore = !newItems.isEmpty
@@ -96,11 +100,9 @@ extension PagedItemsState where Item: Identifiable {
 ///
 /// 消息中心和页码列表使用不同分页协议，加载更多的状态转移保持一致；
 /// 公共分页协议提供列表操作；页码与后端游标由具体分页状态分别表示。
-public protocol CursorPagedItemsState {
-    associatedtype Item: Identifiable
+public protocol CursorPagedItemsState: CommunityItemsState {
     associatedtype Cursor: Equatable where Item.ID == Cursor
 
-    var items: [Item] { get set }
     var nextCursor: Cursor? { get set }
     var isLoadingMore: Bool { get set }
     var canLoadMore: Bool { get set }
@@ -125,17 +127,15 @@ extension CursorPagedItemsState {
     }
 
     public mutating func applyFirstCursorPage(_ newItems: [Item]) {
-        var seen = Set<Item.ID>()
-        items = newItems.filter { seen.insert($0.id).inserted }
+        pagedItems.replace(with: newItems)
         nextCursor = newItems.last?.id
         isLoadingMore = false
         canLoadMore = !newItems.isEmpty
     }
 
     public mutating func appendCursorPage(_ newItems: [Item]) {
-        var seen = Set(items.map(\.id))
-        let cursorAdvanced = newItems.last.map { $0.id != nextCursor && !seen.contains($0.id) } ?? false
-        items.append(contentsOf: newItems.filter { seen.insert($0.id).inserted })
+        let cursorAdvanced = newItems.last.map { $0.id != nextCursor && !pagedItems.ids.contains($0.id) } ?? false
+        pagedItems.append(newItems)
         nextCursor = newItems.last?.id ?? nextCursor
         isLoadingMore = false
         canLoadMore = cursorAdvanced

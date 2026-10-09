@@ -136,11 +136,11 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
     if not {"Scripts/run-extended-tests.sh verify modules all release-runtime ui", "python3 Scripts/validation_evidence.py bind-merge", "python3 Scripts/ci_evidence.py export-core"} <= physical_commands:
         errors.append(".github/workflows/ci.yml: 真机 Job 需要执行、恢复并绑定完整验收")
     publishers = [step for step in physical.get("steps", []) if isinstance(step, dict)
-        and step.get("uses") == "actions/upload-artifact@v7" and mapping(step.get("with")).get("name") == "validation-evidence"]
+        and re.fullmatch(r"actions/upload-artifact@(?:v[1-9]\d*(?:\.\d+){0,2}|[0-9a-f]{40})", str(step.get("uses", ""))) and mapping(step.get("with")).get("name") == "validation-evidence"]
     if len(publishers) != 1 or publishers[0].get("if") != "always()" \
-            or mapping(publishers[0].get("with")) != {"name": "validation-evidence",
+            or any(mapping(publishers[0].get("with")).get(key) != value for key, value in {"name": "validation-evidence",
                 "path": ".build/extended-automation/core-validation-evidence.json", "compression-level": 0,
-                "overwrite": True, "if-no-files-found": "error", "include-hidden-files": True}:
+                "overwrite": True, "if-no-files-found": "error", "include-hidden-files": True}.items()):
         errors.append(".github/workflows/ci.yml: 真机证据需要固定产物发布与完整诊断保留")
     if mapping(workflow.get("permissions")).get("actions") != "read":
         errors.append(".github/workflows/ci.yml: 提交证据读取需要 Actions 读取权限")

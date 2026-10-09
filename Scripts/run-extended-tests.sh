@@ -14,6 +14,17 @@ if [[ "${1:-}" == cache ]]; then
   bit101_build_cache --maintenance
   exit 0
 fi
+if [[ "${1:-}" == performance ]]; then
+  bit101_acquire_workflow_lock "$0" "$@"
+  python3 - "$ROOT_DIR/Scripts" "${@:2}" <<'PYPERFORMANCE'
+import sys
+sys.path.insert(0, sys.argv[1])
+from validation_performance import main
+try: raise SystemExit(main(sys.argv[2:]))
+except (ValueError, KeyError, OSError) as error: raise SystemExit(str(error))
+PYPERFORMANCE
+  exit 0
+fi
 if [[ "${1:-}" == report || "${1:-}" == screenshot || "${1:-}" == activities || "${1:-}" == diagnostics ]]; then
   case "$1" in
     report) [[ $# -le 2 ]] || exit 64 ;;
@@ -39,6 +50,16 @@ if not (bundle / "database.sqlite3").is_file() or (bundle / "Staging").exists():
 
 if sys.argv[2] == "json":
     print(subprocess.check_output(["xcrun", "xcresulttool", "get", "test-results", "tests", "--path", str(bundle)], text=True))
+    raise SystemExit(0)
+
+if sys.argv[2] == "performance-schema":
+    subprocess.run(["xcrun", "xcresulttool", "get", "test-results", "metrics", "--schema", "--path", str(bundle)], check=True)
+    raise SystemExit(0)
+
+if sys.argv[2] == "performance":
+    for test in ("MaintenancePerformanceTests/testCommunityPaginationPerformance", "MaintenancePerformanceTests/testStillImageDecodingPerformance"):
+        value = json.loads(subprocess.check_output(["xcrun", "xcresulttool", "get", "test-results", "metrics", "--path", str(bundle), "--test-id", test + "()"], text=True))
+        print(json.dumps({"test": test, "metrics": value}))
     raise SystemExit(0)
 
 if sys.argv[2] == "coverage":

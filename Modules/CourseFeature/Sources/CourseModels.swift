@@ -460,12 +460,11 @@ enum CourseLoadStatus: Equatable {
 ///
 /// 这里把首屏状态和分页游标放在一起，避免视图层分别维护多组彼此耦合的布尔值。
 struct CoursePagedState {
-    private var storage = CommunityPagedItems<CourseSummary>()
+    var pagedItems = CommunityPagedItems<CourseSummary>()
     var items: [CourseSummary] {
-        get { storage.items }
-        set { storage.replace(with: newValue) }
+        get { pagedItems.items }
+        set { pagedItems.replace(with: newValue) }
     }
-    mutating func appendUniqueItems(_ values: [CourseSummary]) { storage.append(values) }
     var status: CourseLoadStatus = .idle
     var nextPage = 0
     var isLoadingMore = false

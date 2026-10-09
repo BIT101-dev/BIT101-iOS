@@ -62,7 +62,7 @@ enum MineLoadStatus: Equatable {
 /// `PagedItemsState` 提供页码和列表更新；`MineLoadStatus` 保留我的模块的页面状态。
 struct MinePagedState<Item: Identifiable> {
     /// 当前已加载的列表项。
-    var items: [Item] = []
+    var pagedItems = CommunityPagedItems<Item>()
     /// 列表整体加载状态。
     var status: MineLoadStatus = .idle
     /// 下一页页码。首页统一从 `0` 开始请求。

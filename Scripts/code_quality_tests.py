@@ -156,6 +156,10 @@ struct Handler { var value: String!; func read() -> String { value }; func catch
     workflow_source = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     findings.extend(ci_trigger_shell_self_test(workflow_source) + cross_file_view_request_self_test())
     from code_quality_rules import ci_wiring_findings
+    assert not ci_wiring_findings(workflow_source.replace("actions/upload-artifact@v7", "actions/upload-artifact@v8"))
+    assert not ci_wiring_findings(workflow_source.replace("actions/upload-artifact@v7", "actions/upload-artifact@" + "a" * 40))
+    assert ci_wiring_findings(workflow_source.replace("actions/upload-artifact@v7", "actions/upload-artifact@main"))
+    assert ci_wiring_findings(workflow_source.replace("compression-level: 0", "compression-level: 6"))
     assert ci_wiring_findings(workflow_source.replace("    tags: ['v*']\n", ""))
     assert ci_wiring_findings(workflow_source.replace("run: python3 Scripts/ci_evidence.py check-release", "run: echo skipped"))
     assert ci_wiring_findings(workflow_source.replace("run: python3 Scripts/ci_evidence.py export-core", "run: true"))

@@ -2,6 +2,7 @@ import ScoreInfrastructure
 import ScoreDomain
 import ScorePorts
 import ScheduleFeature
+import ScheduleInfrastructure
 import ScheduleSync
 import ClientCore
 import DesignSystemKit
@@ -182,10 +183,15 @@ struct BIT101_iOSApp: App {
         scores = productionScores
         transcripts = productionScores
 #endif
+        let diagnosisSchool = ScheduleServiceFactory.make()
         return AppAccountLifecycle(
             scheduleViewModel: makeScheduleViewModel(),
             community: .app(settings: settings, stores: stores),
-            scoreService: scores, transcriptService: transcripts, settings: settings, stores: stores, preferenceCloudSync: preferenceCloudSync,
+            scoreService: scores, transcriptService: transcripts,
+            diagnosisSchool: NetworkDiagnosisSchool(identity: { AppAccountSession.storage.schoolSessionIdentity },
+                currentTerm: diagnosisSchool.fetchCurrentTermOnly,
+                syncCourses: { _ = try await diagnosisSchool.syncCourses(term: $0) },
+                ddl: { _ = try await diagnosisSchool.fetchEclassDDLEventsForPreflight() }), settings: settings, stores: stores, preferenceCloudSync: preferenceCloudSync,
             accountChanges: AppAccountSession.storage.changes,
             currentIdentity: { AppAccountSession.storage.communityCredentials.identity },
             scheduleChanges: ScheduleCacheStore.changes, loadScheduleCourses: AppAccountStores.loadScheduleCourses,

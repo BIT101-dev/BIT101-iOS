@@ -12,7 +12,7 @@ from functools import cache
 from pathlib import Path
 
 sys.dont_write_bytecode = True
-from swift_source_index import canonical_type_scope, declaration_conformances, scope_contains_type, expected_argument_types, swift_syntax_index, swift_syntax_index_sources, resource_context_type, visible_variables, matching_functions, compilation_type_context, local_member_calls, swift_regex_ranges
+from swift_source_index import canonical_type_scope, declaration_conformances, scope_contains_type, expected_argument_types, swift_syntax_index, swift_syntax_index_sources, resource_context_type, visible_variables, matching_functions, compilation_type_context, local_member_calls, swift_code
 from validation_policy import coverage_registry_findings
 
 
@@ -85,70 +85,6 @@ def imported_modules(source_root: Path) -> dict[str, set[str]]:
     return imports
 
 
-@cache
-def swift_code(source: str, keep_comments: bool = False) -> str:
-    """Retain executable Swift, including interpolation, with stable positions."""
-    result = ["\n" if char == "\n" else " " for char in source]
-    string_start = re.compile(r'(#{0,})("""|")')
-    regex_ranges = swift_regex_ranges(source)
-
-    def code(index: int, interpolation: bool = False) -> int:
-        depth = 1
-        while index < len(source):
-            if index in regex_ranges:
-                index = regex_ranges[index]
-                continue
-            if source.startswith("//", index):
-                end = source.find("\n", index)
-                end = len(source) if end < 0 else end
-                if keep_comments: result[index:end] = source[index:end]
-                index = end
-                continue
-            if source.startswith("/*", index):
-                start = index
-                nesting = 1
-                index += 2
-                while index < len(source) and nesting:
-                    if source.startswith("/*", index):
-                        nesting += 1
-                        index += 2
-                    elif source.startswith("*/", index):
-                        nesting -= 1
-                        index += 2
-                    else:
-                        index += 1
-                if keep_comments: result[start:index] = source[start:index]
-                continue
-            match = string_start.match(source, index)
-            if match:
-                hashes, quotes = match.groups()
-                index += len(match[0])
-                closing = quotes + hashes
-                escape = "\\" + hashes
-                while index < len(source):
-                    if source.startswith(escape + "(", index):
-                        index = code(index + len(escape) + 1, interpolation=True)
-                    elif source.startswith(escape, index):
-                        index += len(escape) + 1
-                    elif source.startswith(closing, index):
-                        index += len(closing)
-                        break
-                    else:
-                        index += 1
-                continue
-            if interpolation:
-                if source[index] == "(":
-                    depth += 1
-                elif source[index] == ")":
-                    depth -= 1
-                    if depth == 0:
-                        return index + 1
-            result[index] = " " if source[index] == "`" else source[index]
-            index += 1
-        return index
-
-    code(0)
-    return "".join(result)
 
 
 def raw_imports(source: str) -> set[str]:

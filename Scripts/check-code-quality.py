@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Run source quality checks through the shared rule module."""
 import sys
+import importlib.util
 sys.dont_write_bytecode = True
 from code_quality_rules import *
 

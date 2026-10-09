@@ -3,6 +3,7 @@ import Foundation
 import os
 import Testing
 @testable import GalleryFeature
+@testable import MineFeature
 
 @MainActor
 struct GalleryStateContractTests {
@@ -121,6 +122,19 @@ struct GalleryStateContractTests {
         model.cancel()
         service.pending?.resume()
         #expect(await task.value == false && model.errorMessage == nil && model.isSubmitting == false)
+    }
+
+    @Test func minePaginationReadsEachIncomingIDOnce() {
+        let reads = OSAllocatedUnfairLock(initialState: 0)
+        var state = MinePagedState<IndexedItem>()
+        for page in 0..<1_000 {
+            state.appendPage((page * 100 ..< (page + 1) * 100).map { IndexedItem(value: $0, reads: reads) })
+        }
+        #expect(reads.withLock { $0 } == 100_000 && state.items.count == 100_000)
+        state.resetPagination()
+        state.applyFirstPage([IndexedItem(value: 1, reads: reads), IndexedItem(value: 1, reads: reads)])
+        state.appendPage([IndexedItem(value: 2, reads: reads)])
+        #expect(state.items.map(\.id) == [1, 2])
     }
 
     @Test(.timeLimit(.minutes(1)))

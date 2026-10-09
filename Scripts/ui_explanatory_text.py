@@ -1,6 +1,7 @@
 """Write permanent source-text review candidates to their fixed report."""
 from pathlib import Path
 import re
+from swift_source_index import swift_code
 
 
 def write_report(root: Path) -> None:
@@ -23,16 +24,8 @@ def write_report(root: Path) -> None:
     }
 
 
-    def masked(source: str) -> str:
-        """保留结构字符，维持插值所在块的边界。"""
-        def replace(match: re.Match[str]) -> str:
-            return "".join("\n" if character == "\n" else " " for character in match.group(0))
-
-        return re.sub(r'"""[\s\S]*?"""|"(?:\\.|[^"\\])*"', replace, source)
-
-
     def block(source: str, start: int) -> str:
-        structure = masked(source)
+        structure = swift_code(source)
         opening = structure.find("{", start)
         if opening < 0:
             return ""

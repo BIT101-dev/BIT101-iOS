@@ -5,6 +5,7 @@ from pathlib import Path
 from functools import cache
 import re
 import sys
+from swift_source_index import swift_code
 
 from ui_design_contracts import (
     COMPONENT_INHERITANCE, DERIVED_DESIGN_TOKEN, DIRECT_ACCENT_COLOR, DIRECT_ANIMATION_DURATION,
@@ -65,142 +66,14 @@ def source_relative(path: Path) -> str:
 REPORT_PATH = ROOT / ".build/ui-consistency-report.txt"
 
 
-LITERAL_OR_COMMENT_START = re.compile(r'//|/\*|#+"|"')
-
-
-def _blank_segment(output: list[str], source: str, start: int, end: int) -> None:
-    end = min(end, len(source))
-    output[start:end] = ("\n" if character == "\n" else " " for character in source[start:end])
-
-
 @cache
 def mask_comments(source: str) -> str:
-    """移除注释并保留字符串，供需要识别 UI 文案结构的规则使用。"""
-    output = list(source)
-    index = 0
-    depth = 0
-    while index < len(source):
-        if depth:
-            if source.startswith("/*", index):
-                depth += 1
-                _blank_segment(output, source, index, index + 2)
-                index += 2
-            elif source.startswith("*/", index):
-                depth -= 1
-                _blank_segment(output, source, index, index + 2)
-                index += 2
-            else:
-                _blank_segment(output, source, index, index + 1)
-                index += 1
-            continue
-
-        raw_match = re.match(r'(#+)("{1,3})', source[index:]) if source[index] == "#" else None
-        if raw_match:
-            hashes, quote = raw_match.groups()
-            terminator = quote + hashes
-            content_start = index + len(hashes) + len(quote)
-            end = source.find(terminator, content_start)
-            index = len(source) if end < 0 else end + len(terminator)
-            continue
-        if source.startswith('"""', index):
-            end = source.find('"""', index + 3)
-            index = len(source) if end < 0 else end + 3
-            continue
-        if source[index] == '"':
-            index += 1
-            while index < len(source):
-                if source[index] == "\\":
-                    index += 2
-                elif source[index] == '"':
-                    index += 1
-                    break
-                else:
-                    index += 1
-            continue
-
-        if source.startswith("//", index):
-            end = source.find("\n", index)
-            end = len(source) if end < 0 else end
-            _blank_segment(output, source, index, end)
-            index = end
-        elif source.startswith("/*", index):
-            depth = 1
-            _blank_segment(output, source, index, index + 2)
-            index += 2
-        else:
-            next_token = LITERAL_OR_COMMENT_START.search(source, index + 1)
-            index = next_token.start() if next_token else len(source)
-    return "".join(output)
+    return swift_code(source, keep_literals=True)
 
 
 @cache
 def mask_literals_and_comments(source: str) -> str:
-    """保留换行，忽略字符串和注释，避免文案伪造 UI 契约。"""
-    output = list(source)
-    index = 0
-    comment_depth = 0
-    while index < len(source):
-        if comment_depth:
-            if source.startswith("/*", index):
-                comment_depth += 1
-                _blank_segment(output, source, index, index + 2)
-                index += 2
-            elif source.startswith("*/", index):
-                comment_depth -= 1
-                _blank_segment(output, source, index, index + 2)
-                index += 2
-            else:
-                _blank_segment(output, source, index, index + 1)
-                index += 1
-            continue
-
-        raw_match = re.match(r"(#+)(\"{1,3})", source[index:]) if source[index] == "#" else None
-        if raw_match:
-            hashes, quote = raw_match.groups()
-            terminator = quote + hashes
-            content_start = index + len(hashes) + len(quote)
-            end = source.find(terminator, content_start)
-            end = len(source) if end < 0 else end + len(terminator)
-            _blank_segment(output, source, index, end)
-            index = end
-            continue
-
-        if source.startswith('"""', index):
-            end = source.find('"""', index + 3)
-            end = len(source) if end < 0 else end + 3
-            _blank_segment(output, source, index, end)
-            index = end
-            continue
-
-        if source[index] == '"':
-            index += 1
-            while index < len(source):
-                if source[index] == "\\":
-                    _blank_segment(output, source, index, index + 2)
-                    index += 2
-                elif source[index] == '"':
-                    index += 1
-                    break
-                else:
-                    _blank_segment(output, source, index, index + 1)
-                    index += 1
-            continue
-
-        if source.startswith("//", index):
-            end = source.find("\n", index)
-            end = len(source) if end < 0 else end
-            _blank_segment(output, source, index, end)
-            index = end
-            continue
-        if source.startswith("/*", index):
-            comment_depth = 1
-            _blank_segment(output, source, index, index + 2)
-            index += 2
-            continue
-
-        next_token = LITERAL_OR_COMMENT_START.search(source, index + 1)
-        index = next_token.start() if next_token else len(source)
-    return "".join(output)
+    return swift_code(source)
 
 
 def is_view_source(path: Path, code: str) -> bool:
