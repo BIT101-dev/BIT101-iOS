@@ -4,7 +4,7 @@ import os
 import re
 import subprocess
 
-CI_RUNNER = "${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'xcode-27' || fromJSON('[\"self-hosted\",\"macOS\",\"xcode-27\",\"bit101-ci\"]') }}"
+CI_RUNNER = "${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'xcode-27' || fromJSON('[\"self-hosted\",\"macOS\",\"bit101-xcode-27\",\"bit101-ci\"]') }}"
 
 
 def ci_wiring_findings(workflow_source: str) -> list[str]:
@@ -138,7 +138,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
     physical = mapping(jobs.get("physical-device"))
     trusted = "github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository"
     if physical.get("if") != trusted or physical.get("needs") != "static-audit" \
-            or physical.get("runs-on") != ["self-hosted", "macOS", "xcode-27", "bit101-device"] \
+            or physical.get("runs-on") != ["self-hosted", "macOS", "bit101-xcode-27", "bit101-device"] \
             or type(physical.get("timeout-minutes")) is not int or physical['timeout-minutes'] < 60 \
             or physical.get("continue-on-error", False) is not False:
         errors.append(".github/workflows/ci.yml: 真机 Job 需要受信仓库来源、实体设备运行器与静态审计依赖")
@@ -268,7 +268,7 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
     findings = ["代码质量规则边界自检失败：CI 自动触发与 shell 继承门禁"
                 for changed in mutations if not ci_wiring_findings(changed)]
     for name in ('static-audit', 'release-build', 'catalyst-tests', 'release-acceptance', 'merge-acceptance'):
-        for selector in ('[self-hosted, macOS, xcode-27, bit101-ci]', 'xcode-27',
+        for selector in ('[self-hosted, macOS, bit101-xcode-27, bit101-ci]', 'xcode-27',
                          CI_RUNNER.replace(' != github.repository', ' == github.repository')):
             unsafe = re.sub(rf'(?s)(  {name}:.*?)runs-on: ' + re.escape(CI_RUNNER),
                 lambda match: match[1] + 'runs-on: ' + selector, workflow_source, count=1)

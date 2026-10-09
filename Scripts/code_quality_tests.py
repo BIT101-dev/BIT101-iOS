@@ -444,11 +444,12 @@ def workflow_lock_boundary_findings() -> list[str]:
         support = (SCRIPT_ROOT / "script-support.sh").read_text().replace(
             '"$HOME/Library/Caches/BIT101-iOS/device-workflow.lock"', shlex.quote(str(fixture / "device-workflow.lock")))
         worker.write_text('ROOT_DIR="$BIT101_LOCK_TEST_CHECKOUT"\n' + support + '\n'
-                         'bit101_acquire_workflow_lock "$0" "$@"\nprint entered\n'
+                         'if [[ "${1:-}" == artifact ]]; then bit101_acquire_artifact_lock "$0" "$@"; '
+                         'else bit101_acquire_workflow_lock "$0" "$@"; fi\nprint entered\n'
                          'if [[ "${1:-}" == signal || "${1:-}" == budget ]]; then\n'
                          '  trap \'print cleanup; if [[ "$1" == signal ]]; then read -r reply < "$ROOT_DIR/release"; fi; exit 143\' TERM\n'
                          'fi\n'
-                         'if (( $# > 0 )); then read -r reply < "$ROOT_DIR/release"; fi\n')
+                         'if (( $# > 0 )) && [[ "$1" != artifact ]]; then read -r reply < "$ROOT_DIR/release"; fi\n')
         def line(process):
             return process.stdout.readline().strip() if select.select([process.stdout], [], [], 5)[0] else "timeout"
         first = subprocess.Popen(["zsh", str(worker), "hold"], stdin=subprocess.PIPE,
@@ -457,6 +458,16 @@ def workflow_lock_boundary_findings() -> list[str]:
         if line(first) != "entered":
             raise ValueError("首个工作流取得锁")
         other_checkout = dict(environment, BIT101_LOCK_TEST_CHECKOUT=str(fixture / "other-checkout"))
+        independent = subprocess.run(["zsh", str(worker), "artifact"], capture_output=True, text=True,
+            env=other_checkout, timeout=5)
+        if independent.returncode or independent.stdout.strip() != 'entered':
+            raise ValueError('独立工作区的本机流程与真机流程并行')
+        competing = subprocess.Popen(["zsh", str(worker), "artifact"], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, env=dict(environment, BIT101_WORKFLOW_TIMEOUT_SECONDS='0.5'))
+        processes.append(competing)
+        output, _ = competing.communicate(timeout=5)
+        if competing.returncode != 124 or 'entered' in output:
+            raise ValueError('同一工作区的本机与真机流程共用固定产物锁')
         second = subprocess.Popen(["zsh", str(worker)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=other_checkout)
         processes.append(second)
         if not line(second).startswith("[等待]"):

@@ -15,7 +15,7 @@ if [[ "${1:-}" == cache ]]; then
   exit 0
 fi
 if [[ "${1:-}" == performance ]]; then
-  bit101_acquire_workflow_lock "$0" "$@"
+  bit101_acquire_artifact_lock "$0" "$@"
   python3 - "$ROOT_DIR/Scripts" "${@:2}" <<'PYPERFORMANCE'
 import sys
 sys.path.insert(0, sys.argv[1])
@@ -31,7 +31,7 @@ if [[ "${1:-}" == report || "${1:-}" == screenshot || "${1:-}" == activities || 
     diagnostics) [[ $# -eq 1 ]] || exit 64 ;;
     *) [[ $# -eq 2 ]] || { echo "请提供测试类/方法。" >&2; exit 64; } ;;
   esac
-  bit101_acquire_workflow_lock "$0" "$@"
+  bit101_acquire_artifact_lock "$0" "$@"
   if [[ "$1" == report && $# -eq 1 && -f "$DERIVED_ROOT/test-metrics.txt" ]]; then
     cat "$DERIVED_ROOT/test-metrics.txt"
     if [[ -f "$DERIVED_ROOT/test-failures.txt" ]]; then cat "$DERIVED_ROOT/test-failures.txt"; fi
@@ -175,7 +175,12 @@ fi
 SCRIPT_PATH="$0"
 SCRIPT_ARGS=("$@")
 acquire_test_lock() {
-  bit101_acquire_workflow_lock "$SCRIPT_PATH" "${SCRIPT_ARGS[@]}"
+  if [[ "$MODE" == modules || "$MODE" == catalyst || "$MODE" == catalyst-release-runtime ]] \
+      || $GENERIC_BUILD || [[ "$MODE" == verify && "$verification_needs_device" == false ]]; then
+    bit101_acquire_artifact_lock "$SCRIPT_PATH" "${SCRIPT_ARGS[@]}"
+  else
+    bit101_acquire_workflow_lock "$SCRIPT_PATH" "${SCRIPT_ARGS[@]}"
+  fi
 }
 TEST_BUNDLE="BIT101-iOSTests"
 TEST_SCHEME="BIT101-iOS"

@@ -120,6 +120,38 @@ NETWORK_CAPABILITIES = {
                                       'fetchTrustedTranscriptPages()': 'network',
                                       'submitTranscriptSMSCode(:String,for:BITLoginAuthenticationChallenge)': 'network'}}
 
+MANUAL_CAPABILITY_SCENARIOS = {
+ 'BIT101-iOS.BIT101APIClient': {
+    'fetchSchoolLoginContext()': 'registered-account',
+    'loginSchool(studentID:String,password:String,salt:String,execution:String)': 'registered-account',
+    'webVPNVerifyInit(studentID:String)': 'registered-account',
+    'webVPNVerify(studentID:String,password:String,execution:String,cookie:String,salt:String)': 'registered-account',
+    'register(password:String,token:String,code:String)': 'new-account-registration',
+    'checkBIT101Login(fakeCookie:String)': 'sign-in-a'},
+ 'BIT101-iOS.FeedbackSubmissionClient': {'submit(:Payload)': 'delivery'},
+ 'BIT101-iOS.NetworkDiagnosisRunner': {'run()': 'network-diagnosis'},
+ 'BIT101-iOS.AppUpdatePromptCoordinator': {'noticeToPresentAtLaunch()': 'update-launch', 'checkManually()': 'update-manual'},
+ 'BIT101-iOS.AppUpdateChecker': {'releaseToPresentAtLaunch()': 'update-launch', 'checkManually()': 'update-manual'},
+ 'BIT101-iOS.EmergencyUpdateChecker': {'noticeToPresentAtLaunch()': 'update-launch'},
+ 'BIT101-iOS.LoginService': {'login(studentID:String,password:String)': 'registered-account',
+    'renewCommunitySession(expectedIdentity:CommunitySessionIdentity)': 'refresh-credentials-a'},
+ 'BIT101-iOS.SettingsNetworkService': {'fetchMyInfo()': 'restore-profile',
+    'updateUser(nickname:String?,motto:String?,avatarMid:String?)': 'nickname-save',
+    'uploadAvatar(data:Data,filename:String)': 'avatar-bind', 'checkLogin()': 'sign-in-b'},
+ 'GalleryFeature.GalleryService': {'report(objectID:String,typeID:Int,text:String)': 'submit-and-confirm'},
+ 'ScheduleInfrastructure.ScheduleService': {
+    'submitSMSCode(:String,for:BITLoginAuthenticationChallenge,term:String?)': 'school-sms',
+    'syncDDLEvents(existingEvents:[DDLEventRecord],storedURL:String,schoolSMSCodeHandler:SchoolSMSCodeHandler?)': 'school-calendar',
+    'refreshLexueCalendarURL(schoolSMSCodeHandler:SchoolSMSCodeHandler?)': 'school-calendar'},
+}
+
+
+def manual_capabilities(check: str, scenario: str) -> set[str]:
+    return {f'{owner}.{method}' for owner, methods in MANUAL_CAPABILITY_SCENARIOS.items()
+        for method, assigned in methods.items() if assigned == scenario
+        and NETWORK_CAPABILITIES.get(owner, {}).get(method) == check}
+
+
 def reachable_smoke_calls(index: dict) -> dict[str, list[dict]]:
     from pathlib import Path
     from validation_evidence import active_swift_source
@@ -183,7 +215,7 @@ def smoke_receiver_resolver(index: dict):
 
 def network_capability_findings(index: dict) -> list[str]:
     from pathlib import Path
-    from validation_manual import MANUAL_DEVICE_CHECKS
+    from validation_manual import MANUAL_DEVICE_CHECKS, MANUAL_SCENARIOS
     from validation_policy import NETWORK_GROUPS
     from network_capability_rules import business_methods, method_signature, matching_api_calls, call_can_execute
     actual = business_methods(index)
@@ -217,6 +249,11 @@ def network_capability_findings(index: dict) -> list[str]:
             for target in edges.get(waiting.pop(), set()) - calls:
                 calls.add(target); waiting.append(target)
     errors = [f'新增生产服务需要网络能力验收归属：{owner}' for owner in actual.keys() - NETWORK_CAPABILITIES.keys()]
+    expected_manual = {(owner, method) for owner, methods in NETWORK_CAPABILITIES.items()
+        for method, route in methods.items() if route in MANUAL_DEVICE_CHECKS}
+    registered_manual = {(owner, method) for owner, methods in MANUAL_CAPABILITY_SCENARIOS.items() for method in methods}
+    if expected_manual != registered_manual:
+        errors.append('人工网络能力需要逐方法登记验收场景：' + str(sorted(expected_manual ^ registered_manual)))
     for name, routes in NETWORK_CAPABILITIES.items():
         signatures = {method_signature(function) for _, function in actual.get(name, [])}
         if signatures != set(routes):
@@ -226,6 +263,9 @@ def network_capability_findings(index: dict) -> list[str]:
                 errors.append(f'网络能力需要有效验收入口：{name}.{signature} → {route}')
             elif route in observed and (name, signature) not in observed[route]:
                 errors.append(f'网络能力需要对应入口中的实际服务调用：{name}.{signature} → {route}')
+            elif route in MANUAL_DEVICE_CHECKS and MANUAL_CAPABILITY_SCENARIOS.get(name, {}).get(signature) \
+                    not in MANUAL_SCENARIOS.get(route, {'delivery'} if route == 'feedback-delivery' else set()):
+                errors.append(f'人工网络能力需要有效验收场景：{name}.{signature} → {route}')
     feed_cases = {case['name'] for facts in index.values() for case in facts.get('enumCases', []) if case['scope'] == ['GalleryFeedKind']}
     modes = set()
     for call in reachable_smoke_calls(index)['network']:
@@ -260,6 +300,10 @@ def network_capability_self_test() -> None:
                 for owner in NETWORK_CAPABILITIES]}
     index['ReleaseNetworkSmoke.swift']['invocations'].append({'calledExpression': 'CommunityWriteSmoke.Operations.production', 'start': 10, 'scope': ['ReleaseNetworkSmokeRunner']})
     assert network_capability_findings(index) == []
+    with patch.dict(MANUAL_CAPABILITY_SCENARIOS['BIT101-iOS.NetworkDiagnosisRunner'], {}, clear=True):
+        assert any('逐方法登记' in error for error in network_capability_findings(index))
+    with patch.dict(MANUAL_CAPABILITY_SCENARIOS['BIT101-iOS.NetworkDiagnosisRunner'], {'run()': 'unknown-scene'}):
+        assert any('有效验收场景' in error for error in network_capability_findings(index))
     from copy import deepcopy
     unbound = deepcopy(index)
     unbound['ReleaseNetworkSmoke.swift']['typedVariables'] = []
@@ -309,7 +353,8 @@ def network_capability_self_test() -> None:
         'Modules/GalleryFeature/Sources/Service.swift': 'public struct GalleryService { public func fetchFeed(id: Int) {}; public func fetchFeed(id: String) {} }',
         'BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift': 'import GalleryFeature; struct ReleaseNetworkSmokeRunner { func run() { let service = GalleryService(); service.fetchFeed(id: 1); service.fetchFeed(id: "one") } }',
     }
-    with patch.dict(NETWORK_CAPABILITIES, {'GalleryFeature.GalleryService': {'fetchFeed(id:Int)': 'network', 'fetchFeed(id:String)': 'network'}}, clear=True):
+    with patch.dict(NETWORK_CAPABILITIES, {'GalleryFeature.GalleryService': {'fetchFeed(id:Int)': 'network', 'fetchFeed(id:String)': 'network'}}, clear=True), \
+            patch.dict(MANUAL_CAPABILITY_SCENARIOS, {}, clear=True):
         assert not network_capability_findings(swift_syntax_index_sources(overload_sources))
         overload_sources['BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift'] = overload_sources['BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift'].replace('service.fetchFeed(id: "one")', '')
         assert any('fetchFeed(id:String)' in error for error in network_capability_findings(swift_syntax_index_sources(overload_sources)))
@@ -367,7 +412,9 @@ def network_capability_self_test() -> None:
         'parameters': [{'label': 'includeReplies', 'type': 'Bool', 'hasDefault': False, 'variadic': False}]})
     assert any('fetchComments(includeReplies:Bool)' in error for error in network_capability_findings(index))
     with patch.dict(NETWORK_CAPABILITIES['CourseFeature.CourseService'], **{'fetchComments(includeReplies:Bool)': 'gallery-report'}):
-        assert not network_capability_findings(index)
+        assert any('逐方法登记' in error for error in network_capability_findings(index))
+        with patch.dict(MANUAL_CAPABILITY_SCENARIOS, {'CourseFeature.CourseService': {'fetchComments(includeReplies:Bool)': 'submit-and-confirm'}}):
+            assert not network_capability_findings(index)
     courses.pop()
     course_facts = index['Modules/CourseFeature/Sources/CourseService.swift']
     course_facts['typedVariables'] = [{'name': 'client', 'type': 'HTTPClient', 'scope': ['NewService'], 'start': 0}]

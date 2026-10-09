@@ -21,6 +21,7 @@ MANUAL_SCENARIOS = {
     'gallery-report': {'submit-and-confirm'},
     'account-lifecycle': {'sign-in-a', 'refresh-credentials-a', 'sign-out-a', 'sign-in-b', 'restore-a'},
     'community-variants': {'course-search', 'gallery-search-filters', 'comment-sorting', 'anonymous-poster', 'anonymous-paper', 'restore-content'},
+    'web-interactions': {'network-diagnosis', 'update-launch', 'update-manual', 'school-sms', 'school-calendar'},
     'ipad-layout': {'portrait', 'landscape', 'split-view', 'resize'},
 }
 MANUAL_DEVICE_CHECKS.update(MANUAL_SCENARIOS)
@@ -31,7 +32,7 @@ PERFORMANCE_WORKLOADS = {
     'image-decoding': ('MaintenancePerformanceTests/testStillImageDecodingPerformance', {'width': 1024, 'height': 1024, 'format': 'PNG'}),
     'startup': ('MaintenancePerformanceUITests/testStartupPerformance', {'operation': 'terminate-launch-schedule-ready', 'storage': 'reset'}),
     'schedule-layout': ('MaintenancePerformanceUITests/testScheduleWeekLayoutPerformance', {'weekSwitchPairs': 10, 'animations': True}),
-    'long-article': ('MaintenancePerformanceTests/testLongArticleRenderingPerformance', {'paragraphs': 40, 'repetitionsPerParagraph': 64}),
+    'long-article': ('MaintenancePerformanceTests/testLongArticleRenderingPerformance', {'paragraphs': 256, 'repetitionsPerParagraph': 6, 'inlineFormats': ['bold', 'italic', 'link', 'line-break']}),
     'gif-decoding': ('MaintenancePerformanceTests/testGIFDecodingPerformance', {'width': 256, 'height': 256, 'frames': 24, 'cache': 'cleared-per-sample'}),
     'widget-timeline': ('MaintenancePerformanceTests/testWidgetTimelinePerformance', {'courses': 200, 'weeks': 20, 'occurrences': 4000}),
     'response-aggregation': ('MaintenancePerformanceTests/testBoundedResponseAggregationPerformance', {'bytes': 32 * 1024 * 1024, 'chunkBytes': 64 * 1024, 'transport': 'URLSession'}),
@@ -121,7 +122,8 @@ def evidence_content_complete(check: str, data: bytes) -> bool:
                     ('reportID', 'storageKey', 'emailRecipient', 'emailMessageID', 'emailBody')): return False
             report = str(uuid.UUID(proof['reportID']))
             delivery = proof['storedReport']['emailDelivery']
-            return proof['reportID'] == report and proof['storageKey'].startswith('report:') \
+            return capability_observations_complete(check, 'delivery', proof.get('capabilities')) \
+                and proof['reportID'] == report and proof['storageKey'].startswith('report:') \
                 and proof['storageKey'].endswith(':' + report) and proof['storedReport']['id'] == report \
                 and isinstance(proof['storedReport']['report'], dict) \
                 and isinstance(delivery, dict) and delivery.get('status') == 'sent' \
@@ -137,6 +139,16 @@ def evidence_content_complete(check: str, data: bytes) -> bool:
     return recognized and media_complete(data)
 
 
+def capability_observations_complete(check: str, scenario: str, observations) -> bool:
+    from validation_test_areas import manual_capabilities
+    required = manual_capabilities(check, scenario)
+    if not required: return True
+    return isinstance(observations, dict) and set(observations) == required and all(
+        isinstance(row, dict) and row.get('outcome') == 'passed'
+        and all(isinstance(row.get(key), str) and row[key].strip() for key in ('operation', 'result'))
+        for row in observations.values())
+
+
 def scenario_complete(check: str, proof: dict) -> bool:
     if not isinstance(proof, dict) or proof.get('schemaVersion') != 1 \
             or not isinstance(proof.get('scenarios'), dict) or set(proof['scenarios']) != MANUAL_SCENARIOS[check]: return False
@@ -146,7 +158,8 @@ def scenario_complete(check: str, proof: dict) -> bool:
         if not isinstance(row, dict) or row.get('outcome') != 'passed' \
                 or not all(isinstance(row.get(key), str) and row[key].strip() for key in ('operation', 'result', 'capturedAt')) \
                 or not sampling_evidence_current({'startedAt': row['capturedAt'], 'finishedAt': row['capturedAt']}) \
-                or not isinstance(row.get('evidence'), dict) or not artifact_complete(row['evidence'], 'photos'): return False
+                or not isinstance(row.get('evidence'), dict) or not artifact_complete(row['evidence'], 'photos') \
+                or not capability_observations_complete(check, name, row.get('capabilities')): return False
         if check == 'performance-baseline' and not performance_comparison_complete(name, row.get('measurement')): return False
         if check == 'ipad-layout':
             size = row.get('windowSize', {})

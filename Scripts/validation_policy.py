@@ -31,12 +31,12 @@ def workflow_conditions(group: str) -> tuple[str, ...]:
 FORMAL_RUNTIME_SUITES = {"ReleaseRuntimeContractTests", "ExtendedLoginTests", "LoginStorageTests", "LoginBootstrapTests", "NetworkClientTests",
     "FeatureCompositionTests", "ExperimentalPreferenceCloudSyncTests", "AppExternalDisplayTests", "ReminderContextTests"}
 MODULE_COVERAGE_FLOORS = {
-    "ClientCore": 63, "CommunityCore": 87, "CommunityPersistence": 98, "CommunityTransport": 80,
-    "CommunityUI": 100, "CourseFeature": 65, "DesignSystemKit": 86, "GalleryFeature": 75,
-    "MapFeature": 34, "MediaKit": 100, "MineFeature": 82, "PaperFeature": 79,
+    "ClientCore": 63, "CommunityCore": 87, "CommunityPersistence": 98, "CommunityTransport": 82,
+    "CommunityUI": 100, "CourseFeature": 65, "DesignSystemKit": 86, "GalleryFeature": 76,
+    "MapFeature": 34, "MediaKit": 100, "MineFeature": 82, "PaperFeature": 81,
     "ScheduleContracts": 87, "ScheduleDomain": 75, "ScheduleFeature": 52, "ScheduleInfrastructure": 62,
     "SchedulePersistence": 77, "SchedulePorts": 35, "ScheduleSharedStore": 97, "ScheduleSync": 77,
-    "ScorePorts": 95, "ScoreDomain": 92, "ScoreFeature": 73, "ScoreInfrastructure": 75, "StorageCore": 71, "TransportCore": 73,
+    "ScorePorts": 96, "ScoreDomain": 92, "ScoreFeature": 74, "ScoreInfrastructure": 76, "StorageCore": 87, "TransportCore": 77,
 }
 IOS_MODULE_COVERAGE_FLOORS = {
     "ClientCore": 48, "CommunityCore": 47, "CommunityPersistence": 67, "CommunityTransport": 67,

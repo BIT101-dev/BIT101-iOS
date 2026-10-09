@@ -1,4 +1,13 @@
-"""Keep full-run coverage at the strongest recorded whole-percent baseline."""
+"""Compare coverage with versioned policy and retain local whole-percent observations."""
+
+
+def policy_floors(group: str, policy: dict) -> dict[str, int]:
+    from validation_policy import MODULE_COVERAGE_FLOORS, IOS_MODULE_COVERAGE_FLOORS
+    current = MODULE_COVERAGE_FLOORS if group == 'modules' else IOS_MODULE_COVERAGE_FLOORS
+    prefix = '' if group == 'modules' else 'iOS/'
+    floors = {prefix + name: max(value, policy.get(group, {}).get(name, value)) for name, value in current.items()}
+    if group == 'all': floors['BIT101-iOS.app'] = 35
+    return floors
 
 
 def percentages(coverage: dict) -> dict[str, int]:

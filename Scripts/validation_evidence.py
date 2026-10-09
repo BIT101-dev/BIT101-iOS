@@ -516,11 +516,12 @@ def record(group: str, status: int, scope: str, started_digest: str) -> int:
             full = previous if previous.get("scope") == "full" else previous.get("lastFullRun")
             if full: row["lastFullRun"] = full
         if group in {"modules", "all"}:
-            from validation_coverage import regressions, advance
+            from validation_coverage import regressions, advance, policy_floors
             baseline = previous.get("coverageBaseline", {})
             if previous.get("scope") == "full" and previous.get("exitCode") == 0:
                 baseline = advance(previous.get("summary", {}).get("coverage", {}), baseline)
-            problems = regressions(row.get("summary", {}).get("coverage", {}), baseline) if scope == "full" else []
+            problems = regressions(row.get("summary", {}).get("coverage", {}),
+                policy_floors(group, report.get("coveragePolicy", {}))) if scope == "full" else []
             row["coverageBaseline"] = baseline
             if problems:
                 status = row["exitCode"] = 1

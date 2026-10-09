@@ -15,7 +15,6 @@ def run_self_test(subject) -> int:
     from validation_inputs import self_test as input_self_test
     fixture_environment = {'host': {'system': 'fixture'}, 'developer': '/fixture', 'xcode': {'version': 'fixture'}, 'compiler': {'path': '/fixture/swift-frontend', 'modified': 1, 'size': 100, 'sha256': 'a' * 64}, 'sdks': {'fixture': {'Version': '1'}}, 'device': {'identifier': 'fixture-phone', 'systemVersion': 'fixture-os', 'systemBuild': 'fixture-build'}}
     with patch(f'{module_name}.environment_context', return_value=fixture_environment), \
-            patch('validation_merge.environment_context', return_value=fixture_environment), \
             patch('validation_merge.performance_findings', return_value=[]):
         from validation_provenance_tests import run_self_test as provenance_self_test
         from validation_test_areas import inventory_findings
@@ -48,8 +47,12 @@ def run_self_test(subject) -> int:
         current_digest = lambda group, *, environment=None: 'digest' if environment else 'new-environment'
         assert merge_findings(core, digest=current_digest, complete=lambda *args: True, commit='commit')
         assert not merge_findings(core, digest=current_digest, complete=lambda *args: True, commit='commit', recorded_environment=True)
-        with patch('validation_merge.environment_context', return_value=dict(fixture_environment, sdks={'fixture': {'Version': '2'}})):
-            assert merge_findings(core, digest=current_digest, complete=lambda *args: True, commit='commit', recorded_environment=True)
+        with patch(f'{module_name}.environment_context', side_effect=AssertionError('跨宿主验收沿记录环境核对')):
+            assert not merge_findings(core, digest=current_digest, complete=lambda *args: True, commit='commit', recorded_environment=True)
+        for name in core['groups']:
+            mixed = json.loads(json.dumps(core))
+            mixed['groups'][name]['environment']['sdks'] = {'fixture': {'Version': '2'}}
+            assert merge_findings(mixed, digest=current_digest, complete=lambda *args: True, commit='commit', recorded_environment=True)
         from contextlib import nullcontext, redirect_stderr
         from io import StringIO
         for accepted_commit, expected in (('commit', 0), ('other', 1)):

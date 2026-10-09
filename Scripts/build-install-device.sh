@@ -49,7 +49,11 @@ if [[ "$ACTION" == screenshot || "$ACTION" == info ]]; then
   exit 0
 fi
 
-bit101_acquire_workflow_lock "$0" "$@"
+if [[ "$ACTION" == install ]]; then
+  bit101_acquire_workflow_lock "$0" "$@"
+else
+  bit101_acquire_artifact_lock "$0" "$@"
+fi
 if [[ "$ACTION" == install ]]; then
   bit101_require_device || exit 1
   BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest restore)"

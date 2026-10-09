@@ -28,7 +28,8 @@ bit101_require_device() {
   export BIT101_DEVICE_TRANSPORT=wired BIT101_DEVICE_NAME=phone
 }
 bit101_build_cache() { print CACHE; }
-bit101_acquire_workflow_lock() { print WORKFLOW_LOCK; }
+bit101_acquire_workflow_lock() { print WORKFLOW_LOCK; print DEVICE_LOCK; }
+bit101_acquire_artifact_lock() { print WORKFLOW_LOCK; print ARTIFACT_LOCK; }
 bit101_acquire_script_lock() { :; }
 mkdir() { :; }
 rm() { :; }
@@ -137,6 +138,9 @@ xcrun() {
         needs_lock = arguments not in (["info"], ["cache"])
         if ("WORKFLOW_LOCK\n" in result.stdout) != needs_lock:
             findings.append(f"命令自测：{filename} {' '.join(arguments)} 取得工作流锁")
+        if filename in {'run-extended-tests.sh', 'build-install-device.sh'} and needs_lock \
+                and ("DEVICE_LOCK\n" in result.stdout) != bool(device):
+            findings.append(f"命令自测：{filename} {' '.join(arguments)} 按设备操作选择锁范围")
         if filename == "run-extended-tests.sh" and arguments[:2] == ["ui", "About"] and result.stdout.count(marker) != 1:
             findings.append("命令自测：重复 UI 关键词合并为一个用例")
         if arguments == ["ui", "Schedule"] and "testAboutLicense" in result.stdout:

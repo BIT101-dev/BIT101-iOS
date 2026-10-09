@@ -136,11 +136,12 @@ def baseline_policy_self_test(module) -> None:
 
 def selected_coverage_self_test(module) -> None:
     full = {"scope": "full", "exitCode": 0, "inputDigest": "digest", "runID": "full",
-        "summary": {"passed": True, "coverage": {"Feature": {"coveredLines": 95, "executableLines": 100}}}}
+        "summary": {"passed": True, "coverage": {"iOS/Feature": {"coveredLines": 95, "executableLines": 100}}}}
     report = {"groups": {"all": full}}
-    for scope, expected in (("selected", 0), ("selected", 0), ("full", 1)):
+    for scope, expected in (("selected", 0), ("selected", 0), ("full", 0), ("full", 1)):
+        if expected: report['coveragePolicy'] = {'all': {'Feature': 95}}
         summary = {"passed": True, "totalTests": 1, "passedTests": 1, "failedTests": 0, "skippedTests": 0,
-            "executedTests": ["Suite/testRun"], "coverage": {"Feature": {"coveredLines": 94, "executableLines": 100}}}
+            "executedTests": ["Suite/testRun"], "coverage": {"iOS/Feature": {"coveredLines": 94, "executableLines": 100}}}
         with patch.object(module, "source_digest", return_value="digest"), patch.object(module, "complete_environment", return_value=True), \
                 patch.object(module, "report_lock", side_effect=nullcontext), patch.object(module, "write_report") as saved, \
                 patch.object(module, "test_summary", return_value=summary), patch.object(module, "complete_summary", return_value=True), \
@@ -148,13 +149,16 @@ def selected_coverage_self_test(module) -> None:
                 patch.object(Path, "read_text", side_effect=['验证输入：digest\n验证运行：run\n', json.dumps(report)]), \
                 patch.object(subprocess, "check_output", return_value="head"), \
                 patch("validation_performance.bundle_digest", return_value="a" * 64), patch("validation_performance.current_commit", return_value="head"), \
+                patch('validation_policy.IOS_MODULE_COVERAGE_FLOORS', {'Feature': 94}), \
+                patch('validation_performance.extract_measurements', return_value={}), \
                 patch.dict(os.environ, BIT101_VALIDATION_RUN_ID="run", BIT101_VALIDATION_EXPECTED_TESTS='["Suite/testRun"]'), redirect_stderr(StringIO()):
             assert module.record("all", 0, scope, "digest") == expected
         report = saved.call_args.args[0]
         row = report['groups']['all']
-        assert row['coverageBaseline'] == {'Feature': 95}
+        assert row['coverageBaseline'] == {'iOS/Feature': 95}
         if scope == 'selected': assert row['lastFullRun'] == full
-        else: assert row['summary']['coverageRegressions'] and row['summary']['passed'] is False
+        elif expected: assert row['summary']['coverageRegressions'] and row['summary']['passed'] is False
+        else: assert row['summary']['passed'] is True
 
 
 def report_budget_self_test(module) -> None:

@@ -44,9 +44,14 @@ def distribution_fixture() -> tuple[dict, dict]:
 
 def evidence_fixture(check: str) -> bytes:
     from validation_manual import MANUAL_SCENARIOS
+    from validation_test_areas import manual_capabilities
+    def observations(scenario):
+        return {name: {'operation': '实际调用', 'result': '观察响应', 'outcome': 'passed'}
+            for name in manual_capabilities(check, scenario)}
     if check in MANUAL_SCENARIOS:
         scenarios = {name: {'operation': '实际操作', 'result': '观察结果', 'outcome': 'passed',
-            'capturedAt': utc_now().isoformat(), 'evidence': captured_fixture('photos')['evidence']} for name in MANUAL_SCENARIOS[check]}
+            'capturedAt': utc_now().isoformat(), 'evidence': captured_fixture('photos')['evidence'],
+            'capabilities': observations(name)} for name in MANUAL_SCENARIOS[check]}
         if check == 'ipad-layout':
             for name, size in [('portrait', (768, 1024)), ('landscape', (1024, 768)), ('split-view', (512, 768)), ('resize', (640, 768))]:
                 scenarios[name]['windowSize'] = dict(zip(('width', 'height'), size))
@@ -102,7 +107,7 @@ def evidence_fixture(check: str) -> bytes:
         return json.dumps({'schemaVersion': 1, 'platforms': platforms}).encode()
     if check == 'feedback-delivery':
         identifier = '00000000-0000-4000-8000-000000000001'
-        return json.dumps({'reportID': identifier, 'storageKey': 'report:received:' + identifier,
+        return json.dumps({'reportID': identifier, 'storageKey': 'report:received:' + identifier, 'capabilities': observations('delivery'),
             'storedReport': {'id': identifier, 'report': {'mode': 'error'},
                 'emailDelivery': {'status': 'sent', 'attempts': 1, 'messageID': 'provider-fixture'}}, 'emailRecipient': 'recipient@example.invalid',
             'emailMessageID': '<receipt@example.invalid>', 'emailBody': '报告编号 ' + identifier}).encode()
@@ -247,6 +252,23 @@ def run_self_test() -> None:
                 changed = copy.deepcopy(proof)
                 changed['scenarios'][name][key] = value
                 assert not scenario_complete(check, changed)
+            for capability in proof['scenarios'][name]['capabilities']:
+                for fault in ('missing', 'failed', 'empty'):
+                    changed = copy.deepcopy(proof)
+                    observations = changed['scenarios'][name]['capabilities']
+                    if fault == 'missing': del observations[capability]
+                    elif fault == 'failed': observations[capability]['outcome'] = 'failed'
+                    else: observations[capability]['result'] = ''
+                    assert not scenario_complete(check, changed)
+    from validation_test_areas import NETWORK_CAPABILITIES, MANUAL_CAPABILITY_SCENARIOS
+    profile = json.loads(evidence_fixture('profile-writes'))
+    owner = 'BIT101-iOS.SettingsNetworkService'
+    with patch.dict(NETWORK_CAPABILITIES[owner], {'newProfileWrite()': 'profile-writes'}), \
+            patch.dict(MANUAL_CAPABILITY_SCENARIOS[owner], {'newProfileWrite()': 'nickname-save'}):
+        assert not scenario_complete('profile-writes', profile)
+    feedback = json.loads(evidence_fixture('feedback-delivery'))
+    feedback.pop('capabilities')
+    assert not evidence_content_complete('feedback-delivery', json.dumps(feedback).encode())
     performance = json.loads(evidence_fixture('performance-baseline'))
     for name, row in performance['scenarios'].items():
         changed = copy.deepcopy(performance)

@@ -5,6 +5,10 @@ unset PYTHONOPTIMIZE
 
 bit101_acquire_workflow_lock() {
   bit101_acquire_script_lock "$HOME/Library/Caches/BIT101-iOS/device-workflow.lock" BIT101_DEVICE_WORKFLOW_LOCK_HELD "$@"
+  bit101_acquire_artifact_lock "$@"
+}
+
+bit101_acquire_artifact_lock() {
   bit101_acquire_script_lock "$ROOT_DIR/.build/extended-automation.lock" BIT101_EXTENDED_TESTS_LOCK_HELD "$@"
 }
 
