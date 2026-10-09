@@ -63,6 +63,7 @@ struct ScopedFact: Encodable {
     let lexicalScope: [Int]
     var argumentLabels: [String]? = nil
     var condition: String? = nil
+    var iterationSource: String? = nil
     var thenRange: [Int]? = nil
     var elseRange: [Int]? = nil
     var arguments: [String]? = nil
@@ -744,6 +745,10 @@ final class FactVisitor: SyntaxVisitor {
         bindings.append(ScopedFact(value: node.pattern.trimmedDescription + " in " + node.sequence.trimmedDescription,
             scope: scope, start: node.pattern.positionAfterSkippingLeadingTrivia.utf8Offset,
             lexicalScope: lexicalScope + [node.body.positionAfterSkippingLeadingTrivia.utf8Offset]))
+        var loop = fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset)
+        loop.iterationSource = node.sequence.trimmedDescription
+        loop.thenRange = [node.body.positionAfterSkippingLeadingTrivia.utf8Offset, node.body.endPosition.utf8Offset]
+        controlFlow.append(loop)
         return .visitChildren
     }
 

@@ -156,13 +156,13 @@ def manual_capabilities(check: str, scenario: str) -> set[str]:
 
 def reachable_smoke_calls(index: dict) -> dict[str, list[dict]]:
     from validation_evidence import active_swift_source
-    from network_capability_rules import call_can_execute
+    from network_capability_rules import call_can_execute, matching_api_calls
     from swift_type_index import compilation_unit
     units = {compilation_unit(path) for path, facts in index.items()
         if any(function['scope'] == ['ReleaseNetworkSmokeRunner'] and function['name'] == 'run'
             for function in facts.get('functionRanges', []))}
     files = {path for path in index if compilation_unit(path) in units}
-    nodes, by_name, active_sources = {}, {}, {}
+    nodes, by_name, active_sources, callables = {}, {}, {}, set()
     for path, facts in index.items():
         if path not in files: continue
         active = active_swift_source(facts['source'], 'network').encode() if 'source' in facts else None
@@ -171,6 +171,7 @@ def reachable_smoke_calls(index: dict) -> dict[str, list[dict]]:
             if active is not None and active[function['start']:function['start'] + 1] in {b' ', b'\n', b'\r'}: continue
             key = (path, function['start'], function['end'])
             nodes[key] = function
+            if function in facts.get('callableRanges', []): callables.add(key)
             name = '.'.join([*function['scope'], function['name']])
             by_name.setdefault(name, set()).add(key)
     edges = {key: set() for key in nodes}
@@ -192,13 +193,26 @@ def reachable_smoke_calls(index: dict) -> dict[str, list[dict]]:
             expression = fact.get('calledExpression', fact.get('value', '')).removeprefix('self.')
             owner = '.'.join(nodes[key]['scope'])
             candidates = {expression, owner + '.' + expression.removeprefix('Self.')}
+            callbacks = set()
             if expression in {'runInParallel', 'probe', 'NetworkSmokePaging.batch', 'NetworkSmokePaging.arrayPage', 'NetworkSmokePaging.messages'}:
-                for argument in fact.get('arguments', []): candidates.update({argument, owner + '.' + argument})
+                for argument in fact.get('arguments', []): callbacks.update({argument, owner + '.' + argument})
             if expression.startswith('dependencies.'):
                 candidates.add('ReleaseNetworkSmokeDependencies.' + expression.split('.', 1)[1])
             if fact.get('receiverCall'):
                 candidates.add(fact['receiverCall'] + '.' + expression.rsplit('.', 1)[-1])
-            for target in candidates: edges[key].update(by_name.get(target, set()))
+            for target in candidates:
+                target_keys = {target_key for target_key in by_name.get(target, set())
+                    if not nodes[target_key].get('lexicalScope') or target_key[0] == path
+                    and fact.get('lexicalScope', [])[:len(nodes[target_key]['lexicalScope'])] == nodes[target_key]['lexicalScope']
+                    and not fact.get('calledExpression', '').startswith(('self.', 'Self.'))}
+                if target_keys:
+                    depth = max(len(nodes[target_key].get('lexicalScope', [])) for target_key in target_keys)
+                    target_keys = {target_key for target_key in target_keys if len(nodes[target_key].get('lexicalScope', [])) == depth}
+                edges[key].update(target_keys & callables)
+                targets = [(target_key[0], nodes[target_key]) for target_key in target_keys - callables]
+                matches = matching_api_calls(index, targets, dict(fact, path=path, calledExpression=target))
+                edges[key].update((target_path, function['start'], function['end']) for target_path, function in matches)
+            for target in callbacks: edges[key].update(by_name.get(target, set()))
             if 'calledExpression' in fact: calls[key].append(dict(fact, path=path))
     reached = {(key, 'network') for key in by_name.get('ReleaseNetworkSmokeRunner.run', set())}
     waiting = list(reached)
@@ -291,7 +305,10 @@ def network_capability_self_test() -> None:
     from validation_evidence import compilation_condition
     assert compilation_condition('RELEASE_NETWORK_SMOKE', 'network')
     assert not compilation_condition('DEBUG', 'network')
-    from network_capability_rules import signature_function
+    from network_capability_rules import signature_function, method_signature
+    for signature in ('fetch(values:Dictionary<String,Int>)', 'fetch(context:(Int,String))',
+            'fetch(callback:(Int,String)->Void)', 'fetch(values:Dictionary<String,(Int,String)>,callback:(Int,String)->Void)'):
+        assert method_signature(signature_function(signature, ['Service'])) == signature
     index = {f'Modules/{name.split(".")[0]}/Sources/{name.split(".")[1]}.swift': {
         'declarations': [{'kind': 'struct', 'name': name.split('.')[1], 'scope': [], 'inheritedTypes': [], 'isExported': True}],
         'functionRanges': [{**signature_function(method, [name.split(".")[1]]), 'isExported': True, 'isAsync': True, 'start': 0, 'end': 1}
@@ -377,6 +394,24 @@ def network_capability_self_test() -> None:
                 patch.object(Path, 'read_text', lambda path, *args, **kwargs: expressions[str(path)] if str(path) in expressions else original_read(path, *args, **kwargs)):
             return {call['calledExpression'] for call in reachable_smoke_calls(facts)['network']}
     assert 'mine.fetchMyInfo' in reached(sources)
+    for parameters, argument in ((('flag: Bool', 'text: String'), 'flag: true'),
+            (('value: Int?', 'value: String?'), 'value: 42')):
+        overloaded = {'ReleaseNetworkSmoke.swift': f'''struct ReleaseNetworkSmokeRunner {{
+            func run() {{ helper({argument}) }}
+            func helper({parameters[0]}) {{ service.read() }}
+            func helper({parameters[1]}) {{ service.write() }}
+        }}'''}
+        calls = reached(overloaded)
+        assert 'service.read' in calls and 'service.write' not in calls, (parameters, calls)
+    scoped = {'ReleaseNetworkSmoke.swift': '''struct ReleaseNetworkSmokeRunner {
+        func run() { helper(flag: true) }
+        func helper(flag: Bool) { service.read() }
+        func unused() { func helper(flag: Bool) { service.write() }; helper(flag: true) }
+    }'''}
+    assert 'service.read' in reached(scoped) and 'service.write' not in reached(scoped)
+    scoped['ReleaseNetworkSmoke.swift'] = scoped['ReleaseNetworkSmoke.swift'].replace(
+        'func run() { helper(flag: true) }', 'func run() { func helper(flag: Bool) { service.local() }; helper(flag: true) }')
+    assert 'service.local' in reached(scoped) and 'service.read' not in reached(scoped)
     split = dict(sources)
     split['NetworkSmokeExtra.swift'] = split.pop('NetworkSmokeProductionSession.swift')
     assert reached(split) == reached(sources)
@@ -395,11 +430,18 @@ def network_capability_self_test() -> None:
     unused_reference['ReleaseNetworkSmoke.swift'] = sources['ReleaseNetworkSmoke.swift'].replace('dependencies.productionSessionProbe()', 'let unused = dependencies.productionSessionProbe')
     assert 'mine.fetchMyInfo' not in reached(unused_reference)
     for statement in ('if', 'while'):
-        for condition, expected in [('false', False), ('!true', False), ('true', True), ('!false', True)]:
+        for condition, expected in [('false', False), ('!true', False), ('true', True), ('!false', True),
+                ('false && true', False), ('true || false', True), ('!(true || false)', False),
+                ('(true || false) && false', False), ('condition && false', False), ('condition || true', True)]:
             branch = dict(sources)
             branch['ReleaseNetworkSmoke.swift'] = sources['ReleaseNetworkSmoke.swift'].replace(
                 'dependencies.productionSessionProbe()', f'{statement} {condition} {{ dependencies.productionSessionProbe() }}')
             assert ('mine.fetchMyInfo' in reached(branch)) == expected, (statement, condition)
+    for sequence, expected in [('0..<0', False), ('0..<1', True), ('-1..<(-1)', False), ('1...1', True), ('[]', False)]:
+        loop = dict(sources)
+        loop['ReleaseNetworkSmoke.swift'] = sources['ReleaseNetworkSmoke.swift'].replace(
+            'dependencies.productionSessionProbe()', f'for _ in {sequence} {{ dependencies.productionSessionProbe() }}')
+        assert ('mine.fetchMyInfo' in reached(loop)) == expected, sequence
     disabled = dict(sources)
     disabled['ReleaseNetworkSmoke.swift'] = sources['ReleaseNetworkSmoke.swift'].replace(
         'dependencies.productionSessionProbe()', 'let enabled = false; if enabled { dependencies.productionSessionProbe() }')
@@ -510,6 +552,28 @@ struct NewService {{ private let paper{annotation} = {initializer}; func fetch(i
         call = next(call for call in index[path]['invocations'] if call['calledExpression'].endswith('.fetch'))
         matches = matching_api_calls(index, functions, dict(call, path=path))
         assert len(matches) == 1 and any(parameter['type'] == 'String' for parameter in matches[0][1]['parameters']), parameters
+    for first, second, argument in [('Int?', 'String?', '42'), ('Swift.Int?', 'Swift.String?', '42'),
+            ('Number?', 'Text?', '42'), ('MaybeNumber', 'Text?', 'value'), ('Int', 'Int?', '42'),
+            ('Optional<Int>', 'Optional<String>', '42')]:
+        path = 'Modules/GalleryFeature/Sources/Client.swift'
+        source = f'''typealias Number = Int; typealias Text = String; typealias MaybeNumber = Int?
+            public struct Client {{ public func fetch(id: {first}) {{}}; public func fetch(id: {second}) {{}} }}
+            func smoke() {{ let value: Number = 42; Client().fetch(id: {argument}) }}'''
+        index = swift_syntax_index_sources({path: source})
+        functions = [(path, function) for function in index[path]['functionRanges'] if function['name'] == 'fetch']
+        call = next(call for call in index[path]['invocations'] if call['calledExpression'].endswith('.fetch'))
+        matches = matching_api_calls(index, functions, dict(call, path=path))
+        assert len(matches) == 1 and matches[0][1]['parameters'][0]['type'] == first, (first, second, argument)
+    compound_path = 'Modules/NewForumFeature/Sources/Service.swift'
+    for kind, expression in [('(HTTPClient, String)', 'context.0'), ('[HTTPClient]', 'context[0]'),
+            ('Dictionary<String, HTTPClient>', 'context["first"]!'), ('Context', 'context.0')]:
+        source = f'''typealias Context = (HTTPClient, String); public struct CompositeService {{
+            private let context: {kind}
+            public func fetch(request: URLRequest) async throws -> Data {{ try await {expression}.send(request).data }}
+        }}'''
+        index = swift_syntax_index_sources({compound_path: source})
+        assert 'NewForumFeature.CompositeService' in business_methods(index), kind
+        assert any('新增生产服务' in error for error in network_capability_findings(index)), kind
     for module, name in [('GalleryFeature', 'NewGalleryClient'), ('NewForumFeature', 'PostRepository')]:
         path = f'Modules/{module}/Sources/Client.swift'
         for kind in ('HTTPClient', 'Requester', 'NestedRequester'):
