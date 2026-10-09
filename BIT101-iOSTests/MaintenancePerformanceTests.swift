@@ -125,12 +125,12 @@ nonisolated final class MaintenancePerformanceTests: XCTestCase {
 
     @MainActor
     func testLongArticleRenderingPerformance() throws {
-        let paragraph = String(repeating: "文章正文与链接 ", count: 64)
-        let blocks = (0..<40).map { ["id": "block-\($0)", "type": "paragraph", "data": ["text": paragraph]] as [String: Any] }
+        let paragraph = String(repeating: "<b>文章正文</b><i>内联格式</i><a href=\"https://example.invalid/paper\">链接</a><br>", count: 6)
+        let blocks = (0..<PaperContentResourceLimits.maximumBlocks).map { ["id": "block-\($0)", "type": "paragraph", "data": ["text": paragraph]] as [String: Any] }
         let content = String(decoding: try JSONSerialization.data(withJSONObject: ["blocks": blocks]), as: UTF8.self)
         measure(metrics: [XCTClockMetric(), XCTMemoryMetric()]) {
             let rendered = PaperContentRenderer.blocks(from: content)
-            XCTAssertEqual(rendered.count, 40)
+            XCTAssertEqual(rendered.count, PaperContentResourceLimits.maximumBlocks)
             XCTAssertTrue(PaperEditorContentBuilder.plainText(from: content).contains("文章正文"))
         }
     }

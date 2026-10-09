@@ -15,6 +15,7 @@ import SwiftUI
 struct PaperSummaryCard: View {
     let paper: PaperSummary
     let previewMetadata: PaperPreviewMetadata?
+    var previewFailed = false
     let onOpen: () -> Void
 
     var body: some View {
@@ -32,7 +33,7 @@ struct PaperSummaryCard: View {
                 )
 
                 VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.micro) {
-                    Text(previewMetadata?.authorName ?? "加载中")
+                    Text(previewMetadata?.authorName ?? (previewFailed ? "作者加载失败，刷新重试" : "加载中"))
                         .font(AppDesignSystem.Typography.bodyEmphasis)
                         .foregroundStyle(AppDesignSystem.Foreground.primary)
                         .lineLimit(1)

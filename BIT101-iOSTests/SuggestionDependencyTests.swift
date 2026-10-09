@@ -7,6 +7,7 @@ import CommunityTransport
 import MediaKit
 import TransportCore
 import Foundation
+import Combine
 import GalleryFeature
 import StorageCore
 import ScorePorts
@@ -265,7 +266,8 @@ struct SettingsDependencyOwnershipTests {
             platformActions: RecordingSchedulePlatformActions(), newCustomScheduleDraft: { CustomScheduleDraft() })
         var schoolCalls: [String] = []
         let transcript = DiagnosisTranscript()
-        let destinations = AppCommunityDestinations(dependencies: dependencies, schedule: schedule, media: firstMedia,
+        let cloud = ScheduleCloudSyncPresentation(currentAccount: { nil }, accountChanges: Empty().eraseToAnyPublisher())
+        let destinations = AppCommunityDestinations(dependencies: dependencies, schedule: schedule, scheduleCloudSync: cloud, media: firstMedia,
             localData: AppLocalDataService(files: PreferenceMemoryFiles(), actions: effects.actions),
             school: NetworkDiagnosisSchool(identity: { .init(accountIdentifier: account.accountIdentifier, generation: 0) },
                 currentTerm: { schoolCalls.append("term"); return "fixture" },
@@ -273,6 +275,7 @@ struct SettingsDependencyOwnershipTests {
         let selected = destinations.settingsDependencies
         #expect(selected.settings === dependencies.settingsStore)
         #expect(selected.schedule === schedule)
+        #expect(selected.scheduleCloudSync === cloud)
         let page = GallerySettingsPage(media: selected.media, diagnosis: selected.networkDiagnosis)
         #expect(page.media === firstMedia)
         page.media.cacheLimitMB = 128

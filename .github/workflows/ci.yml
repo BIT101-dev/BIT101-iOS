@@ -34,22 +34,13 @@ concurrency:
 jobs:
   static-audit:
     name: Static audit (Apple toolchain)
-    runs-on: [self-hosted, macOS, xcode-27, bit101-ci]
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'xcode-27' || fromJSON('["self-hosted","macOS","xcode-27","bit101-ci"]') }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           clean: false
-      - name: Show toolchain
-        shell: bash
-        run: |
-          version="$(xcodebuild -version)"
-          printf '%s\n' "$version"
-          grep -Eq '^Xcode (2[7-9]|[3-9][0-9]|[1-9][0-9]{2,})\.' <<<"$version"
-      - name: Install Worker test dependencies
-        working-directory: Cloudflare/EmergencyUpdateWorker
-        run: npm ci
       - name: Verify maintainer review commit
         id: review
         if: github.event_name == 'workflow_dispatch' && inputs.review_pr > 0
@@ -59,6 +50,15 @@ jobs:
         run: |
           base_sha="$(python3 Scripts/ci_evidence.py review-pr "$BIT101_REVIEW_PR")"
           printf 'base_sha=%s\n' "$base_sha" >> "$GITHUB_OUTPUT"
+      - name: Show toolchain
+        shell: bash
+        run: |
+          version="$(xcodebuild -version)"
+          printf '%s\n' "$version"
+          grep -Eq '^Xcode (2[7-9]|[3-9][0-9]|[1-9][0-9]{2,})\.' <<<"$version"
+      - name: Install Worker test dependencies
+        working-directory: Cloudflare/EmergencyUpdateWorker
+        run: npm ci
       - name: Load target branch coverage baseline
         if: github.event_name == 'pull_request' || inputs.review_pr > 0
         env:
@@ -99,7 +99,7 @@ jobs:
   release-build:
     name: Release app and extension builds
     needs: static-audit
-    runs-on: [self-hosted, macOS, xcode-27, bit101-ci]
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'xcode-27' || fromJSON('["self-hosted","macOS","xcode-27","bit101-ci"]') }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
@@ -148,7 +148,7 @@ jobs:
   catalyst-tests:
     name: Mac Catalyst behavior tests
     needs: static-audit
-    runs-on: [self-hosted, macOS, xcode-27, bit101-ci]
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'xcode-27' || fromJSON('["self-hosted","macOS","xcode-27","bit101-ci"]') }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
@@ -248,7 +248,7 @@ jobs:
     name: Release acceptance with bound device evidence
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' && inputs.release_check
     needs: [static-audit, release-build, catalyst-tests]
-    runs-on: [self-hosted, macOS, xcode-27, bit101-ci]
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'xcode-27' || fromJSON('["self-hosted","macOS","xcode-27","bit101-ci"]') }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
@@ -268,7 +268,7 @@ jobs:
     name: Core physical-device acceptance
     if: always() && github.event_name == 'pull_request'
     needs: [static-audit, release-build, catalyst-tests, physical-device]
-    runs-on: [self-hosted, macOS, xcode-27, bit101-ci]
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'xcode-27' || fromJSON('["self-hosted","macOS","xcode-27","bit101-ci"]') }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7

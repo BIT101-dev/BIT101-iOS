@@ -29,6 +29,7 @@ private extension PaperListState {
 final class PaperListViewModel: ObservableObject {
     @Published private(set) var state = PaperListState()
     @Published private(set) var previewMetadataByPaperID: [Int: PaperPreviewMetadata] = [:]
+    @Published private(set) var previewFailedIDs: Set<Int> = []
     @Published var selectedOrder: PaperSortOrder = .newest
     @Published var searchText = ""
     @Published var alert: AppAlert?
@@ -39,7 +40,7 @@ final class PaperListViewModel: ObservableObject {
     private var previewLoadingIDs: Set<Int> = []
     @Published private(set) var refreshGeneration = 0
     private var refreshTask: Task<Void, Never>?
-    private var refreshPreviousState: (state: PaperListState, metadata: [Int: PaperPreviewMetadata])?
+    private var refreshPreviousState: (state: PaperListState, metadata: [Int: PaperPreviewMetadata], failures: Set<Int>)?
 
     init(service: any PaperListServicing) {
         self.service = service
@@ -53,6 +54,7 @@ final class PaperListViewModel: ObservableObject {
         if let refreshPreviousState {
             state = refreshPreviousState.state
             previewMetadataByPaperID = refreshPreviousState.metadata
+            previewFailedIDs = refreshPreviousState.failures
         }
         refreshPreviousState = nil
         if state.status == .loading { state.status = state.items.isEmpty ? .idle : .loaded }
@@ -89,8 +91,10 @@ final class PaperListViewModel: ObservableObject {
         let query = (search: trimmedSearchText, order: selectedOrder)
         let previousState = state
         let previousMetadata = previewMetadataByPaperID
-        refreshPreviousState = (previousState, previousMetadata)
+        let previousFailures = previewFailedIDs
+        refreshPreviousState = (previousState, previousMetadata, previousFailures)
         previewMetadataByPaperID = [:]
+        previewFailedIDs = []
         previewLoadingIDs = []
         defer { if refreshGeneration == generation { refreshPreviousState = nil } }
         if state.items.isEmpty {
@@ -125,6 +129,7 @@ final class PaperListViewModel: ObservableObject {
                 }
                 state = restoredState
                 previewMetadataByPaperID = previousMetadata
+                previewFailedIDs = previousFailures
                 return
             }
             if previousState.items.isEmpty {
@@ -134,6 +139,7 @@ final class PaperListViewModel: ObservableObject {
             } else {
                 state = previousState
                 previewMetadataByPaperID = previousMetadata
+                previewFailedIDs = previousFailures
                 state.status = .loaded
                 state.isLoadingMore = false
                 alert = AppAlert(title: "刷新文章失败", message: error.localizedDescription)
@@ -178,6 +184,7 @@ final class PaperListViewModel: ObservableObject {
         guard !previewLoadingIDs.contains(paper.id) else { return }
         let generation = refreshGeneration
         previewLoadingIDs.insert(paper.id)
+        previewFailedIDs.remove(paper.id)
         defer { if refreshGeneration == generation { previewLoadingIDs.remove(paper.id) } }
 
         do {
@@ -186,7 +193,8 @@ final class PaperListViewModel: ObservableObject {
             guard refreshGeneration == generation else { return }
             previewMetadataByPaperID[paper.id] = detail.previewMetadata
         } catch {
-            return
+            guard refreshGeneration == generation, !TaskCancellation.matches(error) else { return }
+            previewFailedIDs.insert(paper.id)
         }
     }
 
@@ -206,6 +214,7 @@ final class PaperListViewModel: ObservableObject {
 final class PaperSearchViewModel: ObservableObject {
     @Published private(set) var state = PaperListState()
     @Published private(set) var previewMetadataByPaperID: [Int: PaperPreviewMetadata] = [:]
+    @Published private(set) var previewFailedIDs: Set<Int> = []
     @Published var selectedOrder: PaperSortOrder = .newest
     @Published var searchText = ""
     @Published var alert: AppAlert?
@@ -215,7 +224,7 @@ final class PaperSearchViewModel: ObservableObject {
     private var pageQuery: (search: String, order: PaperSortOrder)?
     @Published private(set) var searchGeneration = 0
     private var searchTask: Task<Void, Never>?
-    private var searchPreviousState: (state: PaperListState, metadata: [Int: PaperPreviewMetadata])?
+    private var searchPreviousState: (state: PaperListState, metadata: [Int: PaperPreviewMetadata], failures: Set<Int>)?
 
     init(service: any PaperListServicing) {
         self.service = service
@@ -229,6 +238,7 @@ final class PaperSearchViewModel: ObservableObject {
         if let searchPreviousState {
             state = searchPreviousState.state
             previewMetadataByPaperID = searchPreviousState.metadata
+            previewFailedIDs = searchPreviousState.failures
         }
         searchPreviousState = nil
         if state.status == .loading { state.status = state.items.isEmpty ? .idle : .loaded }
@@ -263,8 +273,10 @@ final class PaperSearchViewModel: ObservableObject {
 
         let previousState = state
         let previousMetadata = previewMetadataByPaperID
-        searchPreviousState = (previousState, previousMetadata)
+        let previousFailures = previewFailedIDs
+        searchPreviousState = (previousState, previousMetadata, previousFailures)
         previewMetadataByPaperID = [:]
+        previewFailedIDs = []
         previewLoadingIDs = []
         defer { if searchGeneration == generation { searchPreviousState = nil } }
         state.prepareForRefresh()
@@ -292,10 +304,12 @@ final class PaperSearchViewModel: ObservableObject {
                 }
                 state = restoredState
                 previewMetadataByPaperID = previousMetadata
+                previewFailedIDs = previousFailures
                 return
             }
             state = previousState
             previewMetadataByPaperID = previousMetadata
+            previewFailedIDs = previousFailures
             state.status = previousState.items.isEmpty ? .failed(error.localizedDescription) : .loaded
             state.isLoadingMore = false
             alert = AppAlert(title: "搜索文章失败", message: error.localizedDescription)
@@ -340,6 +354,7 @@ final class PaperSearchViewModel: ObservableObject {
 
         let generation = searchGeneration
         previewLoadingIDs.insert(paper.id)
+        previewFailedIDs.remove(paper.id)
         defer { if searchGeneration == generation { previewLoadingIDs.remove(paper.id) } }
 
         do {
@@ -348,7 +363,8 @@ final class PaperSearchViewModel: ObservableObject {
             guard searchGeneration == generation else { return }
             previewMetadataByPaperID[paper.id] = detail.previewMetadata
         } catch {
-            return
+            guard searchGeneration == generation, !TaskCancellation.matches(error) else { return }
+            previewFailedIDs.insert(paper.id)
         }
     }
 
@@ -359,6 +375,7 @@ final class PaperSearchViewModel: ObservableObject {
     func reset() {
         cancelSearchOperations()
         previewMetadataByPaperID = [:]
+        previewFailedIDs = []
         previewLoadingIDs = []
         state = PaperListState()
         pageQuery = nil

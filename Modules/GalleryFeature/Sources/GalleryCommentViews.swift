@@ -287,6 +287,7 @@ struct GalleryCommentComposerSheet: View {
                     }
                 }
             }
+            .disabled(isSubmitting || isSubmissionRequested)
             .navigationTitle(target.title)
             .navigationBarTitleDisplayMode(.inline)
             .task(id: isSubmissionRequested) {
@@ -315,6 +316,7 @@ struct GalleryCommentComposerSheet: View {
             }
             .systemImagePreview(item: $imageViewer)
         }
+        .interactiveDismissDisabled(isSubmitting || isSubmissionRequested)
     }
 
     private func upload(items: [PhotosPickerItem]) async {

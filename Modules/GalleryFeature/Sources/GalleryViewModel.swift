@@ -45,6 +45,7 @@ final class GalleryViewModel: ObservableObject {
     private let service: any GalleryFeedServicing
     private let recommendPrefetch: GalleryRecommendPrefetchCoordinator
     private var refreshGenerations: [GalleryFeedKind: Int] = [:]
+    private var refreshPreviousStates: [GalleryFeedKind: GalleryFeedState] = [:]
     private var searchGeneration = 0
     private var interactionTasks: [String: Task<Void, Never>] = [:]
     private var interactionTaskTokens: [String: UUID] = [:]
@@ -64,6 +65,7 @@ final class GalleryViewModel: ObservableObject {
         interactionTasks.removeAll()
         interactionTaskTokens.removeAll()
         recommendPrefetch.reset()
+        refreshPreviousStates.removeAll()
         for feed in GalleryFeedKind.allCases {
             refreshGenerations[feed] = (refreshGenerations[feed] ?? 0) &+ 1
             setState(for: feed) {
@@ -84,6 +86,7 @@ final class GalleryViewModel: ObservableObject {
                 interactionTaskTokens[key] = nil
             }
             feedStates[feed] = GalleryFeedState()
+            refreshPreviousStates[feed] = nil
         }
         if selectedFeed != .recommend { recommendPrefetch.reset() }
     }
@@ -129,11 +132,13 @@ final class GalleryViewModel: ObservableObject {
         }
     }
 
-    func enqueueNewestRefreshAfterComposer() {
-        enqueueInteractionTask(key: "composer-refresh") { [weak self] in
+    @discardableResult
+    func enqueueNewestRefreshAfterComposer() -> Task<Void, Never> {
+        enqueueInteractionTask(key: "composer-refresh", replacingCurrent: true) { [weak self] in
             guard let self else { return }
             self.selectedFeed = .newest
-            await self.refresh(feed: .newest)
+            self.interactionTasks["refresh:\(GalleryFeedKind.newest.rawValue)"]?.cancel()
+            await self.refresh(feed: .newest, replacingCurrent: true)
         }
     }
 
@@ -184,13 +189,15 @@ final class GalleryViewModel: ObservableObject {
     /// 从第一页重新拉取指定 feed。
     ///
     /// 刷新失败和取消恢复请求开始前的快照，保持已有内容和分页位置。
-    func refresh(feed: GalleryFeedKind) async {
-        let previousState = state(for: feed)
-        if previousState.status == .loading {
+    func refresh(feed: GalleryFeedKind, replacingCurrent: Bool = false) async {
+        if state(for: feed).status == .loading && !replacingCurrent {
             return
         }
+        let previousState = refreshPreviousStates[feed] ?? state(for: feed)
+        refreshPreviousStates[feed] = previousState
         let generation = (refreshGenerations[feed] ?? 0) &+ 1
         refreshGenerations[feed] = generation
+        defer { if refreshGenerations[feed] == generation { refreshPreviousStates[feed] = nil } }
         if feed == .recommend {
             recommendPrefetch.reset()
         }

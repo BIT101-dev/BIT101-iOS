@@ -98,6 +98,7 @@ private struct PaperRootViewScene: View {
                                     PaperSummaryCard(
                                         paper: paper,
                                         previewMetadata: viewModel.previewMetadata(for: paper.id),
+                                        previewFailed: viewModel.previewFailedIDs.contains(paper.id),
                                         onOpen: {
                                             selectedPaper = paper
                                         }

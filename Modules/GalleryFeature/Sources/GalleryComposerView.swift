@@ -279,6 +279,7 @@ private struct GalleryComposerScene: View {
             }
             .diagnosticAlert(item: $viewModel.alert)
         }
+        .interactiveDismissDisabled()
     }
 
     private func requestDismiss() {

@@ -113,6 +113,7 @@ struct AppShellView: View {
     @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var settings: AppSettingsStore
     @EnvironmentObject private var scheduleViewModel: ScheduleViewModel
+    @EnvironmentObject private var lifecycle: AppAccountLifecycle
     @ObservedObject private var promptCoordinator = AppPromptCoordinator.shared
 #if BIT101_UI_TESTING
     @State private var selectedTab: AppTab = AppUITestBootstrap.environment["BIT101_UI_TEST_SETTINGS"] == nil
@@ -207,7 +208,8 @@ struct AppShellView: View {
             notificationPromptTask?.cancel()
             notificationPromptTask = nil
         }
-        .onReceive(ScheduleCacheStore.changes) { _ in
+        .onReceive(lifecycle.scheduleChanges) { session in
+            guard session == lifecycle.currentSession() else { return }
             refreshScheduleNotificationPromptIfNeeded()
         }
         .onReceive(AppDeepLinkCoordinator.shared.$pendingURL.compactMap { $0 }) { url in
@@ -268,12 +270,11 @@ struct AppShellView: View {
         guard !AppFileDirectories.isRunningUITest else { return }
 #endif
         notificationPromptTask?.cancel()
-        let owner = AppAccountSession.storage.schoolSessionIdentity
+        let owner = lifecycle.currentSession()
         notificationPromptTask = Task {
-            let authorizationState = await ScheduleLiveActivityManager.shared.notificationAuthorizationStateForReminderFallback()
+            let denied = await lifecycle.isNotificationPermissionDenied()
             await MainActor.run {
-                guard !Task.isCancelled, owner == AppAccountSession.storage.schoolSessionIdentity,
-                      authorizationState == .denied else { return }
+                guard !Task.isCancelled, owner == lifecycle.currentSession(), denied else { return }
                 enqueueScheduleNotificationPrompt()
             }
         }

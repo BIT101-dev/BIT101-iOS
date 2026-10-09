@@ -301,6 +301,7 @@ struct CourseCommentComposerSheet: View {
                     }
                 }
             }
+            .disabled(isSubmitting || isSubmissionRequested)
             .appSelectionFeedback(trigger: rating)
             .navigationTitle(target.title)
             .navigationBarTitleDisplayMode(.inline)
@@ -325,6 +326,7 @@ struct CourseCommentComposerSheet: View {
                 )
             }
         }
+        .interactiveDismissDisabled(isSubmitting || isSubmissionRequested)
     }
 
     private var supportsCourseRating: Bool {

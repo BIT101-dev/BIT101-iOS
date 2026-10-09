@@ -59,6 +59,7 @@ public struct AppComposerToolbar: ToolbarContent {
     public var body: some ToolbarContent {
         ToolbarItem(placement: .cancellationAction) {
             Button("取消", action: onCancel)
+                .disabled(isSubmitting)
                 .accessibilityIdentifier("ui.app-composer-toolbar.cancel")
         }
 

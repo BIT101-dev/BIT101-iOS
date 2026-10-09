@@ -27,6 +27,7 @@ def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[s
     for facts in syntax.values():
         facts["renderedScopeFacts"] = {}
     check_component_contracts(errors, syntax)
+    check_composer_lifecycle(errors, syntax)
     check_haptic_consistency(errors, syntax)
     check_error_report_coverage(errors, syntax)
     check_ui_test_inventory(errors, syntax)

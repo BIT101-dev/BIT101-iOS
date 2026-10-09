@@ -646,6 +646,17 @@ struct GalleryRecommendationPrefetchTests {
             publicEdit: true, like: false, own: true)
     }
 
+    @Test @MainActor func articleRenderingNormalizesDuplicateEmptyAndMissingBlockIdentities() throws {
+        let blocks = ["same", "same", "", "block-0"].map {
+            ["id": $0, "type": "paragraph", "data": ["text": "正文"]] as [String: Any]
+        } + [["type": "unknown"], ["type": "paragraph", "data": ["text": String(repeating: "x", count: PaperContentResourceLimits.maximumBlockBytes + 1)]]]
+        let raw = String(decoding: try JSONSerialization.data(withJSONObject: ["blocks": blocks]), as: UTF8.self)
+        let first = PaperContentRenderer.blocks(from: raw).map(\.id)
+        #expect(first.count == blocks.count && Set(first).count == first.count)
+        #expect(PaperContentRenderer.blocks(from: raw).map(\.id) == first)
+        #expect(PaperContentRenderer.blocks(from: "正文").map(\.id) == PaperContentRenderer.blocks(from: "正文").map(\.id))
+    }
+
     @Test(arguments: [
         #"{"blocks":[{"id":"p","type":"paragraph","data":{"text":"<b>重点</b>"}},{"id":"i","type":"image","data":{"file":{"url":"https://example.com/a.png"}}}]}"#,
         #"{"blocks":[{"id":"i","type":"image","data":{"file":{"url":"https://example.com/a.png"}}}]}"#,

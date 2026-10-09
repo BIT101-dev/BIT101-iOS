@@ -4,6 +4,8 @@ import os
 import re
 import subprocess
 
+CI_RUNNER = "${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'xcode-27' || fromJSON('[\"self-hosted\",\"macOS\",\"xcode-27\",\"bit101-ci\"]') }}"
+
 
 def ci_wiring_findings(workflow_source: str) -> list[str]:
     errors: list[str] = []
@@ -35,8 +37,8 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
             errors.append(f".github/workflows/ci.yml: {event} 需要覆盖全部仓库路径")
     jobs = mapping(workflow.get("jobs"))
     for name, job in jobs.items():
-        if name != 'physical-device' and mapping(job).get('runs-on') != ['self-hosted', 'macOS', 'xcode-27', 'bit101-ci']:
-            errors.append(f'.github/workflows/ci.yml: {name} 需要独立的 bit101-ci 隔离运行器')
+        if name != 'physical-device' and mapping(job).get('runs-on') != CI_RUNNER:
+            errors.append(f'.github/workflows/ci.yml: {name} 的隔离运行器需要将 fork 放到 GitHub 托管镜像，受信来源放到 bit101-ci')
         checkouts = [step for step in mapping(job).get('steps', []) if isinstance(step, dict)
             and str(step.get('uses', '')).startswith('actions/checkout@')]
         if len(checkouts) != 1 or mapping(checkouts[0].get('with')).get('clean') is not False:
@@ -211,6 +213,8 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
                 or mapping(step.get('env')) != {'GH_TOKEN': '${{ github.token }}', 'BIT101_REVIEW_PR': '${{ inputs.review_pr }}'} \
                 or step.get('continue-on-error', False) is not False:
             errors.append('.github/workflows/ci.yml: 审查提交与基准需要沿所属 PR 顺序处理')
+        if name == 'static-audit' and any(shell(prior).strip() == 'npm ci' for prior in steps[:position]):
+            errors.append('.github/workflows/ci.yml: 审查提交核对需要先于依赖安装')
         errors.extend(review_execution_findings(shell(step)))
     return errors
 
@@ -243,6 +247,14 @@ def evidence_execution_findings(command: str, key: str, expected: list[str]) -> 
 
 def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
     source = workflow_source
+    review_start = source.index('      - name: Verify maintainer review commit')
+    review_end = source.index('      - name: Show toolchain', review_start)
+    review = source[review_start:review_end]
+    reordered = source[:review_start] + source[review_end:]
+    position = reordered.index('      - name: Load target branch coverage baseline')
+    reordered = reordered[:position] + review + reordered[position:]
+    if not any('先于依赖安装' in item for item in ci_wiring_findings(reordered)):
+        return ['代码质量规则边界自检失败：审查提交核对与依赖安装顺序']
     if not any('原始 XCTest 附件' in item for item in ci_wiring_findings(source.replace('.build/extended-automation/test-results.xcresult', '.build/extended-automation/omitted'))):
         return ['代码质量规则边界自检失败：真机原始附件留存门禁']
     if not ci_wiring_findings(source.replace('          clean: false', '          clean: true')):
@@ -256,10 +268,12 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
     findings = ["代码质量规则边界自检失败：CI 自动触发与 shell 继承门禁"
                 for changed in mutations if not ci_wiring_findings(changed)]
     for name in ('static-audit', 'release-build', 'catalyst-tests', 'release-acceptance', 'merge-acceptance'):
-        unsafe = re.sub(rf'(?s)(  {name}:.*?)runs-on: \[self-hosted, macOS, xcode-27, bit101-ci\]',
-            r'\1runs-on: xcode-27', workflow_source, count=1)
-        if not any('隔离运行器' in item for item in ci_wiring_findings(unsafe)):
-            findings.append(f'代码质量规则边界自检失败：{name} 的运行器隔离')
+        for selector in ('[self-hosted, macOS, xcode-27, bit101-ci]', 'xcode-27',
+                         CI_RUNNER.replace(' != github.repository', ' == github.repository')):
+            unsafe = re.sub(rf'(?s)(  {name}:.*?)runs-on: ' + re.escape(CI_RUNNER),
+                lambda match: match[1] + 'runs-on: ' + selector, workflow_source, count=1)
+            if not any('隔离运行器' in item for item in ci_wiring_findings(unsafe)):
+                findings.append(f'代码质量规则边界自检失败：{name} 的运行器隔离')
         discarded = re.sub(rf'(?s)(  {name}:.*?)          clean: false', r'\1          clean: true', workflow_source, count=1)
         if not any('保留公共缓存' in item for item in ci_wiring_findings(discarded)):
             findings.append(f'代码质量规则边界自检失败：{name} 的编译缓存保存')

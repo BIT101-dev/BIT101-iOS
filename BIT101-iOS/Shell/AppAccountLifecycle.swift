@@ -22,10 +22,12 @@ final class AppAccountLifecycle: ObservableObject {
     let settings: AppSettingsStore
     let localData: AppLocalDataService
     let preferenceCloudSync: ExperimentalPreferenceCloudSync
+    let scheduleChanges: AnyPublisher<AppStorageSession, Never>
+    let isNotificationPermissionDenied: @MainActor () async -> Bool
     private var subscriptions = Set<AnyCancellable>()
     private var externalRefreshTask: Task<Void, Never>?
     private let externalDisplays: any AppExternalDisplayCoordinating
-    private let currentSession: @MainActor () -> AppStorageSession
+    let currentSession: @MainActor () -> AppStorageSession
 
     init(
         scheduleViewModel: ScheduleViewModel,
@@ -40,6 +42,8 @@ final class AppAccountLifecycle: ObservableObject {
         accountChanges: AnyPublisher<CommunitySessionIdentity, Never>,
         currentIdentity: @escaping () -> CommunitySessionIdentity,
         scheduleChanges: AnyPublisher<AppStorageSession, Never>,
+        scheduleCloudSync: ScheduleCloudSyncPresentation,
+        isNotificationPermissionDenied: @escaping @MainActor () async -> Bool,
         loadScheduleCourses: @escaping @MainActor (AppStorageSession) async -> [String: [ScoreCourseSummary]],
         media: MediaEnvironment,
         localData: AppLocalDataService,
@@ -54,10 +58,12 @@ final class AppAccountLifecycle: ObservableObject {
         }
         self.community = community
         self.transcriptService = transcriptService
-        self.communityDestinations = AppCommunityDestinations(dependencies: community, schedule: scheduleViewModel, media: media, localData: localData, school: diagnosisSchool, transcript: transcriptService)
+        self.communityDestinations = AppCommunityDestinations(dependencies: community, schedule: scheduleViewModel, scheduleCloudSync: scheduleCloudSync, media: media, localData: localData, school: diagnosisSchool, transcript: transcriptService)
         self.settings = settings
         self.localData = localData
         self.preferenceCloudSync = preferenceCloudSync
+        self.scheduleChanges = scheduleChanges
+        self.isNotificationPermissionDenied = isNotificationPermissionDenied
         self.externalDisplays = externalDisplays
         self.currentSession = stores.currentSession
         accountChanges

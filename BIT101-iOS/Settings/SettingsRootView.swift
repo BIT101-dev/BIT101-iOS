@@ -56,6 +56,7 @@ enum SettingsRoute: String, CaseIterable, Identifiable {
 struct SettingsDependencies {
     let settings: AppSettingsStore
     let schedule: ScheduleViewModel
+    let scheduleCloudSync: ScheduleCloudSyncPresentation
     let suggestion: DeveloperSuggestionDependencies
     let media: MediaEnvironment
     let localData: AppLocalDataService
@@ -186,7 +187,7 @@ private struct SettingsRoutePage: View {
         case .account:
             AccountSettingsPage(dependencies: dependencies.account, studentID: studentID, onLogout: onLogout)
         case .calendar:
-            AppCalendarSettingsPage(viewModel: scheduleViewModel, scheduleCloudSync: .shared)
+            AppCalendarSettingsPage(viewModel: scheduleViewModel, scheduleCloudSync: dependencies.scheduleCloudSync)
         case .ddl:
             DDLSettingsPage(viewModel: scheduleViewModel.ddl)
         case .gallery:

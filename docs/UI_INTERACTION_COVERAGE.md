@@ -87,7 +87,7 @@
 | --- | --- |
 | `InteractionCoverageUITests/testGalleryFeedAndSurfaceSwipesMessagesAndSearchResultRoutes` | 五类话题、搜索 / 清除、四类消息 / 全部已读 |
 | `InteractionCoverageUITests/testCommunityCommentLikesRepliesSortsAndPhotoPicker` | 帖子详情、帖子点赞 / 取消、评论发送、编辑入口 |
-| `LoginAndScheduleUITests/testGalleryComposerTagsSettingsPublishAndDelete` | 发布校验、草稿保存 / 加载 / 丢弃、标准 / 自定义标签、删除标签、匿名 / 公开、发布、删除确认 / 取消 |
+| `LoginAndScheduleUITests/testGalleryComposerTagsSettingsPublishAndDelete` | 发布校验、系统下拉关闭保护、编辑中后台返回、草稿保存 / 加载 / 丢弃、标准 / 自定义标签、删除标签、匿名 / 公开、发布、删除确认 / 取消 |
 | `InteractionCoverageUITests/testCommunityCommentLikesRepliesSortsAndPhotoPicker` | 帖子标题 / 正文保存、声明选择、保存后详情和列表同步 |
 | `InteractionCoverageUITests/testCommunityCommentLikesRepliesSortsAndPhotoPicker` | 评论长按复制 / 举报 / 删除、原因输入、提交、删除取消 / 确认 |
 | `InteractionCoverageUITests/testPosterReportSelectionCancellationAndSubmission` | 卡片及详情举报、分类失败 / 重试、类型选择、取消、说明提交、成功返回 |

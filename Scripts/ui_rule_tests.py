@@ -27,11 +27,24 @@ from ui_source_facts import (
 from ui_rules import (
     alert_coverage_findings, haptic_entry_findings, interactive_list_row_findings,
     is_registered_map_theme_color_definition, is_reviewed_fixed_geometry, visual_contract_present,
+    check_composer_lifecycle,
 )
 
 
 
 def ast_marker_boundary_findings() -> list[str]:
+    for owner in ('GalleryComposerScene', 'GalleryCommentComposerSheet', 'CourseCommentComposerSheet', 'PaperCommentComposerSheet'):
+        guard = '' if owner == 'GalleryComposerScene' else 'isSubmitting || isSubmissionRequested'
+        template = f'struct {owner}: View {{ var body: some View {{ Text("editor").interactiveDismissDisabled({guard}) }} }}'
+        def findings(source):
+            errors = []
+            check_composer_lifecycle(errors, swift_syntax_index_sources({'ui-self-test.swift': source}))
+            return errors
+        assert not findings(template)
+        assert findings(template.replace(f'.interactiveDismissDisabled({guard})', ''))
+        assert findings(template.replace(f'.interactiveDismissDisabled({guard})', '.interactiveDismissDisabled(false)'))
+        unused = template.replace(f'.interactiveDismissDisabled({guard})', '')[:-1] + f'; func unused() -> some View {{ Text("unused").interactiveDismissDisabled({guard}) }} }}'
+        assert findings(unused)
     marker = 'StrokeStyle(lineWidth: 2, dash: [5, 4])'
     contract = 'Modules/CourseFeature/Sources/CourseHistoryGradesViews.swift'
     moved = ROOT / 'Modules/CourseFeature/Sources/Moved.swift'

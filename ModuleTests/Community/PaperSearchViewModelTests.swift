@@ -57,8 +57,8 @@ struct PaperSearchViewModelTests {
         #expect(service.requests.last?.page == 1 && model.state.items == [paper])
     }
 
-    @Test(arguments: [false, true]) @MainActor
-    func metadataRefreshRejectsEarlierRequestsAndReflectsAnonymity(search: Bool) async throws {
+    @Test(arguments: [false, true], [false, true]) @MainActor
+    func metadataRefreshRejectsEarlierRequestsAndReflectsAnonymity(search: Bool, staleFailure: Bool) async throws {
         let paper = PaperSummary(id: 1, title: "fixture", intro: "", likeNum: 0, commentNum: 0, updateTime: "")
         let service = ServiceStub(result: .success([paper]))
         let original = PaperDetail(id: 1, title: "fixture", intro: "", content: "", createTime: "", updateTime: "",
@@ -86,7 +86,11 @@ struct PaperSearchViewModelTests {
         await refresh()
         #expect(preview() == nil)
         let gate = ListRequestGate<PaperDetail>()
-        service.metadata = { _ in await gate.request() }
+        service.metadata = { _ in
+            let detail = await gate.request()
+            if staleFailure { throw URLError(.timedOut) }
+            return detail
+        }
         let earlier = Task { await load() }
         await gate.waitUntilRequested()
         await refresh()
@@ -97,7 +101,32 @@ struct PaperSearchViewModelTests {
         #expect(preview()?.isAnonymous == true)
         #expect(preview()?.avatarURL == nil)
         #expect(preview()?.authorName == edited.previewMetadata.authorName)
+        #expect(search ? results.previewFailedIDs.isEmpty : list.previewFailedIDs.isEmpty)
         if search { results.reset(); #expect(preview() == nil) }
+    }
+
+    @Test(arguments: [false, true]) @MainActor
+    func failedPreviewLeavesALoadResultAndRefreshAllowsRetry(search: Bool) async {
+        let paper = PaperSummary(id: 1, title: "fixture", intro: "", likeNum: 0, commentNum: 0, updateTime: "")
+        let service = ServiceStub(result: .success([paper]))
+        let list = PaperListViewModel(service: service)
+        let results = PaperSearchViewModel(service: service)
+        results.searchText = "fixture"
+        func refresh() async { if search { await results.performSearch() } else { await list.refresh() } }
+        func load() async { if search { await results.loadPreviewMetadataIfNeeded(for: paper) } else { await list.loadPreviewMetadataIfNeeded(for: paper) } }
+        func failures() -> Set<Int> { search ? results.previewFailedIDs : list.previewFailedIDs }
+        await refresh(); await load()
+        #expect(failures() == [paper.id])
+        service.metadata = { _ in throw CancellationError() }
+        await refresh(); await load()
+        #expect(failures().isEmpty)
+        service.metadata = { _ in
+            PaperDetail(id: 1, title: "fixture", intro: "", content: "", createTime: "", updateTime: "",
+                updateUser: listUser(1), anonymous: false, likeNum: 0, commentNum: 0, publicEdit: true, like: false, own: true)
+        }
+        await refresh(); await load()
+        #expect(failures().isEmpty)
+        #expect(search ? results.previewMetadata(for: paper.id) != nil : list.previewMetadata(for: paper.id) != nil)
     }
 
     @Test @MainActor func paperListRetriesItsCancelledBootstrapWhenThePageReturns() async {

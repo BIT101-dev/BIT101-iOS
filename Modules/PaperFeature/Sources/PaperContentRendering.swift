@@ -172,16 +172,22 @@ enum PaperContentResourceLimits {
             guard trimmed.utf8.count <= PaperContentResourceLimits.maximumBlockBytes else {
                 return [.requiresOriginal(id: "text-resource-limit")]
             }
-            return [.paragraph(id: UUID().uuidString, text: AttributedString(trimmed))]
+            return [.paragraph(id: "text", text: AttributedString(trimmed))]
         }
 
         guard rawBlocks.count <= PaperContentResourceLimits.maximumBlocks else {
             return [.requiresOriginal(id: "block-resource-limit")]
         }
-        return rawBlocks.map { block in
-            let id = (block["id"] as? String) ?? UUID().uuidString
+        let identifiers = rawBlocks.compactMap { $0["id"] as? String }
+        let frequencies = Dictionary(identifiers.map { ($0, 1) }, uniquingKeysWith: { $0 + $1 })
+        return rawBlocks.enumerated().map { index, block in
+            var id = (block["id"] as? String) ?? ""
+            if id.isEmpty || frequencies[id, default: 0] > 1 {
+                id = "block-\(index)"
+                while frequencies[id] != nil { id = "_" + id }
+            }
             guard PaperContentResourceLimits.accepts(block) else { return .requiresOriginal(id: id) }
-            return makeBlock(from: block) ?? .requiresOriginal(id: id)
+            return makeBlock(from: block, id: id) ?? .requiresOriginal(id: id)
         }
     }
 
@@ -223,8 +229,7 @@ enum PaperContentResourceLimits {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private static func makeBlock(from raw: [String: Any]) -> PaperContentBlock? {
-        let id = (raw["id"] as? String) ?? UUID().uuidString
+    private static func makeBlock(from raw: [String: Any], id: String) -> PaperContentBlock? {
         guard let type = raw["type"] as? String else { return nil }
         let data = raw["data"] as? [String: Any] ?? [:]
 

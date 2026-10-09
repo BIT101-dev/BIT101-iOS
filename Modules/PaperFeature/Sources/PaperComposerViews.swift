@@ -172,10 +172,12 @@ struct PaperCommentComposerSheet: View {
                     .accessibilityIdentifier("ui.paper-comment-composer-sheet.input")
             }
         }
+        .disabled(isSubmitting || isSubmissionRequested)
         .accessibilityIdentifier("interaction.PaperCommentComposerSheet.list")
         .appGroupedListStyle()
         .navigationTitle(target.title)
         .navigationBarTitleDisplayMode(.inline)
+        .interactiveDismissDisabled(isSubmitting || isSubmissionRequested)
         .task(id: isSubmissionRequested) {
             guard isSubmissionRequested else { return }
             let submitted = await onSubmit(text, anonymous)

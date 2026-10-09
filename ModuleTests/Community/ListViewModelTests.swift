@@ -191,6 +191,31 @@ private final class PagingGalleryService: GalleryFeedServicing {
 @MainActor
 struct GalleryPaginationTests {
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func composerRefreshSupersedesAnEarlierSnapshotAndPreservesRecovery(fails: Bool) async {
+        let service = PagingGalleryService()
+        service.request = { page in [listPoster(page + 9)] }
+        let model = GalleryViewModel(service: service)
+        await model.refresh(feed: .newest)
+        await model.loadMoreIfNeeded(for: .newest, currentPoster: listPoster(9))
+        let previous = model.state(for: .newest)
+        let gate = ListRequestGate<[CommunityPoster]>()
+        service.request = { _ in await gate.request() }
+        let earlier = Task { await model.refresh(feed: .newest) }
+        await gate.waitUntilRequested()
+        service.request = { _ in
+            if fails { throw URLError(.timedOut) }
+            return [listPoster(11)]
+        }
+        await model.enqueueNewestRefreshAfterComposer().value
+        gate.finish([listPoster(1)])
+        await earlier.value
+        let current = model.state(for: .newest)
+        #expect(model.selectedFeed == .newest && current.status == .loaded)
+        #expect(current.posters.map(\.id) == (fails ? previous.posters.map(\.id) : [11]))
+        #expect(current.nextPage == (fails ? previous.nextPage : 1))
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func repeatedInteractionsShareTheirPendingRefreshOrPage(pagination: Bool) async {
         let gate = ListRequestGate<[CommunityPoster]>()
         let service = PagingGalleryService()

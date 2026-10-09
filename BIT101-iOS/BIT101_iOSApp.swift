@@ -194,7 +194,9 @@ struct BIT101_iOSApp: App {
                 ddl: { _ = try await diagnosisSchool.fetchEclassDDLEventsForPreflight() }), settings: settings, stores: stores, preferenceCloudSync: preferenceCloudSync,
             accountChanges: AppAccountSession.storage.changes,
             currentIdentity: { AppAccountSession.storage.communityCredentials.identity },
-            scheduleChanges: ScheduleCacheStore.changes, loadScheduleCourses: AppAccountStores.loadScheduleCourses,
+            scheduleChanges: ScheduleCacheStore.changes, scheduleCloudSync: .shared,
+            isNotificationPermissionDenied: { await ScheduleLiveActivityManager.shared.notificationAuthorizationStateForReminderFallback() == .denied },
+            loadScheduleCourses: AppAccountStores.loadScheduleCourses,
             media: AppMedia.environment, localData: AppLocalDataComposition.appService(settings: settings, media: AppMedia.environment),
             externalDisplays: AppExternalDisplayCoordinator(
                 currentSession: stores.currentSession,
@@ -288,6 +290,7 @@ struct BIT101_iOSApp: App {
                 .environment(lifecycle.community)
                 .environment(lifecycle.communityDestinations.media)
                 .environmentObject(lifecycle.scheduleViewModel)
+                .environmentObject(lifecycle)
                 .environmentObject(lifecycle.scheduleViewModel.ddl)
                 .environmentObject(lifecycle.scoreViewModel)
                 .environmentObject(lifecycle.settings)

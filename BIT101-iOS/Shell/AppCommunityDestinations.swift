@@ -27,7 +27,7 @@ final class AppCommunityDestinations {
     let settings: CommunitySettingsDestinations
     let settingsDependencies: SettingsDependencies
 
-    init(dependencies: AppCommunityDependencies, schedule: ScheduleViewModel, media: MediaEnvironment, localData: AppLocalDataService, school: NetworkDiagnosisSchool, transcript: any TrustedTranscriptServicing) {
+    init(dependencies: AppCommunityDependencies, schedule: ScheduleViewModel, scheduleCloudSync: ScheduleCloudSyncPresentation, media: MediaEnvironment, localData: AppLocalDataService, school: NetworkDiagnosisSchool, transcript: any TrustedTranscriptServicing) {
         self.media = media
         profiles = Self.profiles(dependencies: dependencies, media: media)
         posters = Self.posters(dependencies: dependencies, media: media)
@@ -37,6 +37,7 @@ final class AppCommunityDestinations {
         }
         let selectedSettings = SettingsDependencies(
             settings: dependencies.settingsStore, schedule: schedule,
+            scheduleCloudSync: scheduleCloudSync,
             suggestion: dependencies.suggestion, media: media,
             localData: localData,
             account: SettingsAccountDependencies(
