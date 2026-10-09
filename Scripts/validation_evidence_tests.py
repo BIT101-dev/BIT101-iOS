@@ -491,6 +491,9 @@ def network_route_identity_self_test() -> None:
     changed = deepcopy(proof)
     del changed['requestEvidence'][0]['requests'][0]['finalEndpoint']
     assert not network_requests_complete(required, changed)
+    schedule = network_trace_fixture({'requiredProbes': ['课表、考试与首周同步']})
+    for request in schedule['requestEvidence'][0]['requests']: request['finalQuery']['XNXQDM'] = 'wrong-term'
+    assert not network_requests_complete({'课表、考试与首周同步'}, schedule)
     for probe in ('话廊帖子评论', '学业课程评论', '文章评论', '学业课程列表'):
         fixture = network_trace_fixture({'requiredProbes': [probe]})
         for parameter in ('order', 'search') if probe == '学业课程列表' else ('order',):

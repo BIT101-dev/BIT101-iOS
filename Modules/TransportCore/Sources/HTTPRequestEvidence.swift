@@ -13,15 +13,32 @@ public nonisolated struct HTTPRequestEvidence: Codable, Sendable {
     public init(request: URLRequest, response: HTTPURLResponse, responseMinimumID: String? = nil, finalRequest: URLRequest? = nil) {
         self.responseMinimumID = responseMinimumID
         method = request.httpMethod ?? "GET"
-        finalMethod = finalRequest?.httpMethod
-            ?? (response.url == request.url ? method : "")
-        var final = response.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
-        final?.user = nil; final?.password = nil
-        final?.query = nil; final?.fragment = nil
-        finalEndpoint = final?.string ?? ""
-        var endpoint = (request.url ?? response.url).flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
+        query = Self.parameters(request)
+        if let finalRequest {
+            finalMethod = finalRequest.httpMethod ?? "GET"
+            finalQuery = Self.parameters(finalRequest)
+        } else if response.url == request.url {
+            finalMethod = method
+            finalQuery = query
+        } else {
+            finalMethod = ""
+            finalQuery = [:]
+        }
+        endpoint = Self.redactedEndpoint(request.url ?? response.url)
+        finalEndpoint = Self.redactedEndpoint(response.url)
+        statusCode = response.statusCode
+    }
+
+    private static func redactedEndpoint(_ url: URL?) -> String {
+        var components = url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
+        components?.user = nil; components?.password = nil
+        components?.query = nil; components?.fragment = nil
+        return components?.string ?? ""
+    }
+
+    private static func parameters(_ request: URLRequest) -> [String: String] {
+        let endpoint = request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
         let allowed = Set(["page", "last_id", "obj", "order", "mode", "type", "uid", "detail", "search", "hide_bot", "XNXQDM", "JXLDM"])
-        let responseQuery = response.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?.queryItems ?? []
         var parameters: [String: String] = Dictionary((endpoint?.queryItems ?? []).compactMap { item in
             guard allowed.contains(item.name), let value = item.value else { return nil }
             return (item.name, value)
@@ -45,16 +62,7 @@ public nonisolated struct HTTPRequestEvidence: Codable, Sendable {
                 parameters["obj"] = value
             }
         }
-        query = parameters
-        finalQuery = finalMethod == "GET" ? Dictionary(responseQuery.compactMap { item in
-            guard allowed.contains(item.name), let value = item.value else { return nil }; return (item.name, value)
-        }, uniquingKeysWith: { first, _ in first }) : parameters
-        endpoint?.user = nil
-        endpoint?.password = nil
-        endpoint?.query = nil
-        endpoint?.fragment = nil
-        self.endpoint = endpoint?.string ?? ""
-        statusCode = response.statusCode
+        return parameters
     }
 
     @concurrent
