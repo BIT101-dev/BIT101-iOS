@@ -220,6 +220,59 @@ function reportEmailBody(id, receivedAt, report) {
   return lines.join("\n");
 }
 
+export class ReportEmailDelivery extends DurableObject {
+  async fetch(request) {
+    if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+    const job = await request.json();
+    if (!await this.ctx.storage.get("job")) {
+      await this.ctx.storage.put("job", { ...job, delivery: { status: "pending", attempts: 0 } });
+      await this.ctx.storage.setAlarm(Date.now());
+    }
+    return json({ queued: true }, 201);
+  }
+
+  async alarm(info = { retryCount: 0 }) {
+    const job = await this.ctx.storage.get("job");
+    if (!job) return;
+    const expires = Date.parse(job.receivedAt) + REPORT_RETENTION_SECONDS * 1000;
+    if (Date.now() >= expires) { await this.ctx.storage.deleteAll(); return; }
+    let stored, record, failure;
+    try {
+      stored = await this.env.ERROR_REPORTS.getWithMetadata(job.key);
+      if (!stored.value) throw new Error("Report storage is pending");
+      record = JSON.parse(stored.value);
+      if (job.delivery.status === "pending") {
+        job.delivery.attempts += 1;
+        const category = record.report.mode === "suggestion" ? "用户建议" : "错误报告";
+        const sent = await this.env.REPORT_EMAIL.send({
+          from: "error-report@aihelpme.dev", to: "idleassetsd@gmail.com",
+          subject: reportEmailSubject(category, record.report),
+          text: reportEmailBody(job.id, job.receivedAt, record.report)
+        });
+        job.delivery = { status: "sent", attempts: job.delivery.attempts, messageID: sent?.messageId || "" };
+      }
+    } catch (error) {
+      failure = error;
+      if (job.delivery.status === "pending") {
+        job.delivery.lastError = emailText(forceRedact(error.message || error.name || "Error"), 300);
+        if (info.retryCount >= 6) job.delivery.status = "failed";
+      }
+    }
+    job.delivery.updatedAt = new Date().toISOString();
+    await this.ctx.storage.put("job", job);
+    if (record) {
+      try {
+        await this.env.ERROR_REPORTS.put(job.key, JSON.stringify({ ...record, emailDelivery: job.delivery }), {
+          metadata: { ...stored.metadata, emailStatus: job.delivery.status }, expiration: Math.floor(expires / 1000)
+        });
+      } catch (error) { failure = error; }
+    }
+    if (failure && info.retryCount < 6) throw failure;
+    if (failure) console.error("REPORT_EMAIL_DELIVERY_FAILED", { reportID: job.id, status: job.delivery.status, attempts: job.delivery.attempts });
+    await this.ctx.storage.setAlarm(expires);
+  }
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -228,6 +281,7 @@ export default {
       return json({ error: "not_found" }, 404);
     }
     if (!env.ERROR_REPORTS) return json({ error: "storage_not_configured" }, 503);
+    if (env.REPORT_EMAIL && !env.REPORT_EMAIL_DELIVERY) return json({ error: "notification_queue_not_configured" }, 503);
     const length = Number(request.headers.get("content-length") || 0);
     if (length > MAX_BODY_BYTES) return json({ error: "payload_too_large" }, 413);
     let report;
@@ -270,7 +324,8 @@ export default {
         return json({ error: "metadata_too_large" }, 413);
       }
       report = forceRedact(report);
-      serializedRecord = JSON.stringify({ id, receivedAt, report });
+      serializedRecord = JSON.stringify({ id, receivedAt, report,
+        emailDelivery: { status: env.REPORT_EMAIL && report.mode !== "network-smoke" ? "pending" : "disabled", attempts: 0 } });
     } catch { return json({ error: "invalid_report" }, 400); }
 
     const clientIP = request.headers.get("CF-Connecting-IP");
@@ -301,23 +356,18 @@ export default {
         ? json({ ok: true, recordVerified: true, temporaryRecordRemoved: true, quotaReserved: true }, 201) : json({ error: "smoke_write_failed" }, 500);
     }
 
-    const category = report.mode === "suggestion" ? "用户建议" : "错误报告";
+    const key = `report:${receivedAt}:${id}`;
+    if (env.REPORT_EMAIL) {
+      const delivery = env.REPORT_EMAIL_DELIVERY.get(env.REPORT_EMAIL_DELIVERY.idFromName(id));
+      const queued = await delivery.fetch("https://delivery/queue", { method: "POST", body: JSON.stringify({ id, receivedAt, key }) });
+      if (!queued.ok) return json({ error: "notification_queue_unavailable" }, 503);
+    }
     await env.ERROR_REPORTS.put(
-      `report:${receivedAt}:${id}`,
+      key,
       serializedRecord,
       { metadata: recordMetadata, expirationTtl: REPORT_RETENTION_SECONDS }
     );
 
-    if (env.REPORT_EMAIL) {
-      ctx.waitUntil(Promise.resolve().then(() => env.REPORT_EMAIL.send({
-        from: "error-report@aihelpme.dev",
-        to: "idleassetsd@gmail.com",
-        subject: reportEmailSubject(category, report),
-        text: reportEmailBody(id, receivedAt, report)
-      })).catch(error => {
-        console.error("REPORT_EMAIL_FAILED", { reportID: id, error: error.name || "Error" });
-      }));
-    }
     return json({ id }, 201);
   }
 };

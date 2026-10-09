@@ -225,6 +225,17 @@ jobs:
           overwrite: true
           if-no-files-found: error
           include-hidden-files: true
+      - name: Preserve validation diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: validation-${{ github.job }}
+          compression-level: 0
+          include-hidden-files: true
+          path: |
+            .build/extended-automation/*.log
+            .build/extended-automation/*.txt
+            .build/extended-automation/test-results.xcresult
 
   release-acceptance:
     name: Release acceptance with bound device evidence

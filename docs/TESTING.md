@@ -194,6 +194,8 @@ Scripts/check-module-boundaries.py
 
 `Scripts/SwiftSyntaxIndexer.swift` 维护编译器提供的 SwiftSyntax 事实采集，`swift_source_index.py` 承接编译缓存与事实查询，模块边界的回归样例归 `module_boundary_tests.py`。SwiftSyntax 共享索引入口通过 `.build/static-audit/swift-syntax-indexer.lock` 串行使用源码及可执行产物，代码质量和 UI 检查器共用同一入口。源码更新、编译和索引读取在同一次锁内完成。`swift_type_index.py` 沿模块、访问范围及完整嵌套类型解析继承、别名与调用关系，泛型实参参与语法解析后保留其后续成员路径。
 
+检测器由 App 维护者负责工具链升级与规则评审，规则作者维护触发、合规和故障回归样例。语法事实以当前 Xcode 的 SwiftSyntax 为来源，词法扫描用于编译条件与源码片段；类型解析覆盖模块、文件访问范围、继承、泛型嵌套类型及别名，调用分析覆盖已登记的实例、工厂返回值、协议实现和保存回调。编译生成的宏实现、动态分派与第三方二进制行为沿正式编译条件测试和真机验收核对。新增语法或规则在所属自测文件补充最小故障样例，并复用已有事实入口。
+
 静态审计入口通过 `.build/static-audit/audit.lock` 串行维护固定日志；产物检查完成后，独立检查组并行执行并统一汇总失败。SwiftUI 规则共用语法树和已解析的渲染范围，词法扫描直接跳转到字符串、正则或注释，三元表达式正则参与自测。学校生命周期请求图覆盖实例属性初始化，保存的手动回调沿实际调用接入执行图；解释文案候选归 UI 源码事实模块维护。
 
 正式运行组 `release-runtime` 沿正式 Release 编译条件执行组装合同，验收账号会话、实际网络状态、公共警告中心及反馈环境。完整验收同时核对实际执行用例与生产代码行覆盖率。`validation_evidence.py` 维护 macOS 可执行模块、iOS 可执行模块和 App 宿主的覆盖率基线；新增模块同步补充基线与消费者测试。`validation_test_areas.py` 登记账号代际、后台会话验证、取消、同步冲突、上传失败恢复及成绩快照比较的关键状态转换合同，静态审计核对其行为用例持续存在。UI 和 Catalyst 的验收分别沿用控件库存及平台测试结果。学校自动请求审计沿 App 与账号生命周期调用链追踪生产学校请求入口，故障注入覆盖入口改名和包装方法。通知回归核对时区与绝对触发时间，日历事务回归核对失败批次清理与后续提交隔离。
@@ -278,5 +280,11 @@ GitHub Actions 的 `.github/workflows/ci.yml` 使用 `xcode-27` runner，先执�
 完整模块与 iOS 行为组按每模块已达到的整数百分比维护覆盖率基准；后续源码改动需要达到已有基准。筛选复验在同一 JSON 内保留 `coverageBaseline` 和 `lastFullRun`，本次执行范围继续决定完整验收资格。失败结果保留基准及逐模块退化诊断，成功的完整运行推进基准。PR 的静态与真机 Job 通过 `ci_evidence.py baseline` 查询目标提交成功的 `ci.yml` push 或手动工作流，下载其有效 `validation-evidence` 产物，经 `baseline` 核对绑定身份再执行测试。主分支验收自动生成并发布基准；首次配置或产物超过仓库保留期时，在目标分支重新执行工作流。覆盖率绝对下限与历史基准共同参与验收。
 
 发布证据完成完整验收并执行 `python3 Scripts/validation_evidence.py bind` 后，通过 `python3 Scripts/ci_evidence.py publish v公开版本号` 上传到已有的对应 GitHub Release，固定附件名为 `validation-evidence.json`，同一标签的附件覆盖更新。标签需要指向当前验收提交。发布 CI 从该标签下载附件并核对发布绑定、源码、工具链和全部专项；手动 `release_check` 同时填写 `validation_tag`。发布证据上传沿用户明确授权执行。
+
+首次登录、个人资料写入、举报与 iPad 布局使用结构化人工专项，分别登记 `first-login`、`profile-writes`、`gallery-report` 与 `ipad-layout`。首次登录在正式 App 中清理登录态，分别以已注册账号与授权的新账号完成 WebVPN 初始化、密码校验、注册及进入登录后的页面。资料专项使用专用账号实际保存昵称、上传并绑定头像，随后恢复原资料并重新读取核对；举报专项使用明确授权的专用帖子确认服务端接收。iPad 专项覆盖竖屏、横屏、分屏及窗口调整，核对登录、主要导航、课表、内容详情与键盘操作。iPad 沿系统旋转和窗口管理适配尺寸，配置采用支持多方向的常规模式；迁移依据 [Apple 的 iPad 全屏模式说明](https://developer.apple.com/documentation/technotes/tn3192-migrating-your-app-from-the-deprecated-uirequiresfullscreen-key)。
+
+各专项附件使用 `schemaVersion: 1` 与 `scenarios` 字典，键名沿 `Scripts/validation_manual.py` 的 `MANUAL_SCENARIOS` 登记。每个场景记录 `operation`、`result`、`outcome: "passed"`、实际 `capturedAt` 与 `capture` 使用的影像证据结构。iPad 附件增加 `deviceFamily: "iPad"`、`deviceIdentifier`，各场景记录整数点数的 `windowSize.width/height`，分屏记录 `screenWidth`，调整窗口记录 `previousWindowSize`。结构化附件固定覆盖 `.build/extended-automation/manual-scenarios.json`，每个专项沿 `validation_evidence.py manual 专项名称` 的已有入口提交后再填写下一专项；证据内容由统一报告保存。
+
+日常开发沿模块和场景选择定向测试。发布验收将源码、工具链和完整候选产物共同绑定，实时服务与人工观察沿一天有效期核对；完整输入范围用于维持产物与证据的对应关系。专项采集围绕同一候选产物集中完成，发布流程执行完整验收。
 
 人工附件每份编码前控制在 32 MiB 内，图像解码与视频单帧使用 48 MiB 内存预算；视频长度为 30 秒以内，最多 1800 帧，PDF 最多 16 页。附件解码工具使用 30 秒执行预算，聚合 JSON 的完整编码最多 128 MiB；超出预算时保留已提交证据并呈现验收错误。短视频和系统截图分别记录所属操作与观察结果，全部人工检查共同参与发布验收。

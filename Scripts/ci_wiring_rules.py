@@ -167,6 +167,15 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
             errors.append(".github/workflows/ci.yml: 提交证据读取失败需要传播")
         errors.extend(evidence_execution_findings(shell(step), key, expected))
     steps = physical.get("steps", [])
+    diagnostics = [step for step in steps if isinstance(step, dict) and step.get('name') == 'Preserve validation diagnostics']
+    if len(diagnostics) != 1 or diagnostics[0].get('if') != 'always()' \
+            or not diagnostics[0].get('uses', '').startswith('actions/upload-artifact@') \
+            or mapping(diagnostics[0].get('with')).get('compression-level') != 0 \
+            or mapping(diagnostics[0].get('with')).get('include-hidden-files') is not True \
+            or set(mapping(diagnostics[0].get('with')).get('path', '').splitlines()) != {
+                '.build/extended-automation/*.log', '.build/extended-automation/*.txt',
+                '.build/extended-automation/test-results.xcresult'}:
+        errors.append('.github/workflows/ci.yml: 真机失败需要保存完整日志与原始 XCTest 附件')
     checkouts = [step for step in steps if isinstance(step, dict) and step.get('uses', '').startswith('actions/checkout@')]
     if len(checkouts) != 1 or mapping(checkouts[0].get('with')).get('clean') is not False:
         errors.append('.github/workflows/ci.yml: 真机工作区需要保留共享增量编译缓存')
@@ -224,6 +233,8 @@ def evidence_execution_findings(command: str, key: str, expected: list[str]) -> 
 
 def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
     source = workflow_source
+    if not any('原始 XCTest 附件' in item for item in ci_wiring_findings(source.replace('.build/extended-automation/test-results.xcresult', '.build/extended-automation/omitted'))):
+        return ['代码质量规则边界自检失败：真机原始附件留存门禁']
     if not ci_wiring_findings(source.replace('          clean: false', '          clean: true')):
         return ['代码质量规则边界自检失败：真机共享缓存保留门禁']
     mutations = [

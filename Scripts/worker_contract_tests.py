@@ -15,6 +15,8 @@ const { Miniflare, Log, LogLevel, convertV4MiniflareOptions } = require("minifla
   const config = JSON.parse(fs.readFileSync("../ErrorReportWorker/wrangler.jsonc", "utf8"));
   assert(config.durable_objects.bindings.some(binding => binding.name === "REPORT_QUOTA" && binding.class_name === "ReportQuota"));
   assert(config.migrations.some(migration => migration.new_sqlite_classes.includes("ReportQuota")));
+  assert(config.durable_objects.bindings.some(binding => binding.name === "REPORT_EMAIL_DELIVERY" && binding.class_name === "ReportEmailDelivery"));
+  assert(config.migrations.some(migration => migration.new_sqlite_classes.includes("ReportEmailDelivery")));
   const fixture = fs.readFileSync("../ErrorReportWorker/worker.js", "utf8") + `
 export class QuotaFixture extends ReportQuota {
   async fetch(request) {
@@ -95,14 +97,52 @@ export class QuotaFixture extends ReportQuota {
     assert((await kv.list()).keys.every(key => key.name.startsWith("report:")));
   } finally { await mf.dispose(); }
   const bodySource = fs.readFileSync("../ErrorReportWorker/worker.js", "utf8")
-    .replace('import { DurableObject } from "cloudflare:workers";', 'class DurableObject {}') + "\nexport { readReportBody, MAX_BODY_BYTES, forceRedact, PROTECTED_NAMES };";
-  const { default: feedback, readReportBody, MAX_BODY_BYTES, forceRedact, PROTECTED_NAMES } = await import("data:text/javascript;base64," + Buffer.from(bodySource).toString("base64"));
-  let notification, saved = 0;
+    .replace('import { DurableObject } from "cloudflare:workers";', 'class DurableObject { constructor(ctx, env) { this.ctx = ctx; this.env = env; } }') + "\nexport { readReportBody, MAX_BODY_BYTES, forceRedact, PROTECTED_NAMES };";
+  const { default: feedback, ReportEmailDelivery, readReportBody, MAX_BODY_BYTES, forceRedact, PROTECTED_NAMES } = await import("data:text/javascript;base64," + Buffer.from(bodySource).toString("base64"));
+  let saved = 0, sent = 0, offline = true, failStatusWrite = false, alarmAt;
+  const records = new Map(), jobs = new Map();
+  const storage = {
+    async get(key) { return structuredClone(jobs.get(key)); }, async put(key, value) { jobs.set(key, structuredClone(value)); },
+    async setAlarm(at) { alarmAt = at; }, async deleteAll() { jobs.clear(); }
+  };
+  const emailEnv = {
+    ERROR_REPORTS: {
+      async getWithMetadata(key) { return records.get(key) || { value: null }; },
+      async put(key, value, options) {
+        if (options.expiration && failStatusWrite) throw new Error("status storage unavailable");
+        saved += 1; records.set(key, { value, metadata: options.metadata });
+        if (options.expirationTtl) assert.equal(options.expirationTtl, 30 * 24 * 60 * 60);
+      }
+    },
+    REPORT_QUOTA: { idFromName() {}, get() { return { async fetch() { return Response.json({ allowed: true }); } }; } },
+    REPORT_EMAIL: { send() { sent += 1; if (offline) throw new Error("offline"); return { messageId: "fixture-receipt" }; } }
+  };
+  const delivery = new ReportEmailDelivery({ storage }, emailEnv);
+  emailEnv.REPORT_EMAIL_DELIVERY = { idFromName(id) { return id; }, get(id) { return {
+    async fetch(url, options) { assert.equal(JSON.parse(options.body).id, id); return delivery.fetch(new Request(url, options)); }
+  }; } };
   const accepted = await feedback.fetch(new Request("https://feedback.invalid/api/error-reports", { method: "POST", headers: { "CF-Connecting-IP": "192.0.2.1" }, body: JSON.stringify({ mode: "suggestion", comment: "fixture" }) }), {
-    ERROR_REPORTS: { async put(key, value, options) { saved += 1; assert.equal(options.expirationTtl, 30 * 24 * 60 * 60); } }, REPORT_QUOTA: { idFromName() {}, get() { return { async fetch() { return Response.json({ allowed: true }); } }; } },
-    REPORT_EMAIL: { send() { throw new Error("offline"); } }
-  }, { waitUntil(task) { notification = task; } });
-  assert.equal(accepted.status, 201); await notification; assert.equal(saved, 1);
+    ...emailEnv
+  });
+  assert.equal(accepted.status, 201); assert.equal(saved, 1); assert.equal(sent, 0); assert(alarmAt);
+  await assert.rejects(delivery.alarm({ retryCount: 0 }));
+  assert.equal(jobs.get("job").delivery.status, "pending"); assert.equal(sent, 1);
+  offline = false; failStatusWrite = true;
+  await assert.rejects(delivery.alarm({ retryCount: 1 }));
+  assert.equal(jobs.get("job").delivery.status, "sent"); assert.equal(sent, 2);
+  failStatusWrite = false; await delivery.alarm({ retryCount: 2 });
+  assert.equal(sent, 2);
+  const job = jobs.get("job"), stored = JSON.parse(records.get(job.key).value);
+  assert.equal(stored.emailDelivery.status, "sent"); assert.equal(stored.emailDelivery.messageID, "fixture-receipt");
+  assert.equal(records.get(job.key).metadata.emailStatus, "sent");
+  assert.equal(alarmAt, Date.parse(job.receivedAt) + 30 * 24 * 60 * 60 * 1000);
+  jobs.set("job", { ...job, delivery: { status: "pending", attempts: 0 } }); offline = true;
+  for (let retryCount = 0; retryCount < 6; retryCount++) await assert.rejects(delivery.alarm({ retryCount }));
+  await delivery.alarm({ retryCount: 6 });
+  assert.equal(jobs.get("job").delivery.status, "failed"); assert.equal(jobs.get("job").delivery.attempts, 7);
+  assert.equal(JSON.parse(records.get(job.key).value).emailDelivery.status, "failed");
+  jobs.set("job", { ...job, receivedAt: "2000-01-01T00:00:00Z" }); const attempts = sent;
+  await delivery.alarm(); assert.equal(jobs.size, 0); assert.equal(sent, attempts);
   const appNames = JSON.parse("[" + fs.readFileSync("../../BIT101-iOS/Shared/Client/ErrorReportSupport.swift", "utf8").match(/protectedNames = \[([\s\S]*?)\]/)[1] + "]");
   assert.deepEqual(PROTECTED_NAMES, appNames);
   for (const value of ["https://example.invalid/?%70assword=TEST_ONLY_SECRET", "https://example.invalid/?%2570assword=TEST_ONLY_SECRET", "https://example.invalid/?service=https%3A%2F%2Fschool.invalid%2F%3Fticket%3DTEST_ONLY_SECRET", "https://example.invalid/?service=HTTPS%3A%2F%2Fschool.invalid%2F%3Fticket%3DTEST_ONLY_SECRET", "https://fixture-user:TEST_ONLY_SECRET@example.invalid/", "https://example.invalid/#%74oken=TEST_ONLY_SECRET", "https://example.invalid/#%2574oken=TEST_ONLY_SECRET", "https://example.invalid/#%74oken=TEST_ONLY_SECRET&note=%bad"]) {

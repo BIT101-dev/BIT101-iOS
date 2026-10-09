@@ -416,7 +416,13 @@ final class ScheduleLiveActivityManager {
         logger.debug(
             "requesting new activity reason=\(reason, privacy: .public) state=\(Self.describe(content.state), privacy: .private)"
         )
-        _ = try? Activity.request(attributes: attributes, content: content)
+        do {
+            let activity = try Activity.request(attributes: attributes, content: content)
+            logger.debug("Activity created id=\(activity.id, privacy: .public) reason=\(reason, privacy: .public)")
+        } catch {
+            let failure = error as NSError
+            logger.error("Activity creation failed reason=\(reason, privacy: .public) domain=\(failure.domain, privacy: .public) code=\(failure.code) description=\(failure.localizedDescription, privacy: .private)")
+        }
     }
 
     @concurrent

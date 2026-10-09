@@ -16,6 +16,7 @@ import SwiftUI
 import CommunityTransport
 import BackgroundTasks
 import UIKit
+import os
 #if BIT101_UI_TESTING
 import Combine
 #endif
@@ -49,6 +50,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 /// 这条链路是 best-effort：系统决定实际唤醒时间；任务唤醒后重新计算日程提醒，
 /// 尽量让灵动岛在后台有机会启动，并提交下一次刷新请求。
 enum ScheduleReminderBackgroundRefresh {
+    private static let logger = Logger(subsystem: "BIT101", category: "ScheduleBackgroundRefresh")
     /// 后台刷新任务标识，需与 Info.plist 中的 `BGTaskSchedulerPermittedIdentifiers` 一致。
     static var identifier: String {
         let bundleIdentifier = Bundle.main.bundleIdentifier ?? "BIT101-dev.BIT101-iOS"
@@ -71,14 +73,22 @@ enum ScheduleReminderBackgroundRefresh {
     /// 根据下一次课前提醒边界，提交一条后台刷新请求。
     ///
     /// 同一 identifier 的新请求会替换先前提交的请求。
-    static func schedule(earliestBeginDate: Date?) {
+    @discardableResult
+    static func schedule(earliestBeginDate: Date?) -> Bool {
         BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: identifier)
-        guard let earliestBeginDate else { return }
+        guard let earliestBeginDate else { return true }
 
         let request = BGAppRefreshTaskRequest(identifier: identifier)
         request.earliestBeginDate = earliestBeginDate
 
-        try? BGTaskScheduler.shared.submit(request)
+        do {
+            try BGTaskScheduler.shared.submit(request)
+            return true
+        } catch {
+            let failure = error as NSError
+            logger.error("Background refresh submission failed domain=\(failure.domain, privacy: .public) code=\(failure.code) description=\(failure.localizedDescription, privacy: .private)")
+            return false
+        }
     }
 
     /// 后台刷新任务入口。
@@ -114,13 +124,13 @@ enum ScheduleReminderBackgroundRefresh {
     }
 
     static func refreshIfCurrent(isCurrent: () -> Bool, nextBeginDate: () async -> Date?,
-        schedule: (Date?) -> Void, refresh: () async -> Void) async -> Bool {
+        schedule: (Date?) -> Bool, refresh: () async -> Void) async -> Bool {
         guard !Task.isCancelled, isCurrent() else { return false }
         let next = await nextBeginDate()
         guard !Task.isCancelled, isCurrent() else { return false }
-        schedule(next)
+        let submitted = schedule(next)
         await refresh()
-        return !Task.isCancelled && isCurrent()
+        return submitted && !Task.isCancelled && isCurrent()
     }
 }
 
@@ -187,7 +197,7 @@ struct BIT101_iOSApp: App {
                 resetPresentation: AppErrorPresenter.shared.reset,
                 exportWidget: ScheduleWidgetExporter.syncFromCurrentCache,
                 nextReminderRefresh: ScheduleLiveActivityManager.shared.preferredBackgroundRefreshBeginDate,
-                scheduleBackgroundRefresh: ScheduleReminderBackgroundRefresh.schedule,
+                scheduleBackgroundRefresh: { _ = ScheduleReminderBackgroundRefresh.schedule(earliestBeginDate: $0) },
                 endActivities: ScheduleLiveActivityManager.shared.endAllActivities,
                 refreshActivities: { await ScheduleLiveActivityManager.shared.refreshFromCurrentCache(trigger: $0) }
             )

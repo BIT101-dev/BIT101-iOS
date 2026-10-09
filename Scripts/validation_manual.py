@@ -13,6 +13,13 @@ from validation_media import media_complete
 from validation_policy import MAXIMUM_ATTACHMENT_BYTES, MAXIMUM_REPORT_BYTES
 
 MANUAL_DEVICE_CHECKS = {"system-autofill", "photos", "calendar-permissions", "notifications", "external-handoff", "web-interactions", "widget", "watch", "feedback-delivery", "distribution-signing", "minimum-platforms"}
+MANUAL_SCENARIOS = {
+    'first-login': {'registered-account', 'new-account-registration'},
+    'profile-writes': {'nickname-save', 'avatar-bind', 'restore-profile'},
+    'gallery-report': {'submit-and-confirm'},
+    'ipad-layout': {'portrait', 'landscape', 'split-view', 'resize'},
+}
+MANUAL_DEVICE_CHECKS.update(MANUAL_SCENARIOS)
 BASELINE_CHECKS = {'iOS': {'cold-start-session', 'offline-persistence', 'media-and-navigation'},
     'watchOS': {'snapshot-receive', 'timeline-render', 'clear-and-retry'}}
 
@@ -71,6 +78,9 @@ def png_complete(data: bytes) -> bool:
 def evidence_content_complete(check: str, data: bytes) -> bool:
     if not data or len(data) > MAXIMUM_ATTACHMENT_BYTES: return False
     if check not in MANUAL_DEVICE_CHECKS: return False
+    if check in MANUAL_SCENARIOS:
+        try: return scenario_complete(check, json.loads(data))
+        except (ValueError, TypeError, KeyError, OSError): return False
     if check == 'minimum-platforms':
         try: return baseline_complete(json.loads(data))
         except (ValueError, TypeError, KeyError, OSError): return False
@@ -86,9 +96,13 @@ def evidence_content_complete(check: str, data: bytes) -> bool:
             if not isinstance(proof, dict) or not all(isinstance(proof.get(field), str) for field in
                     ('reportID', 'storageKey', 'emailRecipient', 'emailMessageID', 'emailBody')): return False
             report = str(uuid.UUID(proof['reportID']))
+            delivery = proof['storedReport']['emailDelivery']
             return proof['reportID'] == report and proof['storageKey'].startswith('report:') \
                 and proof['storageKey'].endswith(':' + report) and proof['storedReport']['id'] == report \
                 and isinstance(proof['storedReport']['report'], dict) \
+                and isinstance(delivery, dict) and delivery.get('status') == 'sent' \
+                and type(delivery.get('attempts')) is int and delivery['attempts'] > 0 \
+                and isinstance(delivery.get('messageID'), str) and bool(delivery['messageID'].strip()) \
                 and bool(re.fullmatch(r'[^\s@]+@[^\s@]+', proof['emailRecipient'])) \
                 and bool(re.fullmatch(r'<[^\s<>@]+@[^\s<>@]+>', proof['emailMessageID'])) \
                 and report in proof['emailBody']
@@ -97,6 +111,28 @@ def evidence_content_complete(check: str, data: bytes) -> bool:
         or data.startswith(b'%PDF-') and data.rstrip().endswith(b'%%EOF') \
         or len(data) >= 16 and data[4:8] == b'ftyp' and b'moov' in data
     return recognized and media_complete(data)
+
+
+def scenario_complete(check: str, proof: dict) -> bool:
+    if not isinstance(proof, dict) or proof.get('schemaVersion') != 1 \
+            or not isinstance(proof.get('scenarios'), dict) or set(proof['scenarios']) != MANUAL_SCENARIOS[check]: return False
+    if check == 'ipad-layout' and (proof.get('deviceFamily') != 'iPad' or not isinstance(proof.get('deviceIdentifier'), str)
+            or not proof['deviceIdentifier'].strip()): return False
+    for name, row in proof['scenarios'].items():
+        if not isinstance(row, dict) or row.get('outcome') != 'passed' \
+                or not all(isinstance(row.get(key), str) and row[key].strip() for key in ('operation', 'result', 'capturedAt')) \
+                or not sampling_evidence_current({'startedAt': row['capturedAt'], 'finishedAt': row['capturedAt']}) \
+                or not isinstance(row.get('evidence'), dict) or not artifact_complete(row['evidence'], 'photos'): return False
+        if check == 'ipad-layout':
+            size = row.get('windowSize', {})
+            if not isinstance(size, dict) or not all(type(size.get(axis)) is int and size[axis] > 0 for axis in ('width', 'height')): return False
+            if name == 'portrait' and size['width'] >= size['height']: return False
+            if name == 'landscape' and size['width'] <= size['height']: return False
+            if name == 'split-view' and (type(row.get('screenWidth')) is not int or size['width'] >= row['screenWidth']): return False
+            if name == 'resize' and (not isinstance(row.get('previousWindowSize'), dict)
+                    or not all(type(row['previousWindowSize'].get(axis)) is int and row['previousWindowSize'][axis] > 0 for axis in ('width', 'height'))
+                    or row['previousWindowSize'] == size): return False
+    return True
 
 
 def baseline_complete(proof: dict) -> bool:

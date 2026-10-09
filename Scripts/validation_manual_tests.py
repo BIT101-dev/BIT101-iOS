@@ -43,6 +43,16 @@ def distribution_fixture() -> tuple[dict, dict]:
 
 
 def evidence_fixture(check: str) -> bytes:
+    from validation_manual import MANUAL_SCENARIOS
+    if check in MANUAL_SCENARIOS:
+        scenarios = {name: {'operation': '实际操作', 'result': '观察结果', 'outcome': 'passed',
+            'capturedAt': utc_now().isoformat(), 'evidence': captured_fixture('photos')['evidence']} for name in MANUAL_SCENARIOS[check]}
+        if check == 'ipad-layout':
+            for name, size in [('portrait', (768, 1024)), ('landscape', (1024, 768)), ('split-view', (512, 768)), ('resize', (640, 768))]:
+                scenarios[name]['windowSize'] = dict(zip(('width', 'height'), size))
+            scenarios['split-view']['screenWidth'] = 1024
+            scenarios['resize']['previousWindowSize'] = {'width': 512, 'height': 768}
+        return json.dumps({'schemaVersion': 1, 'deviceFamily': 'iPad', 'deviceIdentifier': 'fixture-pad', 'scenarios': scenarios}).encode()
     if check == 'distribution-signing': return json.dumps(distribution_fixture()[1]).encode()
     if check == 'minimum-platforms':
         from validation_manual import BASELINE_CHECKS
@@ -58,7 +68,8 @@ def evidence_fixture(check: str) -> bytes:
     if check == 'feedback-delivery':
         identifier = '00000000-0000-4000-8000-000000000001'
         return json.dumps({'reportID': identifier, 'storageKey': 'report:received:' + identifier,
-            'storedReport': {'id': identifier, 'report': {'mode': 'error'}}, 'emailRecipient': 'recipient@example.invalid',
+            'storedReport': {'id': identifier, 'report': {'mode': 'error'},
+                'emailDelivery': {'status': 'sent', 'attempts': 1, 'messageID': 'provider-fixture'}}, 'emailRecipient': 'recipient@example.invalid',
             'emailMessageID': '<receipt@example.invalid>', 'emailBody': '报告编号 ' + identifier}).encode()
     def chunk(kind, content):
         return struct.pack('>I', len(content)) + kind + content + struct.pack('>I', zlib.crc32(kind + content))
@@ -183,6 +194,28 @@ def run_self_test() -> None:
         assert not evidence_content_complete(name, b'x')
         checks[name] = captured_fixture(name)
     assert complete(checks)
+    receipt = json.loads(evidence_fixture('feedback-delivery'))
+    for key, value in [('status', 'pending'), ('status', 'failed'), ('attempts', 0), ('messageID', '')]:
+        changed = copy.deepcopy(receipt)
+        changed['storedReport']['emailDelivery'][key] = value
+        assert not evidence_content_complete('feedback-delivery', json.dumps(changed).encode())
+    from validation_manual import scenario_complete, MANUAL_SCENARIOS
+    for check in MANUAL_SCENARIOS:
+        proof = json.loads(evidence_fixture(check))
+        for name in proof['scenarios']:
+            changed = copy.deepcopy(proof)
+            del changed['scenarios'][name]
+            assert not scenario_complete(check, changed)
+            for key, value in [('outcome', 'failed'), ('evidence', {}), ('capturedAt', '2000-01-01T00:00:00+00:00')]:
+                changed = copy.deepcopy(proof)
+                changed['scenarios'][name][key] = value
+                assert not scenario_complete(check, changed)
+    pad = json.loads(evidence_fixture('ipad-layout'))
+    assert not scenario_complete('ipad-layout', pad | {'deviceFamily': 'iPhone'})
+    for name in pad['scenarios']:
+        changed = copy.deepcopy(pad)
+        changed['scenarios'][name]['windowSize'] = {'width': 0, 'height': 0}
+        assert not scenario_complete('ipad-layout', changed)
     with patch('validation_manual.MAXIMUM_REPORT_BYTES', 1): assert not complete(checks)
     failed = copy.deepcopy(checks)
     for row in failed.values(): row["outcome"] = "failed"

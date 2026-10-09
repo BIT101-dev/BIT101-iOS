@@ -68,6 +68,11 @@ def validate_plists() -> None:
             raise ValueError(f"{path.relative_to(ROOT)} 未引用 $(MARKETING_VERSION)")
         if plist.get("CFBundleVersion") != "$(CURRENT_PROJECT_VERSION)":
             raise ValueError(f"{path.relative_to(ROOT)} 未引用 $(CURRENT_PROJECT_VERSION)")
+        if path.name == "AppInfo.plist" and (plist.get('UIRequiresFullScreen', False) is not False
+                or set(plist.get('UISupportedInterfaceOrientations~ipad', [])) != {
+                    'UIInterfaceOrientationPortrait', 'UIInterfaceOrientationPortraitUpsideDown',
+                    'UIInterfaceOrientationLandscapeLeft', 'UIInterfaceOrientationLandscapeRight'}):
+            raise ValueError('iPad 配置需要支持旋转与系统窗口尺寸调整')
 
 
 def project_text_at_git_ref(ref: str) -> str:

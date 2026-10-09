@@ -19,7 +19,7 @@ struct ReminderContextTests {
         let task = Task {
             await ScheduleReminderBackgroundRefresh.refreshIfCurrent(isCurrent: { current },
                 nextBeginDate: { await withCheckedContinuation { read = $0 } },
-                schedule: { scheduled.append($0) }, refresh: { refreshed += 1 })
+                schedule: { scheduled.append($0); return true }, refresh: { refreshed += 1 })
         }
         while read == nil { await Task.yield() }
         if boundary == "cancelled" { task.cancel() }
@@ -28,6 +28,14 @@ struct ReminderContextTests {
         let completed = await task.value
         #expect(completed == (boundary == "current"))
         #expect(scheduled == (boundary == "current" ? [target] : []) && refreshed == (boundary == "current" ? 1 : 0))
+    }
+
+    @Test func failedReschedulingKeepsTheCurrentRefreshAndReportsFailure() async {
+        var refreshed = 0
+        let completed = await ScheduleReminderBackgroundRefresh.refreshIfCurrent(isCurrent: { true },
+            nextBeginDate: { Date() }, schedule: { _ in false }, refresh: { refreshed += 1 })
+        #expect(refreshed == 1)
+        #expect(completed == false)
     }
 
     @Test(arguments: [0.5, 1.0, 1.5])

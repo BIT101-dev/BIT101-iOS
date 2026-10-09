@@ -15,9 +15,15 @@
     }
   ],
   "durable_objects": {
-    "bindings": [{ "name": "REPORT_QUOTA", "class_name": "ReportQuota" }]
+    "bindings": [
+      { "name": "REPORT_QUOTA", "class_name": "ReportQuota" },
+      { "name": "REPORT_EMAIL_DELIVERY", "class_name": "ReportEmailDelivery" }
+    ]
   },
-  "migrations": [{ "tag": "report-quota", "new_sqlite_classes": ["ReportQuota"] }],
+  "migrations": [
+    { "tag": "report-quota", "new_sqlite_classes": ["ReportQuota"] },
+    { "tag": "report-email-delivery", "new_sqlite_classes": ["ReportEmailDelivery"] }
+  ],
   "send_email": [
     {
       "name": "REPORT_EMAIL",
