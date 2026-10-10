@@ -44,7 +44,10 @@ actor RemoteAnimatedImageDecoder {
 
     /// 将 GIF 各帧解码成可由 `UIImageView` 循环播放的动画。
     private nonisolated static func animatedImage(from data: Data, reduceMotion: Bool, budget: Int, maximumPixelSize: Int?) -> UIImage? {
-        guard let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary) else { return nil }
+        guard let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
+              CGImageSourceGetStatus(source) == .statusComplete else { return nil }
+        // GIF 数据流沿结束标记核对完整缓存。
+        if CGImageSourceGetType(source) as String? == "com.compuserve.gif", data.last != 0x3B { return nil }
         let count = reduceMotion ? min(CGImageSourceGetCount(source), 1) : CGImageSourceGetCount(source)
         let stride = MemoryLayout<UIImage>.stride
         guard count > 0, count < budget / (MemoryLayout<Int>.stride + stride) else { return nil }

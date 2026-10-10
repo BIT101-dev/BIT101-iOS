@@ -137,6 +137,26 @@ struct NetworkSmokeCoverageTests {
         #expect(collector.requests.count == 1 && HTTPRequestEvidenceContext.didReceive == nil)
     }
 
+    @Test(arguments: ["complete", "missing", "wrong-source", "wrong-query", "extra"])
+    func imageSmokeBindsEverySelectedResource(stage: String) async throws {
+        let urls = ["https://cdn.example.invalid/image.png?token=first", "https://cdn.example.invalid/other.png"]
+        let selected = stage == "missing" ? [urls[0]] : stage == "wrong-source" ? [urls[0], "https://other.example.invalid/image.png"]
+            : stage == "wrong-query" ? [urls[0].replacingOccurrences(of: "first", with: "second"), urls[1]]
+            : stage == "extra" ? urls + ["https://cdn.example.invalid/extra.png"] : urls
+        let client = HTTPClient(transport: SelectorTransport(), observer: nil)
+        let collector = NetworkSmokeRequestCollector()
+        let operation = {
+            for url in selected { _ = try await client.send(URLRequest(url: AppURL.required(url))) }
+        }
+        if stage == "complete" {
+            try await collector.perform(operation, required: true, expectedParameters: NetworkSmokePaging.imageResourceParameters(urls))
+        } else {
+            await #expect(throws: NetworkSmokeRequestError.self) {
+                try await collector.perform(operation, required: true, expectedParameters: NetworkSmokePaging.imageResourceParameters(urls))
+            }
+        }
+    }
+
     @Test(arguments: ["correct", "wrong", "missing"])
     func buildingSmokeKeepsItsSelectedCampus(selection: String) async throws {
         let client = HTTPClient(transport: SelectorTransport(), observer: nil)
@@ -304,12 +324,12 @@ struct NetworkSmokeCoverageTests {
         #expect(ReleaseNetworkSmokeLaunchRequest.readPendingFile(files: files, at: url) == nil)
     }
 
-    @Test func imageProbeUsesAnAvailableResourceAcrossTheSampledList() {
+    @Test func imageProbeCollectsDistinctVariantsAcrossTheSampledList() {
         let empty = CommunityImage(mid: "empty", url: "", lowUrl: "")
         let image = CommunityImage(mid: "image", url: "https://image.invalid/full", lowUrl: "https://image.invalid/low")
-        #expect(NetworkSmokePaging.imageURL(in: [empty, image]) == image.lowUrl)
-        #expect(NetworkSmokePaging.imageURL(in: [empty]) == nil)
-        #expect(NetworkSmokePaging.imageURL(in: [CommunityImage(mid: "full", url: image.url, lowUrl: "")]) == image.url)
+        #expect(NetworkSmokePaging.imageURLs(in: [empty, image, image]) == [image.url, image.lowUrl])
+        #expect(NetworkSmokePaging.imageURLs(in: [empty]).isEmpty)
+        #expect(NetworkSmokePaging.imageURLs(in: [CommunityImage(mid: "full", url: image.url, lowUrl: "")]) == [image.url])
     }
 
     @Test func articleUnknownBlocksKeepTheirPositionAndOfferTheOriginal() {
@@ -422,7 +442,7 @@ struct NetworkSmokeCoverageTests {
             }
             #expect(sample.items.map(\.id) == [1, 2] && pages == Array(0...(repeated + 1)))
             #expect(sample.sourceIDs == [1, 2] && sample.nextSourcePage == repeated + 2)
-            #expect(NetworkSmokePaging.imageURL(in: sample.items.map(\.avatar)) == "https://image.invalid/continuation")
+            #expect(NetworkSmokePaging.imageURLs(in: sample.items.map(\.avatar)) == ["https://image.invalid/continuation"])
         }
     }
 
@@ -681,8 +701,10 @@ extension ReleaseNetworkSmokeLifecycleTests {
             observed.insert("paper-list")
             if stage == "empty-list-failure" { return [] }
             if stage == "paper-\(order.requestValue ?? "newest")-order-failure" {
-                return page < 2 ? [PaperSummary(id: page + 1, title: "fixture", intro: "", likeNum: page, commentNum: page,
-                    updateTime: page == 0 ? "2026-01-01T00:00:00Z" : "2026-01-02T00:00:00Z")] : []
+                return page == 0 ? (0..<2).map { index in
+                    PaperSummary(id: index + 1, title: "fixture", intro: "", likeNum: index, commentNum: index,
+                        updateTime: index == 0 ? "2026-01-01T00:00:00Z" : "2026-01-02T00:00:00Z")
+                } : []
             }
             guard page == 0 else { return [] }
             return [PaperSummary(id: 1, title: "fixture", intro: "", likeNum: 0, commentNum: 0, updateTime: "2026-01-01T00:00:00Z")]
@@ -874,7 +896,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
             #expect(services.observed.isSuperset(of: ["gallery-follow", "gallery-hot", "gallery-newest"]))
             #expect(report.executedProbes.contains("话廊关注流") && report.executedProbes.contains("话廊热门流"))
         }
-        #expect(report.passed == (!stage.hasSuffix("failure") || stage == "missing-fixtures-failure"))
+        #expect(report.passed == (!stage.hasSuffix("failure") || stage == "missing-fixtures-failure"), "\(stage): \(report.failures)")
         if stage == "maintained-fixtures-success" {
             #expect(services.observed.isSuperset(of: ["fixture-poster-41", "fixture-course-43", "fixture-paper-45"]))
             #expect(external.requests.contains { $0.url?.path == "/paper.png" })

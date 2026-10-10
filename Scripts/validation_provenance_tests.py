@@ -109,6 +109,7 @@ def worker_deployment_self_test() -> None:
 def run_self_test(recorder) -> None:
     worker_deployment_self_test()
     module = sys.modules[recorder.__module__]
+    check_group_bundle_self_test(module)
     summary = {"passed": True, "totalTests": 1, "passedTests": 1, "failedTests": 0, "skippedTests": 0}
     for group, start, run_id, artifact, expected in (
         ("audit", "", "run", None, 1),
@@ -185,6 +186,47 @@ def run_self_test(recorder) -> None:
               with redirect_stdout(output), patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": ""}):
                   assert module.inspect_report(SimpleNamespace(action="summary", recorded_environment=False)) == 0
               assert f"| {group} | full | {label} |" in output.getvalue()
+
+
+def check_group_bundle_self_test(module) -> None:
+    from validation_performance import result_bundle_findings
+    for group in ('all', 'ui'):
+        for stored, raw in (('a' * 64, 'a' * 64), ('b' * 64, 'a' * 64), ('invalid', 'a' * 64), ('a' * 64, None)):
+            row = {'scope': 'full', 'exitCode': 0, 'runID': 'run', 'inputDigest': 'current',
+                'resultBundleSHA256': stored, 'summary': {'passed': True}}
+            report = {'groups': {group: row}}
+            with patch.object(module, 'report_lock', side_effect=nullcontext), \
+                    patch.object(module, 'source_digest', return_value='current'), \
+                    patch.object(module, 'complete_summary', return_value=True), \
+                    patch('validation_coverage.policy_floors', return_value={}), \
+                    patch.object(module, 'result_bundle_findings', wraps=result_bundle_findings), \
+                    patch('validation_performance.bundle_digest', side_effect=lambda path: raw
+                        if raw else (_ for _ in ()).throw(ValueError('absent result bundle'))), \
+                    patch.object(Path, 'is_file', return_value=True), \
+                    patch.object(Path, 'read_text', return_value=json.dumps(report)), \
+                    patch.object(sys, 'argv', ['evidence', 'check-group', group]), redirect_stderr(StringIO()):
+                assert module.main() == int(stored != raw)
+
+
+def image_resource_self_test() -> None:
+    import hashlib
+    from network_request_contracts import complete
+    def request(url):
+        from urllib.parse import urlsplit
+        parts = urlsplit(url)
+        endpoint = parts._replace(query='', fragment='').geturl()
+        return dict(method='GET', endpoint=endpoint, endpointDigest=hashlib.sha256(url.encode()).hexdigest(),
+            finalMethod='GET', finalEndpoint=endpoint, statusCode=200, query={}, finalQuery={})
+    urls = ['https://cdn.example/image.png?token=first', 'https://cdn.example/other.png']
+    rows = [request(url) for url in urls]
+    expected = {'resourceDigests': ','.join(sorted(row['endpointDigest'] for row in rows))}
+    for probe in ('话廊图片下载', '文章正文图片下载'):
+        assert complete(probe, rows, expected)
+        assert not complete(probe, rows, {})
+        assert not complete(probe, rows[:1], expected)
+        assert not complete(probe, [request('https://unrelated.example/wrong-image.png')], expected)
+        assert not complete(probe, [request(urls[0].replace('first', 'second')), rows[1]], expected)
+        assert not complete(probe, rows + [request('https://cdn.example/extra.png')], expected)
 
 
 def check_group_coverage_policy_self_test(module) -> None:

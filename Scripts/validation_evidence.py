@@ -821,9 +821,10 @@ def main() -> int:
         from validation_coverage import regressions, policy_floors
         coverage_matches = args.group not in {"modules", "all", "ui"} or not regressions(
             row.get("summary", {}).get("coverage", {}), policy_floors(args.group, report.get("coveragePolicy", {})))
+        bundle_matches = args.group not in {"all", "ui"} or not result_bundle_findings(report, groups=(args.group,))
         if row.get("exitCode") == 0 and row.get("scope") == "full" and row.get("runID") \
                 and row.get("inputDigest") == source_digest(args.group) and evidence_current(args.group, row.get("summary", {})) \
-                and complete_summary(args.group, row.get("summary", {})) and coverage_matches:
+                and complete_summary(args.group, row.get("summary", {})) and coverage_matches and bundle_matches:
             return 0
         print(f"{args.group} 需要完整子流程结果并匹配当前验证输入。", file=sys.stderr)
         return 1

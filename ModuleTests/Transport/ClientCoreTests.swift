@@ -314,7 +314,7 @@ private final class RecordingObserver: HTTPClientObserving {
 struct ClientCoreTests {
     @Test(arguments: ["form", "json", "query"])
     func finalPostParametersComeFromTheFinalRequest(format: String) async throws {
-        let url = AppURL.required("https://example.invalid/submit?obj=paper1")
+        let url = AppURL.required("https://example.invalid/submit" + (format == "query" ? "?obj=paper1" : ""))
         var request = URLRequest(url: url); request.httpMethod = "POST"
         var finalRequest = request
         let contentType = format == "form" ? "application/x-www-form-urlencoded" : "application/json"
@@ -419,10 +419,12 @@ struct ClientCoreTests {
         let recorded = try #require(evidence.first)
         #expect(evidence.count == 1)
         #expect(recorded.endpoint == "https://example.invalid/probe")
+        #expect(recorded.endpointDigest == "47bf43ee094b876be76639e73537bd54006ded21813ba5265ff3950a96f68d95")
         #expect(recorded.method == "POST" && recorded.statusCode == status)
         #expect(HTTPRequestEvidenceContext.didReceive == nil)
         let decoded = try JSONDecoder().decode(HTTPRequestEvidence.self, from: JSONEncoder().encode(recorded))
         #expect(decoded.endpoint == recorded.endpoint && decoded.statusCode == status)
+        #expect(decoded.endpointDigest == recorded.endpointDigest)
         request.url = nil
         request.httpMethod = nil
         #expect(HTTPRequestEvidence(request: request, response: response).method == "GET")

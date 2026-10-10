@@ -1,4 +1,5 @@
 import Foundation
+import TransportCore
 import CommunityCore
 import CommunityTransport
 import GalleryFeature
@@ -37,8 +38,12 @@ enum NetworkSmokePaging {
         return images
     }
 
-    static func imageURL(in images: [CommunityImage]) -> String? {
-        images.lazy.map { $0.lowUrl.isEmpty ? $0.url : $0.lowUrl }.first { !$0.isEmpty }
+    static func imageURLs(in images: [CommunityImage]) -> [String] {
+        Array(Set(images.flatMap { [$0.lowUrl, $0.url] }.filter { !$0.isEmpty })).sorted()
+    }
+
+    static func imageResourceParameters(_ urls: [String]) -> [String: String] {
+        ["resourceDigests": urls.compactMap { URL(string: $0) }.map(HTTPRequestEvidence.urlDigest).sorted().joined(separator: ",")]
     }
 
     static func arrayPage<Value: Identifiable>(requiresContent: Bool = false, currentIdentity: () -> CommunitySessionIdentity, load: (Int) async throws -> [Value]) async throws -> [Value] where Value.ID == Int {

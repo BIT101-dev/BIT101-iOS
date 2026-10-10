@@ -230,10 +230,11 @@ final class ReleaseNetworkSmokeRunner {
                         return detail
                     }
                     if let detail {
-                        _ = await self.probe("话廊图片下载", area: .bit101, scope: scope) {
-                            guard let imageURL = NetworkSmokePaging.imageURL(in: detail.images)
-                            else { throw URLError(.resourceUnavailable) }
-                            return try await self.fetchImageCount(urlString: imageURL)
+                        let images = NetworkSmokePaging.imageURLs(in: detail.images)
+                        _ = await self.probe("话廊图片下载", area: .bit101, scope: scope,
+                            expectedParameters: NetworkSmokePaging.imageResourceParameters(images)) {
+                            guard !images.isEmpty else { throw URLError(.resourceUnavailable) }
+                            for url in images { _ = try await self.fetchImageCount(urlString: url) }
                         }
                     } else {
                         self.recordSkip("话廊图片下载", "维护帖子详情读取失败", area: .bit101, scope: scope)
@@ -348,12 +349,12 @@ final class ReleaseNetworkSmokeRunner {
                         _ = try await papers.fetchPreviewMetadata(id: fixture.paperID)
                         let detail = try await papers.fetchPaper(id: fixture.paperID)
                         try Self.validateEntityIdentity(expected: fixture.paperID, actual: detail.id)
-                        _ = try NetworkSmokePaging.checkPaperContent(detail.content)
-                        return detail
+                        return try NetworkSmokePaging.checkPaperContent(detail.content)
                     }
-                    if let detail {
-                        _ = await self.probe("文章正文图片下载", area: .bit101, scope: scope) {
-                            for url in try NetworkSmokePaging.checkPaperContent(detail.content) {
+                    if let images = detail {
+                        _ = await self.probe("文章正文图片下载", area: .bit101, scope: scope,
+                            expectedParameters: NetworkSmokePaging.imageResourceParameters(images)) {
+                            for url in images {
                                 _ = try await self.fetchImageCount(urlString: url)
                             }
                         }

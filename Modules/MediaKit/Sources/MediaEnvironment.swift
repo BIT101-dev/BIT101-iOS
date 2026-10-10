@@ -169,7 +169,8 @@ public final class MediaEnvironment {
     public func verifyRemoteImage(at url: URL) async throws -> Int {
         let file = try await images.file(for: url)
         guard let galleryData = RemoteImageResourceLimits.cachedData(at: file, using: cacheFiles),
-              await stillDecoder.image(at: file) != nil else { throw URLError(.cannotDecodeContentData) }
+              await stillDecoder.image(at: file) != nil,
+              await animatedDecoder.image(at: file, reduceMotion: false) != nil else { throw URLError(.cannotDecodeContentData) }
         let loader = CachedRemoteImageLoader()
         await loader.load(url: url, media: self)
         try Task.checkCancellation()

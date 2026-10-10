@@ -98,15 +98,16 @@ def reset_result_bundle() -> None:
     shutil.rmtree(BUNDLE)
 
 
-def result_bundle_findings(report: dict, *, recorded_environment: bool = False) -> list[str]:
+def result_bundle_findings(report: dict, *, recorded_environment: bool = False,
+                           groups: tuple[str, ...] = ('all', 'ui')) -> list[str]:
     try:
         rows = report.get('groups', {})
-        sha = complete_group_row(rows.get('all', {})).get('resultBundleSHA256') if recorded_environment else bundle_digest(BUNDLE)
+        sha = complete_group_row(rows.get(groups[0], {})).get('resultBundleSHA256') if recorded_environment else bundle_digest(BUNDLE)
         if not isinstance(sha, str) or not re.fullmatch(r'[0-9a-f]{64}', sha): raise ValueError('结果包需要完整摘要。')
         if all(complete_group_row(report.get('groups', {}).get(group, {})).get('resultBundleSHA256') == sha
-               for group in ('all', 'ui')): return []
+               for group in groups): return []
     except (OSError, ValueError): pass
-    return ['完整行为及 UI 证据需要对应当前保留的原始 XCTest 结果包。']
+    return ['执行证据需要对应当前保留的原始 XCTest 结果包。']
 
 
 def rebind_result_records(report: dict, groups: list[str]) -> dict:

@@ -233,6 +233,13 @@ def complete(probe: str, requests: list[dict], expected_parameters: dict | None 
     if matched and probe == '生产共享会话':
         return len(requests) == 3 and contracts[0].matches(requests[0]) \
             and contracts[1].matches(requests[1]) and contracts[0].matches(requests[2])
+    if matched and probe in {'话廊图片下载', '文章正文图片下载'}:
+        if not isinstance(expected_parameters, dict) or set(expected_parameters) != {'resourceDigests'}: return False
+        value = expected_parameters['resourceDigests']
+        if not isinstance(value, str): return False
+        expected = set(value.split(','))
+        if not expected or any(not re.fullmatch(r'[0-9a-f]{64}', digest) for digest in expected): return False
+        return {row.get('endpointDigest') for row in requests if contracts[0].matches(row)} == expected
     if matched and probe in {'课程中心原生认证', '课程中心 DDL 下载'}:
         pages = [row.get('responseCourseIDs') for row in requests if contracts[0].matches(row)]
         if not all(isinstance(ids, list) and all(isinstance(value, str) and re.fullmatch(r'[1-9]\d*', value)

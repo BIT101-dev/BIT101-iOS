@@ -24,7 +24,13 @@ final class NetworkSmokeRequestCollector {
                 }
             }
             try checkCourseActivityRequests()
-            for (key, expected) in expectedParameters {
+            if let resources = expectedParameters["resourceDigests"] {
+                let expected = Set(resources.split(separator: ",").map(String.init))
+                let observed = Set(requests.filter { (200..<300).contains($0.statusCode) }.map(\.endpointDigest))
+                guard !expected.isEmpty, observed == expected
+                else { throw NetworkSmokeRequestError.parameterMismatch("resourceDigests") }
+            }
+            for (key, expected) in expectedParameters where key != "resourceDigests" {
                 let observed = requests.compactMap { request -> String? in
                     guard key == "path" else { return request.query[key] }
                     guard let path = URLComponents(string: request.endpoint)?.path,

@@ -1,8 +1,10 @@
 import Foundation
+import CryptoKit
 
 public nonisolated struct HTTPRequestEvidence: Codable, Sendable {
     public let method: String
     public let endpoint: String
+    public let endpointDigest: String
     public let finalEndpoint: String
     public let finalMethod: String
     public let finalQuery: [String: String]
@@ -35,8 +37,13 @@ public nonisolated struct HTTPRequestEvidence: Codable, Sendable {
             finalAmbiguousParameters = nil
         }
         endpoint = Self.redactedEndpoint(request.url ?? response.url)
+        endpointDigest = request.url.map(Self.urlDigest) ?? ""
         finalEndpoint = Self.redactedEndpoint(response.url)
         statusCode = response.statusCode
+    }
+
+    public static func urlDigest(_ url: URL) -> String {
+        SHA256.hash(data: Data(url.absoluteString.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
     private static func redactedEndpoint(_ url: URL?) -> String {

@@ -710,6 +710,10 @@ def network_trace_fixture(value: dict) -> dict:
                     expected[key] = unquote(urlsplit(request['endpoint']).path) if key == 'path' else request['query'][key]
                 requests.append(request)
         if name == '生产共享会话': requests.insert(1, requests.pop())
+        if name in {'话廊图片下载', '文章正文图片下载'}:
+            import hashlib
+            for request in requests: request['endpointDigest'] = hashlib.sha256(request['endpoint'].encode()).hexdigest()
+            expected['resourceDigests'] = ','.join(sorted({request['endpointDigest'] for request in requests}))
         rows.append({'probe': name, 'requests': requests, 'expectedParameters': expected})
     value['requestEvidenceRequired'] = True
     value['requestEvidence'] = rows
@@ -717,6 +721,8 @@ def network_trace_fixture(value: dict) -> dict:
 
 
 def network_route_identity_self_test() -> None:
+    from validation_provenance_tests import image_resource_self_test
+    image_resource_self_test()
     from copy import deepcopy
     from validation_provenance import network_requests_complete
     from network_request_contracts import complete as check_complete
@@ -950,7 +956,12 @@ def network_route_identity_self_test() -> None:
     assert complete('BIT101 登录状态', [dict(login, endpoint='https://bit101.flwfdd.xyz:443/user/check')])
     for port in ('0', '80', '8443', '65536', 'invalid'):
         assert not complete('BIT101 登录状态', [dict(login, endpoint='https://bit101.flwfdd.xyz:' + port + '/user/check')])
-    assert complete('话廊图片下载', [dict(login, endpoint='https://image.invalid:8443/image.png')])
+    media = network_trace_fixture({'requiredProbes': ['话廊图片下载']})['requestEvidence'][0]
+    import hashlib
+    resource = 'https://image.invalid:8443/image.png'
+    digest = hashlib.sha256(resource.encode()).hexdigest()
+    assert complete('话廊图片下载', [dict(media['requests'][0], endpoint=resource, finalEndpoint=resource,
+        endpointDigest=digest)], {'resourceDigests': digest})
     for status in (100, 302, 401, 403, 500):
         assert not complete('BIT101 登录状态', [dict(login, statusCode=status)])
     assert not complete('BIT101 登录状态', [dict(login, endpoint=login['endpoint'].replace('https:', 'http:'))])

@@ -821,6 +821,30 @@ struct MediaDependencyTests {
         #expect(files.fileExists(at: selectedFile) == false)
     }
 
+    @Test(arguments: [false, true])
+    func productionImageProbeChecksTheCompleteAnimation(damaged: Bool) async throws {
+        let data = NSMutableData()
+        let destination = try #require(CGImageDestinationCreateWithData(data, UTType.gif.identifier as CFString, 2, nil))
+        for color in [UIColor.systemRed, .systemBlue] {
+            let pixels = try #require(UIImage(data: png(width: 1, color: color))?.cgImage)
+            CGImageDestinationAddImage(destination, pixels,
+                [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFDelayTime: 0.1]] as CFDictionary)
+        }
+        #expect(CGImageDestinationFinalize(destination))
+        let bytes = damaged ? Data((data as Data).dropLast(16)) : data as Data
+        let files = PreferenceMemoryFiles()
+        let media = environment(files: files, previewFiles: files, transport: Images(bytes: bytes))
+        let url = AppURL.required("https://example.invalid/probe.gif")
+        if damaged {
+            let file = try await media.images.file(for: url)
+            #expect(await media.stillDecoder.image(at: file) != nil)
+            await #expect(throws: (any Error).self) { try await media.verifyRemoteImage(at: url) }
+        } else {
+            #expect(try await media.verifyRemoteImage(at: url) == bytes.count * 2)
+        }
+        await media.clearCaches()
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: [0.4, 0.02])
     func gifFramesAndReducedMotionReadInjectedBytes(firstDelay: Double) async throws {
         let secondDelay = firstDelay == 0.4 ? 0.1 : 0.5
