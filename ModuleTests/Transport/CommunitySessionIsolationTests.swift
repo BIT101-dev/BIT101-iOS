@@ -5,6 +5,7 @@ import TransportCore
 
 @MainActor
 struct CommunitySessionIsolationTests {
+    private nonisolated struct Receipt: Decodable, Sendable { let id: Int }
     private enum Failure: Error, CommunityAPIServiceError {
         case signedOut, invalidResponse
         static var communityNotLoggedIn: Self { .signedOut }
@@ -25,6 +26,33 @@ struct CommunitySessionIsolationTests {
     private func response(_ request: URLRequest, status: Int) throws -> (Data, URLResponse) {
         let url = try #require(request.url)
         return (Data(), try #require(HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil)))
+    }
+
+    @Test(arguments: ["posters", "papers", "reaction/comments"],
+        ["lost", "cancelled", "unsent", "rejected", "malformed", "server-error", "refresh-lost"])
+    func creationFailuresKeepTheirTransmissionOutcome(path: String, scenario: String) async throws {
+        let credentials = Credentials()
+        var requests = 0
+        let transport = Transport { request in
+            requests += 1
+            if scenario == "refresh-lost", requests == 1 { return try response(request, status: 401) }
+            if scenario == "lost" || scenario == "refresh-lost" { throw URLError(.networkConnectionLost) }
+            if scenario == "cancelled" { throw CancellationError() }
+            if scenario == "unsent" { throw HTTPRequestNotSent(underlying: URLError(.cannotConnectToHost)) }
+            return try response(request, status: scenario == "rejected" ? 400 : scenario == "server-error" ? 500 : 200)
+        }
+        let client = CommunityAPIClient<Failure>(httpClient: HTTPClient(transport: transport, observer: nil),
+            baseURL: AppURL.required("https://example.invalid"), errorDomain: "test",
+            credentials: { credentials.snapshot }, refreshHandler: { _ in })
+        do {
+            let _: Receipt = try await client.request(path: path, method: "POST")
+            Issue.record("Creation fixture must fail")
+        } catch {
+            #expect((error is CommunityCreateOutcomeUnknown) == !["unsent", "rejected"].contains(scenario))
+            if scenario == "cancelled" { #expect(TaskCancellation.matches(error)) }
+            if scenario == "unsent" { #expect(error is HTTPRequestNotSent) }
+        }
+        #expect(requests == (scenario == "refresh-lost" ? 2 : 1))
     }
 
     @Test func authenticatedRequestsUseExplicitCredentialsAndFreshResponses() async throws {

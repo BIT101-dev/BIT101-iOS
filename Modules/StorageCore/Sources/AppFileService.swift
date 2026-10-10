@@ -56,7 +56,7 @@ public nonisolated protocol AppFileService: Sendable {
 
 extension AppFileService {
     public nonisolated func readData(at url: URL, maximumBytes: Int) throws -> Data {
-        guard let size = regularFileSize(at: url), size <= maximumBytes else { throw CocoaError(.fileReadTooLarge) }
+        if let size = regularFileSize(at: url), size > maximumBytes { throw CocoaError(.fileReadTooLarge) }
         let data = try readData(at: url)
         guard data.count <= maximumBytes else { throw CocoaError(.fileReadTooLarge) }
         return data
@@ -65,6 +65,10 @@ extension AppFileService {
         try setBackupExcluded(excluded, at: url, recursively: false)
     }
     public nonisolated func canonicalFileURL(_ url: URL) -> URL { url.standardizedFileURL }
+    public nonisolated func removeItemIfPresent(at url: URL) throws {
+        do { try removeItem(at: url) }
+        catch { if !AppFileSystem.isMissingFile(error) { throw error } }
+    }
 }
 
 /// 本机文件系统的默认实现。
@@ -95,10 +99,11 @@ public nonisolated struct LocalAppFileService: AppFileService, Sendable {
     }
 
     public func readData(at url: URL, maximumBytes: Int) throws -> Data {
-        guard maximumBytes >= 0, maximumBytes < Int.max,
-              let size = regularFileSize(at: url), size <= maximumBytes else { throw CocoaError(.fileReadTooLarge) }
+        guard maximumBytes >= 0, maximumBytes < Int.max else { throw CocoaError(.fileReadTooLarge) }
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
+        guard let size = regularFileSize(at: url) else { throw CocoaError(.fileReadUnknown) }
+        guard size <= maximumBytes else { throw CocoaError(.fileReadTooLarge) }
         var data = Data()
         while let chunk = try handle.read(upToCount: maximumBytes + 1 - data.count), !chunk.isEmpty {
             data.append(chunk)
@@ -175,12 +180,13 @@ public nonisolated struct LocalAppFileService: AppFileService, Sendable {
     }
 
     public func removeContents(of directory: URL) -> Bool {
-        guard fileExists(at: directory) else { return true }
-        guard let children = try? contentsOfDirectory(at: directory, options: []) else { return false }
+        let children: [URL]
+        do { children = try contentsOfDirectory(at: directory, options: []) }
+        catch { return AppFileSystem.isMissingFile(error) }
         var succeeded = true
         for child in children {
             do {
-                try removeItem(at: child)
+                try removeItemIfPresent(at: child)
             } catch {
                 succeeded = false
             }
@@ -204,6 +210,12 @@ public nonisolated struct LocalAppFileService: AppFileService, Sendable {
 
 /// App 及其扩展共享的文件服务入口。
 public nonisolated enum AppFileSystem {
+    public static func isMissingFile(_ error: any Error) -> Bool {
+        let error = error as NSError
+        return error.domain == NSCocoaErrorDomain && [CocoaError.fileNoSuchFile.rawValue,
+            CocoaError.fileReadNoSuchFile.rawValue].contains(error.code)
+            || error.domain == NSPOSIXErrorDomain && error.code == POSIXErrorCode.ENOENT.rawValue
+    }
     public static let files: any AppFileService = LocalAppFileService()
     public static let protectedDataWritingOptions: Data.WritingOptions = [
         .atomic,

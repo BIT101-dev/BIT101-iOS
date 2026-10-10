@@ -77,12 +77,12 @@ public nonisolated struct ScheduleExternalSnapshotStore: Sendable {
     /// 返回缺失状态，并保留损坏数据和磁盘读取失败的错误分类。
     public func read() throws -> ScheduleExternalSnapshot? {
         guard let fileURL else { throw ScheduleExternalSnapshotStoreError.sharedContainerUnavailable }
-        guard files.fileExists(at: fileURL) else { return nil }
         if let size = files.regularFileSize(at: fileURL), size > ScheduleExternalSnapshotCodec.maximumEncodedBytes {
             throw ScheduleExternalSnapshotStoreError.invalidSnapshot
         }
         let data: Data
         do { data = try files.readData(at: fileURL, maximumBytes: ScheduleExternalSnapshotCodec.maximumEncodedBytes) }
+        catch where AppFileSystem.isMissingFile(error) { return nil }
         catch let error as CocoaError where error.code == .fileReadTooLarge { throw ScheduleExternalSnapshotStoreError.invalidSnapshot }
         let snapshot: ScheduleExternalSnapshot
         do { snapshot = try ScheduleExternalSnapshotCodec.decode(data) }
@@ -96,15 +96,11 @@ public nonisolated struct ScheduleExternalSnapshotStore: Sendable {
     public func clear() -> Bool {
         guard let fileURL else { return false }
         let succeeded: Bool
-        if !files.fileExists(at: fileURL) {
+        do {
+            try files.removeItemIfPresent(at: fileURL)
             succeeded = true
-        } else {
-            do {
-                try files.removeItem(at: fileURL)
-                succeeded = true
-            } catch {
-                succeeded = false
-            }
+        } catch {
+            succeeded = false
         }
         if succeeded {
             Task { @MainActor in

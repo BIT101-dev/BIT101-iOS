@@ -66,7 +66,6 @@ public actor SchedulePersistenceStore {
     }
 
     private nonisolated func readCacheFile(at url: URL) -> ScheduleCacheLoadResult {
-        guard files.fileExists(at: url) else { return .missing }
         do {
             try? files.setPrivateFileProtection(at: url)
             let data = try files.readData(at: url, maximumBytes: Self.maximumCacheBytes)
@@ -76,6 +75,7 @@ public actor SchedulePersistenceStore {
             }
             return result
         } catch {
+            if AppFileSystem.isMissingFile(error) { return .missing }
             Self.logger.error("课表缓存读取失败，保留原文件：\(String(describing: error), privacy: .public)")
             return .unreadable
         }
@@ -97,7 +97,7 @@ public actor SchedulePersistenceStore {
         guard accountIdentifier != legacyAccountIdentifier else { return }
         let currentURL = cacheFileURL(for: accountIdentifier)
         let legacyURL = cacheFileURL(for: legacyAccountIdentifier)
-        guard !files.fileExists(at: currentURL),
+        guard case .missing = readCacheFile(at: currentURL),
               case .loaded = readCacheFile(at: legacyURL)
         else { return }
 
@@ -206,14 +206,17 @@ public actor SchedulePersistenceStore {
 
     public func clear(urls: [URL]) -> Bool {
         do {
-            for url in urls where files.fileExists(at: url) {
-                try files.removeItem(at: url)
+            for url in urls {
+                try files.removeItemIfPresent(at: url)
             }
 
             for directory in Set(urls.map({ $0.deletingLastPathComponent() })) {
-                if files.fileExists(at: directory),
-                   (try? files.contentsOfDirectory(at: directory, options: []).isEmpty) == true {
-                    try files.removeItem(at: directory)
+                do {
+                    if try files.contentsOfDirectory(at: directory, options: []).isEmpty {
+                        try files.removeItemIfPresent(at: directory)
+                    }
+                } catch {
+                    if !AppFileSystem.isMissingFile(error) { throw error }
                 }
             }
         } catch {

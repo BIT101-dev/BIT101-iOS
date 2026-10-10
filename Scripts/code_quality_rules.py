@@ -313,7 +313,7 @@ def file_write_calls(index: dict) -> dict[str, set[int]]:
                 candidates += methods.get((owner, name), [])
             unique = {(source, function['start']): (source, function) for source, function in candidates}
             edges[key] = {(source, function['start']) for source, function in
-                matching_api_calls(index, list(unique.values()), dict(call, path=path))}
+                matching_api_calls(index, list(unique.values()), dict(call, path=path), types=types)}
     affected = set()
     changed = True
     while changed:

@@ -71,6 +71,7 @@ struct ScopedFact: Encodable {
     var elseRange: [Int]? = nil
     var arguments: [String]? = nil
     var argumentTypes: [String?]? = nil
+    var expectedType: String? = nil
     var argumentRanges: [[Int]]? = nil
     var isTestingTest: Bool? = nil
     var receiverCall: String? = nil
@@ -189,6 +190,7 @@ struct FunctionRangeFact: Encodable {
     var isExported: Bool = false
     var isPrivate: Bool = false
     var isAsync: Bool = false
+    var isStatic: Bool = false
     var isThrowing: Bool = false
     var referenceTarget: String? = nil
     var returnedCall: String? = nil

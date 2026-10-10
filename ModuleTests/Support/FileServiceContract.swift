@@ -28,6 +28,10 @@ public nonisolated func verifyFileServiceContract(
     let folder = nested.deletingLastPathComponent()
     let item = nested.appendingPathComponent("value")
     let hidden = root.appendingPathComponent(".hidden")
+    let absent = root.appendingPathComponent("absent")
+    do { _ = try files.readData(at: absent, maximumBytes: 10); Issue.record("缺失文件读取需要返回缺失错误") }
+    catch { #expect(AppFileSystem.isMissingFile(error)) }
+    try files.removeItemIfPresent(at: absent)
     try files.createDirectory(at: nested)
     try files.writeData(Data([1, 2, 3]), to: item, options: .atomic)
     let identity = try #require(files.atomicFileIdentity(at: item))

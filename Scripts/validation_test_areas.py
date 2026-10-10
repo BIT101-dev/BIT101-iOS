@@ -43,7 +43,7 @@ NETWORK_CAPABILITIES = {
      'webVPNVerify(studentID:String,password:String,execution:String,cookie:String,salt:String)': 'first-login',
      'register(password:String,token:String,code:String)': 'first-login',
      'checkBIT101Login(fakeCookie:String)': 'account-lifecycle'},
- 'BIT101-iOS.FeedbackSubmissionClient': {'submit(:Payload)': 'feedback-delivery', 'submitNetworkSmoke(runID:String)': 'network'},
+ 'BIT101-iOS.FeedbackSubmissionClient': {'static submit(:Payload)': 'feedback-delivery', 'static submitNetworkSmoke(runID:String)': 'network'},
  'BIT101-iOS.NetworkDiagnosisRunner': {'run()': 'web-interactions'},
  'BIT101-iOS.AppUpdatePromptCoordinator': {'noticeToPresentAtLaunch()': 'web-interactions', 'checkManually()': 'web-interactions'},
  'BIT101-iOS.AppUpdateChecker': {'releaseToPresentAtLaunch()': 'web-interactions',
@@ -129,7 +129,7 @@ MANUAL_CAPABILITY_SCENARIOS = {
     'webVPNVerify(studentID:String,password:String,execution:String,cookie:String,salt:String)': 'registered-account',
     'register(password:String,token:String,code:String)': 'new-account-registration',
     'checkBIT101Login(fakeCookie:String)': 'sign-in-a'},
- 'BIT101-iOS.FeedbackSubmissionClient': {'submit(:Payload)': 'delivery'},
+ 'BIT101-iOS.FeedbackSubmissionClient': {'static submit(:Payload)': 'delivery'},
  'BIT101-iOS.NetworkDiagnosisRunner': {'run()': 'network-diagnosis'},
  'BIT101-iOS.AppUpdatePromptCoordinator': {'noticeToPresentAtLaunch()': 'update-launch', 'checkManually()': 'update-manual'},
  'BIT101-iOS.AppUpdateChecker': {'releaseToPresentAtLaunch()': 'update-launch', 'checkManually()': 'update-manual'},
@@ -269,7 +269,7 @@ def reachable_smoke_calls(index: dict) -> dict[str, list[dict]]:
                 if len(concrete) == 1:
                     target = concrete.pop()
                     name = '.'.join([target[0], *target[1], method])
-                    matches = matching_api_calls(index, [(node[0], nodes[node]) for node in by_name[name]], dict(fact, path=path))
+                    matches = matching_api_calls(index, [(node[0], nodes[node]) for node in by_name[name]], dict(fact, path=path), types=types)
                     for source_path, function in matches:
                         implementation_edges.setdefault(key, set()).add(((source_path, function['start'], function['end']), target))
             for target in candidates:
@@ -283,7 +283,8 @@ def reachable_smoke_calls(index: dict) -> dict[str, list[dict]]:
                     target_keys = {target_key for target_key in target_keys if len(nodes[target_key].get('lexicalScope', [])) == depth}
                 if not fact.get('isMemberRead'): edges[key].update(target_keys & callables)
                 targets = [(target_key[0], nodes[target_key]) for target_key in target_keys - callables]
-                matches = matching_api_calls(index, targets, dict(fact, path=path, calledExpression=target))
+                matches = matching_api_calls(index, targets, dict(fact, path=path, calledExpression=target,
+                    receiverExpression=fact['calledExpression']), types=types)
                 edges[key].update((target_path, function['start'], function['end']) for target_path, function in matches)
                 for target_path, function in matches:
                     bindings = api_argument_bindings(function, fact)
@@ -366,11 +367,11 @@ def network_capability_findings(index: dict) -> list[str]:
     for route, calls in reachable.items():
         for call in calls:
             owner = receiver_owner(call)
-            matches = matching_api_calls(index, all_functions.get(owner, []), call)
+            matches = matching_api_calls(index, all_functions.get(owner, []), call, types=types)
             if not matches and not call.get('isMemberRead') and types.resolve(call['path'], call['calledExpression'], call['scope']):
                 constructor = dict(call, calledExpression=call['calledExpression'] + '.init')
                 constructor_owner = receiver_owner(constructor)
-                matches = matching_api_calls(index, all_functions.get(constructor_owner, []), constructor)
+                matches = matching_api_calls(index, all_functions.get(constructor_owner, []), constructor, types=types)
                 if matches: owner = constructor_owner
             if len(matches) == 1: observed[route].add((owner, method_signature(matches[0][1])))
     for owner, functions in all_functions.items():
@@ -381,7 +382,7 @@ def network_capability_findings(index: dict) -> list[str]:
                 if not function['start'] <= call['start'] < function['end'] or not call_can_execute(index[path], call): continue
                 expression = (call.get('calledExpression') or '').removeprefix('self.')
                 if '.' in expression: continue
-                matches = matching_api_calls(index, functions, dict(call, path=path))
+                matches = matching_api_calls(index, functions, dict(call, path=path), types=types)
                 if len(matches) == 1: edges[key].add((owner, method_signature(matches[0][1])))
     for calls in observed.values():
         waiting = list(calls)

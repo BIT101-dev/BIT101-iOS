@@ -1,5 +1,6 @@
 #if os(iOS)
 import CommunityUI
+import CommunityTransport
 import DesignSystemKit
 //
 //  PaperComposerViews.swift
@@ -94,6 +95,7 @@ final class PaperComposerViewModel {
     var content: String
     var anonymous: Bool
     private(set) var isSubmitting = false
+    private var createResultNeedsReview = false
     var alert: AppAlert?
 
     init(editingPaper: PaperDetail?, initialContent: String) {
@@ -108,6 +110,10 @@ final class PaperComposerViewModel {
 
     func submit(service: any PaperComposerServicing) async -> Bool {
         guard !isSubmitting, !Task.isCancelled else { return false }
+        guard !createResultNeedsReview else {
+            alert = AppAlert(title: "发布结果待确认", message: CommunityCreateOutcomeUnknown.reviewMessage)
+            return false
+        }
         let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let intro = intro.trimmingCharacters(in: .whitespacesAndNewlines)
         let body = content.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -120,6 +126,10 @@ final class PaperComposerViewModel {
                 return false
             }
             serializedBody = PaperEditorContentBuilder.editorJSON(from: body)
+            guard PaperEditorContentBuilder.canEditAsPlainText(serializedBody) else {
+                alert = AppAlert.userInput(title: "发布失败", message: "正文过长，请缩短段落或减少正文内容。")
+                return false
+            }
         }
         guard !title.isEmpty, !intro.isEmpty, !serializedBody.isEmpty else {
             alert = AppAlert.userInput(title: "发布失败", message: "请填写标题、简介和正文。")
@@ -135,10 +145,16 @@ final class PaperComposerViewModel {
             } else {
                 _ = try await service.createPaper(title: title, intro: intro, content: serializedBody,
                     anonymous: anonymous, publicEdit: true)
+                createResultNeedsReview = true
             }
             try Task.checkCancellation()
             return true
         } catch {
+            if error is CommunityCreateOutcomeUnknown {
+                createResultNeedsReview = true
+                alert = AppAlert(title: "发布结果待确认", message: error.localizedDescription)
+                return false
+            }
             if Task.isCancelled || TaskCancellation.matches(error) { return false }
             alert = AppAlert(title: "发布失败", message: error.localizedDescription)
             return false

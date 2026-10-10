@@ -273,12 +273,20 @@ def call_can_execute(facts: dict, call: dict) -> bool:
 
 
 def method_signature(function: dict) -> str:
-    return function['name'] + '(' + ','.join(parameter['label'] + ':' + re.sub(r'\s+', '', parameter['type'])
-        for parameter in function.get('parameters', [])) + ')'
+    signature = ('static ' if function.get('isStatic') else '') + function['name'] + '(' + ','.join(
+        parameter['label'] + ':' + re.sub(r'\s+', '', parameter['type']) for parameter in function.get('parameters', [])) + ')'
+    return signature + ('->' + re.sub(r'\s+', '', function.get('returnType') or 'Void') if function.get('returnOverload') else '')
 
 
 def signature_function(signature: str, scope: list[str]) -> dict:
-    name, arguments = signature.removesuffix(')').split('(', 1)
+    static = signature.startswith('static ')
+    name, tail = signature.removeprefix('static ').split('(', 1)
+    depth, closing = 1, 0
+    for closing, character in enumerate(tail):
+        if character == '(': depth += 1
+        elif character == ')': depth -= 1
+        if depth == 0: break
+    arguments, returned = tail[:closing], tail[closing + 1:].removeprefix('->')
     values, depth, start = [], [], 0
     for position, character in enumerate(arguments):
         if character in '(<[{': depth.append(character)
@@ -288,7 +296,8 @@ def signature_function(signature: str, scope: list[str]) -> dict:
             values.append(arguments[start:position])
             start = position + 1
     values.append(arguments[start:])
-    return {'name': name, 'scope': scope, 'parameters': [dict(label=label, type=kind, hasDefault=False, variadic=False)
+    return {'name': name, 'scope': scope, 'isStatic': static, 'returnType': returned or None, 'returnOverload': bool(returned),
+        'parameters': [dict(label=label, type=kind, hasDefault=False, variadic=False)
         for value in values if value for label, kind in [value.split(':', 1)]]}
 
 
@@ -446,7 +455,7 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
                 candidates = [(candidate_path, helper) for candidate_path, helper in helper_functions.get(target, [])
                     if (not helper.get('isPrivate') or candidate_path == source_path)
                     and call.get('lexicalScope', [])[:len(helper.get('lexicalScope', []))] == helper.get('lexicalScope', [])]
-                matches = matching_api_calls(index, candidates, dict(call, path=source_path))
+                matches = matching_api_calls(index, candidates, dict(call, path=source_path), types=types)
                 if any(contains_request(helper, candidate_path, seen) for candidate_path, helper in matches): return True
             return False
         accessors = [node for node in facts.get('accessorRanges', []) if node.get('isAsync') or contains_request(node)]
@@ -463,6 +472,12 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
             if function.get('isExported') or module in NATIVE_PRODUCT_ROOTS and not function.get('isPrivate') \
                     and (function.get('isAsync') or contains_request(function)):
                 result.setdefault(identity, []).append((path, function))
+    for functions in result.values():
+        groups = {}
+        for _, function in functions: groups.setdefault(method_signature(function), []).append(function)
+        for group in groups.values():
+            if len({row.get('returnType') or 'Void' for row in group}) > 1:
+                for function in group: function['returnOverload'] = True
     return result
 
 
@@ -487,14 +502,26 @@ def api_invocations(facts: dict) -> list[dict]:
         if not member.get('isAssignmentTarget')]
 
 
-def matching_api_calls(index: dict, functions: list[tuple[str, dict]], call: dict) -> list[tuple[str, dict]]:
+def matching_api_calls(index: dict, functions: list[tuple[str, dict]], call: dict, *, types=None) -> list[tuple[str, dict]]:
     name = call['calledExpression'].removeprefix('self.').rsplit('.', 1)[-1]
     candidates = [(path, function) for path, function in functions if function['name'] == name
         and api_argument_bindings(function, call) and (not call.get('isMemberRead') or function.get('isAccessor')
             and '->' not in (function.get('returnType') or ''))]
-    if len(candidates) <= 1: return candidates
+    if not candidates: return []
     from swift_type_index import SwiftTypeIndex
-    types = SwiftTypeIndex(index)
+    if types is None: types = SwiftTypeIndex(index)
+    facts = index[call['path']]
+    receiver = call.get('receiverExpression', call['calledExpression']).rpartition('.')[0]
+    if receiver in {'self', 'Self', ''}:
+        containers = [row for row in facts.get('functionRanges', []) if row['start'] <= call['start'] < row['end']]
+        static = receiver == 'Self' or bool(containers and min(containers, key=lambda row: row['end'] - row['start']).get('isStatic'))
+    else:
+        variables = visible_variables(facts, call, receiver)
+        static = any(re.sub(r'\s+', '', row.get('type') or '').endswith(('.Type', '.Protocol')) for row in variables) \
+            or not call.get('receiverCall') and not variables and types.resolve(call['path'], receiver, call['scope']) is not None
+    candidates = [(path, row) for path, row in candidates if not row.get('scope') or row.get('lexicalScope')
+        or row.get('isExplicitInitializer') or row.get('isStatic', False) == static]
+    if len(candidates) <= 1: return candidates
     def canonical(path, kind, scope, seen=frozenset()):
         kind = re.sub(r'\bany\b|\s+', '', kind)
         lifted = kind.endswith(('?', '!'))
@@ -508,7 +535,6 @@ def matching_api_calls(index: dict, functions: list[tuple[str, dict]], call: dic
             base, _ = canonical(path, optional[1], scope, seen)
             return base, True
         return types.terminal_name(path, kind, scope).removeprefix('Swift.'), lifted
-    facts = index[call['path']]
     def argument_type(value):
         value = value.strip()
         if value in {'true', 'false'}: return 'Bool'
@@ -523,6 +549,8 @@ def matching_api_calls(index: dict, functions: list[tuple[str, dict]], call: dic
     arguments = [literals[index] if index < len(literals) and literals[index] else argument_type(value)
         for index, value in enumerate(call.get('arguments', []))]
     matches = []
+    expected_return = call.get('expectedType') or next((row.get('returnType') for row in facts.get('functionRanges', [])
+        if row['start'] <= call['start'] < row['end'] and row.get('returnedCall') == call['calledExpression']), None)
     for path, function in candidates:
         for binding in api_argument_bindings(function, call):
             promotions, conversions = 0, 0
@@ -536,7 +564,14 @@ def matching_api_calls(index: dict, functions: list[tuple[str, dict]], call: dic
                 conversions += distance
                 promotions += int(expected_optional and not actual_optional)
             else:
-                score = (conversions, promotions, max(0, len(function['parameters']) - len(binding)))
+                return_score = 0
+                if expected_return:
+                    actual, optional = canonical(path, function.get('returnType') or 'Void', function['scope'])
+                    expected, lifted = canonical(call['path'], expected_return, call['scope'])
+                    distance = 0 if actual == expected else types.inheritance_distance(actual, expected)
+                    if distance is None or optional and not lifted: continue
+                    return_score = distance + int(lifted and not optional)
+                score = (conversions, promotions, return_score, max(0, len(function['parameters']) - len(binding)))
                 matches.append((score, path, function))
     if not matches: return []
     best = min(score for score, _, _ in matches)

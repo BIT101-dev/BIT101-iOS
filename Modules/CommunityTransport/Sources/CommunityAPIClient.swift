@@ -12,6 +12,18 @@ public enum CommunityRetryPolicy {
     case afterCredentialRefresh
 }
 
+public struct CommunityCreateOutcomeUnknown: LocalizedError, CustomNSError {
+    public static let reviewMessage = "请求已发出，发布结果待确认。请关闭编辑页，刷新已发布内容并核对结果后再操作。"
+    public let underlying: any Error
+    public init(underlying: any Error) { self.underlying = underlying }
+    public var errorDescription: String? {
+        Self.reviewMessage
+    }
+    public var errorUserInfo: [String: Any] {
+        [NSUnderlyingErrorKey: underlying, NSLocalizedDescriptionKey: errorDescription ?? "发布结果待确认。"]
+    }
+}
+
 public protocol CommunityAPIServiceError: Error {
     static var communityNotLoggedIn: Self { get }
     static var communityInvalidResponse: Self { get }
@@ -55,26 +67,40 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
         retryPolicy: CommunityRetryPolicy = .afterCredentialRefresh
     ) async throws -> Response {
         let identity = authentication == .none ? nil : credentials().identity
-        let response = try await send(
-            path: path,
-            pathComponent: pathComponent,
-            queryItems: queryItems,
-            method: method,
-            body: body,
-            contentType: contentType,
-            authentication: authentication,
-            retryPolicy: retryPolicy
-        )
-
-        do {
-            let value = try await Self.decodeResponse(Response.self, from: response.data)
-            try validateIdentity(identity)
-            return value
-        } catch {
-            if TaskCancellation.matches(error) {
-                throw error
+        let isCreation = method == "POST" && ["posters", "papers", "reaction/comments"].contains(path)
+        var started = false
+        var rejected = false
+        let parentStart = HTTPRequestEvidenceContext.willStart
+        let parentReceive = HTTPRequestEvidenceContext.didReceive
+        let receive: (@MainActor @Sendable (HTTPRequestEvidence) -> Void)?
+        if isCreation {
+            receive = { evidence in
+                rejected = (400..<500).contains(evidence.statusCode) && evidence.statusCode != 408
+                    && evidence.endpoint == evidence.finalEndpoint && evidence.method == evidence.finalMethod
+                parentReceive?(evidence)
             }
-            throw Failure.communityInvalidResponse
+        } else { receive = parentReceive }
+        do {
+            return try await HTTPRequestEvidenceContext.$willStart.withValue({
+                started = true; rejected = false; parentStart?()
+            }) {
+                try await HTTPRequestEvidenceContext.$didReceive.withValue(receive) {
+                    let response = try await send(path: path, pathComponent: pathComponent,
+                        queryItems: queryItems, method: method, body: body, contentType: contentType,
+                        authentication: authentication, retryPolicy: retryPolicy)
+                    do {
+                        let value = try await Self.decodeResponse(Response.self, from: response.data)
+                        try validateIdentity(identity)
+                        return value
+                    } catch {
+                        if TaskCancellation.matches(error) { throw error }
+                        throw Failure.communityInvalidResponse
+                    }
+                }
+            }
+        } catch {
+            guard isCreation, started, !rejected, !(error is HTTPRequestNotSent) else { throw error }
+            throw CommunityCreateOutcomeUnknown(underlying: error)
         }
     }
 
@@ -204,6 +230,7 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
                 try validateIdentity(identity)
                 throw Failure.communityNotLoggedIn
             } catch {
+                if error is HTTPRequestNotSent { throw error }
                 try validateIdentity(identity)
                 throw error
             }
@@ -233,6 +260,7 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
                 try validateIdentity(identity)
                 throw Failure.communityInvalidResponse
             } catch {
+                if error is HTTPRequestNotSent { throw error }
                 try validateIdentity(identity)
                 throw error
             }
@@ -249,6 +277,7 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
             try validateIdentity(identity)
             throw Failure.communityInvalidResponse
         } catch {
+            if error is HTTPRequestNotSent { throw error }
             try validateIdentity(identity)
             throw error
         }

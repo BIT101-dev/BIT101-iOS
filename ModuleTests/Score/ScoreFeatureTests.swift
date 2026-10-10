@@ -30,7 +30,7 @@ struct ScoreFeatureTests {
         let model = ScoreViewModel(service: service, cacheStore: cache,
             preferenceStore: ScoreFilterPreferenceStore(defaults: defaults, session: { session }),
             currentScoreCacheSession: { session }, scheduleCoursesChanges: Empty().eraseToAnyPublisher(), loadScheduleCourses: { _ in [:] })
-        files.setFailures(reading: true)
+        files.setFailures(reading: true, existence: true)
         await model.restoreCachedDataIfNeeded()
         #expect(model.state == .failed(ScoreCacheReadError.unreadable.localizedDescription))
         files.setFailures()

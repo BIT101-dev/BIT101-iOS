@@ -21,8 +21,15 @@ struct GalleryStateContractTests {
         var searchRequests: [Int] = []
         var searchPages: [Int: GalleryPageBatch<CommunityPoster>] = [:]
         var failedSearchPage: Int?
+        var totalPages: Int?
+        var body = ""
         func fetchFeed(kind: GalleryFeedKind, page: Int?) async throws -> GalleryPageBatch<CommunityPoster> {
-            .init(items: [GalleryStateContractTests.poster((page ?? 0) + 1)], nextSourcePage: (page ?? 0) + 1, canLoadMore: true)
+            let page = page ?? 0
+            if let totalPages {
+                let items = (page * 100 + 1 ... (page + 1) * 100).map { GalleryStateContractTests.poster($0, text: body) }
+                return .init(items: items, nextSourcePage: page + 1, canLoadMore: page + 1 < totalPages)
+            }
+            return .init(items: [GalleryStateContractTests.poster(page + 1)], nextSourcePage: page + 1, canLoadMore: true)
         }
         func fetchRecommendPage(sourcePage: Int) async throws -> GalleryPageBatch<CommunityPoster> {
             recommendRequests.append(sourcePage)
@@ -57,9 +64,9 @@ struct GalleryStateContractTests {
         }
     }
 
-    private static func poster(_ id: Int) -> CommunityPoster {
+    private static func poster(_ id: Int, text: String = "") -> CommunityPoster {
         .init(anonymous: false, claim: .init(id: 0, text: ""), commentNum: 0, createTime: "", editTime: "", id: id,
-            images: [], likeNum: 0, public: true, tags: [], text: "", title: "帖子", updateTime: "",
+            images: [], likeNum: 0, public: true, tags: [], text: text, title: "帖子", updateTime: "",
             user: .placeholder(id: 1, nickname: "作者"))
     }
 
@@ -77,6 +84,24 @@ struct GalleryStateContractTests {
         service.failed = false
         await model.loadMoreSearchResultsIfNeeded(currentPoster: previous.posters.last)
         #expect(service.queryLog.last?.text == "原查询" && model.searchState.posters.map(\.id) == [1, 2])
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func feedAndSearchAppendLongBodiesThroughTheirActualViewModel(search: Bool) async {
+        let service = Feed()
+        service.totalPages = 200
+        service.body = String(repeating: "正文", count: 4_096)
+        let model = GalleryViewModel(service: service)
+        if search { await model.performSearch() }
+        else { await model.refresh(feed: .newest) }
+        for _ in 1..<200 {
+            if search { await model.loadMoreSearchResultsIfNeeded(currentPoster: model.searchState.posters.last) }
+            else { await model.loadMoreIfNeeded(for: .newest, currentPoster: model.state(for: .newest).posters.last) }
+        }
+        let state = search ? model.searchState : model.state(for: .newest)
+        #expect(state.posters.map(\.id) == Array(1...20_000))
+        #expect(state.nextPage == 200 && !state.canLoadMore && !state.isLoadingMore && model.alert == nil)
+        #expect(state.posters.first?.text == service.body && state.posters.last?.text == service.body)
     }
 
     @Test(.timeLimit(.minutes(1)))

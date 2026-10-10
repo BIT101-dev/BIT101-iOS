@@ -43,6 +43,7 @@ final class GalleryComposerViewModel: ObservableObject {
     private var imageBatchTask: Task<Void, Never>?
     private var uploads: [UUID: Task<Void, Never>] = [:]
     private var submissionTask: Task<Bool, Never>?
+    private var createResultNeedsReview = false
     private var savingTask: Task<Bool, Never>?
 
     init(editingPoster: GalleryPosterDetail? = nil, service: any GalleryComposerServicing,
@@ -278,6 +279,10 @@ final class GalleryComposerViewModel: ObservableObject {
     func submit() async -> Bool {
         let operation = generation
         guard submissionTask == nil, isCurrent(operation) else { return false }
+        guard !createResultNeedsReview else {
+            alert = AppAlert(title: "发布结果待确认", message: CommunityCreateOutcomeUnknown.reviewMessage)
+            return false
+        }
         let title = self.title.trimmingCharacters(in: .whitespacesAndNewlines)
         let text = self.text.trimmingCharacters(in: .whitespacesAndNewlines)
         let tags = combinedTags()
@@ -305,11 +310,17 @@ final class GalleryComposerViewModel: ObservableObject {
                 } else {
                     _ = try await service.createPoster(title: title, text: text, imageMids: mids,
                         anonymous: anonymous, tags: tags, claimID: claimID, isPublic: isPublic)
+                    createResultNeedsReview = true
                 }
                 guard isCurrent(operation) else { return false }
                 if let cleanup { await cleanup() }
                 return isCurrent(operation)
             } catch {
+                if isCurrent(operation), error is CommunityCreateOutcomeUnknown {
+                    createResultNeedsReview = true
+                    alert = AppAlert(title: "发布结果待确认", message: error.localizedDescription)
+                    return false
+                }
                 if isCurrent(operation), !TaskCancellation.matches(error) {
                     alert = AppAlert(title: "发布失败", message: error.localizedDescription)
                 }

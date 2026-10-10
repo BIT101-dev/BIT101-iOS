@@ -216,6 +216,7 @@ final class FactVisitor: SyntaxVisitor {
             isExported: declarationIsExported(node.modifiers, parent: node.parent),
             isPrivate: node.modifiers.contains { ["private", "fileprivate"].contains($0.name.text) },
             isAsync: node.signature.effectSpecifiers?.asyncSpecifier != nil,
+            isStatic: node.modifiers.contains { ["static", "class"].contains($0.name.text) },
             isThrowing: node.signature.effectSpecifiers?.throwsClause != nil,
             returnedCall: returnedCall(node.body?.statements)
         ))
@@ -394,6 +395,23 @@ final class FactVisitor: SyntaxVisitor {
         calls.append(call)
         var invocation = fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset)
         invocation.calledExpression = calledExpression
+        var expression = Syntax(node)
+        while let parent = expression.parent, parent.is(AwaitExprSyntax.self) || parent.is(TryExprSyntax.self) {
+            expression = parent
+        }
+        if let clause = expression.parent?.as(InitializerClauseSyntax.self),
+           let binding = clause.parent?.as(PatternBindingSyntax.self) {
+            invocation.expectedType = binding.typeAnnotation?.type.trimmedDescription
+        } else if expression.parent?.is(ReturnStmtSyntax.self) == true {
+            var parent = expression.parent
+            while let current = parent, !current.is(ClosureExprSyntax.self) {
+                if let function = current.as(FunctionDeclSyntax.self) {
+                    invocation.expectedType = function.signature.returnClause?.type.trimmedDescription
+                    break
+                }
+                parent = current.parent
+            }
+        }
         invocation.receiverCall = call.receiverCall
         invocation.argumentLabels = node.arguments.map { $0.label?.text ?? "" }
         invocation.arguments = node.arguments.map { $0.expression.trimmedDescription }
@@ -758,7 +776,8 @@ final class FactVisitor: SyntaxVisitor {
                     bodyStart: body.positionAfterSkippingLeadingTrivia.utf8Offset,
                     isExported: declarationIsExported(modifiers, parent: declaration.parent),
                     isPrivate: modifiers.contains { ["private", "fileprivate"].contains($0.name.text) },
-                    isAsync: isAsync, returnedCall: returnedCall(statements)))
+                    isAsync: isAsync, isStatic: modifiers.contains { ["static", "class"].contains($0.name.text) },
+                    returnedCall: returnedCall(statements)))
             }
             if case .getter(let statements) = block.accessors {
                 recordGetter(block, isAsync: false, statements: statements)

@@ -7,6 +7,7 @@ import SchedulePersistence
 @testable import ScheduleFeature
 import ScheduleDomain
 import CommunityCore
+import CommunityTransport
 import Foundation
 import Testing
 @testable import BIT101_iOS
@@ -505,7 +506,7 @@ struct GalleryRecommendationPrefetchTests {
         let comment = CommunityComment(id: 1, obj: "poster1", images: [], user: user, anonymous: false,
             createTime: "", updateTime: "", like: false, likeNum: 0, commentNum: 0, own: false,
             rate: 0, replyUser: user, replyObj: "", text: "评论", sub: [])
-        service.commentCreation = { [weak service] in await service?.pause(); return comment }
+        service.commentCreation = { [weak service] in await service?.pause(); try Task.checkCancellation(); return comment }
         let gallery = GalleryPosterDetailViewModel(initialPoster: poster, service: service)
         let article = PaperDetailViewModel(initialPaper: PaperSummary(id: 1, title: "initial", intro: "",
             likeNum: 0, commentNum: 0, updateTime: ""), service: service)
@@ -528,6 +529,51 @@ struct GalleryRecommendationPrefetchTests {
         await service.waitForDetail()
         service.finish()
         #expect(await retry.value)
+    }
+
+    @Test(arguments: [false, true])
+    func uncertainCommentStopsAnotherSubmission(paper: Bool) async throws {
+        let poster = try makePoster(id: 1)
+        let service = DetailSortingService(poster: poster)
+        var submissions = 0
+        service.commentCreation = {
+            submissions += 1
+            throw CommunityCreateOutcomeUnknown(underlying: URLError(.networkConnectionLost))
+        }
+        let gallery = GalleryPosterDetailViewModel(initialPoster: poster, service: service)
+        let article = PaperDetailViewModel(initialPaper: PaperSummary(id: 1, title: "标题", intro: "",
+            likeNum: 0, commentNum: 0, updateTime: ""), service: service)
+        func submit() async -> Bool {
+            if paper { return await article.submitComment(text: "评论", anonymous: false, target: .paper(paperID: 1)) }
+            return await gallery.submitComment(text: "评论", anonymous: false, target: .poster(posterID: 1))
+        }
+        #expect(await submit() == false)
+        #expect(await submit() == false)
+        #expect(submissions == 1 && service.detailCalls == 0)
+        #expect((paper ? article.alert?.title : gallery.alert?.title) == "发送结果待确认")
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func acceptedCommentKeepsSuccessWhenItsRefreshIsCancelled(paper: Bool) async throws {
+        let poster = try makePoster(id: 1)
+        let service = DetailSortingService(poster: poster)
+        let user = CommunityUser.placeholder(id: 7, nickname: "用户")
+        service.commentCreation = {
+            CommunityComment(id: 1, obj: "poster1", images: [], user: user, anonymous: false,
+                createTime: "", updateTime: "", like: false, likeNum: 0, commentNum: 0, own: true,
+                rate: 0, replyUser: user, replyObj: "", text: "评论", sub: [])
+        }
+        let gallery = GalleryPosterDetailViewModel(initialPoster: poster, service: service)
+        let article = PaperDetailViewModel(initialPaper: PaperSummary(id: 1, title: "标题", intro: "",
+            likeNum: 0, commentNum: 0, updateTime: ""), service: service)
+        let submission = Task {
+            if paper { return await article.submitComment(text: "评论", anonymous: false, target: .paper(paperID: 1)) }
+            return await gallery.submitComment(text: "评论", anonymous: false, target: .poster(posterID: 1))
+        }
+        await service.waitForDetail()
+        submission.cancel()
+        service.finish()
+        #expect(await submission.value)
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true], [(false, false), (false, true), (true, false), (true, true)])
@@ -619,120 +665,6 @@ struct GalleryRecommendationPrefetchTests {
         let state = paper ? article.commentState : model.commentState
         #expect(state.items.first?.sub.first?.like == true && state.items.first?.sub.first?.likeNum == 17)
         #expect(state.status == .loaded && (paper ? article.likingCommentIDs.isEmpty : model.likingCommentIDs.isEmpty))
-    }
-
-    private final class PaperSavingService: PaperComposerServicing {
-        var bodies: [String] = []
-        var versions: [String] = []
-        var pending: CheckedContinuation<Void, Never>?
-        var suspend = false
-        private func save(_ content: String) async {
-            bodies.append(content)
-            if suspend { await withCheckedContinuation { pending = $0 } }
-        }
-        func createPaper(title: String, intro: String, content: String, anonymous: Bool, publicEdit: Bool) async throws -> Int {
-            await save(content)
-            return 42
-        }
-        func updatePaper(id: Int, title: String, intro: String, content: String, anonymous: Bool, publicEdit: Bool, lastUpdatedAt: String) async throws {
-            versions.append(lastUpdatedAt)
-            await save(content)
-        }
-    }
-
-    private func editingPaper(_ content: String) -> PaperDetail {
-        PaperDetail(id: 1, title: "标题", intro: "简介", content: content, createTime: "", updateTime: "2026-10-01T08:00:00Z",
-            updateUser: .placeholder(id: 7, nickname: "用户"), anonymous: false, likeNum: 0, commentNum: 0,
-            publicEdit: true, like: false, own: true)
-    }
-
-    @Test @MainActor func articleRenderingNormalizesDuplicateEmptyAndMissingBlockIdentities() throws {
-        let blocks = ["same", "same", "", "block-0"].map {
-            ["id": $0, "type": "paragraph", "data": ["text": "正文"]] as [String: Any]
-        } + [["type": "unknown"], ["type": "paragraph", "data": ["text": String(repeating: "x", count: PaperContentResourceLimits.maximumBlockBytes + 1)]]]
-        let raw = String(decoding: try JSONSerialization.data(withJSONObject: ["blocks": blocks]), as: UTF8.self)
-        let first = PaperContentRenderer.blocks(from: raw).map(\.id)
-        #expect(first.count == blocks.count && Set(first).count == first.count)
-        #expect(PaperContentRenderer.blocks(from: raw).map(\.id) == first)
-        #expect(PaperContentRenderer.blocks(from: "正文").map(\.id) == PaperContentRenderer.blocks(from: "正文").map(\.id))
-    }
-
-    @Test(arguments: [
-        #"{"blocks":[{"id":"p","type":"paragraph","data":{"text":"<b>重点</b>"}},{"id":"i","type":"image","data":{"file":{"url":"https://example.com/a.png"}}}]}"#,
-        #"{"blocks":[{"id":"i","type":"image","data":{"file":{"url":"https://example.com/a.png"}}}]}"#,
-        #"{"blocks":[{"type":"header","data":{"text":"标题","level":2}},{"type":"list","data":{"items":["一","二"]}}]}"#,
-        #"{"blocks":[{"type":"paragraph","data":{"text":"正文"},"tunes":{"alignment":"center"}}]}"#
-    ])
-    func metadataEditingPreservesFormattedImageAndExtendedBlocks(raw: String) async {
-        let service = PaperSavingService()
-        let model = PaperComposerViewModel(editingPaper: editingPaper(raw), initialContent: PaperEditorContentBuilder.plainText(from: raw))
-        #expect(model.canEditBody == false)
-        model.title = "新标题"
-        model.content = "修改正文"
-        #expect(await model.submit(service: service))
-        #expect(service.bodies == [raw])
-        #expect(service.versions == ["2026-10-01T08:00:00Z"])
-    }
-
-    @Test(arguments: ["body", "blocks", "block", "plain"])
-    func metadataEditingPreservesResourceLimitedBody(kind: String) async {
-        let raw: String
-        switch kind {
-        case "body":
-            raw = PaperEditorContentBuilder.editorJSON(from: String(repeating: "x",
-                count: PaperContentResourceLimits.maximumBodyBytes + 1))
-        case "blocks":
-            raw = PaperEditorContentBuilder.editorJSON(from: Array(repeating: "正文",
-                count: PaperContentResourceLimits.maximumBlocks + 1).joined(separator: "\n\n"))
-        case "block":
-            raw = PaperEditorContentBuilder.editorJSON(from: "保留段落\n\n" + String(repeating: "x",
-                count: PaperContentResourceLimits.maximumBlockBytes + 1))
-        default:
-            raw = String(repeating: "x", count: PaperContentResourceLimits.maximumBlockBytes + 1)
-        }
-        let service = PaperSavingService()
-        let model = PaperComposerViewModel(editingPaper: editingPaper(raw),
-            initialContent: PaperEditorContentBuilder.plainText(from: raw))
-        #expect(model.canEditBody == false)
-        model.title = "新标题"
-        model.content = "修改剩余正文"
-        #expect(await model.submit(service: service))
-        #expect(service.bodies == [raw])
-        #expect(service.versions == ["2026-10-01T08:00:00Z"])
-    }
-
-    @Test func plainBodyEditsRoundTripEscapedTextAndKeepUntouchedSource() async {
-        let raw = PaperEditorContentBuilder.editorJSON(from: "正文 <内容>\n第二行")
-        let service = PaperSavingService()
-        let model = PaperComposerViewModel(editingPaper: editingPaper(raw), initialContent: PaperEditorContentBuilder.plainText(from: raw))
-        #expect(model.canEditBody)
-        #expect(await model.submit(service: service))
-        #expect(service.bodies == [raw])
-        model.content = "新正文 <内容>\n第二行\n\n下一段"
-        #expect(await model.submit(service: service))
-        #expect(PaperEditorContentBuilder.plainText(from: service.bodies[1]) == model.content)
-    }
-
-    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
-    func paperSubmissionCancellationEndsItsLifecycleAndAllowsAReopenedComposer(editing: Bool) async throws {
-        let service = PaperSavingService()
-        service.suspend = true
-        let model = PaperComposerViewModel(editingPaper: editing ? editingPaper("正文") : nil, initialContent: "正文")
-        model.title = "标题"; model.intro = "简介"
-        let task = Task { await model.submit(service: service) }
-        try await waitForTestEvent { !(service.pending == nil) }
-        #expect(model.isSubmitting)
-        #expect(await model.submit(service: service) == false)
-        task.cancel()
-        service.pending?.resume()
-        #expect(await task.value == false)
-        #expect(model.isSubmitting == false && model.alert == nil)
-        #expect(service.bodies.count == 1)
-        service.suspend = false
-        let reopened = PaperComposerViewModel(editingPaper: nil, initialContent: "正文")
-        reopened.title = "标题"; reopened.intro = "简介"
-        #expect(await reopened.submit(service: service))
-        #expect(service.bodies.count == 2)
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [true, false], ["all", "body", "comments"])

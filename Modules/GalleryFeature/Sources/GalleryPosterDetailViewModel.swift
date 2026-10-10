@@ -1,6 +1,7 @@
 import TransportCore
 import DesignSystemKit
 import CommunityCore
+import CommunityTransport
 import Combine
 import Foundation
 
@@ -98,6 +99,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     @Published private(set) var likingCommentIDs: Set<Int> = []
     /// 评论提交请求是否进行中。
     @Published private(set) var isSubmittingComment = false
+    private var commentResultNeedsReview = false
     @Published private(set) var deletingCommentIDs: Set<Int> = []
     /// 帖子删除请求是否进行中。
     @Published private(set) var isDeletingPoster = false
@@ -293,6 +295,10 @@ final class GalleryPosterDetailViewModel: ObservableObject {
             return false
         }
         guard !isSubmittingComment else { return false }
+        guard !commentResultNeedsReview else {
+            alert = AppAlert(title: "发送结果待确认", message: CommunityCreateOutcomeUnknown.reviewMessage)
+            return false
+        }
 
         isSubmittingComment = true
         defer { isSubmittingComment = false }
@@ -307,11 +313,14 @@ final class GalleryPosterDetailViewModel: ObservableObject {
                 anonymous: anonymous,
                 imageMids: imageMids
             )
-            try Task.checkCancellation()
             await refreshAll()
-            try Task.checkCancellation()
             return true
         } catch {
+            if error is CommunityCreateOutcomeUnknown {
+                commentResultNeedsReview = true
+                alert = AppAlert(title: "发送结果待确认", message: error.localizedDescription)
+                return false
+            }
             if Task.isCancelled || isCancellation(error) { return false }
             alert = AppAlert(title: "发送失败", message: error.localizedDescription)
             return false

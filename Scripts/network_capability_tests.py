@@ -10,22 +10,25 @@ def network_capability_self_test() -> None:
     assert not compilation_condition('DEBUG', 'network')
     from network_capability_rules import signature_function, method_signature
     for signature in ('fetch(values:Dictionary<String,Int>)', 'fetch(context:(Int,String))',
-            'fetch(callback:(Int,String)->Void)', 'fetch(values:Dictionary<String,(Int,String)>,callback:(Int,String)->Void)'):
+            'fetch(callback:(Int,String)->Void)', 'fetch(values:Dictionary<String,(Int,String)>,callback:(Int,String)->Void)',
+            'static fetch()', 'fetch()->Int', 'static fetch(callback:()->Void)->(Int,String)'):
         assert method_signature(signature_function(signature, ['Service'])) == signature
     index = {f'Modules/{name.split(".")[0]}/Sources/{name.split(".")[1]}.swift': {
         'declarations': [{'kind': 'struct', 'name': name.split('.')[1], 'scope': [], 'inheritedTypes': [], 'isExported': True}],
         'functionRanges': [{**signature_function(method, [name.split(".")[1]]), 'isExported': True, 'isAsync': True, 'start': 0, 'end': 1}
         for method in methods]} for name, methods in NETWORK_CAPABILITIES.items()}
     bindings = {owner.split('.')[1]: owner.split('.')[1].removesuffix('Service').lower() for owner in NETWORK_CAPABILITIES}; bindings['GalleryService'] = 'gallery'
-    entries = (('network', 'ReleaseNetworkSmoke.swift', ['ReleaseNetworkSmokeRunner'], 'run'),
-        ('community-writes', 'CommunityWriteSmoke.swift', ['CommunityWriteSmoke', 'Operations'], 'production'))
+    entries = (('network', 'BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift', ['ReleaseNetworkSmokeRunner'], 'run'),
+        ('community-writes', 'BIT101-iOS/Shared/Client/CommunityWriteSmoke.swift', ['CommunityWriteSmoke', 'Operations'], 'production'))
     for route, file, scope, entry in entries:
-        calls = [{'calledExpression': bindings[owner.split('.')[1]] + '.' + method.split('(')[0], 'argumentLabels': [p['label'] for p in signature_function(method, [])['parameters']], 'arguments': [p['type'] + '()' for p in signature_function(method, [])['parameters']], 'start': 10, 'scope': scope}
+        calls = [{'calledExpression': (owner.split('.')[1] if signature_function(method, [])['isStatic'] else bindings[owner.split('.')[1]])
+            + '.' + signature_function(method, [])['name'], 'argumentLabels': [p['label'] for p in signature_function(method, [])['parameters']],
+            'arguments': [p['type'] + '()' for p in signature_function(method, [])['parameters']], 'start': 10, 'scope': scope}
             for owner, methods in NETWORK_CAPABILITIES.items() for method, target in methods.items() if target == route]
         index[file] = {'functionRanges': [{'name': entry, 'scope': scope, 'start': 0, 'end': 100}], 'invocations': calls,
             'typedVariables': [{'name': bindings[owner.split('.')[1]], 'type': owner, 'scope': scope, 'start': 0}
                 for owner in NETWORK_CAPABILITIES]}
-    index['ReleaseNetworkSmoke.swift']['invocations'].append({'calledExpression': 'CommunityWriteSmoke.Operations.production', 'start': 10, 'scope': ['ReleaseNetworkSmokeRunner']})
+    index['BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift']['invocations'].append({'calledExpression': 'CommunityWriteSmoke.Operations.production', 'start': 10, 'scope': ['ReleaseNetworkSmokeRunner']})
     assert network_capability_findings(index) == []
     with patch.dict(MANUAL_CAPABILITY_SCENARIOS['BIT101-iOS.NetworkDiagnosisRunner'], {}, clear=True):
         assert any('逐方法登记' in error for error in network_capability_findings(index))
@@ -33,26 +36,26 @@ def network_capability_self_test() -> None:
         assert any('有效验收场景' in error for error in network_capability_findings(index))
     from copy import deepcopy
     unbound = deepcopy(index)
-    unbound['ReleaseNetworkSmoke.swift']['typedVariables'] = []
+    unbound['BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift']['typedVariables'] = []
     assert any('实际服务调用' in error for error in network_capability_findings(unbound))
     renamed = deepcopy(index)
-    for facts in (renamed['ReleaseNetworkSmoke.swift'], renamed['CommunityWriteSmoke.swift']):
+    for facts in (renamed['BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift'], renamed['BIT101-iOS/Shared/Client/CommunityWriteSmoke.swift']):
         for variable in facts['typedVariables']:
             if variable['name'] == 'gallery': variable['name'] = 'feedClient'
         for call in facts['invocations']:
             call['calledExpression'] = call['calledExpression'].replace('gallery.', 'feedClient.')
     assert not network_capability_findings(renamed)
     unused = deepcopy(index)
-    unused['ReleaseNetworkSmoke.swift']['functionRanges'][0]['scope'] = ['UnusedHelper']
+    unused['BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift']['functionRanges'][0]['scope'] = ['UnusedHelper']
     assert any('实际服务调用' in error for error in network_capability_findings(unused))
     nested = deepcopy(index)
-    nested['ReleaseNetworkSmoke.swift']['functionRanges'].append({'name': 'unused', 'scope': ['ReleaseNetworkSmokeRunner'], 'start': 5, 'end': 20})
+    nested['BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift']['functionRanges'].append({'name': 'unused', 'scope': ['ReleaseNetworkSmokeRunner'], 'start': 5, 'end': 20})
     assert any('实际服务调用' in error for error in network_capability_findings(nested))
     queued = deepcopy(index)
-    queued['ReleaseNetworkSmoke.swift']['callableRanges'] = [{'name': 'queued', 'scope': ['ReleaseNetworkSmokeRunner'], 'start': 5, 'end': 20}]
+    queued['BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift']['callableRanges'] = [{'name': 'queued', 'scope': ['ReleaseNetworkSmokeRunner'], 'start': 5, 'end': 20}]
     assert any('实际服务调用' in error for error in network_capability_findings(queued))
     invocation = {'calledExpression': 'runInParallel', 'start': 30, 'arguments': ['queued'], 'scope': ['ReleaseNetworkSmokeRunner']}
-    queued['ReleaseNetworkSmoke.swift']['invocations'].append(invocation)
+    queued['BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift']['invocations'].append(invocation)
     assert not network_capability_findings(queued)
     invocation['calledExpression'] = 'storeCallback'
     assert any('实际服务调用' in error for error in network_capability_findings(queued))
@@ -468,6 +471,30 @@ struct NewService {{ private let paper{annotation} = {initializer}; func fetch(i
         facts = swift_syntax_index_sources({utility_path: source, transport_path: transport})
         assert ('ClientCore.Parser' in business_methods(facts)) == expected, call
     from network_capability_rules import matching_api_calls
+    for expression, expected in [('Service.fetch()', True), ('Service().fetch()', False),
+            ('instance.fetch()', False), ('metatype.fetch()', True), ('Alias.fetch()', True)]:
+        path = 'Modules/GalleryFeature/Sources/Service.swift'
+        index = swift_syntax_index_sources({path: '''typealias Alias = Service
+            public struct Service { let client: HTTPClient; public static func fetch() -> Int { 1 }; public func fetch() -> Int { 2 } }
+            func smoke(instance: Service, metatype: Service.Type) { let _ = ''' + expression + ' }'})
+        functions = [(path, row) for row in index[path]['functionRanges'] if row['name'] == 'fetch']
+        call = next(row for row in index[path]['invocations'] if row['calledExpression'].endswith('.fetch'))
+        matches = matching_api_calls(index, functions, dict(call, path=path))
+        assert len(matches) == 1 and matches[0][1]['isStatic'] == expected, expression
+        assert {method_signature(row) for _, row in functions} == {'fetch()', 'static fetch()'}
+    for body, expected in [('let value: Int = Service().fetch()', 'Int'),
+            ('let value: String = Service().fetch()', 'String'), ('return Service().fetch()', 'Int'),
+            ('let _ = Service().fetch()', None)]:
+        path = 'Modules/GalleryFeature/Sources/Service.swift'
+        index = swift_syntax_index_sources({path: '''public struct Service { let client: HTTPClient
+            public func fetch() -> Int { 1 }; public func fetch() -> String { "value" } }
+            func smoke() -> Int { ''' + body + ' }'})
+        methods = business_methods(index)
+        functions = methods['GalleryFeature.Service']
+        assert {method_signature(row) for _, row in functions} == {'fetch()->Int', 'fetch()->String'}
+        call = next(row for row in index[path]['invocations'] if row['calledExpression'].endswith('.fetch'))
+        matches = matching_api_calls(index, functions, dict(call, path=path))
+        assert ([row['returnType'] for _, row in matches] == [expected]) if expected else not matches, body
     for declarations, alternatives, argument, expected in [
         ('protocol Port {}; struct Concrete: Port {}', ['Port', 'Int'], 'Concrete()', 'Port'),
         ('protocol Port {}; struct Concrete: Port {}', ['Port', 'Concrete'], 'Concrete()', 'Concrete'),

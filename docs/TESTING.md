@@ -354,7 +354,7 @@ iOS 的 `checks` 包含 `cold-start-session`、`offline-persistence`、`media-an
 
 fork PR 的常规 Job 使用 GitHub 托管的 `xcode-27` 镜像，每项任务沿独立托管环境运行；[官方镜像公告](https://github.com/actions/runner-images/issues/14404)说明工具链与镜像标签。仓库内分支与维护者手动审查任务使用 `bit101-ci` macOS 宿主，复用固定工作区、公共编译缓存与增量产物；手动审查提交核对先于依赖安装。运行器选择按事件及 PR 来源仓库同时判定，静态审计逐项核对五个常规 Job 的选择条件。`bit101-device` 标签归属真机专用宿主，设备连接及 GitHub、Cloudflare、Apple 授权保存在该宿主。自托管工具链标签统一登记为 `bit101-xcode-27`，托管镜像标签 `xcode-27` 归属 GitHub 托管宿主；部署时按这两类标签归属配置运行器。角色、标签与设备授权沿 [GitHub 自托管运行器文档](https://docs.github.com/en/actions/how-tos/manage-runners/self-hosted-runners/use-in-a-workflow) 和本项目真机流程配置。
 
-完整模块与 iOS 行为组按每模块的整数百分比维护覆盖率基准。`Scripts/validation_policy.py` 保存版本化的 macOS 与 iOS 阈值；完整验收提高覆盖率后同步提高相应阈值并提交评审。PR 的静态与真机 Job 通过 `ci_evidence.py baseline` 从目标提交读取这两组字典，以 Python AST 字面量解析并核对阈值，再由 `validation_evidence.py baseline` 载入。基准随 Git 提交长期保存，读取过程独立于历史工作流、真机状态和产物保留期。筛选复验在统一 JSON 内保留 `lastFullRun`；完整运行按当前版本与目标提交阈值中的较高值验收。新宿主与复用缓存的宿主采用同一版本化门禁。UI 的 Feature 与 UI 模块同样核对目标提交的 iOS 阈值。
+完整模块与 iOS 行为组按每模块的整数百分比维护最低覆盖率。`Scripts/validation_policy.py` 保存版本化的 macOS 与 iOS 阈值；完整验收提高覆盖率后同步提高相应阈值并提交评审；门禁比较版本化的最低覆盖率，阈值更新由评审批准。PR 的静态与真机 Job 通过 `ci_evidence.py baseline` 从目标提交读取这两组字典，以 Python AST 字面量解析并核对阈值，再由 `validation_evidence.py baseline` 载入。基准随 Git 提交长期保存，读取过程独立于历史工作流、真机状态和产物保留期。筛选复验在统一 JSON 内保留 `lastFullRun`；完整运行按当前版本与目标提交阈值中的较高值验收。新宿主与复用缓存的宿主采用同一版本化门禁。UI 的 Feature 与 UI 模块同样核对目标提交的 iOS 阈值。
 
 发布证据完成完整验收并执行 `python3 Scripts/validation_evidence.py bind` 后，通过 `python3 Scripts/ci_evidence.py publish v公开版本号` 生成并上传公开回执。固定本地路径与 Release 附件名为 `.build/extended-automation/release-receipt.json` 和 `release-receipt.json`。回执保存版本标签、提交、各组源码摘要、工具链、完整验收状态、原始摘要 SHA-256 与采样时间；截图、视频、邮箱、邮件正文、存储报告及设备身份保存在本地完整报告。发布命令先沿原始报告核对全部验收，再生成回执。发布 CI 下载同一标签的回执，沿 `ci_evidence.py check-release` 核对源码、工具链、全部组及采样有效期；回执表示维护者已完成完整验收的公开确认，发布资产写入权限属于该信任边界。`summaryDigest` 为本地原始摘要的比对标识，复核实际执行来源时读取维护者保留的完整报告及所属 XCTest 结果包；下载后的 CI 沿公开声明验收源码、工具链和采样有效期。详细附件沿明确授权在本地审阅。手动 `release_check` 同时填写 `validation_tag`，标签需要指向当前验收提交。发布资产按可分享的回执范围审阅，上传沿用户明确授权执行。
 
@@ -388,7 +388,7 @@ fork PR 的常规 Job 使用 GitHub 托管的 `xcode-27` 镜像，每项任务�
 
 编辑器系统关闭沿 `check_composer_lifecycle` 识别评论编辑组件的异步提交合同及稳定编辑器标识，核对渲染作用域中的保护入口；等价计算属性与 View 重命名保留这一登记。视觉规则从每个 invocation 自身的被调用表达式读取参数，下标访问与嵌套调用共同参与回归。保护状态的业务语义沿行为测试核对；公共组件复用门禁统计生产 View 的渲染作用域，组件调用数量表示源码复用范围。UI 生命周期用例独立验证下拉关闭与后台返回，控件交互库存继续核对已挂载控件。评论发送期间锁定输入、匿名、评分与关闭操作，服务端成功后客户端取消的交错由模型合同验收。
 
-调用关联从 smoke 的 `run` 入口沿默认依赖回调、显式操作工厂及并行探针调度继续追踪，编译分支采用实际网络宿主条件。闲置函数和闭包形成独立调用节点；公开网络能力采用方法名称、参数标签及参数类型组成的签名，重载调用沿标签与实参类型解析。话廊关注、推荐、最新、热门与机器人分栏共同参与能力审计。 静态调用分析支持仓库采用的显式方法调用、协议实现关联、私有辅助方法及实际执行的 Task 闭包；Swift 类型、泛型与并发语义沿编译器和所属宿主行为合同验收。包依赖归 `Package.swift`，宿主与平台阈值归 `validation_policy.py`，能力归属归 `validation_test_areas.py`，请求参数归 `network_request_contracts.py`，UI 库存归对应 UI 清单；审计检查这些职责之间的引用和实际执行。CI 门禁围绕项目入口、参数、来源及失败传播核对工作流，流程改动同步更新所属规则及边界回归。
+调用关联从 smoke 的 `run` 入口沿默认依赖回调、显式操作工厂及并行探针调度继续追踪，编译分支采用实际网络宿主条件。闲置函数和闭包形成独立调用节点；公开网络能力采用方法名称、参数标签及参数类型组成的签名，静态方法保留类型级身份，返回类型重载附加返回类型；重载调用沿接收者、标签、实参类型和显式返回上下文解析。话廊关注、推荐、最新、热门与机器人分栏共同参与能力审计。 静态调用分析支持仓库采用的显式方法调用、协议实现关联、私有辅助方法及实际执行的 Task 闭包；Swift 类型、泛型与并发语义沿编译器和所属宿主行为合同验收。包依赖归 `Package.swift`，宿主与平台阈值归 `validation_policy.py`，能力归属归 `validation_test_areas.py`，请求参数归 `network_request_contracts.py`，UI 库存归对应 UI 清单；审计检查这些职责之间的引用和实际执行。CI 门禁围绕项目入口、参数、来源及失败传播核对工作流，流程改动同步更新所属规则及边界回归。
 
 共享预览目录的媒体环境共同接收同一 `MediaPreviewStorage`，文件创建、所有权登记、清理和关闭消费同一协调器。回归合同覆盖创建期间的后台清理，以及不同环境启动清理和关闭预览时保留其他活动消费者。
 

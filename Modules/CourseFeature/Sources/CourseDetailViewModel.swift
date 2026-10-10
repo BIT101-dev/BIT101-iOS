@@ -1,5 +1,6 @@
 import TransportCore
 import CommunityCore
+import CommunityTransport
 import DesignSystemKit
 import Combine
 import Foundation
@@ -88,6 +89,7 @@ final class CourseDetailViewModel: ObservableObject {
     @Published private(set) var historyGradesAllowsDiagnostics = true
     @Published private(set) var likingCommentIDs: Set<Int> = []
     @Published private(set) var isSubmittingComment = false
+    private var commentResultNeedsReview = false
     @Published var alert: AppAlert?
 
     let initialCourse: CourseSummary
@@ -338,6 +340,10 @@ final class CourseDetailViewModel: ObservableObject {
             return false
         }
         guard !isSubmittingComment else { return false }
+        guard !commentResultNeedsReview else {
+            alert = AppAlert(title: "发送结果待确认", message: CommunityCreateOutcomeUnknown.reviewMessage)
+            return false
+        }
         if case .course = target, !(1 ... 10).contains(rate ?? 0) {
             alert = AppAlert.userInput(title: "请选择评分", message: "课程评价需要选择 0.5 至 5 星评分。")
             return false
@@ -356,11 +362,14 @@ final class CourseDetailViewModel: ObservableObject {
                 anonymous: anonymous,
                 rate: rate
             )
-            try Task.checkCancellation()
             await refresh()
-            try Task.checkCancellation()
             return true
         } catch {
+            if error is CommunityCreateOutcomeUnknown {
+                commentResultNeedsReview = true
+                alert = AppAlert(title: "发送结果待确认", message: error.localizedDescription)
+                return false
+            }
             if Task.isCancelled || isCourseDetailCancellation(error) { return false }
             alert = AppAlert(title: "发送失败", message: error.localizedDescription)
             return false

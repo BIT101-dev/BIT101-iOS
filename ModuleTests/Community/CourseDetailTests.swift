@@ -1,7 +1,9 @@
 import BIT101TestSupport
 import CommunityCore
+import CommunityTransport
 import Foundation
 import Testing
+import TransportCore
 @testable import CourseFeature
 
 @MainActor
@@ -49,6 +51,8 @@ struct CourseDetailTests {
         var commentRequests: [Int?] = []
         var likedObjects: [String] = []
         var submitted: (String, String, String?, Int?, Bool, Int?)?
+        var submissionError: (any Error)?
+        var submissionCount = 0
         var firstDetailGate: Gate?
         var commentGate: Gate?
         var commentReadGate: Gate?
@@ -83,8 +87,11 @@ struct CourseDetailTests {
             return CommunityLikeResult(like: true, likeNum: 9)
         }
         func createComment(objectID: String, text: String, replyObjectID: String?, replyUID: Int?, anonymous: Bool, rate: Int?) async throws -> CommunityComment {
+            submissionCount += 1
             submitted = (objectID, text, replyObjectID, replyUID, anonymous, rate)
             if let gate = commentGate { commentGate = nil; await gate.pause() }
+            try Task.checkCancellation()
+            if let submissionError { throw submissionError }
             return CourseDetailTests.comment(9)
         }
     }
@@ -99,6 +106,16 @@ struct CourseDetailTests {
     private func model(_ service: Service) -> CourseDetailViewModel {
         CourseDetailViewModel(initialCourse: CourseSummary(detail: Self.detail), service: service,
             loadCourseCredits: { [CommunityCourseCredit(number: "CS101", name: "操作系统", credit: 4)] })
+    }
+
+    @Test func uncertainCommentStopsAnotherSubmissionWhileItsResultNeedsReview() async {
+        let service = Service()
+        service.submissionError = CommunityCreateOutcomeUnknown(underlying: URLError(.networkConnectionLost))
+        let viewModel = model(service)
+        #expect(await viewModel.submitComment(text: "评论", anonymous: false, rate: 6, target: .course(courseID: 42)) == false)
+        service.submissionError = nil
+        #expect(await viewModel.submitComment(text: "评论", anonymous: false, rate: 6, target: .course(courseID: 42)) == false)
+        #expect(service.submissionCount == 1 && viewModel.alert?.title == "发送结果待确认")
     }
 
     @Test func cancelledCommentSubmissionRetainsTheNewEditorAndAllowsRetry() async {

@@ -193,6 +193,52 @@ struct ExtendedLoginTests {
 @MainActor
 @Suite(.serialized)
 struct LoginStorageTests {
+    private final class EndpointResponses: HTTPTransport {
+        let scenario: String
+        init(_ scenario: String) { self.scenario = scenario }
+        func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+            if scenario == "cancelled" { throw CancellationError() }
+            if scenario == "timeout" { throw URLError(.timedOut) }
+            let requested = try #require(request.url)
+            let target = scenario == "path" ? URL(string: "https://bit101.flwfdd.xyz/login")
+                : scenario == "host" ? URL(string: "https://example.invalid/user/check")
+                : scenario == "query" ? URL(string: requested.absoluteString + "?maintenance=1") : requested
+            let targetURL = try #require(target)
+            return (Data(), try #require(HTTPURLResponse(url: targetURL,
+                statusCode: scenario == "revoked" ? 401 : 200, httpVersion: nil, headerFields: nil)))
+        }
+    }
+
+    @Test(arguments: ["valid", "revoked", "path", "host", "query"])
+    func communityLoginValidationRequiresItsBusinessEndpoint(scenario: String) async throws {
+        let client = BIT101APIClient(httpClient: HTTPClient(transport: EndpointResponses(scenario), observer: nil))
+        if scenario == "valid" || scenario == "revoked" {
+            #expect(try await client.checkBIT101Login(fakeCookie: "fixture") == (scenario == "valid"))
+        } else {
+            do {
+                _ = try await client.checkBIT101Login(fakeCookie: "fixture")
+                Issue.record("Login requires the requested business endpoint")
+            } catch {
+                guard case LoginServiceError.invalidServerResponse = error else {
+                    Issue.record("Expected invalid business response: \(error)")
+                    return
+                }
+            }
+        }
+    }
+
+    @Test(arguments: ["cancelled", "timeout"])
+    func decoratedLoginErrorsPreserveCancellationAndTheirUnderlyingCause(scenario: String) async {
+        let client = BIT101APIClient(httpClient: HTTPClient(transport: EndpointResponses(scenario), observer: nil))
+        do { _ = try await client.checkBIT101Login(fakeCookie: "fixture"); Issue.record("故障请求需要传播错误") }
+        catch {
+            #expect(TaskCancellation.matches(error) == (scenario == "cancelled"))
+            if scenario == "timeout" {
+                let cause = (error as NSError).userInfo[NSUnderlyingErrorKey] as? NSError
+                #expect(cause?.domain == NSURLErrorDomain && cause?.code == URLError.timedOut.rawValue)
+            }
+        }
+    }
     private final class Credentials: LoginCredentialsStoring {
         var values: [String: String] = [:]
         var failsWrites = false

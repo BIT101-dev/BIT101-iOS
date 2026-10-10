@@ -306,9 +306,12 @@ actor ScoreCacheDiskRepository {
 
     private func readFile(for session: AppStorageSession) -> ExistingFileResult {
         let url = fileURL(for: session)
-        guard files.fileExists(at: url) else {
+        let result = readFile(at: url)
+        switch result {
+        case .loaded, .unreadable: return result
+        case .missing:
             let legacyURL = legacyFileURL(for: session)
-            guard legacyURL != url, files.fileExists(at: legacyURL) else { return .missing }
+            guard legacyURL != url else { return .missing }
             let legacyResult = readFile(at: legacyURL)
             guard case .loaded(let stored) = legacyResult else { return legacyResult }
             do {
@@ -319,18 +322,18 @@ actor ScoreCacheDiskRepository {
             }
             return .loaded(stored)
         }
-        return readFile(at: url)
     }
 
     private func readFile(at url: URL) -> ExistingFileResult {
         try? files.setPrivateFileProtection(at: url)
-        guard let data = try? files.readData(at: url, maximumBytes: ScoreCacheStore.maximumCacheBytes),
-              let stored = try? decodeStoredData(data)
-        else {
+        do {
+            let data = try files.readData(at: url, maximumBytes: ScoreCacheStore.maximumCacheBytes)
+            return .loaded(try decodeStoredData(data))
+        } catch {
+            if AppFileSystem.isMissingFile(error) { return .missing }
             Self.logger.error("成绩缓存无法读取，保留原文件：\(url.lastPathComponent, privacy: .public)")
             return .unreadable
         }
-        return .loaded(stored)
     }
 
     private func decodeStoredData(_ data: Data) throws -> DiskSnapshot {
@@ -386,7 +389,7 @@ actor ScoreCacheDiskRepository {
 
     private func removeLegacyFile(for session: AppStorageSession) {
         let url = legacyFileURL(for: session)
-        guard url != fileURL(for: session), files.fileExists(at: url),
+        guard url != fileURL(for: session),
               let data = try? files.readData(at: url),
               (try? decodeStoredData(data)) != nil
         else { return }

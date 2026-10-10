@@ -537,11 +537,14 @@ struct ScheduleSharedStoreTests {
         }
         try store.write(value(2))
         let url = try #require(store.fileURL), original = files.storedData[url]
-        files.setFailures(reading: true)
+        files.setFailures(reading: true, existence: true)
         #expect(store.load() == nil)
         #expect(throws: CocoaError(.fileReadNoPermission)) { try store.read() }
         #expect(ScheduleOccurrenceResolver.loadResolvedSnapshot(store: store).contentState == .unavailable)
         #expect(throws: CocoaError(.fileReadNoPermission)) { try store.writeIfNewer(value(1)) }
+        #expect(files.storedData[url] == original)
+        files.setFailures(removal: true, existence: true)
+        #expect(!store.clear())
         #expect(files.storedData[url] == original)
         files.setFailures()
         #expect(throws: ScheduleExternalSnapshotStoreError.staleSnapshot) { try store.writeIfNewer(value(1)) }

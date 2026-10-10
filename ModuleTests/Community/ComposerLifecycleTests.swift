@@ -76,6 +76,7 @@ struct ComposerLifecycleTests {
         var claims = [CommunityClaim(id: 3, text: "声明"), CommunityClaim(id: 0, text: "无声明")]
         var failsClaims = false
         var failsSubmission = false
+        var unknownSubmission = false
         var uploadFailures = 0
         var claimsCount = 0
         var uploads: [Data] = []
@@ -112,6 +113,7 @@ struct ComposerLifecycleTests {
             submissionGate = nil
             await gate?.pause()
             if failsSubmission { throw URLError(.notConnectedToInternet) }
+            if unknownSubmission { throw CommunityCreateOutcomeUnknown(underlying: URLError(.networkConnectionLost)) }
         }
     }
 
@@ -295,6 +297,19 @@ struct ComposerLifecycleTests {
         service.failsSubmission = false
         #expect(await viewModel.submit())
         #expect(service.submissions.count == 2)
+    }
+
+    @Test func uncertainCreationPreservesItsDraftAndStopsAnotherSubmission() async {
+        let service = Service()
+        service.unknownSubmission = true
+        let drafts = Drafts()
+        let viewModel = model(service, drafts: drafts)
+        valid(viewModel)
+        #expect(await viewModel.submit() == false)
+        service.unknownSubmission = false
+        #expect(await viewModel.submit() == false)
+        #expect(service.submissions.count == 1 && drafts.cleanupCount == 0)
+        #expect(viewModel.alert?.title == "发布结果待确认" && !viewModel.isSubmitting)
     }
 
     @Test func imageFailuresAreRetryableAndTheLimitIncludesExistingImages() async {

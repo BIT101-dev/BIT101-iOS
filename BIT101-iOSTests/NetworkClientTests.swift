@@ -591,6 +591,11 @@ struct NetworkClientTests {
     func secureSchoolURLResolution() throws {
         let insecure = try #require(URL(string: "http://example.com/path?q=1"))
         #expect(HTTPSURLUpgrade.upgradedURL(from: insecure).absoluteString == "https://example.com/path?q=1")
+        for (source, expected) in [("http://example.com:80/path?q=1", "https://example.com/path?q=1"),
+                ("http://example.com:8080/path", "https://example.com:8080/path"),
+                ("https://example.com:80/path", "https://example.com:80/path")] {
+            #expect(HTTPSURLUpgrade.upgradedURLString(from: source) == expected)
+        }
 
         let login = try #require(URL(string: "https://sso.bit.edu.cn/cas/login"))
         #expect(

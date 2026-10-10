@@ -11,6 +11,27 @@ import Testing
 
 @MainActor
 struct SchedulePersistenceTests {
+    @Test func inaccessibleExistencePreservesTheScheduleAndReportsFailedCleanup() async throws {
+        let files = ModuleScoreFiles(), account = AppStorageSession(accountIdentifier: "protected-schedule")
+        let store = SchedulePersistenceStore(files: files, storageRoot: URL(fileURLWithPath: "/protected-schedule"),
+            userStateMatches: { $0.primaryScheduleTitle == $1.primaryScheduleTitle })
+        let cache = ScheduleCache(), url = store.cacheFileURL(for: account.accountStorageIdentifier)
+        #expect(await store.write(cache, accountIdentifier: account.accountStorageIdentifier,
+            legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) != nil)
+        let original = try files.readData(at: url)
+        files.setFailures(reading: true, existence: true)
+        #expect(!files.fileExists(at: url))
+        #expect(await store.load(for: account).isUnreadable)
+        #expect(await store.write(cache, accountIdentifier: account.accountStorageIdentifier,
+            legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) == nil)
+        files.setFailures(removal: true, existence: true)
+        #expect(await store.clear(urls: [url]) == false)
+        #expect(files.storedData[url] == original)
+        files.setFailures()
+        #expect(await store.load(for: account).cacheIfReadable != nil)
+        #expect(await store.clear(urls: [url]))
+        #expect(await store.load(for: account).isUnreadable == false)
+    }
     @Test func localFilesRejectNetworkReadAddresses() throws {
         let files = LocalAppFileService()
         let url = try #require(URL(string: "https://example.invalid/probe"))

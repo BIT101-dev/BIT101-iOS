@@ -23,6 +23,7 @@ public enum HTTPSURLUpgrade {
         guard url.scheme?.lowercased() == "http" else { return url }
         var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
         components?.scheme = "https"
+        if components?.port == 80 { components?.port = nil }
         return components?.url ?? url
     }
 

@@ -14,17 +14,19 @@ package nonisolated final class ModuleScoreFiles: AppFileService, Sendable {
         var directories: Set<URL> = []
         var failsWriting = false
         var failsReading = false
+        var hidesExistence = false
         var failsRemoval = false
         var options: [URL: Data.WritingOptions] = [:]
         var reads: [URL: Int] = [:]
         var revisions: [URL: UInt64] = [:]
         var revision: UInt64 = 0
     }
-    package func setFailures(writing: Bool = false, removal: Bool = false, reading: Bool = false) {
+    package func setFailures(writing: Bool = false, removal: Bool = false, reading: Bool = false, existence: Bool = false) {
         return state.withLock { state in
             state.failsWriting = writing
             state.failsRemoval = removal
             state.failsReading = reading
+            state.hidesExistence = existence
         }
     }
     package var storedData: [URL: Data] { state.withLock { $0.data } }
@@ -39,7 +41,7 @@ package nonisolated final class ModuleScoreFiles: AppFileService, Sendable {
     package func appGroupContainerURL(identifier: String) -> URL? { temporaryDirectoryURL }
     package func fileExists(at url: URL) -> Bool {
         return state.withLock { state in
-            return state.data[url] != nil || state.directories.contains { $0.path == url.path }
+            return !state.hidesExistence && (state.data[url] != nil || state.directories.contains { $0.path == url.path })
         }
     }
     package func readData(at url: URL) throws -> Data {
@@ -93,7 +95,7 @@ package nonisolated final class ModuleScoreFiles: AppFileService, Sendable {
     }
     package func regularFileSize(at url: URL) -> Int? {
         return state.withLock { state in
-            return state.data[url]?.count
+            return state.hidesExistence ? nil : state.data[url]?.count
         }
     }
     package func isRegularFile(at url: URL) -> Bool { regularFileSize(at: url) != nil }
