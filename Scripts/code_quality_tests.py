@@ -1,6 +1,6 @@
 """Executable checks for workflow dispatch, cache ownership and audit rules."""
 from __future__ import annotations
-from script_command_tests import script_command_boundary_findings
+from script_command_tests import script_command_boundary_findings, audit_lock_boundary_findings
 from worker_contract_tests import worker_boundary_findings
 from report_inbox_tests import report_inbox_boundary_findings
 
@@ -337,7 +337,7 @@ def script_output_boundary_findings() -> list[str]:
     finally:
         fixture.unlink(missing_ok=True)
     for check in (build_cache_boundary_findings, script_command_boundary_findings, workflow_lock_boundary_findings,
-                  worker_boundary_findings, report_inbox_boundary_findings, explanatory_text_boundary_findings, school_lifecycle_boundary_findings):
+                  audit_lock_boundary_findings, worker_boundary_findings, report_inbox_boundary_findings, explanatory_text_boundary_findings, school_lifecycle_boundary_findings):
         findings.extend(check())
     support = (SCRIPT_ROOT / "script-support.sh").read_text()
     routing = subprocess.run(["zsh", "-c", support + r'''

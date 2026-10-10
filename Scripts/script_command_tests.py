@@ -14,6 +14,78 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_ROOT = ROOT / "Scripts"
 
+def audit_lock_boundary_findings() -> list[str]:
+    "并发验收沿产物锁、审计锁顺序执行，并复用父流程锁。"
+    import fcntl
+    import select
+    import shlex
+    fixture = ROOT / '.build/static-audit/workflow-lock-self-test'
+    worker = fixture / 'worker.sh'
+    processes, findings = [], []
+    environment = dict(os.environ)
+    for name in ('BIT101_EXTENDED_TESTS_LOCK_HELD', 'BIT101_STATIC_AUDIT_LOCK_HELD', 'BIT101_WORKFLOW_DEADLINE'):
+        environment.pop(name, None)
+    shell = (SCRIPT_ROOT / 'run-static-audit.sh').read_text().split('LOG_DIR=', 1)[0]
+    shell = re.sub(r'(?m)^ROOT_DIR=.*$', 'ROOT_DIR=' + shlex.quote(str(fixture)), shell)
+    shell = shell.replace('source "$ROOT_DIR/Scripts/script-support.sh"', 'source ' + shlex.quote(str(SCRIPT_ROOT / 'script-support.sh')))
+    manifest = f'''import fcntl, os, runpy, sys
+from pathlib import Path
+from unittest.mock import patch
+from types import SimpleNamespace
+sys.path.insert(0, {str(SCRIPT_ROOT)!r})
+import code_quality_rules as quality
+quality.ROOT = Path({str(fixture)!r})
+rules = runpy.run_path({str(SCRIPT_ROOT / 'check-module-boundaries.py')!r})
+original = fcntl.flock
+def observe(lock, operation):
+    if getattr(lock, 'name', '').endswith('extended-automation.lock'):
+        print('artifact', flush=True)
+    return original(lock, operation)
+fcntl.flock = observe
+def manifest():
+    with patch('subprocess.run', return_value=SimpleNamespace(returncode=0, stdout='{{}}')):
+        rules['read_manifest'](quality.ROOT)
+if sys.argv[1] == 'direct':
+    before = dict(os.environ)
+    with quality.static_audit_lock(): manifest()
+    assert dict(os.environ) == before
+else: manifest()
+print('entered', flush=True)
+'''
+    command = shlex.quote(sys.executable) + ' -B -c ' + shlex.quote(manifest)
+    try:
+        shutil.rmtree(fixture, ignore_errors=True)
+        fixture.mkdir(parents=True)
+        (fixture / '.build/static-audit').mkdir(parents=True)
+        worker.write_text('if [[ "$1" == direct ]]; then exec ' + command + ' direct; fi\n' + shell + '\n' + command + ' shell\n')
+        for mode in ('shell', 'direct'):
+            with (fixture / '.build/extended-automation.lock').open('a') as artifact:
+                fcntl.flock(artifact, fcntl.LOCK_EX)
+                standalone = subprocess.Popen(['zsh', str(worker), mode], env=environment,
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                processes.append(standalone)
+                if not select.select([standalone.stdout], [], [], 5)[0]: raise ValueError('并发审计开始等待产物锁')
+                progress = standalone.stdout.readline().strip()
+                if progress != 'artifact' and not progress.startswith('[等待]'): raise ValueError(progress)
+                with (fixture / '.build/static-audit/audit.lock').open('a') as audit:
+                    fcntl.flock(audit, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    fcntl.flock(audit, fcntl.LOCK_UN)
+                inherited = subprocess.run(['zsh', str(worker), 'shell'], capture_output=True, text=True, timeout=5,
+                    env=dict(environment, BIT101_EXTENDED_TESTS_LOCK_HELD='1'))
+                if inherited.returncode or inherited.stdout.strip() != 'entered': raise ValueError(inherited.stderr)
+                fcntl.flock(artifact, fcntl.LOCK_UN)
+            output, error = standalone.communicate(timeout=5)
+            if standalone.returncode or output.strip() != 'entered': raise ValueError(error)
+    except (ValueError, OSError, subprocess.TimeoutExpired) as error:
+        findings.append(f'审计锁顺序自测：{error}')
+    finally:
+        for process in processes:
+            if process.poll() is None:
+                process.terminate()
+                process.communicate(timeout=5)
+        shutil.rmtree(fixture, ignore_errors=True)
+    return findings
+
 def script_command_boundary_findings() -> list[str]:
     "通过内存替身验证自动选机、操作分派、筛选合并及参数拒绝。"
     import shlex

@@ -12,7 +12,7 @@ import stat
 import subprocess
 import sys
 from swift_source_index import declaration_conformances, expected_argument_types, scope_contains_type, swift_syntax_index, swift_code
-from contextlib import contextmanager
+from contextlib import contextmanager, ExitStack
 from ui_source_facts import explanatory_text_report
 
 sys.dont_write_bytecode = True
@@ -43,13 +43,21 @@ STDOUT_EXCEPTIONS = {"BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift"}
 
 @contextmanager
 def static_audit_lock():
-    if os.environ.get("BIT101_STATIC_AUDIT_LOCK_HELD") == "1":
-        yield
-        return
-    path = ROOT / ".build/static-audit/audit.lock"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+    flags = ('BIT101_EXTENDED_TESTS_LOCK_HELD', 'BIT101_STATIC_AUDIT_LOCK_HELD')
+    previous = {flag: os.environ.get(flag) for flag in flags}
+    def restore():
+        for flag, value in previous.items():
+            if value is None: os.environ.pop(flag, None)
+            else: os.environ[flag] = value
+    with ExitStack() as locks:
+        locks.callback(restore)
+        for name, flag in zip(('.build/extended-automation.lock', '.build/static-audit/audit.lock'), flags):
+            if os.environ.get(flag) == '1': continue
+            path = ROOT / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            lock = locks.enter_context(path.open('a'))
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            os.environ[flag] = '1'
         yield
 
 
