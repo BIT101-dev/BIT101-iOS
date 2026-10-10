@@ -226,7 +226,7 @@ enum AppLocalDataComposition {
             clearPreferences: { AppFileDirectories.defaults.removePersistentDomain(forName: AppFileDirectories.defaultsDomain) },
             clearURLCache: {}, clearWebData: {},
             clearMedia: { await media.clearCaches() }, resetSettings: { settings.resetToDefaults() }
-        ))
+        ), cacheDirectories: media.cacheDirectories)
 #else
         let defaults = AppFileDirectories.defaults
         let domain = AppFileDirectories.defaultsDomain
@@ -253,7 +253,7 @@ enum AppLocalDataComposition {
             },
             clearMedia: { await media.clearCaches() },
             resetSettings: { settings.resetToDefaults() }
-        ))
+        ), cacheDirectories: media.cacheDirectories)
 #endif
     }
 }

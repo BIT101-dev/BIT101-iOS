@@ -2,6 +2,7 @@
 	"name": "bit101-open",
 	"main": "worker.js",
 	"compatibility_date": "2026-08-31",
+	"rules": [{ "type": "Data", "globs": ["**/*.png"] }],
 	"routes": [
 		{
 			"pattern": "open.aihelpme.dev",

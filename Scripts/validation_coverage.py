@@ -2,9 +2,9 @@
 
 
 def policy_floors(group: str, policy: dict) -> dict[str, int]:
-    from validation_policy import MODULE_COVERAGE_FLOORS, IOS_MODULE_COVERAGE_FLOORS
+    from validation_policy import MODULE_COVERAGE_FLOORS, IOS_MODULE_COVERAGE_FLOORS, UI_PRODUCTION_MODULES
     current = MODULE_COVERAGE_FLOORS if group == 'modules' else IOS_MODULE_COVERAGE_FLOORS
-    if group == 'ui': current = {name: floor for name, floor in current.items() if name.endswith(('Feature', 'UI'))}
+    if group == 'ui': current = {name: current[name] for name in UI_PRODUCTION_MODULES}
     prefix = '' if group == 'modules' else 'iOS/'
     baseline_group = 'all' if group == 'ui' else group
     floors = {prefix + name: max(value, policy.get(baseline_group, {}).get(name, value)) for name, value in current.items()}
@@ -26,6 +26,10 @@ def self_test() -> None:
     assert policy_floors('ui', {'all': {'GalleryFeature': 40}})['iOS/GalleryFeature'] == 40
     assert policy_floors('ui', {'all': {'GalleryFeature': 1}})['iOS/GalleryFeature'] == 14
     assert 'iOS/StorageCore' not in policy_floors('ui', {'all': {'StorageCore': 90}})
+    for name in ('MediaKit', 'DesignSystemKit'):
+        floors = policy_floors('ui', {'all': {name: 90}})
+        assert floors['iOS/' + name] == 90
+        assert regressions({'iOS/' + name: {'coveredLines': 89, 'executableLines': 100}}, floors)
     assert regressions({'iOS/GalleryFeature': {'coveredLines': 39, 'executableLines': 100}},
         policy_floors('ui', {'all': {'GalleryFeature': 40}}))
     assert regressions({'Feature': {'coveredLines': 79, 'executableLines': 100}}, {'Feature': 80})

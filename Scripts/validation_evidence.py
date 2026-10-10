@@ -421,10 +421,8 @@ def successful_test_counts(summary: dict) -> bool:
 
 
 def coverage_complete(group: str, summary: dict) -> bool:
-    floors = MODULE_COVERAGE_FLOORS if group == "modules" else {
-        "BIT101-iOS.app": 35, **{"iOS/" + name: floor for name, floor in IOS_MODULE_COVERAGE_FLOORS.items()}
-    } if group == "all" else {"BIT101-iOS.app": 35, **{"iOS/" + name: floor
-        for name, floor in IOS_MODULE_COVERAGE_FLOORS.items() if name.endswith(("Feature", "UI"))}} if group == "ui" else {}
+    from validation_coverage import policy_floors
+    floors = policy_floors(group, {}) if group in {'modules', 'all', 'ui'} else {}
     if group == "modules" and {path.name for path in (ROOT / "Modules").iterdir() if path.is_dir()} \
             - {"ScheduleActivityContracts"} != set(floors):
         return False

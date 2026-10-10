@@ -119,6 +119,10 @@ def run_self_test(rules: dict) -> None:
     assert rules["coverage_registry_findings"](registered_modules) == []
     assert rules["coverage_registry_findings"](registered_modules | {"NewModule"})
     assert rules["coverage_registry_findings"](registered_modules - {"TransportCore"})
+    from validation_policy import UI_PRODUCTION_MODULES
+    assert rules["coverage_registry_findings"](registered_modules, set(UI_PRODUCTION_MODULES)) == []
+    assert rules["coverage_registry_findings"](registered_modules, set(UI_PRODUCTION_MODULES) - {'MediaKit'})
+    assert rules["coverage_registry_findings"](registered_modules, set(UI_PRODUCTION_MODULES) | {'StorageCore'})
 
     from unittest.mock import patch
     import json

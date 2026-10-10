@@ -8,7 +8,7 @@ import StorageCore
 import EventKit
 import Foundation
 
-enum ScheduleSystemCalendarTransaction {
+nonisolated enum ScheduleSystemCalendarTransaction {
     static func run<Value>(reset: () -> Void, operation: () throws -> Value) throws -> Value {
         do { return try operation() }
         catch { reset(); throw error }
@@ -32,14 +32,14 @@ nonisolated enum ScheduleSystemCalendarQuery {
 }
 
 /// 系统日历可识别的校园建筑坐标。
-nonisolated struct ScheduleSystemCalendarStructuredLocation: Equatable {
+nonisolated struct ScheduleSystemCalendarStructuredLocation: Equatable, Sendable {
     let title: String
     let latitude: Double
     let longitude: Double
 }
 
 /// 保存写入系统日历前的数据，支持独立于 EventKit 的日期计算验证。
-nonisolated struct ScheduleSystemCalendarEventDraft: Equatable {
+nonisolated struct ScheduleSystemCalendarEventDraft: Equatable, Sendable {
     let markerID: String
     let title: String
     let location: String
@@ -300,11 +300,10 @@ nonisolated enum ScheduleSystemCalendarEventMarker {
 ///
 /// 每条事件保存 EventKit identifier 和 `bit101://calendar-course/...` URL 标记。
 /// identifier 用于快速删除；URL 标记用于日历同步改变 identifier 后识别事件。
-@MainActor
-final class ScheduleSystemCalendarManager {
-    static let shared = ScheduleSystemCalendarManager()
+actor ScheduleSystemCalendarManager {
+    @MainActor static let shared = ScheduleSystemCalendarManager()
 
-    private struct ImportedBatch: Codable {
+    private nonisolated struct ImportedBatch: Codable {
         let term: String
         let calendarIdentifier: String
         let eventIdentifiers: [String]
@@ -318,23 +317,30 @@ final class ScheduleSystemCalendarManager {
 
     private let eventStore: EKEventStore
     private let defaults: UserDefaults
-    private let currentIdentity: () -> SchoolSessionIdentity
-    private let requestAccess: (() async throws -> Void)?
-    private var storageSession: AppStorageSession { AppStorageSession(accountIdentifier: currentIdentity().accountIdentifier) }
+    private let currentIdentity: @MainActor @Sendable () -> SchoolSessionIdentity
+    private let requestAccess: (@MainActor @Sendable () async throws -> Void)?
+    private var storageSession = AppStorageSession(accountIdentifier: "")
 
-    init(eventStore: EKEventStore = EKEventStore(), defaults: UserDefaults = AppFileDirectories.defaults,
-         currentIdentity: @escaping () -> SchoolSessionIdentity = { AppAccountSession.storage.schoolSessionIdentity },
-         requestAccess: (() async throws -> Void)? = nil) {
+    init(eventStore: sending EKEventStore = EKEventStore(), defaultsDomain: String? = nil,
+         currentIdentity: @escaping @MainActor @Sendable () -> SchoolSessionIdentity = { AppAccountSession.storage.schoolSessionIdentity },
+         requestAccess: (@MainActor @Sendable () async throws -> Void)? = nil) {
         self.eventStore = eventStore
-        self.defaults = defaults
+        self.defaults = AppFileDirectories.defaults(inDomain: defaultsDomain)
         self.currentIdentity = currentIdentity
         self.requestAccess = requestAccess
     }
 
-    func importDrafts(
+    @MainActor func importDrafts(
         _ drafts: [ScheduleSystemCalendarEventDraft],
         term: String,
         replacingTerm: Bool = false
+    ) async throws -> Int {
+        try await performImportDrafts(drafts, term: term, replacingTerm: replacingTerm, owner: currentIdentity())
+    }
+
+    private func performImportDrafts(
+        _ drafts: [ScheduleSystemCalendarEventDraft], term: String,
+        replacingTerm: Bool, owner: SchoolSessionIdentity
     ) async throws -> Int {
         let orderedDrafts = drafts.sorted { lhs, rhs in
             if lhs.startDate != rhs.startDate { return lhs.startDate < rhs.startDate }
@@ -344,10 +350,11 @@ final class ScheduleSystemCalendarManager {
             throw ScheduleSystemCalendarError.missingSchedule
         }
 
-        let owner = currentIdentity()
+        guard await currentIdentity() == owner else { throw CancellationError() }
         try await requireFullAccess()
+        guard await currentIdentity() == owner else { throw CancellationError() }
         try Task.checkCancellation()
-        guard currentIdentity() == owner else { throw CancellationError() }
+        storageSession = AppStorageSession(accountIdentifier: owner.accountIdentifier)
         do {
             return try ScheduleSystemCalendarTransaction.run(reset: eventStore.reset) {
                 let calendar = try writableBIT101Calendar()
@@ -384,6 +391,7 @@ final class ScheduleSystemCalendarManager {
                     try eventStore.save(event, span: .thisEvent, commit: false)
                     savedEvents.append(event)
                 }
+                try Task.checkCancellation()
                 try eventStore.commit()
 
                 var batches = loadBatches().filter { $0.term != term }
@@ -407,14 +415,21 @@ final class ScheduleSystemCalendarManager {
         }
     }
 
-    func deleteImportedEvents(
+    @MainActor func deleteImportedEvents(
         markerIDs: Set<String>,
         term: String? = nil
     ) async throws -> ScheduleSystemCalendarMutationResult {
-        let owner = currentIdentity()
+        try await performDeleteImportedEvents(markerIDs: markerIDs, term: term, owner: currentIdentity())
+    }
+
+    private func performDeleteImportedEvents(
+        markerIDs: Set<String>, term: String?, owner: SchoolSessionIdentity
+    ) async throws -> ScheduleSystemCalendarMutationResult {
+        guard await currentIdentity() == owner else { throw CancellationError() }
         try await requireFullAccess()
+        guard await currentIdentity() == owner else { throw CancellationError() }
         try Task.checkCancellation()
-        guard currentIdentity() == owner else { throw CancellationError() }
+        storageSession = AppStorageSession(accountIdentifier: owner.accountIdentifier)
         let eventsByIdentifier = Dictionary(
             uniqueKeysWithValues: events(matchingMarkerIDs: markerIDs, term: term).map { ($0.eventIdentifier, $0) }
         )
@@ -425,6 +440,7 @@ final class ScheduleSystemCalendarManager {
                 for event in eventsByIdentifier.values {
                     try eventStore.remove(event, span: .thisEvent, commit: false)
                 }
+                try Task.checkCancellation()
                 try eventStore.commit()
 
                 let removedIdentifiers = Set(eventsByIdentifier.keys)
@@ -450,14 +466,20 @@ final class ScheduleSystemCalendarManager {
         }
     }
 
-    func deleteImportedEvents(
+    @MainActor func deleteImportedEvents(
         drafts: [ScheduleSystemCalendarEventDraft],
         term: String? = nil
     ) async throws -> ScheduleSystemCalendarMutationResult {
         try await deleteImportedEvents(markerIDs: Set(drafts.map(\.markerID)), term: term)
     }
 
-    func importCurrentTerm(from courses: ScheduleCourseSnapshot, term: String) async throws -> Int {
+    @MainActor func importCurrentTerm(from courses: ScheduleCourseSnapshot, term: String) async throws -> Int {
+        try await performImportCurrentTerm(from: courses, term: term, owner: currentIdentity())
+    }
+
+    private func performImportCurrentTerm(
+        from courses: ScheduleCourseSnapshot, term: String, owner: SchoolSessionIdentity
+    ) async throws -> Int {
         guard let firstDay = courses.firstDay, !courses.courses.isEmpty else {
             throw ScheduleSystemCalendarError.missingSchedule
         }
@@ -466,18 +488,27 @@ final class ScheduleSystemCalendarManager {
             firstDay: firstDay,
             timeTable: courses.timeTable
         )
-        return try await importDrafts(
+        return try await performImportDrafts(
             drafts,
             term: term,
-            replacingTerm: true
+            replacingTerm: true,
+            owner: owner
         )
     }
 
-    func deleteAllImportedEvents() async throws -> ScheduleSystemCalendarMutationResult {
-        let owner = currentIdentity()
+    @MainActor func deleteAllImportedEvents() async throws -> ScheduleSystemCalendarMutationResult {
+        try await performDeleteAllImportedEvents(owner: currentIdentity())
+    }
+
+    /// 账号清理等待当前同步事务及其本地批次写入完成。
+    func finishPendingTransactions() {}
+
+    private func performDeleteAllImportedEvents(owner: SchoolSessionIdentity) async throws -> ScheduleSystemCalendarMutationResult {
+        guard await currentIdentity() == owner else { throw CancellationError() }
         try await requireFullAccess()
+        guard await currentIdentity() == owner else { throw CancellationError() }
         try Task.checkCancellation()
-        guard currentIdentity() == owner else { throw CancellationError() }
+        storageSession = AppStorageSession(accountIdentifier: owner.accountIdentifier)
 
         do {
             return try ScheduleSystemCalendarTransaction.run(reset: eventStore.reset) {
@@ -527,6 +558,7 @@ final class ScheduleSystemCalendarManager {
                 for event in eventsByIdentifier.values {
                     try eventStore.remove(event, span: .thisEvent, commit: false)
                 }
+                try Task.checkCancellation()
                 try eventStore.commit()
                 saveBatches([])
                 return .changed(eventsByIdentifier.count)

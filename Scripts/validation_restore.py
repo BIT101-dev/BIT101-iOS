@@ -34,6 +34,13 @@ def complete(proof: dict) -> bool:
         and valid_identity(proof) and sampling_evidence_current(proof)
 
 
+def matches_app(proof: dict, info: dict, run_id: str, digest: str) -> bool:
+    return proof.get('schemaVersion') == 1 and proof.get('runID') == run_id \
+        and proof.get('inputDigest') == digest == info.get('BIT101RestoreInputDigest') \
+        and all(proof.get(key) == info.get(field) for key, field in
+            [('bundleIdentifier', 'CFBundleIdentifier'), ('version', 'CFBundleShortVersionString'), ('build', 'CFBundleVersion')])
+
+
 def summary(run_id: str, digest: str) -> dict:
     proof = json.loads(PROOF.read_text())
     processes = json.loads(PROCESS.read_text())['result']['runningProcesses']
@@ -41,10 +48,7 @@ def summary(run_id: str, digest: str) -> dict:
     info = plistlib.loads(info_path.read_bytes())
     proof = dict(proof, kind='restore', startedAt=proof.get('readyAt'), finishedAt=proof.get('readyAt'),
         processAlive=any(row.get('processIdentifier') == proof.get('processIdentifier') for row in processes))
-    proof['passed'] = complete(proof) and proof.get('schemaVersion') == 1 and proof.get('runID') == run_id \
-        and proof.get('inputDigest') == digest == info.get('BIT101RestoreInputDigest') \
-        and all(proof.get(key) == info.get(field) for key, field in
-            [('bundleIdentifier', 'CFBundleIdentifier'), ('version', 'CFBundleShortVersionString'), ('build', 'CFBundleVersion')])
+    proof['passed'] = complete(proof) and matches_app(proof, info, run_id, digest)
     return proof
 
 

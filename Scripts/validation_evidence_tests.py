@@ -270,9 +270,11 @@ def run_self_test(subject) -> int:
         ui_missing = dict(summaries['ui']['coverage'])
         ui_missing['iOS/ScoreFeature'] = {'coveredLines': 0, 'executableLines': 100}
         assert not subject.coverage_complete('ui', dict(summaries['ui'], coverage=ui_missing))
-        for name in ('iOS/CommunityUI', 'iOS/CourseFeature', 'iOS/ScoreFeature', 'BIT101-iOS.app'):
+        for name in ('iOS/CommunityUI', 'iOS/CourseFeature', 'iOS/ScoreFeature', 'iOS/MediaKit', 'iOS/DesignSystemKit', 'BIT101-iOS.app'):
             weak = dict(summaries['ui']['coverage'])
             weak[name] = {'coveredLines': 1, 'executableLines': 100}
+            assert not subject.coverage_complete('ui', dict(summaries['ui'], coverage=weak))
+            weak.pop(name)
             assert not subject.coverage_complete('ui', dict(summaries['ui'], coverage=weak))
         assert subject.coverage_complete('all', summaries['all'])
         ios_missing = dict(summaries['all']['coverage'])

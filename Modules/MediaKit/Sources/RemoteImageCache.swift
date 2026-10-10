@@ -52,26 +52,57 @@ nonisolated enum ImageCacheDirectories {
 
 /// Synchronizes preview-file registration with disk eviction.
 nonisolated final class PreviewFileOwnership: Sendable {
-    private let sessions = OSAllocatedUnfairLock(initialState: [UUID: Set<String>]())
-    func begin(_ owner: UUID) { sessions.withLock { $0[owner] = [] } }
-    func end(_ owner: UUID) { sessions.withLock { $0[owner] = nil } }
-    func contains(_ owner: UUID) -> Bool { sessions.withLock { $0[owner] != nil } }
+    private struct State {
+        var sessions: [UUID: Set<String>] = [:]
+        var deferredRemoval: [String: (URL, any AppFileService)] = [:]
+        var paths: Set<String> { sessions.values.reduce(into: []) { $0.formUnion($1) } }
+    }
+    private let state = OSAllocatedUnfairLock(initialState: State())
+    func begin(_ owner: UUID) { state.withLock { $0.sessions[owner] = [] } }
+    func end(_ owner: UUID) {
+        state.withLock { state in
+            state.sessions[owner] = nil
+            let paths = state.paths
+            for (path, (file, files)) in state.deferredRemoval where !paths.contains(path) {
+                do { try files.removeItem(at: file); state.deferredRemoval[path] = nil }
+                catch { continue }
+            }
+        }
+    }
+    func contains(_ owner: UUID) -> Bool { state.withLock { $0.sessions[owner] != nil } }
     func pin(_ file: URL, using files: any AppFileService, owner: UUID) -> Bool {
-        sessions.withLock { sessions in
-            guard sessions[owner] != nil, files.fileExists(at: file) else { return false }
-            sessions[owner]?.insert(files.canonicalFileURL(file).path)
+        state.withLock { state in
+            guard state.sessions[owner] != nil, files.fileExists(at: file) else { return false }
+            state.sessions[owner]?.insert(files.canonicalFileURL(file).path)
             return true
         }
     }
     func materializeAndPin(_ file: URL, using files: any AppFileService, owner: UUID, create: @Sendable () throws -> Void) throws {
-        try sessions.withLock { sessions in
-            guard sessions[owner] != nil else { throw CancellationError() }
+        try state.withLock { state in
+            guard state.sessions[owner] != nil else { throw CancellationError() }
             try create()
-            sessions[owner]?.insert(files.canonicalFileURL(file).path)
+            state.sessions[owner]?.insert(files.canonicalFileURL(file).path)
         }
     }
     func withPaths<T: Sendable>(_ operation: @Sendable (Set<String>) -> T) -> T {
-        sessions.withLock { operation($0.values.reduce(into: []) { $0.formUnion($1) }) }
+        state.withLock { operation($0.paths) }
+    }
+    func clearDirectory(_ directory: URL, using files: any AppFileService) -> Bool {
+        state.withLock { state in
+            guard files.fileExists(at: directory) else { return true }
+            guard let children = try? files.contentsOfDirectory(at: directory, options: []) else { return false }
+            let paths = state.paths
+            var succeeded = true
+            for file in children {
+                let path = files.canonicalFileURL(file).path
+                if paths.contains(path) { state.deferredRemoval[path] = (file, files) }
+                else {
+                    do { try files.removeItem(at: file); state.deferredRemoval[path] = nil }
+                    catch { succeeded = false }
+                }
+            }
+            return succeeded
+        }
     }
 }
 
@@ -109,6 +140,8 @@ actor ImageCacheDiskQuota {
             }
         }
     }
+
+    func clearDirectory(_ directory: URL) -> Bool { previewOwnership.clearDirectory(directory, using: files) }
 
     func enforce(force: Bool = false, protecting protectedURLs: Set<URL> = []) async {
         let now = Date()
@@ -293,7 +326,7 @@ actor RemoteImageCache {
         continuation.resume(throwing: CancellationError())
     }
 
-    func clearAll() {
+    @discardableResult func clearAll() async -> Bool {
         generation &+= 1
         validatedFiles.removeAllObjects()
         let pending = downloads.values
@@ -302,7 +335,7 @@ actor RemoteImageCache {
             operation.task.cancel()
             for continuation in operation.waiters.values { continuation.resume(throwing: CancellationError()) }
         }
-        _ = files.removeContents(of: directory)
+        return await quota.clearDirectory(directory)
     }
 
     func previewFile(at cachedURL: URL, using previewFiles: any AppFileService, ownership: PreviewFileOwnership, owner: UUID?) throws -> URL {

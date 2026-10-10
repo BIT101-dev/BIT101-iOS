@@ -74,24 +74,53 @@ PYINSPECT
   exit 0
 fi
 restore_application() {
+  local restore_digest
+  restore_digest="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest restore)" || return $?
   bit101_run_logged "$DERIVED_ROOT/build-release.log" "常规模拟器包编译" xcodebuild build -quiet \
     -project "$ROOT_DIR/BIT101-iOS.xcodeproj" -scheme BIT101-iOS -configuration Release -derivedDataPath "$DERIVED_ROOT" \
-    -destination "platform=iOS Simulator,id=$SIMULATOR_DEVICE" BIT101_WORKFLOW_CONDITIONS= CODE_SIGN_IDENTITY=- || return $?
+    -destination "platform=iOS Simulator,id=$SIMULATOR_DEVICE" BIT101_WORKFLOW_CONDITIONS= \
+    "BIT101_RESTORE_INPUT_DIGEST=$restore_digest" CODE_SIGN_IDENTITY=- || return $?
   bit101_run_logged "$DERIVED_ROOT/restore.log" "常规模拟器包恢复" python3 - "$SIMULATOR_DEVICE" \
-    "$DERIVED_ROOT/Build/Products/Release-iphonesimulator/BIT101-iOS.app" <<'PYRESTORE'
+    "$DERIVED_ROOT/Build/Products/Release-iphonesimulator/BIT101-iOS.app" "$ROOT_DIR/Scripts" "$restore_digest" \
+    "$ROOT_DIR/.build/screenshot.png" <<'PYRESTORE'
+import json
 import subprocess
 import sys
+import time
+import uuid
 subprocess.run(['xcrun', 'simctl', 'install', sys.argv[1], sys.argv[2]], check=True)
 from hashlib import sha256
 from pathlib import Path
 import plistlib
 source = Path(sys.argv[2])
-executable = plistlib.loads((source / 'Info.plist').read_bytes())['CFBundleExecutable']
+info = plistlib.loads((source / 'Info.plist').read_bytes())
+executable = info['CFBundleExecutable']
 installed = Path(subprocess.check_output(['xcrun', 'simctl', 'get_app_container', sys.argv[1], 'BIT101-dev.BIT101-iOS', 'app'], text=True).strip())
 if sha256((source / executable).read_bytes()).digest() != sha256((installed / executable).read_bytes()).digest():
     raise SystemExit('安装后的可执行文件需要匹配常规 Release 产物。')
-subprocess.run(['xcrun', 'simctl', 'launch', '--terminate-running-process', sys.argv[1], 'BIT101-dev.BIT101-iOS'],
-    check=True, stdout=subprocess.DEVNULL)
+sys.path.insert(0, sys.argv[3])
+from validation_restore import complete, matches_app
+container = Path(subprocess.check_output(['xcrun', 'simctl', 'get_app_container', sys.argv[1], 'BIT101-dev.BIT101-iOS', 'data'], text=True).strip())
+readiness = container / 'Documents/restore-readiness.json'
+readiness.unlink(missing_ok=True)
+run_id = str(uuid.uuid4())
+launched = subprocess.run(['xcrun', 'simctl', 'launch', '--terminate-running-process', sys.argv[1],
+    'BIT101-dev.BIT101-iOS', '--restore-run-id', run_id], check=True, capture_output=True, text=True)
+process_id = int(launched.stdout.rsplit(':', 1)[1].strip())
+deadline = time.monotonic() + 60
+while time.monotonic() < deadline:
+    if subprocess.run(['/bin/kill', '-0', str(process_id)], capture_output=True).returncode:
+        raise SystemExit('常规模拟器 App 在就绪前退出，请检查启动崩溃。')
+    if readiness.is_file():
+        proof = json.loads(readiness.read_text())
+        proof = dict(proof, kind='restore', processAlive=True, startedAt=proof.get('readyAt'), finishedAt=proof.get('readyAt'))
+        if proof.get('processIdentifier') == process_id and complete(proof) and matches_app(proof, info, run_id, sys.argv[4]):
+            subprocess.run(['xcrun', 'simctl', 'io', sys.argv[1], 'screenshot', sys.argv[5]],
+                check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            break
+    time.sleep(1)
+else:
+    raise SystemExit('常规模拟器 App 就绪验收超时，请检查登录恢复与场景初始化。')
 PYRESTORE
 }
 restore_on_exit() {

@@ -70,16 +70,19 @@ struct ScheduleCalendarTransactionTests {
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func calendarPermissionContinuationChecksCancellationAndAccountBeforeEventKit(cancel: Bool) async throws {
-        var identity = SchoolSessionIdentity(accountIdentifier: "calendar-owner", generation: 0)
-        var resume: CheckedContinuation<Void, Never>?
+        @MainActor final class State {
+            var identity = SchoolSessionIdentity(accountIdentifier: "calendar-owner", generation: 0)
+            var resume: CheckedContinuation<Void, Never>?
+        }
+        let state = State()
         let defaults = try #require(UserDefaults(suiteName: "BIT101Tests.calendar-permission"))
         defer { defaults.removePersistentDomain(forName: "BIT101Tests.calendar-permission") }
-        let manager = ScheduleSystemCalendarManager(defaults: defaults, currentIdentity: { identity },
-            requestAccess: { await withCheckedContinuation { resume = $0 } })
+        let manager = ScheduleSystemCalendarManager(defaultsDomain: "BIT101Tests.calendar-permission", currentIdentity: { state.identity },
+            requestAccess: { await withCheckedContinuation { state.resume = $0 } })
         let task = Task { try await manager.deleteAllImportedEvents() }
-        try await waitForTestEvent { !(resume == nil) }
-        if cancel { task.cancel() } else { identity = .init(accountIdentifier: "calendar-owner", generation: 1) }
-        resume?.resume()
+        try await waitForTestEvent { !(state.resume == nil) }
+        if cancel { task.cancel() } else { state.identity = .init(accountIdentifier: "calendar-owner", generation: 1) }
+        state.resume?.resume()
         await #expect(throws: CancellationError.self) { try await task.value }
         #expect(defaults.dictionaryRepresentation().keys.contains(AppStorageSession(accountIdentifier: "calendar-owner").key("schedule.system-calendar.imported-batches")) == false)
     }

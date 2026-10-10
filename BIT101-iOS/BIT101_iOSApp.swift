@@ -233,7 +233,7 @@ struct BIT101_iOSApp: App {
             importCourses: { try await calendar.importCurrentTerm(from: $0, term: $1) },
             importDrafts: { try await calendar.importDrafts($0, term: $1) },
             deleteEntries: { try await calendar.deleteImportedEvents(markerIDs: $0, term: $1) },
-            deleteAllEntries: calendar.deleteAllImportedEvents
+            deleteAllEntries: { try await calendar.deleteAllImportedEvents() }
         )
         return ScheduleServiceFactory.makeViewModel(platformActions: effects, didSave: effects.didSave)
     }

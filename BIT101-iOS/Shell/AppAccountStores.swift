@@ -12,7 +12,10 @@ import Combine
 
 struct AppAccountStores {
     private static let storageOperations = StorageOperationTracker()
-    static func suspendStorageOperations() async { await storageOperations.suspendAndDrain() }
+    static func suspendStorageOperations() async {
+        await storageOperations.suspendAndDrain()
+        await ScheduleSystemCalendarManager.shared.finishPendingTransactions()
+    }
     static func resumeStorageOperations() { storageOperations.resume() }
     let communityMessages: GalleryMessageReadStore
     let composerDrafts: ComposerDraftStore

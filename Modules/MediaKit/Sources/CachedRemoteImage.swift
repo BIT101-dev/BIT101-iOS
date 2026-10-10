@@ -304,17 +304,12 @@ actor CachedRemoteImageStore {
     }
 
     /// 清空当前进程的内存缓存和磁盘中的远程图片缓存。
-    func clearAll() {
+    @discardableResult func clearAll() async -> Bool {
         cacheGeneration &+= 1
         memoryCache.removeAllObjects()
         imageCache.removeAllObjects()
 
-        guard files.fileExists(at: directoryURL) else { return }
-        if let children = try? files.contentsOfDirectory(at: directoryURL, options: [.skipsHiddenFiles]) {
-            for child in children {
-                try? files.removeItem(at: child)
-            }
-        }
+        return await quota.clearDirectory(directoryURL)
     }
 
     /// 使用 URL 的稳定短标识生成文件名，保持缓存文件名安全且紧凑。

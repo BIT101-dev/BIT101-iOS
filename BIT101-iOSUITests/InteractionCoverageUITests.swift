@@ -42,6 +42,23 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         tap("提前显示阈值")
         waitForValue("20 分钟", of: app.pickerWheels.firstMatch)
         tap("取消")
+        for title in ["清理当前账号的云端偏好记录", "清理其他账号的云端偏好记录"] {
+            tap(title)
+            let confirmation = app.alerts["清理云端偏好记录"]
+            assertUI(confirmation.appears(timeout: 5), "清理操作应先展示影响确认。")
+            confirmation.buttons["取消"].tapBriefly()
+            let preferencesControl = app.switches.matching(NSPredicate(format: "label CONTAINS %@", "同步设置与使用偏好（实验性）")).firstMatch
+            reveal(preferencesControl)
+            waitForValue(preferences, of: preferencesControl)
+            tap(title)
+            assertUI(confirmation.appears(timeout: 5), "再次清理应展示影响确认。")
+            confirmation.buttons["清理"].tapBriefly()
+            assertUI(app.alerts["云端记录清理"].appears(timeout: 5), "清理完成应展示提交结果。")
+            app.alerts["云端记录清理"].buttons["好"].tapBriefly()
+            reveal(preferencesControl)
+            waitForValue("0", of: preferencesControl)
+            if preferences == "1" { preferencesControl.switches.firstMatch.tap() }
+        }
     }
 
 

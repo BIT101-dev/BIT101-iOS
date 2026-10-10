@@ -39,6 +39,14 @@ enum AppFileDirectories {
 #endif
     }
 
+    nonisolated static func defaults(inDomain domain: String?) -> UserDefaults {
+        guard let domain else { return defaults }
+        guard let suite = UserDefaults(suiteName: domain) else {
+            preconditionFailure("Injected preferences domain requires a valid suite")
+        }
+        return suite
+    }
+
     nonisolated static var defaults: UserDefaults {
 #if BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING
         guard let suite = UserDefaults(suiteName: preparedAutomatedTestDefaultsDomain) else {

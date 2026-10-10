@@ -561,6 +561,28 @@ struct MediaDependencyTests {
         #expect(previewFiles.fileExists(at: copiedLegacy) == false)
     }
 
+    @Test(arguments: [false, true])
+    func cacheCleanupKeepsRemotePreviewFilesAndReportsRemovalFailures(fails: Bool) async throws {
+        let files = PreferenceMemoryFiles()
+        let bytes = try png(width: 2)
+        let media = environment(files: files, previewFiles: files, transport: Images(bytes: bytes))
+        let cached = try await media.images.file(for: AppURL.required("https://example.invalid/active-preview.png"))
+        let idle = try await media.images.file(for: AppURL.required("https://example.invalid/idle.png"))
+        let first = UUID(), second = UUID()
+        media.beginPreview(owner: first); media.beginPreview(owner: second)
+        #expect(try await media.previewFile(at: cached, owner: first) == cached)
+        #expect(try await media.previewFile(at: cached, owner: second) == cached)
+        files.setFailures(removal: fails)
+        #expect(await media.clearCaches() == !fails)
+        #expect(try files.readData(at: cached) == bytes)
+        #expect(files.fileExists(at: idle) == fails)
+        files.setFailures()
+        media.endPreview(owner: first)
+        #expect(try files.readData(at: cached) == bytes)
+        media.endPreview(owner: second)
+        #expect(files.fileExists(at: cached) == false)
+    }
+
     @Test func sharedPreviewStorageRetainsFilesAcrossEnvironmentCleanupAndClosing() async throws {
         let files = PreferenceMemoryFiles()
         let storage = MediaPreviewStorage(files: files)
@@ -572,10 +594,11 @@ struct MediaDependencyTests {
         let file = try await first.localPreviewFile(data: bytes, owner: ownerA)
         let second = AppMedia.makeEnvironment(files: files, previewStorage: storage, defaults: AppFileDirectories.defaults,
             imageHTTPClient: client, avatarHTTPClient: client)
-        await second.enforceCurrentLimit()
+        #expect(await second.clearCaches())
         #expect(files.fileExists(at: file))
         second.beginPreview(owner: ownerB)
         #expect(try await second.localPreviewFile(data: bytes, owner: ownerB) == file)
+        #expect(await first.clearCaches())
         first.endPreview(owner: ownerA)
         await first.enforceCurrentLimit()
         #expect(try files.readData(at: file) == bytes)

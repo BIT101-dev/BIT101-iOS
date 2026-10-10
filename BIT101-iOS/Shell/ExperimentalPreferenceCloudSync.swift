@@ -75,6 +75,7 @@ extension NSUbiquitousKeyValueStore: PreferenceCloudStoring {}
 /// 开关保存在当前设备并按学号隔离，默认关闭；设置与筛选按字段合并，已读取并集，成绩按快照版本同步。
 @MainActor
 final class ExperimentalPreferenceCloudSync: ObservableObject {
+    nonisolated enum RecordCleanupScope { case currentAccount, otherAccounts }
     private nonisolated enum CloudValue: Equatable, Sendable { case missing, data(Data), invalid }
     private nonisolated struct RemoteSnapshot<Payload: Codable & Sendable>: Sendable {
         let envelope: ExperimentalPreferenceSyncEnvelope<Payload>?
@@ -250,10 +251,34 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
         scheduleReconciliation(for: ExperimentalPreferenceSyncDomain.allCases)
     }
 
+    /// 用户确认后暂停本机同步，删除所选账号的既有偏好记录。
+    @discardableResult
+    func removeCloudRecords(in scope: RecordCleanupScope) -> Bool {
+        setEnabled(false)
+        let owner = accountIdentifier
+        let keys = cloudStore.dictionaryRepresentation.keys.filter { key in
+            let parts = key.split(separator: ".", omittingEmptySubsequences: false)
+            guard parts.count == 4, parts[0] == "preference-sync",
+                  ["v1", "v2"].contains(String(parts[1])),
+                  !parts[2].isEmpty, ExperimentalPreferenceSyncDomain(rawValue: String(parts[3])) != nil
+            else { return false }
+            return scope == .currentAccount ? parts[2] == owner : parts[2] != owner
+        }
+        for key in keys { cloudStore.set(nil, forKey: key) }
+        guard keys.allSatisfy({ cloudStore.dictionaryRepresentation[$0] == nil }), synchronizeCloudStore() else {
+            syncIssue = "云端偏好记录清理暂时失败。本机同步已暂停，数据继续保留，请稍后重试。"
+            syncIssueDomain = nil
+            return false
+        }
+        syncIssue = nil
+        syncIssueDomain = nil
+        return true
+    }
+
     private func handleExternalChange(changedKeys: [String]?, changeReason: Int?) {
         guard isEnabled else { return }
         if changeReason == NSUbiquitousKeyValueStoreQuotaViolationChange {
-            syncIssue = "BIT101 的 iCloud 同步记录达到应用容量上限。本机设置和成绩缓存继续保留；请关闭偏好同步，并联系维护者缩减云端同步记录后重试。"
+            syncIssue = "BIT101 的 iCloud 同步记录达到应用容量上限。本机设置和成绩缓存继续保留；可在日历设置中清理云端偏好记录，再开启偏好同步。"
             syncIssueDomain = changedKeys?.compactMap { key in
                 ExperimentalPreferenceSyncDomain.allCases.first { cloudKey(for: $0) == key }
             }.first
@@ -512,7 +537,7 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
         guard cloudValues(for: Array(remote.records.keys), in: values) == remote.records else { scheduleReconciliation(for: [domain]); return }
         guard fitsCloudStore(data, replacing: key, values: values) else {
             let label = domain == .scoreCache ? "成绩缓存" : "偏好数据"
-            syncIssue = "BIT101 的 iCloud 同步记录达到应用容量上限，\(label)保留在本机。请关闭偏好同步，并联系维护者缩减云端同步记录后重试。"
+            syncIssue = "BIT101 的 iCloud 同步记录达到应用容量上限，\(label)保留在本机。可在日历设置中清理云端偏好记录，再开启偏好同步。"
             syncIssueDomain = domain
             Self.logger.error("iCloud payload exceeds available quota domain=\(domain.rawValue, privacy: .public) bytes=\(data.count)")
             return

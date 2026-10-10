@@ -383,6 +383,7 @@ struct ScoreCacheDiskRepositoryTests {
 nonisolated final class PreferenceMemoryFiles: AppFileService, Sendable {
     private let state = OSAllocatedUnfairLock(initialState: State())
     private let requireExistingParentDirectories: Bool
+    private let separatesDirectories: Bool
     private struct State {
         var data: [URL: Data] = [:]
         var revisions: [URL: UInt64] = [:]
@@ -395,14 +396,18 @@ nonisolated final class PreferenceMemoryFiles: AppFileService, Sendable {
         var nextRead: (@Sendable () -> Void)?
         var nextWrite: (@Sendable () -> Void)?
     }
-    init(requireExistingParentDirectories: Bool = false) {
+    init(requireExistingParentDirectories: Bool = false, separatesDirectories: Bool = false) {
         self.requireExistingParentDirectories = requireExistingParentDirectories
+        self.separatesDirectories = separatesDirectories
     }
     func setFailures(removal: Bool = false, writing: Bool = false, reading: Bool = false) {
         state.withLock { $0.failsRemoval = removal; $0.failsWriting = writing; $0.failsReading = reading }
     }
-    var temporaryDirectoryURL: URL { URL(fileURLWithPath: "/preference-sync") }
-    func directoryURL(_ directory: FileManager.SearchPathDirectory) -> URL? { temporaryDirectoryURL }
+    private var root: URL { URL(fileURLWithPath: "/preference-sync") }
+    var temporaryDirectoryURL: URL { separatesDirectories ? root.appending(path: "Temporary") : root }
+    func directoryURL(_ directory: FileManager.SearchPathDirectory) -> URL? {
+        separatesDirectories ? root.appending(path: String(directory.rawValue)) : root
+    }
     func appGroupContainerURL(identifier: String) -> URL? { temporaryDirectoryURL }
     func fileExists(at url: URL) -> Bool {
         state.withLock { $0.data[url] != nil || $0.directories.contains { $0.path == url.path } }

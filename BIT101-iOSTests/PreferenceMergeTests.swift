@@ -24,6 +24,7 @@ struct PreferenceMergeTests {
         let keys = PreferenceMemoryScoreKeys()
         var rejectedKey: String?
         var rejectedWrites = 0
+        var synchronizes = true
         func data(forKey key: String) -> Data? { values[key] as? Data }
         func set(_ value: Any?, forKey key: String) {
             if let data = value as? Data {
@@ -39,7 +40,7 @@ struct PreferenceMergeTests {
             }
             values[key] = value
         }
-        func synchronize() -> Bool { true }
+        func synchronize() -> Bool { synchronizes }
     }
 
     private struct Device {
@@ -74,6 +75,60 @@ struct PreferenceMergeTests {
         return Device(domain: domain, defaults: defaults, cloud: cloud,
             sync: ExperimentalPreferenceCloudSync(settings: settings, stores: stores, defaults: defaults,
                 cloudStore: cloud, scoreEncryption: ScoreCacheSyncEncryption(defaults: defaults, credentials: cloud.keys), notificationCenter: NotificationCenter()))
+    }
+
+    @Test(arguments: [ExperimentalPreferenceCloudSync.RecordCleanupScope.currentAccount, .otherAccounts])
+    func explicitCloudCleanupPausesWritesAndKeepsLocalAndUnselectedRecords(scope: ExperimentalPreferenceCloudSync.RecordCleanupScope) async throws {
+        let value = try device("BIT101Tests.preference-cleanup")
+        defer { value.defaults.removePersistentDomain(forName: value.domain) }
+        value.sync.settings.updateGallerySettings(hiddenUserIDs: [42])
+        let snapshot = value.sync.settings.snapshot
+        let current = value.record(.appSettings)
+        let other = "preference-sync.v2.other-account.app-settings"
+        let records = [current, current.replacingOccurrences(of: ".v2.", with: ".v1."),
+            other, other.replacingOccurrences(of: ".v2.", with: ".v1."),
+            "preference-sync.v3.other-account.app-settings", "preference-sync.v2.other-account.future-domain", "unrelated"]
+        for key in records { value.cloud.set(Data(key.utf8), forKey: key) }
+        let pending = value.sync.refreshFromCloudIfNeeded()
+        #expect(value.sync.removeCloudRecords(in: scope))
+        await pending?.value
+        #expect(!value.sync.isEnabled)
+        #expect(value.sync.settings.snapshot == snapshot)
+        for key in records {
+            let selected = scope == .currentAccount ? key == current || key == records[1] : key == other || key == records[3]
+            #expect(value.cloud.data(forKey: key) == (selected ? nil : Data(key.utf8)))
+        }
+    }
+
+    @Test func cloudCleanupReportsSynchronizationFailureAndSupportsRetry() throws {
+        let value = try device("BIT101Tests.preference-cleanup")
+        defer { value.defaults.removePersistentDomain(forName: value.domain) }
+        value.cloud.set(Data("record".utf8), forKey: value.record(.appSettings))
+        value.cloud.synchronizes = false
+        #expect(!value.sync.removeCloudRecords(in: .currentAccount))
+        #expect(value.sync.syncIssue?.contains("清理暂时失败") == true)
+        #expect(!value.sync.isEnabled)
+        value.cloud.synchronizes = true
+        #expect(value.sync.removeCloudRecords(in: .currentAccount))
+        #expect(value.sync.syncIssue == nil)
+    }
+
+    @Test func removingOtherAccountRecordsRestoresCapacityForLocalPreferences() async throws {
+        let value = try device("BIT101Tests.preference-cleanup")
+        defer { value.defaults.removePersistentDomain(forName: value.domain) }
+        value.cloud.set(Data(count: ExperimentalPreferenceCloudQuotaPolicy.maximumValueSize),
+            forKey: "preference-sync.v2.other-account.score-cache")
+        value.sync.settings.updateGallerySettings(hiddenUserIDs: [42])
+        await value.sync.refreshFromCloudIfNeeded()?.value
+        #expect(value.cloud.data(forKey: value.record(.appSettings)) == nil)
+        #expect(value.sync.syncIssue?.contains("容量上限") == true)
+        #expect(value.sync.removeCloudRecords(in: .otherAccounts))
+        value.sync.setEnabled(true)
+        await value.sync.refreshFromCloudIfNeeded()?.value
+        let restored = try JSONDecoder().decode(ExperimentalPreferenceSyncEnvelope<AppSettingsSyncPayload>.self,
+            from: #require(value.cloud.data(forKey: value.record(.appSettings))))
+        #expect(restored.payload.galleryHiddenUserIDs == [42])
+        #expect(value.sync.syncIssue == nil)
     }
 
     @Test(arguments: [ExperimentalPreferenceSyncDomain.appSettings, .scoreFilters, .galleryMessageRead])

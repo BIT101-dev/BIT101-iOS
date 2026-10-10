@@ -1,14 +1,101 @@
 import Foundation
+import ClientCore
 import ScheduleContracts
+import SchedulePorts
 import ScheduleActivityContracts
 import ScheduleSharedStore
 import StorageCore
 import Testing
+import EventKit
+import os
 @testable import BIT101_iOS
 
 @MainActor
 @Suite("Watch and Widget shared runtime contracts")
 struct ExternalScheduleInfrastructureTests {
+    private nonisolated final class BackgroundCalendarStore: EKEventStore {
+        private let onQuery: @Sendable () -> Void
+        init(onQuery: @escaping @Sendable () -> Void = {}) {
+            self.onQuery = onQuery
+            super.init()
+        }
+        override func calendars(for entityType: EKEntityType) -> [EKCalendar] {
+            #expect(!Thread.isMainThread)
+            onQuery()
+            return []
+        }
+        override var defaultCalendarForNewEvents: EKCalendar? { nil }
+        override var sources: [EKSource] { [] }
+    }
+
+    @Test func queuedCalendarOperationsKeepTheirOriginalAccountAndResetWaitsForTheTransaction() async throws {
+        @MainActor final class State {
+            var identity = SchoolSessionIdentity(accountIdentifier: "calendar-owner", generation: 0)
+            var captureNextOwner = false
+            var drained = false
+        }
+        let state = State()
+        let queryStarted = AsyncStream<Void>.makeStream()
+        let ownerCaptured = AsyncStream<Void>.makeStream()
+        let drainStarted = AsyncStream<Void>.makeStream()
+        let release = DispatchSemaphore(value: 0)
+        let queryCount = OSAllocatedUnfairLock(initialState: 0)
+        let store = BackgroundCalendarStore {
+            let first = queryCount.withLock { count in count += 1; return count == 1 }
+            if first {
+                queryStarted.continuation.yield(())
+                #expect(release.wait(timeout: .now() + 5) == .success)
+            }
+        }
+        let domain = "BIT101Tests.calendar-ownership"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain); release.signal() }
+        let manager = ScheduleSystemCalendarManager(eventStore: store, defaultsDomain: domain, currentIdentity: {
+            if state.captureNextOwner {
+                state.captureNextOwner = false
+                ownerCaptured.continuation.yield(())
+            }
+            return state.identity
+        }, requestAccess: {})
+        let active = Task { try await manager.deleteAllImportedEvents() }
+        var started = queryStarted.stream.makeAsyncIterator()
+        _ = await started.next()
+        state.captureNextOwner = true
+        let queued = Task { try await manager.deleteImportedEvents(markerIDs: ["entry"]) }
+        var captured = ownerCaptured.stream.makeAsyncIterator()
+        _ = await captured.next()
+        state.identity = .init(accountIdentifier: "new-owner", generation: 1)
+        let drain = Task {
+            drainStarted.continuation.yield(())
+            await manager.finishPendingTransactions()
+            state.drained = true
+        }
+        var draining = drainStarted.stream.makeAsyncIterator()
+        _ = await draining.next()
+        #expect(!state.drained)
+        release.signal()
+        #expect(try await active.value == .noOp)
+        await #expect(throws: CancellationError.self) { try await queued.value }
+        await drain.value
+        #expect(state.drained)
+        #expect(queryCount.withLock { $0 } == 1)
+    }
+
+    @Test func calendarQueriesAndTransactionsUseTheirOwnExecutor() async throws {
+        let defaults = try #require(UserDefaults(suiteName: "BIT101Tests.calendar-executor"))
+        defer { defaults.removePersistentDomain(forName: "BIT101Tests.calendar-executor") }
+        let manager = ScheduleSystemCalendarManager(eventStore: BackgroundCalendarStore(), defaultsDomain: "BIT101Tests.calendar-executor",
+            currentIdentity: { .init(accountIdentifier: "calendar-owner", generation: 0) }, requestAccess: {})
+        #expect(try await manager.deleteAllImportedEvents() == .noOp)
+        #expect(try await manager.deleteImportedEvents(markerIDs: ["entry"], term: "term") == .noOp)
+        let draft = ScheduleSystemCalendarEventDraft(markerID: "entry", title: "课程", location: "", structuredLocation: nil,
+            notes: "", startDate: Date(timeIntervalSince1970: 0), endDate: Date(timeIntervalSince1970: 3600))
+        let error = await #expect(throws: ScheduleSystemCalendarError.self) {
+            try await manager.importDrafts([draft], term: "term")
+        }
+        #expect(error?.localizedDescription == ScheduleSystemCalendarError.noWritableCalendarSource.localizedDescription)
+    }
+
     @MainActor @Test func damagedDiskSnapshotsReachTheInvalidDisplayState() throws {
         let files = PreferenceMemoryFiles()
         let store = ScheduleExternalSnapshotStore(files: files, containerURL: URL(fileURLWithPath: "/external-display"))

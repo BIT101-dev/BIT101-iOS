@@ -109,6 +109,7 @@ final class LocalDataActionsSpy {
     var hasPendingRecovery: () -> Bool = { false }
     var suspendedAction: String?
     var pending: CheckedContinuation<Void, Never>?
+    var mediaCleanup: (() async -> Bool)?
     private func record(_ action: String) async {
         events.append(action)
         if suspendedAction == action { await withCheckedContinuation { pending = $0 } }
@@ -126,7 +127,7 @@ final class LocalDataActionsSpy {
             clearPreferences: { self.events.append("preferences") },
             clearURLCache: { self.events.append("url-cache") },
             clearWebData: { await self.record("web-data") },
-            clearMedia: { await self.record("media") },
+            clearMedia: { await self.record("media"); return await self.mediaCleanup?() ?? self.succeeds },
             resetSettings: { self.events.append("settings") }
         )
     }
@@ -221,14 +222,33 @@ struct AppLocalDataOwnershipTests {
     @Test(arguments: [false, true]) func cacheCleanupUsesTheSelectedFileAndMediaOwners(removalFails: Bool) async throws {
         let selected = LocalDataActionsSpy(), surrounding = LocalDataActionsSpy()
         let files = PreferenceMemoryFiles()
-        try files.writeData(Data([1, 2, 3]), to: files.temporaryDirectoryURL.appending(path: "cache.dat"), options: [])
+        let cache = files.temporaryDirectoryURL.appending(path: "owned-cache")
+        let export = files.temporaryDirectoryURL.appending(path: "active-export.dat")
+        try files.createDirectory(at: cache)
+        try files.writeData(Data([1, 2, 3]), to: cache.appending(path: "cache.dat"), options: [])
+        try files.writeData(Data([4, 5]), to: export, options: [])
+        selected.mediaCleanup = { files.removeContents(of: cache) }
         files.setFailures(removal: removalFails)
-        let result = await AppLocalDataService(files: files, actions: selected.actions).clearCaches()
+        let result = await AppLocalDataService(files: files, actions: selected.actions, cacheDirectories: [cache]).clearCaches()
         #expect(result.succeeded == !removalFails)
         #expect(result.reclaimedBytes == (removalFails ? 0 : 3))
-        #expect(files.totalRegularFileSize(at: files.temporaryDirectoryURL) == (removalFails ? 3 : 0))
+        #expect(files.totalRegularFileSize(at: cache) == (removalFails ? 3 : 0))
+        #expect(try files.readData(at: export) == Data([4, 5]))
         #expect(selected.events == ["media", "url-cache"])
         #expect(surrounding.events.isEmpty)
+    }
+
+    @Test func resettingAccountDataKeepsTemporaryExportsAndOtherCacheOwners() async throws {
+        let files = PreferenceMemoryFiles(separatesDirectories: true)
+        let actions = LocalDataActionsSpy()
+        let support = try #require(files.directoryURL(.applicationSupportDirectory)).appending(path: "account.dat")
+        let cache = try #require(files.directoryURL(.cachesDirectory)).appending(path: "other-cache.dat")
+        let export = files.temporaryDirectoryURL.appending(path: "active-export.dat")
+        for file in [support, cache, export] { try files.writeData(Data([1]), to: file, options: []) }
+        #expect(await AppLocalDataService(files: files, actions: actions.actions).resetAllLocalData {})
+        #expect(files.fileExists(at: support) == false)
+        #expect(try files.readData(at: cache) == Data([1]))
+        #expect(try files.readData(at: export) == Data([1]))
     }
 }
 

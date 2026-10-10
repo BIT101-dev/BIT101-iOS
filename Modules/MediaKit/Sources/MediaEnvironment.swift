@@ -169,12 +169,18 @@ public final class MediaEnvironment {
         await images.enforceCurrentLimit()
         await previewQuota.enforce(force: true)
     }
-    public func clearCaches() async {
+    public var cacheDirectories: Set<URL> {
+        Set([cacheFiles, previewFiles].flatMap { [ImageCacheDirectories.gallery(using: $0), ImageCacheDirectories.avatars(using: $0)] })
+    }
+
+    @discardableResult public func clearCaches() async -> Bool {
         downloads.clear()
-        await images.clearAll()
-        await avatars.clearAll()
+        let imagesCleared = await images.clearAll()
+        let avatarsCleared = await avatars.clearAll()
+        let previewsCleared = await previewQuota.clearDirectory(ImageCacheDirectories.gallery(using: previewFiles))
         await stillDecoder.clear()
         await animatedDecoder.clear()
+        return imagesCleared && avatarsCleared && previewsCleared
     }
 }
 

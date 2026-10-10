@@ -44,7 +44,7 @@ UIKit 控件沿构造类型、继承或别名进入源码清单，运行门禁�
 | `LoginAndScheduleUITests/testLinearScheduleTimelineScrollAndPinch` | 线性时间轴上下滚动、双指放大 / 缩小、缩放值更新及画布左边界对齐 |
 | `LoginAndScheduleUITests/testCalendarSettingsPickersTogglesAndRenamePersist` | 时间轴、显示方式、内容选择、周末 / 考试开关、主课表改名与重新装载恢复 |
 | `LoginAndScheduleUITests/testCalendarOfflineTermFailureAndCancellation` | 学期入口、学校离线提示、关闭失败提示和返回设置 |
-| `InteractionCoverageUITests/testCalendarReminderCloudSwitchesAndLeadTimePersistence` | 两类云开关、提醒确认取消 / 开启、阈值滚轮保存 / 取消、重新装载状态 |
+| `InteractionCoverageUITests/testCalendarReminderCloudSwitchesAndLeadTimePersistence` | 两类云开关、提醒确认取消 / 开启、阈值滚轮保存 / 取消、重新装载状态、当前及其他账号的云端偏好清理确认 / 取消 / 结果与同步暂停 |
 | `LoginAndScheduleUITests/testCalendarSettingsPickersTogglesAndRenamePersist` | 时间表非法输入、有效保存、取消保留、课表改名取消 |
 | `InteractionCoverageUITests/testSchoolTermsClassroomPickersRefreshAndDDLRefresh` | 学期下拉刷新 / 切换、日期滚轮取消、手动日期按首周周一保存 / 重新装载恢复 / 学校日期、校区 / 教学楼 / 教室刷新、订阅及学校 DDL 刷新 |
 | `InteractionCoverageUITests/testCustomScheduleEmptyTitleDetailsAndCalendarActions` | 日程详情、编辑保存、删除、新增取消 |
@@ -185,7 +185,7 @@ SwiftSyntax 清点每个源码作用域的控件、输入、滚动和手势声�
 | `BIT101-iOS/Settings/SettingsRootView.swift:DeveloperSuggestionPage` | `{"ComposerImageTile":1,"PhotosPicker":1,"ScrollView":1,"TextField":2}` | `LoginAndScheduleUITests/testSuggestionDraftRestoreAndDiscard,InteractionCoverageUITests/testSuggestionMissingContactConfirmationAndSubmitFailure,InteractionCoverageUITests/testSuggestionSuccessfulSubmissionAndDiscardSavedDraft` |
 | `BIT101-iOS/Settings/SettingsRootView.swift:SettingsIndexPage` | `{"Button":1,"NavigationLink":1,"ScrollView":1}` | `LoginAndScheduleUITests/testCalendarSettingsPickersTogglesAndRenamePersist` |
 | `BIT101-iOS/Settings/SettingsRootView.swift:SettingsRootView` | `{"Button":1}` | `LoginAndScheduleUITests/testCalendarSettingsPickersTogglesAndRenamePersist` |
-| `BIT101-iOS/Settings/SettingsScheduleViews.swift:AppCalendarSettingsPage` | `{"Toggle":1}` | `LoginAndScheduleUITests/testCalendarSettingsPickersTogglesAndRenamePersist,InteractionCoverageUITests/testCalendarReminderCloudSwitchesAndLeadTimePersistence` |
+| `BIT101-iOS/Settings/SettingsScheduleViews.swift:AppCalendarSettingsPage` | `{"Button":5,"Toggle":1}` | `LoginAndScheduleUITests/testCalendarSettingsPickersTogglesAndRenamePersist,InteractionCoverageUITests/testCalendarReminderCloudSwitchesAndLeadTimePersistence` |
 | `BIT101-iOS/Settings/SettingsSupportViews.swift:SettingsTextEditSheet` | `{"Button":2,"TextField":1}` | `InteractionCoverageUITests/testAccountProfileSaveLoginCheckAndLogout` |
 | `BIT101-iOS/Shared/Client/AppErrorPresentation.swift:AppErrorReportSheet` | `{"Button":2,"Picker":1,"TextField":2}` | `InteractionCoverageUITests/testErrorReportSanitizedSubmissionAndFailureRecovery,InteractionCoverageUITests/testOfflineRecoveryRetryAndErrorReportEditor` |
 | `BIT101-iOS/Shared/Client/AppErrorPresentation.swift:DiagnosticRecoveryActions` | `{"Button":1,"Link":2}` | `InteractionCoverageUITests/testOfflineRecoveryRetryAndErrorReportEditor,InteractionCoverageUITests/testErrorReportSanitizedSubmissionAndFailureRecovery` |

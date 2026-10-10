@@ -384,7 +384,13 @@ export default class extends WorkerEntrypoint {
     controller.close();
   }});
   assert.equal(await readReportBody(new Request("https://feedback.invalid", { method: "POST", body: split, duplex: "half" })), '文章😀');
-  const source = fs.readFileSync("../OpenWorker/worker.js", "utf8");
+  let source = fs.readFileSync("../OpenWorker/worker.js", "utf8");
+  const iconImport = source.match(/^import shareIcon from "([^"]+)";/);
+  assert(iconImport, "Share icon must use the app asset");
+  const png = fs.readFileSync(require("node:path").resolve("../OpenWorker", iconImport[1]));
+  const openConfig = JSON.parse(fs.readFileSync("../OpenWorker/wrangler.jsonc", "utf8"));
+  assert(openConfig.rules.some(rule => rule.type === "Data" && rule.globs.includes("**/*.png")));
+  source = source.replace(iconImport[0], `const shareIcon = Uint8Array.from(atob("${png.toString("base64")}"), character => character.charCodeAt(0)).buffer;`);
   const worker = (await import("data:text/javascript;base64," + Buffer.from(source).toString("base64"))).default;
   const aasa = await (await worker.fetch(new Request("https://open.invalid/.well-known/apple-app-site-association"))).json();
   assert.deepEqual(aasa.applinks.details[0].paths, ["/gallery/*", "/course/*", "/paper/*"]);
@@ -400,43 +406,16 @@ export default class extends WorkerEntrypoint {
     }
     assert.equal((await worker.fetch(new Request(`https://open.invalid/${route}/9223372036854775807`))).status, 200);
   }
-  const jpeg = Buffer.from(fs.readFileSync("../../BIT101-iOS/Shared/Client/CommunityWriteMedia.swift", "utf8").match(/Data\(base64Encoded: "([^"]+)"/)[1], "base64");
-  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aZ9sAAAAASUVORK5CYII=", "base64");
-  for (const [status, type, expected] of [[404, "text/html", 404], [200, "text/html", 502], [200, "image/jpeg", 200], [200, "image/png", 200]]) {
-    global.fetch = async url => String(url).startsWith("https://itunes.apple.com/")
-      ? Response.json({ results: [{ trackId: 6761147125, artworkUrl512: "https://is1-ssl.mzstatic.com/current.jpg" }] })
-      : new Response(type === "image/png" ? png : jpeg, { status, headers: { "Content-Type": type } });
+  let iconRequests = 0;
+  global.fetch = async () => { iconRequests += 1; throw new Error("upstream unavailable"); };
+  for (let attempt = 0; attempt < 2; attempt++) {
     const response = await worker.fetch(new Request("https://open.invalid/share-icon.jpg"));
-    assert.equal(response.status, expected);
-    if (expected !== 200) assert.equal(response.headers.get("Cache-Control"), "no-store"); else assert.equal(response.headers.get("Content-Type"), type);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("Content-Type"), "image/png");
+    assert.equal(response.headers.get("Cache-Control"), "public, max-age=604800");
+    assert.deepEqual(Buffer.from(await response.arrayBuffer()), png);
   }
-  for (const body of ["fixture", jpeg.subarray(0, jpeg.length - 2)]) {
-    global.fetch = async url => String(url).startsWith("https://itunes.apple.com/")
-      ? Response.json({ results: [{ trackId: 6761147125, artworkUrl512: "https://is1-ssl.mzstatic.com/current.jpg" }] })
-      : new Response(body, { headers: { "Content-Type": "image/jpeg" } });
-    assert.equal((await worker.fetch(new Request("https://open.invalid/share-icon.jpg"))).status, 502);
-  }
-  let canceledIcon = false;
-  global.fetch = async url => String(url).startsWith("https://itunes.apple.com/")
-    ? Response.json({ results: [{ trackId: 6761147125, artworkUrl512: "https://is1-ssl.mzstatic.com/current.jpg" }] })
-    : new Response(new ReadableStream({ start(controller) {
-        const chunk = new Uint8Array(8 * 1024 * 1024);
-        for (let index = 0; index < 5; index++) controller.enqueue(chunk);
-      }, cancel() { canceledIcon = true; } }), { headers: { "Content-Type": "image/jpeg" } });
-  assert.equal((await worker.fetch(new Request("https://open.invalid/share-icon.jpg"))).status, 502);
-  assert(canceledIcon);
-  const originalTimeout = global.setTimeout;
-  global.setTimeout = callback => originalTimeout(callback, 0);
-  global.fetch = async (_, { signal }) => new Promise((_, reject) => signal.addEventListener("abort", () => reject(new Error("expired")), { once: true }));
-  try { assert.equal((await worker.fetch(new Request("https://open.invalid/share-icon.jpg"))).status, 502); }
-  finally { global.setTimeout = originalTimeout; }
-  for (const results of [[], [{ trackId: 1, artworkUrl512: "https://is1-ssl.mzstatic.com/icon.jpg" }],
-      [{ trackId: 6761147125, artworkUrl512: "https://foreign.invalid/icon.jpg" }]]) {
-    let calls = 0;
-    global.fetch = async () => { calls += 1; return Response.json({ results }); };
-    assert.equal((await worker.fetch(new Request("https://open.invalid/share-icon.jpg"))).status, 502);
-    assert.equal(calls, 1);
-  }
+  assert.equal(iconRequests, 0);
 })().catch(error => { console.error(error); process.exitCode = 1; });
 '''
     result = subprocess.run(["node", "-"], input=script, capture_output=True, text=True,

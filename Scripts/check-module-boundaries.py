@@ -636,6 +636,7 @@ def main() -> int:
         for path in (root / info["path"]).rglob("*.swift") if "typealias" in swift_code(path.read_text())]))
 
     network_index = {}
+    ui_modules = set()
     for module, info in modules.items():
         source_root = root / info["path"]
         if info["type"] != "regular" or info["path"] != f"Modules/{module}/Sources":
@@ -654,7 +655,9 @@ def main() -> int:
             unit_context = compilation_type_context(unit_index, path.relative_to(root).as_posix())
             text = path.read_text(encoding="utf-8")
             context = imported_aliases(text, aliases, module_aliases)
-            errors.extend(platform_errors(module, raw_imports(text)))
+            imports = raw_imports(text)
+            if 'SwiftUI' in imports: ui_modules.add(module)
+            errors.extend(platform_errors(module, imports))
             errors.extend(ownership_errors(module, text, path.relative_to(root).as_posix(), context, unit_context[0], call_context=call_context))
             errors.extend(service_boundary_errors(path.relative_to(root).as_posix(), text, context, unit_context, call_context=call_context))
         actual = imported_modules(source_root)
@@ -666,6 +669,7 @@ def main() -> int:
             elif imported not in info["dependencies"]:
                 errors.append(f"{module} imports undeclared {imported}: {', '.join(sorted(files))}")
 
+    errors.extend(coverage_registry_findings(set(modules), ui_modules))
     from validation_test_areas import network_capability_findings
     for name, info in (support | tests).items():
         source_root = root / info["path"]

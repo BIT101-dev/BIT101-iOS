@@ -183,7 +183,8 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         let control = app.switches.matching(NSPredicate(format: "label CONTAINS %@", title)).firstMatch
         reveal(control, description: title)
         let initial = control.value as? String
-        control.tap()
+        let nativeSwitch = control.switches.firstMatch
+        if nativeSwitch.exists { nativeSwitch.tap() } else { control.tap() }
         guard let value = control.value as? String else {
             assertUI(false, "开关操作后应保留当前设置页和可读数值：\(title)。")
             return ""

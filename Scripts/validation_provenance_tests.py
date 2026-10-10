@@ -36,6 +36,9 @@ def worker_deployment_self_test() -> None:
     source = subject.ROOT / 'Cloudflare' / folder / 'worker.js'
     with patch.object(Path, 'read_bytes', lambda path: original_read(path) + b'\nchanged\n' if path == source else original_read(path)):
         assert not subject.worker_deployments_complete('all', proof)
+    icon = subject.ROOT / 'BIT101-iOS/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png'
+    with patch.object(Path, 'read_bytes', lambda path: original_read(path) + b'changed' if path == icon else original_read(path)):
+        assert not subject.worker_deployments_complete('all', proof)
     for field, value in [('deploymentID', 'invalid'), ('sourceDigest', 'b' * 64), ('versions', [])]:
         changed = copy.deepcopy(proof)
         changed[folder][field] = value
@@ -196,6 +199,7 @@ def check_group_coverage_policy_self_test(module) -> None:
                         patch.object(module, 'complete_summary', return_value=True), \
                         patch('validation_policy.MODULE_COVERAGE_FLOORS', {'GalleryFeature': 70}), \
                         patch('validation_policy.IOS_MODULE_COVERAGE_FLOORS', {'GalleryFeature': 70}), \
+                        patch('validation_policy.UI_PRODUCTION_MODULES', frozenset({'GalleryFeature'})), \
                         patch.object(Path, 'is_file', return_value=True), \
                         patch.object(Path, 'read_text', return_value=json.dumps(report)), \
                         patch.object(sys, 'argv', ['validation_evidence.py', 'check-group', group]), redirect_stderr(StringIO()):

@@ -47,10 +47,18 @@ IOS_MODULE_COVERAGE_FLOORS = {
     "SchedulePorts": 64, "ScheduleSharedStore": 52, "ScheduleSync": 5,
     "ScorePorts": 45, "ScoreDomain": 45, "ScoreFeature": 7, "ScoreInfrastructure": 31, "StorageCore": 75, "TransportCore": 77,
 }
+UI_PRODUCTION_MODULES = frozenset({
+    "CommunityUI", "CourseFeature", "DesignSystemKit", "GalleryFeature", "MapFeature", "MediaKit",
+    "MineFeature", "PaperFeature", "ScheduleFeature", "ScoreFeature",
+})
 
 
-def coverage_registry_findings(modules: set[str]) -> list[str]:
+def coverage_registry_findings(modules: set[str], ui_modules: set[str] | None = None) -> list[str]:
     errors = []
+    if UI_PRODUCTION_MODULES - modules:
+        errors.append(f"UI 覆盖率登记需要匹配生产模块：{sorted(UI_PRODUCTION_MODULES - modules)}")
+    if ui_modules is not None and ui_modules != UI_PRODUCTION_MODULES:
+        errors.append(f"UI 覆盖率登记需要匹配 SwiftUI 生产模块：新增 {sorted(ui_modules - UI_PRODUCTION_MODULES)}；清理 {sorted(UI_PRODUCTION_MODULES - ui_modules)}")
     for platform, floors, expected in (("macOS", MODULE_COVERAGE_FLOORS, modules - {"ScheduleActivityContracts"}),
             ("iOS", IOS_MODULE_COVERAGE_FLOORS, modules)):
         if set(floors) != expected:

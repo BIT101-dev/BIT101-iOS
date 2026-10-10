@@ -18,7 +18,7 @@
 - 话廊分享：`https://open.aihelpme.dev/gallery/<id>`；课程分享：`https://open.aihelpme.dev/course/<id>`。
 - App 的 `bit101://` 路由支持 `schedule/courses`、`gallery/<id>`、`course/<id>` 与 `paper/<id>`，由 `AppDeepLinkCoordinator` 解析，App 壳层在登录恢复后分发。
 - 文章分享使用 `https://open.aihelpme.dev/paper/<id>`。OpenWorker 的网页路由覆盖 `gallery`、`course` 与 `paper`。
-- 分享图标使用固定 `/share-icon.jpg` 路径，Worker 通过 App Store 元数据取得当前版本的图标资源。
+- 分享图标使用固定 `/share-icon.jpg` 路径，Worker 随部署导入主 App 的 PNG 图标资源；部署摘要同时绑定该资源。
 - AASA 对应 `Y2T72736G3.BIT101-dev.BIT101-iOS`，关联 `gallery/*`、`course/*` 与 `paper/*`。具体响应与网页内容以 `OpenWorker/worker.js` 为准。
 - `/.well-known/apple-app-site-association` 直接返回 HTTP 200 和 `application/json`。App ID 开启 Associated Domains，签名描述文件包含对应权限。
 - 配置部署后重新安装 App，从信息或备忘录等外部 App 点击链接验证。Apple CDN 的缓存影响配置生效时间。

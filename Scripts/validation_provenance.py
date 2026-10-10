@@ -22,6 +22,7 @@ WORKER_SOURCE_PREFIX = 'bit101-source-sha256:'
 def worker_source_digest(folder: str) -> str:
     if folder not in WORKER_FOLDERS: raise ValueError('Worker 需要登记到部署合同。')
     paths = [WRANGLER_ROOT / 'package.json', WRANGLER_ROOT / 'package-lock.json']
+    if folder == 'OpenWorker': paths.append(ROOT / 'BIT101-iOS/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png')
     for directory, children, files in os.walk(ROOT / 'Cloudflare' / folder):
         children[:] = [name for name in children if name not in {'node_modules', '.wrangler', '.git'}]
         paths.extend(Path(directory) / name for name in files if Path(name).suffix in {'.js', '.jsonc'})
