@@ -382,6 +382,7 @@ extension ScheduleService: NetworkSmokeScheduleServicing {}
 @MainActor
 struct ReleaseNetworkSmokeDependencies {
     var requiresRequestEvidence = true
+    var communityIdentity: @MainActor () -> CommunitySessionIdentity = { AppAccountSession.storage.communityCredentials.identity }
     var checkLogin: @MainActor () async throws -> String? = { try await LoginService().checkLogin() }
     var writeReport: @MainActor (ReleaseNetworkSmokeReport) throws -> Void = ReleaseNetworkSmokeReportStore.write
     var clearRawCourseResponse: @MainActor () throws -> Void = ReleaseNetworkSmokeReportStore.clearRawCourseResponse

@@ -190,13 +190,16 @@ from pathlib import Path
 import subprocess
 import sys
 sys.path.insert(0, sys.argv[3])
-from validation_evidence import normalized_test_id
+from validation_evidence import normalized_test_id, validate_community_write_test_output
 def read(kind): return json.loads(subprocess.check_output(['xcrun', 'xcresulttool', 'get', 'test-results', kind, '--path', sys.argv[1]], text=True))
 summary, tree = read('summary'), read('tests')
 executed = set()
+raw_executed = set()
 def visit(value):
     if isinstance(value, dict):
-        if value.get('nodeType') == 'Test Case': executed.add(normalized_test_id(value['nodeIdentifier']))
+        if value.get('nodeType') == 'Test Case':
+            raw_executed.add(value['nodeIdentifier'])
+            executed.add(normalized_test_id(value['nodeIdentifier']))
         for child in value.values(): visit(child)
     elif isinstance(value, list):
         for child in value: visit(child)
@@ -217,5 +220,6 @@ if int(sys.argv[5]) or summary.get('result') != 'Passed' or summary.get('failedT
         print(f"库存差异：缺少 {sorted(expected - executed)}；额外 {sorted(executed - expected)}", file=sys.stderr)
     print(f"详细结果：{sys.argv[2]}", file=sys.stderr)
     raise SystemExit('模拟器复验需要全部筛选用例通过，并匹配实际执行库存。')
+validate_community_write_test_output(Path(sys.argv[1]), raw_executed)
 print(f"模拟器复验通过：{summary['passedTests']} 项；结果用于本机定向复验。")
 PYRESULT

@@ -100,6 +100,26 @@ def network_capability_self_test() -> None:
                 patch.object(Path, 'read_text', lambda path, *args, **kwargs: expressions[str(path)] if str(path) in expressions else original_read(path, *args, **kwargs)):
             return {call['calledExpression'] for call in reachable_smoke_calls(facts)['network']}
     assert 'mine.fetchMyInfo' in reached(sources)
+    platform_sources = {'BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift': '''
+        struct ReleaseNetworkSmokeRunner {
+            func run() {
+                #if targetEnvironment(macCatalyst)
+                service.catalystRead()
+                #else
+                helper()
+                #endif
+            }
+            func helper() {
+                #if targetEnvironment(macCatalyst)
+                service.unreachableAcrossHosts()
+                #else
+                service.iosRead()
+                #endif
+            }
+        }'''}
+    platform_calls = reached(platform_sources)
+    assert {'service.catalystRead', 'service.iosRead'} <= platform_calls
+    assert 'service.unreachableAcrossHosts' not in platform_calls
     for body, expected in [('', False), ('callback()', True),
             ('forward(callback)', True), ('Task { callback() }', True), ('let idle = { callback() }', False)]:
         inline = {'ReleaseNetworkSmoke.swift': f'''struct ReleaseNetworkSmokeRunner {{

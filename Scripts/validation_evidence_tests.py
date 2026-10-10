@@ -334,11 +334,24 @@ def run_self_test(subject) -> int:
         sms = network_trace_fixture({'passed': True, 'scope': 'school', 'executedProbes': sorted(subject.network_inventory('school')), 'requiredProbes': sorted(subject.network_inventory('school')), 'schoolSMSCoverage': 'verified', 'verifiedSMSProbes': [{'purpose': purpose, 'probe': sorted(subject.SCHOOL_SMS_PROBES[purpose])[0]} for purpose in subject.school_sms_inventory()]})
         sms.update(authenticatedSchoolProbes=sms['verifiedSMSProbes'], requestedSMSPurposes=sorted(subject.school_sms_inventory()), currentTerm='fixture-current', validatedTerm='fixture-current')
         assert set(subject.SCHOOL_SMS_PROBES) == subject.school_sms_inventory()
-        writes = network_trace_fixture({'passed': True, 'scope': 'community-writes', 'executedProbes': sorted(subject.network_inventory('community-writes')), 'requiredProbes': sorted(subject.network_inventory('community-writes')), 'communityWriteEvidence': ['验收账号 user1', '服务端确认删除 poster1', '服务端确认删除 paper2', '点赞恢复 poster1', '点赞恢复 paper2', '点赞恢复 course3', '图片提交 poster1', '图片提交 comment10', '关注恢复 user4'] + [f'服务端确认删除 comment{id}' for id in range(10, 16)] + [f'创建 comment{id} 目标 {parent}' for id, parent in [(10, 'poster1'), (11, 'comment10'), (12, 'paper2'), (13, 'comment12'), (14, 'course3'), (15, 'comment14')]]})
+        writes = network_trace_fixture({'passed': True, 'scope': 'community-writes', 'executedProbes': sorted(subject.network_inventory('community-writes')), 'requiredProbes': sorted(subject.network_inventory('community-writes')), 'communityWriteEvidence': ['验收账号 user1', '服务端确认删除 poster1', '服务端确认删除 paper2', '点赞恢复 poster1', '点赞恢复 paper2', '点赞恢复 course3', '图片提交 poster1', '图片提交 comment10', '关注恢复 user4', '定向回复 poster 目标 comment11', '定向回复 paper 目标 comment14', '定向回复 course 目标 comment17'] + [f'服务端确认删除 comment{id}' for id in range(10, 19)] + [f'创建 comment{id} 目标 {parent}' for id, parent in [(10, 'poster1'), (11, 'comment10'), (12, 'comment10'), (13, 'paper2'), (14, 'comment13'), (15, 'comment13'), (16, 'course3'), (17, 'comment16'), (18, 'comment16')]]})
         assert subject.community_writes_complete(writes['communityWriteEvidence'])
-        assert not subject.community_writes_complete(writes['communityWriteEvidence'][:5] + ['服务端确认删除 comment42'] * 6)
-        assert not subject.community_writes_complete([item.replace('目标 comment14', '目标 comment10') for item in writes['communityWriteEvidence']])
-        assert not subject.community_writes_complete([item.replace('创建 comment15', '创建 comment14') for item in writes['communityWriteEvidence']])
+        write_test = {'ReleaseNetworkSmokeLifecycleTests/communityWritesCleanAfterLostResponsesCancellationAndResume'}
+        attachment = {'attachments': [{'name': 'community-write-contract.json', 'payloadId': 'proof'}]}
+        with patch.object(subject.subprocess, 'check_output', side_effect=[json.dumps(attachment), json.dumps(writes['communityWriteEvidence'])]):
+            subject.validate_community_write_test_output(Path('/fixture'), write_test)
+        subject.validate_community_write_test_output(Path('/fixture'), set())
+        for activities, evidence in [({}, '[]'), (attachment, '[]'), (attachment, 'invalid')]:
+            with patch.object(subject.subprocess, 'check_output', side_effect=[json.dumps(activities), evidence]):
+                try: subject.validate_community_write_test_output(Path('/fixture'), write_test)
+                except ValueError: pass
+                else: raise AssertionError('Swift 与 Python 需要共同确认实际写入证据')
+        assert not subject.community_writes_complete(writes['communityWriteEvidence'][:5] + ['服务端确认删除 comment42'] * 9)
+        assert not subject.community_writes_complete([item.replace('目标 comment16', '目标 comment10') for item in writes['communityWriteEvidence']])
+        assert not subject.community_writes_complete([item.replace('创建 comment18', '创建 comment17') for item in writes['communityWriteEvidence']])
+        assert not subject.community_writes_complete([item for item in writes['communityWriteEvidence'] if not item.startswith('定向回复 course')])
+        assert not subject.community_writes_complete([item.replace('定向回复 course 目标 comment17', '定向回复 course 目标 comment11') for item in writes['communityWriteEvidence']])
+        assert not subject.community_writes_complete([item for item in writes['communityWriteEvidence'] if item not in {'创建 comment12 目标 comment10', '创建 comment15 目标 comment13', '创建 comment18 目标 comment16', '服务端确认删除 comment12', '服务端确认删除 comment15', '服务端确认删除 comment18'}])
         cleanup = network_trace_fixture({'passed': True, 'scope': 'community-cleanup', 'executedProbes': sorted(subject.network_inventory('community-cleanup')), 'requiredProbes': sorted(subject.network_inventory('community-cleanup'))})
         assert subject.smoke_summary('community-cleanup', cleanup)['passed']
         assert not subject.smoke_summary('community-writes', cleanup, full=False)['passed']
@@ -684,7 +697,7 @@ def network_trace_fixture(value: dict) -> dict:
                     if contract.method == 'DELETE' and contract.path == r'/reaction/comments/\d+':
                         request['endpoint'] = 'https://' + example(contract.host) + example(contract.path, index + 1)
                     if contract.method == 'POST' and contract.path == '/reaction/comments' and query['obj'].startswith('comment'):
-                        query['obj'] = 'comment' + str(index + 1)
+                        query['obj'] = 'comment' + str(index // 2 + 1)
                 request.update(finalEndpoint=('https://' + example(contract.final_host) + example(contract.final_path))
                     if contract.final_host else request['endpoint'], finalMethod=request['method'], finalQuery=dict(query))
                 assert contract.matches(request), (name, request)
@@ -789,6 +802,11 @@ def network_route_identity_self_test() -> None:
         assert not complete(cursor_probe['probe'], changed)
     writes = network_trace_fixture({'requiredProbes': ['社区写入与清理']})['requestEvidence'][0]['requests']
     assert complete('社区写入与清理', writes)
+    assert sum(row['endpoint'].endswith('/upload/image') for row in writes) == 4
+    assert sum(row['method'] == 'POST' and row['endpoint'].endswith('/reaction/comments') for row in writes) == 9
+    for endpoint, method in [('/upload/image', 'POST'), ('/reaction/comments/', 'DELETE')]:
+        index = next(index for index, row in enumerate(writes) if endpoint in row['endpoint'] and row['method'] == method)
+        assert not complete('社区写入与清理', writes[:index] + writes[index + 1:])
     for endpoint, method in [('/upload/image', 'POST'), ('/reaction/comments', 'POST'),
             ('/reaction/comments/', 'DELETE'), ('/reaction/like', 'POST'), ('/user/follow/', 'POST'),
             ('/posters/', 'PUT'), ('/papers/', 'PUT')]:

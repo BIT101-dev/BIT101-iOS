@@ -263,6 +263,35 @@ def batch_retention_self_test(raw: list, test: str) -> None:
                 assert (bundle / 'database.sqlite3').read_bytes() == b'previousfailed'
                 subject.recover_result_step()
                 assert (bundle / 'database.sqlite3').read_bytes() == b'previousfailed'
+            remove = shutil.rmtree
+            move = shutil.move
+            for interrupted in ('retained', 'current', 'publish-before', 'publish-after'):
+                for path in (bundle, retained, incoming): remove(path, ignore_errors=True)
+                create(retained, b'previous')
+                create(bundle, b'current')
+                writer.reset_mock()
+                def interrupted_remove(path, **kwargs):
+                    if path == (retained if interrupted == 'retained' else bundle) and interrupted in {'retained', 'current'}:
+                        (path / 'database.sqlite3').unlink()
+                        raise KeyboardInterrupt()
+                    return remove(path, **kwargs)
+                def interrupted_move(source, destination, **kwargs):
+                    if interrupted == 'publish-before': raise KeyboardInterrupt()
+                    result = move(source, destination, **kwargs)
+                    if interrupted == 'publish-after': raise KeyboardInterrupt()
+                    return result
+                with patch.object(subject.shutil, 'rmtree', side_effect=interrupted_remove), \
+                        patch.object(subject.shutil, 'move', side_effect=interrupted_move):
+                    try: subject.retain_result_step(['all', 'ui'])
+                    except KeyboardInterrupt: pass
+                    else: raise AssertionError('结果包提交中断需要传播')
+                writer.assert_not_called()
+                with patch.object(subject.subprocess, 'run') as repeated_merge:
+                    subject.recover_result_step()
+                    subject.recover_result_step()
+                    repeated_merge.assert_not_called()
+                assert (bundle / 'database.sqlite3').read_bytes() == b'previouscurrent'
+                assert not retained.exists() and not incoming.exists()
             for fault in ('current', 'current-only', 'published-current', 'published-missing', 'retained', 'merged', 'partial', 'unreadable',
                           'current-partial', 'current-missing', 'current-unreadable', 'current-merged'):
                 for path in (bundle, retained, incoming): shutil.rmtree(path, ignore_errors=True)
@@ -282,7 +311,7 @@ def batch_retention_self_test(raw: list, test: str) -> None:
                     return exported(command, **kwargs)
                 with patch.object(subject.subprocess, 'check_output', side_effect=recover_export):
                     assert subject.main(['recover-batch']) == 0
-                expected = b'previouscurrent' if fault in {'current', 'current-only'} else b'merged' if fault in {'merged', 'current-merged', 'published-current', 'published-missing'} else b'previous'
+                expected = b'previouscurrent' if fault == 'current-only' else b'merged' if fault in {'current', 'merged', 'current-merged', 'published-current', 'published-missing'} else b'previous'
                 assert (bundle / 'database.sqlite3').read_bytes() == expected, fault
                 assert not retained.exists() and not incoming.exists(), fault
                 assert artifact_status() == 0, fault

@@ -155,6 +155,22 @@ def manual_capabilities(check: str, scenario: str) -> set[str]:
 
 
 def reachable_smoke_calls(index: dict) -> dict[str, list[dict]]:
+    from validation_compilation import source_platforms
+    platforms = {platform for path, facts in index.items()
+        if any(function['scope'] == ['ReleaseNetworkSmokeRunner'] and function['name'] == 'run'
+            for function in facts.get('functionRanges', [])) for platform in source_platforms(path)}
+    result, seen = {'network': [], 'community-writes': []}, {'network': set(), 'community-writes': set()}
+    for platform in sorted(platforms):
+        for route, calls in platform_smoke_calls(index, platform).items():
+            for call in calls:
+                key = (call['path'], call.get('start'), call.get('end'), call['calledExpression'])
+                if key in seen[route]: continue
+                seen[route].add(key)
+                result[route].append(call)
+    return result
+
+
+def platform_smoke_calls(index: dict, platform: str) -> dict[str, list[dict]]:
     from pathlib import Path
     import re
     from validation_compilation import source_platforms
@@ -165,13 +181,14 @@ def reachable_smoke_calls(index: dict) -> dict[str, list[dict]]:
     units = {compilation_unit(path) for path, facts in index.items()
         if any(function['scope'] == ['ReleaseNetworkSmokeRunner'] and function['name'] == 'run'
             for function in facts.get('functionRanges', []))}
-    files = {path for path in index if compilation_unit(path) in units or 'Modules' in Path(path).parts}
+    files = {path for path in index if platform in source_platforms(path)
+        and (compilation_unit(path) in units or 'Modules' in Path(path).parts)}
     nodes, by_name, active_sources, callables, stored_callables = {}, {}, {}, set(), {}
     task_locals = {(types.resolve(path, '.'.join(variable['scope']), aliases=False), variable['name'])
         for path, facts in index.items() for variable in facts.get('typedVariables', []) if variable.get('isTaskLocal')}
     for path, facts in index.items():
         if path not in files: continue
-        active = active_swift_source(facts['source'], 'network', platform=source_platforms(path)[0], path=path).encode() if 'source' in facts else None
+        active = active_swift_source(facts['source'], 'network', platform=platform, path=path).encode() if 'source' in facts else None
         active_sources[path] = active
         closures = facts.get('callableRanges', []) + facts.get('inlineClosureRanges', [])
         for function in facts.get('functionRanges', []) + facts.get('accessorRanges', []) + closures:

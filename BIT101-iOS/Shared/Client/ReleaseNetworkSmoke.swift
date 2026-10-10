@@ -218,7 +218,7 @@ final class ReleaseNetworkSmokeRunner {
             )
         }
         _ = await probe("话廊最新列表", area: .bit101, scope: scope) {
-            try await NetworkSmokePaging.batch { try await gallery.fetchFeed(kind: .newest, page: $0 == 0 ? nil : $0) }.items
+            try await NetworkSmokePaging.batch(currentIdentity: self.dependencies.communityIdentity) { try await gallery.fetchFeed(kind: .newest, page: $0 == 0 ? nil : $0) }.items
         }
         let validatedFixtures = fixtures.flatMap { $0.isValid ? $0 : nil }
         if let fixture = validatedFixtures {
@@ -242,7 +242,7 @@ final class ReleaseNetworkSmokeRunner {
                 {
                     let objectID = "poster\(fixture.posterID)"
                     _ = await self.probe("话廊帖子评论", area: .bit101, scope: scope, expectedParameters: ["obj": objectID]) {
-                        try await NetworkSmokePaging.batch {
+                        try await NetworkSmokePaging.batch(currentIdentity: self.dependencies.communityIdentity) {
                             let batch = try await gallery.fetchComments(objectID: objectID, order: .newest, page: $0 == 0 ? nil : $0)
                             try NetworkSmokePaging.checkComments(batch.items, for: objectID)
                             return batch
@@ -264,11 +264,11 @@ final class ReleaseNetworkSmokeRunner {
             recordSkip("话廊图片下载", reason, area: .bit101, scope: scope)
         }
         var galleryOperations: [@MainActor () async -> Void] = [
-            { _ = await self.probe("话廊关注流", area: .bit101, scope: scope) { try await NetworkSmokePaging.batch { try await gallery.fetchFeed(kind: .follow, page: $0 == 0 ? nil : $0) } } },
-            { _ = await self.probe("话廊热门流", area: .bit101, scope: scope) { try await NetworkSmokePaging.batch { try await gallery.fetchFeed(kind: .hot, page: $0 == 0 ? nil : $0) } } },
-            { _ = await self.probe("话廊推荐流", area: .bit101, scope: scope) { try await NetworkSmokePaging.batch { try await gallery.fetchRecommendPage(sourcePage: $0) } } },
+            { _ = await self.probe("话廊关注流", area: .bit101, scope: scope) { try await NetworkSmokePaging.batch(currentIdentity: self.dependencies.communityIdentity) { try await gallery.fetchFeed(kind: .follow, page: $0 == 0 ? nil : $0) } } },
+            { _ = await self.probe("话廊热门流", area: .bit101, scope: scope) { try await NetworkSmokePaging.batch(currentIdentity: self.dependencies.communityIdentity) { try await gallery.fetchFeed(kind: .hot, page: $0 == 0 ? nil : $0) } } },
+            { _ = await self.probe("话廊推荐流", area: .bit101, scope: scope) { try await NetworkSmokePaging.batch(currentIdentity: self.dependencies.communityIdentity) { try await gallery.fetchRecommendPage(sourcePage: $0) } } },
             { _ = await self.probe("话廊机器人流", area: .bit101, scope: scope) {
-                try await NetworkSmokePaging.batch {
+                try await NetworkSmokePaging.batch(currentIdentity: self.dependencies.communityIdentity) {
                     let batch = try await gallery.fetchBotFeed(startPage: $0)
                     try NetworkSmokePaging.checkBotPosters(batch.items)
                     return batch
@@ -278,7 +278,7 @@ final class ReleaseNetworkSmokeRunner {
             { _ = await self.probe("帖子声明列表", area: .bit101, scope: scope) { try await gallery.fetchClaims() } },
             {
                 _ = await self.probe("话廊搜索", area: .bit101, scope: scope) {
-                    try await NetworkSmokePaging.batch { try await gallery.searchPosters(query: GallerySearchQuery(text: "BIT101"), page: $0) }
+                    try await NetworkSmokePaging.batch(currentIdentity: self.dependencies.communityIdentity) { try await gallery.searchPosters(query: GallerySearchQuery(text: "BIT101"), page: $0) }
                 }
             },
             { _ = await self.probe("消息未读数", area: .bit101, scope: scope) { try await gallery.fetchMessageUnreadCounts() } }
@@ -286,14 +286,14 @@ final class ReleaseNetworkSmokeRunner {
         for messageType in GalleryMessageType.allCases {
             galleryOperations.append { [messageType] in
                 _ = await self.probe("消息列表-\(messageType.rawValue)", area: .bit101, scope: scope) {
-                    try await NetworkSmokePaging.messages { try await gallery.fetchMessages(type: messageType, lastID: $0) }
+                    try await NetworkSmokePaging.messages(currentIdentity: self.dependencies.communityIdentity) { try await gallery.fetchMessages(type: messageType, lastID: $0) }
                 }
             }
         }
         await runInParallel(galleryOperations)
 
         _ = await probe("学业课程列表", area: .bit101, scope: scope) {
-            try await NetworkSmokePaging.arrayPage(requiresContent: validatedFixtures != nil) { try await courses.fetchCourses(search: "", page: $0) }
+            try await NetworkSmokePaging.arrayPage(requiresContent: validatedFixtures != nil, currentIdentity: self.dependencies.communityIdentity) { try await courses.fetchCourses(search: "", page: $0) }
         }
         if let fixture = validatedFixtures {
             await runInParallel([
@@ -308,7 +308,7 @@ final class ReleaseNetworkSmokeRunner {
                 {
                     let objectID = "course\(fixture.courseID)"
                     _ = await self.probe("学业课程评论", area: .bit101, scope: scope, expectedParameters: ["obj": objectID]) {
-                        try await NetworkSmokePaging.arrayPage {
+                        try await NetworkSmokePaging.arrayPage(currentIdentity: self.dependencies.communityIdentity) {
                             let comments = try await courses.fetchComments(courseID: fixture.courseID, page: $0 == 0 ? nil : $0)
                             try NetworkSmokePaging.checkComments(comments, for: objectID)
                             return comments
@@ -339,7 +339,7 @@ final class ReleaseNetworkSmokeRunner {
 
         let papers = dependencies.makePapers()
         _ = await probe("文章列表", area: .bit101, scope: scope) {
-            try await NetworkSmokePaging.arrayPage(requiresContent: validatedFixtures != nil) { try await papers.fetchPapers(search: nil, order: .newest, page: $0) }
+            try await NetworkSmokePaging.arrayPage(requiresContent: validatedFixtures != nil, currentIdentity: self.dependencies.communityIdentity) { try await papers.fetchPapers(search: nil, order: .newest, page: $0) }
         }
         if let fixture = validatedFixtures {
             await runInParallel([
@@ -364,7 +364,7 @@ final class ReleaseNetworkSmokeRunner {
                 {
                     let objectID = "paper\(fixture.paperID)"
                     _ = await self.probe("文章评论", area: .bit101, scope: scope, expectedParameters: ["obj": objectID]) {
-                        try await NetworkSmokePaging.arrayPage {
+                        try await NetworkSmokePaging.arrayPage(currentIdentity: self.dependencies.communityIdentity) {
                             let comments = try await papers.fetchComments(paperID: fixture.paperID, order: .newest, page: $0 == 0 ? nil : $0)
                             try NetworkSmokePaging.checkComments(comments, for: objectID)
                             return comments
@@ -388,7 +388,7 @@ final class ReleaseNetworkSmokeRunner {
         await runInParallel(PaperSortOrder.allCases.map { order in
             {
                 _ = await self.probe("文章列表-\(order.title)", area: .bit101, scope: scope) {
-                    let sample = try await NetworkSmokePaging.arrayPage {
+                    let sample = try await NetworkSmokePaging.arrayPage(currentIdentity: self.dependencies.communityIdentity) {
                         let page = try await papers.fetchPapers(search: "BIT101", order: order, page: $0)
                         try NetworkSmokePaging.checkPapers(page, order: order)
                         return page
@@ -405,14 +405,14 @@ final class ReleaseNetworkSmokeRunner {
         } ?? []
         let myInfo = await probe("我的资料", area: .bit101, scope: scope) { try await mine.fetchMyInfo() }
         await runInParallel([
-            { _ = await self.probe("我的关注", area: .bit101, scope: scope) { try await NetworkSmokePaging.arrayPage { try await mine.fetchFollowings(page: $0) } } },
-            { _ = await self.probe("我的粉丝", area: .bit101, scope: scope) { try await NetworkSmokePaging.arrayPage { try await mine.fetchFollowers(page: $0) } } }
+            { _ = await self.probe("我的关注", area: .bit101, scope: scope) { try await NetworkSmokePaging.arrayPage(currentIdentity: self.dependencies.communityIdentity) { try await mine.fetchFollowings(page: $0) } } },
+            { _ = await self.probe("我的粉丝", area: .bit101, scope: scope) { try await NetworkSmokePaging.arrayPage(currentIdentity: self.dependencies.communityIdentity) { try await mine.fetchFollowers(page: $0) } } }
         ])
         if let myInfo {
             await runInParallel([
                 {
                     _ = await self.probe("我的帖子", area: .bit101, scope: scope, expectedParameters: ["uid": "0"]) {
-                        try await NetworkSmokePaging.arrayPage {
+                        try await NetworkSmokePaging.arrayPage(currentIdentity: self.dependencies.communityIdentity) {
                             let posters = try await mine.fetchMyPosters(page: $0)
                             try NetworkSmokePaging.checkPosters(posters, for: myInfo.user.id)
                             return posters
@@ -424,7 +424,7 @@ final class ReleaseNetworkSmokeRunner {
                 },
                 {
                     _ = await self.probe("用户帖子", area: .bit101, scope: scope, expectedParameters: ["uid": String(myInfo.user.id)]) {
-                        try await NetworkSmokePaging.arrayPage {
+                        try await NetworkSmokePaging.arrayPage(currentIdentity: self.dependencies.communityIdentity) {
                             let posters = try await mine.fetchUserPosters(userID: myInfo.user.id, page: $0)
                             try NetworkSmokePaging.checkPosters(posters, for: myInfo.user.id)
                             return posters

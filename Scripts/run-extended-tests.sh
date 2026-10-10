@@ -668,6 +668,7 @@ from pathlib import Path
 
 result_bundle, report_path, mode, elapsed_seconds, device_id, root = sys.argv[1:]
 sys.path.insert(0, str(Path(root) / "Scripts"))
+from validation_evidence import validate_community_write_test_output
 summary_result = subprocess.run([
     "xcrun", "xcresulttool", "get", "test-results", "summary",
     "--path", result_bundle,
@@ -834,6 +835,8 @@ def visit_tests(value):
         for child in value:
             visit_tests(child)
 visit_tests(test_tree)
+if summary.get("result") == "Passed":
+    validate_community_write_test_output(Path(result_bundle), set(executed))
 lines.append("已执行用例：" + json.dumps(sorted(set(executed)), ensure_ascii=False))
 if durations:
     lines += ["", "## 用例耗时", f"用例耗时合计：{sum(item[0] for item in durations):.1f} 秒", *[

@@ -133,10 +133,10 @@ CONTRACTS = {
     '社区写入与清理': [community('/posters', method='POST'), community(r'/posters/\d+', method='DELETE'),
         community(r'/posters/\d+', method='PUT'), community('/papers', method='POST'),
         community(r'/papers/\d+', method='DELETE'), community(r'/papers/\d+', method='PUT'),
-        community('/upload/image', method='POST', minimum=5),
+        community('/upload/image', method='POST', minimum=4),
         *[community('/reaction/comments', method='POST', query={'obj': kind + r'\d+'}, minimum=minimum)
-            for kind, minimum in (('poster', 1), ('paper', 1), ('course', 1), ('comment', 3))],
-        community(r'/reaction/comments/\d+', method='DELETE', minimum=6),
+            for kind, minimum in (('poster', 1), ('paper', 1), ('course', 1), ('comment', 6))],
+        community(r'/reaction/comments/\d+', method='DELETE', minimum=9),
         *[community('/reaction/like', method='POST', query={'obj': kind + r'\d+'}, minimum=2)
             for kind in ('poster', 'paper', 'course')],
         community(r'/user/follow/\d+', method='POST', minimum=2)],
@@ -248,12 +248,12 @@ def complete(probe: str, requests: list[dict], expected_parameters: dict | None 
         return observed == expected
     if matched and probe == '社区写入与清理':
         comments = [row for row in requests if community('/reaction/comments', method='POST').matches(row)]
-        replies = {row.get('query', {}).get('obj') for row in comments if row.get('query', {}).get('obj', '').startswith('comment')}
-        deleted = {urlsplit(row['endpoint']).path for row in requests if community(r'/reaction/comments/\d+', method='DELETE').matches(row)}
         from collections import Counter
+        replies = Counter(row.get('query', {}).get('obj') for row in comments if row.get('query', {}).get('obj', '').startswith('comment'))
+        deleted = {urlsplit(row['endpoint']).path for row in requests if community(r'/reaction/comments/\d+', method='DELETE').matches(row)}
         likes = Counter(row.get('query', {}).get('obj') for row in requests if community('/reaction/like', method='POST').matches(row))
         followed = Counter(urlsplit(row['endpoint']).path for row in requests if community(r'/user/follow/\d+', method='POST').matches(row))
-        return len(replies) >= 3 and len(deleted) >= 6 and any(count >= 2 for count in followed.values()) \
+        return sum(count >= 2 for count in replies.values()) >= 3 and len(deleted) >= 9 and any(count >= 2 for count in followed.values()) \
             and all(any(isinstance(obj, str) and re.fullmatch(kind + r'\d+', obj) and count >= 2
                 for obj, count in likes.items()) for kind in ('poster', 'paper', 'course'))
     return matched

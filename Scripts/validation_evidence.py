@@ -302,7 +302,7 @@ def community_writes_complete(evidence: list) -> bool:
     deleted = [match[1] for item in evidence if (match := re.fullmatch(r"服务端确认删除 comment([1-9]\d*)", item))]
     created = [(match[1], match[2]) for item in evidence
                if (match := re.fullmatch(r"创建 comment([1-9]\d*) 目标 ((?:poster|paper|course|comment)[1-9]\d*)", item))]
-    if len(deleted) != 6 or len(set(deleted)) != 6 or len(created) != 6 or {item[0] for item in created} != set(deleted):
+    if len(deleted) != 9 or len(set(deleted)) != 9 or len(created) != 9 or {item[0] for item in created} != set(deleted):
         return False
     parents = [(identifier, parent) for identifier, parent in created if not parent.startswith("comment")]
     replies = [parent for _, parent in created if parent.startswith("comment")]
@@ -313,10 +313,40 @@ def community_writes_complete(evidence: list) -> bool:
     follow = [item for item in evidence if re.fullmatch(r"关注恢复 user[1-9]\d*", item)]
     poster = next((parent for _, parent in parents if parent.startswith("poster")), "")
     poster_comments = {"comment" + identifier for identifier, parent in parents if parent == poster}
-    return len(follow) == 1 and images == {poster} | poster_comments and len(parents) == len(replies) == len(likes) == 3 and len(contents) == 2 \
+    directed = [(match[1], match[2]) for item in evidence
+                if (match := re.fullmatch(r"定向回复 (poster|paper|course) 目标 comment([1-9]\d*)", item))]
+    reply_parents = {identifier: parent for identifier, parent in created if parent.startswith("comment")}
+    roots = {re.match(r"[a-z]+", parent)[0]: "comment" + identifier for identifier, parent in parents}
+    return len(follow) == 1 and images == {poster} | poster_comments and len(parents) == len(likes) == 3 and len(replies) == 6 and len(contents) == 2 \
         and {re.match(r"[a-z]+", parent)[0] for parent in targets} == {"poster", "paper", "course"} \
         and set(replies) == {"comment" + identifier for identifier, _ in parents} \
+        and all(replies.count(root) == 2 for root in roots.values()) \
+        and len(directed) == 3 and {kind for kind, _ in directed} == set(roots) \
+        and all(reply_parents.get(identifier) == roots[kind] for kind, identifier in directed) \
         and set(likes) == targets and set(contents) == {target for target in targets if not target.startswith("course")}
+
+
+def validate_community_write_test_output(bundle: Path, executed: set[str]) -> None:
+    test = "ReleaseNetworkSmokeLifecycleTests/communityWritesCleanAfterLostResponsesCancellationAndResume"
+    identifier = next((item for item in executed if normalized_test_id(item) == test), None)
+    if identifier is None: return
+    activities = json.loads(subprocess.check_output(['xcrun', 'xcresulttool', 'get', 'test-results', 'activities',
+        '--path', str(bundle), '--test-id', identifier], text=True))
+    payloads = []
+    def collect(value):
+        if isinstance(value, dict):
+            if re.fullmatch(r'community-write-contract(?:_[^/]+)?\.json', value.get('name', '')) and value.get('payloadId'):
+                payloads.append(value['payloadId'])
+            for child in value.values(): collect(child)
+        elif isinstance(value, list):
+            for child in value: collect(child)
+    collect(activities)
+    try:
+        evidence = json.loads(subprocess.check_output(['xcrun', 'xcresulttool', 'get', 'object', '--legacy', '--format', 'raw',
+            '--path', str(bundle), '--id', payloads[0]])) if len(payloads) == 1 else None
+    except ValueError: evidence = None
+    if not isinstance(evidence, list) or not community_writes_complete(evidence):
+        raise ValueError("Swift 社区写入实测输出需要通过 Python 创建、回复与清理合同。")
 
 
 def school_authentication_complete(value: dict) -> bool:

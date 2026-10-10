@@ -24,6 +24,35 @@ import StorageCore
 @Suite("Network smoke coverage")
 @MainActor
 struct NetworkSmokeCoverageTests {
+    private func smokeIdentity() -> CommunitySessionIdentity { .init(accountIdentifier: "fixture") }
+
+    @Test(arguments: ["array", "batch", "messages"], [false, true])
+    func pagingUsesItsInjectedSessionAcrossPages(kind: String, switchesAccount: Bool) async throws {
+        var identity = smokeIdentity()
+        var calls = 0
+        func advance() {
+            calls += 1
+            if switchesAccount && calls == 2 { identity = .init(accountIdentifier: "other") }
+        }
+        let operation: () async throws -> Void = {
+            switch kind {
+            case "array":
+                let _: [CommunityUser] = try await NetworkSmokePaging.arrayPage(currentIdentity: { identity }) { page in
+                    advance(); return [user(page + 1)]
+                }
+            case "batch":
+                let _: GalleryPageBatch<CommunityUser> = try await NetworkSmokePaging.batch(currentIdentity: { identity }) { page in
+                    advance(); return .init(items: [user(page + 1)], nextSourcePage: page + 1, canLoadMore: page == 0, sourceIDs: [page + 1])
+                }
+            default:
+                _ = try await NetworkSmokePaging.messages(currentIdentity: { identity }) { _ in advance(); return [] }
+            }
+        }
+        if switchesAccount { await #expect(throws: CancellationError.self) { try await operation() } }
+        else { try await operation() }
+        #expect(calls == 2)
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: ["provisional", "navigation", "process"])
     func galleryWebFailuresRenderTheRetryDocument(path: String) async throws {
         let coordinator = GalleryWebCoordinator(credentials: .init(cookie: { "fixture" }, changes: Empty().eraseToAnyPublisher()), openExternal: { _ in })
@@ -317,7 +346,7 @@ struct NetworkSmokeCoverageTests {
     @Test func pageFailureAndFilteredSourceCursorRemainPartOfTheProbe() async throws {
         var pages: [Int] = []
         await #expect(throws: URLError.self) {
-            _ = try await NetworkSmokePaging.arrayPage { page in
+            _ = try await NetworkSmokePaging.arrayPage(currentIdentity: smokeIdentity) { page in
                 pages.append(page)
                 if page == 1 { throw URLError(.timedOut) }
                 return [user(1)]
@@ -325,13 +354,13 @@ struct NetworkSmokeCoverageTests {
         }
         #expect(pages == [0, 1])
         pages = []
-        let first: GalleryPageBatch<CommunityUser> = try await NetworkSmokePaging.batch { page in
+        let first: GalleryPageBatch<CommunityUser> = try await NetworkSmokePaging.batch(currentIdentity: smokeIdentity) { page in
             pages.append(page)
             return .init(items: [], nextSourcePage: page == 0 ? 4 : 5, canLoadMore: page == 0, sourceIDs: [page + 1])
         }
         #expect(first.items.isEmpty && pages == [0, 4])
         await #expect(throws: URLError.self) {
-            let _: GalleryPageBatch<CommunityUser> = try await NetworkSmokePaging.batch { page in
+            let _: GalleryPageBatch<CommunityUser> = try await NetworkSmokePaging.batch(currentIdentity: smokeIdentity) { page in
                 .init(items: [user(1)], nextSourcePage: 1, canLoadMore: true)
             }
         }
@@ -341,7 +370,7 @@ struct NetworkSmokeCoverageTests {
         for repeated in [true, false] {
             var pages: [Int] = []
             await #expect(throws: URLError.self) {
-                _ = try await NetworkSmokePaging.arrayPage { page in
+                _ = try await NetworkSmokePaging.arrayPage(currentIdentity: smokeIdentity) { page in
                     pages.append(page)
                     return [user(repeated || page == 0 ? 1 : 0)]
                 }
@@ -349,7 +378,7 @@ struct NetworkSmokeCoverageTests {
             #expect(pages == (repeated ? [0, 1, 2, 3, 4] : [0, 1]))
             pages = []
             await #expect(throws: URLError.self) {
-                let _: GalleryPageBatch<CommunityUser> = try await NetworkSmokePaging.batch { page in
+                let _: GalleryPageBatch<CommunityUser> = try await NetworkSmokePaging.batch(currentIdentity: smokeIdentity) { page in
                     pages.append(page)
                     return .init(items: [], nextSourcePage: page + 1, canLoadMore: true,
                         sourceIDs: [repeated || page == 0 ? 1 : 0])
@@ -359,13 +388,13 @@ struct NetworkSmokeCoverageTests {
         }
         for terminal in [false, true] {
             var pages: [Int] = []
-            _ = try await NetworkSmokePaging.arrayPage { page in
+            _ = try await NetworkSmokePaging.arrayPage(currentIdentity: smokeIdentity) { page in
                 pages.append(page)
                 return page == 0 ? [user(1), user(2)] : terminal ? [] : [user(2), user(3)]
             }
             #expect(pages == [0, 1])
             pages = []
-            let _: GalleryPageBatch<CommunityUser> = try await NetworkSmokePaging.batch { page in
+            let _: GalleryPageBatch<CommunityUser> = try await NetworkSmokePaging.batch(currentIdentity: smokeIdentity) { page in
                 pages.append(page)
                 return .init(items: [], nextSourcePage: page + 1, canLoadMore: page == 0,
                     sourceIDs: page == 0 ? [1, 2] : terminal ? [] : [2, 3])
@@ -377,13 +406,13 @@ struct NetworkSmokeCoverageTests {
     @Test func temporaryRepeatedPagesRecoverAndSampleContinuationImages() async throws {
         for repeated in [1, 3] {
             var pages: [Int] = []
-            let values = try await NetworkSmokePaging.arrayPage { page in
+            let values = try await NetworkSmokePaging.arrayPage(currentIdentity: smokeIdentity) { page in
                 pages.append(page)
                 return [user(page <= repeated ? 1 : 2)]
             }
             #expect(values.map(\.id) == [1, 2] && pages == Array(0...(repeated + 1)))
             pages = []
-            let sample: GalleryPageBatch<CommunityUser> = try await NetworkSmokePaging.batch { page in
+            let sample: GalleryPageBatch<CommunityUser> = try await NetworkSmokePaging.batch(currentIdentity: smokeIdentity) { page in
                 pages.append(page)
                 let id = page <= repeated ? 1 : 2
                 let value = CommunityUser(id: id, createTime: "", nickname: "fixture",
@@ -399,23 +428,23 @@ struct NetworkSmokeCoverageTests {
 
     @Test func terminalPagesExerciseContinuationAndMessagesUseTheirActualCursor() async throws {
         var pages: [Int] = []
-        let empty: [CommunityUser] = try await NetworkSmokePaging.arrayPage { page in pages.append(page); return [] }
+        let empty: [CommunityUser] = try await NetworkSmokePaging.arrayPage(currentIdentity: smokeIdentity) { page in pages.append(page); return [] }
         #expect(empty.isEmpty && pages == [0, 1])
         await #expect(throws: URLError.self) {
-            let _: [CommunityUser] = try await NetworkSmokePaging.arrayPage(requiresContent: true) { _ in [] }
+            let _: [CommunityUser] = try await NetworkSmokePaging.arrayPage(requiresContent: true, currentIdentity: smokeIdentity) { _ in [] }
         }
         let data = Data(#"{"from_user":{},"id":9,"link_obj":"poster1","obj":"poster1","text":"","update_time":""}"#.utf8)
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         let message = try decoder.decode(GalleryMessage.self, from: data)
         var cursors: [Int?] = []
-        _ = try await NetworkSmokePaging.messages { cursor in cursors.append(cursor); return cursor == Int.max ? [message] : [] }
+        _ = try await NetworkSmokePaging.messages(currentIdentity: smokeIdentity) { cursor in cursors.append(cursor); return cursor == Int.max ? [message] : [] }
         #expect(cursors == [Int.max, 9])
         cursors = []
-        _ = try await NetworkSmokePaging.messages { cursor in cursors.append(cursor); return [] }
+        _ = try await NetworkSmokePaging.messages(currentIdentity: smokeIdentity) { cursor in cursors.append(cursor); return [] }
         #expect(cursors == [Int.max, 1])
         await #expect(throws: URLError.self) {
-            _ = try await NetworkSmokePaging.messages { _ in [message] }
+            _ = try await NetworkSmokePaging.messages(currentIdentity: smokeIdentity) { _ in [message] }
         }
     }
 
@@ -440,7 +469,7 @@ struct NetworkSmokeCoverageTests {
         var messages: [GalleryMessage] = emptyFirstPage ? [] : [message]
         var unread = 3
         var requests = 0
-        _ = try await NetworkSmokePaging.messages { cursor in
+        _ = try await NetworkSmokePaging.messages(currentIdentity: smokeIdentity) { cursor in
             requests += 1
             if emptyFirstPage && requests == 2 { messages = [message]; unread += 1 }
             let rows = messages.filter { cursor == nil || cursor == 0 || $0.id < (cursor ?? 0) }
@@ -460,7 +489,7 @@ struct NetworkSmokeCoverageTests {
             let firstPage = try messages(first), secondPage = try messages(second)
             var requested: [Int?] = [], page = GalleryMessageListState()
             page.applyFirstCursorPage(firstPage)
-            let operation = { try await NetworkSmokePaging.messages { cursor in requested.append(cursor); return cursor == Int.max ? firstPage : secondPage } }
+            let operation = { try await NetworkSmokePaging.messages(currentIdentity: smokeIdentity) { cursor in requested.append(cursor); return cursor == Int.max ? firstPage : secondPage } }
             if valid { _ = try await operation(); #expect(requested == [Int.max, page.nextCursor]) }
             else { await #expect(throws: URLError.self) { try await operation() } }
         }

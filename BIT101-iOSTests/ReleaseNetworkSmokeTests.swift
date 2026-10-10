@@ -694,6 +694,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
         if stage == "success" {
             let evidence = try result.get()
             #expect(evidence.filter { $0.hasPrefix("服务端确认删除 comment") }.count == 9)
+            Attachment.record(try JSONEncoder().encode(evidence), named: "community-write-contract.json")
         } else { if case .success = result { Issue.record("故障注入应保留验收失败结果") } }
         if stage == "invalid-paper", case let .failure(error) = result {
             #expect(error.localizedDescription.contains("创建 paper：参数错误awa"))

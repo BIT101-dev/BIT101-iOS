@@ -50,6 +50,16 @@ def merge_result_bundles(retained: Path, merged: Path) -> None:
 def recover_result_step() -> None:
     retained = BUNDLE.with_suffix('.retained.xcresult')
     merged = BUNDLE.with_suffix('.incoming.xcresult')
+    if merged.exists():
+        try:
+            bundle_digest(merged)
+            subprocess.check_output(['xcrun', 'xcresulttool', 'get', 'test-results', 'summary', '--path', str(merged)])
+        except (ValueError, OSError, subprocess.CalledProcessError): pass
+        else:
+            shutil.rmtree(retained, ignore_errors=True)
+            shutil.rmtree(BUNDLE, ignore_errors=True)
+            shutil.move(str(merged), str(BUNDLE))
+            return
     if BUNDLE.exists() and (retained.exists() or merged.exists()):
         try:
             bundle_digest(BUNDLE)
@@ -59,15 +69,6 @@ def recover_result_step() -> None:
     if BUNDLE.exists() and retained.exists():
         merge_result_bundles(retained, merged)
         return
-    if merged.exists() and (not BUNDLE.exists() or not retained.exists()):
-        try:
-            bundle_digest(merged)
-            subprocess.check_output(['xcrun', 'xcresulttool', 'get', 'test-results', 'summary', '--path', str(merged)])
-        except (ValueError, OSError, subprocess.CalledProcessError): pass
-        else:
-            shutil.rmtree(retained, ignore_errors=True)
-            shutil.rmtree(BUNDLE, ignore_errors=True)
-            shutil.move(str(merged), str(BUNDLE))
     if not BUNDLE.exists() and retained.exists():
         shutil.move(str(retained), str(BUNDLE))
     shutil.rmtree(retained, ignore_errors=True)

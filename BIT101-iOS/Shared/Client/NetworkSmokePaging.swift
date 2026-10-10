@@ -41,11 +41,11 @@ enum NetworkSmokePaging {
         images.lazy.map { $0.lowUrl.isEmpty ? $0.url : $0.lowUrl }.first { !$0.isEmpty }
     }
 
-    static func arrayPage<Value: Identifiable>(requiresContent: Bool = false, load: (Int) async throws -> [Value]) async throws -> [Value] where Value.ID == Int {
-        let identity = AppAccountSession.storage.communityCredentials.identity
+    static func arrayPage<Value: Identifiable>(requiresContent: Bool = false, currentIdentity: () -> CommunitySessionIdentity, load: (Int) async throws -> [Value]) async throws -> [Value] where Value.ID == Int {
+        let identity = currentIdentity()
         let first = try await load(0)
         guard !requiresContent || !first.isEmpty else { throw URLError(.cannotParseResponse) }
-        try checkIdentity(identity)
+        try checkIdentity(identity, current: currentIdentity())
         try checkIDs(first.map(\.id))
         var sampled = CommunityPagedItems<Value>()
         sampled.replace(with: first)
@@ -53,7 +53,7 @@ enum NetworkSmokePaging {
         var page = 1
         while true {
             let next = try await load(page)
-            try checkIdentity(identity)
+            try checkIdentity(identity, current: currentIdentity())
             let ids = next.map(\.id)
             try checkIDs(ids)
             try progress.record(ids)
@@ -69,10 +69,10 @@ enum NetworkSmokePaging {
         else { throw URLError(.cannotParseResponse) }
     }
 
-    static func batch<Value: Identifiable>(load: (Int) async throws -> GalleryPageBatch<Value>) async throws -> GalleryPageBatch<Value> where Value.ID == Int {
-        let identity = AppAccountSession.storage.communityCredentials.identity
+    static func batch<Value: Identifiable>(currentIdentity: () -> CommunitySessionIdentity, load: (Int) async throws -> GalleryPageBatch<Value>) async throws -> GalleryPageBatch<Value> where Value.ID == Int {
+        let identity = currentIdentity()
         let first = try await load(0)
-        try checkIdentity(identity)
+        try checkIdentity(identity, current: currentIdentity())
         try checkIDs(first.sourceIDs)
         guard first.nextSourcePage > 0, !first.canLoadMore || !first.sourceIDs.isEmpty
         else { throw URLError(.cannotParseResponse) }
@@ -83,7 +83,7 @@ enum NetworkSmokePaging {
         var page = first.nextSourcePage
         while true {
             let next = try await load(page)
-            try checkIdentity(identity)
+            try checkIdentity(identity, current: currentIdentity())
             try checkIDs(next.sourceIDs)
             guard next.nextSourcePage > page, !next.canLoadMore || !next.sourceIDs.isEmpty
             else { throw URLError(.cannotParseResponse) }
@@ -99,24 +99,24 @@ enum NetworkSmokePaging {
         }
     }
 
-    static func messages(load: (Int?) async throws -> [GalleryMessage]) async throws -> [GalleryMessage] {
-        let identity = AppAccountSession.storage.communityCredentials.identity
+    static func messages(currentIdentity: () -> CommunitySessionIdentity, load: (Int?) async throws -> [GalleryMessage]) async throws -> [GalleryMessage] {
+        let identity = currentIdentity()
         let first = try await load(Int.max)
-        try checkIdentity(identity)
+        try checkIdentity(identity, current: currentIdentity())
         guard first.allSatisfy({ $0.id > 0 }),
               zip(first, first.dropFirst()).allSatisfy({ $0.id > $1.id }) else { throw URLError(.cannotParseResponse) }
         let cursor = first.last?.id ?? 1
         guard cursor > 0 else { throw URLError(.cannotParseResponse) }
         let second = try await load(cursor)
-        try checkIdentity(identity)
+        try checkIdentity(identity, current: currentIdentity())
         guard second.allSatisfy({ $0.id > 0 && $0.id < cursor }),
               zip(second, second.dropFirst()).allSatisfy({ $0.id > $1.id }) else { throw URLError(.cannotParseResponse) }
         return first
     }
 
-    private static func checkIdentity(_ identity: CommunitySessionIdentity) throws {
+    private static func checkIdentity(_ identity: CommunitySessionIdentity, current: CommunitySessionIdentity) throws {
         try Task.checkCancellation()
-        guard identity == AppAccountSession.storage.communityCredentials.identity else { throw CancellationError() }
+        guard identity == current else { throw CancellationError() }
     }
 
     private static func checkIDs(_ ids: [Int]) throws {
