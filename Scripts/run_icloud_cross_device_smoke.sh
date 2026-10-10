@@ -89,21 +89,32 @@ PY
   if [[ -n "$pending_cleanup" ]]; then "$0" cleanup; fi
 fi
 if $CLEANUP_ONLY; then
-  RUN_ID="$(python3 - "$SUMMARY_PATH" <<'PY'
+  cleanup_identity="$(python3 - "$SUMMARY_PATH" <<'PY'
 import json
 from datetime import datetime, timezone
 from pathlib import Path
 import sys
 from uuid import UUID
 
-run_id = json.loads(Path(sys.argv[1]).read_text())["runID"]
+report = json.loads(Path(sys.argv[1]).read_text())
+run_id = report["runID"]
 UUID(run_id)
+phone = next((row for row in report.get("stages", []) if row.get("stage") == "testPhoneRoundTrip"), {})
+recorded = report.get("phoneDeviceIdentifier")
+observed = phone.get("destination", {}).get("deviceIdentifier")
+device = recorded or observed
+if not isinstance(device, str) or not device or (recorded and observed and recorded != observed):
+    raise SystemExit("iCloud 恢复需要原执行 iPhone 的一致设备身份，请核对既有报告。")
 print(run_id)
+print(device)
 PY
 )"
+  cleanup_identifiers=("${(@f)cleanup_identity}")
+  RUN_ID="${cleanup_identifiers[1]}"
+  CLEANUP_DEVICE_ID="${cleanup_identifiers[2]}"
 fi
 export TEST_RUNNER_BIT101_ICLOUD_SMOKE_RUN_ID="$RUN_ID"
-bit101_require_device || exit 1
+bit101_require_device "${CLEANUP_DEVICE_ID:-}" || exit 1
 BIT101_VALIDATION_RUN_ID="$RUN_ID"
 validation_group=icloud
 if $CLEANUP_ONLY; then validation_group=icloud-cleanup; fi
@@ -128,7 +139,7 @@ entitlements["com.apple.developer.icloud-container-environment"] = "Production"
 Path(sys.argv[2]).write_bytes(plistlib.dumps(entitlements))
 PY
 if ! $CLEANUP_ONLY; then
-  PYTHONPATH="$ROOT_DIR/Scripts${PYTHONPATH:+:$PYTHONPATH}" python3 - "$SUMMARY_PATH" "$RUN_ID" <<'PY'
+  PYTHONPATH="$ROOT_DIR/Scripts${PYTHONPATH:+:$PYTHONPATH}" python3 - "$SUMMARY_PATH" "$RUN_ID" "$DEVICE_ID" <<'PY'
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -136,7 +147,8 @@ import sys
 from validation_evidence import report_lock, write_report
 
 with report_lock(path=Path(sys.argv[1])):
-    write_report({"runID": sys.argv[2], "startedAt": datetime.now(timezone.utc).isoformat(), "stages": []}, path=Path(sys.argv[1]))
+    write_report({"runID": sys.argv[2], "phoneDeviceIdentifier": sys.argv[3],
+        "startedAt": datetime.now(timezone.utc).isoformat(), "stages": []}, path=Path(sys.argv[1]))
 PY
 fi
 

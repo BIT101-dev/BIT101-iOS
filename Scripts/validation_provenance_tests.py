@@ -27,6 +27,11 @@ def worker_deployment_self_test() -> None:
     import copy
     import uuid
     import validation_provenance as subject
+    deploy_command = json.loads((subject.WRANGLER_ROOT / 'package.json').read_text())['scripts']['deploy']
+    dispatch = subprocess.run(['zsh', '-c', 'python3() { print -rl -- "$@"; }\n' + deploy_command],
+        cwd=subject.WRANGLER_ROOT, capture_output=True, text=True)
+    assert dispatch.returncode == 0 and dispatch.stdout.splitlines() == [
+        '../../Scripts/validation_provenance.py', 'deploy-worker', 'EmergencyUpdateWorker']
     proof = worker_deployment_fixture()
     assert subject.worker_deployments_complete('all', proof)
     assert subject.worker_deployments_complete('school', {})

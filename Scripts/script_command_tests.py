@@ -366,6 +366,21 @@ report_result() {{ :; }}
             exec(compile(pending, '<icloud-pending-cleanup>', 'exec'), {})
         if output.getvalue().strip() != expected:
             findings.append('iCloud 恢复自测：双端恢复通过后进入新验收账号')
+    identity = icloud_source.split('cleanup_identity="$(python3 - "$SUMMARY_PATH" <<\'PY\'\n', 1)[1].split('\nPY\n', 1)[0]
+    run_id = '00000000-0000-0000-0000-000000000001'
+    phone = dict(stage='testPhoneRoundTrip', destination={'deviceIdentifier': 'phone-a'})
+    for report, valid in (
+        ({'phoneDeviceIdentifier': 'phone-a', 'stages': [phone]}, True),
+        ({'stages': [phone]}, True), ({'phoneDeviceIdentifier': 'phone-a', 'stages': []}, True),
+        ({'stages': []}, False), ({'phoneDeviceIdentifier': 'phone-b', 'stages': [phone]}, False),
+    ):
+        output, succeeded = StringIO(), True
+        with patch.object(sys, 'argv', ['cleanup-identity', '/fixture']), \
+                patch.object(Path, 'read_text', return_value=json.dumps(dict(report, runID=run_id))), redirect_stdout(output):
+            try: exec(compile(identity, '<icloud-cleanup-identity>', 'exec'), {})
+            except SystemExit: succeeded = False
+        if succeeded != valid or output.getvalue().splitlines() != ([run_id, 'phone-a'] if valid else []):
+            findings.append('iCloud 恢复自测：沿原执行设备读取账号，身份冲突保留既有报告')
     report_program = (SCRIPT_ROOT / 'run-extended-tests.sh').read_text().split(
         ' <<\'PY\'\n', 1)[1].split('\nPY\n', 1)[0]
     for has_info, staging in ((True, False), (True, True), (False, False)):
@@ -644,6 +659,22 @@ def device_discovery_boundary_findings() -> list[str]:
         result = subprocess.run(["zsh", "-c", code], capture_output=True, text=True)
         if (expected and (result.returncode or result.stdout.strip() != expected)) or (not expected and result.returncode != 1):
             findings.append("设备自测：有线优先、无线发现、连接状态及真实配对设备范围")
+    for requested, devices, cached, expected in (
+        ('phone-a', [candidate('phone-b', 'wired'), candidate('phone-a', 'localNetwork')], 'phone-b', 'phone-a'),
+        ('phone-a', [candidate('phone-b', 'wired')], 'phone-b', ''),
+        ('phone-a', [candidate('phone-a', 'wired')], 'phone-a', 'phone-a'),
+        ('', [], 'phone-b', 'phone-b'),
+    ):
+        snapshot = shlex.quote(json.dumps({'result': {'devices': devices}}))
+        code = f'source {shlex.quote(str(support))}\n'
+        code += f'BIT101_XCODE_DEVICE_ID={cached} BIT101_DEVICETCL_DEVICE_ID=cached-pair BIT101_DEVICE_TRANSPORT=wired BIT101_DEVICE_NAME={cached}\n'
+        code += f'bit101_device_snapshot() {{ print -r -- {snapshot}; }}\nbit101_find_device {shlex.quote(requested)} || exit 1\n'
+        code += 'print -r -- "$BIT101_XCODE_DEVICE_ID:$BIT101_DEVICETCL_DEVICE_ID"\n'
+        result = subprocess.run(['zsh', '-c', code], capture_output=True, text=True)
+        paired = expected if requested else 'cached-pair'
+        if (expected and (result.returncode or result.stdout.strip() != f'{expected}:{paired}')) \
+                or (not expected and result.returncode != 1):
+            findings.append('设备自测：指定原执行设备时刷新身份配对，普通流程复用已选设备')
     return findings
 
 

@@ -5,7 +5,6 @@ umask 077
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 REPO="BIT101-dev/BIT101-iOS"
 WRANGLER_DIR="$ROOT_DIR/Cloudflare/EmergencyUpdateWorker"
-NAMESPACE_ID="4c6402dfad4e406a93cc2518843803c6"
 OUTPUT_DIR="$ROOT_DIR/.build/issue-report-inbox"
 WRANGLER_LOG="$OUTPUT_DIR/wrangler.log"
 CI_RUNS_PATH="$OUTPUT_DIR/github-ci-runs.json"
@@ -23,6 +22,15 @@ case "$ACTION" in
 esac
 source "$ROOT_DIR/Scripts/script-support.sh"
 bit101_acquire_script_lock "$OUTPUT_DIR/inbox.lock" BIT101_REPORT_INBOX_LOCK_HELD "$0" "$@"
+NAMESPACE_ID="$(python3 - "$ROOT_DIR/Cloudflare/ErrorReportWorker/wrangler.jsonc" <<'PYNAMESPACE'
+import json
+from pathlib import Path
+import sys
+
+configuration = json.loads(Path(sys.argv[1]).read_text())
+print(next(row["id"] for row in configuration["kv_namespaces"] if row["binding"] == "ERROR_REPORTS"))
+PYNAMESPACE
+)"
 WRANGLER="$WRANGLER_DIR/node_modules/.bin/wrangler"
 mkdir -p "$OUTPUT_DIR"
 export WRANGLER_LOG_PATH="$WRANGLER_LOG"

@@ -2,7 +2,7 @@
   "name": "bit101-emergency-update-worker",
   "private": true,
   "scripts": {
-    "deploy": "wrangler deploy",
+    "deploy": "python3 ../../Scripts/validation_provenance.py deploy-worker EmergencyUpdateWorker",
     "dev": "wrangler dev",
     "publish": "./Scripts/publish-emergency-update.sh",
     "disable": "./Scripts/publish-emergency-update.sh --disable"

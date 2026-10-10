@@ -261,7 +261,7 @@ Scripts/run_icloud_cross_device_smoke.sh cleanup
 
 该专用流程通过 `ICLOUD_CROSS_DEVICE_SMOKE` 条件编译执行“真机 → Catalyst → 真机”，同时验证成绩 KVS 与课表 CloudKit Production。两个宿主从固定验收签名配置构建，并核对实际签名环境；课表通过生产协调器完成创建、接收、更新和再次接收，旧记录锁通过真实服务端冲突验收。手机发布完整成绩缓存及本次业务域版本，Mac 核对完整载荷摘要和接收版本，修改验收仓库中的课程名称并发布更新的载荷与业务域版本；手机核对 Mac 的新版本及变更后的完整载荷摘要。课表往返同时核对手动调课、自定义日程、DDL 完成状态和显示偏好；KVS 往返同时核对设置、成绩筛选、消息已读取并集及各域版本。两个宿主构造无害的合成成绩与课表，通过公共存储端口选择独立验收账号会话、本机文件服务、固定独立磁盘目录和验收偏好，由生产同步协调器生成版本并完成接收与发布。成绩密文通过真实 KVS 传递，独立密钥通过 iCloud 钥匙串传递。
 
-两个宿主预先构建后并行执行，手机在同一测试进程内发布和接收，Mac 接收手机载荷后发布新版本。测试执行复用已构建宿主，运行阶段释放公共编译缓存锁。各宿主通过测试运行环境注入的同一运行标记选择本次协调记录。每个宿主要求一项用例执行并通过；宿主结果汇总到 `.build/icloud-cross-device-smoke/report.json`，完整结果包保存最近的业务验证阶段。异常清理保留该结果包并记录独立清理状态。错误钩子覆盖函数内部失败，信号钩子处理执行中断；故障注入自测验证恢复顺序和状态码。流程结束时清理验收云端键、偏好和协调数据，并恢复常规 Release App；聚合验证由外层统一恢复 App。中断后的恢复使用既有 `cleanup` 入口。`ICloudSmokeEvidenceTests` 通过离线用例验证旧版本、空缓存和同数量内容变化的验收边界。
+两个宿主预先构建后并行执行，手机在同一测试进程内发布和接收，Mac 接收手机载荷后发布新版本。测试执行复用已构建宿主，运行阶段释放公共编译缓存锁。各宿主通过测试运行环境注入的同一运行标记选择本次协调记录。每个宿主要求一项用例执行并通过；宿主结果汇总到 `.build/icloud-cross-device-smoke/report.json`，完整结果包保存最近的业务验证阶段。报告在构建前保存原执行手机的设备标识；`cleanup` 沿该标识刷新设备配对，并核对已记录业务阶段的设备身份。原执行手机重新连接后继续恢复，设备身份待核实期间保留既有报告。异常清理保留该结果包并记录独立清理状态。错误钩子覆盖函数内部失败，信号钩子处理执行中断；故障注入自测验证恢复顺序和状态码。流程结束时清理验收云端键、偏好和协调数据，并恢复常规 Release App；聚合验证由外层统一恢复 App。中断后的恢复使用既有 `cleanup` 入口。`ICloudSmokeEvidenceTests` 通过离线用例验证旧版本、空缓存和同数量内容变化的验收边界。
 
 获得全量测试及网络、iCloud 授权后，通过 `Scripts/run-extended-tests.sh verify` 聚合验证；可选择分组，定向 UI 复验使用 `ui 用例关键词...`。
 
@@ -281,7 +281,7 @@ Scripts/run_icloud_cross_device_smoke.sh cleanup
 
 真机自托管 CI 的 checkout 使用 `clean: false` 保留固定工作区中的共享编译缓存和增量产物。验证输入摘要、产物审计与所属运行标识共同核对每次验收结果；CI 静态审计的失败组沿控制台完整展示诊断，详细日志继续保存到固定产物路径。
 
-脚本语法审计编译 Python 源文件、直接 Python 命令的标准输入代码和 `-c` 的完整字面参数，核对普通及 ANSI-C 引号、引号拼接、组合短选项、转义及续行。动态脚本参数由所属运行流程验收；脚本文件、模块和 `-c` 消费的标准输入沿数据参数处理，`PY` 前缀的 heredoc 标记声明 Python 代码。
+脚本语法审计编译 Python 源文件、项目 Zsh 脚本中直接 Python 命令的标准输入代码和 `-c` 的完整字面参数，核对普通及 ANSI-C 引号、引号拼接、组合短选项、Zsh 转义及续行。动态脚本参数由所属运行流程验收；脚本文件、模块和 `-c` 消费的标准输入沿数据参数处理，`PY` 前缀的 heredoc 标记声明 Python 代码。
 
 缓存与诊断保持原始文件形式。CompilationCache 的 CAS 索引、动作及数据作为完整命名空间迁入共享目录，SDK 统计缓存沿当前使用的平台维护，Xcode 编译索引共用固定 `Index.noindex`。共享编译入口统一启用 Swift / Clang 警告门禁，覆盖 SwiftPM 模块构建与测试、正式归档和独立 Smoke 构建。工作流条件宏通过 `BIT101_WORKFLOW_CONDITIONS` 限定在 App 工程，共享包模块复用同一编译配置。UI 文件隔离由 App 文件服务提供，账号摘要沿用生产存储规则。脚本开发构建使用 `DEBUG_INFORMATION_FORMAT=dwarf` 和逐文件增量编译，调试信息保留在目标文件与链接产物中；发行归档沿用工程的 dSYM 和整模块优化设置，显式构建参数优先。缓存整理清理独立 dSYM 副本，运行包内部的调试资源继续保留；通过 Clang 模块元数据识别及清理停用平台的隐式模块。真机、Mac 和平台归属待核对的模块继续保留。
 
@@ -316,7 +316,7 @@ UI 摘要合并本批全部 App 进程的完整控件标识与访问动作，冷
 
 iOS 的 `checks` 包含 `cold-start-session`、`offline-persistence`、`media-and-navigation`，Watch 包含 `snapshot-receive`、`timeline-render`、`clear-and-retry`；每项保存 `operation`、`result` 与 `outcome`，成功状态为 `passed`。每端的影像 `evidence` 保存 `path`、`sha256`、`byteCount`、`dataBase64`，与普通附件采用相同解码和时效校验。常规自动化记录所选 iPhone 系统身份，最低部署版本专项补充对应实体设备的核心验收。反馈专项从 App 提交正式报告，核对报告持久化及维护者邮件送达，并将报告编号、存储键和邮件收件证据保存在验收附件。
 
-全部完成后形成 `manual-device` 证据。专项记录读取执行设备的系统身份，源码或执行环境变更后重新验收。发布标签采用 `v` 加工程 `MARKETING_VERSION`，静态审计核对标签与工程版本对应。发布提交完成后执行 `python3 Scripts/validation_evidence.py bind`，仓库内容已完整提交、完整通过且源码摘要一致时绑定提交；CI 将各 Job 的已执行结果写入 GitHub Job Summary。版本发布通过 `v*` 标签触发强制验收，发布 Job 承接静态审计、iOS 编译和 Catalyst 行为结果，并从对应 GitHub Release 下载固定绑定证据附件。手动工作流开启 `release_check` 时填写 `validation_tag`，两个入口沿同一发布验收 Job 消费固定证据路径。
+全部完成后形成 `manual-device` 证据。每次专项登记为汇总记录分配运行标识，完整汇总沿 `check-group manual-device` 验收。专项记录读取执行设备的系统身份，源码或执行环境变更后重新验收。发布标签采用 `v` 加工程 `MARKETING_VERSION`，静态审计核对标签与工程版本对应。发布提交完成后执行 `python3 Scripts/validation_evidence.py bind`，仓库内容已完整提交、完整通过且源码摘要一致时绑定提交；CI 将各 Job 的已执行结果写入 GitHub Job Summary。版本发布通过 `v*` 标签触发强制验收，发布 Job 承接静态审计、iOS 编译和 Catalyst 行为结果，并从对应 GitHub Release 下载固定绑定证据附件。手动工作流开启 `release_check` 时填写 `validation_tag`，两个入口沿同一发布验收 Job 消费固定证据路径。
 
 本机 `python3 Scripts/validation_evidence.py check` 核对完整分组、当前源码、执行环境及发布提交。CI 使用 `check --recorded-environment` 消费已绑定证据，按记录环境重算各组输入摘要，并以编译器文件 SHA-256、Xcode、工具链选择及 SDK 核对当前发布编译环境；原验收主机与真机身份继续保留在证据中。编译组与行为组在证据中分别记录执行范围和结果。
 

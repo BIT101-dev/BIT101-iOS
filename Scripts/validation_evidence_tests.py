@@ -12,6 +12,8 @@ def icloud_stage_fixture(stage: str, counts: dict) -> dict:
         testTargets=['BIT101-iOSTests'], destination={'platform': 'macOS' if stage.startswith('testMac') else 'iOS', 'deviceIdentifier': 'phone'})
 
 def run_self_test(subject) -> int:
+    from validation_manual_tests import registration_self_test
+    registration_self_test(subject)
     network_scope_boolean_self_test(subject)
     developer_directory_self_test()
     from validation_compilation import self_test as compilation_cache_self_test

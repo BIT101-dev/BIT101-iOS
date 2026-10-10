@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compile repository Python and embedded shell Python delegates."""
+"""Compile repository Python and embedded Zsh Python delegates."""
 from pathlib import Path
 import re
 import shlex
@@ -70,16 +70,16 @@ def stdin_python_command(prefix):
 def ansi_literal(body):
     escapes = {'a': b'\a', 'b': b'\b', 'e': b'\x1b', 'E': b'\x1b', 'f': b'\f',
         'n': b'\n', 'r': b'\r', 't': b'\t', 'v': b'\v', '\\': b'\\', "'": b"'", '"': b'"', '?': b'?'}
-    pattern = re.compile(r'''\\(?:([abEefnrtv\\'"?])|x([\da-fA-F]{1,2})|u([\da-fA-F]{1,4})|U([\da-fA-F]{1,8})|([0-7]{1,3})|c(.))''')
+    pattern = re.compile(r'''\\(?:([abEefnrtv\\'"?])|x([\da-fA-F]{1,2})|u([\da-fA-F]{1,4})|U([\da-fA-F]{1,8})|([0-7]{1,3})|(.))''', re.DOTALL)
     result, position = bytearray(), 0
     for match in pattern.finditer(body):
         result.extend(body[position:match.start()].encode())
-        escape, hexadecimal, short_unicode, long_unicode, octal, control = match.groups()
+        escape, hexadecimal, short_unicode, long_unicode, octal, other = match.groups()
         if escape: result.extend(escapes[escape])
         elif hexadecimal: result.append(int(hexadecimal, 16))
         elif short_unicode or long_unicode: result.extend(chr(int(short_unicode or long_unicode, 16)).encode())
         elif octal: result.append(int(octal, 8) & 255)
-        else: result.append(127 if control == '?' else ord(control.upper()) & 31)
+        else: result.extend(other.encode())
         position = match.end()
     result.extend(body[position:].encode())
     return bytes(result).split(b'\0', 1)[0]
@@ -243,6 +243,8 @@ for prefix in ('python3 -c ', 'python3 -Bc ', 'python3 -OOuc ', '/usr/bin/python
         except SyntaxError: pass
         else: raise AssertionError('Python -c 字面量需要参与语法审计')
 compile_embedded_python('python3 -c "print(\\\"literal\\\")"', 'inline-escape-self-test')
+for argument, expected in ((r"$'\q'", b'q'), (r"$'\c?\cA'", b'c?cA'), (r"$'a\0b'", b'a')):
+    assert command_argument(argument, 0)[0] == expected
 for argument in ("'for ''item in []: pass'", "'for 'item' in []: pass'", "p'ass'", "$'for item in []:\\n    pass'",
                  "$'print(\\'literal\\')'", "$'\\x70\\141\\u0073\\U00000073'", "'pa'$'ss'", "'pass' 'if True'", 'pass',
                  "\\\n    'pass'", 'p\\ass'):

@@ -828,6 +828,7 @@ def main() -> int:
         print(f"{args.group} 需要完整子流程结果并匹配当前验证输入。", file=sys.stderr)
         return 1
     if args.action == "manual":
+        from uuid import uuid4
         from validation_manual import MANUAL_DEVICE_CHECKS, capture as capture_manual, complete as manual_complete, distribution_matches_archive
         if args.group not in MANUAL_DEVICE_CHECKS or args.evidence is None:
             parser.error("真机专项需要有效检查项及操作、观察结果和本地附件。")
@@ -852,7 +853,7 @@ def main() -> int:
             summary["startedAt"] = min(row["capturedAt"] for row in summary["checks"].values())
             summary["finishedAt"] = max(row["capturedAt"] for row in summary["checks"].values())
             report["groups"]["manual-device"] = {"exitCode": 0 if summary["passed"] else 2, "scope": "full", "summary": summary,
-                "inputDigest": input_digest, "environment": environment_context("manual-device")}
+                "inputDigest": input_digest, "runID": str(uuid4()), "environment": environment_context("manual-device")}
             write_report(report)
         return 0
     if args.action == "digest":

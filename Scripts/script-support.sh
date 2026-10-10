@@ -385,7 +385,7 @@ bit101_device_snapshot() {
 }
 
 bit101_find_device() {
-  if [[ -n "${BIT101_XCODE_DEVICE_ID:-}" && -n "${BIT101_DEVICETCL_DEVICE_ID:-}" && -n "${BIT101_DEVICE_TRANSPORT:-}" && -n "${BIT101_DEVICE_NAME:-}" ]]; then
+  if [[ -z "${1:-}" && -n "${BIT101_XCODE_DEVICE_ID:-}" && -n "${BIT101_DEVICETCL_DEVICE_ID:-}" && -n "${BIT101_DEVICE_TRANSPORT:-}" && -n "${BIT101_DEVICE_NAME:-}" ]]; then
     return 0
   fi
   local snapshot selection
@@ -409,7 +409,7 @@ for device in json.load(sys.stdin)["result"]["devices"]:
         continue
     if connection.get("pairingState") != "paired" or connection.get("tunnelState") not in {"connected", "disconnected"}:
         continue
-    if transport not in {"wired", "localNetwork"} or not identifier or not udid:
+    if transport not in {"wired", "localNetwork"} or not identifier or not udid or (sys.argv[1] and udid != sys.argv[1]):
         continue
     name = device.get("deviceProperties", {}).get("name") or hardware.get("deviceType", "iPhone")
     candidates.append((transport != "wired", connection.get("tunnelState") != "connected", identifier, udid, transport, name))
@@ -417,7 +417,7 @@ for device in json.load(sys.stdin)["result"]["devices"]:
 if candidates:
     selected = min(candidates, key=lambda candidate: candidate[:2])
     print("\n".join(selected[2:]))
-')" || return 1
+' "${1:-}")" || return 1
   [[ -n "$selection" ]] || return 1
   identifiers=("${(@f)selection}")
   BIT101_DEVICETCL_DEVICE_ID="${identifiers[1]}"
@@ -428,7 +428,7 @@ if candidates:
 }
 
 bit101_require_device() {
-  if bit101_find_device; then
+  if bit101_find_device "${1:-}"; then
     return 0
   fi
   echo "请将已配对 iPhone 通过 USB 或同一局域网连接到 Mac 后重新运行。" >&2

@@ -140,6 +140,36 @@ def captured_fixture(check: str, provenance: dict | None = None) -> dict:
         return capture('实际操作', '观察结果', path, check, 'passed', utc_now().isoformat())
 
 
+def registration_self_test(subject) -> None:
+    from contextlib import nullcontext, redirect_stderr
+    from io import StringIO
+    import sys
+    checks = {name: captured_fixture(name) for name in MANUAL_DEVICE_CHECKS}
+    state = {'groups': {'manual-device': {'summary': {'checks': checks}}}}
+    original_read, original_is_file = Path.read_text, Path.is_file
+    def save(report): state.update(copy.deepcopy(report))
+    with patch.object(subject, 'report_lock', side_effect=nullcontext), \
+            patch.object(subject, 'environment_context', return_value={'device': {'identifier': 'phone'}}), \
+            patch.object(subject, 'complete_environment', return_value=True), \
+            patch.object(Path, 'is_file', lambda path: path == subject.REPORT or original_is_file(path)), \
+            patch.object(Path, 'read_text', lambda path, *args, **kwargs: json.dumps(state)
+                if path == subject.REPORT else original_read(path, *args, **kwargs)), \
+            patch.object(subject, 'write_report', side_effect=save), \
+            patch('validation_manual.capture', return_value=checks['photos']), \
+            patch.object(sys, 'argv', ['evidence', 'manual', 'photos', '--evidence', '/fixture']), redirect_stderr(StringIO()):
+        state['groups']['manual-device']['inputDigest'] = subject.source_digest('manual-device')
+        assert subject.main() == 0
+        row = state['groups']['manual-device']
+        assert str(uuid.UUID(row['runID'])) == row['runID']
+        with patch.object(sys, 'argv', ['evidence', 'check-group', 'manual-device']):
+            assert subject.main() == 0
+            for field, value in [('runID', ''), ('exitCode', 2), ('inputDigest', 'stale')]:
+                original = row[field]
+                row[field] = value
+                assert subject.main() == 1
+                row[field] = original
+
+
 def run_self_test() -> None:
     from validation_performance_tests import run_self_test as performance_self_test
     performance_self_test()

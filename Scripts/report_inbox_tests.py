@@ -11,6 +11,15 @@ def report_inbox_boundary_findings() -> list[str]:
     "验证反馈正文、附件、旧键和重复拉取的保存合同。"
 
     source = (SCRIPT_ROOT / "fetch-issues-and-reports.sh").read_text()
+    namespace = source.split("<<'PYNAMESPACE'\n", 1)[1].split('\nPYNAMESPACE', 1)[0]
+    for identifier in ('initial-namespace', 'migrated-namespace'):
+        configuration = {'kv_namespaces': [{'binding': 'OTHER', 'id': 'other-namespace'},
+            {'binding': 'ERROR_REPORTS', 'id': identifier}]}
+        output = StringIO()
+        with patch.object(sys, 'argv', ['namespace', '/fixture/wrangler.jsonc']), \
+                patch.object(Path, 'read_text', return_value=json.dumps(configuration)), redirect_stdout(output):
+            exec(compile(namespace, '<report-namespace>', 'exec'), {})
+        assert output.getvalue().strip() == identifier
     block = next(match[1] for match in re.finditer(r"<<'PY'\n(.*?)^PY$", source, re.MULTILINE | re.DOTALL)
                  if "processed_path =" in match[1])
     fixture = ROOT / ".build/static-audit/report-inbox-self-test"
