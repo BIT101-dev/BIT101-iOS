@@ -31,16 +31,13 @@ final class RecordingSchedulePlatformActions: SchedulePlatformActions {
     var calendarMarkerIDs: Set<String>?
     var deleteCount = 0
     var importError: Error?
-    private var enableContinuation: CheckedContinuation<Void, Never>?
 
     func enableCloudSync(session: AppStorageSession) async {
         cloudSession = session
-        finishEnablingIfReady()
     }
 
     func enableCourseReminder(session: AppStorageSession) async {
         reminderSession = session
-        finishEnablingIfReady()
     }
 
     func importSystemCalendar(courses: ScheduleCourseSnapshot, term: String) async throws -> Int {
@@ -76,16 +73,10 @@ final class RecordingSchedulePlatformActions: SchedulePlatformActions {
         return .noOp
     }
 
-    func waitForEnabledActions() async {
-        guard cloudSession == nil || reminderSession == nil else { return }
-        await withCheckedContinuation { enableContinuation = $0 }
+    func waitForEnabledActions() async throws {
+        try await waitForTestEvent { cloudSession != nil && reminderSession != nil }
     }
 
-    private func finishEnablingIfReady() {
-        guard cloudSession != nil, reminderSession != nil else { return }
-        enableContinuation?.resume()
-        enableContinuation = nil
-    }
 }
 
 @MainActor
@@ -217,9 +208,8 @@ struct ScheduleModuleBoundaryTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func canceledInitialScheduleRestoreClearsLoadingAndReentryRecoversTheCache() async {
+    func canceledInitialScheduleRestoreClearsLoadingAndReentryRecoversTheCache() async throws {
         var response: CheckedContinuation<ScheduleCacheLoadResult, Never>?
-        var started: CheckedContinuation<Void, Never>?
         var loads = 0
         var recovered = ScheduleCache()
         recovered.currentTerm = "recovered-term"
@@ -228,17 +218,13 @@ struct ScheduleModuleBoundaryTests {
             if loads == 1 {
                 return await withCheckedContinuation {
                     response = $0
-                    started?.resume()
-                    started = nil
                 }
             }
             return .loaded(recovered)
         }, save: { _, _, _ in })
         let model = makeViewModel(service: SemesterStartDateService(), repository: repository)
         let first = Task { await model.loadIfNeeded() }
-        await withCheckedContinuation { continuation in
-            if response == nil { started = continuation } else { continuation.resume() }
-        }
+        try await waitForTestEvent { response != nil }
         first.cancel()
         response?.resume(returning: .loaded(recovered))
         await first.value

@@ -31,13 +31,11 @@ struct CourseDetailTests {
 
     private final class Gate {
         var pending: CheckedContinuation<Void, Never>?
-        var entered: CheckedContinuation<Void, Never>?
         func pause() async {
-            await withCheckedContinuation { pending = $0; entered?.resume(); entered = nil }
+            await withCheckedContinuation { pending = $0 }
         }
-        func waitForEntry() async {
-            if pending != nil { return }
-            await withCheckedContinuation { entered = $0 }
+        func waitForEntry() async throws {
+            try await waitForTestEvent { pending != nil }
         }
         func resume() { pending?.resume(); pending = nil }
     }
@@ -118,7 +116,7 @@ struct CourseDetailTests {
         #expect(service.submissionCount == 1 && viewModel.alert?.title == "发送结果待确认")
     }
 
-    @Test func cancelledCommentSubmissionRetainsTheNewEditorAndAllowsRetry() async {
+    @Test func cancelledCommentSubmissionRetainsTheNewEditorAndAllowsRetry() async throws {
         let service = Service()
         let gate = Gate()
         service.commentGate = gate
@@ -129,7 +127,7 @@ struct CourseDetailTests {
                 editor = ""
             }
         }
-        await gate.waitForEntry()
+        try await gate.waitForEntry()
         submission.cancel()
         editor = "reopened"
         gate.resume()
@@ -194,7 +192,7 @@ struct CourseDetailTests {
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true], [false, true])
-    func commentLikesConvergeWithConcurrentRefreshIncludingFailedReads(likeFinishesFirst: Bool, readFails: Bool) async {
+    func commentLikesConvergeWithConcurrentRefreshIncludingFailedReads(likeFinishesFirst: Bool, readFails: Bool) async throws {
         let service = Service()
         let comment = Self.comment(1, sub: [Self.comment(2)])
         service.commentResult = .success([comment])
@@ -204,9 +202,9 @@ struct CourseDetailTests {
         service.commentReadGate = readGate; service.likeGate = likeGate
         if readFails { service.commentResult = .failure(URLError(.timedOut)) }
         let refresh = Task { await viewModel.refresh() }
-        await readGate.waitForEntry()
+        try await readGate.waitForEntry()
         let like = Task { await viewModel.likeComment(comment.sub[0]) }
-        await likeGate.waitForEntry()
+        try await likeGate.waitForEntry()
         if likeFinishesFirst { likeGate.resume(); await like.value; readGate.resume(); await refresh.value }
         else { readGate.resume(); await refresh.value; likeGate.resume(); await like.value }
         #expect(viewModel.commentState.items.first?.sub.first?.like == true)
@@ -214,13 +212,13 @@ struct CourseDetailTests {
         #expect(viewModel.commentState.status == .loaded && viewModel.likingCommentIDs.isEmpty)
     }
 
-    @Test(.timeLimit(.minutes(1))) func supersededCourseRefreshKeepsTheNewerDetail() async {
+    @Test(.timeLimit(.minutes(1))) func supersededCourseRefreshKeepsTheNewerDetail() async throws {
         let service = Service()
         let gate = Gate()
         service.firstDetailGate = gate
         let viewModel = model(service)
         let old = Task { await viewModel.refresh() }
-        await gate.waitForEntry()
+        try await gate.waitForEntry()
         service.detailResult = .success(Self.detail.updatingLike(true, likeNum: 77))
         await viewModel.refresh()
         gate.resume()
@@ -229,7 +227,7 @@ struct CourseDetailTests {
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
-    func successfulCourseLikeSurvivesAnOlderDetailRead(likeStartsFirst: Bool) async {
+    func successfulCourseLikeSurvivesAnOlderDetailRead(likeStartsFirst: Bool) async throws {
         let service = Service()
         let detailGate = Gate()
         let likeGate = Gate()
@@ -239,10 +237,10 @@ struct CourseDetailTests {
         if likeStartsFirst {
             service.likeGate = likeGate
             like = Task { await viewModel.likeCourse() }
-            await likeGate.waitForEntry()
+            try await likeGate.waitForEntry()
         }
         let refresh = Task { await viewModel.refresh() }
-        await detailGate.waitForEntry()
+        try await detailGate.waitForEntry()
         if let like { likeGate.resume(); await like.value } else { await viewModel.likeCourse() }
         #expect(viewModel.isCourseLiked && viewModel.resolvedLikeNum == 9)
         detailGate.resume()

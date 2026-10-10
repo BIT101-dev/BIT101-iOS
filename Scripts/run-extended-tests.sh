@@ -414,7 +414,7 @@ fi
 
 mkdir -p "$DERIVED_ROOT"
 if ! $BUILD_ONLY; then
-  if [[ "$MODE" != "modules" ]]; then rm -rf "$RESULT_BUNDLE"; fi
+  if [[ "$MODE" != "modules" ]]; then python3 "$ROOT_DIR/Scripts/validation_performance.py" reset-results; fi
   rm -rf "$DERIVED_ROOT/diagnostics"
   rm -f "$DERIVED_ROOT/test-metrics.txt" "$DERIVED_ROOT/test-failures.txt"
   if [[ "$MODE" == ui ]]; then : > "$DERIVED_ROOT/ui-tests.log"; fi

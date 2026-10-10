@@ -242,6 +242,36 @@ def script_command_boundary_findings() -> list[str]:
         result = subprocess.run(['zsh', '-c', command], input=payload, capture_output=True, text=True)
         if result.returncode != status or 'delegated-stdin-executed' not in result.stdout:
             findings.append('日志委托自测：子命令继承调用方输入、参数和退出状态')
+    measured = logger.replace('raise SystemExit(exit_code if exit_code >= 0 else 128 - exit_code)',
+        'import resource\nprint("LOGGER_RSS", resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)\nraise SystemExit(exit_code if exit_code >= 0 else 128 - exit_code)')
+    peaks = []
+    for lines in (1_000, 70_000):
+        payload = f'for index in range({lines}): print("warning:", index, "x" * 256)\n'
+        command = measured + '\nbit101_log_command /dev/null memory-contract ' + shlex.quote(sys.executable) + ' -\n'
+        result = subprocess.run(['zsh', '-c', command], input=payload, capture_output=True, text=True)
+        peak = re.search(r'LOGGER_RSS (\d+)', result.stdout)
+        if result.returncode or not peak:
+            findings.append('日志驻留内存自测：大量诊断仍沿成功状态完成')
+            break
+        peaks.append(int(peak[1]) * (1 if sys.platform == 'darwin' else 1024))
+    if len(peaks) == 2 and peaks[1] - peaks[0] >= (70_000 - 1_000) * 256 // 2:
+        findings.append('日志驻留内存自测：摘要占用需要随显示容量保持有限')
+    memory_report = '''from io import StringIO
+class RetainedLog(StringIO):
+    def close(self): pass
+saved_log = RetainedLog()
+def open_log(path, mode="r", **kwargs):
+    if mode != "w": saved_log.seek(0)
+    return saved_log
+Path.open = open_log
+'''
+    ci_logger = logger.replace('report_path = Path(sys.argv[1])', memory_report + '\nreport_path = Path(sys.argv[1])')
+    command = ci_logger + '\nbit101_log_command /dev/null ci-contract ' + shlex.quote(sys.executable) + ' -\n'
+    payload = 'for index in range(100): print("error: retained", index)\nraise SystemExit(7)\n'
+    result = subprocess.run(['zsh', '-c', command], input=payload, capture_output=True, text=True,
+        env={**os.environ, 'GITHUB_ACTIONS': 'true'})
+    if result.returncode != 7 or 'error: retained 0\n' not in result.stdout or 'error: retained 99\n' not in result.stdout:
+        findings.append('日志磁盘重读自测：CI 失败完整呈现摘要容量之外的诊断')
     isolated_digest = '''from pathlib import Path
 from unittest.mock import patch
 import sys
@@ -476,7 +506,7 @@ xcrun() {
         source = path.read_text().replace('source "$ROOT_DIR/Scripts/script-support.sh"',
                                          f"source {shlex.quote(str(support))}\n" + frame)
         stop = "exit 86" if expected == 86 else "return 0"
-        source = source.replace(frame, frame + f'\nbit101_run_logged() {{ print -r -- "BUILD $*"; print -r -- "ARGUMENTS ${{(qqq)@}}"; {stop}; }}\n' + '\npython3() { if [[ "$*" == *"validation_provenance.py worker-snapshot"* ]]; then print "{}"; return 0; fi; if [[ "$*" == *"validation_restore.py"* ]]; then print -ru2 RESTORE_PROBE; return 0; fi; if [[ "$*" == *"/signing.entitlements"* || "$*" == *"/icloud-cross-device-smoke/report.json"* ]]; then return 0; fi; if [[ "$*" == *"validation_evidence.py digest"* ]]; then case "$3" in all|release-runtime|ui|schedule|infrastructure|login|extensions|network|ddl|school-sms|community-writes|community-cleanup|icloud|icloud-cleanup|restore) [[ "${BIT101_XCODE_DEVICE_ID:-}" == udid ]] || return 78 ;; esac; print self-test-inputs; return 0; fi; command python3 "$@"; }\n')
+        source = source.replace(frame, frame + f'\nbit101_run_logged() {{ print -r -- "BUILD $*"; print -r -- "ARGUMENTS ${{(qqq)@}}"; {stop}; }}\n' + '\npython3() { if [[ "$*" == *"validation_performance.py reset-results"* ]]; then return 0; fi; if [[ "$*" == *"validation_provenance.py worker-snapshot"* ]]; then print "{}"; return 0; fi; if [[ "$*" == *"validation_restore.py"* ]]; then print -ru2 RESTORE_PROBE; return 0; fi; if [[ "$*" == *"/signing.entitlements"* || "$*" == *"/icloud-cross-device-smoke/report.json"* ]]; then return 0; fi; if [[ "$*" == *"validation_evidence.py digest"* ]]; then case "$3" in all|release-runtime|ui|schedule|infrastructure|login|extensions|network|ddl|school-sms|community-writes|community-cleanup|icloud|icloud-cleanup|restore) [[ "${BIT101_XCODE_DEVICE_ID:-}" == udid ]] || return 78 ;; esac; print self-test-inputs; return 0; fi; command python3 "$@"; }\n')
         source = re.sub(r"(?ms)^ui_test_plan\(\) \{\n.*?^\}$",
                         'ui_test_plan() { print -r -- /audit/ui.xctestrun; }', source, count=1)
         source = re.sub(r"(?ms)^report_result\(\) \{\n.*?^\}$", 'report_result() { print REPORT; }', source, count=1)

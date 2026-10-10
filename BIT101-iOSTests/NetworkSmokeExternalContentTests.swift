@@ -6,12 +6,27 @@ import TransportCore
 import CommunityCore
 import CommunityTransport
 import GalleryFeature
-import PaperFeature
+@testable import PaperFeature
 import CourseFeature
 @testable import BIT101_iOS
 
 @Suite("Network smoke external content")
 struct NetworkSmokeExternalContentTests {
+    @Test @MainActor func paperPagingChecksEachLiveRankingSnapshot() async throws {
+        let first = PaperSummary(id: 1, title: "", intro: "", likeNum: 2, commentNum: 2, updateTime: "2026-01-01T00:00:00Z")
+        let changed = PaperSummary(id: 2, title: "", intro: "", likeNum: 3, commentNum: 3, updateTime: "2026-01-02T00:00:00Z")
+        for order in PaperSortOrder.allCases {
+            let sample = try await NetworkSmokePaging.paperPage(order: order,
+                currentIdentity: { CommunitySessionIdentity(accountIdentifier: "paper-smoke") }) { page in
+                page == 0 ? [first] : [changed]
+            }
+            #expect(sample.map(\.id) == [1, 2])
+            await #expect(throws: URLError.self) {
+                try await NetworkSmokePaging.paperPage(order: order,
+                    currentIdentity: { CommunitySessionIdentity(accountIdentifier: "paper-smoke") }) { _ in [first, changed] }
+            }
+        }
+    }
     @Test(arguments: [#"<a HREF = 'bit101://course/42'>打开</a>"#,
         #"<a class="open" href=bit101://course/42>打开</a>"#,
         #"<a title="x > y" href = "bit101&#58;//course/42">打开</a>"#,

@@ -443,18 +443,15 @@ struct ScorePublicContractTests {
         let changeSubject = PassthroughSubject<AppStorageSession, Never>()
         var changes: AnyPublisher<AppStorageSession, Never> { changeSubject.eraseToAnyPublisher() }
         var loads = 0
-        private var waiter: CheckedContinuation<Void, Never>?
         var rows: [ScoreRow] = []
         func loadSnapshot(for session: AppStorageSession?) async -> ScoreCacheSnapshot? {
             loads += 1
-            waiter?.resume(); waiter = nil
             return ScoreCacheSnapshot(rows: rows)
         }
         func save(rows: [ScoreRow], for session: AppStorageSession?) async -> Date? { nil }
         func saveDetailed(rows: [ScoreRow], for session: AppStorageSession?) async -> Date? { nil }
-        func waitForLoad() async {
-            if loads > 0 { return }
-            await withCheckedContinuation { waiter = $0 }
+        func waitForLoad() async throws {
+            try await waitForTestEvent { loads > 0 }
         }
     }
     private final class Preferences: ScoreFilterPreferencesStoring {
@@ -510,7 +507,7 @@ struct ScorePublicContractTests {
         #expect(changes > 0 && defaults.data(forKey: key) == damaged)
     }
 
-    @Test(.timeLimit(.minutes(1))) func publicAssemblyAcceptsIndependentStoragePortsAndFiltersEventSources() async {
+    @Test(.timeLimit(.minutes(1))) func publicAssemblyAcceptsIndependentStoragePortsAndFiltersEventSources() async throws {
         let cache = Cache(), surroundingCache = Cache()
         let preferences = Preferences(), surroundingPreferences = Preferences()
         let session = AppStorageSession(accountIdentifier: "public-score")
@@ -527,7 +524,7 @@ struct ScorePublicContractTests {
         cache.changeSubject.send(AppStorageSession(accountIdentifier: "other"))
         #expect(cache.loads == 0)
         cache.changeSubject.send(session)
-        await cache.waitForLoad()
+        try await cache.waitForLoad()
         #expect(cache.loads == 1)
         #expect(surroundingCache.loads == 0)
         withExtendedLifetime(model) {}

@@ -128,6 +128,33 @@ def relative(path: Path) -> str:
     return path.relative_to(ROOT).as_posix()
 
 
+def view_transport_findings(index: dict) -> list[str]:
+    from swift_type_index import SwiftTypeIndex, SwiftBindingTypes, receiver_resolver
+    from network_capability_rules import NETWORK_TRANSPORT_TYPES, NETWORK_TRANSPORT_METHODS
+    types = SwiftTypeIndex(index)
+    bindings = SwiftBindingTypes(index, types)
+    resolve = receiver_resolver(index)
+    errors = []
+    for path, facts in index.items():
+        if not relative(Path(path)).startswith(('BIT101-iOS/', 'Modules/', 'BIT101ScheduleWidgets/', 'BIT101WatchWidgets/', 'BIT101Watch/')): continue
+        owners = {owner for owner, bases in types.conformances(path).items()
+            if any(base.rsplit('.', 1)[-1] in {'View', 'ViewModifier'} for base in bases)}
+        factories = [fn for fn in facts.get('functionRanges', []) if fn.get('returnsView') and fn.get('bodyStart') is not None]
+        for call in facts.get('invocations', []):
+            if not scope_contains_type(call['scope'], owners) and not any(
+                    fn['bodyStart'] <= call['start'] < fn['end'] for fn in factories): continue
+            method = call['calledExpression'].rsplit('.', 1)[-1]
+            if method not in NETWORK_TRANSPORT_METHODS: continue
+            owner = resolve(dict(call, path=path))
+            kind = owner or bindings.receiver_type(call, path) or ''
+            target = types.resolve(path, kind, call['scope'])
+            if kind.rsplit('.', 1)[-1] in NETWORK_TRANSPORT_TYPES or target and any(
+                    base.rsplit('.', 1)[-1] == 'HTTPTransport' for base in types.bases(target)):
+                line = facts['source'].encode()[:call['start']].count(b'\n') + 1
+                errors.append(f'{relative(Path(path))}:{line}: 视图网络传输沿注入的业务服务执行')
+    return errors
+
+
 def swift_files() -> list[Path]:
     from swift_source_index import repository_swift_files
     return repository_swift_files()
@@ -313,7 +340,7 @@ def file_write_calls(index: dict) -> dict[str, set[int]]:
                 candidates += methods.get((owner, name), [])
             unique = {(source, function['start']): (source, function) for source, function in candidates}
             edges[key] = {(source, function['start']) for source, function in
-                matching_api_calls(index, list(unique.values()), dict(call, path=path), types=types)}
+                matching_api_calls(index, list(unique.values()), dict(call, path=path), types=types, conservative=True)}
     affected = set()
     changed = True
     while changed:
@@ -357,11 +384,18 @@ def asynchronous_test_wait_findings(path: Path, source: str, facts: dict) -> lis
                 owner['start'] <= row['start'] < owner['start'] + len(owner['value'].encode()) for owner in helper): continue
         line = source.encode()[:row['start']].count(b'\n') + 1
         findings.append(f'{name}:{line}: 异步事件等待统一沿共享 waitForTestEvent 核对取消与期限')
+    for function in facts.get('functionRanges', []):
+        if not function['name'].startswith(('waitFor', 'waitUntil')): continue
+        if any(function['bodyStart'] <= call['start'] < function['end']
+                and call['calledExpression'] in {'withCheckedContinuation', 'withCheckedThrowingContinuation'}
+                for call in facts.get('invocations', [])):
+            line = source.encode()[:function['start']].count(b'\n') + 1
+            findings.append(f'{name}:{line}: 异步事件观察沿共享 waitForTestEvent 核对取消与期限')
     return findings
 
 
 def source_findings(syntax_index: dict[str, dict] | None = None) -> tuple[list[str], list[str]]:
-    errors: list[str] = []
+    errors: list[str] = view_transport_findings(syntax_index or {})
     review: list[str] = []
     writes = file_write_calls(syntax_index or {})
     unsafe_concurrency_escape = re.compile(

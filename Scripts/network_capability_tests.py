@@ -695,6 +695,13 @@ struct NewService {{ private let paper{annotation} = {initializer}; func fetch(i
             leaf: 'public struct PaperService { public func fetchPaper(id: Int) async throws -> Int { id } }'})
         assert ('BIT101-iOS.BackgroundRequestService' in business_methods(index)) == expected, body
     task_helper = 'private func startRequest() { Task { _ = try await client.send(request) } }'
+    for argument, expected in (('root', True), ('root.appendingPathComponent("items")', True), ('"items"', False)):
+        source = '''import TransportCore; struct NewService { let client: HTTPClient;
+            func start(_ root: URL) { go(ARGUMENT) }
+            private func go(_ url: URL) { Task { _ = try await client.send(URLRequest(url: url)) } }
+            private func go(_ text: String) {} }'''.replace('ARGUMENT', argument)
+        index = swift_syntax_index_sources({app_path: source, transport_path: 'public struct HTTPClient {}'})
+        assert ('BIT101-iOS.NewService' in business_methods(index)) == expected, argument
     for body, helpers, expected in [
         ('func start() { startRequest() }', task_helper, True),
         ('func start() { self.startRequest() }', task_helper, True),

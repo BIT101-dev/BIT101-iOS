@@ -433,18 +433,14 @@ struct GalleryRecommendationPrefetchTests {
         var enteredRequests: Set<String> = []
         var cancelledRequests: Set<String> = []
         private var response: CheckedContinuation<Void, Never>?
-        private var started: CheckedContinuation<Void, Never>?
         init(poster: CommunityPoster) { self.poster = GalleryPosterDetail(poster: poster) }
         func pause() async {
             await withCheckedContinuation {
                 response = $0
-                started?.resume()
-                started = nil
             }
         }
-        func waitForDetail() async {
-            if response != nil { return }
-            await withCheckedContinuation { started = $0 }
+        func waitForDetail() async throws {
+            try await waitForTestEvent { response != nil }
         }
         func finish() { response?.resume(); response = nil }
         private func pauseIfRequested(_ key: String) async throws {
@@ -516,7 +512,7 @@ struct GalleryRecommendationPrefetchTests {
         }
         var editor = "first"
         let submission = Task { if await submit() { editor = "" } }
-        await service.waitForDetail()
+        try await service.waitForDetail()
         submission.cancel()
         editor = "reopened"
         service.finish()
@@ -526,7 +522,7 @@ struct GalleryRecommendationPrefetchTests {
         #expect(paper ? article.isSubmittingComment == false : gallery.isSubmittingComment == false)
         service.commentCreation = { comment }
         let retry = Task { await submit() }
-        await service.waitForDetail()
+        try await service.waitForDetail()
         service.finish()
         #expect(await retry.value)
     }
@@ -570,7 +566,7 @@ struct GalleryRecommendationPrefetchTests {
             if paper { return await article.submitComment(text: "评论", anonymous: false, target: .paper(paperID: 1)) }
             return await gallery.submitComment(text: "评论", anonymous: false, target: .poster(posterID: 1))
         }
-        await service.waitForDetail()
+        try await service.waitForDetail()
         submission.cancel()
         service.finish()
         #expect(await submission.value)
@@ -622,7 +618,7 @@ struct GalleryRecommendationPrefetchTests {
         service.ownsPaper = true
         let model = PaperDetailViewModel(initialPaper: PaperSummary(id: 1, title: "initial", intro: "", likeNum: 0, commentNum: 0, updateTime: ""), service: service)
         let load = Task { await model.refreshAll() }
-        await service.waitForDetail(); service.finish(); await load.value
+        try await service.waitForDetail(); service.finish(); await load.value
         var pending: CheckedContinuation<Void, Never>?
         service.paperDeletion = { await withCheckedContinuation { pending = $0 }; if fails { throw URLError(.timedOut) } }
         let deletion = Task { await model.deletePaper() }
@@ -689,7 +685,7 @@ struct GalleryRecommendationPrefetchTests {
         #expect(paper ? paperModel.alert == nil : galleryModel.alert == nil)
         service.suspendedRequestKeys = []
         let retry = Task { await refresh() }
-        await service.waitForDetail()
+        try await service.waitForDetail()
         service.finish()
         await retry.value
         #expect((paper ? paperModel.paperStatus : galleryModel.posterStatus) == .loaded)
@@ -708,7 +704,7 @@ struct GalleryRecommendationPrefetchTests {
         let mutation = likeStartsFirst ? Task { await like() } : nil
         if likeStartsFirst { try await waitForTestEvent { !(pendingLike == nil) } }
         let refresh = Task { if paper { await article.refreshAll() } else { await gallery.refreshAll() } }
-        await service.waitForDetail()
+        try await service.waitForDetail()
         if let mutation { pendingLike?.resume(); await mutation.value } else { await like() }
         #expect(paper ? article.isPaperLiked : gallery.poster.like)
         #expect(paper ? article.resolvedLikeNum == 17 : gallery.poster.likeNum == 17)
@@ -725,7 +721,7 @@ struct GalleryRecommendationPrefetchTests {
         let service = DetailSortingService(poster: poster)
         let model = GalleryPosterDetailViewModel(initialPoster: poster, service: service)
         let task = Task { await model.refreshAll() }
-        await service.waitForDetail()
+        try await service.waitForDetail()
         await model.setCommentOrder(.oldest)
         service.finish()
         await task.value
@@ -740,7 +736,7 @@ struct GalleryRecommendationPrefetchTests {
         let model = PaperDetailViewModel(initialPaper: PaperSummary(id: 1, title: "initial", intro: "",
             likeNum: 0, commentNum: 0, updateTime: ""), service: service)
         let task = Task { await model.refreshAll() }
-        await service.waitForDetail()
+        try await service.waitForDetail()
         await model.setCommentOrder(.oldest)
         service.finish()
         await task.value

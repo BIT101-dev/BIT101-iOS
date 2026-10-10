@@ -15,6 +15,7 @@ from ui_rule_tests import explanatory_text_boundary_findings, school_lifecycle_b
 from code_quality_rules import (
     ROOT, SCRIPT_ROOT, swift_files, ast_has_view_request, ci_trigger_shell_self_test, cross_file_view_request_self_test,
     cancellation_findings, asynchronous_test_wait_findings, client_source_findings, extension_dependency_findings, mask_literals_and_comments,
+    view_transport_findings, discarded_file_write_findings, file_write_calls,
     owner_has_call, uses_application_support_storage, view_request_matches, source_findings,
 )
 
@@ -117,17 +118,46 @@ enum Consumer {
     if cancellation_findings(ROOT / "ModuleTests/Transport/ExactErrorTests.swift", cancellation_source, cancellation_syntax[str(cancellation_path)]):
         findings.append("代码质量规则边界自检失败：测试可直接断言底层取消类型")
     wait_path = ROOT / 'ModuleTests/Transport/EventTests.swift'
+    view_path = str(ROOT / 'BIT101-iOS/Example.swift')
+    transport_path = str(ROOT / 'Modules/TransportCore/Sources/HTTPClient.swift')
+    for body, expected in (
+        ('struct Example: View { let client: HTTPClient; let request: URLRequest; var body: some View { Text("").task { _ = try? await client.send(request) } } }', True),
+        ('struct Example: View { let session: URLSession; let request: URLRequest; var body: some View { Text("").task { _ = try? await session.data(for: request) } } }', True),
+        ('struct Example: ViewModifier { let client: HTTPClient; let request: URLRequest; func body(content: Content) -> some View { content.task { _ = try? await client.send(request) } } }', True),
+        ('struct Example { let client: HTTPClient; func render(_ request: URLRequest) -> some View { Task { _ = try? await client.send(request) }; EmptyView() } }', True),
+        ('struct Example: View { let client: Local; var body: some View { Text("").task { await client.send(1) } } }; struct Local { func send(_ value: Int) async {} }', False),
+        ('struct Example: View { let service: Service; var body: some View { Text("").task { await service.fetch() } } }; struct Service { func fetch() async {} }', False),
+    ):
+        index = swift_syntax_index_sources({view_path: body, transport_path: 'public struct HTTPClient {}'})
+        if bool(view_transport_findings(index)) != expected: findings.append('视图网络传输自测：现成请求、视图工厂及同名业务方法按所属类型验收')
+    storage_path = str(ROOT / 'Modules/StorageCore/Sources/AppFileService.swift')
+    for argument, expected in (('root', True), ('root.appendingPathComponent("cache")', True), ('"cache"', False)):
+        source = '''struct FileHelper { let files: any AppFileService;
+            func run(_ root: URL) { try? save(ARGUMENT) }
+            private func save(_ location: URL) throws { try files.writeData(Data(), to: location) }
+            private func save(_ text: String) throws {} }'''.replace('ARGUMENT', argument)
+        index = swift_syntax_index_sources({view_path: source,
+            storage_path: 'public protocol AppFileService { func writeData(_ data: Data, to url: URL) throws }'})
+        if bool(discarded_file_write_findings(Path(view_path), source, index[view_path], file_write_calls(index))) != expected:
+            findings.append('持久化重载自测：未知实参保留可能的文件写入边，明确类型沿对应重载验收')
     for body, expected in (
         ('while pending == nil { await Task.yield() }', 1),
         ('while pending == nil { try Task.checkCancellation(); await Task.yield() }', 1),
         ('try await waitForTestEvent { pending != nil }', 0),
         ('for _ in 0..<3 { await Task.yield() }', 0),
         ('while pending == nil { consume("Task.yield()") }', 0),
+        ('await withCheckedContinuation { response = $0 }', 0),
     ):
         source = 'func testEvent() async throws { ' + body + ' }'
         facts = swift_syntax_index_sources({str(wait_path): source})[str(wait_path)]
         if len(asynchronous_test_wait_findings(wait_path, source, facts)) != expected:
             findings.append('异步事件等待自测：取消检查与有限等待入口需要共同验收')
+    for body, expected in (('await withCheckedContinuation { started = $0 }', 1),
+                           ('try await waitForTestEvent { pending != nil }', 0)):
+        source = 'func waitUntilRequested() async throws { ' + body + ' }'
+        facts = swift_syntax_index_sources({str(wait_path): source})[str(wait_path)]
+        if len(asynchronous_test_wait_findings(wait_path, source, facts)) != expected:
+            findings.append('异步事件观察自测：请求到达门闩沿共享期限与取消入口验收')
     support = ROOT / 'ModuleTests/Support/FileServiceContract.swift'
     source = support.read_text()
     facts = swift_syntax_index_sources({str(support): source})[str(support)]
@@ -148,7 +178,6 @@ let comparison = left != right
 struct Handler { var value: String!; func read() -> String { value }; func catches() { do {} catch _ {}; do {} catch let error {}; do {} catch is Error {}; do {} catch { handle(error) } } }
 '''
     unwrap_facts = swift_syntax_index_sources({"Unwrap.swift": unwrap_source})["Unwrap.swift"]
-    from code_quality_rules import discarded_file_write_findings
     write_path = ROOT / "Modules/CommunityPersistence/Sources/Example.swift"
     write_source = 'func update(files: AppFileService) { try? files.removeItem(at: url); _ = try? files.writeData(data, to: url); let result = try? files.createDirectory(at: url); let data = try? files.readData(at: url) }'
     write_facts = swift_syntax_index_sources({str(write_path): write_source})[str(write_path)]
@@ -180,7 +209,6 @@ struct Handler { var value: String!; func read() -> String { value }; func catch
         findings.append("代码质量自测：图片缓存沿已有可选写盘合同处理")
     if discarded_file_write_findings(ROOT / "ModuleTests/Support/Fixture.swift", write_source, write_facts):
         findings.append("代码质量自测：夹具准备和清理沿测试生命周期处理")
-    from code_quality_rules import file_write_calls
     wrapper_sources = {str(write_path): '''
         struct Store {
             let files: AppFileService
@@ -318,9 +346,12 @@ def script_output_boundary_findings() -> list[str]:
         lines = [f"error: diagnostic {index}\n" for index in range(count)]
         process = SimpleNamespace(stdout=iter(lines), wait=lambda: status)
         visible, log = StringIO(), StringIO()
+        def open_log(path, mode='r', **kwargs):
+            if mode != 'w': log.seek(0)
+            return nullcontext(log)
         with patch.object(sys, "argv", ["logger", "/audit/build.log", "logger", "fake"]), \
              patch.object(subprocess, "Popen", return_value=process), \
-             patch.object(Path, "mkdir"), patch.object(Path, "open", return_value=nullcontext(log)), \
+             patch.object(Path, "mkdir"), patch.object(Path, "open", open_log), \
              patch.dict(os.environ, {"GITHUB_ACTIONS": "true" if ci else "false"}), \
              redirect_stdout(visible):
             try:

@@ -42,7 +42,7 @@ function landingPage(url, route, id) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="color-scheme" content="light dark">
-  <link rel="icon" type="image/jpeg" sizes="512x512" href="${SHARE_ICON_URL}">
+  <link rel="icon" type="image/png" sizes="1024x1024" href="${SHARE_ICON_URL}">
   <link rel="apple-touch-icon" href="${SHARE_ICON_URL}">
   <meta name="apple-itunes-app" content="app-id=6761147125, app-argument=${safeUniversalURL}">
   <meta property="og:type" content="website">
@@ -52,8 +52,9 @@ function landingPage(url, route, id) {
   <meta property="og:url" content="${safeUniversalURL}">
   <meta property="og:image" content="${SHARE_ICON_URL}">
   <meta property="og:image:secure_url" content="${SHARE_ICON_URL}">
-  <meta property="og:image:width" content="512">
-  <meta property="og:image:height" content="512">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:width" content="1024">
+  <meta property="og:image:height" content="1024">
   <meta name="description" content="${shareDescription}">
   <meta itemprop="name" content="${shareTitle}">
   <meta itemprop="description" content="${shareDescription}">

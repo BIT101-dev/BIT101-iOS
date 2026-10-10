@@ -459,6 +459,10 @@ export default class extends WorkerEntrypoint {
     assert.equal(response.status, 200);
     const html = await response.text();
     assert(html.includes(`href="bit101://${route}/42"`) && html.includes(`href="https://bit101.cn/${route}/42"`));
+    assert(html.includes('<meta property="og:image:type" content="image/png">'));
+    assert(html.includes(`<meta property="og:image:width" content="${png.readUInt32BE(16)}">`));
+    assert(html.includes(`<meta property="og:image:height" content="${png.readUInt32BE(20)}">`));
+    assert(html.includes(`type="image/png" sizes="${png.readUInt32BE(16)}x${png.readUInt32BE(20)}"`));
   }
   for (const route of ["gallery", "course", "paper"]) {
     for (const id of ["0", "9223372036854775808", "9".repeat(100)]) {

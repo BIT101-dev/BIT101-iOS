@@ -129,7 +129,6 @@ struct ScheduleSyncTests {
         var statuses: [ScheduleCloudSyncStatus] = []
         var failsSave = false
         var persistence: SchedulePersistenceStore?
-        private var saveWaiter: CheckedContinuation<Void, Never>?
         var resolutions: [@Sendable (ScheduleCacheConflictResolution?) async -> Void] = []
 
         init() {
@@ -155,7 +154,6 @@ struct ScheduleSyncTests {
                         self.cache = value
                     }
                     self.sources.append(source)
-                    self.saveWaiter?.resume(); self.saveWaiter = nil
                     return true
                 }
             )
@@ -170,9 +168,8 @@ struct ScheduleSyncTests {
             persistence = store
         }
 
-        func waitForSave() async {
-            if !sources.isEmpty { return }
-            await withCheckedContinuation { saveWaiter = $0 }
+        func waitForSave() async throws {
+            try await waitForTestEvent { sources.isEmpty == false }
         }
 
         func manager(_ transport: Cloud) -> ScheduleCloudSyncManager {
@@ -187,7 +184,6 @@ struct ScheduleSyncTests {
         var saved: [ScheduleCloudRecord] = []
         var readGate: CheckedContinuation<Void, Never>?
         var saveGate: CheckedContinuation<Void, Never>?
-        var entryWaiter: CheckedContinuation<Void, Never>?
         var entered = false
         let holdRead: Bool
         let holdSave: Bool
@@ -209,9 +205,8 @@ struct ScheduleSyncTests {
         func setSavingFailure(_ value: Bool) { failsSaving = value }
         func replaceRemote(_ record: ScheduleCloudRecord) { remote = record }
         func accountAvailable() async throws -> Bool { available }
-        func waitForEntry() async {
-            if entered { return }
-            await withCheckedContinuation { entryWaiter = $0 }
+        func waitForEntry() async throws {
+            try await waitForTestEvent { entered }
         }
         func resume() {
             readGate?.resume(); readGate = nil
@@ -219,7 +214,6 @@ struct ScheduleSyncTests {
         }
         private func signal() {
             entered = true
-            entryWaiter?.resume(); entryWaiter = nil
         }
         func record(named name: String) async throws -> ScheduleCloudRecord {
             if failsRead { throw URLError(.notConnectedToInternet) }
@@ -396,7 +390,7 @@ struct ScheduleSyncTests {
         let cloud = Cloud(remote: try record(title: "remote", updatedAt: 40), holdRead: true)
         let manager = local.manager(cloud)
         let task = Task { await manager.refreshFromCloudIfNeeded() }
-        await cloud.waitForEntry()
+        try await cloud.waitForEntry()
         local.account = ScheduleCloudAccount(studentID: "A", session: local.account.session, generation: 3)
         await cloud.resume()
         await task.value
@@ -411,25 +405,25 @@ struct ScheduleSyncTests {
         let cloud = Cloud(remote: try record(title: "A remote", updatedAt: 40), holdRead: true)
         let manager = local.manager(cloud)
         let first = Task { await manager.refreshFromCloudIfNeeded() }
-        await cloud.waitForEntry()
+        try await cloud.waitForEntry()
         local.account = ScheduleCloudAccount(studentID: "B", session: AppStorageSession(accountIdentifier: "B"), generation: 2)
         local.cache.primaryScheduleTitle = "B local"
         await cloud.replaceRemote(try record(title: "B remote", updatedAt: 40, studentID: "B", recordName: "schedule-cache-B"))
         await manager.refreshFromCloudIfNeeded()
         await cloud.resume()
         await first.value
-        await local.waitForSave()
+        try await local.waitForSave()
         #expect(local.cache.primaryScheduleTitle == "B remote")
         #expect(local.sources == [.cloud])
     }
 
-    @Test func localEditsDuringCloudSaveKeepTheirDirtyStateAndReceiveTheBaseline() async {
+    @Test func localEditsDuringCloudSaveKeepTheirDirtyStateAndReceiveTheBaseline() async throws {
         let local = Local()
         local.cache.hasUnpushedCloudChanges = true
         let cloud = Cloud(holdSave: true)
         let manager = local.manager(cloud)
         let task = Task { await manager.pushLatestLocalCacheIfNeeded() }
-        await cloud.waitForEntry()
+        try await cloud.waitForEntry()
         local.cache.primaryScheduleTitle = "continued edit"
         local.cache.updatedAt = Date(timeIntervalSince1970: 45)
         await cloud.resume()

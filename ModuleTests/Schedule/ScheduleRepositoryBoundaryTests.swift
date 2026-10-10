@@ -207,7 +207,7 @@ struct ScheduleRepositoryBoundaryTests {
         let loader = ModuleDeferredScheduleLoad()
         let repository = makeRepository(session: { account }, load: loader.load, save: { _, _, _ in })
         let task = Task { await repository.reload() }
-        await loader.waitUntilStarted()
+        try await loader.waitUntilStarted()
         account = AppStorageSession(accountIdentifier: "module-account-b")
         repository.resetForCurrentAccount()
         var old = ScheduleCache()
@@ -219,7 +219,7 @@ struct ScheduleRepositoryBoundaryTests {
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: ["loaded", "missing", "unreadable"])
-    func canceledInitialRecoveryAllowsTheSamePageToLoadAgain(result: String) async {
+    func canceledInitialRecoveryAllowsTheSamePageToLoadAgain(result: String) async throws {
         let loader = ModuleDeferredScheduleLoad()
         var loads = 0
         var recovered = ScheduleCache()
@@ -230,7 +230,7 @@ struct ScheduleRepositoryBoundaryTests {
         }, save: { _, _, _ in })
         let model = makeViewModel(service: ModuleSemesterStartDateService(), repository: repository)
         let first = Task { await model.loadIfNeeded() }
-        await loader.waitUntilStarted()
+        try await loader.waitUntilStarted()
         first.cancel()
         loader.continuation?.resume(returning: result == "loaded" ? .loaded(recovered) : result == "missing" ? .missing : .unreadable)
         await first.value
@@ -245,7 +245,7 @@ struct ScheduleRepositoryBoundaryTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func lateCanceledRecoveryKeepsTheReplacementLoadAndItsWriteGate() async {
+    func lateCanceledRecoveryKeepsTheReplacementLoadAndItsWriteGate() async throws {
         let old = ModuleDeferredScheduleLoad(), current = ModuleDeferredScheduleLoad()
         var loads = 0
         let repository = makeRepository(load: { account in
@@ -253,10 +253,10 @@ struct ScheduleRepositoryBoundaryTests {
             return await (loads == 1 ? old : current).load(account)
         }, save: { _, _, _ in })
         let first = Task { await repository.loadIfNeeded() }
-        await old.waitUntilStarted()
+        try await old.waitUntilStarted()
         first.cancel()
         let replacement = Task { await repository.loadIfNeeded() }
-        await current.waitUntilStarted()
+        try await current.waitUntilStarted()
         old.continuation?.resume(returning: .missing)
         await first.value
         #expect(repository.isLoading && !repository.isWritable)
@@ -270,7 +270,7 @@ struct ScheduleRepositoryBoundaryTests {
         #expect(loads == 2)
     }
 
-    @Test func delayedReloadPreservesEditsMadeDuringRead() async {
+    @Test func delayedReloadPreservesEditsMadeDuringRead() async throws {
         let loader = ModuleDeferredScheduleLoad()
         var first = true
         let repository = makeRepository(load: { account in
@@ -279,7 +279,7 @@ struct ScheduleRepositoryBoundaryTests {
         }, save: { _, _, _ in })
         await repository.loadIfNeeded()
         let task = Task { await repository.reload() }
-        await loader.waitUntilStarted()
+        try await loader.waitUntilStarted()
         repository.courseState.primaryScheduleTitle = "本机编辑"
         loader.continuation?.resume(returning: .loaded(ScheduleCache()))
         #expect(await task.value == false)
@@ -310,7 +310,7 @@ struct ScheduleRepositoryBoundaryTests {
         let repository = makeRepository(load: loader.load, save: { _, _, _ in savedCount += 1 })
         let ddl = ScheduleDDLViewModel(service: ModuleDeferredDDLService(), repository: repository)
         let task = Task { await repository.loadIfNeeded() }
-        await loader.waitUntilStarted()
+        try await loader.waitUntilStarted()
         repository.presentationPreferences.showSaturday = false
         repository.courseState.primaryScheduleTitle = "修改内容"
         #expect(throws: Error.self) { try ddl.addDDL(DDLDraft()) }
@@ -343,13 +343,13 @@ struct ScheduleRepositoryBoundaryTests {
         #expect(recordedTitle == "课程")
     }
 
-    @Test func ddlResponseAfterAccountSwitchKeepsNewAccountURL() async {
+    @Test func ddlResponseAfterAccountSwitchKeepsNewAccountURL() async throws {
         let repository = makeRepository(load: { _ in .missing }, save: { _, _, _ in })
         await repository.loadIfNeeded()
         let service = ModuleDeferredDDLService()
         let ddl = ScheduleDDLViewModel(service: service, repository: repository)
         let task = Task { await ddl.refreshLexueCalendarURL() }
-        await service.waitUntilStarted()
+        try await service.waitUntilStarted()
         #expect(ddl.isSyncingDDL)
         repository.resetForCurrentAccount()
         ddl.reset()
@@ -375,7 +375,7 @@ struct ScheduleRepositoryBoundaryTests {
         let service = ModuleDeferredDDLService()
         let model = ScheduleDDLViewModel(service: service, repository: repository)
         let refresh = Task { await model.refreshLexueCalendarURL() }
-        await service.waitUntilStarted()
+        try await service.waitUntilStarted()
         service.continuation?.resume(returning: "https://lexue.bit.edu.cn/calendar/owned.ics")
         try await waitForTestEvent { !(pending == nil) }
         #expect(model.notice == nil && model.isSyncingDDL)
@@ -494,7 +494,7 @@ struct ScheduleRepositoryBoundaryTests {
         viewModel.setICloudSyncEnabled(false)
         viewModel.setICloudSyncEnabled(true)
         viewModel.setShowCourseLiveActivityReminder(true)
-        await actions.waitForEnabledActions()
+        try await actions.waitForEnabledActions()
         #expect(actions.cloudSession == session)
         #expect(actions.reminderSession == session)
         #expect(viewModel.settingsSnapshot.iCloudSyncEnabled)
@@ -612,16 +612,13 @@ final class ModuleRecordingSchedulePlatformActions: SchedulePlatformActions {
     var calendarMarkerIDs: Set<String>?
     var deleteCount = 0
     var importError: Error?
-    private var enableContinuation: CheckedContinuation<Void, Never>?
 
     func enableCloudSync(session: AppStorageSession) async {
         cloudSession = session
-        finishEnablingIfReady()
     }
 
     func enableCourseReminder(session: AppStorageSession) async {
         reminderSession = session
-        finishEnablingIfReady()
     }
 
     func importSystemCalendar(courses: ScheduleCourseSnapshot, term: String) async throws -> Int {
@@ -657,41 +654,30 @@ final class ModuleRecordingSchedulePlatformActions: SchedulePlatformActions {
         return .noOp
     }
 
-    func waitForEnabledActions() async {
-        guard cloudSession == nil || reminderSession == nil else { return }
-        await withCheckedContinuation { enableContinuation = $0 }
+    func waitForEnabledActions() async throws {
+        try await waitForTestEvent { cloudSession != nil && reminderSession != nil }
     }
 
-    private func finishEnablingIfReady() {
-        guard cloudSession != nil, reminderSession != nil else { return }
-        enableContinuation?.resume()
-        enableContinuation = nil
-    }
 }
 
 @MainActor
 private final class ModuleDeferredScheduleLoad {
     var continuation: CheckedContinuation<ScheduleCacheLoadResult, Never>?
-    private var startContinuation: CheckedContinuation<Void, Never>?
 
     func load(_ session: AppStorageSession) async -> ScheduleCacheLoadResult {
         await withCheckedContinuation {
             continuation = $0
-            startContinuation?.resume()
-            startContinuation = nil
         }
     }
 
-    func waitUntilStarted() async {
-        guard continuation == nil else { return }
-        await withCheckedContinuation { startContinuation = $0 }
+    func waitUntilStarted() async throws {
+        try await waitForTestEvent { continuation != nil }
     }
 }
 
 @MainActor
 private final class ModuleDeferredDDLService: ScheduleDDLServicing {
     var continuation: CheckedContinuation<String, Never>?
-    private var startContinuation: CheckedContinuation<Void, Never>?
 
     func syncDDLEvents(
         existingEvents: [DDLEventRecord], storedURL: String, schoolSMSCodeHandler: SchoolSMSCodeHandler?
@@ -702,14 +688,11 @@ private final class ModuleDeferredDDLService: ScheduleDDLServicing {
     func refreshLexueCalendarURL(schoolSMSCodeHandler: SchoolSMSCodeHandler?) async throws -> String {
         await withCheckedContinuation {
             continuation = $0
-            startContinuation?.resume()
-            startContinuation = nil
         }
     }
 
-    func waitUntilStarted() async {
-        guard continuation == nil else { return }
-        await withCheckedContinuation { startContinuation = $0 }
+    func waitUntilStarted() async throws {
+        try await waitForTestEvent { continuation != nil }
     }
 }
 
@@ -753,20 +736,16 @@ private final class ModuleSemesterStartDateService: ScheduleServicing {
 @MainActor
 final class ModuleCourseRequest {
     var response: CheckedContinuation<CourseSyncPayload, Error>?
-    private var started: CheckedContinuation<Void, Never>?
     private(set) var wasCancelled = false
 
     func run() async throws -> CourseSyncPayload {
         defer { wasCancelled = Task.isCancelled }
         return try await withCheckedThrowingContinuation {
             response = $0
-            started?.resume()
-            started = nil
         }
     }
 
-    func waitUntilStarted() async {
-        if response != nil { return }
-        await withCheckedContinuation { started = $0 }
+    func waitUntilStarted() async throws {
+        try await waitForTestEvent { response != nil }
     }
 }

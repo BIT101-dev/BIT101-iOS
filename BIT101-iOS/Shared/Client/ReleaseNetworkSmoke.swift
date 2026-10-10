@@ -388,13 +388,9 @@ final class ReleaseNetworkSmokeRunner {
         await runInParallel(PaperSortOrder.allCases.map { order in
             {
                 _ = await self.probe("文章列表-\(order.title)", area: .bit101, scope: scope) {
-                    let sample = try await NetworkSmokePaging.arrayPage(currentIdentity: self.dependencies.communityIdentity) {
-                        let page = try await papers.fetchPapers(search: "BIT101", order: order, page: $0)
-                        try NetworkSmokePaging.checkPapers(page, order: order)
-                        return page
+                    try await NetworkSmokePaging.paperPage(order: order, currentIdentity: self.dependencies.communityIdentity) {
+                        try await papers.fetchPapers(search: "BIT101", order: order, page: $0)
                     }
-                    try NetworkSmokePaging.checkPapers(sample, order: order)
-                    return sample
                 }
             }
         })

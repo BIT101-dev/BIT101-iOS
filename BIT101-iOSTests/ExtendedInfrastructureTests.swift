@@ -10,6 +10,7 @@ import CommunityTransport
 @testable import MediaKit
 import StorageCore
 import Foundation
+import os
 import Testing
 import DesignSystemKit
 @testable import BIT101_iOS
@@ -218,17 +219,14 @@ struct ExperimentalPreferenceCloudSyncTests {
         var synchronizationSucceeds = true
         var synchronizationCalls = 0
         var onSet: ((String) -> Void)?
-        private var waiters: [String: CheckedContinuation<Void, Never>] = [:]
         func data(forKey key: String) -> Data? { dictionaryRepresentation[key] as? Data }
         func set(_ value: Any?, forKey key: String) {
             dictionaryRepresentation[key] = value
-            waiters.removeValue(forKey: key)?.resume()
             onSet?(key)
         }
         func synchronize() -> Bool { synchronizationCalls += 1; return synchronizationSucceeds }
-        func waitForWrite(to key: String) async {
-            if dictionaryRepresentation[key] != nil { return }
-            await withCheckedContinuation { waiters[key] = $0 }
+        func waitForWrite(to key: String) async throws {
+            try await waitForTestEvent { dictionaryRepresentation[key] != nil }
         }
     }
 
@@ -371,19 +369,14 @@ struct ExperimentalPreferenceCloudSyncTests {
         var activationCount = 0
         var resetCount = 0
         var refreshes: [(String, AppStorageSession)] = []
-        private var waiter: CheckedContinuation<Void, Never>?
-        private var expectedCount = 0
         func activate() { activationCount += 1 }
         func resetAccountPresentation() { resetCount += 1 }
         func refresh(trigger: String, syncWidgetSnapshot: Bool, session: AppStorageSession) async {
             #expect(syncWidgetSnapshot)
             refreshes.append((trigger, session))
-            if refreshes.count >= expectedCount { waiter?.resume(); waiter = nil }
         }
-        func waitForRefreshes(_ count: Int) async {
-            if refreshes.count >= count { return }
-            expectedCount = count
-            await withCheckedContinuation { waiter = $0 }
+        func waitForRefreshes(_ count: Int) async throws {
+            try await waitForTestEvent { refreshes.count >= count }
         }
     }
 
@@ -426,16 +419,14 @@ struct ExperimentalPreferenceCloudSyncTests {
         let changes = PassthroughSubject<AppStorageSession, Never>()
         let displays = ExternalDisplays()
         var loadedSessions: [AppStorageSession] = []
-        var waiter: CheckedContinuation<Void, Never>?
         let owner = lifecycle(sync: sync, account: account, displays: displays,
             changes: changes.eraseToAnyPublisher(), loadCourses: { session in
                 loadedSessions.append(session)
-                waiter?.resume(); waiter = nil
                 return [:]
             })
         changes.send(AppStorageSession(accountIdentifier: "other"))
         changes.send(account.session)
-        if loadedSessions.isEmpty { await withCheckedContinuation { waiter = $0 } }
+        try await waitForTestEvent { loadedSessions.isEmpty == false }
         #expect(loadedSessions == [account.session])
         #expect(owner.communityDestinations.settingsDependencies.media === owner.communityDestinations.media)
         withExtendedLifetime(owner) {}
@@ -461,8 +452,8 @@ struct ExperimentalPreferenceCloudSyncTests {
         let second = lifecycle(sync: secondSync, account: secondAccount, displays: secondDisplays, prompts: secondPrompts)
         first.start()
         second.start()
-        await firstDisplays.waitForRefreshes(1)
-        await secondDisplays.waitForRefreshes(1)
+        try await firstDisplays.waitForRefreshes(1)
+        try await secondDisplays.waitForRefreshes(1)
         #expect(first.settings === firstSync.settings)
         #expect(second.settings === secondSync.settings)
         #expect(firstDisplays.activationCount == 1)
@@ -471,7 +462,7 @@ struct ExperimentalPreferenceCloudSyncTests {
         #expect(first.community.preferences.galleryUseWebView)
         #expect(second.community.preferences.galleryUseWebView == false)
         firstAccount.session = AppStorageSession(accountIdentifier: "changed-account")
-        await firstDisplays.waitForRefreshes(2)
+        try await firstDisplays.waitForRefreshes(2)
         #expect(firstDisplays.resetCount == 1)
         #expect(firstPrompts.activePrompt == nil)
         #expect(secondPrompts.activePrompt?.account == secondAccount.identity)
@@ -481,7 +472,7 @@ struct ExperimentalPreferenceCloudSyncTests {
         #expect(firstDisplays.refreshes.last?.1 == firstAccount.session)
         #expect(secondDisplays.refreshes.count == 1)
         changes.send(firstAccount.session)
-        await firstDisplays.waitForRefreshes(3)
+        try await firstDisplays.waitForRefreshes(3)
         #expect(firstDisplays.refreshes.last?.0 == "schedule_cache_changed")
         #expect(secondDisplays.refreshes.count == 1)
     }
@@ -497,13 +488,13 @@ struct ExperimentalPreferenceCloudSyncTests {
         let recordKey = key(.appSettings, account: account)
         owner.start()
         #expect(cloud.synchronizationCalls == 1)
-        await cloud.waitForWrite(to: recordKey)
+        try await cloud.waitForWrite(to: recordKey)
         #expect(cloud.data(forKey: recordKey) != nil)
         cloud.set(nil, forKey: recordKey)
         let foregroundCalls = cloud.synchronizationCalls
         owner.sceneBecameActive()
         #expect(cloud.synchronizationCalls == foregroundCalls + 1)
-        await cloud.waitForWrite(to: recordKey)
+        try await cloud.waitForWrite(to: recordKey)
         #expect(cloud.data(forKey: recordKey) != nil)
         sync.setEnabled(false)
         let calls = cloud.synchronizationCalls
@@ -525,7 +516,7 @@ struct ExperimentalPreferenceCloudSyncTests {
         cloud.set(nil, forKey: recordKey)
 
         sync.reloadForCurrentAccount()
-        await cloud.waitForWrite(to: recordKey)
+        try await cloud.waitForWrite(to: recordKey)
 
         #expect(sync.isEnabled)
         let restored = try JSONDecoder().decode(envelopeType, from: #require(cloud.data(forKey: recordKey)))
@@ -596,7 +587,7 @@ struct ExperimentalPreferenceCloudSyncTests {
             updatedAt: Date(timeIntervalSince1970: 200), payload: AppSettingsSyncPayload(snapshot: snapshot)
         )), forKey: key(.appSettings, account: account))
         sync.refreshFromCloudIfNeeded()
-        await cloud.waitForWrite(to: key(.galleryMessageRead, account: account))
+        try await cloud.waitForWrite(to: key(.galleryMessageRead, account: account))
         #expect(sync.settings.galleryHiddenUserIDs == [73])
         #expect(sync.settings.galleryHideAnonymousContent)
         let restored = AppSettingsStore(defaults: defaults, session: { account.session })
@@ -613,12 +604,12 @@ struct ExperimentalPreferenceCloudSyncTests {
         let recordKey = key(.scoreCache, account: account)
         let original = try #require(cloud.data(forKey: recordKey))
         let release = DispatchSemaphore(value: 0)
-        var task: Task<Void, Never>?
-        await withCheckedContinuation { started in
-            files.interceptNextRead { started.resume(); release.wait() }
-            sync.localValueDidChange(in: .scoreCache)
-            task = sync.refreshFromCloudIfNeeded()
-        }
+        let entered = OSAllocatedUnfairLock(initialState: false)
+        defer { release.signal() }
+        files.interceptNextRead { entered.withLock { $0 = true }; release.wait() }
+        sync.localValueDidChange(in: .scoreCache)
+        let task = sync.refreshFromCloudIfNeeded()
+        try await waitForTestEvent { entered.withLock { $0 } }
         sync.setEnabled(false)
         release.signal()
         await task?.value
@@ -675,7 +666,7 @@ struct ExperimentalPreferenceCloudSyncTests {
         }
 
         sync.refreshFromCloudIfNeeded()
-        await cloud.waitForWrite(to: key(.galleryMessageRead, account: nextAccount))
+        try await cloud.waitForWrite(to: key(.galleryMessageRead, account: nextAccount))
         #expect(account.session == nextAccount.session)
         #expect(sync.settings.galleryHiddenUserIDs == [73])
     }
@@ -942,22 +933,19 @@ struct AppExternalDisplayTests {
         #expect(context.events == ["clear", "end"])
     }
 
-    @Test func suspendedRefreshChecksAccountAndCancellationBeforeSystemEffects() async {
+    @Test func suspendedRefreshChecksAccountAndCancellationBeforeSystemEffects() async throws {
         for cancel in [false, true] {
             let context = Context()
             var resume: CheckedContinuation<Void, Never>?
-            var started: CheckedContinuation<Void, Never>?
             context.exportAction = {
                 await withCheckedContinuation {
                     resume = $0
-                    started?.resume()
-                    started = nil
                 }
             }
             let adapter = context.adapter()
             let owner = context.session
             let task = Task { await adapter.refresh(trigger: "refresh", syncWidgetSnapshot: true, session: owner) }
-            if resume == nil { await withCheckedContinuation { started = $0 } }
+            try await waitForTestEvent { resume != nil }
             if cancel { task.cancel() } else { context.session = AppStorageSession(accountIdentifier: "changed") }
             resume?.resume()
             await task.value

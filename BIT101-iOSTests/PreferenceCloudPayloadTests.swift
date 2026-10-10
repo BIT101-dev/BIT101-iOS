@@ -1,4 +1,5 @@
 import Foundation
+import os
 import ScoreDomain
 import Testing
 @testable import BIT101_iOS
@@ -33,17 +34,16 @@ struct PreferenceCloudPayloadTests {
         let envelope = ExperimentalPreferenceSyncEnvelope(updatedAt: Date(), payload: ["name": "value"])
         let data = try JSONEncoder().encode(envelope)
         let release = DispatchSemaphore(value: 0)
-        var operation: Task<ExperimentalPreferenceSyncEnvelope<[String: String]>, Error>?
-        await withCheckedContinuation { started in
-            operation = Task {
-                try await PreferenceCloudPayloadCodec.decode([String: String].self, open: {
-                    started.resume()
-                    release.wait()
-                    return data
-                })
-            }
+        let entered = OSAllocatedUnfairLock(initialState: false)
+        defer { release.signal() }
+        let task = Task {
+            try await PreferenceCloudPayloadCodec.decode([String: String].self, open: {
+                entered.withLock { $0 = true }
+                release.wait()
+                return data
+            })
         }
-        let task = try #require(operation)
+        try await waitForTestEvent { entered.withLock { $0 } }
         task.cancel()
         release.signal()
         await #expect(throws: CancellationError.self) { try await task.value }

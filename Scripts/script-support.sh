@@ -106,8 +106,22 @@ process = subprocess.Popen(sys.argv[3:], stdout=subprocess.PIPE, stderr=subproce
 details = []
 seen = set()
 diagnostics = []
-summaries = []
+diagnostic_seen = set()
+display_limit = 40
+detail_count = diagnostic_count = module_scan_count = 0
+summary_count = summary_tests = 0
+summary = ""
 temporary_results = set()
+def useful_line(line):
+    if not line.strip(): return False
+    if line.startswith(("Test case ", "Test Case ")) and re.search(r"\bpassed(?: on | \(|$)", line): return False
+    if line.startswith(("Test case ", "Test suite ", "Test Case ", "Test Suite ", "◇ ", "✔ ")) and "failed" not in line.lower(): return False
+    if line.rstrip().endswith(" seconds)") and "failed" not in line.lower(): return False
+    if line.startswith(("note: Removed stale file ", "Failed frontend command:", "[Pre-planning", "[Computing dependencies]", "[Using on-disk description]", "[Planning deferred tasks]", "[Starting]")): return False
+    if line.startswith("[") and line[1:2].isdigit(): return False
+    if "Executed 0 tests, with 0 failures" in line or "IDETestOperationsObserverDebug:" in line: return False
+    if "IDELaunchParametersSnapshot:" in line and ("debugger version lookup failed" in line or "no debugger version" in line): return False
+    return "swift-frontend -frontend" not in line and not line.lstrip().startswith("builtin-SwiftDriver -- ")
 with report_path.open("w", encoding="utf-8") as report:
     for line in process.stdout:
         report.write(line)
@@ -122,48 +136,42 @@ with report_path.open("w", encoding="utf-8") as report:
         if not line.strip():
             continue
         if "error:" in line or "warning:" in line:
-            if line not in diagnostics:
-                diagnostics.append(line)
+            if re.match(r"warning: '.+' is missing a dependency on '.+' because dependency scan of Swift module", line):
+                module_scan_count += 1
+            elif line not in diagnostic_seen:
+                diagnostic_count += 1
+                if len(diagnostics) < display_limit:
+                    diagnostics.append(line)
+                    diagnostic_seen.add(line)
         if "Test run with" in line:
-            summaries.append(line.strip())
-        if line.startswith(("Test case ", "Test Case ")) and re.search(r"\bpassed(?: on | \(|$)", line):
-            continue
-        if line.startswith(("Test case ", "Test suite ", "Test Case ", "Test Suite ", "◇ ", "✔ ")) and "failed" not in line.lower():
-            continue
-        if line.rstrip().endswith(" seconds)") and "failed" not in line.lower():
-            continue
-        if line.startswith(("note: Removed stale file ", "Failed frontend command:", "[Pre-planning", "[Computing dependencies]", "[Using on-disk description]", "[Planning deferred tasks]", "[Starting]")):
-            continue
-        if line.startswith("[") and line[1:2].isdigit():
-            continue
-        if "Executed 0 tests, with 0 failures" in line or "IDETestOperationsObserverDebug:" in line:
-            continue
-        if "IDELaunchParametersSnapshot:" in line and ("debugger version lookup failed" in line or "no debugger version" in line):
-            continue
-        if "swift-frontend -frontend" in line or line.lstrip().startswith("builtin-SwiftDriver -- "):
-            continue
-        if line not in seen:
-            details.append(line)
-            seen.add(line)
+            summary = line.strip()
+            summary_count += 1
+            summary_tests += int(re.search(r"Test run with (\d+) tests?", line)[1])
+        if useful_line(line) and line not in seen:
+            detail_count += 1
+            if len(details) < display_limit:
+                details.append(line)
+                seen.add(line)
 exit_code = process.wait()
 for path in temporary_results:
     shutil.rmtree(path, ignore_errors=True)
 output = details if exit_code else diagnostics
-if not exit_code:
-    module_scans = [line for line in output if re.match(r"warning: '.+' is missing a dependency on '.+' because dependency scan of Swift module", line)]
-    output = [line for line in output if line not in module_scans]
-    if module_scans:
-        print(f"[提示] 编译器模块依赖扫描 · {len(module_scans)} 条 · {report_path}")
-if len(output) <= 40 or (exit_code and os.environ.get("GITHUB_ACTIONS") == "true"):
+output_count = detail_count if exit_code else diagnostic_count
+if not exit_code and module_scan_count:
+    print(f"[提示] 编译器模块依赖扫描 · {module_scan_count} 条 · {report_path}")
+if exit_code and os.environ.get("GITHUB_ACTIONS") == "true":
+    with report_path.open(encoding="utf-8") as report:
+        for line in report:
+            if useful_line(line): sys.stdout.write(line)
+elif output_count <= display_limit:
     sys.stdout.writelines(output)
 else:
-    print(f"[输出] {label} 共 {len(output)} 行诊断 · {report_path}")
-if not exit_code and summaries:
-    if len(summaries) == 1:
-        print(summaries[0])
+    print(f"[输出] {label} 共 {output_count} 行诊断 · {report_path}")
+if not exit_code and summary_count:
+    if summary_count == 1:
+        print(summary)
     else:
-        counts = [int(re.search(r"Test run with (\d+) tests?", line)[1]) for line in summaries]
-        print(f"Swift Testing：{sum(counts)} 项通过 · {len(summaries)} 个测试进程")
+        print(f"Swift Testing：{summary_tests} 项通过 · {summary_count} 个测试进程")
 state = "失败" if exit_code else "完成"
 print(f"[{state}] {label} · {time.monotonic() - started:.1f} 秒")
 raise SystemExit(exit_code if exit_code >= 0 else 128 - exit_code)

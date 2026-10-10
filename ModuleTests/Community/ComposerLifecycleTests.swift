@@ -1,3 +1,4 @@
+import BIT101TestSupport
 import CommunityCore
 import CommunityTransport
 import Foundation
@@ -8,13 +9,11 @@ import Testing
 struct ComposerLifecycleTests {
     private final class Gate {
         private var pending: CheckedContinuation<Void, Never>?
-        private var observers: [CheckedContinuation<Void, Never>] = []
         func pause() async {
-            await withCheckedContinuation { pending = $0; observers.forEach { $0.resume() }; observers = [] }
+            await withCheckedContinuation { pending = $0 }
         }
-        func waitUntilPaused() async {
-            if pending != nil { return }
-            await withCheckedContinuation { observers.append($0) }
+        func waitUntilPaused() async throws {
+            try await waitForTestEvent { pending != nil }
         }
         func resume() { pending?.resume(); pending = nil }
     }
@@ -332,12 +331,12 @@ struct ComposerLifecycleTests {
         #expect(full.imageDrafts.isEmpty)
     }
 
-    @Test func suspendedImagePreparationKeepsTheEditorResponsiveAndHonorsCancellation() async {
+    @Test func suspendedImagePreparationKeepsTheEditorResponsiveAndHonorsCancellation() async throws {
         let gate = Gate()
         let service = Service()
         let viewModel = model(service, prepare: { data in await gate.pause(); return Data([42]) + data })
         let adding = Task { await viewModel.addImages(from: [{ Data([7]) }]) }
-        await gate.waitUntilPaused()
+        try await gate.waitUntilPaused()
         viewModel.title = "继续编辑"
         #expect(viewModel.isAddingImages)
         adding.cancel()
@@ -358,7 +357,7 @@ struct ComposerLifecycleTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func duplicateSubmissionUsesOneCapturedPayloadAndPreservesNewDraftRevisions() async {
+    func duplicateSubmissionUsesOneCapturedPayloadAndPreservesNewDraftRevisions() async throws {
         let gate = Gate()
         let service = Service()
         service.submissionGate = gate
@@ -366,7 +365,7 @@ struct ComposerLifecycleTests {
         let viewModel = model(service, drafts: drafts)
         valid(viewModel)
         let pending = Task { await viewModel.submit() }
-        await gate.waitUntilPaused()
+        try await gate.waitUntilPaused()
         #expect(await viewModel.submit() == false)
         viewModel.title = "后续编辑"
         #expect(await drafts.saveGallery(snapshot()))
@@ -378,13 +377,13 @@ struct ComposerLifecycleTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func removedImagesAndDuplicateRetriesHonorTheActiveUpload() async {
+    func removedImagesAndDuplicateRetriesHonorTheActiveUpload() async throws {
         let gate = Gate()
         let service = Service()
         service.uploadGate = gate
         let viewModel = model(service)
         let pending = Task { await viewModel.addImages(from: [{ Data([7]) }]) }
-        await gate.waitUntilPaused()
+        try await gate.waitUntilPaused()
         let id = viewModel.imageDrafts[0].id
         await viewModel.retryImageUpload(id: id)
         #expect(service.uploads.count == 1)
@@ -396,13 +395,13 @@ struct ComposerLifecycleTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func pageCancellationStopsPublicationAndAllowsFreshWork() async {
+    func pageCancellationStopsPublicationAndAllowsFreshWork() async throws {
         let gate = Gate()
         let service = Service()
         service.uploadGate = gate
         let viewModel = model(service)
         let pending = Task { await viewModel.addImages(from: [{ Data([7]) }]) }
-        await gate.waitUntilPaused()
+        try await gate.waitUntilPaused()
         viewModel.cancelPendingOperations()
         gate.resume()
         await pending.value
@@ -413,7 +412,7 @@ struct ComposerLifecycleTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func accountRoundTripsDiscardLateSubmissionAndDraftRestoration() async {
+    func accountRoundTripsDiscardLateSubmissionAndDraftRestoration() async throws {
         let identity = Identity()
         let drafts = Drafts()
         drafts.result = .loaded(snapshot())
@@ -421,7 +420,7 @@ struct ComposerLifecycleTests {
         drafts.readGate = readGate
         let viewModel = model(drafts: drafts, identity: identity)
         let pending = Task { await viewModel.restoreDraft() }
-        await readGate.waitUntilPaused()
+        try await readGate.waitUntilPaused()
         identity.current = .init(accountIdentifier: "composer-B", generation: 2)
         identity.current = .init(accountIdentifier: "composer-A", generation: 3)
         readGate.resume()
@@ -434,7 +433,7 @@ struct ComposerLifecycleTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func cancelledSubmissionRetainsTheDraftAndReturnsCancellation() async {
+    func cancelledSubmissionRetainsTheDraftAndReturnsCancellation() async throws {
         let gate = Gate()
         let service = Service()
         service.submissionGate = gate
@@ -442,7 +441,7 @@ struct ComposerLifecycleTests {
         let viewModel = model(service, drafts: drafts)
         valid(viewModel)
         let pending = Task { await viewModel.submit() }
-        await gate.waitUntilPaused()
+        try await gate.waitUntilPaused()
         pending.cancel()
         gate.resume()
         #expect(await pending.value == false)

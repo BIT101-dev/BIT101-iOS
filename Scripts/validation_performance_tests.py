@@ -43,9 +43,60 @@ def run_self_test() -> None:
         except ValueError: pass
         else: raise AssertionError('手填采样需要匹配实际 xcresult 指标')
     producing_run_capture_self_test()
+    result_replacement_self_test()
     batch_retention_self_test(raw, test)
     merge_regression_self_test()
     baseline_migration_self_test()
+
+
+def result_replacement_self_test() -> None:
+    import json
+    from contextlib import nullcontext
+    import validation_evidence
+    sha = 'a' * 64
+    report = {'releaseCommit': 'commit', 'mergeCommit': 'commit', 'groups': {
+        'all': {'resultBundleSHA256': sha},
+        'ui': {'lastFullRun': {'resultBundleSHA256': sha}},
+        'catalyst': {'resultBundleSHA256': sha}, 'modules': {'runID': 'modules'}},
+        'performanceBaseline': {'approvedBy': 'maintainer'}}
+    with patch.object(Path, 'exists', return_value=True), patch.object(Path, 'is_file', return_value=True), \
+            patch.object(Path, 'read_text', return_value=json.dumps(report)), \
+            patch.object(validation_evidence, 'report_lock', side_effect=nullcontext), \
+            patch.object(subject.shutil, 'rmtree') as remove, \
+            patch.object(validation_evidence, 'write_report') as save:
+        save.side_effect = lambda value: remove.assert_not_called()
+        assert subject.main(['reset-results']) == 0
+        updated = save.call_args.args[0]
+        assert updated['groups'] == {'modules': {'runID': 'modules'}}
+        assert 'releaseCommit' not in updated and 'mergeCommit' not in updated
+        assert updated['performanceBaseline'] == report['performanceBaseline']
+        remove.assert_called_once_with(subject.BUNDLE)
+        remove.reset_mock(); save.reset_mock()
+        save.side_effect = OSError('report write failure')
+        try: subject.reset_result_bundle()
+        except OSError: pass
+        else: raise AssertionError('证据写入失败需要保留原始结果包')
+        remove.assert_not_called()
+        with patch.object(Path, 'exists', return_value=False): subject.reset_result_bundle()
+        assert save.call_count == 1
+    rows = {group: {'resultBundleSHA256': sha} for group in ('all', 'ui')}
+    with patch.object(subject, 'bundle_digest', return_value=sha) as digest:
+        assert not subject.result_bundle_findings({'groups': rows})
+        changed = deepcopy(rows); changed['ui']['resultBundleSHA256'] = 'b' * 64
+        assert subject.result_bundle_findings({'groups': changed})
+        for value in ('b' * 64, None):
+            with patch.object(subject, 'bundle_digest', return_value=value):
+                assert subject.result_bundle_findings({'groups': rows})
+        with patch.object(subject, 'bundle_digest', side_effect=ValueError('missing bundle')):
+            assert subject.result_bundle_findings({'groups': rows})
+        digest.reset_mock()
+        assert not subject.result_bundle_findings({'groups': rows}, recorded_environment=True)
+        digest.assert_not_called()
+        assert subject.result_bundle_findings({'groups': changed}, recorded_environment=True)
+        assert subject.result_bundle_findings({'groups': {}}, recorded_environment=True)
+        complete = dict(rows['all'], scope='full', exitCode=0, inputDigest='input', summary={'passed': True})
+        selected = dict(complete, scope='selected', resultBundleSHA256='b' * 64, lastFullRun=complete)
+        assert not subject.result_bundle_findings({'groups': rows | {'all': selected}})
 
 
 def baseline_migration_self_test() -> None:
@@ -214,6 +265,8 @@ def batch_retention_self_test(raw: list, test: str) -> None:
             report_path.write_text(json.dumps(report))
             assert subject.main(['begin-batch', 'append']) == 0
             assert retained.is_dir() and not bundle.exists()
+            assert subject.main(['reset-results']) == 0
+            writer.assert_not_called()
             create(bundle, b'second')
             second_sha = subject.bundle_digest(bundle)
             assert subject.main(['retain-batch', 'all', 'ui']) == 0

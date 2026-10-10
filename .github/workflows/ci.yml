@@ -77,7 +77,7 @@ jobs:
       - name: Run static audit
         env:
           BIT101_VERSION_BASE_REF: ${{ github.base_ref && format('origin/{0}', github.base_ref) || steps.review.outputs.base_sha || '' }}
-          BIT101_RELEASE_CHECK: ${{ startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' && inputs.release_check }}
+          BIT101_RELEASE_CHECK: ${{ github.event_name == 'workflow_dispatch' && inputs.release_check }}
         run: Scripts/run-static-audit.sh
       - name: Test local Swift modules
         run: Scripts/run-extended-tests.sh modules

@@ -81,7 +81,32 @@ def begin_result_step(retain_previous: bool) -> None:
     if retain_previous and BUNDLE.exists():
         shutil.move(str(BUNDLE), str(retained))
     else:
-        shutil.rmtree(BUNDLE, ignore_errors=True)
+        reset_result_bundle()
+
+
+def reset_result_bundle() -> None:
+    if not BUNDLE.exists(): return
+    from validation_evidence import REPORT, report_lock, write_report
+    with report_lock():
+        if REPORT.is_file():
+            report = json.loads(REPORT.read_text())
+            report['groups'] = {name: row for name, row in report.get('groups', {}).items()
+                if not row.get('resultBundleSHA256') and not row.get('lastFullRun', {}).get('resultBundleSHA256')}
+            report.pop('releaseCommit', None)
+            report.pop('mergeCommit', None)
+            write_report(report)
+    shutil.rmtree(BUNDLE)
+
+
+def result_bundle_findings(report: dict, *, recorded_environment: bool = False) -> list[str]:
+    try:
+        rows = report.get('groups', {})
+        sha = complete_group_row(rows.get('all', {})).get('resultBundleSHA256') if recorded_environment else bundle_digest(BUNDLE)
+        if not isinstance(sha, str) or not re.fullmatch(r'[0-9a-f]{64}', sha): raise ValueError('结果包需要完整摘要。')
+        if all(complete_group_row(report.get('groups', {}).get(group, {})).get('resultBundleSHA256') == sha
+               for group in ('all', 'ui')): return []
+    except (OSError, ValueError): pass
+    return ['完整行为及 UI 证据需要对应当前保留的原始 XCTest 结果包。']
 
 
 def rebind_result_records(report: dict, groups: list[str]) -> dict:
@@ -309,6 +334,9 @@ def merge_findings(report: dict, commit: str) -> list[str]:
 
 
 def main(arguments: list[str]) -> int:
+    if arguments == ['reset-results']:
+        reset_result_bundle()
+        return 0
     if arguments == ['recover-batch']:
         recover_result_step()
         return 0

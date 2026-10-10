@@ -1,20 +1,17 @@
+import BIT101TestSupport
 import CommunityCore
 import Foundation
 
 @MainActor
 final class ListRequestGate<Value: Sendable> {
     private var result: CheckedContinuation<Value, Never>?
-    private var started: CheckedContinuation<Void, Never>?
     func request() async -> Value {
         await withCheckedContinuation {
             result = $0
-            started?.resume()
-            started = nil
         }
     }
-    func waitUntilRequested() async {
-        if result != nil { return }
-        await withCheckedContinuation { started = $0 }
+    func waitUntilRequested() async throws {
+        try await waitForTestEvent { result != nil }
     }
     func finish(_ value: Value) { result?.resume(returning: value); result = nil }
 }

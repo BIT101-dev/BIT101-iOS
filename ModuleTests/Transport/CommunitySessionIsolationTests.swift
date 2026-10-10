@@ -1,3 +1,4 @@
+import BIT101TestSupport
 import CommunityTransport
 import Foundation
 import Testing
@@ -165,15 +166,13 @@ struct CommunitySessionIsolationTests {
 
     private final class RestoreGate {
         var calls = 0
-        private var started: CheckedContinuation<Void, Never>?
         private var completion: CheckedContinuation<Void, Never>?
         func restore() async {
             calls += 1
-            await withCheckedContinuation { completion = $0; started?.resume(); started = nil }
+            await withCheckedContinuation { completion = $0 }
         }
-        func waitUntilStarted() async {
-            if completion != nil { return }
-            await withCheckedContinuation { started = $0 }
+        func waitUntilStarted() async throws {
+            try await waitForTestEvent { completion != nil }
         }
         func finish() { completion?.resume(); completion = nil }
     }
@@ -183,7 +182,7 @@ struct CommunitySessionIsolationTests {
         let coordinator = CommunitySessionRefreshCoordinator()
         let gate = RestoreGate()
         let first = Task { try await coordinator.refresh(observed: credentials.snapshot, current: { credentials.snapshot }, restore: { await gate.restore() }) }
-        await gate.waitUntilStarted()
+        try await gate.waitUntilStarted()
         var joined: CheckedContinuation<Void, Never>?
         let second = Task {
             joined?.resume()
@@ -203,9 +202,9 @@ struct CommunitySessionIsolationTests {
         let firstCoordinator = CommunitySessionRefreshCoordinator()
         let secondCoordinator = CommunitySessionRefreshCoordinator()
         let first = Task { try await firstCoordinator.refresh(observed: credentials.snapshot, current: { credentials.snapshot }, restore: { await firstGate.restore() }) }
-        await firstGate.waitUntilStarted()
+        try await firstGate.waitUntilStarted()
         let second = Task { try await secondCoordinator.refresh(observed: credentials.snapshot, current: { credentials.snapshot }, restore: { await secondGate.restore() }) }
-        await secondGate.waitUntilStarted()
+        try await secondGate.waitUntilStarted()
         #expect(firstGate.calls == 1)
         #expect(secondGate.calls == 1)
         firstGate.finish()

@@ -323,9 +323,8 @@ struct ExtendedSchedulePolicyTests {
     }
 
     @Test @MainActor
-    func sharedSnapshotClearPublishesEmptyStateAndRejectsAnEarlierCompletion() async {
+    func sharedSnapshotClearPublishesEmptyStateAndRejectsAnEarlierCompletion() async throws {
         var released: CheckedContinuation<Bool, Never>?
-        var started: CheckedContinuation<Void, Never>?
         var published: [ScheduleExternalSnapshot] = []
         var generations: [UInt64] = []
         let pending = Task {
@@ -333,12 +332,11 @@ struct ExtendedSchedulePolicyTests {
                 generations.append(generation)
                 let cleared = await withCheckedContinuation {
                     released = $0
-                    started?.resume(); started = nil
                 }
                 return (cleared, snapshot)
             }, publishSnapshot: { published.append($0) })
         }
-        await withCheckedContinuation { started = $0 }
+        try await waitForTestEvent { released != nil }
         let cleared = await ScheduleWidgetExporter.clearSharedSnapshot(clearSnapshot: { snapshot, generation in
             generations.append(generation)
             return (true, snapshot)
@@ -919,18 +917,16 @@ struct AppScheduleCacheEffectsTests {
         var calendarTerm: String?
         var deletedMarkers = Set<String>()
         var deleteAllCount = 0
-        var pushWaiter: CheckedContinuation<Void, Never>?
 
-        func waitForPush() async {
-            if pushes > 0 { return }
-            await withCheckedContinuation { pushWaiter = $0 }
+        func waitForPush() async throws {
+            try await waitForTestEvent { pushes > 0 }
         }
     }
 
     private func effects(_ state: State) -> AppScheduleCacheEffects {
         AppScheduleCacheEffects(
             currentSession: { state.session }, currentIdentity: { state.identity },
-            pushCloud: { state.pushes += 1; state.pushWaiter?.resume(); state.pushWaiter = nil },
+            pushCloud: { state.pushes += 1 },
             reconcileCloud: { state.reconciliations += 1 },
             requestReminderAuthorization: {
                 state.authorizations += 1
@@ -945,7 +941,7 @@ struct AppScheduleCacheEffectsTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func injectedCloudAndReminderActionsRespectAccountOwnership() async {
+    func injectedCloudAndReminderActionsRespectAccountOwnership() async throws {
         let selected = State()
         let surrounding = State()
         let actions = effects(selected)
@@ -957,7 +953,7 @@ struct AppScheduleCacheEffectsTests {
         await actions.enableCourseReminder(session: other)
         #expect(selected.pushes == 0 && selected.reconciliations == 0 && selected.authorizations == 0)
         await actions.didSave(session: selected.session, source: .local, cloudSyncEnabled: true)
-        await selected.waitForPush()
+        try await selected.waitForPush()
         await actions.enableCloudSync(session: selected.session)
         await actions.enableCourseReminder(session: selected.session)
         #expect(selected.pushes == 1 && selected.reconciliations == 1 && selected.authorizations == 1)

@@ -177,7 +177,7 @@ if not plans: raise SystemExit('模拟器编译需要生成对应的运行配置
 print(max(plans, key=lambda path: path.stat().st_mtime))
 PYPLAN
 )"
-rm -rf "$result"
+python3 "$ROOT_DIR/Scripts/validation_performance.py" reset-results
 rm -f "$DERIVED_ROOT/test-metrics.txt" "$DERIVED_ROOT/test-failures.txt"
 test_status=0
 trap restore_on_exit EXIT

@@ -386,24 +386,18 @@ struct ScoreFeatureTests {
     @MainActor
     private final class DelayedScoreServiceSpy: ScoreListServicing {
         private var challengeContinuation: CheckedContinuation<BITLoginAuthenticationChallenge, Error>?
-        private var startContinuation: CheckedContinuation<Void, Never>?
         private var hasStarted = false
         private(set) var fetchCount = 0
 
         func startScoreChallenge() async throws -> BITLoginAuthenticationChallenge {
             hasStarted = true
-            startContinuation?.resume()
-            startContinuation = nil
             return try await withCheckedThrowingContinuation { continuation in
                 challengeContinuation = continuation
             }
         }
 
-        func waitUntilStarted() async {
-            guard !hasStarted else { return }
-            await withCheckedContinuation { continuation in
-                startContinuation = continuation
-            }
+        func waitUntilStarted() async throws {
+            try await waitForTestEvent { hasStarted }
         }
 
         func completeStart(with challenge: BITLoginAuthenticationChallenge) {
@@ -444,19 +438,15 @@ struct ScoreFeatureTests {
         let stage: String
         let cancelled = OSAllocatedUnfairLock(initialState: false)
         private var started = false
-        private var waiter: CheckedContinuation<Void, Never>?
         private let challenge = BITLoginAuthenticationChallenge(challengeID: "cancel-test", accessToken: "test-token",
             status: "authenticated", maskedPhone: nil, expiresIn: 300)
         init(stage: String) { self.stage = stage }
-        func waitUntilStarted() async {
-            if started { return }
-            await withCheckedContinuation { waiter = $0 }
+        func waitUntilStarted() async throws {
+            try await waitForTestEvent { started }
         }
         private func suspend() async throws {
             try await withTaskCancellationHandler {
                 started = true
-                waiter?.resume()
-                waiter = nil
                 try await Task.sleep(for: .seconds(2))
             } onCancel: { [cancelled] in
                 cancelled.withLock { $0 = true }
@@ -512,7 +502,7 @@ struct ScoreFeatureTests {
         let (model, cache) = try makeViewModel(service: service, session: { account.session })
         defer { clearPreferences() }
         let refresh = Task { await model.refresh() }
-        await service.waitUntilStarted()
+        try await service.waitUntilStarted()
         if resetAccount {
             account.session = AppStorageSession(accountIdentifier: "cancel-account-b")
             model.resetForCurrentAccount()
@@ -553,7 +543,7 @@ struct ScoreFeatureTests {
         defer { clearPreferences() }
 
         let refreshTask = Task { await viewModel.refresh() }
-        await service.waitUntilStarted()
+        try await service.waitUntilStarted()
 
         activeSession.session = AppStorageSession(accountIdentifier: "score-account-b")
         viewModel.resetForCurrentAccount()

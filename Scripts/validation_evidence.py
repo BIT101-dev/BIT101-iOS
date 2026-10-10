@@ -23,6 +23,7 @@ from validation_compilation import compilation_condition
 from validate_distribution import archive_build_summary, valid_archive_provenance, valid_executable_uuids, distribution_contracts
 from validation_environment import environment_context, complete_environment, toolchain_identity, exchange_identity
 from validation_provenance import LIVE_GROUPS, NETWORK_GROUPS, evidence_current, producing_run_matches, sampling_evidence_current, utc_now
+from validation_performance import result_bundle_findings
 
 ROOT = Path(__file__).resolve().parents[1]
 REPORT = ROOT / ".build/extended-automation/validation-evidence.json"
@@ -558,7 +559,7 @@ def complete_summary(group: str, summary: dict) -> bool:
 
 
 def release_findings(report: dict, digest: str, *, recorded_environment: bool = False) -> list[str]:
-    errors = []
+    errors = result_bundle_findings(report, recorded_environment=recorded_environment)
     if report.get("sourceDigest") != digest:
         errors.append("验证源码摘要与当前仓库内容存在差异。")
     for name in sorted(RELEASE_GROUPS):

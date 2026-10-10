@@ -116,17 +116,14 @@ struct FeatureCompositionTests {
 
     private final class CourseList: CourseListServicing {
         var requests: [String] = []
-        private var waiter: CheckedContinuation<Void, Never>?
 
         func fetchCourses(search: String, page: Int) async throws -> [CourseSummary] {
             requests.append(search)
-            if requests.count == 2 { waiter?.resume(); waiter = nil }
             return []
         }
 
-        func waitForLookup() async {
-            if requests.count == 2 { return }
-            await withCheckedContinuation { waiter = $0 }
+        func waitForLookup() async throws {
+            try await waitForTestEvent { requests.count >= 2 }
         }
     }
 
@@ -158,28 +155,23 @@ struct FeatureCompositionTests {
         window.rootViewController = controller
         window.makeKeyAndVisible()
         defer { window.isHidden = true; window.rootViewController = nil }
-        await selected.waitForLookup()
+        try await selected.waitForLookup()
         #expect(Set(selected.requests) == ["课程", "COURSE-1"])
         #expect(surrounding.requests.isEmpty)
     }
     private final class TraceTransport: HTTPTransport {
         var requests: [URLRequest] = []
         var response: ((URLRequest) throws -> Data)?
-        private var waiter: CheckedContinuation<Void, Never>?
-        private var expectedRequests = 1
         func data(for request: URLRequest) async throws -> (Data, URLResponse) {
             requests.append(request)
-            if requests.count >= expectedRequests { waiter?.resume(); waiter = nil }
             if let response {
                 let url = try #require(request.url)
                 return (try response(request), try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)))
             }
             throw URLError(.notConnectedToInternet)
         }
-        func waitForRequest(count: Int = 1) async {
-            if requests.count >= count { return }
-            expectedRequests = count
-            await withCheckedContinuation { waiter = $0 }
+        func waitForRequest(count: Int = 1) async throws {
+            try await waitForTestEvent { requests.count >= count }
         }
     }
 
@@ -251,7 +243,7 @@ struct FeatureCompositionTests {
             profiles: CommunityProfileDestination { AnyView(Text("profile \($0)")) }, papers: paperRoute,
             requestedPaperID: .constant(42))
             .environment(gallery(surroundingTransport)).environment(media())
-        try await host(view) { await paperTransport.waitForRequest() }
+        try await host(view) { try await paperTransport.waitForRequest() }
         #expect(routedIDs.contains(42))
         #expect(surroundingTransport.requests.isEmpty)
     }
@@ -261,7 +253,7 @@ struct FeatureCompositionTests {
         let selected = TraceTransport()
         let surrounding = TraceTransport()
         try await host(PaperRootView(dependencies: paper(selected), media: media())
-            .environment(paper(surrounding)).environment(media())) { await selected.waitForRequest() }
+            .environment(paper(surrounding)).environment(media())) { try await selected.waitForRequest() }
         #expect(surrounding.requests.isEmpty)
     }
 
@@ -391,11 +383,11 @@ struct FeatureCompositionTests {
         let settings = CommunitySettingsDestinations(settingsEntries: [], settings: { _ in AnyView(Text("settings")) },
                                                     suggestion: { AnyView(Text("suggestion")) })
         try await host(MineRootView(dependencies: mine(selected), media: media(), posters: poster, settings: settings,
-            fallbackStudentID: "fixture", onLogout: {}).environment(mine(surrounding))) { await selected.waitForRequest() }
+            fallbackStudentID: "fixture", onLogout: {}).environment(mine(surrounding))) { try await selected.waitForRequest() }
         #expect(surrounding.requests.isEmpty)
         let profile = TraceTransport()
         try await host(UserProfileRootView(dependencies: mine(profile), media: media(), posters: poster, userID: 42)
-            .environment(mine(surrounding))) { await profile.waitForRequest() }
+            .environment(mine(surrounding))) { try await profile.waitForRequest() }
         #expect(surrounding.requests.isEmpty)
     }
 
@@ -467,10 +459,10 @@ struct FeatureCompositionTests {
         window.rootViewController = controller
         window.makeKeyAndVisible()
         defer { window.isHidden = true; window.rootViewController = nil }
-        await firstTransport.waitForRequest(count: initialRequests)
+        try await firstTransport.waitForRequest(count: initialRequests)
         let firstCount = firstTransport.requests.count
         controller.rootView = NavigationStack { second }
-        await secondTransport.waitForRequest(count: initialRequests)
+        try await secondTransport.waitForRequest(count: initialRequests)
         #expect(firstTransport.requests.count == firstCount)
         #expect(secondTransport.requests.count > 0)
     }
@@ -508,11 +500,11 @@ struct FeatureCompositionTests {
         window.rootViewController = controller
         window.makeKeyAndVisible()
         defer { window.isHidden = true; window.rootViewController = nil }
-        await first.waitForLookup()
+        try await first.waitForLookup()
         controller.rootView = NavigationStack {
             CourseEvaluationDestination(dependencies: dependencies(list: second), media: selectedMedia, profiles: profiles, request: request)
         }
-        await second.waitForLookup()
+        try await second.waitForLookup()
         #expect(first.requests.count == 2)
         #expect(Set(second.requests) == ["课程", "COURSE-1"])
     }

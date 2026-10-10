@@ -37,6 +37,8 @@ def run_self_test(subject) -> int:
     fixture_environment = {'host': {'system': 'fixture'}, 'developer': '/fixture', 'xcode': {'version': 'fixture'}, 'compiler': {'path': '/fixture/swift-frontend', 'modified': 1, 'size': 100, 'sha256': 'a' * 64}, 'sdks': {'fixture': {'Version': '1'}}, 'device': {'identifier': 'fixture-phone', 'systemVersion': 'fixture-os', 'systemBuild': 'fixture-build'}}
     with patch(f'{module_name}.environment_context', return_value=fixture_environment), \
             patch('validation_merge.environment_context', return_value=fixture_environment), \
+            patch('validation_merge.result_bundle_findings', side_effect=lambda *args, **kwargs: []), \
+            patch(f'{module_name}.result_bundle_findings', side_effect=lambda *args, **kwargs: []), \
             patch('validation_merge.performance_findings', return_value=[]):
         from validation_provenance_tests import run_self_test as provenance_self_test
         from validation_test_areas import inventory_findings

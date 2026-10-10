@@ -64,6 +64,15 @@ enum NetworkSmokePaging {
         }
     }
 
+    static func paperPage(order: PaperSortOrder, currentIdentity: () -> CommunitySessionIdentity,
+                          load: (Int) async throws -> [PaperSummary]) async throws -> [PaperSummary] {
+        try await arrayPage(currentIdentity: currentIdentity) { page in
+            let papers = try await load(page)
+            try checkPapers(papers, order: order)
+            return papers
+        }
+    }
+
     static func checkScores(brief: [ScoreRow], detailed: [ScoreRow]) throws {
         guard brief.isEmpty && detailed.isEmpty || ScoreRowComparison.briefRowsMatchCache(brief, cachedRows: detailed)
         else { throw URLError(.cannotParseResponse) }

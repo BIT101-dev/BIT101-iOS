@@ -93,7 +93,7 @@ struct PaperSearchViewModelTests {
             return detail
         }
         let earlier = Task { await load() }
-        await gate.waitUntilRequested()
+        try await gate.waitUntilRequested()
         await refresh()
         service.metadata = { _ in edited }
         await load()
@@ -107,7 +107,7 @@ struct PaperSearchViewModelTests {
     }
 
     @Test(arguments: [false, true]) @MainActor
-    func leavingThePageReleasesPreviewRequestsForTheSamePaper(search: Bool) async {
+    func leavingThePageReleasesPreviewRequestsForTheSamePaper(search: Bool) async throws {
         let paper = PaperSummary(id: 1, title: "fixture", intro: "", likeNum: 0, commentNum: 0, updateTime: "")
         let service = ServiceStub(result: .success([paper]))
         let list = PaperListViewModel(service: service)
@@ -132,7 +132,7 @@ struct PaperSearchViewModelTests {
             return requests == 1 ? await earlierGate.request() : fresh
         }
         let earlier = Task { await load() }
-        await earlierGate.waitUntilRequested()
+        try await earlierGate.waitUntilRequested()
         earlier.cancel()
         if search { results.cancelSearchOperations() } else { list.cancelRefreshOperations() }
         await load()

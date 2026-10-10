@@ -305,22 +305,20 @@ struct SchedulePersistenceTests {
         var stored: ScheduleCache?
         var writes: [(String, AppStorageSession)] = []
         var failsFirstWrite = false
-        private var started: CheckedContinuation<Void, Never>?
         private var completion: CheckedContinuation<Void, Never>?
 
         func save(_ cache: ScheduleCache, session: AppStorageSession) async throws {
             writes.append((cache.primaryScheduleTitle, session))
             if writes.count == 1 {
-                await withCheckedContinuation { completion = $0; started?.resume(); started = nil }
+                await withCheckedContinuation { completion = $0 }
                 if failsFirstWrite { throw CocoaError(.fileWriteNoPermission) }
             }
             stored = cache
             stored?.updatedAt = Date(timeIntervalSince1970: Double(writes.count))
         }
 
-        func waitUntilStarted() async {
-            if completion != nil { return }
-            await withCheckedContinuation { started = $0 }
+        func waitUntilStarted() async throws {
+            try await waitForTestEvent { completion != nil }
         }
 
         func finishFirstWrite() { completion?.resume(); completion = nil }
@@ -330,14 +328,14 @@ struct SchedulePersistenceTests {
         ScheduleRepository(session: session, load: { _ in writer.stored.map(ScheduleCacheLoadResult.loaded) ?? .missing }, save: { cache, _, session in try await writer.save(cache, session: session) })
     }
 
-    @Test func queuedWritesPreserveOrderAndReloadTheCommittedVersion() async {
+    @Test func queuedWritesPreserveOrderAndReloadTheCommittedVersion() async throws {
         let account = AppStorageSession(accountIdentifier: "queued")
         let writer = DelayedWriter()
         let repository = repository(writer: writer, session: { account })
         await repository.loadIfNeeded()
         repository.courseState.primaryScheduleTitle = "first"
         repository.persist()
-        await writer.waitUntilStarted()
+        try await writer.waitUntilStarted()
         await repository.reload()
         repository.courseState.primaryScheduleTitle = "second"
         repository.persist()
@@ -348,14 +346,14 @@ struct SchedulePersistenceTests {
         #expect(repository.persistenceSnapshot.updatedAt == Date(timeIntervalSince1970: 3))
     }
 
-    @Test func editsMadeDuringSavingRemainInMemory() async {
+    @Test func editsMadeDuringSavingRemainInMemory() async throws {
         let account = AppStorageSession(accountIdentifier: "editing")
         let writer = DelayedWriter()
         let repository = repository(writer: writer, session: { account })
         await repository.loadIfNeeded()
         repository.courseState.primaryScheduleTitle = "saved"
         let saving = Task { await repository.persistAndWait() }
-        await writer.waitUntilStarted()
+        try await writer.waitUntilStarted()
         await repository.reload()
         repository.courseState.primaryScheduleTitle = "editing"
         writer.finishFirstWrite()
@@ -364,14 +362,14 @@ struct SchedulePersistenceTests {
         #expect(repository.persistenceSnapshot.primaryScheduleTitle == "editing")
     }
 
-    @Test func cancelledWaiterKeepsCommittedDataAndReturnsCancellationOutcome() async {
+    @Test func cancelledWaiterKeepsCommittedDataAndReturnsCancellationOutcome() async throws {
         let account = AppStorageSession(accountIdentifier: "cancelled-waiter")
         let writer = DelayedWriter()
         let repository = repository(writer: writer, session: { account })
         await repository.loadIfNeeded()
         repository.courseState.primaryScheduleTitle = "committed-edit"
         let saving = Task { await repository.persistAndWait() }
-        await writer.waitUntilStarted()
+        try await writer.waitUntilStarted()
         saving.cancel()
         writer.finishFirstWrite()
         #expect(await saving.value == false)
@@ -379,7 +377,7 @@ struct SchedulePersistenceTests {
         #expect(repository.notice == nil)
     }
 
-    @Test func oldAccountFailuresAndQueuedWritesStayWithTheirOwner() async {
+    @Test func oldAccountFailuresAndQueuedWritesStayWithTheirOwner() async throws {
         var account = AppStorageSession(accountIdentifier: "old")
         let writer = DelayedWriter()
         writer.failsFirstWrite = true
@@ -387,7 +385,7 @@ struct SchedulePersistenceTests {
         await repository.loadIfNeeded()
         repository.courseState.primaryScheduleTitle = "old-edit"
         let saving = Task { await repository.persistAndWait() }
-        await writer.waitUntilStarted()
+        try await writer.waitUntilStarted()
         repository.persist()
         account = AppStorageSession(accountIdentifier: "current")
         repository.resetForCurrentAccount()

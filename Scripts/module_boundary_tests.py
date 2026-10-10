@@ -160,6 +160,25 @@ def run_self_test(rules: dict) -> None:
     for name in ("WriterActions.swift", "WriterReferences.swift"):
         assert service_boundary_errors("Modules/GalleryFeature/Sources/" + name, file_sources[name], context=file_context), name
     assert service_boundary_errors("Modules/GalleryFeature/Sources/SenderActions.swift", file_sources["SenderActions.swift"], context=file_context) == []
+    for kind, restricted in (('Data', True), ('Message', False)):
+        source = f'''struct Message {{ func write(to: URL, options: Int) {{}} }}
+            struct Probe {{ func payload() -> {kind} {{ fatalError() }}; func location() -> URL {{ fatalError() }}
+                func save() throws {{ try self.payload().write(to: self.location(), options: .atomic) }} }}'''
+        assert bool(service_boundary_errors(split_path, source)) == restricted
+    for value, restricted in (
+        ('let preferenceType = UserDefaults.self; _ = preferenceType(suiteName: "store")', True),
+        ('let preferenceType: UserDefaults.Type = UserDefaults.self; _ = preferenceType(suiteName: "store")', True),
+        ('let preferenceType = Foundation.UserDefaults.self; let copied = preferenceType; _ = copied.standard', True),
+        ('let preferenceType = UserDefaults.self; do { let preferenceType = Other.self; _ = preferenceType() }', False),
+        ('let preferenceType = UserDefaults.self; _ = other.preferenceType()', False),
+    ):
+        source = 'struct Other {}; func run() { ' + value + ' }'
+        assert bool(ownership_errors('PaperFeature', source)) == restricted
+        assert bool(service_boundary_errors(split_path, source)) == restricted
+    sources = {split_path: 'extension Probe { func save() throws { try self.payload().write(to: self.location()) } }',
+        'Modules/PaperFeature/Sources/Support.swift': 'struct Probe { func payload() -> Data { fatalError() }; func location() -> URL { fatalError() } }'}
+    index = swift_syntax_index_sources(sources)
+    assert service_boundary_errors(split_path, sources[split_path], call_context=SwiftBindingTypes(index))
     for source in (
         "let group = NWConnectionGroup(with: descriptor, using: .udp); group.send(content: data)",
         "let group = Network.NWConnectionGroup(with: descriptor, using: .udp)",

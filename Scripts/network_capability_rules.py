@@ -455,7 +455,7 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
                 candidates = [(candidate_path, helper) for candidate_path, helper in helper_functions.get(target, [])
                     if (not helper.get('isPrivate') or candidate_path == source_path)
                     and call.get('lexicalScope', [])[:len(helper.get('lexicalScope', []))] == helper.get('lexicalScope', [])]
-                matches = matching_api_calls(index, candidates, dict(call, path=source_path), types=types)
+                matches = matching_api_calls(index, candidates, dict(call, path=source_path), types=types, conservative=True)
                 if any(contains_request(helper, candidate_path, seen) for candidate_path, helper in matches): return True
             return False
         accessors = [node for node in facts.get('accessorRanges', []) if node.get('isAsync') or contains_request(node)]
@@ -502,7 +502,7 @@ def api_invocations(facts: dict) -> list[dict]:
         if not member.get('isAssignmentTarget')]
 
 
-def matching_api_calls(index: dict, functions: list[tuple[str, dict]], call: dict, *, types=None) -> list[tuple[str, dict]]:
+def matching_api_calls(index: dict, functions: list[tuple[str, dict]], call: dict, *, types=None, conservative=False) -> list[tuple[str, dict]]:
     name = call['calledExpression'].removeprefix('self.').rsplit('.', 1)[-1]
     candidates = [(path, function) for path, function in functions if function['name'] == name
         and api_argument_bindings(function, call) and (not call.get('isMemberRead') or function.get('isAccessor')
@@ -544,7 +544,8 @@ def matching_api_calls(index: dict, functions: list[tuple[str, dict]], call: dic
         variables = visible_variables(facts, call, value.removeprefix('self.'), value.startswith('self.'))
         if variables and variables[-1].get('type'): return re.sub(r'\s+', '', variables[-1]['type'])
         match = re.fullmatch(r'([\w.]+)\(.*\)', value, re.DOTALL)
-        return match[1] if match else None
+        return match[1] if match and (match[1].rsplit('.', 1)[-1][:1].isupper()
+            or types.resolve(call['path'], match[1], call['scope']) is not None) else None
     literals = call.get('argumentTypes', [])
     arguments = [literals[index] if index < len(literals) and literals[index] else argument_type(value)
         for index, value in enumerate(call.get('arguments', []))]
@@ -574,6 +575,8 @@ def matching_api_calls(index: dict, functions: list[tuple[str, dict]], call: dic
                 score = (conversions, promotions, return_score, max(0, len(function['parameters']) - len(binding)))
                 matches.append((score, path, function))
     if not matches: return []
+    if conservative and any(kind is None for kind in arguments):
+        return list({(path, function['start']): (path, function) for _, path, function in matches}.values())
     best = min(score for score, _, _ in matches)
     selected = [(path, function) for score, path, function in matches if score == best]
     return selected if len(selected) == 1 else []

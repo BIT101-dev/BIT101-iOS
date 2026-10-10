@@ -254,7 +254,7 @@ struct MineLifecycleTests {
         let model = MineViewModel(service: service)
         await model.refreshPosters()
         let pending = Task { await model.loadMorePostersIfNeeded(currentPoster: listPoster(1)) }
-        await gate.waitUntilRequested()
+        try await gate.waitUntilRequested()
         service.posters = { _ in [listPoster(3)] }
         await model.refreshPosters()
         gate.finish([listPoster(2)])
@@ -265,7 +265,7 @@ struct MineLifecycleTests {
         let info = try await service.profile()
         service.profile = { await profileGate.request() }
         let first = Task { await model.refreshProfile() }
-        await profileGate.waitUntilRequested()
+        try await profileGate.waitUntilRequested()
         service.profile = { throw URLError(.networkConnectionLost) }
         await model.refreshProfile()
         profileGate.finish(info)
@@ -308,14 +308,14 @@ struct MineLifecycleTests {
         #expect(second.pages == [0, 0])
     }
 
-    @Test func cancelledProfileRequestRestoresStateAfterServiceCompletion() async {
+    @Test func cancelledProfileRequestRestoresStateAfterServiceCompletion() async throws {
         let service = PagingMineService()
         let info = MineUserInfo(user: listUser(1), followingNum: 0, followerNum: 0, following: false, follower: false, own: true)
         let gate = ListRequestGate<MineUserInfo>()
         service.profile = { await gate.request() }
         let model = MineViewModel(service: service)
         let pending = Task { await model.refreshProfile() }
-        await gate.waitUntilRequested()
+        try await gate.waitUntilRequested()
         pending.cancel()
         gate.finish(info)
         await pending.value

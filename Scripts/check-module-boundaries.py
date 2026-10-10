@@ -307,7 +307,7 @@ def service_boundary_errors(path: str, source: str, aliases: tuple = (), context
         errors.extend(f"service boundary: {path}:{line}: access files through AppFileService"
             for line in implicit_file_accesses(source, call_context=call_context, origin=origin or path))
         errors.extend(f"service boundary: {path}:{line}: access files through AppFileService"
-            for line in file_member_accesses(source, properties=context[0]))
+            for line in file_member_accesses(source, properties=context[0], call_context=call_context, origin=origin or path))
     if path != "BIT101-iOS/Shared/Client/AppFileDirectories.swift":
         errors.extend(f"service boundary: {path}:{line}: select preferences through the host storage entry: UserDefaults"
             for line in implicit_resource_accesses(source, properties=context[0], call_context=call_context, origin=origin or path))
@@ -327,6 +327,35 @@ FILE_INITIALIZER_TYPES = r"(?:Foundation\.|UIKit\.|AppKit\.)?(?:Data|NSData|NSMu
 
 def normalized_resource_source(source: str) -> str:
     resources = "Data|NSData|NSMutableData|String|NSString|NSMutableString|XMLParser|NSKeyedArchiver|NSKeyedUnarchiver|NSArchiver|NSUnarchiver|UIImage|NSImage|InputStream|OutputStream|FileWrapper|NSFileWrapper|UserDefaults|FileManager|URLSession|URLSessionTransport|URLCache|AppFileSystem|LocalAppFileService"
+    if re.search(r"\b(?:" + resources + r")\s*\.\s*self\b", swift_code(source)):
+        facts = resource_facts(source)
+        def metatype(name, point, seen=frozenset(), explicit_self=False):
+            if name in seen: return None
+            variables = visible_variables(facts, point, name, explicit_self)
+            bindings = [binding for binding in facts['bindings'] if binding.get('bindingName') == name
+                and binding['start'] < point['start'] and point['scope'][:len(binding['scope'])] == binding['scope']
+                and (not explicit_self or not binding.get('lexicalScope'))
+                and point.get('lexicalScope', [])[:len(binding.get('lexicalScope', []))] == binding.get('lexicalScope', [])]
+            visible = variables + bindings
+            if not visible: return None
+            nearest = max(visible, key=lambda row: (len(row.get('lexicalScope', [])), row['start'], bool(row.get('bindingName'))))
+            if not nearest.get('bindingName'): return None
+            value = nearest.get('initializerReference', '')
+            direct = re.fullmatch(r"((?:Foundation\.)?(?:" + resources + r"))\.self", value)
+            return direct[1] if direct else metatype(value, nearest, seen | {name})
+        encoded = source.encode()
+        replacements = []
+        binding_names = {binding.get('bindingName') for binding in facts['bindings']}
+        for node in facts['scopedIdentifiers']:
+            if not node.get('isExpressionReference') or node['value'] not in binding_names: continue
+            qualifier = re.search(r'(\w+)\s*\.\s*$', swift_code(encoded[:node['start']].decode()))
+            if qualifier and qualifier[1] != 'self': continue
+            if target := metatype(node['value'], node, explicit_self=bool(qualifier)):
+                begin = len(encoded[:node['start']].decode()[:qualifier.start()].encode()) if qualifier else node['start']
+                replacements.append((begin, node['start'] + len(node['value'].encode()), target.encode()))
+        for start, end, replacement in sorted(replacements, reverse=True):
+            encoded = encoded[:start] + replacement + encoded[end:]
+        source = encoded.decode()
     return re.sub(r"\b((?:Foundation\.)?(?:" + resources + r"))\s*\.\s*self(?=\s*\.)",
         lambda match: match[1] + "\n" * match[0].count("\n"), source)
 
@@ -337,12 +366,13 @@ def resource_facts(source: str) -> dict:
 
 
 @cache
-def file_member_accesses(source: str, properties: tuple = ()) -> list[int]:
+def file_member_accesses(source: str, properties: tuple = (), *, call_context=None, origin='resource-source') -> list[int]:
     if not re.search(r"\.\s*(?:write|read|matchesContents)\b", swift_code(source)): return []
     facts = dict(resource_facts(source))
     facts["typedVariables"] = facts["typedVariables"] + [dict(scope=list(scope), name=name, type=kind, start=-1, lexicalScope=[])
         for scope, name, kind in properties]
     encoded = source.encode()
+    binding_types = None
     file_types = {"Data", "NSData", "NSMutableData", "String", "NSString", "NSMutableString", "FileWrapper", "NSFileWrapper"}
     def normalized_type(value: str) -> str:
         value = value.strip().removeprefix("Foundation.").removesuffix("?")
@@ -360,6 +390,7 @@ def file_member_accesses(source: str, properties: tuple = ()) -> list[int]:
         return normalized_type(dictionary[1]) if dictionary else None
 
     def value_type(expression: str, point: dict, seen: frozenset = frozenset()) -> str | None:
+        nonlocal binding_types
         expression = re.sub(r"^(?:(?:try[!?]?|await)\s+)+", "", expression.strip()).rstrip("!?")
         if expression.startswith("(") and expression.endswith(")"):
             expression = expression[1:-1].strip()
@@ -370,7 +401,6 @@ def file_member_accesses(source: str, properties: tuple = ()) -> list[int]:
             if result[2] == "data" and receiver_type in {"String", "NSString", "NSMutableString", "JSONSerialization", "PropertyListSerialization"}: return "Data"
             if result[2] in {"pngData", "jpegData"} and receiver_type == "UIImage": return "Data"
             if result[2].startswith("appending") and receiver_type in {"URL", "NSURL"}: return receiver_type
-            return None
         if re.match(r'^#*"', expression): return "String"
         if expression.startswith("[") and expression.endswith("]"):
             item = value_type(expression[1:-1].split(",", 1)[0], point, seen)
@@ -378,6 +408,14 @@ def file_member_accesses(source: str, properties: tuple = ()) -> list[int]:
         subscript = re.fullmatch(r"(.+)\[[^\[\]]+\]", expression, re.DOTALL)
         if subscript:
             return element_type(value_type(subscript[1], point, seen))
+        method = re.match(r"(.+)\.\s*(\w+)\s*\(", expression, re.DOTALL)
+        if method:
+            if binding_types is None: binding_types = call_context or SwiftBindingTypes({origin: facts})
+            owner = point['scope'] if method[1] == 'self' else (value_type(method[1], point, seen) or '').split('.')
+            invocation = next((call for call in facts['invocations'] if call['value'] == expression
+                and call['scope'] == point['scope'] and call.get('lexicalScope') == point.get('lexicalScope')), None)
+            if owner and (returned := binding_types.method_return(origin, owner, method[2], invocation)):
+                return normalized_type(returned)
         constructor = re.match(r"(?:Foundation\.)?(\w+)\s*(?:\.\s*init)?\s*\(", expression)
         if constructor:
             invocations = [call for call in facts["invocations"] if call["value"] == expression

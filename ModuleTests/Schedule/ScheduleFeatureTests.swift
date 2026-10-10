@@ -90,7 +90,7 @@ struct ScheduleFeatureTests {
         service.onSync = { _ in try await pending.run() }
         let model = makeViewModel(repository: repository, actions: ModuleSchedulePlatformActions(), service: service)
         let request = Task { await model.syncCourses(term: "first-term") }
-        await pending.waitUntilStarted()
+        try await pending.waitUntilStarted()
         #expect(model.isSyncingCourses)
         await model.loadAvailableTerms()
         #expect(service.termRequests == 0)
@@ -110,7 +110,7 @@ struct ScheduleFeatureTests {
         #expect(model.isSyncingCourses == false)
     }
 
-    @Test func cancellingTheCallerReleasesItsRequestPhase() async {
+    @Test func cancellingTheCallerReleasesItsRequestPhase() async throws {
         let repository = ScheduleRepository(session: { AppStorageSession(accountIdentifier: "cancel") },
             load: { _ in .missing }, save: { _, _, _ in })
         await repository.loadIfNeeded()
@@ -119,7 +119,7 @@ struct ScheduleFeatureTests {
         service.onSync = { _ in try await pending.run() }
         let model = makeViewModel(repository: repository, actions: ModuleSchedulePlatformActions(), service: service)
         let request = Task { await model.syncCourses() }
-        await pending.waitUntilStarted()
+        try await pending.waitUntilStarted()
         request.cancel()
         pending.response?.resume(throwing: CancellationError())
         await request.value
