@@ -450,6 +450,28 @@ struct ClientCoreTests {
         #expect(!encoded.contains("secret") && !encoded.contains("private"))
     }
 
+    @Test(arguments: ["0", "99"], ["query", "form", "redirect"])
+    func requestEvidencePreservesParameterAmbiguity(value: String, location: String) throws {
+        let url = AppURL.required("https://example.invalid/probe?page=0&token=secret")
+        var request = URLRequest(url: url)
+        if location == "query" { request.url = AppURL.required(url.absoluteString + "&page=\(value)&token=secret") }
+        if location == "form" {
+            request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+            request.httpBody = Data("XNXQDM=0&XNXQDM=\(value)&password=secret".utf8)
+        }
+        var finalRequest = request
+        if location == "redirect" { finalRequest.url = AppURL.required(url.absoluteString + "&page=\(value)") }
+        let finalURL = try #require(finalRequest.url)
+        let response = try #require(HTTPURLResponse(url: finalURL, statusCode: 200, httpVersion: nil, headerFields: nil))
+        let evidence = HTTPRequestEvidence(request: request, response: response, finalRequest: finalRequest)
+        let key = location == "form" ? "XNXQDM" : "page"
+        #expect(evidence.ambiguousParameters == (location == "redirect" ? nil : [key]))
+        #expect(evidence.finalAmbiguousParameters == [key] && evidence.finalQuery[key] == nil)
+        let encoded = try JSONEncoder().encode(evidence)
+        #expect(!String(decoding: encoded, as: UTF8.self).contains("secret"))
+        #expect(try JSONDecoder().decode(HTTPRequestEvidence.self, from: encoded).finalAmbiguousParameters == [key])
+    }
+
     @Test func requestEvidencePreservesBusinessSelectorsAndRedactsFormCredentials() throws {
         let url = AppURL.required("https://example.invalid/probe?search=BIT101&hide_bot=true&XXXQDM=campus&token=secret")
         let response = try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))

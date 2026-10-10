@@ -200,6 +200,13 @@ public nonisolated enum ScheduleCourseEditor {
     public static func resolve(_ draft: CourseDraft, fixedWeeks: [Int]? = nil) throws -> ResolvedDraft {
         let title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty else { throw validationError("课程名称不能为空。") }
+        let teacher = draft.teacher.trimmingCharacters(in: .whitespacesAndNewlines)
+        let classroom = resolvedClassroom(from: draft)
+        for (label, value) in [("课程名称", title), ("教师", teacher), ("教室", classroom)] {
+            guard value.utf8.count <= ScheduleCourseConstraints.maximumFieldBytes else {
+                throw validationError("\(label)长度上限为 \(ScheduleCourseConstraints.maximumFieldBytes) UTF-8 字节。")
+            }
+        }
         guard (1 ... 7).contains(draft.weekday) else { throw validationError("星期设置不合法。") }
 
         let sectionIDs: [Int]
@@ -233,8 +240,8 @@ public nonisolated enum ScheduleCourseEditor {
 
         return ResolvedDraft(
             title: title,
-            teacher: draft.teacher.trimmingCharacters(in: .whitespacesAndNewlines),
-            classroom: resolvedClassroom(from: draft),
+            teacher: teacher,
+            classroom: classroom,
             weeks: weeks,
             weekday: draft.weekday,
             startSection: firstSection,

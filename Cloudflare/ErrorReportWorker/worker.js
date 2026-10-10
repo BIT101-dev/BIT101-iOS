@@ -443,16 +443,20 @@ export default {
     }
 
     const key = `report:${receivedAt}:${id}`;
-    if (env.REPORT_EMAIL) {
-      const delivery = env.REPORT_EMAIL_DELIVERY.get(env.REPORT_EMAIL_DELIVERY.idFromName(id));
+    const delivery = env.REPORT_EMAIL ? env.REPORT_EMAIL_DELIVERY.get(env.REPORT_EMAIL_DELIVERY.idFromName(id)) : null;
+    if (delivery) {
       const queued = await delivery.fetch("https://delivery/queue", { method: "POST", body: JSON.stringify({ id, receivedAt, key }) });
       if (!queued.ok) return json({ error: "notification_queue_unavailable" }, 503);
     }
-    await env.ERROR_REPORTS.put(
-      key,
-      serializedRecord,
-      { metadata: recordMetadata, expirationTtl: REPORT_RETENTION_SECONDS }
-    );
+    try {
+      await env.ERROR_REPORTS.put(key, serializedRecord, { metadata: recordMetadata, expirationTtl: REPORT_RETENTION_SECONDS });
+    } catch {
+      if (delivery) {
+        const cancelled = await delivery.fetch("https://delivery/queue", { method: "DELETE", body: JSON.stringify({ key }) });
+        if (!cancelled.ok) return json({ error: "notification_cleanup_unavailable" }, 503);
+      }
+      return json({ error: "report_storage_unavailable" }, 503);
+    }
 
     return json({ id }, 201);
   }

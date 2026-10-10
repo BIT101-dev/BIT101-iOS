@@ -171,6 +171,7 @@ def network_requests_complete(required: set[str], value: dict) -> bool:
         if not row['requests']: continue
         for request in row['requests']:
             if not isinstance(request, dict): return False
+            if any(request.get(key) is not None for key in ('ambiguousParameters', 'finalAmbiguousParameters')): return False
             try: final = urlsplit(request.get('finalEndpoint', ''))
             except (TypeError, ValueError): return False
             if not final.hostname or final.scheme not in {'http', 'https'} or final.username or final.password \

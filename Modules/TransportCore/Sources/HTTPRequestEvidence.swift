@@ -8,6 +8,8 @@ public nonisolated struct HTTPRequestEvidence: Codable, Sendable {
     public let finalQuery: [String: String]
     public let statusCode: Int
     public let query: [String: String]
+    public let ambiguousParameters: [String]?
+    public let finalAmbiguousParameters: [String]?
     public let responseMinimumID: String?
     public let responseCourseIDs: [String]?
 
@@ -15,16 +17,22 @@ public nonisolated struct HTTPRequestEvidence: Codable, Sendable {
         self.responseMinimumID = responseMinimumID
         self.responseCourseIDs = responseCourseIDs
         method = request.httpMethod ?? "GET"
-        query = Self.parameters(request)
+        let originalParameters = Self.parameters(request)
+        query = originalParameters.values
+        ambiguousParameters = originalParameters.ambiguous
         if let finalRequest {
             finalMethod = finalRequest.httpMethod ?? "GET"
-            finalQuery = Self.parameters(finalRequest)
+            let parameters = Self.parameters(finalRequest)
+            finalQuery = parameters.values
+            finalAmbiguousParameters = parameters.ambiguous
         } else if response.url == request.url {
             finalMethod = method
             finalQuery = query
+            finalAmbiguousParameters = ambiguousParameters
         } else {
             finalMethod = ""
             finalQuery = [:]
+            finalAmbiguousParameters = nil
         }
         endpoint = Self.redactedEndpoint(request.url ?? response.url)
         finalEndpoint = Self.redactedEndpoint(response.url)
@@ -38,33 +46,37 @@ public nonisolated struct HTTPRequestEvidence: Codable, Sendable {
         return components?.string ?? ""
     }
 
-    private static func parameters(_ request: URLRequest) -> [String: String] {
+    private static func parameters(_ request: URLRequest) -> (values: [String: String], ambiguous: [String]?) {
         let endpoint = request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
         let allowed = Set(["page", "last_id", "obj", "order", "mode", "type", "uid", "detail", "search", "hide_bot", "XNXQDM", "JXLDM", "XXXQDM"])
-        var parameters: [String: String] = Dictionary((endpoint?.queryItems ?? []).compactMap { item in
-            guard allowed.contains(item.name), let value = item.value else { return nil }
-            return (item.name, value)
-        }, uniquingKeysWith: { first, _ in first })
+        var parameters: [String: [String]] = [:]
+        for item in endpoint?.queryItems ?? [] where allowed.contains(item.name) {
+            parameters[item.name, default: []].append(item.value ?? "")
+        }
         if request.value(forHTTPHeaderField: "Content-Type")?.hasPrefix("application/x-www-form-urlencoded") == true,
            let body = request.httpBody, let encoded = String(data: body, encoding: .utf8),
            let form = URLComponents(string: "?" + encoded.replacingOccurrences(of: "+", with: "%20"))?.queryItems {
             for item in form where ["XNXQDM", "JXLDM"].contains(item.name) {
-                parameters[item.name] = item.value
+                parameters[item.name, default: []].append(item.value ?? "")
             }
-            if let encoded = form.first(where: { $0.name == "requestParamStr" })?.value,
-               let object = try? JSONSerialization.jsonObject(with: Data(encoded.utf8)) as? [String: Any],
-               let term = object["XNXQDM"] as? String { parameters["XNXQDM"] = term }
+            for item in form where item.name == "requestParamStr" {
+                if let encoded = item.value,
+                   let object = try? JSONSerialization.jsonObject(with: Data(encoded.utf8)) as? [String: Any],
+                   let term = object["XNXQDM"] as? String { parameters["XNXQDM", default: []].append(term) }
+            }
         }
         if request.value(forHTTPHeaderField: "Content-Type")?.hasPrefix("application/json") == true,
            let body = request.httpBody,
            let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any] {
-            if let detail = object["detail"] as? Bool { parameters["detail"] = String(detail) }
+            if let detail = object["detail"] as? Bool { parameters["detail", default: []].append(String(detail)) }
             if let value = object["obj"] as? String,
                value.range(of: "^(poster|paper|course|comment)[1-9][0-9]*$", options: .regularExpression) != nil {
-                parameters["obj"] = value
+                parameters["obj", default: []].append(value)
             }
         }
-        return parameters
+        let ambiguous = parameters.filter { $0.value.count > 1 }.keys.sorted()
+        let values = parameters.compactMapValues { $0.count == 1 ? $0.first : nil }
+        return (values, ambiguous.isEmpty ? nil : ambiguous)
     }
 
     @concurrent

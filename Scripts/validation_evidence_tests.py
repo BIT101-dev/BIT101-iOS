@@ -708,6 +708,12 @@ def network_route_identity_self_test() -> None:
     required = {'文章评论'}
     proof = network_trace_fixture({'requiredProbes': sorted(required)})
     assert network_requests_complete(required, proof)
+    for key in ('ambiguousParameters', 'finalAmbiguousParameters'):
+        changed = deepcopy(proof)
+        row = changed['requestEvidence'][0]
+        row['requests'][0][key] = ['page']
+        assert not complete(row['probe'], row['requests'], row['expectedParameters'])
+        assert not network_requests_complete(required, changed)
     repeated = deepcopy(proof['requestEvidence'][0])
     repeated['requests'][-1]['statusCode'] = 500
     assert not network_requests_complete(required, dict(proof, requestEvidence=proof['requestEvidence'] + [repeated]))

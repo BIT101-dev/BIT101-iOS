@@ -219,7 +219,7 @@ export default class extends WorkerEntrypoint {
     diagnostics: [{ statusCode: { toString: null }, elapsedMilliseconds: { toString: null }, method: { toString: null } }] };
   assert.doesNotThrow(() => reportEmailSubject("fixture", malformedLegacy));
   assert.doesNotThrow(() => reportEmailBody("fixture", "fixture", malformedLegacy));
-  let saved = 0, sent = 0, offline = true, failStatusWrite = false, failJobWrite = false, alarmAt, duringSend;
+  let saved = 0, sent = 0, offline = true, failStatusWrite = false, failJobWrite = false, failInitialWrite, alarmAt, duringSend;
   const emails = [];
   const records = new Map(), jobs = new Map();
   const storage = {
@@ -235,6 +235,10 @@ export default class extends WorkerEntrypoint {
       async delete(key) { records.delete(key); },
       async getWithMetadata(key) { return records.get(key) || { value: null }; },
       async put(key, value, options) {
+        if (options.expirationTtl && failInitialWrite) {
+          if (failInitialWrite === "committed") records.set(key, { value, metadata: options.metadata });
+          throw new Error("report storage unavailable");
+        }
         if (options.expiration && failStatusWrite) throw new Error("status storage unavailable");
         saved += 1; records.set(key, { value, metadata: options.metadata });
         if (options.expirationTtl) assert.equal(options.expirationTtl, 30 * 24 * 60 * 60);
@@ -258,6 +262,15 @@ export default class extends WorkerEntrypoint {
       return delivery.fetch(new Request(url, options));
     }
   }; } };
+  for (const failure of ["rejected", "committed"]) {
+    failInitialWrite = failure;
+    const failed = await feedback.fetch(new Request("https://feedback.invalid/api/error-reports", { method: "POST",
+      headers: { "CF-Connecting-IP": "192.0.2.1" }, body: JSON.stringify({ mode: "suggestion", comment: "fixture" }) }), emailEnv);
+    assert.equal(failed.status, 503); assert.equal((await failed.json()).error, "report_storage_unavailable");
+    assert.equal(jobs.get("job").deleted, true); assert.equal(records.size, 0);
+    await delivery.alarm(); assert.equal(sent, 0); jobs.clear();
+  }
+  failInitialWrite = null;
   const accepted = await feedback.fetch(new Request("https://feedback.invalid/api/error-reports", { method: "POST", headers: { "CF-Connecting-IP": "192.0.2.1" }, body: JSON.stringify({ mode: "suggestion", comment: "fixture" }) }), {
     ...emailEnv
   });

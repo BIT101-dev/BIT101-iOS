@@ -2,6 +2,7 @@ import StorageCore
 import ScheduleDomain
 import ScheduleContracts
 import ScheduleSharedStore
+import DesignSystemKit
 //
 //  ScheduleWidgetSupport.swift
 //  BIT101-iOS
@@ -54,7 +55,12 @@ enum ScheduleWidgetExporter {
             lastPublishedContent = nil
             guard let emptySnapshot = makeSnapshot(courses: ScheduleCache().courseSnapshot, session: session) else { return }
             // 账号切换先更新共享展示的身份，再读取当前账号缓存。
-            let written = await ScheduleExternalSnapshotWriteQueue.shared.write(emptySnapshot, generation: generation)
+            let written: ScheduleExternalSnapshot?
+            do { written = try await ScheduleExternalSnapshotWriteQueue.shared.write(emptySnapshot, generation: generation) }
+            catch {
+                if isCurrent(session: session, generation: generation) { presentExportFailure(error) }
+                written = nil
+            }
             guard isCurrent(session: session, generation: generation) else { return }
             if let written {
                 publish(written)
@@ -136,12 +142,19 @@ enum ScheduleWidgetExporter {
             WatchScheduleSyncManager.shared.pushCurrentSnapshotIfAvailable()
             return
         }
-        let written = await ScheduleExternalSnapshotWriteQueue.shared.write(
-            snapshot,
-            generation: generation
-        )
+        let written: ScheduleExternalSnapshot?
+        do { written = try await ScheduleExternalSnapshotWriteQueue.shared.write(snapshot, generation: generation) }
+        catch {
+            if isCurrent(session: session, generation: generation) { presentExportFailure(error) }
+            return
+        }
         guard let written, isCurrent(session: session, generation: generation) else { return }
         publish(written)
+    }
+
+    private static func presentExportFailure(_ error: Error) {
+        AppErrorPresenter.shared.present(AppAlert(title: "外部课表同步失败",
+            message: "课表保留在本机。Widget 和 Watch 更新失败：\(error.localizedDescription)"))
     }
 
     private static func content(of snapshot: ScheduleExternalSnapshot) -> ScheduleExternalSnapshot {
@@ -217,13 +230,14 @@ actor ScheduleExternalSnapshotWriteQueue {
 
     init(store: ScheduleExternalSnapshotStore = PlatformScheduleSnapshotStorage.store) { self.store = store }
 
-    func write(_ snapshot: ScheduleExternalSnapshot, generation: UInt64) -> ScheduleExternalSnapshot? {
+    func write(_ snapshot: ScheduleExternalSnapshot, generation: UInt64) throws -> ScheduleExternalSnapshot? {
         guard ScheduleSnapshotExportPolicy.acceptsWrite(
             generation: generation,
             latestGeneration: latestGeneration
         ) else { return nil }
         latestGeneration = generation
-        guard let snapshot = reserve(snapshot), store.save(snapshot) else { return nil }
+        guard let snapshot = reserve(snapshot) else { throw ScheduleExternalSnapshotStoreError.invalidSnapshot }
+        try store.write(snapshot)
         return snapshot
     }
 

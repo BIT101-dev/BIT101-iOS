@@ -110,6 +110,34 @@ struct ReminderContextTests {
 
 @MainActor
 struct ReminderPlannerTests {
+    @Test(arguments: [1, 5, 30, 60])
+    func bulkReminderWindowsPreserveOverlapsAndSimultaneousStarts(leadMinutes: Int) {
+        let occurrences = (0..<120).map { index in
+            let start = index / 3 * 600
+            let duration = (index % 7 + 1) * 900
+            return CourseReminderOccurrence(kindText: "日程", title: "\(index)", classroom: "", teacher: "",
+                startDate: Date(timeIntervalSince1970: Double(start)),
+                endDate: Date(timeIntervalSince1970: Double(start + duration)))
+        }
+        let starts = ScheduleReminderPlanner.displayWindowStarts(for: occurrences, leadMinutes: leadMinutes)
+        #expect(starts == occurrences.map {
+            ScheduleReminderPlanner.effectiveDisplayWindowStart(for: $0, among: occurrences, leadMinutes: leadMinutes)
+        })
+    }
+
+    @Test func bulkReminderWindowsHandleAnEntireLargeSchedule() {
+        let occurrences = (0..<10_400).map { index in
+            let start = Double(index * 7200)
+            return CourseReminderOccurrence(kindText: "上课", title: "\(index)", classroom: "", teacher: "",
+                startDate: Date(timeIntervalSince1970: start),
+                endDate: Date(timeIntervalSince1970: start + 3600))
+        }
+        #expect(ScheduleReminderPlanner.displayWindowStarts(for: occurrences, leadMinutes: 30) ==
+            occurrences.map { $0.startDate.addingTimeInterval(-1800) })
+        #expect(ScheduleReminderPlanner.nextFutureRefreshPoint(for: occurrences, leadMinutes: 30,
+            now: Date(timeIntervalSince1970: 1)) == Date(timeIntervalSince1970: 5400))
+    }
+
     @Test(arguments: [Int.min, -1, 0, 1, 60, 61, Int.max])
     func reminderWindowsApplyTheLeadMinuteBounds(leadMinutes: Int) {
         let occurrence = CourseReminderOccurrence(kindText: "上课", title: "提前量边界", classroom: "", teacher: "",

@@ -182,10 +182,8 @@ final class ScheduleLiveActivityManager {
 
         // 在“进入提醒窗口但尚未开始”的课前阶段选择一条提醒对象。
         let now = Date()
-        let currentOccurrence = occurrences.first { occ in
-            let displayWindowStart = ScheduleReminderPlanner.effectiveDisplayWindowStart(for: occ, among: occurrences, leadMinutes: leadMinutes)
-            return now >= displayWindowStart && now < occ.startDate
-        }
+        let currentOccurrence = zip(occurrences, ScheduleReminderPlanner.displayWindowStarts(for: occurrences, leadMinutes: leadMinutes))
+            .first { occurrence, displayWindowStart in now >= displayWindowStart && now < occurrence.startDate }?.0
 
         if let currentOccurrence {
             logger.debug(

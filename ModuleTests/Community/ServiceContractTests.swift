@@ -5,6 +5,7 @@ import PaperFeature
 import Foundation
 import Testing
 import TransportCore
+import BIT101TestSupport
 @testable import GalleryFeature
 
 @MainActor
@@ -102,6 +103,7 @@ struct ServiceContractTests {
         var requests: [URLRequest] = []
         var authenticationRequests: [URLRequest] = []
         var failure: (any Error)?
+        var authenticationGate: (() async -> Void)?
         private var responses: [(Int, String)]
         var authenticationStatuses: [Int]
         init(_ responses: [(Int, String)], authenticationStatuses: [Int] = []) {
@@ -112,6 +114,7 @@ struct ServiceContractTests {
             try Task.checkCancellation()
             if request.url?.path == "/user/check" {
                 authenticationRequests.append(request)
+                await authenticationGate?()
                 let status = authenticationStatuses.isEmpty ? 200 : authenticationStatuses.removeFirst()
                 let url = try #require(request.url)
                 return (Data(), try #require(HTTPURLResponse(url: url, statusCode: status,
@@ -304,6 +307,23 @@ struct ServiceContractTests {
         #expect(try query(transport.requests[0]) == ["type": "comment", "last_id": String(Int.max)])
     }
 
+    @Test(arguments: [[89, 80], [], [95], [90], [80, 89], [89, 89], [0]])
+    func messageHistoryRequiresStrictlyOlderOrderedPages(ids: [Int]) async throws {
+        let messages = ids.map { id in
+            #"{"id":\#(id),"from_user":{},"link_obj":"poster1","obj":"poster1","text":"消息","update_time":""}"#
+        }
+        let transport = Transport([(200, "[" + messages.joined(separator: ",") + "]")])
+        let service = GalleryService(session: session(transport), preferences: {
+            .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
+        })
+        if ids == [89, 80] || ids.isEmpty {
+            #expect(try await service.fetchMessages(type: .comment, lastID: 90).map(\.id) == ids)
+        } else {
+            await #expect(throws: GalleryServiceError.self) { try await service.fetchMessages(type: .comment, lastID: 90) }
+        }
+        #expect(try query(transport.requests[0]) == ["type": "comment", "last_id": "90"])
+    }
+
     private func session(_ transport: Transport, cookie: String = "fixture-cookie") -> CommunitySession {
         CommunitySession(httpClient: HTTPClient(transport: transport, observer: nil), baseURL: AppURL.required("https://example.invalid"),
             credentials: { .init(identity: .init(accountIdentifier: "contracts"), cookie: cookie) }, refresh: { _ in })
@@ -350,6 +370,42 @@ struct ServiceContractTests {
         _ = try await service.likePaper(id: 17)
         #expect(try await service.fetchPaper(id: 17).title == "修改后")
         #expect(transport.requests.count == 5)
+    }
+
+    @Test func paperPreviewKeepsTheBodyAfterCookieRestoration() async throws {
+        let transport = Transport([(200, paperDetailBody(own: true))], authenticationStatuses: [401, 200])
+        var credentials = CommunityCredentials(identity: .init(accountIdentifier: "contracts"), cookie: "expired")
+        let session = CommunitySession(httpClient: HTTPClient(transport: transport, observer: nil),
+            baseURL: AppURL.required("https://example.invalid"), credentials: { credentials }, refresh: { observed in
+                credentials = .init(identity: observed.identity, cookie: "fresh")
+            })
+        let service = PaperService(session: session)
+        _ = try await service.fetchPreviewMetadata(id: 17)
+        #expect(try await service.fetchPaper(id: 17).own)
+        #expect(transport.requests.count == 1)
+        #expect(transport.authenticationRequests.map { $0.value(forHTTPHeaderField: "fake-cookie") } == ["expired", "fresh", "fresh"])
+        #expect(transport.requests[0].value(forHTTPHeaderField: "fake-cookie") == "fresh")
+    }
+
+    @Test(.timeLimit(.minutes(1))) func concurrentPaperPreviewsShareAuthenticationValidation() async throws {
+        let transport = Transport((17..<25).map { id in
+            (200, paperDetailBody(own: true).replacingOccurrences(of: "\"id\":17", with: "\"id\":\(id)"))
+        })
+        var pending: CheckedContinuation<Void, Never>?
+        transport.authenticationGate = { await withCheckedContinuation { pending = $0 } }
+        let service = PaperService(session: session(transport))
+        let (starts, started) = AsyncStream<Void>.makeStream()
+        let tasks = (17..<25).map { id in Task { started.yield(()); return try await service.fetchPreviewMetadata(id: id) } }
+        defer { pending?.resume(); tasks.forEach { $0.cancel() }; started.finish() }
+        var iterator = starts.makeAsyncIterator()
+        for _ in tasks { _ = await iterator.next() }
+        try await waitForTestEvent { pending != nil }
+        #expect(transport.authenticationRequests.count == 1)
+        transport.authenticationGate = nil
+        pending?.resume(); pending = nil
+        for task in tasks { _ = try await task.value }
+        #expect(transport.authenticationRequests.count == 1 && transport.requests.count == 8)
+        #expect(Set(transport.requests.compactMap { $0.url?.path }) == Set((17..<25).map { "/papers/\($0)" }))
     }
 
     private func query(_ request: URLRequest) throws -> [String: String] {

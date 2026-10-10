@@ -101,13 +101,14 @@ enum NetworkSmokePaging {
         let identity = AppAccountSession.storage.communityCredentials.identity
         let first = try await load(Int.max)
         try checkIdentity(identity)
-        guard zip(first, first.dropFirst()).allSatisfy({ $0.id >= $1.id }) else { throw URLError(.cannotParseResponse) }
+        guard first.allSatisfy({ $0.id > 0 }),
+              zip(first, first.dropFirst()).allSatisfy({ $0.id > $1.id }) else { throw URLError(.cannotParseResponse) }
         let cursor = first.last?.id ?? 1
         guard cursor > 0 else { throw URLError(.cannotParseResponse) }
         let second = try await load(cursor)
         try checkIdentity(identity)
         guard second.allSatisfy({ $0.id > 0 && $0.id < cursor }),
-              zip(second, second.dropFirst()).allSatisfy({ $0.id >= $1.id }) else { throw URLError(.cannotParseResponse) }
+              zip(second, second.dropFirst()).allSatisfy({ $0.id > $1.id }) else { throw URLError(.cannotParseResponse) }
         return first
     }
 

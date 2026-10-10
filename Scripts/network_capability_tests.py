@@ -259,6 +259,11 @@ def network_capability_self_test() -> None:
         ('(true == false) || false', False), ('enabled == false', True), ('1 == 2', False), ('1 != 1', False),
         ('-1 >= 0', False), ('1_000 < 1', False), ('1.5 > 2', False), ('0x10 == 16', True),
         ('9007199254740993 == 9007199254740992.0', True), ('"a" == "b"', False), ('"a" != "a"', False),
+        ('1 + 1 == 3', False), ('3 % 2 == 0', False), ('2 * (3 - 1) == 4', True),
+        ('5 / 2 == 2', True), ('-5 / 2 == -2', True), ('5 / -2 == -2', True),
+        ('-9 % 4 == -1', True), ('9 % -4 == 1', True), ('-9 % -4 == 3', False),
+        ('1 / 2 == 0.5', True), ('(1 / 2) + 0.5 == 1.0', True), ('2.5 * 2 == 4', False),
+        ('"e" + "́" == "é"', True), ('1 / 0 == 0', True), ('9223372036854775807 + 1 == 0', True),
         ('"true" == "True"', False), ('"!" == " not "', False), ('"&&" == " and "', False),
         ('"é" != "é"', False), (r'"row.\(enabled)" == "fixed"', True), ('1 == enabled', True),
         (r'"\01" != "\001"', True), (r'"\01" == "\001"', False), (r'"\u{e9}" == "é"', True),
@@ -283,6 +288,10 @@ def network_capability_self_test() -> None:
         ('let value = value; if value == 2', True),
         ('let value: Custom = 1; if value == 2', True),
         ('let value: Double = 9007199254740993; if value == 9007199254740992', True),
+        ('let value = 1 + 1; if value == 3', False),
+        ('let value = -9 % 4; if value == 1', False),
+        ('let value: Double = 1 / 2; if value == 0.5', True),
+        ('let value: Double = 1 / 2; if value == 0', False),
         ('let value: Float = 16777217; if value == 16777216', True),
     ]
     initializer_index = swift_syntax_index_sources({prefix: f'func run(input: Int) {{ {prefix} {{ service.fetch() }} }}'

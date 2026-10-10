@@ -60,6 +60,27 @@ struct ScheduleContractsTests {
         #expect(try store.writeIfNewer(snapshot) == false)
     }
 
+    @Test(arguments: ["title", "teacher", "classroom", "combined-classroom"])
+    func manualCourseFieldsShareExternalSnapshotByteLimits(field: String) throws {
+        let value = String(repeating: "课", count: ScheduleCourseConstraints.maximumFieldBytes / 3) + "x"
+        #expect(value.utf8.count == ScheduleExternalSnapshotCodec.maximumFieldBytes)
+        var draft = CourseDraft(title: "课程", weeksText: "1")
+        switch field {
+        case "title": draft.title = value
+        case "teacher": draft.teacher = value
+        case "classroom": draft.classroom = value
+        default: draft.buildingName = String(value.dropLast()); draft.roomNumber = ""
+        }
+        _ = try ScheduleCourseEditor.resolve(draft)
+        switch field {
+        case "title": draft.title += "y"
+        case "teacher": draft.teacher += "y"
+        case "classroom": draft.classroom += "y"
+        default: draft.roomNumber = "xy"
+        }
+        #expect(throws: Error.self) { try ScheduleCourseEditor.resolve(draft) }
+    }
+
     @Test func extremeCourseFieldsAndShareExpansionAreRejectedBeforeAllocation() throws {
         for input in ["1-1000000000", String(Int.max), String(Int.min), "-1000000000-1"] {
             #expect(throws: Error.self) { try ScheduleCourseEditor.parseWeeks(input) }

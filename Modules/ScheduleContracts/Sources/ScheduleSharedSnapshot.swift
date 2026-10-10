@@ -170,7 +170,7 @@ public nonisolated enum WatchScheduleSyncOutcome: Equatable, Sendable {
 public nonisolated enum ScheduleExternalSnapshotCodec {
     public static let maximumEncodedBytes = 1_048_576
     public static let maximumCourseCount = 4_096
-    public static let maximumFieldBytes = 4_096
+    public static let maximumFieldBytes = ScheduleCourseConstraints.maximumFieldBytes
 
     private static func validate(_ snapshot: ScheduleExternalSnapshot) throws {
         guard snapshot.revision < UInt64.max,

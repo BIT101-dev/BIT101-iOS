@@ -93,6 +93,21 @@ struct NetworkSmokeCoverageTests {
         else { await #expect(throws: NetworkSmokeRequestError.self) { try await collector.perform(operation, required: true) } }
     }
 
+    @Test(arguments: ["0", "99"], [false, true])
+    func requestEvidenceRejectsAmbiguousBusinessParameters(value: String, redirected: Bool) async throws {
+        let url = AppURL.required("https://bit101.flwfdd.xyz/papers?page=0")
+        let duplicate = AppURL.required(url.absoluteString + "&page=\(value)")
+        let request = URLRequest(url: redirected ? url : duplicate)
+        let finalRequest = URLRequest(url: duplicate)
+        let response = try #require(HTTPURLResponse(url: duplicate, statusCode: 200, httpVersion: nil, headerFields: nil))
+        let evidence = HTTPRequestEvidence(request: request, response: response, finalRequest: finalRequest)
+        let collector = NetworkSmokeRequestCollector()
+        await #expect(throws: NetworkSmokeRequestError.self) {
+            try await collector.perform({ HTTPRequestEvidenceContext.didReceive?(evidence) }, required: true)
+        }
+        #expect(collector.requests.count == 1 && HTTPRequestEvidenceContext.didReceive == nil)
+    }
+
     @Test(arguments: ["correct", "wrong", "missing"])
     func buildingSmokeKeepsItsSelectedCampus(selection: String) async throws {
         let client = HTTPClient(transport: SelectorTransport(), observer: nil)
@@ -440,7 +455,8 @@ struct NetworkSmokeCoverageTests {
             let rows = ids.map { ["fromUser": [:], "id": $0, "linkObj": "", "obj": "", "text": "", "updateTime": ""] as [String: Any] }
             return try JSONDecoder().decode([GalleryMessage].self, from: JSONSerialization.data(withJSONObject: rows))
         }
-        for (first, second, valid) in [([9, 8, 8], [7, 6], true), ([8, 9], [7], false), ([9, 8], [6, 7], false), ([9, 8], [8], false)] {
+        for (first, second, valid) in [([9, 8], [7, 6], true), ([9, 8, 8], [7], false), ([8, 9], [7], false),
+                                     ([9, 0], [], false), ([9, 8], [6, 7], false), ([9, 8], [7, 7], false), ([9, 8], [8], false)] {
             let firstPage = try messages(first), secondPage = try messages(second)
             var requested: [Int?] = [], page = GalleryMessageListState()
             page.applyFirstCursorPage(firstPage)

@@ -482,6 +482,28 @@ struct MediaDependencyTests {
         #expect(UIImage(data: try files.readData(at: placeholder)) != nil)
     }
 
+    @Test(arguments: [false, true])
+    func successiveGalleryAndAvatarWritesEnforceTheDiskBudget(avatar: Bool) async throws {
+        let files = PreferenceMemoryFiles()
+        let quota = ImageCacheDiskQuota(files: files, cacheLimitMB: { 1 })
+        await quota.enforce()
+        let bytes = try png(width: 2) + Data(repeating: 1, count: 600_000)
+        let images = RemoteImageCache(files: files, quota: quota,
+            httpClient: HTTPClient(transport: Images(bytes: bytes), observer: nil))
+        let avatars = CachedRemoteImageStore(files: files, quota: quota)
+        for index in 0..<3 {
+            let url = AppURL.required("https://example.invalid/image\(index).png")
+            if avatar {
+                await avatars.store(bytes, for: url)
+                #expect(await avatars.data(for: url) == bytes)
+            } else {
+                let file = try await images.file(for: url)
+                #expect(try files.readData(at: file) == bytes)
+            }
+            #expect(await quota.usedBytes() <= 1_048_576)
+        }
+    }
+
     @Test func previewOwnershipRetainsEarlierPagesUntilTheSessionCloses() async throws {
         let domain = "BIT101Tests.preview-file-ownership"
         let defaults = try #require(UserDefaults(suiteName: domain))
@@ -639,7 +661,12 @@ struct MediaDependencyTests {
 
     private final class SuspendedCacheLimit {
         var pending: CheckedContinuation<Int, Never>?
-        func read() async -> Int { await withCheckedContinuation { pending = $0 } }
+        private var hasRead = false
+        func read() async -> Int {
+            if hasRead { return 0 }
+            hasRead = true
+            return await withCheckedContinuation { pending = $0 }
+        }
     }
 
     @Test(.timeLimit(.minutes(1))) func clearingImagesInvalidatesDownloadWaitingForItsQuota() async throws {

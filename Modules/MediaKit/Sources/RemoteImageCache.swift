@@ -277,7 +277,7 @@ actor RemoteImageCache {
             try files.createDirectory(at: directory)
             try files.writeData(result.data, to: target, options: [.atomic])
             touch(target)
-            await quota.enforce(protecting: Set([target]))
+            await quota.enforce(force: true, protecting: Set([target]))
             completed = .success(target)
         } catch { completed = .failure(error) }
         guard downloads[key]?.id == id, let operation = downloads.removeValue(forKey: key) else { return }

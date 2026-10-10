@@ -39,6 +39,7 @@ public struct PaperService {
     private let api: CommunityAPIClient<PaperServiceError>
     private let session: CommunitySession
     private let details = PaperDetailRequestStore()
+    private let previewReadValidation = CommunitySessionRefreshCoordinator()
 
     private struct LikeRequest: Encodable {
         let obj: String
@@ -126,10 +127,11 @@ public struct PaperService {
     }
 
     public func fetchPreviewMetadata(id: Int) async throws -> PaperPreviewMetadata {
+        try await previewReadValidation.refresh(observed: session.currentCredentials,
+            current: { self.session.currentCredentials }, restore: { try await self.validateAuthenticatedRead() })
         let credentials = session.currentCredentials
         return try await details.preview(id: id, credentials: credentials) {
             guard self.session.currentCredentials.identity == credentials.identity else { throw CancellationError() }
-            try await self.validateAuthenticatedRead()
             let detail: PaperDetail = try await self.api.request(path: "papers/\(id)", authentication: .optional)
             return detail
         }

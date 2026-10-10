@@ -25,6 +25,7 @@ class RequestContract:
     final_path: str = ''
 
     def matches(self, request: dict) -> bool:
+        if any(request.get(key) is not None for key in ('ambiguousParameters', 'finalAmbiguousParameters')): return False
         try:
             endpoint = urlsplit(request['endpoint'])
             declared_port = endpoint.port

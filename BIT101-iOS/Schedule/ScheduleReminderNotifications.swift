@@ -70,13 +70,9 @@ final class ScheduleReminderNotifications {
         guard !Task.isCancelled, isCurrent() else { return }
 
         let now = Date()
-        let scheduledItems = occurrences
-            .compactMap { occurrence -> (CourseReminderOccurrence, Date)? in
-                guard let displayStart = ScheduleReminderNotificationDate.futureDisplayDate(
-                    for: occurrence,
-                    among: occurrences,
-                    leadMinutes: leadMinutes, now: now
-                ) else { return nil }
+        let scheduledItems = zip(occurrences, ScheduleReminderPlanner.displayWindowStarts(for: occurrences, leadMinutes: leadMinutes))
+            .compactMap { occurrence, displayStart -> (CourseReminderOccurrence, Date)? in
+                guard displayStart > now, displayStart < occurrence.startDate else { return nil }
                 return (occurrence, displayStart)
             }
             .sorted { $0.1 < $1.1 }

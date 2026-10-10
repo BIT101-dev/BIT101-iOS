@@ -101,6 +101,33 @@ nonisolated enum ScheduleReminderPlanner {
         return max(naturalStart, adjustedStart)
     }
 
+    /// 按 resolveOccurrences 的开始时间顺序批量计算展示窗口。
+    /// 相同开始时间共用前序窗口；较新的长日程覆盖较早的短日程。
+    static func displayWindowStarts(for occurrences: [CourseReminderOccurrence], leadMinutes: Int) -> [Date] {
+        let lead = Double(SchedulePresentationPreferences.normalizedLeadMinutes(leadMinutes) * 60)
+        var previousEnds: [Date] = []
+        var starts: [Date] = []
+        starts.reserveCapacity(occurrences.count)
+        var index = 0
+        while index < occurrences.count {
+            let start = occurrences[index].startDate
+            let natural = start.addingTimeInterval(-lead)
+            while let end = previousEnds.last, end <= natural { previousEnds.removeLast() }
+            let display = previousEnds.last.map { max(natural, min($0, start).addingTimeInterval(-300)) } ?? natural
+            var next = index
+            while next < occurrences.count, occurrences[next].startDate == start {
+                starts.append(display)
+                next += 1
+            }
+            for occurrence in occurrences[index..<next] {
+                while let end = previousEnds.last, end <= occurrence.endDate { previousEnds.removeLast() }
+                previousEnds.append(occurrence.endDate)
+            }
+            index = next
+        }
+        return starts
+    }
+
     /// 计算下一条刷新边界。
     ///
     /// 调度关注两个时刻：
@@ -113,15 +140,11 @@ nonisolated enum ScheduleReminderPlanner {
         leadMinutes: Int,
         now: Date
     ) -> Date? {
-        return occurrences
-            .flatMap { occurrence in
-                [
-                    effectiveDisplayWindowStart(for: occurrence, among: occurrences, leadMinutes: leadMinutes),
-                    occurrence.startDate,
-                ]
+        zip(occurrences, displayWindowStarts(for: occurrences, leadMinutes: leadMinutes))
+            .reduce(nil as Date?) { next, item in
+                [next, item.0.startDate > now ? item.0.startDate : nil, item.1 > now ? item.1 : nil]
+                    .compactMap { $0 }.min()
             }
-            .filter { $0 > now }
-            .min()
     }
 
     static func timeRangeText(start: Date, end: Date) -> String {

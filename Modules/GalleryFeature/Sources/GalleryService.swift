@@ -561,7 +561,13 @@ public struct GalleryService {
         if let lastID {
             queryItems.append(URLQueryItem(name: "last_id", value: String(lastID)))
         }
-        return try await api.request(path: "messages", queryItems: queryItems)
+        let messages: [GalleryMessage] = try await api.request(path: "messages", queryItems: queryItems)
+        let cursor = lastID.flatMap { $0 > 0 ? $0 : nil }
+        guard messages.allSatisfy({ message in message.id > 0 && (cursor.map { message.id < $0 } ?? true) }),
+              zip(messages, messages.dropFirst()).allSatisfy({ $0.id > $1.id }) else {
+            throw GalleryServiceError.invalidResponse
+        }
+        return messages
     }
 
     /// 统一拼装帖子流接口参数。

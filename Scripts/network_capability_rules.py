@@ -28,7 +28,7 @@ def string_literal_value(literal):
     return unicodedata.normalize('NFC', ''.join(pieces))
 
 
-def constant_value(condition: str, resolve):
+def constant_value(condition: str, resolve, *, floating=False):
     if '"""' in condition: return None
     tokens = {'&&': ' and ', '||': ' or ', '!': ' not ', 'true': 'True', 'false': 'False'}
     def translate(match):
@@ -43,24 +43,50 @@ def constant_value(condition: str, resolve):
             warnings.simplefilter('ignore', SyntaxWarning)
             node = ast.parse(expression, mode='eval').body
     except SyntaxError: return None
-    def value(node):
+    def value(node, floating=False):
         if isinstance(node, ast.Constant):
-            if type(node.value) in {bool, int}: return node.value
+            if type(node.value) is bool: return node.value
+            if type(node.value) is int:
+                if floating:
+                    try: return float(node.value)
+                    except OverflowError: return None
+                return node.value
             if type(node.value) is float: return node.value if math.isfinite(node.value) else None
             if type(node.value) is str: return node.value
         if isinstance(node, ast.Name): return resolve(node.id)
         if isinstance(node, ast.UnaryOp):
-            operand = value(node.operand)
+            operand = value(node.operand, floating)
             if isinstance(node.op, ast.Not): return not operand if type(operand) is bool else None
             if type(operand) in {int, float}:
                 if isinstance(node.op, ast.USub): return -operand
                 if isinstance(node.op, ast.UAdd): return operand
+        if isinstance(node, ast.BinOp):
+            left, right = value(node.left, floating), value(node.right, floating)
+            if isinstance(node.op, ast.Add) and type(left) is str and type(right) is str:
+                return unicodedata.normalize('NFC', left + right)
+            if type(left) is float or type(right) is float:
+                left, right = value(node.left, True), value(node.right, True)
+            if type(left) not in {int, float} or type(right) not in {int, float}: return None
+            if type(left) is int and type(right) is int and not all(-(1 << 63) <= item < (1 << 63) for item in (left, right)): return None
+            operation = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
+                ast.Div: operator.truediv}.get(type(node.op))
+            try:
+                if type(left) is int and type(right) is int and isinstance(node.op, (ast.Div, ast.Mod)):
+                    if right == 0 or left == -(1 << 63) and right == -1: return None
+                    quotient = abs(left) // abs(right) * (-1 if (left < 0) != (right < 0) else 1)
+                    result = quotient if isinstance(node.op, ast.Div) else left - quotient * right
+                elif operation: result = operation(left, right)
+                else: return None
+            except (OverflowError, ZeroDivisionError): return None
+            return result if (math.isfinite(result) if type(result) is float else -(1 << 63) <= result < (1 << 63)) else None
         if isinstance(node, ast.BoolOp):
             values = [value(operand) for operand in node.values]
             if isinstance(node.op, ast.And): return False if any(item is False for item in values) else True if all(item is True for item in values) else None
             if isinstance(node.op, ast.Or): return True if any(item is True for item in values) else False if all(item is False for item in values) else None
         if isinstance(node, ast.Compare) and len(node.ops) == 1:
             left, right = value(node.left), value(node.comparators[0])
+            if type(left) is float or type(right) is float:
+                left, right = value(node.left, True), value(node.comparators[0], True)
             if left is None or right is None: return None
             numeric = type(left) in {int, float} and type(right) in {int, float}
             if not numeric and type(left) is not type(right): return None
@@ -75,7 +101,7 @@ def constant_value(condition: str, resolve):
                 comparison = {ast.Lt: operator.lt, ast.LtE: operator.le, ast.Gt: operator.gt, ast.GtE: operator.ge}.get(type(node.ops[0]))
                 if comparison: return comparison(left, right)
         return None
-    return value(node)
+    return value(node, floating)
 
 
 def constant_boolean(condition: str, resolve) -> bool | None:
@@ -100,7 +126,8 @@ def branch_value(facts: dict, branch: dict, expression: str):
                     r'(?:Swift\.)?(?:Bool|String|U?Int(?:8|16|32|64)?|Double)', annotation): return None
             resolving.add(node['start'])
             try:
-                result = constant_value(initializer, lambda referenced: resolve(referenced, node))
+                result = constant_value(initializer, lambda referenced: resolve(referenced, node),
+                    floating=annotation in {'Double', 'Swift.Double'})
                 if annotation in {'Double', 'Swift.Double'} and type(result) is int:
                     try: return float(result)
                     except OverflowError: return None

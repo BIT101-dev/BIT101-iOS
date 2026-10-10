@@ -5,6 +5,7 @@ public nonisolated enum ScheduleCourseConstraints {
     public static let maximumWeek = 53
     public static var validWeeks: [Int] { Array(-maximumWeek...maximumWeek).filter(isValidWeek) }
     public static let maximumSection = 24 * 60
+    public static let maximumFieldBytes = 4_096
     public static func isValidWeek(_ week: Int) -> Bool {
         week != 0 && (-maximumWeek...maximumWeek).contains(week)
     }

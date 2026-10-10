@@ -18,6 +18,11 @@ final class NetworkSmokeRequestCollector {
         }
         if required && requests.isEmpty { throw NetworkSmokeRequestError.missingResponse }
         if required {
+            for request in requests {
+                if let key = (request.ambiguousParameters ?? []).first ?? (request.finalAmbiguousParameters ?? []).first {
+                    throw NetworkSmokeRequestError.parameterMismatch(key)
+                }
+            }
             try checkCourseActivityRequests()
             for (key, expected) in expectedParameters {
                 let observed = requests.compactMap { request -> String? in

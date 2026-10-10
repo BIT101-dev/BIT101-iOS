@@ -349,6 +349,25 @@ struct ExtendedSchedulePolicyTests {
         #expect(failed == false)
     }
 
+    @Test @MainActor
+    func externalSnapshotWriteFailuresPreserveTheSavedSnapshotAndPropagate() async throws {
+        let files = PreferenceMemoryFiles()
+        let store = ScheduleExternalSnapshotStore(files: files, containerURL: files.temporaryDirectoryURL)
+        let writer = ScheduleExternalSnapshotWriteQueue(store: store)
+        let old = ScheduleExternalSnapshot(revision: 1, isLoggedIn: true, studentID: "snapshot-owner",
+            firstDayString: "2026-01-01", timeTable: [], courses: [])
+        let changed = ScheduleExternalSnapshot(revision: 2, isLoggedIn: true, studentID: "snapshot-owner",
+            firstDayString: "2026-02-01", timeTable: [], courses: [])
+        _ = try await writer.write(old, generation: 1)
+        files.setFailures(writing: true)
+        await #expect(throws: CocoaError.self) { try await writer.write(changed, generation: 2) }
+        #expect(store.load()?.firstDayString == old.firstDayString)
+        files.setFailures()
+        #expect(try await writer.write(old, generation: 1) == nil)
+        _ = try await writer.write(changed, generation: 3)
+        #expect(store.load()?.firstDayString == changed.firstDayString)
+    }
+
     @Test(arguments: [false, true]) @MainActor
     func watchRepliesAndPreparedWidgetExportsShareRevisionAndClearOwnership(watchFirst: Bool) async throws {
         let files = PreferenceMemoryFiles()
@@ -358,13 +377,13 @@ struct ExtendedSchedulePolicyTests {
             firstDayString: "2026-01-01", timeTable: [], courses: [])
         let prepared = ScheduleExternalSnapshot(revision: 2, isLoggedIn: true, studentID: "snapshot-owner",
             firstDayString: "2026-02-01", timeTable: [], courses: [])
-        _ = try #require(await writer.write(old, generation: 1))
+        _ = try #require(try await writer.write(old, generation: 1))
         if watchFirst {
             let reply = try #require(await writer.snapshot(for: "snapshot-owner", isLoggedIn: true, knownRevision: 100))
-            let saved = try #require(await writer.write(prepared, generation: 2))
+            let saved = try #require(try await writer.write(prepared, generation: 2))
             #expect(saved.revision > reply.revision)
         } else {
-            _ = try #require(await writer.write(prepared, generation: 2))
+            _ = try #require(try await writer.write(prepared, generation: 2))
             let reply = try #require(await writer.snapshot(for: "snapshot-owner", isLoggedIn: true, knownRevision: 100))
             #expect(reply.firstDayString == prepared.firstDayString)
         }
@@ -377,7 +396,7 @@ struct ExtendedSchedulePolicyTests {
         let cleared = await writer.clear(empty, generation: 3)
         #expect(cleared.didClear && (cleared.snapshot?.revision ?? 0) > current.revision)
         #expect(store.load() == nil)
-        #expect(await writer.write(old, generation: 2) == nil)
+        #expect(try await writer.write(old, generation: 2) == nil)
     }
 
     @Test("External schedule exports discard stale accounts and generations")

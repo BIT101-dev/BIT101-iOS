@@ -286,7 +286,7 @@ actor CachedRemoteImageStore {
         try? files.createDirectory(at: directoryURL)
         try? files.writeData(data, to: fileURL, options: [.atomic])
         try? files.setModificationDate(Date(), at: fileURL)
-        await quota.enforce(protecting: Set([fileURL]))
+        await quota.enforce(force: true, protecting: Set([fileURL]))
     }
 
     /// 写入下载数据，并缓存准备显示的位图。
