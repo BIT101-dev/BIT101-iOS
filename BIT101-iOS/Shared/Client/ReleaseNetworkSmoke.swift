@@ -888,13 +888,7 @@ final class ReleaseNetworkSmokeRunner {
            finalURL?.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")) != expectedPath.trimmingCharacters(in: CharacterSet(charactersIn: "/")) {
             throw URLError(.badServerResponse)
         }
-        let body = String(decoding: data, as: UTF8.self).lowercased()
-        if let expectedAppURL, !body.contains("href=\"\(expectedAppURL.lowercased())\"") {
-            throw URLError(.cannotParseResponse)
-        }
-        guard body.contains("<html") || body.contains("<!doctype html") else {
-            throw URLError(.cannotParseResponse)
-        }
+        try NetworkSmokeHTML.validate(String(decoding: data, as: UTF8.self), appURL: expectedAppURL)
         return data.count
     }
 

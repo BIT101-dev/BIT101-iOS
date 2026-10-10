@@ -15,7 +15,12 @@ import TransportCore
 @MainActor
 final class CommunityWriteSmoke {
     enum Kind: String, Codable, CaseIterable { case poster, paper, course }
-    struct Content { let text: String; let owned: Bool; let liked: Bool; var imageMids: [String] = [] }
+    struct Content {
+        let text: String; let owned: Bool; let liked: Bool
+        var imageMids: [String] = []
+        var anonymous = false
+        var publicAccess = false
+    }
     struct Operations {
         typealias RecordImage = @MainActor (String) throws -> Void
         typealias RecordSubmission = @MainActor () throws -> Void
@@ -160,10 +165,12 @@ final class CommunityWriteSmoke {
                     switch kind {
                     case .poster:
                         let value = try await gallery.fetchPoster(id: id)
-                        return Content(text: value.text, owned: value.own, liked: value.like, imageMids: value.images.map(\.mid))
+                        return Content(text: value.text, owned: value.own, liked: value.like, imageMids: value.images.map(\.mid),
+                            anonymous: value.anonymous, publicAccess: value.public)
                     case .paper:
                         let value = try await papers.fetchPaper(id: id)
-                        return Content(text: PaperEditorContentBuilder.plainText(from: value.content), owned: value.own, liked: value.like)
+                        return Content(text: PaperEditorContentBuilder.plainText(from: value.content), owned: value.own, liked: value.like,
+                            anonymous: value.anonymous, publicAccess: value.publicEdit)
                     case .course:
                         let value = try await courses.fetchCourse(id: id)
                         return Content(text: "", owned: false, liked: value.like)
@@ -350,7 +357,8 @@ final class CommunityWriteSmoke {
                 try persist(journal)
                 operation = "读取 " + kind.rawValue
                 guard let created = try await operations.read(kind, id), created.owned,
-                      created.text == journal.marker else { throw failure("验收内容创建结果异常") }
+                      created.text == journal.marker, created.anonymous == false,
+                      created.publicAccess == false else { throw failure("验收内容创建结果异常") }
                 if kind == .poster {
                     guard !created.imageMids.isEmpty,
                           uploadedImage.map({ created.imageMids == [$0] }) ?? true else { throw failure("帖子图片引用验收待完成") }
@@ -359,7 +367,9 @@ final class CommunityWriteSmoke {
                 let edited = journal.marker + " 编辑"
                 operation = "编辑 " + kind.rawValue
                 try await operations.edit(kind, id, edited)
-                guard try await operations.read(kind, id)?.text == edited else { throw failure("验收编辑结果异常") }
+                guard let updated = try await operations.read(kind, id), updated.text == edited, updated.owned,
+                      updated.anonymous == false, updated.publicAccess == false,
+                      updated.imageMids == created.imageMids else { throw failure("验收编辑结果异常") }
             }
             operation = "选择课程"
             journal.targets.append(Target(kind: .course, id: course)); try persist(journal)
@@ -384,12 +394,11 @@ final class CommunityWriteSmoke {
                 }
                 let replies = "comment\(comment.id)"
                 journal.parents.append(replies); try persist(journal)
-                guard comment.own, comment.text == journal.marker,
-                      try await operations.comments(parent).contains(where: { $0.id == comment.id }) else { throw failure("验收评论创建结果异常") }
+                try await validateComment(comment, parent: parent, marker: journal.marker, account: account,
+                    rate: target.kind == .course ? 6 : 0, operations: operations)
                 operation = "回复 " + target.kind.rawValue
                 let reply = try await createComment(replies, journal: &journal, operations: operations)
-                guard reply.own, reply.text == journal.marker,
-                      try await operations.comments(replies).contains(where: { $0.id == reply.id }) else { throw failure("验收回复创建结果异常") }
+                try await validateComment(reply, parent: replies, marker: journal.marker, account: account, rate: 0, operations: operations)
             }
         } catch { businessError = failure(operation + "：" + error.localizedDescription) }
         let snapshot = journal
@@ -407,6 +416,18 @@ final class CommunityWriteSmoke {
     }
 
     private func persist(_ journal: Journal) throws { try save(JSONEncoder().encode(journal)) }
+
+    private func validateComment(_ submitted: CommunityComment, parent: String, marker: String, account: Int,
+        rate: Int, operations: Operations) async throws {
+        guard let readback = try await operations.comments(parent).first(where: { $0.id == submitted.id }) else {
+            throw failure("验收评论读取结果缺失")
+        }
+        for value in [submitted, readback] {
+            guard value.own, value.user.id == account, value.obj == parent, value.text == marker,
+                  value.anonymous == false, value.rate == rate, value.replyObj.isEmpty, value.replyUser.id == 0,
+                  value.images.map(\.mid) == submitted.images.map(\.mid) else { throw failure("验收评论与回复字段异常") }
+        }
+    }
 
     private static func creationWasRejected(_ error: any Error) -> Bool {
         if error is SubmissionNotSent { return true }

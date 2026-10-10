@@ -273,6 +273,22 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
             types.terminal_name(source_path, kind, function['scope']).rsplit('.', 1)[-1] in NETWORK_TRANSPORT_TYPES | {'URLRequest'}
             for kind in [function.get('returnType') or '', *[parameter['type'] for parameter in function.get('parameters', [])]])
             for source_path, function in definitions)
+    def remote_data_request(facts, call):
+        if call.get('calledExpression', '') not in {'Data', 'Foundation.Data', 'Data.init', 'Foundation.Data.init'} \
+                or 'contentsOf' not in call.get('argumentLabels', []): return False
+        argument = call.get('arguments', [])[call['argumentLabels'].index('contentsOf')]
+        file_only = False
+        if re.fullmatch(r'[A-Za-z_]\w*', argument):
+            parameter = any(function['start'] <= call['start'] < function['end']
+                and any(item.get('name') == argument and 'inout' not in item.get('type', '')
+                    for item in function.get('parameters', [])) for function in facts.get('functionRanges', []))
+            file_only = parameter and any(branch['value'].startswith('guard ')
+                and re.sub(r'\s+', '', branch.get('condition') or '') == argument + '.isFileURL'
+                and branch['scope'] == call['scope'] and branch.get('lexicalScope') == call.get('lexicalScope')
+                and branch.get('elseRange', [0, call['start'] + 1])[1] < call['start']
+                and not any(node.get('bindingName') == argument and branch['start'] < node['start'] < call['start']
+                    for node in facts.get('bindings', [])) for branch in facts.get('controlFlow', []))
+        return not file_only
     for path, facts in index.items():
         module = compilation_unit(path)
         if module in NETWORK_FOUNDATION_MODULES or module.endswith('Tests'): continue
@@ -295,22 +311,7 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
         for call in facts.get('invocations', []):
             if not active(path, call): continue
             expression = call.get('calledExpression', '')
-            file_only = False
-            if 'contentsOf' in call.get('argumentLabels', []):
-                argument = call.get('arguments', [])[call['argumentLabels'].index('contentsOf')]
-                if re.fullmatch(r'[A-Za-z_]\w*', argument):
-                    parameter = any(function['start'] <= call['start'] < function['end']
-                        and any(item.get('name') == argument and 'inout' not in item.get('type', '')
-                            for item in function.get('parameters', []))
-                        for function in facts.get('functionRanges', []))
-                    file_only = parameter and any(branch['value'].startswith('guard ')
-                        and re.sub(r'\s+', '', branch.get('condition') or '') == argument + '.isFileURL'
-                        and branch['scope'] == call['scope'] and branch.get('lexicalScope') == call.get('lexicalScope')
-                        and branch.get('elseRange', [0, call['start'] + 1])[1] < call['start']
-                        and not any(node.get('bindingName') == argument and branch['start'] < node['start'] < call['start']
-                            for node in facts.get('bindings', [])) for branch in facts.get('controlFlow', []))
-            if expression in {'Data', 'Foundation.Data', 'Data.init', 'Foundation.Data.init'} \
-                    and 'contentsOf' in call.get('argumentLabels', []) and not file_only: network_owners.add(owner(path, call['scope']))
+            if remote_data_request(facts, call): network_owners.add(owner(path, call['scope']))
             if expression.removesuffix('.init').rsplit('.', 1)[-1] in NETWORK_TRANSPORT_TYPES | {'URLRequest'} \
                     or expression.split('.', 1)[0] in NETWORK_TRANSPORT_TYPES and not value_utility(path, call):
                 network_owners.add(owner(path, call['scope']))
@@ -319,15 +320,26 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
         added = {identity for identity, targets in dependencies.items() if targets & network_owners} - network_owners
         changed = bool(added)
         network_owners.update(added)
+    async_methods = {(owner(path, function['scope']), function['name']) for path, facts in index.items()
+        for function in facts.get('functionRanges', []) if function.get('isAsync')}
     result = {}
     for path, facts in index.items():
         module = compilation_unit(path)
         if module in NETWORK_FOUNDATION_MODULES or module.endswith('Tests'): continue
         def contains_request(function):
+            closures = facts.get('callableRanges', []) + facts.get('inlineClosureRanges', [])
+            task_bodies = {start for invocation in facts.get('invocations', [])
+                if invocation.get('calledExpression') in {'Task', 'Task.init', 'Task.detached'}
+                for _, start, _ in invocation.get('closureArguments', [])}
             for call in facts.get('invocations', []):
-                if not function['start'] <= call['start'] < function['end'] or not active(path, call) or not call_can_execute(facts, call): continue
+                if not (function.get('bodyStart') or function['start']) <= call['start'] < function['end'] \
+                        or not active(path, call) or not call_can_execute(facts, call): continue
+                if remote_data_request(facts, call): return True
                 target = resolve_receiver(dict(call, path=path))
-                if target in network_owners and call.get('calledExpression', '').rsplit('.', 1)[-1] in {'send', 'data', 'upload', 'download'}:
+                method = call.get('calledExpression', '').rsplit('.', 1)[-1]
+                executes = all(closure['start'] in task_bodies for closure in closures
+                    if function['start'] <= closure['start'] <= call['start'] < closure['end'])
+                if target in network_owners and (method in {'send', 'data', 'upload', 'download'} or (target, method) in async_methods and executes):
                     return True
                 receiver, _, method = call.get('calledExpression', '').rpartition('.')
                 for variable in visible_variables(facts, call, receiver.removeprefix('self.'), receiver.startswith('self.')):
@@ -345,8 +357,10 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
             if scope and scope[0] in NETWORK_HARNESS_TYPES or identity not in network_owners: continue
             target = types.resolve(path, '.'.join(scope), aliases=False)
             if target in protocols: continue
+            if function.get('returnsView') or target and any(base.rsplit('.', 1)[-1] in {'View', 'ViewModifier'} for base in types.bases(target)): continue
             if target and 'HTTPTransport' in types.bases(target): continue
-            if function.get('isExported') or module == 'BIT101-iOS' and function.get('isAsync') and not function.get('isPrivate'):
+            if function.get('isExported') or module == 'BIT101-iOS' and not function.get('isPrivate') \
+                    and (function.get('isAsync') or contains_request(function)):
                 result.setdefault(identity, []).append((path, function))
     return result
 

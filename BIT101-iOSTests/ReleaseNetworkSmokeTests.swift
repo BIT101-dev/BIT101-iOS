@@ -626,8 +626,9 @@ struct ReleaseNetworkSmokeLifecycleTests {
             account = 2
             return true
         }
-        private var user: CommunityUser {
-            CommunityUser(id: 1, createTime: "", nickname: "功能验收", avatar: .init(mid: "", url: "", lowUrl: ""), motto: "",
+        private var user: CommunityUser { makeUser(1) }
+        private func makeUser(_ id: Int) -> CommunityUser {
+            CommunityUser(id: id, createTime: "", nickname: "功能验收", avatar: .init(mid: "", url: "", lowUrl: ""), motto: "",
                 identity: .init(id: 1, color: "", text: "", createTime: "", updateTime: "", deleteTime: nil))
         }
         var operations: CommunityWriteSmoke.Operations {
@@ -646,7 +647,9 @@ struct ReleaseNetworkSmokeLifecycleTests {
                 self.nextID += 1
                 let id = self.nextID
                 self.contents[kind.rawValue + String(id)] = .init(text: text, owned: true, liked: false,
-                    imageMids: [self.stage == "broken-image" ? "wrong" : "fixture-image"])
+                    imageMids: [self.stage == "broken-image" ? "wrong" : "fixture-image"],
+                    anonymous: self.stage == "create-anonymous-" + kind.rawValue,
+                    publicAccess: self.stage == "create-public-" + kind.rawValue)
                 if self.stage == "persistent-find", kind == .paper, !self.injected {
                     self.injected = true; throw URLError(.networkConnectionLost)
                 }
@@ -675,7 +678,9 @@ struct ReleaseNetworkSmokeLifecycleTests {
                 return self.contents[kind.rawValue + String(id)]
             }, edit: { kind, id, text in
                 let key = kind.rawValue + String(id)
-                self.contents[key] = .init(text: text, owned: true, liked: false, imageMids: ["fixture-image"])
+                self.contents[key] = .init(text: text, owned: true, liked: false, imageMids: ["fixture-image"],
+                    anonymous: self.stage == "edit-anonymous-" + kind.rawValue,
+                    publicAccess: self.stage == "edit-public-" + kind.rawValue)
             }, delete: { kind, id in
                 try Task.checkCancellation()
                 if self.stage == "persistent-delete" && kind == .paper { throw URLError(.timedOut) }
@@ -696,11 +701,18 @@ struct ReleaseNetworkSmokeLifecycleTests {
                 if self.stage == "cancel-before-comment" { self.cancel?() }
                 try submit()
                 self.nextID += 1
-                @MainActor func makeComment(_ id: Int) -> CommunityComment { CommunityComment(id: id, obj: object, images: [.init(mid: "fixture-image", url: "", lowUrl: "")], user: self.user, anonymous: false,
-                    createTime: "", updateTime: "", like: false, likeNum: 0, commentNum: 0, own: true, rate: 0,
-                    replyUser: self.user, replyObj: "", text: text, sub: []) }
+                @MainActor func makeComment(_ id: Int, readback: Bool = false) -> CommunityComment {
+                    let reply = object.hasPrefix("comment")
+                    let wrongRate = self.stage == "wrong-rating" || self.stage == "readback-rating" && readback
+                    return CommunityComment(id: id, obj: object, images: [.init(mid: "fixture-image", url: "", lowUrl: "")],
+                        user: self.user, anonymous: self.stage == "anonymous-reply" && reply,
+                        createTime: "", updateTime: "", like: false, likeNum: 0, commentNum: 0, own: true,
+                        rate: object.hasPrefix("course") && !wrongRate ? 6 : 0,
+                        replyUser: self.makeUser(self.stage == "wrong-reply-user" && reply ? 1 : 0),
+                        replyObj: self.stage == "wrong-reply-object" && reply ? "comment77" : "", text: text, sub: [])
+                }
                 let value = makeComment(self.nextID)
-                self.rows[object, default: []].append(value)
+                self.rows[object, default: []].append(makeComment(self.nextID, readback: true))
                 let createdKind = object.hasPrefix("comment") ? "reply" : "comment"
                 if ["late-" + createdKind, "hidden-" + createdKind].contains(self.stage), !self.injected {
                     self.injected = true; self.delayedParent = object
@@ -731,11 +743,13 @@ struct ReleaseNetworkSmokeLifecycleTests {
                 if self.stage == "persistent-like" && kind == .course {
                     if !self.injected {
                         self.injected = true
-                        self.contents[key] = .init(text: old.text, owned: old.owned, liked: !old.liked, imageMids: old.imageMids)
+                        self.contents[key] = .init(text: old.text, owned: old.owned, liked: !old.liked, imageMids: old.imageMids,
+                            anonymous: old.anonymous, publicAccess: old.publicAccess)
                     }
                     throw URLError(.timedOut)
                 }
-                self.contents[key] = .init(text: old.text, owned: old.owned, liked: !old.liked, imageMids: old.imageMids)
+                self.contents[key] = .init(text: old.text, owned: old.owned, liked: !old.liked, imageMids: old.imageMids,
+                    anonymous: old.anonymous, publicAccess: old.publicAccess)
                 return !old.liked
             }, followTarget: { 2 }, following: { _ in self.followsTarget }, follow: { _ in
                 if self.stage == "follow-noop" || (self.stage == "follow-restore-noop" && !self.followsTarget) {
@@ -805,7 +819,10 @@ struct ReleaseNetworkSmokeLifecycleTests {
     }
 
     @Test(arguments: ["success", "lost-poster", "lost-reply", "cancelled", "cleanup-failure", "duplicate-comments", "invalid-paper", "signed-out-paper", "broken-image",
-        "upload-poster", "upload-comment", "cancel-before-poster", "cancel-before-comment"])
+        "upload-poster", "upload-comment", "cancel-before-poster", "cancel-before-comment",
+        "create-anonymous-poster", "create-anonymous-paper", "edit-anonymous-poster", "edit-anonymous-paper",
+        "create-public-poster", "create-public-paper", "edit-public-poster", "edit-public-paper",
+        "wrong-rating", "readback-rating", "anonymous-reply", "wrong-reply-user", "wrong-reply-object"])
     func communityWritesCleanAfterLostResponsesCancellationAndResume(stage: String) async throws {
         let world = CommunityWorld(stage: stage)
         let task = Task { try await world.smoke.run(marker: "fixture", expectedAccount: 1) }

@@ -18,7 +18,7 @@ TEST_AREA_SUITES = {
         "ExternalScheduleInfrastructureTests", "FeatureCompositionTests", "GalleryContentFilterTests",
         "GalleryRecommendationPrefetchTests", "ICloudSmokeEvidenceTests", "ImageCacheDiskQuotaTests",
         "InfrastructureTests", "MediaDependencyTests", "NetworkClientTests", "NetworkSmokeSMSPromptTests",
-        "PaperCommentPagingTests", "NetworkSmokeCoverageTests",
+        "PaperCommentPagingTests", "NetworkSmokeCoverageTests", "NetworkSmokeExternalContentTests",
         "MaintenancePerformanceTests",
         "PreferenceCloudPayloadTests", "PreferenceMergeTests", "ReleaseNetworkSmokeLifecycleTests",
         "SchoolCookieIsolationTests", "ScoreCacheDiskRepositoryTests", "ScorePresentationTests",
@@ -945,6 +945,30 @@ struct NewService {{ private let paper{annotation} = {initializer}; func fetch(i
     shadowed = 'public struct ExampleService<T: HTTPTransport> { public func fetch<T>(transport: T) async {} }'
     index = swift_syntax_index_sources({getter_path: shadowed})
     assert 'NewForumFeature.ExampleService' not in business_methods(index)
+    app_path = 'BIT101-iOS/Shell/BackgroundRequestService.swift'
+    for access, body, expected in [
+        ('internal', 'func start(_ request: URLRequest) -> Task<Void, Error> { Task { _ = try await client.send(request) } }', True),
+        ('internal', 'func start(_ request: URLRequest) { Task { _ = try await client.send(request) } }', True),
+        ('fileprivate', 'func start(_ request: URLRequest) { Task { _ = try await client.send(request) } }', False),
+        ('private', 'func start(_ request: URLRequest) -> Task<Void, Error> { Task { _ = try await client.send(request) } }', False),
+        ('internal', 'func label() -> String { "cached" }', False),
+        ('internal', 'func render() -> some View { Task { _ = try await client.send(URLRequest()) }; EmptyView() }', False),
+        ('internal', 'init(load: () async throws -> Void = { _ = try await HTTPClient.shared.send(URLRequest()) }) {}', False),
+        ('internal', 'func load(_ url: URL) throws -> Data { try Data(contentsOf: url) }', True),
+        ('internal', 'func load(_ url: URL) throws -> Data { guard url.isFileURL else { fatalError() }; return try Data(contentsOf: url) }', False),
+    ]:
+        source = f'import TransportCore; struct BackgroundRequestService {{ let client: HTTPClient; {access} {body} }}'
+        index = swift_syntax_index_sources({app_path: source, transport_path: 'public struct HTTPClient {}'})
+        assert ('BIT101-iOS.BackgroundRequestService' in business_methods(index)) == expected, (access, body)
+        assert any('新增生产服务需要网络能力验收归属：BIT101-iOS.BackgroundRequestService' in error
+            for error in network_capability_findings(index)) == expected, (access, body)
+    for body, expected in [('func start() -> Task<Int, Error> { Task { try await service.fetchPaper(id: 1) } }', True),
+                 ('func start() { Task { _ = try await service.fetchPaper(id: 1) } }', True),
+                 ('func factory() -> Callback { Callback { try await service.fetchPaper(id: 1) } }', False)]:
+        index = swift_syntax_index_sources({app_path: 'import PaperFeature; struct BackgroundRequestService { '
+            + 'let service: PaperService; ' + body + ' }',
+            leaf: 'public struct PaperService { public func fetchPaper(id: Int) async throws -> Int { id } }'})
+        assert ('BIT101-iOS.BackgroundRequestService' in business_methods(index)) == expected, body
     boundary = '''protocol Fetching { func fetch() async }
         public struct RegisteredService: Fetching { let client: HTTPClient; public func fetch() async {} }
         public struct Consumer { let service: any Fetching; public func load() async { await service.fetch() } }'''
