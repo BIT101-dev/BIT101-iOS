@@ -284,7 +284,9 @@ def service_boundary_errors(path: str, source: str, aliases: tuple = (), context
         patterns.extend((
             (r"\b(?:DispatchIO|CF(?:Read|Write)StreamCreateWithFile)\b", "read and write files through AppFileService"),
             (r"\bFileManager\b(?!\s*\.\s*(?:SearchPathDirectory|DirectoryEnumerationOptions)\b)", "use AppFileService"),
-            (r"\b(?:Data|NSData|NSMutableData|String|NSString|NSMutableString)\s*(?:\.\s*init\s*)?\(\s*(?:contentsOf|contentsOfFile|contentsOfURL)\s*:", "read files through AppFileService"),
+            (r"\b(?:Data|NSData|NSMutableData|String|NSString|NSMutableString|XMLParser)\s*(?:\.\s*init\s*)?\(\s*(?:contentsOf|contentsOfFile|contentsOfURL)\s*:", "read files through AppFileService"),
+            (r"\bNS(?:Keyed)?Archiver\s*\.\s*archiveRootObject\b", "write files through AppFileService"),
+            (r"\bNS(?:Keyed)?Unarchiver\s*\.\s*unarchiveObject\s*\(\s*withFile\s*:", "read files through AppFileService"),
             (r"\.\s*(?:resourceValues|setResourceValues|getResourceValue|setResourceValue|resolvingSymlinksInPath|checkResourceIsReachable)\s*\(", "access file metadata through AppFileService"),
             (r"\b(?:FileHandle|NSFileHandle)\b(?!\s*\.\s*standard(?:Output|Error)\b)|\b(?:NSFileCoordinator|CGImageSourceCreateWithURL|CGImageDestinationCreateWithURL)\b", "access files through AppFileService"),
             (r"\b(?:FileWrapper|NSFileWrapper)\s*(?:\.\s*init\s*)?\(\s*(?:url|path)\s*:", "access files through AppFileService"),
@@ -318,11 +320,11 @@ def service_boundary_errors(path: str, source: str, aliases: tuple = (), context
 
 POSIX_FILE_FUNCTIONS = r"open|openat|creat|close|read|pread|readv|write|pwrite|writev|lseek|fopen|freopen|fread|fwrite|fclose|rename|remove|unlink|mkdir|rmdir|stat|lstat|fstat|truncate|ftruncate|fsync|fdatasync|access|opendir|readdir|closedir|mmap|munmap|readlink|readlinkat|symlink|symlinkat|link|linkat|renameat|unlinkat|mkdirat|fstatat|chmod|fchmod|fchmodat|chown|fchown|lchown|fchownat|fdopen|fflush|fseek|ftell|fgetpos|fsetpos|rewind|scandir"
 POSIX_NETWORK_FUNCTIONS = r"socket|socketpair|connect|bind|listen|accept|send|sendto|sendmsg|recv|recvfrom|recvmsg|shutdown|setsockopt|getsockopt|getpeername|getsockname"
-FILE_INITIALIZER_TYPES = r"(?:Foundation\.|UIKit\.|AppKit\.)?(?:Data|NSData|NSMutableData|String|NSString|NSMutableString|UIImage|NSImage|InputStream|OutputStream|FileWrapper|NSFileWrapper)\??"
+FILE_INITIALIZER_TYPES = r"(?:Foundation\.|UIKit\.|AppKit\.)?(?:Data|NSData|NSMutableData|String|NSString|NSMutableString|XMLParser|UIImage|NSImage|InputStream|OutputStream|FileWrapper|NSFileWrapper)\??"
 
 
 def normalized_resource_source(source: str) -> str:
-    resources = "Data|NSData|NSMutableData|String|NSString|NSMutableString|UIImage|NSImage|InputStream|OutputStream|FileWrapper|NSFileWrapper|UserDefaults|FileManager|URLSession|URLSessionTransport|URLCache|AppFileSystem|LocalAppFileService"
+    resources = "Data|NSData|NSMutableData|String|NSString|NSMutableString|XMLParser|NSKeyedArchiver|NSKeyedUnarchiver|NSArchiver|NSUnarchiver|UIImage|NSImage|InputStream|OutputStream|FileWrapper|NSFileWrapper|UserDefaults|FileManager|URLSession|URLSessionTransport|URLCache|AppFileSystem|LocalAppFileService"
     return re.sub(r"\b((?:Foundation\.)?(?:" + resources + r"))\s*\.\s*self(?=\s*\.)",
         lambda match: match[1] + "\n" * match[0].count("\n"), source)
 

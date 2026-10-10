@@ -168,6 +168,27 @@ def run_self_test(rules: dict) -> None:
         assert service_boundary_errors("Modules/StorageCore/Sources/AppFileService.swift", source) == []
     assert service_boundary_errors("Modules/GalleryFeature/Sources/Example.swift", "let wrapper = FileWrapper(regularFileWithContents: Data())") == []
     assert service_boundary_errors("Modules/GalleryFeature/Sources/Example.swift", "struct Wrapper { func read(from item: Int) {} }; let value = Wrapper(); value.read(from: 1)") == []
+    for source in ('let parser = XMLParser(contentsOf: url)', 'let parser = Foundation.XMLParser.init(contentsOf: url)',
+            'let parser = Foundation.XMLParser.self.init(contentsOfURL: url)',
+            'let parser: XMLParser? = .init(contentsOf: url)',
+            'func parser(url: URL) -> XMLParser? { .init(contentsOf: url) }',
+            'func accept(_ parser: XMLParser?) {}; accept(.init(contentsOf: url))',
+            'typealias Parser = XMLParser; let parser = Parser(contentsOf: url)',
+            'NSKeyedArchiver.archiveRootObject(value, toFile: path)', 'NSArchiver.archiveRootObject(value, toFile: path)',
+            'let archive = Foundation.NSKeyedArchiver.self.archiveRootObject(_:toFile:)',
+            'typealias Archive = NSKeyedArchiver; let archive = Archive.archiveRootObject',
+            'NSKeyedUnarchiver.unarchiveObject(withFile: path)', 'NSUnarchiver.unarchiveObject(withFile: path)',
+            'let read = Foundation.NSKeyedUnarchiver.self.unarchiveObject(withFile:)',
+            'typealias Archive = NSKeyedUnarchiver; let read = Archive.unarchiveObject(withFile:)'):
+        assert service_boundary_errors('Modules/GalleryFeature/Sources/Example.swift', source), source
+        assert service_boundary_errors('BIT101-iOS/Schedule/Example.swift', source), source
+        assert service_boundary_errors('Modules/StorageCore/Sources/AppFileService.swift', source) == [], source
+    for source in ('XMLParser(data: data)', 'XMLParser(stream: stream)', 'let parser: XMLParser = .init(data: data)',
+            'try NSKeyedArchiver.archivedData(withRootObject: value, requiringSecureCoding: true)',
+            'NSKeyedUnarchiver.unarchiveObject(with: data)', 'NSUnarchiver.unarchiveObject(with: data)',
+            'let read = NSKeyedUnarchiver.unarchiveObject(with:)', 'let archive = NSArchiver.archivedData(withRootObject: value)',
+            'try NSKeyedUnarchiver(forReadingFrom: data)', 'NSKeyedArchiver(requiringSecureCoding: true)'):
+        assert service_boundary_errors('BIT101-iOS/Schedule/Example.swift', source) == [], source
     targets = manifest_targets({"targets": [
         {"name": "NewCore", "path": "Modules/NewCore/Sources", "type": "regular", "dependencies": []},
         {"name": "NewFeature", "path": "Modules/NewFeature/Sources", "type": "regular",

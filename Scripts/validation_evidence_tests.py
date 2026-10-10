@@ -12,6 +12,7 @@ def icloud_stage_fixture(stage: str, counts: dict) -> dict:
         testTargets=['BIT101-iOSTests'], destination={'platform': 'macOS' if stage.startswith('testMac') else 'iOS', 'deviceIdentifier': 'phone'})
 
 def run_self_test(subject) -> int:
+    network_scope_boolean_self_test(subject)
     developer_directory_self_test()
     from validation_compilation import self_test as compilation_cache_self_test
     compilation_cache_self_test()
@@ -603,6 +604,43 @@ def network_recording_self_test(subject, results) -> None:
                     with patch.object(sys, 'argv', ['validation_evidence.py', 'check-group', group]):
                         assert subject.main() == 0
                     result = original
+
+
+def network_scope_boolean_self_test(subject) -> None:
+    from unittest.mock import patch
+    path = subject.ROOT / 'BIT101-iOS/Shared/Client/ReleaseNetworkSmokeModels.swift'
+    source, read = path.read_text(), Path.read_text
+    baseline = {scope: subject.network_inventory(scope) for scope in ('all', 'bit101', 'school', 'transcript', 'schedule', 'ddl', 'community-writes', 'community-cleanup')}
+    assert len(baseline['all']) == 60 and '社区写入与清理' not in baseline['all']
+    fixtures = [('all', 'area != .communityWrites', baseline['all']),
+        ('all', '!(area == .communityWrites)', baseline['all']),
+        ('all', 'area != .communityWrites && (area == .authentication || area != .authentication)', baseline['all']),
+        ('bit101', '!(area != .authentication && area != .bit101)', baseline['bit101']),
+        ('transcript', 'area == NetworkSmokeArea.transcript', baseline['transcript']),
+        ('schedule', 'false', set()), ('schedule', 'true', baseline['all'] | {'社区写入与清理'})]
+    try:
+        for scope, expression, expected in fixtures:
+            rewritten, count = re.subn(r'(?ms)(case \.' + scope + r':\s*\n).*?(?=^\s*case \.)',
+                lambda match: match[1] + '            return ' + expression + '\n', source, count=1)
+            assert count == 1
+            def fixture_read(candidate, *args, **kwargs):
+                return rewritten if candidate == path else read(candidate, *args, **kwargs)
+            subject.network_inventory.cache_clear()
+            with patch.object(Path, 'read_text', fixture_read):
+                assert subject.network_inventory(scope) == expected, (scope, expression)
+        rewritten = source.replace('_ area: NetworkSmokeArea', '_ topic: NetworkSmokeArea').replace('area ==', 'topic ==')
+        subject.network_inventory.cache_clear()
+        with patch.object(Path, 'read_text', fixture_read):
+            assert subject.network_inventory('all') == baseline['all']
+        rewritten = source.replace('case .communityWrites:\n            return area == .authentication || area == .communityWrites\n        case .communityCleanup:',
+            'case .communityWrites, .communityCleanup:')
+        assert rewritten != source
+        subject.network_inventory.cache_clear()
+        with patch.object(Path, 'read_text', fixture_read):
+            assert subject.network_inventory('community-writes') == baseline['community-writes']
+            assert subject.network_inventory('community-cleanup') == baseline['community-cleanup']
+    finally:
+        subject.network_inventory.cache_clear()
 
 
 def network_trace_fixture(value: dict) -> dict:

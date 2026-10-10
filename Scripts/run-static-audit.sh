@@ -33,6 +33,7 @@ if [[ -z "$SWIFT_FRONTEND" || ! -x "$SWIFT_FRONTEND" ]]; then
   echo "[失败] 找不到可用的 swift-frontend；请检查当前 Xcode 工具链" >&2
   exit 1
 fi
+python3 "$ROOT_DIR/Scripts/validation_performance.py" recover-batch
 BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest audit)"
 BIT101_VALIDATION_RUN_ID="$(uuidgen)"
 export BIT101_VALIDATION_SOURCE_DIGEST BIT101_VALIDATION_RUN_ID

@@ -139,10 +139,14 @@ def batch_retention_self_test(raw: list, test: str) -> None:
     from contextlib import nullcontext
     import validation_evidence
     fixture = subject.ROOT / '.build/static-audit/performance-results-self-test'
-    bundle = fixture / 'test-results.xcresult'
+    bundle = fixture / '.build/extended-automation/test-results.xcresult'
     retained = bundle.with_suffix('.retained.xcresult')
     incoming = bundle.with_suffix('.incoming.xcresult')
     report_path = fixture / 'report.json'
+    audit_run = subprocess.run
+    def artifact_status():
+        return audit_run([sys.executable, '-B', str(subject.ROOT / 'Scripts/validation_artifacts.py'), str(fixture)],
+            capture_output=True, text=True).returncode
     record = {'testIdentifier': test, 'xcresultMetrics': raw,
         'execution': {'environment': {'device': {'identifier': 'phone'}}, 'bundleSHA256': 'original', 'runID': 'run'},
         'resultBundle': {'sha256': 'original'}}
@@ -185,8 +189,9 @@ def batch_retention_self_test(raw: list, test: str) -> None:
         create(incoming, (retained / 'database.sqlite3').read_bytes() + (bundle / 'database.sqlite3').read_bytes())
         (incoming / 'database.sqlite3').rename(incoming / 'Info.plist')
     def exported(command, **kwargs):
-        if 'summary' in command and (bundle / 'Info.plist').exists() and not (bundle / 'database.sqlite3').exists():
-            (bundle / 'database.sqlite3').write_bytes((bundle / 'Info.plist').read_bytes())
+        candidate = Path(command[command.index('--path') + 1]) if '--path' in command else bundle
+        if 'summary' in command and (candidate / 'Info.plist').exists() and not (candidate / 'database.sqlite3').exists():
+            (candidate / 'database.sqlite3').write_bytes((candidate / 'Info.plist').read_bytes())
         return json.dumps(combined)
     try:
         shutil.rmtree(fixture, ignore_errors=True)
@@ -231,14 +236,46 @@ def batch_retention_self_test(raw: list, test: str) -> None:
             assert (bundle / 'database.sqlite3').is_file()
             assert subject.main(['begin-batch', 'append']) == 0
             create(bundle, b'failed')
-            writer.reset_mock()
-            with patch.object(subject.subprocess, 'run', side_effect=subprocess.CalledProcessError(1, ['merge'])):
-                try: subject.retain_result_step(['all', 'ui'])
-                except subprocess.CalledProcessError: pass
-                else: raise AssertionError('结果合并失败需要传播')
-            writer.assert_not_called()
-            assert retained.is_dir() and bundle.is_dir()
-            create(incoming, b'partial')
+            for failure in ('merge', 'summary', 'interrupt'):
+                if failure != 'merge':
+                    subject.begin_result_step(True)
+                    create(bundle, b'failed')
+                writer.reset_mock()
+                def failing_merge(command, **kwargs):
+                    if failure != 'summary':
+                        create(incoming, b'partial')
+                        if failure == 'interrupt': raise KeyboardInterrupt()
+                        raise subprocess.CalledProcessError(1, command)
+                    merge(command, **kwargs)
+                def failing_export(command, **kwargs):
+                    if failure == 'summary' and str(incoming) in command: raise subprocess.CalledProcessError(1, command)
+                    return exported(command, **kwargs)
+                with patch.object(subject.subprocess, 'run', side_effect=failing_merge), \
+                        patch.object(subject.subprocess, 'check_output', side_effect=failing_export):
+                    try: subject.retain_result_step(['all', 'ui'])
+                    except (subprocess.CalledProcessError, KeyboardInterrupt): pass
+                    else: raise AssertionError('结果合并失败与中断需要传播')
+                writer.assert_not_called()
+                assert bundle.is_dir() and not retained.exists() and not incoming.exists()
+                assert (bundle / 'database.sqlite3').read_bytes() == b'failed'
+            for fault in ('current', 'retained', 'merged', 'partial', 'unreadable'):
+                for path in (bundle, retained, incoming): shutil.rmtree(path, ignore_errors=True)
+                create(retained, b'previous')
+                create(incoming, b'merged')
+                if fault == 'current': create(bundle, b'current')
+                if fault == 'retained': shutil.rmtree(incoming)
+                if fault == 'partial': (incoming / 'Staging').mkdir()
+                assert artifact_status() == 1, fault
+                def recover_export(command, **kwargs):
+                    assert '--path' in command and str(incoming) in command
+                    if fault == 'unreadable': raise subprocess.CalledProcessError(1, command)
+                    return '{}'
+                with patch.object(subject.subprocess, 'check_output', side_effect=recover_export):
+                    assert subject.main(['recover-batch']) == 0
+                expected = b'current' if fault == 'current' else b'merged' if fault == 'merged' else b'previous'
+                assert (bundle / 'database.sqlite3').read_bytes() == expected, fault
+                assert not retained.exists() and not incoming.exists(), fault
+                assert artifact_status() == 0, fault
             assert subject.main(['begin-batch', 'first']) == 0
             assert not any(path.exists() for path in (bundle, retained, incoming))
         result = subprocess.run([sys.executable, '-B', str(subject.ROOT / 'Scripts/validation_performance.py'), 'invalid'],

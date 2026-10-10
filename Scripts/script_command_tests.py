@@ -365,7 +365,7 @@ xcrun() {
                 group = "build-" + (arguments[1] if len(arguments) > 1 else "release")
             if f"/extended-automation/{group}.log" not in result.stdout:
                 findings.append(f"命令自测：{group} 保存独立验证组日志")
-        needs_lock = arguments not in (["info"], ["cache"])
+        needs_lock = arguments != ["info"]
         if ("WORKFLOW_LOCK\n" in result.stdout) != needs_lock:
             findings.append(f"命令自测：{filename} {' '.join(arguments)} 取得工作流锁")
         if filename in {'run-extended-tests.sh', 'build-install-device.sh'} and needs_lock \

@@ -32,11 +32,24 @@ def bundle_digest(bundle: Path) -> str:
     return digest.hexdigest()
 
 
-def begin_result_step(retain_previous: bool) -> None:
+def recover_result_step() -> None:
     retained = BUNDLE.with_suffix('.retained.xcresult')
     merged = BUNDLE.with_suffix('.incoming.xcresult')
+    if not BUNDLE.exists() and merged.exists():
+        try:
+            bundle_digest(merged)
+            subprocess.check_output(['xcrun', 'xcresulttool', 'get', 'test-results', 'summary', '--path', str(merged)])
+        except (ValueError, subprocess.CalledProcessError): pass
+        else: shutil.move(str(merged), str(BUNDLE))
+    if not BUNDLE.exists() and retained.exists():
+        shutil.move(str(retained), str(BUNDLE))
     shutil.rmtree(retained, ignore_errors=True)
     shutil.rmtree(merged, ignore_errors=True)
+
+
+def begin_result_step(retain_previous: bool) -> None:
+    recover_result_step()
+    retained = BUNDLE.with_suffix('.retained.xcresult')
     if retain_previous and BUNDLE.exists():
         shutil.move(str(BUNDLE), str(retained))
     else:
@@ -69,21 +82,33 @@ def rebind_result_records(report: dict, groups: list[str]) -> dict:
 
 
 def retain_result_step(groups: list[str]) -> None:
+    try:
+        merge_result_step(groups)
+    except BaseException:
+        recover_result_step()
+        raise
+
+
+def merge_result_step(groups: list[str]) -> None:
     from validation_evidence import REPORT, report_lock, write_report
     retained = BUNDLE.with_suffix('.retained.xcresult')
     merged = BUNDLE.with_suffix('.incoming.xcresult')
     current_sha = bundle_digest(BUNDLE) if BUNDLE.exists() else None
+    validated = False
     if retained.exists():
         if BUNDLE.exists():
             subprocess.run(['xcrun', 'xcresulttool', 'merge', '--output-path', str(merged), str(retained), str(BUNDLE)],
                 check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            subprocess.check_output(['xcrun', 'xcresulttool', 'get', 'test-results', 'summary', '--path', str(merged)])
+            validated = True
             shutil.rmtree(BUNDLE)
             shutil.move(str(merged), str(BUNDLE))
             shutil.rmtree(retained)
         else:
             shutil.move(str(retained), str(BUNDLE))
     if not BUNDLE.exists(): return
-    subprocess.check_output(['xcrun', 'xcresulttool', 'get', 'test-results', 'summary', '--path', str(BUNDLE)])
+    if not validated:
+        subprocess.check_output(['xcrun', 'xcresulttool', 'get', 'test-results', 'summary', '--path', str(BUNDLE)])
     with report_lock():
         report = json.loads(REPORT.read_text()) if REPORT.is_file() else {}
         if current_sha and (row := report.get('groups', {}).get(groups[-1])):
@@ -265,6 +290,9 @@ def merge_findings(report: dict, commit: str) -> list[str]:
 
 
 def main(arguments: list[str]) -> int:
+    if arguments == ['recover-batch']:
+        recover_result_step()
+        return 0
     if len(arguments) == 2 and arguments[0] == 'begin-batch' and arguments[1] in {'first', 'append'}:
         begin_result_step(arguments[1] == 'append')
         return 0

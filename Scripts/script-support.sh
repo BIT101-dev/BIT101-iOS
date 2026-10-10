@@ -320,6 +320,9 @@ with ((root / ".build/extended-automation.lock").open("a") if maintenance else n
             "cache-build", str(root), *arguments])
         raise SystemExit(result.returncode if result.returncode >= 0 else 128 - result.returncode)
 PY
+  if [[ "${1:-}" == --maintenance ]]; then
+    python3 "$ROOT_DIR/Scripts/validation_performance.py" recover-batch
+  fi
 }
 
 bit101_run_logged() {

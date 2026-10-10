@@ -187,13 +187,21 @@ def network_inventory(scope: str = "all") -> set[str]:
         for binding in item["bindings"]:
             if binding["scope"] == ["PaperSortOrder"] and binding["value"].startswith("title:"):
                 areas["bit101"] |= {"文章列表-" + json.loads(value) for value in re.findall(r'"(?:[^"\\]|\\.)*"', binding["value"])}
-    branch = next(item for item in models["controlFlow"] if item["scope"] == ["NetworkSmokeScope"]
-                  and item["value"].startswith(f"case .{scope}:"))
-    start = branch["start"] + len(branch["value"].split(":", 1)[0].encode()) + 1
-    end = branch["start"] + len(branch["value"].encode())
-    included = set(areas) if "return true" in branch["value"] else {
-        member["value"].removeprefix(".") for member in models["members"]
-        if start <= member["start"] < end and member["value"].removeprefix(".") in areas}
+    includes = next(function for function in models['functionRanges']
+        if function['scope'] == ['NetworkSmokeScope'] and function['name'] == 'includes')
+    parameter = next(parameter['name'] for parameter in includes['parameters'] if parameter['type'] == 'NetworkSmokeArea')
+    branch = next(item for item in models['controlFlow'] if includes['start'] <= item['start'] < includes['end']
+        and re.match(r'case\b', item['value'])
+        and scope in re.findall(r'\.\s*(\w+)', item['value'].split(':', 1)[0]))
+    expression = re.sub(r'^return\b', '', mask_literals_and_comments(branch['value'].split(':', 1)[1]).strip()).strip()
+    def enum_value(match):
+        if match[1] not in areas: raise ValueError(f'Smoke 范围需要有效的 NetworkSmokeArea：{match[1]}')
+        return json.dumps(match[1])
+    expression = re.sub(r'\s+', ' ', re.sub(r'(?:\bNetworkSmokeArea\s*)?\.\s*(\w+)', enum_value, expression))
+    from network_capability_rules import constant_boolean
+    selected = {area: constant_boolean(expression, lambda name: area if name == parameter else None) for area in areas}
+    if any(value is None for value in selected.values()): raise ValueError(f'Smoke 范围需要可求值的 Bool 表达式：{expression}')
+    included = {area for area, value in selected.items() if value}
     return set().union(*(areas[area] for area in included))
 
 

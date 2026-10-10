@@ -14,6 +14,7 @@ if [[ "${1:-}" == simulator ]]; then
 fi
 if [[ "${1:-}" == cache ]]; then
   [[ $# -eq 1 ]] || exit 64
+  bit101_acquire_artifact_lock "$0" "$@"
   bit101_build_cache --maintenance
   exit 0
 fi
