@@ -244,9 +244,10 @@ def reachable_smoke_calls(index: dict) -> dict[str, list[dict]]:
             callbacks = set()
             executes_callbacks = expression in {'runInParallel', 'probe', 'NetworkSmokePaging.batch', 'NetworkSmokePaging.arrayPage', 'NetworkSmokePaging.messages', 'Task', 'Task.init', 'Task.detached', 'withTaskGroup', 'withThrowingTaskGroup', 'withTaskCancellationHandler', 'withCheckedContinuation', 'withCheckedThrowingContinuation'}
             if executes_callbacks:
-                for argument in fact.get('arguments', []): callbacks.update({argument, owner + '.' + argument})
-                edges[key].update((path, start, end) for _, start, end in fact.get('closureArguments', [])
-                    if (path, start, end) in nodes)
+                for position, argument in enumerate(fact.get('arguments', [])):
+                    if expression != 'withTaskCancellationHandler' or position == 0: callbacks.update({argument, owner + '.' + argument})
+                edges[key].update((path, start, end) for position, start, end in fact.get('closureArguments', [])
+                    if (expression != 'withTaskCancellationHandler' or position == 0) and (path, start, end) in nodes)
             if expression.endswith('.withValue') and '.$' in expression:
                 receiver, _, property_name = expression.removesuffix('.withValue').rpartition('.$')
                 if (types.resolve(path, receiver, fact['scope']), property_name) in task_locals:
@@ -523,6 +524,13 @@ def network_capability_self_test() -> None:
             'Task.detached { service.fetch() }', 'runInParallel([{ service.fetch() }])'):
         assert 'service.fetch' in reached({'ReleaseNetworkSmoke.swift':
             f'struct ReleaseNetworkSmokeRunner {{ func run() {{ {invocation} }} }}'}), invocation
+    for body in (
+        'withTaskCancellationHandler(operation: { service.live() }, onCancel: { Task { service.idle() } })',
+        'withTaskCancellationHandler { service.live() } onCancel: { Task.detached { service.idle() } }',
+        'let operation = { service.live() }; let cancellation = { Task { service.idle() } }; withTaskCancellationHandler(operation: operation, onCancel: cancellation)',
+    ):
+        calls = reached({'ReleaseNetworkSmoke.swift': f'struct ReleaseNetworkSmokeRunner {{ func run() async {{ {body} }} }}'})
+        assert 'service.live' in calls and 'service.idle' not in calls, (body, calls)
     task_local = {'ReleaseNetworkSmoke.swift': '''enum Trace { @TaskLocal static var current: (() -> Void)? }
         struct ReleaseNetworkSmokeRunner {
             func run() { invoke { service.fetch() } }
@@ -637,7 +645,9 @@ def network_capability_self_test() -> None:
         ('-1 >= 0', False), ('1_000 < 1', False), ('1.5 > 2', False), ('0x10 == 16', True),
         ('9007199254740993 == 9007199254740992.0', True), ('"a" == "b"', False), ('"a" != "a"', False),
         ('"true" == "True"', False), ('"!" == " not "', False), ('"&&" == " and "', False),
-        ('"é" != "é"', False), (r'"row.\(enabled)" == "fixed"', True), ('1 == enabled', True)]
+        ('"é" != "é"', False), (r'"row.\(enabled)" == "fixed"', True), ('1 == enabled', True),
+        (r'"\01" != "\001"', True), (r'"\01" == "\001"', False), (r'"\u{e9}" == "é"', True),
+        (r'"row.\\(enabled)" == "fixed"', False), (r'"\u{0}1" == "\01"', True)]
     comparison_sources = {condition: f'func run(enabled: Bool) {{ if {condition} {{ service.fetch() }} }}'
         for condition, _ in comparisons}
     comparison_index = swift_syntax_index_sources(comparison_sources)

@@ -13,10 +13,31 @@ NETWORK_HARNESS_TYPES = {'ReleaseNetworkSmokeRunner', 'ReleaseNetworkSmokeDepend
     'NetworkSmokeProductionSession', 'ReleaseNetworkSmokeSchoolClient'}
 
 
+def string_literal_value(literal):
+    escapes = {'0': '\0', 't': '\t', 'n': '\n', 'r': '\r', '"': '"', "'": "'", '\\': '\\'}
+    pieces = []
+    for part in re.finditer(r'\\(u\{[0-9a-fA-F]{1,8}\}|.)|[^\\]+', literal[1:-1]):
+        escape = part[1]
+        if escape is None: pieces.append(part[0])
+        elif escape in escapes: pieces.append(escapes[escape])
+        elif escape.startswith('u{'):
+            scalar = int(escape[2:-1], 16)
+            if scalar > 0x10ffff or 0xd800 <= scalar <= 0xdfff: return None
+            pieces.append(chr(scalar))
+        else: return None
+    return unicodedata.normalize('NFC', ''.join(pieces))
+
+
 def constant_value(condition: str, resolve):
+    if '"""' in condition: return None
     tokens = {'&&': ' and ', '||': ' or ', '!': ' not ', 'true': 'True', 'false': 'False'}
+    def translate(match):
+        if match[0].startswith('"'):
+            literal = string_literal_value(match[0])
+            return repr(literal) if literal is not None else 'runtime_literal()'
+        return tokens[match[0]]
     expression = re.sub(r'"(?:\\.|[^"\\])*"|&&|\|\||!(?!=)|\b(?:true|false)\b',
-        lambda match: tokens.get(match[0], match[0]), condition).strip()
+        translate, condition).strip()
     try:
         with warnings.catch_warnings():
             warnings.simplefilter('ignore', SyntaxWarning)
@@ -26,10 +47,7 @@ def constant_value(condition: str, resolve):
         if isinstance(node, ast.Constant):
             if type(node.value) in {bool, int}: return node.value
             if type(node.value) is float: return node.value if math.isfinite(node.value) else None
-            if type(node.value) is str:
-                literal = ast.get_source_segment(expression, node)
-                if not literal.startswith('"') or literal.startswith('"""') or re.search(r'\\(?![0tnr"\\])', literal): return None
-                return unicodedata.normalize('NFC', node.value)
+            if type(node.value) is str: return node.value
         if isinstance(node, ast.Name): return resolve(node.id)
         if isinstance(node, ast.UnaryOp):
             operand = value(node.operand)
