@@ -23,6 +23,7 @@ SMOKE_SCOPE="${1:-all}"
 SMOKE_CAPTURE="${BIT101_NETWORK_SMOKE_CAPTURE:-none}"
 SMOKE_TERM="${BIT101_NETWORK_SMOKE_TERM:-}"
 SMOKE_FIXTURES="${BIT101_NETWORK_SMOKE_FIXTURES:-}"
+RECOVERY_CONFIRMATION="${BIT101_COMMUNITY_RECOVERY_CONFIRMATION:-}"
 SMS_MODE="${2:-preflight}"
 [[ $# -le 2 ]] || { echo "用法：Scripts/release-network-smoke.sh [范围] [sms]" >&2; exit 64; }
 [[ "$SMS_MODE" == preflight || "$SMS_MODE" == sms && ( "$SMOKE_SCOPE" == school || "$SMOKE_SCOPE" == all ) ]] \
@@ -43,6 +44,27 @@ case "$SMOKE_CAPTURE" in
   ""|none|scheduleCache|rawCourseResponse) ;;
   *) echo "BIT101_NETWORK_SMOKE_CAPTURE 参数无效。" >&2; exit 64 ;;
 esac
+if [[ -n "$RECOVERY_CONFIRMATION" ]]; then
+  [[ "$SMOKE_SCOPE" == community-cleanup ]] || { echo "服务端未创建确认使用 community-cleanup 范围。" >&2; exit 64; }
+  python3 - "$RECOVERY_CONFIRMATION" <<'PYCONFIRMATION' || { echo "服务端未创建确认需要账号、验收标记、服务端凭据及待确认对象。" >&2; exit 64; }
+import json
+import re
+import sys
+try:
+    value = json.loads(sys.argv[1])
+    valid = isinstance(value, dict) and type(value.get('account')) is int and value['account'] > 0
+    valid = valid and isinstance(value.get('marker'), str) and value['marker'].startswith('功能验收 ')
+    receipt = value.get('serverReceipt', '')
+    valid = valid and isinstance(receipt, str) and bool(receipt.strip()) and all(ord(char) >= 32 and ord(char) != 127 for char in receipt)
+    kinds, parents = value.get('kinds'), value.get('parents')
+    valid = valid and isinstance(kinds, list) and isinstance(parents, list) and bool(kinds or parents)
+    valid = valid and all(kind in ('poster', 'paper') for kind in kinds) and all(
+        isinstance(parent, str) and re.fullmatch(r'(?:poster|paper|course|comment)[1-9][0-9]*', parent) for parent in parents)
+except (ValueError, TypeError):
+    valid = False
+raise SystemExit(0 if valid else 1)
+PYCONFIRMATION
+fi
 if [[ "$SMOKE_CAPTURE" == scheduleCache || "$SMOKE_CAPTURE" == rawCourseResponse ]]; then
   [[ "$SMOKE_SCOPE" == all || "$SMOKE_SCOPE" == school || "$SMOKE_SCOPE" == schedule ]] \
     || { echo "课表采样使用 all、school 或 schedule 范围。" >&2; exit 64; }
@@ -180,11 +202,11 @@ xcrun devicectl device install app \
   --device "$DEVICETCL_DEVICE_ID" \
   "$SMOKE_APP_PATH" >/dev/null
 
-python3 - "$LOCAL_REQUEST_PATH" "$SMOKE_SCOPE" "$RUN_ID" "$SMOKE_CAPTURE" "$SMOKE_TERM" "$SMS_MODE" "${BIT101_COMMUNITY_FOLLOW_TARGET:-}" "${BIT101_COMMUNITY_SMOKE_ACCOUNT:-}" "$SMOKE_FIXTURES" <<'PY'
+python3 - "$LOCAL_REQUEST_PATH" "$SMOKE_SCOPE" "$RUN_ID" "$SMOKE_CAPTURE" "$SMOKE_TERM" "$SMS_MODE" "${BIT101_COMMUNITY_FOLLOW_TARGET:-}" "${BIT101_COMMUNITY_SMOKE_ACCOUNT:-}" "$SMOKE_FIXTURES" "$RECOVERY_CONFIRMATION" <<'PY'
 import json
 import sys
 
-path, scope, run_id, capture, term, sms_mode, follow_target, smoke_account, fixtures = sys.argv[1:]
+path, scope, run_id, capture, term, sms_mode, follow_target, smoke_account, fixtures, confirmation = sys.argv[1:]
 with open(path, "w", encoding="utf-8") as stream:
     json.dump({
         "scope": scope,
@@ -194,6 +216,7 @@ with open(path, "w", encoding="utf-8") as stream:
         "interactiveSMS": sms_mode == "sms",
         "communityFollowTarget": int(follow_target) if scope == "community-writes" else None,
         "communityExpectedAccount": int(smoke_account) if scope == "community-writes" else None,
+        "communityRecoveryConfirmation": json.loads(confirmation) if confirmation else None,
         "fixtures": json.loads(fixtures) if fixtures else None,
     }, stream)
 PY

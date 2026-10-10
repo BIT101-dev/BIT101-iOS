@@ -324,6 +324,8 @@ iOS 的 `checks` 包含 `cold-start-session`、`offline-persistence`、`media-an
 
 清理按独立对象推进并保存成功进度，单个对象持续失败时继续清理其他对象，账号变化沿身份边界结束。清理异常保留待清理记录，连接恢复后执行 `Scripts/release-network-smoke.sh community-cleanup`。恢复清理沿独立 `community-cleanup` 范围记录结果，完整写入验收证据继续保留。固定报告保存关注恢复、图片引用、创建标识、写入结果与服务端删除确认，发布门禁核对三个域的点赞恢复、六个不同评论标识的删除、评论及回复的创建关系，以及帖子和文章删除。
 
+创建结果长期待确认时，维护者先沿服务端日志核对该验收账号、完整标记及请求提交结果，取得全部对应请求已结束且创建对象不存在的服务端凭据，再通过 `BIT101_COMMUNITY_RECOVERY_CONFIRMATION` 向 `community-cleanup` 提交 JSON：`{"account":1,"marker":"功能验收 fixture","serverReceipt":"服务端核对凭据","kinds":["poster"],"parents":["course1"]}`。`kinds` 对应帖子或文章的待确认创建，`parents` 对应评论或回复的所属对象。宿主核对设备恢复记录并重新查询服务端，发现对象后继续清理；查询为空且有匹配确认时结束对应尝试。服务端凭据进入恢复证据及固定报告，查询失败继续保留待恢复状态。缺少服务端凭据时沿原恢复记录等待确认。
+
 正式运行分组沿 `Scripts/validation_policy.py` 的 suite 登记执行 `ReleaseRuntimeContractTests`、`ExtendedLoginTests`、`LoginStorageTests`、`LoginBootstrapTests`、`NetworkClientTests`、`FeatureCompositionTests`、`ExperimentalPreferenceCloudSyncTests` 与 `AppExternalDisplayTests` 与 `ReminderContextTests`，覆盖生产组装、登录恢复、凭据持久化、退出清理、账号代际、页面依赖、生命周期云同步、外部展示及网络请求行为；实际执行方法集合共同参与证据核对。
 
 邮件投递 Worker 的运行时回归沿 Miniflare 的 Durable Object、KV 和本地邮件 RPC 联动执行，核对自动 alarm、离线失败、实例回收后的恢复、已投递记录及删除状态持久化。故障注入的内存回归继续核对存储失败等分支。

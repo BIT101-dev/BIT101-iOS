@@ -180,6 +180,8 @@ def call_can_execute(facts: dict, call: dict) -> bool:
             empty = lower >= upper if bounds[2] == '..<' else lower > upper
         body = branch.get('thenRange')
         if empty and body and body[0] <= call['start'] < body[1]: return False
+        if not any(bounds and bounds[0] <= call['start'] < bounds[1]
+                for bounds in (body, branch.get('elseRange'), branch.get('followingRange'))): continue
         if branch['start'] not in conditions: conditions[branch['start']] = branch_condition(facts, branch)
         value = conditions[branch['start']]
         excluded = branch.get('elseRange') if value is True else branch.get('thenRange') if value is False and not branch['value'].startswith('repeat') else None

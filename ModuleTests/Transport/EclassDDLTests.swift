@@ -98,6 +98,26 @@ struct EclassDDLTests {
         #expect(transport.requests.count == 2)
     }
 
+    @Test(arguments: ["RRULE:FREQ=DAILY;COUNT=2", "EXDATE:20261008T100000Z", "RECURRENCE-ID:20261009T100000Z"])
+    func unsupportedCalendarRecurrencePreservesTheOwnedDeadlineSource(property: String) async throws {
+        let calendar = "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:recurring\nSUMMARY:作业\nDTSTART:20261008T100000Z\n\(property)\nEND:VEVENT\nEND:VCALENDAR"
+        let transport = EclassTransport { request in
+            request.url?.path == "/api/my-courses" ? (200, #"{"courses":[],"pages":0}"#, nil) : (200, calendar, nil)
+        }
+        var initial = ScheduleCache()
+        initial.lexueCalendarURL = "https://lexue.bit.edu.cn/calendar.ics"
+        let original = DDLEventRecord(id: "lexue-owned", group: "lexue", title: "cached", text: "", dueAt: Date(), done: true)
+        initial.ddlEvents = [original]
+        var saved: ScheduleCache?
+        let repository = ScheduleRepository(session: { AppStorageSession(accountIdentifier: "recurrence") },
+            load: { _ in .loaded(initial) }, save: { value, _, _ in saved = value })
+        await repository.loadIfNeeded()
+        let model = ScheduleDDLViewModel(service: service(transport), repository: repository)
+        #expect(await model.syncDDL() == false)
+        #expect(saved?.ddlEvents == [original])
+        #expect(model.notice?.title == "DDL 部分更新")
+    }
+
     @Test func productionDDLServicePersistsAndReloadsTheOwnedSourceWithCompletion() async throws {
         let transport = EclassTransport { request in
             request.url?.path == "/api/my-courses"
@@ -277,6 +297,67 @@ struct EclassDDLTests {
         #expect(transport.requests.count == 2)
     }
 
+    @Test(arguments: ["1", "3", "null"])
+    func changingPageTotalsRejectTheSnapshot(total: String) async {
+        var page = 0
+        let transport = EclassTransport { _ in
+            page += 1
+            return (200, "{\"courses\":[{\"id\":\(page),\"name\":\"课\"}],\"page\":\(page),\"pages\":\(page == 1 ? "2" : total)}", nil)
+        }
+        await #expect(throws: ScheduleServiceError.self) { try await service(transport).fetchEclassDDLEvents() }
+        #expect(transport.requests.count == 2)
+    }
+
+    @Test func anUnboundedCourseFeedStopsAtTheSharedBodyBudget() async throws {
+        var page = 0
+        let transport = EclassTransport { _ in
+            page += 1
+            let courses = (1 ... 100).map { "{\"id\":\(page * 100 + $0),\"name\":\"课\"}" }.joined(separator: ",")
+            return (200, "{\"courses\":[\(courses)]}", nil)
+        }
+        do {
+            _ = try await service(transport).fetchEclassSnapshot(owner: Credentials().schoolSessionIdentity,
+                                                                budget: EclassSnapshotBudget(maximumBytes: 4_096))
+            Issue.record("Expected the complete snapshot body budget to be exhausted")
+        } catch {
+            guard case HTTPClientError.responseTooLarge = error else { Issue.record("Expected responseTooLarge, got \(error)"); return }
+        }
+        #expect(transport.requests.count == 2)
+    }
+
+    @Test func theDeadlineCoversTheResponseAndStopsFurtherRequests() async {
+        let transport = EclassTransport { _ in (200, #"{"courses":[],"pages":0}"#, nil) }
+        transport.delay = .milliseconds(100)
+        do {
+            _ = try await service(transport).fetchEclassSnapshot(owner: Credentials().schoolSessionIdentity,
+                                                                budget: EclassSnapshotBudget(timeout: 0.05))
+            Issue.record("Expected the complete snapshot deadline to expire")
+        } catch { #expect((error as? URLError)?.code == .timedOut) }
+        #expect(transport.requests.count == 1)
+        #expect(transport.requests.first?.timeoutInterval ?? 1 <= 0.05)
+        #expect(transport.cancelledRequests == 1)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func largeMultiCoursePayloadsProduceACompleteOrderedSnapshot() async throws {
+        let transport = EclassTransport { request in
+            if request.url?.path == "/api/my-courses" {
+                return (200, #"{"courses":[{"id":1,"name":"A"},{"id":2,"name":"B"},{"id":3,"name":"C"},{"id":4,"name":"D"}],"pages":1}"#, nil)
+            }
+            let course = try #require(request.url?.path.split(separator: "/").dropLast().last.flatMap { Int($0) })
+            let title = String(repeating: "x", count: 1_536)
+            let activities = (1 ... 4_096).map {
+                "{\"id\":\(course * 10_000 + $0),\"title\":\"\(title)\",\"type\":\"homework\",\"submit_times\":1,\"end_time\":\"2030-10-01T15:59:00Z\"}"
+            }.joined(separator: ",")
+            return (200, "{\"activities\":[\(activities)]}", nil)
+        }
+        let result = try await service(transport).fetchEclassDDLEvents()
+        #expect(result.courseCount == 4 && result.activityCount == 16_384)
+        #expect(result.events.count == 16_384 && result.activityTypes == ["homework": 16_384])
+        #expect(result.events.map(\.id) == result.events.map(\.id).sorted())
+        #expect(transport.maximumConcurrentRequests <= 4)
+    }
+
     @Test func emptyCourseListIsAValidCompleteResult() async throws {
         let transport = EclassTransport { _ in (200, #"{"courses":[],"page":1,"pages":0}"#, nil) }
         let result = try await service(transport).fetchEclassDDLEvents()
@@ -404,6 +485,8 @@ private final class EclassTransport: HTTPTransport {
     var requests: [URLRequest] = []
     var maximumConcurrentRequests = 0
     private var concurrentRequests = 0
+    var delay: Duration = .zero
+    var cancelledRequests = 0
     let handler: (URLRequest) throws -> (Int, String, String?)
     init(_ handler: @escaping (URLRequest) throws -> (Int, String, String?)) { self.handler = handler }
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
@@ -412,6 +495,10 @@ private final class EclassTransport: HTTPTransport {
         maximumConcurrentRequests = max(maximumConcurrentRequests, concurrentRequests)
         defer { concurrentRequests -= 1 }
         await Task.yield()
+        if delay > .zero {
+            do { try await Task.sleep(for: delay) }
+            catch is CancellationError { cancelledRequests += 1; throw CancellationError() }
+        }
         let (status, json, redirectedURL) = try handler(request)
         let url = try #require(redirectedURL.flatMap { URL(string: $0) } ?? request.url)
         let response = try #require(HTTPURLResponse(url: url, statusCode: status, httpVersion: nil,

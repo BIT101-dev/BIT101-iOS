@@ -394,8 +394,9 @@ struct ReleaseNetworkSmokeDependencies {
     var makeCourses: @MainActor () -> any NetworkSmokeCourseServicing = { CourseService() }
     var makePapers: @MainActor () -> any NetworkSmokePaperServicing = { PaperService() }
     var makeMine: @MainActor () -> any NetworkSmokeMineServicing = { MineService() }
-    var communityWriteProbe: @MainActor (String, Bool, Int?, Int?, NetworkSmokeFixtures?) async throws -> [String] = {
-        try await CommunityWriteSmoke(operations: CommunityWriteSmoke.Operations.production(followTarget: $2, courseFixture: $4)).run(marker: $0, cleanupOnly: $1, expectedAccount: $3)
+    var communityWriteProbe: @MainActor (String, Bool, Int?, Int?, NetworkSmokeFixtures?, CommunityWriteRecoveryConfirmation?) async throws -> [String] = {
+        try await CommunityWriteSmoke(operations: CommunityWriteSmoke.Operations.production(followTarget: $2, courseFixture: $4))
+            .run(marker: $0, cleanupOnly: $1, expectedAccount: $3, recoveryConfirmation: $5)
     }
     var productionSessionProbe: @MainActor () async throws -> [String] = NetworkSmokeProductionSession.run
     var externalHTTPClient: HTTPClient = .shared
@@ -446,6 +447,7 @@ struct ReleaseNetworkSmokeLaunchRequest: Codable, Sendable {
     var interactiveSMS: Bool? = nil
     var communityFollowTarget: Int? = nil
     var communityExpectedAccount: Int? = nil
+    var communityRecoveryConfirmation: CommunityWriteRecoveryConfirmation? = nil
     var fixtures: NetworkSmokeFixtures? = nil
 
     private static var pendingFileURL: URL? {
@@ -479,6 +481,11 @@ struct ReleaseNetworkSmokeLaunchRequest: Codable, Sendable {
         }
         guard let url = components.url else { return nil }
         self.init(url: url)
+        if let value = environment["BIT101_COMMUNITY_RECOVERY_CONFIRMATION"], !value.isEmpty {
+            guard scope == .communityCleanup,
+                  let confirmation = try? JSONDecoder().decode(CommunityWriteRecoveryConfirmation.self, from: Data(value.utf8)) else { return nil }
+            self.communityRecoveryConfirmation = confirmation
+        }
     }
 
     init?(url: URL) {

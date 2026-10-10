@@ -245,6 +245,14 @@ xcrun() {
                 env=dict(os.environ, BIT101_NETWORK_SMOKE_CAPTURE=capture, BIT101_NETWORK_SMOKE_FIXTURES=json.dumps(valid_fixture)), capture_output=True, text=True)
             if (result.returncode == 0) != (scope in ('all', 'school', 'schedule')):
                 findings.append('网络采样自测：课表采样与执行范围匹配')
+    confirmation = dict(account=1, marker='功能验收 fixture', serverReceipt='backend-reconciliation', kinds=['poster'], parents=[])
+    for scope, value, valid in (('community-cleanup', confirmation, True), ('ddl', confirmation, False),
+            ('community-cleanup', dict(confirmation, serverReceipt=''), False),
+            ('community-cleanup', dict(confirmation, kinds=['course']), False), ('community-cleanup', {}, False)):
+        result = subprocess.run(['zsh', '-c', scope_source, str(SCRIPT_ROOT / 'release-network-smoke.sh'), scope],
+            env=dict(os.environ, BIT101_COMMUNITY_RECOVERY_CONFIRMATION=json.dumps(value)), capture_output=True, text=True)
+        assert (result.returncode == 0) == valid, '服务端未创建确认需要匹配清理范围及确认载荷'
+        if not valid: assert 'WORKFLOW_LOCK' not in result.stdout, '确认载荷校验在选机及安装前完成'
     for value, valid in ((valid_fixture, True), ({}, False), (dict(valid_fixture, posterID=True), False),
             (dict(valid_fixture, courseID=0), False), (dict(valid_fixture, courseNumber=' COURSE'), False)):
         result = subprocess.run(['zsh', '-c', scope_source, str(SCRIPT_ROOT / 'release-network-smoke.sh'), 'bit101'],

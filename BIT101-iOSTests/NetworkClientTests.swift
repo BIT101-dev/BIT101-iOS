@@ -47,6 +47,57 @@ private func makeTestURL(_ value: String) throws -> URL {
 
 @Suite("Network stack")
 struct NetworkClientTests {
+    @Test("The Eclass snapshot deadline cancels an active transport", .timeLimit(.minutes(1)))
+    @MainActor
+    func eclassDeadlineCancelsTheActiveTransport() async throws {
+        let transport = EclassTimeoutTransport()
+        let credentials = ScoreCredentials()
+        let service = ScheduleService(credentials: credentials, crypto: AppScheduleServiceCrypto(),
+            schoolSessionRestorer: AppScheduleSchoolSessionRestorer(restore: { Issue.record("Unexpected authentication restoration"); return nil }),
+            teachingCenterState: TeachingCenterSessionState(cookieStorage: try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)),
+            transport: transport)
+        do {
+            _ = try await service.fetchEclassSnapshot(owner: credentials.schoolSessionIdentity, budget: EclassSnapshotBudget(timeout: 0.05))
+            Issue.record("Expected the complete snapshot deadline")
+        } catch { #expect((error as? URLError)?.code == .timedOut) }
+        #expect(transport.started && transport.cancelled)
+    }
+
+    @Test("Eclass decoding keeps task context and runs away from the main thread")
+    @MainActor
+    func eclassDecodingRunsInBackground() async throws {
+        let result: EclassDecodingProbe = try await EclassDecodingContext.$token.withValue("snapshot") {
+            try await ScheduleService.decodeEclassResponse(Data("{}".utf8))
+        }
+        #expect(result.token == "snapshot")
+        #expect(result.leftMainThread)
+    }
+
+    @Test("Large Eclass activity mapping allows the main actor to process work", .timeLimit(.minutes(1)))
+    @MainActor
+    func eclassLargeMappingKeepsMainActorResponsive() async throws {
+        let json = "{\"activities\":[" + (1 ... 16_384).map {
+            "{\"id\":\($0),\"title\":\"作业\",\"submit_times\":1,\"end_time\":\"2030-10-01 23:59:00\"}"
+        }.joined(separator: ",") + "]}"
+        let page: EclassActivityPage = try await ScheduleService.decodeEclassResponse(Data(json.utf8))
+        var started = false
+        var finished = false
+        let mapping = Task {
+            started = true
+            defer { finished = true }
+            return try await ScheduleService.mapEclassActivities(page, courseName: "课程")
+        }
+        while !started { await Task.yield() }
+        var heartbeats = 0
+        while !finished {
+            heartbeats += 1
+            try await Task.sleep(for: .milliseconds(1))
+        }
+        let result = try await mapping.value
+        #expect(result.events.count == 16_384)
+        #expect(heartbeats > 0)
+    }
+
     @Test("Smoke requests bind actual responses to the operation and redact URL credentials")
     @MainActor
     func smokeEvidenceRequiresTransportAndRestoresTaskScope() async throws {
@@ -848,6 +899,31 @@ struct NetworkClientTests {
     }
 
 
+}
+
+private nonisolated enum EclassDecodingContext {
+    @TaskLocal static var token = "missing"
+}
+
+@MainActor
+private final class EclassTimeoutTransport: HTTPTransport {
+    var started = false
+    var cancelled = false
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        started = true
+        do { try await Task.sleep(for: .seconds(1)) }
+        catch is CancellationError { cancelled = true; throw CancellationError() }
+        throw URLError(.networkConnectionLost)
+    }
+}
+
+private nonisolated struct EclassDecodingProbe: Decodable, Sendable {
+    let token: String
+    let leftMainThread: Bool
+    init(from decoder: any Decoder) throws {
+        token = EclassDecodingContext.token
+        leftMainThread = !Thread.isMainThread
+    }
 }
 
 #if !DEBUG && !BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING && !RELEASE_NETWORK_SMOKE && !ICLOUD_CROSS_DEVICE_SMOKE

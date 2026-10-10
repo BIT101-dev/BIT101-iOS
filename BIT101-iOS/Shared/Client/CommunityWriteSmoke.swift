@@ -14,7 +14,7 @@ import TransportCore
 /// 线上写入的事务记录原子保存到本机专用文件，清理复用服务端读取与删除入口。
 @MainActor
 final class CommunityWriteSmoke {
-    enum Kind: String, Codable, CaseIterable { case poster, paper, course }
+    nonisolated enum Kind: String, Codable, CaseIterable, Sendable { case poster, paper, course }
     struct Content {
         let text: String; let owned: Bool; let liked: Bool
         var imageMids: [String] = []
@@ -295,7 +295,9 @@ final class CommunityWriteSmoke {
         self.operations = operations; self.load = load; self.save = save
     }
 
-    func run(marker: String, cleanupOnly: Bool = false, expectedAccount: Int? = nil) async throws -> [String] {
+    func run(marker: String, cleanupOnly: Bool = false, expectedAccount: Int? = nil,
+             recoveryConfirmation: CommunityWriteRecoveryConfirmation? = nil) async throws -> [String] {
+        guard recoveryConfirmation == nil || cleanupOnly else { throw failure("服务端未创建确认用于 community-cleanup 范围") }
         let owner = self.operations.identity()
         let operations = self.operations.scoped(to: owner)
         let account = try await operations.account()
@@ -307,8 +309,11 @@ final class CommunityWriteSmoke {
         if let data = try load() {
             var previous = try JSONDecoder().decode(Journal.self, from: data)
             guard previous.account == account else { throw failure("请登录创建验收内容的账号以完成清理") }
-            try await cleanup(&previous, operations: operations, owner: owner)
+            try recoveryConfirmation?.validate(for: previous)
+            try await cleanup(&previous, operations: operations, owner: owner, confirmation: recoveryConfirmation)
             recoveredEvidence = previous.evidence
+        } else if recoveryConfirmation != nil {
+            throw failure("服务端未创建确认需要匹配设备中的待恢复记录")
         }
         guard !cleanupOnly else { return recoveredEvidence + ["服务端清理确认完成"] }
         let course = try await operations.course()
@@ -463,7 +468,8 @@ final class CommunityWriteSmoke {
         }
     }
 
-    private func cleanup(_ journal: inout Journal, operations: Operations, owner: CommunitySessionIdentity) async throws {
+    private func cleanup(_ journal: inout Journal, operations: Operations, owner: CommunitySessionIdentity,
+                         confirmation: CommunityWriteRecoveryConfirmation? = nil) async throws {
         var failures: [String] = []
         if let target = journal.followTarget {
             if try await recoverOperation("恢复关注", failures: &failures, operation: {
@@ -477,7 +483,10 @@ final class CommunityWriteSmoke {
         for kind in Set(journal.attempts) {
             _ = try await recoverOperation("查找 " + kind.rawValue, failures: &failures, operation: {
                 let identifiers = try await operations.find(kind, journal.marker)
-                guard !identifiers.isEmpty else { throw failure("验收创建结果待服务端确认") }
+                if identifiers.isEmpty {
+                    guard let confirmation, confirmation.kinds.contains(kind.rawValue) else { throw failure("验收创建结果待服务端确认") }
+                    journal.evidence.append("服务端确认未创建 \(kind.rawValue)：\(confirmation.serverReceipt)")
+                }
                 for id in identifiers {
                     let target = Target(kind: kind, id: id)
                     if !journal.targets.contains(target) { journal.targets.append(target) }
@@ -517,6 +526,10 @@ final class CommunityWriteSmoke {
                     }
                 }
                 if found { journal.commentAttempts.removeAll { $0 == parent } }
+                else if journal.commentAttempts.contains(parent), let confirmation, confirmation.parents.contains(parent) {
+                    journal.commentAttempts.removeAll { $0 == parent }
+                    journal.evidence.append("服务端确认未创建评论 \(parent)：\(confirmation.serverReceipt)")
+                }
                 guard !journal.commentAttempts.contains(parent) else { throw failure("验收评论创建结果待服务端确认") }
             })
         }

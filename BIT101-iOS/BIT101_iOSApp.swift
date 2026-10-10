@@ -258,6 +258,7 @@ struct BIT101_iOSApp: App {
                         term: smokeRequest.term,
                         communityFollowTarget: smokeRequest.communityFollowTarget,
                         communityExpectedAccount: smokeRequest.communityExpectedAccount,
+                        communityRecoveryConfirmation: smokeRequest.communityRecoveryConfirmation,
                         fixtures: smokeRequest.fixtures,
                         schoolSMSCodeHandler: smokeRequest.interactiveSMS == true ? networkSmokeSMS.requestCode : nil
                     )
@@ -272,6 +273,7 @@ struct BIT101_iOSApp: App {
                             term: smokeRequest.term,
                             communityFollowTarget: smokeRequest.communityFollowTarget,
                             communityExpectedAccount: smokeRequest.communityExpectedAccount,
+                            communityRecoveryConfirmation: smokeRequest.communityRecoveryConfirmation,
                             fixtures: smokeRequest.fixtures,
                             schoolSMSCodeHandler: smokeRequest.interactiveSMS == true ? networkSmokeSMS.requestCode : nil
                         )

@@ -429,6 +429,7 @@ def script_findings() -> list[str]:
 
 def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
     """核对生命周期调用链与学校业务请求入口。"""
+    from network_capability_rules import call_can_execute
     errors: list[str] = []
     forbidden_identifiers = (
         "SchoolDataRefreshCoordinator",
@@ -467,7 +468,10 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
     school_scopes = {(namespace,) + scope for namespace, scope in school_owners}
     school_operations = {function["name"] for path, facts in syntax_index.items()
         for function in facts.get("functionRanges", []) if types.function_scope(path, function['scope']) in school_scopes}
-    school_operations.update({"loadAvailableTerms", "refreshSchoolDDL"})
+    school_receivers = set(school_owners)
+    while inherited := {owner for owner in types.records.keys() - school_receivers if any(
+            types.resolve(types.paths[owner], base, owner[1][:-1]) in school_receivers for base in types.records[owner])}:
+        school_receivers.update(inherited)
     functions = {}
     callable_names = {function["name"] for facts in syntax_index.values()
         for category in ("callableRanges", "functionRanges") for function in facts.get(category, [])}
@@ -490,6 +494,7 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
     execution_calls = {}
     for path, facts in syntax_index.items():
         for call in facts["calls"]:
+            if not call_can_execute(facts, call): continue
             execution_calls.setdefault((path, tuple(call["scope"]), call["value"]), []).append((facts, call))
     eager_parameters = set()
 
@@ -498,7 +503,7 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
         calls = {(call["start"], call["value"]): call for call in facts["calls"]}
         for invocation in facts.get("invocations", []):
             call = calls.get((invocation["start"], invocation.get("calledExpression")))
-            if call is None: continue
+            if call is None or not call_can_execute(facts, call): continue
             scope = variable_scope(path, call)
             value = call["value"].removesuffix(".init")
             identity = types.resolve(path, value, call["scope"])
@@ -554,6 +559,7 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
                     if reference.get("isExpressionReference") and reference["value"] == name and reference["scope"] == function["scope"]
                     and any(start <= reference["start"] < end for start, end in callback_ranges[path][2])]
                 if any(function.get("bodyStart", function["start"]) <= reference["start"] < function["end"]
+                        and call_can_execute(facts, reference)
                         and not any(boundary["start"] <= reference["start"] < boundary["end"] for boundary in deferred)
                         for reference in [call for _, call in calls] + references):
                     observed.add((id(function), name))
@@ -573,6 +579,7 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
         references = [reference for reference in facts["calls"] + facts.get("members", [])
             + [node for node in facts.get("scopedIdentifiers", []) if node.get("isExpressionReference")]
             if (re.fullmatch(r"(?:[\w?$]+\.)*\w+", reference["value"]) or reference["value"] == ".init" or reference.get("receiverCall"))
+            and call_can_execute(facts, reference)
             and not (id(reference) in identifier_ids and any(start <= reference["start"] < end for start, end in member_ranges))
             and not any(start <= reference["start"] < end for start, end in discarded)
             and not any(start <= reference["start"] < end for start, end in assignments)
@@ -646,7 +653,11 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
     cloud_operation = "refreshFromCloudIfNeeded"
     def restricted(call):
         operation = call["value"].rsplit(".", 1)[-1].strip()
-        if operation in school_operations: return True
+        if operation in school_operations:
+            receiver = type_ids.get(receiver_type(call))
+            scope = variable_scope(reference_paths[id(call)], call)
+            return receiver in school_receivers or receiver is None and "." not in call["value"] and any(
+                scope[:len(owner) + 1] == (namespace,) + owner for namespace, owner in school_receivers)
         if operation != cloud_operation: return False
         preference = receiver_type(call) in {"BIT101-iOS.ExperimentalPreferenceCloudSync", "fixture.ExperimentalPreferenceCloudSync"} \
             or "ExperimentalPreferenceCloudSync" in call["scope"] and types.units[reference_paths[id(call)]] in {"BIT101-iOS", "fixture"}
@@ -913,4 +924,18 @@ def cross_file_view_request_self_test() -> list[str]:
         if automatic_school_fetch_findings(safe): return ["代码质量规则边界自检失败：构造保存手动回调"]
         invoked = swift_syntax_index_sources({"School.swift": fixture.replace("ACTION", "try? await model.manualRefresh()")})
         if not automatic_school_fetch_findings(invoked): return ["代码质量规则边界自检失败：生命周期调用已保存回调"]
+    fixture = ('protocol ScheduleCourseServicing { func fetchCurrentTermOnly() async throws -> String }; '
+        'struct Service: ScheduleCourseServicing { func fetchCurrentTermOnly() async throws -> String { "term" } }; '
+        'struct CachedTermReader { func fetchCurrentTermOnly() async throws -> String { "cached" } }; '
+        'struct Screen: View { @Environment(\\.scenePhase) var phase; let service: RECEIVER; '
+        'var body: some View { Text("sample").MODIFIER { ACTION } } }')
+    for receiver, modifier, action, expected in (
+            ('Service', 'onChange(of: phase)', 'Task { try await service.fetchCurrentTermOnly() }', True),
+            ('any ScheduleCourseServicing', 'onChange(of: accountID)', 'try await service.fetchCurrentTermOnly()', True),
+            ('CachedTermReader', 'task', 'try await service.fetchCurrentTermOnly()', False),
+            ('Service', 'task', 'if false { try await service.fetchCurrentTermOnly() }', False),
+            ('Service', 'task', 'return; try await service.fetchCurrentTermOnly()', False)):
+        source = fixture.replace('RECEIVER', receiver).replace('MODIFIER', modifier).replace('ACTION', action)
+        if bool(automatic_school_fetch_findings(swift_syntax_index_sources({'School.swift': source}))) != expected:
+            return ['代码质量规则边界自检失败：变更回调、接收者归属与不可执行分支']
     return []

@@ -129,6 +129,21 @@ struct NetworkSmokeCoverageTests {
         #expect(throws: URLError.self) { try NetworkSmokePaging.checkPosters([poster], for: 999) }
     }
 
+    @Test func serverAbsenceConfirmationTravelsThroughTheCleanupLaunchRequest() throws {
+        let confirmation = CommunityWriteRecoveryConfirmation(marker: "功能验收 fixture", account: 1,
+            serverReceipt: "backend-reconciliation", kinds: ["poster"], parents: ["course1"])
+        let encoded = try JSONEncoder().encode(confirmation)
+        let environment = ["BIT101_COMMUNITY_RECOVERY_CONFIRMATION": String(decoding: encoded, as: UTF8.self)]
+        let request = try #require(ReleaseNetworkSmokeLaunchRequest(scope: .communityCleanup, environment: environment))
+        #expect(request.communityRecoveryConfirmation?.serverReceipt == confirmation.serverReceipt)
+        #expect(ReleaseNetworkSmokeLaunchRequest(scope: .ddl, environment: environment) == nil)
+        let fileRequest = try JSONDecoder().decode(ReleaseNetworkSmokeLaunchRequest.self, from: JSONEncoder().encode(request))
+        #expect(fileRequest.communityRecoveryConfirmation?.marker == confirmation.marker)
+        #expect(fileRequest.communityRecoveryConfirmation?.kinds == ["poster"])
+        #expect(ReleaseNetworkSmokeLaunchRequest(scope: .communityCleanup,
+            environment: ["BIT101_COMMUNITY_RECOVERY_CONFIRMATION": "{}"]) == nil)
+    }
+
     @Test func maintainedFixturesValidateAndTravelThroughBothLaunchEntrypoints() throws {
         let fixture = NetworkSmokeFixtures(posterID: 41, courseID: 43, courseNumber: "COURSE", paperID: 45)
         let encoded = try JSONEncoder().encode(fixture)

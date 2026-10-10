@@ -1,6 +1,27 @@
 import Foundation
 
+nonisolated struct CommunityWriteRecoveryConfirmation: Codable, Sendable {
+    let marker: String
+    let account: Int
+    let serverReceipt: String
+    let kinds: [String]
+    let parents: [String]
+}
+
 #if DEBUG || RELEASE_NETWORK_SMOKE
+extension CommunityWriteRecoveryConfirmation {
+    @MainActor
+    func validate(for journal: CommunityWriteSmoke.Journal) throws {
+        guard marker == journal.marker, account == journal.account,
+              !serverReceipt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              serverReceipt.unicodeScalars.allSatisfy({ $0.value >= 0x20 && $0.value != 0x7F }),
+              !kinds.isEmpty || !parents.isEmpty,
+              kinds.allSatisfy(journal.attempts.map(\.rawValue).contains), parents.allSatisfy(journal.commentAttempts.contains) else {
+            throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "服务端未创建确认需要匹配待恢复账号、标记、对象及服务端凭据"))
+        }
+    }
+}
+
 extension CommunityWriteSmoke {
     struct Target: Codable, Hashable { let kind: Kind; let id: Int }
     struct Like: Codable { let target: Target; let original: Bool }

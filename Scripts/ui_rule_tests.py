@@ -913,12 +913,14 @@ def school_lifecycle_boundary_findings() -> list[str]:
     ports = {str(source): source.read_text() for source in (
         ROOT / "Modules/SchedulePorts/Sources/ScheduleServicing.swift",
         ROOT / "Modules/ScorePorts/Sources/ScoreServicing.swift")}
+    prefix = 'import SchedulePorts; import ScorePorts; '
+    ports[str(ROOT / 'BIT101-iOS/FixtureSchool.swift')] = prefix + 'protocol FixtureSchoolServicing: ScheduleServicing, ScoreListServicing, TrustedTranscriptServicing {}; let service: any FixtureSchoolServicing; let schedule: any ScheduleServicing;'
     findings = []
     for source in (
         "struct RenamedApp: App { var body: some Scene { WindowGroup { Text(\"x\").task { await schedule.syncCourses() } } } }",
         "struct AccountLifecycle { func activate() { renamed() }; func renamed() { service.fetchScores() } }",
         "func movedRefresh() { service.syncDDLEvents() }; struct RenamedApp: App { func activate() { movedRefresh() } }",
-        "protocol ScheduleCourseServicing { func renamedProbe() }; struct RenamedApp: App { func activate() { service.renamedProbe() } }",
+        "protocol ScheduleCourseServicing { func renamedProbe() }; struct RenamedApp: App { let service: any ScheduleCourseServicing; func activate() { service.renamedProbe() } }",
         'import SchedulePorts; protocol ExtendedScheduleServicing: ScheduleCourseServicing { func fetchNewSchoolData() async throws }; struct Screen: View { let service: any ExtendedScheduleServicing; var body: some View { Text("x").task { try? await service.fetchNewSchoolData() } } }',
         'import SchedulePorts; typealias SchoolBase = ScheduleCourseServicing; protocol ExtendedScheduleServicing: SchoolBase { func fetchNewSchoolData() async throws }; struct Screen: View { let service: any ExtendedScheduleServicing; var body: some View { Text("x").task { try? await service.fetchNewSchoolData() } } }',
         'import SchedulePorts; protocol Intermediate: ScheduleCourseServicing {}; protocol ExtendedScheduleServicing: Intermediate { func fetchNewSchoolData() async throws }; struct Screen: View { let service: any ExtendedScheduleServicing; var body: some View { Text("x").task { try? await service.fetchNewSchoolData() } } }',
@@ -935,22 +937,23 @@ def school_lifecycle_boundary_findings() -> list[str]:
         'protocol Loading { func load() async }; struct Loader: Loading { let service: any ScoreListServicing; func load() async { await service.fetchScores() } }; struct Screen: View { let loader: any Loading; var body: some View { Text("x").task { await loader.load() } } }',
         'protocol Loading { func load() async }; protocol SchoolLoading: Loading {}; struct Loader: SchoolLoading { let service: any ScoreListServicing; func load() async { await service.fetchScores() } }; struct Screen: View { let loader: any Loading; var body: some View { Text("x").task { await loader.load() } } }',
     ):
+        source = prefix + source
         if not automatic_school_fetch_findings(swift_syntax_index_sources(dict(ports, **{path: source}))):
             findings.append("学校生命周期自测：重命名入口、包装方法与跨类型调用链")
-    manual = "struct ManualPage: View { var body: some View { Button(\"刷新\") { Task { await service.syncCourses() } } } }"
+    manual = prefix + "struct ManualPage: View { var body: some View { Button(\"刷新\") { Task { await service.syncCourses() } } } }"
     if automatic_school_fetch_findings(swift_syntax_index_sources(dict(ports, **{path: manual}))):
         findings.append("学校生命周期自测：用户操作保持独立调用边界")
-    loader = 'protocol Loading { func load() async }; struct Loader: Loading { let service: any ScoreListServicing; func load() async { await service.fetchScores() } };'
+    loader = prefix + 'protocol Loading { func load() async }; struct Loader: Loading { let service: any ScoreListServicing; func load() async { await service.fetchScores() } };'
     screen = 'struct Screen: View { let loader: any Loading; var body: some View { Text("x").task { await loader.load() } } }'
     if not automatic_school_fetch_findings(swift_syntax_index_sources(dict(ports, **{path: screen, str(ROOT / 'BIT101-iOS/Loader.swift'): loader}))):
         findings.append("学校生命周期自测：跨文件协议转发需要连接具体实现")
     manual_loader = screen.replace('Text("x").task', 'Button("刷新")')
     if automatic_school_fetch_findings(swift_syntax_index_sources(dict(ports, **{path: manual_loader, str(ROOT / 'BIT101-iOS/Loader.swift'): loader}))):
         findings.append("学校生命周期自测：协议转发的用户操作保持独立边界")
-    manual = 'struct Screen: View { let service: any ScheduleCourseServicing; var action: () async throws -> Void { { _ = try await service.syncCourses(term: nil) } }; var body: some View { Button("刷新") { Task { try? await action() } } } }'
+    manual = prefix + 'struct Screen: View { let service: any ScheduleCourseServicing; var action: () async throws -> Void { { _ = try await service.syncCourses(term: nil) } }; var body: some View { Button("刷新") { Task { try? await action() } } } }'
     if automatic_school_fetch_findings(swift_syntax_index_sources(dict(ports, **{path: manual}))):
         findings.append("学校生命周期自测：计算属性动作保持用户操作边界")
-    wrappers = "struct SchoolWrapper { func load() { service.fetchScores() } }; struct LocalWrapper { func load() {} }; "
+    wrappers = prefix + "struct SchoolWrapper { func load() { service.fetchScores() } }; struct LocalWrapper { func load() {} }; "
     for body in (
         "let bridge: SchoolWrapper; func start() { bridge.load() }; func helper() { let bridge = LocalWrapper(); bridge.load() }",
         "let bridge: SchoolWrapper; func start() { self.bridge.load() }; func helper() { let bridge: LocalWrapper = .init(); bridge.load() }",

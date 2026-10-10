@@ -79,6 +79,45 @@ struct ScheduleICSParserTests {
         #expect(components.hour == 0)
     }
 
+    @Test("Quoted URI parameters preserve delimiters and folded descriptions", arguments: [
+        "cid:part1@example.org", "https://example.org/task;part=1?view=details"
+    ])
+    func parsesQuotedParameters(_ alternate: String) throws {
+        let ics = "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:quoted\nSUMMARY:作业\n"
+            + "DTSTART;TZID=\"Asia/Shanghai\":20260810T120000\n"
+            + "DESCRIPTION;ALTREP=\"\(alternate)\":提交作业\\n第一\n 行:详情\nEND:VEVENT\nEND:VCALENDAR"
+        let event = try #require(ScheduleICSParser.parse(ics).first)
+        #expect(event.text == "提交作业\n第一行:详情")
+        #expect(event.dueAt == ScheduleICSParser.parseDate("20260810T120000"))
+    }
+
+    @Test("An unterminated quoted parameter rejects the calendar")
+    func rejectsUnterminatedParameter() {
+        let ics = "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:broken\nSUMMARY:作业\n"
+            + "DTSTART:20260810T120000\nDESCRIPTION;ALTREP=\"cid:part1:提交作业\nEND:VEVENT\nEND:VCALENDAR"
+        #expect(throws: ScheduleICSParser.ParseError.self) { try ScheduleICSParser.parse(ics) }
+    }
+
+    @Test("Recurrence data requires a complete source implementation", arguments: [
+        "RRULE:FREQ=DAILY;COUNT=2", "RDATE:20260811T120000", "EXDATE:20260810T120000", "RECURRENCE-ID:20260811T120000"
+    ])
+    func rejectsUnsupportedRecurrence(_ property: String) {
+        let ics = "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:recurring\nSUMMARY:作业\n"
+            + "DTSTART:20260810T120000\n\(property)\nEND:VEVENT\nEND:VCALENDAR"
+        #expect(throws: ScheduleICSParser.ParseError.self) { try ScheduleICSParser.parse(ics) }
+    }
+
+    @Test("Conflicting events with one UID reject the complete source")
+    func rejectsConflictingEventIdentity() throws {
+        func event(_ title: String) -> String {
+            "BEGIN:VEVENT\nUID:shared\nSUMMARY:\(title)\nDTSTART:20260810T120000\nEND:VEVENT\n"
+        }
+        #expect(try ScheduleICSParser.parse("BEGIN:VCALENDAR\n" + event("A") + event("A") + "END:VCALENDAR").count == 1)
+        #expect(throws: ScheduleICSParser.ParseError.self) {
+            try ScheduleICSParser.parse("BEGIN:VCALENDAR\n" + event("A") + event("B") + "END:VCALENDAR")
+        }
+    }
+
     @Test("Valid empty calendars are accepted while non-calendar responses are rejected")
     func handlesEmptyAndInvalidCalendars() throws {
         #expect(try ScheduleICSParser.parse("BEGIN:VCALENDAR\nEND:VCALENDAR").isEmpty)

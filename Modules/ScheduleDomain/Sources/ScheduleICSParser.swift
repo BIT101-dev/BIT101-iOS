@@ -48,6 +48,7 @@ public nonisolated enum ScheduleICSParser {
                 guard components.last == name else { throw ParseError.invalidCalendarData }
                 if name == "VEVENT" {
                     guard let properties = currentEvent, let event = makeEvent(from: properties) else { throw ParseError.invalidCalendarData }
+                    guard eventsByID[event.id] == nil || eventsByID[event.id] == event else { throw ParseError.invalidCalendarData }
                     eventsByID[event.id] = event
                     currentEvent = nil
                 }
@@ -56,12 +57,11 @@ public nonisolated enum ScheduleICSParser {
             }
 
             guard currentEvent != nil, components.last == "VEVENT" else { continue }
-            guard let separator = line.firstIndex(of: ":") else { throw ParseError.invalidCalendarData }
-
-            let keyPart = String(line[..<separator])
-            let value = String(line[line.index(after: separator)...])
-            let keyParts = keyPart.split(separator: ";", omittingEmptySubsequences: false)
+            let (keyParts, value) = try splitProperty(line)
             guard let name = keyParts.first, !name.isEmpty else { throw ParseError.invalidCalendarData }
+            guard !["RRULE", "RDATE", "EXDATE", "RECURRENCE-ID"].contains(name.uppercased()) else {
+                throw ParseError.invalidCalendarData
+            }
 
             var parameters: [String: String] = [:]
             for parameter in keyParts.dropFirst() {
@@ -118,6 +118,25 @@ public nonisolated enum ScheduleICSParser {
     private struct Property {
         let value: String
         let parameters: [String: String]
+    }
+
+    private static func splitProperty(_ line: String) throws -> ([Substring], String) {
+        var quoted = false
+        var start = line.startIndex
+        var header: [Substring] = []
+        for index in line.indices {
+            switch line[index] {
+            case "\"": quoted.toggle()
+            case ";" where !quoted:
+                header.append(line[start..<index])
+                start = line.index(after: index)
+            case ":" where !quoted:
+                header.append(line[start..<index])
+                return (header, String(line[line.index(after: index)...]))
+            default: break
+            }
+        }
+        throw ParseError.invalidCalendarData
     }
 
     private static func unfoldLines(in ics: String) -> [String] {

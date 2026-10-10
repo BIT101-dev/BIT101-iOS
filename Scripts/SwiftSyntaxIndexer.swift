@@ -398,11 +398,10 @@ final class FactVisitor: SyntaxVisitor {
         }
         invocations.append(invocation)
         let calledName = calledExpression.split(separator: ".").last.map(String.init) ?? calledExpression
-        if ["task", "onAppear", "onReceive"].contains(calledName) || calledName == "onChange"
-            && node.arguments.contains(where: { $0.expression.trimmedDescription.contains("scenePhase")
-                || $0.label?.text == "initial" && $0.expression.trimmedDescription == "true" }) {
+        if ["task", "onAppear", "onReceive", "onChange"].contains(calledName) {
             let callbacks: [ExprSyntax] = node.arguments.map(\.expression)
                 + (node.trailingClosure.map { [ExprSyntax($0)] } ?? [])
+                + node.additionalTrailingClosures.map { ExprSyntax($0.closure) }
             for callback in callbacks {
                 lifecycleRanges.append(ScopedRangeFact(scope: scope,
                     start: callback.positionAfterSkippingLeadingTrivia.utf8Offset,

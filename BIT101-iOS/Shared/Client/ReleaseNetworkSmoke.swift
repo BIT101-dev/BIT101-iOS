@@ -95,6 +95,7 @@ final class ReleaseNetworkSmokeRunner {
         term requestedTerm: String? = nil,
         communityFollowTarget: Int? = nil,
         communityExpectedAccount: Int? = nil,
+        communityRecoveryConfirmation: CommunityWriteRecoveryConfirmation? = nil,
         fixtures: NetworkSmokeFixtures? = nil,
         schoolSMSCodeHandler: SchoolSMSCodeHandler? = nil
     ) async -> ReleaseNetworkSmokeReport {
@@ -169,7 +170,7 @@ final class ReleaseNetworkSmokeRunner {
 
         if scope == .communityWrites || scope == .communityCleanup {
             communityWriteEvidence = await probe("社区写入与清理", area: .communityWrites, scope: scope) {
-                try await self.dependencies.communityWriteProbe(runID, scope == .communityCleanup, communityFollowTarget, communityExpectedAccount, fixtures)
+                try await self.dependencies.communityWriteProbe(runID, scope == .communityCleanup, communityFollowTarget, communityExpectedAccount, fixtures, communityRecoveryConfirmation)
             } ?? []
             return await finishReport(runID: runID, scope: scope, startedAt: startedAt)
         }

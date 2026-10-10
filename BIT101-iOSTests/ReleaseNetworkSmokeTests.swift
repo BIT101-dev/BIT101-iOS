@@ -30,7 +30,8 @@ nonisolated final class ReleaseNetworkSmokeTests: XCTestCase {
         }
         let report = await ReleaseNetworkSmokeRunner().run(scope: request.scope, runID: request.runID,
             capture: request.capture, term: request.term, communityFollowTarget: request.communityFollowTarget,
-            communityExpectedAccount: request.communityExpectedAccount, fixtures: request.fixtures)
+            communityExpectedAccount: request.communityExpectedAccount,
+            communityRecoveryConfirmation: request.communityRecoveryConfirmation, fixtures: request.fixtures)
         XCTAssertEqual(report.scope, scope)
         XCTAssertTrue(Set(report.executedProbes).isSuperset(of: scope.requiredProbes))
         XCTAssertTrue(report.passed, report.failureMessage)
@@ -410,7 +411,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
         var rawCleanupCalls = 0
         let dependencies = ReleaseNetworkSmokeDependencies(requiresRequestEvidence: false, checkLogin: { loginCalls += 1; return "fixture" }, writeReport: { reports.append($0.runID) },
             clearRawCourseResponse: { rawCleanupCalls += 1; throw CocoaError(.fileWriteNoPermission) },
-            communityWriteProbe: { id, _, _, _, _ in
+            communityWriteProbe: { id, _, _, _, _, _ in
                 runs.append(id)
                 if id == "first" {
                     await withCheckedContinuation { waiting = $0; entered = true; reached?.resume(); reached = nil }
@@ -600,6 +601,31 @@ struct ReleaseNetworkSmokeLifecycleTests {
         #expect(world.pending != nil && world.commentDeletionRequests.isEmpty)
         #expect(world.contents["poster77"]?.text == text && world.contents["poster77"]?.liked == true)
         #expect(world.rows["poster77"]?.map(\.id) == [comment.id])
+    }
+
+    @Test(arguments: ["absent", "late", "account", "marker", "receipt", "scope", "unconfirmed"])
+    func serverAbsenceConfirmationBindsTheJournalAndKeepsLateObjectsRecoverable(mode: String) async throws {
+        let world = CommunityWorld(stage: "success")
+        var journal = CommunityWriteSmoke.Journal(marker: "功能验收 fixture", account: 1)
+        journal.attempts = [.poster]; journal.parents = ["course1"]; journal.commentAttempts = ["course1"]
+        world.pending = try JSONEncoder().encode(journal)
+        let original = world.pending
+        if mode == "late" { world.contents["poster123"] = .init(text: journal.marker, owned: true, liked: false) }
+        let confirmation = CommunityWriteRecoveryConfirmation(marker: mode == "marker" ? "功能验收 other" : journal.marker,
+            account: mode == "account" ? 2 : 1, serverReceipt: mode == "receipt" ? " " : "backend-reconciliation",
+            kinds: ["poster"], parents: ["course1"])
+        if ["absent", "late"].contains(mode) {
+            let evidence = try await world.smoke.run(marker: "fixture", cleanupOnly: true, recoveryConfirmation: confirmation)
+            #expect(world.pending == nil && world.contents["poster123"] == nil)
+            #expect(evidence.contains("服务端确认未创建评论 course1：backend-reconciliation"))
+            #expect(evidence.contains(mode == "absent" ? "服务端确认未创建 poster：backend-reconciliation" : "服务端确认删除 poster123"))
+        } else {
+            await #expect(throws: (any Error).self) {
+                try await world.smoke.run(marker: "fixture", cleanupOnly: mode != "scope", expectedAccount: 1,
+                                           recoveryConfirmation: mode == "unconfirmed" ? nil : confirmation)
+            }
+            #expect(world.pending == original)
+        }
     }
 
     private final class CommunityWorld {
