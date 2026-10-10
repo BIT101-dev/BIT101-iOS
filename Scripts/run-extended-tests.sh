@@ -258,12 +258,26 @@ if [[ "$MODE" == "verify" ]]; then
   trap finish_verification EXIT ZERR
   trap 'exit 130' INT
   trap 'exit 143' TERM
+  typeset -a completed_result_groups=()
   verify_step() {
     local label="$1"
     shift
     local started_at=$SECONDS
     local step_status=0
+    local result_step=false
+    case "$label" in
+      all|release-runtime|ui|catalyst|catalyst-release-runtime)
+        result_step=true
+        local retention=first
+        if (( ${#completed_result_groups[@]} > 0 )); then retention=append; fi
+        python3 "$ROOT_DIR/Scripts/validation_performance.py" begin-batch "$retention" || return $?
+        ;;
+    esac
     "$@" || step_status=$?
+    if $result_step; then
+      completed_result_groups+=("$label")
+      python3 "$ROOT_DIR/Scripts/validation_performance.py" retain-batch "${completed_result_groups[@]}" || step_status=$?
+    fi
     if (( step_status == 0 )); then
       python3 "$ROOT_DIR/Scripts/validation_evidence.py" check-group "$label" || step_status=$?
     fi
@@ -537,7 +551,9 @@ run_tests() {
   if (( ${#TEST_SELECTIONS[@]} > 0 )); then
     only_testing=()
     local selection
-    for selection in "${TEST_SELECTIONS[@]}"; do
+    local resolved_selections
+    resolved_selections="$(bit101_xcode_test_selections "$MODE" "${TEST_SELECTIONS[@]}")" || return 64
+    for selection in "${(@f)resolved_selections}"; do
       only_testing+=("-only-testing:$TEST_BUNDLE/$selection")
     done
   elif [[ "$group" != "all-tests" && "$group" != "ui-tests" ]]; then

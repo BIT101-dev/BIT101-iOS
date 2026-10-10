@@ -6,7 +6,8 @@ def policy_floors(group: str, policy: dict) -> dict[str, int]:
     current = MODULE_COVERAGE_FLOORS if group == 'modules' else IOS_MODULE_COVERAGE_FLOORS
     if group == 'ui': current = {name: floor for name, floor in current.items() if name.endswith(('Feature', 'UI'))}
     prefix = '' if group == 'modules' else 'iOS/'
-    floors = {prefix + name: max(value, policy.get(group, {}).get(name, value)) for name, value in current.items()}
+    baseline_group = 'all' if group == 'ui' else group
+    floors = {prefix + name: max(value, policy.get(baseline_group, {}).get(name, value)) for name, value in current.items()}
     if group in {'all', 'ui'}: floors['BIT101-iOS.app'] = 35
     return floors
 
@@ -26,6 +27,11 @@ def advance(coverage: dict, baseline: dict) -> dict[str, int]:
 
 
 def self_test() -> None:
+    assert policy_floors('ui', {'all': {'GalleryFeature': 40}})['iOS/GalleryFeature'] == 40
+    assert policy_floors('ui', {'all': {'GalleryFeature': 1}})['iOS/GalleryFeature'] == 14
+    assert 'iOS/StorageCore' not in policy_floors('ui', {'all': {'StorageCore': 90}})
+    assert regressions({'iOS/GalleryFeature': {'coveredLines': 39, 'executableLines': 100}},
+        policy_floors('ui', {'all': {'GalleryFeature': 40}}))
     high = {'Feature': {'coveredLines': 80, 'executableLines': 100}}
     assert advance(high, {}) == {'Feature': 80}
     assert regressions({'Feature': {'coveredLines': 79, 'executableLines': 100}}, {'Feature': 80})

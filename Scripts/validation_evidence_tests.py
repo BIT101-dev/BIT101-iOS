@@ -320,6 +320,24 @@ def run_self_test(subject) -> int:
         cleanup = network_trace_fixture({'passed': True, 'scope': 'community-cleanup', 'executedProbes': sorted(subject.network_inventory('community-cleanup')), 'requiredProbes': sorted(subject.network_inventory('community-cleanup'))})
         assert subject.smoke_summary('community-cleanup', cleanup)['passed']
         assert not subject.smoke_summary('community-writes', cleanup, full=False)['passed']
+        selection_source = '''import Testing; import XCTest
+            struct Suite { @Test func first() {}; @Test(arguments: [1]) func second(_ value: Int) {} }
+            class Other: XCTestCase { func testThird() {} }'''
+        with patch.object(Path, 'rglob', return_value=[Path('selection-contract.swift')]), \
+                patch.object(Path, 'read_text', return_value=selection_source):
+            selectors = subject.test_selectors.__wrapped__('all')
+        assert selectors == {'Suite/first': 'Suite/first()', 'Suite/second': 'Suite/second(_:)', 'Other/testThird': 'Other/testThird'}
+        with patch(f'{module_name}.test_selectors', return_value=selectors), \
+                patch(f'{module_name}.test_inventory', return_value=set(selectors)):
+            assert subject.xcode_test_selections('all', ['Suite/first', 'Suite/second', 'Other/testThird']) \
+                == ['Suite/first()', 'Suite/second(_:)', 'Other/testThird']
+            assert subject.xcode_test_selections('all', ['Suite', 'Suite/first()', 'Suite/first']) == ['Suite', 'Suite/first()']
+            try:
+                subject.xcode_test_selections('all', ['Suite/missing'])
+            except ValueError:
+                pass
+            else:
+                raise AssertionError('Xcode 筛选需要匹配源码库存')
         with patch(f'{module_name}.test_inventory', return_value={'Suite/first', 'Suite/second', 'Other/third'}):
             expected = subject.selected_test_inventory('all', ['Suite', 'Other/third()'])
             assert expected == {'Suite/first', 'Suite/second', 'Other/third'}
@@ -711,6 +729,21 @@ def network_route_identity_self_test() -> None:
                 else: row['query'][key] = 'unexpected'
             assert not complete(probe, changed), (probe, key)
     assert not complete('文章列表-未知', requests)
+    for probe, parameters, selectors in [
+        ('文章列表', {}, None), ('我的帖子', {'mode': 'search', 'uid': '0'}, {'uid': '0'}),
+        ('用户帖子', {'mode': 'search', 'uid': '42'}, {'uid': '42'}),
+    ]:
+        endpoint = 'https://bit101.flwfdd.xyz/' + ('papers' if probe.startswith('文章') else 'posters')
+        rows = [{'method': 'GET', 'endpoint': endpoint, 'statusCode': 200, 'query': dict(parameters, page=str(page))}
+            for page in (0, 1)]
+        assert complete(probe, rows, selectors), probe
+        for key, value in [('order', 'hot'), ('search', 'BIT101')]:
+            changed = deepcopy(rows)
+            for row in changed: row['query'][key] = value
+            assert not complete(probe, changed, selectors), (probe, key)
+            changed = deepcopy(rows)
+            for row in changed: row['finalQuery'] = dict(row['query'], **{key: value})
+            assert not complete(probe, changed, selectors), (probe, key, 'redirect')
     for probe, paths, expected in [
         ('课表、考试与首周同步', ['/jwapp/sys/wdkbby/modules/xskcb/cxxszhxqkb.do',
             '/jwapp/sys/wdksapMobile/modules/ksap/cxxsksap.do', '/jwapp/sys/wdkbby/wdkbByController/cxzkbrq.do'], {'XNXQDM': '2025-2026-1'}),

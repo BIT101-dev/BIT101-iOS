@@ -332,6 +332,18 @@ bit101_run_logged() {
   fi
 }
 
+bit101_xcode_test_selections() {
+  python3 - "$ROOT_DIR/Scripts" "$@" <<'PY'
+import sys
+sys.path.insert(0, sys.argv[1])
+from validation_evidence import xcode_test_selections
+try:
+    print('\n'.join(xcode_test_selections(sys.argv[2], sys.argv[3:])))
+except ValueError as error:
+    raise SystemExit(str(error))
+PY
+}
+
 bit101_ui_test_selections() {
   python3 - "$ROOT_DIR/Scripts" "$@" <<'PY'
 import sys

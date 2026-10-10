@@ -211,7 +211,12 @@ def aggregate_failure_self_test(module) -> None:
     source = (module.ROOT / "Scripts/run-extended-tests.sh").read_text()
     step = re.search(r"(?ms)^  verify_step\(\) \{.*?^  \}", source)[0]
     for command_status, evidence_status in ((0, 0), (7, 0), (0, 7)):
-        harness = f"ROOT_DIR=/repo; SECONDS=0; command() {{ return {command_status}; }}; python3() {{ return {evidence_status}; }};\n"
+        harness = f'''ROOT_DIR=/repo
+SECONDS=0
+completed_result_groups=()
+command() {{ return {command_status}; }}
+python3() {{ if [[ "$2" == check-group ]]; then return {evidence_status}; fi; return 0; }}
+'''
         result = subprocess.run(["zsh", "-c", harness + step + "\nverify_step all command\nprint next-group"], capture_output=True, text=True)
         assert (result.returncode == 0) == (command_status == evidence_status == 0)
         assert ("next-group" in result.stdout) == (result.returncode == 0)

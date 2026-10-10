@@ -43,6 +43,7 @@ def run_self_test() -> None:
         except ValueError: pass
         else: raise AssertionError('手填采样需要匹配实际 xcresult 指标')
     producing_run_capture_self_test()
+    batch_retention_self_test(raw, test)
     merge_regression_self_test()
     baseline_migration_self_test()
 
@@ -112,6 +113,7 @@ def producing_run_capture_self_test() -> None:
             patch.object(subject, 'complete_environment', return_value=True), \
             patch.object(subject, 'uncommitted_inputs', return_value=[]), \
             patch.object(subject, 'record_complete', return_value=True), \
+            patch.object(subject, 'bundle_digest', return_value='b' * 64), \
             patch('validation_evidence.source_digest', return_value='digest'), \
             patch.object(subject.subprocess, 'check_output', side_effect=AssertionError('后续宿主沿固定结果包继续运行')):
         assert subject.capture_current() == {'schemaVersion': 1, 'records': combined}
@@ -127,6 +129,123 @@ def producing_run_capture_self_test() -> None:
                     try: subject.capture_current()
                     except ValueError: pass
                     else: raise AssertionError('采样需要匹配完成时的生产运行')
+
+
+def batch_retention_self_test(raw: list, test: str) -> None:
+    import json
+    import shutil
+    import subprocess
+    import sys
+    from contextlib import nullcontext
+    import validation_evidence
+    fixture = subject.ROOT / '.build/static-audit/performance-results-self-test'
+    bundle = fixture / 'test-results.xcresult'
+    retained = bundle.with_suffix('.retained.xcresult')
+    incoming = bundle.with_suffix('.incoming.xcresult')
+    report_path = fixture / 'report.json'
+    record = {'testIdentifier': test, 'xcresultMetrics': raw,
+        'execution': {'environment': {'device': {'identifier': 'phone'}}, 'bundleSHA256': 'original', 'runID': 'run'},
+        'resultBundle': {'sha256': 'original'}}
+    report = {'groups': {'all': {'resultBundleSHA256': 'original', 'performance': {'records': {'sample': record}}},
+        'ui': {'runID': 'ui'}}, 'performanceBaseline': deepcopy(record)}
+    foreign = deepcopy(raw[0]['testRuns'][0])
+    foreign['device']['deviceId'] = 'mac'
+    combined = deepcopy(raw)
+    combined[0]['testRuns'].append(foreign)
+    assert subject.normalize_metrics(combined, test, 'phone') == subject.normalize_metrics(raw, test, 'phone')
+    duplicate = deepcopy(raw)
+    duplicate[0]['testRuns'] += deepcopy(raw[0]['testRuns'])
+    try: subject.normalize_metrics(duplicate, test, 'phone')
+    except ValueError: pass
+    else: raise AssertionError('所属设备需要唯一的性能运行')
+    with patch.object(subject.subprocess, 'check_output', return_value=json.dumps(combined)), \
+            patch.object(subject, 'bundle_digest', return_value='aggregate') as digest:
+        updated = subject.rebind_result_records(report, ['all', 'ui'])
+        digest.assert_called_once_with(subject.BUNDLE)
+    assert report['groups']['all']['resultBundleSHA256'] == 'original'
+    assert updated['groups']['all']['runResultBundleSHA256'] == 'original'
+    assert updated['groups']['all']['performance']['records']['sample']['execution']['bundleSHA256'] == 'aggregate'
+    assert updated['groups']['all']['performance']['records']['sample']['resultBundle']['sha256'] == 'aggregate'
+    assert updated['performanceBaseline'] == report['performanceBaseline']
+    altered = deepcopy(raw)
+    altered[0]['testRuns'][0]['metrics'][0]['measurements'] = [99]
+    for value in (altered, duplicate):
+        with patch.object(subject.subprocess, 'check_output', return_value=json.dumps(value)):
+            try: subject.rebind_result_records(report, ['all'])
+            except ValueError: pass
+            else: raise AssertionError('合并结果包需要保留所属运行的原始采样')
+        assert report['groups']['all']['resultBundleSHA256'] == 'original'
+    def create(path, data):
+        path.mkdir(parents=True)
+        (path / 'database.sqlite3').write_bytes(data)
+    def merge(command, **kwargs):
+        assert command[:3] == ['xcrun', 'xcresulttool', 'merge']
+        assert command[3:5] == ['--output-path', str(incoming)]
+        assert command[5:] == [str(retained), str(bundle)]
+        create(incoming, (retained / 'database.sqlite3').read_bytes() + (bundle / 'database.sqlite3').read_bytes())
+        (incoming / 'database.sqlite3').rename(incoming / 'Info.plist')
+    def exported(command, **kwargs):
+        if 'summary' in command and (bundle / 'Info.plist').exists() and not (bundle / 'database.sqlite3').exists():
+            (bundle / 'database.sqlite3').write_bytes((bundle / 'Info.plist').read_bytes())
+        return json.dumps(combined)
+    try:
+        shutil.rmtree(fixture, ignore_errors=True)
+        create(bundle, b'first')
+        (bundle / 'database.sqlite3').rename(bundle / 'Info.plist')
+        assert subject.bundle_digest(bundle)
+        (bundle / 'Staging').mkdir()
+        try: subject.bundle_digest(bundle)
+        except ValueError: pass
+        else: raise AssertionError('结果包完成写入后提供采样摘要')
+        (bundle / 'Staging').rmdir()
+        (bundle / 'Info.plist').rename(bundle / 'database.sqlite3')
+        with patch.object(subject, 'BUNDLE', bundle), patch.object(validation_evidence, 'REPORT', report_path), \
+                patch.object(validation_evidence, 'report_lock', side_effect=nullcontext), \
+                patch.object(validation_evidence, 'write_report') as writer, \
+                patch.object(subject.subprocess, 'run', side_effect=merge), \
+                patch.object(subject.subprocess, 'check_output', side_effect=exported):
+            first_sha = subject.bundle_digest(bundle)
+            report['groups']['all']['resultBundleSHA256'] = first_sha
+            report_path.write_text(json.dumps(report))
+            assert subject.main(['begin-batch', 'append']) == 0
+            assert retained.is_dir() and not bundle.exists()
+            create(bundle, b'second')
+            second_sha = subject.bundle_digest(bundle)
+            assert subject.main(['retain-batch', 'all', 'ui']) == 0
+            saved = writer.call_args.args[0]
+            assert (bundle / 'database.sqlite3').read_bytes() == b'firstsecond'
+            assert not retained.exists() and not incoming.exists()
+            assert saved['groups']['all']['runResultBundleSHA256'] == first_sha
+            assert saved['groups']['ui']['runResultBundleSHA256'] == second_sha
+            assert all(row['resultBundleSHA256'] == subject.bundle_digest(bundle) for row in saved['groups'].values())
+            assert (bundle / 'Info.plist').is_file() and (bundle / 'database.sqlite3').is_file()
+            writer.reset_mock()
+            assert subject.main(['begin-batch', 'append']) == 0
+            assert subject.main(['retain-batch', 'all', 'ui', 'release-runtime']) == 0
+            assert (bundle / 'database.sqlite3').read_bytes() == b'firstsecond' and not retained.exists()
+            report_path.write_text(json.dumps({'groups': {'catalyst': {'runID': 'catalyst'}}}))
+            assert subject.main(['begin-batch', 'append']) == 0
+            create(bundle, b'catalyst')
+            assert subject.main(['retain-batch', 'catalyst']) == 0
+            assert writer.call_args.args[0]['groups']['catalyst']['resultBundleSHA256'] == subject.bundle_digest(bundle)
+            assert (bundle / 'database.sqlite3').is_file()
+            assert subject.main(['begin-batch', 'append']) == 0
+            create(bundle, b'failed')
+            writer.reset_mock()
+            with patch.object(subject.subprocess, 'run', side_effect=subprocess.CalledProcessError(1, ['merge'])):
+                try: subject.retain_result_step(['all', 'ui'])
+                except subprocess.CalledProcessError: pass
+                else: raise AssertionError('结果合并失败需要传播')
+            writer.assert_not_called()
+            assert retained.is_dir() and bundle.is_dir()
+            create(incoming, b'partial')
+            assert subject.main(['begin-batch', 'first']) == 0
+            assert not any(path.exists() for path in (bundle, retained, incoming))
+        result = subprocess.run([sys.executable, '-B', str(subject.ROOT / 'Scripts/validation_performance.py'), 'invalid'],
+            text=True, capture_output=True)
+        assert result.returncode == 1 and '性能命令' in result.stderr
+    finally:
+        shutil.rmtree(fixture, ignore_errors=True)
 
 
 def merge_regression_self_test() -> None:

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Capture XCTest measurements and bind performance acceptance to their producing run."""
 import hashlib
 import json
@@ -6,6 +7,9 @@ import re
 from datetime import datetime
 from pathlib import Path
 import subprocess
+import shutil
+import sys
+from copy import deepcopy
 from validation_environment import complete_environment, environment_context, exchange_identity
 from validation_provenance import utc_now, complete_group_row
 
@@ -17,7 +21,7 @@ METRICS = {'clockSeconds': ('com.apple.dt.XCTMetric_Clock.time.monotonic', 's', 
 
 
 def bundle_digest(bundle: Path) -> str:
-    if not (bundle / 'database.sqlite3').is_file() or (bundle / 'Staging').exists():
+    if not any((bundle / name).is_file() for name in ('database.sqlite3', 'Info.plist')) or (bundle / 'Staging').exists():
         raise ValueError('性能采样需要完整的 XCTest 结果包。')
     digest = hashlib.sha256()
     for path in sorted(value for value in bundle.rglob('*') if value.is_file()):
@@ -28,11 +32,70 @@ def bundle_digest(bundle: Path) -> str:
     return digest.hexdigest()
 
 
+def begin_result_step(retain_previous: bool) -> None:
+    retained = BUNDLE.with_suffix('.retained.xcresult')
+    merged = BUNDLE.with_suffix('.incoming.xcresult')
+    shutil.rmtree(retained, ignore_errors=True)
+    shutil.rmtree(merged, ignore_errors=True)
+    if retain_previous and BUNDLE.exists():
+        shutil.move(str(BUNDLE), str(retained))
+    else:
+        shutil.rmtree(BUNDLE, ignore_errors=True)
+
+
+def rebind_result_records(report: dict, groups: list[str]) -> dict:
+    updated = deepcopy(report)
+    rows = []
+    for group in groups:
+        row = updated.get('groups', {}).get(group)
+        if not row: continue
+        rows.append(row)
+        row.setdefault('runResultBundleSHA256', row.get('resultBundleSHA256'))
+        for record in row.get('performance', {}).get('records', {}).values():
+            raw = json.loads(subprocess.check_output(['xcrun', 'xcresulttool', 'get', 'test-results', 'metrics',
+                '--path', str(BUNDLE), '--test-id', record['testIdentifier'] + '()'], text=True))
+            device = record['execution']['environment']['device']['identifier']
+            if normalize_metrics(raw, record['testIdentifier'], device) != normalize_metrics(
+                    record['xcresultMetrics'], record['testIdentifier'], device):
+                raise ValueError('合并结果包需要保留所属测试组的实际性能采样。')
+            record['xcresultMetrics'] = raw
+    sha = bundle_digest(BUNDLE)
+    for row in rows:
+        for record in row.get('performance', {}).get('records', {}).values():
+            record['execution']['bundleSHA256'] = sha
+            record['resultBundle']['sha256'] = sha
+        row['resultBundleSHA256'] = sha
+    return updated
+
+
+def retain_result_step(groups: list[str]) -> None:
+    from validation_evidence import REPORT, report_lock, write_report
+    retained = BUNDLE.with_suffix('.retained.xcresult')
+    merged = BUNDLE.with_suffix('.incoming.xcresult')
+    current_sha = bundle_digest(BUNDLE) if BUNDLE.exists() else None
+    if retained.exists():
+        if BUNDLE.exists():
+            subprocess.run(['xcrun', 'xcresulttool', 'merge', '--output-path', str(merged), str(retained), str(BUNDLE)],
+                check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            shutil.rmtree(BUNDLE)
+            shutil.move(str(merged), str(BUNDLE))
+            shutil.rmtree(retained)
+        else:
+            shutil.move(str(retained), str(BUNDLE))
+    if not BUNDLE.exists(): return
+    subprocess.check_output(['xcrun', 'xcresulttool', 'get', 'test-results', 'summary', '--path', str(BUNDLE)])
+    with report_lock():
+        report = json.loads(REPORT.read_text()) if REPORT.is_file() else {}
+        if current_sha and (row := report.get('groups', {}).get(groups[-1])):
+            row['runResultBundleSHA256'] = current_sha
+        write_report(rebind_result_records(report, groups))
+
+
 def normalize_metrics(raw: list, test: str, device: str) -> dict:
     if not isinstance(raw, list) or len(raw) != 1 or raw[0].get('testIdentifier') != test + '()':
         raise ValueError('性能指标需要对应的唯一 XCTest 用例。')
-    runs = raw[0]['testRuns']
-    if len(runs) != 1 or runs[0]['device']['deviceId'] != device:
+    runs = [run for run in raw[0]['testRuns'] if run['device']['deviceId'] == device]
+    if len(runs) != 1:
         raise ValueError('性能指标需要来自所属实体设备。')
     result = {}
     for name, (identifier, unit, scale) in METRICS.items():
@@ -143,12 +206,14 @@ def capture_current() -> dict:
     from validation_evidence import REPORT, source_digest
     if uncommitted_inputs(): raise ValueError('性能采样需要已提交的构建输入。')
     groups = json.loads(REPORT.read_text())['groups']
+    retained_sha = bundle_digest(BUNDLE)
     from validation_manual import PERFORMANCE_WORKLOADS, performance_group
     records = {}
     for group in ('all', 'ui'):
         row = complete_group_row(groups[group])
         context = environment_context(group)
-        if row.get('exitCode') != 0 or row.get('scope') != 'full' or exchange_identity(row.get('environment')) != exchange_identity(context) \
+        if row.get('exitCode') != 0 or row.get('scope') != 'full' or row.get('resultBundleSHA256') != retained_sha \
+                or exchange_identity(row.get('environment')) != exchange_identity(context) \
                 or row.get('inputDigest') != source_digest(group) or not complete_environment(group, context):
             raise ValueError('性能采样需要当前源码、工具链及实体设备上成功执行的完整行为与 UI 组。')
         proof = row['performance']
@@ -200,6 +265,12 @@ def merge_findings(report: dict, commit: str) -> list[str]:
 
 
 def main(arguments: list[str]) -> int:
+    if len(arguments) == 2 and arguments[0] == 'begin-batch' and arguments[1] in {'first', 'append'}:
+        begin_result_step(arguments[1] == 'append')
+        return 0
+    if len(arguments) > 1 and arguments[0] == 'retain-batch':
+        retain_result_step(arguments[1:])
+        return 0
     if arguments == ['current'] or len(arguments) in {2, 3} and arguments[0] == 'baseline':
         kind = arguments[0]
         proof = capture_current()
@@ -227,3 +298,12 @@ def main(arguments: list[str]) -> int:
         print(MEASUREMENTS)
         return 0
     raise ValueError('性能命令：current；baseline 批准人 [最大退化百分比]。')
+
+
+if __name__ == '__main__':
+    try:
+        raise SystemExit(main(sys.argv[1:]))
+    except (ValueError, OSError, subprocess.CalledProcessError) as error:
+        detail = error.stderr.decode(errors='replace').strip() if isinstance(error, subprocess.CalledProcessError) and error.stderr else str(error)
+        print(detail, file=sys.stderr)
+        raise SystemExit(1)

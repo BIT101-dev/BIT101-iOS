@@ -128,8 +128,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
     required = {
         "static-audit": (("Scripts/run-extended-tests.sh modules", "模块行为测试需要默认执行并传播失败"),),
         "catalyst-tests": (
-            ("Scripts/run-extended-tests.sh catalyst", "Mac Catalyst 行为 Job 需要执行行为用例"),
-            ("Scripts/run-extended-tests.sh catalyst-release-runtime", "Mac Catalyst 行为 Job 需要执行正式组装合同"),
+            ("Scripts/run-extended-tests.sh verify catalyst catalyst-release-runtime", "Mac Catalyst 行为 Job 需要聚合执行行为用例和正式组装合同"),
         ),
         "release-build": (
             ("Scripts/build-install-device.sh archive", "CI 需要正式归档编译模式验证"),
@@ -346,8 +345,8 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
     if not ci_wiring_findings(workflow_source.replace("run: npm ci", "run: echo skipped", 1)):
         findings.append("代码质量规则边界自检失败：Worker 冷启动依赖准备")
     for command in ("Scripts/run-static-audit.sh", "Scripts/run-extended-tests.sh modules",
-                    "Scripts/run-extended-tests.sh build ui", "Scripts/run-extended-tests.sh catalyst",
-                    "Scripts/run-extended-tests.sh catalyst-release-runtime"):
+                    "Scripts/run-extended-tests.sh build ui",
+                    "Scripts/run-extended-tests.sh verify catalyst catalyst-release-runtime"):
         for modifier in ("if: false", "continue-on-error: true", "shell: echo {0}", "working-directory: Cloudflare"):
             skipped = workflow_source.replace(f"        run: {command}", f"        {modifier}\n        run: {command}")
             if not ci_wiring_findings(skipped):
@@ -365,8 +364,8 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
     detached_catalyst = re.sub(r"(?s)(  catalyst-tests:.*?)    needs: static-audit", r"\1    needs: []", workflow_source, count=1)
     if not any("Catalyst 行为 Job 需要依赖静态审计" in item for item in ci_wiring_findings(detached_catalyst)):
         findings.append("代码质量规则边界自检失败：Catalyst Job 与静态审计依赖识别")
-    skipped_catalyst = workflow_source.replace("run: Scripts/run-extended-tests.sh catalyst", "run: echo skipped", 1)
-    if not any("Catalyst 行为 Job 需要执行" in item for item in ci_wiring_findings(skipped_catalyst)):
+    skipped_catalyst = workflow_source.replace("run: Scripts/run-extended-tests.sh verify catalyst catalyst-release-runtime", "run: echo skipped", 1)
+    if not any("Catalyst 行为 Job 需要聚合执行" in item for item in ci_wiring_findings(skipped_catalyst)):
         findings.append("代码质量规则边界自检失败：并行 Catalyst 行为用例执行门禁")
     for before, after in (("run: Scripts/run-extended-tests.sh verify modules all release-runtime ui", "run: true"),
             ("name: validation-evidence\n", "name: other-evidence\n"),

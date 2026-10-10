@@ -89,16 +89,30 @@ def active_swift_source(source: str, group: str, *, platform: str | None = None)
 
 
 @cache
-def test_inventory(group: str) -> set[str]:
+def test_selectors(group: str) -> dict[str, str]:
     if group in TEST_AREA_SUITES:
-        return {test for test in test_inventory("all")
+        return {test: selector for test, selector in test_selectors("all").items()
                 if test.split("/", 1)[0] in TEST_AREA_SUITES[group]}
     directory = ROOT / ("ModuleTests" if group == "modules" else "BIT101-iOSUITests" if group == "ui" else "BIT101-iOSTests")
     sources = {}
     for path in directory.rglob("*.swift"):
         sources[str(path)] = active_swift_source(path.read_text(), group)
-    tests = {test["value"] for facts in swift_syntax_index_sources(sources).values() for test in facts["tests"]}
-    return {test for test in tests if test.split("/", 1)[0] in FORMAL_RUNTIME_SUITES} if group in {"release-runtime", "catalyst-release-runtime"} else tests
+    selectors = {}
+    for facts in swift_syntax_index_sources(sources).values():
+        functions = {function['start']: function for function in facts['functionRanges']}
+        for test in facts['tests']:
+            selector = test['value']
+            if test.get('isTestingTest'):
+                parameters = functions[test['start']]['parameters']
+                selector += '(' + ''.join((parameter['label'] or '_') + ':' for parameter in parameters) + ')'
+            selectors[test['value']] = selector
+    return {test: selector for test, selector in selectors.items() if test.split("/", 1)[0] in FORMAL_RUNTIME_SUITES} \
+        if group in {"release-runtime", "catalyst-release-runtime"} else selectors
+
+
+@cache
+def test_inventory(group: str) -> set[str]:
+    return set(test_selectors(group))
 
 
 def normalized_test_id(identifier: str) -> str:
@@ -128,6 +142,13 @@ def selected_test_inventory(group: str, selections: list[str]) -> set[str]:
         if not matches: raise ValueError(f"请核对测试筛选：{selection}")
         expected.update(matches)
     return expected
+
+
+def xcode_test_selections(group: str, selections: list[str]) -> list[str]:
+    selected_test_inventory(group, selections)
+    selectors = test_selectors(group)
+    return list(dict.fromkeys(selectors.get(normalized_test_id(selection), normalized_test_id(selection))
+        for selection in selections))
 
 
 def selected_test_summary_complete(summary: dict, expected: list[str]) -> bool:

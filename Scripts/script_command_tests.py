@@ -14,6 +14,37 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_ROOT = ROOT / "Scripts"
 
+def result_retention_boundary_findings() -> list[str]:
+    "聚合验收保留各组结果，并传播准备、测试及合并的失败。"
+    source = (SCRIPT_ROOT / 'run-extended-tests.sh').read_text()
+    step = 'verify_step() {' + source.split('verify_step() {', 1)[1].split('\n  for group in', 1)[0]
+    findings = []
+    for child_status, retain_status, begin_status in ((0, 0, 0), (7, 0, 0), (0, 9, 0), (0, 0, 5)):
+        harness = f'''set -euo pipefail
+ROOT_DIR=/fixture
+completed_result_groups=()
+child() {{ print -r -- "CHILD $*"; return {child_status}; }}
+python3() {{
+  print -r -- "PY $*"
+  if [[ "$2" == begin-batch ]]; then return {begin_status}; fi
+  if [[ "$2" == retain-batch ]]; then return {retain_status}; fi
+  return 0
+}}
+'''
+        result = subprocess.run(['zsh', '-c', harness + step + '\nverify_step all child all\nverify_step ui child ui'],
+            text=True, capture_output=True)
+        expected = begin_status or int(bool(child_status or retain_status))
+        output = result.stdout
+        if result.returncode != expected or 'begin-batch first' not in output:
+            findings.append('结果保留自测：准备与执行失败沿聚合流程传播')
+        if begin_status:
+            if 'CHILD' in output: findings.append('结果保留自测：准备成功后执行测试')
+        elif 'retain-batch all' not in output:
+            findings.append('结果保留自测：测试成功与失败均保留实际结果')
+        if expected == 0 and ('begin-batch append' not in output or 'retain-batch all ui' not in output):
+            findings.append('结果保留自测：后续测试组合并本次全部结果')
+    return findings
+
 def audit_lock_boundary_findings() -> list[str]:
     "并发验收沿产物锁、审计锁顺序执行，并复用父流程锁。"
     import fcntl
@@ -91,7 +122,7 @@ def script_command_boundary_findings() -> list[str]:
     import shlex
     import plistlib
 
-    findings = []
+    findings = result_retention_boundary_findings()
     support = (SCRIPT_ROOT / 'script-support.sh').read_text()
     logger = 'bit101_log_command() {' + support.split('bit101_log_command() {', 1)[1].split('\nbit101_build_cache() {', 1)[0]
     command = logger + '\nbit101_log_command /dev/null stdin-contract ' + shlex.quote(sys.executable) + ' - delegated-argument\n'
@@ -270,6 +301,7 @@ xcrun() {
         ("run-extended-tests.sh", ["modules", "CommunityCoreTests"], 86, "--filter", ""),
         ("run-extended-tests.sh", [], 86, "-only-testing:BIT101-iOSTests", "DEVICE"),
         ("run-extended-tests.sh", ["NetworkClientTests"], 86, "BIT101-iOSTests/NetworkClientTests", "DEVICE"),
+        ("run-extended-tests.sh", ["AppUpdateCheckerTests/promptQueueIsSerial"], 86, "BIT101-iOSTests/AppUpdateCheckerTests/promptQueueIsSerial()", "DEVICE"),
         ("run-extended-tests.sh", ["cache"], 0, "CACHE", ""),
         ("release-network-smoke.sh", ["ddl"], 86, "RELEASE_NETWORK_SMOKE", "DEVICE"),
         ("release-network-smoke.sh", ["all", "sms"], 86, "RELEASE_NETWORK_SMOKE", "DEVICE"),

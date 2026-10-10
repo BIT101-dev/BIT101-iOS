@@ -127,6 +127,7 @@ PYSELECT
 )"
 conditions="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" conditions "$mode")"
 only_testing=()
+selections=("${(@f)$(bit101_xcode_test_selections "$mode" "${selections[@]}")}")
 for selection in "${selections[@]}"; do only_testing+=("-only-testing:$bundle/$selection"); done
 destination="platform=iOS Simulator,id=$SIMULATOR_DEVICE"
 result="$DERIVED_ROOT/test-results.xcresult"
