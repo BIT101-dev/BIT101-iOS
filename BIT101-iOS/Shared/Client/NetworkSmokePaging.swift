@@ -2,6 +2,7 @@ import Foundation
 import CommunityCore
 import CommunityTransport
 import GalleryFeature
+import ScoreDomain
 
 #if DEBUG || RELEASE_NETWORK_SMOKE
 @MainActor
@@ -10,9 +11,10 @@ enum NetworkSmokePaging {
         images.lazy.map { $0.lowUrl.isEmpty ? $0.url : $0.lowUrl }.first { !$0.isEmpty }
     }
 
-    static func arrayPage<Value: Identifiable>(load: (Int) async throws -> [Value]) async throws -> [Value] where Value.ID == Int {
+    static func arrayPage<Value: Identifiable>(requiresContent: Bool = false, load: (Int) async throws -> [Value]) async throws -> [Value] where Value.ID == Int {
         let identity = AppAccountSession.storage.communityCredentials.identity
         let first = try await load(0)
+        guard !requiresContent || !first.isEmpty else { throw URLError(.cannotParseResponse) }
         try checkIdentity(identity)
         try checkIDs(first.map(\.id))
         var sampled = CommunityPagedItems<Value>()
@@ -30,6 +32,11 @@ enum NetworkSmokePaging {
             if ids.isEmpty || advances { return sampled.items }
             page += 1
         }
+    }
+
+    static func checkScores(brief: [ScoreRow], detailed: [ScoreRow]) throws {
+        guard brief.isEmpty && detailed.isEmpty || ScoreRowComparison.briefRowsMatchCache(brief, cachedRows: detailed)
+        else { throw URLError(.cannotParseResponse) }
     }
 
     static func batch<Value: Identifiable>(load: (Int) async throws -> GalleryPageBatch<Value>) async throws -> GalleryPageBatch<Value> where Value.ID == Int {

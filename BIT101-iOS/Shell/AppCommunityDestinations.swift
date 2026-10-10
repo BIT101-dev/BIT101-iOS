@@ -215,6 +215,7 @@ enum AppLocalDataComposition {
     static func appService(settings: AppSettingsStore, media: MediaEnvironment) -> AppLocalDataService {
 #if BIT101_UI_TESTING
         return AppLocalDataService(files: AppFileDirectories.files, actions: AppLocalDataActions(
+            hasPendingRecovery: { ReleaseNetworkSmokeReportStore.hasPendingCommunityWrites() },
             clearLogin: { AppAccountSession.resetUITestCredentials(); return true },
             suspendStorageOperations: AppAccountStores.suspendStorageOperations,
             resumeStorageOperations: AppAccountStores.resumeStorageOperations,
@@ -231,6 +232,7 @@ enum AppLocalDataComposition {
         let domain = AppFileDirectories.defaultsDomain
         let webData = WKWebsiteDataStore.default()
         return AppLocalDataService(files: AppFileDirectories.files, actions: AppLocalDataActions(
+            hasPendingRecovery: { ReleaseNetworkSmokeReportStore.hasPendingCommunityWrites() },
             clearLogin: { AppAccountSession.storage.clearAllLocalData() },
             suspendStorageOperations: AppAccountStores.suspendStorageOperations,
             resumeStorageOperations: AppAccountStores.resumeStorageOperations,

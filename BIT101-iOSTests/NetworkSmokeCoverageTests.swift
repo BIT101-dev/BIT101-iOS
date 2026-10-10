@@ -302,6 +302,9 @@ struct NetworkSmokeCoverageTests {
         var pages: [Int] = []
         let empty: [CommunityUser] = try await NetworkSmokePaging.arrayPage { page in pages.append(page); return [] }
         #expect(empty.isEmpty && pages == [0, 1])
+        await #expect(throws: URLError.self) {
+            let _: [CommunityUser] = try await NetworkSmokePaging.arrayPage(requiresContent: true) { _ in [] }
+        }
         let data = Data(#"{"from_user":{},"id":9,"link_obj":"poster1","obj":"poster1","text":"","update_time":""}"#.utf8)
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
@@ -315,6 +318,18 @@ struct NetworkSmokeCoverageTests {
         await #expect(throws: URLError.self) {
             _ = try await NetworkSmokePaging.messages { _ in [message] }
         }
+    }
+
+    @Test func briefAndDetailedScoresKeepTheSameCourseIdentityAndGrade() throws {
+        let headers = ["序号", "课程编号", "课程名称", "成绩", "开课学期"]
+        let first = ScoreRow(index: 0, headers: headers, values: ["1", "CS101", "课程", "90", "2025"])
+        let detailed = ScoreRow(index: 1, headers: headers + ["平均分"], values: ["2", "CS101", "课程", "90", "2025", "80"])
+        try NetworkSmokePaging.checkScores(brief: [first], detailed: [detailed])
+        try NetworkSmokePaging.checkScores(brief: [], detailed: [])
+        for values in [["2", "CS102", "课程", "90", "2025"], ["2", "CS101", "课程", "80", "2025"]] {
+            #expect(throws: URLError.self) { try NetworkSmokePaging.checkScores(brief: [first], detailed: [ScoreRow(index: 0, headers: headers, values: values)]) }
+        }
+        #expect(throws: URLError.self) { try NetworkSmokePaging.checkScores(brief: [first], detailed: []) }
     }
 
     @Test(arguments: [false, true])
@@ -490,6 +505,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
         func fetchClaims() async throws -> [CommunityClaim] { [poster.claim] }
         func fetchReportTypes() async throws -> [GalleryReportType] { [] }
         func fetchCourses(search: String, page: Int) async throws -> [CourseSummary] {
+            if stage == "empty-list-failure" { return [] }
             guard page == 0 || stage == "repeated-page-failure" else { return [] }
             return [CourseSummary(detail: CourseDetail(id: 1, name: "fixture", number: "COURSE", credit: 1, likeNum: 0, commentNum: 0, rate: 0, teachersName: "", teachersNumber: "", like: false))]
         }
@@ -508,6 +524,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
         }
         func fetchPapers(search: String?, order: PaperSortOrder, page: Int) async throws -> [PaperSummary] {
             observed.insert("paper-list")
+            if stage == "empty-list-failure" { return [] }
             guard page == 0 else { return [] }
             return [PaperSummary(id: 1, title: "fixture", intro: "", likeNum: 0, commentNum: 0, updateTime: "")]
         }
@@ -569,7 +586,11 @@ extension ReleaseNetworkSmokeLifecycleTests {
         func startScoreChallenge() async throws -> BITLoginAuthenticationChallenge {
             if stage == "all-sms-success" { throw ScoreServiceError.secondFactorRequired(smsChallenge) }
             return BITLoginAuthenticationChallenge(challengeID: "fixture", accessToken: "fixture", status: "authenticated", maskedPhone: nil, expiresIn: 60) }
-        func fetchScores(detail: Bool, authenticatedBy challenge: BITLoginAuthenticationChallenge) async throws -> [ScoreRow] { [] }
+        func fetchScores(detail: Bool, authenticatedBy challenge: BITLoginAuthenticationChallenge) async throws -> [ScoreRow] {
+            guard stage == "all-score-mismatch-failure" else { return [] }
+            return [ScoreRow(index: 0, headers: ["课程编号", "课程名称", "成绩", "开课学期"],
+                values: ["CS101", "课程", detail ? "80" : "90", "2025"])]
+        }
         func submitScoreSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { .init(challengeID: "fixture", accessToken: "fixture", status: "authenticated", maskedPhone: nil, expiresIn: 60) }
         func fetchTrustedTranscriptPages() async throws -> [Data] {
             if stage == "all-sms-success" { throw ScoreServiceError.secondFactorRequired(smsChallenge) }
@@ -640,7 +661,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
          "aasa-mime-failure", "aasa-exclusion-failure", "image-budget-failure", "entity-identity-failure", "repeated-page-failure",
          "gallery-comment-page-failure", "course-comment-page-failure", "paper-comment-page-failure", "cors-method-failure", "cors-header-failure",
          "schedule-term-failure", "historical-term-success", "maintained-fixtures-success", "continuation-image-success",
-         "missing-fixtures-failure", "fixture-course-number-failure"])
+         "missing-fixtures-failure", "fixture-course-number-failure", "empty-list-failure", "all-score-mismatch-failure"])
     func completeOrchestration(stage: String) async throws {
         let image = try #require(UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1)).image { $0.fill(CGRect(x: 0, y: 0, width: 1, height: 1)) }.pngData())
         let services = Services(stage: stage, image: image)
@@ -668,7 +689,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
             feedbackProbe: { _ in feedback += 1 },
             loadScheduleCache: { ScheduleCache() }, makeScores: { services }, makeSchedule: { handler in services.rawResponse = handler; return services },
             makeProductionSchedule: { productionServices }, makeEclassSchedule: { services })
-        let scope: NetworkSmokeScope = stage.hasPrefix("all-") || redirectHost != nil || stage.hasPrefix("aasa") ? .all : stage == "community-failure" || stage == "image-budget-failure" || stage == "entity-identity-failure" || stage == "repeated-page-failure" || stage.contains("comment-page") || stage.hasPrefix("cors") || stage.contains("fixtures") || stage == "continuation-image-success" || stage == "fixture-course-number-failure" ? .bit101 : stage.hasPrefix("ddl") ? .ddl : .schedule
+        let scope: NetworkSmokeScope = stage.hasPrefix("all-") || redirectHost != nil || stage.hasPrefix("aasa") ? .all : stage == "community-failure" || stage == "image-budget-failure" || stage == "entity-identity-failure" || stage == "repeated-page-failure" || stage.contains("comment-page") || stage.hasPrefix("cors") || stage.contains("fixtures") || stage == "continuation-image-success" || stage == "fixture-course-number-failure" || stage == "empty-list-failure" ? .bit101 : stage.hasPrefix("ddl") ? .ddl : .schedule
         let runner = ReleaseNetworkSmokeRunner(dependencies: dependencies)
         let smsHandler: SchoolSMSCodeHandler = { _ in "fixture-code" }
         let report = await runner.run(scope: scope, runID: stage, capture: stage == "raw-write-failure" ? .rawCourseResponse : .none,

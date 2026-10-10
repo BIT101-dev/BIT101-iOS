@@ -27,7 +27,7 @@ from ui_source_facts import (
 from ui_rules import (
     alert_coverage_findings, haptic_entry_findings, interactive_list_row_findings,
     is_registered_map_theme_color_definition, is_reviewed_fixed_geometry, visual_contract_present,
-    check_composer_lifecycle,
+    check_composer_lifecycle, rendered_component_counts,
 )
 
 
@@ -35,16 +35,27 @@ from ui_rules import (
 def ast_marker_boundary_findings() -> list[str]:
     for owner in ('GalleryComposerScene', 'GalleryCommentComposerSheet', 'CourseCommentComposerSheet', 'PaperCommentComposerSheet'):
         guard = '' if owner == 'GalleryComposerScene' else 'isSubmitting || isSubmissionRequested'
-        template = f'struct {owner}: View {{ var body: some View {{ Text("editor").interactiveDismissDisabled({guard}) }} }}'
+        member = 'let callback: () async -> Bool;' if guard else ''
+        marker = '' if guard else '.accessibilityIdentifier("ui.gallery-composer-scene.submit")'
+        template = f'struct {owner}: View {{ {member} var body: some View {{ AppCommentComposerContentSection {{ Text("editor") }}{marker}.interactiveDismissDisabled({guard}) }} }}'
         def findings(source):
             errors = []
             check_composer_lifecycle(errors, swift_syntax_index_sources({'ui-self-test.swift': source}))
             return errors
         assert not findings(template)
+        assert not findings(template.replace(owner, 'RenamedEditor').replace(guard, 'blocksDismissal') if guard else template.replace(owner, 'RenamedEditor'))
         assert findings(template.replace(f'.interactiveDismissDisabled({guard})', ''))
         assert findings(template.replace(f'.interactiveDismissDisabled({guard})', '.interactiveDismissDisabled(false)'))
         unused = template.replace(f'.interactiveDismissDisabled({guard})', '')[:-1] + f'; func unused() -> some View {{ Text("unused").interactiveDismissDisabled({guard}) }} }}'
         assert findings(unused)
+        if guard: assert not findings(template.replace('AppCommentComposerContentSection', 'OtherSection').replace(f'.interactiveDismissDisabled({guard})', ''))
+    for symbol in ('AppCard', 'AppFloatingActionStack'):
+        source = f'struct Example: View {{ var body: some View {{ Text("visible") }}; func unused() -> some View {{ {symbol} {{ Text("unused") }} }} }}'
+        facts = swift_syntax_index_sources({'ui-self-test.swift': source})
+        assert not rendered_component_counts(facts['ui-self-test.swift'], facts)[symbol]
+        active = source.replace('Text("visible")', f'{symbol} {{ Text("visible") }}')
+        facts = swift_syntax_index_sources({'ui-self-test.swift': active})
+        assert rendered_component_counts(facts['ui-self-test.swift'], facts)[symbol]
     marker = 'StrokeStyle(lineWidth: 2, dash: [5, 4])'
     contract = 'Modules/CourseFeature/Sources/CourseHistoryGradesViews.swift'
     moved = ROOT / 'Modules/CourseFeature/Sources/Moved.swift'

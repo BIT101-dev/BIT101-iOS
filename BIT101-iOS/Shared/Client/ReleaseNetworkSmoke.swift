@@ -278,7 +278,7 @@ final class ReleaseNetworkSmokeRunner {
         await runInParallel(galleryOperations)
 
         _ = await probe("学业课程列表", area: .bit101, scope: scope) {
-            try await NetworkSmokePaging.arrayPage { try await courses.fetchCourses(search: "", page: $0) }
+            try await NetworkSmokePaging.arrayPage(requiresContent: validatedFixtures != nil) { try await courses.fetchCourses(search: "", page: $0) }
         }
         if let fixture = validatedFixtures {
             await runInParallel([
@@ -324,7 +324,7 @@ final class ReleaseNetworkSmokeRunner {
 
         let papers = dependencies.makePapers()
         _ = await probe("文章列表", area: .bit101, scope: scope) {
-            try await NetworkSmokePaging.arrayPage { try await papers.fetchPapers(search: nil, order: .newest, page: $0) }
+            try await NetworkSmokePaging.arrayPage(requiresContent: validatedFixtures != nil) { try await papers.fetchPapers(search: nil, order: .newest, page: $0) }
         }
         if let fixture = validatedFixtures {
             await runInParallel([
@@ -527,11 +527,14 @@ final class ReleaseNetworkSmokeRunner {
             }
         }
         if let scoreChallenge {
-            _ = await probe("成绩简略列表", area: .school, scope: scope) {
+            let briefScores = await probe("成绩简略列表", area: .school, scope: scope) {
                 try await scoreService.fetchScores(detail: false, authenticatedBy: scoreChallenge)
             }
             _ = await probe("成绩详细列表", area: .school, scope: scope) {
-                try await scoreService.fetchScores(detail: true, authenticatedBy: scoreChallenge)
+                let detailed = try await scoreService.fetchScores(detail: true, authenticatedBy: scoreChallenge)
+                guard let briefScores else { throw URLError(.cannotParseResponse) }
+                try NetworkSmokePaging.checkScores(brief: briefScores, detailed: detailed)
+                return detailed
             }
         }
 

@@ -31,17 +31,24 @@ from ui_source_facts import (
 
 
 def check_composer_lifecycle(errors: list[str], syntax: dict[str, dict]) -> None:
-    scopes = {'GalleryComposerScene', 'GalleryCommentComposerSheet', 'CourseCommentComposerSheet', 'PaperCommentComposerSheet'}
     for path, facts in syntax.items():
         for scope in view_scopes(facts):
-            if scope[-1] not in scopes: continue
             rendered = rendered_scope_facts(facts, scope, syntax)
+            callback = any(node.get('scope') == scope and 'async' in node.get('type', '') and '->' in node.get('type', '')
+                and re.search(r'\bBool\b', node['type']) for node in facts.get('typedVariables', []))
+            editor = any(call_name(node.get('calledExpression', '')) == 'accessibilityIdentifier'
+                and node.get('arguments') == ['"ui.gallery-composer-scene.submit"'] for node in rendered.get('invocations', []))
+            comment = any(call_name(node['value']) == 'AppCommentComposerContentSection' for node in rendered.get('calls', []))
+            if not editor and not (callback and comment): continue
             guards = [invocation.get('arguments', []) for call, invocation in zip(rendered.get('calls', []), rendered.get('invocations', []))
                 if call_name(call['value']) == 'interactiveDismissDisabled']
-            expected = [] if scope[-1] == 'GalleryComposerScene' else ['isSubmitting || isSubmissionRequested']
-            normalized = lambda arguments: [re.sub(r'[\s()]', '', argument) for argument in arguments]
-            if not any(normalized(arguments) == normalized(expected) for arguments in guards):
+            if not any(not arguments or re.sub(r'[\s()]', '', arguments[0]) != 'false' for arguments in guards):
                 errors.append(f'{path}: {scope[-1]} 的系统关闭需要沿编辑与提交状态保护')
+
+
+def rendered_component_counts(facts: dict, syntax: dict[str, dict]) -> Counter:
+    return Counter(call_name(call['value']) for scope in view_scopes(facts)
+        for call in rendered_scope_facts(facts, scope, syntax).get('calls', []))
 
 
 def check_component_contracts(errors: list[str], syntax: dict[str, dict]) -> None:

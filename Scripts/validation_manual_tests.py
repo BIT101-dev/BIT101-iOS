@@ -161,6 +161,8 @@ def run_self_test() -> None:
         assert not evidence_content_complete('widget', malformed)
     contracts, report = distribution_fixture()
     assert len(contracts) == 4 and distribution.distribution_complete(report, contracts)
+    with patch.object(Path, 'read_text', return_value='const AASA = { appID: "OLD.BIT101-dev.BIT101-iOS" };'):
+        assert not distribution.distribution_complete(report, contracts)
     for index, row in enumerate(report['bundles']):
         for key, value in [('signatureVerified', False), ('version', '0.0.0'), ('build', '0'), ('team', 'other'),
                 ('containerIdentifier', 'wrong'), ('sha256', 'invalid'), ('executableUUIDs', [])]:

@@ -266,6 +266,14 @@ struct ReleaseNetworkSmokeReport: Codable {
 enum ReleaseNetworkSmokeReportStore {
     private static let directoryName = "NetworkSmoke"
     static let rawCourseResponseFileName = "raw-course-response.json"
+    static let communityJournalFileName = "community-write-journal.json"
+    static let communityJournalPreferenceKey = "network-smoke.community-writes.pending"
+
+    static func hasPendingCommunityWrites(files: any AppFileService = AppFileDirectories.files,
+        directory: URL = AppFileDirectories.applicationSupport.appendingPathComponent(directoryName, isDirectory: true),
+        legacyData: Data? = AppFileDirectories.defaults.data(forKey: communityJournalPreferenceKey)) -> Bool {
+        legacyData != nil || files.fileExists(at: directory.appendingPathComponent(communityJournalFileName))
+    }
 
     static var fileURL: URL? {
         AppFileDirectories.appGroupFileURL(

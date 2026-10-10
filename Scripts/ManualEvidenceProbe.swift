@@ -24,6 +24,40 @@ struct ManualEvidenceProbe {
     static let movieURL = URL(fileURLWithPath: CommandLine.arguments[0])
         .deletingLastPathComponent().appendingPathComponent("evidence-media.mp4")
 
+    final class PDFImageBudget {
+        var remaining: Int
+        var valid = true
+        var visited = Set<OpaquePointer>()
+        init(_ bytes: Int) { remaining = bytes }
+        func inspect(_ dictionary: CGPDFDictionaryRef) {
+            guard valid, visited.insert(dictionary.rawValue).inserted else { return }
+            var subtype: UnsafePointer<CChar>?
+            if CGPDFDictionaryGetName(dictionary, "Subtype", &subtype), let subtype, String(cString: subtype) == "Image" {
+                var width = 0, height = 0, depth = 8
+                _ = CGPDFDictionaryGetInteger(dictionary, "BitsPerComponent", &depth)
+                guard CGPDFDictionaryGetInteger(dictionary, "Width", &width), CGPDFDictionaryGetInteger(dictionary, "Height", &height),
+                    width > 0, height > 0, depth > 0, depth <= 16,
+                    width <= remaining / (4 * ((depth + 7) / 8)) / height else { valid = false; return }
+                remaining -= width * height * 4 * ((depth + 7) / 8)
+                for name in ["SMask", "Mask"] {
+                    var mask: CGPDFStreamRef?
+                    if CGPDFDictionaryGetStream(dictionary, name, &mask), let mask, let values = CGPDFStreamGetDictionary(mask) { inspect(values) }
+                }
+            }
+            for name in ["Parent", "Resources", "XObject", "Pattern"] {
+                var values: CGPDFDictionaryRef?
+                guard CGPDFDictionaryGetDictionary(dictionary, name, &values), let values else { continue }
+                if name == "Resources" || name == "Parent" { inspect(values); continue }
+                CGPDFDictionaryApplyFunction(values, { _, object, context in
+                    guard let context else { return }
+                    let budget = Unmanaged<PDFImageBudget>.fromOpaque(context).takeUnretainedValue()
+                    var stream: CGPDFStreamRef?
+                    if CGPDFObjectGetValue(object, .stream, &stream), let stream, let values = CGPDFStreamGetDictionary(stream) { budget.inspect(values) }
+                }, Unmanaged.passUnretained(self).toOpaque())
+            }
+        }
+    }
+
     static func main() async {
         let arguments = Array(CommandLine.arguments.dropFirst())
         guard let limits = Limits(Array(arguments.prefix(5))) else { print("false"); return }
@@ -72,6 +106,12 @@ struct ManualEvidenceProbe {
                   document.numberOfPages > 0, document.numberOfPages <= limits.pdfPages, document.isUnlocked,
                   let context = CGContext(data: nil, width: 32, height: 32, bitsPerComponent: 8, bytesPerRow: 0,
                     space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            let imageBudget = PDFImageBudget(limits.decodedBytes)
+            for index in 1...document.numberOfPages {
+                guard let page = document.page(at: index), let dictionary = page.dictionary else { return false }
+                imageBudget.inspect(dictionary)
+                guard imageBudget.valid else { return false }
+            }
             for index in 1...document.numberOfPages {
                 guard let page = document.page(at: index) else { return false }
                 let bounds = page.getBoxRect(.mediaBox)
@@ -147,6 +187,17 @@ struct ManualEvidenceProbe {
         guard await decode(pdf as Data, limits: limits) else { return false }
         var smaller = limits; smaller.pdfPages = 1
         guard await decode(pdf as Data, limits: smaller) == false else { return false }
+        smaller = limits; smaller.decodedBytes = 16 * 16 * 4 - 1
+        guard await decode(pdf as Data, limits: smaller) == false else { return false }
+        let compressedPDF = NSMutableData()
+        guard let large = CGContext(data: nil, width: 2048, height: 2048, bitsPerComponent: 8, bytesPerRow: 0,
+                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
+            let image = large.makeImage(), let consumer = CGDataConsumer(data: compressedPDF),
+            let document = CGContext(consumer: consumer, mediaBox: &bounds, nil) else { return false }
+        document.beginPDFPage(nil); document.draw(image, in: bounds); document.endPDFPage(); document.closePDF()
+        guard compressedPDF.length < 2048 * 2048 * 4 / 100 else { return false }
+        smaller = limits; smaller.decodedBytes = 2048 * 2048 * 4 - 1
+        guard await decode(compressedPDF as Data, limits: smaller) == false else { return false }
         do {
             try? FileManager.default.removeItem(at: movieURL)
             defer { try? FileManager.default.removeItem(at: movieURL) }

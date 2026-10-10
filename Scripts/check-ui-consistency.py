@@ -47,11 +47,12 @@ def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[s
         relative_source = source_relative(path)
         raw_source = source_text(path)
         facts = syntax[str(path)]
+        components = rendered_component_counts(facts, syntax)
+        app_card_uses += components['AppCard']
+        floating_stack_uses += components['AppFloatingActionStack']
         call_pairs = zip(facts.get("calls", []), facts.get("invocations", []))
         for call, invocation in call_pairs:
             name = call_name(call["value"])
-            if name == "AppFloatingActionStack":
-                floating_stack_uses += 1
             if name != "ZStack":
                 continue
             invocation_source = mask_literals_and_comments(invocation["value"])
@@ -138,12 +139,10 @@ def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[s
                         DIRECT_PLAIN_LIST_STYLE,
                     )
 
-        app_card_uses += sum(call_name(call["value"]) == "AppCard" for call in facts.get("calls", []))
-
     if app_card_uses == 0:
-        errors.append("未发现 AppCard 调用，公共卡片组件没有实际复用")
+        errors.append("公共卡片组件需要在生产视图中调用 AppCard")
     if floating_stack_uses == 0:
-        errors.append("未发现 AppFloatingActionStack 调用，右下角操作组没有实际复用")
+        errors.append("浮动操作组件需要在生产视图中调用 AppFloatingActionStack")
 
     # 按 List 表达式检查样式归属，消息页沿用 plain 列表。
     for path in swift_files():

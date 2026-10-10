@@ -747,7 +747,7 @@ CRITICAL_CONTRACTS = {
 
 
 def critical_findings(inventories: dict[str, set[str]]) -> list[str]:
-    return [f"关键状态转换合同需要保留测试：{behavior} → {test}" for group, contracts in CRITICAL_CONTRACTS.items()
+    return [f"关键状态转换测试登记需要保留：{behavior} → {test}" for group, contracts in CRITICAL_CONTRACTS.items()
         for behavior, test in contracts.items() if test not in inventories[group]]
 
 

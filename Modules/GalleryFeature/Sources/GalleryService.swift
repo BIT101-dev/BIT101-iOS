@@ -190,10 +190,10 @@ public struct GalleryService {
         }
     }
 
-    /// 构造带共享 cookie 策略的服务实例。
+    /// 构造沿社区会话快照认证的服务实例。
     ///
-    /// 话廊接口普遍依赖 fake-cookie，同时又需要继承现有登录 session，
-    /// 因此这里沿用共享 `HTTPCookieStorage`，避免每个服务实例各自维护认证状态。
+    /// 话廊请求沿 CommunitySession 的凭据快照提供 fake-cookie，
+    /// CommunityAPIClient 在请求层显式关闭自动 Cookie 处理。
     public init(session: CommunitySession, preferences: @escaping () -> CommunityPreferenceSnapshot) {
         api = session.client(errorDomain: "BIT101.Gallery")
         self.preferences = preferences

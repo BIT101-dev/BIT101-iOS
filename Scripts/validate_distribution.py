@@ -142,6 +142,9 @@ def distribution_complete(report: dict, contracts: dict | None = None) -> bool:
         application = entitlements.get("application-identifier", "")
         suffix = "." + row["identifier"]
         if not isinstance(application, str) or not application.endswith(suffix): return False
+        if any(domain.startswith('applinks:') for domain in entitlements.get('com.apple.developer.associated-domains', [])):
+            source = (ROOT / 'Cloudflare/OpenWorker/worker.js').read_text().split('const AASA =', 1)[1].split(';', 1)[0]
+            if application not in re.findall(r'appID:\s*"([^"]+)"', source): return False
         prefix = application[:-len(row["identifier"])]
         if not prefix.strip("."): return False
         for key, expected in contract["entitlements"].items():

@@ -10,6 +10,7 @@ nonisolated struct AppCacheCleanupResult: Sendable {
 /// 清理能力与资源归属由应用组装入口选择。
 @MainActor
 struct AppLocalDataActions {
+    let hasPendingRecovery: () -> Bool
     let clearLogin: () -> Bool
     let suspendStorageOperations: () async -> Void
     let resumeStorageOperations: () -> Void
@@ -28,6 +29,7 @@ struct AppLocalDataActions {
 @MainActor
 final class AppLocalDataService: ObservableObject {
     @Published private(set) var isCleaning = false
+    private(set) var resetFailureMessage: String?
     private let files: any AppFileService
     private let actions: AppLocalDataActions
 
@@ -38,6 +40,11 @@ final class AppLocalDataService: ObservableObject {
 
     func resetAllLocalData(onLogout: () -> Void) async -> Bool {
         guard !isCleaning else { return false }
+        resetFailureMessage = nil
+        guard !actions.hasPendingRecovery() else {
+            resetFailureMessage = "请先完成在线验收操作的恢复，再清理本机数据。"
+            return false
+        }
         isCleaning = true
         defer { isCleaning = false }
         let didClearLoginData = actions.clearLogin()

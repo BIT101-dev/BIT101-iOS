@@ -352,8 +352,8 @@ struct AboutSettingsPage: View {
         let succeeded = await localData.resetAllLocalData(onLogout: onLogout)
         if !succeeded {
             AppErrorPresenter.shared.present(AppAlert.informational(
-                title: "本机数据清理部分完成",
-                message: "部分本机数据仍待清理，可稍后重试。"
+                title: "本机数据清理待完成",
+                message: localData.resetFailureMessage ?? "部分本机数据仍待清理，可稍后重试。"
             ))
         }
     }

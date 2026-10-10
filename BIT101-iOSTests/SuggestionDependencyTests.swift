@@ -106,6 +106,7 @@ struct SuggestionDependencyTests {
 final class LocalDataActionsSpy {
     var events: [String] = []
     var succeeds = true
+    var hasPendingRecovery: () -> Bool = { false }
     var suspendedAction: String?
     var pending: CheckedContinuation<Void, Never>?
     private func record(_ action: String) async {
@@ -114,6 +115,7 @@ final class LocalDataActionsSpy {
     }
     var actions: AppLocalDataActions {
         AppLocalDataActions(
+            hasPendingRecovery: { self.hasPendingRecovery() },
             clearLogin: { self.events.append("login"); return self.succeeds },
             suspendStorageOperations: { await self.record("storage") },
             resumeStorageOperations: { self.events.append("storage-resume") },
@@ -132,6 +134,23 @@ final class LocalDataActionsSpy {
 
 @MainActor
 struct AppLocalDataOwnershipTests {
+    @Test(arguments: [false, true]) func pendingOnlineRecoveryProtectsCredentialsAndJournalBeforeReset(legacy: Bool) async throws {
+        let selected = LocalDataActionsSpy(), files = PreferenceMemoryFiles()
+        let journal = Data("pending recovery".utf8)
+        let directory = files.temporaryDirectoryURL.appendingPathComponent("NetworkSmoke", isDirectory: true)
+        let url = directory.appendingPathComponent(ReleaseNetworkSmokeReportStore.communityJournalFileName)
+        if !legacy { try files.createDirectory(at: directory); try files.writeData(journal, to: url, options: [.atomic]) }
+        var legacyData: Data? = legacy ? journal : nil
+        selected.hasPendingRecovery = { ReleaseNetworkSmokeReportStore.hasPendingCommunityWrites(files: files, directory: directory, legacyData: legacyData) }
+        let service = AppLocalDataService(files: files, actions: selected.actions)
+        #expect(await service.resetAllLocalData { Issue.record("Pending recovery cleared the login") } == false)
+        #expect(selected.events.isEmpty && !service.isCleaning && service.resetFailureMessage != nil)
+        if !legacy { #expect(try files.readData(at: url) == journal); try files.removeItem(at: url) }
+        legacyData = nil
+        #expect(await service.resetAllLocalData { selected.events.append("logout") })
+        #expect(service.resetFailureMessage == nil && selected.events.last == "logout")
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func profileMutationsKeepOneOwnerThroughSuccessFailureAndRetry(fails: Bool) async throws {
         let mutation = AccountProfileMutation()

@@ -122,6 +122,70 @@ export class QuotaFixture extends ReportQuota {
       }
     } finally { await configured.dispose(); }
   }
+  const mailFixture = fs.readFileSync("../ErrorReportWorker/worker.js", "utf8") + `
+export class DeliveryFixture extends ReportEmailDelivery {
+  async fetch(request) {
+    if (new URL(request.url).pathname === "/inspect") {
+      return Response.json({ job: await this.ctx.storage.get("job"), alarm: await this.ctx.storage.getAlarm() });
+    }
+    if (new URL(request.url).pathname === "/wake") {
+      await this.ctx.storage.setAlarm(Date.now()); return new Response(null, { status: 204 });
+    }
+    return super.fetch(request);
+  }
+}`;
+  const mail = new Miniflare(convertV4MiniflareOptions({ workers: [
+    { name: "email-acceptance", modules: true, script: mailFixture, compatibilityDate: config.compatibility_date,
+      kvNamespaces: ["ERROR_REPORTS"], serviceBindings: { REPORT_EMAIL: "mail-fixture" }, durableObjects: {
+        REPORT_QUOTA: { className: "ReportQuota", useSQLite: true },
+        REPORT_EMAIL_DELIVERY: { className: "DeliveryFixture", useSQLite: true } } },
+    { name: "mail-fixture", modules: true, compatibilityDate: config.compatibility_date, kvNamespaces: ["MAIL_STATUS"], script: `
+import { WorkerEntrypoint } from "cloudflare:workers";
+export default class extends WorkerEntrypoint {
+  async send(message) {
+    const count = Number(await this.env.MAIL_STATUS.get("attempts") || 0) + 1;
+    await this.env.MAIL_STATUS.put("attempts", String(count));
+    if (await this.env.MAIL_STATUS.get("offline") === "1") throw new Error("fixture offline");
+    await this.env.MAIL_STATUS.put("delivered", String(Number(await this.env.MAIL_STATUS.get("delivered") || 0) + 1));
+    return { messageId: "runtime-receipt" };
+  }
+}` }
+  ], log: new Log(LogLevel.NONE) }));
+  try {
+    const status = await mail.getKVNamespace("MAIL_STATUS", "mail-fixture");
+    await status.put("offline", "1");
+    const accepted = await mail.dispatchFetch("https://feedback.invalid/api/error-reports", { method: "POST",
+      headers: { "CF-Connecting-IP": "192.0.2.1" }, body: JSON.stringify({ mode: "suggestion", comment: "runtime fixture" }) });
+    assert.equal(accepted.status, 201);
+    const id = (await accepted.json()).id;
+    const namespace = await mail.getDurableObjectNamespace("REPORT_EMAIL_DELIVERY", "email-acceptance");
+    const identifier = namespace.idFromName(id), delivery = namespace.get(identifier);
+    const inspect = async () => (await delivery.fetch("https://delivery/inspect")).json();
+    const until = async predicate => {
+      const deadline = Date.now() + 10000;
+      while (!(await predicate())) { assert(Date.now() < deadline, "Runtime alarm deadline"); await new Promise(resolve => setTimeout(resolve, 20)); }
+    };
+    await until(async () => Number(await status.get("attempts")) > 0);
+    await until(async () => (await inspect()).job.delivery.attempts > 0);
+    await mail.unsafeEvictDurableObject("email-acceptance", "DeliveryFixture", { id: identifier.toString() });
+    assert.equal((await inspect()).job.delivery.status, "pending");
+    await status.put("offline", "0");
+    await delivery.fetch("https://delivery/wake", { method: "POST" });
+    await until(async () => (await inspect()).job.delivery.status === "sent");
+    const record = (await inspect()).job;
+    assert.equal(record.delivery.messageID, "runtime-receipt");
+    const reports = await mail.getKVNamespace("ERROR_REPORTS", "email-acceptance");
+    await until(async () => JSON.parse(await reports.get(record.key)).emailDelivery.status === "sent");
+    await mail.unsafeEvictDurableObject("email-acceptance", "DeliveryFixture", { id: identifier.toString() });
+    assert.equal((await inspect()).job.delivery.status, "sent");
+    await delivery.fetch("https://delivery/wake", { method: "POST" });
+    await until(async () => (await inspect()).alarm > Date.now() + 10000);
+    assert.equal(await status.get("delivered"), "1");
+    assert.equal((await delivery.fetch("https://delivery/delete", { method: "DELETE", body: JSON.stringify({ key: record.key }) })).status, 200);
+    await mail.unsafeEvictDurableObject("email-acceptance", "DeliveryFixture", { id: identifier.toString() });
+    assert.equal((await inspect()).job.deleted, true);
+    assert.equal(await reports.get(record.key), null);
+  } finally { await mail.dispose(); }
   const bodySource = fs.readFileSync("../ErrorReportWorker/worker.js", "utf8")
     .replace('import { DurableObject } from "cloudflare:workers";', 'class DurableObject { constructor(ctx, env) { this.ctx = ctx; this.env = env; } }') + "\nexport { readReportBody, MAX_BODY_BYTES, forceRedact, PROTECTED_NAMES, reportEmailSubject, reportEmailBody };";
   const { default: feedback, ReportEmailDelivery, readReportBody, MAX_BODY_BYTES, forceRedact, PROTECTED_NAMES, reportEmailSubject, reportEmailBody } = await import("data:text/javascript;base64," + Buffer.from(bodySource).toString("base64"));

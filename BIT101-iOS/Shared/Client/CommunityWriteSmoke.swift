@@ -244,13 +244,13 @@ final class CommunityWriteSmoke {
     }
     private let load: () throws -> Data?
     private let save: (Data?) throws -> Void
-    private static let journalKey = "network-smoke.community-writes.pending"
+    private static let journalKey = ReleaseNetworkSmokeReportStore.communityJournalPreferenceKey
 
     static func loadJournal(files: any AppFileService = AppFileDirectories.files,
         directory: URL = AppFileDirectories.applicationSupport.appendingPathComponent("NetworkSmoke", isDirectory: true),
         legacyData: Data? = AppFileDirectories.defaults.data(forKey: journalKey),
         removeLegacy: () -> Void = { AppFileDirectories.defaults.removeObject(forKey: journalKey) }) throws -> Data? {
-        let url = directory.appendingPathComponent("community-write-journal.json")
+        let url = directory.appendingPathComponent(ReleaseNetworkSmokeReportStore.communityJournalFileName)
         if files.fileExists(at: url) {
             let data = try files.readData(at: url)
             let normalized = try normalizedJournalData(data)
@@ -268,7 +268,7 @@ final class CommunityWriteSmoke {
 
     static func saveJournal(_ data: Data?, files: any AppFileService = AppFileDirectories.files,
         directory: URL = AppFileDirectories.applicationSupport.appendingPathComponent("NetworkSmoke", isDirectory: true)) throws {
-        let url = directory.appendingPathComponent("community-write-journal.json")
+        let url = directory.appendingPathComponent(ReleaseNetworkSmokeReportStore.communityJournalFileName)
         if let data {
             try files.createDirectory(at: directory)
             try files.writeData(data, to: url, options: AppFileSystem.protectedDataWritingOptions)
