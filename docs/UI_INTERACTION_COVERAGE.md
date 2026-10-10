@@ -106,7 +106,7 @@ UIKit 控件沿构造类型、继承或别名进入源码清单，运行门禁�
 | `InteractionCoverageUITests/testBotFeedContinuesAcrossEmptyScanBatches` | 机器人首屏与续页按批结束空扫描；继续入口沿源游标查找后续帖子 |
 | `InteractionCoverageUITests/testOfflineRecoveryRetryAndErrorReportEditor` | 离线重试、诊断编辑、原始模式、复现 / 联系方式、确认取消 / 确认、提交失败保留、关闭 |
 | `InteractionCoverageUITests/testCommunityFailedRequestsRetryToLoadedState` | 课程 / 话题 / 文章首次失败、重试到加载成功 |
-| `InteractionCoverageUITests/testErrorReportSanitizedSubmissionAndFailureRecovery` | 报告打开时切换场景并清理全局呈现器、报告原始 / 脱敏切换、缺少联系方式继续提交、提交成功关闭、列表重试恢复 |
+| `InteractionCoverageUITests/testErrorReportSanitizedSubmissionAndFailureRecovery` | 报告打开时切换场景并清理全局呈现器、报告原始 / 脱敏切换、缺少联系方式继续提交、受理后响应丢失保留完整载荷并重试、提交成功关闭、列表重试恢复 |
 | `InteractionCoverageUITests/testWebGallerySettingPersistenceScrollingAndNativeReturn` | 网页开关、WebKit 上下滑动、重新装载保留、切回原生列表 |
 
 ## 我的、设置与反馈
@@ -120,7 +120,7 @@ UIKit 控件沿构造类型、继承或别名进入源码清单，运行门禁�
 | `LoginAndScheduleUITests/testGallerySettingsValidationTogglesAndPersistence` | 机器人 / 匿名 / 网页开关及持久化状态、屏蔽 UID 校验 / 键盘提交 / 保存 / 重新装载 |
 | `LoginAndScheduleUITests/testSuggestionDraftRestoreAndDiscard` | 建议 / 联系方式输入、空提交禁用、草稿保存 / 加载 / 丢弃 |
 | `InteractionCoverageUITests/testSuggestionMissingContactConfirmationAndSubmitFailure` | 图片选择器取消、缺少联系信息返回补充 / 继续、提交失败保留、草稿丢弃 |
-| `InteractionCoverageUITests/testSuggestionSuccessfulSubmissionAndDiscardSavedDraft` | 草稿放弃加载、提交确认、成功关闭、草稿清理 |
+| `InteractionCoverageUITests/testSuggestionSuccessfulSubmissionAndDiscardSavedDraft` | 草稿放弃加载、提交确认、受理后响应丢失保留完整载荷并重试、成功关闭、草稿清理 |
 | `InteractionCoverageUITests/testCacheLimitPersistenceClearAndConfirmedReset` | 缓存上限输入 / 重新装载保留、缓存清理、文稿删除确认、返回登录、测试日程清理 |
 | `LoginAndScheduleUITests/testAboutLicenseUpdateAndResetConfirmation` | 开源声明滚动、自动更新开关、离线检查提示、重置取消 |
 | `InteractionCoverageUITests/testManualUpdatePromptAllActionsAndCurrentVersion` | 新版本本次忽略 / 忽略此版本 / App Store、当前版本提示 |

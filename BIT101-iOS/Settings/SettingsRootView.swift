@@ -200,13 +200,14 @@ private struct SettingsRoutePage: View {
     }
 }
 
-struct DeveloperSuggestionAttachment: Encodable {
+struct DeveloperSuggestionAttachment: Encodable, Equatable {
     let filename: String
     let contentType: String
     let data: String
 }
 
-struct DeveloperSuggestionPayload: Encodable {
+struct DeveloperSuggestionPayload: @MainActor FeedbackSubmissionPayload {
+    var requestID = UUID()
     let mode = "suggestion"
     let isDevelopmentBuild = AppBuildEnvironment.isDevelopment
     let comment: String
@@ -223,6 +224,10 @@ struct DeveloperSuggestionPayload: Encodable {
     let context: FeedbackDeviceContext
     let diagnosticSummary = FeedbackDiagnosticSummary.empty
     let attachments: [DeveloperSuggestionAttachment]
+
+    func hasSameContent(as other: Self) -> Bool {
+        comment == other.comment && contact == other.contact && attachments == other.attachments
+    }
 }
 
 private enum DeveloperSuggestionConfirmation: String, Identifiable {
@@ -264,6 +269,7 @@ struct DeveloperSuggestionPage: View {
     @State private var confirmation: DeveloperSuggestionConfirmation?
     @FocusState private var isContactFocused: Bool
     @State private var didCheckDraft = false
+    @State private var submissionAttempt = FeedbackSubmissionAttempt<DeveloperSuggestionPayload>()
 
     var body: some View {
         Form {
@@ -422,7 +428,7 @@ struct DeveloperSuggestionPage: View {
         defer { isSubmitting = false }
         do {
             let context = FeedbackDeviceContext.current
-            try await dependencies.submitAndClear(
+            let payload = submissionAttempt.prepare(
                 DeveloperSuggestionPayload(
                     comment: suggestion,
                     contact: contact.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -444,6 +450,8 @@ struct DeveloperSuggestionPage: View {
                     }
                 )
             )
+            try await dependencies.submitAndClear(payload)
+            submissionAttempt.finish(payload)
             text = ""
             contact = ""
             alert = nil

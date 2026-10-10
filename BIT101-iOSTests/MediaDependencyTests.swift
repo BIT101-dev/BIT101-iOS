@@ -682,6 +682,32 @@ struct MediaDependencyTests {
         #expect(newAnimated !== animated)
     }
 
+    @Test func memoryPressureReleasesCachedImagesAndPreservesActiveDisplaysAndDiskFiles() async throws {
+        let files = PreferenceMemoryFiles()
+        let bytes = try png(width: 2)
+        let transport = Images(bytes: bytes)
+        let media = environment(files: files, previewFiles: files, transport: transport)
+        let url = AppURL.required("https://example.invalid/pressure.png")
+        let file = try await media.images.file(for: url)
+        let still = try #require(await media.stillDecoder.image(at: file))
+        let animated = try #require(await media.animatedDecoder.image(at: file, reduceMotion: true))
+        await media.avatars.store(bytes, for: url)
+        let avatar = try #require(await media.avatars.image(for: url))
+        let display = MediaDisplayedImage()
+        #expect(display.set(still, budget: media.displayBudget))
+        let activeBytes = media.displayBudget.usedBytes
+        await media.releaseCachedImages()
+        #expect(display.image === still && media.displayBudget.usedBytes == activeBytes)
+        #expect(await media.images.cachedFile(for: url) == file)
+        #expect(await media.avatars.diskData(for: url) == bytes)
+        #expect(await media.stillDecoder.image(at: file) !== still)
+        #expect(await media.animatedDecoder.image(at: file, reduceMotion: true) !== animated)
+        #expect(await media.avatars.image(for: url) !== avatar)
+        #expect(transport.requests == 1)
+        display.clear()
+        #expect(media.displayBudget.usedBytes == 0)
+    }
+
     private final class SuspendedCacheLimit {
         var pending: CheckedContinuation<Int, Never>?
         private var hasRead = false

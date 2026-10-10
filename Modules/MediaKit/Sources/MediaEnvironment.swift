@@ -33,6 +33,7 @@ public final class MediaEnvironment {
     private let preferences: GalleryImageCachePreferences
     private let previewOwnership: PreviewFileOwnership
     private var temporaryPreviewFiles: [UUID: Set<URL>] = [:]
+    @ObservationIgnored private var memoryWarningTask: Task<Void, Never>?
     private nonisolated static let logger = Logger(subsystem: "BIT101", category: "PreviewFiles")
 
     public init(
@@ -59,6 +60,20 @@ public final class MediaEnvironment {
             download: { try await downloads.response(for: $0, source: .gallery) })
         avatars = CachedRemoteImageStore(files: files, quota: quota)
         Task { await Self.removeReleasedLocalPreviews(files: previewFiles, ownership: ownership) }
+        memoryWarningTask = Task { [weak self] in
+            for await _ in NotificationCenter.default.notifications(named: UIApplication.didReceiveMemoryWarningNotification) {
+                guard !Task.isCancelled else { return }
+                await self?.releaseCachedImages()
+            }
+        }
+    }
+
+    isolated deinit { memoryWarningTask?.cancel() }
+
+    func releaseCachedImages() async {
+        await avatars.clearMemory()
+        await stillDecoder.clear()
+        await animatedDecoder.clear()
     }
 
     public static func normalizedCacheLimitMB(_ value: Int) -> Int {

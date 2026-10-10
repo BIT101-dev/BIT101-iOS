@@ -111,6 +111,91 @@ nonisolated final class MaintenancePerformanceTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testConcurrentMediaPipelinePerformance() throws {
+        let workload = try PerformanceWorkload("media-pipeline", bundle: Bundle(for: Self.self))
+        let downloadCount = try workload.value("concurrentDownloads", as: Int.self)
+        let displayedCount = try workload.value("displayedImages", as: Int.self)
+        let side = try workload.value("imageSide", as: Int.self)
+        let avatarSide = try workload.value("avatarSide", as: Int.self)
+        let animatedCount = try workload.value("animatedImages", as: Int.self)
+        let animatedSide = try workload.value("animatedSide", as: Int.self)
+        let frames = try workload.value("animatedFrames", as: Int.self)
+        XCTAssertEqual(downloadCount, MediaDownloadCoordinator.maximumConcurrentDownloads)
+        XCTAssertEqual(try workload.value("encodedBytes", as: Int.self), RemoteImageResourceLimits.maximumEncodedBytes)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.preferredRange = .standard
+        let png = try XCTUnwrap(UIGraphicsImageRenderer(size: CGSize(width: side, height: side), format: format)
+            .image { $0.fill(CGRect(x: 0, y: 0, width: side, height: side)) }.pngData())
+        let gif = NSMutableData()
+        let destination = try XCTUnwrap(CGImageDestinationCreateWithData(gif, UTType.gif.identifier as CFString, frames, nil))
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: animatedSide, height: animatedSide), format: format)
+        for index in 0..<frames {
+            let frame = renderer.image { context in
+                UIColor(hue: CGFloat(index) / CGFloat(frames), saturation: 1, brightness: 1, alpha: 1).setFill()
+                context.fill(CGRect(x: 0, y: 0, width: animatedSide, height: animatedSide))
+            }
+            CGImageDestinationAddImage(destination, try XCTUnwrap(frame.cgImage),
+                [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFDelayTime: 0.05]] as CFDictionary)
+        }
+        XCTAssertTrue(CGImageDestinationFinalize(destination))
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PerformanceResponseProtocol.self]
+        configuration.urlCache = nil
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let client = HTTPClient(transport: session, observer: nil)
+        measure(metrics: [XCTClockMetric(), XCTMemoryMetric()]) {
+            let completed = expectation(description: "combined media pipeline")
+            Task { @MainActor in
+                defer { completed.fulfill() }
+                do {
+                    let files = PreferenceMemoryFiles()
+                    let media = MediaEnvironment(files: files, previewStorage: MediaPreviewStorage(files: files),
+                        defaults: AppFileDirectories.defaults, imageHTTPClient: client, avatarHTTPClient: client)
+                    var displays: [MediaDisplayedImage] = []
+                    for index in 0..<displayedCount {
+                        let file = files.temporaryDirectoryURL.appending(path: "media-\(index).png")
+                        try files.writeData(png, to: file, options: [.atomic])
+                        let decoded = await media.stillDecoder.image(at: file)
+                        let image = try XCTUnwrap(decoded)
+                        let display = MediaDisplayedImage()
+                        XCTAssertTrue(display.set(image, budget: media.displayBudget))
+                        displays.append(display)
+                        let avatarURL = try XCTUnwrap(URL(string: "https://performance.invalid/avatar/\(index)"))
+                        await media.avatars.store(png, for: avatarURL)
+                        let avatar = await media.avatars.image(for: avatarURL, maximumPixelSize: avatarSide)
+                        XCTAssertNotNil(avatar)
+                        if index < animatedCount {
+                            let animation = files.temporaryDirectoryURL.appending(path: "media-\(index).gif")
+                            try files.writeData(gif as Data, to: animation, options: [.atomic])
+                            let animated = await media.animatedDecoder.image(at: animation, reduceMotion: false)
+                            XCTAssertNotNil(animated)
+                        }
+                    }
+                    XCTAssertEqual(media.displayBudget.usedBytes, media.displayBudget.maximumBytes)
+                    let downloads = (0..<downloadCount).map { index in
+                        Task { @MainActor in
+                            try await media.downloads.response(for: XCTUnwrap(URL(string: "https://performance.invalid/image/\(index)")),
+                                source: index.isMultiple(of: 2) ? .avatar : .gallery)
+                        }
+                    }
+                    defer { for task in downloads { task.cancel() } }
+                    var responses: [HTTPResponse] = []
+                    for task in downloads { responses.append(try await task.value) }
+                    XCTAssertEqual(responses.count, downloadCount)
+                    XCTAssertTrue(responses.allSatisfy { $0.data.count == RemoteImageResourceLimits.maximumEncodedBytes })
+                    await media.releaseCachedImages()
+                    XCTAssertTrue(displays.allSatisfy { $0.image != nil })
+                    for display in displays { display.clear() }
+                    XCTAssertEqual(media.displayBudget.usedBytes, 0)
+                } catch { XCTFail("Combined media pipeline error: \(error)") }
+            }
+            wait(for: [completed], timeout: 60)
+        }
+    }
+
     func testStillImageDecodingPerformance() throws {
         let workload = try PerformanceWorkload("image-decoding", bundle: Bundle(for: Self.self))
         let width = try workload.value("width", as: Int.self), height = try workload.value("height", as: Int.self)

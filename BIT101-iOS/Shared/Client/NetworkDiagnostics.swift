@@ -187,7 +187,7 @@ final class NetworkConnectionDescription: NetworkPathProviding {
     }
 }
 
-struct NetworkDiagnosticRecord: Codable, Identifiable, Sendable {
+struct NetworkDiagnosticRecord: Codable, Identifiable, Equatable, Sendable {
     let id: UUID
     let occurredAt: Date
     let method: String

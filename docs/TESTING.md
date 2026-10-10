@@ -394,7 +394,7 @@ fork PR 的常规 Job 使用 GitHub 托管的 `xcode-27` 镜像，每项任务�
 
 `MaintenancePerformanceTests` 沿 XCTest 默认测量选项记录 `PaperListViewModel` 的实际分页与消息列表追加、PNG 解码、复杂内联格式的文章解析与纯文本生成、GIF 解码、Widget 时间线计算、URLSession 响应聚合，以及多页本地图片的首个预览文件编码与写盘的时钟和物理内存指标。`MaintenancePerformanceUITests` 记录恢复持久化账号与 200 门、20 周课程后的进程结束、启动至课表就绪，以及启用动画、每时段四门重叠课程的 200 门、20 周课表往返切周布局；UI 内存指标采集目标 App 进程。分页负载每轮刷新文章与消息消费者，消息首屏沿生产状态替换，续页使用正数降序标识，并核对每轮数量与最终游标。性能基线沿同一真机 runner 的 XCTest 默认参数维护。
 
-`performance-baseline` 人工专项登记 `pagination`、`image-decoding`、`startup`、`schedule-layout`、`long-article`、`gif-decoding`、`widget-timeline`、`response-aggregation`、`local-preview` 九个场景的结构化比较及影像，参与完整发布验收。行为场景归属 `all`，启动与课表布局归属 `ui`；每条采样保留所属完整测试组的执行证据。
+`performance-baseline` 人工专项登记 `pagination`、`image-decoding`、`startup`、`schedule-layout`、`long-article`、`gif-decoding`、`widget-timeline`、`response-aggregation`、`local-preview`、`media-pipeline` 十个场景的结构化比较及影像，参与完整发布验收。`media-pipeline` 同时保留满额活跃位图、头像及 GIF 缓存并执行四路最大图片传输，记录组合场景的进程峰值内存和耗时，并核对内存压力回收后的活跃画面。行为场景归属 `all`，启动与课表布局归属 `ui`；每条采样保留所属完整测试组的执行证据。
 
 `long-article` 测量文章块解析与纯文本转换，`widget-timeline` 测量 200 门、20 周课程的实例解析与未来一天的时间线生成；样本分布于 13 个节次，核对 41 个时间线条目和每条最多六节课程。文章视图的布局、滚动，以及 WidgetKit provider、快照存储和扩展渲染沿对应界面与小组件人工专项验收。
 

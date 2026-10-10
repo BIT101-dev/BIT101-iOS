@@ -274,7 +274,7 @@ extension InteractionCoverageUITests {
 
     @MainActor
     @objc func testSuggestionSuccessfulSubmissionAndDiscardSavedDraft() {
-        app = configureApp(resetStorage: true, content: true)
+        app = configureApp(resetStorage: true, content: true, feedbackResponseLostOnce: true)
         openSettings("suggestion")
         replaceText("成功提交测试建议", in: app.textFields["建议内容"])
         dismissKeyboard()
@@ -288,6 +288,11 @@ extension InteractionCoverageUITests {
         tap("提交")
         tap("继续提交")
         let page = app.navigationBars["向开发者提建议"]
+        assertUI(app.alerts["提交失败"].appears(timeout: 5), "受理后的响应丢失应保留建议编辑器。")
+        closeAlertIfPresent()
+        assertUI(app.textFields["建议内容"].value as? String == "成功提交测试建议", "响应丢失应保留建议内容。")
+        tap("提交")
+        tap("继续提交")
         assertUI(waitUntil(NSPredicate(format: "exists == false"), on: page, timeout: 5), "提交成功应关闭建议页。")
         openSettings("suggestion")
         assertUI(!app.alerts["加载草稿？"].exists, "提交成功应清理建议草稿。")
@@ -647,7 +652,7 @@ extension InteractionCoverageUITests {
         tap("向开发者分享错误信息")
         let report = app.navigationBars["分享错误信息"]
         assertUI(report.appears(timeout: 5), "诊断入口应呈现报告编辑器。")
-        app = configureApp(resetStorage: false, content: true, failureOnce: true, initialTab: "gallery")
+        app = configureApp(resetStorage: false, content: true, failureOnce: true, feedbackResponseLostOnce: true, initialTab: "gallery")
         assertUI(report.disappears(timeout: 5), "场景切换应清理全局错误报告并恢复原进程页面。")
         assertUI(app.alerts["加载话廊失败"].appears(timeout: 5), "新场景应呈现所属请求的错误提示。")
         tap("向开发者分享错误信息")
@@ -658,6 +663,11 @@ extension InteractionCoverageUITests {
         dismissKeyboard()
         tap("提交")
         assertUI(app.alerts.buttons["继续提交"].appears(timeout: 5), "脱敏报告提交应请求确认。")
+        tap("继续提交")
+        let failure = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "提交失败：")).firstMatch
+        assertUI(failure.appears(timeout: 5), "受理后的响应丢失应呈现可重试结果。")
+        assertUI(app.textFields["error-report.comment"].value as? String == "合成错误报告复现步骤", "响应丢失应保留错误报告内容。")
+        tap("提交")
         tap("继续提交")
         assertUI(waitUntil(NSPredicate(format: "exists == false"), on: report, timeout: 5), "反馈响应成功应关闭报告编辑器。")
         tap("重试")

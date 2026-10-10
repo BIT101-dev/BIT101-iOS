@@ -35,7 +35,23 @@ struct ExtendedInfrastructureTests {
         #expect(model.resultMessage == nil && !model.isSubmitting)
     }
 
-    @Test(arguments: ["valid", "html", "missing", "bad-id", "wrong-origin", "changed-method"])
+    @Test @MainActor func feedbackRetryRetainsTheOriginalPayloadAndEditsStartANewSubmission() async throws {
+        var submitted: [ErrorReportPayload] = []
+        let model = ErrorReportViewModel(alert: AppAlert(title: "fixture", message: "fixture"), submitReport: {
+            submitted.append($0)
+            throw URLError(.timedOut)
+        })
+        #expect(await model.submit() == false)
+        #expect(await model.submit() == false)
+        let encoder = JSONEncoder(); encoder.outputFormatting = .sortedKeys
+        #expect(try encoder.encode(submitted[0]) == encoder.encode(submitted[1]))
+        model.comment = "updated report"
+        #expect(await model.submit() == false)
+        #expect(submitted[2].requestID != submitted[1].requestID)
+        #expect(submitted[2].comment == "updated report")
+    }
+
+    @Test(arguments: ["valid", "html", "missing", "bad-id", "wrong-id", "wrong-origin", "changed-method"])
     @MainActor
     func feedbackSuccessRequiresItsCreationReceipt(caseName: String) throws {
         let endpoint = AppURL.required("https://feedback.aihelpme.dev/api/error-reports")
@@ -47,7 +63,10 @@ struct ExtendedInfrastructureTests {
             caseName == "bad-id" ? #"{"id":"fixture"}"# : #"{"id":"11111111-1111-4111-8111-111111111111"}"#
         let response = HTTPResponse(data: Data(body.utf8), response: http, finalRequest: finalRequest)
         if caseName == "valid" { try FeedbackSubmissionClient.validateSubmissionResponse(response, request: request) }
-        else { #expect(throws: URLError.self) { try FeedbackSubmissionClient.validateSubmissionResponse(response, request: request) } }
+        else { #expect(throws: URLError.self) {
+            try FeedbackSubmissionClient.validateSubmissionResponse(response, request: request,
+                expectedReportID: caseName == "wrong-id" ? UUID() : nil)
+        } }
     }
     @Test("Forced redaction handles nested credentials")
     func nestedCredentialRedaction() {

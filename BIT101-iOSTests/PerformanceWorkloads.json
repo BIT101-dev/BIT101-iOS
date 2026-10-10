@@ -81,6 +81,19 @@
       "transport": "URLSession"
     }
   },
+  "media-pipeline": {
+    "testIdentifier": "MaintenancePerformanceTests/testConcurrentMediaPipelinePerformance",
+    "input": {
+      "concurrentDownloads": 4,
+      "encodedBytes": 33554432,
+      "displayedImages": 24,
+      "imageSide": 1024,
+      "avatarSide": 512,
+      "animatedImages": 4,
+      "animatedSide": 256,
+      "animatedFrames": 24
+    }
+  },
   "local-preview": {
     "testIdentifier": "MaintenancePerformanceTests/testLocalPreviewFirstPagePerformance",
     "input": {

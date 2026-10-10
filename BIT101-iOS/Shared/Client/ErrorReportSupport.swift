@@ -231,7 +231,27 @@ struct FeedbackDiagnosticSummary: Encodable {
     }
 }
 
-struct ErrorReportPayload: Encodable {
+@MainActor protocol FeedbackSubmissionPayload: Encodable {
+    var requestID: UUID { get }
+    func hasSameContent(as other: Self) -> Bool
+}
+
+/// 同一内容重试复用完整载荷，用户编辑后形成新的提交。
+@MainActor
+final class FeedbackSubmissionAttempt<Payload: FeedbackSubmissionPayload> {
+    private var pending: Payload?
+    func prepare(_ candidate: Payload) -> Payload {
+        if let pending, pending.hasSameContent(as: candidate) { return pending }
+        pending = candidate
+        return candidate
+    }
+    func finish(_ payload: Payload) {
+        if pending?.requestID == payload.requestID { pending = nil }
+    }
+}
+
+struct ErrorReportPayload: @MainActor FeedbackSubmissionPayload {
+    var requestID = UUID()
     let mode: String
     let isDevelopmentBuild: Bool
     let comment: String?
@@ -247,6 +267,11 @@ struct ErrorReportPayload: Encodable {
     let submittedAt: Date
     let context: FeedbackDeviceContext
     let diagnosticSummary: FeedbackDiagnosticSummary
+
+    func hasSameContent(as other: Self) -> Bool {
+        mode == other.mode && comment == other.comment && contact == other.contact
+            && errorTitle == other.errorTitle && errorMessage == other.errorMessage && diagnostics == other.diagnostics
+    }
 }
 
 private enum FeedbackSubmissionError: LocalizedError {
@@ -279,11 +304,12 @@ private struct NetworkSmokeResponse: Decodable {
 
 /// 错误报告与开发者建议共用的反馈提交入口。
 struct FeedbackSubmissionClient {
-    static func validateSubmissionResponse(_ response: HTTPResponse, request: URLRequest) throws {
+    static func validateSubmissionResponse(_ response: HTTPResponse, request: URLRequest, expectedReportID: UUID? = nil) throws {
         struct Receipt: Decodable { let id: String }
         try validateResponseOwnership(response, request: request)
         guard response.statusCode == 201, let receipt = try? JSONDecoder().decode(Receipt.self, from: response.data),
-              UUID(uuidString: receipt.id) != nil else { throw URLError(.badServerResponse) }
+              let reportID = UUID(uuidString: receipt.id), expectedReportID == nil || reportID == expectedReportID
+        else { throw URLError(.badServerResponse) }
     }
 
     private static func validateResponseOwnership(_ response: HTTPResponse, request: URLRequest) throws {
@@ -291,7 +317,7 @@ struct FeedbackSubmissionClient {
         guard response.response.url == request.url, evidence.finalMethod == request.httpMethod else { throw URLError(.badServerResponse) }
     }
 
-    static func submit<Payload: Encodable>(_ payload: Payload) async throws {
+    static func submit<Payload: FeedbackSubmissionPayload>(_ payload: Payload) async throws {
         var request = URLRequest(url: AppURL.required("https://feedback.aihelpme.dev/api/error-reports"))
         request.httpMethod = "POST"
         request.timeoutInterval = 20
@@ -308,7 +334,7 @@ struct FeedbackSubmissionClient {
                 message: HTTPClient.errorMessage(from: data)
             )
         }
-        try validateSubmissionResponse(response, request: request)
+        try validateSubmissionResponse(response, request: request, expectedReportID: payload.requestID)
     }
 
 #if DEBUG || RELEASE_NETWORK_SMOKE
@@ -357,6 +383,7 @@ final class ErrorReportViewModel: ObservableObject {
     private let identity = AppAccountSession.storage.schoolSessionIdentity
     private var accountSubscription: AnyCancellable?
     private let submitReport: @MainActor (ErrorReportPayload) async throws -> Void
+    private let submissionAttempt = FeedbackSubmissionAttempt<ErrorReportPayload>()
     var isCurrentAccount: Bool { AppAccountSession.storage.schoolSessionIdentity == identity }
 
     init(alert: any DiagnosticAlertPresentable,
@@ -397,7 +424,7 @@ final class ErrorReportViewModel: ObservableObject {
         let trimmedComment = comment.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedContact = contact.trimmingCharacters(in: .whitespacesAndNewlines)
         let context = FeedbackDeviceContext.current
-        let payload = ErrorReportPayload(
+        let payload = submissionAttempt.prepare(ErrorReportPayload(
             mode: mode.rawValue,
             isDevelopmentBuild: AppBuildEnvironment.isDevelopment,
             comment: trimmedComment.isEmpty ? nil : viewModelRedactor(trimmedComment),
@@ -413,12 +440,13 @@ final class ErrorReportViewModel: ObservableObject {
             submittedAt: Date(),
             context: context,
             diagnosticSummary: FeedbackDiagnosticSummary(diagnostics: selected)
-        )
+        ))
         do {
             try Task.checkCancellation()
             try await submitReport(payload)
             try Task.checkCancellation()
             guard isCurrentAccount else { return false }
+            submissionAttempt.finish(payload)
             resultMessage = "错误信息已提交，感谢你的帮助。"
             return true
         } catch {

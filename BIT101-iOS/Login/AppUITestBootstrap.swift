@@ -171,6 +171,7 @@ final class UITestHTTPTransport: HTTPTransport {
     private var following = false
     private var imageUploads = 0
     private var failedPaths: Set<String> = []
+    private var feedbackRetryPayload: Data?
     private let timestamp = "2026-10-01T10:00:00Z"
 
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
@@ -188,10 +189,26 @@ final class UITestHTTPTransport: HTTPTransport {
             following = false
             imageUploads = 0
             failedPaths = []
+            feedbackRetryPayload = nil
         }
         guard let url = request.url else { throw URLError(.badURL) }
         if url.host == "feedback.aihelpme.dev", AppUITestBootstrap.environment["BIT101_UI_TEST_CONTENT"] == "1" {
-            return try jsonResponse(["id": "11111111-1111-4111-8111-111111111111"], url: url, statusCode: 201)
+            guard let data = request.httpBody,
+                  let body = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let id = body["requestID"] as? String, UUID(uuidString: id) != nil else {
+                throw URLError(.badServerResponse)
+            }
+            let payload = try JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])
+            if AppUITestBootstrap.environment["BIT101_UI_TEST_FEEDBACK_RESPONSE_LOST_ONCE"] == "1",
+               failedPaths.insert("feedback").inserted {
+                feedbackRetryPayload = payload
+                throw URLError(.networkConnectionLost)
+            }
+            if let accepted = feedbackRetryPayload {
+                guard payload == accepted else { throw URLError(.badServerResponse) }
+                feedbackRetryPayload = nil
+            }
+            return try jsonResponse(["id": id], url: url, statusCode: 201)
         }
         if url.host == "itunes.apple.com", let fixture = AppUITestBootstrap.environment["BIT101_UI_TEST_UPDATE"] {
             return try jsonResponse(["resultCount": 1, "results": [["version": fixture == "current" ? "0.0" : "999.0",

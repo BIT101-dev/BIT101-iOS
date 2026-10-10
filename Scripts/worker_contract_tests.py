@@ -30,7 +30,8 @@ export class QuotaFixture extends ReportQuota {
 }`;
   const mf = new Miniflare(convertV4MiniflareOptions({ name: "worker-fixture", modules: true, script: fixture,
     compatibilityDate: config.compatibility_date, kvNamespaces: ["ERROR_REPORTS"],
-    durableObjects: { REPORT_QUOTA: { className: "QuotaFixture", useSQLite: true } },
+    durableObjects: { REPORT_QUOTA: { className: "QuotaFixture", useSQLite: true },
+      REPORT_EMAIL_DELIVERY: { className: "ReportEmailDelivery", useSQLite: true } },
     log: new Log(LogLevel.NONE) }));
   try {
     const preflight = await mf.dispatchFetch("https://feedback.invalid/api/error-reports", { method: "OPTIONS",
@@ -87,6 +88,16 @@ export class QuotaFixture extends ReportQuota {
       assert(Buffer.byteLength(JSON.stringify(row.metadata)) <= 1024);
       assert.equal(JSON.parse(await kv.get(row.name)).report.errorTitle, title);
     }
+    await seed({ day: today, count: 0 });
+    const requestID = crypto.randomUUID();
+    const identical = { mode: "suggestion", comment: "idempotent fixture", requestID };
+    const receipts = await Promise.all(Array.from({ length: 5 }, () => send(identical)));
+    for (const response of receipts) { assert.equal(response.status, 201); assert.equal((await response.json()).id, requestID); }
+    assert.equal((await inspect()).count, 1);
+    assert.equal((await kv.list()).keys.filter(key => key.name.endsWith(requestID)).length, 1);
+    assert.equal((await send({ ...identical, comment: "changed" })).status, 409);
+    assert.equal((await send({ ...identical, requestID: "invalid" })).status, 400);
+    assert.equal((await inspect()).count, 1);
     const source = Object.keys((await inspect()).sources)[0];
     assert(/^[a-f0-9]{64}$/.test(source));
     await seed({ day: today, count: 99, sources: { [source]: 99 } });
@@ -180,10 +191,14 @@ export default class extends WorkerEntrypoint {
   try {
     const status = await mail.getKVNamespace("MAIL_STATUS", "mail-fixture");
     await status.put("offline", "1");
-    const accepted = await mail.dispatchFetch("https://feedback.invalid/api/error-reports", { method: "POST",
-      headers: { "CF-Connecting-IP": "192.0.2.1" }, body: JSON.stringify({ mode: "suggestion", comment: "runtime fixture" }) });
+    const runtimeReport = { mode: "suggestion", comment: "runtime fixture", requestID: crypto.randomUUID() };
+    const accept = value => mail.dispatchFetch("https://feedback.invalid/api/error-reports", { method: "POST",
+      headers: { "CF-Connecting-IP": "192.0.2.1" }, body: JSON.stringify(value) });
+    const accepted = await accept(runtimeReport);
     assert.equal(accepted.status, 201);
     const id = (await accepted.json()).id;
+    const repeated = await accept({ requestID: runtimeReport.requestID.toUpperCase(), comment: runtimeReport.comment, mode: runtimeReport.mode });
+    assert.equal(repeated.status, 201); assert.equal((await repeated.json()).id, id);
     const namespace = await mail.getDurableObjectNamespace("REPORT_EMAIL_DELIVERY", "email-acceptance");
     const identifier = namespace.idFromName(id), delivery = namespace.get(identifier);
     const inspect = async () => (await delivery.fetch("https://delivery/inspect")).json();
@@ -201,6 +216,7 @@ export default class extends WorkerEntrypoint {
     const record = (await inspect()).job;
     assert.equal(record.delivery.messageID, "runtime-receipt");
     const reports = await mail.getKVNamespace("ERROR_REPORTS", "email-acceptance");
+    assert.equal((await reports.list()).keys.length, 1);
     await until(async () => JSON.parse(await reports.get(record.key)).emailDelivery.status === "sent");
     await mail.unsafeEvictDurableObject("email-acceptance", "DeliveryFixture", { id: identifier.toString() });
     assert.equal((await inspect()).job.delivery.status, "sent");
@@ -220,14 +236,21 @@ export default class extends WorkerEntrypoint {
   assert.doesNotThrow(() => reportEmailSubject("fixture", malformedLegacy));
   assert.doesNotThrow(() => reportEmailBody("fixture", "fixture", malformedLegacy));
   let saved = 0, sent = 0, offline = true, failStatusWrite = false, failJobWrite = false, failInitialWrite, alarmAt, duringSend;
+  let failAcceptanceWrite, failAcceptanceState = false, failAcceptanceAlarm = false, failExpiryAlarm = false;
   const emails = [];
   const records = new Map(), jobs = new Map();
   const storage = {
     async get(key) { return structuredClone(jobs.get(key)); }, async put(key, value) {
+      if (value.accepted && failAcceptanceState) { failAcceptanceState = false; throw new Error("acceptance state unavailable"); }
       if (value.delivery.status === "sent" && failJobWrite) { failJobWrite = false; throw new Error("job storage unavailable"); }
       jobs.set(key, structuredClone(value));
     },
-    async setAlarm(at) { alarmAt = at; }, async deleteAll() { jobs.clear(); }
+    async getAlarm() { return alarmAt ?? null; },
+    async setAlarm(at) {
+      if (failExpiryAlarm) { failExpiryAlarm = false; throw new Error("retention alarm unavailable"); }
+      if (failAcceptanceAlarm && at < Date.now() + 10000) { failAcceptanceAlarm = false; throw new Error("alarm unavailable"); }
+      alarmAt = at;
+    }, async deleteAll() { jobs.clear(); }
   };
   const emailEnv = {
     ERROR_REPORTS: {
@@ -235,6 +258,10 @@ export default class extends WorkerEntrypoint {
       async delete(key) { records.delete(key); },
       async getWithMetadata(key) { return records.get(key) || { value: null }; },
       async put(key, value, options) {
+        if (failAcceptanceWrite) {
+          if (failAcceptanceWrite === "committed") records.set(key, { value, metadata: options.metadata });
+          throw new Error("acceptance storage unavailable");
+        }
         if (options.expirationTtl && failInitialWrite) {
           if (failInitialWrite === "committed") records.set(key, { value, metadata: options.metadata });
           throw new Error("report storage unavailable");
@@ -271,6 +298,39 @@ export default class extends WorkerEntrypoint {
     await delivery.alarm(); assert.equal(sent, 0); jobs.clear();
   }
   failInitialWrite = null;
+  for (const failure of ["rejected", "committed", "state", "alarm", "expiry-alarm"]) {
+    jobs.clear(); records.clear(); alarmAt = undefined; saved = 0; sent = 0; offline = false;
+    failAcceptanceWrite = ["rejected", "committed"].includes(failure) ? failure : null;
+    failAcceptanceState = failure === "state"; failAcceptanceAlarm = failure === "alarm";
+    failExpiryAlarm = failure === "expiry-alarm";
+    const requestID = crypto.randomUUID();
+    const sendAttempt = comment => feedback.fetch(new Request("https://feedback.invalid/api/error-reports", { method: "POST",
+      headers: { "CF-Connecting-IP": "192.0.2.1" }, body: JSON.stringify({ mode: "suggestion", comment, requestID }) }), emailEnv);
+    assert.equal((await sendAttempt("retained content")).status, 503);
+    const firstKey = jobs.get("job")?.key;
+    if (failure === "expiry-alarm") { assert.equal(jobs.size, 0); assert.equal(records.size, 0); }
+    assert.equal(sent, 0);
+    failAcceptanceWrite = null;
+    for (let retry = 0; retry < 2; retry++) {
+      const receipt = await sendAttempt("retained content");
+      assert.equal(receipt.status, 201); assert.equal((await receipt.json()).id, requestID);
+    }
+    const key = jobs.get("job").key;
+    assert.equal(records.size, 1); if (firstKey) assert.equal(key, firstKey);
+    assert.equal((await sendAttempt("changed content")).status, 409);
+    await delivery.alarm(); assert.equal(sent, 1);
+    assert.equal((await sendAttempt("retained content")).status, 201);
+    await delivery.alarm(); assert.equal(sent, 1);
+    assert.equal(JSON.parse(records.get(key).value).report.comment, "retained content");
+    await delivery.fetch(new Request("https://delivery/delete", { method: "DELETE", body: JSON.stringify({ key }) }));
+    assert.equal((await sendAttempt("retained content")).status, 410);
+    const expired = jobs.get("job");
+    expired.receivedAt = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000).toISOString();
+    jobs.set("job", expired);
+    assert.equal((await sendAttempt("retained content")).status, 201);
+    assert.equal(jobs.get("job").deleted, undefined);
+  }
+  jobs.clear(); records.clear(); alarmAt = undefined; saved = 0; sent = 0; offline = true;
   const accepted = await feedback.fetch(new Request("https://feedback.invalid/api/error-reports", { method: "POST", headers: { "CF-Connecting-IP": "192.0.2.1" }, body: JSON.stringify({ mode: "suggestion", comment: "fixture" }) }), {
     ...emailEnv
   });

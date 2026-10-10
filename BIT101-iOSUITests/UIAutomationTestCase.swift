@@ -605,6 +605,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         botPaging: Bool = false,
         failureOnce: Bool = false,
         reportFailureOnce: Bool = false,
+        feedbackResponseLostOnce: Bool = false,
         update: String? = nil,
         schoolSMS: Bool = false,
         scheduleConflict: Bool = false,
@@ -658,6 +659,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         application.launchEnvironment["BIT101_UI_TEST_BOT_PAGING"] = botPaging ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_FAILURE_ONCE"] = failureOnce ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_REPORT_FAILURE_ONCE"] = reportFailureOnce ? "1" : "0"
+        application.launchEnvironment["BIT101_UI_TEST_FEEDBACK_RESPONSE_LOST_ONCE"] = feedbackResponseLostOnce ? "1" : "0"
         if let update { application.launchEnvironment["BIT101_UI_TEST_UPDATE"] = update }
         application.launchEnvironment["BIT101_UI_TEST_SCHOOL_SMS"] = schoolSMS ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_RUN_ID"] = runIdentifier

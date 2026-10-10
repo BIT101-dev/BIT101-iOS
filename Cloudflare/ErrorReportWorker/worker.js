@@ -33,6 +33,8 @@ async function readReportBody(request) {
 
 function validReport(report, request) {
   if (!report || typeof report !== "object" || Array.isArray(report)) return false;
+  if (report.requestID != null && (typeof report.requestID !== "string"
+      || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(report.requestID))) return false;
   for (const key of ["appVersion", "build", "deviceModel", "systemVersion", "networkStatus", "contact"]) {
     if (report[key] != null && typeof report[key] !== "string") return false;
   }
@@ -239,11 +241,52 @@ function reportEmailBody(id, receivedAt, report) {
 }
 
 export class ReportEmailDelivery extends DurableObject {
+  async ensureDeliveryAlarm(job) {
+    const expires = Date.parse(job.receivedAt) + REPORT_RETENTION_SECONDS * 1000;
+    const scheduled = await this.ctx.storage.getAlarm();
+    if (scheduled == null || job.delivery.status === "pending" && scheduled >= expires) {
+      await this.ctx.storage.setAlarm(job.delivery.status === "pending" ? Date.now() : expires);
+    }
+  }
+
+  async accept(incoming, job) {
+    if (job && job.fingerprint !== incoming.fingerprint) return json({ error: "report_content_mismatch" }, 409);
+    if (job?.accepted) {
+      await this.ensureDeliveryAlarm(job);
+      return json({ id: job.id }, 201);
+    }
+    if (!job) {
+      const quota = this.env.REPORT_QUOTA.get(this.env.REPORT_QUOTA.idFromName("daily"));
+      const response = await quota.fetch("https://quota/reserve", {
+        method: "POST", body: JSON.stringify({ source: incoming.source })
+      });
+      if (!response.ok) return json({ error: "quota_unavailable" }, 503);
+      const reservation = await response.json();
+      if (!reservation.allowed) return json({ error: reservation.error }, 429);
+      job = { id: incoming.id, receivedAt: incoming.receivedAt, key: incoming.key, fingerprint: incoming.fingerprint,
+        accepted: false, delivery: { status: this.env.REPORT_EMAIL ? "pending" : "disabled", attempts: 0 } };
+      await this.ctx.storage.setAlarm(Date.parse(job.receivedAt) + REPORT_RETENTION_SECONDS * 1000);
+      await this.ctx.storage.put("job", job);
+    }
+    await this.env.ERROR_REPORTS.put(job.key, JSON.stringify({ id: job.id, receivedAt: job.receivedAt,
+      report: incoming.report, emailDelivery: job.delivery }), {
+      metadata: incoming.metadata, expiration: Math.floor(Date.parse(job.receivedAt) / 1000) + REPORT_RETENTION_SECONDS
+    });
+    job.accepted = true;
+    await this.ctx.storage.put("job", job);
+    await this.ensureDeliveryAlarm(job);
+    return json({ id: job.id }, 201);
+  }
+
   async fetch(request) {
     if (!["POST", "DELETE"].includes(request.method)) return json({ error: "method_not_allowed" }, 405);
     const incoming = await request.json();
     return this.ctx.blockConcurrencyWhile(async () => {
-      const job = await this.ctx.storage.get("job");
+      let job = await this.ctx.storage.get("job");
+      if (job && Date.now() >= Date.parse(job.receivedAt) + REPORT_RETENTION_SECONDS * 1000) {
+        await this.ctx.storage.deleteAll();
+        job = undefined;
+      }
       if (request.method === "DELETE") {
         if (job && job.key !== incoming.key) return json({ error: "report_identity_mismatch" }, 409);
         if (job) {
@@ -254,6 +297,7 @@ export class ReportEmailDelivery extends DurableObject {
         return json({ deleted: true });
       }
       if (job?.deleted) return json({ error: "report_deleted" }, 410);
+      if (new URL(request.url).pathname === "/accept") return this.accept(incoming, job);
       if (!job) {
         await this.ctx.storage.put("job", { ...incoming, delivery: { status: "pending", attempts: 0 } });
         await this.ctx.storage.setAlarm(Date.now());
@@ -267,7 +311,7 @@ export class ReportEmailDelivery extends DurableObject {
     if (!job) return;
     const expires = Date.parse(job.receivedAt) + REPORT_RETENTION_SECONDS * 1000;
     if (Date.now() >= expires) { await this.ctx.storage.deleteAll(); return; }
-    if (job.deleted) return;
+    if (job.deleted || job.accepted === false) return;
     let stored, record, failure;
     try {
       stored = await this.env.ERROR_REPORTS.getWithMetadata(job.key);
@@ -404,7 +448,7 @@ export default {
       }
     }
 
-    const id = crypto.randomUUID();
+    const id = report.requestID?.toLowerCase() ?? crypto.randomUUID();
     let serializedRecord;
     try {
       const { attachments, ...metadata } = report;
@@ -412,6 +456,7 @@ export default {
         return json({ error: "metadata_too_large" }, 413);
       }
       report = forceRedact(metadata);
+      if (report.requestID != null) report.requestID = id;
       if (attachments !== undefined) report.attachments = attachments === null ? null : attachments.map(({ data, ...fields }) => ({
         ...forceRedact(fields), data
       }));
@@ -419,15 +464,31 @@ export default {
         emailDelivery: { status: env.REPORT_EMAIL && report.mode !== "network-smoke" ? "pending" : "disabled", attempts: 0 } });
     } catch { return json({ error: "invalid_report" }, 400); }
 
+    const recordMetadata = { mode: report.mode, title: listText(report.errorTitle, 100),
+      version: listText(report.appVersion, 24), build: listText(report.build, 16) };
+    if (report.requestID != null && report.mode !== "network-smoke") {
+      if (!env.REPORT_EMAIL_DELIVERY) return json({ error: "notification_queue_not_configured" }, 503);
+      let fingerprint;
+      try {
+        const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === "object"
+          ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
+        const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(canonical(report))));
+        fingerprint = Array.from(new Uint8Array(bytes), byte => byte.toString(16).padStart(2, "0")).join("");
+      } catch { return json({ error: "invalid_report" }, 400); }
+      try {
+        return await env.REPORT_EMAIL_DELIVERY.get(env.REPORT_EMAIL_DELIVERY.idFromName(id)).fetch("https://delivery/accept", {
+          method: "POST", body: JSON.stringify({ id, receivedAt, key: `report:${receivedAt}:${id}`,
+            source, fingerprint, report, metadata: recordMetadata })
+        });
+      } catch { return json({ error: "report_storage_unavailable" }, 503); }
+    }
+
     const quotaResponse = await quota.fetch("https://quota/reserve", {
       method: "POST", body: JSON.stringify({ source, smoke: report.mode === "network-smoke" })
     });
     if (!quotaResponse.ok) return json({ error: "quota_unavailable" }, 503);
     const reservation = await quotaResponse.json();
     if (!reservation.allowed) return json({ error: reservation.error }, 429);
-
-    const recordMetadata = { mode: report.mode, title: listText(report.errorTitle, 100),
-      version: listText(report.appVersion, 24), build: listText(report.build, 16) };
 
     if (
       report.mode === "network-smoke"

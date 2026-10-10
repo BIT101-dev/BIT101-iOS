@@ -36,9 +36,9 @@ struct SuggestionDependencyTests {
                            session: { AppStorageSession(accountIdentifier: "suggestion-test") }, prepareImageData: ComposerDraftImageCompressor.compress)
     }
 
-    private func payload() -> DeveloperSuggestionPayload {
+    private func payload(comment: String = "injected suggestion") -> DeveloperSuggestionPayload {
         let context = FeedbackDeviceContext.current
-        return DeveloperSuggestionPayload(comment: "injected suggestion", contact: "fixture", appVersion: "test", build: "test",
+        return DeveloperSuggestionPayload(comment: comment, contact: "fixture", appVersion: "test", build: "test",
             systemVersion: "test", deviceModel: "test", networkStatus: context.networkStatus,
             submittedAt: Date(timeIntervalSince1970: 0), context: context, attachments: [])
     }
@@ -73,6 +73,31 @@ struct SuggestionDependencyTests {
         let dependencies = DeveloperSuggestionDependencies(drafts: drafts, submit: { _ in throw URLError(.notConnectedToInternet) })
         await #expect(throws: URLError.self) { try await dependencies.submitAndClear(payload()) }
         #expect(await drafts.loadSuggestion().snapshot?.text == "retained draft")
+    }
+    @Test func lostResponsesKeepTheSuggestionIdentityAndSuccessReleasesTheAttempt() async throws {
+        let drafts = SuggestionDraftPort()
+        var delivered: [DeveloperSuggestionPayload] = []
+        var fails = true
+        let dependencies = DeveloperSuggestionDependencies(drafts: drafts, submit: {
+            delivered.append($0)
+            if fails { throw URLError(.timedOut) }
+        })
+        let attempt = FeedbackSubmissionAttempt<DeveloperSuggestionPayload>()
+        func submit(_ candidate: DeveloperSuggestionPayload) async throws {
+            let prepared = attempt.prepare(candidate)
+            try await dependencies.submitAndClear(prepared)
+            attempt.finish(prepared)
+        }
+        for _ in 0..<2 { await #expect(throws: URLError.self) { try await submit(payload()) } }
+        #expect(delivered[0].requestID == delivered[1].requestID && drafts.cleanups == 0)
+        fails = false
+        try await submit(payload())
+        #expect(delivered[2].requestID == delivered[0].requestID && drafts.cleanups == 1)
+        try await submit(payload())
+        #expect(delivered[3].requestID != delivered[2].requestID)
+        fails = true
+        await #expect(throws: URLError.self) { try await submit(payload(comment: "edited")) }
+        #expect(delivered[4].requestID != delivered[3].requestID && delivered[4].comment == "edited")
     }
     @Test func delayedSubmissionCleanupStaysWithTheCapturedAccount() async throws {
         let account = Account()
