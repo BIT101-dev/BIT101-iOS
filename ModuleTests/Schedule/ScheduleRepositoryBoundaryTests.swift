@@ -213,9 +213,61 @@ struct ScheduleRepositoryBoundaryTests {
         var old = ScheduleCache()
         old.currentTerm = "account-a-term"
         loader.continuation?.resume(returning: .loaded(old))
-        await task.value
+        #expect(await task.value == false)
         #expect(repository.persistenceSnapshot.currentTerm.isEmpty)
         #expect(repository.isWritable == false)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: ["loaded", "missing", "unreadable"])
+    func canceledInitialRecoveryAllowsTheSamePageToLoadAgain(result: String) async {
+        let loader = ModuleDeferredScheduleLoad()
+        var loads = 0
+        var recovered = ScheduleCache()
+        recovered.currentTerm = "recovered-term"
+        let repository = makeRepository(load: { account in
+            loads += 1
+            return loads == 1 ? await loader.load(account) : .loaded(recovered)
+        }, save: { _, _, _ in })
+        let model = makeViewModel(service: ModuleSemesterStartDateService(), repository: repository)
+        let first = Task { await model.loadIfNeeded() }
+        await loader.waitUntilStarted()
+        first.cancel()
+        loader.continuation?.resume(returning: result == "loaded" ? .loaded(recovered) : result == "missing" ? .missing : .unreadable)
+        await first.value
+        #expect(!repository.isLoading && !repository.isWritable)
+        #expect(model.persistenceSnapshot.currentTerm.isEmpty && model.notice == nil)
+        await model.loadIfNeeded()
+        #expect(loads == 2 && repository.isWritable && !repository.isLoading)
+        #expect(model.persistenceSnapshot.currentTerm == recovered.currentTerm)
+        #expect(model.selectedWeek == model.resolvedAutomaticWeek())
+        await model.loadIfNeeded()
+        #expect(loads == 2)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func lateCanceledRecoveryKeepsTheReplacementLoadAndItsWriteGate() async {
+        let old = ModuleDeferredScheduleLoad(), current = ModuleDeferredScheduleLoad()
+        var loads = 0
+        let repository = makeRepository(load: { account in
+            loads += 1
+            return await (loads == 1 ? old : current).load(account)
+        }, save: { _, _, _ in })
+        let first = Task { await repository.loadIfNeeded() }
+        await old.waitUntilStarted()
+        first.cancel()
+        let replacement = Task { await repository.loadIfNeeded() }
+        await current.waitUntilStarted()
+        old.continuation?.resume(returning: .missing)
+        await first.value
+        #expect(repository.isLoading && !repository.isWritable)
+        var restored = ScheduleCache()
+        restored.currentTerm = "replacement-term"
+        current.continuation?.resume(returning: .loaded(restored))
+        await replacement.value
+        #expect(!repository.isLoading && repository.isWritable)
+        #expect(repository.persistenceSnapshot.currentTerm == restored.currentTerm)
+        await repository.loadIfNeeded()
+        #expect(loads == 2)
     }
 
     @Test func delayedReloadPreservesEditsMadeDuringRead() async {
@@ -230,7 +282,7 @@ struct ScheduleRepositoryBoundaryTests {
         await loader.waitUntilStarted()
         repository.courseState.primaryScheduleTitle = "本机编辑"
         loader.continuation?.resume(returning: .loaded(ScheduleCache()))
-        await task.value
+        #expect(await task.value == false)
         #expect(repository.persistenceSnapshot.primaryScheduleTitle == "本机编辑")
     }
 

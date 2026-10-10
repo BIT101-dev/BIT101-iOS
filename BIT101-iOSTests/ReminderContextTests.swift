@@ -7,6 +7,120 @@ import StorageCore
 import Testing
 @testable import BIT101_iOS
 
+#if canImport(ActivityKit) && !targetEnvironment(macCatalyst)
+import UserNotifications
+
+@MainActor
+private final class ReminderNotificationCenterFixture: ScheduleReminderNotificationCenter {
+    var authorization: UNAuthorizationStatus = .authorized
+    var pending: [String: UNNotificationRequest] = [:]
+    var delivered: [String] = []
+    var failedAdds = Set<Int>()
+    var additions = 0
+    var beforeAdd: ((UNNotificationRequest) async -> Void)?
+    func authorizationStatus() async -> UNAuthorizationStatus { authorization }
+    func pendingRequests() async -> [UNNotificationRequest] { Array(pending.values) }
+    func deliveredIdentifiers() async -> [String] { delivered }
+    func add(_ request: UNNotificationRequest) async throws {
+        additions += 1
+        await beforeAdd?(request)
+        pending[request.identifier] = request
+        if failedAdds.contains(additions) { throw CocoaError(.fileWriteUnknown) }
+    }
+    func removePending(_ identifiers: [String]) { for identifier in identifiers { pending.removeValue(forKey: identifier) } }
+    func removeDelivered(_ identifiers: [String]) { delivered.removeAll { identifiers.contains($0) } }
+    func requestAuthorization() async throws -> Bool { authorization == .authorized }
+}
+
+extension ReminderContextTests {
+    private func notificationFixture() -> (ReminderNotificationCenterFixture, ScheduleReminderSession, [CourseReminderOccurrence]) {
+        let center = ReminderNotificationCenterFixture()
+        for identifier in ["BIT101.ScheduleReminder.A.0", "BIT101.ScheduleReminder.A.1", "BIT101.ScheduleReminder.A.9", "other"] {
+            let content = UNMutableNotificationContent()
+            content.title = "原提醒"
+            center.pending[identifier] = UNNotificationRequest(identifier: identifier, content: content,
+                trigger: UNTimeIntervalNotificationTrigger(timeInterval: 3600, repeats: false))
+        }
+        center.delivered = ["BIT101.ScheduleReminder.A.9", "other"]
+        let session = ScheduleReminderSession(studentID: "A", storage: AppStorageSession(accountIdentifier: "A"), generation: 1, signedIn: true)
+        let occurrences = (1...3).map { index in
+            let start = Date().addingTimeInterval(Double(index) * 3600)
+            return CourseReminderOccurrence(kindText: "上课", title: "新课程", classroom: "", teacher: "",
+                startDate: start, endDate: start.addingTimeInterval(1800))
+        }
+        return (center, session, occurrences)
+    }
+
+    @Test(arguments: [1, 2, 3])
+    func failedNotificationReplacementRestoresAcceptedRequestsEvenAfterACommit(failedAdd: Int) async throws {
+        let (center, session, occurrences) = notificationFixture()
+        let original = center.pending.mapValues(\.content.title)
+        center.failedAdds = [failedAdd]
+        await #expect(throws: CocoaError.self) {
+            _ = try await ScheduleReminderNotifications(center: center).synchronize(for: occurrences, leadMinutes: 10,
+                session: session, isCurrent: { true })
+        }
+        #expect(center.pending.mapValues(\.content.title) == original)
+        #expect(center.delivered == ["BIT101.ScheduleReminder.A.9", "other"])
+    }
+
+    @Test func acceptedNotificationReplacementReportsTheActualCountAndRemovesObsoleteRequests() async throws {
+        let (center, session, occurrences) = notificationFixture()
+        let count = try await ScheduleReminderNotifications(center: center).synchronize(for: occurrences, leadMinutes: 10,
+            session: session, isCurrent: { true })
+        #expect(count == 3 && center.additions == 3)
+        #expect(center.pending.count == 4 && center.pending["BIT101.ScheduleReminder.A.9"] == nil)
+        #expect(center.pending["other"]?.content.title == "原提醒")
+        #expect(center.delivered == ["other"])
+    }
+
+    @Test(arguments: ["empty", "denied"])
+    func emptyOrUnauthorizedNotificationPlansClearTheirOwnedRequests(boundary: String) async throws {
+        let (center, session, occurrences) = notificationFixture()
+        if boundary == "denied" { center.authorization = .denied }
+        let count = try await ScheduleReminderNotifications(center: center).synchronize(
+            for: boundary == "empty" ? [] : occurrences, leadMinutes: 10, session: session, isCurrent: { true })
+        #expect(count == 0 && center.additions == 0)
+        #expect(Set(center.pending.keys) == ["other"] && center.delivered == ["other"])
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: ["cancel", "account"])
+    func interruptedNotificationReplacementKeepsTheCurrentOwner(boundary: String) async throws {
+        let (center, session, occurrences) = notificationFixture()
+        let original = center.pending.mapValues(\.content.title)
+        var current = true
+        var continuation: CheckedContinuation<Void, Never>?
+        center.beforeAdd = { _ in
+            center.beforeAdd = nil
+            await withCheckedContinuation { continuation = $0 }
+        }
+        let task = Task {
+            try await ScheduleReminderNotifications(center: center).synchronize(for: occurrences, leadMinutes: 10,
+                session: session, isCurrent: { current })
+        }
+        try await waitForTestEvent { continuation != nil }
+        if boundary == "cancel" { task.cancel() } else { current = false }
+        continuation?.resume()
+        await #expect(throws: CancellationError.self) { _ = try await task.value }
+        if boundary == "cancel" { #expect(center.pending.mapValues(\.content.title) == original) }
+        else { #expect(center.pending["BIT101.ScheduleReminder.A.0"] == nil) }
+        #expect(center.pending["other"]?.content.title == "原提醒")
+    }
+
+    @Test func notificationRollbackFailureReachesTheCaller() async {
+        let (center, session, occurrences) = notificationFixture()
+        center.failedAdds = [2, 3]
+        do {
+            _ = try await ScheduleReminderNotifications(center: center).synchronize(for: occurrences, leadMinutes: 10,
+                session: session, isCurrent: { true })
+            Issue.record("系统恢复失败应传递到调用方")
+        } catch {
+            #expect(error.localizedDescription.contains("1 条原提醒恢复失败"))
+        }
+    }
+}
+#endif
+
 @MainActor
 struct ReminderContextTests {
     @Test(.timeLimit(.minutes(1)))

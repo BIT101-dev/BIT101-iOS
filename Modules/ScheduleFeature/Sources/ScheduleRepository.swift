@@ -71,32 +71,38 @@ public final class ScheduleRepository: ObservableObject {
 
     func loadIfNeeded() async {
         guard !hasLoaded else { return }
-        hasLoaded = true
         await reload()
     }
 
-    func reload() async {
+    @discardableResult
+    func reload() async -> Bool {
         guard persistenceTask == nil else {
             reloadAfterPersistence = true
-            return
+            return false
         }
         let account = session()
-        guard account == ownerSession else { return }
+        guard !Task.isCancelled, account == ownerSession else { return false }
         let generation = accountGeneration
         let localRevision = revision
         loadGeneration &+= 1
         let request = loadGeneration
+        if !hasLoaded { isLoading = true }
+        defer {
+            if generation == accountGeneration, account == ownerSession, request == loadGeneration {
+                isLoading = false
+            }
+        }
         let result = await load(account)
-        guard generation == accountGeneration, account == session(),
-              request == loadGeneration, localRevision == revision else { return }
+        guard !Task.isCancelled, generation == accountGeneration, account == session(),
+              request == loadGeneration, localRevision == revision else { return false }
         switch result {
         case .loaded(let value):
             _ = await reconcile(with: value)
-            guard !Task.isCancelled, generation == accountGeneration, account == session(), request == loadGeneration else { return }
+            guard !Task.isCancelled, generation == accountGeneration, account == session(), request == loadGeneration else { return false }
             isWritable = true
         case .missing:
             _ = await reconcile(with: ScheduleCache())
-            guard !Task.isCancelled, generation == accountGeneration, account == session(), request == loadGeneration else { return }
+            guard !Task.isCancelled, generation == accountGeneration, account == session(), request == loadGeneration else { return false }
             isWritable = true
         case .unreadable:
             isWritable = false
@@ -105,7 +111,8 @@ public final class ScheduleRepository: ObservableObject {
                 message: "原文件已保留，当前课表只读并暂停保存。请联系维护者恢复缓存后重试。"
             )
         }
-        isLoading = false
+        hasLoaded = true
+        return true
     }
 
     func persist(source: ScheduleCacheSaveSource = .local) {

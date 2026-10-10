@@ -3,6 +3,8 @@ import json
 import os
 import re
 import subprocess
+import shlex
+from audit_callback_rules import audit_callback_findings
 
 CI_RUNNER = "${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'xcode-27' || fromJSON('[\"self-hosted\",\"macOS\",\"bit101-xcode-27\",\"bit101-ci\"]') }}"
 DIAGNOSTIC_PATHS = {
@@ -375,3 +377,70 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
         if not ci_wiring_findings(changed):
             findings.append("代码质量规则边界自检失败：真机证据生成、提交归属与产物发布")
     return findings
+
+
+def audit_wiring_findings(ROOT, scheme_inventory_findings, extension_dependency_findings) -> list[str]:
+    """检查统一静态审计入口与 CI 门禁。"""
+    SCRIPT_ROOT = ROOT / "Scripts"
+    errors: list[str] = []
+    audit_path = ROOT / "Scripts/run-static-audit.sh"
+    audit_source = audit_path.read_text(encoding="utf-8")
+    errors.extend(audit_callback_findings(audit_source))
+    groups = re.search(r"(?ms)^group_names=\((.*?)\)(?=[ \t]*(?:\n|$))", audit_source)
+    commands = re.search(r"(?ms)^group_commands=\((.*?)\)(?=[ \t]*(?:\n|$))", audit_source)
+    group_names = shlex.split(groups[1], comments=True) if groups else []
+    group_commands = shlex.split(commands[1], comments=True) if commands else []
+    wiring = dict(zip(group_names, group_commands)) if len(group_names) == len(group_commands) else {}
+    expected = {"swift-parse": "swift_parse", "shell-parse": "shell_parse", "python-parse": "python_parse",
+        "worker-parse": "worker_parse", "dependency-audit": "dependency_audit", "module-boundary": "module_boundary_audit",
+        "git-diff": "git_check", "docs": "docs_check", "checkers": "checker_audit"}
+    if wiring != expected or len(group_names) != len(expected):
+        errors.append("Scripts/run-static-audit.sh: 静态审计回调需要逐组接入完整契约")
+    if "check-docs.py --all" not in audit_source:
+        errors.append("Scripts/run-static-audit.sh: 未接入文档引用检查")
+    if not re.search(r"(?m)^\s*run_group\s+artifact-hygiene\s+artifact_hygiene(?:\s|$)", audit_source):
+        errors.append("Scripts/run-static-audit.sh: 静态审计回调需要接入产物清理检查")
+    if "npm audit --audit-level=high" not in audit_source:
+        errors.append("Scripts/run-static-audit.sh: 依赖漏洞审计门槛缺失")
+    if "release-network-smoke" in audit_source:
+        errors.append("Scripts/run-static-audit.sh: 静态审计不得调用网络 smoke")
+
+    workflow_path = ROOT / ".github/workflows/ci.yml"
+    if not workflow_path.is_file():
+        errors.append(".github/workflows/ci.yml: CI 工作流不存在")
+    else:
+        errors.extend(ci_wiring_findings(workflow_path.read_text(encoding="utf-8")))
+    project = json.loads(subprocess.check_output([
+        "plutil", "-convert", "json", "-o", "-", str(ROOT / "BIT101-iOS.xcodeproj/project.pbxproj"),
+    ], text=True))
+    errors.extend(scheme_inventory_findings({path.name: path.read_text() for path in
+        (ROOT / "BIT101-iOS.xcodeproj/xcshareddata/xcschemes").glob("*.xcscheme")}))
+    errors.extend(extension_dependency_findings(project))
+    for configuration in project["objects"].values():
+        if configuration.get("isa") == "XCBuildConfiguration" and "SWIFT_COMPILATION_MODE" in configuration.get("buildSettings", {}):
+            if "$(BIT101_WORKFLOW_CONDITIONS)" not in configuration["buildSettings"].get("SWIFT_ACTIVE_COMPILATION_CONDITIONS", ""):
+                errors.append("App 工程编译条件需要接入工作流变量")
+    for name in ("run-extended-tests.sh", "run_icloud_cross_device_smoke.sh", "release-network-smoke.sh"):
+        if "SWIFT_ACTIVE_COMPILATION_CONDITIONS=" in (SCRIPT_ROOT / name).read_text():
+            errors.append(f"{name}: 工作流条件需要限定在 App 工程")
+
+    test_script = ROOT / "Scripts/run-extended-tests.sh"
+    if not test_script.is_file():
+        errors.append("Scripts/run-extended-tests.sh: 真机测试入口不存在")
+    else:
+        test_source = test_script.read_text(encoding="utf-8")
+        required_test_metrics = (
+            ("xccov", "真机测试未提取代码覆盖率"),
+            ("test-metrics.txt", "真机测试指标未写入固定报告"),
+            ("generic/platform=iOS", "测试编译需要通用 iOS 目的地"),
+            ("extensions)", "缺少扩展共享逻辑测试分组"),
+            ("ExternalScheduleInfrastructureTests", "扩展共享逻辑分组未执行对应测试套件"),
+        )
+        for marker, message in required_test_metrics:
+            if marker not in test_source:
+                errors.append(f"Scripts/run-extended-tests.sh: {message}")
+
+    hook_path = ROOT / ".githooks/pre-commit"
+    if not hook_path.is_file() or "Scripts/check-docs.py --all" not in hook_path.read_text(encoding="utf-8"):
+        errors.append(".githooks/pre-commit: 提交前必须检查文档引用")
+    return errors

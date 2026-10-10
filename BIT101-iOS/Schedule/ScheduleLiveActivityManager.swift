@@ -1,5 +1,6 @@
 import ScheduleActivityContracts
 import StorageCore
+import TransportCore
 import Foundation
 import ScheduleDomain
 import ScheduleContracts
@@ -158,12 +159,13 @@ final class ScheduleLiveActivityManager {
 
         let leadMinutes = cache.courseLiveActivityLeadMinutes
         let occurrences = ScheduleReminderPlanner.resolveOccurrences(from: cache)
-        await notifications.synchronize(
-            for: occurrences,
-            leadMinutes: leadMinutes,
-            session: session,
-            isCurrent: { self.isCurrentSession(session) }
-        )
+        do {
+            _ = try await notifications.synchronize(for: occurrences, leadMinutes: leadMinutes, session: session,
+                isCurrent: { self.isCurrentSession(session) })
+        } catch {
+            if TaskCancellation.matches(error) { return }
+            logger.error("fallback reminder replacement failed: \(error.localizedDescription, privacy: .public)")
+        }
 
         guard !Task.isCancelled else { return }
         guard isCurrentSession(session) else {

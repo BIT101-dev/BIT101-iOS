@@ -8,7 +8,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT_DIR/Scripts/script-support.sh"
 operation="${1:-info}"
 shift $(( $# > 0 ? 1 : 0 ))
-case "$operation" in info|prepare|restore|inspect) [[ $# -eq 0 ]] || exit 64;; app|ui) [[ $# -gt 0 ]] || exit 64;; *) exit 64;; esac
+case "$operation" in info|prepare|restore|inspect) [[ $# -eq 0 ]] || exit 64;; app|release-runtime|ui) [[ $# -gt 0 ]] || exit 64;; *) exit 64;; esac
 bit101_acquire_workflow_lock "$0" "$operation" "$@"
 DERIVED_ROOT="$ROOT_DIR/.build/extended-automation"
 mkdir -p "$DERIVED_ROOT"
@@ -140,6 +140,10 @@ scheme=BIT101-iOS
 bundle=BIT101-iOSTests
 configuration=Debug
 selections=("$@")
+if [[ "$operation" == release-runtime ]]; then
+  mode=release-runtime
+  configuration=Release
+fi
 if [[ "$operation" == ui ]]; then
   mode=ui
   scheme=BIT101-iOS-UIAutomation
@@ -198,14 +202,20 @@ def visit(value):
         for child in value: visit(child)
 visit(tree)
 expected = set(json.loads(sys.argv[4]))
-text = (f"模拟器本机定向复验\n结果：{summary.get('result', '?')}；总计 {summary.get('totalTestCount', 0)}；"
-    f"通过 {summary.get('passedTests', 0)}；失败 {summary.get('failedTests', 0)}；跳过 {summary.get('skippedTests', 0)}\n"
-    "已执行用例：" + json.dumps(sorted(executed)) + '\n')
+headline = (f"模拟器本机定向复验\n结果：{summary.get('result', '?')}；总计 {summary.get('totalTestCount', 0)}；"
+    f"通过 {summary.get('passedTests', 0)}；失败 {summary.get('failedTests', 0)}；跳过 {summary.get('skippedTests', 0)}\n")
+text = headline + "已执行用例：" + json.dumps(sorted(executed)) + '\n'
 for failure in summary.get('testFailures', []):
     text += f"{failure.get('testIdentifierString', '?')}: {failure.get('failureText', '?')}\n"
 Path(sys.argv[2]).write_text(text)
 if int(sys.argv[5]) or summary.get('result') != 'Passed' or summary.get('failedTests') or summary.get('skippedTests') or not expected or executed != expected:
-    print(text, file=sys.stderr)
+    print(headline, file=sys.stderr, end='')
+    for failure in summary.get('testFailures', []):
+        message = str(failure.get('failureText', '?')).splitlines()[0]
+        print(f"{failure.get('testIdentifierString', '?')}: {message}", file=sys.stderr)
+    if executed != expected:
+        print(f"库存差异：缺少 {sorted(expected - executed)}；额外 {sorted(executed - expected)}", file=sys.stderr)
+    print(f"详细结果：{sys.argv[2]}", file=sys.stderr)
     raise SystemExit('模拟器复验需要全部筛选用例通过，并匹配实际执行库存。')
 print(f"模拟器复验通过：{summary['passedTests']} 项；结果用于本机定向复验。")
 PYRESULT

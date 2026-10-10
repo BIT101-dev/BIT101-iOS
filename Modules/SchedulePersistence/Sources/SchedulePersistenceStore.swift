@@ -127,6 +127,10 @@ public actor SchedulePersistenceStore {
         source: ScheduleCacheSaveSource,
         expectedUpdatedAt: Date?
     ) -> ScheduleCache? {
+        guard cache.hasValidTimeTables, cache.hasValidCoursePlacements else {
+            Self.logger.error("排课或节次表结构无效，保留已有课表缓存")
+            return nil
+        }
         let url = cacheFileURL(for: accountIdentifier)
         let directory = url.deletingLastPathComponent()
         let currentResult = readCacheFile(at: url)

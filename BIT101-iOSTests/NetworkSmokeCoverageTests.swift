@@ -575,7 +575,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
         private var smsChallenge: BITLoginAuthenticationChallenge { .init(challengeID: "fixture", accessToken: "fixture", status: "sms_required", maskedPhone: "***", expiresIn: 60) }
         init(stage: String, image: Data) { self.stage = stage; self.image = image }
         private var user: CommunityUser {
-            CommunityUser(id: 1, createTime: "", nickname: "fixture", avatar: CommunityImage(mid: "image", url: stage == "continuation-image-success" ? "" : "https://image.invalid/image.png", lowUrl: ""), motto: "",
+            CommunityUser(id: 1, createTime: "", nickname: "fixture", avatar: CommunityImage(mid: "image", url: "https://image.invalid/image.png", lowUrl: ""), motto: "",
                 identity: CommunityIdentity(id: 1, color: "", text: "", createTime: "", updateTime: "", deleteTime: nil))
         }
         private var poster: CommunityPoster {
@@ -591,9 +591,9 @@ extension ReleaseNetworkSmokeLifecycleTests {
             observed.insert("gallery-\(kind.rawValue)"); return posterPage(page ?? 0)
         }
         private func posterPage(_ page: Int) -> GalleryPageBatch<CommunityPoster> {
-            if stage == "continuation-image-success" {
+            if stage == "feed-images-missing-success" {
                 let value = CommunityPoster(anonymous: false, claim: poster.claim, commentNum: 0, createTime: "", editTime: "", id: page + 1,
-                    images: page == 1 ? [.init(mid: "continuation", url: "https://image.invalid/continuation.png", lowUrl: "")] : [],
+                    images: [],
                     likeNum: 0, public: true, tags: [], text: "fixture", title: "fixture", updateTime: "", user: user)
                 return .init(items: page < 2 ? [value] : [], nextSourcePage: page + 1, canLoadMore: page == 0)
             }
@@ -618,7 +618,8 @@ extension ReleaseNetworkSmokeLifecycleTests {
         func fetchPoster(id: Int) async throws -> GalleryPosterDetail {
             observed.insert("fixture-poster-\(id)")
             if stage == "maintained-fixtures-success", id == 1 { throw URLError(.resourceUnavailable) }
-            return GalleryPosterDetail(anonymous: false, claim: poster.claim, commentNum: 0, createTime: "", editTime: "", id: stage == "entity-identity-failure" ? id + 1 : id, images: poster.images,
+            return GalleryPosterDetail(anonymous: false, claim: poster.claim, commentNum: 0, createTime: "", editTime: "", id: stage == "entity-identity-failure" ? id + 1 : id,
+                images: stage == "fixture-image-missing-failure" ? [] : [.init(mid: "fixture", url: "https://image.invalid/fixture.png", lowUrl: "")],
                 like: false, likeNum: 0, own: false, plugins: "", public: true, tags: [], text: "fixture", title: "fixture", updateTime: "", user: user)
         }
         func fetchComments(objectID: String, order: CommunityCommentOrder, page: Int?) async throws -> GalleryPageBatch<CommunityComment> {
@@ -795,7 +796,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
          "app-store-redirect-failure", "emergency-redirect-failure", "aasa-redirect-failure", "aasa-followed-redirect-failure",
          "aasa-mime-failure", "aasa-exclusion-failure", "image-budget-failure", "entity-identity-failure", "repeated-page-failure",
          "gallery-comment-page-failure", "course-comment-page-failure", "paper-comment-page-failure", "cors-method-failure", "cors-header-failure",
-         "schedule-term-failure", "historical-term-success", "maintained-fixtures-success", "continuation-image-success",
+         "schedule-term-failure", "historical-term-success", "maintained-fixtures-success", "feed-images-missing-success", "fixture-image-missing-failure",
          "missing-fixtures-failure", "fixture-course-number-failure", "empty-list-failure", "all-score-mismatch-failure",
          "bot-classification-failure", "paper-like-order-failure", "paper-comment-order-failure", "paper-newest-order-failure", "paper-content-failure", "paper-image-failure", "campus-selection-failure",
          "invalid-exam-failure", "pending-exam-success", "invalid-classroom-failure",
@@ -832,7 +833,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
             feedbackProbe: { _ in feedback += 1 },
             loadScheduleCache: { ScheduleCache() }, makeScores: { services }, makeSchedule: { handler in services.rawResponse = handler; return services },
             makeProductionSchedule: { productionServices }, makeEclassSchedule: { services })
-        let scope: NetworkSmokeScope = stage.hasPrefix("school-") ? .school : stage.hasPrefix("transcript-") ? .transcript : stage.hasPrefix("all-") || redirectHost != nil || stage.hasPrefix("aasa") ? .all : stage == "community-failure" || stage == "image-budget-failure" || stage == "entity-identity-failure" || stage == "repeated-page-failure" || stage.contains("comment-page") || stage.hasPrefix("cors") || stage.hasPrefix("bot-") || stage.hasPrefix("paper-") || stage.contains("fixtures") || stage == "continuation-image-success" || stage == "fixture-course-number-failure" || stage == "empty-list-failure" ? .bit101 : stage.hasPrefix("ddl") ? .ddl : .schedule
+        let scope: NetworkSmokeScope = stage.hasPrefix("school-") ? .school : stage.hasPrefix("transcript-") ? .transcript : stage.hasPrefix("all-") || redirectHost != nil || stage.hasPrefix("aasa") ? .all : stage == "community-failure" || stage == "image-budget-failure" || stage == "entity-identity-failure" || stage == "repeated-page-failure" || stage.contains("comment-page") || stage.hasPrefix("cors") || stage.hasPrefix("bot-") || stage.hasPrefix("paper-") || stage.contains("fixtures") || stage == "feed-images-missing-success" || stage == "fixture-image-missing-failure" || stage == "fixture-course-number-failure" || stage == "empty-list-failure" ? .bit101 : stage.hasPrefix("ddl") ? .ddl : .schedule
         let runner = ReleaseNetworkSmokeRunner(dependencies: dependencies)
         let smsHandler: SchoolSMSCodeHandler = { _ in "fixture-code" }
         let report = await runner.run(scope: scope, runID: stage, capture: stage == "raw-write-failure" ? .rawCourseResponse : .none,
@@ -849,8 +850,11 @@ extension ReleaseNetworkSmokeLifecycleTests {
             #expect(services.observed.isSuperset(of: ["fixture-poster-41", "fixture-course-43", "fixture-paper-45"]))
             #expect(external.requests.contains { $0.url?.path == "/paper.png" })
         }
-        if stage == "continuation-image-success" {
-            #expect(external.requests.contains { $0.url?.path == "/continuation.png" })
+        if stage == "feed-images-missing-success" || stage == "maintained-fixtures-success" {
+            #expect(external.requests.contains { $0.url?.path == "/fixture.png" })
+        }
+        if stage == "fixture-image-missing-failure" {
+            #expect(report.failures.contains { $0.contains("话廊图片下载") })
         }
         if stage == "missing-fixtures-failure" {
             #expect(!report.coverageComplete && report.skippedProbes.contains { $0.contains("维护对象配置") })
@@ -878,10 +882,11 @@ extension ReleaseNetworkSmokeLifecycleTests {
         }
         if stage == "missing-fixtures-failure" {
             #expect(Set(scope.requiredProbes).subtracting(report.executedProbes)
-                == ["话廊帖子详情", "话廊帖子评论", "话廊网页详情", "学业课程详情", "学业课程评论",
+                == ["话廊帖子详情", "话廊图片下载", "话廊帖子评论", "话廊网页详情", "学业课程详情", "学业课程评论",
                     "学业课程历史成绩", "学业课程网页详情", "文章详情", "文章正文图片下载", "文章评论", "文章网页详情"])
         } else {
-            let deferred: Set<String> = stage == "entity-identity-failure" || stage == "paper-content-failure" ? ["文章正文图片下载"] : stage == "campus-selection-failure" ? ["空教室占用数据"] : []
+            let deferred: Set<String> = stage == "entity-identity-failure" ? ["文章正文图片下载", "话廊图片下载"]
+                : stage == "paper-content-failure" ? ["文章正文图片下载"] : stage == "campus-selection-failure" ? ["空教室占用数据"] : []
             #expect(Set(report.executedProbes) == Set(scope.requiredProbes).subtracting(deferred))
         }
         #expect(reports.count == 1 && reports[0].passed == report.passed)

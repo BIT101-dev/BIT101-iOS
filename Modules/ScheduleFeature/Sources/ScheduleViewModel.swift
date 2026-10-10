@@ -241,12 +241,13 @@ public final class ScheduleViewModel: ObservableObject, ScheduleStateConsumer {
     ///
     /// 日程页先展示本地缓存，联网同步由用户主动触发；冷启动直接进入缓存内容。
     public func loadIfNeeded() async {
-        guard !hasLoaded else { return }
-        hasLoaded = true
+        guard !hasLoaded, !Task.isCancelled else { return }
+        let generation = repository.accountGeneration
 
         // 页面先读本地缓存，打开时直接展示用户上次选择的学期；联网同步由用户主动触发。
         // 周次按当前课表首周计算，学期选择保持本地缓存值。
-        await reloadFromDisk()
+        guard await reloadFromDisk(), !Task.isCancelled, generation == repository.accountGeneration else { return }
+        hasLoaded = true
         selectedWeek = resolvedAutomaticWeek()
     }
 
@@ -268,10 +269,12 @@ public final class ScheduleViewModel: ObservableObject, ScheduleStateConsumer {
     }
 
     /// 从磁盘重新加载缓存，保留用户当前正在浏览的周次和课表分身。
-    func reloadFromDisk() async {
-        await repository.reload()
+    @discardableResult
+    func reloadFromDisk() async -> Bool {
+        guard await repository.reload() else { return false }
         selectedCourseScheduleIndex = min(max(selectedCourseScheduleIndex, 0), max(courseSchedules.count - 1, 0))
         classroom.restoreSelection()
+        return true
     }
 
     /// 统一兼容任务取消错误。

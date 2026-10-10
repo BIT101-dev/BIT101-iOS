@@ -188,6 +188,52 @@ struct SchedulePersistenceTests {
         }
     }
 
+    @Test(arguments: ["time-table", "shared-time-table", "term-course", "archived-course", "shared-course", "source-rule", "replacement-rule"])
+    func invalidNewSnapshotsPreserveTheCommittedFileOrMissingState(boundary: String) async throws {
+        let invalidCourse = CourseRecord(id: "invalid", term: "term", name: "课程", teacher: "", classroom: "",
+            description: "", weeks: [0], weekday: 1, startSection: 1, endSection: 2, campus: "", number: "",
+            credit: 0, hour: 0, type: "", category: "", department: "")
+        let repeatedSlots = [TimeSlot(id: 1, start: "08:00", end: "08:45"), TimeSlot(id: 1, start: "09:00", end: "09:45")]
+        var invalid = ScheduleCache()
+        switch boundary {
+        case "time-table": invalid.timeTable = repeatedSlots
+        case "shared-time-table", "shared-course":
+            invalid.sharedSchedules = [SharedScheduleRecord(title: "共享", payload: ScheduleExportPayload(
+                currentTerm: "term", firstDayString: "", timeTable: boundary == "shared-time-table" ? repeatedSlots : TimeSlot.default,
+                courses: boundary == "shared-course" ? [invalidCourse] : []))]
+        case "term-course", "archived-course":
+            invalid.courseData.schedulesByTerm["term"] = TermScheduleSnapshot(term: "term", firstDayString: "",
+                courses: [invalidCourse], exams: [], updatedAt: .distantPast)
+            if boundary == "archived-course" { invalid.courseData.archivedTerms = ["term"] }
+        default:
+            invalid.manualCourseRulesByTerm["term"] = [ScheduleCourseRule(sourceIdentity: "source",
+                sourceCourses: boundary == "source-rule" ? [invalidCourse] : [],
+                replacementCourses: boundary == "replacement-rule" ? [invalidCourse] : [])]
+        }
+        #expect(SchedulePersistenceStore.decodeCache(try JSONEncoder().encode(invalid)).isUnreadable)
+        for hasCommittedFile in [false, true] {
+            let files = ModuleScoreFiles()
+            let persistence = store(files: files)
+            let account = AppStorageSession(accountIdentifier: "invalid-new-snapshot")
+            let url = persistence.cacheFileURL(for: account.accountStorageIdentifier)
+            var valid = ScheduleCache()
+            valid.primaryScheduleTitle = "已保存课表"
+            if hasCommittedFile {
+                #expect(await persistence.write(valid, accountIdentifier: account.accountStorageIdentifier,
+                    legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) != nil)
+            }
+            let committedBytes = files.storedData[url]
+            #expect(await persistence.write(invalid, accountIdentifier: account.accountStorageIdentifier,
+                legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) == nil)
+            #expect(files.storedData[url] == committedBytes)
+            let restored = await persistence.load(for: account)
+            if hasCommittedFile { #expect(restored.cacheIfReadable?.primaryScheduleTitle == valid.primaryScheduleTitle) }
+            else {
+                if case .missing = restored {} else { Issue.record("无效初次写入应保留缺失状态") }
+            }
+        }
+    }
+
     @Test(arguments: ["corrupt-source", "{}", #"{"unrelated":1}"#, #"{"courseData":{},"updatedAt":0}"#])
     func corruptedSourceKeepsItsBytesAndWriteGate(source: String) async throws {
         let files = ModuleScoreFiles()

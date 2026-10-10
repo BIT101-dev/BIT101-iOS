@@ -7,7 +7,7 @@ import subprocess
 import sys
 from swift_source_index import swift_syntax_index_sources
 
-from ui_interaction_tests import interaction_inventory_boundary_findings
+from ui_interaction_tests import interaction_inventory_boundary_findings, explanatory_text_boundary_findings
 
 from ui_design_contracts import (
     DERIVED_DESIGN_TOKEN, DIRECT_ANIMATION_DURATION, DIRECT_FLOATING_MATERIAL,
@@ -882,31 +882,6 @@ def map_theme_color_contract_findings() -> list[str]:
     return []
 
 
-def explanatory_text_boundary_findings() -> list[str]:
-    "验证模块界面中的 footer 与 description 进入文案审查。"
-    import ui_source_facts as rules
-    import shutil
-    from contextlib import redirect_stdout
-    from io import StringIO
-    from unittest.mock import patch
-
-    fixture = ROOT / ".build/static-audit/explanatory-self-test"
-    path = fixture / "Modules/DesignSystemKit/Sources/AppStateComponents.swift"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text('Section { Text("内容") } footer: {\nText("模块提示")\n}\n'
-                    'ContentUnavailableView { Text("状态") } description: {\nText("模块说明")\n}\n')
-    try:
-        with patch.object(rules, "ROOT", fixture), redirect_stdout(StringIO()):
-            rules.explanatory_text_report()
-        report = (fixture / ".build/explanatory-text-report.txt").read_text()
-        assert '模块提示' in report and '模块说明' in report and 'Modules/DesignSystemKit' in report
-    except (AssertionError, OSError) as error:
-        return [f"解释文案范围自测：{error}"]
-    finally:
-        shutil.rmtree(fixture, ignore_errors=True)
-    return []
-
-
 def school_lifecycle_boundary_findings() -> list[str]:
     from code_quality_rules import automatic_school_fetch_findings
     path = str(ROOT / "BIT101-iOS/LifecycleExample.swift")
@@ -969,29 +944,4 @@ def school_lifecycle_boundary_findings() -> list[str]:
     source = wrappers + "struct ManualPage: View { let bridge: LocalWrapper; var body: some View { Text(\"x\").task { bridge.load() } }; func helper() { let bridge = SchoolWrapper(); bridge.load() } }"
     if automatic_school_fetch_findings(swift_syntax_index_sources(dict(ports, **{path: source}))):
         findings.append("学校生命周期自测：局部包装类型保持所属方法边界")
-    return findings
-
-
-def device_discovery_boundary_findings() -> list[str]:
-    import json
-    import shlex
-    support = ROOT / "Scripts/script-support.sh"
-    findings = []
-    def candidate(name, transport, tunnel="connected", pairing="paired", reality="physical"):
-        return {"identifier": name, "hardwareProperties": {"udid": name, "deviceType": "iPhone", "reality": reality},
-                "connectionProperties": {"transportType": transport, "tunnelState": tunnel, "pairingState": pairing},
-                "deviceProperties": {"name": name}}
-
-    for devices, expected in (
-        ([candidate("wireless", "localNetwork"), candidate("wired", "wired")], "wired"),
-        ([candidate("wireless", "localNetwork"), candidate("offline", None)], "wireless"),
-        ([candidate("pending", "wired", "disconnected"), candidate("connected", "wired")], "connected"),
-        ([candidate("unpaired", "wired", pairing="unpaired"), candidate("virtual", "wired", reality="virtual")], ""),
-    ):
-        snapshot = shlex.quote(json.dumps({"result": {"devices": devices}}))
-        code = f'source {shlex.quote(str(support))}\nunset BIT101_XCODE_DEVICE_ID BIT101_DEVICETCL_DEVICE_ID BIT101_DEVICE_TRANSPORT BIT101_DEVICE_NAME\n'
-        code += f'bit101_device_snapshot() {{ print -r -- {snapshot}; }}\nbit101_find_device || exit 1\nprint -r -- "$BIT101_DEVICE_NAME"\n'
-        result = subprocess.run(["zsh", "-c", code], capture_output=True, text=True)
-        if (expected and (result.returncode or result.stdout.strip() != expected)) or (not expected and result.returncode != 1):
-            findings.append("设备自测：有线优先、无线发现、连接状态及真实配对设备范围")
     return findings

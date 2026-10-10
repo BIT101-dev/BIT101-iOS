@@ -15,6 +15,7 @@ import Combine
 import StorageCore
 import ClientCore
 import ScheduleDomain
+import SchedulePersistence
 import Foundation
 import Testing
 @testable import BIT101_iOS
@@ -131,6 +132,29 @@ final class SemesterStartDateService: ScheduleServicing {
 
 @MainActor
 struct ScheduleModuleBoundaryTests {
+    @Test(arguments: [false, true])
+    func invalidScheduleWritesPreserveTheCommittedBytesUnderTheNativeRuntime(hasCommittedFile: Bool) async throws {
+        let files = PreferenceMemoryFiles()
+        let store = SchedulePersistenceStore(files: files, storageRoot: URL(fileURLWithPath: "/schedule"),
+            userStateMatches: { $0.primaryScheduleTitle == $1.primaryScheduleTitle })
+        let account = AppStorageSession(accountIdentifier: "invalid-native-write")
+        let url = store.cacheFileURL(for: account.accountStorageIdentifier)
+        var valid = ScheduleCache()
+        valid.primaryScheduleTitle = "已保存课表"
+        if hasCommittedFile {
+            #expect(await store.write(valid, accountIdentifier: account.accountStorageIdentifier,
+                legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) != nil)
+        }
+        let previous = hasCommittedFile ? try files.readData(at: url) : nil
+        var invalid = valid
+        invalid.timeTable = [TimeSlot(id: 1, start: "08:00", end: "08:45"), TimeSlot(id: 1, start: "09:00", end: "09:45")]
+        #expect(await store.write(invalid, accountIdentifier: account.accountStorageIdentifier,
+            legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) == nil)
+        #expect(files.fileExists(at: url) == hasCommittedFile)
+        if let previous { #expect(try files.readData(at: url) == previous) }
+        #expect(await store.load(for: account).cacheIfReadable?.primaryScheduleTitle == (hasCommittedFile ? valid.primaryScheduleTitle : ScheduleCache().primaryScheduleTitle))
+    }
+
     @Test func classroomOccupancyRequiresItsFieldAndPreservesExplicitEmptyValues() async throws {
         for value in ["" as Any, NSNull(), "1,2"] {
             let data = try JSONSerialization.data(withJSONObject: ["datas": ["cxkxjasqk": ["rows": [["JASMC": "A101", "ZYJC": value]]]]])
@@ -190,6 +214,41 @@ struct ScheduleModuleBoundaryTests {
             platformActions: platformActions,
             newCustomScheduleDraft: newCustomScheduleDraft
         )
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func canceledInitialScheduleRestoreClearsLoadingAndReentryRecoversTheCache() async {
+        var response: CheckedContinuation<ScheduleCacheLoadResult, Never>?
+        var started: CheckedContinuation<Void, Never>?
+        var loads = 0
+        var recovered = ScheduleCache()
+        recovered.currentTerm = "recovered-term"
+        let repository = makeRepository(load: { _ in
+            loads += 1
+            if loads == 1 {
+                return await withCheckedContinuation {
+                    response = $0
+                    started?.resume()
+                    started = nil
+                }
+            }
+            return .loaded(recovered)
+        }, save: { _, _, _ in })
+        let model = makeViewModel(service: SemesterStartDateService(), repository: repository)
+        let first = Task { await model.loadIfNeeded() }
+        await withCheckedContinuation { continuation in
+            if response == nil { started = continuation } else { continuation.resume() }
+        }
+        first.cancel()
+        response?.resume(returning: .loaded(recovered))
+        await first.value
+        #expect(!model.isLoadingCache && !model.isCacheWritable)
+        #expect(model.persistenceSnapshot.currentTerm.isEmpty)
+        await model.loadIfNeeded()
+        #expect(!model.isLoadingCache && model.isCacheWritable)
+        #expect(model.persistenceSnapshot.currentTerm == recovered.currentTerm && loads == 2)
+        await model.loadIfNeeded()
+        #expect(loads == 2)
     }
 
     @Test func semesterStartDatePreservesCoursesAcrossRefreshAndTermSwitch() async throws {

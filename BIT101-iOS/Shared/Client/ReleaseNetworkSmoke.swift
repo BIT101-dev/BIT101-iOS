@@ -217,17 +217,26 @@ final class ReleaseNetworkSmokeRunner {
                 initialHost: "open.aihelpme.dev"
             )
         }
-        let posters = await probe("话廊最新列表", area: .bit101, scope: scope) {
+        _ = await probe("话廊最新列表", area: .bit101, scope: scope) {
             try await NetworkSmokePaging.batch { try await gallery.fetchFeed(kind: .newest, page: $0 == 0 ? nil : $0) }.items
         }
         let validatedFixtures = fixtures.flatMap { $0.isValid ? $0 : nil }
         if let fixture = validatedFixtures {
             await runInParallel([
                 {
-                    _ = await self.probe("话廊帖子详情", area: .bit101, scope: scope, expectedParameters: ["path": "/posters/\(fixture.posterID)"]) {
+                    let detail = await self.probe("话廊帖子详情", area: .bit101, scope: scope, expectedParameters: ["path": "/posters/\(fixture.posterID)"]) {
                         let detail = try await gallery.fetchPoster(id: fixture.posterID)
                         try Self.validateEntityIdentity(expected: fixture.posterID, actual: detail.id)
                         return detail
+                    }
+                    if let detail {
+                        _ = await self.probe("话廊图片下载", area: .bit101, scope: scope) {
+                            guard let imageURL = NetworkSmokePaging.imageURL(in: detail.images)
+                            else { throw URLError(.resourceUnavailable) }
+                            return try await self.fetchImageCount(urlString: imageURL)
+                        }
+                    } else {
+                        self.recordSkip("话廊图片下载", "维护帖子详情读取失败", area: .bit101, scope: scope)
                     }
                 },
                 {
@@ -252,11 +261,7 @@ final class ReleaseNetworkSmokeRunner {
             recordSkip("话廊帖子详情", reason, area: .bit101, scope: scope)
             recordSkip("话廊帖子评论", reason, area: .bit101, scope: scope)
             recordSkip("话廊网页详情", reason, area: .bit101, scope: scope)
-        }
-        if let imageURL = NetworkSmokePaging.imageURL(in: (posters ?? []).flatMap(\.images) + (posters ?? []).map(\.user.avatar)) {
-            _ = await probe("话廊图片下载", area: .bit101, scope: scope) { try await self.fetchImageCount(urlString: imageURL) }
-        } else {
-            recordSkip("话廊图片下载", "采样列表缺少可用图片地址", area: .bit101, scope: scope)
+            recordSkip("话廊图片下载", reason, area: .bit101, scope: scope)
         }
         var galleryOperations: [@MainActor () async -> Void] = [
             { _ = await self.probe("话廊关注流", area: .bit101, scope: scope) { try await NetworkSmokePaging.batch { try await gallery.fetchFeed(kind: .follow, page: $0 == 0 ? nil : $0) } } },
@@ -672,53 +677,6 @@ final class ReleaseNetworkSmokeRunner {
             courseCount: courses.count,
             courses: courses
         )
-    }
-
-    nonisolated static func validateCourseSyncPayload(_ payload: CourseSyncPayload) throws {
-        guard payload.courses.allSatisfy(\.hasValidPlacement), payload.exams.allSatisfy(\.hasValidPlacement)
-        else { throw URLError(.cannotParseResponse) }
-        guard payload.rawWeeksByCourse.count == payload.courses.count else { throw URLError(.cannotParseResponse) }
-        var groups: [String: (raw: Set<Int>, displayed: Set<Int>)] = [:]
-        for (course, raw) in zip(payload.courses, payload.rawWeeksByCourse) {
-            let described = SmallTermWeekNormalizer.weeksDescribed(in: course.description)
-            let displayed = Set(course.weeks)
-            guard described.isEmpty ? displayed == Set(raw) : displayed.isSubset(of: described)
-            else { throw URLError(.cannotParseResponse) }
-            let key = "\(course.number)|\(course.name)|\(course.description)"
-            var group = groups[key, default: ([], [])]
-            group.raw.formUnion(raw)
-            group.displayed.formUnion(displayed)
-            groups[key] = group
-        }
-        let differences = groups.values.compactMap { group -> Int? in
-            let raw = group.raw.sorted(), displayed = group.displayed.sorted()
-            guard displayed.count >= 2, raw.count == displayed.count, displayed.allSatisfy({ $0 > 0 }),
-                  let firstRaw = raw.first, let firstDisplayed = displayed.first else { return nil }
-            let delta = firstRaw - firstDisplayed
-            return zip(raw, displayed).allSatisfy({ pair in pair.0 - pair.1 == delta }) ? delta : nil
-        }
-        let expectedOffset = payload.term.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("-1")
-            && differences.count >= 2 && differences.allSatisfy({ $0 == 3 }) ? 3 : 0
-        guard payload.normalizationOffset == expectedOffset else {
-            throw NSError(
-                domain: "BIT101.NetworkSmoke",
-                code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "课表周次偏移证据与归一化结果不一致。"]
-            )
-        }
-
-        let calendar = ScheduleSharedDateCodec.calendar
-        guard let sourceDate = ScheduleSharedDateCodec.parseDate(payload.sourceFirstDayString),
-              let normalizedDate = ScheduleSharedDateCodec.parseDate(payload.firstDayString)
-        else { throw URLError(.cannotParseResponse) }
-        let dayDelta = calendar.dateComponents([.day], from: sourceDate, to: normalizedDate).day ?? 0
-        guard dayDelta == expectedOffset * 7 else {
-            throw NSError(
-                domain: "BIT101.NetworkSmoke",
-                code: 2,
-                userInfo: [NSLocalizedDescriptionKey: "课表首周日期与周次偏移结果不一致。"]
-            )
-        }
     }
 
     static func freshEclassService() throws -> ScheduleService {

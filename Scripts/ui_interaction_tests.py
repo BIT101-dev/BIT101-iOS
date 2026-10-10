@@ -185,3 +185,28 @@ def native_runtime_boundary_findings(path: str) -> list[str]:
     if source_runtime_interaction_findings(syntax, manifest, [dict(row, actions=['scroll', 'gesture'])]):
         findings.append('UI 原生运行自测：滚动与原生手势沿同一载体分别验证')
     return findings
+
+
+def explanatory_text_boundary_findings() -> list[str]:
+    "验证模块界面中的 footer 与 description 进入文案审查。"
+    import ui_source_facts as rules
+    import shutil
+    from contextlib import redirect_stdout
+    from io import StringIO
+    from unittest.mock import patch
+
+    fixture = ROOT / ".build/static-audit/explanatory-self-test"
+    path = fixture / "Modules/DesignSystemKit/Sources/AppStateComponents.swift"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text('Section { Text("内容") } footer: {\nText("模块提示")\n}\n'
+                    'ContentUnavailableView { Text("状态") } description: {\nText("模块说明")\n}\n')
+    try:
+        with patch.object(rules, "ROOT", fixture), redirect_stdout(StringIO()):
+            rules.explanatory_text_report()
+        report = (fixture / ".build/explanatory-text-report.txt").read_text()
+        assert '模块提示' in report and '模块说明' in report and 'Modules/DesignSystemKit' in report
+    except (AssertionError, OSError) as error:
+        return [f"解释文案范围自测：{error}"]
+    finally:
+        shutil.rmtree(fixture, ignore_errors=True)
+    return []

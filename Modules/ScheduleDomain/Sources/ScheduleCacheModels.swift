@@ -84,6 +84,17 @@ public nonisolated struct ScheduleCache: Codable, Sendable {
         TimeSlot.isValidTable(timeTable) && sharedSchedules.allSatisfy { TimeSlot.isValidTable($0.timeTable) }
     }
 
+    public var hasValidCoursePlacements: Bool {
+        courseData.schedulesByTerm.values.allSatisfy { $0.courses.allSatisfy(\.hasValidPlacement) }
+            && sharedSchedules.allSatisfy { $0.courses.allSatisfy(\.hasValidPlacement) }
+            && manualCourseRulesByTerm.values.allSatisfy { rules in
+                rules.allSatisfy {
+                    $0.sourceCourses.allSatisfy(\.hasValidPlacement)
+                        && $0.replacementCourses.allSatisfy(\.hasValidPlacement)
+                }
+            }
+    }
+
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(Self.schemaVersion, forKey: .schemaVersion)
