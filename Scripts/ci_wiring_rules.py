@@ -158,7 +158,10 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
             or set(merge.get("needs", [])) != {"static-audit", "release-build", "catalyst-tests", "physical-device"} \
             or merge.get("continue-on-error", False) is not False:
         errors.append(".github/workflows/ci.yml: 合并验收需要核心真机行为与完整编译 Job")
-    if not any(command == "python3 Scripts/validation_evidence.py check-merge --recorded-environment" for command, _ in run_commands(merge)):
+    core_checks = [step for step in merge.get('steps', []) if isinstance(step, dict)
+        and step.get('run') == 'python3 Scripts/validation_evidence.py check-merge --recorded-environment']
+    scope_condition = "needs.static-audit.outputs.physical_required == 'true'"
+    if len(core_checks) != 1 or core_checks[0].get('if') != scope_condition:
         errors.append(".github/workflows/ci.yml: 合并验收需要核对绑定的核心真机证据")
     baseline_steps = [step for step in mapping(jobs.get("static-audit")).get("steps", [])
         if isinstance(step, dict) and step.get("name") == "Load target branch coverage baseline"]
@@ -172,7 +175,14 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
     if baseline_index < 0 or audit_step_index < 0 or baseline_index >= audit_step_index:
         errors.append(".github/workflows/ci.yml: 基准载入需要先于当前分组记录，保留本次审计证据")
     physical = mapping(jobs.get("physical-device"))
-    trusted = "github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository"
+    static = mapping(jobs.get('static-audit'))
+    scope_steps = [step for step in static.get('steps', []) if isinstance(step, dict) and step.get('id') == 'physical_scope']
+    if mapping(static.get('outputs')).get('physical_required') != '${{ steps.physical_scope.outputs.required }}' \
+            or len(scope_steps) != 1 or scope_steps[0].get('run') != 'python3 Scripts/ci_evidence.py physical-scope "$BIT101_BASE_COMMIT" >> "$GITHUB_OUTPUT"' \
+            or mapping(scope_steps[0].get('env')).get('BIT101_BASE_COMMIT') != "${{ github.event.pull_request.base.sha || '' }}" \
+            or scope_steps[0].get('if') or scope_steps[0].get('continue-on-error', False):
+        errors.append('.github/workflows/ci.yml: 真机范围需要沿 PR 目标提交计算并绑定实际输出')
+    trusted = "(github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && " + scope_condition
     if physical.get("if") != trusted or physical.get("needs") != "static-audit" \
             or physical.get("runs-on") != ["self-hosted", "macOS", "bit101-xcode-27", "bit101-device"] \
             or type(physical.get("timeout-minutes")) is not int or physical['timeout-minutes'] < 60 \
@@ -376,6 +386,11 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
         changed = workflow_source.replace(before, after)
         if not ci_wiring_findings(changed):
             findings.append("代码质量规则边界自检失败：真机证据生成、提交归属与产物发布")
+    for before, after in (('physical-scope "$BIT101_BASE_COMMIT"', 'physical-scope ""'),
+            ('${{ steps.physical_scope.outputs.required }}', 'false'),
+            ("if: needs.static-audit.outputs.physical_required == 'true'", "if: false")):
+        if not ci_wiring_findings(workflow_source.replace(before, after)):
+            findings.append('代码质量规则边界自检失败：真机输入范围与核心验收分支')
     return findings
 
 

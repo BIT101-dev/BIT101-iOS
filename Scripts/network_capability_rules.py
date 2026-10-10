@@ -8,7 +8,11 @@ import unicodedata
 from swift_source_index import argument_parameter_bindings, matching_functions, visible_variables
 
 NETWORK_FOUNDATION_MODULES = {'TransportCore', 'CommunityTransport', 'MediaKit'}
-NETWORK_TRANSPORT_TYPES = {'HTTPClient', 'HTTPTransport', 'URLSession', 'CommunityAPIClient', 'CommunitySession'}
+NETWORK_TRANSPORT_TYPES = {'HTTPClient', 'HTTPTransport', 'URLSession', 'CommunityAPIClient', 'CommunitySession',
+    'URLSessionTask', 'URLSessionDataTask', 'URLSessionUploadTask', 'URLSessionDownloadTask', 'URLSessionStreamTask',
+    'URLSessionWebSocketTask', 'NWConnection', 'NWConnectionGroup', 'NWListener', 'NWBrowser'}
+NETWORK_TRANSPORT_METHODS = {'send', 'receive', 'sendPing', 'resume', 'start', 'data', 'upload', 'download',
+    'receiveMessage', 'readData', 'write'}
 NETWORK_HARNESS_TYPES = {'ReleaseNetworkSmokeRunner', 'ReleaseNetworkSmokeDependencies', 'CommunityWriteSmoke',
     'NetworkSmokeProductionSession', 'ReleaseNetworkSmokeSchoolClient'}
 
@@ -230,6 +234,10 @@ def control_flow_outcomes(facts: dict, branch: dict, conditions: dict) -> set[st
 
 def call_can_execute(facts: dict, call: dict) -> bool:
     conditions = {}
+    for branch in facts.get('expressionFlow', []):
+        value = branch_condition(facts, branch)
+        excluded = branch.get('elseRange') if value is True else branch.get('thenRange') if value is False else None
+        if excluded and excluded[0] <= call['start'] < excluded[1]: return False
     def hoisted(bounds, branch):
         return any(function['start'] >= bounds[0] and function['start'] <= call['start'] < function['end']
             and function.get('lexicalScope', []) == branch.get('lexicalScope', [])
@@ -423,11 +431,11 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
                 method = call.get('calledExpression', '').rsplit('.', 1)[-1]
                 executes = all(closure['start'] in task_bodies for closure in closures
                     if function['start'] <= closure['start'] <= call['start'] < closure['end'])
-                if target in network_owners and (method in {'send', 'data', 'upload', 'download'} or (target, method) in async_methods and executes):
+                if target in network_owners and (method in NETWORK_TRANSPORT_METHODS or (target, method) in async_methods and executes):
                     return True
                 receiver, _, method = call.get('calledExpression', '').rpartition('.')
                 for variable in visible_variables(source_facts, call, receiver.removeprefix('self.'), receiver.startswith('self.')):
-                    if method in {'send', 'data', 'upload', 'download'} and any(
+                    if method in NETWORK_TRANSPORT_METHODS and any(
                         types.terminal_name(component_path, name, scope).rsplit('.', 1)[-1] in NETWORK_TRANSPORT_TYPES
                         for component_path, name, scope in components(source_path, variable.get('type', ''), variable['scope'], call)):
                         return True
@@ -488,7 +496,7 @@ def matching_api_calls(index: dict, functions: list[tuple[str, dict]], call: dic
     from swift_type_index import SwiftTypeIndex
     types = SwiftTypeIndex(index)
     def canonical(path, kind, scope, seen=frozenset()):
-        kind = re.sub(r'\s+', '', kind)
+        kind = re.sub(r'\bany\b|\s+', '', kind)
         lifted = kind.endswith(('?', '!'))
         kind = kind.rstrip('?!')
         alias = types.resolve(path, kind, scope, aliases=False)
@@ -517,15 +525,18 @@ def matching_api_calls(index: dict, functions: list[tuple[str, dict]], call: dic
     matches = []
     for path, function in candidates:
         for binding in api_argument_bindings(function, call):
-            promotions = 0
+            promotions, conversions = 0, 0
             for kind, parameter in zip(arguments, binding):
                 if kind is None: continue
                 actual, actual_optional = canonical(call['path'], kind, call['scope'])
                 expected, expected_optional = canonical(path, parameter['type'], function['scope'])
-                if actual != expected or actual_optional and not expected_optional: break
+                if actual_optional and not expected_optional: break
+                distance = 0 if actual == expected else types.inheritance_distance(actual, expected)
+                if distance is None: break
+                conversions += distance
                 promotions += int(expected_optional and not actual_optional)
             else:
-                score = (promotions, max(0, len(function['parameters']) - len(binding)))
+                score = (conversions, promotions, max(0, len(function['parameters']) - len(binding)))
                 matches.append((score, path, function))
     if not matches: return []
     best = min(score for score, _, _ in matches)

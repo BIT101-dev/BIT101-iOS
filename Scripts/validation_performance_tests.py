@@ -237,9 +237,9 @@ def batch_retention_self_test(raw: list, test: str) -> None:
             assert subject.main(['begin-batch', 'append']) == 0
             create(bundle, b'failed')
             for failure in ('merge', 'summary', 'interrupt'):
-                if failure != 'merge':
-                    subject.begin_result_step(True)
-                    create(bundle, b'failed')
+                for path in (bundle, retained, incoming): shutil.rmtree(path, ignore_errors=True)
+                create(retained, b'previous')
+                create(bundle, b'failed')
                 writer.reset_mock()
                 def failing_merge(command, **kwargs):
                     if failure != 'summary':
@@ -256,30 +256,38 @@ def batch_retention_self_test(raw: list, test: str) -> None:
                     except (subprocess.CalledProcessError, KeyboardInterrupt): pass
                     else: raise AssertionError('结果合并失败与中断需要传播')
                 writer.assert_not_called()
-                assert bundle.is_dir() and not retained.exists() and not incoming.exists()
+                assert bundle.is_dir() and retained.is_dir() and not incoming.exists()
                 assert (bundle / 'database.sqlite3').read_bytes() == b'failed'
-            for fault in ('current', 'retained', 'merged', 'partial', 'unreadable',
+                assert (retained / 'database.sqlite3').read_bytes() == b'previous'
+                subject.recover_result_step()
+                assert (bundle / 'database.sqlite3').read_bytes() == b'previousfailed'
+                subject.recover_result_step()
+                assert (bundle / 'database.sqlite3').read_bytes() == b'previousfailed'
+            for fault in ('current', 'current-only', 'published-current', 'published-missing', 'retained', 'merged', 'partial', 'unreadable',
                           'current-partial', 'current-missing', 'current-unreadable', 'current-merged'):
                 for path in (bundle, retained, incoming): shutil.rmtree(path, ignore_errors=True)
                 create(retained, b'previous')
                 create(incoming, b'merged')
-                if fault.startswith('current'):
+                if fault.startswith('current') or fault == 'published-current':
                     create(bundle, b'current')
                     if fault in {'current-partial', 'current-merged'}: (bundle / 'Staging').mkdir()
                     if fault == 'current-missing': (bundle / 'database.sqlite3').unlink()
-                if fault == 'retained': shutil.rmtree(incoming)
+                if fault in {'retained', 'current-only'}: shutil.rmtree(incoming)
+                if fault.startswith('published'): shutil.rmtree(retained)
                 if fault in {'partial', 'current-partial', 'current-missing'}: (incoming / 'Staging').mkdir()
                 assert artifact_status() == 1, fault
                 def recover_export(command, **kwargs):
                     assert '--path' in command and command[-1] in {str(bundle), str(incoming)}
                     if fault in {'unreadable', 'current-unreadable'}: raise subprocess.CalledProcessError(1, command)
-                    return '{}'
+                    return exported(command, **kwargs)
                 with patch.object(subject.subprocess, 'check_output', side_effect=recover_export):
                     assert subject.main(['recover-batch']) == 0
-                expected = b'current' if fault == 'current' else b'merged' if fault in {'merged', 'current-merged'} else b'previous'
+                expected = b'previouscurrent' if fault in {'current', 'current-only'} else b'merged' if fault in {'merged', 'current-merged', 'published-current', 'published-missing'} else b'previous'
                 assert (bundle / 'database.sqlite3').read_bytes() == expected, fault
                 assert not retained.exists() and not incoming.exists(), fault
                 assert artifact_status() == 0, fault
+                subject.recover_result_step()
+                assert (bundle / 'database.sqlite3').read_bytes() == expected, fault
             assert subject.main(['begin-batch', 'first']) == 0
             assert not any(path.exists() for path in (bundle, retained, incoming))
         result = subprocess.run([sys.executable, '-B', str(subject.ROOT / 'Scripts/validation_performance.py'), 'invalid'],

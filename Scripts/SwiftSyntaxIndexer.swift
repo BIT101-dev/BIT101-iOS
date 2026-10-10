@@ -1,6 +1,26 @@
 import Foundation
 import SwiftSyntax
 import SwiftParser
+import SwiftOperators
+
+final class ExpressionFlowVisitor: SyntaxVisitor {
+    let record: (String, ExprSyntax, ExprSyntax?, ExprSyntax?) -> Void
+    init(record: @escaping (String, ExprSyntax, ExprSyntax?, ExprSyntax?) -> Void) {
+        self.record = record
+        super.init(viewMode: .sourceAccurate)
+    }
+    override func visit(_ node: ClosureExprSyntax) -> SyntaxVisitorContinueKind { .skipChildren }
+    override func visit(_ node: InfixOperatorExprSyntax) -> SyntaxVisitorContinueKind {
+        let operation = node.operator.trimmedDescription
+        if operation == "&&" { record(operation, node.leftOperand, node.rightOperand, nil) }
+        if operation == "||" { record(operation, node.leftOperand, nil, node.rightOperand) }
+        return .visitChildren
+    }
+    override func visit(_ node: TernaryExprSyntax) -> SyntaxVisitorContinueKind {
+        record("?:", node.condition, node.thenExpression, node.elseExpression)
+        return .visitChildren
+    }
+}
 
 final class FactVisitor: SyntaxVisitor {
     private(set) var declarations: [DeclarationFact] = []
@@ -39,6 +59,7 @@ final class FactVisitor: SyntaxVisitor {
     private(set) var expressions: [ScopedFact] = []
     private(set) var bindings: [ScopedFact] = []
     private(set) var controlFlow: [ScopedFact] = []
+    private(set) var expressionFlow: [ScopedFact] = []
     private(set) var typeNames: [ScopedFact] = []
     private var scope: [String] = []
     private var lexicalScope: [Int] = []
@@ -700,6 +721,21 @@ final class FactVisitor: SyntaxVisitor {
 
     override func visit(_ node: SequenceExprSyntax) -> SyntaxVisitorContinueKind {
         expressions.append(fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset))
+        if let folded = try? OperatorTable.standardOperators.foldAll(node) {
+            let offset = node.position.utf8Offset - folded.position.utf8Offset
+            let visitor = ExpressionFlowVisitor { [self] operation, condition, consequent, alternative in
+                func bounds(_ expression: ExprSyntax?) -> [Int]? {
+                    expression.map { [offset + $0.positionAfterSkippingLeadingTrivia.utf8Offset,
+                        offset + $0.endPositionBeforeTrailingTrivia.utf8Offset] }
+                }
+                var branch = fact(operation, start: offset + condition.positionAfterSkippingLeadingTrivia.utf8Offset)
+                branch.condition = condition.trimmedDescription
+                branch.thenRange = bounds(consequent)
+                branch.elseRange = bounds(alternative)
+                expressionFlow.append(branch)
+            }
+            visitor.walk(folded)
+        }
         let parts = Array(node.elements)
         if parts.count == 3, parts[1].is(AssignmentExprSyntax.self),
            parts[2].is(ClosureExprSyntax.self) || parts[2].is(MemberAccessExprSyntax.self) || parts[2].is(DeclReferenceExprSyntax.self),
@@ -897,6 +933,7 @@ enum SwiftSyntaxIndexer {
                 expressions: visitor.expressions,
                 bindings: visitor.bindings,
                 controlFlow: visitor.controlFlow,
+                expressionFlow: visitor.expressionFlow,
                 typeNames: visitor.typeNames
             )
         }

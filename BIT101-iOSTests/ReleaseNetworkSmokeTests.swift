@@ -265,7 +265,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
             baseURL: AppURL.required("https://example.invalid"),
             credentials: { .init(identity: .init(accountIdentifier: "fixture"), cookie: "fixture") }, refresh: { _ in })
         let operations = CommunityWriteSmoke.Operations.production(courses: CourseService(session: session))
-        let comment = try await operations.comment("course42", "功能验收", { _ in }, {})
+        let comment = try await operations.comment(.init(kind: .course, object: "course42"), "功能验收", { _ in }, {})
         #expect(comment.rate == 6 && transport.comments == 1)
     }
 
@@ -318,7 +318,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
         for kind in [CommunityWriteSmoke.Kind.paper, .poster] {
             await #expect(throws: (any Error).self) { try await operations.read(kind, 1) }
         }
-        await #expect(throws: (any Error).self) { try await operations.comments("poster1") }
+        await #expect(throws: (any Error).self) { try await operations.comments("poster1", nil) }
         await #expect(throws: (any Error).self) { try await operations.deleteComment(1) }
         route.knownContent = true
         for status in [400, 404, 500] {
@@ -326,7 +326,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
             for kind in [CommunityWriteSmoke.Kind.paper, .poster] {
                 #expect(try await operations.read(kind, 1) == nil)
             }
-            await #expect(throws: (any Error).self) { try await operations.comments("poster1") }
+            await #expect(throws: (any Error).self) { try await operations.comments("poster1", nil) }
         }
     }
 
@@ -486,8 +486,8 @@ struct ReleaseNetworkSmokeLifecycleTests {
 
     @Test func historicalJournalRecoversCourseCommentsAndReplies() async throws {
         let world = CommunityWorld(stage: "success")
-        let comment = try await world.operations.comment("course1", "功能验收 legacy", { _ in }, {})
-        let reply = try await world.operations.comment("comment\(comment.id)", "功能验收 legacy", { _ in }, {})
+        let comment = try await world.operations.comment(.init(kind: .course, object: "course1"), "功能验收 legacy", { _ in }, {})
+        let reply = try await world.operations.comment(.init(kind: .course, object: "comment\(comment.id)"), "功能验收 legacy", { _ in }, {})
         world.pending = Data("""
         {"marker":"功能验收 legacy","account":1,"targets":[{"kind":"course","id":1}],"comments":[\(comment.id),\(reply.id)]}
         """.utf8)
@@ -500,7 +500,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
 
     @Test func unmappedCommentKeepsAmbiguousFailuresUntilParentAbsenceIsConfirmed() async throws {
         let world = CommunityWorld(stage: "silent-comment-delete")
-        let comment = try await world.operations.comment("course1", "功能验收 fixture", { _ in }, {})
+        let comment = try await world.operations.comment(.init(kind: .course, object: "course1"), "功能验收 fixture", { _ in }, {})
         var journal = CommunityWriteSmoke.Journal(marker: "功能验收 fixture", account: 1)
         journal.comments = [comment.id]
         world.pending = try JSONEncoder().encode(journal)
@@ -524,7 +524,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
     func routeFailuresPreserveRecoveryUntilTheServerConfirmsCleanup(stage: String) async throws {
         let world = CommunityWorld(stage: stage)
         world.contents["poster123"] = .init(text: "功能验收 fixture", owned: true, liked: false)
-        let comment = try await world.operations.comment("poster123", "功能验收 fixture", { _ in }, {})
+        let comment = try await world.operations.comment(.init(kind: .poster, object: "poster123"), "功能验收 fixture", { _ in }, {})
         var journal = CommunityWriteSmoke.Journal(marker: "功能验收 fixture", account: 1)
         journal.targets = [.init(kind: .poster, id: 123)]
         journal.parents = ["poster123"]
@@ -545,7 +545,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
     @Test(arguments: [false, true])
     func restartedCleanupConfirmsAnAlreadyDeletedCommentFromItsPersistedParent(legacy: Bool) async throws {
         let original = CommunityWorld(stage: "success")
-        let comment = try await original.operations.comment("course1", "功能验收 fixture", { _ in }, {})
+        let comment = try await original.operations.comment(.init(kind: .course, object: "course1"), "功能验收 fixture", { _ in }, {})
         var journal = CommunityWriteSmoke.Journal(marker: "功能验收 fixture", account: 1)
         journal.parents = ["course1"]
         journal.comments = [comment.id]
@@ -588,7 +588,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
     @Test(arguments: ["功能验收 fixture-other", "原有内容"])
     func recoveryPreservesCommentsAndContentWithDifferentText(text: String) async throws {
         let world = CommunityWorld(stage: "success")
-        let comment = try await world.operations.comment("poster77", text, { _ in }, {})
+        let comment = try await world.operations.comment(.init(kind: .poster, object: "poster77"), text, { _ in }, {})
         world.contents["poster77"] = .init(text: text, owned: true, liked: true)
         var journal = CommunityWriteSmoke.Journal(marker: "功能验收 fixture", account: 1)
         journal.targets = [.init(kind: .poster, id: 77)]
@@ -628,169 +628,6 @@ struct ReleaseNetworkSmokeLifecycleTests {
         }
     }
 
-    private final class CommunityWorld {
-        var followsTarget = true
-        var account = 1
-        var nextID = 100
-        var contents: [String: CommunityWriteSmoke.Content] = [
-            "poster77": .init(text: "原有内容", owned: true, liked: false),
-            "course1": .init(text: "", owned: false, liked: true)]
-        var rows: [String: [CommunityComment]] = [:]
-        var delayedContents: [String: CommunityWriteSmoke.Content] = [:]
-        var delayedRows: [String: [CommunityComment]] = [:]
-        var delayedParent: String?
-        var creationVisible = false
-        var pending: Data?
-        var commentDeletionRequests: [Int] = []
-        var stage: String
-        var injected = false
-        var cancel: (() -> Void)?
-        init(stage: String) { self.stage = stage }
-        private func switchAccount(during operation: String) -> Bool {
-            guard stage == "switch-" + operation, !injected else { return false }
-            injected = true
-            account = 2
-            return true
-        }
-        private var user: CommunityUser { makeUser(1) }
-        private func makeUser(_ id: Int) -> CommunityUser {
-            CommunityUser(id: id, createTime: "", nickname: "功能验收", avatar: .init(mid: "", url: "", lowUrl: ""), motto: "",
-                identity: .init(id: 1, color: "", text: "", createTime: "", updateTime: "", deleteTime: nil))
-        }
-        var operations: CommunityWriteSmoke.Operations {
-            .init(identity: { .init(accountIdentifier: String(self.account)) }, account: { self.account }, course: { 1 }, create: { kind, text, record, submit in
-                if self.stage == "upload-poster" { throw URLError(.networkConnectionLost) }
-                if self.stage == "cancel-before-poster" { self.cancel?() }
-                if self.stage == "invalid-paper" && kind == .paper {
-                    throw NSError(domain: "BIT101.Paper", code: 400, userInfo: [NSLocalizedDescriptionKey: "参数错误awa"])
-                }
-                if self.stage == "signed-out-paper" && kind == .paper { throw PaperServiceError.notLoggedIn }
-                if self.stage == "broken-image" { try record("fixture-image") }
-                try submit()
-                if self.stage == "unsent-poster" {
-                    throw CommunityWriteSmoke.SubmissionNotSent(underlying: CancellationError())
-                }
-                self.nextID += 1
-                let id = self.nextID
-                self.contents[kind.rawValue + String(id)] = .init(text: text, owned: true, liked: false,
-                    imageMids: [self.stage == "broken-image" ? "wrong" : "fixture-image"],
-                    anonymous: self.stage == "create-anonymous-" + kind.rawValue,
-                    publicAccess: self.stage == "create-public-" + kind.rawValue)
-                if self.stage == "persistent-find", kind == .paper, !self.injected {
-                    self.injected = true; throw URLError(.networkConnectionLost)
-                }
-                if ["late-" + kind.rawValue, "hidden-" + kind.rawValue].contains(self.stage), !self.injected {
-                    self.injected = true
-                    if self.stage.hasPrefix("late-") {
-                        let key = kind.rawValue + String(id)
-                        self.delayedContents[key] = self.contents.removeValue(forKey: key)
-                    }
-                    throw URLError(.networkConnectionLost)
-                }
-                if self.stage == "lost-poster" && !self.injected {
-                    self.injected = true; throw URLError(.networkConnectionLost)
-                }
-                return id
-            }, find: { kind, marker in
-                if self.stage == "persistent-find" && kind == .paper { throw URLError(.timedOut) }
-                if self.stage == "hidden-" + kind.rawValue, !self.creationVisible { return [] }
-                return self.contents.compactMap { key, value in
-                    guard key.hasPrefix(kind.rawValue), value.owned, value.text.hasPrefix(marker) else { return nil }
-                    return Int(key.dropFirst(kind.rawValue.count))
-                }
-            }, read: { kind, id in
-                if self.stage == "route-read" { throw NSError(domain: "BIT101.Gallery", code: 404) }
-                if self.switchAccount(during: "read") { return nil }
-                return self.contents[kind.rawValue + String(id)]
-            }, edit: { kind, id, text in
-                let key = kind.rawValue + String(id)
-                self.contents[key] = .init(text: text, owned: true, liked: false, imageMids: ["fixture-image"],
-                    anonymous: self.stage == "edit-anonymous-" + kind.rawValue,
-                    publicAccess: self.stage == "edit-public-" + kind.rawValue)
-            }, delete: { kind, id in
-                try Task.checkCancellation()
-                if self.stage == "persistent-delete" && kind == .paper { throw URLError(.timedOut) }
-                if self.switchAccount(during: "delete") { throw NSError(domain: "fixture", code: 404) }
-                if self.stage == "cleanup-failure" && !self.injected { self.injected = true; throw URLError(.timedOut) }
-                self.contents[kind.rawValue + String(id)] = nil
-            }, comments: { parent in
-                if self.stage == "route-comments" { throw NSError(domain: "BIT101.Gallery", code: 404) }
-                if self.switchAccount(during: "comments") { return [] }
-                if self.delayedParent == parent, !self.creationVisible { return [] }
-                if self.stage == "deleted-parent-read", parent.hasPrefix("comment"),
-                   let id = Int(parent.dropFirst(7)), !self.rows.values.joined().contains(where: { $0.id == id }) {
-                    throw NSError(domain: "BIT101.Gallery", code: 500, userInfo: [NSLocalizedDescriptionKey: "获取顶级对象失败Orz"])
-                }
-                return self.rows[parent] ?? []
-            }, comment: { object, text, _, submit in
-                if self.stage == "upload-comment" { throw URLError(.networkConnectionLost) }
-                if self.stage == "cancel-before-comment" { self.cancel?() }
-                try submit()
-                self.nextID += 1
-                @MainActor func makeComment(_ id: Int, readback: Bool = false) -> CommunityComment {
-                    let reply = object.hasPrefix("comment")
-                    let wrongRate = self.stage == "wrong-rating" || self.stage == "readback-rating" && readback
-                    return CommunityComment(id: id, obj: object, images: [.init(mid: "fixture-image", url: "", lowUrl: "")],
-                        user: self.user, anonymous: self.stage == "anonymous-reply" && reply,
-                        createTime: "", updateTime: "", like: false, likeNum: 0, commentNum: 0, own: true,
-                        rate: object.hasPrefix("course") && !wrongRate ? 6 : 0,
-                        replyUser: self.makeUser(self.stage == "wrong-reply-user" && reply ? 1 : 0),
-                        replyObj: self.stage == "wrong-reply-object" && reply ? "comment77" : "", text: text, sub: [])
-                }
-                let value = makeComment(self.nextID)
-                self.rows[object, default: []].append(makeComment(self.nextID, readback: true))
-                let createdKind = object.hasPrefix("comment") ? "reply" : "comment"
-                if ["late-" + createdKind, "hidden-" + createdKind].contains(self.stage), !self.injected {
-                    self.injected = true; self.delayedParent = object
-                    if self.stage.hasPrefix("late-") { self.delayedRows[object] = self.rows.removeValue(forKey: object) }
-                    throw URLError(.networkConnectionLost)
-                }
-                if object.hasPrefix("comment") && !self.injected && ["lost-reply", "cancelled"].contains(self.stage) {
-                    self.injected = true; self.cancel?(); throw CancellationError()
-                }
-                if self.stage == "duplicate-comments", object.hasPrefix("comment"), let main = Int(object.dropFirst(7)) {
-                    return makeComment(main)
-                }
-                return value
-            }, deleteComment: { id in
-                try Task.checkCancellation()
-                self.commentDeletionRequests.append(id)
-                if self.stage == "silent-comment-delete" { return }
-                if self.stage == "missing-comment" { throw NSError(domain: "fixture", code: 404) }
-                if self.switchAccount(during: "comment-delete") { throw NSError(domain: "fixture", code: 404) }
-                for parent in self.rows.keys { self.rows[parent]?.removeAll { $0.id == id } }
-                if self.stage == "lost-delete-response" && !self.injected {
-                    self.injected = true
-                    throw URLError(.networkConnectionLost)
-                }
-            }, like: { kind, id in
-                let key = kind.rawValue + String(id)
-                let old = try #require(self.contents[key])
-                if self.stage == "persistent-like" && kind == .course {
-                    if !self.injected {
-                        self.injected = true
-                        self.contents[key] = .init(text: old.text, owned: old.owned, liked: !old.liked, imageMids: old.imageMids,
-                            anonymous: old.anonymous, publicAccess: old.publicAccess)
-                    }
-                    throw URLError(.timedOut)
-                }
-                self.contents[key] = .init(text: old.text, owned: old.owned, liked: !old.liked, imageMids: old.imageMids,
-                    anonymous: old.anonymous, publicAccess: old.publicAccess)
-                return !old.liked
-            }, followTarget: { 2 }, following: { _ in self.followsTarget }, follow: { _ in
-                if self.stage == "follow-noop" || (self.stage == "follow-restore-noop" && !self.followsTarget) {
-                    return self.followsTarget
-                }
-                self.followsTarget.toggle()
-                if self.stage == "persistent-follow" { throw URLError(.timedOut) }
-                return self.stage == "follow-response-mismatch" ? !self.followsTarget : self.followsTarget
-            })
-        }
-        var smoke: CommunityWriteSmoke {
-            .init(operations: operations, load: { self.pending }, save: { self.pending = $0 })
-        }
-    }
-
     @Test func confirmedCommentAbsenceRetiresALostDeletionResponseBeforeRecovery() async throws {
         let world = CommunityWorld(stage: "lost-delete-response")
         await #expect(throws: (any Error).self) { try await world.smoke.run(marker: "fixture", expectedAccount: 1) }
@@ -801,8 +638,8 @@ struct ReleaseNetworkSmokeLifecycleTests {
         world.stage = "success"
         _ = try await world.smoke.run(marker: "fixture", cleanupOnly: true)
         #expect(world.pending == nil)
-        #expect(world.commentDeletionRequests.count == 6)
-        #expect(Set(world.commentDeletionRequests).count == 6)
+        #expect(world.commentDeletionRequests.count == 9)
+        #expect(Set(world.commentDeletionRequests).count == 9)
     }
 
     @Test(arguments: ["persistent-find", "persistent-like", "persistent-delete"])
@@ -824,7 +661,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
     func interruptedCleanupRetainsPersistedJournalForItsOriginalAccount(operation: String) async throws {
         let world = CommunityWorld(stage: "switch-" + operation)
         world.contents["poster123"] = .init(text: "功能验收 fixture", owned: true, liked: false)
-        let comment = try await world.operations.comment("poster123", "功能验收 fixture", { _ in }, {})
+        let comment = try await world.operations.comment(.init(kind: .poster, object: "poster123"), "功能验收 fixture", { _ in }, {})
         world.pending = Data(#"{"marker":"功能验收 fixture","account":1,"attempts":[],"targets":[{"kind":"poster","id":123}],"parents":["poster123"],"comments":[\#(comment.id)],"likes":[],"evidence":[]}"#.utf8)
         await #expect(throws: CancellationError.self) { try await world.smoke.run(marker: "fixture", cleanupOnly: true) }
         #expect(world.pending != nil)
@@ -838,7 +675,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
     @Test func repliesAreConfirmedWhileTheirParentCommentsRemainReadable() async throws {
         let world = CommunityWorld(stage: "deleted-parent-read")
         let evidence = try await world.smoke.run(marker: "fixture", expectedAccount: 1)
-        #expect(evidence.filter { $0.hasPrefix("服务端确认删除 comment") }.count == 6)
+        #expect(evidence.filter { $0.hasPrefix("服务端确认删除 comment") }.count == 9)
         #expect(world.pending == nil)
         #expect(Set(world.contents.keys) == ["poster77", "course1"])
         #expect(world.rows.values.allSatisfy { $0.isEmpty })
@@ -848,7 +685,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
         "upload-poster", "upload-comment", "cancel-before-poster", "cancel-before-comment",
         "create-anonymous-poster", "create-anonymous-paper", "edit-anonymous-poster", "edit-anonymous-paper",
         "create-public-poster", "create-public-paper", "edit-public-poster", "edit-public-paper",
-        "wrong-rating", "readback-rating", "anonymous-reply", "wrong-reply-user", "wrong-reply-object"])
+        "wrong-rating", "readback-rating", "anonymous-reply", "wrong-reply-user", "wrong-reply-object", "wrong-directed-user", "wrong-directed-object"])
     func communityWritesCleanAfterLostResponsesCancellationAndResume(stage: String) async throws {
         let world = CommunityWorld(stage: stage)
         let task = Task { try await world.smoke.run(marker: "fixture", expectedAccount: 1) }
@@ -856,7 +693,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
         let result = await task.result
         if stage == "success" {
             let evidence = try result.get()
-            #expect(evidence.filter { $0.hasPrefix("服务端确认删除 comment") }.count == 6)
+            #expect(evidence.filter { $0.hasPrefix("服务端确认删除 comment") }.count == 9)
         } else { if case .success = result { Issue.record("故障注入应保留验收失败结果") } }
         if stage == "invalid-paper", case let .failure(error) = result {
             #expect(error.localizedDescription.contains("创建 paper：参数错误awa"))
@@ -897,7 +734,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
         #expect(world.rows.values.allSatisfy { $0.isEmpty })
     }
 
-    @Test(arguments: ["late-poster", "hidden-poster", "late-paper", "hidden-paper", "late-comment", "hidden-comment", "late-reply", "hidden-reply"])
+    @Test(arguments: ["late-poster", "hidden-poster", "late-paper", "hidden-paper", "late-comment", "hidden-comment", "late-reply", "hidden-reply", "late-directed", "hidden-directed"])
     func recoveryRetainsUnconfirmedWritesUntilTheirObjectsBecomeVisible(stage: String) async throws {
         let world = CommunityWorld(stage: stage)
         await #expect(throws: (any Error).self) { try await world.smoke.run(marker: "fixture", expectedAccount: 1) }

@@ -521,7 +521,7 @@ struct NetworkSmokeCoverageTests {
         var operations = CommunityWriteSmoke.Operations.production(gallery: gallery)
         var uploads: [String] = []
         #expect(try await operations.create(.poster, "fixture", { uploads.append($0) }, {}) == 9)
-        #expect(try await operations.comment("poster9", "fixture", { uploads.append($0) }, {}).images.map(\.mid) == ["uploaded"])
+        #expect(try await operations.comment(.init(kind: .poster, object: "poster9"), "fixture", { uploads.append($0) }, {}).images.map(\.mid) == ["uploaded"])
         #expect(uploads == ["uploaded", "uploaded"])
         let imageData = try CommunityWriteMedia.jpeg()
         #expect(imageData == (try CommunityWriteMedia.jpeg()) && UIImage(data: imageData)?.size == CGSize(width: 1, height: 1))
@@ -534,7 +534,7 @@ struct NetworkSmokeCoverageTests {
         for comment in [false, true] {
             await #expect(throws: CocoaError.self) {
                 let record: CommunityWriteSmoke.Operations.RecordImage = { _ in throw CocoaError(.fileWriteNoPermission) }
-                if comment { _ = try await operations.comment("poster9", "fixture", record, {}) }
+                if comment { _ = try await operations.comment(.init(kind: .poster, object: "poster9"), "fixture", record, {}) }
                 else { _ = try await operations.create(.poster, "fixture", record, {}) }
             }
         }
@@ -543,7 +543,7 @@ struct NetworkSmokeCoverageTests {
         for comment in [false, true] {
             await #expect(throws: (any Error).self) {
                 let submit: CommunityWriteSmoke.Operations.RecordSubmission = { Issue.record("图片上传完成后记录业务提交") }
-                if comment { _ = try await operations.comment("poster9", "fixture", { _ in }, submit) }
+                if comment { _ = try await operations.comment(.init(kind: .poster, object: "poster9"), "fixture", { _ in }, submit) }
                 else { _ = try await operations.create(.poster, "fixture", { _ in }, submit) }
             }
         }

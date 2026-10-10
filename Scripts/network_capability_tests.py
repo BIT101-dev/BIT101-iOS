@@ -225,6 +225,27 @@ def network_capability_self_test() -> None:
     disabled['ReleaseNetworkSmoke.swift'] = disabled['ReleaseNetworkSmoke.swift'].replace('var enabled', 'let enabled').replace('if enabled', 'while enabled')
     assert 'mine.fetchMyInfo' not in reached(disabled)
     from network_capability_rules import call_can_execute
+    expressions = [
+        ('false && service.fetch()', False), ('true && service.fetch()', True),
+        ('true || service.fetch()', False), ('false || service.fetch()', True),
+        ('false ? service.fetch() : true', False), ('true ? service.fetch() : false', True),
+        ('true ? false : service.fetch()', False), ('false ? true : service.fetch()', True),
+        ('runtime && service.fetch()', True), ('runtime ? service.fetch() : false', True),
+        ('false && runtime || service.fetch()', True), ('true || runtime && service.fetch()', False),
+        ('(false || false) && service.fetch()', False), ('false ? true : false && service.fetch()', False),
+        ('false && service.fetch() ? true : false', False),
+        ('true ? false : runtime ? service.fetch() : true', False),
+        ('enabled && service.fetch()', False), ('mutable && service.fetch()', True),
+        ('{ let enabled = true; return enabled && service.fetch() }()', True),
+        ('service.fetch() && false', True), ('service.fetch() || true', True),
+    ]
+    expression_index = swift_syntax_index_sources({body:
+        'func run(runtime: Bool) { let enabled = false; var mutable = false; let _ = ' + body + ' }'
+        for body, _ in expressions})
+    for body, expected in expressions:
+        facts = expression_index[body]
+        call = next(row for row in facts['invocations'] if row['calledExpression'] == 'service.fetch')
+        assert call_can_execute(facts, call) == expected, body
     switches = [
         ('switch false { case true: service.fetch(); default: break }', False),
         ('switch false { case false: service.fetch(); default: break }', True),
@@ -447,6 +468,32 @@ struct NewService {{ private let paper{annotation} = {initializer}; func fetch(i
         facts = swift_syntax_index_sources({utility_path: source, transport_path: transport})
         assert ('ClientCore.Parser' in business_methods(facts)) == expected, call
     from network_capability_rules import matching_api_calls
+    for declarations, alternatives, argument, expected in [
+        ('protocol Port {}; struct Concrete: Port {}', ['Port', 'Int'], 'Concrete()', 'Port'),
+        ('protocol Port {}; struct Concrete: Port {}', ['Port', 'Concrete'], 'Concrete()', 'Concrete'),
+        ('class Base {}; class Concrete: Base {}', ['Base', 'Int'], 'Concrete()', 'Base'),
+        ('protocol Port {}; protocol Child: Port {}; struct Concrete: Child {}', ['Port', 'Child'], 'Concrete()', 'Child'),
+        ('protocol Port {}; struct Concrete {}; extension Concrete: Port {}', ['Port', 'Int'], 'Concrete()', 'Port'),
+        ('protocol Port {}; struct Concrete: Port {}; typealias Injected = Concrete', ['any Port', 'Int'], 'Injected()', 'any Port'),
+        ('protocol Port {}; struct Concrete: Port {}', ['Port?', 'Int'], 'Concrete()', 'Port?'),
+        ('protocol Port {}; struct Concrete: Port {}', ['Port', 'Int'], 'optional', None),
+    ]:
+        path = 'Modules/GalleryFeature/Sources/Client.swift'
+        source = declarations + '; struct Client { ' + '; '.join(f'func fetch(using port: {kind}) {{}}' for kind in alternatives) \
+            + f' }}; func smoke() {{ let optional: Concrete? = nil; Client().fetch(using: {argument}) }}'
+        index = swift_syntax_index_sources({path: source})
+        functions = [(path, row) for row in index[path]['functionRanges'] if row['name'] == 'fetch']
+        call = next(row for row in index[path]['invocations'] if row['calledExpression'].endswith('.fetch'))
+        matches = matching_api_calls(index, functions, dict(call, path=path))
+        assert ([row['parameters'][0]['type'] for _, row in matches] == [expected]) if expected else not matches, (declarations, alternatives, argument, matches)
+    for kind, method in [('URLSessionWebSocketTask', 'send'), ('URLSessionWebSocketTask', 'receive'),
+            ('URLSessionDataTask', 'resume'), ('NWConnection', 'send'), ('NWConnection', 'start'),
+            ('NWConnectionGroup', 'receiveMessage'), ('NWListener', 'start')]:
+        path = 'BIT101-iOS/Shared/Client/SocketClient.swift'
+        source = f'import Foundation; import Network; struct SocketClient {{ let task: {kind}; func exchange() {{ task.{method}() }} }}'
+        index = swift_syntax_index_sources({path: source})
+        discovered = business_methods(index)
+        assert any(identity.endswith('.SocketClient') for identity in discovered), (kind, method)
     for parameters, invocation in [('name: KIND, page: Int = 0', 'name: "hello"'),
                                    ('page: Int = 0, name: KIND', 'name: "hello"'),
                                    ('name: KIND...', 'name: "hello", "world"')]:

@@ -32,6 +32,21 @@ def bundle_digest(bundle: Path) -> str:
     return digest.hexdigest()
 
 
+def merge_result_bundles(retained: Path, merged: Path) -> None:
+    shutil.rmtree(merged, ignore_errors=True)
+    try:
+        subprocess.run(['xcrun', 'xcresulttool', 'merge', '--output-path', str(merged), str(retained), str(BUNDLE)],
+            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        bundle_digest(merged)
+        subprocess.check_output(['xcrun', 'xcresulttool', 'get', 'test-results', 'summary', '--path', str(merged)])
+    except BaseException:
+        shutil.rmtree(merged, ignore_errors=True)
+        raise
+    shutil.rmtree(retained)
+    shutil.rmtree(BUNDLE)
+    shutil.move(str(merged), str(BUNDLE))
+
+
 def recover_result_step() -> None:
     retained = BUNDLE.with_suffix('.retained.xcresult')
     merged = BUNDLE.with_suffix('.incoming.xcresult')
@@ -41,12 +56,18 @@ def recover_result_step() -> None:
             subprocess.check_output(['xcrun', 'xcresulttool', 'get', 'test-results', 'summary', '--path', str(BUNDLE)])
         except (ValueError, OSError, subprocess.CalledProcessError):
             shutil.rmtree(BUNDLE)
-    if not BUNDLE.exists() and merged.exists():
+    if BUNDLE.exists() and retained.exists():
+        merge_result_bundles(retained, merged)
+        return
+    if merged.exists() and (not BUNDLE.exists() or not retained.exists()):
         try:
             bundle_digest(merged)
             subprocess.check_output(['xcrun', 'xcresulttool', 'get', 'test-results', 'summary', '--path', str(merged)])
-        except (ValueError, subprocess.CalledProcessError): pass
-        else: shutil.move(str(merged), str(BUNDLE))
+        except (ValueError, OSError, subprocess.CalledProcessError): pass
+        else:
+            shutil.rmtree(retained, ignore_errors=True)
+            shutil.rmtree(BUNDLE, ignore_errors=True)
+            shutil.move(str(merged), str(BUNDLE))
     if not BUNDLE.exists() and retained.exists():
         shutil.move(str(retained), str(BUNDLE))
     shutil.rmtree(retained, ignore_errors=True)
@@ -88,11 +109,7 @@ def rebind_result_records(report: dict, groups: list[str]) -> dict:
 
 
 def retain_result_step(groups: list[str]) -> None:
-    try:
-        merge_result_step(groups)
-    except BaseException:
-        recover_result_step()
-        raise
+    merge_result_step(groups)
 
 
 def merge_result_step(groups: list[str]) -> None:
@@ -103,13 +120,8 @@ def merge_result_step(groups: list[str]) -> None:
     validated = False
     if retained.exists():
         if BUNDLE.exists():
-            subprocess.run(['xcrun', 'xcresulttool', 'merge', '--output-path', str(merged), str(retained), str(BUNDLE)],
-                check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-            subprocess.check_output(['xcrun', 'xcresulttool', 'get', 'test-results', 'summary', '--path', str(merged)])
+            merge_result_bundles(retained, merged)
             validated = True
-            shutil.rmtree(BUNDLE)
-            shutil.move(str(merged), str(BUNDLE))
-            shutil.rmtree(retained)
         else:
             shutil.move(str(retained), str(BUNDLE))
     if not BUNDLE.exists(): return
@@ -292,7 +304,7 @@ def merge_findings(report: dict, commit: str) -> list[str]:
                     errors.append(f'{name} 需要本次完整真机采样与同环境批准基线，并满足性能退化上限。')
         return errors
     except (KeyError, TypeError, ValueError, AttributeError):
-        return ['合并验收需要九个性能场景的完整采样和维护者批准基线。']
+        return [f'合并验收需要 {len(PERFORMANCE_WORKLOADS)} 个性能场景的完整采样和维护者批准基线。']
 
 
 def main(arguments: list[str]) -> int:

@@ -344,9 +344,9 @@ iOS 的 `checks` 包含 `cold-start-session`、`offline-persistence`、`media-an
 
 `MinePagingRecoveryTests`、课程详情合同与服务消费者合同覆盖完整重复页推进、停滞后重试及刷新失败的分页保留。`ScheduleTimeTableTests` 在缓存、分享和设置边界核对节次规则；`ScheduleRepositoryReconciliationTests` 连接实际持久化仓库，在保存队列期间注入同步写入并验证合并、冲突选择和继续保存。共享快照仓库测试覆盖手机恢复后按 Watch 已接受版本推进，媒体依赖测试核对正文链接和展示预算。
 
-聚合验收沿 `xcresulttool merge` 将本次各原生测试组保留到固定 `.build/extended-automation/test-results.xcresult`。合并逐项核对所属设备的原始性能采样，报告保存分组原始摘要及合并包摘要；正式采样消费当前保留包。Mac Catalyst CI 同样聚合行为与生产组装合同。合并中间产物沿固定路径暂存，成功后清理。
+聚合验收沿 `xcresulttool merge` 将本次各原生测试组保留到固定 `.build/extended-automation/test-results.xcresult`。合并逐项核对所属设备的原始性能采样，报告保存分组原始摘要及合并包摘要；正式采样消费当前保留包。Mac Catalyst CI 同样聚合行为与生产组装合同。合并中间产物沿固定路径暂存，成功后清理。中断恢复合并完整的前序包与当前包；合并失败继续保留两份原始结果，后续重试沿同一固定路径恢复。
 
-核心真机验收参与 PR 合并：完整 `all` 行为、正式 iOS `release-runtime` 合同、完整 `ui` 交互与常规 `restore` 四组需要当前源码与设备输入，并在 24 小时内执行。CI 的 `physical-device` Job 在具有 `self-hosted`、`macOS`、`bit101-xcode-27`、`bit101-device` 标签的专用 Mac 与 iPhone 上执行 `verify modules all release-runtime ui`，恢复常规 App 后执行 `bind-merge`。CI 检出、记录、绑定和证据交换共同核对 GitHub 事件 SHA；检出沿完整提交历史执行，诊断上传沿原始文件保存。
+核心真机验收按 PR 的实际编译与测试输入参与合并：App、模块、测试、UI 覆盖合同及验收配置变更执行完整设备流程；普通文档与 Worker 变更沿静态审计、编译和 Catalyst 验收。范围按目标提交与当前合并提交的路径差异计算，删除与重命名共同参与；推送和手动验收执行完整设备流程。完整 `all` 行为、正式 iOS `release-runtime` 合同、完整 `ui` 交互与常规 `restore` 四组需要当前源码与设备输入，并在 24 小时内执行。CI 的 `physical-device` Job 在具有 `self-hosted`、`macOS`、`bit101-xcode-27`、`bit101-device` 标签的专用 Mac 与 iPhone 上执行 `verify modules all release-runtime ui`，恢复常规 App 后执行 `bind-merge`。CI 检出、记录、绑定和证据交换共同核对 GitHub 事件 SHA；检出沿完整提交历史执行，诊断上传沿原始文件保存。
 
 `bind-merge` 将当前提交写入本地固定 JSON，Job 通过 `ci_evidence.py export-core` 导出核心组到固定 `core-validation-evidence.json`，再沿 `upload-artifact` 发布同名 `validation-evidence` 产物。完整人工专项保存在本地报告中，核心交换文件承接模块、行为、正式 iOS、UI 与恢复证据。导入核心文件时覆盖所属核心组，并保留本地专项、发布绑定及覆盖率基准；各组沿输入摘要继续核对有效性。公开交换中的设备身份和宿主绝对路径转为稳定 SHA-256 标识，性能采样与执行环境使用同一标识；输入摘要沿同一转换核对原始报告及交换文件。合并 Job 承接静态审计、编译、Catalyst 和真机结果，仓库内 PR 从当前工作流运行获取该产物，核对 GitHub 合并提交、实际记录环境及四组真机验收的一致工具链。自托管运行器按 GitHub 队列承接工作，项目脚本按工作区锁定固定编译产物；真机操作同时取得用户级设备锁。独立工作区的本机测试与编译可并行，核心真机证据按记录环境核对源码及编译条件。
 
@@ -376,7 +376,7 @@ fork PR 的常规 Job 使用 GitHub 托管的 `xcode-27` 镜像，每项任务�
 
 文章生产 Service 的登录与访客详情、评论请求同样通过离线传输采集后交给 Python 路由合同验证；登录预检和社区写入的结果读取、清理查询按所属探针登记为辅助请求。机器人流逐页核对服务共享的标签分类规则。文章三种排序逐页及跨页核对点赞数、评论数或解析后的更新时间，允许并列值，并检查时间格式。
 
-`community-variants` 人工专项覆盖课程搜索、话廊搜索筛选、帖子与文章的三种评论排序、匿名帖子、匿名文章及创建内容恢复；场景键为 `course-search`、`gallery-search-filters`、`comment-sorting`、`anonymous-poster`、`anonymous-paper`、`restore-content`。使用已授权的专用账号，保存实际请求结果和页面证据，确认验收内容删除。`account-lifecycle` 专项在正式 App 中顺序执行 `sign-in-a`、`refresh-credentials-a`、`sign-out-a`、`sign-in-b`、`restore-a`，核对真实凭据续期、退出清理、资料与业务缓存切换、订阅更新及恢复账号。两个专项复用结构化人工场景格式与固定 `manual-scenarios.json` 附件，参与完整发布验收。
+`community-variants` 人工专项覆盖课程搜索、话廊搜索筛选、帖子与文章的三种评论排序、三个服务的楼中楼定向回复、匿名帖子、匿名文章及创建内容恢复；场景键为 `course-search`、`gallery-search-filters`、`comment-sorting`、`directed-replies`、`anonymous-poster`、`anonymous-paper`、`restore-content`。使用已授权的专用账号，保存实际请求结果和页面证据，确认验收内容删除。`account-lifecycle` 专项在正式 App 中顺序执行 `sign-in-a`、`refresh-credentials-a`、`sign-out-a`、`sign-in-b`、`restore-a`，核对真实凭据续期、退出清理、资料与业务缓存切换、订阅更新及恢复账号。两个专项复用结构化人工场景格式与固定 `manual-scenarios.json` 附件，参与完整发布验收。
 
 社区图片探针复用 `CommunityWriteMedia` 中固定的一像素 JPEG 字节；上传返回的 MID 在创建帖子或评论前持久记录于同一事务日志，资源记录保存成功后，在提交业务创建请求前保存待确认记录。上传或提交记录保存失败时沿已创建对象完成清理；传输准入前失败时清除待确认记录，业务请求结果未知时持续查找并保留恢复记录。课程写入探针读取 `BIT101_NETWORK_SMOKE_FIXTURES` 指定的课程，并在业务写入前核对课程编号。公开服务端 [ImageService.Save](https://github.com/BIT101-dev/BIT101-GO/blob/main/api/service/image.go) 按内容 MD5 生成 MID 并复用已存在图片，[路由](https://github.com/BIT101-dev/BIT101-GO/blob/main/api/router.go) 将图片作为独立共享资源提供上传。验收帖子和评论沿服务端读取与删除确认清理，共享验收图片持续复用；恢复证据保留其 MID。实际线上资源策略沿已部署服务端契约核对。
 
@@ -402,7 +402,7 @@ fork PR 的常规 Job 使用 GitHub 托管的 `xcode-27` 镜像，每项任务�
 
 `metrics` 分别记录 `clockSeconds`、`peakPhysicalMemoryBytes` 的原始 `samples` 和 `mean`；登记时将 XCTest 显示单位换算为秒及字节。批准基线的两个指标各自保存 `maximumRegressionPercent`，验收核对采样次数、平均值及批准的退化上限。[性能负载配置](../BIT101-iOSTests/PerformanceWorkloads.json) 统一提供 Swift 夹具及 Python 采样记录的输入；App 与 UI 测试共用该资源和读取器。测试核对生产资源上限及固定传输参数，负载配置和读取器共同参与两个测试宿主的输入摘要。
 
-沿 `Scripts/run-extended-tests.sh verify all ui` 或包含两组的聚合验收完成完整真机行为及 UI 测试，将原始性能指标、结果包摘要与运行身份写入统一验证报告。运行 `Scripts/run-extended-tests.sh performance baseline 批准人` 从该报告保存批准基线，退化上限沿 XCTest 实际默认参数提取；显式百分比参数用于经过批准的调整。后续候选完成同一聚合流程后，运行 `Scripts/run-extended-tests.sh performance current`。两份记录统一覆盖 `.build/extended-automation/performance-measurements.json` 的对应字段，再填入人工场景附件。基线批准同时保存到统一验证报告并随核心 CI 证据交换；真机 runner 沿该固定报告保留批准基线。合并门禁从本次完整行为与 UI 组提取九个场景，核对所属运行、源码、设备及工具链，并按批准上限验收耗时与内存退化。迁移工作区时，运行 `python3 Scripts/ci_evidence.py import-baseline CI运行编号`，从本仓库成功工作流恢复九个场景的批准基线与原始采样。迁移沿固定核心证据路径读取，当前候选的执行组与采样继续保留；设备、系统或工具链变化后沿同一批准命令建立基线，再次执行候选验收。首次配置 runner 时完成采样及批准流程。
+沿 `Scripts/run-extended-tests.sh verify all ui` 或包含两组的聚合验收完成完整真机行为及 UI 测试，将原始性能指标、结果包摘要与运行身份写入统一验证报告。运行 `Scripts/run-extended-tests.sh performance baseline 批准人` 从该报告保存批准基线，退化上限沿 XCTest 实际默认参数提取；显式百分比参数用于经过批准的调整。后续候选完成同一聚合流程后，运行 `Scripts/run-extended-tests.sh performance current`。两份记录统一覆盖 `.build/extended-automation/performance-measurements.json` 的对应字段，再填入人工场景附件。基线批准同时保存到统一验证报告并随核心 CI 证据交换；真机 runner 沿该固定报告保留批准基线。合并门禁从本次完整行为与 UI 组提取全部场景，核对所属运行、源码、设备及工具链，并按批准上限验收耗时与内存退化。迁移工作区时，运行 `python3 Scripts/ci_evidence.py import-baseline CI运行编号`，从本仓库成功工作流恢复全部场景的批准基线与原始采样。迁移沿固定核心证据路径读取，当前候选的执行组与采样继续保留；设备、系统或工具链变化后沿同一批准命令建立基线，再次执行候选验收。首次配置 runner 时完成采样及批准流程。
 
 采集核对工作树及暂存区相对 HEAD 的构建输入、结果包摘要、运行标识、设备与工具链，登记人工附件时核对所属测试组完成时保存的原始指标与批准基线。共享文件服务契约同时验收内存及本机后端的目录、枚举、递归清理与失败注入。文档审计沿当前内容和 Git index 分别核对文件、标题锚点与引用式链接。
 
@@ -433,3 +433,5 @@ UI 自动化同时采集交互库存及宿主与 Feature / UI 模块的行覆盖
 分享落地页按实际 HTML 标签与 anchor 的 href 属性核对 App 链接，属性支持双引号、单引号、空白和 HTML 字符引用；注释、脚本、样式、文本容器及 template 的内容沿标签语义处理。
 
 课表恢复回归覆盖首次读取取消、页面复入及旧请求迟到；持久化写入回归核对节次表、共享课表与调课规则的课程坐标，并保留健康缓存的原始字节。正式运行条件组包含日程模块边界与提醒上下文合同。授权后的 `Scripts/run-extended-tests.sh simulator release-runtime 测试类/方法` 以 Release 和正式编译条件执行定向合同，并恢复常规 App；`simulator app` 承接调试条件行为合同。通知替换通过注入系统端口验收添加失败、响应丢失、取消、账号变化与恢复失败。编译参数门禁沿各宿主实际执行参数核对覆盖率及 Swift / Clang 警告参数，注释变异参与自测。
+
+社区写入 smoke 分别沿课程、文章、帖子服务创建主评论、普通回复和定向回复，读回核对目标评论与用户；图片提交沿帖子服务核对引用。已知评论读取从新页开始，找到所需 ID 后结束翻页。响应丢失和历史恢复沿完整评论扫描确认未知创建，原有已知回复继续保留提交恢复标记；删除确认逐个父对象保留完整扫描。网络能力检测采用 SwiftOperators 的标准运算符折叠记录短路和三元分支，并按可证明的条件排除死调用；名义类型转换沿声明的协议与继承关系解析，未知转换继续保留歧义。传输发现覆盖项目端口、URLSession 任务与 WebSocket、Network.framework 连接及协议注入。

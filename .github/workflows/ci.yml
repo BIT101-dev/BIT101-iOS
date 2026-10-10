@@ -36,6 +36,8 @@ jobs:
     name: Static audit (Apple toolchain)
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'xcode-27' || fromJSON('["self-hosted","macOS","bit101-xcode-27","bit101-ci"]') }}
     timeout-minutes: 20
+    outputs:
+      physical_required: ${{ steps.physical_scope.outputs.required }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -56,6 +58,11 @@ jobs:
           version="$(xcodebuild -version)"
           printf '%s\n' "$version"
           grep -Eq '^Xcode (2[7-9]|[3-9][0-9]|[1-9][0-9]{2,})\.' <<<"$version"
+      - name: Select physical acceptance from build inputs
+        id: physical_scope
+        env:
+          BIT101_BASE_COMMIT: ${{ github.event.pull_request.base.sha || '' }}
+        run: python3 Scripts/ci_evidence.py physical-scope "$BIT101_BASE_COMMIT" >> "$GITHUB_OUTPUT"
       - name: Install Worker test dependencies
         working-directory: Cloudflare/EmergencyUpdateWorker
         run: npm ci
@@ -177,7 +184,7 @@ jobs:
 
   physical-device:
     name: Physical-device behavior and UI acceptance
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.static-audit.outputs.physical_required == 'true'
     needs: static-audit
     runs-on: [self-hosted, macOS, bit101-xcode-27, bit101-device]
     timeout-minutes: 60
@@ -270,4 +277,5 @@ jobs:
         run: |
           python3 Scripts/ci_evidence.py current --results "$BIT101_REQUIRED_RESULTS"
       - name: Check core physical-device evidence
+        if: needs.static-audit.outputs.physical_required == 'true'
         run: python3 Scripts/validation_evidence.py check-merge --recorded-environment

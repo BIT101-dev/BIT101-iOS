@@ -23,6 +23,7 @@ class SwiftTypeIndex:
         self.imports = {path: set(facts.get('imports', [])) for path, facts in index.items()}
         self.records = {}
         self.paths = {}
+        self.inheritance_paths = {}
         self.exported = set()
         self.aliases = {}
         for path, facts in index.items():
@@ -36,6 +37,7 @@ class SwiftTypeIndex:
                 key = (namespace, owner)
                 bases = [node['type']] if 'type' in node else node.get('inheritedTypes', [])
                 self.records.setdefault(key, set()).update(re.sub(r'\s+', '', base) for base in bases)
+                for base in bases: self.inheritance_paths[key, re.sub(r'\s+', '', base)] = path
                 self.paths.setdefault(key, path)
                 if node.get('isExported') and not hidden: self.exported.add(key)
                 if 'type' in node: self.aliases[key] = node['type']
@@ -48,6 +50,7 @@ class SwiftTypeIndex:
                 if node.get('kind') != 'extension': continue
                 key = self.resolve(path, node['name'], node['scope'], aliases=False) or (self.units[path], canonical_type_scope(node['scope'] + [node['name']]))
                 self.records.setdefault(key, set()).update(re.sub(r'\s+', '', base) for base in node['inheritedTypes'])
+                for base in node['inheritedTypes']: self.inheritance_paths[key, re.sub(r'\s+', '', base)] = path
                 self.paths.setdefault(key, path)
         self._bases = {}
         self._resolutions = {}
@@ -108,6 +111,21 @@ class SwiftTypeIndex:
         for owner, keys in candidates.items():
             if owner not in result and len(keys) == 1: result[owner] = self.bases(keys[0])
         return result
+
+    def inheritance_distance(self, actual: str, expected: str):
+        identities = {'.'.join([namespace, *owner]): (namespace, owner) for namespace, owner in self.records}
+        source, target = identities.get(actual), identities.get(expected)
+        if source is None or target is None: return None
+        pending, seen = [(source, 0)], set()
+        for key, distance in pending:
+            if key == target: return distance
+            if key in seen: continue
+            seen.add(key)
+            for base in self.records[key]:
+                path = self.inheritance_paths[key, base]
+                parent = self.resolve(path, base, key[1][:-1])
+                if parent is not None: pending.append((parent, distance + 1))
+        return None
 
     def all_conformances(self):
         return {(namespace,) + owner: self.bases((namespace, owner)) for namespace, owner in self.records}

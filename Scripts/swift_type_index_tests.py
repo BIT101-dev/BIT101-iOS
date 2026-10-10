@@ -11,16 +11,19 @@ def self_test():
     compiler = Path('/toolchain/usr/bin/swiftc')
     host_modules = Path('/toolchain/usr/lib/swift/host')
     artifacts = {str(compiler): b'compiler', str(host_modules / 'libSwiftSyntax.dylib'): b'syntax',
-        str(host_modules / 'libSwiftParser.dylib'): b'parser'}
+        str(host_modules / 'libSwiftParser.dylib'): b'parser', str(host_modules / 'libSwiftOperators.dylib'): b'operators'}
     with patch('validation_environment.environment_context', return_value={'compiler': {'sha256': 'frontend'}}), \
          patch.object(Path, 'is_file', return_value=True), patch.object(Path, 'rglob', return_value=[]), \
          patch.object(Path, 'open', lambda path, *args, **kwargs: BytesIO(artifacts[str(path)])), \
          patch.object(Path, 'stat', side_effect=AssertionError('工具链指纹沿文件内容验收')):
         indexer_toolchain.cache_clear()
         original = indexer_toolchain(compiler, host_modules)
-        artifacts[str(host_modules / 'libSwiftSyntax.dylib')] = b'updated-syntax'
-        indexer_toolchain.cache_clear()
-        assert indexer_toolchain(compiler, host_modules) != original
+        for module in ('SwiftSyntax', 'SwiftParser', 'SwiftOperators'):
+            artifacts[str(host_modules / f'lib{module}.dylib')] = b'updated-' + module.encode()
+            indexer_toolchain.cache_clear()
+            updated = indexer_toolchain(compiler, host_modules)
+            assert updated != original, module
+            original = updated
         indexer_toolchain.cache_clear()
     from code_quality_rules import automatic_school_fetch_findings, ast_has_view_request
     from ui_rules import native_interaction_inventory

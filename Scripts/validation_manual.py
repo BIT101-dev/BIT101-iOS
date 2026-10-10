@@ -21,7 +21,7 @@ MANUAL_SCENARIOS = {
     'gallery-report': {'submit-and-confirm'},
     'message-read': {'first-open', 'interrupted-paging', 'local-save-failure'},
     'account-lifecycle': {'sign-in-a', 'refresh-credentials-a', 'sign-out-a', 'sign-in-b', 'restore-a'},
-    'community-variants': {'course-search', 'gallery-search-filters', 'comment-sorting', 'anonymous-poster', 'anonymous-paper', 'restore-content'},
+    'community-variants': {'course-search', 'gallery-search-filters', 'comment-sorting', 'directed-replies', 'anonymous-poster', 'anonymous-paper', 'restore-content'},
     'web-interactions': {'network-diagnosis', 'update-launch', 'update-manual', 'school-sms', 'school-calendar'},
     'ipad-layout': {'portrait', 'landscape', 'split-view', 'resize'},
 }

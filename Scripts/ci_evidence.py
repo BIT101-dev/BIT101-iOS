@@ -61,9 +61,10 @@ def import_baseline(run: int) -> None:
         raise ValueError('基线迁移需要本仓库成功完成的 CI 工作流。')
     from validation_evidence import report_lock, write_report
     from validation_performance import approved_baseline_complete, MEASUREMENTS
+    from validation_manual import PERFORMANCE_WORKLOADS
     with report_lock():
         proof = download_core(run, repo).get('performanceBaseline', {})
-        if not approved_baseline_complete(proof): raise ValueError('基线迁移需要九个场景的完整原始采样与批准记录。')
+        if not approved_baseline_complete(proof): raise ValueError(f'基线迁移需要 {len(PERFORMANCE_WORKLOADS)} 个场景的完整原始采样与批准记录。')
         report = json.loads(REPORT.read_text()) if REPORT.is_file() else {}
         stored = json.loads(MEASUREMENTS.read_text()) if MEASUREMENTS.is_file() else {'schemaVersion': 1}
         stored['baseline'] = proof
@@ -138,6 +139,16 @@ def fork_review(commit: str, number: int) -> None:
     raise ValueError('fork PR 需要维护者审查当前合并提交并完成 review_pr 手动工作流，再重新运行合并验收 Job。')
 
 
+def physical_inputs_changed(base: str) -> bool:
+    from validation_inputs import includes_input
+    from validation_merge import CORE_GROUPS
+    if not base: return True
+    if not re.fullmatch(r'[0-9a-f]{40}', base): raise ValueError('变更范围需要目标分支的完整提交 SHA。')
+    names = subprocess.check_output(['git', 'diff', '--name-only', '--no-renames', '-z', base, 'HEAD', '--'], cwd=ROOT)
+    return any(name.startswith('.github/workflows/') or name == 'Scripts/ci_evidence.py'
+        or any(includes_input(name, group) for group in CORE_GROUPS) for name in names.decode().split('\0') if name)
+
+
 def current(results: str) -> None:
     from validation_environment import ci_commit_findings
     commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
@@ -149,6 +160,7 @@ def current(results: str) -> None:
     if len(states) == len(REQUIRED_JOBS) and states.count('success') == 3 and states.count('skipped') == 1 and os.getenv('GITHUB_EVENT_NAME') == 'pull_request':
         event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
         pull = event['pull_request']
+        if not physical_inputs_changed(pull['base']['sha']): return
         if pull['head']['repo']['full_name'] != repository():
             fork_review(os.environ['GITHUB_SHA'], pull['number'])
             return
@@ -237,10 +249,11 @@ def self_test() -> None:
         if fault == 'event': reviewed['event'] = 'push'
         if fault == 'job': jobs[0]['conclusion'] = 'skipped'
         if fault == 'stale-pr': pull['merge_commit_sha'] = 'c' * 40
-        event = {'pull_request': {'number': 12, 'head': {'repo': {'full_name': 'fork/repo'}}}}
+        event = {'pull_request': {'number': 12, 'base': {'sha': 'b' * 40}, 'head': {'repo': {'full_name': 'fork/repo'}}}}
         with patch.dict(os.environ, GITHUB_REPOSITORY='owner/repo', GITHUB_EVENT_NAME='pull_request',
                 GITHUB_SHA=commit, GITHUB_EVENT_PATH='/ci-event'), patch.object(Path, 'read_text', return_value=json.dumps(event)), \
                 patch.object(subprocess, 'check_output', return_value=commit), \
+                patch.object(module, 'physical_inputs_changed', return_value=True), \
                 patch.object(module, 'api_pages', side_effect=[[pull], [{'workflow_runs': [reviewed]}], [{'jobs': jobs}], items]), \
                 patch.object(module, 'download_run') as download:
             try: current('success,success,skipped,success')
@@ -285,6 +298,24 @@ def self_test() -> None:
         except ValueError: pass
         else: raise AssertionError('完整验收失败需要终止证据上传')
         upload.assert_not_called()
+    for names, expected in [('README.md\0docs/TESTING.md\0', False),
+            ('Cloudflare/ErrorReportWorker/worker.js\0', False), ('BIT101-iOS/ContentView.swift\0', True),
+            ('Modules/ScheduleDomain/Sources/Course.swift\0', True), ('BIT101-iOSTests/BehaviorTests.swift\0', True),
+            ('Scripts/validation_policy.py\0', True), ('.github/workflows/ci.yml\0', True),
+            ('docs/UI_INTERACTION_COVERAGE.md\0', True), ('', False)]:
+        with patch.object(subprocess, 'check_output', return_value=names.encode()):
+            assert physical_inputs_changed(commit) == expected, names
+    assert physical_inputs_changed('')
+    with patch.dict(os.environ, GITHUB_REPOSITORY='owner/repo', GITHUB_EVENT_NAME='pull_request', GITHUB_SHA=commit,
+            GITHUB_EVENT_PATH='/ci-event'), patch.object(subprocess, 'check_output', return_value=commit), \
+            patch.object(Path, 'read_text', return_value=json.dumps(event)), \
+            patch.object(module, 'physical_inputs_changed', return_value=False), patch.object(module, 'download_run') as download:
+        current('success,success,success,skipped')
+        download.assert_not_called()
+        for states in ('success,failure,success,skipped', 'success,success,skipped,skipped'):
+            try: current(states)
+            except ValueError: pass
+            else: raise AssertionError('外围变更需要全部编译与静态 Job 成功')
     for arguments, operation, expected in (
         (['baseline', commit], 'baseline', ((commit,), {})),
         (['current', '--results', 'success,success,success,success'], 'current', (('success,success,success,success',), {})),
@@ -294,6 +325,7 @@ def self_test() -> None:
         (['check-release'], 'check_release', ((), {})),
         (['export-core'], 'export_core', ((), {})),
         (['import-baseline', '7'], 'import_baseline', ((7,), {})),
+        (['physical-scope', commit], 'physical_inputs_changed', ((commit,), {})),
     ):
         with patch.object(sys, 'argv', ['ci_evidence.py', *arguments]), patch.object(module, operation, return_value='b' * 40) as execute, \
                 patch.object(sys, 'stdout', StringIO()) as output:
@@ -306,7 +338,7 @@ def self_test() -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('baseline', 'current', 'review-pr', 'release', 'publish', 'check-release', 'export-core', 'import-baseline'))
+    parser.add_argument('action', choices=('baseline', 'current', 'review-pr', 'release', 'publish', 'check-release', 'export-core', 'import-baseline', 'physical-scope'))
     parser.add_argument('identity', nargs='?', default='')
     parser.add_argument('--results', default='')
     args = parser.parse_args()
@@ -317,6 +349,7 @@ def main() -> int:
         elif args.action == 'check-release': check_release()
         elif args.action == 'export-core': export_core()
         elif args.action == 'import-baseline': import_baseline(int(args.identity))
+        elif args.action == 'physical-scope': print('required=' + str(physical_inputs_changed(args.identity)).lower())
         else: release(args.identity, publish=args.action == 'publish')
         return 0
     except (ValueError, SyntaxError, KeyError, OSError, subprocess.CalledProcessError) as error:

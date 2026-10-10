@@ -29,8 +29,8 @@ def repository_swift_files() -> list[Path]:
 @cache
 def indexer_toolchain(compiler: Path, host_modules: Path) -> dict:
     from validation_environment import environment_context
-    files = [compiler, host_modules / "libSwiftSyntax.dylib", host_modules / "libSwiftParser.dylib"]
-    for module in ("SwiftSyntax", "SwiftParser"):
+    files = [compiler, *(host_modules / f"lib{module}.dylib" for module in ("SwiftSyntax", "SwiftParser", "SwiftOperators"))]
+    for module in ("SwiftSyntax", "SwiftParser", "SwiftOperators"):
         files.extend(sorted((host_modules / (module + ".swiftmodule")).rglob("*")))
     digests = {}
     for path in files:
@@ -71,7 +71,7 @@ def _run_swift_syntax_index(request: dict, *, regex_only: bool = False) -> dict[
                     str(compiler), "-target", f"{os.uname().machine}-apple-macosx14.0", "-sdk", sdk,
                     "-module-cache-path", str(module_cache), "-warnings-as-errors",
                     "-I", str(host_modules), "-L", str(host_modules),
-                    "-lSwiftSyntax", "-lSwiftParser", "-Xlinker", "-rpath", "-Xlinker", str(host_modules),
+                    "-lSwiftSyntax", "-lSwiftParser", "-lSwiftOperators", "-Xlinker", "-rpath", "-Xlinker", str(host_modules),
                     *(str(source) for source in sources), "-o", str(executable),
                 ], capture_output=True, text=True, env=environment)
             if compilation.returncode:

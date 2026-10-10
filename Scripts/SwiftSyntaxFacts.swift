@@ -40,6 +40,7 @@ struct FileFacts: Encodable {
     let expressions: [ScopedFact]
     let bindings: [ScopedFact]
     let controlFlow: [ScopedFact]
+    let expressionFlow: [ScopedFact]
     let typeNames: [ScopedFact]
 }
 
