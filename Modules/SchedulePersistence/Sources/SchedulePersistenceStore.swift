@@ -127,7 +127,7 @@ public actor SchedulePersistenceStore {
         source: ScheduleCacheSaveSource,
         expectedUpdatedAt: Date?
     ) -> ScheduleCache? {
-        guard cache.hasValidTimeTables, cache.hasValidCoursePlacements else {
+        guard cache.hasValidTimeTables, cache.hasValidCoursePlacements, cache.hasSupportedCourseSections else {
             Self.logger.error("排课或节次表结构无效，保留已有课表缓存")
             return nil
         }

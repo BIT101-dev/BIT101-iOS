@@ -282,6 +282,7 @@ struct AppPrompt: Identifiable {
     let actions: [AppPromptAction]
     let onPresent: @MainActor () -> Void
     let onDismiss: @MainActor () -> Void
+    let onCancel: @MainActor () -> Void
 
     init(
         id: String,
@@ -290,7 +291,8 @@ struct AppPrompt: Identifiable {
         actions: [AppPromptAction],
         account: CommunitySessionIdentity? = nil,
         onPresent: @escaping @MainActor () -> Void = {},
-        onDismiss: @escaping @MainActor () -> Void = {}
+        onDismiss: @escaping @MainActor () -> Void = {},
+        onCancel: @escaping @MainActor () -> Void = {}
     ) {
         self.id = account.map { "\(id)-\(AccountStorageIdentity.stableToken(for: $0.accountIdentifier))-\($0.generation)" } ?? id
         self.account = account
@@ -299,6 +301,7 @@ struct AppPrompt: Identifiable {
         self.actions = actions
         self.onPresent = onPresent
         self.onDismiss = onDismiss
+        self.onCancel = onCancel
     }
 }
 
@@ -387,6 +390,7 @@ final class AppPromptCoordinator: ObservableObject {
         queue.removeAll { $0.account != nil && $0.account != identity }
         for prompt in canceled {
             queuedIDs.remove(prompt.id)
+            prompt.onCancel()
             resumeWaiters(for: prompt.id)
         }
         if let account = activePrompt?.account, account != identity {
@@ -403,7 +407,9 @@ final class AppPromptCoordinator: ObservableObject {
 
     private func finishActivePrompt(canceled: Bool = false) {
         guard let activePrompt else { return }
-        if !canceled {
+        if canceled {
+            activePrompt.onCancel()
+        } else {
             activePrompt.onDismiss()
             handledIDs.insert(activePrompt.id)
         }

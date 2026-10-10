@@ -12,7 +12,7 @@ public nonisolated enum ScheduleCloudSyncStatus: Equatable, Sendable {
 }
 
 
-/// Baseline tags identify known concurrent writes; timestamps resolve incomplete baselines.
+/// User edits and known server baselines determine cloud reconciliation.
 public nonisolated enum ScheduleCacheReconciliationDecision: Equatable {
     case applyRemote
     case uploadLocal
@@ -21,14 +21,15 @@ public nonisolated enum ScheduleCacheReconciliationDecision: Equatable {
 
 public nonisolated enum ScheduleCacheReconciliationPolicy {
     public static func decision(
+        localHasUnpushedChanges: Bool,
         localUpdatedAt: Date,
         remoteUpdatedAt: Date,
         allowsRemoteApply: Bool
     ) -> ScheduleCacheReconciliationDecision {
-        if allowsRemoteApply, remoteUpdatedAt > localUpdatedAt {
+        if allowsRemoteApply, !localHasUnpushedChanges || remoteUpdatedAt > localUpdatedAt {
             return .applyRemote
         }
-        if localUpdatedAt > remoteUpdatedAt {
+        if localHasUnpushedChanges, localUpdatedAt > remoteUpdatedAt {
             return .uploadLocal
         }
         return .noChange
@@ -37,13 +38,11 @@ public nonisolated enum ScheduleCacheReconciliationPolicy {
     public static func hasConcurrentChanges(
         localHasUnpushedChanges: Bool,
         localBaselineRecordTag: String,
-        remoteRecordTag: String,
-        localUpdatedAt: Date,
-        remoteUpdatedAt: Date
+        remoteRecordTag: String
     ) -> Bool {
         guard localHasUnpushedChanges else { return false }
         guard !localBaselineRecordTag.isEmpty, !remoteRecordTag.isEmpty else {
-            return remoteUpdatedAt > localUpdatedAt
+            return true
         }
         return localBaselineRecordTag != remoteRecordTag
     }

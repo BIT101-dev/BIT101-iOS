@@ -2,6 +2,7 @@ import CommunityTransport
 import CloudKit
 import Foundation
 import ScheduleDomain
+import ScheduleDomain
 import ScheduleSync
 import StorageCore
 
@@ -90,23 +91,43 @@ extension ScheduleCloudSyncManager {
         reportStatus: { account, status in ScheduleCloudSyncPresentation.shared.receive(account: account, status: status) }
     )
 
-    static func appConflictPresenter(prompts: AppPromptCoordinator) -> ScheduleCloudConflictPresenter {
-        { signature, resolve in
+    static func appConflictPresenter(
+        prompts: AppPromptCoordinator,
+        currentIdentity: @escaping @MainActor @Sendable () -> CommunitySessionIdentity = {
+            AppAccountSession.storage.communityCredentials.identity
+        }
+    ) -> ScheduleCloudConflictPresenter {
+        { account, signature, resolve in
+            let identity = CommunitySessionIdentity(accountIdentifier: account.session.accountIdentifier,
+                generation: account.generation)
+            guard identity == currentIdentity() else {
+                Task { await resolve(nil) }
+                return
+            }
+            var completed = false
+            let complete: @MainActor (ScheduleCacheConflictResolution?) -> Void = { resolution in
+                guard !completed else { return }
+                completed = true
+                Task { await resolve(resolution) }
+            }
             prompts.enqueue(AppPrompt(
                 id: "schedule-cache-conflict-\(signature)-\(UUID().uuidString)",
                 title: "本机和 iCloud 课表存在版本差异",
                 message: "本机与 iCloud 中的手动调整、个人日程、DDL 或设置存在版本差异。请选择保留本机版本或使用 iCloud 版本；选择会替换另一侧这部分用户数据，学校抓取数据保留本机版本。",
                 actions: [
                     AppPromptAction(id: "keep-local", title: "保留本机", isDefault: true) {
-                        Task { await resolve(.keepLocal) }
+                        complete(.keepLocal)
                     },
                     AppPromptAction(id: "use-cloud", title: "使用 iCloud") {
-                        Task { await resolve(.useCloud) }
+                        complete(.useCloud)
                     },
                     AppPromptAction(id: "later", title: "稍后处理") {
-                        Task { await resolve(nil) }
+                        complete(nil)
                     }
-                ]
+                ],
+                account: identity,
+                onDismiss: { complete(nil) },
+                onCancel: { complete(nil) }
             ))
         }
     }

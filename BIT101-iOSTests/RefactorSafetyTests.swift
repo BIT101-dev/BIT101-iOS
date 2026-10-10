@@ -167,32 +167,47 @@ struct ScheduleCacheMigrationTests {
         #expect(decoded.hasUnpushedCloudChanges)
     }
 
-    @Test("Reconciliation only applies a newer remote cache when allowed")
+    @Test("Reconciliation uses user edits and known cloud baselines")
     func reconciliationPolicy() {
         let old = Date(timeIntervalSince1970: 100)
         let new = Date(timeIntervalSince1970: 200)
+        for localTime in [old, new] {
+            #expect(ScheduleCacheReconciliationPolicy.decision(
+                localHasUnpushedChanges: false, localUpdatedAt: localTime,
+                remoteUpdatedAt: old, allowsRemoteApply: true
+            ) == .applyRemote)
+            #expect(ScheduleCacheReconciliationPolicy.decision(
+                localHasUnpushedChanges: false, localUpdatedAt: localTime,
+                remoteUpdatedAt: old, allowsRemoteApply: false
+            ) == .noChange)
+        }
 
         #expect(ScheduleCacheReconciliationPolicy.decision(
+            localHasUnpushedChanges: true,
             localUpdatedAt: old,
             remoteUpdatedAt: new,
             allowsRemoteApply: true
         ) == .applyRemote)
         #expect(ScheduleCacheReconciliationPolicy.decision(
+            localHasUnpushedChanges: true,
             localUpdatedAt: new,
             remoteUpdatedAt: old,
             allowsRemoteApply: true
         ) == .uploadLocal)
         #expect(ScheduleCacheReconciliationPolicy.decision(
+            localHasUnpushedChanges: true,
             localUpdatedAt: new,
             remoteUpdatedAt: old,
             allowsRemoteApply: false
         ) == .uploadLocal)
         #expect(ScheduleCacheReconciliationPolicy.decision(
+            localHasUnpushedChanges: true,
             localUpdatedAt: old,
             remoteUpdatedAt: new,
             allowsRemoteApply: false
         ) == .noChange)
         #expect(ScheduleCacheReconciliationPolicy.decision(
+            localHasUnpushedChanges: true,
             localUpdatedAt: new,
             remoteUpdatedAt: new,
             allowsRemoteApply: true
@@ -200,37 +215,27 @@ struct ScheduleCacheMigrationTests {
         #expect(!ScheduleCacheReconciliationPolicy.hasConcurrentChanges(
             localHasUnpushedChanges: false,
             localBaselineRecordTag: "record-v1",
-            remoteRecordTag: "record-v2",
-            localUpdatedAt: new,
-            remoteUpdatedAt: old
+            remoteRecordTag: "record-v2"
         ))
         #expect(!ScheduleCacheReconciliationPolicy.hasConcurrentChanges(
             localHasUnpushedChanges: true,
             localBaselineRecordTag: "record-v1",
-            remoteRecordTag: "record-v1",
-            localUpdatedAt: new,
-            remoteUpdatedAt: old
+            remoteRecordTag: "record-v1"
         ))
         #expect(ScheduleCacheReconciliationPolicy.hasConcurrentChanges(
             localHasUnpushedChanges: true,
             localBaselineRecordTag: "record-v1",
-            remoteRecordTag: "record-v2",
-            localUpdatedAt: new,
-            remoteUpdatedAt: old
+            remoteRecordTag: "record-v2"
         ))
-        #expect(!ScheduleCacheReconciliationPolicy.hasConcurrentChanges(
+        #expect(ScheduleCacheReconciliationPolicy.hasConcurrentChanges(
             localHasUnpushedChanges: true,
-            localBaselineRecordTag: "",
-            remoteRecordTag: "record-v2",
-            localUpdatedAt: new,
-            remoteUpdatedAt: old
+            localBaselineRecordTag: "record-v1",
+            remoteRecordTag: ""
         ))
         #expect(ScheduleCacheReconciliationPolicy.hasConcurrentChanges(
             localHasUnpushedChanges: true,
             localBaselineRecordTag: "",
-            remoteRecordTag: "record-v2",
-            localUpdatedAt: old,
-            remoteUpdatedAt: new
+            remoteRecordTag: "record-v2"
         ))
     }
 

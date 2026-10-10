@@ -57,6 +57,13 @@ extension ScheduleViewModel {
         let coursesAreIdentical = scheduleCourseSourceRecordsEqual(existingBaseline, incomingCourses)
 
         let snapshot = makeTermSnapshot(from: payload, now: now)
+        var candidate = persistenceSnapshot
+        candidate.courseData.store(snapshot)
+        guard candidate.hasSupportedCourseSections else {
+            notice = .userInput(title: "请调整节次时间表",
+                message: "新课程使用了当前时间表以外的节次。已有课表已保留，请在课表设置中补齐节次时间后重新同步。")
+            return
+        }
         courseState.data.store(snapshot)
 
         if courseState.currentTerm == payload.term {

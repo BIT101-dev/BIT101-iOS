@@ -56,7 +56,7 @@ public nonisolated struct TimeSlot: Codable, Hashable, Identifiable, Sendable {
         for slot in slots {
             guard (1...ScheduleCourseConstraints.maximumSection).contains(slot.id), slot.id > previousID,
                   let start = validMinutes(slot.start), let end = validMinutes(slot.end),
-                  start > previousEnd, end > start else { return false }
+                  start >= previousEnd, end > start else { return false }
             previousID = slot.id
             previousEnd = end
         }
@@ -66,9 +66,9 @@ public nonisolated struct TimeSlot: Codable, Hashable, Identifiable, Sendable {
     public static func supports(_ courses: [CourseRecord], in slots: [TimeSlot]) -> Bool {
         let ids = Set(slots.map(\.id))
         return courses.allSatisfy { course in
-            course.startSection > 0 && course.endSection >= course.startSection
-                && course.endSection <= ScheduleCourseConstraints.maximumSection
-                && (course.startSection...course.endSection).allSatisfy(ids.contains)
+            guard course.hasValidPlacement else { return false }
+            if course.weeks.isEmpty { return true }
+            return (course.startSection...course.endSection).allSatisfy(ids.contains)
         }
     }
 

@@ -193,12 +193,17 @@ public actor ScheduleCloudSyncManager {
                 return
             }
 
+            if !currentLocalState.cache.applyingCloudSyncState(from: remoteCache).hasSupportedCourseSections {
+                await enqueueCloudConflict(localCache: currentLocalState.cache, remoteCache: remoteCache,
+                    requiresPayloadMigration: decodedRemote.requiresPayloadMigration, account: account,
+                    remoteModifiedAt: remoteModifiedAt, remoteRecordTag: remoteRecordTag)
+                return
+            }
+
             if ScheduleCacheReconciliationPolicy.hasConcurrentChanges(
                 localHasUnpushedChanges: currentLocalState.cache.hasUnpushedCloudChanges,
                 localBaselineRecordTag: currentLocalState.cache.cloudSyncBaselineRecordTag,
-                remoteRecordTag: remoteRecordTag,
-                localUpdatedAt: currentLocalState.cache.updatedAt,
-                remoteUpdatedAt: remoteCache.updatedAt
+                remoteRecordTag: remoteRecordTag
             ) {
                 if try await mergeConcurrentChanges(localCache: currentLocalState.cache, remoteCache: remoteCache,
                     record: remoteRecord, account: account) { return }
@@ -218,6 +223,7 @@ public actor ScheduleCloudSyncManager {
             )
 
             switch ScheduleCacheReconciliationPolicy.decision(
+                localHasUnpushedChanges: currentLocalState.cache.hasUnpushedCloudChanges,
                 localUpdatedAt: currentLocalState.cache.updatedAt,
                 remoteUpdatedAt: remoteCache.updatedAt,
                 allowsRemoteApply: allowCloudApply
@@ -229,7 +235,7 @@ public actor ScheduleCloudSyncManager {
                     account: account,
                     expectedLocalUpdatedAt: currentLocalState.cache.updatedAt
                 )
-                if !didApply { await publishStatus(.pending, for: account) }
+                if !didApply, reportedStatus?.1 == .syncing { await publishStatus(.pending, for: account) }
                 if didApply, decodedRemote.requiresPayloadMigration {
                     await pushLatestLocalCacheIfNeeded()
                 }
@@ -317,7 +323,7 @@ public actor ScheduleCloudSyncManager {
         }
         guard promptedConflictSignatures.insert(signature).inserted else { return }
 
-        await presentConflict(signature) { resolution in
+        await presentConflict(account, signature) { resolution in
             if let resolution {
                 await self.resolvePendingCloudConflict(
                     accountIdentifier: account.accountIdentifier,
@@ -405,6 +411,11 @@ public actor ScheduleCloudSyncManager {
             await pushLatestLocalCacheIfNeeded()
         case .useCloud:
             var cache = currentLocalState.cache.applyingCloudSyncState(from: conflict.remoteCache)
+            guard cache.hasSupportedCourseSections else {
+                promptedConflictSignatures.remove(signature)
+                await publishStatus(.failed("iCloud 节次时间表与本机课程存在差异，请重新同步学校课表后重试，或选择保留本机版本。"), for: conflict.account)
+                return
+            }
             cache.cloudSyncBaselineAt = conflict.remoteModifiedAt
             cache.cloudSyncBaselineRecordTag = conflict.remoteRecordTag
             cache.syncData.cloudSyncBaselineUserState = try? ScheduleCloudStateMerge.baseline(for: conflict.remoteCache)
@@ -458,8 +469,8 @@ public actor ScheduleCloudSyncManager {
             }
             let remoteModifiedAt = record.modificationDate ?? remoteCache.cloudSyncBaselineAt
             let remoteRecordTag = record.recordChangeTag ?? ""
-            if !decodedRemote.requiresPayloadMigration,
-               try ScheduleCloudSyncState.matches(cache, remoteCache) {
+            let statesMatch = try ScheduleCloudSyncState.matches(cache, remoteCache)
+            if !decodedRemote.requiresPayloadMigration, statesMatch {
                 await persistCloudSyncStateIfCurrent(
                     remoteModifiedAt,
                     recordTag: remoteRecordTag,
@@ -469,12 +480,11 @@ public actor ScheduleCloudSyncManager {
                 )
                 return true
             }
+            guard cache.hasUnpushedCloudChanges || statesMatch else { return false }
             if ScheduleCacheReconciliationPolicy.hasConcurrentChanges(
                 localHasUnpushedChanges: cache.hasUnpushedCloudChanges,
                 localBaselineRecordTag: cache.cloudSyncBaselineRecordTag,
-                remoteRecordTag: remoteRecordTag,
-                localUpdatedAt: cache.updatedAt,
-                remoteUpdatedAt: remoteCache.updatedAt
+                remoteRecordTag: remoteRecordTag
             ) {
                 if try await mergeConcurrentChanges(localCache: cache, remoteCache: remoteCache,
                     record: record, account: account) { return true }
@@ -553,8 +563,8 @@ public actor ScheduleCloudSyncManager {
             }
             let remoteModifiedAt = currentRemoteRecord.modificationDate ?? currentRemoteCache.cloudSyncBaselineAt
             let remoteRecordTag = currentRemoteRecord.recordChangeTag ?? ""
-            if !currentRemote.requiresPayloadMigration,
-               try ScheduleCloudSyncState.matches(cache, currentRemoteCache) {
+            let statesMatch = try ScheduleCloudSyncState.matches(cache, currentRemoteCache)
+            if !currentRemote.requiresPayloadMigration, statesMatch {
                 await persistCloudSyncStateIfCurrent(
                     remoteModifiedAt,
                     recordTag: remoteRecordTag,
@@ -564,12 +574,11 @@ public actor ScheduleCloudSyncManager {
                 )
                 return true
             }
+            guard cache.hasUnpushedCloudChanges || statesMatch else { return false }
             if ScheduleCacheReconciliationPolicy.hasConcurrentChanges(
                 localHasUnpushedChanges: cache.hasUnpushedCloudChanges,
                 localBaselineRecordTag: cache.cloudSyncBaselineRecordTag,
-                remoteRecordTag: remoteRecordTag,
-                localUpdatedAt: cache.updatedAt,
-                remoteUpdatedAt: currentRemoteCache.updatedAt
+                remoteRecordTag: remoteRecordTag
             ) {
                 if try await mergeConcurrentChanges(localCache: cache, remoteCache: currentRemoteCache,
                     record: currentRemoteRecord, account: account) { return true }
@@ -655,6 +664,7 @@ public actor ScheduleCloudSyncManager {
                   remote: ScheduleCloudSyncState(cache: remoteCache), baseline: baseline) else { return false }
         var cache = localCache
         merged.apply(to: &cache)
+        guard cache.hasSupportedCourseSections else { return false }
         cache.cloudSyncBaselineAt = remoteCache.cloudSyncBaselineAt
         cache.cloudSyncBaselineRecordTag = remoteCache.cloudSyncBaselineRecordTag
         cache.syncData.cloudSyncBaselineUserState = try ScheduleCloudStateMerge.baseline(for: remoteCache)
@@ -723,6 +733,10 @@ public actor ScheduleCloudSyncManager {
         guard let state = await currentLocalCloudState(matching: account),
               state.cache.updatedAt == expectedLocalUpdatedAt else { return false }
         var mergedCache = state.cache.applyingCloudSyncState(from: cache)
+        guard mergedCache.hasSupportedCourseSections else {
+            await publishStatus(.failed("iCloud 节次时间表与本机课程存在差异，请重新同步学校课表后重试，或选择保留本机版本。"), for: account)
+            return false
+        }
         mergedCache.cloudSyncBaselineAt = cache.cloudSyncBaselineAt
         mergedCache.cloudSyncBaselineRecordTag = cache.cloudSyncBaselineRecordTag
         mergedCache.syncData.cloudSyncBaselineUserState = try? ScheduleCloudStateMerge.baseline(for: cache)

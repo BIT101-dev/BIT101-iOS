@@ -231,14 +231,9 @@ extension ScheduleViewModel {
             throw scheduleValidationError("时间表格式错误。")
         }
 
-        let data = courseState.data
-        let terms = Set(data.schedulesByTerm.keys).subtracting(data.archivedTerms)
-            .union(data.manualCourseRulesByTerm.keys)
-        let courses = terms.flatMap { term in
-            ScheduleCourseEditor.reconcile(rules: data.manualCourseRulesByTerm[term] ?? [],
-                with: data.archivedTerms.contains(term) ? [] : data.schoolCourses(for: term)).courses
-        }
-        guard TimeSlot.supports(courses, in: timeTable) else {
+        var candidate = persistenceSnapshot
+        candidate.timeTable = timeTable
+        guard candidate.hasSupportedCourseSections else {
             throw scheduleValidationError("已有课程使用了超出新时间表的节次，请先调整课程节次。")
         }
         courseState.timeTable = timeTable

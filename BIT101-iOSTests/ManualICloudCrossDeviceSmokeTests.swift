@@ -168,7 +168,7 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
                 self.cache = saved
                 return true
             }
-        ), transport: transport, presentConflict: { _, _ in XCTFail("验收数据应按版本往返并保留真实记录锁") },
+        ), transport: transport, presentConflict: { _, _, _ in XCTFail("验收数据应按版本往返并保留真实记录锁") },
             reportStatus: { _, status in self.status = status })
 
         init(session: AppStorageSession) async throws {

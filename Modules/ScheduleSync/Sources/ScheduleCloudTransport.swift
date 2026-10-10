@@ -88,6 +88,7 @@ public nonisolated struct ScheduleCloudLocalStore: Sendable {
 }
 
 public typealias ScheduleCloudConflictPresenter = @MainActor @Sendable (
+    _ account: ScheduleCloudAccount,
     _ signature: String,
     _ resolve: @escaping @Sendable (ScheduleCacheConflictResolution?) async -> Void
 ) -> Void

@@ -70,7 +70,6 @@ public nonisolated struct ScheduleCache: Codable, Sendable {
         presentation = try container.decode(SchedulePresentationPreferences.self, forKey: .presentation)
         syncData = try container.decode(ScheduleSyncData.self, forKey: .syncData)
         updatedAt = try container.decode(Date.self, forKey: .updatedAt)
-        courseData.reconcileRules()
         try validateTimeTable(codingPath: decoder.codingPath)
     }
 
@@ -93,6 +92,17 @@ public nonisolated struct ScheduleCache: Codable, Sendable {
                         && $0.replacementCourses.allSatisfy(\.hasValidPlacement)
                 }
             }
+    }
+
+    public var hasSupportedCourseSections: Bool {
+        let terms = Set(courseData.schedulesByTerm.keys).subtracting(courseData.archivedTerms)
+            .union(manualCourseRulesByTerm.keys)
+        let courses = terms.flatMap { term in
+            ScheduleCourseEditor.reconcile(rules: manualCourseRulesByTerm[term] ?? [],
+                with: courseData.archivedTerms.contains(term) ? [] : courseData.schoolCourses(for: term)).courses
+        }
+        return TimeSlot.supports(courses, in: timeTable)
+            && sharedSchedules.allSatisfy { TimeSlot.supports($0.courses, in: $0.timeTable) }
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -320,12 +330,6 @@ public nonisolated struct ScheduleCourseData: Codable, Equatable, Sendable {
         manualCourseRulesByTerm[term] = rules.isEmpty ? nil : rules
     }
 
-    fileprivate mutating func reconcileRules() {
-        for (term, rules) in manualCourseRulesByTerm {
-            guard let snapshot = schedulesByTerm[term] else { continue }
-            setRules(ScheduleCourseEditor.reconcile(rules: rules, with: snapshot.courses).validRules, for: term)
-        }
-    }
     public init() {}
 }
 
@@ -696,7 +700,6 @@ private nonisolated struct LegacyScheduleCache: Decodable, Sendable {
             )
             courses = reconciliation.courses
             cachedCoursesByTerm[currentTerm] = baseline
-            manualCourseRulesByTerm[currentTerm] = reconciliation.validRules
         }
         firstDayString = manualFirstDayStringsByTerm[currentTerm] ?? firstDayString
     }
@@ -758,7 +761,6 @@ private extension LegacyScheduleCache {
             )
             cache.courseData.archivedTerms.insert(term)
         }
-        cache.courseData.reconcileRules()
         return cache
     }
 }

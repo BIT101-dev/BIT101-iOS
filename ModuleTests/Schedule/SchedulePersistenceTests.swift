@@ -642,6 +642,37 @@ struct ScheduleSchemaAndEditingTests {
         #expect(restored.courses.isEmpty)
     }
 
+    @Test(arguments: ["structured", "legacy"])
+    func cloudAdjustmentSurvivesAnOlderSchoolSnapshotAndDiskRecovery(format: String) throws {
+        let old = try course(weekday: 1)
+        let incoming = try course(weekday: 2)
+        let replacement = try ScheduleCourseEditor.updatingArrangement(id: incoming.id,
+            with: CourseDraft(title: "云端调课", weekday: 3, weeksText: "1-4"), in: [incoming])
+        let rule = ScheduleCourseRule(sourceIdentity: scheduleCourseSourceIdentity(incoming),
+            sourceCourses: [incoming], replacementCourses: replacement)
+        var cache = ScheduleCache()
+        cache.currentTerm = old.term
+        cache.courseData.store(snapshot([old]))
+        cache.courseData.setRules([rule], for: old.term)
+        let bytes: Data
+        if format == "legacy" {
+            let snapshotJSON = try JSONSerialization.jsonObject(with: JSONEncoder().encode(snapshot([old])))
+            let ruleJSON = try JSONSerialization.jsonObject(with: JSONEncoder().encode([rule]))
+            bytes = try JSONSerialization.data(withJSONObject: ["currentTerm": old.term,
+                "termSchedulesByTerm": [old.term: snapshotJSON], "manualCourseRulesByTerm": [old.term: ruleJSON]])
+        } else {
+            bytes = try JSONEncoder().encode(cache)
+        }
+        var restored = try JSONDecoder().decode(ScheduleCache.self, from: bytes)
+        #expect(restored.manualCourseRulesByTerm[old.term] == [rule])
+        #expect(restored.courses == [old])
+        restored.ddlBeforeDay += 1
+        restored = try JSONDecoder().decode(ScheduleCache.self, from: JSONEncoder().encode(restored))
+        #expect(restored.manualCourseRulesByTerm[old.term] == [rule])
+        restored.courseData.store(snapshot([incoming]))
+        #expect(restored.manualCourseRulesByTerm[old.term] == [rule] && restored.courses == replacement)
+    }
+
     @Test func changedSchoolSourceRetiresAdjustmentAndKeepsLocalAddition() throws {
         let original = try course()
         var cache = ScheduleCache()
