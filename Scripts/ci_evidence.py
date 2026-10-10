@@ -39,7 +39,10 @@ def download_run(run: int, repo: str) -> None:
         subprocess.run(['gh', 'run', 'download', str(run), '--repo', repo, '--name', ARTIFACT, '--dir', str(REPORT.parent)],
             cwd=ROOT, capture_output=True, text=True, check=True)
         from validation_evidence import write_report
-        write_report(json.loads(CORE_REPORT.read_text()))
+        incoming = core_exchange(json.loads(CORE_REPORT.read_text()))
+        report = json.loads(REPORT.read_text()) if REPORT.is_file() else {}
+        groups = report.get('groups', {}) | incoming.pop('groups')
+        write_report(report | incoming | {'groups': groups})
 
 
 def export_core() -> None:
@@ -156,6 +159,19 @@ def self_test() -> None:
     run = {'id': 7, 'head_sha': commit, 'status': 'completed', 'conclusion': 'success', 'event': 'push'}
     artifacts = [{'artifacts': [{'name': ARTIFACT, 'expired': False}]}]
     from contextlib import nullcontext
+    retained = {'releaseCommit': commit, 'coveragePolicy': {'all': {'Feature': 70}},
+        'groups': {name: {'inputDigest': 'retained-' + name} for name in ('network', 'icloud', 'manual-device', 'build-archive', 'audit', 'catalyst', 'all')}}
+    incoming = {'mergeCommit': commit, 'sourceDigest': 'current', 'groups': {'all': {'inputDigest': 'current-all'}}}
+    with patch('validation_evidence.report_lock', side_effect=nullcontext), patch('validation_evidence.write_report') as save, \
+            patch.object(Path, 'read_text', autospec=True, side_effect=lambda path: json.dumps(incoming if path == CORE_REPORT else retained)), \
+            patch.object(Path, 'is_file', return_value=True), patch.object(Path, 'unlink'), \
+            patch.object(subprocess, 'run') as download:
+        download_run(7, 'owner/repo')
+        result = save.call_args.args[0]
+        assert result['mergeCommit'] == commit and result['sourceDigest'] == 'current'
+        assert result['coveragePolicy'] == retained['coveragePolicy'] and result['releaseCommit'] == commit
+        assert result['groups'] == retained['groups'] | incoming['groups']
+        download.assert_called_once()
     policy_source = 'MODULE_COVERAGE_FLOORS = {"Feature": 80}\nIOS_MODULE_COVERAGE_FLOORS = {"Feature": 70}\n'
     with patch.object(subprocess, 'check_output', return_value=policy_source) as git, \
             patch('validation_evidence.report_lock', side_effect=nullcontext), patch('validation_evidence.write_report') as save, \

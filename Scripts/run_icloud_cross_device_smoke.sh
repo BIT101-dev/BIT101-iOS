@@ -257,6 +257,7 @@ import os
 import signal
 import subprocess
 import sys
+import time
 
 worker = r'''
 set -euo pipefail
@@ -275,14 +276,25 @@ run_phone_test testPhoneRoundTrip
 process = subprocess.Popen(["zsh", "-c", worker, "phone-smoke", *sys.argv[1:]], start_new_session=True)
 
 def interrupt(signum, _frame):
+    for pending in (signal.SIGINT, signal.SIGTERM): signal.signal(pending, signal.SIG_IGN)
     try:
         os.killpg(process.pid, signum)
     except ProcessLookupError:
         pass
+    raise SystemExit(128 + signum)
 
 for signum in (signal.SIGINT, signal.SIGTERM):
     signal.signal(signum, interrupt)
-result = process.wait()
+try:
+    result = process.wait()
+except SystemExit:
+    deadline = float(os.environ.get('BIT101_WORKFLOW_DEADLINE', time.monotonic() + 5 * 60))
+    try: process.wait(timeout=max(0, min(5 * 60, deadline - time.monotonic())))
+    except subprocess.TimeoutExpired:
+        try: os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError: pass
+        process.wait()
+    raise
 raise SystemExit(result if result >= 0 else 128 - result)
 PYWORKER
 ) &

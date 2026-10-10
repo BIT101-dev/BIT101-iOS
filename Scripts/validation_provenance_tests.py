@@ -229,3 +229,10 @@ def complete_run_reuse_self_test() -> None:
     changed = deepcopy(selected)
     changed['lastFullRun']['exitCode'] = 1
     assert complete_group_row(changed) is changed
+    from validation_environment import exchange_identity
+    context = {'developer': '/fixture/Xcode', 'device': {'identifier': 'phone'}}
+    shared_full = dict(full, environment=exchange_identity(context))
+    selected = dict(full, scope='selected', environment=context, lastFullRun=shared_full)
+    assert complete_group_row(selected) is shared_full
+    changed = dict(selected, environment=context | {'device': {'identifier': 'other'}})
+    assert complete_group_row(changed) is changed

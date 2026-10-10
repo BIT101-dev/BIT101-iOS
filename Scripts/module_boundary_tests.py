@@ -46,6 +46,17 @@ def run_self_test(rules: dict) -> None:
     assert rules["coverage_registry_findings"](registered_modules - {"TransportCore"})
 
     from unittest.mock import patch
+    import json
+    root = Path('/fixture')
+    for name, registered in (('BIT101Watch/Source.swift', True), ('BIT101ShareExtension/Source.swift', False)):
+        source = root / name
+        with patch(f"{rules['native_target_errors'].__module__}.subprocess.check_output", return_value=json.dumps({})), \
+                patch('code_quality_rules.native_project_targets', return_value=[('Target', set(), {source})]), \
+                patch('validation_inputs.repository_input_names', return_value=[name]), patch.object(Path, 'read_text', return_value=''):
+            errors = rules['native_target_errors'](root, {'products': []}, set())
+            assert bool(errors) != registered, (name, errors)
+    from swift_type_index import compilation_unit
+    assert compilation_unit('/workspace/BIT101-iOS/BIT101Watch/Source.swift') == 'BIT101Watch'
     module = rules["resource_facts"].__module__
     rules["resource_facts"].cache_clear()
     source = "func probe() { let data = Data(); try data.write(to: url); _ = Darwin.open(path, 0); let defaults: UserDefaults = .standard }"

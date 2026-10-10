@@ -21,7 +21,7 @@ from validation_policy import TEST_GROUPS, RELEASE_GROUPS, DEFAULT_VERIFY_GROUPS
 from validation_test_areas import TEST_AREA_SUITES
 from validation_compilation import compilation_condition
 from validate_distribution import archive_build_summary, valid_archive_provenance, valid_executable_uuids, distribution_contracts
-from validation_environment import environment_context, complete_environment, toolchain_identity
+from validation_environment import environment_context, complete_environment, toolchain_identity, exchange_identity
 from validation_provenance import LIVE_GROUPS, NETWORK_GROUPS, evidence_current, producing_run_matches, sampling_evidence_current, utc_now
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -169,7 +169,7 @@ def source_digest(group: str = "", *, environment: dict | None = None) -> str:
     names = repository_input_names(ROOT)
     digest = hashlib.sha256(group.encode() + b"\0")
     if group:
-        digest.update(json.dumps(environment_context(group) if environment is None else environment, sort_keys=True).encode() + b"\0")
+        digest.update(json.dumps(exchange_identity(environment_context(group) if environment is None else environment), sort_keys=True).encode() + b"\0")
     for name in sorted(set(names) - {""}):
         path = ROOT / name
         if path.is_file() and includes_input(name, group):

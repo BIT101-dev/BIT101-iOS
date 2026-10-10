@@ -14,6 +14,24 @@ DEVICE_GROUPS = {"all", "release-runtime", "ui", "schedule", "infrastructure", "
                  "icloud", "icloud-cleanup", "restore", "manual-device"} | NETWORK_GROUPS
 
 
+def exchange_identity(value):
+    """Keep stable device/path equality in shared evidence using opaque identities."""
+    def opaque(value):
+        return value if re.fullmatch(r'sha256:[0-9a-f]{64}', value) else 'sha256:' + hashlib.sha256(value.encode()).hexdigest()
+    def convert(value, parent=''):
+        if isinstance(value, list): return [convert(item, parent) for item in value]
+        if not isinstance(value, dict): return value
+        result = {}
+        for key, item in value.items():
+            private = key in {'developer', 'deviceIdentifier', 'deviceId'} or key == 'identifier' and parent == 'device' \
+                or key == 'path' and isinstance(item, str) and item.startswith('/')
+            if private and isinstance(item, str) and item: result[key] = opaque(item)
+            elif key == 'deviceName' or key == 'name' and parent == 'device': result[key] = 'validation-device'
+            else: result[key] = convert(item, key)
+        return result
+    return convert(value)
+
+
 def complete_environment(group: str, context: dict) -> bool:
     compiler = context.get("compiler", {})
     if not (context.get("host") and context.get("developer") and context.get("xcode")

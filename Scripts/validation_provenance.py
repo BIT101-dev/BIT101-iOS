@@ -36,12 +36,13 @@ def evidence_current(group: str, summary: dict) -> bool:
 
 
 def complete_group_row(row: dict) -> dict:
+    from validation_environment import exchange_identity
     full = row.get('lastFullRun', {})
     if row.get('scope') == 'selected' and row.get('exitCode') == 0 and row.get('summary', {}).get('passed') is True \
             and full.get('scope') == 'full' and full.get('exitCode') == 0 \
             and full.get('summary', {}).get('passed') is True \
             and row.get('inputDigest') and row['inputDigest'] == full.get('inputDigest') \
-            and row.get('environment') == full.get('environment'):
+            and exchange_identity(row.get('environment')) == exchange_identity(full.get('environment')):
         return full
     return row
 

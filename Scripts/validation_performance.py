@@ -4,7 +4,7 @@ import json
 import math
 from pathlib import Path
 import subprocess
-from validation_environment import complete_environment, environment_context
+from validation_environment import complete_environment, environment_context, exchange_identity
 from validation_provenance import utc_now, complete_group_row
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -124,7 +124,7 @@ def capture_current() -> dict:
     for group in ('all', 'ui'):
         row = complete_group_row(groups[group])
         context = environment_context(group)
-        if row.get('exitCode') != 0 or row.get('scope') != 'full' or row.get('environment') != context \
+        if row.get('exitCode') != 0 or row.get('scope') != 'full' or exchange_identity(row.get('environment')) != exchange_identity(context) \
                 or row.get('inputDigest') != source_digest(group) or not complete_environment(group, context):
             raise ValueError('性能采样需要当前源码、工具链及实体设备上成功执行的完整行为与 UI 组。')
         proof = row['performance']

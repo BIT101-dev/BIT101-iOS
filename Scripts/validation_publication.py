@@ -3,7 +3,7 @@ import hashlib
 import json
 import re
 from pathlib import Path
-from validation_environment import environment_context, toolchain_identity
+from validation_environment import environment_context, toolchain_identity, exchange_identity
 from validation_policy import RELEASE_GROUPS
 from validation_provenance import evidence_current, complete_group_row
 from validation_merge import CORE_GROUPS
@@ -51,8 +51,8 @@ def receipt_findings(receipt: dict, tag: str, commit: str, digest) -> list[str]:
 
 
 def core_exchange(report: dict) -> dict:
-    return {key: value for key, value in report.items() if key in {'mergeCommit', 'testedCommit', 'sourceDigest', 'performanceBaseline'}} | {
-        'groups': {name: complete_group_row(row) for name, row in report.get('groups', {}).items() if name in CORE_GROUPS | {'modules'}}}
+    return exchange_identity({key: value for key, value in report.items() if key in {'mergeCommit', 'testedCommit', 'sourceDigest', 'performanceBaseline'}} | {
+        'groups': {name: complete_group_row(row) for name, row in report.get('groups', {}).items() if name in CORE_GROUPS | {'modules'}}})
 
 
 def self_test() -> None:
@@ -85,3 +85,19 @@ def self_test() -> None:
     assert core['mergeCommit'] == 'commit' and set(core['groups']) == CORE_GROUPS | {'modules'}
     assert core['performanceBaseline'] == {'records': {'fixture': 'approved'}}
     assert 'manual-device' not in core['groups'] and 'private' not in core
+    context = {'developer': '/Users/fixture/Xcode', 'compiler': {'path': '/Users/fixture/compiler', 'sha256': 'a' * 64},
+        'device': {'identifier': 'fixture-udid', 'model': 'iPhone', 'systemVersion': '27', 'systemBuild': 'fixture-build'},
+        'sdks': {'iPhoneOS': {'path': '/Users/fixture/sdk', 'Version': '27'}}}
+    original = {'groups': {'all': {'environment': context, 'performance': {
+        'execution': {'environment': context}, 'environment': {'deviceIdentifier': 'fixture-udid'},
+        'xcresultMetrics': [{'testRuns': [{'device': {'deviceId': 'fixture-udid', 'deviceName': 'Owner phone'}}]}]}}}}
+    shared = core_exchange(original)
+    assert all(value not in json.dumps(shared) for value in ('/Users/fixture', 'fixture-udid', 'Owner phone'))
+    assert core_exchange(shared) == shared and original['groups']['all']['environment'] == context
+    performance = shared['groups']['all']['performance']
+    identity = shared['groups']['all']['environment']['device']['identifier']
+    assert identity == performance['environment']['deviceIdentifier'] == performance['xcresultMetrics'][0]['testRuns'][0]['device']['deviceId']
+    from validation_evidence import source_digest
+    with patch('validation_evidence.repository_input_names', return_value=[]):
+        assert source_digest('all', environment=context) == source_digest('all', environment=shared['groups']['all']['environment'])
+        assert source_digest('all', environment=context) != source_digest('all', environment=context | {'device': context['device'] | {'identifier': 'other'}})

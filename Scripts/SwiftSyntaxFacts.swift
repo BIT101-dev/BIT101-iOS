@@ -19,6 +19,7 @@ struct FileFacts: Encodable {
     let alertModifiers: [AlertModifierFact]
     let typedVariables: [TypedVariableFact]
     let typeAliases: [TypeAliasFact]
+    let genericConstraints: [GenericConstraintFact]
     let listIcons: [ListIconFact]
     let listControls: [SelectionControlFact]
     let listStyleModifiers: [FeedbackModifierFact]
@@ -143,6 +144,14 @@ struct TypeAliasFact: Encodable {
     let isFilePrivate: Bool
     let isExported: Bool
     var escapingParameters: [Int] = []
+}
+
+struct GenericConstraintFact: Encodable {
+    let name: String
+    let type: String
+    let scope: [String]
+    let start: Int
+    let end: Int
 }
 
 struct ListIconFact: Encodable {

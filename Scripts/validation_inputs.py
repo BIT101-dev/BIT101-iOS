@@ -5,12 +5,13 @@ import subprocess
 from swift_source_index import SWIFT_SYNTAX_SOURCE_NAMES
 from validation_policy import APP_TEST_GROUPS, TEST_GROUPS, NETWORK_GROUPS, RELEASE_GROUPS, BUILD_HOSTS, VERIFY_GROUPS, DEFAULT_VERIFY_GROUPS
 
-PRODUCT_ROOTS = {"Modules", "BIT101-iOS", "BIT101-iOS.xcodeproj", "BIT101ScheduleWidgets", "BIT101Watch", "BIT101WatchWidgets"}
+NATIVE_PRODUCT_ROOTS = ("BIT101-iOS", "BIT101ScheduleWidgets", "BIT101Watch", "BIT101WatchWidgets")
+NATIVE_TEST_ROOTS = ("BIT101-iOSTests", "BIT101-iOSUITests")
+PRODUCT_ROOTS = {"Modules", "BIT101-iOS.xcodeproj"} | set(NATIVE_PRODUCT_ROOTS)
 PRODUCT_FILES = {"Package.swift", "AppInfo.plist"}
 SHARED_TEST_FILES = {"ModuleTests/Support/FileServiceContract.swift"}
 PERFORMANCE_TEST_FILES = {"BIT101-iOSTests/PerformanceWorkload.swift", "BIT101-iOSTests/PerformanceWorkloads.json"}
-SWIFT_ROOTS = ("Modules", "BIT101-iOS", "BIT101-iOSTests", "BIT101-iOSUITests", "ModuleTests",
-    "BIT101ScheduleWidgets", "BIT101Watch", "BIT101WatchWidgets")
+SWIFT_ROOTS = ("Modules", "ModuleTests", *NATIVE_PRODUCT_ROOTS, *NATIVE_TEST_ROOTS)
 VALIDATION_SCRIPTS = {"validation_evidence.py", "validation_inputs.py", "validation_policy.py", "validation_coverage.py", "validation_merge.py", "validation_environment.py", "validation_provenance.py", "validation_test_areas.py", "validation_manual.py", "validation_restore.py", "validation_media.py", "ManualEvidenceProbe.swift", "validate_distribution.py", "validate_versions.py", "swift_source_index.py", "code_quality_rules.py", "audit_callback_rules.py", "ci_wiring_rules.py", "check-module-boundaries.py"} | set(SWIFT_SYNTAX_SOURCE_NAMES)
 VALIDATION_SCRIPTS.add("swift_type_index.py")
 VALIDATION_SCRIPTS.update({"validation_publication.py", "validation_compilation.py", "validation_performance.py", "network_capability_rules.py", "network_request_contracts.py"})

@@ -211,7 +211,7 @@ Scripts/check-module-boundaries.py
 
 模块检查器同时校验服务实现归属，覆盖生产源码中的直接网络发送、会话及网络缓存访问、重复系统网络监听、文件读写、元数据和符号链接解析，以及偏好默认实例选择。包级 `ClientCoreTests` 验证连接断开、恢复与实例隔离；App 的 `NetworkClientTests` 验证诊断文字消费所选网络状态。
 
-`Scripts/SwiftSyntaxIndexer.swift` 维护编译器提供的 SwiftSyntax 事实采集，[事实模型](../Scripts/SwiftSyntaxFacts.swift) 保存序列化数据结构，`swift_source_index.py` 承接编译缓存与事实查询，模块边界的回归样例归 `module_boundary_tests.py`。SwiftSyntax 共享索引入口通过 `.build/static-audit/swift-syntax-indexer.lock` 串行使用源码及可执行产物，代码质量和 UI 检查器共用同一入口。源码更新、编译和索引读取在同一次锁内完成。`swift_type_index.py` 沿模块、访问范围及完整嵌套类型解析继承、别名与调用关系，泛型实参参与语法解析后保留其后续成员路径。
+`Scripts/SwiftSyntaxIndexer.swift` 维护编译器提供的 SwiftSyntax 事实采集，[事实模型](../Scripts/SwiftSyntaxFacts.swift) 保存序列化数据结构，`swift_source_index.py` 承接编译缓存与事实查询，模块边界的回归样例归 `module_boundary_tests.py`。SwiftSyntax 共享索引入口通过 `.build/static-audit/swift-syntax-indexer.lock` 串行使用源码及可执行产物，代码质量和 UI 检查器共用同一入口。源码更新、编译和索引读取在同一次锁内完成。`swift_type_index.py` 沿模块、访问范围及完整嵌套类型解析继承、别名与调用关系，泛型实参参与语法解析后保留其后续成员路径。泛型参数与 `where` 约束保存所属声明范围，内层参数沿词法范围覆盖外层同名参数。原生 target 的全部 Swift 源码需要进入统一源码根及 Git 输入库存，新增扩展沿模块门禁核对登记。
 
 检测器由 App 维护者负责工具链升级与规则评审，规则作者维护触发、合规和故障回归样例。语法事实以当前 Xcode 的 SwiftSyntax 为来源，词法扫描用于编译条件与源码片段；类型解析覆盖模块、文件访问范围、继承、泛型嵌套类型及别名，调用分析覆盖已登记的实例、工厂返回值、协议实现和保存回调。编译生成的宏实现、动态分派与第三方二进制行为沿正式编译条件测试和真机验收核对。新增语法或规则在所属自测文件补充最小故障样例，并复用已有事实入口。
 
@@ -338,7 +338,7 @@ iOS 的 `checks` 包含 `cold-start-session`、`offline-persistence`、`media-an
 
 核心真机验收参与 PR 合并：完整 `all` 行为、正式 iOS `release-runtime` 合同、完整 `ui` 交互与常规 `restore` 四组需要当前源码与设备输入，并在 24 小时内执行。CI 的 `physical-device` Job 在具有 `self-hosted`、`macOS`、`bit101-xcode-27`、`bit101-device` 标签的专用 Mac 与 iPhone 上执行 `verify modules all release-runtime ui`，恢复常规 App 后执行 `bind-merge`。
 
-`bind-merge` 将当前提交写入本地固定 JSON，Job 通过 `ci_evidence.py export-core` 导出核心组到固定 `core-validation-evidence.json`，再沿 `upload-artifact` 发布同名 `validation-evidence` 产物。完整人工专项保存在本地报告中，核心交换文件承接模块、行为、正式 iOS、UI 与恢复证据。合并 Job 承接静态审计、编译、Catalyst 和真机结果，仓库内 PR 从当前工作流运行获取该产物，核对 GitHub 合并提交、实际记录环境及四组真机验收的一致工具链。自托管运行器按 GitHub 队列承接工作，项目脚本按工作区锁定固定编译产物；真机操作同时取得用户级设备锁。独立工作区的本机测试与编译可并行，核心真机证据按记录环境核对源码及编译条件。
+`bind-merge` 将当前提交写入本地固定 JSON，Job 通过 `ci_evidence.py export-core` 导出核心组到固定 `core-validation-evidence.json`，再沿 `upload-artifact` 发布同名 `validation-evidence` 产物。完整人工专项保存在本地报告中，核心交换文件承接模块、行为、正式 iOS、UI 与恢复证据。导入核心文件时覆盖所属核心组，并保留本地专项、发布绑定及覆盖率基准；各组沿输入摘要继续核对有效性。公开交换中的设备身份和宿主绝对路径转为稳定 SHA-256 标识，性能采样与执行环境使用同一标识；输入摘要沿同一转换核对原始报告及交换文件。合并 Job 承接静态审计、编译、Catalyst 和真机结果，仓库内 PR 从当前工作流运行获取该产物，核对 GitHub 合并提交、实际记录环境及四组真机验收的一致工具链。自托管运行器按 GitHub 队列承接工作，项目脚本按工作区锁定固定编译产物；真机操作同时取得用户级设备锁。独立工作区的本机测试与编译可并行，核心真机证据按记录环境核对源码及编译条件。
 
 仓库内分支和维护者手动触发执行真机 Job；fork PR 由维护者审查代码后，将 GitHub 的 `refs/pull/编号/merge` 对应提交保存到仓库内 `review-validation` 分支；从该分支手动启动工作流并填写 `review_pr`。工作流核对当前 PR 合并提交，沿其目标提交载入覆盖率基准，再完成四个 Job 和真机证据绑定。维护者随后重新运行原 PR 的合并验收 Job；门禁按原合并 SHA 与 PR 编号查找仓库内成功的手动运行，核对四个实际 Job、有效产物及绑定证据。PR 或目标提交更新后沿新合并提交重新验收。
 
@@ -392,13 +392,13 @@ fork PR 的常规 Job 使用 GitHub 托管的 `xcode-27` 镜像，每项任务�
 
 采集核对工作树及暂存区相对 HEAD 的构建输入、结果包摘要、运行标识、设备与工具链，登记人工附件时核对所属测试组完成时保存的原始指标与批准基线。共享文件服务契约同时验收内存及本机后端的目录、枚举、递归清理与失败注入。文档审计沿当前内容和 Git index 分别核对文件、标题锚点与引用式链接。
 
-SwiftSyntax 索引器缓存沿源码、工具链环境、编译器、SwiftSyntax / SwiftParser 库及模块内容摘要复用。网络能力检测沿编译器类型、协议和异步闭包传输端口、初始化表达式、依赖工厂返回值和局部别名识别生产服务，局部同名变量沿词法作用域解析。模块门禁按业务归属限制 Domain、Ports、Core 等依赖；社区功能共用 Community 业务合同，基础 Client、Storage、Transport、DesignSystem、Media 模块承担公共职责。地图通过明确登记的 `MapFeature → ScheduleContracts` 依赖复用地点显示规范化，跨业务合同沿允许依赖表评审。
+SwiftSyntax 索引器缓存沿源码、工具链环境、编译器、SwiftSyntax / SwiftParser 库及模块内容摘要复用。网络能力检测沿编译器类型、协议和异步闭包传输端口、初始化表达式、依赖工厂返回值和局部别名识别生产服务，局部同名变量沿词法作用域解析。自定义协议沿具体网络实现传播能力，泛型传输端口沿参数及 `where` 约束展开；已登记业务服务作为验收边界，其消费层沿业务与 UI 合同验收，协议要求沿实现核对。模块门禁按业务归属限制 Domain、Ports、Core 等依赖；社区功能共用 Community 业务合同，基础 Client、Storage、Transport、DesignSystem、Media 模块承担公共职责。地图通过明确登记的 `MapFeature → ScheduleContracts` 依赖复用地点显示规范化，跨业务合同沿允许依赖表评审。
 
 UI 自动化同时采集交互库存及宿主与 Feature / UI 模块的行覆盖率，完整验收要求各展示模块产生实际执行行。界面状态断言、控件交互记录及行覆盖率共同支撑展示逻辑审查。
 
 交互库存身份结合场景、祖先行标识及控件标识。列表行和多选项使用稳定业务标识，滚动后挂载的新行继续登记待访问项，排序保留同一业务行的访问记录；同名操作按钮沿所属行区分。长度编码保持身份字段边界，控件标签的状态变化保持已标识控件的身份稳定。
 
-工作流锁的等待与执行预算共用 45 分钟默认值，执行超时向进程组发送终止信号并保留恢复清理阶段；恢复结束释放设备及工作区锁。测试执行显式启用 XCTest 超时管理。物理设备 CI Job 使用 60 分钟上限，覆盖 45 分钟工作流预算、5 分钟恢复清理及前后步骤，取消与超时恢复沿脚本锁边界合同验收。编译条件由 `validation_policy.workflow_conditions` 统一提供给执行脚本与源码库存，iCloud 使用 `DEBUG ICLOUD_CROSS_DEVICE_SMOKE`。
+工作流锁的等待与执行预算共用 45 分钟默认值，执行超时向进程组发送终止信号并保留恢复清理阶段；恢复结束释放设备及工作区锁。iCloud 手机工作进程转发中断后，沿剩余工作流预算及五分钟清理上限等待独立测试进程组，期限结束后强制结束并回收子进程。测试执行显式启用 XCTest 超时管理。物理设备 CI Job 使用 60 分钟上限，覆盖 45 分钟工作流预算、5 分钟恢复清理及前后步骤，取消与超时恢复沿脚本锁边界合同验收。编译条件由 `validation_policy.workflow_conditions` 统一提供给执行脚本与源码库存，iCloud 使用 `DEBUG ICLOUD_CROSS_DEVICE_SMOKE`。
 
 成功的关键词复验沿同一输入摘要与环境复用此前完整组的证据，完整证据保留原运行标识、采样时间及性能指标。复验失败或构建输入变化进入对应分组的重新验收。网络 smoke 保存每个探针的起始及最终 HTTP 方法、端点、业务查询与状态码，端点移除凭据、查询参数及片段；完整验收校验重定向后的业务位置、请求方法、排序及分页参数，并沿 `Scripts/network_request_contracts.py` 核对业务端点、HTTP 方法、所需调用数量及分页查询。列表首屏为空时继续请求续页，消息空首屏沿正游标验收终止边界；首屏、续页与实际参数共同保存在请求证据中。
 

@@ -657,7 +657,8 @@ record_result() { print -r -- "RECORD $*"; }
 
     worker = re.search(r"<<'PYWORKER'\n(.*?)^PYWORKER$", source, re.MULTILINE | re.DOTALL)
     handlers = {}
-    child = type("Worker", (), {"pid": 42, "wait": lambda self: (handlers[signal.SIGTERM](signal.SIGTERM, None), -signal.SIGTERM)[1]})()
+    child = type("Worker", (), {"pid": 42, "wait": lambda self, timeout=None:
+        -signal.SIGTERM if timeout is not None else (handlers[signal.SIGTERM](signal.SIGTERM, None), -signal.SIGTERM)[1]})()
     with patch.object(sys, "argv", ["worker", "/root", "/derived", "/bundle", "/report", "device", "suite"]), \
          patch.object(subprocess, "Popen", return_value=child) as launch, \
          patch.object(signal, "signal", side_effect=lambda signum, handler: handlers.update({signum: handler})), \
@@ -669,6 +670,34 @@ record_result() { print -r -- "RECORD $*"; }
                 findings.append("Smoke 并行自测：手机宿主信号退出状态")
         if launch.call_args.kwargs.get("start_new_session") is not True or cancel.call_args.args != (42, signal.SIGTERM):
             findings.append("Smoke 并行自测：中断时终止手机测试进程组")
+    import shlex
+    import time
+    injected = 'import os, signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); print(os.getpid(), flush=True); time.sleep(60)'
+    command = 'exec ' + shlex.quote(sys.executable) + ' -B -c ' + shlex.quote(injected)
+    harness = re.sub(r"(?s)worker = r'''(.*?)'''", lambda match: 'worker = ' + repr(command), worker[1], count=1)
+    supervisor = subprocess.Popen([sys.executable, '-B', '-c', harness, '/root', '/derived', '/bundle', '/report', 'device', 'suite'],
+        env=dict(os.environ, BIT101_WORKFLOW_DEADLINE=str(time.monotonic() + 0.2)),
+        start_new_session=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    detached_pid = None
+    try:
+        detached_pid = int(supervisor.stdout.readline())
+        os.killpg(supervisor.pid, signal.SIGTERM)
+        _, error = supervisor.communicate(timeout=5)
+        try: os.kill(detached_pid, 0)
+        except ProcessLookupError: terminated = True
+        else: terminated = False
+        if supervisor.returncode != 143 or not terminated:
+            findings.append('Smoke 并行自测：忽略终止信号的独立手机进程组需要在期限内结束')
+    except subprocess.TimeoutExpired:
+        findings.append('Smoke 并行自测：独立手机进程组需要按工作流期限强制终止')
+    finally:
+        if supervisor.poll() is None:
+            os.killpg(supervisor.pid, signal.SIGKILL)
+        if detached_pid is not None:
+            try: os.kill(detached_pid, 0)
+            except ProcessLookupError: pass
+            else: os.killpg(detached_pid, signal.SIGKILL)
+        supervisor.wait(timeout=5)
 
     finish = shell_function("finish_smoke").replace('"$ROOT_DIR/Scripts/build-install-device.sh"', "restore_normal_app")
     trap_registration = "\n".join(re.findall(r"(?m)^trap .+$", source))

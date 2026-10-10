@@ -10,8 +10,9 @@ def compilation_unit(path: str) -> str:
         if directory in parts:
             offset = parts.index(directory)
             return parts[offset + 1] + ('Tests' if directory == 'ModuleTests' else '')
-    roots = {'BIT101-iOS', 'BIT101-iOSTests', 'BIT101-iOSUITests', 'BIT101ScheduleWidgets', 'BIT101Watch', 'BIT101WatchWidgets'}
-    return next((part for part in parts if part in roots), 'fixture')
+    from validation_inputs import NATIVE_PRODUCT_ROOTS, NATIVE_TEST_ROOTS
+    roots = set(NATIVE_PRODUCT_ROOTS + NATIVE_TEST_ROOTS)
+    return next((part for part in reversed(parts) if part in roots), 'fixture')
 
 
 class SwiftTypeIndex:

@@ -193,6 +193,7 @@ def scenario_complete(check: str, proof: dict) -> bool:
 
 
 def performance_comparison_complete(name: str, measurement: dict) -> bool:
+    from validation_environment import exchange_identity
     try:
         if not isinstance(measurement, dict): return False
         current, baseline = measurement['current'], measurement['baseline']
@@ -216,7 +217,7 @@ def performance_comparison_complete(name: str, measurement: dict) -> bool:
                 if not isinstance(samples, list) or not samples or not all(type(sample) in (int, float) and math.isfinite(sample) and sample >= 0 for sample in samples) \
                         or type(mean) not in (int, float) or not math.isfinite(mean) or mean <= 0 \
                         or not math.isclose(mean, sum(samples) / len(samples)): return False
-        if current['environment'] != baseline['environment'] or current['resultBundle']['sha256'] == baseline['resultBundle']['sha256'] \
+        if exchange_identity(current['environment']) != exchange_identity(baseline['environment']) or current['resultBundle']['sha256'] == baseline['resultBundle']['sha256'] \
                 or not sampling_evidence_current({'startedAt': current['capturedAt'], 'finishedAt': current['capturedAt']}) \
                 or not isinstance(baseline.get('approvedBy'), str) or not baseline['approvedBy'].strip(): return False
         times = [datetime.fromisoformat(value.replace('Z', '+00:00')) for value in

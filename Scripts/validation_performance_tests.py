@@ -76,6 +76,10 @@ def producing_run_capture_self_test() -> None:
             patch('validation_evidence.source_digest', return_value='digest'), \
             patch.object(subject.subprocess, 'check_output', side_effect=AssertionError('后续宿主沿固定结果包继续运行')):
         assert subject.capture_current() == {'schemaVersion': 1, 'records': combined}
+        from validation_publication import core_exchange
+        shared = core_exchange({'groups': rows})
+        with patch.object(Path, 'read_text', return_value=json.dumps(shared)):
+            assert subject.capture_current()['records'] == shared['groups']['all']['performance']['records'] | shared['groups']['ui']['performance']['records']
         for group in rows:
             for field, value in [('runID', 'other'), ('resultBundleSHA256', 'c' * 64), ('sourceCommit', 'other')]:
                 changed = deepcopy(rows)
@@ -105,6 +109,12 @@ def merge_regression_self_test() -> None:
         report['performanceBaseline']['records'][name] = baseline
     commit = subject.current_commit()
     assert not subject.merge_findings(report, commit)
+    from validation_publication import core_exchange
+    shared = core_exchange(report)
+    assert not subject.merge_findings(shared, commit)
+    assert not subject.merge_findings(report | {'performanceBaseline': shared['performanceBaseline']}, commit)
+    assert shared['groups']['all']['performance']['records']['pagination']['execution']['inputDigest'] \
+        == report['groups']['all']['performance']['records']['pagination']['execution']['inputDigest']
     for fault in ('missing-baseline', 'missing-current', 'run', 'regression', 'approver', 'environment', 'raw-metrics', 'commit'):
         changed = deepcopy(report)
         current = changed['groups']['all']['performance']['records']['pagination']

@@ -18,6 +18,7 @@ final class FactVisitor: SyntaxVisitor {
     private(set) var alertModifiers: [AlertModifierFact] = []
     private(set) var typedVariables: [TypedVariableFact] = []
     private(set) var typeAliases: [TypeAliasFact] = []
+    private(set) var genericConstraints: [GenericConstraintFact] = []
     private(set) var listIcons: [ListIconFact] = []
     private(set) var listControls: [SelectionControlFact] = []
     private(set) var listStyleModifiers: [FeedbackModifierFact] = []
@@ -67,6 +68,30 @@ final class FactVisitor: SyntaxVisitor {
     }
 
     private func leave() { _ = scope.popLast() }
+    private func recordGenericConstraint(_ node: some SyntaxProtocol, name: String, type: String) {
+        var parent = node.parent
+        while let ancestor = parent {
+            if ancestor.is(DeclSyntax.self) {
+                genericConstraints.append(GenericConstraintFact(name: name, type: type, scope: scope,
+                    start: ancestor.positionAfterSkippingLeadingTrivia.utf8Offset,
+                    end: ancestor.endPositionBeforeTrailingTrivia.utf8Offset))
+                return
+            }
+            parent = ancestor.parent
+        }
+    }
+    override func visit(_ node: GenericParameterSyntax) -> SyntaxVisitorContinueKind {
+        recordGenericConstraint(node, name: node.name.text, type: node.inheritedType?.trimmedDescription ?? "")
+        return .visitChildren
+    }
+    override func visit(_ node: ConformanceRequirementSyntax) -> SyntaxVisitorContinueKind {
+        recordGenericConstraint(node, name: node.leftType.trimmedDescription, type: node.rightType.trimmedDescription)
+        return .visitChildren
+    }
+    override func visit(_ node: SameTypeRequirementSyntax) -> SyntaxVisitorContinueKind {
+        recordGenericConstraint(node, name: node.leftType.trimmedDescription, type: node.rightType.trimmedDescription)
+        return .visitChildren
+    }
     private func recordParameters(_ parameters: FunctionParameterListSyntax, body: CodeBlockSyntax?) {
         guard let body else { return }
         for parameter in parameters {
@@ -839,6 +864,7 @@ enum SwiftSyntaxIndexer {
                 alertModifiers: visitor.alertModifiers,
                 typedVariables: visitor.typedVariables,
                 typeAliases: visitor.typeAliases,
+                genericConstraints: visitor.genericConstraints,
                 listIcons: visitor.listIcons,
                 listControls: visitor.listControls,
                 listStyleModifiers: visitor.listStyleModifiers,

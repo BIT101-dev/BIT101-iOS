@@ -575,11 +575,16 @@ def adapter_ownership_errors(facts: dict, path: str = "", roles: dict | None = N
 
 def native_target_errors(root: Path, package: dict, modules: set[str]) -> list[str]:
     from code_quality_rules import native_project_targets
+    from validation_inputs import SWIFT_ROOTS, repository_input_names
     project = json.loads(subprocess.check_output([
         "plutil", "-convert", "json", "-o", "-", str(root / "BIT101-iOS.xcodeproj/project.pbxproj"),
     ], text=True))
     errors: list[str] = []
+    inventory = {root / name for name in repository_input_names(root)
+        if Path(name).suffix == '.swift' and Path(name).parts[0] in SWIFT_ROOTS}
     for name, declared, sources in native_project_targets(project, root):
+        for source in sorted(sources - inventory):
+            errors.append(f'native target {name} source requires validation inventory registration: {source.relative_to(root)}')
         actual = {module for source in sources for module in imports_in_text(source.read_text(encoding="utf-8"))}
         exported = {module for product in package["products"] if product["name"] in declared for module in product["targets"]}
         for module in actual & modules - exported:
@@ -665,7 +670,6 @@ def main() -> int:
         expanded = expanded_resource_source(source, imported_aliases(source, app_aliases, module_aliases), Path(path).relative_to(root).as_posix())
         if expanded != source: normalized[path] = expanded
     app_syntax.update(swift_syntax_index_sources(normalized) if normalized else {})
-    errors.extend(network_capability_findings(network_index | app_syntax))
     adapter_index = {Path(path).relative_to(root).as_posix(): facts for path, facts in app_syntax.items()}
     for path, facts in app_syntax.items():
         source = Path(path).relative_to(root).as_posix()
@@ -673,17 +677,20 @@ def main() -> int:
 
     errors.extend(native_target_errors(root, package, set(modules)))
 
-    for name in ("BIT101-iOS", "BIT101ScheduleWidgets", "BIT101Watch", "BIT101WatchWidgets"):
+    from validation_inputs import NATIVE_PRODUCT_ROOTS
+    for name in NATIVE_PRODUCT_ROOTS:
         sources = sorted((root / name).rglob("*.swift"))
         aliases = app_aliases if name == "BIT101-iOS" else type_aliases(swift_syntax_index(
             [source for source in sources if "typealias" in swift_code(source.read_text())]))
         unit_index = app_syntax if name == "BIT101-iOS" else swift_syntax_index_sources({
             path.relative_to(root).as_posix(): expanded_resource_source(path.read_text(), imported_aliases(path.read_text(), aliases, module_aliases), path.relative_to(root).as_posix()) for path in sources})
+        network_index.update(unit_index)
         for source in sources:
             unit_context = compilation_type_context(unit_index, str(source) if name == "BIT101-iOS" else source.relative_to(root).as_posix())
             text = source.read_text(encoding="utf-8")
             errors.extend(service_boundary_errors(source.relative_to(root).as_posix(), text, imported_aliases(text, aliases, module_aliases), unit_context))
 
+    errors.extend(network_capability_findings(network_index))
     if errors:
         for error in errors:
             print(f"module-boundary: {error}", file=sys.stderr)

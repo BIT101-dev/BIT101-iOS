@@ -155,8 +155,14 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
     resolve_receiver = receiver_resolver(index)
     network_owners = set(NETWORK_CAPABILITIES)
     dependencies = {}
+    protocols = {types.resolve(path, '.'.join(node['scope'] + [node['name']]), aliases=False)
+        for path, facts in index.items() for node in facts.get('declarations', []) if node['kind'] == 'protocol'}
     for target, bases in types.records.items():
         identity = '.'.join([target[0], *target[1]])
+        for base in bases:
+            inherited = types.resolve(types.paths[target], base, target[1][:-1])
+            if inherited in protocols and identity not in NETWORK_CAPABILITIES:
+                dependencies.setdefault('.'.join([inherited[0], *inherited[1]]), set()).add(identity)
         if target[1][-1] not in NETWORK_TRANSPORT_TYPES and 'HTTPTransport' not in types.bases(target): continue
         network_owners.add(identity)
         for base in bases:
@@ -164,12 +170,22 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
                 network_owners.add('.'.join([inherited[0], *inherited[1]]))
     active_sources = {path: active_swift_source(facts['source'], 'network').encode()
         if 'source' in facts else None for path, facts in index.items()}
-    def owner(path, scope): return '.'.join([compilation_unit(path), *scope])
-    def components(path, kind, scope):
+    def owner(path, scope): return '.'.join(types.function_scope(path, scope))
+    def components(path, kind, scope, node):
         pending, seen, result = [(path, kind, scope)], set(), []
         while pending:
             source_path, value, source_scope = pending.pop()
             for name in re.findall(r'\b[A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)*', value):
+                constraints = [item for item in index[source_path].get('genericConstraints', [])
+                    if item['name'] == name and item['start'] <= node['start'] < item['end']]
+                if constraints:
+                    size = min(item['end'] - item['start'] for item in constraints)
+                    for item in constraints:
+                        key = (source_path, name, item['start'])
+                        if item['end'] - item['start'] == size and item['type'] and key + (item['type'],) not in seen:
+                            seen.add(key + (item['type'],))
+                            pending.append((source_path, item['type'], item['scope']))
+                    continue
                 target = types.resolve(source_path, name, source_scope, aliases=False)
                 if target in types.aliases:
                     if target not in seen:
@@ -204,7 +220,7 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
             port = kind
             if 'async' in port and '->' in port and re.search(r'\b(?:URL|URLRequest)\b', port) \
                     and re.search(r'\b(?:Data|HTTPResponse|URLResponse|HTTPURLResponse)\b', port): network_owners.add(identity)
-            for source_path, name, scope in components(path, node.get('type', ''), node['scope']):
+            for source_path, name, scope in components(path, node.get('type', ''), node['scope'], node):
                 target = types.resolve(source_path, name, scope)
                 if types.terminal_name(source_path, name, scope).rsplit('.', 1)[-1] in NETWORK_TRANSPORT_TYPES:
                     network_owners.add(identity)
@@ -252,7 +268,9 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
                     return True
                 receiver, _, method = call.get('calledExpression', '').rpartition('.')
                 for variable in visible_variables(facts, call, receiver.removeprefix('self.'), receiver.startswith('self.')):
-                    if method in {'send', 'data', 'upload', 'download'} and types.terminal_name(path, variable.get('type', ''), variable['scope']).rsplit('.', 1)[-1] in NETWORK_TRANSPORT_TYPES:
+                    if method in {'send', 'data', 'upload', 'download'} and any(
+                        types.terminal_name(source_path, name, scope).rsplit('.', 1)[-1] in NETWORK_TRANSPORT_TYPES
+                        for source_path, name, scope in components(path, variable.get('type', ''), variable['scope'], call)):
                         return True
             return False
         accessors = [node for node in facts.get('accessorRanges', []) if node.get('isAsync') or contains_request(node)]
@@ -263,6 +281,7 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
             identity = owner(path, scope)
             if scope and scope[0] in NETWORK_HARNESS_TYPES or identity not in network_owners: continue
             target = types.resolve(path, '.'.join(scope), aliases=False)
+            if target in protocols: continue
             if target and 'HTTPTransport' in types.bases(target): continue
             if function.get('isExported') or module == 'BIT101-iOS' and function.get('isAsync') and not function.get('isPrivate'):
                 result.setdefault(identity, []).append((path, function))

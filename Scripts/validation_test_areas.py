@@ -868,6 +868,44 @@ struct NewService {{ private let paper{annotation} = {initializer}; func fetch(i
         'Modules/TransportCore/Sources/HTTPClient.swift': 'public struct HTTPClient {}; ' + protocol})
     assert 'NewForumFeature.ReadService' in business_methods(index)
     assert any('新增生产服务' in error for error in network_capability_findings(index))
+    ports_path = 'Modules/Ports/Sources/Fetching.swift'
+    ports = 'public protocol Fetching { func fetch() async throws -> Data }; public protocol RefinedFetching: Fetching {}'
+    for access in ('internal', 'fileprivate'):
+        for annotation in ('any Fetching', 'any RefinedFetching', 'ForwardedFetching'):
+            sources = {ports_path: ports, transport_path: 'public struct HTTPClient {}', getter_path: f'''import Ports; import TransportCore
+                typealias ForwardedFetching = RefinedFetching
+                {access} struct LiveFetcher: RefinedFetching {{ let client: HTTPClient; func fetch() async throws -> Data {{ try await client.send(request).data }} }}
+                public struct ExampleService {{ let fetcher: {annotation}; public func fetch() async throws -> Data {{ try await fetcher.fetch() }} }}'''}
+            index = swift_syntax_index_sources(sources)
+            assert 'NewForumFeature.ExampleService' in business_methods(index), (access, annotation)
+            assert any('新增生产服务' in error for error in network_capability_findings(index))
+            sources[getter_path] = sources[getter_path].replace('let client: HTTPClient;', '').replace('try await client.send(request).data', 'Data()')
+            assert 'NewForumFeature.ExampleService' not in business_methods(swift_syntax_index_sources(sources))
+    sources = {ports_path: ports, 'Modules/OtherPorts/Sources/Fetching.swift': ports,
+        transport_path: 'public struct HTTPClient {}', getter_path: '''import Ports; import TransportCore
+            struct LiveFetcher: OtherPorts.Fetching { let client: HTTPClient; func fetch() async throws -> Data { try await client.send(request).data } }
+            public struct ExampleService { let fetcher: any Ports.Fetching; public func fetch() async throws -> Data { try await fetcher.fetch() } }'''}
+    assert 'NewForumFeature.ExampleService' not in business_methods(swift_syntax_index_sources(sources))
+    bodies = [
+        'public struct ExampleService<T: HTTPTransport> { let transport: T; public func fetch(request: URLRequest) async throws -> Data { try await transport.data(for: request).0 } }',
+        'public struct ExampleService<T> where T: HTTPTransport { let transport: T; public func fetch(request: URLRequest) async throws -> Data { try await transport.data(for: request).0 } }',
+        'public struct ExampleService { public func fetch<T: HTTPTransport>(transport: T, request: URLRequest) async throws -> Data { try await transport.data(for: request).0 } }',
+        'public struct ExampleService { public func fetch<T>(transport: T, request: URLRequest) async throws -> Data where T: HTTPTransport { try await transport.data(for: request).0 } }',
+        'public struct ExampleService<T: Fetcher> where T.Client == HTTPClient { let client: T.Client; public func fetch() async throws -> Data { try await client.send(request).data } }',
+    ]
+    for body in bodies:
+        index = swift_syntax_index_sources({getter_path: 'import TransportCore; ' + body,
+            transport_path: 'public protocol HTTPTransport {}; public struct HTTPClient {}'})
+        assert 'NewForumFeature.ExampleService' in business_methods(index), body
+        assert any('新增生产服务' in error for error in network_capability_findings(index)), body
+    shadowed = 'public struct ExampleService<T: HTTPTransport> { public func fetch<T>(transport: T) async {} }'
+    index = swift_syntax_index_sources({getter_path: shadowed})
+    assert 'NewForumFeature.ExampleService' not in business_methods(index)
+    boundary = '''protocol Fetching { func fetch() async }
+        public struct RegisteredService: Fetching { let client: HTTPClient; public func fetch() async {} }
+        public struct Consumer { let service: any Fetching; public func load() async { await service.fetch() } }'''
+    with patch.dict(NETWORK_CAPABILITIES, {'NewForumFeature.RegisteredService': {'fetch()': 'network'}}, clear=True):
+        assert set(business_methods(swift_syntax_index_sources({getter_path: boundary}))) == {'NewForumFeature.RegisteredService'}
     for port, expected in [('(URLRequest) async throws -> HTTPResponse', True),
                            ('(URLRequest) async throws -> Data', True), ('(URL) async throws -> Data', True),
                            ('(URLRequest) async throws -> (Data, URLResponse)', True),
