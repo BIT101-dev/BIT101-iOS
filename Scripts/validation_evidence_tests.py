@@ -10,6 +10,7 @@ from swift_source_index import swift_syntax_index_sources
 def run_self_test(subject) -> int:
     from validation_compilation import self_test as compilation_cache_self_test
     compilation_cache_self_test()
+    module_events_self_test(subject)
     network_route_identity_self_test()
     module_name = subject.__name__
     original_is_file = Path.is_file
@@ -17,6 +18,7 @@ def run_self_test(subject) -> int:
     from validation_inputs import self_test as input_self_test
     fixture_environment = {'host': {'system': 'fixture'}, 'developer': '/fixture', 'xcode': {'version': 'fixture'}, 'compiler': {'path': '/fixture/swift-frontend', 'modified': 1, 'size': 100, 'sha256': 'a' * 64}, 'sdks': {'fixture': {'Version': '1'}}, 'device': {'identifier': 'fixture-phone', 'systemVersion': 'fixture-os', 'systemBuild': 'fixture-build'}}
     with patch(f'{module_name}.environment_context', return_value=fixture_environment), \
+            patch('validation_merge.environment_context', return_value=fixture_environment), \
             patch('validation_merge.performance_findings', return_value=[]):
         from validation_provenance_tests import run_self_test as provenance_self_test
         from validation_test_areas import inventory_findings
@@ -49,8 +51,15 @@ def run_self_test(subject) -> int:
         current_digest = lambda group, *, environment=None: 'digest' if environment else 'new-environment'
         assert merge_findings(core, digest=current_digest, complete=lambda *args: True, commit='commit')
         assert not merge_findings(core, digest=current_digest, complete=lambda *args: True, commit='commit', recorded_environment=True)
-        with patch(f'{module_name}.environment_context', side_effect=AssertionError('跨宿主验收沿记录环境核对')):
+        relocated = dict(fixture_environment, host={'system': 'other-host'}, developer='/other/Xcode', device=None,
+            compiler=dict(fixture_environment['compiler'], path='/other/swift-frontend', modified=2))
+        with patch('validation_merge.environment_context', return_value=relocated):
             assert not merge_findings(core, digest=current_digest, complete=lambda *args: True, commit='commit', recorded_environment=True)
+        for field, value in (('compiler', dict(fixture_environment['compiler'], sha256='b' * 64)),
+                ('sdks', {'fixture': {'Version': '2'}}), ('xcode', {'version': 'other'})):
+            with patch('validation_merge.environment_context', return_value=dict(fixture_environment, **{field: value})):
+                assert any('当前 CI' in error for error in merge_findings(core, digest=current_digest,
+                    complete=lambda *args: True, commit='commit', recorded_environment=True))
         for name in core['groups']:
             mixed = json.loads(json.dumps(core))
             mixed['groups'][name]['environment']['sdks'] = {'fixture': {'Version': '2'}}
@@ -183,6 +192,17 @@ def run_self_test(subject) -> int:
             assert subject.source_digest('manual-device') == before['manual-device']
             inputs['Modules/StorageCore/Sources/AppFileService.swift'] = b'updated product'
             assert subject.source_digest('manual-device') != before['manual-device']
+        from swift_source_index import SWIFT_SYNTAX_SOURCE_NAMES
+        inputs = {'Scripts/' + name: b'indexer source' for name in SWIFT_SYNTAX_SOURCE_NAMES}
+        groups = subject.RELEASE_GROUPS | subject.TEST_GROUPS | {'network', 'icloud', 'manual-device', 'build-archive'}
+        with patch.object(subject, 'repository_input_names', return_value=list(inputs)), \
+                patch.object(Path, 'is_file', return_value=True), \
+                patch.object(Path, 'read_bytes', lambda path: inputs[path.relative_to(subject.ROOT).as_posix()]), \
+                patch.object(Path, 'stat', return_value=SimpleNamespace(st_mode=420)):
+            for name in inputs:
+                before = {group: subject.source_digest(group, environment={}) for group in groups}
+                inputs[name] += b' changed facts'
+                assert all(subject.source_digest(group, environment={}) != before[group] for group in groups), name
 
         def icloud_summary(value):
             return subject.smoke_summary('icloud', dict(validatedDomains=sorted(subject.ICLOUD_DOMAINS), cloudKitEnvironment='Production', **value))
@@ -209,6 +229,8 @@ def run_self_test(subject) -> int:
             for identifier in ('Package.Outer/Inner/works()', 'Package.Outer/Inner/works()/Example.swift:1:1'):
                 assert subject.complete_summary('schedule', dict(test, executedTests=[identifier]))
         summaries = {name: dict(test, totalTests=len(subject.test_inventory(name)), passedTests=len(subject.test_inventory(name)), executedTests=sorted(subject.test_inventory(name))) for name in ('modules', 'all', 'release-runtime', 'catalyst', 'catalyst-release-runtime', 'ui')}
+        summaries['modules']['testCases'] = {'total': len(summaries['modules']['executedTests']),
+            'byTest': {name: 1 for name in summaries['modules']['executedTests']}}
         summaries['modules']['coverage'] = {name: {'coveredLines': floor, 'executableLines': 100} for name, floor in subject.MODULE_COVERAGE_FLOORS.items()}
         summaries['all']['coverage'] = {'BIT101-iOS.app': {'coveredLines': 35, 'executableLines': 100}}
         summaries['all']['coverage'].update({'iOS/' + name: {'coveredLines': floor, 'executableLines': 100} for name, floor in subject.IOS_MODULE_COVERAGE_FLOORS.items()})
@@ -356,7 +378,7 @@ def run_self_test(subject) -> int:
         groups['ui']['scope'] = 'full'
         groups['ui']['summary']['passedTests'] = 0
         assert subject.release_findings(report, 'source')
-        module = subject.test_summary('测试通过：3 项\n统计范围：macOS\n- ScheduleSync: 75.00% (3/4 lines)')
+        module = subject.test_summary('总计 3；通过 3；失败 0；跳过 0\n统计范围：macOS\n- ScheduleSync: 75.00% (3/4 lines)')
         assert module['passed'] and module['coverage']['ScheduleSync']['coveredLines'] == 3
         assert subject.test_summary('总计 4；通过 3；失败 0；跳过 1')['passed'] is False
         assert subject.test_summary('总计 0；通过 0；失败 0；跳过 0')['passed'] is False
@@ -409,6 +431,48 @@ def run_self_test(subject) -> int:
         stages[1]['passedTests'] = 0
         assert icloud_summary({'exitCode': 0, 'stages': stages})['passed'] is False
         return 0
+
+
+def module_events_self_test(subject) -> None:
+    from unittest.mock import patch
+    single = 'Consumer.Suite/single()/Tests.swift:1:1'
+    parameterized = 'Consumer.Suite/parameterized(_:)/Tests.swift:2:1'
+    def declaration(identifier, parameterized=False):
+        return {'kind': 'test', 'payload': {'kind': 'function', 'id': identifier, 'isParameterized': parameterized}}
+    def event(kind, identifier='', **fields):
+        return {'kind': 'event', 'payload': dict(kind=kind, testID=identifier, **fields)}
+    def encode(records): return '\n'.join(json.dumps(record) for record in records)
+    records = [declaration(single), declaration(parameterized, True), event('runStarted'),
+        event('testStarted', single), event('testEnded', single), event('testStarted', parameterized),
+        event('testCaseStarted', parameterized), event('testCaseStarted', parameterized),
+        event('testCaseEnded', parameterized), event('testCaseEnded', parameterized),
+        event('testEnded', parameterized), event('runEnded')]
+    result = subject.module_event_summary(encode(records))
+    assert result['totalTests'] == result['passedTests'] == 2
+    assert result['failedTests'] == result['skippedTests'] == 0
+    assert result['testCases'] == {'total': 3, 'byTest': {single: 1, parameterized: 2}}
+    assert subject.module_cases_complete(result)
+    metrics = '总计 2；通过 2；失败 0；跳过 0\n已执行用例：' + json.dumps(result['executedTests']) \
+        + '\n测试实例：' + json.dumps(result['testCases'])
+    summary = subject.test_summary(metrics)
+    with patch.object(subject, 'coverage_complete', return_value=True), \
+            patch.object(subject, 'test_inventory', return_value={subject.normalized_test_id(name) for name in result['executedTests']}):
+        assert subject.complete_summary('modules', summary)
+        for cases in (None, {'total': 2, 'byTest': result['testCases']['byTest']},
+                {'total': 1, 'byTest': {single: 1}}, {'total': 1, 'byTest': {single: 1, parameterized: 0}}):
+            assert not subject.complete_summary('modules', dict(summary, testCases=cases))
+    skipped = 'Consumer.Suite/skipped()/Tests.swift:3:1'
+    result = subject.module_event_summary(encode(records + [declaration(skipped), event('testSkipped', skipped)]))
+    assert result['totalTests'] == 3 and result['passedTests'] == 2 and result['skippedTests'] == 1
+    for issue, failed in (({'isKnown': False}, 1), ({'isKnown': True}, 0), ({'isKnown': False, 'isFailure': False}, 0)):
+        result = subject.module_event_summary(encode(records + [event('issueRecorded', parameterized, issue=issue)]))
+        assert result['failedTests'] == failed and result['passedTests'] == 2 - failed
+    for incomplete in (records[:-1], [row for index, row in enumerate(records) if index != 8],
+            [row for row in records if not row['payload']['kind'].startswith('testCase')], [],
+            records + [event('issueRecorded', issue={'isKnown': False})]):
+        try: subject.module_event_summary(encode(incomplete))
+        except ValueError: pass
+        else: raise AssertionError('事件缺失、空参数及运行失败需要进入证据门禁')
 
 
 def network_recording_self_test(subject, results) -> None:

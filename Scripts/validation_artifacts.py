@@ -25,7 +25,7 @@ fixed_children = {
         "validation-evidence.json", "validation-evidence.lock", "manual-scenarios.json", "performance-measurements.json",
         "release-receipt.json", "core-validation-evidence.json", "simulator-device.json", "simulator.log", "restore.log"} | {name + ".log" for name in TEST_GROUPS}
         | {"build-" + name + ".log" for name in BUILD_HOSTS},
-    ".build/icloud-cross-device-smoke": {"Phone", "Mac", "test-results.xcresult", "report.json", "signing.entitlements",
+    ".build/icloud-cross-device-smoke": {"Phone", "Mac", "test-results.xcresult", "report.json", "report.lock", "signing.entitlements",
         "build.log", "mac-build.log", "mac-receive.log", "mac-cleanup.log", "testPhoneRoundTrip.log", "testCleanup.log"},
     ".build/release-network-smoke": derived_names | {"build.log", "console.log", "report"},
     ".build/release-network-smoke/report": {"network-smoke-summary.txt", "release-network-smoke.json",
@@ -39,8 +39,9 @@ def artifact_name_allowed(parent: str, name: str) -> bool:
 
 
 def committed_children(folder: Path) -> list[Path]:
-    if folder.name == "extended-automation":
-        with (folder / "validation-evidence.lock").open("a") as lock:
+    report_name = {'extended-automation': 'validation-evidence', 'icloud-cross-device-smoke': 'report'}.get(folder.name)
+    if report_name:
+        with (folder / (report_name + '.lock')).open("a") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             return list(folder.iterdir())
     return list(folder.iterdir())

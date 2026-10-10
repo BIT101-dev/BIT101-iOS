@@ -13,6 +13,7 @@ import sys
 from swift_source_index import swift_code as mask_literals_and_comments
 from functools import cache
 from contextlib import contextmanager
+from collections import Counter
 sys.dont_write_bytecode = True
 from swift_source_index import swift_syntax_index_sources
 from validation_inputs import includes_input, repository_input_names
@@ -35,9 +36,10 @@ SCHOOL_SMS_PROBES = {
 
 
 @contextmanager
-def report_lock():
-    REPORT.parent.mkdir(parents=True, exist_ok=True)
-    with REPORT.with_suffix(".lock").open("a") as lock:
+def report_lock(*, path: Path | None = None):
+    destination = path if path is not None else REPORT
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with destination.with_suffix(".lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         yield
 
@@ -176,14 +178,58 @@ def source_digest(group: str = "", *, environment: dict | None = None) -> str:
     return digest.hexdigest()
 
 
+def module_event_summary(text: str) -> dict:
+    records = [json.loads(line) for line in text.splitlines() if line.lstrip().startswith('{')]
+    functions = {row['payload']['id']: row['payload'] for row in records
+                 if row.get('kind') == 'test' and row['payload'].get('kind') == 'function'}
+    started, ended, skipped, failed = set(), set(), set(), set()
+    case_started, case_ended = Counter(), Counter()
+    runs = Counter()
+    for row in records:
+        if row.get('kind') != 'event': continue
+        event = row['payload']
+        kind, identifier = event['kind'], event.get('testID', '')
+        if kind in {'runStarted', 'runEnded'}: runs[kind] += 1
+        elif kind in {'testSkipped', 'testCancelled', 'testCaseCancelled'}:
+            affected = {name for name in functions if name == identifier or name.startswith(identifier + '/')}
+            if not affected: raise ValueError('跳过或取消事件需要对应测试函数。')
+            skipped.update(affected)
+        elif kind == 'issueRecorded':
+            issue = event.get('issue', {})
+            if issue.get('isKnown') or issue.get('isFailure') is False: continue
+            affected = {name for name in functions if name == identifier or name.startswith(identifier + '/')}
+            if not affected: raise ValueError('测试运行记录了函数范围外的失败。')
+            failed.update(affected)
+        elif identifier in functions:
+            if kind == 'testStarted': started.add(identifier)
+            elif kind == 'testEnded': ended.add(identifier)
+            elif kind == 'testCaseStarted': case_started[identifier] += 1
+            elif kind == 'testCaseEnded': case_ended[identifier] += 1
+    attempted = started | ended | skipped | failed
+    if not attempted or started != ended or runs['runStarted'] == 0 or runs['runStarted'] != runs['runEnded'] \
+            or case_started != case_ended:
+        raise ValueError('模块事件流需要完整的函数、参数实例及运行起止记录。')
+    cases = {name: case_ended[name] if functions[name].get('isParameterized') else 1 for name in sorted(ended)}
+    if any(count == 0 for count in cases.values()):
+        raise ValueError('参数化测试需要实际执行参数实例。')
+    return {'totalTests': len(attempted), 'passedTests': len(ended - failed - skipped),
+            'failedTests': len(failed), 'skippedTests': len(skipped - failed), 'executedTests': sorted(ended),
+            'testCases': {'total': sum(cases.values()), 'byTest': cases}}
+
+
+def module_cases_complete(summary: dict) -> bool:
+    cases = summary.get('testCases')
+    if not isinstance(cases, dict): return False
+    counts = cases.get('byTest')
+    return isinstance(counts, dict) and bool(counts) and all(type(count) is int and count > 0 for count in counts.values()) \
+        and type(cases.get('total')) is int and cases['total'] == sum(counts.values()) \
+        and {normalized_test_id(name) for name in counts} == {normalized_test_id(name) for name in summary.get('executedTests', [])}
+
+
 def test_summary(text: str) -> dict:
     counts = re.search(r"总计 (\d+)；通过 (\d+)；失败 (\d+)；跳过 (\d+)", text)
-    module_count = re.search(r"测试通过：(\d+) 项", text)
     if counts:
         total, passed, failed, skipped = map(int, counts.groups())
-    elif module_count:
-        total = passed = int(module_count[1])
-        failed = skipped = 0
     else:
         raise ValueError("测试摘要需要包含实际执行数量。")
     coverage = {}
@@ -195,6 +241,7 @@ def test_summary(text: str) -> dict:
             "passed": total > 0 and passed == total and failed == skipped == 0, "coverage": coverage,
             "coverageScope": next((line for line in text.splitlines() if line.startswith("统计范围：")), "宿主报告范围"),
             "executedTests": json.loads(next((line.split("：", 1)[1] for line in text.splitlines() if line.startswith("已执行用例：")), "[]")),
+            "testCases": json.loads(next((line.split("：", 1)[1] for line in text.splitlines() if line.startswith("测试实例：")), "null")),
             "uiInventory": json.loads(next((line.split("：", 1)[1] for line in text.splitlines() if line.startswith("控件库存：")), "null"))}
 
 
@@ -376,6 +423,7 @@ def complete_summary(group: str, summary: dict) -> bool:
         executed = {normalized_test_id(identifier) for identifier in summary.get("executedTests", [])}
         complete = successful_test_counts(summary) and coverage_complete(group, summary) and test_inventory(group) <= executed \
             and summary.get("totalTests", 0) >= len(test_inventory(group))
+        if group == 'modules': complete = complete and module_cases_complete(summary)
         if group == "ui":
             inventory = summary.get("uiInventory")
             complete = complete and isinstance(inventory, dict) and inventory.get("observed", 0) > 0 \

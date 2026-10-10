@@ -436,22 +436,15 @@ PYFILTER
 import json
 import os
 from pathlib import Path
-import re
 import subprocess
 import sys
 
 coverage_path, report_path, root_path = map(Path, sys.argv[1:])
-test_counts = re.findall(r"Test run with (\d+) tests?", (report_path.parent / "modules.log").read_text())
-test_count = sum(map(int, test_counts))
-executed = []
-for line in (report_path.parent / "module-events.jsonl").read_text().splitlines():
-    if line.startswith('{"'):
-        event = json.loads(line)
-        if event.get("kind") == "event" and event.get("payload", {}).get("kind") == "testEnded" \
-                and '(' in event['payload'].get('testID', ''):
-            executed.append(event["payload"]["testID"])
-if test_count == 0:
-    raise SystemExit("模块测试需要实际执行用例。")
+sys.path.insert(0, str(root_path / 'Scripts'))
+from validation_evidence import module_event_summary
+tests = module_event_summary((report_path.parent / "module-events.jsonl").read_text())
+test_count = tests['passedTests']
+executed = tests['executedTests']
 products = coverage_path.parent.parent
 executables = sorted(products.glob("*.xctest/Contents/MacOS/*"))
 if not executables:
@@ -477,7 +470,9 @@ if not modules:
     raise SystemExit("模块覆盖率需要包含生产源码。")
 covered = sum(row[0] for row in modules.values())
 count = sum(row[1] for row in modules.values())
-rows = ["# 模块生产源码行覆盖率", f"测试通过：{test_count} 项",
+rows = ["# 模块生产源码行覆盖率",
+    f"总计 {tests['totalTests']}；通过 {test_count}；失败 {tests['failedTests']}；跳过 {tests['skippedTests']}",
+    "测试实例：" + json.dumps(tests['testCases']),
     "验证输入：" + os.environ["BIT101_VALIDATION_SOURCE_DIGEST"], "验证运行：" + os.environ["BIT101_VALIDATION_RUN_ID"],
     f"统计范围：macOS 可执行生产源码，共 {len(modules)} 个模块",
     f"合计：{covered / count * 100 if count else 0:.2f}% ({covered}/{count} lines)", *[

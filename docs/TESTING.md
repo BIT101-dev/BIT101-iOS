@@ -72,6 +72,8 @@ Catalyst 安装路径为 `~/Applications/BIT101-iOS.app`。截图固定覆盖 `.
 
 ## 包级与 App 行为测试
 
+模块测试沿 Swift Testing 结构化事件记录函数数量、失败与跳过状态，以及各函数实际执行的参数实例数量。普通函数按一次执行计入实例，参数化函数按实例起止事件计数；完整验收核对运行、函数及实例结束记录和源码库存。CI 汇总采用证据记录的执行环境，跨主机合并验收同时核对当前 CI 的编译器与 SDK。iCloud 报告写入和产物扫描共用固定报告锁。
+
 | 分组 | 宿主与范围 |
 | --- | --- |
 | `modules` | macOS 原生 Release；本地模块的领域、服务、存储和场景状态 |
@@ -379,6 +381,8 @@ fork PR 的常规 Job 使用 GitHub 托管的 `xcode-27` 镜像，每项任务�
 `MaintenancePerformanceTests` 沿 XCTest 默认测量选项记录 `PaperListViewModel` 的实际分页与消息列表追加、PNG 解码、复杂内联格式的文章解析与纯文本生成、GIF 解码、Widget 时间线计算、URLSession 响应聚合，以及多页本地图片的首个预览文件编码与写盘的时钟和物理内存指标。`MaintenancePerformanceUITests` 记录恢复持久化账号与 200 门、20 周课程后的进程结束、启动至课表就绪，以及启用动画的课表往返切周布局；UI 内存指标采集目标 App 进程。性能基线沿同一真机 runner 的 XCTest 默认参数维护。
 
 `performance-baseline` 人工专项登记 `pagination`、`image-decoding`、`startup`、`schedule-layout`、`long-article`、`gif-decoding`、`widget-timeline`、`response-aggregation`、`local-preview` 九个场景的结构化比较及影像，参与完整发布验收。行为场景归属 `all`，启动与课表布局归属 `ui`；每条采样保留所属完整测试组的执行证据。
+
+`long-article` 测量文章块解析与纯文本转换，`widget-timeline` 测量课程实例解析与刷新时间规划。文章视图的布局、滚动，以及 WidgetKit provider、快照存储和扩展渲染沿对应界面与小组件人工专项验收。
 
 每个性能场景的 `measurement` 包含 `current` 与 `baseline`。两份记录保存 `testIdentifier`、`sourceCommit`、`capturedAt`、`environment`、`input`、`resultBundle`、`metrics`；当前采样沿实际观察时间登记，批准基线保存 `approvedBy`、`approvedAt`。`environment` 核对相同的设备标识、设备型号、系统版本与构建、Xcode 构建、编译器摘要、Release 配置及 `compilationConditions`。`resultBundle` 保存固定 XCTest 结果包路径和 SHA-256，两个采样拥有各自的摘要。`execution` 保存所属运行、构建输入、源码提交及完整环境；`xcresultMetrics` 保留工具导出的原始指标。
 

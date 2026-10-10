@@ -96,20 +96,21 @@ def artifact_lock_self_test(module) -> None:
     source = (module.ROOT / "Scripts/validation_artifacts.py").read_text()
     definition = next(node for node in ast.parse(source).body if isinstance(node, ast.FunctionDef) and node.name == "committed_children")
     harness = "from pathlib import Path\nimport fcntl, sys\n" + ast.get_source_segment(source, definition)
-    harness += '\nprint("ready", flush=True)\nchildren = committed_children(Path(sys.argv[1]))\nassert all(path.name != "validation-evidence.incoming" for path in children)\nprint("committed", flush=True)\n'
-    incoming = module.REPORT.with_suffix(".incoming")
-    with module.report_lock():
-        incoming.write_text("pending atomic report")
-        child = subprocess.Popen([sys.executable, "-B", "-c", harness, str(module.REPORT.parent)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        try:
-            assert child.stdout.readline().strip() == "ready"
-            try: child.communicate(timeout=0.2)
-            except subprocess.TimeoutExpired: pass
-            else: raise AssertionError("产物扫描需要等待验证报告原子写入锁")
-        finally:
-            incoming.unlink()
-    output, error = child.communicate(timeout=10)
-    assert child.returncode == 0 and output.strip() == "committed", error
+    harness += '\nprint("ready", flush=True)\nchildren = committed_children(Path(sys.argv[1]))\nassert all(path.suffix != ".incoming" for path in children)\nprint("committed", flush=True)\n'
+    for report in (module.REPORT, module.ROOT / '.build/icloud-cross-device-smoke/report.json'):
+        incoming = report.with_suffix(".incoming")
+        with module.report_lock(path=report):
+            incoming.write_text("pending atomic report")
+            child = subprocess.Popen([sys.executable, "-B", "-c", harness, str(report.parent)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            try:
+                assert child.stdout.readline().strip() == "ready"
+                try: child.communicate(timeout=0.2)
+                except subprocess.TimeoutExpired: pass
+                else: raise AssertionError("产物扫描需要等待验证报告原子写入锁")
+            finally:
+                incoming.unlink()
+        output, error = child.communicate(timeout=10)
+        assert child.returncode == 0 and output.strip() == "committed", error
 
 
 def baseline_policy_self_test(module) -> None:

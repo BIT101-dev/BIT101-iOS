@@ -823,6 +823,7 @@ exit {initial}
          patch.object(Path, "exists", return_value=False), patch.object(shutil, "rmtree") as remove_bundle, \
          patch.object(shutil, "move") as retain_bundle, \
          patch.object(Path, "read_text", read), \
+         patch('validation_evidence.report_lock', side_effect=lambda **kwargs: nullcontext()), \
          patch('validation_evidence.write_report', side_effect=lambda report, *, path: write(path, json.dumps(report))), \
          patch.object(subprocess, "run", side_effect=result_response) as result_tool:
         for stage, process_status, expected in (("testPhoneRoundTrip", "65", 65), ("testCleanup", "0", 0)):

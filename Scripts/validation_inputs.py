@@ -2,6 +2,7 @@
 from pathlib import PurePosixPath, Path
 import re
 import subprocess
+from swift_source_index import SWIFT_SYNTAX_SOURCE_NAMES
 from validation_policy import APP_TEST_GROUPS, TEST_GROUPS, NETWORK_GROUPS, RELEASE_GROUPS, BUILD_HOSTS, VERIFY_GROUPS, DEFAULT_VERIFY_GROUPS
 
 PRODUCT_ROOTS = {"Modules", "BIT101-iOS", "BIT101-iOS.xcodeproj", "BIT101ScheduleWidgets", "BIT101Watch", "BIT101WatchWidgets"}
@@ -10,7 +11,7 @@ SHARED_TEST_FILES = {"ModuleTests/Support/FileServiceContract.swift"}
 PERFORMANCE_TEST_FILES = {"BIT101-iOSTests/PerformanceWorkload.swift", "BIT101-iOSTests/PerformanceWorkloads.json"}
 SWIFT_ROOTS = ("Modules", "BIT101-iOS", "BIT101-iOSTests", "BIT101-iOSUITests", "ModuleTests",
     "BIT101ScheduleWidgets", "BIT101Watch", "BIT101WatchWidgets")
-VALIDATION_SCRIPTS = {"validation_evidence.py", "validation_inputs.py", "validation_policy.py", "validation_coverage.py", "validation_merge.py", "validation_environment.py", "validation_provenance.py", "validation_test_areas.py", "validation_manual.py", "validation_restore.py", "validation_media.py", "ManualEvidenceProbe.swift", "validate_distribution.py", "validate_versions.py", "swift_source_index.py", "SwiftSyntaxIndexer.swift", "code_quality_rules.py", "audit_callback_rules.py", "ci_wiring_rules.py", "check-module-boundaries.py"}
+VALIDATION_SCRIPTS = {"validation_evidence.py", "validation_inputs.py", "validation_policy.py", "validation_coverage.py", "validation_merge.py", "validation_environment.py", "validation_provenance.py", "validation_test_areas.py", "validation_manual.py", "validation_restore.py", "validation_media.py", "ManualEvidenceProbe.swift", "validate_distribution.py", "validate_versions.py", "swift_source_index.py", "code_quality_rules.py", "audit_callback_rules.py", "ci_wiring_rules.py", "check-module-boundaries.py"} | set(SWIFT_SYNTAX_SOURCE_NAMES)
 VALIDATION_SCRIPTS.add("swift_type_index.py")
 VALIDATION_SCRIPTS.update({"validation_publication.py", "validation_compilation.py", "validation_performance.py", "network_capability_rules.py", "network_request_contracts.py"})
 BUILD_SCRIPTS = {"script-support.sh", "build-install-device.sh", "ci_evidence.py"}
@@ -91,6 +92,8 @@ def self_test() -> None:
         assert includes_input("Scripts/check-module-boundaries.py", group)
         assert includes_input("Scripts/swift_type_index.py", group)
         assert includes_input("Scripts/network_request_contracts.py", group)
+        for name in SWIFT_SYNTAX_SOURCE_NAMES:
+            assert includes_input("Scripts/" + name, group), (name, group)
     assert includes_input("ModuleTests/Sync/ScheduleSyncTests.swift", "modules")
     assert includes_input("BIT101-iOSTests/Fixtures/schedule-service-response.json", "modules")
     assert not includes_input("BIT101-iOS/ContentView.swift", "modules")

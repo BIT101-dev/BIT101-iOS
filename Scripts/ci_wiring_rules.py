@@ -94,6 +94,9 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
         if "if" in job or job.get("continue-on-error", False) is not False:
             errors.append(f".github/workflows/ci.yml: {name} 需要默认执行并传播失败")
         commands[name] = run_commands(job)
+        if not any(command == "python3 Scripts/validation_evidence.py summary --recorded-environment"
+                for command, _ in run_commands(job, include_always=True)):
+            errors.append(f".github/workflows/ci.yml: {name} 的证据汇总需要采用记录环境")
         if name != "static-audit" and job.get("needs") not in ("static-audit", ["static-audit"]):
             label = "Release 编译 Job 必须依赖静态审计" if name == "release-build" else "Mac Catalyst 行为 Job 需要依赖静态审计"
             errors.append(f".github/workflows/ci.yml: {label}")
@@ -260,6 +263,9 @@ def evidence_execution_findings(command: str, key: str, expected: list[str]) -> 
 
 def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
     source = workflow_source
+    if not any('采用记录环境' in item for item in ci_wiring_findings(
+            source.replace('summary --recorded-environment', 'summary', 1))):
+        return ['代码质量规则边界自检失败：CI 证据汇总的执行环境口径']
     review_start = source.index('      - name: Verify maintainer review commit')
     review_end = source.index('      - name: Show toolchain', review_start)
     review = source[review_start:review_end]

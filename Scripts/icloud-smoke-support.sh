@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 import shutil
 import subprocess
 import sys
-from validation_evidence import write_report
+from validation_evidence import report_lock, write_report
 
 report_path, bundle, stage, process_status, log_path = sys.argv[1:]
 exit_code = int(process_status)
@@ -54,17 +54,18 @@ if generated_bundle is not None:
             row["resultBundle"] = str(retained_bundle)
 row["recordedAt"] = datetime.now(timezone.utc).isoformat()
 path = Path(report_path)
-report = json.loads(path.read_text()) if path.is_file() else {"stages": []}
-report["validatedDomains"] = ["score-kvs", "schedule-cloudkit"]
-report["cloudKitEnvironment"] = "Production"
-report["runID"] = os.environ.get("BIT101_VALIDATION_RUN_ID", "")
-if stage == "testCleanup":
-    report["cleanup"] = row
-elif stage == "testMacCleanup":
-    report["macCleanup"] = row
-else:
-    report["stages"].append(row)
-write_report(report, path=path)
+with report_lock(path=path):
+    report = json.loads(path.read_text()) if path.is_file() else {"stages": []}
+    report["validatedDomains"] = ["score-kvs", "schedule-cloudkit"]
+    report["cloudKitEnvironment"] = "Production"
+    report["runID"] = os.environ.get("BIT101_VALIDATION_RUN_ID", "")
+    if stage == "testCleanup":
+        report["cleanup"] = row
+    elif stage == "testMacCleanup":
+        report["macCleanup"] = row
+    else:
+        report["stages"].append(row)
+    write_report(report, path=path)
 raise SystemExit(row["exitCode"])
 PY
 }
