@@ -215,6 +215,7 @@ actor CachedRemoteImageStore {
     private(set) var cacheGeneration: UInt64 = 0
     private let files: any AppFileService
     private let quota: ImageCacheDiskQuota
+    private var activeFileUses: Set<UUID> = []
     /// 磁盘缓存根目录。
     private let directoryURL: URL
 
@@ -283,9 +284,16 @@ actor CachedRemoteImageStore {
         let key = cacheKey(for: url)
         memoryCache.setObject(data as NSData, forKey: key as NSString, cost: data.count)
         let fileURL = directoryURL.appendingPathComponent(key)
-        try? files.createDirectory(at: directoryURL)
-        try? files.writeData(data, to: fileURL, options: [.atomic])
-        try? files.setModificationDate(Date(), at: fileURL)
+        let use = UUID()
+        do {
+            try quota.beginFileUse(fileURL, owner: use) { [files, directoryURL] in
+                try files.createDirectory(at: directoryURL)
+                try files.writeData(data, to: fileURL, options: [.atomic])
+                try? files.setModificationDate(Date(), at: fileURL)
+            }
+        } catch { return }
+        activeFileUses.insert(use)
+        defer { activeFileUses.remove(use); quota.endFileUse(use) }
         await quota.enforce(force: true, protecting: Set([fileURL]))
     }
 
@@ -307,6 +315,8 @@ actor CachedRemoteImageStore {
     @discardableResult func clearAll() async -> Bool {
         cacheGeneration &+= 1
         clearMemory()
+        for use in activeFileUses { quota.endFileUse(use) }
+        activeFileUses.removeAll()
 
         return await quota.clearDirectory(directoryURL)
     }

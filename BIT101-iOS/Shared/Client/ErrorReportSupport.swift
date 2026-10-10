@@ -77,10 +77,15 @@ enum ErrorReportRedactor {
         return output
     }
 
-    private static func decodedPercent(_ value: String) -> String {
+    private enum PercentDecodingError: Error { case budgetExceeded }
+
+    private static func decodedPercent(_ value: String) throws -> String {
         var output = value
-        while let decoded = output.removingPercentEncoding, decoded != output { output = decoded }
-        return output
+        for _ in 0..<8 {
+            guard let decoded = output.removingPercentEncoding, decoded != output else { return output }
+            output = decoded
+        }
+        throw PercentDecodingError.budgetExceeded
     }
 
     private static func redactURLs(_ value: String) -> String {
@@ -91,25 +96,29 @@ enum ErrorReportRedactor {
             guard var url = URLComponents(string: String(output[range])) else {
                 output.replaceSubrange(range, with: "[REDACTED]"); continue
             }
-            if url.user != nil || url.password != nil { url.user = "[REDACTED]"; url.password = nil }
-            if url.percentEncodedFragment != nil {
-                var fragmentFields = URLComponents()
-                fragmentFields.query = url.fragment ?? ""
-                let candidates = [decodedPercent(url.fragment ?? "")] + (fragmentFields.queryItems ?? []).map { decodedPercent($0.name) }
-                if url.fragment == nil || candidates.contains(where: { value in
-                    protectedNames.contains { value.localizedCaseInsensitiveContains($0) }
-                }) { url.fragment = "[REDACTED]" }
-            }
-            url.queryItems = url.queryItems?.map { item in
-                let name = decodedPercent(item.name)
-                if protectedNames.contains(where: { name.localizedCaseInsensitiveContains($0) }) {
-                    return URLQueryItem(name: item.name, value: "[REDACTED]")
+            do {
+                if url.user != nil || url.password != nil { url.user = "[REDACTED]"; url.password = nil }
+                if url.percentEncodedFragment != nil {
+                    var fragmentFields = URLComponents()
+                    fragmentFields.query = url.fragment ?? ""
+                    let candidates = try [decodedPercent(url.fragment ?? "")] + (fragmentFields.queryItems ?? []).map { try decodedPercent($0.name) }
+                    if url.fragment == nil || candidates.contains(where: { value in
+                        protectedNames.contains { value.localizedCaseInsensitiveContains($0) }
+                    }) { url.fragment = "[REDACTED]" }
                 }
-                let decoded = item.value.map(decodedPercent)
-                let nested = decoded.flatMap { $0.range(of: #"https?://"#, options: [.regularExpression, .caseInsensitive]) == nil ? nil : redactURLs($0) }
-                return URLQueryItem(name: item.name, value: nested ?? item.value)
+                url.queryItems = try url.queryItems?.map { item in
+                    let name = try decodedPercent(item.name)
+                    if protectedNames.contains(where: { name.localizedCaseInsensitiveContains($0) }) {
+                        return URLQueryItem(name: item.name, value: "[REDACTED]")
+                    }
+                    let decoded = try item.value.map(decodedPercent)
+                    let nested = decoded.flatMap { $0.range(of: #"https?://"#, options: [.regularExpression, .caseInsensitive]) == nil ? nil : redactURLs($0) }
+                    return URLQueryItem(name: item.name, value: nested ?? item.value)
+                }
+                output.replaceSubrange(range, with: url.string ?? "[REDACTED]")
+            } catch {
+                output.replaceSubrange(range, with: "[REDACTED]")
             }
-            output.replaceSubrange(range, with: url.string ?? "[REDACTED]")
         }
         return output
     }

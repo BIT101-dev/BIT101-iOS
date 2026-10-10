@@ -13,6 +13,41 @@ from unittest.mock import patch
 from validation_provenance import LIVE_GROUPS, evidence_current, sampling_evidence_current, utc_now
 
 
+def test_identity_self_test(subject) -> None:
+    root = subject.ROOT / 'ModuleTests'
+    first, second = root / 'Transport/ClientCoreTests.swift', root / 'Sync/ScheduleSyncTests.swift'
+    original_read, original_rglob = Path.read_text, Path.rglob
+    cases = [
+        ({first: 'import Testing\nstruct Probe { @Test func check(value: Int) {}\n@Test func check(number: Int) {} }'}, True),
+        ({first: 'import Testing\nstruct Probe { @Test func check(value: Int) {} }',
+          second: 'import Testing\nstruct Probe { @Test func check(number: Int) {} }'}, True),
+        ({first: 'import Testing\nstruct Probe { @Test func checkValue(value: Int) {}\n@Test func checkNumber(number: Int) {} }'}, False),
+        ({first: 'import Testing\nstruct First { @Test func check(value: Int) {} }',
+          second: 'import Testing\nstruct Second { @Test func check(number: Int) {} }'}, False),
+    ]
+    for sources, ambiguous in cases:
+        def read(path, *args, **kwargs):
+            return sources[path] if path in sources else original_read(path, *args, **kwargs)
+        with patch.object(Path, 'rglob', lambda path, pattern: iter(sources) if path == root else original_rglob(path, pattern)), \
+                patch.object(Path, 'read_text', read):
+            try: inventory = subject.test_selectors.__wrapped__('modules')
+            except ValueError as error:
+                assert ambiguous and '测试库存需要唯一 Suite/method' in str(error)
+                assert str(first) in str(error) and 'check(value:)' in str(error) and 'check(number:)' in str(error)
+            else:
+                assert not ambiguous and len(inventory) == 2
+    facts = subject.swift_syntax_index_sources({str(first): 'import Testing\nstruct Probe { @Test func check(value: Int) {} }'})
+    import copy
+    other = copy.deepcopy(facts[str(first)])
+    facts[str(first)]['tests'][0]['value'] = 'FirstTests.Probe/check'
+    other['tests'][0]['value'] = 'SecondTests.Probe/check'
+    facts[str(second)] = other
+    with patch.object(subject, 'swift_syntax_index_sources', return_value=facts):
+        try: subject.test_selectors.__wrapped__('modules')
+        except ValueError as error: assert 'Probe/check' in str(error)
+        else: raise AssertionError('模块前缀归一化后的歧义需要进入库存失败')
+
+
 def worker_deployment_fixture(scope: str = 'all') -> dict:
     import uuid
     from validation_provenance import WORKER_FOLDERS, worker_source_digest

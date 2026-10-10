@@ -252,6 +252,17 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
     }
 
     @MainActor
+    func testDeeplyEncodedURLsAreMaskedWithinTheDecodingBudget() throws {
+        let encoded = "%" + String(repeating: "25", count: 20_000)
+        for suffix in ["?note=\(encoded)", "?\(encoded)=TEST_ONLY_SECRET", "#\(encoded)"] {
+            XCTAssertEqual(ErrorReportRedactor.forced("https://example.invalid/\(suffix)"), "[REDACTED]")
+        }
+        var nested = "https://school.invalid/?ticket=TEST_ONLY_SECRET"
+        for _ in 0..<12 { nested = try XCTUnwrap(nested.addingPercentEncoding(withAllowedCharacters: .alphanumerics)) }
+        XCTAssertEqual(ErrorReportRedactor.forced("https://example.invalid/?service=\(nested)"), "[REDACTED]")
+    }
+
+    @MainActor
     func testForcedRedactionKeepsPersonalFieldsButRemovesCredentials() {
         let output = ErrorReportRedactor.forced("name=张三&student_id=1120260000&password=secret&token=abc&cookie=session&ticket=ST-secret")
         XCTAssertTrue(output.contains("张三"))

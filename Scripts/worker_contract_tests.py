@@ -60,6 +60,17 @@ export class QuotaFixture extends ReportQuota {
     const deep = await mf.dispatchFetch("https://feedback.invalid/api/error-reports", { method: "POST", body: '{"mode":"suggestion","comment":"fixture","extra":' + '['.repeat(5000) + 'null' + ']'.repeat(5000) + '}' });
     assert.equal(deep.status, 400);
     assert.equal((await send({ mode: "suggestion", comment: "x".repeat(2 * 1024 * 1024) })).status, 413);
+    for (const fields of [{ name: "x".repeat(2 * 1024 * 1024) },
+                         { contentType: "x".repeat(2 * 1024 * 1024) },
+                         { details: { description: "x".repeat(2 * 1024 * 1024) } }]) {
+      const response = await send({ mode: "suggestion", comment: "fixture", attachments: [{ data: "AAAA", ...fields }] });
+      assert.equal(response.status, 413);
+      assert.equal((await response.json()).error, "metadata_too_large");
+    }
+    const combinedMetadata = await send({ mode: "suggestion", comment: "fixture",
+      attachments: [{ data: "AAAA", name: "x".repeat(600 * 1024) }, { data: "AAAA", name: "x".repeat(600 * 1024) }] });
+    assert.equal(combinedMetadata.status, 413);
+    assert.equal((await combinedMetadata.json()).error, "metadata_too_large");
     assert.equal((await inspect()).count, 0);
     for (const data of ["", "==", "AB==", "AAAA=", "AA A", "AAAA!", "A==="]) {
       assert.equal((await send({ mode: "network-smoke", runID: "invalid-base64", attachments: [{ data }] })).status, 400);
@@ -229,8 +240,8 @@ export default class extends WorkerEntrypoint {
     assert.equal(await reports.get(record.key), null);
   } finally { await mail.dispose(); }
   const bodySource = fs.readFileSync("../ErrorReportWorker/worker.js", "utf8")
-    .replace('import { DurableObject } from "cloudflare:workers";', 'class DurableObject { constructor(ctx, env) { this.ctx = ctx; this.env = env; } }') + "\nexport { readReportBody, MAX_BODY_BYTES, forceRedact, PROTECTED_NAMES, reportEmailSubject, reportEmailBody };";
-  const { default: feedback, ReportEmailDelivery, readReportBody, MAX_BODY_BYTES, forceRedact, PROTECTED_NAMES, reportEmailSubject, reportEmailBody } = await import("data:text/javascript;base64," + Buffer.from(bodySource).toString("base64"));
+    .replace('import { DurableObject } from "cloudflare:workers";', 'class DurableObject { constructor(ctx, env) { this.ctx = ctx; this.env = env; } }') + "\nexport { readReportBody, MAX_BODY_BYTES, forceRedact, decodedPercent, PROTECTED_NAMES, reportEmailSubject, reportEmailBody };";
+  const { default: feedback, ReportEmailDelivery, readReportBody, MAX_BODY_BYTES, forceRedact, decodedPercent, PROTECTED_NAMES, reportEmailSubject, reportEmailBody } = await import("data:text/javascript;base64," + Buffer.from(bodySource).toString("base64"));
   const malformedLegacy = { build: { toString: null }, context: { locale: { toString: null } }, diagnosticSummary: { total: { toString: null } },
     diagnostics: [{ statusCode: { toString: null }, elapsedMilliseconds: { toString: null }, method: { toString: null } }] };
   assert.doesNotThrow(() => reportEmailSubject("fixture", malformedLegacy));
@@ -401,6 +412,20 @@ export default class extends WorkerEntrypoint {
     assert(!decodeURIComponent(forceRedact(value)).includes("TEST_ONLY_SECRET")); assert.equal(forceRedact("https://example.invalid/#section"), "https://example.invalid/#section");
   }
   for (const value of ["Authorization: Bearer TEST_ONLY_SECRET", "Authorization: Basic TEST_ONLY_SECRET", "Cookie: first=TEST_ONLY_SECRET; second=TEST_ONLY_SECRET", '{"password":"TEST_ONLY_\\\"SECRET"}']) assert(!forceRedact(value).includes("TEST_ONLY") && !forceRedact(value).includes("SECRET"));
+  const deepPercent = "%" + "25".repeat(20000);
+  const originalDecode = globalThis.decodeURIComponent;
+  let decodeCalls = 0;
+  try {
+    globalThis.decodeURIComponent = value => { decodeCalls += 1; return originalDecode(value); };
+    assert.throws(() => decodedPercent(deepPercent), /budget/);
+    assert(decodeCalls <= 8);
+  } finally { globalThis.decodeURIComponent = originalDecode; }
+  for (const suffix of [`?note=${deepPercent}`, `?${deepPercent}=TEST_ONLY_SECRET`, `#${deepPercent}`]) {
+    assert.equal(forceRedact(`https://example.invalid/${suffix}`), "[REDACTED]");
+  }
+  let deeplyNested = "https://school.invalid/?ticket=TEST_ONLY_SECRET";
+  for (let pass = 0; pass < 12; pass += 1) deeplyNested = encodeURIComponent(deeplyNested);
+  assert.equal(forceRedact(`https://example.invalid/?service=${deeplyNested}`), "[REDACTED]");
   for (const value of ['<input id="login-page-flowkey" name="execution" value="SENSITIVE_VALUE">', '<input id="login-croypto" value="SENSITIVE_VALUE">', '<input value="SENSITIVE_VALUE>TAIL_VALUE" name="execution">', '<input name="execution" value="SENSITIVE_VALUE', '<textarea name="password">SENSITIVE_VALUE</textarea>', '<textarea name="password">SENSITIVE_VALUE', '{"access_token":{"value":"SENSITIVE_VALUE"},"status":"available"}', '{"captcha_payload":["SENSITIVE_VALUE"]}', '{"cookie_str":{"value":"SENSITIVE_VALUE']) {
     const masked = forceRedact(value); assert(!masked.includes("SENSITIVE_VALUE") && !masked.includes("TAIL_VALUE") && masked.includes("[REDACTED]"));
     if (value.includes("available")) assert(masked.includes("available"));

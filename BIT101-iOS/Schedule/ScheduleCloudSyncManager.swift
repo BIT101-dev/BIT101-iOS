@@ -2,7 +2,6 @@ import CommunityTransport
 import CloudKit
 import Foundation
 import ScheduleDomain
-import ScheduleDomain
 import ScheduleSync
 import StorageCore
 

@@ -29,6 +29,19 @@ public final class StorageOperationTracker {
     public func resume() { suspensions -= 1 }
 }
 
+/// 普通文件的规范路径、大小和修改时间快照。
+public nonisolated struct AppRegularFileMetadata: Sendable {
+    public let url: URL
+    public let size: Int
+    public let modificationDate: Date
+
+    public init(url: URL, size: Int, modificationDate: Date) {
+        self.url = url
+        self.size = size
+        self.modificationDate = modificationDate
+    }
+}
+
 /// 文件服务接口。业务仓库使用逻辑路径和原子读写能力。
 public nonisolated protocol AppFileService: Sendable {
     func directoryURL(_ directory: FileManager.SearchPathDirectory) -> URL?
@@ -43,6 +56,7 @@ public nonisolated protocol AppFileService: Sendable {
     func setPrivateFileProtection(at url: URL) throws
     func setBackupExcluded(_ excluded: Bool, at url: URL, recursively: Bool) throws
     func contentsOfDirectory(at url: URL, options: FileManager.DirectoryEnumerationOptions) throws -> [URL]
+    func regularFileMetadata(in directory: URL) throws -> [AppRegularFileMetadata]
     func regularFileSize(at url: URL) -> Int?
     /// Identity of immutable bytes replaced through an atomic write.
     func atomicFileIdentity(at url: URL) -> String?
@@ -55,6 +69,13 @@ public nonisolated protocol AppFileService: Sendable {
 }
 
 extension AppFileService {
+    public nonisolated func regularFileMetadata(in directory: URL) throws -> [AppRegularFileMetadata] {
+        try contentsOfDirectory(at: directory, options: .skipsHiddenFiles).compactMap { url in
+            guard let size = regularFileSize(at: url) else { return nil }
+            return AppRegularFileMetadata(url: canonicalFileURL(url), size: size,
+                modificationDate: modificationDate(at: url) ?? .distantPast)
+        }
+    }
     public nonisolated func readData(at url: URL, maximumBytes: Int) throws -> Data {
         if let size = regularFileSize(at: url), size > maximumBytes { throw CocoaError(.fileReadTooLarge) }
         let data = try readData(at: url)
@@ -152,6 +173,18 @@ public nonisolated struct LocalAppFileService: AppFileService, Sendable {
 
     public func contentsOfDirectory(at url: URL, options: FileManager.DirectoryEnumerationOptions) throws -> [URL] {
         try manager.contentsOfDirectory(at: url, includingPropertiesForKeys: nil, options: options)
+    }
+
+    public func regularFileMetadata(in directory: URL) throws -> [AppRegularFileMetadata] {
+        let keys: Set<URLResourceKey> = [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey]
+        let canonicalDirectory = canonicalFileURL(directory)
+        return try manager.contentsOfDirectory(at: canonicalDirectory, includingPropertiesForKeys: Array(keys),
+            options: .skipsHiddenFiles).compactMap { url in
+            guard let values = try? url.resourceValues(forKeys: keys), values.isRegularFile == true,
+                  let size = values.fileSize else { return nil }
+            return AppRegularFileMetadata(url: canonicalDirectory.appendingPathComponent(url.lastPathComponent, isDirectory: false),
+                size: size, modificationDate: values.contentModificationDate ?? .distantPast)
+        }
     }
 
     public func regularFileSize(at url: URL) -> Int? {

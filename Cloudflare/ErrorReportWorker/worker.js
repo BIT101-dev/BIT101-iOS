@@ -81,10 +81,11 @@ function decodedHTMLAttribute(value) {
 }
 
 function decodedPercent(value) {
-  while (true) {
+  for (let pass = 0; pass < 8; pass += 1) {
     try { const decoded = decodeURIComponent(value); if (decoded === value) return value; value = decoded; }
     catch { return value; }
   }
+  throw new Error("URL decoding budget exceeded");
 }
 
 function redactURLs(value) {
@@ -96,8 +97,11 @@ function redactURLs(value) {
         || [...new URLSearchParams(url.hash.slice(1)).keys()].some(name => SECRET_KEYS.test(decodedPercent(name))))) {
         url.hash = "[REDACTED]";
       }
-      const query = [...url.searchParams].map(([name, item]) => [name, SECRET_KEYS.test(decodedPercent(name))
-        ? "[REDACTED]" : /https?:\/\//i.test(decodedPercent(item)) ? redactURLs(decodedPercent(item)) : item]);
+      const query = [...url.searchParams].map(([name, item]) => {
+        if (SECRET_KEYS.test(decodedPercent(name))) return [name, "[REDACTED]"];
+        const decoded = decodedPercent(item);
+        return [name, /https?:\/\//i.test(decoded) ? redactURLs(decoded) : item];
+      });
       if (query.length) { url.search = ""; for (const [name, item] of query) url.searchParams.append(name, item); }
       return url.toString();
     } catch { return "[REDACTED]"; }
@@ -452,13 +456,15 @@ export default {
     let serializedRecord;
     try {
       const { attachments, ...metadata } = report;
+      if (attachments !== undefined) metadata.attachments = attachments === null ? null
+        : attachments.map(({ data, ...fields }) => ({ ...fields, data: "" }));
       if (new TextEncoder().encode(JSON.stringify(metadata)).byteLength > MAX_REPORT_METADATA_BYTES) {
         return json({ error: "metadata_too_large" }, 413);
       }
       report = forceRedact(metadata);
       if (report.requestID != null) report.requestID = id;
-      if (attachments !== undefined) report.attachments = attachments === null ? null : attachments.map(({ data, ...fields }) => ({
-        ...forceRedact(fields), data
+      if (Array.isArray(attachments)) report.attachments = report.attachments.map((fields, index) => ({
+        ...fields, data: attachments[index].data
       }));
       serializedRecord = JSON.stringify({ id, receivedAt, report,
         emailDelivery: { status: env.REPORT_EMAIL && report.mode !== "network-smoke" ? "pending" : "disabled", attempts: 0 } });

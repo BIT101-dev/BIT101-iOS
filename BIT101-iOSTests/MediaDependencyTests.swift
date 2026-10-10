@@ -710,15 +710,64 @@ struct MediaDependencyTests {
 
     private final class SuspendedCacheLimit {
         var pending: CheckedContinuation<Int, Never>?
-        private var hasRead = false
+        var secondPending: CheckedContinuation<Int, Never>?
+        private var reads = 0
+        private let suspendedReads: Int
+        private let eventualLimit: Int
+        init(suspendedReads: Int = 1, eventualLimit: Int = 0) {
+            self.suspendedReads = suspendedReads
+            self.eventualLimit = eventualLimit
+        }
         func read() async -> Int {
-            if hasRead { return 0 }
-            hasRead = true
-            return await withCheckedContinuation { pending = $0 }
+            reads += 1
+            guard reads <= suspendedReads else { return eventualLimit }
+            let first = reads == 1
+            return await withCheckedContinuation { if first { pending = $0 } else { secondPending = $0 } }
         }
     }
 
-    @Test(.timeLimit(.minutes(1))) func clearingImagesInvalidatesDownloadWaitingForItsQuota() async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true], [false, true])
+    func concurrentQuotaWaitsKeepBothDownloadsReadable(firstFinishesFirst: Bool, avatar: Bool) async throws {
+        let files = PreferenceMemoryFiles()
+        let limit = SuspendedCacheLimit(suspendedReads: 2, eventualLimit: 1)
+        let quota = ImageCacheDiskQuota(files: files, cacheLimitMB: { await limit.read() })
+        let bytes = try png(width: 2) + Data(repeating: 1, count: 600_000)
+        let cache = RemoteImageCache(files: files, quota: quota,
+            httpClient: HTTPClient(transport: Images(bytes: bytes), observer: nil))
+        let avatars = CachedRemoteImageStore(files: files, quota: quota)
+        let first = Task {
+            let file = try await cache.file(for: AppURL.required("https://example.invalid/first.png"))
+            return try files.readData(at: file)
+        }
+        try await waitForTestEvent { limit.pending != nil }
+        let second = Task {
+            let url = AppURL.required("https://example.invalid/second.png")
+            if avatar {
+                await avatars.store(bytes, for: url)
+                let stored = await avatars.diskData(for: url)
+                return try #require(stored)
+            }
+            let file = try await cache.file(for: url)
+            return try files.readData(at: file)
+        }
+        try await waitForTestEvent { limit.secondPending != nil }
+        if firstFinishesFirst {
+            limit.pending?.resume(returning: 1)
+            #expect(try await first.value == bytes)
+            limit.secondPending?.resume(returning: 1)
+            #expect(try await second.value == bytes)
+        } else {
+            limit.secondPending?.resume(returning: 1)
+            #expect(try await second.value == bytes)
+            limit.pending?.resume(returning: 1)
+            #expect(try await first.value == bytes)
+        }
+        await quota.enforce(force: true)
+        #expect(await quota.usedBytes() <= 1_048_576)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func clearingImagesInvalidatesDownloadWaitingForItsQuota(avatar: Bool) async throws {
         let files = PreferenceMemoryFiles()
         let limit = SuspendedCacheLimit()
         let quota = ImageCacheDiskQuota(files: files, cacheLimitMB: { await limit.read() })
@@ -726,11 +775,21 @@ struct MediaDependencyTests {
         let cache = RemoteImageCache(files: files, quota: quota,
             httpClient: HTTPClient(transport: Images(bytes: bytes), observer: nil))
         let url = AppURL.required("https://example.invalid/quota.png")
-        let preparation = Task { try await cache.file(for: url) }
-        try await waitForTestEvent { !(limit.pending == nil) }
-        await cache.clearAll()
-        limit.pending?.resume(returning: 0)
-        await #expect(throws: CancellationError.self) { try await preparation.value }
+        if avatar {
+            let avatars = CachedRemoteImageStore(files: files, quota: quota)
+            let preparation = Task { await avatars.storeAndDecode(bytes, for: url) }
+            try await waitForTestEvent { limit.pending != nil }
+            #expect(await avatars.clearAll())
+            limit.pending?.resume(returning: 0)
+            #expect(await preparation.value == nil)
+            #expect(await avatars.diskData(for: url) == nil)
+        } else {
+            let preparation = Task { try await cache.file(for: url) }
+            try await waitForTestEvent { limit.pending != nil }
+            await cache.clearAll()
+            limit.pending?.resume(returning: 0)
+            await #expect(throws: CancellationError.self) { try await preparation.value }
+        }
         #expect(await cache.usedBytes() == 0)
         let restored = try await cache.file(for: url)
         #expect(try files.readData(at: restored) == bytes)

@@ -12,6 +12,7 @@ import ScheduleContracts
 @testable import MineFeature
 @testable import GalleryFeature
 import TransportCore
+import StorageCore
 
 private nonisolated final class PerformanceResponseProtocol: URLProtocol {
     static let bytes = Data(repeating: 1, count: 32 * 1_024 * 1_024)
@@ -44,6 +45,45 @@ private struct PerformancePaperService: PaperListServicing {
 }
 
 nonisolated final class MaintenancePerformanceTests: XCTestCase {
+
+    @MainActor
+    func testImageQuotaScanAcrossDirectorySizes() async throws {
+        let files = LocalAppFileService()
+        let root = files.temporaryDirectoryURL.appending(path: "quota-directory-scan")
+        if files.fileExists(at: root) { try files.removeItem(at: root) }
+        defer {
+            do { try files.removeItem(at: root) }
+            catch { XCTFail("Cache fixture cleanup failed: \(error)") }
+        }
+        let directories = [root.appending(path: "gallery"), root.appending(path: "avatars")]
+        for directory in directories { try files.createDirectory(at: directory) }
+        let quota = ImageCacheDiskQuota(files: files, directories: directories, cacheLimitMB: { 200 })
+        let bytes = Data(repeating: 0, count: 2_048)
+        var previousCount = 0
+        var rows = ["files,medianMilliseconds"]
+        for count in [100, 1_000, 10_000] {
+            for index in previousCount..<count {
+                try files.writeData(bytes, to: directories[index % 2].appending(path: "\(index).png"), options: [])
+            }
+            previousCount = count
+            var samples: [Double] = []
+            for _ in 0..<3 {
+                let start = ContinuousClock.now
+                await quota.enforce(force: true, protecting: [directories[0].appending(path: "0.png")])
+                let elapsed = start.duration(to: .now).components
+                samples.append(Double(elapsed.seconds) * 1_000 + Double(elapsed.attoseconds) / 1e15)
+            }
+            let usedBytes = await quota.usedBytes()
+            XCTAssertEqual(usedBytes, Int64(count * bytes.count))
+            rows.append("\(count),\(samples.sorted()[1])")
+        }
+        let report = rows.joined(separator: "\n")
+        let attachment = XCTAttachment(string: report)
+        attachment.name = "cache-directory-scan"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        print(report)
+    }
 
     @MainActor
     func testBoundedResponseAggregationPerformance() throws {

@@ -50,7 +50,7 @@ nonisolated enum ImageCacheDirectories {
     }
 }
 
-/// Synchronizes preview-file registration with disk eviction.
+/// Synchronizes active image-file registration with disk eviction.
 nonisolated final class PreviewFileOwnership: Sendable {
     private struct State {
         var sessions: [UUID: Set<String>] = [:]
@@ -143,6 +143,14 @@ actor ImageCacheDiskQuota {
 
     func clearDirectory(_ directory: URL) -> Bool { previewOwnership.clearDirectory(directory, using: files) }
 
+    nonisolated func beginFileUse(_ file: URL, owner: UUID, prepare: @Sendable () throws -> Void) throws {
+        previewOwnership.begin(owner)
+        do { try previewOwnership.materializeAndPin(file, using: files, owner: owner, create: prepare) }
+        catch { previewOwnership.end(owner); throw error }
+    }
+
+    nonisolated func endFileUse(_ owner: UUID) { previewOwnership.end(owner) }
+
     func enforce(force: Bool = false, protecting protectedURLs: Set<URL> = []) async {
         let now = Date()
         guard force || now.timeIntervalSince(lastPruneDate) >= pruneInterval else { return }
@@ -155,15 +163,14 @@ actor ImageCacheDiskQuota {
         previewOwnership.withPaths { previewPaths in
             let protectedPaths = Set(protectedURLs.map { files.canonicalFileURL($0).path }).union(previewPaths)
             let cacheFiles = cacheDirectories.flatMap { directory -> [(URL, Int64, Date)] in
-                guard let children = try? files.contentsOfDirectory(at: directory, options: [.skipsHiddenFiles]) else {
+                guard let children = try? files.regularFileMetadata(in: directory) else {
                     return []
                 }
-                return children.compactMap { url in
-                    guard !protectedPaths.contains(files.canonicalFileURL(url).path),
-                          url.lastPathComponent != "preview-placeholder.png",
-                          let size = files.regularFileSize(at: url)
+                return children.compactMap { metadata in
+                    guard !protectedPaths.contains(metadata.url.path),
+                          metadata.url.lastPathComponent != "preview-placeholder.png"
                     else { return nil }
-                    return (url, Int64(size), files.modificationDate(at: url) ?? .distantPast)
+                    return (metadata.url, Int64(metadata.size), metadata.modificationDate)
                 }
             }
             var total = cacheFiles.reduce(Int64(0)) { $0 + $1.1 }
@@ -215,6 +222,7 @@ actor RemoteImageCache {
     private let download: @Sendable (URL) async throws -> HTTPResponse
     private let directory: URL
     private var downloads: [String: DownloadOperation] = [:]
+    private var activeFileUses: Set<UUID> = []
     private var generation: UInt64 = 0
     private let validatedFiles: NSCache<NSURL, NSString> = {
         let cache = NSCache<NSURL, NSString>()
@@ -253,6 +261,14 @@ actor RemoteImageCache {
             }
             validatedFiles.setObject(identity as NSString, forKey: file as NSURL)
             touch(file)
+            let use = UUID()
+            do {
+                try quota.beginFileUse(file, owner: use) { [files] in
+                    guard files.fileExists(at: file) else { throw CocoaError(.fileReadNoSuchFile) }
+                }
+            } catch { continue }
+            activeFileUses.insert(use)
+            defer { activeFileUses.remove(use); quota.endFileUse(use) }
             await quota.enforce(protecting: Set([file]))
             guard owner == generation, !Task.isCancelled else { return nil }
             return file
@@ -299,6 +315,7 @@ actor RemoteImageCache {
     private func finishDownload(_ result: Result<DownloadResult, any Error>, key: String, id: UUID,
                                 remoteURL: URL) async {
         guard downloads[key]?.id == id else { return }
+        defer { activeFileUses.remove(id); quota.endFileUse(id) }
         let completed: Result<URL, any Error>
         do {
             let result = try result.get()
@@ -307,9 +324,12 @@ actor RemoteImageCache {
             }
             let ext = preferredExtension(for: remoteURL, mimeType: result.mimeType)
             let target = directory.appendingPathComponent("\(filePrefix(for: remoteURL)).\(ext)")
-            try files.createDirectory(at: directory)
-            try files.writeData(result.data, to: target, options: [.atomic])
-            touch(target)
+            try quota.beginFileUse(target, owner: id) { [files, directory] in
+                try files.createDirectory(at: directory)
+                try files.writeData(result.data, to: target, options: [.atomic])
+                try? files.setModificationDate(Date(), at: target)
+            }
+            activeFileUses.insert(id)
             await quota.enforce(force: true, protecting: Set([target]))
             completed = .success(target)
         } catch { completed = .failure(error) }
@@ -322,6 +342,8 @@ actor RemoteImageCache {
         if operation.waiters.isEmpty {
             downloads[key] = nil
             operation.task.cancel()
+            activeFileUses.remove(operation.id)
+            quota.endFileUse(operation.id)
         } else { downloads[key] = operation }
         continuation.resume(throwing: CancellationError())
     }
@@ -329,6 +351,8 @@ actor RemoteImageCache {
     @discardableResult func clearAll() async -> Bool {
         generation &+= 1
         validatedFiles.removeAllObjects()
+        for use in activeFileUses { quota.endFileUse(use) }
+        activeFileUses.removeAll()
         let pending = downloads.values
         downloads.removeAll()
         for operation in pending {

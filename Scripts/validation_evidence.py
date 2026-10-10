@@ -96,16 +96,21 @@ def test_selectors(group: str) -> dict[str, str]:
                 if test.split("/", 1)[0] in TEST_AREA_SUITES[group]}
     directory = ROOT / ("ModuleTests" if group == "modules" else "BIT101-iOSUITests" if group == "ui" else "BIT101-iOSTests")
     sources = {}
-    for path in directory.rglob("*.swift"):
+    for path in sorted(directory.rglob("*.swift")):
         sources[str(path)] = active_swift_source(path.read_text(), group, path=str(path))
     selectors = {}
-    for facts in swift_syntax_index_sources(sources).values():
+    origins = {}
+    for path, facts in swift_syntax_index_sources(sources).items():
         functions = {function['start']: function for function in facts['functionRanges']}
         for test in facts['tests']:
             selector = test['value']
             if test.get('isTestingTest'):
                 parameters = functions[test['start']]['parameters']
                 selector += '(' + ''.join((parameter['label'] or '_') + ':' for parameter in parameters) + ')'
+            identity = normalized_test_id(test['value'])
+            if identity in origins:
+                raise ValueError(f"测试库存需要唯一 Suite/method：{identity}（{origins[identity]} 与 {path}: {selector}）。")
+            origins[identity] = f"{path}: {selector}"
             selectors[test['value']] = selector
     return {test: selector for test, selector in selectors.items() if test.split("/", 1)[0] in FORMAL_RUNTIME_SUITES} \
         if group in {"release-runtime", "catalyst-release-runtime"} else selectors
