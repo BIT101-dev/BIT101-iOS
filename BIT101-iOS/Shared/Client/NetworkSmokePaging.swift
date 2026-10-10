@@ -2,6 +2,7 @@ import Foundation
 import CommunityCore
 import CommunityTransport
 import GalleryFeature
+import PaperFeature
 import ScoreDomain
 
 #if DEBUG || RELEASE_NETWORK_SMOKE
@@ -99,6 +100,26 @@ enum NetworkSmokePaging {
 
     static func checkPosters(_ posters: [CommunityPoster], for userID: Int) throws {
         guard userID > 0, posters.allSatisfy({ $0.user.id == userID }) else { throw URLError(.badServerResponse) }
+    }
+
+    static func checkBotPosters(_ posters: [CommunityPoster]) throws {
+        guard posters.allSatisfy({ GalleryBotClassifier.matches(tags: $0.tags) })
+        else { throw URLError(.badServerResponse) }
+    }
+
+    static func checkPapers(_ papers: [PaperSummary], order: PaperSortOrder) throws {
+        let sorted: Bool
+        switch order {
+        case .like: sorted = zip(papers, papers.dropFirst()).allSatisfy { $0.likeNum >= $1.likeNum }
+        case .comment: sorted = zip(papers, papers.dropFirst()).allSatisfy { $0.commentNum >= $1.commentNum }
+        case .newest:
+            let dates = try papers.map { paper in
+                guard let date = AppDateText.date(from: paper.updateTime) else { throw URLError(.badServerResponse) }
+                return date
+            }
+            sorted = zip(dates, dates.dropFirst()).allSatisfy { $0 >= $1 }
+        }
+        guard sorted else { throw URLError(.badServerResponse) }
     }
 }
 #endif

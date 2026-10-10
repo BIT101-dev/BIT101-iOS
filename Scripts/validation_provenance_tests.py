@@ -94,6 +94,19 @@ def run_self_test(recorder) -> None:
 
 def artifact_lock_self_test(module) -> None:
     source = (module.ROOT / "Scripts/validation_artifacts.py").read_text()
+    import fcntl
+    diagnostics = module.ROOT / '.build/extended-automation/diagnostics'
+    for leftover in (False, True):
+        with patch.object(sys, 'argv', ['validation_artifacts.py', str(module.ROOT)]), \
+                patch.dict(os.environ, BIT101_EXTENDED_TESTS_LOCK_HELD='1'), \
+                patch.object(Path, 'exists', lambda path: leftover and path == diagnostics), \
+                patch.object(Path, 'open', return_value=nullcontext(BytesIO())), \
+                patch.object(os, 'walk', return_value=[]), \
+                patch.object(fcntl, 'flock', side_effect=BlockingIOError), redirect_stdout(StringIO()):
+            status = 0
+            try: exec(compile(source, 'validation_artifacts.py', 'exec'), {'__name__': '__main__'})
+            except SystemExit as error: status = error.code
+            assert status == int(leftover), '父工作流持锁时诊断残留仍需进入产物门禁'
     definition = next(node for node in ast.parse(source).body if isinstance(node, ast.FunctionDef) and node.name == "committed_children")
     harness = "from pathlib import Path\nimport fcntl, sys\n" + ast.get_source_segment(source, definition)
     harness += '\nprint("ready", flush=True)\nchildren = committed_children(Path(sys.argv[1]))\nassert all(path.suffix != ".incoming" for path in children)\nprint("committed", flush=True)\n'

@@ -74,6 +74,8 @@ def plist_values(path: Path, keys: tuple[str, ...]) -> dict:
 def host_environment() -> dict:
     selected = os.environ.get("DEVELOPER_DIR") or "/var/db/xcode_select_link"
     developer = Path(selected).resolve()
+    if developer.suffix == ".app":
+        developer = (developer / "Contents/Developer").resolve()
     frontend = Path(subprocess.check_output(["xcrun", "--find", "swift-frontend"], text=True).strip()).resolve()
     compiler = {"path": str(frontend)}
     if frontend.is_file():

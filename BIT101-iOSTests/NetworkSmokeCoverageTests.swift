@@ -144,6 +144,33 @@ struct NetworkSmokeCoverageTests {
             environment: ["BIT101_COMMUNITY_RECOVERY_CONFIRMATION": "{}"]) == nil)
     }
 
+    @Test func botSmokeRejectsOrdinaryPostersAndAcceptsRecognizedTags() throws {
+        func poster(tags: [String]) -> CommunityPoster {
+            CommunityPoster(anonymous: false, claim: .init(id: 0, text: ""), commentNum: 0, createTime: "", editTime: "",
+                id: 1, images: [], likeNum: 0, public: true, tags: tags, text: "", title: "", updateTime: "", user: user(1))
+        }
+        try NetworkSmokePaging.checkBotPosters([])
+        for tags in [["BOT"], ["机器人"], ["通知"], ["新闻"]] {
+            try NetworkSmokePaging.checkBotPosters([poster(tags: tags)])
+        }
+        #expect(throws: URLError.self) { try NetworkSmokePaging.checkBotPosters([poster(tags: ["生活"])]) }
+        #expect(throws: URLError.self) { try NetworkSmokePaging.checkBotPosters([poster(tags: ["BOT"]), poster(tags: [])]) }
+    }
+
+    @Test(arguments: PaperSortOrder.allCases)
+    func paperSmokeChecksRankTimezonesAndTies(order: PaperSortOrder) throws {
+        let first = PaperSummary(id: 1, title: "", intro: "", likeNum: 2, commentNum: 3, updateTime: "2026-01-02T00:00:00Z")
+        let tied = PaperSummary(id: 2, title: "", intro: "", likeNum: 2, commentNum: 3, updateTime: "2026-01-02T08:00:00+08:00")
+        let older = PaperSummary(id: 3, title: "", intro: "", likeNum: 1, commentNum: 2, updateTime: "2026-01-01 08:00:00")
+        try NetworkSmokePaging.checkPapers([], order: order)
+        try NetworkSmokePaging.checkPapers([first, tied, older], order: order)
+        #expect(throws: URLError.self) { try NetworkSmokePaging.checkPapers([older, first], order: order) }
+        if order == .newest {
+            let invalid = PaperSummary(id: 4, title: "", intro: "", likeNum: 0, commentNum: 0, updateTime: "invalid")
+            #expect(throws: URLError.self) { try NetworkSmokePaging.checkPapers([invalid], order: order) }
+        }
+    }
+
     @Test func maintainedFixturesValidateAndTravelThroughBothLaunchEntrypoints() throws {
         let fixture = NetworkSmokeFixtures(posterID: 41, courseID: 43, courseNumber: "COURSE", paperID: 45)
         let encoded = try JSONEncoder().encode(fixture)
@@ -514,7 +541,16 @@ extension ReleaseNetworkSmokeLifecycleTests {
             return .init(items: page == 0 ? [poster] : [], nextSourcePage: page + 1, canLoadMore: false)
         }
         func fetchRecommendPage(sourcePage: Int) async throws -> GalleryPageBatch<CommunityPoster> { posterPage(sourcePage) }
-        func fetchBotFeed(startPage: Int) async throws -> GalleryPageBatch<CommunityPoster> { posterPage(startPage) }
+        func fetchBotFeed(startPage: Int) async throws -> GalleryPageBatch<CommunityPoster> {
+            let batch = posterPage(startPage)
+            if stage == "bot-classification-failure" { return batch }
+            let items = batch.items.map {
+                CommunityPoster(anonymous: $0.anonymous, claim: $0.claim, commentNum: $0.commentNum, createTime: $0.createTime,
+                    editTime: $0.editTime, id: $0.id, images: $0.images, likeNum: $0.likeNum, public: $0.public,
+                    tags: ["BOT"], text: $0.text, title: $0.title, updateTime: $0.updateTime, user: $0.user)
+            }
+            return .init(items: items, nextSourcePage: batch.nextSourcePage, canLoadMore: batch.canLoadMore, sourceIDs: batch.sourceIDs)
+        }
         func searchPosters(query: GallerySearchQuery, page: Int?) async throws -> GalleryPageBatch<CommunityPoster> {
             posterPage(page ?? 0)
         }
@@ -555,8 +591,12 @@ extension ReleaseNetworkSmokeLifecycleTests {
         func fetchPapers(search: String?, order: PaperSortOrder, page: Int) async throws -> [PaperSummary] {
             observed.insert("paper-list")
             if stage == "empty-list-failure" { return [] }
+            if stage == "paper-\(order.requestValue ?? "newest")-order-failure" {
+                return page < 2 ? [PaperSummary(id: page + 1, title: "fixture", intro: "", likeNum: page, commentNum: page,
+                    updateTime: page == 0 ? "2026-01-01T00:00:00Z" : "2026-01-02T00:00:00Z")] : []
+            }
             guard page == 0 else { return [] }
-            return [PaperSummary(id: 1, title: "fixture", intro: "", likeNum: 0, commentNum: 0, updateTime: "")]
+            return [PaperSummary(id: 1, title: "fixture", intro: "", likeNum: 0, commentNum: 0, updateTime: "2026-01-01T00:00:00Z")]
         }
         func fetchPaper(id: Int) async throws -> PaperDetail {
             observed.insert("fixture-paper-\(id)")
@@ -697,6 +737,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
          "gallery-comment-page-failure", "course-comment-page-failure", "paper-comment-page-failure", "cors-method-failure", "cors-header-failure",
          "schedule-term-failure", "historical-term-success", "maintained-fixtures-success", "continuation-image-success",
          "missing-fixtures-failure", "fixture-course-number-failure", "empty-list-failure", "all-score-mismatch-failure",
+         "bot-classification-failure", "paper-like-order-failure", "paper-comment-order-failure", "paper-newest-order-failure",
          "invalid-exam-failure", "pending-exam-success", "invalid-classroom-failure",
          "school-independent-success", "transcript-independent-success", "schedule-independent-success", "ddl-independent-success"])
     func completeOrchestration(stage: String) async throws {
@@ -731,7 +772,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
             feedbackProbe: { _ in feedback += 1 },
             loadScheduleCache: { ScheduleCache() }, makeScores: { services }, makeSchedule: { handler in services.rawResponse = handler; return services },
             makeProductionSchedule: { productionServices }, makeEclassSchedule: { services })
-        let scope: NetworkSmokeScope = stage.hasPrefix("school-") ? .school : stage.hasPrefix("transcript-") ? .transcript : stage.hasPrefix("all-") || redirectHost != nil || stage.hasPrefix("aasa") ? .all : stage == "community-failure" || stage == "image-budget-failure" || stage == "entity-identity-failure" || stage == "repeated-page-failure" || stage.contains("comment-page") || stage.hasPrefix("cors") || stage.contains("fixtures") || stage == "continuation-image-success" || stage == "fixture-course-number-failure" || stage == "empty-list-failure" ? .bit101 : stage.hasPrefix("ddl") ? .ddl : .schedule
+        let scope: NetworkSmokeScope = stage.hasPrefix("school-") ? .school : stage.hasPrefix("transcript-") ? .transcript : stage.hasPrefix("all-") || redirectHost != nil || stage.hasPrefix("aasa") ? .all : stage == "community-failure" || stage == "image-budget-failure" || stage == "entity-identity-failure" || stage == "repeated-page-failure" || stage.contains("comment-page") || stage.hasPrefix("cors") || stage.hasPrefix("bot-") || stage.hasPrefix("paper-") || stage.contains("fixtures") || stage == "continuation-image-success" || stage == "fixture-course-number-failure" || stage == "empty-list-failure" ? .bit101 : stage.hasPrefix("ddl") ? .ddl : .schedule
         let runner = ReleaseNetworkSmokeRunner(dependencies: dependencies)
         let smsHandler: SchoolSMSCodeHandler = { _ in "fixture-code" }
         let report = await runner.run(scope: scope, runID: stage, capture: stage == "raw-write-failure" ? .rawCourseResponse : .none,

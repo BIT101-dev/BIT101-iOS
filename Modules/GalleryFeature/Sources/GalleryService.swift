@@ -89,10 +89,10 @@ public nonisolated struct GalleryPageBatch<Element: Identifiable & Sendable>: Se
     public let sourceIDs: [Int]
 }
 
-private enum GalleryBotClassifier {
+public enum GalleryBotClassifier {
     private static let keywords = ["bot", "机器人", "通知", "新闻"]
 
-    static func matches(tags: [String]) -> Bool {
+    public static func matches(tags: [String]) -> Bool {
         let normalizedTags = tags.map { $0.lowercased() }
         return normalizedTags.contains { tag in
             keywords.contains { tag.contains($0) }

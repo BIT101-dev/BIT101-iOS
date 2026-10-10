@@ -12,6 +12,7 @@ def icloud_stage_fixture(stage: str, counts: dict) -> dict:
         testTargets=['BIT101-iOSTests'], destination={'platform': 'macOS' if stage.startswith('testMac') else 'iOS', 'deviceIdentifier': 'phone'})
 
 def run_self_test(subject) -> int:
+    developer_directory_self_test()
     from validation_compilation import self_test as compilation_cache_self_test
     compilation_cache_self_test()
     module_events_self_test(subject)
@@ -479,6 +480,36 @@ def run_self_test(subject) -> int:
         stages[1]['passedTests'] = 0
         assert icloud_summary({'exitCode': 0, 'stages': stages})['passed'] is False
         return 0
+
+
+def developer_directory_self_test() -> None:
+    from io import BytesIO
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    import validation_environment as environment
+    developer = Path('/chosen/Xcode.app/Contents/Developer')
+    def plist(path, keys):
+        if path == developer.parent / 'Info.plist': return {'CFBundleShortVersionString': 'fixture', 'CFBundleVersion': '1'}
+        if path == developer / 'Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/SDKSettings.plist': return {'Version': 'fixture'}
+        return {}
+    try:
+        with patch.object(environment.subprocess, 'check_output', return_value='/chosen/swift-frontend\n'), \
+                patch.object(environment, 'plist_values', side_effect=plist), \
+                patch.object(Path, 'is_file', return_value=True), \
+                patch.object(Path, 'stat', return_value=SimpleNamespace(st_size=8, st_mtime_ns=1)), \
+                patch.object(Path, 'open', side_effect=lambda *args, **kwargs: BytesIO(b'compiler')):
+            contexts = []
+            for selected in ('/chosen/Xcode.app', str(developer)):
+                with patch.dict(os.environ, DEVELOPER_DIR=selected):
+                    environment.host_environment.cache_clear()
+                    environment.environment_context.cache_clear()
+                    context = environment.environment_context('audit')
+                    assert environment.complete_environment('audit', context), selected
+                    contexts.append(context)
+            assert contexts[0] == contexts[1]
+    finally:
+        environment.host_environment.cache_clear()
+        environment.environment_context.cache_clear()
 
 
 def module_events_self_test(subject) -> None:

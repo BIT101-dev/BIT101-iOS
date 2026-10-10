@@ -374,6 +374,8 @@ fork PR 的常规 Job 使用 GitHub 托管的 `xcode-27` 镜像，每项任务�
 
 网络证据在最外层 HTTP 客户端采集一次，组合传输共享相同边界。记录保留搜索词、机器人过滤、学期及楼宇选择字段；教务表单与首周 JSON 表单参数沿相同白名单解析，并核对探针选择。话廊生产 Service 构造的请求通过离线传输采集后交给 Python 路由合同验证，覆盖六种列表与搜索路径。条件编译检测使用生产 Swift 6 语言模式。
 
+文章生产 Service 的登录与访客详情、评论请求同样通过离线传输采集后交给 Python 路由合同验证；登录预检和社区写入的结果读取、清理查询按所属探针登记为辅助请求。机器人流逐页核对服务共享的标签分类规则。文章三种排序逐页及跨页核对点赞数、评论数或解析后的更新时间，允许并列值，并检查时间格式。
+
 `community-variants` 人工专项覆盖课程搜索、话廊搜索筛选、帖子与文章的三种评论排序、匿名帖子、匿名文章及创建内容恢复；场景键为 `course-search`、`gallery-search-filters`、`comment-sorting`、`anonymous-poster`、`anonymous-paper`、`restore-content`。使用已授权的专用账号，保存实际请求结果和页面证据，确认验收内容删除。`account-lifecycle` 专项在正式 App 中顺序执行 `sign-in-a`、`refresh-credentials-a`、`sign-out-a`、`sign-in-b`、`restore-a`，核对真实凭据续期、退出清理、资料与业务缓存切换、订阅更新及恢复账号。两个专项复用结构化人工场景格式与固定 `manual-scenarios.json` 附件，参与完整发布验收。
 
 社区图片探针复用 `CommunityWriteMedia` 中固定的一像素 JPEG 字节；上传返回的 MID 在创建帖子或评论前持久记录于同一事务日志，资源记录保存成功后，在提交业务创建请求前保存待确认记录。上传或提交记录保存失败时沿已创建对象完成清理；传输准入前失败时清除待确认记录，业务请求结果未知时持续查找并保留恢复记录。课程写入探针读取 `BIT101_NETWORK_SMOKE_FIXTURES` 指定的课程，并在业务写入前核对课程编号。公开服务端 [ImageService.Save](https://github.com/BIT101-dev/BIT101-GO/blob/main/api/service/image.go) 按内容 MD5 生成 MID 并复用已存在图片，[路由](https://github.com/BIT101-dev/BIT101-GO/blob/main/api/router.go) 将图片作为独立共享资源提供上传。验收帖子和评论沿服务端读取与删除确认清理，共享验收图片持续复用；恢复证据保留其 MID。实际线上资源策略沿已部署服务端契约核对。
@@ -414,7 +416,7 @@ UI 自动化同时采集交互库存及宿主与 Feature / UI 模块的行覆盖
 
 模块清单求值按工作区产物锁、公共编译缓存锁的顺序访问共享 SwiftPM scratch 与 module cache；上层流程持有产物锁时沿既有锁归属执行。文件副作用审计沿类型、重载和抛错包装方法追踪持久化调用，恒假布尔比较参与 Smoke 可达性检查。
 
-工具链选择沿 `DEVELOPER_DIR` 与 `TOOLCHAINS` 交给 `xcrun` 解析，语法解析、SwiftSyntax 索引、编译条件及构建证据共用所选工具链。编译器身份记录实际解析出的 swift-frontend 路径及文件摘要。
+工具链选择沿 `DEVELOPER_DIR` 与 `TOOLCHAINS` 交给 `xcrun` 解析，语法解析、SwiftSyntax 索引、编译条件及构建证据共用所选工具链。环境证据将 Xcode `.app` 路径归一化为其 `Contents/Developer`，两种输入共享版本、SDK 与编译器身份；路径格式参见 [Apple 命令行工具配置](https://developer.apple.com/documentation/xcode/configuring-command-line-tools-settings)。编译器身份记录实际解析出的 swift-frontend 路径及文件摘要。产物审计沿上层持有的工作流锁检查诊断导出目录，残留副本进入失败结果。
 
 成功的关键词复验沿同一输入摘要与环境复用此前完整组的证据，完整证据保留原运行标识、采样时间及性能指标。复验失败或构建输入变化进入对应分组的重新验收。网络 smoke 保存每个探针的起始及最终 HTTP 方法、端点、业务查询与状态码，端点移除凭据、查询参数及片段；完整验收校验重定向后的业务位置、请求方法、排序及分页参数，并沿 `Scripts/network_request_contracts.py` 核对业务端点、HTTP 方法、所需调用数量及分页查询。全部请求按业务合同及明确的认证、预热、活动和成绩单图片端点归属验收；认证失败重试需要后续同端点、同参数的成功请求。重复探针记录中的失败继续参与验收。列表首屏为空时继续请求续页，消息空首屏沿正游标验收终止边界；首屏、续页与实际参数共同保存在请求证据中。
 

@@ -262,7 +262,13 @@ final class ReleaseNetworkSmokeRunner {
             { _ = await self.probe("话廊关注流", area: .bit101, scope: scope) { try await NetworkSmokePaging.batch { try await gallery.fetchFeed(kind: .follow, page: $0 == 0 ? nil : $0) } } },
             { _ = await self.probe("话廊热门流", area: .bit101, scope: scope) { try await NetworkSmokePaging.batch { try await gallery.fetchFeed(kind: .hot, page: $0 == 0 ? nil : $0) } } },
             { _ = await self.probe("话廊推荐流", area: .bit101, scope: scope) { try await NetworkSmokePaging.batch { try await gallery.fetchRecommendPage(sourcePage: $0) } } },
-            { _ = await self.probe("话廊机器人流", area: .bit101, scope: scope) { try await NetworkSmokePaging.batch { try await gallery.fetchBotFeed(startPage: $0) } } },
+            { _ = await self.probe("话廊机器人流", area: .bit101, scope: scope) {
+                try await NetworkSmokePaging.batch {
+                    let batch = try await gallery.fetchBotFeed(startPage: $0)
+                    try NetworkSmokePaging.checkBotPosters(batch.items)
+                    return batch
+                }
+            } },
             { _ = await self.probe("社区举报类型", area: .bit101, scope: scope) { try await gallery.fetchReportTypes() } },
             { _ = await self.probe("帖子声明列表", area: .bit101, scope: scope) { try await gallery.fetchClaims() } },
             {
@@ -366,7 +372,13 @@ final class ReleaseNetworkSmokeRunner {
         await runInParallel(PaperSortOrder.allCases.map { order in
             {
                 _ = await self.probe("文章列表-\(order.title)", area: .bit101, scope: scope) {
-                    try await NetworkSmokePaging.arrayPage { try await papers.fetchPapers(search: "BIT101", order: order, page: $0) }
+                    let sample = try await NetworkSmokePaging.arrayPage {
+                        let page = try await papers.fetchPapers(search: "BIT101", order: order, page: $0)
+                        try NetworkSmokePaging.checkPapers(page, order: order)
+                        return page
+                    }
+                    try NetworkSmokePaging.checkPapers(sample, order: order)
+                    return sample
                 }
             }
         })

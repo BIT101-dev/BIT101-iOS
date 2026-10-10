@@ -119,14 +119,8 @@ for parent in (root / ".build", root / "build"):
                 children.remove(name)
             if not cache.is_symlink() or cache.resolve() != (shared / name).resolve():
                 violations.append(f"{cache.relative_to(root)}: 公共编译缓存应链接到唯一共享目录")
-with (root / ".build/extended-automation.lock").open("a") as lock:
-    try:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        pass
-    else:
-        if (root / ".build/extended-automation/diagnostics").exists():
-            violations.append(".build/extended-automation/diagnostics: 诊断处理完成后应清除导出副本")
+if (root / ".build/extended-automation/diagnostics").exists():
+    violations.append(".build/extended-automation/diagnostics: 诊断处理完成后应清除导出副本")
 if violations:
     print("[失败] 产物目录不符合固定路径规则：")
     print("\n".join(violations))
