@@ -12,6 +12,10 @@ bit101_acquire_artifact_lock() {
   bit101_acquire_script_lock "$ROOT_DIR/.build/extended-automation.lock" BIT101_EXTENDED_TESTS_LOCK_HELD "$@"
 }
 
+bit101_invalidate_restore() {
+  python3 "$ROOT_DIR/Scripts/validation_restore.py" invalidate
+}
+
 bit101_acquire_script_lock() {
   local workflow_lock="$1"
   local workflow_flag="$2"

@@ -586,7 +586,10 @@ run_tests() {
     project_args=(-xctestrun "$ui_plan_path")
     test_action=test-without-building
   fi
-  if [[ "$BUILD_ONLY" == false && "$MODE" != catalyst && "$MODE" != catalyst-release-runtime ]]; then DEVICE_TEST_EXECUTION_STARTED=true; fi
+  if [[ "$BUILD_ONLY" == false && "$MODE" != catalyst && "$MODE" != catalyst-release-runtime ]]; then
+    bit101_invalidate_restore || return $?
+    DEVICE_TEST_EXECUTION_STARTED=true
+  fi
   if [[ "$BUILD_ONLY" == false ]]; then execution_args+=(-test-timeouts-enabled YES); fi
   echo "[$test_action] $group"
   if bit101_run_logged "$log" "$group 输出" xcodebuild "$test_action" -quiet \

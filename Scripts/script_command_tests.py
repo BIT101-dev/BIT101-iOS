@@ -57,6 +57,53 @@ child() {{ print executed; }}
             findings.append('模块聚合复验：当前完整证据复用，缺失与过期证据执行后验收')
     return findings
 
+def restore_installation_boundary_findings() -> list[str]:
+    "安装前清理旧恢复证据，清理失败沿真实安装分支传播。"
+    import shlex
+    support = shlex.quote(str(SCRIPT_ROOT / 'script-support.sh'))
+    prefix = f'set -euo pipefail\nROOT_DIR={shlex.quote(str(ROOT))}\nsource {support}\n'
+    prefix += '''rm() { :; }
+xcrun() { print -ru2 INSTALL; }
+bit101_run_logged() { print EXECUTE; }
+record_result() { print RESULT; }
+DERIVED_ROOT=/fixture DERIVED_DATA=/fixture RESULT_BUNDLE=/fixture/result
+DEVICETCL_DEVICE_ID=phone BIT101_DEVICETCL_DEVICE_ID=phone DEVICE_ID=phone TEST_CLASS=fixture
+common_args=()
+'''
+    native = (SCRIPT_ROOT / 'run-extended-tests.sh').read_text()
+    start = '  if [[ "$BUILD_ONLY" == false && "$MODE" != catalyst && "$MODE" != catalyst-release-runtime ]]; then'
+    native = start + native.split(start, 1)[1].split('  TEST_DURATION_SECONDS=', 1)[0]
+    native = '''group=fixture log=/fixture test_action=test diagnostics=never conditions= TEST_DESTINATION=phone
+execution_args=() only_testing=() SIGNING_ARGS=() coverage_args=() project_args=()
+execute_test() {
+''' + native + '\n}\nexecute_test\n'
+    network = (SCRIPT_ROOT / 'release-network-smoke.sh').read_text()
+    network = 'SMOKE_APP_PATH=' + network.split('\nSMOKE_APP_PATH=', 1)[1].split('\npython3 - "$LOCAL_REQUEST_PATH"', 1)[0]
+    install = (SCRIPT_ROOT / 'build-install-device.sh').read_text()
+    install = 'APP_PATH=' + install.split('\nAPP_PATH=', 1)[1].split('\nxcrun devicectl device process launch', 1)[0]
+    cloud = (SCRIPT_ROOT / 'icloud-smoke-support.sh').read_text()
+    cloud = 'run_phone_test() {' + cloud.split('run_phone_test() {', 1)[1].split('\nrun_mac_cleanup()', 1)[0]
+    cases = [(native, f'MODE={mode} BUILD_ONLY={build}\n', status,
+              status if mode in {'all', 'ui'} and build == 'false' else 0,
+              ['CLEAR'] if status and mode in {'all', 'ui'} and build == 'false' else
+              ['CLEAR', 'EXECUTE'] if mode in {'all', 'ui'} and build == 'false' else ['EXECUTE'])
+        for mode, build, status in [('all', 'false', 0), ('ui', 'false', 0), ('all', 'false', 13),
+            ('ui', 'false', 13), ('catalyst', 'false', 13), ('catalyst-release-runtime', 'false', 13), ('all', 'true', 13)]]
+    cases += [(program, '', status, status, ['CLEAR'] if status else ['CLEAR', 'INSTALL'])
+              for program in (network, install) for status in (0, 13)]
+    cases += [(cloud + f'\nrun_phone_test {method}\n', '', status, status,
+               ['CLEAR'] if status else ['CLEAR', 'EXECUTE', 'RESULT'])
+              for method in ('testPhoneRoundTrip', 'testCleanup') for status in (0, 13)]
+    findings = []
+    for program, context, invalidation, expected, events in cases:
+        stub = f'python3() {{ print CLEAR; return {invalidation}; }}\n'
+        result = subprocess.run(['zsh', '-c', prefix + stub + context + program],
+            text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=5)
+        observed = [line for line in result.stdout.splitlines() if line in {'CLEAR', 'INSTALL', 'EXECUTE', 'RESULT'}]
+        if result.returncode != expected or observed != events:
+            findings.append(f'安装恢复生命周期自测：{context.strip()} {expected}，实际 {result.returncode} {result.stdout.strip()}')
+    return findings
+
 def audit_lock_boundary_findings() -> list[str]:
     "并发验收沿产物锁、审计锁顺序执行，并复用父流程锁。"
     import fcntl
@@ -259,6 +306,7 @@ bit101_build_cache() { print CACHE; }
 bit101_acquire_workflow_lock() { print WORKFLOW_LOCK; print DEVICE_LOCK; }
 bit101_acquire_artifact_lock() { print WORKFLOW_LOCK; print ARTIFACT_LOCK; }
 bit101_acquire_script_lock() { :; }
+bit101_invalidate_restore() { print RESTORE_INVALIDATED; }
 mkdir() { :; }
 rm() { :; }
 ditto() { :; }

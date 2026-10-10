@@ -199,6 +199,7 @@ if [[ $BUILD_STATUS -ne 0 ]]; then
 fi
 
 SMOKE_APP_PATH="$DERIVED_DATA/Build/Products/Release-iphoneos/BIT101-iOS.app"
+bit101_invalidate_restore
 xcrun devicectl device install app \
   --device "$DEVICETCL_DEVICE_ID" \
   "$SMOKE_APP_PATH" >/dev/null

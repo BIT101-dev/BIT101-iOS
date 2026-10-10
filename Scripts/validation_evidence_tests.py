@@ -58,6 +58,15 @@ def run_self_test(subject) -> int:
         core['groups']['restore']['summary'] = {'runID': 'run', 'inputDigest': 'digest'}
         core['groups']['restore']['runID'] = 'run'
         assert not merge_findings(core, digest=lambda *args, **kwargs: 'digest', complete=lambda *args: True, commit='commit')
+        from validation_restore import invalidate as invalidate_restore
+        from contextlib import nullcontext
+        import validation_evidence as evidence_state
+        with patch.object(evidence_state, 'report_lock', side_effect=nullcontext), patch.object(Path, 'is_file', return_value=True), \
+                patch.object(Path, 'read_text', return_value=json.dumps(core)), patch.object(evidence_state, 'write_report') as saved:
+            invalidate_restore()
+            interrupted = saved.call_args.args[0]
+            assert any(error.startswith('restore ') for error in merge_findings(interrupted,
+                digest=lambda *args, **kwargs: 'digest', complete=lambda *args: True, commit='commit'))
         with patch('validation_merge.performance_findings', return_value=['性能退化']):
             assert merge_findings(core, digest=lambda *args, **kwargs: 'digest', complete=lambda *args: True, commit='commit') == ['性能退化']
         for name in core['groups']:

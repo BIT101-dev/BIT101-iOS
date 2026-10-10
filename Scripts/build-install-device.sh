@@ -146,6 +146,7 @@ if [[ "$ACTION" == build || "$ACTION" == archive || "$ACTION" == archive-signed 
 fi
 
 APP_PATH="$DERIVED_DATA/Build/Products/Release-iphoneos/BIT101-iOS.app"
+bit101_invalidate_restore
 xcrun devicectl device install app \
   --device "$BIT101_DEVICETCL_DEVICE_ID" \
   "$APP_PATH" >/dev/null
