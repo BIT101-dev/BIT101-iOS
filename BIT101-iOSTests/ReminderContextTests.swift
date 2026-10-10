@@ -38,7 +38,7 @@ struct ReminderContextTests {
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: ["current", "cancelled", "account"])
-    func backgroundRefreshRespectsTheOwnerAfterItsSuspendedRead(boundary: String) async {
+    func backgroundRefreshRespectsTheOwnerAfterItsSuspendedRead(boundary: String) async throws {
         var current = true
         var read: CheckedContinuation<Date?, Never>?
         var scheduled: [Date?] = []
@@ -49,7 +49,7 @@ struct ReminderContextTests {
                 nextBeginDate: { await withCheckedContinuation { read = $0 } },
                 schedule: { scheduled.append($0); return true }, refresh: { refreshed += 1 })
         }
-        while read == nil { await Task.yield() }
+        try await waitForTestEvent { !(read == nil) }
         if boundary == "cancelled" { task.cancel() }
         if boundary == "account" { current = false }
         read?.resume(returning: target)

@@ -1,3 +1,4 @@
+import BIT101TestSupport
 import SchedulePorts
 import ClientCore
 import Combine
@@ -310,7 +311,7 @@ struct ScheduleRepositoryBoundaryTests {
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: ["saved", "failed", "accountChanged"])
-    func subscriptionRefreshPublishesSuccessAfterItsOwnedSaveCompletes(stage: String) async {
+    func subscriptionRefreshPublishesSuccessAfterItsOwnedSaveCompletes(stage: String) async throws {
         var session = AppStorageSession(accountIdentifier: "subscription-save")
         var pending: CheckedContinuation<Void, any Error>?
         var savedURL: String?
@@ -324,7 +325,7 @@ struct ScheduleRepositoryBoundaryTests {
         let refresh = Task { await model.refreshLexueCalendarURL() }
         await service.waitUntilStarted()
         service.continuation?.resume(returning: "https://lexue.bit.edu.cn/calendar/owned.ics")
-        while pending == nil { await Task.yield() }
+        try await waitForTestEvent { !(pending == nil) }
         #expect(model.notice == nil && model.isSyncingDDL)
         if stage == "accountChanged" {
             session = AppStorageSession(accountIdentifier: "subscription-next")

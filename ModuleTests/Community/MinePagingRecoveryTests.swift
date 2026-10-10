@@ -1,3 +1,4 @@
+import BIT101TestSupport
 import CommunityCore
 import Foundation
 @testable import MineFeature
@@ -120,7 +121,7 @@ struct MineLifecycleTests {
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [true, false])
-    func posterRefreshAdmitsTheNextPageAfterItsFirstPage(onOwnProfile: Bool) async {
+    func posterRefreshAdmitsTheNextPageAfterItsFirstPage(onOwnProfile: Bool) async throws {
         let service = PagingMineService()
         service.posters = { _ in [listPoster(1)] }
         let mine = MineViewModel(service: service)
@@ -137,7 +138,7 @@ struct MineLifecycleTests {
             return [listPoster(3)]
         }
         let updating = Task { await refresh() }
-        while pending == nil { await Task.yield() }
+        try await waitForTestEvent { !(pending == nil) }
         await more(1)
         #expect(service.pages == [0, 0])
         pending?.resume(returning: [listPoster(2)])
@@ -148,7 +149,7 @@ struct MineLifecycleTests {
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [true, false])
-    func cancellingAUserListRefreshReleasesItsSupersededPagination(followers: Bool) async {
+    func cancellingAUserListRefreshReleasesItsSupersededPagination(followers: Bool) async throws {
         let service = PagingMineService()
         service.users = { _ in [listUser(1)] }
         let model = MineViewModel(service: service)
@@ -161,7 +162,7 @@ struct MineLifecycleTests {
         var pending: CheckedContinuation<[CommunityUser], Never>?
         service.users = { _ in await withCheckedContinuation { pending = $0 } }
         let pagination = Task { await more() }
-        while pending == nil { await Task.yield() }
+        try await waitForTestEvent { !(pending == nil) }
         service.users = { _ in throw CancellationError() }
         await refresh()
         #expect((followers ? model.followerState : model.followingState).isLoadingMore == false)

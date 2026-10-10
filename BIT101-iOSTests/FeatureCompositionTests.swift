@@ -89,7 +89,7 @@ struct FeatureCompositionTests {
             currentScoreCacheSession: { AppStorageSession(accountIdentifier: "composition-score") },
             scheduleCoursesChanges: Empty().eraseToAnyPublisher(), loadScheduleCourses: { _ in [:] })
         try await host(ScoreListPage(viewModel: viewModel, transcriptService: service, onSearchCourse: { _ in })) {
-            while viewModel.filteredRows.isEmpty { try Task.checkCancellation(); await Task.yield() }
+            try await waitForTestEvent { !(viewModel.filteredRows.isEmpty) }
             #expect(viewModel.filteredRows.first?.courseName == "composition-score")
         }
         #expect(selected.loads == 1)
@@ -106,9 +106,9 @@ struct FeatureCompositionTests {
         window.rootViewController = controller
         window.makeKeyAndVisible()
         defer { window.isHidden = true; window.rootViewController = nil }
-        while first.schoolRequests == 0 { try Task.checkCancellation(); await Task.yield() }
+        try await waitForTestEvent { !(first.schoolRequests == 0) }
         controller.rootView = NavigationStack { TrustedTranscriptDestination(service: second).environment(selectedMedia) }
-        while second.schoolRequests == 0 { try Task.checkCancellation(); await Task.yield() }
+        try await waitForTestEvent { !(second.schoolRequests == 0) }
         #expect(first.schoolRequests == 1)
         #expect(second.schoolRequests == 1)
         #expect(first.transcriptServiceIdentity != second.transcriptServiceIdentity)
@@ -309,11 +309,11 @@ struct FeatureCompositionTests {
         let dependencies = PaperDependencies(list: service, detail: details, composer: details,
             networkPath: NetworkPathState(snapshot: NetworkPathSnapshot(status: .connected)))
         try await host(PaperTabs(route: routes, dependencies: dependencies, media: media())) {
-            while service.pending == nil || service.pages.count < 2 { await Task.yield() }
+            try await waitForTestEvent { !(service.pending == nil || service.pages.count < 2) }
             routes.selection = 1
-            while !routes.otherAppeared { await Task.yield() }
+            try await waitForTestEvent { !(!routes.otherAppeared) }
             routes.selection = 0
-            while service.previewRequests < 2 { await Task.yield() }
+            try await waitForTestEvent { !(service.previewRequests < 2) }
             service.pending?.resume(returning: PaperPreviewMetadata(authorName: "迟到的作者", avatarURL: nil, isAnonymous: false))
             service.pending = nil
         }
@@ -339,7 +339,7 @@ struct FeatureCompositionTests {
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
-    func galleryOwnerExitRestoresPaginationDuringRefresh(exhausted: Bool) async {
+    func galleryOwnerExitRestoresPaginationDuringRefresh(exhausted: Bool) async throws {
         let service = GalleryFeed()
         let model = GalleryViewModel(service: service)
         await model.refresh(feed: .newest)
@@ -348,7 +348,7 @@ struct FeatureCompositionTests {
         let previous = model.state(for: .newest)
         service.suspend = true
         let refresh = model.enqueueRefresh(for: .newest)
-        while service.pending == nil { await Task.yield() }
+        try await waitForTestEvent { !(service.pending == nil) }
         model.cancelPendingOperations()
         #expect(model.state(for: .newest).nextPage == previous.nextPage)
         #expect(model.state(for: .newest).canLoadMore == previous.canLoadMore)
@@ -452,7 +452,7 @@ struct FeatureCompositionTests {
         try await host(ScheduleRootView(viewModel: selected, requestedSection: .constant(section), destinations: destinations)
             .environmentObject(surrounding)) {
                 if selectedLoads == 0 { await withCheckedContinuation { continuation = $0 } }
-                while !selected.isCacheWritable { try Task.checkCancellation(); await Task.yield() }
+                try await waitForTestEvent { !(!selected.isCacheWritable) }
                 #expect(selected.courseState.courses.map(\.id) == [course.id])
                 #expect(selected.selectedSection == section)
             }

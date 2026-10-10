@@ -61,7 +61,7 @@ struct CommunityDependencyBoundaryTests {
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
-    func draftWritesFinishBeforeCleanupAndPauseFurtherAccess(suggestion: Bool) async {
+    func draftWritesFinishBeforeCleanupAndPauseFurtherAccess(suggestion: Bool) async throws {
         let started = OSAllocatedUnfairLock(initialState: false)
         let gate = DispatchSemaphore(value: 0)
         let files = ModuleScoreFiles(beforeCreatingDirectory: {
@@ -77,14 +77,14 @@ struct CommunityDependencyBoundaryTests {
                 anonymous: false, isPublic: false, selectedClaimID: 0, images: []))
         }
         let pending = Task { await save() }
-        while !started.withLock({ $0 }) { await Task.yield() }
+        try await waitForTestEvent { !(!started.withLock({ $0 })) }
         var cleanupStarted = false
         let cleanup = Task { @MainActor in
             cleanupStarted = true
             await operations.suspendAndDrain()
             return files.removeContents(of: root)
         }
-        while !cleanupStarted { await Task.yield() }
+        try await waitForTestEvent { !(!cleanupStarted) }
         #expect(await save() == false)
         gate.signal()
         let saved = await pending.value
@@ -163,7 +163,7 @@ struct CommunityDependencyBoundaryTests {
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
-    func cancellingArticleRefreshRetainsItsSuccessfulPagination(searching: Bool) async {
+    func cancellingArticleRefreshRetainsItsSuccessfulPagination(searching: Bool) async throws {
         let service = PageAdvancementService()
         let list = PaperListViewModel(service: service)
         let search = PaperSearchViewModel(service: service)
@@ -176,7 +176,7 @@ struct CommunityDependencyBoundaryTests {
         }
         service.suspendedOrder = .newest
         let pending = searching ? search.enqueueSearch() : list.enqueueRefresh()
-        while !service.enteredOrders.contains(.newest) { await Task.yield() }
+        try await waitForTestEvent { !(!service.enteredOrders.contains(.newest)) }
         if searching { search.cancelSearchOperations() } else { list.cancelRefreshOperations() }
         await pending.value
         let state = searching ? search.state : list.state
@@ -238,14 +238,14 @@ struct CommunityDependencyBoundaryTests {
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true], [false, true])
-    func articleReadsCancelWhenReplacedOrClosed(searching: Bool, closing: Bool) async {
+    func articleReadsCancelWhenReplacedOrClosed(searching: Bool, closing: Bool) async throws {
         let service = PageAdvancementService()
         service.suspendedOrder = .newest
         let list = PaperListViewModel(service: service)
         let search = PaperSearchViewModel(service: service)
         search.searchText = "功能验收"
         let first = searching ? search.enqueueSearch() : list.enqueueRefresh()
-        while !service.enteredOrders.contains(.newest) { await Task.yield() }
+        try await waitForTestEvent { !(!service.enteredOrders.contains(.newest)) }
         if closing {
             if searching { search.cancelSearchOperations() } else { list.cancelRefreshOperations() }
         } else {
@@ -276,9 +276,9 @@ struct CommunityDependencyBoundaryTests {
         service.profile = { await withCheckedContinuation { pendingRead = $0 }; return refreshed }
         service.follow = { await withCheckedContinuation { pendingFollow = $0 }; return MineFollowResult(following: true, follower: true, followingNum: 4, followerNum: 5) }
         let following = Task { await model.followUser() }
-        while pendingFollow == nil { await Task.yield() }
+        try await waitForTestEvent { !(pendingFollow == nil) }
         let refresh = Task { await model.refreshProfile() }
-        while pendingRead == nil { await Task.yield() }
+        try await waitForTestEvent { !(pendingRead == nil) }
         if followFinishesFirst { pendingFollow?.resume(); await following.value; pendingRead?.resume(); await refresh.value }
         else { pendingRead?.resume(); await refresh.value; pendingFollow?.resume(); await following.value }
         #expect(model.userInfo?.user.nickname == "已刷新")
@@ -390,10 +390,10 @@ struct CommunityDependencyBoundaryTests {
         let details = SuspendedMessageDetails()
         let messages = try RecordingMessageService.messages([1, 2])
         let first = Task { await model.openMessage(messages[0], in: .comment, using: details) }
-        while details.pending[1] == nil { await Task.yield() }
+        try await waitForTestEvent { !(details.pending[1] == nil) }
         if boundary == "replacement" {
             let second = Task { await model.openMessage(messages[1], in: .comment, using: details) }
-            while details.pending[2] == nil { await Task.yield() }
+            try await waitForTestEvent { !(details.pending[2] == nil) }
             details.pending.removeValue(forKey: 2)?.resume(returning: details.poster(2))
             await second.value
         } else if boundary == "cancel" { first.cancel() }
@@ -470,13 +470,13 @@ struct CommunityDependencyBoundaryTests {
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: ["newer", "list", "cancel"])
-    func unreadSummaryRejectsLateResponsesAfterReplacementClearOrCancellation(boundary: String) async {
+    func unreadSummaryRejectsLateResponsesAfterReplacementClearOrCancellation(boundary: String) async throws {
         let service = DelayedUnreadService()
         let store = RecordingMessageReadStore()
         store.unread = 0
         let model = GalleryMessageViewModel(service: service, readStore: store)
         let old = Task { await model.refreshUnreadCounts() }
-        while service.pending == nil { await Task.yield() }
+        try await waitForTestEvent { !(service.pending == nil) }
         service.delay = false
         switch boundary {
         case "newer": await model.refreshUnreadCounts()

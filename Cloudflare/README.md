@@ -34,15 +34,15 @@
   npx wrangler pages deploy ../PrivacyPolicy --project-name privacy-policy --branch main)
 
 # Universal Link 与网页中转
-(cd Cloudflare/EmergencyUpdateWorker && \
-  npx wrangler deploy --config ../OpenWorker/wrangler.jsonc)
+python3 Scripts/validation_provenance.py deploy-worker OpenWorker
 
 # 紧急更新
-(cd Cloudflare/EmergencyUpdateWorker && npx wrangler deploy)
+python3 Scripts/validation_provenance.py deploy-worker EmergencyUpdateWorker
 
 # 反馈 API
-(cd Cloudflare/EmergencyUpdateWorker && \
-  npx wrangler deploy --config ../ErrorReportWorker/wrangler.jsonc)
+python3 Scripts/validation_provenance.py deploy-worker ErrorReportWorker
 ```
+
+Worker 部署入口将代码、Wrangler 配置与依赖锁的摘要写入版本消息。网络 Smoke 读取活跃部署及全部流量版本，核对当前源码身份，并在采样结束时确认同一部署；部署身份随原始报告和发布摘要保存。
 
 报告读取脚本复用同一 Wrangler 安装，入口为 `Scripts/fetch-issues-and-reports.sh`。本机默认认证目录 `~/.wrangler/config` 通过符号链接复用 `~/Library/Preferences/.wrangler/config`，凭据保存在同一份文件中；命令使用正常的用户目录与 Wrangler 配置规则。

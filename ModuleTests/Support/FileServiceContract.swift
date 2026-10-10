@@ -2,6 +2,21 @@ import Foundation
 import StorageCore
 import Testing
 
+public func waitForTestEvent(
+    timeout: Duration = .seconds(5),
+    isolation: isolated (any Actor)? = #isolation,
+    _ condition: () async throws -> Bool
+) async throws {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: timeout)
+    while true {
+        try Task.checkCancellation()
+        if try await condition() { return }
+        if clock.now >= deadline { throw URLError(.timedOut) }
+        await Task.yield()
+    }
+}
+
 public nonisolated func verifyFileServiceContract(
     _ files: any AppFileService,
     root: URL,

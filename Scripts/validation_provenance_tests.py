@@ -13,7 +13,93 @@ from unittest.mock import patch
 from validation_provenance import LIVE_GROUPS, evidence_current, sampling_evidence_current, utc_now
 
 
+def worker_deployment_fixture(scope: str = 'all') -> dict:
+    import uuid
+    from validation_provenance import WORKER_FOLDERS, worker_source_digest
+    return {folder: {'deploymentID': str(uuid.uuid5(uuid.NAMESPACE_URL, folder)),
+        'sourceDigest': worker_source_digest(folder), 'versions': [{
+            'versionID': str(uuid.uuid5(uuid.NAMESPACE_DNS, folder)), 'percentage': 100,
+            'sourceDigest': worker_source_digest(folder)}]}
+        for folder in WORKER_FOLDERS if scope in {'all', 'bit101'}}
+
+
+def worker_deployment_self_test() -> None:
+    import copy
+    import uuid
+    import validation_provenance as subject
+    proof = worker_deployment_fixture()
+    assert subject.worker_deployments_complete('all', proof)
+    assert subject.worker_deployments_complete('school', {})
+    assert not subject.worker_deployments_complete('all', {})
+    folder = subject.WORKER_FOLDERS[0]
+    original_read = Path.read_bytes
+    source = subject.ROOT / 'Cloudflare' / folder / 'worker.js'
+    with patch.object(Path, 'read_bytes', lambda path: original_read(path) + b'\nchanged\n' if path == source else original_read(path)):
+        assert not subject.worker_deployments_complete('all', proof)
+    for field, value in [('deploymentID', 'invalid'), ('sourceDigest', 'b' * 64), ('versions', [])]:
+        changed = copy.deepcopy(proof)
+        changed[folder][field] = value
+        assert not subject.worker_deployments_complete('all', changed), field
+    for field, value in [('versionID', 'invalid'), ('percentage', True), ('percentage', 99),
+            ('percentage', float('nan')), ('sourceDigest', 'b' * 64)]:
+        changed = copy.deepcopy(proof)
+        changed[folder]['versions'][0][field] = value
+        assert not subject.worker_deployments_complete('all', changed), field
+    gradual = copy.deepcopy(proof)
+    first = gradual[folder]['versions'][0]
+    first['percentage'] = 40
+    gradual[folder]['versions'].append(dict(first, versionID=str(uuid.uuid4()), percentage=60))
+    assert subject.worker_deployments_complete('all', gradual)
+    gradual[folder]['versions'][1]['sourceDigest'] = 'b' * 64
+    assert not subject.worker_deployments_complete('all', gradual)
+    calls = []
+    def cli(name, *arguments):
+        calls.append((name, arguments))
+        row = proof[name]
+        if arguments == ('deployments', 'status'):
+            return {'id': row['deploymentID'], 'versions': [{'version_id': item['versionID'],
+                'percentage': item['percentage']} for item in row['versions']]}
+        identifier = arguments[-1]
+        return {'id': identifier, 'annotations': {'workers/message': subject.WORKER_SOURCE_PREFIX + row['sourceDigest']}}
+    with patch.object(subject, 'worker_cli_json', cli):
+        assert subject.capture_worker_deployments('all') == proof
+        assert len(calls) == 6
+        calls.clear()
+        assert subject.capture_worker_deployments('school') == {} and calls == []
+        with patch.object(subject, 'worker_source_digest', return_value='b' * 64):
+            try: subject.capture_worker_deployments('all')
+            except ValueError: pass
+            else: raise AssertionError('旧部署需要拒绝新源码证据。')
+    with patch.object(subject.subprocess, 'run', return_value=SimpleNamespace(returncode=0,
+            stdout=json.dumps({'id': 'deployment'}))) as run:
+        assert subject.worker_cli_json(folder, 'deployments', 'status') == {'id': 'deployment'}
+        assert run.call_args.args[0][1:4] == ['deployments', 'status', '--json']
+        assert run.call_args.kwargs['env']['WRANGLER_LOG_PATH'] == str(subject.ROOT / '.build/release-network-smoke/console.log')
+    with patch.object(subject.subprocess, 'run', return_value=SimpleNamespace(returncode=1, stdout='')):
+        try: subject.worker_cli_json(folder, 'deployments', 'status')
+        except ValueError: pass
+        else: raise AssertionError('认证失败需要传播读取失败。')
+    report_path = Path('/fixture/release-network-smoke.json')
+    report = {'scope': 'all', 'passed': True}
+    for changed in (False, True):
+        snapshot = copy.deepcopy(proof)
+        if changed: snapshot[folder]['deploymentID'] = str(uuid.uuid4())
+        with patch.object(sys, 'argv', ['worker', 'worker-attach', str(report_path), json.dumps(proof)]), \
+                patch.object(Path, 'read_text', return_value=json.dumps(report)), patch.object(Path, 'write_text') as write, \
+                patch.object(subject, 'capture_worker_deployments', return_value=snapshot), redirect_stderr(StringIO()):
+            try: status = subject.worker_main()
+            except SystemExit as error: status = error.code
+            assert status == int(changed)
+            if changed: write.assert_not_called()
+            else: assert json.loads(write.call_args.args[0])['workerDeployments'] == proof
+    with patch.object(subject, 'worker_source_digest', return_value='a' * 64), \
+            patch.object(sys, 'argv', ['worker', 'deploy-worker', folder]), patch.object(subject.subprocess, 'run') as deploy:
+        assert subject.worker_main() == 0
+        assert deploy.call_args.args[0][1:4] == ['deploy', '--message', subject.WORKER_SOURCE_PREFIX + 'a' * 64]
+
+
 def run_self_test(recorder) -> None:
+    worker_deployment_self_test()
     module = sys.modules[recorder.__module__]
     summary = {"passed": True, "totalTests": 1, "passedTests": 1, "failedTests": 0, "skippedTests": 0}
     for group, start, run_id, artifact, expected in (

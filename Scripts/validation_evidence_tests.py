@@ -374,6 +374,7 @@ def run_self_test(subject) -> int:
         assert subject.smoke_summary('school-sms', mixed)['passed']
         full_sms = network_trace_fixture(dict(sms, scope='all', requiredProbes=sorted(subject.network_inventory('all')), executedProbes=sorted(subject.network_inventory('all'))))
         assert subject.smoke_summary('network', full_sms)['passed']
+        assert not subject.smoke_summary('network', dict(full_sms, workerDeployments={}))['passed']
         projected = subject.smoke_summary('school-sms', full_sms)
         assert subject.complete_summary('school-sms', projected)
         assert projected['scope'] == 'school' and set(projected['requiredProbes']) == subject.network_inventory('school')
@@ -645,6 +646,8 @@ def network_scope_boolean_self_test(subject) -> None:
 
 def network_trace_fixture(value: dict) -> dict:
     from network_request_contracts import contracts_for, SELECTORS
+    from validation_provenance_tests import worker_deployment_fixture
+    value['workerDeployments'] = worker_deployment_fixture(value.get('scope'))
     def example(pattern, identifier=1):
         import re
         pattern = re.sub(r'\(\?:([^()]*)\)', lambda match: match[1].split('|')[0], pattern)

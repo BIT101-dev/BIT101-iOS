@@ -1,3 +1,4 @@
+import BIT101TestSupport
 import ClientCore
 import Foundation
 import ScheduleDomain
@@ -139,19 +140,19 @@ struct EclassDDLSyncTests {
         let model = ScheduleDDLViewModel(service: Service(payload: DDLSyncPayload(url: "", events: [])), repository: repository)
         let handler = model.makeSchoolSMSCodeHandler()
         let first = Task { try await handler(SchoolSMSCodeRequest(maskedPhone: "first", purpose: "DDL")) }
-        while model.schoolSMSWaitID == nil { await Task.yield() }
+        try await waitForTestEvent { !(model.schoolSMSWaitID == nil) }
         let oldID = try #require(model.schoolSMSWaitID)
         model.dismissSchoolSMSCode()
         _ = try? await first.value
         let request = SchoolSMSCodeRequest(maskedPhone: "second", purpose: "DDL")
         let second = Task { try await handler(request) }
-        while model.schoolSMSWaitID == nil { await Task.yield() }
+        try await waitForTestEvent { !(model.schoolSMSWaitID == nil) }
         model.cancelSchoolSMSWait(matching: oldID)
         #expect(model.schoolSMSCodeRequest?.id == request.id)
         model.submitSchoolSMSCode("123456")
         #expect(try await second.value == "123456")
         let third = Task { try await handler(request) }
-        while model.schoolSMSWaitID == nil { await Task.yield() }
+        try await waitForTestEvent { !(model.schoolSMSWaitID == nil) }
         third.cancel()
         do {
             _ = try await third.value

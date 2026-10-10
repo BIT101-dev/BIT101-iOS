@@ -123,6 +123,7 @@ LOCAL_REPORT_PATH="$REPORT_DIR/release-network-smoke.json"
 LOCAL_RAW_COURSE_PATH="$REPORT_DIR/raw-course-response.json"
 LOCAL_REQUEST_PATH="$REPORT_DIR/network-smoke-request.json"
 rm -f "$BUILD_LOG" "$SUMMARY_OUTPUT" "$LOCAL_REPORT_PATH" "$LOCAL_RAW_COURSE_PATH" "$LOCAL_REQUEST_PATH"
+WORKER_SNAPSHOT="$(python3 "$ROOT_DIR/Scripts/validation_provenance.py" worker-snapshot "$SMOKE_SCOPE")"
 
 emit_output() {
   local output_path="$1"
@@ -273,6 +274,7 @@ if ! $REPORT_READY; then
   echo "网络 Smoke 等待超过 30 分钟：$REMOTE_REPORT_PATH" >&2
   exit 1
 fi
+python3 "$ROOT_DIR/Scripts/validation_provenance.py" worker-attach "$LOCAL_REPORT_PATH" "$WORKER_SNAPSHOT"
 
 if [[ "$SMOKE_CAPTURE" == "rawCourseResponse" ]]; then
   if ! xcrun devicectl device copy from \

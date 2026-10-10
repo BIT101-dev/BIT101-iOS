@@ -238,7 +238,7 @@ def performance_comparison_complete(name: str, measurement: dict) -> bool:
 
 
 def baseline_complete(proof: dict) -> bool:
-    from validate_distribution import distribution_contracts, minimum_os_version
+    from validate_distribution import distribution_contracts, minimum_os_version, valid_executable_uuids
     if not isinstance(proof, dict) or proof.get('schemaVersion') != 1 or not isinstance(proof.get('platforms'), dict) \
             or set(proof['platforms']) != set(BASELINE_CHECKS): return False
     contracts = distribution_contracts()
@@ -255,6 +255,16 @@ def baseline_complete(proof: dict) -> bool:
                 or not all(isinstance(check, dict) and check.get("outcome") == "passed" and all(isinstance(check.get(key), str) and check[key].strip()
                     for key in ('operation', 'result')) for check in row['checks'].values()) \
                 or not isinstance(row.get('evidence'), dict) or not artifact_complete(row['evidence'], 'photos'): return False
+        bundles = row.get('installedBundles')
+        expected = {identifier for identifier, value in contracts.items() if value['platform'] == platform}
+        if not isinstance(bundles, list) or len(bundles) != len(expected) \
+                or any(not isinstance(bundle, dict) or not isinstance(bundle.get('identifier'), str) for bundle in bundles) \
+                or {bundle.get('identifier') for bundle in bundles} != expected: return False
+        for bundle in bundles:
+            contract = contracts[bundle['identifier']]
+            if bundle.get('version') != contract['version'] or bundle.get('build') != contract['build'] \
+                    or not isinstance(bundle.get('sha256'), str) or not re.fullmatch(r'[0-9a-f]{64}', bundle['sha256']) \
+                    or not valid_executable_uuids(bundle.get('executableUUIDs')): return False
     return True
 
 
@@ -263,11 +273,12 @@ def complete(checks: dict) -> bool:
     encoded = [row.get('evidence', {}).get('dataBase64', '') for row in checks.values()
         if isinstance(row, dict) and isinstance(row.get('evidence'), dict)]
     if any(not isinstance(value, str) for value in encoded) or sum(map(len, encoded)) > MAXIMUM_REPORT_BYTES: return False
-    return set(checks) == MANUAL_DEVICE_CHECKS and all(
+    valid = set(checks) == MANUAL_DEVICE_CHECKS and all(
         isinstance(row, dict) and row.get('check') == check and row.get('outcome') == 'passed'
         and all(isinstance(row.get(field), str) and row[field].strip() for field in ("operation", "result", "capturedAt"))
         and isinstance(row.get("evidence"), dict) and artifact_complete(row["evidence"], check, observed_at=row['capturedAt'])
         and sampling_evidence_current({"startedAt": row["capturedAt"], "finishedAt": row["capturedAt"]}) for check, row in checks.items())
+    return valid and baseline_matches_distribution(checks['minimum-platforms'], checks['distribution-signing'])
 
 
 def distribution_matches_archive(observation: dict, archive: dict) -> bool:
@@ -284,4 +295,18 @@ def distribution_matches_archive(observation: dict, archive: dict) -> bool:
         executables = summary['executables']
         if {row['identifier'] for row in rows} != set(executables): return False
         return all(row['executableUUIDs'] and all(item in executables[row['identifier']] for item in row['executableUUIDs']) for row in rows)
+    except (KeyError, ValueError, TypeError, AttributeError): return False
+
+
+def baseline_matches_distribution(observation: dict, distribution_observation: dict) -> bool:
+    try:
+        if not artifact_complete(observation.get('evidence', {}), 'minimum-platforms') \
+                or not artifact_complete(distribution_observation.get('evidence', {}), 'distribution-signing'): return False
+        proof = json.loads(base64.b64decode(observation['evidence']['dataBase64'], validate=True))
+        distribution = json.loads(base64.b64decode(distribution_observation['evidence']['dataBase64'], validate=True))
+        fields = ('identifier', 'version', 'build', 'sha256', 'executableUUIDs')
+        expected = {row['identifier']: {key: row[key] for key in fields} for row in distribution['bundles']}
+        installed = {row['identifier']: {key: row[key] for key in fields}
+            for platform in proof['platforms'].values() for row in platform['installedBundles']}
+        return installed == expected
     except (KeyError, ValueError, TypeError, AttributeError): return False

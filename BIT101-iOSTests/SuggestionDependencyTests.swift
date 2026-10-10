@@ -166,7 +166,7 @@ struct AppLocalDataOwnershipTests {
                 return !fails
             } catch { return fails && (error as? URLError)?.code == .timedOut }
         }
-        while pending == nil { await Task.yield() }
+        try await waitForTestEvent { !(pending == nil) }
         #expect(mutation.isUpdating)
         try await mutation.perform { writes.append("duplicate") }
         #expect(mutation.isUpdating && writes == ["first"])
@@ -205,7 +205,7 @@ struct AppLocalDataOwnershipTests {
             actions.events.append("logout")
             try? files.writeData(Data([9]), to: file, options: [.atomic])
         } }
-        while actions.pending == nil { await Task.yield() }
+        try await waitForTestEvent { !(actions.pending == nil) }
         #expect(service.isCleaning && !loggedOut)
         let previous = actions.events
         #expect(await service.resetAllLocalData { Issue.record("Concurrent reset changed the session") } == false)

@@ -554,7 +554,7 @@ struct GalleryRecommendationPrefetchTests {
             return []
         }
         let oldPage = Task { await next(comment) }
-        while pending == nil { await Task.yield() }
+        try await waitForTestEvent { !(pending == nil) }
         #expect(state().isLoadingMore)
         if changesOrder {
             if paper { await article.setCommentOrder(.newest) } else { await model.setCommentOrder(.newest) }
@@ -580,7 +580,7 @@ struct GalleryRecommendationPrefetchTests {
         var pending: CheckedContinuation<Void, Never>?
         service.paperDeletion = { await withCheckedContinuation { pending = $0 }; if fails { throw URLError(.timedOut) } }
         let deletion = Task { await model.deletePaper() }
-        while pending == nil { await Task.yield() }
+        try await waitForTestEvent { !(pending == nil) }
         #expect(model.isDeletingPaper && service.paperDeleteCalls == 1)
         #expect(await model.deletePaper() == false)
         #expect(model.isDeletingPaper && service.paperDeleteCalls == 1)
@@ -611,9 +611,9 @@ struct GalleryRecommendationPrefetchTests {
         service.commentHandler = { _ in await withCheckedContinuation { pendingRead = $0 }; if readFails { throw URLError(.timedOut) }; return [parent] }
         service.likeGate = { await withCheckedContinuation { pendingLike = $0 } }
         let reading = Task { await refresh() }
-        while pendingRead == nil { await Task.yield() }
+        try await waitForTestEvent { !(pendingRead == nil) }
         let liking = Task { if paper { await article.toggleCommentLike(child) } else { await model.likeComment(child) } }
-        while pendingLike == nil { await Task.yield() }
+        try await waitForTestEvent { !(pendingLike == nil) }
         if likeFinishesFirst { pendingLike?.resume(); await liking.value; pendingRead?.resume(); await reading.value }
         else { pendingRead?.resume(); await reading.value; pendingLike?.resume(); await liking.value }
         let state = paper ? article.commentState : model.commentState
@@ -714,13 +714,13 @@ struct GalleryRecommendationPrefetchTests {
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
-    func paperSubmissionCancellationEndsItsLifecycleAndAllowsAReopenedComposer(editing: Bool) async {
+    func paperSubmissionCancellationEndsItsLifecycleAndAllowsAReopenedComposer(editing: Bool) async throws {
         let service = PaperSavingService()
         service.suspend = true
         let model = PaperComposerViewModel(editingPaper: editing ? editingPaper("正文") : nil, initialContent: "正文")
         model.title = "标题"; model.intro = "简介"
         let task = Task { await model.submit(service: service) }
-        while service.pending == nil { await Task.yield() }
+        try await waitForTestEvent { !(service.pending == nil) }
         #expect(model.isSubmitting)
         #expect(await model.submit(service: service) == false)
         task.cancel()
@@ -748,7 +748,7 @@ struct GalleryRecommendationPrefetchTests {
             if paper { await paperModel.bootstrapIfNeeded() } else { await galleryModel.bootstrapIfNeeded() }
         }
         let entry = Task { await refresh() }
-        while service.enteredRequests != expected || service.completedRequests.count != 2 - expected.count { await Task.yield() }
+        try await waitForTestEvent { !(service.enteredRequests != expected || service.completedRequests.count != 2 - expected.count) }
         entry.cancel()
         await entry.value
         #expect(service.cancelledRequests == expected)
@@ -774,7 +774,7 @@ struct GalleryRecommendationPrefetchTests {
         service.likeGate = { if likeStartsFirst { await withCheckedContinuation { pendingLike = $0 } } }
         func like() async { if paper { await article.likePaper() } else { await gallery.likePoster() } }
         let mutation = likeStartsFirst ? Task { await like() } : nil
-        if likeStartsFirst { while pendingLike == nil { await Task.yield() } }
+        if likeStartsFirst { try await waitForTestEvent { !(pendingLike == nil) } }
         let refresh = Task { if paper { await article.refreshAll() } else { await gallery.refreshAll() } }
         await service.waitForDetail()
         if let mutation { pendingLike?.resume(); await mutation.value } else { await like() }

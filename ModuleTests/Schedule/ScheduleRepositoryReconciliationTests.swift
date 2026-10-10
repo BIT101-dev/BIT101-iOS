@@ -10,6 +10,39 @@ import Testing
 @MainActor
 struct ScheduleRepositoryReconciliationTests {
     @Test(.timeLimit(.minutes(1)))
+    func eventWaitFinishesOnTimeoutCancellationAndReadiness() async throws {
+        await #expect(throws: URLError.self) {
+            try await waitForTestEvent(timeout: .milliseconds(1)) { false }
+        }
+        do {
+            try await waitForTestEvent { throw URLError(.networkConnectionLost) }
+            Issue.record("事件读取失败需要传播原始错误。")
+        } catch { #expect((error as? URLError)?.code == .networkConnectionLost) }
+        let waiting = Task { try await waitForTestEvent { false } }
+        waiting.cancel()
+        do { try await waiting.value; Issue.record("取消等待需要抛出取消错误。") }
+        catch { #expect(error is CancellationError) }
+        var ready = false
+        let producer = Task { ready = true }
+        try await waitForTestEvent { ready }
+        await producer.value
+        var pending: CheckedContinuation<Void, Never>?
+        var completed = false
+        let suspended = Task {
+            await withCheckedContinuation { pending = $0 }
+            completed = true
+        }
+        try await waitForTestEvent { pending != nil }
+        func missingEvent() async throws {
+            defer { suspended.cancel(); pending?.resume(); pending = nil }
+            try await waitForTestEvent(timeout: .milliseconds(1)) { false }
+        }
+        await #expect(throws: URLError.self) { try await missingEvent() }
+        try await waitForTestEvent { completed }
+        await suspended.value
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func aSecondConflictChoiceWaitsForTheSubmittedChoice() async throws {
         let account = AppStorageSession(accountIdentifier: "choice-queue")
         var disk = ScheduleCache()
@@ -29,11 +62,13 @@ struct ScheduleRepositoryReconciliationTests {
         #expect(await repository.persistAndWait() == false)
         pauseRead = true
         let choice = Task { await repository.resolvePersistenceConflict(.keepLocal) }
-        while pending == nil { await Task.yield() }
+        defer { pauseRead = false; choice.cancel(); pending?.resume(); pending = nil }
+        try await waitForTestEvent { !(pending == nil) }
         #expect(repository.isResolvingPersistenceConflict)
         await repository.resolvePersistenceConflict(.useCloud)
         pauseRead = false
         pending?.resume()
+        pending = nil
         await choice.value
         #expect(disk.primaryScheduleTitle == "本机" && !repository.isResolvingPersistenceConflict)
     }
@@ -58,16 +93,18 @@ struct ScheduleRepositoryReconciliationTests {
         let changes = PassthroughSubject<AppStorageSession, Never>()
         var pending: CheckedContinuation<Void, Never>?
         var writes = 0
+        var pauseWrite = true
         let repository = ScheduleRepository(session: { account }, load: { await store.load(for: $0) },
             save: { cache, source, owner in
                 writes += 1
-                if writes == 1 { await withCheckedContinuation { pending = $0 } }
+                if writes == 1 && pauseWrite { await withCheckedContinuation { pending = $0 } }
                 try await write(cache, to: store, account: owner, source: source)
             }, changes: changes.eraseToAnyPublisher())
         await repository.loadIfNeeded()
         repository.presentationPreferences.showSunday = false
         let saving = Task { await repository.persistAndWait(source: source) }
-        while pending == nil { await Task.yield() }
+        defer { pauseWrite = false; saving.cancel(); pending?.resume(); pending = nil }
+        try await waitForTestEvent { !(pending == nil) }
         var remote = initial
         remote.primaryScheduleTitle = "同步标题"
         remote.cloudSyncBaselineRecordTag = "remote"
@@ -82,6 +119,7 @@ struct ScheduleRepositoryReconciliationTests {
             await Task.yield()
         }
         pending?.resume()
+        pending = nil
         _ = await saving.value
         if let second { #expect(await second.value) }
         else { #expect(repository.notice == nil) }

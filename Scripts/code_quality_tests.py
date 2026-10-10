@@ -14,7 +14,7 @@ from ui_rule_tests import device_discovery_boundary_findings, explanatory_text_b
 
 from code_quality_rules import (
     ROOT, SCRIPT_ROOT, swift_files, ast_has_view_request, ci_trigger_shell_self_test, cross_file_view_request_self_test,
-    cancellation_findings, client_source_findings, extension_dependency_findings, mask_literals_and_comments,
+    cancellation_findings, asynchronous_test_wait_findings, client_source_findings, extension_dependency_findings, mask_literals_and_comments,
     owner_has_call, uses_application_support_storage, view_request_matches, source_findings,
 )
 
@@ -116,6 +116,27 @@ enum Consumer {
         findings.append("代码质量规则边界自检失败：取消识别按声明归属处理文件迁移、变量改名和模块限定类型")
     if cancellation_findings(ROOT / "ModuleTests/Transport/ExactErrorTests.swift", cancellation_source, cancellation_syntax[str(cancellation_path)]):
         findings.append("代码质量规则边界自检失败：测试可直接断言底层取消类型")
+    wait_path = ROOT / 'ModuleTests/Transport/EventTests.swift'
+    for body, expected in (
+        ('while pending == nil { await Task.yield() }', 1),
+        ('while pending == nil { try Task.checkCancellation(); await Task.yield() }', 1),
+        ('try await waitForTestEvent { pending != nil }', 0),
+        ('for _ in 0..<3 { await Task.yield() }', 0),
+        ('while pending == nil { consume("Task.yield()") }', 0),
+    ):
+        source = 'func testEvent() async throws { ' + body + ' }'
+        facts = swift_syntax_index_sources({str(wait_path): source})[str(wait_path)]
+        if len(asynchronous_test_wait_findings(wait_path, source, facts)) != expected:
+            findings.append('异步事件等待自测：取消检查与有限等待入口需要共同验收')
+    support = ROOT / 'ModuleTests/Support/FileServiceContract.swift'
+    source = support.read_text()
+    facts = swift_syntax_index_sources({str(support): source})[str(support)]
+    if asynchronous_test_wait_findings(support, source, facts):
+        findings.append('异步事件等待自测：共享等待实现沿行为回归验收')
+    source += '\nfunc other() async { while pending == nil { await Task.yield() } }\n'
+    facts = swift_syntax_index_sources({str(support): source})[str(support)]
+    if len(asynchronous_test_wait_findings(support, source, facts)) != 1:
+        findings.append('异步事件等待自测：共享文件中的其他函数遵循调用入口')
     unwrap_source = '''
 // value!
 let example = "value!"

@@ -345,7 +345,7 @@ struct SchedulePersistenceTests {
 
 @MainActor
 struct SchedulePersistenceCoordinatorTests {
-    @Test func queuedSavesValidateTheGenerationAcrossAccountRoundTrips() async {
+    @Test func queuedSavesValidateTheGenerationAcrossAccountRoundTrips() async throws {
         let coordinator = SchedulePersistenceCoordinator()
         var generation = 1
         var started = false
@@ -357,7 +357,7 @@ struct SchedulePersistenceCoordinatorTests {
             writes.append(1)
             return true
         } }
-        while !started { await Task.yield() }
+        try await waitForTestEvent { !(!started) }
         let oldGeneration = generation
         let queued = Task { await coordinator.perform(isCurrent: { generation == oldGeneration }) {
             writes.append(2)
@@ -376,7 +376,7 @@ struct SchedulePersistenceCoordinatorTests {
         #expect(writes == [1, 3])
     }
 
-    @Test func cancellationRetainsTheCommittedWriteAndSkipsQueuedWork() async {
+    @Test func cancellationRetainsTheCommittedWriteAndSkipsQueuedWork() async throws {
         let coordinator = SchedulePersistenceCoordinator()
         var started = false
         var release: CheckedContinuation<Void, Never>?
@@ -387,7 +387,7 @@ struct SchedulePersistenceCoordinatorTests {
             writes.append(1)
             return true
         } }
-        while !started { await Task.yield() }
+        try await waitForTestEvent { !(!started) }
         let queued = Task { await coordinator.perform(isCurrent: { true }) {
             writes.append(2)
             return true

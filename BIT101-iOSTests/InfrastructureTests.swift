@@ -59,17 +59,19 @@ private nonisolated final class DelayedSchoolCookieServer: Sendable {
         }
     }
     func url() async throws -> URL {
-        while true {
+        try await waitForTestEvent {
             let snapshot = state.withLock { $0 }
             if let failure = snapshot.failure { throw failure }
-            if let port = snapshot.port { return AppURL.required("http://127.0.0.1:\(port)/cookie-isolation") }
-            try Task.checkCancellation(); await Task.yield()
+            return snapshot.port != nil
         }
+        let port = try #require(state.withLock { $0.port })
+        return AppURL.required("http://127.0.0.1:\(port)/cookie-isolation")
     }
     func waitForRequest() async throws {
-        while state.withLock({ $0.connection == nil }) {
-            if let error = state.withLock({ $0.failure }) { throw error }
-            try Task.checkCancellation(); await Task.yield()
+        try await waitForTestEvent {
+            let snapshot = state.withLock { $0 }
+            if let error = snapshot.failure { throw error }
+            return snapshot.connection != nil
         }
     }
     func requestHasCookie() -> Bool { state.withLock { $0.request.lowercased().contains("\r\ncookie:") } }
@@ -145,7 +147,7 @@ struct NetworkSmokeSMSPromptTests {
         let prompt = ReleaseNetworkSmokeSMSPrompt()
         let request = SchoolSMSCodeRequest(maskedPhone: "138****0000", purpose: "jwb")
         let waiting = Task { try await prompt.requestCode(request) }
-        while prompt.request == nil { await Task.yield() }
+        try await waitForTestEvent { !(prompt.request == nil) }
         do {
             _ = try await prompt.requestCode(SchoolSMSCodeRequest(maskedPhone: "", purpose: "webvpn"))
             Issue.record("并行请求应保留当前验证码等待")
@@ -160,13 +162,13 @@ struct NetworkSmokeSMSPromptTests {
         let prompt = ReleaseNetworkSmokeSMSPrompt()
         let request = SchoolSMSCodeRequest(maskedPhone: "138****0000", purpose: "jwb")
         let waiting = Task { try await prompt.requestCode(request) }
-        while prompt.request == nil { await Task.yield() }
+        try await waitForTestEvent { !(prompt.request == nil) }
         waiting.cancel()
         do { _ = try await waiting.value; Issue.record("取消应终止验证码等待") }
         catch { #expect(TaskCancellation.matches(error)) }
         #expect(prompt.request == nil)
         let next = Task { try await prompt.requestCode(request) }
-        while prompt.request == nil { await Task.yield() }
+        try await waitForTestEvent { !(prompt.request == nil) }
         prompt.submit("654321")
         #expect(try await next.value == "654321")
         #expect(prompt.request == nil)

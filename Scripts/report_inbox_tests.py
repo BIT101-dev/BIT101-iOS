@@ -104,10 +104,13 @@ if [[ "$1" == api ]]; then
   print '[]'
 elif [[ "$2" == list ]]; then
   if [[ "$INBOX_SELF_TEST_MODE" == listing-failure ]]; then print partial; exit 18; fi
-  if [[ "$INBOX_SELF_TEST_MODE" == log-failure ]]; then
+  if [[ "$INBOX_SELF_TEST_MODE" == log-failure || "$INBOX_SELF_TEST_MODE" == log-success ]]; then
     print '[{"databaseId":1,"updatedAt":"new","headSha":"head"}]'
   else print '[]'; fi
-elif [[ "$2" == view ]]; then print -ru2 'fixture log failure'; exit 19
+elif [[ "$2" == view ]]; then
+  if [[ "$INBOX_SELF_TEST_MODE" == log-success ]]; then
+    python3 -c 'print("error: first diagnostic"); print("context" * 10000); print("final diagnostic")'
+  else print -ru2 'fixture log failure'; exit 19; fi
 else exit 99; fi
 ''')
         fake_gh.chmod(0o700)
@@ -116,7 +119,7 @@ else exit 99; fi
         shell_source = shell_source.replace('WRANGLER="$WRANGLER_DIR/node_modules/.bin/wrangler"', 'WRANGLER=mock_wrangler')
         issue_path, ci_path = fixture / "github-issues.json", fixture / "github-ci.json"
         old_issue = '[{"number":1,"state":"open","title":"cached issue","url":"fixture"}]'
-        old_ci = '[{"databaseId":1,"updatedAt":"old","headSha":"head","failedLogTail":"cached log"}]'
+        old_ci = '[{"databaseId":1,"updatedAt":"old","headSha":"head","failedLog":"cached log"}]'
         issue_path.write_text(old_issue)
         ci_path.write_text(old_ci)
         def run_fetch(mode):
@@ -128,10 +131,20 @@ else exit 99; fi
         assert "failed" in (fixture / "summary.txt").read_text()
         assert run_fetch("log-failure").returncode == 1
         partial = json.loads(ci_path.read_text())[0]
-        assert partial["previousFailedLogTail"] == "cached log" and "failedLogError" in partial
+        assert partial["previousFailedLog"] == "cached log" and "failedLogError" in partial
         assert run_fetch("log-failure").returncode == 1
         repeated = json.loads(ci_path.read_text())[0]
-        assert repeated["previousFailedLogTail"] == "cached log" and "failedLogError" in repeated
+        assert repeated["previousFailedLog"] == "cached log" and "failedLogError" in repeated
+        assert run_fetch("log-success").returncode == 0
+        complete = json.loads(ci_path.read_text())[0]["failedLog"]
+        assert len(complete) > 30000 and complete.startswith("error: first diagnostic\n")
+        assert complete.endswith("final diagnostic\n")
+        assert "error: first diagnostic" in (fixture / "summary.txt").read_text()
+        assert run_fetch("log-failure").returncode == 0
+        assert json.loads(ci_path.read_text())[0]["failedLog"] == complete
+        ci_path.write_text('[{"databaseId":1,"updatedAt":"new","headSha":"head","failedLogTail":"truncated"}]')
+        assert run_fetch("log-success").returncode == 0
+        assert json.loads(ci_path.read_text())[0]["failedLog"] == complete
         assert run_fetch("success").returncode == 0
         assert json.loads(issue_path.read_text()) == json.loads(ci_path.read_text()) == []
     except (AssertionError, OSError) as error:

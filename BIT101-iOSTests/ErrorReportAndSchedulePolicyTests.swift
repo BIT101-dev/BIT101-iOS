@@ -372,7 +372,7 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
                 return step.title + "：通过"
             })
             let work = Task { await runner.run() }
-            while waiting == nil || runner.completedCount < 4 { try Task.checkCancellation(); await Task.yield() }
+            try await waitForTestEvent { !(waiting == nil || runner.completedCount < 4) }
             switch interruption {
             case "account": owner = .init(community: .init(accountIdentifier: "B"), school: .init(accountIdentifier: "B", generation: 0))
             case "community-generation": owner = .init(community: .init(accountIdentifier: "A", generation: 1), school: owner.school)
@@ -469,7 +469,7 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
     }
 
     @MainActor
-    func testTranscriptRetryCancellationRetiresImagesAndLateChallengesAndCanResume() async {
+    func testTranscriptRetryCancellationRetiresImagesAndLateChallengesAndCanResume() async throws {
         for returnsChallenge in [false, true] {
             let page = UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1)).pngData { _ in }
             let service = RetryingTranscriptService(page: page, returnsChallenge: returnsChallenge)
@@ -478,7 +478,7 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
             guard case .failed = model.state else { XCTFail("Expected initial failure"); continue }
             model.prepareRetry()
             let retry = Task { await model.applyIfNeeded() }
-            while service.pending == nil { await Task.yield() }
+            try await waitForTestEvent { !(service.pending == nil) }
             retry.cancel()
             service.pending?.resume()
             await retry.value

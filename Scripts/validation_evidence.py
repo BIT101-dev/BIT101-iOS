@@ -351,6 +351,7 @@ def smoke_summary(group: str, value: dict, *, full: bool = True) -> dict:
                 for name in ('failures', 'coverageGaps', 'authenticationBlockers', 'skippedProbes')}
             removed = any(len(diagnostics[name]) != len(value.get(name, [])) for name in diagnostics)
             value = dict(value, **diagnostics, passed=value.get('passed') is True or removed,
+                workerDeployments={},
                 executedProbes=sorted(required & executed),
                 requestEvidence=[row for row in value.get('requestEvidence', [])
                     if isinstance(row, dict) and row.get('probe') in required])
@@ -358,9 +359,10 @@ def smoke_summary(group: str, value: dict, *, full: bool = True) -> dict:
         term_complete = not full or group not in {"network", "school-sms"} or (
             value.get("requestedTerm") is None and isinstance(current_term, str) and bool(current_term.strip())
             and value.get("validatedTerm") == current_term)
-        from validation_provenance import network_requests_complete
+        from validation_provenance import network_requests_complete, worker_deployments_complete
         return {"passed": value.get("passed") is True and (reported_scope == expected_scope or projected_sms)
                 and network_requests_complete(required, value)
+                and worker_deployments_complete(expected_scope, value.get('workerDeployments', {}))
                 and term_complete
                 and (not projected_sms or raw_required == network_inventory("all"))
                 and (group != "community-writes" or community_writes_complete(value.get("communityWriteEvidence", [])))
@@ -374,6 +376,7 @@ def smoke_summary(group: str, value: dict, *, full: bool = True) -> dict:
                 "productionSessionEvidence": value.get("productionSessionEvidence", []),
                 "requestEvidence": value.get("requestEvidence", []),
                 "requestEvidenceRequired": value.get("requestEvidenceRequired"),
+                "workerDeployments": value.get("workerDeployments", {}),
                 **{name: value.get(name) for name in ("requestedTerm", "currentTerm", "validatedTerm")},
                 "diagnostics": {name: value.get(name, []) for name in ("failures", "coverageGaps", "authenticationBlockers", "skippedProbes")},
                 "runID": value.get("runID"), "inputDigest": value.get("inputDigest"),
@@ -487,10 +490,11 @@ def complete_summary(group: str, summary: dict) -> bool:
                 complete = not source_runtime_interaction_findings(syntax_index(), documented_interactions(), inventory.get("visitedControls", []))
         return complete
     if group in NETWORK_GROUPS:
-        from validation_provenance import network_requests_complete
+        from validation_provenance import network_requests_complete, worker_deployments_complete
         expected_scope = "all" if group == "network" else "school" if group == "school-sms" else group
         return summary.get("scope") == expected_scope and set(summary.get("requiredProbes", [])) == network_inventory(expected_scope) \
             and network_requests_complete(network_inventory(expected_scope), summary) \
+            and worker_deployments_complete(expected_scope, summary.get('workerDeployments', {})) \
             and (group != "community-writes" or community_writes_complete(summary.get("communityWriteEvidence", []))) \
             and (group != "school-sms" or school_authentication_complete(summary)) \
             and set(summary["requiredProbes"]) <= set(summary.get("probeInventory", [])) and all(
@@ -547,10 +551,13 @@ def release_findings(report: dict, digest: str, *, recorded_environment: bool = 
             != toolchain_identity(environment_context("build-archive")):
         errors.append("发布编译工具链及 SDK 与已绑定证据存在差异，请重新验收。")
     groups = report.get("groups", {})
-    observation = groups.get("manual-device", {}).get("summary", {}).get("checks", {}).get("distribution-signing", {})
-    from validation_manual import distribution_matches_archive
+    checks = groups.get("manual-device", {}).get("summary", {}).get("checks", {})
+    observation = checks.get("distribution-signing", {})
+    from validation_manual import distribution_matches_archive, baseline_matches_distribution
     if not distribution_matches_archive(observation, groups.get("build-archive", {})):
         errors.append("最终分发签名需要对应已验证归档的源码摘要、运行标识与可执行文件 UUID。")
+    if not baseline_matches_distribution(checks.get("minimum-platforms", {}), observation):
+        errors.append("最低系统安装验收需要对应最终分发包的版本、build、摘要与可执行文件 UUID。")
     return errors
 
 

@@ -16,7 +16,7 @@ npm install
 npx wrangler login
 npx wrangler kv namespace create bit101-emergency-config \
   --binding EMERGENCY_CONFIG --update-config
-npx wrangler deploy
+python3 ../../Scripts/validation_provenance.py deploy-worker EmergencyUpdateWorker
 ```
 
 发布提醒：

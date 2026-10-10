@@ -100,7 +100,7 @@ Scripts/run-extended-tests.sh catalyst-release-runtime
 Scripts/run-extended-tests.sh release-runtime
 ```
 
-快捷行为分组沿 `Scripts/validation_test_areas.py` 的显式领域归属选择全部 suite；静态审计核对新增 suite 的归属及失效登记，学校账号隔离同时属于登录和基础设施。完整分组核对实际执行方法集合；手选类或方法保留为定向范围。编译条件由当前 Swift 编译器沿宿主目标、SDK 与工作流标志求值，支持框架可用性及 Swift / 编译器版本谓词。本地模块的 canImport 按所属 SwiftPM target 或原生 target 的依赖图求值；网络能力库存覆盖包模块的 iOS、watchOS、macOS、Catalyst 分支，以及 App 的 iOS、Catalyst 分支。包级测试由 `Package.swift` 的 Transport、Community、Schedule、Contracts、Score、Map、Sync 七个消费者 target 管理，代码位于 `ModuleTests/`，使用内存传输、文件服务、偏好和实例级变更流。
+快捷行为分组沿 `Scripts/validation_test_areas.py` 的显式领域归属选择全部 suite；静态审计核对新增 suite 的归属及失效登记，学校账号隔离同时属于登录和基础设施。完整分组核对实际执行方法集合；手选类或方法保留为定向范围。编译条件由当前 Swift 编译器沿宿主目标、SDK 与工作流标志求值，支持框架可用性及 Swift / 编译器版本谓词。本地模块的 canImport 按所属 SwiftPM target 或原生 target 的依赖图求值；网络能力库存覆盖包模块的 iOS、watchOS、macOS、Catalyst 分支，以及 App 的 iOS、Catalyst 分支。包级测试由 `Package.swift` 的 Transport、Community、Schedule、Contracts、Score、Map、Sync 七个消费者 target 管理，代码位于 `ModuleTests/`，使用内存传输、文件服务、偏好和实例级变更流。模块及 App 行为测试的异步事件统一沿共享 `waitForTestEvent` 等待，默认期限为五秒，主动核对任务取消；定向回归覆盖超时、取消和事件就绪，静态审计核对等待入口。
 
 覆盖话廊分页去重、预取游标与搜索代际，主页刷新、分页失败重试和账号场景隔离，日程整体格式迁移、课程编辑及权威快照，发帖编辑与上传生命周期、草稿损坏和格式版本保护、历史草稿及图片迁移、账号目录与文件保存失败保护、社区身份与恢复隔离、日程保存排队、精确版本往返与过期比较令牌、文件损坏和账号切换、生产成绩服务注入、独立成绩与消息存储端口、变更流的实例及账号归属、共享草稿图片准备和版本清理、同步冲突及地图身份规则。本地文件元数据故障测试验证读取能力及旧内容保留。社区持久化测试通过 `CommunityPersistence` 的公共入口运行。测试用内存文件服务集中于 `ModuleTests/Support`，直接依赖 StorageCore。学校课表解析沿用 `BIT101-iOSTests/Fixtures/schedule-service-response.json`。
 
@@ -308,7 +308,7 @@ UI 摘要合并本批全部 App 进程的完整控件标识与访问动作，冷
 
 `feedback-delivery` 的结构化收件证明保存正式 App 报告、存储键、接收时间、投递状态及邮件正文，并采集 `To`、`Date`、`Message-ID` 和 `X-BIT101-Report-ID` 邮件头。收件地址与 Worker 配置一致，邮件头、正文和存储记录共同绑定报告编号；提供方消息标识按存储返回值保留，邮件 `Message-ID` 按实际收件头核对。报告接收时间沿一天采样有效期核对，邮件日期位于报告接收与验收之间，采用邮件头的秒精度比较。
 
-影像附件通过 ImageIO、Core Graphics 和 AVFoundation 实际解码，视频读取完整视频轨道。`minimum-platforms` 附件使用结构化 JSON，`schemaVersion` 为 1，`platforms` 包含 `iOS` 与 `watchOS`。每端登记 `deviceIdentifier`、`deviceModel`、`systemVersion`、`systemBuild`、`capturedAt`、`checks` 及 `evidence`；系统主版本与小版本匹配对应平台各目标的最高部署要求，补丁版本达到部署要求，当前覆盖 iOS 17.0 与 watchOS 10.0。
+影像附件通过 ImageIO、Core Graphics 和 AVFoundation 实际解码，视频读取完整视频轨道。`minimum-platforms` 附件使用结构化 JSON，`schemaVersion` 为 1，`platforms` 包含 `iOS` 与 `watchOS`。每端登记 `deviceIdentifier`、`deviceModel`、`systemVersion`、`systemBuild`、`capturedAt`、`checks`、`evidence` 及 `installedBundles`；安装记录覆盖对应平台的全部 bundle，保存 `identifier`、`version`、`build`、`sha256` 和 `executableUUIDs`，并与最终分发签名证据核对。分发证据继续绑定正式归档的源码身份。系统主版本与小版本匹配对应平台各目标的最高部署要求，补丁版本达到部署要求，当前覆盖 iOS 17.0 与 watchOS 10.0。
 
 iOS 的 `checks` 包含 `cold-start-session`、`offline-persistence`、`media-and-navigation`，Watch 包含 `snapshot-receive`、`timeline-render`、`clear-and-retry`；每项保存 `operation`、`result` 与 `outcome`，成功状态为 `passed`。每端的影像 `evidence` 保存 `path`、`sha256`、`byteCount`、`dataBase64`，与普通附件采用相同解码和时效校验。常规自动化记录所选 iPhone 系统身份，最低部署版本专项补充对应实体设备的核心验收。反馈专项从 App 提交正式报告，核对报告持久化及维护者邮件送达，并将报告编号、存储键和邮件收件证据保存在验收附件。
 

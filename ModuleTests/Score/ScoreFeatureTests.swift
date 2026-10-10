@@ -222,24 +222,34 @@ struct ScoreFeatureTests {
         defer { defaults.removePersistentDomain(forName: "BIT101ModulesTests.score.schedule-reads") }
         let session = AppStorageSession(accountIdentifier: "schedule-reads")
         let cache = ScoreCacheStore(files: ModuleScoreFiles(), storageRoot: URL(fileURLWithPath: "/schedule-reads"), defaults: defaults, session: { session })
-        var reads: [CheckedContinuation<[String: [ScoreCourseSummary]], Never>] = []
+        @MainActor final class Reads {
+            var pending: [CheckedContinuation<[String: [ScoreCourseSummary]], Never>?] = []
+            var suspended = true
+        }
+        let reads = Reads()
+        defer { reads.suspended = false; reads.pending.forEach { $0?.resume(returning: [:]) } }
         let model = ScoreViewModel(service: ScoreServiceSpy(), cacheStore: cache,
             preferenceStore: ScoreFilterPreferenceStore(defaults: defaults, session: { session }), currentScoreCacheSession: { session },
             scheduleCoursesChanges: Empty().eraseToAnyPublisher(), loadScheduleCourses: { _ in
-                await withCheckedContinuation { reads.append($0) }
+                guard reads.suspended else { return [:] }
+                return await withCheckedContinuation { reads.pending.append($0) }
             })
         func course(_ id: String, term: String) -> ScoreCourseSummary {
             .init(id: id, term: term, name: id, number: id, type: "", teacher: "", classroom: "", campus: "", description: "",
                 creditText: "", scheduleText: "", weeksText: "", hourText: "")
         }
         let first = Task { await model.restoreCachedDataIfNeeded() }
-        while reads.count < 1 { await Task.yield() }
+        defer { first.cancel() }
+        try await waitForTestEvent { !(reads.pending.count < 1) }
         let second = Task { await model.restoreCachedDataIfNeeded() }
-        while reads.count < 2 { await Task.yield() }
-        reads[1].resume(returning: ["新学期": [course("new-1", term: "新学期"), course("new-2", term: "新学期")]])
+        defer { second.cancel() }
+        try await waitForTestEvent { !(reads.pending.count < 2) }
+        reads.pending[1]?.resume(returning: ["新学期": [course("new-1", term: "新学期"), course("new-2", term: "新学期")]])
+        reads.pending[1] = nil
         await second.value
         #expect(model.availableTerms == ["新学期"] && model.pendingCourseCount == 2)
-        reads[0].resume(returning: ["旧学期": [course("old", term: "旧学期")]])
+        reads.pending[0]?.resume(returning: ["旧学期": [course("old", term: "旧学期")]])
+        reads.pending[0] = nil
         await first.value
         #expect(model.availableTerms == ["新学期"] && model.selectedTerms == ["新学期"] && model.pendingCourseCount == 2)
     }
@@ -285,9 +295,11 @@ struct ScoreFeatureTests {
             if cloudRead { await model.applySyncedScoreCacheIfAvailable() }
             else { await model.restoreCachedDataIfNeeded() }
         }
-        while cache.pending == nil { await Task.yield() }
+        defer { cache.suspendRead = false; reading.cancel(); cache.pending?.resume(returning: previous); cache.pending = nil }
+        try await waitForTestEvent { !(cache.pending == nil) }
         await model.refresh()
         cache.pending?.resume(returning: previous)
+        cache.pending = nil
         await reading.value
         #expect(ScoreRowComparison.rowsMatch(model.rows, fresh))
         #expect(model.lastUpdatedAt == Date(timeIntervalSince1970: 200))

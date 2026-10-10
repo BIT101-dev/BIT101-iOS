@@ -159,14 +159,14 @@ cached_runs = {item["databaseId"]: item for item in previous}
 
 def cached_log(run):
     cached = cached_runs.get(run["databaseId"])
-    if cached and "failedLogTail" in cached and all(cached.get(key) == run.get(key) for key in ("updatedAt", "headSha")):
-        return cached["failedLogTail"]
+    if cached and "failedLog" in cached and all(cached.get(key) == run.get(key) for key in ("updatedAt", "headSha")):
+        return cached["failedLog"]
     return None
 
 def fetch_log(run):
     cached = cached_log(run)
     if cached is not None:
-        return dict(run, failedLogTail=cached)
+        return dict(run, failedLog=cached)
     result = subprocess.run(
         [
             "gh", "run", "view", str(run["databaseId"]),
@@ -179,12 +179,12 @@ def fetch_log(run):
     )
     item = dict(run)
     if result.returncode == 0:
-        item["failedLogTail"] = result.stdout[-30000:]
+        item["failedLog"] = result.stdout
     else:
         item["failedLogError"] = result.stderr.strip()
         cached = cached_runs.get(run["databaseId"], {})
-        if "failedLogTail" in cached or "previousFailedLogTail" in cached:
-            item["previousFailedLogTail"] = cached.get("failedLogTail", cached.get("previousFailedLogTail"))
+        if "failedLog" in cached or "previousFailedLog" in cached:
+            item["previousFailedLog"] = cached.get("failedLog", cached.get("previousFailedLog"))
     return item
 
 with ThreadPoolExecutor(max_workers=4) as executor:
@@ -424,6 +424,10 @@ for run in ci_runs:
         f"  #{run.get('databaseId')} [{run.get('workflowName')}] "
         f"{run.get('displayTitle')}  {run.get('url')}"
     )
+    diagnostic = next((line for line in run.get("failedLog", "").splitlines()
+        if any(marker in line.lower() for marker in ("error:", "##[error]", "failed", "failure"))), None)
+    if diagnostic:
+        lines.append(f"    {diagnostic}")
 lines.append("")
 current_counts = category_counts(report_dir)
 current_sources = source_counts(report_dir)

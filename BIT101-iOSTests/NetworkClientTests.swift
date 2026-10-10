@@ -87,7 +87,7 @@ struct NetworkClientTests {
             defer { finished = true }
             return try await ScheduleService.mapEclassActivities(page, courseName: "课程")
         }
-        while !started { await Task.yield() }
+        try await waitForTestEvent { !(!started) }
         var heartbeats = 0
         while !finished {
             heartbeats += 1
@@ -291,7 +291,7 @@ struct NetworkClientTests {
                 coordinator.perform(action, promptID: coordinator.activePrompt?.id)
             }
         }
-        while coordinator.activePrompt == nil { await Task.yield() }
+        try await waitForTestEvent { !(coordinator.activePrompt == nil) }
         cancelled.cancel()
         await #expect(throws: CancellationError.self) { try await cancelled.value }
         #expect(sends == 0)

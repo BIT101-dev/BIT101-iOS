@@ -1,3 +1,4 @@
+import BIT101TestSupport
 import TransportCore
 import CommunityCore
 import DesignSystemKit
@@ -116,7 +117,7 @@ struct CourseListViewModelTests {
         let model = CourseListViewModel(service: service)
         model.applyPreparedSearch(query: "old", items: [old])
         let refresh = Task { await model.search(for: "fresh") }
-        while pending == nil { await Task.yield() }
+        try await waitForTestEvent { !(pending == nil) }
         await model.loadMoreIfNeeded(currentCourse: old)
         #expect(model.state.items == [old] && service.requests.count == 1)
         pending?.resume(returning: [fresh])
@@ -292,7 +293,7 @@ struct GalleryPaginationTests {
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [GalleryFeedKind.newest, .recommend])
-    func ownerExitCancelsQueuedRequestsAndTheirLatePrefetch(feed: GalleryFeedKind) async {
+    func ownerExitCancelsQueuedRequestsAndTheirLatePrefetch(feed: GalleryFeedKind) async throws {
         let gate = ListRequestGate<[CommunityPoster]>()
         let service = PagingGalleryService()
         var cancelled = false
@@ -313,7 +314,7 @@ struct GalleryPaginationTests {
         await gate.waitUntilRequested()
         model.cancelPendingOperations()
         gate.finish([listPoster(1)])
-        while !finished { await Task.yield() }
+        try await waitForTestEvent { !(!finished) }
         #expect(cancelled)
         #expect(model.state(for: feed).status == .idle)
         #expect(model.state(for: feed).posters.isEmpty)
@@ -349,7 +350,7 @@ struct GalleryPaginationTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func prefetchCoordinatorReleasesDuringASuspendedSourceRequest() async {
+    func prefetchCoordinatorReleasesDuringASuspendedSourceRequest() async throws {
         let gate = ListRequestGate<[CommunityPoster]>()
         let service = PagingGalleryService()
         var cancelled = false
@@ -367,7 +368,7 @@ struct GalleryPaginationTests {
         coordinator = nil
         #expect(released == nil)
         gate.finish([])
-        while !finished { await Task.yield() }
+        try await waitForTestEvent { !(!finished) }
         #expect(cancelled)
     }
 

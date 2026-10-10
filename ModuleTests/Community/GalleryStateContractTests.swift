@@ -1,3 +1,4 @@
+import BIT101TestSupport
 import CommunityCore
 import Foundation
 import os
@@ -163,7 +164,7 @@ struct GalleryStateContractTests {
         let model = GalleryReportViewModel(service: service)
         await model.loadReportTypes()
         let task = Task { await model.submit(objectID: "poster1") }
-        while service.pending == nil { await Task.yield() }
+        try await waitForTestEvent { !(service.pending == nil) }
         #expect(await model.submit(objectID: "poster1") == false && service.submissions == 1)
         model.cancel()
         service.pending?.resume()

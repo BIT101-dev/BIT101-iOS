@@ -87,7 +87,7 @@ struct ScoreInfrastructureBoundaryTests {
         let cache = ScoreCacheStore(files: files, storageRoot: root, defaults: defaults, session: { account }, storageOperations: operations)
         let owner = account
         let task = Task { await cache.saveDetailed(rows: [], for: owner) }
-        while !started.withLock({ $0 }) { await Task.yield() }
+        try await waitForTestEvent { !(!started.withLock({ $0 })) }
         account = AppStorageSession(accountIdentifier: "")
         var cleanupStarted = false
         let cleanup = Task { @MainActor in
@@ -95,7 +95,7 @@ struct ScoreInfrastructureBoundaryTests {
             await operations.suspendAndDrain()
             return files.removeContents(of: root)
         }
-        while !cleanupStarted { await Task.yield() }
+        try await waitForTestEvent { !(!cleanupStarted) }
         #expect(await cache.saveDetailed(rows: [], for: account) == nil)
         gate.signal()
         #expect(await cleanup.value)
@@ -156,7 +156,7 @@ struct ScoreInfrastructureBoundaryTests {
                 default: _ = try await service.fetchTrustedTranscriptPages()
                 }
             }
-            while transport.pending == nil { await Task.yield() }
+            try await waitForTestEvent { !(transport.pending == nil) }
             let count = transport.requests.count
             credentials.schoolSessionIdentity = next
             transport.pending?.resume()

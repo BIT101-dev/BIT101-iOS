@@ -68,14 +68,14 @@ struct ExtendedLoginTests {
     }
 
     @Test(.timeLimit(.minutes(1))) @MainActor
-    func repeatedKeyboardLoginSharesTheSubmittingOperation() async {
+    func repeatedKeyboardLoginSharesTheSubmittingOperation() async throws {
         let service = ServiceStub()
         var pending: CheckedContinuation<Void, Never>?
         service.beforeLogin = { await withCheckedContinuation { pending = $0 } }
         let model = LoginViewModel(service: service)
         model.password = "secret"
         let first = Task { await model.login() }
-        while pending == nil { await Task.yield() }
+        try await waitForTestEvent { !(pending == nil) }
         service.loginResult = .failure(URLError(.timedOut))
         await model.login()
         #expect(service.loginCalls.count == 1 && model.isSubmitting)
@@ -86,14 +86,14 @@ struct ExtendedLoginTests {
     }
 
     @Test(.timeLimit(.minutes(1))) @MainActor
-    func aLateLoginFailureKeepsTheNewlyPublishedSession() async {
+    func aLateLoginFailureKeepsTheNewlyPublishedSession() async throws {
         let service = ServiceStub()
         var pending: CheckedContinuation<Void, Never>?
         service.beforeLogin = { await withCheckedContinuation { pending = $0 } }
         let model = LoginViewModel(service: service)
         model.password = "secret"
         let task = Task { await model.login() }
-        while pending == nil { await Task.yield() }
+        try await waitForTestEvent { !(pending == nil) }
         service.savedStudentID = "B"
         service.hasCachedSession = true
         service.changes.send(())
@@ -273,7 +273,7 @@ struct LoginStorageTests {
         let model = LoginViewModel(service: service)
         #expect(model.screenState == .signedIn(studentID: "A"))
         let check = Task { try await service.checkLogin() }
-        while transport.pending == nil { await Task.yield() }
+        try await waitForTestEvent { !(transport.pending == nil) }
         transport.pending?.resume()
         #expect(try await check.value == nil)
         #expect(storage.communityCredentials.identity != owner && storage.fakeCookie.isEmpty)
@@ -294,7 +294,7 @@ struct LoginStorageTests {
         let transport = SuspendedCookieCheck(oldStatus: status)
         let service = LoginService(storage: storage, apiClient: BIT101APIClient(httpClient: HTTPClient(transport: transport, observer: nil)))
         let old = Task { try await service.checkLogin() }
-        while transport.pending == nil { await Task.yield() }
+        try await waitForTestEvent { !(transport.pending == nil) }
         try storage.saveLoginState(studentID: "A", password: "fixture", fakeCookie: "renewed-cookie")
         #expect(storage.communityCredentials.identity == identity)
         transport.pending?.resume()
@@ -381,7 +381,7 @@ struct LoginStorageTests {
         let client = HTTPClient(transport: transport, observer: nil)
         let service = LoginService(storage: storage, apiClient: BIT101APIClient(httpClient: client, noRedirectHTTPClient: client))
         let task = Task { try await service.restoreSchoolSessionIfNeeded() }
-        while transport.pending == nil { await Task.yield() }
+        try await waitForTestEvent { !(transport.pending == nil) }
         storage.clearSession()
         try storage.saveLoginState(studentID: "account-a", password: "fixture-password", fakeCookie: "fixture-next")
         transport.pending?.resume()

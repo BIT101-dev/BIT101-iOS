@@ -1,3 +1,4 @@
+import BIT101TestSupport
 import CommunityCore
 import Foundation
 import Testing
@@ -122,12 +123,12 @@ struct CourseDetailTests {
         #expect(service.submitted?.1 == "retry" && service.detailCalls == 1)
     }
 
-    @Test(.timeLimit(.minutes(1))) func cancellingTheCourseEntryCancelsBothRequestsAndAllowsReentry() async {
+    @Test(.timeLimit(.minutes(1))) func cancellingTheCourseEntryCancelsBothRequestsAndAllowsReentry() async throws {
         let service = Service()
         service.suspendRequests = true
         let viewModel = model(service)
         let entry = Task { await viewModel.bootstrapIfNeeded() }
-        while service.enteredRequests.count < 2 { await Task.yield() }
+        try await waitForTestEvent { !(service.enteredRequests.count < 2) }
         entry.cancel()
         await entry.value
         #expect(service.cancelledRequests == ["body", "comments"])

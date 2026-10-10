@@ -122,8 +122,8 @@ struct MediaDependencyTests {
         let first = CachedRemoteImageLoader(), second = CachedRemoteImageLoader()
         let cancelled = Task { await first.load(url: url, media: media) }
         let remaining = Task { await second.load(url: url, media: media) }
-        while media.downloads.waitingConsumerCount < 2 { await Task.yield() }
-        while transport.pending == nil { await Task.yield() }
+        try await waitForTestEvent { !(media.downloads.waitingConsumerCount < 2) }
+        try await waitForTestEvent { !(transport.pending == nil) }
         #expect(transport.requests == 1)
         cancelled.cancel()
         await cancelled.value
@@ -166,20 +166,21 @@ struct MediaDependencyTests {
             Task { try await coordinator.response(for: AppURL.required("https://example.invalid/\(index)"),
                                                   source: index.isMultiple(of: 2) ? .avatar : .gallery) }
         }
-        while transport.requests.count < MediaDownloadCoordinator.maximumConcurrentDownloads { await Task.yield() }
+        try await waitForTestEvent { !(transport.requests.count < MediaDownloadCoordinator.maximumConcurrentDownloads) }
         let queued = (MediaDownloadCoordinator.maximumConcurrentDownloads..<8).map { index in
             Task { try await coordinator.response(for: AppURL.required("https://example.invalid/\(index)"),
                                                   source: index.isMultiple(of: 2) ? .avatar : .gallery) }
         }
         let tasks = started + queued
-        while coordinator.waitingConsumerCount < tasks.count { await Task.yield() }
-        while transport.requests.count < MediaDownloadCoordinator.maximumConcurrentDownloads { await Task.yield() }
+        try await waitForTestEvent { !(coordinator.waitingConsumerCount < tasks.count) }
+        try await waitForTestEvent { !(transport.requests.count < MediaDownloadCoordinator.maximumConcurrentDownloads) }
         #expect(transport.active == MediaDownloadCoordinator.maximumConcurrentDownloads)
         tasks[7].cancel()
         await #expect(throws: CancellationError.self) { try await tasks[7].value }
-        while transport.requests.count < tasks.count - 1 {
+        try await waitForTestEvent {
+            if transport.requests.count >= tasks.count - 1 { return true }
             transport.release()
-            await Task.yield()
+            return false
         }
         transport.release()
         for task in tasks.dropLast() { _ = try await task.value }
@@ -302,7 +303,7 @@ struct MediaDependencyTests {
         let loader = CachedRemoteImageLoader()
         let old = Task { await loader.load(url: url, media: first) }
         if delayed {
-            while oldTransport.pending == nil { await Task.yield() }
+            try await waitForTestEvent { !(oldTransport.pending == nil) }
         } else {
             await old.value
             #expect(loader.image?.size.width == 1)
@@ -329,12 +330,12 @@ struct MediaDependencyTests {
         let view = UIImageView()
         let url = AppURL.required("https://example.invalid/old.png")
         coordinator.load(url: url, into: view, media: first)
-        while oldTransport.pending == nil { await Task.yield() }
+        try await waitForTestEvent { !(oldTransport.pending == nil) }
         coordinator.load(url: url, into: view, media: second)
-        while view.image == nil { await Task.yield() }
+        try await waitForTestEvent { !(view.image == nil) }
         #expect(view.image?.size.width == 2)
         oldTransport.pending?.resume(throwing: URLError(.timedOut))
-        while oldTransport.finished == 0 { await Task.yield() }
+        try await waitForTestEvent { !(oldTransport.finished == 0) }
         await Task.yield()
         #expect(view.image?.size.width == 2)
         #expect(newTransport.requests == 1)
@@ -352,14 +353,14 @@ struct MediaDependencyTests {
         let view = UIImageView()
         let url = AppURL.required("https://example.invalid/retry.png")
         coordinator.load(url: url, into: view, media: media)
-        while transport.requests == 0 { await Task.yield() }
-        while await media.images.waitingConsumerCount > 0 { await Task.yield() }
+        try await waitForTestEvent { !(transport.requests == 0) }
+        try await waitForTestEvent { !(await media.images.waitingConsumerCount > 0) }
         #expect(view.image == nil)
         let previousIdentity = MediaImageLoadIdentity(urls: [url], environment: ObjectIdentifier(media), retryGeneration: media.imageRetryGeneration)
         media.retryFailedImages()
         #expect(previousIdentity != MediaImageLoadIdentity(urls: [url], environment: ObjectIdentifier(media), retryGeneration: media.imageRetryGeneration))
         coordinator.load(url: url, into: view, media: media, retryGeneration: media.imageRetryGeneration)
-        while view.image == nil { await Task.yield() }
+        try await waitForTestEvent { !(view.image == nil) }
         #expect(view.image?.size.width == 2 && transport.requests == 2)
         media.retryFailedImages()
         coordinator.load(url: url, into: view, media: media, retryGeneration: media.imageRetryGeneration)
@@ -650,7 +651,7 @@ struct MediaDependencyTests {
             httpClient: HTTPClient(transport: Images(bytes: bytes), observer: nil))
         let url = AppURL.required("https://example.invalid/quota.png")
         let preparation = Task { try await cache.file(for: url) }
-        while limit.pending == nil { await Task.yield() }
+        try await waitForTestEvent { !(limit.pending == nil) }
         await cache.clearAll()
         limit.pending?.resume(returning: 0)
         await #expect(throws: CancellationError.self) { try await preparation.value }
@@ -666,7 +667,7 @@ struct MediaDependencyTests {
         let loader = CachedRemoteImageLoader()
         let url = AppURL.required("https://example.invalid/old.png")
         let download = Task { await loader.load(url: url, media: media) }
-        while transport.pending == nil { await Task.yield() }
+        try await waitForTestEvent { !(transport.pending == nil) }
         await media.clearCaches()
         transport.pending?.resume()
         await download.value
@@ -674,7 +675,7 @@ struct MediaDependencyTests {
         #expect(await media.avatars.data(for: url) == nil)
         #expect(files.totalRegularFileSize(at: try #require(files.directoryURL(.cachesDirectory))) == 0)
         let retry = Task { await loader.load(url: url, media: media) }
-        while transport.requests < 2 { await Task.yield() }
+        try await waitForTestEvent { !(transport.requests < 2) }
         transport.pending?.resume()
         await retry.value
         #expect(loader.image?.size.width == 2)
@@ -686,7 +687,7 @@ struct MediaDependencyTests {
         let media = environment(files: PreferenceMemoryFiles(), previewFiles: PreferenceMemoryFiles(), transport: transport)
         let loader = CachedRemoteImageLoader()
         let old = Task { await loader.load(url: AppURL.required("https://example.invalid/old.png"), media: media) }
-        while transport.pending == nil { await Task.yield() }
+        try await waitForTestEvent { !(transport.pending == nil) }
         await loader.load(url: AppURL.required("https://example.invalid/new.png"), media: media)
         #expect(loader.image?.size.width == 2)
         transport.pending?.resume(throwing: URLError(.timedOut))
@@ -701,9 +702,9 @@ struct MediaDependencyTests {
         let media = environment(files: files, previewFiles: files, transport: transport)
         let url = AppURL.required("https://example.invalid/old.png")
         let first = Task { try await media.images.file(for: url) }
-        while transport.pending == nil { await Task.yield() }
+        try await waitForTestEvent { !(transport.pending == nil) }
         let second = Task { try await media.images.file(for: url) }
-        while await media.images.waitingConsumerCount < 2 { await Task.yield() }
+        try await waitForTestEvent { !(await media.images.waitingConsumerCount < 2) }
         first.cancel()
         if case .success = await first.result { Issue.record("取消的等待者应立即结束") }
         #expect(transport.requests == 1)
@@ -716,11 +717,11 @@ struct MediaDependencyTests {
         let files = PreferenceMemoryFiles()
         let media = environment(files: files, previewFiles: files, transport: transport)
         let download = Task { try await media.images.file(for: AppURL.required("https://example.invalid/old.png")) }
-        while transport.pending == nil { await Task.yield() }
+        try await waitForTestEvent { !(transport.pending == nil) }
         await media.clearCaches()
         if case .success = await download.result { Issue.record("缓存清理应终止既有下载") }
         transport.pending?.resume()
-        while transport.finished == 0 { await Task.yield() }
+        try await waitForTestEvent { !(transport.finished == 0) }
         #expect(await media.images.waitingConsumerCount == 0)
         #expect(files.totalRegularFileSize(at: files.temporaryDirectoryURL) == 0)
     }
@@ -779,13 +780,13 @@ struct MediaDependencyTests {
         let coordinator = RemoteAnimatedImage.Coordinator(media: media)
         let url = AppURL.required("https://example.invalid/motion.gif")
         coordinator.load(url: url, into: view, media: media, reduceMotion: false)
-        while view.image == nil { await Task.yield() }
+        try await waitForTestEvent { !(view.image == nil) }
         #expect(view.image?.images != nil)
         coordinator.load(url: url, into: view, media: media, reduceMotion: true)
-        while view.image == nil { await Task.yield() }
+        try await waitForTestEvent { !(view.image == nil) }
         #expect(view.image?.images == nil)
         coordinator.load(url: url, into: view, media: media, reduceMotion: false)
-        while view.image == nil { await Task.yield() }
+        try await waitForTestEvent { !(view.image == nil) }
         #expect(view.image?.images != nil && transport.requests == 1)
         coordinator.cancel(imageView: view)
     }

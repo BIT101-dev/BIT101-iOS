@@ -38,7 +38,7 @@ struct AppUpdateCheckerTests {
         #expect(prompts.activePrompt?.id == returned.id)
     }
 
-    @Test(.timeLimit(.minutes(1))) func accountChangesReleaseActiveAndQueuedPromptWaiters() async {
+    @Test(.timeLimit(.minutes(1))) func accountChangesReleaseActiveAndQueuedPromptWaiters() async throws {
         let prompts = AppPromptCoordinator(advanceDelay: .zero)
         prompts.markHostReady()
         let account = CommunitySessionIdentity(accountIdentifier: "first", generation: 1)
@@ -56,7 +56,7 @@ struct AppUpdateCheckerTests {
             await prompts.enqueueAndWait(queued)
             completed += 1
         }
-        while !activeStarted || !queuedStarted { await Task.yield() }
+        try await waitForTestEvent { !(!activeStarted || !queuedStarted) }
         prompts.accountDidChange(to: CommunitySessionIdentity(accountIdentifier: "second", generation: 2))
         await activeWaiter.value
         await queuedWaiter.value
@@ -125,7 +125,7 @@ struct AppUpdateCheckerTests {
         coordinator.enqueue(prompt("second"))
         #expect(coordinator.activePrompt == nil)
         coordinator.alertPresentationChanged(isPresented: false, promptID: "first")
-        while coordinator.activePrompt == nil { await Task.yield() }
+        try await waitForTestEvent { !(coordinator.activePrompt == nil) }
         #expect(coordinator.activePrompt?.id == "second")
         coordinator.alertPresentationChanged(isPresented: false, promptID: "first")
         coordinator.perform(first, promptID: "first")

@@ -6,7 +6,7 @@ Worker 已绑定独立 KV 和 `feedback.aihelpme.dev`。部署前使用以下命
 
 ```bash
 cd Cloudflare/EmergencyUpdateWorker
-npx wrangler deploy --config ../ErrorReportWorker/wrangler.jsonc
+python3 ../../Scripts/validation_provenance.py deploy-worker ErrorReportWorker
 ```
 
 Worker 提供 `POST https://feedback.aihelpme.dev/api/error-reports` 接口。

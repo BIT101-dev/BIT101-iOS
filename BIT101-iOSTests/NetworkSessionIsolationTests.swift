@@ -59,18 +59,20 @@ private nonisolated final class CommunityIsolationServer: Sendable {
     }
 
     func url() async throws -> URL {
-        while true {
+        try await waitForTestEvent {
             let snapshot = state.withLock { $0 }
             if let error = snapshot.failure { throw error }
-            if let port = snapshot.port { return AppURL.required("http://127.0.0.1:\(port)") }
-            try Task.checkCancellation(); await Task.yield()
+            return snapshot.port != nil
         }
+        let port = try #require(state.withLock { $0.port })
+        return AppURL.required("http://127.0.0.1:\(port)")
     }
     var requests: [String] { state.withLock { $0.requests } }
     func waitForDelayedRequest() async throws {
-        while state.withLock({ $0.delayed == nil }) {
-            if let error = state.withLock({ $0.failure }) { throw error }
-            try Task.checkCancellation(); await Task.yield()
+        try await waitForTestEvent {
+            let snapshot = state.withLock { $0 }
+            if let error = snapshot.failure { throw error }
+            return snapshot.delayed != nil
         }
     }
     func finishDelayedRequest() {

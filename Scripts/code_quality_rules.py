@@ -326,6 +326,22 @@ def discarded_file_write_findings(path: Path, source: str, facts: dict, writes: 
     return errors
 
 
+def asynchronous_test_wait_findings(path: Path, source: str, facts: dict) -> list[str]:
+    name = relative(path)
+    if not name.startswith(('ModuleTests/', 'BIT101-iOSTests/', 'BIT101-iOSUITests/')): return []
+    helper = [row for row in facts.get('functions', []) if not row.get('scope')
+        and re.search(r'\bfunc\s+waitForTestEvent\b', row['value'])]
+    findings = []
+    for row in facts.get('controlFlow', []):
+        value = mask_literals_and_comments(row['value'])
+        if not re.match(r'while\b', value) or not re.search(r'\bTask\s*\.\s*yield\s*\(', value): continue
+        if name == 'ModuleTests/Support/FileServiceContract.swift' and any(
+                owner['start'] <= row['start'] < owner['start'] + len(owner['value'].encode()) for owner in helper): continue
+        line = source.encode()[:row['start']].count(b'\n') + 1
+        findings.append(f'{name}:{line}: 异步事件等待统一沿共享 waitForTestEvent 核对取消与期限')
+    return findings
+
+
 def source_findings(syntax_index: dict[str, dict] | None = None) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     review: list[str] = []
@@ -377,6 +393,7 @@ def source_findings(syntax_index: dict[str, dict] | None = None) -> tuple[list[s
         errors.extend(cancellation_findings(path, source, syntax_index.get(str(path)) if syntax_index else None))
         add_matches(errors, path, masked_source, unsafe_concurrency_escape, "禁止绕过 Swift 并发安全检查：请表达真实隔离或使用锁/Actor")
         facts = syntax_index.get(str(path)) if syntax_index else None
+        if facts: errors.extend(asynchronous_test_wait_findings(path, source, facts))
         if facts: errors.extend(discarded_file_write_findings(path, source, facts, writes))
         for clause in (facts or {}).get("emptyCatchClauses", []):
             line = source.encode()[:clause["start"]].count(b"\n") + 1

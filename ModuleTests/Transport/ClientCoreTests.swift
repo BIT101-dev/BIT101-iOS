@@ -1,3 +1,4 @@
+import BIT101TestSupport
 import SchedulePorts
 @testable import TransportCore
 import ClientCore
@@ -812,7 +813,7 @@ extension ScheduleInfrastructureTests {
         let transport = SuspendedSchoolCookies()
         let client = HTTPClient(transport: transport, observer: observer)
         let task = Task { try await client.send(URLRequest(url: AppURL.required("https://example.invalid/context"))) }
-        while transport.pending == nil { await Task.yield() }
+        try await waitForTestEvent { !(transport.pending == nil) }
         observer.generation = 1
         transport.pending?.resume()
         _ = try await task.value
@@ -829,7 +830,7 @@ extension ScheduleInfrastructureTests {
         let service = ScheduleService(credentials: credentials, crypto: Crypto(), schoolSessionRestorer: Restorer(),
             teachingCenterState: state, transport: transport)
         let task = Task { try await service.ensureTeachingCenterAuthentication() }
-        while transport.pending == nil { await Task.yield() }
+        try await waitForTestEvent { !(transport.pending == nil) }
         if change == 0 { credentials.currentStudentID = "school-b" }
         if change == 1 { credentials.generation += 1 }
         if change == 2 { task.cancel() }
@@ -911,7 +912,7 @@ extension ScheduleInfrastructureTests {
                 if stage == "html" { _ = try await service.refreshLexueCalendarURL(schoolSMSCodeHandler: handler) }
                 else { try await service.completeSchoolSecondFactor(context, handler: handler, smsDeliveryMode: .send, owner: owner) }
             }
-            while stage == "input" ? input == nil : transport.pending == nil { await Task.yield() }
+            try await waitForTestEvent { !(stage == "input" ? input == nil : transport.pending == nil) }
             let count = transport.requests.count
             if change == 0 { credentials.currentStudentID = "school-b" }
             if change == 1 { credentials.generation += 1 }

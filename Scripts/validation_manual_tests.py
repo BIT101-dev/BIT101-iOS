@@ -96,12 +96,15 @@ def evidence_fixture(check: str) -> bytes:
     if check == 'minimum-platforms':
         from validation_manual import BASELINE_CHECKS
         contracts = distribution.distribution_contracts()
+        bundles = distribution_fixture()[1]['bundles']
         platforms = {}
         for platform, checks in BASELINE_CHECKS.items():
             version = max((value['minimumOSVersion'] for value in contracts.values() if value['platform'] == platform),
                 key=distribution.minimum_os_version)
             platforms[platform] = {'deviceIdentifier': platform + '-fixture', 'deviceModel': platform + '-device',
                 'systemVersion': version, 'systemBuild': 'fixture-build', 'capturedAt': utc_now().isoformat(),
+                'installedBundles': [{key: bundle[key] for key in ('identifier', 'version', 'build', 'sha256', 'executableUUIDs')}
+                    for bundle in bundles if contracts[bundle['identifier']]['platform'] == platform],
                 'checks': {name: {'operation': '实际操作', 'result': '观察结果', 'outcome': 'passed'} for name in checks},
                 'evidence': captured_fixture('photos')['evidence']}
         return json.dumps({'schemaVersion': 1, 'platforms': platforms}).encode()
@@ -369,15 +372,33 @@ def run_self_test() -> None:
     duplicated = {name: copy.deepcopy(checks['photos']) for name in checks}
     assert not complete(duplicated)
     baseline = json.loads(evidence_fixture('minimum-platforms'))
+    from validation_manual import baseline_matches_distribution
+    assert baseline_matches_distribution(checks['minimum-platforms'], checks['distribution-signing'])
     for platform in baseline['platforms']:
         major, minor, _ = distribution.minimum_os_version(baseline['platforms'][platform]['systemVersion'])
         later_minor = f'{major}.{minor + 1}'
         for key, value in [('systemVersion', '99.0'), ('systemVersion', 'invalid'), ('systemBuild', ''),
                 ('systemVersion', later_minor),
-                ('deviceIdentifier', ''), ('checks', {}), ('evidence', {}), ('capturedAt', '2000-01-01T00:00:00+00:00')]:
+                ('deviceIdentifier', ''), ('checks', {}), ('evidence', {}), ('installedBundles', []),
+                ('capturedAt', '2000-01-01T00:00:00+00:00')]:
             changed = copy.deepcopy(baseline)
             changed['platforms'][platform][key] = value
             assert not evidence_content_complete('minimum-platforms', json.dumps(changed).encode()), (platform, key)
+        for field, value in [('version', '0'), ('build', '0'), ('sha256', 'invalid'), ('executableUUIDs', [])]:
+            changed = copy.deepcopy(baseline)
+            changed['platforms'][platform]['installedBundles'][0][field] = value
+            assert not evidence_content_complete('minimum-platforms', json.dumps(changed).encode()), (platform, field)
+    for field, value in [('sha256', 'b' * 64), ('executableUUIDs', [{'architecture': 'arm64', 'uuid': str(uuid.uuid4()).upper()}])]:
+        changed = copy.deepcopy(baseline)
+        changed['platforms']['iOS']['installedBundles'][0][field] = value
+        data = json.dumps(changed).encode()
+        assert evidence_content_complete('minimum-platforms', data)
+        import base64, hashlib
+        observation = copy.deepcopy(checks['minimum-platforms'])
+        observation['evidence'].update(dataBase64=base64.b64encode(data).decode(), byteCount=len(data), sha256=hashlib.sha256(data).hexdigest())
+        assert not baseline_matches_distribution(observation, checks['distribution-signing'])
+    for platform in baseline['platforms']:
+        major, minor, _ = distribution.minimum_os_version(baseline['platforms'][platform]['systemVersion'])
         contracts = distribution.distribution_contracts()
         for contract in contracts.values():
             if contract['platform'] == platform: contract['minimumOSVersion'] = f'{major}.{minor}.2'

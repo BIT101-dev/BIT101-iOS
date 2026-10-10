@@ -77,7 +77,7 @@ struct ScheduleCalendarTransactionTests {
         let manager = ScheduleSystemCalendarManager(defaults: defaults, currentIdentity: { identity },
             requestAccess: { await withCheckedContinuation { resume = $0 } })
         let task = Task { try await manager.deleteAllImportedEvents() }
-        while resume == nil { await Task.yield() }
+        try await waitForTestEvent { !(resume == nil) }
         if cancel { task.cancel() } else { identity = .init(accountIdentifier: "calendar-owner", generation: 1) }
         resume?.resume()
         await #expect(throws: CancellationError.self) { try await task.value }
