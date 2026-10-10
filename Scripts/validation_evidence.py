@@ -107,6 +107,17 @@ def normalized_test_id(identifier: str) -> str:
     return "/".join([parts[0].rsplit(".", 1)[-1], *parts[1:method], parts[method].split("(", 1)[0]]) if method else identifier
 
 
+def icloud_stage_complete(row: dict, stage: str) -> bool:
+    if stage not in {'testPhoneRoundTrip', 'testMacReceiveAndRestore', 'testCleanup', 'testMacCleanup'}: return False
+    destination = row.get('destination') or {}
+    expected = 'ICloudCrossDeviceSmokeTests/' + stage
+    return row.get('stage') == stage and row.get('exitCode') == 0 and row.get('totalTestCount') == 1 \
+        and successful_test_counts(row) and row.get('executedTests') == [expected] \
+        and row.get('testTargets') == ['BIT101-iOSTests'] and bool(row.get('runID')) \
+        and destination.get('platform') == ('macOS' if stage.startswith('testMac') else 'iOS') \
+        and bool(destination.get('deviceIdentifier'))
+
+
 def selected_test_inventory(group: str, selections: list[str]) -> set[str]:
     group = "all" if group in TEST_AREA_SUITES else group
     available = {normalized_test_id(test) for test in test_inventory(group)}
@@ -336,30 +347,29 @@ def smoke_summary(group: str, value: dict, *, full: bool = True) -> dict:
         cleanup = value.get("cleanup", {})
         mac_cleanup = value.get("macCleanup", {})
         return {"passed": value.get("cleanupExitCode") == 0 and cleanup.get("exitCode") == 0
-                and successful_test_counts(cleanup) and mac_cleanup.get("exitCode") == 0
-                and successful_test_counts(mac_cleanup), "cleanup": cleanup, "macCleanup": mac_cleanup,
+                and icloud_stage_complete(cleanup, 'testCleanup') and mac_cleanup.get("exitCode") == 0
+                and icloud_stage_complete(mac_cleanup, 'testMacCleanup')
+                and cleanup.get('runID') == mac_cleanup.get('runID') == value.get('runID'), "cleanup": cleanup, "macCleanup": mac_cleanup,
                 "startedAt": cleanup.get("recordedAt"), "finishedAt": mac_cleanup.get("recordedAt")}
     stages = [{name: row.get(name, 0) for name in
-               ("stage", "exitCode", "totalTestCount", "passedTests", "failedTests", "skippedTests")}
+               ("stage", "exitCode", "totalTestCount", "passedTests", "failedTests", "skippedTests", "executedTests", "testTargets", "destination", "runID")}
               for row in value.get("stages", [])]
     expected = {"testPhoneRoundTrip", "testMacReceiveAndRestore"}
     cleanup = value.get("cleanup")
     mac_cleanup = value.get("macCleanup")
     cleanup_passed = value.get("cleanupExitCode", 0) == 0 and (cleanup is None or
-        cleanup.get("exitCode") == 0 and cleanup.get("totalTestCount") == cleanup.get("passedTests") == 1
-        and cleanup.get("failedTests") == cleanup.get("skippedTests") == 0)
-    mac_cleanup_passed = mac_cleanup is None or mac_cleanup.get("exitCode") == 0 and successful_test_counts(mac_cleanup)
+        icloud_stage_complete(cleanup, 'testCleanup') and cleanup.get('runID') == value.get('runID'))
+    mac_cleanup_passed = mac_cleanup is None or icloud_stage_complete(mac_cleanup, 'testMacCleanup') and mac_cleanup.get('runID') == value.get('runID')
     passed = value.get("exitCode") == 0 and cleanup_passed and mac_cleanup_passed and set(value.get("validatedDomains", [])) == ICLOUD_DOMAINS \
         and value.get("cloudKitEnvironment") == "Production" and len(stages) == 2 and {row["stage"] for row in stages} == expected and all(
-        row["exitCode"] == 0 and row["totalTestCount"] == row["passedTests"] > 0
-        and row["failedTests"] == row["skippedTests"] == 0 for row in stages)
+        icloud_stage_complete(row, row['stage']) and row.get('runID') == value.get('runID') for row in stages)
     cleanup_evidence = dict(cleanup, kind="standalone") if cleanup is not None else dict(
         next((row for row in stages if row["stage"] == "testPhoneRoundTrip"), {}), kind="round-trip")
     mac_cleanup_evidence = dict(mac_cleanup, kind="standalone") if mac_cleanup is not None else dict(
         next((row for row in stages if row["stage"] == "testMacReceiveAndRestore"), {}), kind="round-trip")
     return {"passed": passed, "stages": stages, "validatedDomains": value.get("validatedDomains", []),
             "cloudKitEnvironment": value.get("cloudKitEnvironment"), "cleanup": cleanup_evidence, "macCleanup": mac_cleanup_evidence,
-            "startedAt": value.get("startedAt"), "finishedAt": value.get("finishedAt")}
+            "startedAt": value.get("startedAt"), "finishedAt": value.get("finishedAt"), "runID": value.get("runID")}
 
 
 def successful_test_counts(summary: dict) -> bool:
@@ -448,11 +458,14 @@ def complete_summary(group: str, summary: dict) -> bool:
     if group == "icloud":
         stages = summary.get("stages", [])
         cleanup = summary.get("cleanup", {})
+        mac_cleanup = summary.get("macCleanup", {})
+        cleanup_stage = 'testCleanup' if cleanup.get('kind') == 'standalone' else 'testPhoneRoundTrip'
+        mac_cleanup_stage = 'testMacCleanup' if mac_cleanup.get('kind') == 'standalone' else 'testMacReceiveAndRestore'
         return set(summary.get("validatedDomains", [])) == ICLOUD_DOMAINS and summary.get("cloudKitEnvironment") == "Production" \
-            and cleanup.get("exitCode") == 0 and successful_test_counts(cleanup) \
-            and summary.get("macCleanup", {}).get("exitCode") == 0 and successful_test_counts(summary.get("macCleanup", {})) \
+            and icloud_stage_complete(cleanup, cleanup_stage) and icloud_stage_complete(mac_cleanup, mac_cleanup_stage) \
             and len(stages) == 2 and {row.get("stage") for row in stages} == {"testPhoneRoundTrip", "testMacReceiveAndRestore"} and all(
-            row.get("exitCode") == 0 and successful_test_counts(row) for row in stages)
+            icloud_stage_complete(row, row.get('stage')) for row in stages) \
+            and all(row.get('runID') == summary.get('runID') for row in [*stages, cleanup, mac_cleanup])
     if group == "icloud-cleanup":
         return all(summary.get(key, {}).get("exitCode") == 0 and successful_test_counts(summary.get(key, {}))
             for key in ("cleanup", "macCleanup"))

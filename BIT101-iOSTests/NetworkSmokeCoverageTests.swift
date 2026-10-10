@@ -351,6 +351,21 @@ struct NetworkSmokeCoverageTests {
         #expect(requests == 2 && unread == (emptyFirstPage ? 4 : 3))
     }
 
+    @Test func messageSmokeUsesTheProductionCursorAndRejectsUnorderedPages() async throws {
+        func messages(_ ids: [Int]) throws -> [GalleryMessage] {
+            let rows = ids.map { ["fromUser": [:], "id": $0, "linkObj": "", "obj": "", "text": "", "updateTime": ""] as [String: Any] }
+            return try JSONDecoder().decode([GalleryMessage].self, from: JSONSerialization.data(withJSONObject: rows))
+        }
+        for (first, second, valid) in [([9, 8, 8], [7, 6], true), ([8, 9], [7], false), ([9, 8], [6, 7], false), ([9, 8], [8], false)] {
+            let firstPage = try messages(first), secondPage = try messages(second)
+            var requested: [Int?] = [], page = GalleryMessageListState()
+            page.applyFirstCursorPage(firstPage)
+            let operation = { try await NetworkSmokePaging.messages { cursor in requested.append(cursor); return cursor == Int.max ? firstPage : secondPage } }
+            if valid { _ = try await operation(); #expect(requested == [Int.max, page.nextCursor]) }
+            else { await #expect(throws: URLError.self) { try await operation() } }
+        }
+    }
+
     private final class MediaRoute: HTTPTransport {
         var calls: [(String, String)] = []
         var referenced: [[String]] = []
@@ -667,7 +682,8 @@ extension ReleaseNetworkSmokeLifecycleTests {
          "gallery-comment-page-failure", "course-comment-page-failure", "paper-comment-page-failure", "cors-method-failure", "cors-header-failure",
          "schedule-term-failure", "historical-term-success", "maintained-fixtures-success", "continuation-image-success",
          "missing-fixtures-failure", "fixture-course-number-failure", "empty-list-failure", "all-score-mismatch-failure",
-         "invalid-exam-failure", "pending-exam-success", "invalid-classroom-failure"])
+         "invalid-exam-failure", "pending-exam-success", "invalid-classroom-failure",
+         "school-independent-success", "transcript-independent-success", "schedule-independent-success", "ddl-independent-success"])
     func completeOrchestration(stage: String) async throws {
         let image = try #require(UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1)).image { $0.fill(CGRect(x: 0, y: 0, width: 1, height: 1)) }.pngData())
         let services = Services(stage: stage, image: image)
@@ -683,8 +699,13 @@ extension ReleaseNetworkSmokeLifecycleTests {
         var reports: [ReleaseNetworkSmokeReport] = []
         var feedback = 0
         var rawWrites = 0
+        var loginChecks = 0
         let sessionEvidence = ["初始账号资料 ID：1", "无效凭据切换：认证拒绝", "恢复账号资料 ID：1"]
-        let dependencies = ReleaseNetworkSmokeDependencies(requiresRequestEvidence: false, checkLogin: { "fixture" }, writeReport: { reports.append($0) },
+        let dependencies = ReleaseNetworkSmokeDependencies(requiresRequestEvidence: false, checkLogin: {
+            loginChecks += 1
+            if stage.contains("independent") { throw URLError(.notConnectedToInternet) }
+            return "fixture"
+        }, writeReport: { reports.append($0) },
             clearRawCourseResponse: {}, writeRawCourseResponse: { _, runID in
                 rawWrites += 1
                 #expect(runID == stage)
@@ -695,7 +716,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
             feedbackProbe: { _ in feedback += 1 },
             loadScheduleCache: { ScheduleCache() }, makeScores: { services }, makeSchedule: { handler in services.rawResponse = handler; return services },
             makeProductionSchedule: { productionServices }, makeEclassSchedule: { services })
-        let scope: NetworkSmokeScope = stage.hasPrefix("all-") || redirectHost != nil || stage.hasPrefix("aasa") ? .all : stage == "community-failure" || stage == "image-budget-failure" || stage == "entity-identity-failure" || stage == "repeated-page-failure" || stage.contains("comment-page") || stage.hasPrefix("cors") || stage.contains("fixtures") || stage == "continuation-image-success" || stage == "fixture-course-number-failure" || stage == "empty-list-failure" ? .bit101 : stage.hasPrefix("ddl") ? .ddl : .schedule
+        let scope: NetworkSmokeScope = stage.hasPrefix("school-") ? .school : stage.hasPrefix("transcript-") ? .transcript : stage.hasPrefix("all-") || redirectHost != nil || stage.hasPrefix("aasa") ? .all : stage == "community-failure" || stage == "image-budget-failure" || stage == "entity-identity-failure" || stage == "repeated-page-failure" || stage.contains("comment-page") || stage.hasPrefix("cors") || stage.contains("fixtures") || stage == "continuation-image-success" || stage == "fixture-course-number-failure" || stage == "empty-list-failure" ? .bit101 : stage.hasPrefix("ddl") ? .ddl : .schedule
         let runner = ReleaseNetworkSmokeRunner(dependencies: dependencies)
         let smsHandler: SchoolSMSCodeHandler = { _ in "fixture-code" }
         let report = await runner.run(scope: scope, runID: stage, capture: stage == "raw-write-failure" ? .rawCourseResponse : .none,
@@ -744,6 +765,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
                     "学业课程历史成绩", "学业课程网页详情", "文章详情", "文章评论", "文章网页详情"])
         } else { #expect(Set(report.executedProbes) == Set(scope.requiredProbes)) }
         #expect(reports.count == 1 && reports[0].passed == report.passed)
+        #expect(loginChecks == (scope.includes(.authentication) ? 1 : 0))
         if scope.includes(.bit101) { #expect(feedback == 1 && services.observed.contains("mine") && services.observed.contains("paper-list")) }
         #expect(association.requests.count == (scope.includes(.bit101) ? 1 : 0))
         #expect(external.requests.allSatisfy { $0.url?.path.hasSuffix("apple-app-site-association") == false })

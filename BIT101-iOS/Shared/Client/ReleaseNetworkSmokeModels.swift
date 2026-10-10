@@ -37,17 +37,16 @@ enum NetworkSmokeScope: String, Codable, CaseIterable, Sendable {
         case .bit101:
             return area == .authentication || area == .bit101
         case .school:
-            return area == .authentication
-                || area == .schedule
+            return area == .schedule
                 || area == .ddl
                 || area == .school
                 || area == .transcript
         case .transcript:
-            return area == .authentication || area == .transcript
+            return area == .transcript
         case .schedule:
-            return area == .authentication || area == .schedule
+            return area == .schedule
         case .ddl:
-            return area == .authentication || area == .ddl
+            return area == .ddl
         case .communityWrites:
             return area == .authentication || area == .communityWrites
         case .communityCleanup:

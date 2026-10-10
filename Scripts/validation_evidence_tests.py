@@ -7,6 +7,10 @@ import sys
 from pathlib import Path
 from swift_source_index import swift_syntax_index_sources
 
+def icloud_stage_fixture(stage: str, counts: dict) -> dict:
+    return dict(counts, stage=stage, runID='fixture', executedTests=['ICloudCrossDeviceSmokeTests/' + stage],
+        testTargets=['BIT101-iOSTests'], destination={'platform': 'macOS' if stage.startswith('testMac') else 'iOS', 'deviceIdentifier': 'phone'})
+
 def run_self_test(subject) -> int:
     from validation_compilation import self_test as compilation_cache_self_test
     compilation_cache_self_test()
@@ -211,7 +215,7 @@ def run_self_test(subject) -> int:
                 assert all(subject.source_digest(group, environment={}) != before[group] for group in groups), name
 
         def icloud_summary(value):
-            return subject.smoke_summary('icloud', dict(validatedDomains=sorted(subject.ICLOUD_DOMAINS), cloudKitEnvironment='Production', **value))
+            return subject.smoke_summary('icloud', dict(validatedDomains=sorted(subject.ICLOUD_DOMAINS), cloudKitEnvironment='Production', runID='fixture', **value))
         test = {'passed': True, 'totalTests': 1, 'passedTests': 1, 'failedTests': 0, 'skippedTests': 0}
         nested = swift_syntax_index_sources({'nested-tests': '@Suite struct Outer { @Suite struct Inner { @Testing.Test func works() {}; func testHelper() {} } }; class Base: XCTestCase {}; class Case: Base { func testActual() {}; func testArgument(_ value: Int) {}; static func testStatic() {} }; struct Ordinary { func testHelper() {} }'})['nested-tests']
         assert {item['value'] for item in nested['tests']} == {'Outer/Inner/works', 'Case/testActual'}
@@ -344,9 +348,13 @@ def run_self_test(subject) -> int:
         assert not subject.smoke_summary('school-sms', dict(sms, verifiedSMSProbes=mismatched))['passed']
         assert subject.smoke_summary('school-sms', dict(sms, schoolSMSCoverage='preflight_only'))['passed'] is False
         assert subject.smoke_summary('school-sms', dict(sms, verifiedSMSProbes=sms['verifiedSMSProbes'][:1]))['passed'] is False
-        summaries['icloud'] = icloud_summary({'exitCode': 0, 'stages': [dict(test, stage=name, totalTestCount=1, exitCode=0) for name in ('testPhoneRoundTrip', 'testMacReceiveAndRestore')]})
+        summaries['icloud'] = icloud_summary({'exitCode': 0, 'stages': [icloud_stage_fixture(name, dict(test, totalTestCount=1, exitCode=0)) for name in ('testPhoneRoundTrip', 'testMacReceiveAndRestore')]})
         assert summaries['icloud']['cleanup']['kind'] == 'round-trip'
         assert summaries['icloud']['macCleanup']['kind'] == 'round-trip'
+        assert subject.complete_summary('icloud', summaries['icloud'])
+        for field, value in [('executedTests', ['Other/testAlwaysPass']), ('testTargets', ['Other']), ('destination', {'platform': 'iOS Simulator', 'deviceIdentifier': 'phone'}), ('runID', 'other')]:
+            wrong = [dict(summaries['icloud']['stages'][0], **{field: value}), summaries['icloud']['stages'][1]]
+            assert not subject.complete_summary('icloud', dict(summaries['icloud'], stages=wrong))
         assert not subject.complete_summary('icloud', dict(summaries['icloud'], cleanup={'exitCode': 1}))
         assert not subject.complete_summary('icloud', dict(summaries['icloud'], macCleanup={'exitCode': 1}))
         groups = {name: {'exitCode': 0, 'scope': 'full', 'summary': summary, 'inputDigest': subject.source_digest(name), 'environment': subject.environment_context(name)} for name, summary in summaries.items()}
@@ -408,7 +416,7 @@ def run_self_test(subject) -> int:
         network['failures'] = []
         assert subject.smoke_summary('network', network)['passed'] is False
         ddl = network_trace_fixture({'passed': True, 'scope': 'ddl', 'executedProbes': sorted(subject.network_inventory('ddl')), 'requiredProbes': sorted(subject.network_inventory('ddl'))})
-        assert len(subject.network_inventory('ddl')) == 5 and subject.smoke_summary('ddl', ddl)['passed']
+        assert len(subject.network_inventory('ddl')) == 4 and subject.smoke_summary('ddl', ddl)['passed']
         ddl_summary = subject.smoke_summary('ddl', ddl)
         assert subject.complete_summary('ddl', ddl_summary)
         assert not subject.smoke_summary('network', dict(network, requestEvidence=[]))['passed']
@@ -419,18 +427,21 @@ def run_self_test(subject) -> int:
         ddl['skippedProbes'] = ['课程中心 DDL 下载']
         assert subject.smoke_summary('ddl', ddl)['passed'] is False
         assert icloud_summary({'exitCode': 0, 'stages': []})['passed'] is False
-        stages = [{'stage': name, 'exitCode': 0, 'totalTestCount': 1, 'passedTests': 1} for name in ['testPhoneRoundTrip', 'testMacReceiveAndRestore']]
+        stages = [icloud_stage_fixture(name, {'exitCode': 0, 'totalTestCount': 1, 'passedTests': 1, 'failedTests': 0, 'skippedTests': 0}) for name in ['testPhoneRoundTrip', 'testMacReceiveAndRestore']]
         assert icloud_summary({'exitCode': 0, 'stages': stages})['passed']
+        for field, value in [('executedTests', ['Other/testAlwaysPass']), ('testTargets', ['Other']), ('destination', {'platform': 'iOS Simulator', 'deviceIdentifier': 'phone'}), ('runID', 'other')]:
+            wrong = [dict(stages[0], **{field: value}), stages[1]]
+            assert not icloud_summary({'exitCode': 0, 'stages': wrong})['passed']
         assert subject.smoke_summary('icloud', {'exitCode': 0, 'stages': stages})['passed'] is False
-        cleanup = dict(stages[0], stage='testCleanup', failedTests=0, skippedTests=0)
+        cleanup = icloud_stage_fixture('testCleanup', stages[0])
         assert icloud_summary({'exitCode': 0, 'stages': stages, 'cleanup': cleanup, 'cleanupExitCode': 0})['passed']
         assert icloud_summary({'exitCode': 0, 'stages': stages, 'cleanup': cleanup, 'cleanupExitCode': 1})['passed'] is False
         cleanup['passedTests'] = 0
         assert icloud_summary({'exitCode': 0, 'stages': stages, 'cleanup': cleanup})['passed'] is False
         assert not subject.smoke_summary('icloud-cleanup', {'cleanup': cleanup, 'cleanupExitCode': 0})['passed']
         cleanup['passedTests'] = 1
-        mac_cleanup = dict(cleanup, stage='testMacCleanup')
-        restored = {'exitCode': 1, 'cleanup': cleanup, 'macCleanup': mac_cleanup, 'cleanupExitCode': 0}
+        mac_cleanup = icloud_stage_fixture('testMacCleanup', cleanup)
+        restored = {'exitCode': 1, 'cleanup': cleanup, 'macCleanup': mac_cleanup, 'cleanupExitCode': 0, 'runID': 'fixture'}
         assert subject.smoke_summary('icloud-cleanup', restored)['passed']
         assert not subject.smoke_summary('icloud-cleanup', dict(restored, macCleanup={}))['passed']
         assert not icloud_summary({'exitCode': 0, 'stages': stages, 'macCleanup': dict(mac_cleanup, exitCode=1)})['passed']

@@ -129,15 +129,19 @@ xcrun() {
   else print -ru2 -- "TOOL $*"; fi
 }
 '''
+    valid_fixture = dict(posterID=1, courseID=2, courseNumber='COURSE', paperID=3)
     export_source = (SCRIPT_ROOT / "run-extended-tests.sh").read_text().replace('source "$ROOT_DIR/Scripts/script-support.sh"', frame)
     scope_source = (SCRIPT_ROOT / "release-network-smoke.sh").read_text().replace('source "$ROOT_DIR/Scripts/script-support.sh"', frame).split('RUN_ID="', 1)[0]
+    for scope in ('all', 'bit101', 'community-writes'):
+        result = subprocess.run(['zsh', '-c', scope_source, str(SCRIPT_ROOT / 'release-network-smoke.sh'), scope],
+            env=dict(os.environ, BIT101_NETWORK_SMOKE_FIXTURES=''), capture_output=True, text=True)
+        assert result.returncode == 64 and 'WORKFLOW_LOCK' not in result.stdout, '维护对象配置需要在构建与选机前验收'
     for capture in ('rawCourseResponse', 'scheduleCache'):
         for scope in ('all', 'school', 'schedule', 'bit101', 'ddl', 'transcript', 'community-writes', 'community-cleanup'):
             result = subprocess.run(['zsh', '-c', scope_source, str(SCRIPT_ROOT / 'release-network-smoke.sh'), scope],
-                env=dict(os.environ, BIT101_NETWORK_SMOKE_CAPTURE=capture, BIT101_NETWORK_SMOKE_FIXTURES=''), capture_output=True, text=True)
+                env=dict(os.environ, BIT101_NETWORK_SMOKE_CAPTURE=capture, BIT101_NETWORK_SMOKE_FIXTURES=json.dumps(valid_fixture)), capture_output=True, text=True)
             if (result.returncode == 0) != (scope in ('all', 'school', 'schedule')):
                 findings.append('网络采样自测：课表采样与执行范围匹配')
-    valid_fixture = dict(posterID=1, courseID=2, courseNumber='COURSE', paperID=3)
     for value, valid in ((valid_fixture, True), ({}, False), (dict(valid_fixture, posterID=True), False),
             (dict(valid_fixture, courseID=0), False), (dict(valid_fixture, courseNumber=' COURSE'), False)):
         result = subprocess.run(['zsh', '-c', scope_source, str(SCRIPT_ROOT / 'release-network-smoke.sh'), 'bit101'],
@@ -148,7 +152,7 @@ xcrun() {
             (['school', 'sms'], '', 'school-sms full'), (['school', 'sms'], 'historical', 'school-sms selected')):
         result = subprocess.run(['zsh', '-c', scope_source + '\nprint -r -- "$validation_group $validation_scope"',
             str(SCRIPT_ROOT / 'release-network-smoke.sh'), *arguments], capture_output=True, text=True,
-            env=dict(os.environ, BIT101_NETWORK_SMOKE_TERM=term))
+            env=dict(os.environ, BIT101_NETWORK_SMOKE_TERM=term, BIT101_NETWORK_SMOKE_FIXTURES=json.dumps(valid_fixture)))
         if result.returncode or result.stdout.splitlines()[-1:] != [expected]:
             findings.append('网络学期自测：覆盖学期采样沿定向范围登记')
     export_source = export_source[:export_source.index('if [[ "${1:-}" == -h')]
@@ -159,7 +163,8 @@ xcrun() {
         if result.returncode != 86 or result.stdout.count("WORKFLOW_LOCK") != 1:
             findings.append(f"固定产物导出自测：{arguments[0]} 取得工作流锁")
     for command, markers in ((["xcrun", "devicectl", "device", "process", "launch", "--help"], ["--terminate-existing", "<command-line-arguments>"]),
-            (["xcrun", "devicectl", "device", "info", "processes", "--help"], ["--json-output"])):
+            (["xcrun", "devicectl", "device", "info", "processes", "--help"], ["--json-output"]),
+            (['xcrun', 'xcresulttool', 'merge', '--help'], ['--output-path'])):
         result = subprocess.run(command, capture_output=True, text=True)
         if result.returncode or any(marker not in result.stdout for marker in markers):
             findings.append("装机恢复自测：当前工具链需要正式启动与进程读取参数")
@@ -199,7 +204,7 @@ xcrun() {
         ("release-network-smoke.sh", ["school", "sms"], 86, "RELEASE_NETWORK_SMOKE", "DEVICE"),
         ("run_icloud_cross_device_smoke.sh", [], 86, "ICLOUD_CROSS_DEVICE_SMOKE", "DEVICE"), ("run_icloud_cross_device_smoke.sh", ["report"], 0, "REPORT", ""),
     )
-    environment = dict(os.environ, BIT101_EXTENDED_TESTS_LOCK_HELD="1", BIT101_DEFER_APP_RESTORE="1")
+    environment = dict(os.environ, BIT101_EXTENDED_TESTS_LOCK_HELD="1", BIT101_DEFER_APP_RESTORE="1", BIT101_NETWORK_SMOKE_FIXTURES=json.dumps(valid_fixture))
     for filename, arguments in (("build-install-device.sh", ["archive"]), ("run-extended-tests.sh", ["build"]),
                                 ("release-network-smoke.sh", ["ddl"]), ("run_icloud_cross_device_smoke.sh", []),
                                 ("run-static-audit.sh", [])):

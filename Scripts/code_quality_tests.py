@@ -558,6 +558,8 @@ def build_cache_boundary_findings() -> list[str]:
         result = fixture / ".build/extended-automation/test-results.xcresult"
         result.mkdir()
         (result / "evidence").write_text("retain result")
+        cloud_result = fixture / '.build/icloud-cross-device-smoke/Mac/Logs/Test/test-results.xcresult'
+        cloud_result.mkdir(parents=True); (cloud_result / 'evidence').write_text('retain recovery diagnostics')
         sdk = fixture / ".build/extended-automation/SDKExplicitPrecompiledModules"
         sdk.mkdir()
         (sdk / "referenced.pcm").write_bytes(content)
@@ -595,6 +597,7 @@ def build_cache_boundary_findings() -> list[str]:
             findings.append("缓存自测：保留运行包内部的调试资源")
         if not (products / "Release-iphoneos/product").is_file() or not (result / "evidence").is_file():
             findings.append("缓存自测：保留增量构建及测试证据")
+        if not (cloud_result / 'evidence').is_file(): findings.append('缓存自测：保留云同步失败的固定结果包')
         if not (sdk / "referenced.pcm").is_file() or (sdk / "unused.pcm").exists():
             findings.append("缓存自测：依赖清单引用模块保留")
         (sdk / "incomplete-map.pcm").write_bytes(content)
@@ -855,10 +858,20 @@ exit {initial}
     summary = {"totalTestCount": 1, "passedTests": 0, "failedTests": 1, "skippedTests": 0,
                "testFailures": [{"failureText": "business failure"}]}
     completed = {"totalTestCount": 1, "passedTests": 1, "failedTests": 0, "skippedTests": 0}
-    def result_response(*args, **kwargs):
+    observed = {}
+    def result_response(command, **kwargs):
+        if 'merge' in command: return subprocess.CompletedProcess(command, 0, '')
+        if 'tests' in command:
+            stage = sys.argv[3]
+            tree = {'devices': [{'platform': observed.get('platform', 'macOS' if stage.startswith('testMac') else 'iOS'),
+                'deviceId': observed.get('deviceId', 'phone')}], 'testNodes': [{'nodeType': 'Unit test bundle',
+                'name': observed.get('target', 'BIT101-iOSTests'), 'children': [{'nodeType': 'Test Case',
+                    'nodeIdentifier': observed.get('identifier', 'ICloudCrossDeviceSmokeTests/' + stage + '()')}]}]}
+            return subprocess.CompletedProcess(command, 0, json.dumps(tree))
         result = summary if sys.argv[3] == "testPhoneRoundTrip" else completed
-        return subprocess.CompletedProcess([], 0, json.dumps(result))
-    with patch.object(Path, "is_file", lambda path: str(path) in state), patch.object(Path, "is_dir", return_value=True), \
+        return subprocess.CompletedProcess(command, 0, json.dumps(result))
+    with patch.dict(os.environ, BIT101_VALIDATION_RUN_ID='fixture', BIT101_XCODE_DEVICE_ID='phone'), \
+         patch.object(Path, "is_file", lambda path: str(path) in state), patch.object(Path, "is_dir", return_value=True), \
          patch.object(Path, "glob", side_effect=lambda *args: iter([Path("/smoke/generated.xcresult")])), \
          patch.object(Path, "exists", return_value=False), patch.object(shutil, "rmtree") as remove_bundle, \
          patch.object(shutil, "move") as retain_bundle, \
@@ -875,7 +888,7 @@ exit {initial}
                         findings.append("Smoke 结果自测失败：阶段状态码传播")
         report = json.loads(state["/smoke/report.json"])
         if report["stages"][0].get("testFailures") != summary["testFailures"] or len(report["stages"]) != 1 \
-                or report.get("cleanup", {}).get("passedTests") != 1 or result_tool.call_count != 2:
+                or report.get("cleanup", {}).get("passedTests") != 1 or result_tool.call_count != 4:
             findings.append("Smoke 结果自测失败：失败阶段与清理阶段的证据归属")
         for log, expected in (("", 1), ("skipped", 1), ("failed", 1), ("passed", 0)):
             completed = {"totalTestCount": int(bool(log)), "passedTests": int(log == "passed"),
@@ -895,6 +908,14 @@ exit {initial}
                 findings.append("Smoke 结果自测：失败阶段保留固定路径原始结果包")
             if not expected and (retain_bundle.called or not remove_bundle.called or "resultBundle" in cleanup):
                 findings.append("Smoke 结果自测：成功阶段完成归集后清理原始结果包")
+        completed = {'totalTestCount': 1, 'passedTests': 1, 'failedTests': 0, 'skippedTests': 0}
+        for key, value in [('identifier', 'UnrelatedTests/testAlwaysPass'), ('target', 'OtherTests'), ('platform', 'iOS Simulator'), ('deviceId', 'other')]:
+            observed[key] = value
+            with patch.object(sys, 'argv', ['record', '/smoke/report.json', '/smoke/results.xcresult', 'testCleanup', '0', '/smoke/log']), redirect_stdout(StringIO()):
+                try: exec(compile(match[1], 'smoke-stage-identity', 'exec'), {})
+                except SystemExit as error: assert error.code == 1
+            assert json.loads(state['/smoke/report.json'])['cleanup']['exitCode'] == 1
+            observed.clear()
         for exit_code in (0, 65):
             completed = {"totalTestCount": 1, "passedTests": int(exit_code == 0), "failedTests": int(exit_code != 0),
                 "skippedTests": 0, "testFailures": summary["testFailures"] if exit_code else []}
@@ -909,8 +930,9 @@ exit {initial}
                     if error.code != exit_code:
                         findings.append("Mac 恢复自测：清理状态码传播")
             cleanup = json.loads(state["/smoke/report.json"])["macCleanup"]
-            if retain_bundle.called or remove_bundle.call_args.args != (Path("/smoke/generated.xcresult"),) \
-                    or exit_code and (cleanup.get("preservedResultBundle") != "/smoke/test-results.xcresult"
+            merged = retain_bundle.call_args.args == ('/smoke/test-results.incoming.xcresult', '/smoke/test-results.xcresult') if retain_bundle.called else False
+            if (merged != bool(exit_code)) or remove_bundle.call_args.args != (Path("/smoke/generated.xcresult"),) \
+                    or exit_code and (cleanup.get("resultBundle") != "/smoke/test-results.xcresult"
                         or cleanup.get("testFailures") != summary["testFailures"]):
                 findings.append("Mac 恢复自测：保留业务结果包与清理失败诊断")
     return findings

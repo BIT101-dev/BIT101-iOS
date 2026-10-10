@@ -919,9 +919,9 @@ struct ReleaseNetworkSmokeLifecycleTests {
         #expect(loginCalls == (stage == "cleanup" ? 0 : 1))
         #expect(report.failures.count == (stage == "report" ? 2 : 1))
         #expect(stored?.runID == (stage == "report" ? nil : "fixture"))
-        let next = await runner.run(scope: .school, runID: "next")
+        let next = await runner.run(scope: .bit101, runID: "next")
         #expect(next.failures.count == report.failures.count)
-        #expect(next.requiredProbes == NetworkSmokeScope.school.requiredProbes)
+        #expect(next.requiredProbes == NetworkSmokeScope.bit101.requiredProbes)
     }
 }
 #endif

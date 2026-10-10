@@ -84,7 +84,7 @@ nonisolated final class MaintenancePerformanceTests: XCTestCase {
         } }
         let decoder = JSONDecoder()
         let messagePages = try pages.map { page in
-            let rows = page.map { "{\"fromUser\":{},\"id\":\($0.id),\"linkObj\":\"\",\"obj\":\"\",\"text\":\"message\",\"updateTime\":\"\"}" }
+            let rows = page.map { "{\"fromUser\":{},\"id\":\(pageCount * itemsPerPage - $0.id),\"linkObj\":\"\",\"obj\":\"\",\"text\":\"message\",\"updateTime\":\"\"}" }
             return try decoder.decode([GalleryMessage].self, from: Data(("[" + rows.joined(separator: ",") + "]").utf8))
         }
         measure(metrics: [XCTClockMetric(), XCTMemoryMetric()]) {
@@ -97,7 +97,10 @@ nonisolated final class MaintenancePerformanceTests: XCTestCase {
                 for _ in 0..<passes {
                     await model.refresh()
                     for _ in 1..<pages.count { await model.loadMoreIfNeeded(currentPaper: model.state.items.last) }
-                    for page in messagePages { messages.appendCursorPage(page) }
+                    messages.applyFirstCursorPage(messagePages[0])
+                    for page in messagePages.dropFirst() { messages.appendCursorPage(page) }
+                    XCTAssertEqual(messages.items.count, pageCount * itemsPerPage)
+                    XCTAssertEqual(messages.nextCursor, 1)
                 }
                 XCTAssertEqual(model.state.items.count, pageCount * itemsPerPage)
                 XCTAssertEqual(model.state.nextPage, pageCount)

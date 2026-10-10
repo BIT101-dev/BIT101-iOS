@@ -143,25 +143,28 @@ final class ReleaseNetworkSmokeRunner {
         if scope != .communityCleanup && scope != .communityWrites {
             do { try dependencies.clearRawCourseResponse() }
             catch {
-                recordFailure("原始课表采样清理", error.localizedDescription, area: .authentication, scope: scope)
+                let area: NetworkSmokeArea = scope.includes(.authentication) ? .authentication : scope.includes(.schedule) ? .schedule : scope.includes(.ddl) ? .ddl : .transcript
+                recordFailure("原始课表采样清理", error.localizedDescription, area: area, scope: scope)
                 return await finishReport(runID: runID, scope: scope, startedAt: startedAt)
             }
         }
 
-        executedProbes.append("BIT101 登录状态")
-        let loginStartedAt = Date()
-        do {
-            let loginResult = try await captureNetworkRequests("BIT101 登录状态", required: true) {
-                try await self.dependencies.checkLogin()
-            }
-            guard let signedInStudentID = loginResult, !signedInStudentID.isEmpty else {
-                recordFailure("BIT101 登录状态", "真机没有有效登录状态，无法执行发布前网络冒烟测试", area: .authentication, scope: scope)
+        if scope.includes(.authentication) {
+            executedProbes.append("BIT101 登录状态")
+            let loginStartedAt = Date()
+            do {
+                let loginResult = try await captureNetworkRequests("BIT101 登录状态", required: true) {
+                    try await self.dependencies.checkLogin()
+                }
+                guard let signedInStudentID = loginResult, !signedInStudentID.isEmpty else {
+                    recordFailure("BIT101 登录状态", "真机没有有效登录状态，无法执行发布前网络冒烟测试", area: .authentication, scope: scope)
+                    return await finishReport(runID: runID, scope: scope, startedAt: startedAt)
+                }
+                print("NETWORK_SMOKE_PASS name=BIT101 登录状态 elapsed=\(Self.duration(Date().timeIntervalSince(loginStartedAt)))")
+            } catch {
+                recordFailure("BIT101 登录状态", error.localizedDescription, area: .authentication, scope: scope, elapsed: Date().timeIntervalSince(loginStartedAt))
                 return await finishReport(runID: runID, scope: scope, startedAt: startedAt)
             }
-            print("NETWORK_SMOKE_PASS name=BIT101 登录状态 elapsed=\(Self.duration(Date().timeIntervalSince(loginStartedAt)))")
-        } catch {
-            recordFailure("BIT101 登录状态", error.localizedDescription, area: .authentication, scope: scope, elapsed: Date().timeIntervalSince(loginStartedAt))
-            return await finishReport(runID: runID, scope: scope, startedAt: startedAt)
         }
 
         if scope == .communityWrites || scope == .communityCleanup {

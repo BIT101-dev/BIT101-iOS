@@ -284,7 +284,10 @@ with ((root / ".build/extended-automation.lock").open("a") if maintenance else n
                                               for path in symbols.relative_to(parent).parents)
                                 if symbols.is_dir() and not bundled:
                                     shutil.rmtree(symbols)
-            shutil.rmtree(derived / "Logs/Test", ignore_errors=True)
+            for diagnostic in (derived / 'Logs/Test').glob('*'):
+                if diagnostic.name == 'test-results.xcresult': continue
+                if diagnostic.is_dir(): shutil.rmtree(diagnostic)
+                else: diagnostic.unlink()
         referenced = set()
         maps_complete = True
         for derived in derived_roots:
