@@ -44,6 +44,14 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
     for event in ("pull_request", "push"):
         if {"paths", "paths-ignore"} & mapping(mapping(workflow.get("on")).get(event)).keys():
             errors.append(f".github/workflows/ci.yml: {event} 需要覆盖全部仓库路径")
+    pull = mapping(mapping(workflow.get('on')).get('pull_request'))
+    if {'branches', 'branches-ignore'} & pull.keys() or 'types' in pull and (
+            not isinstance(pull['types'], list) or not all(isinstance(item, str) for item in pull['types'])
+            or not {'opened', 'synchronize', 'reopened'} <= set(pull['types'])):
+        errors.append('.github/workflows/ci.yml: pull_request 需要覆盖全部目标分支及打开、更新、重新打开事件')
+    push = mapping(mapping(workflow.get('on')).get('push'))
+    if push.get('branches') != ['main'] or 'branches-ignore' in push:
+        errors.append('.github/workflows/ci.yml: push 需要覆盖 main 分支更新')
     jobs = mapping(workflow.get("jobs"))
     for name, job in jobs.items():
         if name != 'physical-device' and mapping(job).get('runs-on') != CI_RUNNER:
@@ -294,7 +302,14 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
         re.sub(r"(?m)^  push:\n    branches:.*\n", "", source),
         source.replace("jobs:", "defaults:\n  run:\n    shell: echo {0}\njobs:", 1),
         source.replace("    steps:", "    defaults:\n      run:\n        shell: echo {0}\n    steps:", 1),
+        source.replace('  pull_request:\n', '  pull_request:\n    branches: [unused-branch]\n'),
+        source.replace('  pull_request:\n', "  pull_request:\n    branches-ignore: ['**']\n"),
+        source.replace('  pull_request:\n', '  pull_request:\n    types: [closed]\n'),
+        source.replace('    branches: [main]', '    branches: [unused-branch]'),
+        source.replace('    branches: [main]', "    branches-ignore: ['**']"),
     ]
+    for types in ('[opened, synchronize, reopened]', '[opened, synchronize, reopened, ready_for_review]'):
+        assert not ci_wiring_findings(source.replace('  pull_request:\n', f'  pull_request:\n    types: {types}\n'))
     findings = ["代码质量规则边界自检失败：CI 自动触发与 shell 继承门禁"
                 for changed in mutations if not ci_wiring_findings(changed)]
     for name in DIAGNOSTIC_PATHS:

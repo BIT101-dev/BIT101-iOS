@@ -30,14 +30,6 @@ enum ScheduleCacheStore {
         cacheFileURL(for: AppFileDirectories.currentSession.accountStorageIdentifier)
     }
 
-    /// 读取当前账号的缓存快照。
-    static func load() -> ScheduleCache {
-        loadResult(
-            accountIdentifier: AppFileDirectories.currentSession.accountStorageIdentifier,
-            legacyAccountIdentifier: legacyAccountIdentifier()
-        ).cacheIfReadable ?? ScheduleCache()
-    }
-
     static func loadResultAsync() async -> ScheduleCacheLoadResult {
         await loadResultAsync(for: AppFileDirectories.currentSession)
     }
@@ -50,15 +42,6 @@ enum ScheduleCacheStore {
     /// 将缓存文件读取与解码移到独立任务，避免页面恢复阶段阻塞 MainActor。
     static func loadAsync() async -> ScheduleCache {
         await loadResultAsync().cacheIfReadable ?? ScheduleCache()
-    }
-
-    /// 写回账号缓存并广播变更，外部展示由应用生命周期协调。
-    static func save(_ cache: ScheduleCache, source: ScheduleCacheSaveSource = .local, session: AppStorageSession = AppFileDirectories.currentSession) {
-        let identity = AppAccountSession.storage.communityCredentials.identity
-        Task {
-            await saveAndWait(cache, source: source, expectedAccountIdentifier: session.accountDirectoryName,
-                isCurrent: { AppAccountSession.storage.communityCredentials.identity == identity })
-        }
     }
 
     @discardableResult
@@ -120,10 +103,6 @@ enum ScheduleCacheStore {
             postCacheDidChange()
         }
         return didClear
-    }
-
-    fileprivate nonisolated static func loadResult(accountIdentifier: String, legacyAccountIdentifier: String) -> ScheduleCacheLoadResult {
-        writeQueue.read(accountIdentifier: accountIdentifier, legacyAccountIdentifier: legacyAccountIdentifier)
     }
 
     nonisolated static func decodeCache(_ data: Data) -> ScheduleCacheLoadResult {

@@ -2,9 +2,42 @@
 """Compile repository Python and embedded shell Python delegates."""
 from pathlib import Path
 import re
+import shlex
 import sys
 
 root = Path(sys.argv[1])
+
+def inline_python_command(prefix):
+    lexer = shlex.shlex(prefix, posix=True, punctuation_chars=';|&()')
+    lexer.whitespace_split = True
+    lexer.commenters = ''
+    try: words = list(lexer)
+    except ValueError: return False
+    boundaries = [index for index, word in enumerate(words) if set(word) <= set(';|&()')]
+    words = words[boundaries[-1] + 1:] if boundaries else words
+    while words:
+        if re.match(r'^[A-Za-z_]\w*=', words[0]) or words[0] in {'command', 'exec', 'if', 'elif', 'then', 'do', '!'}:
+            words.pop(0)
+        elif Path(words[0]).name == 'env':
+            words.pop(0)
+            while words and words[0].startswith('-'):
+                option = words.pop(0)
+                if option in {'-u', '--unset', '-C', '--chdir'}:
+                    if not words: return False
+                    words.pop(0)
+                elif option == '--': break
+                elif option not in {'-i', '--ignore-environment'} and not option.startswith(('--unset=', '--chdir=')): return False
+        else: break
+    if not words or not re.fullmatch(r'(?:[^\s\'\"]*/)?python(?:\d+(?:\.\d+)*)?', words.pop(0)): return False
+    while words:
+        option = words.pop(0)
+        if option == '-c': return not words
+        if option in {'-W', '-X'}:
+            if not words: return False
+            words.pop(0)
+        elif not option.startswith('-') or option in {'-', '--', '-m'}: return False
+    return False
+
 
 def quoted_command(source, position):
     quote, body, literal = source[position], [], True
@@ -27,8 +60,6 @@ def quoted_command(source, position):
 def compile_embedded_python(source, path):
     headers = re.compile(r"<<(?P<tabs>-)?[ \t]*(?P<quote>['\"]?)(?P<label>[A-Za-z_]\w*)(?P=quote)(?=[ \t\n;|&<>]|$)")
     interpreter = re.compile(r"(?:^|[\s(;|&])(?:[^\s'\"]*/)?python(?:\d+(?:\.\d+)*)?(?=\s|$)")
-    inline = re.compile(r"(?:^|[;|&()])\s*(?:(?:command|exec|if|elif|then|do|!)\s+)?"
-        r"(?:[^\s'\"]*/)?python(?:\d+(?:\.\d+)*)?(?:\s+-[A-Za-z]+)*\s+-c\s*$")
     visible = [" "] * len(source)
     contexts = [("command", 0)]
     position = line_start = 0
@@ -49,11 +80,12 @@ def compile_embedded_python(source, path):
             position = len(source) if newline < 0 else newline
             continue
         if character in "'\"":
-            if inline.search(''.join(visible[max(line_start, context_start):position])):
+            if inline_python_command(''.join(visible[max(line_start, context_start):position])):
                 body, position, literal = quoted_command(source, position)
                 if literal: compile(body, str(path), 'exec')
                 line_start = source.rfind('\n', 0, position) + 1
                 continue
+            visible[position] = '_'
             contexts.append((character, position)); position += 1
             continue
         if character == "(": contexts.append(("command", position + 1))
@@ -101,7 +133,9 @@ for source in ("python3 - \\\n <<'EOF'\nif True\nEOF\n", 'value="$(python3 - <<\
     except SyntaxError: pass
     else: raise AssertionError("Python heredoc 语法审计需要覆盖续行及命令替换")
 
-for prefix in ('python3 -c ', '/usr/bin/python3 -B -c ', 'value="$(python3 -c ', 'cat | python3 -c ', 'if python3 -c '):
+for prefix in ('python3 -c ', '/usr/bin/python3 -B -c ', 'value="$(python3 -c ', 'cat | python3 -c ', 'if python3 -c ',
+               'BIT101_FLAG=1 python3 -c ', 'BIT101_FLAG="two words" python3 -c ', 'env BIT101_FLAG=1 python3 -c ',
+               'command env -i BIT101_FLAG=1 python3 -B -c ', 'exec /usr/bin/env -u "BIT101_FLAG" python3 -X dev -c '):
     suffix = ')"' if prefix.startswith('value=') else ''
     for quote in ("'", '"'):
         compile_embedded_python(prefix + quote + 'pass' + quote + suffix, 'inline-python-self-test')
@@ -110,7 +144,8 @@ for prefix in ('python3 -c ', '/usr/bin/python3 -B -c ', 'value="$(python3 -c ',
         else: raise AssertionError('Python -c 字面量需要参与语法审计')
 compile_embedded_python('python3 -c "print(\\\"literal\\\")"', 'inline-escape-self-test')
 for source in ('echo python3 -c \'if True\'', '# python3 -c \'if True\'', 'echo "python3 -c \'if True\'"',
-               'python3 -c "$script"', 'cat <<\'EOF\'\npython3 -c \'if True\'\nEOF\n'):
+               'python3 -c "$script"', 'cat <<\'EOF\'\npython3 -c \'if True\'\nEOF\n',
+               "env BIT101_FLAG=1 echo python3 -c 'if True'", "python3 script.py -c 'if True'"):
     compile_embedded_python(source, 'inline-shell-text-self-test')
 
 for path in sorted((root / "Scripts").glob("*.py")):

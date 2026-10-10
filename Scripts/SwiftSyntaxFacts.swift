@@ -80,7 +80,7 @@ struct ScopedFact: Encodable {
     var bindingType: String? = nil
     var initializerCall: String? = nil
     var initializerReference: String? = nil
-    var booleanValue: Bool? = nil
+    var constantInitializer: String? = nil
     var deadRange: [Int]? = nil
     var followingRange: [Int]? = nil
     var branchRanges: [[Int]]? = nil

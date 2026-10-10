@@ -633,7 +633,11 @@ def network_capability_self_test() -> None:
     assert 'mine.fetchMyInfo' not in reached(disabled)
     from network_capability_rules import call_can_execute
     comparisons = [('true == false', False), ('false != false', False), ('true != false', True),
-        ('(true == false) || false', False), ('enabled == false', True)]
+        ('(true == false) || false', False), ('enabled == false', True), ('1 == 2', False), ('1 != 1', False),
+        ('-1 >= 0', False), ('1_000 < 1', False), ('1.5 > 2', False), ('0x10 == 16', True),
+        ('9007199254740993 == 9007199254740992.0', True), ('"a" == "b"', False), ('"a" != "a"', False),
+        ('"true" == "True"', False), ('"!" == " not "', False), ('"&&" == " and "', False),
+        ('"é" != "é"', False), (r'"row.\(enabled)" == "fixed"', True), ('1 == enabled', True)]
     comparison_sources = {condition: f'func run(enabled: Bool) {{ if {condition} {{ service.fetch() }} }}'
         for condition, _ in comparisons}
     comparison_index = swift_syntax_index_sources(comparison_sources)
@@ -641,6 +645,27 @@ def network_capability_self_test() -> None:
         facts = comparison_index[condition]
         call = next(row for row in facts['invocations'] if row['calledExpression'] == 'service.fetch')
         assert call_can_execute(facts, call) == expected, condition
+        branch = dict(sources)
+        branch['ReleaseNetworkSmoke.swift'] = sources['ReleaseNetworkSmoke.swift'].replace(
+            'dependencies.productionSessionProbe()', f'if {condition} {{ dependencies.productionSessionProbe() }}')
+        assert ('mine.fetchMyInfo' in reached(branch)) == expected, condition
+    initializers = [
+        ('let value = 1; let alias = value; if alias == 2', False),
+        ('let value: Int = 1; let flag = value == 2; if flag', False),
+        ('let value = "first"; let alias = value; if alias == "second"', False),
+        ('var value = 1; value = 2; if value == 2', True),
+        ('let value = input; if value == 2', True),
+        ('let value = value; if value == 2', True),
+        ('let value: Custom = 1; if value == 2', True),
+        ('let value: Double = 9007199254740993; if value == 9007199254740992', True),
+        ('let value: Float = 16777217; if value == 16777216', True),
+    ]
+    initializer_index = swift_syntax_index_sources({prefix: f'func run(input: Int) {{ {prefix} {{ service.fetch() }} }}'
+        for prefix, _ in initializers})
+    for prefix, expected in initializers:
+        facts = initializer_index[prefix]
+        call = next(row for row in facts['invocations'] if row['calledExpression'] == 'service.fetch')
+        assert call_can_execute(facts, call) == expected, prefix
     for outer in ('true', 'false'):
         for body, expected in [
             ('func run(enabled: Bool) { if enabled { service.fetch() } }', True),

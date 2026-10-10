@@ -738,9 +738,8 @@ final class FactVisitor: SyntaxVisitor {
         binding.bindingType = node.typeAnnotation?.type.trimmedDescription
         binding.initializerCall = node.initializer?.value.as(FunctionCallExprSyntax.self)?.calledExpression.tokens(viewMode: .sourceAccurate).map(\.text).joined()
         binding.initializerReference = functionReference(node.initializer?.value)
-        if node.parent?.parent?.as(VariableDeclSyntax.self)?.bindingSpecifier.text == "let",
-           let literal = node.initializer?.value.as(BooleanLiteralExprSyntax.self) {
-            binding.booleanValue = literal.literal.text == "true"
+        if node.parent?.parent?.as(VariableDeclSyntax.self)?.bindingSpecifier.text == "let" {
+            binding.constantInitializer = node.initializer?.value.trimmedDescription
         }
         bindings.append(binding)
         if let declaration = node.parent?.parent?.as(VariableDeclSyntax.self), declaration.parent?.is(MemberBlockItemSyntax.self) == true,

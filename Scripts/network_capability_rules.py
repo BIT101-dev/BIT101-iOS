@@ -2,6 +2,9 @@
 import re
 import ast
 import warnings
+import math
+import operator
+import unicodedata
 from swift_source_index import argument_parameter_bindings, matching_functions, visible_variables
 
 NETWORK_FOUNDATION_MODULES = {'TransportCore', 'CommunityTransport', 'MediaKit'}
@@ -10,44 +13,81 @@ NETWORK_HARNESS_TYPES = {'ReleaseNetworkSmokeRunner', 'ReleaseNetworkSmokeDepend
     'NetworkSmokeProductionSession', 'ReleaseNetworkSmokeSchoolClient'}
 
 
-def constant_boolean(condition: str, resolve) -> bool | None:
-    expression = re.sub(r'!(?!=)', ' not ', condition.replace('&&', ' and ').replace('||', ' or '))
-    expression = re.sub(r'\btrue\b', 'True', re.sub(r'\bfalse\b', 'False', expression)).strip()
+def constant_value(condition: str, resolve):
+    tokens = {'&&': ' and ', '||': ' or ', '!': ' not ', 'true': 'True', 'false': 'False'}
+    expression = re.sub(r'"(?:\\.|[^"\\])*"|&&|\|\||!(?!=)|\b(?:true|false)\b',
+        lambda match: tokens.get(match[0], match[0]), condition).strip()
     try:
         with warnings.catch_warnings():
             warnings.simplefilter('ignore', SyntaxWarning)
             node = ast.parse(expression, mode='eval').body
     except SyntaxError: return None
     def value(node):
-        if isinstance(node, ast.Constant) and isinstance(node.value, bool): return node.value
+        if isinstance(node, ast.Constant):
+            if type(node.value) in {bool, int}: return node.value
+            if type(node.value) is float: return node.value if math.isfinite(node.value) else None
+            if type(node.value) is str:
+                literal = ast.get_source_segment(expression, node)
+                if not literal.startswith('"') or literal.startswith('"""') or re.search(r'\\(?![0tnr"\\])', literal): return None
+                return unicodedata.normalize('NFC', node.value)
         if isinstance(node, ast.Name): return resolve(node.id)
-        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+        if isinstance(node, ast.UnaryOp):
             operand = value(node.operand)
-            return not operand if operand is not None else None
+            if isinstance(node.op, ast.Not): return not operand if type(operand) is bool else None
+            if type(operand) in {int, float}:
+                if isinstance(node.op, ast.USub): return -operand
+                if isinstance(node.op, ast.UAdd): return operand
         if isinstance(node, ast.BoolOp):
             values = [value(operand) for operand in node.values]
-            if isinstance(node.op, ast.And): return False if False in values else True if all(item is True for item in values) else None
-            if isinstance(node.op, ast.Or): return True if True in values else False if all(item is False for item in values) else None
+            if isinstance(node.op, ast.And): return False if any(item is False for item in values) else True if all(item is True for item in values) else None
+            if isinstance(node.op, ast.Or): return True if any(item is True for item in values) else False if all(item is False for item in values) else None
         if isinstance(node, ast.Compare) and len(node.ops) == 1:
             left, right = value(node.left), value(node.comparators[0])
             if left is None or right is None: return None
+            numeric = type(left) in {int, float} and type(right) in {int, float}
+            if not numeric and type(left) is not type(right): return None
+            if numeric:
+                if type(left) is float or type(right) is float:
+                    try: left, right = float(left), float(right)
+                    except OverflowError: return None
+                    if not math.isfinite(left) or not math.isfinite(right): return None
             if isinstance(node.ops[0], ast.Eq): return left == right
             if isinstance(node.ops[0], ast.NotEq): return left != right
+            if numeric:
+                comparison = {ast.Lt: operator.lt, ast.LtE: operator.le, ast.Gt: operator.gt, ast.GtE: operator.ge}.get(type(node.ops[0]))
+                if comparison: return comparison(left, right)
         return None
     return value(node)
 
 
+def constant_boolean(condition: str, resolve) -> bool | None:
+    result = constant_value(condition, resolve)
+    return result if type(result) is bool else None
+
+
 def branch_condition(facts: dict, branch: dict) -> bool | None:
-    def resolve(name):
-        lexical = branch.get('lexicalScope', [])
+    resolving = set()
+    def resolve(name, location=branch):
+        lexical = location.get('lexicalScope', [])
         bindings = [node for node in facts.get('bindings', []) if node.get('bindingName') == name
-            and node.get('scope') == branch.get('scope') and node['start'] <= branch['start']
+            and node.get('scope') == location.get('scope') and node['start'] <= location['start']
             and lexical[:len(node.get('lexicalScope', []))] == node.get('lexicalScope', [])]
         variables = visible_variables({**facts, 'typedVariables': facts.get('typedVariables', []),
-            'functionRanges': facts.get('functionRanges', [])}, branch, name)
+            'functionRanges': facts.get('functionRanges', [])}, location, name)
         if candidates := bindings + variables:
             node = max(candidates, key=lambda item: (len(item.get('scope', [])), len(item.get('lexicalScope', [])), item['start']))
-            return node.get('booleanValue')
+            initializer = node.get('constantInitializer')
+            annotation = node.get('bindingType')
+            if not initializer or node['start'] in resolving or annotation and not re.fullmatch(
+                    r'(?:Swift\.)?(?:Bool|String|U?Int(?:8|16|32|64)?|Double)', annotation): return None
+            resolving.add(node['start'])
+            try:
+                result = constant_value(initializer, lambda referenced: resolve(referenced, node))
+                if annotation in {'Double', 'Swift.Double'} and type(result) is int:
+                    try: return float(result)
+                    except OverflowError: return None
+                return result
+            finally: resolving.remove(node['start'])
         return None
     return constant_boolean(branch.get('condition') or '', resolve)
 
