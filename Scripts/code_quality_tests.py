@@ -150,7 +150,7 @@ struct Handler { var value: String!; func read() -> String { value }; func catch
     unwrap_facts = swift_syntax_index_sources({"Unwrap.swift": unwrap_source})["Unwrap.swift"]
     from code_quality_rules import discarded_file_write_findings
     write_path = ROOT / "Modules/CommunityPersistence/Sources/Example.swift"
-    write_source = 'func update() { try? files.removeItem(at: url); _ = try? files.writeData(data, to: url); let result = try? files.createDirectory(at: url); let data = try? files.readData(at: url) }'
+    write_source = 'func update(files: AppFileService) { try? files.removeItem(at: url); _ = try? files.writeData(data, to: url); let result = try? files.createDirectory(at: url); let data = try? files.readData(at: url) }'
     write_facts = swift_syntax_index_sources({str(write_path): write_source})[str(write_path)]
     if len(discarded_file_write_findings(write_path, write_source, write_facts)) != 2:
         findings.append("代码质量自测：文件副作用的丢弃结果需要错误处理，已消费结果沿调用方处理")
@@ -161,8 +161,17 @@ struct Handler { var value: String!; func read() -> String { value }; func catch
         'try? urls.forEach { try files.removeItem(at: $0) }': True,
         'try? files.replaceItemAt(url, withItemAt: other)': True,
         'try? client.write(value)': False,
+        'try? MemoryCollection().removeItem(at: 0)': False,
+        'try? MemoryCollection().writeData(data, to: url)': False,
+        'try? MemoryCollection().createDirectory(at: url)': False,
+        'try? MemoryCollection().moveItem(at: url, to: other)': False,
+        'try? MemoryCollection().copyItem(at: url, to: other)': False,
+        'try? MemoryCollection().replaceItemAt(url, withItemAt: other)': False,
+        'try? FileManager.default.removeItem(at: url)': True,
+        'let store = files; let local = store; try? local.removeItem(at: url)': True,
+        'let store = MemoryCollection(); let local = store; try? local.removeItem(at: 0)': False,
     }
-    write_sources = {statement: 'func update() { ' + statement + ' }' for statement in writes}
+    write_sources = {statement: 'struct MemoryCollection { func removeItem(at index: Int) throws {} }; func update(files: any AppFileService, data: Data, handle: FileHandle, text: String) { ' + statement + ' }' for statement in writes}
     write_index = swift_syntax_index_sources(write_sources)
     for statement, expected in writes.items():
         if bool(discarded_file_write_findings(write_path, write_sources[statement], write_index[statement])) != expected:
@@ -174,6 +183,7 @@ struct Handler { var value: String!; func read() -> String { value }; func catch
     from code_quality_rules import file_write_calls
     wrapper_sources = {str(write_path): '''
         struct Store {
+            let files: AppFileService
             func update() { try? save(); try? self.again(); try? save(value: 1); try? handled() }
             func save() throws { try files.writeData(data, to: url) }
             func save(value: Int) throws { try client.fetch(value) }
@@ -202,7 +212,7 @@ struct Handler { var value: String!; func read() -> String { value }; func catch
     }
     if not ast_has_view_request(view_facts) or ast_has_view_request(model_facts):
         findings.append("代码质量规则边界自检失败：SwiftSyntax View 请求范围匹配")
-    for constructor in ("Foundation.URLRequest(url: url)", "Foundation . URLRequest(url: url)", "URLRequest.init(url: url)", "let request: URLRequest = .init(url: url)", "typealias Request = URLRequest; Request(url: url)", "var request: URLRequest { .init(url: url) }", "typealias Request = Foundation.URLRequest; typealias Alias = Request; var request: Alias { .init(url: url) }", "func consume(_ request: URLRequest) {}; consume(.init(url: url))", "func consume(_ requests: [URLRequest]) {}; consume([.init(url: url)])"):
+    for constructor in ("Foundation.URLRequest(url: url)", "Foundation . URLRequest(url: url)", "URLRequest.init(url: url)", "let request: URLRequest = .init(url: url)", "typealias Request = URLRequest; Request(url: url)", "var request: URLRequest { .init(url: url) }", "typealias Request = Foundation.URLRequest; typealias Alias = Request; var request: Alias { .init(url: url) }", "func consume(_ request: URLRequest) {}; consume(.init(url: url))", "func consume(_ requests: [URLRequest]) {}; consume([.init(url: url)])", "func consume(_ request: URLRequest, enabled: Bool = true) {}; consume(.init(url: url))", "func consume(_ requests: URLRequest...) {}; consume(.init(url: url), .init(url: other))"):
         if not ast_has_view_request(swift_syntax_index_sources({"view-request": f"struct SampleView: View {{ func load() {{ {constructor} }} }}"})["view-request"]):
             findings.append("View 请求构造自测：限定类型、显式及推断构造")
 

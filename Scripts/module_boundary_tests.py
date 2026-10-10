@@ -59,6 +59,34 @@ def run_self_test(rules: dict) -> None:
     imports_in_text = rules["imports_in_text"]
     manifest_targets = rules["manifest_targets"]
     ownership_errors = rules["ownership_errors"]
+    for declaration, invocation, restricted in [
+        ('func consume(_ prefs: UserDefaults, enabled: Bool = true) {}', 'consume(.standard)', True),
+        ('func consume(enabled: Bool = true, _ prefs: UserDefaults) {}', 'consume(.standard)', True),
+        ('func consume(_ enabled: Bool = true, _ prefs: UserDefaults) {}', 'consume(.standard)', True),
+        ('func consume(_ prefs: UserDefaults, enabled: Bool = true, _ value: Int) {}', 'consume(.standard, 1)', True),
+        ('func consume(_ prefs: UserDefaults...) {}', 'consume(.standard, .standard)', True),
+        ('struct Owner { init(_ prefs: UserDefaults, enabled: Bool = true) {} }', 'Owner(.standard)', True),
+        ('func consume(_ prefs: Model, enabled: Bool = true) {}', 'consume(.standard)', False),
+        ('func consume(prefs: UserDefaults, enabled: Bool = true) {}', 'consume(.standard)', False),
+    ]:
+        assert bool(ownership_errors('PaperFeature', declaration + '; ' + invocation)) == restricted, (declaration, invocation)
+    default_wrapper = 'func consume(_ wrapper: FileWrapper, enabled: Bool = true) {}; consume(.init(url: url, options: []))'
+    assert rules['service_boundary_errors']('BIT101-iOS/Example.swift', default_wrapper)
+    from swift_type_index import SwiftBindingTypes
+    source = 'struct Value { static var standard: Value { Value() } }; struct Other { func consume(_ value: Value) {} }; struct Probe { let other = Other(); func consume(_ prefs: UserDefaults) {}; func run() { other.consume(.standard) } }'
+    assert not ownership_errors('PaperFeature', source)
+    split_path = 'Modules/PaperFeature/Sources/Probe.swift'
+    for signature, invocation, restricted in [
+        ('func consume(_ prefs: UserDefaults, enabled: Bool = true) {}', 'consume(.standard)', True),
+        ('func consume(_ prefs: Value, enabled: Bool = true) {}', 'consume(.standard)', False),
+        ('private func consume(_ prefs: UserDefaults) {}', 'consume(.standard)', False),
+    ]:
+        sources = {split_path: 'struct Probe { func run() { ' + invocation + ' } }',
+            'Modules/PaperFeature/Sources/Support.swift': 'extension Probe { ' + signature + ' }'}
+        index = rules['swift_syntax_index_sources'](sources)
+        call_context = SwiftBindingTypes(index)
+        assert bool(ownership_errors('PaperFeature', sources[split_path], split_path, call_context=call_context)) == restricted
+        assert bool(rules['service_boundary_errors'](split_path, sources[split_path], call_context=call_context)) == restricted
     platform_errors = rules["platform_errors"]
     raw_imports = rules["raw_imports"]
     service_boundary_errors = rules["service_boundary_errors"]

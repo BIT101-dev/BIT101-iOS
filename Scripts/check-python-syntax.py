@@ -7,14 +7,18 @@ import sys
 
 root = Path(sys.argv[1])
 
-def inline_python_command(prefix):
+def command_words(prefix):
     lexer = shlex.shlex(prefix, posix=True, punctuation_chars=';|&()')
     lexer.whitespace_split = True
     lexer.commenters = ''
     try: words = list(lexer)
-    except ValueError: return False
+    except ValueError: return []
     boundaries = [index for index, word in enumerate(words) if set(word) <= set(';|&()')]
-    words = words[boundaries[-1] + 1:] if boundaries else words
+    return words[boundaries[-1] + 1:] if boundaries else words
+
+
+def inline_python_command(prefix):
+    words = command_words(prefix)
     while words:
         if re.match(r'^[A-Za-z_]\w*=', words[0]) or words[0] in {'command', 'exec', 'if', 'elif', 'then', 'do', '!'}:
             words.pop(0)
@@ -62,6 +66,7 @@ def compile_embedded_python(source, path):
     interpreter = re.compile(r"(?:^|[\s(;|&])(?:[^\s'\"]*/)?python(?:\d+(?:\.\d+)*)?(?=\s|$)")
     visible = [" "] * len(source)
     contexts = [("command", 0)]
+    pending = []
     position = line_start = 0
     while position < len(source):
         character = source[position]
@@ -90,28 +95,30 @@ def compile_embedded_python(source, path):
             continue
         if character == "(": contexts.append(("command", position + 1))
         elif character == ")" and len(contexts) > 1: contexts.pop()
+        if character == '\n' and pending:
+            position += 1
+            for header, is_python in pending:
+                body = []
+                for line in source[position:].splitlines(keepends=True):
+                    position += len(line)
+                    line = line.lstrip('\t') if header['tabs'] else line
+                    if line.rstrip('\r\n') == header['label']: break
+                    body.append(line)
+                else: raise SyntaxError(f'{path}: heredoc 结束标记缺失')
+                if is_python: compile(''.join(body), str(path), 'exec')
+            pending.clear()
+            line_start = position
+            continue
         header = headers.match(source, position)
         if header is None:
             visible[position] = character
             if character == "\n": line_start = position + 1
             position += 1
             continue
-        opening = "".join(visible[line_start:position])
-        is_python = header["label"].startswith("PY") or interpreter.search(opening) is not None
-        body = []
-        opening_end = source.find("\n", header.end())
-        if opening_end < 0: raise SyntaxError(f"{path}: Python heredoc 正文缺失")
-        position = opening_end + 1
-        for line in source[opening_end + 1:].splitlines(keepends=True):
-            position += len(line)
-            line = line.lstrip("\t") if header["tabs"] else line
-            if line.rstrip("\r\n") == header["label"]:
-                break
-            body.append(line)
-        else:
-            raise SyntaxError(f"{path}: Python heredoc 结束标记缺失")
-        if is_python: compile("".join(body), str(path), "exec")
-        line_start = position
+        opening = ' '.join(command_words(''.join(visible[max(line_start, context_start):position])))
+        pending.append((header, header['label'].startswith('PY') or interpreter.search(opening) is not None))
+        position = header.end()
+    if pending: raise SyntaxError(f'{path}: heredoc 正文缺失')
 
 for opening in ["<<PY", "<< 'PY'", '<<"PY"', "<<'PY'", "<<-PY", "<<'PY' >/dev/null", "<<'PY' | cat", "<<'PY' 2>&1", "<<'EOF'", '<<"END_SCRIPT"']:
     label = "EOF" if "EOF" in opening else "END_SCRIPT" if "END_SCRIPT" in opening else "PY"
@@ -125,6 +132,17 @@ for opening in ["<<PY", "<< 'PY'", '<<"PY"', "<<'PY'", "<<-PY", "<<'PY' >/dev/nu
         raise AssertionError(f"Python heredoc 语法审计遗漏：{opening}")
 
 compile_embedded_python("cat <<'EOF'\nif True\nEOF\n", "shell-text-self-test")
+for command, bodies in [
+    ("cat <<'TEXT' | python3 - <<'EOF'", 'if True\nTEXT\n{python}\nEOF\n'),
+    ("python3 - <<'EOF' | cat <<'TEXT'", '{python}\nEOF\nif True\nTEXT\n'),
+    ("cat <<'TEXT'; python3 - <<-EOF", 'plain text\nTEXT\n\t{python}\n\tEOF\n'),
+    ("cat <<'TEXT' | \\\npython3 - <<'EOF'", 'plain text\nTEXT\n{python}\nEOF\n'),
+    ("python3 - <<'FIRST' | python3 - <<'SECOND'", 'pass\nFIRST\n{python}\nSECOND\n'),
+]:
+    compile_embedded_python(command + '\n' + bodies.format(python='pass'), 'multiple-heredoc-self-test')
+    try: compile_embedded_python(command + '\n' + bodies.format(python='if True'), 'multiple-heredoc-self-test')
+    except SyntaxError: pass
+    else: raise AssertionError('多重 heredoc 的各 Python 正文需要参与语法检查')
 for source in ("# python3 <<'PY'\n", "echo value # python3 <<'PY'\n", 'echo "python3 <<PY"\n',
                "cat <<'EOF'\n# python3 <<'PY'\nEOF\n"):
     compile_embedded_python(source, "shell-lexical-self-test")

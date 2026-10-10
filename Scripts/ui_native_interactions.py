@@ -2,7 +2,7 @@
 import re
 from pathlib import Path
 from swift_source_index import ROOT, canonical_type_scope, expected_argument_types
-from swift_type_index import SwiftTypeIndex
+from swift_type_index import SwiftTypeIndex, SwiftBindingTypes
 
 NATIVE_INTERACTION_ACTIONS = {
     "UIAction": "tap", "UIButton": "tap", "UITextField": "input", "UITextView": "input",
@@ -17,6 +17,7 @@ LITERAL = r'"((?:[^"\\]|\\.)+)"'
 
 def native_controls(syntax: dict):
     types = SwiftTypeIndex(syntax)
+    bindings = SwiftBindingTypes(syntax, types)
     constructor_names = NATIVE_INTERACTION_KINDS | {owner[-1] for namespace, owner in types.records
         if (namespace, owner) in types.aliases or any(base.removeprefix("UIKit.") in NATIVE_INTERACTION_KINDS
             for base in types.bases((namespace, owner)))}
@@ -26,7 +27,7 @@ def native_controls(syntax: dict):
             called = call["value"].split("(", 1)[0].strip()
             candidates = [called.removesuffix(".init")]
             if called == ".init":
-                candidates = expected_argument_types(facts, call)
+                candidates = expected_argument_types(facts, call, context=bindings, path=path)
                 returns = [value for value in facts.get("functionReturns", []) if value["start"] == call["start"]]
                 candidates += [function.get("returnType", "") for function in facts.get("functionRanges", [])
                     if function["start"] <= call["start"] < function["end"]

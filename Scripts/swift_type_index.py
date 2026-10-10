@@ -154,10 +154,20 @@ class SwiftBindingTypes:
                     self.variable_types[(scope, returned[1])] = returned_type
                 decoded = re.match(r"(\w+)\s*=.*?\.decode\(\s*(\w+)\.self", binding["value"])
                 if decoded: self.variable_types[(scope, decoded[1])] = decoded[2]
+        for path, facts in index.items():
+            for binding in facts.get('bindings', []):
+                key = (self.variable_scope(path, binding), binding.get('bindingName'))
+                reference = binding.get('initializerReference')
+                if reference and key[1] and key not in self.variable_types:
+                    kind = self.receiver_type(dict(binding, calledExpression=reference + '.type'), path)
+                    if kind: self.variable_types[key] = kind
 
     def variable_scope(self, path, node):
         owner = (node["ownerNamespace"],) + tuple(node["scope"]) if node.get("ownerNamespace") else self.types.function_scope(path, node["scope"])
         return owner + tuple(f"@{path}:{start}" for start in node.get("lexicalScope", []))
+
+    def replacing_source(self, path, facts):
+        return SwiftBindingTypes({**self.index, path: facts}, self.types)
 
     def canonical_type(self, value, scope, path):
         if value in self.type_ids: return value

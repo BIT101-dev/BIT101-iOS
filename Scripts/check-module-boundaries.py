@@ -16,6 +16,7 @@ from pathlib import Path
 sys.dont_write_bytecode = True
 from swift_source_index import canonical_type_scope, declaration_conformances, scope_contains_type, expected_argument_types, swift_syntax_index, swift_syntax_index_sources, resource_context_type, visible_variables, matching_functions, compilation_type_context, local_member_calls, swift_code
 from validation_policy import coverage_registry_findings
+from swift_type_index import SwiftBindingTypes
 
 
 IGNORED_IMPORTS = {
@@ -253,9 +254,10 @@ def expanded_resource_source(source: str, aliases: tuple = (), path: str = "reso
     return encoded.decode()
 
 
-def service_boundary_errors(path: str, source: str, aliases: tuple = (), context: tuple = ((), ())) -> list[str]:
+def service_boundary_errors(path: str, source: str, aliases: tuple = (), context: tuple = ((), ()), *, call_context=None, origin=None) -> list[str]:
     """Enforce service ownership across production modules, app, and extensions."""
     source = normalized_resource_source(expanded_resource_source(source, aliases, path))
+    if call_context: call_context = call_context.replacing_source(origin or path, resource_facts(source))
     code = swift_code(source)
     patterns: list[tuple[str, str]] = []
     transport_sources = {
@@ -300,15 +302,15 @@ def service_boundary_errors(path: str, source: str, aliases: tuple = (), context
             for line in implicit_file_accesses(source, POSIX_NETWORK_FUNCTIONS))
     if path.startswith("Modules/") and not path.startswith("Modules/StorageCore/"):
         errors.extend(f"service boundary: {path}:{line}: inject host-selected file resources"
-            for line in implicit_resource_accesses(source, "LocalAppFileService", context[0]))
+            for line in implicit_resource_accesses(source, "LocalAppFileService", context[0], call_context=call_context, origin=origin or path))
     if path != "Modules/StorageCore/Sources/AppFileService.swift":
         errors.extend(f"service boundary: {path}:{line}: access files through AppFileService"
-            for line in implicit_file_accesses(source))
+            for line in implicit_file_accesses(source, call_context=call_context, origin=origin or path))
         errors.extend(f"service boundary: {path}:{line}: access files through AppFileService"
             for line in file_member_accesses(source, properties=context[0]))
     if path != "BIT101-iOS/Shared/Client/AppFileDirectories.swift":
         errors.extend(f"service boundary: {path}:{line}: select preferences through the host storage entry: UserDefaults"
-            for line in implicit_resource_accesses(source, properties=context[0]))
+            for line in implicit_resource_accesses(source, properties=context[0], call_context=call_context, origin=origin or path))
     local_calls = local_member_calls(source, ("data", "download", "upload", "bytes", "dataTask", "downloadTask", "uploadTask", "webSocketTask"), context) if re.search(r"\.\s*(?:data|download|upload|bytes|dataTask|downloadTask|uploadTask|webSocketTask)\s*\(", code) else set()
     for pattern, rule in patterns:
         for match in re.finditer(pattern, code):
@@ -438,7 +440,7 @@ def file_member_accesses(source: str, properties: tuple = ()) -> list[int]:
 
 
 @cache
-def implicit_file_accesses(source: str, functions: str = POSIX_FILE_FUNCTIONS) -> list[int]:
+def implicit_file_accesses(source: str, functions: str = POSIX_FILE_FUNCTIONS, *, call_context=None, origin='resource-source') -> list[int]:
     code = swift_code(source)
     if not re.search((r"\.\s*init\s*\(|" if functions == POSIX_FILE_FUNCTIONS else "") + r"(?<![.\w])(?:" + functions + r")\b|\b(?:Darwin|Glibc)\s*\.", code): return []
     facts = resource_facts(source)
@@ -468,7 +470,7 @@ def implicit_file_accesses(source: str, functions: str = POSIX_FILE_FUNCTIONS) -
             forbidden = bool(posix[1]) or not own_function
         elif functions == POSIX_FILE_FUNCTIONS and re.match(r"\.\s*init\s*\(\s*(?:contentsOf|contentsOfFile|contentsOfURL|url|path|fileAtPath|toFileAtPath)\s*:", value):
             prefix = swift_code(encoded[:call["start"]].decode())
-            contexts = expected_argument_types(facts, call) + [match[1] for binding in facts["bindings"]
+            contexts = expected_argument_types(facts, call, context=call_context, path=origin) + [match[1] for binding in facts["bindings"]
                 if binding["start"] <= call["start"] < binding["start"] + len(binding["value"].encode())
                 and (match := re.match(r"\w+\s*:\s*([^={]+)", swift_code(binding["value"])))]
             assigned = re.search(r"(?:self\.)?(\w+)\s*=\s*$", prefix)
@@ -485,7 +487,7 @@ def implicit_file_accesses(source: str, functions: str = POSIX_FILE_FUNCTIONS) -
 
 
 @cache
-def implicit_resource_accesses(source: str, resource: str = "UserDefaults", properties: tuple = ()) -> list[int]:
+def implicit_resource_accesses(source: str, resource: str = "UserDefaults", properties: tuple = (), *, call_context=None, origin='resource-source') -> list[int]:
     code = swift_code(source)
     if not re.search(r"\.\s*(?:standard\b|init\s*\()", code): return []
     facts = dict(resource_facts(source))
@@ -499,7 +501,7 @@ def implicit_resource_accesses(source: str, resource: str = "UserDefaults", prop
         prefix = swift_code(encoded[:member["start"]].decode())
         assigned = re.search(r"(?:self\.)?(\w+)\s*=\s*$", prefix)
         inferred = bool(re.search(r"\b(?:Foundation\.|StorageCore\.)?" + resource + r"\??\s*=\s*$", prefix))
-        inferred |= any(resource_context_type(value, resource) for value in expected_argument_types(facts, member))
+        inferred |= any(resource_context_type(value, resource) for value in expected_argument_types(facts, member, context=call_context, path=origin))
         inferred |= any(binding["start"] <= member["start"] < binding["start"] + len(binding["value"].encode())
             and (context := re.match(r"\w+\s*:\s*([^={]+)", swift_code(binding["value"])))
             and resource_context_type(context[1], resource)
@@ -515,8 +517,9 @@ def implicit_resource_accesses(source: str, resource: str = "UserDefaults", prop
     return hits
 
 
-def ownership_errors(scope: str, source: str, path: str = "", aliases: tuple = (), properties: tuple = ()) -> list[str]:
+def ownership_errors(scope: str, source: str, path: str = "", aliases: tuple = (), properties: tuple = (), *, call_context=None) -> list[str]:
     source = normalized_resource_source(expanded_resource_source(source, aliases, path or "resource-source"))
+    if call_context: call_context = call_context.replacing_source(path or 'resource-source', resource_facts(source))
     code = swift_code(source)
     patterns = []
     if layer(scope) is not None:
@@ -536,10 +539,10 @@ def ownership_errors(scope: str, source: str, path: str = "", aliases: tuple = (
     if settings_owner(scope):
         patterns.append(r"\b(?:AppMedia|LoginStorage)\s*\.")
     implicit = [f"resource ownership: {scope} selects UserDefaults at line {line}"
-        for line in implicit_resource_accesses(source, properties=properties)] if layer(scope) is not None else []
+        for line in implicit_resource_accesses(source, properties=properties, call_context=call_context, origin=path or 'resource-source')] if layer(scope) is not None else []
     if layer(scope) is not None and scope != "StorageCore":
         implicit.extend(f"resource ownership: {scope} selects LocalAppFileService at line {line}"
-            for line in implicit_resource_accesses(source, "LocalAppFileService", properties))
+            for line in implicit_resource_accesses(source, "LocalAppFileService", properties, call_context=call_context, origin=path or 'resource-source'))
     return implicit + [
         f"resource ownership: {scope} uses {match[0].strip()}"
         for pattern in patterns
@@ -646,13 +649,14 @@ def main() -> int:
             expanded_resource_source(path.read_text(), imported_aliases(path.read_text(), aliases, module_aliases), path.relative_to(root).as_posix())
             for path in source_files})
         network_index.update(unit_index)
+        call_context = SwiftBindingTypes(unit_index)
         for path in source_files:
             unit_context = compilation_type_context(unit_index, path.relative_to(root).as_posix())
             text = path.read_text(encoding="utf-8")
             context = imported_aliases(text, aliases, module_aliases)
             errors.extend(platform_errors(module, raw_imports(text)))
-            errors.extend(ownership_errors(module, text, path.relative_to(root).as_posix(), context, unit_context[0]))
-            errors.extend(service_boundary_errors(path.relative_to(root).as_posix(), text, context, unit_context))
+            errors.extend(ownership_errors(module, text, path.relative_to(root).as_posix(), context, unit_context[0], call_context=call_context))
+            errors.extend(service_boundary_errors(path.relative_to(root).as_posix(), text, context, unit_context, call_context=call_context))
         actual = imported_modules(source_root)
         for dependency in info["dependencies"] - actual.keys():
             errors.append(f"{module} declares unused {dependency}")
@@ -697,10 +701,12 @@ def main() -> int:
         unit_index = app_syntax if name == "BIT101-iOS" else swift_syntax_index_sources({
             path.relative_to(root).as_posix(): expanded_resource_source(path.read_text(), imported_aliases(path.read_text(), aliases, module_aliases), path.relative_to(root).as_posix()) for path in sources})
         network_index.update(unit_index)
+        call_context = SwiftBindingTypes(unit_index)
         for source in sources:
             unit_context = compilation_type_context(unit_index, str(source) if name == "BIT101-iOS" else source.relative_to(root).as_posix())
             text = source.read_text(encoding="utf-8")
-            errors.extend(service_boundary_errors(source.relative_to(root).as_posix(), text, imported_aliases(text, aliases, module_aliases), unit_context))
+            errors.extend(service_boundary_errors(source.relative_to(root).as_posix(), text, imported_aliases(text, aliases, module_aliases), unit_context,
+                call_context=call_context, origin=str(source) if name == 'BIT101-iOS' else source.relative_to(root).as_posix()))
 
     errors.extend(network_capability_findings(network_index))
     if errors:

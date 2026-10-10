@@ -24,6 +24,12 @@ def self_test():
         indexer_toolchain.cache_clear()
     from code_quality_rules import automatic_school_fetch_findings, ast_has_view_request
     from ui_rules import native_interaction_inventory
+    request_path = str(ROOT / 'BIT101-iOS/RequestView.swift')
+    request_support = str(ROOT / 'BIT101-iOS/RequestSupport.swift')
+    for parameter, expected in [('URLRequest', True), ('Model', False)]:
+        context = swift_syntax_index_sources({request_path: 'struct Screen: View { func load() { consume(.init(url: url)) } }',
+            request_support: 'extension Screen { func consume(_ value: ' + parameter + ', enabled: Bool = true) {} }'})
+        assert ast_has_view_request(context[request_path], context=context) == expected
     factories = ['func makeBootstrap(_ value: Int) -> SchoolBootstrap { SchoolBootstrap() }',
         'func makeBootstrap(_ value: String) -> SafeBootstrap { SafeBootstrap() }']
     for declarations in (factories, list(reversed(factories))):

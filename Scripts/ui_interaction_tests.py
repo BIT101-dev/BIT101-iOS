@@ -1,5 +1,6 @@
 """Exercise source interaction ownership and action evidence."""
 from ui_source_facts import ROOT
+from pathlib import Path
 from swift_source_index import swift_syntax_index_sources
 from ui_rules import interaction_source_inventory, source_inventory_findings, source_runtime_interaction_findings
 
@@ -9,15 +10,16 @@ def interaction_inventory_boundary_findings() -> list[str]:
     original = swift_syntax_index_sources({path: 'struct Screen: View { var body: some View { Button("入口") {} } }'})
     manifest = {key: (controls, {"ExampleUITests/testScreen"}) for key, controls in interaction_source_inventory(original).items()}
     findings = []
-    native_sources = {path: 'class CodeField: UITextField {}; class Screen { func build() { let field = CodeField(); let input: UITextField = .init(); let menu = UIAction(title: "动作") { _ in }; let pinch = UIPinchGestureRecognizer(); let label = UILabel() }; func direct() -> UITextField { .init() }; func returned() -> UITextField { let frame: CGRect = .init(); return .init() } }'}
+    native_sources = {path: 'class CodeField: UITextField {}; class Screen { func build() { let field = CodeField(); let input: UITextField = .init(); let menu = UIAction(title: "动作") { _ in }; let pinch = UIPinchGestureRecognizer(); let label = UILabel(); accept(.init()) }; func direct() -> UITextField { .init() }; func returned() -> UITextField { let frame: CGRect = .init(); return .init() } }',
+        str(Path(path).with_name('Support.swift')): 'extension Screen { func accept(_ field: UITextField, enabled: Bool = true) {} }'}
     native = swift_syntax_index_sources(native_sources)
     native_inventory = interaction_source_inventory(native)
-    if list(native_inventory.values()) != [{'UIAction': 1, 'UIPinchGestureRecognizer': 1, 'UITextField': 4}]:
+    if list(native_inventory.values()) != [{'UIAction': 1, 'UIPinchGestureRecognizer': 1, 'UITextField': 5}]:
         findings.append("UI 原生清单自测：控件继承、隐式构造、菜单和手势进入库存")
     native_manifest = {key: (controls, {"ExampleUITests/testNative"}) for key, controls in native_inventory.items()}
     if source_inventory_findings(native, native_manifest, {"ExampleUITests/testNative"}):
         findings.append("UI 原生清单自测：已登记控件对应验证用例")
-    changed_native = swift_syntax_index_sources({path: native_sources[path].replace('let label = UILabel()', 'let added = UITapGestureRecognizer()')})
+    changed_native = swift_syntax_index_sources({**native_sources, path: native_sources[path].replace('let label = UILabel()', 'let added = UITapGestureRecognizer()')})
     if not source_inventory_findings(changed_native, native_manifest, {"ExampleUITests/testNative"}):
         findings.append("UI 原生清单自测：新增交互需要同步库存")
     if not source_inventory_findings(native, native_manifest, set()):

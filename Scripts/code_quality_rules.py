@@ -71,11 +71,13 @@ def ast_has_view_request(facts: dict, type_index: dict | None = None, context: d
 
 def ast_has_view_construction(facts: dict, constructed_types: set[str], type_index: dict | None = None,
                               context: dict[str, dict] | None = None, *, resolver=None) -> bool:
-    from swift_type_index import SwiftTypeIndex
-    context = {"source": facts} if context is None else context
+    from swift_type_index import SwiftTypeIndex, SwiftBindingTypes
+    if context is None:
+        context, resolver = {"source": facts}, None
     origin = next((path for path, entry in context.items() if entry is facts), "source")
     resolver = resolver or SwiftTypeIndex({path: dict(entry, typeAliases=[alias for alias in entry.get('typeAliases', [])
         if not alias.get('lexicalScope')]) for path, entry in context.items()})
+    call_context = SwiftBindingTypes(context, resolver)
     conformances = declaration_conformances({"source": facts}) if type_index is None else type_index
     view_types = {owner for owner, bases in conformances.items() if any(base.rsplit(".", 1)[-1] == "View" for base in bases)}
     def canonical_type(value, reference):
@@ -107,7 +109,7 @@ def ast_has_view_construction(facts: dict, constructed_types: set[str], type_ind
         called = re.sub(r"\s+", "", mask_literals_and_comments(call["value"]))
         if canonical_type(called.removesuffix(".init").removesuffix(".self"), call): return True
         if called != ".init": continue
-        if any(canonical_type(value, call) for value in expected_argument_types(facts, call)): return True
+        if any(canonical_type(value, call) for value in expected_argument_types(facts, call, context=call_context, path=origin)): return True
         bindings = [(binding, re.match(r"\w+\s*:\s*([\w.?!]+)", binding["value"]))
             for binding in facts.get("bindings", [])
             if binding["start"] <= call["start"] < binding["start"] + len(binding["value"].encode())]
@@ -260,10 +262,11 @@ def cancellation_findings(path: Path, source: str, facts: dict | None) -> list[s
 
 
 def file_write_calls(index: dict) -> dict[str, set[int]]:
-    from swift_type_index import SwiftTypeIndex, receiver_resolver
+    from swift_type_index import SwiftTypeIndex, SwiftBindingTypes, receiver_resolver
     from swift_source_index import matching_functions
     from network_capability_rules import matching_api_calls
     types, resolve = SwiftTypeIndex(index), receiver_resolver(index)
+    bindings = SwiftBindingTypes(index, types)
     methods, functions, calls = {}, {}, {}
     writes = {path: set() for path in index}
     for path, facts in index.items():
@@ -279,8 +282,23 @@ def file_write_calls(index: dict) -> dict[str, set[int]]:
             key = (path, call['start'])
             calls[key] = call
             name = call['calledExpression'].rsplit('.', 1)[-1]
-            if name in {'removeItem', 'writeData', 'createDirectory', 'moveItem', 'copyItem', 'replaceItemAt'} \
-                    or name == 'write' and {'to', 'contentsOf'}.intersection(call.get('argumentLabels', [])):
+            kind = bindings.receiver_type(call, path)
+            kind = re.sub(r'\bany\s+|\s+', '', kind) if kind else None
+            if kind is None:
+                receiver_name = call['calledExpression'].rsplit('.', 1)[0]
+                if receiver_name in {'FileManager.default', 'Foundation.FileManager.default'} \
+                        and types.resolve(path, receiver_name.removesuffix('.default'), call['scope']) is None:
+                    kind = 'Foundation.FileManager'
+            owner_type = types.resolve(path, kind or '', call['scope'])
+            bases = {types.terminal_name(types.paths[owner_type], base, owner_type[1][:-1])
+                for base in types.bases(owner_type)} if owner_type else set()
+            service = bool(({kind} | bases) & {'AppFileService', 'StorageCore.AppFileService', 'StorageCore.LocalAppFileService'})
+            manager = kind in {'FileManager', 'Foundation.FileManager'}
+            writer = kind in {'Data', 'String', 'NSData', 'NSMutableData', 'NSString', 'NSMutableString', 'FileWrapper',
+                'NSFileWrapper', 'FileHandle', 'NSFileHandle'} or (kind or '').removeprefix('Foundation.') in {
+                'Data', 'String', 'NSData', 'NSMutableData', 'NSString', 'NSMutableString', 'FileWrapper', 'NSFileWrapper', 'FileHandle', 'NSFileHandle'}
+            if (service or manager) and name in {'removeItem', 'writeData', 'createDirectory', 'moveItem', 'copyItem', 'replaceItemAt'} \
+                    or writer and name == 'write' and {'to', 'contentsOf'}.intersection(call.get('argumentLabels', [])):
                 writes[path].add(call['start'])
             enclosing = [function for function in facts.get('functionRanges', [])
                 if function.get('bodyStart') is not None and function['bodyStart'] <= call['start'] < function['end']]

@@ -216,27 +216,51 @@ def swift_code(source: str, keep_comments: bool = False, keep_literals: bool = F
     return "".join(result)
 
 
-def expected_argument_types(facts: dict, reference: dict) -> list[str]:
+def expected_argument_types(facts: dict, reference: dict, *, context=None, path: str = 'source') -> list[str]:
     parents = [(call, index) for call in facts["invocations"] if call["start"] < reference["start"]
         for index, bounds in enumerate(call.get("argumentRanges") or []) if bounds[0] <= reference["start"] < bounds[1]]
     if not parents: return []
     call, index = min(parents, key=lambda entry: len(entry[0]["value"].encode()))
-    name = re.match(r"(?:\w+\.)*(\w+)\s*\(", call["value"])
-    if not name: return []
-    name = name[1]
+    from swift_type_index import SwiftBindingTypes
+    context = context or SwiftBindingTypes({path: facts})
+    types = context.types
+    expression = call.get('calledExpression') or call['value'].split('(', 1)[0].strip()
+    name = expression.rsplit('.', 1)[-1]
     labels = call.get("argumentLabels") or []
-    functions = [function for function in facts["functionRanges"] if function["name"] == name
-        and call["scope"][:len(function["scope"])] == function["scope"]
-        and call["lexicalScope"][:len(function["lexicalScope"])] == function["lexicalScope"]]
-    functions += [function for function in facts["initializers"] if function["scope"] and function["scope"][-1] == name]
+    constructed = types.resolve(path, expression.removesuffix('.init'), call['scope'])
+    receiver = expression.rsplit('.', 1)[0] if '.' in expression else ''
+    if receiver in {'self', 'Self'}:
+        owner = types.resolve(path, '.'.join(call['scope']), aliases=False)
+    else:
+        kind = context.receiver_type(call, path)
+        owner = types.resolve(path, kind or '', call['scope'])
+    owners = {owner} if owner else set()
+    if owner:
+        owners.update(base for name in types.bases(owner)
+            if (base := types.resolve(types.paths[owner], name, owner[1][:-1])))
+    functions = []
+    for source, entries in context.index.items():
+        for function in entries.get('initializers' if constructed else 'functionRanges', []):
+            if source != path and function.get('isPrivate'): continue
+            scope = types.function_scope(source, function['scope'])
+            if constructed:
+                matched = scope == (constructed[0],) + constructed[1]
+            elif receiver or call.get('receiverCall'):
+                matched = function['name'] == name and any(scope == (key[0],) + key[1] for key in owners)
+            else:
+                matched = function['name'] == name and types.units[source] == types.units[path] \
+                    and call['scope'][:len(function['scope'])] == function['scope'] \
+                    and (not function.get('lexicalScope') or source == path
+                        and call['lexicalScope'][:len(function['lexicalScope'])] == function['lexicalScope'])
+            if matched: functions.append((source, function))
     result = []
-    for function in functions:
-        parameters = function["parameters"]
-        if len(parameters) == len(labels) and all(parameter["label"] == label for parameter, label in zip(parameters, labels)):
-            result.append(parameters[index]["type"])
-    if not functions and any(declaration["name"] == name and declaration["kind"] == "struct" for declaration in facts["declarations"]):
-        result += [variable["type"] for variable in facts["typedVariables"] if variable["name"] == labels[index]
-            and variable["scope"] and variable["scope"][-1] == name and not variable["lexicalScope"]]
+    for source, function in functions:
+        for binding in argument_parameter_bindings(function["parameters"], labels):
+            result.append(types.terminal_name(source, binding[index]['type'], function['scope']))
+    if constructed and not functions:
+        result += [variable['type'] for source, entries in context.index.items() for variable in entries.get('typedVariables', [])
+            if variable['name'] == labels[index] and not variable['lexicalScope']
+            and types.function_scope(source, variable['scope']) == (constructed[0],) + constructed[1]]
     return result
 
 
