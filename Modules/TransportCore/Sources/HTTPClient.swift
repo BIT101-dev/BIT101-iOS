@@ -2,10 +2,13 @@ import Foundation
 import os
 
 /// 系统任务指标确认 HTTP 请求尚未开始时，保留明确的发送前失败身份。
-public struct HTTPRequestNotSent: LocalizedError {
+public struct HTTPRequestNotSent: LocalizedError, CustomNSError {
     public let underlying: any Error
     public init(underlying: any Error) { self.underlying = underlying }
     public var errorDescription: String? { underlying.localizedDescription }
+    public var errorUserInfo: [String: Any] {
+        [NSUnderlyingErrorKey: underlying, NSLocalizedDescriptionKey: underlying.localizedDescription]
+    }
 }
 
 private final class HTTPTransmissionMetrics: NSObject, URLSessionTaskDelegate {
@@ -15,6 +18,7 @@ private final class HTTPTransmissionMetrics: NSObject, URLSessionTaskDelegate {
     var confirmedUnsent: Bool { started.withLock { $0 == false } }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didFinishCollecting metrics: URLSessionTaskMetrics) {
+        guard !metrics.transactionMetrics.isEmpty else { return }
         started.withLock { $0 = metrics.transactionMetrics.contains { $0.requestStartDate != nil || $0.response != nil } }
     }
 

@@ -214,13 +214,23 @@ def module_event_summary(text: str) -> dict:
         elif identifier in functions:
             if kind == 'testStarted': started.add(identifier)
             elif kind == 'testEnded': ended.add(identifier)
-            elif kind == 'testCaseStarted': case_started[identifier] += 1
-            elif kind == 'testCaseEnded': case_ended[identifier] += 1
+            elif kind in {'testCaseStarted', 'testCaseEnded'}:
+                case_id = event.get('_testCase', {}).get('id')
+                if functions[identifier].get('isParameterized') and (not isinstance(case_id, str) or not case_id):
+                    raise ValueError('参数实例事件需要 Swift Testing 的实例身份。')
+                key = (identifier, case_id)
+                if kind == 'testCaseStarted':
+                    if case_started[key]: raise ValueError('参数实例开始事件需要唯一身份。')
+                    case_started[key] += 1
+                else:
+                    if not case_started[key] or case_ended[key]: raise ValueError('参数实例结束事件需要对应的唯一开始记录。')
+                    case_ended[key] += 1
     attempted = started | ended | skipped | failed
     if not attempted or started != ended or runs['runStarted'] == 0 or runs['runStarted'] != runs['runEnded'] \
             or case_started != case_ended:
         raise ValueError('模块事件流需要完整的函数、参数实例及运行起止记录。')
-    cases = {name: case_ended[name] if functions[name].get('isParameterized') else 1 for name in sorted(ended)}
+    cases = {name: sum(count for (identifier, _), count in case_ended.items() if identifier == name)
+             if functions[name].get('isParameterized') else 1 for name in sorted(ended)}
     if any(count == 0 for count in cases.values()):
         raise ValueError('参数化测试需要实际执行参数实例。')
     return {'totalTests': len(attempted), 'passedTests': len(ended - failed - skipped),

@@ -467,8 +467,8 @@ def module_events_self_test(subject) -> None:
     def encode(records): return '\n'.join(json.dumps(record) for record in records)
     records = [declaration(single), declaration(parameterized, True), event('runStarted'),
         event('testStarted', single), event('testEnded', single), event('testStarted', parameterized),
-        event('testCaseStarted', parameterized), event('testCaseStarted', parameterized),
-        event('testCaseEnded', parameterized), event('testCaseEnded', parameterized),
+        event('testCaseStarted', parameterized, _testCase={'id': 'case-a'}), event('testCaseStarted', parameterized, _testCase={'id': 'case-b'}),
+        event('testCaseEnded', parameterized, _testCase={'id': 'case-a'}), event('testCaseEnded', parameterized, _testCase={'id': 'case-b'}),
         event('testEnded', parameterized), event('runEnded')]
     result = subject.module_event_summary(encode(records))
     assert result['totalTests'] == result['passedTests'] == 2
@@ -496,6 +496,12 @@ def module_events_self_test(subject) -> None:
         try: subject.module_event_summary(encode(incomplete))
         except ValueError: pass
         else: raise AssertionError('事件缺失、空参数及运行失败需要进入证据门禁')
+    for kind, case_id in [('testCaseStarted', 'case-a'), ('testCaseEnded', 'case-a'), ('testCaseEnded', 'other'), ('testCaseEnded', None)]:
+        broken = json.loads(json.dumps(records))
+        broken[9] = event(kind, parameterized, _testCase={'id': case_id})
+        try: subject.module_event_summary(encode(broken))
+        except ValueError: pass
+        else: raise AssertionError('参数实例重复、遗漏及身份错配需要验收失败')
 
 
 def network_recording_self_test(subject, results) -> None:

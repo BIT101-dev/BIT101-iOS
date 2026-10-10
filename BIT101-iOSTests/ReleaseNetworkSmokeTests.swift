@@ -32,7 +32,7 @@ nonisolated final class ReleaseNetworkSmokeTests: XCTestCase {
             capture: request.capture, term: request.term, communityFollowTarget: request.communityFollowTarget,
             communityExpectedAccount: request.communityExpectedAccount, fixtures: request.fixtures)
         XCTAssertEqual(report.scope, scope)
-        XCTAssertTrue(report.executedProbes.contains("BIT101 登录状态"))
+        XCTAssertTrue(Set(report.executedProbes).isSuperset(of: scope.requiredProbes))
         XCTAssertTrue(report.passed, report.failureMessage)
         XCTAssertTrue(report.coverageComplete, report.failureMessage)
     }

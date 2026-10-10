@@ -175,6 +175,7 @@ jobs:
             .build/extended-automation/catalyst-release-runtime.log
             .build/extended-automation/test-metrics.txt
             .build/extended-automation/test-failures.txt
+            .build/extended-automation/test-results.xcresult
 
   physical-device:
     name: Physical-device behavior and UI acceptance

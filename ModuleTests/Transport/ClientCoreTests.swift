@@ -660,6 +660,9 @@ struct ClientCoreTests {
     }
 
     @Test func wrappedNetworkErrorsKeepTheirClassificationAcrossDeepChains() {
+        #expect(TaskCancellation.matches(HTTPRequestNotSent(underlying: URLError(.cancelled))))
+        #expect(isHostResolutionError(HTTPRequestNotSent(underlying: URLError(.cannotFindHost))))
+        #expect(!TaskCancellation.matches(HTTPRequestNotSent(underlying: URLError(.timedOut))))
         func wrapped(_ error: Error) -> Error {
             (0 ..< 20).reduce(error) { underlying, _ in
                 NSError(domain: "transport-wrapper", code: 1, userInfo: [NSUnderlyingErrorKey: underlying])

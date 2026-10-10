@@ -11,7 +11,8 @@ DIAGNOSTIC_PATHS = {
     'release-build': {'.build/extended-automation/build-release.log', '.build/extended-automation/build-ui.log',
         '.build/extended-automation/build-network-smoke.log', '.build/extended-automation/build-icloud-smoke.log', 'build/DeviceInstall/build.log'},
     'catalyst-tests': {'.build/extended-automation/catalyst.log', '.build/extended-automation/catalyst-release-runtime.log',
-        '.build/extended-automation/test-metrics.txt', '.build/extended-automation/test-failures.txt'},
+        '.build/extended-automation/test-metrics.txt', '.build/extended-automation/test-failures.txt',
+        '.build/extended-automation/test-results.xcresult'},
 }
 
 
@@ -138,7 +139,8 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
         errors.append(".github/workflows/ci.yml: 发布版本标签需要触发验收")
     acceptance = mapping(jobs.get("release-acceptance"))
     condition = "startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' && inputs.release_check"
-    if acceptance.get("if") != condition or set(acceptance.get("needs", [])) != {"static-audit", "release-build", "catalyst-tests"}:
+    if acceptance.get("if") != condition or set(acceptance.get("needs", [])) != {"static-audit", "release-build", "catalyst-tests"} \
+            or acceptance.get('continue-on-error', False) is not False:
         errors.append(".github/workflows/ci.yml: 发布验收需要承接完整编译和行为 Job")
     if not any(command == "python3 Scripts/ci_evidence.py check-release" for command, _ in run_commands(acceptance)):
         errors.append(".github/workflows/ci.yml: 发布验收需要默认核对提交绑定证据")
@@ -300,8 +302,9 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
             r'\1          compression-level: 9', workflow_source, count=1)
         if not any('始终保存原始文件' in item for item in ci_wiring_findings(compressed)):
             findings.append(f'代码质量规则边界自检失败：{name} 的原始诊断上传')
-        for private_path in ('.build/extended-automation/validation-evidence.json', '.build/extended-automation/**',
-                             '.build/extended-automation/test-results.xcresult'):
+        private_paths = {'.build/extended-automation/validation-evidence.json', '.build/extended-automation/**',
+            '.build/extended-automation/test-results.xcresult'} - DIAGNOSTIC_PATHS[name]
+        for private_path in sorted(private_paths):
             exposed = re.sub(rf'(?s)(  {name}:.*?          path: \|\n)',
                 lambda match: match[1] + '            ' + private_path + '\n', workflow_source, count=1)
             if not any('诊断上传' in item for item in ci_wiring_findings(exposed)):
@@ -335,6 +338,9 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
             if not ci_wiring_findings(skipped):
                 findings.append("代码质量规则边界自检失败：CI 步骤条件与失败传播门禁")
     detached_release = workflow_source.replace("needs: static-audit", "needs: []", 1)
+    downgraded_release = workflow_source.replace('  release-acceptance:\n', '  release-acceptance:\n    continue-on-error: true\n')
+    if not ci_wiring_findings(downgraded_release):
+        findings.append('代码质量规则边界自检失败：发布验收的失败传播')
     if not any("必须依赖静态审计" in item for item in ci_wiring_findings(detached_release)):
         findings.append("代码质量规则边界自检失败：Release Job 与静态审计依赖识别")
     misplaced_audit = workflow_source.replace("run: Scripts/run-static-audit.sh", "run: echo skipped", 1)
