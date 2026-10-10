@@ -64,6 +64,7 @@ App 入口 → 登录恢复 → AppAccountLifecycle → 各场景状态与页面
 - 外部展示适配器显式接收账号会话、登录判断、Watch 激活、Widget 导出、后台刷新和 Live Activity 操作；生产能力由 App 入口组装，异步恢复后核对账号及取消归属。
 - `ScheduleCourseSyncCoordinator` 持有课程同步、学期加载、短信等待和提交阶段，统一管理请求任务及账号重置取消。ViewModel 消费其展示状态，学期选择、课程编辑与持久化由日程场景承接。
 - `AppAccountLifecycle` 显式接收日程实例、偏好同步、社区依赖、成绩服务、日程变更与课程加载能力、媒体、清理操作及外部展示协调器；设置与账号仓库由 App 入口显式提供，生命周期和偏好同步消费同一实例。生产日程、凭据后端、账号事件源和外部展示实例由 App 入口选择。
+- 账号弹窗携带账号及会话代际，生命周期在账号变化时取消所属队列和活动弹窗。鸣谢确认使用创建时捕获的设置会话，登录后的壳层按账号重建。
 - 网络诊断由设置场景组装，接收所选社区会话、HTTP 传输、网络路径、学校能力与成绩单服务。诊断任务同时捕获社区及学校身份；账号或代际变化时收敛当前任务。实例归属合同执行生产诊断路径并核对每个注入能力的调用。
 - `AppAccountSession` 选择凭据后端、学校 Cookie 清理能力和账号分区。`LoginStorage` 发布携带账号及代际的 typed 变更流；生命周期与社区请求消费同一凭据来源，事件归属在消费边界核对。Keychain 实现归 `KeychainLoginCredentials`，测试使用内存后端。
 - 学号、密码和 Cookie 合为单条 Keychain 会话记录并原子保存。退出状态独立持久保存，凭据清理失败时保持已退出；本地偏好清理保留该状态和安装标记。凭据读取遇到系统临时保护时，在前台与保护数据可用事件中重试，并通过账号事件恢复页面状态。旧分项凭据在成功迁移后清理。
@@ -199,7 +200,7 @@ CloudKit 使用带版本的精简载荷，本地记录保留服务器基线、�
 - 快照使用稳定的账号摘要表达归属；账号切换后的导出按 generation 串行协调。
 - `ScheduleContracts` 提供共享编码、状态解析和时间线规划；`ScheduleSharedStore` 注入文件服务、容器地址和通知中心。App、Widget、Watch App 与 Watch Widget 在各自入口选择 App Group 容器，并显式传入快照解析器。
 - 日程日历统一使用 `ScheduleSharedDateCodec.calendar`；课表表头与日期调整文案使用 `ScheduleDateCodec.formatCompactDate`，Live Activity 时间使用共享时分格式。学期、缓存日期和系统日历展开沿同一公历及时区计算。
-- `ScheduleExternalContentState` 区分同步、登录、快照有效性与课程状态；`ScheduleTimelineRefreshPlanner` 规划课程切换和跨日刷新。
+- `ScheduleExternalContentState` 区分同步、登录、快照有效性与课程状态；时间线一次推导学期 occurrence，各条目复用排序结果并按展示上限取值。`ScheduleTimelineRefreshPlanner` 规划课程开始、展示截止、结束和跨日刷新，重叠课程结束后保留仍在上课的末节课程。
 - Watch 负责请求、落地和展示镜像；Live Activity 单独管理提醒生命周期。模型调整同步关注 App、iOS Widget、Watch App 和 Watch Widget。
 - WatchConnectivity 的回复和错误回调显式使用 `@Sendable`，快照落地和业务完成回调转到 `MainActor`；Watch 状态模型的注入端口声明相同隔离契约。
 - 共享快照携带主端单调版本，接收端核对版本顺序，保留较新的账号与退出状态；时间字段继续承接旧载荷。Watch 同步区分请求入队与快照落地，请求和状态回调按当前代际处理。

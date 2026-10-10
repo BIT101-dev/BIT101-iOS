@@ -539,6 +539,37 @@ struct NewService {{ private let paper{annotation} = {initializer}; func fetch(i
             + 'let service: PaperService; ' + body + ' }',
             leaf: 'public struct PaperService { public func fetchPaper(id: Int) async throws -> Int { id } }'})
         assert ('BIT101-iOS.BackgroundRequestService' in business_methods(index)) == expected, body
+    task_helper = 'private func startRequest() { Task { _ = try await client.send(request) } }'
+    for body, helpers, expected in [
+        ('func start() { startRequest() }', task_helper, True),
+        ('func start() { self.startRequest() }', task_helper, True),
+        ('func start() { forward() }', 'private func forward() { startRequest() }; ' + task_helper, True),
+        ('func start() { Task { try await startRequest() } }',
+            'private func startRequest() async throws { _ = try await client.send(request) }', True),
+        ('func start() { Task { try await self.startRequest() } }',
+            'private func startRequest() async throws { _ = try await client.send(request) }', True),
+        ('func factory() -> () -> Void { { startRequest() } }', task_helper, False),
+        ('func factory() -> Callback { Callback { startRequest() } }', task_helper, False),
+        ('func label() { if false { startRequest() } }', task_helper, False),
+        ('func label() { startRequest("cached") }',
+            'private func startRequest(_ value: String) {}; private func startRequest(_ value: Int) { Task { _ = try await client.send(request) } }', False),
+        ('func start() { startRequest(42) }',
+            'private func startRequest(_ value: String) {}; private func startRequest(_ value: Int) { Task { _ = try await client.send(request) } }', True),
+        ('func label() { forward() }', 'private func forward() { forward() }', False),
+    ]:
+        source = 'import TransportCore; struct BackgroundRequestService { let client: HTTPClient; ' + body + '; ' + helpers + ' }'
+        index = swift_syntax_index_sources({app_path: source, transport_path: 'public struct HTTPClient {}'})
+        methods = business_methods(index).get('BIT101-iOS.BackgroundRequestService', [])
+        assert bool(methods) == expected, (body, helpers, methods)
+        assert all(not function.get('isPrivate') for _, function in methods), methods
+        assert any('新增生产服务需要网络能力验收归属：BIT101-iOS.BackgroundRequestService' in error
+            for error in network_capability_findings(index)) == expected, (body, helpers)
+    extension_path = 'BIT101-iOS/Shell/BackgroundRequestExtension.swift'
+    index = swift_syntax_index_sources({app_path: 'import TransportCore; struct BackgroundRequestService { '
+        + 'let client: HTTPClient; func start() { startRequest() } }',
+        extension_path: 'import TransportCore; extension BackgroundRequestService { func startRequest() { Task { _ = try await client.send(request) } } }',
+        transport_path: 'public struct HTTPClient {}'})
+    assert {function['name'] for _, function in business_methods(index)['BIT101-iOS.BackgroundRequestService']} == {'start', 'startRequest'}
     boundary = '''protocol Fetching { func fetch() async }
         public struct RegisteredService: Fetching { let client: HTTPClient; public func fetch() async {} }
         public struct Consumer { let service: any Fetching; public func load() async { await service.fetch() } }'''

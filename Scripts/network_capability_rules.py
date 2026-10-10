@@ -323,31 +323,49 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
         network_owners.update(added)
     async_methods = {(owner(path, function['scope']), function['name']) for path, facts in index.items()
         for function in facts.get('functionRanges', []) if function.get('isAsync')}
+    helper_functions = {}
+    for source_path, source_facts in index.items():
+        for function in source_facts.get('functionRanges', []):
+            if active(source_path, function):
+                helper_functions.setdefault(owner(source_path, function['scope']), []).append((source_path, function))
     result = {}
     for path, facts in index.items():
         module = compilation_unit(path)
         if module in NETWORK_FOUNDATION_MODULES or module.endswith('Tests'): continue
-        def contains_request(function):
-            closures = facts.get('callableRanges', []) + facts.get('inlineClosureRanges', [])
-            task_bodies = {start for invocation in facts.get('invocations', [])
+        def contains_request(function, source_path=path, seen=frozenset()):
+            key = (source_path, function['start'])
+            if key in seen: return False
+            seen = seen | {key}
+            source_facts = index[source_path]
+            closures = source_facts.get('callableRanges', []) + source_facts.get('inlineClosureRanges', [])
+            task_bodies = {start for invocation in source_facts.get('invocations', [])
                 if invocation.get('calledExpression') in {'Task', 'Task.init', 'Task.detached'}
                 for _, start, _ in invocation.get('closureArguments', [])}
-            for call in facts.get('invocations', []):
+            for call in source_facts.get('invocations', []):
                 if not (function.get('bodyStart') or function['start']) <= call['start'] < function['end'] \
-                        or not active(path, call) or not call_can_execute(facts, call): continue
-                if remote_data_request(facts, call): return True
-                target = resolve_receiver(dict(call, path=path))
+                        or not active(source_path, call) or not call_can_execute(source_facts, call): continue
+                if remote_data_request(source_facts, call): return True
+                target = resolve_receiver(dict(call, path=source_path))
                 method = call.get('calledExpression', '').rsplit('.', 1)[-1]
                 executes = all(closure['start'] in task_bodies for closure in closures
                     if function['start'] <= closure['start'] <= call['start'] < closure['end'])
                 if target in network_owners and (method in {'send', 'data', 'upload', 'download'} or (target, method) in async_methods and executes):
                     return True
                 receiver, _, method = call.get('calledExpression', '').rpartition('.')
-                for variable in visible_variables(facts, call, receiver.removeprefix('self.'), receiver.startswith('self.')):
+                for variable in visible_variables(source_facts, call, receiver.removeprefix('self.'), receiver.startswith('self.')):
                     if method in {'send', 'data', 'upload', 'download'} and any(
-                        types.terminal_name(source_path, name, scope).rsplit('.', 1)[-1] in NETWORK_TRANSPORT_TYPES
-                        for source_path, name, scope in components(path, variable.get('type', ''), variable['scope'], call)):
+                        types.terminal_name(component_path, name, scope).rsplit('.', 1)[-1] in NETWORK_TRANSPORT_TYPES
+                        for component_path, name, scope in components(source_path, variable.get('type', ''), variable['scope'], call)):
                         return True
+                if not executes: continue
+                if not receiver or receiver in {'self', 'Self'}:
+                    if not receiver and visible_variables(source_facts, call, method): continue
+                    target = owner(source_path, call['scope'])
+                candidates = [(candidate_path, helper) for candidate_path, helper in helper_functions.get(target, [])
+                    if (not helper.get('isPrivate') or candidate_path == source_path)
+                    and call.get('lexicalScope', [])[:len(helper.get('lexicalScope', []))] == helper.get('lexicalScope', [])]
+                matches = matching_api_calls(index, candidates, dict(call, path=source_path))
+                if any(contains_request(helper, candidate_path, seen) for candidate_path, helper in matches): return True
             return False
         accessors = [node for node in facts.get('accessorRanges', []) if node.get('isAsync') or contains_request(node)]
         constructors = [node for node in facts.get('initializers', []) if node.get('isExplicitInitializer') and contains_request(node)]

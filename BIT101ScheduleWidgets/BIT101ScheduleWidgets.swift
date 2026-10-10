@@ -210,17 +210,14 @@ private struct ScheduleWidgetProvider: TimelineProvider {
     /// 提前构造未来一天的课程切换和跨日条目。
     func getTimeline(in _: Context, completion: @escaping (Timeline<ScheduleWidgetEntry>) -> Void) {
         let now = Date()
-        let resolved = ScheduleOccurrenceResolver.loadResolvedSnapshot(store: WidgetSnapshotStorage.store, now: now)
-        guard let snapshot = resolved.snapshot else {
-            let entry = loadEntry(resolved: resolved, now: now)
+        let timeline = ScheduleOccurrenceResolver.loadResolvedTimeline(store: WidgetSnapshotStorage.store, now: now,
+            includeDisplayUntilDates: true, limit: 6)
+        let entries = timeline.map { loadEntry(resolved: $0.resolved, now: $0.date) }
+        if timeline.first?.resolved.snapshot == nil {
             let retry = ScheduleTimelineRefreshPlanner.nextRefreshDate(for: [], now: now,
                 includeDisplayUntilDates: false, includeNextMidnight: false)
-            completion(Timeline(entries: [entry], policy: .after(retry)))
+            completion(Timeline(entries: entries, policy: .after(retry)))
             return
-        }
-        let entries = ScheduleTimelineRefreshPlanner.timelineDates(for: resolved.upcomingOccurrences, now: now,
-            includeDisplayUntilDates: true).map { date in
-            loadEntry(resolved: ScheduleOccurrenceResolver.resolvedSnapshot(from: snapshot, now: date, limit: 6), now: date)
         }
         completion(Timeline(entries: entries, policy: .atEnd))
     }

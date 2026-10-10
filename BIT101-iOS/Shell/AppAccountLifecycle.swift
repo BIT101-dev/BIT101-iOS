@@ -27,6 +27,9 @@ final class AppAccountLifecycle: ObservableObject {
     private var subscriptions = Set<AnyCancellable>()
     private var externalRefreshTask: Task<Void, Never>?
     private let externalDisplays: any AppExternalDisplayCoordinating
+    private let prompts: AppPromptCoordinator
+    private let currentIdentity: () -> CommunitySessionIdentity
+    var accountIdentity: CommunitySessionIdentity { currentIdentity() }
     let currentSession: @MainActor () -> AppStorageSession
 
     init(
@@ -47,7 +50,8 @@ final class AppAccountLifecycle: ObservableObject {
         loadScheduleCourses: @escaping @MainActor (AppStorageSession) async -> [String: [ScoreCourseSummary]],
         media: MediaEnvironment,
         localData: AppLocalDataService,
-        externalDisplays: any AppExternalDisplayCoordinating
+        externalDisplays: any AppExternalDisplayCoordinating,
+        prompts: AppPromptCoordinator = .shared
     ) {
         self.scheduleViewModel = scheduleViewModel
         if let scoreViewModel {
@@ -65,6 +69,8 @@ final class AppAccountLifecycle: ObservableObject {
         self.scheduleChanges = scheduleChanges
         self.isNotificationPermissionDenied = isNotificationPermissionDenied
         self.externalDisplays = externalDisplays
+        self.prompts = prompts
+        self.currentIdentity = currentIdentity
         self.currentSession = stores.currentSession
         accountChanges
             .sink { [weak self] identity in
@@ -93,6 +99,7 @@ final class AppAccountLifecycle: ObservableObject {
 
     func accountDidChange() {
         externalRefreshTask?.cancel()
+        prompts.accountDidChange(to: currentIdentity())
         externalDisplays.resetAccountPresentation()
         settings.reloadForCurrentAccount()
         preferenceCloudSync.reloadForCurrentAccount()

@@ -1,4 +1,6 @@
 import TransportCore
+import CommunityTransport
+import StorageCore
 import Foundation
 import SwiftUI
 import Combine
@@ -274,6 +276,7 @@ struct AppPromptAction: Identifiable {
 /// 应用级原生弹窗请求。启动弹窗统一由同一个协调器展示。
 struct AppPrompt: Identifiable {
     let id: String
+    let account: CommunitySessionIdentity?
     let title: String
     let message: String
     let actions: [AppPromptAction]
@@ -285,10 +288,12 @@ struct AppPrompt: Identifiable {
         title: String,
         message: String,
         actions: [AppPromptAction],
+        account: CommunitySessionIdentity? = nil,
         onPresent: @escaping @MainActor () -> Void = {},
         onDismiss: @escaping @MainActor () -> Void = {}
     ) {
-        self.id = id
+        self.id = account.map { "\(id)-\(AccountStorageIdentity.stableToken(for: $0.accountIdentifier))-\($0.generation)" } ?? id
+        self.account = account
         self.title = title
         self.message = message
         self.actions = actions
@@ -377,6 +382,18 @@ final class AppPromptCoordinator: ObservableObject {
         finishActivePrompt()
     }
 
+    func accountDidChange(to identity: CommunitySessionIdentity) {
+        let canceled = queue.filter { $0.account != nil && $0.account != identity }
+        queue.removeAll { $0.account != nil && $0.account != identity }
+        for prompt in canceled {
+            queuedIDs.remove(prompt.id)
+            resumeWaiters(for: prompt.id)
+        }
+        if let account = activePrompt?.account, account != identity {
+            finishActivePrompt(canceled: true)
+        }
+    }
+
     /// 系统手势或其它系统级关闭路径同样必须推进队列。
     func alertPresentationChanged(isPresented: Bool, promptID: String?) {
         if !isPresented, let promptID, activePrompt?.id == promptID {
@@ -384,13 +401,14 @@ final class AppPromptCoordinator: ObservableObject {
         }
     }
 
-    private func finishActivePrompt() {
+    private func finishActivePrompt(canceled: Bool = false) {
         guard let activePrompt else { return }
-        activePrompt.onDismiss()
-        handledIDs.insert(activePrompt.id)
+        if !canceled {
+            activePrompt.onDismiss()
+            handledIDs.insert(activePrompt.id)
+        }
         self.activePrompt = nil
-        let waiters = dismissalWaiters.removeValue(forKey: activePrompt.id) ?? []
-        waiters.forEach { $0.continuation.resume() }
+        resumeWaiters(for: activePrompt.id)
 
         // 测试或动画已关闭的宿主显式关闭退场等待时，队列立即推进；队列行为直接由当前调用决定。
         if advanceDelay == .zero {
@@ -416,6 +434,11 @@ final class AppPromptCoordinator: ObservableObject {
         activePrompt = prompt
         // 这一项成为唯一活动弹窗后，组件记录展示状态。
         prompt.onPresent()
+    }
+
+    private func resumeWaiters(for promptID: String) {
+        let waiters = dismissalWaiters.removeValue(forKey: promptID) ?? []
+        waiters.forEach { $0.continuation.resume() }
     }
 }
 

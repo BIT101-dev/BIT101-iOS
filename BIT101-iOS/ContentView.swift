@@ -31,6 +31,7 @@ struct ContentView: View {
                 LoginRootView(viewModel: loginViewModel)
             case let .signedIn(studentID):
                 AppShellView(transcriptService: transcriptService, studentID: studentID, onLogout: loginViewModel.logout)
+                    .id(studentID)
             }
         }
         .disabled(localData.isCleaning)

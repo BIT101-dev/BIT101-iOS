@@ -223,21 +223,23 @@ nonisolated final class MaintenancePerformanceTests: XCTestCase {
         XCTAssertEqual(try workload.value("planning", as: String.self), "next-day-phone-timeline")
         let courseCount = try workload.value("courses", as: Int.self), weeks = try workload.value("weeks", as: Int.self)
         let expectedOccurrences = try workload.value("occurrences", as: Int.self)
+        let slots = try workload.value("slots", as: Int.self), expectedEntries = try workload.value("timelineEntries", as: Int.self)
         let firstDay = "2024-02-26"
         let now = try XCTUnwrap(ScheduleSharedDateCodec.parseDate(firstDay))
         let snapshot = ScheduleExternalSnapshot(isLoggedIn: true, studentID: "performance", firstDayString: firstDay,
-            timeTable: [.init(id: 1, start: "08:00", end: "08:45")], courses: (0..<courseCount).map { index in
-                .init(id: "course-\(index)", name: "课程", classroom: "教学楼", teacher: "教师",
-                    weeks: Array(1...weeks), weekday: index % 7 + 1, startSection: 1, endSection: 1)
+            timeTable: (0..<slots).map { .init(id: $0 + 1, start: String(format: "%02d:00", $0 + 8), end: String(format: "%02d:45", $0 + 8)) },
+            courses: (0..<courseCount).map { index in
+                let section = (index / 7) % slots + 1
+                return .init(id: "course-\(index)", name: "课程", classroom: "教学楼", teacher: "教师",
+                    weeks: Array(1...weeks), weekday: index % 7 + 1, startSection: section, endSection: section)
             })
+        XCTAssertEqual(ScheduleOccurrenceResolver.upcomingOccurrences(from: snapshot, now: now).count, expectedOccurrences)
         measure(metrics: [XCTClockMetric(), XCTMemoryMetric()]) {
-            let occurrences = ScheduleOccurrenceResolver.upcomingOccurrences(from: snapshot, now: now)
-            XCTAssertEqual(occurrences.count, expectedOccurrences)
-            let dates = ScheduleTimelineRefreshPlanner.timelineDates(for: occurrences, now: now, includeDisplayUntilDates: true)
-            let entries = dates.map { ScheduleOccurrenceResolver.resolvedSnapshot(from: snapshot, now: $0, limit: 6) }
-            XCTAssertEqual(dates.first, now)
-            XCTAssertEqual(dates.last, now.addingTimeInterval(24 * 60 * 60))
-            XCTAssertGreaterThan(entries.count, 1)
+            let entries = ScheduleOccurrenceResolver.resolvedTimeline(from: snapshot, now: now, includeDisplayUntilDates: true, limit: 6)
+            XCTAssertEqual(entries.first?.date, now)
+            XCTAssertEqual(entries.last?.date, now.addingTimeInterval(24 * 60 * 60))
+            XCTAssertEqual(entries.count, expectedEntries)
+            XCTAssertTrue(entries.allSatisfy { $0.resolved.upcomingOccurrences.count <= 6 })
         }
     }
 }

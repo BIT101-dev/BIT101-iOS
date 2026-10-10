@@ -1,10 +1,90 @@
 import Foundation
 import Testing
+import StorageCore
+import CommunityTransport
 @testable import BIT101_iOS
 
 @MainActor
 @Suite("App Store update reminder", .serialized)
 struct AppUpdateCheckerTests {
+    @Test func accountPromptsCancelQueuedAndActiveRequestsAcrossAccountChanges() throws {
+        let prompts = AppPromptCoordinator(advanceDelay: .zero)
+        let first = CommunitySessionIdentity(accountIdentifier: "first", generation: 1)
+        let second = CommunitySessionIdentity(accountIdentifier: "second", generation: 2)
+        var actions = 0, dismissals = 0
+        func prompt(_ account: CommunitySessionIdentity, id: String = "thanks") -> AppPrompt {
+            AppPrompt(id: id, title: "fixture", message: "fixture",
+                actions: [AppPromptAction(id: "confirm", title: "fixture") { actions += 1 }],
+                account: account, onDismiss: { dismissals += 1 })
+        }
+        let a = prompt(first)
+        prompts.enqueue(a)
+        prompts.enqueue(prompt(first, id: "queued"))
+        prompts.enqueue(AppPrompt(id: "global", title: "fixture", message: "fixture", actions: []))
+        prompts.accountDidChange(to: second)
+        #expect(prompts.activePrompt?.id == "global")
+        prompts.perform(try #require(a.actions.first), promptID: a.id)
+        #expect(actions == 0 && dismissals == 0)
+        prompts.alertPresentationChanged(isPresented: false, promptID: "global")
+        #expect(prompts.activePrompt == nil)
+        let b = prompt(second)
+        prompts.enqueue(b)
+        #expect(b.id != a.id && prompts.activePrompt?.id == b.id)
+        prompts.perform(try #require(b.actions.first), promptID: b.id)
+        #expect(actions == 1 && dismissals == 1)
+        let returned = prompt(CommunitySessionIdentity(accountIdentifier: "first", generation: 3))
+        prompts.enqueue(returned)
+        prompts.alertPresentationChanged(isPresented: false, promptID: a.id)
+        #expect(prompts.activePrompt?.id == returned.id)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func accountChangesReleaseActiveAndQueuedPromptWaiters() async {
+        let prompts = AppPromptCoordinator(advanceDelay: .zero)
+        prompts.markHostReady()
+        let account = CommunitySessionIdentity(accountIdentifier: "first", generation: 1)
+        let active = AppPrompt(id: "active", title: "fixture", message: "fixture", actions: [], account: account)
+        let queued = AppPrompt(id: "queued", title: "fixture", message: "fixture", actions: [], account: account)
+        prompts.enqueue(active)
+        var activeStarted = false, queuedStarted = false, completed = 0
+        let activeWaiter = Task { @MainActor in
+            activeStarted = true
+            await prompts.enqueueAndWait(active)
+            completed += 1
+        }
+        let queuedWaiter = Task { @MainActor in
+            queuedStarted = true
+            await prompts.enqueueAndWait(queued)
+            completed += 1
+        }
+        while !activeStarted || !queuedStarted { await Task.yield() }
+        prompts.accountDidChange(to: CommunitySessionIdentity(accountIdentifier: "second", generation: 2))
+        await activeWaiter.value
+        await queuedWaiter.value
+        #expect(completed == 2 && prompts.activePrompt == nil)
+    }
+
+    @Test func thanksAcknowledgmentKeepsItsCapturedAccount() throws {
+        let domain = "bit101-prompt-account-contract"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let first = AppStorageSession(accountIdentifier: "first")
+        let second = AppStorageSession(accountIdentifier: "second")
+        var session = first
+        let settings = AppSettingsStore(defaults: defaults, session: { session })
+        session = second
+        settings.reloadForCurrentAccount()
+        #expect(!settings.markLinuxDoThanksNoticeShown(for: first))
+        #expect(!settings.snapshot.hasShownLinuxDoThanksNotice)
+        #expect(settings.markLinuxDoThanksNoticeShown(for: second))
+        #expect(settings.snapshot.hasShownLinuxDoThanksNotice)
+        session = first
+        settings.reloadForCurrentAccount()
+        #expect(!settings.snapshot.hasShownLinuxDoThanksNotice)
+        #expect(settings.markLinuxDoThanksNoticeShown(for: first))
+        settings.reloadForCurrentAccount()
+        #expect(settings.snapshot.hasShownLinuxDoThanksNotice)
+    }
     @Test(arguments: ["foreign", "downgrade", "port", "credentials"])
     func updateJSONFromAnotherOriginKeepsBothPromptsUnpublished(_ scenario: String) async throws {
         let context = try TestContext()

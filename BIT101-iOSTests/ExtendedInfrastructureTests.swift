@@ -368,7 +368,7 @@ struct ExperimentalPreferenceCloudSyncTests {
         }
     }
 
-    private func lifecycle(sync: ExperimentalPreferenceCloudSync, account: Account, displays: ExternalDisplays, changes: AnyPublisher<AppStorageSession, Never> = Empty().eraseToAnyPublisher(), loadCourses: @escaping @MainActor (AppStorageSession) async -> [String: [ScoreCourseSummary]] = { _ in [:] }) -> AppAccountLifecycle {
+    private func lifecycle(sync: ExperimentalPreferenceCloudSync, account: Account, displays: ExternalDisplays, changes: AnyPublisher<AppStorageSession, Never> = Empty().eraseToAnyPublisher(), prompts: AppPromptCoordinator = AppPromptCoordinator(), loadCourses: @escaping @MainActor (AppStorageSession) async -> [String: [ScoreCourseSummary]] = { _ in [:] }) -> AppAccountLifecycle {
         let repository = ScheduleRepository(session: { account.session }, load: { _ in .missing }, save: { _, _, _ in })
         let service = SemesterStartDateService()
         let schedule = ScheduleViewModel(service: service, repository: repository, ddlService: service, classroomService: service, platformActions: RecordingSchedulePlatformActions(), newCustomScheduleDraft: { CustomScheduleDraft() })
@@ -386,7 +386,7 @@ struct ExperimentalPreferenceCloudSyncTests {
             scheduleChanges: changes,
             scheduleCloudSync: ScheduleCloudSyncPresentation(currentAccount: { nil }, accountChanges: account.changes.eraseToAnyPublisher()),
             isNotificationPermissionDenied: { false }, loadScheduleCourses: loadCourses, media: media,
-            localData: AppLocalDataService(files: PreferenceMemoryFiles(), actions: LocalDataActionsSpy().actions), externalDisplays: displays)
+            localData: AppLocalDataService(files: PreferenceMemoryFiles(), actions: LocalDataActionsSpy().actions), externalDisplays: displays, prompts: prompts)
     }
 
     private struct OfflineTransport: HTTPTransport {
@@ -434,8 +434,12 @@ struct ExperimentalPreferenceCloudSyncTests {
         let changes = PassthroughSubject<AppStorageSession, Never>()
         let firstDisplays = ExternalDisplays()
         let secondDisplays = ExternalDisplays()
-        let first = lifecycle(sync: firstSync, account: firstAccount, displays: firstDisplays, changes: changes.eraseToAnyPublisher())
-        let second = lifecycle(sync: secondSync, account: secondAccount, displays: secondDisplays)
+        let firstPrompts = AppPromptCoordinator(advanceDelay: .zero)
+        let secondPrompts = AppPromptCoordinator(advanceDelay: .zero)
+        firstPrompts.enqueue(AppPrompt(id: "thanks", title: "fixture", message: "fixture", actions: [], account: firstAccount.identity))
+        secondPrompts.enqueue(AppPrompt(id: "thanks", title: "fixture", message: "fixture", actions: [], account: secondAccount.identity))
+        let first = lifecycle(sync: firstSync, account: firstAccount, displays: firstDisplays, changes: changes.eraseToAnyPublisher(), prompts: firstPrompts)
+        let second = lifecycle(sync: secondSync, account: secondAccount, displays: secondDisplays, prompts: secondPrompts)
         first.start()
         second.start()
         await firstDisplays.waitForRefreshes(1)
@@ -450,6 +454,8 @@ struct ExperimentalPreferenceCloudSyncTests {
         firstAccount.session = AppStorageSession(accountIdentifier: "changed-account")
         await firstDisplays.waitForRefreshes(2)
         #expect(firstDisplays.resetCount == 1)
+        #expect(firstPrompts.activePrompt == nil)
+        #expect(secondPrompts.activePrompt?.account == secondAccount.identity)
         firstAccount.changes.send(.init(accountIdentifier: "stale", generation: 0))
         #expect(firstDisplays.resetCount == 1)
         #expect(secondDisplays.resetCount == 0)

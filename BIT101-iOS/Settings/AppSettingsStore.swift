@@ -212,9 +212,12 @@ final class AppSettingsStore: ObservableObject {
     }
 
     /// 标记“鸣谢 LINUX DO”提示已经弹出过。
-    func markLinuxDoThanksNoticeShown() {
+    @discardableResult
+    func markLinuxDoThanksNoticeShown(for expectedSession: AppStorageSession) -> Bool {
+        guard session() == expectedSession else { return false }
         snapshot.hasShownLinuxDoThanksNotice = true
         save()
+        return true
     }
 
     /// 标记“导入分享课表”提示已读。

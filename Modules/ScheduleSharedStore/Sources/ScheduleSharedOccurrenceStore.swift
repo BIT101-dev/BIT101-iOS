@@ -13,8 +13,24 @@ public extension ScheduleOccurrenceResolver {
             return resolvedSnapshot(from: try store.read(), now: now,
                 currentCourseDisplayDuration: currentCourseDisplayDuration, limit: limit)
         } catch {
-            return ScheduleExternalResolvedSnapshot(snapshot: nil, upcomingOccurrences: [],
-                contentState: error as? ScheduleExternalSnapshotStoreError == .invalidSnapshot ? .invalid : .unavailable)
+            return readFailure(error)
         }
+    }
+
+    static func loadResolvedTimeline(
+        store: ScheduleExternalSnapshotStore, now: Date = Date(), includeDisplayUntilDates: Bool,
+        currentCourseDisplayDuration: TimeInterval = defaultCurrentCourseDisplayDuration, limit: Int? = nil
+    ) -> [ScheduleExternalTimelineEntry] {
+        do {
+            return resolvedTimeline(from: try store.read(), now: now, includeDisplayUntilDates: includeDisplayUntilDates,
+                currentCourseDisplayDuration: currentCourseDisplayDuration, limit: limit)
+        } catch {
+            return [ScheduleExternalTimelineEntry(date: now, resolved: readFailure(error))]
+        }
+    }
+
+    private static func readFailure(_ error: Error) -> ScheduleExternalResolvedSnapshot {
+        ScheduleExternalResolvedSnapshot(snapshot: nil, upcomingOccurrences: [],
+            contentState: error as? ScheduleExternalSnapshotStoreError == .invalidSnapshot ? .invalid : .unavailable)
     }
 }

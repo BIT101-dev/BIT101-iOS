@@ -413,6 +413,16 @@ public nonisolated struct ScheduleExternalResolvedSnapshot: Sendable {
     }
 }
 
+public nonisolated struct ScheduleExternalTimelineEntry: Sendable {
+    public let date: Date
+    public let resolved: ScheduleExternalResolvedSnapshot
+
+    public init(date: Date, resolved: ScheduleExternalResolvedSnapshot) {
+        self.date = date
+        self.resolved = resolved
+    }
+}
+
 /// 外部课表展示层共同消费的业务状态。
 ///
 /// 各端自行决定文案，同一份损坏快照在 Widget 与 Watch 中统一映射为 invalid。
@@ -436,7 +446,10 @@ public nonisolated enum ScheduleTimelineRefreshPlanner {
         let horizon = now.addingTimeInterval(24 * 60 * 60)
         var dates = [now, horizon]
         dates.append(contentsOf: occurrences.map(\.startDate))
-        if includeDisplayUntilDates { dates.append(contentsOf: occurrences.map(\.displayUntilDate)) }
+        if includeDisplayUntilDates {
+            dates.append(contentsOf: occurrences.map(\.displayUntilDate))
+            dates.append(contentsOf: occurrences.map(\.endDate))
+        }
         if let midnight = ScheduleSharedDateCodec.calendar.date(byAdding: .day, value: 1,
             to: ScheduleSharedDateCodec.calendar.startOfDay(for: now)) {
             dates.append(midnight)
@@ -484,6 +497,11 @@ public nonisolated enum ScheduleOccurrenceResolver {
         now: Date = Date(),
         currentCourseDisplayDuration: TimeInterval = defaultCurrentCourseDisplayDuration
     ) -> [ScheduleExternalOccurrence] {
+        visibleOccurrences(rawOccurrences(from: snapshot, now: now), now: now,
+            currentCourseDisplayDuration: currentCourseDisplayDuration, limit: nil)
+    }
+
+    private static func rawOccurrences(from snapshot: ScheduleExternalSnapshot, now: Date) -> [ScheduleExternalOccurrence] {
         guard let firstDay = ScheduleSharedDateCodec.parseDate(snapshot.firstDayString) else {
             return []
         }
@@ -523,8 +541,7 @@ public nonisolated enum ScheduleOccurrenceResolver {
             .reduce(into: [String: ScheduleExternalOccurrence]()) { result, occurrence in
                 result[occurrence.id] = occurrence
             }
-
-        let rawOccurrences = rawOccurrencesByID.values
+        return rawOccurrencesByID.values
             .sorted { lhs, rhs in
                 if lhs.startDate != rhs.startDate {
                     return lhs.startDate < rhs.startDate
@@ -535,8 +552,16 @@ public nonisolated enum ScheduleOccurrenceResolver {
                 return lhs.id < rhs.id
             }
 
-        return rawOccurrences.enumerated().compactMap { index, occurrence in
-            let hasLaterOccurrence = rawOccurrences.indices.contains(index + 1)
+    }
+
+    private static func visibleOccurrences(
+        _ rawOccurrences: [ScheduleExternalOccurrence], now: Date,
+        currentCourseDisplayDuration: TimeInterval, limit: Int?
+    ) -> [ScheduleExternalOccurrence] {
+        guard let lastIndex = rawOccurrences.lastIndex(where: { $0.endDate > now }) else { return [] }
+        let occurrences = rawOccurrences.lazy.enumerated().compactMap { index, occurrence -> ScheduleExternalOccurrence? in
+            guard occurrence.endDate > now else { return nil }
+            let hasLaterOccurrence = index < lastIndex
             let displayUntilDate: Date
 
             if hasLaterOccurrence {
@@ -562,6 +587,7 @@ public nonisolated enum ScheduleOccurrenceResolver {
                 displayUntilDate: displayUntilDate
             )
         }
+        return Array(occurrences.prefix(limit.flatMap { $0 >= 0 ? $0 : nil } ?? rawOccurrences.count))
     }
 
     public static func parseDate(_ string: String) -> Date? {
@@ -577,65 +603,53 @@ public nonisolated enum ScheduleOccurrenceResolver {
         currentCourseDisplayDuration: TimeInterval = defaultCurrentCourseDisplayDuration,
         limit: Int? = nil
     ) -> ScheduleExternalResolvedSnapshot {
+        let state = contentState(for: snapshot)
+        let raw = snapshot.map { state == .ready ? rawOccurrences(from: $0, now: now) : [] } ?? []
+        return resolvedSnapshot(snapshot: snapshot, state: state, raw: raw, now: now,
+            currentCourseDisplayDuration: currentCourseDisplayDuration, limit: limit)
+    }
+
+    /// 学期 occurrence 推导一次，各条目复用排序结果并按展示上限取值。
+    public static func resolvedTimeline(
+        from snapshot: ScheduleExternalSnapshot?, now: Date = Date(),
+        includeDisplayUntilDates: Bool,
+        currentCourseDisplayDuration: TimeInterval = defaultCurrentCourseDisplayDuration,
+        limit: Int? = nil
+    ) -> [ScheduleExternalTimelineEntry] {
+        let state = contentState(for: snapshot)
         guard let snapshot else {
-            return ScheduleExternalResolvedSnapshot(
-                snapshot: nil,
-                upcomingOccurrences: [],
-                contentState: .missing
-            )
+            return [ScheduleExternalTimelineEntry(date: now, resolved: resolvedSnapshot(from: nil, now: now))]
         }
-
-        guard snapshot.isLoggedIn else {
-            return ScheduleExternalResolvedSnapshot(
-                snapshot: snapshot,
-                upcomingOccurrences: [],
-                contentState: .loggedOut
-            )
+        let raw = state == .ready ? rawOccurrences(from: snapshot, now: now) : []
+        let visible = visibleOccurrences(raw, now: now, currentCourseDisplayDuration: currentCourseDisplayDuration, limit: nil)
+        var dates = ScheduleTimelineRefreshPlanner.timelineDates(for: visible, now: now,
+            includeDisplayUntilDates: includeDisplayUntilDates)
+        if includeDisplayUntilDates {
+            let horizon = now.addingTimeInterval(24 * 60 * 60)
+            dates.append(contentsOf: raw.lazy.map(\.endDate).filter { $0 >= now && $0 <= horizon })
+            dates = Array(Set(dates)).sorted()
         }
-
-        guard ScheduleSharedDateCodec.parseDate(snapshot.firstDayString) != nil else {
-            return ScheduleExternalResolvedSnapshot(
-                snapshot: snapshot,
-                upcomingOccurrences: [],
-                contentState: .invalid
-            )
+        return dates.map { date in
+            ScheduleExternalTimelineEntry(date: date, resolved: resolvedSnapshot(snapshot: snapshot, state: state,
+                raw: raw, now: date, currentCourseDisplayDuration: currentCourseDisplayDuration, limit: limit))
         }
+    }
 
-        // 已同步的空学期属于有效业务结果，空课程快照映射为 rest。
-        guard !snapshot.courses.isEmpty else {
-            return ScheduleExternalResolvedSnapshot(
-                snapshot: snapshot,
-                upcomingOccurrences: [],
-                contentState: .rest
-            )
-        }
+    private static func resolvedSnapshot(
+        snapshot: ScheduleExternalSnapshot?, state: ScheduleExternalContentState, raw: [ScheduleExternalOccurrence],
+        now: Date, currentCourseDisplayDuration: TimeInterval, limit: Int?
+    ) -> ScheduleExternalResolvedSnapshot {
+        let occurrences = visibleOccurrences(raw, now: now, currentCourseDisplayDuration: currentCourseDisplayDuration, limit: limit)
+        return ScheduleExternalResolvedSnapshot(snapshot: snapshot, upcomingOccurrences: occurrences,
+            contentState: state == .ready ? (occurrences.isEmpty ? .rest : .ready) : state)
+    }
 
-        // 课程列表包含内容时，缺失节次表表示损坏快照。
-        guard let firstDay = ScheduleSharedDateCodec.parseDate(snapshot.firstDayString), hasValidCourses(snapshot, firstDay: firstDay) else {
-            return ScheduleExternalResolvedSnapshot(
-                snapshot: snapshot,
-                upcomingOccurrences: [],
-                contentState: .invalid
-            )
-        }
-
-        let occurrences = upcomingOccurrences(
-            from: snapshot,
-            now: now,
-            currentCourseDisplayDuration: currentCourseDisplayDuration
-        )
-        let trimmedOccurrences: [ScheduleExternalOccurrence]
-        if let limit, limit >= 0 {
-            trimmedOccurrences = Array(occurrences.prefix(limit))
-        } else {
-            trimmedOccurrences = occurrences
-        }
-
-        return ScheduleExternalResolvedSnapshot(
-            snapshot: snapshot,
-            upcomingOccurrences: trimmedOccurrences,
-            contentState: trimmedOccurrences.isEmpty ? .rest : .ready
-        )
+    private static func contentState(for snapshot: ScheduleExternalSnapshot?) -> ScheduleExternalContentState {
+        guard let snapshot else { return .missing }
+        guard snapshot.isLoggedIn else { return .loggedOut }
+        guard let firstDay = ScheduleSharedDateCodec.parseDate(snapshot.firstDayString) else { return .invalid }
+        guard !snapshot.courses.isEmpty else { return .rest }
+        return hasValidCourses(snapshot, firstDay: firstDay) ? .ready : .invalid
     }
 
     private static func hasValidCourses(_ snapshot: ScheduleExternalSnapshot, firstDay: Date) -> Bool {

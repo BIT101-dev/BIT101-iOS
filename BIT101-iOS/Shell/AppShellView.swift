@@ -17,6 +17,7 @@ import DesignSystemKit
 
 import SwiftUI
 import Combine
+import CommunityTransport
 import UIKit
 
 /// 应用底部 Tab 的稳定标识。
@@ -301,21 +302,24 @@ struct AppShellView: View {
         }
 
         if settings.shouldShowLinuxDoThanksNotice {
+            let account = lifecycle.accountIdentity
+            let session = lifecycle.currentSession()
             promptCoordinator.enqueue(AppPrompt(
                 id: "linux-do-thanks",
                 title: Self.linuxDoThanksTitle,
                 message: Self.linuxDoThanksBody,
                 actions: [
                     AppPromptAction(id: "dismiss", title: "知道了", isDefault: true) {
-                        settings.markLinuxDoThanksNoticeShown()
+                        settings.markLinuxDoThanksNoticeShown(for: session)
                     },
                     AppPromptAction(id: "send-email", title: "发送邮件") {
-                        settings.markLinuxDoThanksNoticeShown()
+                        guard settings.markLinuxDoThanksNoticeShown(for: session) else { return }
                         if let url = URL(string: "mailto:systemd@linux.do") {
                             openURL(url)
                         }
                     }
-                ]
+                ],
+                account: account
             ))
         }
 

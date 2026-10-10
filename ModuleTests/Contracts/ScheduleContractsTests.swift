@@ -300,7 +300,14 @@ struct ScheduleContractsTests {
         #expect(dates.first == now && dates.last == now.addingTimeInterval(24 * 60 * 60))
         #expect(dates.contains(occurrence.startDate) && dates.contains(midnight))
         #expect(dates.contains(cutoff) == phone)
-        #expect(!dates.contains(occurrence.endDate))
+        #expect(dates.contains(occurrence.endDate) == phone)
+        let timeline = ScheduleOccurrenceResolver.resolvedTimeline(from: snapshot, now: now, includeDisplayUntilDates: phone, limit: 1)
+        #expect(timeline.map(\.date) == dates)
+        for entry in timeline {
+            let reference = ScheduleOccurrenceResolver.resolvedSnapshot(from: snapshot, now: entry.date, limit: 1)
+            #expect(entry.resolved.contentState == reference.contentState)
+            #expect(entry.resolved.upcomingOccurrences == reference.upcomingOccurrences)
+        }
         let last = try #require(resolved.upcomingOccurrences.last)
         #expect(last.displayUntilDate == last.endDate)
         #expect(!dates.contains(last.startDate))
@@ -308,6 +315,29 @@ struct ScheduleContractsTests {
         #expect(ScheduleOccurrenceResolver.resolvedSnapshot(from: snapshot, now: cutoff).nextOccurrence?.id != occurrence.id)
         let empty = ScheduleTimelineRefreshPlanner.timelineDates(for: [], now: now, includeDisplayUntilDates: phone)
         #expect(empty == [now, midnight, now.addingTimeInterval(24 * 60 * 60)])
+    }
+
+    @Test(arguments: ["07:00", "09:10"])
+    func overlappingTimelineRetainsTheLastCourseAfterTheOtherCourseEnds(time: String) throws {
+        let day = try #require(ScheduleSharedDateCodec.parseDate("2026-09-28"))
+        let now = try #require(ScheduleSharedDateCodec.combine(date: day, time: time))
+        let snapshot = ScheduleExternalSnapshot(isLoggedIn: true, studentID: "fixture", firstDayString: "2026-09-28",
+            timeTable: [.init(id: 1, start: "08:00", end: "08:45"), .init(id: 2, start: "09:00", end: "09:30"), .init(id: 3, start: "09:40", end: "10:00")],
+            courses: [.init(id: "long", name: "长课", classroom: "", teacher: "", weeks: [1], weekday: 1, startSection: 1, endSection: 3),
+                .init(id: "short", name: "短课", classroom: "", teacher: "", weeks: [1], weekday: 1, startSection: 2, endSection: 2)])
+        let timeline = ScheduleOccurrenceResolver.resolvedTimeline(from: snapshot, now: now, includeDisplayUntilDates: true, limit: 1)
+        let shortEnd = try #require(ScheduleSharedDateCodec.combine(date: day, time: "09:30"))
+        let longEnd = try #require(ScheduleSharedDateCodec.combine(date: day, time: "10:00"))
+        let resumed = try #require(timeline.first { $0.date == shortEnd })
+        #expect(resumed.resolved.nextOccurrence?.id == "long-1")
+        #expect(resumed.resolved.nextOccurrence?.displayUntilDate == longEnd)
+        #expect(timeline.first { $0.date == longEnd }?.resolved.contentState == .rest)
+        for entry in timeline {
+            let reference = ScheduleOccurrenceResolver.resolvedSnapshot(from: snapshot, now: entry.date, limit: 1)
+            #expect(entry.resolved.upcomingOccurrences == reference.upcomingOccurrences)
+        }
+        #expect(ScheduleOccurrenceResolver.resolvedTimeline(from: snapshot, now: now,
+            includeDisplayUntilDates: true, limit: 0).allSatisfy { $0.resolved.upcomingOccurrences.isEmpty })
     }
 
     private func makeSnapshot() -> ScheduleExternalSnapshot {

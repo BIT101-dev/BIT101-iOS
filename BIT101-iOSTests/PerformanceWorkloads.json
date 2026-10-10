@@ -68,7 +68,9 @@
       "planning": "next-day-phone-timeline",
       "courses": 200,
       "weeks": 20,
-      "occurrences": 4000
+      "occurrences": 4000,
+      "slots": 13,
+      "timelineEntries": 41
     }
   },
   "response-aggregation": {
