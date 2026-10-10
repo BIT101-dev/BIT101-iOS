@@ -49,7 +49,7 @@ if [[ "$ACTION" == screenshot || "$ACTION" == info ]]; then
   exit 0
 fi
 
-if [[ "$ACTION" == install ]]; then
+if [[ "$ACTION" == install || "$ACTION" == mac ]]; then
   bit101_acquire_workflow_lock "$0" "$@"
 else
   bit101_acquire_artifact_lock "$0" "$@"

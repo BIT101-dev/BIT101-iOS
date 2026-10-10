@@ -263,6 +263,10 @@ if [[ "$MODE" == "verify" ]]; then
     local label="$1"
     shift
     local started_at=$SECONDS
+    if [[ "$label" == modules ]] && python3 "$ROOT_DIR/Scripts/validation_evidence.py" check-group modules >/dev/null 2>&1; then
+      echo "[验证通过] modules · 复用当前源码和执行环境的完整证据"
+      return 0
+    fi
     local step_status=0
     local result_step=false
     case "$label" in

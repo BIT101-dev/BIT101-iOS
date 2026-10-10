@@ -64,7 +64,7 @@ def write_report(report: dict, *, path: Path | None = None) -> None:
 
 
 
-def active_swift_source(source: str, group: str, *, platform: str | None = None) -> str:
+def active_swift_source(source: str, group: str, *, platform: str | None = None, path: str = '') -> str:
     levels = [(True, False)]
     active = []
     code_lines = mask_literals_and_comments(source).split("\n")
@@ -74,7 +74,7 @@ def active_swift_source(source: str, group: str, *, platform: str | None = None)
         if directive:
             kind, condition = directive.groups()
             if kind in {"if", "elseif"}:
-                selected = compilation_condition(condition, group, platform=platform)
+                selected = compilation_condition(condition, group, platform=platform, path=path)
                 if kind == "if": levels.append((levels[-1][0] and selected, selected))
                 else:
                     _, taken = levels.pop()
@@ -96,7 +96,7 @@ def test_selectors(group: str) -> dict[str, str]:
     directory = ROOT / ("ModuleTests" if group == "modules" else "BIT101-iOSUITests" if group == "ui" else "BIT101-iOSTests")
     sources = {}
     for path in directory.rglob("*.swift"):
-        sources[str(path)] = active_swift_source(path.read_text(), group)
+        sources[str(path)] = active_swift_source(path.read_text(), group, path=str(path))
     selectors = {}
     for facts in swift_syntax_index_sources(sources).values():
         functions = {function['start']: function for function in facts['functionRanges']}
@@ -405,7 +405,8 @@ def smoke_summary(group: str, value: dict, *, full: bool = True) -> dict:
 
 def successful_test_counts(summary: dict) -> bool:
     total = summary.get("totalTests", summary.get("totalTestCount", 0))
-    return total > 0 and total == summary.get("passedTests") and summary.get("failedTests") == summary.get("skippedTests") == 0
+    return all(type(value) is int for value in (total, summary.get("passedTests"), summary.get("failedTests"), summary.get("skippedTests"))) \
+        and total > 0 and total == summary.get("passedTests") and summary.get("failedTests") == summary.get("skippedTests") == 0
 
 
 def coverage_complete(group: str, summary: dict) -> bool:
@@ -422,7 +423,7 @@ def coverage_complete(group: str, summary: dict) -> bool:
     for name, floor in floors.items():
         row = coverage.get(name, {})
         covered, executable = row.get("coveredLines"), row.get("executableLines")
-        if not isinstance(covered, int) or not isinstance(executable, int) \
+        if type(covered) is not int or type(executable) is not int \
                 or not 0 < covered <= executable or covered * 100 < floor * executable:
             return False
     return True
@@ -630,20 +631,14 @@ def record(group: str, status: int, scope: str, started_digest: str) -> int:
             full = previous if previous.get("scope") == "full" else previous.get("lastFullRun")
             if full: row["lastFullRun"] = full
         if group in {"modules", "all", "ui"}:
-            from validation_coverage import regressions, advance, policy_floors
-            baseline = previous.get("coverageBaseline", {})
-            if previous.get("scope") == "full" and previous.get("exitCode") == 0:
-                baseline = advance(previous.get("summary", {}).get("coverage", {}), baseline)
+            from validation_coverage import regressions, policy_floors
             problems = regressions(row.get("summary", {}).get("coverage", {}),
                 policy_floors(group, report.get("coveragePolicy", {}))) if scope == "full" else []
-            row["coverageBaseline"] = baseline
             if problems:
                 status = row["exitCode"] = 1
                 row["summary"]["passed"] = False
                 row["summary"]["coverageRegressions"] = problems
                 print("覆盖率退化：" + "；".join(problems), file=sys.stderr)
-            elif status == 0 and scope == "full":
-                row["coverageBaseline"] = advance(row["summary"].get("coverage", {}), baseline)
         report["groups"][group] = row
         if group in {"all", "ui"} and status == 0 and scope == "full":
             from validation_performance import extract_measurements
@@ -779,9 +774,12 @@ def main() -> int:
             report = json.loads(REPORT.read_text()) if REPORT.is_file() else {}
             from validation_provenance import complete_group_row
             row = complete_group_row(report.get("groups", {}).get(args.group, {}))
+        from validation_coverage import regressions, policy_floors
+        coverage_matches = args.group not in {"modules", "all", "ui"} or not regressions(
+            row.get("summary", {}).get("coverage", {}), policy_floors(args.group, report.get("coveragePolicy", {})))
         if row.get("exitCode") == 0 and row.get("scope") == "full" and row.get("runID") \
                 and row.get("inputDigest") == source_digest(args.group) and evidence_current(args.group, row.get("summary", {})) \
-                and complete_summary(args.group, row.get("summary", {})):
+                and complete_summary(args.group, row.get("summary", {})) and coverage_matches:
             return 0
         print(f"{args.group} 需要完整子流程结果并匹配当前验证输入。", file=sys.stderr)
         return 1
@@ -845,13 +843,6 @@ def inspect_report(args) -> int:
                     or not 0 <= value <= 100 for name, value in floors.items()):
                 print("覆盖率基准需要目标提交登记的有效阈值。", file=sys.stderr)
                 return 1
-        for group, floors in report["coveragePolicy"].items():
-            row = report.setdefault("groups", {}).setdefault(group, {})
-            baseline = dict(row.get("coverageBaseline", {}))
-            for name, value in floors.items():
-                key = f"iOS/{name}" if group == "all" else name
-                baseline[key] = max(value, baseline.get(key, value))
-            row["coverageBaseline"] = baseline
         write_report(report)
         return 0
     if args.action in {"bind-merge", "check-merge"}:

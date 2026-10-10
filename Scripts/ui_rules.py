@@ -665,7 +665,7 @@ def source_runtime_interaction_findings(syntax: dict[str, dict], documented: dic
     native = native_runtime_controls(syntax)
     for path, facts in syntax.items():
         if "Tests/" in path or "UITest" in Path(path).name: continue
-        active = active_swift_source(Path(path).read_text(), "ui").encode() if Path(path).is_file() else None
+        active = active_swift_source(Path(path).read_text(), "ui", path=path).encode() if Path(path).is_file() else None
         for control in facts.get("accessibilityControls", []) + facts.get("accessibilityControlCandidates", []) + native.get(path, []):
             if "nativeAction" not in control:
                 control = dict(control, name=resolved_interaction_name(types, path, dict(control, value=control["name"])))

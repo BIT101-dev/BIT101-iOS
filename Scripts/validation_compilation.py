@@ -13,15 +13,50 @@ from validation_policy import workflow_conditions
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def local_import_conditions(condition: str) -> str:
-    return re.sub(r"\bcanImport\(\s*([A-Za-z_]\w*)\s*\)",
-        lambda match: "true" if (ROOT / "Modules" / match[1]).is_dir() else match[0], condition)
+@cache
+def local_dependency_graph() -> tuple[dict, dict]:
+    import importlib.util
+    from code_quality_rules import native_project_targets
+    spec = importlib.util.spec_from_file_location('module_boundaries', ROOT / 'Scripts/check-module-boundaries.py')
+    boundaries = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(boundaries)
+    package = boundaries.read_manifest(ROOT)
+    targets = boundaries.manifest_targets(package)
+    project = json.loads(subprocess.check_output(['plutil', '-convert', 'json', '-o', '-',
+        str(ROOT / 'BIT101-iOS.xcodeproj/project.pbxproj')], text=True))
+    native = {name: {module for product in package['products'] if product['name'] in declared for module in product['targets']}
+        for name, declared, _ in native_project_targets(project, ROOT)}
+    return targets, native
+
+
+def available_local_modules(path: str) -> set[str]:
+    from swift_type_index import compilation_unit
+    targets, native = local_dependency_graph()
+    relative = Path(path)
+    if relative.is_absolute(): relative = relative.relative_to(ROOT)
+    owner = next((name for name, target in targets.items()
+        if relative.is_relative_to(target['path'])), None)
+    pending = list(targets[owner]['dependencies'] if owner else native.get(compilation_unit(path), set()))
+    available = set()
+    while pending:
+        name = pending.pop()
+        if name in available: continue
+        available.add(name)
+        pending.extend(targets.get(name, {}).get('dependencies', set()))
+    return available
+
+
+def local_import_conditions(condition: str, path: str = '') -> str:
+    def replace(match):
+        if not (ROOT / 'Modules' / match[1]).is_dir(): return match[0]
+        return 'true' if path and match[1] in available_local_modules(path) else 'false'
+    return re.sub(r"\bcanImport\(\s*([A-Za-z_]\w*)\s*\)", replace, condition)
 
 
 @cache
 def repository_conditions() -> set[str]:
     from swift_source_index import repository_swift_files
-    return {local_import_conditions(match[1].strip()) for path in repository_swift_files()
+    return {local_import_conditions(match[1].strip(), str(path)) for path in repository_swift_files()
         for match in re.finditer(r"(?m)^\s*#(?:if|elseif)[ \t]+([^\r\n]+)", path.read_text())}
 
 
@@ -35,21 +70,21 @@ def prepare_cache(recorded: dict, group: str, environment: str, conditions: set[
 
 
 @cache
-def compilation_condition(condition: str, group: str, *, language_mode: str = '6', platform: str | None = None) -> bool:
+def compilation_condition(condition: str, group: str, *, language_mode: str = '6', platform: str | None = None, path: str = '') -> bool:
     condition = condition.strip()
     group = group.removeprefix("build-")
     group = {"network-smoke": "network", "icloud-smoke": "icloud"}.get(group, group)
     if any(character in condition for character in "\n\r#;{}"):
         raise ValueError(f"编译条件需要单行 Swift 表达式：{condition}")
     enabled = set(workflow_conditions(group))
-    catalyst = group in {"catalyst", "catalyst-release-runtime"}
-    native = group == "modules" and platform is None
+    catalyst = platform == 'macCatalyst' or group in {"catalyst", "catalyst-release-runtime"}
+    native = platform == 'macOS' or group == "modules" and platform is None
     architecture = os.uname().machine if native or catalyst else "arm64"
     watch = platform == 'watchOS'
     sdk_name = "macosx" if native or catalyst else "watchos" if watch else "iphoneos"
     target = f"{architecture}-apple-macosx14.0" if native else f"{architecture}-apple-watchos10.0" if watch else f"{architecture}-apple-ios17.0" + ("-macabi" if catalyst else "")
     # 本地包模块由项目依赖图提供；系统框架由所选 SDK 与编译器求值。
-    condition = local_import_conditions(condition)
+    condition = local_import_conditions(condition, path)
     environment_group = "modules" if native else "build-ui"
     environment = environment_context(environment_group)
     context_signature = hashlib.sha256(json.dumps([environment, Path(__file__).read_text()], sort_keys=True).encode()).hexdigest()
@@ -94,13 +129,14 @@ def source_platforms(path: str) -> tuple[str, ...]:
     from swift_type_index import compilation_unit
     unit = compilation_unit(path)
     if unit in {'BIT101Watch', 'BIT101WatchWidgets'}: return ('watchOS',)
-    if 'Modules' in Path(path).parts: return ('iOS', 'watchOS')
+    if 'Modules' in Path(path).parts: return ('iOS', 'watchOS', 'macOS', 'macCatalyst')
+    if unit == 'BIT101-iOS': return ('iOS', 'macCatalyst')
     return ('iOS',)
 
 
 def active_network_source(source: str, path: str) -> str:
     from validation_evidence import active_swift_source
-    sources = [active_swift_source(source, 'network', platform=platform).encode() for platform in source_platforms(path)]
+    sources = [active_swift_source(source, 'network', platform=platform, path=path).encode() for platform in source_platforms(path)]
     return bytes(next((row[index] for row in sources if row[index] not in b' \r\n'), sources[0][index])
         for index in range(len(sources[0]))).decode()
 

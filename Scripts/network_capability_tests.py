@@ -366,6 +366,23 @@ def network_discovery_self_test() -> None:
             ('Modules/WatchService/Sources/WatchService.swift', True), ('BIT101-iOS/WatchService.swift', False)]:
         source = watch_only.replace('struct WatchService', 'public struct WatchService').replace('func fetch()', 'public func fetch()') if path.startswith('Modules/') else watch_only
         assert bool(business_methods(swift_syntax_index_sources({path: source}))) == expected, path
+    from validation_compilation import active_network_source, available_local_modules
+    for condition, modules, app, watch in [('os(macOS)', True, False, False),
+            ('targetEnvironment(macCatalyst)', True, True, False), ('os(iOS)', True, True, False),
+            ('os(watchOS)', True, False, True)]:
+        source = watch_only.replace('os(watchOS)', condition)
+        for path, expected in [('Modules/GalleryFeature/Sources/Service.swift', modules),
+                ('BIT101-iOS/Service.swift', app), ('BIT101Watch/Service.swift', watch)]:
+            assert ('func fetch()' in active_network_source(source, path)) == expected, (condition, path)
+    assert {'CommunityCore', 'StorageCore', 'TransportCore'} <= available_local_modules('Modules/GalleryFeature/Sources/Service.swift')
+    assert 'ScoreInfrastructure' not in available_local_modules('Modules/GalleryFeature/Sources/Service.swift')
+    assert 'PaperFeature' in available_local_modules('BIT101-iOS/Shell/Service.swift')
+    assert 'PaperFeature' not in available_local_modules('BIT101Watch/Service.swift')
+    assert 'PaperFeature' in available_local_modules('ModuleTests/Community/ServiceContractTests.swift')
+    for condition, expected in [('canImport(CommunityCore)', True), ('canImport(StorageCore)', True),
+            ('canImport(ScoreInfrastructure)', False), ('canImport(UnregisteredFramework)', False)]:
+        source = watch_only.replace('os(watchOS)', condition)
+        assert ('func fetch()' in active_network_source(source, 'Modules/GalleryFeature/Sources/Service.swift')) == expected
     from swift_source_index import swift_syntax_index_sources
     from network_capability_rules import business_methods, method_signature
     leaf = 'Modules/PaperFeature/Sources/PaperService.swift'

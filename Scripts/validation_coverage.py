@@ -1,4 +1,4 @@
-"""Compare coverage with versioned policy and retain local whole-percent observations."""
+"""Compare coverage with versioned policy."""
 
 
 def policy_floors(group: str, policy: dict) -> dict[str, int]:
@@ -22,17 +22,11 @@ def regressions(coverage: dict, baseline: dict) -> list[str]:
     return [f'{name}: {current[name]}% < {floor}%' for name, floor in baseline.items() if name in current and current[name] < floor]
 
 
-def advance(coverage: dict, baseline: dict) -> dict[str, int]:
-    return {name: max(value, baseline.get(name, value)) for name, value in percentages(coverage).items()}
-
-
 def self_test() -> None:
     assert policy_floors('ui', {'all': {'GalleryFeature': 40}})['iOS/GalleryFeature'] == 40
     assert policy_floors('ui', {'all': {'GalleryFeature': 1}})['iOS/GalleryFeature'] == 14
     assert 'iOS/StorageCore' not in policy_floors('ui', {'all': {'StorageCore': 90}})
     assert regressions({'iOS/GalleryFeature': {'coveredLines': 39, 'executableLines': 100}},
         policy_floors('ui', {'all': {'GalleryFeature': 40}}))
-    high = {'Feature': {'coveredLines': 80, 'executableLines': 100}}
-    assert advance(high, {}) == {'Feature': 80}
     assert regressions({'Feature': {'coveredLines': 79, 'executableLines': 100}}, {'Feature': 80})
     assert not regressions({'Feature': {'coveredLines': 801, 'executableLines': 1001}}, {'Feature': 80})

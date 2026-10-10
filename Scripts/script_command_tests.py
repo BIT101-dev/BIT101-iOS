@@ -43,6 +43,18 @@ python3() {{
             findings.append('结果保留自测：测试成功与失败均保留实际结果')
         if expected == 0 and ('begin-batch append' not in output or 'retain-batch all ui' not in output):
             findings.append('结果保留自测：后续测试组合并本次全部结果')
+    for current in (True, False):
+        harness = f'''set -euo pipefail
+ROOT_DIR=/fixture
+completed_result_groups=()
+checks=0
+python3() {{ (( checks += 1 )); [[ $checks -gt 1 ]] || return {0 if current else 1}; }}
+child() {{ print executed; }}
+'''
+        result = subprocess.run(['zsh', '-c', harness + step + '\nverify_step modules child\nprint checks=$checks'],
+            text=True, capture_output=True)
+        if result.returncode or ('executed\n' in result.stdout) == current or f'checks={1 if current else 2}' not in result.stdout:
+            findings.append('模块聚合复验：当前完整证据复用，缺失与过期证据执行后验收')
     return findings
 
 def audit_lock_boundary_findings() -> list[str]:
@@ -357,7 +369,7 @@ xcrun() {
         if ("WORKFLOW_LOCK\n" in result.stdout) != needs_lock:
             findings.append(f"命令自测：{filename} {' '.join(arguments)} 取得工作流锁")
         if filename in {'run-extended-tests.sh', 'build-install-device.sh'} and needs_lock \
-                and ("DEVICE_LOCK\n" in result.stdout) != bool(device):
+                and ("DEVICE_LOCK\n" in result.stdout) != (bool(device) or arguments == ["mac"]):
             findings.append(f"命令自测：{filename} {' '.join(arguments)} 按设备操作选择锁范围")
         if filename == "run-extended-tests.sh" and arguments[:2] == ["ui", "About"] and result.stdout.count(marker) != 1:
             findings.append("命令自测：重复 UI 关键词合并为一个用例")

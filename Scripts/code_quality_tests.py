@@ -397,13 +397,14 @@ def workflow_lock_boundary_findings() -> list[str]:
         fixture.mkdir(parents=True, exist_ok=True); os.mkfifo(release)
         support = (SCRIPT_ROOT / "script-support.sh").read_text().replace(
             '"$HOME/Library/Caches/BIT101-iOS/device-workflow.lock"', shlex.quote(str(fixture / "device-workflow.lock")))
+        dispatch = (SCRIPT_ROOT / 'build-install-device.sh').read_text().split('if [[ "$ACTION" == install', 1)[1].split('\nif [[ "$ACTION" == install', 1)[0]
         worker.write_text('ROOT_DIR="$BIT101_LOCK_TEST_CHECKOUT"\n' + support + '\n'
-                         'if [[ "${1:-}" == artifact ]]; then bit101_acquire_artifact_lock "$0" "$@"; '
-                         'else bit101_acquire_workflow_lock "$0" "$@"; fi\nprint entered\n'
+                         'ACTION=install; case "${1:-}" in artifact) ACTION=build ;; mac) ACTION=mac ;; esac\n'
+                         + 'if [[ "$ACTION" == install' + dispatch + '\nprint entered\n'
                          'if [[ "${1:-}" == signal || "${1:-}" == budget ]]; then\n'
                          '  trap \'print cleanup; if [[ "$1" == signal ]]; then read -r reply < "$ROOT_DIR/release"; fi; exit 143\' TERM\n'
                          'fi\n'
-                         'if (( $# > 0 )) && [[ "$1" != artifact ]]; then read -r reply < "$ROOT_DIR/release"; fi\n')
+                         'if (( $# > 0 )) && [[ "$1" != artifact && "$1" != mac ]]; then read -r reply < "$ROOT_DIR/release"; fi\n')
         def line(process):
             return process.stdout.readline().strip() if select.select([process.stdout], [], [], 5)[0] else "timeout"
         first = subprocess.Popen(["zsh", str(worker), "hold"], stdin=subprocess.PIPE,
@@ -422,7 +423,7 @@ def workflow_lock_boundary_findings() -> list[str]:
         output, _ = competing.communicate(timeout=5)
         if competing.returncode != 124 or 'entered' in output:
             raise ValueError('同一工作区的本机与真机流程共用固定产物锁')
-        second = subprocess.Popen(["zsh", str(worker)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=other_checkout)
+        second = subprocess.Popen(["zsh", str(worker), "mac"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=other_checkout)
         processes.append(second)
         if not line(second).startswith("[等待]"):
             raise ValueError("竞争工作流在执行前排队")

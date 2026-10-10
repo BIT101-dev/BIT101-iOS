@@ -271,6 +271,15 @@ def run_self_test(subject) -> int:
         ios_missing['iOS/MediaKit'] = {'coveredLines': 52, 'executableLines': 100}
         assert not subject.coverage_complete('all', dict(summaries['all'], coverage=ios_missing))
         assert subject.coverage_complete('modules', summaries['modules'])
+        for group in ('modules', 'all', 'ui'):
+            for field in ('coveredLines', 'executableLines'):
+                for value in (True, False, 1.0, '1', None):
+                    malformed = {name: dict(row, **{field: value}) for name, row in summaries[group]['coverage'].items()}
+                    assert not subject.coverage_complete(group, dict(summaries[group], coverage=malformed)), (group, field, value)
+        for field in ('totalTests', 'passedTests', 'failedTests', 'skippedTests'):
+            counts = {'totalTests': 1, 'passedTests': 1, 'failedTests': 0, 'skippedTests': 0}
+            assert subject.successful_test_counts(counts)
+            assert not subject.successful_test_counts(dict(counts, **{field: bool(counts[field])})), field
         assert not subject.coverage_complete('modules', dict(summaries['modules'], coverage={}))
         missing = dict(summaries['modules']['coverage'])
         missing.pop('ScheduleSync')

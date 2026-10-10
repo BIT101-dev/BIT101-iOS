@@ -64,6 +64,7 @@ def run_self_test(recorder) -> None:
     report_budget_self_test(module)
     aggregate_failure_self_test(module)
     complete_run_reuse_self_test()
+    check_group_coverage_policy_self_test(module)
     now = utc_now()
     fresh = {"startedAt": (now - timedelta(minutes=2)).isoformat(), "finishedAt": (now - timedelta(minutes=1)).isoformat()}
     assert sampling_evidence_current(fresh, now)
@@ -90,6 +91,29 @@ def run_self_test(recorder) -> None:
               with redirect_stdout(output), patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": ""}):
                   assert module.inspect_report(SimpleNamespace(action="summary", recorded_environment=False)) == 0
               assert f"| {group} | full | {label} |" in output.getvalue()
+
+
+def check_group_coverage_policy_self_test(module) -> None:
+    for group in ('modules', 'all', 'ui'):
+        name = 'GalleryFeature' if group == 'modules' else 'iOS/GalleryFeature'
+        for selected in (False, True):
+            for floor, covered, expected in ((70, 74, 0), (75, 74, 1), (75, 75, 0)):
+                full = {'scope': 'full', 'exitCode': 0, 'runID': 'full', 'inputDigest': 'current',
+                    'environment': {}, 'summary': {'passed': True, 'coverage': {
+                        name: {'coveredLines': covered, 'executableLines': 100}}}}
+                row = dict(full, scope='selected', lastFullRun=full,
+                    summary={'passed': True, 'coverage': {name: {'coveredLines': 100, 'executableLines': 100}}}) if selected else full
+                report = {'groups': {group: row}, 'coveragePolicy': {
+                    'modules' if group == 'modules' else 'all': {'GalleryFeature': floor}}}
+                with patch.object(module, 'source_digest', return_value='current'), \
+                        patch.object(module, 'report_lock', side_effect=nullcontext), \
+                        patch.object(module, 'complete_summary', return_value=True), \
+                        patch('validation_policy.MODULE_COVERAGE_FLOORS', {'GalleryFeature': 70}), \
+                        patch('validation_policy.IOS_MODULE_COVERAGE_FLOORS', {'GalleryFeature': 70}), \
+                        patch.object(Path, 'is_file', return_value=True), \
+                        patch.object(Path, 'read_text', return_value=json.dumps(report)), \
+                        patch.object(sys, 'argv', ['validation_evidence.py', 'check-group', group]), redirect_stderr(StringIO()):
+                    assert module.main() == expected, (group, selected, floor, covered)
 
 
 def artifact_lock_self_test(module) -> None:
@@ -128,7 +152,7 @@ def artifact_lock_self_test(module) -> None:
 
 def baseline_policy_self_test(module) -> None:
     report = {'coverageBaseCommit': 'target', 'coveragePolicy': {'modules': {'Feature': 80}, 'all': {'Feature': 70}},
-        'groups': {'modules': {'coverageBaseline': {'Feature': 85}}, 'all': {'coverageBaseline': {'App': 65}}}}
+        'groups': {}}
     for fault in ('none', 'commit', 'missing', 'value', 'extra'):
         candidate = json.loads(json.dumps(report))
         if fault == 'commit': candidate['coverageBaseCommit'] = 'other'
@@ -140,11 +164,11 @@ def baseline_policy_self_test(module) -> None:
             assert module.inspect_report(SimpleNamespace(action='baseline', group='target')) == (0 if fault == 'none' else 1)
         if fault == 'none':
             actual = saved.call_args.args[0]
-            assert actual['groups']['modules']['coverageBaseline'] == {'Feature': 85}
-            assert actual['groups']['all'] == {'coverageBaseline': {'iOS/Feature': 70, 'App': 65}}
-            from validation_coverage import regressions
-            assert regressions({'iOS/Feature': {'coveredLines': 69, 'executableLines': 100}},
-                actual['groups']['all']['coverageBaseline']) == ['iOS/Feature: 69% < 70%']
+            assert actual['groups'] == {} and actual['coveragePolicy'] == report['coveragePolicy']
+            from validation_coverage import regressions, policy_floors
+            with patch('validation_policy.IOS_MODULE_COVERAGE_FLOORS', {'Feature': 60}):
+                assert regressions({'iOS/Feature': {'coveredLines': 69, 'executableLines': 100}},
+                    policy_floors('all', actual['coveragePolicy'])) == ['iOS/Feature: 69% < 70%']
         else: saved.assert_not_called()
 
 
@@ -169,7 +193,7 @@ def selected_coverage_self_test(module) -> None:
             assert module.record("all", 0, scope, "digest") == expected
         report = saved.call_args.args[0]
         row = report['groups']['all']
-        assert row['coverageBaseline'] == {'iOS/Feature': 95}
+        assert 'coverageBaseline' not in row
         if scope == 'selected': assert row['lastFullRun'] == full
         elif expected: assert row['summary']['coverageRegressions'] and row['summary']['passed'] is False
         else: assert row['summary']['passed'] is True

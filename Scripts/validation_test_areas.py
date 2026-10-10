@@ -171,7 +171,7 @@ def reachable_smoke_calls(index: dict) -> dict[str, list[dict]]:
         for path, facts in index.items() for variable in facts.get('typedVariables', []) if variable.get('isTaskLocal')}
     for path, facts in index.items():
         if path not in files: continue
-        active = active_swift_source(facts['source'], 'network', platform=source_platforms(path)[0]).encode() if 'source' in facts else None
+        active = active_swift_source(facts['source'], 'network', platform=source_platforms(path)[0], path=path).encode() if 'source' in facts else None
         active_sources[path] = active
         closures = facts.get('callableRanges', []) + facts.get('inlineClosureRanges', [])
         for function in facts.get('functionRanges', []) + facts.get('accessorRanges', []) + closures:
