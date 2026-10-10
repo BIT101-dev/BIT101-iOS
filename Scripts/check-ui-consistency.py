@@ -50,9 +50,8 @@ def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[s
         components = rendered_component_counts(facts, syntax)
         app_card_uses += components['AppCard']
         floating_stack_uses += components['AppFloatingActionStack']
-        call_pairs = zip(facts.get("calls", []), facts.get("invocations", []))
-        for call, invocation in call_pairs:
-            name = call_name(call["value"])
+        for invocation in facts.get("invocations", []):
+            name = call_name(invocation["calledExpression"])
             if name != "ZStack":
                 continue
             invocation_source = mask_literals_and_comments(invocation["value"])

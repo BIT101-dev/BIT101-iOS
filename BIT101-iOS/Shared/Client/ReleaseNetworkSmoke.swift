@@ -459,7 +459,9 @@ final class ReleaseNetworkSmokeRunner {
                 }
                 if let building = buildings?.first {
                     _ = await probe("空教室占用数据", area: .schedule, scope: scope, expectedParameters: ["XNXQDM": term, "JXLDM": building.id]) {
-                        try await schedule.fetchClassrooms(buildingID: building.id, term: term)
+                        let classrooms = try await schedule.fetchClassrooms(buildingID: building.id, term: term)
+                        guard classrooms.allSatisfy(\.hasValidOccupancy) else { throw URLError(.cannotParseResponse) }
+                        return classrooms
                     }
                 } else {
                     let reason = buildings == nil ? "教学楼探针没有可用数据" : "教学楼列表为空"
@@ -644,7 +646,8 @@ final class ReleaseNetworkSmokeRunner {
     }
 
     nonisolated static func validateCourseSyncPayload(_ payload: CourseSyncPayload) throws {
-        guard payload.courses.allSatisfy(\.hasValidPlacement) else { throw URLError(.cannotParseResponse) }
+        guard payload.courses.allSatisfy(\.hasValidPlacement), payload.exams.allSatisfy(\.hasValidPlacement)
+        else { throw URLError(.cannotParseResponse) }
         guard payload.rawWeeksByCourse.count == payload.courses.count else { throw URLError(.cannotParseResponse) }
         var groups: [String: (raw: Set<Int>, displayed: Set<Int>)] = [:]
         for (course, raw) in zip(payload.courses, payload.rawWeeksByCourse) {

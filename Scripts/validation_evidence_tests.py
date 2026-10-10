@@ -15,6 +15,12 @@ def run_self_test(subject) -> int:
     module_name = subject.__name__
     original_is_file = Path.is_file
     from unittest.mock import patch
+    from validation_environment import host_environment
+    selected_compiler = '/fixture/Xcode/Toolchains/selected/usr/bin/swift-frontend'
+    with patch.dict(os.environ, SWIFT_FRONTEND='/other/swift-frontend', SWIFT='/other/swift'), \
+            patch.object(subprocess, 'check_output', return_value=selected_compiler) as lookup, patch.object(Path, 'is_file', return_value=False):
+        assert host_environment.__wrapped__()['compiler']['path'] == selected_compiler
+        lookup.assert_called_once_with(['xcrun', '--find', 'swift-frontend'], text=True)
     from validation_inputs import self_test as input_self_test
     fixture_environment = {'host': {'system': 'fixture'}, 'developer': '/fixture', 'xcode': {'version': 'fixture'}, 'compiler': {'path': '/fixture/swift-frontend', 'modified': 1, 'size': 100, 'sha256': 'a' * 64}, 'sdks': {'fixture': {'Version': '1'}}, 'device': {'identifier': 'fixture-phone', 'systemVersion': 'fixture-os', 'systemBuild': 'fixture-build'}}
     with patch(f'{module_name}.environment_context', return_value=fixture_environment), \

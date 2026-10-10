@@ -27,9 +27,7 @@ trap finish_audit EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-if [[ -z "${SWIFT_FRONTEND:-}" ]]; then
-  SWIFT_FRONTEND="$(xcrun --find swift-frontend 2>/dev/null || true)"
-fi
+SWIFT_FRONTEND="$(xcrun --find swift-frontend 2>/dev/null || true)"
 if [[ -z "$SWIFT_FRONTEND" || ! -x "$SWIFT_FRONTEND" ]]; then
   echo "[失败] 找不到可用的 swift-frontend；请检查当前 Xcode 工具链" >&2
   exit 1

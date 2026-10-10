@@ -554,15 +554,20 @@ extension ReleaseNetworkSmokeLifecycleTests {
         func syncCourses(term: String?) async throws -> CourseSyncPayload {
             observed.insert("schedule")
             rawResponse?(Data("course-response".utf8))
+            let exams: [ExamRecord] = stage == "invalid-exam-failure" || stage == "pending-exam-success"
+                ? [.init(id: "exam", term: "fixture-1", name: stage == "invalid-exam-failure" ? "" : "待排课程", courseID: "",
+                    teacher: "", classroom: "", dateString: "", beginTime: "", endTime: "", examMode: "", seatID: "")] : []
             return CourseSyncPayload(term: stage == "schedule-term-failure" ? "other-term" : term ?? "fixture-1", firstDayString: "2026-03-02", sourceFirstDayString: "2026-03-02",
-                normalizationOffset: 0, rawWeeksByCourse: [], courses: [], exams: [])
+                normalizationOffset: 0, rawWeeksByCourse: [], courses: [], exams: exams)
         }
         func submitSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge, term: String?) async throws -> CourseSyncPayload { try await syncCourses(term: term) }
         func submitSMSCodeForTeachingCenterAuthentication(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws { webvpnVerified = true }
         func prepareTeachingCenterAccess() async throws {}
         func fetchCampuses() async throws -> [CampusRecord] { [CampusRecord(id: "campus", name: "fixture", code: "campus")] }
         func fetchBuildings(campusCode: String?) async throws -> [BuildingRecord] { [BuildingRecord(id: "building", name: "fixture", buildingCode: "building", campusName: "fixture", campusCode: "campus")] }
-        func fetchClassrooms(buildingID: String, term: String) async throws -> [ClassroomRecord] { [ClassroomRecord(id: "room", name: "fixture", busyTimeCodes: [])] }
+        func fetchClassrooms(buildingID: String, term: String) async throws -> [ClassroomRecord] {
+            [ClassroomRecord(id: "room", name: "fixture", busyTimeCodes: stage == "invalid-classroom-failure" ? [0] : [])]
+        }
         func fetchEclassDDLEvents(schoolSMSCodeHandler: SchoolSMSCodeHandler?) async throws -> EclassDDLResult {
             if stage == "all-sms-success" && !ssoVerified {
                 let handler = try #require(schoolSMSCodeHandler)
@@ -661,7 +666,8 @@ extension ReleaseNetworkSmokeLifecycleTests {
          "aasa-mime-failure", "aasa-exclusion-failure", "image-budget-failure", "entity-identity-failure", "repeated-page-failure",
          "gallery-comment-page-failure", "course-comment-page-failure", "paper-comment-page-failure", "cors-method-failure", "cors-header-failure",
          "schedule-term-failure", "historical-term-success", "maintained-fixtures-success", "continuation-image-success",
-         "missing-fixtures-failure", "fixture-course-number-failure", "empty-list-failure", "all-score-mismatch-failure"])
+         "missing-fixtures-failure", "fixture-course-number-failure", "empty-list-failure", "all-score-mismatch-failure",
+         "invalid-exam-failure", "pending-exam-success", "invalid-classroom-failure"])
     func completeOrchestration(stage: String) async throws {
         let image = try #require(UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1)).image { $0.fill(CGRect(x: 0, y: 0, width: 1, height: 1)) }.pngData())
         let services = Services(stage: stage, image: image)
@@ -760,7 +766,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
         if scope.includes(.schedule) {
             #expect(report.currentTerm == "fixture-1")
             #expect(report.requestedTerm == (stage == "historical-term-success" ? "historical-1" : nil))
-            #expect(report.validatedTerm == (stage == "schedule-term-failure" ? nil : report.requestedTerm ?? "fixture-1"))
+            #expect(report.validatedTerm == (stage == "schedule-term-failure" || stage == "invalid-exam-failure" ? nil : report.requestedTerm ?? "fixture-1"))
         }
         if scope.includes(.ddl) { #expect(services.observed.isSuperset(of: ["eclass", "lexue"])) }
         if stage == "raw-write-failure" { #expect(rawWrites == 1 && report.failures.contains { $0.contains("原始课表采样写入") }) }

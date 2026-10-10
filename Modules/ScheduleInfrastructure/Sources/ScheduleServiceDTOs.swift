@@ -335,6 +335,15 @@ nonisolated struct ClassroomListResponse: Decodable, Sendable {
 
         let classroomName: String
         let busyTimeString: String?
+        init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            classroomName = try container.decode(String.self, forKey: .classroomName)
+            guard container.contains(.busyTimeString) else {
+                throw DecodingError.keyNotFound(CodingKeys.busyTimeString,
+                    .init(codingPath: decoder.codingPath, debugDescription: "教室占用字段需要存在。"))
+            }
+            busyTimeString = try container.decodeIfPresent(String.self, forKey: .busyTimeString)
+        }
     }
 
     let datas: Datas
@@ -358,13 +367,9 @@ extension ClassroomListResponse {
                 else { throw ScheduleServiceError.invalidResponse }
                 return section
             }
-            classrooms.append(
-                ClassroomRecord(
-                    id: row.classroomName,
-                    name: row.classroomName,
-                    busyTimeCodes: busy.sorted()
-                )
-            )
+            let classroom = ClassroomRecord(id: row.classroomName, name: row.classroomName, busyTimeCodes: busy.sorted())
+            guard classroom.hasValidOccupancy else { throw ScheduleServiceError.invalidResponse }
+            classrooms.append(classroom)
         }
         try Task.checkCancellation()
         return classrooms
@@ -401,12 +406,16 @@ extension ExamResponse {
             let times = row.timeDescription.captureGroups(pattern: #"(\d{2}:\d{2})-(\d{2}:\d{2})"#)
             let beginTime = times.first ?? ""
             let endTime = times.dropFirst().first ?? ""
+            let timeDescription = row.timeDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard times.count == 2 || timeDescription.isEmpty || timeDescription == "待定"
+            else { throw ScheduleServiceError.invalidResponse }
+            let courseID = (row.courseID ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
 
-            exams.append(ExamRecord(
-                id: "\(row.termCode ?? "")-\(row.courseID ?? "")-\(row.dateString ?? "")-\(row.timeDescription)",
+            let exam = ExamRecord(
+                id: "\(row.termCode ?? "")-\(courseID.isEmpty ? name : courseID)-\(row.dateString ?? "")-\(row.timeDescription)",
                 term: row.termCode ?? "",
                 name: name,
-                courseID: row.courseID ?? "",
+                courseID: courseID,
                 teacher: row.teacherName ?? "",
                 classroom: row.location ?? "",
                 dateString: (row.dateString ?? "").split(separator: " ").first.map(String.init) ?? (row.dateString ?? ""),
@@ -414,7 +423,9 @@ extension ExamResponse {
                 endTime: endTime,
                 examMode: row.examMode ?? "",
                 seatID: row.seatID ?? ""
-            ))
+            )
+            guard exam.hasValidPlacement else { throw ScheduleServiceError.invalidResponse }
+            exams.append(exam)
         }
         try Task.checkCancellation()
         return exams

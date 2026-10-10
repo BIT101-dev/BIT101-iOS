@@ -44,7 +44,7 @@ with patch.object(Path, 'read_text', read):
     if result.returncode or result.stdout.strip() != 'fixture':
         findings.append('基础证据摘要自测：人工性能配置按所属操作加载')
     audit_source = (SCRIPT_ROOT / 'run-static-audit.sh').read_text()
-    audit_exit = 'finish_audit() {' + audit_source.split('finish_audit() {', 1)[1].split('\nif [[ -z "${SWIFT_FRONTEND:-}"', 1)[0]
+    audit_exit = 'finish_audit() {' + audit_source.split('finish_audit() {', 1)[1].split('\nSWIFT_FRONTEND=', 1)[0]
     for action, expected, recording in (('exit 0', 0, 0), ('exit 7', 7, 0), ('kill -s INT $$', 130, 0),
                                        ('kill -s TERM $$', 143, 0), ('exit 0', 9, 9), ('exit 7', 7, 9)):
         harness = f'''ROOT_DIR=/fixture AUDIT_STARTED=$SECONDS group_processes=()
@@ -124,7 +124,8 @@ open() { :; }
 pgrep() { return 1; }
 trap() { :; }
 xcrun() {
-  if [[ "$*" == *lockState* ]]; then print '{"result":{"isLocked":false}}';
+  if [[ "$*" == '--find swift-frontend' ]]; then print /usr/bin/true;
+  elif [[ "$*" == *lockState* ]]; then print '{"result":{"isLocked":false}}';
   else print -ru2 -- "TOOL $*"; fi
 }
 '''

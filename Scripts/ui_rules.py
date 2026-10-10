@@ -40,8 +40,8 @@ def check_composer_lifecycle(errors: list[str], syntax: dict[str, dict]) -> None
                 and node.get('arguments') == ['"ui.gallery-composer-scene.submit"'] for node in rendered.get('invocations', []))
             comment = any(call_name(node['value']) == 'AppCommentComposerContentSection' for node in rendered.get('calls', []))
             if not editor and not (callback and comment): continue
-            guards = [invocation.get('arguments', []) for call, invocation in zip(rendered.get('calls', []), rendered.get('invocations', []))
-                if call_name(call['value']) == 'interactiveDismissDisabled']
+            guards = [invocation.get('arguments', []) for invocation in rendered.get('invocations', [])
+                if call_name(invocation['calledExpression']) == 'interactiveDismissDisabled']
             if not any(not arguments or re.sub(r'[\s()]', '', arguments[0]) != 'false' for arguments in guards):
                 errors.append(f'{path}: {scope[-1]} 的系统关闭需要沿编辑与提交状态保护')
 
@@ -199,8 +199,8 @@ def alert_coverage_findings(facts: dict, path: Path) -> list[str]:
     ]
     findings: list[str] = []
     diagnostic_bindings: set[tuple[tuple[str, ...], str]] = set()
-    for call, invocation in zip(facts.get("calls", []), facts.get("invocations", [])):
-        if call["value"].split(".")[-1] != "diagnosticAlert":
+    for invocation in facts.get("invocations", []):
+        if call_name(invocation["calledExpression"]) != "diagnosticAlert":
             continue
         source = mask_literals_and_comments(invocation["value"])
         for variable in app_alert_variables:
@@ -287,8 +287,8 @@ def check_fonts(errors: list[str], syntax: dict[str, dict]) -> None:
         raw_source = source_text(path)
         relative = path.relative_to(ROOT)
         if path not in DESIGN_SYSTEM_SOURCES:
-            for call, invocation in zip(facts.get("calls", []), facts.get("invocations", [])):
-                name = call_name(call["value"])
+            for invocation in facts.get("invocations", []):
+                name = call_name(invocation["calledExpression"])
                 if name not in {"system", "systemFont", "custom"}:
                     continue
                 source = mask_literals_and_comments(invocation["value"])

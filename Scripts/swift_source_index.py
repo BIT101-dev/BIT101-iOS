@@ -41,9 +41,7 @@ def indexer_toolchain(compiler: Path, host_modules: Path) -> dict:
 
 
 def _run_swift_syntax_index(request: dict, *, regex_only: bool = False) -> dict[str, dict]:
-    swift = os.environ.get("SWIFT")
-    if not swift:
-        swift = subprocess.check_output(["xcrun", "--find", "swift"], text=True).strip()
+    swift = subprocess.check_output(["xcrun", "--find", "swift"], text=True).strip()
     swift_path = Path(swift).absolute()
     host_modules = swift_path.parent.parent / "lib/swift/host"
     if not (host_modules / "SwiftSyntax.swiftmodule").is_dir():

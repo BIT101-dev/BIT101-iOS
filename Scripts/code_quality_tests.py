@@ -39,6 +39,17 @@ def campus_fixture_self_test() -> None:
 
 def checker_boundary_findings() -> list[str]:
     import warnings
+    from ui_rules import check_fonts
+    from ui_source_facts import pattern_nodes
+    from ui_design_contracts import PADDING_LITERAL
+    visual = 'struct Example: View { var body: some View { Text(rows[0]).padding(19).font(.system(size: 23)) } }'
+    visual_path = ROOT / 'BIT101-iOS/BIT101_iOSApp.swift'
+    visual_facts = swift_syntax_index_sources({str(visual_path): visual})[str(visual_path)]
+    visual_errors = []
+    with patch('ui_rules.source_text', return_value=visual):
+        check_fonts(visual_errors, {str(visual_path): visual_facts})
+    assert any('23' in error for error in visual_errors), '下标嵌套后的显式字号需要参与验收'
+    assert any(node['arguments'] == ['19'] for node in pattern_nodes(visual_facts, PADDING_LITERAL)), '下标嵌套后的间距参数需要按调用归属读取'
     from network_capability_rules import constant_boolean
     with warnings.catch_warnings(record=True) as observed:
         warnings.simplefilter('always')

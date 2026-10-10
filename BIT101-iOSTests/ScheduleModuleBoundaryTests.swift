@@ -131,6 +131,43 @@ final class SemesterStartDateService: ScheduleServicing {
 
 @MainActor
 struct ScheduleModuleBoundaryTests {
+    @Test func classroomOccupancyRequiresItsFieldAndPreservesExplicitEmptyValues() async throws {
+        for value in ["" as Any, NSNull(), "1,2"] {
+            let data = try JSONSerialization.data(withJSONObject: ["datas": ["cxkxjasqk": ["rows": [["JASMC": "A101", "ZYJC": value]]]]])
+            let response = try JSONDecoder().decode(ClassroomListResponse.self, from: data)
+            let room = try #require(try await response.classroomRecords().first)
+            #expect(room.hasValidOccupancy && room.busyTimeCodes == (value is NSNull || value as? String == "" ? [] : [1, 2]))
+        }
+        let missing = Data(#"{"datas":{"cxkxjasqk":{"rows":[{"JASMC":"A101"}]}}}"#.utf8)
+        #expect(throws: DecodingError.self) { try JSONDecoder().decode(ClassroomListResponse.self, from: missing) }
+        for row in [#"{"JASMC":"","ZYJC":""}"#, #"{"JASMC":"A101","ZYJC":"1,bad"}"#] {
+            let data = Data((#"{"datas":{"cxkxjasqk":{"rows":["# + row + #"]}}}"#).utf8)
+            let response = try JSONDecoder().decode(ClassroomListResponse.self, from: data)
+            await #expect(throws: ScheduleServiceError.self) { try await response.classroomRecords() }
+        }
+    }
+
+    @Test(arguments: [(#"{"KCM":"课程","KSSJMS":"09:00-11:00","KSRQ":"2026-06-01 00:00:00"}"#, true),
+        (#"{"KCM":"待排课程","KSSJMS":"待定"}"#, true), (#"{"KCH":"CS101","KSSJMS":""}"#, true),
+        (#"{"KSSJMS":"待定"}"#, false), (#"{"KCM":"课程","KSSJMS":"09:00-11:00"}"#, false),
+        (#"{"KCM":"课程","KSSJMS":"09:00-11:00","KSRQ":"2026-02-30"}"#, false),
+        (#"{"KCM":"课程","KSSJMS":"29:00-30:00","KSRQ":"2026-06-01"}"#, false),
+        (#"{"KCM":"课程","KSSJMS":"11:00-09:00","KSRQ":"2026-06-01"}"#, false),
+        (#"{"KCM":"课程","KSSJMS":"invalid","KSRQ":"2026-06-01"}"#, false)])
+    func schoolExamRowsPreservePendingArrangementsAndRejectInvalidSchedules(fixture: (String, Bool)) async throws {
+        let (row, valid) = fixture
+        let data = Data((#"{"datas":{"cxxsksap":{"rows":["# + row + #"]}}}"#).utf8)
+        let response = try JSONDecoder().decode(ExamResponse.self, from: data)
+        if valid { #expect(try await response.examRecords().first?.hasValidPlacement == true) }
+        else { await #expect(throws: ScheduleServiceError.self) { try await response.examRecords() } }
+    }
+
+    @Test func pendingExamsKeepDistinctCourseIdentities() async throws {
+        let data = Data(#"{"datas":{"cxxsksap":{"rows":[{"KCM":"课程A","KSSJMS":"待定"},{"KCM":"课程B","KSSJMS":"待定"}]}}}"#.utf8)
+        let exams = try await JSONDecoder().decode(ExamResponse.self, from: data).examRecords()
+        #expect(exams.allSatisfy(\.isPendingArrangement) && Set(exams.map(\.id)).count == 2)
+    }
+
     private func makeRepository(
         session: @escaping () -> AppStorageSession = { AppStorageSession(accountIdentifier: "schedule-boundary-tests") },
         load: @escaping (AppStorageSession) async -> ScheduleCacheLoadResult,

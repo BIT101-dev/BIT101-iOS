@@ -642,15 +642,15 @@ def pattern_nodes(facts: dict, pattern: re.Pattern[str]) -> list[dict]:
         names = CALL_RULE_NAMES[pattern]
         return [
             invocation
-            for call, invocation in zip(facts.get("calls", []), facts.get("invocations", []))
-            if call_name(call["value"]) in names
+            for invocation in facts.get("invocations", [])
+            if call_name(invocation["calledExpression"]) in names
         ]
     if pattern is PADDING_LITERAL or pattern is STACK_SPACING_LITERAL:
         names = {"padding"} if pattern is PADDING_LITERAL else SPACING_CALL_NAMES
         return [
             invocation
-            for call, invocation in zip(facts.get("calls", []), facts.get("invocations", []))
-            if call_name(call["value"]) in names
+            for invocation in facts.get("invocations", [])
+            if call_name(invocation["calledExpression"]) in names
         ]
     if pattern in MEMBER_RULES:
         return facts.get("members", [])

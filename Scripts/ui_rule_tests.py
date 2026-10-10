@@ -746,8 +746,8 @@ struct VisualRuleSample: View {
         findings.append("UI 检查器自测：AST 视觉规则未识别多行形状调用")
     text_invocations = [
         invocation
-        for call, invocation in zip(visual_facts["calls"], visual_facts["invocations"])
-        if call_name(call["value"]) == "Text" and "https://example.invalid" in invocation["value"]
+        for invocation in visual_facts["invocations"]
+        if call_name(invocation["calledExpression"]) == "Text" and "https://example.invalid" in invocation["value"]
     ]
     if not all(
         any(

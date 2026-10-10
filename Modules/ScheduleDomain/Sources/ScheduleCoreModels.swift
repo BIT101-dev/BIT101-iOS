@@ -392,6 +392,17 @@ public nonisolated struct ExamRecord: Codable, Identifiable, Hashable, Sendable 
     public let endTime: String
     public let examMode: String
     public let seatID: String
+    public var isPendingArrangement: Bool { beginTime.isEmpty && endTime.isEmpty }
+    public var hasValidPlacement: Bool {
+        guard !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || !courseID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        if isPendingArrangement { return dateString.isEmpty || ScheduleSharedDateCodec.parseDate(dateString) != nil }
+        guard ScheduleSharedDateCodec.parseDate(dateString) != nil,
+              let start = TimeSlot.validMinutes(beginTime), let end = TimeSlot.validMinutes(endTime)
+        else { return false }
+        return start < 24 * 60 && end > start
+    }
     public init(
         id: String,
         term: String,
@@ -547,6 +558,11 @@ public nonisolated struct ClassroomRecord: Codable, Identifiable, Hashable, Send
     public let id: String
     public let name: String
     public let busyTimeCodes: [Int]
+    public var hasValidOccupancy: Bool {
+        !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && busyTimeCodes.allSatisfy { (1...ScheduleCourseConstraints.maximumSection).contains($0) }
+    }
     public init(id: String, name: String, busyTimeCodes: [Int]) {
         self.id = id
         self.name = name
