@@ -50,6 +50,7 @@ def complete_group_row(row: dict) -> dict:
 def network_requests_complete(required: set[str], value: dict) -> bool:
     from network_request_contracts import complete
     if value.get('requestEvidenceRequired') is not True: return False
+    if value.get('scope') == 'community-cleanup': required = required - {'社区写入与清理'}
     rows = value.get('requestEvidence', [])
     if not isinstance(rows, list): return False
     observed = set()
@@ -80,5 +81,5 @@ def network_requests_complete(required: set[str], value: dict) -> bool:
                 or not all(isinstance(item, str) for item in expected.values()): return False
         if value.get('validatedTerm') and expected.get('XNXQDM') != value['validatedTerm'] and 'XNXQDM' in expected: return False
         if complete(row['probe'], row['requests'], expected): observed.add(row['probe'])
-    if value.get('scope') == 'community-cleanup': required = required - {'社区写入与清理'}
+        elif row['probe'] in required: return False
     return bool(required) and required <= observed

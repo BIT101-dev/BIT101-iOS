@@ -56,7 +56,7 @@ public nonisolated struct ScheduleExternalSnapshotStore: Sendable {
     @discardableResult
     public func writeIfNewer(_ snapshot: ScheduleExternalSnapshot) throws -> Bool {
         let snapshot = snapshot.replacingStudentID(with: AccountStorageIdentity.stableToken(for: snapshot.studentID))
-        if let current = load() {
+        if let current = try readStoredSnapshot() {
             if snapshot == current { return false }
             let newer = snapshot.revision == 0 && current.revision == 0
                 ? snapshot.generatedAt > current.generatedAt : snapshot.revision > current.revision
@@ -67,6 +67,10 @@ public nonisolated struct ScheduleExternalSnapshotStore: Sendable {
     }
 
     public func load() -> ScheduleExternalSnapshot? {
+        try? readStoredSnapshot()
+    }
+
+    private func readStoredSnapshot() throws -> ScheduleExternalSnapshot? {
         guard
             let fileURL,
             files.fileExists(at: fileURL)
@@ -74,7 +78,8 @@ public nonisolated struct ScheduleExternalSnapshotStore: Sendable {
             return nil
         }
 
-        guard let data = try? files.readData(at: fileURL, maximumBytes: ScheduleExternalSnapshotCodec.maximumEncodedBytes) else { return nil }
+        if let size = files.regularFileSize(at: fileURL), size > ScheduleExternalSnapshotCodec.maximumEncodedBytes { return nil }
+        let data = try files.readData(at: fileURL, maximumBytes: ScheduleExternalSnapshotCodec.maximumEncodedBytes)
         guard let snapshot = try? ScheduleExternalSnapshotCodec.decode(data) else { return nil }
         let accountToken = AccountStorageIdentity.stableToken(for: snapshot.studentID)
         guard snapshot.studentID != accountToken else { return snapshot }

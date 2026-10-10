@@ -285,6 +285,23 @@ struct ExternalScheduleWatchStatusTests {
 
 @Suite("Extended schedule invariants")
 struct ExtendedSchedulePolicyTests {
+    @Test func delayedWatchSnapshotPreservesTheNewerFileDuringReadFailure() throws {
+        let files = PreferenceMemoryFiles()
+        let store = ScheduleExternalSnapshotStore(files: files, containerURL: files.temporaryDirectoryURL)
+        func value(_ revision: UInt64) -> ScheduleExternalSnapshot {
+            ScheduleExternalSnapshot(revision: revision, isLoggedIn: true, studentID: "watch-owner",
+                firstDayString: "", timeTable: [], courses: [])
+        }
+        try store.write(value(2))
+        files.setFailures(reading: true)
+        #expect(throws: CocoaError(.fileReadNoPermission)) { try store.writeIfNewer(value(1)) }
+        files.setFailures()
+        #expect(store.load()?.revision == 2)
+        #expect(throws: ScheduleExternalSnapshotStoreError.staleSnapshot) { try store.writeIfNewer(value(1)) }
+        #expect(try store.writeIfNewer(value(3)))
+        #expect(store.load()?.revision == 3)
+    }
+
     @Test func delayedWatchDeliveryKeepsTheNewContentAndClearedMirror() throws {
         var buffer = WatchSnapshotDeliveryBuffer()
         let old = ScheduleExternalSnapshot(revision: 1, isLoggedIn: true, studentID: "watch-owner",

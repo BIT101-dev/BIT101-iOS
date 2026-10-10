@@ -389,14 +389,15 @@ nonisolated final class PreferenceMemoryFiles: AppFileService, Sendable {
         var directories: Set<URL> = []
         var failsRemoval = false
         var failsWriting = false
+        var failsReading = false
         var nextRead: (@Sendable () -> Void)?
         var nextWrite: (@Sendable () -> Void)?
     }
     init(requireExistingParentDirectories: Bool = false) {
         self.requireExistingParentDirectories = requireExistingParentDirectories
     }
-    func setFailures(removal: Bool = false, writing: Bool = false) {
-        state.withLock { $0.failsRemoval = removal; $0.failsWriting = writing }
+    func setFailures(removal: Bool = false, writing: Bool = false, reading: Bool = false) {
+        state.withLock { $0.failsRemoval = removal; $0.failsWriting = writing; $0.failsReading = reading }
     }
     var temporaryDirectoryURL: URL { URL(fileURLWithPath: "/preference-sync") }
     func directoryURL(_ directory: FileManager.SearchPathDirectory) -> URL? { temporaryDirectoryURL }
@@ -413,6 +414,7 @@ nonisolated final class PreferenceMemoryFiles: AppFileService, Sendable {
         intercept?()
         return try state.withLock { state in
             state.reads[url, default: 0] += 1
+            if state.failsReading { throw CocoaError(.fileReadNoPermission) }
             guard let value = state.data[url] else { throw CocoaError(.fileReadNoSuchFile) }
             return value
         }

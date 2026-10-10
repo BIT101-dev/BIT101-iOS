@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Match smoke responses to business routes and explicit pagination requests."""
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import re
 import sys
 from urllib.parse import unquote, urlsplit
@@ -151,6 +151,54 @@ def contracts_for(probe: str) -> list[RequestContract]:
     return CONTRACTS.get(probe, [])
 
 
+def auxiliary_contracts(probe: str, contracts: list[RequestContract]) -> list[RequestContract]:
+    community_session = any(contract.host == re.escape(API) for contract in contracts)
+    school_session = any(contract.host in {SCHOOL, r'zy-eclass\.bit\.edu\.cn', r'(?:lexue|webvpn)\.bit\.edu\.cn',
+        r'login\.bit101\.flwfdd\.xyz', r'jwb\.bit\.edu\.cn'} for contract in contracts)
+    rows = []
+    if community_session:
+        rows.extend(community(path, method='POST') for path in ('/user/webvpn_verify_init', '/user/webvpn_verify'))
+    if community_session or school_session:
+        rows.extend(RequestContract(r'sso\.bit\.edu\.cn', '/cas/login', method, statuses=range(200, 400)) for method in ('GET', 'POST'))
+        rows.append(RequestContract(r'sso\.bit\.edu\.cn', '/gate/cas-success', statuses=(200, 401)))
+        rows.extend(RequestContract(r'sso\.bit\.edu\.cn', '/cas/api/protected/sms/' + path, method) for path, method in (
+            ('getPhoneNumberByUserId', 'GET'), ('publicNoToken/sendSmsCode', 'POST'), ('checkToken', 'POST')))
+    if school_session:
+        rows.extend([RequestContract(r'login\.bit101\.flwfdd\.xyz', '/api/jxzxehall/cookies', 'POST'),
+            RequestContract(r'login\.bit101\.flwfdd\.xyz', r'/api/auth/[^/]+'),
+            RequestContract(r'login\.bit101\.flwfdd\.xyz', r'/api/auth/[^/]+/sms', 'POST')])
+        rows.extend(CONTRACTS['教学中心接口预热'])
+        rows.extend(CONTRACTS['成绩认证接口'])
+    if probe in {'课程中心原生认证', '课程中心 DDL 下载'}:
+        rows.extend([RequestContract(r'zy-eclass\.bit\.edu\.cn', '/user/index'),
+            RequestContract(r'zy-eclass\.bit\.edu\.cn', r'/api/courses/[1-9]\d*/activities')])
+    if probe in {'乐学日历订阅地址', '乐学 DDL 下载'}:
+        rows.extend([RequestContract(r'(?:lexue|webvpn)\.bit\.edu\.cn', VPN + '/'),
+            RequestContract(r'(?:lexue|webvpn)\.bit\.edu\.cn', VPN + '/calendar/export.php', 'POST')])
+    if probe == '可信成绩单接口':
+        rows.append(RequestContract(r'jwb\.bit\.edu\.cn', '/cjd/Temp/.+'))
+    return rows
+
+
+def requests_accounted_for(requests: list[dict], contracts: list[RequestContract], auxiliary: list[RequestContract]) -> bool:
+    allowed = contracts + auxiliary
+    for index, row in enumerate(requests):
+        if any(contract.matches(row) for contract in allowed): continue
+        for contract in allowed:
+            statuses = (401,) if contract.host == re.escape(API) else (401, 403)
+            if contract in auxiliary and contract.host == r'login\.bit101\.flwfdd\.xyz': statuses += (500, 502, 503, 504)
+            recovered = row.get('statusCode') in statuses and replace(contract, statuses=statuses).matches(row)
+            final = dict(row, endpoint=row.get('finalEndpoint'), method=row.get('finalMethod'), query=row.get('finalQuery'))
+            if row.get('statusCode') in range(200, 400) and any(auth.matches(final) for auth in auxiliary if auth.host == r'sso\.bit\.edu\.cn'):
+                original = dict(row, finalEndpoint=row.get('endpoint'), finalMethod=row.get('method'), finalQuery=row.get('query'))
+                recovered = recovered or replace(contract, statuses=range(200, 400)).matches(original)
+            if not recovered: continue
+            if any(contract.matches(later) and all(row.get(key) == later.get(key) for key in ('endpoint', 'method', 'query'))
+                   for later in requests[index + 1:]): break
+        else: return False
+    return True
+
+
 SELECTORS = {
     **{name: {'obj'} for name in ('话廊帖子评论', '学业课程评论', '文章评论')},
     **{name: {'uid'} for name in ('我的帖子', '用户帖子')},
@@ -162,7 +210,8 @@ SELECTORS = {
 
 def complete(probe: str, requests: list[dict], expected_parameters: dict | None = None) -> bool:
     contracts = contracts_for(probe)
-    matched = bool(contracts) and all(contract.complete(requests) for contract in contracts)
+    matched = bool(contracts) and requests_accounted_for(requests, contracts, auxiliary_contracts(probe, contracts)) \
+        and all(contract.complete(requests) for contract in contracts)
     selectors = SELECTORS.get(probe, set())
     if matched and selectors:
         if not isinstance(expected_parameters, dict) or set(expected_parameters) != selectors \

@@ -444,6 +444,25 @@ struct ScheduleSharedStoreTests {
         #expect(try files.readData(at: url) == legacy)
     }
 
+    @Test func readingFailurePreservesNewerSnapshotsWhileWritesRemainAvailable() throws {
+        let files = ModuleScoreFiles()
+        let store = ScheduleExternalSnapshotStore(files: files, containerURL: URL(fileURLWithPath: "/module-shared-failures"))
+        func value(_ revision: UInt64) -> ScheduleExternalSnapshot {
+            ScheduleExternalSnapshot(generatedAt: Date(timeIntervalSince1970: Double(revision)), revision: revision,
+                isLoggedIn: true, studentID: "shared-store-account", firstDayString: "", timeTable: [], courses: [])
+        }
+        try store.write(value(2))
+        let url = try #require(store.fileURL), original = files.storedData[url]
+        files.setFailures(reading: true)
+        #expect(store.load() == nil)
+        #expect(throws: CocoaError(.fileReadNoPermission)) { try store.writeIfNewer(value(1)) }
+        #expect(files.storedData[url] == original)
+        files.setFailures()
+        #expect(throws: ScheduleExternalSnapshotStoreError.staleSnapshot) { try store.writeIfNewer(value(1)) }
+        #expect(try store.writeIfNewer(value(3)))
+        #expect(store.load()?.revision == 3)
+    }
+
     @Test func unavailableContainersHaveExplicitResults() {
         let store = ScheduleExternalSnapshotStore(files: ModuleScoreFiles(), containerURL: nil, notificationCenter: NotificationCenter())
         #expect(store.fileURL == nil)

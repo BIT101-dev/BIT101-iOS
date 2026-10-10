@@ -580,6 +580,9 @@ def network_route_identity_self_test() -> None:
     required = {'文章评论'}
     proof = network_trace_fixture({'requiredProbes': sorted(required)})
     assert network_requests_complete(required, proof)
+    repeated = deepcopy(proof['requestEvidence'][0])
+    repeated['requests'][-1]['statusCode'] = 500
+    assert not network_requests_complete(required, dict(proof, requestEvidence=proof['requestEvidence'] + [repeated]))
     for key, value in [('finalEndpoint', 'https://example.invalid/reaction/comments'),
                        ('finalMethod', 'POST'), ('finalQuery', {'obj': 'paper999', 'order': 'new', 'page': '0'})]:
         changed = deepcopy(proof)
@@ -679,6 +682,9 @@ def network_route_identity_self_test() -> None:
         requests = [{'method': 'GET', 'endpoint': endpoint, 'statusCode': 200,
                      'query': dict(parameters, page=str(page))} for page in (0, 1)]
         assert complete(probe, requests), probe
+        for extra in (dict(requests[-1], query=dict(parameters, page='2', order='unexpected')),
+                      dict(requests[-1], statusCode=500), dict(requests[-1], endpoint='https://example.invalid/other')):
+            assert not complete(probe, requests + [extra]), (probe, extra)
         for key in ('order', 'search') if probe.startswith('文章') else ('mode', 'order', 'uid', 'search', 'hide_bot'):
             changed = deepcopy(requests)
             for row in changed:
@@ -701,6 +707,27 @@ def network_route_identity_self_test() -> None:
             assert not complete(probe, changed, expected)
     login = {'method': 'GET', 'endpoint': 'https://bit101.flwfdd.xyz/user/check', 'statusCode': 200, 'query': {}}
     assert complete('BIT101 登录状态', [dict(login, statusCode=401), login])
+    assert not complete('BIT101 登录状态', [login, dict(login, statusCode=401)])
+    assert not complete('BIT101 登录状态', [dict(login, statusCode=500), login])
+    assert not complete('BIT101 登录状态', [dict(login, statusCode=401, query={'order': 'old'}), login])
+    authentication = dict(login, method='POST', endpoint='https://bit101.flwfdd.xyz/user/webvpn_verify')
+    assert complete('BIT101 登录状态', [dict(login, statusCode=401), authentication, login])
+    assert not complete('BIT101 登录状态', [dict(login, statusCode=401), dict(authentication, statusCode=500), login])
+    teaching = {'method': 'GET', 'endpoint': 'https://jxzxehallapp.bit.edu.cn/jwapp/sys/wdkbby/modules/jshkcb/dqxnxq.do', 'statusCode': 200, 'query': {}}
+    preheat = dict(teaching, endpoint='https://jxzxehallapp.bit.edu.cn/jwapp/i18n.do')
+    cookies = dict(authentication, endpoint='https://login.bit101.flwfdd.xyz/api/jxzxehall/cookies')
+    assert complete('当前学期', [cookies, preheat, teaching])
+    redirected = dict(teaching, finalEndpoint='https://sso.bit.edu.cn/cas/login', finalMethod='GET', finalQuery={})
+    assert complete('当前学期', [redirected, cookies, preheat, teaching])
+    assert not complete('当前学期', [redirected, cookies, preheat])
+    assert not complete('当前学期', [dict(redirected, finalEndpoint='https://example.invalid/cas/login'), cookies, teaching])
+    assert not complete('当前学期', [dict(redirected, statusCode=500), cookies, teaching])
+    assert complete('当前学期', [dict(cookies, statusCode=503), cookies, preheat, teaching])
+    assert not complete('当前学期', [cookies, dict(preheat, statusCode=500), teaching])
+    transcript = network_trace_fixture({'requiredProbes': ['可信成绩单接口']})['requestEvidence'][0]
+    page = {'method': 'GET', 'endpoint': 'https://jwb.bit.edu.cn/cjd/Temp/page.jpg', 'statusCode': 200, 'query': {}}
+    assert complete('可信成绩单接口', transcript['requests'] + [page])
+    assert not complete('可信成绩单接口', transcript['requests'] + [dict(page, statusCode=500)])
     assert complete('BIT101 登录状态', [dict(login, endpoint='https://bit101.flwfdd.xyz:443/user/check')])
     for port in ('0', '80', '8443', '65536', 'invalid'):
         assert not complete('BIT101 登录状态', [dict(login, endpoint='https://bit101.flwfdd.xyz:' + port + '/user/check')])
