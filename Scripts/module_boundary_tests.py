@@ -3,7 +3,54 @@ import re
 from pathlib import Path
 
 
+def manifest_lock_self_test(read_manifest) -> None:
+    import fcntl
+    import os
+    import subprocess
+    from threading import Event, Thread
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    import shutil
+    root = Path(__file__).resolve().parents[1] / '.build/static-audit/module-manifest-lock'
+    root.mkdir(parents=True, exist_ok=True)
+    try:
+        for name, inherited in (('.build/extended-automation.lock', False),
+                                ('.build/compiler-cache/cache.lock', False),
+                                ('.build/extended-automation.lock', True)):
+            path = root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            called = Event()
+            completed = Event()
+            errors = []
+            def evaluate():
+                try:
+                    assert read_manifest(root) == {'targets': []}
+                except BaseException as error:
+                    errors.append(error)
+                finally:
+                    completed.set()
+            def compile_manifest(*args, **kwargs):
+                called.set()
+                return SimpleNamespace(returncode=0, stdout='{"targets": []}', stderr='')
+            with path.open('a') as owner, patch.dict(os.environ,
+                    BIT101_EXTENDED_TESTS_LOCK_HELD='1' if inherited else '0'), \
+                    patch.object(subprocess, 'run', side_effect=compile_manifest):
+                fcntl.flock(owner, fcntl.LOCK_EX)
+                worker = Thread(target=evaluate, daemon=True)
+                worker.start()
+                try:
+                    assert called.wait(.1) == inherited, (name, inherited)
+                finally:
+                    fcntl.flock(owner, fcntl.LOCK_UN)
+                    assert completed.wait(5), (name, inherited)
+                    worker.join()
+                assert called.is_set() and errors == [], errors
+    finally:
+        shutil.rmtree(root)
+
+
 def run_self_test(rules: dict) -> None:
+    manifest_lock_self_test(rules['read_manifest'])
     adapter_ownership_errors = rules["adapter_ownership_errors"]
     adapter_roles = rules["adapter_roles"]
     compilation_type_context = rules["compilation_type_context"]

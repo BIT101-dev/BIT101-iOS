@@ -44,6 +44,45 @@ def run_self_test() -> None:
         else: raise AssertionError('手填采样需要匹配实际 xcresult 指标')
     producing_run_capture_self_test()
     merge_regression_self_test()
+    baseline_migration_self_test()
+
+
+def baseline_migration_self_test() -> None:
+    import json
+    from contextlib import nullcontext
+    import ci_evidence
+    from validation_manual_tests import evidence_fixture
+    scenarios = json.loads(evidence_fixture('performance-baseline'))['scenarios']
+    proof = {'schemaVersion': 1, 'records': {name: row['measurement']['baseline'] for name, row in scenarios.items()}}
+    assert subject.approved_baseline_complete(proof)
+    for field, value in [('approvedBy', ''), ('approvedAt', 'invalid'), ('metrics', {}), ('input', 'other')]:
+        changed = deepcopy(proof)
+        changed['records'][next(iter(changed['records']))][field] = value
+        assert not subject.approved_baseline_complete(changed)
+    assert subject.approved_baseline_complete(__import__('validation_publication').core_exchange({'performanceBaseline': proof, 'groups': {}})['performanceBaseline'])
+    metadata = {'path': '.github/workflows/ci.yml', 'status': 'completed', 'conclusion': 'success', 'head_repository': {'full_name': 'owner/repo'}}
+    retained = {'mergeCommit': 'candidate', 'sourceDigest': 'candidate', 'groups': {'all': {'inputDigest': 'candidate'}}}
+    for fault in ('none', 'foreign', 'failed', 'workflow', 'approval'):
+        incoming = deepcopy(proof)
+        run = deepcopy(metadata)
+        if fault == 'foreign': run['head_repository']['full_name'] = 'fork/repo'
+        if fault == 'failed': run['conclusion'] = 'failure'
+        if fault == 'workflow': run['path'] = '.github/workflows/other.yml'
+        if fault == 'approval': incoming['records'][next(iter(incoming['records']))]['approvedBy'] = ''
+        with patch.object(ci_evidence, 'repository', return_value='owner/repo'), patch.object(ci_evidence, 'api_pages', return_value=[run]), \
+                patch.object(ci_evidence, 'download_core', return_value={'performanceBaseline': incoming, 'groups': {'all': {'inputDigest': 'old'}}}), \
+                patch('validation_evidence.report_lock', side_effect=nullcontext), patch('validation_evidence.write_report') as save, \
+                patch.object(Path, 'is_file', return_value=True), patch.object(Path, 'read_text', autospec=True,
+                    side_effect=lambda path: json.dumps(retained if path == ci_evidence.REPORT else {'schemaVersion': 1, 'current': 'retained'})), \
+                patch.object(Path, 'write_text') as measurements:
+            try: ci_evidence.import_baseline(7)
+            except ValueError: assert fault != 'none'
+            else:
+                assert fault == 'none'
+                assert save.call_args.args[0] == {key: value for key, value in retained.items() if key != 'mergeCommit'} | {'performanceBaseline': proof}
+                assert json.loads(measurements.call_args.args[0])['current'] == 'retained'
+            if fault != 'none':
+                save.assert_not_called(); measurements.assert_not_called()
 
 
 def producing_run_capture_self_test() -> None:

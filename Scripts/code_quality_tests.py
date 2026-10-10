@@ -150,6 +150,21 @@ struct Handler { var value: String!; func read() -> String { value }; func catch
         findings.append("代码质量自测：图片缓存沿已有可选写盘合同处理")
     if discarded_file_write_findings(ROOT / "ModuleTests/Support/Fixture.swift", write_source, write_facts):
         findings.append("代码质量自测：夹具准备和清理沿测试生命周期处理")
+    from code_quality_rules import file_write_calls
+    wrapper_sources = {str(write_path): '''
+        struct Store {
+            func update() { try? save(); try? self.again(); try? save(value: 1); try? handled() }
+            func save() throws { try files.writeData(data, to: url) }
+            func save(value: Int) throws { try client.fetch(value) }
+            func again() throws { try save() }
+            func handled() { do { try files.writeData(data, to: url) } catch { log(error) } }
+        }
+    ''', str(write_path.with_name('Extension.swift')): 'extension Store { func reset() { try? self.again() } }'}
+    wrapper_index = swift_syntax_index_sources(wrapper_sources)
+    wrapper_writes = file_write_calls(wrapper_index)
+    if sum(len(discarded_file_write_findings(Path(path), wrapper_sources[path], facts, wrapper_writes))
+           for path, facts in wrapper_index.items()) != 3:
+        findings.append("代码质量自测：持久化包装方法沿类型、重载及抛错调用链处理")
     if len(unwrap_facts["forceUnwraps"]) != 7 or len(unwrap_facts["emptyCatchClauses"]) != 3 or not any(path.is_relative_to(ROOT / "BIT101-iOSUITests") for path in swift_files()):
         findings.append("代码质量规则边界自检失败：全部测试目录的解包、强制 try 与类型转换识别")
     view_source = "struct SampleView: View { let request = URLRequest(url: url) }"

@@ -1,13 +1,13 @@
 """Require current core physical-device evidence before merging product changes."""
 from validation_provenance import sampling_evidence_current, complete_group_row
-from validation_environment import complete_environment, environment_context, toolchain_identity
+from validation_environment import complete_environment, environment_context, toolchain_identity, ci_commit_findings
 from validation_performance import merge_findings as performance_findings
 
 CORE_GROUPS = {'all', 'release-runtime', 'ui', 'restore'}
 
 
 def findings(report: dict, *, digest, complete, commit: str, recorded_environment: bool = False) -> list[str]:
-    errors = []
+    errors = ci_commit_findings(commit)
     if report.get('mergeCommit', report.get('releaseCommit')) != commit:
         errors.append('合并验收需要绑定当前提交。')
     reference = complete_group_row(report.get('groups', {}).get('all', {})).get('environment', {})

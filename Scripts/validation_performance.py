@@ -2,6 +2,8 @@
 import hashlib
 import json
 import math
+import re
+from datetime import datetime
 from pathlib import Path
 import subprocess
 from validation_environment import complete_environment, environment_context, exchange_identity
@@ -81,6 +83,28 @@ def record_complete(record: dict, *, current: bool) -> bool:
             if record['sourceCommit'] != current_commit() or execution['inputDigest'] != source_digest(group, environment=context): return False
         return True
     except (KeyError, TypeError, ValueError, OSError, subprocess.CalledProcessError):
+        return False
+
+
+def approved_baseline_complete(proof: dict) -> bool:
+    from validation_manual import PERFORMANCE_WORKLOADS
+    try:
+        if proof.get('schemaVersion') != 1 or set(proof['records']) != set(PERFORMANCE_WORKLOADS): return False
+        for name, record in proof['records'].items():
+            test, workload = PERFORMANCE_WORKLOADS[name]
+            if record['testIdentifier'] != test or record['input'] != workload or not record_complete(record, current=False) \
+                    or not re.fullmatch(r'(?:[0-9a-f]{40}|[0-9a-f]{64})', record['sourceCommit']) \
+                    or not re.fullmatch(r'[0-9a-f]{64}', record['resultBundle']['sha256']) \
+                    or not isinstance(record.get('approvedBy'), str) or not record['approvedBy'].strip() \
+                    or set(record['metrics']) != set(METRICS): return False
+            captured, approved = (datetime.fromisoformat(record[key].replace('Z', '+00:00'))
+                for key in ('capturedAt', 'approvedAt'))
+            if captured.tzinfo is None or approved.tzinfo is None or not captured <= approved <= utc_now(): return False
+            for metric in record['metrics'].values():
+                limit = metric['maximumRegressionPercent']
+                if metric['mean'] <= 0 or type(limit) not in (int, float) or not math.isfinite(limit) or limit < 0: return False
+        return True
+    except (KeyError, TypeError, ValueError, AttributeError):
         return False
 
 

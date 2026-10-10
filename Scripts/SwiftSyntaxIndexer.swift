@@ -194,7 +194,9 @@ final class FactVisitor: SyntaxVisitor {
             }, bodyStart: node.body?.positionAfterSkippingLeadingTrivia.utf8Offset,
             isExported: declarationIsExported(node.modifiers, parent: node.parent),
             isPrivate: node.modifiers.contains { ["private", "fileprivate"].contains($0.name.text) },
-            isAsync: node.signature.effectSpecifiers?.asyncSpecifier != nil, returnedCall: returnedCall(node.body?.statements)
+            isAsync: node.signature.effectSpecifiers?.asyncSpecifier != nil,
+            isThrowing: node.signature.effectSpecifiers?.throwsClause != nil,
+            returnedCall: returnedCall(node.body?.statements)
         ))
         functionStack.append((node.name.text, scope, closureDepth))
         if let body = node.body, body.statements.count == 1,

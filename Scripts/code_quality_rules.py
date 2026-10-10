@@ -251,19 +251,68 @@ def cancellation_findings(path: Path, source: str, facts: dict | None) -> list[s
     return findings
 
 
-def discarded_file_write_findings(path: Path, source: str, facts: dict) -> list[str]:
+def file_write_calls(index: dict) -> dict[str, set[int]]:
+    from swift_type_index import SwiftTypeIndex, receiver_resolver
+    from swift_source_index import matching_functions
+    from network_capability_rules import matching_api_calls
+    types, resolve = SwiftTypeIndex(index), receiver_resolver(index)
+    methods, functions, calls = {}, {}, {}
+    writes = {path: set() for path in index}
+    for path, facts in index.items():
+        for function in facts.get('functionRanges', []):
+            key = (path, function['start'])
+            functions[key] = function
+            owner = '.'.join(types.function_scope(path, function['scope']))
+            if not function.get('lexicalScope'):
+                methods.setdefault((owner, function['name']), []).append((path, function))
+    edges, owners = {}, {}
+    for path, facts in index.items():
+        for call in facts.get('invocations', []):
+            key = (path, call['start'])
+            calls[key] = call
+            name = call['calledExpression'].rsplit('.', 1)[-1]
+            if name in {'removeItem', 'writeData', 'createDirectory', 'moveItem', 'copyItem', 'replaceItemAt'} \
+                    or name == 'write' and {'to', 'contentsOf'}.intersection(call.get('argumentLabels', [])):
+                writes[path].add(call['start'])
+            enclosing = [function for function in facts.get('functionRanges', [])
+                if function.get('bodyStart') is not None and function['bodyStart'] <= call['start'] < function['end']]
+            if enclosing:
+                owner = max(enclosing, key=lambda function: function['start'])
+                owners[key] = (path, owner['start'])
+            receiver = resolve(dict(call, path=path))
+            candidates = list(methods.get((receiver, name), [])) if receiver else []
+            if '.' not in call['calledExpression'].removeprefix('self.'):
+                candidates += [(path, function) for function in matching_functions(facts, name, call)]
+                owner = '.'.join(types.function_scope(path, call['scope']))
+                candidates += methods.get((owner, name), [])
+            unique = {(source, function['start']): (source, function) for source, function in candidates}
+            edges[key] = {(source, function['start']) for source, function in
+                matching_api_calls(index, list(unique.values()), dict(call, path=path))}
+    affected = set()
+    changed = True
+    while changed:
+        changed = False
+        for key, call in calls.items():
+            if edges[key] & affected and key[1] not in writes[key[0]]:
+                writes[key[0]].add(key[1]); changed = True
+            owner = owners.get(key)
+            if key[1] in writes[key[0]] and owner and owner not in affected:
+                function = functions[owner]
+                if function.get('isThrowing'):
+                    affected.add(owner); changed = True
+    return writes
+
+
+def discarded_file_write_findings(path: Path, source: str, facts: dict, writes: dict | None = None) -> list[str]:
     if any(path.is_relative_to(ROOT / name) for name in ("BIT101-iOSTests", "BIT101-iOSUITests", "ModuleTests")): return []
     cache_paths = {ROOT / "Modules/MediaKit/Sources/RemoteImageCache.swift", ROOT / "Modules/MediaKit/Sources/CachedRemoteImage.swift"}
     if path in cache_paths: return []
+    if writes is None: writes = file_write_calls({str(path): facts})
     errors = []
     for clause in facts.get("discardedOptionalTries", []):
         end = clause["start"] + len(clause["value"].encode())
         calls = [call for call in facts.get("invocations", []) if clause["start"] <= call["start"] < end]
-        def mutates_file(call):
-            name = call['calledExpression'].rsplit('.', 1)[-1]
-            return name in {'removeItem', 'writeData', 'createDirectory', 'moveItem', 'copyItem', 'replaceItemAt'} \
-                or name == 'write' and bool({'to', 'contentsOf'}.intersection(call.get('argumentLabels', [])))
-        if any(mutates_file(call) for call in calls):
+        if any(call['start'] in writes.get(str(path), set()) for call in calls):
             line = source.encode()[:clause["start"]].count(b"\n") + 1
             errors.append(f"{path.relative_to(ROOT)}:{line}: 文件写入与删除需要处理错误或记录诊断")
     return errors
@@ -272,6 +321,7 @@ def discarded_file_write_findings(path: Path, source: str, facts: dict) -> list[
 def source_findings(syntax_index: dict[str, dict] | None = None) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     review: list[str] = []
+    writes = file_write_calls(syntax_index or {})
     unsafe_concurrency_escape = re.compile(
         r"\bnonisolated\s*\(\s*unsafe\s*\)|@\s*unchecked\s+Sendable"
     )
@@ -319,7 +369,7 @@ def source_findings(syntax_index: dict[str, dict] | None = None) -> tuple[list[s
         errors.extend(cancellation_findings(path, source, syntax_index.get(str(path)) if syntax_index else None))
         add_matches(errors, path, masked_source, unsafe_concurrency_escape, "禁止绕过 Swift 并发安全检查：请表达真实隔离或使用锁/Actor")
         facts = syntax_index.get(str(path)) if syntax_index else None
-        if facts: errors.extend(discarded_file_write_findings(path, source, facts))
+        if facts: errors.extend(discarded_file_write_findings(path, source, facts, writes))
         for clause in (facts or {}).get("emptyCatchClauses", []):
             line = source.encode()[:clause["start"]].count(b"\n") + 1
             errors.append(f"{name}:{line}: 禁止静默吞掉异常；请记录诊断或显式处理错误")

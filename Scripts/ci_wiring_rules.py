@@ -51,11 +51,20 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
             and str(step.get('uses', '')).startswith('actions/checkout@')]
         if len(checkouts) != 1 or mapping(checkouts[0].get('with')).get('clean') is not False:
             errors.append(f'.github/workflows/ci.yml: {name} 的 checkout 需要保留公共缓存')
+        if len(checkouts) != 1 or 'if' in checkouts[0] \
+                or checkouts[0].get('continue-on-error', False) is not False \
+                or mapping(checkouts[0].get('with')).get('fetch-depth') != 0 \
+                or mapping(checkouts[0].get('with')).get('ref', '${{ github.sha }}') != '${{ github.sha }}':
+            errors.append(f'.github/workflows/ci.yml: {name} 的检出需要默认执行、完整提交历史及失败传播')
         if name in DIAGNOSTIC_PATHS:
             uploads = [step for step in mapping(job).get('steps', []) if isinstance(step, dict)
                 and str(step.get('uses', '')).startswith('actions/upload-artifact@')]
             if len(uploads) != 1 or set(mapping(uploads[0].get('with')).get('path', '').splitlines()) != DIAGNOSTIC_PATHS[name]:
                 errors.append(f'.github/workflows/ci.yml: {name} 的诊断上传需要采用所属任务的文件清单，人工附件保留在本地')
+            if len(uploads) != 1 or uploads[0].get('if') != 'always()' \
+                    or mapping(uploads[0].get('with')).get('compression-level') != 0 \
+                    or mapping(uploads[0].get('with')).get('include-hidden-files') is not True:
+                errors.append(f'.github/workflows/ci.yml: {name} 的诊断上传需要始终保存原始文件及隐藏路径')
     workflow_defaults = mapping(mapping(workflow.get("defaults")).get("run"))
     default_shell = workflow_defaults.get("shell", "bash")
 
@@ -287,6 +296,10 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
     findings = ["代码质量规则边界自检失败：CI 自动触发与 shell 继承门禁"
                 for changed in mutations if not ci_wiring_findings(changed)]
     for name in DIAGNOSTIC_PATHS:
+        compressed = re.sub(rf'(?s)(  {name}:.*?)          compression-level: 0',
+            r'\1          compression-level: 9', workflow_source, count=1)
+        if not any('始终保存原始文件' in item for item in ci_wiring_findings(compressed)):
+            findings.append(f'代码质量规则边界自检失败：{name} 的原始诊断上传')
         for private_path in ('.build/extended-automation/validation-evidence.json', '.build/extended-automation/**',
                              '.build/extended-automation/test-results.xcresult'):
             exposed = re.sub(rf'(?s)(  {name}:.*?          path: \|\n)',
@@ -303,6 +316,15 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
         discarded = re.sub(rf'(?s)(  {name}:.*?)          clean: false', r'\1          clean: true', workflow_source, count=1)
         if not any('保留公共缓存' in item for item in ci_wiring_findings(discarded)):
             findings.append(f'代码质量规则边界自检失败：{name} 的编译缓存保存')
+    for name in ('static-audit', 'release-build', 'catalyst-tests', 'physical-device', 'release-acceptance', 'merge-acceptance'):
+        for before, after in (('      - uses: actions/checkout@v7', '      - if: false\n        uses: actions/checkout@v7'),
+                              ('          fetch-depth: 0', '          fetch-depth: 1'),
+                              ('          clean: false', '          clean: false\n          ref: main'),
+                              ('      - uses: actions/checkout@v7', '      - continue-on-error: true\n        uses: actions/checkout@v7')):
+            changed = re.sub(rf'(?s)(  {name}:.*?)' + re.escape(before),
+                lambda match: match[1] + after, workflow_source, count=1)
+            if not any('完整提交历史' in item for item in ci_wiring_findings(changed)):
+                findings.append(f'代码质量规则边界自检失败：{name} 的完整仓库检出')
     if not ci_wiring_findings(workflow_source.replace("run: npm ci", "run: echo skipped", 1)):
         findings.append("代码质量规则边界自检失败：Worker 冷启动依赖准备")
     for command in ("Scripts/run-static-audit.sh", "Scripts/run-extended-tests.sh modules",

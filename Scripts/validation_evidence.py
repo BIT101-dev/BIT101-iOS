@@ -724,6 +724,13 @@ def main() -> int:
     parser.add_argument("--recorded-environment", action="store_true", help="核对已绑定证据的记录环境和当前发布工具链")
     parser.add_argument("scope", nargs="?", default="full")
     args = parser.parse_args()
+    if args.action in {'record', 'bind', 'check', 'check-group', 'summary', 'manual', 'bind-merge', 'check-merge', 'baseline'}:
+        from validation_environment import ci_commit_findings
+        if os.getenv('GITHUB_SHA') or os.getenv('GITHUB_ACTIONS') == 'true':
+            commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
+            if errors := ci_commit_findings(commit):
+                print('\n'.join(errors), file=sys.stderr)
+                return 1
     if args.action == "conditions":
         from validation_policy import workflow_conditions
         print(' '.join(workflow_conditions(args.group)))

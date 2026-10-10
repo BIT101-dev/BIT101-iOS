@@ -20,6 +20,12 @@ def run_self_test(subject) -> int:
     original_is_file = Path.is_file
     from unittest.mock import patch
     from validation_environment import host_environment
+    from validation_environment import ci_commit_findings
+    with patch.dict(os.environ, GITHUB_SHA='a' * 40):
+        assert ci_commit_findings('a' * 40) == []
+        assert ci_commit_findings('b' * 40)
+    with patch.dict(os.environ, GITHUB_SHA='', GITHUB_ACTIONS='true'):
+        assert ci_commit_findings('a' * 40)
     selected_compiler = '/fixture/Xcode/Toolchains/selected/usr/bin/swift-frontend'
     with patch.dict(os.environ, SWIFT_FRONTEND='/other/swift-frontend', SWIFT='/other/swift'), \
             patch.object(subprocess, 'check_output', return_value=selected_compiler) as lookup, patch.object(Path, 'is_file', return_value=False):

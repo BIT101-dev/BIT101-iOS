@@ -632,6 +632,15 @@ def network_capability_self_test() -> None:
     disabled['ReleaseNetworkSmoke.swift'] = disabled['ReleaseNetworkSmoke.swift'].replace('var enabled', 'let enabled').replace('if enabled', 'while enabled')
     assert 'mine.fetchMyInfo' not in reached(disabled)
     from network_capability_rules import call_can_execute
+    comparisons = [('true == false', False), ('false != false', False), ('true != false', True),
+        ('(true == false) || false', False), ('enabled == false', True)]
+    comparison_sources = {condition: f'func run(enabled: Bool) {{ if {condition} {{ service.fetch() }} }}'
+        for condition, _ in comparisons}
+    comparison_index = swift_syntax_index_sources(comparison_sources)
+    for condition, expected in comparisons:
+        facts = comparison_index[condition]
+        call = next(row for row in facts['invocations'] if row['calledExpression'] == 'service.fetch')
+        assert call_can_execute(facts, call) == expected, condition
     for outer in ('true', 'false'):
         for body, expected in [
             ('func run(enabled: Bool) { if enabled { service.fetch() } }', True),

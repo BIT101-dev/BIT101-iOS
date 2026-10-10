@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 import json
+import fcntl
 import os
 import re
 import subprocess
 import sys
 from functools import cache
+from contextlib import ExitStack
 from pathlib import Path
 
 sys.dont_write_bytecode = True
@@ -68,10 +70,18 @@ def manifest_targets(package: dict) -> dict[str, dict]:
 def read_manifest(root: Path) -> dict:
     environment = dict(os.environ)
     environment["CLANG_MODULE_CACHE_PATH"] = str(root / ".build/compiler-cache/ModuleCache.noindex")
-    result = subprocess.run([
-        "xcrun", "swift", "package", "--package-path", str(root),
-        "--scratch-path", str(root / ".build/extended-automation"), "dump-package",
-    ], capture_output=True, text=True, env=environment)
+    with ExitStack() as locks:
+        paths = [root / ".build/compiler-cache/cache.lock"]
+        if environment.get("BIT101_EXTENDED_TESTS_LOCK_HELD") != "1":
+            paths.insert(0, root / ".build/extended-automation.lock")
+        for path in paths:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            lock = locks.enter_context(path.open("a"))
+            fcntl.flock(lock, fcntl.LOCK_EX)
+        result = subprocess.run([
+            "xcrun", "swift", "package", "--package-path", str(root),
+            "--scratch-path", str(root / ".build/extended-automation"), "dump-package",
+        ], capture_output=True, text=True, env=environment)
     if result.returncode:
         raise ValueError(result.stderr.strip() or "SwiftPM manifest evaluation failed")
     return json.loads(result.stdout)

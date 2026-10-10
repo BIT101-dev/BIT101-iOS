@@ -28,6 +28,11 @@ def constant_boolean(condition: str, resolve) -> bool | None:
             values = [value(operand) for operand in node.values]
             if isinstance(node.op, ast.And): return False if False in values else True if all(item is True for item in values) else None
             if isinstance(node.op, ast.Or): return True if True in values else False if all(item is False for item in values) else None
+        if isinstance(node, ast.Compare) and len(node.ops) == 1:
+            left, right = value(node.left), value(node.comparators[0])
+            if left is None or right is None: return None
+            if isinstance(node.ops[0], ast.Eq): return left == right
+            if isinstance(node.ops[0], ast.NotEq): return left != right
         return None
     return value(node)
 

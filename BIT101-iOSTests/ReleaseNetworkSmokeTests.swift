@@ -88,6 +88,28 @@ struct ReleaseNetworkSmokeLifecycleTests {
         }
     }
 
+    @Test func connectionFailureBeforeTransmissionReleasesThePersistedAttempt() async throws {
+        let world = CommunityWorld(stage: "success")
+        let session = try #require(URLSessionTransport.make(configuration: .ephemeral) as? URLSession)
+        defer { session.invalidateAndCancel() }
+        let client = HTTPClient(transport: session, observer: nil)
+        var request = URLRequest(url: AppURL.required("https://bit101-smoke.invalid/create"))
+        request.httpMethod = "POST"
+        var operations = world.operations
+        operations.create = { _, _, _, submit in
+            try await CommunityWriteSmoke.Operations.submission {
+                try submit()
+                _ = try await client.send(request)
+                return 1
+            }
+        }
+        let smoke = CommunityWriteSmoke(operations: operations, load: { world.pending }, save: { world.pending = $0 })
+        await #expect(throws: (any Error).self) { try await smoke.run(marker: "fixture", expectedAccount: 1) }
+        #expect(world.pending == nil && Set(world.contents.keys) == ["poster77", "course1"])
+        _ = try await world.smoke.run(marker: "fixture", expectedAccount: 1)
+        #expect(world.pending == nil)
+    }
+
     private final class AdmissionObserver: HTTPClientObserving {
         var reject = true
         func willSend(_ request: URLRequest) async throws {

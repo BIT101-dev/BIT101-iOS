@@ -30,19 +30,47 @@ def api_pages(endpoint: str) -> list[dict]:
     return json.loads(subprocess.check_output(['gh', 'api', '--paginate', '--slurp', endpoint], cwd=ROOT, text=True))
 
 
-def download_run(run: int, repo: str) -> None:
+def download_core(run: int, repo: str) -> dict:
     if type(run) is not int or run <= 0: raise ValueError('证据需要所属工作流运行。')
+    REPORT.parent.mkdir(parents=True, exist_ok=True)
+    CORE_REPORT.unlink(missing_ok=True)
+    subprocess.run(['gh', 'run', 'download', str(run), '--repo', repo, '--name', ARTIFACT, '--dir', str(REPORT.parent)],
+        cwd=ROOT, capture_output=True, text=True, check=True)
+    return core_exchange(json.loads(CORE_REPORT.read_text()))
+
+
+def download_run(run: int, repo: str) -> None:
     from validation_evidence import report_lock
     with report_lock():
-        REPORT.parent.mkdir(parents=True, exist_ok=True)
-        CORE_REPORT.unlink(missing_ok=True)
-        subprocess.run(['gh', 'run', 'download', str(run), '--repo', repo, '--name', ARTIFACT, '--dir', str(REPORT.parent)],
-            cwd=ROOT, capture_output=True, text=True, check=True)
         from validation_evidence import write_report
-        incoming = core_exchange(json.loads(CORE_REPORT.read_text()))
+        incoming = download_core(run, repo)
+        from validation_environment import ci_commit_findings
+        if errors := ci_commit_findings(incoming.get('mergeCommit', '')):
+            raise ValueError('\n'.join(errors))
         report = json.loads(REPORT.read_text()) if REPORT.is_file() else {}
         groups = report.get('groups', {}) | incoming.pop('groups')
         write_report(report | incoming | {'groups': groups})
+
+
+def import_baseline(run: int) -> None:
+    if type(run) is not int or run <= 0: raise ValueError('基线迁移需要所属 CI 运行编号。')
+    repo = repository()
+    metadata = api_pages(f'repos/{repo}/actions/runs/{run}')[0]
+    if metadata.get('path') != '.github/workflows/ci.yml' or metadata.get('status') != 'completed' \
+            or metadata.get('conclusion') != 'success' or metadata.get('head_repository', {}).get('full_name') != repo:
+        raise ValueError('基线迁移需要本仓库成功完成的 CI 工作流。')
+    from validation_evidence import report_lock, write_report
+    from validation_performance import approved_baseline_complete, MEASUREMENTS
+    with report_lock():
+        proof = download_core(run, repo).get('performanceBaseline', {})
+        if not approved_baseline_complete(proof): raise ValueError('基线迁移需要九个场景的完整原始采样与批准记录。')
+        report = json.loads(REPORT.read_text()) if REPORT.is_file() else {}
+        stored = json.loads(MEASUREMENTS.read_text()) if MEASUREMENTS.is_file() else {'schemaVersion': 1}
+        stored['baseline'] = proof
+        MEASUREMENTS.write_text(json.dumps(stored, ensure_ascii=False, indent=2) + '\n')
+        report['performanceBaseline'] = proof
+        report.pop('mergeCommit', None)
+        write_report(report)
 
 
 def export_core() -> None:
@@ -111,6 +139,9 @@ def fork_review(commit: str, number: int) -> None:
 
 
 def current(results: str) -> None:
+    from validation_environment import ci_commit_findings
+    commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
+    if errors := ci_commit_findings(commit): raise ValueError('\n'.join(errors))
     states = results.split(',')
     if len(states) == len(REQUIRED_JOBS) and all(state == 'success' for state in states):
         download_run(int(os.environ['GITHUB_RUN_ID']), repository())
@@ -180,8 +211,8 @@ def self_test() -> None:
         git.assert_called_once_with(['git', 'show', f'{commit}:Scripts/validation_policy.py'], cwd=ROOT, text=True)
         assert save.call_args.args[0] == {'coverageBaseCommit': commit, 'coveragePolicy': {'modules': {'Feature': 80}, 'all': {'Feature': 70}}}
         api.assert_not_called()
-    with patch.dict(os.environ, GITHUB_REPOSITORY='owner/repo', GITHUB_RUN_ID='9', GITHUB_EVENT_NAME='push'), \
-            patch.object(module, 'download_run') as download:
+    with patch.dict(os.environ, GITHUB_REPOSITORY='owner/repo', GITHUB_RUN_ID='9', GITHUB_EVENT_NAME='push', GITHUB_SHA=commit), \
+            patch.object(subprocess, 'check_output', return_value=commit), patch.object(module, 'download_run') as download:
         current('success,success,success,success')
         download.assert_called_once_with(9, 'owner/repo')
         for states in ('success,success,success', 'success,success,skipped,success', 'failure,success,success,success'):
@@ -209,6 +240,7 @@ def self_test() -> None:
         event = {'pull_request': {'number': 12, 'head': {'repo': {'full_name': 'fork/repo'}}}}
         with patch.dict(os.environ, GITHUB_REPOSITORY='owner/repo', GITHUB_EVENT_NAME='pull_request',
                 GITHUB_SHA=commit, GITHUB_EVENT_PATH='/ci-event'), patch.object(Path, 'read_text', return_value=json.dumps(event)), \
+                patch.object(subprocess, 'check_output', return_value=commit), \
                 patch.object(module, 'api_pages', side_effect=[[pull], [{'workflow_runs': [reviewed]}], [{'jobs': jobs}], items]), \
                 patch.object(module, 'download_run') as download:
             try: current('success,success,skipped,success')
@@ -217,6 +249,20 @@ def self_test() -> None:
                 assert fault == 'none'
                 download.assert_called_once_with(7, 'owner/repo')
             if fault != 'none': download.assert_not_called()
+    with patch.dict(os.environ, GITHUB_SHA=commit), \
+            patch.object(subprocess, 'check_output', return_value='b' * 40), patch.object(module, 'download_run') as download:
+        try: current('success,success,success,success')
+        except ValueError: pass
+        else: raise AssertionError('CI 需要验收事件合并提交')
+        download.assert_not_called()
+    with patch.dict(os.environ, GITHUB_SHA='b' * 40), \
+            patch('validation_evidence.report_lock', side_effect=nullcontext), patch('validation_evidence.write_report') as save, \
+            patch.object(Path, 'read_text', return_value=json.dumps(incoming)), patch.object(Path, 'unlink'), \
+            patch.object(subprocess, 'run'):
+        try: download_run(7, 'owner/repo')
+        except ValueError: pass
+        else: raise AssertionError('下载证据需要绑定事件合并提交')
+        save.assert_not_called()
     with patch.object(module, 'version_tag'), patch.object(module, 'repository', return_value='owner/repo'), \
             patch.object(Path, 'mkdir'), patch.object(subprocess, 'run') as command, \
             patch.object(Path, 'read_text', return_value='{}'), patch.object(Path, 'write_text'), patch.object(Path, 'unlink'), \
@@ -247,6 +293,7 @@ def self_test() -> None:
         (['publish', 'v1.0'], 'release', (('v1.0',), {'publish': True})),
         (['check-release'], 'check_release', ((), {})),
         (['export-core'], 'export_core', ((), {})),
+        (['import-baseline', '7'], 'import_baseline', ((7,), {})),
     ):
         with patch.object(sys, 'argv', ['ci_evidence.py', *arguments]), patch.object(module, operation, return_value='b' * 40) as execute, \
                 patch.object(sys, 'stdout', StringIO()) as output:
@@ -259,7 +306,7 @@ def self_test() -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('baseline', 'current', 'review-pr', 'release', 'publish', 'check-release', 'export-core'))
+    parser.add_argument('action', choices=('baseline', 'current', 'review-pr', 'release', 'publish', 'check-release', 'export-core', 'import-baseline'))
     parser.add_argument('identity', nargs='?', default='')
     parser.add_argument('--results', default='')
     args = parser.parse_args()
@@ -269,6 +316,7 @@ def main() -> int:
         elif args.action == 'review-pr': print(review_pr(int(args.identity)))
         elif args.action == 'check-release': check_release()
         elif args.action == 'export-core': export_core()
+        elif args.action == 'import-baseline': import_baseline(int(args.identity))
         else: release(args.identity, publish=args.action == 'publish')
         return 0
     except (ValueError, SyntaxError, KeyError, OSError, subprocess.CalledProcessError) as error:

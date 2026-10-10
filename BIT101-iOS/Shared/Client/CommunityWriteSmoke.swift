@@ -89,6 +89,9 @@ final class CommunityWriteSmoke {
                     try await operation()
                 }
             } catch {
+                if let unsent = error as? HTTPRequestNotSent {
+                    throw SubmissionNotSent(underlying: unsent.underlying)
+                }
                 if started { throw error }
                 throw SubmissionNotSent(underlying: error)
             }

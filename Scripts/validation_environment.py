@@ -14,6 +14,14 @@ DEVICE_GROUPS = {"all", "release-runtime", "ui", "schedule", "infrastructure", "
                  "icloud", "icloud-cleanup", "restore", "manual-device"} | NETWORK_GROUPS
 
 
+def ci_commit_findings(commit: str) -> list[str]:
+    expected = os.getenv('GITHUB_SHA', '')
+    if not expected and os.getenv('GITHUB_ACTIONS') != 'true': return []
+    if not re.fullmatch(r'(?:[0-9a-f]{40}|[0-9a-f]{64})', expected) or commit != expected:
+        return ['CI 验收需要检出并绑定 GitHub 事件 SHA。']
+    return []
+
+
 def exchange_identity(value):
     """Keep stable device/path equality in shared evidence using opaque identities."""
     def opaque(value):

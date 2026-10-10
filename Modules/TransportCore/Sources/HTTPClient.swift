@@ -1,4 +1,32 @@
 import Foundation
+import os
+
+/// 系统任务指标确认 HTTP 请求尚未开始时，保留明确的发送前失败身份。
+public struct HTTPRequestNotSent: LocalizedError {
+    public let underlying: any Error
+    public init(underlying: any Error) { self.underlying = underlying }
+    public var errorDescription: String? { underlying.localizedDescription }
+}
+
+private final class HTTPTransmissionMetrics: NSObject, URLSessionTaskDelegate {
+    private let started = OSAllocatedUnfairLock<Bool?>(initialState: nil)
+    private let redirects: (any URLSessionTaskDelegate)?
+    init(redirects: (any URLSessionTaskDelegate)?) { self.redirects = redirects }
+    var confirmedUnsent: Bool { started.withLock { $0 == false } }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didFinishCollecting metrics: URLSessionTaskMetrics) {
+        started.withLock { $0 = metrics.transactionMetrics.contains { $0.requestStartDate != nil || $0.response != nil } }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
+        if let redirect = redirects?.urlSession(_:task:willPerformHTTPRedirection:newRequest:completionHandler:) {
+            redirect(session, task, response, request, completionHandler)
+        } else {
+            completionHandler(request)
+        }
+    }
+}
 
 public protocol HTTPTransport {
     func data(for request: URLRequest) async throws -> (Data, URLResponse)
@@ -18,7 +46,15 @@ extension URLSession: HTTPTransport {
     public func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
         guard let maximumBytes else { return try await data(for: request) }
         guard maximumBytes >= 0 else { throw HTTPClientError.responseTooLarge }
-        let (bytes, response) = try await bytes(for: request)
+        let metrics = HTTPTransmissionMetrics(redirects: delegate as? any URLSessionTaskDelegate)
+        let bytes: URLSession.AsyncBytes
+        let response: URLResponse
+        do {
+            (bytes, response) = try await self.bytes(for: request, delegate: metrics)
+        } catch {
+            if metrics.confirmedUnsent { throw HTTPRequestNotSent(underlying: error) }
+            throw error
+        }
         defer { bytes.task.cancel() }
         guard response.expectedContentLength <= Int64(maximumBytes) else { throw HTTPClientError.responseTooLarge }
         var data = Data()
