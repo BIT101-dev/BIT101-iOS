@@ -46,9 +46,15 @@ nonisolated final class MaintenancePerformanceUITests: XCTestCase {
         let workload = try PerformanceWorkload("schedule-layout", bundle: Bundle(for: Self.self))
         let pairs = try workload.value("weekSwitchPairs", as: Int.self)
         let app = application(animations: try workload.value("animations", as: Bool.self))
+        app.launchEnvironment["BIT101_UI_TEST_PERFORMANCE_COURSES"] = String(try workload.value("courses", as: Int.self))
+        app.launchEnvironment["BIT101_UI_TEST_PERFORMANCE_WEEKS"] = String(try workload.value("weeks", as: Int.self))
+        app.launchEnvironment["BIT101_UI_TEST_PERFORMANCE_COURSES_PER_SLOT"] = String(try workload.value("coursesPerSlot", as: Int.self))
         app.launch()
         defer { app.terminate() }
         XCTAssertTrue(app.buttons["下一周"].waitForExistence(timeout: 5))
+        for index in [1, 4] {
+            XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "性能课程 \(index)")).firstMatch.waitForExistence(timeout: 5))
+        }
         measure(metrics: [XCTClockMetric(), XCTMemoryMetric(application: app)]) {
             for _ in 0..<pairs {
                 app.buttons["下一周"].tap()

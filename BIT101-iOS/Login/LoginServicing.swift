@@ -65,11 +65,13 @@ struct UITestLoginService: LoginServicing {
             if let count = AppUITestBootstrap.environment["BIT101_UI_TEST_PERFORMANCE_COURSES"].flatMap(Int.init),
                let weeks = AppUITestBootstrap.environment["BIT101_UI_TEST_PERFORMANCE_WEEKS"].flatMap(Int.init) {
                 let slots = TimeSlot.default
+                let coursesPerSlot = AppUITestBootstrap.environment["BIT101_UI_TEST_PERFORMANCE_COURSES_PER_SLOT"].flatMap(Int.init) ?? 1
                 let courses = (0..<count).map { index in
-                    let section = slots[(index / 7) % slots.count].id
+                    let position = index / coursesPerSlot
+                    let section = slots[(position / 7) % slots.count].id
                     return CourseRecord(id: "performance-\(index)", term: cache.currentTerm, name: "性能课程 \(index + 1)",
-                        teacher: "测试教师", classroom: "文萃A101", description: "启动性能负载", weeks: Array(1...weeks),
-                        weekday: index % 7 + 1, startSection: section, endSection: section, campus: "良乡校区",
+                        teacher: "测试教师", classroom: "文萃A101", description: "课表性能负载", weeks: Array(1...weeks),
+                        weekday: position % 7 + 1, startSection: section, endSection: section, campus: "良乡校区",
                         number: "PERF-\(index)", credit: 2, hour: 32, type: "必修", category: "专业", department: "测试学院")
                 }
                 cache.courseData.store(TermScheduleSnapshot(term: cache.currentTerm, firstDayString: firstDayString,

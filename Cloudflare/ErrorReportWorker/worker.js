@@ -352,18 +352,21 @@ export default {
     }
     if (!env.ERROR_REPORTS) return json({ error: "storage_not_configured" }, 503);
     if (env.REPORT_EMAIL && !env.REPORT_EMAIL_DELIVERY) return json({ error: "notification_queue_not_configured" }, 503);
-    const clientIP = request.headers.get("CF-Connecting-IP");
-    if (!clientIP) return json({ error: "client_identity_unavailable" }, 503);
     const receivedAt = new Date().toISOString();
-    const sourceBytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${receivedAt.slice(0, 10)}:${clientIP}`));
-    const source = Array.from(new Uint8Array(sourceBytes), byte => byte.toString(16).padStart(2, "0")).join("");
-    const quota = env.REPORT_QUOTA.get(env.REPORT_QUOTA.idFromName("daily"));
-    const admissionResponse = await quota.fetch("https://quota/reserve", {
-      method: "POST", body: JSON.stringify({ source, admission: true })
-    });
-    if (!admissionResponse.ok) return json({ error: "quota_unavailable" }, 503);
-    const admission = await admissionResponse.json();
-    if (!admission.allowed) return json({ error: admission.error }, 429);
+    let source, quota;
+    if (request.method === "POST") {
+      const clientIP = request.headers.get("CF-Connecting-IP");
+      if (!clientIP) return json({ error: "client_identity_unavailable" }, 503);
+      const sourceBytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${receivedAt.slice(0, 10)}:${clientIP}`));
+      source = Array.from(new Uint8Array(sourceBytes), byte => byte.toString(16).padStart(2, "0")).join("");
+      quota = env.REPORT_QUOTA.get(env.REPORT_QUOTA.idFromName("daily"));
+      const admissionResponse = await quota.fetch("https://quota/reserve", {
+        method: "POST", body: JSON.stringify({ source, admission: true })
+      });
+      if (!admissionResponse.ok) return json({ error: "quota_unavailable" }, 503);
+      const admission = await admissionResponse.json();
+      if (!admission.allowed) return json({ error: admission.error }, 429);
+    }
     const length = Number(request.headers.get("content-length") || 0);
     if (length > MAX_BODY_BYTES) return json({ error: "payload_too_large" }, 413);
     let report;
@@ -408,7 +411,10 @@ export default {
       if (new TextEncoder().encode(JSON.stringify(metadata)).byteLength > MAX_REPORT_METADATA_BYTES) {
         return json({ error: "metadata_too_large" }, 413);
       }
-      report = forceRedact(report);
+      report = forceRedact(metadata);
+      if (attachments !== undefined) report.attachments = attachments === null ? null : attachments.map(({ data, ...fields }) => ({
+        ...forceRedact(fields), data
+      }));
       serializedRecord = JSON.stringify({ id, receivedAt, report,
         emailDelivery: { status: env.REPORT_EMAIL && report.mode !== "network-smoke" ? "pending" : "disabled", attempts: 0 } });
     } catch { return json({ error: "invalid_report" }, 400); }

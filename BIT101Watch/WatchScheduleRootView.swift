@@ -123,9 +123,9 @@ struct WatchScheduleRootView: View {
                 WatchScheduleEmptyStateView(message: "请先在手机上登录")
             } else if model.contentState == .rest {
                 WatchScheduleEmptyStateView(message: "暂无后续课程")
-            } else if model.contentState == .invalid {
+            } else if model.contentState == .invalid || model.contentState == .unavailable {
                 WatchScheduleEmptyStateView(
-                    message: "请在手机上重新同步课表",
+                    message: model.contentState == .unavailable ? "课表读取失败，请重试" : "请在手机上重新同步课表",
                     actionTitle: model.refreshButtonTitle,
                     feedbackText: model.refreshFeedbackText,
                     isActionDisabled: model.isRefreshing,

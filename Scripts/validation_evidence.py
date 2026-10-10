@@ -64,7 +64,7 @@ def write_report(report: dict, *, path: Path | None = None) -> None:
 
 
 
-def active_swift_source(source: str, group: str) -> str:
+def active_swift_source(source: str, group: str, *, platform: str | None = None) -> str:
     levels = [(True, False)]
     active = []
     code_lines = mask_literals_and_comments(source).split("\n")
@@ -74,7 +74,7 @@ def active_swift_source(source: str, group: str) -> str:
         if directive:
             kind, condition = directive.groups()
             if kind in {"if", "elseif"}:
-                selected = compilation_condition(condition, group)
+                selected = compilation_condition(condition, group, platform=platform)
                 if kind == "if": levels.append((levels[-1][0] and selected, selected))
                 else:
                     _, taken = levels.pop()
@@ -390,8 +390,8 @@ def successful_test_counts(summary: dict) -> bool:
 def coverage_complete(group: str, summary: dict) -> bool:
     floors = MODULE_COVERAGE_FLOORS if group == "modules" else {
         "BIT101-iOS.app": 35, **{"iOS/" + name: floor for name, floor in IOS_MODULE_COVERAGE_FLOORS.items()}
-    } if group == "all" else {"BIT101-iOS.app": 0, **{"iOS/" + name: 0
-        for name in IOS_MODULE_COVERAGE_FLOORS if name.endswith(("Feature", "UI"))}} if group == "ui" else {}
+    } if group == "all" else {"BIT101-iOS.app": 35, **{"iOS/" + name: floor
+        for name, floor in IOS_MODULE_COVERAGE_FLOORS.items() if name.endswith(("Feature", "UI"))}} if group == "ui" else {}
     if group == "modules" and {path.name for path in (ROOT / "Modules").iterdir() if path.is_dir()} \
             - {"ScheduleActivityContracts"} != set(floors):
         return False
@@ -608,7 +608,7 @@ def record(group: str, status: int, scope: str, started_digest: str) -> int:
         if scope == "selected" and group in TEST_GROUPS | NETWORK_GROUPS:
             full = previous if previous.get("scope") == "full" else previous.get("lastFullRun")
             if full: row["lastFullRun"] = full
-        if group in {"modules", "all"}:
+        if group in {"modules", "all", "ui"}:
             from validation_coverage import regressions, advance, policy_floors
             baseline = previous.get("coverageBaseline", {})
             if previous.get("scope") == "full" and previous.get("exitCode") == 0:

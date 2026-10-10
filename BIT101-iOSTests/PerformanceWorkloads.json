@@ -33,6 +33,9 @@
   "schedule-layout": {
     "testIdentifier": "MaintenancePerformanceUITests/testScheduleWeekLayoutPerformance",
     "input": {
+      "courses": 200,
+      "weeks": 20,
+      "coursesPerSlot": 4,
       "weekSwitchPairs": 10,
       "animations": true
     }
@@ -62,6 +65,7 @@
   "widget-timeline": {
     "testIdentifier": "MaintenancePerformanceTests/testWidgetTimelinePerformance",
     "input": {
+      "planning": "next-day-phone-timeline",
       "courses": 200,
       "weeks": 20,
       "occurrences": 4000

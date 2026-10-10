@@ -386,11 +386,11 @@ fork PR 的常规 Job 使用 GitHub 托管的 `xcode-27` 镜像，每项任务�
 
 共享预览目录的媒体环境共同接收同一 `MediaPreviewStorage`，文件创建、所有权登记、清理和关闭消费同一协调器。回归合同覆盖创建期间的后台清理，以及不同环境启动清理和关闭预览时保留其他活动消费者。
 
-`MaintenancePerformanceTests` 沿 XCTest 默认测量选项记录 `PaperListViewModel` 的实际分页与消息列表追加、PNG 解码、复杂内联格式的文章解析与纯文本生成、GIF 解码、Widget 时间线计算、URLSession 响应聚合，以及多页本地图片的首个预览文件编码与写盘的时钟和物理内存指标。`MaintenancePerformanceUITests` 记录恢复持久化账号与 200 门、20 周课程后的进程结束、启动至课表就绪，以及启用动画的课表往返切周布局；UI 内存指标采集目标 App 进程。分页负载每轮刷新文章与消息消费者，消息首屏沿生产状态替换，续页使用正数降序标识，并核对每轮数量与最终游标。性能基线沿同一真机 runner 的 XCTest 默认参数维护。
+`MaintenancePerformanceTests` 沿 XCTest 默认测量选项记录 `PaperListViewModel` 的实际分页与消息列表追加、PNG 解码、复杂内联格式的文章解析与纯文本生成、GIF 解码、Widget 时间线计算、URLSession 响应聚合，以及多页本地图片的首个预览文件编码与写盘的时钟和物理内存指标。`MaintenancePerformanceUITests` 记录恢复持久化账号与 200 门、20 周课程后的进程结束、启动至课表就绪，以及启用动画、每时段四门重叠课程的 200 门、20 周课表往返切周布局；UI 内存指标采集目标 App 进程。分页负载每轮刷新文章与消息消费者，消息首屏沿生产状态替换，续页使用正数降序标识，并核对每轮数量与最终游标。性能基线沿同一真机 runner 的 XCTest 默认参数维护。
 
 `performance-baseline` 人工专项登记 `pagination`、`image-decoding`、`startup`、`schedule-layout`、`long-article`、`gif-decoding`、`widget-timeline`、`response-aggregation`、`local-preview` 九个场景的结构化比较及影像，参与完整发布验收。行为场景归属 `all`，启动与课表布局归属 `ui`；每条采样保留所属完整测试组的执行证据。
 
-`long-article` 测量文章块解析与纯文本转换，`widget-timeline` 测量课程实例解析与刷新时间规划。文章视图的布局、滚动，以及 WidgetKit provider、快照存储和扩展渲染沿对应界面与小组件人工专项验收。
+`long-article` 测量文章块解析与纯文本转换，`widget-timeline` 测量课程实例解析、未来一天的时间线规划及各条目的课表解析。文章视图的布局、滚动，以及 WidgetKit provider、快照存储和扩展渲染沿对应界面与小组件人工专项验收。
 
 每个性能场景的 `measurement` 包含 `current` 与 `baseline`。两份记录保存 `testIdentifier`、`sourceCommit`、`capturedAt`、`environment`、`input`、`resultBundle`、`metrics`；当前采样沿实际观察时间登记，批准基线保存 `approvedBy`、`approvedAt`。`environment` 核对相同的设备标识、设备型号、系统版本与构建、Xcode 构建、编译器摘要、Release 配置及 `compilationConditions`。`resultBundle` 保存固定 XCTest 结果包路径和 SHA-256，两个采样拥有各自的摘要。`execution` 保存所属运行、构建输入、源码提交及完整环境；`xcresultMetrics` 保留工具导出的原始指标。
 
@@ -402,7 +402,7 @@ fork PR 的常规 Job 使用 GitHub 托管的 `xcode-27` 镜像，每项任务�
 
 SwiftSyntax 索引器缓存沿源码、工具链环境、编译器、SwiftSyntax / SwiftParser 库及模块内容摘要复用。网络能力检测沿编译器类型、协议和异步闭包传输端口、初始化表达式、依赖工厂返回值和局部别名识别生产服务，局部同名变量沿词法作用域解析。自定义协议沿具体网络实现传播能力，泛型传输端口沿参数及 `where` 约束展开；已登记业务服务作为验收边界，其消费层沿业务与 UI 合同验收，协议要求沿实现核对。模块门禁按业务归属限制 Domain、Ports、Core 等依赖；社区功能共用 Community 业务合同，基础 Client、Storage、Transport、DesignSystem、Media 模块承担公共职责。地图通过明确登记的 `MapFeature → ScheduleContracts` 依赖复用地点显示规范化，跨业务合同沿允许依赖表评审。
 
-UI 自动化同时采集交互库存及宿主与 Feature / UI 模块的行覆盖率，完整验收要求各展示模块产生实际执行行。界面状态断言、控件交互记录及行覆盖率共同支撑展示逻辑审查。
+UI 自动化同时采集交互库存及宿主与 Feature / UI 模块的行覆盖率，完整验收要求宿主达到 35% 行覆盖率，展示模块共用已登记的 iOS 最低覆盖率；完整 UI 组同时执行覆盖率退化检查。界面状态断言、控件交互记录及行覆盖率共同支撑展示逻辑审查。
 
 交互库存身份结合场景、祖先行标识及控件标识。列表行和多选项使用稳定业务标识，滚动后挂载的新行继续登记待访问项，排序保留同一业务行的访问记录；同名操作按钮沿所属行区分。长度编码保持身份字段边界，控件标签的状态变化保持已标识控件的身份稳定。
 

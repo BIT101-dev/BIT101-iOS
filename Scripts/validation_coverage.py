@@ -4,9 +4,10 @@
 def policy_floors(group: str, policy: dict) -> dict[str, int]:
     from validation_policy import MODULE_COVERAGE_FLOORS, IOS_MODULE_COVERAGE_FLOORS
     current = MODULE_COVERAGE_FLOORS if group == 'modules' else IOS_MODULE_COVERAGE_FLOORS
+    if group == 'ui': current = {name: floor for name, floor in current.items() if name.endswith(('Feature', 'UI'))}
     prefix = '' if group == 'modules' else 'iOS/'
     floors = {prefix + name: max(value, policy.get(group, {}).get(name, value)) for name, value in current.items()}
-    if group == 'all': floors['BIT101-iOS.app'] = 35
+    if group in {'all', 'ui'}: floors['BIT101-iOS.app'] = 35
     return floors
 
 

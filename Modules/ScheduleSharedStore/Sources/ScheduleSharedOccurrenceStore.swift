@@ -9,11 +9,12 @@ public extension ScheduleOccurrenceResolver {
         currentCourseDisplayDuration: TimeInterval = defaultCurrentCourseDisplayDuration,
         limit: Int? = nil
     ) -> ScheduleExternalResolvedSnapshot {
-        resolvedSnapshot(
-            from: store.load(),
-            now: now,
-            currentCourseDisplayDuration: currentCourseDisplayDuration,
-            limit: limit
-        )
+        do {
+            return resolvedSnapshot(from: try store.read(), now: now,
+                currentCourseDisplayDuration: currentCourseDisplayDuration, limit: limit)
+        } catch {
+            return ScheduleExternalResolvedSnapshot(snapshot: nil, upcomingOccurrences: [],
+                contentState: error as? ScheduleExternalSnapshotStoreError == .invalidSnapshot ? .invalid : .unavailable)
+        }
     }
 }

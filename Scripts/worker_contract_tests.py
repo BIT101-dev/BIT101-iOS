@@ -66,6 +66,17 @@ export class QuotaFixture extends ReportQuota {
     assert.equal((await send({ mode: "network-smoke", runID: "maximum",
       attachments: Array.from({ length: 6 }, () => ({ data: Buffer.alloc(2 * 1024 * 1024).toString("base64") })) })).status, 201);
     const kv = await mf.getKVNamespace("ERROR_REPORTS");
+    const binary = "ApwdAA==";
+    const attachmentResponse = await send({ mode: "suggestion", comment: "password=fixture-secret",
+      attachments: [{ data: binary, name: "password=attachment-secret", contentType: "application/octet-stream" }] });
+    assert.equal(attachmentResponse.status, 201);
+    const attachmentID = (await attachmentResponse.json()).id;
+    const attachmentKey = (await kv.list()).keys.find(key => key.name.endsWith(attachmentID)).name;
+    const savedAttachment = JSON.parse(await kv.get(attachmentKey)).report;
+    assert.equal(savedAttachment.attachments[0].data, binary);
+    assert.deepEqual(Buffer.from(savedAttachment.attachments[0].data, "base64"), Buffer.from(binary, "base64"));
+    assert(!savedAttachment.comment.includes("fixture-secret"));
+    assert(!savedAttachment.attachments[0].name.includes("attachment-secret"));
     assert.equal((await send({ mode: "sanitized", errorTitle: "fixture", errorMessage: "fixture", build: { toString: null } })).status, 400);
     for (const title of ["x".repeat(1100), "\u0000".repeat(1100), "🧪".repeat(1100)]) {
       const response = await send({ mode: "sanitized", errorTitle: title, errorMessage: "fixture",
@@ -99,6 +110,21 @@ export class QuotaFixture extends ReportQuota {
     assert.equal((await send({ mode: "suggestion", comment: "fixture" })).status, 201);
     assert.equal((await inspect()).count, 1);
     assert((await kv.list()).keys.every(key => key.name.startsWith("report:")));
+    await seed({ day: today, count: 2000 }, "admission");
+    assert.equal((await send({ mode: "suggestion", comment: "quota fixture" })).status, 429);
+    const grant = crypto.randomUUID();
+    const grantKey = `report-delete-grant:${grant}`;
+    const remove = (value = grant) => mf.dispatchFetch("https://feedback.invalid/api/error-reports", {
+      method: "DELETE", body: JSON.stringify({ key: attachmentKey, grant: value }) });
+    assert.equal((await remove()).status, 403);
+    await kv.put(grantKey, JSON.stringify({ key: "report:mismatched" }));
+    assert.equal((await remove()).status, 403);
+    await kv.put(grantKey, JSON.stringify({ key: attachmentKey }));
+    assert.equal((await remove()).status, 200);
+    assert.equal(await kv.get(attachmentKey), null);
+    assert.equal(await kv.get(grantKey), null);
+    assert.equal((await remove()).status, 403);
+    assert.equal((await send({ mode: "suggestion", comment: "quota fixture" })).status, 429);
   } finally { await mf.dispose(); }
   for (const limit of ["150", "0", "invalid"]) {
     const configured = new Miniflare(convertV4MiniflareOptions({ name: "worker-fixture", modules: true, script: fixture,

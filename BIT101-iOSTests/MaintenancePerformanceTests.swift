@@ -220,6 +220,7 @@ nonisolated final class MaintenancePerformanceTests: XCTestCase {
 
     func testWidgetTimelinePerformance() throws {
         let workload = try PerformanceWorkload("widget-timeline", bundle: Bundle(for: Self.self))
+        XCTAssertEqual(try workload.value("planning", as: String.self), "next-day-phone-timeline")
         let courseCount = try workload.value("courses", as: Int.self), weeks = try workload.value("weeks", as: Int.self)
         let expectedOccurrences = try workload.value("occurrences", as: Int.self)
         let firstDay = "2024-02-26"
@@ -232,8 +233,11 @@ nonisolated final class MaintenancePerformanceTests: XCTestCase {
         measure(metrics: [XCTClockMetric(), XCTMemoryMetric()]) {
             let occurrences = ScheduleOccurrenceResolver.upcomingOccurrences(from: snapshot, now: now)
             XCTAssertEqual(occurrences.count, expectedOccurrences)
-            XCTAssertGreaterThan(ScheduleTimelineRefreshPlanner.nextRefreshDate(for: occurrences, now: now,
-                includeDisplayUntilDates: true, includeNextMidnight: true), now)
+            let dates = ScheduleTimelineRefreshPlanner.timelineDates(for: occurrences, now: now, includeDisplayUntilDates: true)
+            let entries = dates.map { ScheduleOccurrenceResolver.resolvedSnapshot(from: snapshot, now: $0, limit: 6) }
+            XCTAssertEqual(dates.first, now)
+            XCTAssertEqual(dates.last, now.addingTimeInterval(24 * 60 * 60))
+            XCTAssertGreaterThan(entries.count, 1)
         }
     }
 }

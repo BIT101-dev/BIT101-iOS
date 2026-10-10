@@ -135,6 +135,9 @@ def run_self_test(subject) -> int:
         else: raise AssertionError('Swift 编译器需要拒绝无效编译谓词')
         assert subject.compilation_condition('os(iOS) && targetEnvironment(macCatalyst) && canImport(UIKit)', 'catalyst')
         assert subject.compilation_condition('os(iOS) && !targetEnvironment(macCatalyst)', 'all')
+        assert subject.compilation_condition('os(watchOS) && canImport(WatchKit)', 'network', platform='watchOS')
+        assert not subject.compilation_condition('os(iOS)', 'network', platform='watchOS')
+        assert not subject.compilation_condition('os(watchOS)', 'network', platform='iOS')
         assert subject.compilation_condition('DEBUG || RELEASE_NETWORK_SMOKE', 'all')
         assert not subject.compilation_condition('os(macOS) || targetEnvironment(macCatalyst)', 'all')
         assert subject.compilation_condition('BIT101_UI_TESTING && !targetEnvironment(macCatalyst)', 'ui')
@@ -256,6 +259,10 @@ def run_self_test(subject) -> int:
         ui_missing = dict(summaries['ui']['coverage'])
         ui_missing['iOS/ScoreFeature'] = {'coveredLines': 0, 'executableLines': 100}
         assert not subject.coverage_complete('ui', dict(summaries['ui'], coverage=ui_missing))
+        for name in ('iOS/CommunityUI', 'iOS/CourseFeature', 'iOS/ScoreFeature', 'BIT101-iOS.app'):
+            weak = dict(summaries['ui']['coverage'])
+            weak[name] = {'coveredLines': 1, 'executableLines': 100}
+            assert not subject.coverage_complete('ui', dict(summaries['ui'], coverage=weak))
         assert subject.coverage_complete('all', summaries['all'])
         ios_missing = dict(summaries['all']['coverage'])
         ios_missing.pop('iOS/MediaKit')

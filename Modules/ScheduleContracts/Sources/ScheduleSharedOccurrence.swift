@@ -402,6 +402,12 @@ public nonisolated struct ScheduleExternalResolvedSnapshot: Sendable {
     public let upcomingOccurrences: [ScheduleExternalOccurrence]
     public let contentState: ScheduleExternalContentState
 
+    public init(snapshot: ScheduleExternalSnapshot?, upcomingOccurrences: [ScheduleExternalOccurrence], contentState: ScheduleExternalContentState) {
+        self.snapshot = snapshot
+        self.upcomingOccurrences = upcomingOccurrences
+        self.contentState = contentState
+    }
+
     public var nextOccurrence: ScheduleExternalOccurrence? {
         upcomingOccurrences.first
     }
@@ -414,12 +420,30 @@ public nonisolated enum ScheduleExternalContentState: Equatable, Sendable {
     case missing
     case loggedOut
     case invalid
+    case unavailable
     case rest
     case ready
 }
 
 /// Widget 时间线的统一刷新时间规划器。
 public nonisolated enum ScheduleTimelineRefreshPlanner {
+    /// 提前交付未来一天的课程切换和跨日条目。
+    public static func timelineDates(
+        for occurrences: [ScheduleExternalOccurrence],
+        now: Date = Date(),
+        includeDisplayUntilDates: Bool
+    ) -> [Date] {
+        let horizon = now.addingTimeInterval(24 * 60 * 60)
+        var dates = [now, horizon]
+        dates.append(contentsOf: occurrences.map(\.startDate))
+        if includeDisplayUntilDates { dates.append(contentsOf: occurrences.map(\.displayUntilDate)) }
+        if let midnight = ScheduleSharedDateCodec.calendar.date(byAdding: .day, value: 1,
+            to: ScheduleSharedDateCodec.calendar.startOfDay(for: now)) {
+            dates.append(midnight)
+        }
+        return Array(Set(dates.filter { $0 >= now && $0 <= horizon })).sorted()
+    }
+
     public static func nextRefreshDate(
         for occurrences: [ScheduleExternalOccurrence],
         now: Date = Date(),

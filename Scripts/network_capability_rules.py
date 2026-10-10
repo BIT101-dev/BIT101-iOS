@@ -211,7 +211,8 @@ def signature_function(signature: str, scope: list[str]) -> dict:
 
 
 def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
-    from validation_evidence import active_swift_source
+    from validation_inputs import NATIVE_PRODUCT_ROOTS
+    from validation_compilation import active_network_source
     from validation_test_areas import NETWORK_CAPABILITIES
     from swift_type_index import SwiftTypeIndex, compilation_unit, receiver_resolver
     types = SwiftTypeIndex(index)
@@ -231,7 +232,7 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
         for base in bases:
             if inherited := types.resolve(types.paths[target], base):
                 network_owners.add('.'.join([inherited[0], *inherited[1]]))
-    active_sources = {path: active_swift_source(facts['source'], 'network').encode()
+    active_sources = {path: active_network_source(facts['source'], path).encode()
         if 'source' in facts else None for path, facts in index.items()}
     def owner(path, scope): return '.'.join(types.function_scope(path, scope))
     def components(path, kind, scope, node):
@@ -359,7 +360,7 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
             if target in protocols: continue
             if function.get('returnsView') or target and any(base.rsplit('.', 1)[-1] in {'View', 'ViewModifier'} for base in types.bases(target)): continue
             if target and 'HTTPTransport' in types.bases(target): continue
-            if function.get('isExported') or module == 'BIT101-iOS' and not function.get('isPrivate') \
+            if function.get('isExported') or module in NATIVE_PRODUCT_ROOTS and not function.get('isPrivate') \
                     and (function.get('isAsync') or contains_request(function)):
                 result.setdefault(identity, []).append((path, function))
     return result

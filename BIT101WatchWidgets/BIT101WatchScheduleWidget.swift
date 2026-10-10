@@ -11,6 +11,7 @@ private nonisolated enum WidgetSnapshotStorage {
 }
 
 private let watchScheduleWidgetSyncMessage = "打开手机 App 同步课表"
+private let watchScheduleWidgetUnavailableMessage = "课表读取失败，请重试"
 private let watchScheduleWidgetInvalidMessage = "请在手机上重新同步课表"
 /// Watch 端需要登录时使用的提示文案。
 private let watchScheduleWidgetLoginMessage = "请先登录"
@@ -54,6 +55,7 @@ private struct WatchScheduleDisplaySummary {
 
 private enum WatchScheduleEntryStatus {
     case sync
+    case unavailable
     case invalid
     case loggedOut
     case rest
@@ -62,6 +64,8 @@ private enum WatchScheduleEntryStatus {
         switch message {
         case watchScheduleWidgetSyncMessage:
             self = .sync
+        case watchScheduleWidgetUnavailableMessage:
+            self = .unavailable
         case watchScheduleWidgetInvalidMessage:
             self = .invalid
         case watchScheduleWidgetLoginMessage:
@@ -75,6 +79,8 @@ private enum WatchScheduleEntryStatus {
         switch self {
         case .sync:
             return "同步"
+        case .unavailable:
+            return "重试"
         case .invalid:
             return "重同步"
         case .loggedOut:
@@ -88,6 +94,8 @@ private enum WatchScheduleEntryStatus {
         switch self {
         case .sync:
             return "待同步"
+        case .unavailable:
+            return "重试"
         case .invalid:
             return "需同步"
         case .loggedOut:
@@ -133,20 +141,36 @@ private struct WatchScheduleProvider: TimelineProvider {
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<WatchScheduleEntry>) -> Void) {
-        let entry = loadEntry()
-        let refreshDate = nextRefreshDate(for: entry)
-        completion(Timeline(entries: [entry], policy: .after(refreshDate)))
+        let now = Date()
+        let resolved = ScheduleOccurrenceResolver.loadResolvedSnapshot(store: WidgetSnapshotStorage.store, now: now)
+        guard let snapshot = resolved.snapshot else {
+            let entry = loadEntry(resolved: resolved, now: now)
+            let retry = ScheduleTimelineRefreshPlanner.nextRefreshDate(for: [], now: now,
+                includeDisplayUntilDates: false, includeNextMidnight: false)
+            completion(Timeline(entries: [entry], policy: .after(retry)))
+            return
+        }
+        let entries = ScheduleTimelineRefreshPlanner.timelineDates(for: resolved.upcomingOccurrences, now: now,
+            includeDisplayUntilDates: false).map { date in
+            loadEntry(resolved: ScheduleOccurrenceResolver.resolvedSnapshot(from: snapshot, now: date), now: date)
+        }
+        completion(Timeline(entries: entries, policy: .atEnd))
     }
 
     /// 从共享快照生成当前条目。
     ///
     /// 时间线以当前时刻之后的课程作为展示对象。
     private func loadEntry(now: Date = Date()) -> WatchScheduleEntry {
-        let resolved = ScheduleOccurrenceResolver.loadResolvedSnapshot(store: WidgetSnapshotStorage.store, now: now, limit: 32)
+        loadEntry(resolved: ScheduleOccurrenceResolver.loadResolvedSnapshot(store: WidgetSnapshotStorage.store, now: now), now: now)
+    }
+
+    private func loadEntry(resolved: ScheduleExternalResolvedSnapshot, now: Date) -> WatchScheduleEntry {
 
         switch resolved.contentState {
         case .missing:
             return WatchScheduleEntry(date: now, nextOccurrence: nil, message: watchScheduleWidgetSyncMessage)
+        case .unavailable:
+            return WatchScheduleEntry(date: now, nextOccurrence: nil, message: watchScheduleWidgetUnavailableMessage)
         case .invalid:
             return WatchScheduleEntry(date: now, nextOccurrence: nil, message: watchScheduleWidgetInvalidMessage)
         case .loggedOut:
@@ -163,19 +187,7 @@ private struct WatchScheduleProvider: TimelineProvider {
         }
     }
 
-    /// 时间线在课程开始和跨日时刷新。
-    ///
-    /// 晚间条目显示“明天 8:00”时，时间线若等到 8:00 才刷新，
-    /// 午夜到上课前会继续显示“明天”。因此下一个午夜也作为刷新点，
-    /// 让 Watch 离开手机时继续用本地镜像把“明天”更新为“今天”。
-    private func nextRefreshDate(for entry: WatchScheduleEntry) -> Date {
-        ScheduleTimelineRefreshPlanner.nextRefreshDate(
-            for: entry.nextOccurrence.map { [$0] } ?? [],
-            now: entry.date,
-            includeDisplayUntilDates: false,
-            includeNextMidnight: true
-        )
-    }
+
 }
 
 /// 提供 Apple Watch complication 和 Smart Stack 课表卡片。

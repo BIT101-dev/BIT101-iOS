@@ -13,6 +13,7 @@ private nonisolated enum WidgetSnapshotStorage {
 }
 
 private let scheduleWidgetSyncMessage = "请先获取课表"
+private let scheduleWidgetUnavailableMessage = "课表读取失败，请重试"
 private let scheduleWidgetInvalidMessage = "请重新同步课表"
 private let scheduleWidgetLoginMessage = "请登录"
 private let scheduleWidgetRestMessage = "暂无后续课程"
@@ -206,19 +207,35 @@ private struct ScheduleWidgetProvider: TimelineProvider {
         completion(loadEntry())
     }
 
-    /// 构造时间线；下一次刷新时间取决于最近课程的开始和切换节点。
+    /// 提前构造未来一天的课程切换和跨日条目。
     func getTimeline(in _: Context, completion: @escaping (Timeline<ScheduleWidgetEntry>) -> Void) {
-        let entry = loadEntry()
-        let refreshDate = nextRefreshDate(for: entry)
-        completion(Timeline(entries: [entry], policy: .after(refreshDate)))
+        let now = Date()
+        let resolved = ScheduleOccurrenceResolver.loadResolvedSnapshot(store: WidgetSnapshotStorage.store, now: now)
+        guard let snapshot = resolved.snapshot else {
+            let entry = loadEntry(resolved: resolved, now: now)
+            let retry = ScheduleTimelineRefreshPlanner.nextRefreshDate(for: [], now: now,
+                includeDisplayUntilDates: false, includeNextMidnight: false)
+            completion(Timeline(entries: [entry], policy: .after(retry)))
+            return
+        }
+        let entries = ScheduleTimelineRefreshPlanner.timelineDates(for: resolved.upcomingOccurrences, now: now,
+            includeDisplayUntilDates: true).map { date in
+            loadEntry(resolved: ScheduleOccurrenceResolver.resolvedSnapshot(from: snapshot, now: date, limit: 6), now: date)
+        }
+        completion(Timeline(entries: entries, policy: .atEnd))
     }
 
     private func loadEntry(now: Date = Date()) -> ScheduleWidgetEntry {
-        let resolved = ScheduleOccurrenceResolver.loadResolvedSnapshot(store: WidgetSnapshotStorage.store, now: now, limit: 6)
+        loadEntry(resolved: ScheduleOccurrenceResolver.loadResolvedSnapshot(store: WidgetSnapshotStorage.store, now: now, limit: 6), now: now)
+    }
+
+    private func loadEntry(resolved: ScheduleExternalResolvedSnapshot, now: Date) -> ScheduleWidgetEntry {
 
         switch resolved.contentState {
         case .missing:
             return emptyEntry(message: scheduleWidgetSyncMessage, date: now)
+        case .unavailable:
+            return emptyEntry(message: scheduleWidgetUnavailableMessage, date: now)
         case .invalid:
             return emptyEntry(message: scheduleWidgetInvalidMessage, date: now)
         case .loggedOut:
@@ -243,15 +260,7 @@ private struct ScheduleWidgetProvider: TimelineProvider {
         )
     }
 
-    /// 计算 widget 下一次刷新时间。
-    private func nextRefreshDate(for entry: ScheduleWidgetEntry) -> Date {
-        ScheduleTimelineRefreshPlanner.nextRefreshDate(
-            for: entry.nextOccurrences,
-            now: entry.date,
-            includeDisplayUntilDates: true,
-            includeNextMidnight: true
-        )
-    }
+
 }
 
 /// 课程表小组件主体，支持桌面小组件与锁屏 accessory family。

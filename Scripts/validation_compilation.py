@@ -35,7 +35,7 @@ def prepare_cache(recorded: dict, group: str, environment: str, conditions: set[
 
 
 @cache
-def compilation_condition(condition: str, group: str, *, language_mode: str = '6') -> bool:
+def compilation_condition(condition: str, group: str, *, language_mode: str = '6', platform: str | None = None) -> bool:
     condition = condition.strip()
     group = group.removeprefix("build-")
     group = {"network-smoke": "network", "icloud-smoke": "icloud"}.get(group, group)
@@ -43,10 +43,11 @@ def compilation_condition(condition: str, group: str, *, language_mode: str = '6
         raise ValueError(f"编译条件需要单行 Swift 表达式：{condition}")
     enabled = set(workflow_conditions(group))
     catalyst = group in {"catalyst", "catalyst-release-runtime"}
-    native = group == "modules"
+    native = group == "modules" and platform is None
     architecture = os.uname().machine if native or catalyst else "arm64"
-    sdk_name = "macosx" if native or catalyst else "iphoneos"
-    target = f"{architecture}-apple-macosx14.0" if native else f"{architecture}-apple-ios17.0" + ("-macabi" if catalyst else "")
+    watch = platform == 'watchOS'
+    sdk_name = "macosx" if native or catalyst else "watchos" if watch else "iphoneos"
+    target = f"{architecture}-apple-macosx14.0" if native else f"{architecture}-apple-watchos10.0" if watch else f"{architecture}-apple-ios17.0" + ("-macabi" if catalyst else "")
     # 本地包模块由项目依赖图提供；系统框架由所选 SDK 与编译器求值。
     condition = local_import_conditions(condition)
     environment_group = "modules" if native else "build-ui"
@@ -87,6 +88,21 @@ def compilation_condition(condition: str, group: str, *, language_mode: str = '6
         if condition in conditions: results[signature] = {'condition': condition, 'value': value}
         cache_path.write_text(json.dumps(recorded, sort_keys=True) + "\n")
         return value
+
+
+def source_platforms(path: str) -> tuple[str, ...]:
+    from swift_type_index import compilation_unit
+    unit = compilation_unit(path)
+    if unit in {'BIT101Watch', 'BIT101WatchWidgets'}: return ('watchOS',)
+    if 'Modules' in Path(path).parts: return ('iOS', 'watchOS')
+    return ('iOS',)
+
+
+def active_network_source(source: str, path: str) -> str:
+    from validation_evidence import active_swift_source
+    sources = [active_swift_source(source, 'network', platform=platform).encode() for platform in source_platforms(path)]
+    return bytes(next((row[index] for row in sources if row[index] not in b' \r\n'), sources[0][index])
+        for index in range(len(sources[0]))).decode()
 
 
 def self_test() -> None:

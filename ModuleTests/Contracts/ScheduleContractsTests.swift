@@ -279,6 +279,37 @@ struct ScheduleContractsTests {
         #expect(ScheduleOccurrenceResolver.resolvedSnapshot(from: snapshot, now: afterTerm).contentState == .invalid)
     }
 
+    @Test(arguments: [true, false])
+    func futureTimelineIncludesClassTransitionsAndMidnight(phone: Bool) throws {
+        let base = makeSnapshot()
+        let course = try #require(base.courses.first)
+        let snapshot = ScheduleExternalSnapshot(generatedAt: base.generatedAt, isLoggedIn: base.isLoggedIn,
+            studentID: base.studentID, firstDayString: base.firstDayString, timeTable: base.timeTable,
+            courses: [ScheduleExternalCourseSnapshot(id: course.id, name: course.name, classroom: course.classroom,
+                teacher: course.teacher, weeks: [1, 2], weekday: course.weekday,
+                startSection: course.startSection, endSection: course.endSection)])
+        let day = try #require(ScheduleSharedDateCodec.parseDate(snapshot.firstDayString))
+        let now = try #require(ScheduleSharedDateCodec.combine(date: day, time: "07:00"))
+        let resolved = ScheduleOccurrenceResolver.resolvedSnapshot(from: snapshot, now: now)
+        let occurrence = try #require(resolved.nextOccurrence)
+        let cutoff = occurrence.startDate.addingTimeInterval(ScheduleOccurrenceResolver.defaultCurrentCourseDisplayDuration)
+        let midnight = try #require(ScheduleSharedDateCodec.calendar.date(byAdding: .day, value: 1, to: day))
+        let dates = ScheduleTimelineRefreshPlanner.timelineDates(for: resolved.upcomingOccurrences + resolved.upcomingOccurrences,
+            now: now, includeDisplayUntilDates: phone)
+        #expect(dates == dates.sorted() && Set(dates).count == dates.count)
+        #expect(dates.first == now && dates.last == now.addingTimeInterval(24 * 60 * 60))
+        #expect(dates.contains(occurrence.startDate) && dates.contains(midnight))
+        #expect(dates.contains(cutoff) == phone)
+        #expect(!dates.contains(occurrence.endDate))
+        let last = try #require(resolved.upcomingOccurrences.last)
+        #expect(last.displayUntilDate == last.endDate)
+        #expect(!dates.contains(last.startDate))
+        #expect(ScheduleOccurrenceResolver.resolvedSnapshot(from: snapshot, now: occurrence.startDate).nextOccurrence?.id == occurrence.id)
+        #expect(ScheduleOccurrenceResolver.resolvedSnapshot(from: snapshot, now: cutoff).nextOccurrence?.id != occurrence.id)
+        let empty = ScheduleTimelineRefreshPlanner.timelineDates(for: [], now: now, includeDisplayUntilDates: phone)
+        #expect(empty == [now, midnight, now.addingTimeInterval(24 * 60 * 60)])
+    }
+
     private func makeSnapshot() -> ScheduleExternalSnapshot {
         ScheduleExternalSnapshot(
             generatedAt: Date(timeIntervalSince1970: 1_790_553_600),
@@ -317,6 +348,8 @@ struct ScheduleSharedStoreTests {
         let reads = files.readCount(at: url)
         #expect(store.load() == nil && files.storedData[url] == raw)
         if kind == "bytes" { #expect(files.readCount(at: url) == reads) }
+        #expect(throws: ScheduleExternalSnapshotStoreError.invalidSnapshot) { try store.read() }
+        #expect(ScheduleOccurrenceResolver.loadResolvedSnapshot(store: store).contentState == .invalid)
         let recovered = ScheduleExternalSnapshot(generatedAt: Date(timeIntervalSince1970: 0), revision: 2,
             isLoggedIn: true, studentID: "budget-owner", firstDayString: "", timeTable: [], courses: [])
         #expect(try store.writeIfNewer(recovered))
@@ -455,6 +488,8 @@ struct ScheduleSharedStoreTests {
         let url = try #require(store.fileURL), original = files.storedData[url]
         files.setFailures(reading: true)
         #expect(store.load() == nil)
+        #expect(throws: CocoaError(.fileReadNoPermission)) { try store.read() }
+        #expect(ScheduleOccurrenceResolver.loadResolvedSnapshot(store: store).contentState == .unavailable)
         #expect(throws: CocoaError(.fileReadNoPermission)) { try store.writeIfNewer(value(1)) }
         #expect(files.storedData[url] == original)
         files.setFailures()
@@ -467,9 +502,24 @@ struct ScheduleSharedStoreTests {
         let store = ScheduleExternalSnapshotStore(files: ModuleScoreFiles(), containerURL: nil, notificationCenter: NotificationCenter())
         #expect(store.fileURL == nil)
         #expect(store.load() == nil)
+        #expect(throws: ScheduleExternalSnapshotStoreError.sharedContainerUnavailable) { try store.read() }
+        #expect(ScheduleOccurrenceResolver.loadResolvedSnapshot(store: store).contentState == .unavailable)
         #expect(store.save(snapshot()) == false)
         #expect(store.clear() == false)
         #expect(throws: ScheduleExternalSnapshotStoreError.sharedContainerUnavailable) { try store.write(snapshot()) }
+    }
+
+    @Test func missingAndMalformedSnapshotsHaveDistinctDisplayStates() throws {
+        let files = ModuleScoreFiles()
+        let store = ScheduleExternalSnapshotStore(files: files, containerURL: URL(fileURLWithPath: "/shared-display"))
+        #expect(try store.read() == nil)
+        #expect(ScheduleOccurrenceResolver.loadResolvedSnapshot(store: store).contentState == .missing)
+        let url = try #require(store.fileURL)
+        try files.writeData(Data("invalid-json".utf8), to: url, options: [])
+        #expect(throws: ScheduleExternalSnapshotStoreError.invalidSnapshot) { try store.read() }
+        #expect(ScheduleOccurrenceResolver.loadResolvedSnapshot(store: store).contentState == .invalid)
+        #expect(try store.writeIfNewer(snapshot()))
+        #expect(try store.read() != nil)
     }
 }
 

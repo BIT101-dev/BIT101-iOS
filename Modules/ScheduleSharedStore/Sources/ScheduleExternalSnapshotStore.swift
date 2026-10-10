@@ -4,6 +4,7 @@ import ScheduleContracts
 
 public enum ScheduleExternalSnapshotStoreError: Error, Equatable {
     case sharedContainerUnavailable
+    case invalidSnapshot
     case staleSnapshot
 }
 
@@ -56,7 +57,10 @@ public nonisolated struct ScheduleExternalSnapshotStore: Sendable {
     @discardableResult
     public func writeIfNewer(_ snapshot: ScheduleExternalSnapshot) throws -> Bool {
         let snapshot = snapshot.replacingStudentID(with: AccountStorageIdentity.stableToken(for: snapshot.studentID))
-        if let current = try readStoredSnapshot() {
+        let current: ScheduleExternalSnapshot?
+        do { current = try read() }
+        catch ScheduleExternalSnapshotStoreError.invalidSnapshot { current = nil }
+        if let current {
             if snapshot == current { return false }
             let newer = snapshot.revision == 0 && current.revision == 0
                 ? snapshot.generatedAt > current.generatedAt : snapshot.revision > current.revision
@@ -67,20 +71,22 @@ public nonisolated struct ScheduleExternalSnapshotStore: Sendable {
     }
 
     public func load() -> ScheduleExternalSnapshot? {
-        try? readStoredSnapshot()
+        try? read()
     }
 
-    private func readStoredSnapshot() throws -> ScheduleExternalSnapshot? {
-        guard
-            let fileURL,
-            files.fileExists(at: fileURL)
-        else {
-            return nil
+    /// 返回缺失状态，并保留损坏数据和磁盘读取失败的错误分类。
+    public func read() throws -> ScheduleExternalSnapshot? {
+        guard let fileURL else { throw ScheduleExternalSnapshotStoreError.sharedContainerUnavailable }
+        guard files.fileExists(at: fileURL) else { return nil }
+        if let size = files.regularFileSize(at: fileURL), size > ScheduleExternalSnapshotCodec.maximumEncodedBytes {
+            throw ScheduleExternalSnapshotStoreError.invalidSnapshot
         }
-
-        if let size = files.regularFileSize(at: fileURL), size > ScheduleExternalSnapshotCodec.maximumEncodedBytes { return nil }
-        let data = try files.readData(at: fileURL, maximumBytes: ScheduleExternalSnapshotCodec.maximumEncodedBytes)
-        guard let snapshot = try? ScheduleExternalSnapshotCodec.decode(data) else { return nil }
+        let data: Data
+        do { data = try files.readData(at: fileURL, maximumBytes: ScheduleExternalSnapshotCodec.maximumEncodedBytes) }
+        catch let error as CocoaError where error.code == .fileReadTooLarge { throw ScheduleExternalSnapshotStoreError.invalidSnapshot }
+        let snapshot: ScheduleExternalSnapshot
+        do { snapshot = try ScheduleExternalSnapshotCodec.decode(data) }
+        catch { throw ScheduleExternalSnapshotStoreError.invalidSnapshot }
         let accountToken = AccountStorageIdentity.stableToken(for: snapshot.studentID)
         guard snapshot.studentID != accountToken else { return snapshot }
         return snapshot.replacingStudentID(with: accountToken)
