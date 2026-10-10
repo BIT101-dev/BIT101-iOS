@@ -65,14 +65,17 @@ final class GalleryViewModel: ObservableObject {
         interactionTasks.removeAll()
         interactionTaskTokens.removeAll()
         recommendPrefetch.reset()
-        refreshPreviousStates.removeAll()
         for feed in GalleryFeedKind.allCases {
+            if let previousState = refreshPreviousStates[feed] {
+                feedStates[feed] = previousState
+            }
             refreshGenerations[feed] = (refreshGenerations[feed] ?? 0) &+ 1
             setState(for: feed) {
                 if $0.status == .loading { $0.status = $0.posters.isEmpty ? .idle : .loaded }
                 $0.isLoadingMore = false
             }
         }
+        refreshPreviousStates.removeAll()
         cancelSearchOperations()
     }
 

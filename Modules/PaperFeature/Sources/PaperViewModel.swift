@@ -44,6 +44,7 @@ final class PaperListViewModel: ObservableObject {
     func cancelRefreshOperations() {
         refreshTask?.cancel(); refreshTask = nil
         refreshGeneration &+= 1
+        previewLoadingIDs.removeAll()
         if let refreshPreviousState {
             state = refreshPreviousState.state
             previewMetadataByPaperID = refreshPreviousState.metadata
@@ -228,6 +229,7 @@ final class PaperSearchViewModel: ObservableObject {
     func cancelSearchOperations() {
         searchTask?.cancel(); searchTask = nil
         searchGeneration &+= 1
+        previewLoadingIDs.removeAll()
         if let searchPreviousState {
             state = searchPreviousState.state
             previewMetadataByPaperID = searchPreviousState.metadata

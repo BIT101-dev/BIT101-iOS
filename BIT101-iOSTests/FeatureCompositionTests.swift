@@ -1,9 +1,9 @@
 import CommunityPersistence
 import ScheduleDomain
 @testable import ScheduleFeature
-import GalleryFeature
+@testable import GalleryFeature
 @testable import MineFeature
-import PaperFeature
+@testable import PaperFeature
 import StorageCore
 import CommunityUI
 import MediaKit
@@ -263,6 +263,124 @@ struct FeatureCompositionTests {
         try await host(PaperRootView(dependencies: paper(selected), media: media())
             .environment(paper(surrounding)).environment(media())) { await selected.waitForRequest() }
         #expect(surrounding.requests.isEmpty)
+    }
+
+    private final class PaperPreviewService: PaperListServicing {
+        let summary = PaperSummary(id: 1, title: "页面返回验收", intro: "", likeNum: 0, commentNum: 0, updateTime: "")
+        var pages: [Int] = []
+        var previewRequests = 0
+        var pending: CheckedContinuation<PaperPreviewMetadata, Never>?
+        func fetchPapers(search: String?, order: PaperSortOrder, page: Int) async throws -> [PaperSummary] {
+            pages.append(page)
+            return page == 0 ? [summary] : []
+        }
+        func fetchPaper(id: Int) async throws -> PaperDetail { throw URLError(.unsupportedURL) }
+        func fetchPreviewMetadata(id: Int) async throws -> PaperPreviewMetadata {
+            previewRequests += 1
+            if previewRequests == 1 { return await withCheckedContinuation { pending = $0 } }
+            return PaperPreviewMetadata(authorName: "返回后的作者", avatarURL: nil, isAnonymous: false)
+        }
+    }
+
+    private final class TabRoute: ObservableObject {
+        @Published var selection = 0
+        var otherAppeared = false
+    }
+
+    private struct PaperTabs: View {
+        @ObservedObject var route: TabRoute
+        let dependencies: PaperDependencies
+        let media: MediaEnvironment
+        var body: some View {
+            TabView(selection: $route.selection) {
+                NavigationStack { PaperRootView(dependencies: dependencies, media: media) }
+                    .tabItem { Text("文章") }.tag(0)
+                Text("其他页面").onAppear { route.otherAppeared = true }
+                    .tabItem { Text("其他") }.tag(1)
+            }
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func paperTabReturnRetriesTheCancelledAuthorPreviewWithItsExistingList() async throws {
+        let service = PaperPreviewService()
+        let routes = TabRoute()
+        let details = PaperService(session: session(TraceTransport()))
+        let dependencies = PaperDependencies(list: service, detail: details, composer: details,
+            networkPath: NetworkPathState(snapshot: NetworkPathSnapshot(status: .connected)))
+        try await host(PaperTabs(route: routes, dependencies: dependencies, media: media())) {
+            while service.pending == nil || service.pages.count < 2 { await Task.yield() }
+            routes.selection = 1
+            while !routes.otherAppeared { await Task.yield() }
+            routes.selection = 0
+            while service.previewRequests < 2 { await Task.yield() }
+            service.pending?.resume(returning: PaperPreviewMetadata(authorName: "迟到的作者", avatarURL: nil, isAnonymous: false))
+            service.pending = nil
+        }
+        #expect(service.previewRequests == 2 && service.pages == [0, 1])
+    }
+
+    private final class GalleryFeed: GalleryFeedServicing {
+        var pages: [Int] = []
+        var pending: CheckedContinuation<GalleryPageBatch<CommunityPoster>, Never>?
+        var suspend = false
+        func fetchFeed(kind: GalleryFeedKind, page: Int?) async throws -> GalleryPageBatch<CommunityPoster> {
+            let page = page ?? 0
+            pages.append(page)
+            if suspend { return await withCheckedContinuation { pending = $0 } }
+            let poster = CommunityPoster(anonymous: false, claim: .init(id: 0, text: ""), commentNum: 0,
+                createTime: "", editTime: "", id: page + 1, images: [], likeNum: 0, public: true,
+                tags: [], text: "", title: "分页验收", updateTime: "", user: .placeholder(id: 1, nickname: "作者"))
+            return .init(items: page < 2 ? [poster] : [], nextSourcePage: page + 1, canLoadMore: page < 2)
+        }
+        func fetchRecommendPage(sourcePage: Int) async throws -> GalleryPageBatch<CommunityPoster> { try await fetchFeed(kind: .recommend, page: sourcePage) }
+        func fetchBotFeed(startPage: Int) async throws -> GalleryPageBatch<CommunityPoster> { try await fetchFeed(kind: .bot, page: startPage) }
+        func searchPosters(query: GallerySearchQuery, page: Int?) async throws -> GalleryPageBatch<CommunityPoster> { try await fetchFeed(kind: .newest, page: page) }
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func galleryOwnerExitRestoresPaginationDuringRefresh(exhausted: Bool) async {
+        let service = GalleryFeed()
+        let model = GalleryViewModel(service: service)
+        await model.refresh(feed: .newest)
+        await model.loadMoreIfNeeded(for: .newest, currentPoster: model.state(for: .newest).posters.last)
+        if exhausted { await model.loadMoreIfNeeded(for: .newest, currentPoster: model.state(for: .newest).posters.last) }
+        let previous = model.state(for: .newest)
+        service.suspend = true
+        let refresh = model.enqueueRefresh(for: .newest)
+        while service.pending == nil { await Task.yield() }
+        model.cancelPendingOperations()
+        #expect(model.state(for: .newest).nextPage == previous.nextPage)
+        #expect(model.state(for: .newest).canLoadMore == previous.canLoadMore)
+        service.pending?.resume(returning: .init(items: [], nextSourcePage: 1, canLoadMore: false))
+        service.pending = nil
+        await refresh.value
+        service.suspend = false
+        await model.loadMoreIfNeeded(for: .newest, currentPoster: previous.posters.last)
+        #expect(service.pages == (exhausted ? [0, 1, 2, 0] : [0, 1, 0, 2]))
+        #expect(model.state(for: .newest).posters == previous.posters && model.alert == nil)
+    }
+
+    @Test
+    func authenticatedPaperReadsSendTheSmokePreflightAndBusinessRoutes() async throws {
+        let transport = TraceTransport()
+        transport.response = { request in
+            switch request.url?.path {
+            case "/user/check": return Data("{}".utf8)
+            case "/papers/17":
+                return Data(#"{"id":17,"title":"文章","intro":"","content":"","create_time":"","update_time":"","update_user":{"id":1,"create_time":"","nickname":"作者","avatar":{"mid":"","url":"","low_url":""},"motto":"","identity":{"id":0,"color":"","text":"","create_time":"","update_time":"","delete_time":null}},"anonymous":false,"like_num":0,"comment_num":0,"public_edit":false,"like":false,"own":false}"#.utf8)
+            case "/reaction/comments": return Data("[]".utf8)
+            default: throw URLError(.unsupportedURL)
+            }
+        }
+        let service = PaperService(session: session(transport))
+        _ = try await service.fetchPaper(id: 17)
+        _ = try await service.fetchComments(paperID: 17, order: .newest, page: 0)
+        _ = try await service.fetchComments(paperID: 17, order: .newest, page: 1)
+        #expect(transport.requests.map { $0.url?.path } == ["/user/check", "/papers/17", "/user/check", "/reaction/comments", "/user/check", "/reaction/comments"])
+        let url = try #require(transport.requests.last?.url)
+        let query = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems)
+        #expect(Dictionary(uniqueKeysWithValues: query.map { ($0.name, $0.value ?? "") }) == ["obj": "paper17", "order": "new", "page": "1"])
     }
 
     @Test(.timeLimit(.minutes(1)))

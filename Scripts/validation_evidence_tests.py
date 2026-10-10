@@ -758,6 +758,32 @@ def network_route_identity_self_test() -> None:
             changed[0]['query'].pop(key)
             assert not complete(probe, changed, expected)
     login = {'method': 'GET', 'endpoint': 'https://bit101.flwfdd.xyz/user/check', 'statusCode': 200, 'query': {}}
+    paper = dict(login, endpoint='https://bit101.flwfdd.xyz/papers/17')
+    comments = [dict(login, endpoint='https://bit101.flwfdd.xyz/reaction/comments',
+        query={'obj': 'paper17', 'order': 'new', 'page': str(page)}) for page in (0, 1)]
+    for probe, requests, selectors in [
+        ('文章详情', [login, paper], {'path': '/papers/17'}),
+        ('文章评论', [login, comments[0], login, comments[1]], {'obj': 'paper17'}),
+    ]:
+        assert complete(probe, requests, selectors), probe
+        assert complete(probe, [row for row in requests if row is not login], selectors), probe
+        assert complete(probe, [dict(login, statusCode=401)] + requests, selectors), probe
+        assert not complete(probe, [login], selectors), probe
+        for broken in (dict(login, statusCode=500), dict(login, statusCode=401), dict(login, method='POST'),
+                dict(login, endpoint='https://example.invalid/user/check'), dict(login, endpoint='https://bit101.flwfdd.xyz/user/unrelated')):
+            assert not complete(probe, requests + [broken], selectors), (probe, broken)
+    write_reads = [login, dict(login, endpoint='https://bit101.flwfdd.xyz/user/info/0'),
+        dict(login, endpoint='https://bit101.flwfdd.xyz/user/info/18'),
+        dict(login, endpoint='https://bit101.flwfdd.xyz/courses/3'),
+        dict(login, endpoint='https://bit101.flwfdd.xyz/posters/1'), paper,
+        dict(login, endpoint='https://bit101.flwfdd.xyz/posters', query={'mode': 'search', 'uid': '0', 'page': '0'}),
+        dict(login, endpoint='https://bit101.flwfdd.xyz/papers', query={'search': '功能验收', 'page': '0'}),
+        dict(login, endpoint='https://bit101.flwfdd.xyz/reaction/comments', query={'obj': 'paper17', 'order': 'old', 'page': '0'})]
+    assert complete('社区写入与清理', write_reads + writes)
+    assert not complete('社区写入与清理', write_reads)
+    for row in write_reads:
+        assert not complete('社区写入与清理', writes + [dict(row, statusCode=500)]), row
+    assert not complete('社区写入与清理', writes + [dict(login, endpoint='https://bit101.flwfdd.xyz/user/unrelated')])
     assert complete('BIT101 登录状态', [dict(login, statusCode=401), login])
     assert not complete('BIT101 登录状态', [login, dict(login, statusCode=401)])
     assert not complete('BIT101 登录状态', [dict(login, statusCode=500), login])

@@ -156,6 +156,15 @@ def auxiliary_contracts(probe: str, contracts: list[RequestContract]) -> list[Re
     school_session = any(contract.host in {SCHOOL, r'zy-eclass\.bit\.edu\.cn', r'(?:lexue|webvpn)\.bit\.edu\.cn',
         r'login\.bit101\.flwfdd\.xyz', r'jwb\.bit\.edu\.cn'} for contract in contracts)
     rows = []
+    if probe in {'文章详情', '文章评论', '社区写入与清理'}:
+        rows.append(community('/user/check'))
+    if probe == '社区写入与清理':
+        rows.extend(community(path) for path in (r'/user/info/\d+', r'/courses/\d+', r'/posters/\d+', r'/papers/\d+'))
+        rows.extend([
+            community('/posters', query={'mode': 'search', 'uid': '0', 'order': None, 'search': None}),
+            community('/papers', query={'order': None, 'search': '.+'}),
+            community('/reaction/comments', query={'obj': r'(?:poster|paper|course|comment)\d+', 'order': 'old'}),
+        ])
     if community_session:
         rows.extend(community(path, method='POST') for path in ('/user/webvpn_verify_init', '/user/webvpn_verify'))
     if community_session or school_session:

@@ -322,6 +322,33 @@ struct GalleryPaginationTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
+    func ownerExitRestoresTheCompleteRefreshSnapshotAfterPaging() async {
+        let service = PagingGalleryService()
+        service.request = { page in page < 2 ? [listPoster(page + 1)] : [] }
+        let model = GalleryViewModel(service: service)
+        await model.refresh(feed: .newest)
+        await model.loadMoreIfNeeded(for: .newest, currentPoster: listPoster(1))
+        await model.loadMoreIfNeeded(for: .newest, currentPoster: listPoster(2))
+        let previous = model.state(for: .newest)
+        #expect(previous.nextPage == 3 && !previous.canLoadMore)
+        let gate = ListRequestGate<[CommunityPoster]>()
+        service.request = { _ in await gate.request() }
+        let refresh = model.enqueueRefresh(for: .newest)
+        await gate.waitUntilRequested()
+        model.cancelPendingOperations()
+        let restored = model.state(for: .newest)
+        #expect(restored.posters == previous.posters && restored.posterIDs == previous.posterIDs)
+        #expect(restored.nextPage == previous.nextPage && restored.canLoadMore == previous.canLoadMore)
+        #expect(restored.needsContinuation == previous.needsContinuation && restored.status == .loaded)
+        #expect(!restored.isLoadingMore)
+        gate.finish([listPoster(99)])
+        await refresh.value
+        await model.loadMoreIfNeeded(for: .newest, currentPoster: listPoster(2))
+        #expect(service.pages == [0, 1, 2, 0])
+        #expect(model.state(for: .newest).posters == previous.posters && model.alert == nil)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func prefetchCoordinatorReleasesDuringASuspendedSourceRequest() async {
         let gate = ListRequestGate<[CommunityPoster]>()
         let service = PagingGalleryService()

@@ -32,6 +32,27 @@ struct ServiceContractTests {
                 }
             }
         }
+        try assertSmokeContract(probe: probe, requests: requests)
+    }
+
+    @Test(arguments: ["文章详情", "文章评论"], [false, true])
+    func productionPaperRequestsPassThePythonSmokeContract(probe: String, authenticated: Bool) async throws {
+        let transport = Transport(probe == "文章详情" ? [(200, paperDetailBody(own: authenticated))] : [(200, "[]"), (200, "[]")])
+        let session = CommunitySession(httpClient: HTTPClient(transport: transport, observer: nil),
+            baseURL: AppURL.required("https://bit101.flwfdd.xyz"),
+            credentials: { .init(identity: .init(accountIdentifier: "contracts"), cookie: authenticated ? "fixture" : "") }, refresh: { _ in })
+        let service = PaperService(session: session)
+        var requests: [HTTPRequestEvidence] = []
+        try await HTTPRequestEvidenceContext.$didReceive.withValue({ requests.append($0) }) {
+            if probe == "文章详情" { _ = try await service.fetchPaper(id: 17) }
+            else { for page in 0...1 { _ = try await service.fetchComments(paperID: 17, order: .newest, page: page) } }
+        }
+        #expect(transport.authenticationRequests.count == (authenticated ? (probe == "文章详情" ? 1 : 2) : 0))
+        try assertSmokeContract(probe: probe, requests: requests,
+            selectors: probe == "文章详情" ? ["path": "/papers/17"] : ["obj": "paper17"])
+    }
+
+    private func assertSmokeContract(probe: String, requests: [HTTPRequestEvidence], selectors: [String: String] = [:]) throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
@@ -41,7 +62,7 @@ struct ServiceContractTests {
         process.standardError = errors
         try process.run()
         let rows = try JSONSerialization.jsonObject(with: JSONEncoder().encode(requests))
-        try input.fileHandleForWriting.write(contentsOf: JSONSerialization.data(withJSONObject: ["probe": probe, "requests": rows]))
+        try input.fileHandleForWriting.write(contentsOf: JSONSerialization.data(withJSONObject: ["probe": probe, "requests": rows, "expectedParameters": selectors]))
         try input.fileHandleForWriting.close()
         process.waitUntilExit()
         #expect(process.terminationStatus == 0, Comment(rawValue: String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)))

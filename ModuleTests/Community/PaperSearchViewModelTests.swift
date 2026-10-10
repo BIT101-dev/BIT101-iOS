@@ -107,6 +107,44 @@ struct PaperSearchViewModelTests {
     }
 
     @Test(arguments: [false, true]) @MainActor
+    func leavingThePageReleasesPreviewRequestsForTheSamePaper(search: Bool) async {
+        let paper = PaperSummary(id: 1, title: "fixture", intro: "", likeNum: 0, commentNum: 0, updateTime: "")
+        let service = ServiceStub(result: .success([paper]))
+        let list = PaperListViewModel(service: service)
+        let results = PaperSearchViewModel(service: service)
+        results.searchText = "fixture"
+        func load() async {
+            if search { await results.loadPreviewMetadataIfNeeded(for: paper) }
+            else { await list.loadPreviewMetadataIfNeeded(for: paper) }
+        }
+        func preview() -> PaperPreviewMetadata? {
+            search ? results.previewMetadata(for: paper.id) : list.previewMetadata(for: paper.id)
+        }
+        if search { await results.performSearch() } else { await list.refresh() }
+        let earlierGate = ListRequestGate<PaperDetail>()
+        let old = PaperDetail(id: 1, title: "fixture", intro: "", content: "", createTime: "", updateTime: "",
+            updateUser: listUser(1), anonymous: false, likeNum: 0, commentNum: 0, publicEdit: true, like: false, own: true)
+        let fresh = PaperDetail(id: 1, title: "fixture", intro: "", content: "", createTime: "", updateTime: "",
+            updateUser: listUser(2), anonymous: false, likeNum: 0, commentNum: 0, publicEdit: true, like: false, own: true)
+        var requests = 0
+        service.metadata = { _ in
+            requests += 1
+            return requests == 1 ? await earlierGate.request() : fresh
+        }
+        let earlier = Task { await load() }
+        await earlierGate.waitUntilRequested()
+        earlier.cancel()
+        if search { results.cancelSearchOperations() } else { list.cancelRefreshOperations() }
+        await load()
+        #expect(requests == 2 && preview()?.authorName == fresh.updateUser.nickname)
+        earlierGate.finish(old)
+        await earlier.value
+        await load()
+        #expect(requests == 2 && preview()?.authorName == fresh.updateUser.nickname)
+        #expect(service.requests.count == 1)
+    }
+
+    @Test(arguments: [false, true]) @MainActor
     func failedPreviewLeavesALoadResultAndRefreshAllowsRetry(search: Bool) async {
         let paper = PaperSummary(id: 1, title: "fixture", intro: "", likeNum: 0, commentNum: 0, updateTime: "")
         let service = ServiceStub(result: .success([paper]))
