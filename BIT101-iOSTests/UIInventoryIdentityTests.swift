@@ -3,6 +3,13 @@ import XCTest
 @testable import BIT101_iOS
 
 nonisolated final class UIInventoryIdentityTests: XCTestCase {
+    func testScrollEndUsesPhysicalPixelPrecision() {
+        XCTAssertEqual(UITestScrollGeometry.visibleDistance(1.4210854715202004e-13, scale: 3), 0)
+        XCTAssertEqual(UITestScrollGeometry.visibleDistance(-1.4210854715202004e-13, scale: 3), 0)
+        XCTAssertEqual(UITestScrollGeometry.visibleDistance(1.0 / 3, scale: 3), 1.0 / 3)
+        XCTAssertEqual(UITestScrollGeometry.visibleDistance(280.3333333333335, scale: 3), 280.3333333333333)
+    }
+
     func testNewRowsRemainPendingAfterScrollAndVisitedRowsSurviveReordering() {
         func row(_ id: String) -> String {
             UITestControlIdentity.key(scope: "Scores", ancestors: ["interaction.list"],

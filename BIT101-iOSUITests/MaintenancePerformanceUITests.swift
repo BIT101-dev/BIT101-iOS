@@ -19,13 +19,25 @@ nonisolated final class MaintenancePerformanceUITests: XCTestCase {
     func testStartupPerformance() throws {
         let workload = try PerformanceWorkload("startup", bundle: Bundle(for: Self.self))
         XCTAssertEqual(try workload.value("operation", as: String.self), "terminate-launch-schedule-ready")
-        XCTAssertEqual(try workload.value("storage", as: String.self), "reset")
+        XCTAssertEqual(try workload.value("storage", as: String.self), "retained")
+        XCTAssertEqual(try workload.value("composition", as: String.self), "production")
         let app = application()
+        app.launchEnvironment["BIT101_UI_TEST_PERFORMANCE_COURSES"] = String(try workload.value("courses", as: Int.self))
+        app.launchEnvironment["BIT101_UI_TEST_PERFORMANCE_WEEKS"] = String(try workload.value("weeks", as: Int.self))
+        let restoredCourse = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "性能课程 1")).firstMatch
         defer { app.terminate() }
+        app.launch()
+        XCTAssertTrue(restoredCourse.waitForExistence(timeout: 5))
+        app.terminate()
+        app.launchEnvironment["BIT101_UI_TEST_RESET_STORAGE"] = "0"
+        app.launchEnvironment["BIT101_UI_TEST_PRODUCTION_COMPOSITION"] = "1"
+        app.launchEnvironment["BIT101_UI_TEST_SCHOOL"] = "0"
+        app.launchEnvironment["BIT101_UI_TEST_CONTENT"] = "1"
         measure(metrics: [XCTClockMetric(), XCTMemoryMetric(application: app)]) {
             app.terminate()
             app.launch()
             XCTAssertTrue(app.buttons["下一周"].waitForExistence(timeout: 5))
+            XCTAssertTrue(restoredCourse.waitForExistence(timeout: 5))
         }
     }
 

@@ -495,7 +495,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
                     if remaining[0] > 0 { element.swipeLeft() } else { element.swipeRight() }
                 }
                 let outcome = UITestControlClient.request(parameters.merging(["command": "scroll-check"]) { _, value in value })
-                XCTAssertEqual(outcome, "scrolled", "滚动手势应改变内容位置：\(identifier)。")
+                XCTAssertEqual(outcome, "scrolled", "滚动手势应改变内容位置：\(identifier)，范围 \(range)，位置 \(offset)，剩余 \(remaining)。")
                 XCTAssertEqual(UITestControlClient.request(parameters.merging(["command": "scroll-restore"]) { _, value in value }), "restored",
                     "容器验收应恢复起始位置：\(identifier)。")
                 UITestSnapshotReader.invalidate()

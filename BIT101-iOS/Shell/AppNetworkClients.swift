@@ -35,7 +35,9 @@ private struct AppHTTPClientObserver: HTTPClientObserving, Sendable {
 }
 
 extension HTTPClient {
-#if BIT101_AUTOMATED_TESTING
+#if BIT101_UI_TESTING
+    static let defaultNetworkWarningCenter: NetworkMagicWarningCenter? = AppUITestBootstrap.usesProductionComposition ? .shared : nil
+#elseif BIT101_AUTOMATED_TESTING
     static let defaultNetworkWarningCenter: NetworkMagicWarningCenter? = nil
 #else
     static let defaultNetworkWarningCenter: NetworkMagicWarningCenter? = .shared

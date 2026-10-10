@@ -17,7 +17,7 @@ extension LoginService: LoginServicing {}
 extension LoginService {
     static func appRuntimeService() -> any LoginServicing {
 #if BIT101_UI_TESTING
-        if AppFileDirectories.isRunningUITest {
+        if AppFileDirectories.isRunningUITest && !AppUITestBootstrap.usesProductionComposition {
             return UITestLoginService()
         }
 #endif
@@ -61,6 +61,19 @@ struct UITestLoginService: LoginServicing {
                 cache.courseData.store(TermScheduleSnapshot(term: cache.currentTerm, firstDayString: firstDayString,
                     courses: payload.courses, exams: payload.exams, updatedAt: .distantPast))
                 cache.cachedClassroomBuildingsByCampusCode["1"] = try await UITestSchoolService().fetchBuildings(campusCode: "1")
+            }
+            if let count = AppUITestBootstrap.environment["BIT101_UI_TEST_PERFORMANCE_COURSES"].flatMap(Int.init),
+               let weeks = AppUITestBootstrap.environment["BIT101_UI_TEST_PERFORMANCE_WEEKS"].flatMap(Int.init) {
+                let slots = TimeSlot.default
+                let courses = (0..<count).map { index in
+                    let section = slots[(index / 7) % slots.count].id
+                    return CourseRecord(id: "performance-\(index)", term: cache.currentTerm, name: "性能课程 \(index + 1)",
+                        teacher: "测试教师", classroom: "文萃A101", description: "启动性能负载", weeks: Array(1...weeks),
+                        weekday: index % 7 + 1, startSection: section, endSection: section, campus: "良乡校区",
+                        number: "PERF-\(index)", credit: 2, hour: 32, type: "必修", category: "专业", department: "测试学院")
+                }
+                cache.courseData.store(TermScheduleSnapshot(term: cache.currentTerm, firstDayString: firstDayString,
+                    courses: courses, exams: [], updatedAt: .distantPast))
             }
             if let fixture = AppUITestBootstrap.environment["BIT101_UI_TEST_DDL_FIXTURE"] {
                 let now = Date()

@@ -309,7 +309,8 @@ final class UIElement: NSObject {
     func pressReturnKey() {
         Self.beforeNativeTap?()
         let identity = interactionIdentity
-        native.typeKey(.return, modifierFlags: [])
+        // 换行字符映射到原生 Return 键。
+        native.typeKey("\n", modifierFlags: [])
         recordInteraction(identity, action: "keyboard")
         UITestSnapshotReader.invalidate()
     }

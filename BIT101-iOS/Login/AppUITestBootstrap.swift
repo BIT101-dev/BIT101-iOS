@@ -71,6 +71,7 @@ final class UITestSceneConfiguration {
 
 
 enum AppUITestBootstrap {
+    nonisolated static let usesProductionComposition = ProcessInfo.processInfo.environment["BIT101_UI_TEST_PRODUCTION_COMPOSITION"] == "1"
     static var environment: [String: String] { UITestSceneConfiguration.shared.snapshot.environment }
     private static var injectedScheduleConflictScene: Int?
 
@@ -122,6 +123,9 @@ enum AppUITestBootstrap {
         AppFileDirectories.defaults.removePersistentDomain(
             forName: AppFileDirectories.uiTestDefaultsSuiteName
         )
+        if environment["BIT101_UI_TEST_UPDATE"] != nil {
+            AppFileDirectories.defaults.set(false, forKey: AppSettingsStore.automaticUpdateChecksEnabledKey)
+        }
         AppAccountSession.resetUITestCredentials()
 
         let supportDirectory = AppFileDirectories.applicationSupportDirectoryURL(named: "BIT101-iOS")
@@ -190,8 +194,10 @@ final class UITestHTTPTransport: HTTPTransport {
             return try jsonResponse(["id": "11111111-1111-4111-8111-111111111111"], url: url, statusCode: 201)
         }
         if url.host == "itunes.apple.com", let fixture = AppUITestBootstrap.environment["BIT101_UI_TEST_UPDATE"] {
-            return try jsonResponse(["results": [["version": fixture == "current" ? "0.0" : "999.0",
-                "releaseNotes": "自动化测试更新", "trackViewUrl": BIT101AppStore.url.absoluteString]]], url: url)
+            return try jsonResponse(["resultCount": 1, "results": [["version": fixture == "current" ? "0.0" : "999.0",
+                "releaseNotes": "自动化测试更新", "bundleId": "BIT101-dev.BIT101-iOS",
+                "currentVersionReleaseDate": timestamp,
+                "trackViewUrl": BIT101AppStore.url.absoluteString]]], url: url)
         }
         guard AppUITestBootstrap.environment["BIT101_UI_TEST_CONTENT"] == "1",
               url.host == "bit101.flwfdd.xyz" else {

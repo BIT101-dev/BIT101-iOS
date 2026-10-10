@@ -84,7 +84,7 @@ final class AppAccountLifecycle: ObservableObject {
 
     func start() {
 #if BIT101_UI_TESTING
-        guard !AppFileDirectories.isRunningUITest else { return }
+        guard AppUITestBootstrap.usesProductionComposition || !AppFileDirectories.isRunningUITest else { return }
 #endif
         externalDisplays.activate()
         preferenceCloudSync.refreshFromCloudIfNeeded()
@@ -108,7 +108,7 @@ final class AppAccountLifecycle: ObservableObject {
 
     private func refreshExternalDisplays(trigger: String, syncWidgetSnapshot: Bool) {
 #if BIT101_UI_TESTING
-        guard !AppFileDirectories.isRunningUITest else { return }
+        guard AppUITestBootstrap.usesProductionComposition || !AppFileDirectories.isRunningUITest else { return }
 #endif
         externalRefreshTask?.cancel()
         let session = currentSession()

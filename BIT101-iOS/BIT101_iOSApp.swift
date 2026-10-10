@@ -37,7 +37,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         return true
 #else
 #if BIT101_UI_TESTING
-        guard !AppFileDirectories.isRunningUITest else { return true }
+        guard AppUITestBootstrap.usesProductionComposition || !AppFileDirectories.isRunningUITest else { return true }
 #endif
         ScheduleReminderBackgroundRefresh.register()
         return true
@@ -167,9 +167,13 @@ struct BIT101_iOSApp: App {
         let stores = AppAccountStores.shared
         let preferenceCloudSync: ExperimentalPreferenceCloudSync
 #if BIT101_UI_TESTING
-        let cloud = AutomatedTestPreferenceCloudStore()
-        preferenceCloudSync = ExperimentalPreferenceCloudSync(settings: settings, stores: stores, cloudStore: cloud,
-            scoreEncryption: ScoreCacheSyncEncryption(defaults: AppFileDirectories.defaults, credentials: cloud))
+        if AppUITestBootstrap.usesProductionComposition {
+            preferenceCloudSync = ExperimentalPreferenceCloudSync.shared
+        } else {
+            let cloud = AutomatedTestPreferenceCloudStore()
+            preferenceCloudSync = ExperimentalPreferenceCloudSync(settings: settings, stores: stores, cloudStore: cloud,
+                scoreEncryption: ScoreCacheSyncEncryption(defaults: AppFileDirectories.defaults, credentials: cloud))
+        }
 #else
         preferenceCloudSync = ExperimentalPreferenceCloudSync.shared
 #endif
@@ -177,8 +181,8 @@ struct BIT101_iOSApp: App {
         let scores: any ScoreListServicing
         let transcripts: any TrustedTranscriptServicing
 #if BIT101_UI_TESTING
-        scores = AppFileDirectories.isRunningUITest ? UITestScoreService() : productionScores
-        transcripts = AppFileDirectories.isRunningUITest ? UITestScoreService() : productionScores
+        scores = AppFileDirectories.isRunningUITest && !AppUITestBootstrap.usesProductionComposition ? UITestScoreService() : productionScores
+        transcripts = AppFileDirectories.isRunningUITest && !AppUITestBootstrap.usesProductionComposition ? UITestScoreService() : productionScores
 #else
         scores = productionScores
         transcripts = productionScores
@@ -214,8 +218,10 @@ struct BIT101_iOSApp: App {
 
     private static func makeScheduleViewModel() -> ScheduleViewModel {
 #if BIT101_UI_TESTING
-        return ScheduleServiceFactory.makeViewModel(platformActions: UITestSchedulePlatformActions(), didSave: { _, _, _ in })
-#else
+        if !AppUITestBootstrap.usesProductionComposition {
+            return ScheduleServiceFactory.makeViewModel(platformActions: UITestSchedulePlatformActions(), didSave: { _, _, _ in })
+        }
+#endif
         let calendar = ScheduleSystemCalendarManager.shared
         let effects = AppScheduleCacheEffects(
             currentSession: { AppAccountSession.currentSession },
@@ -230,7 +236,6 @@ struct BIT101_iOSApp: App {
             deleteAllEntries: calendar.deleteAllImportedEvents
         )
         return ScheduleServiceFactory.makeViewModel(platformActions: effects, didSave: effects.didSave)
-#endif
     }
 #endif
 
@@ -327,7 +332,7 @@ struct BIT101_iOSApp: App {
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
 #if BIT101_UI_TESTING
-                guard !AppFileDirectories.isRunningUITest else { return }
+                guard AppUITestBootstrap.usesProductionComposition || !AppFileDirectories.isRunningUITest else { return }
 #endif
                 // 回到前台时导出本地快照并刷新时间线；学校请求由用户显式操作触发。
                 appDelegate.restoreLoginSession()

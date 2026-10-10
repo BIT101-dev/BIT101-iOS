@@ -220,6 +220,7 @@ extension InteractionCoverageUITests {
         assertUI(app.alerts["发现新版本 999.0"].appears(timeout: 5), "键盘验收应展示更新提示。")
         app.alerts.buttons["ui.app-prompt-host-modifier.default-action"].pressReturnKey()
         assertOpenedURL("apps.apple.com/cn/app/bit101/id6761147125")
+        assertUI(app.alerts["发现新版本 999.0"].disappears(timeout: 5), "Return 应完成当前更新提示并恢复页面。")
         app = configureApp(resetStorage: true, animations: true, update: "current", initialSettings: "about")
         tap("检查更新")
         assertUI(app.alerts["已是最新版本"].appears(timeout: 5), "当前版本响应应展示检查结果。")

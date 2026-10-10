@@ -5,6 +5,12 @@ nonisolated enum UITestControlIdentity {
         return ([scope] + ancestors + [control]).map { "\($0.utf8.count):\($0)" }.joined(separator: ":")
     }
 }
+
+nonisolated enum UITestScrollGeometry {
+    static func visibleDistance(_ points: Double, scale: Double) -> Double {
+        max(0, (points * scale).rounded()) / scale
+    }
+}
 #endif
 
 #if BIT101_UI_TESTING
@@ -105,16 +111,21 @@ enum UITestAccessibilityActions {
                       let window = scroll.window, scroll.convert(scroll.bounds, to: window).intersects(window.bounds)
                 else { return nil }
                 var values = element.attributes
+                let scale = Double(window.screen.scale)
+                func distance(_ points: CGFloat) -> Double {
+                    UITestScrollGeometry.visibleDistance(Double(points), scale: scale)
+                }
                 values["offset"] = [Double(scroll.contentOffset.x), Double(scroll.contentOffset.y)]
-                values["range"] = [Double(max(0, scroll.contentSize.width + scroll.adjustedContentInset.left + scroll.adjustedContentInset.right - scroll.bounds.width)),
-                    Double(max(0, scroll.contentSize.height + scroll.adjustedContentInset.top + scroll.adjustedContentInset.bottom - scroll.bounds.height))]
-                values["remaining"] = [Double(max(0, scroll.contentSize.width + scroll.adjustedContentInset.right - scroll.bounds.width - scroll.contentOffset.x)),
-                    Double(max(0, scroll.contentSize.height + scroll.adjustedContentInset.bottom - scroll.bounds.height - scroll.contentOffset.y))]
+                values["range"] = [distance(scroll.contentSize.width + scroll.adjustedContentInset.left + scroll.adjustedContentInset.right - scroll.bounds.width),
+                    distance(scroll.contentSize.height + scroll.adjustedContentInset.top + scroll.adjustedContentInset.bottom - scroll.bounds.height)]
+                values["remaining"] = [distance(scroll.contentSize.width + scroll.adjustedContentInset.right - scroll.bounds.width - scroll.contentOffset.x),
+                    distance(scroll.contentSize.height + scroll.adjustedContentInset.bottom - scroll.bounds.height - scroll.contentOffset.y)]
                 return values
             })
         }
         guard let element = elements.first(where: { $0.attributes["instance"] as? String == parameters["instance"] }),
               let scroll = element.object as? UIScrollView,
+              let window = scroll.window,
               let x = parameters["offsetX"].flatMap(Double.init), let y = parameters["offsetY"].flatMap(Double.init)
         else { return Data("target missing".utf8) }
         if parameters["command"] == "scroll-restore" {
@@ -122,8 +133,9 @@ enum UITestAccessibilityActions {
             invalidate()
             return Data("restored".utf8)
         }
-        let fits = scroll.contentSize.width + scroll.adjustedContentInset.left + scroll.adjustedContentInset.right <= scroll.bounds.width
-            && scroll.contentSize.height + scroll.adjustedContentInset.top + scroll.adjustedContentInset.bottom <= scroll.bounds.height
+        let scale = Double(window.screen.scale)
+        let fits = UITestScrollGeometry.visibleDistance(Double(scroll.contentSize.width + scroll.adjustedContentInset.left + scroll.adjustedContentInset.right - scroll.bounds.width), scale: scale) == 0
+            && UITestScrollGeometry.visibleDistance(Double(scroll.contentSize.height + scroll.adjustedContentInset.top + scroll.adjustedContentInset.bottom - scroll.bounds.height), scale: scale) == 0
         guard fits || scroll.contentOffset != CGPoint(x: x, y: y) else { return Data("unchanged".utf8) }
         record(element.attributes["identifier"] as? String ?? "", label: element.attributes["label"] as? String ?? "",
             type: element.attributes["elementType"] as? Int ?? 0, scope: element.attributes["scope"] as? String,

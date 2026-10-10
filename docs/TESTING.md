@@ -126,13 +126,13 @@ Scripts/run-extended-tests.sh build icloud-smoke
 
 ## UI 自动化
 
-`BIT101-iOSUITests` 使用 `BIT101-iOS-UIAutomation` Release scheme 和真机宿主。`BIT101_UI_TESTING` 构建隔离 Keychain、偏好、账号文件和媒体缓存，使用合成会话及离线服务。测试文件归 App 内固定的 `Application Support/BIT101-UITests/` 根目录，系统日历与提醒动作使用内存端口，偏好云同步使用内存云存储。正式 App 由生产组装入口启动。UI 宿主在前台保持屏幕常亮。渲染查询归 `Login/UITestAccessibilityActions.swift`，启动配置与响应夹具归 `Login/AppUITestBootstrap.swift`。交互流程默认通过 XCTest 原生触摸、滚动和系统键盘执行，触达判断、快速控件动作和字段输入共用 XCTest 原生可触达状态；公共查询合同覆盖页面内遮挡并显式选择快速控件动作。测试窗口沿用系统默认动画速度。测试默认关闭 UIKit 动画；连续编辑、短信重试、媒体预览和多层弹窗场景启用系统动画，验证导航与输入生命周期。动画场景核对实际窗口速度及动画启用状态。
+`BIT101-iOSUITests` 使用 `BIT101-iOS-UIAutomation` Release scheme 和真机宿主。`BIT101_UI_TESTING` 构建隔离 Keychain、偏好、账号文件和媒体缓存，使用合成会话及离线服务。测试文件归 App 内固定的 `Application Support/BIT101-UITests/` 根目录，系统日历与提醒动作使用内存端口，偏好云同步使用内存云存储。启动性能场景通过 `BIT101_UI_TEST_PRODUCTION_COMPOSITION=1` 选择生产登录服务、成绩服务、平台组件和生命周期，复用隔离文件、Keychain 与受控 HTTP 响应。正式 App 由生产组装入口启动。UI 宿主在前台保持屏幕常亮。渲染查询归 `Login/UITestAccessibilityActions.swift`，启动配置与响应夹具归 `Login/AppUITestBootstrap.swift`。交互流程默认通过 XCTest 原生触摸、滚动和系统键盘执行，触达判断、快速控件动作和字段输入共用 XCTest 原生可触达状态；公共查询合同覆盖页面内遮挡并显式选择快速控件动作。测试窗口沿用系统默认动画速度。测试默认关闭 UIKit 动画；连续编辑、短信重试、媒体预览和多层弹窗场景启用系统动画，验证导航与输入生命周期。动画场景核对实际窗口速度及动画启用状态。
 
 日常 UI 复验使用 `Scripts/run-extended-tests.sh ui`，用例关键词直接接在 `ui` 后面，按测试类与方法名匹配并合并为一个批次，完整测试类/方法同样适用。关键词选择、文档库存与执行清单共用递归 SwiftSyntax 库存。例如 `ui About` 执行关于页面，`ui DDL Calendar` 合并 DDL 和日历相关流程。测试宿主编译使用 `build ui`。56 项通过 `UIAutomationTestCase` 串行复用一个 App 进程，每次场景配置校验进程 ID；完整映射见交互覆盖表。
 
 真机运行期间保持 BIT101 前台并暂停手动操作。场景切换时，后台 App 通过 `activate()` 返回前台，并继续校验原进程 ID。第三方输入法可能提供键盘画面而缺少 XCTest 键盘元素；输入助手通过系统“下一个键盘”按钮切换到原生键盘，再执行输入与完整字段值断言。
 
-UI 用例按页面组合连续交互；公共组件完整合同集中验收一次，各页面验证入口、绑定和业务结果，每项独立重置隔离数据；持久化场景重新创建模型和根视图，从文件与偏好重新读取。测试 App 与 Runner 通过 TransportCore 内测试专用的 `127.0.0.1:19101` 通道更新夹具配置，全部场景保持同一 App 进程。测试 App 使用简体中文和中国地区，系统控件文案与日期格式保持一致。覆盖目标包括每个点击、滑动、输入、VoiceOver 自定义动作和键盘快捷键入口，并验证交互后的业务状态。自定义动作调用已渲染控件的公开无障碍动作，键盘默认操作通过 XCTest 发送 Return 键；交互库存分别核对所属动作证据。当前定义 56 项用例，公共组件合同和页面接入共同承接完整交互，逐项映射和运行验收状态见 [UI 交互覆盖](UI_INTERACTION_COVERAGE.md)：
+UI 用例按页面组合连续交互；公共组件完整合同集中验收一次，各页面验证入口、绑定和业务结果，每项独立重置隔离数据；持久化场景重新创建模型和根视图，从文件与偏好重新读取。测试 App 与 Runner 通过 TransportCore 内测试专用的 `127.0.0.1:19101` 通道更新夹具配置，全部场景保持同一 App 进程。测试 App 使用简体中文和中国地区，系统控件文案与日期格式保持一致。覆盖目标包括每个点击、滑动、输入、VoiceOver 自定义动作和键盘快捷键入口，并验证交互后的业务状态。自定义动作调用已渲染控件的公开无障碍动作，键盘默认操作通过 XCTest 的 `typeKey("\n", modifierFlags: [])` 发送原生 Return 键；交互库存分别核对所属动作证据。当前定义 56 项用例，公共组件合同和页面接入共同承接完整交互，逐项映射和运行验收状态见 [UI 交互覆盖](UI_INTERACTION_COVERAGE.md)：
 
 | 页面 | 交互范围 |
 | --- | --- |
@@ -376,7 +376,7 @@ fork PR 的常规 Job 使用 GitHub 托管的 `xcode-27` 镜像，每项任务�
 
 共享预览目录的媒体环境共同接收同一 `MediaPreviewStorage`，文件创建、所有权登记、清理和关闭消费同一协调器。回归合同覆盖创建期间的后台清理，以及不同环境启动清理和关闭预览时保留其他活动消费者。
 
-`MaintenancePerformanceTests` 沿 XCTest 默认测量选项记录 `PaperListViewModel` 的实际分页与消息列表追加、PNG 解码、复杂内联格式的文章解析与纯文本生成、GIF 解码、Widget 时间线计算、URLSession 响应聚合，以及多页本地图片的首个预览文件编码与写盘的时钟和物理内存指标。`MaintenancePerformanceUITests` 记录清空夹具存储后的进程结束、启动至课表就绪，以及启用动画的课表往返切周布局；UI 内存指标采集目标 App 进程。性能基线沿同一真机 runner 的 XCTest 默认参数维护。
+`MaintenancePerformanceTests` 沿 XCTest 默认测量选项记录 `PaperListViewModel` 的实际分页与消息列表追加、PNG 解码、复杂内联格式的文章解析与纯文本生成、GIF 解码、Widget 时间线计算、URLSession 响应聚合，以及多页本地图片的首个预览文件编码与写盘的时钟和物理内存指标。`MaintenancePerformanceUITests` 记录恢复持久化账号与 200 门、20 周课程后的进程结束、启动至课表就绪，以及启用动画的课表往返切周布局；UI 内存指标采集目标 App 进程。性能基线沿同一真机 runner 的 XCTest 默认参数维护。
 
 `performance-baseline` 人工专项登记 `pagination`、`image-decoding`、`startup`、`schedule-layout`、`long-article`、`gif-decoding`、`widget-timeline`、`response-aggregation`、`local-preview` 九个场景的结构化比较及影像，参与完整发布验收。行为场景归属 `all`，启动与课表布局归属 `ui`；每条采样保留所属完整测试组的执行证据。
 
