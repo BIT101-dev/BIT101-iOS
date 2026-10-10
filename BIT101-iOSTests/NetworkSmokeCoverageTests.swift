@@ -650,7 +650,8 @@ extension ReleaseNetworkSmokeLifecycleTests {
         let external = External(image: image, redirectHost: redirectHost, aasaStage: stage)
         let association = External(image: image, aasaStage: stage)
         let externalClient = HTTPClient(transport: external, observer: nil)
-        let media = AppMedia.makeEnvironment(files: PreferenceMemoryFiles(),
+        let files = PreferenceMemoryFiles()
+        let media = AppMedia.makeEnvironment(files: files, previewStorage: MediaPreviewStorage(files: files),
             imageHTTPClient: externalClient, avatarHTTPClient: externalClient)
         var reports: [ReleaseNetworkSmokeReport] = []
         var feedback = 0

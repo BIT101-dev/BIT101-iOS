@@ -140,10 +140,10 @@ public final class MediaEnvironment {
 
     func previewFile(at cachedURL: URL, owner: UUID? = nil) async throws -> URL {
         if let owner, !previewOwnership.contains(owner) { throw CancellationError() }
-        let file = try await images.previewFile(at: cachedURL, using: previewFiles)
+        let file = try await images.previewFile(at: cachedURL, using: previewFiles, ownership: previewOwnership, owner: owner)
         try Task.checkCancellation()
         if let owner {
-            guard previewOwnership.pin(file, using: previewFiles, owner: owner) else { throw CancellationError() }
+            guard previewOwnership.contains(owner) else { throw CancellationError() }
         }
         await previewQuota.enforce(protecting: [file])
         try Task.checkCancellation()

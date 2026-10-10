@@ -244,7 +244,20 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
     for path, facts in index.items():
         module = compilation_unit(path)
         if module in NETWORK_FOUNDATION_MODULES or module.endswith('Tests'): continue
-        for function in facts.get('functionRanges', []) + [accessor for accessor in facts.get('accessorRanges', []) if accessor.get('isAsync')]:
+        def contains_request(function):
+            for call in facts.get('invocations', []):
+                if not function['start'] <= call['start'] < function['end'] or not active(path, call) or not call_can_execute(facts, call): continue
+                target = resolve_receiver(dict(call, path=path))
+                if target in network_owners and call.get('calledExpression', '').rsplit('.', 1)[-1] in {'send', 'data', 'upload', 'download'}:
+                    return True
+                receiver, _, method = call.get('calledExpression', '').rpartition('.')
+                for variable in visible_variables(facts, call, receiver.removeprefix('self.'), receiver.startswith('self.')):
+                    if method in {'send', 'data', 'upload', 'download'} and types.terminal_name(path, variable.get('type', ''), variable['scope']).rsplit('.', 1)[-1] in NETWORK_TRANSPORT_TYPES:
+                        return True
+            return False
+        accessors = [node for node in facts.get('accessorRanges', []) if node.get('isAsync') or contains_request(node)]
+        constructors = [node for node in facts.get('initializers', []) if node.get('isExplicitInitializer') and contains_request(node)]
+        for function in facts.get('functionRanges', []) + accessors + constructors:
             scope = function['scope']
             if function.get('lexicalScope') or not active(path, function): continue
             identity = owner(path, scope)
@@ -256,10 +269,32 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
     return result
 
 
+def api_argument_bindings(function: dict, call: dict) -> list[list[dict]]:
+    labels = list(call.get('argumentLabels', []))
+    trailing = [item for item in call.get('closureArguments', []) if item[0] >= len(labels)]
+    if trailing:
+        parameters = function.get('parameters', [])
+        if len(parameters) < len(trailing): return []
+        declared = call.get('trailingClosureLabels', [''] * len(trailing))
+        result = []
+        for first in {parameter['label'] for parameter in parameters}:
+            for binding in argument_parameter_bindings(parameters, labels + [first, *declared[1:]]):
+                if binding not in result: result.append(binding)
+        return result
+    return argument_parameter_bindings(function.get('parameters', []), labels)
+
+
+def api_invocations(facts: dict) -> list[dict]:
+    return facts.get('invocations', []) + [dict(member, calledExpression=member['value'],
+        argumentLabels=[], arguments=[], isMemberRead=True) for member in facts.get('members', [])
+        if not member.get('isAssignmentTarget')]
+
+
 def matching_api_calls(index: dict, functions: list[tuple[str, dict]], call: dict) -> list[tuple[str, dict]]:
     name = call['calledExpression'].removeprefix('self.').rsplit('.', 1)[-1]
-    candidates = [(path, function) for path, function in functions if matching_functions({'functionRanges': [dict(function, parameters=function.get('parameters', []), lexicalScope=function.get('lexicalScope', []))]}, name,
-        dict(call, scope=function['scope'], lexicalScope=function.get('lexicalScope', [])))]
+    candidates = [(path, function) for path, function in functions if function['name'] == name
+        and api_argument_bindings(function, call) and (not call.get('isMemberRead') or function.get('isAccessor')
+            and '->' not in (function.get('returnType') or ''))]
     if len(candidates) <= 1: return candidates
     from swift_type_index import SwiftTypeIndex
     types = SwiftTypeIndex(index)
@@ -287,10 +322,12 @@ def matching_api_calls(index: dict, functions: list[tuple[str, dict]], call: dic
         if variables and variables[-1].get('type'): return re.sub(r'\s+', '', variables[-1]['type'])
         match = re.fullmatch(r'([\w.]+)\(.*\)', value, re.DOTALL)
         return match[1] if match else None
-    arguments = list(map(argument_type, call.get('arguments', [])))
+    literals = call.get('argumentTypes', [])
+    arguments = [literals[index] if index < len(literals) and literals[index] else argument_type(value)
+        for index, value in enumerate(call.get('arguments', []))]
     matches = []
     for path, function in candidates:
-        for binding in argument_parameter_bindings(function['parameters'], call.get('argumentLabels', [])):
+        for binding in api_argument_bindings(function, call):
             promotions = 0
             for kind, parameter in zip(arguments, binding):
                 if kind is None: continue
@@ -303,4 +340,5 @@ def matching_api_calls(index: dict, functions: list[tuple[str, dict]], call: dic
                 matches.append((score, path, function))
     if not matches: return []
     best = min(score for score, _, _ in matches)
-    return [(path, function) for score, path, function in matches if score == best]
+    selected = [(path, function) for score, path, function in matches if score == best]
+    return selected if len(selected) == 1 else []

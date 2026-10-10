@@ -155,27 +155,72 @@ def manual_capabilities(check: str, scenario: str) -> set[str]:
 
 
 def reachable_smoke_calls(index: dict) -> dict[str, list[dict]]:
+    from pathlib import Path
+    import re
     from validation_evidence import active_swift_source
-    from network_capability_rules import call_can_execute, matching_api_calls
-    from swift_type_index import compilation_unit
+    from network_capability_rules import api_argument_bindings, api_invocations, call_can_execute, matching_api_calls
+    from swift_type_index import SwiftTypeIndex, compilation_unit, receiver_resolver
+    types, resolve_receiver = SwiftTypeIndex(index), receiver_resolver(index)
     units = {compilation_unit(path) for path, facts in index.items()
         if any(function['scope'] == ['ReleaseNetworkSmokeRunner'] and function['name'] == 'run'
             for function in facts.get('functionRanges', []))}
-    files = {path for path in index if compilation_unit(path) in units}
-    nodes, by_name, active_sources, callables = {}, {}, {}, set()
+    files = {path for path in index if compilation_unit(path) in units or 'Modules' in Path(path).parts}
+    nodes, by_name, active_sources, callables, stored_callables = {}, {}, {}, set(), {}
+    task_locals = {(types.resolve(path, '.'.join(variable['scope']), aliases=False), variable['name'])
+        for path, facts in index.items() for variable in facts.get('typedVariables', []) if variable.get('isTaskLocal')}
     for path, facts in index.items():
         if path not in files: continue
         active = active_swift_source(facts['source'], 'network').encode() if 'source' in facts else None
         active_sources[path] = active
-        for function in facts.get('functionRanges', []) + facts.get('callableRanges', []):
+        closures = facts.get('callableRanges', []) + facts.get('inlineClosureRanges', [])
+        for function in facts.get('functionRanges', []) + facts.get('accessorRanges', []) + closures:
             if active is not None and active[function['start']:function['start'] + 1] in {b' ', b'\n', b'\r'}: continue
             key = (path, function['start'], function['end'])
             nodes[key] = function
-            if function in facts.get('callableRanges', []): callables.add(key)
+            if function in closures: callables.add(key)
             name = '.'.join([*function['scope'], function['name']])
             by_name.setdefault(name, set()).add(key)
+            by_name.setdefault(compilation_unit(path) + '.' + name, set()).add(key)
+    for path in files:
+        facts = index[path]
+        for call in facts.get('invocations', []):
+            if not call.get('closureArguments'): continue
+            expression = call['calledExpression'].removesuffix('.init')
+            target = types.resolve(path, '.'.join(call['scope']) if expression == 'Self' else expression, call['scope'])
+            if not target: continue
+            properties = {node['name'] for source_path, source in index.items() for node in source.get('typedVariables', [])
+                if not node.get('lexicalScope') and '->' in node.get('type', '')
+                and types.resolve(source_path, '.'.join(node['scope']), aliases=False) == target}
+            initializers = [(source_path, function) for source_path, source in index.items() for function in source.get('initializers', [])
+                if function.get('isExplicitInitializer') and types.resolve(source_path, '.'.join(function['scope']), aliases=False) == target]
+            for position, start, end in call.get('closureArguments', []):
+                labels = call.get('argumentLabels', [])
+                key = (path, start, end)
+                names = {labels[position]} & properties if position < len(labels) and not initializers else set()
+                for source_path, function in initializers:
+                    for binding in api_argument_bindings(function, call):
+                        if position >= len(binding): continue
+                        parameter = binding[position].get('name', '')
+                        for assignment in index[source_path].get('expressions', []):
+                            if function['start'] <= assignment['start'] < function['end']:
+                                if match := re.fullmatch(r'self\.(\w+)\s*=\s*' + re.escape(parameter), assignment['value']):
+                                    names.update({match[1]} & properties)
+                if key not in nodes or not names: continue
+                parents = [parent for parent in nodes if parent[0] == path and parent[1] <= call['start'] < parent[2]]
+                if not parents: continue
+                stored_callables[key] = min(parents, key=lambda item: item[2] - item[1])
+                for name in names:
+                    by_name.setdefault('.'.join([*target[1], name]), set()).add(key)
+                    by_name.setdefault('.'.join([target[0], *target[1], name]), set()).add(key)
     edges = {key: set() for key in nodes}
     calls = {key: [] for key in nodes}
+    callback_calls = []
+    constructed_types, implementation_edges, implementations = {}, {}, {}
+    for target in types.records:
+        for base in types.bases(target):
+            if protocol := types.resolve(types.paths[target], base, target[1][:-1]):
+                implementations.setdefault('.'.join([protocol[0], *protocol[1]]), set()).add(target)
+    nodes_by_path = {path: [key for key in nodes if key[0] == path] for path in files}
     for key, function in nodes.items():
         if reference := function.get('referenceTarget'):
             owner = '.'.join(function['scope'])
@@ -184,45 +229,108 @@ def reachable_smoke_calls(index: dict) -> dict[str, list[dict]]:
     for path, facts in index.items():
         if path not in files: continue
         active = active_sources[path]
-        for fact in facts.get('invocations', []):
+        for fact in api_invocations(facts):
             if active is not None and active[fact['start']:fact['start'] + 1] in {b' ', b'\n', b'\r'}: continue
             if not call_can_execute(facts, fact): continue
-            containing = [key for key in nodes if key[0] == path and key[1] <= fact['start'] < key[2]]
+            containing = [key for key in nodes_by_path[path] if key[1] <= fact['start'] < key[2]]
             if not containing: continue
             key = min(containing, key=lambda item: item[2] - item[1])
             expression = fact.get('calledExpression', fact.get('value', '')).removeprefix('self.')
+            if not fact.get('isMemberRead'):
+                nominal = types.resolve(path, '.'.join(fact['scope']) if expression == 'Self' else expression.removesuffix('.init'), fact['scope'])
+                if nominal: constructed_types.setdefault(nominal, set()).add(key)
             owner = '.'.join(nodes[key]['scope'])
             candidates = {expression, owner + '.' + expression.removeprefix('Self.')}
             callbacks = set()
-            if expression in {'runInParallel', 'probe', 'NetworkSmokePaging.batch', 'NetworkSmokePaging.arrayPage', 'NetworkSmokePaging.messages'}:
+            executes_callbacks = expression in {'runInParallel', 'probe', 'NetworkSmokePaging.batch', 'NetworkSmokePaging.arrayPage', 'NetworkSmokePaging.messages', 'Task', 'Task.init', 'Task.detached', 'withTaskGroup', 'withThrowingTaskGroup', 'withTaskCancellationHandler', 'withCheckedContinuation', 'withCheckedThrowingContinuation'}
+            if executes_callbacks:
                 for argument in fact.get('arguments', []): callbacks.update({argument, owner + '.' + argument})
+                edges[key].update((path, start, end) for _, start, end in fact.get('closureArguments', [])
+                    if (path, start, end) in nodes)
+            if expression.endswith('.withValue') and '.$' in expression:
+                receiver, _, property_name = expression.removesuffix('.withValue').rpartition('.$')
+                if (types.resolve(path, receiver, fact['scope']), property_name) in task_locals:
+                    edges[key].update((path, start, end) for position, start, end in fact.get('closureArguments', [])
+                        if position == 1 and (path, start, end) in nodes)
+                    if len(fact.get('arguments', [])) > 1:
+                        argument = fact['arguments'][1]
+                        callbacks.update({argument, owner + '.' + argument})
             if expression.startswith('dependencies.'):
                 candidates.add('ReleaseNetworkSmokeDependencies.' + expression.split('.', 1)[1])
             if fact.get('receiverCall'):
                 candidates.add(fact['receiverCall'] + '.' + expression.rsplit('.', 1)[-1])
+            if resolved := resolve_receiver(dict(fact, path=path)):
+                candidates.add(resolved + '.' + expression.rsplit('.', 1)[-1])
+                method = expression.rsplit('.', 1)[-1]
+                concrete = {target for target in implementations.get(resolved, set())
+                    if '.'.join([target[0], *target[1], method]) in by_name}
+                if len(concrete) == 1:
+                    target = concrete.pop()
+                    name = '.'.join([target[0], *target[1], method])
+                    matches = matching_api_calls(index, [(node[0], nodes[node]) for node in by_name[name]], dict(fact, path=path))
+                    for source_path, function in matches:
+                        implementation_edges.setdefault(key, set()).add(((source_path, function['start'], function['end']), target))
             for target in candidates:
                 target_keys = {target_key for target_key in by_name.get(target, set())
-                    if not nodes[target_key].get('lexicalScope') or target_key[0] == path
+                    if (compilation_unit(target_key[0]) == compilation_unit(path) or target.split('.', 1)[0] in types.module_names)
+                    and (target_key in stored_callables or not nodes[target_key].get('lexicalScope') or target_key[0] == path
                     and fact.get('lexicalScope', [])[:len(nodes[target_key]['lexicalScope'])] == nodes[target_key]['lexicalScope']
-                    and not fact.get('calledExpression', '').startswith(('self.', 'Self.'))}
+                    and not fact.get('calledExpression', '').startswith(('self.', 'Self.')))}
                 if target_keys:
                     depth = max(len(nodes[target_key].get('lexicalScope', [])) for target_key in target_keys)
                     target_keys = {target_key for target_key in target_keys if len(nodes[target_key].get('lexicalScope', [])) == depth}
-                edges[key].update(target_keys & callables)
+                if not fact.get('isMemberRead'): edges[key].update(target_keys & callables)
                 targets = [(target_key[0], nodes[target_key]) for target_key in target_keys - callables]
                 matches = matching_api_calls(index, targets, dict(fact, path=path, calledExpression=target))
                 edges[key].update((target_path, function['start'], function['end']) for target_path, function in matches)
+                for target_path, function in matches:
+                    bindings = api_argument_bindings(function, fact)
+                    if len(bindings) == 1:
+                        callback_calls.append((key, (target_path, function['start'], function['end']), fact, bindings[0]))
             for target in callbacks: edges[key].update(by_name.get(target, set()))
             if 'calledExpression' in fact: calls[key].append(dict(fact, path=path))
+    parameter_names = {key: {parameter.get('name') for parent, function in nodes.items()
+        if parent == key or key in callables and parent[0] == key[0] and parent[1] <= key[1] and key[2] <= parent[2]
+        for parameter in function.get('parameters', [])} for key in nodes}
+    executed_parameters = {key: {name for name in parameter_names[key]
+        if any(call['calledExpression'] == name and not call.get('isMemberRead') for call in calls[key])} for key in nodes}
+    changed = True
+    while changed:
+        changed = False
+        for caller, targets in edges.items():
+            for target in targets & callables:
+                if caller[0] == target[0] and caller[1] <= target[1] and target[2] <= caller[2]:
+                    additions = executed_parameters[target] & parameter_names[caller] - executed_parameters[caller]
+                    if additions: executed_parameters[caller].update(additions); changed = True
+        for caller, callee, call, bindings in callback_calls:
+            for argument, parameter in zip(call.get('arguments', []), bindings):
+                if parameter.get('name') in executed_parameters[callee] and argument in {
+                        item for item in parameter_names[caller]} \
+                        and argument not in executed_parameters[caller]:
+                    executed_parameters[caller].add(argument); changed = True
+    for caller, callee, call, bindings in callback_calls:
+        owner = '.'.join(nodes[caller]['scope'])
+        for position, parameter in enumerate(bindings):
+            if parameter.get('name') not in executed_parameters[callee]: continue
+            edges[caller].update((caller[0], start, end) for index, start, end in call.get('closureArguments', [])
+                if index == position and (caller[0], start, end) in nodes)
+            if position < len(call.get('arguments', [])):
+                argument = call['arguments'][position]
+                for target in {argument, owner + '.' + argument}: edges[caller].update(by_name.get(target, set()) & callables)
     reached = {(key, 'network') for key in by_name.get('ReleaseNetworkSmokeRunner.run', set())}
-    waiting = list(reached)
-    while waiting:
-        key, route = waiting.pop()
-        for target in edges[key]:
-            target_route = 'community-writes' if nodes[target]['scope'][:1] == ['CommunityWriteSmoke'] else route
-            step = (target, target_route)
-            if step not in reached:
-                reached.add(step); waiting.append(step)
+    changed = True
+    while changed:
+        additions = set()
+        for key, route in reached:
+            targets = edges[key] | {target for target, nominal in implementation_edges.get(key, set())
+                if any((creator, route) in reached for creator in constructed_types.get(nominal, set()))}
+            for target in targets:
+                target_route = 'community-writes' if nodes[target]['scope'][:1] == ['CommunityWriteSmoke'] else route
+                if target in stored_callables and (stored_callables[target], target_route) not in reached: continue
+                additions.add((target, target_route))
+        additions -= reached
+        changed = bool(additions)
+        reached.update(additions)
     result = {'network': [], 'community-writes': []}
     for key, route in reached:
         result[route].extend(calls[key])
@@ -236,29 +344,38 @@ def smoke_receiver_resolver(index: dict):
 
 def network_capability_findings(index: dict) -> list[str]:
     from pathlib import Path
+    from swift_type_index import SwiftTypeIndex
     from validation_manual import MANUAL_DEVICE_CHECKS, MANUAL_SCENARIOS
     from validation_policy import NETWORK_GROUPS
-    from network_capability_rules import business_methods, method_signature, matching_api_calls, call_can_execute
+    from network_capability_rules import api_invocations, business_methods, method_signature, matching_api_calls, call_can_execute
     actual = business_methods(index)
+    types = SwiftTypeIndex(index)
     receiver_owner = smoke_receiver_resolver(index)
     observed = {'network': set(), 'community-writes': set()}
     edges = {}
     all_functions = {}
+    reachable = reachable_smoke_calls(index)
     for owner in actual:
         scope = owner.split('.')[1:]
-        all_functions[owner] = [(path, function) for path, facts in index.items() for function in facts.get('functionRanges', [])
+        all_functions[owner] = [(path, function) for path, facts in index.items()
+            for function in facts.get('functionRanges', []) + facts.get('accessorRanges', []) + facts.get('initializers', [])
             if function['scope'] == scope and (Path(path).parts[Path(path).parts.index('Modules') + 1] == owner.split('.')[0]
                 if 'Modules' in Path(path).parts else owner.startswith('BIT101-iOS.'))]
-    for route, calls in reachable_smoke_calls(index).items():
+    for route, calls in reachable.items():
         for call in calls:
             owner = receiver_owner(call)
             matches = matching_api_calls(index, all_functions.get(owner, []), call)
+            if not matches and not call.get('isMemberRead') and types.resolve(call['path'], call['calledExpression'], call['scope']):
+                constructor = dict(call, calledExpression=call['calledExpression'] + '.init')
+                constructor_owner = receiver_owner(constructor)
+                matches = matching_api_calls(index, all_functions.get(constructor_owner, []), constructor)
+                if matches: owner = constructor_owner
             if len(matches) == 1: observed[route].add((owner, method_signature(matches[0][1])))
     for owner, functions in all_functions.items():
         for path, function in functions:
             key = (owner, method_signature(function))
             edges[key] = set()
-            for call in index[path].get('invocations', []):
+            for call in api_invocations(index[path]):
                 if not function['start'] <= call['start'] < function['end'] or not call_can_execute(index[path], call): continue
                 expression = (call.get('calledExpression') or '').removeprefix('self.')
                 if '.' in expression: continue
@@ -289,7 +406,7 @@ def network_capability_findings(index: dict) -> list[str]:
                 errors.append(f'人工网络能力需要有效验收场景：{name}.{signature} → {route}')
     feed_cases = {case['name'] for facts in index.values() for case in facts.get('enumCases', []) if case['scope'] == ['GalleryFeedKind']}
     modes = set()
-    for call in reachable_smoke_calls(index)['network']:
+    for call in reachable['network']:
         if receiver_owner(call) != 'GalleryFeature.GalleryService': continue
         method = call['calledExpression'].rsplit('.', 1)[-1]
         if method in {'fetchRecommendPage', 'fetchBotFeed'}: modes.add('recommend' if method == 'fetchRecommendPage' else 'bot')
@@ -394,6 +511,70 @@ def network_capability_self_test() -> None:
                 patch.object(Path, 'read_text', lambda path, *args, **kwargs: expressions[str(path)] if str(path) in expressions else original_read(path, *args, **kwargs)):
             return {call['calledExpression'] for call in reachable_smoke_calls(facts)['network']}
     assert 'mine.fetchMyInfo' in reached(sources)
+    for body, expected in [('', False), ('callback()', True),
+            ('forward(callback)', True), ('Task { callback() }', True), ('let idle = { callback() }', False)]:
+        inline = {'ReleaseNetworkSmoke.swift': f'''struct ReleaseNetworkSmokeRunner {{
+            func run() {{ register {{ service.fetch() }} }}
+            func register(_ callback: () -> Void) {{ {body} }}
+            func forward(_ callback: () -> Void) {{ callback() }}
+        }}'''}
+        assert ('service.fetch' in reached(inline)) == expected, body
+    for invocation in ('probe { service.fetch() }', 'Task { service.fetch() }',
+            'Task.detached { service.fetch() }', 'runInParallel([{ service.fetch() }])'):
+        assert 'service.fetch' in reached({'ReleaseNetworkSmoke.swift':
+            f'struct ReleaseNetworkSmokeRunner {{ func run() {{ {invocation} }} }}'}), invocation
+    task_local = {'ReleaseNetworkSmoke.swift': '''enum Trace { @TaskLocal static var current: (() -> Void)? }
+        struct ReleaseNetworkSmokeRunner {
+            func run() { invoke { service.fetch() } }
+            func invoke(_ operation: () -> Void, count: Int = 0) {
+                Trace.$current.withValue({ service.idle() }) { operation() }
+            }
+        }'''}
+    calls = reached(task_local)
+    assert 'service.fetch' in calls and 'service.idle' not in calls, calls
+    stored = {'ReleaseNetworkSmoke.swift': '''struct Operations { var callback: () -> Void }
+        struct ReleaseNetworkSmokeRunner {
+            func run() { let operations: Operations = make(); operations.callback() }
+            func make() -> Operations { Operations(callback: { service.live() }) }
+            func unused() -> Operations { Operations(callback: { service.idle() }) }
+        }'''}
+    calls = reached(stored)
+    assert 'service.live' in calls and 'service.idle' not in calls, calls
+    stored['ReleaseNetworkSmoke.swift'] = stored['ReleaseNetworkSmoke.swift'].replace('operations.callback()', '')
+    assert 'service.live' not in reached(stored)
+    protocol = {'Modules/Ports/Sources/Restoring.swift': 'public protocol Restoring { func restore() }',
+        'ReleaseNetworkSmoke.swift': '''import Ports
+            struct Adapter: Restoring {
+                let operation: () -> Void
+                init(operation: @escaping () -> Void) { self.operation = operation }
+                func restore() { operation() }
+            }
+            struct ReleaseNetworkSmokeRunner {
+                let restorer: any Restoring
+                func run() { build(); restorer.restore() }
+                func build() { _ = Adapter { service.fetch() } }
+            }'''}
+    assert 'service.fetch' in reached(protocol)
+    protocol['ReleaseNetworkSmoke.swift'] = protocol['ReleaseNetworkSmoke.swift'].replace('build(); restorer.restore()', 'restorer.restore()')
+    assert 'service.fetch' not in reached(protocol)
+    for literal in ('1000', '1_000', '0x3e8', '0b1111101000', '0o1750', '-1_000', '+1000'):
+        numeric = {'ReleaseNetworkSmoke.swift': f'''struct ReleaseNetworkSmokeRunner {{
+            func run() {{ helper(id: {literal}) }}
+            func helper(id: Int) {{ service.read() }}
+            func helper(id: String) {{ service.write() }}
+        }}'''}
+        calls = reached(numeric)
+        assert 'service.read' in calls and 'service.write' not in calls, (literal, calls)
+    numeric['ReleaseNetworkSmoke.swift'] = numeric['ReleaseNetworkSmoke.swift'].replace('+1000', 'unknown')
+    assert not {'service.read', 'service.write'} & reached(numeric)
+    for literal in ('1.0', '1_000.5', '1e3', '0x1.fp2', '-1.5'):
+        numeric['ReleaseNetworkSmoke.swift'] = f'''struct ReleaseNetworkSmokeRunner {{
+            func run() {{ helper(id: {literal}) }}
+            func helper(id: Double) {{ service.read() }}
+            func helper(id: String) {{ service.write() }}
+        }}'''
+        calls = reached(numeric)
+        assert 'service.read' in calls and 'service.write' not in calls, (literal, calls)
     for parameters, argument in ((('flag: Bool', 'text: String'), 'flag: true'),
             (('value: Int?', 'value: String?'), 'value: 42')):
         overloaded = {'ReleaseNetworkSmoke.swift': f'''struct ReleaseNetworkSmokeRunner {{
@@ -552,6 +733,7 @@ CRITICAL_CONTRACTS = {
         "离线宿主资源与网络隔离": "InfrastructureTests/behaviorHostIsolation",
         "共享预览存储维持活动文件": "MediaDependencyTests/sharedPreviewStorageRetainsFilesAcrossEnvironmentCleanupAndClosing",
         "预览创建与登记阻止并发清理": "MediaDependencyTests/previewCreationAndRegistrationExcludeConcurrentCleanup",
+        "远程图片复制与登记阻止并发清理": "MediaDependencyTests/remotePreviewCopyPinsBeforeConcurrentCleanup",
     },
     "modules": {
         "云端冲突决策写入基线": "ScheduleSyncTests/keepingLocalConflictPersistsTheNewBaselineThroughTheProductionRepository",
@@ -571,7 +753,7 @@ def critical_findings(inventories: dict[str, set[str]]) -> list[str]:
 
 def network_discovery_self_test() -> None:
     from swift_source_index import swift_syntax_index_sources
-    from network_capability_rules import business_methods
+    from network_capability_rules import business_methods, method_signature
     leaf = 'Modules/PaperFeature/Sources/PaperService.swift'
     wrapper = 'BIT101-iOS/Shell/NewService.swift'
     for annotation in ('', ': PaperService'):
@@ -643,6 +825,43 @@ struct NewService {{ private let paper{annotation} = {initializer}; func fetch(i
         if exported:
             assert methods['NewForumFeature.ReadService'][0][1]['name'] == 'rows'
             assert any('新增生产服务' in error for error in network_capability_findings(index))
+    from unittest.mock import patch
+    for declaration, signature, invocation in [
+        ('public var rows: HTTPResponse { get async throws { try await client.send(request) } }', 'rows()', 'try await service.rows'),
+        ('public var rows: Task<HTTPResponse, Error> { Task { try await client.send(request) } }', 'rows()', 'service.rows'),
+        ('public var operation: () async throws -> HTTPResponse { { try await client.send(request) } }', 'operation()', 'try await service.operation()'),
+        ('public subscript(_ id: Int) -> Task<HTTPResponse, Error> { Task { try await client.send(request) } }', 'subscript(:Int)', 'service[1_000]'),
+        ('public init() { Task { try await client.send(request) } }', 'init()', 'ReadService()'),
+    ]:
+        for include_transport in (False, True):
+            sources = {getter_path: f'import TransportCore; public struct ReadService {{ let client: HTTPClient; {declaration} }}',
+                'ReleaseNetworkSmoke.swift': f'import NewForumFeature; struct ReleaseNetworkSmokeRunner {{ let service: ReadService; func run() {{ _ = {invocation} }} }}'}
+            if include_transport:
+                sources[transport_path] = 'public struct HTTPClient { public func send(_ request: URLRequest) async throws -> HTTPResponse {} }'
+            index = swift_syntax_index_sources(sources)
+            methods = business_methods(index)
+            assert [method_signature(function) for _, function in methods['NewForumFeature.ReadService']] == [signature], declaration
+            with patch.dict(NETWORK_CAPABILITIES, {'NewForumFeature.ReadService': {signature: 'network'}}, clear=True), \
+                    patch.dict(MANUAL_CAPABILITY_SCENARIOS, {}, clear=True):
+                assert not network_capability_findings(index), (declaration, network_capability_findings(index))
+                sources['ReleaseNetworkSmoke.swift'] = sources['ReleaseNetworkSmoke.swift'].replace(invocation,
+                    'service.operation' if signature == 'operation()' else '0')
+                errors = network_capability_findings(swift_syntax_index_sources(sources))
+                assert any('实际服务调用' in error for error in errors), (declaration, errors)
+                if signature == 'init()':
+                    sources['ReleaseNetworkSmoke.swift'] = '''import NewForumFeature
+                        enum Factory { static var existing: ReadService; static func cached() -> ReadService { existing } }
+                        struct ReleaseNetworkSmokeRunner { func run() { _ = Factory.cached() } }'''
+                    errors = network_capability_findings(swift_syntax_index_sources(sources))
+                    assert any('ReadService.init()' in error and '实际服务调用' in error for error in errors), errors
+                if signature == 'rows()' and 'get async' not in declaration:
+                    sources[getter_path] = sources[getter_path].replace(
+                        'public var rows: Task<HTTPResponse, Error> { Task { try await client.send(request) } }',
+                        'public var rows: Task<HTTPResponse, Error> { get { Task { try await client.send(request) } } set {} }')
+                    sources['ReleaseNetworkSmoke.swift'] = '''import NewForumFeature
+                        struct ReleaseNetworkSmokeRunner { var service: ReadService; func run() { service.rows = existingTask } }'''
+                    errors = network_capability_findings(swift_syntax_index_sources(sources))
+                    assert any('ReadService.rows()' in error and '实际服务调用' in error for error in errors), errors
     protocol = 'public protocol RequestSending { func send(_ request: URLRequest) async throws -> HTTPResponse }; extension HTTPClient: RequestSending {}'
     service = 'public struct ReadService { let client: any RequestSending; public func rows(_ request: URLRequest) async throws -> HTTPResponse { try await client.send(request) } }'
     index = swift_syntax_index_sources({getter_path: 'import TransportCore; ' + service,

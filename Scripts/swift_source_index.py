@@ -52,6 +52,7 @@ def _run_swift_syntax_index(request: dict, *, regex_only: bool = False) -> dict[
     with (cache / "swift-syntax-indexer.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         source = ROOT / "Scripts/SwiftSyntaxIndexer.swift"
+        facts_source = ROOT / "Scripts/SwiftSyntaxFacts.swift"
         (cache / "swift-syntax-indexer.swift").unlink(missing_ok=True)
         signature_file = cache / "swift-syntax-indexer-inputs.json"
         executable = cache / "swift-syntax-indexer"
@@ -60,7 +61,7 @@ def _run_swift_syntax_index(request: dict, *, regex_only: bool = False) -> dict[
         module_cache = compiler_cache / "ModuleCache.noindex"
         module_cache.mkdir(parents=True, exist_ok=True)
         toolchain = json.dumps(indexer_toolchain(compiler, host_modules), sort_keys=True).encode()
-        signature = hashlib.sha256(source.read_bytes() + Path(__file__).read_bytes() + toolchain + str(module_cache).encode()).hexdigest()
+        signature = hashlib.sha256(source.read_bytes() + facts_source.read_bytes() + Path(__file__).read_bytes() + toolchain + str(module_cache).encode()).hexdigest()
         source_changed = not signature_file.exists() or signature_file.read_text() != signature
         if source_changed or not executable.exists():
             executable.unlink(missing_ok=True)
@@ -73,7 +74,7 @@ def _run_swift_syntax_index(request: dict, *, regex_only: bool = False) -> dict[
                     "-module-cache-path", str(module_cache), "-warnings-as-errors",
                     "-I", str(host_modules), "-L", str(host_modules),
                     "-lSwiftSyntax", "-lSwiftParser", "-Xlinker", "-rpath", "-Xlinker", str(host_modules),
-                    str(source), "-o", str(executable),
+                    str(source), str(facts_source), "-o", str(executable),
                 ], capture_output=True, text=True, env=environment)
             if compilation.returncode:
                 executable.unlink(missing_ok=True)

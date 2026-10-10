@@ -8,7 +8,7 @@ from validation_policy import TEST_GROUPS, BUILD_HOSTS
 if not __debug__:
     raise RuntimeError("验证自测需要 Python 默认优化级别；请使用 python3 -E 执行入口。")
 
-cache_names = {"SDKExplicitPrecompiledModules", "ModuleCache.noindex", "SDKStatCaches.noindex", "CompilationCache.noindex"}
+cache_names = {"SDKExplicitPrecompiledModules", "ModuleCache.noindex", "SDKStatCaches.noindex", "CompilationCache.noindex", "Index.noindex"}
 derived_names = cache_names | {"Build", "Logs", "SourcePackages", "info.plist"}
 fixed_children = {
     ".build/compiler-cache": cache_names | {"cache.lock"},
@@ -56,6 +56,7 @@ def self_test() -> None:
             (".build/compiler-cache", "diagnostics.zip")):
         assert not artifact_name_allowed(parent, name)
     assert artifact_name_allowed(".build/extended-automation", "modules.log")
+    assert artifact_name_allowed(".build/compiler-cache", "Index.noindex")
     assert artifact_name_allowed(".build/release-network-smoke/report", "release-network-smoke.json")
     assert compressed_artifact("cache/diagnostics.ZIP")
     assert not compressed_artifact("cache/module.pcm")

@@ -20,6 +20,14 @@ def script_command_boundary_findings() -> list[str]:
     import plistlib
 
     findings = []
+    support = (SCRIPT_ROOT / 'script-support.sh').read_text()
+    logger = 'bit101_log_command() {' + support.split('bit101_log_command() {', 1)[1].split('\nbit101_build_cache() {', 1)[0]
+    command = logger + '\nbit101_log_command /dev/null stdin-contract ' + shlex.quote(sys.executable) + ' - delegated-argument\n'
+    for status in (0, 7):
+        payload = f'import sys\nassert sys.argv[1] == "delegated-argument"\nprint("warning: delegated-stdin-executed")\nraise SystemExit({status})\n'
+        result = subprocess.run(['zsh', '-c', command], input=payload, capture_output=True, text=True)
+        if result.returncode != status or 'delegated-stdin-executed' not in result.stdout:
+            findings.append('日志委托自测：子命令继承调用方输入、参数和退出状态')
     isolated_digest = '''from pathlib import Path
 from unittest.mock import patch
 import sys

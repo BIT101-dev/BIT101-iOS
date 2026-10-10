@@ -390,6 +390,7 @@ nonisolated final class PreferenceMemoryFiles: AppFileService, Sendable {
         var failsRemoval = false
         var failsWriting = false
         var nextRead: (@Sendable () -> Void)?
+        var nextWrite: (@Sendable () -> Void)?
     }
     init(requireExistingParentDirectories: Bool = false) {
         self.requireExistingParentDirectories = requireExistingParentDirectories
@@ -420,7 +421,7 @@ nonisolated final class PreferenceMemoryFiles: AppFileService, Sendable {
         state.withLock { $0.nextRead = callback }
     }
     func writeData(_ value: Data, to url: URL, options: Data.WritingOptions) throws {
-        try state.withLock { state in
+        let intercept = try state.withLock { state -> (@Sendable () -> Void)? in
             if state.failsWriting { throw CocoaError(.fileWriteNoPermission) }
             if requireExistingParentDirectories && !state.directories.contains(url.deletingLastPathComponent()) {
                 throw CocoaError(.fileNoSuchFile)
@@ -428,7 +429,14 @@ nonisolated final class PreferenceMemoryFiles: AppFileService, Sendable {
             state.data[url] = value
             state.revision &+= 1
             state.revisions[url] = state.revision
+            let callback = state.nextWrite
+            state.nextWrite = nil
+            return callback
         }
+        intercept?()
+    }
+    func interceptNextWrite(_ callback: @escaping @Sendable () -> Void) {
+        state.withLock { $0.nextWrite = callback }
     }
     func removeItem(at url: URL) throws {
         try state.withLock { state in

@@ -18,7 +18,7 @@ struct MediaDependencyTests {
         let bytes = try png(width: 2)
         let gallery = Images(bytes: stage == "gallery" ? Data("damaged".utf8) : bytes)
         let avatar = Images(bytes: stage == "avatar" ? Data("damaged".utf8) : bytes)
-        let media = AppMedia.makeEnvironment(files: files,
+        let media = AppMedia.makeEnvironment(files: files, previewStorage: MediaPreviewStorage(files: files),
             imageHTTPClient: HTTPClient(transport: gallery, observer: nil),
             avatarHTTPClient: HTTPClient(transport: avatar, observer: nil))
         files.setFailures(writing: stage == "cache")
@@ -542,12 +542,12 @@ struct MediaDependencyTests {
         let files = PreferenceMemoryFiles()
         let storage = MediaPreviewStorage(files: files)
         let client = HTTPClient(transport: Images(bytes: Data()), observer: nil)
-        let first = MediaEnvironment(files: files, previewStorage: storage, defaults: AppFileDirectories.defaults,
+        let first = AppMedia.makeEnvironment(files: files, previewStorage: storage, defaults: AppFileDirectories.defaults,
             imageHTTPClient: client, avatarHTTPClient: client)
         let ownerA = UUID(), ownerB = UUID(), bytes = try png(width: 2)
         first.beginPreview(owner: ownerA)
         let file = try await first.localPreviewFile(data: bytes, owner: ownerA)
-        let second = MediaEnvironment(files: files, previewStorage: storage, defaults: AppFileDirectories.defaults,
+        let second = AppMedia.makeEnvironment(files: files, previewStorage: storage, defaults: AppFileDirectories.defaults,
             imageHTTPClient: client, avatarHTTPClient: client)
         await second.enforceCurrentLimit()
         #expect(files.fileExists(at: file))
@@ -584,6 +584,40 @@ struct MediaDependencyTests {
         }
         finished.wait()
         #expect(files.fileExists(at: file))
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func remotePreviewCopyPinsBeforeConcurrentCleanup() async throws {
+        let files = PreferenceMemoryFiles(), previewFiles = PreferenceMemoryFiles()
+        let ownership = PreviewFileOwnership(), owner = UUID()
+        ownership.begin(owner)
+        defer { ownership.end(owner) }
+        let source = files.temporaryDirectoryURL.appending(path: "remote.png")
+        let bytes = try png(width: 2)
+        try files.writeData(bytes, to: source, options: [.atomic])
+        let quota = ImageCacheDiskQuota(files: files, cacheLimitMB: { 0 })
+        let images = RemoteImageCache(files: files, quota: quota, httpClient: HTTPClient(transport: Images(bytes: bytes), observer: nil))
+        let ready = DispatchSemaphore(value: 0), finished = DispatchSemaphore(value: 0)
+        previewFiles.interceptNextWrite {
+            DispatchQueue.global().async {
+                ready.signal()
+                ownership.withPaths { retained in
+                    let children = (try? previewFiles.contentsOfDirectory(at: ImageCacheDirectories.gallery(using: previewFiles), options: [])) ?? []
+                    for file in children where !retained.contains(previewFiles.canonicalFileURL(file).path) {
+                        do { try previewFiles.removeItem(at: file) }
+                        catch { Issue.record(error) }
+                    }
+                }
+                finished.signal()
+            }
+            ready.wait()
+            #expect(finished.wait(timeout: .now() + 1) == .timedOut)
+        }
+        let preview = try await images.previewFile(at: source, using: previewFiles, ownership: ownership, owner: owner)
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global().async { finished.wait(); continuation.resume() }
+        }
+        #expect(try previewFiles.readData(at: preview) == bytes)
     }
 
     @Test func clearingMediaReleasesBothDecodedMemoryCaches() async throws {

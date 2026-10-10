@@ -8,7 +8,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT_DIR/Scripts/script-support.sh"
 operation="${1:-info}"
 shift $(( $# > 0 ? 1 : 0 ))
-case "$operation" in info|prepare|restore) [[ $# -eq 0 ]] || exit 64;; app|ui) [[ $# -gt 0 ]] || exit 64;; *) exit 64;; esac
+case "$operation" in info|prepare|restore|inspect) [[ $# -eq 0 ]] || exit 64;; app|ui) [[ $# -gt 0 ]] || exit 64;; *) exit 64;; esac
 bit101_acquire_workflow_lock "$0" "$operation" "$@"
 DERIVED_ROOT="$ROOT_DIR/.build/extended-automation"
 mkdir -p "$DERIVED_ROOT"
@@ -54,6 +54,25 @@ else
 fi
 if [[ "$operation" == info ]]; then print -r -- "$SIMULATOR_DEVICE"; exit 0; fi
 if [[ "$operation" == prepare ]]; then echo "项目模拟器已就绪。"; exit 0; fi
+if [[ "$operation" == inspect ]]; then
+  python3 - "$SIMULATOR_DEVICE" "$ROOT_DIR/.build/screenshot.png" <<'PYINSPECT'
+import json
+import plistlib
+from pathlib import Path
+import subprocess
+import sys
+
+app = Path(subprocess.check_output(['xcrun', 'simctl', 'get_app_container', sys.argv[1], 'BIT101-dev.BIT101-iOS', 'app'], text=True).strip())
+metadata = plistlib.loads((app / 'Info.plist').read_bytes())
+binary = subprocess.check_output(['strings', str(app / metadata['CFBundleExecutable'])], text=True)
+markers = ['behavior-test-host', 'release-network-smoke-host', 'icloud-cross-device-smoke-host', 'The UI automation App requires its isolated launch configuration']
+print(json.dumps({'device': sys.argv[1], 'version': metadata['CFBundleShortVersionString'], 'build': metadata['CFBundleVersion'],
+    'testHostMarkers': [marker for marker in markers if marker in binary]}, ensure_ascii=False))
+subprocess.run(['xcrun', 'simctl', 'io', sys.argv[1], 'screenshot', sys.argv[2]], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+print(sys.argv[2])
+PYINSPECT
+  exit 0
+fi
 restore_application() {
   bit101_run_logged "$DERIVED_ROOT/build-release.log" "常规模拟器包编译" xcodebuild build -quiet \
     -project "$ROOT_DIR/BIT101-iOS.xcodeproj" -scheme BIT101-iOS -configuration Release -derivedDataPath "$DERIVED_ROOT" \
@@ -63,6 +82,14 @@ restore_application() {
 import subprocess
 import sys
 subprocess.run(['xcrun', 'simctl', 'install', sys.argv[1], sys.argv[2]], check=True)
+from hashlib import sha256
+from pathlib import Path
+import plistlib
+source = Path(sys.argv[2])
+executable = plistlib.loads((source / 'Info.plist').read_bytes())['CFBundleExecutable']
+installed = Path(subprocess.check_output(['xcrun', 'simctl', 'get_app_container', sys.argv[1], 'BIT101-dev.BIT101-iOS', 'app'], text=True).strip())
+if sha256((source / executable).read_bytes()).digest() != sha256((installed / executable).read_bytes()).digest():
+    raise SystemExit('安装后的可执行文件需要匹配常规 Release 产物。')
 subprocess.run(['xcrun', 'simctl', 'launch', '--terminate-running-process', sys.argv[1], 'BIT101-dev.BIT101-iOS'],
     check=True, stdout=subprocess.DEVNULL)
 PYRESTORE
@@ -82,11 +109,13 @@ if [[ "$operation" == restore ]]; then restore_application; echo "常规模拟�
 mode=all
 scheme=BIT101-iOS
 bundle=BIT101-iOSTests
+configuration=Debug
 selections=("$@")
 if [[ "$operation" == ui ]]; then
   mode=ui
   scheme=BIT101-iOS-UIAutomation
   bundle=BIT101-iOSUITests
+  configuration=Release
   selections=("${(@f)$(bit101_ui_test_selections "$@")}")
 fi
 EXPECTED_TESTS="$(python3 - "$ROOT_DIR/Scripts" "$mode" "${selections[@]}" <<'PYSELECT'
@@ -102,7 +131,7 @@ for selection in "${selections[@]}"; do only_testing+=("-only-testing:$bundle/$s
 destination="platform=iOS Simulator,id=$SIMULATOR_DEVICE"
 result="$DERIVED_ROOT/test-results.xcresult"
 bit101_run_logged "$DERIVED_ROOT/simulator.log" "模拟器测试宿主编译" xcodebuild build-for-testing -quiet \
-  -project "$ROOT_DIR/BIT101-iOS.xcodeproj" -scheme "$scheme" -configuration Release -derivedDataPath "$DERIVED_ROOT" \
+  -project "$ROOT_DIR/BIT101-iOS.xcodeproj" -scheme "$scheme" -configuration "$configuration" -derivedDataPath "$DERIVED_ROOT" \
   -destination "$destination" "BIT101_WORKFLOW_CONDITIONS=$conditions" ENABLE_TESTABILITY=YES \
   -enableCodeCoverage YES ENABLE_CODE_COVERAGE=YES \
   SWIFT_TREAT_WARNINGS_AS_ERRORS=YES GCC_TREAT_WARNINGS_AS_ERRORS=YES CODE_SIGN_IDENTITY=- "${only_testing[@]}"

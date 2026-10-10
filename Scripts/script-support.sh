@@ -82,7 +82,7 @@ bit101_log_command() {
   local output_path="$1"
   local label="$2"
   shift 2
-  python3 - "$output_path" "$label" "$@" <<'PY'
+  python3 /dev/fd/3 "$output_path" "$label" "$@" 3<<'PY'
 from pathlib import Path
 import os
 import re
@@ -185,7 +185,7 @@ arguments = sys.argv[2:]
 maintenance = arguments == ["--maintenance"]
 shared = root / ".build/compiler-cache"
 shared.mkdir(parents=True, exist_ok=True)
-cache_names = ("SDKExplicitPrecompiledModules", "ModuleCache.noindex", "SDKStatCaches.noindex", "CompilationCache.noindex")
+cache_names = ("SDKExplicitPrecompiledModules", "ModuleCache.noindex", "SDKStatCaches.noindex", "CompilationCache.noindex", "Index.noindex")
 derived_roots = [root / name for name in (
     ".build/extended-automation", "build/DeviceInstall", ".build/release-network-smoke",
     ".build/icloud-cross-device-smoke/Phone", ".build/icloud-cross-device-smoke/Mac",

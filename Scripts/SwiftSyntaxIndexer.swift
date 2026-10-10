@@ -2,192 +2,6 @@ import Foundation
 import SwiftSyntax
 import SwiftParser
 
-struct FileFacts: Encodable {
-    let hasParseErrors: Bool
-    let imports: [String]
-    let identifiers: [String]
-    let scopedIdentifiers: [ScopedFact]
-    let stringSegments: [ScopedFact]
-    let regexRanges: [ScopedRangeFact]
-    let declarations: [DeclarationFact]
-    let enumCases: [EnumCaseFact]
-    let calls: [ScopedFact]
-    let invocations: [ScopedFact]
-    let functions: [ScopedFact]
-    let tests: [ScopedFact]
-    let functionReturns: [FunctionReturnFact]
-    let selectionControls: [SelectionControlFact]
-    let feedbackModifiers: [FeedbackModifierFact]
-    let alertModifiers: [AlertModifierFact]
-    let typedVariables: [TypedVariableFact]
-    let typeAliases: [TypeAliasFact]
-    let listIcons: [ListIconFact]
-    let listControls: [SelectionControlFact]
-    let listStyleModifiers: [FeedbackModifierFact]
-    let accessibilityModifiers: [FeedbackModifierFact]
-    let accessibilityControls: [AccessibilityControlFact]
-    let accessibilityControlCandidates: [AccessibilityControlFact]
-    let functionRanges: [FunctionRangeFact]
-    let accessorRanges: [FunctionRangeFact]
-    let callableRanges: [FunctionRangeFact]
-    let initializers: [FunctionRangeFact]
-    let nonRenderedRanges: [ScopedRangeFact]
-    let lifecycleRanges: [ScopedRangeFact]
-    let members: [ScopedFact]
-    let forceUnwraps: [ScopedFact]
-    let emptyCatchClauses: [ScopedFact]
-    let discardedOptionalTries: [ScopedFact]
-    let expressions: [ScopedFact]
-    let bindings: [ScopedFact]
-    let controlFlow: [ScopedFact]
-    let typeNames: [ScopedFact]
-}
-
-struct DeclarationFact: Encodable {
-    let kind: String
-    let name: String
-    let inheritedTypes: [String]
-    let scope: [String]
-    let isFilePrivate: Bool
-    let isExported: Bool
-}
-
-struct EnumCaseFact: Encodable {
-    let name: String
-    let rawValue: String?
-    let scope: [String]
-}
-
-struct ScopedFact: Encodable {
-    let value: String
-    let scope: [String]
-    let start: Int
-    let lexicalScope: [Int]
-    var argumentLabels: [String]? = nil
-    var condition: String? = nil
-    var iterationSource: String? = nil
-    var thenRange: [Int]? = nil
-    var elseRange: [Int]? = nil
-    var arguments: [String]? = nil
-    var argumentRanges: [[Int]]? = nil
-    var isTestingTest: Bool? = nil
-    var receiverCall: String? = nil
-    var closureArguments: [[Int]]? = nil
-    var calledExpression: String? = nil
-    var bindingName: String? = nil
-    var bindingType: String? = nil
-    var initializerCall: String? = nil
-    var initializerReference: String? = nil
-    var booleanValue: Bool? = nil
-    var deadRange: [Int]? = nil
-    var followingRange: [Int]? = nil
-    var branchRanges: [[Int]]? = nil
-    var isExpressionReference: Bool = false
-}
-
-struct SelectionControlFact: Encodable {
-    let name: String
-    let invocation: String
-    let scope: [String]
-    let start: Int
-}
-
-struct FeedbackModifierFact: Encodable {
-    let name: String
-    let base: String
-    let scope: [String]
-    let baseStart: Int
-}
-
-struct AccessibilityControlFact: Encodable {
-    let name: String
-    let invocation: String
-    let label: String
-    let hasTextTitle: Bool
-    let scope: [String]
-    let start: Int
-    let labelStart: Int
-    let labelEnd: Int
-    let containers: [String]
-    let expression: String
-    let modifiers: String
-    let callback: String
-    let carrierInvocation: String
-}
-
-struct AlertModifierFact: Encodable {
-    let labels: [String]
-    let arguments: [String]
-    let invocation: String
-    let identifiers: [String]
-    let scope: [String]
-}
-
-struct TypedVariableFact: Encodable {
-    let name: String
-    let type: String
-    let scope: [String]
-    let start: Int
-    let lexicalScope: [Int]
-}
-
-struct TypeAliasFact: Encodable {
-    let name: String
-    let type: String
-    let scope: [String]
-    let start: Int
-    let lexicalScope: [Int]
-    let isFilePrivate: Bool
-    let isExported: Bool
-    var escapingParameters: [Int] = []
-}
-
-struct ListIconFact: Encodable {
-    let name: String
-    let symbol: String
-    let scope: [String]
-    let containers: [String]
-}
-
-struct FunctionRangeFact: Encodable {
-    let name: String
-    let returnType: String?
-    let returnsView: Bool
-    let scope: [String]
-    let start: Int
-    let end: Int
-    let lexicalScope: [Int]
-    let parameters: [FunctionParameterFact]
-    var isExplicitInitializer: Bool = false
-    var bodyStart: Int? = nil
-    var isExported: Bool = false
-    var isPrivate: Bool = false
-    var isAsync: Bool = false
-    var referenceTarget: String? = nil
-    var returnedCall: String? = nil
-}
-
-struct FunctionParameterFact: Encodable {
-    let label: String
-    let type: String
-    let hasDefault: Bool
-    let variadic: Bool
-    var name: String = ""
-}
-
-struct FunctionReturnFact: Encodable {
-    let name: String
-    let scope: [String]
-    let value: String
-    let start: Int
-}
-
-struct ScopedRangeFact: Encodable {
-    let scope: [String]
-    let start: Int
-    let end: Int
-}
-
 final class FactVisitor: SyntaxVisitor {
     private(set) var declarations: [DeclarationFact] = []
     private(set) var enumCases: [EnumCaseFact] = []
@@ -213,6 +27,7 @@ final class FactVisitor: SyntaxVisitor {
     private(set) var functionRanges: [FunctionRangeFact] = []
     private(set) var accessorRanges: [FunctionRangeFact] = []
     private(set) var callableRanges: [FunctionRangeFact] = []
+    private(set) var inlineClosureRanges: [FunctionRangeFact] = []
     private(set) var initializers: [FunctionRangeFact] = []
     private(set) var nonRenderedRanges: [ScopedRangeFact] = []
     private(set) var lifecycleRanges: [ScopedRangeFact] = []
@@ -373,11 +188,42 @@ final class FactVisitor: SyntaxVisitor {
             lexicalScope: lexicalScope, parameters: node.signature.parameterClause.parameters.map {
                 FunctionParameterFact(label: $0.firstName.text == "_" ? "" : $0.firstName.text, type: $0.type.trimmedDescription,
                     hasDefault: $0.defaultValue != nil, variadic: $0.ellipsis != nil, name: ($0.secondName ?? $0.firstName).text)
-            }, isExplicitInitializer: true, bodyStart: node.body?.positionAfterSkippingLeadingTrivia.utf8Offset))
+            }, isExplicitInitializer: true, bodyStart: node.body?.positionAfterSkippingLeadingTrivia.utf8Offset,
+            isExported: declarationIsExported(node.modifiers, parent: node.parent),
+            isPrivate: node.modifiers.contains { ["private", "fileprivate"].contains($0.name.text) }))
+        return .visitChildren
+    }
+
+    override func visit(_ node: SubscriptDeclSyntax) -> SyntaxVisitorContinueKind {
+        recordParameters(node.parameterClause.parameters, body: nil)
+        accessorRanges.append(FunctionRangeFact(name: "subscript", returnType: node.returnClause.type.trimmedDescription,
+            returnsView: false, scope: scope, start: node.positionAfterSkippingLeadingTrivia.utf8Offset,
+            end: node.endPositionBeforeTrailingTrivia.utf8Offset, lexicalScope: lexicalScope,
+            parameters: node.parameterClause.parameters.map {
+                FunctionParameterFact(label: $0.firstName.text == "_" ? "" : $0.firstName.text, type: $0.type.trimmedDescription,
+                    hasDefault: $0.defaultValue != nil, variadic: $0.ellipsis != nil, name: ($0.secondName ?? $0.firstName).text)
+            }, isAccessor: true, isExported: declarationIsExported(node.modifiers, parent: node.parent),
+            isPrivate: node.modifiers.contains { ["private", "fileprivate"].contains($0.name.text) }))
+        return .visitChildren
+    }
+
+    override func visit(_ node: SubscriptCallExprSyntax) -> SyntaxVisitorContinueKind {
+        var invocation = fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset)
+        invocation.calledExpression = node.calledExpression.trimmedDescription + ".subscript"
+        invocation.argumentLabels = node.arguments.map { $0.label?.text ?? "" }
+        invocation.arguments = node.arguments.map { $0.expression.trimmedDescription }
+        invocation.argumentTypes = node.arguments.map { literalType($0.expression) }
+        invocations.append(invocation)
         return .visitChildren
     }
 
     override func visit(_ node: ClosureExprSyntax) -> SyntaxVisitorContinueKind {
+        let start = node.positionAfterSkippingLeadingTrivia.utf8Offset
+        let end = node.endPositionBeforeTrailingTrivia.utf8Offset
+        if !callableRanges.contains(where: { $0.start <= start && end <= $0.end && $0.lexicalScope == lexicalScope }) {
+            inlineClosureRanges.append(FunctionRangeFact(name: "closure@\(start)", returnType: nil, returnsView: false,
+                scope: scope, start: start, end: end, lexicalScope: lexicalScope, parameters: []))
+        }
         closureDepth += 1
         lexicalScope.append(node.positionAfterSkippingLeadingTrivia.utf8Offset)
         switch node.signature?.parameterClause {
@@ -483,6 +329,15 @@ final class FactVisitor: SyntaxVisitor {
     }
     override func visitPost(_ node: ExtensionDeclSyntax) { leave() }
 
+    private func literalType(_ expression: ExprSyntax) -> String? {
+        if let unary = expression.as(PrefixOperatorExprSyntax.self) { return literalType(unary.expression) }
+        if expression.is(IntegerLiteralExprSyntax.self) { return "Int" }
+        if expression.is(FloatLiteralExprSyntax.self) { return "Double" }
+        if expression.is(StringLiteralExprSyntax.self) { return "String" }
+        if expression.is(BooleanLiteralExprSyntax.self) { return "Bool" }
+        return nil
+    }
+
     override func visit(_ node: FunctionCallExprSyntax) -> SyntaxVisitorContinueKind {
         let calledExpression = node.calledExpression.tokens(viewMode: .sourceAccurate).map(\.text).joined()
         var call = fact(calledExpression, start: node.calledExpression.positionAfterSkippingLeadingTrivia.utf8Offset)
@@ -494,14 +349,19 @@ final class FactVisitor: SyntaxVisitor {
         invocation.receiverCall = call.receiverCall
         invocation.argumentLabels = node.arguments.map { $0.label?.text ?? "" }
         invocation.arguments = node.arguments.map { $0.expression.trimmedDescription }
+        invocation.argumentTypes = node.arguments.map { literalType($0.expression) }
         invocation.argumentRanges = node.arguments.map {
             [$0.expression.positionAfterSkippingLeadingTrivia.utf8Offset, $0.expression.endPositionBeforeTrailingTrivia.utf8Offset]
         }
-        invocation.closureArguments = node.arguments.enumerated().compactMap { index, argument in
-            guard let closure = argument.expression.as(ClosureExprSyntax.self) else { return nil }
-            return [index, closure.positionAfterSkippingLeadingTrivia.utf8Offset, closure.endPositionBeforeTrailingTrivia.utf8Offset]
+        invocation.closureArguments = node.arguments.enumerated().flatMap { index, argument -> [[Int]] in
+            let expressions = argument.expression.as(ArrayExprSyntax.self)?.elements.map(\.expression) ?? [argument.expression]
+            return expressions.compactMap { expression in
+                guard let closure = expression.as(ClosureExprSyntax.self) else { return nil }
+                return [index, closure.positionAfterSkippingLeadingTrivia.utf8Offset, closure.endPositionBeforeTrailingTrivia.utf8Offset]
+            }
         }
         if let closure = node.trailingClosure {
+            invocation.trailingClosureLabels = [""] + node.additionalTrailingClosures.map { $0.label.text }
             invocation.closureArguments?.append([node.arguments.count, closure.positionAfterSkippingLeadingTrivia.utf8Offset,
                 closure.endPositionBeforeTrailingTrivia.utf8Offset])
         }
@@ -741,6 +601,11 @@ final class FactVisitor: SyntaxVisitor {
 
     override func visit(_ node: MemberAccessExprSyntax) -> SyntaxVisitorContinueKind {
         var member = fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset)
+        if let sequence = node.parent?.parent?.as(SequenceExprSyntax.self),
+           sequence.elements.first?.id == node.id,
+           sequence.elements.dropFirst().first?.is(AssignmentExprSyntax.self) == true {
+            member.isAssignmentTarget = true
+        }
         member.receiverCall = node.base?.as(FunctionCallExprSyntax.self)?.calledExpression.trimmedDescription
         members.append(member)
         return .visitChildren
@@ -827,7 +692,7 @@ final class FactVisitor: SyntaxVisitor {
             func recordGetter(_ body: some SyntaxProtocol, isAsync: Bool, statements: CodeBlockItemListSyntax?) {
                 accessorRanges.append(FunctionRangeFact(name: name, returnType: node.typeAnnotation?.type.trimmedDescription,
                     returnsView: false, scope: scope, start: body.positionAfterSkippingLeadingTrivia.utf8Offset,
-                    end: body.endPositionBeforeTrailingTrivia.utf8Offset, lexicalScope: lexicalScope, parameters: [],
+                    end: body.endPositionBeforeTrailingTrivia.utf8Offset, lexicalScope: lexicalScope, parameters: [], isAccessor: true,
                     bodyStart: body.positionAfterSkippingLeadingTrivia.utf8Offset,
                     isExported: declarationIsExported(modifiers, parent: declaration.parent),
                     isPrivate: modifiers.contains { ["private", "fileprivate"].contains($0.name.text) },
@@ -877,7 +742,10 @@ final class FactVisitor: SyntaxVisitor {
                 type: type.trimmedDescription,
                 scope: scope,
                 start: node.positionAfterSkippingLeadingTrivia.utf8Offset,
-                lexicalScope: lexicalScope
+                lexicalScope: lexicalScope,
+                isTaskLocal: node.parent?.parent?.as(VariableDeclSyntax.self)?.attributes.contains {
+                    $0.as(AttributeSyntax.self)?.attributeName.trimmedDescription == "TaskLocal"
+                } ?? false
             ))
         }
         return .visitChildren
@@ -928,73 +796,79 @@ final class FactVisitor: SyntaxVisitor {
 struct SourceInput: Decodable { let name: String; let source: String }
 struct Input: Decodable { let paths: [String]; let sources: [SourceInput]? }
 
-let inputData = FileHandle.standardInput.readDataToEndOfFile()
-let input = try JSONDecoder().decode(Input.self, from: inputData)
-var output: [String: FileFacts] = [:]
-final class EscapedIdentifierNormalizer: SyntaxRewriter {
-    override func visit(_ original: TokenSyntax) -> TokenSyntax {
-        guard case .identifier(let name) = original.tokenKind, name.hasPrefix("`"), name.hasSuffix("`") else { return original }
-        var token = original
-        token.tokenKind = .identifier(String(name.dropFirst().dropLast()))
-        token.leadingTrivia += .spaces(1)
-        token.trailingTrivia = .spaces(1) + token.trailingTrivia
-        return token
+@main
+enum SwiftSyntaxIndexer {
+    static func main() throws {
+        let inputData = FileHandle.standardInput.readDataToEndOfFile()
+        let input = try JSONDecoder().decode(Input.self, from: inputData)
+        var output: [String: FileFacts] = [:]
+        final class EscapedIdentifierNormalizer: SyntaxRewriter {
+            override func visit(_ original: TokenSyntax) -> TokenSyntax {
+                guard case .identifier(let name) = original.tokenKind, name.hasPrefix("`"), name.hasSuffix("`") else { return original }
+                var token = original
+                token.tokenKind = .identifier(String(name.dropFirst().dropLast()))
+                token.leadingTrivia += .spaces(1)
+                token.trailingTrivia = .spaces(1) + token.trailingTrivia
+                return token
+            }
+        }
+        func indexSource(_ source: String, as key: String) {
+            let tree = EscapedIdentifierNormalizer(viewMode: .sourceAccurate).rewrite(Parser.parse(source: source))
+            let visitor = FactVisitor(viewMode: .sourceAccurate)
+            visitor.walk(tree)
+            let identifiers = tree.tokens(viewMode: .sourceAccurate).compactMap { token -> String? in
+                if case .identifier(let name) = token.tokenKind { return name }
+                return nil
+            }
+            output[key] = FileFacts(
+                hasParseErrors: tree.hasError,
+                imports: visitor.imports,
+                identifiers: identifiers,
+                scopedIdentifiers: visitor.scopedIdentifiers,
+                stringSegments: visitor.stringSegments,
+                regexRanges: visitor.regexRanges,
+                declarations: visitor.declarations,
+                enumCases: visitor.enumCases,
+                calls: visitor.calls,
+                invocations: visitor.invocations,
+                functions: visitor.functions,
+                tests: visitor.tests,
+                functionReturns: visitor.functionReturns,
+                selectionControls: visitor.selectionControls,
+                feedbackModifiers: visitor.feedbackModifiers,
+                alertModifiers: visitor.alertModifiers,
+                typedVariables: visitor.typedVariables,
+                typeAliases: visitor.typeAliases,
+                listIcons: visitor.listIcons,
+                listControls: visitor.listControls,
+                listStyleModifiers: visitor.listStyleModifiers,
+                accessibilityModifiers: visitor.accessibilityModifiers,
+                accessibilityControls: visitor.accessibilityControls,
+                accessibilityControlCandidates: visitor.accessibilityControlCandidates,
+                functionRanges: visitor.functionRanges,
+                accessorRanges: visitor.accessorRanges,
+                callableRanges: visitor.callableRanges,
+                inlineClosureRanges: visitor.inlineClosureRanges,
+                initializers: visitor.initializers,
+                nonRenderedRanges: visitor.nonRenderedRanges,
+                lifecycleRanges: visitor.lifecycleRanges,
+                members: visitor.members,
+                forceUnwraps: visitor.forceUnwraps,
+                emptyCatchClauses: visitor.emptyCatchClauses,
+                discardedOptionalTries: visitor.discardedOptionalTries,
+                expressions: visitor.expressions,
+                bindings: visitor.bindings,
+                controlFlow: visitor.controlFlow,
+                typeNames: visitor.typeNames
+            )
+        }
+        for path in input.paths {
+            indexSource(try String(contentsOfFile: path, encoding: .utf8), as: path)
+        }
+        for source in input.sources ?? [] {
+            indexSource(source.source, as: source.name)
+        }
+        let encoded = try JSONEncoder().encode(output)
+        print(String(decoding: encoded, as: UTF8.self))
     }
 }
-func indexSource(_ source: String, as key: String) {
-    let tree = EscapedIdentifierNormalizer(viewMode: .sourceAccurate).rewrite(Parser.parse(source: source))
-    let visitor = FactVisitor(viewMode: .sourceAccurate)
-    visitor.walk(tree)
-    let identifiers = tree.tokens(viewMode: .sourceAccurate).compactMap { token -> String? in
-        if case .identifier(let name) = token.tokenKind { return name }
-        return nil
-    }
-    output[key] = FileFacts(
-        hasParseErrors: tree.hasError,
-        imports: visitor.imports,
-        identifiers: identifiers,
-        scopedIdentifiers: visitor.scopedIdentifiers,
-        stringSegments: visitor.stringSegments,
-        regexRanges: visitor.regexRanges,
-        declarations: visitor.declarations,
-        enumCases: visitor.enumCases,
-        calls: visitor.calls,
-        invocations: visitor.invocations,
-        functions: visitor.functions,
-        tests: visitor.tests,
-        functionReturns: visitor.functionReturns,
-        selectionControls: visitor.selectionControls,
-        feedbackModifiers: visitor.feedbackModifiers,
-        alertModifiers: visitor.alertModifiers,
-        typedVariables: visitor.typedVariables,
-        typeAliases: visitor.typeAliases,
-        listIcons: visitor.listIcons,
-        listControls: visitor.listControls,
-        listStyleModifiers: visitor.listStyleModifiers,
-        accessibilityModifiers: visitor.accessibilityModifiers,
-        accessibilityControls: visitor.accessibilityControls,
-        accessibilityControlCandidates: visitor.accessibilityControlCandidates,
-        functionRanges: visitor.functionRanges,
-        accessorRanges: visitor.accessorRanges,
-        callableRanges: visitor.callableRanges,
-        initializers: visitor.initializers,
-        nonRenderedRanges: visitor.nonRenderedRanges,
-        lifecycleRanges: visitor.lifecycleRanges,
-        members: visitor.members,
-        forceUnwraps: visitor.forceUnwraps,
-        emptyCatchClauses: visitor.emptyCatchClauses,
-        discardedOptionalTries: visitor.discardedOptionalTries,
-        expressions: visitor.expressions,
-        bindings: visitor.bindings,
-        controlFlow: visitor.controlFlow,
-        typeNames: visitor.typeNames
-    )
-}
-for path in input.paths {
-    indexSource(try String(contentsOfFile: path, encoding: .utf8), as: path)
-}
-for source in input.sources ?? [] {
-    indexSource(source.source, as: source.name)
-}
-let encoded = try JSONEncoder().encode(output)
-print(String(decoding: encoded, as: UTF8.self))

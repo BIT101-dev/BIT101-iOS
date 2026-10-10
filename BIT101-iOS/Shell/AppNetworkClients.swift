@@ -206,12 +206,14 @@ enum AppNetworkPath {
 
 /// 媒体缓存与下载在应用入口共用同一配置。
 enum AppMedia {
-    static let environment = makeEnvironment()
+    private static let previewStorage = MediaPreviewStorage(files: AppFileDirectories.files)
+    static let environment = makeEnvironment(previewStorage: previewStorage)
     static func makeEnvironment(files: any AppFileService = AppFileDirectories.files,
+                                previewStorage: MediaPreviewStorage,
                                 defaults: UserDefaults = AppFileDirectories.defaults,
                                 imageHTTPClient: HTTPClient = .community,
                                 avatarHTTPClient: HTTPClient = .shared) -> MediaEnvironment {
-        MediaEnvironment(files: files, previewStorage: MediaPreviewStorage(files: files), defaults: defaults,
+        MediaEnvironment(files: files, previewStorage: previewStorage, defaults: defaults,
                          imageHTTPClient: imageHTTPClient, avatarHTTPClient: avatarHTTPClient)
     }
 }

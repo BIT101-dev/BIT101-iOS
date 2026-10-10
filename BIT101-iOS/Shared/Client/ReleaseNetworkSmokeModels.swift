@@ -405,7 +405,7 @@ struct ReleaseNetworkSmokeDependencies {
         let files = ScopedAppFileService(root: AppFileDirectories.files.temporaryDirectoryURL
             .appending(path: "NetworkSmokeMedia", directoryHint: .isDirectory))
         if files.fileExists(at: files.root) { try files.removeItem(at: files.root) }
-        let media = AppMedia.makeEnvironment(files: files)
+        let media = AppMedia.makeEnvironment(files: files, previewStorage: MediaPreviewStorage(files: files))
         let outcome: Result<Int, any Error>
         do { outcome = .success(try await media.verifyRemoteImage(at: url)) }
         catch { outcome = .failure(error) }

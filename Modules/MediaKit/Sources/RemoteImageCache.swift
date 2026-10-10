@@ -305,17 +305,20 @@ actor RemoteImageCache {
         _ = files.removeContents(of: directory)
     }
 
-    func previewFile(at cachedURL: URL, using previewFiles: any AppFileService) throws -> URL {
+    func previewFile(at cachedURL: URL, using previewFiles: any AppFileService, ownership: PreviewFileOwnership, owner: UUID?) throws -> URL {
         let data = try files.readData(at: cachedURL)
-        if (try? previewFiles.readData(at: cachedURL)) == data { return cachedURL }
         let directory = ImageCacheDirectories.gallery(using: previewFiles)
-        try previewFiles.createDirectory(at: directory)
         let name = "local-\(SHA256.hash(data: data).hexString).\(cachedURL.pathExtension)"
-        let target = directory.appendingPathComponent(name)
-        if (try? previewFiles.readData(at: target)) != data {
-            try previewFiles.writeData(data, to: target, options: [.atomic])
+        let target = (try? previewFiles.readData(at: cachedURL)) == data ? cachedURL : directory.appendingPathComponent(name)
+        let materialize: @Sendable () throws -> Void = {
+            try previewFiles.createDirectory(at: target.deletingLastPathComponent())
+            if (try? previewFiles.readData(at: target)) != data {
+                try previewFiles.writeData(data, to: target, options: [.atomic])
+            }
+            if target != cachedURL { try previewFiles.setModificationDate(Date(), at: target) }
         }
-        try previewFiles.setModificationDate(Date(), at: target)
+        if let owner { try ownership.materializeAndPin(target, using: previewFiles, owner: owner, create: materialize) }
+        else { try materialize() }
         return target
     }
 
