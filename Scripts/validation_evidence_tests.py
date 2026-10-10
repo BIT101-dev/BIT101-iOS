@@ -621,7 +621,7 @@ def network_scope_boolean_self_test(subject) -> None:
     path = subject.ROOT / 'BIT101-iOS/Shared/Client/ReleaseNetworkSmokeModels.swift'
     source, read = path.read_text(), Path.read_text
     baseline = {scope: subject.network_inventory(scope) for scope in ('all', 'bit101', 'school', 'transcript', 'schedule', 'ddl', 'community-writes', 'community-cleanup')}
-    assert len(baseline['all']) == 60 and '社区写入与清理' not in baseline['all']
+    assert len(baseline['all']) == 61 and '社区写入与清理' not in baseline['all']
     fixtures = [('all', 'area != .communityWrites', baseline['all']),
         ('all', '!(area == .communityWrites)', baseline['all']),
         ('all', 'area != .communityWrites && (area == .authentication || area != .authentication)', baseline['all']),
@@ -677,6 +677,7 @@ def network_trace_fixture(value: dict) -> dict:
                 request = {'method': contract.method, 'endpoint': 'https://' + example(contract.host) + example(contract.path),
                     'statusCode': next(iter(contract.statuses)), 'query': query}
                 if contract.paging == 'last_id': request['responseMinimumID'] = '0'
+                if name in {'课程中心原生认证', '课程中心 DDL 下载'}: request['responseCourseIDs'] = []
                 if name == '社区写入与清理':
                     if contract.method == 'DELETE' and contract.path == r'/reaction/comments/\d+':
                         request['endpoint'] = 'https://' + example(contract.host) + example(contract.path, index + 1)
@@ -794,8 +795,28 @@ def network_route_identity_self_test() -> None:
                             ('课程中心 DDL 下载', 'https://zy-eclass.bit.edu.cn/api/my-courses'),
                             ('乐学日历订阅地址', 'https://lexue.bit.edu.cn/calendar/export.php')]:
         request = {'method': 'POST', 'endpoint': endpoint, 'statusCode': 200, 'query': {}}
+        if probe.startswith('课程中心'): request['responseCourseIDs'] = []
         assert complete(probe, [request]), probe
         assert not complete(probe, [dict(request, method='GET')]), probe
+    for probe in ('课程中心原生认证', '课程中心 DDL 下载'):
+        page = {'method': 'POST', 'endpoint': 'https://zy-eclass.bit.edu.cn/api/my-courses',
+            'statusCode': 200, 'query': {}, 'responseCourseIDs': ['41', '43']}
+        activities = [dict(page, method='GET', endpoint=f'https://zy-eclass.bit.edu.cn/api/courses/{value}/activities') for value in (41, 43)]
+        assert complete(probe, [page] + activities)
+        for rows in ([page], [page, activities[0]], [dict(page, responseCourseIDs=None)] + activities,
+                     [dict(page, responseCourseIDs=['0'])] + activities,
+                     [page] + activities + [dict(activities[0], endpoint='https://zy-eclass.bit.edu.cn/api/courses/45/activities')],
+                     [page, activities[0], dict(activities[1], finalEndpoint=activities[0]['endpoint'])]):
+            assert not complete(probe, rows), (probe, rows)
+        assert complete(probe, [dict(page, responseCourseIDs=['41']), dict(page, responseCourseIDs=['43'])] + activities)
+        assert complete(probe, [dict(page, responseCourseIDs=[])])
+    building = {'method': 'GET', 'endpoint': 'https://jxzxehallapp.bit.edu.cn/jwapp/sys/kxjasbyMobile/modules/jxllb/cxjxl.do',
+        'statusCode': 200, 'query': {'XXXQDM': 'campus'}}
+    assert complete('空教室教学楼列表', [building], {'XXXQDM': 'campus'})
+    assert not complete('空教室教学楼列表', [building])
+    for query in ({}, {'XXXQDM': 'other'}):
+        assert not complete('空教室教学楼列表', [dict(building, query=query)], {'XXXQDM': 'campus'})
+        assert not complete('空教室教学楼列表', [dict(building, finalQuery=query)], {'XXXQDM': 'campus'})
     variants = {
         '话廊最新列表': {'mode': 'search', 'order': 'new', 'uid': '-1'},
         '话廊关注流': {'mode': 'follow'}, '话廊热门流': {'mode': 'hot'}, '话廊推荐流': {},

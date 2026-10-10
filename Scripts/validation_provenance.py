@@ -183,13 +183,16 @@ def network_requests_complete(required: set[str], value: dict) -> bool:
             query = request.get('query', {})
             cursor = request.get('responseMinimumID')
             if cursor is not None and (not isinstance(cursor, str) or re.fullmatch(r'\d+', cursor) is None): return False
-            if not isinstance(query, dict) or not set(query) <= {'page', 'last_id', 'obj', 'order', 'mode', 'type', 'uid', 'detail', 'search', 'hide_bot', 'XNXQDM', 'JXLDM'} \
+            course_ids = request.get('responseCourseIDs')
+            if course_ids is not None and (not isinstance(course_ids, list) or not all(isinstance(value, str)
+                    and re.fullmatch(r'[1-9]\d*', value) for value in course_ids)): return False
+            if not isinstance(query, dict) or not set(query) <= {'page', 'last_id', 'obj', 'order', 'mode', 'type', 'uid', 'detail', 'search', 'hide_bot', 'XNXQDM', 'JXLDM', 'XXXQDM'} \
                     or not all(isinstance(key, str) and isinstance(item, str) for key, item in query.items()): return False
             final_query = request.get('finalQuery')
-            if not isinstance(final_query, dict) or not set(final_query) <= {'page', 'last_id', 'obj', 'order', 'mode', 'type', 'uid', 'detail', 'search', 'hide_bot', 'XNXQDM', 'JXLDM'} \
+            if not isinstance(final_query, dict) or not set(final_query) <= {'page', 'last_id', 'obj', 'order', 'mode', 'type', 'uid', 'detail', 'search', 'hide_bot', 'XNXQDM', 'JXLDM', 'XXXQDM'} \
                     or not all(isinstance(key, str) and isinstance(item, str) for key, item in final_query.items()): return False
         expected = row.get('expectedParameters', {})
-        if not isinstance(expected, dict) or not set(expected) <= {'XNXQDM', 'JXLDM', 'obj', 'uid', 'path'} \
+        if not isinstance(expected, dict) or not set(expected) <= {'XNXQDM', 'JXLDM', 'XXXQDM', 'obj', 'uid', 'path'} \
                 or not all(isinstance(item, str) for item in expected.values()): return False
         if value.get('validatedTerm') and expected.get('XNXQDM') != value['validatedTerm'] and 'XNXQDM' in expected: return False
         if complete(row['probe'], row['requests'], expected): observed.add(row['probe'])

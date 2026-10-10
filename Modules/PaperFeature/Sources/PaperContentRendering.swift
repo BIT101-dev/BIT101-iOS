@@ -156,9 +156,9 @@ enum PaperContentResourceLimits {
     }
 }
 
-@MainActor enum PaperContentRenderer {
+@MainActor public enum PaperContentRenderer {
     /// 从详情接口返回的 Editor.js JSON 字符串中恢复正文块。
-    static func blocks(from raw: String) -> [PaperContentBlock] {
+    public static func blocks(from raw: String) -> [PaperContentBlock] {
         guard raw.utf8.count <= PaperContentResourceLimits.maximumBodyBytes else {
             return [.requiresOriginal(id: "body-resource-limit")]
         }

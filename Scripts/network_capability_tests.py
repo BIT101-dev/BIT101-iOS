@@ -225,6 +225,36 @@ def network_capability_self_test() -> None:
     disabled['ReleaseNetworkSmoke.swift'] = disabled['ReleaseNetworkSmoke.swift'].replace('var enabled', 'let enabled').replace('if enabled', 'while enabled')
     assert 'mine.fetchMyInfo' not in reached(disabled)
     from network_capability_rules import call_can_execute
+    switches = [
+        ('switch false { case true: service.fetch(); default: break }', False),
+        ('switch false { case false: service.fetch(); default: break }', True),
+        ('switch true { case true: break; default: service.fetch() }', False),
+        ('switch 2 { case 1, 3: service.fetch(); default: break }', False),
+        ('switch 2 { case 1, 2: service.fetch(); default: break }', True),
+        ('switch 9007199254740992.0 { case 9007199254740993: service.fetch(); default: break }', True),
+        ('switch "é" { case "é": service.fetch(); default: break }', True),
+        ('let flag = false; switch flag { case true: service.fetch(); default: break }', False),
+        ('var flag = false; switch flag { case true: service.fetch(); default: break }', True),
+        ('switch 2 { case 2 where false: service.fetch(); default: break }', False),
+        ('switch 2 { case 2 where condition: service.fetch(); default: break }', True),
+        ('switch 2 { case let value where value == 2: service.fetch(); default: break }', True),
+        ('switch value { case .active where false: service.fetch(); default: break }', False),
+        ('switch 2 { case let value where false: service.fetch(); default: break }', False),
+        ('switch true { case false: fallthrough; default: service.fetch() }', True),
+        ('switch true { case true: fallthrough; case false: service.fetch() }', True),
+        ('switch true { case true: if false { fallthrough }; break; case false: service.fetch() }', False),
+        ('switch true { case true: if condition { fallthrough }; break; case false: service.fetch() }', True),
+        ('switch false { case true: func helper() { service.fetch() }; helper(); default: break }', False),
+    ]
+    switch_index = swift_syntax_index_sources({body: f'func run(condition: Bool) {{ {body} }}' for body, _ in switches})
+    for body, expected in switches:
+        facts = switch_index[body]
+        call = next(row for row in facts['invocations'] if row['calledExpression'] == 'service.fetch')
+        assert call_can_execute(facts, call) == expected, body
+    dead_switch = dict(sources)
+    dead_switch['ReleaseNetworkSmoke.swift'] = sources['ReleaseNetworkSmoke.swift'].replace(
+        'dependencies.productionSessionProbe()', 'switch false { case true: dependencies.productionSessionProbe(); default: break }')
+    assert 'mine.fetchMyInfo' not in reached(dead_switch)
     comparisons = [('true == false', False), ('false != false', False), ('true != false', True),
         ('(true == false) || false', False), ('enabled == false', True), ('1 == 2', False), ('1 != 1', False),
         ('-1 >= 0', False), ('1_000 < 1', False), ('1.5 > 2', False), ('0x10 == 16', True),
@@ -302,6 +332,11 @@ def network_capability_self_test() -> None:
         ('switch value { case .a: return; default: break }', True),
         ('switch value { case .a: fallthrough; default: return }', False),
         ('switch value { case .a: fallthrough; default: consume() }', True),
+        ('switch false { case true: break; case false: return }', False),
+        ('switch false { case true: return; case false: break }', True),
+        ('switch true { case true: fallthrough; case false: return }', False),
+        ('switch true { case true: fallthrough; case false: fallthrough; default: return }', False),
+        ('switch true { case true: if condition { fallthrough }; return; default: return }', False),
         ('while true { switch value { case .a: break; default: break } }', False),
     ]
     fixtures = {prefix: 'func run() { ' + prefix + '; service.fetch() }' for prefix, _ in successors}

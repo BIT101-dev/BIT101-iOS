@@ -18,6 +18,7 @@ final class NetworkSmokeRequestCollector {
         }
         if required && requests.isEmpty { throw NetworkSmokeRequestError.missingResponse }
         if required {
+            try checkCourseActivityRequests()
             for (key, expected) in expectedParameters {
                 let observed = requests.compactMap { request -> String? in
                     guard key == "path" else { return request.query[key] }
@@ -31,6 +32,18 @@ final class NetworkSmokeRequestCollector {
             }
         }
         return value
+    }
+
+    private func checkCourseActivityRequests() throws {
+        let successful = requests.filter { (200..<300).contains($0.statusCode) }
+        let pages = successful.filter { $0.endpoint == "https://zy-eclass.bit.edu.cn/api/my-courses" }
+        guard !pages.isEmpty else { return }
+        guard pages.allSatisfy({ $0.responseCourseIDs != nil }) else { throw NetworkSmokeRequestError.missingResponse }
+        let expected = Set(pages.flatMap { $0.responseCourseIDs ?? [] })
+        let activities = successful.filter { $0.endpoint.hasPrefix("https://zy-eclass.bit.edu.cn/api/courses/") && $0.endpoint.hasSuffix("/activities") }
+        let observed = Set(activities.compactMap { URL(string: $0.endpoint)?.pathComponents.dropFirst(3).first })
+        guard observed == expected, activities.allSatisfy({ $0.endpoint == $0.finalEndpoint })
+        else { throw NetworkSmokeRequestError.parameterMismatch("courseID") }
     }
 }
 

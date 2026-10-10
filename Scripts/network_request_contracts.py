@@ -90,6 +90,7 @@ CONTRACTS = {
     '学业课程历史成绩': [community('/courses/histories/.+')],
     '文章列表': [community('/papers', query={'order': None, 'search': None}, paging='page')],
     '文章详情': [community(r'/papers/\d+')],
+    '文章正文图片下载': [RequestContract(r'.+', '/.+', port=None)],
     '文章评论': [community('/reaction/comments', query={'obj': r'paper\d+', 'order': 'new'}, paging='page')],
     '我的资料': [community('/user/info/0')],
     '生产共享会话': [community('/user/info/0', minimum=2), community('/user/info/0', statuses=(401,))],
@@ -106,7 +107,7 @@ CONTRACTS = {
         '/jwapp/sys/wdkbby/modules/xskcb/cxxszhxqkb.do', '/jwapp/sys/wdksapMobile/modules/ksap/cxxsksap.do',
         '/jwapp/sys/wdkbby/wdkbByController/cxzkbrq.do')],
     '空教室校区列表': [teaching('/jwapp/sys/kxjasbyMobile/modules/jxllb/ggzdpx.do')],
-    '空教室教学楼列表': [teaching('/jwapp/sys/kxjasbyMobile/modules/jxllb/cxjxl.do')],
+    '空教室教学楼列表': [teaching('/jwapp/sys/kxjasbyMobile/modules/jxllb/cxjxl.do', query={'XXXQDM': '.+'})],
     '空教室占用数据': [teaching('/jwapp/sys/kxjasbyMobile/kxjasbyController/cxkxjasqk.do', 'POST', query={'XNXQDM': '.+', 'JXLDM': '.+'})],
     '课程中心原生认证': [RequestContract(r'zy-eclass\.bit\.edu\.cn', '/api/my-courses', 'POST')],
     '课程中心 DDL 下载': [RequestContract(r'zy-eclass\.bit\.edu\.cn', '/api/my-courses', 'POST')],
@@ -213,7 +214,7 @@ SELECTORS = {
     **{name: {'uid'} for name in ('我的帖子', '用户帖子')},
     **{name: {'path'} for name in ('话廊帖子详情', '学业课程详情', '学业课程历史成绩', '文章详情',
         '用户资料详情', '话廊网页详情', '学业课程网页详情', '文章网页详情')},
-    '课表、考试与首周同步': {'XNXQDM'}, '空教室占用数据': {'XNXQDM', 'JXLDM'},
+    '课表、考试与首周同步': {'XNXQDM'}, '空教室占用数据': {'XNXQDM', 'JXLDM'}, '空教室教学楼列表': {'XXXQDM'},
 }
 
 
@@ -231,6 +232,19 @@ def complete(probe: str, requests: list[dict], expected_parameters: dict | None 
     if matched and probe == '生产共享会话':
         return len(requests) == 3 and contracts[0].matches(requests[0]) \
             and contracts[1].matches(requests[1]) and contracts[0].matches(requests[2])
+    if matched and probe in {'课程中心原生认证', '课程中心 DDL 下载'}:
+        pages = [row.get('responseCourseIDs') for row in requests if contracts[0].matches(row)]
+        if not all(isinstance(ids, list) and all(isinstance(value, str) and re.fullmatch(r'[1-9]\d*', value)
+            for value in ids) for ids in pages): return False
+        expected = {value for ids in pages for value in ids}
+        activity = RequestContract(r'zy-eclass\.bit\.edu\.cn', r'/api/courses/[1-9]\d*/activities')
+        observed = set()
+        for row in requests:
+            if activity.matches(row):
+                path = urlsplit(row['endpoint']).path
+                if path != urlsplit(row['finalEndpoint']).path: return False
+                observed.add(path.split('/')[3])
+        return observed == expected
     if matched and probe == '社区写入与清理':
         comments = [row for row in requests if community('/reaction/comments', method='POST').matches(row)]
         replies = {row.get('query', {}).get('obj') for row in comments if row.get('query', {}).get('obj', '').startswith('comment')}

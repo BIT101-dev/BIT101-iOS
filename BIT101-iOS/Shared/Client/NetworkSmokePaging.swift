@@ -4,10 +4,37 @@ import CommunityTransport
 import GalleryFeature
 import PaperFeature
 import ScoreDomain
+import ScheduleDomain
 
 #if DEBUG || RELEASE_NETWORK_SMOKE
 @MainActor
 enum NetworkSmokePaging {
+    static func checkBuildings(_ buildings: [BuildingRecord], campusCode: String) throws {
+        guard !campusCode.isEmpty, buildings.allSatisfy({ $0.campusCode == campusCode })
+        else { throw URLError(.badServerResponse) }
+    }
+
+    static func checkPaperContent(_ raw: String) throws -> [String] {
+        let blocks = PaperContentRenderer.blocks(from: raw)
+        guard !blocks.isEmpty else { throw URLError(.cannotParseResponse) }
+        var images: [String] = []
+        var readable = false
+        for block in blocks {
+            switch block {
+            case .requiresOriginal: throw URLError(.cannotParseResponse)
+            case let .image(_, image):
+                guard let url = image.preferredRemoteURL else { throw URLError(.cannotParseResponse) }
+                images.append(url.absoluteString)
+            case let .header(_, text, _), let .paragraph(_, text), let .quote(_, text, _):
+                readable = readable || !String(text.characters).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            case let .list(_, items, _):
+                readable = readable || items.contains { !String($0.characters).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            }
+        }
+        guard readable, !images.isEmpty else { throw URLError(.cannotParseResponse) }
+        return images
+    }
+
     static func imageURL(in images: [CommunityImage]) -> String? {
         images.lazy.map { $0.lowUrl.isEmpty ? $0.url : $0.lowUrl }.first { !$0.isEmpty }
     }

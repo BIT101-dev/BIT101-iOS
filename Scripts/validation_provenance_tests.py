@@ -220,7 +220,8 @@ def artifact_lock_self_test(module) -> None:
     definition = next(node for node in ast.parse(source).body if isinstance(node, ast.FunctionDef) and node.name == "committed_children")
     harness = "from pathlib import Path\nimport fcntl, sys\n" + ast.get_source_segment(source, definition)
     harness += '\nprint("ready", flush=True)\nchildren = committed_children(Path(sys.argv[1]))\nassert all(path.suffix != ".incoming" for path in children)\nprint("committed", flush=True)\n'
-    for report in (module.REPORT, module.ROOT / '.build/icloud-cross-device-smoke/report.json'):
+    for report in (module.REPORT, module.ROOT / '.build/icloud-cross-device-smoke/report.json',
+                   module.ROOT / '.build/static-audit/compilation-conditions.json'):
         incoming = report.with_suffix(".incoming")
         with module.report_lock(path=report):
             incoming.write_text("pending atomic report")

@@ -39,6 +39,11 @@ def artifact_name_allowed(parent: str, name: str) -> bool:
 
 
 def committed_children(folder: Path) -> list[Path]:
+    if folder.name == 'static-audit':
+        with (folder / 'compilation-conditions.lock').open('a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            (folder / 'compilation-conditions.incoming').unlink(missing_ok=True)
+            return list(folder.iterdir())
     report_name = {'extended-automation': 'validation-evidence', 'icloud-cross-device-smoke': 'report'}.get(folder.name)
     if report_name:
         with (folder / (report_name + '.lock')).open("a") as lock:

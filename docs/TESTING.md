@@ -213,7 +213,7 @@ Scripts/check-module-boundaries.py
 
 模块检查器同时校验服务实现归属，覆盖生产源码中的直接网络发送、会话及网络缓存访问、重复系统网络监听、文件读写、元数据和符号链接解析，以及偏好默认实例选择。包级 `ClientCoreTests` 验证连接断开、恢复与实例隔离；App 的 `NetworkClientTests` 验证诊断文字消费所选网络状态。
 
-`Scripts/SwiftSyntaxIndexer.swift` 维护编译器提供的 SwiftSyntax 事实采集，[事实模型](../Scripts/SwiftSyntaxFacts.swift) 保存序列化数据结构，`swift_source_index.py` 承接编译缓存与事实查询，模块边界的回归样例归 `module_boundary_tests.py`。SwiftSyntax 共享索引入口通过 `.build/static-audit/swift-syntax-indexer.lock` 串行使用源码及可执行产物，代码质量和 UI 检查器共用同一入口。源码更新、编译和索引读取在同一次锁内完成。`swift_type_index.py` 沿模块、访问范围及完整嵌套类型解析继承、别名与调用关系，泛型实参参与语法解析后保留其后续成员路径。泛型参数与 `where` 约束保存所属声明范围，内层参数沿词法范围覆盖外层同名参数。原生 target 的全部 Swift 源码需要进入统一源码根及 Git 输入库存，新增扩展沿模块门禁核对登记。
+`Scripts/SwiftSyntaxIndexer.swift` 维护编译器提供的 SwiftSyntax 事实采集，[事实模型](../Scripts/SwiftSyntaxFacts.swift) 保存序列化数据结构，`swift_source_index.py` 承接编译缓存与事实查询，模块边界的回归样例归 `module_boundary_tests.py`。网络能力调用图沿编译器事实解析常量 switch 的主题、分支模式与 where 条件，结合 fallthrough 与分支退出判断调用及后续语句的可达性。SwiftSyntax 共享索引入口通过 `.build/static-audit/swift-syntax-indexer.lock` 串行使用源码及可执行产物，代码质量和 UI 检查器共用同一入口。源码更新、编译和索引读取在同一次锁内完成。`swift_type_index.py` 沿模块、访问范围及完整嵌套类型解析继承、别名与调用关系，泛型实参参与语法解析后保留其后续成员路径。泛型参数与 `where` 约束保存所属声明范围，内层参数沿词法范围覆盖外层同名参数。原生 target 的全部 Swift 源码需要进入统一源码根及 Git 输入库存，新增扩展沿模块门禁核对登记。
 
 检测器由 App 维护者负责工具链升级与规则评审，规则作者维护触发、合规和故障回归样例。语法事实以当前 Xcode 的 SwiftSyntax 为来源，词法扫描用于编译条件与源码片段；类型解析覆盖模块、文件访问范围、继承、泛型嵌套类型及别名，调用分析覆盖已登记的实例、工厂返回值、协议实现和保存回调。编译生成的宏实现、动态分派与第三方二进制行为沿正式编译条件测试和真机验收核对。新增语法或规则在所属自测文件补充最小故障样例，并复用已有事实入口。
 
@@ -294,7 +294,7 @@ GitHub Actions 的 `.github/workflows/ci.yml` 使用带 `self-hosted`、`macOS`�
 
 UI 摘要合并本批全部 App 进程的完整控件标识与访问动作，冷启动前和各用例结束时采样，同进程的后续访问清除对应待访问项，跨进程保持独立身份；已挂载的可交互控件全部访问，并记录禁用状态断言；源码交互清单核对各作用域的声明及有效验收归属。Swift 条件编译过滤按实际换行拆分，保留 CRLF 和 UTF-8 字节位置，Unicode 注释中的分隔字符参与库存回归验证。分页探针读取首页和实际续页，复用生产源页进度合同，连续四个非空页缺少新增标识时失败；短暂重复、合法部分重叠和末页参与回归。已读取页面共同构成去重后的图片及实体候选。消息使用实际末条标识，推荐及机器人使用返回的源游标与过滤前标识；每次读取共同核对当前账号代际。共享会话探针沿生产 Cookie 与缓存配置读取资料，学校探针复用正式学校状态及传输配置。
 
-社区详情验收通过 `BIT101_NETWORK_SMOKE_FIXTURES` 提供 JSON 配置，字段为 `posterID`、`courseID`、`courseNumber`、`paperID`。对象 ID 取正数，课程编号与指定课程详情一致。验收账号长期维护帖子和文章对象，课程选用稳定学业记录；列表端点继续采样实时数据，详情、评论、历史成绩和网页探针沿指定对象验收。配置随既有 `network-smoke-request.json` 传入宿主；调试链接使用 `fixtures` 查询参数传入相同 JSON。脚本在构建与选机前要求 `all`、`bit101` 及 `community-writes` 配置有效维护对象；宿主将直接调用中的配置缺口记录到覆盖缺口清单。
+社区详情验收通过 `BIT101_NETWORK_SMOKE_FIXTURES` 提供 JSON 配置，字段为 `posterID`、`courseID`、`courseNumber`、`paperID`。对象 ID 取正数，课程编号与指定课程详情一致。验收账号长期维护帖子和文章对象，课程选用稳定学业记录，文章正文包含可渲染文本块及有效内嵌图片；列表端点继续采样实时数据，详情、评论、历史成绩和网页探针沿指定对象验收。配置随既有 `network-smoke-request.json` 传入宿主；调试链接使用 `fixtures` 查询参数传入相同 JSON。脚本在构建与选机前要求 `all`、`bit101` 及 `community-writes` 配置有效维护对象；宿主将直接调用中的配置缺口记录到覆盖缺口清单。
 
 `BIT101_NETWORK_SMOKE_CAPTURE` 默认使用 `none`；`scheduleCache` 与 `rawCourseResponse` 采样采用 `all`、`school` 或 `schedule` 范围。入口在设备操作前核对参数组合。社区失败恢复采用独立清理范围，并将采样、学期和详情对象参数重置为空闲值。
 
@@ -358,7 +358,7 @@ fork PR 的常规 Job 使用 GitHub 托管的 `xcode-27` 镜像，每项任务�
 
 发布证据完成完整验收并执行 `python3 Scripts/validation_evidence.py bind` 后，通过 `python3 Scripts/ci_evidence.py publish v公开版本号` 生成并上传公开回执。固定本地路径与 Release 附件名为 `.build/extended-automation/release-receipt.json` 和 `release-receipt.json`。回执保存版本标签、提交、各组源码摘要、工具链、完整验收状态、原始摘要 SHA-256 与采样时间；截图、视频、邮箱、邮件正文、存储报告及设备身份保存在本地完整报告。发布命令先沿原始报告核对全部验收，再生成回执。发布 CI 下载同一标签的回执，沿 `ci_evidence.py check-release` 核对源码、工具链、全部组及采样有效期；回执表示维护者已完成完整验收的公开确认，发布资产写入权限属于该信任边界。`summaryDigest` 为本地原始摘要的比对标识，复核实际执行来源时读取维护者保留的完整报告及所属 XCTest 结果包；下载后的 CI 沿公开声明验收源码、工具链和采样有效期。详细附件沿明确授权在本地审阅。手动 `release_check` 同时填写 `validation_tag`，标签需要指向当前验收提交。发布资产按可分享的回执范围审阅，上传沿用户明确授权执行。
 
-首次登录、个人资料写入、举报与 iPad 布局使用结构化人工专项，分别登记 `first-login`、`profile-writes`、`gallery-report` 与 `ipad-layout`。`message-read` 核对本地已读保存与服务端分类清零；`web-interactions` 分别观察网络诊断、启动更新检查、手动更新检查、学校短信续验和学校日历同步。首次登录在正式 App 中清理登录态，分别以已注册账号与授权的新账号完成 WebVPN 初始化、密码校验、注册及进入登录后的页面。资料专项使用专用账号实际保存昵称、上传并绑定头像，随后恢复原资料并重新读取核对；举报专项使用明确授权的专用帖子确认服务端接收。iPad 专项覆盖竖屏、横屏、分屏及窗口调整，核对登录、主要导航、课表、内容详情与键盘操作。iPad 沿系统旋转和窗口管理适配尺寸，配置采用支持多方向的常规模式；迁移依据 [Apple 的 iPad 全屏模式说明](https://developer.apple.com/documentation/technotes/tn3192-migrating-your-app-from-the-deprecated-uirequiresfullscreen-key)。
+人工观察由执行人员确认操作、账号、服务端结果与对应媒体的关联，结构门禁核对能力库存、场景完成状态及媒体有效性。首次登录、个人资料写入、举报与 iPad 布局使用结构化人工专项，分别登记 `first-login`、`profile-writes`、`gallery-report` 与 `ipad-layout`。`message-read` 核对本地已读保存与服务端分类清零；`web-interactions` 分别观察网络诊断、启动更新检查、手动更新检查、学校短信续验和学校日历同步。首次登录在正式 App 中清理登录态，分别以已注册账号与授权的新账号完成 WebVPN 初始化、密码校验、注册及进入登录后的页面。资料专项使用专用账号实际保存昵称、上传并绑定头像，随后恢复原资料并重新读取核对；举报专项使用明确授权的专用帖子确认服务端接收。iPad 专项覆盖竖屏、横屏、分屏及窗口调整，核对登录、主要导航、课表、内容详情与键盘操作。iPad 沿系统旋转和窗口管理适配尺寸，配置采用支持多方向的常规模式；迁移依据 [Apple 的 iPad 全屏模式说明](https://developer.apple.com/documentation/technotes/tn3192-migrating-your-app-from-the-deprecated-uirequiresfullscreen-key)。
 
 各专项附件使用 `schemaVersion: 1` 与 `scenarios` 字典，键名沿 `Scripts/validation_manual.py` 的 `MANUAL_SCENARIOS` 登记。每个场景记录 `operation`、`result`、`outcome: "passed"`、实际 `capturedAt` 与 `capture` 使用的影像证据结构。涉及网络能力的场景增加 `capabilities` 字典，键名为 `Scripts/validation_test_areas.py` 的完整所属类型与方法签名，各项记录实际 `operation`、`result` 与 `outcome: "passed"`；`MANUAL_CAPABILITY_SCENARIOS` 登记方法对应场景，新增方法需要独立观察。反馈投递附件在顶层使用相同 `capabilities` 结构，并保留存储与邮件回执。iPad 附件增加 `deviceFamily: "iPad"`、`deviceIdentifier`，各场景记录整数点数的 `windowSize.width/height`，分屏记录 `screenWidth`，调整窗口记录 `previousWindowSize`。结构化附件固定覆盖 `.build/extended-automation/manual-scenarios.json`，每个专项沿 `validation_evidence.py manual 专项名称` 的已有入口提交后再填写下一专项；证据内容由统一报告保存。
 
@@ -416,13 +416,13 @@ UI 自动化同时采集交互库存及宿主与 Feature / UI 模块的行覆盖
 
 模块清单求值按工作区产物锁、公共编译缓存锁的顺序访问共享 SwiftPM scratch 与 module cache；上层流程持有产物锁时沿既有锁归属执行。文件副作用审计沿类型、重载和抛错包装方法追踪持久化调用，恒假布尔比较参与 Smoke 可达性检查。
 
-工具链选择沿 `DEVELOPER_DIR` 与 `TOOLCHAINS` 交给 `xcrun` 解析，语法解析、SwiftSyntax 索引、编译条件及构建证据共用所选工具链。环境证据将 Xcode `.app` 路径归一化为其 `Contents/Developer`，两种输入共享版本、SDK 与编译器身份；路径格式参见 [Apple 命令行工具配置](https://developer.apple.com/documentation/xcode/configuring-command-line-tools-settings)。编译器身份记录实际解析出的 swift-frontend 路径及文件摘要。产物审计沿上层持有的工作流锁检查诊断导出目录，残留副本进入失败结果。
+工具链选择沿 `DEVELOPER_DIR` 与 `TOOLCHAINS` 交给 `xcrun` 解析，语法解析、SwiftSyntax 索引、编译条件及构建证据共用所选工具链。环境证据将 Xcode `.app` 路径归一化为其 `Contents/Developer`，两种输入共享版本、SDK 与编译器身份；路径格式参见 [Apple 命令行工具配置](https://developer.apple.com/documentation/xcode/configuring-command-line-tools-settings)。编译器身份记录实际解析出的 swift-frontend 路径及文件摘要。编译条件缓存沿独立文件锁与固定事务路径原子覆盖；中断事务统一清理，损坏或失效的缓存沿当前编译器重新求值。产物审计沿上层持有的工作流锁检查诊断导出目录，残留副本进入失败结果。
 
-成功的关键词复验沿同一输入摘要与环境复用此前完整组的证据，完整证据保留原运行标识、采样时间及性能指标。复验失败或构建输入变化进入对应分组的重新验收。网络 smoke 保存每个探针的起始及最终 HTTP 方法、端点、业务查询与状态码，端点移除凭据、查询参数及片段；完整验收校验重定向后的业务位置、请求方法、排序及分页参数，并沿 `Scripts/network_request_contracts.py` 核对业务端点、HTTP 方法、所需调用数量及分页查询。全部请求按业务合同及明确的认证、预热、活动和成绩单图片端点归属验收；认证失败重试需要后续同端点、同参数的成功请求。重复探针记录中的失败继续参与验收。列表首屏为空时继续请求续页，消息空首屏沿正游标验收终止边界；首屏、续页与实际参数共同保存在请求证据中。
+成功的关键词复验沿同一输入摘要与环境复用此前完整组的证据，完整证据保留原运行标识、采样时间及性能指标。复验失败或构建输入变化进入对应分组的重新验收。网络 smoke 保存每个探针的起始及最终 HTTP 方法、端点、业务查询与状态码，端点移除凭据、查询参数及片段；完整验收校验重定向后的业务位置、请求方法、排序及分页参数，并沿 `Scripts/network_request_contracts.py` 核对业务端点、HTTP 方法、所需调用数量及分页查询。课程中心认证与 DDL 探针保存课程列表响应的 ID，逐项核对对应活动请求，合法空课程列表沿空集合验收。教学楼探针同时核对 XXXQDM 与返回楼宇的校区。全部请求按业务合同及明确的认证、预热、活动和成绩单图片端点归属验收；认证失败重试需要后续同端点、同参数的成功请求。重复探针记录中的失败继续参与验收。列表首屏为空时继续请求续页，消息空首屏沿正游标验收终止边界；首屏、续页与实际参数共同保存在请求证据中。
 
 `Scripts/run-extended-tests.sh report performance-run` 读取当前 XCTest 结果包中实际执行的性能用例，供 Catalyst 与真机采样检查。响应聚合沿 64 KiB 块追加字节并检查取消，声明长度通过边界检查后预留存储；传输合同分别验收声明长度与实际接收长度。
 
-网页详情探针承接 App 深链路由，维护对象的实体身份沿独立详情接口验收；列表沿业务合同保留合法空状态，固定课程、文章和帖子详情由维护对象配置验收。专项 XCTest 沿所属范围的 requiredProbes 核对执行库存。网络读探针沿独立话廊筛选参数采样，图片下载从采样列表的图片及头像选择有效地址。完整详情验收要求线上课程、文章和话廊各具备可读取内容及图片资源；验收账号的数据准备沿专用账号流程执行，完整报告核对各项实际成功结果。共享社区会话合同顺序核对首次成功、无效凭据的 401 拒绝及恢复成功，正式 App 的完整账号操作沿 `account-lifecycle` 专项验收。
+网页详情探针承接 App 深链路由，维护对象的实体身份沿独立详情接口验收；列表沿业务合同保留合法空状态，固定课程、文章和帖子详情由维护对象配置验收。专项 XCTest 沿所属范围的 requiredProbes 核对执行库存。网络读探针沿独立话廊筛选参数采样，图片下载从采样列表的图片及头像选择有效地址。文章详情沿生产 PaperContentRenderer 解析正文，核对可读文本及内嵌图片，正文图片由独立下载探针沿生产图片校验链路读取；解析缺口与资源失败进入验收结果。完整详情验收要求线上课程、文章和话廊各具备可读取内容及图片资源；验收账号的数据准备沿专用账号流程执行，完整报告核对各项实际成功结果。共享社区会话合同顺序核对首次成功、无效凭据的 401 拒绝及恢复成功，正式 App 的完整账号操作沿 `account-lifecycle` 专项验收。
 
 课前提醒计时器在到点时交出等待任务的归属，再执行刷新或结束；回归覆盖刷新期间再次排程与等待阶段取消。图片准备回归覆盖 PNG、HEIC、JPEG 原图，评论、头像和发帖共用后台准备器，将实际上传字节转换为既定像素及字节预算内的 JPEG。成绩仓库回归覆盖受保护读取恢复、最大文件边界、超限保存保留旧快照，以及本地保存后重建同步对象的版本选择。学校认证错误与 HTTP 错误共用字节、字符及正文类型边界。
 

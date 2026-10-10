@@ -83,7 +83,7 @@ def constant_boolean(condition: str, resolve) -> bool | None:
     return result if type(result) is bool else None
 
 
-def branch_condition(facts: dict, branch: dict) -> bool | None:
+def branch_value(facts: dict, branch: dict, expression: str):
     resolving = set()
     def resolve(name, location=branch):
         lexical = location.get('lexicalScope', [])
@@ -107,58 +107,97 @@ def branch_condition(facts: dict, branch: dict) -> bool | None:
                 return result
             finally: resolving.remove(node['start'])
         return None
-    return constant_boolean(branch.get('condition') or '', resolve)
+    return constant_value(expression, resolve)
+
+
+def branch_condition(facts: dict, branch: dict) -> bool | None:
+    value = branch_value(facts, branch, branch.get('condition') or '')
+    return value if type(value) is bool else None
+
+
+def switch_entries(facts: dict, branch: dict) -> set[int]:
+    """Select possible entry cases from constant subjects, patterns and guards."""
+    cases = branch.get('switchCases')
+    if cases is None: return set(range(len(branch.get('branchRanges', []))))
+    subject = branch_value(facts, branch, branch.get('switchSubject') or '')
+    entries = set()
+    for index, case in enumerate(cases):
+        matches = [True] if case['isDefault'] else []
+        for pattern in case['patterns']:
+            value = branch_value(facts, branch, pattern['value'])
+            if pattern['value'] == '_': match = True
+            elif value is None:
+                guard = constant_value(pattern.get('condition') or 'true', lambda _: None)
+                matches.append(False if guard is False else None)
+                continue
+            elif subject is None: match = None
+            else:
+                numeric = type(subject) in {int, float} and type(value) in {int, float}
+                if numeric and (type(subject) is float or type(value) is float):
+                    try: match = float(subject) == float(value)
+                    except OverflowError: match = None
+                else: match = subject == value if numeric or type(subject) is type(value) else None
+            guard = branch_value(facts, branch, pattern['condition']) if pattern.get('condition') else True
+            matches.append(False if match is False or guard is False else True if match is True and guard is True else None)
+        if any(match is not False for match in matches): entries.add(index)
+        if any(match is True for match in matches): break
+    return entries
+
+
+def block_outcomes(facts: dict, branch: dict, conditions: dict, bounds, *, nested=True) -> set[str]:
+    normal = {'normal'}
+    if not bounds: return normal
+    rows = facts.get('controlFlow', [])
+    lexical = branch.get('lexicalScope', [])
+    alternative = next((row for row in rows if row['start'] == bounds[0]
+        and row.get('lexicalScope', []) == lexical and row.get('thenRange')), None)
+    if nested and alternative: return control_flow_outcomes(facts, alternative, conditions)
+    outcomes = normal
+    direct = sorted((row for row in rows if bounds[0] <= row['start'] < bounds[1]
+        and row.get('scope') == branch.get('scope') and row.get('lexicalScope', []) == lexical + ([bounds[0]] if nested else [])),
+        key=lambda row: row['start'])
+    covered_until = bounds[0]
+    for row in direct:
+        if row['start'] < covered_until: continue
+        if 'normal' not in outcomes: break
+        if row.get('deadRange'):
+            following = {row['value'].split()[0]}
+        elif row.get('thenRange') or row.get('elseRange') or row.get('branchRanges'):
+            following = control_flow_outcomes(facts, row, conditions)
+            spans = [row[key] for key in ('thenRange', 'elseRange') if row.get(key)] + row.get('branchRanges', [])
+            covered_until = max([span[1] for span in spans] + [row.get('followingRange', [row['start']])[0]])
+        else: continue
+        outcomes = outcomes - normal | following
+    return outcomes
 
 
 def control_flow_outcomes(facts: dict, branch: dict, conditions: dict) -> set[str]:
     """Track normal continuation and explicit exits through compiler block facts."""
-    rows = facts.get('controlFlow', [])
     normal = {'normal'}
-    def block_outcomes(bounds, *, nested=True):
-        if not bounds: return normal
-        lexical = branch.get('lexicalScope', [])
-        alternative = next((row for row in rows if row['start'] == bounds[0]
-            and row.get('lexicalScope', []) == lexical and row.get('thenRange')), None)
-        if nested and alternative: return control_flow_outcomes(facts, alternative, conditions)
-        outcomes = normal
-        direct = sorted((row for row in rows if bounds[0] <= row['start'] < bounds[1]
-            and row.get('scope') == branch.get('scope') and row.get('lexicalScope', []) == lexical + ([bounds[0]] if nested else [])),
-            key=lambda row: row['start'])
-        covered_until = bounds[0]
-        for row in direct:
-            if row['start'] < covered_until: continue
-            if 'normal' not in outcomes: break
-            if row.get('deadRange'):
-                following = {row['value'].split()[0]}
-            elif row.get('thenRange') or row.get('elseRange') or row.get('branchRanges'):
-                following = control_flow_outcomes(facts, row, conditions)
-                spans = [row[key] for key in ('thenRange', 'elseRange') if row.get(key)] + row.get('branchRanges', [])
-                covered_until = max([span[1] for span in spans] + [row.get('followingRange', [row['start']])[0]])
-            else: continue
-            outcomes = outcomes - normal | following
-        return outcomes
+    def outcomes(bounds, *, nested=True): return block_outcomes(facts, branch, conditions, bounds, nested=nested)
     identity = branch['start']
     if identity not in conditions: conditions[identity] = branch_condition(facts, branch)
     value = conditions[identity]
     kind = branch['value'].split()[0]
     if kind == 'switch':
         result, following = set(), normal
-        for bounds in reversed(branch.get('branchRanges', [])):
-            outcome = block_outcomes(bounds, nested=False)
+        entries = switch_entries(facts, branch)
+        for index, bounds in reversed(list(enumerate(branch.get('branchRanges', [])))):
+            outcome = outcomes(bounds, nested=False)
             following = outcome - {'fallthrough'} | (following if 'fallthrough' in outcome else set())
-            result |= following
-        return result - {'break'} | (normal if 'break' in result or not branch.get('branchRanges') else set())
+            if index in entries: result |= following
+        return result - {'break'} | (normal if 'break' in result or not entries else set())
     if kind == 'guard':
-        return normal if value is True else block_outcomes(branch.get('elseRange')) | (normal if value is None else set())
-    body = block_outcomes(branch.get('thenRange'))
+        return normal if value is True else outcomes(branch.get('elseRange')) | (normal if value is None else set())
+    body = outcomes(branch.get('thenRange'))
     if kind == 'do':
-        alternatives = set().union(*(block_outcomes(bounds) for bounds in branch.get('branchRanges', [])))
+        alternatives = set().union(*(outcomes(bounds) for bounds in branch.get('branchRanges', [])))
         return body | alternatives
     if kind in {'while', 'repeat'}:
         if kind == 'while' and value is False: return normal
         exits = 'break' in body or value is not True and bool({'normal', 'continue'} & body)
         return body - {'normal', 'break', 'continue'} | (normal if exits or kind == 'while' and value is None else set())
-    alternative = block_outcomes(branch.get('elseRange'))
+    alternative = outcomes(branch.get('elseRange'))
     return body if value is True else alternative if value is False else body | alternative
 
 
@@ -180,6 +219,12 @@ def call_can_execute(facts: dict, call: dict) -> bool:
             empty = lower >= upper if bounds[2] == '..<' else lower > upper
         body = branch.get('thenRange')
         if empty and body and body[0] <= call['start'] < body[1]: return False
+        if branch.get('switchSubject') is not None:
+            reachable = switch_entries(facts, branch)
+            for index, bounds in enumerate(branch.get('branchRanges', [])):
+                if index in reachable and 'fallthrough' in block_outcomes(facts, branch, conditions, bounds, nested=False):
+                    reachable.add(index + 1)
+                if bounds[0] <= call['start'] < bounds[1] and index not in reachable: return False
         if not any(bounds and bounds[0] <= call['start'] < bounds[1]
                 for bounds in (body, branch.get('elseRange'), branch.get('followingRange'))): continue
         if branch['start'] not in conditions: conditions[branch['start']] = branch_condition(facts, branch)

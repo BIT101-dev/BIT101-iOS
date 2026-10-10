@@ -339,11 +339,21 @@ final class ReleaseNetworkSmokeRunner {
         if let fixture = validatedFixtures {
             await runInParallel([
                 {
-                    _ = await self.probe("文章详情", area: .bit101, scope: scope, expectedParameters: ["path": "/papers/\(fixture.paperID)"]) {
+                    let detail = await self.probe("文章详情", area: .bit101, scope: scope, expectedParameters: ["path": "/papers/\(fixture.paperID)"]) {
                         _ = try await papers.fetchPreviewMetadata(id: fixture.paperID)
                         let detail = try await papers.fetchPaper(id: fixture.paperID)
                         try Self.validateEntityIdentity(expected: fixture.paperID, actual: detail.id)
+                        _ = try NetworkSmokePaging.checkPaperContent(detail.content)
                         return detail
+                    }
+                    if let detail {
+                        _ = await self.probe("文章正文图片下载", area: .bit101, scope: scope) {
+                            for url in try NetworkSmokePaging.checkPaperContent(detail.content) {
+                                _ = try await self.fetchImageCount(urlString: url)
+                            }
+                        }
+                    } else {
+                        self.recordSkip("文章正文图片下载", "文章正文探针需要可渲染的维护对象", area: .bit101, scope: scope)
                     }
                 },
                 {
@@ -366,6 +376,7 @@ final class ReleaseNetworkSmokeRunner {
         } else {
             let reason = "社区详情验收需要有效的维护对象配置 BIT101_NETWORK_SMOKE_FIXTURES"
             recordSkip("文章详情", reason, area: .bit101, scope: scope)
+            recordSkip("文章正文图片下载", reason, area: .bit101, scope: scope)
             recordSkip("文章评论", reason, area: .bit101, scope: scope)
             recordSkip("文章网页详情", reason, area: .bit101, scope: scope)
         }
@@ -470,8 +481,10 @@ final class ReleaseNetworkSmokeRunner {
                 try await schedule.fetchCampuses()
             }
             if let campus = campuses?.first {
-                let buildings = await probe("空教室教学楼列表", area: .schedule, scope: scope) {
-                    try await schedule.fetchBuildings(campusCode: campus.code)
+                let buildings = await probe("空教室教学楼列表", area: .schedule, scope: scope, expectedParameters: ["XXXQDM": campus.code]) {
+                    let buildings = try await schedule.fetchBuildings(campusCode: campus.code)
+                    try NetworkSmokePaging.checkBuildings(buildings, campusCode: campus.code)
+                    return buildings
                 }
                 if let building = buildings?.first {
                     _ = await probe("空教室占用数据", area: .schedule, scope: scope, expectedParameters: ["XNXQDM": term, "JXLDM": building.id]) {

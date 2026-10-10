@@ -451,16 +451,26 @@ struct ClientCoreTests {
     }
 
     @Test func requestEvidencePreservesBusinessSelectorsAndRedactsFormCredentials() throws {
-        let url = AppURL.required("https://example.invalid/probe?search=BIT101&hide_bot=true&token=secret")
+        let url = AppURL.required("https://example.invalid/probe?search=BIT101&hide_bot=true&XXXQDM=campus&token=secret")
         let response = try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
         request.httpBody = Data("XNXQDM=2025-2026-1&JXLDM=B%2B%26+Room&password=secret".utf8)
         let evidence = HTTPRequestEvidence(request: request, response: response)
-        #expect(evidence.query == ["search": "BIT101", "hide_bot": "true", "XNXQDM": "2025-2026-1", "JXLDM": "B+& Room"])
+        #expect(evidence.query == ["search": "BIT101", "hide_bot": "true", "XXXQDM": "campus", "XNXQDM": "2025-2026-1", "JXLDM": "B+& Room"])
         request.httpBody = Data("requestParamStr=%7B%22XNXQDM%22%3A%222025-2026-1%22%2C%22ZC%22%3A%221%22%7D&password=secret".utf8)
-        #expect(HTTPRequestEvidence(request: request, response: response).query == ["search": "BIT101", "hide_bot": "true", "XNXQDM": "2025-2026-1"])
+        #expect(HTTPRequestEvidence(request: request, response: response).query == ["search": "BIT101", "hide_bot": "true", "XXXQDM": "campus", "XNXQDM": "2025-2026-1"])
+        #expect(!String(decoding: try JSONEncoder().encode(evidence), as: UTF8.self).contains("secret"))
+    }
+
+    @Test(arguments: [(#"{"courses":[]}"#, [String]?.some([])), (#"{"courses":[{"id":41,"name":"secret"},{"id":43}]}"#, .some(["41", "43"])),
+        (#"{"courses":[{"id":true}]}"#, nil), (#"{"courses":[{"id":0}]}"#, nil), ("{}", nil)])
+    func requestEvidenceBindsEclassCourseResponsesWithoutTheirContent(fixture: (String, [String]?)) async throws {
+        let url = AppURL.required("https://zy-eclass.bit.edu.cn/api/my-courses")
+        let response = try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+        let evidence = await HTTPRequestEvidence.capture(request: URLRequest(url: url), response: response, body: Data(fixture.0.utf8))
+        #expect(evidence.responseCourseIDs == fixture.1)
         #expect(!String(decoding: try JSONEncoder().encode(evidence), as: UTF8.self).contains("secret"))
     }
 

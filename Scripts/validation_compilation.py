@@ -61,12 +61,32 @@ def repository_conditions() -> set[str]:
 
 
 def prepare_cache(recorded: dict, group: str, environment: str, conditions: set[str]) -> dict:
-    recorded = {key: value for key, value in recorded.items() if key in {'modules', 'build-ui'}}
+    recorded = {key: value for key, value in recorded.items() if key in {'modules', 'build-ui'}
+        and isinstance(value, dict) and isinstance(value.get('environment'), str) and isinstance(value.get('results'), dict)} \
+        if isinstance(recorded, dict) else {}
     for context in recorded.values():
-        context['results'] = {key: row for key, row in context['results'].items() if row['condition'] in conditions}
+        context['results'] = {key: row for key, row in context['results'].items() if isinstance(row, dict)
+            and isinstance(row.get('condition'), str) and row['condition'] in conditions and type(row.get('value')) is bool}
     if recorded.get(group, {}).get('environment') != environment:
         recorded[group] = {'environment': environment, 'results': {}}
     return recorded
+
+
+def read_cache(path: Path) -> dict:
+    path.with_suffix('.incoming').unlink(missing_ok=True)
+    try:
+        value = json.loads(path.read_text())
+        return value if isinstance(value, dict) else {}
+    except (FileNotFoundError, json.JSONDecodeError, UnicodeDecodeError): return {}
+
+
+def write_cache(path: Path, recorded: dict) -> None:
+    incoming = path.with_suffix('.incoming')
+    try:
+        incoming.write_text(json.dumps(recorded, sort_keys=True) + '\n')
+        incoming.replace(path)
+    finally:
+        incoming.unlink(missing_ok=True)
 
 
 @cache
@@ -94,12 +114,12 @@ def compilation_condition(condition: str, group: str, *, language_mode: str = '6
     with (cache_root / "compilation-conditions.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         cache_path = cache_root / "compilation-conditions.json"
-        recorded = json.loads(cache_path.read_text()) if cache_path.is_file() else {}
+        recorded = read_cache(cache_path)
         conditions = repository_conditions()
         recorded = prepare_cache(recorded, environment_group, context_signature, conditions)
         results = recorded[environment_group]['results']
         if signature in results:
-            cache_path.write_text(json.dumps(recorded, sort_keys=True) + "\n")
+            write_cache(cache_path, recorded)
             return results[signature]['value']
         compiler = subprocess.check_output(["xcrun", "--find", "swiftc"], text=True).strip()
         sdk = subprocess.check_output(["xcrun", "--sdk", sdk_name, "--show-sdk-path"], text=True).strip()
@@ -121,7 +141,7 @@ def compilation_condition(condition: str, group: str, *, language_mode: str = '6
             raise ValueError(f"Swift 编译条件求值失败：{condition}\n{result.stderr.strip()}")
         value = errors == {"BIT101_CONDITION_TRUE"}
         if condition in conditions: results[signature] = {'condition': condition, 'value': value}
-        cache_path.write_text(json.dumps(recorded, sort_keys=True) + "\n")
+        write_cache(cache_path, recorded)
         return value
 
 
@@ -149,3 +169,61 @@ def self_test() -> None:
     assert kept['build-ui'] == {'environment': 'sdk', 'results': {}}
     changed = prepare_cache(kept, 'modules', 'new-compiler', {'DEBUG'})
     assert changed['modules']['results'] == {} and changed['build-ui']['environment'] == 'sdk'
+    for invalid in (None, [], {'modules': None}, {'modules': {'environment': 'compiler', 'results': None}}):
+        assert prepare_cache(invalid, 'modules', 'compiler', {'DEBUG'}) == {'modules': {'environment': 'compiler', 'results': {}}}
+    malformed = {'modules': {'environment': 'compiler', 'results': {'bad': {'condition': 'DEBUG', 'value': 1}, 'missing': {}}}}
+    assert prepare_cache(malformed, 'modules', 'compiler', {'DEBUG'})['modules']['results'] == {}
+    cache_transaction_self_test()
+
+
+def cache_transaction_self_test() -> None:
+    from contextlib import nullcontext
+    from io import BytesIO
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    path = ROOT / '.build/static-audit/compilation-conditions.json'
+    incoming = path.with_suffix('.incoming')
+    original_read = Path.read_text
+    source = Path(__file__).read_text()
+    files = {}
+    fault = None
+    def read(target, *args, **kwargs):
+        if target == Path(__file__): return source
+        if target != path: return original_read(target, *args, **kwargs)
+        if target not in files: raise FileNotFoundError(str(target))
+        return files[target].decode()
+    def write(target, text, *args, **kwargs):
+        files[target] = text.encode()
+        if fault == 'write':
+            files[target] = b'{'
+            raise OSError('interrupted write')
+        if fault == 'interrupt': raise KeyboardInterrupt()
+        return len(text)
+    def replace(target, destination):
+        if fault == 'replace': raise OSError('interrupted commit')
+        files[destination] = files.pop(target)
+        return destination
+    with patch.object(Path, 'read_text', read), patch.object(Path, 'write_text', write), \
+            patch.object(Path, 'replace', replace), patch.object(Path, 'unlink', lambda target, **_: files.pop(target, None)):
+        for content in (b'', b'{', b'\xff', b'[]', b'null'):
+            files[path], files[incoming] = content, b'pending'
+            assert read_cache(path) == {} and incoming not in files
+        files.clear()
+        assert read_cache(path) == {}
+        for fault in ('write', 'replace', 'interrupt', None):
+            files[path] = b'{"modules":{}}'
+            try: write_cache(path, {'build-ui': {}})
+            except (OSError, KeyboardInterrupt): assert fault is not None
+            else: assert fault is None
+            assert json.loads(files[path]) == ({'modules': {}} if fault else {'build-ui': {}})
+            assert incoming not in files
+        files[path] = b'{'
+        with patch.object(Path, 'mkdir'), patch.object(Path, 'open', return_value=nullcontext(BytesIO())), \
+                patch.object(fcntl, 'flock'), patch(f'{__name__}.environment_context', return_value={}), \
+                patch(f'{__name__}.repository_conditions', return_value={'DEBUG'}), \
+                patch(f'{__name__}.local_import_conditions', side_effect=lambda condition, *_: condition), \
+                patch.object(subprocess, 'check_output', side_effect=['/compiler', '/sdk']), \
+                patch.object(subprocess, 'run', return_value=SimpleNamespace(stderr='error: BIT101_CONDITION_FALSE')) as compiler:
+            assert compilation_condition.__wrapped__('DEBUG', 'modules') is False
+            compiler.assert_called_once()
+            assert next(iter(json.loads(files[path])['modules']['results'].values()))['value'] is False

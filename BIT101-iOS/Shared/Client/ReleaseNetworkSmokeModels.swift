@@ -112,6 +112,7 @@ enum NetworkSmokeArea: CaseIterable, Hashable, Sendable {
                 "学业课程网页详情",
                 "文章列表",
                 "文章详情",
+                "文章正文图片下载",
                 "文章评论",
                 "文章网页详情",
                 "我的资料",

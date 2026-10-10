@@ -9,9 +9,11 @@ public nonisolated struct HTTPRequestEvidence: Codable, Sendable {
     public let statusCode: Int
     public let query: [String: String]
     public let responseMinimumID: String?
+    public let responseCourseIDs: [String]?
 
-    public init(request: URLRequest, response: HTTPURLResponse, responseMinimumID: String? = nil, finalRequest: URLRequest? = nil) {
+    public init(request: URLRequest, response: HTTPURLResponse, responseMinimumID: String? = nil, responseCourseIDs: [String]? = nil, finalRequest: URLRequest? = nil) {
         self.responseMinimumID = responseMinimumID
+        self.responseCourseIDs = responseCourseIDs
         method = request.httpMethod ?? "GET"
         query = Self.parameters(request)
         if let finalRequest {
@@ -38,7 +40,7 @@ public nonisolated struct HTTPRequestEvidence: Codable, Sendable {
 
     private static func parameters(_ request: URLRequest) -> [String: String] {
         let endpoint = request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
-        let allowed = Set(["page", "last_id", "obj", "order", "mode", "type", "uid", "detail", "search", "hide_bot", "XNXQDM", "JXLDM"])
+        let allowed = Set(["page", "last_id", "obj", "order", "mode", "type", "uid", "detail", "search", "hide_bot", "XNXQDM", "JXLDM", "XXXQDM"])
         var parameters: [String: String] = Dictionary((endpoint?.queryItems ?? []).compactMap { item in
             guard allowed.contains(item.name), let value = item.value else { return nil }
             return (item.name, value)
@@ -76,7 +78,17 @@ public nonisolated struct HTTPRequestEvidence: Codable, Sendable {
                     ? identifiers.min().map(String.init) : nil
             }
         } else { cursor = nil }
-        return Self(request: request, response: response, responseMinimumID: cursor, finalRequest: finalRequest)
+        let courseIDs: [String]?
+        if request.url?.host == "zy-eclass.bit.edu.cn", request.url?.path == "/api/my-courses",
+           let page = try? JSONDecoder().decode(CoursePageEvidence.self, from: body), page.courses.allSatisfy({ $0.id > 0 }) {
+            courseIDs = page.courses.map { String($0.id) }
+        } else { courseIDs = nil }
+        return Self(request: request, response: response, responseMinimumID: cursor, responseCourseIDs: courseIDs, finalRequest: finalRequest)
+    }
+
+    private struct CoursePageEvidence: Decodable {
+        struct Course: Decodable { let id: Int }
+        let courses: [Course]
     }
 }
 

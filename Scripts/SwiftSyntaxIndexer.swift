@@ -798,7 +798,19 @@ final class FactVisitor: SyntaxVisitor {
         return .visitChildren
     }
     override func visit(_ node: SwitchExprSyntax) -> SyntaxVisitorContinueKind {
-        recordFlow(node, branches: node.cases.compactMap { $0.as(SwitchCaseSyntax.self).map { Syntax($0.statements) } })
+        let cases = node.cases.compactMap { $0.as(SwitchCaseSyntax.self) }
+        var item = controlFlowFact(node)
+        item.switchSubject = node.subject.trimmedDescription
+        item.branchRanges = cases.map { [$0.statements.positionAfterSkippingLeadingTrivia.utf8Offset,
+            $0.statements.endPositionBeforeTrailingTrivia.utf8Offset] }
+        item.switchCases = cases.map { branch in
+            SwitchCaseFact(isDefault: branch.label.is(SwitchDefaultLabelSyntax.self),
+                patterns: branch.label.as(SwitchCaseLabelSyntax.self)?.caseItems.map {
+                    SwitchPatternFact(value: $0.pattern.trimmedDescription, condition: $0.whereClause?.condition.trimmedDescription)
+                } ?? [])
+        }
+        controlFlow.append(item)
+        return .visitChildren
     }
     override func visit(_ node: DoStmtSyntax) -> SyntaxVisitorContinueKind {
         recordFlow(node, body: Syntax(node.body), branches: node.catchClauses.map { Syntax($0.body) })

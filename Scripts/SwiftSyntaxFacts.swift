@@ -84,8 +84,20 @@ struct ScopedFact: Encodable {
     var deadRange: [Int]? = nil
     var followingRange: [Int]? = nil
     var branchRanges: [[Int]]? = nil
+    var switchSubject: String? = nil
+    var switchCases: [SwitchCaseFact]? = nil
     var isExpressionReference: Bool = false
     var isAssignmentTarget: Bool = false
+}
+
+struct SwitchCaseFact: Encodable {
+    let isDefault: Bool
+    let patterns: [SwitchPatternFact]
+}
+
+struct SwitchPatternFact: Encodable {
+    let value: String
+    let condition: String?
 }
 
 struct SelectionControlFact: Encodable {

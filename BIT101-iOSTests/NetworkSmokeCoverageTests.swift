@@ -68,10 +68,52 @@ struct NetworkSmokeCoverageTests {
     }
 
     private final class SelectorTransport: HTTPTransport {
+        var body = Data()
         func data(for request: URLRequest) async throws -> (Data, URLResponse) {
             let url = try #require(request.url)
-            return (Data(), try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)))
+            return (body, try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)))
         }
+    }
+
+    @Test(arguments: ["complete", "missing", "wrong", "empty", "malformed"])
+    func eclassSmokeBindsEveryReturnedCourseToItsActivityRequest(stage: String) async throws {
+        let transport = SelectorTransport()
+        transport.body = Data((stage == "malformed" ? "{}" : stage == "empty" ? #"{"courses":[]}"# : #"{"courses":[{"id":41},{"id":43}]}"#).utf8)
+        let client = HTTPClient(transport: transport, observer: nil)
+        let collector = NetworkSmokeRequestCollector()
+        let operation = {
+            var list = URLRequest(url: AppURL.required("https://zy-eclass.bit.edu.cn/api/my-courses"))
+            list.httpMethod = "POST"
+            _ = try await client.send(list)
+            for id in stage == "empty" ? [] : stage == "missing" ? [41] : stage == "wrong" ? [41, 45] : [41, 43] {
+                _ = try await client.send(URLRequest(url: AppURL.required("https://zy-eclass.bit.edu.cn/api/courses/\(id)/activities")))
+            }
+        }
+        if stage == "complete" || stage == "empty" { try await collector.perform(operation, required: true) }
+        else { await #expect(throws: NetworkSmokeRequestError.self) { try await collector.perform(operation, required: true) } }
+    }
+
+    @Test(arguments: ["correct", "wrong", "missing"])
+    func buildingSmokeKeepsItsSelectedCampus(selection: String) async throws {
+        let client = HTTPClient(transport: SelectorTransport(), observer: nil)
+        let base = "https://jxzxehallapp.bit.edu.cn/jwapp/sys/kxjasbyMobile/modules/jxllb/cxjxl.do"
+        let request = URLRequest(url: AppURL.required(base + (selection == "missing" ? "" : "?XXXQDM=" + (selection == "correct" ? "campus" : "other"))))
+        let collector = NetworkSmokeRequestCollector()
+        let operation = { try await client.send(request) }
+        if selection == "correct" { _ = try await collector.perform(operation, required: true, expectedParameters: ["XXXQDM": "campus"]) }
+        else { await #expect(throws: NetworkSmokeRequestError.self) { try await collector.perform(operation, required: true, expectedParameters: ["XXXQDM": "campus"]) } }
+        let building = BuildingRecord(id: "building", name: "", buildingCode: "building", campusName: "", campusCode: selection == "correct" ? "campus" : "other")
+        if selection == "correct" { try NetworkSmokePaging.checkBuildings([building], campusCode: "campus") }
+        else { #expect(throws: URLError.self) { try NetworkSmokePaging.checkBuildings([building], campusCode: "campus") } }
+    }
+
+    @Test(arguments: ["valid", "empty", "text-only", "image-only", "unsupported", "broken-image"])
+    func paperSmokeUsesTheProductionRendererAndRequiresReadableTextAndImages(stage: String) throws {
+        let raw = stage == "empty" ? "" : stage == "text-only" ? "text" : stage == "image-only" ? #"{"blocks":[{"type":"image","data":{"file":{"url":"https://image.invalid/paper.png"}}}]}"#
+            : stage == "unsupported" ? #"{"blocks":[{"type":"table","data":{}}]}"#
+            : smokePaperContent.replacingOccurrences(of: "https://image.invalid/paper.png", with: stage == "broken-image" ? "javascript:alert(1)" : "https://image.invalid/paper.png")
+        if stage == "valid" { #expect(try NetworkSmokePaging.checkPaperContent(raw) == ["https://image.invalid/paper.png"]) }
+        else { #expect(throws: URLError.self) { try NetworkSmokePaging.checkPaperContent(raw) } }
     }
 
     @Test(arguments: ["correct", "wrong", "missing"])
@@ -504,6 +546,7 @@ struct NetworkSmokeCoverageTests {
 #endif
 
 #if DEBUG
+private let smokePaperContent = #"{"blocks":[{"type":"header","data":{"text":"Title","level":1}},{"type":"paragraph","data":{"text":"Readable <b>body</b>"}},{"type":"image","data":{"file":{"url":"https://image.invalid/paper.png"}}}]}"#
 extension ReleaseNetworkSmokeLifecycleTests {
     private final class Services: NetworkSmokeGalleryServicing, NetworkSmokeCourseServicing, NetworkSmokePaperServicing,
         NetworkSmokeMineServicing, NetworkSmokeScheduleServicing, ScoreListServicing, TrustedTranscriptServicing {
@@ -601,7 +644,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
         func fetchPaper(id: Int) async throws -> PaperDetail {
             observed.insert("fixture-paper-\(id)")
             if stage == "maintained-fixtures-success", id == 1 { throw URLError(.resourceUnavailable) }
-            return PaperDetail(id: stage == "entity-identity-failure" ? id + 1 : id, title: "fixture", intro: "", content: "fixture", createTime: "", updateTime: "", updateUser: user,
+            return PaperDetail(id: stage == "entity-identity-failure" ? id + 1 : id, title: "fixture", intro: "", content: stage == "paper-content-failure" ? "" : smokePaperContent, createTime: "", updateTime: "", updateUser: user,
                 anonymous: false, likeNum: 0, commentNum: 0, publicEdit: false, like: false, own: false)
         }
         func fetchPreviewMetadata(id: Int) async throws -> PaperPreviewMetadata { try await fetchPaper(id: id).previewMetadata }
@@ -634,7 +677,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
         func submitSMSCodeForTeachingCenterAuthentication(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws { webvpnVerified = true }
         func prepareTeachingCenterAccess() async throws {}
         func fetchCampuses() async throws -> [CampusRecord] { [CampusRecord(id: "campus", name: "fixture", code: "campus")] }
-        func fetchBuildings(campusCode: String?) async throws -> [BuildingRecord] { [BuildingRecord(id: "building", name: "fixture", buildingCode: "building", campusName: "fixture", campusCode: "campus")] }
+        func fetchBuildings(campusCode: String?) async throws -> [BuildingRecord] { [BuildingRecord(id: "building", name: "fixture", buildingCode: "building", campusName: "fixture", campusCode: stage == "campus-selection-failure" ? "other" : "campus")] }
         func fetchClassrooms(buildingID: String, term: String) async throws -> [ClassroomRecord] {
             [ClassroomRecord(id: "room", name: "fixture", busyTimeCodes: stage == "invalid-classroom-failure" ? [0] : [])]
         }
@@ -720,6 +763,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
             } else if url.host == "update.aihelpme.dev" {
                 data = Data(#"{"schema_version":1,"enabled":false}"#.utf8)
             } else if url.path.hasSuffix(".jpg") || url.path.hasSuffix(".png") {
+                if aasaStage == "paper-image-failure", url.path == "/paper.png" { throw URLError(.resourceUnavailable) }
                 data = image
             } else {
                 if url.path.isEmpty || url.path == "/" { finalURL = try #require(URL(string: "https://bit101.cn/gallery/")) }
@@ -737,7 +781,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
          "gallery-comment-page-failure", "course-comment-page-failure", "paper-comment-page-failure", "cors-method-failure", "cors-header-failure",
          "schedule-term-failure", "historical-term-success", "maintained-fixtures-success", "continuation-image-success",
          "missing-fixtures-failure", "fixture-course-number-failure", "empty-list-failure", "all-score-mismatch-failure",
-         "bot-classification-failure", "paper-like-order-failure", "paper-comment-order-failure", "paper-newest-order-failure",
+         "bot-classification-failure", "paper-like-order-failure", "paper-comment-order-failure", "paper-newest-order-failure", "paper-content-failure", "paper-image-failure", "campus-selection-failure",
          "invalid-exam-failure", "pending-exam-success", "invalid-classroom-failure",
          "school-independent-success", "transcript-independent-success", "schedule-independent-success", "ddl-independent-success"])
     func completeOrchestration(stage: String) async throws {
@@ -787,6 +831,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
         #expect(report.passed == (!stage.hasSuffix("failure") || stage == "missing-fixtures-failure"))
         if stage == "maintained-fixtures-success" {
             #expect(services.observed.isSuperset(of: ["fixture-poster-41", "fixture-course-43", "fixture-paper-45"]))
+            #expect(external.requests.contains { $0.url?.path == "/paper.png" })
         }
         if stage == "continuation-image-success" {
             #expect(external.requests.contains { $0.url?.path == "/continuation.png" })
@@ -818,8 +863,11 @@ extension ReleaseNetworkSmokeLifecycleTests {
         if stage == "missing-fixtures-failure" {
             #expect(Set(scope.requiredProbes).subtracting(report.executedProbes)
                 == ["话廊帖子详情", "话廊帖子评论", "话廊网页详情", "学业课程详情", "学业课程评论",
-                    "学业课程历史成绩", "学业课程网页详情", "文章详情", "文章评论", "文章网页详情"])
-        } else { #expect(Set(report.executedProbes) == Set(scope.requiredProbes)) }
+                    "学业课程历史成绩", "学业课程网页详情", "文章详情", "文章正文图片下载", "文章评论", "文章网页详情"])
+        } else {
+            let deferred: Set<String> = stage == "entity-identity-failure" || stage == "paper-content-failure" ? ["文章正文图片下载"] : stage == "campus-selection-failure" ? ["空教室占用数据"] : []
+            #expect(Set(report.executedProbes) == Set(scope.requiredProbes).subtracting(deferred))
+        }
         #expect(reports.count == 1 && reports[0].passed == report.passed)
         #expect(loginChecks == (scope.includes(.authentication) ? 1 : 0))
         if scope.includes(.bit101) { #expect(feedback == 1 && services.observed.contains("mine") && services.observed.contains("paper-list")) }
@@ -831,6 +879,10 @@ extension ReleaseNetworkSmokeLifecycleTests {
         if stage == "entity-identity-failure" {
             #expect(report.failures.count == 3)
             for name in ["话廊帖子详情", "学业课程详情", "文章详情"] { #expect(report.failures.contains { $0.contains(name) }) }
+        }
+        if stage == "paper-content-failure" || stage == "paper-image-failure" || stage == "campus-selection-failure" {
+            let probe = stage == "paper-content-failure" ? "文章详情" : stage == "paper-image-failure" ? "文章正文图片下载" : "空教室教学楼列表"
+            #expect(report.failures.count == 1 && report.failures[0].contains(probe))
         }
         if stage.contains("comment-page") {
             let kind = String(stage.prefix { $0 != "-" })
