@@ -119,12 +119,39 @@ print('entered', flush=True)
                 fcntl.flock(artifact, fcntl.LOCK_UN)
             output, error = standalone.communicate(timeout=5)
             if standalone.returncode or output.strip() != 'entered': raise ValueError(error)
+        cache = (SCRIPT_ROOT / 'run-extended-tests.sh').read_text().split('if [[ "${1:-}" == performance', 1)[0]
+        cache = re.sub(r'(?m)^ROOT_DIR=.*$', 'ROOT_DIR=' + shlex.quote(str(fixture)), cache)
+        cache = cache.replace('source "$ROOT_DIR/Scripts/script-support.sh"',
+                              'source ' + shlex.quote(str(SCRIPT_ROOT / 'script-support.sh')))
+        recovery = '''python3() {
+  if [[ "${1:-}" == */Scripts/validation_performance.py && "${2:-}" == recover-batch ]]; then return 0; fi
+  command python3 "$@"
+}
+'''
+        worker.write_text(recovery + cache)
+        with (fixture / '.build/extended-automation.lock').open('a') as artifact:
+            fcntl.flock(artifact, fcntl.LOCK_EX)
+            standalone = subprocess.Popen(['zsh', str(worker), 'cache'], env=environment,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            processes.append(standalone)
+            if not select.select([standalone.stdout], [], [], 5)[0]: raise ValueError('缓存整理开始等待产物锁')
+            if not standalone.stdout.readline().startswith('[等待]'): raise ValueError('缓存整理复用产物锁顺序')
+            inherited = subprocess.Popen(['zsh', str(worker), 'cache'], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True, start_new_session=True, env=dict(environment, BIT101_EXTENDED_TESTS_LOCK_HELD='1'))
+            processes.append(inherited)
+            output, error = inherited.communicate(timeout=5)
+            if inherited.returncode or '缓存整理：' not in output: raise ValueError(error)
+            fcntl.flock(artifact, fcntl.LOCK_UN)
+        output, error = standalone.communicate(timeout=5)
+        if standalone.returncode or '缓存整理：' not in output: raise ValueError(error)
     except (ValueError, OSError, subprocess.TimeoutExpired) as error:
         findings.append(f'审计锁顺序自测：{error}')
     finally:
         for process in processes:
             if process.poll() is None:
-                process.terminate()
+                import signal
+                try: os.killpg(process.pid, signal.SIGTERM)
+                except ProcessLookupError: process.terminate()
                 process.communicate(timeout=5)
         shutil.rmtree(fixture, ignore_errors=True)
     return findings

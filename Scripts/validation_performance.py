@@ -35,6 +35,12 @@ def bundle_digest(bundle: Path) -> str:
 def recover_result_step() -> None:
     retained = BUNDLE.with_suffix('.retained.xcresult')
     merged = BUNDLE.with_suffix('.incoming.xcresult')
+    if BUNDLE.exists() and (retained.exists() or merged.exists()):
+        try:
+            bundle_digest(BUNDLE)
+            subprocess.check_output(['xcrun', 'xcresulttool', 'get', 'test-results', 'summary', '--path', str(BUNDLE)])
+        except (ValueError, OSError, subprocess.CalledProcessError):
+            shutil.rmtree(BUNDLE)
     if not BUNDLE.exists() and merged.exists():
         try:
             bundle_digest(merged)

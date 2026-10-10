@@ -258,21 +258,25 @@ def batch_retention_self_test(raw: list, test: str) -> None:
                 writer.assert_not_called()
                 assert bundle.is_dir() and not retained.exists() and not incoming.exists()
                 assert (bundle / 'database.sqlite3').read_bytes() == b'failed'
-            for fault in ('current', 'retained', 'merged', 'partial', 'unreadable'):
+            for fault in ('current', 'retained', 'merged', 'partial', 'unreadable',
+                          'current-partial', 'current-missing', 'current-unreadable', 'current-merged'):
                 for path in (bundle, retained, incoming): shutil.rmtree(path, ignore_errors=True)
                 create(retained, b'previous')
                 create(incoming, b'merged')
-                if fault == 'current': create(bundle, b'current')
+                if fault.startswith('current'):
+                    create(bundle, b'current')
+                    if fault in {'current-partial', 'current-merged'}: (bundle / 'Staging').mkdir()
+                    if fault == 'current-missing': (bundle / 'database.sqlite3').unlink()
                 if fault == 'retained': shutil.rmtree(incoming)
-                if fault == 'partial': (incoming / 'Staging').mkdir()
+                if fault in {'partial', 'current-partial', 'current-missing'}: (incoming / 'Staging').mkdir()
                 assert artifact_status() == 1, fault
                 def recover_export(command, **kwargs):
-                    assert '--path' in command and str(incoming) in command
-                    if fault == 'unreadable': raise subprocess.CalledProcessError(1, command)
+                    assert '--path' in command and command[-1] in {str(bundle), str(incoming)}
+                    if fault in {'unreadable', 'current-unreadable'}: raise subprocess.CalledProcessError(1, command)
                     return '{}'
                 with patch.object(subject.subprocess, 'check_output', side_effect=recover_export):
                     assert subject.main(['recover-batch']) == 0
-                expected = b'current' if fault == 'current' else b'merged' if fault == 'merged' else b'previous'
+                expected = b'current' if fault == 'current' else b'merged' if fault in {'merged', 'current-merged'} else b'previous'
                 assert (bundle / 'database.sqlite3').read_bytes() == expected, fault
                 assert not retained.exists() and not incoming.exists(), fault
                 assert artifact_status() == 0, fault

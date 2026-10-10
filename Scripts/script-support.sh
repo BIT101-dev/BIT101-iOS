@@ -232,7 +232,8 @@ def share_cache(source, destination):
             directory.rmdir()
     source.symlink_to(destination, target_is_directory=True)
 
-with ((root / ".build/extended-automation.lock").open("a") if maintenance else nullcontext()) as results_lock, \
+with ((root / ".build/extended-automation.lock").open("a")
+      if maintenance and os.environ.get("BIT101_EXTENDED_TESTS_LOCK_HELD") != "1" else nullcontext()) as results_lock, \
         (shared / "cache.lock").open("a") as lock:
     if results_lock is not None:
         fcntl.flock(results_lock, fcntl.LOCK_EX)
