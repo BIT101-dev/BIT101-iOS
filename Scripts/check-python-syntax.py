@@ -17,25 +17,34 @@ def command_words(prefix):
     return words[boundaries[-1] + 1:] if boundaries else words
 
 
-def inline_python_command(prefix):
+def python_command_words(prefix):
     words = command_words(prefix)
     while words:
-        if re.match(r'^[A-Za-z_]\w*=', words[0]) or words[0] in {'command', 'exec', 'if', 'elif', 'then', 'do', '!'}:
+        if re.match(r'^[A-Za-z_]\w*=', words[0]) or words[0] in {'command', 'exec', 'if', 'elif', 'then', 'do', 'while', 'until', '{', '!'}:
             words.pop(0)
+        elif words[0] == 'time':
+            words.pop(0)
+            if words and words[0] == '-p': words.pop(0)
         elif Path(words[0]).name == 'env':
             words.pop(0)
             while words and words[0].startswith('-'):
                 option = words.pop(0)
                 if option in {'-u', '--unset', '-C', '--chdir'}:
-                    if not words: return False
+                    if not words: return None
                     words.pop(0)
                 elif option == '--': break
-                elif option not in {'-i', '--ignore-environment'} and not option.startswith(('--unset=', '--chdir=')): return False
+                elif option not in {'-i', '--ignore-environment'} and not option.startswith(('--unset=', '--chdir=')): return None
         else: break
-    if not words or not re.fullmatch(r'(?:[^\s\'\"]*/)?python(?:\d+(?:\.\d+)*)?', words.pop(0)): return False
+    if not words or not re.fullmatch(r'python(?:\d+(?:\.\d+)*)?', Path(words.pop(0)).name): return None
+    return words
+
+
+def inline_python_command(prefix):
+    words = python_command_words(prefix)
+    if words is None: return False
     while words:
         option = words.pop(0)
-        if option == '-c': return not words
+        if option == '-c' or re.fullmatch(r'-[bBdEiIOPqRsSuvVx]*c', option): return not words
         if option in {'-W', '-X'}:
             if not words: return False
             words.pop(0)
@@ -43,12 +52,50 @@ def inline_python_command(prefix):
     return False
 
 
-def quoted_command(source, position):
+def stdin_python_command(prefix):
+    words = python_command_words(prefix)
+    if words is None: return False
+    while words:
+        option = words.pop(0)
+        if option == '-': return True
+        if option == '--': return not words or words[0] == '-'
+        if re.match(r'-[bBdEiIOPqRsSuvVx]*[cm]', option): return False
+        if option in {'-W', '-X'}:
+            if not words: return False
+            words.pop(0)
+        elif not option.startswith('-'): return False
+    return True
+
+
+def ansi_literal(body):
+    escapes = {'a': b'\a', 'b': b'\b', 'e': b'\x1b', 'E': b'\x1b', 'f': b'\f',
+        'n': b'\n', 'r': b'\r', 't': b'\t', 'v': b'\v', '\\': b'\\', "'": b"'", '"': b'"', '?': b'?'}
+    pattern = re.compile(r'''\\(?:([abEefnrtv\\'"?])|x([\da-fA-F]{1,2})|u([\da-fA-F]{1,4})|U([\da-fA-F]{1,8})|([0-7]{1,3})|c(.))''')
+    result, position = bytearray(), 0
+    for match in pattern.finditer(body):
+        result.extend(body[position:match.start()].encode())
+        escape, hexadecimal, short_unicode, long_unicode, octal, control = match.groups()
+        if escape: result.extend(escapes[escape])
+        elif hexadecimal: result.append(int(hexadecimal, 16))
+        elif short_unicode or long_unicode: result.extend(chr(int(short_unicode or long_unicode, 16)).encode())
+        elif octal: result.append(int(octal, 8) & 255)
+        else: result.append(127 if control == '?' else ord(control.upper()) & 31)
+        position = match.end()
+    result.extend(body[position:].encode())
+    return bytes(result).split(b'\0', 1)[0]
+
+
+def quoted_command(source, position, *, ansi=False):
     quote, body, literal = source[position], [], True
     position += 1
     while position < len(source):
         character = source[position]
-        if character == quote: return ''.join(body), position + 1, literal
+        if character == quote:
+            value = ''.join(body)
+            return ansi_literal(value) if ansi else value.encode(), position + 1, literal
+        if ansi and character == '\\' and position + 1 < len(source):
+            body.extend(source[position:position + 2]); position += 2
+            continue
         if quote == '"' and character == '\\' and position + 1 < len(source):
             following = source[position + 1]
             if following in '$`"\\\n':
@@ -61,9 +108,24 @@ def quoted_command(source, position):
     raise SyntaxError('Python -c 引号需要完整闭合')
 
 
+def command_argument(source, position):
+    body, literal = bytearray(), True
+    while position < len(source) and source[position] not in ' \t\r\n;|&()<>':
+        ansi = source.startswith("$'", position)
+        if ansi or source[position] in "'\"":
+            value, position, segment_literal = quoted_command(source, position + int(ansi), ansi=ansi)
+            body.extend(value); literal &= segment_literal
+        elif source[position] == '\\' and position + 1 < len(source):
+            if source[position + 1] != '\n': body.extend(source[position + 1].encode())
+            position += 2
+        else:
+            if source[position] in '$`*?[': literal = False
+            body.extend(source[position].encode()); position += 1
+    return bytes(body), position, literal
+
+
 def compile_embedded_python(source, path):
     headers = re.compile(r"<<(?P<tabs>-)?[ \t]*(?P<quote>['\"]?)(?P<label>[A-Za-z_]\w*)(?P=quote)(?=[ \t\n;|&<>]|$)")
-    interpreter = re.compile(r"(?:^|[\s(;|&])(?:[^\s'\"]*/)?python(?:\d+(?:\.\d+)*)?(?=\s|$)")
     visible = [" "] * len(source)
     contexts = [("command", 0)]
     pending = []
@@ -71,6 +133,14 @@ def compile_embedded_python(source, path):
     while position < len(source):
         character = source[position]
         context, context_start = contexts[-1]
+        if context == 'command' and character not in ' \t\r\n;|&()<>#' and not source.startswith('\\\n', position) \
+                and inline_python_command(''.join(visible[max(line_start, context_start):position])):
+            argument_start = position
+            body, position, literal = command_argument(source, position)
+            if literal: compile(body.decode('utf-8'), str(path), 'exec')
+            visible[argument_start] = '#'
+            line_start = source.rfind('\n', 0, position) + 1
+            continue
         if character == "\\" and context != "'":
             position += 2
             continue
@@ -85,10 +155,12 @@ def compile_embedded_python(source, path):
             position = len(source) if newline < 0 else newline
             continue
         if character in "'\"":
-            if inline_python_command(''.join(visible[max(line_start, context_start):position])):
-                body, position, literal = quoted_command(source, position)
-                if literal: compile(body, str(path), 'exec')
-                line_start = source.rfind('\n', 0, position) + 1
+            ansi = character == "'" and position > 0 and visible[position - 1] == '$'
+            argument_start = position - int(ansi)
+            body, end, literal = quoted_command(source, position, ansi=ansi)
+            if literal:
+                visible[argument_start] = shlex.quote(body.decode('utf-8', errors='surrogateescape'))
+                position = end
                 continue
             visible[position] = '_'
             contexts.append((character, position)); position += 1
@@ -115,8 +187,8 @@ def compile_embedded_python(source, path):
             if character == "\n": line_start = position + 1
             position += 1
             continue
-        opening = ' '.join(command_words(''.join(visible[max(line_start, context_start):position])))
-        pending.append((header, header['label'].startswith('PY') or interpreter.search(opening) is not None))
+        opening = ''.join(visible[max(line_start, context_start):position])
+        pending.append((header, header['label'].startswith('PY') or stdin_python_command(opening)))
         position = header.end()
     if pending: raise SyntaxError(f'{path}: heredoc 正文缺失')
 
@@ -132,6 +204,12 @@ for opening in ["<<PY", "<< 'PY'", '<<"PY"', "<<'PY'", "<<-PY", "<<'PY' >/dev/nu
         raise AssertionError(f"Python heredoc 语法审计遗漏：{opening}")
 
 compile_embedded_python("cat <<'EOF'\nif True\nEOF\n", "shell-text-self-test")
+for command in ("echo python3", "python3 -c 'pass'", "python3 -Bcpass", "python3 script.py", "python3 -m package"):
+    compile_embedded_python(command + " <<'EOF'\nif True\nEOF\n", 'python-stdin-data-self-test')
+for command in ('python3', 'python3 -B -', '"/fixture/Python Tools/python3" -', 'python3 -- -'):
+    try: compile_embedded_python(command + " <<'EOF'\nif True\nEOF\n", 'python-stdin-code-self-test')
+    except SyntaxError: pass
+    else: raise AssertionError('Python 标准输入代码需要参与语法审计')
 for command, bodies in [
     ("cat <<'TEXT' | python3 - <<'EOF'", 'if True\nTEXT\n{python}\nEOF\n'),
     ("python3 - <<'EOF' | cat <<'TEXT'", '{python}\nEOF\nif True\nTEXT\n'),
@@ -151,19 +229,31 @@ for source in ("python3 - \\\n <<'EOF'\nif True\nEOF\n", 'value="$(python3 - <<\
     except SyntaxError: pass
     else: raise AssertionError("Python heredoc 语法审计需要覆盖续行及命令替换")
 
-for prefix in ('python3 -c ', '/usr/bin/python3 -B -c ', 'value="$(python3 -c ', 'cat | python3 -c ', 'if python3 -c ',
+for prefix in ('python3 -c ', 'python3 -Bc ', 'python3 -OOuc ', '/usr/bin/python3 -B -c ', '"python3" -c ',
+               "'python3' -c ", "$'python3' -c ", '"/fixture/Python Tools/python3" -c ',
+               'value="$(python3 -c ', 'cat | python3 -c ', 'if python3 -c ', 'while python3 -c ',
+               'until python3 -c ', '{ python3 -c ', 'time -p python3 -c ',
                'BIT101_FLAG=1 python3 -c ', 'BIT101_FLAG="two words" python3 -c ', 'env BIT101_FLAG=1 python3 -c ',
                'command env -i BIT101_FLAG=1 python3 -B -c ', 'exec /usr/bin/env -u "BIT101_FLAG" python3 -X dev -c '):
     suffix = ')"' if prefix.startswith('value=') else ''
-    for quote in ("'", '"'):
-        compile_embedded_python(prefix + quote + 'pass' + quote + suffix, 'inline-python-self-test')
-        try: compile_embedded_python(prefix + quote + 'if True' + quote + suffix, 'inline-python-self-test')
+    for quote in ("'", '"', "$'"):
+        closing = quote[-1]
+        compile_embedded_python(prefix + quote + 'pass' + closing + suffix, 'inline-python-self-test')
+        try: compile_embedded_python(prefix + quote + 'if True' + closing + suffix, 'inline-python-self-test')
         except SyntaxError: pass
         else: raise AssertionError('Python -c 字面量需要参与语法审计')
 compile_embedded_python('python3 -c "print(\\\"literal\\\")"', 'inline-escape-self-test')
+for argument in ("'for ''item in []: pass'", "'for 'item' in []: pass'", "p'ass'", "$'for item in []:\\n    pass'",
+                 "$'print(\\'literal\\')'", "$'\\x70\\141\\u0073\\U00000073'", "'pa'$'ss'", "'pass' 'if True'", 'pass',
+                 "\\\n    'pass'", 'p\\ass'):
+    compile_embedded_python('python3 -Bc ' + argument, 'inline-argument-self-test')
+for argument in ("'if ''True'", "$'if True\\n    pass'", "if' True'", "$'\\x69f True'", 'if\\ True', "\\\n  'if True'"):
+    try: compile_embedded_python('python3 -c ' + argument, 'inline-argument-self-test')
+    except SyntaxError: pass
+    else: raise AssertionError('Python -c 完整字面参数需要参与语法审计')
 for source in ('echo python3 -c \'if True\'', '# python3 -c \'if True\'', 'echo "python3 -c \'if True\'"',
                'python3 -c "$script"', 'cat <<\'EOF\'\npython3 -c \'if True\'\nEOF\n',
-               "env BIT101_FLAG=1 echo python3 -c 'if True'", "python3 script.py -c 'if True'"):
+               "env BIT101_FLAG=1 echo python3 -c 'if True'", "python3 script.py -c 'if True'", "printf '%s' $'\\xff'"):
     compile_embedded_python(source, 'inline-shell-text-self-test')
 
 for path in sorted((root / "Scripts").glob("*.py")):

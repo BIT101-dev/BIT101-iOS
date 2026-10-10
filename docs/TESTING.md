@@ -281,6 +281,8 @@ Scripts/run_icloud_cross_device_smoke.sh cleanup
 
 真机自托管 CI 的 checkout 使用 `clean: false` 保留固定工作区中的共享编译缓存和增量产物。验证输入摘要、产物审计与所属运行标识共同核对每次验收结果；CI 静态审计的失败组沿控制台完整展示诊断，详细日志继续保存到固定产物路径。
 
+脚本语法审计编译 Python 源文件、直接 Python 命令的标准输入代码和 `-c` 的完整字面参数，核对普通及 ANSI-C 引号、引号拼接、组合短选项、转义及续行。动态脚本参数由所属运行流程验收；脚本文件、模块和 `-c` 消费的标准输入沿数据参数处理，`PY` 前缀的 heredoc 标记声明 Python 代码。
+
 缓存与诊断保持原始文件形式。CompilationCache 的 CAS 索引、动作及数据作为完整命名空间迁入共享目录，SDK 统计缓存沿当前使用的平台维护，Xcode 编译索引共用固定 `Index.noindex`。共享编译入口统一启用 Swift / Clang 警告门禁，覆盖 SwiftPM 模块构建与测试、正式归档和独立 Smoke 构建。工作流条件宏通过 `BIT101_WORKFLOW_CONDITIONS` 限定在 App 工程，共享包模块复用同一编译配置。UI 文件隔离由 App 文件服务提供，账号摘要沿用生产存储规则。脚本开发构建使用 `DEBUG_INFORMATION_FORMAT=dwarf` 和逐文件增量编译，调试信息保留在目标文件与链接产物中；发行归档沿用工程的 dSYM 和整模块优化设置，显式构建参数优先。缓存整理清理独立 dSYM 副本，运行包内部的调试资源继续保留；通过 Clang 模块元数据识别及清理停用平台的隐式模块。真机、Mac 和平台归属待核对的模块继续保留。
 
 完整测试输出写入对应固定日志，终端显示汇总和失败摘要；模块日志保留 Swift Testing 的 suite、用例及参数执行记录。模块测试汇总七个消费者二进制，采集逐模块生产源码行覆盖率，真机测试采集逐 target 行覆盖率，并通过 LLVM 汇总 App 及嵌入框架的生产模块覆盖率；设备 profile 在测试前清理并由本批运行重新生成，指标固定覆盖 `test-metrics.txt`。模块覆盖率统计 macOS 宿主编译的可执行源码，iOS 界面由真机行为与 UI 用例补充。模块报告记录统计范围及总覆盖行数，CI 将逐模块指标写入 GitHub Job Summary，沿工作流执行记录保留覆盖率趋势。Catalyst 诊断保留固定 XCTest 原始结果包，发布验收 Job 沿失败状态传播结果。各 Job 使用 [upload-artifact](https://github.com/actions/upload-artifact) 的零压缩级别保存完整日志、指标与结果包，采用仓库默认保留周期。覆盖率采集异常进入失败状态；Catalyst 使用 runtime 提供的测试汇总。
