@@ -68,9 +68,10 @@ struct ServiceContractTests {
             func parameters(_ request: URLRequest) throws -> [String: String] {
                 let items = URLComponents(url: try #require(request.url), resolvingAgainstBaseURL: false)?.queryItems ?? []
                 let allowed = ["page", "order", "search", "hide_bot", "obj", "mode", "type", "uid"]
-                let selected = items.filter { allowed.contains($0.name) }
-                #expect(Set(selected.map(\.name)).count == selected.count)
-                var result = selected.reduce(into: [String: String]()) { $0[$1.name] = $1.value ?? "" }
+                #expect(Set(items.map(\.name)).count == items.count)
+                var result = items.reduce(into: [String: String]()) {
+                    $0[$1.name] = allowed.contains($1.name) ? $1.value ?? "" : "[REDACTED]"
+                }
                 if let data = request.httpBody,
                    let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let value = object["obj"] as? String {
                     result["obj"] = value

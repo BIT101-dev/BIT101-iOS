@@ -34,6 +34,9 @@ def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[s
     else:
         syntax_index = shared_syntax
     source_errors, review = source_findings(syntax_index or None)
+    large_scripts = [relative(path) for path in repository_script_paths(ROOT, {'.sh', '.py', '.swift'})
+        if len(path.read_text().splitlines()) > 800]
+    if large_scripts: review.append('大型脚本候选：' + ', '.join(large_scripts))
     errors.extend(source_errors)
     errors.extend(checker_boundary_findings() if boundary_findings is None else boundary_findings)
     errors.extend(script_findings())
@@ -65,6 +68,8 @@ def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[s
 
     if errors:
         return 1
+    if review:
+        print(f'维护审查候选：{len(review)} 项 · {relative(REPORT_PATH)}\n' + '\n'.join(review))
     return 0
 
 

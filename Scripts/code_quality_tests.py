@@ -39,6 +39,14 @@ def campus_fixture_self_test() -> None:
 
 
 def checker_boundary_findings() -> list[str]:
+    from code_quality_rules import script_findings
+    from types import SimpleNamespace
+    for suffix in ('.py', '.sh'):
+        path = ROOT / ('Scripts/nested/entry' + suffix)
+        source = "if __name__ == '__main__': pass" if suffix == '.py' else 'echo ready'
+        with patch('code_quality_rules.repository_script_paths', return_value=[path]), \
+                patch.object(Path, 'read_text', return_value=source), patch.object(Path, 'stat', return_value=SimpleNamespace(st_mode=0)):
+            assert len(script_findings()) == 2
     import warnings
     from ui_rules import check_fonts
     from ui_source_facts import pattern_nodes

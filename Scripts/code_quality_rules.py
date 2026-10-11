@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from validation_inputs import native_project_targets
+from validation_inputs import native_project_targets, repository_script_paths
 import ast
 import fcntl
 import json
@@ -474,12 +474,10 @@ def source_findings(syntax_index: dict[str, dict] | None = None) -> tuple[list[s
 
 def script_findings() -> list[str]:
     errors: list[str] = []
-    for path in sorted(SCRIPT_ROOT.glob("*")):
-        if path.suffix not in {".sh", ".py"} or not path.is_file():
-            continue
+    for path in repository_script_paths(ROOT, {'.sh', '.py'}):
         source = path.read_text(encoding="utf-8")
         tree = ast.parse(source) if path.suffix == ".py" else None
-        entry = path.suffix == ".sh" or any(
+        entry = path.suffix != ".py" or any(
             isinstance(node, ast.If) and any(isinstance(item, ast.Name) and item.id == "__name__"
                 for item in ast.walk(node.test)) for node in tree.body
         )

@@ -8,6 +8,7 @@ from urllib.parse import unquote, urlsplit
 API = 'bit101.flwfdd.xyz'
 SCHOOL = r'(?:jxzxehallapp|webvpn)\.bit\.edu\.cn'
 VPN = r'(?:/https/[0-9a-f]+)?'
+VISIBLE_PARAMETERS = frozenset({'page', 'last_id', 'obj', 'order', 'mode', 'type', 'uid', 'detail', 'search', 'hide_bot', 'XNXQDM', 'JXLDM', 'XXXQDM'})
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,8 @@ class RequestContract:
     port: int | None = 443
     final_host: str = ''
     final_path: str = ''
+    additional_parameters: frozenset[str] = frozenset()
+    resource_parameters: bool = False
 
     def matches(self, request: dict) -> bool:
         if any(request.get(key) is not None for key in ('ambiguousParameters', 'finalAmbiguousParameters')): return False
@@ -35,6 +38,9 @@ class RequestContract:
         except ValueError: return False
         query = request.get('query', {})
         final_query = request.get('finalQuery', {})
+        allowed = {key for key, pattern in self.query.items() if pattern is not None} | self.additional_parameters
+        if self.paging: allowed.add(self.paging)
+        if not self.resource_parameters and (set(query) - allowed or set(final_query) - allowed): return False
         return endpoint.scheme == self.scheme and final.scheme == self.scheme and request['statusCode'] in self.statuses \
             and (self.port is None or port == self.port) \
             and (self.port is None or final_port == self.port) \
@@ -65,7 +71,8 @@ class RequestContract:
 
 def community(path: str, *, query: dict | None = None, minimum: int = 1, paging: str = '', method: str = 'GET',
               statuses: range | tuple[int, ...] = range(200, 300)) -> RequestContract:
-    return RequestContract(re.escape(API), path, method, query or {}, minimum, paging, statuses=statuses)
+    parameters = frozenset({'page'}) if method == 'GET' and path in {'/posters', '/papers', '/reaction/comments'} else frozenset()
+    return RequestContract(re.escape(API), path, method, query or {}, minimum, paging, statuses=statuses, additional_parameters=parameters)
 
 
 def teaching(path: str, method: str = 'GET', *, query: dict | None = None) -> RequestContract:
@@ -91,7 +98,7 @@ CONTRACTS = {
     'course.history': [community('/courses/histories/.+')],
     'paper.list': [community('/papers', query={'order': None, 'search': None}, paging='page')],
     'paper.detail': [community(r'/papers/\d+')],
-    'paper.image': [RequestContract(r'.+', '/.+', port=None)],
+    'paper.image': [RequestContract(r'.+', '/.+', port=None, resource_parameters=True)],
     'paper.comments': [community('/reaction/comments', query={'obj': r'paper\d+', 'order': 'new'}, paging='page')],
     'profile.mine': [community('/user/info/0')],
     'community.session': [community('/user/info/0', minimum=2), community('/user/info/0', statuses=(401,))],
@@ -107,28 +114,29 @@ CONTRACTS = {
     'schedule.sync': [teaching(path, 'POST', query={'XNXQDM': '.+'}) for path in (
         '/jwapp/sys/wdkbby/modules/xskcb/cxxszhxqkb.do', '/jwapp/sys/wdksapMobile/modules/ksap/cxxsksap.do',
         '/jwapp/sys/wdkbby/wdkbByController/cxzkbrq.do')],
-    'classroom.campuses': [teaching('/jwapp/sys/kxjasbyMobile/modules/jxllb/ggzdpx.do')],
+    'classroom.campuses': [teaching('/jwapp/sys/kxjasbyMobile/modules/jxllb/ggzdpx.do', query={'dicCode': '.+', 'SFSY': '.+', 'order': r'\+DM'})],
     'classroom.buildings': [teaching('/jwapp/sys/kxjasbyMobile/modules/jxllb/cxjxl.do', query={'XXXQDM': '.+'})],
     'classroom.occupancy': [teaching('/jwapp/sys/kxjasbyMobile/kxjasbyController/cxkxjasqk.do', 'POST', query={'XNXQDM': '.+', 'JXLDM': '.+'})],
     'eclass.authentication': [RequestContract(r'zy-eclass\.bit\.edu\.cn', '/api/my-courses', 'POST')],
     'eclass.ddl': [RequestContract(r'zy-eclass\.bit\.edu\.cn', '/api/my-courses', 'POST')],
     'lexue.calendar': [RequestContract(r'(?:lexue|webvpn)\.bit\.edu\.cn', VPN + '/calendar/export.php', 'POST')],
-    'lexue.ddl': [RequestContract(r'(?:lexue|webvpn)\.bit\.edu\.cn', VPN + '/calendar/export_execute.php')],
+    'lexue.ddl': [RequestContract(r'(?:lexue|webvpn)\.bit\.edu\.cn', VPN + '/calendar/export_execute.php',
+        additional_parameters=frozenset({'userid', 'authtoken', 'preset_what', 'preset_time'}))],
     'score.authentication': [RequestContract(r'login\.bit101\.flwfdd\.xyz', '/api/auth/start', 'POST')],
     'score.brief': [RequestContract(r'login\.bit101\.flwfdd\.xyz', '/api/jwb/bit101/score', 'POST', {'detail': 'false'})],
     'score.detail': [RequestContract(r'login\.bit101\.flwfdd\.xyz', '/api/jwb/bit101/score', 'POST', {'detail': 'true'})],
     'score.transcript': [RequestContract(r'login\.bit101\.flwfdd\.xyz', '/api/jwb/cjd/cookies', 'POST'),
-        RequestContract(r'jwb\.bit\.edu\.cn', '/cjd/ScoreReport2/Index')],
+        RequestContract(r'jwb\.bit\.edu\.cn', '/cjd/ScoreReport2/Index', additional_parameters=frozenset({'GPA'}))],
     'web.association': [RequestContract(r'open\.aihelpme\.dev', '/.well-known/apple-app-site-association')],
     'web.share-icon': [RequestContract(r'open\.aihelpme\.dev', '/share-icon.jpg')],
     'web.home': [RequestContract(r'open\.aihelpme\.dev', '/?', final_host=r'bit101\.cn', final_path='/gallery/')],
     'gallery.web': [RequestContract(r'open\.aihelpme\.dev', r'/gallery/\d+')],
     'course.web': [RequestContract(r'open\.aihelpme\.dev', r'/course/\d+')],
     'paper.web': [RequestContract(r'open\.aihelpme\.dev', r'/paper/\d+')],
-    'gallery.image': [RequestContract(r'.+', '/.+', port=None)],
+    'gallery.image': [RequestContract(r'.+', '/.+', port=None, resource_parameters=True)],
     'feedback.preflight': [RequestContract(r'feedback\.aihelpme\.dev', '/api/error-reports', 'OPTIONS')],
     'feedback.recovery': [RequestContract(r'feedback\.aihelpme\.dev', '/api/error-reports', 'POST')],
-    'update.app-store': [RequestContract(r'(?:itunes|apps)\.apple\.com', '/lookup')],
+    'update.app-store': [RequestContract(r'(?:itunes|apps)\.apple\.com', '/lookup', query={'id': '.+', 'country': '.+', 'requestTime': '.+'})],
     'update.emergency': [RequestContract(r'update\.aihelpme\.dev', '/emergency-update.json')],
     'community.writes': [community('/posters', method='POST'), community(r'/posters/\d+', method='DELETE'),
         community(r'/posters/\d+', method='PUT'), community('/papers', method='POST'),
@@ -170,10 +178,11 @@ def auxiliary_contracts(probe: str, contracts: list[RequestContract]) -> list[Re
     if community_session:
         rows.extend(community(path, method='POST') for path in ('/user/webvpn_verify_init', '/user/webvpn_verify'))
     if community_session or school_session:
-        rows.extend(RequestContract(r'sso\.bit\.edu\.cn', '/cas/login', method, statuses=range(200, 400)) for method in ('GET', 'POST'))
-        rows.append(RequestContract(r'sso\.bit\.edu\.cn', '/gate/cas-success', statuses=(200, 401)))
+        rows.extend(RequestContract(r'sso\.bit\.edu\.cn', '/cas/login', method, statuses=range(200, 400),
+            additional_parameters=frozenset({'service', 'renew', 'gateway', 'ticket'})) for method in ('GET', 'POST'))
+        rows.append(RequestContract(r'sso\.bit\.edu\.cn', '/gate/cas-success', statuses=(200, 401), additional_parameters=frozenset({'ticket'})))
         rows.extend(RequestContract(r'sso\.bit\.edu\.cn', '/cas/api/protected/sms/' + path, method) for path, method in (
-            ('getPhoneNumberByUserId', 'GET'), ('publicNoToken/sendSmsCode', 'POST'), ('checkToken', 'POST')))
+            ('getPhoneNumberByUserId', 'POST'), ('publicNoToken/sendSmsCode', 'POST'), ('checkToken', 'POST')))
     if school_session:
         rows.extend([RequestContract(r'login\.bit101\.flwfdd\.xyz', '/api/jxzxehall/cookies', 'POST'),
             RequestContract(r'login\.bit101\.flwfdd\.xyz', r'/api/auth/[^/]+'),
@@ -233,6 +242,14 @@ def complete(probe: str, requests: list[dict], expected_parameters: dict | None 
     if matched and probe == 'community.session':
         return len(requests) == 3 and contracts[0].matches(requests[0]) \
             and contracts[1].matches(requests[1]) and contracts[0].matches(requests[2])
+    if matched and probe == 'update.emergency':
+        for row in requests:
+            if not contracts[0].matches(row): continue
+            configuration = row.get('responseConfiguration')
+            if not isinstance(configuration, dict) or not re.fullmatch(r'[0-9a-f]{64}', configuration.get('digest', '')) \
+                    or type(configuration.get('enabled')) is not bool: return False
+            notice = configuration.get('noticeID')
+            if configuration['enabled'] and (not isinstance(notice, str) or not notice.strip()): return False
     if matched and probe in {'gallery.image', 'paper.image'}:
         if not isinstance(expected_parameters, dict) or set(expected_parameters) != {'resourceDigests'}: return False
         value = expected_parameters['resourceDigests']
@@ -254,11 +271,11 @@ def complete(probe: str, requests: list[dict], expected_parameters: dict | None 
                 observed.add(path.split('/')[3])
         return observed == expected
     if matched and probe == 'community.writes':
-        comments = [row for row in requests if community('/reaction/comments', method='POST').matches(row)]
+        comments = [row for row in requests if community('/reaction/comments', method='POST', query={'obj': r'(?:poster|paper|course|comment)\d+'}).matches(row)]
         from collections import Counter
         replies = Counter(row.get('query', {}).get('obj') for row in comments if row.get('query', {}).get('obj', '').startswith('comment'))
         deleted = {urlsplit(row['endpoint']).path for row in requests if community(r'/reaction/comments/\d+', method='DELETE').matches(row)}
-        likes = Counter(row.get('query', {}).get('obj') for row in requests if community('/reaction/like', method='POST').matches(row))
+        likes = Counter(row.get('query', {}).get('obj') for row in requests if community('/reaction/like', method='POST', query={'obj': r'(?:poster|paper|course)\d+'}).matches(row))
         followed = Counter(urlsplit(row['endpoint']).path for row in requests if community(r'/user/follow/\d+', method='POST').matches(row))
         return sum(count >= 2 for count in replies.values()) >= 3 and len(deleted) >= 9 and any(count >= 2 for count in followed.values()) \
             and all(any(isinstance(obj, str) and re.fullmatch(kind + r'\d+', obj) and count >= 2

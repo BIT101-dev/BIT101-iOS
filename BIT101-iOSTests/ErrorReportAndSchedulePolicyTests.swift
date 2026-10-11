@@ -714,7 +714,7 @@ struct NetworkEvidenceProjectionTests {
         let url = try #require(request.url)
         let response = try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
         let projection = NetworkSmokeHTTPRequestEvidence(request: request, response: response)
-        #expect(projection.query == ["detail": "true"])
+        #expect(projection.query == ["detail": "true", "token": "[REDACTED]"])
         let encoded = try JSONEncoder().encode(projection)
         #expect(try JSONDecoder().decode(NetworkSmokeHTTPRequestEvidence.self, from: encoded).query == projection.query)
         #expect(!String(decoding: encoded, as: UTF8.self).contains("secret"))
@@ -784,11 +784,12 @@ struct NetworkEvidenceProjectionTests {
         let response = try #require(HTTPURLResponse(url: finalURL, statusCode: 200, httpVersion: nil, headerFields: nil))
         let evidence = NetworkSmokeHTTPRequestEvidence(request: request, response: response, finalRequest: finalRequest)
         let key = location == "form" ? "XNXQDM" : "page"
-        #expect(evidence.ambiguousParameters == (location == "redirect" ? nil : [key]))
-        #expect(evidence.finalAmbiguousParameters == [key] && evidence.finalQuery[key] == nil)
+        let ambiguous = location == "query" ? [key, "token"] : [key]
+        #expect(evidence.ambiguousParameters == (location == "redirect" ? nil : ambiguous))
+        #expect(evidence.finalAmbiguousParameters == ambiguous && evidence.finalQuery[key] == nil)
         let encoded = try JSONEncoder().encode(evidence)
         #expect(!String(decoding: encoded, as: UTF8.self).contains("secret"))
-        #expect(try JSONDecoder().decode(NetworkSmokeHTTPRequestEvidence.self, from: encoded).finalAmbiguousParameters == [key])
+        #expect(try JSONDecoder().decode(NetworkSmokeHTTPRequestEvidence.self, from: encoded).finalAmbiguousParameters == ambiguous)
     }
 
     @Test func requestEvidencePreservesBusinessSelectorsAndRedactsFormCredentials() throws {
@@ -799,9 +800,9 @@ struct NetworkEvidenceProjectionTests {
         request.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
         request.httpBody = Data("XNXQDM=2025-2026-1&JXLDM=B%2B%26+Room&password=secret".utf8)
         let evidence = NetworkSmokeHTTPRequestEvidence(request: request, response: response)
-        #expect(evidence.query == ["search": "BIT101", "hide_bot": "true", "XXXQDM": "campus", "XNXQDM": "2025-2026-1", "JXLDM": "B+& Room"])
+        #expect(evidence.query == ["search": "BIT101", "hide_bot": "true", "XXXQDM": "campus", "XNXQDM": "2025-2026-1", "JXLDM": "B+& Room", "token": "[REDACTED]"])
         request.httpBody = Data("requestParamStr=%7B%22XNXQDM%22%3A%222025-2026-1%22%2C%22ZC%22%3A%221%22%7D&password=secret".utf8)
-        #expect(NetworkSmokeHTTPRequestEvidence(request: request, response: response).query == ["search": "BIT101", "hide_bot": "true", "XXXQDM": "campus", "XNXQDM": "2025-2026-1"])
+        #expect(NetworkSmokeHTTPRequestEvidence(request: request, response: response).query == ["search": "BIT101", "hide_bot": "true", "XXXQDM": "campus", "XNXQDM": "2025-2026-1", "token": "[REDACTED]"])
         #expect(!String(decoding: try JSONEncoder().encode(evidence), as: UTF8.self).contains("secret"))
     }
 
@@ -827,11 +828,34 @@ struct NetworkEvidenceProjectionTests {
         let captured = try #require(evidence)
         #expect(captured.method == "POST" && captured.finalMethod == "GET")
         #expect(captured.endpoint == "https://example.invalid/submit" && captured.finalEndpoint == "https://other.invalid/final")
-        #expect(captured.query["obj"] == "paper1" && captured.finalQuery == ["obj": "paper2"])
+        #expect(captured.query["obj"] == "paper1" && captured.finalQuery == ["obj": "paper2", "token": "[REDACTED]"])
         #expect(NetworkSmokeHTTPRequestEvidence(request: request, response: response).finalMethod == "")
     }
 
     private let url = AppURL.required("https://example.invalid/module-test")
+    @Test(arguments: [false, true])
+    func emergencyConfigurationEvidenceIdentifiesTheSampledKVContent(enabled: Bool) async throws {
+        let url = AppURL.required("https://update.aihelpme.dev/emergency-update.json")
+        let response = try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+        let body = Data("{\"schema_version\":1,\"enabled\":\(enabled),\"notice_id\":\"maintenance\",\"message\":\"private content\"}".utf8)
+        let evidence = await NetworkSmokeHTTPRequestEvidence.capture(request: URLRequest(url: url), response: response, body: body)
+        let configuration = try #require(evidence.responseConfiguration)
+        #expect(configuration.enabled == enabled && configuration.noticeID == "maintenance" && configuration.digest.count == 64)
+        let changed = await NetworkSmokeHTTPRequestEvidence.capture(request: URLRequest(url: url), response: response, body: body + Data(" ".utf8))
+        #expect(changed.responseConfiguration?.digest != configuration.digest)
+        #expect(!String(decoding: try JSONEncoder().encode(evidence), as: UTF8.self).contains("private content"))
+    }
+    @Test(arguments: ["limit", "claim_id", "tags"])
+    func requestEvidenceKeepsUnexpectedParameterNames(key: String) throws {
+        let url = AppURL.required("https://example.invalid/probe?\(key)=secret&\(key)=private")
+        let response = try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+        let evidence = NetworkSmokeHTTPRequestEvidence(request: URLRequest(url: url), response: response)
+        #expect(evidence.ambiguousParameters == [key])
+        let singleURL = AppURL.required("https://example.invalid/probe?\(key)=secret")
+        let single = NetworkSmokeHTTPRequestEvidence(request: URLRequest(url: singleURL), response: response)
+        #expect(single.query == [key: "[REDACTED]"])
+        #expect(!String(decoding: try JSONEncoder().encode(single), as: UTF8.self).contains("secret"))
+    }
     private struct StubTransport: HTTPTransport {
         let result: Result<(Data, URLResponse), any Error>
         func data(for request: URLRequest) async throws -> (Data, URLResponse) { try result.get() }

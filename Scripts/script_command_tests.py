@@ -626,7 +626,7 @@ def ui_metrics_boundary_findings() -> list[str]:
             patch.object(Path, "read_text", lambda path, *args, **kwargs: output if path == diagnostic else original_read(path, *args, **kwargs)), \
             patch.object(Path, "open", lambda path, *args, **kwargs: StringIO() if path == Path("/audit/ui-tests.log") else original_open(path, *args, **kwargs)), \
             patch.object(Path, "write_text", lambda path, value, **kwargs: report.__setitem__(path, value)), \
-            patch('validation_evidence.ios_module_coverage', return_value={'ScoreFeature': (30, 100)}), \
+            patch('validation_evidence.native_source_coverage', return_value={'ScoreFeature': (30, 100)}), \
             patch.dict(os.environ, BIT101_VALIDATION_SOURCE_DIGEST="digest", BIT101_VALIDATION_RUN_ID="run"), redirect_stdout(StringIO()):
         exec(compile(source, "ui-metrics-self-test", "exec"), {})
     result = json.loads(next(line.split("：", 1)[1] for line in report[Path("/audit/test-metrics.txt")].splitlines() if line.startswith("控件库存：")))

@@ -1,5 +1,12 @@
 import Foundation
 import TransportCore
+import CryptoKit
+
+nonisolated struct NetworkSmokeConfigurationEvidence: Codable, Sendable {
+    let digest: String
+    let enabled: Bool
+    let noticeID: String?
+}
 
 nonisolated struct NetworkSmokeHTTPRequestEvidence: Codable, Sendable {
     let method: String
@@ -14,10 +21,13 @@ nonisolated struct NetworkSmokeHTTPRequestEvidence: Codable, Sendable {
     let finalAmbiguousParameters: [String]?
     let responseMinimumID: String?
     let responseCourseIDs: [String]?
+    let responseConfiguration: NetworkSmokeConfigurationEvidence?
 
-    init(request: URLRequest, response: HTTPURLResponse, responseMinimumID: String? = nil, responseCourseIDs: [String]? = nil, finalRequest: URLRequest? = nil) {
+    init(request: URLRequest, response: HTTPURLResponse, responseMinimumID: String? = nil, responseCourseIDs: [String]? = nil,
+         responseConfiguration: NetworkSmokeConfigurationEvidence? = nil, finalRequest: URLRequest? = nil) {
         self.responseMinimumID = responseMinimumID
         self.responseCourseIDs = responseCourseIDs
+        self.responseConfiguration = responseConfiguration
         let metadata = HTTPRequestEvidence(request: request, response: response, finalRequest: finalRequest)
         method = metadata.method
         finalMethod = metadata.finalMethod
@@ -45,8 +55,8 @@ nonisolated struct NetworkSmokeHTTPRequestEvidence: Codable, Sendable {
         let endpoint = request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
         let allowed = Set(["page", "last_id", "obj", "order", "mode", "type", "uid", "detail", "search", "hide_bot", "XNXQDM", "JXLDM", "XXXQDM"])
         var parameters: [String: [String]] = [:]
-        for item in endpoint?.queryItems ?? [] where allowed.contains(item.name) {
-            parameters[item.name, default: []].append(item.value ?? "")
+        for item in endpoint?.queryItems ?? [] {
+            parameters[item.name, default: []].append(allowed.contains(item.name) ? item.value ?? "" : "[REDACTED]")
         }
         if request.value(forHTTPHeaderField: "Content-Type")?.hasPrefix("application/x-www-form-urlencoded") == true,
            let body = request.httpBody, let encoded = String(data: body, encoding: .utf8),
@@ -90,7 +100,23 @@ nonisolated struct NetworkSmokeHTTPRequestEvidence: Codable, Sendable {
            let page = try? JSONDecoder().decode(CoursePageEvidence.self, from: body), page.courses.allSatisfy({ $0.id > 0 }) {
             courseIDs = page.courses.map { String($0.id) }
         } else { courseIDs = nil }
-        return Self(request: request, response: response, responseMinimumID: cursor, responseCourseIDs: courseIDs, finalRequest: finalRequest)
+        let configuration: NetworkSmokeConfigurationEvidence?
+        if request.url?.host == "update.aihelpme.dev", request.url?.path == "/emergency-update.json",
+           let envelope = try? JSONDecoder().decode(EmergencyConfiguration.self, from: body), envelope.schemaVersion == 1 {
+            configuration = .init(digest: SHA256.hash(data: body).map { String(format: "%02x", $0) }.joined(),
+                enabled: envelope.enabled, noticeID: envelope.noticeID)
+        } else { configuration = nil }
+        return Self(request: request, response: response, responseMinimumID: cursor, responseCourseIDs: courseIDs,
+            responseConfiguration: configuration, finalRequest: finalRequest)
+    }
+
+    private struct EmergencyConfiguration: Decodable {
+        let schemaVersion: Int
+        let enabled: Bool
+        let noticeID: String?
+        enum CodingKeys: String, CodingKey {
+            case schemaVersion = "schema_version", enabled, noticeID = "notice_id"
+        }
     }
 
     private struct CoursePageEvidence: Decodable {

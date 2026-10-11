@@ -653,11 +653,14 @@ def adapter_ownership_errors(facts: dict, path: str = "", roles: dict | None = N
 
 def native_target_errors(root: Path, package: dict, modules: set[str]) -> list[str]:
     from code_quality_rules import native_project_targets
-    from validation_inputs import SWIFT_ROOTS, repository_input_names
+    from validation_inputs import SWIFT_ROOTS, repository_input_names, native_project_paths
     project = json.loads(subprocess.check_output([
         "plutil", "-convert", "json", "-o", "-", str(root / "BIT101-iOS.xcodeproj/project.pbxproj"),
     ], text=True))
     errors: list[str] = []
+    for identifier, path in native_project_paths(project, root).items():
+        if project['objects'][identifier].get('isa') == 'PBXFileReference' and not path.exists():
+            errors.append(f'工程文件引用需要对应实际文件：{path.relative_to(root) if path.is_relative_to(root) else path}')
     inventory = {root / name for name in repository_input_names(root)
         if Path(name).suffix == '.swift' and Path(name).parts[0] in SWIFT_ROOTS}
     for name, declared, sources in native_project_targets(project, root):

@@ -116,7 +116,7 @@ App 入口 → 登录恢复 → AppAccountLifecycle → 各场景状态与页面
 
 `Shell/AppNetworkClients.swift` 组装连接池、网络提示、教学中心会话与诊断。`Login/CommunitySessionSupport.swift` 提供身份快照和按会话实例合并的登录恢复动作；用户主动诊断归 `Shell/NetworkDiagnosisRunner.swift`。`ScoreInfrastructure` 的生产端点和连接池在 App 扩展构造器中选择。
 
-HTTP 请求证据沿传输事实与业务投影分工：`TransportCore` 记录方法、脱敏端点、完整 URL 摘要和响应状态，通过作用域观察端口交付原始请求及响应；App 的 `NetworkSmokeRequestEvidence` 解析业务参数、分页游标和课程列表，保存脱敏后的 smoke 合同。传输与业务投影分别沿所属测试宿主验证。
+HTTP 请求证据沿传输事实与业务投影分工：`TransportCore` 记录方法、脱敏端点、完整 URL 摘要和响应状态，通过作用域观察端口交付原始请求及响应；App 的 `NetworkSmokeRequestEvidence` 解析业务参数、分页游标和课程列表，保存脱敏后的 smoke 合同。URL 参数保留完整名称集合，公开业务值沿白名单保存，其余值使用脱敏占位；路由合同核对完整参数形状。紧急更新配置保存响应内容摘要、启用状态与 notice ID。传输与业务投影分别沿所属测试宿主验证。
 
 网络 Smoke 的 `NetworkSmokeProbe` 集中声明固定机器标识与中文显示标签。执行库存、短信认证证据和请求合同使用机器标识，报告通过 `probeLabels` 提供显示文案。范围库存沿 Swift 声明与工厂方法提取，显示标签独立调整。
 

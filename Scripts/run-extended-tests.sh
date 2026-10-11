@@ -546,9 +546,7 @@ run_tests() {
     test_action=build-for-testing
   else
     execution_args+=(-resultBundlePath "$RESULT_BUNDLE")
-    if [[ "$MODE" != catalyst && "$MODE" != catalyst-release-runtime ]]; then
-      rm -f "$DERIVED_ROOT/Build/ProfileData/$BIT101_XCODE_DEVICE_ID/"*.profdata(N)
-    fi
+    rm -f "$DERIVED_ROOT/Build/ProfileData/"*/*.profdata(N)
   fi
   if [[ "$MODE" == "ui" ]]; then
     execution_args+=(-parallel-testing-enabled NO)
@@ -789,7 +787,15 @@ if coverage is None or mode == "ui":
         if preparations:
             lines.append(f"场景准备：{len(preparations)} 次；累计 {sum(preparations):.1f} 秒")
     elif mode in {"catalyst", "catalyst-release-runtime"}:
-        lines.append("Mac Catalyst runtime does not provide an xccov archive.")
+        from validation_evidence import native_source_coverage
+        build = Path(report_path).parent / 'Build'
+        profiles = list((build / 'ProfileData').glob('*/Coverage.profdata'))
+        if len(profiles) != 1: raise SystemExit('Catalyst 覆盖率需要本次运行的唯一采样。')
+        modules = native_source_coverage(build / 'Products/Release-maccatalyst', profiles[0], catalyst=True)
+        for name, (covered, executable) in sorted(modules.items()):
+            if executable:
+                label = name if name == 'BIT101-iOS.app' else 'Catalyst/' + name
+                lines.append(f'- {label}: {covered * 100 / executable:.2f}% ({covered}/{executable} lines)')
     else:
         lines.append("设备测试汇总已采集；Xcode 覆盖率归档诊断如下。")
         if coverage_error:
@@ -807,9 +813,9 @@ if coverage is not None:
             else:
                 lines.append(f"- {target.get('name', '?')}: {percentage:.2f}% ({covered}/{executable} lines)")
     sys.path.insert(0, str(Path(root) / "Scripts"))
-    from validation_evidence import ios_module_coverage
+    from validation_evidence import native_source_coverage
     build = Path(report_path).parent / "Build"
-    ios_modules = ios_module_coverage(build / "Products/Release-iphoneos", build / "ProfileData" / device_id / "Coverage.profdata")
+    ios_modules = native_source_coverage(build / "Products/Release-iphoneos", build / "ProfileData" / device_id / "Coverage.profdata")
     for name, (covered, executable) in sorted(ios_modules.items()):
         if executable: lines.append(f"- iOS/{name}: {covered * 100 / executable:.2f}% ({covered}/{executable} lines)")
     if not target_rows:

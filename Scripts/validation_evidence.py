@@ -356,14 +356,19 @@ def successful_test_counts(summary: dict) -> bool:
 
 
 def coverage_complete(group: str, summary: dict) -> bool:
-    from validation_coverage import policy_floors
-    floors = policy_floors(group, {}) if group in {'modules', 'all', 'ui'} else {}
+    from validation_coverage import policy_floors, COVERAGE_GROUPS
+    floors = policy_floors(group, {}) if group in COVERAGE_GROUPS else {}
     if group == "modules" and {path.name for path in (ROOT / "Modules").iterdir() if path.is_dir()} \
             - {"ScheduleActivityContracts"} != set(floors):
         return False
     if group == "all" and {path.name for path in (ROOT / "Modules").iterdir() if path.is_dir()} != set(IOS_MODULE_COVERAGE_FLOORS):
         return False
     coverage = summary.get("coverage", {})
+    if group == 'catalyst-release-runtime':
+        for name in ('BIT101-iOS.app', 'Catalyst/TransportCore', 'Catalyst/StorageCore'):
+            row = coverage.get(name, {})
+            covered, executable = row.get('coveredLines'), row.get('executableLines')
+            if type(covered) is not int or type(executable) is not int or not 0 < covered <= executable: return False
     for name, floor in floors.items():
         row = coverage.get(name, {})
         covered, executable = row.get("coveredLines"), row.get("executableLines")
@@ -373,14 +378,16 @@ def coverage_complete(group: str, summary: dict) -> bool:
     return True
 
 
-def ios_module_coverage(products: Path, profile: Path) -> dict[str, tuple[int, int]]:
+def native_source_coverage(products: Path, profile: Path, *, catalyst: bool = False) -> dict[str, tuple[int, int]]:
     import plistlib
     app = products / "BIT101-iOS.app"
-    with (app / "Info.plist").open("rb") as stream:
-        executable = app / plistlib.load(stream)["CFBundleExecutable"]
+    contents = app / 'Contents' if catalyst else app
+    with (contents / "Info.plist").open("rb") as stream:
+        executable_name = plistlib.load(stream)["CFBundleExecutable"]
+    executable = contents / 'MacOS' / executable_name if catalyst else app / executable_name
     command = ["xcrun", "llvm-cov", "export", str(executable), "-instr-profile", str(profile)]
-    for framework in sorted((app / "Frameworks").glob("*.framework")):
-        with (framework / "Info.plist").open("rb") as stream:
+    for framework in sorted((contents / "Frameworks").glob("*.framework")):
+        with (framework / 'Resources/Info.plist' if catalyst else framework / 'Info.plist').open("rb") as stream:
             binary = framework / plistlib.load(stream)["CFBundleExecutable"]
         command += ["-object", str(binary)]
     result = subprocess.run(command, capture_output=True, text=True, check=True)
@@ -390,15 +397,15 @@ def ios_module_coverage(products: Path, profile: Path) -> dict[str, tuple[int, i
     for section in json.loads(result.stdout)["data"]:
         for file in section["files"]:
             path = Path(file["filename"])
-            if path.is_relative_to(ROOT / "Modules") and "/Sources/" in str(path):
+            if (path.is_relative_to(ROOT / "Modules") and "/Sources/" in str(path)) or catalyst and path.is_relative_to(ROOT / 'BIT101-iOS'):
                 files[path] = file["summary"]["lines"]
     modules = {}
     for path, lines in files.items():
-        name = path.relative_to(ROOT / "Modules").parts[0]
+        name = path.relative_to(ROOT / "Modules").parts[0] if path.is_relative_to(ROOT / 'Modules') else 'BIT101-iOS.app'
         hit, count = modules.get(name, (0, 0))
         modules[name] = hit + lines["covered"], count + lines["count"]
     if not modules:
-        raise ValueError("iOS 模块覆盖率需要包含生产源码。")
+        raise ValueError("原生覆盖率需要包含生产源码。")
     return modules
 
 
@@ -578,7 +585,8 @@ def record(group: str, status: int, scope: str, started_digest: str) -> int:
         if scope == "selected" and group in TEST_GROUPS | NETWORK_GROUPS:
             full = previous if previous.get("scope") == "full" else previous.get("lastFullRun")
             if full: row["lastFullRun"] = full
-        if group in {"modules", "all", "ui"}:
+        from validation_coverage import COVERAGE_GROUPS
+        if group in COVERAGE_GROUPS:
             from validation_coverage import regressions, policy_floors
             problems = regressions(row.get("summary", {}).get("coverage", {}),
                 policy_floors(group, report.get("coveragePolicy", {}))) if scope == "full" else []
@@ -722,8 +730,8 @@ def main() -> int:
             report = json.loads(REPORT.read_text()) if REPORT.is_file() else {}
             from validation_provenance import complete_group_row
             row = complete_group_row(report.get("groups", {}).get(args.group, {}))
-        from validation_coverage import regressions, policy_floors
-        coverage_matches = args.group not in {"modules", "all", "ui"} or not regressions(
+        from validation_coverage import regressions, policy_floors, COVERAGE_GROUPS
+        coverage_matches = args.group not in COVERAGE_GROUPS or not regressions(
             row.get("summary", {}).get("coverage", {}), policy_floors(args.group, report.get("coveragePolicy", {})))
         bundle_matches = args.group not in {"all", "ui"} or not result_bundle_findings(report, groups=(args.group,))
         if row.get("exitCode") == 0 and row.get("scope") == "full" and row.get("runID") \

@@ -280,8 +280,8 @@ def image_resource_self_test() -> None:
 
 
 def check_group_coverage_policy_self_test(module) -> None:
-    for group in ('modules', 'all', 'ui'):
-        name = 'GalleryFeature' if group == 'modules' else 'iOS/GalleryFeature'
+    for group in ('modules', 'all', 'ui', 'catalyst'):
+        name = 'GalleryFeature' if group == 'modules' else 'Catalyst/GalleryFeature' if group == 'catalyst' else 'iOS/GalleryFeature'
         for selected in (False, True):
             for floor, covered, expected in ((70, 74, 0), (75, 74, 1), (75, 75, 0)):
                 full = {'scope': 'full', 'exitCode': 0, 'runID': 'full', 'inputDigest': 'current',
@@ -469,12 +469,12 @@ def complete_run_reuse_self_test() -> None:
 
 
 def network_trace_fixture(value: dict) -> dict:
-    from network_request_contracts import contracts_for, SELECTORS
+    from network_request_contracts import contracts_for, SELECTORS, VISIBLE_PARAMETERS
     value['workerDeployments'] = worker_deployment_fixture(value.get('scope'))
     def example(pattern, identifier=1):
         import re
         pattern = re.sub(r'\(\?:([^()]*)\)', lambda match: match[1].split('|')[0], pattern)
-        return pattern.replace('[0-9a-f]+', 'a').replace(r'[1-9]\d*', str(identifier)).replace(r'\d+', str(identifier)).replace(r'\.', '.').replace(r'\-', '-').replace('.+', 'fixture').replace('?', '')
+        return pattern.replace('[0-9a-f]+', 'a').replace(r'[1-9]\d*', str(identifier)).replace(r'\d+', str(identifier)).replace(r'\.', '.').replace(r'\-', '-').replace(r'\+', '+').replace('.+', 'fixture').replace('?', '')
     rows = []
     for name in value.get('requiredProbes', []):
         contracts = contracts_for(name)
@@ -484,7 +484,8 @@ def network_trace_fixture(value: dict) -> dict:
         if name == 'classroom.occupancy': expected['JXLDM'] = 'fixture-building'
         for contract in contracts:
             for index in range(max(contract.minimum, 2 if contract.paging else 1)):
-                query = {key: example(pattern) for key, pattern in contract.query.items() if pattern is not None}
+                query = {key: example(pattern) if key in VISIBLE_PARAMETERS else '[REDACTED]'
+                    for key, pattern in contract.query.items() if pattern is not None}
                 query.update({key: item for key, item in expected.items() if key != 'path'})
                 if contract.paging == 'page': query['page'] = str(index)
                 if contract.paging == 'last_id': query['last_id'] = str(sys.maxsize) if index == 0 else '1'
@@ -492,6 +493,7 @@ def network_trace_fixture(value: dict) -> dict:
                     'statusCode': next(iter(contract.statuses)), 'query': query}
                 if contract.paging == 'last_id': request['responseMinimumID'] = '0'
                 if name in {'eclass.authentication', 'eclass.ddl'}: request['responseCourseIDs'] = []
+                if name == 'update.emergency': request['responseConfiguration'] = {'digest': 'a' * 64, 'enabled': False}
                 if name == 'community.writes':
                     if contract.method == 'DELETE' and contract.path == r'/reaction/comments/\d+':
                         request['endpoint'] = 'https://' + example(contract.host) + example(contract.path, index + 1)
@@ -520,6 +522,12 @@ def network_route_identity_self_test() -> None:
     from copy import deepcopy
     from validation_provenance import network_requests_complete
     from network_request_contracts import complete as check_complete
+    emergency = network_trace_fixture({'requiredProbes': ['update.emergency']})['requestEvidence'][0]['requests']
+    assert check_complete('update.emergency', emergency)
+    for configuration in (None, {}, {'digest': 'bad', 'enabled': False}, {'digest': 'a' * 64, 'enabled': True},
+                          {'digest': 'a' * 64, 'enabled': True, 'noticeID': ' '}):
+        assert not check_complete('update.emergency', [dict(emergency[0], responseConfiguration=configuration)])
+    assert check_complete('update.emergency', [dict(emergency[0], responseConfiguration={'digest': 'b' * 64, 'enabled': True, 'noticeID': 'maintenance'})])
     def complete(probe, requests, expected=None):
         return check_complete(probe, [dict(row, finalEndpoint=row.get('finalEndpoint', row['endpoint']),
             finalMethod=row.get('finalMethod', row['method']), finalQuery=row.get('finalQuery', dict(row.get('query', {}))))
@@ -660,6 +668,11 @@ def network_route_identity_self_test() -> None:
         requests = [{'method': 'GET', 'endpoint': endpoint, 'statusCode': 200,
                      'query': dict(parameters, page=str(page))} for page in (0, 1)]
         assert complete(probe, requests), probe
+        for key in ('limit', 'claim_id', 'tags'):
+            for field in ('query', 'finalQuery'):
+                changed = deepcopy(requests)
+                for row in changed: row[field] = dict(row.get(field, row['query']), **{key: '[REDACTED]'})
+                assert not complete(probe, changed), (probe, key, field)
         for extra in (dict(requests[-1], query=dict(parameters, page='2', order='unexpected')),
                       dict(requests[-1], statusCode=500), dict(requests[-1], endpoint='https://example.invalid/other')):
             assert not complete(probe, requests + [extra]), (probe, extra)

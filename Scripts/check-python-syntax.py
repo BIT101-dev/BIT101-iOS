@@ -5,6 +5,7 @@ import ast
 import re
 import shlex
 import sys
+from validation_inputs import repository_script_paths
 
 root = Path(sys.argv[1])
 
@@ -259,10 +260,9 @@ for source in ('echo python3 -c \'if True\'', '# python3 -c \'if True\'', 'echo 
                "env BIT101_FLAG=1 echo python3 -c 'if True'", "python3 script.py -c 'if True'", "printf '%s' $'\\xff'"):
     compile_embedded_python(source, 'inline-shell-text-self-test')
 
-for path in sorted((root / "Scripts").glob("*.py")):
+for path in repository_script_paths(root, {'.py'}):
     compile(path.read_text(encoding="utf-8"), str(path), "exec")
-scripts = [*(root / "Scripts").glob("*.sh"), *(root / "Cloudflare/EmergencyUpdateWorker/Scripts").glob("*.sh")]
-for path in sorted(scripts):
+for path in repository_script_paths(root, {'.sh'}):
     compile_embedded_python(path.read_text(encoding="utf-8"), path)
 
 
@@ -270,9 +270,22 @@ def import_cycles(sources):
     graph = {}
     for name, source in sources.items():
         imports = set()
+        package = name if any(other.startswith(name + '.') for other in sources) else name.rpartition('.')[0]
+        def add(module):
+            local = package + '.' + module if package else module
+            resolved = local if local in sources else module
+            parts = resolved.split('.')
+            imports.update(dependency for length in range(1, len(parts) + 1)
+                           if (dependency := '.'.join(parts[:length])) != name or resolved == name)
         for node in ast.walk(ast.parse(source)):
-            if isinstance(node, ast.ImportFrom) and node.module: imports.add(node.module.split('.')[0])
-            elif isinstance(node, ast.Import): imports.update(alias.name.split('.')[0] for alias in node.names)
+            if isinstance(node, ast.ImportFrom):
+                base = '.'.join(package.split('.')[:len(package.split('.')) - node.level + 1]) if node.level else ''
+                module = '.'.join(filter(None, (base, node.module)))
+                if module and not (node.level and module == name): add(module)
+                for alias in node.names:
+                    if alias.name != '*': add('.'.join(filter(None, (module, alias.name))))
+            elif isinstance(node, ast.Import):
+                for alias in node.names: add(alias.name)
         graph[name] = imports & sources.keys()
     active, completed, cycles = [], set(), set()
     def visit(name):
@@ -293,8 +306,13 @@ assert import_cycles({'a': 'from b import value', 'b': 'import c', 'c': 'from a 
 assert import_cycles({'a': 'def deferred():\n    import b', 'b': 'from a import value'}) == [('a', 'b')]
 assert import_cycles({'a': 'from b import value', 'b': 'import json'}) == []
 assert import_cycles({'a': 'import a'}) == [('a',)]
-sources = {path.stem: path.read_text() for path in (root / 'Scripts').glob('*.py')
-           if not path.stem.endswith('_tests')}
+assert import_cycles({'nested.a': 'from .b import value', 'nested.b': 'import nested.a'}) == [('nested.a', 'nested.b')]
+assert import_cycles({'nested.a': 'from nested import b', 'nested.b': 'import a'}) == [('nested.a', 'nested.b')]
+assert import_cycles({'nested': 'from . import a', 'nested.a': 'import nested'}) == [('nested', 'nested.a')]
+sources = {'.'.join(path.relative_to(root / 'Scripts').with_suffix('').parts[:-1] if path.stem == '__init__'
+                   else path.relative_to(root / 'Scripts').with_suffix('').parts): path.read_text()
+           for path in repository_script_paths(root, {'.py'})
+           if path.is_relative_to(root / 'Scripts') and not path.stem.endswith('_tests')}
 cycles = import_cycles(sources)
 if cycles:
     raise ValueError('维护脚本依赖需要单向组织：' + '；'.join(' → '.join((*cycle, cycle[0])) for cycle in cycles))

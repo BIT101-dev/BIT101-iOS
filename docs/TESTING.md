@@ -16,6 +16,8 @@
 
 脚本按完整工作流组织，公共设备选择与日志处理集中在 `Scripts/script-support.sh`。入口数量保持精简，同一工作流通过参数选择操作；优化以执行耗时、重复调用和终端信息价值为依据。静态审计复用索引器并缓存路径判断。
 
+Shell、Python 语法与脚本质量共用递归脚本清单，覆盖 `Scripts`、Worker 脚本及 Git hooks；依赖目录沿清单规则排除。Python 依赖环检测按包路径区分子目录模块，覆盖相对导入与包初始化。工程文件引用沿 group 与 SOURCE_ROOT 解析，并核对实际文件；SDK 和构建产物沿各自 sourceTree 归属处理。质量检查成功摘要展示大型文件候选与固定报告位置，供按职责评审维护。
+
 源码摘要、Swift 索引与文件长度审计共用 Git 输入清单。App、模块、扩展和测试源码目录中的 Swift 文件需要纳入该清单；构建目录忽略规则覆盖到源码时，输入门禁会列出对应路径。
 
 图片网络探针复用 App 媒体组装，沿话廊与头像的专用客户端、下载协调器和显示消费者核对下载、解码及磁盘缓存。探针共用固定的隔离缓存根目录，完成后清理缓存产物。
@@ -360,6 +362,8 @@ fork PR 的常规 Job 使用 GitHub 托管的 `xcode-27` 镜像，每项任务�
 
 完整模块与 iOS 行为组按每模块的整数百分比维护最低覆盖率。`Scripts/validation_policy.py` 保存版本化的 macOS 与 iOS 阈值；完整验收提高覆盖率后同步提高相应阈值并提交评审；门禁比较版本化的最低覆盖率，阈值更新由评审批准。PR 的静态与真机 Job 通过 `ci_evidence.py baseline` 从目标提交读取这两组字典，以 Python AST 字面量解析并核对阈值，再由 `validation_evidence.py baseline` 载入。基准随 Git 提交长期保存，读取过程独立于历史工作流、真机状态和产物保留期。筛选复验在统一 JSON 内保留 `lastFullRun`；完整运行按当前版本与目标提交阈值中的较高值验收。新宿主与复用缓存的宿主采用同一版本化门禁。UI 的 Feature 与 UI 模块同样核对目标提交的 iOS 阈值。
 
+Catalyst 沿本次运行的原始 profile 与正式 App、模块二进制导出行覆盖率。完整行为组共用 iOS 的版本化模块阈值，ActivityKit 合同沿 iOS 编译条件归属验收；正式组装合同核对宿主、传输与存储生产源码的实际执行。两个 Catalyst 组同时保存实际覆盖率数据，采集缺口进入验收失败。
+
 发布证据完成完整验收并执行 `python3 Scripts/validation_evidence.py bind` 后，通过 `python3 Scripts/ci_evidence.py publish v公开版本号` 生成并上传公开回执。固定本地路径与 Release 附件名为 `.build/extended-automation/release-receipt.json` 和 `release-receipt.json`。回执保存版本标签、提交、各组源码摘要、工具链、完整验收状态、原始摘要 SHA-256 与采样时间；截图、视频、邮箱、邮件正文、存储报告及设备身份保存在本地完整报告。发布命令先沿原始报告核对全部验收，再生成回执。发布 CI 下载同一标签的回执，沿 `ci_evidence.py check-release` 核对源码、工具链、全部组及采样有效期；回执表示维护者已完成完整验收的公开确认，发布资产写入权限属于该信任边界。`summaryDigest` 为本地原始摘要的比对标识，复核实际执行来源时读取维护者保留的完整报告及所属 XCTest 结果包；下载后的 CI 沿公开声明验收源码、工具链和采样有效期。详细附件沿明确授权在本地审阅。手动 `release_check` 同时填写 `validation_tag`，标签需要指向当前验收提交。发布资产按可分享的回执范围审阅，上传沿用户明确授权执行。
 
 人工观察由执行人员确认操作、账号、服务端结果与对应媒体的关联，结构门禁核对能力库存、场景完成状态及媒体有效性。首次登录、个人资料写入、举报与 iPad 布局使用结构化人工专项，分别登记 `first-login`、`profile-writes`、`gallery-report` 与 `ipad-layout`。`message-read` 核对本地已读保存与服务端分类清零；`web-interactions` 分别观察网络诊断、启动更新检查、手动更新检查、学校短信续验和学校日历同步。首次登录在正式 App 中清理登录态，分别以已注册账号与授权的新账号完成 WebVPN 初始化、密码校验、注册及进入登录后的页面。资料专项使用专用账号实际保存昵称、上传并绑定头像，随后恢复原资料并重新读取核对；举报专项使用明确授权的专用帖子确认服务端接收。iPad 专项覆盖竖屏、横屏、分屏及窗口调整，核对登录、主要导航、课表、内容详情与键盘操作。iPad 沿系统旋转和窗口管理适配尺寸，配置采用支持多方向的常规模式；迁移依据 [Apple 的 iPad 全屏模式说明](https://developer.apple.com/documentation/technotes/tn3192-migrating-your-app-from-the-deprecated-uirequiresfullscreen-key)。
@@ -442,6 +446,8 @@ UI 自动化同时采集交互库存及宿主与 Feature / UI 模块的行覆盖
 
 
 网络请求证据使用 `NetworkSmokeProbe` 声明的机器标识，报告中的 `probeLabels` 提供中文显示标签。库存回归验证显示标签调整后机器标识保持稳定；编排回归覆盖分类消息与文章排序的全部声明。
+
+请求证据保留全部 URL 参数名称，凭据及扩展参数值保存为 `[REDACTED]`；业务合同拒绝额外筛选参数。签名媒体 URL 通过完整资源摘要验收。紧急更新响应保存内容 SHA-256、启用状态与 notice ID，复核实际采样的 KV 配置。
 
 实网网络与学校认证证据绑定生产源码、请求合同、构建与验证入口及 Worker 输入。iCloud 执行证据绑定跨设备 smoke 测试入口；iCloud 编译缓存保留完整测试目标的编译输入。普通行为测试、性能用例与模拟器操作脚本沿各自工作流参与摘要。Swift 条件求值读取 Package 平台与语言模式，并对原生目标合并工程与目标的 Release 设置。
 

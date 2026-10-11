@@ -117,10 +117,7 @@
 		111111111111111111111112 /* BIT101-iOSTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "BIT101-iOSTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		B10100000000000000000004 /* BIT101-iOSUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "BIT101-iOSUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		21A95B6C96CDD83709030EF8 /* BIT101WatchApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BIT101WatchApp.swift; sourceTree = "<group>"; };
-		3CF4896F51E6C19BBE15048C /* ScheduleSharedLiveActivity.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ScheduleSharedLiveActivity.swift; sourceTree = "<group>"; };
 		4162B327CBFEC0829F8AB242 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
-		498515EF1571216B6C662577 /* ScheduleSharedSnapshot.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ScheduleSharedSnapshot.swift; sourceTree = "<group>"; };
-		F0A1C2D3E4B5678901234510 /* AppFileService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppFileService.swift; sourceTree = "<group>"; };
 		5CB43A1BB6CE6CCCBDC41D5C /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		66582305EDF75198F3070B6C /* BIT101ScheduleWidgetsBundle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BIT101ScheduleWidgetsBundle.swift; sourceTree = "<group>"; };
 		6C427FABBA6FB6C2CF4098BE /* BIT101WatchWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BIT101WatchWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -135,9 +132,6 @@
 		C87F2B27CDB14AC63D666139 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
 		CF8086061B44E95B40189EB0 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		D2FF4C962F729DB4000FA1C1 /* BIT101-iOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "BIT101-iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
-		D51000000000000000000001 /* DesignSystem/DesignPrimitives.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem/DesignPrimitives.swift; sourceTree = "<group>"; };
-		D51000000000000000000005 /* DesignSystem/ExternalDesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem/ExternalDesignSystem.swift; sourceTree = "<group>"; };
-		DE2C0A347C3DFB45B555EAF0 /* ScheduleSharedOccurrence.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ScheduleSharedOccurrence.swift; sourceTree = "<group>"; };
 		F1E4DE63842E0A7A6C0DE9F9 /* BIT101ScheduleWidgets.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BIT101ScheduleWidgets.swift; sourceTree = "<group>"; };
 		F49E2B4B4D5BE4DD9D59BDF1 /* BIT101ScheduleWidgets.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = BIT101ScheduleWidgets.entitlements; sourceTree = "<group>"; };
 		F8E44554F89A8994A3C6A41E /* Assets.xcassets */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -198,16 +192,7 @@
 			path = "BIT101-iOS/WatchSync";
 			sourceTree = "<group>";
 		};
-		C5319C351048C6B74D7C2653 /* Shared */ = {
-			isa = PBXGroup;
-			children = (
-				D51000000000000000000001 /* DesignSystem/DesignPrimitives.swift */, D51000000000000000000005 /* DesignSystem/ExternalDesignSystem.swift */, F0A1C2D3E4B5678901234510 /* AppFileService.swift */,
-				498515EF1571216B6C662577 /* ScheduleSharedSnapshot.swift */, DE2C0A347C3DFB45B555EAF0 /* ScheduleSharedOccurrence.swift */, 3CF4896F51E6C19BBE15048C /* ScheduleSharedLiveActivity.swift */,
-			);
-			name = Shared;
-			path = "BIT101-iOS/Shared";
-			sourceTree = "<group>";
-		};
+
 		CDE5796C86F63D4361DA19D7 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = ( 42C7F57DD5129097016A8644 /* iOS */, 26062F92B3BAAD7DC0A776E4 /* watchOS */, );
@@ -218,7 +203,7 @@
 			isa = PBXGroup;
 			children = ( B10100000000000000000015 /* PerformanceWorkload.swift */, B10100000000000000000016 /* PerformanceWorkloads.json */, B10100000000000000000014 /* FileServiceContract.swift */,
 				D2FF4C982F729DB4000FA1C1 /* BIT101-iOS */, 111111111111111111111113 /* BIT101-iOSTests */, D2FF4C972F729DB4000FA1C1 /* Products */,
-				CDE5796C86F63D4361DA19D7 /* Frameworks */, 004DE69434B9FEF2A654EB3C /* BIT101ScheduleWidgets */, C5319C351048C6B74D7C2653 /* Shared */,
+				CDE5796C86F63D4361DA19D7 /* Frameworks */, 004DE69434B9FEF2A654EB3C /* BIT101ScheduleWidgets */,
 				FB4A15B914D492D0DE350199 /* BIT101Watch */, 25E8641FD8E3B4363BD33FB6 /* BIT101WatchWidgets */, 4E1DE56998160DCFD328522D /* WatchSync */,
 			);
 			sourceTree = "<group>";

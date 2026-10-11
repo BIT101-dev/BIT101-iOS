@@ -30,6 +30,14 @@ def repository_input_names(root: Path) -> list[str]:
     return sorted(set(names.decode().split("\0")) - {""})
 
 
+def repository_script_paths(root: Path, suffixes: set[str]) -> list[Path]:
+    paths = {path for directory in ('Scripts', 'Cloudflare') for path in (root / directory).rglob('*')
+             if path.suffix in suffixes and path.is_file() and 'node_modules' not in path.parts}
+    if '.sh' in suffixes:
+        paths.update(path for path in (root / '.githooks').iterdir() if path.is_file())
+    return sorted(paths)
+
+
 def includes_input(name: str, group: str) -> bool:
     if not group or group == "audit":
         return True
@@ -71,6 +79,15 @@ def includes_input(name: str, group: str) -> bool:
 def self_test() -> None:
     from unittest.mock import patch
     from types import SimpleNamespace
+    root = Path('/fixture')
+    nested = root / 'Scripts/nested/check.py'
+    shell = root / 'Cloudflare/Worker/Scripts/publish.sh'
+    dependency = root / 'Cloudflare/Worker/node_modules/helper.py'
+    hook = root / '.githooks/pre-push'
+    with patch.object(Path, 'rglob', side_effect=lambda pattern: iter([nested, shell, dependency])), \
+            patch.object(Path, 'iterdir', return_value=iter([hook])), patch.object(Path, 'is_file', return_value=True):
+        assert repository_script_paths(root, {'.py'}) == [nested]
+        assert repository_script_paths(root, {'.sh'}) == [hook, shell]
     with patch.object(subprocess, 'run', return_value=SimpleNamespace(stdout=b'')), \
             patch.object(subprocess, 'check_output', return_value=b'BIT101-iOS/App.swift\0README.md\0BIT101-iOS/App.swift\0'):
         assert repository_input_names(Path('.')) == ['BIT101-iOS/App.swift', 'README.md']
@@ -123,17 +140,24 @@ def self_test() -> None:
         assert includes_input(name, "manual-device")
 
 
-def native_project_targets(project: dict, root: Path) -> list[tuple[str, set[str], set[Path]]]:
+def native_project_paths(project: dict, root: Path) -> dict[str, Path]:
     objects = project["objects"]
     paths: dict[str, Path] = {}
     def visit(identifier, parent):
         item = objects[identifier]
         tree = item.get("sourceTree", "<group>")
+        if tree not in {'<group>', 'SOURCE_ROOT', '<absolute>'}: return
         base = root if tree == "SOURCE_ROOT" else parent
         path = base / item.get("path", "")
         paths[identifier] = path
         for child in item.get("children", []): visit(child, path)
     visit(objects[project["rootObject"]]["mainGroup"], root)
+    return paths
+
+
+def native_project_targets(project: dict, root: Path) -> list[tuple[str, set[str], set[Path]]]:
+    objects = project["objects"]
+    paths = native_project_paths(project, root)
     result = []
     for identifier, target in objects.items():
         if target.get("isa") != "PBXNativeTarget": continue

@@ -134,10 +134,25 @@ def run_self_test(rules: dict) -> None:
     for name, registered in (('BIT101Watch/Source.swift', True), ('BIT101ShareExtension/Source.swift', False)):
         source = root / name
         with patch(f"{rules['native_target_errors'].__module__}.subprocess.check_output", return_value=json.dumps({})), \
+                patch('validation_inputs.native_project_paths', return_value={}), \
                 patch('code_quality_rules.native_project_targets', return_value=[('Target', set(), {source})]), \
                 patch('validation_inputs.repository_input_names', return_value=[name]), patch.object(Path, 'read_text', return_value=''):
             errors = rules['native_target_errors'](root, {'products': []}, set())
             assert bool(errors) != registered, (name, errors)
+    project = {'rootObject': 'project', 'objects': {
+        'project': {'mainGroup': 'main'}, 'main': {'children': ['group', 'sdk', 'product', 'direct']},
+        'group': {'path': 'Shared', 'children': ['existing', 'missing']},
+        'existing': {'isa': 'PBXFileReference', 'path': 'Existing.swift'},
+        'missing': {'isa': 'PBXFileReference', 'path': 'Missing.swift'},
+        'direct': {'isa': 'PBXFileReference', 'path': 'Direct.swift', 'sourceTree': 'SOURCE_ROOT'},
+        'sdk': {'isa': 'PBXFileReference', 'path': 'Foundation.framework', 'sourceTree': 'SDKROOT'},
+        'product': {'isa': 'PBXFileReference', 'path': 'App.app', 'sourceTree': 'BUILT_PRODUCTS_DIR'}}}
+    with patch(f"{rules['native_target_errors'].__module__}.subprocess.check_output", return_value=json.dumps(project)), \
+            patch('code_quality_rules.native_project_targets', return_value=[]), \
+            patch('validation_inputs.repository_input_names', return_value=[]), \
+            patch.object(Path, 'exists', lambda path: path.name == 'Existing.swift'):
+        errors = rules['native_target_errors'](root, {'products': []}, set())
+        assert len(errors) == 2 and any('Shared/Missing.swift' in error for error in errors) and any('Direct.swift' in error for error in errors)
     from swift_type_index import compilation_unit
     assert compilation_unit('/workspace/BIT101-iOS/BIT101Watch/Source.swift') == 'BIT101Watch'
     module = rules["resource_facts"].__module__

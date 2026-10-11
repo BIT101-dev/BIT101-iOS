@@ -274,6 +274,17 @@ def run_self_test(subject) -> int:
         summaries['all']['coverage'] = {'BIT101-iOS.app': {'coveredLines': 35, 'executableLines': 100}}
         summaries['all']['coverage'].update({'iOS/' + name: {'coveredLines': floor, 'executableLines': 100} for name, floor in subject.IOS_MODULE_COVERAGE_FLOORS.items()})
         summaries['ui']['coverage'] = dict(summaries['all']['coverage'])
+        summaries['catalyst']['coverage'] = {'BIT101-iOS.app': {'coveredLines': 35, 'executableLines': 100}}
+        summaries['catalyst']['coverage'].update({'Catalyst/' + name: {'coveredLines': floor, 'executableLines': 100}
+            for name, floor in subject.IOS_MODULE_COVERAGE_FLOORS.items() if name != 'ScheduleActivityContracts'})
+        summaries['catalyst-release-runtime']['coverage'] = dict(summaries['catalyst']['coverage'])
+        for group in ('catalyst', 'catalyst-release-runtime'):
+            assert subject.coverage_complete(group, summaries[group])
+            assert not subject.coverage_complete(group, dict(summaries[group], coverage={}))
+            for name in ('BIT101-iOS.app', 'Catalyst/TransportCore', 'Catalyst/StorageCore'):
+                changed = dict(summaries[group]['coverage'])
+                changed[name] = {'coveredLines': 0, 'executableLines': 100}
+                assert not subject.coverage_complete(group, dict(summaries[group], coverage=changed))
         assert subject.coverage_complete('ui', summaries['ui'])
         assert not subject.coverage_complete('ui', dict(summaries['ui'], coverage={}))
         ui_missing = dict(summaries['ui']['coverage'])
