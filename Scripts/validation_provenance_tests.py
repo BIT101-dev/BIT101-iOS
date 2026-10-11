@@ -481,7 +481,9 @@ def network_trace_fixture(value: dict) -> dict:
         assert contracts, name
         requests = []
         expected = {'XNXQDM': value.get('validatedTerm', 'fixture-current')} if name in {'schedule.sync', 'classroom.occupancy'} else {}
-        if name == 'classroom.occupancy': expected['JXLDM'] = 'fixture-building'
+        if name == 'classroom.occupancy':
+            year, _, semester = expected['XNXQDM'].rpartition('-')
+            expected.update(JXLDM='fixture-building', RQ='2026-09-07', XQDM=semester, XNDM=year)
         for contract in contracts:
             for index in range(max(contract.minimum, 2 if contract.paging else 1)):
                 query = {key: example(pattern) if key in VISIBLE_PARAMETERS else '[REDACTED]'
@@ -502,7 +504,7 @@ def network_trace_fixture(value: dict) -> dict:
                 request.update(finalEndpoint=('https://' + example(contract.final_host) + example(contract.final_path))
                     if contract.final_host else request['endpoint'], finalMethod=request['method'], finalQuery=dict(query))
                 assert contract.matches(request), (name, request)
-                for key in SELECTORS.get(name, set()) - {'XNXQDM', 'JXLDM'}:
+                for key in SELECTORS.get(name, set()) - set(expected):
                     from urllib.parse import unquote, urlsplit
                     expected[key] = unquote(urlsplit(request['endpoint']).path) if key == 'path' else request['query'][key]
                 requests.append(request)
@@ -528,6 +530,18 @@ def network_route_identity_self_test() -> None:
                           {'digest': 'a' * 64, 'enabled': True, 'noticeID': ' '}):
         assert not check_complete('update.emergency', [dict(emergency[0], responseConfiguration=configuration)])
     assert check_complete('update.emergency', [dict(emergency[0], responseConfiguration={'digest': 'b' * 64, 'enabled': True, 'noticeID': 'maintenance'})])
+    for probe, parameters in [('classroom.campuses', {'dicCode': 'unrelated-dictionary', 'SFSY': '0'}),
+                              ('score.transcript', {'GPA': '0'})]:
+        fixture = network_trace_fixture({'requiredProbes': [probe]})
+        assert network_requests_complete({probe}, fixture)
+        for key, value in parameters.items():
+            for field in ('query', 'finalQuery'):
+                for invalid in (value, '[REDACTED]', None):
+                    changed = deepcopy(fixture)
+                    target = next(row for row in changed['requestEvidence'][0]['requests'] if key in row[field])
+                    if invalid is None: target[field].pop(key)
+                    else: target[field][key] = invalid
+                    assert not network_requests_complete({probe}, changed), (probe, key, field, invalid)
     def complete(probe, requests, expected=None):
         return check_complete(probe, [dict(row, finalEndpoint=row.get('finalEndpoint', row['endpoint']),
             finalMethod=row.get('finalMethod', row['method']), finalQuery=row.get('finalQuery', dict(row.get('query', {}))))
@@ -701,16 +715,22 @@ def network_route_identity_self_test() -> None:
     for probe, paths, expected in [
         ('schedule.sync', ['/jwapp/sys/wdkbby/modules/xskcb/cxxszhxqkb.do',
             '/jwapp/sys/wdksapMobile/modules/ksap/cxxsksap.do', '/jwapp/sys/wdkbby/wdkbByController/cxzkbrq.do'], {'XNXQDM': '2025-2026-1'}),
-        ('classroom.occupancy', ['/jwapp/sys/kxjasbyMobile/kxjasbyController/cxkxjasqk.do'], {'XNXQDM': '2025-2026-1', 'JXLDM': 'fixture-building'}),
+        ('classroom.occupancy', ['/jwapp/sys/kxjasbyMobile/kxjasbyController/cxkxjasqk.do'],
+            {'XNXQDM': '2025-2026-1', 'JXLDM': 'fixture-building', 'RQ': '2026-09-07', 'XQDM': '1', 'XNDM': '2025-2026'}),
     ]:
         rows = [{'method': 'POST', 'endpoint': 'https://jxzxehallapp.bit.edu.cn' + path, 'statusCode': 200, 'query': dict(expected)} for path in paths]
         assert complete(probe, rows, expected) and not complete(probe, rows)
         for key in expected:
-            changed = deepcopy(rows)
-            changed[0]['query'][key] = 'wrong-selection'
-            assert not complete(probe, changed, expected)
-            changed[0]['query'].pop(key)
-            assert not complete(probe, changed, expected)
+            for field in ('query', 'finalQuery'):
+                changed = deepcopy(rows)
+                changed[0][field] = dict(changed[0]['query'], **{key: '2026-09-06' if key == 'RQ' else 'wrong-selection'})
+                assert not complete(probe, changed, expected)
+                changed[0][field].pop(key)
+                assert not complete(probe, changed, expected)
+        if probe == 'classroom.occupancy':
+            for key, value in [('RQ', '2026-02-30'), ('XQDM', '2'), ('XNDM', '2024-2025')]:
+                changed = {**expected, key: value}
+                assert not complete(probe, [dict(row, query=changed) for row in rows], changed), key
     login = {'method': 'GET', 'endpoint': 'https://bit101.flwfdd.xyz/user/check', 'statusCode': 200, 'query': {}}
     paper = dict(login, endpoint='https://bit101.flwfdd.xyz/papers/17')
     comments = [dict(login, endpoint='https://bit101.flwfdd.xyz/reaction/comments',

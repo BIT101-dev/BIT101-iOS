@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Match smoke responses to business routes and explicit pagination requests."""
 from dataclasses import dataclass, field, replace
+from datetime import date
 import re
 import sys
 from urllib.parse import unquote, urlsplit
@@ -8,7 +9,8 @@ from urllib.parse import unquote, urlsplit
 API = 'bit101.flwfdd.xyz'
 SCHOOL = r'(?:jxzxehallapp|webvpn)\.bit\.edu\.cn'
 VPN = r'(?:/https/[0-9a-f]+)?'
-VISIBLE_PARAMETERS = frozenset({'page', 'last_id', 'obj', 'order', 'mode', 'type', 'uid', 'detail', 'search', 'hide_bot', 'XNXQDM', 'JXLDM', 'XXXQDM'})
+VISIBLE_PARAMETERS = frozenset({'page', 'last_id', 'obj', 'order', 'mode', 'type', 'uid', 'detail', 'search', 'hide_bot',
+    'XNXQDM', 'JXLDM', 'XXXQDM', 'dicCode', 'SFSY', 'RQ', 'XQDM', 'XNDM', 'GPA'})
 
 
 @dataclass(frozen=True)
@@ -114,9 +116,10 @@ CONTRACTS = {
     'schedule.sync': [teaching(path, 'POST', query={'XNXQDM': '.+'}) for path in (
         '/jwapp/sys/wdkbby/modules/xskcb/cxxszhxqkb.do', '/jwapp/sys/wdksapMobile/modules/ksap/cxxsksap.do',
         '/jwapp/sys/wdkbby/wdkbByController/cxzkbrq.do')],
-    'classroom.campuses': [teaching('/jwapp/sys/kxjasbyMobile/modules/jxllb/ggzdpx.do', query={'dicCode': '.+', 'SFSY': '.+', 'order': r'\+DM'})],
+    'classroom.campuses': [teaching('/jwapp/sys/kxjasbyMobile/modules/jxllb/ggzdpx.do', query={'dicCode': '48682', 'SFSY': '1', 'order': r'\+DM'})],
     'classroom.buildings': [teaching('/jwapp/sys/kxjasbyMobile/modules/jxllb/cxjxl.do', query={'XXXQDM': '.+'})],
-    'classroom.occupancy': [teaching('/jwapp/sys/kxjasbyMobile/kxjasbyController/cxkxjasqk.do', 'POST', query={'XNXQDM': '.+', 'JXLDM': '.+'})],
+    'classroom.occupancy': [teaching('/jwapp/sys/kxjasbyMobile/kxjasbyController/cxkxjasqk.do', 'POST',
+        query={'XNXQDM': '.+', 'JXLDM': '.+', 'RQ': r'\d{4}-\d{2}-\d{2}', 'XQDM': '.+', 'XNDM': '.+'})],
     'eclass.authentication': [RequestContract(r'zy-eclass\.bit\.edu\.cn', '/api/my-courses', 'POST')],
     'eclass.ddl': [RequestContract(r'zy-eclass\.bit\.edu\.cn', '/api/my-courses', 'POST')],
     'lexue.calendar': [RequestContract(r'(?:lexue|webvpn)\.bit\.edu\.cn', VPN + '/calendar/export.php', 'POST')],
@@ -126,7 +129,7 @@ CONTRACTS = {
     'score.brief': [RequestContract(r'login\.bit101\.flwfdd\.xyz', '/api/jwb/bit101/score', 'POST', {'detail': 'false'})],
     'score.detail': [RequestContract(r'login\.bit101\.flwfdd\.xyz', '/api/jwb/bit101/score', 'POST', {'detail': 'true'})],
     'score.transcript': [RequestContract(r'login\.bit101\.flwfdd\.xyz', '/api/jwb/cjd/cookies', 'POST'),
-        RequestContract(r'jwb\.bit\.edu\.cn', '/cjd/ScoreReport2/Index', additional_parameters=frozenset({'GPA'}))],
+        RequestContract(r'jwb\.bit\.edu\.cn', '/cjd/ScoreReport2/Index', query={'GPA': '1'})],
     'web.association': [RequestContract(r'open\.aihelpme\.dev', '/.well-known/apple-app-site-association')],
     'web.share-icon': [RequestContract(r'open\.aihelpme\.dev', '/share-icon.jpg')],
     'web.home': [RequestContract(r'open\.aihelpme\.dev', '/?', final_host=r'bit101\.cn', final_path='/gallery/')],
@@ -224,7 +227,7 @@ SELECTORS = {
     **{name: {'uid'} for name in ('profile.posts', 'user.posts')},
     **{name: {'path'} for name in ('gallery.detail', 'course.detail', 'course.history', 'paper.detail',
         'user.profile', 'gallery.web', 'course.web', 'paper.web')},
-    'schedule.sync': {'XNXQDM'}, 'classroom.occupancy': {'XNXQDM', 'JXLDM'}, 'classroom.buildings': {'XXXQDM'},
+    'schedule.sync': {'XNXQDM'}, 'classroom.occupancy': {'XNXQDM', 'JXLDM', 'RQ', 'XQDM', 'XNDM'}, 'classroom.buildings': {'XXXQDM'},
 }
 
 
@@ -242,6 +245,11 @@ def complete(probe: str, requests: list[dict], expected_parameters: dict | None 
     if matched and probe == 'community.session':
         return len(requests) == 3 and contracts[0].matches(requests[0]) \
             and contracts[1].matches(requests[1]) and contracts[0].matches(requests[2])
+    if matched and probe == 'classroom.occupancy':
+        year, _, semester = expected_parameters['XNXQDM'].rpartition('-')
+        if expected_parameters['XNDM'] != year or expected_parameters['XQDM'] != semester: return False
+        try: date.fromisoformat(expected_parameters['RQ'])
+        except ValueError: return False
     if matched and probe == 'update.emergency':
         for row in requests:
             if not contracts[0].matches(row): continue

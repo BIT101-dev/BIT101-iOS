@@ -368,7 +368,7 @@ Catalyst 沿本次运行的原始 profile 与正式 App、模块二进制导出�
 
 人工观察由执行人员确认操作、账号、服务端结果与对应媒体的关联，结构门禁核对能力库存、场景完成状态及媒体有效性。首次登录、个人资料写入、举报与 iPad 布局使用结构化人工专项，分别登记 `first-login`、`profile-writes`、`gallery-report` 与 `ipad-layout`。`message-read` 核对本地已读保存与服务端分类清零；`web-interactions` 分别观察网络诊断、启动更新检查、手动更新检查、学校短信续验和学校日历同步。首次登录在正式 App 中清理登录态，分别以已注册账号与授权的新账号完成 WebVPN 初始化、密码校验、注册及进入登录后的页面。资料专项使用专用账号实际保存昵称、上传并绑定头像，随后恢复原资料并重新读取核对；举报专项使用明确授权的专用帖子确认服务端接收。iPad 专项覆盖竖屏、横屏、分屏及窗口调整，核对登录、主要导航、课表、内容详情与键盘操作。iPad 沿系统旋转和窗口管理适配尺寸，配置采用支持多方向的常规模式；迁移依据 [Apple 的 iPad 全屏模式说明](https://developer.apple.com/documentation/technotes/tn3192-migrating-your-app-from-the-deprecated-uirequiresfullscreen-key)。
 
-各专项附件使用 `schemaVersion: 1` 与 `scenarios` 字典，键名沿 `Scripts/validation_manual.py` 的 `MANUAL_SCENARIOS` 登记。每个场景记录 `operation`、`result`、`outcome: "passed"`、实际 `capturedAt` 与 `capture` 使用的影像证据结构。涉及网络能力的场景增加 `capabilities` 字典，键名为 `Scripts/validation_test_areas.py` 的完整所属类型与方法签名，各项记录实际 `operation`、`result` 与 `outcome: "passed"`；`MANUAL_CAPABILITY_SCENARIOS` 登记方法对应场景，新增方法需要独立观察。反馈投递附件在顶层使用相同 `capabilities` 结构，并保留存储与邮件回执。iPad 附件增加 `deviceFamily: "iPad"`、`deviceIdentifier`，各场景记录整数点数的 `windowSize.width/height`，分屏记录 `screenWidth`，调整窗口记录 `previousWindowSize`。结构化附件固定覆盖 `.build/extended-automation/manual-scenarios.json`，每个专项沿 `validation_evidence.py manual 专项名称` 的已有入口提交后再填写下一专项；证据内容由统一报告保存。
+各专项附件使用 `schemaVersion: 1` 与 `scenarios` 字典，键名沿 `Scripts/validation_manual.py` 的 `MANUAL_SCENARIOS` 登记。每个场景记录 `operation`、`result`、`outcome: "passed"`、实际 `capturedAt` 与 `capture` 使用的影像证据结构。涉及网络能力的场景增加 `capabilities` 字典，键名为 `Scripts/validation_test_areas.py` 的完整所属类型与方法签名，各项记录实际 `operation`、`result` 与 `outcome: "passed"`；`MANUAL_CAPABILITY_SCENARIOS` 登记方法对应场景，新增方法需要独立观察。反馈投递附件在顶层使用相同 `capabilities` 结构，并保留存储与邮件回执。iPad 附件增加 `platform: "iOS"`、`deviceFamily: "iPad"`、设备标识、型号、系统版本与构建；系统版本达到 iOS 部署要求。`application` 保存正式包标识、版本、构建、Release 配置、空测试宿主标记、最低系统版本、可执行文件 SHA-256 与 Mach-O UUID，`inputDigest` 沿 `source_digest("manual-device", environment={})` 绑定源码和验证输入。各场景记录整数点数的 `windowSize.width/height`，分屏记录 `screenWidth`，调整窗口记录 `previousWindowSize`。结构化附件固定覆盖 `.build/extended-automation/manual-scenarios.json`，每个专项沿 `validation_evidence.py manual 专项名称` 的已有入口提交后再填写下一专项；证据内容由统一报告保存。
 
 文章列表与搜索共享服务级的四路详情调度，同一文章的在途消费者合并请求并独立处理取消；最多四篇正文响应用于作者预览到首次详情打开的复用。详情刷新重新读取，列表刷新和文章写操作使复用缓存失效。已登录的详情与评论读取先沿社区校验接口恢复凭据，访客阅读沿公开接口执行。
 
@@ -416,7 +416,7 @@ Catalyst 沿本次运行的原始 profile 与正式 App、模块二进制导出�
 
 SwiftSyntax 索引器缓存沿源码、工具链环境、编译器、SwiftSyntax / SwiftParser 库及模块内容摘要复用。网络能力检测沿编译器类型、协议和异步闭包传输端口、初始化表达式、依赖工厂返回值和局部别名识别生产服务，局部同名变量沿词法作用域解析。自定义协议沿具体网络实现传播能力，泛型传输端口沿参数及 `where` 约束展开；已登记业务服务作为验收边界，其消费层沿业务与 UI 合同验收，协议要求沿实现核对。模块门禁按业务归属限制 Domain、Ports、Core 等依赖；社区功能共用 Community 业务合同，基础 Client、Storage、Transport、DesignSystem、Media 模块承担公共职责。地图通过明确登记的 `MapFeature → ScheduleContracts` 依赖复用地点显示规范化，跨业务合同沿允许依赖表评审。
 
-UI 自动化同时采集交互库存及宿主与 Feature / UI 模块的行覆盖率，完整验收要求宿主达到 35% 行覆盖率，展示模块共用已登记的 iOS 最低覆盖率；完整 UI 组同时执行覆盖率退化检查。界面状态断言、控件交互记录及行覆盖率共同支撑展示逻辑审查。
+UI 自动化同时采集交互库存及宿主与 Feature / UI 模块的行覆盖率，完整验收要求宿主达到 35% 行覆盖率，展示模块共用已登记的 iOS 最低覆盖率；完整 UI 组按当前版本与目标提交阈值中的较高值验收。界面状态断言、控件交互记录及行覆盖率共同支撑展示逻辑审查。
 
 交互库存身份结合场景、祖先行标识及控件标识。列表行和多选项使用稳定业务标识，滚动后挂载的新行继续登记待访问项，排序保留同一业务行的访问记录；同名操作按钮沿所属行区分。长度编码保持身份字段边界，控件标签的状态变化保持已标识控件的身份稳定。
 

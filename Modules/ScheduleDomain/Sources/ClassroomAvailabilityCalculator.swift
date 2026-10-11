@@ -53,18 +53,16 @@ public nonisolated enum ClassroomAvailabilityCalculator {
 
         let isFreeNow: Bool
         let statusText: String
-        if currentBusySlot == nil, let nextBusyStart {
+        if let currentBusySlot {
+            isFreeNow = false
+            let nextFree = nextFreeStart(in: timeTable, busy: busy, after: currentBusySlot.endMinutes)
+            statusText = "\(TimeSlot.formatMinutes(nextFree)) 后空闲"
+        } else if let nextBusyStart {
             isFreeNow = true
             statusText = "空闲到 \(TimeSlot.formatMinutes(nextBusyStart))"
-        } else if currentBusySlot == nil {
+        } else {
             isFreeNow = true
             statusText = "空闲到明天"
-        } else if let nextFree = nextFreeStart(in: timeTable, busy: busy, after: nowMinutes) {
-            isFreeNow = false
-            statusText = "\(TimeSlot.formatMinutes(nextFree)) 后空闲"
-        } else {
-            isFreeNow = false
-            statusText = "使用中"
         }
 
         return ClassroomAvailability(
@@ -168,11 +166,13 @@ public nonisolated enum ClassroomAvailabilityCalculator {
         in timeTable: [TimeSlot],
         busy: Set<Int>,
         after minutes: Int
-    ) -> Int? {
-        for slot in timeTable where slot.endMinutes > minutes && !busy.contains(slot.id) {
-            return max(minutes, slot.startMinutes)
+    ) -> Int {
+        var freeStart = minutes
+        for slot in timeTable.filter({ busy.contains($0.id) }).sorted(by: { $0.startMinutes < $1.startMinutes }) {
+            guard slot.startMinutes <= freeStart else { break }
+            freeStart = max(freeStart, slot.endMinutes)
         }
-        return nil
+        return freeStart
     }
 
 }

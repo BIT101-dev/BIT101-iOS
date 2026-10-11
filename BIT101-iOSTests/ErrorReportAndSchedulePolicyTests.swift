@@ -693,6 +693,18 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
 
 @MainActor
 struct NetworkEvidenceProjectionTests {
+    @Test func schoolBusinessSelectorsRemainVisibleInRequestEvidence() throws {
+        var request = URLRequest(url: AppURL.required("https://example.invalid/classrooms?dicCode=48682&SFSY=1&GPA=1&token=secret"))
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data("XNXQDM=2025-2026-1&JXLDM=building&RQ=2026-09-07&XQDM=1&XNDM=2025-2026&password=secret".utf8)
+        let url = try #require(request.url)
+        let response = try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+        let evidence = NetworkSmokeHTTPRequestEvidence(request: request, response: response)
+        #expect(evidence.query == ["dicCode": "48682", "SFSY": "1", "GPA": "1", "token": "[REDACTED]",
+                                  "XNXQDM": "2025-2026-1", "JXLDM": "building", "RQ": "2026-09-07", "XQDM": "1", "XNDM": "2025-2026"])
+        #expect(evidence.finalQuery == evidence.query)
+    }
+
     @Test("Probe identities stay separate from display labels")
     func probeIdentitiesUseCanonicalMachineValues() throws {
         let identities = NetworkSmokeProbe.allCases.map(\.rawValue)

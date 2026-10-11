@@ -7,6 +7,31 @@ import Testing
 
 @Suite("Login parsing and cryptography")
 struct LoginLogicTests {
+    @Test(arguments: [#"<input id = 'login-croypto' value = 'c2FsdA==' />"#,
+                      #"<input value = 'c2FsdA==' id = 'login-croypto' />"#,
+                      #"<span id = 'login-croypto'>c2FsdA==</span>"#])
+    func parsesHTMLAttributeWhitespace(html: String) {
+        let context = SchoolLoginHTMLParser.parse(html: html + #"<input id = 'login-page-flowkey' value = 'flow' />"#)
+        #expect(context.salt == "c2FsdA==" && context.execution == "flow")
+    }
+
+    @Test(arguments: [#"<input data-id='login-croypto' value='wrong' />"#,
+                      #"<input value='wrong' data-id='login-croypto' />"#,
+                      #"<span data-id='login-croypto'>wrong</span>"#])
+    func distinguishesHTMLAttributeNames(html: String) {
+        let context = SchoolLoginHTMLParser.parse(html: html + #"<a href='/logout'>退出登录</a>"#)
+        #expect(context.salt == nil && context.isLoggedIn)
+    }
+
+    @Test func selectsTheSecondFactorFormWithItsOwnFields() throws {
+        let html = #"<form action='/search'><input id='login-page-flowkey' value='other-flow'></form><form action='/cas/login?step=2'><input id = 'login-page-flowkey' value = 'flow'><input id = 'user-object-id' value = 'user'><div id='secondSmsLoginForm'></div></form>"#
+        let baseURL = try #require(URL(string: "https://sso.bit.edu.cn/cas/login"))
+        let context = try #require(SchoolLoginHTMLParser.parseSecondFactorPage(html: html, baseURL: baseURL))
+        #expect(context.execution == "flow" && context.userObjectID == "user")
+        #expect(context.formAction.absoluteString == "https://sso.bit.edu.cn/cas/login?step=2")
+        #expect(SchoolLoginHTMLParser.parseSecondFactorPage(html: html + html, baseURL: baseURL) == nil)
+    }
+
     @Test("CAS success gate 401 is a terminal browser landing response")
     func acceptsCASGateLandingResponse() throws {
         let gateURL = try #require(URL(string: "https://sso.bit.edu.cn/gate/cas-success"))

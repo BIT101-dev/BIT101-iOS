@@ -168,9 +168,8 @@ def capability_observations_complete(check: str, scenario: str, observations) ->
 def scenario_complete(check: str, proof: dict) -> bool:
     if not isinstance(proof, dict) or proof.get('schemaVersion') != 1 \
             or not isinstance(proof.get('scenarios'), dict) or set(proof['scenarios']) != MANUAL_SCENARIOS[check]: return False
-    if check == 'catalyst-desktop' and not catalyst_identity_complete(proof): return False
-    if check == 'ipad-layout' and (proof.get('deviceFamily') != 'iPad' or not isinstance(proof.get('deviceIdentifier'), str)
-            or not proof['deviceIdentifier'].strip()): return False
+    if check == 'catalyst-desktop' and not application_identity_complete(proof, 'macCatalyst'): return False
+    if check == 'ipad-layout' and (proof.get('deviceFamily') != 'iPad' or not application_identity_complete(proof, 'iOS')): return False
     for name, row in proof['scenarios'].items():
         if not isinstance(row, dict) or row.get('outcome') != 'passed' \
                 or not all(isinstance(row.get(key), str) and row[key].strip() for key in ('operation', 'result', 'capturedAt')) \
@@ -197,16 +196,17 @@ def scenario_complete(check: str, proof: dict) -> bool:
     return True
 
 
-def catalyst_identity_complete(proof: dict) -> bool:
+def application_identity_complete(proof: dict, platform: str) -> bool:
     from validation_compilation import compilation_settings
     from validation_provenance import source_digest
     from validate_distribution import distribution_contracts, minimum_os_version, valid_executable_uuids
     application = proof.get('application')
-    minimum = minimum_os_version(compilation_settings('macOS')[1])
+    minimum = minimum_os_version(compilation_settings('macOS' if platform == 'macCatalyst' else 'iOS')[1])
     version = minimum_os_version(proof.get('systemVersion'))
-    if proof.get('platform') != 'macCatalyst' or not all(isinstance(proof.get(key), str) and proof[key].strip()
+    if proof.get('platform') != platform or not all(isinstance(proof.get(key), str) and proof[key].strip()
             for key in ('deviceIdentifier', 'deviceModel', 'systemBuild')) or version is None \
-            or version[:2] != minimum[:2] or version < minimum or not isinstance(application, dict): return False
+            or version < minimum or platform == 'macCatalyst' and version[:2] != minimum[:2] \
+            or not isinstance(application, dict): return False
     contracts = distribution_contracts()
     contract = contracts.get(application.get('identifier'))
     return bool(contract) and not contract['extension'] and contract['platform'] == 'iOS' \

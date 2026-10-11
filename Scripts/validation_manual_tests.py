@@ -57,18 +57,21 @@ def evidence_fixture(check: str) -> bytes:
                 scenarios[name]['windowSize'] = dict(zip(('width', 'height'), size))
             scenarios['split-view']['screenWidth'] = 1024
             scenarios['resize']['previousWindowSize'] = {'width': 512, 'height': 768}
-        if check == 'catalyst-desktop':
+        if check in {'catalyst-desktop', 'ipad-layout'}:
             from validation_compilation import compilation_settings
             from validation_provenance import source_digest
             contract = next((identifier, row) for identifier, row in distribution.distribution_contracts().items()
                 if row['platform'] == 'iOS' and not row['extension'])
             identifier, row = contract
-            minimum = compilation_settings('macOS')[1]
-            scenarios['window-resize'].update(windowSize={'width': 1024, 'height': 768}, previousWindowSize={'width': 800, 'height': 600})
-            for name, actions in {'menu-actions': ('app-menu', 'window-menu'), 'keyboard-navigation': ('tab', 'return', 'escape'),
-                    'permission-dialogs': ('photos', 'calendar', 'notifications')}.items():
-                scenarios[name]['actions'] = {action: {'operation': '实际操作', 'result': '观察结果', 'outcome': 'passed'} for action in actions}
-            return json.dumps({'schemaVersion': 1, 'platform': 'macCatalyst', 'deviceIdentifier': 'fixture-mac', 'deviceModel': 'Mac',
+            desktop = check == 'catalyst-desktop'
+            minimum = compilation_settings('macOS' if desktop else 'iOS')[1]
+            if desktop:
+                scenarios['window-resize'].update(windowSize={'width': 1024, 'height': 768}, previousWindowSize={'width': 800, 'height': 600})
+                for name, actions in {'menu-actions': ('app-menu', 'window-menu'), 'keyboard-navigation': ('tab', 'return', 'escape'),
+                        'permission-dialogs': ('photos', 'calendar', 'notifications')}.items():
+                    scenarios[name]['actions'] = {action: {'operation': '实际操作', 'result': '观察结果', 'outcome': 'passed'} for action in actions}
+            return json.dumps({'schemaVersion': 1, 'platform': 'macCatalyst' if desktop else 'iOS',
+                'deviceIdentifier': 'fixture-mac' if desktop else 'fixture-pad', 'deviceModel': 'Mac' if desktop else 'iPad', 'deviceFamily': 'iPad',
                 'systemVersion': minimum, 'systemBuild': 'fixture-build', 'inputDigest': source_digest('manual-device', environment={}),
                 'application': {'identifier': identifier, 'version': row['version'], 'build': row['build'], 'configuration': 'Release',
                     'testHostMarkers': [], 'minimumOSVersion': minimum, 'sha256': 'a' * 64,
@@ -405,7 +408,17 @@ def run_self_test() -> None:
     changed['scenarios']['window-resize']['previousWindowSize'] = changed['scenarios']['window-resize']['windowSize']
     assert not scenario_complete('catalyst-desktop', changed)
     pad = json.loads(evidence_fixture('ipad-layout'))
+    assert scenario_complete('ipad-layout', pad)
     assert not scenario_complete('ipad-layout', pad | {'deviceFamily': 'iPhone'})
+    for key, value in [('platform', 'macCatalyst'), ('systemVersion', '1.0'), ('inputDigest', 'stale'), ('deviceIdentifier', '')]:
+        assert not scenario_complete('ipad-layout', pad | {key: value}), key
+    for key, value in [('version', 'old'), ('build', 'old'), ('configuration', 'Debug'), ('testHostMarkers', ['BIT101_AUTOMATED_TESTING']),
+            ('minimumOSVersion', '99.0'), ('sha256', 'invalid'), ('executableUUIDs', [])]:
+        assert not scenario_complete('ipad-layout', pad | {'application': pad['application'] | {key: value}}), key
+    for key in ('application', 'inputDigest'):
+        changed = dict(pad)
+        changed.pop(key)
+        assert not scenario_complete('ipad-layout', changed), key
     for name in pad['scenarios']:
         changed = copy.deepcopy(pad)
         changed['scenarios'][name]['windowSize'] = {'width': 0, 'height': 0}

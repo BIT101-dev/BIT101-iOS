@@ -969,6 +969,11 @@ extension ReleaseNetworkSmokeLifecycleTests {
             #expect(report.requestedTerm == (stage == "historical-term-success" ? "historical-1" : nil))
             #expect(report.validatedTerm == (stage == "schedule-term-failure" || stage == "invalid-exam-failure" ? nil : report.requestedTerm ?? "fixture-1"))
         }
+        if report.executedProbes.contains("classroom.occupancy") {
+            let occupancy = try #require(report.requestEvidence.first { $0.probe == "classroom.occupancy" })
+            #expect(occupancy.expectedParameters == ["XNXQDM": report.requestedTerm ?? "fixture-1", "JXLDM": "building",
+                "RQ": ScheduleDateCodec.formatDate(Date()), "XQDM": "1", "XNDM": stage == "historical-term-success" ? "historical" : "fixture"])
+        }
         if scope.includes(.ddl) { #expect(services.observed.isSuperset(of: ["eclass", "lexue"])) }
         if stage == "raw-write-failure" { #expect(rawWrites == 1 && report.failures.contains { $0.contains("原始课表采样写入") }) }
         if stage == "ddl-failure" || stage == "ddl-invalid-calendar-failure" {

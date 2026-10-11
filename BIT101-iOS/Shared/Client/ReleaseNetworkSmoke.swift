@@ -489,7 +489,10 @@ final class ReleaseNetworkSmokeRunner {
                     return buildings
                 }
                 if let building = buildings?.first {
-                    _ = await probe(.classroomOccupancy, area: .schedule, scope: scope, expectedParameters: ["XNXQDM": term, "JXLDM": building.id]) {
+                    let termParts = term.split(separator: "-")
+                    let selection = ["XNXQDM": term, "JXLDM": building.id, "RQ": ScheduleDateCodec.formatDate(Date()),
+                                     "XQDM": termParts.last.map(String.init) ?? "", "XNDM": termParts.dropLast().joined(separator: "-")]
+                    _ = await probe(.classroomOccupancy, area: .schedule, scope: scope, expectedParameters: selection) {
                         let classrooms = try await schedule.fetchClassrooms(buildingID: building.id, term: term)
                         guard classrooms.allSatisfy(\.hasValidOccupancy) else { throw URLError(.cannotParseResponse) }
                         return classrooms

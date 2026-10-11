@@ -199,7 +199,7 @@ def network_requests_complete(required: set[str], value: dict) -> bool:
             if not isinstance(final_query, dict) or not all(isinstance(key, str) and isinstance(item, str)
                     and (key in VISIBLE_PARAMETERS or item == '[REDACTED]') for key, item in final_query.items()): return False
         expected = row.get('expectedParameters', {})
-        if not isinstance(expected, dict) or not set(expected) <= {'XNXQDM', 'JXLDM', 'XXXQDM', 'obj', 'uid', 'path', 'resourceDigests'} \
+        if not isinstance(expected, dict) or not set(expected) <= {'XNXQDM', 'JXLDM', 'XXXQDM', 'RQ', 'XQDM', 'XNDM', 'obj', 'uid', 'path', 'resourceDigests'} \
                 or not all(isinstance(item, str) for item in expected.values()): return False
         if value.get('validatedTerm') and expected.get('XNXQDM') != value['validatedTerm'] and 'XNXQDM' in expected: return False
         if complete(row['probe'], row['requests'], expected): observed.add(row['probe'])

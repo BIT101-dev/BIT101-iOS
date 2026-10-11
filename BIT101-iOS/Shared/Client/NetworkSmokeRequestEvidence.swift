@@ -53,7 +53,8 @@ nonisolated struct NetworkSmokeHTTPRequestEvidence: Codable, Sendable {
 
     private static func parameters(_ request: URLRequest) -> (values: [String: String], ambiguous: [String]?) {
         let endpoint = request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
-        let allowed = Set(["page", "last_id", "obj", "order", "mode", "type", "uid", "detail", "search", "hide_bot", "XNXQDM", "JXLDM", "XXXQDM"])
+        let allowed = Set(["page", "last_id", "obj", "order", "mode", "type", "uid", "detail", "search", "hide_bot",
+                           "XNXQDM", "JXLDM", "XXXQDM", "dicCode", "SFSY", "RQ", "XQDM", "XNDM", "GPA"])
         var parameters: [String: [String]] = [:]
         for item in endpoint?.queryItems ?? [] {
             parameters[item.name, default: []].append(allowed.contains(item.name) ? item.value ?? "" : "[REDACTED]")
@@ -61,7 +62,7 @@ nonisolated struct NetworkSmokeHTTPRequestEvidence: Codable, Sendable {
         if request.value(forHTTPHeaderField: "Content-Type")?.hasPrefix("application/x-www-form-urlencoded") == true,
            let body = request.httpBody, let encoded = String(data: body, encoding: .utf8),
            let form = URLComponents(string: "?" + encoded.replacingOccurrences(of: "+", with: "%20"))?.queryItems {
-            for item in form where ["XNXQDM", "JXLDM"].contains(item.name) {
+            for item in form where ["XNXQDM", "JXLDM", "RQ", "XQDM", "XNDM"].contains(item.name) {
                 parameters[item.name, default: []].append(item.value ?? "")
             }
             for item in form where item.name == "requestParamStr" {

@@ -490,10 +490,10 @@ def run_self_test(subject) -> int:
         assert subject.complete_summary('ui', summaries['ui']) is False
         network = network_trace_fixture({'passed': True, 'scope': 'all', 'executedProbes': sorted(subject.network_inventory()), 'requiredProbes': sorted(subject.network_inventory()), 'currentTerm': 'fixture-current', 'validatedTerm': 'fixture-current'})
         assert subject.smoke_summary('network', network)['passed']
-        assert not subject.smoke_summary('network', dict(network, requestedTerm='historical', validatedTerm='historical'))['passed']
+        assert not subject.smoke_summary('network', dict(network, requestedTerm='2024-2025-1', validatedTerm='2024-2025-1'))['passed']
         assert not subject.smoke_summary('network', dict(network, validatedTerm='other'))['passed']
         assert not subject.smoke_summary('network', dict(network, currentTerm=None))['passed']
-        historical = network_trace_fixture(dict(network, requestedTerm='historical', validatedTerm='historical'))
+        historical = network_trace_fixture(dict(network, requestedTerm='2024-2025-1', validatedTerm='2024-2025-1'))
         assert subject.smoke_summary('network', historical, full=False)['passed']
         assert subject.smoke_summary('network', {'passed': True, 'scope': 'all', 'executedProbes': ['unrelated']})['passed'] is False
         network['coverageGaps'] = ['fixture']

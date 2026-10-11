@@ -29,10 +29,12 @@ public nonisolated enum SchoolLoginHTMLParser {
             options: [.regularExpression, .caseInsensitive]
         ) != nil
         guard hasSecondFactorMarker else { return nil }
+        guard let form = secondFactorForm(in: html) else { return nil }
+        let fields = field(in: form, id: "user-object-id") == nil ? html : form
 
         guard
-            let execution = field(in: html, id: "login-page-flowkey"),
-            let userObjectID = field(in: html, id: "user-object-id"),
+            let execution = field(in: fields, id: "login-page-flowkey"),
+            let userObjectID = field(in: fields, id: "user-object-id"),
             !execution.isEmpty,
             !userObjectID.isEmpty
         else {
@@ -40,8 +42,8 @@ public nonisolated enum SchoolLoginHTMLParser {
         }
 
         let action = attribute(
-            in: html,
-            pattern: #"<form\b[^>]*\baction\s*=\s*["']([^"']+)["'][^>]*>"#
+            in: form,
+            pattern: #"<form\b[^>]*\saction\s*=\s*["']([^"']+)["'][^>]*>"#
         ) ?? "cas/login"
         let decodedAction = decodeHTML(action).trimmingCharacters(in: .whitespacesAndNewlines)
         guard let formAction = URL(string: decodedAction, relativeTo: baseURL)?.absoluteURL else {
@@ -79,11 +81,23 @@ public nonisolated enum SchoolLoginHTMLParser {
         value(in: html, pattern: pattern)
     }
 
+    private static func secondFactorForm(in html: String) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: #"<form\b[^>]*>[\s\S]*?</form\s*>"#, options: [.caseInsensitive]) else { return nil }
+        let forms = regex.matches(in: html, range: NSRange(html.startIndex..., in: html)).compactMap { match in
+            Range(match.range, in: html).map { String(html[$0]) }
+        }
+        if forms.count == 1 { return forms[0] }
+        let candidates = forms.filter { form in
+            field(in: form, id: "user-object-id") != nil && field(in: form, id: "login-page-flowkey") != nil
+        }
+        return candidates.count == 1 ? candidates[0] : nil
+    }
+
     private static func containsLoginPageMarker(in html: String) -> Bool {
         let markers = [
-            #"id\s*=\s*["']login-croypto["']"#,
-            #"id\s*=\s*["']login-page-flowkey["']"#,
-            #"name\s*=\s*["']username["']"#,
+            #"\sid\s*=\s*["']login-croypto["']"#,
+            #"\sid\s*=\s*["']login-page-flowkey["']"#,
+            #"\sname\s*=\s*["']username["']"#,
         ]
         return markers.contains { marker in
             html.range(of: marker, options: [.regularExpression, .caseInsensitive]) != nil
@@ -118,8 +132,8 @@ public nonisolated enum SchoolLoginHTMLParser {
     private static func field(in html: String, id: String) -> String? {
         let escapedID = NSRegularExpression.escapedPattern(for: id)
         let valuePatterns = [
-            #"id=["']"# + escapedID + #"["'][^>]*\bvalue\s*=\s*["']([^"']+)["']"#,
-            #"\bvalue\s*=\s*["']([^"']+)["'][^>]*\bid\s*=\s*["']"# + escapedID + #"["']"#,
+            #"<[^>]*\sid\s*=\s*["']"# + escapedID + #"["'][^>]*\svalue\s*=\s*["']([^"']+)["']"#,
+            #"<[^>]*\svalue\s*=\s*["']([^"']+)["'][^>]*\sid\s*=\s*["']"# + escapedID + #"["']"#,
         ]
         for pattern in valuePatterns {
             guard let rawValue = attribute(in: html, pattern: pattern) else { continue }
@@ -131,7 +145,7 @@ public nonisolated enum SchoolLoginHTMLParser {
 
         let innerText = value(
             in: html,
-            pattern: #"id=["']"# + escapedID + #"["'][^>]*>\s*([^<\s]+)\s*<"#
+            pattern: #"<[^>]*\sid\s*=\s*["']"# + escapedID + #"["'][^>]*>\s*([^<\s]+)\s*<"#
         )
         if let innerText {
             let normalized = decodeHTML(innerText).trimmingCharacters(in: .whitespacesAndNewlines)
