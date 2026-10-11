@@ -418,7 +418,7 @@ def performance_comparison_complete(name: str, measurement: dict) -> bool:
                     or not math.isfinite(maximum) \
                     or len(metric['samples']) != len(approved['samples']) \
                     or metric['mean'] > maximum: return False
-            return record_complete(current, current=True) and record_complete(baseline, current=False)
+        return record_complete(current, current=True) and record_complete(baseline, current=False)
     except (KeyError, TypeError, ValueError, AttributeError, OverflowError):
         return False
 

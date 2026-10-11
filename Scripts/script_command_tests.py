@@ -343,7 +343,7 @@ python3() {{ print -r -- "RECORD $*"; return {recording}; }}
     icloud_source = (SCRIPT_ROOT / 'run_icloud_cross_device_smoke.sh').read_text()
     recovery = 'finish_smoke() {' + icloud_source.split('finish_smoke() {', 1)[1].split('\ntrap finish_smoke', 1)[0]
     for original, phone_status, mac_status in ((0, 0, 0), (7, 0, 0), (0, 9, 0), (0, 0, 9), (7, 9, 9)):
-        stub = f'''ROOT_DIR=/fixture SUMMARY_PATH=/fixture/report CLEANUP_ONLY=false validation_group=icloud
+        stub = f'''ROOT_DIR=/fixture SUMMARY_PATH=/fixture/report CLEANUP_ONLY=false validation_group=icloud PHONE_AVAILABLE=true
 PHONE_TEST_PID= PHONE_TESTS_STARTED=true PHONE_CLEANED_UP=false MAC_TESTS_STARTED=true MAC_CLEANED_UP=false
 run_phone_test() {{ print PHONE; return {phone_status}; }}
 run_mac_cleanup() {{ print MAC; return {mac_status}; }}
@@ -355,6 +355,34 @@ report_result() {{ :; }}
         if result.returncode != (original or int(bool(phone_status or mac_status))) \
                 or result.stdout.splitlines().count('PHONE') != 1 or result.stdout.splitlines().count('MAC') != 1:
             findings.append('iCloud 恢复自测：双端清理独立执行并保留原始失败状态')
+    availability = icloud_source.split('PHONE_AVAILABLE=true\n', 1)[1].split('BIT101_VALIDATION_RUN_ID=', 1)[0]
+    cleanup_entry = 'cleanup_status=0\n' + icloud_source.split('cleanup_status=0\n', 1)[1].split(
+        'echo "[构建] 准备 Mac Catalyst 测试宿主"', 1)[0]
+    cleanup_recovery = recovery.replace('"$ROOT_DIR/Scripts/build-install-device.sh"', 'restore_normal_app')
+    for phone, mac, build, test, expected in ((0, 0, 0, 0, 0), (1, 0, 0, 0, 1), (1, 9, 0, 0, 1),
+            (0, 9, 0, 0, 1), (0, 0, 9, 0, 9), (0, 0, 0, 9, 1)):
+        stub = f'''set -euo pipefail
+ROOT_DIR=/fixture DERIVED_ROOT=/fixture SUMMARY_PATH=/fixture/report RESULT_BUNDLE=/fixture/result
+CLEANUP_ONLY=true validation_group=icloud PHONE_AVAILABLE=true CLEANUP_DEVICE_ID=phone-a DEVICE_ID=phone-a
+PHONE_TEST_PID= PHONE_TESTS_STARTED=false PHONE_CLEANED_UP=false MAC_TESTS_STARTED=false MAC_CLEANED_UP=false
+common_args=() TEST_CLASS=Fixture
+bit101_require_device() {{ [[ "$1" == phone-a ]] || exit 81; return {phone}; }}
+bit101_run_logged() {{ print BUILD; return {build}; }}
+run_phone_test() {{ print PHONE; return {test}; }}
+run_mac_cleanup() {{ print MAC; return {mac}; }}
+restore_normal_app() {{ print RESTORE; }}
+python3() {{ :; }}
+report_result() {{ :; }}
+'''
+        result = subprocess.run(['zsh', '-c', stub + availability + cleanup_recovery +
+            '\ntrap finish_smoke EXIT ZERR\n' + cleanup_entry],
+            env=dict(os.environ, BIT101_DEFER_APP_RESTORE='0'), capture_output=True, text=True)
+        rows = result.stdout.splitlines()
+        if result.returncode != expected or 'MAC' not in rows \
+                or phone and any(marker in rows for marker in ('BUILD', 'PHONE', 'RESTORE')) \
+                or not phone and ('BUILD' not in rows or rows.index('MAC') > rows.index('BUILD')) \
+                or not phone and not build and 'PHONE' not in rows:
+            findings.append('iCloud 恢复自测：手机离线及构建失败仍推进 Mac 清理，两端失败保留待恢复状态')
     pending = icloud_source.split('pending_cleanup="$(python3 - "$SUMMARY_PATH" <<\'PY\'\n', 1)[1].split('\nPY\n', 1)[0]
     passed = dict(exitCode=0, totalTestCount=1, passedTests=1, failedTests=0, skippedTests=0)
     prior_stages = [dict(passed, stage=stage) for stage in ('testPhoneRoundTrip', 'testMacReceiveAndRestore')]

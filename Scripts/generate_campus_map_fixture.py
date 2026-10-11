@@ -13,6 +13,7 @@ import json
 import re
 import warnings
 from pathlib import Path
+from validation_provenance import report_lock
 
 SUPPORTED_CAMPUSES = {"中关村校区", "良乡校区"}
 FIXTURE_PATH = Path(__file__).resolve().parents[1] / "BIT101-iOSTests/Fixtures/campus-map-locations.json"
@@ -59,6 +60,29 @@ def merge_locations(old_rows: list[dict], locations: list[tuple[str, str]]) -> l
     return [retained[key] for key in sorted(retained)]
 
 
+def update_fixture(locations: list[tuple[str, str]], allow_new: bool) -> tuple[int, int]:
+    with report_lock(path=FIXTURE_PATH):
+        old_rows = json.loads(FIXTURE_PATH.read_text(encoding="utf-8")) if FIXTURE_PATH.exists() else []
+        decisions = {(row["campus"], row["classroom"]): row.get("expected") for row in old_rows}
+        new_locations = [item for item in locations if item not in decisions]
+        if new_locations and not allow_new:
+            preview = "\n".join(f"- {campus} / {classroom}" for campus, classroom in new_locations[:20])
+            raise SystemExit(
+                f"发现 {len(new_locations)} 个新地点需要审核：\n{preview}\n"
+                "审核后更新 expected，或显式使用 --allow-new 生成待处理项。"
+            )
+
+        rows = merge_locations(old_rows, locations)
+        FIXTURE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        incoming = FIXTURE_PATH.with_suffix(".incoming")
+        try:
+            incoming.write_text("[\n" + ",\n".join("  " + json.dumps(row, ensure_ascii=False) for row in rows) + "\n]\n", encoding="utf-8")
+            incoming.replace(FIXTURE_PATH)
+        finally:
+            incoming.unlink(missing_ok=True)
+        return len(rows), len(new_locations)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("xlsx", type=Path)
@@ -69,21 +93,8 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    old_rows = json.loads(FIXTURE_PATH.read_text(encoding="utf-8")) if FIXTURE_PATH.exists() else []
-    decisions = {(row["campus"], row["classroom"]): row.get("expected") for row in old_rows}
-    locations = extract_unique_locations(args.xlsx)
-    new_locations = [item for item in locations if item not in decisions]
-    if new_locations and not args.allow_new:
-        preview = "\n".join(f"- {campus} / {classroom}" for campus, classroom in new_locations[:20])
-        raise SystemExit(
-            f"发现 {len(new_locations)} 个尚未审核的新地点，fixture 未改动：\n{preview}\n"
-            "审核后更新 expected，或显式使用 --allow-new 生成待处理项。"
-        )
-
-    rows = merge_locations(old_rows, locations)
-    FIXTURE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    FIXTURE_PATH.write_text("[\n" + ",\n".join("  " + json.dumps(row, ensure_ascii=False) for row in rows) + "\n]\n", encoding="utf-8")
-    print(f"写入 {len(rows)} 条去重地点；新增待审核 {len(new_locations)} 条：{FIXTURE_PATH}")
+    rows, new_locations = update_fixture(extract_unique_locations(args.xlsx), args.allow_new)
+    print(f"写入 {rows} 条去重地点；新增待审核 {new_locations} 条：{FIXTURE_PATH}")
 
 
 if __name__ == "__main__":

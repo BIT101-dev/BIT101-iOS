@@ -1,5 +1,5 @@
 """Exercise workflow ownership and bounded network evidence using memory IO substitutes."""
-from contextlib import nullcontext, redirect_stderr, redirect_stdout
+from contextlib import contextmanager, nullcontext, redirect_stderr, redirect_stdout
 from datetime import timedelta
 from io import BytesIO, StringIO
 import ast
@@ -132,7 +132,7 @@ def worker_deployment_self_test() -> None:
             stdout=json.dumps({'id': 'deployment'}))) as run:
         assert subject.worker_cli_json(folder, 'deployments', 'status') == {'id': 'deployment'}
         assert run.call_args.args[0][1:4] == ['deployments', 'status', '--json']
-        assert run.call_args.kwargs['env']['WRANGLER_LOG_PATH'] == str(subject.ROOT / '.build/release-network-smoke/console.log')
+        assert run.call_args.kwargs['env']['WRANGLER_LOG_PATH'] == str(subject.WORKER_LOG)
     with patch.object(subject.subprocess, 'run', return_value=SimpleNamespace(returncode=1, stdout='')):
         try: subject.worker_cli_json(folder, 'deployments', 'status')
         except ValueError: pass
@@ -144,16 +144,37 @@ def worker_deployment_self_test() -> None:
         if changed: snapshot[folder]['deploymentID'] = str(uuid.uuid4())
         with patch.object(sys, 'argv', ['worker', 'worker-attach', str(report_path), json.dumps(proof)]), \
                 patch.object(Path, 'read_text', return_value=json.dumps(report)), patch.object(Path, 'write_text') as write, \
+                patch.object(subject, 'report_lock', side_effect=lambda **kwargs: nullcontext()), \
                 patch.object(subject, 'capture_worker_deployments', return_value=snapshot), redirect_stderr(StringIO()):
             try: status = subject.worker_main()
             except SystemExit as error: status = error.code
             assert status == int(changed)
-            if changed: write.assert_not_called()
+            if changed: assert [row.args for row in write.call_args_list] == [('',)]
             else: assert json.loads(write.call_args.args[0])['workerDeployments'] == proof
+    console = subject.ROOT / '.build/release-network-smoke/console.log'
+    logs, locked, deployments = {subject.WORKER_LOG: 'previous', console: 'app console'}, False, 0
+    @contextmanager
+    def worker_lock(*, path):
+        nonlocal locked
+        assert path == subject.WORKER_LOG
+        locked = True
+        try: yield
+        finally: locked = False
+    def deploy(command, **kwargs):
+        nonlocal deployments
+        assert locked and logs[subject.WORKER_LOG] == ''
+        assert command[1:4] == ['deploy', '--message', subject.WORKER_SOURCE_PREFIX + 'a' * 64]
+        assert kwargs['env']['WRANGLER_LOG_PATH'] == str(subject.WORKER_LOG)
+        deployments += 1
+        logs[subject.WORKER_LOG] += f'deployment {deployments}'
     with patch.object(subject, 'worker_source_digest', return_value='a' * 64), \
-            patch.object(sys, 'argv', ['worker', 'deploy-worker', folder]), patch.object(subject.subprocess, 'run') as deploy:
-        assert subject.worker_main() == 0
-        assert deploy.call_args.args[0][1:4] == ['deploy', '--message', subject.WORKER_SOURCE_PREFIX + 'a' * 64]
+            patch.object(sys, 'argv', ['worker', 'deploy-worker', folder]), \
+            patch.object(subject, 'report_lock', worker_lock), \
+            patch.object(Path, 'write_text', lambda path, text: logs.__setitem__(path, text)), \
+            patch.object(subject.subprocess, 'run', side_effect=deploy):
+        for number in (1, 2):
+            assert subject.worker_main() == 0 and not locked
+            assert logs[subject.WORKER_LOG] == f'deployment {number}' and logs[console] == 'app console'
 
 
 def run_self_test(recorder) -> None:

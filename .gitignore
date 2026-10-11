@@ -13,3 +13,5 @@ TODO.md
 
 BIT101-iOS.xcodeproj/xcuserdata/
 BIT101-iOS.xcodeproj/project.xcworkspace/xcuserdata/
+BIT101-iOSTests/Fixtures/campus-map-locations.lock
+BIT101-iOSTests/Fixtures/campus-map-locations.incoming

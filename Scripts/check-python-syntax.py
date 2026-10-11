@@ -5,7 +5,7 @@ import ast
 import re
 import shlex
 import sys
-from validation_inputs import repository_script_paths
+from validation_inputs import repository_script_paths, python_import_dependencies
 
 root = Path(sys.argv[1])
 
@@ -267,26 +267,7 @@ for path in repository_script_paths(root, {'.sh'}):
 
 
 def import_cycles(sources):
-    graph = {}
-    for name, source in sources.items():
-        imports = set()
-        package = name if any(other.startswith(name + '.') for other in sources) else name.rpartition('.')[0]
-        def add(module):
-            local = package + '.' + module if package else module
-            resolved = local if local in sources else module
-            parts = resolved.split('.')
-            imports.update(dependency for length in range(1, len(parts) + 1)
-                           if (dependency := '.'.join(parts[:length])) != name or resolved == name)
-        for node in ast.walk(ast.parse(source)):
-            if isinstance(node, ast.ImportFrom):
-                base = '.'.join(package.split('.')[:len(package.split('.')) - node.level + 1]) if node.level else ''
-                module = '.'.join(filter(None, (base, node.module)))
-                if module and not (node.level and module == name): add(module)
-                for alias in node.names:
-                    if alias.name != '*': add('.'.join(filter(None, (module, alias.name))))
-            elif isinstance(node, ast.Import):
-                for alias in node.names: add(alias.name)
-        graph[name] = imports & sources.keys()
+    graph = python_import_dependencies(sources)
     active, completed, cycles = [], set(), set()
     def visit(name):
         if name in active:
@@ -307,8 +288,13 @@ assert import_cycles({'a': 'def deferred():\n    import b', 'b': 'from a import 
 assert import_cycles({'a': 'from b import value', 'b': 'import json'}) == []
 assert import_cycles({'a': 'import a'}) == [('a',)]
 assert import_cycles({'nested.a': 'from .b import value', 'nested.b': 'import nested.a'}) == [('nested.a', 'nested.b')]
-assert import_cycles({'nested.a': 'from nested import b', 'nested.b': 'import a'}) == [('nested.a', 'nested.b')]
+assert import_cycles({'nested.a': 'from nested import b', 'nested.b': 'import a'}) == []
+assert import_cycles({'nested.a': 'from nested import b', 'nested.b': 'from . import a'}) == [('nested.a', 'nested.b')]
 assert import_cycles({'nested': 'from . import a', 'nested.a': 'import nested'}) == [('nested', 'nested.a')]
+assert import_cycles({'pkg.a': 'import json', 'pkg.json': 'import pkg.a'}) == []
+assert import_cycles({'a': 'import pkg.b', 'pkg.b': 'import a', 'pkg.a': 'pass'}) == [('a', 'pkg.b')]
+assert import_cycles({'pkg.a': 'from json import loads', 'pkg.json': 'import pkg.a'}) == []
+assert import_cycles({'a': 'from pkg import b', 'pkg.b': 'from a import value', 'pkg.a': 'pass'}) == [('a', 'pkg.b')]
 sources = {'.'.join(path.relative_to(root / 'Scripts').with_suffix('').parts[:-1] if path.stem == '__init__'
                    else path.relative_to(root / 'Scripts').with_suffix('').parts): path.read_text()
            for path in repository_script_paths(root, {'.py'})

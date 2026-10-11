@@ -1,6 +1,7 @@
 """Register validation groups and select their workflow inputs."""
 from pathlib import PurePosixPath, Path
 import re
+import ast
 import json
 import subprocess
 from functools import cache
@@ -38,6 +39,51 @@ def repository_script_paths(root: Path, suffixes: set[str]) -> list[Path]:
     return sorted(paths)
 
 
+def python_import_dependencies(sources: dict[str, str]) -> dict[str, set[str]]:
+    graph = {}
+    for name, source in sources.items():
+        imports = set()
+        package = name if any(other.startswith(name + '.') for other in sources) else name.rpartition('.')[0]
+        def add(module):
+            parts = module.split('.')
+            imports.update(dependency for length in range(1, len(parts) + 1)
+                           if (dependency := '.'.join(parts[:length])) != name or module == name)
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.ImportFrom):
+                base = '.'.join(package.split('.')[:len(package.split('.')) - node.level + 1]) if node.level else ''
+                module = '.'.join(filter(None, (base, node.module)))
+                if module and not (node.level and module == name): add(module)
+                for alias in node.names:
+                    if alias.name != '*': add('.'.join(filter(None, (module, alias.name))))
+            elif isinstance(node, ast.Import):
+                for alias in node.names: add(alias.name)
+        graph[name] = imports & sources.keys()
+    return graph
+
+
+def script_dependency_closure(seeds: frozenset[str], sources: dict[str, str]) -> set[str]:
+    paths = {'.'.join(PurePosixPath(name).with_suffix('').parts[:-1] if name.endswith('/__init__.py')
+        else PurePosixPath(name).with_suffix('').parts): name for name in sources if not name.endswith('_tests.py')}
+    graph = python_import_dependencies({module: sources[name] for module, name in paths.items()})
+    selected = set(seeds)
+    pending = [module for module, path in paths.items() if path in seeds]
+    visited = set()
+    while pending:
+        module = pending.pop()
+        if module in visited: continue
+        visited.add(module)
+        selected.add(paths[module])
+        pending.extend(graph[module] - visited)
+    return selected
+
+
+@cache
+def script_inputs(seeds: frozenset[str]) -> set[str]:
+    root = Path(__file__).resolve().parent
+    sources = {path.relative_to(root).as_posix(): path.read_text() for path in root.rglob('*.py')}
+    return script_dependency_closure(seeds, sources)
+
+
 def includes_input(name: str, group: str) -> bool:
     if not group or group == "audit":
         return True
@@ -73,13 +119,18 @@ def includes_input(name: str, group: str) -> bool:
         raise ValueError(f"需要登记验证组的输入范围：{group}")
     return product or tests or name in SHARED_TEST_FILES and (host in APP_TEST_GROUPS or build and host == "icloud") \
         or name in PERFORMANCE_TEST_FILES and (host in APP_TEST_GROUPS | {"ui"} or build and host == "icloud") \
-        or root == "Scripts" and path.name in scripts
+        or root == "Scripts" and PurePosixPath(*path.parts[1:]).as_posix() in script_inputs(frozenset(scripts))
 
 
 def self_test() -> None:
     from unittest.mock import patch
     from types import SimpleNamespace
     root = Path('/fixture')
+    sources = {'entry.py': 'from pkg import helper', 'pkg/__init__.py': 'from . import helper',
+        'pkg/helper.py': 'from .port import value\nimport json', 'pkg/port.py': 'import shared',
+        'shared.py': 'value = 1', 'pkg/json.py': 'pass', 'unused.py': 'pass', 'entry_tests.py': 'import unused'}
+    assert script_dependency_closure(frozenset({'entry.py', 'runner.sh'}), sources) == {
+        'entry.py', 'runner.sh', 'pkg/__init__.py', 'pkg/helper.py', 'pkg/port.py', 'shared.py'}
     nested = root / 'Scripts/nested/check.py'
     shell = root / 'Cloudflare/Worker/Scripts/publish.sh'
     dependency = root / 'Cloudflare/Worker/node_modules/helper.py'
@@ -113,6 +164,7 @@ def self_test() -> None:
         assert includes_input("Scripts/check-module-boundaries.py", group)
         assert includes_input("Scripts/swift_type_index.py", group)
         assert includes_input("Scripts/network_request_contracts.py", group)
+        assert includes_input("Scripts/ui_source_facts.py", group)
         for name in SWIFT_SYNTAX_SOURCE_NAMES:
             assert includes_input("Scripts/" + name, group), (name, group)
     assert includes_input("ModuleTests/Sync/ScheduleSyncTests.swift", "modules")

@@ -114,7 +114,10 @@ PY
   CLEANUP_DEVICE_ID="${cleanup_identifiers[2]}"
 fi
 export TEST_RUNNER_BIT101_ICLOUD_SMOKE_RUN_ID="$RUN_ID"
-bit101_require_device "${CLEANUP_DEVICE_ID:-}" || exit 1
+PHONE_AVAILABLE=true
+if ! bit101_require_device "${CLEANUP_DEVICE_ID:-}"; then
+  if $CLEANUP_ONLY; then PHONE_AVAILABLE=false; else exit 1; fi
+fi
 BIT101_VALIDATION_RUN_ID="$RUN_ID"
 validation_group=icloud
 if $CLEANUP_ONLY; then validation_group=icloud-cleanup; fi
@@ -127,7 +130,7 @@ finish_early_validation() {
   exit "$smoke_status"
 }
 trap finish_early_validation EXIT
-DEVICE_ID="$BIT101_XCODE_DEVICE_ID"
+DEVICE_ID="${BIT101_XCODE_DEVICE_ID:-}"
 mkdir -p "$DERIVED_ROOT"
 python3 - "$ROOT_DIR/BIT101-iOS/BIT101-iOS.entitlements" "$DERIVED_ROOT/signing.entitlements" <<'PY'
 import plistlib
@@ -186,7 +189,7 @@ finish_smoke() {
       if (( smoke_status == 0 )); then smoke_status=1; fi
     fi
   fi
-  if [[ "${BIT101_DEFER_APP_RESTORE:-0}" != "1" ]]; then
+  if $PHONE_AVAILABLE && [[ "${BIT101_DEFER_APP_RESTORE:-0}" != "1" ]]; then
     echo "[恢复] 安装并启动常规 Release App"
     local restore_status=0
     if ! "$ROOT_DIR/Scripts/build-install-device.sh"; then
@@ -223,6 +226,16 @@ trap finish_smoke EXIT ZERR
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+cleanup_status=0
+if $CLEANUP_ONLY; then
+  MAC_TESTS_STARTED=true
+  run_mac_cleanup && MAC_CLEANED_UP=true || cleanup_status=1
+  if ! $PHONE_AVAILABLE; then
+    echo "[待恢复] 原执行 iPhone 重新连接后继续 cleanup。" >&2
+    exit 1
+  fi
+fi
+
 echo "[构建] 准备真机测试宿主"
 bit101_run_logged "$DERIVED_ROOT/build.log" "iCloud 真机测试构建" \
   xcodebuild build-for-testing "${common_args[@]}" \
@@ -231,12 +244,8 @@ bit101_run_logged "$DERIVED_ROOT/build.log" "iCloud 真机测试构建" \
 
 if $CLEANUP_ONLY; then
   PHONE_TESTS_STARTED=true
-  MAC_TESTS_STARTED=true
-  run_phone_test testCleanup
-  PHONE_CLEANED_UP=true
-  run_mac_cleanup
-  MAC_CLEANED_UP=true
-  exit 0
+  run_phone_test testCleanup && PHONE_CLEANED_UP=true || cleanup_status=1
+  exit "$cleanup_status"
 fi
 
 echo "[构建] 准备 Mac Catalyst 测试宿主"

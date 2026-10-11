@@ -21,6 +21,7 @@ from code_quality_rules import (
 
 
 def campus_fixture_self_test() -> None:
+    import generate_campus_map_fixture as subject
     from generate_campus_map_fixture import merge_locations, FIXTURE_PATH
     reviewed = [
         {"campus": "中关村校区", "classroom": "历史楼", "expected": "历史楼", "review": "mapped"},
@@ -36,6 +37,32 @@ def campus_fixture_self_test() -> None:
     for row in fixtures:
         assert row["review"] in {"mapped", "excluded"}, "地图 fixture 需要完成地点审核"
         assert (isinstance(row["expected"], str) and bool(row["expected"])) if row["review"] == "mapped" else row["expected"] is None
+    directory = ROOT / '.build/static-audit/campus-fixture-self-test'
+    fixture = directory / 'campus-map-locations.json'
+    incoming = fixture.with_suffix('.incoming')
+    original_write = Path.write_text
+    def interrupted(path, text, **kwargs):
+        original_write(path, text[:1], **kwargs)
+        raise OSError('fixture write interrupted')
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+        fixture.write_text(json.dumps(reviewed, ensure_ascii=False))
+        original = fixture.read_bytes()
+        with patch.object(subject, 'FIXTURE_PATH', fixture):
+            with patch.object(Path, 'write_text', interrupted):
+                try: subject.update_fixture([('良乡校区', '新地点')], True)
+                except OSError: pass
+                else: raise AssertionError('地图案例写入失败需要传播')
+            assert fixture.read_bytes() == original and not incoming.exists()
+            try: subject.update_fixture([('良乡校区', '新地点')], False)
+            except SystemExit: pass
+            else: raise AssertionError('新增案例需要显式选择待审核写入')
+            assert fixture.read_bytes() == original
+            incoming.write_text('partial')
+            assert subject.update_fixture([('良乡校区', '新地点')], True) == (3, 1)
+            assert json.loads(fixture.read_text()) == merged and not incoming.exists()
+    finally:
+        shutil.rmtree(directory, ignore_errors=True)
 
 
 def checker_boundary_findings() -> list[str]:
@@ -685,6 +712,7 @@ PHONE_TEST_PID=""
 MAC_TESTS_STARTED=false
 MAC_CLEANED_UP=false
 CLEANUP_ONLY=false
+PHONE_AVAILABLE=true
 SUMMARY_PATH=/smoke/report.json
 validation_group=icloud
 DEVICE_ID=device

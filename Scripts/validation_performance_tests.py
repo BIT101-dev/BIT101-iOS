@@ -404,16 +404,23 @@ def merge_regression_self_test() -> None:
     assert not subject.merge_findings(report | {'performanceBaseline': shared['performanceBaseline']}, commit)
     assert shared['groups']['all']['performance']['records']['pagination']['execution']['inputDigest'] \
         == report['groups']['all']['performance']['records']['pagination']['execution']['inputDigest']
-    for fault in ('missing-baseline', 'missing-current', 'run', 'regression', 'approver', 'environment', 'raw-metrics', 'commit'):
+    for fault in ('missing-baseline', 'missing-current', 'run', 'clock-regression', 'memory-regression', 'approver', 'environment', 'raw-metrics', 'commit'):
         changed = deepcopy(report)
         current = changed['groups']['all']['performance']['records']['pagination']
         baseline = changed['performanceBaseline']['records']['pagination']
         if fault == 'missing-baseline': changed.pop('performanceBaseline')
         if fault == 'missing-current': changed['groups']['ui']['performance']['records'].pop('startup')
         if fault == 'run': current['execution']['runID'] = 'other'
-        if fault == 'regression':
-            baseline['metrics']['clockSeconds'].update(samples=[0.01] * 10, mean=0.01)
-            baseline['xcresultMetrics'][0]['testRuns'][0]['metrics'][0]['measurements'] = [0.01] * 10
+        if fault in {'clock-regression', 'memory-regression'}:
+            metric_name = 'clockSeconds' if fault == 'clock-regression' else 'peakPhysicalMemoryBytes'
+            identifier, _, factor = subject.METRICS[metric_name]
+            samples = [sample * 4 for sample in current['metrics'][metric_name]['samples']]
+            current['metrics'][metric_name].update(samples=samples, mean=sum(samples) / len(samples))
+            raw = current['xcresultMetrics'][0]['testRuns'][0]['metrics']
+            next(metric for metric in raw if metric['identifier'] == identifier)['measurements'] = [sample / factor for sample in samples]
+            assert subject.record_complete(current, current=True)
+            assert subject.record_complete(baseline, current=False)
+            assert not subject.performance_comparison_complete('pagination', dict(current=current, baseline=baseline)), fault
         if fault == 'approver': baseline['approvedBy'] = ''
         if fault == 'environment': baseline['environment']['systemBuild'] = 'other'
         if fault == 'raw-metrics': current['xcresultMetrics'][0]['testRuns'][0]['metrics'][0]['measurements'] = [0.01] * 10
