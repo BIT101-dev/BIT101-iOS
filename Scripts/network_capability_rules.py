@@ -304,7 +304,7 @@ def signature_function(signature: str, scope: list[str]) -> dict:
 def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
     from validation_inputs import NATIVE_PRODUCT_ROOTS
     from validation_compilation import active_network_source
-    from validation_test_areas import NETWORK_CAPABILITIES
+    from validation_policy import NETWORK_CAPABILITIES
     from swift_type_index import SwiftTypeIndex, compilation_unit, receiver_resolver
     types = SwiftTypeIndex(index)
     resolve_receiver = receiver_resolver(index)

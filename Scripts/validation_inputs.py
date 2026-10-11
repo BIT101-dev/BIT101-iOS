@@ -1,8 +1,10 @@
 """Register validation groups and select their workflow inputs."""
 from pathlib import PurePosixPath, Path
 import re
+import json
 import subprocess
-from swift_source_index import SWIFT_SYNTAX_SOURCE_NAMES
+from functools import cache
+from validation_policy import SWIFT_SYNTAX_SOURCE_NAMES
 from validation_policy import APP_TEST_GROUPS, TEST_GROUPS, NETWORK_GROUPS, RELEASE_GROUPS, BUILD_HOSTS, VERIFY_GROUPS, DEFAULT_VERIFY_GROUPS
 
 NATIVE_PRODUCT_ROOTS = ("BIT101-iOS", "BIT101ScheduleWidgets", "BIT101Watch", "BIT101WatchWidgets")
@@ -31,6 +33,7 @@ def repository_input_names(root: Path) -> list[str]:
 def includes_input(name: str, group: str) -> bool:
     if not group or group == "audit":
         return True
+    build = group.startswith("build-")
     host = group.removeprefix("build-")
     host = {"release": "all", "network-smoke": "network", "icloud-smoke": "icloud", "icloud-cleanup": "icloud"}.get(host, host)
     path = PurePosixPath(name)
@@ -49,19 +52,19 @@ def includes_input(name: str, group: str) -> bool:
         tests = root == "BIT101-iOSUITests" or name == "docs/UI_INTERACTION_COVERAGE.md"
         scripts = TEST_SCRIPTS | {"ui_source_facts.py", "ui_explanatory_text.py", "ui_rules.py", "ui_native_interactions.py", "ui_design_contracts.py", "ui_inventory.py"}
     elif host in NETWORK_GROUPS:
-        tests = root == "BIT101-iOSTests" or root == "Cloudflare" and path.suffix != ".md"
-        scripts = TEST_SCRIPTS | {"release-network-smoke.sh"}
+        tests = root == "Cloudflare" and path.suffix != ".md"
+        scripts = BUILD_SCRIPTS | VALIDATION_SCRIPTS | {"run-extended-tests.sh", "release-network-smoke.sh"}
     elif host == "icloud":
-        tests = root == "BIT101-iOSTests"
-        scripts = TEST_SCRIPTS | {"run_icloud_cross_device_smoke.sh", "icloud-smoke-support.sh"}
+        tests = root == "BIT101-iOSTests" if build else name == "BIT101-iOSTests/ManualICloudCrossDeviceSmokeTests.swift"
+        scripts = BUILD_SCRIPTS | VALIDATION_SCRIPTS | {"run-extended-tests.sh"} | {"run_icloud_cross_device_smoke.sh", "icloud-smoke-support.sh"}
     elif host in {"restore", "archive", "manual-device"}:
         tests = False
         scripts = BUILD_SCRIPTS | VALIDATION_SCRIPTS
         if host == "manual-device": product = product or root == "Cloudflare" and path.suffix != ".md"
     else:
         raise ValueError(f"需要登记验证组的输入范围：{group}")
-    return product or tests or name in SHARED_TEST_FILES and host in APP_TEST_GROUPS | NETWORK_GROUPS | {"icloud"} \
-        or name in PERFORMANCE_TEST_FILES and host in APP_TEST_GROUPS | NETWORK_GROUPS | {"ui", "icloud"} \
+    return product or tests or name in SHARED_TEST_FILES and (host in APP_TEST_GROUPS or build and host == "icloud") \
+        or name in PERFORMANCE_TEST_FILES and (host in APP_TEST_GROUPS | {"ui"} or build and host == "icloud") \
         or root == "Scripts" and path.name in scripts
 
 
@@ -103,9 +106,63 @@ def self_test() -> None:
     for name in PERFORMANCE_TEST_FILES:
         assert includes_input(name, 'all') and includes_input(name, 'ui') and includes_input(name, 'build-ui')
     assert includes_input("Cloudflare/OpenWorker/worker.js", "network")
-    for group in ("icloud", "build-icloud-smoke", "network", "build-network-smoke"):
+    for group in ("build-icloud-smoke",):
         assert includes_input("BIT101-iOSTests/InfrastructureTests.swift", group)
         assert includes_input("BIT101-iOSTests/Fixtures/schedule-service-response.json", group)
+    for group in NETWORK_GROUPS | {"icloud", "build-network-smoke"}:
+        assert not includes_input("BIT101-iOSTests/InfrastructureTests.swift", group)
+        assert not includes_input("BIT101-iOSTests/Fixtures/schedule-service-response.json", group)
+        assert not includes_input("Scripts/simulator-tests.sh", group)
+        assert not includes_input("ModuleTests/Support/FileServiceContract.swift", group)
+        assert not includes_input("BIT101-iOSTests/PerformanceWorkloads.json", group)
+    assert includes_input("BIT101-iOSTests/ManualICloudCrossDeviceSmokeTests.swift", "icloud")
+    assert includes_input("BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift", "network")
+    assert includes_input("Modules/ScheduleInfrastructure/Sources/ScheduleServiceLexue.swift", "school-sms")
     assert not includes_input("Cloudflare/README.md", "network")
     for name in ("Cloudflare/ErrorReportWorker/worker.js", "Cloudflare/ErrorReportWorker/wrangler.jsonc", "Cloudflare/OpenWorker/worker.js"):
         assert includes_input(name, "manual-device")
+
+
+def native_project_targets(project: dict, root: Path) -> list[tuple[str, set[str], set[Path]]]:
+    objects = project["objects"]
+    paths: dict[str, Path] = {}
+    def visit(identifier, parent):
+        item = objects[identifier]
+        tree = item.get("sourceTree", "<group>")
+        base = root if tree == "SOURCE_ROOT" else parent
+        path = base / item.get("path", "")
+        paths[identifier] = path
+        for child in item.get("children", []): visit(child, path)
+    visit(objects[project["rootObject"]]["mainGroup"], root)
+    result = []
+    for identifier, target in objects.items():
+        if target.get("isa") != "PBXNativeTarget": continue
+        declared = {objects[product]["productName"] for product in target.get("packageProductDependencies", [])}
+        sources = set()
+        for group_id in target.get("fileSystemSynchronizedGroups", []):
+            group = objects[group_id]
+            directory = paths.get(group_id, root / group["path"])
+            excluded = {name for exception in group.get("exceptions", []) if objects[exception].get("target") == identifier
+                        for name in objects[exception].get("membershipExceptions", [])}
+            sources.update(path for path in directory.rglob("*.swift") if path.relative_to(directory).as_posix() not in excluded)
+        for phase_id in target.get("buildPhases", []):
+            phase = objects[phase_id]
+            if phase.get("isa") != "PBXSourcesBuildPhase": continue
+            for build_file in phase.get("files", []):
+                reference = objects[build_file]["fileRef"]
+                if reference not in paths: raise ValueError(f"源文件需要工程路径归属：{reference}")
+                if paths[reference].suffix == ".swift": sources.add(paths[reference])
+        result.append((target["name"], declared, sources))
+    return result
+
+
+
+@cache
+def performance_workloads() -> dict:
+    return {name: (row['testIdentifier'], row['input']) for name, row in
+        json.loads((Path(__file__).resolve().parents[1] / 'BIT101-iOSTests/PerformanceWorkloads.json').read_text()).items()}
+
+
+
+def performance_group(test: str) -> str:
+    return 'ui' if test.startswith('MaintenancePerformanceUITests/') else 'all'

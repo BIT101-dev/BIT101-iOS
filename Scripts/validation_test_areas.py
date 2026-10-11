@@ -1,4 +1,12 @@
-"""Declare the ownership of every App behavior test suite."""
+"""Declare App test inventories and verify smoke capability coverage."""
+from pathlib import Path
+from functools import cache
+from validation_policy import FORMAL_RUNTIME_SUITES, NETWORK_CAPABILITIES, MANUAL_CAPABILITY_SCENARIOS, manual_capabilities
+from validation_compilation import active_swift_source
+from validation_provenance import normalized_test_id
+from swift_source_index import swift_syntax_index_sources
+
+ROOT = Path(__file__).resolve().parents[1]
 
 TEST_AREA_SUITES = {
     "schedule": {
@@ -18,7 +26,7 @@ TEST_AREA_SUITES = {
         "ExternalScheduleInfrastructureTests", "FeatureCompositionTests", "GalleryContentFilterTests",
         "GalleryRecommendationPrefetchTests", "ICloudSmokeEvidenceTests", "ImageCacheDiskQuotaTests",
         "InfrastructureTests", "MediaDependencyTests", "NetworkClientTests", "NetworkSmokeSMSPromptTests",
-        "PaperCommentPagingTests", "NetworkSmokeCoverageTests", "NetworkSmokeExternalContentTests",
+        "PaperCommentPagingTests", "NetworkEvidenceProjectionTests", "NetworkSmokeCoverageTests", "NetworkSmokeExternalContentTests",
         "MaintenancePerformanceTests",
         "PreferenceCloudPayloadTests", "PreferenceMergeTests", "ReleaseNetworkSmokeLifecycleTests",
         "SchoolCookieIsolationTests", "ScoreCacheDiskRepositoryTests", "ScorePresentationTests",
@@ -33,125 +41,6 @@ def inventory_findings(suites: set[str]) -> list[str]:
     registered = set().union(*TEST_AREA_SUITES.values())
     return [f"行为测试 suite 需要领域归属：{suite}" for suite in sorted(suites - registered)] \
         + [f"行为测试领域归属需要清理：{suite}" for suite in sorted(registered - suites)]
-
-
-NETWORK_CAPABILITIES = {
- 'BIT101-iOS.BIT101APIClient': {
-     'fetchSchoolLoginContext()': 'first-login',
-     'loginSchool(studentID:String,password:String,salt:String,execution:String)': 'first-login',
-     'webVPNVerifyInit(studentID:String)': 'first-login',
-     'webVPNVerify(studentID:String,password:String,execution:String,cookie:String,salt:String)': 'first-login',
-     'register(password:String,token:String,code:String)': 'first-login',
-     'checkBIT101Login(fakeCookie:String)': 'account-lifecycle'},
- 'BIT101-iOS.FeedbackSubmissionClient': {'static submit(:Payload)': 'feedback-delivery', 'static submitNetworkSmoke(runID:String)': 'network'},
- 'BIT101-iOS.NetworkDiagnosisRunner': {'run()': 'web-interactions'},
- 'BIT101-iOS.AppUpdatePromptCoordinator': {'noticeToPresentAtLaunch()': 'web-interactions', 'checkManually()': 'web-interactions'},
- 'BIT101-iOS.AppUpdateChecker': {'releaseToPresentAtLaunch()': 'web-interactions',
-                                 'checkManually()': 'web-interactions'},
- 'BIT101-iOS.EmergencyUpdateChecker': {'noticeToPresentAtLaunch()': 'web-interactions'},
- 'BIT101-iOS.LoginService': {'checkLogin()': 'network',
-                             'restoreSchoolSessionIfNeeded()': 'network',
-                             'login(studentID:String,password:String)': 'first-login',
-                             'renewCommunitySession(expectedIdentity:CommunitySessionIdentity)': 'account-lifecycle'},
- 'BIT101-iOS.SettingsNetworkService': {'fetchMyInfo()': 'profile-writes',
-                                       'updateUser(nickname:String?,motto:String?,avatarMid:String?)': 'profile-writes',
-                                       'uploadAvatar(data:Data,filename:String)': 'profile-writes',
-                                       'checkLogin()': 'account-lifecycle'},
- 'CourseFeature.CourseService': {'fetchCourses(search:String,page:Int)': 'network',
-                                 'fetchCourse(id:Int)': 'network',
-                                 'fetchCourseHistories(number:String)': 'network',
-                                 'fetchComments(courseID:Int,page:Int?)': 'network',
-                                 'like(objectID:String)': 'community-writes',
-                                 'createComment(objectID:String,text:String,replyObjectID:String?,replyUID:Int?,anonymous:Bool,rate:Int?)': 'community-writes'},
- 'GalleryFeature.GalleryService': {'fetchFeed(kind:GalleryFeedKind,page:Int?)': 'network',
-                                   'fetchRecommendPage(sourcePage:Int)': 'network',
-                                   'searchPosters(query:GallerySearchQuery,page:Int?)': 'network',
-                                   'fetchBotFeed(startPage:Int)': 'network',
-                                   'fetchClaims()': 'network',
-                                   'uploadImage(data:Data,filename:String)': 'community-writes',
-                                   'createPoster(title:String,text:String,imageMids:[String],anonymous:Bool,tags:[String],claimID:Int,isPublic:Bool)': 'community-writes',
-                                   'fetchPoster(id:Int)': 'network',
-                                   'deletePoster(id:Int)': 'community-writes',
-                                   'updatePoster(id:Int,title:String,text:String,imageMids:[String],plugins:String,anonymous:Bool,tags:[String],claimID:Int,isPublic:Bool)': 'community-writes',
-                                   'fetchReportTypes()': 'network',
-                                   'report(objectID:String,typeID:Int,text:String)': 'gallery-report',
-                                   'fetchComments(objectID:String,order:CommunityCommentOrder,page:Int?)': 'network',
-                                   'fetchRawComments(objectID:String,order:CommunityCommentOrder,page:Int?)': 'community-writes',
-                                   'like(objectID:String)': 'community-writes',
-                                   'createComment(objectID:String,text:String,replyObjectID:String?,replyUID:Int?,anonymous:Bool,imageMids:[String])': 'community-writes',
-                                   'uploadCommentImage(data:Data,filename:String)': 'community-writes',
-                                   'deleteComment(id:Int)': 'community-writes',
-                                   'fetchMessageUnreadCounts()': 'network',
-                                   'fetchMessages(type:GalleryMessageType,lastID:Int?)': 'message-read'},
- 'MineFeature.MineService': {'fetchMyInfo()': 'network',
-                             'fetchUserInfo(id:Int)': 'network',
-                             'followUser(id:Int)': 'community-writes',
-                             'fetchFollowings(page:Int)': 'network',
-                             'fetchFollowers(page:Int)': 'network',
-                             'fetchMyPosters(page:Int)': 'network',
-                             'fetchUserPosters(userID:Int,page:Int)': 'network'},
- 'PaperFeature.PaperService': {'fetchPapers(search:String?,order:PaperSortOrder,page:Int)': 'network',
-                               'fetchPreviewMetadata(id:Int)': 'network',
-                               'fetchPaper(id:Int)': 'network',
-                               'fetchComments(paperID:Int,order:CommunityCommentOrder,page:Int?)': 'network',
-                               'likePaper(id:Int)': 'community-writes',
-                               'sendLike(objectID:String)': 'community-writes',
-                               'createComment(objectID:String,text:String,replyObjectID:String?,replyUID:Int?,anonymous:Bool)': 'community-writes',
-                               'createPaper(title:String,intro:String,content:String,anonymous:Bool,publicEdit:Bool)': 'community-writes',
-                               'updatePaper(id:Int,title:String,intro:String,content:String,anonymous:Bool,publicEdit:Bool,lastUpdatedAt:String)': 'community-writes',
-                               'deletePaper(id:Int)': 'community-writes'},
- 'ScheduleInfrastructure.ScheduleService': {'fetchEclassDDLEvents(schoolSMSCodeHandler:SchoolSMSCodeHandler?)': 'network',
-                                            'fetchEclassDDLEventsForPreflight()': 'network',
-                                            'syncCourses(term:String?)': 'network',
-                                            'fetchAvailableTerms()': 'network',
-                                            'submitSMSCode(:String,for:BITLoginAuthenticationChallenge,term:String?)': 'web-interactions',
-                                            'submitSMSCodeForTeachingCenterAuthentication(:String,for:BITLoginAuthenticationChallenge)': 'network',
-                                            'fetchCurrentTermOnly()': 'network',
-                                            'prepareTeachingCenterAccess()': 'network',
-                                            'fetchCampuses()': 'network',
-                                            'fetchBuildings(campusCode:String?)': 'network',
-                                            'fetchClassrooms(buildingID:String,term:String)': 'network',
-                                            'syncDDLEvents(existingEvents:[DDLEventRecord],storedURL:String,schoolSMSCodeHandler:SchoolSMSCodeHandler?)': 'web-interactions',
-                                            'syncDDLEventsForPreflight(existingEvents:[DDLEventRecord],storedURL:String)': 'network',
-                                            'refreshLexueCalendarURL(schoolSMSCodeHandler:SchoolSMSCodeHandler?)': 'web-interactions',
-                                            'refreshLexueCalendarURLForPreflight()': 'network'},
- 'ScoreInfrastructure.ScoreService': {'startScoreChallenge()': 'network',
-                                      'fetchScores(detail:Bool,authenticatedBy:BITLoginAuthenticationChallenge)': 'network',
-                                      'submitScoreSMSCode(:String,for:BITLoginAuthenticationChallenge)': 'network',
-                                      'fetchTrustedTranscriptPages()': 'network',
-                                      'submitTranscriptSMSCode(:String,for:BITLoginAuthenticationChallenge)': 'network'}}
-
-MANUAL_CAPABILITY_SCENARIOS = {
- 'BIT101-iOS.BIT101APIClient': {
-    'fetchSchoolLoginContext()': 'registered-account',
-    'loginSchool(studentID:String,password:String,salt:String,execution:String)': 'registered-account',
-    'webVPNVerifyInit(studentID:String)': 'registered-account',
-    'webVPNVerify(studentID:String,password:String,execution:String,cookie:String,salt:String)': 'registered-account',
-    'register(password:String,token:String,code:String)': 'new-account-registration',
-    'checkBIT101Login(fakeCookie:String)': 'sign-in-a'},
- 'BIT101-iOS.FeedbackSubmissionClient': {'static submit(:Payload)': 'delivery'},
- 'BIT101-iOS.NetworkDiagnosisRunner': {'run()': 'network-diagnosis'},
- 'BIT101-iOS.AppUpdatePromptCoordinator': {'noticeToPresentAtLaunch()': 'update-launch', 'checkManually()': 'update-manual'},
- 'BIT101-iOS.AppUpdateChecker': {'releaseToPresentAtLaunch()': 'update-launch', 'checkManually()': 'update-manual'},
- 'BIT101-iOS.EmergencyUpdateChecker': {'noticeToPresentAtLaunch()': 'update-launch'},
- 'BIT101-iOS.LoginService': {'login(studentID:String,password:String)': 'registered-account',
-    'renewCommunitySession(expectedIdentity:CommunitySessionIdentity)': 'refresh-credentials-a'},
- 'BIT101-iOS.SettingsNetworkService': {'fetchMyInfo()': 'restore-profile',
-    'updateUser(nickname:String?,motto:String?,avatarMid:String?)': 'nickname-save',
-    'uploadAvatar(data:Data,filename:String)': 'avatar-bind', 'checkLogin()': 'sign-in-b'},
- 'GalleryFeature.GalleryService': {'report(objectID:String,typeID:Int,text:String)': 'submit-and-confirm',
-    'fetchMessages(type:GalleryMessageType,lastID:Int?)': 'first-open'},
- 'ScheduleInfrastructure.ScheduleService': {
-    'submitSMSCode(:String,for:BITLoginAuthenticationChallenge,term:String?)': 'school-sms',
-    'syncDDLEvents(existingEvents:[DDLEventRecord],storedURL:String,schoolSMSCodeHandler:SchoolSMSCodeHandler?)': 'school-calendar',
-    'refreshLexueCalendarURL(schoolSMSCodeHandler:SchoolSMSCodeHandler?)': 'school-calendar'},
-}
-
-
-def manual_capabilities(check: str, scenario: str) -> set[str]:
-    return {f'{owner}.{method}' for owner, methods in MANUAL_CAPABILITY_SCENARIOS.items()
-        for method, assigned in methods.items() if assigned == scenario
-        and NETWORK_CAPABILITIES.get(owner, {}).get(method) == check}
 
 
 def reachable_smoke_calls(index: dict) -> dict[str, list[dict]]:
@@ -174,7 +63,6 @@ def platform_smoke_calls(index: dict, platform: str) -> dict[str, list[dict]]:
     from pathlib import Path
     import re
     from validation_compilation import source_platforms
-    from validation_evidence import active_swift_source
     from network_capability_rules import api_argument_bindings, api_invocations, call_can_execute, matching_api_calls
     from swift_type_index import SwiftTypeIndex, compilation_unit, receiver_resolver
     types, resolve_receiver = SwiftTypeIndex(index), receiver_resolver(index)
@@ -469,3 +357,35 @@ def critical_findings(inventories: dict[str, set[str]]) -> list[str]:
 def network_capability_self_test() -> None:
     from network_capability_tests import network_capability_self_test as run
     run()
+
+
+@cache
+def test_selectors(group: str) -> dict[str, str]:
+    if group in TEST_AREA_SUITES:
+        return {test: selector for test, selector in test_selectors("all").items()
+                if test.split("/", 1)[0] in TEST_AREA_SUITES[group]}
+    directory = ROOT / ("ModuleTests" if group == "modules" else "BIT101-iOSUITests" if group == "ui" else "BIT101-iOSTests")
+    sources = {}
+    for path in sorted(directory.rglob("*.swift")):
+        sources[str(path)] = active_swift_source(path.read_text(), group, path=str(path))
+    selectors = {}
+    origins = {}
+    for path, facts in swift_syntax_index_sources(sources).items():
+        functions = {function['start']: function for function in facts['functionRanges']}
+        for test in facts['tests']:
+            selector = test['value']
+            if test.get('isTestingTest'):
+                parameters = functions[test['start']]['parameters']
+                selector += '(' + ''.join((parameter['label'] or '_') + ':' for parameter in parameters) + ')'
+            identity = normalized_test_id(test['value'])
+            if identity in origins:
+                raise ValueError(f"测试库存需要唯一 Suite/method：{identity}（{origins[identity]} 与 {path}: {selector}）。")
+            origins[identity] = f"{path}: {selector}"
+            selectors[test['value']] = selector
+    return {test: selector for test, selector in selectors.items() if test.split("/", 1)[0] in FORMAL_RUNTIME_SUITES} \
+        if group in {"release-runtime", "catalyst-release-runtime"} else selectors
+
+
+@cache
+def test_inventory(group: str) -> set[str]:
+    return set(test_selectors(group))

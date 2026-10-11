@@ -115,7 +115,7 @@ extension NetworkClientTests {
         let client = HTTPClient(transport: UncachedHTTPTransport(base: session), observer: nil)
         var request = URLRequest(url: base.appending(path: "redirect")); request.httpMethod = "POST"
         var captured: HTTPRequestEvidence?
-        try await HTTPRequestEvidenceContext.$didReceive.withValue({ captured = $0 }) { _ = try await client.send(request) }
+        try await HTTPRequestEvidenceContext.$didReceive.withValue({ request, response in captured = HTTPRequestEvidence(request: request, response: response.response, finalRequest: response.finalRequest) }) { _ = try await client.send(request) }
         let evidence = try #require(captured)
         #expect(evidence.method == "POST" && evidence.finalMethod == "GET")
         #expect(evidence.finalEndpoint == base.appending(path: "final").absoluteString)

@@ -9,14 +9,14 @@ import subprocess
 from functools import cache
 from validation_environment import environment_context
 from validation_policy import workflow_conditions
+from swift_source_index import swift_code as mask_literals_and_comments
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 @cache
-def local_dependency_graph() -> tuple[dict, dict]:
+def project_configuration() -> tuple[dict, dict, dict]:
     import importlib.util
-    from code_quality_rules import native_project_targets
     spec = importlib.util.spec_from_file_location('module_boundaries', ROOT / 'Scripts/check-module-boundaries.py')
     boundaries = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(boundaries)
@@ -24,9 +24,39 @@ def local_dependency_graph() -> tuple[dict, dict]:
     targets = boundaries.manifest_targets(package)
     project = json.loads(subprocess.check_output(['plutil', '-convert', 'json', '-o', '-',
         str(ROOT / 'BIT101-iOS.xcodeproj/project.pbxproj')], text=True))
+    return package, project, targets
+
+
+@cache
+def local_dependency_graph() -> tuple[dict, dict]:
+    from validation_inputs import native_project_targets
+    package, project, targets = project_configuration()
     native = {name: {module for product in package['products'] if product['name'] in declared for module in product['targets']}
         for name, declared, _ in native_project_targets(project, ROOT)}
     return targets, native
+
+
+def compilation_settings(platform: str, path: str = '') -> tuple[str, str]:
+    from swift_type_index import compilation_unit
+    package, project, _ = project_configuration()
+    language_modes = package.get('swiftLanguageVersions')
+    language = max(language_modes, key=lambda value: tuple(map(int, value.split('.')))) if language_modes \
+        else package['toolsVersion']['_version'].split('.')[0]
+    key = {'iOS': 'ios', 'watchOS': 'watchos', 'macOS': 'macos', 'macCatalyst': 'ios'}[platform]
+    deployment = next(row['version'] for row in package['platforms'] if row['platformName'] == key)
+    unit = compilation_unit(path)
+    objects = project['objects']
+    target = next((row for row in objects.values() if row.get('isa') == 'PBXNativeTarget' and row['name'] == unit), None)
+    if target:
+        def release_settings(row):
+            return next(objects[identifier]['buildSettings']
+                for identifier in objects[row['buildConfigurationList']]['buildConfigurations']
+                if objects[identifier]['name'] == 'Release')
+        settings = release_settings(objects[project['rootObject']]) | release_settings(target)
+        language = settings['SWIFT_VERSION']
+        deployment = settings[{'ios': 'IPHONEOS_DEPLOYMENT_TARGET', 'watchos': 'WATCHOS_DEPLOYMENT_TARGET',
+                               'macos': 'MACOSX_DEPLOYMENT_TARGET'}[key]]
+    return language.removesuffix('.0'), deployment
 
 
 def available_local_modules(path: str) -> set[str]:
@@ -90,7 +120,7 @@ def write_cache(path: Path, recorded: dict) -> None:
 
 
 @cache
-def compilation_condition(condition: str, group: str, *, language_mode: str = '6', platform: str | None = None, path: str = '') -> bool:
+def compilation_condition(condition: str, group: str, *, language_mode: str | None = None, platform: str | None = None, path: str = '') -> bool:
     condition = condition.strip()
     group = group.removeprefix("build-")
     group = {"network-smoke": "network", "icloud-smoke": "icloud"}.get(group, group)
@@ -102,7 +132,9 @@ def compilation_condition(condition: str, group: str, *, language_mode: str = '6
     architecture = os.uname().machine if native or catalyst else "arm64"
     watch = platform == 'watchOS'
     sdk_name = "macosx" if native or catalyst else "watchos" if watch else "iphoneos"
-    target = f"{architecture}-apple-macosx14.0" if native else f"{architecture}-apple-watchos10.0" if watch else f"{architecture}-apple-ios17.0" + ("-macabi" if catalyst else "")
+    configured_language, deployment = compilation_settings('macOS' if native else 'watchOS' if watch else 'macCatalyst' if catalyst else 'iOS', path)
+    language_mode = language_mode or configured_language
+    target = f"{architecture}-apple-macosx{deployment}" if native else f"{architecture}-apple-watchos{deployment}" if watch else f"{architecture}-apple-ios{deployment}" + ("-macabi" if catalyst else "")
     # 本地包模块由项目依赖图提供；系统框架由所选 SDK 与编译器求值。
     condition = local_import_conditions(condition, path)
     environment_group = "modules" if native else "build-ui"
@@ -155,7 +187,6 @@ def source_platforms(path: str) -> tuple[str, ...]:
 
 
 def active_network_source(source: str, path: str) -> str:
-    from validation_evidence import active_swift_source
     sources = [active_swift_source(source, 'network', platform=platform, path=path).encode() for platform in source_platforms(path)]
     return bytes(next((row[index] for row in sources if row[index] not in b' \r\n'), sources[0][index])
         for index in range(len(sources[0]))).decode()
@@ -173,6 +204,23 @@ def self_test() -> None:
         assert prepare_cache(invalid, 'modules', 'compiler', {'DEBUG'}) == {'modules': {'environment': 'compiler', 'results': {}}}
     malformed = {'modules': {'environment': 'compiler', 'results': {'bad': {'condition': 'DEBUG', 'value': 1}, 'missing': {}}}}
     assert prepare_cache(malformed, 'modules', 'compiler', {'DEBUG'})['modules']['results'] == {}
+    from unittest.mock import patch
+    package = {'platforms': [{'platformName': 'ios', 'version': '18.0'}, {'platformName': 'watchos', 'version': '11.0'},
+        {'platformName': 'macos', 'version': '15.0'}], 'swiftLanguageVersions': ['5', '6'], 'toolsVersion': {'_version': '6.2.0'}}
+    objects = {'project': {'buildConfigurationList': 'project-list'}, 'project-list': {'buildConfigurations': ['project-release']},
+        'project-release': {'name': 'Release', 'buildSettings': {'SWIFT_VERSION': '5.0', 'IPHONEOS_DEPLOYMENT_TARGET': '18.1'}},
+        'app': {'isa': 'PBXNativeTarget', 'name': 'BIT101-iOS', 'buildConfigurationList': 'app-list'},
+        'app-list': {'buildConfigurations': ['app-release']}, 'app-release': {'name': 'Release', 'buildSettings': {'SWIFT_VERSION': '6.0'}}}
+    with patch(f'{__name__}.project_configuration', return_value=(package, {'rootObject': 'project', 'objects': objects}, {})):
+        assert compilation_settings('macOS') == ('6', '15.0')
+        assert compilation_settings('watchOS') == ('6', '11.0')
+        assert compilation_settings('iOS', 'Modules/StorageCore/Sources/Storage.swift') == ('6', '18.0')
+        assert compilation_settings('macCatalyst', 'BIT101-iOS/App.swift') == ('6', '18.1')
+        package['swiftLanguageVersions'] = None
+        package['toolsVersion']['_version'] = '5.9.0'
+        assert compilation_settings('iOS') == ('5', '18.0')
+        objects['app-release']['buildSettings']['SWIFT_VERSION'] = '5.0'
+        assert compilation_settings('iOS', 'BIT101-iOS/App.swift') == ('5', '18.1')
     cache_transaction_self_test()
 
 
@@ -222,8 +270,33 @@ def cache_transaction_self_test() -> None:
                 patch.object(fcntl, 'flock'), patch(f'{__name__}.environment_context', return_value={}), \
                 patch(f'{__name__}.repository_conditions', return_value={'DEBUG'}), \
                 patch(f'{__name__}.local_import_conditions', side_effect=lambda condition, *_: condition), \
+                patch(f'{__name__}.compilation_settings', return_value=('6', '14.0')), \
                 patch.object(subprocess, 'check_output', side_effect=['/compiler', '/sdk']), \
                 patch.object(subprocess, 'run', return_value=SimpleNamespace(stderr='error: BIT101_CONDITION_FALSE')) as compiler:
             assert compilation_condition.__wrapped__('DEBUG', 'modules') is False
             compiler.assert_called_once()
             assert next(iter(json.loads(files[path])['modules']['results'].values()))['value'] is False
+
+
+def active_swift_source(source: str, group: str, *, platform: str | None = None, path: str = '') -> str:
+    levels = [(True, False)]
+    active = []
+    code_lines = mask_literals_and_comments(source).split("\n")
+    for line, code in zip(source.split("\n"), code_lines):
+        masked = re.sub(r"[^\r\n]", lambda match: " " * len(match[0].encode()), line)
+        directive = re.match(r"\s*#(if|elseif|else|endif)\b(.*)", code)
+        if directive:
+            kind, condition = directive.groups()
+            if kind in {"if", "elseif"}:
+                selected = compilation_condition(condition, group, platform=platform, path=path)
+                if kind == "if": levels.append((levels[-1][0] and selected, selected))
+                else:
+                    _, taken = levels.pop()
+                    levels.append((levels[-1][0] and not taken and selected, taken or selected))
+            elif kind == "else":
+                _, taken = levels.pop()
+                levels.append((levels[-1][0] and not taken, True))
+            else: levels.pop()
+            active.append(masked)
+        else: active.append(line if levels[-1][0] else masked)
+    return "\n".join(active)

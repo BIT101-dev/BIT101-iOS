@@ -181,9 +181,8 @@ public struct HTTPClient {
                 throw HTTPClientError.invalidResponse
             }
             if let record = HTTPRequestEvidenceContext.didReceive {
-                let evidence = await HTTPRequestEvidence.capture(request: request, response: httpResponse, body: data, finalRequest: finalRequest)
+                await record(request, HTTPResponse(data: data, response: httpResponse, finalRequest: finalRequest))
                 try Task.checkCancellation()
-                record(evidence)
             }
             guard statusCodes.contains(httpResponse.statusCode) else {
                 let message = try await Self.errorMessageInBackground(from: data)

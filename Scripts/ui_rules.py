@@ -649,7 +649,7 @@ def interaction_selector(control: dict, syntax: dict) -> tuple[str, tuple[str, .
 
 
 def source_runtime_interaction_findings(syntax: dict[str, dict], documented: dict[str, tuple[dict, set]], evidence: list[dict]) -> list[str]:
-    from validation_evidence import active_swift_source
+    from validation_compilation import active_swift_source
     from swift_type_index import SwiftTypeIndex
     types = SwiftTypeIndex(syntax)
     actions = {"refreshable": "refresh", "onSubmit": "submit", "onDelete": "delete", "onMove": "move", "searchable": "search", "contextMenu": "press", "swipeActions": "gesture", "ShareLink": "tap", "accessibilityAction": "accessibility", "keyboardShortcut": "keyboard"}
@@ -726,7 +726,8 @@ def source_runtime_interaction_findings(syntax: dict[str, dict], documented: dic
 
 def check_ui_test_inventory(errors: list[str], syntax: dict[str, dict]) -> None:
     """Keep the interaction map aligned with every executable UI journey."""
-    from validation_evidence import test_inventory, normalized_test_id
+    from validation_test_areas import test_inventory
+    from validation_provenance import normalized_test_id
     actual = {normalized_test_id(test) for test in test_inventory("ui")}
     document = (ROOT / "docs/UI_INTERACTION_COVERAGE.md").read_text()
     documented = set(re.findall(r"\b(\w+UITests/test\w+)\b", document))

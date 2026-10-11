@@ -13,7 +13,7 @@ PROCESS = ROOT / 'build/DeviceInstall/restore-process.json'
 
 
 def invalidate() -> None:
-    from validation_evidence import REPORT, report_lock, write_report
+    from validation_provenance import REPORT, report_lock, write_report
     with report_lock():
         if not REPORT.is_file(): return
         report = json.loads(REPORT.read_text())
@@ -72,21 +72,21 @@ def self_test() -> None:
         ready['processIdentifier'] = 2
         assert not summary(ready['runID'], 'a' * 64)['passed']
     from contextlib import nullcontext
-    import validation_evidence
+    import validation_provenance
     retained = {'sourceDigest': 'source', 'mergeCommit': 'commit', 'releaseCommit': 'commit',
         'groups': {'restore': {'summary': ready, 'lastFullRun': row}, 'all': {'runID': 'test'}}}
-    with patch.object(validation_evidence, 'report_lock', side_effect=nullcontext), \
+    with patch.object(validation_provenance, 'report_lock', side_effect=nullcontext), \
             patch.object(Path, 'is_file', return_value=True), \
             patch.object(Path, 'read_text', side_effect=lambda *_: json.dumps(retained)), \
-            patch.object(validation_evidence, 'write_report', side_effect=lambda report: retained.update(report)) as saved:
+            patch.object(validation_provenance, 'write_report', side_effect=lambda report: retained.update(report)) as saved:
         invalidate()
         current = saved.call_args.args[0]
         assert current == {'sourceDigest': 'source', 'groups': {'all': {'runID': 'test'}}}
         retained = current
         invalidate()
         assert saved.call_args.args[0] == current
-    with patch.object(validation_evidence, 'report_lock', side_effect=nullcontext), \
-            patch.object(Path, 'is_file', return_value=False), patch.object(validation_evidence, 'write_report') as saved:
+    with patch.object(validation_provenance, 'report_lock', side_effect=nullcontext), \
+            patch.object(Path, 'is_file', return_value=False), patch.object(validation_provenance, 'write_report') as saved:
         invalidate()
         saved.assert_not_called()
 

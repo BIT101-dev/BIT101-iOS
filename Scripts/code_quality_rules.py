@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from validation_inputs import native_project_targets
 import ast
 import fcntl
 import json
@@ -767,37 +768,6 @@ def audit_wiring_findings() -> list[str]:
     return ci_audit_wiring_findings(ROOT, scheme_inventory_findings, extension_dependency_findings)
 
 
-def native_project_targets(project: dict, root: Path) -> list[tuple[str, set[str], set[Path]]]:
-    objects = project["objects"]
-    paths: dict[str, Path] = {}
-    def visit(identifier, parent):
-        item = objects[identifier]
-        tree = item.get("sourceTree", "<group>")
-        base = root if tree == "SOURCE_ROOT" else parent
-        path = base / item.get("path", "")
-        paths[identifier] = path
-        for child in item.get("children", []): visit(child, path)
-    visit(objects[project["rootObject"]]["mainGroup"], root)
-    result = []
-    for identifier, target in objects.items():
-        if target.get("isa") != "PBXNativeTarget": continue
-        declared = {objects[product]["productName"] for product in target.get("packageProductDependencies", [])}
-        sources = set()
-        for group_id in target.get("fileSystemSynchronizedGroups", []):
-            group = objects[group_id]
-            directory = paths.get(group_id, root / group["path"])
-            excluded = {name for exception in group.get("exceptions", []) if objects[exception].get("target") == identifier
-                        for name in objects[exception].get("membershipExceptions", [])}
-            sources.update(path for path in directory.rglob("*.swift") if path.relative_to(directory).as_posix() not in excluded)
-        for phase_id in target.get("buildPhases", []):
-            phase = objects[phase_id]
-            if phase.get("isa") != "PBXSourcesBuildPhase": continue
-            for build_file in phase.get("files", []):
-                reference = objects[build_file]["fileRef"]
-                if reference not in paths: raise ValueError(f"源文件需要工程路径归属：{reference}")
-                if paths[reference].suffix == ".swift": sources.add(paths[reference])
-        result.append((target["name"], declared, sources))
-    return result
 
 
 def extension_dependency_findings(project: dict) -> list[str]:

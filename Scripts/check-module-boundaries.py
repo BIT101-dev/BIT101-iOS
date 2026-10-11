@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+from bisect import bisect_right
 import fcntl
 import os
 import re
@@ -254,67 +255,91 @@ def expanded_resource_source(source: str, aliases: tuple = (), path: str = "reso
     return encoded.decode()
 
 
+SERVICE_RESOURCE_OWNERS = {
+    'transport': {('TransportCore', owner) for owner in ('HTTPClient', 'HTTPTransmissionMetrics', 'HTTPTransport',
+        'URLSession', 'URLSessionTransport', 'NoRedirectURLSessionDelegate', 'HTTPSUpgradingRedirectDelegate', 'UncachedHTTPTransport')},
+    'cache': {('TransportCore', 'URLSessionTransport')},
+    'requests': {('TransportCore', owner) for owner in ('HTTPClient', 'HTTPTransport', 'URLSession', 'UncachedHTTPTransport')},
+    'connections': {('TransportCore', 'NetworkPathState'), ('BIT101-iOS', 'UITestControlServer')},
+    'errors': {('TransportCore', 'ErrorChain')},
+    'form': {('TransportCore', 'HTTPFormEncoding')},
+    'files': {('StorageCore', 'LocalAppFileService')},
+    'preferences': {('BIT101-iOS', 'AppFileDirectories')},
+}
+
+
+def resource_permissions(path: str, source: str):
+    from swift_type_index import compilation_unit
+    unit, facts = compilation_unit(path), resource_facts(source)
+    encoded = source.encode()
+    line_starts = [0] + [match.end() for match in re.finditer(b'\n', encoded)]
+    def owner(point):
+        nominal = canonical_type_scope(point['scope'])
+        return (unit, nominal[0]) if len(nominal) == 1 else None
+    points = [(point['start'], point['start'] + len(point.get('value', point.get('name', '')).encode()), len(point['scope']), owner(point))
+        for point in facts['members'] + facts['scopedIdentifiers'] + facts['typeNames'] + facts['typedVariables'] + facts['invocations']]
+    line_owners = {}
+    for point in facts['invocations'] + facts['members'] + facts['scopedIdentifiers']:
+        if point.get('isExpressionReference', True):
+            line_owners.setdefault(bisect_right(line_starts, point['start']), set()).add(owner(point))
+    def permitted(capability, *, offset=None, line=None):
+        allowed = SERVICE_RESOURCE_OWNERS[capability]
+        if line is not None:
+            owners = line_owners.get(line, set())
+            return bool(owners) and owners <= allowed
+        candidates = [point for point in points if point[0] <= offset < point[1]]
+        return bool(candidates) and min(candidates, key=lambda point: (point[1] - point[0], -point[2]))[3] in allowed
+    return permitted
+
+
 def service_boundary_errors(path: str, source: str, aliases: tuple = (), context: tuple = ((), ()), *, call_context=None, origin=None) -> list[str]:
-    """Enforce service ownership across production modules, app, and extensions."""
+    """Enforce resource capabilities on their owning module and declaration."""
     source = normalized_resource_source(expanded_resource_source(source, aliases, path))
     if call_context: call_context = call_context.replacing_source(origin or path, resource_facts(source))
-    code = swift_code(source)
-    patterns: list[tuple[str, str]] = []
-    transport_sources = {
-        "Modules/TransportCore/Sources/HTTPClient.swift",
-        "Modules/TransportCore/Sources/SecureURLTransport.swift",
-    }
-    if path not in transport_sources:
-        patterns.append((r"\b(?:URLSession|URLCache)\b", "use TransportCore transport and cache services"))
-        patterns.append((r"\b(?:CFSocket\w*|CFStreamCreatePairWith(?:Socket|PeerSocketSignature)\w*)\b", "use TransportCore network services"))
+    code, permitted = swift_code(source), resource_permissions(path, source)
+    patterns = [
+        (r"\b(?:URLSession|URLCache)\b", "use TransportCore transport and cache services", 'transport'),
+        (r"\b(?:CFSocket\w*|CFStreamCreatePairWith(?:Socket|PeerSocketSignature)\w*)\b", "use TransportCore network services", 'transport'),
+        (r"\.\s*(?:data|download|upload|bytes)\s*\(\s*for\s*:", "send requests through HTTPClient", 'requests'),
+        (r"\.\s*(?:dataTask|downloadTask|uploadTask|webSocketTask)\s*\(", "send requests through HTTPClient", 'requests'),
+        (r"\b(?:NWPathMonitor|NWConnection|NWConnectionGroup|NWListener|NWTCPConnection|NWUDPSession)\b", "use TransportCore network services", 'connections'),
+        (r"\.\s*userInfo\s*\[\s*NSUnderlyingErrorKey\s*\]", "traverse underlying errors through ErrorChain", 'errors'),
+        (r"\bCharacterSet\s*\.\s*urlQueryAllowed\b", "encode form fields through HTTPFormEncoding", 'form'),
+        (r"\b(?:DispatchIO|CF(?:Read|Write)StreamCreateWithFile)\b", "read and write files through AppFileService", 'files'),
+        (r"\bFileManager\b(?!\s*\.\s*(?:SearchPathDirectory|DirectoryEnumerationOptions)\b)", "use AppFileService", 'files'),
+        (r"\b(?:Data|NSData|NSMutableData|String|NSString|NSMutableString|XMLParser)\s*(?:\.\s*init\s*)?\(\s*(?:contentsOf|contentsOfFile|contentsOfURL)\s*:", "read files through AppFileService", 'files'),
+        (r"\bNS(?:Keyed)?Archiver\s*\.\s*archiveRootObject\b", "write files through AppFileService", 'files'),
+        (r"\bNS(?:Keyed)?Unarchiver\s*\.\s*unarchiveObject\s*\(\s*withFile\s*:", "read files through AppFileService", 'files'),
+        (r"\.\s*(?:resourceValues|setResourceValues|getResourceValue|setResourceValue|resolvingSymlinksInPath|checkResourceIsReachable)\s*\(", "access file metadata through AppFileService", 'files'),
+        (r"\b(?:FileHandle|NSFileHandle)\b(?!\s*\.\s*standard(?:Output|Error)\b)|\b(?:NSFileCoordinator|CGImageSourceCreateWithURL|CGImageDestinationCreateWithURL)\b", "access files through AppFileService", 'files'),
+        (r"\b(?:FileWrapper|NSFileWrapper)\s*(?:\.\s*init\s*)?\(\s*(?:url|path)\s*:", "access files through AppFileService", 'files'),
+        (r"\b(?:UIImage|NSImage|InputStream|OutputStream)\s*(?:\.\s*init\s*)?\(\s*(?:contentsOfFile|contentsOf|url|fileAtPath|toFileAtPath)\s*:", "access files through AppFileService", 'files'),
+        (r"\bUserDefaults\s*\.\s*standard\b|\bUserDefaults\s*=\s*\.\s*standard\b|\bUserDefaults\s*(?:\(|\.\s*init\b)", "select preferences through the host storage entry", 'preferences'),
+    ]
     if path.startswith("Modules/") and not path.startswith("Modules/TransportCore/"):
-        patterns.append((r"\bURLSessionTransport\s*\.\s*(?:make|clearSharedCache)\b", "inject host-selected transport resources"))
+        patterns.append((r"\bURLSessionTransport\s*\.\s*(?:make|clearSharedCache)\b", "inject host-selected transport resources", None))
     if path.startswith("Modules/") and not path.startswith("Modules/StorageCore/"):
-        patterns.append((r"\bLocalAppFileService\s*(?:\(|\.\s*init\b)", "inject host-selected file resources"))
-    if path != "Modules/TransportCore/Sources/HTTPClient.swift":
-        patterns.append((r"\.\s*(?:data|download|upload|bytes)\s*\(\s*for\s*:", "send requests through HTTPClient"))
-        patterns.append((r"\.\s*(?:dataTask|downloadTask|uploadTask|webSocketTask)\s*\(", "send requests through HTTPClient"))
-    if path not in {"Modules/TransportCore/Sources/NetworkPathState.swift", "BIT101-iOS/Login/AppUITestBootstrap.swift"}:
-        patterns.append((r"\b(?:NWPathMonitor|NWConnection|NWConnectionGroup|NWListener|NWTCPConnection|NWUDPSession)\b", "use TransportCore network services"))
-    if path != "Modules/TransportCore/Sources/TaskCancellation.swift":
-        patterns.append((r"\.\s*userInfo\s*\[\s*NSUnderlyingErrorKey\s*\]", "traverse underlying errors through ErrorChain"))
-    if path != "Modules/TransportCore/Sources/AppURL.swift":
-        patterns.append((r"\bCharacterSet\s*\.\s*urlQueryAllowed\b", "encode form fields through HTTPFormEncoding"))
+        patterns.append((r"\bLocalAppFileService\s*(?:\(|\.\s*init\b)", "inject host-selected file resources", None))
     if path.startswith("Modules/ScheduleFeature/"):
-        patterns.append((r"\bDateFormatter\s*\(", "format schedule dates through ScheduleDateCodec"))
-    if path != "Modules/StorageCore/Sources/AppFileService.swift":
-        patterns.extend((
-            (r"\b(?:DispatchIO|CF(?:Read|Write)StreamCreateWithFile)\b", "read and write files through AppFileService"),
-            (r"\bFileManager\b(?!\s*\.\s*(?:SearchPathDirectory|DirectoryEnumerationOptions)\b)", "use AppFileService"),
-            (r"\b(?:Data|NSData|NSMutableData|String|NSString|NSMutableString|XMLParser)\s*(?:\.\s*init\s*)?\(\s*(?:contentsOf|contentsOfFile|contentsOfURL)\s*:", "read files through AppFileService"),
-            (r"\bNS(?:Keyed)?Archiver\s*\.\s*archiveRootObject\b", "write files through AppFileService"),
-            (r"\bNS(?:Keyed)?Unarchiver\s*\.\s*unarchiveObject\s*\(\s*withFile\s*:", "read files through AppFileService"),
-            (r"\.\s*(?:resourceValues|setResourceValues|getResourceValue|setResourceValue|resolvingSymlinksInPath|checkResourceIsReachable)\s*\(", "access file metadata through AppFileService"),
-            (r"\b(?:FileHandle|NSFileHandle)\b(?!\s*\.\s*standard(?:Output|Error)\b)|\b(?:NSFileCoordinator|CGImageSourceCreateWithURL|CGImageDestinationCreateWithURL)\b", "access files through AppFileService"),
-            (r"\b(?:FileWrapper|NSFileWrapper)\s*(?:\.\s*init\s*)?\(\s*(?:url|path)\s*:", "access files through AppFileService"),
-            (r"\b(?:UIImage|NSImage|InputStream|OutputStream)\s*(?:\.\s*init\s*)?\(\s*(?:contentsOfFile|contentsOf|url|fileAtPath|toFileAtPath)\s*:", "access files through AppFileService"),
-        ))
-    if path != "BIT101-iOS/Shared/Client/AppFileDirectories.swift":
-        patterns.append((r"\bUserDefaults\s*\.\s*standard\b|\bUserDefaults\s*=\s*\.\s*standard\b|\bUserDefaults\s*(?:\(|\.\s*init\b)", "select preferences through the host storage entry"))
+        patterns.append((r"\bDateFormatter\s*\(", "format schedule dates through ScheduleDateCodec", None))
     errors = []
-    if path not in transport_sources:
-        errors.extend(f"service boundary: {path}:{line}: use TransportCore network services"
-            for line in implicit_file_accesses(source, POSIX_NETWORK_FUNCTIONS))
+    errors.extend(f"service boundary: {path}:{line}: use TransportCore network services"
+        for line in implicit_file_accesses(source, POSIX_NETWORK_FUNCTIONS) if not permitted('transport', line=line))
     if path.startswith("Modules/") and not path.startswith("Modules/StorageCore/"):
         errors.extend(f"service boundary: {path}:{line}: inject host-selected file resources"
             for line in implicit_resource_accesses(source, "LocalAppFileService", context[0], call_context=call_context, origin=origin or path))
-    if path != "Modules/StorageCore/Sources/AppFileService.swift":
-        errors.extend(f"service boundary: {path}:{line}: access files through AppFileService"
-            for line in implicit_file_accesses(source, call_context=call_context, origin=origin or path))
-        errors.extend(f"service boundary: {path}:{line}: access files through AppFileService"
-            for line in file_member_accesses(source, properties=context[0], call_context=call_context, origin=origin or path))
-    if path != "BIT101-iOS/Shared/Client/AppFileDirectories.swift":
-        errors.extend(f"service boundary: {path}:{line}: select preferences through the host storage entry: UserDefaults"
-            for line in implicit_resource_accesses(source, properties=context[0], call_context=call_context, origin=origin or path))
+    errors.extend(f"service boundary: {path}:{line}: access files through AppFileService"
+        for line in implicit_file_accesses(source, call_context=call_context, origin=origin or path) if not permitted('files', line=line))
+    errors.extend(f"service boundary: {path}:{line}: access files through AppFileService"
+        for line in file_member_accesses(source, properties=context[0], call_context=call_context, origin=origin or path) if not permitted('files', line=line))
+    errors.extend(f"service boundary: {path}:{line}: select preferences through the host storage entry: UserDefaults"
+        for line in implicit_resource_accesses(source, properties=context[0], call_context=call_context, origin=origin or path) if not permitted('preferences', line=line))
     local_calls = local_member_calls(source, ("data", "download", "upload", "bytes", "dataTask", "downloadTask", "uploadTask", "webSocketTask"), context) if re.search(r"\.\s*(?:data|download|upload|bytes|dataTask|downloadTask|uploadTask|webSocketTask)\s*\(", code) else set()
-    for pattern, rule in patterns:
+    for pattern, rule, capability in patterns:
         for match in re.finditer(pattern, code):
-            if rule == "send requests through HTTPClient" and len(source[:match.start()].encode()) in local_calls: continue
+            offset = len(source[:match.start()].encode())
+            if capability and permitted(capability, offset=offset): continue
+            if rule == "send requests through HTTPClient" and offset in local_calls: continue
             line = code.count("\n", 0, match.start()) + 1
             errors.append(f"service boundary: {path}:{line}: {rule}: {match[0].strip()}")
     return errors
@@ -585,8 +610,8 @@ def ownership_errors(scope: str, source: str, path: str = "", aliases: tuple = (
         f"resource ownership: {scope} uses {match[0].strip()}"
         for pattern in patterns
         for match in re.finditer(pattern, code)
-        if not (path == "Modules/TransportCore/Sources/SecureURLTransport.swift"
-                and re.fullmatch(r"URLCache\s*\.\s*shared", match[0]))
+        if not (scope == "TransportCore" and re.fullmatch(r"URLCache\s*\.\s*shared", match[0])
+                and resource_permissions(path, source)('cache', offset=len(source[:match.start()].encode())))
     ]
 
 

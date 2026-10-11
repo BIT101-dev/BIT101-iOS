@@ -8,12 +8,17 @@ import os
 from pathlib import Path
 import subprocess
 import uuid
+import fcntl
+from contextlib import contextmanager
+from validation_inputs import includes_input, repository_input_names
+from validation_environment import environment_context, exchange_identity
 from urllib.parse import urlsplit
 from validation_policy import NETWORK_GROUPS
 
 LIVE_GROUPS = NETWORK_GROUPS | {"audit", "icloud", "icloud-cleanup", "manual-device"}
 LIVE_EVIDENCE_LIFETIME = timedelta(days=1)
 ROOT = Path(__file__).resolve().parents[1]
+REPORT = ROOT / '.build/extended-automation/validation-evidence.json'
 WORKER_FOLDERS = ('OpenWorker', 'EmergencyUpdateWorker', 'ErrorReportWorker')
 WRANGLER_ROOT = ROOT / 'Cloudflare/EmergencyUpdateWorker'
 WORKER_SOURCE_PREFIX = 'bit101-source-sha256:'
@@ -163,7 +168,7 @@ def complete_group_row(row: dict) -> dict:
 def network_requests_complete(required: set[str], value: dict) -> bool:
     from network_request_contracts import complete
     if value.get('requestEvidenceRequired') is not True: return False
-    if value.get('scope') == 'community-cleanup': required = required - {'社区写入与清理'}
+    if value.get('scope') == 'community-cleanup': required = required - {'community.writes'}
     rows = value.get('requestEvidence', [])
     if not isinstance(rows, list): return False
     observed = set()
@@ -200,6 +205,56 @@ def network_requests_complete(required: set[str], value: dict) -> bool:
         if complete(row['probe'], row['requests'], expected): observed.add(row['probe'])
         elif row['probe'] in required: return False
     return bool(required) and required <= observed
+
+
+
+@contextmanager
+def report_lock(*, path: Path | None = None):
+    destination = path if path is not None else REPORT
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with destination.with_suffix(".lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+
+
+
+def write_report(report: dict, *, path: Path | None = None) -> None:
+    from validation_policy import MAXIMUM_REPORT_BYTES
+    destination = path if path is not None else REPORT
+    incoming = destination.with_suffix(".incoming")
+    size = 1
+    try:
+        with incoming.open('wb') as stream:
+            for chunk in json.JSONEncoder(ensure_ascii=False, indent=2).iterencode(report):
+                data = chunk.encode()
+                size += len(data)
+                if size > MAXIMUM_REPORT_BYTES: raise ValueError('聚合验收证据需要控制在 128 MiB 以内。')
+                stream.write(data)
+            stream.write(b'\n')
+        incoming.replace(destination)
+    finally:
+        incoming.unlink(missing_ok=True)
+
+
+
+def normalized_test_id(identifier: str) -> str:
+    parts = identifier.split("/")
+    method = next((index for index, part in enumerate(parts) if "(" in part), len(parts) - 1)
+    return "/".join([parts[0].rsplit(".", 1)[-1], *parts[1:method], parts[method].split("(", 1)[0]]) if method else identifier
+
+
+
+def source_digest(group: str = "", *, environment: dict | None = None) -> str:
+    names = repository_input_names(ROOT)
+    digest = hashlib.sha256(group.encode() + b"\0")
+    if group:
+        digest.update(json.dumps(exchange_identity(environment_context(group) if environment is None else environment), sort_keys=True).encode() + b"\0")
+    for name in sorted(set(names) - {""}):
+        path = ROOT / name
+        if path.is_file() and includes_input(name, group):
+            executable = b"x" if path.stat().st_mode & 0o111 else b"-"
+            digest.update(name.encode() + b"\0" + executable + path.read_bytes() + b"\0")
+    return digest.hexdigest()
 
 
 if __name__ == '__main__':

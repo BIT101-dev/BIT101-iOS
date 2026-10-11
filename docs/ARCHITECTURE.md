@@ -116,6 +116,15 @@ App 入口 → 登录恢复 → AppAccountLifecycle → 各场景状态与页面
 
 `Shell/AppNetworkClients.swift` 组装连接池、网络提示、教学中心会话与诊断。`Login/CommunitySessionSupport.swift` 提供身份快照和按会话实例合并的登录恢复动作；用户主动诊断归 `Shell/NetworkDiagnosisRunner.swift`。`ScoreInfrastructure` 的生产端点和连接池在 App 扩展构造器中选择。
 
+HTTP 请求证据沿传输事实与业务投影分工：`TransportCore` 记录方法、脱敏端点、完整 URL 摘要和响应状态，通过作用域观察端口交付原始请求及响应；App 的 `NetworkSmokeRequestEvidence` 解析业务参数、分页游标和课程列表，保存脱敏后的 smoke 合同。传输与业务投影分别沿所属测试宿主验证。
+
+网络 Smoke 的 `NetworkSmokeProbe` 集中声明固定机器标识与中文显示标签。执行库存、短信认证证据和请求合同使用机器标识，报告通过 `probeLabels` 提供显示文案。范围库存沿 Swift 声明与工厂方法提取，显示标签独立调整。
+
+维护脚本按单向依赖组织：策略和输入登记提供基础数据，Swift 索引提供语法与类型事实，编译条件读取 Package 和工程的语言及部署版本，来源模块负责摘要和报告事务，库存、性能、人工观察及工作流模块消费这些能力。Python 静态审计覆盖直接导入与函数内导入的循环依赖。网络请求合同回归集中在来源测试模块，验证入口测试负责组装与发布门禁。
+
+底层资源权限沿模块和完整名义声明绑定。传输、请求发送、连接监控、文件访问、偏好选择及共享网络缓存各有明确持有者；声明可以在所属模块内移动，其他声明通过端口访问资源。检测回归覆盖扩展、同文件多类型、嵌套声明与跨模块同名声明。
+
+
 `URLSessionTransport` 在 TransportCore 内构造 Foundation 会话并维护共享网络缓存；App 的连接池选择配置、Cookie 容器、重定向策略及连接等待和超时参数，向业务层提供 `HTTPTransport`。登录客户端接收两种重定向策略的 `HTTPClient`；学校日程服务显式接收传输，生产与测试沿同一注入入口执行。
 
 `NetworkPathState` 在 TransportCore 内维护可观察的连接快照。App 将同一实例注入话廊、文章及诊断展示，页面依据连接恢复执行所属场景的重试。测试宿主可注入固定快照，路径状态按实例隔离。

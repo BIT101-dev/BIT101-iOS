@@ -11,7 +11,7 @@ import BIT101TestSupport
 @MainActor
 struct ServiceContractTests {
 #if os(macOS)
-    @Test(arguments: ["话廊最新列表", "话廊关注流", "话廊热门流", "话廊推荐流", "话廊机器人流", "话廊搜索"])
+    @Test(arguments: ["gallery.newest", "gallery.following", "gallery.hot", "gallery.recommend", "gallery.bots", "gallery.search"])
     func productionGalleryRequestsPassThePythonSmokeContract(probe: String) async throws {
         let transport = Transport([(200, "[]"), (200, "[]")])
         let session = CommunitySession(httpClient: HTTPClient(transport: transport, observer: nil),
@@ -20,15 +20,15 @@ struct ServiceContractTests {
         let service = GalleryService(session: session, preferences: {
             .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
         })
-        var requests: [HTTPRequestEvidence] = []
-        try await HTTPRequestEvidenceContext.$didReceive.withValue({ requests.append($0) }) {
+        var requests: [(URLRequest, HTTPResponse)] = []
+        try await HTTPRequestEvidenceContext.$didReceive.withValue({ request, response in requests.append((request, response)) }) {
             for page in 0...1 {
                 switch probe {
-                case "话廊搜索": _ = try await service.searchPosters(query: .init(text: " BIT101 "), page: page == 0 ? nil : page)
-                case "话廊推荐流": _ = try await service.fetchRecommendPage(sourcePage: page)
-                case "话廊机器人流": _ = try await service.fetchBotFeed(startPage: page)
+                case "gallery.search": _ = try await service.searchPosters(query: .init(text: " BIT101 "), page: page == 0 ? nil : page)
+                case "gallery.recommend": _ = try await service.fetchRecommendPage(sourcePage: page)
+                case "gallery.bots": _ = try await service.fetchBotFeed(startPage: page)
                 default:
-                    let kind: GalleryFeedKind = probe == "话廊关注流" ? .follow : (probe == "话廊热门流" ? .hot : .newest)
+                    let kind: GalleryFeedKind = probe == "gallery.following" ? .follow : (probe == "gallery.hot" ? .hot : .newest)
                     _ = try await service.fetchFeed(kind: kind, page: page == 0 ? nil : page)
                 }
             }
@@ -36,24 +36,24 @@ struct ServiceContractTests {
         try assertSmokeContract(probe: probe, requests: requests)
     }
 
-    @Test(arguments: ["文章详情", "文章评论"], [false, true])
+    @Test(arguments: ["paper.detail", "paper.comments"], [false, true])
     func productionPaperRequestsPassThePythonSmokeContract(probe: String, authenticated: Bool) async throws {
-        let transport = Transport(probe == "文章详情" ? [(200, paperDetailBody(own: authenticated))] : [(200, "[]"), (200, "[]")])
+        let transport = Transport(probe == "paper.detail" ? [(200, paperDetailBody(own: authenticated))] : [(200, "[]"), (200, "[]")])
         let session = CommunitySession(httpClient: HTTPClient(transport: transport, observer: nil),
             baseURL: AppURL.required("https://bit101.flwfdd.xyz"),
             credentials: { .init(identity: .init(accountIdentifier: "contracts"), cookie: authenticated ? "fixture" : "") }, refresh: { _ in })
         let service = PaperService(session: session)
-        var requests: [HTTPRequestEvidence] = []
-        try await HTTPRequestEvidenceContext.$didReceive.withValue({ requests.append($0) }) {
-            if probe == "文章详情" { _ = try await service.fetchPaper(id: 17) }
+        var requests: [(URLRequest, HTTPResponse)] = []
+        try await HTTPRequestEvidenceContext.$didReceive.withValue({ request, response in requests.append((request, response)) }) {
+            if probe == "paper.detail" { _ = try await service.fetchPaper(id: 17) }
             else { for page in 0...1 { _ = try await service.fetchComments(paperID: 17, order: .newest, page: page) } }
         }
-        #expect(transport.authenticationRequests.count == (authenticated ? (probe == "文章详情" ? 1 : 2) : 0))
+        #expect(transport.authenticationRequests.count == (authenticated ? (probe == "paper.detail" ? 1 : 2) : 0))
         try assertSmokeContract(probe: probe, requests: requests,
-            selectors: probe == "文章详情" ? ["path": "/papers/17"] : ["obj": "paper17"])
+            selectors: probe == "paper.detail" ? ["path": "/papers/17"] : ["obj": "paper17"])
     }
 
-    private func assertSmokeContract(probe: String, requests: [HTTPRequestEvidence], selectors: [String: String] = [:]) throws {
+    private func assertSmokeContract(probe: String, requests: [(URLRequest, HTTPResponse)], selectors: [String: String] = [:]) throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
@@ -62,7 +62,26 @@ struct ServiceContractTests {
         process.standardInput = input
         process.standardError = errors
         try process.run()
-        let rows = try JSONSerialization.jsonObject(with: JSONEncoder().encode(requests))
+        let rows = try requests.map { request, response in
+            let metadata = HTTPRequestEvidence(request: request, response: response.response, finalRequest: response.finalRequest)
+            var row = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(metadata)) as? [String: Any])
+            func parameters(_ request: URLRequest) throws -> [String: String] {
+                let items = URLComponents(url: try #require(request.url), resolvingAgainstBaseURL: false)?.queryItems ?? []
+                let allowed = ["page", "order", "search", "hide_bot", "obj", "mode", "type", "uid"]
+                let selected = items.filter { allowed.contains($0.name) }
+                #expect(Set(selected.map(\.name)).count == selected.count)
+                var result = selected.reduce(into: [String: String]()) { $0[$1.name] = $1.value ?? "" }
+                if let data = request.httpBody,
+                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let value = object["obj"] as? String {
+                    result["obj"] = value
+                }
+                return result
+            }
+            row["query"] = try parameters(request)
+            row["finalQuery"] = try parameters(response.finalRequest ?? request)
+            if response.data == Data("[]".utf8) { row["responseMinimumID"] = "0" }
+            return row
+        }
         try input.fileHandleForWriting.write(contentsOf: JSONSerialization.data(withJSONObject: ["probe": probe, "requests": rows, "expectedParameters": selectors]))
         try input.fileHandleForWriting.close()
         process.waitUntilExit()

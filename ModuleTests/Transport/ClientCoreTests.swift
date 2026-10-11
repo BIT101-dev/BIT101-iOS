@@ -312,35 +312,6 @@ private final class RecordingObserver: HTTPClientObserving {
 
 @MainActor
 struct ClientCoreTests {
-    @Test(arguments: ["form", "json", "query"])
-    func finalPostParametersComeFromTheFinalRequest(format: String) async throws {
-        let url = AppURL.required("https://example.invalid/submit" + (format == "query" ? "?obj=paper1" : ""))
-        var request = URLRequest(url: url); request.httpMethod = "POST"
-        var finalRequest = request
-        let contentType = format == "form" ? "application/x-www-form-urlencoded" : "application/json"
-        request.setValue(contentType, forHTTPHeaderField: "Content-Type")
-        finalRequest.setValue(contentType, forHTTPHeaderField: "Content-Type")
-        request.httpBody = Data((format == "form" ? "XNXQDM=initial&password=secret" : #"{"obj":"paper1","password":"secret"}"#).utf8)
-        finalRequest.httpBody = Data((format == "form" ? "XNXQDM=final&password=private" : #"{"obj":"paper2","password":"private"}"#).utf8)
-        if format == "query" {
-            request.httpBody = nil; finalRequest.httpBody = nil
-            finalRequest.url = AppURL.required("https://example.invalid/submit?obj=paper2")
-        }
-        let finalURL = try #require(finalRequest.url)
-        let response = try #require(HTTPURLResponse(url: finalURL, statusCode: 200, httpVersion: nil, headerFields: nil))
-        let transport = FinalRequestTransport(base: StubTransport(result: .success((Data(), response))), finalRequest: finalRequest)
-        var captured: HTTPRequestEvidence?
-        try await HTTPRequestEvidenceContext.$didReceive.withValue({ captured = $0 }) {
-            _ = try await HTTPClient(transport: ForwardingTransport(base: transport), observer: nil).send(request)
-        }
-        let evidence = try #require(captured)
-        #expect(evidence.finalMethod == "POST")
-        let key = format == "form" ? "XNXQDM" : "obj"
-        #expect(evidence.query[key] == (format == "form" ? "initial" : "paper1"))
-        #expect(evidence.finalQuery[key] == (format == "form" ? "final" : "paper2"))
-        let encoded = String(decoding: try JSONEncoder().encode(evidence), as: UTF8.self)
-        #expect(!encoded.contains("secret") && !encoded.contains("private"))
-    }
     @Test func finalRequestEvidenceSurvivesTransportWrappers() async throws {
         let origin = AppURL.required("https://example.invalid/submit?obj=paper1&token=secret")
         let target = AppURL.required("https://other.invalid/final?obj=paper2&token=private")
@@ -349,11 +320,10 @@ struct ClientCoreTests {
         let base = FinalRequestTransport(base: StubTransport(result: .success((Data(), response))), finalRequest: URLRequest(url: target))
         let client = HTTPClient(transport: ForwardingTransport(base: base), observer: nil)
         var evidence: HTTPRequestEvidence?
-        try await HTTPRequestEvidenceContext.$didReceive.withValue({ evidence = $0 }) { _ = try await client.send(request) }
+        try await HTTPRequestEvidenceContext.$didReceive.withValue({ request, response in evidence = HTTPRequestEvidence(request: request, response: response.response, finalRequest: response.finalRequest) }) { _ = try await client.send(request) }
         let captured = try #require(evidence)
         #expect(captured.method == "POST" && captured.finalMethod == "GET")
         #expect(captured.endpoint == "https://example.invalid/submit" && captured.finalEndpoint == "https://other.invalid/final")
-        #expect(captured.query["obj"] == "paper1" && captured.finalQuery == ["obj": "paper2"])
         #expect(HTTPRequestEvidence(request: request, response: response).finalMethod == "")
     }
 
@@ -408,7 +378,7 @@ struct ClientCoreTests {
         var evidence: [HTTPRequestEvidence] = []
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
-        try await HTTPRequestEvidenceContext.$didReceive.withValue({ evidence.append($0) }) {
+        try await HTTPRequestEvidenceContext.$didReceive.withValue({ request, response in evidence.append(HTTPRequestEvidence(request: request, response: response.response, finalRequest: response.finalRequest)) }) {
             let child = Task { try await client.send(request) }
             if status == 200 {
                 let value = try await child.value
@@ -429,73 +399,6 @@ struct ClientCoreTests {
         request.httpMethod = nil
         #expect(HTTPRequestEvidence(request: request, response: response).method == "GET")
         #expect(HTTPRequestEvidence(request: request, response: response).endpoint == recorded.endpoint)
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = Data(#"{"detail":true,"password":"secret"}"#.utf8)
-        #expect(HTTPRequestEvidence(request: request, response: response).query == ["detail": "true"])
-    }
-
-    @Test(arguments: [("[]", String?.some("0")), (#"[{"id":3,"text":"secret"},{"id":9,"text":"private"}]"#, .some("3")),
-        ("{}", nil), ("invalid", nil)], ["poster1", "comment2", "private"])
-    func requestEvidenceRecordsObjectsAndResponseCursorsWithRedactedContent(fixture: (String, String?), object: String) async throws {
-        let response = try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
-        let client = HTTPClient(transport: StubTransport(result: .success((Data(fixture.0.utf8), response))), observer: nil)
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["obj": object, "text": "secret", "password": "private"])
-        var captured: HTTPRequestEvidence?
-        try await HTTPRequestEvidenceContext.$didReceive.withValue({ captured = $0 }) { _ = try await client.send(request) }
-        let evidence = try #require(captured)
-        #expect(evidence.responseMinimumID == fixture.1)
-        #expect(evidence.query == (object == "private" ? [:] : ["obj": object]))
-        let encoded = String(decoding: try JSONEncoder().encode(evidence), as: UTF8.self)
-        #expect(!encoded.contains("secret") && !encoded.contains("private"))
-    }
-
-    @Test(arguments: ["0", "99"], ["query", "form", "redirect"])
-    func requestEvidencePreservesParameterAmbiguity(value: String, location: String) throws {
-        let url = AppURL.required("https://example.invalid/probe?page=0&token=secret")
-        var request = URLRequest(url: url)
-        if location == "query" { request.url = AppURL.required(url.absoluteString + "&page=\(value)&token=secret") }
-        if location == "form" {
-            request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-            request.httpBody = Data("XNXQDM=0&XNXQDM=\(value)&password=secret".utf8)
-        }
-        var finalRequest = request
-        if location == "redirect" { finalRequest.url = AppURL.required(url.absoluteString + "&page=\(value)") }
-        let finalURL = try #require(finalRequest.url)
-        let response = try #require(HTTPURLResponse(url: finalURL, statusCode: 200, httpVersion: nil, headerFields: nil))
-        let evidence = HTTPRequestEvidence(request: request, response: response, finalRequest: finalRequest)
-        let key = location == "form" ? "XNXQDM" : "page"
-        #expect(evidence.ambiguousParameters == (location == "redirect" ? nil : [key]))
-        #expect(evidence.finalAmbiguousParameters == [key] && evidence.finalQuery[key] == nil)
-        let encoded = try JSONEncoder().encode(evidence)
-        #expect(!String(decoding: encoded, as: UTF8.self).contains("secret"))
-        #expect(try JSONDecoder().decode(HTTPRequestEvidence.self, from: encoded).finalAmbiguousParameters == [key])
-    }
-
-    @Test func requestEvidencePreservesBusinessSelectorsAndRedactsFormCredentials() throws {
-        let url = AppURL.required("https://example.invalid/probe?search=BIT101&hide_bot=true&XXXQDM=campus&token=secret")
-        let response = try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
-        request.httpBody = Data("XNXQDM=2025-2026-1&JXLDM=B%2B%26+Room&password=secret".utf8)
-        let evidence = HTTPRequestEvidence(request: request, response: response)
-        #expect(evidence.query == ["search": "BIT101", "hide_bot": "true", "XXXQDM": "campus", "XNXQDM": "2025-2026-1", "JXLDM": "B+& Room"])
-        request.httpBody = Data("requestParamStr=%7B%22XNXQDM%22%3A%222025-2026-1%22%2C%22ZC%22%3A%221%22%7D&password=secret".utf8)
-        #expect(HTTPRequestEvidence(request: request, response: response).query == ["search": "BIT101", "hide_bot": "true", "XXXQDM": "campus", "XNXQDM": "2025-2026-1"])
-        #expect(!String(decoding: try JSONEncoder().encode(evidence), as: UTF8.self).contains("secret"))
-    }
-
-    @Test(arguments: [(#"{"courses":[]}"#, [String]?.some([])), (#"{"courses":[{"id":41,"name":"secret"},{"id":43}]}"#, .some(["41", "43"])),
-        (#"{"courses":[{"id":true}]}"#, nil), (#"{"courses":[{"id":0}]}"#, nil), ("{}", nil)])
-    func requestEvidenceBindsEclassCourseResponsesWithoutTheirContent(fixture: (String, [String]?)) async throws {
-        let url = AppURL.required("https://zy-eclass.bit.edu.cn/api/my-courses")
-        let response = try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
-        let evidence = await HTTPRequestEvidence.capture(request: URLRequest(url: url), response: response, body: Data(fixture.0.utf8))
-        #expect(evidence.responseCourseIDs == fixture.1)
-        #expect(!String(decoding: try JSONEncoder().encode(evidence), as: UTF8.self).contains("secret"))
     }
 
     @Test func ordinaryResponsesUseTheDefaultBudgetIncludingExplicitNil() async throws {

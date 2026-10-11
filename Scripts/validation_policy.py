@@ -1,5 +1,7 @@
 """Shared workflow registration and platform coverage policy."""
 
+SWIFT_SYNTAX_SOURCE_NAMES = ("SwiftSyntaxIndexer.swift", "SwiftSyntaxFacts.swift")
+
 MAXIMUM_ATTACHMENT_BYTES = 32 * 1024 * 1024
 MAXIMUM_DECODED_MEDIA_BYTES = 48 * 1024 * 1024
 MAXIMUM_VIDEO_SECONDS = 30
@@ -64,3 +66,125 @@ def coverage_registry_findings(modules: set[str], ui_modules: set[str] | None = 
         if set(floors) != expected:
             errors.append(f"{platform} 模块覆盖率登记需要匹配生产模块：新增 {sorted(expected - floors.keys())}；清理 {sorted(floors.keys() - expected)}")
     return errors
+
+
+NETWORK_CAPABILITIES = {
+ 'BIT101-iOS.BIT101APIClient': {
+     'fetchSchoolLoginContext()': 'first-login',
+     'loginSchool(studentID:String,password:String,salt:String,execution:String)': 'first-login',
+     'webVPNVerifyInit(studentID:String)': 'first-login',
+     'webVPNVerify(studentID:String,password:String,execution:String,cookie:String,salt:String)': 'first-login',
+     'register(password:String,token:String,code:String)': 'first-login',
+     'checkBIT101Login(fakeCookie:String)': 'account-lifecycle'},
+ 'BIT101-iOS.FeedbackSubmissionClient': {'static submit(:Payload)': 'feedback-delivery', 'static submitNetworkSmoke(runID:String)': 'network'},
+ 'BIT101-iOS.NetworkDiagnosisRunner': {'run()': 'web-interactions'},
+ 'BIT101-iOS.AppUpdatePromptCoordinator': {'noticeToPresentAtLaunch()': 'web-interactions', 'checkManually()': 'web-interactions'},
+ 'BIT101-iOS.AppUpdateChecker': {'releaseToPresentAtLaunch()': 'web-interactions',
+                                 'checkManually()': 'web-interactions'},
+ 'BIT101-iOS.EmergencyUpdateChecker': {'noticeToPresentAtLaunch()': 'web-interactions'},
+ 'BIT101-iOS.LoginService': {'checkLogin()': 'network',
+                             'restoreSchoolSessionIfNeeded()': 'network',
+                             'login(studentID:String,password:String)': 'first-login',
+                             'renewCommunitySession(expectedIdentity:CommunitySessionIdentity)': 'account-lifecycle'},
+ 'BIT101-iOS.SettingsNetworkService': {'fetchMyInfo()': 'profile-writes',
+                                       'updateUser(nickname:String?,motto:String?,avatarMid:String?)': 'profile-writes',
+                                       'uploadAvatar(data:Data,filename:String)': 'profile-writes',
+                                       'checkLogin()': 'account-lifecycle'},
+ 'CourseFeature.CourseService': {'fetchCourses(search:String,page:Int)': 'network',
+                                 'fetchCourse(id:Int)': 'network',
+                                 'fetchCourseHistories(number:String)': 'network',
+                                 'fetchComments(courseID:Int,page:Int?)': 'network',
+                                 'like(objectID:String)': 'community-writes',
+                                 'createComment(objectID:String,text:String,replyObjectID:String?,replyUID:Int?,anonymous:Bool,rate:Int?)': 'community-writes'},
+ 'GalleryFeature.GalleryService': {'fetchFeed(kind:GalleryFeedKind,page:Int?)': 'network',
+                                   'fetchRecommendPage(sourcePage:Int)': 'network',
+                                   'searchPosters(query:GallerySearchQuery,page:Int?)': 'network',
+                                   'fetchBotFeed(startPage:Int)': 'network',
+                                   'fetchClaims()': 'network',
+                                   'uploadImage(data:Data,filename:String)': 'community-writes',
+                                   'createPoster(title:String,text:String,imageMids:[String],anonymous:Bool,tags:[String],claimID:Int,isPublic:Bool)': 'community-writes',
+                                   'fetchPoster(id:Int)': 'network',
+                                   'deletePoster(id:Int)': 'community-writes',
+                                   'updatePoster(id:Int,title:String,text:String,imageMids:[String],plugins:String,anonymous:Bool,tags:[String],claimID:Int,isPublic:Bool)': 'community-writes',
+                                   'fetchReportTypes()': 'network',
+                                   'report(objectID:String,typeID:Int,text:String)': 'gallery-report',
+                                   'fetchComments(objectID:String,order:CommunityCommentOrder,page:Int?)': 'network',
+                                   'fetchRawComments(objectID:String,order:CommunityCommentOrder,page:Int?)': 'community-writes',
+                                   'like(objectID:String)': 'community-writes',
+                                   'createComment(objectID:String,text:String,replyObjectID:String?,replyUID:Int?,anonymous:Bool,imageMids:[String])': 'community-writes',
+                                   'uploadCommentImage(data:Data,filename:String)': 'community-writes',
+                                   'deleteComment(id:Int)': 'community-writes',
+                                   'fetchMessageUnreadCounts()': 'network',
+                                   'fetchMessages(type:GalleryMessageType,lastID:Int?)': 'message-read'},
+ 'MineFeature.MineService': {'fetchMyInfo()': 'network',
+                             'fetchUserInfo(id:Int)': 'network',
+                             'followUser(id:Int)': 'community-writes',
+                             'fetchFollowings(page:Int)': 'network',
+                             'fetchFollowers(page:Int)': 'network',
+                             'fetchMyPosters(page:Int)': 'network',
+                             'fetchUserPosters(userID:Int,page:Int)': 'network'},
+ 'PaperFeature.PaperService': {'fetchPapers(search:String?,order:PaperSortOrder,page:Int)': 'network',
+                               'fetchPreviewMetadata(id:Int)': 'network',
+                               'fetchPaper(id:Int)': 'network',
+                               'fetchComments(paperID:Int,order:CommunityCommentOrder,page:Int?)': 'network',
+                               'likePaper(id:Int)': 'community-writes',
+                               'sendLike(objectID:String)': 'community-writes',
+                               'createComment(objectID:String,text:String,replyObjectID:String?,replyUID:Int?,anonymous:Bool)': 'community-writes',
+                               'createPaper(title:String,intro:String,content:String,anonymous:Bool,publicEdit:Bool)': 'community-writes',
+                               'updatePaper(id:Int,title:String,intro:String,content:String,anonymous:Bool,publicEdit:Bool,lastUpdatedAt:String)': 'community-writes',
+                               'deletePaper(id:Int)': 'community-writes'},
+ 'ScheduleInfrastructure.ScheduleService': {'fetchEclassDDLEvents(schoolSMSCodeHandler:SchoolSMSCodeHandler?)': 'network',
+                                            'fetchEclassDDLEventsForPreflight()': 'network',
+                                            'syncCourses(term:String?)': 'network',
+                                            'fetchAvailableTerms()': 'network',
+                                            'submitSMSCode(:String,for:BITLoginAuthenticationChallenge,term:String?)': 'web-interactions',
+                                            'submitSMSCodeForTeachingCenterAuthentication(:String,for:BITLoginAuthenticationChallenge)': 'network',
+                                            'fetchCurrentTermOnly()': 'network',
+                                            'prepareTeachingCenterAccess()': 'network',
+                                            'fetchCampuses()': 'network',
+                                            'fetchBuildings(campusCode:String?)': 'network',
+                                            'fetchClassrooms(buildingID:String,term:String)': 'network',
+                                            'syncDDLEvents(existingEvents:[DDLEventRecord],storedURL:String,schoolSMSCodeHandler:SchoolSMSCodeHandler?)': 'web-interactions',
+                                            'syncDDLEventsForPreflight(existingEvents:[DDLEventRecord],storedURL:String)': 'network',
+                                            'refreshLexueCalendarURL(schoolSMSCodeHandler:SchoolSMSCodeHandler?)': 'web-interactions',
+                                            'refreshLexueCalendarURLForPreflight()': 'network'},
+ 'ScoreInfrastructure.ScoreService': {'startScoreChallenge()': 'network',
+                                      'fetchScores(detail:Bool,authenticatedBy:BITLoginAuthenticationChallenge)': 'network',
+                                      'submitScoreSMSCode(:String,for:BITLoginAuthenticationChallenge)': 'network',
+                                      'fetchTrustedTranscriptPages()': 'network',
+                                      'submitTranscriptSMSCode(:String,for:BITLoginAuthenticationChallenge)': 'network'}}
+
+
+
+MANUAL_CAPABILITY_SCENARIOS = {
+ 'BIT101-iOS.BIT101APIClient': {
+    'fetchSchoolLoginContext()': 'registered-account',
+    'loginSchool(studentID:String,password:String,salt:String,execution:String)': 'registered-account',
+    'webVPNVerifyInit(studentID:String)': 'registered-account',
+    'webVPNVerify(studentID:String,password:String,execution:String,cookie:String,salt:String)': 'registered-account',
+    'register(password:String,token:String,code:String)': 'new-account-registration',
+    'checkBIT101Login(fakeCookie:String)': 'sign-in-a'},
+ 'BIT101-iOS.FeedbackSubmissionClient': {'static submit(:Payload)': 'delivery'},
+ 'BIT101-iOS.NetworkDiagnosisRunner': {'run()': 'network-diagnosis'},
+ 'BIT101-iOS.AppUpdatePromptCoordinator': {'noticeToPresentAtLaunch()': 'update-launch', 'checkManually()': 'update-manual'},
+ 'BIT101-iOS.AppUpdateChecker': {'releaseToPresentAtLaunch()': 'update-launch', 'checkManually()': 'update-manual'},
+ 'BIT101-iOS.EmergencyUpdateChecker': {'noticeToPresentAtLaunch()': 'update-launch'},
+ 'BIT101-iOS.LoginService': {'login(studentID:String,password:String)': 'registered-account',
+    'renewCommunitySession(expectedIdentity:CommunitySessionIdentity)': 'refresh-credentials-a'},
+ 'BIT101-iOS.SettingsNetworkService': {'fetchMyInfo()': 'restore-profile',
+    'updateUser(nickname:String?,motto:String?,avatarMid:String?)': 'nickname-save',
+    'uploadAvatar(data:Data,filename:String)': 'avatar-bind', 'checkLogin()': 'sign-in-b'},
+ 'GalleryFeature.GalleryService': {'report(objectID:String,typeID:Int,text:String)': 'submit-and-confirm',
+    'fetchMessages(type:GalleryMessageType,lastID:Int?)': 'first-open'},
+ 'ScheduleInfrastructure.ScheduleService': {
+    'submitSMSCode(:String,for:BITLoginAuthenticationChallenge,term:String?)': 'school-sms',
+    'syncDDLEvents(existingEvents:[DDLEventRecord],storedURL:String,schoolSMSCodeHandler:SchoolSMSCodeHandler?)': 'school-calendar',
+    'refreshLexueCalendarURL(schoolSMSCodeHandler:SchoolSMSCodeHandler?)': 'school-calendar'},
+}
+
+
+
+def manual_capabilities(check: str, scenario: str) -> set[str]:
+    return {f'{owner}.{method}' for owner, methods in MANUAL_CAPABILITY_SCENARIOS.items()
+        for method, assigned in methods.items() if assigned == scenario
+        and NETWORK_CAPABILITIES.get(owner, {}).get(method) == check}

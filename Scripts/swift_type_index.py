@@ -1,7 +1,6 @@
 """Resolve nominal Swift types within their module, imports and file access scope."""
 import re
 from pathlib import Path
-from swift_source_index import canonical_type_scope
 
 
 def compilation_unit(path: str) -> str:
@@ -13,6 +12,43 @@ def compilation_unit(path: str) -> str:
     from validation_inputs import NATIVE_PRODUCT_ROOTS, NATIVE_TEST_ROOTS
     roots = set(NATIVE_PRODUCT_ROOTS + NATIVE_TEST_ROOTS)
     return next((part for part in reversed(parts) if part in roots), 'fixture')
+
+
+def canonical_type_scope(names: list[str]) -> tuple[str, ...]:
+    parts = []
+    for name in names:
+        nominal, depth = [], 0
+        for index, character in enumerate(name):
+            if character == "<": depth += 1
+            elif character == ">" and (index == 0 or name[index - 1] != "-"): depth -= 1
+            elif depth == 0 and not character.isspace(): nominal.append(character)
+        parts.extend("".join(nominal).split("."))
+    return tuple(parts)
+
+
+def visible_variables(facts: dict, reference: dict, name: str, explicit_self: bool = False) -> list[dict]:
+    lexical = reference.get("lexicalScope", [])
+    candidates = [variable for variable in facts["typedVariables"] if variable["name"] == name
+        and canonical_type_scope(reference["scope"])[:len(canonical_type_scope(variable["scope"]))] == canonical_type_scope(variable["scope"])
+        and lexical[:len(variable.get("lexicalScope", []))] == variable.get("lexicalScope", [])
+        and (not variable.get("lexicalScope") or variable.get("start", 0) <= reference["start"])
+        and not (explicit_self and any(function["scope"] == variable["scope"]
+            and function["start"] <= variable.get("start", 0) < function["end"] for function in facts["functionRanges"]))]
+    return sorted(candidates, key=lambda variable: (len(variable["scope"]), len(variable.get("lexicalScope", [])), variable.get("start", 0)))
+
+
+def argument_parameter_bindings(parameters: list[dict], labels: list[str]) -> list[list[dict]]:
+    """Align supplied arguments with parameters, including defaults and variadic arguments."""
+    if not parameters: return [[]] if not labels else []
+    parameter, remaining = parameters[0], parameters[1:]
+    bindings = argument_parameter_bindings(remaining, labels) if parameter["hasDefault"] else []
+    if parameter["variadic"]:
+        for count in range(len(labels) + 1):
+            if all(label == (parameter["label"] if index == 0 else "") for index, label in enumerate(labels[:count])):
+                bindings.extend([parameter] * count + tail for tail in argument_parameter_bindings(remaining, labels[count:]))
+    elif labels and labels[0] == parameter["label"]:
+        bindings.extend([parameter] + tail for tail in argument_parameter_bindings(remaining, labels[1:]))
+    return bindings
 
 
 class SwiftTypeIndex:
@@ -199,7 +235,6 @@ class SwiftBindingTypes:
             if call['calledExpression'] == expression and reference['start'] <= call['start'] < end), None)
 
     def method_return(self, path, owner, name, invocation=None):
-        from swift_source_index import argument_parameter_bindings
         key = self.types.resolve(path, ".".join(owner)) if owner else None
         scope = (key[0],) + key[1] if key else self.types.function_scope(path, owner)
         candidates = self.return_types.get((scope, name), [])
@@ -260,8 +295,6 @@ class SwiftBindingTypes:
 
 
 def receiver_resolver(index: dict):
-    from swift_source_index import visible_variables
-    from swift_type_index import SwiftTypeIndex, SwiftBindingTypes
     types = SwiftTypeIndex(index)
     binding_types = SwiftBindingTypes(index, types)
     variables, factories = {}, {}

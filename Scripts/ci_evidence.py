@@ -40,9 +40,9 @@ def download_core(run: int, repo: str) -> dict:
 
 
 def download_run(run: int, repo: str) -> None:
-    from validation_evidence import report_lock
+    from validation_provenance import report_lock
     with report_lock():
-        from validation_evidence import write_report
+        from validation_provenance import write_report
         incoming = download_core(run, repo)
         from validation_environment import ci_commit_findings
         if errors := ci_commit_findings(incoming.get('mergeCommit', '')):
@@ -59,12 +59,12 @@ def import_baseline(run: int) -> None:
     if metadata.get('path') != '.github/workflows/ci.yml' or metadata.get('status') != 'completed' \
             or metadata.get('conclusion') != 'success' or metadata.get('head_repository', {}).get('full_name') != repo:
         raise ValueError('基线迁移需要本仓库成功完成的 CI 工作流。')
-    from validation_evidence import report_lock, write_report
+    from validation_provenance import report_lock, write_report
     from validation_performance import approved_baseline_complete, MEASUREMENTS
-    from validation_manual import PERFORMANCE_WORKLOADS
+    from validation_inputs import performance_workloads
     with report_lock():
         proof = download_core(run, repo).get('performanceBaseline', {})
-        if not approved_baseline_complete(proof): raise ValueError(f'基线迁移需要 {len(PERFORMANCE_WORKLOADS)} 个场景的完整原始采样与批准记录。')
+        if not approved_baseline_complete(proof): raise ValueError(f'基线迁移需要 {len(performance_workloads())} 个场景的完整原始采样与批准记录。')
         report = json.loads(REPORT.read_text()) if REPORT.is_file() else {}
         stored = json.loads(MEASUREMENTS.read_text()) if MEASUREMENTS.is_file() else {'schemaVersion': 1}
         stored['baseline'] = proof
@@ -75,7 +75,7 @@ def import_baseline(run: int) -> None:
 
 
 def export_core() -> None:
-    from validation_evidence import report_lock
+    from validation_provenance import report_lock
     with report_lock():
         CORE_REPORT.write_text(json.dumps(core_exchange(json.loads(REPORT.read_text())), ensure_ascii=False, indent=2) + '\n')
 
@@ -105,7 +105,7 @@ def baseline(commit: str) -> None:
                 raise ValueError('目标提交需要有效的模块覆盖率阈值。')
             policy[names[node.targets[0].id]] = value
     if set(policy) != set(names.values()): raise ValueError('目标提交需要 macOS 与 iOS 两组覆盖率基准。')
-    from validation_evidence import report_lock, write_report
+    from validation_provenance import report_lock, write_report
     with report_lock():
         report = json.loads(REPORT.read_text()) if REPORT.is_file() else {}
         report.update(coverageBaseCommit=commit, coveragePolicy=policy)
@@ -205,7 +205,7 @@ def self_test() -> None:
     retained = {'releaseCommit': commit, 'coveragePolicy': {'all': {'Feature': 70}},
         'groups': {name: {'inputDigest': 'retained-' + name} for name in ('network', 'icloud', 'manual-device', 'build-archive', 'audit', 'catalyst', 'all')}}
     incoming = {'mergeCommit': commit, 'sourceDigest': 'current', 'groups': {'all': {'inputDigest': 'current-all'}}}
-    with patch('validation_evidence.report_lock', side_effect=nullcontext), patch('validation_evidence.write_report') as save, \
+    with patch('validation_provenance.report_lock', side_effect=nullcontext), patch('validation_provenance.write_report') as save, \
             patch.object(Path, 'read_text', autospec=True, side_effect=lambda path: json.dumps(incoming if path == CORE_REPORT else retained)), \
             patch.object(Path, 'is_file', return_value=True), patch.object(Path, 'unlink'), \
             patch.object(subprocess, 'run') as download:
@@ -217,7 +217,7 @@ def self_test() -> None:
         download.assert_called_once()
     policy_source = 'MODULE_COVERAGE_FLOORS = {"Feature": 80}\nIOS_MODULE_COVERAGE_FLOORS = {"Feature": 70}\n'
     with patch.object(subprocess, 'check_output', return_value=policy_source) as git, \
-            patch('validation_evidence.report_lock', side_effect=nullcontext), patch('validation_evidence.write_report') as save, \
+            patch('validation_provenance.report_lock', side_effect=nullcontext), patch('validation_provenance.write_report') as save, \
             patch.object(Path, 'is_file', return_value=False), patch.object(module, 'api_pages') as api:
         baseline(commit)
         git.assert_called_once_with(['git', 'show', f'{commit}:Scripts/validation_policy.py'], cwd=ROOT, text=True)
@@ -233,7 +233,7 @@ def self_test() -> None:
             else: raise AssertionError('全部前置 Job 共同参与合并门禁')
     for source in ('MODULE_COVERAGE_FLOORS = {}', policy_source.replace('80', '101'), policy_source.replace('80', 'True'),
                    policy_source.replace('{"Feature": 80}', 'execute()')):
-        with patch.object(subprocess, 'check_output', return_value=source), patch('validation_evidence.write_report') as save:
+        with patch.object(subprocess, 'check_output', return_value=source), patch('validation_provenance.write_report') as save:
             try: baseline(commit)
             except ValueError: pass
             else: raise AssertionError('目标提交需要有效的版本化阈值')
@@ -269,7 +269,7 @@ def self_test() -> None:
         else: raise AssertionError('CI 需要验收事件合并提交')
         download.assert_not_called()
     with patch.dict(os.environ, GITHUB_SHA='b' * 40), \
-            patch('validation_evidence.report_lock', side_effect=nullcontext), patch('validation_evidence.write_report') as save, \
+            patch('validation_provenance.report_lock', side_effect=nullcontext), patch('validation_provenance.write_report') as save, \
             patch.object(Path, 'read_text', return_value=json.dumps(incoming)), patch.object(Path, 'unlink'), \
             patch.object(subprocess, 'run'):
         try: download_run(7, 'owner/repo')
@@ -280,7 +280,7 @@ def self_test() -> None:
             patch.object(Path, 'mkdir'), patch.object(subprocess, 'run') as command, \
             patch.object(Path, 'read_text', return_value='{}'), patch.object(Path, 'write_text'), patch.object(Path, 'unlink'), \
             patch.object(module, 'release_receipt', return_value={'schemaVersion': 1}), \
-            patch('validation_evidence.inspect_report', return_value=0), patch('validation_evidence.report_lock'):
+            patch('validation_evidence.inspect_report', return_value=0), patch('validation_provenance.report_lock'):
         release('v1.0', publish=True)
         assert command.call_args.args[0][:4] == ['gh', 'release', 'upload', 'v1.0']
         assert command.call_args.args[0][4] == str(RECEIPT)
@@ -293,7 +293,7 @@ def self_test() -> None:
             except ValueError: assert not accepted
             else: assert accepted
     with patch.object(module, 'version_tag'), patch.object(subprocess, 'run') as upload, \
-            patch('validation_evidence.inspect_report', return_value=1), patch('validation_evidence.report_lock'):
+            patch('validation_evidence.inspect_report', return_value=1), patch('validation_provenance.report_lock'):
         try: release('v1.0', publish=True)
         except ValueError: pass
         else: raise AssertionError('完整验收失败需要终止证据上传')

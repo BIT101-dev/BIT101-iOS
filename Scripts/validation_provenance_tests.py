@@ -4,6 +4,7 @@ from datetime import timedelta
 from io import BytesIO, StringIO
 import ast
 import json
+import re
 import subprocess
 import os
 from pathlib import Path
@@ -13,7 +14,8 @@ from unittest.mock import patch
 from validation_provenance import LIVE_GROUPS, evidence_current, sampling_evidence_current, utc_now
 
 
-def test_identity_self_test(subject) -> None:
+def test_identity_self_test() -> None:
+    import validation_test_areas as subject
     root = subject.ROOT / 'ModuleTests'
     first, second = root / 'Transport/ClientCoreTests.swift', root / 'Sync/ScheduleSyncTests.swift'
     original_read, original_rglob = Path.read_text, Path.rglob
@@ -46,6 +48,19 @@ def test_identity_self_test(subject) -> None:
         try: subject.test_selectors.__wrapped__('modules')
         except ValueError as error: assert 'Probe/check' in str(error)
         else: raise AssertionError('模块前缀归一化后的歧义需要进入库存失败')
+
+
+def probe_identity_self_test(subject) -> None:
+    path = subject.ROOT / 'BIT101-iOS/Shared/Client/ReleaseNetworkSmokeModels.swift'
+    original_read = Path.read_text
+    original = path.read_text()
+    baseline = subject.network_inventory()
+    assert 'gallery.newest' in baseline and '话廊最新列表' not in baseline
+    with patch.object(Path, 'read_text', lambda target, *args, **kwargs:
+            original.replace('话廊最新列表', '新版显示名称') if target == path else original_read(target, *args, **kwargs)):
+        subject.network_inventory.cache_clear()
+        assert subject.network_inventory() == baseline
+    subject.network_inventory.cache_clear()
 
 
 def worker_deployment_fixture(scope: str = 'all') -> dict:
@@ -255,7 +270,7 @@ def image_resource_self_test() -> None:
     urls = ['https://cdn.example/image.png?token=first', 'https://cdn.example/other.png']
     rows = [request(url) for url in urls]
     expected = {'resourceDigests': ','.join(sorted(row['endpointDigest'] for row in rows))}
-    for probe in ('话廊图片下载', '文章正文图片下载'):
+    for probe in ('gallery.image', 'paper.image'):
         assert complete(probe, rows, expected)
         assert not complete(probe, rows, {})
         assert not complete(probe, rows[:1], expected)
@@ -451,3 +466,301 @@ def complete_run_reuse_self_test() -> None:
     assert complete_group_row(selected) is shared_full
     changed = dict(selected, environment=context | {'device': {'identifier': 'other'}})
     assert complete_group_row(changed) is changed
+
+
+def network_trace_fixture(value: dict) -> dict:
+    from network_request_contracts import contracts_for, SELECTORS
+    value['workerDeployments'] = worker_deployment_fixture(value.get('scope'))
+    def example(pattern, identifier=1):
+        import re
+        pattern = re.sub(r'\(\?:([^()]*)\)', lambda match: match[1].split('|')[0], pattern)
+        return pattern.replace('[0-9a-f]+', 'a').replace(r'[1-9]\d*', str(identifier)).replace(r'\d+', str(identifier)).replace(r'\.', '.').replace(r'\-', '-').replace('.+', 'fixture').replace('?', '')
+    rows = []
+    for name in value.get('requiredProbes', []):
+        contracts = contracts_for(name)
+        assert contracts, name
+        requests = []
+        expected = {'XNXQDM': value.get('validatedTerm', 'fixture-current')} if name in {'schedule.sync', 'classroom.occupancy'} else {}
+        if name == 'classroom.occupancy': expected['JXLDM'] = 'fixture-building'
+        for contract in contracts:
+            for index in range(max(contract.minimum, 2 if contract.paging else 1)):
+                query = {key: example(pattern) for key, pattern in contract.query.items() if pattern is not None}
+                query.update({key: item for key, item in expected.items() if key != 'path'})
+                if contract.paging == 'page': query['page'] = str(index)
+                if contract.paging == 'last_id': query['last_id'] = str(sys.maxsize) if index == 0 else '1'
+                request = {'method': contract.method, 'endpoint': 'https://' + example(contract.host) + example(contract.path),
+                    'statusCode': next(iter(contract.statuses)), 'query': query}
+                if contract.paging == 'last_id': request['responseMinimumID'] = '0'
+                if name in {'eclass.authentication', 'eclass.ddl'}: request['responseCourseIDs'] = []
+                if name == 'community.writes':
+                    if contract.method == 'DELETE' and contract.path == r'/reaction/comments/\d+':
+                        request['endpoint'] = 'https://' + example(contract.host) + example(contract.path, index + 1)
+                    if contract.method == 'POST' and contract.path == '/reaction/comments' and query['obj'].startswith('comment'):
+                        query['obj'] = 'comment' + str(index // 2 + 1)
+                request.update(finalEndpoint=('https://' + example(contract.final_host) + example(contract.final_path))
+                    if contract.final_host else request['endpoint'], finalMethod=request['method'], finalQuery=dict(query))
+                assert contract.matches(request), (name, request)
+                for key in SELECTORS.get(name, set()) - {'XNXQDM', 'JXLDM'}:
+                    from urllib.parse import unquote, urlsplit
+                    expected[key] = unquote(urlsplit(request['endpoint']).path) if key == 'path' else request['query'][key]
+                requests.append(request)
+        if name == 'community.session': requests.insert(1, requests.pop())
+        if name in {'gallery.image', 'paper.image'}:
+            import hashlib
+            for request in requests: request['endpointDigest'] = hashlib.sha256(request['endpoint'].encode()).hexdigest()
+            expected['resourceDigests'] = ','.join(sorted({request['endpointDigest'] for request in requests}))
+        rows.append({'probe': name, 'requests': requests, 'expectedParameters': expected})
+    value['requestEvidenceRequired'] = True
+    value['requestEvidence'] = rows
+    return value
+
+
+def network_route_identity_self_test() -> None:
+    image_resource_self_test()
+    from copy import deepcopy
+    from validation_provenance import network_requests_complete
+    from network_request_contracts import complete as check_complete
+    def complete(probe, requests, expected=None):
+        return check_complete(probe, [dict(row, finalEndpoint=row.get('finalEndpoint', row['endpoint']),
+            finalMethod=row.get('finalMethod', row['method']), finalQuery=row.get('finalQuery', dict(row.get('query', {}))))
+            for row in requests], expected)
+    required = {'paper.comments'}
+    proof = network_trace_fixture({'requiredProbes': sorted(required)})
+    assert network_requests_complete(required, proof)
+    for key in ('ambiguousParameters', 'finalAmbiguousParameters'):
+        changed = deepcopy(proof)
+        row = changed['requestEvidence'][0]
+        row['requests'][0][key] = ['page']
+        assert not complete(row['probe'], row['requests'], row['expectedParameters'])
+        assert not network_requests_complete(required, changed)
+    repeated = deepcopy(proof['requestEvidence'][0])
+    repeated['requests'][-1]['statusCode'] = 500
+    assert not network_requests_complete(required, dict(proof, requestEvidence=proof['requestEvidence'] + [repeated]))
+    for key, value in [('finalEndpoint', 'https://example.invalid/reaction/comments'),
+                       ('finalMethod', 'POST'), ('finalQuery', {'obj': 'paper999', 'order': 'new', 'page': '0'})]:
+        changed = deepcopy(proof)
+        for request in changed['requestEvidence'][0]['requests']: request[key] = value
+        assert not network_requests_complete(required, changed), key
+    changed = deepcopy(proof)
+    del changed['requestEvidence'][0]['requests'][0]['finalEndpoint']
+    assert not network_requests_complete(required, changed)
+    schedule = network_trace_fixture({'requiredProbes': ['schedule.sync']})
+    for request in schedule['requestEvidence'][0]['requests']: request['finalQuery']['XNXQDM'] = 'wrong-term'
+    assert not network_requests_complete({'schedule.sync'}, schedule)
+    for probe in ('gallery.comments', 'course.comments', 'paper.comments', 'course.list'):
+        fixture = network_trace_fixture({'requiredProbes': [probe]})
+        for parameter in ('order', 'search') if probe == 'course.list' else ('order',):
+            changed = deepcopy(fixture)
+            for row in changed['requestEvidence'][0]['requests']:
+                row['query'][parameter] = row['finalQuery'][parameter] = 'invalid-order'
+            assert not network_requests_complete({probe}, changed), (probe, parameter)
+    from network_request_contracts import SELECTORS
+    for probe, selectors in SELECTORS.items():
+        selected = network_trace_fixture({'requiredProbes': [probe]})
+        row = selected['requestEvidence'][0]
+        assert complete(probe, row['requests'], row['expectedParameters'])
+        assert not complete(probe, row['requests'])
+        for key in selectors:
+            changed = deepcopy(selected)
+            for request in changed['requestEvidence'][0]['requests']:
+                if key == 'path': request['endpoint'] = request['endpoint'].rsplit('/', 1)[0] + '/999'
+                else: request['query'][key] = '999' if key == 'uid' else re.sub(r'\d+$', '999', request['query'][key]) if key == 'obj' else 'wrong'
+            assert not network_requests_complete({probe}, changed), (probe, key)
+    for key, value in [('endpoint', 'https://example.invalid/unrelated'), ('method', 'POST'),
+                       ('endpoint', 'http://bit101.flwfdd.xyz/reaction/comments'), ('statusCode', 500),
+                       ('query', {'obj': 'course1', 'page': '0'})]:
+        changed = deepcopy(proof)
+        for request in changed['requestEvidence'][0]['requests']: request[key] = value
+        assert not network_requests_complete(required, changed)
+    changed = deepcopy(proof)
+    changed['requestEvidence'][0]['requests'].pop()
+    assert not network_requests_complete(required, changed)
+    changed = deepcopy(proof)
+    changed['requestEvidence'][0]['requests'][1]['query']['page'] = '0'
+    assert not network_requests_complete(required, changed)
+    changed['requestEvidence'][0]['requests'][1]['query']['page'] = '999'
+    assert not network_requests_complete(required, changed)
+    original = proof['requestEvidence'][0]['requests']
+    for pages in ((0, 99, 1), (0, 1, 1), (0, 1, 3), (0, 1, 2)):
+        changed = deepcopy(proof)
+        rows = [deepcopy(original[0]) for _ in pages]
+        for row, page in zip(rows, pages): row['query']['page'] = row['finalQuery']['page'] = str(page)
+        changed['requestEvidence'][0]['requests'] = rows
+        assert network_requests_complete(required, changed) == (pages == (0, 1, 2)), pages
+    cursors = network_trace_fixture({'requiredProbes': ['message.system']})
+    cursor_probe = cursors['requestEvidence'][0]
+    assert complete(cursor_probe['probe'], cursor_probe['requests'])
+    nonempty = deepcopy(cursor_probe['requests'])
+    nonempty[0]['responseMinimumID'] = '9'
+    nonempty[1]['query']['last_id'] = '9'
+    nonempty[1]['finalQuery']['last_id'] = '9'
+    assert complete(cursor_probe['probe'], nonempty)
+    for position, invalid in ((0, None), (0, '0'), (1, '0')):
+        changed = deepcopy(cursor_probe['requests'])
+        if invalid is None: changed[position]['query'].pop('last_id')
+        else: changed[position]['query']['last_id'] = invalid
+        assert not complete(cursor_probe['probe'], changed), (position, invalid)
+    for invalid in ('999', None):
+        changed = deepcopy(cursor_probe['requests'])
+        changed[0]['responseMinimumID'] = invalid
+        assert not complete(cursor_probe['probe'], changed)
+    writes = network_trace_fixture({'requiredProbes': ['community.writes']})['requestEvidence'][0]['requests']
+    assert complete('community.writes', writes)
+    assert sum(row['endpoint'].endswith('/upload/image') for row in writes) == 4
+    assert sum(row['method'] == 'POST' and row['endpoint'].endswith('/reaction/comments') for row in writes) == 9
+    for endpoint, method in [('/upload/image', 'POST'), ('/reaction/comments/', 'DELETE')]:
+        index = next(index for index, row in enumerate(writes) if endpoint in row['endpoint'] and row['method'] == method)
+        assert not complete('community.writes', writes[:index] + writes[index + 1:])
+    for endpoint, method in [('/upload/image', 'POST'), ('/reaction/comments', 'POST'),
+            ('/reaction/comments/', 'DELETE'), ('/reaction/like', 'POST'), ('/user/follow/', 'POST'),
+            ('/posters/', 'PUT'), ('/papers/', 'PUT')]:
+        changed = [row for row in writes if not (endpoint in row['endpoint'] and row['method'] == method)]
+        assert not complete('community.writes', changed), (endpoint, method)
+    changed = deepcopy(writes)
+    for row in changed:
+        if row['method'] == 'POST' and row['endpoint'].endswith('/reaction/comments'):
+            row['query']['obj'] = 'poster1'
+    assert not complete('community.writes', changed)
+    for probe, endpoint in [('eclass.authentication', 'https://zy-eclass.bit.edu.cn/api/my-courses'),
+                            ('eclass.ddl', 'https://zy-eclass.bit.edu.cn/api/my-courses'),
+                            ('lexue.calendar', 'https://lexue.bit.edu.cn/calendar/export.php')]:
+        request = {'method': 'POST', 'endpoint': endpoint, 'statusCode': 200, 'query': {}}
+        if probe.startswith('eclass.'): request['responseCourseIDs'] = []
+        assert complete(probe, [request]), probe
+        assert not complete(probe, [dict(request, method='GET')]), probe
+    for probe in ('eclass.authentication', 'eclass.ddl'):
+        page = {'method': 'POST', 'endpoint': 'https://zy-eclass.bit.edu.cn/api/my-courses',
+            'statusCode': 200, 'query': {}, 'responseCourseIDs': ['41', '43']}
+        activities = [dict(page, method='GET', endpoint=f'https://zy-eclass.bit.edu.cn/api/courses/{value}/activities') for value in (41, 43)]
+        assert complete(probe, [page] + activities)
+        for rows in ([page], [page, activities[0]], [dict(page, responseCourseIDs=None)] + activities,
+                     [dict(page, responseCourseIDs=['0'])] + activities,
+                     [page] + activities + [dict(activities[0], endpoint='https://zy-eclass.bit.edu.cn/api/courses/45/activities')],
+                     [page, activities[0], dict(activities[1], finalEndpoint=activities[0]['endpoint'])]):
+            assert not complete(probe, rows), (probe, rows)
+        assert complete(probe, [dict(page, responseCourseIDs=['41']), dict(page, responseCourseIDs=['43'])] + activities)
+        assert complete(probe, [dict(page, responseCourseIDs=[])])
+    building = {'method': 'GET', 'endpoint': 'https://jxzxehallapp.bit.edu.cn/jwapp/sys/kxjasbyMobile/modules/jxllb/cxjxl.do',
+        'statusCode': 200, 'query': {'XXXQDM': 'campus'}}
+    assert complete('classroom.buildings', [building], {'XXXQDM': 'campus'})
+    assert not complete('classroom.buildings', [building])
+    for query in ({}, {'XXXQDM': 'other'}):
+        assert not complete('classroom.buildings', [dict(building, query=query)], {'XXXQDM': 'campus'})
+        assert not complete('classroom.buildings', [dict(building, finalQuery=query)], {'XXXQDM': 'campus'})
+    variants = {
+        'gallery.newest': {'mode': 'search', 'order': 'new', 'uid': '-1'},
+        'gallery.following': {'mode': 'follow'}, 'gallery.hot': {'mode': 'hot'}, 'gallery.recommend': {},
+        'gallery.bots': {'mode': 'search', 'order': 'new', 'uid': '-1'},
+        'gallery.search': {'mode': 'search', 'order': 'new', 'uid': '-1', 'search': 'BIT101'},
+        'paper.list.newest': {'search': 'BIT101'}, 'paper.list.like': {'order': 'like', 'search': 'BIT101'},
+        'paper.list.comment': {'order': 'comment', 'search': 'BIT101'},
+    }
+    for probe, parameters in variants.items():
+        endpoint = 'https://bit101.flwfdd.xyz/' + ('papers' if probe.startswith('paper.') else 'posters')
+        requests = [{'method': 'GET', 'endpoint': endpoint, 'statusCode': 200,
+                     'query': dict(parameters, page=str(page))} for page in (0, 1)]
+        assert complete(probe, requests), probe
+        for extra in (dict(requests[-1], query=dict(parameters, page='2', order='unexpected')),
+                      dict(requests[-1], statusCode=500), dict(requests[-1], endpoint='https://example.invalid/other')):
+            assert not complete(probe, requests + [extra]), (probe, extra)
+        for key in ('order', 'search') if probe.startswith('paper.') else ('mode', 'order', 'uid', 'search', 'hide_bot'):
+            changed = deepcopy(requests)
+            for row in changed:
+                if key in row['query']: row['query'].pop(key)
+                else: row['query'][key] = 'unexpected'
+            assert not complete(probe, changed), (probe, key)
+    assert not complete('paper.list.未知', requests)
+    for probe, parameters, selectors in [
+        ('paper.list', {}, None), ('profile.posts', {'mode': 'search', 'uid': '0'}, {'uid': '0'}),
+        ('user.posts', {'mode': 'search', 'uid': '42'}, {'uid': '42'}),
+    ]:
+        endpoint = 'https://bit101.flwfdd.xyz/' + ('papers' if probe.startswith('paper.') else 'posters')
+        rows = [{'method': 'GET', 'endpoint': endpoint, 'statusCode': 200, 'query': dict(parameters, page=str(page))}
+            for page in (0, 1)]
+        assert complete(probe, rows, selectors), probe
+        for key, value in [('order', 'hot'), ('search', 'BIT101')]:
+            changed = deepcopy(rows)
+            for row in changed: row['query'][key] = value
+            assert not complete(probe, changed, selectors), (probe, key)
+            changed = deepcopy(rows)
+            for row in changed: row['finalQuery'] = dict(row['query'], **{key: value})
+            assert not complete(probe, changed, selectors), (probe, key, 'redirect')
+    for probe, paths, expected in [
+        ('schedule.sync', ['/jwapp/sys/wdkbby/modules/xskcb/cxxszhxqkb.do',
+            '/jwapp/sys/wdksapMobile/modules/ksap/cxxsksap.do', '/jwapp/sys/wdkbby/wdkbByController/cxzkbrq.do'], {'XNXQDM': '2025-2026-1'}),
+        ('classroom.occupancy', ['/jwapp/sys/kxjasbyMobile/kxjasbyController/cxkxjasqk.do'], {'XNXQDM': '2025-2026-1', 'JXLDM': 'fixture-building'}),
+    ]:
+        rows = [{'method': 'POST', 'endpoint': 'https://jxzxehallapp.bit.edu.cn' + path, 'statusCode': 200, 'query': dict(expected)} for path in paths]
+        assert complete(probe, rows, expected) and not complete(probe, rows)
+        for key in expected:
+            changed = deepcopy(rows)
+            changed[0]['query'][key] = 'wrong-selection'
+            assert not complete(probe, changed, expected)
+            changed[0]['query'].pop(key)
+            assert not complete(probe, changed, expected)
+    login = {'method': 'GET', 'endpoint': 'https://bit101.flwfdd.xyz/user/check', 'statusCode': 200, 'query': {}}
+    paper = dict(login, endpoint='https://bit101.flwfdd.xyz/papers/17')
+    comments = [dict(login, endpoint='https://bit101.flwfdd.xyz/reaction/comments',
+        query={'obj': 'paper17', 'order': 'new', 'page': str(page)}) for page in (0, 1)]
+    for probe, requests, selectors in [
+        ('paper.detail', [login, paper], {'path': '/papers/17'}),
+        ('paper.comments', [login, comments[0], login, comments[1]], {'obj': 'paper17'}),
+    ]:
+        assert complete(probe, requests, selectors), probe
+        assert complete(probe, [row for row in requests if row is not login], selectors), probe
+        assert complete(probe, [dict(login, statusCode=401)] + requests, selectors), probe
+        assert not complete(probe, [login], selectors), probe
+        for broken in (dict(login, statusCode=500), dict(login, statusCode=401), dict(login, method='POST'),
+                dict(login, endpoint='https://example.invalid/user/check'), dict(login, endpoint='https://bit101.flwfdd.xyz/user/unrelated')):
+            assert not complete(probe, requests + [broken], selectors), (probe, broken)
+    write_reads = [login, dict(login, endpoint='https://bit101.flwfdd.xyz/user/info/0'),
+        dict(login, endpoint='https://bit101.flwfdd.xyz/user/info/18'),
+        dict(login, endpoint='https://bit101.flwfdd.xyz/courses/3'),
+        dict(login, endpoint='https://bit101.flwfdd.xyz/posters/1'), paper,
+        dict(login, endpoint='https://bit101.flwfdd.xyz/posters', query={'mode': 'search', 'uid': '0', 'page': '0'}),
+        dict(login, endpoint='https://bit101.flwfdd.xyz/papers', query={'search': '功能验收', 'page': '0'}),
+        dict(login, endpoint='https://bit101.flwfdd.xyz/reaction/comments', query={'obj': 'paper17', 'order': 'old', 'page': '0'})]
+    assert complete('community.writes', write_reads + writes)
+    assert not complete('community.writes', write_reads)
+    for row in write_reads:
+        assert not complete('community.writes', writes + [dict(row, statusCode=500)]), row
+    assert not complete('community.writes', writes + [dict(login, endpoint='https://bit101.flwfdd.xyz/user/unrelated')])
+    assert complete('community.login', [dict(login, statusCode=401), login])
+    assert not complete('community.login', [login, dict(login, statusCode=401)])
+    assert not complete('community.login', [dict(login, statusCode=500), login])
+    assert not complete('community.login', [dict(login, statusCode=401, query={'order': 'old'}), login])
+    authentication = dict(login, method='POST', endpoint='https://bit101.flwfdd.xyz/user/webvpn_verify')
+    assert complete('community.login', [dict(login, statusCode=401), authentication, login])
+    assert not complete('community.login', [dict(login, statusCode=401), dict(authentication, statusCode=500), login])
+    teaching = {'method': 'GET', 'endpoint': 'https://jxzxehallapp.bit.edu.cn/jwapp/sys/wdkbby/modules/jshkcb/dqxnxq.do', 'statusCode': 200, 'query': {}}
+    preheat = dict(teaching, endpoint='https://jxzxehallapp.bit.edu.cn/jwapp/i18n.do')
+    cookies = dict(authentication, endpoint='https://login.bit101.flwfdd.xyz/api/jxzxehall/cookies')
+    assert complete('schedule.current-term', [cookies, preheat, teaching])
+    redirected = dict(teaching, finalEndpoint='https://sso.bit.edu.cn/cas/login', finalMethod='GET', finalQuery={})
+    assert complete('schedule.current-term', [redirected, cookies, preheat, teaching])
+    assert not complete('schedule.current-term', [redirected, cookies, preheat])
+    assert not complete('schedule.current-term', [dict(redirected, finalEndpoint='https://example.invalid/cas/login'), cookies, teaching])
+    assert not complete('schedule.current-term', [dict(redirected, statusCode=500), cookies, teaching])
+    assert complete('schedule.current-term', [dict(cookies, statusCode=503), cookies, preheat, teaching])
+    assert not complete('schedule.current-term', [cookies, dict(preheat, statusCode=500), teaching])
+    transcript = network_trace_fixture({'requiredProbes': ['score.transcript']})['requestEvidence'][0]
+    page = {'method': 'GET', 'endpoint': 'https://jwb.bit.edu.cn/cjd/Temp/page.jpg', 'statusCode': 200, 'query': {}}
+    assert complete('score.transcript', transcript['requests'] + [page])
+    assert not complete('score.transcript', transcript['requests'] + [dict(page, statusCode=500)])
+    assert complete('community.login', [dict(login, endpoint='https://bit101.flwfdd.xyz:443/user/check')])
+    for port in ('0', '80', '8443', '65536', 'invalid'):
+        assert not complete('community.login', [dict(login, endpoint='https://bit101.flwfdd.xyz:' + port + '/user/check')])
+    media = network_trace_fixture({'requiredProbes': ['gallery.image']})['requestEvidence'][0]
+    import hashlib
+    resource = 'https://image.invalid:8443/image.png'
+    digest = hashlib.sha256(resource.encode()).hexdigest()
+    assert complete('gallery.image', [dict(media['requests'][0], endpoint=resource, finalEndpoint=resource,
+        endpointDigest=digest)], {'resourceDigests': digest})
+    for status in (100, 302, 401, 403, 500):
+        assert not complete('community.login', [dict(login, statusCode=status)])
+    assert not complete('community.login', [dict(login, endpoint=login['endpoint'].replace('https:', 'http:'))])
+    account = dict(login, endpoint='https://bit101.flwfdd.xyz/user/info/0')
+    phases = [account, dict(account, statusCode=401), account]
+    assert complete('community.session', phases)
+    for statuses in ((200, 200, 200), (401, 200, 200), (200, 401, 500), (200, 403, 200), (200, 401), (200, 401, 200, 200)):
+        assert not complete('community.session', [dict(account, statusCode=status) for status in statuses])

@@ -49,6 +49,10 @@ def manifest_lock_self_test(read_manifest) -> None:
         shutil.rmtree(root)
 
 
+def owned_source(owner: str, source: str) -> str:
+    return f"struct {owner} {{ func execute() {{ {source} }} }}"
+
+
 def run_self_test(rules: dict) -> None:
     manifest_lock_self_test(rules['read_manifest'])
     adapter_ownership_errors = rules["adapter_ownership_errors"]
@@ -187,7 +191,7 @@ def run_self_test(rules: dict) -> None:
         "let io = Dispatch.DispatchIO(type: .stream, path: path, oflag: 0, mode: 0, queue: queue) { _ in }",
     ):
         assert service_boundary_errors("Modules/CourseFeature/Sources/Example.swift", source), source
-    assert service_boundary_errors("Modules/StorageCore/Sources/AppFileService.swift", "let io = DispatchIO(type: .stream, path: path)") == []
+    assert service_boundary_errors("Modules/StorageCore/Sources/AppFileService.swift", owned_source('LocalAppFileService', "let io = DispatchIO(type: .stream, path: path)")) == []
 
     for operation in ("open", "read", "write"):
         source = f"func execute({operation}: @Sendable () throws -> Data) throws -> Data {{ try {operation}() }}"
@@ -216,7 +220,7 @@ def run_self_test(rules: dict) -> None:
         "func compare(wrapper: Foundation.FileWrapper, url: URL) { _ = wrapper.matchesContents(of: url) }",
     ):
         assert service_boundary_errors("Modules/GalleryFeature/Sources/Example.swift", source), source
-        assert service_boundary_errors("Modules/StorageCore/Sources/AppFileService.swift", source) == []
+        assert service_boundary_errors("Modules/StorageCore/Sources/AppFileService.swift", owned_source('LocalAppFileService', source)) == []
     assert service_boundary_errors("Modules/GalleryFeature/Sources/Example.swift", "let wrapper = FileWrapper(regularFileWithContents: Data())") == []
     assert service_boundary_errors("Modules/GalleryFeature/Sources/Example.swift", "struct Wrapper { func read(from item: Int) {} }; let value = Wrapper(); value.read(from: 1)") == []
     for source in ('let parser = XMLParser(contentsOf: url)', 'let parser = Foundation.XMLParser.init(contentsOf: url)',
@@ -233,7 +237,7 @@ def run_self_test(rules: dict) -> None:
             'typealias Archive = NSKeyedUnarchiver; let read = Archive.unarchiveObject(withFile:)'):
         assert service_boundary_errors('Modules/GalleryFeature/Sources/Example.swift', source), source
         assert service_boundary_errors('BIT101-iOS/Schedule/Example.swift', source), source
-        assert service_boundary_errors('Modules/StorageCore/Sources/AppFileService.swift', source) == [], source
+        assert service_boundary_errors('Modules/StorageCore/Sources/AppFileService.swift', owned_source('LocalAppFileService', source)) == [], source
     for source in ('XMLParser(data: data)', 'XMLParser(stream: stream)', 'let parser: XMLParser = .init(data: data)',
             'try NSKeyedArchiver.archivedData(withRootObject: value, requiringSecureCoding: true)',
             'NSKeyedUnarchiver.unarchiveObject(with: data)', 'NSUnarchiver.unarchiveObject(with: data)',
@@ -487,7 +491,7 @@ def run_self_test(rules: dict) -> None:
         "struct Store { var defaults: UserDefaults { log(.standard); return supplied } }",
     ):
         assert service_boundary_errors(service_path, source) == [], source
-    assert service_boundary_errors("Modules/StorageCore/Sources/AppFileService.swift", "try data.write(to: url)") == []
+    assert service_boundary_errors("Modules/StorageCore/Sources/AppFileService.swift", owned_source('LocalAppFileService', "try data.write(to: url)")) == []
     assert service_boundary_errors(service_path, "struct Message { func write(to target: Int) {} }; let message = Message(); message.write(to: 42)") == []
     assert service_boundary_errors(service_path, "struct Message { func encode(_ value: Int) -> Message { self }; func write(to target: Int) {} }; let data = Message().encode(1); data.write(to: 42)") == []
     assert service_boundary_errors(service_path, "func remove(_ value: Int) {}; remove(42); func rename(_ a: Int, _ b: Int) {}; rename(1, 2)") == []
@@ -502,14 +506,14 @@ def run_self_test(rules: dict) -> None:
     assert service_boundary_errors(service_path, "struct Message { func write(to target: Int) {} }; func send(message: Message) { let writer = message.write(to:); writer(42) }") == []
     assert service_boundary_errors(service_path, "struct Message { func write(to target: Int) {} }; func send(message: Message) { let writer = message.write; writer(42) }") == []
     assert service_boundary_errors(service_path, "struct Message { func write(to target: Int) {} }; func send(messages: [Message]) { let writer = messages.first!.write(to:); writer(42) }") == []
-    assert service_boundary_errors("Modules/TransportCore/Sources/HTTPClient.swift", "try await transport.data(for: request)") == []
+    assert service_boundary_errors("Modules/TransportCore/Sources/HTTPClient.swift", owned_source('HTTPClient', "try await transport.data(for: request)")) == []
     assert service_boundary_errors(service_path, "func socket(_ value: Int) {}; socket(1); func send(_ value: Int) {}; send(1); enum Delivery { case send; case preflight }") == []
-    assert service_boundary_errors("Modules/TransportCore/Sources/SecureURLTransport.swift", "URLSession(configuration: configuration)") == []
-    assert service_boundary_errors("Modules/TransportCore/Sources/NetworkPathState.swift", "NWPathMonitor()") == []
+    assert service_boundary_errors("Modules/TransportCore/Sources/SecureURLTransport.swift", owned_source('URLSessionTransport', "URLSession(configuration: configuration)")) == []
+    assert service_boundary_errors("Modules/TransportCore/Sources/NetworkPathState.swift", owned_source('NetworkPathState', "NWPathMonitor()")) == []
     assert service_boundary_errors("Modules/ScheduleFeature/Sources/Example.swift", "DateFormatter()")
-    assert service_boundary_errors("Modules/TransportCore/Sources/TaskCancellation.swift", "error.userInfo[NSUnderlyingErrorKey]") == []
-    assert service_boundary_errors("Modules/TransportCore/Sources/AppURL.swift", "CharacterSet.urlQueryAllowed") == []
-    assert ownership_errors("TransportCore", "URLCache.shared", "Modules/TransportCore/Sources/SecureURLTransport.swift") == []
+    assert service_boundary_errors("Modules/TransportCore/Sources/TaskCancellation.swift", owned_source('ErrorChain', "error.userInfo[NSUnderlyingErrorKey]")) == []
+    assert service_boundary_errors("Modules/TransportCore/Sources/AppURL.swift", owned_source('HTTPFormEncoding', "CharacterSet.urlQueryAllowed")) == []
+    assert ownership_errors("TransportCore", owned_source("URLSessionTransport", "URLCache.shared"), "Modules/TransportCore/Sources/Relocated.swift") == []
     assert ownership_errors("TransportCore", "URLCache.shared", "Modules/TransportCore/Sources/HTTPClient.swift")
     assert ownership_errors("AppExternalDisplayCoordinator", "WatchScheduleSyncManager.shared.activateIfNeeded()")
     assert ownership_errors("AppExternalDisplayCoordinator", "activateWatch()") == []
@@ -524,3 +528,23 @@ extension AppExternalDisplayCoordinator { func unsafe() { WatchScheduleSyncManag
         relocated = swift_syntax_index_sources({"BIT101-iOS/Relocated.swift":
             f"struct {owner} {{}}\nextension {owner} {{ func unsafe() {{ LoginStorage.shared.clearAllLocalData() }} }}"})
         assert any(adapter_ownership_errors(facts) for facts in relocated.values())
+
+    for module, owner, operation in (
+        ('TransportCore', 'HTTPClient', 'try await transport.data(for: request)'),
+        ('TransportCore', 'URLSessionTransport', 'URLSession(configuration: configuration)'),
+        ('TransportCore', 'NetworkPathState', 'NWPathMonitor()'),
+        ('TransportCore', 'ErrorChain', 'error.userInfo[NSUnderlyingErrorKey]'),
+        ('TransportCore', 'HTTPFormEncoding', 'CharacterSet.urlQueryAllowed'),
+        ('StorageCore', 'LocalAppFileService', 'let data = Data(); try data.write(to: url)'),
+        ('BIT101-iOS', 'AppFileDirectories', 'UserDefaults.standard'),
+    ):
+        path = f'Modules/{module}/Sources/Relocated.swift' if module != 'BIT101-iOS' else 'BIT101-iOS/Relocated.swift'
+        approved = owned_source(owner, operation)
+        assert service_boundary_errors(path, approved) == [], (owner, operation)
+        assert service_boundary_errors(path, owned_source('Rogue', operation)), (owner, operation)
+        assert service_boundary_errors(path, approved + '\n' + owned_source('Rogue', operation)), (owner, operation)
+        assert service_boundary_errors('Modules/GalleryFeature/Sources/Relocated.swift', approved), (owner, operation)
+    assert service_boundary_errors('Modules/StorageCore/Sources/Relocated.swift',
+        'struct LocalAppFileService {}; extension LocalAppFileService { func read() { try Data(contentsOf: url) } }') == []
+    assert service_boundary_errors('Modules/StorageCore/Sources/AppFileService.swift',
+        'struct LocalAppFileService { struct Rogue { func read() { try Data(contentsOf: url) } } }')

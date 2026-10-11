@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Compile repository Python and embedded Zsh Python delegates."""
 from pathlib import Path
+import ast
 import re
 import shlex
 import sys
@@ -263,3 +264,37 @@ for path in sorted((root / "Scripts").glob("*.py")):
 scripts = [*(root / "Scripts").glob("*.sh"), *(root / "Cloudflare/EmergencyUpdateWorker/Scripts").glob("*.sh")]
 for path in sorted(scripts):
     compile_embedded_python(path.read_text(encoding="utf-8"), path)
+
+
+def import_cycles(sources):
+    graph = {}
+    for name, source in sources.items():
+        imports = set()
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.ImportFrom) and node.module: imports.add(node.module.split('.')[0])
+            elif isinstance(node, ast.Import): imports.update(alias.name.split('.')[0] for alias in node.names)
+        graph[name] = imports & sources.keys()
+    active, completed, cycles = [], set(), set()
+    def visit(name):
+        if name in active:
+            cycle = active[active.index(name):]
+            rotations = [tuple(cycle[index:] + cycle[:index]) for index in range(len(cycle))]
+            cycles.add(min(rotations))
+        elif name not in completed:
+            active.append(name)
+            for dependency in sorted(graph[name]): visit(dependency)
+            active.pop()
+            completed.add(name)
+    for name in sorted(graph): visit(name)
+    return sorted(cycles)
+
+
+assert import_cycles({'a': 'from b import value', 'b': 'import c', 'c': 'from a import value'}) == [('a', 'b', 'c')]
+assert import_cycles({'a': 'def deferred():\n    import b', 'b': 'from a import value'}) == [('a', 'b')]
+assert import_cycles({'a': 'from b import value', 'b': 'import json'}) == []
+assert import_cycles({'a': 'import a'}) == [('a',)]
+sources = {path.stem: path.read_text() for path in (root / 'Scripts').glob('*.py')
+           if not path.stem.endswith('_tests')}
+cycles = import_cycles(sources)
+if cycles:
+    raise ValueError('维护脚本依赖需要单向组织：' + '；'.join(' → '.join((*cycle, cycle[0])) for cycle in cycles))

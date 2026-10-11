@@ -73,64 +73,64 @@ def teaching(path: str, method: str = 'GET', *, query: dict | None = None) -> Re
 
 
 CONTRACTS = {
-    'BIT101 登录状态': [community('/user/check')],
-    '话廊最新列表': [community('/posters', query={'mode': 'search', 'order': 'new', 'uid': '-1', 'search': None, 'hide_bot': None}, paging='page')],
-    '话廊关注流': [community('/posters', query={'mode': 'follow', 'order': None, 'uid': None, 'search': None, 'hide_bot': None}, paging='page')],
-    '话廊热门流': [community('/posters', query={'mode': 'hot', 'order': None, 'uid': None, 'search': None, 'hide_bot': None}, paging='page')],
-    '话廊推荐流': [community('/posters', query={'mode': None, 'order': None, 'uid': None, 'search': None, 'hide_bot': None}, paging='page')],
-    '话廊机器人流': [community('/posters', query={'mode': 'search', 'order': 'new', 'uid': '-1', 'search': None, 'hide_bot': None}, paging='page')],
-    '话廊搜索': [community('/posters', query={'mode': 'search', 'order': 'new', 'uid': '-1', 'search': 'BIT101', 'hide_bot': None}, paging='page')],
-    '话廊帖子详情': [community(r'/posters/\d+')],
-    '话廊帖子评论': [community('/reaction/comments', query={'obj': r'poster\d+', 'order': 'new'}, paging='page')],
-    '帖子声明列表': [community('/posters/claims')],
-    '社区举报类型': [community('/manage/report_types')],
-    '消息未读数': [community('/messages/unread_nums')],
-    '学业课程列表': [community('/courses', query={'order': 'new', 'search': None}, paging='page')],
-    '学业课程详情': [community(r'/courses/\d+')],
-    '学业课程评论': [community('/reaction/comments', query={'obj': r'course\d+', 'order': 'new'}, paging='page')],
-    '学业课程历史成绩': [community('/courses/histories/.+')],
-    '文章列表': [community('/papers', query={'order': None, 'search': None}, paging='page')],
-    '文章详情': [community(r'/papers/\d+')],
-    '文章正文图片下载': [RequestContract(r'.+', '/.+', port=None)],
-    '文章评论': [community('/reaction/comments', query={'obj': r'paper\d+', 'order': 'new'}, paging='page')],
-    '我的资料': [community('/user/info/0')],
-    '生产共享会话': [community('/user/info/0', minimum=2), community('/user/info/0', statuses=(401,))],
-    '我的关注': [community('/user/followings', paging='page')],
-    '我的粉丝': [community('/user/followers', paging='page')],
-    '我的帖子': [community('/posters', query={'mode': 'search', 'uid': '0', 'order': None, 'search': None}, paging='page')],
-    '用户帖子': [community('/posters', query={'mode': 'search', 'uid': r'[1-9]\d*', 'order': None, 'search': None}, paging='page')],
-    '用户资料详情': [community(r'/user/info/\d+')],
-    '当前学期': [teaching('/jwapp/sys/wdkbby/modules/jshkcb/dqxnxq.do')],
-    '生产学校会话': [teaching('/jwapp/sys/wdkbby/modules/jshkcb/dqxnxq.do')],
-    '教学中心接口预热': [teaching('/jwapp/sys/funauthapp/api/getAppConfig/wdkbby-5959167891382285.do'), teaching('/jwapp/i18n.do')],
-    '切换学期列表': [teaching('/jwapp/sys/wdkbby/modules/jshkcb/xnxqcx.do')],
-    '课表、考试与首周同步': [teaching(path, 'POST', query={'XNXQDM': '.+'}) for path in (
+    'community.login': [community('/user/check')],
+    'gallery.newest': [community('/posters', query={'mode': 'search', 'order': 'new', 'uid': '-1', 'search': None, 'hide_bot': None}, paging='page')],
+    'gallery.following': [community('/posters', query={'mode': 'follow', 'order': None, 'uid': None, 'search': None, 'hide_bot': None}, paging='page')],
+    'gallery.hot': [community('/posters', query={'mode': 'hot', 'order': None, 'uid': None, 'search': None, 'hide_bot': None}, paging='page')],
+    'gallery.recommend': [community('/posters', query={'mode': None, 'order': None, 'uid': None, 'search': None, 'hide_bot': None}, paging='page')],
+    'gallery.bots': [community('/posters', query={'mode': 'search', 'order': 'new', 'uid': '-1', 'search': None, 'hide_bot': None}, paging='page')],
+    'gallery.search': [community('/posters', query={'mode': 'search', 'order': 'new', 'uid': '-1', 'search': 'BIT101', 'hide_bot': None}, paging='page')],
+    'gallery.detail': [community(r'/posters/\d+')],
+    'gallery.comments': [community('/reaction/comments', query={'obj': r'poster\d+', 'order': 'new'}, paging='page')],
+    'gallery.claims': [community('/posters/claims')],
+    'community.report-types': [community('/manage/report_types')],
+    'message.unread': [community('/messages/unread_nums')],
+    'course.list': [community('/courses', query={'order': 'new', 'search': None}, paging='page')],
+    'course.detail': [community(r'/courses/\d+')],
+    'course.comments': [community('/reaction/comments', query={'obj': r'course\d+', 'order': 'new'}, paging='page')],
+    'course.history': [community('/courses/histories/.+')],
+    'paper.list': [community('/papers', query={'order': None, 'search': None}, paging='page')],
+    'paper.detail': [community(r'/papers/\d+')],
+    'paper.image': [RequestContract(r'.+', '/.+', port=None)],
+    'paper.comments': [community('/reaction/comments', query={'obj': r'paper\d+', 'order': 'new'}, paging='page')],
+    'profile.mine': [community('/user/info/0')],
+    'community.session': [community('/user/info/0', minimum=2), community('/user/info/0', statuses=(401,))],
+    'profile.following': [community('/user/followings', paging='page')],
+    'profile.followers': [community('/user/followers', paging='page')],
+    'profile.posts': [community('/posters', query={'mode': 'search', 'uid': '0', 'order': None, 'search': None}, paging='page')],
+    'user.posts': [community('/posters', query={'mode': 'search', 'uid': r'[1-9]\d*', 'order': None, 'search': None}, paging='page')],
+    'user.profile': [community(r'/user/info/\d+')],
+    'schedule.current-term': [teaching('/jwapp/sys/wdkbby/modules/jshkcb/dqxnxq.do')],
+    'school.session': [teaching('/jwapp/sys/wdkbby/modules/jshkcb/dqxnxq.do')],
+    'schedule.teaching-center': [teaching('/jwapp/sys/funauthapp/api/getAppConfig/wdkbby-5959167891382285.do'), teaching('/jwapp/i18n.do')],
+    'schedule.terms': [teaching('/jwapp/sys/wdkbby/modules/jshkcb/xnxqcx.do')],
+    'schedule.sync': [teaching(path, 'POST', query={'XNXQDM': '.+'}) for path in (
         '/jwapp/sys/wdkbby/modules/xskcb/cxxszhxqkb.do', '/jwapp/sys/wdksapMobile/modules/ksap/cxxsksap.do',
         '/jwapp/sys/wdkbby/wdkbByController/cxzkbrq.do')],
-    '空教室校区列表': [teaching('/jwapp/sys/kxjasbyMobile/modules/jxllb/ggzdpx.do')],
-    '空教室教学楼列表': [teaching('/jwapp/sys/kxjasbyMobile/modules/jxllb/cxjxl.do', query={'XXXQDM': '.+'})],
-    '空教室占用数据': [teaching('/jwapp/sys/kxjasbyMobile/kxjasbyController/cxkxjasqk.do', 'POST', query={'XNXQDM': '.+', 'JXLDM': '.+'})],
-    '课程中心原生认证': [RequestContract(r'zy-eclass\.bit\.edu\.cn', '/api/my-courses', 'POST')],
-    '课程中心 DDL 下载': [RequestContract(r'zy-eclass\.bit\.edu\.cn', '/api/my-courses', 'POST')],
-    '乐学日历订阅地址': [RequestContract(r'(?:lexue|webvpn)\.bit\.edu\.cn', VPN + '/calendar/export.php', 'POST')],
-    '乐学 DDL 下载': [RequestContract(r'(?:lexue|webvpn)\.bit\.edu\.cn', VPN + '/calendar/export_execute.php')],
-    '成绩认证接口': [RequestContract(r'login\.bit101\.flwfdd\.xyz', '/api/auth/start', 'POST')],
-    '成绩简略列表': [RequestContract(r'login\.bit101\.flwfdd\.xyz', '/api/jwb/bit101/score', 'POST', {'detail': 'false'})],
-    '成绩详细列表': [RequestContract(r'login\.bit101\.flwfdd\.xyz', '/api/jwb/bit101/score', 'POST', {'detail': 'true'})],
-    '可信成绩单接口': [RequestContract(r'login\.bit101\.flwfdd\.xyz', '/api/jwb/cjd/cookies', 'POST'),
+    'classroom.campuses': [teaching('/jwapp/sys/kxjasbyMobile/modules/jxllb/ggzdpx.do')],
+    'classroom.buildings': [teaching('/jwapp/sys/kxjasbyMobile/modules/jxllb/cxjxl.do', query={'XXXQDM': '.+'})],
+    'classroom.occupancy': [teaching('/jwapp/sys/kxjasbyMobile/kxjasbyController/cxkxjasqk.do', 'POST', query={'XNXQDM': '.+', 'JXLDM': '.+'})],
+    'eclass.authentication': [RequestContract(r'zy-eclass\.bit\.edu\.cn', '/api/my-courses', 'POST')],
+    'eclass.ddl': [RequestContract(r'zy-eclass\.bit\.edu\.cn', '/api/my-courses', 'POST')],
+    'lexue.calendar': [RequestContract(r'(?:lexue|webvpn)\.bit\.edu\.cn', VPN + '/calendar/export.php', 'POST')],
+    'lexue.ddl': [RequestContract(r'(?:lexue|webvpn)\.bit\.edu\.cn', VPN + '/calendar/export_execute.php')],
+    'score.authentication': [RequestContract(r'login\.bit101\.flwfdd\.xyz', '/api/auth/start', 'POST')],
+    'score.brief': [RequestContract(r'login\.bit101\.flwfdd\.xyz', '/api/jwb/bit101/score', 'POST', {'detail': 'false'})],
+    'score.detail': [RequestContract(r'login\.bit101\.flwfdd\.xyz', '/api/jwb/bit101/score', 'POST', {'detail': 'true'})],
+    'score.transcript': [RequestContract(r'login\.bit101\.flwfdd\.xyz', '/api/jwb/cjd/cookies', 'POST'),
         RequestContract(r'jwb\.bit\.edu\.cn', '/cjd/ScoreReport2/Index')],
-    'App 链接关联配置': [RequestContract(r'open\.aihelpme\.dev', '/.well-known/apple-app-site-association')],
-    '分享图标下载': [RequestContract(r'open\.aihelpme\.dev', '/share-icon.jpg')],
-    'open.aihelpme.dev 首页跳转': [RequestContract(r'open\.aihelpme\.dev', '/?', final_host=r'bit101\.cn', final_path='/gallery/')],
-    '话廊网页详情': [RequestContract(r'open\.aihelpme\.dev', r'/gallery/\d+')],
-    '学业课程网页详情': [RequestContract(r'open\.aihelpme\.dev', r'/course/\d+')],
-    '文章网页详情': [RequestContract(r'open\.aihelpme\.dev', r'/paper/\d+')],
-    '话廊图片下载': [RequestContract(r'.+', '/.+', port=None)],
-    '反馈接口跨域预检': [RequestContract(r'feedback\.aihelpme\.dev', '/api/error-reports', 'OPTIONS')],
-    'feedback.aihelpme.dev 写入恢复': [RequestContract(r'feedback\.aihelpme\.dev', '/api/error-reports', 'POST')],
-    'App Store 更新接口': [RequestContract(r'(?:itunes|apps)\.apple\.com', '/lookup')],
-    '紧急更新配置接口': [RequestContract(r'update\.aihelpme\.dev', '/emergency-update.json')],
-    '社区写入与清理': [community('/posters', method='POST'), community(r'/posters/\d+', method='DELETE'),
+    'web.association': [RequestContract(r'open\.aihelpme\.dev', '/.well-known/apple-app-site-association')],
+    'web.share-icon': [RequestContract(r'open\.aihelpme\.dev', '/share-icon.jpg')],
+    'web.home': [RequestContract(r'open\.aihelpme\.dev', '/?', final_host=r'bit101\.cn', final_path='/gallery/')],
+    'gallery.web': [RequestContract(r'open\.aihelpme\.dev', r'/gallery/\d+')],
+    'course.web': [RequestContract(r'open\.aihelpme\.dev', r'/course/\d+')],
+    'paper.web': [RequestContract(r'open\.aihelpme\.dev', r'/paper/\d+')],
+    'gallery.image': [RequestContract(r'.+', '/.+', port=None)],
+    'feedback.preflight': [RequestContract(r'feedback\.aihelpme\.dev', '/api/error-reports', 'OPTIONS')],
+    'feedback.recovery': [RequestContract(r'feedback\.aihelpme\.dev', '/api/error-reports', 'POST')],
+    'update.app-store': [RequestContract(r'(?:itunes|apps)\.apple\.com', '/lookup')],
+    'update.emergency': [RequestContract(r'update\.aihelpme\.dev', '/emergency-update.json')],
+    'community.writes': [community('/posters', method='POST'), community(r'/posters/\d+', method='DELETE'),
         community(r'/posters/\d+', method='PUT'), community('/papers', method='POST'),
         community(r'/papers/\d+', method='DELETE'), community(r'/papers/\d+', method='PUT'),
         community('/upload/image', method='POST', minimum=4),
@@ -144,12 +144,12 @@ CONTRACTS = {
 
 
 def contracts_for(probe: str) -> list[RequestContract]:
-    if probe.startswith('消息列表-'):
-        return [community('/messages', query={'type': re.escape(probe.removeprefix('消息列表-'))}, paging='last_id')]
-    if probe.startswith('文章列表-'):
-        orders = {'最新': None, '高赞': 'like', '热评': 'comment'}
-        title = probe.removeprefix('文章列表-')
-        return [community('/papers', query={'order': orders[title], 'search': 'BIT101'}, paging='page')] if title in orders else []
+    if probe.startswith('message.'):
+        return [community('/messages', query={'type': re.escape(probe.removeprefix('message.'))}, paging='last_id')]
+    if probe.startswith('paper.list.'):
+        orders = {'newest': None, 'like': 'like', 'comment': 'comment'}
+        order = probe.removeprefix('paper.list.')
+        return [community('/papers', query={'order': orders[order], 'search': 'BIT101'}, paging='page')] if order in orders else []
     return CONTRACTS.get(probe, [])
 
 
@@ -158,9 +158,9 @@ def auxiliary_contracts(probe: str, contracts: list[RequestContract]) -> list[Re
     school_session = any(contract.host in {SCHOOL, r'zy-eclass\.bit\.edu\.cn', r'(?:lexue|webvpn)\.bit\.edu\.cn',
         r'login\.bit101\.flwfdd\.xyz', r'jwb\.bit\.edu\.cn'} for contract in contracts)
     rows = []
-    if probe in {'文章详情', '文章评论', '社区写入与清理'}:
+    if probe in {'paper.detail', 'paper.comments', 'community.writes'}:
         rows.append(community('/user/check'))
-    if probe == '社区写入与清理':
+    if probe == 'community.writes':
         rows.extend(community(path) for path in (r'/user/info/\d+', r'/courses/\d+', r'/posters/\d+', r'/papers/\d+'))
         rows.extend([
             community('/posters', query={'mode': 'search', 'uid': '0', 'order': None, 'search': None}),
@@ -178,15 +178,15 @@ def auxiliary_contracts(probe: str, contracts: list[RequestContract]) -> list[Re
         rows.extend([RequestContract(r'login\.bit101\.flwfdd\.xyz', '/api/jxzxehall/cookies', 'POST'),
             RequestContract(r'login\.bit101\.flwfdd\.xyz', r'/api/auth/[^/]+'),
             RequestContract(r'login\.bit101\.flwfdd\.xyz', r'/api/auth/[^/]+/sms', 'POST')])
-        rows.extend(CONTRACTS['教学中心接口预热'])
-        rows.extend(CONTRACTS['成绩认证接口'])
-    if probe in {'课程中心原生认证', '课程中心 DDL 下载'}:
+        rows.extend(CONTRACTS['schedule.teaching-center'])
+        rows.extend(CONTRACTS['score.authentication'])
+    if probe in {'eclass.authentication', 'eclass.ddl'}:
         rows.extend([RequestContract(r'zy-eclass\.bit\.edu\.cn', '/user/index'),
             RequestContract(r'zy-eclass\.bit\.edu\.cn', r'/api/courses/[1-9]\d*/activities')])
-    if probe in {'乐学日历订阅地址', '乐学 DDL 下载'}:
+    if probe in {'lexue.calendar', 'lexue.ddl'}:
         rows.extend([RequestContract(r'(?:lexue|webvpn)\.bit\.edu\.cn', VPN + '/'),
             RequestContract(r'(?:lexue|webvpn)\.bit\.edu\.cn', VPN + '/calendar/export.php', 'POST')])
-    if probe == '可信成绩单接口':
+    if probe == 'score.transcript':
         rows.append(RequestContract(r'jwb\.bit\.edu\.cn', '/cjd/Temp/.+'))
     return rows
 
@@ -211,11 +211,11 @@ def requests_accounted_for(requests: list[dict], contracts: list[RequestContract
 
 
 SELECTORS = {
-    **{name: {'obj'} for name in ('话廊帖子评论', '学业课程评论', '文章评论')},
-    **{name: {'uid'} for name in ('我的帖子', '用户帖子')},
-    **{name: {'path'} for name in ('话廊帖子详情', '学业课程详情', '学业课程历史成绩', '文章详情',
-        '用户资料详情', '话廊网页详情', '学业课程网页详情', '文章网页详情')},
-    '课表、考试与首周同步': {'XNXQDM'}, '空教室占用数据': {'XNXQDM', 'JXLDM'}, '空教室教学楼列表': {'XXXQDM'},
+    **{name: {'obj'} for name in ('gallery.comments', 'course.comments', 'paper.comments')},
+    **{name: {'uid'} for name in ('profile.posts', 'user.posts')},
+    **{name: {'path'} for name in ('gallery.detail', 'course.detail', 'course.history', 'paper.detail',
+        'user.profile', 'gallery.web', 'course.web', 'paper.web')},
+    'schedule.sync': {'XNXQDM'}, 'classroom.occupancy': {'XNXQDM', 'JXLDM'}, 'classroom.buildings': {'XXXQDM'},
 }
 
 
@@ -230,17 +230,17 @@ def complete(probe: str, requests: list[dict], expected_parameters: dict | None 
         matched = all(all((unquote(urlsplit(row[field]).path) if key == 'path' else row.get(query_field, {}).get(key)) == expected
             for key, expected in expected_parameters.items() for field, query_field in (('endpoint', 'query'), ('finalEndpoint', 'finalQuery')))
             for row in requests if any(contract.matches(row) for contract in contracts))
-    if matched and probe == '生产共享会话':
+    if matched and probe == 'community.session':
         return len(requests) == 3 and contracts[0].matches(requests[0]) \
             and contracts[1].matches(requests[1]) and contracts[0].matches(requests[2])
-    if matched and probe in {'话廊图片下载', '文章正文图片下载'}:
+    if matched and probe in {'gallery.image', 'paper.image'}:
         if not isinstance(expected_parameters, dict) or set(expected_parameters) != {'resourceDigests'}: return False
         value = expected_parameters['resourceDigests']
         if not isinstance(value, str): return False
         expected = set(value.split(','))
         if not expected or any(not re.fullmatch(r'[0-9a-f]{64}', digest) for digest in expected): return False
         return {row.get('endpointDigest') for row in requests if contracts[0].matches(row)} == expected
-    if matched and probe in {'课程中心原生认证', '课程中心 DDL 下载'}:
+    if matched and probe in {'eclass.authentication', 'eclass.ddl'}:
         pages = [row.get('responseCourseIDs') for row in requests if contracts[0].matches(row)]
         if not all(isinstance(ids, list) and all(isinstance(value, str) and re.fullmatch(r'[1-9]\d*', value)
             for value in ids) for ids in pages): return False
@@ -253,7 +253,7 @@ def complete(probe: str, requests: list[dict], expected_parameters: dict | None 
                 if path != urlsplit(row['finalEndpoint']).path: return False
                 observed.add(path.split('/')[3])
         return observed == expected
-    if matched and probe == '社区写入与清理':
+    if matched and probe == 'community.writes':
         comments = [row for row in requests if community('/reaction/comments', method='POST').matches(row)]
         from collections import Counter
         replies = Counter(row.get('query', {}).get('obj') for row in comments if row.get('query', {}).get('obj', '').startswith('comment'))

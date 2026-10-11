@@ -52,7 +52,7 @@ def run_self_test() -> None:
 def result_replacement_self_test() -> None:
     import json
     from contextlib import nullcontext
-    import validation_evidence
+    import validation_provenance
     sha = 'a' * 64
     report = {'releaseCommit': 'commit', 'mergeCommit': 'commit', 'groups': {
         'all': {'resultBundleSHA256': sha},
@@ -61,9 +61,9 @@ def result_replacement_self_test() -> None:
         'performanceBaseline': {'approvedBy': 'maintainer'}}
     with patch.object(Path, 'exists', return_value=True), patch.object(Path, 'is_file', return_value=True), \
             patch.object(Path, 'read_text', return_value=json.dumps(report)), \
-            patch.object(validation_evidence, 'report_lock', side_effect=nullcontext), \
+            patch.object(validation_provenance, 'report_lock', side_effect=nullcontext), \
             patch.object(subject.shutil, 'rmtree') as remove, \
-            patch.object(validation_evidence, 'write_report') as save:
+            patch.object(validation_provenance, 'write_report') as save:
         save.side_effect = lambda value: remove.assert_not_called()
         assert subject.main(['reset-results']) == 0
         updated = save.call_args.args[0]
@@ -123,7 +123,7 @@ def baseline_migration_self_test() -> None:
         if fault == 'approval': incoming['records'][next(iter(incoming['records']))]['approvedBy'] = ''
         with patch.object(ci_evidence, 'repository', return_value='owner/repo'), patch.object(ci_evidence, 'api_pages', return_value=[run]), \
                 patch.object(ci_evidence, 'download_core', return_value={'performanceBaseline': incoming, 'groups': {'all': {'inputDigest': 'old'}}}), \
-                patch('validation_evidence.report_lock', side_effect=nullcontext), patch('validation_evidence.write_report') as save, \
+                patch('validation_provenance.report_lock', side_effect=nullcontext), patch('validation_provenance.write_report') as save, \
                 patch.object(Path, 'is_file', return_value=True), patch.object(Path, 'read_text', autospec=True,
                     side_effect=lambda path: json.dumps(retained if path == ci_evidence.REPORT else {'schemaVersion': 1, 'current': 'retained'})), \
                 patch.object(Path, 'write_text') as measurements:
@@ -165,7 +165,7 @@ def producing_run_capture_self_test() -> None:
             patch.object(subject, 'uncommitted_inputs', return_value=[]), \
             patch.object(subject, 'record_complete', return_value=True), \
             patch.object(subject, 'bundle_digest', return_value='b' * 64), \
-            patch('validation_evidence.source_digest', return_value='digest'), \
+            patch('validation_provenance.source_digest', return_value='digest'), \
             patch.object(subject.subprocess, 'check_output', side_effect=AssertionError('后续宿主沿固定结果包继续运行')):
         assert subject.capture_current() == {'schemaVersion': 1, 'records': combined}
         from validation_publication import core_exchange
@@ -188,7 +188,7 @@ def batch_retention_self_test(raw: list, test: str) -> None:
     import subprocess
     import sys
     from contextlib import nullcontext
-    import validation_evidence
+    import validation_provenance
     fixture = subject.ROOT / '.build/static-audit/performance-results-self-test'
     bundle = fixture / '.build/extended-automation/test-results.xcresult'
     retained = bundle.with_suffix('.retained.xcresult')
@@ -255,9 +255,9 @@ def batch_retention_self_test(raw: list, test: str) -> None:
         else: raise AssertionError('结果包完成写入后提供采样摘要')
         (bundle / 'Staging').rmdir()
         (bundle / 'Info.plist').rename(bundle / 'database.sqlite3')
-        with patch.object(subject, 'BUNDLE', bundle), patch.object(validation_evidence, 'REPORT', report_path), \
-                patch.object(validation_evidence, 'report_lock', side_effect=nullcontext), \
-                patch.object(validation_evidence, 'write_report') as writer, \
+        with patch.object(subject, 'BUNDLE', bundle), patch.object(validation_provenance, 'REPORT', report_path), \
+                patch.object(validation_provenance, 'report_lock', side_effect=nullcontext), \
+                patch.object(validation_provenance, 'write_report') as writer, \
                 patch.object(subject.subprocess, 'run', side_effect=merge), \
                 patch.object(subject.subprocess, 'check_output', side_effect=exported):
             first_sha = subject.bundle_digest(bundle)
@@ -383,7 +383,7 @@ def merge_regression_self_test() -> None:
     import json
     from contextlib import nullcontext, redirect_stdout
     from io import StringIO
-    import validation_evidence
+    import validation_provenance
     from validation_manual_tests import evidence_fixture
     measurements = json.loads(evidence_fixture('performance-baseline'))['scenarios']
     report = {'groups': {}, 'performanceBaseline': {'schemaVersion': 1, 'records': {}}}
@@ -425,8 +425,8 @@ def merge_regression_self_test() -> None:
     with patch.object(subject, 'capture_current', return_value=approved), \
             patch.object(Path, 'is_file', return_value=True), \
             patch.object(Path, 'read_text', return_value='{"mergeCommit":"old","groups":{}}'), \
-            patch.object(Path, 'write_text'), patch.object(validation_evidence, 'report_lock', side_effect=nullcontext), \
-            patch.object(validation_evidence, 'write_report') as writer, redirect_stdout(StringIO()):
+            patch.object(Path, 'write_text'), patch.object(validation_provenance, 'report_lock', side_effect=nullcontext), \
+            patch.object(validation_provenance, 'write_report') as writer, redirect_stdout(StringIO()):
         assert subject.main(['baseline', 'maintainer']) == 0
         saved = writer.call_args.args[0]
         assert 'mergeCommit' not in saved and set(saved['performanceBaseline']['records']) == set(measurements)

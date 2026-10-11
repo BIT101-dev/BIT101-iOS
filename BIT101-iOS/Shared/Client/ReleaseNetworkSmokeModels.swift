@@ -70,6 +70,155 @@ enum NetworkSmokeScope: String, Codable, CaseIterable, Sendable {
 
 }
 
+enum NetworkSmokeProbe: String, CaseIterable, Sendable {
+    case login = "community.login"
+    case communityWrites = "community.writes"
+    case homeRedirect = "web.home"
+    case appAssociation = "web.association"
+    case shareIcon = "web.share-icon"
+    case feedbackPreflight = "feedback.preflight"
+    case galleryNewest = "gallery.newest"
+    case galleryFollowing = "gallery.following"
+    case galleryHot = "gallery.hot"
+    case galleryDetail = "gallery.detail"
+    case galleryComments = "gallery.comments"
+    case galleryImage = "gallery.image"
+    case galleryWeb = "gallery.web"
+    case galleryRecommend = "gallery.recommend"
+    case galleryBots = "gallery.bots"
+    case galleryClaims = "gallery.claims"
+    case reportTypes = "community.report-types"
+    case productionSession = "community.session"
+    case gallerySearch = "gallery.search"
+    case messageUnread = "message.unread"
+    case courseList = "course.list"
+    case courseDetail = "course.detail"
+    case courseComments = "course.comments"
+    case courseHistory = "course.history"
+    case courseWeb = "course.web"
+    case paperList = "paper.list"
+    case paperDetail = "paper.detail"
+    case paperImage = "paper.image"
+    case paperComments = "paper.comments"
+    case paperWeb = "paper.web"
+    case myProfile = "profile.mine"
+    case myFollowing = "profile.following"
+    case myFollowers = "profile.followers"
+    case myPosts = "profile.posts"
+    case userProfile = "user.profile"
+    case userPosts = "user.posts"
+    case appStoreUpdate = "update.app-store"
+    case emergencyUpdate = "update.emergency"
+    case feedbackRecovery = "feedback.recovery"
+    case currentTerm = "schedule.current-term"
+    case teachingCenter = "schedule.teaching-center"
+    case schoolSession = "school.session"
+    case termList = "schedule.terms"
+    case scheduleSync = "schedule.sync"
+    case classroomCampuses = "classroom.campuses"
+    case classroomBuildings = "classroom.buildings"
+    case classroomOccupancy = "classroom.occupancy"
+    case eclassAuthentication = "eclass.authentication"
+    case eclassDDL = "eclass.ddl"
+    case lexueCalendar = "lexue.calendar"
+    case lexueDDL = "lexue.ddl"
+    case scoreAuthentication = "score.authentication"
+    case scoreBrief = "score.brief"
+    case scoreDetail = "score.detail"
+    case transcript = "score.transcript"
+    case messageComment = "message.comment"
+    case messageLike = "message.like"
+    case messageFollow = "message.follow"
+    case messageSystem = "message.system"
+    case paperNewest = "paper.list.newest"
+    case paperLikes = "paper.list.like"
+    case paperCommentSort = "paper.list.comment"
+
+    var displayName: String {
+        switch self {
+        case .login: "BIT101 登录状态"
+        case .communityWrites: "社区写入与清理"
+        case .homeRedirect: "open.aihelpme.dev 首页跳转"
+        case .appAssociation: "App 链接关联配置"
+        case .shareIcon: "分享图标下载"
+        case .feedbackPreflight: "反馈接口跨域预检"
+        case .galleryNewest: "话廊最新列表"
+        case .galleryFollowing: "话廊关注流"
+        case .galleryHot: "话廊热门流"
+        case .galleryDetail: "话廊帖子详情"
+        case .galleryComments: "话廊帖子评论"
+        case .galleryImage: "话廊图片下载"
+        case .galleryWeb: "话廊网页详情"
+        case .galleryRecommend: "话廊推荐流"
+        case .galleryBots: "话廊机器人流"
+        case .galleryClaims: "帖子声明列表"
+        case .reportTypes: "社区举报类型"
+        case .productionSession: "生产共享会话"
+        case .gallerySearch: "话廊搜索"
+        case .messageUnread: "消息未读数"
+        case .courseList: "学业课程列表"
+        case .courseDetail: "学业课程详情"
+        case .courseComments: "学业课程评论"
+        case .courseHistory: "学业课程历史成绩"
+        case .courseWeb: "学业课程网页详情"
+        case .paperList: "文章列表"
+        case .paperDetail: "文章详情"
+        case .paperImage: "文章正文图片下载"
+        case .paperComments: "文章评论"
+        case .paperWeb: "文章网页详情"
+        case .myProfile: "我的资料"
+        case .myFollowing: "我的关注"
+        case .myFollowers: "我的粉丝"
+        case .myPosts: "我的帖子"
+        case .userProfile: "用户资料详情"
+        case .userPosts: "用户帖子"
+        case .appStoreUpdate: "App Store 更新接口"
+        case .emergencyUpdate: "紧急更新配置接口"
+        case .feedbackRecovery: "feedback.aihelpme.dev 写入恢复"
+        case .currentTerm: "当前学期"
+        case .teachingCenter: "教学中心接口预热"
+        case .schoolSession: "生产学校会话"
+        case .termList: "切换学期列表"
+        case .scheduleSync: "课表、考试与首周同步"
+        case .classroomCampuses: "空教室校区列表"
+        case .classroomBuildings: "空教室教学楼列表"
+        case .classroomOccupancy: "空教室占用数据"
+        case .eclassAuthentication: "课程中心原生认证"
+        case .eclassDDL: "课程中心 DDL 下载"
+        case .lexueCalendar: "乐学日历订阅地址"
+        case .lexueDDL: "乐学 DDL 下载"
+        case .scoreAuthentication: "成绩认证接口"
+        case .scoreBrief: "成绩简略列表"
+        case .scoreDetail: "成绩详细列表"
+        case .transcript: "可信成绩单接口"
+        case .messageComment: "消息列表-comment"
+        case .messageLike: "消息列表-like"
+        case .messageFollow: "消息列表-follow"
+        case .messageSystem: "消息列表-system"
+        case .paperNewest: "文章列表-最新"
+        case .paperLikes: "文章列表-高赞"
+        case .paperCommentSort: "文章列表-热评"
+        }
+    }
+
+    static func message(_ type: GalleryMessageType) -> Self {
+        switch type {
+        case .comment: .messageComment
+        case .like: .messageLike
+        case .follow: .messageFollow
+        case .system: .messageSystem
+        }
+    }
+
+    static func paperSort(_ order: PaperSortOrder) -> Self {
+        switch order {
+        case .newest: .paperNewest
+        case .like: .paperLikes
+        case .comment: .paperCommentSort
+        }
+    }
+}
+
 enum NetworkSmokeArea: CaseIterable, Hashable, Sendable {
     case authentication
     case bit101
@@ -79,83 +228,86 @@ enum NetworkSmokeArea: CaseIterable, Hashable, Sendable {
     case transcript
     case communityWrites
 
-    var requiredProbes: [String] {
+    var probeKinds: [NetworkSmokeProbe] {
         switch self {
         case .authentication:
-            ["BIT101 登录状态"]
+            [.login]
         case .communityWrites:
-            ["社区写入与清理"]
+            [.communityWrites]
         case .bit101:
             [
-                "open.aihelpme.dev 首页跳转",
-                "App 链接关联配置",
-                "分享图标下载",
-                "反馈接口跨域预检",
-                "话廊最新列表",
-                "话廊关注流",
-                "话廊热门流",
-                "话廊帖子详情",
-                "话廊帖子评论",
-                "话廊图片下载",
-                "话廊网页详情",
-                "话廊推荐流",
-                "话廊机器人流",
-                "帖子声明列表",
-                "社区举报类型",
-                "生产共享会话",
-                "话廊搜索",
-                "消息未读数",
-                "学业课程列表",
-                "学业课程详情",
-                "学业课程评论",
-                "学业课程历史成绩",
-                "学业课程网页详情",
-                "文章列表",
-                "文章详情",
-                "文章正文图片下载",
-                "文章评论",
-                "文章网页详情",
-                "我的资料",
-                "我的关注",
-                "我的粉丝",
-                "我的帖子",
-                "用户资料详情",
-                "用户帖子",
-                "App Store 更新接口",
-                "紧急更新配置接口",
-                "feedback.aihelpme.dev 写入恢复",
-            ] + GalleryMessageType.allCases.map { "消息列表-\($0.rawValue)" }
-                + PaperSortOrder.allCases.map { "文章列表-\($0.title)" }
+                .homeRedirect,
+                .appAssociation,
+                .shareIcon,
+                .feedbackPreflight,
+                .galleryNewest,
+                .galleryFollowing,
+                .galleryHot,
+                .galleryDetail,
+                .galleryComments,
+                .galleryImage,
+                .galleryWeb,
+                .galleryRecommend,
+                .galleryBots,
+                .galleryClaims,
+                .reportTypes,
+                .productionSession,
+                .gallerySearch,
+                .messageUnread,
+                .courseList,
+                .courseDetail,
+                .courseComments,
+                .courseHistory,
+                .courseWeb,
+                .paperList,
+                .paperDetail,
+                .paperImage,
+                .paperComments,
+                .paperWeb,
+                .myProfile,
+                .myFollowing,
+                .myFollowers,
+                .myPosts,
+                .userProfile,
+                .userPosts,
+                .appStoreUpdate,
+                .emergencyUpdate,
+                .feedbackRecovery,
+            ] + GalleryMessageType.allCases.map(NetworkSmokeProbe.message)
+                + PaperSortOrder.allCases.map(NetworkSmokeProbe.paperSort)
         case .schedule:
             [
-                "当前学期",
-                "教学中心接口预热",
-                "生产学校会话",
-                "切换学期列表",
-                "课表、考试与首周同步",
-                "空教室校区列表",
-                "空教室教学楼列表",
-                "空教室占用数据",
+                .currentTerm,
+                .teachingCenter,
+                .schoolSession,
+                .termList,
+                .scheduleSync,
+                .classroomCampuses,
+                .classroomBuildings,
+                .classroomOccupancy,
             ]
         case .ddl:
             [
-                "课程中心原生认证",
-                "课程中心 DDL 下载",
-                "乐学日历订阅地址",
-                "乐学 DDL 下载",
+                .eclassAuthentication,
+                .eclassDDL,
+                .lexueCalendar,
+                .lexueDDL,
             ]
         case .school:
             [
-                "成绩认证接口",
-                "成绩简略列表",
-                "成绩详细列表",
+                .scoreAuthentication,
+                .scoreBrief,
+                .scoreDetail,
             ]
         case .transcript:
             [
-                "可信成绩单接口",
+                .transcript,
             ]
         }
     }
+
+
+    var requiredProbes: [String] { probeKinds.map(\.rawValue) }
 
 }
 
@@ -233,6 +385,7 @@ struct ReleaseNetworkSmokeReport: Codable {
     var validatedTerm: String? = nil
     var requestEvidence: [NetworkSmokeRequestEvidence] = []
     var requestEvidenceRequired = true
+    var probeLabels = Dictionary(uniqueKeysWithValues: NetworkSmokeProbe.allCases.map { ($0.rawValue, $0.displayName) })
 
     var elapsed: TimeInterval {
         finishedAt.timeIntervalSince(startedAt)

@@ -97,7 +97,7 @@ def self_test() -> None:
     performance = shared['groups']['all']['performance']
     identity = shared['groups']['all']['environment']['device']['identifier']
     assert identity == performance['environment']['deviceIdentifier'] == performance['xcresultMetrics'][0]['testRuns'][0]['device']['deviceId']
-    from validation_evidence import source_digest
-    with patch('validation_evidence.repository_input_names', return_value=[]):
+    from validation_provenance import source_digest
+    with patch('validation_provenance.repository_input_names', return_value=[]):
         assert source_digest('all', environment=context) == source_digest('all', environment=shared['groups']['all']['environment'])
         assert source_digest('all', environment=context) != source_digest('all', environment=context | {'device': context['device'] | {'identifier': 'other'}})

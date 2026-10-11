@@ -439,3 +439,12 @@ UI 自动化同时采集交互库存及宿主与 Feature / UI 模块的行覆盖
 课表恢复回归覆盖首次读取取消、页面复入及旧请求迟到；持久化写入回归核对节次表、共享课表与调课规则的课程坐标，并保留健康缓存的原始字节。正式运行条件组包含日程模块边界与提醒上下文合同。授权后的 `Scripts/run-extended-tests.sh simulator release-runtime 测试类/方法` 以 Release 和正式编译条件执行定向合同，并恢复常规 App；`simulator app` 承接调试条件行为合同。通知替换通过注入系统端口验收添加失败、响应丢失、取消、账号变化与恢复失败。编译参数门禁沿各宿主实际执行参数核对覆盖率及 Swift / Clang 警告参数，注释变异参与自测。
 
 社区写入 smoke 分别沿课程、文章、帖子服务创建主评论、普通回复和定向回复，读回核对目标评论与用户；图片提交沿帖子服务核对引用。已知评论读取从新页开始，找到所需 ID 后结束翻页。响应丢失和历史恢复沿完整评论扫描确认未知创建，原有已知回复继续保留提交恢复标记；删除确认逐个父对象保留完整扫描。网络能力检测采用 SwiftOperators 的标准运算符折叠记录短路和三元分支，并按可证明的条件排除死调用；名义类型转换沿声明的协议与继承关系解析，未知转换继续保留歧义。传输发现覆盖项目端口、URLSession 任务与 WebSocket、Network.framework 连接及协议注入。
+
+
+网络请求证据使用 `NetworkSmokeProbe` 声明的机器标识，报告中的 `probeLabels` 提供中文显示标签。库存回归验证显示标签调整后机器标识保持稳定；编排回归覆盖分类消息与文章排序的全部声明。
+
+实网网络与学校认证证据绑定生产源码、请求合同、构建与验证入口及 Worker 输入。iCloud 执行证据绑定跨设备 smoke 测试入口；iCloud 编译缓存保留完整测试目标的编译输入。普通行为测试、性能用例与模拟器操作脚本沿各自工作流参与摘要。Swift 条件求值读取 Package 平台与语言模式，并对原生目标合并工程与目标的 Release 设置。
+
+`catalyst-desktop` 专项覆盖 `window-resize`、`menu-actions`、`keyboard-navigation`、`permission-dialogs`、`minimum-system`。附件沿统一 `manual-scenarios.json` 路径覆盖写入，使用 `schemaVersion: 1`、`platform: "macCatalyst"`、设备标识、型号、系统版本与构建及 `scenarios`。窗口场景保存实际与此前窗口尺寸；菜单场景的 `actions` 覆盖 `app-menu` 与 `window-menu`，键盘覆盖 `tab`、`return`、`escape`，权限覆盖 `photos`、`calendar`、`notifications`；每个动作保存实际操作、观察结果与 passed/failed 状态。各场景沿通用影像合同保存观察时间与附件。
+
+桌面专项的系统主、小版本匹配 Package 声明的 macOS 最低版本，补丁版本达到部署要求。`application` 保存 bundle 标识、版本、构建、`configuration: "Release"`、空 `testHostMarkers`、最低系统版本、可执行文件 SHA-256 与 Mach-O UUID；版本和构建与分发合同核对。`inputDigest` 使用 `validation_provenance.source_digest("manual-device", environment={})` 绑定当前源码及验证输入。桌面专项参与统一人工发布门禁，行为与运行条件测试分别保存所属执行证据。

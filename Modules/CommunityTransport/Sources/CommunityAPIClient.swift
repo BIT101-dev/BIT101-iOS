@@ -72,12 +72,13 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
         var rejected = false
         let parentStart = HTTPRequestEvidenceContext.willStart
         let parentReceive = HTTPRequestEvidenceContext.didReceive
-        let receive: (@MainActor @Sendable (HTTPRequestEvidence) -> Void)?
+        let receive: (@MainActor @Sendable (URLRequest, HTTPResponse) async -> Void)?
         if isCreation {
-            receive = { evidence in
+            receive = { request, response in
+                let evidence = HTTPRequestEvidence(request: request, response: response.response, finalRequest: response.finalRequest)
                 rejected = (400..<500).contains(evidence.statusCode) && evidence.statusCode != 408
                     && evidence.endpoint == evidence.finalEndpoint && evidence.method == evidence.finalMethod
-                parentReceive?(evidence)
+                await parentReceive?(request, response)
             }
         } else { receive = parentReceive }
         do {

@@ -129,10 +129,9 @@ struct NetworkSmokeCoverageTests {
         let request = URLRequest(url: redirected ? url : duplicate)
         let finalRequest = URLRequest(url: duplicate)
         let response = try #require(HTTPURLResponse(url: duplicate, statusCode: 200, httpVersion: nil, headerFields: nil))
-        let evidence = HTTPRequestEvidence(request: request, response: response, finalRequest: finalRequest)
         let collector = NetworkSmokeRequestCollector()
         await #expect(throws: NetworkSmokeRequestError.self) {
-            try await collector.perform({ HTTPRequestEvidenceContext.didReceive?(evidence) }, required: true)
+            try await collector.perform({ await HTTPRequestEvidenceContext.didReceive?(request, HTTPResponse(data: Data(), response: response, finalRequest: finalRequest)) }, required: true)
         }
         #expect(collector.requests.count == 1 && HTTPRequestEvidenceContext.didReceive == nil)
     }
@@ -894,7 +893,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
             schoolSMSCodeHandler: stage.hasPrefix("all-sms-") ? smsHandler : nil)
         if scope.includes(.bit101) {
             #expect(services.observed.isSuperset(of: ["gallery-follow", "gallery-hot", "gallery-newest"]))
-            #expect(report.executedProbes.contains("话廊关注流") && report.executedProbes.contains("话廊热门流"))
+            #expect(report.executedProbes.contains("gallery.following") && report.executedProbes.contains("gallery.hot"))
         }
         #expect(report.passed == (!stage.hasSuffix("failure") || stage == "missing-fixtures-failure"), "\(stage): \(report.failures)")
         if stage == "maintained-fixtures-success" {
@@ -905,7 +904,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
             #expect(external.requests.contains { $0.url?.path == "/fixture.png" })
         }
         if stage == "fixture-image-missing-failure" {
-            #expect(report.failures.contains { $0.contains("话廊图片下载") })
+            #expect(report.failures.contains { $0.contains("gallery.image") })
         }
         if stage == "missing-fixtures-failure" {
             #expect(!report.coverageComplete && report.skippedProbes.contains { $0.contains("维护对象配置") })
@@ -914,7 +913,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
         if stage == "all-sms-success" {
             #expect(report.schoolSMSCoverage == "verified")
             #expect(services.webvpnVerified && productionServices.webvpnVerified)
-            #expect(Set(report.verifiedSMSProbes.filter { $0.purpose == "webvpn" }.map(\.probe)) == ["生产学校会话", "当前学期"])
+            #expect(Set(report.verifiedSMSProbes.filter { $0.purpose == "webvpn" }.map(\.probe)) == ["school.session", "schedule.current-term"])
             #expect(Set(report.verifiedSMSProbes.map(\.purpose)) == NetworkSmokeScope.all.requiredSMSPurposes)
         }
         if stage.hasPrefix("all-sms-") {
@@ -927,17 +926,17 @@ extension ReleaseNetworkSmokeLifecycleTests {
             #expect(report.verifiedSMSProbes.isEmpty && report.requestedSMSPurposes.isEmpty)
         }
         if stage == "repeated-page-failure" {
-            #expect(report.failures.contains { $0.contains("学业课程列表") })
+            #expect(report.failures.contains { $0.contains("course.list") })
             #expect(services.observed.contains("fixture-course-43"))
             #expect(report.coverageComplete)
         }
         if stage == "missing-fixtures-failure" {
             #expect(Set(scope.requiredProbes).subtracting(report.executedProbes)
-                == ["话廊帖子详情", "话廊图片下载", "话廊帖子评论", "话廊网页详情", "学业课程详情", "学业课程评论",
-                    "学业课程历史成绩", "学业课程网页详情", "文章详情", "文章正文图片下载", "文章评论", "文章网页详情"])
+                == ["gallery.detail", "gallery.image", "gallery.comments", "gallery.web", "course.detail", "course.comments",
+                    "course.history", "course.web", "paper.detail", "paper.image", "paper.comments", "paper.web"])
         } else {
-            let deferred: Set<String> = stage == "entity-identity-failure" ? ["文章正文图片下载", "话廊图片下载"]
-                : stage == "paper-content-failure" ? ["文章正文图片下载"] : stage == "campus-selection-failure" ? ["空教室占用数据"] : []
+            let deferred: Set<String> = stage == "entity-identity-failure" ? ["paper.image", "gallery.image"]
+                : stage == "paper-content-failure" ? ["paper.image"] : stage == "campus-selection-failure" ? ["classroom.occupancy"] : []
             #expect(Set(report.executedProbes) == Set(scope.requiredProbes).subtracting(deferred))
         }
         #expect(reports.count == 1 && reports[0].passed == report.passed)
@@ -950,20 +949,20 @@ extension ReleaseNetworkSmokeLifecycleTests {
         }
         if stage == "entity-identity-failure" {
             #expect(report.failures.count == 3)
-            for name in ["话廊帖子详情", "学业课程详情", "文章详情"] { #expect(report.failures.contains { $0.contains(name) }) }
+            for name in ["gallery.detail", "course.detail", "paper.detail"] { #expect(report.failures.contains { $0.contains(name) }) }
         }
         if stage == "paper-content-failure" || stage == "paper-image-failure" || stage == "campus-selection-failure" {
-            let probe = stage == "paper-content-failure" ? "文章详情" : stage == "paper-image-failure" ? "文章正文图片下载" : "空教室教学楼列表"
+            let probe = stage == "paper-content-failure" ? "paper.detail" : stage == "paper-image-failure" ? "paper.image" : "classroom.buildings"
             #expect(report.failures.count == 1 && report.failures[0].contains(probe))
         }
         if stage.contains("comment-page") {
             let kind = String(stage.prefix { $0 != "-" })
-            let probe = kind == "gallery" ? "话廊帖子评论" : kind == "course" ? "学业课程评论" : "文章评论"
+            let probe = kind == "gallery" ? "gallery.comments" : kind == "course" ? "course.comments" : "paper.comments"
             #expect(report.failures.count == 1 && report.failures[0].contains(probe))
             #expect(services.observed.contains("\(kind)-comments-\(kind == "gallery" ? 3 : 1)"))
         }
-        if stage.hasPrefix("cors") { #expect(report.failures.count == 1 && report.failures[0].contains("反馈接口跨域预检")) }
-        if stage.hasPrefix("aasa") { #expect(report.failures.count == 1 && report.failures[0].contains("App 链接关联配置")) }
+        if stage.hasPrefix("cors") { #expect(report.failures.count == 1 && report.failures[0].contains("feedback.preflight")) }
+        if stage.hasPrefix("aasa") { #expect(report.failures.count == 1 && report.failures[0].contains("web.association")) }
         if scope.includes(.schedule) { #expect(services.observed.contains("schedule")) }
         if scope.includes(.schedule) {
             #expect(report.currentTerm == "fixture-1")
@@ -973,10 +972,10 @@ extension ReleaseNetworkSmokeLifecycleTests {
         if scope.includes(.ddl) { #expect(services.observed.isSuperset(of: ["eclass", "lexue"])) }
         if stage == "raw-write-failure" { #expect(rawWrites == 1 && report.failures.contains { $0.contains("原始课表采样写入") }) }
         if stage == "ddl-failure" || stage == "ddl-invalid-calendar-failure" {
-            #expect(report.failures.count == 1 && report.failures[0].contains("乐学 DDL 下载"))
+            #expect(report.failures.count == 1 && report.failures[0].contains("lexue.ddl"))
         }
         if let redirectHost {
-            let probe = redirectHost == "itunes.apple.com" ? "App Store 更新接口" : "紧急更新配置接口"
+            let probe = redirectHost == "itunes.apple.com" ? "update.app-store" : "update.emergency"
             #expect(report.failures.count == 1 && report.failures[0].contains(probe))
         }
         let next = await runner.run(scope: .transcript, runID: "next", schoolSMSCodeHandler: stage == "all-sms-success" ? smsHandler : nil)

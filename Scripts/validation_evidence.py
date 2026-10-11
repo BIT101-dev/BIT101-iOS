@@ -18,113 +18,22 @@ sys.dont_write_bytecode = True
 from swift_source_index import swift_syntax_index_sources
 from validation_inputs import includes_input, repository_input_names
 from validation_policy import TEST_GROUPS, RELEASE_GROUPS, DEFAULT_VERIFY_GROUPS, FORMAL_RUNTIME_SUITES, MODULE_COVERAGE_FLOORS, IOS_MODULE_COVERAGE_FLOORS
-from validation_test_areas import TEST_AREA_SUITES
-from validation_compilation import compilation_condition
+from validation_test_areas import TEST_AREA_SUITES, test_selectors, test_inventory
+from validation_compilation import compilation_condition, active_swift_source
 from validate_distribution import archive_build_summary, valid_archive_provenance, valid_executable_uuids, distribution_contracts
 from validation_environment import environment_context, complete_environment, toolchain_identity, exchange_identity
-from validation_provenance import LIVE_GROUPS, NETWORK_GROUPS, evidence_current, producing_run_matches, sampling_evidence_current, utc_now
+from validation_provenance import report_lock, write_report, source_digest, normalized_test_id, LIVE_GROUPS, NETWORK_GROUPS, evidence_current, producing_run_matches, sampling_evidence_current, utc_now
 from validation_performance import result_bundle_findings
 
 ROOT = Path(__file__).resolve().parents[1]
 REPORT = ROOT / ".build/extended-automation/validation-evidence.json"
 ICLOUD_DOMAINS = {"score-kvs", "schedule-cloudkit"}
 SCHOOL_SMS_PROBES = {
-    "webvpn": {"生产学校会话", "当前学期", "切换学期列表", "课表、考试与首周同步", "空教室校区列表", "空教室教学楼列表", "空教室占用数据"},
-    "jwb": {"成绩认证接口"},
-    "jwb_cjd": {"可信成绩单接口"},
-    "school_sso_second_factor": {"课程中心原生认证", "课程中心 DDL 下载", "乐学日历订阅地址", "乐学 DDL 下载"},
+    "webvpn": {"school.session", "schedule.current-term", "schedule.terms", "schedule.sync", "classroom.campuses", "classroom.buildings", "classroom.occupancy"},
+    "jwb": {"score.authentication"},
+    "jwb_cjd": {"score.transcript"},
+    "school_sso_second_factor": {"eclass.authentication", "eclass.ddl", "lexue.calendar", "lexue.ddl"},
 }
-
-
-@contextmanager
-def report_lock(*, path: Path | None = None):
-    destination = path if path is not None else REPORT
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    with destination.with_suffix(".lock").open("a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        yield
-
-
-def write_report(report: dict, *, path: Path | None = None) -> None:
-    from validation_policy import MAXIMUM_REPORT_BYTES
-    destination = path if path is not None else REPORT
-    incoming = destination.with_suffix(".incoming")
-    size = 1
-    try:
-        with incoming.open('wb') as stream:
-            for chunk in json.JSONEncoder(ensure_ascii=False, indent=2).iterencode(report):
-                data = chunk.encode()
-                size += len(data)
-                if size > MAXIMUM_REPORT_BYTES: raise ValueError('聚合验收证据需要控制在 128 MiB 以内。')
-                stream.write(data)
-            stream.write(b'\n')
-        incoming.replace(destination)
-    finally:
-        incoming.unlink(missing_ok=True)
-
-
-
-
-def active_swift_source(source: str, group: str, *, platform: str | None = None, path: str = '') -> str:
-    levels = [(True, False)]
-    active = []
-    code_lines = mask_literals_and_comments(source).split("\n")
-    for line, code in zip(source.split("\n"), code_lines):
-        masked = re.sub(r"[^\r\n]", lambda match: " " * len(match[0].encode()), line)
-        directive = re.match(r"\s*#(if|elseif|else|endif)\b(.*)", code)
-        if directive:
-            kind, condition = directive.groups()
-            if kind in {"if", "elseif"}:
-                selected = compilation_condition(condition, group, platform=platform, path=path)
-                if kind == "if": levels.append((levels[-1][0] and selected, selected))
-                else:
-                    _, taken = levels.pop()
-                    levels.append((levels[-1][0] and not taken and selected, taken or selected))
-            elif kind == "else":
-                _, taken = levels.pop()
-                levels.append((levels[-1][0] and not taken, True))
-            else: levels.pop()
-            active.append(masked)
-        else: active.append(line if levels[-1][0] else masked)
-    return "\n".join(active)
-
-
-@cache
-def test_selectors(group: str) -> dict[str, str]:
-    if group in TEST_AREA_SUITES:
-        return {test: selector for test, selector in test_selectors("all").items()
-                if test.split("/", 1)[0] in TEST_AREA_SUITES[group]}
-    directory = ROOT / ("ModuleTests" if group == "modules" else "BIT101-iOSUITests" if group == "ui" else "BIT101-iOSTests")
-    sources = {}
-    for path in sorted(directory.rglob("*.swift")):
-        sources[str(path)] = active_swift_source(path.read_text(), group, path=str(path))
-    selectors = {}
-    origins = {}
-    for path, facts in swift_syntax_index_sources(sources).items():
-        functions = {function['start']: function for function in facts['functionRanges']}
-        for test in facts['tests']:
-            selector = test['value']
-            if test.get('isTestingTest'):
-                parameters = functions[test['start']]['parameters']
-                selector += '(' + ''.join((parameter['label'] or '_') + ':' for parameter in parameters) + ')'
-            identity = normalized_test_id(test['value'])
-            if identity in origins:
-                raise ValueError(f"测试库存需要唯一 Suite/method：{identity}（{origins[identity]} 与 {path}: {selector}）。")
-            origins[identity] = f"{path}: {selector}"
-            selectors[test['value']] = selector
-    return {test: selector for test, selector in selectors.items() if test.split("/", 1)[0] in FORMAL_RUNTIME_SUITES} \
-        if group in {"release-runtime", "catalyst-release-runtime"} else selectors
-
-
-@cache
-def test_inventory(group: str) -> set[str]:
-    return set(test_selectors(group))
-
-
-def normalized_test_id(identifier: str) -> str:
-    parts = identifier.split("/")
-    method = next((index for index, part in enumerate(parts) if "(" in part), len(parts) - 1)
-    return "/".join([parts[0].rsplit(".", 1)[-1], *parts[1:method], parts[method].split("(", 1)[0]]) if method else identifier
 
 
 def icloud_stage_complete(row: dict, stage: str) -> bool:
@@ -173,26 +82,28 @@ def school_sms_inventory() -> set[str]:
 @cache
 def network_inventory(scope: str = "all") -> set[str]:
     scope = {"community-writes": "communityWrites", "community-cleanup": "communityCleanup"}.get(scope, scope)
-    paths = [ROOT / name for name in (
-        "BIT101-iOS/Shared/Client/ReleaseNetworkSmokeModels.swift",
-        "Modules/CommunityCore/Sources/CommunityMessageStorage.swift", "Modules/PaperFeature/Sources/PaperModels.swift")]
-    facts = swift_syntax_index_sources({str(path): path.read_text() for path in paths})
-    models = facts[str(paths[0])]
+    path = ROOT / 'BIT101-iOS/Shared/Client/ReleaseNetworkSmokeModels.swift'
+    models = swift_syntax_index_sources({str(path): path.read_text()})[str(path)]
+    probe_ids = {case['name']: json.loads(case['rawValue']) for case in models['enumCases']
+        if case['scope'] == ['NetworkSmokeProbe']}
+    factories = {function['name']: function for function in models['functionRanges']
+        if function['scope'] == ['NetworkSmokeProbe']}
+    def probe_references(start, end):
+        result = set()
+        for member in models['members']:
+            if not start <= member['start'] < end: continue
+            name = member['value'].rsplit('.', 1)[-1]
+            if name in probe_ids: result.add(probe_ids[name])
+            elif name in factories:
+                function = factories[name]
+                result |= probe_references(function['start'], function['end'])
+        return result
     areas = {}
-    for branch in models["controlFlow"]:
-        if branch["scope"] != ["NetworkSmokeArea"] or not branch["value"].startswith("case ."):
-            continue
-        name = branch["value"].split(":", 1)[0].removeprefix("case .")
-        start, end = branch["start"], branch["start"] + len(branch["value"].encode())
-        areas[name] = {segment["value"] for segment in models["stringSegments"]
-                       if start <= segment["start"] < end and segment["value"]}
-    areas["bit101"] -= {"消息列表-", "文章列表-"}
-    areas["bit101"] |= {"消息列表-" + (json.loads(case["rawValue"]) if case.get("rawValue") else case["name"])
-                 for item in facts.values() for case in item["enumCases"] if case["scope"] == ["GalleryMessageType"]}
-    for item in facts.values():
-        for binding in item["bindings"]:
-            if binding["scope"] == ["PaperSortOrder"] and binding["value"].startswith("title:"):
-                areas["bit101"] |= {"文章列表-" + json.loads(value) for value in re.findall(r'"(?:[^"\\]|\\.)*"', binding["value"])}
+    for branch in models['controlFlow']:
+        if branch['scope'] != ['NetworkSmokeArea'] or not branch['value'].startswith('case .'): continue
+        header, body = branch['value'].split(':', 1)
+        name = header.removeprefix('case .')
+        areas[name] = probe_references(branch['start'] + len((header + ':').encode()), branch['start'] + len(branch['value'].encode()))
     includes = next(function for function in models['functionRanges']
         if function['scope'] == ['NetworkSmokeScope'] and function['name'] == 'includes')
     parameter = next(parameter['name'] for parameter in includes['parameters'] if parameter['type'] == 'NetworkSmokeArea')
@@ -209,19 +120,6 @@ def network_inventory(scope: str = "all") -> set[str]:
     if any(value is None for value in selected.values()): raise ValueError(f'Smoke 范围需要可求值的 Bool 表达式：{expression}')
     included = {area for area, value in selected.items() if value}
     return set().union(*(areas[area] for area in included))
-
-
-def source_digest(group: str = "", *, environment: dict | None = None) -> str:
-    names = repository_input_names(ROOT)
-    digest = hashlib.sha256(group.encode() + b"\0")
-    if group:
-        digest.update(json.dumps(exchange_identity(environment_context(group) if environment is None else environment), sort_keys=True).encode() + b"\0")
-    for name in sorted(set(names) - {""}):
-        path = ROOT / name
-        if path.is_file() and includes_input(name, group):
-            executable = b"x" if path.stat().st_mode & 0o111 else b"-"
-            digest.update(name.encode() + b"\0" + executable + path.read_bytes() + b"\0")
-    return digest.hexdigest()
 
 
 def module_event_summary(text: str) -> dict:
@@ -420,6 +318,7 @@ def smoke_summary(group: str, value: dict, *, full: bool = True) -> dict:
                 "authenticatedSchoolProbes": value.get("authenticatedSchoolProbes", []),
                 "requestedSMSPurposes": value.get("requestedSMSPurposes", []),
                 "requiredProbes": sorted(required), "probeInventory": sorted(executed),
+                "probeLabels": value.get("probeLabels", {}),
                 **{name: len(value.get(name, [])) for name in ("failures", "coverageGaps", "authenticationBlockers", "skippedProbes")}}
     if group == "icloud-cleanup":
         cleanup = value.get("cleanup", {})
@@ -768,13 +667,13 @@ def community_recovery_self_test() -> list[str]:
     from contextlib import redirect_stderr
     from validation_evidence_tests import network_trace_fixture
     cleanup = network_trace_fixture({"runID": "fixture-run", "scope": "community-cleanup", "passed": True,
-        "requiredProbes": ["BIT101 登录状态"], "executedProbes": ["BIT101 登录状态"]})
+        "requiredProbes": ["community.login"], "executedProbes": ["community.login"]})
     write_row = {"exitCode": 0, "scope": "full", "summary": {"passed": True}}
     previous = {"sourceDigest": "source", "groups": {"community-writes": write_row}}
     cleanup_environment = {"host": {"system": "fixture"}, "developer": "/fixture", "xcode": {"version": "fixture"},
         "compiler": {"modified": 1, "size": 100, "sha256": "a" * 64}, "sdks": {"fixture": {"Version": "1"}}, "device": {
         "identifier": "fixture-phone", "systemVersion": "fixture-os", "systemBuild": "fixture-build"}}
-    with patch(f"{__name__}.source_digest", return_value="source"), patch(f"{__name__}.network_inventory", return_value={"BIT101 登录状态"}), \
+    with patch(f"{__name__}.source_digest", return_value="source"), patch(f"{__name__}.network_inventory", return_value={"community.login"}), \
             patch(f"{__name__}.environment_context", return_value=cleanup_environment), \
             patch.dict(os.environ, BIT101_VALIDATION_RUN_ID="fixture-run"), \
             patch(f"{__name__}.report_lock", side_effect=nullcontext), patch(f"{__name__}.write_report") as saved, \

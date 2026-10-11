@@ -11,7 +11,9 @@ import shutil
 import sys
 from copy import deepcopy
 from validation_environment import complete_environment, environment_context, exchange_identity
-from validation_provenance import utc_now, complete_group_row
+from validation_provenance import utc_now, complete_group_row, sampling_evidence_current
+from validation_policy import workflow_conditions
+from validation_inputs import performance_workloads, performance_group
 
 ROOT = Path(__file__).resolve().parents[1]
 BUNDLE = ROOT / '.build/extended-automation/test-results.xcresult'
@@ -86,7 +88,7 @@ def begin_result_step(retain_previous: bool) -> None:
 
 def reset_result_bundle() -> None:
     if not BUNDLE.exists(): return
-    from validation_evidence import REPORT, report_lock, write_report
+    from validation_provenance import REPORT, report_lock, write_report
     with report_lock():
         if REPORT.is_file():
             report = json.loads(REPORT.read_text())
@@ -140,7 +142,7 @@ def retain_result_step(groups: list[str]) -> None:
 
 
 def merge_result_step(groups: list[str]) -> None:
-    from validation_evidence import REPORT, report_lock, write_report
+    from validation_provenance import REPORT, report_lock, write_report
     retained = BUNDLE.with_suffix('.retained.xcresult')
     merged = BUNDLE.with_suffix('.incoming.xcresult')
     current_sha = bundle_digest(BUNDLE) if BUNDLE.exists() else None
@@ -197,9 +199,9 @@ def record_complete(record: dict, *, current: bool) -> bool:
     try:
         execution = record['execution']
         context = execution['environment']
-        from validation_manual import PERFORMANCE_WORKLOADS, performance_group
+        from validation_inputs import performance_workloads, performance_group
         test = record['testIdentifier']
-        if test not in {row[0] for row in PERFORMANCE_WORKLOADS.values()}: return False
+        if test not in {row[0] for row in performance_workloads().values()}: return False
         group = performance_group(test)
         if execution.get('group') != group or not complete_environment(group, context) \
                 or record['environment'] != measurement_environment(context, group) \
@@ -212,7 +214,7 @@ def record_complete(record: dict, *, current: bool) -> bool:
         if any({key: metric[key] for key in ('samples', 'mean')} != normalized[name] for name, metric in record['metrics'].items()):
             return False
         if current:
-            from validation_evidence import source_digest
+            from validation_provenance import source_digest
             if record['sourceCommit'] != current_commit() or execution['inputDigest'] != source_digest(group, environment=context): return False
         return True
     except (KeyError, TypeError, ValueError, OSError, subprocess.CalledProcessError):
@@ -220,11 +222,11 @@ def record_complete(record: dict, *, current: bool) -> bool:
 
 
 def approved_baseline_complete(proof: dict) -> bool:
-    from validation_manual import PERFORMANCE_WORKLOADS
+    from validation_inputs import performance_workloads
     try:
-        if proof.get('schemaVersion') != 1 or set(proof['records']) != set(PERFORMANCE_WORKLOADS): return False
+        if proof.get('schemaVersion') != 1 or set(proof['records']) != set(performance_workloads()): return False
         for name, record in proof['records'].items():
-            test, workload = PERFORMANCE_WORKLOADS[name]
+            test, workload = performance_workloads()[name]
             if record['testIdentifier'] != test or record['input'] != workload or not record_complete(record, current=False) \
                     or not re.fullmatch(r'(?:[0-9a-f]{40}|[0-9a-f]{64})', record['sourceCommit']) \
                     or not re.fullmatch(r'[0-9a-f]{64}', record['resultBundle']['sha256']) \
@@ -242,7 +244,7 @@ def approved_baseline_complete(proof: dict) -> bool:
 
 
 def extract_measurements(row: dict, group: str = 'all') -> dict:
-    from validation_manual import PERFORMANCE_WORKLOADS, performance_group
+    from validation_inputs import performance_workloads, performance_group
     context = row['environment']
     summary = json.loads(subprocess.check_output(['xcrun', 'xcresulttool', 'get', 'test-results', 'summary', '--path', str(BUNDLE)], text=True))
     if summary.get('result') != 'Passed': raise ValueError('性能结果包需要成功执行。')
@@ -252,7 +254,7 @@ def extract_measurements(row: dict, group: str = 'all') -> dict:
     execution = {'group': group, 'runID': row['runID'], 'inputDigest': row['inputDigest'],
         'sourceCommit': row['sourceCommit'], 'environment': context, 'bundleSHA256': sha}
     records = {}
-    for name, (test, workload) in PERFORMANCE_WORKLOADS.items():
+    for name, (test, workload) in performance_workloads().items():
         if performance_group(test) != group: continue
         raw = json.loads(subprocess.check_output(['xcrun', 'xcresulttool', 'get', 'test-results', 'metrics',
             '--path', str(BUNDLE), '--test-id', test + '()'], text=True))
@@ -273,11 +275,11 @@ def uncommitted_inputs() -> list[str]:
 
 
 def capture_current() -> dict:
-    from validation_evidence import REPORT, source_digest
+    from validation_provenance import REPORT, source_digest
     if uncommitted_inputs(): raise ValueError('性能采样需要已提交的构建输入。')
     groups = json.loads(REPORT.read_text())['groups']
     retained_sha = bundle_digest(BUNDLE)
-    from validation_manual import PERFORMANCE_WORKLOADS, performance_group
+    from validation_inputs import performance_workloads, performance_group
     records = {}
     for group in ('all', 'ui'):
         row = complete_group_row(groups[group])
@@ -287,7 +289,7 @@ def capture_current() -> dict:
                 or row.get('inputDigest') != source_digest(group) or not complete_environment(group, context):
             raise ValueError('性能采样需要当前源码、工具链及实体设备上成功执行的完整行为与 UI 组。')
         proof = row['performance']
-        expected = {name for name, (test, _) in PERFORMANCE_WORKLOADS.items() if performance_group(test) == group}
+        expected = {name for name, (test, _) in performance_workloads().items() if performance_group(test) == group}
         if proof.get('schemaVersion') != 1 or set(proof['records']) != expected:
             raise ValueError('性能采样需要全部登记工作负载的原始指标。')
         for record in proof['records'].values():
@@ -310,16 +312,16 @@ def validate_capture(proof: dict) -> None:
 
 
 def merge_findings(report: dict, commit: str) -> list[str]:
-    from validation_manual import PERFORMANCE_WORKLOADS, performance_group, performance_comparison_complete
+    from validation_inputs import performance_workloads, performance_group
     try:
         approved = report['performanceBaseline']
-        if approved.get('schemaVersion') != 1 or set(approved['records']) != set(PERFORMANCE_WORKLOADS):
+        if approved.get('schemaVersion') != 1 or set(approved['records']) != set(performance_workloads()):
             raise ValueError()
         errors = []
         for group in ('all', 'ui'):
             row = complete_group_row(report['groups'][group])
             proof = row['performance']
-            expected = {name for name, (test, _) in PERFORMANCE_WORKLOADS.items() if performance_group(test) == group}
+            expected = {name for name, (test, _) in performance_workloads().items() if performance_group(test) == group}
             if proof.get('schemaVersion') != 1 or set(proof['records']) != expected:
                 raise ValueError()
             for name, current in proof['records'].items():
@@ -331,7 +333,7 @@ def merge_findings(report: dict, commit: str) -> list[str]:
                     errors.append(f'{name} 需要本次完整真机采样与同环境批准基线，并满足性能退化上限。')
         return errors
     except (KeyError, TypeError, ValueError, AttributeError):
-        return [f'合并验收需要 {len(PERFORMANCE_WORKLOADS)} 个性能场景的完整采样和维护者批准基线。']
+        return [f'合并验收需要 {len(performance_workloads())} 个性能场景的完整采样和维护者批准基线。']
 
 
 def main(arguments: list[str]) -> int:
@@ -361,7 +363,7 @@ def main(arguments: list[str]) -> int:
                 for name, metric in record['metrics'].items():
                     default = next(row['maxPercentRegression'] for row in raw if row['identifier'] == METRICS[name][0])
                     metric['maximumRegressionPercent'] = default if limit is None else limit
-        from validation_evidence import REPORT, report_lock, write_report
+        from validation_provenance import REPORT, report_lock, write_report
         with report_lock():
             stored = json.loads(MEASUREMENTS.read_text()) if MEASUREMENTS.is_file() else {'schemaVersion': 1}
             stored[kind] = proof
@@ -374,6 +376,51 @@ def main(arguments: list[str]) -> int:
         print(MEASUREMENTS)
         return 0
     raise ValueError('性能命令：current；baseline 批准人 [最大退化百分比]。')
+
+
+
+def performance_comparison_complete(name: str, measurement: dict) -> bool:
+    from validation_environment import exchange_identity
+    try:
+        if not isinstance(measurement, dict): return False
+        current, baseline = measurement['current'], measurement['baseline']
+        test, workload = performance_workloads()[name]
+        for record in (current, baseline):
+            if not isinstance(record, dict) or record.get('testIdentifier') != test or record.get('input') != workload \
+                    or not re.fullmatch(r'(?:[0-9a-f]{40}|[0-9a-f]{64})', record.get('sourceCommit', '')): return False
+            environment = record['environment']
+            if not isinstance(environment, dict) or not all(isinstance(environment.get(key), str) and environment[key].strip()
+                    for key in ('deviceIdentifier', 'deviceModel', 'systemVersion', 'systemBuild', 'xcodeBuild', 'configuration', 'compilerSHA256')) \
+                    or environment['configuration'] != 'Release' or not re.fullmatch(r'[0-9a-f]{64}', environment['compilerSHA256']) \
+                    or not isinstance(environment.get('compilationConditions'), list) \
+                    or not all(isinstance(condition, str) and re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', condition) for condition in environment['compilationConditions']) \
+                    or environment['compilationConditions'] != sorted(workflow_conditions(performance_group(test))): return False
+            bundle = record['resultBundle']
+            if not isinstance(bundle, dict) or not isinstance(bundle.get('path'), str) or not bundle['path'].endswith('.xcresult') \
+                    or not re.fullmatch(r'[0-9a-f]{64}', bundle.get('sha256', '')): return False
+            if set(record['metrics']) != {'clockSeconds', 'peakPhysicalMemoryBytes'}: return False
+            for metric in record['metrics'].values():
+                samples, mean = metric['samples'], metric['mean']
+                if not isinstance(samples, list) or not samples or not all(type(sample) in (int, float) and math.isfinite(sample) and sample >= 0 for sample in samples) \
+                        or type(mean) not in (int, float) or not math.isfinite(mean) or mean <= 0 \
+                        or not math.isclose(mean, sum(samples) / len(samples)): return False
+        if exchange_identity(current['environment']) != exchange_identity(baseline['environment']) or current['resultBundle']['sha256'] == baseline['resultBundle']['sha256'] \
+                or not sampling_evidence_current({'startedAt': current['capturedAt'], 'finishedAt': current['capturedAt']}) \
+                or not isinstance(baseline.get('approvedBy'), str) or not baseline['approvedBy'].strip(): return False
+        times = [datetime.fromisoformat(value.replace('Z', '+00:00')) for value in
+            (baseline['capturedAt'], baseline['approvedAt'], current['capturedAt'])]
+        if any(value.tzinfo is None for value in times) or not times[0] <= times[1] <= times[2]: return False
+        for name, metric in current['metrics'].items():
+            approved = baseline['metrics'][name]
+            limit = approved['maximumRegressionPercent']
+            maximum = approved['mean'] * (1 + limit / 100) if type(limit) in (int, float) else math.nan
+            if type(limit) not in (int, float) or not math.isfinite(limit) or limit < 0 \
+                    or not math.isfinite(maximum) \
+                    or len(metric['samples']) != len(approved['samples']) \
+                    or metric['mean'] > maximum: return False
+            return record_complete(current, current=True) and record_complete(baseline, current=False)
+    except (KeyError, TypeError, ValueError, AttributeError, OverflowError):
+        return False
 
 
 if __name__ == '__main__':

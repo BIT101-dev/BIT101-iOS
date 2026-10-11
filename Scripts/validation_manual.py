@@ -12,7 +12,9 @@ from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from validate_distribution import valid_archive_provenance
 from validation_media import media_complete
-from validation_policy import MAXIMUM_ATTACHMENT_BYTES, MAXIMUM_REPORT_BYTES, workflow_conditions
+from validation_policy import MAXIMUM_ATTACHMENT_BYTES, MAXIMUM_REPORT_BYTES, workflow_conditions, manual_capabilities
+from validation_inputs import performance_workloads, performance_group
+from validation_performance import performance_comparison_complete
 
 MANUAL_DEVICE_CHECKS = {"system-autofill", "photos", "calendar-permissions", "notifications", "external-handoff", "web-interactions", "widget", "watch", "feedback-delivery", "distribution-signing", "minimum-platforms"}
 MANUAL_SCENARIOS = {
@@ -23,19 +25,15 @@ MANUAL_SCENARIOS = {
     'account-lifecycle': {'sign-in-a', 'refresh-credentials-a', 'sign-out-a', 'sign-in-b', 'restore-a'},
     'community-variants': {'course-search', 'gallery-search-filters', 'comment-sorting', 'directed-replies', 'anonymous-poster', 'anonymous-paper', 'restore-content'},
     'web-interactions': {'network-diagnosis', 'update-launch', 'update-manual', 'school-sms', 'school-calendar'},
+    'catalyst-desktop': {'window-resize', 'menu-actions', 'keyboard-navigation', 'permission-dialogs', 'minimum-system'},
     'ipad-layout': {'portrait', 'landscape', 'split-view', 'resize'},
 }
 MANUAL_DEVICE_CHECKS.update(MANUAL_SCENARIOS)
 BASELINE_CHECKS = {'iOS': {'cold-start-session', 'offline-persistence', 'media-and-navigation'},
     'watchOS': {'snapshot-receive', 'timeline-render', 'clear-and-retry'}}
-PERFORMANCE_WORKLOADS = {name: (row['testIdentifier'], row['input']) for name, row in
-    json.loads((Path(__file__).resolve().parents[1] / 'BIT101-iOSTests/PerformanceWorkloads.json').read_text()).items()}
+PERFORMANCE_WORKLOADS = performance_workloads()
 MANUAL_SCENARIOS['performance-baseline'] = set(PERFORMANCE_WORKLOADS)
 MANUAL_DEVICE_CHECKS.add('performance-baseline')
-
-
-def performance_group(test: str) -> str:
-    return 'ui' if test.startswith('MaintenancePerformanceUITests/') else 'all'
 
 
 def capture(operation: str, result: str, evidence: Path, check: str, outcome: str, observed_at: str) -> dict:
@@ -159,7 +157,6 @@ def evidence_content_complete(check: str, data: bytes, *, observed_at: str | Non
 
 
 def capability_observations_complete(check: str, scenario: str, observations) -> bool:
-    from validation_test_areas import manual_capabilities
     required = manual_capabilities(check, scenario)
     if not required: return True
     return isinstance(observations, dict) and set(observations) == required and all(
@@ -171,6 +168,7 @@ def capability_observations_complete(check: str, scenario: str, observations) ->
 def scenario_complete(check: str, proof: dict) -> bool:
     if not isinstance(proof, dict) or proof.get('schemaVersion') != 1 \
             or not isinstance(proof.get('scenarios'), dict) or set(proof['scenarios']) != MANUAL_SCENARIOS[check]: return False
+    if check == 'catalyst-desktop' and not catalyst_identity_complete(proof): return False
     if check == 'ipad-layout' and (proof.get('deviceFamily') != 'iPad' or not isinstance(proof.get('deviceIdentifier'), str)
             or not proof['deviceIdentifier'].strip()): return False
     for name, row in proof['scenarios'].items():
@@ -180,61 +178,44 @@ def scenario_complete(check: str, proof: dict) -> bool:
                 or not isinstance(row.get('evidence'), dict) or not artifact_complete(row['evidence'], 'photos') \
                 or not capability_observations_complete(check, name, row.get('capabilities')): return False
         if check == 'performance-baseline' and not performance_comparison_complete(name, row.get('measurement')): return False
-        if check == 'ipad-layout':
+        if check == 'catalyst-desktop':
+            required = {'menu-actions': {'app-menu', 'window-menu'}, 'keyboard-navigation': {'tab', 'return', 'escape'},
+                'permission-dialogs': {'photos', 'calendar', 'notifications'}}.get(name)
+            if required and (not isinstance(row.get('actions'), dict) or set(row['actions']) != required
+                    or not all(isinstance(action, dict) and action.get('outcome') == 'passed'
+                        and all(isinstance(action.get(key), str) and action[key].strip() for key in ('operation', 'result'))
+                        for action in row['actions'].values())): return False
+        if check == 'ipad-layout' or check == 'catalyst-desktop' and name == 'window-resize':
             size = row.get('windowSize', {})
             if not isinstance(size, dict) or not all(type(size.get(axis)) is int and size[axis] > 0 for axis in ('width', 'height')): return False
             if name == 'portrait' and size['width'] >= size['height']: return False
             if name == 'landscape' and size['width'] <= size['height']: return False
             if name == 'split-view' and (type(row.get('screenWidth')) is not int or size['width'] >= row['screenWidth']): return False
-            if name == 'resize' and (not isinstance(row.get('previousWindowSize'), dict)
+            if name in {'resize', 'window-resize'} and (not isinstance(row.get('previousWindowSize'), dict)
                     or not all(type(row['previousWindowSize'].get(axis)) is int and row['previousWindowSize'][axis] > 0 for axis in ('width', 'height'))
                     or row['previousWindowSize'] == size): return False
     return True
 
 
-def performance_comparison_complete(name: str, measurement: dict) -> bool:
-    from validation_environment import exchange_identity
-    try:
-        if not isinstance(measurement, dict): return False
-        current, baseline = measurement['current'], measurement['baseline']
-        test, workload = PERFORMANCE_WORKLOADS[name]
-        for record in (current, baseline):
-            if not isinstance(record, dict) or record.get('testIdentifier') != test or record.get('input') != workload \
-                    or not re.fullmatch(r'(?:[0-9a-f]{40}|[0-9a-f]{64})', record.get('sourceCommit', '')): return False
-            environment = record['environment']
-            if not isinstance(environment, dict) or not all(isinstance(environment.get(key), str) and environment[key].strip()
-                    for key in ('deviceIdentifier', 'deviceModel', 'systemVersion', 'systemBuild', 'xcodeBuild', 'configuration', 'compilerSHA256')) \
-                    or environment['configuration'] != 'Release' or not re.fullmatch(r'[0-9a-f]{64}', environment['compilerSHA256']) \
-                    or not isinstance(environment.get('compilationConditions'), list) \
-                    or not all(isinstance(condition, str) and re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', condition) for condition in environment['compilationConditions']) \
-                    or environment['compilationConditions'] != sorted(workflow_conditions(performance_group(test))): return False
-            bundle = record['resultBundle']
-            if not isinstance(bundle, dict) or not isinstance(bundle.get('path'), str) or not bundle['path'].endswith('.xcresult') \
-                    or not re.fullmatch(r'[0-9a-f]{64}', bundle.get('sha256', '')): return False
-            if set(record['metrics']) != {'clockSeconds', 'peakPhysicalMemoryBytes'}: return False
-            for metric in record['metrics'].values():
-                samples, mean = metric['samples'], metric['mean']
-                if not isinstance(samples, list) or not samples or not all(type(sample) in (int, float) and math.isfinite(sample) and sample >= 0 for sample in samples) \
-                        or type(mean) not in (int, float) or not math.isfinite(mean) or mean <= 0 \
-                        or not math.isclose(mean, sum(samples) / len(samples)): return False
-        if exchange_identity(current['environment']) != exchange_identity(baseline['environment']) or current['resultBundle']['sha256'] == baseline['resultBundle']['sha256'] \
-                or not sampling_evidence_current({'startedAt': current['capturedAt'], 'finishedAt': current['capturedAt']}) \
-                or not isinstance(baseline.get('approvedBy'), str) or not baseline['approvedBy'].strip(): return False
-        times = [datetime.fromisoformat(value.replace('Z', '+00:00')) for value in
-            (baseline['capturedAt'], baseline['approvedAt'], current['capturedAt'])]
-        if any(value.tzinfo is None for value in times) or not times[0] <= times[1] <= times[2]: return False
-        for name, metric in current['metrics'].items():
-            approved = baseline['metrics'][name]
-            limit = approved['maximumRegressionPercent']
-            maximum = approved['mean'] * (1 + limit / 100) if type(limit) in (int, float) else math.nan
-            if type(limit) not in (int, float) or not math.isfinite(limit) or limit < 0 \
-                    or not math.isfinite(maximum) \
-                    or len(metric['samples']) != len(approved['samples']) \
-                    or metric['mean'] > maximum: return False
-        from validation_performance import record_complete
-        return record_complete(current, current=True) and record_complete(baseline, current=False)
-    except (KeyError, TypeError, ValueError, AttributeError, OverflowError):
-        return False
+def catalyst_identity_complete(proof: dict) -> bool:
+    from validation_compilation import compilation_settings
+    from validation_provenance import source_digest
+    from validate_distribution import distribution_contracts, minimum_os_version, valid_executable_uuids
+    application = proof.get('application')
+    minimum = minimum_os_version(compilation_settings('macOS')[1])
+    version = minimum_os_version(proof.get('systemVersion'))
+    if proof.get('platform') != 'macCatalyst' or not all(isinstance(proof.get(key), str) and proof[key].strip()
+            for key in ('deviceIdentifier', 'deviceModel', 'systemBuild')) or version is None \
+            or version[:2] != minimum[:2] or version < minimum or not isinstance(application, dict): return False
+    contracts = distribution_contracts()
+    contract = contracts.get(application.get('identifier'))
+    return bool(contract) and not contract['extension'] and contract['platform'] == 'iOS' \
+        and application.get('version') == contract['version'] and application.get('build') == contract['build'] \
+        and application.get('configuration') == 'Release' and application.get('testHostMarkers') == [] \
+        and minimum_os_version(application.get('minimumOSVersion')) == minimum \
+        and bool(re.fullmatch(r'[0-9a-f]{64}', application.get('sha256', ''))) \
+        and valid_executable_uuids(application.get('executableUUIDs')) \
+        and proof.get('inputDigest') == source_digest('manual-device', environment={})
 
 
 def baseline_complete(proof: dict) -> bool:

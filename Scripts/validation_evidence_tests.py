@@ -6,14 +6,16 @@ import subprocess
 import sys
 from pathlib import Path
 from swift_source_index import swift_syntax_index_sources
+from validation_provenance_tests import network_trace_fixture, network_route_identity_self_test
 
 def icloud_stage_fixture(stage: str, counts: dict) -> dict:
     return dict(counts, stage=stage, runID='fixture', executedTests=['ICloudCrossDeviceSmokeTests/' + stage],
         testTargets=['BIT101-iOSTests'], destination={'platform': 'macOS' if stage.startswith('testMac') else 'iOS', 'deviceIdentifier': 'phone'})
 
 def run_self_test(subject) -> int:
-    from validation_provenance_tests import test_identity_self_test
-    test_identity_self_test(subject)
+    from validation_provenance_tests import test_identity_self_test, probe_identity_self_test
+    test_identity_self_test()
+    probe_identity_self_test(subject)
     from validation_manual_tests import registration_self_test
     registration_self_test(subject)
     network_scope_boolean_self_test(subject)
@@ -41,6 +43,7 @@ def run_self_test(subject) -> int:
     fixture_environment = {'host': {'system': 'fixture'}, 'developer': '/fixture', 'xcode': {'version': 'fixture'}, 'compiler': {'path': '/fixture/swift-frontend', 'modified': 1, 'size': 100, 'sha256': 'a' * 64}, 'sdks': {'fixture': {'Version': '1'}}, 'device': {'identifier': 'fixture-phone', 'systemVersion': 'fixture-os', 'systemBuild': 'fixture-build'}}
     with patch(f'{module_name}.environment_context', return_value=fixture_environment), \
             patch('validation_merge.environment_context', return_value=fixture_environment), \
+            patch('validation_provenance.environment_context', return_value=fixture_environment), \
             patch('validation_merge.result_bundle_findings', side_effect=lambda *args, **kwargs: []), \
             patch(f'{module_name}.result_bundle_findings', side_effect=lambda *args, **kwargs: []), \
             patch('validation_merge.performance_findings', return_value=[]):
@@ -66,7 +69,7 @@ def run_self_test(subject) -> int:
         assert not merge_findings(core, digest=lambda *args, **kwargs: 'digest', complete=lambda *args: True, commit='commit')
         from validation_restore import invalidate as invalidate_restore
         from contextlib import nullcontext
-        import validation_evidence as evidence_state
+        import validation_provenance as evidence_state
         with patch.object(evidence_state, 'report_lock', side_effect=nullcontext), patch.object(Path, 'is_file', return_value=True), \
                 patch.object(Path, 'read_text', return_value=json.dumps(core)), patch.object(evidence_state, 'write_report') as saved:
             invalidate_restore()
@@ -132,7 +135,7 @@ def run_self_test(subject) -> int:
         with patch.object(subprocess, 'check_output', return_value=b''):
             baseline = subject.source_digest('ui')
             for field, value in (('host', {'system': 'changed'}), ('xcode', {'version': 'changed'}), ('sdks', {'fixture': {'Version': '2'}}), ('compiler', {'modified': 2}), ('device', {'identifier': 'changed', 'systemVersion': 'fixture-os', 'systemBuild': 'fixture-build'}), ('device', {'identifier': 'fixture-phone', 'systemVersion': 'changed', 'systemBuild': 'fixture-build'})):
-                with patch(f'{module_name}.environment_context', return_value=dict(fixture_environment, **{field: value})):
+                with patch('validation_provenance.environment_context', return_value=dict(fixture_environment, **{field: value})):
                     assert subject.source_digest('ui') != baseline
             assert not subject.complete_environment('ui', dict(fixture_environment, device=None))
             assert not subject.complete_environment('audit', {})
@@ -231,7 +234,7 @@ def run_self_test(subject) -> int:
         from swift_source_index import SWIFT_SYNTAX_SOURCE_NAMES
         inputs = {'Scripts/' + name: b'indexer source' for name in SWIFT_SYNTAX_SOURCE_NAMES}
         groups = subject.RELEASE_GROUPS | subject.TEST_GROUPS | {'network', 'icloud', 'manual-device', 'build-archive'}
-        with patch.object(subject, 'repository_input_names', return_value=list(inputs)), \
+        with patch('validation_provenance.repository_input_names', return_value=list(inputs)), \
                 patch.object(Path, 'is_file', return_value=True), \
                 patch.object(Path, 'read_bytes', lambda path: inputs[path.relative_to(subject.ROOT).as_posix()]), \
                 patch.object(Path, 'stat', return_value=SimpleNamespace(st_mode=420)):
@@ -408,16 +411,16 @@ def run_self_test(subject) -> int:
         projected = subject.smoke_summary('school-sms', full_sms)
         assert subject.complete_summary('school-sms', projected)
         assert projected['scope'] == 'school' and set(projected['requiredProbes']) == subject.network_inventory('school')
-        peripheral = dict(full_sms, passed=False, failures=['[App Store 更新接口] fixture failure'],
-            coverageGaps=['必需探针缺失：App Store 更新接口'], skippedProbes=['App Store 更新接口（fixture）'])
+        peripheral = dict(full_sms, passed=False, failures=['[update.app-store] fixture failure'],
+            coverageGaps=['必需探针缺失：update.app-store'], skippedProbes=['update.app-store（fixture）'])
         assert subject.complete_summary('school-sms', subject.smoke_summary('school-sms', peripheral))
-        assert not subject.smoke_summary('school-sms', dict(peripheral, failures=['[当前学期] fixture failure']))['passed']
+        assert not subject.smoke_summary('school-sms', dict(peripheral, failures=['[schedule.current-term] fixture failure']))['passed']
         assert not subject.smoke_summary('school-sms', dict(peripheral, failures=['网络 Smoke 报告写入失败：fixture']))['passed']
         assert not subject.smoke_summary('school-sms', dict(full_sms, passed=False))['passed']
         assert not subject.smoke_summary('school-sms', dict(full_sms, requiredProbes=sms['requiredProbes']))['passed']
         assert not subject.smoke_summary('school-sms', dict(full_sms, verifiedSMSProbes=[]))['passed']
 
-        mismatched = [{'purpose': step['purpose'], 'probe': 'BIT101 登录状态'} for step in sms['verifiedSMSProbes']]
+        mismatched = [{'purpose': step['purpose'], 'probe': 'community.login'} for step in sms['verifiedSMSProbes']]
         assert not subject.smoke_summary('school-sms', dict(sms, verifiedSMSProbes=mismatched))['passed']
         assert subject.smoke_summary('school-sms', dict(sms, schoolSMSCoverage='preflight_only'))['passed'] is False
         assert subject.smoke_summary('school-sms', dict(sms, verifiedSMSProbes=sms['verifiedSMSProbes'][:1]))['passed'] is False
@@ -442,7 +445,8 @@ def run_self_test(subject) -> int:
             first = next(iter(older['groups']['build-archive']['summary']['executables'].values()))
             first[0]['uuid'] = '00000000-0000-4000-8000-000000000001'
             assert any('可执行文件 UUID' in error for error in subject.release_findings(older, 'source'))
-            with patch(f'{module_name}.environment_context', return_value=dict(fixture_environment, host={'system': 'changed'})):
+            with patch(f'{module_name}.environment_context', return_value=dict(fixture_environment, host={'system': 'changed'})), \
+                    patch('validation_provenance.environment_context', return_value=dict(fixture_environment, host={'system': 'changed'})):
                 assert subject.release_findings(report, 'source')
                 assert subject.release_findings(report, 'source', recorded_environment=True) == []
                 from contextlib import nullcontext, redirect_stdout
@@ -497,7 +501,7 @@ def run_self_test(subject) -> int:
         network_recording_self_test(subject, {'network': network, 'ddl': ddl, 'school-sms': sms,
             'community-writes': writes, 'community-cleanup': cleanup})
 
-        ddl['skippedProbes'] = ['课程中心 DDL 下载']
+        ddl['skippedProbes'] = ['eclass.ddl']
         assert subject.smoke_summary('ddl', ddl)['passed'] is False
         assert icloud_summary({'exitCode': 0, 'stages': []})['passed'] is False
         stages = [icloud_stage_fixture(name, {'exitCode': 0, 'totalTestCount': 1, 'passedTests': 1, 'failedTests': 0, 'skippedTests': 0}) for name in ['testPhoneRoundTrip', 'testMacReceiveAndRestore']]
@@ -642,13 +646,13 @@ def network_scope_boolean_self_test(subject) -> None:
     path = subject.ROOT / 'BIT101-iOS/Shared/Client/ReleaseNetworkSmokeModels.swift'
     source, read = path.read_text(), Path.read_text
     baseline = {scope: subject.network_inventory(scope) for scope in ('all', 'bit101', 'school', 'transcript', 'schedule', 'ddl', 'community-writes', 'community-cleanup')}
-    assert len(baseline['all']) == 61 and '社区写入与清理' not in baseline['all']
+    assert len(baseline['all']) == 61 and 'community.writes' not in baseline['all']
     fixtures = [('all', 'area != .communityWrites', baseline['all']),
         ('all', '!(area == .communityWrites)', baseline['all']),
         ('all', 'area != .communityWrites && (area == .authentication || area != .authentication)', baseline['all']),
         ('bit101', '!(area != .authentication && area != .bit101)', baseline['bit101']),
         ('transcript', 'area == NetworkSmokeArea.transcript', baseline['transcript']),
-        ('schedule', 'false', set()), ('schedule', 'true', baseline['all'] | {'社区写入与清理'})]
+        ('schedule', 'false', set()), ('schedule', 'true', baseline['all'] | {'community.writes'})]
     try:
         for scope, expression, expected in fixtures:
             rewritten, count = re.subn(r'(?ms)(case \.' + scope + r':\s*\n).*?(?=^\s*case \.)',
@@ -672,303 +676,3 @@ def network_scope_boolean_self_test(subject) -> None:
             assert subject.network_inventory('community-cleanup') == baseline['community-cleanup']
     finally:
         subject.network_inventory.cache_clear()
-
-
-def network_trace_fixture(value: dict) -> dict:
-    from network_request_contracts import contracts_for, SELECTORS
-    from validation_provenance_tests import worker_deployment_fixture
-    value['workerDeployments'] = worker_deployment_fixture(value.get('scope'))
-    def example(pattern, identifier=1):
-        import re
-        pattern = re.sub(r'\(\?:([^()]*)\)', lambda match: match[1].split('|')[0], pattern)
-        return pattern.replace('[0-9a-f]+', 'a').replace(r'[1-9]\d*', str(identifier)).replace(r'\d+', str(identifier)).replace(r'\.', '.').replace(r'\-', '-').replace('.+', 'fixture').replace('?', '')
-    rows = []
-    for name in value.get('requiredProbes', []):
-        contracts = contracts_for(name)
-        assert contracts, name
-        requests = []
-        expected = {'XNXQDM': value.get('validatedTerm', 'fixture-current')} if name in {'课表、考试与首周同步', '空教室占用数据'} else {}
-        if name == '空教室占用数据': expected['JXLDM'] = 'fixture-building'
-        for contract in contracts:
-            for index in range(max(contract.minimum, 2 if contract.paging else 1)):
-                query = {key: example(pattern) for key, pattern in contract.query.items() if pattern is not None}
-                query.update({key: item for key, item in expected.items() if key != 'path'})
-                if contract.paging == 'page': query['page'] = str(index)
-                if contract.paging == 'last_id': query['last_id'] = str(sys.maxsize) if index == 0 else '1'
-                request = {'method': contract.method, 'endpoint': 'https://' + example(contract.host) + example(contract.path),
-                    'statusCode': next(iter(contract.statuses)), 'query': query}
-                if contract.paging == 'last_id': request['responseMinimumID'] = '0'
-                if name in {'课程中心原生认证', '课程中心 DDL 下载'}: request['responseCourseIDs'] = []
-                if name == '社区写入与清理':
-                    if contract.method == 'DELETE' and contract.path == r'/reaction/comments/\d+':
-                        request['endpoint'] = 'https://' + example(contract.host) + example(contract.path, index + 1)
-                    if contract.method == 'POST' and contract.path == '/reaction/comments' and query['obj'].startswith('comment'):
-                        query['obj'] = 'comment' + str(index // 2 + 1)
-                request.update(finalEndpoint=('https://' + example(contract.final_host) + example(contract.final_path))
-                    if contract.final_host else request['endpoint'], finalMethod=request['method'], finalQuery=dict(query))
-                assert contract.matches(request), (name, request)
-                for key in SELECTORS.get(name, set()) - {'XNXQDM', 'JXLDM'}:
-                    from urllib.parse import unquote, urlsplit
-                    expected[key] = unquote(urlsplit(request['endpoint']).path) if key == 'path' else request['query'][key]
-                requests.append(request)
-        if name == '生产共享会话': requests.insert(1, requests.pop())
-        if name in {'话廊图片下载', '文章正文图片下载'}:
-            import hashlib
-            for request in requests: request['endpointDigest'] = hashlib.sha256(request['endpoint'].encode()).hexdigest()
-            expected['resourceDigests'] = ','.join(sorted({request['endpointDigest'] for request in requests}))
-        rows.append({'probe': name, 'requests': requests, 'expectedParameters': expected})
-    value['requestEvidenceRequired'] = True
-    value['requestEvidence'] = rows
-    return value
-
-
-def network_route_identity_self_test() -> None:
-    from validation_provenance_tests import image_resource_self_test
-    image_resource_self_test()
-    from copy import deepcopy
-    from validation_provenance import network_requests_complete
-    from network_request_contracts import complete as check_complete
-    def complete(probe, requests, expected=None):
-        return check_complete(probe, [dict(row, finalEndpoint=row.get('finalEndpoint', row['endpoint']),
-            finalMethod=row.get('finalMethod', row['method']), finalQuery=row.get('finalQuery', dict(row.get('query', {}))))
-            for row in requests], expected)
-    required = {'文章评论'}
-    proof = network_trace_fixture({'requiredProbes': sorted(required)})
-    assert network_requests_complete(required, proof)
-    for key in ('ambiguousParameters', 'finalAmbiguousParameters'):
-        changed = deepcopy(proof)
-        row = changed['requestEvidence'][0]
-        row['requests'][0][key] = ['page']
-        assert not complete(row['probe'], row['requests'], row['expectedParameters'])
-        assert not network_requests_complete(required, changed)
-    repeated = deepcopy(proof['requestEvidence'][0])
-    repeated['requests'][-1]['statusCode'] = 500
-    assert not network_requests_complete(required, dict(proof, requestEvidence=proof['requestEvidence'] + [repeated]))
-    for key, value in [('finalEndpoint', 'https://example.invalid/reaction/comments'),
-                       ('finalMethod', 'POST'), ('finalQuery', {'obj': 'paper999', 'order': 'new', 'page': '0'})]:
-        changed = deepcopy(proof)
-        for request in changed['requestEvidence'][0]['requests']: request[key] = value
-        assert not network_requests_complete(required, changed), key
-    changed = deepcopy(proof)
-    del changed['requestEvidence'][0]['requests'][0]['finalEndpoint']
-    assert not network_requests_complete(required, changed)
-    schedule = network_trace_fixture({'requiredProbes': ['课表、考试与首周同步']})
-    for request in schedule['requestEvidence'][0]['requests']: request['finalQuery']['XNXQDM'] = 'wrong-term'
-    assert not network_requests_complete({'课表、考试与首周同步'}, schedule)
-    for probe in ('话廊帖子评论', '学业课程评论', '文章评论', '学业课程列表'):
-        fixture = network_trace_fixture({'requiredProbes': [probe]})
-        for parameter in ('order', 'search') if probe == '学业课程列表' else ('order',):
-            changed = deepcopy(fixture)
-            for row in changed['requestEvidence'][0]['requests']:
-                row['query'][parameter] = row['finalQuery'][parameter] = 'invalid-order'
-            assert not network_requests_complete({probe}, changed), (probe, parameter)
-    from network_request_contracts import SELECTORS
-    for probe, selectors in SELECTORS.items():
-        selected = network_trace_fixture({'requiredProbes': [probe]})
-        row = selected['requestEvidence'][0]
-        assert complete(probe, row['requests'], row['expectedParameters'])
-        assert not complete(probe, row['requests'])
-        for key in selectors:
-            changed = deepcopy(selected)
-            for request in changed['requestEvidence'][0]['requests']:
-                if key == 'path': request['endpoint'] = request['endpoint'].rsplit('/', 1)[0] + '/999'
-                else: request['query'][key] = '999' if key == 'uid' else re.sub(r'\d+$', '999', request['query'][key]) if key == 'obj' else 'wrong'
-            assert not network_requests_complete({probe}, changed), (probe, key)
-    for key, value in [('endpoint', 'https://example.invalid/unrelated'), ('method', 'POST'),
-                       ('endpoint', 'http://bit101.flwfdd.xyz/reaction/comments'), ('statusCode', 500),
-                       ('query', {'obj': 'course1', 'page': '0'})]:
-        changed = deepcopy(proof)
-        for request in changed['requestEvidence'][0]['requests']: request[key] = value
-        assert not network_requests_complete(required, changed)
-    changed = deepcopy(proof)
-    changed['requestEvidence'][0]['requests'].pop()
-    assert not network_requests_complete(required, changed)
-    changed = deepcopy(proof)
-    changed['requestEvidence'][0]['requests'][1]['query']['page'] = '0'
-    assert not network_requests_complete(required, changed)
-    changed['requestEvidence'][0]['requests'][1]['query']['page'] = '999'
-    assert not network_requests_complete(required, changed)
-    original = proof['requestEvidence'][0]['requests']
-    for pages in ((0, 99, 1), (0, 1, 1), (0, 1, 3), (0, 1, 2)):
-        changed = deepcopy(proof)
-        rows = [deepcopy(original[0]) for _ in pages]
-        for row, page in zip(rows, pages): row['query']['page'] = row['finalQuery']['page'] = str(page)
-        changed['requestEvidence'][0]['requests'] = rows
-        assert network_requests_complete(required, changed) == (pages == (0, 1, 2)), pages
-    cursors = network_trace_fixture({'requiredProbes': ['消息列表-系统通知']})
-    cursor_probe = cursors['requestEvidence'][0]
-    assert complete(cursor_probe['probe'], cursor_probe['requests'])
-    nonempty = deepcopy(cursor_probe['requests'])
-    nonempty[0]['responseMinimumID'] = '9'
-    nonempty[1]['query']['last_id'] = '9'
-    nonempty[1]['finalQuery']['last_id'] = '9'
-    assert complete(cursor_probe['probe'], nonempty)
-    for position, invalid in ((0, None), (0, '0'), (1, '0')):
-        changed = deepcopy(cursor_probe['requests'])
-        if invalid is None: changed[position]['query'].pop('last_id')
-        else: changed[position]['query']['last_id'] = invalid
-        assert not complete(cursor_probe['probe'], changed), (position, invalid)
-    for invalid in ('999', None):
-        changed = deepcopy(cursor_probe['requests'])
-        changed[0]['responseMinimumID'] = invalid
-        assert not complete(cursor_probe['probe'], changed)
-    writes = network_trace_fixture({'requiredProbes': ['社区写入与清理']})['requestEvidence'][0]['requests']
-    assert complete('社区写入与清理', writes)
-    assert sum(row['endpoint'].endswith('/upload/image') for row in writes) == 4
-    assert sum(row['method'] == 'POST' and row['endpoint'].endswith('/reaction/comments') for row in writes) == 9
-    for endpoint, method in [('/upload/image', 'POST'), ('/reaction/comments/', 'DELETE')]:
-        index = next(index for index, row in enumerate(writes) if endpoint in row['endpoint'] and row['method'] == method)
-        assert not complete('社区写入与清理', writes[:index] + writes[index + 1:])
-    for endpoint, method in [('/upload/image', 'POST'), ('/reaction/comments', 'POST'),
-            ('/reaction/comments/', 'DELETE'), ('/reaction/like', 'POST'), ('/user/follow/', 'POST'),
-            ('/posters/', 'PUT'), ('/papers/', 'PUT')]:
-        changed = [row for row in writes if not (endpoint in row['endpoint'] and row['method'] == method)]
-        assert not complete('社区写入与清理', changed), (endpoint, method)
-    changed = deepcopy(writes)
-    for row in changed:
-        if row['method'] == 'POST' and row['endpoint'].endswith('/reaction/comments'):
-            row['query']['obj'] = 'poster1'
-    assert not complete('社区写入与清理', changed)
-    for probe, endpoint in [('课程中心原生认证', 'https://zy-eclass.bit.edu.cn/api/my-courses'),
-                            ('课程中心 DDL 下载', 'https://zy-eclass.bit.edu.cn/api/my-courses'),
-                            ('乐学日历订阅地址', 'https://lexue.bit.edu.cn/calendar/export.php')]:
-        request = {'method': 'POST', 'endpoint': endpoint, 'statusCode': 200, 'query': {}}
-        if probe.startswith('课程中心'): request['responseCourseIDs'] = []
-        assert complete(probe, [request]), probe
-        assert not complete(probe, [dict(request, method='GET')]), probe
-    for probe in ('课程中心原生认证', '课程中心 DDL 下载'):
-        page = {'method': 'POST', 'endpoint': 'https://zy-eclass.bit.edu.cn/api/my-courses',
-            'statusCode': 200, 'query': {}, 'responseCourseIDs': ['41', '43']}
-        activities = [dict(page, method='GET', endpoint=f'https://zy-eclass.bit.edu.cn/api/courses/{value}/activities') for value in (41, 43)]
-        assert complete(probe, [page] + activities)
-        for rows in ([page], [page, activities[0]], [dict(page, responseCourseIDs=None)] + activities,
-                     [dict(page, responseCourseIDs=['0'])] + activities,
-                     [page] + activities + [dict(activities[0], endpoint='https://zy-eclass.bit.edu.cn/api/courses/45/activities')],
-                     [page, activities[0], dict(activities[1], finalEndpoint=activities[0]['endpoint'])]):
-            assert not complete(probe, rows), (probe, rows)
-        assert complete(probe, [dict(page, responseCourseIDs=['41']), dict(page, responseCourseIDs=['43'])] + activities)
-        assert complete(probe, [dict(page, responseCourseIDs=[])])
-    building = {'method': 'GET', 'endpoint': 'https://jxzxehallapp.bit.edu.cn/jwapp/sys/kxjasbyMobile/modules/jxllb/cxjxl.do',
-        'statusCode': 200, 'query': {'XXXQDM': 'campus'}}
-    assert complete('空教室教学楼列表', [building], {'XXXQDM': 'campus'})
-    assert not complete('空教室教学楼列表', [building])
-    for query in ({}, {'XXXQDM': 'other'}):
-        assert not complete('空教室教学楼列表', [dict(building, query=query)], {'XXXQDM': 'campus'})
-        assert not complete('空教室教学楼列表', [dict(building, finalQuery=query)], {'XXXQDM': 'campus'})
-    variants = {
-        '话廊最新列表': {'mode': 'search', 'order': 'new', 'uid': '-1'},
-        '话廊关注流': {'mode': 'follow'}, '话廊热门流': {'mode': 'hot'}, '话廊推荐流': {},
-        '话廊机器人流': {'mode': 'search', 'order': 'new', 'uid': '-1'},
-        '话廊搜索': {'mode': 'search', 'order': 'new', 'uid': '-1', 'search': 'BIT101'},
-        '文章列表-最新': {'search': 'BIT101'}, '文章列表-高赞': {'order': 'like', 'search': 'BIT101'},
-        '文章列表-热评': {'order': 'comment', 'search': 'BIT101'},
-    }
-    for probe, parameters in variants.items():
-        endpoint = 'https://bit101.flwfdd.xyz/' + ('papers' if probe.startswith('文章') else 'posters')
-        requests = [{'method': 'GET', 'endpoint': endpoint, 'statusCode': 200,
-                     'query': dict(parameters, page=str(page))} for page in (0, 1)]
-        assert complete(probe, requests), probe
-        for extra in (dict(requests[-1], query=dict(parameters, page='2', order='unexpected')),
-                      dict(requests[-1], statusCode=500), dict(requests[-1], endpoint='https://example.invalid/other')):
-            assert not complete(probe, requests + [extra]), (probe, extra)
-        for key in ('order', 'search') if probe.startswith('文章') else ('mode', 'order', 'uid', 'search', 'hide_bot'):
-            changed = deepcopy(requests)
-            for row in changed:
-                if key in row['query']: row['query'].pop(key)
-                else: row['query'][key] = 'unexpected'
-            assert not complete(probe, changed), (probe, key)
-    assert not complete('文章列表-未知', requests)
-    for probe, parameters, selectors in [
-        ('文章列表', {}, None), ('我的帖子', {'mode': 'search', 'uid': '0'}, {'uid': '0'}),
-        ('用户帖子', {'mode': 'search', 'uid': '42'}, {'uid': '42'}),
-    ]:
-        endpoint = 'https://bit101.flwfdd.xyz/' + ('papers' if probe.startswith('文章') else 'posters')
-        rows = [{'method': 'GET', 'endpoint': endpoint, 'statusCode': 200, 'query': dict(parameters, page=str(page))}
-            for page in (0, 1)]
-        assert complete(probe, rows, selectors), probe
-        for key, value in [('order', 'hot'), ('search', 'BIT101')]:
-            changed = deepcopy(rows)
-            for row in changed: row['query'][key] = value
-            assert not complete(probe, changed, selectors), (probe, key)
-            changed = deepcopy(rows)
-            for row in changed: row['finalQuery'] = dict(row['query'], **{key: value})
-            assert not complete(probe, changed, selectors), (probe, key, 'redirect')
-    for probe, paths, expected in [
-        ('课表、考试与首周同步', ['/jwapp/sys/wdkbby/modules/xskcb/cxxszhxqkb.do',
-            '/jwapp/sys/wdksapMobile/modules/ksap/cxxsksap.do', '/jwapp/sys/wdkbby/wdkbByController/cxzkbrq.do'], {'XNXQDM': '2025-2026-1'}),
-        ('空教室占用数据', ['/jwapp/sys/kxjasbyMobile/kxjasbyController/cxkxjasqk.do'], {'XNXQDM': '2025-2026-1', 'JXLDM': 'fixture-building'}),
-    ]:
-        rows = [{'method': 'POST', 'endpoint': 'https://jxzxehallapp.bit.edu.cn' + path, 'statusCode': 200, 'query': dict(expected)} for path in paths]
-        assert complete(probe, rows, expected) and not complete(probe, rows)
-        for key in expected:
-            changed = deepcopy(rows)
-            changed[0]['query'][key] = 'wrong-selection'
-            assert not complete(probe, changed, expected)
-            changed[0]['query'].pop(key)
-            assert not complete(probe, changed, expected)
-    login = {'method': 'GET', 'endpoint': 'https://bit101.flwfdd.xyz/user/check', 'statusCode': 200, 'query': {}}
-    paper = dict(login, endpoint='https://bit101.flwfdd.xyz/papers/17')
-    comments = [dict(login, endpoint='https://bit101.flwfdd.xyz/reaction/comments',
-        query={'obj': 'paper17', 'order': 'new', 'page': str(page)}) for page in (0, 1)]
-    for probe, requests, selectors in [
-        ('文章详情', [login, paper], {'path': '/papers/17'}),
-        ('文章评论', [login, comments[0], login, comments[1]], {'obj': 'paper17'}),
-    ]:
-        assert complete(probe, requests, selectors), probe
-        assert complete(probe, [row for row in requests if row is not login], selectors), probe
-        assert complete(probe, [dict(login, statusCode=401)] + requests, selectors), probe
-        assert not complete(probe, [login], selectors), probe
-        for broken in (dict(login, statusCode=500), dict(login, statusCode=401), dict(login, method='POST'),
-                dict(login, endpoint='https://example.invalid/user/check'), dict(login, endpoint='https://bit101.flwfdd.xyz/user/unrelated')):
-            assert not complete(probe, requests + [broken], selectors), (probe, broken)
-    write_reads = [login, dict(login, endpoint='https://bit101.flwfdd.xyz/user/info/0'),
-        dict(login, endpoint='https://bit101.flwfdd.xyz/user/info/18'),
-        dict(login, endpoint='https://bit101.flwfdd.xyz/courses/3'),
-        dict(login, endpoint='https://bit101.flwfdd.xyz/posters/1'), paper,
-        dict(login, endpoint='https://bit101.flwfdd.xyz/posters', query={'mode': 'search', 'uid': '0', 'page': '0'}),
-        dict(login, endpoint='https://bit101.flwfdd.xyz/papers', query={'search': '功能验收', 'page': '0'}),
-        dict(login, endpoint='https://bit101.flwfdd.xyz/reaction/comments', query={'obj': 'paper17', 'order': 'old', 'page': '0'})]
-    assert complete('社区写入与清理', write_reads + writes)
-    assert not complete('社区写入与清理', write_reads)
-    for row in write_reads:
-        assert not complete('社区写入与清理', writes + [dict(row, statusCode=500)]), row
-    assert not complete('社区写入与清理', writes + [dict(login, endpoint='https://bit101.flwfdd.xyz/user/unrelated')])
-    assert complete('BIT101 登录状态', [dict(login, statusCode=401), login])
-    assert not complete('BIT101 登录状态', [login, dict(login, statusCode=401)])
-    assert not complete('BIT101 登录状态', [dict(login, statusCode=500), login])
-    assert not complete('BIT101 登录状态', [dict(login, statusCode=401, query={'order': 'old'}), login])
-    authentication = dict(login, method='POST', endpoint='https://bit101.flwfdd.xyz/user/webvpn_verify')
-    assert complete('BIT101 登录状态', [dict(login, statusCode=401), authentication, login])
-    assert not complete('BIT101 登录状态', [dict(login, statusCode=401), dict(authentication, statusCode=500), login])
-    teaching = {'method': 'GET', 'endpoint': 'https://jxzxehallapp.bit.edu.cn/jwapp/sys/wdkbby/modules/jshkcb/dqxnxq.do', 'statusCode': 200, 'query': {}}
-    preheat = dict(teaching, endpoint='https://jxzxehallapp.bit.edu.cn/jwapp/i18n.do')
-    cookies = dict(authentication, endpoint='https://login.bit101.flwfdd.xyz/api/jxzxehall/cookies')
-    assert complete('当前学期', [cookies, preheat, teaching])
-    redirected = dict(teaching, finalEndpoint='https://sso.bit.edu.cn/cas/login', finalMethod='GET', finalQuery={})
-    assert complete('当前学期', [redirected, cookies, preheat, teaching])
-    assert not complete('当前学期', [redirected, cookies, preheat])
-    assert not complete('当前学期', [dict(redirected, finalEndpoint='https://example.invalid/cas/login'), cookies, teaching])
-    assert not complete('当前学期', [dict(redirected, statusCode=500), cookies, teaching])
-    assert complete('当前学期', [dict(cookies, statusCode=503), cookies, preheat, teaching])
-    assert not complete('当前学期', [cookies, dict(preheat, statusCode=500), teaching])
-    transcript = network_trace_fixture({'requiredProbes': ['可信成绩单接口']})['requestEvidence'][0]
-    page = {'method': 'GET', 'endpoint': 'https://jwb.bit.edu.cn/cjd/Temp/page.jpg', 'statusCode': 200, 'query': {}}
-    assert complete('可信成绩单接口', transcript['requests'] + [page])
-    assert not complete('可信成绩单接口', transcript['requests'] + [dict(page, statusCode=500)])
-    assert complete('BIT101 登录状态', [dict(login, endpoint='https://bit101.flwfdd.xyz:443/user/check')])
-    for port in ('0', '80', '8443', '65536', 'invalid'):
-        assert not complete('BIT101 登录状态', [dict(login, endpoint='https://bit101.flwfdd.xyz:' + port + '/user/check')])
-    media = network_trace_fixture({'requiredProbes': ['话廊图片下载']})['requestEvidence'][0]
-    import hashlib
-    resource = 'https://image.invalid:8443/image.png'
-    digest = hashlib.sha256(resource.encode()).hexdigest()
-    assert complete('话廊图片下载', [dict(media['requests'][0], endpoint=resource, finalEndpoint=resource,
-        endpointDigest=digest)], {'resourceDigests': digest})
-    for status in (100, 302, 401, 403, 500):
-        assert not complete('BIT101 登录状态', [dict(login, statusCode=status)])
-    assert not complete('BIT101 登录状态', [dict(login, endpoint=login['endpoint'].replace('https:', 'http:'))])
-    account = dict(login, endpoint='https://bit101.flwfdd.xyz/user/info/0')
-    phases = [account, dict(account, statusCode=401), account]
-    assert complete('生产共享会话', phases)
-    for statuses in ((200, 200, 200), (401, 200, 200), (200, 401, 500), (200, 403, 200), (200, 401), (200, 401, 200, 200)):
-        assert not complete('生产共享会话', [dict(account, statusCode=status) for status in statuses])

@@ -151,25 +151,25 @@ final class ReleaseNetworkSmokeRunner {
         }
 
         if scope.includes(.authentication) {
-            executedProbes.append("BIT101 登录状态")
+            executedProbes.append("community.login")
             let loginStartedAt = Date()
             do {
-                let loginResult = try await captureNetworkRequests("BIT101 登录状态", required: true) {
+                let loginResult = try await captureNetworkRequests("community.login", required: true) {
                     try await self.dependencies.checkLogin()
                 }
                 guard let signedInStudentID = loginResult, !signedInStudentID.isEmpty else {
-                    recordFailure("BIT101 登录状态", "真机没有有效登录状态，无法执行发布前网络冒烟测试", area: .authentication, scope: scope)
+                    recordFailure("community.login", "真机没有有效登录状态，无法执行发布前网络冒烟测试", area: .authentication, scope: scope)
                     return await finishReport(runID: runID, scope: scope, startedAt: startedAt)
                 }
-                print("NETWORK_SMOKE_PASS name=BIT101 登录状态 elapsed=\(Self.duration(Date().timeIntervalSince(loginStartedAt)))")
+                print("NETWORK_SMOKE_PASS name=community.login elapsed=\(Self.duration(Date().timeIntervalSince(loginStartedAt)))")
             } catch {
-                recordFailure("BIT101 登录状态", error.localizedDescription, area: .authentication, scope: scope, elapsed: Date().timeIntervalSince(loginStartedAt))
+                recordFailure("community.login", error.localizedDescription, area: .authentication, scope: scope, elapsed: Date().timeIntervalSince(loginStartedAt))
                 return await finishReport(runID: runID, scope: scope, startedAt: startedAt)
             }
         }
 
         if scope == .communityWrites || scope == .communityCleanup {
-            communityWriteEvidence = await probe("社区写入与清理", area: .communityWrites, scope: scope) {
+            communityWriteEvidence = await probe(.communityWrites, area: .communityWrites, scope: scope) {
                 try await self.dependencies.communityWriteProbe(runID, scope == .communityCleanup, communityFollowTarget, communityExpectedAccount, fixtures, communityRecoveryConfirmation)
             } ?? []
             return await finishReport(runID: runID, scope: scope, startedAt: startedAt)
@@ -179,18 +179,18 @@ final class ReleaseNetworkSmokeRunner {
         let courses = dependencies.makeCourses()
         await runInParallel([
             {
-                _ = await self.probe("App 链接关联配置", area: .bit101, scope: scope) {
+                _ = await self.probe(.appAssociation, area: .bit101, scope: scope) {
                     let request = URLRequest(url: Self.aasaURL, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30)
                     return try Self.validateAASA(try await self.dependencies.aasaHTTPClient.send(request))
                 }
             },
             {
-                _ = await self.probe("分享图标下载", area: .bit101, scope: scope) {
+                _ = await self.probe(.shareIcon, area: .bit101, scope: scope) {
                     try await self.fetchImageCount(urlString: "https://open.aihelpme.dev/share-icon.jpg")
                 }
             },
             {
-                _ = await self.probe("反馈接口跨域预检", area: .bit101, scope: scope) {
+                _ = await self.probe(.feedbackPreflight, area: .bit101, scope: scope) {
                     var request = URLRequest(url: AppURL.required("https://feedback.aihelpme.dev/api/error-reports"))
                     request.httpMethod = "OPTIONS"
                     request.setValue("https://bit101.cn", forHTTPHeaderField: "Origin")
@@ -210,39 +210,39 @@ final class ReleaseNetworkSmokeRunner {
             }
         ])
         // The Worker root intentionally redirects to the public gallery landing page.
-        _ = await probe("open.aihelpme.dev 首页跳转", area: .bit101, scope: scope) {
+        _ = await probe(.homeRedirect, area: .bit101, scope: scope) {
             try await self.fetchHTMLCount(
                 urlString: "https://open.aihelpme.dev",
                 expectedHost: "bit101.cn",
                 initialHost: "open.aihelpme.dev"
             )
         }
-        _ = await probe("话廊最新列表", area: .bit101, scope: scope) {
+        _ = await probe(.galleryNewest, area: .bit101, scope: scope) {
             try await NetworkSmokePaging.batch(currentIdentity: self.dependencies.communityIdentity) { try await gallery.fetchFeed(kind: .newest, page: $0 == 0 ? nil : $0) }.items
         }
         let validatedFixtures = fixtures.flatMap { $0.isValid ? $0 : nil }
         if let fixture = validatedFixtures {
             await runInParallel([
                 {
-                    let detail = await self.probe("话廊帖子详情", area: .bit101, scope: scope, expectedParameters: ["path": "/posters/\(fixture.posterID)"]) {
+                    let detail = await self.probe(.galleryDetail, area: .bit101, scope: scope, expectedParameters: ["path": "/posters/\(fixture.posterID)"]) {
                         let detail = try await gallery.fetchPoster(id: fixture.posterID)
                         try Self.validateEntityIdentity(expected: fixture.posterID, actual: detail.id)
                         return detail
                     }
                     if let detail {
                         let images = NetworkSmokePaging.imageURLs(in: detail.images)
-                        _ = await self.probe("话廊图片下载", area: .bit101, scope: scope,
+                        _ = await self.probe(.galleryImage, area: .bit101, scope: scope,
                             expectedParameters: NetworkSmokePaging.imageResourceParameters(images)) {
                             guard !images.isEmpty else { throw URLError(.resourceUnavailable) }
                             for url in images { _ = try await self.fetchImageCount(urlString: url) }
                         }
                     } else {
-                        self.recordSkip("话廊图片下载", "维护帖子详情读取失败", area: .bit101, scope: scope)
+                        self.recordSkip("gallery.image", "维护帖子详情读取失败", area: .bit101, scope: scope)
                     }
                 },
                 {
                     let objectID = "poster\(fixture.posterID)"
-                    _ = await self.probe("话廊帖子评论", area: .bit101, scope: scope, expectedParameters: ["obj": objectID]) {
+                    _ = await self.probe(.galleryComments, area: .bit101, scope: scope, expectedParameters: ["obj": objectID]) {
                         try await NetworkSmokePaging.batch(currentIdentity: self.dependencies.communityIdentity) {
                             let batch = try await gallery.fetchComments(objectID: objectID, order: .newest, page: $0 == 0 ? nil : $0)
                             try NetworkSmokePaging.checkComments(batch.items, for: objectID)
@@ -251,7 +251,7 @@ final class ReleaseNetworkSmokeRunner {
                     }
                 }
             ])
-            _ = await probe("话廊网页详情", area: .bit101, scope: scope, expectedParameters: ["path": "/gallery/\(fixture.posterID)"]) {
+            _ = await probe(.galleryWeb, area: .bit101, scope: scope, expectedParameters: ["path": "/gallery/\(fixture.posterID)"]) {
                 try await self.fetchHTMLCount(
                     urlString: "https://open.aihelpme.dev/gallery/\(fixture.posterID)",
                     expectedHost: "open.aihelpme.dev"
@@ -259,47 +259,47 @@ final class ReleaseNetworkSmokeRunner {
             }
         } else {
             let reason = "社区详情验收需要有效的维护对象配置 BIT101_NETWORK_SMOKE_FIXTURES"
-            recordSkip("话廊帖子详情", reason, area: .bit101, scope: scope)
-            recordSkip("话廊帖子评论", reason, area: .bit101, scope: scope)
-            recordSkip("话廊网页详情", reason, area: .bit101, scope: scope)
-            recordSkip("话廊图片下载", reason, area: .bit101, scope: scope)
+            recordSkip("gallery.detail", reason, area: .bit101, scope: scope)
+            recordSkip("gallery.comments", reason, area: .bit101, scope: scope)
+            recordSkip("gallery.web", reason, area: .bit101, scope: scope)
+            recordSkip("gallery.image", reason, area: .bit101, scope: scope)
         }
         var galleryOperations: [@MainActor () async -> Void] = [
-            { _ = await self.probe("话廊关注流", area: .bit101, scope: scope) { try await NetworkSmokePaging.batch(currentIdentity: self.dependencies.communityIdentity) { try await gallery.fetchFeed(kind: .follow, page: $0 == 0 ? nil : $0) } } },
-            { _ = await self.probe("话廊热门流", area: .bit101, scope: scope) { try await NetworkSmokePaging.batch(currentIdentity: self.dependencies.communityIdentity) { try await gallery.fetchFeed(kind: .hot, page: $0 == 0 ? nil : $0) } } },
-            { _ = await self.probe("话廊推荐流", area: .bit101, scope: scope) { try await NetworkSmokePaging.batch(currentIdentity: self.dependencies.communityIdentity) { try await gallery.fetchRecommendPage(sourcePage: $0) } } },
-            { _ = await self.probe("话廊机器人流", area: .bit101, scope: scope) {
+            { _ = await self.probe(.galleryFollowing, area: .bit101, scope: scope) { try await NetworkSmokePaging.batch(currentIdentity: self.dependencies.communityIdentity) { try await gallery.fetchFeed(kind: .follow, page: $0 == 0 ? nil : $0) } } },
+            { _ = await self.probe(.galleryHot, area: .bit101, scope: scope) { try await NetworkSmokePaging.batch(currentIdentity: self.dependencies.communityIdentity) { try await gallery.fetchFeed(kind: .hot, page: $0 == 0 ? nil : $0) } } },
+            { _ = await self.probe(.galleryRecommend, area: .bit101, scope: scope) { try await NetworkSmokePaging.batch(currentIdentity: self.dependencies.communityIdentity) { try await gallery.fetchRecommendPage(sourcePage: $0) } } },
+            { _ = await self.probe(.galleryBots, area: .bit101, scope: scope) {
                 try await NetworkSmokePaging.batch(currentIdentity: self.dependencies.communityIdentity) {
                     let batch = try await gallery.fetchBotFeed(startPage: $0)
                     try NetworkSmokePaging.checkBotPosters(batch.items)
                     return batch
                 }
             } },
-            { _ = await self.probe("社区举报类型", area: .bit101, scope: scope) { try await gallery.fetchReportTypes() } },
-            { _ = await self.probe("帖子声明列表", area: .bit101, scope: scope) { try await gallery.fetchClaims() } },
+            { _ = await self.probe(.reportTypes, area: .bit101, scope: scope) { try await gallery.fetchReportTypes() } },
+            { _ = await self.probe(.galleryClaims, area: .bit101, scope: scope) { try await gallery.fetchClaims() } },
             {
-                _ = await self.probe("话廊搜索", area: .bit101, scope: scope) {
+                _ = await self.probe(.gallerySearch, area: .bit101, scope: scope) {
                     try await NetworkSmokePaging.batch(currentIdentity: self.dependencies.communityIdentity) { try await gallery.searchPosters(query: GallerySearchQuery(text: "BIT101"), page: $0) }
                 }
             },
-            { _ = await self.probe("消息未读数", area: .bit101, scope: scope) { try await gallery.fetchMessageUnreadCounts() } }
+            { _ = await self.probe(.messageUnread, area: .bit101, scope: scope) { try await gallery.fetchMessageUnreadCounts() } }
         ]
         for messageType in GalleryMessageType.allCases {
             galleryOperations.append { [messageType] in
-                _ = await self.probe("消息列表-\(messageType.rawValue)", area: .bit101, scope: scope) {
+                _ = await self.probe(.message(messageType), area: .bit101, scope: scope) {
                     try await NetworkSmokePaging.messages(currentIdentity: self.dependencies.communityIdentity) { try await gallery.fetchMessages(type: messageType, lastID: $0) }
                 }
             }
         }
         await runInParallel(galleryOperations)
 
-        _ = await probe("学业课程列表", area: .bit101, scope: scope) {
+        _ = await probe(.courseList, area: .bit101, scope: scope) {
             try await NetworkSmokePaging.arrayPage(requiresContent: validatedFixtures != nil, currentIdentity: self.dependencies.communityIdentity) { try await courses.fetchCourses(search: "", page: $0) }
         }
         if let fixture = validatedFixtures {
             await runInParallel([
                 {
-                    _ = await self.probe("学业课程详情", area: .bit101, scope: scope, expectedParameters: ["path": "/courses/\(fixture.courseID)"]) {
+                    _ = await self.probe(.courseDetail, area: .bit101, scope: scope, expectedParameters: ["path": "/courses/\(fixture.courseID)"]) {
                         let detail = try await courses.fetchCourse(id: fixture.courseID)
                         try Self.validateEntityIdentity(expected: fixture.courseID, actual: detail.id)
                         guard detail.number == fixture.courseNumber else { throw URLError(.badServerResponse) }
@@ -308,7 +308,7 @@ final class ReleaseNetworkSmokeRunner {
                 },
                 {
                     let objectID = "course\(fixture.courseID)"
-                    _ = await self.probe("学业课程评论", area: .bit101, scope: scope, expectedParameters: ["obj": objectID]) {
+                    _ = await self.probe(.courseComments, area: .bit101, scope: scope, expectedParameters: ["obj": objectID]) {
                         try await NetworkSmokePaging.arrayPage(currentIdentity: self.dependencies.communityIdentity) {
                             let comments = try await courses.fetchComments(courseID: fixture.courseID, page: $0 == 0 ? nil : $0)
                             try NetworkSmokePaging.checkComments(comments, for: objectID)
@@ -317,12 +317,12 @@ final class ReleaseNetworkSmokeRunner {
                     }
                 },
                 {
-                    _ = await self.probe("学业课程历史成绩", area: .bit101, scope: scope, expectedParameters: ["path": "/courses/histories/\(fixture.courseNumber)"]) {
+                    _ = await self.probe(.courseHistory, area: .bit101, scope: scope, expectedParameters: ["path": "/courses/histories/\(fixture.courseNumber)"]) {
                         try await courses.fetchCourseHistories(number: fixture.courseNumber)
                     }
                 },
                 {
-                    _ = await self.probe("学业课程网页详情", area: .bit101, scope: scope, expectedParameters: ["path": "/course/\(fixture.courseID)"]) {
+                    _ = await self.probe(.courseWeb, area: .bit101, scope: scope, expectedParameters: ["path": "/course/\(fixture.courseID)"]) {
                         try await self.fetchHTMLCount(
                             urlString: "https://open.aihelpme.dev/course/\(fixture.courseID)",
                             expectedHost: "open.aihelpme.dev"
@@ -332,39 +332,39 @@ final class ReleaseNetworkSmokeRunner {
             ])
         } else {
             let reason = "社区详情验收需要有效的维护对象配置 BIT101_NETWORK_SMOKE_FIXTURES"
-            recordSkip("学业课程详情", reason, area: .bit101, scope: scope)
-            recordSkip("学业课程评论", reason, area: .bit101, scope: scope)
-            recordSkip("学业课程历史成绩", reason, area: .bit101, scope: scope)
-            recordSkip("学业课程网页详情", reason, area: .bit101, scope: scope)
+            recordSkip("course.detail", reason, area: .bit101, scope: scope)
+            recordSkip("course.comments", reason, area: .bit101, scope: scope)
+            recordSkip("course.history", reason, area: .bit101, scope: scope)
+            recordSkip("course.web", reason, area: .bit101, scope: scope)
         }
 
         let papers = dependencies.makePapers()
-        _ = await probe("文章列表", area: .bit101, scope: scope) {
+        _ = await probe(.paperList, area: .bit101, scope: scope) {
             try await NetworkSmokePaging.arrayPage(requiresContent: validatedFixtures != nil, currentIdentity: self.dependencies.communityIdentity) { try await papers.fetchPapers(search: nil, order: .newest, page: $0) }
         }
         if let fixture = validatedFixtures {
             await runInParallel([
                 {
-                    let detail = await self.probe("文章详情", area: .bit101, scope: scope, expectedParameters: ["path": "/papers/\(fixture.paperID)"]) {
+                    let detail = await self.probe(.paperDetail, area: .bit101, scope: scope, expectedParameters: ["path": "/papers/\(fixture.paperID)"]) {
                         _ = try await papers.fetchPreviewMetadata(id: fixture.paperID)
                         let detail = try await papers.fetchPaper(id: fixture.paperID)
                         try Self.validateEntityIdentity(expected: fixture.paperID, actual: detail.id)
                         return try NetworkSmokePaging.checkPaperContent(detail.content)
                     }
                     if let images = detail {
-                        _ = await self.probe("文章正文图片下载", area: .bit101, scope: scope,
+                        _ = await self.probe(.paperImage, area: .bit101, scope: scope,
                             expectedParameters: NetworkSmokePaging.imageResourceParameters(images)) {
                             for url in images {
                                 _ = try await self.fetchImageCount(urlString: url)
                             }
                         }
                     } else {
-                        self.recordSkip("文章正文图片下载", "文章正文探针需要可渲染的维护对象", area: .bit101, scope: scope)
+                        self.recordSkip("paper.image", "文章正文探针需要可渲染的维护对象", area: .bit101, scope: scope)
                     }
                 },
                 {
                     let objectID = "paper\(fixture.paperID)"
-                    _ = await self.probe("文章评论", area: .bit101, scope: scope, expectedParameters: ["obj": objectID]) {
+                    _ = await self.probe(.paperComments, area: .bit101, scope: scope, expectedParameters: ["obj": objectID]) {
                         try await NetworkSmokePaging.arrayPage(currentIdentity: self.dependencies.communityIdentity) {
                             let comments = try await papers.fetchComments(paperID: fixture.paperID, order: .newest, page: $0 == 0 ? nil : $0)
                             try NetworkSmokePaging.checkComments(comments, for: objectID)
@@ -373,7 +373,7 @@ final class ReleaseNetworkSmokeRunner {
                     }
                 },
                 {
-                    _ = await self.probe("文章网页详情", area: .bit101, scope: scope, expectedParameters: ["path": "/paper/\(fixture.paperID)"]) {
+                    _ = await self.probe(.paperWeb, area: .bit101, scope: scope, expectedParameters: ["path": "/paper/\(fixture.paperID)"]) {
                         try await self.fetchHTMLCount(urlString: "https://open.aihelpme.dev/paper/\(fixture.paperID)",
                                                      expectedHost: "open.aihelpme.dev")
                     }
@@ -381,14 +381,14 @@ final class ReleaseNetworkSmokeRunner {
             ])
         } else {
             let reason = "社区详情验收需要有效的维护对象配置 BIT101_NETWORK_SMOKE_FIXTURES"
-            recordSkip("文章详情", reason, area: .bit101, scope: scope)
-            recordSkip("文章正文图片下载", reason, area: .bit101, scope: scope)
-            recordSkip("文章评论", reason, area: .bit101, scope: scope)
-            recordSkip("文章网页详情", reason, area: .bit101, scope: scope)
+            recordSkip("paper.detail", reason, area: .bit101, scope: scope)
+            recordSkip("paper.image", reason, area: .bit101, scope: scope)
+            recordSkip("paper.comments", reason, area: .bit101, scope: scope)
+            recordSkip("paper.web", reason, area: .bit101, scope: scope)
         }
         await runInParallel(PaperSortOrder.allCases.map { order in
             {
-                _ = await self.probe("文章列表-\(order.title)", area: .bit101, scope: scope) {
+                _ = await self.probe(.paperSort(order), area: .bit101, scope: scope) {
                     try await NetworkSmokePaging.paperPage(order: order, currentIdentity: self.dependencies.communityIdentity) {
                         try await papers.fetchPapers(search: "BIT101", order: order, page: $0)
                     }
@@ -397,18 +397,18 @@ final class ReleaseNetworkSmokeRunner {
         })
 
         let mine = dependencies.makeMine()
-        productionSessionEvidence = await probe("生产共享会话", area: .bit101, scope: scope) {
+        productionSessionEvidence = await probe(.productionSession, area: .bit101, scope: scope) {
             try await self.dependencies.productionSessionProbe()
         } ?? []
-        let myInfo = await probe("我的资料", area: .bit101, scope: scope) { try await mine.fetchMyInfo() }
+        let myInfo = await probe(.myProfile, area: .bit101, scope: scope) { try await mine.fetchMyInfo() }
         await runInParallel([
-            { _ = await self.probe("我的关注", area: .bit101, scope: scope) { try await NetworkSmokePaging.arrayPage(currentIdentity: self.dependencies.communityIdentity) { try await mine.fetchFollowings(page: $0) } } },
-            { _ = await self.probe("我的粉丝", area: .bit101, scope: scope) { try await NetworkSmokePaging.arrayPage(currentIdentity: self.dependencies.communityIdentity) { try await mine.fetchFollowers(page: $0) } } }
+            { _ = await self.probe(.myFollowing, area: .bit101, scope: scope) { try await NetworkSmokePaging.arrayPage(currentIdentity: self.dependencies.communityIdentity) { try await mine.fetchFollowings(page: $0) } } },
+            { _ = await self.probe(.myFollowers, area: .bit101, scope: scope) { try await NetworkSmokePaging.arrayPage(currentIdentity: self.dependencies.communityIdentity) { try await mine.fetchFollowers(page: $0) } } }
         ])
         if let myInfo {
             await runInParallel([
                 {
-                    _ = await self.probe("我的帖子", area: .bit101, scope: scope, expectedParameters: ["uid": "0"]) {
+                    _ = await self.probe(.myPosts, area: .bit101, scope: scope, expectedParameters: ["uid": "0"]) {
                         try await NetworkSmokePaging.arrayPage(currentIdentity: self.dependencies.communityIdentity) {
                             let posters = try await mine.fetchMyPosters(page: $0)
                             try NetworkSmokePaging.checkPosters(posters, for: myInfo.user.id)
@@ -417,10 +417,10 @@ final class ReleaseNetworkSmokeRunner {
                     }
                 },
                 {
-                    _ = await self.probe("用户资料详情", area: .bit101, scope: scope, expectedParameters: ["path": "/user/info/\(myInfo.user.id)"]) { let detail = try await mine.fetchUserInfo(id: myInfo.user.id); try Self.validateEntityIdentity(expected: myInfo.user.id, actual: detail.user.id); return detail }
+                    _ = await self.probe(.userProfile, area: .bit101, scope: scope, expectedParameters: ["path": "/user/info/\(myInfo.user.id)"]) { let detail = try await mine.fetchUserInfo(id: myInfo.user.id); try Self.validateEntityIdentity(expected: myInfo.user.id, actual: detail.user.id); return detail }
                 },
                 {
-                    _ = await self.probe("用户帖子", area: .bit101, scope: scope, expectedParameters: ["uid": String(myInfo.user.id)]) {
+                    _ = await self.probe(.userPosts, area: .bit101, scope: scope, expectedParameters: ["uid": String(myInfo.user.id)]) {
                         try await NetworkSmokePaging.arrayPage(currentIdentity: self.dependencies.communityIdentity) {
                             let posters = try await mine.fetchUserPosters(userID: myInfo.user.id, page: $0)
                             try NetworkSmokePaging.checkPosters(posters, for: myInfo.user.id)
@@ -430,14 +430,14 @@ final class ReleaseNetworkSmokeRunner {
                 }
             ])
         } else {
-            recordSkip("我的帖子", "资料探针没有可用数据", area: .bit101, scope: scope)
-            recordSkip("用户资料详情", "资料探针没有可用数据", area: .bit101, scope: scope)
-            recordSkip("用户帖子", "资料探针没有可用数据", area: .bit101, scope: scope)
+            recordSkip("profile.posts", "资料探针没有可用数据", area: .bit101, scope: scope)
+            recordSkip("user.profile", "资料探针没有可用数据", area: .bit101, scope: scope)
+            recordSkip("user.posts", "资料探针没有可用数据", area: .bit101, scope: scope)
         }
 
         // 可信成绩单探针位于学校相关探针的首段，模拟用户手动点击“申请可信成绩单”的路径。
         let transcriptService = dependencies.makeScores()
-        _ = await probe("可信成绩单接口", area: .transcript, scope: scope) {
+        _ = await probe(.transcript, area: .transcript, scope: scope) {
             let pages: [Data]
             do { pages = try await transcriptService.fetchTrustedTranscriptPages() }
             catch ScoreServiceError.secondFactorRequired(let challenge) {
@@ -458,17 +458,17 @@ final class ReleaseNetworkSmokeRunner {
         let schedule = dependencies.makeSchedule(rawCourseResponseHandler)
         let productionSchedule = dependencies.makeProductionSchedule()
         schoolSMSSchedule = productionSchedule
-        _ = await probe("生产学校会话", area: .schedule, scope: scope) { try await productionSchedule.fetchCurrentTermOnly() }
+        _ = await probe(.schoolSession, area: .schedule, scope: scope) { try await productionSchedule.fetchCurrentTermOnly() }
         schoolSMSSchedule = schedule
-        _ = await probe("教学中心接口预热", area: .schedule, scope: scope) { try await schedule.prepareTeachingCenterAccess() }
-        let currentTerm = await probe("当前学期", area: .schedule, scope: scope) { try await schedule.fetchCurrentTermOnly() }
+        _ = await probe(.teachingCenter, area: .schedule, scope: scope) { try await schedule.prepareTeachingCenterAccess() }
+        let currentTerm = await probe(.currentTerm, area: .schedule, scope: scope) { try await schedule.fetchCurrentTermOnly() }
         currentScheduleTerm = currentTerm
-        _ = await probe("切换学期列表", area: .schedule, scope: scope) {
+        _ = await probe(.termList, area: .schedule, scope: scope) {
             try await schedule.fetchAvailableTerms()
         }
         let term = requestedScheduleTerm ?? currentTerm
         if let term {
-            let syncPayload = await probe("课表、考试与首周同步", area: .schedule, scope: scope, expectedParameters: ["XNXQDM": term]) {
+            let syncPayload = await probe(.scheduleSync, area: .schedule, scope: scope, expectedParameters: ["XNXQDM": term]) {
                 let payload = try await schedule.syncCourses(term: term)
                 guard payload.term == term else { throw URLError(.badServerResponse) }
                 try Self.validateCourseSyncPayload(payload)
@@ -479,43 +479,43 @@ final class ReleaseNetworkSmokeRunner {
                 scheduleCache = captureScheduleCache(from: syncPayload)
             }
 
-            let campuses = await probe("空教室校区列表", area: .schedule, scope: scope) {
+            let campuses = await probe(.classroomCampuses, area: .schedule, scope: scope) {
                 try await schedule.fetchCampuses()
             }
             if let campus = campuses?.first {
-                let buildings = await probe("空教室教学楼列表", area: .schedule, scope: scope, expectedParameters: ["XXXQDM": campus.code]) {
+                let buildings = await probe(.classroomBuildings, area: .schedule, scope: scope, expectedParameters: ["XXXQDM": campus.code]) {
                     let buildings = try await schedule.fetchBuildings(campusCode: campus.code)
                     try NetworkSmokePaging.checkBuildings(buildings, campusCode: campus.code)
                     return buildings
                 }
                 if let building = buildings?.first {
-                    _ = await probe("空教室占用数据", area: .schedule, scope: scope, expectedParameters: ["XNXQDM": term, "JXLDM": building.id]) {
+                    _ = await probe(.classroomOccupancy, area: .schedule, scope: scope, expectedParameters: ["XNXQDM": term, "JXLDM": building.id]) {
                         let classrooms = try await schedule.fetchClassrooms(buildingID: building.id, term: term)
                         guard classrooms.allSatisfy(\.hasValidOccupancy) else { throw URLError(.cannotParseResponse) }
                         return classrooms
                     }
                 } else {
                     let reason = buildings == nil ? "教学楼探针没有可用数据" : "教学楼列表为空"
-                    recordSkip("空教室占用数据", reason, area: .schedule, scope: scope)
+                    recordSkip("classroom.occupancy", reason, area: .schedule, scope: scope)
                 }
             } else {
                 let reason = campuses == nil ? "校区探针没有可用数据" : "校区列表为空"
-                recordSkip("空教室教学楼列表", reason, area: .schedule, scope: scope)
-                recordSkip("空教室占用数据", reason, area: .schedule, scope: scope)
+                recordSkip("classroom.buildings", reason, area: .schedule, scope: scope)
+                recordSkip("classroom.occupancy", reason, area: .schedule, scope: scope)
             }
         } else {
             let reason = "当前学期探针缺少可用学期"
-            recordSkip("课表、考试与首周同步", reason, area: .schedule, scope: scope)
-            recordSkip("空教室校区列表", reason, area: .schedule, scope: scope)
-            recordSkip("空教室教学楼列表", reason, area: .schedule, scope: scope)
-            recordSkip("空教室占用数据", reason, area: .schedule, scope: scope)
+            recordSkip("schedule.sync", reason, area: .schedule, scope: scope)
+            recordSkip("classroom.campuses", reason, area: .schedule, scope: scope)
+            recordSkip("classroom.buildings", reason, area: .schedule, scope: scope)
+            recordSkip("classroom.occupancy", reason, area: .schedule, scope: scope)
         }
-        let nativeEclass = await probe("课程中心原生认证", area: .ddl, scope: scope) {
+        let nativeEclass = await probe(.eclassAuthentication, area: .ddl, scope: scope) {
             let service = try self.dependencies.makeEclassSchedule()
             if let handler = self.schoolSMSHandler { return try await service.fetchEclassDDLEvents(schoolSMSCodeHandler: handler) }
             return try await service.fetchEclassDDLEventsForPreflight()
         }
-        if let eclass = await probe("课程中心 DDL 下载", area: .ddl, scope: scope, operation: {
+        if let eclass = await probe(.eclassDDL, area: .ddl, scope: scope, operation: {
             if let handler = self.schoolSMSHandler { return try await schedule.fetchEclassDDLEvents(schoolSMSCodeHandler: handler) }
             return try await schedule.fetchEclassDDLEventsForPreflight()
         }) {
@@ -533,25 +533,25 @@ final class ReleaseNetworkSmokeRunner {
                 cachedEclassCount: cache.ddlEvents.filter { $0.group == "eclass" }.count,
                 earliestDeadline: eclass.events.first?.dueAt, latestDeadline: eclass.events.last?.dueAt)
         }
-        let calendarURL = await probe("乐学日历订阅地址", area: .ddl, scope: scope) {
+        let calendarURL = await probe(.lexueCalendar, area: .ddl, scope: scope) {
             if let handler = self.schoolSMSHandler { return try await schedule.refreshLexueCalendarURL(schoolSMSCodeHandler: handler) }
             return try await schedule.refreshLexueCalendarURLForPreflight()
         }
         if let calendarURL {
-            _ = await probe("乐学 DDL 下载", area: .ddl, scope: scope) {
+            _ = await probe(.lexueDDL, area: .ddl, scope: scope) {
                 try await schedule.syncDDLEventsForPreflight(
                     existingEvents: [],
                     storedURL: calendarURL
                 )
             }
         } else {
-            recordSkip("乐学 DDL 下载", "日历订阅地址探针没有可用数据", area: .ddl, scope: scope)
+            recordSkip("lexue.ddl", "日历订阅地址探针没有可用数据", area: .ddl, scope: scope)
         }
 
         // 成绩页与可信成绩单同属学校网络链路；短信二次验证时记录为 AUTH_BLOCKED，
         // 区分认证阻塞与网络故障。
         let scoreService = dependencies.makeScores()
-        let scoreChallenge = await probe("成绩认证接口", area: .school, scope: scope) {
+        let scoreChallenge = await probe(.scoreAuthentication, area: .school, scope: scope) {
             do { return try await scoreService.startScoreChallenge() }
             catch ScoreServiceError.secondFactorRequired(let challenge) {
                 guard let handler = self.schoolSMSHandler else { throw ScoreServiceError.secondFactorRequired(challenge) }
@@ -560,10 +560,10 @@ final class ReleaseNetworkSmokeRunner {
             }
         }
         if let scoreChallenge {
-            let briefScores = await probe("成绩简略列表", area: .school, scope: scope) {
+            let briefScores = await probe(.scoreBrief, area: .school, scope: scope) {
                 try await scoreService.fetchScores(detail: false, authenticatedBy: scoreChallenge)
             }
-            _ = await probe("成绩详细列表", area: .school, scope: scope) {
+            _ = await probe(.scoreDetail, area: .school, scope: scope) {
                 let detailed = try await scoreService.fetchScores(detail: true, authenticatedBy: scoreChallenge)
                 guard let briefScores else { throw URLError(.cannotParseResponse) }
                 try NetworkSmokePaging.checkScores(brief: briefScores, detailed: detailed)
@@ -573,17 +573,17 @@ final class ReleaseNetworkSmokeRunner {
 
         await runInParallel([
             {
-                _ = await self.probe("App Store 更新接口", area: .bit101, scope: scope) {
+                _ = await self.probe(.appStoreUpdate, area: .bit101, scope: scope) {
                     try await self.fetchAppStoreLookup()
                 }
             },
             {
-                _ = await self.probe("紧急更新配置接口", area: .bit101, scope: scope) {
+                _ = await self.probe(.emergencyUpdate, area: .bit101, scope: scope) {
                     try await self.fetchEmergencyUpdateConfiguration()
                 }
             },
             {
-                _ = await self.probe("feedback.aihelpme.dev 写入恢复", area: .bit101, scope: scope) {
+                _ = await self.probe(.feedbackRecovery, area: .bit101, scope: scope) {
                     try await self.dependencies.feedbackProbe(runID)
                 }
             }
@@ -698,13 +698,14 @@ final class ReleaseNetworkSmokeRunner {
     }
 
     private func probe<Value>(
-        _ name: String,
+        _ kind: NetworkSmokeProbe,
         area: NetworkSmokeArea,
         scope: NetworkSmokeScope,
         expectedParameters: [String: String] = [:],
         operation: () async throws -> Value
     ) async -> Value? {
         guard scope.includes(area) else { return nil }
+        let name = kind.rawValue
         executedProbes.append(name)
         let startedAt = Date()
         let smsStart = submittedSMSPurposes.count
@@ -713,13 +714,13 @@ final class ReleaseNetworkSmokeRunner {
                 try await self.operationWithSchoolAuthentication(operation)
             }
             verifiedSMSProbes += submittedSMSPurposes.dropFirst(smsStart).map { SchoolSMSProbeEvidence(purpose: $0, probe: name) }
-            let canonicalPurposes = ["当前学期": "webvpn", "生产学校会话": "webvpn", "乐学日历订阅地址": "webvpn",
-                "课程中心原生认证": "school_sso_second_factor", "成绩认证接口": "jwb", "可信成绩单接口": "jwb_cjd"]
+            let canonicalPurposes = ["schedule.current-term": "webvpn", "school.session": "webvpn", "lexue.calendar": "webvpn",
+                "eclass.authentication": "school_sso_second_factor", "score.authentication": "jwb", "score.transcript": "jwb_cjd"]
             let purposes = Set(submittedSMSPurposes.dropFirst(smsStart)).union(canonicalPurposes[name].map { [$0] } ?? [])
             for purpose in purposes where !authenticatedSchoolProbes.contains(where: { $0.purpose == purpose }) {
                 authenticatedSchoolProbes.append(SchoolSMSProbeEvidence(purpose: purpose, probe: name))
             }
-            print("NETWORK_SMOKE_PASS name=\(name) elapsed=\(Self.duration(Date().timeIntervalSince(startedAt)))")
+            print("NETWORK_SMOKE_PASS name=\(name) label=\(kind.displayName) elapsed=\(Self.duration(Date().timeIntervalSince(startedAt)))")
             return value
         } catch {
             let elapsed = Date().timeIntervalSince(startedAt)

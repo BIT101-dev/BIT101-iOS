@@ -9,15 +9,14 @@ import re
 import subprocess
 from functools import cache
 from pathlib import Path
+from swift_type_index import canonical_type_scope, visible_variables, argument_parameter_bindings
+from validation_policy import SWIFT_SYNTAX_SOURCE_NAMES
 
 if not __debug__:
     raise RuntimeError("验证自测需要 Python 默认优化级别；请使用 python3 -E 执行入口。")
 
 ROOT = Path(__file__).resolve().parents[1]
-SWIFT_SYNTAX_SOURCE_NAMES = ("SwiftSyntaxIndexer.swift", "SwiftSyntaxFacts.swift")
 REGEX_RANGES_BY_SOURCE: dict[str, dict[int, int]] = {}
-
-
 
 
 def repository_swift_files() -> list[Path]:
@@ -264,18 +263,6 @@ def expected_argument_types(facts: dict, reference: dict, *, context=None, path:
     return result
 
 
-def canonical_type_scope(names: list[str]) -> tuple[str, ...]:
-    parts = []
-    for name in names:
-        nominal, depth = [], 0
-        for index, character in enumerate(name):
-            if character == "<": depth += 1
-            elif character == ">" and (index == 0 or name[index - 1] != "-"): depth -= 1
-            elif depth == 0 and not character.isspace(): nominal.append(character)
-        parts.extend("".join(nominal).split("."))
-    return tuple(parts)
-
-
 def declaration_conformances(index: dict[str, dict], path: str | None = None) -> dict[tuple[str, ...], set[str]]:
     from swift_type_index import SwiftTypeIndex
     types = SwiftTypeIndex(index)
@@ -300,31 +287,6 @@ def resource_context_type(value: str, resource: str = "UserDefaults") -> bool:
         return resource_context_type(value[len("Dictionary<"):-1].rsplit(",", 1)[-1], resource)
     if "->" in value: return resource_context_type(value.rsplit("->", 1)[-1].strip("()"), resource)
     return value.removeprefix("Foundation.").removeprefix("StorageCore.") == resource
-
-
-def visible_variables(facts: dict, reference: dict, name: str, explicit_self: bool = False) -> list[dict]:
-    lexical = reference.get("lexicalScope", [])
-    candidates = [variable for variable in facts["typedVariables"] if variable["name"] == name
-        and canonical_type_scope(reference["scope"])[:len(canonical_type_scope(variable["scope"]))] == canonical_type_scope(variable["scope"])
-        and lexical[:len(variable.get("lexicalScope", []))] == variable.get("lexicalScope", [])
-        and (not variable.get("lexicalScope") or variable.get("start", 0) <= reference["start"])
-        and not (explicit_self and any(function["scope"] == variable["scope"]
-            and function["start"] <= variable.get("start", 0) < function["end"] for function in facts["functionRanges"]))]
-    return sorted(candidates, key=lambda variable: (len(variable["scope"]), len(variable.get("lexicalScope", [])), variable.get("start", 0)))
-
-
-def argument_parameter_bindings(parameters: list[dict], labels: list[str]) -> list[list[dict]]:
-    """Align supplied arguments with parameters, including defaults and variadic arguments."""
-    if not parameters: return [[]] if not labels else []
-    parameter, remaining = parameters[0], parameters[1:]
-    bindings = argument_parameter_bindings(remaining, labels) if parameter["hasDefault"] else []
-    if parameter["variadic"]:
-        for count in range(len(labels) + 1):
-            if all(label == (parameter["label"] if index == 0 else "") for index, label in enumerate(labels[:count])):
-                bindings.extend([parameter] * count + tail for tail in argument_parameter_bindings(remaining, labels[count:]))
-    elif labels and labels[0] == parameter["label"]:
-        bindings.extend([parameter] + tail for tail in argument_parameter_bindings(remaining, labels[1:]))
-    return bindings
 
 
 def matching_functions(facts: dict, name: str, call: dict) -> list[dict]:
