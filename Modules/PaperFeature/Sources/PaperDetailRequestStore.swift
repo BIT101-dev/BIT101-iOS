@@ -105,7 +105,8 @@ final class PaperDetailRequestStore {
         active.remove(id)
         defer { startQueued() }
         guard operations[key]?.id == id, let operation = operations.removeValue(forKey: key) else { return }
-        if operation.cacheResult, operation.epoch == cacheEpoch, case let .success(detail) = result {
+        if operation.cacheResult, operation.epoch == cacheEpoch, case let .success(detail) = result,
+           PaperContentResourceLimits.acceptsPreviewCache(detail) {
             cache[key] = detail
             cacheOrder.removeAll { $0 == key }
             cacheOrder.append(key)

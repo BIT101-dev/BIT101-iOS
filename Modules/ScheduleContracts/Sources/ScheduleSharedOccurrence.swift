@@ -516,7 +516,7 @@ public nonisolated enum ScheduleOccurrenceResolver {
             .flatMap { course in
                 course.weeks.compactMap { week -> ScheduleExternalOccurrence? in
                     guard
-                        ScheduleCourseConstraints.isValidWeek(week),
+                        !Task.isCancelled, ScheduleCourseConstraints.isValidWeek(week),
                         (1...7).contains(course.weekday),
                         let startSlot = slotMap[course.startSection],
                         let endSlot = slotMap[course.endSection],
@@ -651,6 +651,11 @@ public nonisolated enum ScheduleOccurrenceResolver {
         guard let firstDay = ScheduleSharedDateCodec.parseDate(snapshot.firstDayString) else { return .invalid }
         guard !snapshot.courses.isEmpty else { return .rest }
         return hasValidCourses(snapshot, firstDay: firstDay) ? .ready : .invalid
+    }
+
+    public static func hasValidCourses(_ snapshot: ScheduleExternalSnapshot) -> Bool {
+        guard let firstDay = ScheduleSharedDateCodec.parseDate(snapshot.firstDayString) else { return false }
+        return hasValidCourses(snapshot, firstDay: firstDay)
     }
 
     private static func hasValidCourses(_ snapshot: ScheduleExternalSnapshot, firstDay: Date) -> Bool {

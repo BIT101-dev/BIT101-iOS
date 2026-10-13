@@ -31,6 +31,11 @@ def markdown_prose(source: str) -> str:
     return "\n".join(lines)
 
 
+def markdown_link_prose(source: str) -> str:
+    return re.sub(r'(?<!`)(`+)(?!`)(.*?)(?<!`)\1(?!`)', lambda match: ' ' * len(match[0]),
+        markdown_prose(source), flags=re.DOTALL)
+
+
 def heading_anchors(source: str) -> set[str]:
     anchors, counts = set(), {}
     lines = markdown_prose(source).splitlines()
@@ -45,13 +50,12 @@ def heading_anchors(source: str) -> set[str]:
         duplicate = counts.get(slug, 0)
         counts[slug] = duplicate + 1
         anchors.add(slug + (f'-{duplicate}' if duplicate else ''))
-    anchors.update(re.findall(r'<(?:a|[^>]+)\s[^>]*(?:id|name)=["\']([^"\']+)', source))
+    anchors.update(re.findall(r'<(?:a|[^>]+)\s[^>]*(?:id|name)=["\']([^"\']+)', markdown_link_prose(source)))
     return anchors
 
 
 def link_targets(source: str) -> tuple[list[str], list[str]]:
-    source = markdown_prose(source)
-    source = re.sub(r'(`+)(.*?)\1', lambda match: ' ' * len(match[0]), source, flags=re.DOTALL)
+    source = markdown_link_prose(source)
     definitions = {}
     def reference(value): return ' '.join(value.split()).casefold()
     def destination(value):
@@ -60,7 +64,7 @@ def link_targets(source: str) -> tuple[list[str], list[str]]:
         return re.split(r'\s+["\']', value, maxsplit=1)[0].strip()
     definition_pattern = r'^ {0,3}\[([^]\n]+)\]:\s*(.+)$'
     for match in re.finditer(definition_pattern, source, re.MULTILINE):
-        definitions[reference(match[1])] = destination(match[2])
+        definitions.setdefault(reference(match[1]), destination(match[2]))
     source = re.sub(definition_pattern, '', source, flags=re.MULTILINE)
     targets, errors = [], []
     cursor = 0
@@ -115,10 +119,11 @@ def document_findings(name: str, documents: dict[str, str], filenames: set[str])
 
 
 def findings(staged: bool = False, root: Path = ROOT) -> list[str]:
-    contents = file_checks["index_files"](root) if staged else None
+    contents = file_checks["index_files"](root, include=lambda name: name.endswith('.md')) if staged else None
     if contents is None:
         names = subprocess.check_output(['git', 'ls-files', '--cached', '--others', '--exclude-standard', '-z'], cwd=root, text=True).split("\0")
-        contents = {name: (root / name).read_bytes() for name in names if name and (root / name).is_file()}
+        contents = {name: (root / name).read_bytes() if name.endswith('.md') else b''
+            for name in names if name and (root / name).is_file()}
     documents = {name: data.decode() for name, data in contents.items() if name.endswith('.md') and 'Fixtures' not in Path(name).parts}
     return [error for name in sorted(documents) for error in document_findings(name, documents, set(contents))]
 
@@ -137,6 +142,25 @@ def link_self_test() -> None:
     for source in ('[bad](#missing)', '[bad](docs/Help.md#missing)', '[bad][missing]', '[bad](missing.md)', '[bad][details]\n[details]: docs/Help.md#missing'):
         assert document_findings('README.md', dict(documents, **{'README.md': source}), set(documents))
     assert link_targets('[nested [label]](file(with).md)')[0] == ['file(with).md']
+    for length in range(1, 5):
+        prefix = '正文 ' + '`' * length + ' [broken](Missing.md) '
+        assert link_targets(prefix + '`' * (length + 1))[0] == ['Missing.md']
+        assert document_findings('README.md', dict(documents, **{'README.md': prefix + '`' * (length + 1)}), set(documents))
+        assert link_targets(prefix + '`' * length) == ([], [])
+    for label in ('route', 'ROUTE', ' route '):
+        source = f'[link][route]\n\n[route]: Missing.md\n[{label}]: README.md'
+        assert link_targets(source) == (['Missing.md'], [])
+        assert document_findings('README.md', dict(documents, **{'README.md': source}), set(documents))
+        source = source.replace('Missing.md', 'docs/Help.md', 1).replace(']: README.md', ']: Missing.md')
+        assert link_targets(source) == (['docs/Help.md'], [])
+        assert not document_findings('README.md', dict(documents, **{'README.md': source}), set(documents))
+
+    for wrapper in ('```html\n%s\n```', '~~~html\n%s\n~~~', '`%s`', '<!--%s-->'):
+        source = '[anchor](#gone)\n' + wrapper % '<a id="gone"></a>'
+        assert document_findings('README.md', {'README.md': source}, {'README.md'})
+    source = '[anchor](#gone)\n<a id="gone"></a>'
+    assert not document_findings('README.md', {'README.md': source}, {'README.md'})
+    assert 'guide-code' in heading_anchors('# Guide `code`')
 
 
 def staged_self_test() -> None:
@@ -155,10 +179,14 @@ def staged_content_fixture() -> None:
         subprocess.run(["git", "init", "-q", str(fixture)], check=True, capture_output=True)
         (fixture / "source.swift").write_text("line\n" * 1001)
         (fixture / "README.md").write_text("[link](missing.swift)\n")
+        (fixture / "image.png").write_bytes(b'\x89PNG\x00' * 1000)
         subprocess.run(["git", "add", "."], cwd=fixture, check=True, capture_output=True)
         (fixture / "source.swift").write_text("line\n")
         (fixture / "README.md").write_text("[link](source.swift)\n")
         contents = file_checks["index_files"](fixture)
+        assert contents['image.png'] == b''
+        documents = file_checks["index_files"](fixture, include=lambda name: name.endswith('.md'))
+        assert documents['source.swift'] == documents['image.png'] == b'' and documents['README.md']
         assert file_checks["length_findings"]({name: data.decode() for name, data in contents.items()})
         assert findings(staged=True, root=fixture) and findings(root=fixture) == []
         subprocess.run(["git", "add", "."], cwd=fixture, check=True, capture_output=True)

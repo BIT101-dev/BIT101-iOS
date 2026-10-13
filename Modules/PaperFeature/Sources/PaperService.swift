@@ -41,27 +41,7 @@ public struct PaperService {
     private let details = PaperDetailRequestStore()
     private let previewReadValidation = CommunitySessionRefreshCoordinator()
 
-    private struct LikeRequest: Encodable {
-        let obj: String
-    }
 
-    private struct CreateCommentRequest: Encodable {
-        let obj: String
-        let text: String
-        let replyObj: String?
-        let replyUid: Int?
-        let anonymous: Bool
-        let imageMids: [String]
-
-        enum CodingKeys: String, CodingKey {
-            case obj
-            case text
-            case replyObj = "reply_obj"
-            case replyUid = "reply_uid"
-            case anonymous
-            case imageMids = "image_mids"
-        }
-    }
 
     private struct CreatePaperRequest: Encodable {
         let title: String
@@ -105,6 +85,7 @@ public struct PaperService {
 
     /// 拉取文章列表。
     public func fetchPapers(search: String?, order: PaperSortOrder, page: Int) async throws -> [PaperSummary] {
+        try await validateAuthenticatedRead()
         if page == 0 { details.invalidate() }
         var queryItems = [URLQueryItem(name: "page", value: String(page))]
         if let search, !search.isEmpty {
@@ -122,7 +103,9 @@ public struct PaperService {
         let credentials = session.currentCredentials
         return try await details.detail(id: id, credentials: credentials) {
             guard self.session.currentCredentials.identity == credentials.identity else { throw CancellationError() }
-            return try await self.api.request(path: "papers/\(id)", authentication: .optional)
+            let detail: PaperDetail = try await self.api.request(path: "papers/\(id)", authentication: .optional)
+            guard id > 0, detail.id == id else { throw PaperServiceError.invalidResponse }
+            return detail
         }
     }
 
@@ -133,6 +116,7 @@ public struct PaperService {
         return try await details.preview(id: id, credentials: credentials) {
             guard self.session.currentCredentials.identity == credentials.identity else { throw CancellationError() }
             let detail: PaperDetail = try await self.api.request(path: "papers/\(id)", authentication: .optional)
+            guard id > 0, detail.id == id else { throw PaperServiceError.invalidResponse }
             return detail
         }
     }
@@ -153,7 +137,9 @@ public struct PaperService {
         if let page {
             queryItems.append(URLQueryItem(name: "page", value: String(page)))
         }
-        return try await api.request(path: "reaction/comments", queryItems: queryItems, authentication: .optional)
+        let comments: [CommunityComment] = try await api.request(path: "reaction/comments", queryItems: queryItems, authentication: .optional)
+        guard CommunityComment.validatesResponse(comments, for: "paper\(paperID)") else { throw PaperServiceError.invalidResponse }
+        return comments
     }
 
     /// 点赞或取消点赞文章。
@@ -169,7 +155,7 @@ public struct PaperService {
         return try await api.request(
             path: "reaction/like",
             method: "POST",
-            body: try api.encode(LikeRequest(obj: objectID))
+            body: try api.encode(CommunityLikeRequest(obj: objectID))
         )
     }
 
@@ -186,7 +172,7 @@ public struct PaperService {
             path: "reaction/comments",
             method: "POST",
             body: try api.encode(
-                CreateCommentRequest(
+                CommunityCreateCommentRequest(
                     obj: objectID,
                     text: text,
                     replyObj: replyObjectID,
@@ -220,6 +206,7 @@ public struct PaperService {
                 )
             )
         )
+        guard response.id > 0 else { throw PaperServiceError.invalidResponse }
         return response.id
     }
 

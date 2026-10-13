@@ -14,7 +14,3 @@ import Foundation
 /// - 导入分享课表后的默认命名
 /// - 缓存课表标题展示
 public nonisolated let scheduleNameCharacterLimit = 8
-
-/// 本地缓存发生变化时发出的通知。
-///
-/// 课表页、小组件导出和灵动岛刷新都会监听这条通知，用来做跨模块同步。

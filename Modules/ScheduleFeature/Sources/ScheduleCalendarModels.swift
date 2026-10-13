@@ -114,17 +114,6 @@ func convertMinutesToSection(minutes: Int, timeTable: [TimeSlot]) -> CGFloat {
     return CGFloat(sectionIndex) + ratio
 }
 
-func isRepresentableOnQuantizedAxis(
-    startMinutes: Int,
-    endMinutes: Int,
-    timeTable: [TimeSlot]
-) -> Bool {
-    guard endMinutes > startMinutes else { return false }
-    let startSection = convertMinutesToSection(minutes: startMinutes, timeTable: timeTable)
-    let endSection = convertMinutesToSection(minutes: endMinutes, timeTable: timeTable)
-    return endSection > startSection + 0.05
-}
-
 /// 根据首周日期计算课表页当前周次。
 func resolvedCurrentWeek(firstDay: Date, now: Date = .now) -> Int {
     let start = ScheduleDateCodec.calendar.startOfDay(for: firstDay)
@@ -133,8 +122,21 @@ func resolvedCurrentWeek(firstDay: Date, now: Date = .now) -> Int {
     return ScheduleWeekCodec.weekNumber(forDayOffset: diff)
 }
 
-/// 处理同一天中互相重叠的日历块，为先前条目保留可见区域。
-func normalize(entries: [ScheduleCalendarEntry]) -> [ScheduleCalendarEntry] {
+struct ScheduleCalendarPlacement: Identifiable {
+    let entry: ScheduleCalendarEntry
+    let column: Int
+    let columnCount: Int
+    var id: String { entry.id }
+}
+
+func quantizedCalendarGroups(entries: [ScheduleCalendarEntry]) -> (grid: [ScheduleCalendarEntry], outside: [ScheduleCalendarEntry]) {
+    (entries.filter { $0.endSection > $0.startSection + 0.05 },
+     entries.filter { $0.endSection <= $0.startSection + 0.05 })
+}
+
+/// 同日冲突条目并排展示，每个来源保留完整时间和详情入口。
+func calendarPlacements(entries: [ScheduleCalendarEntry], separateOverlaps: Bool = true) -> [ScheduleCalendarPlacement] {
+    guard separateOverlaps else { return entries.map { ScheduleCalendarPlacement(entry: $0, column: 0, columnCount: 1) } }
     let sorted = entries.sorted { lhs, rhs in
         if lhs.dayOfWeek != rhs.dayOfWeek {
             return lhs.dayOfWeek < rhs.dayOfWeek
@@ -148,48 +150,34 @@ func normalize(entries: [ScheduleCalendarEntry]) -> [ScheduleCalendarEntry] {
         return lhs.id < rhs.id
     }
 
-    var result: [ScheduleCalendarEntry] = []
-
+    var result: [ScheduleCalendarPlacement] = []
     for day in 1 ... 7 {
-        var dayEntries: [ScheduleCalendarEntry] = []
-        for entry in sorted where entry.dayOfWeek == day {
-            if let last = dayEntries.last, last.endSection > entry.startSection {
-                if last.endSection < entry.endSection {
-                    let trimmedStart = last.endSection
-                    let trimmedEnd = entry.endSection
-                    let trimmedLayers = entry.backgroundLayers.compactMap { layer -> ScheduleCalendarLayer? in
-                        let startSection = max(layer.startSection, trimmedStart)
-                        let endSection = min(layer.endSection, trimmedEnd)
-                        guard endSection > startSection else { return nil }
-                        return ScheduleCalendarLayer(
-                            id: layer.id,
-                            startSection: startSection,
-                            endSection: endSection
-                        )
-                    }
-                    dayEntries.append(
-                        ScheduleCalendarEntry(
-                            id: "\(entry.id)-trim-\(last.endSection)",
-                            sourceID: entry.sourceID,
-                            sourceIDs: entry.resolvedSourceIDs,
-                            dayOfWeek: entry.dayOfWeek,
-                            startSection: trimmedStart,
-                            endSection: trimmedEnd,
-                            startMinutes: entry.startMinutes,
-                            endMinutes: entry.endMinutes,
-                            title: entry.title,
-                            subtitle: entry.subtitle,
-                            detailLines: entry.detailLines,
-                            kind: entry.kind,
-                            backgroundLayers: trimmedLayers
-                        )
-                    )
-                }
-            } else {
-                dayEntries.append(entry)
-            }
+        var cluster: [(entry: ScheduleCalendarEntry, column: Int)] = []
+        var columnEnds: [CGFloat] = []
+        var clusterEnd: CGFloat = 0
+        func finishCluster() {
+            result.append(contentsOf: cluster.map {
+                ScheduleCalendarPlacement(entry: $0.entry, column: $0.column, columnCount: columnEnds.count)
+            })
+            cluster.removeAll(keepingCapacity: true)
+            columnEnds.removeAll(keepingCapacity: true)
         }
-        result.append(contentsOf: dayEntries)
+        for entry in sorted where entry.dayOfWeek == day {
+            if !cluster.isEmpty, entry.startSection >= clusterEnd {
+                finishCluster()
+            }
+            let column: Int
+            if let available = columnEnds.firstIndex(where: { $0 <= entry.startSection }) {
+                column = available
+                columnEnds[available] = entry.endSection
+            } else {
+                column = columnEnds.count
+                columnEnds.append(entry.endSection)
+            }
+            cluster.append((entry, column))
+            clusterEnd = cluster.count == 1 ? entry.endSection : max(clusterEnd, entry.endSection)
+        }
+        finishCluster()
     }
 
     return result

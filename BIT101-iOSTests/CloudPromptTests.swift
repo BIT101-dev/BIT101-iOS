@@ -1,4 +1,5 @@
 import CommunityTransport
+import CloudKit
 import ScheduleDomain
 import ScheduleSync
 import StorageCore
@@ -8,6 +9,25 @@ import Testing
 @MainActor
 struct CloudPromptTests {
     private let account = ScheduleCloudAccount(studentID: "A", session: .init(accountIdentifier: "A@BIT101"), generation: 1)
+
+    @Test(.timeLimit(.minutes(1)))
+    func aCloudAccountNotificationInvalidatesAnAlreadyPresentedChoice() async throws {
+        let center = NotificationCenter()
+        let generation = AppCloudAccountGeneration(center: center)
+        let prompts = AppPromptCoordinator(advanceDelay: .zero)
+        let identity = CommunitySessionIdentity(accountIdentifier: account.session.accountIdentifier, generation: account.generation)
+        let present = ScheduleCloudSyncManager.appConflictPresenter(prompts: prompts,
+            currentIdentity: { identity }, currentCloudGeneration: { generation.value })
+        let decisions = Decisions()
+        present(account, "cloud-owner") { await decisions.record($0) }
+        let prompt = try #require(prompts.activePrompt)
+        await Task.detached { center.post(name: .CKAccountChanged, object: nil) }.value
+        #expect(generation.value == 1)
+        prompts.perform(try #require(prompt.actions.first { $0.id == "use-cloud" }), promptID: prompt.id)
+        try await waitForTestEvent { decisions.values.count == 1 }
+        #expect(decisions.values == [nil])
+        #expect(prompts.activePrompt == nil)
+    }
 
     @MainActor private final class Decisions {
         var values: [ScheduleCacheConflictResolution?] = []

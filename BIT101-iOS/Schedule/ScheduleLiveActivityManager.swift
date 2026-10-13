@@ -195,8 +195,8 @@ final class ScheduleLiveActivityManager {
             logger.debug("selected occurrence is nil for current time=\(Self.debugDateFormatter.string(from: now), privacy: .public)")
         }
 
-        // 先安排下一次自动唤醒和提醒结束任务，再同步当前状态。
-        // app 持续处于后台时，任务会在“进入提醒窗口”和“提醒该结束了”两个边界点重新计算。
+        // 先安排进程可执行时的提醒边界任务，再同步当前状态。
+        // 系统恢复执行或 App 回到前台时重新计算；本地通知承接挂起期间的提醒。
         scheduleNextRefresh(for: occurrences, leadMinutes: leadMinutes)
         scheduleEndForDisplayedOccurrence(currentOccurrence)
 
@@ -248,7 +248,8 @@ final class ScheduleLiveActivityManager {
             return
         }
 
-        let newState = CourseReminderActivityAttributes.ContentState(
+        let attributes = CourseReminderActivityAttributes(studentID: studentID)
+        let rawState = CourseReminderActivityAttributes.ContentState(
             kindText: occ.kindText,
             title: occ.title,
             classroom: occ.classroom,
@@ -256,6 +257,13 @@ final class ScheduleLiveActivityManager {
             timeRangeText: ScheduleReminderPlanner.timeRangeText(start: occ.startDate, end: occ.endDate),
             countdownTargetDate: occ.startDate
         )
+
+        let newState: CourseReminderActivityAttributes.ContentState
+        do { newState = try attributes.boundedContentState(rawState) }
+        catch {
+            logger.error("Activity payload encoding failed: \(String(describing: error), privacy: .public)")
+            return
+        }
 
         let result = await Self.synchronizeExistingActivities(
             studentID: studentID,
@@ -281,7 +289,6 @@ final class ScheduleLiveActivityManager {
         case .needsRequest:
             // 当前没有 activity 时创建新的 activity。
             let content = ActivityContent(state: newState, staleDate: occ.startDate)
-            let attributes = CourseReminderActivityAttributes(studentID: studentID)
             await requestActivity(attributes: attributes, content: content, reason: "no_active_activity")
         case .unchanged:
             logger.debug("skipping update because content state is unchanged")

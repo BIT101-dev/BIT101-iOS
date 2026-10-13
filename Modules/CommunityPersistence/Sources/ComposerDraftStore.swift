@@ -55,11 +55,13 @@ private nonisolated struct StoredDeveloperSuggestionDraft: Codable, StoredCompos
     let assetRevision: String
     let text: String
     let contact: String
+    let pendingSubmissionMetadata: Data?
     let images: [StoredComposerDraftImage]
     static func images(in snapshot: DeveloperSuggestionDraftSnapshot) -> [ComposerImageDraftSnapshot] { snapshot.images }
 
     func snapshot(images: [ComposerImageDraftSnapshot]) -> DeveloperSuggestionDraftSnapshot {
-        DeveloperSuggestionDraftSnapshot(text: text, images: images, contact: contact)
+        DeveloperSuggestionDraftSnapshot(text: text, images: images, contact: contact,
+            pendingSubmissionMetadata: pendingSubmissionMetadata)
     }
 }
 
@@ -179,6 +181,7 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
                 assetRevision: revision,
                 text: snapshot.text,
                 contact: snapshot.contact,
+                pendingSubmissionMetadata: snapshot.pendingSubmissionMetadata,
                 images: images
             )
             try write(stored, to: fileURL)
@@ -205,13 +208,11 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
         _ type: Stored.Type, filename: String, session: AppStorageSession
     ) -> DraftRead<Stored.Snapshot> {
         let currentURL = currentFileURL(for: filename, session: session)
-        let sources = [currentURL, legacyAccountFileURL(for: filename, session: session), directoryURL.appendingPathComponent(filename)]
-        for url in sources where files.fileExists(at: url) {
+        let sources = [currentURL, legacyAccountFileURL(for: filename, session: session)]
+        for url in sources {
             do {
-                guard let size = files.regularFileSize(at: url), size <= ComposerDraftImagePolicy.maximumLegacyMetadataBytes
-                else { throw CocoaError(.fileReadCorruptFile) }
-                try? files.setPrivateFileProtection(at: url)
-                let data = try files.readData(at: url)
+                try files.setPrivateFileProtection(at: url)
+                let data = try files.readData(at: url, maximumBytes: ComposerDraftImagePolicy.maximumLegacyMetadataBytes)
                 let decoder = JSONDecoder()
                 let header = try decoder.decode(DraftSchemaHeader.self, from: data)
                 let snapshot: Stored.Snapshot
@@ -235,6 +236,7 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
                 return DraftRead(result: .loaded(snapshot), sourceURL: url,
                     needsMigration: url != currentURL || header.schemaVersion == nil)
             } catch {
+                if AppFileSystem.isMissingFile(error) { continue }
                 Self.logger.error("草稿读取遇到问题，原文件与图片已保留：\(String(describing: error), privacy: .public)")
                 return DraftRead(result: .unreadable, sourceURL: url)
             }
@@ -244,21 +246,26 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
 
     private func removeMigratedSource(_ sourceURL: URL?, filename: String, session: AppStorageSession) {
         guard let sourceURL, sourceURL != currentFileURL(for: filename, session: session) else { return }
-        removeFile(sourceURL)
+        guard removeFile(sourceURL) else { return }
         removeFile(sourceURL.appendingPathExtension("assets"))
     }
 
-    private func removeFile(_ url: URL) {
-        do { try files.removeItem(at: url) }
-        catch let error as CocoaError where error.code == .fileNoSuchFile || error.code == .fileReadNoSuchFile { return }
-        catch { Self.logger.error("清理草稿文件遇到错误：\(String(describing: error), privacy: .private)") }
+    @discardableResult
+    private func removeFile(_ url: URL) -> Bool {
+        do { try files.removeItem(at: url); return true }
+        catch let error as CocoaError where error.code == .fileNoSuchFile || error.code == .fileReadNoSuchFile { return true }
+        catch {
+            Self.logger.error("清理草稿文件遇到错误：\(String(describing: error), privacy: .private)")
+            return false
+        }
     }
 
     @MainActor
-    public func removeGallery() async {
-        guard storageOperations.begin() else { return }
+    @discardableResult
+    public func removeGallery() async -> Bool {
+        guard storageOperations.begin() else { return false }
         defer { storageOperations.finish() }
-        await storage.removeGallery(store: self, session: currentSession())
+        return await storage.removeGallery(store: self, session: currentSession())
     }
 
     /// Capture cleanup for the saved revision owned by a submission.
@@ -274,26 +281,23 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
 
     @MainActor
     private func captureCleanup(filename: String) async -> ComposerDraftCleanup {
-        guard storageOperations.begin() else { return {} }
+        guard storageOperations.begin() else { return { false } }
         defer { storageOperations.finish() }
         let session = currentSession()
         let metadata = await storage.cleanupMetadata(store: self, filename: filename, session: session)
         return { @MainActor in
-            guard self.storageOperations.begin() else { return }
+            guard self.storageOperations.begin() else { return false }
             defer { self.storageOperations.finish() }
-            await self.storage.removeMatching(store: self, filename: filename, session: session, metadata: metadata)
+            return await self.storage.removeMatching(store: self, filename: filename, session: session, metadata: metadata)
         }
     }
 
-    fileprivate func metadata(filename: String, session: AppStorageSession) -> Data? {
-        readData(at: currentFileURL(for: filename, session: session))
-    }
-
     @MainActor
-    public func removeSuggestion() async {
-        guard storageOperations.begin() else { return }
+    @discardableResult
+    public func removeSuggestion() async -> Bool {
+        guard storageOperations.begin() else { return false }
         defer { storageOperations.finish() }
-        await storage.removeSuggestion(store: self, session: currentSession())
+        return await storage.removeSuggestion(store: self, session: currentSession())
     }
 
     private var directoryURL: URL {
@@ -301,8 +305,15 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
     }
 
     private func readData(at url: URL) -> Data? {
-        try? files.setPrivateFileProtection(at: url)
-        return try? files.readData(at: url)
+        do {
+            try files.setPrivateFileProtection(at: url)
+            return try files.readData(at: url)
+        } catch {
+            if !AppFileSystem.isMissingFile(error) {
+                Self.logger.error("读取草稿元数据失败：\(String(describing: error), privacy: .public)")
+            }
+            return nil
+        }
     }
 
     private func write<T: Encodable>(_ value: T, to fileURL: URL) throws {
@@ -359,25 +370,39 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
             let fileURL = directory.appending(path: "image-\(index).jpg")
             guard let size = files.regularFileSize(at: fileURL), size <= ComposerDraftImagePolicy.maximumBytes
             else { throw CocoaError(.fileReadCorruptFile) }
-            try? files.setPrivateFileProtection(at: fileURL)
-            let data = try files.readData(at: fileURL)
+            try files.setPrivateFileProtection(at: fileURL)
+            let data = try files.readData(at: fileURL, maximumBytes: ComposerDraftImagePolicy.maximumBytes)
             return ComposerImageDraftSnapshot(filename: reference.filename, previewData: data, uploadData: data)
         }
     }
 
-    fileprivate func cleanupMetadata(filename: String, session: AppStorageSession) -> Data? {
-        let allowsWrite = filename == "gallery.json"
-            ? readDraft(StoredGalleryComposerDraft.self, filename: filename, session: session).result.allowsWrite
-            : readDraft(StoredDeveloperSuggestionDraft.self, filename: filename, session: session).result.allowsWrite
-        return allowsWrite ? metadata(filename: filename, session: session) : nil
+    fileprivate func cleanupMetadata(filename: String, session: AppStorageSession) -> (data: Data?, readable: Bool) {
+        if filename == "gallery.json" {
+            return cleanupMetadata(StoredGalleryComposerDraft.self, filename: filename, session: session)
+        }
+        return cleanupMetadata(StoredDeveloperSuggestionDraft.self, filename: filename, session: session)
     }
 
-    fileprivate func remove(filename: String, session: AppStorageSession) {
+    private func cleanupMetadata<Stored: StoredComposerDraft>(
+        _ type: Stored.Type, filename: String, session: AppStorageSession
+    ) -> (data: Data?, readable: Bool) {
+        let read = readDraft(type, filename: filename, session: session)
+        guard read.result.allowsWrite else { return (nil, false) }
+        guard let source = read.sourceURL else { return (nil, true) }
+        do {
+            return (try files.readData(at: source, maximumBytes: ComposerDraftImagePolicy.maximumLegacyMetadataBytes), true)
+        } catch { return (nil, false) }
+    }
+
+    @discardableResult
+    fileprivate func remove(filename: String, session: AppStorageSession) -> Bool {
+        var removed = true
         for url in Set([currentFileURL(for: filename, session: session),
-                        legacyAccountFileURL(for: filename, session: session), directoryURL.appendingPathComponent(filename)]) {
-            removeFile(url)
-            removeFile(url.appendingPathExtension("assets"))
+                        legacyAccountFileURL(for: filename, session: session)]) {
+            guard removeFile(url) else { removed = false; continue }
+            if !removeFile(url.appendingPathExtension("assets")) { removed = false }
         }
+        return removed
     }
 
     private func currentFileURL(for filename: String, session: AppStorageSession) -> URL {
@@ -447,20 +472,22 @@ private actor ComposerDraftStorage {
         store.loadSuggestion(session: session)
     }
 
-    func cleanupMetadata(store: ComposerDraftStore, filename: String, session: AppStorageSession) -> Data? {
+    func cleanupMetadata(store: ComposerDraftStore, filename: String, session: AppStorageSession) -> (data: Data?, readable: Bool) {
         store.cleanupMetadata(filename: filename, session: session)
     }
 
-    func removeMatching(store: ComposerDraftStore, filename: String, session: AppStorageSession, metadata: Data?) {
-        guard let metadata, store.cleanupMetadata(filename: filename, session: session) == metadata else { return }
-        store.remove(filename: filename, session: session)
+    func removeMatching(store: ComposerDraftStore, filename: String, session: AppStorageSession, metadata: (data: Data?, readable: Bool)) -> Bool {
+        let current = store.cleanupMetadata(filename: filename, session: session)
+        guard metadata.readable, current.readable else { return false }
+        guard let captured = metadata.data, current.data == captured else { return true }
+        return store.remove(filename: filename, session: session)
     }
 
-    func removeGallery(store: ComposerDraftStore, session: AppStorageSession) {
+    func removeGallery(store: ComposerDraftStore, session: AppStorageSession) -> Bool {
         store.remove(filename: "gallery.json", session: session)
     }
 
-    func removeSuggestion(store: ComposerDraftStore, session: AppStorageSession) {
+    func removeSuggestion(store: ComposerDraftStore, session: AppStorageSession) -> Bool {
         store.remove(filename: "suggestion.json", session: session)
     }
 }

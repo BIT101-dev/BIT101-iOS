@@ -19,6 +19,8 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     @MainActor private var checkingScrollContainers = false
     @MainActor private var preparingScene = false
     @MainActor private var checkedScrollContainers = Set<String>()
+    @MainActor private var checkingRefreshRows = false
+    @MainActor private var checkedRefreshRows = Set<String>()
     private let runIdentifier = "ui"
 
     override func tearDown() async throws {
@@ -174,8 +176,12 @@ nonisolated class UIAutomationTestCase: XCTestCase {
 
     @MainActor
     func waitForValue(_ value: String, of element: UIElement) {
-        if element.value as? String == value { return }
-        assertUI(waitUntil(NSPredicate(format: "value == %@", value), on: element, timeout: 5), "交互应更新为\(value)，实际值：\(String(describing: element.value))。")
+        let matches = NSPredicate { _, _ in
+            guard element.exists else { return false }
+            return element.value as? String == value || (value.isEmpty && element.value == nil
+                && [.textField, .secureTextField, .textView].contains(element.elementType))
+        }
+        assertUI(waitUntil(matches, on: element, timeout: 5), "交互应更新为\(value)，实际值：\(String(describing: element.value))。")
     }
 
     @MainActor @discardableResult
@@ -476,15 +482,25 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         }
         for container in containers {
             guard let instance = container["instance"] as? String,
+                  let scrollInstance = container["scrollInstance"] as? String,
                   let identifier = container["identifier"] as? String,
                   let offset = container["offset"] as? [Double], offset.count == 2,
                   let range = container["range"] as? [Double], range.count == 2,
                   let remaining = container["remaining"] as? [Double], remaining.count == 2 else { continue }
             let checkIdentity = instance + ":" + range.map { String($0.rounded(.up)) }.joined(separator: ",")
             guard !checkedScrollContainers.contains(checkIdentity) else { continue }
-            let parameters = ["instance": instance, "offsetX": String(offset[0]), "offsetY": String(offset[1])]
+            let parameters = ["scrollInstance": scrollInstance, "offsetX": String(offset[0]), "offsetY": String(offset[1])]
             if range.allSatisfy({ $0 == 0 }) {
-                XCTAssertEqual(UITestControlClient.request(parameters.merging(["command": "scroll-check"]) { _, value in value }), "fit",
+                let outcome = UITestControlClient.request(parameters.merging(["command": "scroll-check"]) { _, value in value })
+                if outcome == "target missing" {
+                    guard let refreshed = UITestControlClient.request(["command": "scroll-inventory"]),
+                          let current = try? JSONSerialization.jsonObject(with: Data(refreshed.utf8)) as? [[String: Any]] else {
+                        XCTFail("布局更新后应提供当前滚动容器身份。")
+                        return
+                    }
+                    if current.allSatisfy({ $0["scrollInstance"] as? String != scrollInstance }) { continue }
+                }
+                XCTAssertEqual(outcome, "fit",
                     "完整显示的容器应核对内容边界：\(identifier)。")
             } else {
                 let element = app.descendants(matching: .any)[identifier]
@@ -512,13 +528,43 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     }
 
     @MainActor
+    func checkRefreshStatusRows() {
+        guard !preparingScene, !checkingRefreshRows, app.state == .runningForeground else { return }
+        let timestamp = app.staticTexts["app.refresh-status.timestamp"]
+        guard timestamp.exists else { return }
+        checkingRefreshRows = true
+        defer { checkingRefreshRows = false }
+        let largeText = Self.sessionApplication?.launchEnvironment["BIT101_UI_TEST_LARGE_TEXT"] == "1"
+        let viewport = app.native.frame.size
+        let key = "\(app.segmentedControls.firstMatch.value ?? "成绩"):\(timestamp.label):\(largeText):\(viewport)"
+        guard !checkedRefreshRows.contains(key) else { return }
+        let nativeText = app.native.staticTexts["app.refresh-status.timestamp"].firstMatch
+        let actionID = app.buttons["score.query"].exists ? "score.query" : "app.refresh-status.action"
+        let action = app.native.buttons[actionID]
+        guard action.exists, action.isEnabled else { return }
+        let cell = app.native.cells.containing(.button, identifier: actionID).firstMatch
+        guard cell.exists else { return }
+        if !largeText {
+            let expected = max(44, nativeText.frame.height) + 8
+            let settled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                abs(cell.frame.height - expected) <= 1
+            }, object: nil)
+            assertUI(XCTWaiter.wait(for: [settled], timeout: 5) == .completed,
+                "更新时间行应遵循统一行高：实际 \(cell.frame)，文字 \(nativeText.frame)，预期 \(expected)。")
+        }
+        assertUI(cell.frame.insetBy(dx: 0, dy: 3).contains(nativeText.frame),
+            "更新时间文字应完整落在行内容区域：行 \(cell.frame)，文字 \(nativeText.frame)。")
+        checkedRefreshRows.insert(key)
+    }
+
+    @MainActor
     func assertUI(
         _ condition: @autoclosure () -> Bool,
         _ message: @autoclosure () -> String,
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        guard !condition() else { checkScrollContainers(); return }
+        guard !condition() else { checkRefreshStatusRows(); checkScrollContainers(); return }
         var diagnostics = ""
         let application = app
         let state = application.state
@@ -603,7 +649,9 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         school: Bool = false,
         media: Bool = false,
         botPaging: Bool = false,
+        pagination: Bool = false,
         failureOnce: Bool = false,
+        claimsFailureOnce: Bool = false,
         reportFailureOnce: Bool = false,
         feedbackResponseLostOnce: Bool = false,
         update: String? = nil,
@@ -614,6 +662,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     ) -> UIElement {
         preparingScene = true
         checkedScrollContainers.removeAll()
+        checkedRefreshRows.removeAll()
         defer { preparingScene = false }
         let started = ProcessInfo.processInfo.systemUptime
         defer { print(String(format: "UI scene preparation: %.3f", ProcessInfo.processInfo.systemUptime - started)) }
@@ -657,7 +706,9 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         application.launchEnvironment["BIT101_UI_TEST_SCHOOL"] = school ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_MEDIA"] = media ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_BOT_PAGING"] = botPaging ? "1" : "0"
+        application.launchEnvironment["BIT101_UI_TEST_PAGINATION"] = pagination ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_FAILURE_ONCE"] = failureOnce ? "1" : "0"
+        application.launchEnvironment["BIT101_UI_TEST_CLAIMS_FAILURE_ONCE"] = claimsFailureOnce ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_REPORT_FAILURE_ONCE"] = reportFailureOnce ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_FEEDBACK_RESPONSE_LOST_ONCE"] = feedbackResponseLostOnce ? "1" : "0"
         if let update { application.launchEnvironment["BIT101_UI_TEST_UPDATE"] = update }

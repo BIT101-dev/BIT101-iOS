@@ -84,7 +84,7 @@ struct UITestLoginService: LoginServicing {
                     text: "测试课程", dueAt: now.addingTimeInterval(fixture == "overdue" ? -24 * 3600 : 24 * 3600), done: false)]
                 if fixture == "sources" {
                     cache.ddlEvents.append(DDLEventRecord(id: "lexue-ui", group: "lexue", title: "乐学测试日程",
-                        text: "测试课程", dueAt: now.addingTimeInterval(48 * 3600), done: false))
+                        text: "测试课程\n\n 测试说明 \n\n补充说明", dueAt: now.addingTimeInterval(48 * 3600), done: false))
                 }
             }
             guard await ScheduleCacheStore.saveAndWait(cache) else {

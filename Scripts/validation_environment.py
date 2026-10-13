@@ -6,6 +6,7 @@ import platform
 import plistlib
 import re
 import subprocess
+import sys
 from functools import cache
 from pathlib import Path
 from validation_policy import NETWORK_GROUPS
@@ -14,11 +15,21 @@ DEVICE_GROUPS = {"all", "release-runtime", "ui", "schedule", "infrastructure", "
                  "icloud", "icloud-cleanup", "restore", "manual-device"} | NETWORK_GROUPS
 
 
+def native_destinations_complete(rows: object, group: str, *, simulator: bool = False, expected_device: str = '') -> bool:
+    expected_platform = 'iOS Simulator' if simulator else 'macOS' if group in {'catalyst', 'catalyst-release-runtime'} else 'iOS'
+    return isinstance(rows, list) and bool(rows) and all(isinstance(row, dict)
+        and row.get('platform') == expected_platform and isinstance(row.get('deviceIdentifier'), str)
+        and bool(row['deviceIdentifier']) and (not expected_device or row['deviceIdentifier'] == expected_device) for row in rows)
+
+
 def ci_commit_findings(commit: str) -> list[str]:
     expected = os.getenv('GITHUB_SHA', '')
     if not expected and os.getenv('GITHUB_ACTIONS') != 'true': return []
     if not re.fullmatch(r'(?:[0-9a-f]{40}|[0-9a-f]{64})', expected) or commit != expected:
         return ['CI 验收需要检出并绑定 GitHub 事件 SHA。']
+    if os.getenv('GITHUB_ACTIONS') == 'true' and subprocess.check_output(
+            ['git', 'status', '--porcelain=v1', '-z', '--untracked-files=all'], cwd=Path(__file__).resolve().parents[1]):
+        return ['CI 验收需要维护文件与 GitHub 提交内容一致；请提交源码改动并清理残留源码。']
     return []
 
 
@@ -52,6 +63,10 @@ def complete_environment(group: str, context: dict) -> bool:
     if group in DEVICE_GROUPS:
         device = context.get("device") or {}
         return all(device.get(key) for key in ("identifier", "systemVersion", "systemBuild"))
+    if group == "audit":
+        runtimes = context.get("runtimes", {})
+        return isinstance(runtimes, dict) and all(isinstance(runtimes.get(name), str) and runtimes[name].strip()
+            for name in ("python", "ruby", "node", "npm", "ruff"))
     return True
 
 
@@ -124,6 +139,9 @@ def environment_context(group: str) -> dict:
         sdks[name] = dict(path=str(sdk.resolve()), **plist_values(sdk / "SDKSettings.plist",
             ("CanonicalName", "Version", "ProductBuildVersion")))
     context["sdks"] = sdks
+    if group == "audit":
+        context["runtimes"] = {"python": sys.version, **{name: subprocess.check_output([name, "--version"], text=True).strip()
+            for name in ("ruby", "node", "npm", "ruff")}}
     if group in DEVICE_GROUPS:
         context["device"] = device_environment()
     return context

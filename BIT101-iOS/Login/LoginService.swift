@@ -16,8 +16,10 @@ struct LoginService {
     private let apiClient: BIT101APIClient
     var sessionChanges: AnyPublisher<Void, Never> { storage.changes.map { _ in () }.eraseToAnyPublisher() }
 
-    /// 支持注入存储与 API 客户端。
-    init(storage: LoginStorage = AppAccountSession.storage, apiClient: BIT101APIClient = .shared) {
+    init() { self.init(storage: AppAccountSession.storage, apiClient: .shared) }
+
+    /// 独立实例由调用方共同提供凭据存储与 API 客户端。
+    init(storage: LoginStorage, apiClient: BIT101APIClient) {
         self.storage = storage
         self.apiClient = apiClient
     }

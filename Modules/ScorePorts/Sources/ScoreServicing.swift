@@ -69,6 +69,11 @@ public nonisolated enum ScoreCacheReadError: LocalizedError {
     }
 }
 
+public nonisolated enum ScoreCacheWriteError: LocalizedError {
+    case failed
+    public var errorDescription: String? { "本机成绩缓存保存失败，原始记录已保留。请稍后重试同步。" }
+}
+
 /// 成绩场景消费的缓存能力，具体持久化由应用组装层选择。
 @MainActor
 public protocol ScoreCaching: AnyObject {
@@ -84,7 +89,7 @@ public protocol ScoreCaching: AnyObject {
 public protocol ScoreCacheSynchronizing: ScoreCaching {
     var localSaves: AnyPublisher<AppStorageSession, Never> { get }
     func syncPayload(for session: AppStorageSession?) async throws -> ScoreCacheSyncPayload?
-    func applySynced(_ payload: ScoreCacheSyncPayload, for session: AppStorageSession?, replacing expected: ScoreCacheSyncPayload?) async -> Bool
+    func applySynced(_ payload: ScoreCacheSyncPayload, for session: AppStorageSession?, replacing expected: ScoreCacheSyncPayload?) async throws -> Bool
 }
 
 @MainActor

@@ -8,17 +8,14 @@ public final class MineDependencies {
     let overview: any MineOverviewServicing
     let profile: any UserProfileServicing
     let deletePoster: (Int) async throws -> Void
-    let isRunningUITest: Bool
 
     public init(
         overview: any MineOverviewServicing,
         profile: any UserProfileServicing,
-        deletePoster: @escaping (Int) async throws -> Void,
-        isRunningUITest: Bool
+        deletePoster: @escaping (Int) async throws -> Void
     ) {
         self.overview = overview
         self.profile = profile
         self.deletePoster = deletePoster
-        self.isRunningUITest = isRunningUITest
     }
 }

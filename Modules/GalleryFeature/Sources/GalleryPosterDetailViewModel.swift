@@ -85,6 +85,7 @@ enum GalleryCommentComposerTarget: Identifiable, Equatable {
 /// 负责重新拉取帖子详情、评论分页、排序切换、点赞和评论发送。
 @MainActor
 final class GalleryPosterDetailViewModel: ObservableObject {
+    let pendingOperations = CommunityDetailTasks()
     /// 当前正在展示的帖子详情。
     @Published private(set) var poster: GalleryPosterDetail
     /// 帖子正文区域的加载状态。
@@ -110,6 +111,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     private let posterID: Int
     private let service: any GalleryPosterDetailServicing
     private var likeRevision = 0
+    private var likeResultNeedsReview = false
     private var latestLikeResult: CommunityLikeResult?
     private var refreshGeneration = 0
     private var commentRefreshGeneration = 0
@@ -183,6 +185,12 @@ final class GalleryPosterDetailViewModel: ObservableObject {
         handleCommentRefreshResult(result, previousState: previousState)
     }
 
+    func refreshForContentPreferences() async {
+        commentState = CommunityCommentState()
+        if posterStatus == .loaded { await refreshComments() }
+        else { await refreshAll() }
+    }
+
     /// 当滚动到尾部附近时触发评论分页。
     ///
     /// 评论分页使用“最后几条触发”策略，评论列表接近尾部时请求下一页。
@@ -221,6 +229,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
         case let .success(batch):
             guard commentRefreshGeneration == generation else { return }
             commentState.needsContinuation = batch.canLoadMore && batch.items.allSatisfy { commentState.pagedItems.ids.contains($0.id) }
+            commentState.confirmReadLikes(in: batch.items)
             commentState.appendPage(commentState.applyingLikes(to: batch.items, since: likeRevisionAtStart))
             commentState.nextPage = batch.nextSourcePage
             commentState.canLoadMore = batch.canLoadMore
@@ -246,17 +255,26 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     ///
     /// 帖子详情只维护一份当前详情模型，因此点赞成功后直接替换 `poster` 即可。
     func likePoster() async {
+        guard !likeResultNeedsReview else {
+            alert = AppAlert(title: "点赞结果待确认", message: CommunityToggleOutcomeUnknown.reviewMessage)
+            return
+        }
         guard !isLikingPoster else { return }
         isLikingPoster = true
         defer { isLikingPoster = false }
 
         do {
             let result = try await service.like(objectID: posterObjectID)
-            try Task.checkCancellation()
             likeRevision &+= 1
             latestLikeResult = result
             poster = poster.updatingLike(result.like, likeNum: result.likeNum)
         } catch {
+            if error is CommunityToggleOutcomeUnknown {
+                likeResultNeedsReview = true
+                await refreshAll()
+                if likeResultNeedsReview { alert = AppAlert(title: "点赞结果待确认", message: CommunityToggleOutcomeUnknown.reviewMessage) }
+                return
+            }
             if isCancellation(error) { return }
             alert = AppAlert(title: "点赞失败", message: error.localizedDescription)
         }
@@ -266,15 +284,24 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     ///
     /// 评论可能嵌套在多级子评论里，所以更新时需要递归地重建评论树。
     func likeComment(_ comment: CommunityComment) async {
+        guard !commentState.likesNeedingReview.contains(comment.id) else {
+            alert = AppAlert(title: "点赞结果待确认", message: CommunityToggleOutcomeUnknown.reviewMessage)
+            return
+        }
         guard !likingCommentIDs.contains(comment.id) else { return }
         likingCommentIDs.insert(comment.id)
         defer { likingCommentIDs.remove(comment.id) }
 
         do {
             let result = try await service.like(objectID: "comment\(comment.id)")
-            try Task.checkCancellation()
             commentState.recordLike(result, for: comment.id)
         } catch {
+            if error is CommunityToggleOutcomeUnknown {
+                commentState.recordUncertainLike(for: comment.id)
+                await refreshComments()
+                if commentState.likesNeedingReview.contains(comment.id) { alert = AppAlert(title: "点赞结果待确认", message: CommunityToggleOutcomeUnknown.reviewMessage) }
+                return
+            }
             if isCancellation(error) { return }
             alert = AppAlert(title: "点赞失败", message: error.localizedDescription)
         }
@@ -296,7 +323,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
         }
         guard !isSubmittingComment else { return false }
         guard !commentResultNeedsReview else {
-            alert = AppAlert(title: "发送结果待确认", message: CommunityCreateOutcomeUnknown.reviewMessage)
+            alert = AppAlert(title: "发送结果待确认", message: CommunityCreateOutcomeUnknown.commentReviewMessage)
             return false
         }
 
@@ -318,7 +345,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
         } catch {
             if error is CommunityCreateOutcomeUnknown {
                 commentResultNeedsReview = true
-                alert = AppAlert(title: "发送结果待确认", message: error.localizedDescription)
+                alert = AppAlert(title: "发送结果待确认", message: CommunityCreateOutcomeUnknown.commentReviewMessage)
                 return false
             }
             if Task.isCancelled || isCancellation(error) { return false }
@@ -371,6 +398,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     ) {
         switch result {
         case let .success(poster):
+            likeResultNeedsReview = false
             if likeRevision != likeRevisionAtStart, let latestLikeResult {
                 self.poster = poster.updatingLike(latestLikeResult.like, likeNum: latestLikeResult.likeNum)
             } else {
@@ -395,6 +423,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     ) {
         switch result {
         case let .success(batch):
+            commentState.confirmReadLikes(in: batch.items)
             commentState.applyFirstPage(commentState.applyingLikes(to: batch.items, since: previousState.likeRevision))
             commentState.order = commentOrder
             commentState.nextPage = batch.nextSourcePage

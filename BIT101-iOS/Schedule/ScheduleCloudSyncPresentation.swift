@@ -1,4 +1,5 @@
 import CommunityTransport
+import CloudKit
 import ScheduleSync
 import Combine
 import Foundation
@@ -9,6 +10,7 @@ final class ScheduleCloudSyncPresentation: ObservableObject {
     @Published private(set) var status: ScheduleCloudSyncStatus = .idle
     private let currentAccount: () -> ScheduleCloudAccount?
     private var subscription: AnyCancellable?
+    private var cloudSubscription: AnyCancellable?
 
     init(currentAccount: @escaping () -> ScheduleCloudAccount?, accountChanges: AnyPublisher<CommunitySessionIdentity, Never>) {
         self.currentAccount = currentAccount
@@ -21,6 +23,8 @@ final class ScheduleCloudSyncPresentation: ObservableObject {
             }
             self.status = .idle
         }
+        cloudSubscription = NotificationCenter.default.publisher(for: .CKAccountChanged)
+            .receive(on: DispatchQueue.main).sink { [weak self] _ in self?.status = .idle }
     }
 
     func receive(account: ScheduleCloudAccount, status: ScheduleCloudSyncStatus) {

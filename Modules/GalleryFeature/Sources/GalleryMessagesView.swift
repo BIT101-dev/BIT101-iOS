@@ -77,10 +77,8 @@ struct GalleryMessagesView: View {
                                 .listRowInsets(EdgeInsets())
                                 .listRowSeparator(.hidden)
                                 .listRowBackground(Color.clear)
-                                .onAppear {
-                                    Task {
-                                        await viewModel.loadMoreIfNeeded(for: type, currentMessage: message)
-                                    }
+                                .task(id: viewModel.paginationTaskID(for: type)) {
+                                    await viewModel.loadMoreIfNeeded(for: type, currentMessage: message)
                                 }
                             }
 
@@ -117,7 +115,7 @@ struct GalleryMessagesView: View {
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button("全部已读") {
-                    viewModel.markCurrentTypeAsRead()
+                    Task { await viewModel.markCurrentTypeAsRead() }
                 }
                 .disabled(!viewModel.hasUnreadInCurrentType)
             }

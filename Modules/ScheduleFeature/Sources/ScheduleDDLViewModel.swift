@@ -130,11 +130,14 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
         }
 
         do {
+            try repository.requireWritable()
+            try Task.checkCancellation()
             let payload = try await service.syncDDLEvents(
                 existingEvents: cache.ddlEvents,
                 storedURL: cache.lexueCalendarURL,
                 schoolSMSCodeHandler: makeSchoolSMSCodeHandler(for: generation)
             )
+            try Task.checkCancellation()
             guard accountGeneration == generation else { return false }
             cache.lexueCalendarURL = payload.url
             for event in cache.ddlEvents where event.isSchoolSynced && (event.done || cache.lexueDDLCompletionByID[event.id] != nil) {
@@ -218,6 +221,8 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
         }
 
         do {
+            try repository.requireWritable()
+            try Task.checkCancellation()
             let url = try await service.refreshLexueCalendarURL(
                 schoolSMSCodeHandler: makeSchoolSMSCodeHandler(for: generation)
             )
@@ -290,7 +295,8 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
     }
 
     /// 删除指定 DDL。
-    func deleteDDL(id: String) {
+    func deleteDDL(id: String) throws {
+        try repository.requireWritable()
         cache.ddlEvents = ScheduleDDLEditor.deleting(id: id, from: cache.ddlEvents)
         persist()
     }
@@ -315,8 +321,9 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
     /// DDL 剩余/超时文案。
     func ddlRemainingText(for event: DDLEventRecord, now: Date = .now) -> String {
         let interval = event.dueAt.timeIntervalSince(now)
-        let minutes = Int(interval / 60)
-        let absolute = abs(minutes)
+        guard let absolute = Int(exactly: abs((interval / 60).rounded(.towardZero))) else {
+            return "截止时间超出显示范围"
+        }
         let day = absolute / 1440
         let hour = (absolute % 1440) / 60
         let minute = absolute % 60

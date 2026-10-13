@@ -21,6 +21,11 @@ struct CommunitySessionIsolationTests {
 
     private struct Transport: HTTPTransport {
         let send: (URLRequest) async throws -> (Data, URLResponse)
+        func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
+            let result = try await data(for: request)
+            if let maximumBytes, result.0.count > maximumBytes { throw HTTPClientError.responseTooLarge }
+            return result
+        }
         func data(for request: URLRequest) async throws -> (Data, URLResponse) { try await send(request) }
     }
 
@@ -29,34 +34,38 @@ struct CommunitySessionIsolationTests {
         return (Data(), try #require(HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil)))
     }
 
-    @Test(arguments: ["posters", "papers", "reaction/comments"],
-        ["lost", "cancelled", "unsent", "rejected", "malformed", "server-error", "refresh-lost"])
+    @Test(.timeLimit(.minutes(1)), arguments: ["posters", "papers", "reaction/comments"],
+        ["lost", "cancelled", "unsent", "rejected", "malformed", "server-error", "refresh-lost", "refresh-http-failure"])
     func creationFailuresKeepTheirTransmissionOutcome(path: String, scenario: String) async throws {
         let credentials = Credentials()
         var requests = 0
         let transport = Transport { request in
             requests += 1
-            if scenario == "refresh-lost", requests == 1 { return try response(request, status: 401) }
-            if scenario == "lost" || scenario == "refresh-lost" { throw URLError(.networkConnectionLost) }
+            if ["refresh-lost", "refresh-http-failure"].contains(scenario), requests == 1 { return try response(request, status: 401) }
+            if ["lost", "refresh-lost", "refresh-http-failure"].contains(scenario) { throw URLError(.networkConnectionLost) }
             if scenario == "cancelled" { throw CancellationError() }
             if scenario == "unsent" { throw HTTPRequestNotSent(underlying: URLError(.cannotConnectToHost)) }
             return try response(request, status: scenario == "rejected" ? 400 : scenario == "server-error" ? 500 : 200)
         }
         let client = CommunityAPIClient<Failure>(httpClient: HTTPClient(transport: transport, observer: nil),
             baseURL: AppURL.required("https://example.invalid"), errorDomain: "test",
-            credentials: { credentials.snapshot }, refreshHandler: { _ in })
+            credentials: { credentials.snapshot }, refreshHandler: { _ in
+                if scenario == "refresh-http-failure" {
+                    _ = try await HTTPClient(transport: transport, observer: nil).send(URLRequest(url: AppURL.required("https://example.invalid/login")))
+                }
+            })
         do {
             let _: Receipt = try await client.request(path: path, method: "POST")
             Issue.record("Creation fixture must fail")
         } catch {
-            #expect((error is CommunityCreateOutcomeUnknown) == !["unsent", "rejected"].contains(scenario))
+            #expect((error is CommunityCreateOutcomeUnknown) == !["unsent", "rejected", "refresh-http-failure"].contains(scenario))
             if scenario == "cancelled" { #expect(TaskCancellation.matches(error)) }
             if scenario == "unsent" { #expect(error is HTTPRequestNotSent) }
         }
-        #expect(requests == (scenario == "refresh-lost" ? 2 : 1))
+        #expect(requests == (["refresh-lost", "refresh-http-failure"].contains(scenario) ? 2 : 1))
     }
 
-    @Test func authenticatedRequestsUseExplicitCredentialsAndFreshResponses() async throws {
+    @Test(.timeLimit(.minutes(1))) func authenticatedRequestsUseExplicitCredentialsAndFreshResponses() async throws {
         let credentials = Credentials()
         var captured: [URLRequest] = []
         let transport = Transport { request in
@@ -75,7 +84,7 @@ struct CommunitySessionIsolationTests {
         #expect(captured.map { $0.value(forHTTPHeaderField: "fake-cookie") } == ["cookie-a", "cookie-a", nil, nil])
     }
 
-    @Test func accountSwitchStopsWriteRetry() async {
+    @Test(.timeLimit(.minutes(1))) func accountSwitchStopsWriteRetry() async {
         let credentials = Credentials()
         var requests = 0
         let transport = Transport { request in
@@ -95,7 +104,7 @@ struct CommunitySessionIsolationTests {
         #expect(requests == 1)
     }
 
-    @Test func returningToAnAccountUsesItsNewGeneration() async {
+    @Test(.timeLimit(.minutes(1))) func returningToAnAccountUsesItsNewGeneration() async {
         let credentials = Credentials()
         let transport = Transport { request in
             credentials.identity = CommunitySessionIdentity(accountIdentifier: "account-a", generation: 1)
@@ -105,15 +114,15 @@ struct CommunitySessionIsolationTests {
         await #expect(throws: CancellationError.self) { try await client.requestData(path: "user") }
     }
 
-    @Test func refreshCancellationKeepsCancellationSemantics() async {
+    @Test(.timeLimit(.minutes(1))) func refreshCancellationKeepsCancellationSemantics() async {
         await assertRefreshError(CancellationError(), expected: CancellationError.self)
     }
 
-    @Test func refreshTimeoutKeepsTransportSemantics() async {
+    @Test(.timeLimit(.minutes(1))) func refreshTimeoutKeepsTransportSemantics() async {
         await assertRefreshError(URLError(.timedOut), expected: URLError.self)
     }
 
-    @Test func explicitCredentialRejectionEntersSignedOutState() async {
+    @Test(.timeLimit(.minutes(1))) func explicitCredentialRejectionEntersSignedOutState() async {
         await assertRefreshError(CommunitySessionRestorationError.credentialsRejected, expected: Failure.self)
     }
 
@@ -124,7 +133,7 @@ struct CommunitySessionIsolationTests {
         await #expect(throws: expected) { try await client.requestData(path: "user") }
     }
 
-    @Test func refreshOwnerIsCheckedBeforeSaving() async {
+    @Test(.timeLimit(.minutes(1))) func refreshOwnerIsCheckedBeforeSaving() async {
         let credentials = Credentials()
         let coordinator = CommunitySessionRefreshCoordinator()
         let observed = credentials.snapshot
@@ -135,7 +144,7 @@ struct CommunitySessionIsolationTests {
         }
     }
 
-    @Test func endpointCanChooseItsRetryPolicy() async {
+    @Test(.timeLimit(.minutes(1))) func endpointCanChooseItsRetryPolicy() async {
         let credentials = Credentials()
         var requests = 0
         let transport = Transport { request in
@@ -149,7 +158,7 @@ struct CommunitySessionIsolationTests {
         #expect(requests == 1)
     }
 
-    @Test func ownerChangeDuringRefreshStopsReplay() async {
+    @Test(.timeLimit(.minutes(1))) func ownerChangeDuringRefreshStopsReplay() async {
         let credentials = Credentials()
         var requests = 0
         let transport = Transport { request in
@@ -162,6 +171,33 @@ struct CommunitySessionIsolationTests {
         })
         await #expect(throws: CancellationError.self) { try await client.requestData(path: "user") }
         #expect(requests == 1)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func cancellationReleasesTheWaiterBeforeSharedRestorationCompletes(allConsumers: Bool) async throws {
+        let credentials = Credentials(), coordinator = CommunitySessionRefreshCoordinator(), gate = RestoreGate()
+        var cancelled = false
+        let first = Task {
+            do { try await coordinator.refresh(observed: credentials.snapshot, current: { credentials.snapshot }, restore: { await gate.restore() }) }
+            catch is CancellationError { cancelled = true }
+            catch { Issue.record(error) }
+        }
+        try await gate.waitUntilStarted()
+        let second = allConsumers ? nil : Task {
+            try await coordinator.refresh(observed: credentials.snapshot, current: { credentials.snapshot }, restore: { await gate.restore() })
+        }
+        if second != nil { await Task.yield() }
+        first.cancel()
+        try await waitForTestEvent { cancelled }
+        #expect(gate.calls == 1)
+        gate.finish()
+        await first.value
+        try await second?.value
+        if allConsumers {
+            var restarted = false
+            try await coordinator.refresh(observed: credentials.snapshot, current: { credentials.snapshot }) { restarted = true }
+            #expect(restarted)
+        }
     }
 
     private final class RestoreGate {
@@ -177,25 +213,26 @@ struct CommunitySessionIsolationTests {
         func finish() { completion?.resume(); completion = nil }
     }
 
-    @Test func concurrentRequestsShareOneRestorationWithinTheirSession() async throws {
+    @Test(.timeLimit(.minutes(1))) func concurrentRequestsShareOneRestorationWithinTheirSession() async throws {
         let credentials = Credentials()
         let coordinator = CommunitySessionRefreshCoordinator()
         let gate = RestoreGate()
         let first = Task { try await coordinator.refresh(observed: credentials.snapshot, current: { credentials.snapshot }, restore: { await gate.restore() }) }
         try await gate.waitUntilStarted()
-        var joined: CheckedContinuation<Void, Never>?
+        var joined = false
         let second = Task {
-            joined?.resume()
+            joined = true
             try await coordinator.refresh(observed: credentials.snapshot, current: { credentials.snapshot }, restore: { Issue.record("Session restoration is shared") })
         }
-        await withCheckedContinuation { joined = $0 }
+        defer { first.cancel(); second.cancel(); gate.finish() }
+        try await waitForTestEvent { joined }
         #expect(gate.calls == 1)
         gate.finish()
         try await first.value
         try await second.value
     }
 
-    @Test func independentSessionCoordinatorsOwnTheirRestorationTasks() async throws {
+    @Test(.timeLimit(.minutes(1))) func independentSessionCoordinatorsOwnTheirRestorationTasks() async throws {
         let credentials = Credentials()
         let firstGate = RestoreGate()
         let secondGate = RestoreGate()
@@ -213,7 +250,7 @@ struct CommunitySessionIsolationTests {
         try await second.value
     }
 
-    @Test func backgroundDecodingKeepsTaskContextAndLeavesMainThread() async throws {
+    @Test(.timeLimit(.minutes(1))) func backgroundDecodingKeepsTaskContextAndLeavesMainThread() async throws {
         let transport = Transport { request in
             let (_, response) = try response(request, status: 200)
             return (Data("{}".utf8), response)

@@ -80,6 +80,7 @@ enum CourseCommentComposerTarget: Identifiable, Equatable {
 
 @MainActor
 final class CourseDetailViewModel: ObservableObject {
+    let pendingOperations = CommunityDetailTasks()
     @Published private(set) var course: CourseDetail?
     @Published private(set) var status: CourseDetailLoadStatus = .idle
     @Published private(set) var isLikingCourse = false
@@ -97,6 +98,7 @@ final class CourseDetailViewModel: ObservableObject {
     private let service: any CourseDetailServicing
     private var hasBootstrapped = false
     private var likeRevision = 0
+    private var likeResultNeedsReview = false
     private var latestLikeResult: CommunityLikeResult?
     private var refreshGeneration = 0
     private var historyGeneration = 0
@@ -138,7 +140,11 @@ final class CourseDetailViewModel: ObservableObject {
         }
 
         if !name.isEmpty,
-           let course = courses.first(where: { $0.name.trimmingCharacters(in: .whitespacesAndNewlines) == name && $0.credit > 0 }) {
+           let course = courses.first(where: {
+               let candidateNumber = $0.number.trimmingCharacters(in: .whitespacesAndNewlines)
+               return (number.isEmpty || candidateNumber.isEmpty)
+                   && $0.name.trimmingCharacters(in: .whitespacesAndNewlines) == name && $0.credit > 0
+           }) {
             return Double(course.credit)
         }
 
@@ -247,6 +253,7 @@ final class CourseDetailViewModel: ObservableObject {
         switch result {
         case let .success(comments):
             guard refreshGeneration == generation else { return }
+            commentState.confirmReadLikes(in: comments)
             commentState.appendPage(commentState.applyingLikes(to: comments, since: likeRevisionAtStart))
         case let .failure(error):
             guard refreshGeneration == generation else { return }
@@ -298,13 +305,16 @@ final class CourseDetailViewModel: ObservableObject {
     }
 
     func likeCourse() async {
+        guard !likeResultNeedsReview else {
+            alert = AppAlert(title: "点赞结果待确认", message: CommunityToggleOutcomeUnknown.reviewMessage)
+            return
+        }
         guard !isLikingCourse else { return }
         isLikingCourse = true
         defer { isLikingCourse = false }
 
         do {
             let result = try await service.like(objectID: "course\(initialCourse.id)")
-            try Task.checkCancellation()
             likeRevision &+= 1
             latestLikeResult = result
             if let course {
@@ -313,21 +323,36 @@ final class CourseDetailViewModel: ObservableObject {
                 self.course = fallbackCourseDetail(like: result.like, likeNum: result.likeNum)
             }
         } catch {
+            if error is CommunityToggleOutcomeUnknown {
+                likeResultNeedsReview = true
+                await refresh()
+                if likeResultNeedsReview { alert = AppAlert(title: "点赞结果待确认", message: CommunityToggleOutcomeUnknown.reviewMessage) }
+                return
+            }
             if isCourseDetailCancellation(error) { return }
             alert = AppAlert(title: "点赞失败", message: error.localizedDescription)
         }
     }
 
     func likeComment(_ comment: CommunityComment) async {
+        guard !commentState.likesNeedingReview.contains(comment.id) else {
+            alert = AppAlert(title: "点赞结果待确认", message: CommunityToggleOutcomeUnknown.reviewMessage)
+            return
+        }
         guard !likingCommentIDs.contains(comment.id) else { return }
         likingCommentIDs.insert(comment.id)
         defer { likingCommentIDs.remove(comment.id) }
 
         do {
             let result = try await service.like(objectID: "comment\(comment.id)")
-            try Task.checkCancellation()
             commentState.recordLike(result, for: comment.id)
         } catch {
+            if error is CommunityToggleOutcomeUnknown {
+                commentState.recordUncertainLike(for: comment.id)
+                await refresh()
+                if commentState.likesNeedingReview.contains(comment.id) { alert = AppAlert(title: "点赞结果待确认", message: CommunityToggleOutcomeUnknown.reviewMessage) }
+                return
+            }
             if isCourseDetailCancellation(error) { return }
             alert = AppAlert(title: "点赞失败", message: error.localizedDescription)
         }
@@ -341,7 +366,7 @@ final class CourseDetailViewModel: ObservableObject {
         }
         guard !isSubmittingComment else { return false }
         guard !commentResultNeedsReview else {
-            alert = AppAlert(title: "发送结果待确认", message: CommunityCreateOutcomeUnknown.reviewMessage)
+            alert = AppAlert(title: "发送结果待确认", message: CommunityCreateOutcomeUnknown.commentReviewMessage)
             return false
         }
         if case .course = target, !(1 ... 10).contains(rate ?? 0) {
@@ -367,7 +392,7 @@ final class CourseDetailViewModel: ObservableObject {
         } catch {
             if error is CommunityCreateOutcomeUnknown {
                 commentResultNeedsReview = true
-                alert = AppAlert(title: "发送结果待确认", message: error.localizedDescription)
+                alert = AppAlert(title: "发送结果待确认", message: CommunityCreateOutcomeUnknown.commentReviewMessage)
                 return false
             }
             if Task.isCancelled || isCourseDetailCancellation(error) { return false }
@@ -395,6 +420,7 @@ final class CourseDetailViewModel: ObservableObject {
     private func handleCourseResult(_ result: Result<CourseDetail, Error>, previousStatus: CourseDetailLoadStatus, likeRevisionAtStart: Int) {
         switch result {
         case let .success(course):
+            likeResultNeedsReview = false
             if likeRevision != likeRevisionAtStart, let latestLikeResult {
                 self.course = course.updatingLike(latestLikeResult.like, likeNum: latestLikeResult.likeNum)
             } else {
@@ -432,6 +458,7 @@ final class CourseDetailViewModel: ObservableObject {
     ) {
         switch result {
         case let .success(comments):
+            commentState.confirmReadLikes(in: comments)
             commentState.applyFirstPage(commentState.applyingLikes(to: comments, since: previousState.likeRevision))
             commentState.status = .loaded
         case let .failure(error):

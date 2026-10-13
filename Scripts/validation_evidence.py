@@ -17,23 +17,17 @@ from collections import Counter
 sys.dont_write_bytecode = True
 from swift_source_index import swift_syntax_index_sources
 from validation_inputs import includes_input, repository_input_names
-from validation_policy import TEST_GROUPS, RELEASE_GROUPS, DEFAULT_VERIFY_GROUPS, FORMAL_RUNTIME_SUITES, MODULE_COVERAGE_FLOORS, IOS_MODULE_COVERAGE_FLOORS
-from validation_test_areas import TEST_AREA_SUITES, test_selectors, test_inventory
+from validation_policy import TEST_GROUPS, RELEASE_GROUPS, DEFAULT_VERIFY_GROUPS, FORMAL_RUNTIME_SUITES, MODULE_COVERAGE_FLOORS, IOS_MODULE_COVERAGE_FLOORS, SCHOOL_SMS_PROBES
+from validation_test_areas import TEST_AREA_SUITES, test_selectors, test_inventory, test_case_inventory
 from validation_compilation import compilation_condition, active_swift_source
 from validate_distribution import archive_build_summary, valid_archive_provenance, valid_executable_uuids, distribution_contracts
-from validation_environment import environment_context, complete_environment, toolchain_identity, exchange_identity
+from validation_environment import environment_context, complete_environment, toolchain_identity, exchange_identity, native_destinations_complete
 from validation_provenance import report_lock, write_report, source_digest, normalized_test_id, LIVE_GROUPS, NETWORK_GROUPS, evidence_current, producing_run_matches, sampling_evidence_current, utc_now
 from validation_performance import result_bundle_findings
 
 ROOT = Path(__file__).resolve().parents[1]
 REPORT = ROOT / ".build/extended-automation/validation-evidence.json"
 ICLOUD_DOMAINS = {"score-kvs", "schedule-cloudkit"}
-SCHOOL_SMS_PROBES = {
-    "webvpn": {"school.session", "schedule.current-term", "schedule.terms", "schedule.sync", "classroom.campuses", "classroom.buildings", "classroom.occupancy"},
-    "jwb": {"score.authentication"},
-    "jwb_cjd": {"score.transcript"},
-    "school_sso_second_factor": {"eclass.authentication", "eclass.ddl", "lexue.calendar", "lexue.ddl"},
-}
 
 
 def icloud_stage_complete(row: dict, stage: str) -> bool:
@@ -66,10 +60,68 @@ def xcode_test_selections(group: str, selections: list[str]) -> list[str]:
         for selection in selections))
 
 
-def selected_test_summary_complete(summary: dict, expected: list[str]) -> bool:
+def selected_test_summary_complete(summary: dict, expected: list[str], *, group: str = 'all', simulator: bool = False) -> bool:
     executed = {normalized_test_id(test) for test in summary.get("executedTests", [])}
     return bool(expected) and summary.get("passed") is True and successful_test_counts(summary) \
-        and summary.get("totalTests", 0) >= len(expected) and executed == set(expected)
+        and summary.get("totalTests", 0) >= len(expected) and executed == set(expected) \
+        and (module_cases_complete(summary) if group == 'modules' else native_cases_complete(summary, group, simulator=simulator))
+
+
+def native_case_summary(tree: dict, group: str, *, simulator: bool = False, device_identifier: str = '') -> dict:
+    counts, identifiers = {}, {}
+    passed = True
+    def visit(value):
+        nonlocal passed
+        if isinstance(value, dict):
+            if value.get('nodeType') == 'Test Case':
+                name = normalized_test_id(value['nodeIdentifier'])
+                instances = [child for child in value.get('children', []) if child.get('nodeType') == 'Arguments'] or [value]
+                identities = [child.get('nodeIdentifierURL') for child in instances]
+                passed &= value.get('result') == 'Passed' and all(child.get('result') == 'Passed' for child in instances) \
+                    and name not in counts and all(isinstance(identity, str) and identity for identity in identities) \
+                    and len(set(identities)) == len(identities)
+                counts[name], identifiers[name] = len(instances), identities
+            for child in value.values(): visit(child)
+        elif isinstance(value, list):
+            for child in value: visit(child)
+    visit(tree)
+    inventory = test_case_inventory('all' if group in TEST_AREA_SUITES else group)
+    destinations = [{'platform': row.get('platform'), 'deviceIdentifier': row.get('deviceId')}
+        for row in tree.get('devices', []) if isinstance(row, dict)]
+    passed &= native_destinations_complete(destinations, group, simulator=simulator, expected_device=device_identifier)
+    return {'total': sum(counts.values()), 'byTest': counts,
+        'expectedByTest': {name: inventory.get(name) for name in counts}, 'identifiersByTest': identifiers,
+        'destinations': destinations, 'passed': bool(passed)}
+
+
+def native_cases_complete(summary: dict, group: str, *, simulator: bool = False) -> bool:
+    cases = summary.get('testCases', {})
+    if not module_cases_complete(summary) or cases.get('passed') is not True: return False
+    if not native_destinations_complete(cases.get('destinations'), group, simulator=simulator): return False
+    expected = test_case_inventory('all' if group in TEST_AREA_SUITES else group)
+    counts = {normalized_test_id(name): count for name, count in cases['byTest'].items()}
+    identities = cases.get('identifiersByTest', {})
+    return counts == {name: expected.get(name) for name in counts} and set(identities) == set(counts) \
+        and all(isinstance(values, list) and len(values) == counts[name]
+            and all(native_case_identity_matches(value, name, parameterized=counts[name] > 1,
+                target='BIT101-iOSUITests' if group == 'ui' else 'BIT101-iOSTests') for value in values) and len(set(values)) == len(values)
+            for name, values in identities.items())
+
+
+def native_case_identity_matches(value: object, name: str, *, parameterized: bool = False, target: str = 'BIT101-iOSTests') -> bool:
+    from urllib.parse import parse_qs, unquote, urlsplit
+    if not isinstance(value, str): return False
+    try: parsed = urlsplit(value)
+    except ValueError: return False
+    if parsed.scheme != 'test' or parsed.netloc != 'com.apple.xcode': return False
+    if parameterized:
+        arguments = parse_qs(parsed.query).get('args', [])
+        if len(arguments) != 1 or re.fullmatch(r'(?:[0-9a-f]{2})+', arguments[0]) is None: return False
+    parts = unquote(parsed.path).strip('/').split('/')
+    if len(parts) < 4 or parts[:2] != ['BIT101-iOS', target]: return False
+    parts[2] = parts[2].rsplit('.', 1)[-1]
+    path = '/'.join(parts[2:])
+    return path == name or path.startswith((name + '(', name + '/'))
 
 
 @cache
@@ -133,21 +185,32 @@ def module_event_summary(text: str) -> dict:
         if row.get('kind') != 'event': continue
         event = row['payload']
         kind, identifier = event['kind'], event.get('testID', '')
-        if kind in {'runStarted', 'runEnded'}: runs[kind] += 1
+        if kind in {'runStarted', 'runEnded'}:
+            if kind == 'runStarted' and runs['runStarted'] != runs['runEnded'] \
+                    or kind == 'runEnded' and (runs['runStarted'] != runs['runEnded'] + 1 or started != ended):
+                raise ValueError('测试运行事件需要完整且有序的起止配对。')
+            runs[kind] += 1
         elif kind in {'testSkipped', 'testCancelled', 'testCaseCancelled'}:
             affected = {name for name in functions if name == identifier or name.startswith(identifier + '/')}
             if not affected: raise ValueError('跳过或取消事件需要对应测试函数。')
             skipped.update(affected)
         elif kind == 'issueRecorded':
             issue = event.get('issue', {})
-            if issue.get('isKnown') or issue.get('isFailure') is False: continue
+            if issue.get('isFailure') is False: continue
             affected = {name for name in functions if name == identifier or name.startswith(identifier + '/')}
             if not affected: raise ValueError('测试运行记录了函数范围外的失败。')
             failed.update(affected)
-        elif identifier in functions:
-            if kind == 'testStarted': started.add(identifier)
-            elif kind == 'testEnded': ended.add(identifier)
+        elif identifier in functions and kind in {'testStarted', 'testEnded', 'testCaseStarted', 'testCaseEnded'}:
+            if runs['runStarted'] != runs['runEnded'] + 1:
+                raise ValueError('函数事件需要归属正在执行的测试运行。')
+            if kind == 'testStarted':
+                if identifier in started: raise ValueError('函数开始事件需要唯一记录。')
+                started.add(identifier)
+            elif kind == 'testEnded':
+                if identifier not in started or identifier in ended: raise ValueError('函数结束事件需要对应的唯一开始记录。')
+                ended.add(identifier)
             elif kind in {'testCaseStarted', 'testCaseEnded'}:
+                if identifier not in started or identifier in ended: raise ValueError('实例事件需要归属正在执行的测试函数。')
                 case_id = event.get('_testCase', {}).get('id')
                 if functions[identifier].get('isParameterized') and (not isinstance(case_id, str) or not case_id):
                     raise ValueError('参数实例事件需要 Swift Testing 的实例身份。')
@@ -163,19 +226,33 @@ def module_event_summary(text: str) -> dict:
             or case_started != case_ended:
         raise ValueError('模块事件流需要完整的函数、参数实例及运行起止记录。')
     cases = {name: sum(count for (identifier, _), count in case_ended.items() if identifier == name)
-             if functions[name].get('isParameterized') else 1 for name in sorted(ended)}
+             or (0 if functions[name].get('isParameterized') else 1) for name in sorted(ended)}
+    expected = {}
+    for name in sorted(ended):
+        if not functions[name].get('isParameterized'):
+            if cases[name] != 1: raise ValueError('普通函数需要对应单个测试实例。')
+            expected[name] = 1
+            continue
+        declared = functions[name].get('_testCases')
+        identities = [case.get('id') for case in declared if isinstance(case, dict)] if isinstance(declared, list) else []
+        if not identities or len(identities) != len(declared) or any(not isinstance(identifier, str) or not identifier for identifier in identities) \
+                or len(set(identities)) != len(identities) \
+                or set(identities) != {identifier for (function, identifier) in case_ended if function == name}:
+            raise ValueError('参数化测试需要执行 Swift Testing 清单中的全部实例。')
+        expected[name] = len(identities)
     if any(count == 0 for count in cases.values()):
         raise ValueError('参数化测试需要实际执行参数实例。')
     return {'totalTests': len(attempted), 'passedTests': len(ended - failed - skipped),
             'failedTests': len(failed), 'skippedTests': len(skipped - failed), 'executedTests': sorted(ended),
-            'testCases': {'total': sum(cases.values()), 'byTest': cases}}
+            'testCases': {'total': sum(cases.values()), 'byTest': cases, 'expectedByTest': expected}}
 
 
 def module_cases_complete(summary: dict) -> bool:
     cases = summary.get('testCases')
     if not isinstance(cases, dict): return False
     counts = cases.get('byTest')
-    return isinstance(counts, dict) and bool(counts) and all(type(count) is int and count > 0 for count in counts.values()) \
+    return isinstance(counts, dict) and bool(counts) and counts == cases.get('expectedByTest') \
+        and all(type(count) is int and count > 0 for count in counts.values()) \
         and type(cases.get('total')) is int and cases['total'] == sum(counts.values()) \
         and {normalized_test_id(name) for name in counts} == {normalized_test_id(name) for name in summary.get('executedTests', [])}
 
@@ -326,8 +403,10 @@ def smoke_summary(group: str, value: dict, *, full: bool = True) -> dict:
         return {"passed": value.get("cleanupExitCode") == 0 and cleanup.get("exitCode") == 0
                 and icloud_stage_complete(cleanup, 'testCleanup') and mac_cleanup.get("exitCode") == 0
                 and icloud_stage_complete(mac_cleanup, 'testMacCleanup')
-                and cleanup.get('runID') == mac_cleanup.get('runID') == value.get('runID'), "cleanup": cleanup, "macCleanup": mac_cleanup,
-                "startedAt": cleanup.get("recordedAt"), "finishedAt": mac_cleanup.get("recordedAt")}
+                and cleanup.get('runID') == mac_cleanup.get('runID') == value.get('runID'),
+                "cleanup": dict(cleanup, kvsDeletion="requested", cloudKitDeletion="server-confirmed"),
+                "macCleanup": dict(mac_cleanup, kvsDeletion="requested", cloudKitDeletion="server-confirmed"),
+                "runID": value.get("runID"), "startedAt": value.get("cleanupStartedAt"), "finishedAt": value.get("cleanupFinishedAt")}
     stages = [{name: row.get(name, 0) for name in
                ("stage", "exitCode", "totalTestCount", "passedTests", "failedTests", "skippedTests", "executedTests", "testTargets", "destination", "runID")}
               for row in value.get("stages", [])]
@@ -340,10 +419,10 @@ def smoke_summary(group: str, value: dict, *, full: bool = True) -> dict:
     passed = value.get("exitCode") == 0 and cleanup_passed and mac_cleanup_passed and set(value.get("validatedDomains", [])) == ICLOUD_DOMAINS \
         and value.get("cloudKitEnvironment") == "Production" and len(stages) == 2 and {row["stage"] for row in stages} == expected and all(
         icloud_stage_complete(row, row['stage']) and row.get('runID') == value.get('runID') for row in stages)
-    cleanup_evidence = dict(cleanup, kind="standalone") if cleanup is not None else dict(
-        next((row for row in stages if row["stage"] == "testPhoneRoundTrip"), {}), kind="round-trip")
-    mac_cleanup_evidence = dict(mac_cleanup, kind="standalone") if mac_cleanup is not None else dict(
-        next((row for row in stages if row["stage"] == "testMacReceiveAndRestore"), {}), kind="round-trip")
+    cleanup_evidence = dict(cleanup, kind="standalone", kvsDeletion="requested") if cleanup is not None else dict(
+        next((row for row in stages if row["stage"] == "testPhoneRoundTrip"), {}), kind="round-trip", kvsDeletion="peer-observed")
+    mac_cleanup_evidence = dict(mac_cleanup, kind="standalone", kvsDeletion="requested") if mac_cleanup is not None else dict(
+        next((row for row in stages if row["stage"] == "testMacReceiveAndRestore"), {}), kind="round-trip", kvsDeletion="peer-observed")
     return {"passed": passed, "stages": stages, "validatedDomains": value.get("validatedDomains", []),
             "cloudKitEnvironment": value.get("cloudKitEnvironment"), "cleanup": cleanup_evidence, "macCleanup": mac_cleanup_evidence,
             "startedAt": value.get("startedAt"), "finishedAt": value.get("finishedAt"), "runID": value.get("runID")}
@@ -417,6 +496,7 @@ def complete_summary(group: str, summary: dict) -> bool:
         complete = successful_test_counts(summary) and coverage_complete(group, summary) and test_inventory(group) <= executed \
             and summary.get("totalTests", 0) >= len(test_inventory(group))
         if group == 'modules': complete = complete and module_cases_complete(summary)
+        else: complete = complete and native_cases_complete(summary, group)
         if group == "ui":
             inventory = summary.get("uiInventory")
             complete = complete and isinstance(inventory, dict) and inventory.get("observed", 0) > 0 \
@@ -451,8 +531,9 @@ def complete_summary(group: str, summary: dict) -> bool:
             icloud_stage_complete(row, row.get('stage')) for row in stages) \
             and all(row.get('runID') == summary.get('runID') for row in [*stages, cleanup, mac_cleanup])
     if group == "icloud-cleanup":
-        return all(summary.get(key, {}).get("exitCode") == 0 and successful_test_counts(summary.get(key, {}))
-            for key in ("cleanup", "macCleanup"))
+        return all(icloud_stage_complete(summary.get(key, {}), stage)
+            and summary[key].get("runID") == summary.get("runID")
+            for key, stage in (("cleanup", "testCleanup"), ("macCleanup", "testMacCleanup")))
     if group == "manual-device":
         from validation_manual import complete as manual_complete
         checks = summary.get("checks", {})
@@ -469,11 +550,27 @@ def complete_summary(group: str, summary: dict) -> bool:
     return summary.get("kind") == "audit" and (group != "audit" or sampling_evidence_current(summary))
 
 
+def group_complete(report: dict, group: str, *, recorded_environment: bool = False) -> bool:
+    from validation_provenance import complete_group_row, group_evidence_current
+    from validation_coverage import policy_findings
+    row = complete_group_row(report.get("groups", {}).get(group, {}))
+    inputs = source_digest(group, environment=row.get("environment", {})) if recorded_environment else source_digest(group)
+    return row.get("exitCode") == 0 and row.get("scope") == "full" and bool(row.get("runID")) \
+        and row.get("inputDigest") == inputs and group_evidence_current(group, row) \
+        and complete_environment(group, row.get("environment", {})) \
+        and complete_summary(group, row.get("summary", {})) \
+        and not policy_findings(report, group) \
+        and (group not in {"all", "ui"} or not result_bundle_findings(report, groups=(group,), recorded_environment=recorded_environment))
+
+
 def release_findings(report: dict, digest: str, *, recorded_environment: bool = False) -> list[str]:
+    from validation_coverage import policy_findings
+    from validation_provenance import group_evidence_current
     errors = result_bundle_findings(report, recorded_environment=recorded_environment)
     if report.get("sourceDigest") != digest:
         errors.append("验证源码摘要与当前仓库内容存在差异。")
     for name in sorted(RELEASE_GROUPS):
+        errors.extend(policy_findings(report, name))
         from validation_provenance import complete_group_row
         row = complete_group_row(report.get("groups", {}).get(name, {}))
         inputs = source_digest(name, environment=row.get("environment", {})) if recorded_environment else source_digest(name)
@@ -481,23 +578,27 @@ def release_findings(report: dict, digest: str, *, recorded_environment: bool = 
             errors.append(f"{name} 的验证输入已变化，请重新执行该组。")
         if not complete_environment(name, row.get("environment", {})):
             errors.append(f"{name} 需要保留执行环境及设备系统身份。")
-        if not evidence_current(name, row.get("summary", {})):
+        if not group_evidence_current(name, row):
             errors.append(f"{name} 的实际验收需要在发布检查前 24 小时内完成，请重新验收。")
         if name == "restore" and any(row.get("summary", {}).get(key) != row.get(key) for key in ("runID", "inputDigest")):
             errors.append("restore 的就绪信号需要对应所属运行与输入摘要。")
         if row.get("exitCode") != 0 or row.get("scope") != "full" or not complete_summary(name, row.get("summary", {})):
             errors.append(f"{name} 需要完整执行并通过，并保留结果摘要。")
+        if name == 'audit' and row.get('summary', {}).get('releaseVersionChecked') is not True:
+            errors.append('发布验收需要带 App Store 版本核对的静态审计。')
     if recorded_environment and toolchain_identity(report.get("groups", {}).get("build-archive", {}).get("environment", {})) \
             != toolchain_identity(environment_context("build-archive")):
         errors.append("发布编译工具链及 SDK 与已绑定证据存在差异，请重新验收。")
     groups = report.get("groups", {})
     checks = groups.get("manual-device", {}).get("summary", {}).get("checks", {})
     observation = checks.get("distribution-signing", {})
-    from validation_manual import distribution_matches_archive, baseline_matches_distribution
+    from validation_manual import distribution_matches_archive, baseline_matches_distribution, catalyst_matches_runtime
     if not distribution_matches_archive(observation, groups.get("build-archive", {})):
         errors.append("最终分发签名需要对应已验证归档的源码摘要、运行标识与可执行文件 UUID。")
     if not baseline_matches_distribution(checks.get("minimum-platforms", {}), observation):
         errors.append("最低系统安装验收需要对应最终分发包的版本、build、摘要与可执行文件 UUID。")
+    if not catalyst_matches_runtime(checks.get('catalyst-desktop', {}), groups.get('catalyst-release-runtime', {})):
+        errors.append('Catalyst 桌面专项需要对应正式运行测试通过的应用摘要与可执行文件 UUID。')
     return errors
 
 
@@ -533,6 +634,12 @@ def record(group: str, status: int, scope: str, started_digest: str) -> int:
             except ValueError:
                 if status == 0:
                     raise
+        if group == 'catalyst-release-runtime' and status == 0:
+            from validate_distribution import catalyst_application_identity
+            try:
+                row['application'] = catalyst_application_identity(ROOT / '.build/extended-automation/Build/Products/Release-maccatalyst/BIT101-iOS.app')
+            except (OSError, ValueError, KeyError, subprocess.CalledProcessError):
+                row['summary']['passed'] = False
     elif group in NETWORK_GROUPS | {"icloud", "icloud-cleanup"}:
         row["report"] = ".build/icloud-cross-device-smoke/report.json" if group.startswith("icloud") else ".build/release-network-smoke/report/release-network-smoke.json"
         row["summary"] = {"passed": False, "runID": run_id, "inputDigest": started_digest,
@@ -550,7 +657,8 @@ def record(group: str, status: int, scope: str, started_digest: str) -> int:
     else:
         row["summary"] = {"passed": status == 0, "kind": "build" if group.startswith("build-") else "restore" if group == "restore" else "audit"}
         if group == "audit":
-            row["summary"].update(startedAt=os.getenv("BIT101_VALIDATION_STARTED_AT", ""), finishedAt=row["recordedAt"])
+            row["summary"].update(startedAt=os.getenv("BIT101_VALIDATION_STARTED_AT", ""), finishedAt=row["recordedAt"],
+                releaseVersionChecked=status == 0 and os.getenv('BIT101_RELEASE_CHECK') == 'true')
         if group == "restore" and status == 0:
             from validation_restore import summary as restore_summary
             try: row["summary"] = restore_summary(run_id, started_digest)
@@ -568,7 +676,7 @@ def record(group: str, status: int, scope: str, started_digest: str) -> int:
         except ValueError:
             expected = []
         row["expectedTests"] = expected
-        selected_complete = selected_test_summary_complete(row.get("summary", {}), expected)
+        selected_complete = selected_test_summary_complete(row.get("summary", {}), expected, group=group)
     if status == 0 and (not row.get("summary", {}).get("passed") or not selected_complete or
         scope == "full" and group in RELEASE_GROUPS | TEST_GROUPS | NETWORK_GROUPS and not complete_summary(group, row["summary"])):
         status = row["exitCode"] = 1
@@ -584,7 +692,7 @@ def record(group: str, status: int, scope: str, started_digest: str) -> int:
         previous = report["groups"].get(group, {})
         if scope == "selected" and group in TEST_GROUPS | NETWORK_GROUPS:
             full = previous if previous.get("scope") == "full" else previous.get("lastFullRun")
-            if full: row["lastFullRun"] = full
+            if full and (group in TEST_GROUPS or status == 0): row["lastFullRun"] = full
         from validation_coverage import COVERAGE_GROUPS
         if group in COVERAGE_GROUPS:
             from validation_coverage import regressions, policy_floors
@@ -594,7 +702,7 @@ def record(group: str, status: int, scope: str, started_digest: str) -> int:
                 status = row["exitCode"] = 1
                 row["summary"]["passed"] = False
                 row["summary"]["coverageRegressions"] = problems
-                print("覆盖率退化：" + "；".join(problems), file=sys.stderr)
+                print("覆盖率低于门槛：" + "；".join(problems), file=sys.stderr)
         report["groups"][group] = row
         if group in {"all", "ui"} and status == 0 and scope == "full":
             from validation_performance import extract_measurements
@@ -605,6 +713,12 @@ def record(group: str, status: int, scope: str, started_digest: str) -> int:
                 row["summary"]["passed"] = False
                 row["summary"]["performanceCaptureError"] = str(error)
                 print(f"性能指标采集失败：{error}", file=sys.stderr)
+        if group in TEST_GROUPS | NETWORK_GROUPS and status:
+            from validation_provenance import invalidate_failed_evidence
+            requested = set(row.get('summary', {}).get('requiredProbes', [])) \
+                if group in NETWORK_GROUPS else set(row.get('expectedTests', [])) or test_inventory(group)
+            invalidated = invalidate_failed_evidence(report, group, requested)
+            if invalidated: print('定向回归失败，关联证据进入重新验收：' + '、'.join(invalidated), file=sys.stderr)
         report["testedCommit"] = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
         write_report(report)
     return status
@@ -622,8 +736,11 @@ def recover_community_smoke(script: Path, directory: Path, run_id: str, original
         cleanup = json.loads(child_path.read_bytes()) if child_path.exists() else {}
     except (OSError, ValueError):
         cleanup = {"passed": False, "failures": ["清理报告读取失败；诊断见控制台记录"]}
+    if cleanup.get("scope") != "community-cleanup" or cleanup.get("runID") in {None, "", run_id}:
+        cleanup = {"scope": "community-cleanup", "passed": False, "failures": ["清理在产生所属报告前结束；原写入证据已保留"]}
+        if status == 0: status = 1
     cleanup["exitStatus"] = status
-    if status and (directory / names[0]).exists():
+    if status and (directory / names[0]).exists() and (directory / names[0]).read_bytes() != original.get(names[0]):
         cleanup["buildLog"] = (directory / names[0]).read_text()
     try:
         parent = json.loads(original[report_name]) if report_name in original else {}
@@ -636,61 +753,11 @@ def recover_community_smoke(script: Path, directory: Path, run_id: str, original
     for name in names[:-1]:
         path = directory / name
         value = original.get(name, b"")
-        if name == "console.log" and path.exists():
+        if name == "console.log" and path.exists() and path.read_bytes() != value:
             value += b"\n[community-cleanup]\n" + path.read_bytes()
         path.write_bytes(value)
     child_path.write_text(json.dumps(parent, ensure_ascii=False, indent=2) + "\n")
     return status
-
-
-def community_recovery_self_test() -> list[str]:
-    from unittest.mock import patch
-    directory = Path("/community-recovery-self-test")
-    report = directory / "report/release-network-smoke.json"
-    console = directory / "console.log"
-    findings = []
-    for original_status, cleanup_status in ((1, 0), (130, 0), (1, 7), (1, 8)):
-        parent = {"runID": "parent", "scope": "community-writes", "passed": False, "failures": ["edit failed"],
-            "communityWriteEvidence": ["created poster1"]}
-        files = {report: json.dumps(parent).encode(), console: b"original failure", directory / "build.log": b"original build"}
-        def clean(*args, **kwargs):
-            assert kwargs['env']['BIT101_NETWORK_SMOKE_CAPTURE'] == 'none'
-            assert kwargs['env']['BIT101_NETWORK_SMOKE_TERM'] == kwargs['env']['BIT101_NETWORK_SMOKE_FIXTURES'] == ''
-            files[report] = json.dumps({"runID": "cleanup", "scope": "community-cleanup", "passed": cleanup_status == 0}).encode()
-            if cleanup_status == 8: files[report] = b"partial report"
-            files[console] = b"cleanup outcome"
-            files[directory / "build.log"] = b"cleanup build"
-            return subprocess.CompletedProcess(args[0], cleanup_status)
-        with patch.object(Path, "exists", lambda path: path in files), patch.object(Path, "read_bytes", lambda path: files[path]), \
-            patch.object(Path, "read_text", lambda path: files[path].decode()), patch.object(Path, "write_bytes", lambda path, data: files.__setitem__(path, data)), \
-            patch.object(Path, "write_text", lambda path, data: files.__setitem__(path, data.encode())), patch.object(subprocess, "run", clean):
-            status = recover_community_smoke(Path("/network-smoke"), directory, "parent", original_status)
-        restored = json.loads(files[report])
-        if status != cleanup_status or restored["scope"] != "community-writes" or restored["failures"] != ["edit failed"] \
-            or restored["communityWriteEvidence"] != ["created poster1"] or restored["communityCleanup"]["exitStatus"] != cleanup_status \
-            or b"original failure" not in files[console] or b"cleanup outcome" not in files[console] or files[directory / "build.log"] != b"original build":
-            findings.append("社区恢复自测：原始失败、创建证据与清理结果共同保留")
-    from contextlib import nullcontext
-    from io import StringIO
-    from contextlib import redirect_stderr
-    from validation_evidence_tests import network_trace_fixture
-    cleanup = network_trace_fixture({"runID": "fixture-run", "scope": "community-cleanup", "passed": True,
-        "requiredProbes": ["community.login"], "executedProbes": ["community.login"]})
-    write_row = {"exitCode": 0, "scope": "full", "summary": {"passed": True}}
-    previous = {"sourceDigest": "source", "groups": {"community-writes": write_row}}
-    cleanup_environment = {"host": {"system": "fixture"}, "developer": "/fixture", "xcode": {"version": "fixture"},
-        "compiler": {"modified": 1, "size": 100, "sha256": "a" * 64}, "sdks": {"fixture": {"Version": "1"}}, "device": {
-        "identifier": "fixture-phone", "systemVersion": "fixture-os", "systemBuild": "fixture-build"}}
-    with patch(f"{__name__}.source_digest", return_value="source"), patch(f"{__name__}.network_inventory", return_value={"community.login"}), \
-            patch(f"{__name__}.environment_context", return_value=cleanup_environment), \
-            patch.dict(os.environ, BIT101_VALIDATION_RUN_ID="fixture-run"), \
-            patch(f"{__name__}.report_lock", side_effect=nullcontext), patch(f"{__name__}.write_report") as saved, \
-            patch.object(Path, "is_file", return_value=True), patch.object(Path, "read_text", side_effect=[json.dumps(cleanup), json.dumps(previous)]), \
-            patch.object(subprocess, "check_output", return_value="head"), redirect_stderr(StringIO()):
-        result = record("community-cleanup", 0, "full", "source")
-    if result or saved.call_args.args[0]["groups"]["community-writes"] != write_row:
-        findings.append("社区恢复自测：成功清理沿独立范围记录并保留完整写入证据")
-    return findings
 
 
 def main() -> int:
@@ -728,15 +795,7 @@ def main() -> int:
     if args.action == "check-group":
         with report_lock():
             report = json.loads(REPORT.read_text()) if REPORT.is_file() else {}
-            from validation_provenance import complete_group_row
-            row = complete_group_row(report.get("groups", {}).get(args.group, {}))
-        from validation_coverage import regressions, policy_floors, COVERAGE_GROUPS
-        coverage_matches = args.group not in COVERAGE_GROUPS or not regressions(
-            row.get("summary", {}).get("coverage", {}), policy_floors(args.group, report.get("coveragePolicy", {})))
-        bundle_matches = args.group not in {"all", "ui"} or not result_bundle_findings(report, groups=(args.group,))
-        if row.get("exitCode") == 0 and row.get("scope") == "full" and row.get("runID") \
-                and row.get("inputDigest") == source_digest(args.group) and evidence_current(args.group, row.get("summary", {})) \
-                and complete_summary(args.group, row.get("summary", {})) and coverage_matches and bundle_matches:
+        if group_complete(report, args.group):
             return 0
         print(f"{args.group} 需要完整子流程结果并匹配当前验证输入。", file=sys.stderr)
         return 1
@@ -778,8 +837,9 @@ def main() -> int:
         print("\n".join(sorted({test.split("/", 1)[0] for test in test_inventory(args.group)})))
         return 0
     if args.action == "self-test":
-        from validation_evidence_tests import run_self_test
-        return run_self_test(sys.modules[__name__])
+        from validation_artifacts import static_audit_lock
+        with static_audit_lock(ROOT):
+            return subprocess.call([sys.executable, '-B', str(ROOT / 'Scripts/validation_evidence_tests.py')])
     if args.action == "record":
         return record(args.group, args.status, args.scope, os.getenv("BIT101_VALIDATION_SOURCE_DIGEST", ""))
     with report_lock():
@@ -789,6 +849,10 @@ def main() -> int:
 def inspect_report(args) -> int:
     report = json.loads(REPORT.read_text()) if REPORT.is_file() else {}
     if args.action == "baseline":
+        if args.group == '':
+            if report.get('coverageBaseCommit') == '' and report.get('coveragePolicy') == {}: return 0
+            print('当前版本覆盖率验收需要清理目标提交基准。', file=sys.stderr)
+            return 1
         if report.get("coverageBaseCommit") != args.group:
             print("覆盖率基准需要绑定合并目标分支的当前提交。", file=sys.stderr)
             return 1
@@ -801,6 +865,9 @@ def inspect_report(args) -> int:
                     or not 0 <= value <= 100 for name, value in floors.items()):
                 print("覆盖率基准需要目标提交登记的有效阈值。", file=sys.stderr)
                 return 1
+        if 'BIT101-iOS.app' not in report['coveragePolicy']['all']:
+            print('覆盖率基准需要目标提交的 App 阈值。', file=sys.stderr)
+            return 1
         write_report(report)
         return 0
     if args.action in {"bind-merge", "check-merge"}:
@@ -820,6 +887,9 @@ def inspect_report(args) -> int:
         return 0
     if args.action in {"bind", "check"}:
         errors = release_findings(report, source_digest(), recorded_environment=args.recorded_environment)
+        if not errors:
+            from validation_provenance import release_worker_findings
+            errors.extend(release_worker_findings(report['groups']['network']['summary']))
         pending = subprocess.check_output(["git", "status", "--porcelain=v1", "--untracked-files=normal"], cwd=ROOT)
         if pending.strip():
             errors.append("发布验证证据需要对应已完整提交的仓库内容。")
@@ -833,13 +903,19 @@ def inspect_report(args) -> int:
             report["releaseCommit"] = commit
             write_report(report)
     rows = ["| 验证组 | 范围 | 结果 | 用例 / 探针 | 覆盖率模块 |", "| --- | --- | --- | ---: | ---: |"]
+    from validation_coverage import policy_findings
+    from validation_provenance import group_evidence_current
     for name, row in sorted(report.get("groups", {}).items()):
         result = row.get("summary", {})
-        passed = row.get("exitCode") == 0 and result.get("passed") is True
+        passed = row.get("exitCode") == 0 and result.get("passed") is True and not policy_findings(report, name)
+        if row.get("scope") == "full":
+            passed = group_complete(report, name, recorded_environment=args.recorded_environment)
+        elif name in TEST_GROUPS:
+            passed = passed and selected_test_summary_complete(result, row.get("expectedTests", []), group=name)
         count = result.get("passedTests", result.get("executedProbes", sum(stage["passedTests"] for stage in result.get("stages", []))))
         environment = row.get("environment", {}) if args.recorded_environment else None
-        current = row.get("inputDigest") == source_digest(name, environment=environment) and evidence_current(name, result)
-        label = "待复验" if not current else "通过" if passed else "待处理"
+        current = row.get("inputDigest") == source_digest(name, environment=environment) and group_evidence_current(name, row)
+        label = "待复验" if not current else ("定向通过" if row.get("scope") == "selected" else "通过") if passed else "待处理"
         rows.append(f"| {name} | {row.get('scope', '?')} | {label} | {count} | {len(result.get('coverage', {}))} |")
     if report.get("releaseCommit"):
         rows.append(f"\n发布提交：{report['releaseCommit']}")

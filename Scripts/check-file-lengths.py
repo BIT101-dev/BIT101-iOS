@@ -17,7 +17,7 @@ def length_findings(contents: dict[str, str]) -> list[str]:
             for name, source in contents.items() if len(source.splitlines()) > LIMIT]
 
 
-def index_files(root: Path = ROOT) -> dict[str, bytes]:
+def index_files(root: Path = ROOT, *, include=None) -> dict[str, bytes]:
     entries = subprocess.check_output(["git", "ls-files", "--stage", "-z"], cwd=root).split(b"\0")
     objects = []
     for entry in filter(None, entries):
@@ -28,16 +28,23 @@ def index_files(root: Path = ROOT) -> dict[str, bytes]:
         objects.append((name.decode(), object_id))
     if not objects:
         return {}
-    batch = subprocess.check_output(["git", "cat-file", "--batch"],
-                                    input=b"\n".join(object_id for _, object_id in objects) + b"\n", cwd=root)
-    contents = {}
-    offset = 0
-    for name, _ in objects:
-        header_end = batch.index(b"\n", offset)
-        size = int(batch[offset:header_end].split()[2])
-        offset = header_end + 1
-        contents[name] = batch[offset:offset + size]
-        offset += size + 1
+    contents = {name: b"" for name, _ in objects}
+    with subprocess.Popen(["git", "cat-file", "--batch"], cwd=root,
+                          stdin=subprocess.PIPE, stdout=subprocess.PIPE) as process:
+        for name, object_id in objects:
+            if include is not None and not include(name): continue
+            process.stdin.write(object_id + b"\n")
+            process.stdin.flush()
+            size = int(process.stdout.readline().split()[2])
+            data = process.stdout.read(size)
+            if len(data) != size or process.stdout.read(1) != b"\n":
+                raise ValueError("Git 对象读取需要完整内容。")
+            if include is None:
+                try: data.decode("utf-8")
+                except UnicodeDecodeError: continue
+            contents[name] = data
+        process.stdin.close()
+        if process.wait(): raise subprocess.CalledProcessError(process.returncode, process.args)
     return contents
 
 

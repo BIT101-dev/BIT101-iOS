@@ -52,7 +52,7 @@ struct ExtendedLoginTests {
         func logout() {}
     }
 
-    @Test("Successful explicit login enters the signed-in state")
+    @Test("Successful explicit login enters the signed-in state", .timeLimit(.minutes(1)))
     @MainActor
     func successfulLogin() async {
         let service = ServiceStub()
@@ -103,7 +103,7 @@ struct ExtendedLoginTests {
         #expect(model.screenState == .signedIn(studentID: "B") && model.alert == nil)
     }
 
-    @Test("Failed explicit login stays signed out and exposes the error")
+    @Test("Failed explicit login stays signed out and exposes the error", .timeLimit(.minutes(1)))
     @MainActor
     func failedLogin() async {
         let service = ServiceStub()
@@ -118,7 +118,7 @@ struct ExtendedLoginTests {
         #expect(viewModel.alert?.title == "登录失败")
     }
 
-    @Test("Cancelled login keeps the signed-out state and alert clear")
+    @Test("Cancelled login keeps the signed-out state and alert clear", .timeLimit(.minutes(1)))
     @MainActor
     func cancelledLogin() async {
         let service = ServiceStub()
@@ -135,7 +135,7 @@ struct ExtendedLoginTests {
         #expect(service.loginCalls.count == 1)
     }
 
-    @Test("Blank credentials are rejected before the service is called")
+    @Test("Blank credentials are rejected before the service is called", .timeLimit(.minutes(1)))
     @MainActor
     func blankCredentials() async {
         let service = ServiceStub()
@@ -159,7 +159,7 @@ struct ExtendedLoginTests {
         #expect(viewModel.studentID == "1120260001")
     }
 
-    @Test("Verified login identity replaces a stale cached identifier")
+    @Test("Verified login identity replaces a stale cached identifier", .timeLimit(.minutes(1)))
     @MainActor
     func adoptsVerifiedStudentID() async {
         let service = ServiceStub(
@@ -176,7 +176,7 @@ struct ExtendedLoginTests {
         #expect(service.checkLoginCalls == 1)
     }
 
-    @Test("Cached login remains available through transient bootstrap failure")
+    @Test("Cached login remains available through transient bootstrap failure", .timeLimit(.minutes(1)))
     @MainActor
     func transientBootstrapFailure() async {
         let service = ServiceStub(hasCachedSession: true, bootstrapError: URLError(.timedOut))
@@ -209,9 +209,10 @@ struct LoginStorageTests {
         }
     }
 
-    @Test(arguments: ["valid", "revoked", "path", "host", "query"])
+    @Test(.timeLimit(.minutes(1)), arguments: ["valid", "revoked", "path", "host", "query"])
     func communityLoginValidationRequiresItsBusinessEndpoint(scenario: String) async throws {
-        let client = BIT101APIClient(httpClient: HTTPClient(transport: EndpointResponses(scenario), observer: nil))
+        let http = HTTPClient(transport: EndpointResponses(scenario), observer: nil)
+        let client = BIT101APIClient(httpClient: http, noRedirectHTTPClient: http)
         if scenario == "valid" || scenario == "revoked" {
             #expect(try await client.checkBIT101Login(fakeCookie: "fixture") == (scenario == "valid"))
         } else {
@@ -227,9 +228,10 @@ struct LoginStorageTests {
         }
     }
 
-    @Test(arguments: ["cancelled", "timeout"])
+    @Test(.timeLimit(.minutes(1)), arguments: ["cancelled", "timeout"])
     func decoratedLoginErrorsPreserveCancellationAndTheirUnderlyingCause(scenario: String) async {
-        let client = BIT101APIClient(httpClient: HTTPClient(transport: EndpointResponses(scenario), observer: nil))
+        let http = HTTPClient(transport: EndpointResponses(scenario), observer: nil)
+        let client = BIT101APIClient(httpClient: http, noRedirectHTTPClient: http)
         do { _ = try await client.checkBIT101Login(fakeCookie: "fixture"); Issue.record("故障请求需要传播错误") }
         catch {
             #expect(TaskCancellation.matches(error) == (scenario == "cancelled"))
@@ -261,6 +263,56 @@ struct LoginStorageTests {
             guard !failsDeletes else { return false }
             values[account] = nil
             return true
+        }
+    }
+
+    private enum RefreshFailure: Error, CommunityAPIServiceError {
+        case notLoggedIn, invalidResponse
+        static var communityNotLoggedIn: Self { .notLoggedIn }
+        static var communityInvalidResponse: Self { .invalidResponse }
+    }
+
+    private final class RenewalResponses: HTTPTransport {
+        var paths: [String] = []
+        func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+            let url = try #require(request.url)
+            paths.append(url.path)
+            let body: String
+            switch url.path {
+            case "/user/webvpn_verify_init":
+                body = #"{"captcha":"","cookie":"verification","execution":"execution","salt":"MTIzNDU2Nzg5MDEyMzQ1Ng=="}"#
+            case "/user/webvpn_verify": body = #"{"token":"token","code":"code"}"#
+            case "/user/register": body = #"{"fake_cookie":"renewed-cookie"}"#
+            default: body = ""
+            }
+            let status = request.value(forHTTPHeaderField: "fake-cookie") == "old-cookie" ? 401 : 200
+            return (Data(body.utf8), try #require(HTTPURLResponse(url: url, statusCode: status,
+                httpVersion: nil, headerFields: nil)))
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func communityRenewalRetainsTheSelectedClientAndDiagnosticOwner() async throws {
+        let domain = "BIT101Tests.community-renewal-dependencies"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        for sessionFactory in [false, true] {
+            let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: {})
+            try storage.saveLoginState(studentID: "fixture-account", password: "fixture-password", fakeCookie: "old-cookie")
+            let diagnostics = NetworkDiagnosticStore(currentIdentity: { storage.schoolSessionIdentity })
+            let transport = RenewalResponses()
+            let http = HTTPClient(transport: transport, networkWarningCenter: nil, storage: storage, diagnostics: diagnostics)
+            let client: CommunityAPIClient<RefreshFailure> = sessionFactory
+                ? CommunitySession.appSession(storage: storage, httpClient: http).client(errorDomain: "fixture")
+                : CommunityAPIClient(storage: storage, httpClient: http, errorDomain: "fixture")
+            try await client.requestVoid(path: "fixture-renewal", method: "GET")
+            let expected = ["/fixture-renewal", "/user/webvpn_verify_init", "/user/webvpn_verify", "/user/register", "/fixture-renewal"]
+            #expect(transport.paths == expected && storage.fakeCookie == "renewed-cookie")
+            let records = await diagnostics.recent()
+            #expect(records.compactMap { URL(string: $0.url)?.path } == expected)
+            #expect(records.map(\.statusCode) == [401, 200, 200, 200, 200])
+            storage.clearSession()
+            #expect(await diagnostics.recent().isEmpty)
         }
     }
 
@@ -315,7 +367,8 @@ struct LoginStorageTests {
         try storage.saveLoginState(studentID: "A", password: "fixture", fakeCookie: "old-cookie")
         let owner = storage.communityCredentials.identity
         let transport = SuspendedCookieCheck(oldStatus: 401)
-        let service = LoginService(storage: storage, apiClient: BIT101APIClient(httpClient: HTTPClient(transport: transport, observer: nil)))
+        let http = HTTPClient(transport: transport, observer: nil)
+        let service = LoginService(storage: storage, apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http))
         let model = LoginViewModel(service: service)
         #expect(model.screenState == .signedIn(studentID: "A"))
         let check = Task { try await service.checkLogin() }
@@ -338,7 +391,8 @@ struct LoginStorageTests {
         try storage.saveLoginState(studentID: "A", password: "fixture", fakeCookie: "old-cookie")
         let identity = storage.communityCredentials.identity
         let transport = SuspendedCookieCheck(oldStatus: status)
-        let service = LoginService(storage: storage, apiClient: BIT101APIClient(httpClient: HTTPClient(transport: transport, observer: nil)))
+        let http = HTTPClient(transport: transport, observer: nil)
+        let service = LoginService(storage: storage, apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http))
         let old = Task { try await service.checkLogin() }
         try await waitForTestEvent { !(transport.pending == nil) }
         try storage.saveLoginState(studentID: "A", password: "fixture", fakeCookie: "renewed-cookie")
@@ -379,7 +433,7 @@ struct LoginStorageTests {
         }
     }
 
-    @Test(arguments: ["empty", "english-error", "login-form", "spaced-login", "redirect-login", "redirect-error", "direct-success", "redirect-gate"])
+    @Test(.timeLimit(.minutes(1)), arguments: ["empty", "english-error", "login-form", "spaced-login", "redirect-login", "redirect-error", "direct-success", "redirect-gate"])
     func productionSchoolRestoreRequiresPositiveAuthenticationEvidence(scenario: String) async throws {
         let domain = "BIT101Tests.school-restore-response"
         let defaults = try #require(UserDefaults(suiteName: domain))
@@ -563,7 +617,7 @@ struct LoginStorageTests {
         #expect(reopened.currentStudentID == "B" && reopened.currentPassword == "password-B" && reopened.fakeCookie == "cookie-B")
     }
 
-    @Test func foregroundAndProtectedDataRecoveryRestoreTheExistingLoginPresentation() async throws {
+    @Test(.timeLimit(.minutes(1))) func foregroundAndProtectedDataRecoveryRestoreTheExistingLoginPresentation() async throws {
         let domain = "BIT101Tests.login-storage.lifecycle-recovery"
         let defaults = try #require(UserDefaults(suiteName: domain))
         defer { defaults.removePersistentDomain(forName: domain) }
@@ -574,7 +628,9 @@ struct LoginStorageTests {
             try stored.saveLoginState(studentID: "A", password: "fixture", fakeCookie: "cookie-A")
             backend.failsReads = true
             let reopened = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: {})
-            let model = LoginViewModel(service: LoginService(storage: reopened))
+            let http = HTTPClient(transport: EndpointResponses("valid"), observer: nil)
+            let model = LoginViewModel(service: LoginService(storage: reopened,
+                apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http)))
             await model.bootstrapIfNeeded()
             #expect(model.screenState == .signedOut && reopened.credentialReadIssue != nil)
             let delegate = AppDelegate()

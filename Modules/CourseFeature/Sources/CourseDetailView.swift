@@ -77,7 +77,7 @@ private struct CourseDetailViewScene: View {
                         composerTarget = .comment(mainComment: target.mainComment, targetComment: target.targetComment)
                     },
                     onLikeComment: { comment in
-                        Task {
+                        viewModel.pendingOperations.enqueue {
                             await viewModel.likeComment(comment)
                         }
                     },
@@ -89,7 +89,7 @@ private struct CourseDetailViewScene: View {
                         userRoute = UserRoute(userID: user.id)
                     },
                     onLoadMore: { comment in
-                        Task {
+                        viewModel.pendingOperations.enqueue {
                             await viewModel.loadMoreCommentsIfNeeded(currentComment: comment)
                         }
                     }
@@ -129,6 +129,7 @@ private struct CourseDetailViewScene: View {
             .id(target.id)
         }
         .systemImagePreview(item: $imageViewer)
+        .onDisappear { viewModel.pendingOperations.cancel() }
         .diagnosticAlert(item: $viewModel.alert)
     }
 
@@ -152,7 +153,7 @@ private struct CourseDetailViewScene: View {
                     AppDetailCircleButton(
                         accessibilityLabel: viewModel.isCourseLiked ? "取消课程点赞" : "点赞课程"
                     ) {
-                        Task {
+                        viewModel.pendingOperations.enqueue {
                             await viewModel.likeCourse()
                         }
                     } label: {
@@ -206,7 +207,7 @@ private struct CourseDetailViewScene: View {
                     message: message,
                     allowsDiagnostics: viewModel.historyGradesAllowsDiagnostics,
                     onRetry: {
-                        Task { await viewModel.reloadHistoryGrades() }
+                        viewModel.pendingOperations.enqueue { await viewModel.reloadHistoryGrades() }
                     }
                 )
 

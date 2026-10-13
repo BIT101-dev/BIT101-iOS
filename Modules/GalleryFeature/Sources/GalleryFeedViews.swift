@@ -33,6 +33,9 @@ struct GalleryFeedView: View {
     @State private var reportTarget: GalleryReportTarget?
 
     var body: some View {
+        let visiblePosters = self.visiblePosters
+        let prefetchTriggerPosterID = prefetchTriggerThreshold > 0 && !visiblePosters.isEmpty
+            ? visiblePosters[max(visiblePosters.count - prefetchTriggerThreshold, 0)].id : nil
         ScrollViewReader { proxy in
             ScrollView {
                 if isInitialLoading {
@@ -77,7 +80,7 @@ struct GalleryFeedView: View {
                                 )
                             }
                             .id(poster.id)
-                            .onAppear {
+                            .task(id: feedState.status == .loaded ? feedState.nextPage : nil) {
                                 if poster.id == prefetchTriggerPosterID,
                                    lastPrefetchTriggerPosterID != poster.id {
                                     lastPrefetchTriggerPosterID = poster.id
@@ -160,11 +163,6 @@ struct GalleryFeedView: View {
     /// 进入可见列表尾部若干条时触发的预取集合。
     ///
     /// 预取负责后台准备下一页；列表追加由末尾触发，滚动条比例和当前位置保持稳定。
-    private var prefetchTriggerPosterID: Int? {
-        guard prefetchTriggerThreshold > 0, !visiblePosters.isEmpty else { return nil }
-        return visiblePosters[max(visiblePosters.count - prefetchTriggerThreshold, 0)].id
-    }
-
     private var pageContinuation: some View {
         Button("继续查找话题") { onLoadMore(visiblePosters.last) }
             .buttonStyle(.bordered)

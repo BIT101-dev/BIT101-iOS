@@ -4,16 +4,32 @@ import Foundation
 
 @MainActor
 final class ListRequestGate<Value: Sendable> {
-    private var result: CheckedContinuation<Value, Never>?
-    func request() async -> Value {
-        await withCheckedContinuation {
-            result = $0
+    private var requests: [CheckedContinuation<Value, any Error>] = []
+    private var timeoutTask: Task<Void, Never>?
+    private let timeout: Duration
+    init(timeout: Duration = .seconds(5)) { self.timeout = timeout }
+    func request() async throws -> Value {
+        try await withCheckedThrowingContinuation { continuation in
+            requests.append(continuation)
+            if timeoutTask == nil {
+                timeoutTask = Task { [weak self, timeout = self.timeout] in
+                    do { try await Task.sleep(for: timeout) } catch { return }
+                    self?.complete(.failure(URLError(.timedOut)))
+                }
+            }
         }
     }
-    func waitUntilRequested() async throws {
-        try await waitForTestEvent { result != nil }
+    func waitUntilRequested(count: Int = 1) async throws {
+        try await waitForTestEvent { requests.count >= count }
     }
-    func finish(_ value: Value) { result?.resume(returning: value); result = nil }
+    func finish(_ value: Value) { complete(.success(value)) }
+    private func complete(_ value: Result<Value, any Error>) {
+        let pending = requests
+        requests.removeAll()
+        timeoutTask?.cancel()
+        timeoutTask = nil
+        for request in pending { request.resume(with: value) }
+    }
 }
 
 @MainActor

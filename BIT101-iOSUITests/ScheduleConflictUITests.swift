@@ -19,12 +19,16 @@ final class ScheduleConflictUITests: UIAutomationTestCase {
         let local = app.buttons["schedule.conflict.keep-local"]
         let synced = app.buttons["schedule.conflict.use-cloud"]
         assertUI(local.appears(timeout: 5) && synced.exists, "版本分歧应展示两种明确选择。")
+        assertUI(!nameRow.isEnabled, "版本冲突期间课表编辑应等待版本选择。")
         let choice = keepingLocal ? local : synced
         reveal(choice)
         choice.tapBriefly()
         assertUI(local.disappears(timeout: 5), "版本选择应完成保存并关闭提示。")
+        assertUI(nameRow.isEnabled, "版本选择保存后应恢复编辑。")
         let title = keepingLocal ? "本机标题" : "同步标题"
-        assertUI(nameRow.label.contains(title), "课表名称应采用所选冲突版本。")
+        let selectedName = app.buttons.matching(NSPredicate(format: "identifier == %@ AND label CONTAINS %@",
+            "schedule.settings.primary-name", title)).firstMatch
+        assertUI(selectedName.appears(timeout: 5), "课表名称应采用所选冲突版本。")
         app = configureApp(resetStorage: false, restartProcess: true, initialSettings: "calendar")
         assertUI(app.buttons["schedule.settings.primary-name"].label.contains(title), "冷启动应恢复已保存版本。")
     }

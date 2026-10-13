@@ -3,6 +3,190 @@ import re
 from pathlib import Path
 
 
+def callable_network_api_self_test(rules: dict) -> None:
+    from network_capability_rules import business_methods, matching_api_calls, method_signature
+    from validation_test_areas import network_capability_findings
+    path = 'Modules/NewForumFeature/Sources/ClosureService.swift'
+    for body, expected in [
+        ('public var fetch: () async throws -> HTTPResponse; public init(http: HTTPClient, request: URLRequest) { fetch = { try await http.send(request) } }', True),
+        ('public var fetch: (URLRequest) async throws -> HTTPResponse = { request in try await HTTPClient().send(request) }', True),
+        ('public var fetch = { try await HTTPClient().send(request) }', True),
+        ('private var fetch = { try await HTTPClient().send(request) }', False),
+        ('public var fetch = { 1 }; public init(http: HTTPClient, request: URLRequest) { let fetch = { try await http.send(request) } }', False),
+        ('public func make(http: HTTPClient, request: URLRequest) -> () async throws -> HTTPResponse { { try await http.send(request) } }', True),
+        ('public var fetch: () async -> Int { { 1 } }', False),
+    ]:
+        source = 'import TransportCore; public struct ClosureService { ' + body + ' }'
+        index = rules['swift_syntax_index_sources']({path: source,
+            'Modules/TransportCore/Sources/HTTPClient.swift': 'public struct HTTPClient {}'})
+        methods = business_methods(index)
+        assert bool(methods) == expected, (body, methods)
+        if expected:
+            assert network_capability_findings(index), body
+            functions = methods['NewForumFeature.ClosureService']
+            for _, function in functions:
+                arguments = ['request'] * len(function.get('parameters', []))
+                call = dict(path=path, calledExpression='service.' + function['name'], scope=[], start=len(source.encode()),
+                    arguments=arguments, argumentLabels=[''] * len(arguments))
+                if function['name'] == 'make': call['argumentLabels'] = ['http', 'request']
+                assert matching_api_calls(index, functions, call), (body, method_signature(function))
+                call['isMemberRead'] = True
+                assert matching_api_calls(index, functions, call) == [], body
+
+    from network_capability_rules import NETWORK_HARNESS_TYPES
+    for registration, expected in (('UIView.animate(withDuration: 1, animations: {}) { _ in BODY }', True),
+            ('animator.addCompletion { _ in BODY }', True), ('framework.registerCallback { BODY }', True),
+            ('ExternalExecutor { BODY }', True), ('DispatchWorkItem { BODY }', False),
+            ('storeCallback { BODY }', False)):
+        source = 'import UIKit; import Foundation; func storeCallback(_ callback: () -> Void) {};' \
+            + ' public struct CallbackService { public func fetch() { ' + registration.replace('BODY',
+                'Task { _ = try await URLSession.shared.data(from: url) }') + ' } }'
+        index = rules['swift_syntax_index_sources']({path: source})
+        assert bool(business_methods(index)) == expected, source
+    for function in ('connectx', 'disconnectx', 'sendfile', 'sockatmark'):
+        for prefix, expression, expected in (('', function + '(1)', True), ('', 'Darwin.' + function + '(1)', True),
+                ('func ' + function + '(_ value: Int) {}; ', function + '(1)', False)):
+            source = 'import Darwin; ' + prefix + 'public struct SocketService { public func fetch() { ' + expression + ' } }'
+            index = rules['swift_syntax_index_sources']({path: source})
+            assert bool(rules['service_boundary_errors'](path, source)) == expected, source
+            assert bool(business_methods(index)) == expected, source
+    for kind, method in (('NetService', 'publish()'), ('NetService', 'resolve(withTimeout: 1)'),
+            ('NetService', 'startMonitoring()'), ('NetServiceBrowser', 'searchForServices(ofType: "_http._tcp", inDomain: "local.")')):
+        for declared, expected in (('Foundation.' + kind, True), (kind, True), ('Local', False)):
+            source = 'import Foundation; struct Local { func ' + method.split('(')[0] + '() {} }; public struct BonjourService { public func fetch(service: ' + declared + ') { service.' + method + ' } }'
+            index = rules['swift_syntax_index_sources']({path: source})
+            assert bool(rules['service_boundary_errors'](path, source)) == expected, source
+            assert bool(business_methods(index)) == expected, source
+    for owner, harness_path in NETWORK_HARNESS_TYPES.items():
+        name = owner.split('.')[-1]
+        body = 'import TransportCore; public struct ' + name + ' { let http: HTTPClient; public func fetch(request: URLRequest) async throws -> HTTPResponse { try await http.send(request) } }'
+        for selected_path, guarded, exempt in ((harness_path, True, True), (harness_path, False, False),
+                ('BIT101-iOS/Shared/Client/OtherService.swift', True, False), (path, True, False)):
+            source = '#if DEBUG || RELEASE_NETWORK_SMOKE\n' + body + '\n#endif' if guarded else body
+            index = rules['swift_syntax_index_sources']({selected_path: source,
+                'Modules/TransportCore/Sources/HTTPClient.swift': 'public struct HTTPClient {}'})
+            assert bool(business_methods(index)) != exempt, (owner, selected_path, guarded, business_methods(index))
+
+
+def build_cache_exit_self_test() -> list[str]:
+    import subprocess
+    source = (Path(__file__).parent / 'script-support.sh').read_text()
+    cache = 'bit101_build_cache() {' + source.split('bit101_build_cache() {', 1)[1].split('\nbit101_run_logged()', 1)[0]
+    findings = []
+    for status in (0, 79):
+        for maintenance in ('', '--maintenance'):
+            harness = f'python3() {{ print CALL; return {status}; }}\n' + cache \
+                + '\nif bit101_build_cache ' + maintenance + '; then exit 0; else exit $?; fi'
+            result = subprocess.run(['zsh', '-c', harness], capture_output=True, text=True)
+            if result.returncode != status or result.stdout.count('CALL') != (2 if maintenance and status == 0 else 1):
+                findings.append('构建缓存委托需要在条件调用中保留编译失败，并沿成功状态执行缓存维护。')
+    return findings
+
+
+def streaming_transport_self_test() -> None:
+    from swift_source_index import swift_syntax_index_sources
+    from network_capability_rules import business_methods
+    from code_quality_rules import ROOT, view_transport_findings
+    for expression in ('session.bytes(for: request)', 'session.bytes(from: url)', 'session.bytes(for:)'):
+        for kind, expected in (('URLSession', True), ('Local', False)):
+            declarations = 'import Foundation; struct Local { func bytes(for request: URLRequest) async {} }; '
+            body = 'let session: ' + kind + '; public func fetch() { Task { _ = try await ' + expression + ' } }'
+            service = swift_syntax_index_sources({'Modules/NewForumFeature/Sources/Service.swift':
+                declarations + 'public struct Service { ' + body + ' }'})
+            assert bool(business_methods(service)) == expected, (expression, kind)
+            view = swift_syntax_index_sources({str(ROOT / 'BIT101-iOS/Example.swift'): declarations +
+                'struct Example: View { let session: ' + kind + '; var body: some View { Text("").task { _ = try await ' + expression + ' } } }'})
+            assert bool(view_transport_findings(view)) == expected, (expression, kind)
+
+
+def stream_network_self_test(rules: dict) -> None:
+    from network_capability_rules import business_methods
+    from validation_test_areas import network_capability_findings
+    path = 'Modules/NewForumFeature/Sources/StreamService.swift'
+    operation = 'var input: InputStream?; var output: OutputStream?; %s.getStreamsToHost(withName: "example.invalid", port: 443, inputStream: &input, outputStream: &output); input?.open(); output?.open()'
+    for prefix, receiver, expected in (
+            ('', 'Stream', True), ('', 'Foundation.Stream', True),
+            ('typealias Socket = Foundation.Stream;', 'Socket', True), ('let Socket = Stream.self;', 'Socket', True),
+            ('class Socket: Foundation.Stream {};', 'Socket', True),
+            ('struct Stream { static func getStreamsToHost(withName: String, port: Int, inputStream: inout InputStream?, outputStream: inout OutputStream?) {} };', 'Stream', False)):
+        source = 'import Foundation; ' + prefix + ' public struct StreamService { public func connect() { ' + operation % receiver + ' } }'
+        index = rules['swift_syntax_index_sources']({path: source})
+        assert bool(rules['service_boundary_errors'](path, source)) == expected, source
+        assert bool(business_methods(index)) == expected, source
+        assert any('NewForumFeature.StreamService' in row for row in network_capability_findings(index)) == expected, source
+    for operation in ('let input = InputStream(data: Data()); input.open()',
+            'var input: InputStream?; var output: OutputStream?; Stream.getBoundStreams(withBufferSize: 100, inputStream: &input, outputStream: &output)'):
+        source = 'import Foundation; public struct StreamService { public func connect() { ' + operation + ' } }'
+        index = rules['swift_syntax_index_sources']({path: source})
+        assert rules['service_boundary_errors'](path, source) == [], source
+        assert business_methods(index) == {}, source
+    source = 'import Foundation; let Socket = Stream.self; struct LocalStream { func getStreamsToHost() {} }; public struct StreamService { public func connect(Socket: LocalStream) { Socket.getStreamsToHost() } }'
+    index = rules['swift_syntax_index_sources']({path: source})
+    assert rules['service_boundary_errors'](path, source) == [], source
+    assert business_methods(index) == {}, source
+
+
+def subprocess_resource_self_test(rules: dict) -> None:
+    path = 'Modules/SampleDomain/Sources/Service.swift'
+    for expression in ('let process = Foundation.Process(); try process.run()',
+            'let process = NSTask(); process.launch()', 'typealias Runner = Foundation.Process; let process = Runner()',
+            'let kind = Process.self; let process = kind.init()',
+            'system("curl https://example.invalid")', 'Darwin.posix_spawn(nil, nil, nil, nil, nil, nil)',
+            'let execute = system; execute("curl https://example.invalid")'):
+        assert rules['service_boundary_errors'](path, expression), expression
+    for source in ('struct Process { func run() {} }; let value = Process(); value.run()',
+            'struct NSTask { func launch() {} }; let value = NSTask(); value.launch()',
+            'func system(_ value: String) {}; system("literal")', 'let identifier = ProcessInfo.processInfo.processIdentifier'):
+        assert not rules['service_boundary_errors'](path, source), source
+
+
+def local_resource_self_test(rules: dict) -> None:
+    from swift_type_index import SwiftBindingTypes
+    path = 'Modules/PaperFeature/Sources/Probe.swift'
+    for name, access in (('FileManager', 'default'), ('UserDefaults', 'standard'), ('URLCache', 'shared')):
+        declaration = f'struct {name} {{ static let `{access}` = {name}() }}'
+        expression = f'let local = {name}.{access}'
+        for sources in ({path: declaration + '; ' + expression},
+                {path: expression, 'Modules/PaperFeature/Sources/Memory.swift': declaration},
+                {path: 'struct Scope { ' + declaration + '; func run() { ' + expression + ' } }'}):
+            context = SwiftBindingTypes(rules['swift_syntax_index_sources'](sources))
+            source = sources[path]
+            assert rules['service_boundary_errors'](path, source, call_context=context) == [], (name, sources)
+            assert rules['ownership_errors']('PaperFeature', source, path, call_context=context) == [], (name, sources)
+            real = source + f'; let actual = Foundation.{name}.{access}'
+            assert rules['service_boundary_errors'](path, real, call_context=context), name
+            assert rules['ownership_errors']('PaperFeature', real, path, call_context=context), name
+        if name == 'UserDefaults':
+            for use in ('let value: UserDefaults = .standard', 'let value: UserDefaults = .init()',
+                    'func consume(_ value: UserDefaults) {}; consume(.standard)'):
+                source = declaration + '; ' + use
+                assert rules['service_boundary_errors'](path, source) == [], use
+                assert rules['ownership_errors']('PaperFeature', source, path) == [], use
+        alias = f'typealias {name} = Foundation.{name}; {expression}'
+        assert rules['service_boundary_errors'](path, alias), name
+        assert rules['ownership_errors']('PaperFeature', alias, path), name
+    source = 'class FileManager: Foundation.FileManager {}; let value = FileManager.default'
+    assert rules['service_boundary_errors'](path, source)
+    assert rules['ownership_errors']('PaperFeature', source, path)
+    source = 'extension UserDefaults { static func make() -> UserDefaults { .standard } }'
+    assert rules['service_boundary_errors'](path, source)
+    assert rules['ownership_errors']('PaperFeature', source, path)
+    for kind in ('UserDefaults', 'Foundation.UserDefaults'):
+        sources = {path: 'extension Probe { func run() { value = .standard } }',
+            'Modules/PaperFeature/Sources/Memory.swift': 'struct UserDefaults { static let standard = UserDefaults() }; struct Probe { var value: ' + kind + ' }'}
+        index = rules['swift_syntax_index_sources'](sources)
+        context = SwiftBindingTypes(index)
+        unit = rules['compilation_type_context'](index, path)
+        assert bool(rules['service_boundary_errors'](path, sources[path], context=unit, call_context=context)) == kind.startswith('Foundation.')
+        assert bool(rules['ownership_errors']('PaperFeature', sources[path], path, properties=unit[0], call_context=context)) == kind.startswith('Foundation.')
+    for method in ('resourceValues', 'setResourceValues', 'getResourceValue', 'setResourceValue', 'resolvingSymlinksInPath', 'checkResourceIsReachable'):
+        declaration = f'struct Preferences {{ func {method}(forKeys keys: [Int]) {{}} }}'
+        source = declaration + f'; func run(preferences: Preferences) {{ preferences.{method}(forKeys: []) }}'
+        assert rules['service_boundary_errors'](path, source) == [], method
+        source += f'; func real(url: Foundation.URL) {{ url.{method}(forKeys: []) }}'
+        assert rules['service_boundary_errors'](path, source), method
+
+
 def manifest_lock_self_test(read_manifest) -> None:
     import fcntl
     import os
@@ -54,6 +238,16 @@ def owned_source(owner: str, source: str) -> str:
 
 
 def run_self_test(rules: dict) -> None:
+    from swift_type_index_tests import foundation_collection_self_test, resource_audit_execution_self_test
+    foundation_collection_self_test(rules['service_boundary_errors'])
+    resource_audit_execution_self_test(rules)
+    module_coverage_binary_self_test()
+    package_test_module_self_test()
+    callable_network_api_self_test(rules)
+    stream_network_self_test(rules)
+    streaming_transport_self_test()
+    local_resource_self_test(rules)
+    subprocess_resource_self_test(rules)
     manifest_lock_self_test(rules['read_manifest'])
     adapter_ownership_errors = rules["adapter_ownership_errors"]
     adapter_roles = rules["adapter_roles"]
@@ -94,12 +288,28 @@ def run_self_test(rules: dict) -> None:
     platform_errors = rules["platform_errors"]
     raw_imports = rules["raw_imports"]
     service_boundary_errors = rules["service_boundary_errors"]
+    for source in ('let data = NSData(contentsOfMappedFile: path)', 'let data: NSData? = .init(contentsOfMappedFile: path)'):
+        assert service_boundary_errors('Modules/PaperFeature/Sources/Probe.swift', source)
+        assert not service_boundary_errors('Modules/StorageCore/Sources/AppFileService.swift', owned_source('LocalAppFileService', source))
+    for expression in ('CFPreferencesCopyAppValue(key, kCFPreferencesCurrentApplication)',
+            'CoreFoundation.CFPreferencesSetAppValue(key, value, kCFPreferencesCurrentApplication)'):
+        assert service_boundary_errors('Modules/PaperFeature/Sources/Probe.swift', expression)
+        assert ownership_errors('PaperFeature', expression)
+    for kind in ('SearchPathDirectory', 'SearchPathDomainMask', 'DirectoryEnumerationOptions',
+            'VolumeEnumerationOptions', 'URLRelationship', 'ItemReplacementOptions'):
+        assert not service_boundary_errors('Modules/PaperFeature/Sources/Probe.swift', f'struct Probe {{ let mask: FileManager.{kind} }}')
     swift_code = rules["swift_code"]
     swift_syntax_index_sources = rules["swift_syntax_index_sources"]
     type_aliases = rules["type_aliases"]
     from validation_policy import IOS_MODULE_COVERAGE_FLOORS
-    from validation_test_areas import network_capability_self_test
+    from network_capability_tests import network_capability_self_test
+    from validation_test_areas import smoke_scope_self_test, smoke_scalar_self_test
+    callback_execution_self_test()
+    url_reader_network_self_test()
+    foundation_network_self_test()
     network_capability_self_test()
+    smoke_scope_self_test()
+    smoke_scalar_self_test()
     exported = swift_syntax_index_sources({'Modules/GalleryFeature/Sources/Service.swift': '''
         public struct GalleryService { func internalMember() {} }
         public extension GalleryService {
@@ -114,6 +324,12 @@ def run_self_test(rules: dict) -> None:
     assert graph_errors({'CourseDomain': {'ScoreDomain'}, 'ScoreDomain': set()})
     assert graph_errors({'ScheduleInfrastructure': {'ScoreInfrastructure'}, 'ScoreInfrastructure': set()})
     assert graph_errors({'ScheduleInfrastructure': {'ScheduleDomain'}, 'ScheduleDomain': set()}) == []
+    for source in ('ScoreDomain', 'ScheduleContracts'):
+        for dependency in ('TransportCore', 'ClientCore', 'StorageCore'):
+            assert any('pure ' in error for error in graph_errors({source: {dependency}, dependency: set()}))
+    assert graph_errors({'ScheduleDomain': {'ScheduleCore'}, 'ScheduleCore': set()}) == []
+    assert any('pure domain boundary: ScheduleDomain -> TransportCore' in error for error in graph_errors({
+        'ScheduleDomain': {'ScheduleCore'}, 'ScheduleCore': {'TransportCore'}, 'TransportCore': set()}))
     for dependency in ('ScheduleDomain', 'SchedulePorts', 'CommunityCore'):
         assert graph_errors({'ScoreFeature': {dependency}, dependency: set()})
     assert graph_errors({'GalleryFeature': {'CommunityCore', 'MediaKit'}, 'CommunityCore': set(), 'MediaKit': set()}) == []
@@ -139,6 +355,11 @@ def run_self_test(rules: dict) -> None:
                 patch('validation_inputs.repository_input_names', return_value=[name]), patch.object(Path, 'read_text', return_value=''):
             errors = rules['native_target_errors'](root, {'products': []}, set())
             assert bool(errors) != registered, (name, errors)
+    with patch(f"{rules['native_target_errors'].__module__}.subprocess.check_output", return_value=json.dumps({})), \
+            patch('validation_inputs.native_project_paths', return_value={}), \
+            patch('code_quality_rules.native_project_targets', return_value=[]), \
+            patch('validation_inputs.repository_input_names', return_value=['BIT101-iOS/Excluded.swift']):
+        assert any('target membership' in error for error in rules['native_target_errors'](root, {'products': []}, set()))
     project = {'rootObject': 'project', 'objects': {
         'project': {'mainGroup': 'main'}, 'main': {'children': ['group', 'sdk', 'product', 'direct']},
         'group': {'path': 'Shared', 'children': ['existing', 'missing']},
@@ -202,11 +423,33 @@ def run_self_test(rules: dict) -> None:
         "let group = NWConnectionGroup(with: descriptor, using: .udp); group.send(content: data)",
         "let group = Network.NWConnectionGroup(with: descriptor, using: .udp)",
         "typealias Group = NWConnectionGroup; let group = Group(with: descriptor, using: .udp)",
+        "let browser = NWBrowser(for: descriptor, using: .tcp); browser.start(queue: queue)",
+        "let browser = Network.NWBrowser(for: descriptor, using: .tcp)",
+        "typealias Browser = NWBrowser; let browser = Browser(for: descriptor, using: .tcp)",
+        "func send(task: URLSessionWebSocketTask) { task.send(message) }",
+        "func read(task: Foundation.URLSessionStreamTask) { task.resume() }",
         "let io = DispatchIO(type: .stream, path: path, oflag: 0, mode: 0, queue: queue) { _ in }",
         "let io = Dispatch.DispatchIO(type: .stream, path: path, oflag: 0, mode: 0, queue: queue) { _ in }",
     ):
         assert service_boundary_errors("Modules/CourseFeature/Sources/Example.swift", source), source
     assert service_boundary_errors("Modules/StorageCore/Sources/AppFileService.swift", owned_source('LocalAppFileService', "let io = DispatchIO(type: .stream, path: path)")) == []
+    control = owned_source('UITestControlServer', 'let listener = try NWListener(using: .tcp); let connection: NWConnection = accepted')
+    assert service_boundary_errors('BIT101-iOS/Login/AppUITestBootstrap.swift', control) == []
+    for source in ('let provider = CGDataProvider(url: url as CFURL)',
+            'let provider = CoreGraphics.CGDataProvider(url: url as CFURL)',
+            'let provider: CGDataProvider = .init(url: url as CFURL)',
+            'typealias Provider = CGDataProvider; let provider: Provider = .init(url: url as CFURL)',
+            'let document = CGPDFDocument(url as CFURL)',
+            'let document = CoreGraphics.CGPDFDocument(url as CoreFoundation.CFURL)',
+            'func load(url: CFURL) { let document = CGPDFDocument(url) }',
+            'typealias Document = CGPDFDocument; let document = Document(url as CFURL)',
+            'let read = CGDataProvider.init(url:)',
+            'let read: (CFURL) -> CGPDFDocument? = CGPDFDocument.init'):
+        assert service_boundary_errors('Modules/MediaKit/Sources/Example.swift', source), source
+        assert service_boundary_errors('Modules/StorageCore/Sources/AppFileService.swift', owned_source('LocalAppFileService', source)) == []
+    for source in ('let provider = CGDataProvider(data: bytes as CFData)',
+            'func load(provider: CGDataProvider) { let document = CGPDFDocument(provider) }'):
+        assert service_boundary_errors('Modules/MediaKit/Sources/Example.swift', source) == [], source
 
     for operation in ("open", "read", "write"):
         source = f"func execute({operation}: @Sendable () throws -> Data) throws -> Data {{ try {operation}() }}"
@@ -271,6 +514,9 @@ def run_self_test(rules: dict) -> None:
     assert graph_errors({name: info["dependencies"] for name, info in targets.items() if info["type"] == "regular"}) == []
     for invalid in (
         {"name": "MissingCore", "type": "regular", "dependencies": []},
+        {"name": "ExcludedCore", "path": "Modules/ExcludedCore/Sources", "type": "regular", "dependencies": [], "exclude": ["Implementation.swift"]},
+        {"name": "SelectedCore", "path": "Modules/SelectedCore/Sources", "type": "regular", "dependencies": [], "sources": ["Unused.swift"]},
+        {"name": "EmptyCore", "path": "Modules/EmptyCore/Sources", "type": "regular", "dependencies": [], "sources": []},
         {"name": "ExternalCore", "path": "Modules/ExternalCore/Sources", "type": "regular",
          "dependencies": [{"product": ["Remote", "Package", None]}]},
     ):
@@ -320,6 +566,24 @@ def run_self_test(rules: dict) -> None:
     roles = adapter_roles(split)
     assert adapter_ownership_errors(split["Effects.swift"], roles=roles)
     assert adapter_ownership_errors(split["Composition.swift"], roles=roles) == []
+    for body, expected in (
+            ('loadAccountStorage()', True), ('let load = loadAccountStorage; load()', True),
+            ('if false { loadAccountStorage() }', False), ('loadAccountStorage(1)', False)):
+        sources = {
+            'BIT101-iOS/Effects.swift': 'struct AppScheduleCacheEffects { func changed() { ' + body + ' } }',
+            'BIT101-iOS/Helpers.swift': 'func loadAccountStorage() { indirect() }; '
+                'func indirect() { AppAccountSession.storage }; func loadAccountStorage(_ value: Int) {}',
+        }
+        index = swift_syntax_index_sources(sources)
+        call_roles = rules['adapter_call_roles'](index)
+        errors = [error for path, facts in index.items() for error in adapter_ownership_errors(
+            facts, path, adapter_roles(index, path), call_roles=call_roles)]
+        assert bool(errors) == expected, (body, errors)
+        if expected:
+            assert len(errors) == 1 and errors[0].startswith('BIT101-iOS/Helpers.swift:1:'), errors
+    direct = swift_syntax_index_sources({'Effects.swift':
+        'struct AppScheduleCacheEffects { func changed() { AppAccountSession.storage } }'})
+    assert len(adapter_ownership_errors(direct['Effects.swift'], 'Effects.swift')) == 1
     renamed_settings = swift_syntax_index_sources({"settings.swift": 'struct RenamedScreen: View { var body: some View { AppMedia.shared } }'})
     assert adapter_ownership_errors(renamed_settings["settings.swift"], "BIT101-iOS/Settings/Renamed.swift")
     assert platform_errors("ScheduleDomain", {"UIKit"})
@@ -360,8 +624,13 @@ def run_self_test(rules: dict) -> None:
         "let session = URLSession(configuration: configuration)",
         "import CoreFoundation; let createSocket = CFSocketCreate; let connectSocket = CFSocketConnectToAddress",
         "let createStreams = CFStreamCreatePairWithSocketToHost; let connectPeer = CFStreamCreatePairWithPeerSocketSignature",
+        "let connection = NSURLConnection(request: request, delegate: nil)",
+        "let read = CFNetwork.CFReadStreamCreateForHTTPRequest; let create = CFHTTPMessageCreateRequest",
         "import Darwin; let channel = socket(AF_INET, SOCK_STREAM, 0); connect(channel, address, size); send(channel, bytes, size, 0)",
         "let openSocket = Darwin.socket; let sendBytes = Glibc.send",
+        "getaddrinfo(host, service, hints, result)",
+        "Darwin.getnameinfo(address, size, host, hostSize, service, serviceSize, flags)",
+        "let lookup = Glibc.getaddrinfo",
         "import CoreFoundation; let readFile = CFReadStreamCreateWithFile; let writeFile = CFWriteStreamCreateWithFile",
         "try await transport.data(for: request)",
         "session.dataTask(with: request)",
@@ -403,6 +672,9 @@ def run_self_test(rules: dict) -> None:
         "func dump(_ values: [Data], _ target: URL) throws { try values.first?.write(to: target) }",
         "struct Snapshot { let data: Data }; func dump(_ snapshot: Snapshot, _ target: URL) throws { try snapshot.data.write(to: target) }",
         "Darwin.readlink(path, buffer, count)",
+        "Darwin.removefile(path, state, 0)", "Darwin.copyfile(source, destination, state, 0)",
+        "Darwin.getxattr(path, key, buffer, count, 0, 0)", "Darwin.realpath(path, buffer)",
+        "let removeFile = Darwin.removefile; let pathResolver = Darwin.realpath",
         "func read(_ message: String) {}; read(fd, buffer, count)",
         "let data = try JSONEncoder().encode(value); try data.write(to: url)",
         "let encoder = PropertyListEncoder(); let data = try encoder.encode(value); try data.write(to: url)",
@@ -473,7 +745,7 @@ def run_self_test(rules: dict) -> None:
     from network_capability_rules import business_methods
     from validation_test_areas import reachable_smoke_calls
     from unittest.mock import patch
-    aliased = "typealias C=CommunitySession; public struct ExampleService { let client: C; public func f() async throws { return } }"
+    aliased = "typealias C=CommunitySession; public struct ExampleService { let client: C; public func f() async throws { try await client.requestVoid(request) } }"
     originals = {"Modules/NewForumFeature/Sources/Service.swift": aliased,
         "BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift":
             "typealias C=CommunitySession; struct ReleaseNetworkSmokeRunner { let client: C; func run() { mine.fetchMyInfo() } }"}
@@ -563,3 +835,164 @@ extension AppExternalDisplayCoordinator { func unsafe() { WatchScheduleSyncManag
         'struct LocalAppFileService {}; extension LocalAppFileService { func read() { try Data(contentsOf: url) } }') == []
     assert service_boundary_errors('Modules/StorageCore/Sources/AppFileService.swift',
         'struct LocalAppFileService { struct Rogue { func read() { try Data(contentsOf: url) } } }')
+
+
+def callback_execution_self_test() -> None:
+    from swift_source_index import swift_syntax_index_sources
+    from validation_test_areas import reachable_smoke_calls
+    from network_capability_rules import business_methods
+    cases = (
+        ('let operation = { BODY }; Task(operation: operation)', True),
+        ('let operation = { BODY }; let alias = operation; Task.detached(operation: alias)', True),
+        ('let operation = { BODY }; Task.init(operation: operation)', True),
+        ('DispatchQueue.global().async(execute: DispatchWorkItem { BODY })', True),
+        ('let work = DispatchWorkItem { BODY }; DispatchQueue.main.async(execute: work)', True),
+        ('let work = DispatchWorkItem { BODY }; let alias = work; alias.perform()', True),
+        ('let operation = { BODY }; DispatchQueue.main.async(execute: DispatchWorkItem(block: operation))', True),
+        ('OperationQueue.main.addOperation { BODY }', True),
+        ('let operation = { BODY }; OperationQueue.main.addOperation(operation)', True),
+        ('func execute(_ operation: @escaping () -> Void) { let alias = operation; Task(operation: alias) }; execute { BODY }', True),
+        ('func forward(_ operation: @escaping () -> Void) { Task(operation: operation) }; func execute(_ operation: @escaping () -> Void) { let alias = operation; forward(alias) }; execute { BODY }', True),
+        ('func execute(_ operation: @escaping () -> Void) { let alias = operation }; execute { BODY }', False),
+        ('let operation = { BODY }', False), ('let work = DispatchWorkItem { BODY }', False),
+        ('let operation = { BODY }; if false { Task(operation: operation) }', False),
+        ('let operation = { BODY }; let unused = { Task(operation: operation) }', False),
+        ('let operation = { BODY }; do { let operation = {}; Task(operation: operation) }', False),
+        ('struct Queue { func addOperation(_ block: () -> Void) {} }; Queue().addOperation { BODY }', False),
+        ('URLSession.shared.dataTask(with: url) { _,_,_ in }.resume()', True),
+        ('let session = URLSession.shared; session.dataTask(with: url) { _,_,_ in }.resume()', True),
+        ('URLSession.shared.dataTaskPublisher(for: url).sink(receiveCompletion: { _ in }, receiveValue: { _ in })', True),
+        ('let publisher = URLSession.shared.dataTaskPublisher(for: url); publisher.sink(receiveCompletion: { _ in }, receiveValue: { _ in })', True),
+        ('let publisher = URLSession.shared.dataTaskPublisher(for: url)', False),
+        ('let task = URLSession.shared.dataTask(with: url) { _,_,_ in }', False),
+        ('Trace.$current.withValue(1) { BODY }', True),
+        ('Trace.$current.withValue({ BODY }) {}', False),
+        ('withExtendedLifetime(1) { BODY }', True),
+        ('withExtendedLifetime({ BODY }) {}', False),
+        ('let operation = { BODY }; Trace.$current.withValue(1, operation: operation)', True),
+        ('let operation = { BODY }; withExtendedLifetime(1, operation)', True),
+        ('func withExtendedLifetime(_ value: Int, _ body: () -> Void) {}; withExtendedLifetime(1) { BODY }', False),
+        ('func ignore(_ operation: @autoclosure () -> Void) {}; ignore(BODY)', False),
+        ('func execute(_ operation: @autoclosure () -> Void) { operation() }; execute(BODY)', True),
+        ('func execute(_ operation: @autoclosure () -> Void) { if false { operation() } }; execute(BODY)', False),
+        ('func consume(_ operation: () -> Void) { operation() }; func execute(_ operation: @autoclosure () -> Void) { consume(operation) }; execute(BODY)', True),
+        ('func ignore(_ operation: () -> Void) {}; func execute(_ operation: @autoclosure () -> Void) { ignore(operation) }; execute(BODY)', False),
+        ('func consume(_ operation: @autoclosure () -> Void) { operation() }; func execute(_ operation: @autoclosure () -> Void) { consume(operation()) }; execute(BODY)', True),
+        ('struct Consumer { func execute(_ operation: @autoclosure () -> Void) {} }; let consumer = Consumer(); consumer.execute(BODY)', False),
+        ('struct Consumer { func execute(_ operation: @autoclosure () -> Void) { operation() } }; let consumer = Consumer(); consumer.execute(BODY)', True),
+    )
+    for body, expected in cases:
+        path = 'Modules/Example/Sources/Service.swift'
+        source = 'import Foundation; import Combine; public struct Service { public func fetch() { ' + body.replace(
+            'BODY', 'Task { _ = try? await URLSession.shared.data(from: url) }') + ' } }'
+        assert bool(business_methods(swift_syntax_index_sources({path: source}))) == expected, body
+        if 'BODY' in body:
+            source = 'struct ReleaseNetworkSmokeRunner { func run() { ' + body.replace('BODY', 'service.fetch()') + ' } }'
+            facts = swift_syntax_index_sources({'ReleaseNetworkSmoke.swift': source})
+            calls = reachable_smoke_calls(facts)['network']
+            assert any(call['calledExpression'] == 'service.fetch' for call in calls) == expected, body
+    for body in ('DispatchQueue.main.asyncAfter(deadline: .distantFuture) { BODY }',
+                 'Timer.scheduledTimer(withTimeInterval: 1_000_000_000, repeats: false) { _ in BODY }'):
+        path = 'Modules/Example/Sources/Service.swift'
+        source = 'import Foundation; public struct Service { public func fetch() { ' + body.replace(
+            'BODY', 'Task { _ = try? await URLSession.shared.data(from: url) }') + ' } }'
+        assert business_methods(swift_syntax_index_sources({path: source})), body
+        source = 'struct ReleaseNetworkSmokeRunner { func run() { ' + body.replace('BODY', 'service.fetch()') + ' } }'
+        calls = reachable_smoke_calls(swift_syntax_index_sources({'ReleaseNetworkSmoke.swift': source}))['network']
+        assert not any(call['calledExpression'] == 'service.fetch' for call in calls), body
+
+
+def foundation_network_self_test() -> None:
+    from pathlib import Path
+    from swift_source_index import swift_syntax_index_sources
+    from network_capability_rules import business_methods, method_signature
+    from validation_test_areas import network_capability_findings
+    source = '''import Foundation
+public struct UnregisteredEndpoint {
+    let client: HTTPClient
+    public func fetch(url: URL) async throws -> Data { try await client.send(URLRequest(url: url)).data }
+}'''
+    for module in ('CourseFeature', 'TransportCore', 'CommunityTransport'):
+        index = swift_syntax_index_sources({f'Modules/{module}/Sources/UnregisteredEndpoint.swift': source})
+        assert {method_signature(method) for _, method in business_methods(index)[module + '.UnregisteredEndpoint']} == {'fetch(url:URL)'}
+        assert any('新增生产服务' in finding for finding in network_capability_findings(index)), module
+    assert business_methods(swift_syntax_index_sources({'ModuleTests/Support/TestFixture.swift': source})) == {}
+    source = '''import Foundation
+public struct HTTPClient {
+    let session: URLSession
+    public func send(_ request: URLRequest, accepting: Range<Int>, maximumBytes: Int?) async throws -> Data {
+        try await session.data(for: request).0
+    }
+    public func fetch(url: URL) async throws -> Data { try await session.data(for: URLRequest(url: url)).0 }
+}'''
+    index = swift_syntax_index_sources({'Modules/TransportCore/Sources/HTTPClient.swift': source})
+    assert {method_signature(method) for _, method in business_methods(index)['TransportCore.HTTPClient']} == {'fetch(url:URL)'}
+    root = Path(__file__).resolve().parents[1]
+    sources = {str(path.relative_to(root)): path.read_text() for module in ('TransportCore', 'CommunityTransport')
+        for path in (root / 'Modules' / module / 'Sources').rglob('*.swift')}
+    assert business_methods(swift_syntax_index_sources(sources)) == {}
+
+
+def package_test_module_self_test() -> None:
+    from swift_source_index import swift_syntax_index_sources
+    from swift_type_index import SwiftTypeIndex, compilation_unit
+    root = Path(__file__).resolve().parents[1]
+    support = 'ModuleTests/Support/MemoryFiles.swift'
+    score = 'ModuleTests/Score/ScoreInfrastructureTests.swift'
+    assert compilation_unit(support) == 'BIT101TestSupport'
+    assert compilation_unit(score) == 'ScoreModuleTests'
+    assert compilation_unit(str(root / support)) == 'BIT101TestSupport'
+    index = swift_syntax_index_sources({path: (root / path).read_text() for path in (support, score)})
+    types = SwiftTypeIndex(index)
+    expected = ('BIT101TestSupport', ('ModuleScoreFiles',))
+    assert types.resolve(support, 'ModuleScoreFiles') == expected
+    assert types.resolve(score, 'ModuleScoreFiles', ['ScoreInfrastructureBoundaryTests']) == expected
+    assert types.resolve(score, 'BIT101TestSupport.ModuleScoreFiles') == expected
+    index[score]['imports'].remove('BIT101TestSupport')
+    assert SwiftTypeIndex(index).resolve(score, 'ModuleScoreFiles') is None
+
+
+def url_reader_network_self_test() -> None:
+    from swift_source_index import swift_syntax_index_sources
+    from network_capability_rules import business_methods
+    reader_path = 'Modules/StorageCore/Sources/AppFileService.swift'
+    for expression in ('Data(contentsOf: url)', 'NSData(contentsOf: url)', 'NSMutableData(contentsOf: url)',
+            'String(contentsOf: url, encoding: .utf8)', 'NSString(contentsOf: url, encoding: 4)',
+            'NSMutableString(contentsOf: url, encoding: 4)', 'XMLParser(contentsOf: url)',
+            'Foundation.NSData(contentsOf: url)', 'Swift.String(contentsOf: url, encoding: .utf8)',
+            'Bytes(contentsOf: url)', 'Foundation.Data.self.init(contentsOf: url)'):
+        for guard, expected in (('', True), ('guard url.isFileURL else { throw Failure.invalid };', False)):
+            source = ('import Foundation; public struct LocalAppFileService { typealias Bytes = Foundation.Data; public func fetch(_ url: URL) throws { '
+                + guard + ' _ = try ' + expression + ' } }')
+            methods = business_methods(swift_syntax_index_sources({reader_path: source}))
+            assert bool(methods) == expected, (expression, guard, methods)
+    for reference, kind, arguments in (
+            ('Data.init(contentsOf:options:)', '(URL, Data.ReadingOptions) throws -> Data', 'url, []'),
+            ('String.init(contentsOf:encoding:)', '(URL, String.Encoding) throws -> String', 'url, .utf8'),
+            ('NSData.init(contentsOf:)', '(URL) -> NSData?', 'url')):
+        for invocation, expected in (('', False), ('_ = try read(' + arguments + ')', True)):
+            source = ('import Foundation; public struct LocalAppFileService { typealias Bytes = Foundation.Data; public func fetch(_ url: URL) async throws { '
+                + f'let read: {kind} = {reference}; ' + invocation + ' } }')
+            methods = business_methods(swift_syntax_index_sources({reader_path: source}))
+            assert bool(methods) == expected, (reference, invocation, methods)
+    for body in ('let data: Data = try .init(contentsOf: url)',
+            'let text: String = try .init(contentsOf: url, encoding: .utf8)'):
+        for guard, expected in (('', True), ('guard url.isFileURL else { throw Failure.invalid };', False)):
+            source = 'import Foundation; public struct LocalAppFileService { public func fetch(_ url: URL) throws { ' + guard + body + ' } }'
+            assert bool(business_methods(swift_syntax_index_sources({reader_path: source}))) == expected, (body, guard)
+    source = 'struct Data { init(contentsOf url: URL) {} }; public struct LocalAppFileService { public func fetch(_ url: URL) { _ = Data(contentsOf: url) } }'
+    assert not business_methods(swift_syntax_index_sources({reader_path: source}))
+
+
+def module_coverage_binary_self_test() -> None:
+    from unittest.mock import patch
+    import validation_inputs as subject
+    manifest = {'targets': [{'name': 'CurrentTests', 'type': 'test'}, {'name': 'Library', 'type': 'regular'}]}
+    products = Path('/fixture/products')
+    with patch.object(subject, 'read_manifest', return_value=manifest), patch.object(Path, 'is_file', return_value=True):
+        assert subject.module_coverage_executables(Path('/fixture'), products) == [
+            products / 'CurrentTests.xctest/Contents/MacOS/CurrentTests']
+    with patch.object(subject, 'read_manifest', return_value=manifest), patch.object(Path, 'is_file', return_value=False):
+        try: subject.module_coverage_executables(Path('/fixture'), products)
+        except ValueError: pass
+        else: raise AssertionError('当前测试消费者缺失需要停止覆盖率归集')

@@ -16,15 +16,33 @@ ROOT = Path(__file__).resolve().parents[1]
 
 @cache
 def project_configuration() -> tuple[dict, dict, dict]:
-    import importlib.util
-    spec = importlib.util.spec_from_file_location('module_boundaries', ROOT / 'Scripts/check-module-boundaries.py')
-    boundaries = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(boundaries)
-    package = boundaries.read_manifest(ROOT)
-    targets = boundaries.manifest_targets(package)
+    from validation_inputs import read_manifest, manifest_targets
+    package = read_manifest(ROOT)
+    targets = manifest_targets(package)
     project = json.loads(subprocess.check_output(['plutil', '-convert', 'json', '-o', '-',
         str(ROOT / 'BIT101-iOS.xcodeproj/project.pbxproj')], text=True))
+    findings = declared_condition_findings(package, project)
+    if findings: raise ValueError('\n'.join(findings))
     return package, project, targets
+
+
+def declared_condition_findings(package: dict, project: dict) -> list[str]:
+    errors = []
+    for target in package.get('targets', []):
+        for setting in target.get('settings', []):
+            kind = setting.get('kind', {})
+            if setting.get('tool') == 'swift' and ('define' in kind
+                    or 'unsafeFlags' in kind and re.search(r'(?<!\S)-D', ' '.join(kind['unsafeFlags'].get('_0', [])))):
+                errors.append(f"{target['name']}：Swift 条件定义归工作流策略统一登记。")
+    for row in project.get('objects', {}).values():
+        if row.get('isa') != 'XCBuildConfiguration' or row.get('name') != 'Release': continue
+        for name, value in row.get('buildSettings', {}).items():
+            text = ' '.join(value) if isinstance(value, list) else str(value)
+            if name.startswith('SWIFT_ACTIVE_COMPILATION_CONDITIONS') \
+                    and text.replace('$(inherited)', '').replace('$(BIT101_WORKFLOW_CONDITIONS)', '').strip() \
+                    or name.startswith('OTHER_SWIFT_FLAGS') and re.search(r'(?<!\S)-D', text):
+                errors.append(f'{name}：Release 条件定义归工作流策略统一登记。')
+    return errors
 
 
 @cache
@@ -76,11 +94,28 @@ def available_local_modules(path: str) -> set[str]:
     return available
 
 
+def package_compilation_conditions(path: str, platform: str) -> set[str]:
+    if not path: return set()
+    package, _, targets = project_configuration()
+    relative = Path(path)
+    if relative.is_absolute(): relative = relative.relative_to(ROOT)
+    owner = next((name for name, target in targets.items() if relative.is_relative_to(target['path'])), None)
+    if owner is None: return set()
+    conditions = {'SWIFT_PACKAGE'}
+    if platform != 'macOS':
+        conditions.add('Xcode')
+        target = next(row for row in package['targets'] if row['name'] == owner)
+        if not target.get('resources'): conditions.add('SWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE')
+    return conditions
+
+
 def local_import_conditions(condition: str, path: str = '') -> str:
     def replace(match):
         if not (ROOT / 'Modules' / match[1]).is_dir(): return match[0]
+        if match[2]:
+            raise ValueError(f'本地模块版本条件需要显式版本编译上下文：{match[0]} · {path}')
         return 'true' if path and match[1] in available_local_modules(path) else 'false'
-    return re.sub(r"\bcanImport\(\s*([A-Za-z_]\w*)\s*\)", replace, condition)
+    return re.sub(r"\bcanImport\(\s*([A-Za-z_]\w*)\s*(,[^)]*)?\)", replace, condition)
 
 
 @cache
@@ -120,19 +155,21 @@ def write_cache(path: Path, recorded: dict) -> None:
 
 
 @cache
-def compilation_condition(condition: str, group: str, *, language_mode: str | None = None, platform: str | None = None, path: str = '') -> bool:
+def compilation_condition(condition: str, group: str, *, language_mode: str | None = None, platform: str | None = None,
+        architecture: str | None = None, path: str = '') -> bool:
     condition = condition.strip()
     group = group.removeprefix("build-")
     group = {"network-smoke": "network", "icloud-smoke": "icloud"}.get(group, group)
     if any(character in condition for character in "\n\r#;{}"):
         raise ValueError(f"编译条件需要单行 Swift 表达式：{condition}")
-    enabled = set(workflow_conditions(group))
     catalyst = platform == 'macCatalyst' or group in {"catalyst", "catalyst-release-runtime"}
     native = platform == 'macOS' or group == "modules" and platform is None
-    architecture = os.uname().machine if native or catalyst else "arm64"
+    architecture = architecture or (os.uname().machine if native or catalyst else "arm64")
     watch = platform == 'watchOS'
     sdk_name = "macosx" if native or catalyst else "watchos" if watch else "iphoneos"
-    configured_language, deployment = compilation_settings('macOS' if native else 'watchOS' if watch else 'macCatalyst' if catalyst else 'iOS', path)
+    compilation_platform = 'macOS' if native else 'watchOS' if watch else 'macCatalyst' if catalyst else 'iOS'
+    enabled = set(workflow_conditions(group)) | package_compilation_conditions(path, compilation_platform)
+    configured_language, deployment = compilation_settings(compilation_platform, path)
     language_mode = language_mode or configured_language
     target = f"{architecture}-apple-macosx{deployment}" if native else f"{architecture}-apple-watchos{deployment}" if watch else f"{architecture}-apple-ios{deployment}" + ("-macabi" if catalyst else "")
     # 本地包模块由项目依赖图提供；系统框架由所选 SDK 与编译器求值。
@@ -186,13 +223,39 @@ def source_platforms(path: str) -> tuple[str, ...]:
     return ('iOS',)
 
 
+@cache
+def platform_architectures(platform: str) -> tuple[str, ...]:
+    sdk_name = 'macosx' if platform in {'macOS', 'macCatalyst'} else 'watchos' if platform == 'watchOS' else 'iphoneos'
+    sdk = Path(subprocess.check_output(['xcrun', '--sdk', sdk_name, '--show-sdk-path'], text=True).strip())
+    settings = json.loads((sdk / 'SDKSettings.json').read_text())
+    variants = {'x86_64h': 'x86_64', 'arm64e': 'arm64'}
+    base_architectures = (architecture.split('.', 1)[0] for architecture in
+        settings['SupportedTargets']['iosmac' if platform == 'macCatalyst' else sdk_name]['Archs'])
+    return tuple(dict.fromkeys(variants.get(architecture, architecture) for architecture in base_architectures))
+
+
+def source_architectures(platform: str, source: str) -> tuple[str | None, ...]:
+    return platform_architectures(platform) if re.search(r'\barch\s*\(', mask_literals_and_comments(source)) else (None,)
+
+
 def active_network_source(source: str, path: str) -> str:
-    sources = [active_swift_source(source, 'network', platform=platform, path=path).encode() for platform in source_platforms(path)]
+    sources = [active_swift_source(source, group, platform=platform, architecture=architecture, path=path).encode()
+        for group in ('restore', 'network') for platform in source_platforms(path)
+        for architecture in source_architectures(platform, source)]
     return bytes(next((row[index] for row in sources if row[index] not in b' \r\n'), sources[0][index])
         for index in range(len(sources[0]))).decode()
 
 
 def self_test() -> None:
+    assert not declared_condition_findings({'targets': []}, {'objects': {}})
+    assert not declared_condition_findings({}, {'objects': {'release': {'isa': 'XCBuildConfiguration', 'name': 'Release',
+        'buildSettings': {'SWIFT_ACTIVE_COMPILATION_CONDITIONS': '$(inherited) $(BIT101_WORKFLOW_CONDITIONS)'}}}})
+    for kind in ({'define': {'_0': 'CUSTOM'}}, {'unsafeFlags': {'_0': ['-DCUSTOM']}}, {'unsafeFlags': {'_0': ['-D', 'CUSTOM']}}):
+        assert declared_condition_findings({'targets': [{'name': 'Feature', 'settings': [{'tool': 'swift', 'kind': kind}]}]}, {})
+    for name, value in (('SWIFT_ACTIVE_COMPILATION_CONDITIONS', 'CUSTOM'),
+            ('SWIFT_ACTIVE_COMPILATION_CONDITIONS[sdk=iphoneos*]', ['$(inherited)', 'CUSTOM']), ('OTHER_SWIFT_FLAGS', '-D CUSTOM')):
+        assert declared_condition_findings({}, {'objects': {'release': {'isa': 'XCBuildConfiguration', 'name': 'Release',
+            'buildSettings': {name: value}}}})
     recorded = {'old-signature': True, 'modules': {'environment': 'compiler', 'results': {
         'live': {'condition': 'DEBUG', 'value': True}, 'removed': {'condition': 'REMOVED', 'value': False}}}}
     kept = prepare_cache(recorded, 'build-ui', 'sdk', {'DEBUG'})
@@ -278,7 +341,8 @@ def cache_transaction_self_test() -> None:
             assert next(iter(json.loads(files[path])['modules']['results'].values()))['value'] is False
 
 
-def active_swift_source(source: str, group: str, *, platform: str | None = None, path: str = '') -> str:
+def active_swift_source(source: str, group: str, *, platform: str | None = None,
+        architecture: str | None = None, path: str = '') -> str:
     levels = [(True, False)]
     active = []
     code_lines = mask_literals_and_comments(source).split("\n")
@@ -288,7 +352,7 @@ def active_swift_source(source: str, group: str, *, platform: str | None = None,
         if directive:
             kind, condition = directive.groups()
             if kind in {"if", "elseif"}:
-                selected = compilation_condition(condition, group, platform=platform, path=path)
+                selected = compilation_condition(condition, group, platform=platform, architecture=architecture, path=path)
                 if kind == "if": levels.append((levels[-1][0] and selected, selected))
                 else:
                     _, taken = levels.pop()

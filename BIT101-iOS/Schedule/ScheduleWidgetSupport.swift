@@ -47,9 +47,14 @@ enum ScheduleWidgetExporter {
     ///
     /// 应用生命周期、登录切换等需要重新读取当前缓存的场景使用此入口。
     static func syncFromCurrentCache() async {
+        await syncFromCurrentCache(loadSnapshot: { await ScheduleExternalSnapshotWriteQueue.shared.load() })
+    }
+
+    static func syncFromCurrentCache(loadSnapshot: @MainActor () async -> ScheduleExternalSnapshot?) async {
         let session = AppFileDirectories.currentSession
         let generation = nextExportGeneration()
-        let storedSnapshot = PlatformScheduleSnapshotStorage.store.load()
+        let storedSnapshot = await loadSnapshot()
+        guard isCurrent(session: session, generation: generation) else { return }
         let isLoggedIn = !AppAccountSession.storage.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         if ScheduleSnapshotExportPolicy.requiresAccountReset(snapshot: storedSnapshot, session: session, isLoggedIn: isLoggedIn) {
             lastPublishedContent = nil
@@ -170,15 +175,14 @@ enum ScheduleWidgetExporter {
         WidgetCenter.shared.reloadAllTimelines()
     }
 
-    private static func makeSnapshot(
+    static func makeSnapshot(
         courses: ScheduleCourseSnapshot,
         session: AppStorageSession
     ) -> ScheduleExternalSnapshot? {
         guard session == AppFileDirectories.currentSession else { return nil }
         let isLoggedIn = !AppAccountSession.storage.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let storedRevision = PlatformScheduleSnapshotStorage.store.load()?.revision ?? 0
         let clockRevision = UInt64(max(Date().timeIntervalSince1970 * 1_000_000, 0))
-        let previousRevision = max(snapshotRevision, storedRevision, clockRevision)
+        let previousRevision = max(snapshotRevision, clockRevision)
         guard previousRevision < UInt64.max else { return nil }
         snapshotRevision = previousRevision + 1
 
@@ -190,7 +194,7 @@ enum ScheduleWidgetExporter {
             timeTable: courses.timeTable.map {
                 ScheduleExternalTimeSlotSnapshot(id: $0.id, start: $0.start, end: $0.end)
             },
-            courses: courses.courses.map {
+            courses: courses.courses.filter { !$0.weeks.isEmpty }.map {
                 ScheduleExternalCourseSnapshot(
                     id: $0.id,
                     name: $0.name,
@@ -220,7 +224,7 @@ enum ScheduleWidgetExporter {
     }
 }
 
-/// 串行写入 App Group 快照，并丢弃迟到的旧账号导出。
+/// 串行读取与写入 App Group 快照，并丢弃迟到的旧账号导出。
 actor ScheduleExternalSnapshotWriteQueue {
     static let shared = ScheduleExternalSnapshotWriteQueue()
 
@@ -229,6 +233,12 @@ actor ScheduleExternalSnapshotWriteQueue {
     private let store: ScheduleExternalSnapshotStore
 
     init(store: ScheduleExternalSnapshotStore = PlatformScheduleSnapshotStorage.store) { self.store = store }
+
+    func load() -> ScheduleExternalSnapshot? {
+        let snapshot = store.load()
+        latestRevision = max(latestRevision, snapshot?.revision ?? 0)
+        return snapshot
+    }
 
     func write(_ snapshot: ScheduleExternalSnapshot, generation: UInt64) throws -> ScheduleExternalSnapshot? {
         guard ScheduleSnapshotExportPolicy.acceptsWrite(

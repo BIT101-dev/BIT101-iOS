@@ -1,4 +1,20 @@
 {
+  "comment-thread": {
+    "testIdentifier": "MaintenancePerformanceTests/testLongCommentThreadPerformance",
+    "input": {"threads": 10, "repliesPerThread": 1000, "depth": 8}
+  },
+  "course-editing": {
+    "testIdentifier": "MaintenancePerformanceTests/testSingleCourseEditingPerformance",
+    "input": {"courses": 10000, "editedIndex": 5000}
+  },
+  "message-read-queries": {
+    "testIdentifier": "MaintenancePerformanceTests/testMessageReadQueriesAcrossRenderedPages",
+    "input": {"idsPerType": 65536, "renderedIDsPerType": 1024, "passes": 10, "cache": "cold-read-and-write-per-sample", "types": ["comment", "like", "follow", "system"]}
+  },
+  "image-quota-scan": {
+    "testIdentifier": "MaintenancePerformanceTests/testImageQuotaScanAcrossDirectorySizes",
+    "input": {"files": 10000, "bytesPerFile": 2048, "directories": 2, "force": true}
+  },
   "pagination": {
     "testIdentifier": "MaintenancePerformanceTests/testCommunityPaginationPerformance",
     "input": {

@@ -226,6 +226,7 @@ private struct GalleryCommentRow: View {
 ///
 /// 评论输入放在独立 sheet 中，避免与 tab bar、抽屉详情和键盘安全区发生布局冲突。
 struct GalleryCommentComposerSheet: View {
+    @Environment(MediaEnvironment.self) private var media
     @Environment(GalleryDependencies.self) private var dependencies
     let target: GalleryCommentComposerTarget
     let isSubmitting: Bool
@@ -325,7 +326,7 @@ struct GalleryCommentComposerSheet: View {
         for item in items {
             guard !Task.isCancelled, uploadedImages.count < 9 else { return }
             do {
-                guard let data = try await item.loadTransferable(type: Data.self) else { continue }
+                guard let data = try await media.loadBoundedImageData(from: item) else { continue }
                 guard !Task.isCancelled else { return }
                 let prepared = try await imagePreparer.prepare(data)
                 guard !Task.isCancelled else { return }

@@ -119,12 +119,13 @@ public final class ScheduleRepository: ObservableObject {
         _ = enqueuePersistence(source: source)
     }
 
-    private var acceptsEdits: Bool { isWritable && ownerSession == session() }
+    var acceptsEdits: Bool { isWritable && !hasPersistenceConflict && ownerSession == session() }
 
     func requireWritable() throws {
         guard acceptsEdits else {
             throw NSError(domain: "ScheduleRepository", code: 1, userInfo: [NSLocalizedDescriptionKey:
-                isLoading ? "正在读取日程，请稍后重试。" : "课表缓存读取受阻，恢复后继续编辑。"])
+                hasPersistenceConflict ? "请先选择需要保留的日程版本，再继续编辑。" :
+                    (isLoading ? "正在读取日程，请稍后重试。" : "课表缓存读取受阻，恢复后继续编辑。")])
         }
     }
 
@@ -137,7 +138,7 @@ public final class ScheduleRepository: ObservableObject {
     }
 
     private func enqueuePersistence(source: ScheduleCacheSaveSource) -> Task<Bool, Never>? {
-        guard isWritable, !hasPersistenceConflict, ownerSession == session() else { return nil }
+        guard acceptsEdits else { return nil }
         let account = ownerSession
         let generation = accountGeneration
         let snapshot = cache
@@ -299,6 +300,7 @@ public final class ScheduleRepository: ObservableObject {
     private var availabilityChanges: AnyPublisher<Void, Never> {
         $isWritable.removeDuplicates().dropFirst().map { _ in () }
             .merge(with: $isLoading.removeDuplicates().dropFirst().map { _ in () })
+            .merge(with: $hasPersistenceConflict.removeDuplicates().dropFirst().map { _ in () })
             .eraseToAnyPublisher()
     }
 
@@ -317,7 +319,7 @@ protocol ScheduleStateConsumer: AnyObject {
 extension ScheduleStateConsumer {
     var accountGeneration: Int { repository.accountGeneration }
     var isLoadingCache: Bool { repository.isLoading }
-    var isCacheWritable: Bool { repository.isWritable }
+    var isCacheWritable: Bool { repository.acceptsEdits }
 
     func persist(source: ScheduleCacheSaveSource = .local) {
         repository.persist(source: source)

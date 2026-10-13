@@ -165,6 +165,7 @@ final class NetworkConnectionDescription: NetworkPathProviding {
         let summary: String
         switch path.status {
         case .checking: summary = "检测中"
+        case .requiresConnection: summary = "等待连接"
         case .disconnected: summary = "未连接"
         case .connected:
             summary = interfaces.isEmpty ? "已连接" : "已连接 · " + interfaces.joined(separator: " + ")
@@ -187,7 +188,7 @@ final class NetworkConnectionDescription: NetworkPathProviding {
     }
 }
 
-struct NetworkDiagnosticRecord: Codable, Identifiable, Equatable, Sendable {
+nonisolated struct NetworkDiagnosticRecord: Codable, Identifiable, Equatable, Sendable {
     let id: UUID
     let occurredAt: Date
     let method: String

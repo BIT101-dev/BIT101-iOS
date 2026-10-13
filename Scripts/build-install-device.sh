@@ -11,7 +11,7 @@ source "$ROOT_DIR/Scripts/script-support.sh"
 
 ACTION="${1:-install}"
 if [[ $# -gt 1 ]]; then
-  echo "用法：Scripts/build-install-device.sh [build|archive|archive-signed|mac|screenshot|info]" >&2
+  echo "用法：Scripts/build-install-device.sh [build|archive|archive-signed|mac|screenshot|info|toolchain]" >&2
   exit 64
 fi
 case "$ACTION" in
@@ -23,11 +23,19 @@ case "$ACTION" in
     echo "Scripts/build-install-device.sh mac          构建并安装到本机 Mac"
     echo "Scripts/build-install-device.sh screenshot   真机截图"
     echo "Scripts/build-install-device.sh info         真机连接与锁定状态"
+    echo "Scripts/build-install-device.sh toolchain    核对 Xcode 工具链版本"
     exit 0
     ;;
-  install|build|archive|archive-signed|mac|screenshot|info) ;;
-  *) echo "操作：build、archive、archive-signed、mac、screenshot、info；直接运行自动装机。" >&2; exit 64 ;;
+  install|build|archive|archive-signed|mac|screenshot|info|toolchain) ;;
+  *) echo "操作：build、archive、archive-signed、mac、screenshot、info、toolchain；直接运行自动装机。" >&2; exit 64 ;;
 esac
+
+if [[ "$ACTION" == toolchain ]]; then
+  version="$(xcodebuild -version)"
+  printf '%s\n' "$version"
+  grep -Eq '^Xcode (2[7-9]|[3-9][0-9]|[1-9][0-9]{2,})\.' <<<"$version"
+  exit 0
+fi
 
 if [[ "$ACTION" == screenshot || "$ACTION" == info ]]; then
   if [[ "$ACTION" == screenshot ]]; then bit101_acquire_workflow_lock "$0" "$@"; fi
@@ -68,6 +76,9 @@ if [[ "$ACTION" == install ]]; then
   trap finish_install EXIT
 fi
 if [[ "$ACTION" == mac ]]; then
+  MAC_INPUT_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest catalyst)"
+  MAC_RUN_ID="$(uuidgen)"
+  MAC_READINESS="$HOME/Library/Containers/BIT101-dev.BIT101-iOS/Data/Documents/restore-readiness.json"
   mkdir -p "$DERIVED_DATA"
   bit101_run_logged "$DERIVED_DATA/build.log" "Catalyst Release 编译" xcodebuild build \
     -quiet \
@@ -76,6 +87,8 @@ if [[ "$ACTION" == mac ]]; then
     -configuration Release \
     -destination "platform=macOS,variant=Mac Catalyst" \
     -derivedDataPath "$DERIVED_DATA" \
+    BIT101_WORKFLOW_CONDITIONS= SWIFT_ACTIVE_COMPILATION_CONDITIONS= \
+    "BIT101_RESTORE_INPUT_DIGEST=$MAC_INPUT_DIGEST" \
     -allowProvisioningUpdates
 
   APP_PATH="$DERIVED_DATA/Build/Products/Release-maccatalyst/BIT101-iOS.app"
@@ -93,11 +106,18 @@ if [[ "$ACTION" == mac ]]; then
     fi
   done
   mkdir -p "$HOME/Applications"
-  rm -rf "$INSTALL_PATH"
-  ditto "$APP_PATH" "$INSTALL_PATH"
-  open "$INSTALL_PATH"
-  echo "Catalyst 已安装并启动：$INSTALL_PATH"
-  exit 0
+  bit101_install_mac_app "$APP_PATH" "$INSTALL_PATH"
+  open -n "$INSTALL_PATH" --args --restore-run-id "$MAC_RUN_ID"
+  mac_deadline=$(( SECONDS + 60 ))
+  while (( SECONDS < mac_deadline )); do
+    if python3 "$ROOT_DIR/Scripts/validation_restore.py" mac-ready "$INSTALL_PATH" "$MAC_READINESS" "$MAC_RUN_ID" "$MAC_INPUT_DIGEST"; then
+      echo "Catalyst 初始化与活跃进程已确认：$INSTALL_PATH"
+      exit 0
+    fi
+    sleep 1
+  done
+  echo "Catalyst 就绪验收超时，请检查启动与登录恢复状态。" >&2
+  exit 1
 fi
 
 BUILD_OVERRIDES=()
@@ -138,6 +158,7 @@ bit101_run_logged "$DERIVED_DATA/build.log" "iOS Release 编译" xcodebuild "$BU
   -configuration Release \
   -destination "$BUILD_DESTINATION" \
   -derivedDataPath "$DERIVED_DATA" \
+  BIT101_WORKFLOW_CONDITIONS= SWIFT_ACTIVE_COMPILATION_CONDITIONS= \
   "${BUILD_OVERRIDES[@]}" \
     -allowProvisioningUpdates
 

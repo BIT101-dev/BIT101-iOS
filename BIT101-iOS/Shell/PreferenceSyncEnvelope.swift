@@ -65,7 +65,30 @@ final class ScoreCacheSyncEncryption {
     }
 
     func prepareOpen(_ data: Data, account: String) throws -> @Sendable () throws -> Data {
-        guard Self.isEncrypted(data) else { return { data } }
+        guard let record = try encryptedRecord(data) else { return { data } }
+        let key = try readKey(id: record.id, account: account)
+        return { try AES.GCM.open(AES.GCM.SealedBox(combined: record.payload), using: key, authenticating: Data(account.utf8)) }
+    }
+
+    func acceptReceivedKey(from data: Data, account: String) throws {
+        guard let record = try encryptedRecord(data) else { return }
+        let activeKey = "experimental.preference-cloud-sync.score-key.\(account)"
+        if let saved = defaults.string(forKey: activeKey) {
+            let activeKeyIsAvailable: Bool
+            do {
+                _ = try readKey(id: saved, account: account)
+                activeKeyIsAvailable = true
+            } catch ScoreSyncEncryptionError.keyPending {
+                activeKeyIsAvailable = false
+            }
+            if activeKeyIsAvailable { return }
+        }
+        _ = try readKey(id: record.id, account: account)
+        defaults.set(record.id, forKey: activeKey)
+    }
+
+    private func encryptedRecord(_ data: Data) throws -> (id: String, payload: Data)? {
+        guard Self.isEncrypted(data) else { return nil }
         let header = data.startIndex + Self.magic.count
         guard data.endIndex >= header + 2 else { throw PreferenceSyncRecordError.invalidStoredValue }
         let version = Int(data[header])
@@ -73,9 +96,7 @@ final class ScoreCacheSyncEncryption {
         let end = header + 2 + Int(data[header + 1])
         guard end < data.endIndex, let id = String(data: data[(header + 2)..<end], encoding: .utf8),
               UUID(uuidString: id) != nil else { throw PreferenceSyncRecordError.invalidStoredValue }
-        let key = try readKey(id: id, account: account)
-        let payload = Data(data[end...])
-        return { try AES.GCM.open(AES.GCM.SealedBox(combined: payload), using: key, authenticating: Data(account.utf8)) }
+        return (id, Data(data[end...]))
     }
 
     @discardableResult
@@ -99,11 +120,13 @@ final class ScoreCacheSyncEncryption {
 
 nonisolated enum PreferenceSyncRecordError: LocalizedError {
     case invalidStoredValue
+    case localWriteFailed
     case unsupportedVersion(Int)
 
     var errorDescription: String? {
         switch self {
         case .invalidStoredValue: "偏好同步记录格式异常，原始记录已保留。"
+        case .localWriteFailed: "本机同步数据保存失败，原始记录已保留。请恢复本机存储后重试。"
         case .unsupportedVersion(let version): "偏好同步记录使用格式版本 \(version)，请更新应用后继续。"
         }
     }

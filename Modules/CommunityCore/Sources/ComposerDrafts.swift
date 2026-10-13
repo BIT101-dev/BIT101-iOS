@@ -10,7 +10,7 @@ public nonisolated struct ComposerImageDraft: Identifiable, Sendable {
     }
 
     public let id = UUID()
-    public let previewData: Data
+    public var previewData: Data
     public let filename: String
     public var uploadData: Data?
     public var progress: Int = 0
@@ -80,21 +80,25 @@ public nonisolated struct DeveloperSuggestionDraftSnapshot: Codable, Sendable {
     public let text: String
     public let images: [ComposerImageDraftSnapshot]
     public let contact: String
+    public let pendingSubmissionMetadata: Data?
 
     public init(
         text: String,
         images: [ComposerImageDraftSnapshot],
-        contact: String = ""
+        contact: String = "",
+        pendingSubmissionMetadata: Data? = nil
     ) {
         self.text = text
         self.images = images
         self.contact = contact
+        self.pendingSubmissionMetadata = pendingSubmissionMetadata
     }
 
     private enum CodingKeys: String, CodingKey {
         case text
         case images
         case contact
+        case pendingSubmissionMetadata
     }
 
     public init(from decoder: Decoder) throws {
@@ -102,11 +106,12 @@ public nonisolated struct DeveloperSuggestionDraftSnapshot: Codable, Sendable {
         text = try container.decode(String.self, forKey: .text)
         images = try container.decode([ComposerImageDraftSnapshot].self, forKey: .images)
         contact = try container.decodeIfPresent(String.self, forKey: .contact) ?? ""
+        pendingSubmissionMetadata = try container.decodeIfPresent(Data.self, forKey: .pendingSubmissionMetadata)
     }
 }
 
 /// 清理操作捕获提交所属账号和草稿版本，异步执行语义由公共契约统一。
-public typealias ComposerDraftCleanup = @Sendable () async -> Void
+public typealias ComposerDraftCleanup = @Sendable () async -> Bool
 
 /// 草稿读取结果保留源文件的恢复状态，保存沿同一结果判断写权限。
 public nonisolated enum ComposerDraftLoadResult<Snapshot: Sendable>: Sendable {
@@ -140,7 +145,7 @@ public nonisolated enum ComposerDraftLoadResult<Snapshot: Sendable>: Sendable {
 public protocol GalleryComposerDraftStoring: Sendable {
     func saveGallery(_ snapshot: GalleryComposerDraftSnapshot) async -> Bool
     func loadGallery() async -> ComposerDraftLoadResult<GalleryComposerDraftSnapshot>
-    func removeGallery() async
+    @discardableResult func removeGallery() async -> Bool
     func captureGalleryCleanup() async -> ComposerDraftCleanup
 }
 
@@ -148,6 +153,6 @@ public protocol GalleryComposerDraftStoring: Sendable {
 public protocol DeveloperSuggestionDraftStoring: Sendable {
     func saveSuggestion(_ snapshot: DeveloperSuggestionDraftSnapshot) async -> Bool
     func loadSuggestion() async -> ComposerDraftLoadResult<DeveloperSuggestionDraftSnapshot>
-    func removeSuggestion() async
+    @discardableResult func removeSuggestion() async -> Bool
     func captureSuggestionCleanup() async -> ComposerDraftCleanup
 }

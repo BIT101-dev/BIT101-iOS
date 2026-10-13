@@ -51,7 +51,7 @@ extension ReminderContextTests {
         return (center, session, occurrences)
     }
 
-    @Test(arguments: [1, 2, 3])
+    @Test(.timeLimit(.minutes(1)), arguments: [1, 2, 3])
     func failedNotificationReplacementRestoresAcceptedRequestsEvenAfterACommit(failedAdd: Int) async throws {
         let (center, session, occurrences) = notificationFixture()
         let original = center.pending.mapValues(\.content.title)
@@ -64,7 +64,7 @@ extension ReminderContextTests {
         #expect(center.delivered == ["BIT101.ScheduleReminder.A.9", "other"])
     }
 
-    @Test func acceptedNotificationReplacementReportsTheActualCountAndRemovesObsoleteRequests() async throws {
+    @Test(.timeLimit(.minutes(1))) func acceptedNotificationReplacementReportsTheActualCountAndRemovesObsoleteRequests() async throws {
         let (center, session, occurrences) = notificationFixture()
         let count = try await ScheduleReminderNotifications(center: center).synchronize(for: occurrences, leadMinutes: 10,
             session: session, isCurrent: { true })
@@ -74,7 +74,7 @@ extension ReminderContextTests {
         #expect(center.delivered == ["other"])
     }
 
-    @Test(arguments: ["empty", "denied"])
+    @Test(.timeLimit(.minutes(1)), arguments: ["empty", "denied"])
     func emptyOrUnauthorizedNotificationPlansClearTheirOwnedRequests(boundary: String) async throws {
         let (center, session, occurrences) = notificationFixture()
         if boundary == "denied" { center.authorization = .denied }
@@ -89,25 +89,30 @@ extension ReminderContextTests {
         let (center, session, occurrences) = notificationFixture()
         let original = center.pending.mapValues(\.content.title)
         var current = true
-        var continuation: CheckedContinuation<Void, Never>?
+        let gate = AsyncStream<Void>.makeStream()
+        var entered = false
         center.beforeAdd = { _ in
             center.beforeAdd = nil
-            await withCheckedContinuation { continuation = $0 }
+            entered = true
+            var events = gate.stream.makeAsyncIterator()
+            _ = await events.next()
         }
         let task = Task {
             try await ScheduleReminderNotifications(center: center).synchronize(for: occurrences, leadMinutes: 10,
                 session: session, isCurrent: { current })
         }
-        try await waitForTestEvent { continuation != nil }
+        defer { task.cancel(); gate.continuation.finish() }
+        try await waitForTestEvent { entered }
         if boundary == "cancel" { task.cancel() } else { current = false }
-        continuation?.resume()
+        gate.continuation.yield(())
+        gate.continuation.finish()
         await #expect(throws: CancellationError.self) { _ = try await task.value }
         if boundary == "cancel" { #expect(center.pending.mapValues(\.content.title) == original) }
         else { #expect(center.pending["BIT101.ScheduleReminder.A.0"] == nil) }
         #expect(center.pending["other"]?.content.title == "原提醒")
     }
 
-    @Test func notificationRollbackFailureReachesTheCaller() async {
+    @Test(.timeLimit(.minutes(1))) func notificationRollbackFailureReachesTheCaller() async {
         let (center, session, occurrences) = notificationFixture()
         center.failedAdds = [2, 3]
         do {
@@ -124,25 +129,25 @@ extension ReminderContextTests {
 @MainActor
 struct ReminderContextTests {
     @Test(.timeLimit(.minutes(1)))
-    func firedTimerCanRearmWhileItsRefreshContinues() async {
+    func firedTimerCanRearmWhileItsRefreshContinues() async throws {
         let timer = ScheduleReminderTimer()
         var wasCancelled = true
-        await withCheckedContinuation { completed in
-            timer.schedule(after: .zero) {
-                let refresh = Task { @MainActor in
-                    timer.schedule(after: .seconds(3600)) { Issue.record("Future timer fired during the current refresh") }
-                    await Task.yield()
-                    wasCancelled = Task.isCancelled
-                }
-                await withTaskCancellationHandler { await refresh.value } onCancel: { refresh.cancel() }
-                completed.resume()
+        var completed = false
+        defer { timer.cancel() }
+        timer.schedule(after: .zero) {
+            let refresh = Task { @MainActor in
+                timer.schedule(after: .seconds(3600)) { Issue.record("Future timer fired during the current refresh") }
+                await Task.yield()
+                wasCancelled = Task.isCancelled
             }
+            await withTaskCancellationHandler { await refresh.value } onCancel: { refresh.cancel() }
+            completed = true
         }
-        timer.cancel()
+        try await waitForTestEvent { completed }
         #expect(wasCancelled == false)
     }
 
-    @Test func cancelledWaitingTimerLeavesItsActionUnexecuted() async {
+    @Test(.timeLimit(.minutes(1))) func cancelledWaitingTimerLeavesItsActionUnexecuted() async {
         let timer = ScheduleReminderTimer()
         var calls = 0
         timer.schedule(after: .zero) { calls += 1 }
@@ -154,25 +159,32 @@ struct ReminderContextTests {
     @Test(.timeLimit(.minutes(1)), arguments: ["current", "cancelled", "account"])
     func backgroundRefreshRespectsTheOwnerAfterItsSuspendedRead(boundary: String) async throws {
         var current = true
-        var read: CheckedContinuation<Date?, Never>?
+        let gate = AsyncStream<Date>.makeStream()
+        var readStarted = false
         var scheduled: [Date?] = []
         var refreshed = 0
         let target = Date(timeIntervalSince1970: 3900)
         let task = Task {
             await ScheduleReminderBackgroundRefresh.refreshIfCurrent(isCurrent: { current },
-                nextBeginDate: { await withCheckedContinuation { read = $0 } },
+                nextBeginDate: {
+                    readStarted = true
+                    var events = gate.stream.makeAsyncIterator()
+                    return await events.next()
+                },
                 schedule: { scheduled.append($0); return true }, refresh: { refreshed += 1 })
         }
-        try await waitForTestEvent { !(read == nil) }
+        defer { task.cancel(); gate.continuation.finish() }
+        try await waitForTestEvent { readStarted }
         if boundary == "cancelled" { task.cancel() }
         if boundary == "account" { current = false }
-        read?.resume(returning: target)
+        gate.continuation.yield(target)
+        gate.continuation.finish()
         let completed = await task.value
         #expect(completed == (boundary == "current"))
         #expect(scheduled == (boundary == "current" ? [target] : []) && refreshed == (boundary == "current" ? 1 : 0))
     }
 
-    @Test func failedReschedulingKeepsTheCurrentRefreshAndReportsFailure() async {
+    @Test(.timeLimit(.minutes(1))) func failedReschedulingKeepsTheCurrentRefreshAndReportsFailure() async {
         var refreshed = 0
         let completed = await ScheduleReminderBackgroundRefresh.refreshIfCurrent(isCurrent: { true },
             nextBeginDate: { Date() }, schedule: { _ in false }, refresh: { refreshed += 1 })
@@ -190,25 +202,26 @@ struct ReminderContextTests {
         let components = ScheduleReminderNotificationDate.components(for: Date(timeIntervalSince1970: 3300.5))
         #expect(components.calendar?.date(from: components) == Date(timeIntervalSince1970: 3301))
     }
-    @Test func delayedCacheLoadHonorsItsCapturedAccountGeneration() async {
+    @Test(.timeLimit(.minutes(1))) func delayedCacheLoadHonorsItsCapturedAccountGeneration() async throws {
         var current = ScheduleReminderSession(studentID: "A", storage: AppStorageSession(accountIdentifier: "A"), generation: 1, signedIn: true)
-        var loadContinuation: CheckedContinuation<ScheduleCache, Never>?
-        var enteredContinuation: CheckedContinuation<Void, Never>?
+        let gate = AsyncStream<ScheduleCache>.makeStream()
+        var entered = false
         let context = ScheduleReminderContext(currentSession: { current }, loadCache: { captured in
             #expect(captured.accountIdentifier == "A")
-            return await withCheckedContinuation {
-                loadContinuation = $0
-                enteredContinuation?.resume(); enteredContinuation = nil
-            }
+            entered = true
+            var events = gate.stream.makeAsyncIterator()
+            return await events.next() ?? ScheduleCache()
         })
         let task = Task { await context.loadCurrentCache() }
-        await withCheckedContinuation { enteredContinuation = $0 }
+        defer { task.cancel(); gate.continuation.finish() }
+        try await waitForTestEvent { entered }
         current = ScheduleReminderSession(studentID: "A", storage: current.storage, generation: 3, signedIn: true)
-        loadContinuation?.resume(returning: ScheduleCache())
+        gate.continuation.yield(ScheduleCache())
+        gate.continuation.finish()
         #expect(await task.value == nil)
     }
 
-    @Test func currentSnapshotUsesTheInjectedAccountPartition() async {
+    @Test(.timeLimit(.minutes(1))) func currentSnapshotUsesTheInjectedAccountPartition() async {
         let session = ScheduleReminderSession(studentID: "B", storage: AppStorageSession(accountIdentifier: "B"), generation: 1, signedIn: true)
         let context = ScheduleReminderContext(currentSession: { session }, loadCache: { storage in
             #expect(storage == session.storage)
@@ -224,6 +237,18 @@ struct ReminderContextTests {
 
 @MainActor
 struct ReminderPlannerTests {
+    @Test(arguments: [false, true])
+    func simultaneousActivitiesHaveAnOrderIndependentReminder(reverse: Bool) {
+        func occurrence(_ title: String, start: Double, end: Double) -> CourseReminderOccurrence {
+            .init(kindText: "日程", title: title, classroom: "", teacher: "",
+                startDate: Date(timeIntervalSince1970: start), endDate: Date(timeIntervalSince1970: end))
+        }
+        let long = occurrence("长活动", start: 0, end: 10800), short = occurrence("短活动", start: 0, end: 3600)
+        let next = occurrence("下一项", start: 4500, end: 8100)
+        let activities = (reverse ? [short, long] : [long, short]) + [next]
+        #expect(ScheduleReminderPlanner.displayWindowStarts(for: activities, leadMinutes: 30).last == Date(timeIntervalSince1970: 4200))
+        #expect(ScheduleReminderPlanner.effectiveDisplayWindowStart(for: next, among: activities, leadMinutes: 30) == Date(timeIntervalSince1970: 4200))
+    }
     @Test(arguments: [1, 5, 30, 60])
     func bulkReminderWindowsPreserveOverlapsAndSimultaneousStarts(leadMinutes: Int) {
         let occurrences = (0..<120).map { index in
@@ -319,6 +344,12 @@ struct ReminderPlannerTests {
         #expect(candidates.first?.classroom == "地点")
         #expect(ScheduleReminderPlanner.timeRangeText(start: try #require(candidates.first?.startDate),
             end: try #require(candidates.first?.endDate)) == "10:00-11:00")
+        var recurring = valid
+        recurring.additionalDateStrings = ["2030-09-09", "2030-09-16"]
+        cache.customSchedules = [recurring, recurring]
+        let later = try #require(ScheduleDateCodec.parseDate("2030-09-08"))
+        #expect(ScheduleReminderPlanner.resolveOccurrences(from: cache, now: later)
+            .map { ScheduleDateCodec.formatDate($0.startDate) } == ["2030-09-09", "2030-09-16"])
     }
 }
 

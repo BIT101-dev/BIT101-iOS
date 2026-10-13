@@ -1,4 +1,5 @@
 import ScheduleDomain
+import ScheduleContracts
 //
 //  ScheduleDDLEditor.swift
 //  BIT101-iOS
@@ -52,6 +53,7 @@ enum ScheduleDDLEditor {
         to events: [DDLEventRecord],
         id: String = UUID().uuidString
     ) throws -> [DDLEventRecord] {
+        try validateText(draft.text)
         var events = events
         events.append(DDLEventRecord(
             id: id,
@@ -74,6 +76,7 @@ enum ScheduleDDLEditor {
     ) throws -> [DDLEventRecord] {
         var events = events
         guard let index = events.firstIndex(where: { $0.id == id }) else { return events }
+        try validateText(draft.text)
         events[index].title = try normalizedTitle(draft.title)
         events[index].text = draft.text
         events[index].dueAt = draft.dueAt
@@ -96,6 +99,14 @@ enum ScheduleDDLEditor {
                 userInfo: [NSLocalizedDescriptionKey: "标题不能为空。"]
             )
         }
+        try validateText(title)
         return title
+    }
+
+    private static func validateText(_ text: String) throws {
+        guard text.utf8.count <= ScheduleCourseConstraints.maximumFieldBytes else {
+            throw NSError(domain: "BIT101.Schedule", code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "标题和详情长度上限为 \(ScheduleCourseConstraints.maximumFieldBytes) UTF-8 字节。"])
+        }
     }
 }

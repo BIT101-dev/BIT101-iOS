@@ -143,7 +143,7 @@ struct SchoolCookieIsolationTests {
 #if DEBUG || RELEASE_NETWORK_SMOKE
 @MainActor
 struct NetworkSmokeSMSPromptTests {
-    @Test func submissionResumesTheWaitingRequestAndKeepsOverlappingRequestsIsolated() async throws {
+    @Test(.timeLimit(.minutes(1))) func submissionResumesTheWaitingRequestAndKeepsOverlappingRequestsIsolated() async throws {
         let prompt = ReleaseNetworkSmokeSMSPrompt()
         let request = SchoolSMSCodeRequest(maskedPhone: "138****0000", purpose: "jwb")
         let waiting = Task { try await prompt.requestCode(request) }
@@ -158,7 +158,7 @@ struct NetworkSmokeSMSPromptTests {
         #expect(prompt.request == nil)
     }
 
-    @Test func cancellationReleasesTheWaitAndAllowsTheNextChallenge() async throws {
+    @Test(.timeLimit(.minutes(1))) func cancellationReleasesTheWaitAndAllowsTheNextChallenge() async throws {
         let prompt = ReleaseNetworkSmokeSMSPrompt()
         let request = SchoolSMSCodeRequest(maskedPhone: "138****0000", purpose: "jwb")
         let waiting = Task { try await prompt.requestCode(request) }
@@ -212,9 +212,17 @@ struct AppSettingsPersistenceBoundaryTests {
         let source = Data(("{\"schemaVersion\":" + version + ",\"galleryUseWebView\":true}").utf8)
         defaults.set(source, forKey: key)
         let settings = AppSettingsStore(defaults: defaults, session: { session })
+        let previous = settings.snapshot
         #expect(settings.storageIssue != nil)
-        settings.updateGallerySettings(hideAnonymousContent: true)
+        #expect(!settings.markLinuxDoThanksNoticeShown(for: session))
+        #expect(!settings.snapshot.hasShownLinuxDoThanksNotice)
+        settings.updateGallerySettings(hiddenUserIDs: [42], hideAnonymousContent: true, useWebView: true)
         settings.markSharedScheduleImportGuideSeen()
+        var synced = AppSettingsSnapshot()
+        synced.galleryHiddenUserIDs = [43]
+        synced.galleryUseWebView = true
+        #expect(!settings.applySyncedPreferences(AppSettingsSyncPayload(snapshot: synced)))
+        #expect(settings.snapshot == previous)
         settings.reloadForCurrentAccount()
         #expect(settings.storageIssue != nil && defaults.data(forKey: key) == source)
         if unscopedLegacy { #expect(defaults.object(forKey: scopedKey) == nil) }
@@ -245,6 +253,9 @@ struct AppSettingsPersistenceBoundaryTests {
         #expect(defaults.data(forKey: key) == damaged)
         settings.resetToDefaults()
         #expect(settings.storageIssue == nil)
+        #expect(settings.markLinuxDoThanksNoticeShown(for: session))
+        settings.reloadForCurrentAccount()
+        #expect(settings.snapshot.hasShownLinuxDoThanksNotice)
         #expect(AppSettingsStore.loadSnapshotFromDefaults(for: session.accountIdentifier, defaults: defaults) != nil)
     }
 
@@ -305,15 +316,21 @@ struct AppDeepLinkRouteTests {
 
 @Suite("Image cache disk quota")
 struct ImageCacheDiskQuotaTests {
-    @Test("Quota pruning evicts least-recently-used entries and protects active files")
+    @Test("Quota pruning evicts least-recently-used entries and protects active files", .timeLimit(.minutes(1)))
     func prunesOldestFilesAndProtectsActiveEntry() async throws {
         let files = AppFileDirectories.files
         let directory = files.temporaryDirectoryURL.appending(
-            path: "image-cache-quota-\(UUID().uuidString)",
+            path: "image-cache-quota",
             directoryHint: .isDirectory
         )
+        try files.removeItemIfPresent(at: directory)
         try files.createDirectory(at: directory)
-        defer { try? files.removeItem(at: directory) }
+        defer {
+            do {
+                try files.removeItem(at: directory)
+                #expect(!files.fileExists(at: directory))
+            } catch { Issue.record(error) }
+        }
 
         let oldest = directory.appending(path: "oldest.jpg")
         let middle = directory.appending(path: "middle.jpg")
@@ -342,16 +359,22 @@ struct ImageCacheDiskQuotaTests {
 
 @Suite("Score cache file safety")
 struct ScoreCacheDiskRepositoryTests {
-    @Test("Unreadable score snapshots block replacement and remain intact")
+    @Test("Unreadable score snapshots block replacement and remain intact", .timeLimit(.minutes(1)))
     func preservesUnreadableSnapshot() async throws {
         let files = AppFileDirectories.files
         let root = files.temporaryDirectoryURL.appending(
-            path: "score-cache-safety-\(UUID().uuidString)",
+            path: "score-cache-safety",
             directoryHint: .isDirectory
         )
-        let session = AppStorageSession(accountIdentifier: "score-store-\(UUID().uuidString)")
+        try files.removeItemIfPresent(at: root)
+        let session = AppStorageSession(accountIdentifier: "score-store")
         let repository = ScoreCacheDiskRepository(files: files, storageRoot: root)
-        defer { try? files.removeItem(at: root) }
+        defer {
+            do {
+                try files.removeItem(at: root)
+                #expect(!files.fileExists(at: root))
+            } catch { Issue.record(error) }
+        }
 
         let rows = [ScoreRow(index: 0, headers: ["课程名称"], values: ["离散数学"])]
         let saved = await repository.mutate(
@@ -389,19 +412,24 @@ nonisolated final class PreferenceMemoryFiles: AppFileService, Sendable {
         var revisions: [URL: UInt64] = [:]
         var revision: UInt64 = 0
         var reads: [URL: Int] = [:]
+        var metadataScans = 0
         var directories: Set<URL> = []
         var failsRemoval = false
         var failsWriting = false
         var failsReading = false
+        var failsMetadata = false
         var nextRead: (@Sendable () -> Void)?
         var nextWrite: (@Sendable () -> Void)?
+        var nextEnumeration: (@Sendable () -> Void)?
     }
     init(requireExistingParentDirectories: Bool = false, separatesDirectories: Bool = false) {
         self.requireExistingParentDirectories = requireExistingParentDirectories
         self.separatesDirectories = separatesDirectories
     }
-    func setFailures(removal: Bool = false, writing: Bool = false, reading: Bool = false) {
-        state.withLock { $0.failsRemoval = removal; $0.failsWriting = writing; $0.failsReading = reading }
+    func setFailures(removal: Bool = false, writing: Bool = false, reading: Bool = false, metadata: Bool = false) {
+        state.withLock {
+            $0.failsRemoval = removal; $0.failsWriting = writing; $0.failsReading = reading; $0.failsMetadata = metadata
+        }
     }
     private var root: URL { URL(fileURLWithPath: "/preference-sync") }
     var temporaryDirectoryURL: URL { separatesDirectories ? root.appending(path: "Temporary") : root }
@@ -410,7 +438,7 @@ nonisolated final class PreferenceMemoryFiles: AppFileService, Sendable {
     }
     func appGroupContainerURL(identifier: String) -> URL? { temporaryDirectoryURL }
     func fileExists(at url: URL) -> Bool {
-        state.withLock { $0.data[url] != nil || $0.directories.contains { $0.path == url.path } }
+        state.withLock { !$0.failsMetadata && ($0.data[url] != nil || $0.directories.contains { $0.path == url.path }) }
     }
     func readData(at url: URL) throws -> Data {
         let intercept = state.withLock { state in
@@ -467,8 +495,17 @@ nonisolated final class PreferenceMemoryFiles: AppFileService, Sendable {
     }
     func setPrivateFileProtection(at url: URL) throws {}
     func setBackupExcluded(_ excluded: Bool, at url: URL, recursively: Bool) throws {}
+    func beforeNextEnumeration(_ action: @escaping @Sendable () -> Void) {
+        state.withLock { $0.nextEnumeration = action }
+    }
     func contentsOfDirectory(at url: URL, options: FileManager.DirectoryEnumerationOptions) throws -> [URL] {
-        state.withLock { state in
+        let intercept = state.withLock { state in
+            let callback = state.nextEnumeration
+            state.nextEnumeration = nil
+            return callback
+        }
+        intercept?()
+        return state.withLock { state in
             Array(Set(state.data.keys).union(state.directories)).filter {
                 $0.deletingLastPathComponent().path == url.path &&
                     (!options.contains(.skipsHiddenFiles) || !$0.lastPathComponent.hasPrefix("."))
@@ -476,6 +513,14 @@ nonisolated final class PreferenceMemoryFiles: AppFileService, Sendable {
         }
     }
     func regularFileSize(at url: URL) -> Int? { state.withLock { $0.data[url]?.count } }
+    var metadataScanCount: Int { state.withLock { $0.metadataScans } }
+    func regularFileMetadata(in directory: URL) throws -> [AppRegularFileMetadata] {
+        state.withLock { $0.metadataScans += 1 }
+        return try contentsOfDirectory(at: directory, options: .skipsHiddenFiles).compactMap { url in
+            regularFileSize(at: url).map { AppRegularFileMetadata(url: canonicalFileURL(url), size: $0,
+                modificationDate: modificationDate(at: url) ?? .distantPast) }
+        }
+    }
     func isRegularFile(at url: URL) -> Bool { regularFileSize(at: url) != nil }
     func readCount(at url: URL) -> Int { state.withLock { $0.reads[url] ?? 0 } }
     func atomicFileIdentity(at url: URL) -> String? {
@@ -554,7 +599,7 @@ struct LoginBootstrapTests {
         #expect(service.checkLoginCalls == 0)
     }
 
-    @Test("Transient validation failures stay silent and signed in")
+    @Test("Transient validation failures stay silent and signed in", .timeLimit(.minutes(1)))
     func transientFailureKeepsSession() async {
         let viewModel = LoginViewModel(service: LoginServiceStub(checkResult: .failed))
         await viewModel.bootstrapIfNeeded()
@@ -562,7 +607,7 @@ struct LoginBootstrapTests {
         #expect(viewModel.alert == nil)
     }
 
-    @Test("Only an explicit signed-out response dismisses the app shell")
+    @Test("Only an explicit signed-out response dismisses the app shell", .timeLimit(.minutes(1)))
     func explicitSignOutDismissesSession() async {
         let viewModel = LoginViewModel(service: LoginServiceStub(checkResult: .signedOut))
         await viewModel.bootstrapIfNeeded()
@@ -572,6 +617,18 @@ struct LoginBootstrapTests {
 
 @Suite("Shared infrastructure")
 struct InfrastructureTests {
+    @Test(.timeLimit(.minutes(1))) func eventWaitEnforcesDeadlineCancellationAndActorIsolation() async throws {
+        await #expect(throws: URLError.self) { try await waitForTestEvent(timeout: .zero) { true } }
+        await #expect(throws: URLError.self) { try await waitForTestEvent(timeout: .milliseconds(5)) { false } }
+        let cancelled = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            try await waitForTestEvent { false }
+        }
+        await #expect(throws: CancellationError.self) { try await cancelled.value }
+        actor State { var complete = true }
+        try await waitForTestEvent(isolation: State()) { $0.complete }
+    }
+
     @Test("File backends share directory, recursive cleanup and failure contracts")
     func fileServiceContract() throws {
         let files = PreferenceMemoryFiles(requireExistingParentDirectories: true)
@@ -581,7 +638,7 @@ struct InfrastructureTests {
             root: FileManager.default.temporaryDirectory.appendingPathComponent("file-service-contract", isDirectory: true))
     }
 #if BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING
-    @Test("Behavior host uses isolated account resources and blocks external transport")
+    @Test("Behavior host uses isolated account resources and blocks external transport", .timeLimit(.minutes(1)))
     @MainActor
     func behaviorHostIsolation() async throws {
         #expect(AppFileDirectories.defaultsDomain == "harrybit.BIT101-iOS.tests")
@@ -643,9 +700,13 @@ struct InfrastructureTests {
 
     @Test("Codable snapshots are isolated by account")
     func codableSnapshotsAreIsolatedByAccount() throws {
-        let suiteName = "AccountScopedCodableStoreTests.\(UUID().uuidString)"
+        let suiteName = "AccountScopedCodableStoreTests"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.removePersistentDomain(forName: suiteName)
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+            #expect((defaults.persistentDomain(forName: suiteName) ?? [:]).isEmpty)
+        }
 
         var session = AppStorageSession(accountIdentifier: "student-a")
         let store = AccountScopedCodableStore<[String]>(

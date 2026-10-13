@@ -35,6 +35,7 @@ enum AppRestoreReadiness {
         let info = Bundle.main.infoDictionary ?? [:]
         let proof: [String: Any] = ["schemaVersion": 1, "runID": arguments[index + 1], "inputDigest": digest,
             "processIdentifier": ProcessInfo.processInfo.processIdentifier,
+            "executablePath": Bundle.main.executableURL?.path ?? "",
             "bundleIdentifier": Bundle.main.bundleIdentifier ?? "",
             "version": info["CFBundleShortVersionString"] ?? "", "build": info["CFBundleVersion"] ?? "",
             "initialized": true, "sessionRecovered": true, "active": true, "readyAt": Date().ISO8601Format()]

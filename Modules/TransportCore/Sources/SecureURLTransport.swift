@@ -1,7 +1,19 @@
 import Foundation
 
 /// Foundation transport resources are constructed and maintained in this module.
-public enum URLSessionTransport {
+public final class URLSessionTransport: HTTPTransport {
+    private let session: URLSession
+    init(ownedSession: URLSession) { session = ownedSession }
+    deinit { session.finishTasksAndInvalidate() }
+
+    public func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        try await session.data(for: request)
+    }
+
+    public func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
+        try await session.data(for: request, maximumBytes: maximumBytes)
+    }
+
     public static func make(
         configuration: URLSessionConfiguration,
         followsRedirects: Bool = true
@@ -9,7 +21,7 @@ public enum URLSessionTransport {
         let delegate: any URLSessionTaskDelegate = followsRedirects
             ? HTTPSUpgradingRedirectDelegate()
             : NoRedirectURLSessionDelegate()
-        return URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
+        return URLSessionTransport(ownedSession: URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil))
     }
 
     public static func clearSharedCache() {

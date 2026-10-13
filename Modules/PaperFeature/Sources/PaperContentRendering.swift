@@ -144,17 +144,6 @@ public enum PaperEditorContentBuilder {
     }
 }
 
-/// 文章正文的块解析与富文本辅助。
-enum PaperContentResourceLimits {
-    static let maximumBodyBytes = 256 * 1_024
-    static let maximumBlockBytes = 16 * 1_024
-    static let maximumBlocks = 256
-
-    static func accepts(_ block: [String: Any]) -> Bool {
-        guard let bytes = try? JSONSerialization.data(withJSONObject: block) else { return false }
-        return bytes.count <= maximumBlockBytes
-    }
-}
 
 @MainActor public enum PaperContentRenderer {
     /// 从详情接口返回的 Editor.js JSON 字符串中恢复正文块。
@@ -178,6 +167,10 @@ enum PaperContentResourceLimits {
         guard rawBlocks.count <= PaperContentResourceLimits.maximumBlocks else {
             return [.requiresOriginal(id: "block-resource-limit")]
         }
+        guard rawBlocks.reduce(0, { $0 + PaperContentResourceLimits.renderNodes(in: $1) })
+            <= PaperContentResourceLimits.maximumRenderNodes else {
+            return [.requiresOriginal(id: "node-resource-limit")]
+        }
         let identifiers = rawBlocks.compactMap { $0["id"] as? String }
         let frequencies = Dictionary(identifiers.map { ($0, 1) }, uniquingKeysWith: { $0 + $1 })
         return rawBlocks.enumerated().map { index, block in
@@ -196,6 +189,7 @@ enum PaperContentResourceLimits {
     /// Editor.js 段落和列表项里会混入 `<a>`、`<b>`、`<i>`、`<br>` 等标记。
     /// 系统 HTML 解析将这些标记转换为 SwiftUI 可展示的富文本，正文沿用本地渲染路径。
     static func attributedText(from html: String) -> AttributedString {
+        if !html.contains("<"), !html.contains("&") { return AttributedString(html) }
         let normalizedHTML = html
             .replacingOccurrences(of: "&nbsp;", with: " ")
             .replacingOccurrences(of: "<br>", with: "<br/>")
@@ -245,8 +239,9 @@ enum PaperContentResourceLimits {
             guard let text = data["text"] as? String else { return nil }
             let caption = data["caption"] as? String
             let renderedCaption: AttributedString?
-            if let caption, !plainText(from: caption).isEmpty {
-                renderedCaption = attributedText(from: caption)
+            if let caption {
+                let value = attributedText(from: caption)
+                renderedCaption = String(value.characters).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : value
             } else {
                 renderedCaption = nil
             }

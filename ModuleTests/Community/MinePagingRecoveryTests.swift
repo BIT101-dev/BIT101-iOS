@@ -6,6 +6,27 @@ import Testing
 
 @MainActor
 struct MinePagingRecoveryTests {
+    @Test(.timeLimit(.minutes(1)), arguments: ["mine-profile", "user-profile", "mine-posters", "user-posters", "followers", "followings"])
+    func initialFailurePublishesInlineRecoveryForEachOwnedScene(scene: String) async {
+        let service = PagingMineService()
+        service.profile = { throw URLError(.notConnectedToInternet) }
+        service.users = { _ in throw URLError(.notConnectedToInternet) }
+        service.posters = { _ in throw URLError(.notConnectedToInternet) }
+        let mine = MineViewModel(service: service)
+        let profile = UserProfileViewModel(userID: 1, service: service)
+        let status: MineLoadStatus
+        switch scene {
+        case "mine-profile": await mine.refreshProfile(); status = mine.profileStatus
+        case "user-profile": await profile.refreshProfile(); status = profile.profileStatus
+        case "mine-posters": await mine.refreshPosters(); status = mine.posterState.status
+        case "user-posters": await profile.refreshPosters(); status = profile.posterState.status
+        case "followers": await mine.refreshFollowers(); status = mine.followerState.status
+        default: await mine.refreshFollowings(); status = mine.followingState.status
+        }
+        #expect(status == .failed(URLError(.notConnectedToInternet).localizedDescription))
+        #expect(mine.alert == nil && profile.alert == nil)
+    }
+
     private func user(_ id: Int) -> CommunityUser { .placeholder(id: id, nickname: "用户") }
     private func poster(_ id: Int) -> CommunityPoster {
         CommunityPoster(anonymous: false, claim: .init(id: 0, text: ""), commentNum: 0,
@@ -13,7 +34,7 @@ struct MinePagingRecoveryTests {
             tags: [], text: "正文", title: "帖子", updateTime: "", user: user(id))
     }
 
-    @Test(arguments: ["followers", "followings", "mine", "profile"], [false, true])
+    @Test(.timeLimit(.minutes(1)), arguments: ["followers", "followings", "mine", "profile"], [false, true])
     func repeatedPagesAdvanceOrRemainRetryable(scene: String, stalled: Bool) async {
         let service = PagingMineService()
         service.users = { page in [user(!stalled && page >= 3 ? 2 : 1)] }
@@ -53,7 +74,7 @@ struct MinePagingRecoveryTests {
         }
     }
 
-    @Test(arguments: [true, false])
+    @Test(.timeLimit(.minutes(1)), arguments: [true, false])
     func failedUserRefreshRetainsLoadedRowsAndCursor(followers: Bool) async {
         let service = PagingMineService()
         service.users = { page in [user(page + 1)] }
@@ -100,7 +121,7 @@ final class PagingMineService: MineOverviewServicing, UserProfileServicing {
 
 @MainActor
 struct MineLifecycleTests {
-    @Test(arguments: [true, false]) func cancelledBootstrapRetriesBothProfileAndPosters(onOwnProfile: Bool) async {
+    @Test(.timeLimit(.minutes(1)), arguments: [true, false]) func cancelledBootstrapRetriesBothProfileAndPosters(onOwnProfile: Bool) async {
         let service = PagingMineService()
         service.profile = { throw CancellationError() }
         service.posters = { _ in throw CancellationError() }
@@ -173,7 +194,7 @@ struct MineLifecycleTests {
         #expect((followers ? model.followerState : model.followingState).items.map(\.id) == [1, 2])
     }
 
-    @Test func bootstrapLoadsOnceAndProfileRefreshRetainsDisplayedInformation() async {
+    @Test(.timeLimit(.minutes(1))) func bootstrapLoadsOnceAndProfileRefreshRetainsDisplayedInformation() async {
         let service = PagingMineService()
         service.posters = { _ in [listPoster(1)] }
         let model = MineViewModel(service: service)
@@ -194,12 +215,12 @@ struct MineLifecycleTests {
         #expect(model.alert == nil)
     }
 
-    @Test func posterRefreshAndPaginationFailuresPreserveContentAndRetryCursor() async {
+    @Test(.timeLimit(.minutes(1))) func posterRefreshAndPaginationFailuresPreserveContentAndRetryCursor() async {
         let service = PagingMineService()
         service.posters = { _ in throw URLError(.notConnectedToInternet) }
         let model = MineViewModel(service: service)
         await model.refreshPosters()
-        #expect(model.alert?.title == "加载帖子失败")
+        #expect(model.alert == nil && model.posterState.status == .failed(URLError(.notConnectedToInternet).localizedDescription))
         service.posters = { _ in [listPoster(1)] }
         await model.refreshPosters()
         service.posters = { _ in throw URLError(.networkConnectionLost) }
@@ -219,7 +240,7 @@ struct MineLifecycleTests {
         #expect(model.posterState.canLoadMore == false)
     }
 
-    @Test(arguments: [true, false])
+    @Test(.timeLimit(.minutes(1)), arguments: [true, false])
     func userListsRecoverFromCancellationFailureAndEndPagination(followers: Bool) async {
         let service = PagingMineService()
         let model = MineViewModel(service: service)
@@ -247,10 +268,10 @@ struct MineLifecycleTests {
         #expect((followers ? model.followerState : model.followingState).canLoadMore == false)
     }
 
-    @Test func profileSupersedesDelayedResponseAndPagingRefreshSupersedesOldPage() async throws {
+    @Test(.timeLimit(.minutes(1))) func profileSupersedesDelayedResponseAndPagingRefreshSupersedesOldPage() async throws {
         let service = PagingMineService()
         let gate = ListRequestGate<[CommunityPoster]>()
-        service.posters = { page in page == 0 ? [listPoster(1)] : await gate.request() }
+        service.posters = { page in page == 0 ? [listPoster(1)] : try await gate.request() }
         let model = MineViewModel(service: service)
         await model.refreshPosters()
         let pending = Task { await model.loadMorePostersIfNeeded(currentPoster: listPoster(1)) }
@@ -263,7 +284,7 @@ struct MineLifecycleTests {
         #expect(model.posterState.nextPage == 1)
         let profileGate = ListRequestGate<MineUserInfo>()
         let info = try await service.profile()
-        service.profile = { await profileGate.request() }
+        service.profile = { try await profileGate.request() }
         let first = Task { await model.refreshProfile() }
         try await profileGate.waitUntilRequested()
         service.profile = { throw URLError(.networkConnectionLost) }
@@ -271,10 +292,10 @@ struct MineLifecycleTests {
         profileGate.finish(info)
         await first.value
         #expect(model.userInfo == nil)
-        #expect(model.alert?.title == "加载个人信息失败")
+        #expect(model.alert == nil && model.profileStatus == .failed(URLError(.networkConnectionLost).localizedDescription))
     }
 
-    @Test func expiredSessionReturnsTheOwnedSceneToLogin() async {
+    @Test(.timeLimit(.minutes(1))) func expiredSessionReturnsTheOwnedSceneToLogin() async {
         let service = PagingMineService()
         service.profile = { throw MineServiceError.notLoggedIn }
         service.posters = { _ in throw MineServiceError.notLoggedIn }
@@ -291,7 +312,7 @@ struct MineLifecycleTests {
         #expect(profile.alert == nil)
     }
 
-    @Test func independentAccountScenesKeepTheirRequestsAndContentsSeparate() async {
+    @Test(.timeLimit(.minutes(1))) func independentAccountScenesKeepTheirRequestsAndContentsSeparate() async {
         let first = PagingMineService()
         let second = PagingMineService()
         first.posters = { _ in [listPoster(1)] }
@@ -308,11 +329,11 @@ struct MineLifecycleTests {
         #expect(second.pages == [0, 0])
     }
 
-    @Test func cancelledProfileRequestRestoresStateAfterServiceCompletion() async throws {
+    @Test(.timeLimit(.minutes(1))) func cancelledProfileRequestRestoresStateAfterServiceCompletion() async throws {
         let service = PagingMineService()
         let info = MineUserInfo(user: listUser(1), followingNum: 0, followerNum: 0, following: false, follower: false, own: true)
         let gate = ListRequestGate<MineUserInfo>()
-        service.profile = { await gate.request() }
+        service.profile = { try await gate.request() }
         let model = MineViewModel(service: service)
         let pending = Task { await model.refreshProfile() }
         try await gate.waitUntilRequested()
@@ -324,7 +345,7 @@ struct MineLifecycleTests {
         #expect(model.alert == nil)
     }
 
-    @Test func publicProfileBootstrapsPagesAndFollowsWithRetry() async {
+    @Test(.timeLimit(.minutes(1))) func publicProfileBootstrapsPagesAndFollowsWithRetry() async {
         let service = PagingMineService()
         service.posters = { page in page == 0 ? [listPoster(1)] : [] }
         let model = UserProfileViewModel(userID: 1, service: service)

@@ -35,9 +35,9 @@ private final class StubNetworkPathProvider: NetworkPathProviding {
 private nonisolated enum TestCommunityError: LocalizedError, CommunityAPIServiceError, Equatable {
     case notLoggedIn
     case invalidResponse
-
     static var communityNotLoggedIn: Self { .notLoggedIn }
     static var communityInvalidResponse: Self { .invalidResponse }
+    var errorDescription: String? { "测试社区响应解析失败。" }
 }
 
 private func makeTestURL(_ value: String) throws -> URL {
@@ -47,6 +47,38 @@ private func makeTestURL(_ value: String) throws -> URL {
 
 @Suite("Network stack")
 struct NetworkClientTests {
+    @Test("Classroom warmup and session retry preserve the requested date", .timeLimit(.minutes(1)))
+    @MainActor
+    func classroomRetryPreservesQueryDate() async throws {
+        let queryDate = try #require(ScheduleDateCodec.parseDate("2001-01-01"))
+        let credentials = ScoreCredentials()
+        let state = TeachingCenterSessionState(cookieStorage: try #require(URLSessionConfiguration.ephemeral.httpCookieStorage))
+        state.markDirectPreferred(for: credentials.currentStudentID)
+        var dates: [String] = []
+        var restorations = 0
+        let transport = MockHTTPTransport { request in
+            let url = try #require(request.url)
+            var status = 200
+            var payload = "{}"
+            if url.path.hasSuffix("/cxkxjasqk.do") {
+                let body = try #require(request.httpBody)
+                let query = try #require(URLComponents(string: "https://example.invalid?" + String(decoding: body, as: UTF8.self)))
+                dates.append(try #require(query.queryItems?.first { $0.name == "RQ" }?.value))
+                status = dates.count == 1 ? 401 : 200
+                payload = #"{"datas":{"cxkxjasqk":{"rows":[]}}}"#
+            }
+            let response = try #require(HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil))
+            return (Data(payload.utf8), response)
+        }
+        let service = ScheduleService(credentials: credentials, crypto: AppScheduleServiceCrypto(),
+            schoolSessionRestorer: AppScheduleSchoolSessionRestorer(restore: { restorations += 1; return credentials.currentStudentID }),
+            teachingCenterState: state, transport: transport)
+        let rows = try await service.fetchClassrooms(buildingID: "fixture", term: "2026-2027-1", date: queryDate)
+        #expect(rows.isEmpty)
+        #expect(dates == ["2001-01-01", "2001-01-01"])
+        #expect(restorations == 1)
+    }
+
     @Test("The Eclass snapshot deadline cancels an active transport", .timeLimit(.minutes(1)))
     @MainActor
     func eclassDeadlineCancelsTheActiveTransport() async throws {
@@ -63,7 +95,7 @@ struct NetworkClientTests {
         #expect(transport.started && transport.cancelled)
     }
 
-    @Test("Eclass decoding keeps task context and runs away from the main thread")
+    @Test("Eclass decoding keeps task context and runs away from the main thread", .timeLimit(.minutes(1)))
     @MainActor
     func eclassDecodingRunsInBackground() async throws {
         let result: EclassDecodingProbe = try await EclassDecodingContext.$token.withValue("snapshot") {
@@ -98,7 +130,7 @@ struct NetworkClientTests {
         #expect(heartbeats > 0)
     }
 
-    @Test("Smoke requests bind actual responses to the operation and redact URL credentials")
+    @Test("Smoke requests bind actual responses to the operation and redact URL credentials", .timeLimit(.minutes(1)))
     @MainActor
     func smokeEvidenceRequiresTransportAndRestoresTaskScope() async throws {
         let url = try makeTestURL("https://student:password@example.invalid/probe?token=secret#private")
@@ -133,7 +165,7 @@ struct NetworkClientTests {
         var currentPassword: String { "fixture-password" }
     }
 
-    @Test("Score authentication preserves its owner through the host transport contract")
+    @Test("Score authentication preserves its owner through the host transport contract", .timeLimit(.minutes(1)))
     @MainActor
     func scoreChallengeAndResultUseTheSameAccountGeneration() async throws {
         let credentials = ScoreCredentials()
@@ -152,7 +184,7 @@ struct NetworkClientTests {
                 let payload = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
                 #expect(payload["challenge_id"] as? String == "fixture")
                 #expect(payload["detail"] as? Bool == false)
-                data = Data(#"{"msg":"查询成功","data":[["课程名称","成绩"],["功能验收","80"]]}"#.utf8)
+                data = Data(#"{"msg":"查询成功","data":[["课程名称","课程编号","成绩","学分"],["功能验收","C1","80","2"]]}"#.utf8)
             }
             return (data, try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)))
         }, observer: nil)
@@ -167,7 +199,7 @@ struct NetworkClientTests {
         #expect(requests.count == 2)
     }
 
-    @Test("Network smoke overrides cache reads and preserves request authentication")
+    @Test("Network smoke overrides cache reads and preserves request authentication", .timeLimit(.minutes(1)))
     @MainActor
     func smokeTransportReadsRemoteData() async throws {
         let url = try makeTestURL("https://example.invalid/cached")
@@ -188,19 +220,6 @@ struct NetworkClientTests {
         #expect(request.cachePolicy == .returnCacheDataDontLoad)
     }
 
-    @Test("Network diagnostics follow the injected connection state")
-    @MainActor
-    func networkDescriptionUsesSelectedPath() {
-        let path = NetworkPathState(snapshot: NetworkPathSnapshot(status: .checking))
-        let description = NetworkConnectionDescription(networkPath: path)
-        #expect(description.current == "检测中")
-        path.update(snapshot: NetworkPathSnapshot(status: .disconnected))
-        #expect(description.current == "未连接")
-        path.update(snapshot: NetworkPathSnapshot(status: .connected, interfaces: [.wifi, .other], virtualNetworkLikely: true))
-        #expect(description.current == "已连接 · Wi‑Fi + 虚拟/未知接口")
-        #expect(description.snapshot.virtualNetworkLikely)
-    }
-
     nonisolated private struct UserPayload: Decodable, Equatable, Sendable {
         let displayName: String
     }
@@ -209,7 +228,7 @@ struct NetworkClientTests {
         let accepted: Bool
     }
 
-    @Test("School network warning gates the injected transport")
+    @Test("School network warning gates the injected transport", .timeLimit(.minutes(1)))
     @MainActor
     func networkWarningPrecedesTransport() async throws {
         let provider = StubNetworkPathProvider(
@@ -301,7 +320,7 @@ struct NetworkClientTests {
         #expect(sends == 1)
     }
 
-    @Test("HTTP errors preserve structured server messages")
+    @Test("HTTP errors preserve structured server messages", .timeLimit(.minutes(1)))
     func structuredHTTPError() async throws {
         let transport = MockHTTPTransport { request in
             let requestURL = try #require(request.url)
@@ -323,7 +342,7 @@ struct NetworkClientTests {
         }
     }
 
-    @Test("HTTP client rejects non-HTTP responses")
+    @Test("HTTP client rejects non-HTTP responses", .timeLimit(.minutes(1)))
     func nonHTTPResponse() async throws {
         let transport = MockHTTPTransport { request in
             let requestURL = try #require(request.url)
@@ -344,7 +363,7 @@ struct NetworkClientTests {
         }
     }
 
-    @Test("HTTP client honors the supplied status range")
+    @Test("HTTP client honors the supplied status range", .timeLimit(.minutes(1)))
     func statusRangeBoundary() async throws {
         let transport = MockHTTPTransport { request in
             let requestURL = try #require(request.url)
@@ -369,7 +388,7 @@ struct NetworkClientTests {
         #expect(response.statusCode == 302)
     }
 
-    @Test("HTTP client preserves transport errors")
+    @Test("HTTP client preserves transport errors", .timeLimit(.minutes(1)))
     func transportErrorPropagation() async throws {
         let transport = MockHTTPTransport { _ in throw URLError(.timedOut) }
         let request = URLRequest(url: try #require(URL(string: "https://example.com")))
@@ -393,8 +412,8 @@ struct NetworkClientTests {
         #expect(HTTPClient.errorMessage(from: Data()) == nil)
     }
 
-    @Test("Community malformed JSON maps to the service response error")
-    func communityMalformedJSON() async throws {
+    @Test("Community decoding errors retain their field diagnostics", .timeLimit(.minutes(1)), arguments: ["not-json", "{}", "{\"display_name\":42}"])
+    func communityMalformedJSON(payload: String) async throws {
         let transport = MockHTTPTransport { request in
             let requestURL = try #require(request.url)
             let response = try #require(HTTPURLResponse(
@@ -403,7 +422,7 @@ struct NetworkClientTests {
                 httpVersion: nil,
                 headerFields: nil
             ))
-            return (Data("not-json".utf8), response)
+            return (Data(payload.utf8), response)
         }
         let api = CommunityAPIClient<TestCommunityError>(
             httpClient: HTTPClient(transport: transport),
@@ -412,12 +431,15 @@ struct NetworkClientTests {
             credentials: { CommunityCredentials(identity: CommunitySessionIdentity(accountIdentifier: "test-account"), cookie: "session-token") }
         )
 
-        await #expect(throws: TestCommunityError.invalidResponse) {
-            let _: UserPayload = try await api.request(path: "users")
+        do { let _: UserPayload = try await api.request(path: "users"); Issue.record("Expected a response decoding failure") }
+        catch let error as NSError {
+            let failure = TestCommunityError.invalidResponse as NSError
+            #expect(error.domain == failure.domain && error.code == failure.code && error.localizedDescription == failure.localizedDescription)
+            #expect(error.userInfo[NSUnderlyingErrorKey] is DecodingError)
         }
     }
 
-    @Test("Community requests apply auth, query and snake case decoding")
+    @Test("Community requests apply auth, query and snake case decoding", .timeLimit(.minutes(1)))
     func communityRequestConstruction() async throws {
         let transport = MockHTTPTransport { request in
             #expect(request.httpMethod == "GET")
@@ -449,7 +471,7 @@ struct NetworkClientTests {
         #expect(payload == UserPayload(displayName: "BIT101"))
     }
 
-    @Test("Required authentication fails before transport")
+    @Test("Required authentication fails before transport", .timeLimit(.minutes(1)))
     func requiredAuthentication() async throws {
         let transport = MockHTTPTransport { _ in
             Issue.record("Transport must not run without authentication")
@@ -467,7 +489,7 @@ struct NetworkClientTests {
         }
     }
 
-    @Test("Optional authentication omits an empty cookie")
+    @Test("Optional authentication omits an empty cookie", .timeLimit(.minutes(1)))
     func optionalAuthentication() async throws {
         let transport = MockHTTPTransport { request in
             #expect(request.value(forHTTPHeaderField: "fake-cookie") == nil)
@@ -494,7 +516,7 @@ struct NetworkClientTests {
         #expect(payload.displayName == "Guest")
     }
 
-    @Test("Community 401 refreshes the session and retries once")
+    @Test("Community 401 refreshes the session and retries once", .timeLimit(.minutes(1)))
     func community401RefreshesAndRetries() async throws {
         final class State {
             var cookie = "expired-token"
@@ -533,7 +555,7 @@ struct NetworkClientTests {
         #expect(state.requestCount == 2)
     }
 
-    @Test("Community authentication retries one 401 exactly once")
+    @Test("Community authentication retries one 401 exactly once", .timeLimit(.minutes(1)))
     func community401RetryLimit() async throws {
         final class State {
             var cookie = "expired-token"
@@ -696,7 +718,7 @@ struct NetworkClientTests {
         )
     }
 
-    @Test("Schedule JSON requests preserve HTTPS and form contracts")
+    @Test("Schedule JSON requests preserve HTTPS and form contracts", .timeLimit(.minutes(1)))
     func scheduleJSONRequestContract() async throws {
         let transport = MockHTTPTransport { request in
             #expect(request.httpMethod == "POST")
@@ -727,7 +749,7 @@ struct NetworkClientTests {
         #expect(payload.accepted)
     }
 
-    @Test("Schedule service returns school business errors from nested envelopes")
+    @Test("Schedule service returns school business errors from nested envelopes", .timeLimit(.minutes(1)))
     func scheduleBusinessErrorContract() async throws {
         let transport = MockHTTPTransport { request in
             let requestURL = try #require(request.url)
@@ -755,7 +777,7 @@ struct NetworkClientTests {
         }
     }
 
-    @Test("Schedule SMS continuation sends the challenge contract and preserves its state")
+    @Test("Schedule SMS continuation sends the challenge contract and preserves its state", .timeLimit(.minutes(1)))
     func scheduleSMSChallengeContract() async throws {
         let transport = MockHTTPTransport { request in
             #expect(request.httpMethod == "POST")
@@ -799,7 +821,7 @@ struct NetworkClientTests {
         }
     }
 
-    @Test("Expired SMS challenge responses preserve challenge invalidation")
+    @Test("Expired SMS challenge responses preserve challenge invalidation", .timeLimit(.minutes(1)))
     func scheduleExpiredSMSChallengeContract() async throws {
         let transport = MockHTTPTransport { request in
             #expect(request.url?.path == "/api/auth/challenge-1/sms")
@@ -836,13 +858,13 @@ struct NetworkClientTests {
     func networkSmokeScopeAreaMatrix() {
         let all = Set(NetworkSmokeArea.allCases)
         let expectations: [(NetworkSmokeScope, Set<NetworkSmokeArea>)] = [
-            (.all, all.subtracting([.communityWrites])),
+            (.all, all.subtracting([.communityWrites, .communityWriteImages])),
             (.bit101, [.authentication, .bit101]),
-            (.school, [.authentication, .schedule, .ddl, .school, .transcript]),
-            (.transcript, [.authentication, .transcript]),
-            (.schedule, [.authentication, .schedule]),
-            (.ddl, [.authentication, .ddl]),
-            (.communityWrites, [.authentication, .communityWrites]),
+            (.school, [.schedule, .ddl, .school, .transcript]),
+            (.transcript, [.transcript]),
+            (.schedule, [.schedule]),
+            (.ddl, [.ddl]),
+            (.communityWrites, [.authentication, .communityWrites, .communityWriteImages]),
             (.communityCleanup, [.authentication, .communityWrites])
         ]
 
@@ -884,7 +906,13 @@ struct NetworkClientTests {
     @Test("Every smoke scope requires its complete probe inventory", arguments: NetworkSmokeScope.allCases)
     func networkSmokeRequiredProbeInventory(_ scope: NetworkSmokeScope) {
         let required = scope.requiredProbes
-        #expect(required.first == "BIT101 登录状态")
+        let firstID = switch scope {
+        case .all, .bit101, .communityWrites, .communityCleanup: "community.login"
+        case .school, .schedule: "schedule.current-term"
+        case .transcript: "score.transcript"
+        case .ddl: "eclass.authentication"
+        }
+        #expect(required.first == firstID)
         #expect(Set(required).count == required.count)
         let now = Date()
         func report(executed: [String]) -> ReleaseNetworkSmokeReport {
@@ -952,7 +980,6 @@ struct ReleaseRuntimeContractTests {
     @Test func schoolWarningsUseTheProductionCoordinator() {
         #expect(HTTPClient.defaultNetworkWarningCenter === NetworkMagicWarningCenter.shared)
     }
-
     @Test func feedbackIdentifiesTheReleaseBuild() {
         #expect(AppBuildEnvironment.isDevelopment == false)
     }

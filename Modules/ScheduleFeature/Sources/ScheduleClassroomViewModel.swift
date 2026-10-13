@@ -181,7 +181,7 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
 
         let queryDate = now()
         let records = try await withClassroomRequestTimeout { [self] in
-            try await service.fetchClassrooms(buildingID: selectedBuildingID, term: cache.currentTerm)
+            try await service.fetchClassrooms(buildingID: selectedBuildingID, term: cache.currentTerm, date: queryDate)
         }
         guard isCurrentClassroomRequest(requestID) else { throw CancellationError() }
 

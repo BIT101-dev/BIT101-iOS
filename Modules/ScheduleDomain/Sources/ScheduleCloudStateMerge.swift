@@ -10,7 +10,9 @@ public nonisolated enum ScheduleCloudStateMerge {
 
     public static func merge(local: ScheduleCloudSyncState, remote: ScheduleCloudSyncState,
                       baseline: Data, resolution: ScheduleCacheConflictResolution? = nil) throws -> ScheduleCloudSyncState? {
-        let base = try JSONSerialization.jsonObject(with: baseline) as? [String: Any] ?? [:]
+        guard let base = try JSONSerialization.jsonObject(with: baseline) as? [String: Any] else {
+            throw CocoaError(.coderReadCorrupt)
+        }
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         let lhs = try JSONSerialization.jsonObject(with: encoder.encode(local)) as? [String: Any] ?? [:]
@@ -64,8 +66,10 @@ public nonisolated enum ScheduleCloudStateMerge {
 
     private static func mergeRecords(_ base: Any?, _ lhs: Any?, _ rhs: Any?, resolution: ScheduleCacheConflictResolution?) throws -> Value {
         func keyed(_ value: Any?) throws -> [String: Any] {
+            guard let value else { return [:] }
+            guard let rows = value as? [[String: Any]] else { throw CocoaError(.coderReadCorrupt) }
             var result: [String: Any] = [:]
-            for row in value as? [[String: Any]] ?? [] {
+            for row in rows {
                 guard let id = row["id"] as? String, result[id] == nil else { throw CocoaError(.coderReadCorrupt) }
                 result[id] = row
             }
@@ -92,9 +96,12 @@ public nonisolated enum ScheduleCloudStateMerge {
     }
 
     private static func mergeDictionary(_ base: Any?, _ lhs: Any?, _ rhs: Any?, records: Bool = false, earliestDate: Bool = false, resolution: ScheduleCacheConflictResolution?) throws -> Value {
-        let base = base as? [String: Any] ?? [:]
-        let lhs = lhs as? [String: Any] ?? [:]
-        let rhs = rhs as? [String: Any] ?? [:]
+        func dictionary(_ value: Any?) throws -> [String: Any] {
+            guard let value else { return [:] }
+            guard let result = value as? [String: Any] else { throw CocoaError(.coderReadCorrupt) }
+            return result
+        }
+        let base = try dictionary(base), lhs = try dictionary(lhs), rhs = try dictionary(rhs)
         var result: [String: Any] = [:]
         for key in Set(base.keys).union(lhs.keys).union(rhs.keys) {
             let selected = try records ? mergeRecords(base[key], lhs[key], rhs[key], resolution: resolution) : choose(base[key], lhs[key], rhs[key], resolution: earliestDate ? nil : resolution)

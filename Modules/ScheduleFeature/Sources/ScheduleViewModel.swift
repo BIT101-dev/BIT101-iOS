@@ -88,7 +88,7 @@ public final class ScheduleViewModel: ObservableObject, ScheduleStateConsumer {
     public var hasLoadedAvailableTerms: Bool { courseSyncCoordinator.hasLoadedAvailableTerms }
     public var syncingTerm: String? { courseSyncCoordinator.syncingTerm }
 
-    public var isCacheWritable: Bool { repository.isWritable }
+    public var isCacheWritable: Bool { repository.acceptsEdits }
     public var hasPersistenceConflict: Bool { repository.hasPersistenceConflict }
     public var isResolvingPersistenceConflict: Bool { repository.isResolvingPersistenceConflict }
 

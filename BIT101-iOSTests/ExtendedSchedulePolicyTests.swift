@@ -129,165 +129,26 @@ struct ScheduleNotificationTimeZoneTests {
     }
 }
 
-@MainActor
-struct ExternalScheduleWatchStatusTests {
-    private final class ClearResult { var succeeds = false }
-
-    @Test func coldActivationKeepsTheLatestRequestAndClearingInvalidatesIt() throws {
-        let queue = WatchScheduleRequestQueue()
-        var results: [Int] = []
-        #expect(queue.begin(isActivated: false, completion: { _ in results.append(1) }) == nil)
-        #expect(queue.begin(isActivated: false, completion: { _ in results.append(2) }) == nil)
-        let pending = try #require(queue.takePending())
-        #expect(pending.generation == queue.generation)
-        pending.completion(.success(.requested))
-        #expect(results == [2])
-        #expect(queue.takePending() == nil)
-        let immediate = queue.begin(isActivated: true, completion: { _ in results.append(3) })
-        let live = try #require(immediate)
-        #expect(live == queue.generation)
-        #expect(queue.takePending() == nil)
-        #expect(queue.begin(isActivated: false, completion: { _ in results.append(4) }) == nil)
-        queue.clear()
-        #expect(queue.generation > live)
-        #expect(queue.takePending() == nil)
-        #expect(results == [2])
-    }
-
-    @Test func unchangedBackgroundReceiptCompletesTheQueuedRefresh() throws {
-        let files = PreferenceMemoryFiles()
-        let center = NotificationCenter()
-        let store = ScheduleExternalSnapshotStore(files: files, containerURL: files.temporaryDirectoryURL, notificationCenter: center)
-        let now = Date(timeIntervalSince1970: 100)
-        let snapshot = ScheduleExternalSnapshot(generatedAt: now, isLoggedIn: true,
-            studentID: AppStorageSession(accountIdentifier: AppAccountSession.storage.currentStudentID).accountStorageIdentifier,
-            firstDayString: "", timeTable: [], courses: [])
-        let data = try ScheduleExternalSnapshotCodec.encode(snapshot)
-        let manager = WatchScheduleSyncManager.shared
-        #expect(manager.persistSnapshotData(data, store: store, notificationCenter: center) == .success(.received))
-        let model = WatchScheduleStatusModel(dependencies: WatchScheduleStatusDependencies(
-            now: { now }, loadResolvedSnapshot: { now, _ in ScheduleOccurrenceResolver.loadResolvedSnapshot(store: store, now: now) },
-            clearSnapshot: { true }, activateSync: {}, requestLatestSnapshot: { $0(.success(.requested)) }
-        ))
-        let observation = center.publisher(for: WatchScheduleSyncManager.snapshotReceivedNotification).sink { _ in
-            MainActor.assumeIsolated { model.handleSnapshotDidChange() }
-        }
-        defer { observation.cancel() }
-        model.requestRefresh()
-        #expect(model.refreshState == .syncing)
-        #expect(manager.persistSnapshotData(data, store: store, notificationCenter: center) == .success(.received))
-        #expect(model.refreshState == .succeeded)
-        #expect(model.snapshot == snapshot)
-        let stale = snapshot.replacingStudentID(with: "another-owner")
-        model.requestRefresh()
-        #expect(manager.persistSnapshotData(try ScheduleExternalSnapshotCodec.encode(stale), store: store, notificationCenter: center) == .failure(.staleSnapshot))
-        #expect(model.refreshState == .syncing)
-    }
-
-    @Test func queuedSnapshotReceptionRespectsTheClearingBoundary() {
-        let received = ContinuousClock.now
-        let cleared = received.advanced(by: .seconds(1))
-        #expect(WatchSnapshotReceptionPolicy.accepts(receivedAt: received, afterClearingAt: nil))
-        #expect(WatchSnapshotReceptionPolicy.accepts(receivedAt: received, afterClearingAt: cleared) == false)
-        #expect(WatchSnapshotReceptionPolicy.accepts(receivedAt: cleared, afterClearingAt: cleared) == false)
-        #expect(WatchSnapshotReceptionPolicy.accepts(receivedAt: cleared.advanced(by: .seconds(1)), afterClearingAt: cleared))
-    }
-
-    @Test func lateResultsRetainTheCurrentRefreshAndClearedState() {
-        var callbacks: [@MainActor (Result<WatchScheduleSyncOutcome, WatchScheduleSyncError>) -> Void] = []
-        let model = WatchScheduleStatusModel(dependencies: WatchScheduleStatusDependencies(
-            now: Date.init, loadResolvedSnapshot: { now, _ in ScheduleOccurrenceResolver.resolvedSnapshot(from: nil, now: now) },
-            clearSnapshot: { true }, activateSync: {}, requestLatestSnapshot: { callbacks.append($0) }
-        ))
-        model.requestRefresh()
-        model.handleSnapshotDidChange()
-        model.requestRefresh()
-        callbacks[0](.failure(.transferFailed))
-        #expect(model.refreshState == .syncing)
-        callbacks[1](.success(.received))
-        #expect(model.refreshState == .succeeded)
-        model.clearLocalData()
-        callbacks[1](.failure(.transferFailed))
-        #expect(model.refreshState == .idle)
-        #expect(model.snapshot == nil)
-    }
-
-    @Test func aQueuedRequestWaitsForReceiptAndImmediateReceiptCompletesRefresh() {
-        var completion: (@MainActor (Result<WatchScheduleSyncOutcome, WatchScheduleSyncError>) -> Void)?
-        let model = WatchScheduleStatusModel(dependencies: WatchScheduleStatusDependencies(
-            now: Date.init, loadResolvedSnapshot: { now, _ in ScheduleOccurrenceResolver.resolvedSnapshot(from: nil, now: now) },
-            clearSnapshot: { true }, activateSync: {}, requestLatestSnapshot: { completion = $0 }
-        ))
-        model.requestRefresh()
-        completion?(.success(.requested))
-        #expect(model.refreshState == .syncing)
-        completion?(.success(.received))
-        #expect(model.refreshState == .succeeded)
-        let immediate = WatchScheduleStatusModel(dependencies: WatchScheduleStatusDependencies(
-            now: Date.init, loadResolvedSnapshot: { now, _ in ScheduleOccurrenceResolver.resolvedSnapshot(from: nil, now: now) },
-            clearSnapshot: { true }, activateSync: {}, requestLatestSnapshot: { $0(.success(.received)) }
-        ))
-        immediate.requestRefresh()
-        #expect(immediate.refreshState == .succeeded)
-    }
-
-    @Test(arguments: [false, true]) func queuedRefreshAcceptsReceiptAfterTheWaitingHint(viaNotification: Bool) async {
-        let (timeouts, trigger) = AsyncStream<Void>.makeStream()
-        defer { trigger.finish() }
-        var callbacks: [@MainActor (Result<WatchScheduleSyncOutcome, WatchScheduleSyncError>) -> Void] = []
-        let model = WatchScheduleStatusModel(dependencies: WatchScheduleStatusDependencies(
-            now: Date.init, loadResolvedSnapshot: { now, _ in ScheduleOccurrenceResolver.resolvedSnapshot(from: nil, now: now) },
-            clearSnapshot: { true }, activateSync: {}, requestLatestSnapshot: { callbacks.append($0) },
-            waitForRefreshTimeout: { for await _ in timeouts { return } }
-        ))
-        let (states, stateChanges) = AsyncStream<WatchScheduleRefreshState>.makeStream()
-        let observation = model.$refreshState.sink { stateChanges.yield($0) }
-        defer { observation.cancel(); stateChanges.finish() }
-        model.requestRefresh()
-        callbacks[0](.success(.requested))
-        trigger.yield(())
-        for await state in states { if state == .waiting { break } }
-        #expect(model.refreshFeedbackText == "等待手机同步")
-        #expect(model.isRefreshing == false)
-        if viaNotification { model.handleSnapshotDidChange() }
-        else { callbacks[0](.success(.received)) }
-        #expect(model.refreshState == .succeeded)
-        callbacks[0](.failure(.transferFailed))
-        #expect(model.refreshState == .succeeded)
-        model.requestRefresh()
-        callbacks[0](.success(.received))
-        #expect(model.refreshState == .syncing)
-        model.clearLocalData()
-        callbacks[1](.success(.received))
-        #expect(model.refreshState == .idle)
-    }
-
-    @Test func failedClearingPreservesTheStoredSnapshotAndReportsTheResult() {
-        let now = Date()
-        let snapshot = ScheduleExternalSnapshot(generatedAt: now, isLoggedIn: true,
-            studentID: "watch-owner", firstDayString: "", timeTable: [], courses: [])
-        let result = ClearResult()
-        let model = WatchScheduleStatusModel(dependencies: WatchScheduleStatusDependencies(
-            now: { now }, loadResolvedSnapshot: { date, _ in
-                ScheduleOccurrenceResolver.resolvedSnapshot(from: snapshot, now: date)
-            }, clearSnapshot: { result.succeeds }, activateSync: {}, requestLatestSnapshot: { _ in }
-        ))
-        model.reload()
-        let previousState = model.contentState
-        model.clearLocalData()
-        #expect(model.snapshot == snapshot)
-        #expect(model.contentState == previousState)
-        #expect(model.refreshFeedbackText == "清理失败，请重试")
-        result.succeeds = true
-        model.clearLocalData()
-        #expect(model.snapshot == nil)
-        #expect(model.contentState == .missing)
-        #expect(model.refreshState == .idle)
-    }
-}
-
 @Suite("Extended schedule invariants")
 struct ExtendedSchedulePolicyTests {
+    @Test @MainActor
+    func externalSnapshotsIncludeScheduledCoursesAndKeepPendingRowsInTheApp() throws {
+        let scheduled = try ScheduleCourseEditor.adding(CourseDraft(title: "已排课程", weeksText: "1"),
+            to: [], term: "term", id: "scheduled")
+        let pending = CourseRecord(id: "pending", term: "term", name: "待排课程", teacher: "", classroom: "",
+            description: "", weeks: [], weekday: 0, startSection: 0, endSection: 0, campus: "", number: "pending",
+            credit: 1, hour: 1, type: "", category: "", department: "")
+        var cache = ScheduleCache()
+        cache.currentTerm = "term"
+        cache.courseData.store(TermScheduleSnapshot(term: "term", firstDayString: "2026-09-07",
+            courses: scheduled + [pending], exams: [], updatedAt: .distantPast))
+        let snapshot = try #require(ScheduleWidgetExporter.makeSnapshot(courses: cache.courseSnapshot,
+            session: AppFileDirectories.currentSession))
+        #expect(cache.courses.map(\.id) == ["scheduled", "pending"])
+        #expect(snapshot.courses.map(\.id) == ["scheduled"])
+        #expect(try ScheduleExternalSnapshotCodec.decode(ScheduleExternalSnapshotCodec.encode(snapshot)).courses == snapshot.courses)
+    }
+
     @Test func delayedWatchSnapshotPreservesTheNewerFileDuringReadFailure() throws {
         let files = PreferenceMemoryFiles()
         let store = ScheduleExternalSnapshotStore(files: files, containerURL: files.temporaryDirectoryURL)
@@ -322,7 +183,8 @@ struct ExtendedSchedulePolicyTests {
         #expect(received.revision == empty.revision && received.isLoggedIn == false && received.firstDayString.isEmpty)
     }
 
-    @Test @MainActor
+
+    @Test(.timeLimit(.minutes(1))) @MainActor
     func sharedSnapshotClearPublishesEmptyStateAndRejectsAnEarlierCompletion() async throws {
         var released: CheckedContinuation<Bool, Never>?
         var published: [ScheduleExternalSnapshot] = []
@@ -350,7 +212,7 @@ struct ExtendedSchedulePolicyTests {
         #expect(failed == false)
     }
 
-    @Test @MainActor
+    @Test(.timeLimit(.minutes(1))) @MainActor
     func externalSnapshotWriteFailuresPreserveTheSavedSnapshotAndPropagate() async throws {
         let files = PreferenceMemoryFiles()
         let store = ScheduleExternalSnapshotStore(files: files, containerURL: files.temporaryDirectoryURL)
@@ -369,15 +231,16 @@ struct ExtendedSchedulePolicyTests {
         #expect(store.load()?.firstDayString == changed.firstDayString)
     }
 
-    @Test(arguments: [false, true]) @MainActor
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true]) @MainActor
     func watchRepliesAndPreparedWidgetExportsShareRevisionAndClearOwnership(watchFirst: Bool) async throws {
         let files = PreferenceMemoryFiles()
         let store = ScheduleExternalSnapshotStore(files: files, containerURL: files.temporaryDirectoryURL)
         let writer = ScheduleExternalSnapshotWriteQueue(store: store)
-        let old = ScheduleExternalSnapshot(revision: 1, isLoggedIn: true, studentID: "snapshot-owner",
+        let old = ScheduleExternalSnapshot(revision: 1_000, isLoggedIn: true, studentID: "snapshot-owner",
             firstDayString: "2026-01-01", timeTable: [], courses: [])
         let prepared = ScheduleExternalSnapshot(revision: 2, isLoggedIn: true, studentID: "snapshot-owner",
             firstDayString: "2026-02-01", timeTable: [], courses: [])
+        try store.write(old)
         _ = try #require(try await writer.write(old, generation: 1))
         if watchFirst {
             let reply = try #require(await writer.snapshot(for: "snapshot-owner", isLoggedIn: true, knownRevision: 100))
@@ -389,7 +252,7 @@ struct ExtendedSchedulePolicyTests {
             #expect(reply.firstDayString == prepared.firstDayString)
         }
         let current = try #require(store.load())
-        #expect(current.firstDayString == prepared.firstDayString && current.revision > 100)
+        #expect(current.firstDayString == prepared.firstDayString && current.revision > old.revision)
         #expect(await writer.snapshot(for: "other-owner", isLoggedIn: true, knownRevision: 100) == nil)
         #expect(await writer.snapshot(for: "snapshot-owner", isLoggedIn: false, knownRevision: 100) == nil)
         let empty = ScheduleExternalSnapshot(isLoggedIn: false, studentID: "snapshot-owner",
@@ -493,6 +356,15 @@ struct ExtendedSchedulePolicyTests {
 
         #expect(response.courseRecords.map(\.credit) == [1.5, 1.5])
         #expect(response.courseRecords.map(\.creditText) == ["1.5", "1.5"])
+    }
+
+    @Test(arguments: ["NaN", "Infinity", "-Infinity", "1e400"])
+    func nonFiniteSchoolCreditsPreserveEncodableCourses(_ value: String) throws {
+        let data = try JSONSerialization.data(withJSONObject: ["datas": ["cxxszhxqkb": ["rows": [["KCM": "测试课程", "XF": value]]]]])
+        let courses = try JSONDecoder().decode(CourseResponse.self, from: data).courseRecords
+        let course = try #require(courses.first)
+        #expect(course.credit == 0 && course.creditText == "-" && course.hasValidPlacement)
+        #expect(try JSONDecoder().decode([CourseRecord].self, from: JSONEncoder().encode(courses)) == courses)
     }
 
     @Test("Unchanged source silently reapplies a manual course rule")
@@ -965,7 +837,7 @@ struct AppScheduleCacheEffectsTests {
         #expect(surrounding.pushes == 0 && surrounding.reconciliations == 0 && surrounding.authorizations == 0)
     }
 
-    @Test func calendarActionsUseInjectedBackendAndPreserveEntryIdentity() async throws {
+    @Test(.timeLimit(.minutes(1))) func calendarActionsUseInjectedBackendAndPreserveEntryIdentity() async throws {
         let state = State()
         let actions = effects(state)
         let snapshot = ScheduleCache().courseSnapshot

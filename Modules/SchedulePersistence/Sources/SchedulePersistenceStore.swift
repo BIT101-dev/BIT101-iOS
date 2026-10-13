@@ -47,7 +47,7 @@ public actor SchedulePersistenceStore {
         return decoder
     }
 
-    public nonisolated func read(
+    private func read(
         accountIdentifier: String,
         legacyAccountIdentifier: String
     ) -> ScheduleCacheLoadResult {
@@ -65,9 +65,9 @@ public actor SchedulePersistenceStore {
         return readCacheFile(at: legacyURL)
     }
 
-    private nonisolated func readCacheFile(at url: URL) -> ScheduleCacheLoadResult {
+    private func readCacheFile(at url: URL) -> ScheduleCacheLoadResult {
         do {
-            try? files.setPrivateFileProtection(at: url)
+            try files.setPrivateFileProtection(at: url)
             let data = try files.readData(at: url, maximumBytes: Self.maximumCacheBytes)
             let result = Self.decodeCache(data)
             if result.isUnreadable {
@@ -83,7 +83,8 @@ public actor SchedulePersistenceStore {
 
     public nonisolated static func decodeCache(_ data: Data) -> ScheduleCacheLoadResult {
         guard data.count <= maximumCacheBytes,
-              let cache = try? Self.makeDecoder().decode(ScheduleCache.self, from: data) else {
+              let cache = try? Self.makeDecoder().decode(ScheduleCache.self, from: data),
+              cache.isValidForPersistence else {
             return .unreadable
         }
         return .loaded(cache)
@@ -127,8 +128,8 @@ public actor SchedulePersistenceStore {
         source: ScheduleCacheSaveSource,
         expectedUpdatedAt: Date?
     ) -> ScheduleCache? {
-        guard cache.hasValidTimeTables, cache.hasValidCoursePlacements, cache.hasSupportedCourseSections else {
-            Self.logger.error("排课或节次表结构无效，保留已有课表缓存")
+        guard cache.isValidForPersistence else {
+            Self.logger.error("日程记录结构无效，保留已有课表缓存")
             return nil
         }
         let url = cacheFileURL(for: accountIdentifier)

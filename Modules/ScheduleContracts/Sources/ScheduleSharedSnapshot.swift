@@ -174,6 +174,7 @@ public nonisolated enum ScheduleExternalSnapshotCodec {
 
     private static func validate(_ snapshot: ScheduleExternalSnapshot) throws {
         guard snapshot.revision < UInt64.max,
+              !snapshot.isLoggedIn || snapshot.courses.isEmpty || ScheduleOccurrenceResolver.hasValidCourses(snapshot),
               snapshot.courses.count <= maximumCourseCount,
               snapshot.timeTable.count <= ScheduleCourseConstraints.maximumSection,
               [snapshot.studentID, snapshot.firstDayString].allSatisfy({ $0.utf8.count <= maximumFieldBytes }),

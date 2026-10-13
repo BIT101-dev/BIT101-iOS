@@ -16,6 +16,7 @@ nonisolated enum UITestScrollGeometry {
 #if BIT101_UI_TESTING
 import Foundation
 import UIKit
+import MapKit
 import PhotosUI
 import QuickLook
 
@@ -41,6 +42,7 @@ enum UITestAccessibilityActions {
     private static var cachedTree: Element?
     private static var treeBuilt = false
     private static var observed = Set<String>()
+    private static var observations: [String: [String: Any]] = [:]
     private static var visited = Set<String>()
     private static var visitedControls: [String: [String: Any]] = [:]
     private static var disabledObserved = Set<String>()
@@ -56,15 +58,42 @@ enum UITestAccessibilityActions {
         treeBuilt = false
     }
 
-    static func record(_ identifier: String, label: String = "", type: Int = 0, scope: String? = nil, instance: String? = nil, action: String = "activate") {
+    @discardableResult
+    static func record(_ identifier: String, label: String = "", type: Int = 0, scope: String? = nil, instance: String? = nil, action: String = "activate") -> Bool {
         let key = identifier.isEmpty && !label.isEmpty ? "\(type):\(label)" : identifier
-        let identity = instance.flatMap { $0.isEmpty ? nil : $0 }
-            ?? UITestControlIdentity.key(scope: scope ?? currentScope, ancestors: [], identifier: identifier, label: label, type: type) + "#0"
+        guard let identity = instance, observed.contains(identity), let captured = observations[identity],
+              captured["identifier"] as? String == identifier, captured["type"] as? Int == type,
+              !identifier.isEmpty || captured["label"] as? String == label,
+              captured["scope"] as? String == scope else { return false }
         if !key.isEmpty {
             visited.insert(identity)
             let actions = Set(visitedControls[identity]?["actions"] as? [String] ?? []).union([action])
             visitedControls[identity] = ["identifier": identifier, "label": label, "type": type, "scope": scope ?? currentScope, "instance": identity, "actions": actions.sorted()]
         }
+        return !key.isEmpty
+    }
+
+    /// 事件回调来自绑定控件的实际执行路径，沿独立身份登记观察与动作。
+    static func recordCallback(_ identifier: String, action: String) {
+        guard !identifier.isEmpty else { return }
+        let identity = UITestControlIdentity.key(scope: currentScope, ancestors: ["callback"], identifier: identifier, label: "", type: 0) + "#0"
+        observations[identity] = ["identifier": identifier, "label": "", "type": 0, "scope": currentScope]
+        observed.insert(identity)
+        record(identifier, type: 0, scope: currentScope, instance: identity, action: action)
+    }
+
+    /// 平台界面的控件由操作前的 XCTest 原生快照捕获。
+    static func nativeIdentity(_ parameters: [String: String]) -> String {
+        let identifier = parameters["identifier"] ?? "", label = parameters["label"] ?? ""
+        let frame = ["x", "y", "width", "height"].compactMap { parameters[$0].flatMap(Double.init) }
+        guard !identifier.isEmpty || !label.isEmpty, parameters["scope"] == currentScope,
+              let type = parameters["type"].flatMap(Int.init), type > 0,
+              frame.count == 4, frame.allSatisfy(\.isFinite), frame[2] > 0, frame[3] > 0,
+              ["0", "1"].contains(parameters["enabled"] ?? "") else { return "" }
+        let identity = UITestControlIdentity.key(scope: currentScope, ancestors: ["XCTest"], identifier: identifier, label: label, type: type) + "#0"
+        observations[identity] = ["identifier": identifier, "label": label, "type": type, "scope": currentScope]
+        if parameters["enabled"] == "1" { observed.insert(identity) } else { disabledObserved.insert(identity) }
+        return identity
     }
 
     private static func record(_ attributes: [String: Any], action: String = "activate") {
@@ -74,9 +103,10 @@ enum UITestAccessibilityActions {
 
     static func checkDisabled(_ identifier: String, label: String, type: Int, scope: String?, instance: String?) {
         let key = identifier.isEmpty && !label.isEmpty ? "\(type):\(label)" : identifier
-        if let instance, !instance.isEmpty { disabledChecked.insert(instance) }
-        else if !key.isEmpty {
-            disabledChecked.insert(UITestControlIdentity.key(scope: scope ?? currentScope, ancestors: [], identifier: identifier, label: label, type: type) + "#0")
+        if !key.isEmpty, let instance, disabledObserved.contains(instance), let captured = observations[instance],
+           captured["identifier"] as? String == identifier, captured["type"] as? Int == type,
+           captured["scope"] as? String == scope {
+            disabledChecked.insert(instance)
         }
     }
 
@@ -99,6 +129,45 @@ enum UITestAccessibilityActions {
     @discardableResult
     static func observe() -> String { _ = tree(); return currentScope }
 
+    static func mapCamera() throws -> Data {
+        func find(in view: UIView) -> MKMapView? {
+            guard !view.isHidden, view.alpha > 0 else { return nil }
+            if let map = view as? MKMapView, let window = map.window,
+               map.convert(map.bounds, to: window).intersects(window.bounds) { return map }
+            return view.subviews.lazy.compactMap { find(in: $0) }.first
+        }
+        let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows).filter { !$0.isHidden && $0.windowLevel == .normal }
+        guard let map = windows.lazy.compactMap({ find(in: $0) }).first else {
+            throw NSError(domain: "BIT101.UITest", code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "地图相机采样需要当前可见的原生地图。"])
+        }
+        return try JSONSerialization.data(withJSONObject: [
+            "latitude": map.region.center.latitude, "longitude": map.region.center.longitude,
+            "latitudeDelta": map.region.span.latitudeDelta, "longitudeDelta": map.region.span.longitudeDelta,
+            "distance": map.camera.centerCoordinateDistance,
+            "scrollEnabled": map.isScrollEnabled, "zoomEnabled": map.isZoomEnabled
+        ])
+    }
+
+    static func previewPage() throws -> Data {
+        func find(in controller: UIViewController) -> QLPreviewController? {
+            if let preview = controller as? QLPreviewController, preview.viewIfLoaded?.window != nil { return preview }
+            if let presented = controller.presentedViewController, let preview = find(in: presented) { return preview }
+            return controller.children.lazy.compactMap { find(in: $0) }.first
+        }
+        let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows).filter { !$0.isHidden && $0.windowLevel == .normal }
+        guard let preview = windows.compactMap(\.rootViewController).lazy.compactMap({ find(in: $0) }).first,
+              let source = preview.dataSource else {
+            throw NSError(domain: "BIT101.UITest", code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "预览分页采样需要当前展示的系统预览器。"])
+        }
+        return try JSONSerialization.data(withJSONObject: [
+            "index": preview.currentPreviewItemIndex, "count": source.numberOfPreviewItems(in: preview)
+        ])
+    }
+
     static func scroll(_ parameters: [String: String]) throws -> Data {
         invalidate()
         let elements = tree()?.descendants.filter {
@@ -111,6 +180,7 @@ enum UITestAccessibilityActions {
                       let window = scroll.window, scroll.convert(scroll.bounds, to: window).intersects(window.bounds)
                 else { return nil }
                 var values = element.attributes
+                values["scrollInstance"] = String(describing: ObjectIdentifier(scroll))
                 let scale = Double(window.screen.scale)
                 func distance(_ points: CGFloat) -> Double {
                     UITestScrollGeometry.visibleDistance(Double(points), scale: scale)
@@ -123,7 +193,10 @@ enum UITestAccessibilityActions {
                 return values
             })
         }
-        guard let element = elements.first(where: { $0.attributes["instance"] as? String == parameters["instance"] }),
+        guard let element = elements.first(where: { element in
+                  guard let scroll = element.object as? UIScrollView else { return false }
+                  return String(describing: ObjectIdentifier(scroll)) == parameters["scrollInstance"]
+              }),
               let scroll = element.object as? UIScrollView,
               let window = scroll.window,
               let x = parameters["offsetX"].flatMap(Double.init), let y = parameters["offsetY"].flatMap(Double.init)
@@ -152,7 +225,8 @@ enum UITestAccessibilityActions {
                 .flatMap(\.windows).last(where: { !$0.isHidden && $0.windowLevel == .normal }),
               var controller = window.rootViewController else { return "target missing" }
         while let presented = controller.presentedViewController { controller = presented }
-        let overlay = UIView(frame: controller.view.convert(target.accessibilityFrame, from: window.screen.coordinateSpace))
+        let overlay = UIButton(type: .system)
+        overlay.frame = controller.view.convert(target.accessibilityFrame, from: window.screen.coordinateSpace)
         overlay.backgroundColor = .systemBackground
         overlay.isAccessibilityElement = true
         overlay.accessibilityIdentifier = "ui-test.occlusion"
@@ -167,8 +241,8 @@ enum UITestAccessibilityActions {
         let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
         return try JSONSerialization.data(withJSONObject: [
             "processIdentifier": ProcessInfo.processInfo.processIdentifier,
-            "observed": observed.union(visited).count, "visited": visited.count,
-            "observedControls": observed.union(visited).sorted(),
+            "observed": observed.count, "visited": visited.count,
+            "observedControls": observed.sorted(),
             "pending": observed.subtracting(visited).sorted(),
             "visitedControls": Array(visitedControls.values),
             "scope": "mounted-controls", "unidentifiedControls": unidentified.count,
@@ -193,7 +267,7 @@ enum UITestAccessibilityActions {
     static func read(_ parameters: [String: String]) throws -> Data {
         if parameters["command"] == "query-activate", parameters["hittable"] == "1",
            performVisibleMenuAction(parameters["label"] ?? "") {
-            record(parameters["identifier"] ?? "", label: parameters["label"] ?? "", type: 9)
+            recordCallback(parameters["label"] ?? "", action: "activate")
             invalidate()
             return Data("control".utf8)
         }
@@ -243,6 +317,8 @@ enum UITestAccessibilityActions {
             invalidate()
             let target = element.object
             let control = control(for: target)
+            if let control, let hitIdentifier = identifier(of: control), !hitIdentifier.isEmpty,
+               hitIdentifier != identifier(of: target) { return Data("native".utf8) }
             if control?.showsMenuAsPrimaryAction == true { return Data("native".utf8) }
             if let control, control.isEnabled,
                control.isContextMenuInteractionEnabled {
@@ -293,7 +369,7 @@ enum UITestAccessibilityActions {
             let response = input(["x": String(frame[0] + frame[2] / 2), "y": String(frame[1] + frame[3] / 2),
                                   "text": parameters["text"] ?? ""])
             if response == "entered" { record(element.attributes, action: "input") }
-            return Data(response.utf8)
+            return Data((response == "input target missing" ? "native" : response).utf8)
         }
         if steps.contains(where: { $0["type"] == "49" }), elements.first?.attributes["elementType"] as? Int == 52 {
             return Data("native".utf8)
@@ -408,6 +484,7 @@ enum UITestAccessibilityActions {
                     let ordinal = occurrences[key, default: 0]
                     occurrences[key] = ordinal + 1
                     instance = key + "#\(ordinal)"
+                    observations[instance] = ["identifier": id, "label": label, "type": type, "scope": currentScope]
                     if enabled { observed.insert(instance) } else { disabledObserved.insert(instance) }
                 }
             }

@@ -35,7 +35,8 @@ public final class CourseListViewModel: ObservableObject {
     private var hasBootstrapped = false
     private var refreshGeneration = 0
     private var pageSearch: String?
-    private var searchResetTask: Task<Void, Never>?
+    private var refreshTask: Task<Void, Never>?
+    private var refreshPreviousState: CoursePagedState?
 
     public init(service: any CourseListServicing) {
         self.service = service
@@ -43,7 +44,31 @@ public final class CourseListViewModel: ObservableObject {
 
 
     deinit {
-        searchResetTask?.cancel()
+        refreshTask?.cancel()
+    }
+
+    func cancelRefreshOperations() {
+        refreshTask?.cancel(); refreshTask = nil
+        refreshGeneration &+= 1
+        if let refreshPreviousState { state = refreshPreviousState }
+        refreshPreviousState = nil
+        if state.status == .loading { state.status = state.items.isEmpty ? .idle : .loaded }
+        state.isLoadingMore = false
+        if state.status == .idle { hasBootstrapped = false }
+    }
+
+    @discardableResult
+    private func enqueueRefresh() -> Task<Void, Never> {
+        cancelRefreshOperations()
+        hasBootstrapped = true
+        let generation = refreshGeneration
+        let task = Task { [weak self] in
+            guard let self, self.refreshGeneration == generation, !Task.isCancelled else { return }
+            await self.performRefresh()
+            if self.refreshGeneration == generation { self.refreshTask = nil }
+        }
+        refreshTask = task
+        return task
     }
 
     var normalizedSearchText: String {
@@ -59,7 +84,7 @@ public final class CourseListViewModel: ObservableObject {
     /// 同时写入搜索词和分页状态，详情返回后可立即浏览同名课程的其他教师，
     /// 后续滚动从 page 1 继续分页。
     public func applyPreparedSearch(query: String, items: [CourseSummary]) {
-        refreshGeneration &+= 1
+        cancelRefreshOperations()
         hasBootstrapped = true
         searchText = query
         pageSearch = normalizedSearchText
@@ -83,10 +108,16 @@ public final class CourseListViewModel: ObservableObject {
     }
 
     func refresh() async {
-        refreshGeneration &+= 1
+        let task = enqueueRefresh()
+        await withTaskCancellationHandler(operation: { await task.value }, onCancel: { task.cancel() })
+    }
+
+    private func performRefresh() async {
         let generation = refreshGeneration
         let search = normalizedSearchText
         let previousState = state
+        refreshPreviousState = previousState
+        defer { if refreshGeneration == generation { refreshPreviousState = nil } }
         let hadCourses = !state.items.isEmpty || state.status == .loaded
         if !hadCourses {
             state.prepareForRefresh()
@@ -176,10 +207,6 @@ public final class CourseListViewModel: ObservableObject {
         let newKeyword = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !oldKeyword.isEmpty, newKeyword.isEmpty else { return }
 
-        searchResetTask?.cancel()
-        searchResetTask = Task { [weak self] in
-            guard let self else { return }
-            await self.refresh()
-        }
+        enqueueRefresh()
     }
 }

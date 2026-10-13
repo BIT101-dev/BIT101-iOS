@@ -112,7 +112,7 @@ final class MediaDisplayBudget {
     func retain(_ image: UIImage, owner: UUID) -> Bool {
         let id = ObjectIdentifier(image)
         if owners[owner] == id { return true }
-        let bytes = Self.pixelBytes(image)
+        let bytes = Self.decodedBytes(image)
         let old = owners[owner].flatMap { images[$0] }
         let freed = old?.owners == 1 ? old?.bytes ?? 0 : 0
         let added = images[id] == nil ? bytes : 0
@@ -138,6 +138,10 @@ final class MediaDisplayBudget {
         } else { images[id] = allocation }
     }
 
+    nonisolated static func decodedBytes(_ image: UIImage) -> Int {
+        pixelBytes(image) + (image.images?.count ?? 0) * MemoryLayout<UIImage>.stride
+    }
+
     nonisolated static func pixelBytes(_ image: UIImage) -> Int {
         var seen = Set<ObjectIdentifier>()
         return (image.images ?? [image]).reduce(0) { bytes, frame in
@@ -151,6 +155,7 @@ final class MediaDisplayBudget {
 @MainActor
 final class MediaDisplayedImage {
     private(set) var image: UIImage?
+    private(set) var waitingForBudget = false
     private let owner = UUID()
     @ObservationIgnored private var budget: MediaDisplayBudget?
 
@@ -161,7 +166,8 @@ final class MediaDisplayedImage {
 
     @discardableResult
     func set(_ image: UIImage, budget: MediaDisplayBudget) -> Bool {
-        guard budget.retain(image, owner: owner) else { return false }
+        guard budget.retain(image, owner: owner) else { waitingForBudget = true; return false }
+        waitingForBudget = false
         if self.budget !== budget { self.budget?.release(owner: owner) }
         self.budget = budget
         self.image = image
@@ -172,6 +178,7 @@ final class MediaDisplayedImage {
         budget?.release(owner: owner)
         budget = nil
         image = nil
+        waitingForBudget = false
     }
 }
 #endif

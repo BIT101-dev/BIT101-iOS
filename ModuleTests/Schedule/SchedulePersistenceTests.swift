@@ -11,7 +11,64 @@ import Testing
 
 @MainActor
 struct SchedulePersistenceTests {
-    @Test func inaccessibleExistencePreservesTheScheduleAndReportsFailedCleanup() async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: ["date", "time", "reverse", "duplicate", "repeat-date", "extra-date", "exam",
+        "course-id", "course-duplicate", "rule-id", "shared-id", "ddl-id", "ddl-duplicate", "ddl-title", "ddl-text"])
+    func damagedPersonalPlacementsPreserveTheStoredSchedule(kind: String) async throws {
+        let files = ModuleScoreFiles(), account = AppStorageSession(accountIdentifier: "personal-placement")
+        let store = SchedulePersistenceStore(files: files, storageRoot: URL(fileURLWithPath: "/personal-placement"), userStateMatches: { _, _ in true })
+        let valid = ScheduleCache(), url = store.cacheFileURL(for: account.accountStorageIdentifier)
+        #expect(await store.write(valid, accountIdentifier: account.accountStorageIdentifier,
+            legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) != nil)
+        let original = try files.readData(at: url)
+        var record = CustomScheduleRecord(id: "event", title: "活动", subtitle: "", description: "",
+            dateString: "2026-09-07", beginTime: "12:10", endTime: "12:40")
+        var damaged = valid
+        switch kind {
+        case "date": record.dateString = "2026-02-31"
+        case "time": record.beginTime = "25:00"
+        case "reverse": record.endTime = "12:00"
+        case "repeat-date": record.additionalDateStrings = [record.dateString]
+        case "extra-date": record.additionalDateStrings = ["bad-date"]
+        case "course-id", "course-duplicate", "rule-id", "shared-id":
+            let courses = try ScheduleCourseEditor.adding(CourseDraft(title: "课程", weekday: 1, weeksText: "1"),
+                to: [], term: "term", id: kind == "course-id" ? "" : "course")
+            switch kind {
+            case "rule-id":
+                let rule = ScheduleCourseRule(id: "rule", sourceIdentity: "local:course", sourceCourses: [], replacementCourses: courses)
+                damaged.manualCourseRulesByTerm = ["term": [rule, rule]]
+            case "shared-id":
+                let shared = SharedScheduleRecord(id: "shared", title: "分享", payload: .init(currentTerm: "term",
+                    firstDayString: "2026-09-07", timeTable: damaged.timeTable, courses: courses))
+                damaged.sharedSchedules = [shared, shared]
+            default:
+                damaged.courseData.store(.init(term: "term", firstDayString: "2026-09-07",
+                    courses: kind == "course-duplicate" ? courses + courses : courses, exams: [], updatedAt: .distantPast))
+            }
+        case "ddl-id", "ddl-duplicate", "ddl-title", "ddl-text":
+            let event = DDLEventRecord(id: kind == "ddl-id" ? "" : "ddl", group: "main",
+                title: kind == "ddl-title" ? " \n" : "作业",
+                text: kind == "ddl-text" ? String(repeating: "x", count: ScheduleCourseConstraints.maximumFieldBytes + 1) : "",
+                dueAt: .distantFuture, done: false)
+            damaged.ddlEvents = kind == "ddl-duplicate" ? [event, event] : [event]
+        case "exam":
+            let exam = ExamRecord(id: "exam", term: "term", name: "考试", courseID: "course", teacher: "", classroom: "",
+                dateString: "2026-09-07", beginTime: "12:00", endTime: "11:00", examMode: "", seatID: "")
+            damaged.courseData.store(.init(term: "term", firstDayString: "", courses: [], exams: [exam], updatedAt: .distantPast))
+        default: break
+        }
+        damaged.customSchedules = kind == "duplicate" ? [record, record] : [record]
+        #expect(!damaged.isValidForPersistence)
+        #expect(await store.write(damaged, accountIdentifier: account.accountStorageIdentifier,
+            legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) == nil)
+        #expect(try files.readData(at: url) == original)
+        let bytes = try JSONEncoder().encode(damaged)
+        try files.writeData(bytes, to: url, options: .atomic)
+        #expect(await store.load(for: account).isUnreadable)
+        #expect(try files.readData(at: url) == bytes)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func inaccessibleExistencePreservesTheScheduleAndReportsFailedCleanup(protection: Bool) async throws {
         let files = ModuleScoreFiles(), account = AppStorageSession(accountIdentifier: "protected-schedule")
         let store = SchedulePersistenceStore(files: files, storageRoot: URL(fileURLWithPath: "/protected-schedule"),
             userStateMatches: { $0.primaryScheduleTitle == $1.primaryScheduleTitle })
@@ -19,7 +76,7 @@ struct SchedulePersistenceTests {
         #expect(await store.write(cache, accountIdentifier: account.accountStorageIdentifier,
             legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) != nil)
         let original = try files.readData(at: url)
-        files.setFailures(reading: true, existence: true)
+        files.setFailures(reading: !protection, existence: true, protection: protection)
         #expect(!files.fileExists(at: url))
         #expect(await store.load(for: account).isUnreadable)
         #expect(await store.write(cache, accountIdentifier: account.accountStorageIdentifier,
@@ -53,8 +110,9 @@ struct SchedulePersistenceTests {
             fresh.removeAllCachedResourceValues()
             return try fresh.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup
         }
+        try files.removeItemIfPresent(at: root)
         try files.createDirectory(at: directory)
-        defer { try? files.removeItem(at: root) }
+        defer { do { try files.removeItem(at: root) } catch { Issue.record(error) } }
         let file = directory.appendingPathComponent("draft.json")
         let original = Data("user-created-draft".utf8)
         try files.writeData(original, to: file, options: .atomic)
@@ -62,7 +120,7 @@ struct SchedulePersistenceTests {
             try files.setBackupExcluded(excluded, at: root, recursively: true)
             for target in [root, directory, file] {
                 let actual = try exclusion(target) == true
-                #expect(actual == excluded)
+                #expect(actual == excluded, "备份排除标记 \(excluded)，目标 \(target.lastPathComponent)。")
             }
             #expect(try files.readData(at: file) == original)
         }
@@ -72,12 +130,13 @@ struct SchedulePersistenceTests {
 
     @Test func localFileMetadataFailurePreservesCommittedBytesAndReadableFiles() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("BIT101-StoragePolicy", isDirectory: true)
+        let files = LocalAppFileService(configureBackup: { _, _ in throw CocoaError(.fileWriteNoPermission) })
+        try files.removeItemIfPresent(at: directory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        defer { do { try files.removeItem(at: directory) } catch { Issue.record(error) } }
         let url = directory.appendingPathComponent("snapshot.json")
         let original = Data("retained".utf8)
         try original.write(to: url, options: .atomic)
-        let files = LocalAppFileService(configureBackup: { _, _ in throw CocoaError(.fileWriteNoPermission) })
         #expect(try files.readData(at: url) == original)
         #expect(throws: CocoaError.self) { try files.writeData(Data("edited".utf8), to: url, options: .atomic) }
         #expect(try files.readData(at: url) == original)
@@ -90,7 +149,7 @@ struct SchedulePersistenceTests {
         SchedulePersistenceStore(files: files, storageRoot: URL(fileURLWithPath: root), userStateMatches: { $0.primaryScheduleTitle == $1.primaryScheduleTitle })
     }
 
-    @Test func oversizedScheduleFilesKeepTheirBytesAndWriteGate() async throws {
+    @Test(.timeLimit(.minutes(1))) func oversizedScheduleFilesKeepTheirBytesAndWriteGate() async throws {
         let files = ModuleScoreFiles()
         let persistence = store(files: files)
         let account = AppStorageSession(accountIdentifier: "oversized")
@@ -105,7 +164,7 @@ struct SchedulePersistenceTests {
         #expect(SchedulePersistenceStore.decodeCache(bytes).isUnreadable)
     }
 
-    @Test(arguments: [ScheduleCacheSaveSource.local, .localWithoutCloudPush])
+    @Test(.timeLimit(.minutes(1)), arguments: [ScheduleCacheSaveSource.local, .localWithoutCloudPush])
     func anEarlierUISnapshotPreservesCloudChangesAndItsUncommittedEdits(source: ScheduleCacheSaveSource) async throws {
         let files = ModuleScoreFiles()
         let persistence = store(files: files)
@@ -138,7 +197,7 @@ struct SchedulePersistenceTests {
         #expect(saved?.primaryScheduleTitle == "云端新增" && saved?.cloudSyncBaselineRecordTag == "remote")
     }
 
-    @Test func independentStoresOwnTheirPathsAndAccounts() async throws {
+    @Test(.timeLimit(.minutes(1))) func independentStoresOwnTheirPathsAndAccounts() async throws {
         let files = ModuleScoreFiles()
         let first = store(files: files, root: "/first")
         let second = store(files: files, root: "/second")
@@ -152,7 +211,7 @@ struct SchedulePersistenceTests {
         #expect(await first.load(for: AppStorageSession(accountIdentifier: "other")).cacheIfReadable?.primaryScheduleTitle == "课表")
     }
 
-    @Test func preciseDiskVersionsRoundTripAndRejectAnEarlierCompareToken() async throws {
+    @Test(.timeLimit(.minutes(1))) func preciseDiskVersionsRoundTripAndRejectAnEarlierCompareToken() async throws {
         let files = ModuleScoreFiles()
         let persistence = store(files: files)
         let account = AppStorageSession(accountIdentifier: "precise-versions")
@@ -175,7 +234,7 @@ struct SchedulePersistenceTests {
         #expect(SchedulePersistenceStore.decodeCache(try legacyEncoder.encode(initial)).cacheIfReadable?.updatedAt == Date(timeIntervalSince1970: 1_700_000_000))
     }
 
-    @Test func malformedAggregateSectionsPreserveTheCompleteDiskTransaction() async throws {
+    @Test(.timeLimit(.minutes(1))) func malformedAggregateSectionsPreserveTheCompleteDiskTransaction() async throws {
         let files = ModuleScoreFiles()
         let persistence = store(files: files)
         let account = AppStorageSession(accountIdentifier: "malformed-sections")
@@ -190,7 +249,7 @@ struct SchedulePersistenceTests {
         }
     }
 
-    @Test func repeatedTimeTableIDsRejectBothDiskFormatsAndPreserveTheirBytes() async throws {
+    @Test(.timeLimit(.minutes(1))) func repeatedTimeTableIDsRejectBothDiskFormatsAndPreserveTheirBytes() async throws {
         let files = ModuleScoreFiles()
         let account = AppStorageSession(accountIdentifier: "repeated-sections")
         let repository = store(files: files)
@@ -209,7 +268,7 @@ struct SchedulePersistenceTests {
         }
     }
 
-    @Test(arguments: ["time-table", "shared-time-table", "term-course", "archived-course", "shared-course", "source-rule", "replacement-rule"])
+    @Test(.timeLimit(.minutes(1)), arguments: ["time-table", "shared-time-table", "term-course", "archived-course", "shared-course", "source-rule", "replacement-rule"])
     func invalidNewSnapshotsPreserveTheCommittedFileOrMissingState(boundary: String) async throws {
         let invalidCourse = CourseRecord(id: "invalid", term: "term", name: "课程", teacher: "", classroom: "",
             description: "", weeks: [0], weekday: 1, startSection: 1, endSection: 2, campus: "", number: "",
@@ -255,7 +314,7 @@ struct SchedulePersistenceTests {
         }
     }
 
-    @Test(arguments: ["corrupt-source", "{}", #"{"unrelated":1}"#, #"{"courseData":{},"updatedAt":0}"#])
+    @Test(.timeLimit(.minutes(1)), arguments: ["corrupt-source", "{}", #"{"unrelated":1}"#, #"{"courseData":{},"updatedAt":0}"#])
     func corruptedSourceKeepsItsBytesAndWriteGate(source: String) async throws {
         let files = ModuleScoreFiles()
         let persistence = store(files: files)
@@ -268,7 +327,7 @@ struct SchedulePersistenceTests {
         #expect(try files.readData(at: url) == bytes)
     }
 
-    @Test func failedWritesReturnFailureAndPreserveTheStoredVersion() async throws {
+    @Test(.timeLimit(.minutes(1))) func failedWritesReturnFailureAndPreserveTheStoredVersion() async throws {
         let files = ModuleScoreFiles()
         let persistence = store(files: files)
         let account = AppStorageSession(accountIdentifier: "write-failure")
@@ -281,7 +340,7 @@ struct SchedulePersistenceTests {
         #expect(await persistence.load(for: account).cacheIfReadable?.primaryScheduleTitle == initial.primaryScheduleTitle)
     }
 
-    @Test func repositoryReportsSaveFailureAndPreservesEdits() async {
+    @Test(.timeLimit(.minutes(1))) func repositoryReportsSaveFailureAndPreservesEdits() async {
         let account = AppStorageSession(accountIdentifier: "repository")
         let repository = ScheduleRepository(session: { account }, load: { _ in .missing }, save: { _, _, _ in throw CocoaError(.fileWriteNoPermission) })
         await repository.loadIfNeeded()
@@ -291,7 +350,7 @@ struct SchedulePersistenceTests {
         #expect(repository.notice?.title == "日程保存失败")
     }
 
-    @Test func ddlSuccessWaitsForPersistence() async {
+    @Test(.timeLimit(.minutes(1))) func ddlSuccessWaitsForPersistence() async {
         let account = AppStorageSession(accountIdentifier: "ddl")
         let repository = ScheduleRepository(session: { account }, load: { _ in .missing }, save: { _, _, _ in throw CocoaError(.fileWriteNoPermission) })
         await repository.loadIfNeeded()
@@ -328,7 +387,7 @@ struct SchedulePersistenceTests {
         ScheduleRepository(session: session, load: { _ in writer.stored.map(ScheduleCacheLoadResult.loaded) ?? .missing }, save: { cache, _, session in try await writer.save(cache, session: session) })
     }
 
-    @Test func queuedWritesPreserveOrderAndReloadTheCommittedVersion() async throws {
+    @Test(.timeLimit(.minutes(1))) func queuedWritesPreserveOrderAndReloadTheCommittedVersion() async throws {
         let account = AppStorageSession(accountIdentifier: "queued")
         let writer = DelayedWriter()
         let repository = repository(writer: writer, session: { account })
@@ -346,7 +405,7 @@ struct SchedulePersistenceTests {
         #expect(repository.persistenceSnapshot.updatedAt == Date(timeIntervalSince1970: 3))
     }
 
-    @Test func editsMadeDuringSavingRemainInMemory() async throws {
+    @Test(.timeLimit(.minutes(1))) func editsMadeDuringSavingRemainInMemory() async throws {
         let account = AppStorageSession(accountIdentifier: "editing")
         let writer = DelayedWriter()
         let repository = repository(writer: writer, session: { account })
@@ -362,7 +421,7 @@ struct SchedulePersistenceTests {
         #expect(repository.persistenceSnapshot.primaryScheduleTitle == "editing")
     }
 
-    @Test func cancelledWaiterKeepsCommittedDataAndReturnsCancellationOutcome() async throws {
+    @Test(.timeLimit(.minutes(1))) func cancelledWaiterKeepsCommittedDataAndReturnsCancellationOutcome() async throws {
         let account = AppStorageSession(accountIdentifier: "cancelled-waiter")
         let writer = DelayedWriter()
         let repository = repository(writer: writer, session: { account })
@@ -377,7 +436,7 @@ struct SchedulePersistenceTests {
         #expect(repository.notice == nil)
     }
 
-    @Test func oldAccountFailuresAndQueuedWritesStayWithTheirOwner() async throws {
+    @Test(.timeLimit(.minutes(1))) func oldAccountFailuresAndQueuedWritesStayWithTheirOwner() async throws {
         var account = AppStorageSession(accountIdentifier: "old")
         let writer = DelayedWriter()
         writer.failsFirstWrite = true
@@ -410,7 +469,7 @@ struct SchedulePersistenceTests {
 
 @MainActor
 struct SchedulePersistenceCoordinatorTests {
-    @Test func queuedSavesValidateTheGenerationAcrossAccountRoundTrips() async throws {
+    @Test(.timeLimit(.minutes(1))) func queuedSavesValidateTheGenerationAcrossAccountRoundTrips() async throws {
         let coordinator = SchedulePersistenceCoordinator()
         var generation = 1
         var started = false
@@ -441,7 +500,7 @@ struct SchedulePersistenceCoordinatorTests {
         #expect(writes == [1, 3])
     }
 
-    @Test func cancellationRetainsTheCommittedWriteAndSkipsQueuedWork() async throws {
+    @Test(.timeLimit(.minutes(1))) func cancellationRetainsTheCommittedWriteAndSkipsQueuedWork() async throws {
         let coordinator = SchedulePersistenceCoordinator()
         var started = false
         var release: CheckedContinuation<Void, Never>?
@@ -609,7 +668,7 @@ struct ScheduleSchemaAndEditingTests {
         #expect(cache.firstDayString == "2026-09-07")
     }
 
-    @Test(arguments: ["99", "null", #""future""#, "1"])
+    @Test(.timeLimit(.minutes(1)), arguments: ["99", "null", #""future""#, "1"])
     func rejectedSchemasProtectStoredBytesAndWriteAdmission(header: String) async throws {
         let files = ModuleScoreFiles()
         let store = SchedulePersistenceStore(files: files, storageRoot: URL(fileURLWithPath: "/schedule"), userStateMatches: { _, _ in true })

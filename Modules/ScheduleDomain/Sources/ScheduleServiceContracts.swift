@@ -9,6 +9,7 @@ public nonisolated struct CourseSyncPayload: Sendable {
     public let sourceFirstDayString: String
     public let normalizationOffset: Int
     public let rawWeeksByCourse: [[Int]]
+    public let sourceDisplayWeeksByCourse: [String?]
     public let courses: [CourseRecord]
     public let exams: [ExamRecord]
 
@@ -18,6 +19,7 @@ public nonisolated struct CourseSyncPayload: Sendable {
         sourceFirstDayString: String,
         normalizationOffset: Int,
         rawWeeksByCourse: [[Int]],
+        sourceDisplayWeeksByCourse: [String?] = [],
         courses: [CourseRecord],
         exams: [ExamRecord]
     ) {
@@ -26,6 +28,7 @@ public nonisolated struct CourseSyncPayload: Sendable {
         self.sourceFirstDayString = sourceFirstDayString
         self.normalizationOffset = normalizationOffset
         self.rawWeeksByCourse = rawWeeksByCourse
+        self.sourceDisplayWeeksByCourse = sourceDisplayWeeksByCourse
         self.courses = courses
         self.exams = exams
     }

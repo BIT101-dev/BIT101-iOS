@@ -106,7 +106,7 @@ final class SemesterStartDateService: ScheduleServicing {
     func prepareTeachingCenterAccess() async throws { throw ScheduleServiceError.invalidResponse }
     func fetchCampuses() async throws -> [CampusRecord] { throw ScheduleServiceError.invalidResponse }
     func fetchBuildings(campusCode: String?) async throws -> [BuildingRecord] { throw ScheduleServiceError.invalidResponse }
-    func fetchClassrooms(buildingID: String, term: String) async throws -> [ClassroomRecord] { throw ScheduleServiceError.invalidResponse }
+    func fetchClassrooms(buildingID: String, term: String, date: Date) async throws -> [ClassroomRecord] { throw ScheduleServiceError.invalidResponse }
     func submitSMSCode(
         _ code: String, for challenge: BITLoginAuthenticationChallenge, term: String?
     ) async throws -> CourseSyncPayload { throw ScheduleServiceError.invalidResponse }
@@ -123,7 +123,7 @@ final class SemesterStartDateService: ScheduleServicing {
 
 @MainActor
 struct ScheduleModuleBoundaryTests {
-    @Test(arguments: [false, true])
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func invalidScheduleWritesPreserveTheCommittedBytesUnderTheNativeRuntime(hasCommittedFile: Bool) async throws {
         let files = PreferenceMemoryFiles()
         let store = SchedulePersistenceStore(files: files, storageRoot: URL(fileURLWithPath: "/schedule"),
@@ -146,7 +146,7 @@ struct ScheduleModuleBoundaryTests {
         #expect(await store.load(for: account).cacheIfReadable?.primaryScheduleTitle == (hasCommittedFile ? valid.primaryScheduleTitle : ScheduleCache().primaryScheduleTitle))
     }
 
-    @Test func classroomOccupancyRequiresItsFieldAndPreservesExplicitEmptyValues() async throws {
+    @Test(.timeLimit(.minutes(1))) func classroomOccupancyRequiresItsFieldAndPreservesExplicitEmptyValues() async throws {
         for value in ["" as Any, NSNull(), "1,2"] {
             let data = try JSONSerialization.data(withJSONObject: ["datas": ["cxkxjasqk": ["rows": [["JASMC": "A101", "ZYJC": value]]]]])
             let response = try JSONDecoder().decode(ClassroomListResponse.self, from: data)
@@ -162,7 +162,7 @@ struct ScheduleModuleBoundaryTests {
         }
     }
 
-    @Test(arguments: [(#"{"KCM":"课程","KSSJMS":"09:00-11:00","KSRQ":"2026-06-01 00:00:00"}"#, true),
+    @Test(.timeLimit(.minutes(1)), arguments: [(#"{"KCM":"课程","KSSJMS":"09:00-11:00","KSRQ":"2026-06-01 00:00:00"}"#, true),
         (#"{"KCM":"待排课程","KSSJMS":"待定"}"#, true), (#"{"KCH":"CS101","KSSJMS":""}"#, true),
         (#"{"KSSJMS":"待定"}"#, false), (#"{"KCM":"课程","KSSJMS":"09:00-11:00"}"#, false),
         (#"{"KCM":"课程","KSSJMS":"09:00-11:00","KSRQ":"2026-02-30"}"#, false),
@@ -177,7 +177,7 @@ struct ScheduleModuleBoundaryTests {
         else { await #expect(throws: ScheduleServiceError.self) { try await response.examRecords() } }
     }
 
-    @Test func pendingExamsKeepDistinctCourseIdentities() async throws {
+    @Test(.timeLimit(.minutes(1))) func pendingExamsKeepDistinctCourseIdentities() async throws {
         let data = Data(#"{"datas":{"cxxsksap":{"rows":[{"KCM":"课程A","KSSJMS":"待定"},{"KCM":"课程B","KSSJMS":"待定"}]}}}"#.utf8)
         let exams = try await JSONDecoder().decode(ExamResponse.self, from: data).examRecords()
         #expect(exams.allSatisfy(\.isPendingArrangement) && Set(exams.map(\.id)).count == 2)
@@ -237,7 +237,7 @@ struct ScheduleModuleBoundaryTests {
         #expect(loads == 2)
     }
 
-    @Test func semesterStartDatePreservesCoursesAcrossRefreshAndTermSwitch() async throws {
+    @Test(.timeLimit(.minutes(1))) func semesterStartDatePreservesCoursesAcrossRefreshAndTermSwitch() async throws {
         let bundle = Bundle(for: ErrorReportAndSchedulePolicyTests.self)
         let fixtureURL = bundle.url(
             forResource: "schedule-service-response", withExtension: "json", subdirectory: "Fixtures"
@@ -280,7 +280,7 @@ struct ScheduleModuleBoundaryTests {
         #expect(viewModel.persistenceSnapshot.courses == courses)
     }
 
-    @Test func restorationMapsEveryLoginFailureIntoScheduleErrors() async {
+    @Test(.timeLimit(.minutes(1))) func restorationMapsEveryLoginFailureIntoScheduleErrors() async {
         let errors: [LoginServiceError] = [
             .invalidSchoolLoginPage, .schoolLoginFailed, .invalidCredentials,
             .schoolSMSCodeInvalid("验证码错误"), .schoolSMSUnavailable("短信服务暂时繁忙"),
@@ -309,7 +309,7 @@ struct ScheduleModuleBoundaryTests {
         }
     }
 
-    @Test func restorationPreservesSecondFactorContextAndTransportCancellation() async throws {
+    @Test(.timeLimit(.minutes(1))) func restorationPreservesSecondFactorContextAndTransportCancellation() async throws {
         let baseURL = try #require(URL(string: "https://sso.bit.edu.cn/cas/"))
         let context = try #require(SchoolLoginHTMLParser.parseSecondFactorPage(
             html: #"<form action="/cas/login"><input id="login-page-flowkey" value="flow"><input id="user-object-id" value="user"><div id="secondSmsLoginForm">短信验证</div></form>"#,
@@ -365,7 +365,7 @@ struct ScheduleModuleBoundaryTests {
     }
 
 
-    @Test func mineDeletionUsesTheInjectedSession() async throws {
+    @Test(.timeLimit(.minutes(1))) func mineDeletionUsesTheInjectedSession() async throws {
         let transport = RecordingCommunityDeletionTransport()
         let session = CommunitySession(
             httpClient: HTTPClient(transport: transport, observer: nil),
@@ -375,7 +375,7 @@ struct ScheduleModuleBoundaryTests {
         let dependencies = AppCommunityDependencies(
             settings: AppSettingsStore(defaults: defaults, session: { AppStorageSession(accountIdentifier: "module-community") }),
             session: session, checkLogin: { true },
-            messages: GalleryMessageReadStore(
+            messages: GalleryMessageReadStore(files: PreferenceMemoryFiles(), storageRoot: URL(fileURLWithPath: "/preference-sync"),
                 defaults: defaults,
                 session: { AppStorageSession(accountIdentifier: "module-community") }
             ),

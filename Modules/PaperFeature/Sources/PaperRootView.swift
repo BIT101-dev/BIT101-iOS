@@ -110,7 +110,7 @@ private struct PaperRootViewScene: View {
                                 .task(id: viewModel.refreshGeneration) {
                                     await viewModel.loadPreviewMetadataIfNeeded(for: paper)
                                 }
-                                .task {
+                                .task(id: viewModel.state.status == .loaded ? viewModel.state.nextPage : nil) {
                                     await viewModel.loadMoreIfNeeded(currentPaper: paper)
                                 }
                             }

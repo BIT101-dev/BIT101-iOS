@@ -3,7 +3,7 @@
 COVERAGE_GROUPS = frozenset({'modules', 'all', 'ui', 'catalyst', 'catalyst-release-runtime'})
 
 def policy_floors(group: str, policy: dict) -> dict[str, int]:
-    from validation_policy import MODULE_COVERAGE_FLOORS, IOS_MODULE_COVERAGE_FLOORS, UI_PRODUCTION_MODULES
+    from validation_policy import APP_COVERAGE_FLOOR, MODULE_COVERAGE_FLOORS, IOS_MODULE_COVERAGE_FLOORS, UI_PRODUCTION_MODULES
     current = MODULE_COVERAGE_FLOORS if group == 'modules' else IOS_MODULE_COVERAGE_FLOORS
     if group == 'ui': current = {name: current[name] for name in UI_PRODUCTION_MODULES}
     if group == 'catalyst': current = {name: value for name, value in current.items() if name != 'ScheduleActivityContracts'}
@@ -11,7 +11,8 @@ def policy_floors(group: str, policy: dict) -> dict[str, int]:
     prefix = '' if group == 'modules' else 'Catalyst/' if group == 'catalyst' else 'iOS/'
     baseline_group = 'all' if group in {'ui', 'catalyst'} else group
     floors = {prefix + name: max(value, policy.get(baseline_group, {}).get(name, value)) for name, value in current.items()}
-    if group in {'all', 'ui', 'catalyst'}: floors['BIT101-iOS.app'] = 35
+    if group in {'all', 'ui', 'catalyst'}:
+        floors['BIT101-iOS.app'] = max(APP_COVERAGE_FLOOR, policy.get('all', {}).get('BIT101-iOS.app', APP_COVERAGE_FLOOR))
     return floors
 
 
@@ -25,7 +26,21 @@ def regressions(coverage: dict, baseline: dict) -> list[str]:
     return [f'{name}: {current[name]}% < {floor}%' for name, floor in baseline.items() if name in current and current[name] < floor]
 
 
+def policy_findings(report: dict, group: str) -> list[str]:
+    if group not in COVERAGE_GROUPS: return []
+    from validation_provenance import complete_group_row
+    row = complete_group_row(report.get('groups', {}).get(group, {}))
+    return [f'{group} 覆盖率退化：{problem}' for problem in regressions(
+        row.get('summary', {}).get('coverage', {}), policy_floors(group, report.get('coveragePolicy', {})))]
+
+
 def self_test() -> None:
+    from validation_policy import workflow_timeout_seconds
+    assert workflow_timeout_seconds(('network', 'community-writes')) == 95 * 60
+    assert workflow_timeout_seconds(('all', 'all')) == 50 * 60
+    for group in ('all', 'ui', 'catalyst'):
+        assert policy_floors(group, {'all': {'BIT101-iOS.app': 60}})['BIT101-iOS.app'] == 60
+        assert policy_floors(group, {'all': {'BIT101-iOS.app': 1}})['BIT101-iOS.app'] == 35
     assert policy_floors('catalyst', {'all': {'TransportCore': 90}})['Catalyst/TransportCore'] == 90
     assert 'Catalyst/ScheduleActivityContracts' not in policy_floors('catalyst', {})
     assert policy_floors('ui', {'all': {'GalleryFeature': 40}})['iOS/GalleryFeature'] == 40

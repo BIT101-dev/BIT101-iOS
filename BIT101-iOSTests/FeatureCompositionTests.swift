@@ -1,3 +1,4 @@
+@testable import BIT101_iOS
 import CommunityPersistence
 import ScheduleDomain
 @testable import ScheduleFeature
@@ -6,17 +7,18 @@ import ScheduleDomain
 @testable import PaperFeature
 import StorageCore
 import CommunityUI
-import MediaKit
+@testable import MediaKit
 import CommunityCore
 import CommunityTransport
-import CourseFeature
+@testable import CourseFeature
 import DesignSystemKit
 import Foundation
+import TransportCore
 import SwiftUI
 import Testing
-import TransportCore
 import UIKit
 import Combine
+import QuickLook
 import ClientCore
 import ScoreDomain
 import ScorePorts
@@ -26,6 +28,121 @@ import ScoreInfrastructure
 @MainActor
 @Suite(.serialized)
 struct FeatureCompositionTests {
+    @Test func fixedColumnRowsContainScaledBodyText() {
+        func measured(_ size: DynamicTypeSize) -> CGFloat {
+            let row = AppFixedColumnRow(items: [AppFixedColumnItem(text: "课程名称", ratio: 1,
+                font: .body, color: .primary)], height: AppDesignSystem.Size.CompactRow.primaryHeight)
+            let controller = UIHostingController(rootView: row.environment(\.dynamicTypeSize, size))
+            return controller.sizeThatFits(in: CGSize(width: 320, height: 1_000)).height
+        }
+        let expanded = measured(.accessibility5)
+        let traits = UITraitCollection(preferredContentSizeCategory: .accessibilityExtraExtraExtraLarge)
+        #expect(expanded >= UIFont.preferredFont(forTextStyle: .body, compatibleWith: traits).lineHeight)
+        #expect(expanded > measured(.large))
+    }
+
+    @Test(.timeLimit(.minutes(1))) func repeatedAnimationFramesParticipateInTheDisplayMemoryBudget() throws {
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1))
+        let first = renderer.image { UIColor.systemRed.setFill(); $0.fill(CGRect(x: 0, y: 0, width: 1, height: 1)) }
+        let last = renderer.image { UIColor.systemBlue.setFill(); $0.fill(CGRect(x: 0, y: 0, width: 1, height: 1)) }
+        let image = try #require(UIImage.animatedImage(with: Array(repeating: first, count: 9_999) + [last], duration: 100))
+        #expect(image.images?.count == 10_000)
+        let pixels = MediaDisplayBudget.pixelBytes(image), bytes = MediaDisplayBudget.decodedBytes(image)
+        #expect(bytes >= pixels + 80_000)
+        let owner = UUID(), insufficient = MediaDisplayBudget(maximumBytes: pixels)
+        #expect(insufficient.retain(image, owner: owner) == false && insufficient.usedBytes == 0)
+        let sufficient = MediaDisplayBudget(maximumBytes: bytes)
+        #expect(sufficient.retain(image, owner: owner) && sufficient.usedBytes == bytes)
+        sufficient.release(owner: owner)
+        #expect(sufficient.usedBytes == 0)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func defaultMediaStorageEnforcesTheSharedQuotaOnce() async throws {
+        let domain = "BIT101Tests.shared-media-quota", files = PreferenceMemoryFiles()
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let client = HTTPClient(transport: TraceTransport(), observer: nil)
+        let media = AppMedia.makeEnvironment(previewStorage: MediaPreviewStorage(files: files), defaults: defaults,
+            imageHTTPClient: client, avatarHTTPClient: client)
+        media.cacheLimitMB = 1
+        let scans = files.metadataScanCount
+        await media.enforceCurrentLimit()
+        #expect(files.metadataScanCount == scans + 2)
+    }
+
+    private final class StreamingMessages: GalleryMessageServicing {
+        var growing = true, unread = 5, identifiers = Array((1...6).reversed())
+        var acknowledgementIDs: [Int]?
+        var recoveryFailure: (any Error)?
+        private var hasAcknowledged = false
+        var cursors: [Int?] = []
+        func fetchMessageUnreadCounts() async throws -> GalleryMessageUnreadCounts {
+            if growing && !cursors.isEmpty { identifiers.insert((identifiers.first ?? 0) + 1, at: 0); unread += 1 }
+            return .init(comment: unread)
+        }
+        func fetchMessages(type: GalleryMessageType, lastID: Int?) async throws -> [GalleryMessage] {
+            cursors.append(lastID)
+            if lastID == nil {
+                if let acknowledgementIDs { identifiers = acknowledgementIDs }
+                unread = 0; hasAcknowledged = true
+            } else if hasAcknowledged, let recoveryFailure { throw recoveryFailure }
+            let rows = identifiers.filter { $0 < (lastID ?? Int.max) }.prefix(2).map {
+                "{\"from_user\":{},\"id\":\($0),\"link_obj\":\"\",\"obj\":\"\",\"text\":\"message\",\"update_time\":\"\"}"
+            }
+            let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
+            return try decoder.decode([GalleryMessage].self, from: Data(("[" + rows.joined(separator: ",") + "]").utf8))
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func messageRecoveryBatchesPersistentWritesAndSurvivesInterruption(interrupted: Bool) async throws {
+        let domain = "BIT101Tests.message-recovery-writes"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let files = PreferenceMemoryFiles(), root = URL(fileURLWithPath: "/message-recovery-writes")
+        let session = AppStorageSession(accountIdentifier: domain)
+        let store = GalleryMessageReadStore(files: files, storageRoot: root, defaults: defaults, session: { session })
+        let service = StreamingMessages()
+        service.growing = false; service.acknowledgementIDs = Array((1...2_000).reversed())
+        if interrupted { service.recoveryFailure = URLError(.timedOut) }
+        var saves = 0
+        let observation = store.localSaves.sink { _ in saves += 1 }
+        defer { withExtendedLifetime(observation) {} }
+        let model = GalleryMessageViewModel(service: service, readStore: store)
+        await model.refreshUnreadCounts(); await model.refresh(type: .comment)
+        if interrupted {
+            #expect(store.pendingUnreadAfterID(for: .comment) == 6 && service.unread == 0)
+            service.recoveryFailure = nil
+            let reopened = GalleryMessageReadStore(files: files, storageRoot: root, defaults: defaults, session: { session })
+            let retry = GalleryMessageViewModel(service: service, readStore: reopened)
+            await retry.bootstrapIfNeeded()
+            #expect(reopened.pendingUnreadAfterID(for: .comment) == nil && reopened.unreadCount(for: .comment) == 1_999)
+            #expect(reopened.isUnread(id: 7, for: .comment) && reopened.isUnread(id: 2, for: .comment))
+        } else {
+            #expect(model.state(for: .comment).status == .loaded && store.pendingUnreadAfterID(for: .comment) == nil)
+            #expect(store.unreadCount(for: .comment) == 1_999 && saves == 5)
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func continuouslyGrowingMessagesRetainUnreadStateAndAllowRefreshRetry() async throws {
+        let domain = "BIT101Tests.streaming-messages"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let store = GalleryMessageReadStore(files: PreferenceMemoryFiles(), storageRoot: URL(fileURLWithPath: "/streaming-messages"),
+            defaults: defaults, session: { AppStorageSession(accountIdentifier: "streaming-messages") })
+        let service = StreamingMessages(), model = GalleryMessageViewModel(service: service, readStore: store)
+        await model.refreshUnreadCounts(); await model.refresh(type: .comment)
+        #expect(service.cursors == [Int.max, Int.max] && service.unread == 7)
+        #expect(model.alert?.title == "加载消息失败" && store.unreadCount(for: .comment) == 0)
+        #expect(store.pendingUnreadAfterID(for: .comment) == nil)
+        service.growing = false; model.alert = nil
+        await model.refreshSelectedType()
+        #expect(model.state(for: .comment).status == .loaded && model.alert == nil)
+        #expect(service.unread == 0 && store.unreadCount(for: .comment) == 7)
+    }
+
     private final class ScoreCache: ScoreCaching {
         var changes: AnyPublisher<AppStorageSession, Never> { Empty().eraseToAnyPublisher() }
         var loads = 0
@@ -53,7 +170,7 @@ struct FeatureCompositionTests {
         func submitTranscriptSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> [Data] { schoolRequests += 1; return [] }
     }
 
-    @Test func scoreFiltersInitializeAfterScheduleOnlyCacheAndPreserveExplicitEmptySelection() async throws {
+    @Test(.timeLimit(.minutes(1))) func scoreFiltersInitializeAfterScheduleOnlyCacheAndPreserveExplicitEmptySelection() async throws {
         let suite = "BIT101.ScoreFilterInitialization"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defaults.removePersistentDomain(forName: suite)
@@ -134,7 +251,7 @@ struct FeatureCompositionTests {
     private func media() -> MediaEnvironment {
         let files = PreferenceMemoryFiles()
         let client = HTTPClient(transport: OfflineTransport(), observer: nil)
-        return MediaEnvironment(files: files, previewStorage: MediaPreviewStorage(files: files), defaults: UserDefaults.standard,
+        return AppMedia.makeEnvironment(files: files, previewStorage: MediaPreviewStorage(files: files), defaults: AppFileDirectories.defaults,
                                 imageHTTPClient: client, avatarHTTPClient: client)
     }
 
@@ -195,7 +312,7 @@ struct FeatureCompositionTests {
             currentIdentity: { session.currentCredentials.identity },
             feed: service, messageService: service, posterDetail: service,
             reporting: service, composer: service, images: service, preferences: preferences,
-            messages: GalleryMessageReadStore(defaults: UserDefaults.standard, session: { AppStorageSession(accountIdentifier: "composition") }),
+            messages: GalleryMessageReadStore(files: PreferenceMemoryFiles(), storageRoot: URL(fileURLWithPath: "/preference-sync"), defaults: AppFileDirectories.defaults, session: { AppStorageSession(accountIdentifier: "composition") }),
             drafts: ComposerDraftStore(files: PreferenceMemoryFiles(), applicationSupport: URL(fileURLWithPath: "/preference-sync"),
                 session: { AppStorageSession(accountIdentifier: "composition") }, prepareImageData: ComposerDraftImageCompressor.compress),
             networkPath: NetworkPathState(snapshot: NetworkPathSnapshot(status: .connected)))
@@ -210,7 +327,7 @@ struct FeatureCompositionTests {
     private func mine(_ transport: TraceTransport) -> MineDependencies {
         let preferences = preferences()
         let service = MineService(session: session(transport), preferences: { preferences.snapshot })
-        return MineDependencies(overview: service, profile: service, deletePoster: { _ in }, isRunningUITest: false)
+        return MineDependencies(overview: service, profile: service, deletePoster: { _ in })
     }
 
     private func host<V: View>(_ view: V, operation: () async throws -> Void) async throws {
@@ -296,6 +413,10 @@ struct FeatureCompositionTests {
     @Test(.timeLimit(.minutes(1)))
     func paperTabReturnRetriesTheCancelledAuthorPreviewWithItsExistingList() async throws {
         let service = PaperPreviewService()
+        defer {
+            service.pending?.resume(returning: PaperPreviewMetadata(authorName: "迟到的作者", avatarURL: nil, isAnonymous: false))
+            service.pending = nil
+        }
         let routes = TabRoute()
         let details = PaperService(session: session(TraceTransport()))
         let dependencies = PaperDependencies(list: service, detail: details, composer: details,
@@ -340,6 +461,10 @@ struct FeatureCompositionTests {
         let previous = model.state(for: .newest)
         service.suspend = true
         let refresh = model.enqueueRefresh(for: .newest)
+        defer {
+            refresh.cancel()
+            service.pending?.resume(returning: .init(items: [], nextSourcePage: 1, canLoadMore: false)); service.pending = nil
+        }
         try await waitForTestEvent { !(service.pending == nil) }
         model.cancelPendingOperations()
         #expect(model.state(for: .newest).nextPage == previous.nextPage)
@@ -353,7 +478,7 @@ struct FeatureCompositionTests {
         #expect(model.state(for: .newest).posters == previous.posters && model.alert == nil)
     }
 
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     func authenticatedPaperReadsSendTheSmokePreflightAndBusinessRoutes() async throws {
         let transport = TraceTransport()
         transport.response = { request in
@@ -391,7 +516,7 @@ struct FeatureCompositionTests {
         #expect(surrounding.requests.isEmpty)
     }
 
-    @Test func profileFollowUsesItsInjectedCommunitySessionAndUpdatesTheDisplayedCard() async throws {
+    @Test(.timeLimit(.minutes(1))) func profileFollowUsesItsInjectedCommunitySessionAndUpdatesTheDisplayedCard() async throws {
         let transport = TraceTransport()
         transport.response = { request in
             #expect(request.value(forHTTPHeaderField: "fake-cookie") == "fixture")
@@ -510,3 +635,361 @@ struct FeatureCompositionTests {
     }
 
 }
+
+@Suite("Schedule academic course matching")
+@MainActor
+struct CourseLookupMatcherTests {
+    private final class ServiceStub: CourseListServicing {
+        let results: [String: [CourseSummary]]
+        var laterPages: [Int: [CourseSummary]] = [:]
+        var repeatsFirstPage = false
+        private var searches: [String] = []
+
+        init(results: [String: [CourseSummary]]) {
+            self.results = results
+        }
+
+        func fetchCourses(search: String, page: Int) async throws -> [CourseSummary] {
+            searches.append(search)
+            return page == 0 || repeatsFirstPage ? results[search] ?? [] : laterPages[page] ?? []
+        }
+
+        func recordedSearches() -> [String] {
+            searches
+        }
+    }
+
+    @Test("Course number matching ignores formatting differences")
+    func matchesCourseNumber() {
+        let expected = makeSummary(id: 1, name: "高等数学", number: "MATH-1001", teacher: "张老师")
+        let other = makeSummary(id: 2, name: "高等数学", number: "MATH-1002", teacher: "张老师")
+        #expect(CourseLookupMatcher.numberMatch(
+            courseNumber: " math 1001 ",
+            candidates: [other, expected]
+        )?.id == expected.id)
+    }
+
+    @Test func completeTeacherGroupsPrecedePartialMatches() {
+        let partial = makeSummary(id: 1, name: "课程", number: "C1", teacher: "张、李")
+        let complete = makeSummary(id: 2, name: "课程", number: "C1", teacher: "李、王")
+        #expect(CourseLookupMatcher.bestMatch(courseNumber: "C1", courseName: "课程", teacher: "李、王",
+            candidates: [partial, complete])?.id == 2)
+        let another = makeSummary(id: 3, name: "课程", number: "C1", teacher: "王、赵")
+        #expect(CourseLookupMatcher.bestMatch(courseNumber: "C1", courseName: "课程", teacher: "李、王",
+            candidates: [partial, another]) == nil)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func resolverReadsLaterPagesAndPreservesTheNumberQueryFirstPage() async throws {
+        let first = makeSummary(id: 1, name: "课程", number: "C1", teacher: "张")
+        let second = makeSummary(id: 2, name: "课程", number: "C1", teacher: "王")
+        let expected = makeSummary(id: 3, name: "课程", number: "C1", teacher: "李")
+        let service = ServiceStub(results: ["C1": [first, second]])
+        service.laterPages[1] = [expected]
+        let result = try #require(await CourseEvaluationResolver(service: service).resolve(
+            courseName: "", courseNumber: "C1", teacher: "李"))
+        #expect(result.selectedCourse.id == 3 && result.searchQuery == "C1")
+        #expect(result.searchResults.map(\.id) == [3, 1, 2])
+        service.repeatsFirstPage = true
+        await #expect(throws: URLError.self) {
+            try await CourseEvaluationResolver(service: service).resolve(courseName: "", courseNumber: "C1", teacher: "李")
+        }
+    }
+
+    @Test("Teacher disambiguates courses with the same name")
+    func disambiguatesByTeacher() {
+        let first = makeSummary(id: 1, name: "大学物理", number: "PHY-1", teacher: "张老师")
+        let second = makeSummary(id: 2, name: "大学物理", number: "PHY-2", teacher: "李老师")
+        #expect(CourseLookupMatcher.nameMatch(
+            courseName: "大学 物理",
+            teacher: "李老师",
+            candidates: [first, second]
+        )?.id == second.id)
+        #expect(CourseLookupMatcher.nameMatch(
+            courseName: "大学物理",
+            teacher: "",
+            candidates: [first, second]
+        ) == nil)
+    }
+
+    @Test("Teacher also disambiguates records sharing one course number")
+    func disambiguatesSameNumberByTeacher() {
+        let first = makeSummary(id: 1, name: "线性代数", number: "MATH-1", teacher: "张老师")
+        let second = makeSummary(id: 2, name: "线性代数", number: "MATH-1", teacher: "李老师、王老师")
+        #expect(CourseLookupMatcher.numberMatch(
+            courseNumber: "MATH-1",
+            teacher: "李老师",
+            candidates: [first, second]
+        )?.id == second.id)
+    }
+
+    @Test("Records sharing the same course identity can be opened without a teacher")
+    func resolvesSameIdentityWithoutTeacher() {
+        let first = makeSummary(id: 1, name: "线性代数", number: "MATH-1", teacher: "张老师")
+        let second = makeSummary(id: 2, name: "线性代数", number: "MATH-1", teacher: "李老师")
+        #expect(CourseLookupMatcher.bestMatch(
+            courseNumber: "MATH-1",
+            courseName: "线性代数",
+            teacher: "",
+            candidates: [first, second]
+        )?.id == first.id)
+    }
+
+    @Test("Evaluation lookup searches both identity fields and normalizes punctuation", .timeLimit(.minutes(1)))
+    @MainActor
+    func evaluationLookupFallsBackToCourseName() async throws {
+        let expected = makeSummary(
+            id: 7,
+            name: "自动控制理论II（双语）",
+            number: "AUTO-1",
+            teacher: ""
+        )
+        let service = ServiceStub(results: [
+            "AUTO 1": [],
+            "自动控制理论II(双语)": [expected],
+        ])
+
+        let result = try #require(await CourseEvaluationResolver(service: service).resolve(
+            courseName: "自动控制理论II(双语)",
+            courseNumber: "AUTO 1"
+        ))
+
+        #expect(result.selectedCourse.id == expected.id)
+        #expect(result.searchQuery == "自动控制理论II(双语)")
+        #expect(result.searchResults.map(\.id) == [expected.id])
+        let searches = service.recordedSearches()
+        #expect(Set(searches) == ["AUTO 1", "自动控制理论II(双语)"])
+    }
+
+    @Test("Unknown evaluation course resolves to a failure result", .timeLimit(.minutes(1)))
+    @MainActor
+    func evaluationLookupReturnsNilWhenNoCourseMatches() async throws {
+        let service = ServiceStub(results: [:])
+        let result = try await CourseEvaluationResolver(service: service).resolve(
+            courseName: "不存在的课程",
+            courseNumber: "UNKNOWN-1"
+        )
+        #expect(result == nil)
+    }
+
+    @Test("Resolver queries both identities while selecting the current teacher", .timeLimit(.minutes(1)))
+    @MainActor
+    func resolvesBothIdentitiesAndSelectsTeacher() async throws {
+        let first = makeSummary(id: 1, name: "大学物理", number: "PHY-1", teacher: "张老师")
+        let second = makeSummary(id: 2, name: "大学物理", number: "PHY-1", teacher: "李老师")
+        let service = ServiceStub(results: [
+            "PHY-1": [first, second],
+            "大学物理": [first, second],
+        ])
+        let resolver = ScheduleAcademicCourseResolver(service: service)
+
+        let resolution = try #require(await resolver.resolve(makeCourse(
+            name: "大学物理",
+            number: "PHY-1",
+            teacher: "李老师"
+        )))
+
+        let searches = service.recordedSearches()
+        #expect(Set(searches) == ["PHY-1", "大学物理"])
+        #expect(resolution.selectedCourse.id == second.id)
+    }
+
+    private func makeSummary(
+        id: Int,
+        name: String,
+        number: String,
+        teacher: String
+    ) -> CourseSummary {
+        CourseSummary(detail: CourseDetail(
+            id: id,
+            name: name,
+            number: number,
+            credit: 2,
+            likeNum: 0,
+            commentNum: 0,
+            rate: 0,
+            teachersName: teacher,
+            teachersNumber: "",
+            like: false
+        ))
+    }
+
+    private func makeCourse(name: String, number: String, teacher: String) -> CourseRecord {
+        CourseRecord(
+            id: "schedule-course",
+            term: "2026-2027-1",
+            name: name,
+            teacher: teacher,
+            classroom: "",
+            description: "",
+            weeks: [1],
+            weekday: 1,
+            startSection: 1,
+            endSection: 2,
+            campus: "",
+            number: number,
+            credit: 2,
+            hour: 32,
+            type: "",
+            category: "",
+            department: ""
+        )
+    }
+}
+
+
+// 内存响应替身沿测试模块提供接收完成后的预算适配。
+extension HTTPTransport {
+    func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
+        let result = try await data(for: request)
+        if let maximumBytes, result.0.count > maximumBytes { throw HTTPClientError.responseTooLarge }
+        return result
+    }
+}
+
+extension ExperimentalPreferenceCloudSyncTests {
+    final class ExternalDisplays: AppExternalDisplayCoordinating {
+        var activationCount = 0
+        var resetCount = 0
+        var refreshes: [(String, AppStorageSession)] = []
+        func activate() { activationCount += 1 }
+        func resetAccountPresentation() { resetCount += 1 }
+        func refresh(trigger: String, syncWidgetSnapshot: Bool, session: AppStorageSession) async {
+            #expect(syncWidgetSnapshot)
+            refreshes.append((trigger, session))
+        }
+        func waitForRefreshes(_ count: Int) async throws {
+            try await waitForTestEvent { refreshes.count >= count }
+        }
+    }
+
+    struct OfflineTransport: HTTPTransport {
+        func data(for request: URLRequest) async throws -> (Data, URLResponse) { throw URLError(.notConnectedToInternet) }
+    }
+    struct OfflineScoreService: ScoreListServicing, TrustedTranscriptServicing {
+        let transcriptServiceIdentity: AnyHashable = UUID()
+        func startScoreChallenge() async throws -> BITLoginAuthenticationChallenge { throw URLError(.notConnectedToInternet) }
+        func fetchScores(detail: Bool, authenticatedBy challenge: BITLoginAuthenticationChallenge) async throws -> [ScoreRow] { [] }
+        func submitScoreSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { challenge }
+        func fetchTrustedTranscriptPages() async throws -> [Data] { [] }
+        func submitTranscriptSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> [Data] { [] }
+    }
+
+}
+
+#if os(iOS)
+extension MediaDependencyTests {
+    final class Images: HTTPTransport {
+        let bytes: Data
+        private(set) var requests = 0
+        var failuresRemaining = 0
+        var failedURLs = Set<URL>()
+        var blockedURL: URL?
+        var pending: CheckedContinuation<Void, Never>?
+        var corruptResponsesRemaining = 0
+        var corruptResponseData = Data("damaged".utf8)
+        init(bytes: Data) { self.bytes = bytes }
+        func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+            requests += 1
+            if failuresRemaining > 0 { failuresRemaining -= 1; throw URLError(.notConnectedToInternet) }
+            let url = try #require(request.url)
+            if url == blockedURL { await withCheckedContinuation { pending = $0 } }
+            if failedURLs.contains(url) { throw URLError(.notConnectedToInternet) }
+            let response = corruptResponsesRemaining > 0 ? corruptResponseData : bytes
+            corruptResponsesRemaining = max(corruptResponsesRemaining - 1, 0)
+            return (response, try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "image/png"])))
+        }
+    }
+
+    func png(width: Int, height: Int = 1, color: UIColor = .systemBlue) throws -> Data {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let image = UIGraphicsImageRenderer(size: CGSize(width: width, height: height), format: format).image { context in
+            color.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        }
+        return try #require(image.pngData())
+    }
+
+    func environment(files: PreferenceMemoryFiles, previewFiles: PreferenceMemoryFiles, transport: any HTTPTransport) -> MediaEnvironment {
+        let client = HTTPClient(transport: transport, observer: nil)
+        return AppMedia.makeEnvironment(files: files, previewStorage: MediaPreviewStorage(files: previewFiles), defaults: AppFileDirectories.defaults,
+                                imageHTTPClient: client, avatarHTTPClient: client)
+    }
+
+}
+#endif
+
+#if os(iOS)
+@MainActor @Suite(.serialized)
+struct MediaPresentationTests {
+    private final class PreviewController: QLPreviewController {
+        var refreshes = 0
+        override func refreshCurrentPreviewItem() { refreshes += 1; super.refreshCurrentPreviewItem() }
+    }
+    private func window(_ controller: UIViewController) throws -> UIWindow {
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        return window
+    }
+    @Test(.timeLimit(.minutes(1)), arguments: ["avatar", "still", "progressive"])
+    func unrelatedBudgetReleasePreservesFailedImageRequestCount(kind: String) async throws {
+        let helper = MediaDependencyTests(), transport = MediaDependencyTests.Images(bytes: try helper.png(width: 2))
+        transport.failuresRemaining = 100
+        let media = helper.environment(files: PreferenceMemoryFiles(), previewFiles: PreferenceMemoryFiles(), transport: transport)
+        let url = AppURL.required("https://example.invalid/image.png")
+        let view: AnyView
+        switch kind {
+        case "avatar": view = AnyView(CachedRemoteImage(url: url, content: { $0.resizable() }, placeholder: { Color.clear }))
+        case "still": view = AnyView(RemoteCachedStillImage(url: url))
+        default: view = AnyView(RemoteProgressiveStillImage(thumbnailURL: url, originalURL: nil))
+        }
+        let host = UIHostingController(rootView: view.frame(width: 40, height: 40).environment(media))
+        let window = try window(host)
+        defer { window.isHidden = true; window.rootViewController = nil }
+        try await waitForTestEvent { transport.requests > 0 }
+        try await Task.sleep(for: .milliseconds(300))
+        let count = transport.requests, owner = UUID(), image = try #require(UIImage(data: helper.png(width: 2)))
+        #expect(media.displayBudget.retain(image, owner: owner))
+        media.displayBudget.release(owner: owner)
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(transport.requests == count)
+        media.retryFailedImages()
+        try await waitForTestEvent { transport.requests > count }
+    }
+    @Test(.timeLimit(.minutes(1)))
+    func aVisiblePlaceholderRefreshesWhenItsThumbnailArrives() async throws {
+        let helper = MediaDependencyTests(), transport = MediaDependencyTests.Images(bytes: try helper.png(width: 2))
+        let media = helper.environment(files: PreferenceMemoryFiles(), previewFiles: PreferenceMemoryFiles(), transport: transport)
+        let low = AppURL.required("https://example.invalid/second.png"), high = AppURL.required("https://example.invalid/original.png")
+        transport.blockedURL = low; transport.failedURLs = [high]
+        let preview = PreviewController(), host = ImageQuickLookPresenter.HostViewController()
+        let window = try window(host)
+        let coordinator = ImageQuickLookPresenter.Coordinator(media: media, makePreviewController: { preview })
+        defer { coordinator.cancel(); window.isHidden = true; window.rootViewController = nil }
+        let request = ImagePreviewRequest(remoteImages: [.init(thumbnailURL: AppURL.required("https://example.invalid/first.png"), originalURL: nil), .init(thumbnailURL: low, originalURL: high)], initialIndex: 0)
+        coordinator.receive(request, from: host, media: media)
+        try await waitForTestEvent { transport.pending != nil && preview.viewIfLoaded?.window != nil && !preview.isBeingPresented }
+        preview.currentPreviewItemIndex = 1
+        let oldURL = preview.dataSource?.previewController(preview, previewItemAt: 1).previewItemURL
+        transport.pending?.resume(); transport.pending = nil
+        try await waitForTestEvent { preview.refreshes > 0 }
+        #expect(preview.dataSource?.previewController(preview, previewItemAt: 1).previewItemURL != oldURL)
+    }
+    @Test(.timeLimit(.minutes(1)))
+    func initialPreviewFailureReleasesTheRequestAndReportsTheError() async throws {
+        let helper = MediaDependencyTests(), transport = MediaDependencyTests.Images(bytes: try helper.png(width: 2))
+        transport.failuresRemaining = 1
+        let media = helper.environment(files: PreferenceMemoryFiles(), previewFiles: PreferenceMemoryFiles(), transport: transport)
+        let host = ImageQuickLookPresenter.HostViewController(), window = try window(host)
+        let coordinator = ImageQuickLookPresenter.Coordinator(media: media)
+        defer { coordinator.cancel(); window.isHidden = true; window.rootViewController = nil }
+        var dismissed = false, failed = false
+        coordinator.onDismiss = { dismissed = true }; coordinator.onFailure = { _ in failed = true }
+        coordinator.receive(ImagePreviewRequest(remoteImages: [.init(thumbnailURL: AppURL.required("https://example.invalid/failed.png"), originalURL: nil)], initialIndex: 0), from: host, media: media)
+        try await waitForTestEvent { failed }
+        #expect(dismissed && host.presentedViewController == nil)
+    }
+}
+#endif

@@ -1,9 +1,13 @@
 import CommunityTransport
+import DesignSystemKit
 import Foundation
 import Network
 import os
+import SchedulePorts
 import Testing
-import TransportCore
+import UIKit
+@testable import ScheduleInfrastructure
+@testable import TransportCore
 @testable import BIT101_iOS
 
 private nonisolated final class CommunityIsolationServer: Sendable {
@@ -47,6 +51,13 @@ private nonisolated final class CommunityIsolationServer: Sendable {
     }
 
     private func reply(_ connection: NWConnection, request: String) {
+        if request.hasPrefix("GET /drip ") {
+            let header = Data("HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: close\r\n\r\n".utf8)
+            connection.send(content: header, completion: .contentProcessed { [self] error in
+                if error == nil { drip(connection, remaining: 100) }
+            })
+            return
+        }
         if request.hasPrefix("POST /redirect ") {
             let response = Data("HTTP/1.1 303 See Other\r\nLocation: /final\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8)
             connection.send(content: response, completion: .contentProcessed { _ in connection.cancel() })
@@ -56,6 +67,15 @@ private nonisolated final class CommunityIsolationServer: Sendable {
         let response = Data(("HTTP/1.1 200 OK\r\nCache-Control: public, max-age=3600\r\n" +
             "Content-Length: 1\r\nConnection: close\r\n\r\n" + body).utf8)
         connection.send(content: response, completion: .contentProcessed { _ in connection.cancel() })
+    }
+
+    private func drip(_ connection: NWConnection, remaining: Int) {
+        queue.asyncAfter(deadline: .now() + 0.05) { [self] in
+            connection.send(content: Data([65]), completion: .contentProcessed { [self] error in
+                if error == nil, remaining > 1 { drip(connection, remaining: remaining - 1) }
+                else { connection.cancel() }
+            })
+        }
     }
 
     func url() async throws -> URL {
@@ -106,6 +126,144 @@ private final class CommunityLoopbackTransport: HTTPTransport {
 }
 
 extension NetworkClientTests {
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
+    func scoreAuthenticationFactoryFollowsItsSelectedCookieStorage() async throws {
+        let server = try CommunityIsolationServer(); defer { server.stop() }
+        let url = try await server.url().appending(path: "score")
+        for productionPolicy in [false, true] {
+            let state = AppSchoolSession.isolatedState()
+            let transport = NetworkSessionPool.scoreAuthenticationTransport(state: state, productionPolicy: productionPolicy)
+            let client = HTTPClient(transport: transport, observer: nil)
+            for account in ["A", "B", "A"] {
+                let cookies = try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)
+                cookies.setCookie(try #require(HTTPCookie(properties: [.domain: "127.0.0.1", .path: "/",
+                    .name: "score-session", .value: account])))
+                state.replaceCookieStorage(with: cookies)
+                _ = try await client.send(URLRequest(url: url))
+                #expect(server.requests.last?.contains("score-session=\(account)") == true)
+            }
+        }
+        #expect(server.requests.count == 6)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func eclassDecodingFailurePreservesTheFieldContext() async throws {
+        do {
+            let _: [String: Int] = try await ScheduleService.decodeEclassResponse(Data(#"{"course":"broken"}"#.utf8))
+            Issue.record("字段类型错误应保留解码诊断。")
+        } catch {
+            let failure = error as NSError
+            #expect(failure.localizedDescription == ScheduleServiceError.invalidResponse.localizedDescription)
+            let underlying = try #require(failure.userInfo[NSUnderlyingErrorKey] as? DecodingError)
+            guard case let .typeMismatch(type, context) = underlying else {
+                Issue.record("字段类型诊断应对应 typeMismatch。")
+                return
+            }
+            #expect(ObjectIdentifier(type) == ObjectIdentifier(Int.self))
+            #expect(context.codingPath.map(\.stringValue) == ["course"])
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    @MainActor
+    func cancelledAlertWaitsReleaseTheirQueuedPresentation(cancelBeforeStarting: Bool) async throws {
+        var checks = 0
+        var pending: [CheckedContinuation<Void, Never>] = []
+        let presenter = AppErrorPresenter(presenter: { checks += 1; return nil }, retryDelay: {
+            await withCheckedContinuation { pending.append($0) }
+        })
+        defer { presenter.reset(); pending.forEach { $0.resume() } }
+        let alert = AppAlert(title: "取消提示", message: "等待前台", allowsDiagnostics: false, showsRecoveryLinks: false)
+        let task = Task { await presenter.presentAndWait(alert) }
+        defer { task.cancel() }
+        if !cancelBeforeStarting { try await waitForTestEvent { !pending.isEmpty } }
+        let retry = presenter.retryTask
+        #expect((retry != nil) == !cancelBeforeStarting)
+        task.cancel()
+        await task.value
+        let previousChecks = checks
+        pending.forEach { $0.resume() }; pending.removeAll()
+        await retry?.value
+        #expect(checks == previousChecks && checks == (cancelBeforeStarting ? 0 : 1))
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
+    func queuedBackgroundAlertsShareOneRetryAndReleaseItOnReset() async throws {
+        var checks = 0, retries = 0
+        var pending: [CheckedContinuation<Void, Never>] = []
+        let presenter = AppErrorPresenter(presenter: { checks += 1; return nil }, retryDelay: {
+            retries += 1
+            await withCheckedContinuation { pending.append($0) }
+        })
+        defer { presenter.reset(); pending.forEach { $0.resume() } }
+        let alert = AppAlert(title: "排队提示", message: "等待前台", allowsDiagnostics: false, showsRecoveryLinks: false)
+        for _ in 0..<3 { presenter.present(alert) }
+        try await waitForTestEvent { retries > 0 }
+        #expect(checks == 3 && retries == 1 && pending.count == 1)
+        pending.removeFirst().resume()
+        try await waitForTestEvent { retries > 1 }
+        #expect(checks == 4 && retries == 2 && pending.count == 1)
+        let retry = try #require(presenter.retryTask)
+        presenter.reset()
+        pending.removeFirst().resume()
+        await retry.value
+        #expect(checks == 5 && retries == 2)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
+    func resourceDeadlineEndsAContinuouslyReceivingResponse() async throws {
+        let server = try CommunityIsolationServer()
+        defer { server.stop() }
+        let configuration = URLSessionConfiguration.ephemeral
+        let defaultTransport = NetworkSessionPool.make(configuration: configuration, productionPolicy: true)
+        #expect(configuration.timeoutIntervalForResource == 90)
+        withExtendedLifetime(defaultTransport) {}
+        configuration.timeoutIntervalForRequest = 2
+        configuration.timeoutIntervalForResource = 0.4
+        let transport = NetworkSessionPool.make(configuration: configuration, productionPolicy: true)
+        let url = try await server.url().appending(path: "drip")
+        do {
+            _ = try await transport.data(for: URLRequest(url: url))
+            Issue.record("持续响应应沿整体资源期限结束。")
+        } catch let error as URLError { #expect(error.code == .timedOut) }
+        let response = try await transport.data(for: URLRequest(url: url.deletingLastPathComponent().appending(path: "account")))
+        #expect(response.0 == Data("A".utf8))
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
+    func ownedTransportFinishesItsRequestAndReleasesTheSessionDelegate() async throws {
+        final nonisolated class Invalidated: NSObject, URLSessionDelegate {
+            let continuation: AsyncStream<Bool>.Continuation
+            init(_ continuation: AsyncStream<Bool>.Continuation) { self.continuation = continuation }
+            func urlSession(_ session: URLSession, didBecomeInvalidWithError error: (any Error)?) {
+                continuation.yield(error == nil); continuation.finish()
+            }
+        }
+        let server = try CommunityIsolationServer(); defer { server.stop() }
+        let request = URLRequest(url: try await server.url().appending(path: "slow"))
+        let invalidation = AsyncStream<Bool>.makeStream()
+        let session = URLSession(configuration: .ephemeral, delegate: Invalidated(invalidation.continuation), delegateQueue: nil)
+        var transport: URLSessionTransport? = URLSessionTransport(ownedSession: session)
+        weak let lease = transport
+        func begin(_ transport: URLSessionTransport) -> Task<HTTPResponse, any Error> {
+            let client = HTTPClient(transport: transport, observer: nil)
+            return Task { try await client.send(request) }
+        }
+        let pending = begin(try #require(transport)); defer { pending.cancel() }
+        try await server.waitForDelayedRequest()
+        transport = nil
+        #expect(lease != nil)
+        server.finishDelayedRequest()
+        #expect(try await pending.value.data == Data("A".utf8))
+        var events = invalidation.stream.makeAsyncIterator()
+        #expect(await events.next() == true)
+        try await waitForTestEvent { lease == nil && session.delegate == nil }
+    }
+
     @Test(.timeLimit(.minutes(1)))
     @MainActor
     func productionTransportRecordsPostRedirectAsFinalGet() async throws {
@@ -174,5 +332,93 @@ extension NetworkClientTests {
         await #expect(throws: CancellationError.self) { try await delayed.value }
         #expect(server.requests.count == 5)
         #expect(server.requests.allSatisfy { !$0.lowercased().contains("\r\ncookie:") })
+    }
+}
+
+
+#if DEBUG
+enum NetworkSmokeWireFixtures {
+    static let recovery = #"""
+    {
+      "accepted": [
+        {"method":"GET","endpoint":"https://bit101.flwfdd.xyz/user/info/0","statusCode":200,"query":{},"responseBody":"{}"},
+        {"method":"GET","endpoint":"https://bit101.flwfdd.xyz/reaction/comments","statusCode":200,"query":{"obj":"poster41","order":"new","page":"0"},"responseBody":"[]"},
+        {"method":"DELETE","endpoint":"https://bit101.flwfdd.xyz/posters/41","statusCode":200,"query":{},"responseBody":"{}"},
+        {"method":"GET","endpoint":"https://bit101.flwfdd.xyz/posters/41","statusCode":404,"query":{},"responseBody":"{\"detail\":\"帖子不存在Orz\"}","responseContentMissing":true},
+        {"method":"GET","endpoint":"https://bit101.flwfdd.xyz/papers/45","statusCode":400,"query":{},"responseBody":"{\"detail\":\"文章不存在Orz\"}","responseContentMissing":true},
+        {"method":"GET","endpoint":"https://bit101.flwfdd.xyz/papers/45","statusCode":500,"query":{},"responseBody":"{\"detail\":\"文章不存在Orz\"}","responseContentMissing":true}
+      ],
+      "rejected": [
+        {"method":"GET","endpoint":"https://bit101.flwfdd.xyz/posters/41","statusCode":500,"query":{},"responseBody":"{\"detail\":\"内部错误\"}"},
+        {"method":"GET","endpoint":"https://bit101.flwfdd.xyz/courses/43","statusCode":404,"query":{},"responseBody":"{\"detail\":\"帖子不存在Orz\"}"}
+      ]
+    }
+    """#
+}
+
+extension NetworkSmokeCoverageTests {
+    @Test(.timeLimit(.minutes(1))) func recoveryEvidenceMatchesTheSharedWireFixture() async throws {
+        let groups = try #require(JSONSerialization.jsonObject(with: Data(NetworkSmokeWireFixtures.recovery.utf8)) as? [String: [[String: Any]]])
+        for row in groups.values.flatMap({ $0 }) {
+            let endpoint = try #require(row["endpoint"] as? String)
+            var components = try #require(URLComponents(string: endpoint))
+            let query = try #require(row["query"] as? [String: String])
+            components.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
+            let url = try #require(components.url)
+            var request = URLRequest(url: url)
+            request.httpMethod = try #require(row["method"] as? String)
+            let status = try #require(row["statusCode"] as? Int)
+            let response = try #require(HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil))
+            let body = try #require(row["responseBody"] as? String)
+            let evidence = await NetworkSmokeHTTPRequestEvidence.capture(request: request, response: response, body: Data(body.utf8))
+            #expect(evidence.endpoint == endpoint && evidence.query == query && evidence.finalQuery == query)
+            #expect(evidence.responseContentMissing == row["responseContentMissing"] as? Bool)
+        }
+    }
+    @Test(.timeLimit(.minutes(1)), arguments: ["correct", "positive-only", "negative-only", "unexpected", "final-wrong", "final-swapped"])
+    func searchEvidenceBindsBothControlKeywords(stage: String) async throws {
+        let expected = ["search": "课程 1", "excludedSearch": "exclusioncontrol"]
+        let words = stage == "positive-only" ? ["课程 1"] : stage == "negative-only" ? ["exclusioncontrol"]
+            : stage == "unexpected" ? ["课程 1", "other"] : ["课程 1", "exclusioncontrol"]
+        let collector = NetworkSmokeRequestCollector()
+        let operation = {
+            for word in words {
+                var components = try #require(URLComponents(string: "https://bit101.flwfdd.xyz/courses"))
+                components.queryItems = [URLQueryItem(name: "search", value: word), URLQueryItem(name: "page", value: "0")]
+                let request = URLRequest(url: try #require(components.url))
+                if stage == "final-swapped" { components.queryItems = [URLQueryItem(name: "search", value: word == "课程 1" ? "exclusioncontrol" : "课程 1")] }
+                if stage == "final-wrong" { components.queryItems = [URLQueryItem(name: "search", value: "other")] }
+                let finalRequest = URLRequest(url: try #require(components.url))
+                let finalURL = try #require(finalRequest.url)
+                let response = try #require(HTTPURLResponse(url: finalURL, statusCode: 200, httpVersion: nil, headerFields: nil))
+                await HTTPRequestEvidenceContext.didReceive?(request, HTTPResponse(data: Data(), response: response, finalRequest: finalRequest))
+            }
+        }
+        if stage == "correct" { try await collector.perform(operation, required: true, expectedParameters: expected) }
+        else { await #expect(throws: NetworkSmokeRequestError.self) { try await collector.perform(operation, required: true, expectedParameters: expected) } }
+        #expect(collector.requests.count == words.count && HTTPRequestEvidenceContext.didReceive == nil)
+    }
+}
+#endif
+
+extension NetworkClientTests {
+    @Test("Network diagnostics follow the injected connection state")
+    @MainActor
+    func networkDescriptionUsesSelectedPath() {
+        #expect(NetworkPathSnapshot.Status(pathStatus: .satisfied) == .connected)
+        #expect(NetworkPathSnapshot.Status(pathStatus: .unsatisfied) == .disconnected)
+        let path = NetworkPathState(snapshot: NetworkPathSnapshot(status: .checking))
+        let description = NetworkConnectionDescription(networkPath: path)
+        #expect(description.current == "检测中")
+        path.update(snapshot: NetworkPathSnapshot(status: .disconnected))
+        #expect(description.current == "未连接")
+        #expect(!path.isReachable)
+        let waiting = NetworkPathSnapshot.Status(pathStatus: .requiresConnection)
+        #expect(waiting == .requiresConnection)
+        path.update(snapshot: NetworkPathSnapshot(status: waiting))
+        #expect(description.current == "等待连接" && path.isReachable)
+        path.update(snapshot: NetworkPathSnapshot(status: .connected, interfaces: [.wifi, .other], virtualNetworkLikely: true))
+        #expect(description.current == "已连接 · Wi‑Fi + 虚拟/未知接口")
+        #expect(description.snapshot.virtualNetworkLikely)
     }
 }

@@ -4,23 +4,35 @@ from pathlib import Path
 import ast
 import re
 import shlex
+import subprocess
 import sys
-from validation_inputs import repository_script_paths, python_import_dependencies
+from validation_inputs import repository_script_paths, python_import_dependencies, python_execution_modules
+
+if not __debug__:
+    raise RuntimeError("验证自测需要 Python 默认优化级别；请使用 python3 -E 执行入口。")
 
 root = Path(sys.argv[1])
 
-def command_words(prefix):
+def checked_python(source, path):
+    compile(source, str(path), 'exec')
+    filename = str(path) if str(path).endswith('.py') else str(path) + '.py'
+    result = subprocess.run(['ruff', 'check', '--isolated', '--no-cache', '--select', 'F403,F405,F811,F821,F841',
+        '--output-format', 'concise', '--stdin-filename', filename, '-'], input=source, capture_output=True, text=True)
+    if result.returncode: raise SyntaxError(f'{path}:\n{result.stdout or result.stderr}')
+
+def command_words(prefix, *, first=False):
     lexer = shlex.shlex(prefix, posix=True, punctuation_chars=';|&()')
     lexer.whitespace_split = True
     lexer.commenters = ''
     try: words = list(lexer)
     except ValueError: return []
     boundaries = [index for index, word in enumerate(words) if set(word) <= set(';|&()')]
+    if first: return words[:boundaries[0]] if boundaries else words
     return words[boundaries[-1] + 1:] if boundaries else words
 
 
-def python_command_words(prefix):
-    words = command_words(prefix)
+def python_command_words(prefix, suffix=''):
+    words = command_words(prefix) + command_words(suffix, first=True)
     while words:
         if re.match(r'^[A-Za-z_]\w*=', words[0]) or words[0] in {'command', 'exec', 'if', 'elif', 'then', 'do', 'while', 'until', '{', '!'}:
             words.pop(0)
@@ -54,19 +66,21 @@ def inline_python_command(prefix):
     return False
 
 
-def stdin_python_command(prefix):
-    words = python_command_words(prefix)
+def python_reads_descriptor(prefix, suffix='', descriptor='0'):
+    words = python_command_words(prefix, suffix)
     if words is None: return False
     while words:
         option = words.pop(0)
-        if option == '-': return True
-        if option == '--': return not words or words[0] == '-'
+        if option == '--': option = words.pop(0) if words else '-'
+        if option == '-': return descriptor == '0'
         if re.match(r'-[bBdEiIOPqRsSuvVx]*[cm]', option): return False
         if option in {'-W', '-X'}:
             if not words: return False
             words.pop(0)
-        elif not option.startswith('-'): return False
-    return True
+        elif not option.startswith('-'):
+            return option in {f'/dev/fd/{descriptor}', f'/proc/self/fd/{descriptor}'} \
+                or descriptor == '0' and option == '/dev/stdin'
+    return descriptor == '0'
 
 
 def ansi_literal(body):
@@ -112,7 +126,7 @@ def quoted_command(source, position, *, ansi=False):
 
 def command_argument(source, position):
     body, literal = bytearray(), True
-    while position < len(source) and source[position] not in ' \t\r\n;|&()<>':
+    while position < len(source) and source[position] not in ' \t\r\n;|&()<>`':
         ansi = source.startswith("$'", position)
         if ansi or source[position] in "'\"":
             value, position, segment_literal = quoted_command(source, position + int(ansi), ansi=ansi)
@@ -127,7 +141,8 @@ def command_argument(source, position):
 
 
 def compile_embedded_python(source, path):
-    headers = re.compile(r"<<(?P<tabs>-)?[ \t]*(?P<quote>['\"]?)(?P<label>[A-Za-z_]\w*)(?P=quote)(?=[ \t\n;|&<>]|$)")
+    headers = re.compile(r"(?<!<)(?:(?<![^\s;|&()])(?P<descriptor>\d+))?<<(?!<)(?P<tabs>-)?[ \t]*")
+    redirects = re.compile(r'(?:\d+)?(?:&>>?|[<>]&|<>|>>?|<)(?!<)[ \t]*')
     visible = [" "] * len(source)
     contexts = [("command", 0)]
     pending = []
@@ -135,11 +150,15 @@ def compile_embedded_python(source, path):
     while position < len(source):
         character = source[position]
         context, context_start = contexts[-1]
-        if context == 'command' and character not in ' \t\r\n;|&()<>#' and not source.startswith('\\\n', position) \
+        if context in {'command', 'backtick'} and (redirect := redirects.match(source, position)):
+            _, end, _ = command_argument(source, redirect.end())
+            position = end
+            continue
+        if context in {'command', 'backtick'} and character not in ' \t\r\n;|&()<>#`' and not source.startswith('\\\n', position) \
                 and inline_python_command(''.join(visible[max(line_start, context_start):position])):
             argument_start = position
             body, position, literal = command_argument(source, position)
-            if literal: compile(body.decode('utf-8'), str(path), 'exec')
+            if literal: checked_python(body.decode('utf-8'), path)
             visible[argument_start] = '#'
             line_start = source.rfind('\n', 0, position) + 1
             continue
@@ -150,6 +169,7 @@ def compile_embedded_python(source, path):
             if character == context: contexts.pop()
             elif context == '"' and source.startswith("$(", position):
                 contexts.append(("command", position + 2)); position += 1
+            elif context == '"' and character == '`': contexts.append(('backtick', position + 1))
             position += 1
             continue
         if character == "#" and (position == 0 or source[position - 1] in " \t\n;|&()"):
@@ -169,9 +189,18 @@ def compile_embedded_python(source, path):
             continue
         if character == "(": contexts.append(("command", position + 1))
         elif character == ")" and len(contexts) > 1: contexts.pop()
+        elif character == '`':
+            if context == 'backtick': contexts.pop()
+            else: contexts.append(('backtick', position + 1))
+            position += 1
+            continue
         if character == '\n' and pending:
             position += 1
-            for header, is_python in pending:
+            command_end = position - 1
+            for header in pending:
+                suffix = ''.join(visible[header['end']:command_end])
+                is_python = header['label'].startswith('PY') or python_reads_descriptor(
+                    header['opening'], suffix, header['descriptor'])
                 body = []
                 for line in source[position:].splitlines(keepends=True):
                     position += len(line)
@@ -179,7 +208,7 @@ def compile_embedded_python(source, path):
                     if line.rstrip('\r\n') == header['label']: break
                     body.append(line)
                 else: raise SyntaxError(f'{path}: heredoc 结束标记缺失')
-                if is_python: compile(''.join(body), str(path), 'exec')
+                if is_python: checked_python(''.join(body), path)
             pending.clear()
             line_start = position
             continue
@@ -190,12 +219,16 @@ def compile_embedded_python(source, path):
             position += 1
             continue
         opening = ''.join(visible[max(line_start, context_start):position])
-        pending.append((header, header['label'].startswith('PY') or stdin_python_command(opening)))
-        position = header.end()
+        label, end, _ = command_argument(source, header.end())
+        if not label: raise SyntaxError(f'{path}: heredoc 需要结束标记')
+        delimiter = label.decode('utf-8')
+        pending.append({'tabs': header['tabs'], 'label': delimiter, 'opening': opening, 'end': end,
+            'descriptor': header['descriptor'] or '0'})
+        position = end
     if pending: raise SyntaxError(f'{path}: heredoc 正文缺失')
 
-for opening in ["<<PY", "<< 'PY'", '<<"PY"', "<<'PY'", "<<-PY", "<<'PY' >/dev/null", "<<'PY' | cat", "<<'PY' 2>&1", "<<'EOF'", '<<"END_SCRIPT"']:
-    label = "EOF" if "EOF" in opening else "END_SCRIPT" if "END_SCRIPT" in opening else "PY"
+for opening in ["<<PY", "<< 'PY'", '<<"PY"', "<<'PY'", "<<-PY", "<<'PY' >/dev/null", "<<'PY' | cat", "<<'PY' 2>&1", "<<'EOF'", '<<"END_SCRIPT"', "<<'PY-CODE'", r"<<\EOF", '<<"PY CODE"', "<<E'OF'"]:
+    label = command_argument(opening, re.match(r'<<-?\s*', opening).end())[0].decode('utf-8')
     prefix = "\t" if opening == "<<-PY" else ""
     compile_embedded_python(f"python3 - {opening}\n{prefix}pass\n{prefix}{label}\n", "heredoc-self-test")
     try:
@@ -212,6 +245,25 @@ for command in ('python3', 'python3 -B -', '"/fixture/Python Tools/python3" -', 
     try: compile_embedded_python(command + " <<'EOF'\nif True\nEOF\n", 'python-stdin-code-self-test')
     except SyntaxError: pass
     else: raise AssertionError('Python 标准输入代码需要参与语法审计')
+for source in ("python3 /dev/fd/3 3<<'CODE'\n{code}\nCODE\n",
+               "3<<'CODE' python3 /dev/fd/3\n{code}\nCODE\n",
+               "python3 -B -- /dev/fd/4 argument 4<<-'TEXT'\n\t{code}\n\tTEXT\n",
+               "python3 /proc/self/fd/4 4<<'TEXT'\n{code}\nTEXT\n",
+               "python3 /dev/stdin <<'CODE'\n{code}\nCODE\n",
+               "python3 /dev/fd/0 <<'CODE'\n{code}\nCODE\n",
+               "python3 /dev/fd/3 <<'DATA' 3<<'CODE'\nif True\nDATA\n{code}\nCODE\n",
+               "python3 /dev/fd/3 3<<'CODE' 4<<'DATA'\n{code}\nCODE\nif True\nDATA\n"):
+    compile_embedded_python(source.format(code='pass'), 'descriptor-code-self-test')
+    try: compile_embedded_python(source.format(code='if True'), 'descriptor-code-self-test')
+    except SyntaxError: pass
+    else: raise AssertionError('Python 文件描述符正文需要按实际脚本路径参与语法审计')
+for command in ("python3 /dev/fd/3 4<<'CODE'", "python3 - 3<<'CODE'", "python3 -c 'pass' 3<<'CODE'",
+                "python3 script.py 3<<'CODE'", "cat 3<<'CODE'", "python3 /dev/fd/3 argument3<<'CODE'"):
+    compile_embedded_python(command + '\nif True\nCODE\n', 'descriptor-data-self-test')
+optimized = subprocess.run([sys.executable, '-O', '-B', str(Path(__file__).resolve()), str(root)],
+    capture_output=True, text=True)
+if optimized.returncode == 0 or 'Python 默认优化级别' not in optimized.stderr:
+    raise AssertionError('独立 Python 语法审计需要核对断言执行环境')
 for command, bodies in [
     ("cat <<'TEXT' | python3 - <<'EOF'", 'if True\nTEXT\n{python}\nEOF\n'),
     ("python3 - <<'EOF' | cat <<'TEXT'", '{python}\nEOF\nif True\nTEXT\n'),
@@ -230,6 +282,18 @@ for source in ("python3 - \\\n <<'EOF'\nif True\nEOF\n", 'value="$(python3 - <<\
     try: compile_embedded_python(source, "shell-continuation-self-test")
     except SyntaxError: pass
     else: raise AssertionError("Python heredoc 语法审计需要覆盖续行及命令替换")
+
+for source in ("2>/dev/null python3 -c '{code}'", ">/dev/null python3 -c '{code}'",
+               "python3 2>/dev/null -c '{code}'", "<<'EOF' python3 -\n{code}\nEOF\n",
+               "2>/dev/null <<'EOF' python3 -\n{code}\nEOF\n", "value=`python3 -c '{code}'`",
+               'value="`python3 -c \'{code}\'`"', "value=`python3 -c {code}`"):
+    compile_embedded_python(source.format(code='pass'), 'redirect-substitution-self-test')
+    try: compile_embedded_python(source.format(code='if True'), 'redirect-substitution-self-test')
+    except SyntaxError: pass
+    else: raise AssertionError('前置重定向及反引号命令替换需要参与 Python 语法审计')
+for source in ("2>/dev/null echo python3 -c 'if True'", "<<'EOF' cat\nif True\nEOF\n",
+               "echo '`python3 -c if True`'", 'echo "\\`python3 -c if True\\`"'):
+    compile_embedded_python(source, 'redirect-substitution-text-self-test')
 
 for prefix in ('python3 -c ', 'python3 -Bc ', 'python3 -OOuc ', '/usr/bin/python3 -B -c ', '"python3" -c ',
                "'python3' -c ", "$'python3' -c ", '"/fixture/Python Tools/python3" -c ',
@@ -260,14 +324,34 @@ for source in ('echo python3 -c \'if True\'', '# python3 -c \'if True\'', 'echo 
                "env BIT101_FLAG=1 echo python3 -c 'if True'", "python3 script.py -c 'if True'", "printf '%s' $'\\xff'"):
     compile_embedded_python(source, 'inline-shell-text-self-test')
 
+checked_python('from datetime import timezone\nprint(timezone.utc)', 'defined-name-self-test')
+for source in ('python3 -c "print(timezone.utc)"', "python3 - <<'PY'\nprint(timezone.utc)\nPY\n"):
+    try: compile_embedded_python(source, 'undefined-name-self-test')
+    except SyntaxError as error: assert 'F821' in str(error)
+    else: raise AssertionError('嵌入 Python 的未定义名称需要参与审计')
+try: checked_python('def normalize(): return timezone.utc', 'undefined-name-self-test')
+except SyntaxError as error: assert 'F821' in str(error)
+else: raise AssertionError('独立 Python 的未定义名称需要参与审计')
+
+for source in ('from code_quality_rules import *', 'from code_quality_rules import *\nundefined_detector_name()'):
+    try: checked_python(source, 'explicit-import-self-test')
+    except SyntaxError as error:
+        assert 'F403' in str(error)
+        if 'undefined_detector_name' in source: assert 'F405' in str(error)
+    else: raise AssertionError('Python 名称审计需要显式导入及确定的名称来源')
+
 for path in repository_script_paths(root, {'.py'}):
-    compile(path.read_text(encoding="utf-8"), str(path), "exec")
+    checked_python(path.read_text(encoding="utf-8"), path)
 for path in repository_script_paths(root, {'.sh'}):
     compile_embedded_python(path.read_text(encoding="utf-8"), path)
 
 
-def import_cycles(sources):
-    graph = python_import_dependencies(sources)
+def import_cycles(sources, directory=''):
+    resolved = python_execution_modules({name: name for name in sources}, directory)
+    dependencies = python_import_dependencies({name: sources[canonical] for name, canonical in resolved.items()})
+    graph = {name: set() for name in resolved.values()}
+    for name, imports in dependencies.items():
+        graph[resolved[name]].update(resolved[dependency] for dependency in imports)
     active, completed, cycles = [], set(), set()
     def visit(name):
         if name in active:
@@ -295,10 +379,14 @@ assert import_cycles({'pkg.a': 'import json', 'pkg.json': 'import pkg.a'}) == []
 assert import_cycles({'a': 'import pkg.b', 'pkg.b': 'import a', 'pkg.a': 'pass'}) == [('a', 'pkg.b')]
 assert import_cycles({'pkg.a': 'from json import loads', 'pkg.json': 'import pkg.a'}) == []
 assert import_cycles({'a': 'from pkg import b', 'pkg.b': 'from a import value', 'pkg.a': 'pass'}) == [('a', 'pkg.b')]
+assert import_cycles({'pkg.entry': 'import helper', 'pkg.helper': 'import entry'}, 'pkg') == [('pkg.entry', 'pkg.helper')]
+assert import_cycles({'helper': 'pass', 'pkg.entry': 'import helper', 'pkg.helper': 'import entry'}, 'pkg') == [('pkg.entry', 'pkg.helper')]
+assert import_cycles({'pkg.entry': 'import helper', 'pkg.helper': 'import json'}, 'pkg') == []
 sources = {'.'.join(path.relative_to(root / 'Scripts').with_suffix('').parts[:-1] if path.stem == '__init__'
                    else path.relative_to(root / 'Scripts').with_suffix('').parts): path.read_text()
            for path in repository_script_paths(root, {'.py'})
-           if path.is_relative_to(root / 'Scripts') and not path.stem.endswith('_tests')}
-cycles = import_cycles(sources)
+           if path.is_relative_to(root / 'Scripts')}
+cycles = sorted({cycle for directory in {'', *(name.rpartition('.')[0] for name in sources)}
+                 for cycle in import_cycles(sources, directory)})
 if cycles:
     raise ValueError('维护脚本依赖需要单向组织：' + '；'.join(' → '.join((*cycle, cycle[0])) for cycle in cycles))

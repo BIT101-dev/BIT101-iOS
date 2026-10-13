@@ -132,14 +132,15 @@ nonisolated struct CourseResponse: Decodable, Sendable {
 
 private nonisolated extension KeyedDecodingContainer {
     func decodeFlexibleDoubleIfPresent(forKey key: Key) -> Double? {
-        if let value = try? decodeIfPresent(Double.self, forKey: key) {
+        if let value = try? decodeIfPresent(Double.self, forKey: key), value.isFinite {
             return value
         }
         if let value = try? decodeIfPresent(Int.self, forKey: key) {
             return Double(value)
         }
-        if let value = try? decodeIfPresent(String.self, forKey: key) {
-            return Double(value.trimmingCharacters(in: .whitespacesAndNewlines))
+        if let value = try? decodeIfPresent(String.self, forKey: key),
+           let number = Double(value.trimmingCharacters(in: .whitespacesAndNewlines)), number.isFinite {
+            return number
         }
         return nil
     }
@@ -149,6 +150,7 @@ nonisolated extension CourseResponse {
     nonisolated struct ParsedCourse: Sendable {
         let course: CourseRecord
         let rawWeeks: [Int]
+        let sourceDisplayWeeks: String?
     }
 
     /// 将课表接口的每一行转换成独立课程记录。
@@ -173,14 +175,17 @@ nonisolated extension CourseResponse {
     }
 
     private static func parseCourse(_ row: CourseRow) -> ParsedCourse {
+        let name = (row.name ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let number = (row.courseNumber ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let rawWeeks = (row.rawWeeks ?? "").enumerated().compactMap { index, flag in
             flag == "1" ? index + 1 : nil
         }
         let displayWeeks = SmallTermWeekNormalizer.weeksDescribed(in: row.displayWeeks ?? "")
-        let weeks = displayWeeks.isEmpty ? rawWeeks : displayWeeks.sorted()
+        let weeks = displayWeeks.isEmpty || (!rawWeeks.isEmpty && Set(rawWeeks).isSubset(of: displayWeeks))
+            ? rawWeeks : displayWeeks.sorted()
         let scheduleIdentity = [
             row.term ?? "",
-            row.courseNumber ?? "",
+            number.isEmpty ? scheduleCourseIdentity(number: number, name: name, teacher: row.teacher ?? "") : number,
             String(row.weekday ?? 0),
             String(row.startSection ?? 0),
             String(row.endSection ?? 0),
@@ -191,7 +196,7 @@ nonisolated extension CourseResponse {
         let course = CourseRecord(
             id: scheduleIdentity,
             term: row.term ?? "",
-            name: row.name ?? "",
+            name: name.isEmpty ? number : name,
             teacher: row.teacher ?? "",
             classroom: row.classroom ?? "",
             description: row.scheduleDescription ?? "",
@@ -200,14 +205,14 @@ nonisolated extension CourseResponse {
             startSection: row.startSection ?? 0,
             endSection: row.endSection ?? 0,
             campus: row.campus ?? "",
-            number: row.courseNumber ?? "",
+            number: number,
             credit: row.credit ?? 0,
             hour: row.hour ?? 0,
             type: row.type ?? "",
             category: row.category ?? "",
             department: row.department ?? ""
         )
-        return ParsedCourse(course: course, rawWeeks: rawWeeks)
+        return ParsedCourse(course: course, rawWeeks: rawWeeks, sourceDisplayWeeks: row.displayWeeks)
     }
 
     var courseRecords: [CourseRecord] {

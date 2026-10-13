@@ -89,6 +89,14 @@ final class GalleryViewModel: ObservableObject {
         cancelSearchOperations()
     }
 
+    func contentPreferencesDidChange() {
+        cancelPendingOperations()
+        for feed in GalleryFeedKind.allCases { feedStates[feed] = GalleryFeedState() }
+        searchState = GalleryFeedState()
+        enqueueRefresh(for: selectedFeed)
+        if isShowingSearch { enqueueSearch() }
+    }
+
     /// 内存压力时回收闲置分栏，当前分栏保留阅读位置。
     func releaseInactiveFeeds() {
         for feed in GalleryFeedKind.allCases where feed != selectedFeed {

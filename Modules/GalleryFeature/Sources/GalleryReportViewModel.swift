@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import TransportCore
+import CommunityTransport
 
 /// 举报状态和在途任务归当前弹层实例维护。
 @MainActor @Observable
@@ -10,6 +11,7 @@ final class GalleryReportViewModel {
     var text = ""
     private(set) var isLoading = true
     private(set) var isSubmitting = false
+    private(set) var resultNeedsReview = false
     private(set) var errorMessage: String?
     private let service: any GalleryReportServicing
     private var generation = 0
@@ -29,7 +31,7 @@ final class GalleryReportViewModel {
     }
 
     func loadReportTypes() async {
-        guard loadTask == nil else { return }
+        guard loadTask == nil, !resultNeedsReview else { return }
         let operation = generation
         isLoading = true
         errorMessage = nil
@@ -52,7 +54,7 @@ final class GalleryReportViewModel {
     }
 
     func submit(objectID: String) async -> Bool {
-        guard !isLoading, submissionTask == nil, let selectedTypeID,
+        guard !isLoading, !resultNeedsReview, submissionTask == nil, let selectedTypeID,
               reportTypes.contains(where: { $0.id == selectedTypeID }) else { return false }
         let operation = generation
         let service = service
@@ -67,7 +69,12 @@ final class GalleryReportViewModel {
             try Task.checkCancellation()
             return generation == operation
         } catch {
-            if generation == operation, !TaskCancellation.matches(error) { errorMessage = error.localizedDescription }
+            if generation == operation {
+                if error is CommunityCreateOutcomeUnknown {
+                    resultNeedsReview = true
+                    errorMessage = CommunityCreateOutcomeUnknown.reportReviewMessage
+                } else if !TaskCancellation.matches(error) { errorMessage = error.localizedDescription }
+            }
             return false
         }
     }

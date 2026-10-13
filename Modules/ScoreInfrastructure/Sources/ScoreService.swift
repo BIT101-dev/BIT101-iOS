@@ -234,6 +234,9 @@ public struct ScoreService {
 
         let (data, response) = try await send(request, owner: owner)
         if response.statusCode == 202 {
+            guard authorization == nil else {
+                throw ScoreServiceError.challengeInvalid("成绩单会话再次要求认证，请重新申请可信成绩单。")
+            }
             guard
                 let envelope = try? JSONDecoder().decode(BITLoginChallengeEnvelope.self, from: data),
                 let accessToken = envelope.detail.accessToken,
@@ -307,6 +310,7 @@ public struct ScoreService {
         guard (200 ..< 300).contains(report.response.statusCode) else {
             throw ScoreServiceError.queryFailed("学校可信成绩单页面暂时无法访问，请重新申请。")
         }
+        try validateTranscriptSource(report.response, requestedURL: reportURL)
         guard let html = String(data: report.data, encoding: .utf8) else {
             throw ScoreServiceError.invalidResponse
         }
@@ -322,7 +326,8 @@ public struct ScoreService {
                 let url = URL(string: String(html[range]), relativeTo: reportURL)?.absoluteURL,
                 url.scheme == reportURL.scheme,
                 url.host == reportURL.host,
-                url.port == reportURL.port,
+                (url.port ?? 443) == 443,
+                url.path.hasPrefix("/cjd/Temp/"),
                 !pageURLs.contains(url)
             else { return }
             pageURLs.append(url)
@@ -341,6 +346,7 @@ public struct ScoreService {
             request.timeoutInterval = Self.requestTimeoutSeconds
             request.setValue(cookieString, forHTTPHeaderField: "Cookie")
             let response = try await ownedResponse(request, using: sensitiveHTTPClient, owner: owner, maximumBytes: remainingBytes)
+            try validateTranscriptSource(response.response, requestedURL: url)
             guard !response.data.isEmpty else {
                 throw ScoreServiceError.invalidResponse
             }
@@ -348,6 +354,13 @@ public struct ScoreService {
             remainingBytes -= response.data.count
         }
         return pages
+    }
+
+    private func validateTranscriptSource(_ response: HTTPURLResponse, requestedURL: URL) throws {
+        guard let finalURL = response.url, finalURL.scheme == "https", finalURL.host == "jwb.bit.edu.cn",
+              (finalURL.port ?? 443) == 443, finalURL.path == requestedURL.path else {
+            throw ScoreServiceError.invalidResponse
+        }
     }
 
     private func finishTranscriptAuthentication(
@@ -396,6 +409,9 @@ public struct ScoreService {
 
         let (data, response) = try await send(request, owner: owner)
         if response.statusCode == 202 {
+            guard authorization == nil else {
+                throw ScoreServiceError.challengeInvalid("成绩查询会话再次要求认证，请重新查询成绩。")
+            }
             let envelope = try? JSONDecoder().decode(BITLoginChallengeEnvelope.self, from: data)
             guard
                 let payload = envelope?.detail,
@@ -553,7 +569,7 @@ public struct ScoreService {
         }
 
         let headers = payload.data[0].map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-        guard Set(headers).isSuperset(of: ["课程名称", "成绩"]),
+        guard Set(headers).isSuperset(of: ScoreRow.requiredHeaderNames),
               headers.allSatisfy({ !$0.isEmpty }), Set(headers).count == headers.count,
               payload.data.dropFirst().allSatisfy({ $0.count == headers.count })
         else { throw ScoreServiceError.invalidResponse }
@@ -563,7 +579,9 @@ public struct ScoreService {
             if index.isMultiple(of: 64) {
                 try Task.checkCancellation()
             }
-            rows.append(ScoreRow(index: index, headers: headers, values: row))
+            let record = ScoreRow(index: index, headers: headers, values: row)
+            guard record.hasValidCourseIdentity else { throw ScoreServiceError.invalidResponse }
+            rows.append(record)
         }
         return rows
     }

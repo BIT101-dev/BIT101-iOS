@@ -2,6 +2,7 @@ import CommunityPersistence
 import CommunityCore
 import CommunityUI
 import ScheduleDomain
+import ScheduleContracts
 import ScheduleFeature
 import CommunityTransport
 import MediaKit
@@ -13,16 +14,66 @@ import StorageCore
 import ScorePorts
 import ClientCore
 import Testing
+import WebKit
 @testable import BIT101_iOS
 
 @MainActor
+struct ErrorReportURLRedactionTests {
+    @Test func encodedCredentialsAreMaskedAcrossURLComponents() throws {
+        let credentials = ["a&b", "密 码"]
+        for suffix in ["?value=a%26b", "?value=%2561%2526%2562", "?a%26b=ordinary", "?password-a%26b=ordinary",
+                       "#a%26b", "#section=a%2526b", "?value=%E5%AF%86%20%E7%A0%81",
+                       "?service=https%3A%2F%2Fschool.invalid%2F%3Fvalue%3Da%2526b"] {
+            let input = "https://example.invalid/" + suffix
+            let outputs = [ErrorReportRedactor.forced(input, credentials: credentials),
+                ErrorReportRedactor.sanitized(input, credentials: credentials, studentID: "")]
+            for (mode, output) in outputs.enumerated() {
+                let decoded = try #require(output.removingPercentEncoding?.removingPercentEncoding)
+                for credential in credentials { #expect(!decoded.contains(credential), Comment(rawValue: suffix)) }
+                if mode == 0 { #expect(decoded.contains("[REDACTED]"), Comment(rawValue: suffix)) }
+                #expect(decoded.contains("example.invalid"), Comment(rawValue: suffix))
+            }
+        }
+        let ordinary = "https://example.invalid/?value=hello%2520world#section"
+        #expect(ErrorReportRedactor.forced(ordinary, credentials: credentials) == ordinary)
+    }
+}
+
+@MainActor
 struct SuggestionDependencyTests {
+    @Test(.timeLimit(.minutes(1))) func diagnosticPreparationUsesCapturedCredentialsAndKeepsTheMainActorResponsive() async throws {
+        let marker = "CAPTURED_FIXTURE_SECRET", context = FeedbackDeviceContext.current
+        let body = String(repeating: marker + " ", count: (256 * 1_024) / (marker.utf8.count + 1))
+        let diagnostics = (0..<10).map { _ in
+            NetworkDiagnosticRecord(id: UUID(), occurredAt: Date(), method: "GET", url: "https://example.invalid/report",
+                statusCode: 500, elapsedMilliseconds: 1, error: marker, responseHeaders: [:], responseBody: body)
+        }
+        let payload = ErrorReportPayload(mode: "raw", isDevelopmentBuild: false, comment: marker, contact: nil,
+            errorTitle: "fixture", errorMessage: marker, appVersion: "test", build: "test", systemVersion: "test",
+            deviceModel: "test", networkStatus: context.networkStatus, diagnostics: diagnostics, submittedAt: Date(),
+            context: context, diagnosticSummary: FeedbackDiagnosticSummary(diagnostics: diagnostics))
+        var heartbeat = false
+        let mainActorWork = Task { @MainActor in heartbeat = true }
+        defer { mainActorWork.cancel() }
+        let prepared = try await payload.preparedForSubmission(credentials: [marker], studentID: "fixture")
+        #expect(heartbeat)
+        await mainActorWork.value
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+        let encoded = try encoder.encode(prepared)
+        #expect(encoded.count <= 1_024 * 1_024)
+        #expect(String(decoding: encoded, as: UTF8.self).contains(marker) == false)
+        #expect(payload.diagnostics.first?.responseBody == body)
+    }
+
     @MainActor
     private final class SuggestionDraftPort: DeveloperSuggestionDraftStoring {
         var cleanups = 0
-        func saveSuggestion(_ snapshot: DeveloperSuggestionDraftSnapshot) async -> Bool { true }
+        var failsCleanup = false
+        var failsSave = false
+        var onSave: (() -> Void)?
+        func saveSuggestion(_ snapshot: DeveloperSuggestionDraftSnapshot) async -> Bool { onSave?(); return !failsSave }
         func loadSuggestion() async -> ComposerDraftLoadResult<DeveloperSuggestionDraftSnapshot> { .missing }
-        func removeSuggestion() async { cleanups += 1 }
+        func removeSuggestion() async -> Bool { cleanups += 1; return !failsCleanup }
         func captureSuggestionCleanup() async -> ComposerDraftCleanup {
             { await self.removeSuggestion() }
         }
@@ -43,7 +94,7 @@ struct SuggestionDependencyTests {
             submittedAt: Date(timeIntervalSince1970: 0), context: context, attachments: [])
     }
 
-    @Test func suggestionPageAcceptsAnIndependentDraftPort() async throws {
+    @Test(.timeLimit(.minutes(1))) func suggestionPageAcceptsAnIndependentDraftPort() async throws {
         let drafts = SuggestionDraftPort()
         var delivered: [String] = []
         let page = DeveloperSuggestionPage(dependencies: .init(drafts: drafts, submit: { delivered.append($0.comment) }))
@@ -52,7 +103,23 @@ struct SuggestionDependencyTests {
         #expect(drafts.cleanups == 1)
     }
 
-    @Test func successfulSubmissionUsesTheChosenDraftAndDeliveryOwner() async throws {
+    @Test(.timeLimit(.minutes(1))) func confirmedSuggestionExposesCleanupRetryWithoutAnotherDelivery() async throws {
+        let drafts = SuggestionDraftPort()
+        drafts.failsCleanup = true
+        var deliveries = 0
+        let dependencies = DeveloperSuggestionDependencies(drafts: drafts, submit: { _ in deliveries += 1 })
+        do {
+            try await dependencies.submitAndClear(payload())
+            Issue.record("草稿清理失败应返回可重试结果")
+        } catch let cleanup as DeveloperSuggestionCleanupRequired {
+            #expect(deliveries == 1)
+            drafts.failsCleanup = false
+            #expect(await cleanup.retry())
+            #expect(deliveries == 1 && drafts.cleanups == 2)
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func successfulSubmissionUsesTheChosenDraftAndDeliveryOwner() async throws {
         let first = store(PreferenceMemoryFiles())
         let second = store(PreferenceMemoryFiles())
         #expect(await first.saveSuggestion(.init(text: "first draft", images: [])))
@@ -67,14 +134,14 @@ struct SuggestionDependencyTests {
         #expect(await second.loadSuggestion().snapshot?.text == "second draft")
     }
 
-    @Test func deliveryFailurePreservesTheOwnedDraft() async {
+    @Test(.timeLimit(.minutes(1))) func deliveryFailurePreservesTheOwnedDraft() async {
         let drafts = store(PreferenceMemoryFiles())
         #expect(await drafts.saveSuggestion(.init(text: "retained draft", images: [])))
         let dependencies = DeveloperSuggestionDependencies(drafts: drafts, submit: { _ in throw URLError(.notConnectedToInternet) })
         await #expect(throws: URLError.self) { try await dependencies.submitAndClear(payload()) }
         #expect(await drafts.loadSuggestion().snapshot?.text == "retained draft")
     }
-    @Test func lostResponsesKeepTheSuggestionIdentityAndSuccessReleasesTheAttempt() async throws {
+    @Test(.timeLimit(.minutes(1))) func lostResponsesKeepTheSuggestionIdentityAndSuccessReleasesTheAttempt() async throws {
         let drafts = SuggestionDraftPort()
         var delivered: [DeveloperSuggestionPayload] = []
         var fails = true
@@ -99,7 +166,79 @@ struct SuggestionDependencyTests {
         await #expect(throws: URLError.self) { try await submit(payload(comment: "edited")) }
         #expect(delivered[4].requestID != delivered[3].requestID && delivered[4].comment == "edited")
     }
-    @Test func delayedSubmissionCleanupStaysWithTheCapturedAccount() async throws {
+    @Test(.timeLimit(.minutes(1))) func restoredSuggestionKeepsItsFullWireIdentityAndSeparateImageAsset() async throws {
+        let files = PreferenceMemoryFiles()
+        let drafts = store(files)
+        let bytes = Data(repeating: 0xab, count: ComposerDraftImagePolicy.maximumBytes)
+        let images = [ComposerImageDraftSnapshot(filename: "suggestion.jpg", previewData: bytes, uploadData: bytes)]
+        var original = payload()
+        original.isDevelopmentBuild = false
+        original.attachments = [.init(filename: "suggestion.jpg", contentType: "image/jpeg", data: bytes.base64EncodedString())]
+        let draft = DeveloperSuggestionDraftSnapshot(text: original.comment, images: images, contact: "fixture")
+        let metadata = try #require(try original.draftMetadata(matching: draft))
+        #expect(metadata.count < ComposerDraftImagePolicy.maximumMetadataBytes)
+        let saved = DeveloperSuggestionDraftSnapshot(text: draft.text, images: images, contact: draft.contact,
+            pendingSubmissionMetadata: metadata)
+        var deliveries: [DeveloperSuggestionPayload] = []
+        let failed = DeveloperSuggestionDependencies(drafts: drafts, submit: {
+            deliveries.append($0); throw URLError(.timedOut)
+        })
+        await #expect(throws: URLError.self) { try await failed.submitAndClear(original, persisting: saved) }
+        let restored = try #require(await store(files).loadSuggestion().snapshot)
+        let attempt = FeedbackSubmissionAttempt<DeveloperSuggestionPayload>()
+        attempt.restore(try DeveloperSuggestionPayload.restored(from: restored))
+        var candidate = payload(); candidate.attachments = original.attachments
+        let retry = attempt.prepare(candidate)
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]; encoder.dateEncodingStrategy = .iso8601
+        #expect(try encoder.encode(retry) == encoder.encode(original))
+        let successful = DeveloperSuggestionDependencies(drafts: drafts, submit: { deliveries.append($0) })
+        try await successful.submitAndClear(retry)
+        #expect(deliveries.count == 2 && deliveries[0].requestID == deliveries[1].requestID)
+        #expect(await drafts.loadSuggestion().snapshot == nil)
+        let edited = DeveloperSuggestionDraftSnapshot(text: "edited", images: images, contact: draft.contact)
+        #expect(try original.draftMetadata(matching: edited) == nil)
+        #expect(attempt.prepare(payload(comment: "edited")).requestID != original.requestID)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func suggestionPersistenceFailureStopsDeliveryAndPreservesTheDraft() async throws {
+        let files = PreferenceMemoryFiles()
+        let drafts = store(files)
+        #expect(await drafts.saveSuggestion(.init(text: "saved content", images: [])))
+        files.setFailures(writing: true)
+        var deliveries = 0
+        let dependencies = DeveloperSuggestionDependencies(drafts: drafts, submit: { _ in deliveries += 1 })
+        await #expect(throws: CocoaError.self) {
+            try await dependencies.submitAndClear(payload(), persisting: .init(text: "edited content", images: []))
+        }
+        #expect(deliveries == 0)
+        files.setFailures()
+        #expect(await drafts.loadSuggestion().snapshot?.text == "saved content")
+    }
+
+    @Test(.timeLimit(.minutes(1))) func accountSwitchDuringSuggestionPersistenceStopsDeliveryAndCleanup() async throws {
+        let drafts = SuggestionDraftPort()
+        var generation = 0
+        var deliveries = 0
+        drafts.onSave = { generation += 1 }
+        let dependencies = DeveloperSuggestionDependencies(drafts: drafts, submit: { _ in deliveries += 1 },
+            captureSubmissionOwner: { let captured = generation; return { captured == generation } })
+        await #expect(throws: CancellationError.self) {
+            try await dependencies.submitAndClear(payload(), persisting: .init(text: "saved content", images: []))
+        }
+        #expect(deliveries == 0 && drafts.cleanups == 0)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func corruptSuggestionIdentityKeepsTheSavedContentForRecovery() async throws {
+        let drafts = store(PreferenceMemoryFiles())
+        let snapshot = DeveloperSuggestionDraftSnapshot(text: "retained content", images: [],
+            pendingSubmissionMetadata: Data("corrupt submission".utf8))
+        #expect(await drafts.saveSuggestion(snapshot))
+        let restored = try #require(await drafts.loadSuggestion().snapshot)
+        #expect(throws: DecodingError.self) { try DeveloperSuggestionPayload.restored(from: restored) }
+        #expect(await drafts.loadSuggestion().snapshot?.pendingSubmissionMetadata == snapshot.pendingSubmissionMetadata)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func delayedSubmissionCleanupStaysWithTheCapturedAccount() async throws {
         let account = Account()
         let drafts = ComposerDraftStore(files: PreferenceMemoryFiles(), applicationSupport: URL(fileURLWithPath: "/preference-sync"), session: { account.session }, prepareImageData: ComposerDraftImageCompressor.compress)
         #expect(await drafts.saveSuggestion(.init(text: "A draft", images: [])))
@@ -115,7 +254,7 @@ struct SuggestionDependencyTests {
         #expect(await drafts.loadSuggestion().snapshot == nil)
     }
 
-    @Test func aFreshDraftRevisionSurvivesAnEarlierSubmissionCleanup() async throws {
+    @Test(.timeLimit(.minutes(1))) func aFreshDraftRevisionSurvivesAnEarlierSubmissionCleanup() async throws {
         let drafts = store(PreferenceMemoryFiles())
         #expect(await drafts.saveSuggestion(.init(text: "submitted draft", images: [])))
         let dependencies = DeveloperSuggestionDependencies(drafts: drafts, submit: { _ in
@@ -159,8 +298,71 @@ final class LocalDataActionsSpy {
 }
 
 @MainActor
+@Suite(.serialized)
 struct AppLocalDataOwnershipTests {
-    @Test(arguments: [false, true]) func pendingOnlineRecoveryProtectsCredentialsAndJournalBeforeReset(legacy: Bool) async throws {
+    @Test(.timeLimit(.minutes(1))) func appCompositionClearsTheSelectedRealResources() async throws {
+        let files = AppFileDirectories.files, defaults = AppFileDirectories.defaults
+        let media = AppMedia.makeEnvironment(previewStorage: MediaPreviewStorage(files: files))
+        let settings = AppSettingsStore(defaults: defaults)
+        let service = AppLocalDataComposition.appService(settings: settings, media: media)
+        let support = AppFileDirectories.applicationSupport.appending(path: "cleanup-fixture.dat")
+        let report = try #require(ReleaseNetworkSmokeReportStore.fileURL)
+        let mediaCache = try #require(media.cacheDirectories.first).appending(path: "cleanup-fixture.dat")
+        for file in [support, report, mediaCache] {
+            try files.createDirectory(at: file.deletingLastPathComponent())
+            try files.writeData(Data([1, 2, 3]), to: file, options: [.atomic])
+        }
+        let snapshotStore = PlatformScheduleSnapshotStorage.store
+        try snapshotStore.write(ScheduleExternalSnapshot(revision: 1, isLoggedIn: true,
+            studentID: "cleanup-fixture", firstDayString: "2026-01-01", timeTable: [], courses: []))
+        try AppAccountSession.storage.saveLoginState(studentID: "cleanup-fixture", password: "fixture", fakeCookie: "fixture")
+        defaults.set("fixture", forKey: "cleanup-fixture")
+        let request = URLRequest(url: AppURL.required("https://example.invalid/cleanup-fixture"))
+        URLCache.shared.storeCachedResponse(CachedURLResponse(response: URLResponse(url: try #require(request.url),
+            mimeType: "text/plain", expectedContentLength: 3, textEncodingName: nil), data: Data([1, 2, 3])), for: request)
+        let cookies = AppLocalDataComposition.websiteDataStore.httpCookieStore
+        let cookie = try #require(HTTPCookie(properties: [.domain: "example.invalid", .path: "/",
+            .name: "cleanup-fixture", .value: "fixture", .expires: Date().addingTimeInterval(3_600)]))
+        await cookies.setCookie(cookie)
+        #expect(await cookies.allCookies().contains { $0.name == cookie.name })
+        #expect(URLCache.shared.cachedResponse(for: request) != nil)
+        #expect(snapshotStore.load()?.isLoggedIn == true)
+        #expect(!AppAccountSession.storage.fakeCookie.isEmpty)
+        var loggedOut = false
+        #expect(await service.resetAllLocalData { loggedOut = true })
+        #expect(loggedOut && !service.isCleaning)
+        for file in [support, report, mediaCache] { #expect(files.fileExists(at: file) == false) }
+        #expect(snapshotStore.load() == nil)
+        #expect(AppAccountSession.storage.fakeCookie.isEmpty && AppAccountSession.storage.currentStudentID.isEmpty)
+        #expect(try AppAccountSession.storage.loadCredentials() == nil)
+        #expect(defaults.object(forKey: "cleanup-fixture") == nil)
+        #expect(URLCache.shared.cachedResponse(for: request) == nil)
+        #expect(await cookies.allCookies().isEmpty)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func loginChecksPublishTheSharedBusyStateBeforeSchedulingAndReleaseItForProfileEdits() async throws {
+        let mutation = AccountProfileMutation()
+        var pending: CheckedContinuation<Void, Never>?
+        var writes: [String] = []
+        #expect(mutation.start {
+            await withCheckedContinuation { pending = $0 }
+        })
+        #expect(mutation.isBusy && !mutation.isUpdating)
+        #expect(mutation.start { writes.append("overlap") } == false)
+        try await waitForTestEvent { pending != nil }
+        #expect(mutation.isBusy && !mutation.isUpdating)
+        pending?.resume()
+        try await waitForTestEvent { !mutation.isBusy }
+        #expect(mutation.start {
+            try? await mutation.perform { writes.append("profile") }
+        })
+        #expect(mutation.isBusy)
+        try await waitForTestEvent { !mutation.isBusy }
+        #expect(writes == ["profile"])
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true]) func pendingOnlineRecoveryProtectsCredentialsAndJournalBeforeReset(legacy: Bool) async throws {
         let selected = LocalDataActionsSpy(), files = PreferenceMemoryFiles()
         let journal = Data("pending recovery".utf8)
         let directory = files.temporaryDirectoryURL.appendingPathComponent("NetworkSmoke", isDirectory: true)
@@ -193,7 +395,8 @@ struct AppLocalDataOwnershipTests {
             } catch { return fails && (error as? URLError)?.code == .timedOut }
         }
         try await waitForTestEvent { !(pending == nil) }
-        #expect(mutation.isUpdating)
+        #expect(mutation.isUpdating && mutation.isBusy)
+        #expect(mutation.start { writes.append("overlap") } == false)
         try await mutation.perform { writes.append("duplicate") }
         #expect(mutation.isUpdating && writes == ["first"])
         pending?.resume()
@@ -203,7 +406,32 @@ struct AppLocalDataOwnershipTests {
         #expect(writes == ["first", "retry"] && !mutation.isUpdating)
     }
 
-    @Test func resetUsesEverySelectedActionAndAggregatesFailure() async throws {
+    @Test(.timeLimit(.minutes(1))) func leavingAProfilePageCancelsItsTaskAndRetainsTheSharedMutationLock() async throws {
+        let mutation = AccountProfileMutation()
+        var pending: CheckedContinuation<Void, Never>?
+        var finished = false, rebound = false
+        mutation.start {
+            do {
+                try await mutation.perform {
+                    await withCheckedContinuation { pending = $0 }
+                    try Task.checkCancellation()
+                    rebound = true
+                }
+            } catch { #expect(error is CancellationError) }
+            finished = true
+        }
+        try await waitForTestEvent { pending != nil }
+        mutation.cancel()
+        mutation.start { rebound = true }
+        #expect(mutation.isUpdating)
+        pending?.resume()
+        try await waitForTestEvent { finished }
+        #expect(!mutation.isUpdating && !rebound)
+        mutation.start { rebound = true }
+        try await waitForTestEvent { rebound }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func resetUsesEverySelectedActionAndAggregatesFailure() async throws {
         let selected = LocalDataActionsSpy(), surrounding = LocalDataActionsSpy()
         selected.succeeds = false
         let files = PreferenceMemoryFiles(), surroundingFiles = PreferenceMemoryFiles()
@@ -229,7 +457,7 @@ struct AppLocalDataOwnershipTests {
         let task = Task { await service.resetAllLocalData {
             loggedOut = true
             actions.events.append("logout")
-            try? files.writeData(Data([9]), to: file, options: [.atomic])
+            do { try files.writeData(Data([9]), to: file, options: [.atomic]) } catch { Issue.record(error) }
         } }
         try await waitForTestEvent { !(actions.pending == nil) }
         #expect(service.isCleaning && !loggedOut)
@@ -244,7 +472,7 @@ struct AppLocalDataOwnershipTests {
         #expect(actions.events.suffix(2) == ["storage-resume", "logout"])
     }
 
-    @Test(arguments: [false, true]) func cacheCleanupUsesTheSelectedFileAndMediaOwners(removalFails: Bool) async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true]) func cacheCleanupUsesTheSelectedFileAndMediaOwners(removalFails: Bool) async throws {
         let selected = LocalDataActionsSpy(), surrounding = LocalDataActionsSpy()
         let files = PreferenceMemoryFiles()
         let cache = files.temporaryDirectoryURL.appending(path: "owned-cache")
@@ -263,7 +491,7 @@ struct AppLocalDataOwnershipTests {
         #expect(surrounding.events.isEmpty)
     }
 
-    @Test func resettingAccountDataKeepsTemporaryExportsAndOtherCacheOwners() async throws {
+    @Test(.timeLimit(.minutes(1))) func resettingAccountDataKeepsTemporaryExportsAndOtherCacheOwners() async throws {
         let files = PreferenceMemoryFiles(separatesDirectories: true)
         let actions = LocalDataActionsSpy()
         let support = try #require(files.directoryURL(.applicationSupportDirectory)).appending(path: "account.dat")
@@ -294,7 +522,7 @@ struct SettingsDependencyOwnershipTests {
         }
     }
 
-    @Test func settingsDestinationsPreserveTheirSelectedMediaAccountAndCleanupOwners() async throws {
+    @Test(.timeLimit(.minutes(1))) func settingsDestinationsPreserveTheirSelectedMediaAccountAndCleanupOwners() async throws {
         let firstDomain = "BIT101Tests.settings-media-A", secondDomain = "BIT101Tests.settings-media-B"
         let firstDefaults = try #require(UserDefaults(suiteName: firstDomain))
         let secondDefaults = try #require(UserDefaults(suiteName: secondDomain))
@@ -307,7 +535,7 @@ struct SettingsDependencyOwnershipTests {
         let transport = OfflineTransport()
         let client = HTTPClient(transport: transport, observer: nil)
         func media(_ defaults: UserDefaults) -> MediaEnvironment {
-            MediaEnvironment(files: PreferenceMemoryFiles(), previewStorage: MediaPreviewStorage(files: PreferenceMemoryFiles()), defaults: defaults,
+            AppMedia.makeEnvironment(files: PreferenceMemoryFiles(), previewStorage: MediaPreviewStorage(files: PreferenceMemoryFiles()), defaults: defaults,
                 imageHTTPClient: client, avatarHTTPClient: client)
         }
         let firstMedia = media(firstDefaults), secondMedia = media(secondDefaults)
@@ -320,7 +548,7 @@ struct SettingsDependencyOwnershipTests {
         var validationCount = 0
         let dependencies = AppCommunityDependencies(settings: AppSettingsStore(defaults: firstDefaults, session: { account }),
             session: session, checkLogin: { validationCount += 1; return true },
-            messages: GalleryMessageReadStore(defaults: firstDefaults, session: { account }),
+            messages: GalleryMessageReadStore(files: PreferenceMemoryFiles(), storageRoot: URL(fileURLWithPath: "/preference-sync"), defaults: firstDefaults, session: { account }),
             drafts: ComposerDraftStore(files: PreferenceMemoryFiles(), applicationSupport: URL(fileURLWithPath: "/preference-sync"),
                 session: { account }, prepareImageData: ComposerDraftImageCompressor.compress),
             submitSuggestion: { _ in }, loadCourseCredits: { [] }, networkPath: NetworkPathState(snapshot: .init(status: .disconnected)))
@@ -331,13 +559,17 @@ struct SettingsDependencyOwnershipTests {
         var schoolCalls: [String] = []
         let transcript = DiagnosisTranscript()
         let cloud = ScheduleCloudSyncPresentation(currentAccount: { nil }, accountChanges: Empty().eraseToAnyPublisher())
+        let updates = AppUpdatePromptCoordinator(settings: dependencies.settingsStore)
+        let prompts = AppPromptCoordinator(advanceDelay: .zero)
         let destinations = AppCommunityDestinations(dependencies: dependencies, schedule: schedule, scheduleCloudSync: cloud, media: firstMedia,
             localData: AppLocalDataService(files: PreferenceMemoryFiles(), actions: effects.actions),
             school: NetworkDiagnosisSchool(identity: { .init(accountIdentifier: account.accountIdentifier, generation: 0) },
                 currentTerm: { schoolCalls.append("term"); return "fixture" },
-                syncCourses: { schoolCalls.append($0) }, ddl: { schoolCalls.append("ddl") }), transcript: transcript)
+                syncCourses: { schoolCalls.append($0) }, ddl: { schoolCalls.append("ddl") }), transcript: transcript,
+            updates: updates, prompts: prompts)
         let selected = destinations.settingsDependencies
         #expect(selected.settings === dependencies.settingsStore)
+        #expect(selected.updates === updates && selected.prompts === prompts)
         #expect(selected.schedule === schedule)
         #expect(selected.scheduleCloudSync === cloud)
         let page = GallerySettingsPage(media: selected.media, diagnosis: selected.networkDiagnosis)

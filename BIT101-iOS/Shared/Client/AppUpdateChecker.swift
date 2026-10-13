@@ -122,6 +122,8 @@ final class AppUpdateChecker {
     private let now: () -> Date
     private let installedVersion: () -> String
     private let loadData: DataLoader
+    private var lookupRevision = 0
+    private var acceptedLookupRevision = 0
 
     init(
         defaults: UserDefaults = AppFileDirectories.defaults,
@@ -199,6 +201,8 @@ final class AppUpdateChecker {
     }
 
     private func fetchLatestRelease() async throws -> AppStoreRelease {
+        lookupRevision += 1
+        let revision = lookupRevision
         let request = try AppStoreLookup.makeRequest(now: now())
         let (data, response) = try await loadData(request)
         guard let httpResponse = response as? HTTPURLResponse,
@@ -207,7 +211,10 @@ final class AppUpdateChecker {
             throw URLError(.badServerResponse)
         }
 
-        return try AppStoreLookup.parse(data).release
+        let release = try AppStoreLookup.parse(data).release
+        guard revision >= acceptedLookupRevision else { throw CancellationError() }
+        acceptedLookupRevision = revision
+        return release
     }
 
     private func cachedRelease() -> AppStoreRelease? {
@@ -451,16 +458,17 @@ final class AppPromptCoordinator: ObservableObject {
 /// App 根节点统一管理更新查询状态，登录页和登录后壳层共用同一条查询流程。
 @MainActor
 final class AppUpdatePromptCoordinator {
-    static let shared = AppUpdatePromptCoordinator()
-
+    private let settings: AppSettingsStore
     private let checker: AppUpdateChecker
     private let emergencyChecker: EmergencyUpdateChecker
     private var didCheckThisLaunch = false
 
     init(
+        settings: AppSettingsStore,
         checker: AppUpdateChecker? = nil,
         emergencyChecker: EmergencyUpdateChecker? = nil
     ) {
+        self.settings = settings
         self.checker = checker ?? AppUpdateChecker()
         self.emergencyChecker = emergencyChecker ?? EmergencyUpdateChecker()
     }
@@ -476,7 +484,7 @@ final class AppUpdatePromptCoordinator {
         didCheckThisLaunch = true
 
         let storeTask: Task<AppStoreRelease?, Never>?
-        if AppSettingsStore.shared.automaticUpdateChecksEnabled {
+        if settings.automaticUpdateChecksEnabled {
             storeTask = Task { await checker.releaseToPresentAtLaunch() }
         } else {
             storeTask = nil
@@ -510,8 +518,8 @@ final class AppUpdatePromptCoordinator {
 
 private struct AppPromptHostModifier: ViewModifier {
     @Environment(\.openURL) private var openURL
-    @StateObject private var promptCoordinator = AppPromptCoordinator.shared
-    private let updateCoordinator = AppUpdatePromptCoordinator.shared
+    @ObservedObject var promptCoordinator: AppPromptCoordinator
+    let updateCoordinator: AppUpdatePromptCoordinator
     private let networkConnectionDescription = NetworkConnectionDescription.shared
 
     func body(content: Content) -> some View {
@@ -594,7 +602,7 @@ private struct AppPromptHostModifier: ViewModifier {
 }
 
 extension View {
-    func appPromptHost() -> some View {
-        modifier(AppPromptHostModifier())
+    func appPromptHost(updates: AppUpdatePromptCoordinator, prompts: AppPromptCoordinator) -> some View {
+        modifier(AppPromptHostModifier(promptCoordinator: prompts, updateCoordinator: updates))
     }
 }

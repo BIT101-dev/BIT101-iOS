@@ -8,6 +8,19 @@ import Testing
 
 @Suite("Schedule iCalendar parsing")
 struct ScheduleICSParserTests {
+    @Test(arguments: [
+        "UID:first\nUID:second\nDTSTART:20260810T120000",
+        "UID:first\nuid:first\nDTSTART:20260810T120000",
+        "UID:first\nDTSTART:20260810T120000\nDTSTART:20260811T120000",
+        "UID:first\nDTSTART;TZID=Asia/Shanghai;TZID=Europe/London:20260810T120000",
+        "UID:first\nDTSTART;VALUE=DATE;value=DATE-TIME:20260810",
+        "UID:first\nDTSTART:20260810T120000\nDESCRIPTION:a\nDESCRIPTION:b",
+    ])
+    func rejectsAmbiguousEventPropertiesAndParameters(_ properties: String) {
+        let ics = "BEGIN:VCALENDAR\nBEGIN:VEVENT\nSUMMARY:作业\n\(properties)\nEND:VEVENT\nEND:VCALENDAR"
+        #expect(throws: ScheduleICSParser.ParseError.self) { try ScheduleICSParser.parse(ics) }
+    }
+
     @Test("Host resolution failures include wrapped URL errors")
     func recognizesHostResolutionErrors() {
         let direct = URLError(.cannotFindHost)

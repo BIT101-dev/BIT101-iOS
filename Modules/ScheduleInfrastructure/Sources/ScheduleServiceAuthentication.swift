@@ -87,15 +87,18 @@ extension ScheduleService {
     }
 
     private func fetchCourseSyncPayload(term requestedTerm: String? = nil) async throws -> CourseSyncPayload {
+        let owner = credentials.schoolSessionIdentity
         let normalizedTerm = requestedTerm?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let term = normalizedTerm.isEmpty ? try await fetchCurrentTerm() : normalizedTerm
         async let coursesTask = fetchParsedCourses(term: term)
         async let examsTask = fetchExams(term: term)
         async let firstDayTask = fetchFirstDayString(term: term)
         let (parsedCourses, exams, firstDayString) = try await (coursesTask, examsTask, firstDayTask)
-        return try await Self.makeCourseSyncPayload(
+        let payload = try await Self.makeCourseSyncPayload(
             term: term, parsedCourses: parsedCourses, exams: exams, firstDayString: firstDayString
         )
+        try validateAuthenticationOwner(owner)
+        return payload
     }
 
     @concurrent
@@ -115,6 +118,7 @@ extension ScheduleService {
             sourceFirstDayString: firstDayString,
             normalizationOffset: normalized.offset,
             rawWeeksByCourse: rawWeeks,
+            sourceDisplayWeeksByCourse: parsedCourses.map(\.sourceDisplayWeeks),
             courses: normalized.courses,
             exams: exams
         )
@@ -194,6 +198,9 @@ extension ScheduleService {
         let (data, response) = try await sendRequest(request)
         try validateAuthenticationOwner(owner)
         if response.statusCode == 202 {
+            guard accessToken == nil else {
+                throw ScheduleServiceError.challengeInvalid("教学中心会话再次要求认证，请重新同步课表。")
+            }
             guard
                 let envelope = try? JSONDecoder().decode(BITLoginChallengeEnvelope.self, from: data),
                 let accessToken = envelope.detail.accessToken,

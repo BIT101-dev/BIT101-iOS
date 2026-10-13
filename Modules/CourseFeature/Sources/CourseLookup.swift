@@ -1,3 +1,4 @@
+import TransportCore
 import CommunityCore
 import Foundation
 
@@ -27,14 +28,10 @@ nonisolated enum CourseLookupMatcher {
             && sameNumber[0].id != sameName[0].id
 
         if !normalizedTeacher(expectedTeacher).isEmpty {
-            if let match = sameNumber.first(where: {
-                teacherMatches(expectedTeacher, candidate: $0.teachersName)
-            }) {
+            if let match = matchingTeacher(expectedTeacher, candidates: sameNumber) {
                 return match
             }
-            if let match = sameName.first(where: {
-                teacherMatches(expectedTeacher, candidate: $0.teachersName)
-            }) {
+            if let match = matchingTeacher(expectedTeacher, candidates: sameName) {
                 return match
             }
 
@@ -91,11 +88,13 @@ nonisolated enum CourseLookupMatcher {
         )
     }
 
-    private static func teacherMatches(_ expected: String, candidate: String) -> Bool {
+    private static func matchingTeacher(_ expected: String, candidates: [CourseSummary]) -> CourseSummary? {
         let expectedNames = teacherNames(expected)
-        let candidateNames = teacherNames(candidate)
-        guard !expectedNames.isEmpty, !candidateNames.isEmpty else { return false }
-        return !expectedNames.isDisjoint(with: candidateNames)
+        let exact = candidates.filter { teacherNames($0.teachersName) == expectedNames }
+        if exact.count == 1 { return exact[0] }
+        if exact.count > 1 { return nil }
+        let partial = candidates.filter { !expectedNames.isDisjoint(with: teacherNames($0.teachersName)) }
+        return partial.count == 1 ? partial[0] : nil
     }
 
     private static func teacherNames(_ value: String) -> Set<String> {
@@ -130,7 +129,7 @@ nonisolated enum CourseLookupMatcher {
 /// 课程号和课程名都要检索：教务成绩里的课程号可能是学校侧别名，课程名也可能存在
 /// 全角标点、空格或括号差异。两路结果统一去重后再交给 `CourseLookupMatcher`，避免
 /// 日程与成绩详情分别依赖各自字段；两路结果统一检索与消歧，避免同一课程被判定为“找不到”。
-public struct CourseEvaluationLookupResult {
+public struct CourseEvaluationLookupResult: Sendable {
     public let selectedCourse: CourseSummary
     public let searchQuery: String
     public let searchResults: [CourseSummary]
@@ -138,9 +137,16 @@ public struct CourseEvaluationLookupResult {
 
 public struct CourseEvaluationResolver {
     private let service: any CourseListServicing
+    private let waitForDeadline: @Sendable (ContinuousClock.Instant) async throws -> Void
 
     public init(service: any CourseListServicing) {
         self.service = service
+        waitForDeadline = { try await ContinuousClock().sleep(until: $0) }
+    }
+
+    init(service: any CourseListServicing, waitForDeadline: @escaping @Sendable (ContinuousClock.Instant) async throws -> Void) {
+        self.service = service
+        self.waitForDeadline = waitForDeadline
     }
 
     public func resolve(
@@ -152,10 +158,28 @@ public struct CourseEvaluationResolver {
         let number = courseNumber.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty || !number.isEmpty else { return nil }
 
-        async let numberCandidates = fetchCandidates(for: number)
-        async let nameCandidates = fetchCandidates(for: name)
+        let deadline = ContinuousClock.now.advanced(by: .seconds(URLSessionConfiguration.default.timeoutIntervalForRequest))
+        let operation: @MainActor @Sendable () async throws -> CourseEvaluationLookupResult? = {
+            try await lookup(name: name, number: number, teacher: teacher, deadline: deadline)
+        }
+        return try await withThrowingTaskGroup(of: CourseEvaluationLookupResult?.self) { group in
+            group.addTask { try await operation() }
+            group.addTask { [waitForDeadline] in
+                try await waitForDeadline(deadline)
+                throw CourseEvaluationLookupLimit.reached
+            }
+            defer { group.cancelAll() }
+            guard let result = try await group.next() else { throw CancellationError() }
+            try Task.checkCancellation()
+            return result
+        }
+    }
+
+    private func lookup(name: String, number: String, teacher: String, deadline: ContinuousClock.Instant) async throws -> CourseEvaluationLookupResult? {
+        async let numberCandidates = fetchCandidates(for: number, deadline: deadline)
+        async let nameCandidates = fetchCandidates(for: name, deadline: deadline)
         let (numberResults, nameResults) = try await (numberCandidates, nameCandidates)
-        let candidates = deduplicating(numberResults + nameResults)
+        let candidates = deduplicating(numberResults.all + nameResults.all)
         guard let selectedCourse = CourseLookupMatcher.bestMatch(
             courseNumber: number,
             courseName: name,
@@ -165,7 +189,7 @@ public struct CourseEvaluationResolver {
             return nil
         }
 
-        var searchResults = deduplicating(nameResults)
+        var searchResults = name.isEmpty ? numberResults.firstPage : nameResults.firstPage
         if !searchResults.contains(where: { $0.id == selectedCourse.id }) {
             searchResults.insert(selectedCourse, at: 0)
         }
@@ -176,9 +200,29 @@ public struct CourseEvaluationResolver {
         )
     }
 
-    private func fetchCandidates(for search: String) async throws -> [CourseSummary] {
-        guard !search.isEmpty else { return [] }
-        return try await service.fetchCourses(search: search, page: 0)
+    private func fetchCandidates(for search: String, deadline: ContinuousClock.Instant) async throws -> (firstPage: [CourseSummary], all: [CourseSummary]) {
+        guard !search.isEmpty else { return ([], []) }
+        var results: [CourseSummary] = [], firstPage: [CourseSummary] = []
+        var candidateBytes = 0
+        var known = Set<Int>(), progress = CommunityPageProgress<Int>(), page = 0
+        while true {
+            try Task.checkCancellation()
+            guard ContinuousClock.now < deadline else { throw CourseEvaluationLookupLimit.reached }
+            let incoming = try await service.fetchCourses(search: search, page: page)
+            try Task.checkCancellation()
+            guard ContinuousClock.now < deadline else { throw CourseEvaluationLookupLimit.reached }
+            try progress.record(incoming.map(\.id), knownIDs: known)
+            if page == 0 { firstPage = deduplicating(incoming) }
+            if incoming.isEmpty { return (firstPage, results) }
+            for course in incoming where known.insert(course.id).inserted {
+                let bytes = MemoryLayout<CourseSummary>.stride + course.name.utf8.count + course.number.utf8.count
+                    + course.teachersName.utf8.count + course.teachersNumber.utf8.count
+                guard bytes <= HTTPResponseResourceLimits.maximumStructuredBytes - candidateBytes else { throw CourseEvaluationLookupLimit.reached }
+                candidateBytes += bytes
+                results.append(course)
+            }
+            page += 1
+        }
     }
 
     private func deduplicating(_ courses: [CourseSummary]) -> [CourseSummary] {
@@ -187,3 +231,8 @@ public struct CourseEvaluationResolver {
     }
 }
 
+
+private enum CourseEvaluationLookupLimit: LocalizedError {
+    case reached
+    var errorDescription: String? { "课程候选范围较大，请在课程搜索中输入完整课程号或课程名后选择。" }
+}

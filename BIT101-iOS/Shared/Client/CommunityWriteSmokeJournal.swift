@@ -6,6 +6,7 @@ nonisolated struct CommunityWriteRecoveryConfirmation: Codable, Sendable {
     let serverReceipt: String
     let kinds: [String]
     let parents: [String]
+    var settledMutations: [String]? = nil
 }
 
 #if DEBUG || RELEASE_NETWORK_SMOKE
@@ -15,8 +16,9 @@ extension CommunityWriteRecoveryConfirmation {
         guard marker == journal.marker, account == journal.account,
               !serverReceipt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               serverReceipt.unicodeScalars.allSatisfy({ $0.value >= 0x20 && $0.value != 0x7F }),
-              !kinds.isEmpty || !parents.isEmpty,
-              kinds.allSatisfy(journal.attempts.map(\.rawValue).contains), parents.allSatisfy(journal.commentAttempts.contains) else {
+              !kinds.isEmpty || !parents.isEmpty || settledMutations?.isEmpty == false,
+              kinds.allSatisfy(journal.attempts.map(\.rawValue).contains), parents.allSatisfy(journal.commentAttempts.contains),
+              (settledMutations ?? []).allSatisfy(journal.pendingMutationIDs.contains) else {
             throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "服务端未创建确认需要匹配待恢复账号、标记、对象及服务端凭据"))
         }
     }
@@ -24,10 +26,15 @@ extension CommunityWriteRecoveryConfirmation {
 
 extension CommunityWriteSmoke {
     struct Target: Codable, Hashable { let kind: Kind; let id: Int }
-    struct Like: Codable { let target: Target; let original: Bool }
+    struct Like: Codable {
+        let target: Target
+        let original: Bool
+        var submissionPending: Bool? = false
+        var recoveryID: String { "like:\(target.kind.rawValue)\(target.id)" }
+    }
 
     struct Journal: Codable {
-        static let currentVersion = 4
+        static let currentVersion = 5
         let schemaVersion: Int
         let marker: String
         let account: Int
@@ -39,10 +46,11 @@ extension CommunityWriteSmoke {
         var commentAttempts: [String] = []
         var likes: [Like] = []
         var followTarget: Int?
+        var followSubmissionPending = false
         var evidence: [String] = []
 
         private enum CodingKeys: String, CodingKey {
-            case schemaVersion, marker, account, attempts, targets, parents, comments, commentParents, commentAttempts, likes, evidence, followTarget
+            case schemaVersion, marker, account, attempts, targets, parents, comments, commentParents, commentAttempts, likes, evidence, followTarget, followSubmissionPending
         }
 
         init(marker: String, account: Int) {
@@ -80,6 +88,12 @@ extension CommunityWriteSmoke {
                 evidence = try values.decode([String].self, forKey: .evidence)
             }
             if schemaVersion >= 3 { followTarget = try values.decodeIfPresent(Int.self, forKey: .followTarget) }
+            if schemaVersion >= 5 {
+                followSubmissionPending = try values.decode(Bool.self, forKey: .followSubmissionPending)
+            } else {
+                followSubmissionPending = followTarget != nil
+                for index in likes.indices { likes[index].submissionPending = true }
+            }
             if schemaVersion >= 2 {
                 commentParents = try values.decode([Int: String].self, forKey: .commentParents)
             } else {
@@ -107,12 +121,23 @@ extension CommunityWriteSmoke {
             guard marker.hasPrefix(prefix), !runID.trimmingCharacters(in: .whitespaces).isEmpty,
                   runID.count <= 128, runID.unicodeScalars.allSatisfy({ $0.value >= 0x20 && $0.value != 0x7F }),
                   account > 0, targets.allSatisfy({ $0.id > 0 }), comments.allSatisfy({ $0 > 0 }),
-                  likes.allSatisfy({ $0.target.id > 0 }), followTarget.map({ $0 > 0 }) ?? true,
+                  likes.allSatisfy({ $0.target.id > 0 && $0.submissionPending != nil }), followTarget.map({ $0 > 0 }) ?? true,
+                  !followSubmissionPending || followTarget != nil,
                   attempts.allSatisfy({ $0 != .course }),
                   (parents + commentAttempts + Array(commentParents.values)).allSatisfy(Self.validParent),
                   commentParents.keys.allSatisfy({ $0 > 0 && comments.contains($0) }) else {
                 throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "社区恢复记录的验收标记或对象标识异常"))
             }
+        }
+
+        var pendingMutationIDs: [String] {
+            likes.filter { $0.submissionPending == true }.map(\.recoveryID)
+                + (followSubmissionPending ? followTarget.map { ["follow:user\($0)"] } ?? [] : [])
+        }
+
+        mutating func markSubmission(_ identifier: String, pending: Bool) {
+            if identifier.hasPrefix("follow:") { followSubmissionPending = pending }
+            else if let index = likes.firstIndex(where: { $0.recoveryID == identifier }) { likes[index].submissionPending = pending }
         }
 
         private static func validParent(_ value: String) -> Bool {
@@ -136,6 +161,7 @@ extension CommunityWriteSmoke {
             try values.encode(likes, forKey: .likes)
             try values.encode(evidence, forKey: .evidence)
             try values.encodeIfPresent(followTarget, forKey: .followTarget)
+            try values.encode(followSubmissionPending, forKey: .followSubmissionPending)
         }
     }
 

@@ -3,8 +3,12 @@ import os
 import StorageCore
 
 package nonisolated final class ModuleScoreFiles: AppFileService, Sendable {
+    private let beforeReading: @Sendable () -> Void
+    private let beforeRemovingItem: @Sendable (URL) throws -> Void
     private let beforeCreatingDirectory: @Sendable () -> Void
-    package init(beforeCreatingDirectory: @escaping @Sendable () -> Void = {}) {
+    package init(beforeReading: @escaping @Sendable () -> Void = {}, beforeCreatingDirectory: @escaping @Sendable () -> Void = {}, beforeRemovingItem: @escaping @Sendable (URL) throws -> Void = { _ in }) {
+        self.beforeReading = beforeReading
+        self.beforeRemovingItem = beforeRemovingItem
         self.beforeCreatingDirectory = beforeCreatingDirectory
     }
     private let state = OSAllocatedUnfairLock(initialState: State())
@@ -14,6 +18,7 @@ package nonisolated final class ModuleScoreFiles: AppFileService, Sendable {
         var directories: Set<URL> = []
         var failsWriting = false
         var failsReading = false
+        var failsProtection = false
         var hidesExistence = false
         var failsRemoval = false
         var options: [URL: Data.WritingOptions] = [:]
@@ -21,11 +26,12 @@ package nonisolated final class ModuleScoreFiles: AppFileService, Sendable {
         var revisions: [URL: UInt64] = [:]
         var revision: UInt64 = 0
     }
-    package func setFailures(writing: Bool = false, removal: Bool = false, reading: Bool = false, existence: Bool = false) {
+    package func setFailures(writing: Bool = false, removal: Bool = false, reading: Bool = false, existence: Bool = false, protection: Bool = false) {
         return state.withLock { state in
             state.failsWriting = writing
             state.failsRemoval = removal
             state.failsReading = reading
+            state.failsProtection = protection
             state.hidesExistence = existence
         }
     }
@@ -45,6 +51,7 @@ package nonisolated final class ModuleScoreFiles: AppFileService, Sendable {
         }
     }
     package func readData(at url: URL) throws -> Data {
+        beforeReading()
         return try state.withLock { state in
             state.reads[url, default: 0] += 1
             if state.failsReading { throw CocoaError(.fileReadNoPermission) }
@@ -73,6 +80,7 @@ package nonisolated final class ModuleScoreFiles: AppFileService, Sendable {
         }
     }
     package func removeItem(at url: URL) throws {
+        try beforeRemovingItem(url)
         return try state.withLock { state in
             if state.failsRemoval { throw CocoaError(.fileWriteNoPermission) }
             let prefix = url.path + "/"
@@ -83,7 +91,9 @@ package nonisolated final class ModuleScoreFiles: AppFileService, Sendable {
             state.directories = Set(state.directories.filter { $0.path != url.path && !$0.path.hasPrefix(prefix) })
         }
     }
-    package func setPrivateFileProtection(at url: URL) throws {}
+    package func setPrivateFileProtection(at url: URL) throws {
+        try state.withLock { if $0.failsProtection { throw CocoaError(.fileWriteNoPermission) } }
+    }
     package func setBackupExcluded(_ excluded: Bool, at url: URL, recursively: Bool) throws {}
     package func contentsOfDirectory(at url: URL, options: FileManager.DirectoryEnumerationOptions) throws -> [URL] {
         return state.withLock { state in

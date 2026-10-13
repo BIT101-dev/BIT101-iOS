@@ -69,6 +69,7 @@ private struct MineRootViewScene: View {
     @State private var settingsRoute: CommunitySettingsEntry?
     /// 建议入口通过独立 sheet 呈现，设置入口使用设置导航路由。
     @State private var isShowingSuggestion = false
+    @State private var isProfileRetryRequested = false
 
     /// “我的”主页主体。
     ///
@@ -98,6 +99,7 @@ private struct MineRootViewScene: View {
                         title: "我的粉丝",
                         users: viewModel.followerState.items,
                         status: viewModel.followerState.status,
+                        nextPage: viewModel.followerState.nextPage,
                         isLoadingMore: viewModel.followerState.isLoadingMore,
                         onRefresh: { await viewModel.refreshFollowers() },
                         onLoadMore: { user in await viewModel.loadMoreFollowersIfNeeded(currentUser: user) },
@@ -108,6 +110,7 @@ private struct MineRootViewScene: View {
                         title: "我的关注",
                         users: viewModel.followingState.items,
                         status: viewModel.followingState.status,
+                        nextPage: viewModel.followingState.nextPage,
                         isLoadingMore: viewModel.followingState.isLoadingMore,
                         onRefresh: { await viewModel.refreshFollowings() },
                         onLoadMore: { user in await viewModel.loadMoreFollowingsIfNeeded(currentUser: user) },
@@ -117,6 +120,7 @@ private struct MineRootViewScene: View {
                     MinePosterListView(
                         posters: viewModel.posterState.items,
                         status: viewModel.posterState.status,
+                        nextPage: viewModel.posterState.nextPage,
                         isLoadingMore: viewModel.posterState.isLoadingMore,
                         onRefresh: { await viewModel.refreshPosters() },
                         onLoadMore: { poster in await viewModel.loadMorePostersIfNeeded(currentPoster: poster) }
@@ -137,9 +141,14 @@ private struct MineRootViewScene: View {
                 destinations.suggestion()
             }
         }
-        .task {
-            guard !dependencies.isRunningUITest else { return }
-            await viewModel.bootstrapIfNeeded()
+        .task(id: isProfileRetryRequested) {
+            if isProfileRetryRequested {
+                await viewModel.refreshProfile()
+                guard !Task.isCancelled else { return }
+                isProfileRetryRequested = false
+            } else {
+                await viewModel.bootstrapIfNeeded()
+            }
         }
         .diagnosticAlert(item: $viewModel.alert)
         .onChange(of: viewModel.requiresLogin) { _, requiresLogin in
@@ -160,7 +169,7 @@ private struct MineRootViewScene: View {
                 systemImage: "person.crop.circle.badge.exclamationmark",
                 message: message,
                 onRetry: {
-                    Task { await viewModel.refreshProfile() }
+                    isProfileRetryRequested = true
                 }
             )
             .frame(maxWidth: .infinity)
@@ -234,6 +243,8 @@ private struct UserProfileRootViewScene: View {
     @StateObject private var viewModel: UserProfileViewModel
     @State private var selectedPoster: CommunityPoster?
     @State private var imageViewer: ImagePreviewRequest?
+    @State private var isProfileRetryRequested = false
+    @State private var isPosterRetryRequested = false
 
     init(dependencies: MineDependencies, media: MediaEnvironment, posters: CommunityPosterDestination, userID: Int, onLogout: @escaping () -> Void = {}) {
         self.dependencies = dependencies
@@ -262,8 +273,20 @@ private struct UserProfileRootViewScene: View {
         .appGroupedListStyle()
         .navigationTitle(navigationTitle)
         .navigationBarTitleDisplayMode(.inline)
-        .task {
-            await viewModel.bootstrapIfNeeded()
+        .task(id: isProfileRetryRequested) {
+            if isProfileRetryRequested {
+                await viewModel.refreshProfile()
+                guard !Task.isCancelled else { return }
+                isProfileRetryRequested = false
+            } else {
+                await viewModel.bootstrapIfNeeded()
+            }
+        }
+        .task(id: isPosterRetryRequested) {
+            guard isPosterRetryRequested else { return }
+            await viewModel.refreshPosters()
+            guard !Task.isCancelled else { return }
+            isPosterRetryRequested = false
         }
         .onChange(of: viewModel.requiresLogin) { _, requiresLogin in
             guard requiresLogin else { return }
@@ -291,7 +314,7 @@ private struct UserProfileRootViewScene: View {
                 systemImage: "person.crop.circle.badge.exclamationmark",
                 message: message,
                 onRetry: {
-                    Task { await viewModel.refreshProfile() }
+                    isProfileRetryRequested = true
                 }
             )
             .frame(maxWidth: .infinity)
@@ -324,7 +347,7 @@ private struct UserProfileRootViewScene: View {
                 systemImage: "text.bubble",
                 message: message,
                 onRetry: {
-                    Task { await viewModel.refreshPosters() }
+                    isPosterRetryRequested = true
                 }
             )
         } else {
@@ -342,7 +365,7 @@ private struct UserProfileRootViewScene: View {
                             onDelete: nil,
                             onReport: nil
                         )
-                        .task {
+                        .task(id: viewModel.posterState.status == .loaded ? viewModel.posterState.nextPage : nil) {
                             await viewModel.loadMorePostersIfNeeded(currentPoster: poster)
                         }
                     }
@@ -486,10 +509,12 @@ private struct MineUserListView: View {
     let title: String
     let users: [CommunityUser]
     let status: MineLoadStatus
+    let nextPage: Int
     let isLoadingMore: Bool
     let onRefresh: () async -> Void
     let onLoadMore: (CommunityUser?) async -> Void
     let onOpenUser: (CommunityUser) -> Void
+    @State private var isRefreshRequested = false
 
     var body: some View {
         Group {
@@ -501,7 +526,7 @@ private struct MineUserListView: View {
                     systemImage: "person.2.slash",
                     message: message,
                     onRetry: {
-                        Task { await onRefresh() }
+                        isRefreshRequested = true
                     }
                 )
             } else {
@@ -540,7 +565,7 @@ private struct MineUserListView: View {
                         .accessibilityLabel(user.nickname.isEmpty ? "未命名用户" : user.nickname)
                         .accessibilityValue("UID \(user.id)")
                         .accessibilityHint("打开用户主页")
-                        .task {
+                        .task(id: status == .loaded ? nextPage : nil) {
                             await onLoadMore(user)
                         }
                         .appInteractiveListRow()
@@ -560,9 +585,11 @@ private struct MineUserListView: View {
                 }
             }
         }
-        .task {
-            if case .idle = status {
+        .task(id: isRefreshRequested) {
+            if status == .idle || isRefreshRequested {
                 await onRefresh()
+                guard !Task.isCancelled else { return }
+                isRefreshRequested = false
             }
         }
         .navigationTitle(title)
@@ -585,6 +612,7 @@ private struct MinePosterListView: View {
     @Environment(CommunityPosterDestination.self) private var destinations
     let posters: [CommunityPoster]
     let status: MineLoadStatus
+    let nextPage: Int
     let isLoadingMore: Bool
     let onRefresh: () async -> Void
     let onLoadMore: (CommunityPoster?) async -> Void
@@ -593,6 +621,7 @@ private struct MinePosterListView: View {
     @State private var deletingPoster: CommunityPoster?
     @State private var alert: AppAlert?
     @State private var deletedPosterIDs: Set<Int> = []
+    @State private var isRefreshRequested = false
 
     /// 当前真正可展示的帖子列表。
     ///
@@ -611,7 +640,7 @@ private struct MinePosterListView: View {
                     systemImage: "text.bubble",
                     message: message,
                     onRetry: {
-                        Task { await onRefresh() }
+                        isRefreshRequested = true
                     }
                 )
             } else if visiblePosters.isEmpty {
@@ -630,7 +659,7 @@ private struct MinePosterListView: View {
                                     onDelete: { deletingPoster = poster },
                                     onReport: nil
                                 )
-                                .task {
+                                .task(id: status == .loaded ? nextPage : nil) {
                                     await onLoadMore(poster)
                                 }
                             }
@@ -649,9 +678,11 @@ private struct MinePosterListView: View {
                 }
             }
         }
-        .task {
-            if case .idle = status {
+        .task(id: isRefreshRequested) {
+            if status == .idle || isRefreshRequested {
                 await onRefresh()
+                guard !Task.isCancelled else { return }
+                isRefreshRequested = false
             }
         }
         .background(AppDesignSystem.Palette.Background.grouped)
@@ -663,7 +694,7 @@ private struct MinePosterListView: View {
                     poster,
                     {
                         deletedPosterIDs.insert(poster.id)
-                        Task { await onRefresh() }
+                        isRefreshRequested = true
                     }
                 )
             }

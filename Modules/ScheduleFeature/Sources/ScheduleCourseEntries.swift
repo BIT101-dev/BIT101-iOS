@@ -71,15 +71,7 @@ extension CourseScheduleTabView {
             let startSection = convertTimeToSection(timeText: exam.beginTime, timeTable: activeSchedule.timeTable)
             let endSection = convertTimeToSection(timeText: exam.endTime, timeTable: activeSchedule.timeTable)
 
-            guard endMinutes > startMinutes,
-                  calendarAxisMode == .linear || isRepresentableOnQuantizedAxis(
-                      startMinutes: startMinutes,
-                      endMinutes: endMinutes,
-                      timeTable: activeSchedule.timeTable
-                  )
-            else {
-                return nil
-            }
+            guard endMinutes > startMinutes else { return nil }
 
             return ScheduleCalendarEntry(
                 id: "exam-\(exam.id)",
@@ -103,60 +95,48 @@ extension CourseScheduleTabView {
             )
         } : []
 
-        let customEntries = activeSchedule.customSchedules.compactMap { schedule -> ScheduleCalendarEntry? in
-            guard
-                let date = ScheduleDateCodec.parseDate(schedule.dateString),
-                date >= weekStart,
-                date < weekEnd
-            else {
-                return nil
-            }
+        let customEntries = activeSchedule.customSchedules.flatMap { schedule in
+            schedule.occurrenceDateStrings.compactMap { dateString -> ScheduleCalendarEntry? in
+                guard
+                    let date = ScheduleDateCodec.parseDate(dateString),
+                    date >= weekStart,
+                    date < weekEnd
+                else {
+                    return nil
+                }
 
-            let weekday = ScheduleDateCodec.weekdayIndex(from: date)
-            guard
-                let startMinutes = parseScheduleEntryMinutes(schedule.beginTime),
-                let endMinutes = parseScheduleEntryMinutes(schedule.endTime)
-            else { return nil }
-            let startSection = convertTimeToSection(timeText: schedule.beginTime, timeTable: activeSchedule.timeTable)
-            let endSection = convertTimeToSection(timeText: schedule.endTime, timeTable: activeSchedule.timeTable)
-            guard endMinutes > startMinutes,
-                  calendarAxisMode == .linear || isRepresentableOnQuantizedAxis(
-                      startMinutes: startMinutes,
-                      endMinutes: endMinutes,
-                      timeTable: activeSchedule.timeTable
-                  )
-            else {
-                return nil
-            }
+                let weekday = ScheduleDateCodec.weekdayIndex(from: date)
+                guard
+                    let startMinutes = parseScheduleEntryMinutes(schedule.beginTime),
+                    let endMinutes = parseScheduleEntryMinutes(schedule.endTime)
+                else { return nil }
+                let startSection = convertTimeToSection(timeText: schedule.beginTime, timeTable: activeSchedule.timeTable)
+                let endSection = convertTimeToSection(timeText: schedule.endTime, timeTable: activeSchedule.timeTable)
+                guard endMinutes > startMinutes else { return nil }
 
-            return ScheduleCalendarEntry(
-                id: "custom-\(schedule.id)",
-                sourceID: schedule.id,
-                sourceIDs: [schedule.id],
-                dayOfWeek: weekday,
-                startSection: startSection,
-                endSection: endSection,
-                startMinutes: startMinutes,
-                endMinutes: endMinutes,
-                title: schedule.title,
-                subtitle: schedule.subtitle,
-                detailLines: [
-                    schedule.subtitle.isEmpty ? nil : "副标题：\(schedule.subtitle)",
-                    schedule.description.isEmpty ? nil : "描述：\(schedule.description)",
-                    "日期：\(schedule.dateString)",
-                    "时间：\(schedule.beginTime)-\(schedule.endTime)",
-                ].compactMap { $0 },
-                kind: .custom
-            )
+                return ScheduleCalendarEntry(
+                    id: schedule.occurrenceID(for: dateString),
+                    sourceID: schedule.id,
+                    sourceIDs: [schedule.id],
+                    dayOfWeek: weekday,
+                    startSection: startSection,
+                    endSection: endSection,
+                    startMinutes: startMinutes,
+                    endMinutes: endMinutes,
+                    title: schedule.title,
+                    subtitle: schedule.subtitle,
+                    detailLines: [
+                        schedule.subtitle.isEmpty ? nil : "副标题：\(schedule.subtitle)",
+                        schedule.description.isEmpty ? nil : "描述：\(schedule.description)",
+                        "日期：\(dateString)",
+                        "时间：\(schedule.beginTime)-\(schedule.endTime)",
+                    ].compactMap { $0 },
+                    kind: .custom
+                )
+            }
         }
 
-        let entries = courseEntries + examEntries + customEntries
-        if calendarAxisMode == .linear {
-            return entries
-        }
-        return viewModel.presentationPreferences.scheduleDisplayMode == .allWeeks
-            ? entries
-            : normalize(entries: entries)
+        return courseEntries + examEntries + customEntries
     }
 
     func courseEntry(

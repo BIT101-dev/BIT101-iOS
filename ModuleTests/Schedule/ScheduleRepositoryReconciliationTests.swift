@@ -132,17 +132,28 @@ struct ScheduleRepositoryReconciliationTests {
         #expect(await store.load(for: account).cacheIfReadable?.showExamInfo == false)
     }
 
-    @Test(arguments: [ScheduleCacheConflictResolution.keepLocal, .useCloud])
+    @Test(.timeLimit(.minutes(1)), arguments: [ScheduleCacheConflictResolution.keepLocal, .useCloud])
     func explicitConflictChoiceRetainsIndependentChangesAndTheNextSave(resolution: ScheduleCacheConflictResolution) async throws {
         let account = AppStorageSession(accountIdentifier: "repository-choice")
         let store = SchedulePersistenceStore(files: ModuleScoreFiles(), storageRoot: URL(fileURLWithPath: "/repository-choice"),
             userStateMatches: ScheduleCloudSyncState.matches)
         var initial = ScheduleCache()
         initial.cloudSyncBaselineRecordTag = "initial"
+        initial.currentTerm = "term"
+        initial.courseData.store(TermScheduleSnapshot(term: "term", firstDayString: "2026-09-07",
+            courses: [CourseRecord(id: "course", term: "term", name: "课程", teacher: "", classroom: "",
+                description: "", weeks: [1, 2], weekday: 1, startSection: 1, endSection: 1, campus: "",
+                number: "course", credit: 1, hour: 1, type: "", category: "", department: "")], exams: [], updatedAt: .distantPast))
+        initial.customSchedules = [CustomScheduleRecord(id: "custom", title: "日程", subtitle: "", description: "",
+            dateString: "2026-09-07", beginTime: "12:00", endTime: "13:00")]
+        initial.ddlEvents = [DDLEventRecord(id: "ddl", group: "custom", title: "待办", text: "", dueAt: .distantFuture, done: false)]
         try await write(initial, to: store, account: account)
         let repository = ScheduleRepository(session: { account }, load: { await store.load(for: $0) },
             save: { cache, source, owner in try await write(cache, to: store, account: owner, source: source) })
         await repository.loadIfNeeded()
+        let service = ModuleScheduleService()
+        let model = ScheduleViewModel(service: service, repository: repository, ddlService: service,
+            classroomService: service, platformActions: ModuleSchedulePlatformActions(), newCustomScheduleDraft: { .init() })
         repository.courseState.primaryScheduleTitle = "本机标题"
         repository.presentationPreferences.showSunday = false
         var remote = initial
@@ -152,12 +163,34 @@ struct ScheduleRepositoryReconciliationTests {
         try await write(remote, to: store, account: account)
         #expect(await repository.persistAndWait() == false && repository.hasPersistenceConflict)
         #expect(repository.persistenceSnapshot.primaryScheduleTitle == "本机标题")
+        #expect(!repository.acceptsEdits)
+        #expect(throws: (any Error).self) { try repository.requireWritable() }
+        #expect(throws: (any Error).self) { try model.deleteCourse(id: "course") }
+        #expect(throws: (any Error).self) { try model.deleteCourseOccurrence(id: "course", week: 1) }
+        #expect(throws: (any Error).self) { try model.clearCourses(week: 1, weekday: 1) }
+        #expect(throws: (any Error).self) { try model.deleteCustomSchedule(id: "custom") }
+        #expect(throws: (any Error).self) { try model.ddl.deleteDDL(id: "ddl") }
+        #expect(repository.persistenceSnapshot.courses == initial.courses)
+        #expect(repository.persistenceSnapshot.customSchedules == initial.customSchedules)
+        #expect(repository.persistenceSnapshot.ddlEvents == initial.ddlEvents)
+        repository.courseState.primaryScheduleTitle = "冲突期间编辑"
+        repository.presentationPreferences.showExamInfo = false
+        #expect(repository.persistenceSnapshot.primaryScheduleTitle == "本机标题")
+        #expect(repository.persistenceSnapshot.showExamInfo == initial.showExamInfo)
         await repository.resolvePersistenceConflict(resolution)
         #expect(repository.hasPersistenceConflict == false)
+        #expect(repository.acceptsEdits)
         let saved = try #require(await store.load(for: account).cacheIfReadable)
         #expect(saved.primaryScheduleTitle == (resolution == .keepLocal ? "本机标题" : "同步标题"))
         #expect(saved.showSunday == false && saved.showSaturday == false)
+        if resolution == .keepLocal { try model.deleteCourseOccurrence(id: "course", week: 1) }
+        else { try model.deleteCourse(id: "course") }
+        try model.clearCourses(week: 2, weekday: 1)
+        try model.deleteCustomSchedule(id: "custom")
+        try model.ddl.deleteDDL(id: "ddl")
         repository.presentationPreferences.showExamInfo = false
         #expect(await repository.persistAndWait())
+        let edited = try #require(await store.load(for: account).cacheIfReadable)
+        #expect(edited.courses.isEmpty && edited.customSchedules.isEmpty && edited.ddlEvents.isEmpty)
     }
 }

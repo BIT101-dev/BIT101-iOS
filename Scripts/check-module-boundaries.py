@@ -5,20 +5,20 @@ from __future__ import annotations
 
 import json
 from bisect import bisect_right
-import fcntl
-import os
 import re
 import subprocess
 import sys
 from functools import cache
-from contextlib import ExitStack
 from pathlib import Path
 
 sys.dont_write_bytecode = True
 from swift_source_index import canonical_type_scope, declaration_conformances, scope_contains_type, expected_argument_types, swift_syntax_index, swift_syntax_index_sources, resource_context_type, visible_variables, matching_functions, compilation_type_context, local_member_calls, swift_code
 from validation_policy import coverage_registry_findings
 from swift_type_index import SwiftBindingTypes
+from network_capability_rules import FOUNDATION_COLLECTION_TYPES, NETWORK_SYSTEM_FUNCTIONS
+from validation_inputs import manifest_targets, read_manifest
 
+ROOT = Path(__file__).resolve().parents[1]
 
 IGNORED_IMPORTS = {
     "Foundation",
@@ -34,6 +34,7 @@ IGNORED_IMPORTS = {
     "CoreFoundation",
     "CoreGraphics",
     "CoreLocation",
+    "CoreTransferable",
     "ImageIO",
     "MapKit",
     "Network",
@@ -47,46 +48,6 @@ IGNORED_IMPORTS = {
     "WebKit",
     "WidgetKit",
 }
-
-
-def manifest_targets(package: dict) -> dict[str, dict]:
-    """Consume SwiftPM's evaluated manifest, including computed and conditional declarations."""
-    targets = {}
-    for target in package["targets"]:
-        name = target["name"]
-        path = target.get("path")
-        if not isinstance(path, str):
-            raise ValueError(f"{name} requires an explicit source path")
-        dependencies = set()
-        for dependency in target["dependencies"]:
-            value = dependency.get("byName") or dependency.get("target")
-            if not value or not isinstance(value[0], str):
-                raise ValueError(f"{name} requires local target dependencies: {dependency}")
-            dependencies.add(value[0])
-        if name in targets:
-            raise ValueError(f"duplicate target: {name}")
-        targets[name] = {"path": path, "type": target["type"], "dependencies": dependencies}
-    return targets
-
-
-def read_manifest(root: Path) -> dict:
-    environment = dict(os.environ)
-    environment["CLANG_MODULE_CACHE_PATH"] = str(root / ".build/compiler-cache/ModuleCache.noindex")
-    with ExitStack() as locks:
-        paths = [root / ".build/compiler-cache/cache.lock"]
-        if environment.get("BIT101_EXTENDED_TESTS_LOCK_HELD") != "1":
-            paths.insert(0, root / ".build/extended-automation.lock")
-        for path in paths:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            lock = locks.enter_context(path.open("a"))
-            fcntl.flock(lock, fcntl.LOCK_EX)
-        result = subprocess.run([
-            "xcrun", "swift", "package", "--package-path", str(root),
-            "--scratch-path", str(root / ".build/extended-automation"), "dump-package",
-        ], capture_output=True, text=True, env=environment)
-    if result.returncode:
-        raise ValueError(result.stderr.strip() or "SwiftPM manifest evaluation failed")
-    return json.loads(result.stdout)
 
 
 def imported_modules(source_root: Path) -> dict[str, set[str]]:
@@ -165,6 +126,15 @@ def graph_errors(manifest: dict[str, set[str]]) -> list[str]:
         if layer(module) is None:
             errors.append(f"{module} requires a declared architectural layer suffix")
         visit(module, ())
+        if layer(module) in {"Domain", "Contracts"}:
+            pending, reachable = list(dependencies), set()
+            while pending:
+                dependency = pending.pop()
+                if dependency in reachable: continue
+                reachable.add(dependency)
+                pending.extend(manifest.get(dependency, set()) - reachable)
+            for dependency in sorted(reachable & SHARED_MODULES):
+                errors.append(f"pure {layer(module).lower()} boundary: {module} -> {dependency}")
         for dependency in dependencies:
             source_layer, dependency_layer = layer(module), layer(dependency)
             if dependency not in manifest:
@@ -237,7 +207,7 @@ def expanded_resource_source(source: str, aliases: tuple = (), path: str = "reso
     for node in facts["scopedIdentifiers"]:
         if node["value"] not in alias_names or node["start"] in declaration_positions: continue
         start = node["start"]
-        prefix = swift_code(encoded[:start].decode())
+        prefix = code[:len(encoded[:start].decode())]
         qualifier = re.search(r"(?:\b\w+\s*\.\s*)+$", prefix)
         if not qualifier and (any(declaration["name"] == node["value"]
             and node["scope"][:len(declaration["scope"])] == declaration["scope"] for declaration in facts["declarations"])
@@ -256,10 +226,11 @@ def expanded_resource_source(source: str, aliases: tuple = (), path: str = "reso
 
 
 SERVICE_RESOURCE_OWNERS = {
+    'web': {('GalleryFeature', 'GalleryRootViewScene.GalleryWebView'), ('GalleryFeature', 'GalleryWebCoordinator')},
     'transport': {('TransportCore', owner) for owner in ('HTTPClient', 'HTTPTransmissionMetrics', 'HTTPTransport',
         'URLSession', 'URLSessionTransport', 'NoRedirectURLSessionDelegate', 'HTTPSUpgradingRedirectDelegate', 'UncachedHTTPTransport')},
     'cache': {('TransportCore', 'URLSessionTransport')},
-    'requests': {('TransportCore', owner) for owner in ('HTTPClient', 'HTTPTransport', 'URLSession', 'UncachedHTTPTransport')},
+    'requests': {('TransportCore', owner) for owner in ('HTTPClient', 'HTTPTransport', 'URLSession', 'URLSessionTransport', 'UncachedHTTPTransport')},
     'connections': {('TransportCore', 'NetworkPathState'), ('BIT101-iOS', 'UITestControlServer')},
     'errors': {('TransportCore', 'ErrorChain')},
     'form': {('TransportCore', 'HTTPFormEncoding')},
@@ -275,7 +246,7 @@ def resource_permissions(path: str, source: str):
     line_starts = [0] + [match.end() for match in re.finditer(b'\n', encoded)]
     def owner(point):
         nominal = canonical_type_scope(point['scope'])
-        return (unit, nominal[0]) if len(nominal) == 1 else None
+        return (unit, '.'.join(nominal)) if nominal else None
     points = [(point['start'], point['start'] + len(point.get('value', point.get('name', '')).encode()), len(point['scope']), owner(point))
         for point in facts['members'] + facts['scopedIdentifiers'] + facts['typeNames'] + facts['typedVariables'] + facts['invocations']]
     line_owners = {}
@@ -294,26 +265,31 @@ def resource_permissions(path: str, source: str):
 
 def service_boundary_errors(path: str, source: str, aliases: tuple = (), context: tuple = ((), ()), *, call_context=None, origin=None) -> list[str]:
     """Enforce resource capabilities on their owning module and declaration."""
-    source = normalized_resource_source(expanded_resource_source(source, aliases, path))
+    source = local_resource_source(expanded_resource_source(source, aliases, path), origin or path, call_context)
+    source = normalized_resource_source(source)
     if call_context: call_context = call_context.replacing_source(origin or path, resource_facts(source))
     code, permitted = swift_code(source), resource_permissions(path, source)
+    from network_capability_rules import NETWORK_PLATFORM_CONNECTION_TYPES, NETWORK_PLATFORM_TRANSPORT_TYPES, platform_stream_request
     patterns = [
-        (r"\b(?:URLSession|URLCache)\b", "use TransportCore transport and cache services", 'transport'),
-        (r"\b(?:CFSocket\w*|CFStreamCreatePairWith(?:Socket|PeerSocketSignature)\w*)\b", "use TransportCore network services", 'transport'),
+        (r"\bAsyncImage\b", "load remote images through MediaKit", None),
+        (r"\b(?:Process|NSTask)\b", "keep subprocess execution in host tooling", None),
+        (r"\b(?:" + '|'.join(sorted(NETWORK_PLATFORM_TRANSPORT_TYPES | {'URLCache'})) + r")\b", "use TransportCore transport and cache services", 'transport'),
+        (r"\b(?:CFSocket\w*|CFStreamCreatePairWith(?:Socket|PeerSocketSignature)\w*|CFReadStreamCreateForHTTPRequest|CFHTTPMessageCreateRequest)\b", "use TransportCore network services", 'transport'),
         (r"\.\s*(?:data|download|upload|bytes)\s*\(\s*for\s*:", "send requests through HTTPClient", 'requests'),
         (r"\.\s*(?:dataTask|downloadTask|uploadTask|webSocketTask)\s*\(", "send requests through HTTPClient", 'requests'),
-        (r"\b(?:NWPathMonitor|NWConnection|NWConnectionGroup|NWListener|NWTCPConnection|NWUDPSession)\b", "use TransportCore network services", 'connections'),
+        (r"\b(?:" + '|'.join(sorted(NETWORK_PLATFORM_CONNECTION_TYPES | {'NWPathMonitor', 'NWTCPConnection', 'NWUDPSession'})) + r")\b", "use TransportCore network services", 'connections'),
         (r"\.\s*userInfo\s*\[\s*NSUnderlyingErrorKey\s*\]", "traverse underlying errors through ErrorChain", 'errors'),
         (r"\bCharacterSet\s*\.\s*urlQueryAllowed\b", "encode form fields through HTTPFormEncoding", 'form'),
         (r"\b(?:DispatchIO|CF(?:Read|Write)StreamCreateWithFile)\b", "read and write files through AppFileService", 'files'),
-        (r"\bFileManager\b(?!\s*\.\s*(?:SearchPathDirectory|DirectoryEnumerationOptions)\b)", "use AppFileService", 'files'),
-        (r"\b(?:Data|NSData|NSMutableData|String|NSString|NSMutableString|XMLParser)\s*(?:\.\s*init\s*)?\(\s*(?:contentsOf|contentsOfFile|contentsOfURL)\s*:", "read files through AppFileService", 'files'),
+        (r"\bFileManager\b(?!\s*\.\s*(?:SearchPathDirectory|SearchPathDomainMask|DirectoryEnumerationOptions|VolumeEnumerationOptions|URLRelationship|ItemReplacementOptions)\b)", "use AppFileService", 'files'),
+        (r"\b(?:Data|NSData|NSMutableData|String|NSString|NSMutableString|XMLParser|" + '|'.join(sorted(FOUNDATION_COLLECTION_TYPES)) + r")\s*(?:\.\s*self\s*)?(?:\.\s*init\s*)?\(\s*(?:contentsOf|contentsOfFile|contentsOfURL|contentsOfMappedFile)\s*:", "read files through AppFileService", 'files'),
         (r"\bNS(?:Keyed)?Archiver\s*\.\s*archiveRootObject\b", "write files through AppFileService", 'files'),
         (r"\bNS(?:Keyed)?Unarchiver\s*\.\s*unarchiveObject\s*\(\s*withFile\s*:", "read files through AppFileService", 'files'),
         (r"\.\s*(?:resourceValues|setResourceValues|getResourceValue|setResourceValue|resolvingSymlinksInPath|checkResourceIsReachable)\s*\(", "access file metadata through AppFileService", 'files'),
         (r"\b(?:FileHandle|NSFileHandle)\b(?!\s*\.\s*standard(?:Output|Error)\b)|\b(?:NSFileCoordinator|CGImageSourceCreateWithURL|CGImageDestinationCreateWithURL)\b", "access files through AppFileService", 'files'),
         (r"\b(?:FileWrapper|NSFileWrapper)\s*(?:\.\s*init\s*)?\(\s*(?:url|path)\s*:", "access files through AppFileService", 'files'),
         (r"\b(?:UIImage|NSImage|InputStream|OutputStream)\s*(?:\.\s*init\s*)?\(\s*(?:contentsOfFile|contentsOf|url|fileAtPath|toFileAtPath)\s*:", "access files through AppFileService", 'files'),
+        (r"\bCGDataProvider\s*(?:\.\s*init\s*)?\(\s*url\s*:", "access files through AppFileService", 'files'),
         (r"\bUserDefaults\s*\.\s*standard\b|\bUserDefaults\s*=\s*\.\s*standard\b|\bUserDefaults\s*(?:\(|\.\s*init\b)", "select preferences through the host storage entry", 'preferences'),
     ]
     if path.startswith("Modules/") and not path.startswith("Modules/TransportCore/"):
@@ -323,8 +299,16 @@ def service_boundary_errors(path: str, source: str, aliases: tuple = (), context
     if path.startswith("Modules/ScheduleFeature/"):
         patterns.append((r"\bDateFormatter\s*\(", "format schedule dates through ScheduleDateCodec", None))
     errors = []
+    if 'getStreamsToHost' in code:
+        bindings = call_context or SwiftBindingTypes({origin or path: resource_facts(source)})
+        for call in resource_facts(source)['invocations']:
+            if platform_stream_request(bindings.types, origin or path, call, bindings) and not permitted('transport', offset=call['start']):
+                line = source.encode()[:call['start']].count(b'\n') + 1
+                errors.append(f"service boundary: {path}:{line}: use TransportCore network services")
     errors.extend(f"service boundary: {path}:{line}: use TransportCore network services"
         for line in implicit_file_accesses(source, POSIX_NETWORK_FUNCTIONS) if not permitted('transport', line=line))
+    errors.extend(f"service boundary: {path}:{line}: keep subprocess execution in host tooling"
+        for line in implicit_file_accesses(source, POSIX_PROCESS_FUNCTIONS))
     if path.startswith("Modules/") and not path.startswith("Modules/StorageCore/"):
         errors.extend(f"service boundary: {path}:{line}: inject host-selected file resources"
             for line in implicit_resource_accesses(source, "LocalAppFileService", context[0], call_context=call_context, origin=origin or path))
@@ -334,25 +318,67 @@ def service_boundary_errors(path: str, source: str, aliases: tuple = (), context
         for line in file_member_accesses(source, properties=context[0], call_context=call_context, origin=origin or path) if not permitted('files', line=line))
     errors.extend(f"service boundary: {path}:{line}: select preferences through the host storage entry: UserDefaults"
         for line in implicit_resource_accesses(source, properties=context[0], call_context=call_context, origin=origin or path) if not permitted('preferences', line=line))
-    local_calls = local_member_calls(source, ("data", "download", "upload", "bytes", "dataTask", "downloadTask", "uploadTask", "webSocketTask"), context) if re.search(r"\.\s*(?:data|download|upload|bytes|dataTask|downloadTask|uploadTask|webSocketTask)\s*\(", code) else set()
+    errors.extend(f"service boundary: {path}:{line}: select preferences through the host storage entry: CFPreferences"
+        for line in implicit_file_accesses(source, CF_PREFERENCE_FUNCTIONS) if not permitted('preferences', line=line))
+    local_names = ("data", "download", "upload", "bytes", "dataTask", "downloadTask", "uploadTask", "webSocketTask",
+        "resourceValues", "setResourceValues", "getResourceValue", "setResourceValue", "resolvingSymlinksInPath", "checkResourceIsReachable")
+    local_calls = local_member_calls(source, local_names, context) if re.search(r"\.\s*(?:" + '|'.join(local_names) + r")\s*\(", code) else set()
     for pattern, rule, capability in patterns:
         for match in re.finditer(pattern, code):
             offset = len(source[:match.start()].encode())
+            if match[0].strip() == 'WKWebView' and permitted('web', offset=offset): continue
             if capability and permitted(capability, offset=offset): continue
-            if rule == "send requests through HTTPClient" and offset in local_calls: continue
+            if rule in {"send requests through HTTPClient", "access file metadata through AppFileService"} and offset in local_calls: continue
             line = code.count("\n", 0, match.start()) + 1
             errors.append(f"service boundary: {path}:{line}: {rule}: {match[0].strip()}")
     return errors
 
 
-POSIX_FILE_FUNCTIONS = r"open|openat|creat|close|read|pread|readv|write|pwrite|writev|lseek|fopen|freopen|fread|fwrite|fclose|rename|remove|unlink|mkdir|rmdir|stat|lstat|fstat|truncate|ftruncate|fsync|fdatasync|access|opendir|readdir|closedir|mmap|munmap|readlink|readlinkat|symlink|symlinkat|link|linkat|renameat|unlinkat|mkdirat|fstatat|chmod|fchmod|fchmodat|chown|fchown|lchown|fchownat|fdopen|fflush|fseek|ftell|fgetpos|fsetpos|rewind|scandir"
-POSIX_NETWORK_FUNCTIONS = r"socket|socketpair|connect|bind|listen|accept|send|sendto|sendmsg|recv|recvfrom|recvmsg|shutdown|setsockopt|getsockopt|getpeername|getsockname"
-FILE_INITIALIZER_TYPES = r"(?:Foundation\.|UIKit\.|AppKit\.)?(?:Data|NSData|NSMutableData|String|NSString|NSMutableString|XMLParser|UIImage|NSImage|InputStream|OutputStream|FileWrapper|NSFileWrapper)\??"
+POSIX_FILE_FUNCTIONS = r"open|openat|creat|close|read|pread|readv|write|pwrite|writev|lseek|fopen|freopen|fread|fwrite|fclose|rename|remove|unlink|mkdir|rmdir|stat|lstat|fstat|truncate|ftruncate|fsync|fdatasync|access|opendir|readdir|closedir|mmap|munmap|readlink|readlinkat|symlink|symlinkat|link|linkat|renameat|unlinkat|mkdirat|fstatat|chmod|fchmod|fchmodat|chown|fchown|lchown|fchownat|fdopen|fflush|fseek|ftell|fgetpos|fsetpos|rewind|scandir|removefile|copyfile|fcopyfile|realpath|getxattr|fgetxattr|setxattr|fsetxattr|listxattr|flistxattr|removexattr|fremovexattr"
+POSIX_NETWORK_FUNCTIONS = '|'.join(sorted(NETWORK_SYSTEM_FUNCTIONS))
+POSIX_PROCESS_FUNCTIONS = r"posix_spawn|posix_spawnp|fork|vfork|execl|execlp|execle|execv|execvp|execve|popen|system"
+CF_PREFERENCE_FUNCTIONS = r"(?:CoreFoundation\s*\.\s*)?CFPreferences(?:CopyAppValue|CopyValue|CopyMultiple|CopyKeyList|CopyApplicationList|SetAppValue|SetValue|SetMultiple|AppSynchronize|Synchronize|GetAppBooleanValue|GetAppIntegerValue|AppValueIsForced|AddSuitePreferencesToApp|RemoveSuitePreferencesFromApp)"
+FILE_INITIALIZER_TYPES = r"(?:Foundation\.|UIKit\.|AppKit\.|CoreGraphics\.)?(?:Data|NSData|NSMutableData|String|NSString|NSMutableString|XMLParser|UIImage|NSImage|InputStream|OutputStream|FileWrapper|NSFileWrapper|CGDataProvider|" + '|'.join(sorted(FOUNDATION_COLLECTION_TYPES)) + r")\??"
+
+
+def local_resource_source(source: str, path: str, call_context=None) -> str:
+    """Preserve source offsets while separating project types from platform resources."""
+    from network_capability_rules import NETWORK_PLATFORM_CONNECTION_TYPES, NETWORK_PLATFORM_TRANSPORT_TYPES
+    resources = FOUNDATION_COLLECTION_TYPES | NETWORK_PLATFORM_CONNECTION_TYPES | NETWORK_PLATFORM_TRANSPORT_TYPES | {
+        'FileManager', 'UserDefaults', 'URLCache', 'HTTPCookieStorage', 'UIApplication', 'UIScreen',
+        'Data', 'NSData', 'NSMutableData', 'String', 'NSString', 'NSMutableString', 'XMLParser',
+        'UIImage', 'NSImage', 'Stream', 'NSStream', 'InputStream', 'OutputStream', 'NSInputStream', 'NSOutputStream', 'FileWrapper', 'NSFileWrapper',
+        'FileHandle', 'NSFileHandle', 'NSFileCoordinator', 'NSKeyedArchiver', 'NSKeyedUnarchiver',
+        'NSArchiver', 'NSUnarchiver', 'CGDataProvider', 'CharacterSet', 'DispatchIO', 'NWPathMonitor',
+        'Process', 'NSTask', 'AsyncImage',
+    }
+    code = swift_code(source)
+    if not any(re.search(r'\b' + name + r'\b', code) for name in resources): return source
+    facts = resource_facts(source)
+    types = (call_context or SwiftBindingTypes({path: facts})).types
+    identities = {namespace + '.' + '.'.join(owner) for namespace, owner in types.records}
+    declared = {types.resolve(owner_path, '.'.join(node['scope'] + [node['name']]), aliases=False)
+        for owner_path, entries in types.index.items() for node in entries.get('declarations', [])
+        if node['kind'] != 'extension'}
+    encoded = bytearray(source.encode())
+    for node in facts['scopedIdentifiers']:
+        if node['value'] not in resources: continue
+        prefix = code[:len(source.encode()[:node['start']].decode())]
+        qualifier = re.search(r'(?:\b\w+\s*\.\s*)+$', prefix)
+        name = re.sub(r'\s+', '', qualifier[0]) + node['value'] if qualifier else node['value']
+        key = types.resolve(path, name, node['scope'])
+        if key not in declared: continue
+        terminal = types.terminal_name(path, name, node['scope'])
+        if terminal not in identities: continue
+        if any(base.removeprefix('Foundation.') in resources for base in types.bases(key)): continue
+        encoded[node['start']] = ord('_')
+    return encoded.decode()
 
 
 def normalized_resource_source(source: str) -> str:
-    resources = "Data|NSData|NSMutableData|String|NSString|NSMutableString|XMLParser|NSKeyedArchiver|NSKeyedUnarchiver|NSArchiver|NSUnarchiver|UIImage|NSImage|InputStream|OutputStream|FileWrapper|NSFileWrapper|UserDefaults|FileManager|URLSession|URLSessionTransport|URLCache|AppFileSystem|LocalAppFileService"
-    if re.search(r"\b(?:" + resources + r")\s*\.\s*self\b", swift_code(source)):
+    resources = "Data|NSData|NSMutableData|String|NSString|NSMutableString|XMLParser|NSKeyedArchiver|NSKeyedUnarchiver|NSArchiver|NSUnarchiver|UIImage|NSImage|Stream|NSStream|InputStream|OutputStream|NSInputStream|NSOutputStream|FileWrapper|NSFileWrapper|UserDefaults|FileManager|URLSession|URLSessionTransport|URLCache|AppFileSystem|LocalAppFileService"
+    code = swift_code(source)
+    if re.search(r"\b(?:" + resources + r")\s*\.\s*self\b", code):
         facts = resource_facts(source)
         def metatype(name, point, seen=frozenset(), explicit_self=False):
             if name in seen: return None
@@ -373,7 +399,7 @@ def normalized_resource_source(source: str) -> str:
         binding_names = {binding.get('bindingName') for binding in facts['bindings']}
         for node in facts['scopedIdentifiers']:
             if not node.get('isExpressionReference') or node['value'] not in binding_names: continue
-            qualifier = re.search(r'(\w+)\s*\.\s*$', swift_code(encoded[:node['start']].decode()))
+            qualifier = re.search(r'(\w+)\s*\.\s*$', code[:len(encoded[:node['start']].decode())])
             if qualifier and qualifier[1] != 'self': continue
             if target := metatype(node['value'], node, explicit_self=bool(qualifier)):
                 begin = len(encoded[:node['start']].decode()[:qualifier.start()].encode()) if qualifier else node['start']
@@ -392,15 +418,15 @@ def resource_facts(source: str) -> dict:
 
 @cache
 def file_member_accesses(source: str, properties: tuple = (), *, call_context=None, origin='resource-source') -> list[int]:
-    if not re.search(r"\.\s*(?:write|read|matchesContents)\b", swift_code(source)): return []
+    if not re.search(r"\.\s*(?:write|read|matchesContents)\b|\bCGPDFDocument\b", swift_code(source)): return []
     facts = dict(resource_facts(source))
     facts["typedVariables"] = facts["typedVariables"] + [dict(scope=list(scope), name=name, type=kind, start=-1, lexicalScope=[])
         for scope, name, kind in properties]
     encoded = source.encode()
     binding_types = None
-    file_types = {"Data", "NSData", "NSMutableData", "String", "NSString", "NSMutableString", "FileWrapper", "NSFileWrapper"}
+    file_types = FOUNDATION_COLLECTION_TYPES | {"Data", "NSData", "NSMutableData", "String", "NSString", "NSMutableString", "FileWrapper", "NSFileWrapper"}
     def normalized_type(value: str) -> str:
-        value = value.strip().removeprefix("Foundation.").removesuffix("?")
+        value = value.strip().removeprefix("Foundation.").removeprefix("CoreFoundation.").removesuffix("?")
         optional = re.fullmatch(r"(?:Swift\.)?Optional<(.+)>", value)
         return normalized_type(optional[1]) if optional else value
 
@@ -419,6 +445,8 @@ def file_member_accesses(source: str, properties: tuple = (), *, call_context=No
         expression = re.sub(r"^(?:(?:try[!?]?|await)\s+)+", "", expression.strip()).rstrip("!?")
         if expression.startswith("(") and expression.endswith(")"):
             expression = expression[1:-1].strip()
+        cast = re.fullmatch(r".+\s+as[!?]?\s+([\w.]+\??)", expression, re.DOTALL)
+        if cast: return normalized_type(cast[1])
         result = re.match(r"(.+)\.\s*(encode|data|pngData|jpegData|appendingPathComponent|appendingPathExtension|appending)\s*\(", expression, re.DOTALL)
         if result:
             receiver_type = value_type(result[1], point, seen)
@@ -486,6 +514,10 @@ def file_member_accesses(source: str, properties: tuple = (), *, call_context=No
 
     hits = set()
     for call in facts["invocations"]:
+        if re.match(r"(?:CoreGraphics\.)?CGPDFDocument\s*(?:\.\s*init\s*)?\(", call['value']):
+            arguments = call.get('arguments') or []
+            if arguments and value_type(arguments[0], call) in {'URL', 'NSURL', 'CFURL'}:
+                hits.add(encoded[:call['start']].count(b'\n') + 1)
         match = re.match(r"(.+)\.\s*(write|read|matchesContents)\s*\(\s*(?:to|toFile|from|of)\s*:", call["value"], re.DOTALL)
         if match:
             receiver = value_type(match[1], call)
@@ -494,6 +526,16 @@ def file_member_accesses(source: str, properties: tuple = (), *, call_context=No
             if (match[2] == "write" and receiver in file_types or receiver in {"FileWrapper", "NSFileWrapper"}) or (match[2] == "write" and receiver is None and (target == "URL" or (target == "String" and "toFile" in call["argumentLabels"]))):
                 hits.add(encoded[:call["start"]].count(b"\n") + 1)
     for reference in facts["members"]:
+        if re.fullmatch(r'(?:CoreGraphics\.)?CGPDFDocument\s*\.\s*init', reference['value']):
+            contexts = expected_argument_types(facts, reference, context=call_context, path=origin)
+            contexts.extend(binding.get('bindingType', '') for binding in facts['bindings']
+                if binding['start'] <= reference['start'] < binding['start'] + len(binding['value'].encode()))
+            prefix = encoded[:reference['start']].decode()
+            assignment = re.search(r'\b(\w+)\s*=\s*$', prefix)
+            if assignment:
+                contexts.extend(variable['type'] for variable in visible_variables(facts, reference, assignment[1]))
+            if any(re.search(r'\bCFURL\b', context) for context in contexts):
+                hits.add(encoded[:reference['start']].count(b'\n') + 1)
         match = re.fullmatch(r"(.+)\.\s*(write|read|matchesContents)(?:\(\s*(?:\w+\s*:\s*)+\))?", reference["value"], re.DOTALL)
         if not match: continue
         receiver = value_type(match[1], reference) or normalized_type(match[1])
@@ -531,8 +573,8 @@ def implicit_file_accesses(source: str, functions: str = POSIX_FILE_FUNCTIONS, *
         if posix:
             own_function = bool(matching_functions(facts, posix[2], call)) or own_value(call, posix[2])
             forbidden = bool(posix[1]) or not own_function
-        elif functions == POSIX_FILE_FUNCTIONS and re.match(r"\.\s*init\s*\(\s*(?:contentsOf|contentsOfFile|contentsOfURL|url|path|fileAtPath|toFileAtPath)\s*:", value):
-            prefix = swift_code(encoded[:call["start"]].decode())
+        elif functions == POSIX_FILE_FUNCTIONS and re.match(r"\.\s*init\s*\(\s*(?:contentsOf|contentsOfFile|contentsOfURL|contentsOfMappedFile|url|path|fileAtPath|toFileAtPath)\s*:", value):
+            prefix = code[:len(encoded[:call["start"]].decode())]
             contexts = expected_argument_types(facts, call, context=call_context, path=origin) + [match[1] for binding in facts["bindings"]
                 if binding["start"] <= call["start"] < binding["start"] + len(binding["value"].encode())
                 and (match := re.match(r"\w+\s*:\s*([^={]+)", swift_code(binding["value"])))]
@@ -544,7 +586,7 @@ def implicit_file_accesses(source: str, functions: str = POSIX_FILE_FUNCTIONS, *
                 if function["start"] <= call["start"] < function["end"] and function.get("returnType")
                 and re.search(r"(?:\breturn|\{)\s*$", prefix))
             forbidden = any(re.search(r"\b" + FILE_INITIALIZER_TYPES + r"\b", context) for context in contexts) if contexts \
-                else bool(re.match(r"\.\s*init\s*\(\s*contentsOf(?:File|URL)?\s*:", value))
+                else bool(re.match(r"\.\s*init\s*\(\s*contentsOf(?:File|URL|MappedFile)?\s*:", value))
         if forbidden: hits.add(encoded[:call["start"]].count(b"\n") + 1)
     return sorted(hits)
 
@@ -558,30 +600,36 @@ def implicit_resource_accesses(source: str, resource: str = "UserDefaults", prop
         for scope, name, kind in properties]
     encoded = source.encode()
     hits = []
+    def matches(value, scope):
+        if call_context:
+            value = re.sub(r'(?<![\w.])(?:Foundation\.|StorageCore\.)?' + resource + r'\b',
+                lambda match: call_context.types.terminal_name(origin, match[0], scope), value)
+        return resource_context_type(value, resource)
     accesses = [member for member in facts["members"] if resource == "UserDefaults" and re.fullmatch(r"\.\s*standard", swift_code(member["value"]).strip())]
     accesses.extend(call for call in facts["invocations"] if re.match(r"\.\s*init\s*\(", swift_code(call["value"])))
     for member in accesses:
-        prefix = swift_code(encoded[:member["start"]].decode())
+        prefix = code[:len(encoded[:member["start"]].decode())]
         assigned = re.search(r"(?:self\.)?(\w+)\s*=\s*$", prefix)
         inferred = bool(re.search(r"\b(?:Foundation\.|StorageCore\.)?" + resource + r"\??\s*=\s*$", prefix))
-        inferred |= any(resource_context_type(value, resource) for value in expected_argument_types(facts, member, context=call_context, path=origin))
+        inferred |= any(matches(value, member['scope']) for value in expected_argument_types(facts, member, context=call_context, path=origin))
         inferred |= any(binding["start"] <= member["start"] < binding["start"] + len(binding["value"].encode())
             and (context := re.match(r"\w+\s*:\s*([^={]+)", swift_code(binding["value"])))
-            and resource_context_type(context[1], resource)
+            and matches(context[1], binding['scope'])
             and re.search(r"(?:\breturn|\bin|[\{=\[,:?])\s*(?:try[!?]?\s*)?$", prefix)
             for binding in facts["bindings"])
         if assigned:
             matching = visible_variables(facts, member, assigned[1], assigned[0].startswith("self."))
-            inferred = inferred or bool(matching and resource_context_type(matching[-1]["type"], resource))
+            inferred = inferred or bool(matching and matches(matching[-1]["type"], matching[-1]['scope']))
         inferred = inferred or any(function["start"] <= member["start"] < function["end"]
-            and resource_context_type(function.get("returnType", ""), resource)
+            and matches(function.get("returnType", ""), function['scope'])
             and re.search(r"(?:\breturn|[\{?:])\s*(?:try[!?]?\s*)?$", prefix) for function in facts["functionRanges"])
         if inferred: hits.append(prefix.count("\n") + 1)
     return hits
 
 
 def ownership_errors(scope: str, source: str, path: str = "", aliases: tuple = (), properties: tuple = (), *, call_context=None) -> list[str]:
-    source = normalized_resource_source(expanded_resource_source(source, aliases, path or "resource-source"))
+    source = local_resource_source(expanded_resource_source(source, aliases, path or "resource-source"), path or 'resource-source', call_context)
+    source = normalized_resource_source(source)
     if call_context: call_context = call_context.replacing_source(path or 'resource-source', resource_facts(source))
     code = swift_code(source)
     patterns = []
@@ -603,6 +651,9 @@ def ownership_errors(scope: str, source: str, path: str = "", aliases: tuple = (
         patterns.append(r"\b(?:AppMedia|LoginStorage)\s*\.")
     implicit = [f"resource ownership: {scope} selects UserDefaults at line {line}"
         for line in implicit_resource_accesses(source, properties=properties, call_context=call_context, origin=path or 'resource-source')] if layer(scope) is not None else []
+    if layer(scope) is not None:
+        implicit.extend(f"resource ownership: {scope} selects CFPreferences at line {line}"
+            for line in implicit_file_accesses(source, CF_PREFERENCE_FUNCTIONS))
     if layer(scope) is not None and scope != "StorageCore":
         implicit.extend(f"resource ownership: {scope} selects LocalAppFileService at line {line}"
             for line in implicit_resource_accesses(source, "LocalAppFileService", properties, call_context=call_context, origin=path or 'resource-source'))
@@ -638,22 +689,81 @@ def adapter_roles(index: dict[str, dict], path: str | None = None) -> dict[tuple
     return roles
 
 
-def adapter_ownership_errors(facts: dict, path: str = "", roles: dict | None = None) -> list[str]:
-    errors = []
+def adapter_call_roles(index: dict[str, dict]) -> dict:
+    from network_capability_rules import api_invocations, call_can_execute, callback_body_ranges, executed_callback_positions, matching_api_calls
+    from swift_type_index import callable_effect_index, compilation_unit, execution_index, receiver_resolver
+    index = execution_index(callable_effect_index(index))
+    types, resolve_receiver = SwiftBindingTypes(index).types, receiver_resolver(index)
+    nodes, by_name, active = {}, {}, {}
+    for path, facts in index.items():
+        roles = adapter_roles(index, path)
+        for function in facts.get('functionRanges', []) + facts.get('accessorRanges', []) + facts.get('inlineClosureRanges', []) + [
+                node for node in facts.get('initializers', []) if node.get('isExplicitInitializer')]:
+            key = (path, function['start'], function['end'])
+            nodes[key] = function
+            by_name.setdefault(function['name'], []).append((path, function))
+            scope = canonical_type_scope(function['scope'])
+            active[key] = {role for owner, role in roles.items() if scope[:len(owner)] == owner}
+            active[key].update(owner for owner in function['scope'] if settings_owner(owner))
+    edges = {key: set() for key in nodes}
+    for path, facts in index.items():
+        for call in api_invocations(facts):
+            if not call_can_execute(facts, call): continue
+            parents = [key for key in nodes if key[0] == path and key[1] <= call['start'] < key[2]]
+            if not parents: continue
+            caller = min(parents, key=lambda key: key[2] - key[1])
+            expression = call['calledExpression']
+            receiver, _, name = expression.rpartition('.')
+            target_owner = resolve_receiver(dict(call, path=path)) if receiver else None
+            candidates = []
+            for target_path, function in by_name.get(name, []):
+                if compilation_unit(target_path) != compilation_unit(path): continue
+                if function.get('isPrivate') and target_path != path: continue
+                if receiver in {'', 'self', 'Self'}:
+                    if call['scope'][:len(function['scope'])] != function['scope']: continue
+                    if function.get('lexicalScope') and (target_path != path or
+                        call.get('lexicalScope', [])[:len(function['lexicalScope'])] != function['lexicalScope']): continue
+                elif target_owner != '.'.join([compilation_unit(target_path), *function['scope']]): continue
+                candidates.append((target_path, function))
+            if candidates and receiver in {'', 'self', 'Self'}:
+                depth = max((len(function['scope']), len(function.get('lexicalScope', []))) for _, function in candidates)
+                candidates = [(target_path, function) for target_path, function in candidates
+                    if (len(function['scope']), len(function.get('lexicalScope', []))) == depth]
+            matches = matching_api_calls(index, candidates, dict(call, path=path), types=types, conservative=True)
+            edges[caller].update((target_path, function['start'], function['end']) for target_path, function in matches)
+            positions = executed_callback_positions(call, project_call=bool(matches))
+            edges[caller].update((path, start, end) for start, end in callback_body_ranges(facts, call, positions)
+                if (path, start, end) in nodes)
+    changed = True
+    while changed:
+        changed = False
+        for caller, targets in edges.items():
+            for target in targets:
+                additions = active[caller] - active[target]
+                if additions: active[target].update(additions); changed = True
+    return active
+
+
+def adapter_ownership_errors(facts: dict, path: str = "", roles: dict | None = None, *, call_roles=None) -> list[str]:
+    errors = set()
     if roles is None: roles = adapter_roles({path: facts})
+    if call_roles is None: call_roles = adapter_call_roles({path: facts})
     for node in facts["scopedIdentifiers"] + facts["members"]:
         scope = canonical_type_scope(node["scope"])
         active_roles = {role for owner, role in roles.items() if scope[:len(owner)] == owner}
         active_roles.update(owner for owner in node["scope"] if settings_owner(owner))
+        parents = [key for key in call_roles if key[0] == path and key[1] <= node['start'] < key[2]]
+        if parents: active_roles.update(call_roles[min(parents, key=lambda key: key[2] - key[1])])
+        line = facts.get('source', '').encode()[:node['start']].count(b'\n') + 1
         for role in active_roles:
-            errors.extend(ownership_errors(role, node["value"]))
-    return errors
+            errors.update(f"{path or 'source'}:{line}: {error}" for error in ownership_errors(role, node["value"]))
+    return sorted(errors)
 
 
 
 def native_target_errors(root: Path, package: dict, modules: set[str]) -> list[str]:
     from code_quality_rules import native_project_targets
-    from validation_inputs import SWIFT_ROOTS, repository_input_names, native_project_paths
+    from validation_inputs import SWIFT_ROOTS, NATIVE_PRODUCT_ROOTS, NATIVE_TEST_ROOTS, repository_input_names, native_project_paths
     project = json.loads(subprocess.check_output([
         "plutil", "-convert", "json", "-o", "-", str(root / "BIT101-iOS.xcodeproj/project.pbxproj"),
     ], text=True))
@@ -663,13 +773,18 @@ def native_target_errors(root: Path, package: dict, modules: set[str]) -> list[s
             errors.append(f'工程文件引用需要对应实际文件：{path.relative_to(root) if path.is_relative_to(root) else path}')
     inventory = {root / name for name in repository_input_names(root)
         if Path(name).suffix == '.swift' and Path(name).parts[0] in SWIFT_ROOTS}
+    compiled = set()
     for name, declared, sources in native_project_targets(project, root):
+        compiled.update(sources)
         for source in sorted(sources - inventory):
             errors.append(f'native target {name} source requires validation inventory registration: {source.relative_to(root)}')
         actual = {module for source in sources for module in imports_in_text(source.read_text(encoding="utf-8"))}
         exported = {module for product in package["products"] if product["name"] in declared for module in product["targets"]}
         for module in actual & modules - exported:
             errors.append(f"native target {name} imports undeclared product for {module}")
+    for source in sorted(inventory - compiled):
+        if source.relative_to(root).parts[0] in NATIVE_PRODUCT_ROOTS + NATIVE_TEST_ROOTS:
+            errors.append(f'native source requires target membership: {source.relative_to(root)}')
     return errors
 
 
@@ -747,7 +862,7 @@ def main() -> int:
     if len(tests) < 2:
         errors.append("test consumers require independent source roots")
 
-    # 平台副作用适配的资源选择沿语法树声明归属核对。
+    # 平台副作用适配的资源选择沿声明归属及辅助调用链核对。
     app_syntax = swift_syntax_index(sorted((root / "BIT101-iOS").rglob("*.swift")))
     app_aliases = type_aliases(app_syntax)
     normalized = {}
@@ -757,9 +872,10 @@ def main() -> int:
         if expanded != source: normalized[path] = expanded
     app_syntax.update(swift_syntax_index_sources(normalized) if normalized else {})
     adapter_index = {Path(path).relative_to(root).as_posix(): facts for path, facts in app_syntax.items()}
+    call_roles = adapter_call_roles(adapter_index)
     for path, facts in app_syntax.items():
         source = Path(path).relative_to(root).as_posix()
-        errors.extend(adapter_ownership_errors(facts, source, adapter_roles(adapter_index, source)))
+        errors.extend(adapter_ownership_errors(facts, source, adapter_roles(adapter_index, source), call_roles=call_roles))
 
     errors.extend(native_target_errors(root, package, set(modules)))
 
@@ -789,4 +905,6 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    from validation_artifacts import static_audit_lock
+    with static_audit_lock(ROOT):
+        raise SystemExit(main())

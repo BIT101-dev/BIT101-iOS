@@ -42,12 +42,10 @@ public nonisolated struct SchoolLoginContext: Sendable {
 /// 教学中心 WebVPN 会话的进程内状态。
 ///
 /// 认证状态属于学校网络基础设施，页面层通过服务协议消费它。
+@MainActor
 public final class TeachingCenterSessionState {
-    private let lock = NSLock()
     private var selectedCookieStorage: HTTPCookieStorage
     public var cookieStorage: HTTPCookieStorage {
-        lock.lock()
-        defer { lock.unlock() }
         return selectedCookieStorage
     }
     private var authenticatedStudentID: String?
@@ -60,8 +58,6 @@ public final class TeachingCenterSessionState {
     }
 
     public func replaceCookieStorage(with cookieStorage: HTTPCookieStorage) {
-        lock.lock()
-        defer { lock.unlock() }
         selectedCookieStorage = cookieStorage
         authenticatedStudentID = nil
         preparedStudentID = nil
@@ -70,11 +66,9 @@ public final class TeachingCenterSessionState {
     }
 
     public func hasUsableSession(for studentID: String) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
 
         guard !studentID.isEmpty else { return false }
-        if isDirectPreferredLocked(for: studentID, now: Date()) {
+        if isDirectPreferred(for: studentID, now: Date()) {
             return false
         }
         guard hasWebVPNCookie else {
@@ -87,17 +81,13 @@ public final class TeachingCenterSessionState {
     }
 
     public func markAuthenticated(for studentID: String) {
-        lock.lock()
         authenticatedStudentID = studentID
         preparedStudentID = nil
         directStudentID = nil
         directPreferenceUntil = nil
-        lock.unlock()
     }
 
     public func shouldPreferDirect(for studentID: String, now: Date = Date()) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
         guard directStudentID == studentID,
               let directPreferenceUntil,
               directPreferenceUntil > now
@@ -110,36 +100,28 @@ public final class TeachingCenterSessionState {
     }
 
     public func markDirectPreferred(for studentID: String, now: Date = Date()) {
-        lock.lock()
         authenticatedStudentID = nil
         preparedStudentID = nil
         directStudentID = studentID
         directPreferenceUntil = now.addingTimeInterval(10 * 60)
-        lock.unlock()
     }
 
     public func isPrepared(for studentID: String) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return hasUsableRouteLocked(for: studentID, now: Date())
+        return hasUsableRoute(for: studentID, now: Date())
             && preparedStudentID == studentID
     }
 
     public func markPrepared(for studentID: String) {
-        lock.lock()
-        defer { lock.unlock() }
-        if hasUsableRouteLocked(for: studentID, now: Date()) {
+        if hasUsableRoute(for: studentID, now: Date()) {
             preparedStudentID = studentID
         }
     }
 
     public func invalidate(clearCookies: Bool = true) {
-        lock.lock()
         authenticatedStudentID = nil
         preparedStudentID = nil
         directStudentID = nil
         directPreferenceUntil = nil
-        lock.unlock()
 
         guard clearCookies else { return }
         deleteCookies(matching: [
@@ -171,13 +153,13 @@ public final class TeachingCenterSessionState {
         } ?? false
     }
 
-    private func isDirectPreferredLocked(for studentID: String, now: Date) -> Bool {
+    private func isDirectPreferred(for studentID: String, now: Date) -> Bool {
         directStudentID == studentID && (directPreferenceUntil ?? .distantPast) > now
     }
 
-    private func hasUsableRouteLocked(for studentID: String, now: Date) -> Bool {
+    private func hasUsableRoute(for studentID: String, now: Date) -> Bool {
         (authenticatedStudentID == studentID && hasWebVPNCookie)
-            || isDirectPreferredLocked(for: studentID, now: now)
+            || isDirectPreferred(for: studentID, now: now)
     }
 
     private func deleteCookies(matching domains: Set<String>) {

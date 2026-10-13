@@ -20,7 +20,7 @@ struct ScheduleTimeTableTests {
         #expect(decoded.timeTable == slots)
     }
 
-    @Test func pendingCoursesKeepTimeTableEditingAvailable() async throws {
+    @Test(.timeLimit(.minutes(1))) func pendingCoursesKeepTimeTableEditingAvailable() async throws {
         let scheduled = try #require(try ScheduleCourseEditor.adding(CourseDraft(title: "待排课程", weeksText: "1"),
             to: [], term: "term", id: "pending").first)
         var object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(scheduled)) as? [String: Any])
@@ -42,7 +42,7 @@ struct ScheduleTimeTableTests {
         #expect(repository.persistenceSnapshot.timeTable == [.init(id: 1, start: "08:00", end: "08:45")])
     }
 
-    @Test func schoolCoursesArrivingAfterTheTableWasShortenedPreserveThePreviousSnapshot() async throws {
+    @Test(.timeLimit(.minutes(1))) func schoolCoursesArrivingAfterTheTableWasShortenedPreserveThePreviousSnapshot() async throws {
         var cache = ScheduleCache()
         cache.currentTerm = "term"
         var writes = 0
@@ -71,7 +71,7 @@ struct ScheduleTimeTableTests {
         #expect(repository.persistenceSnapshot.hasSupportedCourseSections)
     }
 
-    @Test func incompatibleCourseSectionsKeepTheCommittedDiskSnapshot() async throws {
+    @Test(.timeLimit(.minutes(1))) func incompatibleCourseSectionsKeepTheCommittedDiskSnapshot() async throws {
         let files = ModuleScoreFiles()
         let store = SchedulePersistenceStore(files: files, storageRoot: URL(fileURLWithPath: "/time-table"), userStateMatches: { _, _ in true })
         let account = AppStorageSession(accountIdentifier: "sections")
@@ -92,7 +92,7 @@ struct ScheduleTimeTableTests {
         #expect(try files.readData(at: url) == bytes)
     }
 
-    @Test func classroomCalculatorRunsInBackground() async {
+    @Test(.timeLimit(.minutes(1))) func classroomCalculatorRunsInBackground() async {
         let result = await Self.backgroundClassrooms()
         #expect(result.count == 5_000 && result.allSatisfy(\.isFreeNow))
     }
@@ -103,7 +103,7 @@ struct ScheduleTimeTableTests {
             ClassroomRecord(id: String($0), name: String($0), busyTimeCodes: $0.isMultiple(of: 2) ? [1] : []) },
             timeTable: [TimeSlot(id: 1, start: "08:00", end: "08:45")], selectedSections: [], nowMinutes: 8 * 60)
     }
-    @Test(arguments: ["invalid", "reverse", "overlap", "id", "order"])
+    @Test(arguments: ["invalid", "reverse", "overlap", "id", "order", "start", "gap"])
     func invalidTablesFailAtCacheAndShareBoundaries(kind: String) throws {
         let first = TimeSlot(id: 1, start: "08:00", end: "08:45")
         let second: TimeSlot
@@ -112,20 +112,54 @@ struct ScheduleTimeTableTests {
         case "reverse": second = .init(id: 2, start: "10:00", end: "09:45")
         case "overlap": second = .init(id: 2, start: "08:30", end: "09:45")
         case "id": second = .init(id: 0, start: "09:00", end: "09:45")
+        case "start": second = .init(id: 2, start: "09:00", end: "09:45")
+        case "gap": second = .init(id: 3, start: "09:00", end: "09:45")
         default: second = .init(id: 1, start: "09:00", end: "09:45")
         }
         var cache = ScheduleCache()
-        cache.timeTable = [first, second]
+        cache.timeTable = kind == "start" ? [second] : [first, second]
         let payload = ScheduleExportPayload(currentTerm: "", firstDayString: "", timeTable: cache.timeTable, courses: [])
         #expect(throws: ScheduleShareCodeError.self) { try payload.validate() }
         #expect(SchedulePersistenceStore.decodeCache(try JSONEncoder().encode(cache)).isUnreadable)
-        let legacy = try JSONSerialization.data(withJSONObject: ["timeTable": [
-            ["id": first.id, "start": first.start, "end": first.end],
-            ["id": second.id, "start": second.start, "end": second.end]]])
+        let legacy = try JSONSerialization.data(withJSONObject: ["timeTable": cache.timeTable.map {
+            ["id": $0.id, "start": $0.start, "end": $0.end] as [String: Any]
+        }])
         #expect(SchedulePersistenceStore.decodeCache(legacy).isUnreadable)
     }
 
-    @Test func theDayBoundaryHasOneContractAndShrinkingRetainsCourseData() async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: ["school", "manual", "shared"])
+    func incompatibleCachedCoursesPreserveBytesAndDisableEditing(source: String) async throws {
+        let files = ModuleScoreFiles()
+        let store = SchedulePersistenceStore(files: files, storageRoot: URL(fileURLWithPath: "/time-table"), userStateMatches: { _, _ in true })
+        let account = AppStorageSession(accountIdentifier: "invalid-sections")
+        let courses = try ScheduleCourseEditor.adding(CourseDraft(title: "晚间课程", weeksText: "1", selectedSections: [7]),
+            to: [], term: "term", id: "course")
+        var cache = ScheduleCache()
+        cache.currentTerm = "term"
+        let slots = Array(TimeSlot.default.prefix(6))
+        if source == "shared" {
+            cache.sharedSchedules = [.init(id: "shared", title: "分享课表", payload: .init(
+                currentTerm: "term", firstDayString: "", timeTable: slots, courses: courses))]
+        } else {
+            cache.timeTable = slots
+            if source == "manual" {
+                cache.manualCourseRulesByTerm = ["term": [.init(id: "rule", sourceIdentity: "", sourceCourses: [], replacementCourses: courses)]]
+            } else {
+                cache.courseData.store(.init(term: "term", firstDayString: "", courses: courses, exams: [], updatedAt: Date()))
+            }
+        }
+        let bytes = try JSONEncoder().encode(cache), url = store.cacheFileURL(for: account.accountStorageIdentifier)
+        try files.writeData(bytes, to: url, options: .atomic)
+        let repository = ScheduleRepository(session: { account }, load: { await store.load(for: $0) }, save: { _, _, _ in })
+        await repository.loadIfNeeded()
+        #expect(repository.isWritable == false)
+        #expect(await store.load(for: account).isUnreadable)
+        #expect(await store.write(ScheduleCache(), accountIdentifier: account.accountStorageIdentifier,
+            legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) == nil)
+        #expect(try files.readData(at: url) == bytes)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func theDayBoundaryHasOneContractAndShrinkingRetainsCourseData() async throws {
         let slots = [TimeSlot(id: 1, start: "23:00", end: "24:00")]
         #expect(TimeSlot.isValidTable(slots))
         try ScheduleExportPayload(currentTerm: "", firstDayString: "", timeTable: slots, courses: []).validate()

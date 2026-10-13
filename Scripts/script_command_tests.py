@@ -75,6 +75,22 @@ child() {{ print executed; }}
             text=True, capture_output=True)
         if result.returncode or ('executed\n' in result.stdout) == current or f'checks={1 if current else 2}' not in result.stdout:
             findings.append('模块聚合复验：当前完整证据复用，缺失与过期证据执行后验收')
+    restore = 'restore_release_app() {' + source.split('restore_release_app() {', 1)[1].split('\n  trap restore_release_app', 1)[0]
+    restore = restore.replace('"$ROOT_DIR/Scripts/build-install-device.sh"', 'restore_probe')
+    finish = 'finish_validation() {' + source.split('finish_validation() {', 1)[1].split('\ntrap finish_validation', 1)[0]
+    for hook in (finish, restore):
+        for test_status, merge_status in ((0, 0), (7, 0), (0, 9), (7, 9)):
+            harness = f'''ROOT_DIR=/fixture DERIVED_ROOT=/fixture validation_group=all validation_scope=selected
+WORKFLOW_STARTED_SECONDS=$SECONDS DEVICE_TEST_EXECUTION_STARTED=true
+retained_result_groups=(all ui)
+restore_probe() {{ print RESTORE; }}
+python3() {{ print -r -- "PY $*"; [[ "$2" != retain-selected ]] || return {merge_status}; }}
+'''
+            name = 'restore_release_app' if hook == restore else 'finish_validation'
+            result = subprocess.run(['zsh', '-c', harness + hook + f'\ntrap {name} EXIT\nexit {test_status}'],
+                capture_output=True, text=True)
+            if result.returncode != (merge_status or test_status) or 'retain-selected all all ui' not in result.stdout:
+                findings.append('定向结果保留自测：退出与 App 恢复钩子合并有效证据并传播失败')
     return findings
 
 def restore_installation_boundary_findings() -> list[str]:
@@ -122,6 +138,26 @@ execute_test() {
         observed = [line for line in result.stdout.splitlines() if line in {'CLEAR', 'INSTALL', 'EXECUTE', 'RESULT'}]
         if result.returncode != expected or observed != events:
             findings.append(f'安装恢复生命周期自测：{context.strip()} {expected}，实际 {result.returncode} {result.stdout.strip()}')
+    program = (SCRIPT_ROOT / 'script-support.sh').read_text().split("<<'PYMACINSTALL'\n", 1)[1].split('\nPYMACINSTALL', 1)[0]
+    fixture = ROOT / '.build/static-audit/workflow-lock-self-test'
+    try:
+        for stage in ('copy-failure', 'swap-failure', 'replace', 'first-install'):
+            shutil.rmtree(fixture, ignore_errors=True)
+            source, installed = fixture / 'source.app', fixture / 'installed.app'
+            source.mkdir(parents=True); (source / 'binary').write_text('new')
+            if stage != 'first-install':
+                installed.mkdir(); (installed / 'binary').write_text('old')
+            def copy(arguments, **kwargs):
+                shutil.copytree(arguments[1], arguments[2])
+                if stage == 'copy-failure': raise OSError('copy interrupted')
+            library = Mock(renamex_np=Mock(return_value=-1)) if stage == 'swap-failure' else __import__('ctypes').CDLL('/usr/lib/libSystem.B.dylib', use_errno=True)
+            with patch.object(sys, 'argv', ['install', str(source), str(installed)]), patch.object(subprocess, 'run', side_effect=copy), patch('ctypes.CDLL', return_value=library):
+                try: exec(compile(program, '<mac-app-install>', 'exec'), {})
+                except OSError:
+                    if not stage.endswith('failure'): raise
+            expected = 'old' if stage.endswith('failure') else 'new'
+            assert (installed / 'binary').read_text() == expected and not (fixture / '.BIT101-iOS.install.app').exists(), stage
+    finally: shutil.rmtree(fixture, ignore_errors=True)
     return findings
 
 def audit_lock_boundary_findings() -> list[str]:
@@ -138,7 +174,7 @@ def audit_lock_boundary_findings() -> list[str]:
     shell = (SCRIPT_ROOT / 'run-static-audit.sh').read_text().split('LOG_DIR=', 1)[0]
     shell = re.sub(r'(?m)^ROOT_DIR=.*$', 'ROOT_DIR=' + shlex.quote(str(fixture)), shell)
     shell = shell.replace('source "$ROOT_DIR/Scripts/script-support.sh"', 'source ' + shlex.quote(str(SCRIPT_ROOT / 'script-support.sh')))
-    manifest = f'''import fcntl, os, runpy, sys
+    manifest = f'''import ast, fcntl, os, runpy, sys
 from pathlib import Path
 from unittest.mock import patch
 from types import SimpleNamespace
@@ -157,7 +193,8 @@ def manifest():
         rules['read_manifest'](quality.ROOT)
 if sys.argv[1] == 'direct':
     before = dict(os.environ)
-    with quality.static_audit_lock(): manifest()
+    try: exec(compile(ast.Module(body=[ast.parse(Path({str(SCRIPT_ROOT / 'check-module-boundaries.py')!r}).read_text()).body[-1]], type_ignores=[]), '<module-entry>', 'exec'), dict(__name__='__main__', main=manifest, ROOT=quality.ROOT))
+    except SystemExit as error: assert error.code is None
     assert dict(os.environ) == before
 else: manifest()
 print('entered', flush=True)
@@ -166,6 +203,7 @@ print('entered', flush=True)
     try:
         shutil.rmtree(fixture, ignore_errors=True)
         fixture.mkdir(parents=True)
+        (fixture / 'Scripts').symlink_to(SCRIPT_ROOT, target_is_directory=True)
         (fixture / '.build/static-audit').mkdir(parents=True)
         worker.write_text('if [[ "$1" == direct ]]; then exec ' + command + ' direct; fi\n' + shell + '\n' + command + ' shell\n')
         for mode in ('shell', 'direct'):
@@ -196,6 +234,10 @@ print('entered', flush=True)
 }
 '''
         worker.write_text(recovery + cache)
+        diagnostics = fixture / '.build/extended-automation/diagnostics'
+        (diagnostics / 'test-results.xcresult').mkdir(parents=True)
+        (diagnostics / 'test-results.xcresult/Info.plist').write_text('retained')
+        (diagnostics / 'exported.log').write_text('temporary')
         with (fixture / '.build/extended-automation.lock').open('a') as artifact:
             fcntl.flock(artifact, fcntl.LOCK_EX)
             standalone = subprocess.Popen(['zsh', str(worker), 'cache'], env=environment,
@@ -211,6 +253,8 @@ print('entered', flush=True)
             fcntl.flock(artifact, fcntl.LOCK_UN)
         output, error = standalone.communicate(timeout=5)
         if standalone.returncode or '缓存整理：' not in output: raise ValueError(error)
+        assert (diagnostics / 'test-results.xcresult/Info.plist').read_text() == 'retained'
+        assert not (diagnostics / 'exported.log').exists()
     except (ValueError, OSError, subprocess.TimeoutExpired) as error:
         findings.append(f'审计锁顺序自测：{error}')
     finally:
@@ -223,7 +267,50 @@ print('entered', flush=True)
         shutil.rmtree(fixture, ignore_errors=True)
     return findings
 
+def audit_cancellation_findings() -> list[str]:
+    import os
+    import select
+    source = (SCRIPT_ROOT / 'run-static-audit.sh').read_text()
+    cleanup = 'finish_audit() {' + source.split('finish_audit() {', 1)[1].split('\nSWIFT_FRONTEND=', 1)[0]
+    launcher = 'start_group() {' + source.split('start_group() {', 1)[1].split('\nfailed_groups=()', 1)[0]
+    runner = ('run_group() {' + source.split('run_group() {', 1)[1].split('\nshow_group_log()', 1)[0]).replace('> "$log" 2>&1', '')
+    harness = '''ROOT_DIR=/fixture LOG_DIR=/fixture SWIFT_FRONTEND=frontend AUDIT_STARTED=$SECONDS group_processes=()
+python3() { if [[ "$1" == /fixture/Scripts/validation_evidence.py ]]; then return 0; fi; command python3 "$@"; }
+blocked_task() { python3 -c 'import os, time; print(os.getpid(), os.getpgrp(), flush=True); time.sleep(60)'; }
+'''
+    findings = []
+    for signum, expected in ((signal.SIGINT, 130), (signal.SIGTERM, 143)):
+        process = subprocess.Popen(['zsh', '-c', harness + cleanup + runner + launcher + '\nstart_group sample blocked_task\nwait "$group_processes[1]"'],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
+        worker_group = None
+        try:
+            if not select.select([process.stdout], [], [], 5)[0]: raise ValueError('后台检查启动需要及时响应')
+            worker, worker_group = map(int, process.stdout.readline().split())
+            os.kill(process.pid, signum)
+            _, error = process.communicate(timeout=5)
+            assert process.returncode == expected, error
+            try: os.kill(worker, 0)
+            except ProcessLookupError: pass
+            else: raise ValueError('中断完成后后台检查需要结束')
+        except (ValueError, AssertionError, subprocess.TimeoutExpired) as error:
+            reason = '后台检查清理需要按测试预算完成' if isinstance(error, subprocess.TimeoutExpired) else str(error)
+            findings.append(f'审计中断自测：{reason}')
+        finally:
+            if worker_group is not None:
+                try: os.killpg(worker_group, signal.SIGKILL)
+                except ProcessLookupError: pass
+            if process.poll() is None: os.killpg(process.pid, signal.SIGKILL)
+            process.communicate(timeout=5)
+    return findings
+
+
 def script_command_boundary_findings() -> list[str]:
+    from ci_wiring_rules import hook_documents_checked, active_script_markers
+    from module_boundary_tests import build_cache_exit_self_test
+    assert hook_documents_checked('exec python3 Scripts/check-docs.py --all --staged')
+    for source in ('# exec python3 Scripts/check-docs.py --all --staged', 'echo "python3 Scripts/check-docs.py --all --staged"'):
+        assert not hook_documents_checked(source)
+    assert 'xccov' not in active_script_markers('# xccov\necho ready # xccov')
     "通过内存替身验证自动选机、操作分派、筛选合并及参数拒绝。"
     import shlex
     import plistlib
@@ -233,9 +320,42 @@ def script_command_boundary_findings() -> list[str]:
     assert any(metadata_option in finding for finding in test_build_argument_findings(shlex.join(metadata_arguments))), \
         '日志标签中的参数进入元数据，实际编译命令承担参数门禁'
 
-    findings = result_retention_boundary_findings()
+    findings = result_retention_boundary_findings() + audit_cancellation_findings() + build_cache_exit_self_test()
     support = (SCRIPT_ROOT / 'script-support.sh').read_text()
     logger = 'bit101_log_command() {' + support.split('bit101_log_command() {', 1)[1].split('\nbit101_build_cache() {', 1)[0]
+    log_program = logger.split("3<<'PY'\n", 1)[1].split('\nPY\n', 1)[0]
+    from contextlib import redirect_stdout
+    from io import StringIO
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    temporary_bundle = Path('/fixture/cache/ResultBundle_failure.xcresult')
+    diagnostic_bundle = Path('/fixture/diagnostics/test-results.xcresult')
+    for status in (0, 7):
+        child = SimpleNamespace(stdout=iter([f'Writing error result bundle to {temporary_bundle}\n']), wait=lambda: status)
+        with patch.object(sys, 'argv', ['logger', '/dev/null', 'fixture', 'xcodebuild']), \
+                patch.dict(os.environ, BIT101_COMMAND_DIAGNOSTICS=str(diagnostic_bundle.parent)), \
+                patch.object(subprocess, 'Popen', return_value=child), patch('tempfile.gettempdir', return_value='/fixture/cache'), \
+                patch.object(Path, 'mkdir'), patch.object(Path, 'resolve', lambda path: path), patch.object(Path, 'is_dir', return_value=True), \
+                patch('shutil.move') as moved, patch('shutil.rmtree') as removed, redirect_stdout(StringIO()):
+            try: exec(compile(log_program, '<build-diagnostic>', 'exec'), {})
+            except SystemExit as error: assert error.code == status
+            assert moved.call_args.args == (str(temporary_bundle), str(diagnostic_bundle)) if status else not moved.called
+            assert removed.call_args.args[0] == (diagnostic_bundle if status else temporary_bundle)
+    diagnostics_program = (SCRIPT_ROOT / 'run-extended-tests.sh').read_text().split(
+        'python3 - "$DERIVED_ROOT/test-results.xcresult"', 1)[1].split("<<'PY'\n", 1)[1].split('\nPY\n', 1)[0]
+    exported = diagnostic_bundle.parent / 'session.log'
+    with patch.object(sys, 'argv', ['diagnostics', '/fixture/test-results.xcresult', '', 'diagnostics', str(SCRIPT_ROOT)]), \
+            patch.object(Path, 'is_file', return_value=True), patch.object(Path, 'exists', lambda path: path == diagnostic_bundle.parent), \
+            patch.object(Path, 'is_dir', lambda path: path == diagnostic_bundle), \
+            patch.object(Path, 'iterdir', return_value=[diagnostic_bundle, exported]), \
+            patch.object(Path, 'unlink') as unlinked, patch.object(shutil, 'rmtree') as removed, \
+            patch.object(subprocess, 'run') as export, redirect_stdout(StringIO()):
+        try: exec(compile(diagnostics_program, '<diagnostic-export>', 'exec'), {})
+        except SystemExit as error: assert error.code == 0
+        arguments = export.call_args.args[0]
+        assert arguments[arguments.index('--path') + 1] == str(diagnostic_bundle)
+        assert arguments[arguments.index('--output-path') + 1] == str(diagnostic_bundle.parent)
+        assert unlinked.call_count == 1 and not removed.called
     command = logger + '\nbit101_log_command /dev/null stdin-contract ' + shlex.quote(sys.executable) + ' - delegated-argument\n'
     for status in (0, 7):
         payload = f'import sys\nassert sys.argv[1] == "delegated-argument"\nprint("warning: delegated-stdin-executed")\nraise SystemExit({status})\n'
@@ -314,7 +434,6 @@ python3() {{ print -r -- "RECORD $*"; return {recording}; }}
     restoration_program = simulator_source.split("<<'PYRESTORE'\n", 1)[1].split('\nPYRESTORE', 1)[0]
     from datetime import datetime, timezone
     from types import SimpleNamespace
-    import plistlib
     import uuid
     restore_id = uuid.UUID('00000000-0000-4000-8000-000000000001')
     app_info = dict(CFBundleExecutable='App', CFBundleIdentifier='app', CFBundleShortVersionString='1',
@@ -436,6 +555,7 @@ bit101_invalidate_restore() { print RESTORE_INVALIDATED; }
 mkdir() { :; }
 rm() { :; }
 ditto() { :; }
+bit101_install_mac_app() { :; }
 open() { :; }
 pgrep() { return 1; }
 trap() { :; }
@@ -452,14 +572,36 @@ xcrun() {
         result = subprocess.run(['zsh', '-c', scope_source, str(SCRIPT_ROOT / 'release-network-smoke.sh'), scope],
             env=dict(os.environ, BIT101_NETWORK_SMOKE_FIXTURES=''), capture_output=True, text=True)
         assert result.returncode == 64 and 'WORKFLOW_LOCK' not in result.stdout, '维护对象配置需要在构建与选机前验收'
+    for scope, configuration in (('all', {}), ('all', {'BIT101_NETWORK_SMOKE_FIXTURES': json.dumps(valid_fixture)}), ('all', {'BIT101_NETWORK_SMOKE_FIXTURES': json.dumps(valid_fixture), 'BIT101_COMMUNITY_SMOKE_ACCOUNT': ''}),
+            ('community-writes', {'BIT101_NETWORK_SMOKE_FIXTURES': json.dumps(valid_fixture)}),
+            ('community-writes', {'BIT101_NETWORK_SMOKE_FIXTURES': json.dumps(valid_fixture),
+                'BIT101_COMMUNITY_SMOKE_ACCOUNT': '1', 'BIT101_COMMUNITY_FOLLOW_TARGET': '2'})):
+        environment = dict(os.environ, BIT101_NETWORK_SMOKE_FIXTURES='', BIT101_NETWORK_SMOKE_CAPTURE='none',
+            BIT101_COMMUNITY_SMOKE_ACCOUNT='1', BIT101_COMMUNITY_FOLLOW_TARGET='', BIT101_COMMUNITY_RECOVERY_CONFIRMATION='')
+        environment.update(configuration)
+        result = subprocess.run(['zsh', '-c', scope_source, str(SCRIPT_ROOT / 'release-network-smoke.sh'), '--check-config', scope],
+            env=environment, capture_output=True, text=True)
+        expected = bool(configuration) and (scope == 'all' and bool(environment['BIT101_COMMUNITY_SMOKE_ACCOUNT']) or scope != 'all' and 'BIT101_COMMUNITY_SMOKE_ACCOUNT' in configuration)
+        assert (result.returncode == 0) == expected and not result.stdout, '配置预检沿叶子流程验收，设备与产物保持独立'
+    preflight = re.search(r'(?ms)^  for group in .*?^  acquire_test_lock$', export_source)[0]
+    assert '--check-config' in preflight and 'verify_step' not in preflight
+    block = re.search(r'(?ms)^  verification_network_args=.*?(?=^  acquire_test_lock$)', export_source)[0]
+    for arguments in (['verify', 'modules', 'network'], ['verify', 'all', 'community-writes']):
+        harness = 'set -euo pipefail\nROOT_DIR=' + shlex.quote(str(SCRIPT_ROOT.parent)) + '\nshift\n' + block + '\nprint READY'
+        result = subprocess.run(['zsh', '-c', harness, 'configuration-order', *arguments], capture_output=True, text=True,
+            env=dict(os.environ, BIT101_NETWORK_SMOKE_FIXTURES='', BIT101_NETWORK_SMOKE_CAPTURE='none',
+                BIT101_COMMUNITY_RECOVERY_CONFIRMATION=''))
+        assert result.returncode == 64 and 'READY' not in result.stdout, '聚合配置失败在编译及设备恢复前返回'
     for capture in ('rawCourseResponse', 'scheduleCache'):
         for scope in ('all', 'school', 'schedule', 'bit101', 'ddl', 'transcript', 'community-writes', 'community-cleanup'):
             result = subprocess.run(['zsh', '-c', scope_source, str(SCRIPT_ROOT / 'release-network-smoke.sh'), scope],
-                env=dict(os.environ, BIT101_NETWORK_SMOKE_CAPTURE=capture, BIT101_NETWORK_SMOKE_FIXTURES=json.dumps(valid_fixture)), capture_output=True, text=True)
+                env=dict(os.environ, BIT101_NETWORK_SMOKE_CAPTURE=capture, BIT101_NETWORK_SMOKE_FIXTURES=json.dumps(valid_fixture), BIT101_COMMUNITY_SMOKE_ACCOUNT='1'), capture_output=True, text=True)
             if (result.returncode == 0) != (scope in ('all', 'school', 'schedule')):
                 findings.append('网络采样自测：课表采样与执行范围匹配')
     confirmation = dict(account=1, marker='功能验收 fixture', serverReceipt='backend-reconciliation', kinds=['poster'], parents=[])
     for scope, value, valid in (('community-cleanup', confirmation, True), ('ddl', confirmation, False),
+            ('community-cleanup', dict(confirmation, kinds=[], settledMutations=['follow:user2', 'like:course1']), True),
+            ('community-cleanup', dict(confirmation, kinds=[], settledMutations=['like:course0']), False),
             ('community-cleanup', dict(confirmation, serverReceipt=''), False),
             ('community-cleanup', dict(confirmation, kinds=['course']), False), ('community-cleanup', {}, False)):
         result = subprocess.run(['zsh', '-c', scope_source, str(SCRIPT_ROOT / 'release-network-smoke.sh'), scope],
@@ -469,14 +611,14 @@ xcrun() {
     for value, valid in ((valid_fixture, True), ({}, False), (dict(valid_fixture, posterID=True), False),
             (dict(valid_fixture, courseID=0), False), (dict(valid_fixture, courseNumber=' COURSE'), False)):
         result = subprocess.run(['zsh', '-c', scope_source, str(SCRIPT_ROOT / 'release-network-smoke.sh'), 'bit101'],
-            env=dict(os.environ, BIT101_NETWORK_SMOKE_FIXTURES=json.dumps(value)), capture_output=True, text=True)
+            env=dict(os.environ, BIT101_NETWORK_SMOKE_FIXTURES=json.dumps(value), BIT101_COMMUNITY_SMOKE_ACCOUNT='1'), capture_output=True, text=True)
         if (result.returncode == 0) != valid:
             findings.append('网络维护对象自测：校验对象标识及课程编号')
     for arguments, term, expected in ((['all'], '', 'network full'), (['all'], 'historical', 'network selected'),
             (['school', 'sms'], '', 'school-sms full'), (['school', 'sms'], 'historical', 'school-sms selected')):
         result = subprocess.run(['zsh', '-c', scope_source + '\nprint -r -- "$validation_group $validation_scope"',
             str(SCRIPT_ROOT / 'release-network-smoke.sh'), *arguments], capture_output=True, text=True,
-            env=dict(os.environ, BIT101_NETWORK_SMOKE_TERM=term, BIT101_NETWORK_SMOKE_FIXTURES=json.dumps(valid_fixture)))
+            env=dict(os.environ, BIT101_NETWORK_SMOKE_TERM=term, BIT101_NETWORK_SMOKE_FIXTURES=json.dumps(valid_fixture), BIT101_COMMUNITY_SMOKE_ACCOUNT='1'))
         if result.returncode or result.stdout.splitlines()[-1:] != [expected]:
             findings.append('网络学期自测：覆盖学期采样沿定向范围登记')
     export_source = export_source[:export_source.index('if [[ "${1:-}" == -h')]
@@ -529,7 +671,7 @@ xcrun() {
         ("release-network-smoke.sh", ["school", "sms"], 86, "RELEASE_NETWORK_SMOKE", "DEVICE"),
         ("run_icloud_cross_device_smoke.sh", [], 86, "ICLOUD_CROSS_DEVICE_SMOKE", "DEVICE"), ("run_icloud_cross_device_smoke.sh", ["report"], 0, "REPORT", ""),
     )
-    environment = dict(os.environ, BIT101_EXTENDED_TESTS_LOCK_HELD="1", BIT101_DEFER_APP_RESTORE="1", BIT101_NETWORK_SMOKE_FIXTURES=json.dumps(valid_fixture))
+    environment = dict(os.environ, BIT101_WORKFLOW_CONDITIONS='DEBUG RELEASE_NETWORK_SMOKE', BIT101_EXTENDED_TESTS_LOCK_HELD="1", BIT101_DEFER_APP_RESTORE="1", BIT101_NETWORK_SMOKE_FIXTURES=json.dumps(valid_fixture), BIT101_COMMUNITY_SMOKE_ACCOUNT='1')
     for filename, arguments in (("build-install-device.sh", ["archive"]), ("run-extended-tests.sh", ["build"]),
                                 ("release-network-smoke.sh", ["ddl"]), ("run_icloud_cross_device_smoke.sh", []),
                                 ("run-static-audit.sh", [])):
@@ -544,19 +686,40 @@ xcrun() {
                                 capture_output=True, text=True)
         if result.returncode != 79:
             findings.append(f"源码摘要失败应在工作流启动前退出：{filename}")
+    for arguments, groups in ((['ddl'], ['ddl']), (['all', 'sms'], ['network', 'school-sms']),
+                             (['school', 'sms'], ['school-sms'])):
+        path = SCRIPT_ROOT / 'release-network-smoke.sh'
+        failure = frame.replace('trap() { :; }', '') + r'''
+python3() {
+  if [[ "$*" == *"validation_evidence.py digest"* ]]; then print self-test-inputs;
+  elif [[ "$*" == *"validation_provenance.py worker-snapshot"* ]]; then return 79;
+  elif [[ "$*" == *"validation_evidence.py record"* ]]; then print -r -- "RECORD $3 $4 $5";
+  else return 0; fi
+}
+restore_probe() { print RESTORE; }
+bit101_run_logged() { print BUILD; return 79; }
+'''
+        source = path.read_text().replace('source "$ROOT_DIR/Scripts/script-support.sh"', failure).replace(
+            '"$ROOT_DIR/Scripts/build-install-device.sh"', 'restore_probe')
+        result = subprocess.run(['zsh', '-c', source, str(path), *arguments],
+            env=dict(environment, BIT101_DEFER_APP_RESTORE='0'), capture_output=True, text=True)
+        records = [line for line in result.stdout.splitlines() if line.startswith('RECORD ')]
+        if result.returncode != 79 or records != [f'RECORD {group} 79 full' for group in groups] \
+                or 'BUILD\n' not in result.stdout or 'RESTORE\n' in result.stdout:
+            findings.append('网络部署身份缺口自测：构建失败保留设备现有 App 并登记采样结果')
     for filename, arguments, expected, marker, device in cases:
         path = SCRIPT_ROOT / filename
         source = path.read_text().replace('source "$ROOT_DIR/Scripts/script-support.sh"',
                                          f"source {shlex.quote(str(support))}\n" + frame)
         stop = "exit 86" if expected == 86 else "return 0"
-        source = source.replace(frame, frame + f'\nbit101_run_logged() {{ print -r -- "BUILD $*"; print -r -- "ARGUMENTS ${{(qqq)@}}"; {stop}; }}\n' + '\npython3() { if [[ "$*" == *"validation_performance.py reset-results"* ]]; then return 0; fi; if [[ "$*" == *"validation_provenance.py worker-snapshot"* ]]; then print "{}"; return 0; fi; if [[ "$*" == *"validation_restore.py"* ]]; then print -ru2 RESTORE_PROBE; return 0; fi; if [[ "$*" == *"/signing.entitlements"* || "$*" == *"/icloud-cross-device-smoke/report.json"* ]]; then return 0; fi; if [[ "$*" == *"validation_evidence.py digest"* ]]; then case "$3" in all|release-runtime|ui|schedule|infrastructure|login|extensions|network|ddl|school-sms|community-writes|community-cleanup|icloud|icloud-cleanup|restore) [[ "${BIT101_XCODE_DEVICE_ID:-}" == udid ]] || return 78 ;; esac; print self-test-inputs; return 0; fi; command python3 "$@"; }\n')
+        source = source.replace(frame, frame + f'\nbit101_run_logged() {{ print -r -- "BUILD $*"; print -r -- "ARGUMENTS ${{(qqq)@}}"; {stop}; }}\n' + '\npython3() { if [[ "$*" == *"validation_performance.py"* ]]; then return 0; fi; if [[ "$*" == *"validation_provenance.py worker-snapshot"* ]]; then print "{}"; return 0; fi; if [[ "$*" == *"validation_restore.py"* ]]; then print -ru2 RESTORE_PROBE; return 0; fi; if [[ "$*" == *"/signing.entitlements"* || "$*" == *"/icloud-cross-device-smoke/report.json"* ]]; then return 0; fi; if [[ "$*" == *"validation_evidence.py digest"* ]]; then case "$3" in all|release-runtime|ui|schedule|infrastructure|login|extensions|network|ddl|school-sms|community-writes|community-cleanup|icloud|icloud-cleanup|restore) [[ "${BIT101_XCODE_DEVICE_ID:-}" == udid ]] || return 78 ;; esac; print self-test-inputs; return 0; fi; command python3 "$@"; }\n')
         source = re.sub(r"(?ms)^ui_test_plan\(\) \{\n.*?^\}$",
                         'ui_test_plan() { print -r -- /audit/ui.xctestrun; }', source, count=1)
         source = re.sub(r"(?ms)^report_result\(\) \{\n.*?^\}$", 'report_result() { print REPORT; }', source, count=1)
         result = subprocess.run(["zsh", "-c", source, str(path), *arguments], env=environment,
                                 capture_output=True, text=True)
         command_output = '\n'.join(line for line in result.stdout.splitlines() if line.startswith('BUILD '))
-        if result.returncode != expected or marker not in result.stdout or ("DEVICE\n" in result.stdout) != bool(device):
+        if result.returncode != expected or marker not in result.stdout or ("DEVICE\n" in result.stdout) != bool(device) or filename == 'build-install-device.sh' and command_output and any(not re.search(r'\b' + name + r'=(?:\s|$)', command_output) for name in ('BIT101_WORKFLOW_CONDITIONS', 'SWIFT_ACTIVE_COMPILATION_CONDITIONS')):
             findings.append(f"命令自测：{filename} {' '.join(arguments)} 分派及自动选机；{result.stderr}")
         if filename == 'run-extended-tests.sh':
             findings.extend(test_build_argument_findings(result.stdout))
@@ -579,12 +742,12 @@ xcrun() {
                 group = "build-" + (arguments[1] if len(arguments) > 1 else "release")
             if f"/extended-automation/{group}.log" not in result.stdout:
                 findings.append(f"命令自测：{group} 保存独立验证组日志")
-        needs_lock = arguments != ["info"]
+        needs_lock = arguments != ["info"] and (filename != "run_icloud_cross_device_smoke.sh" or arguments != ["report"])
         if ("WORKFLOW_LOCK\n" in result.stdout) != needs_lock:
             findings.append(f"命令自测：{filename} {' '.join(arguments)} 取得工作流锁")
         if filename in {'run-extended-tests.sh', 'build-install-device.sh'} and needs_lock \
-                and ("DEVICE_LOCK\n" in result.stdout) != (bool(device) or arguments == ["mac"]):
-            findings.append(f"命令自测：{filename} {' '.join(arguments)} 按设备操作选择锁范围")
+                and ("DEVICE_LOCK\n" in result.stdout) != (bool(device) or arguments == ["mac"] or filename == 'run-extended-tests.sh' and arguments[0] in {'modules', 'catalyst', 'catalyst-release-runtime'}):
+            findings.append(f"命令自测：{filename} {' '.join(arguments)} 按共享资源选择锁范围")
         if filename == "run-extended-tests.sh" and arguments[:2] == ["ui", "About"] and command_output.count(marker) != 1:
             findings.append("命令自测：重复 UI 关键词合并为一个用例")
         if arguments == ["ui", "Schedule"] and "testAboutLicense" in result.stdout:
@@ -647,8 +810,9 @@ def ui_metrics_boundary_findings() -> list[str]:
         response = summary if "summary" in arguments else {'targets': [{'name': 'BIT101-iOS.app', 'lineCoverage': 0.5,
             'coveredLines': 50, 'executableLines': 100}]} if 'xccov' in arguments else None
         return subprocess.CompletedProcess(arguments, 0, json.dumps(response) if response is not None else "", "")
-    with patch.object(sys, "argv", ["metrics", "/audit/result.xcresult", "/audit/test-metrics.txt", "ui", "1", "device", str(ROOT)]), \
-            patch.object(subprocess, "run", side_effect=run), patch.object(subprocess, "check_output", return_value='[]'), \
+    with patch('validation_evidence.test_case_inventory', return_value={}), \
+            patch.object(sys, "argv", ["metrics", "/audit/result.xcresult", "/audit/test-metrics.txt", "ui", "1", "device", str(ROOT)]), \
+            patch.object(subprocess, "run", side_effect=run), patch.object(subprocess, "check_output", return_value='{"devices":[{"platform":"iOS","deviceId":"device"}]}'), \
             patch.object(shutil, "rmtree"), patch.object(Path, "rglob", lambda path, pattern: [diagnostic]
                 if path == diagnostic.parent else original_rglob(path, pattern)), \
             patch.object(Path, "read_text", lambda path, *args, **kwargs: output if path == diagnostic else original_read(path, *args, **kwargs)), \
@@ -711,12 +875,9 @@ def workflow_lock_boundary_findings() -> list[str]:
     import select
     import shlex
     import time
-
     fixture = ROOT / ".build/static-audit/workflow-lock-self-test"
-    worker = fixture / "worker.sh"
-    release = fixture / "release"
-    processes = []
-    findings = []
+    worker, release = fixture / "worker.sh", fixture / "release"
+    processes, findings = [], []
     environment = dict(os.environ)
     optimization = subprocess.run(["zsh", "-c", 'source "$1"; python3 -c "assert False"',
         "assertion-contract", str(SCRIPT_ROOT / "script-support.sh")],
@@ -733,13 +894,15 @@ def workflow_lock_boundary_findings() -> list[str]:
         support = (SCRIPT_ROOT / "script-support.sh").read_text().replace(
             '"$HOME/Library/Caches/BIT101-iOS/device-workflow.lock"', shlex.quote(str(fixture / "device-workflow.lock")))
         dispatch = (SCRIPT_ROOT / 'build-install-device.sh').read_text().split('if [[ "$ACTION" == install', 1)[1].split('\nif [[ "$ACTION" == install', 1)[0]
-        worker.write_text('ROOT_DIR="$BIT101_LOCK_TEST_CHECKOUT"\n' + support + '\n'
+        test_lock = re.search(r'(?ms)^acquire_test_lock\(\) \{.*?^\}', (SCRIPT_ROOT / 'run-extended-tests.sh').read_text())[0]
+        worker.write_text('ROOT_DIR="$BIT101_LOCK_TEST_CHECKOUT"\n' + support + '\n' + test_lock + '\n'
+                         'case "${1:-}" in modules|catalyst|catalyst-release-runtime) MODE="$1"; BUILD_ONLY=false; GENERIC_BUILD=false; SCRIPT_PATH="$0"; SCRIPT_ARGS=("$@"); acquire_test_lock ;; *)\n'
                          'ACTION=install; case "${1:-}" in artifact) ACTION=build ;; mac) ACTION=mac ;; esac\n'
-                         + 'if [[ "$ACTION" == install' + dispatch + '\nprint entered\n'
+                         + 'if [[ "$ACTION" == install' + dispatch + '\n;; esac\nprint entered\n'
                          'if [[ "${1:-}" == signal || "${1:-}" == budget ]]; then\n'
                          '  trap \'print cleanup; if [[ "$1" == signal ]]; then read -r reply < "$ROOT_DIR/release"; fi; exit 143\' TERM\n'
                          'fi\n'
-                         'if (( $# > 0 )) && [[ "$1" != artifact && "$1" != mac ]]; then read -r reply < "$ROOT_DIR/release"; fi\n')
+                         'case "${1:-}" in hold|signal|budget) read -r reply < "$ROOT_DIR/release" ;; esac\n')
         def line(process):
             return process.stdout.readline().strip() if select.select([process.stdout], [], [], 5)[0] else "timeout"
         first = subprocess.Popen(["zsh", str(worker), "hold"], stdin=subprocess.PIPE,
@@ -758,16 +921,17 @@ def workflow_lock_boundary_findings() -> list[str]:
         output, _ = competing.communicate(timeout=5)
         if competing.returncode != 124 or 'entered' in output:
             raise ValueError('同一工作区的本机与真机流程共用固定产物锁')
-        second = subprocess.Popen(["zsh", str(worker), "mac"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=other_checkout)
-        processes.append(second)
-        if not line(second).startswith("[等待]"):
+        seconds = [subprocess.Popen(["zsh", str(worker), mode], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=other_checkout)
+                   for mode in ('mac', 'modules', 'catalyst', 'catalyst-release-runtime')]
+        processes.extend(seconds)
+        if any(not line(second).startswith("[等待]") for second in seconds):
             raise ValueError("竞争工作流在执行前排队")
         with release.open("w") as stream:
             stream.write("done\n")
         first.communicate(timeout=5)
-        output, _ = second.communicate(timeout=5)
-        if first.returncode or second.returncode or output.strip() != "entered":
-            raise ValueError("锁释放后继续执行并复用父流程锁")
+        for second in seconds:
+            output, _ = second.communicate(timeout=5)
+            if first.returncode or second.returncode or output.strip() != "entered": raise ValueError("锁释放后继续执行并复用父流程锁")
         first = subprocess.Popen(["zsh", str(worker), "signal"], stdout=subprocess.PIPE,
                                  stderr=subprocess.PIPE, text=True, env=environment)
         processes.append(first)

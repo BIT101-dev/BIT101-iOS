@@ -12,11 +12,26 @@ MEDIA_PROBE_TIMEOUT_SECONDS = 30
 
 APP_TEST_GROUPS = {"all", "release-runtime", "catalyst", "catalyst-release-runtime", "schedule", "infrastructure", "login", "extensions"}
 TEST_GROUPS = APP_TEST_GROUPS | {"modules", "ui"}
+CORE_GROUPS = {'all', 'release-runtime', 'ui', 'restore'}
 NETWORK_GROUPS = {"network", "ddl", "school-sms", "community-writes", "community-cleanup"}
+SCHOOL_SMS_PROBES = {
+    "webvpn": {"school.session", "schedule.current-term", "schedule.terms", "schedule.sync", "classroom.campuses", "classroom.buildings", "classroom.occupancy"},
+    "jwb": {"score.authentication"},
+    "jwb_cjd": {"score.transcript"},
+    "school_sso_second_factor": {"eclass.authentication", "eclass.ddl", "lexue.calendar", "lexue.ddl"},
+}
 RELEASE_GROUPS = {"modules", "all", "release-runtime", "catalyst", "catalyst-release-runtime", "ui", "network", "school-sms", "icloud", "audit", "restore", "manual-device", "build-archive", "community-writes"}
 BUILD_HOSTS = {"release", "release-runtime", "ui", "network-smoke", "icloud-smoke", "modules", "catalyst", "catalyst-release-runtime"}
 VERIFY_GROUPS = ("modules", "all", "release-runtime", "catalyst", "catalyst-release-runtime", "ui", "network", "community-writes", "ddl", "icloud", "build-archive", "audit")
 DEFAULT_VERIFY_GROUPS = tuple(group for group in VERIFY_GROUPS if group != "ddl")
+REVIEW_JOB_NAMES = {'Static audit (Apple toolchain)', 'Release app and extension builds',
+    'Mac Catalyst behavior tests', 'Physical-device behavior and UI acceptance'}
+
+
+def workflow_timeout_seconds(groups: tuple[str, ...]) -> int:
+    if not groups or any(group not in VERIFY_GROUPS for group in groups):
+        raise ValueError('聚合工作流需要有效的验证组。')
+    return len(set(groups)) * 45 * 60 + 5 * 60
 
 
 def workflow_conditions(group: str) -> tuple[str, ...]:
@@ -32,6 +47,7 @@ def workflow_conditions(group: str) -> tuple[str, ...]:
 
 FORMAL_RUNTIME_SUITES = {"ReleaseRuntimeContractTests", "ExtendedLoginTests", "LoginStorageTests", "LoginBootstrapTests", "NetworkClientTests",
     "FeatureCompositionTests", "ExperimentalPreferenceCloudSyncTests", "AppExternalDisplayTests", "ReminderContextTests", "ScheduleModuleBoundaryTests"}
+APP_COVERAGE_FLOOR = 35
 MODULE_COVERAGE_FLOORS = {
     "ClientCore": 63, "CommunityCore": 87, "CommunityPersistence": 98, "CommunityTransport": 82,
     "CommunityUI": 100, "CourseFeature": 65, "DesignSystemKit": 86, "GalleryFeature": 76,
@@ -69,6 +85,7 @@ def coverage_registry_findings(modules: set[str], ui_modules: set[str] | None = 
 
 
 NETWORK_CAPABILITIES = {
+ 'MediaKit.MediaEnvironment': {'verifyRemoteImage(at:URL)': 'network'},
  'BIT101-iOS.BIT101APIClient': {
      'fetchSchoolLoginContext()': 'first-login',
      'loginSchool(studentID:String,password:String,salt:String,execution:String)': 'first-login',
@@ -90,6 +107,13 @@ NETWORK_CAPABILITIES = {
                                        'updateUser(nickname:String?,motto:String?,avatarMid:String?)': 'profile-writes',
                                        'uploadAvatar(data:Data,filename:String)': 'profile-writes',
                                        'checkLogin()': 'account-lifecycle'},
+ 'GalleryFeature.GalleryWebCoordinator': {
+    'start(in:WKWebView,url:URL)': 'web-interactions',
+    'webView(:WKWebView,didFinish:WKNavigation?)': 'web-interactions',
+    'synchronizeCredentials(in:WKWebView)': 'web-interactions',
+    'webView(:WKWebView,didFail:WKNavigation?,withError:Error)': 'web-interactions',
+    'webView(:WKWebView,didFailProvisionalNavigation:WKNavigation?,withError:Error)': 'web-interactions',
+    'webViewWebContentProcessDidTerminate(:WKWebView)': 'web-interactions'},
  'CourseFeature.CourseService': {'fetchCourses(search:String,page:Int)': 'network',
                                  'fetchCourse(id:Int)': 'network',
                                  'fetchCourseHistories(number:String)': 'network',
@@ -143,7 +167,7 @@ NETWORK_CAPABILITIES = {
                                             'prepareTeachingCenterAccess()': 'network',
                                             'fetchCampuses()': 'network',
                                             'fetchBuildings(campusCode:String?)': 'network',
-                                            'fetchClassrooms(buildingID:String,term:String)': 'network',
+                                            'fetchClassrooms(buildingID:String,term:String,date:Date)': 'network',
                                             'syncDDLEvents(existingEvents:[DDLEventRecord],storedURL:String,schoolSMSCodeHandler:SchoolSMSCodeHandler?)': 'web-interactions',
                                             'syncDDLEventsForPreflight(existingEvents:[DDLEventRecord],storedURL:String)': 'network',
                                             'refreshLexueCalendarURL(schoolSMSCodeHandler:SchoolSMSCodeHandler?)': 'web-interactions',
@@ -176,6 +200,13 @@ MANUAL_CAPABILITY_SCENARIOS = {
     'uploadAvatar(data:Data,filename:String)': 'avatar-bind', 'checkLogin()': 'sign-in-b'},
  'GalleryFeature.GalleryService': {'report(objectID:String,typeID:Int,text:String)': 'submit-and-confirm',
     'fetchMessages(type:GalleryMessageType,lastID:Int?)': 'first-open'},
+ 'GalleryFeature.GalleryWebCoordinator': {
+    'start(in:WKWebView,url:URL)': 'gallery-account-switch',
+    'webView(:WKWebView,didFinish:WKNavigation?)': 'gallery-login',
+    'synchronizeCredentials(in:WKWebView)': 'gallery-sign-out',
+    'webView(:WKWebView,didFail:WKNavigation?,withError:Error)': 'gallery-login',
+    'webView(:WKWebView,didFailProvisionalNavigation:WKNavigation?,withError:Error)': 'gallery-login',
+    'webViewWebContentProcessDidTerminate(:WKWebView)': 'gallery-login'},
  'ScheduleInfrastructure.ScheduleService': {
     'submitSMSCode(:String,for:BITLoginAuthenticationChallenge,term:String?)': 'school-sms',
     'syncDDLEvents(existingEvents:[DDLEventRecord],storedURL:String,schoolSMSCodeHandler:SchoolSMSCodeHandler?)': 'school-calendar',

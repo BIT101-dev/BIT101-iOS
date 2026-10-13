@@ -185,6 +185,17 @@ public nonisolated struct CommunityComment: Decodable, Identifiable, Hashable, S
     public let text: String
     public let sub: [CommunityComment]
 
+    public static func validatesResponse(_ comments: [CommunityComment], for objectID: String) -> Bool {
+        guard comments.allSatisfy({ $0.obj == objectID }) else { return false }
+        var identities = Set<Int>()
+        var pending = comments
+        while let comment = pending.popLast() {
+            guard comment.id > 0, identities.insert(comment.id).inserted else { return false }
+            pending.append(contentsOf: comment.sub)
+        }
+        return true
+    }
+
     /// 按回复树的先序顺序展示全部后代。
     public var flattenedReplies: [CommunityComment] {
         var replies: [CommunityComment] = []

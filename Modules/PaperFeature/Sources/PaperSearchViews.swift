@@ -89,7 +89,7 @@ private struct PaperSearchScene: View {
                                 .task(id: viewModel.searchGeneration) {
                                     await viewModel.loadPreviewMetadataIfNeeded(for: paper)
                                 }
-                                .task {
+                                .task(id: viewModel.state.status == .loaded ? viewModel.state.nextPage : nil) {
                                     await viewModel.loadMoreIfNeeded(currentPaper: paper)
                                 }
                             }

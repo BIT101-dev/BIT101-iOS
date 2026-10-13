@@ -17,7 +17,7 @@ enum SchoolSMSDeliveryMode: Equatable {
 }
 
 extension ScheduleService {
-    /// 同步课程中心与已订阅的乐学日程，分别记录成功更新的来源。
+    /// 同步课程中心与乐学日程，首次同步自动发现乐学订阅地址。
     public func syncDDLEvents(
         existingEvents: [DDLEventRecord],
         storedURL: String,
@@ -39,18 +39,16 @@ extension ScheduleService {
             firstError = error
             warnings.append("课程中心：\(error.localizedDescription)")
         }
-        if !storedURL.isEmpty {
-            do {
-                let lexue = try await syncDDLEvents(existingEvents: existingEvents, storedURL: storedURL,
-                    schoolSMSCodeHandler: schoolSMSCodeHandler, smsDeliveryMode: .send, owner: owner)
-                events.append(contentsOf: lexue.events)
-                calendarURL = lexue.url
-                groups.insert("lexue")
-            } catch {
-                if TaskCancellation.matches(error) { throw error }
-                firstError = firstError ?? error
-                warnings.append("乐学：\(error.localizedDescription)")
-            }
+        do {
+            let lexue = try await syncDDLEvents(existingEvents: existingEvents, storedURL: storedURL,
+                schoolSMSCodeHandler: schoolSMSCodeHandler, smsDeliveryMode: .send, owner: owner)
+            events.append(contentsOf: lexue.events)
+            calendarURL = lexue.url
+            groups.insert("lexue")
+        } catch {
+            if TaskCancellation.matches(error) { throw error }
+            firstError = firstError ?? error
+            warnings.append("乐学：\(error.localizedDescription)")
         }
         guard !groups.isEmpty else { throw firstError ?? ScheduleServiceError.invalidResponse }
         let doneByID = Dictionary(existingEvents.map { ($0.id, $0.done) }, uniquingKeysWith: { first, _ in first })
@@ -191,17 +189,18 @@ extension ScheduleService {
             return storedURL
         }
 
-        let indexHTML = try await sendStringRequest(
+        let indexPage = try await sendStringResponse(
             baseURL: baseURL,
             path: "/",
             requiresTeachingCenterSession: false,
             owner: owner
         )
+        let indexHTML = indexPage.html
         guard
             let sesskey = indexHTML.captureGroups(pattern: #"[\"']sesskey[\"']:[\"']([^\"']+)[\"']"#).first,
             !sesskey.isEmpty
         else {
-            if let context = SchoolLoginHTMLParser.parseSecondFactorPage(html: indexHTML, baseURL: schoolSSOBaseURL) {
+            if let context = SchoolLoginHTMLParser.parseSecondFactorPage(html: indexHTML, baseURL: schoolSSOBaseURL, documentURL: indexPage.url) {
                 guard secondFactorRetryCount == 0 else {
                     throw ScheduleServiceError.schoolSecondFactorRequired
                 }
@@ -226,7 +225,7 @@ extension ScheduleService {
             throw ScheduleServiceError.invalidLexuePage
         }
 
-        let calendarHTML = try await sendStringRequest(
+        let calendarPage = try await sendStringResponse(
             baseURL: baseURL,
             path: "/calendar/export.php",
             method: "POST",
@@ -241,9 +240,10 @@ extension ScheduleService {
             owner: owner
         )
 
+        let calendarHTML = calendarPage.html
         if let context = SchoolLoginHTMLParser.parseSecondFactorPage(
-            html: calendarHTML,
-            baseURL: schoolSSOBaseURL
+            html: calendarPage.html,
+            baseURL: schoolSSOBaseURL, documentURL: calendarPage.url
         ) {
             guard secondFactorRetryCount == 0 else {
                 throw ScheduleServiceError.schoolSecondFactorRequired
@@ -374,7 +374,7 @@ extension ScheduleService {
         }
         if SchoolLoginHTMLParser.parseSecondFactorPage(
             html: String(decoding: data, as: UTF8.self),
-            baseURL: schoolSSOBaseURL
+            baseURL: schoolSSOBaseURL, documentURL: responseURL
         ) != nil {
             throw ScheduleServiceError.schoolSMSCodeInvalid("短信验证码错误或已失效，请重新发起验证。")
         }
@@ -576,10 +576,11 @@ extension ScheduleService {
         }
 
         let request = URLRequest(url: url)
-        let ics = try await sendStringRequest(request, owner: owner)
+        let calendarPage = try await sendStringResponse(request, owner: owner)
+        let ics = calendarPage.html
         if let context = SchoolLoginHTMLParser.parseSecondFactorPage(
             html: ics,
-            baseURL: schoolSSOBaseURL
+            baseURL: schoolSSOBaseURL, documentURL: calendarPage.url
         ) {
             guard !retriedAfterSecondFactor else {
                 throw ScheduleServiceError.schoolSecondFactorRequired

@@ -6,6 +6,38 @@ import DesignSystemKit
 //
 import Foundation
 
+/// 文章正文的块解析与富文本辅助。
+enum PaperContentResourceLimits {
+    static let maximumBodyBytes = 256 * 1_024
+    static let maximumBlockBytes = 16 * 1_024
+    static let maximumBlocks = 256
+    static let maximumRenderNodes = maximumBlocks
+
+    static func acceptsPreviewCache(_ detail: PaperDetail) -> Bool {
+        let user = detail.updateUser
+        let fields = [detail.title, detail.intro, detail.content, detail.createTime, detail.updateTime,
+            user.createTime, user.nickname, user.motto, user.avatar.mid, user.avatar.url, user.avatar.lowUrl,
+            user.identity.color, user.identity.text, user.identity.createTime, user.identity.updateTime,
+            user.identity.deleteTime ?? ""]
+        return fields.reduce(0) { $0 + $1.utf8.count } <= maximumBodyBytes
+    }
+
+    static func renderNodes(in block: [String: Any]) -> Int {
+        let data = block["data"] as? [String: Any] ?? [:]
+        switch block["type"] as? String {
+        case "list": return (data["items"] as? [String])?.count ?? 1
+        case "quote": return data["caption"] == nil ? 1 : 2
+        default: return 1
+        }
+    }
+
+    static func accepts(_ block: [String: Any]) -> Bool {
+        guard let bytes = try? JSONSerialization.data(withJSONObject: block) else { return false }
+        return bytes.count <= maximumBlockBytes
+    }
+}
+
+
 /// 文章列表支持的排序方式。
 ///
 /// 后端原生支持“更新时间 / 点赞数 / 评论数”三种排序。

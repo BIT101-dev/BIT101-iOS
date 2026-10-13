@@ -10,13 +10,13 @@ import sys
 from types import SimpleNamespace
 from pathlib import Path
 from validation_publication import RECEIPT, CORE_REPORT, release_receipt, receipt_findings, core_exchange
+from validate_versions import PROJECT_PATH, extract_versions, validate_release_tag
+from validation_policy import REVIEW_JOB_NAMES
 
 ROOT = Path(__file__).resolve().parents[1]
 REPORT = ROOT / '.build/extended-automation/validation-evidence.json'
 ARTIFACT = 'validation-evidence'
 REQUIRED_JOBS = {'static-audit', 'release-build', 'catalyst-tests', 'physical-device'}
-REVIEW_JOB_NAMES = {'Static audit (Apple toolchain)', 'Release app and extension builds',
-    'Mac Catalyst behavior tests', 'Physical-device behavior and UI acceptance'}
 
 
 def repository() -> str:
@@ -68,7 +68,7 @@ def import_baseline(run: int) -> None:
         report = json.loads(REPORT.read_text()) if REPORT.is_file() else {}
         stored = json.loads(MEASUREMENTS.read_text()) if MEASUREMENTS.is_file() else {'schemaVersion': 1}
         stored['baseline'] = proof
-        MEASUREMENTS.write_text(json.dumps(stored, ensure_ascii=False, indent=2) + '\n')
+        write_report(stored, path=MEASUREMENTS)
         report['performanceBaseline'] = proof
         report.pop('mergeCommit', None)
         write_report(report)
@@ -92,11 +92,24 @@ def check_release() -> None:
 
 
 def baseline(commit: str) -> None:
+    if not commit:
+        from validation_provenance import report_lock, write_report
+        with report_lock():
+            report = json.loads(REPORT.read_text()) if REPORT.is_file() else {}
+            report.update(coverageBaseCommit='', coveragePolicy={})
+            write_report(report)
+        return
     if not re.fullmatch(r'(?:[0-9a-f]{40}|[0-9a-f]{64})', commit): raise ValueError('覆盖率基准需要目标提交 SHA。')
     source = subprocess.check_output(['git', 'show', f'{commit}:Scripts/validation_policy.py'], cwd=ROOT, text=True)
     names = {'MODULE_COVERAGE_FLOORS': 'modules', 'IOS_MODULE_COVERAGE_FLOORS': 'all'}
     policy = {}
+    app_floor = 35
     for node in ast.parse(source).body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name) \
+                and node.targets[0].id == 'APP_COVERAGE_FLOOR':
+            app_floor = ast.literal_eval(node.value)
+            if type(app_floor) is not int or not 0 <= app_floor <= 100:
+                raise ValueError('目标提交需要有效的 App 覆盖率阈值。')
         if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name) \
                 and node.targets[0].id in names:
             value = ast.literal_eval(node.value)
@@ -105,6 +118,7 @@ def baseline(commit: str) -> None:
                 raise ValueError('目标提交需要有效的模块覆盖率阈值。')
             policy[names[node.targets[0].id]] = value
     if set(policy) != set(names.values()): raise ValueError('目标提交需要 macOS 与 iOS 两组覆盖率基准。')
+    policy['all']['BIT101-iOS.app'] = app_floor
     from validation_provenance import report_lock, write_report
     with report_lock():
         report = json.loads(REPORT.read_text()) if REPORT.is_file() else {}
@@ -168,7 +182,8 @@ def current(results: str) -> None:
 
 
 def version_tag(tag: str) -> None:
-    if not re.fullmatch(r'v\d+(?:\.\d+){1,2}', tag): raise ValueError('发布证据需要公开版本标签。')
+    version, _ = extract_versions(PROJECT_PATH.read_text())
+    validate_release_tag(tag, version)
     commit = subprocess.check_output(['git', 'rev-list', '-n', '1', tag], cwd=ROOT, text=True).strip()
     head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
     if commit != head: raise ValueError('发布证据标签需要指向当前验收提交。')
@@ -200,7 +215,6 @@ def self_test() -> None:
     module = sys.modules[__name__]
     commit = 'a' * 40
     run = {'id': 7, 'head_sha': commit, 'status': 'completed', 'conclusion': 'success', 'event': 'push'}
-    artifacts = [{'artifacts': [{'name': ARTIFACT, 'expired': False}]}]
     from contextlib import nullcontext
     retained = {'releaseCommit': commit, 'coveragePolicy': {'all': {'Feature': 70}},
         'groups': {name: {'inputDigest': 'retained-' + name} for name in ('network', 'icloud', 'manual-device', 'build-archive', 'audit', 'catalyst', 'all')}}
@@ -215,13 +229,27 @@ def self_test() -> None:
         assert result['coveragePolicy'] == retained['coveragePolicy'] and result['releaseCommit'] == commit
         assert result['groups'] == retained['groups'] | incoming['groups']
         download.assert_called_once()
-    policy_source = 'MODULE_COVERAGE_FLOORS = {"Feature": 80}\nIOS_MODULE_COVERAGE_FLOORS = {"Feature": 70}\n'
+    policy_source = 'APP_COVERAGE_FLOOR = 60\nMODULE_COVERAGE_FLOORS = {"Feature": 80}\nIOS_MODULE_COVERAGE_FLOORS = {"Feature": 70}\n'
+    for cached in ({}, retained):
+        with patch.object(subprocess, 'check_output') as git, patch('validation_provenance.report_lock', side_effect=nullcontext), \
+                patch('validation_provenance.write_report') as save, patch.object(Path, 'is_file', return_value=True), \
+                patch.object(Path, 'read_text', return_value=json.dumps(cached)):
+            baseline('')
+            assert save.call_args.args[0] == cached | {'coverageBaseCommit': '', 'coveragePolicy': {}}
+            git.assert_not_called()
+            import validation_evidence
+            from contextlib import redirect_stderr
+            from io import StringIO
+            with patch.object(Path, 'read_text', return_value=json.dumps(save.call_args.args[0])):
+                assert validation_evidence.inspect_report(argparse.Namespace(action='baseline', group='')) == 0
+            with patch.object(Path, 'read_text', return_value=json.dumps(retained)), redirect_stderr(StringIO()):
+                assert validation_evidence.inspect_report(argparse.Namespace(action='baseline', group='')) == 1
     with patch.object(subprocess, 'check_output', return_value=policy_source) as git, \
             patch('validation_provenance.report_lock', side_effect=nullcontext), patch('validation_provenance.write_report') as save, \
             patch.object(Path, 'is_file', return_value=False), patch.object(module, 'api_pages') as api:
         baseline(commit)
         git.assert_called_once_with(['git', 'show', f'{commit}:Scripts/validation_policy.py'], cwd=ROOT, text=True)
-        assert save.call_args.args[0] == {'coverageBaseCommit': commit, 'coveragePolicy': {'modules': {'Feature': 80}, 'all': {'Feature': 70}}}
+        assert save.call_args.args[0] == {'coverageBaseCommit': commit, 'coveragePolicy': {'modules': {'Feature': 80}, 'all': {'Feature': 70, 'BIT101-iOS.app': 60}}}
         api.assert_not_called()
     with patch.dict(os.environ, GITHUB_REPOSITORY='owner/repo', GITHUB_RUN_ID='9', GITHUB_EVENT_NAME='push', GITHUB_SHA=commit), \
             patch.object(subprocess, 'check_output', return_value=commit), patch.object(module, 'download_run') as download:
@@ -231,7 +259,8 @@ def self_test() -> None:
             try: current(states)
             except ValueError: pass
             else: raise AssertionError('全部前置 Job 共同参与合并门禁')
-    for source in ('MODULE_COVERAGE_FLOORS = {}', policy_source.replace('80', '101'), policy_source.replace('80', 'True'),
+    for source in ('MODULE_COVERAGE_FLOORS = {}', policy_source.replace('60', '101'), policy_source.replace('60', 'True'),
+                   policy_source.replace('80', '101'), policy_source.replace('80', 'True'),
                    policy_source.replace('{"Feature": 80}', 'execute()')):
         with patch.object(subprocess, 'check_output', return_value=source), patch('validation_provenance.write_report') as save:
             try: baseline(commit)
@@ -288,10 +317,19 @@ def self_test() -> None:
         assert command.call_args.args[0][:4] == ['gh', 'release', 'download', 'v1.0']
         assert RECEIPT.name in command.call_args.args[0]
     for target, accepted in (('commit', True), ('other', False)):
-        with patch.object(subprocess, 'check_output', side_effect=[target, 'commit']):
-            try: version_tag('v1.0')
+        with patch.object(module, 'extract_versions', return_value=('1.0.0', 1)), \
+                patch.object(Path, 'read_text', return_value='project'), \
+                patch.object(subprocess, 'check_output', side_effect=[target, 'commit']):
+            try: version_tag('v1.0.0')
             except ValueError: assert not accepted
             else: assert accepted
+    for tag in ('v1.0', 'v2.0.0', 'refs/tags/v1.0.0'):
+        with patch.object(module, 'extract_versions', return_value=('1.0.0', 1)), \
+                patch.object(Path, 'read_text', return_value='project'), patch.object(subprocess, 'check_output') as git:
+            try: version_tag(tag)
+            except ValueError: pass
+            else: raise AssertionError('发布回执标签需要对应工程完整版本')
+            git.assert_not_called()
     with patch.object(module, 'version_tag'), patch.object(subprocess, 'run') as upload, \
             patch('validation_evidence.inspect_report', return_value=1), patch('validation_provenance.report_lock'):
         try: release('v1.0', publish=True)

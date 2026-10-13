@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import TransportCore
 
 /// 从学校 CAS 登录页 HTML 中提取 salt 和 execution。
 ///
@@ -23,7 +24,7 @@ public nonisolated enum SchoolLoginHTMLParser {
     }
 
     /// 从学校 CAS 短信验证页提取继续提交所需的表单上下文。
-    public static func parseSecondFactorPage(html: String, baseURL: URL) -> SchoolSecondFactorContext? {
+    public static func parseSecondFactorPage(html: String, baseURL: URL, documentURL: URL? = nil) -> SchoolSecondFactorContext? {
         let hasSecondFactorMarker = html.range(
             of: "secondSmsLoginForm|second-auth-tip|sso-second|current-login-type|cas-gateway",
             options: [.regularExpression, .caseInsensitive]
@@ -44,9 +45,10 @@ public nonisolated enum SchoolLoginHTMLParser {
         let action = attribute(
             in: form,
             pattern: #"<form\b[^>]*\saction\s*=\s*["']([^"']+)["'][^>]*>"#
-        ) ?? "cas/login"
+        ) ?? ""
         let decodedAction = decodeHTML(action).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let formAction = URL(string: decodedAction, relativeTo: baseURL)?.absoluteURL else {
+        let pageURL = documentURL ?? baseURL
+        guard let formAction = decodedAction.isEmpty ? pageURL : URL(string: decodedAction, relativeTo: pageURL)?.absoluteURL else {
             return nil
         }
         guard isSameSecureOrigin(formAction, as: baseURL) else {
@@ -117,16 +119,7 @@ public nonisolated enum SchoolLoginHTMLParser {
     }
 
     private static func isSameSecureOrigin(_ url: URL, as baseURL: URL) -> Bool {
-        guard
-            url.scheme?.lowercased() == "https",
-            url.host?.lowercased() == baseURL.host?.lowercased(),
-            url.port == baseURL.port,
-            url.user == nil,
-            url.password == nil
-        else {
-            return false
-        }
-        return true
+        url.scheme?.lowercased() == "https" && AppURL.isSameOrigin(url, as: baseURL)
     }
 
     private static func field(in html: String, id: String) -> String? {

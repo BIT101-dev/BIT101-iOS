@@ -2,10 +2,13 @@
 from validation_test_areas import (MANUAL_CAPABILITY_SCENARIOS, NETWORK_CAPABILITIES,
     network_capability_findings, reachable_smoke_calls, smoke_receiver_resolver)
 
-
 def network_capability_self_test() -> None:
+    from swift_type_index_tests import stored_network_callback_self_test, dynamic_network_callback_self_test, callable_object_network_self_test
+    stored_network_callback_self_test()
+    dynamic_network_callback_self_test()
+    callable_object_network_self_test()
     from unittest.mock import patch
-    from validation_evidence import compilation_condition
+    from validation_compilation import compilation_condition
     assert compilation_condition('RELEASE_NETWORK_SMOKE', 'network')
     assert not compilation_condition('DEBUG', 'network')
     from network_capability_rules import signature_function, method_signature
@@ -14,21 +17,24 @@ def network_capability_self_test() -> None:
             'static fetch()', 'fetch()->Int', 'static fetch(callback:()->Void)->(Int,String)'):
         assert method_signature(signature_function(signature, ['Service'])) == signature
     index = {f'Modules/{name.split(".")[0]}/Sources/{name.split(".")[1]}.swift': {
-        'declarations': [{'kind': 'struct', 'name': name.split('.')[1], 'scope': [], 'inheritedTypes': [], 'isExported': True}],
-        'functionRanges': [{**signature_function(method, [name.split(".")[1]]), 'isExported': True, 'isAsync': True, 'start': 0, 'end': 1}
+        'declarations': [{'kind': 'struct', 'name': part, 'scope': name.split('.')[1:position], 'inheritedTypes': [], 'isExported': True}
+            for position, part in enumerate(name.split('.')[1:], 1)],
+        'typedVariables': [],
+        'functionRanges': [{**signature_function(method, name.split('.')[1:]), 'isExported': True, 'isAsync': True, 'start': 0, 'end': 1}
         for method in methods]} for name, methods in NETWORK_CAPABILITIES.items()}
     bindings = {owner.split('.')[1]: owner.split('.')[1].removesuffix('Service').lower() for owner in NETWORK_CAPABILITIES}; bindings['GalleryService'] = 'gallery'
     entries = (('network', 'BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift', ['ReleaseNetworkSmokeRunner'], 'run'),
         ('community-writes', 'BIT101-iOS/Shared/Client/CommunityWriteSmoke.swift', ['CommunityWriteSmoke', 'Operations'], 'production'))
+    guard = '#if RELEASE_NETWORK_SMOKE\n'; offset = len(guard)
     for route, file, scope, entry in entries:
         calls = [{'calledExpression': (owner.split('.')[1] if signature_function(method, [])['isStatic'] else bindings[owner.split('.')[1]])
             + '.' + signature_function(method, [])['name'], 'argumentLabels': [p['label'] for p in signature_function(method, [])['parameters']],
-            'arguments': [p['type'] + '()' for p in signature_function(method, [])['parameters']], 'start': 10, 'scope': scope}
+            'arguments': [p['type'] + '()' for p in signature_function(method, [])['parameters']], 'start': offset + 10, 'scope': scope}
             for owner, methods in NETWORK_CAPABILITIES.items() for method, target in methods.items() if target == route]
-        index[file] = {'functionRanges': [{'name': entry, 'scope': scope, 'start': 0, 'end': 100}], 'invocations': calls,
-            'typedVariables': [{'name': bindings[owner.split('.')[1]], 'type': owner, 'scope': scope, 'start': 0}
+        index[file] = {'source': guard + 'f' * 100 + '\n#endif', 'functionRanges': [{'name': entry, 'scope': scope, 'start': offset, 'end': offset + 100}], 'invocations': calls,
+            'typedVariables': [{'name': bindings[owner.split('.')[1]], 'type': owner, 'scope': scope, 'start': offset}
                 for owner in NETWORK_CAPABILITIES]}
-    index['BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift']['invocations'].append({'calledExpression': 'CommunityWriteSmoke.Operations.production', 'start': 10, 'scope': ['ReleaseNetworkSmokeRunner']})
+    index['BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift']['invocations'].append({'calledExpression': 'CommunityWriteSmoke.Operations.production', 'start': offset + 10, 'scope': ['ReleaseNetworkSmokeRunner']})
     assert network_capability_findings(index) == []
     with patch.dict(MANUAL_CAPABILITY_SCENARIOS['BIT101-iOS.NetworkDiagnosisRunner'], {}, clear=True):
         assert any('逐方法登记' in error for error in network_capability_findings(index))
@@ -37,7 +43,7 @@ def network_capability_self_test() -> None:
     from copy import deepcopy
     unbound = deepcopy(index)
     unbound['BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift']['typedVariables'] = []
-    assert any('实际服务调用' in error for error in network_capability_findings(unbound))
+    assert any('静态可达服务调用' in error for error in network_capability_findings(unbound))
     renamed = deepcopy(index)
     for facts in (renamed['BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift'], renamed['BIT101-iOS/Shared/Client/CommunityWriteSmoke.swift']):
         for variable in facts['typedVariables']:
@@ -47,18 +53,18 @@ def network_capability_self_test() -> None:
     assert not network_capability_findings(renamed)
     unused = deepcopy(index)
     unused['BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift']['functionRanges'][0]['scope'] = ['UnusedHelper']
-    assert any('实际服务调用' in error for error in network_capability_findings(unused))
+    assert any('静态可达服务调用' in error for error in network_capability_findings(unused))
     nested = deepcopy(index)
-    nested['BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift']['functionRanges'].append({'name': 'unused', 'scope': ['ReleaseNetworkSmokeRunner'], 'start': 5, 'end': 20})
-    assert any('实际服务调用' in error for error in network_capability_findings(nested))
+    nested['BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift']['functionRanges'].append({'name': 'unused', 'scope': ['ReleaseNetworkSmokeRunner'], 'start': offset + 5, 'end': offset + 20})
+    assert any('静态可达服务调用' in error for error in network_capability_findings(nested))
     queued = deepcopy(index)
-    queued['BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift']['callableRanges'] = [{'name': 'queued', 'scope': ['ReleaseNetworkSmokeRunner'], 'start': 5, 'end': 20}]
-    assert any('实际服务调用' in error for error in network_capability_findings(queued))
-    invocation = {'calledExpression': 'runInParallel', 'start': 30, 'arguments': ['queued'], 'scope': ['ReleaseNetworkSmokeRunner']}
+    queued['BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift']['callableRanges'] = [{'name': 'queued', 'scope': ['ReleaseNetworkSmokeRunner'], 'start': offset + 5, 'end': offset + 20}]
+    assert any('静态可达服务调用' in error for error in network_capability_findings(queued))
+    invocation = {'calledExpression': 'runInParallel', 'start': offset + 30, 'arguments': ['queued'], 'scope': ['ReleaseNetworkSmokeRunner']}
     queued['BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift']['invocations'].append(invocation)
     assert not network_capability_findings(queued)
     invocation['calledExpression'] = 'storeCallback'
-    assert any('实际服务调用' in error for error in network_capability_findings(queued))
+    assert any('静态可达服务调用' in error for error in network_capability_findings(queued))
     from pathlib import Path
     from swift_source_index import swift_syntax_index_sources
     receiver_sources = {
@@ -81,7 +87,7 @@ def network_capability_self_test() -> None:
     assert owners == ['GalleryFeature.GalleryService', 'GalleryFeature.GalleryService', 'BIT101-iOS.Dummy', None, 'GalleryFeature.GalleryService']
     overload_sources = {
         'Modules/GalleryFeature/Sources/Service.swift': 'public struct GalleryService { public func fetchFeed(id: Int) {}; public func fetchFeed(id: String) {} }',
-        'BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift': 'import GalleryFeature; struct ReleaseNetworkSmokeRunner { func run() { let service = GalleryService(); service.fetchFeed(id: 1); service.fetchFeed(id: "one") } }',
+        'BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift': guard + 'import GalleryFeature; struct ReleaseNetworkSmokeRunner { func run() { let service = GalleryService(); service.fetchFeed(id: 1); service.fetchFeed(id: "one") } }\n#endif',
     }
     with patch.dict(NETWORK_CAPABILITIES, {'GalleryFeature.GalleryService': {'fetchFeed(id:Int)': 'network', 'fetchFeed(id:String)': 'network'}}, clear=True), \
             patch.dict(MANUAL_CAPABILITY_SCENARIOS, {}, clear=True):
@@ -100,6 +106,32 @@ def network_capability_self_test() -> None:
                 patch.object(Path, 'read_text', lambda path, *args, **kwargs: expressions[str(path)] if str(path) in expressions else original_read(path, *args, **kwargs)):
             return {call['calledExpression'] for call in reachable_smoke_calls(facts)['network']}
     assert 'mine.fetchMyInfo' in reached(sources)
+    for body in ('[1].forEach { _ in BODY }', '[1].map { _ in BODY }',
+            'DispatchQueue.main.async { BODY }', 'DispatchQueue.global().asyncAfter(deadline: .now()) { BODY }',
+            'Timer.scheduledTimer(withTimeInterval: 1, repeats: false) { _ in BODY }',
+            'Just(()).sink { _ in BODY }', 'Empty<Int, Never>().sink { _ in BODY }',
+            'subject.sink { _ in BODY }', '[Int]().forEach { _ in BODY }', '[].map { _ in BODY }',
+            'NotificationCenter.default.addObserver(forName: nil, object: nil, queue: nil) { _ in BODY }',
+            'Array<Int>(repeating: 1, count: 0).forEach { _ in BODY }', 'values.forEach { _ in BODY }',
+            'DispatchQueue.concurrentPerform(iterations: 0) { _ in BODY }'):
+        callbacks = dict(sources)
+        callbacks['ReleaseNetworkSmoke.swift'] = sources['ReleaseNetworkSmoke.swift'].replace(
+            'dependencies.productionSessionProbe()', body.replace('BODY', 'dependencies.productionSessionProbe()'))
+        executed = not body.startswith(('Empty', 'subject.', '[Int]()', '[].', 'NotificationCenter.', 'Array', 'values.', 'DispatchQueue.concurrentPerform', 'DispatchQueue.global().asyncAfter', 'Timer.scheduledTimer'))
+        assert ('mine.fetchMyInfo' in reached(callbacks)) == executed, body
+        public_source = 'import Foundation; import Combine; public struct CourseService { public func refresh() { ' + body.replace(
+            'BODY', 'Task { _ = try await URLSession.shared.data(from: url) }') + ' } }'
+        from network_capability_rules import business_methods
+        methods = business_methods(swift_syntax_index_sources({'Modules/CourseFeature/Sources/CourseService.swift': public_source}))
+        assert {function['name'] for rows in methods.values() for _, function in rows} == {'refresh'}, body
+    for method in ('async', 'sync', 'asyncAfter', 'scheduledTimer', 'sink', 'map', 'forEach'):
+        for execution, expected in (('', False), ('body()', True), ('DispatchQueue.main.async(execute: body)', True)):
+            custom = {'ReleaseNetworkSmoke.swift': 'struct Scheduler { func ' + method + '(_ body: @escaping () -> Void) { ' + execution + ' } }; struct ReleaseNetworkSmokeRunner { let scheduler: Scheduler; func run() { scheduler.' + method + ' { service.fetchCourses() } } }'}
+            assert ('service.fetchCourses' in reached(custom)) == expected, (method, execution)
+            custom_source = custom['ReleaseNetworkSmoke.swift'].replace('ReleaseNetworkSmokeRunner', 'CourseService').replace(
+                'func run()', 'public func refresh()').replace('service.fetchCourses()', 'Task { _ = try await URLSession.shared.data(from: url) }')
+            methods = business_methods(swift_syntax_index_sources({'Modules/CourseFeature/Sources/CourseService.swift': custom_source}))
+            assert any(function['name'] == 'refresh' for rows in methods.values() for _, function in rows) == expected, (method, execution)
     platform_sources = {'BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift': '''
         struct ReleaseNetworkSmokeRunner {
             func run() {
@@ -118,7 +150,10 @@ def network_capability_self_test() -> None:
             }
         }'''}
     platform_calls = reached(platform_sources)
-    assert {'service.catalystRead', 'service.iosRead'} <= platform_calls
+    assert 'service.iosRead' in platform_calls and 'service.catalystRead' not in platform_calls
+    from validation_test_areas import platform_smoke_calls
+    catalyst_calls = platform_smoke_calls(swift_syntax_index_sources(platform_sources), 'macCatalyst')['network']
+    assert any(call['calledExpression'] == 'service.catalystRead' for call in catalyst_calls)
     assert 'service.unreachableAcrossHosts' not in platform_calls
     for body, expected in [('', False), ('callback()', True),
             ('forward(callback)', True), ('Task { callback() }', True), ('let idle = { callback() }', False)]:
@@ -234,10 +269,19 @@ def network_capability_self_test() -> None:
             branch['ReleaseNetworkSmoke.swift'] = sources['ReleaseNetworkSmoke.swift'].replace(
                 'dependencies.productionSessionProbe()', f'{statement} {condition} {{ dependencies.productionSessionProbe() }}')
             assert ('mine.fetchMyInfo' in reached(branch)) == expected, (statement, condition)
-    for sequence, expected in [('0..<0', False), ('0..<1', True), ('-1..<(-1)', False), ('1...1', True), ('[]', False)]:
+    for prefix, sequence, expected in [('', '0..<0', False), ('', '0..<1', True), ('', '-1..<(-1)', False),
+            ('', '1...1', True), ('', '[]', False), ('', '[Int]()', False), ('', 'Array<Int>()', False),
+            ('', '[1, 2].prefix(0)', False), ('', '[1, 2].prefix(1)', True), ('', '[1].dropFirst()', False),
+            ('', '[1] where false', False), ('', '[1] where true', True),
+            ('let size = 0; ', '0..<size', False), ('let size = 1; ', '0..<size', True),
+            ('let size = 0; ', '((0)..<(size * (1 + 1)))', False),
+            ('struct Array<T> {}; ', 'Array<Int>()', True),
+            ('let items: [Int] = []; ', 'items', False), ('var items: [Int] = []; ', 'items', True),
+            ('let items: [Int] = [1]; ', 'items', True), ('let items: Custom = []; ', 'items', True),
+            ('let items: [Int] = []; let alias = items; ', 'alias', False)]:
         loop = dict(sources)
         loop['ReleaseNetworkSmoke.swift'] = sources['ReleaseNetworkSmoke.swift'].replace(
-            'dependencies.productionSessionProbe()', f'for _ in {sequence} {{ dependencies.productionSessionProbe() }}')
+            'dependencies.productionSessionProbe()', f'{prefix}for _ in {sequence} {{ dependencies.productionSessionProbe() }}')
         assert ('mine.fetchMyInfo' in reached(loop)) == expected, sequence
     disabled = dict(sources)
     disabled['ReleaseNetworkSmoke.swift'] = sources['ReleaseNetworkSmoke.swift'].replace(
@@ -247,7 +291,31 @@ def network_capability_self_test() -> None:
     assert 'mine.fetchMyInfo' in reached(disabled)
     disabled['ReleaseNetworkSmoke.swift'] = disabled['ReleaseNetworkSmoke.swift'].replace('var enabled', 'let enabled').replace('if enabled', 'while enabled')
     assert 'mine.fetchMyInfo' not in reached(disabled)
-    from network_capability_rules import call_can_execute
+    from network_capability_rules import call_can_execute, execution_index
+    custom_sources = [
+        'struct Int: ExpressibleByIntegerLiteral, Equatable { init(integerLiteral: Swift.Int) {}; static func ==(lhs: Int, rhs: Int) -> Bool { true } }',
+        'struct Int: ExpressibleByIntegerLiteral, Equatable { let value: Swift.Int; init(integerLiteral: Swift.Int) { value = 0 } }',
+        'typealias Int = Number; struct Number: ExpressibleByIntegerLiteral, Equatable { let value: Swift.Int; init(integerLiteral: Swift.Int) { value = 0 } }',
+        'func ~= (pattern: Swift.Int, value: Swift.Int) -> Swift.Bool { true }',
+        'func == (lhs: Swift.Int, rhs: Swift.Int) -> Swift.Bool { true }',
+        'func ..< (lhs: Swift.Int, rhs: Swift.Int) -> [Swift.Int] { [1] }',
+    ]
+    for declarations in custom_sources:
+        body = 'for _ in 2..<1 { service.fetch() }' if 'func ..<' in declarations else (
+            'switch 1 { case 2: service.fetch(); default: break }' if 'func ~=' in declarations else
+            'let value: Int = 1; if value == 2 { service.fetch() }')
+        direct = swift_syntax_index_sources({'custom': declarations + '\nfunc run() { ' + body + ' }'})['custom']
+        call = next(row for row in direct['invocations'] if row['calledExpression'] == 'service.fetch')
+        assert call_can_execute(direct, call), declarations
+        root = '/fixture/Modules'
+        consumer = root + '/Consumer/Sources/Run.swift'
+        imported = execution_index(swift_syntax_index_sources({
+            root + '/Symbols/Sources/Symbols.swift': declarations,
+            root + '/Forward/Sources/Imports.swift': 'import Symbols',
+            consumer: 'import Forward\nfunc run() { ' + body + ' }'}))
+        facts = imported[consumer]
+        call = next(row for row in facts['invocations'] if row['calledExpression'] == 'service.fetch')
+        assert call_can_execute(facts, call), declarations
     expressions = [
         ('false && service.fetch()', False), ('true && service.fetch()', True),
         ('true || service.fetch()', False), ('false || service.fetch()', True),
@@ -357,6 +425,25 @@ def network_capability_self_test() -> None:
             facts = swift_syntax_index_sources({'shadowing': f'struct Runner {{ let enabled = {outer}; {body} }}'})['shadowing']
             call = next(call for call in facts['invocations'] if call['calledExpression'] == 'service.fetch')
             assert call_can_execute(facts, call) == expected, (outer, body)
+    patterns = [
+        ('for flag in [true] { if flag { service.fetch() } }', True),
+        ('for (flag, _) in [(true, 1)] { if flag { service.fetch() } }', True),
+        ('switch true { case let flag: if flag { service.fetch() } }', True),
+        ('switch input { case .some(let flag): if flag { service.fetch() }; default: break }', True),
+        ('if case .some(let flag) = input { if flag { service.fetch() } }', True),
+        ('while case .some(let flag) = input { if flag { service.fetch() } }', True),
+        ('guard case .some(let flag) = input else { return }; if flag { service.fetch() }', True),
+        ('let (flag, _) = (true, 1); if flag { service.fetch() }', True),
+        ('for flag in [true] {}; if flag { service.fetch() }', False),
+        ('if case .some(let flag) = input {} else { if flag { service.fetch() } }', False),
+        ('switch input { case .some(let flag): break; default: if flag { service.fetch() } }', False),
+    ]
+    pattern_index = swift_syntax_index_sources({body: 'func run() { let flag = false; ' + body + ' }'
+        for body, _ in patterns})
+    for body, expected in patterns:
+        facts = pattern_index[body]
+        call = next(row for row in facts['invocations'] if row['calledExpression'] == 'service.fetch')
+        assert call_can_execute(facts, call) == expected, body
     for statement in ('return', 'throw URLError(.cancelled)'):
         terminated = dict(sources)
         terminated['ReleaseNetworkSmoke.swift'] = sources['ReleaseNetworkSmoke.swift'].replace(
@@ -377,6 +464,9 @@ def network_capability_self_test() -> None:
         ('while true { break }', True), ('while true { continue }', False), ('while true {}', False),
         ('while true { if false { break } }', False), ('while true { if condition { break } }', True),
         ('while true { while true { break } }', False),
+        ('outer: while true { while true { break outer } }', True),
+        ('outer: while true { switch value { default: break outer } }', True),
+        ('outer: while condition { while true { continue outer } }', True),
         ('repeat { return } while false', False), ('repeat { continue } while false', True),
         ('repeat { break } while true', True), ('repeat {} while true', False),
         ('do { return } catch { return }', False), ('do { return } catch { consume() }', True),
@@ -410,31 +500,44 @@ def network_capability_self_test() -> None:
     assert 'mine.fetchMyInfo' in reached(hoisted)
     hoisted['ReleaseNetworkSmoke.swift'] = hoisted['ReleaseNetworkSmoke.swift'].replace('helper(); return;', 'helper(); if true { return };')
     assert 'mine.fetchMyInfo' in reached(hoisted)
-    courses = index['Modules/CourseFeature/Sources/CourseService.swift']['functionRanges']
-    courses.append({'name': 'newEndpoint', 'scope': ['CourseService'], 'isExported': True, 'start': 0, 'end': 1})
+    def request_call(start, scope):
+        return {'calledExpression': 'URLSession.shared.data', 'start': start, 'scope': [scope], 'arguments': ['request'], 'argumentLabels': ['for']}
+    course_facts = index['Modules/CourseFeature/Sources/CourseService.swift']
+    courses = course_facts['functionRanges']
+    courses.append({'name': 'newEndpoint', 'scope': ['CourseService'], 'isExported': True, 'isAsync': True, 'start': 0, 'end': 1})
+    course_facts.setdefault('invocations', []).append(request_call(0, 'CourseService'))
     assert network_capability_findings(index)
-    with patch.dict(NETWORK_CAPABILITIES['CourseFeature.CourseService'], **{'newEndpoint()': 'network'}):
-        assert any('实际服务调用' in error for error in network_capability_findings(index))
+    from validation_policy import NETWORK_GROUPS
+    for route in NETWORK_GROUPS:
+        with patch.dict(NETWORK_CAPABILITIES['CourseFeature.CourseService'], **{'newEndpoint()': route}):
+            expected = '静态可达服务调用' if route in {'network', 'community-writes'} else '有效验收入口'
+            assert any(expected in error for error in network_capability_findings(index)), route
     courses.pop()
-    courses.append({'name': 'fetchComments', 'scope': ['CourseService'], 'isExported': True, 'start': 2, 'end': 3,
+    course_facts['invocations'].pop()
+    courses.append({'name': 'fetchComments', 'scope': ['CourseService'], 'isExported': True, 'isAsync': True, 'start': 2, 'end': 3,
         'parameters': [{'label': 'includeReplies', 'type': 'Bool', 'hasDefault': False, 'variadic': False}]})
+    course_facts['invocations'].append(request_call(2, 'CourseService'))
     assert any('fetchComments(includeReplies:Bool)' in error for error in network_capability_findings(index))
     with patch.dict(NETWORK_CAPABILITIES['CourseFeature.CourseService'], **{'fetchComments(includeReplies:Bool)': 'gallery-report'}):
         assert any('逐方法登记' in error for error in network_capability_findings(index))
         with patch.dict(MANUAL_CAPABILITY_SCENARIOS, {'CourseFeature.CourseService': {'fetchComments(includeReplies:Bool)': 'submit-and-confirm'}}):
             assert not network_capability_findings(index)
     courses.pop()
-    course_facts = index['Modules/CourseFeature/Sources/CourseService.swift']
+    course_facts['invocations'].pop()
     course_facts['typedVariables'] = [{'name': 'client', 'type': 'HTTPClient', 'scope': ['NewService'], 'start': 0}]
-    courses.append({'name': 'fetchCourse', 'scope': ['NewService'], 'isExported': True, 'start': 0, 'end': 1})
+    courses.append({'name': 'fetchCourse', 'scope': ['NewService'], 'isExported': True, 'isAsync': True, 'start': 0, 'end': 1})
+    course_facts['invocations'].append(request_call(0, 'NewService'))
     assert any('新增生产服务' in error for error in network_capability_findings(index))
     courses.pop()
-    course_facts.pop('typedVariables')
+    course_facts['invocations'].pop()
+    course_facts['typedVariables'] = []
     network_discovery_self_test()
     scores = index['Modules/ScoreInfrastructure/Sources/ScoreService.swift']['functionRanges']
-    scores.append({'name': 'newEndpoint', 'scope': ['ScoreService'], 'isExported': True, 'start': 0, 'end': 1})
+    scores.append({'name': 'newEndpoint', 'scope': ['ScoreService'], 'isExported': True, 'isAsync': True, 'start': 0, 'end': 1})
+    index['Modules/ScoreInfrastructure/Sources/ScoreService.swift'].setdefault('invocations', []).append(request_call(0, 'ScoreService'))
     assert any('ScoreService' in error and 'newEndpoint()' in error for error in network_capability_findings(index))
     scores.pop()
+    index['Modules/ScoreInfrastructure/Sources/ScoreService.swift']['invocations'].pop()
     with patch.dict(NETWORK_CAPABILITIES, {'CourseFeature.CourseService': {'fetchCourses': 'missing-check'}}):
         assert network_capability_findings(index)
 
@@ -442,6 +545,91 @@ def network_capability_self_test() -> None:
 def network_discovery_self_test() -> None:
     from swift_source_index import swift_syntax_index_sources
     from network_capability_rules import business_methods
+    for body, expected in (
+        ('try await performRequest(request)', True),
+        ('Task { try await performRequest(request) }', True),
+        ('await withTaskGroup(of: Void.self) { group in group.addTask { try await performRequest(request) } }', True),
+        ('try await withThrowingTaskGroup(of: Void.self) { group in group.addTaskUnlessCancelled { try await performRequest(request) } }', True),
+        ('[request].forEach { request in Task { try await performRequest(request) } }', True),
+        ('[request].map { request in Task { try await performRequest(request) } }', True),
+        ('DispatchQueue.main.async { Task { try await performRequest(request) } }', True),
+        ('DispatchQueue.global().asyncAfter(deadline: .now()) { Task { try await performRequest(request) } }', True),
+        ('Timer.scheduledTimer(withTimeInterval: 1, repeats: false) { _ in Task { try await performRequest(request) } }', True),
+        ('Just(()).sink { _ in Task { try await performRequest(request) } }', True),
+        ('try await withTaskCancellationHandler(operation: { try await performRequest(request) }, onCancel: {})', True),
+        ('await withTaskCancellationHandler(operation: {}, onCancel: { Task { try await performRequest(request) } })', True),
+        ('let unused = { try await performRequest(request) }', False),
+    ):
+        source = 'import Foundation; import Combine; struct ExampleService { func fetch(request: URLRequest) async throws { ' + body + ' }; private func performRequest(_ request: URLRequest) async throws { _ = try await URLSession.shared.data(for: request) } }'
+        methods = business_methods(swift_syntax_index_sources({'Modules/Example/Sources/Service.swift': source}))
+        assert bool(methods) == expected, body
+        if expected: assert [row['name'] for rows in methods.values() for _, row in rows] == ['fetch'], body
+    for execution, expected in (('await operation()', True), ('', False), ('let unused = { await operation() }', False),
+            ('await forward(operation)', True)):
+        source = 'import Foundation; struct ExampleService { func fetch(request: URLRequest) async { await execute { await performRequest(request) } }; private func execute(_ operation: () async -> Void) async { ' + execution + ' }; private func forward(_ operation: () async -> Void) async { await operation() }; private func performRequest(_ request: URLRequest) async { _ = try? await URLSession.shared.data(for: request) } }'
+        methods = business_methods(swift_syntax_index_sources({'Modules/Example/Sources/Service.swift': source}))
+        assert bool(methods) == expected, execution
+    pure_path = 'Modules/CourseFeature/Sources/CourseService.swift'
+    for request in ('try await client.send(request)', 'try await URLSession.shared.data(for: request)', 'try Data(contentsOf: URL(string: "https://example.invalid")!)'):
+        sources = {pure_path: 'import Foundation; public struct CourseService { let client: HTTPClient; public func noop(request: URLRequest) { let unused = { ' + request + ' } } }',
+            'Modules/TransportCore/Sources/HTTPClient.swift': 'public struct HTTPClient { public func send(_ request: URLRequest) async throws {} }'}
+        assert not business_methods(swift_syntax_index_sources(sources)), request
+    pure_source = '''public struct CourseService {
+        public func normalizedTitle(title: String) -> String { title.trimmingCharacters(in: .whitespaces) }
+        public func fetch(courseID: Int) async throws -> Int { courseID }
+        public func refresh() { Task { _ = try await URLSession.shared.data(from: url) } }
+    }'''
+    pure_methods = business_methods(swift_syntax_index_sources({pure_path: pure_source}))
+    assert {function['name'] for _, function in pure_methods['CourseFeature.CourseService']} == {'refresh'}
+    path = 'BIT101-iOS/NewService.swift'
+    for helper, body in (
+        ('', '_ = try await URLSession.shared.data(from: url)'),
+        ('private func fetch() async throws { _ = try await URLSession.shared.data(from: url) }', 'try await fetch()'),
+        ('private func makeSession() -> URLSession { URLSession.shared }', '_ = try await makeSession().data(from: url)'),
+        ('', 'let session = URLSession.shared; _ = try await session.data(from: url)'),
+        ('', 'let fetch = URLSession.shared.data; _ = try await fetch(from: url)'),
+        ('', 'let session = URLSession.shared; let fetch = session.data; _ = try await fetch(from: url)'),
+    ):
+        source = helper + '\nstruct NewService { func load() async throws { ' + body + ' } }'
+        assert 'BIT101-iOS.NewService' in business_methods(swift_syntax_index_sources({path: source})), body
+    for request_type in ('URLRequest', 'Foundation.URLRequest'):
+        path = 'Modules/NewGalleryFeature/Sources/NewService.swift'
+        source = '''import Foundation; import TransportCore
+            public struct NewService: HTTPTransport {
+                let client: HTTPClient
+                public func fetch() async throws { try await client.send(request) }
+                public func data(for request: ''' + request_type + ''') async throws -> (Data, URLResponse) {
+                    try await URLSession.shared.data(for: request)
+                }
+                public func data(for request: ''' + request_type + ''', maximumBytes: Swift.Int?) async throws -> (Data, URLResponse) {
+                    try await URLSession.shared.data(for: request)
+                }
+            }'''
+        methods = business_methods(swift_syntax_index_sources({path: source}))
+        assert [row['name'] for rows in methods.values() for _, row in rows] == ['fetch'], request_type
+        methods = business_methods(swift_syntax_index_sources({path: source.replace('maximumBytes:', 'attempts:')}))
+        assert [row['name'] for rows in methods.values() for _, row in rows] == ['fetch', 'data'], request_type
+    for declaration in ('public struct ProbeClient', 'public struct MediaEnvironment'):
+        source = 'import Foundation; ' + declaration + ''' {
+            public func fetch() async throws -> Data { try await URLSession.shared.data(from: url).0 }
+        }'''
+        methods = business_methods(swift_syntax_index_sources({'Modules/MediaKit/Sources/Probe.swift': source}))
+        assert methods and any(function['name'] == 'fetch' for rows in methods.values() for _, function in rows), declaration
+    for inheritance, expected in [('App', False), ('Scene', False), ('View', False), ('LocalApp', True)]:
+        source = 'import SwiftUI; import TransportCore; protocol LocalApp {}; struct Composition: ' + inheritance + ''' {
+            let client: HTTPClient
+            init() { Task { try await client.send(request) } }
+        }'''
+        assert bool(business_methods(swift_syntax_index_sources({'BIT101-iOS/Composition.swift': source}))) == expected, inheritance
+    from validation_test_areas import reachable_smoke_calls
+    path = 'BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift'
+    for used in [True, False]:
+        source = '''struct ReleaseNetworkSmokeRunner { func run() { forward { service.fetch() } } }
+            func forward(load: () -> Void) { outer { load() } }
+            func outer(load: () -> Void) { inner { load() } }
+            func inner(load: () -> Void) { ''' + ('load()' if used else '') + ''' }'''
+        calls = reachable_smoke_calls(swift_syntax_index_sources({path: source}))['network']
+        assert any(call['calledExpression'] == 'service.fetch' for call in calls) == used, used
     watch_only = '''import Foundation
         struct WatchService {
         #if os(watchOS)
@@ -455,6 +643,27 @@ def network_discovery_self_test() -> None:
         source = watch_only.replace('struct WatchService', 'public struct WatchService').replace('func fetch()', 'public func fetch()') if path.startswith('Modules/') else watch_only
         assert bool(business_methods(swift_syntax_index_sources({path: source}))) == expected, path
     from validation_compilation import active_network_source, available_local_modules
+    architecture_path = 'BIT101Watch/WatchService.swift'
+    architecture_source = '''import Foundation; struct WatchService {
+        #if arch(arm64_32)
+        func fetchSmall() async throws { _ = try await URLSession.shared.data(from: url) }
+        #elseif arch(arm64)
+        func fetchLarge() async throws { _ = try await URLSession.shared.data(from: url) }
+        #endif
+    }'''
+    active_architectures = active_network_source(architecture_source, architecture_path)
+    assert 'fetchSmall' in active_architectures and 'fetchLarge' in active_architectures
+    methods = business_methods(swift_syntax_index_sources({architecture_path: architecture_source}))
+    assert {row['name'] for rows in methods.values() for _, row in rows} == {'fetchSmall', 'fetchLarge'}
+    desktop_source = architecture_source.replace('arch(arm64_32)', 'arch(arm64)').replace('#elseif arch(arm64)', '#elseif arch(x86_64)')
+    for desktop_path in ('BIT101-iOS/ArchitectureService.swift', 'Modules/TransportCore/Sources/ArchitectureService.swift'):
+        active = active_network_source(desktop_source, desktop_path)
+        assert 'fetchSmall' in active and 'fetchLarge' in active
+    for condition, expected in [('!RELEASE_NETWORK_SMOKE', True), ('RELEASE_NETWORK_SMOKE', True), ('DEBUG', False)]:
+        source = watch_only.replace('os(watchOS)', condition)
+        path = 'BIT101-iOS/WatchService.swift'
+        assert ('func fetch()' in active_network_source(source, path)) == expected, condition
+        assert bool(business_methods(swift_syntax_index_sources({path: source}))) == expected, condition
     for condition, modules, app, watch in [('os(macOS)', True, False, False),
             ('targetEnvironment(macCatalyst)', True, True, False), ('os(iOS)', True, True, False),
             ('os(watchOS)', True, False, True)]:
@@ -507,7 +716,8 @@ struct NewService {{ private let paper{annotation} = {initializer}; func fetch(i
             ('let _ = Service().fetch()', None)]:
         path = 'Modules/GalleryFeature/Sources/Service.swift'
         index = swift_syntax_index_sources({path: '''public struct Service { let client: HTTPClient
-            public func fetch() -> Int { 1 }; public func fetch() -> String { "value" } }
+            public func fetch() -> Int { Task { _ = try await client.send(request) }; return 1 }
+            public func fetch() -> String { Task { _ = try await client.send(request) }; return "value" } }
             func smoke() -> Int { ''' + body + ' }'})
         methods = business_methods(index)
         functions = methods['GalleryFeature.Service']
@@ -535,9 +745,10 @@ struct NewService {{ private let paper{annotation} = {initializer}; func fetch(i
         assert ([row['parameters'][0]['type'] for _, row in matches] == [expected]) if expected else not matches, (declarations, alternatives, argument, matches)
     for kind, method in [('URLSessionWebSocketTask', 'send'), ('URLSessionWebSocketTask', 'receive'),
             ('URLSessionDataTask', 'resume'), ('NWConnection', 'send'), ('NWConnection', 'start'),
-            ('NWConnectionGroup', 'receiveMessage'), ('NWListener', 'start')]:
+            ('NWConnectionGroup', 'receiveMessage'), ('NWListener', 'start'),
+            ('WKWebView', 'load'), ('WKWebView', 'reload'), ('WKWebView', 'loadHTMLString')]:
         path = 'BIT101-iOS/Shared/Client/SocketClient.swift'
-        source = f'import Foundation; import Network; struct SocketClient {{ let task: {kind}; func exchange() {{ task.{method}() }} }}'
+        source = f'import Foundation; import Network; import WebKit; struct SocketClient {{ let task: {kind}; func exchange() {{ task.{method}() }} }}'
         index = swift_syntax_index_sources({path: source})
         discovered = business_methods(index)
         assert any(identity.endswith('.SocketClient') for identity in discovered), (kind, method)
@@ -586,7 +797,7 @@ struct NewService {{ private let paper{annotation} = {initializer}; func fetch(i
                 assert f'{module}.{name}' in business_methods(index), (kind, injection)
                 assert any('新增生产服务' in error for error in network_capability_findings(index)), (kind, injection)
     getter_path = 'Modules/NewForumFeature/Sources/ReadService.swift'
-    for access, exported in [('public', True), ('private', False), ('internal', False)]:
+    for access, exported in [('public', True), ('private', False), ('internal', True)]:
         getter = f'public struct ReadService {{ let client: HTTPClient; {access} var rows: HTTPResponse {{ get async throws {{ try await client.send(request) }} }} }}'
         index = swift_syntax_index_sources({getter_path: getter})
         methods = business_methods(index)
@@ -595,6 +806,7 @@ struct NewService {{ private let paper{annotation} = {initializer}; func fetch(i
             assert methods['NewForumFeature.ReadService'][0][1]['name'] == 'rows'
             assert any('新增生产服务' in error for error in network_capability_findings(index))
     from unittest.mock import patch
+    harness_path = 'BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift'
     for declaration, signature, invocation in [
         ('public var rows: HTTPResponse { get async throws { try await client.send(request) } }', 'rows()', 'try await service.rows'),
         ('public var rows: Task<HTTPResponse, Error> { Task { try await client.send(request) } }', 'rows()', 'service.rows'),
@@ -604,7 +816,7 @@ struct NewService {{ private let paper{annotation} = {initializer}; func fetch(i
     ]:
         for include_transport in (False, True):
             sources = {getter_path: f'import TransportCore; public struct ReadService {{ let client: HTTPClient; {declaration} }}',
-                'ReleaseNetworkSmoke.swift': f'import NewForumFeature; struct ReleaseNetworkSmokeRunner {{ let service: ReadService; func run() {{ _ = {invocation} }} }}'}
+                harness_path: f'#if RELEASE_NETWORK_SMOKE\nimport NewForumFeature; struct ReleaseNetworkSmokeRunner {{ let service: ReadService; func run() {{ _ = {invocation} }} }}\n#endif'}
             if include_transport:
                 sources[transport_path] = 'public struct HTTPClient { public func send(_ request: URLRequest) async throws -> HTTPResponse {} }'
             index = swift_syntax_index_sources(sources)
@@ -613,24 +825,28 @@ struct NewService {{ private let paper{annotation} = {initializer}; func fetch(i
             with patch.dict(NETWORK_CAPABILITIES, {'NewForumFeature.ReadService': {signature: 'network'}}, clear=True), \
                     patch.dict(MANUAL_CAPABILITY_SCENARIOS, {}, clear=True):
                 assert not network_capability_findings(index), (declaration, network_capability_findings(index))
-                sources['ReleaseNetworkSmoke.swift'] = sources['ReleaseNetworkSmoke.swift'].replace(invocation,
+                sources[harness_path] = sources[harness_path].replace(invocation,
                     'service.operation' if signature == 'operation()' else '0')
                 errors = network_capability_findings(swift_syntax_index_sources(sources))
-                assert any('实际服务调用' in error for error in errors), (declaration, errors)
+                assert any('静态可达服务调用' in error for error in errors), (declaration, errors)
                 if signature == 'init()':
-                    sources['ReleaseNetworkSmoke.swift'] = '''import NewForumFeature
+                    sources[harness_path] = '''#if RELEASE_NETWORK_SMOKE
+                        import NewForumFeature
                         enum Factory { static var existing: ReadService; static func cached() -> ReadService { existing } }
-                        struct ReleaseNetworkSmokeRunner { func run() { _ = Factory.cached() } }'''
+                        struct ReleaseNetworkSmokeRunner { func run() { _ = Factory.cached() } }
+                        #endif'''
                     errors = network_capability_findings(swift_syntax_index_sources(sources))
-                    assert any('ReadService.init()' in error and '实际服务调用' in error for error in errors), errors
+                    assert any('ReadService.init()' in error and '静态可达服务调用' in error for error in errors), errors
                 if signature == 'rows()' and 'get async' not in declaration:
                     sources[getter_path] = sources[getter_path].replace(
                         'public var rows: Task<HTTPResponse, Error> { Task { try await client.send(request) } }',
                         'public var rows: Task<HTTPResponse, Error> { get { Task { try await client.send(request) } } set {} }')
-                    sources['ReleaseNetworkSmoke.swift'] = '''import NewForumFeature
-                        struct ReleaseNetworkSmokeRunner { var service: ReadService; func run() { service.rows = existingTask } }'''
+                    sources[harness_path] = '''#if RELEASE_NETWORK_SMOKE
+                        import NewForumFeature
+                        struct ReleaseNetworkSmokeRunner { var service: ReadService; func run() { service.rows = existingTask } }
+                        #endif'''
                     errors = network_capability_findings(swift_syntax_index_sources(sources))
-                    assert any('ReadService.rows()' in error and '实际服务调用' in error for error in errors), errors
+                    assert any('ReadService.rows()' in error and '静态可达服务调用' in error for error in errors), errors
     protocol = 'public protocol RequestSending { func send(_ request: URLRequest) async throws -> HTTPResponse }; extension HTTPClient: RequestSending {}'
     service = 'public struct ReadService { let client: any RequestSending; public func rows(_ request: URLRequest) async throws -> HTTPResponse { try await client.send(request) } }'
     index = swift_syntax_index_sources({getter_path: 'import TransportCore; ' + service,
@@ -670,13 +886,34 @@ struct NewService {{ private let paper{annotation} = {initializer}; func fetch(i
     shadowed = 'public struct ExampleService<T: HTTPTransport> { public func fetch<T>(transport: T) async {} }'
     index = swift_syntax_index_sources({getter_path: shadowed})
     assert 'NewForumFeature.ExampleService' not in business_methods(index)
+    for injection in ('member', 'parameter'):
+        member = 'let client: HTTPClient;' if injection == 'member' else ''
+        parameters = 'request: URLRequest' if injection == 'member' else 'client: HTTPClient, request: URLRequest'
+        source = f'struct InternalService {{ {member} func fetch({parameters}) async throws -> HTTPResponse {{ try await client.send(request) }} }}'
+        index = swift_syntax_index_sources({getter_path: source, transport_path: 'public struct HTTPClient {}'})
+        assert 'NewForumFeature.InternalService' in business_methods(index), injection
+        assert any('新增生产服务' in error for error in network_capability_findings(index)), injection
     app_path = 'BIT101-iOS/Shell/BackgroundRequestService.swift'
+    for body, expected in [
+        ('func lookup() async { getaddrinfo(host, service, hints, result) }', True),
+        ('func lookup() async { Darwin.getaddrinfo(host, service, hints, result) }', True),
+        ('func lookup() { CFNetwork.CFReadStreamCreateForHTTPRequest(allocator, message) }', True),
+        ('func lookup() { CFHTTPMessageCreateRequest(allocator, method, url, version) }', True),
+        ('func lookup() { let connection = NSURLConnection(request: request, delegate: nil); connection.start() }', True),
+        ('func lookup() { _ = try NSURLConnection.sendSynchronousRequest(request, returning: nil) }', True), ('func lookup() { NSURLConnection.sendAsynchronousRequest(request, queue: queue) { _, _, _ in } }', True),
+        ('func lookup() { resolve() }; private func resolve() { getnameinfo(address, size, host, hostSize, service, serviceSize, flags) }', True),
+        ('func getaddrinfo(_ value: Int) {}; func lookup() async { getaddrinfo(1) }', False),
+        ('func lookup(getaddrinfo: () -> Void) async { getaddrinfo() }', False),
+        ('func lookup() { let deferred = { getaddrinfo(host, service, hints, result) } }', False),
+    ]:
+        index = swift_syntax_index_sources({app_path: 'struct DNSService { ' + body + ' }'})
+        assert ('BIT101-iOS.DNSService' in business_methods(index)) == expected, body
     for access, body, expected in [
         ('internal', 'func start(_ request: URLRequest) -> Task<Void, Error> { Task { _ = try await client.send(request) } }', True),
         ('internal', 'func start(_ request: URLRequest) { Task { _ = try await client.send(request) } }', True),
         ('fileprivate', 'func start(_ request: URLRequest) { Task { _ = try await client.send(request) } }', False),
         ('private', 'func start(_ request: URLRequest) -> Task<Void, Error> { Task { _ = try await client.send(request) } }', False),
-        ('internal', 'func label() -> String { "cached" }', False),
+        ('internal', 'func label() async -> String { "cached" }; func localDraftTitle() async -> String { await label() }', False),
         ('internal', 'func render() -> some View { Task { _ = try await client.send(URLRequest()) }; EmptyView() }', False),
         ('internal', 'init(load: () async throws -> Void = { _ = try await HTTPClient.shared.send(URLRequest()) }) {}', False),
         ('internal', 'func load(_ url: URL) throws -> Data { try Data(contentsOf: url) }', True),
@@ -690,7 +927,7 @@ struct NewService {{ private let paper{annotation} = {initializer}; func fetch(i
     for body, expected in [('func start() -> Task<Int, Error> { Task { try await service.fetchPaper(id: 1) } }', True),
                  ('func start() { Task { _ = try await service.fetchPaper(id: 1) } }', True),
                  ('func factory() -> Callback { Callback { try await service.fetchPaper(id: 1) } }', False)]:
-        index = swift_syntax_index_sources({app_path: 'import PaperFeature; struct BackgroundRequestService { '
+        index = swift_syntax_index_sources({app_path: 'import PaperFeature; struct Callback { let action: () async throws -> Int }; struct BackgroundRequestService { '
             + 'let service: PaperService; ' + body + ' }',
             leaf: 'public struct PaperService { public func fetchPaper(id: Int) async throws -> Int { id } }'})
         assert ('BIT101-iOS.BackgroundRequestService' in business_methods(index)) == expected, body
@@ -719,7 +956,7 @@ struct NewService {{ private let paper{annotation} = {initializer}; func fetch(i
             'private func startRequest(_ value: String) {}; private func startRequest(_ value: Int) { Task { _ = try await client.send(request) } }', True),
         ('func label() { forward() }', 'private func forward() { forward() }', False),
     ]:
-        source = 'import TransportCore; struct BackgroundRequestService { let client: HTTPClient; ' + body + '; ' + helpers + ' }'
+        source = 'import TransportCore; struct Callback { let action: () -> Void }; struct BackgroundRequestService { let client: HTTPClient; ' + body + '; ' + helpers + ' }'
         index = swift_syntax_index_sources({app_path: source, transport_path: 'public struct HTTPClient {}'})
         methods = business_methods(index).get('BIT101-iOS.BackgroundRequestService', [])
         assert bool(methods) == expected, (body, helpers, methods)
@@ -753,3 +990,11 @@ struct NewService {{ private let paper{annotation} = {initializer}; func fetch(i
     file_reader = 'public struct FileService { public func read(_ url: URL) throws -> Data { guard url.isFileURL else { throw Failure.invalid }; return try Data(contentsOf: url) } }'
     index = swift_syntax_index_sources({getter_path: file_reader})
     assert not business_methods(index), file_reader
+    helper = 'private static func fetch() -> Data? { guard let url = URL(string: "https://example.invalid") else { return nil }; return try? Data(contentsOf: url) }'
+    for declaration, signature in [('private let response = Self.fetch(); public init() {}', 'init()'),
+                                   ('private let response = Self.fetch()', 'init()'),
+                                   ('deinit { _ = Self.fetch() }', 'deinit()')]:
+        source = 'import Foundation; public final class NewService { ' + declaration + '; ' + helper + ' }'
+        index = swift_syntax_index_sources({getter_path: source})
+        assert {method_signature(function) for _, function in business_methods(index)['NewForumFeature.NewService']} == {signature}, declaration
+        assert any('新增生产服务' in error for error in network_capability_findings(index)), declaration

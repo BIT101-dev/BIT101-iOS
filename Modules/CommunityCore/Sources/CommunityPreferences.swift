@@ -1,7 +1,7 @@
 import Combine
 import Foundation
 
-public struct CommunityPreferenceSnapshot: Equatable {
+public struct CommunityPreferenceSnapshot: Equatable, Hashable {
     public var galleryHideBotPosterInSearch: Bool
     public var galleryHiddenUserIDs: [Int]
     public var galleryHideAnonymousContent: Bool

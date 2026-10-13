@@ -162,10 +162,29 @@ struct ScheduleSystemCalendarEventBuilderTests {
         #expect(examDraft?.title == "[考试] 软件工程导论")
         #expect(examDraft?.location == "综教A101")
         #expect(examDraft?.notes.contains("座位号：A12") == true)
-        #expect(customDraft?.markerID == "custom-custom-1")
+        #expect(customDraft?.markerID == "custom-custom-1-2026-09-09")
         #expect(customDraft?.title == "实验室组会")
         #expect(customDraft?.location == "综教A201")
         #expect(customDraft?.notes == "准备周报")
+    }
+
+    @Test func recurringCustomSchedulesExportEveryDateWithStableCalendarMarkers() throws {
+        let schedule = CustomScheduleRecord(id: "weekly", title: "组会", subtitle: "地点", description: "描述",
+            dateString: "2026-09-09", beginTime: "12:10", endTime: "12:40",
+            additionalDateStrings: ["2026-09-16", "2026-09-23", "2026-09-16"])
+        let drafts = try ScheduleSystemCalendarEventBuilder.makeDrafts(for: .customSchedule(schedule))
+        #expect(drafts.map(\.markerID) == ["custom-weekly-2026-09-09", "custom-weekly-2026-09-16", "custom-weekly-2026-09-23"])
+        #expect(drafts.map { ScheduleDateCodec.formatDate($0.startDate) } == schedule.occurrenceDateStrings)
+        #expect(drafts.allSatisfy { $0.endDate.timeIntervalSince($0.startDate) == 1_800 })
+        var edited = schedule
+        edited.dateString = "2026-09-16"
+        edited.additionalDateStrings = ["2026-09-23"]
+        let current = try ScheduleSystemCalendarEventBuilder.makeDrafts(for: .customSchedule(edited))
+        #expect(current.map(\.markerID) == Array(drafts.dropFirst()).map(\.markerID))
+        let selection = ScheduleSystemCalendarEventMarker.Selection(Set(current.map(\.markerID)))
+        #expect(drafts.allSatisfy { selection.contains($0.markerID) })
+        #expect(selection.contains("custom-weekly"))
+        #expect(!selection.contains("custom-other-2026-09-16") && !selection.contains("course-w4"))
     }
 
     @Test("Courses with missing timetable sections are skipped")
@@ -216,6 +235,51 @@ struct ScheduleSystemCalendarEventBuilderTests {
 
 @Suite("Schedule calendar layer ordering")
 struct ScheduleCalendarLayerOrderingTests {
+    @Test func quantizedAxisRetainsOffHoursAndShortEventsInItsOutsideGroup() {
+        let entries = [("course", CGFloat(0), CGFloat(2), ScheduleCalendarKind.course),
+            ("lunch", 4, 4, .exam), ("evening", 12, 12, .custom), ("short", 2, 2.01, .custom)].map {
+            ScheduleCalendarEntry(id: $0.0, sourceID: $0.0, sourceIDs: [$0.0], dayOfWeek: 1,
+                startSection: $0.1, endSection: $0.2, startMinutes: 720, endMinutes: 730,
+                title: $0.0, subtitle: "", detailLines: ["原始时间"], kind: $0.3)
+        }
+        let groups = quantizedCalendarGroups(entries: entries)
+        #expect(groups.grid.map(\.id) == ["course"])
+        #expect(groups.outside.map(\.id) == ["lunch", "evening", "short"])
+        #expect(Set((groups.grid + groups.outside).map(\.id)) == Set(entries.map(\.id)))
+        #expect(groups.outside.allSatisfy { $0.startMinutes == 720 && $0.endMinutes == 730 })
+    }
+
+    @Test func weeklyConflictsPreserveEveryKindAndItsOriginalCoordinates() {
+        func entry(_ id: String, _ kind: ScheduleCalendarKind, _ start: CGFloat, _ end: CGFloat, day: Int = 1) -> ScheduleCalendarEntry {
+            ScheduleCalendarEntry(id: id, sourceID: id, sourceIDs: [id], dayOfWeek: day,
+                startSection: start, endSection: end, startMinutes: 480, endMinutes: 600,
+                title: id, subtitle: "地点", detailLines: ["详情"], kind: kind)
+        }
+        let entries = [entry("course", .course, 0, 3), entry("exam", .exam, 1, 2),
+            entry("custom", .custom, 1.5, 2.5), entry("partial", .course, 2, 4),
+            entry("next", .course, 4, 5), entry("other-day", .exam, 1, 2, day: 2)]
+        let placements = calendarPlacements(entries: entries.reversed())
+        #expect(Set(placements.map(\.id)) == Set(entries.map(\.id)))
+        for placement in placements {
+            let original = entries.first { $0.id == placement.id }
+            #expect(placement.entry.startSection == original?.startSection)
+            #expect(placement.entry.endSection == original?.endSection)
+            #expect(placement.entry.resolvedSourceIDs == original?.resolvedSourceIDs)
+            #expect(placement.entry.detailLines == original?.detailLines)
+        }
+        #expect(placements.prefix(4).allSatisfy { $0.columnCount == 3 })
+        #expect(placements.first { $0.id == "next" }?.columnCount == 1)
+        #expect(placements.first { $0.id == "other-day" }?.columnCount == 1)
+        for lhs in placements {
+            for rhs in placements where lhs.id != rhs.id && lhs.entry.dayOfWeek == rhs.entry.dayOfWeek
+                && lhs.entry.startSection < rhs.entry.endSection && rhs.entry.startSection < lhs.entry.endSection {
+                #expect(lhs.column != rhs.column)
+            }
+        }
+        #expect(calendarPlacements(entries: entries).map(\.id) == placements.map(\.id))
+        #expect(calendarPlacements(entries: entries, separateOverlaps: false).allSatisfy { $0.columnCount == 1 })
+    }
+
     @Test("Earlier course center is rendered above later course center")
     func earlierCenterIsOnTop() {
         let entry = ScheduleCalendarEntry(
@@ -239,178 +303,6 @@ struct ScheduleCalendarLayerOrderingTests {
         #expect(
             (entry.orderedBackgroundLayers.last?.displayZIndex ?? 0)
                 > (entry.orderedBackgroundLayers.first?.displayZIndex ?? 0)
-        )
-    }
-}
-
-@Suite("Schedule academic course matching")
-@MainActor
-struct CourseLookupMatcherTests {
-    private final class ServiceStub: CourseListServicing {
-        let results: [String: [CourseSummary]]
-        private var searches: [String] = []
-
-        init(results: [String: [CourseSummary]]) {
-            self.results = results
-        }
-
-        func fetchCourses(search: String, page: Int) async throws -> [CourseSummary] {
-            searches.append(search)
-            return results[search] ?? []
-        }
-
-        func recordedSearches() -> [String] {
-            searches
-        }
-    }
-
-    @Test("Course number matching ignores formatting differences")
-    func matchesCourseNumber() {
-        let expected = makeSummary(id: 1, name: "高等数学", number: "MATH-1001", teacher: "张老师")
-        let other = makeSummary(id: 2, name: "高等数学", number: "MATH-1002", teacher: "张老师")
-        #expect(CourseLookupMatcher.numberMatch(
-            courseNumber: " math 1001 ",
-            candidates: [other, expected]
-        )?.id == expected.id)
-    }
-
-    @Test("Teacher disambiguates courses with the same name")
-    func disambiguatesByTeacher() {
-        let first = makeSummary(id: 1, name: "大学物理", number: "PHY-1", teacher: "张老师")
-        let second = makeSummary(id: 2, name: "大学物理", number: "PHY-2", teacher: "李老师")
-        #expect(CourseLookupMatcher.nameMatch(
-            courseName: "大学 物理",
-            teacher: "李老师",
-            candidates: [first, second]
-        )?.id == second.id)
-        #expect(CourseLookupMatcher.nameMatch(
-            courseName: "大学物理",
-            teacher: "",
-            candidates: [first, second]
-        ) == nil)
-    }
-
-    @Test("Teacher also disambiguates records sharing one course number")
-    func disambiguatesSameNumberByTeacher() {
-        let first = makeSummary(id: 1, name: "线性代数", number: "MATH-1", teacher: "张老师")
-        let second = makeSummary(id: 2, name: "线性代数", number: "MATH-1", teacher: "李老师、王老师")
-        #expect(CourseLookupMatcher.numberMatch(
-            courseNumber: "MATH-1",
-            teacher: "李老师",
-            candidates: [first, second]
-        )?.id == second.id)
-    }
-
-    @Test("Records sharing the same course identity can be opened without a teacher")
-    func resolvesSameIdentityWithoutTeacher() {
-        let first = makeSummary(id: 1, name: "线性代数", number: "MATH-1", teacher: "张老师")
-        let second = makeSummary(id: 2, name: "线性代数", number: "MATH-1", teacher: "李老师")
-        #expect(CourseLookupMatcher.bestMatch(
-            courseNumber: "MATH-1",
-            courseName: "线性代数",
-            teacher: "",
-            candidates: [first, second]
-        )?.id == first.id)
-    }
-
-    @Test("Evaluation lookup searches both identity fields and normalizes punctuation")
-    @MainActor
-    func evaluationLookupFallsBackToCourseName() async throws {
-        let expected = makeSummary(
-            id: 7,
-            name: "自动控制理论II（双语）",
-            number: "AUTO-1",
-            teacher: ""
-        )
-        let service = ServiceStub(results: [
-            "AUTO 1": [],
-            "自动控制理论II(双语)": [expected],
-        ])
-
-        let result = try #require(await CourseEvaluationResolver(service: service).resolve(
-            courseName: "自动控制理论II(双语)",
-            courseNumber: "AUTO 1"
-        ))
-
-        #expect(result.selectedCourse.id == expected.id)
-        #expect(result.searchQuery == "自动控制理论II(双语)")
-        #expect(result.searchResults.map(\.id) == [expected.id])
-        let searches = service.recordedSearches()
-        #expect(Set(searches) == ["AUTO 1", "自动控制理论II(双语)"])
-    }
-
-    @Test("Unknown evaluation course resolves to a failure result")
-    @MainActor
-    func evaluationLookupReturnsNilWhenNoCourseMatches() async throws {
-        let service = ServiceStub(results: [:])
-        let result = try await CourseEvaluationResolver(service: service).resolve(
-            courseName: "不存在的课程",
-            courseNumber: "UNKNOWN-1"
-        )
-        #expect(result == nil)
-    }
-
-    @Test("Resolver queries both identities while selecting the current teacher")
-    @MainActor
-    func resolvesBothIdentitiesAndSelectsTeacher() async throws {
-        let first = makeSummary(id: 1, name: "大学物理", number: "PHY-1", teacher: "张老师")
-        let second = makeSummary(id: 2, name: "大学物理", number: "PHY-1", teacher: "李老师")
-        let service = ServiceStub(results: [
-            "PHY-1": [first, second],
-            "大学物理": [first, second],
-        ])
-        let resolver = ScheduleAcademicCourseResolver(service: service)
-
-        let resolution = try #require(await resolver.resolve(makeCourse(
-            name: "大学物理",
-            number: "PHY-1",
-            teacher: "李老师"
-        )))
-
-        let searches = service.recordedSearches()
-        #expect(Set(searches) == ["PHY-1", "大学物理"])
-        #expect(resolution.selectedCourse.id == second.id)
-    }
-
-    private func makeSummary(
-        id: Int,
-        name: String,
-        number: String,
-        teacher: String
-    ) -> CourseSummary {
-        CourseSummary(detail: CourseDetail(
-            id: id,
-            name: name,
-            number: number,
-            credit: 2,
-            likeNum: 0,
-            commentNum: 0,
-            rate: 0,
-            teachersName: teacher,
-            teachersNumber: "",
-            like: false
-        ))
-    }
-
-    private func makeCourse(name: String, number: String, teacher: String) -> CourseRecord {
-        CourseRecord(
-            id: "schedule-course",
-            term: "2026-2027-1",
-            name: name,
-            teacher: teacher,
-            classroom: "",
-            description: "",
-            weeks: [1],
-            weekday: 1,
-            startSection: 1,
-            endSection: 2,
-            campus: "",
-            number: number,
-            credit: 2,
-            hour: 32,
-            type: "",
-            category: "",
-            department: ""
         )
     }
 }
@@ -527,6 +419,52 @@ struct SmallTermWeekNormalizerTests {
 
 @Suite("Course row schedule parsing")
 struct CourseScheduleRowParserTests {
+    @Test(arguments: [
+        ("1-16周(单)", [1, 3, 5, 7, 9, 11, 13, 15]),
+        ("1-16周（双）", [2, 4, 6, 8, 10, 12, 14, 16]),
+        ("1-16(单周)", [1, 3, 5, 7, 9, 11, 13, 15]),
+        ("1-16（双）周", [2, 4, 6, 8, 10, 12, 14, 16]),
+        ("1-16周 双周", [2, 4, 6, 8, 10, 12, 14, 16]),
+        ("1-8周(单),10-16周(双)", [1, 3, 5, 7, 10, 12, 14, 16])
+    ])
+    func schoolRowsAndDescriptionsPreserveOddAndEvenWeeks(fixture: (String, [Int])) throws {
+        let (text, expected) = fixture
+        let row: [String: Any] = ["XNXQDM": "term", "KCM": "单双周课程", "KCH": "parity",
+            "JASMC": "文萃楼M227", "SKXQ": 4, "KSJC": 6, "JSJC": 9,
+            "SKZC": String(repeating: "1", count: 16), "ZCMC": text, "YPSJDD": text + " 星期四 6-9节 文萃楼M227"]
+        let data = try JSONSerialization.data(withJSONObject: ["datas": ["cxxszhxqkb": ["rows": [row]]]])
+        let course = try #require(JSONDecoder().decode(CourseResponse.self, from: data).courseRecords.first)
+        #expect(course.weeks == expected)
+        let stale = course.replacingWeeks(Array(1...16))
+        #expect(CourseScheduleRowParser.narrowedCourses([stale]).first?.weeks == expected)
+        #expect(SmallTermWeekNormalizer.weeksDescribed(in: text) == Set(expected))
+    }
+
+    @Test(arguments: [false, true])
+    func sparseSchoolFlagsAndCachedParityRulesRemainIntact(even: Bool) throws {
+        let expected = Array(1...16).filter { $0.isMultiple(of: 2) == even }
+        let row: [String: Any] = ["XNXQDM": "term", "KCM": "单双周课程", "KCH": "parity",
+            "JASMC": "文萃楼M227", "SKXQ": 4, "KSJC": 6, "JSJC": 9,
+            "SKZC": (1...16).map { expected.contains($0) ? "1" : "0" }.joined(), "ZCMC": "1-16周",
+            "YPSJDD": "1-16周(\(even ? "双" : "单")) 星期四 6-9节 文萃楼M227"]
+        let data = try JSONSerialization.data(withJSONObject: ["datas": ["cxxszhxqkb": ["rows": [row]]]])
+        let course = try #require(JSONDecoder().decode(CourseResponse.self, from: data).courseRecords.first)
+        #expect(course.weeks == expected)
+        let stale = course.replacingWeeks(Array(1...16))
+        var cache = ScheduleCache()
+        cache.currentTerm = "term"
+        cache.courseData.store(TermScheduleSnapshot(term: "term", firstDayString: "2026-09-07",
+            courses: [stale], exams: [], updatedAt: .distantPast))
+        let replacement = try ScheduleCourseEditor.updatingArrangement(id: stale.id,
+            with: CourseDraft(title: "手动调课", weekday: 2, startSection: 6, endSection: 9, weeksText: even ? "2,4" : "1,3"), in: [stale])
+        ScheduleCourseEditor.updateCacheForManualCourseChange(in: &cache, previousCourses: [stale], currentCourses: replacement)
+        let restored = try JSONDecoder().decode(ScheduleCache.self, from: JSONEncoder().encode(cache))
+        #expect(restored.courseData.schoolCourses(for: "term").first?.weeks == expected)
+        #expect(restored.courses == replacement)
+        #expect(restored.manualCourseRulesByTerm["term"]?.first?.sourceCourses.first?.weeks == expected)
+        #expect(try JSONDecoder().decode(ScheduleCache.self, from: JSONEncoder().encode(restored)).courseData == restored.courseData)
+    }
+
     @Test("School row weeks and identities come from ZCMC")
     func decodesRowSpecificWeeksFromCourseResponse() throws {
         let data = Data("""

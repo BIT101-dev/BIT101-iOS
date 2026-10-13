@@ -1,4 +1,5 @@
 import Combine
+import CloudKit
 import CommunityCore
 import CommunityPersistence
 import CommunityTransport
@@ -47,6 +48,7 @@ struct PreferenceMergeTests {
         let domain: String
         let defaults: UserDefaults
         let cloud: Cloud
+        let notifications: NotificationCenter
         let sync: ExperimentalPreferenceCloudSync
         func record(_ domain: ExperimentalPreferenceSyncDomain) -> String {
             "preference-sync.v2.\(AppStorageSession(accountIdentifier: "merge-account").accountDirectoryName).\(domain.rawValue)"
@@ -62,7 +64,7 @@ struct PreferenceMergeTests {
         let root = URL(fileURLWithPath: "/preference-merge")
         let settings = AppSettingsStore(defaults: defaults, session: { session })
         let stores = AppAccountStores(
-            communityMessages: GalleryMessageReadStore(defaults: defaults, session: { session }),
+            communityMessages: GalleryMessageReadStore(files: files, storageRoot: root, defaults: defaults, session: { session }),
             composerDrafts: ComposerDraftStore(files: files, applicationSupport: root, session: { session }, prepareImageData: { $0 }),
             scoreCache: ScoreCacheStore(files: files, storageRoot: root, defaults: defaults, session: { session }),
             scoreFilterPreferences: ScoreFilterPreferenceStore(defaults: defaults, session: { session }),
@@ -71,13 +73,56 @@ struct PreferenceMergeTests {
         for (domain, record) in localRecords {
             defaults.set(record, forKey: "experimental.preference-cloud-sync.local-envelope.\(session.accountStorageIdentifier).\(domain.rawValue)")
         }
-        let cloud = Cloud()
-        return Device(domain: domain, defaults: defaults, cloud: cloud,
+        let cloud = Cloud(), notifications = NotificationCenter()
+        return Device(domain: domain, defaults: defaults, cloud: cloud, notifications: notifications,
             sync: ExperimentalPreferenceCloudSync(settings: settings, stores: stores, defaults: defaults,
-                cloudStore: cloud, scoreEncryption: ScoreCacheSyncEncryption(defaults: defaults, credentials: cloud.keys), notificationCenter: NotificationCenter()))
+                cloudStore: cloud, scoreEncryption: ScoreCacheSyncEncryption(defaults: defaults, credentials: cloud.keys), notificationCenter: notifications))
     }
 
-    @Test(arguments: [ExperimentalPreferenceCloudSync.RecordCleanupScope.currentAccount, .otherAccounts])
+    @Test(.timeLimit(.minutes(1)), arguments: ["v1", "v2"])
+    func externalNotificationsReconcileBothCloudRecordVersions(version: String) async throws {
+        let value = try device("BIT101Tests.preference-merge.external-notification")
+        defer { value.defaults.removePersistentDomain(forName: value.domain) }
+        await value.sync.refreshFromCloudIfNeeded()?.value
+        var snapshot = AppSettingsSnapshot(); snapshot.galleryHiddenUserIDs = [185]
+        let time = Date().addingTimeInterval(100)
+        let key = value.record(.appSettings).replacingOccurrences(of: ".v2.", with: ".\(version).")
+        value.cloud.set(try JSONEncoder().encode(ExperimentalPreferenceSyncEnvelope(updatedAt: time,
+            payload: AppSettingsSyncPayload(snapshot: snapshot))), forKey: key)
+        value.notifications.post(name: NSUbiquitousKeyValueStore.didChangeExternallyNotification, object: value.cloud,
+            userInfo: [NSUbiquitousKeyValueStoreChangedKeysKey: [key],
+                NSUbiquitousKeyValueStoreChangeReasonKey: NSUbiquitousKeyValueStoreServerChange])
+        try await waitForTestEvent { value.sync.settings.galleryHiddenUserIDs == [185] }
+        #expect(value.cloud.data(forKey: value.record(.appSettings)) != nil)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: ["kvs", "cloudKit"])
+    func appleAccountChangesCancelThePreviousTaskAndReloadEveryDomain(notification: String) async throws {
+        let value = try device("BIT101Tests.preference-merge.apple-account")
+        defer { value.defaults.removePersistentDomain(forName: value.domain) }
+        var snapshot = AppSettingsSnapshot(); snapshot.galleryHiddenUserIDs = [207]
+        let key = value.record(.appSettings)
+        value.cloud.set(try JSONEncoder().encode(ExperimentalPreferenceSyncEnvelope(updatedAt: Date().addingTimeInterval(100),
+            payload: AppSettingsSyncPayload(snapshot: snapshot))), forKey: key)
+        var delivered = false
+        value.cloud.onSnapshot = { _ in
+            guard !delivered else { return }
+            delivered = true
+            value.cloud.onSnapshot = nil
+            if notification == "kvs" {
+                value.notifications.post(name: NSUbiquitousKeyValueStore.didChangeExternallyNotification, object: value.cloud,
+                    userInfo: [NSUbiquitousKeyValueStoreChangedKeysKey: [String](),
+                        NSUbiquitousKeyValueStoreChangeReasonKey: NSUbiquitousKeyValueStoreAccountChange])
+            } else { value.notifications.post(name: .CKAccountChanged, object: nil) }
+        }
+        let previous = try #require(value.sync.refreshFromCloudIfNeeded())
+        try await waitForTestEvent { delivered && previous.isCancelled && value.sync.settings.galleryHiddenUserIDs == [207] }
+        await value.sync.refreshFromCloudIfNeeded()?.value
+        #expect(value.sync.syncIssue == nil)
+        #expect(value.cloud.data(forKey: value.record(.scoreFilters)) != nil)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [ExperimentalPreferenceCloudSync.RecordCleanupScope.currentAccount, .otherAccounts])
     func explicitCloudCleanupPausesWritesAndKeepsLocalAndUnselectedRecords(scope: ExperimentalPreferenceCloudSync.RecordCleanupScope) async throws {
         let value = try device("BIT101Tests.preference-cleanup")
         defer { value.defaults.removePersistentDomain(forName: value.domain) }
@@ -113,7 +158,7 @@ struct PreferenceMergeTests {
         #expect(value.sync.syncIssue == nil)
     }
 
-    @Test func removingOtherAccountRecordsRestoresCapacityForLocalPreferences() async throws {
+    @Test(.timeLimit(.minutes(1))) func removingOtherAccountRecordsRestoresCapacityForLocalPreferences() async throws {
         let value = try device("BIT101Tests.preference-cleanup")
         defer { value.defaults.removePersistentDomain(forName: value.domain) }
         value.cloud.set(Data(count: ExperimentalPreferenceCloudQuotaPolicy.maximumValueSize),
@@ -131,7 +176,7 @@ struct PreferenceMergeTests {
         #expect(value.sync.syncIssue == nil)
     }
 
-    @Test(arguments: [ExperimentalPreferenceSyncDomain.appSettings, .scoreFilters, .galleryMessageRead])
+    @Test(.timeLimit(.minutes(1)), arguments: [ExperimentalPreferenceSyncDomain.appSettings, .scoreFilters, .galleryMessageRead])
     func damagedLocalSnapshotsPreserveBytesAndPauseTheirCloudDomain(_ domain: ExperimentalPreferenceSyncDomain) async throws {
         let prefix: String
         switch domain {
@@ -145,7 +190,7 @@ struct PreferenceMergeTests {
         defer { value.defaults.removePersistentDomain(forName: value.domain) }
         value.sync.settings.updateGallerySettings(hideAnonymousContent: true)
         value.sync.stores.scoreFilterPreferences.save(selectedTerms: ["test"], selectedCourseTypes: [], sortIndex: .score, sortOrder: .descending)
-        value.sync.stores.communityMessages.markSeen(ids: [100], for: .comment)
+        await value.sync.stores.communityMessages.markSeen(ids: [100], for: .comment)
         value.sync.localValueDidChange(in: domain)
         await value.sync.refreshFromCloudIfNeeded()?.value
         let session = AppStorageSession(accountIdentifier: "merge-account")
@@ -155,7 +200,7 @@ struct PreferenceMergeTests {
         #expect(value.sync.syncIssue != nil)
     }
 
-    @Test func twoOfflineDevicesKeepIndependentSettingsAndConvergeAfterReload() async throws {
+    @Test(.timeLimit(.minutes(1))) func twoOfflineDevicesKeepIndependentSettingsAndConvergeAfterReload() async throws {
         let first = try device("BIT101Tests.preference-merge.first")
         let second = try device("BIT101Tests.preference-merge.second")
         defer {
@@ -188,7 +233,7 @@ struct PreferenceMergeTests {
         #expect(reopened.settings.galleryHideAnonymousContent)
     }
 
-    @Test func offlineFilterChangesPreserveTermsAndSorting() async throws {
+    @Test(.timeLimit(.minutes(1))) func offlineFilterChangesPreserveTermsAndSorting() async throws {
         let first = try device("BIT101Tests.filter-merge.first")
         let second = try device("BIT101Tests.filter-merge.second")
         defer {
@@ -210,18 +255,18 @@ struct PreferenceMergeTests {
         #expect(first.sync.stores.scoreFilterPreferences.load() == second.sync.stores.scoreFilterPreferences.load())
     }
 
-    @Test func offlineReadsMergeAcrossCategoriesAndKeepLocalCandidates() async throws {
+    @Test(.timeLimit(.minutes(1))) func offlineReadsMergeAcrossCategoriesAndKeepLocalCandidates() async throws {
         let first = try device("BIT101Tests.read-merge.first")
         let second = try device("BIT101Tests.read-merge.second")
         defer {
             first.defaults.removePersistentDomain(forName: first.domain)
             second.defaults.removePersistentDomain(forName: second.domain)
         }
-        first.sync.stores.communityMessages.replaceLatestIDs([1, 2], unreadCount: 2, for: .comment)
-        second.sync.stores.communityMessages.replaceLatestIDs([2, 3], unreadCount: 2, for: .comment)
-        first.sync.stores.communityMessages.markSeen(ids: [1], for: .comment)
-        second.sync.stores.communityMessages.markSeen(ids: [2], for: .comment)
-        second.sync.stores.communityMessages.markSeen(ids: [8], for: .like)
+        await first.sync.stores.communityMessages.replaceLatestIDs([1, 2], unreadCount: 2, for: .comment)
+        await second.sync.stores.communityMessages.replaceLatestIDs([2, 3], unreadCount: 2, for: .comment)
+        await first.sync.stores.communityMessages.markSeen(ids: [1], for: .comment)
+        await second.sync.stores.communityMessages.markSeen(ids: [2], for: .comment)
+        await second.sync.stores.communityMessages.markSeen(ids: [8], for: .like)
         await first.sync.refreshFromCloudIfNeeded()?.value
         await second.sync.refreshFromCloudIfNeeded()?.value
         let firstValue = try #require(first.cloud.data(forKey: first.record(.galleryMessageRead)))
@@ -234,8 +279,8 @@ struct PreferenceMergeTests {
         #expect(second.sync.stores.communityMessages.unreadCount(for: .comment) == 1)
         #expect(first.sync.stores.communityMessages.syncSnapshot().seenIDsByType == ["comment": [1, 2], "like": [8]])
         #expect(first.sync.stores.communityMessages.syncSnapshot() == second.sync.stores.communityMessages.syncSnapshot())
-        first.sync.stores.communityMessages.replaceLatestIDs([3], unreadCount: 1, for: .comment)
-        first.sync.stores.communityMessages.replaceLatestIDs([1, 3], unreadCount: 2, for: .comment)
+        await first.sync.stores.communityMessages.replaceLatestIDs([3], unreadCount: 1, for: .comment)
+        await first.sync.stores.communityMessages.replaceLatestIDs([1, 3], unreadCount: 2, for: .comment)
         #expect(first.sync.stores.communityMessages.isUnread(id: 1, for: .comment) == false)
     }
 
@@ -257,7 +302,7 @@ struct PreferenceMergeTests {
         #expect(try PreferenceFieldMerge.merging(local, sameVersion).payload == PreferenceFieldMerge.merging(sameVersion, local).payload)
     }
 
-    @Test func disabledEditsAndLegacyRemoteFieldsKeepTheirOwnership() async throws {
+    @Test(.timeLimit(.minutes(1))) func disabledEditsAndLegacyRemoteFieldsKeepTheirOwnership() async throws {
         let value = try device("BIT101Tests.preference-merge.disabled")
         defer { value.defaults.removePersistentDomain(forName: value.domain) }
         value.sync.setEnabled(false)
@@ -272,7 +317,7 @@ struct PreferenceMergeTests {
         #expect(value.sync.settings.galleryUseWebView)
         #expect(value.sync.settings.galleryHiddenUserIDs == [99])
     }
-    @Test func invalidAndFutureCloudRecordsKeepTheirBytesAcrossLocalEdits() async throws {
+    @Test(.timeLimit(.minutes(1))) func invalidAndFutureCloudRecordsKeepTheirBytesAcrossLocalEdits() async throws {
         let value = try device("BIT101Tests.preference-protection")
         defer { value.defaults.removePersistentDomain(forName: value.domain) }
         for domain in ExperimentalPreferenceSyncDomain.allCases {
@@ -296,7 +341,7 @@ struct PreferenceMergeTests {
         #expect(value.cloud.dictionaryRepresentation[key] as? String == "invalid stored type")
     }
 
-    @Test func invalidAndFutureLocalRecordsKeepTheirBytesAcrossLaunchEditsAndReload() async throws {
+    @Test(.timeLimit(.minutes(1))) func invalidAndFutureLocalRecordsKeepTheirBytesAcrossLaunchEditsAndReload() async throws {
         let invalidRecords: [Any] = [Data("broken".utf8),
             Data("{\"schemaVersion\":99,\"updatedAt\":100,\"payload\":{}}".utf8), "invalid stored type"]
         for record in invalidRecords {
@@ -327,7 +372,7 @@ struct PreferenceMergeTests {
         }
     }
 
-    @Test func additiveFieldsAndTheirVersionsSurviveMergeAndReopen() async throws {
+    @Test(.timeLimit(.minutes(1))) func additiveFieldsAndTheirVersionsSurviveMergeAndReopen() async throws {
         let value = try device("BIT101Tests.preference-additive-fields")
         defer { value.defaults.removePersistentDomain(forName: value.domain) }
         let timestamp = Date(timeIntervalSince1970: 100)
@@ -349,7 +394,7 @@ struct PreferenceMergeTests {
         #expect(restored.payload.galleryUseWebView)
     }
 
-    @Test func equalVersionAdditionalFieldConflictsConvergeInCloudAndAfterReopen() async throws {
+    @Test(.timeLimit(.minutes(1))) func equalVersionAdditionalFieldConflictsConvergeInCloudAndAfterReopen() async throws {
         let timestamp = Date(timeIntervalSince1970: 100)
         let payload = AppSettingsSyncPayload(snapshot: AppSettingsSnapshot())
         var versions = try PreferenceFieldMerge.recording(payload,
@@ -415,7 +460,86 @@ struct PreferenceMergeTests {
         #expect(value.sync.settings.galleryUseWebView)
     }
 
-    @Test func settingsReconcileAgainWhenTheCloudChangesAfterTheFirstMerge() async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func coexistingLegacySettingsMergeFieldVersionsBeforeCleanup(rejectWrite: Bool) async throws {
+        let value = try device("BIT101Tests.preference-merge.coexisting-settings")
+        defer { value.defaults.removePersistentDomain(forName: value.domain) }
+        let key = value.record(.appSettings), legacyKey = key.replacingOccurrences(of: ".v2.", with: ".v1.")
+        let currentTime = Date(timeIntervalSince1970: 300), legacyTime = Date(timeIntervalSince1970: 200)
+        var current = AppSettingsSnapshot(); current.galleryHiddenUserIDs = [42]; current.galleryUseWebView = true
+        var legacy = AppSettingsSnapshot(); legacy.galleryHiddenUserIDs = [99]; legacy.galleryHideAnonymousContent = true
+        let currentData = try JSONEncoder().encode(ExperimentalPreferenceSyncEnvelope(updatedAt: currentTime,
+            payload: AppSettingsSyncPayload(snapshot: current), fieldUpdatedAt: ["galleryHiddenUserIDs": currentTime,
+                "galleryUseWebView": currentTime, "galleryStrictUserFilter": Date(timeIntervalSince1970: 100)]))
+        func legacyData(at time: Date) throws -> Data {
+            let encoded = try JSONEncoder().encode(ExperimentalPreferenceSyncEnvelope(updatedAt: time,
+                payload: AppSettingsSyncPayload(snapshot: legacy)))
+            var raw = try #require(try JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+            raw.removeValue(forKey: "schemaVersion")
+            return try JSONSerialization.data(withJSONObject: raw)
+        }
+        value.cloud.set(currentData, forKey: key)
+        value.cloud.set(try legacyData(at: legacyTime), forKey: legacyKey)
+        if rejectWrite { value.cloud.rejectedKey = key }
+        await value.sync.refreshFromCloudIfNeeded()?.value
+        #expect(value.sync.settings.galleryHiddenUserIDs == [42])
+        #expect(value.sync.settings.galleryUseWebView && value.sync.settings.galleryHideAnonymousContent)
+        if rejectWrite {
+            #expect(value.cloud.data(forKey: legacyKey) != nil && value.cloud.data(forKey: key) == currentData)
+            value.cloud.rejectedKey = nil
+            await value.sync.refreshFromCloudIfNeeded()?.value
+        }
+        let merged = try JSONDecoder().decode(ExperimentalPreferenceSyncEnvelope<AppSettingsSyncPayload>.self,
+            from: #require(value.cloud.data(forKey: key)))
+        #expect(merged.payload.galleryHiddenUserIDs == [42] && merged.payload.galleryUseWebView && merged.payload.galleryHideAnonymousContent)
+        #expect(value.cloud.data(forKey: legacyKey) == nil)
+        value.cloud.set(try legacyData(at: currentTime.addingTimeInterval(100)), forKey: legacyKey)
+        await value.sync.refreshFromCloudIfNeeded()?.value
+        #expect(value.sync.settings.galleryHiddenUserIDs == [99])
+        #expect(!value.sync.settings.galleryUseWebView && value.sync.settings.galleryHideAnonymousContent)
+        #expect(value.cloud.data(forKey: legacyKey) == nil)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func coexistingLegacyRecordsPreserveFiltersReadIDsAndNewerScores() async throws {
+        let value = try device("BIT101Tests.preference-merge.coexisting-domains")
+        defer { value.defaults.removePersistentDomain(forName: value.domain) }
+        let currentTime = Date(timeIntervalSince1970: 300), legacyTime = Date(timeIntervalSince1970: 200)
+        func store<Payload: Codable>(_ current: ExperimentalPreferenceSyncEnvelope<Payload>,
+                                    _ legacy: ExperimentalPreferenceSyncEnvelope<Payload>, domain: ExperimentalPreferenceSyncDomain) throws {
+            let key = value.record(domain)
+            value.cloud.set(try JSONEncoder().encode(current), forKey: key)
+            var raw = try #require(try JSONSerialization.jsonObject(with: JSONEncoder().encode(legacy)) as? [String: Any])
+            raw.removeValue(forKey: "schemaVersion")
+            value.cloud.set(try JSONSerialization.data(withJSONObject: raw), forKey: key.replacingOccurrences(of: ".v2.", with: ".v1."))
+        }
+        try store(ExperimentalPreferenceSyncEnvelope(updatedAt: currentTime,
+            payload: ScoreFilterPreferenceSnapshot(selectedTerms: ["current"], selectedCourseTypes: [], sortIndex: nil, sortOrder: nil),
+            fieldUpdatedAt: ["selectedTerms": currentTime, "selectedCourseTypes": Date(timeIntervalSince1970: 100)]),
+            ExperimentalPreferenceSyncEnvelope(updatedAt: legacyTime,
+                payload: ScoreFilterPreferenceSnapshot(selectedTerms: ["legacy"], selectedCourseTypes: ["required"], sortIndex: nil, sortOrder: nil)), domain: .scoreFilters)
+        var currentReads = GalleryMessageReadSnapshot(); currentReads.seenIDsByType = ["comment": [1]]
+        var legacyReads = GalleryMessageReadSnapshot(); legacyReads.seenIDsByType = ["comment": [2]]
+        try store(ExperimentalPreferenceSyncEnvelope(updatedAt: currentTime, payload: currentReads),
+            ExperimentalPreferenceSyncEnvelope(updatedAt: legacyTime, payload: legacyReads), domain: .galleryMessageRead)
+        let rows = [ScoreRow(index: 0, headers: ["成绩"], values: ["95"])]
+        try store(ExperimentalPreferenceSyncEnvelope(updatedAt: legacyTime,
+            payload: ScoreCacheSyncPayload(rows: [], updatedAt: legacyTime, detailedUpdatedAt: nil)),
+            ExperimentalPreferenceSyncEnvelope(updatedAt: currentTime,
+                payload: ScoreCacheSyncPayload(rows: rows, updatedAt: currentTime, detailedUpdatedAt: nil)), domain: .scoreCache)
+        await value.sync.refreshFromCloudIfNeeded()?.value
+        #expect(value.sync.stores.scoreFilterPreferences.load()?.selectedTerms == ["current"])
+        #expect(value.sync.stores.scoreFilterPreferences.load()?.selectedCourseTypes == ["required"])
+        #expect(value.sync.stores.communityMessages.syncSnapshot().seenIDsByType["comment"] == [1, 2])
+        #expect(try await value.sync.stores.scoreCache.syncPayload(for: AppStorageSession(accountIdentifier: "merge-account"))?.rows == rows)
+        let scoreData = try #require(value.cloud.data(forKey: value.record(.scoreCache)))
+        #expect(ScoreCacheSyncEncryption.isEncrypted(scoreData))
+        #expect(try value.sync.decodeScoreCloudEnvelope(ExperimentalPreferenceSyncEnvelope<ScoreCacheSyncPayload>.self, from: scoreData).payload.rows == rows)
+        for domain in [ExperimentalPreferenceSyncDomain.scoreFilters, .galleryMessageRead, .scoreCache] {
+            #expect(value.cloud.data(forKey: value.record(domain).replacingOccurrences(of: ".v2.", with: ".v1.")) == nil)
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func settingsReconcileAgainWhenTheCloudChangesAfterTheFirstMerge() async throws {
         let value = try device("BIT101Tests.preference-merge.settings-race")
         defer { value.defaults.removePersistentDomain(forName: value.domain) }
         value.sync.settings.updateGallerySettings(useWebView: true)
@@ -440,7 +564,7 @@ struct PreferenceMergeTests {
         #expect(uploaded.payload.galleryHiddenUserIDs == [2] && uploaded.payload.galleryUseWebView)
     }
 
-    @Test func filtersReconcileAgainWhenTheCloudChangesAfterTheFirstMerge() async throws {
+    @Test(.timeLimit(.minutes(1))) func filtersReconcileAgainWhenTheCloudChangesAfterTheFirstMerge() async throws {
         let value = try device("BIT101Tests.preference-merge.filters-race")
         defer { value.defaults.removePersistentDomain(forName: value.domain) }
         value.sync.stores.scoreFilterPreferences.save(selectedTerms: ["local"], selectedCourseTypes: [], sortIndex: .score, sortOrder: .ascending)
@@ -466,10 +590,10 @@ struct PreferenceMergeTests {
         #expect(value.sync.stores.scoreFilterPreferences.load() == uploaded.payload)
     }
 
-    @Test func messageReadsIncludeTheRecordThatArrivesDuringUpload() async throws {
+    @Test(.timeLimit(.minutes(1))) func messageReadsIncludeTheRecordThatArrivesDuringUpload() async throws {
         let value = try device("BIT101Tests.preference-merge.messages-race")
         defer { value.defaults.removePersistentDomain(forName: value.domain) }
-        value.sync.stores.communityMessages.markSeen(ids: [1], for: .comment)
+        await value.sync.stores.communityMessages.markSeen(ids: [1], for: .comment)
         func record(_ id: Int) throws -> Data {
             var snapshot = GalleryMessageReadSnapshot(); snapshot.seenIDsByType = ["comment": [id]]
             return try JSONEncoder().encode(ExperimentalPreferenceSyncEnvelope(updatedAt: Date(), payload: snapshot))
@@ -489,7 +613,7 @@ struct PreferenceMergeTests {
         #expect(value.sync.stores.communityMessages.syncSnapshot() == uploaded.payload)
     }
 
-    @Test func scoreUploadReevaluatesTheNewerCloudVersion() async throws {
+    @Test(.timeLimit(.minutes(1))) func scoreUploadReevaluatesTheNewerCloudVersion() async throws {
         let value = try device("BIT101Tests.preference-merge.score-race")
         defer { value.defaults.removePersistentDomain(forName: value.domain) }
         let session = AppStorageSession(accountIdentifier: "merge-account")
@@ -517,7 +641,7 @@ struct PreferenceMergeTests {
         #expect(try await value.sync.stores.scoreCache.syncPayload(for: session)?.rows == remoteRows)
     }
 
-    @Test func oneLargeLegacyRecordKeepsSyncingWithinTheExistingQuota() async throws {
+    @Test(.timeLimit(.minutes(1))) func oneLargeLegacyRecordKeepsSyncingWithinTheExistingQuota() async throws {
         let value = try device("BIT101Tests.preference-merge.large-legacy")
         defer { value.defaults.removePersistentDomain(forName: value.domain) }
         let key = value.record(.appSettings), legacy = key.replacingOccurrences(of: "preference-sync.v2.", with: "preference-sync.v1.")

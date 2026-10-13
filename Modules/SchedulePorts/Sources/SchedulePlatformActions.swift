@@ -39,13 +39,14 @@ public nonisolated enum ScheduleSystemCalendarError: LocalizedError {
     case noWritableCalendarSource
     case missingSchedule
     case noImportedEvents
+    case importHistoryUnreadable
     case invalidEntry(String)
 
     public var requiresCalendarSettings: Bool {
         switch self {
         case .permissionDenied, .noWritableCalendarSource:
             return true
-        case .missingSchedule, .noImportedEvents, .invalidEntry:
+        case .missingSchedule, .noImportedEvents, .importHistoryUnreadable, .invalidEntry:
             return false
         }
     }
@@ -60,6 +61,8 @@ public nonisolated enum ScheduleSystemCalendarError: LocalizedError {
             return "当前学期还没有可导入的课程，或尚未取得学期起始日期。"
         case .noImportedEvents:
             return "没有找到由 BIT101 导入的日历事件。"
+        case .importHistoryUnreadable:
+            return "课表日历导入记录读取失败，原始记录已保留。请恢复记录后重试。"
         case let .invalidEntry(message):
             return message
         }

@@ -10,6 +10,7 @@ import re
 import subprocess
 import sys
 import uuid
+from xml.parsers.expat import ExpatError
 from validate_versions import extract_versions
 from validation_provenance import sampling_evidence_current, utc_now
 
@@ -44,15 +45,58 @@ def executable_uuids(path: Path, info: dict) -> list:
     return sorted(rows, key=lambda row: row["architecture"])
 
 
+def executable_digest(path: Path, info: dict) -> str:
+    return hashlib.sha256((path / info['CFBundleExecutable']).read_bytes()).hexdigest()
+
+
 def application_infos(application: Path) -> dict:
     bundles = [application] + sorted(path for path in application.rglob("*") if path.suffix in {".app", ".appex"} and path.is_dir())
     return {path: plistlib.loads((path / "Info.plist").read_bytes()) for path in bundles}
 
 
+def privacy_manifest_digest(bundle: Path) -> str:
+    try:
+        manifest = plistlib.loads((bundle / "PrivacyInfo.xcprivacy").read_bytes())
+        expected = plistlib.loads((ROOT / "BIT101-iOS/PrivacyInfo.xcprivacy").read_bytes())
+    except (OSError, ValueError, plistlib.InvalidFileException, ExpatError) as error:
+        raise ValueError(f"隐私清单需要有效的 plist：{bundle}") from error
+    required = {"NSPrivacyAccessedAPICategoryFileTimestamp": "C617.1",
+        "NSPrivacyAccessedAPICategoryUserDefaults": "CA92.1"}
+    rows = manifest.get("NSPrivacyAccessedAPITypes", []) if isinstance(manifest, dict) else []
+    if manifest != expected or not isinstance(rows, list) or not isinstance(manifest, dict) \
+            or manifest.get("NSPrivacyTracking") is not False \
+            or any(not any(isinstance(row, dict) and row.get("NSPrivacyAccessedAPIType") == category
+                and isinstance(row.get("NSPrivacyAccessedAPITypeReasons"), list)
+                and reason in row["NSPrivacyAccessedAPITypeReasons"] for row in rows) for category, reason in required.items()):
+        raise ValueError(f"隐私清单需要匹配共享资源及文件时间戳、UserDefaults 使用原因：{bundle}")
+    return hashlib.sha256(plistlib.dumps(manifest, sort_keys=True)).hexdigest()
+
+
+def production_build_metadata(application: Path, info: dict) -> dict:
+    conditions = info.get('BIT101WorkflowConditions')
+    if not isinstance(conditions, str) or conditions.split():
+        raise ValueError('正式产物需要空工作流编译条件')
+    binary = (application / info['CFBundleExecutable']).read_bytes()
+    markers = [marker for marker in ('behavior-test-host', 'release-network-smoke-host', 'icloud-cross-device-smoke-host',
+        'The UI automation App requires its isolated launch configuration') if marker.encode() in binary]
+    if markers: raise ValueError('正式产物需要生产宿主入口')
+    return {'compilationConditions': [], 'testHostMarkers': []}
+
+
 def archive_build_summary(application: Path) -> dict:
     infos = application_infos(application)
     return {"passed": True, "kind": "build", "archiveProvenance": archive_provenance(infos[application]),
-        "executables": {info["CFBundleIdentifier"]: executable_uuids(path, info) for path, info in infos.items()}}
+        "executables": {info["CFBundleIdentifier"]: executable_uuids(path, info) for path, info in infos.items()},
+        "productionBuilds": {info['CFBundleIdentifier']: production_build_metadata(path, info) for path, info in infos.items()},
+        "privacyManifests": {info["CFBundleIdentifier"]: privacy_manifest_digest(path) for path, info in infos.items()}}
+
+
+def catalyst_application_identity(application: Path) -> dict:
+    contents = application / 'Contents'
+    info = plistlib.loads((contents / 'Info.plist').read_bytes())
+    return {'identifier': info['CFBundleIdentifier'], 'version': info['CFBundleShortVersionString'],
+        'build': info['CFBundleVersion'], 'sha256': executable_digest(contents / 'MacOS', info),
+        'executableUUIDs': executable_uuids(contents / 'MacOS', info)}
 
 
 def distribution_contracts() -> dict:
@@ -99,6 +143,16 @@ def provisioning_profile(path: Path) -> dict:
         'provisionsAllDevices': profile.get('ProvisionsAllDevices', False)}
 
 
+def profile_entitlement_allows(allowed, claimed) -> bool:
+    if isinstance(claimed, list):
+        return all(profile_entitlement_allows(allowed, item) for item in claimed)
+    if isinstance(allowed, list):
+        return any(profile_entitlement_allows(item, claimed) for item in allowed)
+    if isinstance(allowed, str) and isinstance(claimed, str):
+        return allowed == claimed or (allowed.endswith('*') and '*' not in allowed[:-1] and claimed.startswith(allowed[:-1]))
+    return type(allowed) is type(claimed) and allowed == claimed
+
+
 def app_store_profile_complete(profile: dict, signed: dict, team: str) -> bool:
     if not isinstance(profile, dict): return False
     try:
@@ -111,13 +165,16 @@ def app_store_profile_complete(profile: dict, signed: dict, team: str) -> bool:
             and isinstance(entitlements, dict) and entitlements.get('get-task-allow') is False \
             and entitlements.get('beta-reports-active') is True \
             and entitlements.get('application-identifier') == signed.get('application-identifier') \
-            and entitlements.get('com.apple.developer.team-identifier') == team
+            and entitlements.get('com.apple.developer.team-identifier') == team \
+            and all(key in entitlements and profile_entitlement_allows(entitlements[key], value) for key, value in signed.items())
     except (KeyError, ValueError, TypeError):
         return False
 
 
 def distribution_complete(report: dict, contracts: dict | None = None) -> bool:
     contracts = distribution_contracts() if contracts is None else contracts
+    try: privacy_digest = privacy_manifest_digest(ROOT / "BIT101-iOS")
+    except ValueError: return False
     rows = report.get("bundles", [])
     if report.get("schemaVersion") != 1 or not valid_archive_provenance(report.get("archiveProvenance")) \
             or not isinstance(rows, list) or len(rows) != len(contracts) \
@@ -132,7 +189,11 @@ def distribution_complete(report: dict, contracts: dict | None = None) -> bool:
                 or row.get("team") != contract["team"] or entitlements.get("com.apple.developer.team-identifier") != contract["team"] \
                 or entitlements.get("get-task-allow", False) is not False or row.get("version") != contract["version"] \
                 or row.get("build") != contract["build"] or not isinstance(row.get("sha256"), str) \
-                or not re.fullmatch(r"[0-9a-f]{64}", row["sha256"]) or not valid_executable_uuids(row.get("executableUUIDs")):
+                or not re.fullmatch(r"[0-9a-f]{64}", row["sha256"]) \
+                or not isinstance(row.get('bundleSHA256'), str) or not re.fullmatch(r'[0-9a-f]{64}', row['bundleSHA256']) \
+                or not valid_executable_uuids(row.get("executableUUIDs")) \
+                or row.get('compilationConditions') != [] or row.get('testHostMarkers') != [] \
+                or row.get("privacyManifestDigest") != privacy_digest:
             return False
         platform, supported = ('watchos', 'WatchOS') if contract['platform'] == 'watchOS' else ('iphoneos', 'iPhoneOS')
         if row.get('platform') != platform or row.get('supportedPlatforms') != [supported] \
@@ -183,8 +244,10 @@ def inspect_application(application: Path) -> dict:
         team = re.search(r"(?m)^TeamIdentifier=(.+)$", metadata)
         container = next((parent for parent in path.parents if parent in infos), None)
         rows.append({"identifier": info["CFBundleIdentifier"], "version": info["CFBundleShortVersionString"],
+            **production_build_metadata(path, info),
             "build": info["CFBundleVersion"], "team": team[1] if team else "", "entitlements": entitlements,
-            "signatureVerified": True, "sha256": bundle_digest(path),
+            "signatureVerified": True, "sha256": executable_digest(path, info), "bundleSHA256": bundle_digest(path),
+            "privacyManifestDigest": privacy_manifest_digest(path),
             "executableUUIDs": executable_uuids(path, info),
             "platform": info.get('DTPlatformName'), "supportedPlatforms": info.get('CFBundleSupportedPlatforms'),
             "minimumOSVersion": info.get('MinimumOSVersion'), "provisioningProfile": provisioning_profile(path),

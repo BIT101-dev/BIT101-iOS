@@ -10,7 +10,36 @@ import TransportCore
 
 @MainActor
 struct EclassDDLSyncTests {
-    @Test func overdueEclassVisibilityFollowsTheConfiguredRetentionWindow() async {
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func blockedDDLStorageReportsFailureBeforeSchoolRequests(loading: Bool) async {
+        let repository = ScheduleRepository(session: { AppStorageSession(accountIdentifier: "eclass") },
+            load: { _ in .unreadable }, save: { _, _, _ in })
+        if !loading { await repository.loadIfNeeded() }
+        let service = Service(payload: DDLSyncPayload(url: "", events: []))
+        let model = ScheduleDDLViewModel(service: service, repository: repository)
+        #expect(await model.syncDDL() == false && service.syncCalls == 0)
+        #expect(model.notice?.message.contains(loading ? "正在读取" : "读取受阻") == true)
+        await model.refreshLexueCalendarURL()
+        #expect(service.subscriptionCalls == 0 && model.notice?.message.contains(loading ? "正在读取" : "读取受阻") == true)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func cancelledDDLResponsesPreserveMemoryAndDisk() async {
+        var cache = ScheduleCache()
+        cache.ddlEvents = [event("existing", group: "manual")]
+        var saves = 0
+        let repository = ScheduleRepository(session: { AppStorageSession(accountIdentifier: "eclass") },
+            load: { _ in .loaded(cache) }, save: { _, _, _ in saves += 1 })
+        await repository.loadIfNeeded()
+        let service = Service(payload: DDLSyncPayload(url: "", events: [event("late", group: "eclass")]))
+        let model = ScheduleDDLViewModel(service: service, repository: repository)
+        var operation: Task<Bool, Never>?
+        service.beforeReturn = { operation?.cancel() }
+        operation = Task { await model.syncDDL() }
+        #expect(await operation?.value == false)
+        #expect(model.cache.ddlEvents.map(\.id) == ["existing"] && saves == 0 && model.notice == nil)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func overdueEclassVisibilityFollowsTheConfiguredRetentionWindow() async {
         var cache = ScheduleCache()
         var overdue = event("eclass:overdue", group: "eclass")
         overdue.dueAt = Date().addingTimeInterval(-24 * 3600)
@@ -26,7 +55,7 @@ struct EclassDDLSyncTests {
         #expect(model.visibleDDLEvents().map(\.id) == ["eclass:overdue"])
     }
 
-    @Test func advancingTheClockUpdatesCountdownTintAndRetention() async {
+    @Test(.timeLimit(.minutes(1))) func advancingTheClockUpdatesCountdownTintAndRetention() async {
         var cache = ScheduleCache()
         var deadline = event("manual", group: "main")
         deadline.dueAt = Date(timeIntervalSince1970: 1000)
@@ -65,7 +94,7 @@ struct EclassDDLSyncTests {
         #expect(Set(result.map(\.id)) == ["manual", "lexue"])
     }
 
-    @Test func completedEclassStatePersistsAcrossEmptyAndRestoredSnapshots() async {
+    @Test(.timeLimit(.minutes(1))) func completedEclassStatePersistsAcrossEmptyAndRestoredSnapshots() async {
         var cache = ScheduleCache()
         cache.ddlEvents = [event("eclass:1", group: "eclass", done: true), event("eclass:2", group: "eclass"), event("manual", group: "main")]
         var saved: ScheduleCache?
@@ -91,7 +120,7 @@ struct EclassDDLSyncTests {
         #expect(saved?.ddlEvents.first(where: { $0.id == "eclass:1" })?.done == false)
     }
 
-    @Test func sourceFailurePreservesTheOwnedCacheAndUpdateTime() async {
+    @Test(.timeLimit(.minutes(1))) func sourceFailurePreservesTheOwnedCacheAndUpdateTime() async {
         var cache = ScheduleCache()
         cache.ddlEvents = [event("eclass:1", group: "eclass", done: true)]
         cache.ddlUpdatedAt = Date(timeIntervalSince1970: 100)
@@ -109,7 +138,7 @@ struct EclassDDLSyncTests {
         #expect(model.notice?.message.contains("课程中心") == true)
     }
 
-    @Test func partialSuccessRetainsFailedSourceAndReportsPartialUpdate() async {
+    @Test(.timeLimit(.minutes(1))) func partialSuccessRetainsFailedSourceAndReportsPartialUpdate() async {
         var cache = ScheduleCache()
         cache.ddlEvents = [event("lexue", group: "lexue", done: true), event("eclass:1", group: "eclass")]
         let repository = ScheduleRepository(session: { AppStorageSession(accountIdentifier: "eclass") },
@@ -122,7 +151,7 @@ struct EclassDDLSyncTests {
         #expect(model.notice?.title == "DDL 部分更新")
     }
 
-    @Test func nativeSMSChallengeUsesTheSharedVerificationPresentation() async {
+    @Test(.timeLimit(.minutes(1))) func nativeSMSChallengeUsesTheSharedVerificationPresentation() async {
         let repository = ScheduleRepository(session: { AppStorageSession(accountIdentifier: "eclass") },
             load: { _ in .missing }, save: { _, _, _ in })
         let service = Service(payload: DDLSyncPayload(url: "", events: [], syncedGroups: ["eclass"]))
@@ -170,12 +199,15 @@ struct EclassDDLSyncTests {
         var payload: DDLSyncPayload
         var error: Error?
         var syncCalls = 0
+        var subscriptionCalls = 0
+        var beforeReturn: (() -> Void)?
         init(payload: DDLSyncPayload) { self.payload = payload }
         func syncDDLEvents(existingEvents: [DDLEventRecord], storedURL: String, schoolSMSCodeHandler: SchoolSMSCodeHandler?) async throws -> DDLSyncPayload {
             syncCalls += 1
             if let error { throw error }
+            beforeReturn?()
             return payload
         }
-        func refreshLexueCalendarURL(schoolSMSCodeHandler: SchoolSMSCodeHandler?) async throws -> String { "" }
+        func refreshLexueCalendarURL(schoolSMSCodeHandler: SchoolSMSCodeHandler?) async throws -> String { subscriptionCalls += 1; return "" }
     }
 }

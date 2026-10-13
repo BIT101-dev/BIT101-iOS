@@ -2,9 +2,28 @@
 """Run semantic SwiftUI and design system checks."""
 import sys
 sys.dont_write_bytecode = True
-from ui_rules import *
+import re
+import subprocess
+from ui_rules import (
+    DERIVED_DESIGN_TOKEN, DESIGN_SYSTEM, DESIGN_SYSTEM_SOURCES, DIRECT_FLOATING_MATERIAL,
+    DIRECT_GRID_ITEM_GEOMETRY, DIRECT_GROUPED_LIST_STYLE, DIRECT_INPUT_PLACEHOLDER,
+    DIRECT_LIST_SECTION_SPACING, DIRECT_LOCAL_CGFLOAT_LITERAL, DIRECT_PLAIN_LIST_STYLE,
+    DIRECT_SEMANTIC_COLOR_RULES, DIRECT_STROKE_GEOMETRY, DIRECT_THUMBNAIL_GEOMETRY,
+    DIRECT_VISUAL_RULES, PADDING_LITERAL, PLAIN_LIST_EXCEPTIONS, REPEATED_DESIGN_TOKEN,
+    REPORT_PATH, ROOT, STACK_SPACING_LITERAL, append_rule_finding, call_name,
+    check_accessibility_coverage, check_component_contracts, check_composer_lifecycle,
+    check_contextual_component_colors, check_design_token_boundaries, check_error_report_coverage,
+    check_fonts, check_haptic_consistency, check_interactive_list_colors,
+    check_page_theme_consistency, check_registered_visual_contracts, check_ui_test_inventory,
+    is_registered_cgfloat_contract, is_registered_map_theme_color_definition,
+    is_reviewed_fixed_geometry, list_has_grouped_style, mask_comments, mask_literals_and_comments,
+    pattern_line_number, pattern_nodes, rendered_component_counts, source_relative, source_text,
+    swift_files, syntax_index,
+)
 from ui_rule_tests import ast_marker_boundary_findings, source_boundary_findings, map_theme_color_contract_findings, interaction_inventory_boundary_findings
 from code_quality_rules import static_audit_lock
+from swift_type_index import SwiftBindingTypes
+from ui_source_facts import is_semantic_color_member
 
 def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[str] | None = None) -> int:
     swift_files.cache_clear()
@@ -24,6 +43,7 @@ def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[s
     else:
         syntax = shared_syntax
     errors.extend(boundary_findings or [])
+    color_types = SwiftBindingTypes(syntax)
     for facts in syntax.values():
         facts["renderedScopeFacts"] = {}
     check_component_contracts(errors, syntax)
@@ -81,9 +101,13 @@ def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[s
                     append_rule_finding(errors, emitted_rule_findings, relative, line_number, message, pattern)
         for pattern, palette_name in DIRECT_SEMANTIC_COLOR_RULES:
             for node in pattern_nodes(facts, pattern):
+                pattern_source = mask_literals_and_comments(node["value"])
+                if pattern.search(pattern_source) is None:
+                    continue
+                if not is_semantic_color_member(str(path), node, color_types):
+                    continue
                 if is_registered_map_theme_color_definition(path, raw_source, node):
                     continue
-                pattern_source = mask_literals_and_comments(node["value"])
                 for match in pattern.finditer(pattern_source):
                     line_number = pattern_line_number(raw_source, node, match.start())
                     append_rule_finding(

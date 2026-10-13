@@ -5,11 +5,11 @@ from swift_source_index import ROOT, canonical_type_scope, expected_argument_typ
 from swift_type_index import SwiftTypeIndex, SwiftBindingTypes
 
 NATIVE_INTERACTION_ACTIONS = {
-    "UIAction": "tap", "UIButton": "tap", "UITextField": "input", "UITextView": "input",
-    "UISwitch": "tap", "UISlider": "gesture", "UIStepper": "tap", "UISegmentedControl": "selection",
+    "UIAction": "tap", "UIButton": "tap", "UIBarButtonItem": "tap", "UITextField": "input", "UITextView": "input",
+    "UISwitch": "tap", "UISlider": "drag", "UIStepper": "tap", "UISegmentedControl": "selection",
     "UIPageControl": "selection", "UIPickerView": "selection", "UIDatePicker": "selection", "UIScrollView": "scroll",
-    "UITapGestureRecognizer": "tap", "UILongPressGestureRecognizer": "press", "UIPanGestureRecognizer": "gesture",
-    "UIPinchGestureRecognizer": "gesture", "UISwipeGestureRecognizer": "gesture", "UIRotationGestureRecognizer": "gesture",
+    "UITapGestureRecognizer": "tap", "UILongPressGestureRecognizer": "press", "UIPanGestureRecognizer": "pan",
+    "UIPinchGestureRecognizer": "pinch", "UISwipeGestureRecognizer": "swipe", "UIRotationGestureRecognizer": "rotate",
 }
 NATIVE_INTERACTION_KINDS = set(NATIVE_INTERACTION_ACTIONS)
 LITERAL = r'"((?:[^"\\]|\\.)+)"'
@@ -22,7 +22,7 @@ def native_controls(syntax: dict):
         if (namespace, owner) in types.aliases or any(base.removeprefix("UIKit.") in NATIVE_INTERACTION_KINDS
             for base in types.bases((namespace, owner)))}
     for path, facts in syntax.items():
-        if "Tests/" in path or "UITest" in Path(path).name: continue
+        if any(Path(path).is_relative_to(ROOT / root) for root in ("ModuleTests", "BIT101-iOSTests", "BIT101-iOSUITests")): continue
         for call in facts.get("invocations", []):
             called = call["value"].split("(", 1)[0].strip()
             candidates = [called.removesuffix(".init")]
@@ -47,6 +47,7 @@ def native_controls(syntax: dict):
                     (base.removeprefix("UIKit.") for base in sorted(bases)
                      if base.removeprefix("UIKit.") in NATIVE_INTERACTION_KINDS), None)
                 if kind:
+                    if kind == 'UIBarButtonItem' and re.search(r'\b(?:systemItem|barButtonSystemItem):\s*(?:UIBarButtonItem\.SystemItem)?\.(?:flexibleSpace|fixedSpace)\b', call['value']): continue
                     action = NATIVE_INTERACTION_ACTIONS[kind]
                     if kind == "UITextView":
                         for binding in facts.get("bindings", []):

@@ -3,6 +3,44 @@ import CoreGraphics
 
 extension InteractionCoverageUITests {
     @MainActor
+    @objc func testGalleryBlockingUpdatesLoadedFeedsAndUnblockingRestoresThem() {
+        app = configureApp(resetStorage: true, content: true, initialTab: "gallery")
+        assertUI(textElement("自动化测试话题").appears(timeout: 5), "首页应展示已加载的话题。")
+        openSettings("gallery")
+        replaceText("1\n", in: app.textFields["屏蔽用户 UID（逗号分隔）"])
+        back()
+        app.tabBars.buttons["话廊"].tapBriefly()
+        assertUI(textElement("暂无话题").appears(timeout: 5), "屏蔽作者后已加载的列表应更新过滤状态。")
+        openSettings("gallery")
+        replaceText("\n", in: app.textFields["屏蔽用户 UID（逗号分隔）"])
+        back()
+        app.tabBars.buttons["话廊"].tapBriefly()
+        assertUI(textElement("自动化测试话题").appears(timeout: 5), "解除屏蔽后应重新加载被过滤的话题。")
+    }
+
+    @MainActor
+    @objc func testStableRowsPaginateAgainAfterRefreshingTheSameResults() {
+        for (tab, section, title) in [("home", "课程", "分页课程"), ("gallery", "文章", "分页文章")] {
+            app = configureApp(resetStorage: true, content: true, pagination: true, initialTab: tab)
+            tapHeader(app.segmentedControls.buttons[section])
+            let first = app.staticTexts["\(title) 1"]
+            let secondPage = app.staticTexts["\(title) 9"]
+            assertUI(first.appears(timeout: 5), "首屏应展示稳定身份的分页夹具。")
+            reveal(secondPage, description: "首轮第二页")
+            assertUI(secondPage.isHittable, "首轮滚动应加载第二页。")
+            for _ in 0..<8 {
+                if first.exists && first.isHittable { break }
+                app.swipeDown()
+            }
+            assertUI(first.isHittable, "刷新前应回到首屏。")
+            pullToRefresh()
+            assertUI(first.appears(timeout: 5), "刷新应保留相同的首屏对象。")
+            reveal(secondPage, description: "刷新后第二页")
+            assertUI(secondPage.isHittable, "刷新相同结果后应继续加载第二页。")
+        }
+    }
+
+    @MainActor
     @objc func testPaperImagePreviewCommentsSortAndShare() {
         app = configureApp(resetStorage: true, content: true, animations: true, media: true, initialTab: "gallery")
         tapHeader(app.segmentedControls.buttons["文章"])
@@ -72,13 +110,13 @@ extension InteractionCoverageUITests {
         assertUI(cleaning.value as? String != original, "数据清洗应改变历史成绩展示策略。")
         cleaning.tapBriefly()
         tap("评论课程")
-        assertUI(!app.buttons["发送"].isEnabled, "评分选择提示对应发送按钮禁用。")
+        app.buttons["发送"].assertDisabled("评分选择提示对应发送按钮禁用。")
         for rating in ["0.5", "1.0", "1.5", "2.0", "2.5", "3.0", "3.5", "4.0", "4.5", "5.0"] {
             tap("评分 \(rating) 星")
         }
         tap("评分 5.0 星")
         assertUI(app.staticTexts["请选择评分"].appears(timeout: 5), "再次点击相同星级应回到评分选择提示。")
-        assertUI(!app.buttons["发送"].isEnabled, "清空评分后发送按钮回到禁用状态。")
+        app.buttons["发送"].assertDisabled("清空评分后发送按钮回到禁用状态。")
         tap("评分 3.5 星")
         toggle("匿名评论")
         replaceTextWithKeyboard("测试课程评价", in: app.textFields.firstMatch)
@@ -112,7 +150,9 @@ extension InteractionCoverageUITests {
         tap("更多操作")
         tap("举报帖子")
         assertUI(app.buttons["ui.gallery-report-sheet.reload"].appears(timeout: 5), "分类读取失败应提供重新加载入口。")
-        assertUI(app.buttons["ui.gallery-report-sheet.submit"].isEnabled == false, "分类读取失败时提交等待重试。")
+        let submit = app.descendants(matching: .any).matching(identifier: "ui.gallery-report-sheet.submit").firstMatch
+        reveal(submit)
+        submit.assertDisabled("分类读取失败时提交等待重试。")
         tap("重新加载")
         choose("类型", option: "其他")
         tap("取消")
@@ -413,6 +453,8 @@ extension InteractionCoverageUITests {
 
     @MainActor
     @objc func testMinePublicProfileFollowAndPostDeletion() {
+        app = configureApp(resetStorage: true, initialTab: "mine")
+        assertUI(textElement("个人信息加载失败").appears(timeout: 5), "离线个人页应完成服务加载并展示恢复入口。")
         app = configureApp(resetStorage: true, content: true, animations: true, media: true, initialTab: "mine")
         assertUI(textElement("自动化测试用户").appears(timeout: 5), "个人页应加载账号资料。")
         tap("粉丝")
@@ -429,7 +471,8 @@ extension InteractionCoverageUITests {
         tap("自动化测试用户")
         tap("关注")
         let followed = app.buttons["已关注"]
-        assertUI(followed.appears(timeout: 5) && !followed.isEnabled, "关注成功应展示已关注状态。")
+        assertUI(followed.appears(timeout: 5), "关注成功应展示已关注状态。")
+        followed.assertDisabled("已关注状态应保持禁用。")
         tap("查看头像")
         closeImagePreview()
         for route in ["粉丝", "关注", "帖子"] {
@@ -678,9 +721,9 @@ extension InteractionCoverageUITests {
     @objc func testLoginSubmitButtonAndKeyboardScrollDismissal() {
         app = configureApp(resetStorage: true, account: nil, animations: true, nativeInteraction: true)
         assertUI(app.secureTextFields["login.password"].exists, "登录页应展示密码字段。")
-        assertUI(!app.buttons["login.submit"].isEnabled, "空凭据应禁用登录。")
+        app.buttons["login.submit"].assertDisabled("空凭据应禁用登录。")
         replaceTextWithKeyboard("ui-test-student", in: app.textFields["login.student-id"])
-        assertUI(!app.buttons["login.submit"].isEnabled, "仅填写账号应保持登录禁用。")
+        app.buttons["login.submit"].assertDisabled("仅填写账号应保持登录禁用。")
         let submitBounds = app.buttons["login.submit"].native.frame
         app.native.coordinate(withNormalizedOffset: .zero)
             .withOffset(CGVector(dx: submitBounds.midX, dy: submitBounds.maxY + 24)).tap()

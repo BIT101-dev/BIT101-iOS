@@ -16,6 +16,35 @@ bit101_invalidate_restore() {
   python3 "$ROOT_DIR/Scripts/validation_restore.py" invalidate
 }
 
+bit101_install_mac_app() {
+  python3 - "$1" "$2" <<'PYMACINSTALL'
+import ctypes
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+
+source, installed = map(Path, sys.argv[1:])
+staged = installed.with_name('.BIT101-iOS.install.app')
+if os.path.lexists(staged): shutil.rmtree(staged)
+try:
+    subprocess.run(['ditto', str(source), str(staged)], check=True)
+    if installed.exists():
+        library = ctypes.CDLL('/usr/lib/libSystem.B.dylib', use_errno=True)
+        library.renamex_np.argtypes = (ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint)
+        library.renamex_np.restype = ctypes.c_int
+        # RENAME_SWAP 在同一目录原子交换完整 App，旧安装留在事务路径。
+        if library.renamex_np(os.fsencode(staged), os.fsencode(installed), 0x00000002):
+            error = ctypes.get_errno()
+            raise OSError(error, os.strerror(error), str(installed))
+    else:
+        staged.rename(installed)
+finally:
+    if os.path.lexists(staged): shutil.rmtree(staged)
+PYMACINSTALL
+}
+
 bit101_acquire_script_lock() {
   local workflow_lock="$1"
   local workflow_flag="$2"
@@ -62,7 +91,7 @@ with lock_path.open("a") as lock:
     process = subprocess.Popen(command, env=environment, start_new_session=owns_process_group)
     def interrupt(signum, _frame):
         try:
-            if owns_process_group: os.killpg(process.pid, signum)
+            if owns_process_group and process.poll() is None: os.killpg(process.pid, signum)
         except ProcessLookupError:
             pass
     for signum in (signal.SIGINT, signal.SIGTERM):
@@ -86,7 +115,7 @@ bit101_log_command() {
   local output_path="$1"
   local label="$2"
   shift 2
-  python3 /dev/fd/3 "$output_path" "$label" "$@" 3<<'PY'
+  BIT101_COMMAND_DIAGNOSTICS="$ROOT_DIR/.build/extended-automation/diagnostics" python3 /dev/fd/3 "$output_path" "$label" "$@" 3<<'PY'
 from pathlib import Path
 import os
 import re
@@ -114,6 +143,7 @@ summary = ""
 temporary_results = set()
 def useful_line(line):
     if not line.strip(): return False
+    if re.match(r"warning: '.+' is missing a dependency on '.+' because dependency scan of Swift module", line): return False
     if line.startswith(("Test case ", "Test Case ")) and re.search(r"\bpassed(?: on | \(|$)", line): return False
     if line.startswith(("Test case ", "Test suite ", "Test Case ", "Test Suite ", "◇ ", "✔ ")) and "failed" not in line.lower(): return False
     if line.rstrip().endswith(" seconds)") and "failed" not in line.lower(): return False
@@ -154,7 +184,14 @@ with report_path.open("w", encoding="utf-8") as report:
                 seen.add(line)
 exit_code = process.wait()
 for path in temporary_results:
-    shutil.rmtree(path, ignore_errors=True)
+    if exit_code and path.is_dir():
+        destination = Path(os.environ['BIT101_COMMAND_DIAGNOSTICS']) / 'test-results.xcresult'
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.rmtree(destination, ignore_errors=True)
+        shutil.move(str(path), str(destination))
+        print(f"[诊断] 构建失败结果包 · {destination}")
+    else:
+        shutil.rmtree(path, ignore_errors=True)
 output = details if exit_code else diagnostics
 output_count = detail_count if exit_code else diagnostic_count
 if not exit_code and module_scan_count:
@@ -166,6 +203,7 @@ if exit_code and os.environ.get("GITHUB_ACTIONS") == "true":
 elif output_count <= display_limit:
     sys.stdout.writelines(output)
 else:
+    sys.stdout.writelines(output)
     print(f"[输出] {label} 共 {output_count} 行诊断 · {report_path}")
 if not exit_code and summary_count:
     if summary_count == 1:
@@ -179,7 +217,7 @@ PY
 }
 
 bit101_build_cache() {
-  python3 - "$ROOT_DIR" "$@" <<'PY'
+  python3 - "$ROOT_DIR" "$@" <<'PY' || return $?
 import fcntl
 from contextlib import nullcontext
 import os
@@ -193,6 +231,8 @@ import signal
 
 signal.signal(signal.SIGINT, lambda *_: sys.exit(130))
 root = Path(sys.argv[1])
+sys.path.insert(0, str(root / "Scripts"))
+from validation_artifacts import clear_diagnostic_exports
 arguments = sys.argv[2:]
 maintenance = arguments == ["--maintenance"]
 shared = root / ".build/compiler-cache"
@@ -285,7 +325,7 @@ with ((root / ".build/extended-automation.lock").open("a")
     if maintenance:
         shutil.rmtree(root / ".build/static-audit/package-build", ignore_errors=True)
         shutil.rmtree(root / ".build/ui-authorization.logarchive", ignore_errors=True)
-        shutil.rmtree(root / ".build/extended-automation/diagnostics", ignore_errors=True)
+        clear_diagnostic_exports(root / ".build/extended-automation/diagnostics")
         (shared / "compression-stage").unlink(missing_ok=True)
         for derived in derived_roots:
             for build in (derived / "Build", derived):

@@ -42,6 +42,7 @@ public struct AppRefreshStatusRow: View {
             }
             .font(AppDesignSystem.Typography.subheadline)
             .foregroundStyle(AppDesignSystem.Foreground.primary)
+            .accessibilityIdentifier("app.refresh-status.timestamp")
 
             Spacer(minLength: AppDesignSystem.Spacing.none)
 
@@ -50,6 +51,7 @@ public struct AppRefreshStatusRow: View {
                     feedbackToken &+= 1
                     onRefresh()
                 }
+                .frame(minHeight: AppDesignSystem.Size.Control.touchTarget)
                 .accessibilityIdentifier(actionAccessibilityIdentifier ?? "app.refresh-status.action")
                 .disabled(isRefreshing)
                 .appImpactFeedback(trigger: feedbackToken)
@@ -59,6 +61,8 @@ public struct AppRefreshStatusRow: View {
                     .foregroundStyle(AppDesignSystem.Foreground.primary)
             }
         }
+        .frame(minHeight: AppDesignSystem.Size.Control.touchTarget)
+        .appListRowInsets()
     }
 }
 #endif

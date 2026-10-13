@@ -2,7 +2,7 @@
 from __future__ import annotations
 from script_command_tests import script_command_boundary_findings, workflow_lock_boundary_findings, device_discovery_boundary_findings, audit_lock_boundary_findings, restore_installation_boundary_findings
 from worker_contract_tests import worker_boundary_findings
-from report_inbox_tests import report_inbox_boundary_findings
+from report_inbox_tests import report_inbox_boundary_findings, community_recovery_self_test
 
 from pathlib import Path
 import json, os, re, subprocess, sys, shutil, signal
@@ -64,7 +64,6 @@ def campus_fixture_self_test() -> None:
     finally:
         shutil.rmtree(directory, ignore_errors=True)
 
-
 def checker_boundary_findings() -> list[str]:
     from code_quality_rules import script_findings
     from types import SimpleNamespace
@@ -106,6 +105,13 @@ def checker_boundary_findings() -> list[str]:
     from audit_callback_rules import self_test as audit_delegate_self_test
     audit_delegate_self_test()
     findings: list[str] = []
+    escape_path = ROOT / 'BIT101-iOS/Concurrency.swift'
+    for conformance in ('Sendable', 'Swift.Sendable', 'Swift.`Sendable`', 'Alias'):
+        source = 'import Foundation; typealias Alias = Sendable; final class Escaped: @unchecked ' + conformance + ' {}\n'
+        syntax = swift_syntax_index_sources({str(escape_path): source})
+        with patch('code_quality_rules.swift_files', return_value=[escape_path]), patch.object(Path, 'read_text', return_value=source):
+            errors, _ = source_findings(syntax)
+        assert any('并发安全检查' in error for error in errors), conformance
     from code_quality_rules import audit_callback_findings
     callbacks = Path(__file__).with_name("run-static-audit.sh").read_text()
     assert audit_callback_findings(callbacks) == []
@@ -120,8 +126,9 @@ def checker_boundary_findings() -> list[str]:
         findings.append("Scheme 库存自测：独立构建合同保持不同入口")
     from validate_versions import app_store_request_self_test
     findings.extend(app_store_request_self_test())
-    from validation_evidence import community_recovery_self_test, test_inventory
-    from validation_test_areas import inventory_findings, critical_findings, CRITICAL_CONTRACTS
+    from validation_test_areas import test_inventory
+    from validation_test_areas import inventory_findings, critical_findings, CRITICAL_CONTRACTS, fixture_resource_self_test
+    fixture_resource_self_test()
     findings.extend(inventory_findings({test.split("/", 1)[0] for test in test_inventory("all")}))
     inventories = {group: test_inventory(group) for group in CRITICAL_CONTRACTS}
     findings.extend(critical_findings(inventories))
@@ -140,6 +147,7 @@ enum TaskCancellation {
     static func matches(_ error: Error) -> Bool { error is CancellationError }
 }
 enum Consumer {
+    typealias Cancel = CancellationError; func alias(_ error: Error) -> Bool { error is Cancel }
     func wrong(_ renamed: Error) -> Bool { renamed is Swift.CancellationError }
     func cast(_ error: Error) -> Bool { (error as? CancellationError) != nil }
     func catches() { do { try work() } catch let error as CancellationError { consume(error) } }
@@ -148,7 +156,7 @@ enum Consumer {
 }
 '''
     cancellation_syntax = swift_syntax_index_sources({str(cancellation_path): cancellation_source})
-    if len(cancellation_findings(cancellation_path, cancellation_source, cancellation_syntax[str(cancellation_path)])) != 3:
+    if len(cancellation_findings(cancellation_path, cancellation_source, cancellation_syntax[str(cancellation_path)])) != 4:
         findings.append("代码质量规则边界自检失败：取消识别按声明归属处理文件迁移、变量改名和模块限定类型")
     if cancellation_findings(ROOT / "ModuleTests/Transport/ExactErrorTests.swift", cancellation_source, cancellation_syntax[str(cancellation_path)]):
         findings.append("代码质量规则边界自检失败：测试可直接断言底层取消类型")
@@ -158,8 +166,14 @@ enum Consumer {
     for body, expected in (
         ('struct Example: View { let client: HTTPClient; let request: URLRequest; var body: some View { Text("").task { _ = try? await client.send(request) } } }', True),
         ('struct Example: View { let session: URLSession; let request: URLRequest; var body: some View { Text("").task { _ = try? await session.data(for: request) } } }', True),
+        *((f'struct Example: {kind} {{ let client: HTTPClient; var body: some Scene {{ WindowGroup {{ Text("").task {{ try? await client.send(URLRequest(url: url)) }} }} }} }}', True) for kind in ('App', 'Scene')),
         ('struct Example: ViewModifier { let client: HTTPClient; let request: URLRequest; func body(content: Content) -> some View { content.task { _ = try? await client.send(request) } } }', True),
         ('struct Example { let client: HTTPClient; func render(_ request: URLRequest) -> some View { Task { _ = try? await client.send(request) }; EmptyView() } }', True),
+        *((f'struct Example: View {{ let client: CommunityAPIClient; var body: some View {{ Text("").task {{ try? await client.{method}(request) }} }} }}', True)
+            for method in ('request', 'requestData', 'requestVoid')),
+        ('struct Example: View { let client: HTTPClient; var body: some View { let send = client.send; return Text("").task { _ = try? await send(request) } } }', True),
+        ('struct Example { let client: HTTPClient; func render() -> some View { let send = client.send; Task { _ = try? await send(request) }; EmptyView() } }', True),
+        ('struct Example: View { let service: Service; var body: some View { let send = service.send; return Text("").task { await send(1) } } }; struct Service { func send(_ value: Int) async {} }', False),
         ('struct Example: View { let client: Local; var body: some View { Text("").task { await client.send(1) } } }; struct Local { func send(_ value: Int) async {} }', False),
         ('struct Example: View { let service: Service; var body: some View { Text("").task { await service.fetch() } } }; struct Service { func fetch() async {} }', False),
     ):
@@ -175,33 +189,8 @@ enum Consumer {
             storage_path: 'public protocol AppFileService { func writeData(_ data: Data, to url: URL) throws }'})
         if bool(discarded_file_write_findings(Path(view_path), source, index[view_path], file_write_calls(index))) != expected:
             findings.append('持久化重载自测：未知实参保留可能的文件写入边，明确类型沿对应重载验收')
-    for body, expected in (
-        ('while pending == nil { await Task.yield() }', 1),
-        ('while pending == nil { try Task.checkCancellation(); await Task.yield() }', 1),
-        ('try await waitForTestEvent { pending != nil }', 0),
-        ('for _ in 0..<3 { await Task.yield() }', 0),
-        ('while pending == nil { consume("Task.yield()") }', 0),
-        ('await withCheckedContinuation { response = $0 }', 0),
-    ):
-        source = 'func testEvent() async throws { ' + body + ' }'
-        facts = swift_syntax_index_sources({str(wait_path): source})[str(wait_path)]
-        if len(asynchronous_test_wait_findings(wait_path, source, facts)) != expected:
-            findings.append('异步事件等待自测：取消检查与有限等待入口需要共同验收')
-    for body, expected in (('await withCheckedContinuation { started = $0 }', 1),
-                           ('try await waitForTestEvent { pending != nil }', 0)):
-        source = 'func waitUntilRequested() async throws { ' + body + ' }'
-        facts = swift_syntax_index_sources({str(wait_path): source})[str(wait_path)]
-        if len(asynchronous_test_wait_findings(wait_path, source, facts)) != expected:
-            findings.append('异步事件观察自测：请求到达门闩沿共享期限与取消入口验收')
-    support = ROOT / 'ModuleTests/Support/FileServiceContract.swift'
-    source = support.read_text()
-    facts = swift_syntax_index_sources({str(support): source})[str(support)]
-    if asynchronous_test_wait_findings(support, source, facts):
-        findings.append('异步事件等待自测：共享等待实现沿行为回归验收')
-    source += '\nfunc other() async { while pending == nil { await Task.yield() } }\n'
-    facts = swift_syntax_index_sources({str(support): source})[str(support)]
-    if len(asynchronous_test_wait_findings(support, source, facts)) != 1:
-        findings.append('异步事件等待自测：共享文件中的其他函数遵循调用入口')
+    from swift_type_index_tests import asynchronous_wait_self_test
+    asynchronous_wait_self_test(wait_path)
     unwrap_source = '''
 // value!
 let example = "value!"
@@ -210,21 +199,26 @@ let subscriptValue = entries[index]!
 let tupleValue = pair.0!; let forcedTry = try! operation(); let forcedCast = value as! String
 let interpolated = "\\(entry!)"
 let comparison = left != right
-struct Handler { var value: String!; func read() -> String { value }; func catches() { do {} catch _ {}; do {} catch let error {}; do {} catch is Error {}; do {} catch { handle(error) } } }
+struct Handler { var value: String!; func read() -> String { value }; func catches() { do {} catch _ {}; do {} catch let error {}; do {} catch is Error {}; do {} catch { _ = error }; do {} catch let failure { let _ = failure }; do {} catch { handle(error) }; do {} catch { _ = record(error) } } }
 '''
     unwrap_facts = swift_syntax_index_sources({"Unwrap.swift": unwrap_source})["Unwrap.swift"]
     write_path = ROOT / "Modules/CommunityPersistence/Sources/Example.swift"
     write_source = 'func update(files: AppFileService) { try? files.removeItem(at: url); _ = try? files.writeData(data, to: url); let result = try? files.createDirectory(at: url); let data = try? files.readData(at: url) }'
     write_facts = swift_syntax_index_sources({str(write_path): write_source})[str(write_path)]
-    if len(discarded_file_write_findings(write_path, write_source, write_facts)) != 2:
+    if len(discarded_file_write_findings(write_path, write_source, write_facts)) != 3:
         findings.append("代码质量自测：文件副作用的丢弃结果需要错误处理，已消费结果沿调用方处理")
     writes = {
-        'try? data.write(to: url, options: .atomic)': True,
+        'try? data.write(to: url, options: .atomic)': True, 'let outcome = try? files.writeData(data, to: url); _ = outcome': True, 'let outcome = try? files.writeData(data, to: url); consume(outcome)': False, 'let outcome = try? files.writeData(data, to: url); consume { outcome }': False,
+        'let _ = try? files.removeItem(at: url)': True, 'let _: Void? = try? files.writeData(data, to: url)': True, '_ = (try? files.removeItem(at: url))': True, '(try? files.removeItem(at: url))': True, 'let _ = (try? files.removeItem(at: url))': True,
         'try? handle.write(contentsOf: data)': True,
         'try? text.write(to: url, atomically: true, encoding: .utf8)': True,
         'try? urls.forEach { try files.removeItem(at: $0) }': True,
         'try? files.replaceItemAt(url, withItemAt: other)': True,
-        'try? client.write(value)': False,
+        'try? files.setPrivateFileProtection(at: url)': True,
+        'try? files.setBackupExcluded(true, at: url)': True,
+        'try? files.setModificationDate(Date(), at: url)': True,
+        'try? MemoryCollection().setPrivateFileProtection(at: url)': False,
+        'try? client.write(value)': False, 'let cleanup = files.removeItem(at:); try? cleanup(url)': True, 'let cleanup = { try files.removeItem(at: url) }; try? cleanup()': True, 'let cleanup = { try files.removeItem(at: url) }; let untouched = 1': False,
         'try? MemoryCollection().removeItem(at: 0)': False,
         'try? MemoryCollection().writeData(data, to: url)': False,
         'try? MemoryCollection().createDirectory(at: url)': False,
@@ -242,8 +236,8 @@ struct Handler { var value: String!; func read() -> String { value }; func catch
             findings.append("代码质量自测：Foundation 文件写入与闭包内清理沿丢弃错误门禁处理")
     if discarded_file_write_findings(ROOT / "Modules/MediaKit/Sources/RemoteImageCache.swift", write_source, write_facts):
         findings.append("代码质量自测：图片缓存沿已有可选写盘合同处理")
-    if discarded_file_write_findings(ROOT / "ModuleTests/Support/Fixture.swift", write_source, write_facts):
-        findings.append("代码质量自测：夹具准备和清理沿测试生命周期处理")
+    for directory in ("ModuleTests/Support", "BIT101-iOSTests", "BIT101-iOSUITests"):
+        if len(discarded_file_write_findings(ROOT / directory / "Fixture.swift", write_source, write_facts)) != 3: findings.append("代码质量自测：测试夹具的写入和清理需要错误处理")
     wrapper_sources = {str(write_path): '''
         struct Store {
             let files: AppFileService
@@ -259,7 +253,7 @@ struct Handler { var value: String!; func read() -> String { value }; func catch
     if sum(len(discarded_file_write_findings(Path(path), wrapper_sources[path], facts, wrapper_writes))
            for path, facts in wrapper_index.items()) != 3:
         findings.append("代码质量自测：持久化包装方法沿类型、重载及抛错调用链处理")
-    if len(unwrap_facts["forceUnwraps"]) != 7 or len(unwrap_facts["emptyCatchClauses"]) != 3 or not any(path.is_relative_to(ROOT / "BIT101-iOSUITests") for path in swift_files()):
+    if len(unwrap_facts["forceUnwraps"]) != 7 or len(unwrap_facts["emptyCatchClauses"]) != 5 or not any(path.is_relative_to(ROOT / "BIT101-iOSUITests") for path in swift_files()):
         findings.append("代码质量规则边界自检失败：全部测试目录的解包、强制 try 与类型转换识别")
     view_source = "struct SampleView: View { let request = URLRequest(url: url) }"
     model_source = "struct SampleModel { let request = URLRequest(url: url) }"
@@ -276,7 +270,7 @@ struct Handler { var value: String!; func read() -> String { value }; func catch
     if not ast_has_view_request(view_facts) or ast_has_view_request(model_facts):
         findings.append("代码质量规则边界自检失败：SwiftSyntax View 请求范围匹配")
     for constructor in ("Foundation.URLRequest(url: url)", "Foundation . URLRequest(url: url)", "URLRequest.init(url: url)", "let request: URLRequest = .init(url: url)", "typealias Request = URLRequest; Request(url: url)", "var request: URLRequest { .init(url: url) }", "typealias Request = Foundation.URLRequest; typealias Alias = Request; var request: Alias { .init(url: url) }", "func consume(_ request: URLRequest) {}; consume(.init(url: url))", "func consume(_ requests: [URLRequest]) {}; consume([.init(url: url)])", "func consume(_ request: URLRequest, enabled: Bool = true) {}; consume(.init(url: url))", "func consume(_ requests: URLRequest...) {}; consume(.init(url: url), .init(url: other))"):
-        if not ast_has_view_request(swift_syntax_index_sources({"view-request": f"struct SampleView: View {{ func load() {{ {constructor} }} }}"})["view-request"]):
+        if not all(ast_has_view_request(swift_syntax_index_sources({"view-request": f"struct SampleView: {kind} {{ func load() {{ {constructor} }} }}"})["view-request"]) for kind in ('View', 'ViewModifier', 'App', 'Scene')):
             findings.append("View 请求构造自测：限定类型、显式及推断构造")
 
     if not uses_application_support_storage({"value": "AppFileDirectories.accountSupportFileURL"}) or uses_application_support_storage(
@@ -304,6 +298,12 @@ struct Handler { var value: String!; func read() -> String { value }; func catch
     ):
         if not any(marker in finding for finding in client_source_findings(module_path, source)):
             findings.append("代码质量规则边界自检失败：模块与插值中的客户端规则")
+    for source, expected in (("item.loadTransferable(type: Data.self)", True),
+                             ("item.loadTransferable(type: Foundation.Data.self)", True),
+                             ("item.loadBoundedImageData()", False),
+                             ('let label = "item.loadTransferable(type: Data.self)"', False)):
+        if any("照片原始数据" in value for value in client_source_findings(module_path, source)) != expected:
+            findings.append("照片读取容量门禁自检")
     if client_source_findings(module_path, '// print("value")\nlet example = "DateFormatter()"'):
         findings.append("代码质量规则边界自检失败：模块文案进入执行代码规则")
     for constructor in ("DateFormatter.init()", "typealias Formatter = DateFormatter; Formatter()",
@@ -325,9 +325,10 @@ struct Handler { var value: String!; func read() -> String { value }; func catch
     workflow_source = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     findings.extend(ci_trigger_shell_self_test(workflow_source) + cross_file_view_request_self_test())
     from ci_wiring_rules import ci_wiring_findings
-    assert not ci_wiring_findings(workflow_source.replace("actions/upload-artifact@v7", "actions/upload-artifact@v8"))
-    assert not ci_wiring_findings(workflow_source.replace("actions/upload-artifact@v7", "actions/upload-artifact@" + "a" * 40))
-    assert ci_wiring_findings(workflow_source.replace("actions/upload-artifact@v7", "actions/upload-artifact@main"))
+    upload = re.search(r"actions/upload-artifact@[0-9a-f]{40}", workflow_source)[0]
+    assert not ci_wiring_findings(workflow_source.replace(upload, "actions/upload-artifact@" + "a" * 40))
+    for reference in ("v8", "main"):
+        assert ci_wiring_findings(workflow_source.replace(upload, "actions/upload-artifact@" + reference))
     assert ci_wiring_findings(workflow_source.replace("compression-level: 0", "compression-level: 6"))
     assert ci_wiring_findings(workflow_source.replace("    tags: ['v*']\n", ""))
     assert ci_wiring_findings(workflow_source.replace("run: python3 Scripts/ci_evidence.py check-release", "run: echo skipped"))
@@ -403,8 +404,9 @@ def script_output_boundary_findings() -> list[str]:
         show_details = count <= 40 or (ci and status != 0)
         if ("[输出]" in output) == show_details:
             findings.append("日志自测：本地展示阈值与 CI 失败诊断")
-        if show_details and sum(line.startswith("error:") for line in output.splitlines()) != count:
-            findings.append("日志自测：完整诊断展示")
+        expected_lines = count if ci and status != 0 else min(count, 40)
+        if sum(line.startswith("error:") for line in output.splitlines()) != expected_lines:
+            findings.append("日志自测：首批诊断与 CI 完整诊断展示")
     script = (SCRIPT_ROOT / "run-extended-tests.sh").read_text()
     metrics = re.search(r"(?ms)^record_metrics\(\) \{.*?<<'PY'\n(.*?)^PY$", script)[1]
     with patch.object(sys, "argv", ["metrics", "/result", "/report", "ui", "1", "device", "/audit"]), \
@@ -460,6 +462,7 @@ run_group() {
     case "$1" in shell-parse|docs) return 7;; esac
     return 0
 }
+start_group() { run_group "$1" "$2" & group_processes+=($!); }
 '''
     aggregation = subprocess.run(["zsh", "-c", harness + tail], capture_output=True, text=True)
     groups = re.findall(r"^RAN (.+)$", aggregation.stdout, re.MULTILINE)
@@ -473,10 +476,21 @@ def build_cache_boundary_findings() -> list[str]:
 
     source = (SCRIPT_ROOT / "script-support.sh").read_text()
     function = source.split("bit101_build_cache() {", 1)[1].split("\n}\n", 1)[0]
-    block = re.search(r"<<'PY'\n(.*?)^PY$", function, re.MULTILINE | re.DOTALL)
+    block = re.search(r"<<'PY'[^\n]*\n(.*?)^PY$", function, re.MULTILINE | re.DOTALL)
     fixture = ROOT / ".build/static-audit/cache-self-test"
     findings: list[str] = []
     try:
+        from validation_artifacts import SELF_TEST_ARTIFACTS, recover_self_test_artifacts
+        audit_folder = fixture / '.build/static-audit'
+        audit_folder.mkdir(parents=True, exist_ok=True)
+        for name in SELF_TEST_ARTIFACTS:
+            path = audit_folder / name
+            if path.suffix in {'.swift', '.sh'}: path.write_text('interrupted self-test')
+            else: path.mkdir()
+        retained = audit_folder / 'unregistered.log'
+        retained.write_text('audit keeps unregistered evidence visible')
+        recover_self_test_artifacts(fixture)
+        assert list(audit_folder.iterdir()) == [retained]
         shared = fixture / ".build/compiler-cache/ModuleCache.noindex"
         old = fixture / ".build/extended-automation/ModuleCache.noindex"
         shared.mkdir(parents=True, exist_ok=True)
@@ -527,6 +541,11 @@ def build_cache_boundary_findings() -> list[str]:
         obsolete_cloud_log.parent.mkdir(); obsolete_cloud_log.write_text("obsolete stage")
         diagnostics = fixture / ".build/extended-automation/diagnostics"
         diagnostics.mkdir()
+        diagnostic_result = diagnostics / 'test-results.xcresult'
+        diagnostic_result.mkdir()
+        (diagnostic_result / 'Info.plist').write_text('retain failure diagnostics')
+        diagnostic_export = diagnostics / 'exported.log'
+        diagnostic_export.write_text('temporary export')
         products = fixture / ".build/extended-automation/Build/Products"
         for platform in ("Release-iphoneos", "Release-iphonesimulator"):
             (products / platform).mkdir(parents=True)
@@ -569,8 +588,9 @@ def build_cache_boundary_findings() -> list[str]:
             findings.append("缓存自测：保留模拟器平台的隐式模块")
         if any((shared / name / f"{name}.pcm").read_bytes() != content for name in ("phone", "mac", "unreadable")):
             findings.append("缓存自测：保留真机、Mac 及平台归属待核对的模块")
-        if any(path.exists() for path in obsolete_paths) or obsolete_cloud_log.exists() or diagnostics.exists() or symbols.exists():
+        if any(path.exists() for path in obsolete_paths) or obsolete_cloud_log.exists() or diagnostic_export.exists() or symbols.exists():
             findings.append("缓存自测：清理诊断与冗余符号产物")
+        assert (diagnostic_result / 'Info.plist').read_text() == 'retain failure diagnostics'
         if not (products / "Release-iphonesimulator").exists():
             findings.append("缓存自测：保留模拟器增量产物")
         if debug_object.read_bytes() != content:
@@ -625,13 +645,27 @@ def smoke_script_boundary_findings() -> list[str]:
 
     source = (SCRIPT_ROOT / "run_icloud_cross_device_smoke.sh").read_text()
     findings: list[str] = []
-
+    network = (SCRIPT_ROOT / 'release-network-smoke.sh').read_text()
+    wait_loop = network.split('REPORT_READY=false\n', 1)[1].split('\nif ! $REPORT_READY', 1)[0]
+    for marker in ('NETWORK_SMOKE_REPORT_WRITE_FAIL run_id=fixture', 'NETWORK_SMOKE_REQUEST_FAIL'):
+        stub = 'set -euo pipefail\nRUN_ID=fixture\nCONSOLE_LOG=/fixture-console\nconsole_process=1\nREPORT_READY=false\nDEADLINE=$(( SECONDS + 5 ))\n'
+        stub += 'rg() { [[ "$2" == "' + marker + '" ]]; }\nkill() { return 0; }\nxcrun() { return 9; }\nsleep() { return 9; }\n'
+        failed = subprocess.run(['zsh', '-c', stub + wait_loop], capture_output=True, text=True, timeout=5)
+        assert failed.returncode == 1 and '失败' in failed.stderr, failed.stderr
+    stub = 'set -euo pipefail\nRUN_ID=fixture\nCONSOLE_LOG=/fixture-console\nconsole_process=1\nREPORT_READY=false\nDEADLINE=$(( SECONDS + 5 ))\n'
+    stub += 'phase=waiting\nrg() { [[ "$2" == "NETWORK_SMOKE_SUMMARY run_id=fixture " && "$phase" == ready ]]; }\n'
+    stub += 'DEVICETCL_DEVICE_ID=fixture\nAPP_GROUP_ID=fixture\nREMOTE_REPORT_PATH=fixture\nLOCAL_REPORT_PATH=/fixture\n'
+    stub += 'kill() { [[ "$phase" == waiting ]]; }\nxcrun() { [[ "$phase" == ready ]] || exit 8; exit 17; }\nsleep() { phase=ready; }\n'
+    ready = subprocess.run(['zsh', '-c', stub + wait_loop], capture_output=True, text=True, timeout=5)
+    assert ready.returncode == 17, ready
+    stopped = subprocess.run(['zsh', '-c', stub.replace('phase=waiting', 'phase=stopped') + wait_loop],
+        capture_output=True, text=True, timeout=5)
+    assert stopped.returncode == 1 and '控制台进程已结束' in stopped.stderr, stopped
     def shell_function(name: str, script_source: str = source) -> str:
         match = re.search(rf"(?ms)^([ \t]*){name}\(\) \{{\n.*?^\1\}}$", script_source)
         if match is None:
             raise RuntimeError(f"Smoke 自测需要 {name} 函数")
         return match[0]
-
     phone_function = shell_function("run_phone_test", (SCRIPT_ROOT / "icloud-smoke-support.sh").read_text())
     stub = r'''
 set -euo pipefail
@@ -651,7 +685,6 @@ bit101_invalidate_restore() { :; }
     business = subprocess.run(["zsh", "-c", stub + phone_function + "\nrun_phone_test testPhoneRoundTrip"], capture_output=True, text=True)
     if business.returncode or "-resultBundlePath" not in business.stdout:
         findings.append("Smoke 恢复自测失败：业务阶段结果包保存")
-
     worker = re.search(r"<<'PYWORKER'\n(.*?)^PYWORKER$", source, re.MULTILINE | re.DOTALL)
     handlers = {}
     child = type("Worker", (), {"pid": 42, "wait": lambda self, timeout=None:
@@ -695,7 +728,6 @@ bit101_invalidate_restore() { :; }
             except ProcessLookupError: pass
             else: os.killpg(detached_pid, signal.SIGKILL)
         supervisor.wait(timeout=5)
-
     finish = shell_function("finish_smoke").replace('"$ROOT_DIR/Scripts/build-install-device.sh"', "restore_normal_app")
     trap_registration = "\n".join(re.findall(r"(?m)^trap .+$", source))
     cases = ((7, 0, 0, 7), (7, 1, 0, 7), (7, 0, 1, 7), (0, 1, 0, 1), (0, 0, 1, 1), (0, 0, 0, 0), (130, 0, 0, 130), (143, 0, 0, 143))
@@ -729,12 +761,12 @@ python3() {{ if [[ "$1" == - ]]; then cat >/dev/null; fi; }}
             result = subprocess.run(["zsh", "-c", harness], capture_output=True, text=True)
             if result.returncode != expected or not re.search(r"(?ms)^cleanup$.*^restore$.*^report$", result.stdout):
                 findings.append(f"Smoke 恢复自测失败：状态 {initial}/{cleanup_status}/{restore_status}；{trigger}")
-
     network_source = (SCRIPT_ROOT / "release-network-smoke.sh").read_text()
     restore = shell_function("restore_normal_app", network_source).replace(
-        '"$ROOT_DIR/Scripts/build-install-device.sh" >/dev/null 2>&1',
+        '"$ROOT_DIR/Scripts/build-install-device.sh"',
         "restore_release",
     )
+    assert restore.count('restore_release') == 1, '网络 Smoke 恢复替身需要绑定实际执行命令'
     network_traps = "\n".join(line.strip() for line in network_source.splitlines() if line.strip().startswith("trap "))
     cases = ((7, 0, 7, "preflight", False, 0), (7, 1, 7, "preflight", False, 0),
         (0, 1, 1, "preflight", False, 0), (0, 0, 0, "preflight", False, 0),
@@ -749,6 +781,7 @@ ROOT_DIR=/audit
 validation_group=network
 validation_scope=full
 community_started=false
+app_restore_needed=true
 report_ready={str(ready).lower()}
 SMOKE_SCOPE=all
 SMS_MODE={sms}
@@ -771,7 +804,6 @@ fail_command
         if sms == "sms" and (f"network-inputs /audit/Scripts/validation_evidence.py record network {network_status} full" not in result.stdout
                 or f"school-inputs /audit/Scripts/validation_evidence.py record school-sms {school_status} full" not in result.stdout):
             findings.append("全量短信验收恢复自测：两个验证范围维持各自结果、恢复状态与开始摘要")
-
     extended_source = (SCRIPT_ROOT / "run-extended-tests.sh").read_text()
     restore_condition = re.search(r'(?m)^if (\[\[.*\]\]); then\n  DEVICE_TEST_EXECUTION_STARTED=false', extended_source)[1]
     for mode, build, deferred, expected in (("all", "false", 0, True), ("schedule", "false", 0, True), ("infrastructure", "false", 0, True), ("login", "false", 0, True), ("extensions", "false", 0, True), ("release-runtime", "false", 0, True), ("ui", "false", 0, True), ("modules", "false", 0, False), ("catalyst", "false", 0, False), ("ui", "true", 0, False), ("all", "false", 1, False)):
@@ -828,7 +860,6 @@ exit {initial}
                 result = subprocess.run(["zsh", "-c", harness], capture_output=True, text=True)
                 if result.returncode != initial or "restore\n" in result.stdout:
                     findings.append(f"UI 编译失败恢复自测失败：状态 {initial}")
-
     stage_source = (SCRIPT_ROOT / "icloud-smoke-support.sh").read_text()
     match = re.search(r"(?ms)^record_result\(\).*?<<'PY'\n(.*?)^PY$", stage_source)
     if match is None:

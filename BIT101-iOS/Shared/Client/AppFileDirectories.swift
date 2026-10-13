@@ -154,7 +154,10 @@ enum AppFileDirectories {
         named filename: String
     ) -> URL? {
         let container = files.appGroupContainerURL(identifier: groupIdentifier)
-        if let container { try? files.setBackupExcluded(true, at: container) }
+        if let container {
+            do { try files.setBackupExcluded(true, at: container) }
+            catch { Logger(subsystem: "BIT101", category: "PersistentBackup").error("App Group backup metadata awaits preparation: \(error.localizedDescription, privacy: .public)") }
+        }
         return directories.reduce(container) { url, directory in
             url?.appending(path: directory, directoryHint: .isDirectory)
         }?.appending(path: filename)

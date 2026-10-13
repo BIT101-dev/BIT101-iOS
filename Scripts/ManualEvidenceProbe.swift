@@ -28,17 +28,51 @@ struct ManualEvidenceProbe {
         var remaining: Int
         var valid = true
         var visited = Set<OpaquePointer>()
+        var scanned = Set<OpaquePointer>()
+        var pageContent: CGPDFContentStreamRef?
         init(_ bytes: Int) { remaining = bytes }
+        func charge(_ dictionary: CGPDFDictionaryRef) {
+            var width = 0, height = 0, depth = 8
+            if !CGPDFDictionaryGetInteger(dictionary, "BitsPerComponent", &depth) { _ = CGPDFDictionaryGetInteger(dictionary, "BPC", &depth) }
+            let hasWidth = CGPDFDictionaryGetInteger(dictionary, "Width", &width) || CGPDFDictionaryGetInteger(dictionary, "W", &width)
+            let hasHeight = CGPDFDictionaryGetInteger(dictionary, "Height", &height) || CGPDFDictionaryGetInteger(dictionary, "H", &height)
+            guard hasWidth, hasHeight, width > 0, height > 0, depth > 0, depth <= 16,
+                  width <= remaining / (4 * ((depth + 7) / 8)) / height else { valid = false; return }
+            remaining -= width * height * 4 * ((depth + 7) / 8)
+        }
+        func scan(_ content: CGPDFContentStreamRef) {
+            guard let table = CGPDFOperatorTableCreate() else { valid = false; return }
+            defer { CGPDFOperatorTableRelease(table) }
+            CGPDFOperatorTableSetCallback(table, "EI", { scanner, context in
+                guard let context else { return }
+                let budget = Unmanaged<PDFImageBudget>.fromOpaque(context).takeUnretainedValue()
+                var stream: CGPDFStreamRef?
+                guard CGPDFScannerPopStream(scanner, &stream), let stream,
+                      let dictionary = CGPDFStreamGetDictionary(stream) else { budget.valid = false; return }
+                budget.charge(dictionary)
+            })
+            let scanner = CGPDFScannerCreate(content, table, Unmanaged.passUnretained(self).toOpaque())
+            defer { CGPDFScannerRelease(scanner) }
+            valid = CGPDFScannerScan(scanner) && valid
+        }
+        func inspect(_ stream: CGPDFStreamRef) {
+            guard valid, scanned.insert(stream.rawValue).inserted, let dictionary = CGPDFStreamGetDictionary(stream) else { return }
+            inspect(dictionary)
+            var subtype: UnsafePointer<CChar>?
+            if CGPDFDictionaryGetName(dictionary, "Subtype", &subtype), let subtype, String(cString: subtype) == "Image" { return }
+            var resources: CGPDFDictionaryRef?
+            _ = CGPDFDictionaryGetDictionary(dictionary, "Resources", &resources)
+            guard let parent = pageContent else { valid = false; return }
+            let content = CGPDFContentStreamCreateWithStream(stream, resources ?? dictionary, parent)
+            defer { CGPDFContentStreamRelease(content) }
+            scan(content)
+        }
         func inspect(_ dictionary: CGPDFDictionaryRef) {
             guard valid, visited.insert(dictionary.rawValue).inserted else { return }
             var subtype: UnsafePointer<CChar>?
             if CGPDFDictionaryGetName(dictionary, "Subtype", &subtype), let subtype, String(cString: subtype) == "Image" {
-                var width = 0, height = 0, depth = 8
-                _ = CGPDFDictionaryGetInteger(dictionary, "BitsPerComponent", &depth)
-                guard CGPDFDictionaryGetInteger(dictionary, "Width", &width), CGPDFDictionaryGetInteger(dictionary, "Height", &height),
-                    width > 0, height > 0, depth > 0, depth <= 16,
-                    width <= remaining / (4 * ((depth + 7) / 8)) / height else { valid = false; return }
-                remaining -= width * height * 4 * ((depth + 7) / 8)
+                charge(dictionary)
+                guard valid else { return }
                 for name in ["SMask", "Mask"] {
                     var mask: CGPDFStreamRef?
                     if CGPDFDictionaryGetStream(dictionary, name, &mask), let mask, let values = CGPDFStreamGetDictionary(mask) { inspect(values) }
@@ -52,7 +86,7 @@ struct ManualEvidenceProbe {
                     guard let context else { return }
                     let budget = Unmanaged<PDFImageBudget>.fromOpaque(context).takeUnretainedValue()
                     var stream: CGPDFStreamRef?
-                    if CGPDFObjectGetValue(object, .stream, &stream), let stream, let values = CGPDFStreamGetDictionary(stream) { budget.inspect(values) }
+                    if CGPDFObjectGetValue(object, .stream, &stream), let stream { budget.inspect(stream) }
                 }, Unmanaged.passUnretained(self).toOpaque())
             }
         }
@@ -109,7 +143,11 @@ struct ManualEvidenceProbe {
             let imageBudget = PDFImageBudget(limits.decodedBytes)
             for index in 1...document.numberOfPages {
                 guard let page = document.page(at: index), let dictionary = page.dictionary else { return false }
+                let content = CGPDFContentStreamCreateWithPage(page)
+                imageBudget.pageContent = content
+                defer { imageBudget.pageContent = nil; CGPDFContentStreamRelease(content) }
                 imageBudget.inspect(dictionary)
+                imageBudget.scan(content)
                 guard imageBudget.valid else { return false }
             }
             for index in 1...document.numberOfPages {
@@ -160,7 +198,37 @@ struct ManualEvidenceProbe {
         } catch { return false }
     }
 
+    static func inlineImagePDF(side: Int, nested: Bool, copies: Int = 1) -> Data {
+        let image = "q\nBI /W \(side) /H \(side) /BPC 8 /CS /RGB ID\nabc\nEI\nQ\n"
+        let images = String(repeating: image, count: copies)
+        let content = nested ? "/ImageForm Do\n" : images
+        let resources = nested ? "<< /XObject << /ImageForm 5 0 R >> >>" : "<< >>"
+        var objects = ["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 16 16] /Resources \(resources) /Contents 4 0 R >>",
+            "<< /Length \(content.utf8.count) >>\nstream\n\(content)endstream"]
+        if nested { objects.append("<< /Type /XObject /Subtype /Form /BBox [0 0 16 16] /Resources << >> /Length \(images.utf8.count) >>\nstream\n\(images)endstream") }
+        var data = Data("%PDF-1.4\n".utf8)
+        var offsets = [0]
+        for (index, object) in objects.enumerated() {
+            offsets.append(data.count)
+            data.append(Data("\(index + 1) 0 obj\n\(object)\nendobj\n".utf8))
+        }
+        let xref = data.count
+        var trailer = "xref\n0 \(offsets.count)\n0000000000 65535 f \n"
+        for offset in offsets.dropFirst() { trailer += String(format: "%010ld 00000 n \n", offset) }
+        trailer += "trailer\n<< /Size \(offsets.count) /Root 1 0 R >>\nstartxref\n\(xref)\n%%EOF\n"
+        data.append(Data(trailer.utf8))
+        return data
+    }
+
     static func selfTest(limits: Limits) async -> Bool {
+        for nested in [false, true] {
+            let pdf = inlineImagePDF(side: 1, nested: nested, copies: 2)
+            guard await decode(pdf, limits: limits) else { return false }
+            var smaller = limits; smaller.decodedBytes = 7
+            guard await decode(pdf, limits: smaller) == false,
+                  await decode(inlineImagePDF(side: 4096, nested: nested), limits: limits) == false else { return false }
+        }
         guard let context = CGContext(data: nil, width: 16, height: 16, bitsPerComponent: 8, bytesPerRow: 0,
             space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
               let image = context.makeImage() else { return false }

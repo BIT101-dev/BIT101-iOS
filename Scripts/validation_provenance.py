@@ -10,10 +10,10 @@ import subprocess
 import uuid
 import fcntl
 from contextlib import contextmanager
-from validation_inputs import includes_input, repository_input_names
+from validation_inputs import includes_input, repository_input_names, is_worker_generated
 from validation_environment import environment_context, exchange_identity
 from urllib.parse import urlsplit
-from validation_policy import NETWORK_GROUPS
+from validation_policy import NETWORK_GROUPS, CORE_GROUPS
 
 LIVE_GROUPS = NETWORK_GROUPS | {"audit", "icloud", "icloud-cleanup", "manual-device"}
 LIVE_EVIDENCE_LIFETIME = timedelta(days=1)
@@ -29,9 +29,11 @@ def worker_source_digest(folder: str) -> str:
     if folder not in WORKER_FOLDERS: raise ValueError('Worker 需要登记到部署合同。')
     paths = [WRANGLER_ROOT / 'package.json', WRANGLER_ROOT / 'package-lock.json']
     if folder == 'OpenWorker': paths.append(ROOT / 'BIT101-iOS/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png')
-    for directory, children, files in os.walk(ROOT / 'Cloudflare' / folder):
-        children[:] = [name for name in children if name not in {'node_modules', '.wrangler', '.git'}]
-        paths.extend(Path(directory) / name for name in files if Path(name).suffix in {'.js', '.jsonc'})
+    operational_inputs = {'Cloudflare/EmergencyUpdateWorker/config/emergency-update.json',
+        'Cloudflare/EmergencyUpdateWorker/Scripts/publish-emergency-update.sh'}
+    paths.extend(ROOT / name for name in repository_input_names(ROOT)
+        if name.startswith('Cloudflare/' + folder + '/') and Path(name).suffix != '.md'
+        and name not in operational_inputs and not is_worker_generated(Path(name)))
     digest = hashlib.sha256()
     for path in sorted(set(paths)):
         digest.update(path.relative_to(ROOT).as_posix().encode() + b'\0' + path.read_bytes() + b'\0')
@@ -96,6 +98,29 @@ def capture_worker_deployments(scope: str) -> dict:
     return proof
 
 
+def release_worker_findings(summary: dict) -> list[str]:
+    from urllib.request import Request, urlopen
+    errors = []
+    try:
+        if capture_worker_deployments('all') != summary.get('workerDeployments'):
+            errors.append('发布前 Worker 活跃部署已变化，请重新执行网络验收。')
+        endpoint = 'https://update.aihelpme.dev/emergency-update.json'
+        with urlopen(Request(endpoint, headers={'Cache-Control': 'no-cache'}), timeout=20) as response:
+            if response.status != 200 or response.geturl() != endpoint:
+                raise ValueError('紧急更新配置需要由登记端点直接返回。')
+            body = response.read(1_048_577)
+            if len(body) > 1_048_576: raise ValueError('紧急更新配置超过响应范围。')
+        current = hashlib.sha256(body).hexdigest()
+        sampled = {request['responseConfiguration'].get('digest')
+            for probe in summary.get('requestEvidence', []) if probe.get('probe') == 'update.emergency'
+            for request in probe.get('requests', []) if isinstance(request.get('responseConfiguration'), dict)}
+        if sampled != {current}:
+            errors.append('发布前紧急更新配置已变化，请重新执行网络验收。')
+    except (ValueError, OSError, subprocess.SubprocessError, KeyError, TypeError) as error:
+        errors.append(f'发布前线上 Worker 复核需要完成：{error}')
+    return errors
+
+
 def worker_main() -> int:
     import argparse
     parser = argparse.ArgumentParser(description='Bind Worker deployments and network sampling to their source inputs.')
@@ -156,6 +181,12 @@ def evidence_current(group: str, summary: dict) -> bool:
     return group not in LIVE_GROUPS or sampling_evidence_current(summary)
 
 
+def group_evidence_current(group: str, row: dict) -> bool:
+    recorded = row.get('recordedAt', '')
+    return evidence_current(group, row.get('summary', {})) and (group not in CORE_GROUPS
+        or sampling_evidence_current({'startedAt': recorded, 'finishedAt': recorded}))
+
+
 def complete_group_row(row: dict) -> dict:
     from validation_environment import exchange_identity
     full = row.get('lastFullRun', {})
@@ -168,10 +199,42 @@ def complete_group_row(row: dict) -> dict:
     return row
 
 
+def invalidate_failed_evidence(report: dict, group: str, requested: set[str]) -> list[str]:
+    failed = report['groups'][group]
+    if failed.get('exitCode') == 0 and failed.get('summary', {}).get('passed') is True: return []
+    network = group in NETWORK_GROUPS
+    identity = (lambda probe: probe) if network else normalized_test_id
+    field = 'probes' if network else 'tests'
+    inventory = 'probeInventory' if network else 'executedTests'
+    requested = {identity(item) for item in requested}
+    if previous := failed.get('lastFullRun'):
+        previous['exitCode'] = 1
+        previous.setdefault('summary', {}).update(passed=False,
+            failedRegression={'group': group, 'runID': failed.get('runID', ''), field: sorted(requested)})
+    invalidated = []
+    for name, row in report['groups'].items():
+        if name == group: continue
+        full = complete_group_row(row)
+        available = {identity(item) for item in full.get('summary', {}).get(inventory, [])}
+        overlap = available if network and not requested and name in NETWORK_GROUPS else requested & available
+        if not overlap: continue
+        for record in [row, *([row['lastFullRun']] if row.get('lastFullRun') else [])]:
+            record['exitCode'] = 1
+            record.setdefault('summary', {}).update(passed=False,
+                failedRegression={'group': group, 'runID': failed.get('runID', ''), field: sorted(overlap)})
+        invalidated.append(name)
+    return sorted(invalidated)
+
+
 def network_requests_complete(required: set[str], value: dict) -> bool:
-    from network_request_contracts import complete, VISIBLE_PARAMETERS
+    from network_request_contracts import complete, cleanup_requests_complete, VISIBLE_PARAMETERS
+    from validation_policy import SCHOOL_SMS_PROBES
     if value.get('requestEvidenceRequired') is not True: return False
-    if value.get('scope') == 'community-cleanup': required = required - {'community.writes'}
+    verified, requested = value.get('verifiedSMSProbes', []), value.get('requestedSMSPurposes', [])
+    if not isinstance(verified, list) or not isinstance(requested, list): return False
+    sms_probes = {step.get('probe') for step in verified if isinstance(step, dict)
+        and isinstance(step.get('purpose'), str) and isinstance(step.get('probe'), str)
+        and step['purpose'] in requested and step['probe'] in SCHOOL_SMS_PROBES.get(step['purpose'], set())}
     rows = value.get('requestEvidence', [])
     if not isinstance(rows, list): return False
     observed = set()
@@ -190,6 +253,7 @@ def network_requests_complete(required: set[str], value: dict) -> bool:
             if not endpoint.hostname or endpoint.scheme not in {'http', 'https'} or endpoint.username or endpoint.password \
                     or endpoint.query or endpoint.fragment or request.get('method') not in {'GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'} \
                     or type(request.get('statusCode')) is not int or not 100 <= request['statusCode'] < 600: return False
+            if request.get('responseContentMissing') is not None and request['responseContentMissing'] is not True: return False
             query = request.get('query', {})
             cursor = request.get('responseMinimumID')
             if cursor is not None and (not isinstance(cursor, str) or re.fullmatch(r'\d+', cursor) is None): return False
@@ -202,11 +266,14 @@ def network_requests_complete(required: set[str], value: dict) -> bool:
             if not isinstance(final_query, dict) or not all(isinstance(key, str) and isinstance(item, str)
                     and (key in VISIBLE_PARAMETERS or item == '[REDACTED]') for key, item in final_query.items()): return False
         expected = row.get('expectedParameters', {})
-        if not isinstance(expected, dict) or not set(expected) <= {'XNXQDM', 'JXLDM', 'XXXQDM', 'RQ', 'XQDM', 'XNDM', 'obj', 'uid', 'path', 'resourceDigests'} \
+        if not isinstance(expected, dict) or not set(expected) <= {'XNXQDM', 'JXLDM', 'XXXQDM', 'RQ', 'XQDM', 'XNDM', 'obj', 'uid', 'path', 'search', 'excludedSearch', 'resourceDigests'} \
                 or not all(isinstance(item, str) for item in expected.values()): return False
         if value.get('validatedTerm') and expected.get('XNXQDM') != value['validatedTerm'] and 'XNXQDM' in expected: return False
-        if complete(row['probe'], row['requests'], expected): observed.add(row['probe'])
-        elif row['probe'] in required: return False
+        if value.get('scope') == 'community-cleanup' and row['probe'] == 'community.writes':
+            if expected or not cleanup_requests_complete(row['requests']): return False
+        elif not complete(row['probe'], row['requests'], expected,
+                allow_sms=value.get('schoolSMSCoverage') == 'verified' and row['probe'] in sms_probes): return False
+        observed.add(row['probe'])
     return bool(required) and required <= observed
 
 
@@ -251,7 +318,9 @@ def source_digest(group: str = "", *, environment: dict | None = None) -> str:
     names = repository_input_names(ROOT)
     digest = hashlib.sha256(group.encode() + b"\0")
     if group:
-        digest.update(json.dumps(exchange_identity(environment_context(group) if environment is None else environment), sort_keys=True).encode() + b"\0")
+        context = environment_context(group) if environment is None else environment
+        if group == 'manual-device': context = {key: value for key, value in context.items() if key != 'device'}
+        digest.update(json.dumps(exchange_identity(context), sort_keys=True).encode() + b"\0")
     for name in sorted(set(names) - {""}):
         path = ROOT / name
         if path.is_file() and includes_input(name, group):

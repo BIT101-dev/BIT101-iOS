@@ -181,7 +181,8 @@ public nonisolated enum CampusMapPlaceCatalog {
             "文萃", "综教", "理教", "理学", "工训", "工业生态", "化学实验",
             "物理实验", "疏桐", "南校区", "前沿交叉", "交叉大楼", "良乡体育馆"
         ]
-        if liangxiangPrefixes.contains(where: classroom.contains) {
+        let locationNames = [classroom, ScheduleDisplayNormalizer.compactLocation(for: classroom).lightBuilding]
+        if locationNames.contains(where: { location in liangxiangPrefixes.contains(where: location.contains) }) {
             return .liangxiang
         }
 
@@ -228,10 +229,10 @@ public nonisolated enum CampusMapPlaceCatalog {
                 }
             }
             if classroom.contains("工业生态楼") { return "工业生态楼" }
-            if classroom.contains("工训楼") || classroom.contains("工程训练中心") { return "工训楼" }
+            if classroom.contains("工训") || classroom.contains("工程训练中心") { return "工训楼" }
             if classroom.contains("物理实验中心") { return "物理实验中心" }
             if classroom.contains("理学") { return "理学楼" }
-            if classroom.contains("理教楼") { return "理教楼" }
+            if classroom.contains("理教") { return "理教楼" }
             if classroom.contains("疏桐") { return "疏桐A地下" }
             if classroom.contains("综教A") { return "综教A" }
             if classroom.contains("综教B") { return "综教B" }

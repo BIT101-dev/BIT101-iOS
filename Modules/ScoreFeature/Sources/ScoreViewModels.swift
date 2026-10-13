@@ -61,6 +61,7 @@ public final class ScoreViewModel: ObservableObject {
     private let currentScoreCacheSession: @MainActor () -> AppStorageSession
     private let loadScheduleCourses: @MainActor (AppStorageSession) async -> [String: [ScoreCourseSummary]]
     private var isRefreshing: Bool { refreshPhase.isSyncing }
+    private var hasContent: Bool { !rows.isEmpty || state == .loaded }
     /// 账号切换后递增，使此前启动的请求失去页面与缓存写入资格。
     private(set) var accountGeneration = 0
     private var presentationGeneration = 0
@@ -197,7 +198,7 @@ public final class ScoreViewModel: ObservableObject {
 
         let session = currentScoreCacheSession()
         let generation = accountGeneration
-        let hadContent = !rows.isEmpty || state == .loaded
+        let hadContent = hasContent
         smsChallenge = nil
         smsVerificationError = nil
         refreshPhase = .authenticating
@@ -227,12 +228,12 @@ public final class ScoreViewModel: ObservableObject {
         } catch ScoreServiceError.secondFactorRequired(let challenge) {
             guard isCurrent(session, generation: generation) else { return }
             smsChallenge = challenge
-            state = hadContent ? .loaded : .loading
+            state = hasContent ? .loaded : .loading
         } catch ScoreServiceError.challengeInvalid(let message) {
             guard isCurrent(session, generation: generation) else { return }
             smsChallenge = nil
             smsVerificationError = nil
-            if hadContent {
+            if hasContent {
                 state = .loaded
                 if showErrors {
                     alert = AppAlert.userInput(title: "验证已失效", message: message)
@@ -247,7 +248,7 @@ public final class ScoreViewModel: ObservableObject {
         } catch {
             guard isCurrent(session, generation: generation) else { return }
             if isCancellation(error) {
-                state = hadContent ? .loaded : .idle
+                state = hasContent ? .loaded : .idle
                 return
             }
 
@@ -257,7 +258,7 @@ public final class ScoreViewModel: ObservableObject {
                 return
             }
 
-            if hadContent {
+            if hasContent {
                 state = .loaded
                 if showErrors {
                     alert = AppAlert(title: "成绩刷新失败", message: error.localizedDescription)
@@ -381,7 +382,7 @@ public final class ScoreViewModel: ObservableObject {
             guard isCurrent(session, generation: generation) else { return }
             let scoresAreIdentical = cachedRows.map { ScoreRowComparison.rowsMatch(detailedRows, $0) } ?? false
             applyRows(detailedRows)
-            let updatedAt = await cacheStore.saveDetailed(rows: detailedRows, for: session)
+            let updatedAt = try await saveCurrentRows(detailedRows, detail: true, session: session, generation: generation)
             guard isCurrent(session, generation: generation) else { return }
             guard let updatedAt else { throw ScorePersistenceError.saveFailed }
             lastUpdatedAt = updatedAt
@@ -398,7 +399,7 @@ public final class ScoreViewModel: ObservableObject {
                 applyRows(cachedRows)
                 lastUpdatedAt = cachedSnapshot?.updatedAt
             } else {
-                let updatedAt = await cacheStore.save(rows: briefRows, for: session)
+                let updatedAt = try await saveCurrentRows(briefRows, detail: false, session: session, generation: generation)
                 guard isCurrent(session, generation: generation) else { return }
                 guard let updatedAt else { throw ScorePersistenceError.saveFailed }
                 lastUpdatedAt = updatedAt
@@ -753,6 +754,15 @@ public final class ScoreViewModel: ObservableObject {
 
     private func isCurrent(_ session: AppStorageSession, generation: Int) -> Bool {
         accountGeneration == generation && currentScoreCacheSession() == session
+    }
+
+    private func saveCurrentRows(_ rows: [ScoreRow], detail: Bool, session: AppStorageSession, generation: Int) async throws -> Date? {
+        let task = Task { @MainActor in
+            guard self.isCurrent(session, generation: generation) else { throw CancellationError() }
+            if detail { return await self.cacheStore.saveDetailed(rows: rows, for: session) }
+            return await self.cacheStore.save(rows: rows, for: session)
+        }
+        return try await awaitTrackedRequest(task)
     }
 
     private func awaitTrackedRequest<Value: Sendable>(

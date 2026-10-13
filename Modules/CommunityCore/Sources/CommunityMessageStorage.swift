@@ -35,19 +35,23 @@ public nonisolated enum GalleryMessageType: String, CaseIterable, Identifiable, 
 /// 服务端提供分类未读数，客户端按账号保存逐条消息的“伪新消息”状态。
 public nonisolated struct GalleryMessageReadSnapshot: Codable, Equatable, Sendable {
     public static let maximumHistoryIDsPerType = 1_024
+    public static let maximumSnapshotBytes = 16 * 1_024 * 1_024
+    public static let maximumUnreadIDsPerType = maximumSnapshotBytes / (String(Int.max).utf8.count + 1)
     public var latestIDsByType: [String: [Int]] = [:]
     public var seenIDsByType: [String: [Int]] = [:]
     public var retainedFromIDByType: [String: Int] = [:]
+    public var pendingUnreadAfterIDByType: [String: Int] = [:]
 
     public init() {}
 
-    private enum CodingKeys: String, CodingKey { case latestIDsByType, seenIDsByType, retainedFromIDByType }
+    private enum CodingKeys: String, CodingKey { case latestIDsByType, seenIDsByType, retainedFromIDByType, pendingUnreadAfterIDByType }
 
     public init(from decoder: any Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         latestIDsByType = try values.decodeIfPresent([String: [Int]].self, forKey: .latestIDsByType) ?? [:]
         seenIDsByType = try values.decodeIfPresent([String: [Int]].self, forKey: .seenIDsByType) ?? [:]
         retainedFromIDByType = try values.decodeIfPresent([String: Int].self, forKey: .retainedFromIDByType) ?? [:]
+        pendingUnreadAfterIDByType = try values.decodeIfPresent([String: Int].self, forKey: .pendingUnreadAfterIDByType) ?? [:]
     }
 
     /// 各分类保留最近的已读 ID；保留边界之前的消息归为历史已读。
@@ -64,7 +68,8 @@ public nonisolated struct GalleryMessageReadSnapshot: Codable, Equatable, Sendab
         }
         for (type, ids) in latestIDsByType {
             let floor = result.retainedFromIDByType[type] ?? Int.min
-            result.latestIDsByType[type] = Array(Set(ids).filter { $0 >= floor }.sorted().suffix(Self.maximumHistoryIDsPerType))
+            result.latestIDsByType[type] = Set(ids).subtracting(seenIDsByType[type] ?? [])
+                .filter { $0 >= floor }.sorted()
         }
         return result
     }
@@ -86,8 +91,11 @@ public protocol GalleryMessageReadStoring: AnyObject {
     var hasUnreadableSnapshot: Bool { get }
     /// 本地保存和外部导入发布同一实例的账号变更。
     var changes: AnyPublisher<AppStorageSession, Never> { get }
-    @discardableResult func replaceLatestIDs(_ ids: [Int], unreadCount: Int, for type: GalleryMessageType) -> Bool
-    @discardableResult func markSeen(ids: [Int], for type: GalleryMessageType) -> Bool
+    @discardableResult func prepareSnapshot() async -> Bool
+    @discardableResult func replaceLatestIDs(_ ids: [Int], unreadCount: Int, for type: GalleryMessageType) async -> Bool
+    @discardableResult func markSeen(ids: [Int], for type: GalleryMessageType) async -> Bool
+    func pendingUnreadAfterID(for type: GalleryMessageType) -> Int?
+    @discardableResult func setPendingUnreadAfterID(_ id: Int?, for type: GalleryMessageType) async -> Bool
     func unreadCount(for type: GalleryMessageType) -> Int
     func isUnread(id: Int, for type: GalleryMessageType) -> Bool
 }

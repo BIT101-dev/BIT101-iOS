@@ -4,6 +4,34 @@ import Testing
 @testable import ScheduleSync
 
 struct ScheduleCloudMergeTests {
+    @Test(arguments: ["root", "records", "dictionary", "nested-records", "legacy-field"])
+    func baselineCollectionsPreserveCorruptionAndLegacySemantics(fault: String) throws {
+        let base = ScheduleCache()
+        var local = base
+        var remote = base
+        local.manualCourseRulesByTerm = ["term": [.init(id: "local", sourceIdentity: "a", sourceCourses: [], replacementCourses: [])]]
+        remote.manualCourseRulesByTerm = ["term": [.init(id: "remote", sourceIdentity: "b", sourceCourses: [], replacementCourses: [])]]
+        var object = try #require(try JSONSerialization.jsonObject(with: ScheduleCloudStateMerge.baseline(for: base)) as? [String: Any])
+        switch fault {
+        case "records": object["customSchedules"] = [String: String]()
+        case "dictionary": object["lexueDDLCompletionByID"] = [String]()
+        case "nested-records": object["manualCourseRulesByTerm"] = ["term": "corrupt"]
+        case "legacy-field": object.removeValue(forKey: "manualCourseRulesByTerm")
+        default: break
+        }
+        let data = try JSONSerialization.data(withJSONObject: fault == "root" ? [String]() : object)
+        if fault == "legacy-field" {
+            let merged = try #require(try ScheduleCloudStateMerge.merge(local: .init(cache: local), remote: .init(cache: remote), baseline: data))
+            var result = local
+            merged.apply(to: &result)
+            #expect(Set(result.manualCourseRulesByTerm["term", default: []].map(\.id)) == ["local", "remote"])
+        } else {
+            #expect(throws: CocoaError.self) {
+                try ScheduleCloudStateMerge.merge(local: .init(cache: local), remote: .init(cache: remote), baseline: data)
+            }
+        }
+    }
+
     @Test(arguments: [ScheduleCacheConflictResolution.keepLocal, .useCloud])
     func resolvingDeletionVersusEditRetainsIndependentRecords(resolution: ScheduleCacheConflictResolution) throws {
         var base = ScheduleCache()

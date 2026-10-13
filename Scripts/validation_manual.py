@@ -23,12 +23,22 @@ MANUAL_SCENARIOS = {
     'gallery-report': {'submit-and-confirm'},
     'message-read': {'first-open', 'interrupted-paging', 'local-save-failure'},
     'account-lifecycle': {'sign-in-a', 'refresh-credentials-a', 'sign-out-a', 'sign-in-b', 'restore-a'},
-    'community-variants': {'course-search', 'gallery-search-filters', 'comment-sorting', 'directed-replies', 'anonymous-poster', 'anonymous-paper', 'restore-content'},
-    'web-interactions': {'network-diagnosis', 'update-launch', 'update-manual', 'school-sms', 'school-calendar'},
+    'community-variants': {'course-search', 'gallery-search-filters', 'comment-sorting', 'directed-replies', 'anonymous-poster', 'anonymous-paper', 'public-poster', 'public-edit-paper', 'poster-tags-claim', 'restore-content'},
+    'web-interactions': {'network-diagnosis', 'update-launch', 'update-manual', 'school-sms', 'school-calendar',
+        'gallery-login', 'gallery-account-switch', 'gallery-sign-out'},
     'catalyst-desktop': {'window-resize', 'menu-actions', 'keyboard-navigation', 'permission-dialogs', 'minimum-system'},
     'ipad-layout': {'portrait', 'landscape', 'split-view', 'resize'},
+    'system-autofill': {'fill-credentials', 'dismiss-selection'},
+    'photos': {'select-images', 'cancel-selection', 'load-failure', 'reopen-selection'},
+    'calendar-permissions': {'authorized-write', 'denied-access', 'revoked-access'},
+    'location-permissions': {'authorized-center', 'denied-access', 'revoked-access', 'location-failure'},
+    'notifications': {'authorized-delivery', 'denied-access', 'revoked-access'},
+    'external-handoff': {'open-target', 'return-to-app', 'share-page-open-app'},
+    'widget': {'snapshot-render', 'account-switch', 'sign-out-clear'},
+    'watch': {'snapshot-receive', 'account-switch', 'sign-out-clear', 'disconnect-reconnect'},
 }
 MANUAL_DEVICE_CHECKS.update(MANUAL_SCENARIOS)
+APPLICATION_SCENARIOS = set(MANUAL_SCENARIOS)
 BASELINE_CHECKS = {'iOS': {'cold-start-session', 'offline-persistence', 'media-and-navigation'},
     'watchOS': {'snapshot-receive', 'timeline-render', 'clear-and-retry'}}
 PERFORMANCE_WORKLOADS = performance_workloads()
@@ -48,28 +58,44 @@ def capture(operation: str, result: str, evidence: Path, check: str, outcome: st
     if check == 'performance-baseline' and outcome == 'passed':
         from validation_performance import validate_capture
         validate_capture(json.loads(data))
+    try:
+        text = data.decode('utf-8')
+        json.loads(text)
+        payload = {'dataUTF8': text}
+    except (UnicodeDecodeError, ValueError): payload = {'dataBase64': base64.b64encode(data).decode('ascii')}
     return {"check": check, "operation": operation.strip(), "result": result.strip(), "outcome": outcome, "capturedAt": observed_at, "registeredAt": utc_now().isoformat(),
-        "evidence": {"path": str(evidence.resolve()), "sha256": hashlib.sha256(data).hexdigest(), "byteCount": len(data), "dataBase64": base64.b64encode(data).decode("ascii")}}
+        "evidence": {"path": str(evidence.resolve()), "sha256": hashlib.sha256(data).hexdigest(), "byteCount": len(data), **payload}}
 
 
 def failed_evidence_complete(data: bytes) -> bool:
     if not data or len(data) > MAXIMUM_ATTACHMENT_BYTES: return False
-    if evidence_content_complete('photos', data): return True
+    if media_content_complete(data): return True
     try:
         value = json.loads(data)
         return isinstance(value, dict) and bool(value)
     except (ValueError, TypeError): return False
 
 
-def artifact_complete(artifact: dict, check: str, *, observed_at: str | None = None) -> bool:
+def artifact_bytes(artifact: dict) -> bytes:
+    if type(artifact.get('byteCount')) is not int or not 0 < artifact['byteCount'] <= MAXIMUM_ATTACHMENT_BYTES:
+        raise ValueError('验收附件需要符合字节预算。')
+    fields = {'dataUTF8', 'dataBase64'} & artifact.keys()
+    if len(fields) != 1: raise ValueError('验收附件需要唯一的数据编码。')
+    field = fields.pop()
+    limit = MAXIMUM_ATTACHMENT_BYTES if field == 'dataUTF8' else 4 * ((MAXIMUM_ATTACHMENT_BYTES + 2) // 3)
+    if not isinstance(artifact[field], str) or len(artifact[field]) > limit:
+        raise ValueError('验收附件编码需要符合字节预算。')
+    data = artifact[field].encode('utf-8') if field == 'dataUTF8' else base64.b64decode(artifact[field], validate=True)
+    if len(data) != artifact['byteCount'] or hashlib.sha256(data).hexdigest() != artifact['sha256']:
+        raise ValueError('验收附件需要匹配原始字节与摘要。')
+    return data
+
+
+def artifact_complete(artifact: dict, check: str, *, observed_at: str | None = None, media_only: bool = False) -> bool:
     try:
-        if type(artifact.get('byteCount')) is not int or not 0 < artifact['byteCount'] <= MAXIMUM_ATTACHMENT_BYTES \
-                or not isinstance(artifact.get('dataBase64'), str) \
-                or len(artifact['dataBase64']) > 4 * ((MAXIMUM_ATTACHMENT_BYTES + 2) // 3): return False
-        data = base64.b64decode(artifact["dataBase64"], validate=True)
-        return evidence_content_complete(check, data, observed_at=observed_at) and type(artifact["byteCount"]) is int and len(data) == artifact["byteCount"] \
-            and hashlib.sha256(data).hexdigest() == artifact["sha256"] \
-            and isinstance(artifact["path"], str) and bool(artifact["path"].strip())
+        data = artifact_bytes(artifact)
+        content_valid = media_content_complete(data) if media_only else evidence_content_complete(check, data, observed_at=observed_at)
+        return content_valid and isinstance(artifact["path"], str) and bool(artifact["path"].strip())
     except (KeyError, TypeError, ValueError):
         return False
 
@@ -127,7 +153,7 @@ def evidence_content_complete(check: str, data: bytes, *, observed_at: str | Non
             normalized = {key.casefold(): value.strip() for key, value in headers.items()}
             if len(normalized) != len(headers): return False
             configuration = json.loads((Path(__file__).resolve().parents[1] / 'Cloudflare/ErrorReportWorker/wrangler.jsonc').read_text())
-            recipient = next(binding['destination_address'] for binding in configuration['send_email'] if binding['name'] == 'REPORT_EMAIL')
+            recipient = configuration['vars']['REPORT_EMAIL_RECIPIENT']
             received = stored['receivedAt']
             received_time = datetime.fromisoformat(received.replace('Z', '+00:00'))
             email_time = parsedate_to_datetime(normalized['date'])
@@ -150,6 +176,11 @@ def evidence_content_complete(check: str, data: bytes, *, observed_at: str | Non
                 and normalized['message-id'] == proof['emailMessageID'] and normalized['x-bit101-report-id'] == report \
                 and '报告编号：' + report in proof['emailBody'] and '接收时间：' + received in proof['emailBody']
         except (ValueError, TypeError, KeyError, AttributeError, OSError, StopIteration): return False
+    return False
+
+
+def media_content_complete(data: bytes) -> bool:
+    if not data or len(data) > MAXIMUM_ATTACHMENT_BYTES: return False
     recognized = png_complete(data) or data.startswith(b'\xff\xd8\xff') and data.endswith(b'\xff\xd9') \
         or data.startswith(b'%PDF-') and data.rstrip().endswith(b'%%EOF') \
         or len(data) >= 16 and data[4:8] == b'ftyp' and b'moov' in data
@@ -168,13 +199,14 @@ def capability_observations_complete(check: str, scenario: str, observations) ->
 def scenario_complete(check: str, proof: dict) -> bool:
     if not isinstance(proof, dict) or proof.get('schemaVersion') != 1 \
             or not isinstance(proof.get('scenarios'), dict) or set(proof['scenarios']) != MANUAL_SCENARIOS[check]: return False
-    if check == 'catalyst-desktop' and not application_identity_complete(proof, 'macCatalyst'): return False
-    if check == 'ipad-layout' and (proof.get('deviceFamily') != 'iPad' or not application_identity_complete(proof, 'iOS')): return False
+    platform = 'macCatalyst' if check == 'catalyst-desktop' else 'watchOS' if check == 'watch' else 'iOS'
+    if check in APPLICATION_SCENARIOS and not application_identity_complete(proof, platform): return False
+    if check == 'ipad-layout' and proof.get('deviceFamily') != 'iPad': return False
     for name, row in proof['scenarios'].items():
         if not isinstance(row, dict) or row.get('outcome') != 'passed' \
                 or not all(isinstance(row.get(key), str) and row[key].strip() for key in ('operation', 'result', 'capturedAt')) \
                 or not sampling_evidence_current({'startedAt': row['capturedAt'], 'finishedAt': row['capturedAt']}) \
-                or not isinstance(row.get('evidence'), dict) or not artifact_complete(row['evidence'], 'photos') \
+                or not isinstance(row.get('evidence'), dict) or not artifact_complete(row['evidence'], 'photos', media_only=True) \
                 or not capability_observations_complete(check, name, row.get('capabilities')): return False
         if check == 'performance-baseline' and not performance_comparison_complete(name, row.get('measurement')): return False
         if check == 'catalyst-desktop':
@@ -201,7 +233,7 @@ def application_identity_complete(proof: dict, platform: str) -> bool:
     from validation_provenance import source_digest
     from validate_distribution import distribution_contracts, minimum_os_version, valid_executable_uuids
     application = proof.get('application')
-    minimum = minimum_os_version(compilation_settings('macOS' if platform == 'macCatalyst' else 'iOS')[1])
+    minimum = minimum_os_version(compilation_settings('macOS' if platform == 'macCatalyst' else platform)[1])
     version = minimum_os_version(proof.get('systemVersion'))
     if proof.get('platform') != platform or not all(isinstance(proof.get(key), str) and proof[key].strip()
             for key in ('deviceIdentifier', 'deviceModel', 'systemBuild')) or version is None \
@@ -209,12 +241,13 @@ def application_identity_complete(proof: dict, platform: str) -> bool:
             or not isinstance(application, dict): return False
     contracts = distribution_contracts()
     contract = contracts.get(application.get('identifier'))
-    return bool(contract) and not contract['extension'] and contract['platform'] == 'iOS' \
+    return bool(contract) and not contract['extension'] and contract['platform'] == ('watchOS' if platform == 'watchOS' else 'iOS') \
         and application.get('version') == contract['version'] and application.get('build') == contract['build'] \
         and application.get('configuration') == 'Release' and application.get('testHostMarkers') == [] \
         and minimum_os_version(application.get('minimumOSVersion')) == minimum \
         and bool(re.fullmatch(r'[0-9a-f]{64}', application.get('sha256', ''))) \
         and valid_executable_uuids(application.get('executableUUIDs')) \
+        and (platform == 'macCatalyst' or application.get('distributionChannel') in {'testflight', 'app-store'}) \
         and proof.get('inputDigest') == source_digest('manual-device', environment={})
 
 
@@ -235,7 +268,7 @@ def baseline_complete(proof: dict) -> bool:
                 or not isinstance(row.get('checks'), dict) or set(row['checks']) != required \
                 or not all(isinstance(check, dict) and check.get("outcome") == "passed" and all(isinstance(check.get(key), str) and check[key].strip()
                     for key in ('operation', 'result')) for check in row['checks'].values()) \
-                or not isinstance(row.get('evidence'), dict) or not artifact_complete(row['evidence'], 'photos'): return False
+                or not isinstance(row.get('evidence'), dict) or not artifact_complete(row['evidence'], 'photos', media_only=True): return False
         bundles = row.get('installedBundles')
         expected = {identifier for identifier, value in contracts.items() if value['platform'] == platform}
         if not isinstance(bundles, list) or len(bundles) != len(expected) \
@@ -246,26 +279,53 @@ def baseline_complete(proof: dict) -> bool:
             if bundle.get('version') != contract['version'] or bundle.get('build') != contract['build'] \
                     or not isinstance(bundle.get('sha256'), str) or not re.fullmatch(r'[0-9a-f]{64}', bundle['sha256']) \
                     or not valid_executable_uuids(bundle.get('executableUUIDs')): return False
+            if bundle.get('distributionChannel') not in {'testflight', 'app-store'}: return False
     return True
 
 
 def complete(checks: dict) -> bool:
     if not isinstance(checks, dict): return False
-    encoded = [row.get('evidence', {}).get('dataBase64', '') for row in checks.values()
-        if isinstance(row, dict) and isinstance(row.get('evidence'), dict)]
-    if any(not isinstance(value, str) for value in encoded) or sum(map(len, encoded)) > MAXIMUM_REPORT_BYTES: return False
+    try:
+        encoded_bytes = 0
+        for part in json.JSONEncoder(indent=2).iterencode(checks):
+            encoded_bytes += len(part)
+            if encoded_bytes > MAXIMUM_REPORT_BYTES: return False
+    except (TypeError, ValueError): return False
     valid = set(checks) == MANUAL_DEVICE_CHECKS and all(
         isinstance(row, dict) and row.get('check') == check and row.get('outcome') == 'passed'
         and all(isinstance(row.get(field), str) and row[field].strip() for field in ("operation", "result", "capturedAt"))
         and isinstance(row.get("evidence"), dict) and artifact_complete(row["evidence"], check, observed_at=row['capturedAt'])
         and sampling_evidence_current({"startedAt": row["capturedAt"], "finishedAt": row["capturedAt"]}) for check, row in checks.items())
-    return valid and baseline_matches_distribution(checks['minimum-platforms'], checks['distribution-signing'])
+    return valid and baseline_matches_distribution(checks['minimum-platforms'], checks['distribution-signing']) \
+        and scenarios_match_distribution(checks, checks['distribution-signing'])
+
+
+def installed_bundle_matches_distribution(installed: dict, exported: dict | None) -> bool:
+    from validate_distribution import valid_executable_uuids
+    return isinstance(exported, dict) and all(installed.get(key) == exported.get(key)
+        for key in ('identifier', 'version', 'build')) \
+        and installed.get('distributionChannel') in {'testflight', 'app-store'} \
+        and isinstance(installed.get('sha256'), str) and bool(re.fullmatch(r'[0-9a-f]{64}', installed['sha256'])) \
+        and valid_executable_uuids(installed.get('executableUUIDs')) \
+        and all(item in exported.get('executableUUIDs', []) for item in installed['executableUUIDs'])
+
+
+def scenarios_match_distribution(checks: dict, distribution_observation: dict) -> bool:
+    try:
+        distribution = json.loads(artifact_bytes(distribution_observation['evidence']))
+        expected = {row['identifier']: row for row in distribution['bundles']}
+        for check in APPLICATION_SCENARIOS - {'catalyst-desktop'}:
+            proof = json.loads(artifact_bytes(checks[check]['evidence']))
+            application = proof['application']
+            if not installed_bundle_matches_distribution(application, expected.get(application['identifier'])): return False
+        return True
+    except (KeyError, ValueError, TypeError, AttributeError): return False
 
 
 def distribution_matches_archive(observation: dict, archive: dict) -> bool:
     try:
         if not artifact_complete(observation.get('evidence', {}), 'distribution-signing'): return False
-        proof = json.loads(base64.b64decode(observation['evidence']['dataBase64'], validate=True))
+        proof = json.loads(artifact_bytes(observation['evidence']))
         summary = archive['summary']
         provenance = summary['archiveProvenance']
         expected = {'inputDigest': archive['inputDigest'], 'runID': archive['runID']}
@@ -279,15 +339,26 @@ def distribution_matches_archive(observation: dict, archive: dict) -> bool:
     except (KeyError, ValueError, TypeError, AttributeError): return False
 
 
+def catalyst_matches_runtime(observation: dict, runtime: dict) -> bool:
+    try:
+        if not artifact_complete(observation.get('evidence', {}), 'catalyst-desktop') \
+                or runtime.get('exitCode') != 0 or runtime.get('scope') != 'full' \
+                or runtime.get('summary', {}).get('passed') is not True: return False
+        proof = json.loads(artifact_bytes(observation['evidence']))
+        fields = ('identifier', 'version', 'build', 'sha256', 'executableUUIDs')
+        return {key: proof['application'][key] for key in fields} == {key: runtime['application'][key] for key in fields}
+    except (KeyError, ValueError, TypeError, AttributeError): return False
+
+
 def baseline_matches_distribution(observation: dict, distribution_observation: dict) -> bool:
     try:
         if not artifact_complete(observation.get('evidence', {}), 'minimum-platforms') \
                 or not artifact_complete(distribution_observation.get('evidence', {}), 'distribution-signing'): return False
-        proof = json.loads(base64.b64decode(observation['evidence']['dataBase64'], validate=True))
-        distribution = json.loads(base64.b64decode(distribution_observation['evidence']['dataBase64'], validate=True))
-        fields = ('identifier', 'version', 'build', 'sha256', 'executableUUIDs')
-        expected = {row['identifier']: {key: row[key] for key in fields} for row in distribution['bundles']}
-        installed = {row['identifier']: {key: row[key] for key in fields}
+        proof = json.loads(artifact_bytes(observation['evidence']))
+        distribution = json.loads(artifact_bytes(distribution_observation['evidence']))
+        expected = {row['identifier']: row for row in distribution['bundles']}
+        installed = {row['identifier']: row
             for platform in proof['platforms'].values() for row in platform['installedBundles']}
-        return installed == expected
+        return installed.keys() == expected.keys() and all(installed_bundle_matches_distribution(row, expected.get(identifier))
+            for identifier, row in installed.items())
     except (KeyError, ValueError, TypeError, AttributeError): return False

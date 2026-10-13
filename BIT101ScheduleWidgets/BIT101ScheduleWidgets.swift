@@ -31,7 +31,7 @@ struct CourseReminderLiveActivityWidget: Widget {
         ActivityConfiguration(for: CourseReminderActivityAttributes.self) { context in
             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
                 HStack(alignment: .firstTextBaseline, spacing: AppDesignSystem.Spacing.regular) {
-                    Text(context.state.kindText)
+                    Text(context.isStale ? "已开始" : context.state.kindText)
                         .font(AppDesignSystem.Typography.caption)
                         .foregroundStyle(AppDesignSystem.Foreground.secondary)
 
@@ -53,6 +53,7 @@ struct CourseReminderLiveActivityWidget: Widget {
 
                 LiveActivityTimerText(
                     targetDate: context.state.countdownTargetDate,
+                    isStale: context.isStale,
                     style: .large
                 )
             }
@@ -64,7 +65,7 @@ struct CourseReminderLiveActivityWidget: Widget {
             DynamicIsland {
                 // 展开态左侧展示提醒类型。
                 DynamicIslandExpandedRegion(.leading) {
-                    Text(context.state.kindText)
+                    Text(context.isStale ? "已开始" : context.state.kindText)
                         .font(AppDesignSystem.Typography.caption)
                         .lineLimit(1)
                         .padding(.leading, AppDesignSystem.Spacing.regular)
@@ -73,6 +74,7 @@ struct CourseReminderLiveActivityWidget: Widget {
                 DynamicIslandExpandedRegion(.trailing) {
                     LiveActivityTimerText(
                         targetDate: context.state.countdownTargetDate,
+                        isStale: context.isStale,
                         style: .expanded
                     )
                     .padding(.trailing, AppDesignSystem.Spacing.regular)
@@ -91,17 +93,18 @@ struct CourseReminderLiveActivityWidget: Widget {
                 }
             } compactLeading: {
                 // 紧凑态左侧展示提醒类型。
-                Text(context.state.kindText)
+                Text(context.isStale ? "已开始" : context.state.kindText)
                     .font(AppDesignSystem.Typography.caption)
                     .lineLimit(1)
             } compactTrailing: {
                 // 紧凑态右侧展示倒计时。
                 LiveActivityTimerText(
                     targetDate: context.state.countdownTargetDate,
+                    isStale: context.isStale,
                     style: .compact
                 )
             } minimal: {
-                Image(systemName: "calendar.badge.clock")
+                Image(systemName: context.isStale ? "checkmark.circle" : "calendar.badge.clock")
             }
             .widgetURL(URL(string: "bit101://schedule/courses"))
         }
@@ -136,6 +139,7 @@ private struct LiveActivityTimerText: View {
     }
 
     let targetDate: Date
+    let isStale: Bool
     let style: Style
 
     var body: some View {
@@ -159,10 +163,14 @@ private struct LiveActivityTimerText: View {
         }
     }
 
-    /// 使用原生倒计时文本；目标时刻到达后由 activity 调度层结束提醒。
+    /// 原生倒计时在目标时刻归零，系统过期状态显示开始标记。
     @ViewBuilder
     private var timerText: some View {
-        Text(targetDate, style: .timer)
+        if isStale {
+            Text("已开始")
+        } else {
+            Text(timerInterval: min(Date(), targetDate)...targetDate, countsDown: true)
+        }
     }
 }
 

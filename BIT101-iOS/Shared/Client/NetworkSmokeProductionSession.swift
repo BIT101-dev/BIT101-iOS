@@ -40,7 +40,7 @@ enum NetworkSmokeProductionSession {
             httpClient: HTTPClient(transport: NetworkSessionPool.productionSchoolCAS),
             noRedirectHTTPClient: HTTPClient(transport: NetworkSessionPool.productionSchoolCASManualRedirects))
         return ScheduleService(credentials: AppAccountSession.storage, crypto: AppScheduleServiceCrypto(),
-            schoolSessionRestorer: AppScheduleSchoolSessionRestorer { try await LoginService(apiClient: api).restoreSchoolSessionIfNeeded() },
+            schoolSessionRestorer: AppScheduleSchoolSessionRestorer { try await LoginService(storage: AppAccountSession.storage, apiClient: api).restoreSchoolSessionIfNeeded() },
             teachingCenterState: state, rawCourseResponseHandler: nil,
             transport: NetworkSessionPool.productionTeachingCenter, observer: HTTPClient.appObserver)
     }

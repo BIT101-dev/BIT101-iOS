@@ -5,17 +5,59 @@ import re
 import subprocess
 import shlex
 from audit_callback_rules import audit_callback_findings
+from validation_policy import workflow_timeout_seconds
 
 CI_RUNNER = "${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'xcode-27' || fromJSON('[\"self-hosted\",\"macOS\",\"bit101-xcode-27\",\"bit101-ci\"]') }}"
+CI_CANCELLATION = "${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}"
 DIAGNOSTIC_PATHS = {
     'static-audit': {'.build/static-audit/*.log', '.build/code-quality-report.txt', '.build/ui-consistency-report.txt',
-        '.build/explanatory-text-report.txt', '.build/extended-automation/modules.log'},
+        '.build/explanatory-text-report.txt', '.build/extended-automation/modules.log',
+        '.build/extended-automation/module-events.jsonl', '.build/extended-automation/test-metrics.txt'},
     'release-build': {'.build/extended-automation/build-release.log', '.build/extended-automation/build-ui.log',
-        '.build/extended-automation/build-network-smoke.log', '.build/extended-automation/build-icloud-smoke.log', 'build/DeviceInstall/build.log'},
+        '.build/extended-automation/build-network-smoke.log', '.build/extended-automation/build-icloud-smoke.log',
+        '.build/extended-automation/diagnostics/test-results.xcresult', 'build/DeviceInstall/build.log'},
     'catalyst-tests': {'.build/extended-automation/catalyst.log', '.build/extended-automation/catalyst-release-runtime.log',
         '.build/extended-automation/test-metrics.txt', '.build/extended-automation/test-failures.txt',
         '.build/extended-automation/test-results.xcresult'},
 }
+
+
+def hook_documents_checked(source: str) -> bool:
+    for line in source.splitlines():
+        words = shlex.split(line, comments=True)
+        if words[:1] == ['exec']: words = words[1:]
+        if words[:2] == ['python3', 'Scripts/check-docs.py'] and {'--all', '--staged'} <= set(words[2:]): return True
+    return False
+
+
+def active_script_markers(source: str) -> str:
+    lines = []
+    for line in source.splitlines():
+        try: lines.append(' '.join(shlex.split(line, comments=True, posix=False)))
+        except ValueError: lines.append(line if not line.lstrip().startswith('#') else '')
+    return '\n'.join(lines)
+
+
+def command_matches(actual: str, expected: str) -> bool:
+    try:
+        return shlex.split(actual, comments=True) == shlex.split(expected, comments=True)
+    except ValueError:
+        return False
+
+
+def runner_expression(value):
+    if isinstance(value, list):
+        return ('labels', tuple(sorted(value))) if all(isinstance(label, str) for label in value) else None
+    if not isinstance(value, str): return None
+    tokens = re.findall(r"'(?:[^']|'')*'|\"(?:[^\"\\]|\\.)*\"|==|!=|&&|\|\||\$\{\{|\}\}|[A-Za-z_]\w*|[^\s]", value)
+    for position, token in enumerate(tokens):
+        if token.startswith("'[") and token.endswith("]'"):
+            try: labels = json.loads(token[1:-1])
+            except ValueError: return None
+            normalized = runner_expression(labels)
+            if normalized is None: return None
+            tokens[position] = normalized
+    return tuple(tokens)
 
 
 def ci_wiring_findings(workflow_source: str) -> list[str]:
@@ -34,6 +76,10 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
 
     def mapping(value):
         return value if isinstance(value, dict) else {}
+
+    cancellation = mapping(workflow.get('concurrency')).get('cancel-in-progress')
+    if cancellation is not False and runner_expression(cancellation) != runner_expression(CI_CANCELLATION):
+        errors.append('.github/workflows/ci.yml: 真机与受信宿主工作流需要保留完整恢复时间，自动取消归属 fork 托管任务')
 
     def shell(step):
         value = mapping(step).get('run', '')
@@ -56,7 +102,11 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
         errors.append('.github/workflows/ci.yml: push 需要覆盖 main 分支更新')
     jobs = mapping(workflow.get("jobs"))
     for name, job in jobs.items():
-        if name != 'physical-device' and mapping(job).get('runs-on') != CI_RUNNER:
+        for step in mapping(job).get('steps', []):
+            action = str(mapping(step).get('uses', ''))
+            if action and not action.startswith(('./', 'docker://')) and not re.fullmatch(r'[^@]+@[0-9a-f]{40}', action):
+                errors.append(f'.github/workflows/ci.yml: {name} 的外部 Action 需要固定完整提交 SHA')
+        if name != 'physical-device' and runner_expression(mapping(job).get('runs-on')) != runner_expression(CI_RUNNER):
             errors.append(f'.github/workflows/ci.yml: {name} 的隔离运行器需要将 fork 放到 GitHub 托管镜像，受信来源放到 bit101-ci')
         checkouts = [step for step in mapping(job).get('steps', []) if isinstance(step, dict)
             and str(step.get('uses', '')).startswith('actions/checkout@')]
@@ -92,7 +142,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
                 errors.append('.github/workflows/ci.yml: 执行步骤需要 shell 文本')
                 continue
             step = dict(step, **{"working-directory": step.get("working-directory", directory)})
-            expected_directory = "Cloudflare/EmergencyUpdateWorker" if step["run"].strip() == "npm ci" else "."
+            expected_directory = "Cloudflare/EmergencyUpdateWorker" if command_matches(step["run"], "npm ci") else "."
             if step["working-directory"] != expected_directory:
                 errors.append(".github/workflows/ci.yml: 执行步骤需要沿所属仓库目录运行")
                 continue
@@ -114,17 +164,22 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
         if "if" in job or job.get("continue-on-error", False) is not False:
             errors.append(f".github/workflows/ci.yml: {name} 需要默认执行并传播失败")
         commands[name] = run_commands(job)
-        if not any(command == "python3 Scripts/validation_evidence.py summary --recorded-environment"
+        if not any(command_matches(command, "Scripts/build-install-device.sh toolchain") for command, _ in commands[name]):
+            errors.append(f".github/workflows/ci.yml: {name} 的工具链版本核对需要共用构建脚本入口")
+        if not any(command_matches(command, "python3 Scripts/validation_evidence.py summary --recorded-environment")
                 for command, _ in run_commands(job, include_always=True)):
             errors.append(f".github/workflows/ci.yml: {name} 的证据汇总需要采用记录环境")
         if name != "static-audit" and job.get("needs") not in ("static-audit", ["static-audit"]):
             label = "Release 编译 Job 必须依赖静态审计" if name == "release-build" else "Mac Catalyst 行为 Job 需要依赖静态审计"
             errors.append(f".github/workflows/ci.yml: {label}")
     static_commands = commands.get("static-audit", [])
-    audit_index = next((index for index, (command, _) in enumerate(static_commands) if command == "Scripts/run-static-audit.sh"), -1)
+    audit_index = next((index for index, (command, _) in enumerate(static_commands) if command_matches(command, "Scripts/run-static-audit.sh")), -1)
     setup_index = next((index for index, (command, step) in enumerate(static_commands)
-                        if command == "npm ci" and step.get("working-directory") == "Cloudflare/EmergencyUpdateWorker"), -1)
+                        if command_matches(command, "npm ci") and step.get("working-directory") == "Cloudflare/EmergencyUpdateWorker"), -1)
     if audit_index < 0: errors.append(".github/workflows/ci.yml: 静态审计 Job 缺少执行入口")
+    release_expression = "${{ github.event_name == 'workflow_dispatch' && inputs.release_check }}"
+    if audit_index >= 0 and mapping(static_commands[audit_index][1].get('env')).get('BIT101_RELEASE_CHECK') != release_expression:
+        errors.append('.github/workflows/ci.yml: 手动上传预检需要 App Store 版本前进核对')
     if setup_index < 0 or audit_index < 0 or setup_index >= audit_index:
         errors.append(".github/workflows/ci.yml: Worker 锁定依赖需要在静态审计前安装并传播失败")
     required = {
@@ -143,7 +198,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
     for name, rules in required.items():
         executed = {command for command, _ in commands.get(name, [])}
         for marker, message in rules:
-            if marker not in executed: errors.append(f".github/workflows/ci.yml: {message}")
+            if not any(command_matches(command, marker) for command in executed): errors.append(f".github/workflows/ci.yml: {message}")
     if not isinstance(workflow.get("on"), dict) or "v*" not in mapping(workflow["on"].get("push")).get("tags", []):
         errors.append(".github/workflows/ci.yml: 发布版本标签需要触发验收")
     acceptance = mapping(jobs.get("release-acceptance"))
@@ -151,7 +206,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
     if acceptance.get("if") != condition or set(acceptance.get("needs", [])) != {"static-audit", "release-build", "catalyst-tests"} \
             or acceptance.get('continue-on-error', False) is not False:
         errors.append(".github/workflows/ci.yml: 发布验收需要承接完整编译和行为 Job")
-    if not any(command == "python3 Scripts/ci_evidence.py check-release" for command, _ in run_commands(acceptance)):
+    if not any(command_matches(command, "python3 Scripts/ci_evidence.py check-release") for command, _ in run_commands(acceptance)):
         errors.append(".github/workflows/ci.yml: 发布验收需要默认核对提交绑定证据")
     merge = mapping(jobs.get("merge-acceptance"))
     if merge.get("if") != "always() && github.event_name == 'pull_request'" \
@@ -159,21 +214,17 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
             or merge.get("continue-on-error", False) is not False:
         errors.append(".github/workflows/ci.yml: 合并验收需要核心真机行为与完整编译 Job")
     core_checks = [step for step in merge.get('steps', []) if isinstance(step, dict)
-        and step.get('run') == 'python3 Scripts/validation_evidence.py check-merge --recorded-environment']
+        and command_matches(str(step.get('run', '')), 'python3 Scripts/validation_evidence.py check-merge --recorded-environment')]
     scope_condition = "needs.static-audit.outputs.physical_required == 'true'"
     if len(core_checks) != 1 or core_checks[0].get('if') != scope_condition:
         errors.append(".github/workflows/ci.yml: 合并验收需要核对绑定的核心真机证据")
-    baseline_steps = [step for step in mapping(jobs.get("static-audit")).get("steps", [])
-        if isinstance(step, dict) and step.get("name") == "Load target branch coverage baseline"]
-    if len(baseline_steps) != 1 or baseline_steps[0].get("if") != "github.event_name == 'pull_request' || inputs.review_pr > 0" \
-            or baseline_steps[0].get("continue-on-error", False) is not False \
-            or 'python3 Scripts/validation_evidence.py baseline "$BIT101_BASE_COMMIT"' not in shell(baseline_steps[0]):
-        errors.append(".github/workflows/ci.yml: PR 模块测试需要目标分支提交绑定的覆盖率基准")
-    static_steps = mapping(jobs.get("static-audit")).get("steps", [])
-    baseline_index = next((index for index, step in enumerate(static_steps) if isinstance(step, dict) and step.get("name") == "Load target branch coverage baseline"), -1)
-    audit_step_index = next((index for index, step in enumerate(static_steps) if isinstance(step, dict) and step.get("run") == "Scripts/run-static-audit.sh"), -1)
-    if baseline_index < 0 or audit_step_index < 0 or baseline_index >= audit_step_index:
-        errors.append(".github/workflows/ci.yml: 基准载入需要先于当前分组记录，保留本次审计证据")
+    for name, command in (('static-audit', 'Scripts/run-static-audit.sh'),
+                          ('catalyst-tests', 'Scripts/run-extended-tests.sh verify catalyst catalyst-release-runtime')):
+        steps = mapping(jobs.get(name)).get('steps', [])
+        baseline_index = next((index for index, step in enumerate(steps) if isinstance(step, dict) and step.get('name') == 'Load target branch coverage baseline'), -1)
+        execution_index = next((index for index, step in enumerate(steps) if isinstance(step, dict) and command_matches(str(step.get('run', '')), command)), -1)
+        if not 0 <= baseline_index < execution_index:
+            errors.append(f'.github/workflows/ci.yml: {name} 基准载入需要先于当前分组记录')
     physical = mapping(jobs.get("physical-device"))
     static = mapping(jobs.get('static-audit'))
     scope_steps = [step for step in static.get('steps', []) if isinstance(step, dict) and step.get('id') == 'physical_scope']
@@ -184,12 +235,21 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
         errors.append('.github/workflows/ci.yml: 真机范围需要沿 PR 目标提交计算并绑定实际输出')
     trusted = "(github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && " + scope_condition
     if physical.get("if") != trusted or physical.get("needs") != "static-audit" \
-            or physical.get("runs-on") != ["self-hosted", "macOS", "bit101-xcode-27", "bit101-device"] \
-            or type(physical.get("timeout-minutes")) is not int or physical['timeout-minutes'] < 60 \
+            or runner_expression(physical.get("runs-on")) != runner_expression(["self-hosted", "macOS", "bit101-xcode-27", "bit101-device"]) \
+            or type(physical.get("timeout-minutes")) is not int \
+            or physical['timeout-minutes'] < workflow_timeout_seconds(('modules', 'all', 'release-runtime', 'ui')) // 60 + 10 \
             or physical.get("continue-on-error", False) is not False:
         errors.append(".github/workflows/ci.yml: 真机 Job 需要受信仓库来源、实体设备运行器与静态审计依赖")
+    for job, groups in (('static-audit', ('audit', 'modules')),
+            ('release-build', ('all', 'build-archive', 'ui', 'network', 'icloud')),
+            ('catalyst-tests', ('catalyst', 'catalyst-release-runtime'))):
+        timeout = mapping(jobs.get(job)).get('timeout-minutes')
+        if type(timeout) is not int or timeout < workflow_timeout_seconds(groups) // 60 + 10:
+            errors.append(f'.github/workflows/ci.yml: {job} Job 需要覆盖所属执行及恢复预算')
     physical_commands = {command for command, _ in run_commands(physical, include_always=True)}
-    if not {"Scripts/run-extended-tests.sh verify modules all release-runtime ui", "python3 Scripts/validation_evidence.py bind-merge", "python3 Scripts/ci_evidence.py export-core"} <= physical_commands:
+    if any(not any(command_matches(command, marker) for command in physical_commands) for marker in (
+            "Scripts/run-extended-tests.sh verify modules all release-runtime ui",
+            "python3 Scripts/validation_evidence.py bind-merge", "python3 Scripts/ci_evidence.py export-core")):
         errors.append(".github/workflows/ci.yml: 真机 Job 需要执行、恢复并绑定完整验收")
     publishers = [step for step in physical.get("steps", []) if isinstance(step, dict)
         and re.fullmatch(r"actions/upload-artifact@(?:v[1-9]\d*(?:\.\d+){0,2}|[0-9a-f]{40})", str(step.get("uses", ""))) and mapping(step.get("with")).get("name") == "validation-evidence"]
@@ -208,6 +268,8 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
                 ["Scripts/ci_evidence.py", "current", "--results", "fixture"]),
             (mapping(jobs.get("static-audit")), "Load target branch coverage baseline", "BIT101_BASE_COMMIT", "${{ github.event.pull_request.base.sha || steps.review.outputs.base_sha }}",
                 ["Scripts/ci_evidence.py", "baseline", "fixture", "Scripts/validation_evidence.py", "baseline", "fixture"]),
+            (mapping(jobs.get("catalyst-tests")), "Load target branch coverage baseline", "BIT101_BASE_COMMIT", "${{ github.event.pull_request.base.sha || steps.review.outputs.base_sha }}",
+                ["Scripts/ci_evidence.py", "baseline", "fixture", "Scripts/validation_evidence.py", "baseline", "fixture"]),
             (physical, "Load target branch coverage baseline", "BIT101_BASE_COMMIT", "${{ github.event.pull_request.base.sha || steps.review.outputs.base_sha }}",
                 ["Scripts/ci_evidence.py", "baseline", "fixture", "Scripts/validation_evidence.py", "baseline", "fixture"])):
         candidates = [step for step in job.get("steps", []) if isinstance(step, dict) and step.get("name") == step_name]
@@ -215,9 +277,10 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
                 or mapping(candidates[0].get("env")).get("GH_TOKEN") != "${{ github.token }}":
             errors.append(".github/workflows/ci.yml: 合并与覆盖率证据请求需要所属提交身份")
             continue
+        if step_name == 'Load target branch coverage baseline' and candidates[0].get('if'):
+            errors.append('.github/workflows/ci.yml: 每个执行入口需要设置所属覆盖率基准')
         step = candidates[0]
-        expected_condition = "github.event_name == 'pull_request' || inputs.review_pr > 0" if key == "BIT101_BASE_COMMIT" else None
-        if step.get("continue-on-error", False) is not False or step.get("if") != expected_condition:
+        if step.get("continue-on-error", False) is not False or step.get("if") is not None:
             errors.append(".github/workflows/ci.yml: 提交证据读取失败需要传播")
         errors.extend(evidence_execution_findings(shell(step), key, expected))
     steps = physical.get("steps", [])
@@ -242,14 +305,14 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
     bind = next((i for i, step in enumerate(steps) if isinstance(step, dict) and step.get("run") == "python3 Scripts/validation_evidence.py bind-merge"), -1)
     if not 0 <= load < verify < bind:
         errors.append(".github/workflows/ci.yml: 真机证据需要沿基准、执行和提交绑定顺序生成")
-    from ci_evidence import REVIEW_JOB_NAMES
+    from validation_policy import REVIEW_JOB_NAMES
     if {mapping(jobs.get(name)).get('name') for name in ('static-audit', 'release-build', 'catalyst-tests', 'physical-device')} != REVIEW_JOB_NAMES:
         errors.append('.github/workflows/ci.yml: 审查证据需要核对四个实际 Job 名称')
     inputs = mapping(mapping(mapping(workflow.get('on')).get('workflow_dispatch')).get('inputs'))
     if mapping(inputs.get('review_pr')).get('type') != 'number' or mapping(inputs.get('review_pr')).get('default') != 0 \
             or workflow.get('run-name') != "${{ inputs.review_pr && format('iOS CI review PR {0}', inputs.review_pr) || github.ref_name }}":
         errors.append('.github/workflows/ci.yml: fork 审查需要 PR 输入与运行身份')
-    for name in ('static-audit', 'physical-device'):
+    for name in ('static-audit', 'catalyst-tests', 'physical-device'):
         steps = mapping(jobs.get(name)).get('steps', [])
         review = [(i, step) for i, step in enumerate(steps) if isinstance(step, dict) and step.get('name') == 'Verify maintainer review commit']
         baseline = next((i for i, step in enumerate(steps) if isinstance(step, dict) and step.get('name') == 'Load target branch coverage baseline'), -1)
@@ -293,6 +356,36 @@ def evidence_execution_findings(command: str, key: str, expected: list[str]) -> 
 
 def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
     source = workflow_source
+    for selector in (CI_RUNNER.replace(' && ', '  && '),
+            CI_RUNNER.replace('["self-hosted","macOS","bit101-xcode-27","bit101-ci"]', '["bit101-ci","macOS","bit101-xcode-27","self-hosted"]')):
+        assert not ci_wiring_findings(source.replace(CI_RUNNER, selector))
+    assert runner_expression(CI_RUNNER.replace(' != ', ' ! = ')) != runner_expression(CI_RUNNER)
+    for replacement in ('xcodebuild -version', 'echo skipped'):
+        assert any('工具链版本核对' in row for row in ci_wiring_findings(
+            source.replace('Scripts/build-install-device.sh toolchain', replacement, 1)))
+    for cancellation in ('true', '[]', '{}', '0', "${{ github.event_name == 'pull_request' }}"):
+        assert any('完整恢复时间' in row for row in ci_wiring_findings(source.replace(CI_CANCELLATION, cancellation)))
+    assert not ci_wiring_findings(source.replace(CI_CANCELLATION, 'false'))
+    catalyst_start = source.index('  catalyst-tests:')
+    baseline_start = source.index('      - name: Load target branch coverage baseline', catalyst_start)
+    baseline_end = source.index('      - ', baseline_start + 8)
+    baseline = source[baseline_start:baseline_end]
+    removed = source[:baseline_start] + source[baseline_end:]
+    assert any('catalyst-tests 基准载入' in row for row in ci_wiring_findings(removed))
+    execution = removed.index('run: Scripts/run-extended-tests.sh verify catalyst catalyst-release-runtime', catalyst_start)
+    after = removed.index('\n', execution) + 1
+    assert any('catalyst-tests 基准载入' in row for row in ci_wiring_findings(removed[:after] + baseline + removed[after:]))
+    conditional = source.replace('      - name: Load target branch coverage baseline\n',
+        "      - name: Load target branch coverage baseline\n        if: github.event_name == 'pull_request'\n", 1)
+    assert any('每个执行入口' in row for row in ci_wiring_findings(conditional))
+    tag_store_check = source.replace("BIT101_RELEASE_CHECK: ${{ github.event_name == 'workflow_dispatch' && inputs.release_check }}",
+        "BIT101_RELEASE_CHECK: ${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release_check) }}", 1)
+    assert any('App Store 版本前进核对' in row for row in ci_wiring_findings(tag_store_check))
+    for action in re.findall(r'actions/(?:checkout|upload-artifact)@[0-9a-f]{40}', source):
+        for reference in ('v7', '1234567'):
+            changed = source.replace(action, action.split('@')[0] + '@' + reference, 1)
+            assert any('完整提交 SHA' in item for item in ci_wiring_findings(changed))
+    checkout = re.search(r'actions/checkout@[0-9a-f]{40}', source)[0]
     if not any('采用记录环境' in item for item in ci_wiring_findings(
             source.replace('summary --recorded-environment', 'summary', 1))):
         return ['代码质量规则边界自检失败：CI 证据汇总的执行环境口径']
@@ -324,6 +417,11 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
     findings = ["代码质量规则边界自检失败：CI 自动触发与 shell 继承门禁"
                 for changed in mutations if not ci_wiring_findings(changed)]
     for name in DIAGNOSTIC_PATHS:
+        for required_path in DIAGNOSTIC_PATHS[name]:
+            omitted = re.sub(rf'(?s)(  {name}:.*?          path: \|\n)(.*?)(?=\n  [a-z]|\Z)',
+                lambda match: match[1] + match[2].replace('            ' + required_path + '\n', ''), workflow_source, count=1)
+            if not any('诊断上传' in item for item in ci_wiring_findings(omitted)):
+                findings.append(f'代码质量规则边界自检失败：{name} 的必要诊断文件')
         compressed = re.sub(rf'(?s)(  {name}:.*?)          compression-level: 0',
             r'\1          compression-level: 9', workflow_source, count=1)
         if not any('始终保存原始文件' in item for item in ci_wiring_findings(compressed)):
@@ -346,10 +444,10 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
         if not any('保留公共缓存' in item for item in ci_wiring_findings(discarded)):
             findings.append(f'代码质量规则边界自检失败：{name} 的编译缓存保存')
     for name in ('static-audit', 'release-build', 'catalyst-tests', 'physical-device', 'release-acceptance', 'merge-acceptance'):
-        for before, after in (('      - uses: actions/checkout@v7', '      - if: false\n        uses: actions/checkout@v7'),
+        for before, after in ((f'      - uses: {checkout}', f'      - if: false\n        uses: {checkout}'),
                               ('          fetch-depth: 0', '          fetch-depth: 1'),
                               ('          clean: false', '          clean: false\n          ref: main'),
-                              ('      - uses: actions/checkout@v7', '      - continue-on-error: true\n        uses: actions/checkout@v7')):
+                              (f'      - uses: {checkout}', f'      - continue-on-error: true\n        uses: {checkout}')):
             changed = re.sub(rf'(?s)(  {name}:.*?)' + re.escape(before),
                 lambda match: match[1] + after, workflow_source, count=1)
             if not any('完整提交历史' in item for item in ci_wiring_findings(changed)):
@@ -380,6 +478,7 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
     if not any("Catalyst 行为 Job 需要聚合执行" in item for item in ci_wiring_findings(skipped_catalyst)):
         findings.append("代码质量规则边界自检失败：并行 Catalyst 行为用例执行门禁")
     for before, after in (("run: Scripts/run-extended-tests.sh verify modules all release-runtime ui", "run: true"),
+            ('timeout-minutes: 195', 'timeout-minutes: 60'), ('timeout-minutes: 105', 'timeout-minutes: 20'),
             ("name: validation-evidence\n", "name: other-evidence\n"),
             ('baseline "$BIT101_BASE_COMMIT"', 'baseline "wrong-commit"'),
             ("catalyst-tests, physical-device]", "catalyst-tests]")):
@@ -391,6 +490,25 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
             ("if: needs.static-audit.outputs.physical_required == 'true'", "if: false")):
         if not ci_wiring_findings(workflow_source.replace(before, after)):
             findings.append('代码质量规则边界自检失败：真机输入范围与核心验收分支')
+    for before, after in (('Scripts/build-install-device.sh toolchain', 'Scripts/build-install-device.sh  toolchain'),
+            ('Scripts/run-extended-tests.sh build ui', 'Scripts/run-extended-tests.sh build   ui'),
+            ('npm ci', 'npm  ci')):
+        if ci_wiring_findings(workflow_source.replace(before, after)):
+            findings.append('代码质量规则边界自检失败：CI 命令参数间距保持执行合同')
+    for replacement in ('"\'Scripts/build-install-device.sh toolchain\'"', 'Scripts/build-install-device.sh toolchain extra'):
+        if not ci_wiring_findings(workflow_source.replace('run: Scripts/build-install-device.sh toolchain', 'run: ' + replacement)):
+            findings.append('代码质量规则边界自检失败：CI 可执行文件与参数边界')
+    for job in ('static-audit', 'release-build', 'catalyst-tests'):
+        changed = re.sub(r'(?s)(  ' + job + r':.*?timeout-minutes:) \d+', r'\1 20', workflow_source, count=1)
+        if not any(job + ' Job 需要覆盖所属执行及恢复预算' in item for item in ci_wiring_findings(changed)):
+            findings.append(f'代码质量规则边界自检失败：{job} 执行预算')
+    release_minimum = workflow_timeout_seconds(('all', 'build-archive', 'ui', 'network', 'icloud')) // 60 + 10
+    for timeout, expected in ((45, True), (release_minimum - 1, True), (release_minimum, False)):
+        changed = re.sub(r'(?s)(  release-build:.*?timeout-minutes:) \d+',
+            lambda match: match[1] + ' ' + str(timeout), workflow_source, count=1)
+        actual = any('release-build Job 需要覆盖所属执行及恢复预算' in item for item in ci_wiring_findings(changed))
+        if actual != expected:
+            findings.append('代码质量规则边界自检失败：Release 多构建流程预算边界')
     return findings
 
 
@@ -443,7 +561,7 @@ def audit_wiring_findings(ROOT, scheme_inventory_findings, extension_dependency_
     if not test_script.is_file():
         errors.append("Scripts/run-extended-tests.sh: 真机测试入口不存在")
     else:
-        test_source = test_script.read_text(encoding="utf-8")
+        test_source = active_script_markers(test_script.read_text(encoding="utf-8"))
         required_test_metrics = (
             ("xccov", "真机测试未提取代码覆盖率"),
             ("test-metrics.txt", "真机测试指标未写入固定报告"),
@@ -456,6 +574,6 @@ def audit_wiring_findings(ROOT, scheme_inventory_findings, extension_dependency_
                 errors.append(f"Scripts/run-extended-tests.sh: {message}")
 
     hook_path = ROOT / ".githooks/pre-commit"
-    if not hook_path.is_file() or "Scripts/check-docs.py --all" not in hook_path.read_text(encoding="utf-8"):
+    if not hook_path.is_file() or not hook_documents_checked(hook_path.read_text(encoding="utf-8")):
         errors.append(".githooks/pre-commit: 提交前必须检查文档引用")
     return errors

@@ -155,21 +155,21 @@ private struct PaperDetailViewScene: View {
                     selectedOrder: viewModel.commentOrder,
                     likingCommentIDs: viewModel.likingCommentIDs,
                     onSelectOrder: { order in
-                        Task { await viewModel.setCommentOrder(order) }
+                        viewModel.pendingOperations.enqueue { await viewModel.setCommentOrder(order) }
                     },
                     onReply: { target in
                         composerTarget = .comment(mainComment: target.mainComment, targetComment: target.targetComment)
                     },
                     onLikeComment: { comment in
-                        Task { await viewModel.toggleCommentLike(comment) }
+                        viewModel.pendingOperations.enqueue { await viewModel.toggleCommentLike(comment) }
                     },
                     onLoadMore: { comment in
-                        Task {
+                        viewModel.pendingOperations.enqueue {
                             await viewModel.loadMoreCommentsIfNeeded(currentComment: comment)
                         }
                     },
                     onRetry: {
-                        Task {
+                        viewModel.pendingOperations.enqueue {
                             await viewModel.refreshComments()
                         }
                     }
@@ -234,14 +234,14 @@ private struct PaperDetailViewScene: View {
                 initialContent: PaperEditorContentBuilder.plainText(from: viewModel.contentBlocks)
             ) {
                 onChanged()
-                Task { await viewModel.refreshAll() }
+                viewModel.pendingOperations.enqueue { await viewModel.refreshAll() }
             }
             .environment(dependencies)
         }
         .systemImagePreview(item: $imageViewer)
         .alert("删除文章", isPresented: $isShowingDeleteConfirmation) {
             Button("删除", role: .destructive) {
-                Task {
+                viewModel.pendingOperations.enqueue {
                     if await viewModel.deletePaper() {
                         onChanged()
                         dismiss()
@@ -260,16 +260,17 @@ private struct PaperDetailViewScene: View {
         }
         .onChange(of: networkObserver.isReachable) { oldValue, newValue in
             guard newValue, !oldValue else { return }
-            Task {
+            viewModel.pendingOperations.enqueue {
                 await retryDetailIfNeeded()
             }
         }
         .onChange(of: scenePhase) { _, newValue in
             guard newValue == .active else { return }
-            Task {
+            viewModel.pendingOperations.enqueue {
                 await retryDetailIfNeeded()
             }
         }
+        .onDisappear { viewModel.pendingOperations.cancel() }
         .diagnosticAlert(item: $viewModel.alert)
     }
 
@@ -295,7 +296,7 @@ private struct PaperDetailViewScene: View {
                     systemImage: "doc.text.magnifyingglass",
                     message: message,
                     onRetry: {
-                        Task { await viewModel.refreshAll() }
+                        viewModel.pendingOperations.enqueue { await viewModel.refreshAll() }
                     }
                 )
             case .loaded:
@@ -378,7 +379,7 @@ private struct PaperDetailViewScene: View {
     }
 
     private func likePaper() {
-        Task { await viewModel.likePaper() }
+        viewModel.pendingOperations.enqueue { await viewModel.likePaper() }
     }
 }
 

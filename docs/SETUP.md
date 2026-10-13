@@ -9,7 +9,7 @@
 | Xcode 27.x | App、Widget、Watch、Mac Catalyst 编译，真机安装与调试 | [Apple 官方下载](https://developer.apple.com/download/all/?q=Xcode)；完成首次启动的许可与组件安装 |
 | Git | 克隆、拉取和提交 | Xcode 开发工具附带 |
 | Homebrew | 管理 Python 和维护工具 | [官方安装说明](https://docs.brew.sh/Installation) |
-| Python 3 | 构建锁、日志、设备选择、文档及工程检查 | `brew install python` |
+| Python 3.11 或以上 | 构建锁、日志、设备选择、文档及工程检查 | `brew install python` |
 | Node.js、npm、npx | Worker 本地依赖、静态审计中的 JavaScript 检查、反馈报告工具 | `brew install node`；仓库锁定依赖要求 Node.js 22 或以上 |
 | Wrangler、Miniflare | Cloudflare 报告访问与 Worker 本地验证 | 在 `Cloudflare/EmergencyUpdateWorker` 执行 `npm ci` |
 | GitHub CLI（`gh`） | Issues、GitHub Actions 失败记录和反馈汇总 | `brew install gh` |
@@ -51,11 +51,12 @@ python3 --version
 完整维护工具：
 
 ```sh
-brew install node gh ripgrep
+brew install node gh ripgrep ruff
 node --version
 npm --version
 gh --version
 rg --version
+ruff --version
 ```
 
 ### 3. 克隆或更新仓库

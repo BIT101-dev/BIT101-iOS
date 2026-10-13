@@ -54,7 +54,7 @@ nonisolated struct ScheduleCloudSyncEnvelope: Codable {
     // Keep the timestamp nested so legacy decoders treat this as a distinct payload format.
     let payload: Payload
 
-    static let currentSchemaVersion = 2
+    static let currentSchemaVersion = 3
 
     nonisolated struct Payload: Codable, Sendable {
         let updatedAt: Date

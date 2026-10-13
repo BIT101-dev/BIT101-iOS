@@ -3,11 +3,17 @@ import XCTest
 import Combine
 @testable import BIT101_iOS
 import UIKit
+import SwiftUI
+import DesignSystemKit
 import CommunityCore
+import CommunityTransport
+import CommunityPersistence
 @testable import MediaKit
 import ImageIO
 import UniformTypeIdentifiers
 import ScheduleContracts
+import ScheduleSharedStore
+import ScheduleDomain
 @testable import PaperFeature
 @testable import MineFeature
 @testable import GalleryFeature
@@ -44,10 +50,329 @@ private struct PerformancePaperService: PaperListServicing {
     func fetchPreviewMetadata(id: Int) async throws -> PaperPreviewMetadata { throw URLError(.unsupportedURL) }
 }
 
+@MainActor
+private final class RecoveryScanResponse: HTTPTransport {
+    var calls = 0
+    let large: Bool
+    init(large: Bool) { self.large = large }
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        let url = try XCTUnwrap(request.url)
+        let response = try XCTUnwrap(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+        if url.path == "/user/check" { return (Data(), response) }
+        calls += 1
+        let user: [String: Any] = ["id": 1, "create_time": "", "nickname": "fixture", "motto": "",
+            "avatar": ["mid": "", "url": "", "low_url": ""],
+            "identity": ["id": 1, "color": "", "text": "", "create_time": "", "update_time": ""]]
+        let values: [[String: Any]] = (1...(large ? NetworkSmokePaging.maximumSampleItems + 1 : 1)).map { offset in
+            let id = large ? offset : calls
+            if url.path == "/papers" {
+                return ["id": id, "title": "fixture", "intro": "fixture", "like_num": 0, "comment_num": 0, "update_time": ""]
+            }
+            var item: [String: Any] = ["id": id, "user": user, "anonymous": false, "create_time": "", "update_time": "",
+                "images": [], "like_num": 0, "comment_num": 0, "text": "fixture"]
+            if url.path == "/posters" {
+                item.merge(["claim": ["id": 0, "text": ""], "edit_time": "", "public": false, "tags": [], "title": "fixture"]) { _, new in new }
+            } else {
+                item.merge(["obj": "poster1", "like": false, "own": false, "rate": 0, "reply_user": user, "reply_obj": "", "sub": []]) { _, new in new }
+            }
+            return item
+        }
+        return (try JSONSerialization.data(withJSONObject: values), response)
+    }
+}
+
 nonisolated final class MaintenancePerformanceTests: XCTestCase {
 
-    @MainActor
+    func testLocalPhotoImportRejectsOversizedSourcesBeforeReading() async throws {
+        let files = PreferenceMemoryFiles(), limit = RemoteImageResourceLimits.maximumEncodedBytes
+        let url = files.temporaryDirectoryURL.appendingPathComponent("photo-source")
+        try files.writeData(Data(repeating: 0, count: limit + 1), to: url, options: [])
+        files.interceptNextRead { XCTFail("源文件超过预算时应在读取内容前结束") }
+        do {
+            _ = try await PickedImageData.readFile(at: url, using: files)
+            XCTFail("照片源文件需要进入字节预算验收")
+        } catch PickedImageData.ImportError.tooLarge {
+            XCTAssertEqual(files.regularFileSize(at: url), limit + 1)
+        }
+    }
+
+    @MainActor func testLocalPhotoImportKeepsTheUIResponsiveAndHonorsCancellation() async throws {
+        let files = PreferenceMemoryFiles(), bytes = Data("photo-source".utf8)
+        let url = files.temporaryDirectoryURL.appendingPathComponent("photo-source")
+        try files.writeData(bytes, to: url, options: [])
+        let reading = expectation(description: "photo disk read"), responsive = expectation(description: "photo UI response")
+        let release = DispatchSemaphore(value: 0)
+        defer { release.signal() }
+        files.interceptNextRead {
+            XCTAssertFalse(Thread.isMainThread)
+            reading.fulfill()
+            _ = release.wait(timeout: .now() + 10)
+        }
+        let read = Task { try await PickedImageData.readFile(at: url, using: files) }
+        await fulfillment(of: [reading], timeout: 5)
+        responsive.fulfill()
+        await fulfillment(of: [responsive], timeout: 1)
+        release.signal()
+        let loaded = try await read.value
+        XCTAssertEqual(loaded, bytes)
+        files.interceptNextRead { XCTFail("已取消的导入应在读取前结束") }
+        let cancelled = Task { try await PickedImageData.readFile(at: url, using: files) }
+        cancelled.cancel()
+        do { _ = try await cancelled.value; XCTFail("取消状态需要传递到照片文件读取") }
+        catch is CancellationError { XCTAssertTrue(cancelled.isCancelled) }
+    }
+
+    @MainActor func testProductionWriteRecoveryUsesTheSharedScanBudget() async throws {
+        for (kind, large) in [("poster", false), ("comments", false), ("poster", true), ("paper", true), ("comments", true)] {
+            let route = RecoveryScanResponse(large: large)
+            let session = CommunitySession(httpClient: HTTPClient(transport: route, observer: nil),
+                baseURL: AppURL.required("https://example.invalid"),
+                credentials: { .init(identity: .init(accountIdentifier: "fixture"), cookie: "fixture") }, refresh: { _ in })
+            let preferences = { CommunityPreferenceSnapshot(hideBots: false, hiddenUserIDs: [], hideAnonymous: false,
+                useWebView: false, hideMakeupOutliers: false) }
+            let operations = CommunityWriteSmoke.Operations.production(papers: PaperService(session: session),
+                gallery: GalleryService(session: session, preferences: preferences), mine: MineService(session: session, preferences: preferences))
+            do {
+                if kind == "comments" { _ = try await operations.comments("poster1", nil) }
+                else { _ = try await operations.find(kind == "poster" ? .poster : .paper, "fixture") }
+                XCTFail("恢复扫描达到预算时需要保留恢复记录并报告样本问题")
+            } catch NetworkSmokePaging.SamplingError.budgetExceeded {
+                XCTAssertEqual(route.calls, large ? 1 : NetworkSmokePaging.maximumSamplePages)
+            }
+        }
+    }
+
+    func testWatchSnapshotPersistenceKeepsMainActorResponsiveAndRetainsClearBoundary() async throws {
+        let files = PreferenceMemoryFiles()
+        let store = ScheduleExternalSnapshotStore(files: files, containerURL: files.temporaryDirectoryURL)
+        let persistence = WatchSnapshotPersistence(store: store)
+        let snapshot = ScheduleExternalSnapshot(revision: 1, isLoggedIn: true, studentID: "watch-owner",
+            firstDayString: "2026-01-01", timeTable: [], courses: [])
+        let data = try ScheduleExternalSnapshotCodec.encode(snapshot), receivedAt = ContinuousClock.now
+        let writing = expectation(description: "watch snapshot disk write"), responsive = expectation(description: "watch UI response")
+        let release = DispatchSemaphore(value: 0)
+        defer { release.signal() }
+        files.interceptNextWrite {
+            XCTAssertFalse(Thread.isMainThread)
+            writing.fulfill()
+            _ = release.wait(timeout: .now() + 10)
+        }
+        let receipt = Task { @MainActor in await persistence.receive(data, receivedAt: receivedAt, accountIdentifier: nil) }
+        await fulfillment(of: [writing], timeout: 5)
+        await MainActor.run { responsive.fulfill() }
+        await fulfillment(of: [responsive], timeout: 1)
+        release.signal()
+        let received = try await receipt.value.get()
+        XCTAssertTrue(received)
+        let cleared = await persistence.clear(at: .now)
+        XCTAssertTrue(cleared)
+        XCTAssertNil(store.load())
+        let delayed = await persistence.receive(data, receivedAt: receivedAt, accountIdentifier: nil)
+        XCTAssertEqual(delayed, .failure(.staleSnapshot))
+        let stale = await persistence.receive(data, receivedAt: .now, accountIdentifier: nil)
+        XCTAssertEqual(stale, .failure(.staleSnapshot))
+        let newer = try XCTUnwrap(snapshot.advancingRevision(after: 1))
+        let accepted = try await persistence.receive(ScheduleExternalSnapshotCodec.encode(newer), receivedAt: .now, accountIdentifier: nil).get()
+        XCTAssertTrue(accepted)
+    }
+
+    func testConcurrentSharedSnapshotWritesKeepTheHighestRevision() async throws {
+        let files = PreferenceMemoryFiles()
+        let store = ScheduleExternalSnapshotStore(files: files, containerURL: files.temporaryDirectoryURL)
+        for batch in 0..<8 {
+            await withTaskGroup(of: Void.self) { group in
+                for offset in 1...64 {
+                    group.addTask {
+                        let snapshot = ScheduleExternalSnapshot(revision: UInt64(batch * 64 + offset), isLoggedIn: true,
+                            studentID: "watch-owner", firstDayString: "2026-01-01", timeTable: [], courses: [])
+                        do { _ = try store.writeIfNewer(snapshot) }
+                        catch ScheduleExternalSnapshotStoreError.staleSnapshot {
+                            XCTAssertGreaterThanOrEqual(store.load()?.revision ?? 0, snapshot.revision)
+                        }
+                        catch { XCTFail(error.localizedDescription) }
+                    }
+                }
+            }
+            XCTAssertEqual(store.load()?.revision, UInt64((batch + 1) * 64))
+        }
+    }
+
+    func testSharedSnapshotExportReadKeepsMainActorResponsive() async throws {
+        let files = PreferenceMemoryFiles()
+        let store = ScheduleExternalSnapshotStore(files: files, containerURL: files.temporaryDirectoryURL)
+        let reader = ScheduleExternalSnapshotWriteQueue(store: store)
+        let reading = expectation(description: "shared snapshot disk read")
+        let responsive = expectation(description: "main actor during shared snapshot read")
+        let release = DispatchSemaphore(value: 0)
+        defer { release.signal() }
+        files.interceptNextRead {
+            XCTAssertFalse(Thread.isMainThread)
+            reading.fulfill()
+            _ = release.wait(timeout: .now() + 10)
+        }
+        let export = Task { @MainActor in
+            await ScheduleWidgetExporter.syncFromCurrentCache(loadSnapshot: { await reader.load() })
+        }
+        await fulfillment(of: [reading], timeout: 5)
+        let clear = Task { @MainActor in
+            let cleared = await ScheduleWidgetExporter.clearSharedSnapshot(
+                clearSnapshot: { snapshot, _ in (true, snapshot) }, publishSnapshot: { _ in })
+            XCTAssertTrue(cleared)
+            responsive.fulfill()
+        }
+        await fulfillment(of: [responsive], timeout: 1)
+        release.signal()
+        await clear.value
+        await export.value
+    }
+
+    func testMessageReadQueriesAcrossRenderedPages() async throws {
+        let workload = try PerformanceWorkload("message-read-queries", bundle: Bundle(for: Self.self))
+        let count = try workload.value("idsPerType", as: Int.self), passes = try workload.value("passes", as: Int.self)
+        let renderedCount = try workload.value("renderedIDsPerType", as: Int.self)
+        XCTAssertGreaterThan(count, GalleryMessageReadSnapshot.maximumHistoryIDsPerType)
+        XCTAssertEqual(renderedCount, GalleryMessageReadSnapshot.maximumHistoryIDsPerType)
+        XCTAssertEqual(try workload.value("types", as: [String].self), GalleryMessageType.allCases.map(\.rawValue))
+        XCTAssertEqual(try workload.value("cache", as: String.self), "cold-read-and-write-per-sample")
+        let domain = "BIT101Performance.message-read-queries"
+        let files = LocalAppFileService()
+        let storageRoot = files.temporaryDirectoryURL.appending(path: "BIT101Performance-message-read", directoryHint: .isDirectory)
+        try files.removeItemIfPresent(at: storageRoot)
+        defer { do { try files.removeItemIfPresent(at: storageRoot) } catch { XCTFail("性能夹具清理失败：\(error)") } }
+        _ = try await Task { @MainActor in
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: domain))
+            defaults.removePersistentDomain(forName: domain)
+            let store = GalleryMessageReadStore(files: files, storageRoot: storageRoot, defaults: defaults, session: { .init(accountIdentifier: "performance") })
+            for type in GalleryMessageType.allCases {
+                let saved = await store.replaceLatestIDs(Array(1...count), unreadCount: count, for: type)
+                XCTAssertTrue(saved)
+                let read = await store.markSeen(ids: Array(1...count / 2), for: type)
+                XCTAssertTrue(read)
+            }
+            return store
+        }.value
+        measure(metrics: [XCTClockMetric(), XCTMemoryMetric()]) {
+            let completed = expectation(description: "message row unread queries")
+            Task { @MainActor in
+                guard let defaults = UserDefaults(suiteName: domain) else { XCTFail("消息快照需要独立偏好仓库"); completed.fulfill(); return }
+                let store = GalleryMessageReadStore(files: files, storageRoot: storageRoot, defaults: defaults,
+                    session: { .init(accountIdentifier: "performance") })
+                await store.prepareSnapshot()
+                XCTAssertEqual(store.unreadCount(for: .comment), count / 2)
+                let saved = await store.setPendingUnreadAfterID(count, for: .comment)
+                XCTAssertTrue(saved)
+                var unread = 0
+                for _ in 0..<passes {
+                    for type in GalleryMessageType.allCases {
+                        for id in (count - renderedCount + 1)...count where store.isUnread(id: id, for: type) { unread += 1 }
+                    }
+                }
+                XCTAssertEqual(unread, passes * GalleryMessageType.allCases.count * renderedCount)
+                completed.fulfill()
+            }
+            wait(for: [completed], timeout: 60)
+        }
+        await MainActor.run { UserDefaults(suiteName: domain)?.removePersistentDomain(forName: domain) }
+    }
+
+    func testImageQuotaEnumerationKeepsPreviewResponsiveAndRetainsLatePins() async throws {
+        let files = PreferenceMemoryFiles(), ownership = PreviewFileOwnership(), owner = UUID()
+        let directory = files.temporaryDirectoryURL.appending(path: "quota-preview")
+        let file = directory.appending(path: "image.png")
+        try files.createDirectory(at: directory)
+        try files.writeData(Data(count: 2 * 1_024 * 1_024), to: file, options: [.atomic])
+        let scanning = expectation(description: "cache enumeration"), opened = expectation(description: "preview opened")
+        let release = DispatchSemaphore(value: 0)
+        files.beforeNextEnumeration { scanning.fulfill(); _ = release.wait(timeout: .now() + 10) }
+        let quota = ImageCacheDiskQuota(files: files, directories: [directory], cacheLimitMB: { 1 }, previewOwnership: ownership)
+        let scan = Task.detached { await quota.enforce(force: true) }
+        await fulfillment(of: [scanning], timeout: 5)
+        let preview = Task { @MainActor in
+            ownership.begin(owner)
+            XCTAssertTrue(ownership.pin(file, using: files, owner: owner))
+            opened.fulfill()
+        }
+        await fulfillment(of: [opened], timeout: 1)
+        release.signal()
+        await scan.value
+        await preview.value
+        XCTAssertTrue(files.fileExists(at: file))
+        ownership.end(owner)
+    }
+
+    func testPreviewSessionsRemainResponsiveDuringDiskOperations() async throws {
+        for writing in [false, true] {
+            let files = PreferenceMemoryFiles(), ownership = PreviewFileOwnership(), owner = UUID()
+            let directory = files.temporaryDirectoryURL.appending(path: "preview-disk-operations")
+            let file = directory.appending(path: "image.png")
+            try files.createDirectory(at: directory)
+            try files.writeData(Data("preview".utf8), to: file, options: [.atomic])
+            ownership.begin(owner)
+            XCTAssertTrue(ownership.pin(file, using: files, owner: owner))
+            let busy = expectation(description: "disk operation"), responsive = expectation(description: "preview state")
+            let release = DispatchSemaphore(value: 0)
+            defer { release.signal() }
+            if !writing { files.beforeNextEnumeration { busy.fulfill(); _ = release.wait(timeout: .now() + 10) } }
+            let operation = Task.detached {
+                if writing {
+                    do {
+                        try ownership.materializeAndPin(file, using: files, owner: owner) {
+                            busy.fulfill()
+                            _ = release.wait(timeout: .now() + 10)
+                            try files.writeData(Data("updated".utf8), to: file, options: [.atomic])
+                        }
+                        XCTFail("Closed preview completed a pending write")
+                    } catch { XCTAssertTrue(error is CancellationError) }
+                } else { XCTAssertTrue(ownership.clearDirectory(directory, using: files)) }
+            }
+            await fulfillment(of: [busy], timeout: 5)
+            let preview = Task { @MainActor in
+                let anotherOwner = UUID()
+                ownership.begin(anotherOwner)
+                let cleanup = ownership.end(owner)
+                ownership.end(anotherOwner)
+                XCTAssertFalse(ownership.contains(owner))
+                responsive.fulfill()
+                return cleanup
+            }
+            await fulfillment(of: [responsive], timeout: 1)
+            release.signal()
+            await operation.value
+            let cleanup = await preview.value
+            await cleanup.value
+            XCTAssertFalse(files.fileExists(at: file))
+        }
+    }
+
+    func testDeferredPreviewCleanupFinishesAfterExternalFileRemoval() async throws {
+        let files = LocalAppFileService(), ownership = PreviewFileOwnership()
+        let directory = files.temporaryDirectoryURL.appending(path: "preview-deferred-cleanup")
+        let file = directory.appending(path: "image.png")
+        try files.removeItemIfPresent(at: directory)
+        try files.createDirectory(at: directory)
+        defer {
+            do { try files.removeItemIfPresent(at: directory) }
+            catch { XCTFail("Preview fixture cleanup failed: \(error)") }
+        }
+        let first = UUID(), second = UUID()
+        ownership.begin(first)
+        try ownership.materializeAndPin(file, using: files, owner: first) {
+            try files.writeData(Data("original".utf8), to: file, options: [.atomic])
+        }
+        XCTAssertTrue(ownership.clearDirectory(directory, using: files))
+        try files.removeItem(at: file)
+        await ownership.end(first).value
+        ownership.begin(second)
+        let replacement = Data("replacement".utf8)
+        try ownership.materializeAndPin(file, using: files, owner: second) {
+            try files.writeData(replacement, to: file, options: [.atomic])
+        }
+        await ownership.end(second).value
+        XCTAssertEqual(try files.readData(at: file), replacement)
+    }
+
     func testImageQuotaScanAcrossDirectorySizes() async throws {
+        let workload = try PerformanceWorkload("image-quota-scan", bundle: Bundle(for: Self.self))
         let files = LocalAppFileService()
         let root = files.temporaryDirectoryURL.appending(path: "quota-directory-scan")
         if files.fileExists(at: root) { try files.removeItem(at: root) }
@@ -76,6 +401,19 @@ nonisolated final class MaintenancePerformanceTests: XCTestCase {
             let usedBytes = await quota.usedBytes()
             XCTAssertEqual(usedBytes, Int64(count * bytes.count))
             rows.append("\(count),\(samples.sorted()[1])")
+        }
+        XCTAssertEqual(previousCount, try workload.value("files", as: Int.self))
+        XCTAssertEqual(bytes.count, try workload.value("bytesPerFile", as: Int.self))
+        XCTAssertEqual(directories.count, try workload.value("directories", as: Int.self))
+        XCTAssertTrue(try workload.value("force", as: Bool.self))
+        let protected = directories[0].appending(path: "0.png")
+        measure(metrics: [XCTClockMetric(), XCTMemoryMetric()]) {
+            let completed = expectation(description: "production image quota scan")
+            Task.detached {
+                await quota.enforce(force: true, protecting: [protected])
+                completed.fulfill()
+            }
+            wait(for: [completed], timeout: 60)
         }
         let report = rows.joined(separator: "\n")
         let attachment = XCTAttachment(string: report)
@@ -152,6 +490,51 @@ nonisolated final class MaintenancePerformanceTests: XCTestCase {
     }
 
     @MainActor
+    func testLongCommentThreadPerformance() throws {
+        let workload = try PerformanceWorkload("comment-thread", bundle: Bundle(for: Self.self))
+        let threads = try workload.value("threads", as: Int.self)
+        let replies = try workload.value("repliesPerThread", as: Int.self)
+        let depth = try workload.value("depth", as: Int.self)
+        let user = CommunityUser.placeholder(id: 1, nickname: "作者")
+        func comment(_ id: Int, sub: [CommunityComment] = []) -> CommunityComment {
+            .init(id: id, obj: "poster1", images: [], user: user, anonymous: false, createTime: "", updateTime: "",
+                like: false, likeNum: 0, commentNum: 0, own: false, rate: 0, replyUser: user, replyObj: "",
+                text: "回复 \(id)", sub: sub)
+        }
+        let roots = (0..<threads).map { thread in
+            let base = (thread + 1) * (replies + depth)
+            var nested = comment(base)
+            for level in 0..<depth { nested = comment(base + replies + level, sub: [nested]) }
+            return comment(thread + 1, sub: [nested] + (1..<replies).map { comment(base + $0) })
+        }
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        defer { window.isHidden = true; window.rootViewController = nil }
+        measure(metrics: [XCTClockMetric(), XCTMemoryMetric()]) {
+            var state = CommunityCommentState()
+            state.items = roots
+            for thread in 0..<threads {
+                state.recordLike(.init(like: true, likeNum: 1), for: (thread + 1) * (replies + depth))
+                let flattened = state.items[thread].flattenedReplies
+                XCTAssertEqual(flattened.count, replies + depth)
+                XCTAssertEqual(flattened.filter(\.like).count, 1)
+            }
+            let items = state.items
+            window.rootViewController = UIHostingController(rootView: ScrollView {
+                LazyVStack {
+                    ForEach(items) { comment in
+                        AppCommentThread(comment: comment, subcomments: comment.flattenedReplies) { reply, _ in
+                            Text(reply.text)
+                        }
+                    }
+                }
+            })
+            window.makeKeyAndVisible()
+            window.layoutIfNeeded()
+        }
+    }
+
+    @MainActor
     func testConcurrentMediaPipelinePerformance() throws {
         let workload = try PerformanceWorkload("media-pipeline", bundle: Bundle(for: Self.self))
         let downloadCount = try workload.value("concurrentDownloads", as: Int.self)
@@ -192,7 +575,7 @@ nonisolated final class MaintenancePerformanceTests: XCTestCase {
                 defer { completed.fulfill() }
                 do {
                     let files = PreferenceMemoryFiles()
-                    let media = MediaEnvironment(files: files, previewStorage: MediaPreviewStorage(files: files),
+                    let media = AppMedia.makeEnvironment(files: files, previewStorage: MediaPreviewStorage(files: files),
                         defaults: AppFileDirectories.defaults, imageHTTPClient: client, avatarHTTPClient: client)
                     var displays: [MediaDisplayedImage] = []
                     for index in 0..<displayedCount {
@@ -269,7 +652,7 @@ nonisolated final class MaintenancePerformanceTests: XCTestCase {
         let session = URLSession(configuration: .ephemeral)
         defer { session.invalidateAndCancel() }
         let client = HTTPClient(transport: session, observer: nil)
-        let media = MediaEnvironment(files: AppFileDirectories.files,
+        let media = AppMedia.makeEnvironment(files: AppFileDirectories.files,
             previewStorage: MediaPreviewStorage(files: AppFileDirectories.files), defaults: AppFileDirectories.defaults,
             imageHTTPClient: client, avatarHTTPClient: client)
         let coordinator = ImageQuickLookPresenter.Coordinator(media: media)
@@ -340,6 +723,27 @@ nonisolated final class MaintenancePerformanceTests: XCTestCase {
                 completed.fulfill()
             }
             wait(for: [completed], timeout: 5)
+        }
+    }
+
+    @MainActor
+    func testSingleCourseEditingPerformance() throws {
+        let workload = try PerformanceWorkload("course-editing", bundle: Bundle(for: Self.self))
+        let count = try workload.value("courses", as: Int.self)
+        let original = try (0..<count).map { index in
+            try XCTUnwrap(ScheduleCourseEditor.adding(CourseDraft(title: "课程\(index)", weeksText: "1-20"),
+                to: [], term: "performance", id: "course-\(index)").first)
+        }
+        let selected = try workload.value("editedIndex", as: Int.self)
+        let edited = try ScheduleCourseEditor.updatingArrangement(id: original[selected].id,
+            with: CourseDraft(title: original[selected].name, weekday: 2, weeksText: "1-20"), in: original)
+        let replacement = try XCTUnwrap(edited.last)
+        measure(metrics: [XCTClockMetric(), XCTMemoryMetric()]) {
+            let rules = ScheduleCourseEditor.updatingRules(existing: [], baselineCourses: original,
+                previousCourses: original, currentCourses: edited)
+            XCTAssertEqual(rules.count, 1)
+            XCTAssertEqual(rules.first?.sourceCourses, [original[selected]])
+            XCTAssertEqual(rules.first?.replacementCourses, [replacement])
         }
     }
 

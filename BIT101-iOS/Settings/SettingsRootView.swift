@@ -2,6 +2,7 @@ import CommunityCore
 import CommunityUI
 import ScheduleFeature
 import MediaKit
+import TransportCore
 import DesignSystemKit
 //
 //  SettingsRootView.swift
@@ -60,6 +61,8 @@ struct SettingsDependencies {
     let suggestion: DeveloperSuggestionDependencies
     let media: MediaEnvironment
     let localData: AppLocalDataService
+    let updates: AppUpdatePromptCoordinator
+    let prompts: AppPromptCoordinator
     let account: SettingsAccountDependencies
     let networkDiagnosis: NetworkDiagnosisDependencies
 }
@@ -195,38 +198,67 @@ private struct SettingsRoutePage: View {
         case .suggestion:
             DeveloperSuggestionPage(dependencies: dependencies.suggestion)
         case .about:
-            AboutSettingsPage(onLogout: onLogout, localData: dependencies.localData)
+            AboutSettingsPage(onLogout: onLogout, localData: dependencies.localData,
+                updates: dependencies.updates, prompts: dependencies.prompts)
         }
     }
 }
 
-struct DeveloperSuggestionAttachment: Encodable, Equatable {
+nonisolated struct DeveloperSuggestionAttachment: Codable, Equatable, Sendable {
     let filename: String
     let contentType: String
     let data: String
 }
 
-struct DeveloperSuggestionPayload: @MainActor FeedbackSubmissionPayload {
+nonisolated struct DeveloperSuggestionPayload: FeedbackSubmissionPayload, Codable {
     var requestID = UUID()
-    let mode = "suggestion"
-    let isDevelopmentBuild = AppBuildEnvironment.isDevelopment
+    var mode = "suggestion"
+    var isDevelopmentBuild = AppBuildEnvironment.isDevelopment
     let comment: String
-    let errorTitle = "开发者建议"
-    let errorMessage = "用户主动提交的功能建议。"
+    var errorTitle = "开发者建议"
+    var errorMessage = "用户主动提交的功能建议。"
     let contact: String?
     let appVersion: String
     let build: String
     let systemVersion: String
     let deviceModel: String
     let networkStatus: String
-    let diagnostics: [NetworkDiagnosticRecord] = []
+    var diagnostics: [NetworkDiagnosticRecord] = []
     let submittedAt: Date
     let context: FeedbackDeviceContext
-    let diagnosticSummary = FeedbackDiagnosticSummary.empty
-    let attachments: [DeveloperSuggestionAttachment]
+    var diagnosticSummary = FeedbackDiagnosticSummary.empty
+    var attachments: [DeveloperSuggestionAttachment]
 
     func hasSameContent(as other: Self) -> Bool {
         comment == other.comment && contact == other.contact && attachments == other.attachments
+    }
+
+    func draftMetadata(matching draft: DeveloperSuggestionDraftSnapshot) throws -> Data? {
+        guard comment == draft.text.trimmingCharacters(in: .whitespacesAndNewlines),
+              (contact ?? "") == draft.contact.trimmingCharacters(in: .whitespacesAndNewlines),
+              attachments == Self.attachments(from: draft) else { return nil }
+        var metadata = self
+        metadata.attachments = attachments.map { .init(filename: $0.filename, contentType: $0.contentType, data: "") }
+        return try JSONEncoder().encode(metadata)
+    }
+
+    static func restored(from draft: DeveloperSuggestionDraftSnapshot) throws -> Self? {
+        guard let metadata = draft.pendingSubmissionMetadata else { return nil }
+        var payload = try JSONDecoder().decode(Self.self, from: metadata)
+        let images = attachments(from: draft)
+        guard payload.comment == draft.text.trimmingCharacters(in: .whitespacesAndNewlines),
+              (payload.contact ?? "") == draft.contact.trimmingCharacters(in: .whitespacesAndNewlines),
+              payload.attachments.count == images.count,
+              zip(payload.attachments, images).allSatisfy({
+                  $0.filename == $1.filename && $0.contentType == $1.contentType && $0.data.isEmpty
+              }) else { throw CocoaError(.fileReadCorruptFile) }
+        payload.attachments = images
+        return payload
+    }
+
+    private static func attachments(from draft: DeveloperSuggestionDraftSnapshot) -> [DeveloperSuggestionAttachment] {
+        draft.images.map { .init(filename: $0.filename, contentType: "image/jpeg",
+            data: ($0.uploadData ?? $0.previewData).base64EncodedString()) }
     }
 }
 
@@ -239,23 +271,37 @@ private enum DeveloperSuggestionConfirmation: String, Identifiable {
 }
 
 /// 此页面向开发者提交功能建议，并复用错误反馈 Worker 与邮件通知链路。
+struct DeveloperSuggestionCleanupRequired: Error {
+    let retry: ComposerDraftCleanup
+}
+
 struct DeveloperSuggestionDependencies {
     let drafts: any DeveloperSuggestionDraftStoring
     private let send: (DeveloperSuggestionPayload) async throws -> Void
+    private let captureSubmissionOwner: () -> () -> Bool
 
-    init(drafts: any DeveloperSuggestionDraftStoring, submit: @escaping (DeveloperSuggestionPayload) async throws -> Void) {
+    init(drafts: any DeveloperSuggestionDraftStoring, submit: @escaping (DeveloperSuggestionPayload) async throws -> Void,
+         captureSubmissionOwner: @escaping () -> () -> Bool = { { true } }) {
         self.drafts = drafts
         self.send = submit
+        self.captureSubmissionOwner = captureSubmissionOwner
     }
 
-    func submitAndClear(_ payload: DeveloperSuggestionPayload) async throws {
+    func submitAndClear(_ payload: DeveloperSuggestionPayload, persisting draft: DeveloperSuggestionDraftSnapshot? = nil) async throws {
+        let ownerIsCurrent = captureSubmissionOwner()
+        if let draft {
+            guard await drafts.saveSuggestion(draft) else { throw CocoaError(.fileWriteUnknown) }
+        }
+        guard ownerIsCurrent() else { throw CancellationError() }
         let cleanup = await drafts.captureSuggestionCleanup()
+        guard ownerIsCurrent() else { throw CancellationError() }
         try await send(payload)
-        await cleanup()
+        guard await cleanup() else { throw DeveloperSuggestionCleanupRequired(retry: cleanup) }
     }
 }
 
 struct DeveloperSuggestionPage: View {
+    @Environment(MediaEnvironment.self) private var media
     let dependencies: DeveloperSuggestionDependencies
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
@@ -264,12 +310,15 @@ struct DeveloperSuggestionPage: View {
     @State private var imageDrafts: [ComposerImageDraft] = []
     @State private var isLoadingImages = false
     @State private var imageTask: Task<Void, Never>?
+    @State private var imagePreparer = ComposerImagePreparer()
     @State private var isSubmitting = false
     @State private var alert: AppAlert?
     @State private var confirmation: DeveloperSuggestionConfirmation?
     @FocusState private var isContactFocused: Bool
     @State private var didCheckDraft = false
     @State private var submissionAttempt = FeedbackSubmissionAttempt<DeveloperSuggestionPayload>()
+    @State private var pendingPublishedCleanup: ComposerDraftCleanup?
+    @State private var submissionRecoveryFailed = false
 
     var body: some View {
         Form {
@@ -324,12 +373,13 @@ struct DeveloperSuggestionPage: View {
             }
         }
         .appGroupedListStyle()
+        .disabled(pendingPublishedCleanup != nil)
         .navigationTitle("向开发者提建议")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             AppComposerToolbar(
                 isSubmitting: isSubmitting,
-                submitTitle: "提交",
+                submitTitle: pendingPublishedCleanup == nil ? "提交" : "完成草稿清理",
                 submittingTitle: "提交中",
                 isSubmitDisabled: text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                 onCancel: {
@@ -366,8 +416,7 @@ struct DeveloperSuggestionPage: View {
                     }),
                     secondaryButton: .cancel(Text("不保存"), action: {
                         Task {
-                            await dependencies.drafts.removeSuggestion()
-                            dismiss()
+                            if await discardDraft() { dismiss() }
                         }
                     })
                 )
@@ -379,7 +428,7 @@ struct DeveloperSuggestionPage: View {
                         startImageTask { await loadSavedDraft() }
                     }),
                     secondaryButton: .cancel(Text("不加载"), action: {
-                        Task { await dependencies.drafts.removeSuggestion() }
+                        Task { _ = await discardDraft() }
                     })
                 )
             case .missingContact:
@@ -400,7 +449,9 @@ struct DeveloperSuggestionPage: View {
 
     private func requestSubmission() {
         guard !isSubmitting else { return }
-        if contact.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if pendingPublishedCleanup != nil {
+            Task { await submit() }
+        } else if contact.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             confirmation = .missingContact
         } else {
             Task { await submit() }
@@ -410,8 +461,19 @@ struct DeveloperSuggestionPage: View {
     @MainActor
     private func submit() async {
         guard !isSubmitting else { return }
+        if let cleanup = pendingPublishedCleanup {
+            isSubmitting = true
+            defer { isSubmitting = false }
+            if await cleanup() { pendingPublishedCleanup = nil; dismiss() }
+            else { alert = AppAlert(title: "已提交，草稿清理待完成", message: "请重试草稿清理，已提交的建议保持原样。") }
+            return
+        }
         let suggestion = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !suggestion.isEmpty else { return }
+        guard !submissionRecoveryFailed else {
+            alert = AppAlert.informational(title: "提交记录恢复需要处理", message: "草稿内容已保留，请清理草稿后重新填写建议。")
+            return
+        }
         guard !hasProcessingImages else {
             alert = AppAlert.userInput(title: "提交失败", message: "图片仍在处理中，请稍候。")
             return
@@ -450,12 +512,15 @@ struct DeveloperSuggestionPage: View {
                     }
                 )
             )
-            try await dependencies.submitAndClear(payload)
+            try await dependencies.submitAndClear(payload, persisting: draftSnapshot())
             submissionAttempt.finish(payload)
             text = ""
             contact = ""
             alert = nil
             dismiss()
+        } catch let cleanup as DeveloperSuggestionCleanupRequired {
+            pendingPublishedCleanup = cleanup.retry
+            alert = AppAlert(title: "已提交，草稿清理待完成", message: "请重试草稿清理，已提交的建议保持原样。")
         } catch {
             alert = AppAlert(title: "提交失败", message: error.localizedDescription)
         }
@@ -463,6 +528,10 @@ struct DeveloperSuggestionPage: View {
 
     private func requestDismiss() {
         guard !isSubmitting else { return }
+        if pendingPublishedCleanup != nil {
+            Task { await submit() }
+            return
+        }
         guard hasDraftContent else {
             dismiss()
             return
@@ -470,20 +539,27 @@ struct DeveloperSuggestionPage: View {
         confirmation = .saveDraft
     }
 
+    private func discardDraft() async -> Bool {
+        let removed = await dependencies.drafts.removeSuggestion()
+        if removed { submissionAttempt.restore(nil); submissionRecoveryFailed = false }
+        if !removed {
+            alert = AppAlert.informational(title: "草稿清理遇到问题", message: "当前页面内容已保留，请稍后重试清理。")
+        }
+        return removed
+    }
+
     private func saveDraft() async -> Bool {
-        await dependencies.drafts.saveSuggestion(
-            DeveloperSuggestionDraftSnapshot(
-                text: text,
-                images: imageDrafts.map {
-                    ComposerImageDraftSnapshot(
-                        filename: $0.filename,
-                        previewData: $0.previewData,
-                        uploadData: $0.uploadData
-                    )
-                },
-                contact: contact
-            )
-        )
+        guard !submissionRecoveryFailed else { return false }
+        do { return await dependencies.drafts.saveSuggestion(try draftSnapshot()) }
+        catch { return false }
+    }
+
+    private func draftSnapshot() throws -> DeveloperSuggestionDraftSnapshot {
+        let images = imageDrafts.map { ComposerImageDraftSnapshot(filename: $0.filename,
+            previewData: $0.previewData, uploadData: $0.uploadData) }
+        let draft = DeveloperSuggestionDraftSnapshot(text: text, images: images, contact: contact)
+        return DeveloperSuggestionDraftSnapshot(text: text, images: images, contact: contact,
+            pendingSubmissionMetadata: try submissionAttempt.pending?.draftMetadata(matching: draft))
     }
 
     private func checkDraftOnAppear() async {
@@ -509,6 +585,13 @@ struct DeveloperSuggestionPage: View {
 
         text = draft.text
         contact = draft.contact
+        do {
+            submissionAttempt.restore(try DeveloperSuggestionPayload.restored(from: draft))
+            submissionRecoveryFailed = false
+        } catch {
+            submissionRecoveryFailed = true
+            alert = AppAlert.informational(title: "提交记录恢复需要处理", message: "草稿内容已保留，请清理草稿后重新填写建议。")
+        }
         imageDrafts = draft.images.map {
             ComposerImageDraft(
                 previewData: $0.previewData,
@@ -537,23 +620,17 @@ struct DeveloperSuggestionPage: View {
     ) async -> [(ComposerImageDraft.ID, Data?)] {
         var results: [(ComposerImageDraft.ID, Data?)] = []
         var completedCount = 0
-        await withTaskGroup(of: (ComposerImageDraft.ID, Data?).self) { group in
-            for draft in drafts {
-                group.addTask {
-                    (draft.id, try? ComposerDraftImageCompressor.compress(draft.previewData))
-                }
-            }
-            for await result in group {
-                guard !Task.isCancelled else { group.cancelAll(); return }
-                results.append(result)
-                completedCount += 1
-                let progress = Int((Double(completedCount) / Double(drafts.count) * 100).rounded())
-                imageDrafts = imageDrafts.map { draft in
-                    guard draft.status.isCompressing else { return draft }
-                    var updated = draft
-                    updated.progress = progress
-                    return updated
-                }
+        for draft in drafts {
+            let data = try? await imagePreparer.prepare(draft.previewData)
+            guard !Task.isCancelled else { return results }
+            results.append((draft.id, data))
+            completedCount += 1
+            let progress = Int((Double(completedCount) / Double(drafts.count) * 100).rounded())
+            imageDrafts = imageDrafts.map { draft in
+                guard draft.status.isCompressing else { return draft }
+                var updated = draft
+                updated.progress = progress
+                return updated
             }
         }
         return results
@@ -573,6 +650,7 @@ struct DeveloperSuggestionPage: View {
                 return failedDraft
             }
             var preparedDraft = draft
+            preparedDraft.previewData = data
             preparedDraft.uploadData = data
             preparedDraft.status = .prepared
             return preparedDraft
@@ -608,34 +686,19 @@ struct DeveloperSuggestionPage: View {
         let selectedItems = Array(items.prefix(remaining))
         guard !selectedItems.isEmpty else { return }
 
-        var loaded: [(Int, Data)] = []
-        await withTaskGroup(of: (Int, Data?).self) { group in
-            for (index, item) in selectedItems.enumerated() {
-                group.addTask {
-                    (index, try? await item.loadTransferable(type: Data.self))
-                }
-            }
-            for await (index, data) in group {
-                if let data {
-                    loaded.append((index, data))
-                }
+        for item in selectedItems {
+            guard !Task.isCancelled, imageDrafts.count < 6 else { return }
+            do {
+                guard let source = try await media.loadBoundedImageData(from: item) else { throw SettingsServiceError.uploadFailed }
+                let data = try await imagePreparer.prepare(source)
+                guard !Task.isCancelled else { return }
+                imageDrafts.append(ComposerImageDraft(previewData: data, filename: "suggestion-\(UUID().uuidString).jpg",
+                    uploadData: data, status: .prepared))
+            } catch {
+                guard !TaskCancellation.matches(error) else { return }
+                alert = AppAlert.userInput(title: "图片添加失败", message: error.localizedDescription)
             }
         }
-        guard !Task.isCancelled else { return }
-        loaded.sort { $0.0 < $1.0 }
-
-        let drafts = loaded.prefix(max(0, 6 - imageDrafts.count)).map { _, data in
-            ComposerImageDraft(
-                previewData: data,
-                filename: "suggestion-\(UUID().uuidString).jpg",
-                status: .compressing
-            )
-        }
-        imageDrafts.append(contentsOf: drafts)
-
-        let compressed = await compressImageDrafts(drafts)
-        guard !Task.isCancelled else { return }
-        applyCompressionResults(compressed, showsFailureAlert: true)
     }
 
     private func removeImageDraft(id: ComposerImageDraft.ID) {

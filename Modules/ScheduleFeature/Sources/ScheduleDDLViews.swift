@@ -51,9 +51,9 @@ struct DDLScheduleTabView: View {
                         .frame(maxWidth: .infinity)
                     }
                 } else {
-                    Section {
-                        ForEach(viewModel.visibleDDLEvents(at: currentDate)) { event in
-                            DDLEventCard(
+                    ForEach(viewModel.visibleDDLEvents(at: currentDate)) { event in
+                        Section {
+                            DDLEventRow(
                                 event: event,
                                 remainText: viewModel.ddlRemainingText(for: event, now: currentDate),
                                 dueText: viewModel.ddlDueText(for: event),
@@ -91,8 +91,12 @@ struct DDLScheduleTabView: View {
                     isShowingEditor = true
                 },
                 onDelete: {
-                    viewModel.deleteDDL(id: event.id)
-                    selectedEvent = nil
+                    do {
+                        try viewModel.deleteDDL(id: event.id)
+                        selectedEvent = nil
+                    } catch {
+                        viewModel.notice = ScheduleNotice.userInput(title: "删除失败", message: error.localizedDescription)
+                    }
                 }
             )
         }
@@ -138,10 +142,8 @@ struct DDLScheduleTabView: View {
     }
 }
 
-/// DDL 列表卡片。
-///
-/// DDL 列表使用 `List` 承载 `AppCard`，卡片内容包含剩余时间、详情摘要和完成按钮。
-private struct DDLEventCard: View {
+/// 每条 DDL 使用独立分组卡片，沿系统背景展示剩余时间、详情摘要和完成按钮。
+private struct DDLEventRow: View {
     let event: DDLEventRecord
     let remainText: String
     let dueText: String
@@ -151,50 +153,53 @@ private struct DDLEventCard: View {
     let onOpenDetail: () -> Void
 
     var body: some View {
-        AppCard {
-            HStack(alignment: .top, spacing: AppDesignSystem.Spacing.content) {
-                VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
-                    Text(event.title)
-                        .font(AppDesignSystem.Typography.title)
-                        .strikethrough(event.done)
+        HStack(alignment: .top, spacing: AppDesignSystem.Spacing.content) {
+            VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
+                Text(event.title)
+                    .font(AppDesignSystem.Typography.title)
+                    .strikethrough(event.done)
 
-                    if !displayText.isEmpty {
-                        Text(displayText)
-                            .font(AppDesignSystem.Typography.body)
-                            .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                            .lineLimit(3)
-                    }
-
-                    Text(remainText)
+                if !displayText.isEmpty {
+                    Text(displayText)
                         .font(AppDesignSystem.Typography.body)
-                        .foregroundStyle(tint)
+                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                        .lineLimit(3)
+                        .accessibilityIdentifier("ddl.preview.\(event.id)")
+                }
 
+                Text(remainText)
+                    .font(AppDesignSystem.Typography.body)
+                    .foregroundStyle(tint)
+
+                HStack(alignment: .firstTextBaseline, spacing: AppDesignSystem.Spacing.regular) {
                     Text(dueText)
-                        .font(AppDesignSystem.Typography.caption)
-                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                        .accessibilityIdentifier("ddl.due.\(event.id)")
                     Text(event.sourceTitle)
-                        .font(AppDesignSystem.Typography.caption)
-                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                        .accessibilityIdentifier("ddl.source.\(event.id)")
                 }
-
-                Spacer(minLength: AppDesignSystem.Spacing.none)
-
-                Button(action: onToggleDone) {
-                    Image(systemName: event.done ? "checkmark.circle.fill" : "circle")
-                        .font(AppDesignSystem.Typography.title)
-                        .foregroundStyle(tint)
-                        .frame(width: AppDesignSystem.Size.Control.touchTarget, height: AppDesignSystem.Size.Control.touchTarget)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .disabled(!isEditable)
-                .appSelectionFeedback(trigger: event.done)
-                .accessibilityLabel(event.done ? "标记为未完成" : "标记为已完成")
-                .accessibilityValue(event.done ? "已完成" : "未完成")
-                .accessibilityIdentifier("ddl.done.\(event.id)")
+                .font(AppDesignSystem.Typography.body)
+                .foregroundStyle(AppDesignSystem.Foreground.secondary)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Spacer(minLength: AppDesignSystem.Spacing.none)
+
+            Button(action: onToggleDone) {
+                Image(systemName: event.done ? "checkmark.circle.fill" : "circle")
+                    .font(AppDesignSystem.Typography.title)
+                    .foregroundStyle(tint)
+                    .frame(width: AppDesignSystem.Size.Control.touchTarget, height: AppDesignSystem.Size.Control.touchTarget)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(!isEditable)
+            .appSelectionFeedback(trigger: event.done)
+            .accessibilityLabel(event.done ? "标记为未完成" : "标记为已完成")
+            .accessibilityValue(event.done ? "已完成" : "未完成")
+            .accessibilityIdentifier("ddl.done.\(event.id)")
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, AppDesignSystem.Spacing.content)
+        .appListRowInsets()
         .contentShape(Rectangle())
         .onTapGesture(perform: onOpenDetail)
         .accessibilityElement(children: .contain)
@@ -205,7 +210,10 @@ private struct DDLEventCard: View {
     }
 
     private var displayText: String {
-        event.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        event.text.split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
     }
 }
 

@@ -32,6 +32,33 @@ public nonisolated struct CourseReminderActivityAttributes: ActivityAttributes {
     }
 
     public let studentID: String
+    public static let maximumPayloadBytes = 4_096
+
+    /// ActivityKit 静态属性与动态状态共同使用编码容量。
+    public func boundedContentState(_ state: ContentState) throws -> ContentState {
+        let encoder = JSONEncoder(), attributesBytes = try encoder.encode(self).count
+        if try attributesBytes + encoder.encode(state).count <= Self.maximumPayloadBytes { return state }
+        let empty = ContentState(kindText: "", title: "", classroom: "", teacher: "", timeRangeText: "",
+            countdownTargetDate: state.countdownTargetDate)
+        let remaining = Self.maximumPayloadBytes - attributesBytes - (try encoder.encode(empty).count)
+        guard remaining >= 0 else { throw CocoaError(.fileReadTooLarge) }
+        let budget = remaining / 5
+        func fitting(_ text: String) throws -> String {
+            if try encoder.encode(text).count - 2 <= budget { return text }
+            var prefix = "", used = "…".utf8.count
+            guard used <= budget else { return "" }
+            for character in text {
+                let bytes = try encoder.encode(String(character)).count - 2
+                guard used + bytes <= budget else { break }
+                prefix.append(character)
+                used += bytes
+            }
+            return prefix + "…"
+        }
+        return try ContentState(kindText: fitting(state.kindText), title: fitting(state.title),
+            classroom: fitting(state.classroom), teacher: fitting(state.teacher),
+            timeRangeText: fitting(state.timeRangeText), countdownTargetDate: state.countdownTargetDate)
+    }
 }
 
 #endif

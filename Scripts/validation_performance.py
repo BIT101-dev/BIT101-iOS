@@ -22,8 +22,12 @@ METRICS = {'clockSeconds': ('com.apple.dt.XCTMetric_Clock.time.monotonic', 's', 
     'peakPhysicalMemoryBytes': ('com.apple.dt.XCTMetric_Memory.physical_peak', 'kB', 1000)}
 
 
+def result_bundle_complete(bundle: Path) -> bool:
+    return any((bundle / name).is_file() for name in ('database.sqlite3', 'Info.plist')) and not (bundle / 'Staging').exists()
+
+
 def bundle_digest(bundle: Path) -> str:
-    if not any((bundle / name).is_file() for name in ('database.sqlite3', 'Info.plist')) or (bundle / 'Staging').exists():
+    if not result_bundle_complete(bundle):
         raise ValueError('性能采样需要完整的 XCTest 结果包。')
     digest = hashlib.sha256()
     for path in sorted(value for value in bundle.rglob('*') if value.is_file()):
@@ -44,12 +48,13 @@ def merge_result_bundles(retained: Path, merged: Path) -> None:
     except BaseException:
         shutil.rmtree(merged, ignore_errors=True)
         raise
+    bind_pending_result_merge(merged)
     shutil.rmtree(retained)
     shutil.rmtree(BUNDLE)
     shutil.move(str(merged), str(BUNDLE))
 
 
-def recover_result_step() -> None:
+def recover_result_bundle() -> None:
     retained = BUNDLE.with_suffix('.retained.xcresult')
     merged = BUNDLE.with_suffix('.incoming.xcresult')
     if merged.exists():
@@ -58,6 +63,7 @@ def recover_result_step() -> None:
             subprocess.check_output(['xcrun', 'xcresulttool', 'get', 'test-results', 'summary', '--path', str(merged)])
         except (ValueError, OSError, subprocess.CalledProcessError): pass
         else:
+            bind_pending_result_merge(merged)
             shutil.rmtree(retained, ignore_errors=True)
             shutil.rmtree(BUNDLE, ignore_errors=True)
             shutil.move(str(merged), str(BUNDLE))
@@ -77,6 +83,37 @@ def recover_result_step() -> None:
     shutil.rmtree(merged, ignore_errors=True)
 
 
+def bind_pending_result_merge(bundle: Path) -> None:
+    from validation_provenance import REPORT, report_lock, write_report
+    with report_lock():
+        report = json.loads(REPORT.read_text()) if REPORT.is_file() else {}
+        if pending := report.get('resultMerge'):
+            pending['bundleSHA256'] = bundle_digest(bundle)
+            write_report(report)
+
+
+def complete_pending_result_merge() -> None:
+    from validation_provenance import REPORT, report_lock, write_report
+    with report_lock():
+        report = json.loads(REPORT.read_text()) if REPORT.is_file() else {}
+        pending = report.get('resultMerge')
+        if not pending: return
+        if pending.get('bundleSHA256') != bundle_digest(BUNDLE):
+            raise ValueError('结果包恢复需要待发布合并包的完整摘要。')
+        groups = pending['groups']
+        producing = pending.get('producingGroup', groups[-1])
+        if pending['currentSHA256'] and producing and (row := report.get('groups', {}).get(producing)):
+            row['runResultBundleSHA256'] = pending['currentSHA256']
+        report = rebind_result_records(report, groups)
+        report.pop('resultMerge')
+        write_report(report)
+
+
+def recover_result_step() -> None:
+    recover_result_bundle()
+    complete_pending_result_merge()
+
+
 def begin_result_step(retain_previous: bool) -> None:
     recover_result_step()
     retained = BUNDLE.with_suffix('.retained.xcresult')
@@ -86,16 +123,43 @@ def begin_result_step(retain_previous: bool) -> None:
         reset_result_bundle()
 
 
+def begin_selected_result_step() -> list[str]:
+    from validation_provenance import REPORT, source_digest, report_lock
+    recover_result_step()
+    groups = []
+    if BUNDLE.exists():
+        try: sha = bundle_digest(BUNDLE)
+        except ValueError:
+            print('中断的 XCTest 结果包已进入清理与重新采样。', file=sys.stderr)
+            begin_result_step(False)
+            return []
+        with report_lock():
+            report = json.loads(REPORT.read_text()) if REPORT.is_file() else {}
+        for name, row in report.get('groups', {}).items():
+            full = complete_group_row(row)
+            if full.get('scope') == 'full' and full.get('exitCode') == 0 and full.get('summary', {}).get('passed') is True \
+                    and sampling_evidence_current({'startedAt': full.get('recordedAt', ''), 'finishedAt': full.get('recordedAt', '')}) \
+                    and full.get('resultBundleSHA256') == sha and full.get('inputDigest') == source_digest(name) \
+                    and exchange_identity(full.get('environment')) == exchange_identity(environment_context(name)):
+                groups.append(name)
+    begin_result_step(bool(groups))
+    return groups
+
+
 def reset_result_bundle() -> None:
     if not BUNDLE.exists(): return
     from validation_provenance import REPORT, report_lock, write_report
     with report_lock():
         if REPORT.is_file():
             report = json.loads(REPORT.read_text())
-            report['groups'] = {name: row for name, row in report.get('groups', {}).items()
-                if not row.get('resultBundleSHA256') and not row.get('lastFullRun', {}).get('resultBundleSHA256')}
+            invalidated = sorted(name for name, row in report.get('groups', {}).items()
+                if row.get('resultBundleSHA256') or row.get('lastFullRun', {}).get('resultBundleSHA256'))
+            if invalidated:
+                print('覆盖原始结果包：' + '、'.join(invalidated) + ' 的验证证据将进入重新验收。', file=sys.stderr)
+            report['groups'] = {name: row for name, row in report.get('groups', {}).items() if name not in invalidated}
             report.pop('releaseCommit', None)
             report.pop('mergeCommit', None)
+            report.pop('resultMerge', None)
             write_report(report)
     shutil.rmtree(BUNDLE)
 
@@ -119,15 +183,18 @@ def rebind_result_records(report: dict, groups: list[str]) -> dict:
         row = updated.get('groups', {}).get(group)
         if not row: continue
         rows.append(row)
+        if row.get('lastFullRun'): rows.append(row['lastFullRun'])
+    for row in rows:
         row.setdefault('runResultBundleSHA256', row.get('resultBundleSHA256'))
         for record in row.get('performance', {}).get('records', {}).values():
             raw = json.loads(subprocess.check_output(['xcrun', 'xcresulttool', 'get', 'test-results', 'metrics',
                 '--path', str(BUNDLE), '--test-id', record['testIdentifier'] + '()'], text=True))
             device = record['execution']['environment']['device']['identifier']
-            if normalize_metrics(raw, record['testIdentifier'], device) != normalize_metrics(
-                    record['xcresultMetrics'], record['testIdentifier'], device):
+            expected = normalize_metrics(record['xcresultMetrics'], record['testIdentifier'], device)
+            matches = [dict(value, testRuns=[run]) for value in raw for run in value.get('testRuns', [])
+                if run.get('device', {}).get('deviceId') == device]
+            if sum(normalize_metrics([value], record['testIdentifier'], device) == expected for value in matches) != 1:
                 raise ValueError('合并结果包需要保留所属测试组的实际性能采样。')
-            record['xcresultMetrics'] = raw
     sha = bundle_digest(BUNDLE)
     for row in rows:
         for record in row.get('performance', {}).get('records', {}).values():
@@ -138,29 +205,33 @@ def rebind_result_records(report: dict, groups: list[str]) -> dict:
 
 
 def retain_result_step(groups: list[str]) -> None:
-    merge_result_step(groups)
+    merge_result_step(groups, producing_group=groups[-1])
 
 
-def merge_result_step(groups: list[str]) -> None:
+def merge_result_step(groups: list[str], *, producing_group: str | None = None) -> None:
     from validation_provenance import REPORT, report_lock, write_report
     retained = BUNDLE.with_suffix('.retained.xcresult')
     merged = BUNDLE.with_suffix('.incoming.xcresult')
     current_sha = bundle_digest(BUNDLE) if BUNDLE.exists() else None
+    if not BUNDLE.exists() and not retained.exists(): return
+    with report_lock():
+        report = json.loads(REPORT.read_text()) if REPORT.is_file() else {}
+        report['resultMerge'] = {'groups': groups, 'currentSHA256': current_sha, 'producingGroup': producing_group,
+            'bundleSHA256': current_sha or bundle_digest(retained)}
+        write_report(report)
     validated = False
     if retained.exists():
         if BUNDLE.exists():
             merge_result_bundles(retained, merged)
             validated = True
         else:
+            bind_pending_result_merge(retained)
             shutil.move(str(retained), str(BUNDLE))
     if not BUNDLE.exists(): return
     if not validated:
         subprocess.check_output(['xcrun', 'xcresulttool', 'get', 'test-results', 'summary', '--path', str(BUNDLE)])
-    with report_lock():
-        report = json.loads(REPORT.read_text()) if REPORT.is_file() else {}
-        if current_sha and (row := report.get('groups', {}).get(groups[-1])):
-            row['runResultBundleSHA256'] = current_sha
-        write_report(rebind_result_records(report, groups))
+        bind_pending_result_merge(BUNDLE)
+    complete_pending_result_merge()
 
 
 def normalize_metrics(raw: list, test: str, device: str) -> dict:
@@ -337,6 +408,15 @@ def merge_findings(report: dict, commit: str) -> list[str]:
 
 
 def main(arguments: list[str]) -> int:
+    if arguments == ['begin-selected']:
+        print('\n'.join(begin_selected_result_step()))
+        return 0
+    if len(arguments) >= 2 and arguments[0] == 'retain-selected':
+        retain_result_step([name for name in arguments[2:] if name != arguments[1]] + [arguments[1]])
+        return 0
+    if len(arguments) > 1 and arguments[0] == 'retain-evidence':
+        merge_result_step(arguments[1:])
+        return 0
     if arguments == ['reset-results']:
         reset_result_bundle()
         return 0
@@ -367,7 +447,7 @@ def main(arguments: list[str]) -> int:
         with report_lock():
             stored = json.loads(MEASUREMENTS.read_text()) if MEASUREMENTS.is_file() else {'schemaVersion': 1}
             stored[kind] = proof
-            MEASUREMENTS.write_text(json.dumps(stored, ensure_ascii=False, indent=2) + '\n')
+            write_report(stored, path=MEASUREMENTS)
             if kind == 'baseline':
                 report = json.loads(REPORT.read_text())
                 report['performanceBaseline'] = proof
@@ -417,7 +497,8 @@ def performance_comparison_complete(name: str, measurement: dict) -> bool:
             if type(limit) not in (int, float) or not math.isfinite(limit) or limit < 0 \
                     or not math.isfinite(maximum) \
                     or len(metric['samples']) != len(approved['samples']) \
-                    or metric['mean'] > maximum: return False
+                    or metric['mean'] > maximum \
+                    or max(metric['samples']) > max(approved['samples']) * (1 + limit / 100): return False
         return record_complete(current, current=True) and record_complete(baseline, current=False)
     except (KeyError, TypeError, ValueError, AttributeError, OverflowError):
         return False

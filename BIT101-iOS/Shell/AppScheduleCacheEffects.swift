@@ -100,7 +100,7 @@ enum ScheduleServiceFactory {
     ) -> ScheduleViewModel {
         let service: any ScheduleServicing
 #if BIT101_UI_TESTING
-        service = AppUITestBootstrap.environment["BIT101_UI_TEST_SCHOOL"] == "1" ? UITestSchoolService() : make()
+        service = UITestSchoolService()
 #else
         service = make()
 #endif

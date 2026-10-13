@@ -225,6 +225,14 @@ public nonisolated struct CourseHistoryGrade: Codable, Identifiable, Equatable, 
 
     public var id: String { term }
 
+    public var hasValidStatistics: Bool {
+        !term.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && [avgScore, maxScore].allSatisfy { value in
+                value.map { $0.isFinite && (0...100).contains($0) } ?? true
+            }
+            && studentNum.map { $0 >= 0 } ?? true
+    }
+
     private enum CodingKeys: String, CodingKey {
         case term
         case avgScore
@@ -407,7 +415,7 @@ enum CourseHistoryGradeLoadStatus: Equatable {
 private nonisolated extension KeyedDecodingContainer {
     func decodeFlexibleDoubleIfPresent(forKeys keys: [Key]) -> Double? {
         for key in keys {
-            if let value = try? decodeIfPresent(Double.self, forKey: key) {
+            if let value = try? decodeIfPresent(Double.self, forKey: key), value.isFinite {
                 return value
             }
             if let value = try? decodeIfPresent(Int.self, forKey: key) {
@@ -415,7 +423,7 @@ private nonisolated extension KeyedDecodingContainer {
             }
             if let value = try? decodeIfPresent(String.self, forKey: key) {
                 let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-                if let parsed = Double(trimmed) {
+                if let parsed = Double(trimmed), parsed.isFinite {
                     return parsed
                 }
             }
@@ -429,15 +437,15 @@ private nonisolated extension KeyedDecodingContainer {
                 return value
             }
             if let value = try? decodeIfPresent(Double.self, forKey: key) {
-                return Int(value)
+                if let parsed = Int(exactly: value) { return parsed }
             }
             if let value = try? decodeIfPresent(String.self, forKey: key) {
                 let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
                 if let parsed = Int(trimmed) {
                     return parsed
                 }
-                if let parsed = Double(trimmed) {
-                    return Int(parsed)
+                if let value = Double(trimmed), let parsed = Int(exactly: value) {
+                    return parsed
                 }
             }
         }

@@ -61,18 +61,21 @@ public nonisolated enum ScheduleCourseEditor {
         var updatedRules = rules
         let previousIDs = Set(previousCourses.map(\.id))
         let previousSourceIdentities = Set(previousCourses.map(scheduleCourseSourceIdentity))
+        let previousBySource = Dictionary(grouping: previousCourses, by: scheduleCourseSourceIdentity)
+        let baselineBySource = Dictionary(grouping: baselineCourses, by: scheduleCourseSourceIdentity)
+        let currentIndicesBySource = Dictionary(grouping: currentCourses.indices, by: { scheduleCourseSourceIdentity(currentCourses[$0]) })
+        let currentIndicesByID = Dictionary(grouping: currentCourses.indices, by: { currentCourses[$0].id })
+        let currentIndicesByNumber = Dictionary(grouping: currentCourses.indices, by: { currentCourses[$0].number })
+        let previousNumbers = Set(previousCourses.map(\.number).filter { !$0.isEmpty })
 
-        for sourceIdentity in previousSourceIdentities {
-            let previous = previousCourses.filter {
-                scheduleCourseSourceIdentity($0) == sourceIdentity
-            }
+        for sourceIdentity in previousSourceIdentities.sorted() {
+            let previous = previousBySource[sourceIdentity] ?? []
             let previousIDsForSource = Set(previous.map(\.id))
             let sourceNumbers = Set(previous.map(\.number).filter { !$0.isEmpty })
-            let current = currentCourses.filter { course in
-                previousIDsForSource.contains(course.id)
-                    || scheduleCourseSourceIdentity(course) == sourceIdentity
-                    || (!sourceNumbers.isEmpty && sourceNumbers.contains(course.number))
-            }
+            var currentIndices = Set(currentIndicesBySource[sourceIdentity] ?? [])
+            for id in previousIDsForSource { currentIndices.formUnion(currentIndicesByID[id] ?? []) }
+            for number in sourceNumbers { currentIndices.formUnion(currentIndicesByNumber[number] ?? []) }
+            let current = currentIndices.sorted().map { currentCourses[$0] }
             guard !scheduleCourseDisplayRecordsEqual(previous, current) else { continue }
 
             let changedIDs = Set(previous.map(\.id) + current.map(\.id))
@@ -83,9 +86,7 @@ public nonisolated enum ScheduleCourseEditor {
             let existingRule = existingIndex.map { updatedRules[$0] }
             let ruleIdentity = existingRule?.sourceIdentity ?? sourceIdentity
             let sourceCourses = existingRule?.sourceCourses
-                ?? baselineCourses.filter {
-                    scheduleCourseSourceIdentity($0) == sourceIdentity
-                }
+                ?? baselineBySource[sourceIdentity] ?? []
             let ruleID = existingRule?.id ?? UUID().uuidString
 
             updatedRules.removeAll { $0.sourceIdentity == ruleIdentity }
@@ -102,7 +103,7 @@ public nonisolated enum ScheduleCourseEditor {
         for course in currentCourses where !previousIDs.contains(course.id) {
             let sourceIdentity = scheduleCourseSourceIdentity(course)
             let relatedToPreviousCourse = previousSourceIdentities.contains(sourceIdentity)
-                || (!course.number.isEmpty && previousCourses.contains { $0.number == course.number })
+                || (!course.number.isEmpty && previousNumbers.contains(course.number))
             guard !relatedToPreviousCourse else { continue }
             let existingRule = updatedRules.last {
                 $0.replacementCourses.contains { $0.id == course.id }

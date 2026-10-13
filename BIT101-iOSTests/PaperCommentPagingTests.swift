@@ -28,7 +28,7 @@ struct PaperCommentPagingTests {
         }
     }
 
-    @Test(arguments: [false, true])
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func repeatedCommentsAdvanceOrRetainTheRetryPosition(stalled: Bool) async throws {
         let transport = Transport()
         transport.stalls = stalled
@@ -52,6 +52,44 @@ struct PaperCommentPagingTests {
 }
 
 extension GalleryRecommendationPrefetchTests {
+    @Test @MainActor func articleListItemsShareTheWholeBodyRenderBudget() throws {
+        func raw(_ counts: [Int]) throws -> String {
+            let blocks = counts.map { ["type": "list", "data": ["items": Array(repeating: "x", count: $0)]] as [String: Any] }
+            return String(decoding: try JSONSerialization.data(withJSONObject: ["blocks": blocks]), as: UTF8.self)
+        }
+        for counts in [[3_000], [128, 129], Array(repeating: 32, count: 9)] {
+            let content = try raw(counts)
+            #expect(content.utf8.count < PaperContentResourceLimits.maximumBodyBytes)
+            let result = PaperContentRenderer.blocks(from: content)
+            #expect(result.count == 1)
+            if case .requiresOriginal = result[0] {} else { Issue.record("渲染节点超额需要原文入口") }
+        }
+        let result = PaperContentRenderer.blocks(from: try raw([128, 128]))
+        #expect(result.count == 2)
+        for block in result {
+            if case let .list(_, items, _) = block { #expect(items.count == 128 && items.allSatisfy { String($0.characters) == "x" }) }
+            else { Issue.record("预算内的短列表需要完整展示") }
+        }
+    }
+
+    @Test func composerTracksUnsavedChangesAgainstInitialValues() {
+        for paper in [nil, editingPaper("正文")] {
+            let model = PaperComposerViewModel(editingPaper: paper, initialContent: "正文")
+            #expect(!model.hasUnsavedChanges)
+            for field in [\PaperComposerViewModel.title, \.intro, \.content] {
+                let original = model[keyPath: field]
+                model[keyPath: field] += "修改"
+                #expect(model.hasUnsavedChanges)
+                model[keyPath: field] = original
+                #expect(!model.hasUnsavedChanges)
+            }
+            model.anonymous.toggle()
+            #expect(model.hasUnsavedChanges)
+            model.anonymous.toggle()
+            #expect(!model.hasUnsavedChanges)
+        }
+    }
+
     private final class PaperSavingService: PaperComposerServicing {
         var bodies: [String] = []
         var versions: [String] = []
@@ -79,7 +117,7 @@ extension GalleryRecommendationPrefetchTests {
             publicEdit: true, like: false, own: true)
     }
 
-    @Test func uncertainPaperCreationStopsAnotherSubmission() async {
+    @Test(.timeLimit(.minutes(1))) func uncertainPaperCreationStopsAnotherSubmission() async {
         let service = PaperSavingService()
         service.unknownResult = true
         let model = PaperComposerViewModel(editingPaper: nil, initialContent: "正文")
@@ -101,7 +139,7 @@ extension GalleryRecommendationPrefetchTests {
         #expect(PaperContentRenderer.blocks(from: "正文").map(\.id) == PaperContentRenderer.blocks(from: "正文").map(\.id))
     }
 
-    @Test(arguments: [
+    @Test(.timeLimit(.minutes(1)), arguments: [
         #"{"blocks":[{"id":"p","type":"paragraph","data":{"text":"<b>重点</b>"}},{"id":"i","type":"image","data":{"file":{"url":"https://example.com/a.png"}}}]}"#,
         #"{"blocks":[{"id":"i","type":"image","data":{"file":{"url":"https://example.com/a.png"}}}]}"#,
         #"{"blocks":[{"type":"header","data":{"text":"标题","level":2}},{"type":"list","data":{"items":["一","二"]}}]}"#,
@@ -118,7 +156,7 @@ extension GalleryRecommendationPrefetchTests {
         #expect(service.versions == ["2026-10-01T08:00:00Z"])
     }
 
-    @Test(arguments: ["body", "blocks", "block", "plain"])
+    @Test(.timeLimit(.minutes(1)), arguments: ["body", "blocks", "block", "plain"])
     func metadataEditingPreservesResourceLimitedBody(kind: String) async {
         let raw: String
         switch kind {
@@ -145,7 +183,7 @@ extension GalleryRecommendationPrefetchTests {
         #expect(service.versions == ["2026-10-01T08:00:00Z"])
     }
 
-    @Test func plainBodyEditsRoundTripEscapedTextAndKeepUntouchedSource() async {
+    @Test(.timeLimit(.minutes(1))) func plainBodyEditsRoundTripEscapedTextAndKeepUntouchedSource() async {
         let raw = PaperEditorContentBuilder.editorJSON(from: "正文 <内容>\n第二行")
         let service = PaperSavingService()
         let model = PaperComposerViewModel(editingPaper: editingPaper(raw), initialContent: PaperEditorContentBuilder.plainText(from: raw))

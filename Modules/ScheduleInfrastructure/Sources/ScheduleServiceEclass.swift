@@ -137,7 +137,7 @@ extension ScheduleService {
         let request = URLRequest(url: AppURL.required("https://zy-eclass.bit.edu.cn/user/index"))
         let (data, response) = try await sendRequest(request, owner: owner)
         try Task.checkCancellation()
-        if let context = SchoolLoginHTMLParser.parseSecondFactorPage(html: String(decoding: data, as: UTF8.self), baseURL: schoolSSOBaseURL) {
+        if let context = SchoolLoginHTMLParser.parseSecondFactorPage(html: String(decoding: data, as: UTF8.self), baseURL: schoolSSOBaseURL, documentURL: response.url ?? request.url) {
             try await completeSchoolSecondFactor(context, handler: schoolSMSCodeHandler, smsDeliveryMode: smsDeliveryMode, owner: owner)
             _ = try await sendRequest(request, owner: owner)
         } else if !(200 ..< 300).contains(response.statusCode) || response.url?.host?.lowercased() != "zy-eclass.bit.edu.cn" {
@@ -162,7 +162,7 @@ extension ScheduleService {
     private func fetchEclassSnapshotBody(owner: SchoolSessionIdentity, budget: EclassSnapshotBudget) async throws -> EclassDDLResult {
         guard !credentials.currentStudentID.isEmpty else { throw ScheduleServiceError.notLoggedIn }
         var courses: [EclassCoursePage.Course] = []
-        var seenIDs: Set<Int> = []
+        var seenNames: [Int: String] = [:]
         var page = 1
         var totalPages: Int?
         while true {
@@ -173,7 +173,15 @@ extension ScheduleService {
             guard response.page == nil || response.page == page else { throw ScheduleServiceError.invalidResponse }
             guard response.courses.allSatisfy({ $0.id > 0 && !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
             else { throw ScheduleServiceError.invalidResponse }
-            let newCourses = response.courses.filter { seenIDs.insert($0.id).inserted }
+            let newCourses = try response.courses.filter { course in
+                let name = course.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                if let previous = seenNames[course.id] {
+                    guard previous == name else { throw ScheduleServiceError.invalidResponse }
+                    return false
+                }
+                seenNames[course.id] = name
+                return true
+            }
             guard response.courses.isEmpty || !newCourses.isEmpty else { throw ScheduleServiceError.invalidResponse }
             courses.append(contentsOf: newCourses)
             if let pages = totalPages {
@@ -218,7 +226,12 @@ extension ScheduleService {
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         let result: Response
         do { result = try decoder.decode(Response.self, from: data) }
-        catch { throw ScheduleServiceError.invalidResponse }
+        catch {
+            let failure = ScheduleServiceError.invalidResponse as NSError
+            throw NSError(domain: failure.domain, code: failure.code,
+                userInfo: failure.userInfo.merging([NSUnderlyingErrorKey: error,
+                    NSLocalizedDescriptionKey: failure.localizedDescription]) { _, value in value })
+        }
         try Task.checkCancellation()
         return result
     }
@@ -250,7 +263,12 @@ extension ScheduleService {
             activityCount += result.activityCount
             withoutDeadline += result.homeworkWithoutDeadlineCount
             for (type, count) in result.activityTypes { types[type, default: 0] += count }
-            for event in result.events where uniqueEvents[event.id] == nil { uniqueEvents[event.id] = event }
+            for event in result.events {
+                if let previous = uniqueEvents[event.id] {
+                    guard previous.title == event.title, previous.dueAt == event.dueAt, previous.done == event.done
+                    else { throw ScheduleServiceError.invalidResponse }
+                } else { uniqueEvents[event.id] = event }
+            }
         }
         let events = uniqueEvents.values.sorted {
             $0.dueAt == $1.dueAt ? $0.id < $1.id : $0.dueAt < $1.dueAt

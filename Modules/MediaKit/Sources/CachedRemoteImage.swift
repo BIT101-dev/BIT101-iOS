@@ -16,6 +16,7 @@ nonisolated struct MediaImageLoadIdentity: Hashable {
     let urls: [URL?]
     let environment: ObjectIdentifier
     var retryGeneration: UInt64 = 0
+    var budgetRetryGeneration: UInt64 = 0
     var pixelSize: Int = 0
 }
 
@@ -26,6 +27,7 @@ public struct CachedRemoteImage<Content: View, Placeholder: View>: View {
     @Environment(MediaEnvironment.self) private var media
     @Environment(\.displayScale) private var displayScale
     @State private var pixelSize = 0
+    @State private var budgetRetryGeneration: UInt64 = 0
     /// 需要加载的远程资源地址；为空时直接展示占位内容。
     let url: URL?
     /// 成功加载后的渲染闭包，由调用方决定裁剪、圆角、缩放等样式。
@@ -60,10 +62,11 @@ public struct CachedRemoteImage<Content: View, Placeholder: View>: View {
             Int((max(geometry.size.width, geometry.size.height) * scale).rounded(.up))
         } action: { pixelSize = $0 }
         .task(id: MediaImageLoadIdentity(urls: [url], environment: ObjectIdentifier(media),
-            retryGeneration: media.imageRetryGeneration &+ media.displayBudget.releaseGeneration, pixelSize: pixelSize)) {
+            retryGeneration: media.imageRetryGeneration, budgetRetryGeneration: budgetRetryGeneration, pixelSize: pixelSize)) {
             guard pixelSize > 0 else { return }
             await loader.load(url: url, media: media, maximumPixelSize: pixelSize)
         }
+        .onChange(of: media.displayBudget.releaseGeneration) { if loader.waitingForBudget { budgetRetryGeneration &+= 1 } }
         .onDisappear { loader.releaseDisplayImage() }
     }
 }
@@ -134,6 +137,7 @@ public struct AppAvatarView: View {
 final class CachedRemoteImageLoader: ObservableObject {
     /// 当前用于显示的位图。
     @Published private(set) var image: UIImage?
+    @Published private(set) var waitingForBudget = false
 
     /// 当前加载任务对应的 URL，用于校验网络响应是否仍属于当前视图。
     private var currentURL: URL?
@@ -151,10 +155,12 @@ final class CachedRemoteImageLoader: ObservableObject {
         retainedBudget?.release(owner: displayOwner)
         retainedBudget = nil
         image = nil
+        waitingForBudget = false
     }
 
     private func display(_ value: UIImage, media: MediaEnvironment) {
-        guard media.displayBudget.retain(value, owner: displayOwner) else { return }
+        guard media.displayBudget.retain(value, owner: displayOwner) else { waitingForBudget = true; return }
+        waitingForBudget = false
         if retainedBudget !== media.displayBudget { retainedBudget?.release(owner: displayOwner) }
         retainedBudget = media.displayBudget
         image = value
@@ -300,13 +306,13 @@ actor CachedRemoteImageStore {
     /// 写入下载数据，并缓存准备显示的位图。
     func storeAndDecode(_ data: Data, for url: URL, generation expected: UInt64? = nil, maximumPixelSize: Int? = nil) async -> UIImage? {
         let generation = expected ?? cacheGeneration
-        guard cacheGeneration == generation, !Task.isCancelled else { return nil }
+        guard cacheGeneration == generation, !Task.isCancelled,
+              data.count <= RemoteImageResourceLimits.maximumEncodedBytes,
+              let decoded = BoundedStillImageDecoder.image(from: data, maximumDecodedBytes: imageCache.totalCostLimit,
+                                                          maximumPixelSize: maximumPixelSize) else { return nil }
         await store(data, for: url)
         guard cacheGeneration == generation, !Task.isCancelled else { return nil }
         let key = "\(cacheKey(for: url))|pixels:\(maximumPixelSize ?? 0)" as NSString
-        if let cached = imageCache.object(forKey: key) { return cached }
-        guard let decoded = BoundedStillImageDecoder.image(from: data, maximumDecodedBytes: imageCache.totalCostLimit,
-                                                          maximumPixelSize: maximumPixelSize) else { return nil }
         imageCache.setObject(decoded, forKey: key, cost: decodedPixelCost(decoded))
         return decoded
     }

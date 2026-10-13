@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>BIT101WorkflowConditions</key>
+	<string>$(BIT101_WORKFLOW_CONDITIONS)</string>
 	<key>BIT101RestoreInputDigest</key>
 	<string>$(BIT101_RESTORE_INPUT_DIGEST)</string>
 	<key>BIT101ArchiveInputDigest</key>

@@ -62,9 +62,33 @@ public final class ScoreCacheStore: ScoreCacheSynchronizing {
     private let defaults: UserDefaults
     private let currentSession: () -> AppStorageSession
     private let storageOperations: StorageOperationTracker
+    private struct RepositoryKey: Hashable {
+        let root: URL
+        let fileObject: ObjectIdentifier?
+    }
+    private final class RepositoryReference {
+        weak var value: ScoreCacheDiskRepository?
+        init(_ value: ScoreCacheDiskRepository) { self.value = value }
+    }
+    private static var repositories: [RepositoryKey: RepositoryReference] = [:]
 
     public init(files: any AppFileService, storageRoot: URL, defaults: UserDefaults, session: @escaping () -> AppStorageSession, storageOperations: StorageOperationTracker = StorageOperationTracker()) {
-        self.repository = ScoreCacheDiskRepository(files: files, storageRoot: storageRoot)
+        Self.repositories = Self.repositories.filter { $0.value.value != nil }
+        let key: RepositoryKey?
+        if files is LocalAppFileService {
+            key = RepositoryKey(root: files.canonicalFileURL(storageRoot), fileObject: nil)
+        } else if let object = files as? any AppFileService & AnyObject {
+            key = RepositoryKey(root: files.canonicalFileURL(storageRoot), fileObject: ObjectIdentifier(object))
+        } else {
+            key = nil
+        }
+        if let key, let repository = Self.repositories[key]?.value {
+            self.repository = repository
+        } else {
+            let repository = ScoreCacheDiskRepository(files: files, storageRoot: storageRoot)
+            if let key { Self.repositories[key] = RepositoryReference(repository) }
+            self.repository = repository
+        }
         self.defaults = defaults
         self.currentSession = session
         self.storageOperations = storageOperations
@@ -90,6 +114,7 @@ public final class ScoreCacheStore: ScoreCacheSynchronizing {
 
     @discardableResult
     public func save(rows: [ScoreRow], for session: AppStorageSession? = nil) async -> Date? {
+        guard !Task.isCancelled else { return nil }
         guard storageOperations.begin() else { return nil }
         defer { storageOperations.finish() }
         let session = session ?? currentSession()
@@ -98,11 +123,13 @@ public final class ScoreCacheStore: ScoreCacheSynchronizing {
             for: session,
             legacyData: legacyData(for: session)
         )
-        return finishWrite(result, for: session, syncPreference: true)
+        let updatedAt = finishWrite(result, for: session, syncPreference: true)
+        return Task.isCancelled ? nil : updatedAt
     }
 
     @discardableResult
     public func saveDetailed(rows: [ScoreRow], for session: AppStorageSession? = nil) async -> Date? {
+        guard !Task.isCancelled else { return nil }
         guard storageOperations.begin() else { return nil }
         defer { storageOperations.finish() }
         let session = session ?? currentSession()
@@ -111,7 +138,8 @@ public final class ScoreCacheStore: ScoreCacheSynchronizing {
             for: session,
             legacyData: legacyData(for: session)
         )
-        return finishWrite(result, for: session, syncPreference: true)
+        let updatedAt = finishWrite(result, for: session, syncPreference: true)
+        return Task.isCancelled ? nil : updatedAt
     }
 
     /// 文件读取错误沿同步端口传递，协调器保留本机与云端载荷并提示恢复原因。
@@ -141,8 +169,8 @@ public final class ScoreCacheStore: ScoreCacheSynchronizing {
         _ payload: ScoreCacheSyncPayload,
         for session: AppStorageSession? = nil,
         replacing expected: ScoreCacheSyncPayload? = nil
-    ) async -> Bool {
-        guard storageOperations.begin() else { return false }
+    ) async throws -> Bool {
+        guard storageOperations.begin() else { throw ScoreCacheReadError.unavailable }
         defer { storageOperations.finish() }
         guard !payload.rows.isEmpty || payload.updatedAt != nil || payload.detailedUpdatedAt != nil else { return false }
         let session = session ?? currentSession()
@@ -154,7 +182,8 @@ public final class ScoreCacheStore: ScoreCacheSynchronizing {
         if case .superseded = result { return false }
         guard result.isSaved else {
             _ = finishWrite(result, for: session, syncPreference: false)
-            return false
+            if result.isUnreadable { throw ScoreCacheReadError.unreadable }
+            throw ScoreCacheWriteError.failed
         }
         _ = finishWrite(result, for: session, syncPreference: false)
         return true
@@ -165,6 +194,7 @@ public final class ScoreCacheStore: ScoreCacheSynchronizing {
         for session: AppStorageSession,
         syncPreference: Bool
     ) -> Date? {
+        if case .superseded = result { return nil }
         guard case .saved(let snapshot) = result else {
             if result.isUnreadable {
                 Self.logger.error("保留无法读取的成绩缓存，跳过保存")
@@ -245,6 +275,7 @@ actor ScoreCacheDiskRepository {
         for session: AppStorageSession,
         legacyData: ScoreCacheLegacyData
     ) -> ScoreCacheDiskWriteResult {
+        guard !Task.isCancelled else { return .superseded }
         var stored: DiskSnapshot
         switch readFile(for: session) {
         case .loaded(let existing):
@@ -271,7 +302,6 @@ actor ScoreCacheDiskRepository {
             let current = ScoreCacheSyncPayload(rows: snapshot.rows ?? [], updatedAt: snapshot.updatedAt,
                 detailedUpdatedAt: snapshot.detailedUpdatedAt)
             guard expected == nil || expected == current else { return .superseded }
-            guard !Task.isCancelled else { return .superseded }
             snapshot = ScoreCacheSnapshot(
                 rows: payload.rows,
                 updatedAt: payload.updatedAt,
@@ -280,6 +310,7 @@ actor ScoreCacheDiskRepository {
         }
 
         do {
+            guard !Task.isCancelled else { return .superseded }
             stored.snapshot = snapshot
             try write(stored, for: session)
             removeLegacyFile(for: session)
@@ -325,8 +356,8 @@ actor ScoreCacheDiskRepository {
     }
 
     private func readFile(at url: URL) -> ExistingFileResult {
-        try? files.setPrivateFileProtection(at: url)
         do {
+            try files.setPrivateFileProtection(at: url)
             let data = try files.readData(at: url, maximumBytes: ScoreCacheStore.maximumCacheBytes)
             return .loaded(try decodeStoredData(data))
         } catch {
@@ -390,7 +421,7 @@ actor ScoreCacheDiskRepository {
     private func removeLegacyFile(for session: AppStorageSession) {
         let url = legacyFileURL(for: session)
         guard url != fileURL(for: session),
-              let data = try? files.readData(at: url),
+              let data = try? files.readData(at: url, maximumBytes: ScoreCacheStore.maximumCacheBytes),
               (try? decodeStoredData(data)) != nil
         else { return }
         do {

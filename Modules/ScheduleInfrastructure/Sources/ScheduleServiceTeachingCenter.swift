@@ -35,12 +35,12 @@ extension ScheduleService {
         }
     }
 
-    /// 查询某个教学楼当天的教室占用情况。
+    /// 查询某个教学楼在指定日期的教室占用情况。
     ///
-    /// 空教室接口以“当天 + 教学楼”为粒度返回占用节次，后续再在 ViewModel 层按选中的时段块格式化。
-    public func fetchClassrooms(buildingID: String, term: String) async throws -> [ClassroomRecord] {
+    /// 空教室接口以“查询日期 + 教学楼”为粒度返回占用节次，后续再在 ViewModel 层按选中的时段块格式化。
+    public func fetchClassrooms(buildingID: String, term: String, date: Date) async throws -> [ClassroomRecord] {
         try await withPreparedTeachingCenterSession {
-            return try await fetchClassroomsDirect(buildingID: buildingID, term: term)
+            return try await fetchClassroomsDirect(buildingID: buildingID, term: term, date: date)
         }
     }
 
@@ -233,11 +233,11 @@ extension ScheduleService {
     }
 
     /// 直连学校接口获取教室占用情况。
-    private func fetchClassroomsDirect(buildingID: String, term: String) async throws -> [ClassroomRecord] {
+    private func fetchClassroomsDirect(buildingID: String, term: String, date: Date) async throws -> [ClassroomRecord] {
         let termParts = term.split(separator: "-")
         let termID = termParts.last.map(String.init) ?? ""
         let termYearCode = termParts.dropLast().joined(separator: "-")
-        let dateString = ScheduleDateCodec.formatDate(Date())
+        let dateString = ScheduleDateCodec.formatDate(date)
 
         let response: ClassroomListResponse = try await sendJSONRequest(
             path: "/jwapp/sys/kxjasbyMobile/kxjasbyController/cxkxjasqk.do",

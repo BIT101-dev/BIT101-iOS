@@ -5,6 +5,7 @@ fi
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+source "$ROOT_DIR/Scripts/script-support.sh"
 PROJECT="$ROOT_DIR/BIT101-iOS.xcodeproj"
 DERIVED_ROOT="$ROOT_DIR/.build/icloud-cross-device-smoke"
 CONDITIONS="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" conditions icloud)"
@@ -57,12 +58,11 @@ case "${1:-}" in
   report|cleanup|"") ;;
   *) echo "操作：report、cleanup；直接运行双向同步验证。" >&2; exit 64 ;;
 esac
-source "$ROOT_DIR/Scripts/script-support.sh"
-bit101_acquire_workflow_lock "$0" "$@"
 if [[ "${1:-}" == report ]]; then
   report_result "$SUMMARY_PATH"
   exit $?
 fi
+bit101_acquire_workflow_lock "$0" "$@"
 bit101_acquire_script_lock "$HOME/Library/Caches/BIT101-iOS/icloud-smoke.lock" BIT101_ICLOUD_HOST_LOCK_HELD "$0" "$@"
 CLEANUP_ONLY=false
 if [[ "${1:-}" == cleanup ]]; then
@@ -141,19 +141,24 @@ entitlements = plistlib.loads(Path(sys.argv[1]).read_bytes())
 entitlements["com.apple.developer.icloud-container-environment"] = "Production"
 Path(sys.argv[2]).write_bytes(plistlib.dumps(entitlements))
 PY
-if ! $CLEANUP_ONLY; then
-  PYTHONPATH="$ROOT_DIR/Scripts${PYTHONPATH:+:$PYTHONPATH}" python3 - "$SUMMARY_PATH" "$RUN_ID" "$DEVICE_ID" <<'PY'
+PYTHONPATH="$ROOT_DIR/Scripts${PYTHONPATH:+:$PYTHONPATH}" python3 - "$SUMMARY_PATH" "$RUN_ID" "$DEVICE_ID" "$CLEANUP_ONLY" <<'PY'
 import json
 from datetime import datetime, timezone
 from pathlib import Path
 import sys
 from validation_evidence import report_lock, write_report
 
-with report_lock(path=Path(sys.argv[1])):
-    write_report({"runID": sys.argv[2], "phoneDeviceIdentifier": sys.argv[3],
-        "startedAt": datetime.now(timezone.utc).isoformat(), "stages": []}, path=Path(sys.argv[1]))
+path = Path(sys.argv[1])
+with report_lock(path=path):
+    if sys.argv[4] == 'true':
+        report = json.loads(path.read_text())
+        report['cleanupStartedAt'] = datetime.now(timezone.utc).isoformat()
+        report.pop('cleanupFinishedAt', None)
+    else:
+        report = {"runID": sys.argv[2], "phoneDeviceIdentifier": sys.argv[3],
+            "startedAt": datetime.now(timezone.utc).isoformat(), "stages": []}
+    write_report(report, path=path)
 PY
-fi
 
 
 common_args=(
@@ -209,6 +214,7 @@ with report_lock(path=path):
     report = json.loads(path.read_text()) if path.is_file() else {"stages": []}
     if sys.argv[3] == "true":
         report["cleanupExitCode"] = int(sys.argv[2])
+        report["cleanupFinishedAt"] = datetime.now(timezone.utc).isoformat()
         report.setdefault("exitCode", int(sys.argv[2]))
     else:
         report["exitCode"] = int(sys.argv[2])

@@ -386,6 +386,7 @@ final class PaperSearchViewModel: ObservableObject {
 @MainActor
 /// 文章详情状态机。
 final class PaperDetailViewModel: ObservableObject {
+    let pendingOperations = CommunityDetailTasks()
     @Published private(set) var paper: PaperDetail?
     @Published private(set) var contentBlocks: [PaperContentBlock] = []
     @Published private(set) var paperStatus: CommunityLoadStatus = .idle
@@ -403,6 +404,7 @@ final class PaperDetailViewModel: ObservableObject {
     private let service: any PaperDetailServicing
     private var hasBootstrapped = false
     private var likeRevision = 0
+    private var likeResultNeedsReview = false
     @Published private var latestLikeResult: CommunityLikeResult?
     private var refreshGeneration = 0
     private var commentRefreshGeneration = 0
@@ -489,6 +491,7 @@ final class PaperDetailViewModel: ObservableObject {
         switch result {
         case let .success(comments):
             guard commentRefreshGeneration == generation else { return }
+            commentState.confirmReadLikes(in: comments)
             commentState.appendPage(commentState.applyingLikes(to: comments, since: likeRevisionAtStart))
         case let .failure(error):
             guard commentRefreshGeneration == generation else { return }
@@ -508,19 +511,28 @@ final class PaperDetailViewModel: ObservableObject {
     var resolvedLikeNum: Int { latestLikeResult?.likeNum ?? paper?.likeNum ?? initialPaper.likeNum }
 
     func likePaper() async {
+        guard !likeResultNeedsReview else {
+            alert = AppAlert(title: "点赞结果待确认", message: CommunityToggleOutcomeUnknown.reviewMessage)
+            return
+        }
         guard !isLikingPaper else { return }
         isLikingPaper = true
         defer { isLikingPaper = false }
 
         do {
             let result = try await service.likePaper(id: initialPaper.id)
-            try Task.checkCancellation()
             likeRevision &+= 1
             latestLikeResult = result
             if let paper {
                 self.paper = paper.updatingLike(result.like, likeNum: result.likeNum)
             }
         } catch {
+            if error is CommunityToggleOutcomeUnknown {
+                likeResultNeedsReview = true
+                await refreshAll()
+                if likeResultNeedsReview { alert = AppAlert(title: "点赞结果待确认", message: CommunityToggleOutcomeUnknown.reviewMessage) }
+                return
+            }
             if TaskCancellation.matches(error) { return }
             alert = AppAlert(title: "点赞失败", message: error.localizedDescription)
         }
@@ -543,15 +555,24 @@ final class PaperDetailViewModel: ObservableObject {
     }
 
     func toggleCommentLike(_ comment: CommunityComment) async {
+        guard !commentState.likesNeedingReview.contains(comment.id) else {
+            alert = AppAlert(title: "点赞结果待确认", message: CommunityToggleOutcomeUnknown.reviewMessage)
+            return
+        }
         guard !likingCommentIDs.contains(comment.id) else { return }
         likingCommentIDs.insert(comment.id)
         defer { likingCommentIDs.remove(comment.id) }
 
         do {
             let result = try await service.sendLike(objectID: "comment\(comment.id)")
-            try Task.checkCancellation()
             commentState.recordLike(result, for: comment.id)
         } catch {
+            if error is CommunityToggleOutcomeUnknown {
+                commentState.recordUncertainLike(for: comment.id)
+                await refreshComments()
+                if commentState.likesNeedingReview.contains(comment.id) { alert = AppAlert(title: "点赞结果待确认", message: CommunityToggleOutcomeUnknown.reviewMessage) }
+                return
+            }
             if TaskCancellation.matches(error) { return }
             alert = AppAlert(title: "点赞失败", message: error.localizedDescription)
         }
@@ -565,7 +586,7 @@ final class PaperDetailViewModel: ObservableObject {
         }
         guard !isSubmittingComment else { return false }
         guard !commentResultNeedsReview else {
-            alert = AppAlert(title: "发送结果待确认", message: CommunityCreateOutcomeUnknown.reviewMessage)
+            alert = AppAlert(title: "发送结果待确认", message: CommunityCreateOutcomeUnknown.commentReviewMessage)
             return false
         }
 
@@ -586,7 +607,7 @@ final class PaperDetailViewModel: ObservableObject {
         } catch {
             if error is CommunityCreateOutcomeUnknown {
                 commentResultNeedsReview = true
-                alert = AppAlert(title: "发送结果待确认", message: error.localizedDescription)
+                alert = AppAlert(title: "发送结果待确认", message: CommunityCreateOutcomeUnknown.commentReviewMessage)
                 return false
             }
             if Task.isCancelled || TaskCancellation.matches(error) { return false }
@@ -598,6 +619,7 @@ final class PaperDetailViewModel: ObservableObject {
     private func handlePaperResult(_ result: Result<PaperDetail, Error>, previousStatus: CommunityLoadStatus, likeRevisionAtStart: Int) {
         switch result {
         case let .success(paper):
+            likeResultNeedsReview = false
             if likeRevision != likeRevisionAtStart, let latestLikeResult {
                 self.paper = paper.updatingLike(latestLikeResult.like, likeNum: latestLikeResult.likeNum)
             } else {
@@ -629,6 +651,7 @@ final class PaperDetailViewModel: ObservableObject {
     ) {
         switch result {
         case let .success(comments):
+            commentState.confirmReadLikes(in: comments)
             commentState.applyFirstPage(commentState.applyingLikes(to: comments, since: previousState.likeRevision))
             commentState.order = commentOrder
             commentState.status = .loaded

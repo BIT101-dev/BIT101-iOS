@@ -16,6 +16,7 @@ import PhotosUI
 import SwiftUI
 
 struct AccountSettingsPage: View {
+    @Environment(MediaEnvironment.self) private var media
     let dependencies: SettingsAccountDependencies
     let studentID: String
     let onLogout: () -> Void
@@ -23,8 +24,8 @@ struct AccountSettingsPage: View {
     @State private var profile: MineUserInfo?
     @State private var isCheckingLogin = false
     @State private var isLoggedIn: Bool
-    @StateObject private var profileMutation = AccountProfileMutation()
-    private var isUpdating: Bool { profileMutation.isUpdating }
+    @StateObject private var profileMutation: AccountProfileMutation
+    private var isBusy: Bool { profileMutation.isBusy }
     @State private var showNicknameEditor = false
     @State private var showMottoEditor = false
     @State private var nicknameText = ""
@@ -43,6 +44,7 @@ struct AccountSettingsPage: View {
         self.studentID = studentID
         self.onLogout = onLogout
         _isLoggedIn = State(initialValue: !dependencies.credentials().cookie.isEmpty)
+        _profileMutation = StateObject(wrappedValue: dependencies.profileMutation)
     }
 
     var body: some View {
@@ -64,7 +66,7 @@ struct AccountSettingsPage: View {
                         }
                         .accessibilityLabel("头像")
                         .accessibilityHint("选择新头像")
-                        .disabled(isUpdating)
+                        .disabled(isBusy)
                         .photosPicker(
                             isPresented: $isShowingPhotoPicker,
                             selection: $selectedPhoto,
@@ -79,7 +81,7 @@ struct AccountSettingsPage: View {
                     } label: {
                         LabeledContent("昵称", value: profile.user.nickname)
                     }
-                    .disabled(isUpdating)
+                    .disabled(isBusy)
                     .appInteractiveListRow()
 
                     Button {
@@ -88,7 +90,7 @@ struct AccountSettingsPage: View {
                     } label: {
                         LabeledContent("个性签名", value: profile.user.motto.isEmpty ? "空" : profile.user.motto)
                     }
-                    .disabled(isUpdating)
+                    .disabled(isBusy)
                     .appInteractiveListRow()
 
                     SettingsSensitiveValueRow(
@@ -107,7 +109,7 @@ struct AccountSettingsPage: View {
 
             Section("登录状态") {
                 Button {
-                    Task { await checkLogin() }
+                    profileMutation.start { await checkLogin() }
                 } label: {
                     HStack(spacing: AppDesignSystem.Spacing.regular) {
                         Text("登录状态检查")
@@ -121,12 +123,12 @@ struct AccountSettingsPage: View {
                         }
                     }
                 }
-                .disabled(isCheckingLogin)
+                .disabled(isBusy)
                 .appInteractiveListRow()
 
                 Button("退出登录", role: .destructive, action: onLogout)
                     .accessibilityIdentifier("settings.account.logout")
-                    .disabled(isUpdating)
+                    .disabled(isBusy)
                 .appInteractiveListRow(isDestructive: true)
             }
         }
@@ -141,15 +143,15 @@ struct AccountSettingsPage: View {
         }
         .onChange(of: selectedPhoto) { _, newValue in
             guard let newValue else { return }
-            Task { await updateAvatar(with: newValue) }
+            if !profileMutation.start({ await updateAvatar(with: newValue) }) { selectedPhoto = nil }
         }
         .sheet(isPresented: $showNicknameEditor) {
             SettingsTextEditSheet(
                 title: "修改昵称",
                 text: $nicknameText,
-                isSubmitting: isUpdating,
+                isSubmitting: isBusy,
                 onSubmit: {
-                    Task { await updateProfile(nickname: nicknameText, motto: nil) }
+                    profileMutation.start { await updateProfile(nickname: nicknameText, motto: nil) }
                 }
             )
         }
@@ -158,13 +160,14 @@ struct AccountSettingsPage: View {
                 title: "修改个性签名",
                 text: $mottoText,
                 axis: .vertical,
-                isSubmitting: isUpdating,
+                isSubmitting: isBusy,
                 onSubmit: {
-                    Task { await updateProfile(nickname: nil, motto: mottoText) }
+                    profileMutation.start { await updateProfile(nickname: nil, motto: mottoText) }
                 }
             )
         }
         .diagnosticAlert(item: $alert)
+        .onDisappear { profileMutation.cancel() }
     }
 
     /// 页面加载当前登录用户资料卡。
@@ -241,8 +244,8 @@ struct AccountSettingsPage: View {
 
     /// 服务上传并绑定新头像。
     private func updateAvatar(with item: PhotosPickerItem) async {
-        guard let profile else { return }
         defer { selectedPhoto = nil }
+        guard let profile else { return }
         let credentials = dependencies.credentials()
         guard !credentials.cookie.isEmpty else {
             isLoggedIn = false
@@ -251,7 +254,7 @@ struct AccountSettingsPage: View {
         }
         do {
             try await profileMutation.perform {
-                guard let data = try await item.loadTransferable(type: Data.self) else {
+                guard let data = try await media.loadBoundedImageData(from: item) else {
                     throw SettingsServiceError.uploadFailed
                 }
                 guard isCurrentSession(credentials) else { return }
@@ -280,7 +283,7 @@ struct AccountSettingsPage: View {
 
     private func isCurrentSession(_ credentials: CommunityCredentials) -> Bool {
         let current = dependencies.credentials()
-        return current.identity == credentials.identity && !current.cookie.isEmpty
+        return !Task.isCancelled && current.identity == credentials.identity && !current.cookie.isEmpty
     }
 }
 

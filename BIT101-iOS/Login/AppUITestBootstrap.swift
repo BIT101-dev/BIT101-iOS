@@ -164,16 +164,23 @@ final class UITestHTTPTransport: HTTPTransport {
     private var comments: [[String: Any]] = []
     private var createdPosters: [[String: Any]] = []
     private var createdPapers: [[String: Any]] = []
-    private var deletedIDs: Set<Int> = []
+    private var deletedPosterIDs: Set<Int> = []
+    private var deletedPaperIDs: Set<Int> = []
     private var deletedCommentIDs: Set<Int> = []
     private var profileChanges: [String: Any] = [:]
     private var posterChanges: [String: Any] = [:]
     private var following = false
     private var imageUploads = 0
     private var failedPaths: Set<String> = []
+    private var clearedMessageTypes: Set<String> = []
     private var feedbackRetryPayload: Data?
     private let timestamp = "2026-10-01T10:00:00Z"
 
+    func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
+        let result = try await data(for: request)
+        if let maximumBytes, result.0.count > maximumBytes { throw HTTPClientError.responseTooLarge }
+        return result
+    }
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
         let snapshot = UITestSceneConfiguration.shared.snapshot
         if fixtureRevision != snapshot.revision {
@@ -182,13 +189,15 @@ final class UITestHTTPTransport: HTTPTransport {
             comments = []
             createdPosters = []
             createdPapers = []
-            deletedIDs = []
+            deletedPosterIDs = []
+            deletedPaperIDs = []
             deletedCommentIDs = []
             profileChanges = [:]
             posterChanges = [:]
             following = false
             imageUploads = 0
             failedPaths = []
+            clearedMessageTypes = []
             feedbackRetryPayload = nil
         }
         guard let url = request.url else { throw URLError(.badURL) }
@@ -229,6 +238,10 @@ final class UITestHTTPTransport: HTTPTransport {
            ["posters", "papers", "courses"].contains(path), failedPaths.insert(path).inserted {
             throw URLError(.networkConnectionLost)
         }
+        if AppUITestBootstrap.environment["BIT101_UI_TEST_CLAIMS_FAILURE_ONCE"] == "1",
+           path == "posters/claims", failedPaths.insert(path).inserted {
+            throw URLError(.networkConnectionLost)
+        }
         if path.hasPrefix("ui-images/") {
             guard let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "image/png"]) else {
                 throw URLError(.badServerResponse)
@@ -249,9 +262,12 @@ final class UITestHTTPTransport: HTTPTransport {
             imageUploads += 1
             if imageUploads == 1 { throw URLError(.networkConnectionLost) }
             payload = mediaImage
-        case "messages/unread_nums": payload = ["comment": 1, "follow": 1, "like": 1, "system": 1]
+        case "messages/unread_nums": payload = Dictionary(uniqueKeysWithValues:
+            ["comment", "follow", "like", "system"].map { ($0, clearedMessageTypes.contains($0) ? 0 : 1) })
         case "messages":
-            payload = query.contains(where: { $0.name == "last_id" }) ? [] : [[
+            let cursor = query.first(where: { $0.name == "last_id" })?.value.flatMap(Int.init)
+            if cursor == nil || cursor == 0 { clearedMessageTypes.insert(query.first(where: { $0.name == "type" })?.value ?? "comment") }
+            payload = cursor.map { $0 > 0 && $0 <= 1 } == true ? [] : [[
                 "id": 1, "from_user": user, "link_obj": "poster1", "obj": "poster1",
                 "text": "自动化测试消息", "update_time": timestamp,
             ]]
@@ -268,7 +284,12 @@ final class UITestHTTPTransport: HTTPTransport {
                 payload = comment
             } else {
                 payload = page == "0" ? ([makeComment(id: 1, text: "自动化测试评论")] + comments)
-                    .filter { !deletedCommentIDs.contains($0["id"] as? Int ?? 0) } : []
+                    .filter { !deletedCommentIDs.contains($0["id"] as? Int ?? 0) }
+                    .map { value in
+                        var value = value
+                        value["obj"] = query.first { $0.name == "obj" }?.value ?? "poster1"
+                        return value
+                    } : []
             }
         case "posters":
             if method == "POST" {
@@ -294,7 +315,7 @@ final class UITestHTTPTransport: HTTPTransport {
                     item["title"] = sourcePage == 10 ? "机器人分页话题" : "普通分页话题"
                     payload = sourcePage <= 10 ? [item] : []
                 } else {
-                    payload = page == "0" ? ([poster] + createdPosters).filter { !deletedIDs.contains($0["id"] as? Int ?? 0) } : []
+                    payload = page == "0" ? ([poster] + createdPosters).filter { !deletedPosterIDs.contains($0["id"] as? Int ?? 0) } : []
                 }
             }
         case "papers":
@@ -307,15 +328,21 @@ final class UITestHTTPTransport: HTTPTransport {
                 paper["content"] = body["content"]
                 createdPapers.append(paper)
                 payload = ["id": id]
+            } else if AppUITestBootstrap.environment["BIT101_UI_TEST_PAGINATION"] == "1" {
+                payload = paginationItems(paper, page: page, key: "title", title: "分页文章")
             } else {
-                payload = page == "0" ? ([paper] + createdPapers).filter { !deletedIDs.contains($0["id"] as? Int ?? 0) } : []
+                payload = page == "0" ? ([paper] + createdPapers).filter { !deletedPaperIDs.contains($0["id"] as? Int ?? 0) } : []
             }
         case "courses":
             var schoolCourse = course
             schoolCourse["id"] = 2
             schoolCourse["name"] = "学校测试课程"
             schoolCourse["number"] = "UI-002"
-            payload = page == "0" ? (AppUITestBootstrap.environment["BIT101_UI_TEST_SCHOOL"] == "1" ? [course, schoolCourse] : [course]) : []
+            if AppUITestBootstrap.environment["BIT101_UI_TEST_PAGINATION"] == "1" {
+                payload = paginationItems(course, page: page, key: "name", title: "分页课程")
+            } else {
+                payload = page == "0" ? (AppUITestBootstrap.environment["BIT101_UI_TEST_SCHOOL"] == "1" ? [course, schoolCourse] : [course]) : []
+            }
         case "courses/1": payload = course
         case "courses/2":
             var schoolCourse = course
@@ -333,8 +360,16 @@ final class UITestHTTPTransport: HTTPTransport {
             payload = [:] as [String: String]
         default:
             if path.hasPrefix("posters/") || path.hasPrefix("papers/") {
-                let id = Int(url.lastPathComponent) ?? 1
-                if method == "DELETE" { deletedIDs.insert(id) }
+                let components = path.split(separator: "/")
+                guard components.count == 2, let id = Int(components[1]),
+                      ["GET", "PUT", "DELETE"].contains(method) else { throw URLError(.unsupportedURL) }
+                let records = path.hasPrefix("posters/") ? createdPosters + [poster] : createdPapers + [paper]
+                let deletedIDs = path.hasPrefix("posters/") ? deletedPosterIDs : deletedPaperIDs
+                guard records.contains(where: { $0["id"] as? Int == id }), !deletedIDs.contains(id)
+                else { return try jsonResponse(["error": "not_found"], url: url, statusCode: 404) }
+                if method == "DELETE" {
+                    if path.hasPrefix("posters/") { deletedPosterIDs.insert(id) } else { deletedPaperIDs.insert(id) }
+                }
                 if path.hasPrefix("posters/") {
                     if method == "PUT", id == 1 { posterChanges.merge(body) { _, new in new } }
                     if method == "PUT", let index = createdPosters.firstIndex(where: { $0["id"] as? Int == id }) {
@@ -348,9 +383,17 @@ final class UITestHTTPTransport: HTTPTransport {
                     payload = createdPapers.first(where: { $0["id"] as? Int == id }) ?? paper
                 }
             } else if path.hasPrefix("reaction/comments/") {
-                if let id = Int(url.lastPathComponent) { deletedCommentIDs.insert(id) }
+                let components = path.split(separator: "/")
+                guard components.count == 3, let id = Int(components[2]), method == "DELETE",
+                      id == 1 || comments.contains(where: { $0["id"] as? Int == id })
+                else { throw URLError(.unsupportedURL) }
+                deletedCommentIDs.insert(id)
                 payload = [:] as [String: String]
             } else if path.hasPrefix("user/info/") || path.hasPrefix("user/follow/") {
+                let components = path.split(separator: "/")
+                guard components.count == 3, let id = Int(components[2]),
+                      path.hasPrefix("user/info/") ? method == "GET" && [0, 1].contains(id) : method == "POST" && id == 1
+                else { throw URLError(.unsupportedURL) }
                 if path.hasPrefix("user/follow/"), method == "POST" { following.toggle() }
                 payload = ["user": user, "following_num": 1, "follower_num": 1,
                            "following": following, "follower": false, "own": path == "user/info/0"]
@@ -384,6 +427,17 @@ final class UITestHTTPTransport: HTTPTransport {
          "images": mediaEnabled ? [mediaImage] : [], "like": likedObjects.contains("poster1"), "like_num": 1, "own": true,
          "plugins": "[]", "public": true, "tags": ["测试", "自动化"], "text": "自动化测试话题正文", "title": "自动化测试话题", "user": user]
         return base.merging(posterChanges) { _, new in new }
+    }
+
+    private func paginationItems(_ item: [String: Any], page: String, key: String, title: String) -> [[String: Any]] {
+        guard let page = Int(page), (0...1).contains(page) else { return [] }
+        return (1...8).map { offset in
+            var copy = item
+            let id = page * 8 + offset
+            copy["id"] = id
+            copy[key] = "\(title) \(id)"
+            return copy
+        }
     }
 
     private var paper: [String: Any] {
@@ -435,6 +489,10 @@ final class UITestSchoolService: ScheduleServicing {
         status: "sms_required", maskedPhone: "138****0000", expiresIn: 600)
     static var payload: CourseSyncPayload { payload(term: "ui-test-term") }
 
+    private func requireSchoolAvailability() throws {
+        guard AppUITestBootstrap.environment["BIT101_UI_TEST_SCHOOL"] == "1" else { throw URLError(.notConnectedToInternet) }
+    }
+
     private static func payload(term: String) -> CourseSyncPayload {
         let firstDay = ScheduleDateCodec.formatDate(ScheduleDateCodec.monday(containing: Date()))
         return CourseSyncPayload(term: term, firstDayString: firstDay, sourceFirstDayString: firstDay,
@@ -446,26 +504,32 @@ final class UITestSchoolService: ScheduleServicing {
             ], exams: [
                 ExamRecord(id: "ui-exam", term: term, name: "测试考试", courseID: "UI-002",
                     teacher: "测试教师", classroom: "文萃A101", dateString: firstDay,
-                    beginTime: "10:00", endTime: "11:00", examMode: "闭卷", seatID: "1")
+                    beginTime: "10:00", endTime: "11:00", examMode: "闭卷", seatID: "1"),
+                ExamRecord(id: "ui-outside-exam", term: term, name: "课间测试考试", courseID: "UI-003",
+                    teacher: "测试教师", classroom: "文萃A102", dateString: firstDay,
+                    beginTime: "12:30", endTime: "12:45", examMode: "开卷", seatID: "2")
             ])
     }
 
     func syncCourses(term: String?) async throws -> CourseSyncPayload {
+        try requireSchoolAvailability()
         guard authenticated else { throw ScheduleServiceError.secondFactorRequired(challenge) }
         return Self.payload(term: term ?? "ui-test-term")
     }
     func fetchAvailableTerms() async throws -> [String] {
+        try requireSchoolAvailability()
         guard authenticated else { throw ScheduleServiceError.secondFactorRequired(challenge) }
         return ["ui-test-term", "ui-test-term-2"]
     }
-    func fetchCurrentTermOnly() async throws -> String { "ui-test-term" }
-    func prepareTeachingCenterAccess() async throws {}
+    func fetchCurrentTermOnly() async throws -> String { try requireSchoolAvailability(); return "ui-test-term" }
+    func prepareTeachingCenterAccess() async throws { try requireSchoolAvailability() }
     func submitSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge, term: String?) async throws -> CourseSyncPayload {
         try verify(code)
         return try await syncCourses(term: term)
     }
     func submitSMSCodeForTeachingCenterAuthentication(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws { try verify(code) }
     func syncDDLEvents(existingEvents: [DDLEventRecord], storedURL: String, schoolSMSCodeHandler: SchoolSMSCodeHandler?) async throws -> DDLSyncPayload {
+        try requireSchoolAvailability()
         if !authenticated, let schoolSMSCodeHandler {
             try verify(await schoolSMSCodeHandler(SchoolSMSCodeRequest(maskedPhone: "138****0000", purpose: "测试学校认证")))
         }
@@ -474,16 +538,22 @@ final class UITestSchoolService: ScheduleServicing {
                 dueAt: Date().addingTimeInterval(86400), done: false)
         ], syncedGroups: ["eclass", "lexue"])
     }
-    func refreshLexueCalendarURL(schoolSMSCodeHandler: SchoolSMSCodeHandler?) async throws -> String { "https://lexue.bit.edu.cn/ui-test.ics" }
+    func refreshLexueCalendarURL(schoolSMSCodeHandler: SchoolSMSCodeHandler?) async throws -> String {
+        try requireSchoolAvailability()
+        return "https://lexue.bit.edu.cn/ui-test.ics"
+    }
     func fetchCampuses() async throws -> [CampusRecord] {
-        [CampusRecord(id: "1", name: "良乡校区", code: "1"), CampusRecord(id: "2", name: "中关村校区", code: "2")]
+        try requireSchoolAvailability()
+        return [CampusRecord(id: "1", name: "良乡校区", code: "1"), CampusRecord(id: "2", name: "中关村校区", code: "2")]
     }
     func fetchBuildings(campusCode: String?) async throws -> [BuildingRecord] {
-        [BuildingRecord(id: "A", name: "文萃楼A", buildingCode: "A", campusName: "良乡校区", campusCode: campusCode ?? "1"),
+        try requireSchoolAvailability()
+        return [BuildingRecord(id: "A", name: "文萃楼A", buildingCode: "A", campusName: "良乡校区", campusCode: campusCode ?? "1"),
          BuildingRecord(id: "B", name: "文萃楼B", buildingCode: "B", campusName: "良乡校区", campusCode: campusCode ?? "1")]
     }
-    func fetchClassrooms(buildingID: String, term: String) async throws -> [ClassroomRecord] {
-        [ClassroomRecord(id: buildingID + "101", name: buildingID + "101", busyTimeCodes: [])]
+    func fetchClassrooms(buildingID: String, term: String, date: Date) async throws -> [ClassroomRecord] {
+        try requireSchoolAvailability()
+        return [ClassroomRecord(id: buildingID + "101", name: buildingID + "101", busyTimeCodes: [])]
     }
     private func verify(_ code: String) throws {
         guard code == "123456" else { throw ScheduleServiceError.schoolSMSCodeInvalid("测试学校验证码错误。") }

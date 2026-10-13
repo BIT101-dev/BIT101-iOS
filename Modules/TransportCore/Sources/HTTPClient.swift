@@ -37,14 +37,6 @@ public protocol HTTPTransport {
     func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse)
 }
 
-public extension HTTPTransport {
-    func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
-        let result = try await data(for: request)
-        if let maximumBytes, result.0.count > maximumBytes { throw HTTPClientError.responseTooLarge }
-        return result
-    }
-}
-
 extension URLSession: HTTPTransport {
     @concurrent
     public func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {

@@ -67,6 +67,7 @@ public struct CoursePageContent: View {
         .onChange(of: viewModel.searchText) { oldValue, newValue in
             viewModel.clearSearchIfNeeded(from: oldValue, to: newValue)
         }
+        .onDisappear { viewModel.cancelRefreshOperations() }
         .diagnosticAlert(item: $viewModel.alert)
         .background(AppDesignSystem.Palette.Background.grouped)
     }
@@ -96,7 +97,7 @@ public struct CoursePageContent: View {
                     CourseListRow(course: course)
                 }
                 .buttonStyle(.plain)
-                .task {
+                .task(id: viewModel.state.status == .loaded ? viewModel.state.nextPage : nil) {
                     await viewModel.loadMoreIfNeeded(currentCourse: course)
                 }
                 .appInteractiveListRow()

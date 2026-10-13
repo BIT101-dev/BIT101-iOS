@@ -28,7 +28,7 @@ struct PaperSearchViewModelTests {
         func fetchPreviewMetadata(id: Int) async throws -> PaperPreviewMetadata { try await fetchPaper(id: id).previewMetadata }
     }
 
-    @Test @MainActor
+    @Test(.timeLimit(.minutes(1))) @MainActor
     func listPaginationKeepsTheSuccessfulConditionsAfterEditingAndRefreshFailure() async {
         let paper = PaperSummary(id: 1, title: "A", intro: "", likeNum: 0, commentNum: 0, updateTime: "")
         let service = ServiceStub(result: .success([paper]))
@@ -44,7 +44,7 @@ struct PaperSearchViewModelTests {
         #expect(service.requests.last?.page == 1 && model.state.items == [paper])
     }
 
-    @Test @MainActor
+    @Test(.timeLimit(.minutes(1))) @MainActor
     func searchPaginationKeepsItsSubmittedConditionsWhileEditing() async {
         let paper = PaperSummary(id: 1, title: "A", intro: "", likeNum: 0, commentNum: 0, updateTime: "")
         let service = ServiceStub(result: .success([paper]))
@@ -58,7 +58,7 @@ struct PaperSearchViewModelTests {
         #expect(service.requests.last?.page == 1 && model.state.items == [paper])
     }
 
-    @Test(arguments: [false, true], [false, true]) @MainActor
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true], [false, true]) @MainActor
     func metadataRefreshRejectsEarlierRequestsAndReflectsAnonymity(search: Bool, staleFailure: Bool) async throws {
         let paper = PaperSummary(id: 1, title: "fixture", intro: "", likeNum: 0, commentNum: 0, updateTime: "")
         let service = ServiceStub(result: .success([paper]))
@@ -88,7 +88,7 @@ struct PaperSearchViewModelTests {
         #expect(preview() == nil)
         let gate = ListRequestGate<PaperDetail>()
         service.metadata = { _ in
-            let detail = await gate.request()
+            let detail = try await gate.request()
             if staleFailure { throw URLError(.timedOut) }
             return detail
         }
@@ -106,7 +106,7 @@ struct PaperSearchViewModelTests {
         if search { results.reset(); #expect(preview() == nil) }
     }
 
-    @Test(arguments: [false, true]) @MainActor
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true]) @MainActor
     func leavingThePageReleasesPreviewRequestsForTheSamePaper(search: Bool) async throws {
         let paper = PaperSummary(id: 1, title: "fixture", intro: "", likeNum: 0, commentNum: 0, updateTime: "")
         let service = ServiceStub(result: .success([paper]))
@@ -129,7 +129,7 @@ struct PaperSearchViewModelTests {
         var requests = 0
         service.metadata = { _ in
             requests += 1
-            return requests == 1 ? await earlierGate.request() : fresh
+            return requests == 1 ? try await earlierGate.request() : fresh
         }
         let earlier = Task { await load() }
         try await earlierGate.waitUntilRequested()
@@ -144,7 +144,7 @@ struct PaperSearchViewModelTests {
         #expect(service.requests.count == 1)
     }
 
-    @Test(arguments: [false, true]) @MainActor
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true]) @MainActor
     func failedPreviewLeavesALoadResultAndRefreshAllowsRetry(search: Bool) async {
         let paper = PaperSummary(id: 1, title: "fixture", intro: "", likeNum: 0, commentNum: 0, updateTime: "")
         let service = ServiceStub(result: .success([paper]))
@@ -168,7 +168,7 @@ struct PaperSearchViewModelTests {
         #expect(search ? results.previewMetadata(for: paper.id) != nil : list.previewMetadata(for: paper.id) != nil)
     }
 
-    @Test @MainActor func paperListRetriesItsCancelledBootstrapWhenThePageReturns() async {
+    @Test(.timeLimit(.minutes(1))) @MainActor func paperListRetriesItsCancelledBootstrapWhenThePageReturns() async {
         let paper = PaperSummary(id: 1, title: "fixture", intro: "", likeNum: 0, commentNum: 0, updateTime: "")
         let service = ServiceStub(result: .failure(CancellationError()))
         let model = PaperListViewModel(service: service)
@@ -181,7 +181,7 @@ struct PaperSearchViewModelTests {
         #expect(service.requests.count == 2)
     }
 
-    @Test("Blank searches reset populated results locally")
+    @Test("Blank searches reset populated results locally", .timeLimit(.minutes(1)))
     @MainActor
     func blankSearchResetsLocally() async {
         let paper = PaperSummary(
@@ -207,7 +207,7 @@ struct PaperSearchViewModelTests {
         #expect(viewModel.state.items.isEmpty)
     }
 
-    @Test("Cancellation restores the idle search state with alert clear")
+    @Test("Cancellation restores the idle search state with alert clear", .timeLimit(.minutes(1)))
     @MainActor
     func cancellationIsSilent() async {
         let service = ServiceStub(result: .failure(CancellationError()))
@@ -221,7 +221,7 @@ struct PaperSearchViewModelTests {
         #expect(viewModel.alert == nil)
     }
 
-    @Test("Search parameters are normalized and forwarded")
+    @Test("Search parameters are normalized and forwarded", .timeLimit(.minutes(1)))
     @MainActor
     func forwardsNormalizedSearch() async {
         let paper = PaperSummary(

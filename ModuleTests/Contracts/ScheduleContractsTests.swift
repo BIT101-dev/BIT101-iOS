@@ -7,7 +7,7 @@ import ScheduleDomain
 import Testing
 
 struct ScheduleContractsTests {
-    @Test func maximumSharePayloadRoundTripsThroughConcurrentCodec() async throws {
+    @Test(.timeLimit(.minutes(1))) func maximumSharePayloadRoundTripsThroughConcurrentCodec() async throws {
         let weeks = Array(1...20)
         let courses = (0..<ScheduleShareCodeCodec.maximumCourseCount).map { index in
             sharedCourse(weeks: weeks, name: "容量课程\(index)")
@@ -135,9 +135,25 @@ struct ScheduleContractsTests {
         #expect(occurrences.map { ScheduleSharedDateCodec.formatDate($0.startDate) } == ["2030-09-02", "2030-09-09", "2030-09-16"])
     }
 
-    private func sharedCourse(weeks: [Int], weekday: Int = 1, first: Int = 1, last: Int = 1, name: String = "课程") -> CourseRecord {
+    private func sharedCourse(weeks: [Int], weekday: Int = 1, first: Int = 1, last: Int = 1, name: String = "课程", credit: Double = 0) -> CourseRecord {
         CourseRecord(id: "share-validation", term: "", name: name, teacher: "", classroom: "", description: "", weeks: weeks,
-            weekday: weekday, startSection: first, endSection: last, campus: "", number: "", credit: 0, hour: 0, type: "", category: "", department: "")
+            weekday: weekday, startSection: first, endSection: last, campus: "", number: "", credit: credit, hour: 0, type: "", category: "", department: "")
+    }
+
+    @Test(arguments: [Double.nan, .infinity, -.infinity])
+    func nonFiniteCreditsAreRejectedByCourseAndCacheAdmission(_ credit: Double) throws {
+        let course = sharedCourse(weeks: [1], credit: credit)
+        #expect(!course.hasValidPlacement && course.creditText == "-")
+        var cache = ScheduleCache()
+        cache.courseData.schedulesByTerm["term"] = TermScheduleSnapshot(term: "term", firstDayString: "2026-09-07",
+            courses: [course], exams: [], updatedAt: Date())
+        #expect(!cache.isValidForPersistence)
+        let encoder = JSONEncoder()
+        encoder.nonConformingFloatEncodingStrategy = .convertToString(positiveInfinity: "inf", negativeInfinity: "-inf", nan: "nan")
+        let data = try encoder.encode(course)
+        let decoder = JSONDecoder()
+        decoder.nonConformingFloatDecodingStrategy = .convertFromString(positiveInfinity: "inf", negativeInfinity: "-inf", nan: "nan")
+        #expect(throws: DecodingError.self) { try decoder.decode(CourseRecord.self, from: data) }
     }
 
     @Test @MainActor func scheduleDateDisplaysUseTheSharedSchoolTimeZone() throws {
@@ -283,11 +299,11 @@ struct ScheduleContractsTests {
     }
 
     @Test(arguments: ["weekday", "section", "time", "weeks", "duplicate"])
-    func invalidCourseStructureRemainsDistinctFromAnEndedTerm(problem: String) {
+    func invalidCourseStructureRemainsDistinctFromAnEndedTerm(problem: String) throws {
         let valid = makeSnapshot()
         let course = valid.courses[0]
         let slot = valid.timeTable[0]
-        let snapshot = ScheduleExternalSnapshot(generatedAt: valid.generatedAt, isLoggedIn: true,
+        let snapshot = ScheduleExternalSnapshot(generatedAt: valid.generatedAt, revision: 10, isLoggedIn: true,
             studentID: valid.studentID, firstDayString: valid.firstDayString,
             timeTable: problem == "duplicate" ? [slot, slot] : [ScheduleExternalTimeSlotSnapshot(id: slot.id,
                 start: problem == "time" ? "25:00" : slot.start, end: slot.end)],
@@ -298,6 +314,17 @@ struct ScheduleContractsTests {
         let afterTerm = Date(timeIntervalSince1970: 2_000_000_000)
         #expect(ScheduleOccurrenceResolver.resolvedSnapshot(from: valid, now: afterTerm).contentState == .rest)
         #expect(ScheduleOccurrenceResolver.resolvedSnapshot(from: snapshot, now: afterTerm).contentState == .invalid)
+        #expect(throws: CocoaError.self) { try ScheduleExternalSnapshotCodec.encode(snapshot) }
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let invalidData = try encoder.encode(snapshot)
+        #expect(throws: CocoaError.self) { try ScheduleExternalSnapshotCodec.decode(invalidData) }
+        let files = ModuleScoreFiles()
+        let store = ScheduleExternalSnapshotStore(files: files, containerURL: files.temporaryDirectoryURL)
+        try store.write(valid)
+        let stored = try #require(store.load())
+        #expect(throws: CocoaError.self) { try store.writeIfNewer(snapshot) }
+        #expect(store.load() == stored)
     }
 
     @Test(arguments: [true, false])
@@ -430,6 +457,32 @@ struct ScheduleSharedStoreTests {
         #expect(WatchScheduleTransferProtocol.knownRevision(from: [WatchScheduleTransferProtocol.requestLatestSnapshotKey: true]) == nil)
     }
 
+    @Test(arguments: [UInt64(0), UInt64(1_000)])
+    func clearedSnapshotVersionsSurviveStoreReconstruction(revision: UInt64) throws {
+        let files = ModuleScoreFiles(), root = URL(fileURLWithPath: "/watch-cleared-version")
+        let store = ScheduleExternalSnapshotStore(files: files, containerURL: root)
+        let snapshot = ScheduleExternalSnapshot(generatedAt: Date(timeIntervalSince1970: 100), revision: revision,
+            isLoggedIn: true, studentID: "watch-account", firstDayString: "", timeTable: [], courses: [])
+        try store.write(snapshot)
+        #expect(store.clearRetainingVersion() && store.load() == nil)
+        let restored = ScheduleExternalSnapshotStore(files: files, containerURL: root)
+        #expect(restored.load() == nil && restored.latestRevision == revision)
+        #expect(restored.clearRetainingVersion())
+        #expect(throws: ScheduleExternalSnapshotStoreError.staleSnapshot) { try restored.writeIfNewer(snapshot) }
+        #expect(restored.load() == nil)
+        let fresh = try #require(snapshot.advancingRevision(after: restored.latestRevision))
+        #expect(try restored.writeIfNewer(fresh))
+        #expect(restored.load()?.revision == revision + 1)
+        files.setFailures(writing: true)
+        #expect(restored.clearRetainingVersion() == false)
+        #expect(restored.load()?.revision == revision + 1)
+        files.setFailures()
+        let file = try #require(restored.fileURL)
+        try files.writeData(Data("damaged snapshot".utf8), to: file, options: [])
+        #expect(restored.clearRetainingVersion() && restored.load() == nil)
+        #expect(files.storedData[file] == nil)
+    }
+
     @Test func outOfOrderSnapshotsPreserveTheNewAccountAndLogout() throws {
         let store = ScheduleExternalSnapshotStore(files: ModuleScoreFiles(), containerURL: URL(fileURLWithPath: "/module-shared-order"))
         func value(_ revision: UInt64, _ account: String, loggedIn: Bool = true) -> ScheduleExternalSnapshot {
@@ -467,7 +520,7 @@ struct ScheduleSharedStoreTests {
         }
     }
 
-    @Test func injectedContainerFilesAndNotificationsOwnTheSnapshot() async throws {
+    @Test(.timeLimit(.minutes(1))) func injectedContainerFilesAndNotificationsOwnTheSnapshot() async throws {
         let files = ModuleScoreFiles()
         let center = NotificationCenter()
         let store = ScheduleExternalSnapshotStore(
@@ -489,7 +542,7 @@ struct ScheduleSharedStoreTests {
         #expect(store.clear())
     }
 
-    @Test func legacyIdentityMigrationUsesTheInjectedStore() async throws {
+    @Test(.timeLimit(.minutes(1))) func legacyIdentityMigrationUsesTheInjectedStore() async throws {
         let files = ModuleScoreFiles()
         let center = NotificationCenter()
         let store = ScheduleExternalSnapshotStore(

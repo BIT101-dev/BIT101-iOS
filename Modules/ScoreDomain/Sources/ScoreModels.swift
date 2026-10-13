@@ -59,6 +59,7 @@ public nonisolated struct ScoreField: Codable, Hashable, Sendable {
 ///
 /// 模型保留原始表头和值的对应关系，并提供常用字段访问器。
 public nonisolated struct ScoreRow: Codable, Identifiable, Equatable, Sendable {
+    public static let requiredHeaderNames: Set<String> = ["课程名称", "课程编号", "成绩", "学分"]
     public let id: String
     public let values: [ScoreField]
 
@@ -90,6 +91,10 @@ public nonisolated struct ScoreRow: Codable, Identifiable, Equatable, Sendable {
     public var classRank: String { self["本人成绩在班级中占"] }
     public var majorRank: String { self["本人成绩在专业中占"] }
     public var courseNumber: String { self["课程编号"] }
+    public var hasValidCourseIdentity: Bool {
+        !courseName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !courseNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
     public var teachingClassesCompletionStatus: String {
         self["该课程所有教学班成绩录入完毕"]
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -318,7 +323,8 @@ public nonisolated enum ScoreSortIndex: String, CaseIterable, Identifiable, Send
     }
 
     private func numericComparableValue(from raw: String) -> Double? {
-        Double(normalizedText(raw))
+        guard let value = Double(normalizedText(raw)), value.isFinite else { return nil }
+        return value
     }
 
     private func scoreComparableValue(from raw: String) -> Double? {
@@ -329,12 +335,13 @@ public nonisolated enum ScoreSortIndex: String, CaseIterable, Identifiable, Send
         case "中等": return 75
         case "及格": return 65
         case "不及格": return 0
-        default: return Double(trimmed)
+        default: return numericComparableValue(from: trimmed)
         }
     }
 
     private func compareNumbers(_ lhs: Double?, _ rhs: Double?) -> ComparisonResult {
-        guard let lhs, let rhs else { return .orderedSame }
+        guard let lhs else { return rhs == nil ? .orderedSame : .orderedDescending }
+        guard let rhs else { return .orderedAscending }
         if lhs < rhs { return .orderedAscending }
         if lhs > rhs { return .orderedDescending }
         return .orderedSame

@@ -1,4 +1,5 @@
 import ScheduleDomain
+import ScheduleContracts
 //
 //  ScheduleViewModel+CourseEditing.swift
 //  BIT101-iOS
@@ -9,14 +10,14 @@ import Foundation
 extension ScheduleViewModel {
     /// 生成新增课程用的默认草稿。
     ///
-    /// 周次默认留空，让用户填写实际的周次范围。
+    /// 周次沿用主课表正在显示的周次。
     /// 节次则给一个最常见的双节课起点。
-    func courseDraft(for _: Int) -> CourseDraft {
+    func courseDraft(for week: Int) -> CourseDraft {
         CourseDraft(
             weekday: 1,
             startSection: 1,
             endSection: min(2, max(courseState.timeTable.count, 1)),
-            weeksText: ""
+            weeksText: String(week)
         )
     }
 
@@ -156,7 +157,8 @@ extension ScheduleViewModel {
     /// 删除课程在当前周的显示。
     ///
     /// 课程覆盖范围为空时移除整门课。
-    func deleteCourseOccurrence(id: String, week: Int) {
+    func deleteCourseOccurrence(id: String, week: Int) throws {
+        try repository.requireWritable()
         let previousCourses = courseState.courses
         let updatedCourses = ScheduleCourseEditor.deletingOccurrence(
             id: id,
@@ -168,7 +170,8 @@ extension ScheduleViewModel {
     }
 
     /// 删除整门课程。
-    func deleteCourse(id: String) {
+    func deleteCourse(id: String) throws {
+        try repository.requireWritable()
         let previousCourses = courseState.courses
         replaceCurrentCourses(
             ScheduleCourseEditor.deleting(id: id, from: previousCourses),
@@ -178,7 +181,8 @@ extension ScheduleViewModel {
     }
 
     /// 将指定日期设置为放假：清空这一天的课程，保留考试和自定义日程。
-    func clearCourses(week: Int, weekday: Int) {
+    func clearCourses(week: Int, weekday: Int) throws {
+        try repository.requireWritable()
         let previousCourses = courseState.courses
         let updatedCourses = ScheduleCourseEditor.removingOccurrences(
             from: courseState.courses,
@@ -287,7 +291,15 @@ extension ScheduleViewModel {
     /// 把已有自定义日程转成编辑草稿；记录为空时生成一份默认草稿。
     func customScheduleDraft(for record: CustomScheduleRecord?) -> CustomScheduleDraft {
         guard let record else {
-            return newCustomScheduleDraft()
+            var draft = newCustomScheduleDraft()
+            if let firstDay = courseState.firstDay,
+               let date = ScheduleDateCodec.calendar.date(byAdding: .day,
+                   value: ScheduleWeekCodec.weekOffset(forWeekNumber: selectedWeek) * 7
+                       + ScheduleDateCodec.weekdayIndex(from: draft.date) - 1, to: firstDay) {
+                draft.date = date
+                draft.selectedWeeks = [selectedWeek]
+            }
+            return draft
         }
 
         return CustomScheduleDraft(
@@ -296,24 +308,31 @@ extension ScheduleViewModel {
             description: record.description,
             date: ScheduleDateCodec.parseDate(record.dateString) ?? Date(),
             beginTime: ScheduleDateCodec.parseTime(record.beginTime) ?? Date(),
-            endTime: ScheduleDateCodec.parseTime(record.endTime) ?? Date()
+            endTime: ScheduleDateCodec.parseTime(record.endTime) ?? Date(),
+            selectedWeeks: record.occurrenceDateStrings.compactMap { text in
+                guard let date = ScheduleDateCodec.parseDate(text), let context = try? courseDayContext(for: date),
+                      ScheduleCourseConstraints.validWeeks.contains(context.week) else { return nil }
+                return context.week
+            }
         )
     }
 
     /// 新增一条自定义日程。
     func addCustomSchedule(_ draft: CustomScheduleDraft) throws {
         try repository.requireWritable()
-        try validateCustomScheduleTimeRange(draft)
+        let title = try validatedCustomScheduleTitle(draft)
+        let dates = try customScheduleDates(for: draft)
 
         courseState.customSchedules.append(
             CustomScheduleRecord(
                 id: UUID().uuidString,
-                title: draft.title,
+                title: title,
                 subtitle: draft.subtitle,
                 description: draft.description,
-                dateString: ScheduleDateCodec.formatDate(draft.date),
+                dateString: dates[0],
                 beginTime: ScheduleDateCodec.formatTime(draft.beginTime),
-                endTime: ScheduleDateCodec.formatTime(draft.endTime)
+                endTime: ScheduleDateCodec.formatTime(draft.endTime),
+                additionalDateStrings: dates.count > 1 ? Array(dates.dropFirst()) : nil
             )
         )
         persist()
@@ -322,29 +341,58 @@ extension ScheduleViewModel {
     /// 更新指定自定义日程。
     func updateCustomSchedule(id: String, draft: CustomScheduleDraft) throws {
         try repository.requireWritable()
-        try validateCustomScheduleTimeRange(draft)
+        let title = try validatedCustomScheduleTitle(draft)
+        let dates = try customScheduleDates(for: draft)
 
         guard let index = courseState.customSchedules.firstIndex(where: { $0.id == id }) else { return }
-        courseState.customSchedules[index].title = draft.title
+        courseState.customSchedules[index].title = title
         courseState.customSchedules[index].subtitle = draft.subtitle
         courseState.customSchedules[index].description = draft.description
-        courseState.customSchedules[index].dateString = ScheduleDateCodec.formatDate(draft.date)
+        courseState.customSchedules[index].dateString = dates[0]
+        courseState.customSchedules[index].additionalDateStrings = dates.count > 1 ? Array(dates.dropFirst()) : nil
         courseState.customSchedules[index].beginTime = ScheduleDateCodec.formatTime(draft.beginTime)
         courseState.customSchedules[index].endTime = ScheduleDateCodec.formatTime(draft.endTime)
         persist()
     }
 
     /// 删除指定自定义日程。
-    func deleteCustomSchedule(id: String) {
+    func deleteCustomSchedule(id: String) throws {
+        try repository.requireWritable()
         courseState.customSchedules.removeAll { $0.id == id }
         persist()
     }
 
-    private func validateCustomScheduleTimeRange(_ draft: CustomScheduleDraft) throws {
+    private func validatedCustomScheduleTitle(_ draft: CustomScheduleDraft) throws -> String {
+        let title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { throw scheduleValidationError("请填写日程标题。") }
+        for (label, value) in [("日程标题", title), ("地点", draft.subtitle), ("描述", draft.description)] {
+            guard value.utf8.count <= ScheduleCourseConstraints.maximumFieldBytes else {
+                throw scheduleValidationError("\(label)长度上限为 \(ScheduleCourseConstraints.maximumFieldBytes) UTF-8 字节。")
+            }
+        }
         let beginMinutes = ScheduleDateCodec.minutesOfDay(from: draft.beginTime)
         let endMinutes = ScheduleDateCodec.minutesOfDay(from: draft.endTime)
         guard endMinutes > beginMinutes else {
             throw scheduleValidationError("结束时间必须晚于开始时间。")
+        }
+        return title
+    }
+
+    private func customScheduleDates(for draft: CustomScheduleDraft) throws -> [String] {
+        guard let firstDay = courseState.firstDay else { return [ScheduleDateCodec.formatDate(draft.date)] }
+        let context = try courseDayContext(for: draft.date)
+        guard ScheduleCourseConstraints.validWeeks.contains(context.week) else {
+            return [ScheduleDateCodec.formatDate(draft.date)]
+        }
+        guard !draft.selectedWeeks.isEmpty,
+              draft.selectedWeeks.allSatisfy(ScheduleCourseConstraints.validWeeks.contains) else {
+            throw scheduleValidationError("请选择日程周次。")
+        }
+        return try Array(Set(draft.selectedWeeks)).sorted().map { week in
+            guard let date = ScheduleDateCodec.calendar.date(byAdding: .day,
+                value: ScheduleWeekCodec.weekOffset(forWeekNumber: week) * 7 + context.weekday - 1, to: firstDay)
+            else { throw scheduleValidationError("日程日期需要调整。") }
+            return ScheduleDateCodec.formatDate(date)
         }
     }
 

@@ -58,9 +58,10 @@ final class CampusLocationController: NSObject, ObservableObject, CLLocationMana
     /// 当前需要直接弹给用户的定位提示。
     @Published var notice: MapNotice?
 
-    private let manager = CLLocationManager()
+    private let manager: CLLocationManager
 
-    override init() {
+    init(manager: CLLocationManager = CLLocationManager()) {
+        self.manager = manager
         authorizationStatus = manager.authorizationStatus
         super.init()
         manager.delegate = self

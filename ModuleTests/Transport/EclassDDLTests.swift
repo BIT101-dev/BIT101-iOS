@@ -10,6 +10,64 @@ import TransportCore
 
 @MainActor
 struct EclassDDLTests {
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func cancelledCalendarsRemoveEventsAndUnsupportedTasksRetainTheSource(unsupported: Bool) async throws {
+        let calendar = unsupported
+            ? "BEGIN:VCALENDAR\nBEGIN:VTODO\nUID:old\nSUMMARY:待办\nDUE:20301002T100000Z\nEND:VTODO\nEND:VCALENDAR"
+            : "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:old\nSTATUS:CANCELLED\nEND:VEVENT\nEND:VCALENDAR"
+        let transport = EclassTransport { request in
+            request.url?.path == "/api/my-courses" ? (200, #"{"courses":[],"pages":0}"#, nil) : (200, calendar, nil)
+        }
+        let original = DDLEventRecord(id: "old", group: "lexue", title: "待办", text: "", dueAt: .distantFuture, done: false)
+        var initial = ScheduleCache()
+        initial.lexueCalendarURL = "https://lexue.bit.edu.cn/calendar.ics"
+        initial.ddlEvents = [original]
+        var saved: ScheduleCache?
+        let repository = ScheduleRepository(session: { AppStorageSession(accountIdentifier: "calendar-status") },
+            load: { _ in .loaded(initial) }, save: { cache, _, _ in saved = cache })
+        await repository.loadIfNeeded()
+        let model = ScheduleDDLViewModel(service: service(transport), repository: repository)
+        #expect(await model.syncDDL() == !unsupported)
+        #expect(saved?.ddlEvents == (unsupported ? [original] : []))
+        let active = "BEGIN:VEVENT\nUID:old\nSUMMARY:待办\nDTSTART:20301002T100000Z\nEND:VEVENT"
+        let cancelled = "BEGIN:VEVENT\nUID:old\nSTATUS:CANCELLED\nEND:VEVENT"
+        for body in [active + "\n" + cancelled, cancelled + "\n" + active] {
+            #expect(try ScheduleICSParser.parse("BEGIN:VCALENDAR\n\(body)\nEND:VCALENDAR").isEmpty)
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: ["identical", "course-name", "activity-title", "activity-deadline"])
+    func duplicateEclassIdentityConflictsPreserveTheOwnedSource(stage: String) async throws {
+        let transport = EclassTransport { request in
+            if request.url?.path == "/api/my-courses" {
+                let body = try #require(request.httpBody)
+                let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+                if json["page"] as? Int == 1 { return (200, #"{"courses":[{"id":1,"name":"第一门"}],"page":1,"pages":2}"#, nil) }
+                let name = stage == "course-name" ? "发生分歧" : "第一门"
+                return (200, "{\"courses\":[{\"id\":1,\"name\":\"\(name)\"},{\"id\":2,\"name\":\"第二门\"}],\"page\":2,\"pages\":2}", nil)
+            }
+            if request.url?.path.hasSuffix("/activities") == true {
+                let second = request.url?.path.contains("/2/") == true
+                let title = second && stage == "activity-title" ? "发生分歧" : "作业"
+                let deadline = second && stage == "activity-deadline" ? "2030-10-02 23:59" : "2030-10-01 23:59"
+                return (200, "{\"activities\":[{\"id\":42,\"title\":\"\(title)\",\"submit_times\":1,\"end_time\":\"\(deadline)\"}]}", nil)
+            }
+            return (200, "BEGIN:VCALENDAR\nEND:VCALENDAR", nil)
+        }
+        var initial = ScheduleCache()
+        initial.lexueCalendarURL = "https://lexue.bit.edu.cn/calendar.ics"
+        let original = DDLEventRecord(id: "eclass:42", group: "eclass", title: "既有作业", text: "", dueAt: Date(), done: true)
+        initial.ddlEvents = [original]
+        var saved: ScheduleCache?
+        let repository = ScheduleRepository(session: { AppStorageSession(accountIdentifier: "duplicate-eclass") },
+            load: { _ in .loaded(initial) }, save: { value, _, _ in saved = value })
+        await repository.loadIfNeeded()
+        let model = ScheduleDDLViewModel(service: service(transport), repository: repository)
+        #expect(await model.syncDDL() == (stage == "identical"))
+        if stage == "identical" { #expect(saved?.ddlEvents.count == 1 && saved?.ddlEvents.first?.title == "作业") }
+        else { #expect(saved?.ddlEvents == [original]) }
+    }
+
     @Test(arguments: [
         "BEGIN:VEVENT\nUID:bad\nSUMMARY:bad\nDTSTART:invalid\nEND:VEVENT",
         "BEGIN:VEVENT\nSUMMARY:missing uid\nDTSTART:20261008T100000Z\nEND:VEVENT",
@@ -37,7 +95,7 @@ struct EclassDDLTests {
         #expect(events.first?.dueAt == (try Date.ISO8601FormatStyle().parse("2026-10-08T14:00:00Z")))
     }
 
-    @Test(arguments: [#"{"id":0,"name":"异常课程"}"#, #"{"id":2,"name":""}"#, #"{"id":2,"name":" "}"#])
+    @Test(.timeLimit(.minutes(1)), arguments: [#"{"id":0,"name":"异常课程"}"#, #"{"id":2,"name":""}"#, #"{"id":2,"name":" "}"#])
     func mixedValidAndMalformedCoursePagesPreserveTheOwnedDeadlineSource(invalid: String) async throws {
         let transport = EclassTransport { request in
             request.url?.path == "/api/my-courses"
@@ -76,7 +134,7 @@ struct EclassDDLTests {
         #expect(events.count == 1 && events.first?.title == "课程作业")
     }
 
-    @Test(arguments: [true, false])
+    @Test(.timeLimit(.minutes(1)), arguments: [true, false])
     func realDDLSourceRetainsCorruptLexueDataAndClearsAValidEmptyCalendar(corrupt: Bool) async throws {
         let calendar = corrupt ? "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:bad\nSUMMARY:bad\nDTSTART:invalid\nEND:VEVENT\nEND:VCALENDAR"
             : "BEGIN:VCALENDAR\nEND:VCALENDAR"
@@ -98,7 +156,7 @@ struct EclassDDLTests {
         #expect(transport.requests.count == 2)
     }
 
-    @Test(arguments: ["RRULE:FREQ=DAILY;COUNT=2", "EXDATE:20261008T100000Z", "RECURRENCE-ID:20261009T100000Z"])
+    @Test(.timeLimit(.minutes(1)), arguments: ["RRULE:FREQ=DAILY;COUNT=2", "EXDATE:20261008T100000Z", "RECURRENCE-ID:20261009T100000Z"])
     func unsupportedCalendarRecurrencePreservesTheOwnedDeadlineSource(property: String) async throws {
         let calendar = "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:recurring\nSUMMARY:作业\nDTSTART:20261008T100000Z\n\(property)\nEND:VEVENT\nEND:VCALENDAR"
         let transport = EclassTransport { request in
@@ -118,13 +176,15 @@ struct EclassDDLTests {
         #expect(model.notice?.title == "DDL 部分更新")
     }
 
-    @Test func productionDDLServicePersistsAndReloadsTheOwnedSourceWithCompletion() async throws {
+    @Test(.timeLimit(.minutes(1))) func productionDDLServicePersistsAndReloadsTheOwnedSourceWithCompletion() async throws {
         let transport = EclassTransport { request in
-            request.url?.path == "/api/my-courses"
+            if request.url?.path == "/calendar.ics" { return (200, "BEGIN:VCALENDAR\nEND:VCALENDAR", nil) }
+            return request.url?.path == "/api/my-courses"
                 ? (200, #"{"courses":[{"id":1,"name":"操作系统"}],"pages":1}"#, nil)
                 : (200, #"{"activities":[{"id":42,"title":"新版作业","submit_times":1,"end_time":"2030-10-01T15:59:00Z"},{"id":43,"type":"material","title":"资料","end_time":"2030-10-01 23:59:00"}]}"#, nil)
         }
         var initial = ScheduleCache()
+        initial.lexueCalendarURL = "https://lexue.bit.edu.cn/calendar.ics"
         initial.ddlEvents = [
             DDLEventRecord(id: "eclass:42", group: "eclass", title: "缓存作业", text: "", dueAt: Date(), done: true),
             DDLEventRecord(id: "manual", group: "main", title: "手动日程", text: "", dueAt: Date().addingTimeInterval(3600), done: false),
@@ -197,7 +257,7 @@ struct EclassDDLTests {
         #expect(throws: ScheduleServiceError.self) { try activity.event(courseName: "课程") }
     }
 
-    @Test(arguments: [false, true])
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func malformedEclassDeadlinePreservesTheCompleteOwnedSource(corrupt: Bool) async throws {
         let deadline = corrupt ? "invalid" : "null"
         let transport = EclassTransport { request in
@@ -241,7 +301,7 @@ struct EclassDDLTests {
         #expect(try decodeActivity(json).event(courseName: "课名") == nil)
     }
 
-    @Test func allCoursePagesAreRequestedAndDuplicatesAreMerged() async throws {
+    @Test(.timeLimit(.minutes(1))) func allCoursePagesAreRequestedAndDuplicatesAreMerged() async throws {
         let transport = EclassTransport { request in
             if request.url?.path == "/api/my-courses" {
                 let body = try #require(request.httpBody)
@@ -265,7 +325,7 @@ struct EclassDDLTests {
         #expect(transport.requests.allSatisfy { $0.url?.host == "zy-eclass.bit.edu.cn" })
     }
 
-    @Test func activityRequestsHaveBoundedConcurrencyAndGlobalOrdering() async throws {
+    @Test(.timeLimit(.minutes(1))) func activityRequestsHaveBoundedConcurrencyAndGlobalOrdering() async throws {
         let transport = EclassTransport { request in
             if request.url?.path == "/api/my-courses" {
                 let courses = (1 ... 9).map { #"{"id":\#($0),"name":"course"}"# }.joined(separator: ",")
@@ -280,7 +340,7 @@ struct EclassDDLTests {
         #expect(transport.maximumConcurrentRequests > 1)
     }
 
-    @Test(arguments: [#"{"courses":[{"id":1,"name":"课"}],"page":2,"pages":2}"#,
+    @Test(.timeLimit(.minutes(1)), arguments: [#"{"courses":[{"id":1,"name":"课"}],"page":2,"pages":2}"#,
                       #"{"courses":[],"page":1,"pages":2}"#,
                       #"{"courses":[{"id":0,"name":"课"}],"page":1,"pages":1}"#,
                       #"{"visited_courses":[]}"#, #"{}"#])
@@ -289,7 +349,7 @@ struct EclassDDLTests {
         await #expect(throws: ScheduleServiceError.self) { try await service(transport).fetchEclassDDLEvents() }
     }
 
-    @Test func repeatedCoursePagesStopTheSync() async {
+    @Test(.timeLimit(.minutes(1))) func repeatedCoursePagesStopTheSync() async {
         let transport = EclassTransport { _ in
             (200, #"{"courses":[{"id":1,"name":"课"}],"pages":3}"#, nil)
         }
@@ -297,7 +357,7 @@ struct EclassDDLTests {
         #expect(transport.requests.count == 2)
     }
 
-    @Test(arguments: ["1", "3", "null"])
+    @Test(.timeLimit(.minutes(1)), arguments: ["1", "3", "null"])
     func changingPageTotalsRejectTheSnapshot(total: String) async {
         var page = 0
         let transport = EclassTransport { _ in
@@ -308,7 +368,7 @@ struct EclassDDLTests {
         #expect(transport.requests.count == 2)
     }
 
-    @Test func anUnboundedCourseFeedStopsAtTheSharedBodyBudget() async throws {
+    @Test(.timeLimit(.minutes(1))) func anUnboundedCourseFeedStopsAtTheSharedBodyBudget() async throws {
         var page = 0
         let transport = EclassTransport { _ in
             page += 1
@@ -325,7 +385,7 @@ struct EclassDDLTests {
         #expect(transport.requests.count == 2)
     }
 
-    @Test func theDeadlineCoversTheResponseAndStopsFurtherRequests() async {
+    @Test(.timeLimit(.minutes(1))) func theDeadlineCoversTheResponseAndStopsFurtherRequests() async {
         let transport = EclassTransport { _ in (200, #"{"courses":[],"pages":0}"#, nil) }
         transport.delay = .milliseconds(100)
         do {
@@ -358,7 +418,7 @@ struct EclassDDLTests {
         #expect(transport.maximumConcurrentRequests <= 4)
     }
 
-    @Test func emptyCourseListIsAValidCompleteResult() async throws {
+    @Test(.timeLimit(.minutes(1))) func emptyCourseListIsAValidCompleteResult() async throws {
         let transport = EclassTransport { _ in (200, #"{"courses":[],"page":1,"pages":0}"#, nil) }
         let result = try await service(transport).fetchEclassDDLEvents()
         #expect(result.courseCount == 0)
@@ -366,7 +426,7 @@ struct EclassDDLTests {
         #expect(transport.requests.count == 1)
     }
 
-    @Test(arguments: [401, 403, 302])
+    @Test(.timeLimit(.minutes(1)), arguments: [401, 403, 302])
     func authenticationStatusRequiresEclassLogin(_ status: Int) async {
         let transport = EclassTransport { _ in (status, "", nil) }
         do {
@@ -380,13 +440,13 @@ struct EclassDDLTests {
         }
     }
 
-    @Test func redirectedLoginHTMLRequiresEclassLogin() async {
+    @Test(.timeLimit(.minutes(1))) func redirectedLoginHTMLRequiresEclassLogin() async {
         let transport = EclassTransport { _ in (200, "<html>登录</html>", "https://zy-identity.bit.edu.cn/auth/") }
         do { _ = try await service(transport).fetchEclassDDLEvents(); Issue.record("Expected authentication") }
         catch { #expect(error as? ScheduleServiceError != nil) }
     }
 
-    @Test func failedCourseActivityRejectsTheCompleteSnapshot() async {
+    @Test(.timeLimit(.minutes(1))) func failedCourseActivityRejectsTheCompleteSnapshot() async {
         let transport = EclassTransport { request in
             request.url?.path == "/api/my-courses"
                 ? (200, #"{"courses":[{"id":1,"name":"课"}],"pages":1}"#, nil)
@@ -395,19 +455,31 @@ struct EclassDDLTests {
         await #expect(throws: ScheduleServiceError.self) { try await service(transport).fetchEclassDDLEvents() }
     }
 
-    @Test func cancellationPropagatesThroughTheSourceAggregator() async {
+    @Test(.timeLimit(.minutes(1))) func cancellationPropagatesThroughTheSourceAggregator() async {
         let transport = EclassTransport { _ in throw CancellationError() }
         await #expect(throws: CancellationError.self) {
             try await service(transport).syncDDLEvents(existingEvents: [], storedURL: "")
         }
     }
 
-    @Test func freshEclassSyncRecordsItsSourceWithoutLexueDiscovery() async throws {
-        let transport = EclassTransport { _ in (200, #"{"courses":[],"pages":0}"#, nil) }
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func freshSyncDiscoversLexueAndCombinesBothSources(lexueFails: Bool) async throws {
+        let transport = EclassTransport { request in
+            switch request.url?.path {
+            case "/api/my-courses": return (200, #"{"courses":[{"id":1,"name":"新乐学课程"}],"pages":1}"#, nil)
+            case "/api/courses/1/activities": return (200, #"{"activities":[{"id":42,"title":"新乐学作业","submit_times":1,"end_time":"2030-10-01 23:59"}]}"#, nil)
+            case "/": return (200, lexueFails ? "invalid" : #"{"sesskey":"synthetic"}"#, nil)
+            case "/calendar/export.php": return (200, #"<input value="https://lexue.bit.edu.cn/calendar.ics">"#, nil)
+            default: return (200, "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:old-software\nSUMMARY:软件工程导论\nDTSTART:20301002T100000Z\nEND:VEVENT\nEND:VCALENDAR", nil)
+            }
+        }
         let payload = try await service(transport).syncDDLEvents(existingEvents: [], storedURL: "")
-        #expect(payload.syncedGroups == ["eclass"])
-        #expect(payload.warnings.isEmpty)
-        #expect(transport.requests.count == 1)
+        #expect(payload.syncedGroups == (lexueFails ? ["eclass"] : ["eclass", "lexue"]))
+        #expect(payload.events.contains { $0.group == "eclass" })
+        #expect(payload.events.contains { $0.group == "lexue" && $0.title == "软件工程导论" } == !lexueFails)
+        #expect(payload.warnings.isEmpty == !lexueFails)
+        #expect(transport.requests.contains { $0.url?.path == "/" })
+        if !lexueFails { #expect(payload.url == "https://lexue.bit.edu.cn/calendar.ics") }
     }
 
     @Test func eclassCookiesAreClearedWithTheirSchoolAccount() throws {
@@ -423,7 +495,7 @@ struct EclassDDLTests {
         #expect(storage.cookies?.map(\.domain) == ["example.com"])
     }
 
-    @Test func nativeSchoolSessionRestoresEclassAndRetriesTheSnapshot() async throws {
+    @Test(.timeLimit(.minutes(1))) func nativeSchoolSessionRestoresEclassAndRetriesTheSnapshot() async throws {
         var pageRequests = 0
         let transport = EclassTransport { request in
             if request.url?.path == "/user/index" { return (200, "<html>课程中心</html>", nil) }
@@ -435,7 +507,7 @@ struct EclassDDLTests {
         #expect(transport.requests.map { $0.url?.path } == ["/api/my-courses", "/user/index", "/api/my-courses"])
     }
 
-    @Test func preflightReportsNativeSMSChallengeWithItsSharedContext() async {
+    @Test(.timeLimit(.minutes(1))) func preflightReportsNativeSMSChallengeWithItsSharedContext() async {
         let html = #"<form action="/cas/login"><input id="login-page-flowkey" value="flow"><input id="user-object-id" value="user"><div id="secondSmsLoginForm"></div></form>"#
         let transport = EclassTransport { request in
             request.url?.path == "/user/index" ? (200, html, "https://sso.bit.edu.cn/cas/login") : (401, "", nil)
@@ -489,6 +561,11 @@ private final class EclassTransport: HTTPTransport {
     var cancelledRequests = 0
     let handler: (URLRequest) throws -> (Int, String, String?)
     init(_ handler: @escaping (URLRequest) throws -> (Int, String, String?)) { self.handler = handler }
+    func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
+        let result = try await data(for: request)
+        if let maximumBytes, result.0.count > maximumBytes { throw HTTPClientError.responseTooLarge }
+        return result
+    }
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
         requests.append(request)
         concurrentRequests += 1

@@ -244,12 +244,16 @@ extension View {
             .listSectionSpacing(AppDesignSystem.Spacing.content)
             .contentMargins(.top, 0, for: .scrollContent)
             .contentMargins(.horizontal, AppDesignSystem.Spacing.regular, for: .scrollContent)
-            .listRowInsets(EdgeInsets(
-                top: AppDesignSystem.Spacing.tiny,
-                leading: AppDesignSystem.Spacing.content,
-                bottom: AppDesignSystem.Spacing.tiny,
-                trailing: AppDesignSystem.Spacing.content
-            ))
+    }
+
+    /// 在实际列表行上设置内容边距。
+    public func appListRowInsets() -> some View {
+        listRowInsets(EdgeInsets(
+            top: AppDesignSystem.Spacing.tiny,
+            leading: AppDesignSystem.Spacing.content,
+            bottom: AppDesignSystem.Spacing.tiny,
+            trailing: AppDesignSystem.Spacing.content
+        ))
     }
 
     public func appCommentSectionStyle() -> some View {

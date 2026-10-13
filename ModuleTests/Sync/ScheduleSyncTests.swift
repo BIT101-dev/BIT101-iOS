@@ -8,7 +8,107 @@ import Testing
 
 @MainActor
 struct ScheduleSyncTests {
-    @Test func oversizedUserStatePreservesLocalEditsAndReportsCloudCapacity() async {
+    @Test(.timeLimit(.minutes(1)), arguments: ["id", "duplicate", "title", "text", "source", "rule", "replacement"])
+    func invalidManualCloudRecordsPreserveLocalData(kind: String) async throws {
+        let event = DDLEventRecord(id: kind == "id" ? "" : "ddl", group: kind == "source" ? "lexue" : "main",
+            title: kind == "title" ? " \n" : "作业",
+            text: kind == "text" ? String(repeating: "x", count: 4097) : "",
+            dueAt: Date(timeIntervalSince1970: 100), done: false)
+        var rules: [String: [ScheduleCourseRule]] = [:]
+        if kind == "rule" || kind == "replacement" {
+            let courses = try ScheduleCourseEditor.adding(CourseDraft(title: "课程", weekday: 1, weeksText: "1"),
+                to: [], term: "term", id: "course")
+            let rule = ScheduleCourseRule(id: "rule", sourceIdentity: "local:course", sourceCourses: [],
+                replacementCourses: kind == "replacement" ? courses + courses : courses)
+            rules = ["term": kind == "rule" ? [rule, rule] : [rule]]
+        }
+        let local = Local(), cloud = Cloud(remote: try record(title: "damaged", updatedAt: 40,
+            manualDDLEvents: kind == "duplicate" ? [event, event] : [event], manualCourseRules: rules))
+        await local.manager(cloud).refreshFromCloudIfNeeded()
+        #expect(local.cache.primaryScheduleTitle == "local" && local.sources.isEmpty)
+        #expect(await cloud.saved.isEmpty)
+    }
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func invalidPersonalCloudRecordsPreserveLocalData(duplicate: Bool) async throws {
+        let event = CustomScheduleRecord(id: "event", title: "活动", subtitle: "", description: "",
+            dateString: duplicate ? "2026-09-07" : "bad-date", beginTime: "12:00", endTime: "13:00")
+        let local = Local(), cloud = Cloud(remote: try record(title: "damaged", updatedAt: 40,
+            customSchedules: duplicate ? [event, event] : [event]))
+        await local.manager(cloud).refreshFromCloudIfNeeded()
+        #expect(local.cache.primaryScheduleTitle == "local" && local.sources.isEmpty)
+        #expect(await cloud.saved.isEmpty)
+    }
+    @Test(.timeLimit(.minutes(1))) func previousCloudEnvelopeMigratesToTheRecurringScheduleSchema() async throws {
+        let local = Local()
+        let date = Date(timeIntervalSince1970: 40)
+        // v2 的字段固定在样本中，迁移输入独立于当前模型编码。
+        let payloadJSON = """
+        {"schemaVersion":2,"payload":{"updatedAt":"1970-01-01T00:00:40Z","state":{
+            "primaryScheduleTitle":"remote","manualCourseRulesByTerm":{},"manualDDLEvents":[],
+            "lexueDDLCompletionByID":{},
+            "customSchedules":[{"id":"legacy-event","title":"旧版活动","subtitle":"地点","description":"说明",
+                "dateString":"2026-09-09","beginTime":"12:00","endTime":"13:00"}],
+            "ddlBeforeDay":1,"ddlAfterDay":30,"selectedCampusName":"良乡校区","selectedCampusCode":"2",
+            "selectedBuildingID":"building","selectedClassroomSectionIDs":[1],"isClassroomSectionFilterCustomized":true,
+            "showSaturday":true,"showSunday":true,"showExamInfo":true,
+            "scheduleDisplayMode":"weekly","scheduleCardContentMode":"nameAndLocation",
+            "showCourseLiveActivityReminder":true,"courseLiveActivityLeadMinutes":10,
+            "timeTable":[{"id":1,"start":"08:00","end":"08:45"}],"sharedSchedules":[]
+        }}}
+        """
+        let cloud = Cloud(remote: ScheduleCloudRecord(recordName: "schedule-cache-A", recordType: "ScheduleCacheSyncRecord",
+            studentID: "A", updatedAt: date, payloadJSON: payloadJSON, modificationDate: date,
+            recordChangeTag: "remote-tag", systemFields: Data("lock-token".utf8)))
+        await local.manager(cloud).refreshFromCloudIfNeeded()
+        #expect(local.cache.primaryScheduleTitle == "remote")
+        let event = try #require(local.cache.customSchedules.first)
+        #expect(event.id == "legacy-event" && event.dateString == "2026-09-09" && event.additionalDateStrings == nil)
+        #expect(local.cache.selectedCampusName == "良乡校区" && local.cache.courseLiveActivityLeadMinutes == 10)
+        #expect(local.statuses.last == .synchronized)
+        try await waitForTestEvent(isolation: cloud) { $0.saved.count == 1 }
+        let saved = try #require(await cloud.saved.last)
+        let json = try #require(saved.payloadJSON)
+        #expect(try JSONDecoder().decode(EnvelopeVersion.self, from: Data(json.utf8)).schemaVersion == 3)
+    }
+    private struct EnvelopeVersion: Decodable { let schemaVersion: Int }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func manualTransferAndRecurringSchedulesSurviveCloudReceiveAndSchoolRefresh(wholeCourse: Bool) async throws {
+        let phone = Local(), other = Local(), cloud = Cloud()
+        let source = try ScheduleCourseEditor.adding(CourseDraft(title: "原课程", weekday: 1, weeksText: "1-4"),
+            to: [], term: "term", id: "phone-school")
+        let snapshot = TermScheduleSnapshot(term: "term", firstDayString: "2026-09-07",
+            courses: source, exams: [], updatedAt: Date(timeIntervalSince1970: 20))
+        phone.cache.currentTerm = "term"
+        phone.cache.courseData.store(snapshot)
+        let moved = try wholeCourse
+            ? ScheduleCourseEditor.updatingArrangement(id: source[0].id,
+                with: CourseDraft(title: "原课程", weekday: 3, weeksText: "1-4"), in: source)
+            : ScheduleCourseEditor.transferring(courses: source,
+                fromWeek: 1, fromWeekday: 1, toWeek: 1, toWeekday: 3)
+        ScheduleCourseEditor.updateCacheForManualCourseChange(in: &phone.cache,
+            previousCourses: source, currentCourses: moved)
+        phone.cache.customSchedules = [.init(id: "recurring", title: "活动", subtitle: "", description: "",
+            dateString: "2026-09-09", beginTime: "12:10", endTime: "12:40", additionalDateStrings: ["2026-09-16"])]
+        phone.cache.hasUnpushedCloudChanges = true
+        await phone.manager(cloud).pushLatestLocalCacheIfNeeded()
+        #expect(phone.statuses.last == .synchronized)
+        other.cache.currentTerm = "term"
+        other.cache.courseData.store(snapshot)
+        await other.manager(cloud).refreshFromCloudIfNeeded()
+        #expect(other.statuses.last == .synchronized)
+        #expect(other.cache.courses.contains { $0.weekday == 3 && $0.weeks == (wholeCourse ? [1, 2, 3, 4] : [1]) })
+        #expect(other.cache.courses.contains { $0.weekday == 1 && $0.weeks == [2, 3, 4] } == !wholeCourse)
+        #expect(other.cache.customSchedules == phone.cache.customSchedules)
+        let refreshed = try ScheduleCourseEditor.adding(CourseDraft(title: "原课程", weekday: 1, weeksText: "1-4"),
+            to: [], term: "term", id: "other-school")
+        other.cache.courseData.store(TermScheduleSnapshot(term: "term", firstDayString: "2026-09-07",
+            courses: refreshed, exams: [], updatedAt: Date(timeIntervalSince1970: 80)))
+        #expect(other.cache.manualCourseRulesByTerm == phone.cache.manualCourseRulesByTerm)
+        #expect(other.cache.courses.contains { $0.weekday == 3 && $0.weeks == (wholeCourse ? [1, 2, 3, 4] : [1]) })
+    }
+
+    @Test(.timeLimit(.minutes(1))) func oversizedUserStatePreservesLocalEditsAndReportsCloudCapacity() async {
         let local = Local()
         local.cache.ddlEvents = [DDLEventRecord(id: "manual", group: "main",
             title: String(repeating: "日", count: ScheduleCloudRecord.maximumPayloadBytes / 3), text: "", dueAt: Date(), done: false)]
@@ -256,25 +356,31 @@ struct ScheduleSyncTests {
     }
 
     private func record(title: String, updatedAt: TimeInterval, tag: String = "remote-tag",
-                        studentID: String = "A", version: Int = 2, recordName: String = "schedule-cache-A",
-                        timeTable: [TimeSlot] = TimeSlot.default, manualEventID: String? = nil) throws -> ScheduleCloudRecord {
+                        studentID: String = "A", version: Int = 3, recordName: String = "schedule-cache-A",
+                        timeTable: [TimeSlot] = TimeSlot.default, manualEventID: String? = nil,
+                        customSchedules: [CustomScheduleRecord] = [], manualDDLEvents: [DDLEventRecord]? = nil,
+                        manualCourseRules: [String: [ScheduleCourseRule]] = [:]) throws -> ScheduleCloudRecord {
         var cache = ScheduleCache()
         cache.primaryScheduleTitle = title
         cache.updatedAt = Date(timeIntervalSince1970: updatedAt)
         cache.timeTable = timeTable
+        cache.customSchedules = customSchedules
+        cache.manualCourseRulesByTerm = manualCourseRules
         if let manualEventID {
             cache.ddlEvents = [DDLEventRecord(id: manualEventID, group: "main", title: manualEventID,
                 text: "", dueAt: Date(timeIntervalSince1970: 100), done: false)]
         }
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        let payload = try encoder.encode(Envelope(schemaVersion: version, payload: .init(updatedAt: cache.updatedAt, state: ScheduleCloudSyncState(cache: cache))))
+        var state = ScheduleCloudSyncState(cache: cache)
+        if let manualDDLEvents { state.manualDDLEvents = manualDDLEvents }
+        let payload = try encoder.encode(Envelope(schemaVersion: version, payload: .init(updatedAt: cache.updatedAt, state: state)))
         return ScheduleCloudRecord(recordName: recordName, recordType: "ScheduleCacheSyncRecord",
             studentID: studentID, updatedAt: cache.updatedAt, payloadJSON: String(decoding: payload, as: UTF8.self),
             modificationDate: cache.updatedAt, recordChangeTag: tag, systemFields: Data("lock-token".utf8))
     }
 
-    @Test(arguments: [false, true])
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func firstIndependentEditsRequireAChoiceAndDismissalAllowsRetry(push: Bool) async throws {
         let local = Local()
         local.cache.updatedAt = Date(timeIntervalSince1970: 80)
@@ -289,12 +395,15 @@ struct ScheduleSyncTests {
         #expect(local.conflictAccounts == [local.account] && local.statuses.last == .conflict)
         let resolve = try #require(local.resolutions.first)
         await resolve(nil)
+        await resolve(.useCloud)
+        #expect(local.cache.ddlEvents.map(\.id) == ["local-ddl"] && local.sources.isEmpty)
+        #expect(await cloud.saved.isEmpty)
         await manager.refreshFromCloudIfNeeded()
         #expect(local.resolutions.count == 2 && local.conflictAccounts == [local.account, local.account])
         #expect(await cloud.saved.isEmpty)
     }
 
-    @Test(arguments: [false, true])
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func schoolRefreshKeepsOlderCloudUserEditsAuthoritative(pushFirst: Bool) async throws {
         let local = Local()
         try await local.useDiskPersistence()
@@ -330,7 +439,7 @@ struct ScheduleSyncTests {
         #expect(persisted.ddlEvents.map(\.id) == ["cloud-ddl"] && persisted.hasUnpushedCloudChanges == false)
     }
 
-    @Test func keepingLocalConflictPersistsTheNewBaselineThroughTheProductionRepository() async throws {
+    @Test(.timeLimit(.minutes(1))) func keepingLocalConflictPersistsTheNewBaselineThroughTheProductionRepository() async throws {
         let local = Local()
         local.cache.cloudSyncBaselineAt = Date(timeIntervalSince1970: 20)
         local.cache.cloudSyncBaselineRecordTag = "base-tag"
@@ -350,7 +459,7 @@ struct ScheduleSyncTests {
         #expect(restored.hasUnpushedCloudChanges == false)
     }
 
-    @Test(arguments: [false, true])
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func invalidRemoteDuringConflictChoiceAllowsTheSameConflictToBeRetried(futureSchema: Bool) async throws {
         let local = Local()
         local.cache.cloudSyncBaselineAt = Date(timeIntervalSince1970: 20)
@@ -360,7 +469,7 @@ struct ScheduleSyncTests {
         let manager = local.manager(cloud)
         await manager.refreshFromCloudIfNeeded()
         let first = try #require(local.resolutions.first)
-        let invalid = try record(title: "remote", updatedAt: 40, studentID: futureSchema ? "A" : "B", version: futureSchema ? 3 : 2)
+        let invalid = try record(title: "remote", updatedAt: 40, studentID: futureSchema ? "A" : "B", version: futureSchema ? 4 : 3)
         await cloud.replaceRemote(invalid)
         await first(.useCloud)
         #expect(local.cache.primaryScheduleTitle == "local")
@@ -376,7 +485,7 @@ struct ScheduleSyncTests {
         #expect(local.statuses.last == .synchronized)
     }
 
-    @Test func mergedChangesStayPendingOnDiskAfterUploadFailureAndRetrySuccessfully() async throws {
+    @Test(.timeLimit(.minutes(1))) func mergedChangesStayPendingOnDiskAfterUploadFailureAndRetrySuccessfully() async throws {
         let local = Local()
         let base = local.cache
         local.cache.syncData.cloudSyncBaselineUserState = try ScheduleCloudStateMerge.baseline(for: base)
@@ -389,7 +498,7 @@ struct ScheduleSyncTests {
         remote.ddlEvents = [.init(id: "remote", group: "main", title: "remote", text: "", dueAt: Date(), done: false)]
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        let data = try encoder.encode(Envelope(schemaVersion: 2, payload: .init(updatedAt: remote.updatedAt, state: .init(cache: remote))))
+        let data = try encoder.encode(Envelope(schemaVersion: 3, payload: .init(updatedAt: remote.updatedAt, state: .init(cache: remote))))
         let cloud = Cloud(remote: ScheduleCloudRecord(recordName: local.account.recordName,
             recordType: "ScheduleCacheSyncRecord", studentID: "A", updatedAt: remote.updatedAt,
             payloadJSON: String(decoding: data, as: UTF8.self), modificationDate: remote.updatedAt, recordChangeTag: "remote-tag"))
@@ -408,7 +517,7 @@ struct ScheduleSyncTests {
         #expect(await cloud.saved.count == 1)
     }
 
-    @Test(arguments: [false, true])
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func concurrentIndependentDDLChangesMergeThroughBothSyncEntrypoints(push: Bool) async throws {
         let local = Local()
         let base = local.cache
@@ -421,7 +530,7 @@ struct ScheduleSyncTests {
         remote.ddlEvents = [.init(id: "remote", group: "main", title: "remote", text: "", dueAt: Date(timeIntervalSince1970: 200), done: false)]
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        let data = try encoder.encode(Envelope(schemaVersion: 2, payload: .init(updatedAt: remote.updatedAt, state: .init(cache: remote))))
+        let data = try encoder.encode(Envelope(schemaVersion: 3, payload: .init(updatedAt: remote.updatedAt, state: .init(cache: remote))))
         let record = ScheduleCloudRecord(recordName: "schedule-cache-A", recordType: "ScheduleCacheSyncRecord", studentID: "A",
             updatedAt: remote.updatedAt, payloadJSON: String(decoding: data, as: UTF8.self), modificationDate: remote.updatedAt,
             recordChangeTag: "remote-tag")
@@ -436,7 +545,7 @@ struct ScheduleSyncTests {
         #expect(await cloud.saved.count == 1)
     }
 
-    @Test func remoteApplyUsesTheInjectedLocalOwnerAndPreservesSchoolData() async throws {
+    @Test(.timeLimit(.minutes(1))) func remoteApplyUsesTheInjectedLocalOwnerAndPreservesSchoolData() async throws {
         let local = Local()
         local.cache.currentTerm = "school-term"
         local.cache.courseData.store(TermScheduleSnapshot(term: "school-term", firstDayString: "", courses: [], exams: [], updatedAt: .distantPast))
@@ -449,18 +558,48 @@ struct ScheduleSyncTests {
         #expect(local.sources == [.cloud])
     }
 
-    @Test func delayedRemoteReadHonorsTheAccountGenerationAcrossRoundTripSwitches() async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: ["student", "cloud"])
+    func delayedRemoteReadHonorsTheAccountGenerationAcrossRoundTripSwitches(owner: String) async throws {
         let local = Local()
         let cloud = Cloud(remote: try record(title: "remote", updatedAt: 40), holdRead: true)
         let manager = local.manager(cloud)
         let task = Task { await manager.refreshFromCloudIfNeeded() }
         try await cloud.waitForEntry()
-        local.account = ScheduleCloudAccount(studentID: "A", session: local.account.session, generation: 3)
+        local.account = ScheduleCloudAccount(studentID: "A", session: local.account.session,
+            generation: owner == "student" ? 3 : 1, cloudGeneration: owner == "cloud" ? 1 : 0)
         await cloud.resume()
         await task.value
         #expect(local.cache.primaryScheduleTitle == "local")
         #expect(local.sources.isEmpty)
         #expect(await cloud.saved.isEmpty)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: ["apply", "upload", "conflict", "save"])
+    func cancelledSyncDiscardsLateTransportResultsAndAllowsFreshReconciliation(stage: String) async throws {
+        let local = Local()
+        local.cache.hasUnpushedCloudChanges = stage != "apply"
+        local.cache.cloudSyncBaselineRecordTag = stage == "conflict" ? "old-tag" : "remote-tag"
+        let cloud = Cloud(remote: try record(title: "remote", updatedAt: stage == "apply" || stage == "conflict" ? 40 : 20),
+                          holdRead: stage != "save", holdSave: stage == "save")
+        let manager = local.manager(cloud)
+        let pending = Task {
+            if stage == "upload" || stage == "save" { await manager.pushLatestLocalCacheIfNeeded() }
+            else { await manager.refreshFromCloudIfNeeded() }
+        }
+        try await cloud.waitForEntry()
+        let statuses = local.statuses
+        pending.cancel()
+        await cloud.resume()
+        await pending.value
+        #expect(local.cache.primaryScheduleTitle == "local" && local.sources.isEmpty && local.resolutions.isEmpty)
+        #expect(local.statuses == statuses)
+        #expect(await cloud.saved.count == (stage == "save" ? 1 : 0))
+        await manager.refreshFromCloudIfNeeded()
+        if stage == "conflict" { #expect(local.resolutions.count == 1) }
+        else {
+            #expect(!local.sources.isEmpty && local.cache.hasUnpushedCloudChanges == false)
+            #expect(local.cache.primaryScheduleTitle == (stage == "apply" ? "remote" : "local"))
+        }
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -481,7 +620,7 @@ struct ScheduleSyncTests {
         #expect(local.sources == [.cloud])
     }
 
-    @Test func localEditsDuringCloudSaveKeepTheirDirtyStateAndReceiveTheBaseline() async throws {
+    @Test(.timeLimit(.minutes(1))) func localEditsDuringCloudSaveKeepTheirDirtyStateAndReceiveTheBaseline() async throws {
         let local = Local()
         local.cache.hasUnpushedCloudChanges = true
         let cloud = Cloud(holdSave: true)
@@ -499,7 +638,7 @@ struct ScheduleSyncTests {
         #expect(local.sources == [.cloudBaseline])
     }
 
-    @Test func optimisticLockConflictRefetchesAndUsesTheInjectedDecision() async throws {
+    @Test(.timeLimit(.minutes(1))) func optimisticLockConflictRefetchesAndUsesTheInjectedDecision() async throws {
         let local = Local()
         local.cache.hasUnpushedCloudChanges = true
         local.cache.cloudSyncBaselineRecordTag = "old-tag"
@@ -515,9 +654,9 @@ struct ScheduleSyncTests {
         #expect(local.sources == [.cloud])
     }
 
-    @Test func invalidIdentityAndFuturePayloadVersionsPreserveLocalState() async throws {
+    @Test(.timeLimit(.minutes(1))) func invalidIdentityAndFuturePayloadVersionsPreserveLocalState() async throws {
         for remote in [try record(title: "wrong account", updatedAt: 40, studentID: "B"),
-                       try record(title: "future", updatedAt: 40, version: 3),
+                       try record(title: "future", updatedAt: 40, version: 4),
                        try record(title: "repeated sections", updatedAt: 40, timeTable: [
                         TimeSlot(id: 1, start: "08:00", end: "08:45"), TimeSlot(id: 1, start: "09:00", end: "09:45")])] {
             let local = Local()
@@ -529,7 +668,7 @@ struct ScheduleSyncTests {
         }
     }
 
-    @Test(arguments: [false, true], [ScheduleCacheConflictResolution.keepLocal, .useCloud])
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true], [ScheduleCacheConflictResolution.keepLocal, .useCloud])
     func aShorterCloudTablePreservesLocalSchoolCourses(dirty: Bool, choice: ScheduleCacheConflictResolution) async throws {
         let local = Local()
         local.cache.currentTerm = "term"
@@ -557,7 +696,7 @@ struct ScheduleSyncTests {
         }
     }
 
-    @Test func localCompareAndSaveFailurePreservesCache() async throws {
+    @Test(.timeLimit(.minutes(1))) func localCompareAndSaveFailurePreservesCache() async throws {
         let local = Local()
         local.failsSave = true
         await local.manager(Cloud(remote: try record(title: "remote", updatedAt: 40))).refreshFromCloudIfNeeded()
@@ -565,7 +704,7 @@ struct ScheduleSyncTests {
         #expect(local.sources.isEmpty)
     }
 
-    @Test func uploadingAnExistingRecordCarriesItsProviderLockToken() async throws {
+    @Test(.timeLimit(.minutes(1))) func uploadingAnExistingRecordCarriesItsProviderLockToken() async throws {
         let local = Local()
         local.cache.hasUnpushedCloudChanges = true
         local.cache.cloudSyncBaselineRecordTag = "remote-tag"
@@ -576,7 +715,7 @@ struct ScheduleSyncTests {
         #expect(saved.recordName == "schedule-cache-A")
         #expect(local.cache.cloudSyncBaselineRecordTag == "saved-tag")
     }
-    @Test func cloudStatusReportsSuccessAndLocalSaveDeferral() async throws {
+    @Test(.timeLimit(.minutes(1))) func cloudStatusReportsSuccessAndLocalSaveDeferral() async throws {
         let saved = Local()
         await saved.manager(Cloud(remote: try record(title: "remote", updatedAt: 40))).refreshFromCloudIfNeeded()
         #expect(saved.statuses == [.syncing, .synchronized])
@@ -587,7 +726,41 @@ struct ScheduleSyncTests {
         #expect(deferred.cache.primaryScheduleTitle == "local")
     }
 
-    @Test func cloudStatusPreservesFailureAndUnavailableAccountResults() async {
+    @Test(.timeLimit(.minutes(1)), arguments: ["readMatch", "pushMatch", "pushNew", "keepLocal", "useCloud"])
+    func baselineSaveFailuresRemainVisibleAndAllowRetry(stage: String) async throws {
+        let local = Local()
+        local.failsSave = true
+        local.cache.hasUnpushedCloudChanges = stage != "readMatch"
+        let original = local.cache
+        let choice = stage == "keepLocal" || stage == "useCloud"
+        let cloud = Cloud(remote: stage == "pushNew" ? nil : try record(
+            title: choice ? "remote" : "local", updatedAt: 40))
+        let manager = local.manager(cloud)
+        func synchronize() async throws {
+            if stage.hasPrefix("push") { await manager.pushLatestLocalCacheIfNeeded() }
+            else {
+                await manager.refreshFromCloudIfNeeded()
+                if choice {
+                    let resolve = try #require(local.resolutions.last)
+                    await resolve(stage == "keepLocal" ? .keepLocal : .useCloud)
+                }
+            }
+        }
+        try await synchronize()
+        if case .failed(let reason)? = local.statuses.last { #expect(reason.contains("保存失败")) }
+        else { Issue.record("基线落盘失败需要呈现失败状态") }
+        #expect(local.sources.isEmpty && local.cache.cloudSyncBaselineRecordTag == original.cloudSyncBaselineRecordTag)
+        #expect(local.cache.primaryScheduleTitle == original.primaryScheduleTitle && local.cache.updatedAt == original.updatedAt)
+        #expect(local.cache.hasUnpushedCloudChanges == original.hasUnpushedCloudChanges)
+        #expect(await cloud.saved.count == (stage == "pushNew" ? 1 : 0))
+        local.failsSave = false
+        try await synchronize()
+        #expect(local.statuses.last == .synchronized && !local.cache.hasUnpushedCloudChanges)
+        #expect(local.cache.cloudSyncBaselineRecordTag == (stage == "pushNew" || stage == "keepLocal" ? "saved-tag" : "remote-tag"))
+        #expect(await cloud.saved.count == (stage == "pushNew" || stage == "keepLocal" ? 1 : 0))
+    }
+
+    @Test(.timeLimit(.minutes(1))) func cloudStatusPreservesFailureAndUnavailableAccountResults() async {
         let local = Local()
         await local.manager(Cloud(failsRead: true)).refreshFromCloudIfNeeded()
         guard case .failed(let reason)? = local.statuses.last else {

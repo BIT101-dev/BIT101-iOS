@@ -49,8 +49,9 @@ public final class ScoreFilterPreferenceStore: ScoreFilterPreferencesStoring {
     }
 
     /// 将 iCloud 筛选偏好写入本地存储，并发布所属账号的变更。
-    public func applySynced(_ snapshot: ScoreFilterPreferenceSnapshot) {
-        guard store.save(snapshot) else { return }
+    @discardableResult public func applySynced(_ snapshot: ScoreFilterPreferenceSnapshot) -> Bool {
+        guard store.save(snapshot) else { return false }
         changeSubject.send(session())
+        return true
     }
 }

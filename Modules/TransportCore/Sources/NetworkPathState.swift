@@ -4,7 +4,16 @@ import Observation
 
 public nonisolated struct NetworkPathSnapshot: Equatable, Sendable {
     public enum Status: Equatable, Sendable {
-        case checking, connected, disconnected
+        case checking, connected, requiresConnection, disconnected
+
+        init(pathStatus: NWPath.Status) {
+            switch pathStatus {
+            case .satisfied: self = .connected
+            case .requiresConnection: self = .requiresConnection
+            case .unsatisfied: self = .disconnected
+            @unknown default: self = .checking
+            }
+        }
     }
 
     public enum Interface: Equatable, Sendable {
@@ -75,7 +84,7 @@ public final class NetworkPathState {
             if !interfaces.contains(value) { interfaces.append(value) }
         }
         return NetworkPathSnapshot(
-            status: path.status == .satisfied ? .connected : .disconnected,
+            status: NetworkPathSnapshot.Status(pathStatus: path.status),
             interfaces: interfaces,
             virtualNetworkLikely: path.usesInterfaceType(.other)
         )

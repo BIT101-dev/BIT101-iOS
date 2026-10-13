@@ -24,9 +24,220 @@ import StorageCore
 @Suite("Network smoke coverage")
 @MainActor
 struct NetworkSmokeCoverageTests {
+    private final class ProfilePosterRoute: HTTPTransport {
+        var queries: [[String: String]] = []
+        func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+            let url = try #require(request.url)
+            #expect(url.path == "/posters" && request.httpMethod == "GET")
+            let items = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems)
+            queries.append(Dictionary(uniqueKeysWithValues: items.map { ($0.name, $0.value ?? "") }))
+            return (Data("[]".utf8), try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)))
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func profileSmokeAndWriteRecoveryUseFixedCommunityPreferences() async throws {
+        let route = ProfilePosterRoute()
+        let session = CommunitySession(httpClient: HTTPClient(transport: route, observer: nil),
+            baseURL: AppURL.required("https://example.invalid"),
+            credentials: { .init(identity: .init(accountIdentifier: "fixture"), cookie: "fixture") }, refresh: { _ in })
+        let ordinary = MineService(session: session, preferences: {
+            .init(hideBots: true, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
+        })
+        _ = try await ordinary.fetchMyPosters(page: 0)
+        let mine = ReleaseNetworkSmokeDependencies.mineService(session: session)
+        _ = try await mine.fetchMyPosters(page: 0)
+        _ = try await mine.fetchUserPosters(userID: 42, page: 1)
+        let operations = CommunityWriteSmoke.Operations.production(mine: mine)
+        #expect(try await operations.find(.poster, "功能验收") == [])
+        #expect(route.queries == [
+            ["mode": "search", "uid": "0", "page": "0", "hide_bot": "true"],
+            ["mode": "search", "uid": "0", "page": "0"],
+            ["mode": "search", "uid": "42", "page": "1"],
+            ["mode": "search", "uid": "0", "page": "0"]
+        ])
+    }
+
+    private struct LiteralOverloads {
+        struct Number: ExpressibleByIntegerLiteral { init(integerLiteral: Int) {} }
+        enum State { case active }
+        static func integer(id: Int32) -> Bool { true }
+        static func integer(id: String) -> Bool { false }
+        static func unsigned(id: UInt32) -> Bool { true }
+        static func unsigned(id: String) -> Bool { false }
+        static func real(value: Float) -> Bool { true }
+        static func real(value: String) -> Bool { false }
+        static func custom(value: Number) -> Bool { true }
+        static func custom(value: String) -> Bool { false }
+        static func optional(value: Int?) -> Bool { true }
+        static func optional(value: String) -> Bool { false }
+        static func state(value: State) -> Bool { true }
+        static func state(value: String) -> Bool { false }
+        static func defaultInteger(value: Int) -> Bool { true }
+        static func defaultInteger(value: Int32) -> Bool { false }
+        static func defaultReal(value: Double) -> Bool { true }
+        static func defaultReal(value: Float) -> Bool { false }
+    }
+
+    @Test func compilerSelectsContextualLiteralOverloads() {
+        #expect(LiteralOverloads.integer(id: 1))
+        #expect(LiteralOverloads.unsigned(id: 0x10))
+        #expect(LiteralOverloads.real(value: 1.25))
+        #expect(LiteralOverloads.custom(value: 1))
+        #expect(LiteralOverloads.optional(value: nil))
+        #expect(LiteralOverloads.state(value: .active))
+        #expect(LiteralOverloads.defaultInteger(value: 1))
+        #expect(LiteralOverloads.defaultReal(value: 1.25))
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: ["empty", "single", "equal", "separate-pages", "distinct", "reversed", "cross-page", "continued"])
+    func posterSortingRequiresAValidDistinctResponse(sample: String) async throws {
+        func poster(_ id: Int, likes: Int, date: String) -> CommunityPoster {
+            CommunityPoster(anonymous: false, claim: .init(id: 0, text: ""), commentNum: 0,
+                createTime: date, editTime: "", id: id, images: [], likeNum: likes, public: true,
+                tags: [], text: "", title: "", updateTime: "", user: user(1))
+        }
+        let first = poster(1, likes: 2, date: "2026-01-02T00:00:00Z")
+        let second = poster(2, likes: sample == "equal" ? 2 : 1,
+            date: sample == "equal" ? first.createTime : "2026-01-01T00:00:00Z")
+        for order in [GallerySearchOrder.like, .newest] {
+            let load: (Int) async throws -> GalleryPageBatch<CommunityPoster> = { page in
+                let items: [CommunityPoster]
+                switch sample {
+                case "empty": items = []
+                case "single": items = page == 0 ? [first] : []
+                case "separate-pages": items = page == 0 ? [first] : [second]
+                case "cross-page", "continued": items = page == 0 ? [first, second]
+                    : [poster(3, likes: sample == "cross-page" ? 3 : 0,
+                        date: sample == "cross-page" ? "2026-01-03T00:00:00Z" : "2025-12-31T00:00:00Z")]
+                case "reversed": items = page == 0 ? [second, first] : []
+                default: items = page == 0 ? [first, second] : []
+                }
+                return .init(items: items, nextSourcePage: page + 1, canLoadMore: !items.isEmpty)
+            }
+            if ["distinct", "continued"].contains(sample) || sample == "cross-page" && order == .like {
+                #expect(try await NetworkSmokePaging.posterPage(order: order, requiresOrderingEvidence: true,
+                    currentIdentity: { .init(accountIdentifier: "poster-ordering") }, load: load).items.count == (sample == "distinct" ? 2 : 3))
+            } else {
+                await #expect(throws: Error.self) {
+                    try await NetworkSmokePaging.posterPage(order: order, requiresOrderingEvidence: true,
+                        currentIdentity: { .init(accountIdentifier: "poster-ordering") }, load: load)
+                }
+            }
+        }
+    }
+
+    @Test func courseHistorySmokeRequiresUsableUniqueStatistics() throws {
+        let valid = CourseHistoryGrade(term: "2026-2027-1", avgScore: 85, maxScore: 100, studentNum: 30)
+        try NetworkSmokePaging.checkCourseHistories([valid])
+        for grades in [[], [valid, valid], [.init(term: "term", avgScore: nil, maxScore: nil, studentNum: nil)],
+            [.init(term: "term", avgScore: -.infinity, maxScore: 100, studentNum: 30)],
+            [.init(term: "term", avgScore: 85, maxScore: 101, studentNum: 30)],
+            [.init(term: "term", avgScore: 85, maxScore: 100, studentNum: -1)]] {
+            #expect(throws: Error.self) { try NetworkSmokePaging.checkCourseHistories(grades) }
+        }
+    }
+
+    @Test func courseWeekSmokeChecksALiteralFiveWeekSource() throws {
+        func course(_ id: String, name: String, weeks: [Int]) -> CourseRecord { CourseRecord(id: id, term: "2026-2027-1", name: name, teacher: "", classroom: "",
+            description: "1-5周 星期一", weeks: weeks, weekday: 1, startSection: 1, endSection: 2,
+            campus: "", number: id, credit: 0, hour: 0, type: "", category: "", department: "") }
+        func payload(_ weeks: [Int]) -> CourseSyncPayload {
+            let courses = [course("literal", name: "课程一", weeks: weeks), course("independent", name: "课程二", weeks: weeks)]
+            return CourseSyncPayload(term: "2026-2027-1", firstDayString: "2026-09-21", sourceFirstDayString: "2026-08-31",
+                normalizationOffset: 3, rawWeeksByCourse: [[4, 5, 6, 7, 8], [4, 5, 6, 7, 8]], sourceDisplayWeeksByCourse: ["1-5周 星期一", "1-5周 星期一"],
+                courses: courses, exams: [])
+        }
+        try ReleaseNetworkSmokeRunner.validateCourseSyncPayload(payload([1, 2, 3, 4, 5]))
+        #expect(throws: URLError.self) { try ReleaseNetworkSmokeRunner.validateCourseSyncPayload(payload([1, 2, 3, 4])) }
+    }
+
+    @Test func runIdentifiersMatchTheFeedbackEndpointAcrossLaunchEntrypoints() throws {
+        for (identifier, accepted) in [("fixture-123-ABC", true), (String(repeating: "a", count: 128), true),
+            ("a.b", false), ("运行", false), ("a b", false), ("fixture_1", false),
+            (String(repeating: "a", count: 129), false)] {
+            var components = try #require(URLComponents(string: "bit101://network-smoke/bit101"))
+            components.queryItems = [.init(name: "run", value: identifier)]
+            #expect((ReleaseNetworkSmokeLaunchRequest(url: try #require(components.url)) != nil) == accepted)
+            #expect((ReleaseNetworkSmokeLaunchRequest(scope: .bit101,
+                environment: ["BIT101_VALIDATION_RUN_ID": identifier]) != nil) == accepted)
+            let data = try JSONSerialization.data(withJSONObject: ["scope": "bit101", "capture": "none", "runID": identifier])
+            if accepted {
+                #expect(try JSONDecoder().decode(ReleaseNetworkSmokeLaunchRequest.self, from: data).runID == identifier)
+            } else {
+                #expect(throws: DecodingError.self) { try JSONDecoder().decode(ReleaseNetworkSmokeLaunchRequest.self, from: data) }
+            }
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: ["empty", "single", "equal", "separate-pages", "distinct", "cross-page", "continued"])
+    func sortingProbesRequireDistinctValuesInOneResponse(sample: String) async throws {
+        let first = PaperSummary(id: 1, title: "", intro: "", likeNum: 2, commentNum: 2, updateTime: "2026-01-02T00:00:00Z")
+        let second = PaperSummary(id: 2, title: "", intro: "", likeNum: sample == "equal" ? 2 : 1,
+            commentNum: sample == "equal" ? 2 : 1,
+            updateTime: sample == "equal" ? first.updateTime : "2026-01-01T00:00:00Z")
+        for order in PaperSortOrder.allCases {
+            let load: (Int) async throws -> [PaperSummary] = { page in
+                switch sample {
+                case "empty": return []
+                case "single": return page == 0 ? [first] : []
+                case "cross-page", "continued": return page == 0 ? [first, second]
+                    : [PaperSummary(id: 3, title: "", intro: "", likeNum: sample == "cross-page" ? 3 : 0,
+                        commentNum: sample == "cross-page" ? 3 : 0,
+                        updateTime: sample == "cross-page" ? "2026-01-03T00:00:00Z" : "2025-12-31T00:00:00Z")]
+                case "separate-pages": return page == 0 ? [first] : [second]
+                default: return page == 0 ? [first, second] : []
+                }
+            }
+            if ["distinct", "continued", "cross-page"].contains(sample) {
+                #expect(try await NetworkSmokePaging.paperPage(order: order, requiresOrderingEvidence: true,
+                    currentIdentity: { .init(accountIdentifier: "ordering") }, load: load).count == (sample == "distinct" ? 2 : 3))
+            } else {
+                await #expect(throws: Error.self) {
+                    try await NetworkSmokePaging.paperPage(order: order, requiresOrderingEvidence: true,
+                        currentIdentity: { .init(accountIdentifier: "ordering") }, load: load)
+                }
+            }
+        }
+    }
+
+    @Test(arguments: [false, true])
+    func eclassRequestEvidenceKeepsSelectionAndRedactsConditionValues(filtered: Bool) throws {
+        let url = AppURL.required("https://zy-eclass.bit.edu.cn/api/my-courses")
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["page": 1, "page_size": 100, "fields": "id,name",
+            "conditions": filtered ? ["token": "secret"] : [:]])
+        var final = request
+        final.httpBody = Data(#"{"page":2,"page_size":101,"fields":"id","conditions":{}}"#.utf8)
+        let response = try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+        let evidence = NetworkSmokeHTTPRequestEvidence(request: request, response: response, finalRequest: final)
+        #expect(evidence.query["page_size"] == "100" && evidence.query["fields"] == "id,name")
+        #expect(evidence.query["conditions"] == (filtered ? "[REDACTED]" : "{}"))
+        #expect(evidence.finalQuery["page_size"] == "101" && evidence.finalQuery["fields"] == "id")
+        #expect(evidence.finalQuery["conditions"] == "{}")
+        #expect(!String(decoding: try JSONEncoder().encode(evidence), as: UTF8.self).contains("secret"))
+    }
+
+    @Test(arguments: ["false", "true", "0", "null", "\"false\""])
+    func scoreRequestEvidencePreservesBooleanTypes(value: String) throws {
+        for (field, path) in [("detail", "bit101/score"), ("detailed", "cjd/cookies")] {
+            let url = AppURL.required("https://login.bit101.flwfdd.xyz/api/jwb/" + path)
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = Data("{\"\(field)\":\(value),\"username\":\"secret-account\",\"password\":\"secret-password\"}".utf8)
+            let response = try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+            let evidence = NetworkSmokeHTTPRequestEvidence(request: request, response: response)
+            #expect(evidence.query[field] == (["false", "true"].contains(value) ? value : "[REDACTED]"))
+            #expect(evidence.finalQuery[field] == evidence.query[field])
+            #expect(!String(decoding: try JSONEncoder().encode(evidence), as: UTF8.self).contains("secret-"))
+        }
+    }
+
     private func smokeIdentity() -> CommunitySessionIdentity { .init(accountIdentifier: "fixture") }
 
-    @Test(arguments: ["array", "batch", "messages"], [false, true])
+    @Test(.timeLimit(.minutes(1)), arguments: ["array", "batch", "messages"], [false, true])
     func pagingUsesItsInjectedSessionAcrossPages(kind: String, switchesAccount: Bool) async throws {
         var identity = smokeIdentity()
         var calls = 0
@@ -45,7 +256,11 @@ struct NetworkSmokeCoverageTests {
                     advance(); return .init(items: [user(page + 1)], nextSourcePage: page + 1, canLoadMore: page == 0, sourceIDs: [page + 1])
                 }
             default:
-                _ = try await NetworkSmokePaging.messages(currentIdentity: { identity }) { _ in advance(); return [] }
+                _ = try await NetworkSmokePaging.messages(currentIdentity: { identity }) { cursor in
+                    advance()
+                    return try JSONDecoder().decode([GalleryMessage].self,
+                        from: Data("[{\"fromUser\":{},\"id\":\(cursor == Int.max ? 9 : 8),\"linkObj\":\"\",\"obj\":\"\",\"text\":\"\",\"updateTime\":\"\"}]".utf8))
+                }
             }
         }
         if switchesAccount { await #expect(throws: CancellationError.self) { try await operation() } }
@@ -53,7 +268,28 @@ struct NetworkSmokeCoverageTests {
         #expect(calls == 2)
     }
 
-    @Test(.timeLimit(.minutes(1)), arguments: ["provisional", "navigation", "process"])
+    @Test(.timeLimit(.minutes(1)), arguments: ["array", "batch"], [0, 1])
+    func pagingRejectsDuplicateRowsBeforeMerging(kind: String, duplicatePage: Int) async throws {
+        await #expect(throws: URLError.self) {
+            if kind == "array" {
+                let _: [CommunityUser] = try await NetworkSmokePaging.arrayPage(currentIdentity: smokeIdentity) { page in
+                    page == duplicatePage ? [user(page + 1), user(page + 1)] : [user(page + 1)]
+                }
+            } else {
+                let _: GalleryPageBatch<CommunityUser> = try await NetworkSmokePaging.batch(currentIdentity: smokeIdentity) { page in
+                    let rows = page == duplicatePage ? [user(page + 1), user(page + 1)] : [user(page + 1)]
+                    return .init(items: rows, nextSourcePage: page + 1, canLoadMore: page == 0)
+                }
+            }
+        }
+        let batch: GalleryPageBatch<CommunityUser> = try await NetworkSmokePaging.batch(currentIdentity: smokeIdentity) { page in
+            .init(items: [user(page == 0 ? 1 : 2)], nextSourcePage: page == 0 ? 2 : page + 1,
+                canLoadMore: page == 0, sourceIDs: page == 0 ? [1, 1] : [1, 2])
+        }
+        #expect(batch.items.map(\.id) == [1, 2])
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: ["provisional", "navigation", "process", "credentials"])
     func galleryWebFailuresRenderTheRetryDocument(path: String) async throws {
         let coordinator = GalleryWebCoordinator(credentials: .init(cookie: { "fixture" }, changes: Empty().eraseToAnyPublisher()), openExternal: { _ in })
         let webView = WKWebView()
@@ -61,6 +297,9 @@ struct NetworkSmokeCoverageTests {
         switch path {
         case "provisional": coordinator.webView(webView, didFailProvisionalNavigation: nil, withError: URLError(.notConnectedToInternet))
         case "navigation": coordinator.webView(webView, didFail: nil, withError: URLError(.networkConnectionLost))
+        case "credentials":
+            webView.loadHTMLString("<script>Storage.prototype.setItem = () => { throw new Error('fixture'); };</script>",
+                baseURL: AppURL.required("https://bit101.cn/gallery"))
         default: coordinator.webViewWebContentProcessDidTerminate(webView)
         }
         var text = ""
@@ -74,6 +313,48 @@ struct NetworkSmokeCoverageTests {
         #expect(try await webView.evaluateJavaScript("document.querySelector('a')?.href") as? String == "https://bit101.cn/gallery")
     }
 
+    private final class CredentialWebView: WKWebView {
+        var reloads = 0
+        var initialRequest: URLRequest?
+        override func load(_ request: URLRequest) -> WKNavigation? {
+            initialRequest = request
+            return loadHTMLString("<script>localStorage.setItem('store', JSON.stringify({other:'retained'}))</script>", baseURL: request.url)
+        }
+        override func reload() -> WKNavigation? {
+            reloads += 1
+            return loadHTMLString("<body>fixture</body>", baseURL: AppURL.required("https://bit101.cn/gallery"))
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func galleryWebCredentialsFollowLoginAccountChangesAndSignOut() async throws {
+        var cookie = "account-a\"\\\n"
+        let changes = PassthroughSubject<Void, Never>()
+        let coordinator = GalleryWebCoordinator(credentials: .init(cookie: { cookie }, changes: changes.eraseToAnyPublisher()), openExternal: { _ in })
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        let webView = CredentialWebView(frame: .zero, configuration: configuration)
+        webView.navigationDelegate = coordinator
+        coordinator.start(in: webView, url: AppURL.required("https://bit101.cn/gallery"))
+        #expect(webView.initialRequest?.url?.absoluteString == "https://bit101.cn/gallery")
+        for (index, value) in [cookie, "account-b", ""].enumerated() {
+            cookie = value
+            if index > 0 { changes.send() }
+            let deadline = Date.now.addingTimeInterval(5)
+            var actual = "", other = ""
+            repeat {
+                actual = (try? await webView.evaluateJavaScript("JSON.parse(localStorage.getItem('store') || '{}').fake_cookie")) as? String ?? "missing"
+                other = (try? await webView.evaluateJavaScript("JSON.parse(localStorage.getItem('store') || '{}').other")) as? String ?? ""
+                if actual == cookie && other == "retained" && webView.reloads == index + 1 && !webView.isLoading { break }
+                try await Task.sleep(for: .milliseconds(50))
+            } while Date.now < deadline
+            #expect(actual == cookie && other == "retained" && webView.reloads == index + 1)
+        }
+        coordinator.synchronizeCredentials(in: webView)
+        _ = try await webView.evaluateJavaScript("true")
+        await Task.yield()
+        #expect(webView.reloads == 3)
+    }
+
     private final class BotFeed: GalleryFeedServicing {
         var pages: [Int] = []
         func fetchBotFeed(startPage: Int) async throws -> GalleryPageBatch<CommunityPoster> {
@@ -85,7 +366,7 @@ struct NetworkSmokeCoverageTests {
         func searchPosters(query: GallerySearchQuery, page: Int?) async throws -> GalleryPageBatch<CommunityPoster> { throw URLError(.unsupportedURL) }
     }
 
-    @Test func emptyBotBatchesContinueThroughTheirSourceCursor() async {
+    @Test(.timeLimit(.minutes(1))) func emptyBotBatchesContinueThroughTheirSourceCursor() async {
         let service = BotFeed()
         let model = GalleryViewModel(service: service)
         await model.refresh(feed: .bot)
@@ -104,7 +385,7 @@ struct NetworkSmokeCoverageTests {
         }
     }
 
-    @Test(arguments: ["complete", "missing", "wrong", "empty", "malformed"])
+    @Test(.timeLimit(.minutes(1)), arguments: ["complete", "missing", "wrong", "empty", "malformed"])
     func eclassSmokeBindsEveryReturnedCourseToItsActivityRequest(stage: String) async throws {
         let transport = SelectorTransport()
         transport.body = Data((stage == "malformed" ? "{}" : stage == "empty" ? #"{"courses":[]}"# : #"{"courses":[{"id":41},{"id":43}]}"#).utf8)
@@ -113,6 +394,8 @@ struct NetworkSmokeCoverageTests {
         let operation = {
             var list = URLRequest(url: AppURL.required("https://zy-eclass.bit.edu.cn/api/my-courses"))
             list.httpMethod = "POST"
+            list.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            list.httpBody = Data(#"{"page":1,"page_size":100,"fields":"id,name","conditions":{}}"#.utf8)
             _ = try await client.send(list)
             for id in stage == "empty" ? [] : stage == "missing" ? [41] : stage == "wrong" ? [41, 45] : [41, 43] {
                 _ = try await client.send(URLRequest(url: AppURL.required("https://zy-eclass.bit.edu.cn/api/courses/\(id)/activities")))
@@ -122,7 +405,7 @@ struct NetworkSmokeCoverageTests {
         else { await #expect(throws: NetworkSmokeRequestError.self) { try await collector.perform(operation, required: true) } }
     }
 
-    @Test(arguments: ["0", "99"], [false, true])
+    @Test(.timeLimit(.minutes(1)), arguments: ["0", "99"], [false, true])
     func requestEvidenceRejectsAmbiguousBusinessParameters(value: String, redirected: Bool) async throws {
         let url = AppURL.required("https://bit101.flwfdd.xyz/papers?page=0")
         let duplicate = AppURL.required(url.absoluteString + "&page=\(value)")
@@ -136,7 +419,7 @@ struct NetworkSmokeCoverageTests {
         #expect(collector.requests.count == 1 && HTTPRequestEvidenceContext.didReceive == nil)
     }
 
-    @Test(arguments: ["complete", "missing", "wrong-source", "wrong-query", "extra"])
+    @Test(.timeLimit(.minutes(1)), arguments: ["complete", "missing", "wrong-source", "wrong-query", "extra"])
     func imageSmokeBindsEverySelectedResource(stage: String) async throws {
         let urls = ["https://cdn.example.invalid/image.png?token=first", "https://cdn.example.invalid/other.png"]
         let selected = stage == "missing" ? [urls[0]] : stage == "wrong-source" ? [urls[0], "https://other.example.invalid/image.png"]
@@ -156,7 +439,7 @@ struct NetworkSmokeCoverageTests {
         }
     }
 
-    @Test(arguments: ["correct", "wrong", "missing"])
+    @Test(.timeLimit(.minutes(1)), arguments: ["correct", "wrong", "missing"])
     func buildingSmokeKeepsItsSelectedCampus(selection: String) async throws {
         let client = HTTPClient(transport: SelectorTransport(), observer: nil)
         let base = "https://jxzxehallapp.bit.edu.cn/jwapp/sys/kxjasbyMobile/modules/jxllb/cxjxl.do"
@@ -170,16 +453,18 @@ struct NetworkSmokeCoverageTests {
         else { #expect(throws: URLError.self) { try NetworkSmokePaging.checkBuildings([building], campusCode: "campus") } }
     }
 
-    @Test(arguments: ["valid", "empty", "text-only", "image-only", "unsupported", "broken-image"])
+    @Test(arguments: ["valid", "full-and-thumbnail", "empty", "text-only", "image-only", "unsupported", "broken-image"])
     func paperSmokeUsesTheProductionRendererAndRequiresReadableTextAndImages(stage: String) throws {
         let raw = stage == "empty" ? "" : stage == "text-only" ? "text" : stage == "image-only" ? #"{"blocks":[{"type":"image","data":{"file":{"url":"https://image.invalid/paper.png"}}}]}"#
             : stage == "unsupported" ? #"{"blocks":[{"type":"table","data":{}}]}"#
+            : stage == "full-and-thumbnail" ? smokePaperContent.replacingOccurrences(of: "\"url\":\"https://image.invalid/paper.png\"", with: "\"url\":\"https://image.invalid/paper.png\",\"low_url\":\"https://image.invalid/paper-low.png\"")
             : smokePaperContent.replacingOccurrences(of: "https://image.invalid/paper.png", with: stage == "broken-image" ? "javascript:alert(1)" : "https://image.invalid/paper.png")
         if stage == "valid" { #expect(try NetworkSmokePaging.checkPaperContent(raw) == ["https://image.invalid/paper.png"]) }
+        else if stage == "full-and-thumbnail" { #expect(try NetworkSmokePaging.checkPaperContent(raw) == ["https://image.invalid/paper-low.png", "https://image.invalid/paper.png"]) }
         else { #expect(throws: URLError.self) { try NetworkSmokePaging.checkPaperContent(raw) } }
     }
 
-    @Test(arguments: ["correct", "wrong", "missing"])
+    @Test(.timeLimit(.minutes(1)), arguments: ["correct", "wrong", "missing"])
     func requestEvidenceChecksTheSelectedTermAndBuilding(selection: String) async throws {
         let client = HTTPClient(transport: SelectorTransport(), observer: nil)
         var request = URLRequest(url: AppURL.required("https://jxzxehallapp.bit.edu.cn/jwapp/sys/kxjasbyMobile/kxjasbyController/cxkxjasqk.do"))
@@ -198,9 +483,9 @@ struct NetworkSmokeCoverageTests {
         #expect(collector.requests.count == 1 && HTTPRequestEvidenceContext.didReceive == nil)
     }
 
-    @Test(arguments: ["obj", "uid", "path"], ["correct", "wrong", "missing"])
+    @Test(.timeLimit(.minutes(1)), arguments: ["obj", "uid", "path", "search"], ["correct", "wrong", "missing"])
     func requestEvidenceChecksTheSelectedCommunityInput(key: String, selection: String) async throws {
-        let expected = key == "obj" ? "poster17" : key == "uid" ? "23" : "/courses/histories/课程 1"
+        let expected = key == "obj" ? "poster17" : key == "uid" ? "23" : key == "search" ? "课程 1" : "/courses/histories/课程 1"
         var components = try #require(URLComponents(string: "https://bit101.flwfdd.xyz" + (key == "path" ? "/courses/histories/17" : key == "obj" ? "/reaction/comments" : "/posters")))
         if key == "path" { components.path = expected }
         if key == "path", selection != "correct" {
@@ -276,6 +561,30 @@ struct NetworkSmokeCoverageTests {
         }
     }
 
+    @Test(arguments: CommunityCommentOrder.allCases)
+    func commentSmokeChecksRanksTimezonesAndTies(order: CommunityCommentOrder) throws {
+        for object in ["paper17", "course17"] {
+            func comment(_ id: Int, likes: Int, date: String) -> CommunityComment {
+                CommunityComment(id: id, obj: object, images: [], user: user(23), anonymous: false,
+                    createTime: date, updateTime: "", like: false, likeNum: likes, commentNum: 0, own: false,
+                    rate: 0, replyUser: user(23), replyObj: "", text: "", sub: [])
+            }
+            let first = comment(1, likes: 2, date: "2026-01-02T00:00:00Z")
+            let tied = comment(2, likes: 2, date: "2026-01-02T08:00:00+08:00")
+            let older = comment(3, likes: 1, date: "2026-01-01T00:00:00Z")
+            try NetworkSmokePaging.checkComments([], for: object, order: order)
+            try NetworkSmokePaging.checkComments(order == .oldest ? [older, first, tied] : [first, tied, older], for: object, order: order)
+            #expect(throws: URLError.self) {
+                try NetworkSmokePaging.checkComments(order == .oldest ? [first, older] : [older, first], for: object, order: order)
+            }
+            if order != .like {
+                #expect(throws: URLError.self) {
+                    try NetworkSmokePaging.checkComments([comment(4, likes: 0, date: "invalid")], for: object, order: order)
+                }
+            }
+        }
+    }
+
     @Test func maintainedFixturesValidateAndTravelThroughBothLaunchEntrypoints() throws {
         let fixture = NetworkSmokeFixtures(posterID: 41, courseID: 43, courseNumber: "COURSE", paperID: 45)
         let encoded = try JSONEncoder().encode(fixture)
@@ -309,18 +618,61 @@ struct NetworkSmokeCoverageTests {
         }
     }
 
+    @Test(.timeLimit(.minutes(1)), arguments: ["empty", "single", "equal", "separate-pages", "distinct", "cross-page", "continued"])
+    func commentOrderingProbesRequireDistinctValuesInOneResponse(sample: String) async throws {
+        let object = "paper17"
+        let first = CommunityComment(id: 1, obj: object, images: [], user: user(23), anonymous: false,
+            createTime: "2026-01-02T00:00:00Z", updateTime: "", like: false, likeNum: 2, commentNum: 0,
+            own: false, rate: 0, replyUser: user(23), replyObj: "", text: "", sub: [])
+        let second = CommunityComment(id: 2, obj: object, images: [], user: user(23), anonymous: false,
+            createTime: sample == "equal" ? first.createTime : "2026-01-01T00:00:00Z", updateTime: "", like: false,
+            likeNum: sample == "equal" ? 2 : 1, commentNum: 0, own: false, rate: 0, replyUser: user(23), replyObj: "", text: "", sub: [])
+        for order in CommunityCommentOrder.allCases {
+            let load: (Int) async throws -> [CommunityComment] = { page in
+                switch sample {
+                case "empty": return []
+                case "single": return page == 0 ? [first] : []
+                case "cross-page", "continued":
+                    if page == 0 { return order == .oldest ? [second, first] : [first, second] }
+                    let newer = (sample == "cross-page") != (order == .oldest)
+                    return [CommunityComment(id: 3, obj: object, images: [], user: user(23), anonymous: false,
+                        createTime: newer ? "2026-01-03T00:00:00Z" : "2025-12-31T00:00:00Z", updateTime: "", like: false,
+                        likeNum: sample == "cross-page" ? 3 : 0, commentNum: 0, own: false, rate: 0,
+                        replyUser: user(23), replyObj: "", text: "", sub: [])]
+                case "separate-pages": return order == .oldest ? (page == 0 ? [second] : [first]) : (page == 0 ? [first] : [second])
+                default: return page == 0 ? (order == .oldest ? [second, first] : [first, second]) : []
+                }
+            }
+            let identity = { CommunitySessionIdentity(accountIdentifier: "ordering") }
+            let operations: [() async throws -> Void] = [
+                { _ = try await NetworkSmokePaging.commentPage(for: object, order: order, currentIdentity: identity, load: load) },
+                { _ = try await NetworkSmokePaging.commentBatch(for: object, order: order, currentIdentity: identity) { page in
+                    let items = try await load(page)
+                    return .init(items: items, nextSourcePage: page + 1, canLoadMore: page == 0 && !items.isEmpty)
+                } }
+            ]
+            for operation in operations {
+                if ["distinct", "continued"].contains(sample) || sample == "cross-page" && order == .like { try await operation() }
+                else { await #expect(throws: Error.self) { try await operation() } }
+            }
+        }
+    }
+
     @Test func pendingSmokeRequestRequiresSuccessfulConsumption() throws {
         let files = PreferenceMemoryFiles()
         let url = files.temporaryDirectoryURL.appending(path: "network-smoke-request.json")
         let data = Data(#"{"scope":"bit101","runID":"fixture","capture":"none"}"#.utf8)
         try files.writeData(data, to: url, options: [.atomic])
         files.setFailures(removal: true)
-        #expect(ReleaseNetworkSmokeLaunchRequest.readPendingFile(files: files, at: url) == nil)
+        #expect(throws: (any Error).self) { try ReleaseNetworkSmokeLaunchRequest.readPendingFile(files: files, at: url) }
         #expect(try files.readData(at: url) == data)
         files.setFailures()
-        #expect(ReleaseNetworkSmokeLaunchRequest.readPendingFile(files: files, at: url)?.runID == "fixture")
+        #expect(try ReleaseNetworkSmokeLaunchRequest.readPendingFile(files: files, at: url).runID == "fixture")
         #expect(!files.fileExists(at: url))
-        #expect(ReleaseNetworkSmokeLaunchRequest.readPendingFile(files: files, at: url) == nil)
+        #expect(throws: (any Error).self) { try ReleaseNetworkSmokeLaunchRequest.readPendingFile(files: files, at: url) }
+        try files.writeData(Data("invalid-json".utf8), to: url, options: [.atomic])
+        #expect(throws: DecodingError.self) { try ReleaseNetworkSmokeLaunchRequest.readPendingFile(files: files, at: url) }
+        #expect(try files.readData(at: url) == Data("invalid-json".utf8))
     }
 
     @Test func imageProbeCollectsDistinctVariantsAcrossTheSampledList() {
@@ -362,7 +714,7 @@ struct NetworkSmokeCoverageTests {
             identity: .init(id: 1, color: "", text: "", createTime: "", updateTime: "", deleteTime: nil))
     }
 
-    @Test func pageFailureAndFilteredSourceCursorRemainPartOfTheProbe() async throws {
+    @Test(.timeLimit(.minutes(1))) func pageFailureAndFilteredSourceCursorRemainPartOfTheProbe() async throws {
         var pages: [Int] = []
         await #expect(throws: URLError.self) {
             _ = try await NetworkSmokePaging.arrayPage(currentIdentity: smokeIdentity) { page in
@@ -385,7 +737,7 @@ struct NetworkSmokeCoverageTests {
         }
     }
 
-    @Test func repeatedPagesFailAndPartialOverlapOrTerminalPagesAdvance() async throws {
+    @Test(.timeLimit(.minutes(1))) func repeatedPagesFailAndPartialOverlapOrTerminalPagesAdvance() async throws {
         for repeated in [true, false] {
             var pages: [Int] = []
             await #expect(throws: URLError.self) {
@@ -422,7 +774,19 @@ struct NetworkSmokeCoverageTests {
         }
     }
 
-    @Test func temporaryRepeatedPagesRecoverAndSampleContinuationImages() async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true]) func missingMaintenanceSamplesStopAtTheScanBudget(pageBudget: Bool) async throws {
+        var calls = 0
+        await #expect(throws: NetworkSmokePaging.SamplingError.self) {
+            let _: [CommunityUser] = try await NetworkSmokePaging.arrayPage(matchingID: Int.max, currentIdentity: smokeIdentity) { page in
+                calls += 1
+                return pageBudget ? [user(page + 1)] : page == 0
+                    ? (1...NetworkSmokePaging.maximumSampleItems).map(user) : [user(NetworkSmokePaging.maximumSampleItems + 1)]
+            }
+        }
+        #expect(calls == (pageBudget ? NetworkSmokePaging.maximumSamplePages : 2))
+    }
+
+    @Test(.timeLimit(.minutes(1))) func temporaryRepeatedPagesRecoverAndSampleContinuationImages() async throws {
         for repeated in [1, 3] {
             var pages: [Int] = []
             let values = try await NetworkSmokePaging.arrayPage(currentIdentity: smokeIdentity) { page in
@@ -445,10 +809,26 @@ struct NetworkSmokeCoverageTests {
         }
     }
 
-    @Test func terminalPagesExerciseContinuationAndMessagesUseTheirActualCursor() async throws {
+    @Test(.timeLimit(.minutes(1))) func terminalPagesExerciseContinuationAndMessagesUseTheirActualCursor() async throws {
         var pages: [Int] = []
         let empty: [CommunityUser] = try await NetworkSmokePaging.arrayPage(currentIdentity: smokeIdentity) { page in pages.append(page); return [] }
         #expect(empty.isEmpty && pages == [0, 1])
+        pages = []
+        await #expect(throws: URLError.self) {
+            let _: [CommunityUser] = try await NetworkSmokePaging.arrayPage(currentIdentity: smokeIdentity) { page in
+                pages.append(page)
+                return page == 0 ? [] : [user(1)]
+            }
+        }
+        #expect(pages == [0, 1])
+        pages = []
+        await #expect(throws: URLError.self) {
+            let _: GalleryPageBatch<CommunityUser> = try await NetworkSmokePaging.batch(currentIdentity: smokeIdentity) { page in
+                pages.append(page)
+                return .init(items: page == 0 ? [] : [user(1)], nextSourcePage: page + 1, canLoadMore: false, sourceIDs: page == 0 ? [] : [1])
+            }
+        }
+        #expect(pages == [0, 1])
         await #expect(throws: URLError.self) {
             let _: [CommunityUser] = try await NetworkSmokePaging.arrayPage(requiresContent: true, currentIdentity: smokeIdentity) { _ in [] }
         }
@@ -457,29 +837,37 @@ struct NetworkSmokeCoverageTests {
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         let message = try decoder.decode(GalleryMessage.self, from: data)
         var cursors: [Int?] = []
-        _ = try await NetworkSmokePaging.messages(currentIdentity: smokeIdentity) { cursor in cursors.append(cursor); return cursor == Int.max ? [message] : [] }
+        let history = try decoder.decode(GalleryMessage.self, from: Data(#"{"from_user":{},"id":8,"link_obj":"poster1","obj":"poster1","text":"","update_time":""}"#.utf8))
+        _ = try await NetworkSmokePaging.messages(currentIdentity: smokeIdentity) { cursor in cursors.append(cursor); return cursor == Int.max ? [message] : [history] }
         #expect(cursors == [Int.max, 9])
+        await #expect(throws: NetworkSmokePaging.SamplingError.self) { _ = try await NetworkSmokePaging.messages(currentIdentity: smokeIdentity) { cursor in cursor == Int.max ? [message] : [] } }
         cursors = []
-        _ = try await NetworkSmokePaging.messages(currentIdentity: smokeIdentity) { cursor in cursors.append(cursor); return [] }
-        #expect(cursors == [Int.max, 1])
+        await #expect(throws: NetworkSmokePaging.SamplingError.self) {
+            _ = try await NetworkSmokePaging.messages(currentIdentity: smokeIdentity) { cursor in cursors.append(cursor); return [] }
+        }
+        #expect(cursors == [Int.max])
         await #expect(throws: URLError.self) {
             _ = try await NetworkSmokePaging.messages(currentIdentity: smokeIdentity) { _ in [message] }
         }
     }
 
     @Test func briefAndDetailedScoresKeepTheSameCourseIdentityAndGrade() throws {
-        let headers = ["序号", "课程编号", "课程名称", "成绩", "开课学期"]
-        let first = ScoreRow(index: 0, headers: headers, values: ["1", "CS101", "课程", "90", "2025"])
-        let detailed = ScoreRow(index: 1, headers: headers + ["平均分"], values: ["2", "CS101", "课程", "90", "2025", "80"])
+        let headers = ["序号", "课程编号", "课程名称", "成绩", "开课学期", "学分"]
+        let first = ScoreRow(index: 0, headers: headers, values: ["1", "CS101", "课程", "90", "2025", "2"])
+        let detailed = ScoreRow(index: 1, headers: headers + ["平均分"], values: ["2", "CS101", "课程", "90", "2025", "2", "80"])
         try NetworkSmokePaging.checkScores(brief: [first], detailed: [detailed])
-        try NetworkSmokePaging.checkScores(brief: [], detailed: [])
-        for values in [["2", "CS102", "课程", "90", "2025"], ["2", "CS101", "课程", "80", "2025"]] {
+        #expect(throws: NetworkSmokePaging.SamplingError.self) { try NetworkSmokePaging.checkScores(brief: [], detailed: []) }
+        for values in [["1", " ", "课程", "", "2025", "2"], ["1", "CS101", " ", "", "2025", "2"]] {
+            let emptyIdentity = ScoreRow(index: 0, headers: headers, values: values)
+            #expect(throws: URLError.self) { try NetworkSmokePaging.checkScores(brief: [emptyIdentity], detailed: [emptyIdentity]) }
+        }
+        for values in [["2", "CS102", "课程", "90", "2025", "2"], ["2", "CS101", "课程", "80", "2025", "2"]] {
             #expect(throws: URLError.self) { try NetworkSmokePaging.checkScores(brief: [first], detailed: [ScoreRow(index: 0, headers: headers, values: values)]) }
         }
         #expect(throws: URLError.self) { try NetworkSmokePaging.checkScores(brief: [first], detailed: []) }
     }
 
-    @Test(arguments: [false, true])
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func messageSamplingPreservesUnreadCountsAsNewMessagesArrive(emptyFirstPage: Bool) async throws {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
@@ -488,17 +876,19 @@ struct NetworkSmokeCoverageTests {
         var messages: [GalleryMessage] = emptyFirstPage ? [] : [message]
         var unread = 3
         var requests = 0
-        _ = try await NetworkSmokePaging.messages(currentIdentity: smokeIdentity) { cursor in
+        let read = { try await NetworkSmokePaging.messages(currentIdentity: smokeIdentity) { cursor in
             requests += 1
             if emptyFirstPage && requests == 2 { messages = [message]; unread += 1 }
             let rows = messages.filter { cursor == nil || cursor == 0 || $0.id < (cursor ?? 0) }
             if (cursor == nil || cursor == 0) && !rows.isEmpty { unread = 0 }
             return rows
-        }
-        #expect(requests == 2 && unread == (emptyFirstPage ? 4 : 3))
+        } }
+        if emptyFirstPage { await #expect(throws: NetworkSmokePaging.SamplingError.self) { try await read() } }
+        else { await #expect(throws: NetworkSmokePaging.SamplingError.self) { try await read() } }
+        #expect(requests == (emptyFirstPage ? 1 : 2) && unread == 3)
     }
 
-    @Test func messageSmokeUsesTheProductionCursorAndRejectsUnorderedPages() async throws {
+    @Test(.timeLimit(.minutes(1))) func messageSmokeUsesTheProductionCursorAndRejectsUnorderedPages() async throws {
         func messages(_ ids: [Int]) throws -> [GalleryMessage] {
             let rows = ids.map { ["fromUser": [:], "id": $0, "linkObj": "", "obj": "", "text": "", "updateTime": ""] as [String: Any] }
             return try JSONDecoder().decode([GalleryMessage].self, from: JSONSerialization.data(withJSONObject: rows))
@@ -558,7 +948,7 @@ struct NetworkSmokeCoverageTests {
         }
     }
 
-    @Test func productionWritesUploadJPEGAndVerifyServerImageReferences() async throws {
+    @Test(.timeLimit(.minutes(1))) func productionWritesUploadJPEGAndVerifyServerImageReferences() async throws {
         let route = MediaRoute()
         let session = CommunitySession(httpClient: HTTPClient(transport: route, observer: nil),
             baseURL: AppURL.required("https://example.invalid"),
@@ -605,387 +995,6 @@ struct NetworkSmokeCoverageTests {
             _ = try await scoped.create(.poster, "fixture", { _ in Issue.record("上传完成后沿账号归属保存资源") }, {})
         }
         #expect(route.calls.filter { $0.1 == "POST" && $0.0 != "/upload/image" }.count == writes)
-    }
-}
-#endif
-
-#if DEBUG
-private let smokePaperContent = #"{"blocks":[{"type":"header","data":{"text":"Title","level":1}},{"type":"paragraph","data":{"text":"Readable <b>body</b>"}},{"type":"image","data":{"file":{"url":"https://image.invalid/paper.png"}}}]}"#
-extension ReleaseNetworkSmokeLifecycleTests {
-    private final class Services: NetworkSmokeGalleryServicing, NetworkSmokeCourseServicing, NetworkSmokePaperServicing,
-        NetworkSmokeMineServicing, NetworkSmokeScheduleServicing, ScoreListServicing, TrustedTranscriptServicing {
-        let stage: String
-        let image: Data
-        var rawResponse: ((Data) -> Void)?
-        var observed = Set<String>()
-        var webvpnVerified = false
-        var ssoVerified = false
-        private var smsChallenge: BITLoginAuthenticationChallenge { .init(challengeID: "fixture", accessToken: "fixture", status: "sms_required", maskedPhone: "***", expiresIn: 60) }
-        init(stage: String, image: Data) { self.stage = stage; self.image = image }
-        private var user: CommunityUser {
-            CommunityUser(id: 1, createTime: "", nickname: "fixture", avatar: CommunityImage(mid: "image", url: "https://image.invalid/image.png", lowUrl: ""), motto: "",
-                identity: CommunityIdentity(id: 1, color: "", text: "", createTime: "", updateTime: "", deleteTime: nil))
-        }
-        private var poster: CommunityPoster {
-            CommunityPoster(anonymous: false, claim: CommunityClaim(id: 1, text: "fixture"), commentNum: 0, createTime: "", editTime: "", id: 1, images: [user.avatar],
-                likeNum: 0, public: true, tags: [], text: "fixture", title: "fixture", updateTime: "", user: user)
-        }
-        private func comment(object: String) -> CommunityComment {
-            CommunityComment(id: 1, obj: object, images: [], user: user, anonymous: false,
-                createTime: "", updateTime: "", like: false, likeNum: 0, commentNum: 0, own: false,
-                rate: 0, replyUser: user, replyObj: "", text: "fixture", sub: [])
-        }
-        func fetchFeed(kind: GalleryFeedKind, page: Int?) async throws -> GalleryPageBatch<CommunityPoster> {
-            observed.insert("gallery-\(kind.rawValue)"); return posterPage(page ?? 0)
-        }
-        private func posterPage(_ page: Int) -> GalleryPageBatch<CommunityPoster> {
-            if stage == "feed-images-missing-success" {
-                let value = CommunityPoster(anonymous: false, claim: poster.claim, commentNum: 0, createTime: "", editTime: "", id: page + 1,
-                    images: [],
-                    likeNum: 0, public: true, tags: [], text: "fixture", title: "fixture", updateTime: "", user: user)
-                return .init(items: page < 2 ? [value] : [], nextSourcePage: page + 1, canLoadMore: page == 0)
-            }
-            return .init(items: page == 0 ? [poster] : [], nextSourcePage: page + 1, canLoadMore: false)
-        }
-        func fetchRecommendPage(sourcePage: Int) async throws -> GalleryPageBatch<CommunityPoster> { posterPage(sourcePage) }
-        func fetchBotFeed(startPage: Int) async throws -> GalleryPageBatch<CommunityPoster> {
-            let batch = posterPage(startPage)
-            if stage == "bot-classification-failure" { return batch }
-            let items = batch.items.map {
-                CommunityPoster(anonymous: $0.anonymous, claim: $0.claim, commentNum: $0.commentNum, createTime: $0.createTime,
-                    editTime: $0.editTime, id: $0.id, images: $0.images, likeNum: $0.likeNum, public: $0.public,
-                    tags: ["BOT"], text: $0.text, title: $0.title, updateTime: $0.updateTime, user: $0.user)
-            }
-            return .init(items: items, nextSourcePage: batch.nextSourcePage, canLoadMore: batch.canLoadMore, sourceIDs: batch.sourceIDs)
-        }
-        func searchPosters(query: GallerySearchQuery, page: Int?) async throws -> GalleryPageBatch<CommunityPoster> {
-            posterPage(page ?? 0)
-        }
-        func fetchMessageUnreadCounts() async throws -> GalleryMessageUnreadCounts { GalleryMessageUnreadCounts() }
-        func fetchMessages(type: GalleryMessageType, lastID: Int?) async throws -> [GalleryMessage] { [] }
-        func fetchPoster(id: Int) async throws -> GalleryPosterDetail {
-            observed.insert("fixture-poster-\(id)")
-            if stage == "maintained-fixtures-success", id == 1 { throw URLError(.resourceUnavailable) }
-            return GalleryPosterDetail(anonymous: false, claim: poster.claim, commentNum: 0, createTime: "", editTime: "", id: stage == "entity-identity-failure" ? id + 1 : id,
-                images: stage == "fixture-image-missing-failure" ? [] : [.init(mid: "fixture", url: "https://image.invalid/fixture.png", lowUrl: "")],
-                like: false, likeNum: 0, own: false, plugins: "", public: true, tags: [], text: "fixture", title: "fixture", updateTime: "", user: user)
-        }
-        func fetchComments(objectID: String, order: CommunityCommentOrder, page: Int?) async throws -> GalleryPageBatch<CommunityComment> {
-            observed.insert("gallery-comments-\(page ?? 0)")
-            if stage == "gallery-comment-page-failure", page != nil { throw URLError(.cannotParseResponse) }
-            if stage == "gallery-comment-page-failure" { return .init(items: [comment(object: objectID)], nextSourcePage: 3, canLoadMore: true) }
-            return .init(items: [], nextSourcePage: (page ?? 0) + 1, canLoadMore: false)
-        }
-        func fetchClaims() async throws -> [CommunityClaim] { [poster.claim] }
-        func fetchReportTypes() async throws -> [GalleryReportType] { [] }
-        func fetchCourses(search: String, page: Int) async throws -> [CourseSummary] {
-            if stage == "empty-list-failure" { return [] }
-            guard page == 0 || stage == "repeated-page-failure" else { return [] }
-            return [CourseSummary(detail: CourseDetail(id: 1, name: "fixture", number: "COURSE", credit: 1, likeNum: 0, commentNum: 0, rate: 0, teachersName: "", teachersNumber: "", like: false))]
-        }
-        func fetchCourse(id: Int) async throws -> CourseDetail {
-            observed.insert("course-detail")
-            observed.insert("fixture-course-\(id)")
-            if stage == "maintained-fixtures-success", id == 1 { throw URLError(.resourceUnavailable) }
-            if stage == "community-failure" { throw URLError(.timedOut) }
-            return CourseDetail(id: stage == "entity-identity-failure" ? id + 1 : id, name: "fixture", number: "COURSE", credit: 1, likeNum: 0, commentNum: 0, rate: 0, teachersName: "", teachersNumber: "", like: false)
-        }
-        func fetchCourseHistories(number: String) async throws -> [CourseHistoryGrade] { [] }
-        func fetchComments(courseID: Int, page: Int?) async throws -> [CommunityComment] {
-            observed.insert("course-comments-\(page ?? 0)")
-            if stage == "course-comment-page-failure" { return [comment(object: "course\(courseID)")] }
-            return []
-        }
-        func fetchPapers(search: String?, order: PaperSortOrder, page: Int) async throws -> [PaperSummary] {
-            observed.insert("paper-list")
-            if stage == "empty-list-failure" { return [] }
-            if stage == "paper-\(order.requestValue ?? "newest")-order-failure" {
-                return page == 0 ? (0..<2).map { index in
-                    PaperSummary(id: index + 1, title: "fixture", intro: "", likeNum: index, commentNum: index,
-                        updateTime: index == 0 ? "2026-01-01T00:00:00Z" : "2026-01-02T00:00:00Z")
-                } : []
-            }
-            guard page == 0 else { return [] }
-            return [PaperSummary(id: 1, title: "fixture", intro: "", likeNum: 0, commentNum: 0, updateTime: "2026-01-01T00:00:00Z")]
-        }
-        func fetchPaper(id: Int) async throws -> PaperDetail {
-            observed.insert("fixture-paper-\(id)")
-            if stage == "maintained-fixtures-success", id == 1 { throw URLError(.resourceUnavailable) }
-            return PaperDetail(id: stage == "entity-identity-failure" ? id + 1 : id, title: "fixture", intro: "", content: stage == "paper-content-failure" ? "" : smokePaperContent, createTime: "", updateTime: "", updateUser: user,
-                anonymous: false, likeNum: 0, commentNum: 0, publicEdit: false, like: false, own: false)
-        }
-        func fetchPreviewMetadata(id: Int) async throws -> PaperPreviewMetadata { try await fetchPaper(id: id).previewMetadata }
-        func fetchComments(paperID: Int, order: CommunityCommentOrder, page: Int?) async throws -> [CommunityComment] {
-            observed.insert("paper-comments-\(page ?? 0)")
-            if stage == "paper-comment-page-failure", page != nil { throw URLError(.cannotParseResponse) }
-            return stage == "paper-comment-page-failure" ? [comment(object: "paper\(paperID)")] : []
-        }
-        func fetchMyInfo() async throws -> MineUserInfo { observed.insert("mine"); return try await fetchUserInfo(id: 1) }
-        func fetchUserInfo(id: Int) async throws -> MineUserInfo { MineUserInfo(user: user, followingNum: 0, followerNum: 0, following: false, follower: false, own: true) }
-        func fetchUserPosters(userID: Int, page: Int) async throws -> [CommunityPoster] { page == 0 ? [poster] : [] }
-        func fetchMyPosters(page: Int) async throws -> [CommunityPoster] { page == 0 ? [poster] : [] }
-        func fetchFollowers(page: Int) async throws -> [CommunityUser] { [] }
-        func fetchFollowings(page: Int) async throws -> [CommunityUser] { [] }
-        func fetchCurrentTermOnly() async throws -> String {
-            if stage == "all-sms-success" && !webvpnVerified { throw ScheduleServiceError.secondFactorRequired(smsChallenge) }
-            return "fixture-1"
-        }
-        func fetchAvailableTerms() async throws -> [String] { ["fixture-1"] }
-        func syncCourses(term: String?) async throws -> CourseSyncPayload {
-            observed.insert("schedule")
-            rawResponse?(Data("course-response".utf8))
-            let exams: [ExamRecord] = stage == "invalid-exam-failure" || stage == "pending-exam-success"
-                ? [.init(id: "exam", term: "fixture-1", name: stage == "invalid-exam-failure" ? "" : "待排课程", courseID: "",
-                    teacher: "", classroom: "", dateString: "", beginTime: "", endTime: "", examMode: "", seatID: "")] : []
-            return CourseSyncPayload(term: stage == "schedule-term-failure" ? "other-term" : term ?? "fixture-1", firstDayString: "2026-03-02", sourceFirstDayString: "2026-03-02",
-                normalizationOffset: 0, rawWeeksByCourse: [], courses: [], exams: exams)
-        }
-        func submitSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge, term: String?) async throws -> CourseSyncPayload { try await syncCourses(term: term) }
-        func submitSMSCodeForTeachingCenterAuthentication(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws { webvpnVerified = true }
-        func prepareTeachingCenterAccess() async throws {}
-        func fetchCampuses() async throws -> [CampusRecord] { [CampusRecord(id: "campus", name: "fixture", code: "campus")] }
-        func fetchBuildings(campusCode: String?) async throws -> [BuildingRecord] { [BuildingRecord(id: "building", name: "fixture", buildingCode: "building", campusName: "fixture", campusCode: stage == "campus-selection-failure" ? "other" : "campus")] }
-        func fetchClassrooms(buildingID: String, term: String) async throws -> [ClassroomRecord] {
-            [ClassroomRecord(id: "room", name: "fixture", busyTimeCodes: stage == "invalid-classroom-failure" ? [0] : [])]
-        }
-        func fetchEclassDDLEvents(schoolSMSCodeHandler: SchoolSMSCodeHandler?) async throws -> EclassDDLResult {
-            if stage == "all-sms-success" && !ssoVerified {
-                let handler = try #require(schoolSMSCodeHandler)
-                _ = try await handler(.init(maskedPhone: "***", purpose: "school_sso_second_factor"))
-                ssoVerified = true
-            }
-            return try await fetchEclassDDLEventsForPreflight()
-        }
-        func fetchEclassDDLEventsForPreflight() async throws -> EclassDDLResult {
-            observed.insert("eclass")
-            return EclassDDLResult(events: [], courseCount: 1, activityCount: 0, activityTypes: [:], homeworkWithoutDeadlineCount: 0)
-        }
-        func refreshLexueCalendarURL(schoolSMSCodeHandler: SchoolSMSCodeHandler?) async throws -> String { try await refreshLexueCalendarURLForPreflight() }
-        func refreshLexueCalendarURLForPreflight() async throws -> String { "https://lexue.bit.edu.cn/fixture.ics" }
-        func syncDDLEventsForPreflight(existingEvents: [DDLEventRecord], storedURL: String) async throws -> DDLSyncPayload {
-            observed.insert("lexue")
-            if stage == "ddl-failure" { throw URLError(.timedOut) }
-            if stage == "ddl-invalid-calendar-failure" { throw ScheduleServiceError.invalidCalendarData }
-            return DDLSyncPayload(url: storedURL, events: [])
-        }
-        func startScoreChallenge() async throws -> BITLoginAuthenticationChallenge {
-            if stage == "all-sms-success" { throw ScoreServiceError.secondFactorRequired(smsChallenge) }
-            return BITLoginAuthenticationChallenge(challengeID: "fixture", accessToken: "fixture", status: "authenticated", maskedPhone: nil, expiresIn: 60) }
-        func fetchScores(detail: Bool, authenticatedBy challenge: BITLoginAuthenticationChallenge) async throws -> [ScoreRow] {
-            guard stage == "all-score-mismatch-failure" else { return [] }
-            return [ScoreRow(index: 0, headers: ["课程编号", "课程名称", "成绩", "开课学期"],
-                values: ["CS101", "课程", detail ? "80" : "90", "2025"])]
-        }
-        func submitScoreSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { .init(challengeID: "fixture", accessToken: "fixture", status: "authenticated", maskedPhone: nil, expiresIn: 60) }
-        func fetchTrustedTranscriptPages() async throws -> [Data] {
-            if stage == "all-sms-success" { throw ScoreServiceError.secondFactorRequired(smsChallenge) }
-            return [image]
-        }
-        func submitTranscriptSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> [Data] { [image] }
-    }
-
-    private final class External: HTTPTransport {
-        let image: Data
-        let redirectHost: String?
-        let aasaStage: String
-        var requests: [URLRequest] = []
-        var imageBudgets: [Int?] = []
-        init(image: Data, redirectHost: String? = nil, aasaStage: String = "") {
-            self.image = image; self.redirectHost = redirectHost; self.aasaStage = aasaStage
-        }
-        func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
-            if let path = request.url?.path, path.hasSuffix(".jpg") || path.hasSuffix(".png") {
-                imageBudgets.append(maximumBytes)
-                if aasaStage == "image-budget-failure", maximumBytes != nil { throw HTTPClientError.responseTooLarge }
-            }
-            let result = try await data(for: request)
-            if let maximumBytes, result.0.count > maximumBytes { throw HTTPClientError.responseTooLarge }
-            return result
-        }
-        func data(for request: URLRequest) async throws -> (Data, URLResponse) {
-            requests.append(request)
-            let url = try #require(request.url)
-            var finalURL = url
-            let data: Data
-            var status = 200
-            var headers: [String: String] = [:]
-            if request.httpMethod == "OPTIONS" {
-                #expect(request.value(forHTTPHeaderField: "Origin") == "https://bit101.cn")
-                #expect(request.value(forHTTPHeaderField: "Access-Control-Request-Method") == "POST")
-                #expect(request.value(forHTTPHeaderField: "Access-Control-Request-Headers") == "content-type")
-                data = Data(); status = 204; headers["Access-Control-Allow-Origin"] = "*"
-                headers["Access-Control-Allow-Methods"] = aasaStage == "cors-method-failure" ? "OPTIONS" : "post, OPTIONS"
-                headers["Access-Control-Allow-Headers"] = aasaStage == "cors-header-failure" ? "x-custom" : "Content-Type"
-            } else if url.path.hasSuffix("apple-app-site-association") {
-                let json = #"{"applinks":{"details":[{"appID":"Y2T72736G3.BIT101-dev.BIT101-iOS","paths":["/gallery/*","/course/*","/paper/*"]}]}}"#
-                data = Data((aasaStage == "aasa-exclusion-failure" ? json.replacingOccurrences(of: "\"/gallery/*\"", with: "\"NOT /gallery/*\",\"/gallery/*\"") : json).utf8)
-                headers["Content-Type"] = aasaStage == "aasa-mime-failure" ? "text/plain" : "application/json"
-                if aasaStage == "aasa-redirect-failure" { status = 302; headers["Location"] = "/association" }
-                if aasaStage == "aasa-followed-redirect-failure" { finalURL = AppURL.required("https://open.aihelpme.dev/association") }
-            } else if url.host == "itunes.apple.com" {
-                #expect(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.contains { $0.name == "requestTime" } == true)
-                #expect(request.value(forHTTPHeaderField: "Cache-Control") == "no-cache")
-                #expect(request.cachePolicy == .reloadIgnoringLocalCacheData)
-                data = Data(#"{"resultCount":1,"results":[{"version":"1.0","bundleId":"BIT101-dev.BIT101-iOS","currentVersionReleaseDate":"2026-01-01T00:00:00Z","trackViewUrl":"https://apps.apple.com/app/id6761147125"}]}"#.utf8)
-            } else if url.host == "update.aihelpme.dev" {
-                data = Data(#"{"schema_version":1,"enabled":false}"#.utf8)
-            } else if url.path.hasSuffix(".jpg") || url.path.hasSuffix(".png") {
-                if aasaStage == "paper-image-failure", url.path == "/paper.png" { throw URLError(.resourceUnavailable) }
-                data = image
-            } else {
-                if url.path.isEmpty || url.path == "/" { finalURL = try #require(URL(string: "https://bit101.cn/gallery/")) }
-                data = Data("<html><a href=\"bit101:/\(url.path)\">fixture</a></html>".utf8)
-            }
-            if url.host == redirectHost { status = 302 }
-            return (data, try #require(HTTPURLResponse(url: finalURL, statusCode: status, httpVersion: nil, headerFields: headers)))
-        }
-    }
-
-    @Test("Full smoke orchestration preserves success, intermediate failures and subsequent scopes", arguments:
-        ["all-success", "all-sms-success", "all-sms-not-required", "community-failure", "schedule-success", "ddl-success", "ddl-failure", "ddl-invalid-calendar-failure", "raw-write-failure",
-         "app-store-redirect-failure", "emergency-redirect-failure", "aasa-redirect-failure", "aasa-followed-redirect-failure",
-         "aasa-mime-failure", "aasa-exclusion-failure", "image-budget-failure", "entity-identity-failure", "repeated-page-failure",
-         "gallery-comment-page-failure", "course-comment-page-failure", "paper-comment-page-failure", "cors-method-failure", "cors-header-failure",
-         "schedule-term-failure", "historical-term-success", "maintained-fixtures-success", "feed-images-missing-success", "fixture-image-missing-failure",
-         "missing-fixtures-failure", "fixture-course-number-failure", "empty-list-failure", "all-score-mismatch-failure",
-         "bot-classification-failure", "paper-like-order-failure", "paper-comment-order-failure", "paper-newest-order-failure", "paper-content-failure", "paper-image-failure", "campus-selection-failure",
-         "invalid-exam-failure", "pending-exam-success", "invalid-classroom-failure",
-         "school-independent-success", "transcript-independent-success", "schedule-independent-success", "ddl-independent-success"])
-    func completeOrchestration(stage: String) async throws {
-        let image = try #require(UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1)).image { $0.fill(CGRect(x: 0, y: 0, width: 1, height: 1)) }.pngData())
-        let services = Services(stage: stage, image: image)
-        let productionServices = Services(stage: stage, image: image)
-        let redirectHost = stage == "app-store-redirect-failure" ? "itunes.apple.com"
-            : stage == "emergency-redirect-failure" ? "update.aihelpme.dev" : nil
-        let external = External(image: image, redirectHost: redirectHost, aasaStage: stage)
-        let association = External(image: image, aasaStage: stage)
-        let externalClient = HTTPClient(transport: external, observer: nil)
-        let files = PreferenceMemoryFiles()
-        let media = AppMedia.makeEnvironment(files: files, previewStorage: MediaPreviewStorage(files: files),
-            imageHTTPClient: externalClient, avatarHTTPClient: externalClient)
-        var reports: [ReleaseNetworkSmokeReport] = []
-        var feedback = 0
-        var rawWrites = 0
-        var loginChecks = 0
-        let sessionEvidence = ["初始账号资料 ID：1", "无效凭据切换：认证拒绝", "恢复账号资料 ID：1"]
-        let dependencies = ReleaseNetworkSmokeDependencies(requiresRequestEvidence: false, checkLogin: {
-            loginChecks += 1
-            if stage.contains("independent") { throw URLError(.notConnectedToInternet) }
-            return "fixture"
-        }, writeReport: { reports.append($0) },
-            clearRawCourseResponse: {}, writeRawCourseResponse: { _, runID in
-                rawWrites += 1
-                #expect(runID == stage)
-                if stage == "raw-write-failure" { throw CocoaError(.fileWriteNoPermission) }
-            }, makeGallery: { services }, makeCourses: { services }, makePapers: { services }, makeMine: { services },
-            productionSessionProbe: { sessionEvidence }, externalHTTPClient: externalClient,
-            imageProbe: { try await media.verifyRemoteImage(at: $0) }, aasaHTTPClient: HTTPClient(transport: association, observer: nil),
-            feedbackProbe: { _ in feedback += 1 },
-            loadScheduleCache: { ScheduleCache() }, makeScores: { services }, makeSchedule: { handler in services.rawResponse = handler; return services },
-            makeProductionSchedule: { productionServices }, makeEclassSchedule: { services })
-        let scope: NetworkSmokeScope = stage.hasPrefix("school-") ? .school : stage.hasPrefix("transcript-") ? .transcript : stage.hasPrefix("all-") || redirectHost != nil || stage.hasPrefix("aasa") ? .all : stage == "community-failure" || stage == "image-budget-failure" || stage == "entity-identity-failure" || stage == "repeated-page-failure" || stage.contains("comment-page") || stage.hasPrefix("cors") || stage.hasPrefix("bot-") || stage.hasPrefix("paper-") || stage.contains("fixtures") || stage == "feed-images-missing-success" || stage == "fixture-image-missing-failure" || stage == "fixture-course-number-failure" || stage == "empty-list-failure" ? .bit101 : stage.hasPrefix("ddl") ? .ddl : .schedule
-        let runner = ReleaseNetworkSmokeRunner(dependencies: dependencies)
-        let smsHandler: SchoolSMSCodeHandler = { _ in "fixture-code" }
-        let report = await runner.run(scope: scope, runID: stage, capture: stage == "raw-write-failure" ? .rawCourseResponse : .none,
-            term: stage == "historical-term-success" ? "historical-1" : nil,
-            fixtures: stage == "missing-fixtures-failure" ? nil : NetworkSmokeFixtures(posterID: 41, courseID: 43,
-                courseNumber: stage == "fixture-course-number-failure" ? "OTHER" : "COURSE", paperID: 45),
-            schoolSMSCodeHandler: stage.hasPrefix("all-sms-") ? smsHandler : nil)
-        if scope.includes(.bit101) {
-            #expect(services.observed.isSuperset(of: ["gallery-follow", "gallery-hot", "gallery-newest"]))
-            #expect(report.executedProbes.contains("gallery.following") && report.executedProbes.contains("gallery.hot"))
-        }
-        #expect(report.passed == (!stage.hasSuffix("failure") || stage == "missing-fixtures-failure"), "\(stage): \(report.failures)")
-        if stage == "maintained-fixtures-success" {
-            #expect(services.observed.isSuperset(of: ["fixture-poster-41", "fixture-course-43", "fixture-paper-45"]))
-            #expect(external.requests.contains { $0.url?.path == "/paper.png" })
-        }
-        if stage == "feed-images-missing-success" || stage == "maintained-fixtures-success" {
-            #expect(external.requests.contains { $0.url?.path == "/fixture.png" })
-        }
-        if stage == "fixture-image-missing-failure" {
-            #expect(report.failures.contains { $0.contains("gallery.image") })
-        }
-        if stage == "missing-fixtures-failure" {
-            #expect(!report.coverageComplete && report.skippedProbes.contains { $0.contains("维护对象配置") })
-        }
-        #expect(report.productionSessionEvidence == (scope.includes(.bit101) ? sessionEvidence : []))
-        if stage == "all-sms-success" {
-            #expect(report.schoolSMSCoverage == "verified")
-            #expect(services.webvpnVerified && productionServices.webvpnVerified)
-            #expect(Set(report.verifiedSMSProbes.filter { $0.purpose == "webvpn" }.map(\.probe)) == ["school.session", "schedule.current-term"])
-            #expect(Set(report.verifiedSMSProbes.map(\.purpose)) == NetworkSmokeScope.all.requiredSMSPurposes)
-        }
-        if stage.hasPrefix("all-sms-") {
-            #expect(Set(report.authenticatedSchoolProbes.map(\.purpose)) == NetworkSmokeScope.all.requiredSMSPurposes)
-            #expect(Set(report.requestedSMSPurposes) == Set(report.verifiedSMSProbes.map(\.purpose)))
-            #expect(report.coverageComplete)
-        }
-        if stage == "all-sms-not-required" {
-            #expect(report.schoolSMSCoverage == "not_required")
-            #expect(report.verifiedSMSProbes.isEmpty && report.requestedSMSPurposes.isEmpty)
-        }
-        if stage == "repeated-page-failure" {
-            #expect(report.failures.contains { $0.contains("course.list") })
-            #expect(services.observed.contains("fixture-course-43"))
-            #expect(report.coverageComplete)
-        }
-        if stage == "missing-fixtures-failure" {
-            #expect(Set(scope.requiredProbes).subtracting(report.executedProbes)
-                == ["gallery.detail", "gallery.image", "gallery.comments", "gallery.web", "course.detail", "course.comments",
-                    "course.history", "course.web", "paper.detail", "paper.image", "paper.comments", "paper.web"])
-        } else {
-            let deferred: Set<String> = stage == "entity-identity-failure" ? ["paper.image", "gallery.image"]
-                : stage == "paper-content-failure" ? ["paper.image"] : stage == "campus-selection-failure" ? ["classroom.occupancy"] : []
-            #expect(Set(report.executedProbes) == Set(scope.requiredProbes).subtracting(deferred))
-        }
-        #expect(reports.count == 1 && reports[0].passed == report.passed)
-        #expect(loginChecks == (scope.includes(.authentication) ? 1 : 0))
-        if scope.includes(.bit101) { #expect(feedback == 1 && services.observed.contains("mine") && services.observed.contains("paper-list")) }
-        #expect(association.requests.count == (scope.includes(.bit101) ? 1 : 0))
-        #expect(external.requests.allSatisfy { $0.url?.path.hasSuffix("apple-app-site-association") == false })
-        if scope.includes(.bit101) {
-            #expect(!external.imageBudgets.isEmpty && external.imageBudgets.allSatisfy { $0 == RemoteImageResourceLimits.maximumEncodedBytes })
-        }
-        if stage == "entity-identity-failure" {
-            #expect(report.failures.count == 3)
-            for name in ["gallery.detail", "course.detail", "paper.detail"] { #expect(report.failures.contains { $0.contains(name) }) }
-        }
-        if stage == "paper-content-failure" || stage == "paper-image-failure" || stage == "campus-selection-failure" {
-            let probe = stage == "paper-content-failure" ? "paper.detail" : stage == "paper-image-failure" ? "paper.image" : "classroom.buildings"
-            #expect(report.failures.count == 1 && report.failures[0].contains(probe))
-        }
-        if stage.contains("comment-page") {
-            let kind = String(stage.prefix { $0 != "-" })
-            let probe = kind == "gallery" ? "gallery.comments" : kind == "course" ? "course.comments" : "paper.comments"
-            #expect(report.failures.count == 1 && report.failures[0].contains(probe))
-            #expect(services.observed.contains("\(kind)-comments-\(kind == "gallery" ? 3 : 1)"))
-        }
-        if stage.hasPrefix("cors") { #expect(report.failures.count == 1 && report.failures[0].contains("feedback.preflight")) }
-        if stage.hasPrefix("aasa") { #expect(report.failures.count == 1 && report.failures[0].contains("web.association")) }
-        if scope.includes(.schedule) { #expect(services.observed.contains("schedule")) }
-        if scope.includes(.schedule) {
-            #expect(report.currentTerm == "fixture-1")
-            #expect(report.requestedTerm == (stage == "historical-term-success" ? "historical-1" : nil))
-            #expect(report.validatedTerm == (stage == "schedule-term-failure" || stage == "invalid-exam-failure" ? nil : report.requestedTerm ?? "fixture-1"))
-        }
-        if report.executedProbes.contains("classroom.occupancy") {
-            let occupancy = try #require(report.requestEvidence.first { $0.probe == "classroom.occupancy" })
-            #expect(occupancy.expectedParameters == ["XNXQDM": report.requestedTerm ?? "fixture-1", "JXLDM": "building",
-                "RQ": ScheduleDateCodec.formatDate(Date()), "XQDM": "1", "XNDM": stage == "historical-term-success" ? "historical" : "fixture"])
-        }
-        if scope.includes(.ddl) { #expect(services.observed.isSuperset(of: ["eclass", "lexue"])) }
-        if stage == "raw-write-failure" { #expect(rawWrites == 1 && report.failures.contains { $0.contains("原始课表采样写入") }) }
-        if stage == "ddl-failure" || stage == "ddl-invalid-calendar-failure" {
-            #expect(report.failures.count == 1 && report.failures[0].contains("lexue.ddl"))
-        }
-        if let redirectHost {
-            let probe = redirectHost == "itunes.apple.com" ? "update.app-store" : "update.emergency"
-            #expect(report.failures.count == 1 && report.failures[0].contains(probe))
-        }
-        let next = await runner.run(scope: .transcript, runID: "next", schoolSMSCodeHandler: stage == "all-sms-success" ? smsHandler : nil)
-        #expect(next.passed && next.failures.isEmpty && next.coverageComplete)
-        #expect(reports.count == 2)
     }
 }
 #endif

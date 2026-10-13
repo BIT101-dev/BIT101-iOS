@@ -154,31 +154,6 @@ public struct GalleryService {
         let id: Int
     }
 
-    /// 发评论接口请求体。
-    private struct CreateCommentRequest: Encodable {
-        let obj: String
-        let text: String
-        let replyObj: String?
-        let replyUid: Int?
-        let anonymous: Bool
-        let imageMids: [String]
-
-        /// 对齐后端 snake_case 字段名。
-        enum CodingKeys: String, CodingKey {
-            case obj
-            case text
-            case replyObj = "reply_obj"
-            case replyUid = "reply_uid"
-            case anonymous
-            case imageMids = "image_mids"
-        }
-    }
-
-    /// 点赞接口请求体。
-    private struct LikeRequest: Encodable {
-        let obj: String
-    }
-
     private struct ReportRequest: Encodable {
         let obj: String
         let text: String
@@ -356,12 +331,16 @@ public struct GalleryService {
     public func uploadImage(data: Data, filename: String = "poster.jpg") async throws -> CommunityImage {
         let multipart = MultipartFormData.jpegFile(data: data, filename: filename)
         do {
-            return try await api.request(
+            let image: CommunityImage = try await api.request(
                 path: "upload/image",
                 method: "POST",
                 body: multipart.body,
                 contentType: multipart.contentType
             )
+            guard !image.mid.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw GalleryServiceError.invalidResponse
+            }
+            return image
         } catch let error as NSError where error.domain == "BIT101.Gallery" && error.code >= 400 {
             throw GalleryServiceError.uploadFailed
         }
@@ -395,6 +374,7 @@ public struct GalleryService {
                 )
             )
         )
+        guard response.id > 0 else { throw GalleryServiceError.invalidResponse }
         return response.id
     }
 
@@ -402,7 +382,9 @@ public struct GalleryService {
     ///
     /// 帖子详情会额外包含 `like / own / plugins` 等当前用户态字段，因此不能完全用列表卡片代替。
     public func fetchPoster(id: Int) async throws -> GalleryPosterDetail {
-        try await api.request(path: "posters/\(id)")
+        let detail: GalleryPosterDetail = try await api.request(path: "posters/\(id)")
+        guard id > 0, detail.id == id else { throw GalleryServiceError.invalidResponse }
+        return detail
     }
 
     /// 删除一条帖子。
@@ -454,6 +436,8 @@ public struct GalleryService {
                 method: "POST",
                 body: try api.encode(ReportRequest(obj: objectID, text: text, typeID: typeID))
             )
+        } catch let error as CommunityCreateOutcomeUnknown {
+            throw error
         } catch let error as GalleryServiceError {
             throw error
         } catch {
@@ -495,7 +479,9 @@ public struct GalleryService {
         if let page {
             queryItems.append(URLQueryItem(name: "page", value: String(page)))
         }
-        return try await api.request(path: "reaction/comments", queryItems: queryItems)
+        let comments: [CommunityComment] = try await api.request(path: "reaction/comments", queryItems: queryItems)
+        guard CommunityComment.validatesResponse(comments, for: objectID) else { throw GalleryServiceError.invalidResponse }
+        return comments
     }
 
     /// 对帖子或评论执行点赞操作。
@@ -505,7 +491,7 @@ public struct GalleryService {
         try await api.request(
             path: "reaction/like",
             method: "POST",
-            body: try api.encode(LikeRequest(obj: objectID))
+            body: try api.encode(CommunityLikeRequest(obj: objectID))
         )
     }
 
@@ -525,7 +511,7 @@ public struct GalleryService {
             path: "reaction/comments",
             method: "POST",
             body: try api.encode(
-                CreateCommentRequest(
+                CommunityCreateCommentRequest(
                     obj: objectID,
                     text: text,
                     replyObj: replyObjectID,

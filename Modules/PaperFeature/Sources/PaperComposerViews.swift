@@ -78,7 +78,7 @@ struct PaperComposerView: View {
                 .accessibilityIdentifier("ui.paper-composer-view.submit")
             }
         }
-        .interactiveDismissDisabled(model.isSubmitting)
+        .interactiveDismissDisabled(model.isSubmitting || model.hasUnsavedChanges)
         .onDisappear { submitTask?.cancel() }
         .diagnosticAlert(item: $model.alert)
     }
@@ -90,6 +90,7 @@ final class PaperComposerViewModel {
     let editingPaper: PaperDetail?
     let canEditBody: Bool
     private let originalPlainContent: String
+    private let initialContent: String
     var title: String
     var intro: String
     var content: String
@@ -102,10 +103,16 @@ final class PaperComposerViewModel {
         self.editingPaper = editingPaper
         canEditBody = editingPaper.map { PaperEditorContentBuilder.canEditAsPlainText($0.content) } ?? true
         originalPlainContent = initialContent.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.initialContent = initialContent
         title = editingPaper?.title ?? ""
         intro = editingPaper?.intro ?? ""
         content = initialContent
         anonymous = editingPaper?.anonymous ?? false
+    }
+
+    var hasUnsavedChanges: Bool {
+        title != (editingPaper?.title ?? "") || intro != (editingPaper?.intro ?? "")
+            || content != initialContent || anonymous != (editingPaper?.anonymous ?? false)
     }
 
     func submit(service: any PaperComposerServicing) async -> Bool {

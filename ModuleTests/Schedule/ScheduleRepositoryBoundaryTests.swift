@@ -12,6 +12,7 @@ import Testing
 struct ScheduleRepositoryBoundaryTests {
     private final class ClockClassroomService: ScheduleClassroomServicing {
         var campusRequests: [String?] = []
+        var classroomDates: [Date] = []
         func fetchCurrentTermOnly() async throws -> String { "test-term" }
         func prepareTeachingCenterAccess() async throws {}
         func fetchCampuses() async throws -> [CampusRecord] {
@@ -23,10 +24,13 @@ struct ScheduleRepositoryBoundaryTests {
             return [BuildingRecord(id: "fallback", name: "默认楼", buildingCode: "fallback", campusName: "校区" + code, campusCode: code),
                 BuildingRecord(id: code, name: code + "楼", buildingCode: code, campusName: "校区" + code, campusCode: code)]
         }
-        func fetchClassrooms(buildingID: String, term: String) async throws -> [ClassroomRecord] { [] }
+        func fetchClassrooms(buildingID: String, term: String, date: Date) async throws -> [ClassroomRecord] {
+            classroomDates.append(date)
+            return []
+        }
     }
 
-    @Test(arguments: [7, 10])
+    @Test(.timeLimit(.minutes(1)), arguments: [7, 10])
     func classroomDefaultsFollowTheInjectedCourseClock(hour: Int) async throws {
         let firstDay = try #require(ScheduleDateCodec.parseDate("2001-01-01"))
         let courses = ["B", "A"].enumerated().map { index, code in
@@ -45,11 +49,12 @@ struct ScheduleRepositoryBoundaryTests {
         await model.refreshClassroomPage()
         let expected = hour == 7 ? "B" : "A"
         #expect(service.campusRequests == [expected])
+        #expect(service.classroomDates == [firstDay.addingTimeInterval(Double(hour) * 3600)])
         #expect(model.cache.selectedCampusCode == expected && model.selectedBuildingID == expected)
         #expect(model.notice == nil)
     }
 
-    @Test func classroomResultsFollowMinuteAndDayBoundaries() async throws {
+    @Test(.timeLimit(.minutes(1))) func classroomResultsFollowMinuteAndDayBoundaries() async throws {
         var now = try #require(ScheduleDateCodec.parseDate("2026-09-07")).addingTimeInterval(7 * 3600 + 59 * 60)
         var initial = ScheduleCache()
         initial.currentTerm = "test-term"; initial.selectedBuildingID = "building"
@@ -96,7 +101,7 @@ struct ScheduleRepositoryBoundaryTests {
         )
     }
 
-    @Test func staleCourseDataWritePreservesPresentationAndSyncPreferences() async {
+    @Test(.timeLimit(.minutes(1))) func staleCourseDataWritePreservesPresentationAndSyncPreferences() async {
         var initial = ScheduleCache()
         initial.cloudSyncBaselineRecordTag = "cloud-tag"
         initial.cloudSyncBaselineAt = Date(timeIntervalSince1970: 100)
@@ -118,7 +123,7 @@ struct ScheduleRepositoryBoundaryTests {
         #expect(repository.syncState.hasUnpushedCloudChanges)
     }
 
-    @Test func syncPreferenceWritePreservesTheLatestCloudBaseline() async {
+    @Test(.timeLimit(.minutes(1))) func syncPreferenceWritePreservesTheLatestCloudBaseline() async {
         var stored = ScheduleCache()
         stored.cloudSyncBaselineRecordTag = "baseline"
         let repository = makeRepository(load: { _ in .loaded(stored) }, save: { _, _, _ in })
@@ -136,7 +141,7 @@ struct ScheduleRepositoryBoundaryTests {
         #expect(repository.syncState.hasUnpushedCloudChanges)
     }
 
-    @Test func sceneSubscriptionsSeparatePreferencesAndCloudMetadata() async {
+    @Test(.timeLimit(.minutes(1))) func sceneSubscriptionsSeparatePreferencesAndCloudMetadata() async {
         var stored = ScheduleCache()
         let repository = makeRepository(load: { _ in .loaded(stored) }, save: { _, _, _ in })
         var courseChanges = 0
@@ -165,7 +170,7 @@ struct ScheduleRepositoryBoundaryTests {
         #expect(classroomChanges == 2)
     }
 
-    @Test func semesterStartDatePersistsWithinItsAccount() async throws {
+    @Test(.timeLimit(.minutes(1))) func semesterStartDatePersistsWithinItsAccount() async throws {
         var account = AppStorageSession(accountIdentifier: "semester-account-a")
         var savedCaches: [String: ScheduleCache] = [:]
         let repository = makeRepository(
@@ -202,7 +207,7 @@ struct ScheduleRepositoryBoundaryTests {
         #expect(viewModel.persistenceSnapshot.firstDayString == "2026-09-21")
     }
 
-    @Test func lateLoadKeepsCurrentAccountData() async throws {
+    @Test(.timeLimit(.minutes(1))) func lateLoadKeepsCurrentAccountData() async throws {
         var account = AppStorageSession(accountIdentifier: "module-account-a")
         let loader = ModuleDeferredScheduleLoad()
         let repository = makeRepository(session: { account }, load: loader.load, save: { _, _, _ in })
@@ -270,7 +275,7 @@ struct ScheduleRepositoryBoundaryTests {
         #expect(loads == 2)
     }
 
-    @Test func delayedReloadPreservesEditsMadeDuringRead() async throws {
+    @Test(.timeLimit(.minutes(1))) func delayedReloadPreservesEditsMadeDuringRead() async throws {
         let loader = ModuleDeferredScheduleLoad()
         var first = true
         let repository = makeRepository(load: { account in
@@ -286,7 +291,7 @@ struct ScheduleRepositoryBoundaryTests {
         #expect(repository.persistenceSnapshot.primaryScheduleTitle == "本机编辑")
     }
 
-    @Test func unreadableCachePreservesMemoryAndWriteGate() async {
+    @Test(.timeLimit(.minutes(1))) func unreadableCachePreservesMemoryAndWriteGate() async {
         var savedCount = 0
         var first = true
         let repository = makeRepository(load: { _ in
@@ -304,7 +309,7 @@ struct ScheduleRepositoryBoundaryTests {
         #expect(savedCount == 0)
     }
 
-    @Test func pendingInitialReadRetainsStoredDataAndFinishesLoading() async throws {
+    @Test(.timeLimit(.minutes(1))) func pendingInitialReadRetainsStoredDataAndFinishesLoading() async throws {
         let loader = ModuleDeferredScheduleLoad()
         var savedCount = 0
         let repository = makeRepository(load: loader.load, save: { _, _, _ in savedCount += 1 })
@@ -325,7 +330,7 @@ struct ScheduleRepositoryBoundaryTests {
         await repository.loadIfNeeded()
     }
 
-    @Test func persistenceReceivesAccountAndSource() async {
+    @Test(.timeLimit(.minutes(1))) func persistenceReceivesAccountAndSource() async {
         let account = AppStorageSession(accountIdentifier: "module-account")
         var recordedAccount: AppStorageSession?
         var recordedSource: ScheduleCacheSaveSource?
@@ -343,7 +348,7 @@ struct ScheduleRepositoryBoundaryTests {
         #expect(recordedTitle == "课程")
     }
 
-    @Test func ddlResponseAfterAccountSwitchKeepsNewAccountURL() async throws {
+    @Test(.timeLimit(.minutes(1))) func ddlResponseAfterAccountSwitchKeepsNewAccountURL() async throws {
         let repository = makeRepository(load: { _ in .missing }, save: { _, _, _ in })
         await repository.loadIfNeeded()
         let service = ModuleDeferredDDLService()
@@ -397,7 +402,7 @@ struct ScheduleRepositoryBoundaryTests {
         }
     }
 
-    @Test func ddlPreferencesUseSharedAccountRepository() async {
+    @Test(.timeLimit(.minutes(1))) func ddlPreferencesUseSharedAccountRepository() async {
         let repository = makeRepository(load: { _ in .missing }, save: { _, _, _ in })
         await repository.loadIfNeeded()
         let ddl = ScheduleDDLViewModel(service: ModuleDeferredDDLService(), repository: repository)
@@ -409,7 +414,7 @@ struct ScheduleRepositoryBoundaryTests {
         #expect(ddl.afterDay == 4)
     }
 
-    @Test func sceneWritesPreserveOtherSceneChanges() async {
+    @Test(.timeLimit(.minutes(1))) func sceneWritesPreserveOtherSceneChanges() async {
         let repository = makeRepository(load: { _ in .missing }, save: { _, _, _ in })
         await repository.loadIfNeeded()
         repository.courseState.currentTerm = "2026-2027-1"
@@ -432,7 +437,7 @@ struct ScheduleRepositoryBoundaryTests {
         #expect(repository.persistenceSnapshot.currentTerm == "2026-2027-1")
     }
 
-    @Test func settingsSnapshotCapturesConfiguration() async throws {
+    @Test(.timeLimit(.minutes(1))) func settingsSnapshotCapturesConfiguration() async throws {
         let repository = makeRepository(load: { _ in .missing }, save: { _, _, _ in })
         await repository.loadIfNeeded()
         repository.courseState.currentTerm = "2026-2027-1"
@@ -461,7 +466,7 @@ struct ScheduleRepositoryBoundaryTests {
         #expect(snapshot.currentTerm == "2026-2027-1")
     }
 
-    @Test func sharingCommandsUseCurrentScheduleContext() async throws {
+    @Test(.timeLimit(.minutes(1))) func sharingCommandsUseCurrentScheduleContext() async throws {
         let repository = makeRepository(load: { _ in .missing }, save: { _, _, _ in })
         await repository.loadIfNeeded()
         repository.courseState.currentTerm = "2026-2027-1"
@@ -485,7 +490,7 @@ struct ScheduleRepositoryBoundaryTests {
         #expect(viewModel.settingsSnapshot.hasCourses)
     }
 
-    @Test func platformActionsReceiveTheRepositorySessionAfterPersistence() async throws {
+    @Test(.timeLimit(.minutes(1))) func platformActionsReceiveTheRepositorySessionAfterPersistence() async throws {
         let session = AppStorageSession(accountIdentifier: "platform-account")
         let repository = makeRepository(session: { session }, load: { _ in .missing }, save: { _, _, _ in })
         await repository.loadIfNeeded()
@@ -525,7 +530,7 @@ struct ScheduleRepositoryBoundaryTests {
         }
     }
 
-    @Test func sceneSubscriptionsFollowTheirOwnedFieldsAndQueryContext() async {
+    @Test(.timeLimit(.minutes(1))) func sceneSubscriptionsFollowTheirOwnedFieldsAndQueryContext() async {
         let repository = makeRepository(load: { _ in .missing }, save: { _, _, _ in })
         await repository.loadIfNeeded()
         var courseChanges = 0
@@ -561,7 +566,7 @@ struct ScheduleRepositoryBoundaryTests {
         #expect(classroomChanges == 2)
     }
 
-    @Test func courseSceneWritePreservesOtherSceneDataAndCloudMetadata() async {
+    @Test(.timeLimit(.minutes(1))) func courseSceneWritePreservesOtherSceneDataAndCloudMetadata() async {
         var initial = ScheduleCache()
         initial.cloudSyncBaselineRecordTag = "cloud-tag"
         initial.cloudSyncBaselineAt = Date(timeIntervalSince1970: 100)
@@ -718,7 +723,7 @@ private final class ModuleSemesterStartDateService: ScheduleServicing {
     func prepareTeachingCenterAccess() async throws { throw ScheduleServiceError.invalidResponse }
     func fetchCampuses() async throws -> [CampusRecord] { throw ScheduleServiceError.invalidResponse }
     func fetchBuildings(campusCode: String?) async throws -> [BuildingRecord] { throw ScheduleServiceError.invalidResponse }
-    func fetchClassrooms(buildingID: String, term: String) async throws -> [ClassroomRecord] { throw ScheduleServiceError.invalidResponse }
+    func fetchClassrooms(buildingID: String, term: String, date: Date) async throws -> [ClassroomRecord] { throw ScheduleServiceError.invalidResponse }
     func submitSMSCode(
         _ code: String, for challenge: BITLoginAuthenticationChallenge, term: String?
     ) async throws -> CourseSyncPayload { throw ScheduleServiceError.invalidResponse }

@@ -3,15 +3,24 @@ nonisolated enum AppVerificationCode {
     static let maximumLength = 8
 
     static func normalize(_ value: String) -> String {
-        String(value.filter(\.isNumber).prefix(maximumLength))
+        String(decimalDigits(value).prefix(maximumLength))
     }
 
     static func isValid(_ value: String) -> Bool {
-        (minimumLength ... maximumLength).contains(value.count) && value.allSatisfy(\.isNumber)
+        (minimumLength ... maximumLength).contains(value.utf8.count) && value.utf8.allSatisfy { (48...57).contains($0) }
+    }
+
+    private static func decimalDigits(_ value: String) -> String {
+        String(value.compactMap { character -> Character? in
+            guard character.unicodeScalars.count == 1,
+                  character.unicodeScalars.first?.properties.generalCategory == .decimalNumber,
+                  let digit = character.wholeNumberValue else { return nil }
+            return Character(String(digit))
+        })
     }
 
     static func shouldSubmitAutomatically(insertedText: String, code: String) -> Bool {
-        let insertedCode = insertedText.filter(\.isNumber)
+        let insertedCode = decimalDigits(insertedText)
         return isValid(insertedCode) && insertedCode == code
     }
 }

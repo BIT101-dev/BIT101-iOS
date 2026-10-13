@@ -14,6 +14,7 @@ struct AppAccountStores {
     private static let storageOperations = StorageOperationTracker()
     static func suspendStorageOperations() async {
         await storageOperations.suspendAndDrain()
+        shared.communityMessages.invalidateSnapshot()
         await ScheduleSystemCalendarManager.shared.finishPendingTransactions()
     }
     static func resumeStorageOperations() { storageOperations.resume() }
@@ -26,7 +27,8 @@ struct AppAccountStores {
 
     static let shared = AppAccountStores(
         communityMessages: GalleryMessageReadStore(
-            defaults: AppFileDirectories.defaults, session: { AppFileDirectories.currentSession }
+            files: AppFileDirectories.files, storageRoot: AppFileDirectories.applicationSupportDirectoryURL(named: "BIT101-iOS"),
+            defaults: AppFileDirectories.defaults, session: { AppFileDirectories.currentSession }, storageOperations: storageOperations
         ),
         composerDrafts: ComposerDraftStore(
             files: AppFileDirectories.files, applicationSupport: AppFileDirectories.applicationSupport,

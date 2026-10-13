@@ -429,8 +429,8 @@ public nonisolated struct GalleryMessage: Decodable, Identifiable, Hashable, Sen
     }
 
     private static func posterID(from raw: String) -> Int? {
-        guard raw.hasPrefix("poster") else { return nil }
-        return Int(raw.dropFirst("poster".count))
+        guard raw.hasPrefix("poster"), let id = Int(raw.dropFirst("poster".count)), id > 0 else { return nil }
+        return id
     }
 }
 

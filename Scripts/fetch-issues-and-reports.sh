@@ -93,6 +93,8 @@ from pathlib import Path
 import subprocess
 import sys
 from urllib.request import Request, urlopen
+from urllib.error import HTTPError
+import time
 import uuid
 
 key, wrangler, directory, namespace, filename = sys.argv[1:]
@@ -106,11 +108,22 @@ def run(*arguments, check=True):
         cwd=directory, check=check, stdout=subprocess.DEVNULL)
 try:
     path.write_text(json.dumps({'key': key}))
+    deadline = time.monotonic() + 300
     run('put', grant_key, '--path', str(path), '--ttl', '300')
     request = Request('https://' + domain + '/api/error-reports', method='DELETE',
         data=json.dumps({'key': key, 'grant': grant}).encode(), headers={'Content-Type': 'application/json'})
-    with urlopen(request, timeout=30) as response:
-        if json.load(response).get('deleted') is not True: raise ValueError('报告删除需要队列与存储共同确认。')
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0: raise TimeoutError('删除授权达到有效期，请重新执行删除。')
+        try:
+            with urlopen(request, timeout=min(30, remaining)) as response:
+                if json.load(response).get('deleted') is not True: raise ValueError('报告删除需要队列与存储共同确认。')
+            break
+        except HTTPError as error:
+            remaining = deadline - time.monotonic()
+            error.close()
+            if error.code != 403 or remaining <= 0: raise
+            time.sleep(min(30, remaining))
 finally:
     run('delete', grant_key, check=False)
     path.unlink(missing_ok=True)

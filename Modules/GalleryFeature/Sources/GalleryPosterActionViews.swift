@@ -75,7 +75,7 @@ struct GalleryReportSheet: View {
                         Task { await submit() }
                     }
                     .frame(maxWidth: .infinity)
-                    .disabled(model.isLoading || model.isSubmitting || model.selectedTypeID == nil)
+                    .disabled(model.isLoading || model.isSubmitting || model.resultNeedsReview || model.selectedTypeID == nil)
                     .appInteractiveListRow()
                         .accessibilityIdentifier("ui.gallery-report-sheet.submit")
                 }

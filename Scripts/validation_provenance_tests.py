@@ -11,6 +11,7 @@ from pathlib import Path
 import sys
 from types import SimpleNamespace
 from unittest.mock import patch
+from validation_manual_tests import image_resource_self_test, report_budget_self_test
 from validation_provenance import LIVE_GROUPS, evidence_current, sampling_evidence_current, utc_now
 
 
@@ -48,6 +49,31 @@ def test_identity_self_test() -> None:
         try: subject.test_selectors.__wrapped__('modules')
         except ValueError as error: assert 'Probe/check' in str(error)
         else: raise AssertionError('模块前缀归一化后的歧义需要进入库存失败')
+    directory = subject.ROOT / 'BIT101-iOSTests'
+    test_path = directory / 'NetworkClientTests.swift'
+    enum_path = subject.ROOT / 'Modules/TransportCore/Sources/SecureURLTransport.swift'
+    extension_path = subject.ROOT / 'Modules/ClientCore/Sources/DateFormatters.swift'
+    enum = 'enum Fixture { enum Choice: CaseIterable { case first, second; MEMBER } }'
+    for member, extension, arguments, accepted in [
+            ('', '', 'Fixture.Choice.allCases', True),
+            ('var allCases: [Self] { [.first] }', '', 'Fixture.Choice.allCases', True),
+            ('func selected() -> [Self] { let allCases = [Choice.first]; return allCases }', '', 'Fixture.Choice.allCases', True),
+            ('func selected() { let (first, second) = (Choice.first, Choice.second) }', '', 'Fixture.Choice.allCases', True),
+            ('static var allCases: [Self] { [.first] }', '', 'Fixture.Choice.allCases', False),
+            ('static let allCases = [Choice.first, Choice.first]', '', 'Fixture.Choice.allCases', False),
+            ('', 'extension Fixture.Choice { static var allCases: [Self] { [.second] } }', 'Fixture.Choice.allCases', False),
+            ('', 'extension Fixture.Choice { static let allCases = [Fixture.Choice.first] }', 'Fixture.Choice.allCases', False),
+            ('static var allCases: [Self] { [.first] }', '', '[Fixture.Choice.first, Fixture.Choice.second]', True)]:
+        sources = {test_path: 'import Testing\nstruct Probe { @Test(arguments: ' + arguments + ') func check(_ choice: Fixture.Choice) {} }',
+            enum_path: enum.replace('MEMBER', member), extension_path: extension}
+        with patch.object(Path, 'rglob', lambda path, pattern: iter([test_path]) if path == directory else original_rglob(path, pattern)), \
+                patch.object(Path, 'read_text', lambda path, *args, **kwargs: sources[path] if path in sources else original_read(path, *args, **kwargs)), \
+                patch('validation_inputs.repository_input_names', return_value=[path.relative_to(subject.ROOT).as_posix() for path in sources]), \
+                patch('validation_inputs.includes_input', return_value=True), patch.object(subject, 'test_inventory', return_value={'Probe/check'}):
+            try: inventory = subject.test_case_inventory.__wrapped__('all')
+            except ValueError as error:
+                assert not accepted and '自动合成 allCases' in str(error), (member, extension, str(error))
+            else: assert accepted and inventory == {'Probe/check': 2}, (member, extension, inventory)
 
 
 def probe_identity_self_test(subject) -> None:
@@ -83,6 +109,39 @@ def worker_deployment_self_test() -> None:
     assert dispatch.returncode == 0 and dispatch.stdout.splitlines() == [
         '../../Scripts/validation_provenance.py', 'deploy-worker', 'EmergencyUpdateWorker']
     proof = worker_deployment_fixture()
+    body = b'{"schema_version":1,"enabled":false}'
+    summary = network_trace_fixture({'requiredProbes': ['update.emergency']}) | {'workerDeployments': proof}
+    summary['requestEvidence'][0]['requests'][0]['responseConfiguration']['digest'] = subject.hashlib.sha256(body).hexdigest()
+    assert subject.network_requests_complete({'update.emergency'}, summary)
+    class ConfigurationResponse(BytesIO):
+        status = 200
+        def geturl(self): return 'https://update.aihelpme.dev/emergency-update.json'
+    with patch.object(subject, 'capture_worker_deployments', return_value=proof), \
+            patch('urllib.request.urlopen', side_effect=lambda *args, **kwargs: ConfigurationResponse(body)):
+        assert subject.release_worker_findings(summary) == []
+        changed = copy.deepcopy(summary)
+        changed['workerDeployments'][subject.WORKER_FOLDERS[0]]['deploymentID'] = str(uuid.uuid4())
+        assert any('活跃部署已变化' in row for row in subject.release_worker_findings(changed))
+        changed = copy.deepcopy(summary)
+        changed['requestEvidence'][0]['requests'][0]['responseConfiguration']['digest'] = 'b' * 64
+        assert any('配置已变化' in row for row in subject.release_worker_findings(changed))
+        for requests in ([], [{}], [{'responseConfiguration': None}]):
+            changed = copy.deepcopy(summary)
+            changed['requestEvidence'][0]['requests'] = requests
+            assert any('配置已变化' in row for row in subject.release_worker_findings(changed))
+        changed = copy.deepcopy(summary)
+        request = changed['requestEvidence'][0]['requests'][0]
+        changed['requestEvidence'][0]['requests'].append(request | {'responseConfiguration': {'digest': 'b' * 64}})
+        assert any('配置已变化' in row for row in subject.release_worker_findings(changed))
+        changed = copy.deepcopy(summary)
+        changed['requestEvidence'].append({'probe': 'other', 'requests': [
+            {'responseConfiguration': {'digest': 'b' * 64}}]})
+        assert subject.release_worker_findings(changed) == []
+        changed['requestEvidence'][0] = {'probe': 'update.emergency',
+            'responseConfiguration': {'digest': subject.hashlib.sha256(body).hexdigest()}}
+        assert any('配置已变化' in row for row in subject.release_worker_findings(changed))
+    with patch.object(subject, 'capture_worker_deployments', side_effect=ValueError('authentication')):
+        assert subject.release_worker_findings(summary)
     assert subject.worker_deployments_complete('all', proof)
     assert subject.worker_deployments_complete('school', {})
     assert not subject.worker_deployments_complete('all', {})
@@ -94,6 +153,23 @@ def worker_deployment_self_test() -> None:
     icon = subject.ROOT / 'BIT101-iOS/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png'
     with patch.object(Path, 'read_bytes', lambda path: original_read(path) + b'changed' if path == icon else original_read(path)):
         assert not subject.worker_deployments_complete('all', proof)
+    names = subject.repository_input_names(subject.ROOT)
+    for suffix in ('.json', '.mjs', '.ts', '.wasm', '.html', '.css', '.png'):
+        asset = subject.ROOT / 'Cloudflare' / folder / ('page' + suffix)
+        generated = subject.ROOT / 'Cloudflare' / folder / '.wrangler/tmp/page.json'
+        content = {asset: b'first', generated: b'first'}
+        with patch.object(subject, 'repository_input_names', return_value=names + [
+                asset.relative_to(subject.ROOT).as_posix(), generated.relative_to(subject.ROOT).as_posix()]), \
+                patch.object(Path, 'read_bytes', lambda path: content[path] if path in content else original_read(path)):
+            before = subject.worker_source_digest(folder)
+            content[generated] = b'second'
+            assert subject.worker_source_digest(folder) == before
+            content[asset] = b'second'
+            assert subject.worker_source_digest(folder) != before, suffix
+    for name in ('config/emergency-update.json', 'Scripts/publish-emergency-update.sh', 'README.md'):
+        operational = subject.WRANGLER_ROOT / name
+        with patch.object(Path, 'read_bytes', lambda path: b'changed' if path == operational else original_read(path)):
+            assert subject.worker_source_digest('EmergencyUpdateWorker') == proof['EmergencyUpdateWorker']['sourceDigest']
     for field, value in [('deploymentID', 'invalid'), ('sourceDigest', 'b' * 64), ('versions', [])]:
         changed = copy.deepcopy(proof)
         changed[folder][field] = value
@@ -198,6 +274,7 @@ def run_self_test(recorder) -> None:
                 patch.object(module, "complete_environment", return_value=True), \
                 patch.object(module, "report_lock", side_effect=nullcontext), patch.object(module, "write_report") as saved, \
                 patch.object(module, "test_summary", return_value=summary), patch.object(module, "smoke_summary", return_value=summary), \
+                patch.object(module, "test_inventory", return_value={"Suite/testRun"}), \
                 patch.object(module, "complete_summary", return_value=True), patch.object(module, "environment_context", return_value={}), \
                 patch.object(Path, "is_file", return_value=True), patch.object(Path, "read_text", side_effect=values), \
                 patch.object(module.subprocess, "check_output", return_value="head"), \
@@ -209,7 +286,8 @@ def run_self_test(recorder) -> None:
             if group in {"all", "ui"} and expected == 0:
                 assert saved.call_args.args[0]["groups"][group]["resultBundleSHA256"] == "a" * 64
                 assert saved.call_args.args[0]["groups"][group]["sourceCommit"] == "head"
-    group_row = {"scope": "full", "exitCode": 0, "runID": "run", "inputDigest": "current", "summary": summary}
+    group_row = {"scope": "full", "exitCode": 0, "runID": "run", "inputDigest": "current", "summary": summary,
+        "recordedAt": utc_now().isoformat(), "environment": module.environment_context('all')}
     for digest, expected in (("current", 0), ("changed", 1)):
         with patch.object(sys, "argv", ["validation_evidence.py", "check-group", "all"]), \
                 patch.object(module, "report_lock", side_effect=nullcontext), patch.object(module, "complete_summary", return_value=True), \
@@ -229,7 +307,7 @@ def run_self_test(recorder) -> None:
     baseline_policy_self_test(module)
     report_budget_self_test(module)
     aggregate_failure_self_test(module)
-    complete_run_reuse_self_test()
+    complete_run_reuse_self_test(module)
     check_group_coverage_policy_self_test(module)
     now = utc_now()
     fresh = {"startedAt": (now - timedelta(minutes=2)).isoformat(), "finishedAt": (now - timedelta(minutes=1)).isoformat()}
@@ -264,11 +342,12 @@ def check_group_bundle_self_test(module) -> None:
     for group in ('all', 'ui'):
         for stored, raw in (('a' * 64, 'a' * 64), ('b' * 64, 'a' * 64), ('invalid', 'a' * 64), ('a' * 64, None)):
             row = {'scope': 'full', 'exitCode': 0, 'runID': 'run', 'inputDigest': 'current',
-                'resultBundleSHA256': stored, 'summary': {'passed': True}}
+                'resultBundleSHA256': stored, 'summary': {'passed': True}, 'recordedAt': utc_now().isoformat()}
             report = {'groups': {group: row}}
             with patch.object(module, 'report_lock', side_effect=nullcontext), \
                     patch.object(module, 'source_digest', return_value='current'), \
                     patch.object(module, 'complete_summary', return_value=True), \
+                    patch.object(module, 'complete_environment', return_value=True), \
                     patch('validation_coverage.policy_floors', return_value={}), \
                     patch.object(module, 'result_bundle_findings', wraps=result_bundle_findings), \
                     patch('validation_performance.bundle_digest', side_effect=lambda path: raw
@@ -279,34 +358,13 @@ def check_group_bundle_self_test(module) -> None:
                 assert module.main() == int(stored != raw)
 
 
-def image_resource_self_test() -> None:
-    import hashlib
-    from network_request_contracts import complete
-    def request(url):
-        from urllib.parse import urlsplit
-        parts = urlsplit(url)
-        endpoint = parts._replace(query='', fragment='').geturl()
-        return dict(method='GET', endpoint=endpoint, endpointDigest=hashlib.sha256(url.encode()).hexdigest(),
-            finalMethod='GET', finalEndpoint=endpoint, statusCode=200, query={}, finalQuery={})
-    urls = ['https://cdn.example/image.png?token=first', 'https://cdn.example/other.png']
-    rows = [request(url) for url in urls]
-    expected = {'resourceDigests': ','.join(sorted(row['endpointDigest'] for row in rows))}
-    for probe in ('gallery.image', 'paper.image'):
-        assert complete(probe, rows, expected)
-        assert not complete(probe, rows, {})
-        assert not complete(probe, rows[:1], expected)
-        assert not complete(probe, [request('https://unrelated.example/wrong-image.png')], expected)
-        assert not complete(probe, [request(urls[0].replace('first', 'second')), rows[1]], expected)
-        assert not complete(probe, rows + [request('https://cdn.example/extra.png')], expected)
-
-
 def check_group_coverage_policy_self_test(module) -> None:
     for group in ('modules', 'all', 'ui', 'catalyst'):
         name = 'GalleryFeature' if group == 'modules' else 'Catalyst/GalleryFeature' if group == 'catalyst' else 'iOS/GalleryFeature'
         for selected in (False, True):
             for floor, covered, expected in ((70, 74, 0), (75, 74, 1), (75, 75, 0)):
                 full = {'scope': 'full', 'exitCode': 0, 'runID': 'full', 'inputDigest': 'current',
-                    'environment': {}, 'summary': {'passed': True, 'coverage': {
+                    'environment': {}, 'recordedAt': utc_now().isoformat(), 'summary': {'passed': True, 'coverage': {
                         name: {'coveredLines': covered, 'executableLines': 100}}}}
                 row = dict(full, scope='selected', lastFullRun=full,
                     summary={'passed': True, 'coverage': {name: {'coveredLines': 100, 'executableLines': 100}}}) if selected else full
@@ -315,6 +373,7 @@ def check_group_coverage_policy_self_test(module) -> None:
                 with patch.object(module, 'source_digest', return_value='current'), \
                         patch.object(module, 'report_lock', side_effect=nullcontext), \
                         patch.object(module, 'complete_summary', return_value=True), \
+                        patch.object(module, 'complete_environment', return_value=True), \
                         patch('validation_policy.MODULE_COVERAGE_FLOORS', {'GalleryFeature': 70}), \
                         patch('validation_policy.IOS_MODULE_COVERAGE_FLOORS', {'GalleryFeature': 70}), \
                         patch('validation_policy.UI_PRODUCTION_MODULES', frozenset({'GalleryFeature'})), \
@@ -328,17 +387,20 @@ def artifact_lock_self_test(module) -> None:
     source = (module.ROOT / "Scripts/validation_artifacts.py").read_text()
     import fcntl
     diagnostics = module.ROOT / '.build/extended-automation/diagnostics'
-    for leftover in (False, True):
+    for names in ((), ('test-results.xcresult',), ('exported.log',), ('test-results.xcresult', 'exported.log')):
+        retained = set(names)
         with patch.object(sys, 'argv', ['validation_artifacts.py', str(module.ROOT)]), \
                 patch.dict(os.environ, BIT101_EXTENDED_TESTS_LOCK_HELD='1'), \
-                patch.object(Path, 'exists', lambda path: leftover and path == diagnostics), \
+                patch.object(Path, 'exists', lambda path: bool(names) and path == diagnostics), \
+                patch.object(Path, 'iterdir', lambda path: iter(diagnostics / name for name in tuple(retained)) if path == diagnostics else iter(())), \
+                patch.object(Path, 'unlink', lambda path, **kwargs: retained.discard(path.name)), \
                 patch.object(Path, 'open', return_value=nullcontext(BytesIO())), \
                 patch.object(os, 'walk', return_value=[]), \
                 patch.object(fcntl, 'flock', side_effect=BlockingIOError), redirect_stdout(StringIO()):
             status = 0
             try: exec(compile(source, 'validation_artifacts.py', 'exec'), {'__name__': '__main__'})
             except SystemExit as error: status = error.code
-            assert status == int(leftover), '父工作流持锁时诊断残留仍需进入产物门禁'
+            assert status == 0 and retained == set(names) - {'exported.log'}, '产物门禁清理导出副本并保留原始编译失败包'
     definition = next(node for node in ast.parse(source).body if isinstance(node, ast.FunctionDef) and node.name == "committed_children")
     harness = "from pathlib import Path\nimport fcntl, sys\n" + ast.get_source_segment(source, definition)
     harness += '\nprint("ready", flush=True)\nchildren = committed_children(Path(sys.argv[1]))\nassert all(path.suffix != ".incoming" for path in children)\nprint("committed", flush=True)\n'
@@ -360,12 +422,13 @@ def artifact_lock_self_test(module) -> None:
 
 
 def baseline_policy_self_test(module) -> None:
-    report = {'coverageBaseCommit': 'target', 'coveragePolicy': {'modules': {'Feature': 80}, 'all': {'Feature': 70}},
+    report = {'coverageBaseCommit': 'target', 'coveragePolicy': {'modules': {'Feature': 80}, 'all': {'Feature': 70, 'BIT101-iOS.app': 60}},
         'groups': {}}
-    for fault in ('none', 'commit', 'missing', 'value', 'extra'):
+    for fault in ('none', 'commit', 'missing', 'missing-app', 'value', 'extra'):
         candidate = json.loads(json.dumps(report))
         if fault == 'commit': candidate['coverageBaseCommit'] = 'other'
         if fault == 'missing': candidate['coveragePolicy'].pop('all')
+        if fault == 'missing-app': candidate['coveragePolicy']['all'].pop('BIT101-iOS.app')
         if fault == 'value': candidate['coveragePolicy']['all']['Feature'] = True
         if fault == 'extra': candidate['coveragePolicy']['audit'] = {'Feature': 70}
         with patch.object(Path, 'is_file', return_value=True), patch.object(Path, 'read_text', return_value=json.dumps(candidate)), \
@@ -389,9 +452,13 @@ def selected_coverage_self_test(module) -> None:
         if expected: report['coveragePolicy'] = {'all': {'Feature': 95}}
         summary = {"passed": True, "totalTests": 1, "passedTests": 1, "failedTests": 0, "skippedTests": 0,
             "executedTests": ["Suite/testRun"], "coverage": {"iOS/Feature": {"coveredLines": 94, "executableLines": 100}}}
+        summary['testCases'] = {'passed': True, 'total': 1, 'byTest': {'Suite/testRun': 1}, 'expectedByTest': {'Suite/testRun': 1},
+            'destinations': [{'platform': 'iOS', 'deviceIdentifier': 'fixture-device'}], 'identifiersByTest': {'Suite/testRun': ['test://com.apple.xcode/BIT101-iOS/BIT101-iOSTests/Suite/testRun']}}
         with patch.object(module, "source_digest", return_value="digest"), patch.object(module, "complete_environment", return_value=True), \
                 patch.object(module, "report_lock", side_effect=nullcontext), patch.object(module, "write_report") as saved, \
                 patch.object(module, "test_summary", return_value=summary), patch.object(module, "complete_summary", return_value=True), \
+                patch.object(module, 'test_case_inventory', return_value={'Suite/testRun': 1}), \
+                patch.object(module, 'test_inventory', return_value={'Suite/testRun'}), \
                 patch.object(Path, "is_file", return_value=True), \
                 patch.object(Path, "read_text", side_effect=['验证输入：digest\n验证运行：run\n', json.dumps(report)]), \
                 patch.object(subprocess, "check_output", return_value="head"), \
@@ -406,50 +473,6 @@ def selected_coverage_self_test(module) -> None:
         if scope == 'selected': assert row['lastFullRun'] == full
         elif expected: assert row['summary']['coverageRegressions'] and row['summary']['passed'] is False
         else: assert row['summary']['passed'] is True
-
-
-def report_budget_self_test(module) -> None:
-    for limit, accepted in ((16, False), (64, True)):
-        stream = BytesIO()
-        with patch('validation_policy.MAXIMUM_REPORT_BYTES', limit), patch.object(Path, 'open', return_value=nullcontext(stream)), \
-                patch.object(Path, 'replace') as committed, patch.object(Path, 'unlink') as cleanup:
-            try: module.write_report({'evidence': 'x' * 17})
-            except ValueError: assert not accepted
-            else:
-                assert accepted and json.loads(stream.getvalue()) == {'evidence': 'x' * 17}
-            assert committed.called == accepted
-            assert stream.tell() <= limit
-            cleanup.assert_called_once_with(missing_ok=True)
-    import shutil
-    fixture = module.ROOT / '.build/static-audit/report-write-self-test'
-    fixture.mkdir(parents=True, exist_ok=True)
-    destination = fixture / 'report.json'
-    original = json.dumps({'runID': 'retained-cloud-owner', 'stages': []}).encode()
-    try:
-        for failure in ('write', 'replace'):
-            destination.write_bytes(original)
-            original_open = Path.open
-            class InterruptedStream:
-                def __enter__(self):
-                    self.stream = original_open(destination.with_suffix('.incoming'), 'wb')
-                    return self
-                def write(self, data):
-                    self.stream.write(data[:1])
-                    raise OSError('interrupted report write')
-                def __exit__(self, *args): self.stream.close()
-            override = patch.object(Path, 'open', return_value=InterruptedStream()) if failure == 'write' \
-                else patch.object(Path, 'replace', side_effect=OSError('interrupted report commit'))
-            with override:
-                try: module.write_report({'runID': 'new-owner', 'stages': []}, path=destination)
-                except OSError: pass
-                else: raise AssertionError('写入故障需要保留原恢复记录')
-            assert destination.read_bytes() == original
-            assert json.loads(destination.read_text())['runID'] == 'retained-cloud-owner'
-            assert not destination.with_suffix('.incoming').exists()
-        module.write_report({'runID': 'new-owner', 'stages': []}, path=destination)
-        assert json.loads(destination.read_text())['runID'] == 'new-owner'
-    finally:
-        shutil.rmtree(fixture)
 
 
 def aggregate_failure_self_test(module) -> None:
@@ -468,7 +491,7 @@ python3() {{ if [[ "$2" == check-group ]]; then return {evidence_status}; fi; re
         assert ("next-group" in result.stdout) == (result.returncode == 0)
 
 
-def complete_run_reuse_self_test() -> None:
+def complete_run_reuse_self_test(module=None) -> None:
     from copy import deepcopy
     from validation_provenance import complete_group_row
     full = {'scope': 'full', 'exitCode': 0, 'summary': {'passed': True}, 'inputDigest': 'same', 'environment': {'device': 'phone'}}
@@ -487,21 +510,69 @@ def complete_run_reuse_self_test() -> None:
     assert complete_group_row(selected) is shared_full
     changed = dict(selected, environment=context | {'device': {'identifier': 'other'}})
     assert complete_group_row(changed) is changed
+    if module is None: return
+    full = dict(full, environment={})
+    report = {'groups': {'network': full}}
+    for status, scope, reusable in ((0, 'selected', True), (1, 'selected', False), (0, 'selected', False), (0, 'full', True)):
+        with patch.object(module, 'source_digest', return_value='same'), patch.object(module, 'environment_context', return_value={}), \
+                patch.object(module, 'complete_environment', return_value=True), patch.object(module, 'report_lock', side_effect=nullcontext), \
+                patch.object(module, 'write_report') as saved, patch.object(module, 'smoke_summary', return_value={'passed': True}), \
+                patch.object(module, 'complete_summary', return_value=True), patch.object(Path, 'is_file', return_value=True), \
+                patch.object(Path, 'read_text', side_effect=[json.dumps({'runID': 'fixture'}), json.dumps(report)]), \
+                patch.object(module.subprocess, 'check_output', return_value='head'), \
+                patch.dict(os.environ, BIT101_VALIDATION_RUN_ID='fixture'), redirect_stderr(StringIO()):
+            assert module.record('network', status, scope, 'same') == status
+        report = saved.call_args.args[0]
+        row = report['groups']['network']
+        assert (complete_group_row(row).get('scope') == 'full') == reusable, row
+
+
+def community_recovery_contract_self_test() -> None:
+    from copy import deepcopy
+    from network_request_contracts import cleanup_requests_complete, complete
+    source = (Path(__file__).resolve().parents[1] / 'BIT101-iOSTests/NetworkSessionIsolationTests.swift').read_text()
+    fixture = json.loads(re.search(r'static let recovery = #"""(.*?)"""#', source, re.DOTALL)[1])
+    def evidence(row):
+        value = {key: item for key, item in row.items() if key != 'responseBody'}
+        value.update(finalMethod=row['method'], finalEndpoint=row['endpoint'], finalQuery=dict(row['query']))
+        return value
+    accepted = [evidence(row) for row in fixture['accepted']]
+    assert cleanup_requests_complete(accepted)
+    from validation_provenance import network_requests_complete
+    cleanup = network_trace_fixture({'scope': 'community-cleanup', 'requiredProbes': ['community.login', 'community.writes']})
+    assert network_requests_complete(set(cleanup['requiredProbes']), cleanup | {'requestEvidenceRequired': True})
+    missing = dict(cleanup, requestEvidence=cleanup['requestEvidence'][:1], requestEvidenceRequired=True)
+    assert not network_requests_complete(set(cleanup['requiredProbes']), missing)
+    assert not cleanup_requests_complete(accepted[1:])
+    writes = network_trace_fixture({'requiredProbes': ['community.writes']})['requestEvidence'][0]['requests']
+    assert complete('community.writes', writes + accepted)
+    assert not cleanup_requests_complete(accepted + writes)
+    for row in fixture['rejected']:
+        assert not cleanup_requests_complete(accepted + [evidence(row)])
+        assert not complete('community.writes', writes + [evidence(row)])
+    for index, row in enumerate(accepted):
+        if row.get('responseContentMissing') is not True: continue
+        altered = deepcopy(accepted)
+        altered[index].pop('responseContentMissing')
+        assert not cleanup_requests_complete(altered)
+        assert not complete('community.writes', writes + [altered[index]])
 
 
 def network_trace_fixture(value: dict) -> dict:
-    from network_request_contracts import contracts_for, SELECTORS, VISIBLE_PARAMETERS
+    from network_request_contracts import community, contracts_for, SELECTORS, VISIBLE_PARAMETERS
     value['workerDeployments'] = worker_deployment_fixture(value.get('scope'))
     def example(pattern, identifier=1):
         import re
         pattern = re.sub(r'\(\?:([^()]*)\)', lambda match: match[1].split('|')[0], pattern)
-        return pattern.replace('[0-9a-f]+', 'a').replace(r'[1-9]\d*', str(identifier)).replace(r'\d+', str(identifier)).replace(r'\.', '.').replace(r'\-', '-').replace(r'\+', '+').replace('.+', 'fixture').replace('?', '')
+        return pattern.replace('[0-9a-f]+', 'a').replace(r'[1-9]\d*', str(identifier)).replace(r'\d+', str(identifier)).replace(r'\.', '.').replace(r'\-', '-').replace(r'\+', '+').replace(r'\{', '{').replace(r'\}', '}').replace('.+', 'fixture').replace('?', '')
     rows = []
     for name in value.get('requiredProbes', []):
-        contracts = contracts_for(name)
-        assert contracts, name
         requests = []
         expected = {'XNXQDM': value.get('validatedTerm', 'fixture-current')} if name in {'schedule.sync', 'classroom.occupancy'} else {}
+        if name in {'gallery.search', 'course.search', 'paper.search'}:
+            expected = {'search': 'fixture', 'excludedSearch': 'excludedfixture'}
+        contracts = [community('/user/info/0'), community(r'/posters/\d+', method='DELETE')] if value.get('scope') == 'community-cleanup' and name == 'community.writes' else contracts_for(name, expected)
+        assert contracts, name
         if name == 'classroom.occupancy':
             year, _, semester = expected['XNXQDM'].rpartition('-')
             expected.update(JXLDM='fixture-building', RQ='2026-09-07', XQDM=semester, XNDM=year)
@@ -509,19 +580,27 @@ def network_trace_fixture(value: dict) -> dict:
             for index in range(max(contract.minimum, 2 if contract.paging else 1)):
                 query = {key: example(pattern) if key in VISIBLE_PARAMETERS else '[REDACTED]'
                     for key, pattern in contract.query.items() if pattern is not None}
-                query.update({key: item for key, item in expected.items() if key != 'path'})
+                query.update({key: item for key, item in expected.items() if key not in {'path', 'excludedSearch'} and (key != 'search' or 'excludedSearch' not in expected) and (name != 'gallery.search' or contract.query.get(key) is not None)})
                 if contract.paging == 'page': query['page'] = str(index)
-                if contract.paging == 'last_id': query['last_id'] = str(sys.maxsize) if index == 0 else '1'
+                if contract.paging == 'last_id': query['last_id'] = str(sys.maxsize) if index == 0 else '9'
                 request = {'method': contract.method, 'endpoint': 'https://' + example(contract.host) + example(contract.path),
-                    'statusCode': next(iter(contract.statuses)), 'query': query}
-                if contract.paging == 'last_id': request['responseMinimumID'] = '0'
-                if name in {'eclass.authentication', 'eclass.ddl'}: request['responseCourseIDs'] = []
+                    'statusCode': next(iter(contract.statuses)), 'query': query,
+                    'bodyParameterNames': sorted(contract.required_body_parameters | (contract.body_parameter_variants[0] if contract.body_parameter_variants else frozenset())),
+                    'finalBodyParameterNames': sorted(contract.required_body_parameters | (contract.body_parameter_variants[0] if contract.body_parameter_variants else frozenset()))}
+                if contract.paging == 'last_id': request['responseMinimumID'] = '9' if index == 0 else '1'
+                if name in {'eclass.authentication', 'eclass.ddl'}:
+                    query['page'] = '1'
+                    request.update(responseCourseIDs=[], responseCoursePage={'page': 1, 'pages': 1})
                 if name == 'update.emergency': request['responseConfiguration'] = {'digest': 'a' * 64, 'enabled': False}
                 if name == 'community.writes':
+                    if contract.path == '/posters' and contract.method == 'GET': query['page'] = str(index)
+                    if contract.path == '/reaction/like' and query['obj'].startswith('comment'):
+                        query['obj'] = 'comment' + str(index // 2 + 1)
                     if contract.method == 'DELETE' and contract.path == r'/reaction/comments/\d+':
                         request['endpoint'] = 'https://' + example(contract.host) + example(contract.path, index + 1)
                     if contract.method == 'POST' and contract.path == '/reaction/comments' and query['obj'].startswith('comment'):
                         query['obj'] = 'comment' + str(index // 2 + 1)
+                        for field in ('bodyParameterNames', 'finalBodyParameterNames'): request[field] += ['reply_obj', 'reply_uid'] if index % 2 else []
                 request.update(finalEndpoint=('https://' + example(contract.final_host) + example(contract.final_path))
                     if contract.final_host else request['endpoint'], finalMethod=request['method'], finalQuery=dict(query))
                 assert contract.matches(request), (name, request)
@@ -541,9 +620,42 @@ def network_trace_fixture(value: dict) -> dict:
 
 
 def network_route_identity_self_test() -> None:
+    community_recovery_contract_self_test()
     image_resource_self_test()
     from copy import deepcopy
     from validation_provenance import network_requests_complete
+    from network_request_contracts import CONTRACTS, contracts_for, complete
+    unread = {'method': 'GET', 'finalMethod': 'GET', 'statusCode': 200,
+        'endpoint': 'https://bit101.flwfdd.xyz/messages/unread_nums',
+        'finalEndpoint': 'https://bit101.flwfdd.xyz/messages/unread_nums', 'query': {}, 'finalQuery': {}}
+    assert complete('message.unread', [unread])
+    assert not complete('message.unread', [dict(unread, endpoint='https://bit101.flwfdd.xyz/messages',
+        finalEndpoint='https://bit101.flwfdd.xyz/messages', query={'type': 'unread'}, finalQuery={'type': 'unread'})])
+    assert all(contracts_for(probe) == contracts for probe, contracts in CONTRACTS.items())
+    for probe in CONTRACTS:
+        trace = network_trace_fixture({'scope': 'all', 'requiredProbes': [probe]})['requestEvidence'][0]
+        assert complete(probe, trace['requests'], trace['expectedParameters']), probe
+        for field in ('bodyParameterNames', 'finalBodyParameterNames'):
+            altered = deepcopy(trace['requests'])
+            altered[0][field] = ['unexpected_filter']
+            assert not complete(probe, altered, trace['expectedParameters']), (probe, field)
+        for contract in contracts_for(probe):
+            sample = next((row for row in trace['requests'] if contract.matches(row)), None)
+            if sample is None: continue
+            allowed = sorted((contract.body_parameters | contract.required_body_parameters) - set().union(*contract.body_parameter_variants)
+                | (contract.body_parameter_variants[0] if contract.body_parameter_variants else set()))
+            assert contract.matches(dict(sample, bodyParameterNames=allowed, finalBodyParameterNames=allowed))
+            if allowed:
+                assert not contract.matches(dict(sample, bodyParameterNames=allowed + allowed[:1]))
+            for field in ('bodyParameterNames', 'finalBodyParameterNames'):
+                if contract.required_body_parameters:
+                    assert not contract.matches(dict(sample, **{field: []}))
+                for name in contract.required_body_parameters:
+                    assert not contract.matches(dict(sample, **{field: sorted(set(sample[field]) - {name})}))
+                for names, valid in (({'challenge_id'}, True), ({'username', 'password'}, True),
+                        (set(), False), ({'username'}, False), ({'password'}, False), ({'challenge_id', 'username'}, False)):
+                    if contract.body_parameter_variants and {'challenge_id', 'username', 'password'} <= contract.body_parameters:
+                        assert contract.matches(dict(sample, **{field: sorted(contract.required_body_parameters | names)})) == valid
     from network_request_contracts import complete as check_complete
     emergency = network_trace_fixture({'requiredProbes': ['update.emergency']})['requestEvidence'][0]['requests']
     assert check_complete('update.emergency', emergency)
@@ -628,7 +740,7 @@ def network_route_identity_self_test() -> None:
         changed = deepcopy(proof)
         rows = [deepcopy(original[0]) for _ in pages]
         for row, page in zip(rows, pages): row['query']['page'] = row['finalQuery']['page'] = str(page)
-        changed['requestEvidence'][0]['requests'] = rows
+        changed['requestEvidence'][0]['requests'] = rows + [deepcopy(row) for row in original if row['query'].get('order') != original[0]['query'].get('order')]
         assert network_requests_complete(required, changed) == (pages == (0, 1, 2)), pages
     cursors = network_trace_fixture({'requiredProbes': ['message.system']})
     cursor_probe = cursors['requestEvidence'][0]
@@ -643,10 +755,14 @@ def network_route_identity_self_test() -> None:
         if invalid is None: changed[position]['query'].pop('last_id')
         else: changed[position]['query']['last_id'] = invalid
         assert not complete(cursor_probe['probe'], changed), (position, invalid)
-    for invalid in ('999', None):
+    for invalid in ('0', '999', None):
         changed = deepcopy(cursor_probe['requests'])
         changed[0]['responseMinimumID'] = invalid
         assert not complete(cursor_probe['probe'], changed)
+    for invalid in ('0', '9', '10', None):
+        changed = deepcopy(cursor_probe['requests'])
+        changed[1]['responseMinimumID'] = invalid
+        assert not complete(cursor_probe['probe'], changed), invalid
     writes = network_trace_fixture({'requiredProbes': ['community.writes']})['requestEvidence'][0]['requests']
     assert complete('community.writes', writes)
     assert sum(row['endpoint'].endswith('/upload/image') for row in writes) == 4
@@ -667,21 +783,37 @@ def network_route_identity_self_test() -> None:
     for probe, endpoint in [('eclass.authentication', 'https://zy-eclass.bit.edu.cn/api/my-courses'),
                             ('eclass.ddl', 'https://zy-eclass.bit.edu.cn/api/my-courses'),
                             ('lexue.calendar', 'https://lexue.bit.edu.cn/calendar/export.php')]:
-        request = {'method': 'POST', 'endpoint': endpoint, 'statusCode': 200, 'query': {}}
-        if probe.startswith('eclass.'): request['responseCourseIDs'] = []
+        request = network_trace_fixture({'requiredProbes': [probe]})['requestEvidence'][0]['requests'][0]
+        request.update(endpoint=endpoint, finalEndpoint=endpoint)
         assert complete(probe, [request]), probe
         assert not complete(probe, [dict(request, method='GET')]), probe
     for probe in ('eclass.authentication', 'eclass.ddl'):
         page = {'method': 'POST', 'endpoint': 'https://zy-eclass.bit.edu.cn/api/my-courses',
-            'statusCode': 200, 'query': {}, 'responseCourseIDs': ['41', '43']}
-        activities = [dict(page, method='GET', endpoint=f'https://zy-eclass.bit.edu.cn/api/courses/{value}/activities') for value in (41, 43)]
+            'statusCode': 200, 'query': {'page': '1', 'page_size': '100', 'fields': 'id,name', 'conditions': '{}'}, 'bodyParameterNames': ['page', 'page_size', 'fields', 'conditions'],
+            'finalBodyParameterNames': ['page', 'page_size', 'fields', 'conditions'],
+            'responseCourseIDs': ['41', '43'], 'responseCoursePage': {'page': 1, 'pages': 1}}
+        activities = [dict(page, method='GET', query={}, bodyParameterNames=[], finalBodyParameterNames=[],
+            endpoint=f'https://zy-eclass.bit.edu.cn/api/courses/{value}/activities') for value in (41, 43)]
         assert complete(probe, [page] + activities)
+        for key, value in (('page_size', '1'), ('fields', 'id'), ('conditions', '[REDACTED]')):
+            for field in ('query', 'finalQuery'):
+                assert not complete(probe, [dict(page, **{field: {**page['query'], key: value}})] + activities)
+                assert not complete(probe, [dict(page, **{field: {name: value for name, value in page['query'].items() if name != key}})] + activities)
         for rows in ([page], [page, activities[0]], [dict(page, responseCourseIDs=None)] + activities,
                      [dict(page, responseCourseIDs=['0'])] + activities,
                      [page] + activities + [dict(activities[0], endpoint='https://zy-eclass.bit.edu.cn/api/courses/45/activities')],
                      [page, activities[0], dict(activities[1], finalEndpoint=activities[0]['endpoint'])]):
             assert not complete(probe, rows), (probe, rows)
-        assert complete(probe, [dict(page, responseCourseIDs=['41']), dict(page, responseCourseIDs=['43'])] + activities)
+        two_pages = [dict(page, responseCourseIDs=['41'], responseCoursePage={'page': 1, 'pages': 2}),
+            dict(page, query={**page['query'], 'page': '2'}, responseCourseIDs=['43'], responseCoursePage={'page': 2, 'pages': 2})]
+        assert complete(probe, two_pages + activities)
+        for metadata in (None, {'page': 99, 'pages': 1}, {'page': 1, 'pages': 2}, {'page': 1, 'pages': True}):
+            assert not complete(probe, [dict(page, responseCoursePage=metadata)] + activities)
+        for rows in (two_pages[:1], two_pages[1:], two_pages[::-1], [two_pages[0], two_pages[0]]):
+            assert not complete(probe, rows + activities)
+        assert not complete(probe, [dict(page, query={'page': '99'})] + activities)
+        assert complete(probe, [dict(page, responseCoursePage={})] + activities)
+        assert not complete(probe, [dict(page, responseCourseIDs=[str(value) for value in range(1, 101)], responseCoursePage={})] + activities)
         assert complete(probe, [dict(page, responseCourseIDs=[])])
     building = {'method': 'GET', 'endpoint': 'https://jxzxehallapp.bit.edu.cn/jwapp/sys/kxjasbyMobile/modules/jxllb/cxjxl.do',
         'statusCode': 200, 'query': {'XXXQDM': 'campus'}}
@@ -690,19 +822,40 @@ def network_route_identity_self_test() -> None:
     for query in ({}, {'XXXQDM': 'other'}):
         assert not complete('classroom.buildings', [dict(building, query=query)], {'XXXQDM': 'campus'})
         assert not complete('classroom.buildings', [dict(building, finalQuery=query)], {'XXXQDM': 'campus'})
+    for probe in ('gallery.search', 'course.search', 'paper.search'):
+        trace = network_trace_fixture({'scope': 'bit101', 'requiredProbes': [probe]})['requestEvidence'][0]
+        rows, selected = trace['requests'], trace['expectedParameters']
+        assert complete(probe, rows, selected)
+        assert network_requests_complete({probe}, {'requestEvidenceRequired': True, 'requestEvidence': [trace]})
+        assert not complete(probe, rows, {})
+        assert not complete(probe, rows[:1], selected)
+        for keyword in selected.values():
+            assert not complete(probe, [row for row in rows if row['query'].get('search') != keyword], selected)
+        assert not complete(probe, rows, dict(selected, excludedSearch=selected['search']))
+        for field in ('query', 'finalQuery'):
+            for keyword in ('', 'wrong keyword', None):
+                changed = deepcopy(rows)
+                for row in changed:
+                    if keyword is None: row[field].pop('search', None)
+                    else: row[field]['search'] = keyword
+                assert not complete(probe, changed, selected), (probe, field, keyword)
     variants = {
         'gallery.newest': {'mode': 'search', 'order': 'new', 'uid': '-1'},
         'gallery.following': {'mode': 'follow'}, 'gallery.hot': {'mode': 'hot'}, 'gallery.recommend': {},
         'gallery.bots': {'mode': 'search', 'order': 'new', 'uid': '-1'},
         'gallery.search': {'mode': 'search', 'order': 'new', 'uid': '-1', 'search': 'BIT101'},
-        'paper.list.newest': {'search': 'BIT101'}, 'paper.list.like': {'order': 'like', 'search': 'BIT101'},
-        'paper.list.comment': {'order': 'comment', 'search': 'BIT101'},
+        'paper.list.newest': {}, 'paper.list.like': {'order': 'like'},
+        'paper.list.comment': {'order': 'comment'},
     }
     for probe, parameters in variants.items():
         endpoint = 'https://bit101.flwfdd.xyz/' + ('papers' if probe.startswith('paper.') else 'posters')
+        queries = [dict(parameters, order=order) for order in ('new', 'similar', 'like')] if probe == 'gallery.search' else [parameters]
+        if probe == 'gallery.search': queries += [dict(query, search='excludedfixture') for query in queries]
+        if probe == 'gallery.search': queries += [{key: value for key, value in dict(parameters, order=order).items() if key != 'search'} for order in ('new', 'like')]
         requests = [{'method': 'GET', 'endpoint': endpoint, 'statusCode': 200,
-                     'query': dict(parameters, page=str(page))} for page in (0, 1)]
-        assert complete(probe, requests), probe
+                     'query': dict(query, page=str(page))} for query in queries for page in (0, 1)]
+        assert complete(probe, requests, {'search': 'BIT101', 'excludedSearch': 'excludedfixture'} if probe == 'gallery.search' else None), probe
+        if probe == 'gallery.search': assert not complete(probe, requests[:6], {'search': 'BIT101', 'excludedSearch': 'excludedfixture'})
         for key in ('limit', 'claim_id', 'tags'):
             for field in ('query', 'finalQuery'):
                 changed = deepcopy(requests)
@@ -718,6 +871,14 @@ def network_route_identity_self_test() -> None:
                 else: row['query'][key] = 'unexpected'
             assert not complete(probe, changed), (probe, key)
     assert not complete('paper.list.未知', requests)
+    for probe, endpoint in [('web.share-icon', 'https://open.aihelpme.dev/share-icon.jpg'),
+                            ('web.association', 'https://open.aihelpme.dev/.well-known/apple-app-site-association'),
+                            ('lexue.ddl', 'https://lexue.bit.edu.cn/calendar/export_execute.php')]:
+        row = {'method': 'GET', 'endpoint': endpoint, 'statusCode': 200, 'query': {}}
+        assert complete(probe, [row])
+        for field in ('endpoint', 'finalEndpoint'):
+            altered = endpoint[:endpoint.index('/', 8)] + endpoint[endpoint.index('/', 8):].replace('.', 'X')
+            assert not complete(probe, [dict(row, **{field: altered})]), (probe, field)
     for probe, parameters, selectors in [
         ('paper.list', {}, None), ('profile.posts', {'mode': 'search', 'uid': '0'}, {'uid': '0'}),
         ('user.posts', {'mode': 'search', 'uid': '42'}, {'uid': '42'}),
@@ -739,7 +900,8 @@ def network_route_identity_self_test() -> None:
         ('classroom.occupancy', ['/jwapp/sys/kxjasbyMobile/kxjasbyController/cxkxjasqk.do'],
             {'XNXQDM': '2025-2026-1', 'JXLDM': 'fixture-building', 'RQ': '2026-09-07', 'XQDM': '1', 'XNDM': '2025-2026'}),
     ]:
-        rows = [{'method': 'POST', 'endpoint': 'https://jxzxehallapp.bit.edu.cn' + path, 'statusCode': 200, 'query': dict(expected)} for path in paths]
+        rows = network_trace_fixture({'requiredProbes': [probe], 'validatedTerm': expected['XNXQDM']})['requestEvidence'][0]['requests']
+        for row, path in zip(rows, paths): row.update(endpoint='https://jxzxehallapp.bit.edu.cn' + path, finalEndpoint='https://jxzxehallapp.bit.edu.cn' + path, query=dict(expected), finalQuery=dict(expected))
         assert complete(probe, rows, expected) and not complete(probe, rows)
         for key in expected:
             for field in ('query', 'finalQuery'):
@@ -751,14 +913,15 @@ def network_route_identity_self_test() -> None:
         if probe == 'classroom.occupancy':
             for key, value in [('RQ', '2026-02-30'), ('XQDM', '2'), ('XNDM', '2024-2025')]:
                 changed = {**expected, key: value}
-                assert not complete(probe, [dict(row, query=changed) for row in rows], changed), key
+                assert not complete(probe, [dict(row, query=changed, finalQuery=changed) for row in rows], changed), key
     login = {'method': 'GET', 'endpoint': 'https://bit101.flwfdd.xyz/user/check', 'statusCode': 200, 'query': {}}
     paper = dict(login, endpoint='https://bit101.flwfdd.xyz/papers/17')
     comments = [dict(login, endpoint='https://bit101.flwfdd.xyz/reaction/comments',
-        query={'obj': 'paper17', 'order': 'new', 'page': str(page)}) for page in (0, 1)]
+        query={'obj': 'paper17', 'order': order, 'page': str(page)}) for order in ('new', 'old', 'like') for page in (0, 1)]
+    assert not complete('paper.comments', [login] + comments[:2], {'obj': 'paper17'})
     for probe, requests, selectors in [
         ('paper.detail', [login, paper], {'path': '/papers/17'}),
-        ('paper.comments', [login, comments[0], login, comments[1]], {'obj': 'paper17'}),
+        ('paper.comments', [login, comments[0], login] + comments[1:], {'obj': 'paper17'}),
     ]:
         assert complete(probe, requests, selectors), probe
         assert complete(probe, [row for row in requests if row is not login], selectors), probe
@@ -783,12 +946,12 @@ def network_route_identity_self_test() -> None:
     assert not complete('community.login', [login, dict(login, statusCode=401)])
     assert not complete('community.login', [dict(login, statusCode=500), login])
     assert not complete('community.login', [dict(login, statusCode=401, query={'order': 'old'}), login])
-    authentication = dict(login, method='POST', endpoint='https://bit101.flwfdd.xyz/user/webvpn_verify')
+    authentication = dict(login, method='POST', endpoint='https://bit101.flwfdd.xyz/user/webvpn_verify', **{field: ['sid', 'password', 'execution', 'cookie', 'salt', 'captcha'] for field in ('bodyParameterNames', 'finalBodyParameterNames')})
     assert complete('community.login', [dict(login, statusCode=401), authentication, login])
     assert not complete('community.login', [dict(login, statusCode=401), dict(authentication, statusCode=500), login])
     teaching = {'method': 'GET', 'endpoint': 'https://jxzxehallapp.bit.edu.cn/jwapp/sys/wdkbby/modules/jshkcb/dqxnxq.do', 'statusCode': 200, 'query': {}}
     preheat = dict(teaching, endpoint='https://jxzxehallapp.bit.edu.cn/jwapp/i18n.do')
-    cookies = dict(authentication, endpoint='https://login.bit101.flwfdd.xyz/api/jxzxehall/cookies')
+    cookies = dict(authentication, endpoint='https://login.bit101.flwfdd.xyz/api/jxzxehall/cookies', **{field: ['username', 'password'] for field in ('bodyParameterNames', 'finalBodyParameterNames')})
     assert complete('schedule.current-term', [cookies, preheat, teaching])
     redirected = dict(teaching, finalEndpoint='https://sso.bit.edu.cn/cas/login', finalMethod='GET', finalQuery={})
     assert complete('schedule.current-term', [redirected, cookies, preheat, teaching])
@@ -800,6 +963,15 @@ def network_route_identity_self_test() -> None:
     transcript = network_trace_fixture({'requiredProbes': ['score.transcript']})['requestEvidence'][0]
     page = {'method': 'GET', 'endpoint': 'https://jwb.bit.edu.cn/cjd/Temp/page.jpg', 'statusCode': 200, 'query': {}}
     assert complete('score.transcript', transcript['requests'] + [page])
+    for field in ('query', 'finalQuery'):
+        for value in (None, 'true', '0', '[REDACTED]'):
+            broken = deepcopy(transcript['requests'])
+            request = next(row for row in broken if row['endpoint'].endswith('/cjd/cookies'))
+            query = dict(request.get(field, request['query']))
+            if value is None: query.pop('detailed', None)
+            else: query['detailed'] = value
+            request[field] = query
+            assert not complete('score.transcript', broken)
     assert not complete('score.transcript', transcript['requests'] + [dict(page, statusCode=500)])
     assert complete('community.login', [dict(login, endpoint='https://bit101.flwfdd.xyz:443/user/check')])
     for port in ('0', '80', '8443', '65536', 'invalid'):

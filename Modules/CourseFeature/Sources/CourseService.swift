@@ -36,29 +36,7 @@ public struct CourseService {
     /// 课程列表固定按“最新”顺序请求。
     private static let defaultCourseOrder = "new"
 
-    private struct CreateCommentRequest: Encodable {
-        let obj: String
-        let text: String
-        let replyObj: String?
-        let replyUid: Int?
-        let anonymous: Bool?
-        let rate: Int?
-        let imageMids: [String]
 
-        enum CodingKeys: String, CodingKey {
-            case obj
-            case text
-            case replyObj = "reply_obj"
-            case replyUid = "reply_uid"
-            case anonymous
-            case rate
-            case imageMids = "image_mids"
-        }
-    }
-
-    private struct LikeRequest: Encodable {
-        let obj: String
-    }
 
     private let api: CommunityAPIClient<CourseServiceError>
 
@@ -83,12 +61,18 @@ public struct CourseService {
 
     /// 拉取单门课程详情。
     public func fetchCourse(id: Int) async throws -> CourseDetail {
-        try await api.request(path: "courses/\(id)")
+        let detail: CourseDetail = try await api.request(path: "courses/\(id)")
+        guard id > 0, detail.id == id else { throw CourseServiceError.invalidResponse }
+        return detail
     }
 
     /// 拉取单门课程按学期聚合的历史成绩统计。
     public func fetchCourseHistories(number: String) async throws -> [CourseHistoryGrade] {
-        try await api.request(path: "courses/histories", pathComponent: number)
+        let grades: [CourseHistoryGrade] = try await api.request(path: "courses/histories", pathComponent: number)
+        guard grades.allSatisfy(\.hasValidStatistics), Set(grades.map(\.term)).count == grades.count else {
+            throw CourseServiceError.invalidResponse
+        }
+        return grades
     }
 
     /// 拉取课程评论。
@@ -102,7 +86,9 @@ public struct CourseService {
         if let page {
             queryItems.append(URLQueryItem(name: "page", value: String(page)))
         }
-        return try await api.request(path: "reaction/comments", queryItems: queryItems)
+        let comments: [CommunityComment] = try await api.request(path: "reaction/comments", queryItems: queryItems)
+        guard CommunityComment.validatesResponse(comments, for: "course\(courseID)") else { throw CourseServiceError.invalidResponse }
+        return comments
     }
 
     /// 对课程评论执行点赞或取消点赞。
@@ -110,7 +96,7 @@ public struct CourseService {
         try await api.request(
             path: "reaction/like",
             method: "POST",
-            body: try api.encode(LikeRequest(obj: objectID))
+            body: try api.encode(CommunityLikeRequest(obj: objectID))
         )
     }
 
@@ -127,7 +113,7 @@ public struct CourseService {
             path: "reaction/comments",
             method: "POST",
             body: try api.encode(
-                CreateCommentRequest(
+                CommunityCreateCommentRequest(
                     obj: objectID,
                     text: text,
                     replyObj: replyObjectID,

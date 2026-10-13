@@ -8,7 +8,42 @@ import TransportCore
 
 @MainActor
 struct CourseDetailTests {
-    @Test(arguments: [false, true])
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true], [false, true])
+    func uncertainLikesReadTheCommittedStateAndWaitForRecovery(comment: Bool, readFails: Bool) async {
+        let service = Service(), viewModel = model(service)
+        let original = Self.comment(1)
+        service.commentResult = .success([original])
+        await viewModel.bootstrapIfNeeded()
+        service.likeError = CommunityToggleOutcomeUnknown(underlying: URLError(.networkConnectionLost))
+        service.detailResult = .success(Self.detail.updatingLike(true, likeNum: 9))
+        service.commentResult = .success([original.updatingLike(true, likeNum: 9)])
+        if readFails {
+            if comment { service.commentResult = .failure(URLError(.timedOut)) }
+            else { service.detailResult = .failure(URLError(.timedOut)) }
+        }
+        func toggle() async { if comment { await viewModel.likeComment(original) } else { await viewModel.likeCourse() } }
+        await toggle()
+        #expect(service.likedObjects.count == 1)
+        if readFails {
+            await toggle()
+            #expect(service.likedObjects.count == 1)
+            service.detailResult = .success(Self.detail.updatingLike(true, likeNum: 9))
+            service.commentResult = .success([original.updatingLike(true, likeNum: 9)])
+            await viewModel.refresh()
+        }
+        #expect(comment ? viewModel.commentState.items.first?.like == true : viewModel.isCourseLiked)
+        service.likeError = nil
+        await toggle()
+        #expect(service.likedObjects.count == 2)
+    }
+    @Test(.timeLimit(.minutes(1)), arguments: ["CS101", "CS102", ""])
+    func courseCreditsRespectKnownNumbersBeforeNameMatching(number: String) async {
+        let viewModel = CourseDetailViewModel(initialCourse: CourseSummary(detail: Self.detail), service: Service(),
+            loadCourseCredits: { [CommunityCourseCredit(number: number, name: "操作系统", credit: 4)] })
+        await viewModel.bootstrapIfNeeded()
+        #expect(viewModel.resolvedCreditText == (number == "CS102" ? "3.5" : "4"))
+    }
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func repeatedCommentPagesAdvanceOrPreserveTheRetryCursor(stalled: Bool) async {
         let service = Service()
         service.commentResult = .success([Self.comment(1)])
@@ -55,6 +90,7 @@ struct CourseDetailTests {
         var commentGate: Gate?
         var commentReadGate: Gate?
         var likeGate: Gate?
+        var likeError: (any Error)?
         var suspendRequests = false
         var enteredRequests: Set<String> = []
         var cancelledRequests: Set<String> = []
@@ -82,6 +118,7 @@ struct CourseDetailTests {
         func like(objectID: String) async throws -> CommunityLikeResult {
             likedObjects.append(objectID)
             if let gate = likeGate { likeGate = nil; await gate.pause() }
+            if let likeError { throw likeError }
             return CommunityLikeResult(like: true, likeNum: 9)
         }
         func createComment(objectID: String, text: String, replyObjectID: String?, replyUID: Int?, anonymous: Bool, rate: Int?) async throws -> CommunityComment {
@@ -106,7 +143,7 @@ struct CourseDetailTests {
             loadCourseCredits: { [CommunityCourseCredit(number: "CS101", name: "操作系统", credit: 4)] })
     }
 
-    @Test func uncertainCommentStopsAnotherSubmissionWhileItsResultNeedsReview() async {
+    @Test(.timeLimit(.minutes(1))) func uncertainCommentStopsAnotherSubmissionWhileItsResultNeedsReview() async {
         let service = Service()
         service.submissionError = CommunityCreateOutcomeUnknown(underlying: URLError(.networkConnectionLost))
         let viewModel = model(service)
@@ -114,9 +151,16 @@ struct CourseDetailTests {
         service.submissionError = nil
         #expect(await viewModel.submitComment(text: "评论", anonymous: false, rate: 6, target: .course(courseID: 42)) == false)
         #expect(service.submissionCount == 1 && viewModel.alert?.title == "发送结果待确认")
+        #expect(viewModel.alert?.message == CommunityCreateOutcomeUnknown.commentReviewMessage)
+        await viewModel.refresh()
+        #expect(await viewModel.submitComment(text: "评论", anonymous: false, rate: 6, target: .course(courseID: 42)) == false)
+        let reopened = model(service)
+        await reopened.refresh()
+        #expect(await reopened.submitComment(text: "新的评论", anonymous: false, rate: 6, target: .course(courseID: 42)))
+        #expect(service.submissionCount == 2)
     }
 
-    @Test func cancelledCommentSubmissionRetainsTheNewEditorAndAllowsRetry() async throws {
+    @Test(.timeLimit(.minutes(1))) func cancelledCommentSubmissionRetainsTheNewEditorAndAllowsRetry() async throws {
         let service = Service()
         let gate = Gate()
         service.commentGate = gate
@@ -154,7 +198,7 @@ struct CourseDetailTests {
         #expect(service.detailCalls == 2 && service.commentRequests.count == 2)
     }
 
-    @Test func courseBootstrapRestoresItsCreditSourceAndLoadsEachInitialRequestOnce() async {
+    @Test(.timeLimit(.minutes(1))) func courseBootstrapRestoresItsCreditSourceAndLoadsEachInitialRequestOnce() async {
         let service = Service()
         service.commentResult = .success([Self.comment(1)])
         let viewModel = model(service)
@@ -168,7 +212,7 @@ struct CourseDetailTests {
         #expect(viewModel.resolvedRate == 8 && viewModel.sharedMaterialsURL != nil)
     }
 
-    @Test func courseRefreshPreservesLoadedDataAcrossFailuresAndCancellation() async {
+    @Test(.timeLimit(.minutes(1))) func courseRefreshPreservesLoadedDataAcrossFailuresAndCancellation() async {
         let service = Service()
         service.commentResult = .success([Self.comment(1)])
         let viewModel = model(service)
@@ -249,7 +293,7 @@ struct CourseDetailTests {
         #expect(viewModel.resolvedName == Self.detail.name)
     }
 
-    @Test func coursePagingDeduplicatesAndHistorySortingRetainsItsRetryPath() async {
+    @Test(.timeLimit(.minutes(1))) func coursePagingDeduplicatesAndHistorySortingRetainsItsRetryPath() async {
         let service = Service()
         service.commentResult = .success([Self.comment(1), Self.comment(2)])
         service.pages[1] = [Self.comment(2), Self.comment(3)]
@@ -273,7 +317,7 @@ struct CourseDetailTests {
         #expect(viewModel.historyGradeStatus == .loaded && viewModel.historyGrades.count == 2)
     }
 
-    @Test func courseLikesAndReplySubmissionKeepTheNestedCommentIdentity() async {
+    @Test(.timeLimit(.minutes(1))) func courseLikesAndReplySubmissionKeepTheNestedCommentIdentity() async {
         let service = Service()
         let child = Self.comment(2)
         let main = Self.comment(1, sub: [child])
@@ -295,7 +339,7 @@ struct CourseDetailTests {
         #expect(viewModel.isSubmittingComment == false)
     }
 
-    @Test(arguments: [nil, 0, -1, 11] as [Int?])
+    @Test(.timeLimit(.minutes(1)), arguments: [nil, 0, -1, 11] as [Int?])
     func courseReviewsRequireAnExplicitValidRating(_ rate: Int?) async {
         let service = Service()
         let viewModel = model(service)

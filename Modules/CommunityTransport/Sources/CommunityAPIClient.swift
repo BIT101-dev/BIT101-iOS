@@ -1,6 +1,39 @@
 import Foundation
 import TransportCore
 
+public struct CommunityLikeRequest: Encodable {
+    public let obj: String
+    public init(obj: String) { self.obj = obj }
+}
+
+public struct CommunityCreateCommentRequest: Encodable {
+    public let obj: String
+    public let text: String
+    public let replyObj: String?
+    public let replyUid: Int?
+    public let anonymous: Bool?
+    public let rate: Int?
+    public let imageMids: [String]
+
+    public init(obj: String, text: String, replyObj: String?, replyUid: Int?, anonymous: Bool?,
+                rate: Int? = nil, imageMids: [String]) {
+        self.obj = obj
+        self.text = text
+        self.replyObj = replyObj
+        self.replyUid = replyUid
+        self.anonymous = anonymous
+        self.rate = rate
+        self.imageMids = imageMids
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case obj, text, anonymous, rate
+        case replyObj = "reply_obj"
+        case replyUid = "reply_uid"
+        case imageMids = "image_mids"
+    }
+}
+
 public enum CommunityAuthentication {
     case required
     case optional
@@ -14,6 +47,8 @@ public enum CommunityRetryPolicy {
 
 public struct CommunityCreateOutcomeUnknown: LocalizedError, CustomNSError {
     public static let reviewMessage = "请求已发出，发布结果待确认。请关闭编辑页，刷新已发布内容并核对结果后再操作。"
+    public static let commentReviewMessage = "请求已发出，评论结果待确认。请重新进入详情页，刷新评论并核对结果后再发送。"
+    public static let reportReviewMessage = "举报请求已发出，提交结果待确认。请稍后关注处理结果。当前页面已暂停再次提交。"
     public let underlying: any Error
     public init(underlying: any Error) { self.underlying = underlying }
     public var errorDescription: String? {
@@ -21,6 +56,16 @@ public struct CommunityCreateOutcomeUnknown: LocalizedError, CustomNSError {
     }
     public var errorUserInfo: [String: Any] {
         [NSUnderlyingErrorKey: underlying, NSLocalizedDescriptionKey: errorDescription ?? "发布结果待确认。"]
+    }
+}
+
+public struct CommunityToggleOutcomeUnknown: LocalizedError, CustomNSError {
+    public static let reviewMessage = "操作结果待确认。请刷新页面核对当前状态后再操作。"
+    public let underlying: any Error
+    public init(underlying: any Error) { self.underlying = underlying }
+    public var errorDescription: String? { Self.reviewMessage }
+    public var errorUserInfo: [String: Any] {
+        [NSUnderlyingErrorKey: underlying, NSLocalizedDescriptionKey: Self.reviewMessage]
     }
 }
 
@@ -32,6 +77,10 @@ public protocol CommunityAPIServiceError: Error {
 
 extension CommunityAPIServiceError {
     public static func communityResourceFailure(path: String, message: String?) -> Self? { nil }
+}
+
+private enum CommunityCredentialRefreshContext {
+    @TaskLocal static var isRestoring = false
 }
 
 /// `CommunityAPIClient` 统一处理 BIT101 社区后端的认证、URL、HTTP 状态码和 JSON 边界。
@@ -67,40 +116,56 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
         retryPolicy: CommunityRetryPolicy = .afterCredentialRefresh
     ) async throws -> Response {
         let identity = authentication == .none ? nil : credentials().identity
-        let isCreation = method == "POST" && ["posters", "papers", "reaction/comments"].contains(path)
+        return try await withMutationOutcome(path: path, method: method) {
+            let response = try await send(path: path, pathComponent: pathComponent,
+                queryItems: queryItems, method: method, body: body, contentType: contentType,
+                authentication: authentication, retryPolicy: retryPolicy)
+            let value: Response
+            do {
+                value = try await Self.decodeResponse(Response.self, from: response.data)
+            } catch {
+                if TaskCancellation.matches(error) { throw error }
+                let failure = Failure.communityInvalidResponse as NSError
+                throw NSError(domain: failure.domain, code: failure.code,
+                    userInfo: failure.userInfo.merging([NSUnderlyingErrorKey: error,
+                        NSLocalizedDescriptionKey: failure.localizedDescription]) { _, value in value })
+            }
+            try validateIdentity(identity)
+            return value
+        }
+    }
+
+    private func withMutationOutcome<Value: Sendable>(path: String, method: String,
+        operation: () async throws -> Value) async throws -> Value {
+        let isCreation = method == "POST" && ["posters", "papers", "reaction/comments", "manage/reports"].contains(path)
+        let isToggle = method == "POST" && (path == "reaction/like" || path == "user/follow" || path.hasPrefix("user/follow/"))
         var started = false
         var rejected = false
         let parentStart = HTTPRequestEvidenceContext.willStart
         let parentReceive = HTTPRequestEvidenceContext.didReceive
         let receive: (@MainActor @Sendable (URLRequest, HTTPResponse) async -> Void)?
-        if isCreation {
+        if isCreation || isToggle {
             receive = { request, response in
                 let evidence = HTTPRequestEvidence(request: request, response: response.response, finalRequest: response.finalRequest)
-                rejected = (400..<500).contains(evidence.statusCode) && evidence.statusCode != 408
-                    && evidence.endpoint == evidence.finalEndpoint && evidence.method == evidence.finalMethod
+                if !CommunityCredentialRefreshContext.isRestoring {
+                    rejected = (400..<500).contains(evidence.statusCode) && evidence.statusCode != 408
+                        && evidence.endpoint == evidence.finalEndpoint && evidence.method == evidence.finalMethod
+                }
                 await parentReceive?(request, response)
             }
         } else { receive = parentReceive }
         do {
             return try await HTTPRequestEvidenceContext.$willStart.withValue({
-                started = true; rejected = false; parentStart?()
+                if !CommunityCredentialRefreshContext.isRestoring { started = true; rejected = false }
+                parentStart?()
             }) {
                 try await HTTPRequestEvidenceContext.$didReceive.withValue(receive) {
-                    let response = try await send(path: path, pathComponent: pathComponent,
-                        queryItems: queryItems, method: method, body: body, contentType: contentType,
-                        authentication: authentication, retryPolicy: retryPolicy)
-                    do {
-                        let value = try await Self.decodeResponse(Response.self, from: response.data)
-                        try validateIdentity(identity)
-                        return value
-                    } catch {
-                        if TaskCancellation.matches(error) { throw error }
-                        throw Failure.communityInvalidResponse
-                    }
+                    return try await operation()
                 }
             }
         } catch {
-            guard isCreation, started, !rejected, !(error is HTTPRequestNotSent) else { throw error }
+            guard isCreation || isToggle, started, !rejected, !(error is HTTPRequestNotSent) else { throw error }
+            if isToggle { throw CommunityToggleOutcomeUnknown(underlying: error) }
             throw CommunityCreateOutcomeUnknown(underlying: error)
         }
     }
@@ -133,14 +198,16 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
         authentication: CommunityAuthentication = .required,
         retryPolicy: CommunityRetryPolicy = .afterCredentialRefresh
     ) async throws {
-        _ = try await send(
+        _ = try await withMutationOutcome(path: path, method: method) {
+            try await send(
             path: path,
             method: method,
             body: body,
             contentType: contentType,
             authentication: authentication,
             retryPolicy: retryPolicy
-        )
+            )
+        }
     }
 
     public func encode<Body: Encodable>(_ body: Body) throws -> Data {
@@ -226,7 +293,7 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
         } catch let HTTPClientError.unacceptableStatus(code, _) where code == 401 && authentication == .required && retryPolicy == .afterCredentialRefresh {
             do {
                 try validateIdentity(identity)
-                try await refreshHandler(observed)
+                try await CommunityCredentialRefreshContext.$isRestoring.withValue(true) { try await refreshHandler(observed) }
             } catch CommunitySessionRestorationError.credentialsRejected {
                 try validateIdentity(identity)
                 throw Failure.communityNotLoggedIn

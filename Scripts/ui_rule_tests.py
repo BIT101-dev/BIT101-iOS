@@ -6,8 +6,9 @@ import importlib.util
 import subprocess
 import sys
 from swift_source_index import swift_syntax_index_sources
+from swift_type_index import SwiftBindingTypes
 
-from ui_interaction_tests import interaction_inventory_boundary_findings, explanatory_text_boundary_findings
+from ui_interaction_tests import interaction_inventory_boundary_findings, explanatory_text_boundary_findings, visual_contract_boundary_findings
 
 from ui_design_contracts import (
     DERIVED_DESIGN_TOKEN, DIRECT_ANIMATION_DURATION, DIRECT_FLOATING_MATERIAL,
@@ -19,36 +20,65 @@ from ui_design_contracts import (
 
 from ui_source_facts import (
     MAP_THEME_COLOR_CONTRACT, ROOT, SOURCE_ROOT, ast_has_marker, call_name, child_view_entries,
-    has_component_declaration, image_only_label_facts, list_icon_findings, mask_comments,
+    has_component_declaration, image_only_label_facts, is_semantic_color_member, list_icon_findings, mask_comments,
     mask_literals_and_comments, pattern_nodes, rendered_view_has_marker,
     selection_control_has_feedback, source_path, view_or_child_has_marker,
 )
 
 from ui_rules import (
     alert_coverage_findings, haptic_entry_findings, interactive_list_row_findings,
-    is_registered_map_theme_color_definition, is_reviewed_fixed_geometry, visual_contract_present,
+    is_registered_map_theme_color_definition, is_reviewed_fixed_geometry,
     check_composer_lifecycle, rendered_component_counts,
 )
 
 
 
 def ast_marker_boundary_findings() -> list[str]:
-    for owner in ('GalleryComposerScene', 'GalleryCommentComposerSheet', 'CourseCommentComposerSheet', 'PaperCommentComposerSheet'):
-        guard = '' if owner == 'GalleryComposerScene' else 'isSubmitting || isSubmissionRequested'
-        member = 'let callback: () async -> Bool;' if guard else ''
-        marker = '' if guard else '.accessibilityIdentifier("ui.gallery-composer-scene.submit")'
+    color_path = 'semantic-color-self-test.swift'
+    color_source = '''
+import SwiftUI
+enum TrafficPhase { case red, green }
+typealias Phase = TrafficPhase
+typealias Accent = Color
+struct Status { let phase: Phase = .red; let color: Accent = .green }
+func consume(_ phase: TrafficPhase) {}
+func consumeColor(_ color: Color) {}
+func phase() -> TrafficPhase { .green }
+func color() -> Color { .red }
+func sample() {
+    let color = SwiftUI.Color.red; let local = Color.red; let phase = TrafficPhase.red
+    consume(.red); consumeColor(.green)
+    Text("label").foregroundStyle(.red)
+    Text("label").background(.green)
+}
+'''
+    color_syntax = swift_syntax_index_sources({color_path: color_source})
+    color_context = SwiftBindingTypes(color_syntax)
+    color_nodes = [node for node in color_syntax[color_path]['members'] if node['value'] in {'.red', '.green', 'Color.red', 'SwiftUI.Color.red', 'TrafficPhase.red'}]
+    assert len(color_nodes) == 11 and sum(is_semantic_color_member(color_path, node, color_context) for node in color_nodes) == 7
+    editors = [('GalleryComposerScene', '', 'ui.gallery-composer-scene.submit'),
+        ('PaperComposerView', 'model.isSubmitting', 'ui.paper-composer-view.submit')]
+    editors += [(owner, 'isSubmitting || isSubmissionRequested', '') for owner in
+        ('GalleryCommentComposerSheet', 'CourseCommentComposerSheet', 'PaperCommentComposerSheet')]
+    for owner, guard, identifier in editors:
+        member = 'let callback: () async -> Bool;' if guard and not identifier else ''
+        marker = f'.accessibilityIdentifier("{identifier}")' if identifier else ''
         template = f'struct {owner}: View {{ {member} var body: some View {{ AppCommentComposerContentSection {{ Text("editor") }}{marker}.interactiveDismissDisabled({guard}) }} }}'
         def findings(source):
+            source = source.replace('var body:', 'let protectDismissal = false; let protectAlias = protectDismissal; var body:')
             errors = []
             check_composer_lifecycle(errors, swift_syntax_index_sources({'ui-self-test.swift': source}))
             return errors
         assert not findings(template)
         assert not findings(template.replace(owner, 'RenamedEditor').replace(guard, 'blocksDismissal') if guard else template.replace(owner, 'RenamedEditor'))
         assert findings(template.replace(f'.interactiveDismissDisabled({guard})', ''))
-        assert findings(template.replace(f'.interactiveDismissDisabled({guard})', '.interactiveDismissDisabled(false)'))
+        for disabled in ('false', '(!true)', '(false && isSubmitting)', '(false || false)', '1 == 2', 'protectDismissal', 'protectAlias'):
+            assert findings(template.replace(f'.interactiveDismissDisabled({guard})', f'.interactiveDismissDisabled({disabled})'))
+        for enabled in ('true', '(!false)', 'isSubmitting || true'):
+            assert not findings(template.replace(f'.interactiveDismissDisabled({guard})', f'.interactiveDismissDisabled({enabled})'))
         unused = template.replace(f'.interactiveDismissDisabled({guard})', '')[:-1] + f'; func unused() -> some View {{ Text("unused").interactiveDismissDisabled({guard}) }} }}'
         assert findings(unused)
-        if guard: assert not findings(template.replace('AppCommentComposerContentSection', 'OtherSection').replace(f'.interactiveDismissDisabled({guard})', ''))
+        if not identifier: assert not findings(template.replace('AppCommentComposerContentSection', 'OtherSection').replace(f'.interactiveDismissDisabled({guard})', ''))
     for symbol in ('AppCard', 'AppFloatingActionStack'):
         source = f'struct Example: View {{ var body: some View {{ Text("visible") }}; func unused() -> some View {{ {symbol} {{ Text("unused") }} }} }}'
         facts = swift_syntax_index_sources({'ui-self-test.swift': source})
@@ -56,16 +86,7 @@ def ast_marker_boundary_findings() -> list[str]:
         active = source.replace('Text("visible")', f'{symbol} {{ Text("visible") }}')
         facts = swift_syntax_index_sources({'ui-self-test.swift': active})
         assert rendered_component_counts(facts['ui-self-test.swift'], facts)[symbol]
-    marker = 'StrokeStyle(lineWidth: 2, dash: [5, 4])'
-    contract = 'Modules/CourseFeature/Sources/CourseHistoryGradesViews.swift'
-    moved = ROOT / 'Modules/CourseFeature/Sources/Moved.swift'
-    template = 'struct CourseHistoryGradesChart: View { var body: some View { Text("chart").lineStyle(MARKER) } }'
-    assert visual_contract_present(contract, marker, {moved: template.replace('MARKER', 'StrokeStyle(\n lineWidth: 2,\n dash: [5, 4]\n)')})
-    assert not visual_contract_present(contract, marker, {moved: '// ' + marker})
-    assert not visual_contract_present(contract, marker, {moved: marker.replace('[5, 4]', '[5, 3]')})
-    assert not visual_contract_present(contract, marker, {moved: 'func unused() { _ = ' + marker + ' }'})
-    assert not visual_contract_present(contract, marker, {moved: 'struct CourseHistoryGradesChart: View { var body: some View { Text("chart") }; func unused() -> some View { Text("unused").lineStyle(' + marker + ') } }'})
-    assert not visual_contract_present(contract, marker, {moved: template.replace('CourseHistoryGradesChart', 'OtherChart').replace('MARKER', marker)})
+    assert not visual_contract_boundary_findings()
     facts = {
         "declarations": [{"kind": "struct", "name": "SampleView"}],
         "calls": [{"value": "AppFailureState", "scope": ["SampleView"]}],
@@ -891,6 +912,19 @@ def school_lifecycle_boundary_findings() -> list[str]:
     prefix = 'import SchedulePorts; import ScorePorts; '
     ports[str(ROOT / 'BIT101-iOS/FixtureSchool.swift')] = prefix + 'protocol FixtureSchoolServicing: ScheduleServicing, ScoreListServicing, TrustedTranscriptServicing {}; let service: any FixtureSchoolServicing; let schedule: any ScheduleServicing;'
     findings = []
+    source = prefix + 'struct Screen: View { var body: some View { Text("x").task { await schedule.syncCourses() } } }'
+    for name, expected in (("BIT101-iOS/LifecycleUITestExample.swift", True),
+            ("BIT101-iOS/ReleaseNetworkSmokeExample.swift", True), ("BIT101-iOS/Tests/LifecycleExample.swift", True),
+            ("ModuleTests/Support/LifecycleExample.swift", False), ("BIT101-iOSTests/LifecycleExample.swift", False),
+            ("BIT101-iOSUITests/LifecycleExample.swift", False)):
+        renamed = str(ROOT / name)
+        if bool(automatic_school_fetch_findings(swift_syntax_index_sources(dict(ports, **{renamed: source})))) != expected:
+            findings.append("学校生命周期自测：生产文件名与实际测试目录归属")
+    for condition, expected in (("RELEASE_NETWORK_SMOKE", False), ("BIT101_UI_TESTING", False),
+            ("os(iOS)", True), ("targetEnvironment(macCatalyst)", True)):
+        guarded = f'#if {condition}\n{source}\n#endif'
+        if bool(automatic_school_fetch_findings(swift_syntax_index_sources(dict(ports, **{path: guarded})))) != expected:
+            findings.append("学校生命周期自测：正式平台编译条件与专项宿主归属")
     for source in (
         "struct RenamedApp: App { var body: some Scene { WindowGroup { Text(\"x\").task { await schedule.syncCourses() } } } }",
         "struct AccountLifecycle { func activate() { renamed() }; func renamed() { service.fetchScores() } }",
@@ -906,6 +940,13 @@ def school_lifecycle_boundary_findings() -> list[str]:
         'struct Screen: View { let action: () async -> Void = { await service.fetchScores() }; var body: some View { Text("x").task { await action() } } }',
         'struct Screen: View { var body: some View { Text("x").onReceive(events) { _ in Task { await service.fetchScores() } } } }',
         'struct Screen: View { var body: some View { Text("x").onChange(of: ready, initial: true) { Task { await service.fetchScores() } } } }',
+        'struct Screen: View { var body: some View { Text("x").onDisappear { Task { await service.fetchScores() } } } }',
+        'struct Screen: View { var body: some View { Text("x").onPreferenceChange(Key.self) { _ in service.fetchScores() } } }',
+        'class Screen: UIViewController { override func viewDidLoad() { Task { await service.fetchScores() } } }',
+        'class Base: UIKit.UIViewController {}; class Screen: Base { override func viewWillAppear(_ animated: Bool) { service.fetchScores() } }',
+        'struct Screen: UIViewControllerRepresentable { func makeUIViewController(context: Context) -> UIViewController { service.fetchScores(); return UIViewController() } }',
+        'struct Screen: SwiftUI.UIViewControllerRepresentable { func updateUIViewController(_ view: UIViewController, context: Context) { service.fetchScores() } }',
+        'struct Screen: UIViewRepresentable { func updateUIView(_ view: UIView, context: Context) { service.fetchScores() } }',
         'struct ScheduleRootView: View { func startClassroomPageRefresh() { service.fetchCampuses(); service.syncCourses() }; var body: some View { Text("x").task { startClassroomPageRefresh() } } }',
         'struct ScheduleTermPickerPage: View { func loadAvailableTerms() { service.fetchAvailableTerms(); service.syncCourses() }; var body: some View { Text("x").task { loadAvailableTerms() } } }',
         'struct TrustedTranscriptPage: View { func applyIfNeeded() { service.fetchTrustedTranscriptPages(); service.fetchScores() }; var body: some View { Text("x").task { applyIfNeeded() } } }',
@@ -928,6 +969,9 @@ def school_lifecycle_boundary_findings() -> list[str]:
     manual = prefix + 'struct Screen: View { let service: any ScheduleCourseServicing; var action: () async throws -> Void { { _ = try await service.syncCourses(term: nil) } }; var body: some View { Button("刷新") { Task { try? await action() } } } }'
     if automatic_school_fetch_findings(swift_syntax_index_sources(dict(ports, **{path: manual}))):
         findings.append("学校生命周期自测：计算属性动作保持用户操作边界")
+    for active in (False, True):
+        source = prefix + 'struct SampleHolder { let action: () async -> Void; init(refresh cb: @escaping () async -> Void) { self.action = cb }; func start() async { await action() } }; struct SampleApp: App { let holder = SampleHolder(refresh: { _ = try? await schedule.syncCourses(term: nil) }); var body: some Scene { WindowGroup { Text("x").task { CALL } } } }'.replace('CALL', 'await holder.start()' if active else 'await unrelated()')
+        if bool(automatic_school_fetch_findings(swift_syntax_index_sources(dict(ports, **{path: source})))) != active: findings.append('学校生命周期自测：显式初始化器保存与实际执行保持归属')
     wrappers = prefix + "struct SchoolWrapper { func load() { service.fetchScores() } }; struct LocalWrapper { func load() {} }; "
     for body in (
         "let bridge: SchoolWrapper; func start() { bridge.load() }; func helper() { let bridge = LocalWrapper(); bridge.load() }",

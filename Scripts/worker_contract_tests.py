@@ -5,19 +5,46 @@ import subprocess
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def emergency_notice_identity_self_test() -> None:
+    import json, sys
+    from contextlib import nullcontext, redirect_stdout
+    from io import StringIO
+    from unittest.mock import patch
+    source = (ROOT / 'Cloudflare/EmergencyUpdateWorker/Scripts/publish-emergency-update.sh').read_text()
+    body = source.split("<<'PY'\n", 1)[1].split('\nPY\n', 1)[0]
+    identities = []
+    for build, title, message in [('41', '公告', '正文'), ('41', '公告', '正文'),
+            ('41', '新公告', '正文'), ('41', '公告', '新正文'), ('42', '公告', '正文')]:
+        output, console = StringIO(), StringIO()
+        with patch.object(sys, 'argv', ['publish', '/fixture/notice.json', build, title, message]), \
+                patch('builtins.open', return_value=nullcontext(output)), redirect_stdout(console):
+            exec(compile(body, 'emergency-notice-payload', 'exec'), {})
+        payload = json.loads(output.getvalue())
+        assert payload['notice_id'] == console.getvalue().strip() and payload['maximum_affected_build'] == int(build)
+        identities.append(payload['notice_id'])
+    assert identities[0] == identities[1] and len(set(identities)) == 4
+
+
 def worker_boundary_findings() -> list[str]:
     "通过 Workers 本地 runtime 验证跨域预检、并发配额及 Smoke 约束。"
+    emergency_notice_identity_self_test()
     script = r'''
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const { Miniflare, Log, LogLevel, convertV4MiniflareOptions } = require("miniflare");
+const { experimental_readRawConfig } = require("wrangler");
 (async () => {
-  const config = JSON.parse(fs.readFileSync("../ErrorReportWorker/wrangler.jsonc", "utf8"));
+  const config = experimental_readRawConfig({ config: "../ErrorReportWorker/wrangler.jsonc" }).rawConfig;
+  assert.equal(config.vars.REPORT_EMAIL_RECIPIENT, config.send_email.find(binding => binding.name === "REPORT_EMAIL").destination_address);
   assert(config.durable_objects.bindings.some(binding => binding.name === "REPORT_QUOTA" && binding.class_name === "ReportQuota"));
   assert(config.migrations.some(migration => migration.new_sqlite_classes.includes("ReportQuota")));
   assert(config.durable_objects.bindings.some(binding => binding.name === "REPORT_EMAIL_DELIVERY" && binding.class_name === "ReportEmailDelivery"));
   assert(config.migrations.some(migration => migration.new_sqlite_classes.includes("ReportEmailDelivery")));
-  const fixture = fs.readFileSync("../ErrorReportWorker/worker.js", "utf8") + `
+  const fixtureDay = "2026-01-01";
+  const workerSource = fs.readFileSync("../ErrorReportWorker/worker.js", "utf8");
+  const dayExpression = "new Date().toISOString().slice(0, 10)";
+  assert(workerSource.includes(dayExpression));
+  const fixture = workerSource.replace(dayExpression, JSON.stringify(fixtureDay)) + `
 export class QuotaFixture extends ReportQuota {
   async fetch(request) {
     if (new URL(request.url).pathname === "/seed") {
@@ -43,7 +70,7 @@ export class QuotaFixture extends ReportQuota {
     assert(preflight.headers.get("Access-Control-Allow-Headers").split(",").map(value => value.trim().toLowerCase()).includes("content-type"));
     const namespace = await mf.getDurableObjectNamespace("REPORT_QUOTA");
     const quota = namespace.get(namespace.idFromName("daily"));
-    const today = new Date().toISOString().slice(0, 10);
+    const today = fixtureDay;
     const seed = (value, kind = "daily") => quota.fetch(`https://quota/seed?kind=${kind}`, { method: "POST", body: JSON.stringify(value) });
     const inspect = async (kind = "daily") => (await quota.fetch(`https://quota/inspect?kind=${kind}`)).json();
     const send = (value, ip = "192.0.2.1") => mf.dispatchFetch("https://feedback.invalid/api/error-reports", {
@@ -137,7 +164,11 @@ export class QuotaFixture extends ReportQuota {
     const grant = crypto.randomUUID();
     const grantKey = `report-delete-grant:${grant}`;
     const remove = (value = grant) => mf.dispatchFetch("https://feedback.invalid/api/error-reports", {
-      method: "DELETE", body: JSON.stringify({ key: attachmentKey, grant: value }) });
+      method: "DELETE", headers: { "CF-Connecting-IP": "192.0.2.1" }, body: JSON.stringify({ key: attachmentKey, grant: value }) });
+    for (const headers of [{ "CF-Connecting-IP": "192.0.2.1" }, { "CF-Connecting-IP": "192.0.2.1", "content-length": "1048578" }]) {
+      assert.equal((await mf.dispatchFetch("https://feedback.invalid/api/error-reports", {
+        method: "DELETE", headers, body: "{}" + " ".repeat(1024 * 1024) })).status, 413);
+    }
     assert.equal((await remove()).status, 403);
     await kv.put(grantKey, JSON.stringify({ key: "report:mismatched" }));
     assert.equal((await remove()).status, 403);
@@ -147,6 +178,10 @@ export class QuotaFixture extends ReportQuota {
     assert.equal(await kv.get(grantKey), null);
     assert.equal((await remove()).status, 403);
     assert.equal((await send({ mode: "suggestion", comment: "quota fixture" })).status, 429);
+    await seed({ day: today, count: 2000 }, "deletion-admission");
+    assert.equal((await remove()).status, 429);
+    await seed({ day: today, count: 0 }, "admission");
+    assert.equal((await send({ mode: "suggestion", comment: "independent admission" })).status, 201);
   } finally { await mf.dispose(); }
   for (const limit of ["150", "0", "invalid"]) {
     const configured = new Miniflare(convertV4MiniflareOptions({ name: "worker-fixture", modules: true, script: fixture,
@@ -155,7 +190,7 @@ export class QuotaFixture extends ReportQuota {
     try {
       const namespace = await configured.getDurableObjectNamespace("REPORT_QUOTA");
       const quota = namespace.get(namespace.idFromName("daily"));
-      const day = new Date().toISOString().slice(0, 10);
+      const day = fixtureDay;
       await quota.fetch("https://quota/seed", { method: "POST", body: JSON.stringify({ day, count: 149, sources: { fixture: 149 } }) });
       const reserve = () => quota.fetch("https://quota/reserve", { method: "POST", body: JSON.stringify({ source: "fixture", smoke: false }) });
       const first = await reserve();
@@ -184,7 +219,7 @@ export class DeliveryFixture extends ReportEmailDelivery {
 }`;
   const mail = new Miniflare(convertV4MiniflareOptions({ workers: [
     { name: "email-acceptance", modules: true, script: mailFixture, compatibilityDate: config.compatibility_date,
-      kvNamespaces: ["ERROR_REPORTS"], serviceBindings: { REPORT_EMAIL: "mail-fixture" }, durableObjects: {
+      kvNamespaces: ["ERROR_REPORTS"], bindings: config.vars, serviceBindings: { REPORT_EMAIL: "mail-fixture" }, durableObjects: {
         REPORT_QUOTA: { className: "ReportQuota", useSQLite: true },
         REPORT_EMAIL_DELIVERY: { className: "DeliveryFixture", useSQLite: true } } },
     { name: "mail-fixture", modules: true, compatibilityDate: config.compatibility_date, kvNamespaces: ["MAIL_STATUS"], script: `
@@ -241,17 +276,56 @@ export default class extends WorkerEntrypoint {
   } finally { await mail.dispose(); }
   const bodySource = fs.readFileSync("../ErrorReportWorker/worker.js", "utf8")
     .replace('import { DurableObject } from "cloudflare:workers";', 'class DurableObject { constructor(ctx, env) { this.ctx = ctx; this.env = env; } }') + "\nexport { readReportBody, MAX_BODY_BYTES, forceRedact, decodedPercent, PROTECTED_NAMES, reportEmailSubject, reportEmailBody };";
-  const { default: feedback, ReportEmailDelivery, readReportBody, MAX_BODY_BYTES, forceRedact, decodedPercent, PROTECTED_NAMES, reportEmailSubject, reportEmailBody } = await import("data:text/javascript;base64," + Buffer.from(bodySource).toString("base64"));
+  const { default: feedback, ReportEmailDelivery, ReportQuota, readReportBody, MAX_BODY_BYTES, forceRedact, decodedPercent, PROTECTED_NAMES, reportEmailSubject, reportEmailBody } = await import("data:text/javascript;base64," + Buffer.from(bodySource).toString("base64"));
   const malformedLegacy = { build: { toString: null }, context: { locale: { toString: null } }, diagnosticSummary: { total: { toString: null } },
     diagnostics: [{ statusCode: { toString: null }, elapsedMilliseconds: { toString: null }, method: { toString: null } }] };
   assert.doesNotThrow(() => reportEmailSubject("fixture", malformedLegacy));
   assert.doesNotThrow(() => reportEmailBody("fixture", "fixture", malformedLegacy));
   let saved = 0, sent = 0, offline = true, failStatusWrite = false, failJobWrite = false, failInitialWrite, alarmAt, duringSend;
-  let failAcceptanceWrite, failAcceptanceState = false, failAcceptanceAlarm = false, failExpiryAlarm = false;
+  let failAcceptanceWrite, failAcceptanceState = false, failAcceptanceAlarm = false, failExpiryAlarm = false, failInitialJobWrite;
   const emails = [];
   const records = new Map(), jobs = new Map();
+  const quotaRecords = new Map(); let quotaAlarmAt;
+  const reportQuota = new ReportQuota({ storage: { kv: {
+    get(key) { return structuredClone(quotaRecords.get(key)); },
+    put(key, value) { quotaRecords.set(key, structuredClone(value)); },
+    list({ prefix }) { return new Map([...quotaRecords].filter(([key]) => key.startsWith(prefix))); },
+    delete(key) { return quotaRecords.delete(key); }
+  }, transactionSync(operation) { return operation(); },
+    async getAlarm() { return quotaAlarmAt ?? null; }, async setAlarm(at) { quotaAlarmAt = at; }
+  } }, {});
+  const reserve = reservationID => reportQuota.fetch(new Request("https://quota/reserve", { method: "POST",
+    body: JSON.stringify({ source: "quota-fixture", reservationID }) }));
+  const RealDate = Date; let quotaTime = RealDate.parse("2026-01-01T12:00:00Z");
+  globalThis.Date = class extends RealDate {
+    constructor(...arguments_) { super(...(arguments_.length ? arguments_ : [quotaTime])); }
+    static now() { return quotaTime; }
+  };
+  try {
+    for (let index = 0; index < 100; index++) assert.equal((await (await reserve(`request-${index}`)).json()).allowed, true);
+    assert.equal((await (await reserve("request-0")).json()).allowed, true);
+    assert.equal((await (await reserve("new-request")).json()).allowed, false);
+    assert.equal(quotaRecords.get("daily").count, 100);
+    quotaTime += 24 * 60 * 60 * 1000;
+    assert.equal((await (await reserve("request-0")).json()).allowed, true);
+    assert.equal(quotaRecords.get("daily").count, 100);
+    assert.equal((await (await reserve("next-day-request")).json()).allowed, true);
+    assert.equal(quotaRecords.get("daily").count, 1);
+    quotaAlarmAt = null; await reportQuota.alarm(); assert(quotaAlarmAt > quotaTime);
+    quotaTime += 30 * 24 * 60 * 60 * 1000;
+    quotaAlarmAt = null; await reportQuota.alarm();
+    assert.equal([...quotaRecords.keys()].filter(key => key.startsWith("reservation:")).length, 0);
+    assert.equal((await (await reserve("request-0")).json()).allowed, true);
+    assert.equal(quotaRecords.get("daily").count, 1); assert(quotaAlarmAt > quotaTime);
+  } finally { globalThis.Date = RealDate; }
+  quotaRecords.clear();
   const storage = {
     async get(key) { return structuredClone(jobs.get(key)); }, async put(key, value) {
+      if (!value.accepted && failInitialJobWrite) {
+        const committed = failInitialJobWrite === "committed"; failInitialJobWrite = null;
+        if (committed) jobs.set(key, structuredClone(value));
+        throw new Error("initial job storage unavailable");
+      }
       if (value.accepted && failAcceptanceState) { failAcceptanceState = false; throw new Error("acceptance state unavailable"); }
       if (value.delivery.status === "sent" && failJobWrite) { failJobWrite = false; throw new Error("job storage unavailable"); }
       jobs.set(key, structuredClone(value));
@@ -282,8 +356,10 @@ export default class extends WorkerEntrypoint {
         if (options.expirationTtl) assert.equal(options.expirationTtl, 30 * 24 * 60 * 60);
       }
     },
-    REPORT_QUOTA: { idFromName() {}, get() { return { async fetch() { return Response.json({ allowed: true }); } }; } },
+    REPORT_QUOTA: { idFromName() {}, get() { return { async fetch(url, options) { return reportQuota.fetch(new Request(url, options)); } }; } },
+    REPORT_EMAIL_RECIPIENT: "recipient@fixture.invalid",
     REPORT_EMAIL: { async send(message) {
+      assert.equal(message.to, "recipient@fixture.invalid");
       sent += 1; emails.push(message); if (offline) throw new Error("offline");
       if (duringSend) { const callback = duringSend; duringSend = null; await callback(); }
       return { messageId: "fixture-receipt" };
@@ -309,22 +385,38 @@ export default class extends WorkerEntrypoint {
     await delivery.alarm(); assert.equal(sent, 0); jobs.clear();
   }
   failInitialWrite = null;
-  for (const failure of ["rejected", "committed", "state", "alarm", "expiry-alarm"]) {
-    jobs.clear(); records.clear(); alarmAt = undefined; saved = 0; sent = 0; offline = false;
+  for (const failure of ["committed", "state"]) {
+    jobs.clear(); records.clear(); quotaRecords.clear(); alarmAt = undefined; saved = 0; sent = 0; offline = false;
+    failAcceptanceWrite = failure === "committed" ? "committed" : null; failAcceptanceState = failure === "state";
+    const requestID = crypto.randomUUID();
+    const receipt = await feedback.fetch(new Request("https://feedback.invalid/api/error-reports", { method: "POST",
+      headers: { "CF-Connecting-IP": "192.0.2.1" }, body: JSON.stringify({ mode: "suggestion", comment: "alarm recovery", requestID }) }), emailEnv);
+    assert.equal(receipt.status, 503); assert.equal(records.size, 1); assert.equal(jobs.get("job").accepted, false);
+    assert(alarmAt < Date.now() + 10000); failAcceptanceWrite = null;
+    await delivery.alarm(); assert.equal(jobs.get("job").accepted, true); assert.equal(sent, 1);
+    assert.equal(JSON.parse(records.get(jobs.get("job").key).value).report.comment, "alarm recovery");
+    assert.equal(quotaRecords.get("daily").count, 1);
+    await delivery.alarm(); assert.equal(sent, 1);
+  }
+  for (const failure of ["rejected", "committed", "state", "alarm", "expiry-alarm", "initial-state", "initial-state-committed"]) {
+    jobs.clear(); records.clear(); quotaRecords.clear(); alarmAt = undefined; saved = 0; sent = 0; offline = false;
     failAcceptanceWrite = ["rejected", "committed"].includes(failure) ? failure : null;
     failAcceptanceState = failure === "state"; failAcceptanceAlarm = failure === "alarm";
     failExpiryAlarm = failure === "expiry-alarm";
+    failInitialJobWrite = failure === "initial-state" ? "rejected" : failure === "initial-state-committed" ? "committed" : null;
     const requestID = crypto.randomUUID();
     const sendAttempt = comment => feedback.fetch(new Request("https://feedback.invalid/api/error-reports", { method: "POST",
       headers: { "CF-Connecting-IP": "192.0.2.1" }, body: JSON.stringify({ mode: "suggestion", comment, requestID }) }), emailEnv);
     assert.equal((await sendAttempt("retained content")).status, 503);
     const firstKey = jobs.get("job")?.key;
-    if (failure === "expiry-alarm") { assert.equal(jobs.size, 0); assert.equal(records.size, 0); }
+    if (failure === "expiry-alarm" || failure === "initial-state") { assert.equal(jobs.size, 0); assert.equal(records.size, 0); }
+    assert.equal(quotaRecords.get("daily").count, 1);
     assert.equal(sent, 0);
     failAcceptanceWrite = null;
     for (let retry = 0; retry < 2; retry++) {
       const receipt = await sendAttempt("retained content");
       assert.equal(receipt.status, 201); assert.equal((await receipt.json()).id, requestID);
+      assert.equal(quotaRecords.get("daily").count, 1);
     }
     const key = jobs.get("job").key;
     assert.equal(records.size, 1); if (firstKey) assert.equal(key, firstKey);
@@ -406,6 +498,36 @@ export default class extends WorkerEntrypoint {
   assert.equal((await delivery.fetch(new Request("https://delivery/queue", { method: "POST", body: JSON.stringify(job) }))).status, 410);
   jobs.set("job", { ...job, receivedAt: "2000-01-01T00:00:00Z" }); const attempts = sent;
   await delivery.alarm(); assert.equal(jobs.size, 0); assert.equal(sent, attempts);
+  const originalNow = Date.now, originalTimeout = globalThis.setTimeout;
+  let clock = originalNow();
+  try {
+    Date.now = () => clock;
+    globalThis.setTimeout = (callback, delay) => { clock += delay; queueMicrotask(callback); };
+    for (const misses of [0, 2, Infinity, "read-error"]) {
+      let stored, reads = 0, removed = false;
+      const storage = {
+        async put(key, value, options) { stored = { value, metadata: options.metadata }; assert(options.expirationTtl * 1000 > 60000); },
+        async getWithMetadata(key, options) {
+          reads += 1; assert.equal(options.cacheTtl, 30);
+          if (misses === "read-error") throw new Error("KV unavailable");
+          return reads <= misses ? { value: null, metadata: null } : stored;
+        },
+        async delete() { stored = null; removed = true; }
+      };
+      const quota = { async fetch() { return Response.json({ allowed: true }); } };
+      const environment = { ERROR_REPORTS: storage, REPORT_QUOTA: { idFromName: name => name, get: () => quota } };
+      const request = new Request("https://feedback.invalid/api/error-reports", { method: "POST",
+        headers: { "CF-Connecting-IP": "192.0.2.1", "X-BIT101-Network-Smoke": "1" },
+        body: JSON.stringify({ mode: "network-smoke", runID: "visible-record" }) });
+      if (misses === "read-error") { await assert.rejects(feedback.fetch(request, environment), /KV unavailable/); }
+      else {
+        const response = await feedback.fetch(request, environment);
+        assert.equal(response.status, misses === Infinity ? 503 : 201);
+        if (misses === Infinity) assert.equal((await response.json()).error, "smoke_visibility_timeout");
+      }
+      assert(removed && stored === null && reads <= 3);
+    }
+  } finally { Date.now = originalNow; globalThis.setTimeout = originalTimeout; }
   const appNames = JSON.parse("[" + fs.readFileSync("../../BIT101-iOS/Shared/Client/ErrorReportSupport.swift", "utf8").match(/protectedNames = \[([\s\S]*?)\]/)[1] + "]");
   assert.deepEqual(PROTECTED_NAMES, appNames);
   for (const value of ["https://example.invalid/?%70assword=TEST_ONLY_SECRET", "https://example.invalid/?%2570assword=TEST_ONLY_SECRET", "https://example.invalid/?service=https%3A%2F%2Fschool.invalid%2F%3Fticket%3DTEST_ONLY_SECRET", "https://example.invalid/?service=HTTPS%3A%2F%2Fschool.invalid%2F%3Fticket%3DTEST_ONLY_SECRET", "https://fixture-user:TEST_ONLY_SECRET@example.invalid/", "https://example.invalid/#%74oken=TEST_ONLY_SECRET", "https://example.invalid/#%2574oken=TEST_ONLY_SECRET", "https://example.invalid/#%74oken=TEST_ONLY_SECRET&note=%bad"]) {
@@ -431,6 +553,12 @@ export default class extends WorkerEntrypoint {
     if (value.includes("available")) assert(masked.includes("available"));
   }
   for (const value of ['<span id="login-page-flowkey">SENSITIVE_VALUE</span>', '<span id="login-page-flowkey">SENSITIVE_VALUE',
+    '<div id="login-page-flowkey">SENSITIVE_VALUE</div>',
+    '<p id="login-croypto">SENSITIVE_VALUE</p>',
+    '<div><p id="login-page-flowkey">SENSITIVE_VALUE</p><p>available</p></div>',
+    '<div id="login-page-flowkey"><div>SENSITIVE_VALUE</div>TAIL_VALUE</div><p>available</p>',
+    '<x-field name="csrf-token"><b>SENSITIVE_VALUE</b></x-field>',
+    '<p id="login-page-flowkey">SENSITIVE_VALUE',
     '<meta http-equiv="Set-Cookie" content="SENSITIVE_VALUE">',
     '<meta name="csrf-token" content="SENSITIVE_VALUE">', '<meta content="SENSITIVE_VALUE" property="csrf&#45;token">',
     '<script>const csrfToken = "SENSITIVE_VALUE;TAIL_VALUE";</script>', "<script>var _token = 'SENSITIVE_VALUE;TAIL_VALUE';</script>",
@@ -463,6 +591,15 @@ export default class extends WorkerEntrypoint {
   });
   assert.equal(await readReportBody(new Request("https://feedback.invalid", { method: "POST", body: stream, duplex: "half" })), null);
   assert(cancelled && chunks <= Math.floor(MAX_BODY_BYTES / (1024 * 1024)) + 2);
+  chunks = 0; cancelled = false;
+  const deletionStream = new ReadableStream({
+    pull(controller) { chunks += 1; controller.enqueue(new Uint8Array(512)); },
+    cancel() { cancelled = true; }
+  });
+  assert.equal((await feedback.fetch(new Request("https://feedback.invalid/api/error-reports", {
+    method: "DELETE", headers: { "CF-Connecting-IP": "192.0.2.1" }, body: deletionStream, duplex: "half"
+  }), emailEnv)).status, 413);
+  assert(cancelled && chunks <= 4);
   const utf8 = new TextEncoder().encode('文章😀');
   const split = new ReadableStream({ start(controller) {
     for (const byte of utf8) controller.enqueue(new Uint8Array([byte]));
@@ -473,7 +610,7 @@ export default class extends WorkerEntrypoint {
   const iconImport = source.match(/^import shareIcon from "([^"]+)";/);
   assert(iconImport, "Share icon must use the app asset");
   const png = fs.readFileSync(require("node:path").resolve("../OpenWorker", iconImport[1]));
-  const openConfig = JSON.parse(fs.readFileSync("../OpenWorker/wrangler.jsonc", "utf8"));
+  const openConfig = experimental_readRawConfig({ config: "../OpenWorker/wrangler.jsonc" }).rawConfig;
   assert(openConfig.rules.some(rule => rule.type === "Data" && rule.globs.includes("**/*.png")));
   source = source.replace(iconImport[0], `const shareIcon = Uint8Array.from(atob("${png.toString("base64")}"), character => character.charCodeAt(0)).buffer;`);
   const worker = (await import("data:text/javascript;base64," + Buffer.from(source).toString("base64"))).default;
@@ -509,4 +646,4 @@ export default class extends WorkerEntrypoint {
 '''
     result = subprocess.run(["node", "-"], input=script, capture_output=True, text=True,
                             cwd=ROOT / "Cloudflare/EmergencyUpdateWorker", timeout=60)
-    return [f"Worker 行为回归：{result.stderr[:600]}"] if result.returncode else []
+    return [f"Worker 行为回归：{result.stderr}"] if result.returncode else []

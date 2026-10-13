@@ -204,11 +204,13 @@ final class UIElement: NSObject {
         return native.value
     }
     @objc var isEnabled: Bool {
-        let enabled = attributes()?["enabled"] as? Bool ?? native.isEnabled
-        if !enabled {
-            _ = UITestControlClient.request(interactionIdentity.merging(["command": "state"]) { _, command in command })
-        }
-        return enabled
+        attributes()?["enabled"] as? Bool ?? native.isEnabled
+    }
+    func assertDisabled(_ message: String, file: StaticString = #filePath, line: UInt = #line) {
+        let enabled = isEnabled
+        XCTAssertFalse(enabled, message, file: file, line: line)
+        guard !enabled else { return }
+        _ = UITestControlClient.request(interactionIdentity.merging(["command": "state"]) { _, command in command })
     }
     @objc var isSelected: Bool { attributes()?["selected"] as? Bool ?? native.isSelected }
     @objc var isHittable: Bool { native.isHittable }
@@ -266,17 +268,17 @@ final class UIElement: NSObject {
         native.press(forDuration: duration)
         recordInteraction(identity, action: duration < 0.1 ? "tap" : "press")
     }
-    func swipeLeft() { performGesture { native.swipeLeft() } }
-    func swipeRight() { performGesture { native.swipeRight() } }
-    func swipeUp() { performGesture { native.swipeUp() } }
-    func swipeDown() { performGesture { native.swipeDown() } }
-    func pinch(withScale scale: CGFloat, velocity: CGFloat) { performGesture { native.pinch(withScale: scale, velocity: velocity) } }
-    func adjust(toPickerWheelValue value: String) { performGesture { native.adjust(toPickerWheelValue: value) } }
-    private func performGesture(_ operation: () -> Void) {
+    func swipeLeft() { performGesture("swipe") { native.swipeLeft() } }
+    func swipeRight() { performGesture("swipe") { native.swipeRight() } }
+    func swipeUp() { performGesture("swipe") { native.swipeUp() } }
+    func swipeDown() { performGesture("swipe") { native.swipeDown() } }
+    func pinch(withScale scale: CGFloat, velocity: CGFloat) { performGesture("pinch") { native.pinch(withScale: scale, velocity: velocity) } }
+    func adjust(toPickerWheelValue value: String) { performGesture("selection") { native.adjust(toPickerWheelValue: value) } }
+    private func performGesture(_ action: String, _ operation: () -> Void) {
         let identity = interactionIdentity
         operation()
         UITestSnapshotReader.invalidate()
-        recordInteraction(identity, action: "gesture")
+        recordInteraction(identity, action: action)
     }
     func typeText(_ text: String) {
         defer { UITestSnapshotReader.invalidate() }
@@ -292,6 +294,17 @@ final class UIElement: NSObject {
             "x": String(Double(bounds.minX)), "y": String(Double(bounds.minY)), "width": String(Double(bounds.width)), "height": String(Double(bounds.height))]
         identity["instance"] = attributes()?["instance"] as? String
             ?? UITestControlClient.request(identity.merging(["command": "identity"]) { _, command in command }) ?? ""
+        if identity["instance"]?.isEmpty != false, let snapshot = currentNativeSnapshot(), !snapshot.frame.isEmpty {
+            identity["identifier"] = snapshot.identifier
+            identity["label"] = snapshot.label
+            identity["type"] = String(snapshot.elementType.rawValue)
+            identity["enabled"] = snapshot.isEnabled ? "1" : "0"
+            identity["x"] = String(Double(snapshot.frame.minX))
+            identity["y"] = String(Double(snapshot.frame.minY))
+            identity["width"] = String(Double(snapshot.frame.width))
+            identity["height"] = String(Double(snapshot.frame.height))
+            identity["instance"] = UITestControlClient.request(identity.merging(["command": "native-observe"]) { _, command in command }) ?? ""
+        }
         return identity
     }
     private func recordInteraction(_ identity: [String: String], action: String = "input") {
@@ -435,7 +448,8 @@ struct UIAutomationCoordinate {
     func press(forDuration duration: TimeInterval, thenDragTo coordinate: Self,
                withVelocity velocity: XCUIGestureVelocity, thenHoldForDuration hold: TimeInterval) {
         native.press(forDuration: duration, thenDragTo: coordinate.native, withVelocity: velocity, thenHoldForDuration: hold)
-        record(action: "gesture")
+        record(action: "drag")
+        coordinate.record(action: "drop")
     }
 }
 

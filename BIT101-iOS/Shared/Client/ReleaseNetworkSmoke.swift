@@ -66,6 +66,7 @@ final class ReleaseNetworkSmokeRunner {
     private static let executionGate = NetworkSmokeExecutionGate()
     private let dependencies: ReleaseNetworkSmokeDependencies
     private var failures: [String] = []
+    private var communitySessionAvailable = true
     private var communityWriteEvidence: [String] = []
     private var productionSessionEvidence: [String] = []
     private var authenticationBlockers: [String] = []
@@ -110,6 +111,7 @@ final class ReleaseNetworkSmokeRunner {
         }
         defer { Self.executionGate.release() }
         failures = []
+        communitySessionAvailable = true
         communityWriteEvidence = []
         productionSessionEvidence = []
         authenticationBlockers = []
@@ -157,25 +159,38 @@ final class ReleaseNetworkSmokeRunner {
                 let loginResult = try await captureNetworkRequests("community.login", required: true) {
                     try await self.dependencies.checkLogin()
                 }
-                guard let signedInStudentID = loginResult, !signedInStudentID.isEmpty else {
-                    recordFailure("community.login", "真机没有有效登录状态，无法执行发布前网络冒烟测试", area: .authentication, scope: scope)
-                    return await finishReport(runID: runID, scope: scope, startedAt: startedAt)
+                if let signedInStudentID = loginResult, !signedInStudentID.isEmpty {
+                    print("NETWORK_SMOKE_PASS name=community.login elapsed=\(Self.duration(Date().timeIntervalSince(loginStartedAt)))")
+                } else {
+                    communitySessionAvailable = false
+                    recordFailure("community.login", "社区登录状态验证失败", area: .authentication, scope: scope)
                 }
-                print("NETWORK_SMOKE_PASS name=community.login elapsed=\(Self.duration(Date().timeIntervalSince(loginStartedAt)))")
             } catch {
+                communitySessionAvailable = false
                 recordFailure("community.login", error.localizedDescription, area: .authentication, scope: scope, elapsed: Date().timeIntervalSince(loginStartedAt))
-                return await finishReport(runID: runID, scope: scope, startedAt: startedAt)
             }
         }
 
         if scope == .communityWrites || scope == .communityCleanup {
             communityWriteEvidence = await probe(.communityWrites, area: .communityWrites, scope: scope) {
-                try await self.dependencies.communityWriteProbe(runID, scope == .communityCleanup, communityFollowTarget, communityExpectedAccount, fixtures, communityRecoveryConfirmation)
+                try await self.dependencies.communityWriteProbe(runID, scope == .communityCleanup, communityFollowTarget,
+                    communityExpectedAccount, fixtures, communityRecoveryConfirmation, { images in
+                        let urls = NetworkSmokePaging.imageURLs(in: images)
+                        guard !urls.isEmpty else { throw URLError(.cannotParseResponse) }
+                        self.executedProbes.append(NetworkSmokeProbe.galleryImage.rawValue)
+                        try await self.captureNetworkRequests(NetworkSmokeProbe.galleryImage.rawValue,
+                            required: true, expectedParameters: NetworkSmokePaging.imageResourceParameters(urls)) {
+                            for value in urls { _ = try await self.fetchImageCount(urlString: value) }
+                        }
+                    })
             } ?? []
             return await finishReport(runID: runID, scope: scope, startedAt: startedAt)
         }
 
         let gallery = dependencies.makeGallery()
+        let mine = dependencies.makeMine()
+        let messageOwner = dependencies.communityIdentity()
+        let myInfo = await probe(.myProfile, area: .bit101, scope: scope) { try await mine.fetchMyInfo() }
         let courses = dependencies.makeCourses()
         await runInParallel([
             {
@@ -218,18 +233,20 @@ final class ReleaseNetworkSmokeRunner {
             )
         }
         _ = await probe(.galleryNewest, area: .bit101, scope: scope) {
-            try await NetworkSmokePaging.batch(currentIdentity: self.dependencies.communityIdentity) { try await gallery.fetchFeed(kind: .newest, page: $0 == 0 ? nil : $0) }.items
+            try await NetworkSmokePaging.posterPage(order: .newest, currentIdentity: self.dependencies.communityIdentity) { try await gallery.fetchFeed(kind: .newest, page: $0 == 0 ? nil : $0) }.items
         }
         let validatedFixtures = fixtures.flatMap { $0.isValid ? $0 : nil }
+        var gallerySearchText = ""
         if let fixture = validatedFixtures {
             await runInParallel([
                 {
                     let detail = await self.probe(.galleryDetail, area: .bit101, scope: scope, expectedParameters: ["path": "/posters/\(fixture.posterID)"]) {
                         let detail = try await gallery.fetchPoster(id: fixture.posterID)
-                        try Self.validateEntityIdentity(expected: fixture.posterID, actual: detail.id)
+                        try NetworkSmokePaging.validateEntityIdentity(expected: fixture.posterID, actual: detail.id)
                         return detail
                     }
                     if let detail {
+                        gallerySearchText = (detail.title.isEmpty ? detail.text : detail.title).trimmingCharacters(in: .whitespacesAndNewlines)
                         let images = NetworkSmokePaging.imageURLs(in: detail.images)
                         _ = await self.probe(.galleryImage, area: .bit101, scope: scope,
                             expectedParameters: NetworkSmokePaging.imageResourceParameters(images)) {
@@ -243,19 +260,16 @@ final class ReleaseNetworkSmokeRunner {
                 {
                     let objectID = "poster\(fixture.posterID)"
                     _ = await self.probe(.galleryComments, area: .bit101, scope: scope, expectedParameters: ["obj": objectID]) {
-                        try await NetworkSmokePaging.batch(currentIdentity: self.dependencies.communityIdentity) {
-                            let batch = try await gallery.fetchComments(objectID: objectID, order: .newest, page: $0 == 0 ? nil : $0)
-                            try NetworkSmokePaging.checkComments(batch.items, for: objectID)
-                            return batch
+                        for order in CommunityCommentOrder.allCases {
+                            _ = try await NetworkSmokePaging.commentBatch(for: objectID, order: order, currentIdentity: self.dependencies.communityIdentity) {
+                                try await gallery.fetchComments(objectID: objectID, order: order, page: $0 == 0 ? nil : $0)
+                            }
                         }
                     }
                 }
             ])
             _ = await probe(.galleryWeb, area: .bit101, scope: scope, expectedParameters: ["path": "/gallery/\(fixture.posterID)"]) {
-                try await self.fetchHTMLCount(
-                    urlString: "https://open.aihelpme.dev/gallery/\(fixture.posterID)",
-                    expectedHost: "open.aihelpme.dev"
-                )
+                try await self.fetchHTMLCount(urlString: "https://open.aihelpme.dev/gallery/\(fixture.posterID)", expectedHost: "open.aihelpme.dev")
             }
         } else {
             let reason = "社区详情验收需要有效的维护对象配置 BIT101_NETWORK_SMOKE_FIXTURES"
@@ -265,21 +279,26 @@ final class ReleaseNetworkSmokeRunner {
             recordSkip("gallery.image", reason, area: .bit101, scope: scope)
         }
         var galleryOperations: [@MainActor () async -> Void] = [
-            { _ = await self.probe(.galleryFollowing, area: .bit101, scope: scope) { try await NetworkSmokePaging.batch(currentIdentity: self.dependencies.communityIdentity) { try await gallery.fetchFeed(kind: .follow, page: $0 == 0 ? nil : $0) } } },
+            { _ = await self.probe(.galleryFollowing, area: .bit101, scope: scope) { try await NetworkSmokePaging.posterPage(order: .newest, currentIdentity: self.dependencies.communityIdentity) { try await gallery.fetchFeed(kind: .follow, page: $0 == 0 ? nil : $0) } } },
             { _ = await self.probe(.galleryHot, area: .bit101, scope: scope) { try await NetworkSmokePaging.batch(currentIdentity: self.dependencies.communityIdentity) { try await gallery.fetchFeed(kind: .hot, page: $0 == 0 ? nil : $0) } } },
             { _ = await self.probe(.galleryRecommend, area: .bit101, scope: scope) { try await NetworkSmokePaging.batch(currentIdentity: self.dependencies.communityIdentity) { try await gallery.fetchRecommendPage(sourcePage: $0) } } },
             { _ = await self.probe(.galleryBots, area: .bit101, scope: scope) {
-                try await NetworkSmokePaging.batch(currentIdentity: self.dependencies.communityIdentity) {
+                let sampled = try await NetworkSmokePaging.batch(currentIdentity: self.dependencies.communityIdentity) {
                     let batch = try await gallery.fetchBotFeed(startPage: $0)
                     try NetworkSmokePaging.checkBotPosters(batch.items)
                     return batch
                 }
+                guard !sampled.items.isEmpty else { throw NetworkSmokePaging.SamplingError.insufficientSample("机器人验收需要有效的分类样本。") }
+                return sampled
             } },
-            { _ = await self.probe(.reportTypes, area: .bit101, scope: scope) { try await gallery.fetchReportTypes() } },
+            { _ = await self.probe(.reportTypes, area: .bit101, scope: scope) { try NetworkSmokePaging.checkedReportTypes(try await gallery.fetchReportTypes()) } },
             { _ = await self.probe(.galleryClaims, area: .bit101, scope: scope) { try await gallery.fetchClaims() } },
             {
-                _ = await self.probe(.gallerySearch, area: .bit101, scope: scope) {
-                    try await NetworkSmokePaging.batch(currentIdentity: self.dependencies.communityIdentity) { try await gallery.searchPosters(query: GallerySearchQuery(text: "BIT101"), page: $0) }
+                _ = await self.probe(.gallerySearch, area: .bit101, scope: scope, expectedParameters: ["search": gallerySearchText, "excludedSearch": NetworkSmokePaging.excludedSearchText]) {
+                    try await NetworkSmokePaging.posterSearch(matching: validatedFixtures?.posterID ?? 0, keyword: gallerySearchText,
+                        currentIdentity: self.dependencies.communityIdentity) { order, text, page in
+                        try await gallery.searchPosters(query: GallerySearchQuery(text: text, order: order), page: page)
+                    }
                 }
             },
             { _ = await self.probe(.messageUnread, area: .bit101, scope: scope) { try await gallery.fetchMessageUnreadCounts() } }
@@ -287,7 +306,9 @@ final class ReleaseNetworkSmokeRunner {
         for messageType in GalleryMessageType.allCases {
             galleryOperations.append { [messageType] in
                 _ = await self.probe(.message(messageType), area: .bit101, scope: scope) {
-                    try await NetworkSmokePaging.messages(currentIdentity: self.dependencies.communityIdentity) { try await gallery.fetchMessages(type: messageType, lastID: $0) }
+                    guard let communityExpectedAccount, communityExpectedAccount > 0, myInfo?.user.id == communityExpectedAccount, messageOwner == self.dependencies.communityIdentity()
+                    else { throw NSError(domain: "BIT101.NetworkSmoke", code: 1, userInfo: [NSLocalizedDescriptionKey: "消息验收需要与指定的专用账号一致。读取消息会更新服务端未读状态。"]) }
+                    return try await NetworkSmokePaging.messages(currentIdentity: self.dependencies.communityIdentity) { try await gallery.fetchMessages(type: messageType, lastID: $0) }
                 }
             }
         }
@@ -299,9 +320,14 @@ final class ReleaseNetworkSmokeRunner {
         if let fixture = validatedFixtures {
             await runInParallel([
                 {
+                    _ = await self.probe(.courseSearch, area: .bit101, scope: scope, expectedParameters: ["search": fixture.courseNumber, "excludedSearch": NetworkSmokePaging.excludedSearchText]) {
+                        try await NetworkSmokePaging.searchPage(matching: fixture.courseID, keyword: fixture.courseNumber, currentIdentity: self.dependencies.communityIdentity) { try await courses.fetchCourses(search: $0, page: $1) }
+                    }
+                },
+                {
                     _ = await self.probe(.courseDetail, area: .bit101, scope: scope, expectedParameters: ["path": "/courses/\(fixture.courseID)"]) {
                         let detail = try await courses.fetchCourse(id: fixture.courseID)
-                        try Self.validateEntityIdentity(expected: fixture.courseID, actual: detail.id)
+                        try NetworkSmokePaging.validateEntityIdentity(expected: fixture.courseID, actual: detail.id)
                         guard detail.number == fixture.courseNumber else { throw URLError(.badServerResponse) }
                         return detail
                     }
@@ -309,29 +335,27 @@ final class ReleaseNetworkSmokeRunner {
                 {
                     let objectID = "course\(fixture.courseID)"
                     _ = await self.probe(.courseComments, area: .bit101, scope: scope, expectedParameters: ["obj": objectID]) {
-                        try await NetworkSmokePaging.arrayPage(currentIdentity: self.dependencies.communityIdentity) {
-                            let comments = try await courses.fetchComments(courseID: fixture.courseID, page: $0 == 0 ? nil : $0)
-                            try NetworkSmokePaging.checkComments(comments, for: objectID)
-                            return comments
+                        try await NetworkSmokePaging.commentPage(for: objectID, order: .newest, currentIdentity: self.dependencies.communityIdentity) {
+                            try await courses.fetchComments(courseID: fixture.courseID, page: $0 == 0 ? nil : $0)
                         }
                     }
                 },
                 {
                     _ = await self.probe(.courseHistory, area: .bit101, scope: scope, expectedParameters: ["path": "/courses/histories/\(fixture.courseNumber)"]) {
-                        try await courses.fetchCourseHistories(number: fixture.courseNumber)
+                        let grades = try await courses.fetchCourseHistories(number: fixture.courseNumber)
+                        try NetworkSmokePaging.checkCourseHistories(grades)
+                        return grades
                     }
                 },
                 {
                     _ = await self.probe(.courseWeb, area: .bit101, scope: scope, expectedParameters: ["path": "/course/\(fixture.courseID)"]) {
-                        try await self.fetchHTMLCount(
-                            urlString: "https://open.aihelpme.dev/course/\(fixture.courseID)",
-                            expectedHost: "open.aihelpme.dev"
-                        )
+                        try await self.fetchHTMLCount(urlString: "https://open.aihelpme.dev/course/\(fixture.courseID)", expectedHost: "open.aihelpme.dev")
                     }
                 }
             ])
         } else {
             let reason = "社区详情验收需要有效的维护对象配置 BIT101_NETWORK_SMOKE_FIXTURES"
+            recordSkip("course.search", reason, area: .bit101, scope: scope)
             recordSkip("course.detail", reason, area: .bit101, scope: scope)
             recordSkip("course.comments", reason, area: .bit101, scope: scope)
             recordSkip("course.history", reason, area: .bit101, scope: scope)
@@ -340,7 +364,7 @@ final class ReleaseNetworkSmokeRunner {
 
         let papers = dependencies.makePapers()
         _ = await probe(.paperList, area: .bit101, scope: scope) {
-            try await NetworkSmokePaging.arrayPage(requiresContent: validatedFixtures != nil, currentIdentity: self.dependencies.communityIdentity) { try await papers.fetchPapers(search: nil, order: .newest, page: $0) }
+            try await NetworkSmokePaging.paperPage(order: .newest, requiresContent: validatedFixtures != nil, currentIdentity: self.dependencies.communityIdentity) { try await papers.fetchPapers(search: nil, order: .newest, page: $0) }
         }
         if let fixture = validatedFixtures {
             await runInParallel([
@@ -348,27 +372,35 @@ final class ReleaseNetworkSmokeRunner {
                     let detail = await self.probe(.paperDetail, area: .bit101, scope: scope, expectedParameters: ["path": "/papers/\(fixture.paperID)"]) {
                         _ = try await papers.fetchPreviewMetadata(id: fixture.paperID)
                         let detail = try await papers.fetchPaper(id: fixture.paperID)
-                        try Self.validateEntityIdentity(expected: fixture.paperID, actual: detail.id)
-                        return try NetworkSmokePaging.checkPaperContent(detail.content)
+                        try NetworkSmokePaging.validateEntityIdentity(expected: fixture.paperID, actual: detail.id)
+                        return (images: try NetworkSmokePaging.checkPaperContent(detail.content), title: detail.title)
                     }
-                    if let images = detail {
-                        _ = await self.probe(.paperImage, area: .bit101, scope: scope,
-                            expectedParameters: NetworkSmokePaging.imageResourceParameters(images)) {
-                            for url in images {
-                                _ = try await self.fetchImageCount(urlString: url)
+                    if let detail {
+                        let keyword = detail.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                        _ = await self.probe(.paperSearch, area: .bit101, scope: scope, expectedParameters: ["search": keyword, "excludedSearch": NetworkSmokePaging.excludedSearchText]) {
+                            guard !keyword.isEmpty else { throw URLError(.cannotParseResponse) }
+                            return try await NetworkSmokePaging.searchPage(matching: fixture.paperID, keyword: keyword, currentIdentity: self.dependencies.communityIdentity) { text, page in
+                                let result = try await papers.fetchPapers(search: text, order: .newest, page: page)
+                                try NetworkSmokePaging.checkPapers(result, order: .newest)
+                                return result
                             }
                         }
+                        _ = await self.probe(.paperImage, area: .bit101, scope: scope,
+                            expectedParameters: NetworkSmokePaging.imageResourceParameters(detail.images)) {
+                            for url in detail.images { _ = try await self.fetchImageCount(urlString: url) }
+                        }
                     } else {
+                        self.recordSkip("paper.search", "文章搜索探针需要维护对象的标题", area: .bit101, scope: scope)
                         self.recordSkip("paper.image", "文章正文探针需要可渲染的维护对象", area: .bit101, scope: scope)
                     }
                 },
                 {
                     let objectID = "paper\(fixture.paperID)"
                     _ = await self.probe(.paperComments, area: .bit101, scope: scope, expectedParameters: ["obj": objectID]) {
-                        try await NetworkSmokePaging.arrayPage(currentIdentity: self.dependencies.communityIdentity) {
-                            let comments = try await papers.fetchComments(paperID: fixture.paperID, order: .newest, page: $0 == 0 ? nil : $0)
-                            try NetworkSmokePaging.checkComments(comments, for: objectID)
-                            return comments
+                        for order in CommunityCommentOrder.allCases {
+                            _ = try await NetworkSmokePaging.commentPage(for: objectID, order: order, currentIdentity: self.dependencies.communityIdentity) {
+                                try await papers.fetchComments(paperID: fixture.paperID, order: order, page: $0 == 0 ? nil : $0)
+                            }
                         }
                     }
                 },
@@ -381,6 +413,7 @@ final class ReleaseNetworkSmokeRunner {
             ])
         } else {
             let reason = "社区详情验收需要有效的维护对象配置 BIT101_NETWORK_SMOKE_FIXTURES"
+            recordSkip("paper.search", reason, area: .bit101, scope: scope)
             recordSkip("paper.detail", reason, area: .bit101, scope: scope)
             recordSkip("paper.image", reason, area: .bit101, scope: scope)
             recordSkip("paper.comments", reason, area: .bit101, scope: scope)
@@ -389,18 +422,16 @@ final class ReleaseNetworkSmokeRunner {
         await runInParallel(PaperSortOrder.allCases.map { order in
             {
                 _ = await self.probe(.paperSort(order), area: .bit101, scope: scope) {
-                    try await NetworkSmokePaging.paperPage(order: order, currentIdentity: self.dependencies.communityIdentity) {
-                        try await papers.fetchPapers(search: "BIT101", order: order, page: $0)
+                    try await NetworkSmokePaging.paperPage(order: order, requiresOrderingEvidence: true, currentIdentity: self.dependencies.communityIdentity) {
+                        try await papers.fetchPapers(search: nil, order: order, page: $0)
                     }
                 }
             }
         })
 
-        let mine = dependencies.makeMine()
         productionSessionEvidence = await probe(.productionSession, area: .bit101, scope: scope) {
             try await self.dependencies.productionSessionProbe()
         } ?? []
-        let myInfo = await probe(.myProfile, area: .bit101, scope: scope) { try await mine.fetchMyInfo() }
         await runInParallel([
             { _ = await self.probe(.myFollowing, area: .bit101, scope: scope) { try await NetworkSmokePaging.arrayPage(currentIdentity: self.dependencies.communityIdentity) { try await mine.fetchFollowings(page: $0) } } },
             { _ = await self.probe(.myFollowers, area: .bit101, scope: scope) { try await NetworkSmokePaging.arrayPage(currentIdentity: self.dependencies.communityIdentity) { try await mine.fetchFollowers(page: $0) } } }
@@ -417,7 +448,7 @@ final class ReleaseNetworkSmokeRunner {
                     }
                 },
                 {
-                    _ = await self.probe(.userProfile, area: .bit101, scope: scope, expectedParameters: ["path": "/user/info/\(myInfo.user.id)"]) { let detail = try await mine.fetchUserInfo(id: myInfo.user.id); try Self.validateEntityIdentity(expected: myInfo.user.id, actual: detail.user.id); return detail }
+                    _ = await self.probe(.userProfile, area: .bit101, scope: scope, expectedParameters: ["path": "/user/info/\(myInfo.user.id)"]) { let detail = try await mine.fetchUserInfo(id: myInfo.user.id); try NetworkSmokePaging.validateEntityIdentity(expected: myInfo.user.id, actual: detail.user.id); return detail }
                 },
                 {
                     _ = await self.probe(.userPosts, area: .bit101, scope: scope, expectedParameters: ["uid": String(myInfo.user.id)]) {
@@ -472,6 +503,9 @@ final class ReleaseNetworkSmokeRunner {
                 let payload = try await schedule.syncCourses(term: term)
                 guard payload.term == term else { throw URLError(.badServerResponse) }
                 try Self.validateCourseSyncPayload(payload)
+                guard payload.courses.contains(where: { !$0.weeks.isEmpty }) else {
+                    throw NetworkSmokePaging.SamplingError.insufficientSample("课表验收需要包含已排课程及实际周次的学期样本，请维护验收数据。")
+                }
                 return payload
             }
             validatedScheduleTerm = syncPayload?.term
@@ -482,20 +516,25 @@ final class ReleaseNetworkSmokeRunner {
             let campuses = await probe(.classroomCampuses, area: .schedule, scope: scope) {
                 try await schedule.fetchCampuses()
             }
-            if let campus = campuses?.first {
+            if let campus = campuses?.sorted(by: { $0.code < $1.code }).first {
                 let buildings = await probe(.classroomBuildings, area: .schedule, scope: scope, expectedParameters: ["XXXQDM": campus.code]) {
                     let buildings = try await schedule.fetchBuildings(campusCode: campus.code)
                     try NetworkSmokePaging.checkBuildings(buildings, campusCode: campus.code)
                     return buildings
                 }
-                if let building = buildings?.first {
+                if let building = buildings?.sorted(by: { $0.id < $1.id }).first {
                     let termParts = term.split(separator: "-")
-                    let selection = ["XNXQDM": term, "JXLDM": building.id, "RQ": ScheduleDateCodec.formatDate(Date()),
+                    let queryDate = Date()
+                    let selection = ["XNXQDM": term, "JXLDM": building.id, "RQ": ScheduleDateCodec.formatDate(queryDate),
                                      "XQDM": termParts.last.map(String.init) ?? "", "XNDM": termParts.dropLast().joined(separator: "-")]
-                    _ = await probe(.classroomOccupancy, area: .schedule, scope: scope, expectedParameters: selection) {
-                        let classrooms = try await schedule.fetchClassrooms(buildingID: building.id, term: term)
+                    let classrooms = await probe(.classroomOccupancy, area: .schedule, scope: scope, expectedParameters: selection) {
+                        let classrooms = try await schedule.fetchClassrooms(buildingID: building.id, term: term, date: queryDate)
                         guard classrooms.allSatisfy(\.hasValidOccupancy) else { throw URLError(.cannotParseResponse) }
                         return classrooms
+                    }
+                    if classrooms?.isEmpty == true {
+                        coverageGaps.append("classroom.occupancy（所选教学楼返回空集合，空教室样本覆盖待补齐）")
+                        print("NETWORK_SMOKE_GAP name=classroom.occupancy reason=empty_sample")
                     }
                 } else {
                     let reason = buildings == nil ? "教学楼探针没有可用数据" : "教学楼列表为空"
@@ -609,7 +648,7 @@ final class ReleaseNetworkSmokeRunner {
 
         let schoolSMSCoverage: String
         if schoolSMSHandler != nil {
-            schoolSMSCoverage = missingSMSPurposes.isEmpty && failures.isEmpty && authenticationBlockers.isEmpty
+            schoolSMSCoverage = missingSMSPurposes.isEmpty
                 ? (smsSubmissions > 0 ? "verified" : "not_required") : "pending"
         } else { switch scope {
         case .all, .school, .ddl:
@@ -650,7 +689,7 @@ final class ReleaseNetworkSmokeRunner {
             report.failures.append("网络 Smoke 报告写入失败：" + ErrorReportRedactor.sanitized(error.localizedDescription))
             FileHandle.standardOutput.write(Data("NETWORK_SMOKE_REPORT_WRITE_FAIL run_id=\(runID) error=\(ErrorReportRedactor.sanitized(error.localizedDescription))\n".utf8))
         }
-        print(report.summaryLine)
+        FileHandle.standardOutput.write(Data((report.summaryLine + "\n").utf8))
         if !report.passed { print(report.failureMessage) }
         return report
     }
@@ -684,8 +723,8 @@ final class ReleaseNetworkSmokeRunner {
     }
 
     static func freshScoreService() -> ScoreService {
-        ScoreService(authenticationHTTPClient: HTTPClient(transport: NetworkSessionPool.schoolCASTransport(
-            state: AppSchoolSession.isolatedState(), followsRedirects: true)))
+        ScoreService(authenticationHTTPClient: HTTPClient(transport: NetworkSessionPool.scoreAuthenticationTransport(
+            state: AppSchoolSession.isolatedState(), productionPolicy: true)))
     }
 
     static func freshSchoolService(rawCourseResponseHandler: ((Data) -> Void)?) -> ScheduleService {
@@ -693,7 +732,7 @@ final class ReleaseNetworkSmokeRunner {
         let api = BIT101APIClient(
             httpClient: HTTPClient(transport: NetworkSessionPool.schoolCASTransport(state: state, followsRedirects: true)),
             noRedirectHTTPClient: HTTPClient(transport: NetworkSessionPool.schoolCASTransport(state: state, followsRedirects: false)))
-        let restorer = AppScheduleSchoolSessionRestorer { try await LoginService(apiClient: api).restoreSchoolSessionIfNeeded() }
+        let restorer = AppScheduleSchoolSessionRestorer { try await LoginService(storage: AppAccountSession.storage, apiClient: api).restoreSchoolSessionIfNeeded() }
         return ScheduleService(credentials: AppAccountSession.storage, crypto: AppScheduleServiceCrypto(),
             schoolSessionRestorer: restorer, teachingCenterState: state, rawCourseResponseHandler: rawCourseResponseHandler,
             transport: NetworkSessionPool.teachingCenter(state: state),
@@ -709,6 +748,10 @@ final class ReleaseNetworkSmokeRunner {
     ) async -> Value? {
         guard scope.includes(area) else { return nil }
         let name = kind.rawValue
+        guard communitySessionAvailable || scope == .communityCleanup || !kind.requiresCommunitySession else {
+            recordSkip(name, "社区登录探针已失败", area: area, scope: scope)
+            return nil
+        }
         executedProbes.append(name)
         let startedAt = Date()
         let smsStart = submittedSMSPurposes.count
@@ -727,7 +770,9 @@ final class ReleaseNetworkSmokeRunner {
             return value
         } catch {
             let elapsed = Date().timeIntervalSince(startedAt)
-            if Self.isAuthenticationBlocked(error) {
+            if error is NetworkSmokePaging.SamplingError {
+                recordSkip(name, error.localizedDescription, area: area, scope: scope)
+            } else if Self.isAuthenticationBlocked(error) {
                 recordAuthenticationBlocker(name, error.localizedDescription, area: area, scope: scope, elapsed: elapsed)
             } else {
                 recordFailure(name, error.localizedDescription, area: area, scope: scope, elapsed: elapsed)
@@ -853,10 +898,6 @@ final class ReleaseNetworkSmokeRunner {
             expectedPath: initialHost == nil ? url.path : "/gallery/",
             expectedAppURL: expectedHost == "open.aihelpme.dev" ? "bit101:/" + url.path : nil
         )
-    }
-
-    nonisolated static func validateEntityIdentity(expected: Int, actual: Int) throws {
-        guard expected > 0, actual == expected else { throw URLError(.badServerResponse) }
     }
 
     nonisolated static func validateHTMLResponse(

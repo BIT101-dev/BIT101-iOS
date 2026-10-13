@@ -84,10 +84,12 @@ struct BIT101APIClient {
     /// 2. 手动接管 302
     ///
     /// 学校 SSO 链路需要这两种模式。
-    init(
-        httpClient: HTTPClient = HTTPClient(transport: NetworkSessionPool.schoolCAS),
-        noRedirectHTTPClient: HTTPClient = HTTPClient(transport: NetworkSessionPool.schoolCASManualRedirects)
-    ) {
+    init() {
+        self.init(httpClient: HTTPClient(transport: NetworkSessionPool.schoolCAS),
+            noRedirectHTTPClient: HTTPClient(transport: NetworkSessionPool.schoolCASManualRedirects))
+    }
+
+    init(httpClient: HTTPClient, noRedirectHTTPClient: HTTPClient) {
         self.httpClient = httpClient
         self.noRedirectHTTPClient = noRedirectHTTPClient
 
@@ -161,14 +163,14 @@ struct BIT101APIClient {
             throw errorForStatusCode(response.statusCode)
         }
 
-        return try schoolLoginResult(data)
+        return try schoolLoginResult(data, documentURL: response.url ?? requestURL)
     }
 
-    private func schoolLoginResult(_ data: Data) throws -> Bool {
+    private func schoolLoginResult(_ data: Data, documentURL: URL) throws -> Bool {
         let html = String(decoding: data, as: UTF8.self)
         if let context = SchoolLoginHTMLParser.parseSecondFactorPage(
             html: html,
-            baseURL: schoolBaseURL
+            baseURL: schoolBaseURL, documentURL: documentURL
         ) {
             throw LoginServiceError.schoolSMSRequired(context)
         }
@@ -215,7 +217,7 @@ struct BIT101APIClient {
                 return true
             }
 
-            if (200 ..< 300).contains(response.statusCode) { return try schoolLoginResult(data) }
+            if (200 ..< 300).contains(response.statusCode) { return try schoolLoginResult(data, documentURL: response.url ?? nextURL) }
             throw errorForStatusCode(response.statusCode)
         }
 

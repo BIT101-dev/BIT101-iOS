@@ -2,6 +2,7 @@ import CommunityCore
 import CommunityTransport
 import CourseFeature
 import PaperFeature
+import MineFeature
 import Foundation
 import Testing
 import TransportCore
@@ -10,10 +11,26 @@ import BIT101TestSupport
 
 @MainActor
 struct ServiceContractTests {
+    @Test(.timeLimit(.minutes(1)), arguments: ["reaction/like", "user/follow/1"], ["sent", "before-send", "rejected"])
+    func togglesClassifyUncertainOutcomesAtTheRequestBoundary(path: String, boundary: String) async {
+        let transport = Transport([(400, "{}")])
+        if boundary == "sent" { transport.failure = URLError(.networkConnectionLost) }
+        if boundary == "before-send" { transport.failure = HTTPRequestNotSent(underlying: URLError(.cannotFindHost)) }
+        let api = CommunityAPIClient<CourseServiceError>(httpClient: HTTPClient(transport: transport, observer: nil),
+            baseURL: AppURL.required("https://example.invalid"), errorDomain: "fixture",
+            credentials: { .init(identity: .init(accountIdentifier: "fixture"), cookie: "fixture") })
+        do {
+            let _: CommunityLikeResult = try await api.request(path: path, method: "POST")
+            Issue.record("Toggle failure fixture must propagate its outcome")
+        } catch {
+            #expect((error is CommunityToggleOutcomeUnknown) == (boundary == "sent"))
+        }
+        #expect(transport.requests.count == 1)
+    }
 #if os(macOS)
-    @Test(arguments: ["gallery.newest", "gallery.following", "gallery.hot", "gallery.recommend", "gallery.bots", "gallery.search"])
+    @Test(.timeLimit(.minutes(1)), arguments: ["gallery.newest", "gallery.following", "gallery.hot", "gallery.recommend", "gallery.bots", "gallery.search"])
     func productionGalleryRequestsPassThePythonSmokeContract(probe: String) async throws {
-        let transport = Transport([(200, "[]"), (200, "[]")])
+        let transport = Transport(Array(repeating: (200, "[]"), count: 10))
         let session = CommunitySession(httpClient: HTTPClient(transport: transport, observer: nil),
             baseURL: AppURL.required("https://bit101.flwfdd.xyz"),
             credentials: { .init(identity: .init(accountIdentifier: "contracts"), cookie: "fixture") }, refresh: { _ in })
@@ -24,7 +41,13 @@ struct ServiceContractTests {
         try await HTTPRequestEvidenceContext.$didReceive.withValue({ request, response in requests.append((request, response)) }) {
             for page in 0...1 {
                 switch probe {
-                case "gallery.search": _ = try await service.searchPosters(query: .init(text: " BIT101 "), page: page == 0 ? nil : page)
+                case "gallery.search":
+                    for order in GallerySearchOrder.allCases {
+                        _ = try await service.searchPosters(query: .init(text: " BIT101 ", order: order), page: page == 0 ? nil : page)
+                    }
+                    for order in [GallerySearchOrder.like, .newest] {
+                        _ = try await service.searchPosters(query: .init(text: "", order: order), page: page)
+                    }
                 case "gallery.recommend": _ = try await service.fetchRecommendPage(sourcePage: page)
                 case "gallery.bots": _ = try await service.fetchBotFeed(startPage: page)
                 default:
@@ -36,9 +59,9 @@ struct ServiceContractTests {
         try assertSmokeContract(probe: probe, requests: requests)
     }
 
-    @Test(arguments: ["paper.detail", "paper.comments"], [false, true])
+    @Test(.timeLimit(.minutes(1)), arguments: ["paper.detail", "paper.comments"], [false, true])
     func productionPaperRequestsPassThePythonSmokeContract(probe: String, authenticated: Bool) async throws {
-        let transport = Transport(probe == "paper.detail" ? [(200, paperDetailBody(own: authenticated))] : [(200, "[]"), (200, "[]")])
+        let transport = Transport(probe == "paper.detail" ? [(200, paperDetailBody(own: authenticated))] : Array(repeating: (200, "[]"), count: 6))
         let session = CommunitySession(httpClient: HTTPClient(transport: transport, observer: nil),
             baseURL: AppURL.required("https://bit101.flwfdd.xyz"),
             credentials: { .init(identity: .init(accountIdentifier: "contracts"), cookie: authenticated ? "fixture" : "") }, refresh: { _ in })
@@ -46,9 +69,11 @@ struct ServiceContractTests {
         var requests: [(URLRequest, HTTPResponse)] = []
         try await HTTPRequestEvidenceContext.$didReceive.withValue({ request, response in requests.append((request, response)) }) {
             if probe == "paper.detail" { _ = try await service.fetchPaper(id: 17) }
-            else { for page in 0...1 { _ = try await service.fetchComments(paperID: 17, order: .newest, page: page) } }
+            else { for order in CommunityCommentOrder.allCases {
+                for page in 0...1 { _ = try await service.fetchComments(paperID: 17, order: order, page: page) }
+            } }
         }
-        #expect(transport.authenticationRequests.count == (authenticated ? (probe == "paper.detail" ? 1 : 2) : 0))
+        #expect(transport.authenticationRequests.count == (authenticated ? (probe == "paper.detail" ? 1 : 6) : 0))
         try assertSmokeContract(probe: probe, requests: requests,
             selectors: probe == "paper.detail" ? ["path": "/papers/17"] : ["obj": "paper17"])
     }
@@ -90,7 +115,7 @@ struct ServiceContractTests {
     }
 #endif
 
-    @Test func repeatedCommentPagesAdvanceUntilNewContent() async throws {
+    @Test(.timeLimit(.minutes(1))) func repeatedCommentPagesAdvanceUntilNewContent() async throws {
         func comment(_ id: Int) -> String {
             #"{"id":\#(id),"obj":"poster1","images":[],"user":\#(user),"anonymous":false,"create_time":"","update_time":"","like":false,"like_num":0,"comment_num":0,"own":true,"rate":0,"reply_user":\#(user),"reply_obj":"","text":"评论","sub":[]}"#
         }
@@ -130,6 +155,11 @@ struct ServiceContractTests {
             self.responses = responses
             self.authenticationStatuses = authenticationStatuses
         }
+        func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
+            let result = try await data(for: request)
+            if let maximumBytes, result.0.count > maximumBytes { throw HTTPClientError.responseTooLarge }
+            return result
+        }
         func data(for request: URLRequest) async throws -> (Data, URLResponse) {
             try Task.checkCancellation()
             if request.url?.path == "/user/check" {
@@ -159,7 +189,7 @@ struct ServiceContractTests {
         return "{\"id\":\(id),\"anonymous\":\(anonymous),\"claim\":{\"id\":0,\"text\":\"\"},\"comment_num\":0,\"create_time\":\"\",\"edit_time\":\"\",\"images\":[],\"like_num\":0,\"public\":true,\"tags\":\(bot ? "[\"bot\"]" : "[]"),\"text\":\"fixture\",\"title\":\"fixture\",\"update_time\":\"\",\"user\":\(author)}"
     }
 
-    @Test(arguments: ["anonymous", "blocked", "bots"])
+    @Test(.timeLimit(.minutes(1)), arguments: ["anonymous", "blocked", "bots"])
     func filteredSourcePagesAdvanceTheFeedAndSearchCursor(setting: String) async throws {
         let hidden = poster(id: 1, anonymous: setting == "anonymous", bot: setting == "bots")
         let visible = poster(id: 2, userID: 2)
@@ -184,7 +214,7 @@ struct ServiceContractTests {
         }
     }
 
-    @Test func botBatchesDeduplicateOverlappingSourcePages() async throws {
+    @Test(.timeLimit(.minutes(1))) func botBatchesDeduplicateOverlappingSourcePages() async throws {
         let first = poster(id: 1, bot: true), second = poster(id: 2, bot: true), third = poster(id: 3, bot: true)
         let transport = Transport([(200, "[" + first + "," + second + "]"), (200, "[" + second + "," + third + "]"), (200, "[]")])
         let service = GalleryService(session: session(transport), preferences: {
@@ -194,7 +224,7 @@ struct ServiceContractTests {
         #expect(batch.items.map(\.id) == [1, 2, 3] && batch.nextSourcePage == 3 && !batch.canLoadMore)
     }
 
-    @Test func botFilteringPreservesItsCursorAcrossBoundedBatches() async throws {
+    @Test(.timeLimit(.minutes(1))) func botFilteringPreservesItsCursorAcrossBoundedBatches() async throws {
         let hidden = (1...5).map { poster(id: $0, bot: true) }
         let visible = poster(id: 8, bot: true, userID: 2)
         let transport = Transport(hidden.map { (200, "[" + $0 + "]") } + [(200, "[" + visible + "]"), (200, "[]")])
@@ -209,7 +239,7 @@ struct ServiceContractTests {
         #expect(transport.requests.count == 7)
     }
 
-    @Test(arguments: ["feed", "bot", "recommend", "comments"])
+    @Test(.timeLimit(.minutes(1)), arguments: ["feed", "bot", "recommend", "comments"])
     func repeatedFilteredPagesReleaseTheirLoadingState(kind: String) async throws {
         let hidden = poster(id: 1, anonymous: true)
         let comment = #"{"id":5,"obj":"poster1","images":[],"user":\#(user),"anonymous":true,"create_time":"","update_time":"","like":false,"like_num":0,"comment_num":0,"own":true,"rate":0,"reply_user":\#(user),"reply_obj":"","text":"fixture","sub":[]}"#
@@ -233,7 +263,7 @@ struct ServiceContractTests {
         #expect(transport.requests.count == 5)
     }
 
-    @Test func posterUpdateRetainsThePluginPayloadOnTheWire() async throws {
+    @Test(.timeLimit(.minutes(1))) func posterUpdateRetainsThePluginPayloadOnTheWire() async throws {
         let transport = Transport([(200, "")])
         let plugins = #"[{"type":"future","data":{"text":"preserved"}}]"#
         try await GalleryService(session: session(transport), preferences: {
@@ -244,7 +274,7 @@ struct ServiceContractTests {
         #expect((try JSONSerialization.jsonObject(with: body) as? [String: Any])?["plugins"] as? String == plugins)
     }
 
-    @Test(arguments: [false, true])
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func reportTransportCancellationPreservesItsClassification(urlError: Bool) async {
         let transport = Transport([])
         transport.failure = urlError ? URLError(.cancelled) : CancellationError()
@@ -257,7 +287,19 @@ struct ServiceContractTests {
         } catch { #expect(TaskCancellation.matches(error)) }
     }
 
-    @Test(arguments: ["feed", "search", "comments"])
+    @Test(.timeLimit(.minutes(1)), arguments: [400, 503, 0])
+    func reportCreationDistinguishesRejectionFromAnUnknownOutcome(status: Int) async {
+        let transport = Transport([(status, "")])
+        if status == 0 { transport.failure = URLError(.networkConnectionLost) }
+        let service = GalleryService(session: session(transport), preferences: {
+            .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
+        })
+        do { try await service.report(objectID: "poster1", typeID: 42, text: "说明"); Issue.record("需要呈现传输结果") }
+        catch { #expect((error is CommunityCreateOutcomeUnknown) == (status != 400)) }
+        #expect(transport.requests.count == 1)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: ["feed", "search", "comments"])
     func longFilteredRunsYieldAtTheBudgetAndContinueThroughTheirSourceCursor(kind: String) async throws {
         func comment(_ id: Int, hidden: Bool) -> String {
             #"{"id":\#(id),"obj":"poster1","images":[],"user":\#(user),"anonymous":\#(hidden),"create_time":"","update_time":"","like":false,"like_num":0,"comment_num":0,"own":true,"rate":0,"reply_user":\#(user),"reply_obj":"","text":"fixture","sub":[]}"#
@@ -296,7 +338,7 @@ struct ServiceContractTests {
         #expect(transport.requests.count == 7)
     }
 
-    @Test func filteredCommentPagesKeepTheirSourceCursorAndRawRecoveryRemainsAvailable() async throws {
+    @Test(.timeLimit(.minutes(1))) func filteredCommentPagesKeepTheirSourceCursorAndRawRecoveryRemainsAvailable() async throws {
         let comment = #"{"id":5,"obj":"poster1","images":[],"user":\#(user),"anonymous":false,"create_time":"","update_time":"","like":false,"like_num":0,"comment_num":0,"own":true,"rate":0,"reply_user":\#(user),"reply_obj":"","text":"fixture","sub":[]}"#
         let hidden = comment.replacingOccurrences(of: "\"anonymous\":false", with: "\"anonymous\":true")
         let transport = Transport([(200, "[" + hidden + "]"), (200, "[" + comment + "]"), (200, "[]"), (200, "[" + hidden + "]")])
@@ -317,7 +359,7 @@ struct ServiceContractTests {
         #expect(try query(transport.requests[2])["page"] == "2")
     }
 
-    @Test func messageHistoryCanStartAtTheUpperBoundAndPreserveUnreadCounts() async throws {
+    @Test(.timeLimit(.minutes(1))) func messageHistoryCanStartAtTheUpperBoundAndPreserveUnreadCounts() async throws {
         let transport = Transport([(200, "[]")])
         let service = GalleryService(session: session(transport), preferences: {
             CommunityPreferenceSnapshot(hideBots: false, hiddenUserIDs: [], hideAnonymous: false,
@@ -327,7 +369,7 @@ struct ServiceContractTests {
         #expect(try query(transport.requests[0]) == ["type": "comment", "last_id": String(Int.max)])
     }
 
-    @Test(arguments: [[89, 80], [], [95], [90], [80, 89], [89, 89], [0]])
+    @Test(.timeLimit(.minutes(1)), arguments: [[89, 80], [], [95], [90], [80, 89], [89, 89], [0]])
     func messageHistoryRequiresStrictlyOlderOrderedPages(ids: [Int]) async throws {
         let messages = ids.map { id in
             #"{"id":\#(id),"from_user":{},"link_obj":"poster1","obj":"poster1","text":"消息","update_time":""}"#
@@ -353,8 +395,8 @@ struct ServiceContractTests {
         "{\"id\":17,\"title\":\"\(title)\",\"intro\":\"摘要\",\"content\":\"正文\",\"create_time\":\"\",\"update_time\":\"\",\"update_user\":\(user),\"anonymous\":false,\"like_num\":3,\"comment_num\":0,\"public_edit\":false,\"like\":\(own),\"own\":\(own)}"
     }
 
-    @Test func authenticatedPaperReadRestoresBeforePublicResponse() async throws {
-        let transport = Transport([(200, paperDetailBody(own: true)), (200, "[]")], authenticationStatuses: [401, 200])
+    @Test(.timeLimit(.minutes(1))) func authenticatedPaperReadRestoresBeforePublicResponse() async throws {
+        let transport = Transport([(200, "[" + paper + "]"), (200, paperDetailBody(own: true)), (200, "[]")], authenticationStatuses: [401, 200])
         var credentials = CommunityCredentials(identity: .init(accountIdentifier: "contracts"), cookie: "expired")
         var restores = 0
         let session = CommunitySession(httpClient: HTTPClient(transport: transport, observer: nil),
@@ -364,21 +406,33 @@ struct ServiceContractTests {
                 credentials = .init(identity: observed.identity, cookie: "fresh")
             })
         let service = PaperService(session: session)
+        #expect(try await service.fetchPapers(search: "文章", order: .newest, page: 0).first?.id == 17)
         let detail = try await service.fetchPaper(id: 17)
         _ = try await service.fetchComments(paperID: 17, order: .oldest, page: nil)
         #expect(detail.own && detail.like && restores == 1)
-        #expect(transport.authenticationRequests.map { $0.value(forHTTPHeaderField: "fake-cookie") } == ["expired", "fresh", "fresh"])
+        #expect(transport.authenticationRequests.map { $0.value(forHTTPHeaderField: "fake-cookie") } == ["expired", "fresh", "fresh", "fresh"])
         #expect(transport.requests.allSatisfy { $0.value(forHTTPHeaderField: "fake-cookie") == "fresh" })
     }
 
-    @Test func anonymousPaperReadKeepsItsPublicContract() async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: ["poster0", "poster-1", "posterXYZ", "poster999999999999999999999", "paper1", "course1", "comment1", "poster17"])
+    func messageLinksRequireAPositivePosterIdentity(link: String) throws {
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        func message(object: String) throws -> GalleryMessage {
+            try decoder.decode(GalleryMessage.self, from: Data("{\"from_user\":{},\"id\":9,\"link_obj\":\"\(link)\",\"obj\":\"\(object)\",\"text\":\"\",\"update_time\":\"\"}".utf8))
+        }
+        #expect(try message(object: "").linkedPosterID == (link == "poster17" ? 17 : nil))
+        #expect(try message(object: "poster17").linkedPosterID == 17)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func anonymousPaperReadKeepsItsPublicContract() async throws {
         let transport = Transport([(200, paperDetailBody(own: false))])
         let detail = try await PaperService(session: session(transport, cookie: "")).fetchPaper(id: 17)
         #expect(!detail.own && !detail.like && transport.authenticationRequests.isEmpty)
         #expect(transport.requests.first?.value(forHTTPHeaderField: "fake-cookie") == nil)
     }
 
-    @Test func paperPreviewReusesTheBodyAndMutationInvalidatesIt() async throws {
+    @Test(.timeLimit(.minutes(1))) func paperPreviewReusesTheBodyAndMutationInvalidatesIt() async throws {
         let transport = Transport([(200, paperDetailBody(own: true)), (200, paperDetailBody(own: true, title: "刷新")),
             (200, paperDetailBody(own: true)), (200, #"{"like":true,"like_num":4}"#), (200, paperDetailBody(own: true, title: "修改后"))])
         let service = PaperService(session: session(transport))
@@ -392,7 +446,7 @@ struct ServiceContractTests {
         #expect(transport.requests.count == 5)
     }
 
-    @Test func paperPreviewKeepsTheBodyAfterCookieRestoration() async throws {
+    @Test(.timeLimit(.minutes(1))) func paperPreviewKeepsTheBodyAfterCookieRestoration() async throws {
         let transport = Transport([(200, paperDetailBody(own: true))], authenticationStatuses: [401, 200])
         var credentials = CommunityCredentials(identity: .init(accountIdentifier: "contracts"), cookie: "expired")
         let session = CommunitySession(httpClient: HTTPClient(transport: transport, observer: nil),
@@ -439,7 +493,7 @@ struct ServiceContractTests {
         return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
 
-    @Test func coursePagingAndDetailDecodeSnakeCaseAndFlexibleCredits() async throws {
+    @Test(.timeLimit(.minutes(1))) func coursePagingAndDetailDecodeSnakeCaseAndFlexibleCredits() async throws {
         let detail = String(course.dropLast()) + #", "like":true}"#
         let transport = Transport([(200, "[" + course + "]"), (200, "[]"), (200, detail)])
         let service = CourseService(session: session(transport))
@@ -457,7 +511,7 @@ struct ServiceContractTests {
         #expect(transport.requests[2].url?.path == "/courses/42")
     }
 
-    @Test func courseHistoryEscapesPathSeparatorsAndDecodesStatistics() async throws {
+    @Test(.timeLimit(.minutes(1))) func courseHistoryEscapesPathSeparatorsAndDecodesStatistics() async throws {
         let transport = Transport([(200, #"[{"term":"2026-2027-1","avg_score":"85.5","max_score":100,"student_num":"37"}]"#)])
         let values = try await CourseService(session: session(transport)).fetchCourseHistories(number: "MATH/1+中文%20")
         #expect(values.first?.avgScore == 85.5)
@@ -467,7 +521,31 @@ struct ServiceContractTests {
         #expect(transport.requests.first?.url?.absoluteString.hasSuffix("%2520") == true)
     }
 
-    @Test func expiredCourseCredentialsRestoreOnceAndReplayTheOwnedPage() async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: ["1e300", #""1e300""#, #""NaN""#, #""Infinity""#, #""-Infinity""#, "37.9", #""37.9""#])
+    func courseHistoryTreatsOutOfRangeCountsAsMissing(raw: String) async throws {
+        let transport = Transport([(200, "[{\"term\":\"2026-2027-1\",\"student_num\":\(raw)}]")])
+        let values = try await CourseService(session: session(transport)).fetchCourseHistories(number: "MATH")
+        #expect(values.count == 1 && values[0].studentNum == nil)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: ["NaN", "Infinity", "-Infinity"])
+    func courseHistoryTreatsNonFiniteScoresAsMissing(raw: String) async throws {
+        let transport = Transport([(200, "[{\"term\":\"2026-2027-1\",\"avg_score\":\"\(raw)\",\"max_score\":\"\(raw)\"}]")])
+        let values = try await CourseService(session: session(transport)).fetchCourseHistories(number: "MATH")
+        #expect(values.count == 1 && values[0].avgScore == nil && values[0].maxScore == nil)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [#"[{"term":"same"},{"term":"same"}]"#, #"[{"term":" "}]"#,
+        #"[{"term":"term","student_num":-1}]"#, #"[{"term":"term","avg_score":-1}]"#,
+        #"[{"term":"term","max_score":101}]"#, #"[{"term":"term","avg_score":1e300}]"#])
+    func courseHistoryRejectsDuplicateTermsAndInvalidStatistics(body: String) async throws {
+        let transport = Transport([(200, body)])
+        await #expect(throws: CourseServiceError.self) {
+            try await CourseService(session: session(transport)).fetchCourseHistories(number: "MATH")
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func expiredCourseCredentialsRestoreOnceAndReplayTheOwnedPage() async throws {
         let transport = Transport([(401, #"{"message":"expired"}"#), (200, "[" + course + "]")])
         var cookie = "old-cookie"
         var restores = 0
@@ -485,7 +563,7 @@ struct ServiceContractTests {
         #expect(try query(transport.requests[0]) == query(transport.requests[1]))
     }
 
-    @Test(arguments: ["{}", "null", "<html>gateway</html>", #"[{"id":"invalid"}]"#])
+    @Test(.timeLimit(.minutes(1)), arguments: ["{}", "null", "<html>gateway</html>", #"[{"id":"invalid"}]"#])
     func malformedCourseAndPaperListsExposeTheirBusinessErrors(_ response: String) async {
         await #expect(throws: CourseServiceError.self) {
             try await CourseService(session: session(Transport([(200, response)]))).fetchCourses(search: "", page: 0)
@@ -495,7 +573,7 @@ struct ServiceContractTests {
         }
     }
 
-    @Test(arguments: [(false, false), (false, true), (true, false), (true, true)], [400, 404, 500])
+    @Test(.timeLimit(.minutes(1)), arguments: [(false, false), (false, true), (true, false), (true, true)], [400, 404, 500])
     func resourceAbsenceHasAServiceTypeAcrossCredentialRecovery(fixture: (Bool, Bool), status: Int) async throws {
         let (paper, refresh) = fixture
         let response = paper ? #"{"message":"文章不存在Orz"}"# : #"{"message":"帖子不存在Orz"}"#
@@ -518,7 +596,7 @@ struct ServiceContractTests {
         if paper && refresh { #expect(transport.authenticationRequests.count == 2) }
     }
 
-    @Test(arguments: [false, true], [false, true])
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true], [false, true])
     func resourceClassificationKeepsUnknownRoutesAndListFailuresVisible(paper: Bool, list: Bool) async throws {
         let response = list ? (paper ? #"{"message":"文章不存在Orz"}"# : #"{"message":"帖子不存在Orz"}"#) : #"{"message":"Not Found"}"#
         let transport = Transport([(404, response)])
@@ -539,7 +617,7 @@ struct ServiceContractTests {
         }
     }
 
-    @Test func publicPaperPagesKeepAnonymousAccessAndDecodeAuthorDetails() async throws {
+    @Test(.timeLimit(.minutes(1))) func publicPaperPagesKeepAnonymousAccessAndDecodeAuthorDetails() async throws {
         let detail = #"{"id":17,"title":"文章","intro":"摘要","content":"正文","create_time":"","update_time":"","update_user":\#(user),"anonymous":false,"like_num":3,"comment_num":4,"public_edit":true,"like":false,"own":true}"#
         let transport = Transport([(200, "[" + paper + "]"), (200, "[]"), (200, detail), (200, "[]")])
         let service = PaperService(session: session(transport, cookie: ""))
@@ -555,7 +633,109 @@ struct ServiceContractTests {
         #expect(try query(transport.requests[3]) == ["obj": "paper17", "order": "old", "page": "2"])
     }
 
-    @Test func paperCreationEditingAndDeletionPreserveTheWireContract() async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: [0, -1])
+    func contentCreationRejectsInvalidIdentifiers(id: Int) async throws {
+        let transport = Transport(Array(repeating: (200, "{\"id\":\(id)}"), count: 2))
+        let shared = session(transport)
+        let gallery = GalleryService(session: shared, preferences: {
+            .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
+        })
+        await #expect(throws: GalleryServiceError.self) {
+            try await gallery.createPoster(title: "标题", text: "正文", imageMids: [], anonymous: false,
+                tags: [], claimID: 0, isPublic: true)
+        }
+        await #expect(throws: PaperServiceError.self) {
+            try await PaperService(session: shared).createPaper(title: "标题", intro: "摘要", content: "正文", anonymous: false)
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: ["", "   ", "fixture-image"])
+    func imageUploadRequiresAResourceIdentifier(mid: String) async throws {
+        let response = "{\"mid\":\"\(mid)\",\"url\":\"https://example.invalid/image.jpg\",\"low_url\":\"https://example.invalid/small.jpg\"}"
+        let transport = Transport([(200, response)])
+        let gallery = GalleryService(session: session(transport), preferences: {
+            .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
+        })
+        if mid == "fixture-image" {
+            #expect(try await gallery.uploadImage(data: Data([1, 2, 3])).mid == mid)
+        } else {
+            await #expect(throws: GalleryServiceError.self) { try await gallery.uploadImage(data: Data([1, 2, 3])) }
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [0, -1, 18])
+    func detailReadsRejectDifferentObjects(returnedID: Int) async throws {
+        let paper = paperDetailBody(own: true).replacingOccurrences(of: "\"id\":17", with: "\"id\":\(returnedID)")
+        let course = String(course.replacingOccurrences(of: "\"id\":42", with: "\"id\":\(returnedID)").dropLast()) + #", "like":false}"#
+        let poster = String(poster(id: returnedID).dropLast()) + #", "like":false, "own":true, "plugins":"[]"}"#
+        let transport = Transport([(200, poster), (200, paper), (200, paper), (200, course)])
+        let shared = session(transport)
+        let gallery = GalleryService(session: shared, preferences: {
+            .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
+        })
+        await #expect(throws: GalleryServiceError.self) { try await gallery.fetchPoster(id: 17) }
+        let service = PaperService(session: shared)
+        await #expect(throws: PaperServiceError.self) { try await service.fetchPaper(id: 17) }
+        await #expect(throws: PaperServiceError.self) { try await service.fetchPreviewMetadata(id: 17) }
+        await #expect(throws: CourseServiceError.self) { try await CourseService(session: shared).fetchCourse(id: 42) }
+        #expect(transport.requests.count == 4)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [0, -1, 18, 17])
+    func publicProfileResponseMatchesTheRequestedUser(returnedID: Int) async throws {
+        let returnedUser = user.replacingOccurrences(of: "\"id\":1", with: "\"id\":\(returnedID)")
+        let profile = #"{"user":\#(returnedUser),"followingNum":2,"followerNum":3,"following":false,"follower":false,"own":false}"#
+        let transport = Transport([(200, profile)])
+        let service = MineService(session: session(transport), preferences: {
+            .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
+        })
+        if returnedID == 17 {
+            #expect(try await service.fetchUserInfo(id: 17).user.id == 17)
+        } else {
+            await #expect(throws: MineServiceError.self) { try await service.fetchUserInfo(id: 17) }
+        }
+        #expect(transport.requests.map { $0.url?.path } == ["/user/info/17"])
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: ["valid", "object", "zero", "nested-zero", "duplicate", "nested-duplicate"])
+    func commentServicesValidateObjectsAndAllThreadIdentities(damage: String) async throws {
+        let comment = #"{"id":5,"obj":"OBJECT","images":[],"user":\#(user),"anonymous":false,"create_time":"","update_time":"","like":false,"like_num":0,"comment_num":0,"own":false,"rate":0,"reply_user":\#(user),"reply_obj":"","text":"评论","sub":[]}"#
+        let childID = damage == "nested-zero" ? 0 : damage == "nested-duplicate" ? 5 : 6
+        let child = comment.replacingOccurrences(of: "\"id\":5", with: "\"id\":\(childID)")
+            .replacingOccurrences(of: "OBJECT", with: "comment5")
+        var root = comment.replacingOccurrences(of: "\"sub\":[]", with: "\"sub\":[\(child)]")
+        if damage == "zero" { root = root.replacingOccurrences(of: "\"id\":5", with: "\"id\":0") }
+        let rows = "[" + root + (damage == "duplicate" ? "," + root : "") + "]"
+        let objects = ["poster1", "course1", "paper1"]
+        let transport = Transport(objects.map { (200, rows.replacingOccurrences(of: "OBJECT", with: damage == "object" ? "poster2" : $0)) })
+        let shared = session(transport)
+        let gallery = GalleryService(session: shared, preferences: {
+            .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
+        })
+        let course = CourseService(session: shared), paper = PaperService(session: shared)
+        if damage == "valid" {
+            #expect(try await gallery.fetchRawComments(objectID: "poster1", order: .newest, page: nil).first?.sub.first?.id == 6)
+            #expect(try await course.fetchComments(courseID: 1, page: nil).count == 1)
+            #expect(try await paper.fetchComments(paperID: 1, order: .newest, page: nil).count == 1)
+        } else {
+            await #expect(throws: GalleryServiceError.self) { try await gallery.fetchRawComments(objectID: "poster1", order: .newest, page: nil) }
+            await #expect(throws: CourseServiceError.self) { try await course.fetchComments(courseID: 1, page: nil) }
+            await #expect(throws: PaperServiceError.self) { try await paper.fetchComments(paperID: 1, order: .newest, page: nil) }
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func userPosterSearchChecksTheRequestedAuthor(matching: Bool) async throws {
+        let rows = "[" + poster(id: 1, userID: matching ? 1 : 2) + "]"
+        let transport = Transport([(200, rows)])
+        let service = MineService(session: session(transport), preferences: {
+            .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
+        })
+        if matching { #expect(try await service.fetchUserPosters(userID: 1, page: 0).first?.user.id == 1) }
+        else { await #expect(throws: MineServiceError.self) { try await service.fetchUserPosters(userID: 1, page: 0) } }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func paperCreationEditingAndDeletionPreserveTheWireContract() async throws {
         let transport = Transport([(200, #"{"id":17}"#), (204, ""), (204, "")])
         let service = PaperService(session: session(transport))
         #expect(try await service.createPaper(title: "标题", intro: "摘要", content: "正文", anonymous: true, publicEdit: false) == 17)
@@ -574,7 +754,7 @@ struct ServiceContractTests {
         #expect(transport.requests[0].value(forHTTPHeaderField: "Content-Type") == "application/json")
     }
 
-    @Test func invalidArticleVersionStopsEditingBeforeSending() async {
+    @Test(.timeLimit(.minutes(1))) func invalidArticleVersionStopsEditingBeforeSending() async {
         let transport = Transport([])
         let service = PaperService(session: session(transport))
         await #expect(throws: PaperServiceError.self) {
@@ -584,25 +764,41 @@ struct ServiceContractTests {
         #expect(transport.requests.isEmpty)
     }
 
-    @Test func courseAndPaperCommentsSendReplyIdentityAndRating() async throws {
+    @Test(.timeLimit(.minutes(1))) func courseAndPaperCommentsSendReplyIdentityAndRating() async throws {
         let comment = #"{"id":5,"obj":"course42","images":[],"user":\#(user),"anonymous":false,"create_time":"","update_time":"","like":false,"like_num":0,"comment_num":0,"own":true,"rate":8,"reply_user":\#(user),"reply_obj":"comment2","text":"回复","sub":[]}"#
-        let transport = Transport([(200, comment), (200, comment), (200, #"{"like":true,"like_num":8}"#), (200, "[]")])
+        let like = #"{"like":true,"like_num":8}"#
+        let transport = Transport([(200, comment), (200, comment), (200, comment),
+            (200, like), (200, like), (200, like), (200, "[]")])
         let shared = session(transport)
         let courseService = CourseService(session: shared)
         let paperService = PaperService(session: shared)
+        let galleryService = GalleryService(session: shared, preferences: {
+            .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
+        })
         #expect(try await courseService.createComment(objectID: "course42", text: "回复", replyObjectID: "comment2", replyUID: 1, rate: 8).rate == 8)
         #expect(try await paperService.createComment(objectID: "paper17", text: "回复", replyObjectID: "comment2", replyUID: 1, anonymous: true).id == 5)
+        #expect(try await galleryService.createComment(objectID: "poster9", text: "回复", replyObjectID: "comment2", replyUID: 1,
+            anonymous: true, imageMids: ["fixture-image"]).id == 5)
         let courseBody = try body(transport.requests[0])
         let paperBody = try body(transport.requests[1])
         #expect(courseBody["rate"] as? Int == 8 && courseBody["reply_uid"] as? Int == 1)
         #expect(courseBody["reply_obj"] as? String == "comment2")
         #expect(paperBody["obj"] as? String == "paper17" && paperBody["anonymous"] as? Bool == true)
+        let galleryBody = try body(transport.requests[2])
+        #expect(galleryBody["obj"] as? String == "poster9" && galleryBody["image_mids"] as? [String] == ["fixture-image"])
+        #expect(galleryBody["reply_obj"] as? String == "comment2" && galleryBody["reply_uid"] as? Int == 1)
+        #expect(galleryBody["rate"] == nil && paperBody["rate"] == nil)
         #expect(try await courseService.like(objectID: "course42").like)
+        #expect(try await paperService.sendLike(objectID: "paper17").like)
+        #expect(try await galleryService.like(objectID: "poster9").like)
+        for (request, object) in zip(transport.requests[3...5], ["course42", "paper17", "poster9"]) {
+            #expect(try body(request)["obj"] as? String == object)
+        }
         #expect(try await courseService.fetchComments(courseID: 42, page: nil).isEmpty)
-        #expect(try query(transport.requests[3]) == ["obj": "course42", "order": "new"])
+        #expect(try query(transport.requests[6]) == ["obj": "course42", "order": "new"])
     }
 
-    @Test func cancelledCourseAndPaperRequestsFinishBeforeTransportAdmission() async {
+    @Test(.timeLimit(.minutes(1))) func cancelledCourseAndPaperRequestsFinishBeforeTransportAdmission() async {
         let transport = Transport([])
         let shared = session(transport)
         let task = Task {

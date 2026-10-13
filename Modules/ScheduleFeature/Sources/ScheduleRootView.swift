@@ -14,6 +14,13 @@ private struct ScheduleCurrentDateKey: EnvironmentKey {
     static var defaultValue: Date { .now }
 }
 
+struct ScheduleHorizontalControlFramesKey: PreferenceKey {
+    static var defaultValue: [CGRect] = []
+    static func reduce(value: inout [CGRect], nextValue: () -> [CGRect]) {
+        value.append(contentsOf: nextValue())
+    }
+}
+
 extension EnvironmentValues {
     var scheduleCurrentDate: Date {
         get { self[ScheduleCurrentDateKey.self] }
@@ -34,6 +41,7 @@ public struct ScheduleRootView: View {
     let destinations: ScheduleDestinations
     @ObservedObject private var viewModel: ScheduleViewModel
     @State private var courseTabResetSignal = 0
+    @State private var horizontalControlFrames: [CGRect] = []
 
     public init(viewModel: ScheduleViewModel, requestedSection: Binding<ScheduleSection?>, destinations: ScheduleDestinations) {
         self.viewModel = viewModel
@@ -55,11 +63,12 @@ public struct ScheduleRootView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .contentShape(Rectangle())
+            .onPreferenceChange(ScheduleHorizontalControlFramesKey.self) { horizontalControlFrames = $0 }
             .simultaneousGesture(
                 sectionSwitchGesture(
-                    topDisabledHeight: viewModel.selectedSection == .courses
+                    topDisabledY: proxy.frame(in: .global).minY + (viewModel.selectedSection == .courses
                         ? proxy.size.height * 0.25
-                        : 0
+                        : 0)
                 )
             )
             .accessibilityIdentifier("schedule.section-surface")
@@ -74,9 +83,10 @@ public struct ScheduleRootView: View {
             )
         }
         .safeAreaInset(edge: .bottom, spacing: AppDesignSystem.Spacing.none) {
-            // 给课表、DDL、空教室统一保留到底部系统 Tab 栏的固定内容间隙。
+            // 课表自行布局上下间隙，列表分栏沿用公共底部间隙。
             Color.clear
-                .frame(height: AppDesignSystem.Spacing.tiny)
+                .frame(height: viewModel.selectedSection == .courses
+                    ? AppDesignSystem.Spacing.none : AppDesignSystem.Spacing.tiny)
         }
         .toolbar(.hidden, for: .navigationBar)
         .allowsHitTesting(!viewModel.isLoadingCache)
@@ -151,13 +161,14 @@ public struct ScheduleRootView: View {
     /// 轻扫切换课表 / DDL / 空教室的手势。
     ///
     /// 课表上方四分之一专用于周次滑动条，剩余区域支持横向轻扫切换分区。
-    private func sectionSwitchGesture(topDisabledHeight: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 24, coordinateSpace: .local)
+    private func sectionSwitchGesture(topDisabledY: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 24, coordinateSpace: .global)
             .onEnded { value in
                 let horizontal = value.translation.width
                 let vertical = value.translation.height
                 guard abs(horizontal) > abs(vertical), abs(horizontal) >= 56 else { return }
-                guard value.startLocation.y >= topDisabledHeight else { return }
+                guard value.startLocation.y >= topDisabledY else { return }
+                guard !horizontalControlFrames.contains(where: { $0.contains(value.startLocation) }) else { return }
                 switchSection(step: horizontal < 0 ? 1 : -1)
             }
     }
@@ -208,6 +219,7 @@ public struct SchedulePersistenceConflictView: View {
             Button("采用同步冲突内容") { Task { await viewModel.resolvePersistenceConflict(.useCloud) } }
                 .accessibilityIdentifier("schedule.conflict.use-cloud")
         }
+        .buttonStyle(.borderless)
         .disabled(viewModel.isResolvingPersistenceConflict)
     }
 }

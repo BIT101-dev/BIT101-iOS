@@ -14,6 +14,8 @@ extension CourseScheduleTabView {
         calendarMutationTask?.cancel()
         courseShareTask?.cancel()
         scheduleExportTask?.cancel()
+        prefetchedCourseID = nil
+        prefetchedCourseResolution = nil
         courseShareGeneration &+= 1
         isResolvingCourseShare = false
     }
@@ -200,31 +202,33 @@ extension CourseScheduleTabView {
     @MainActor
     func prepareCourseShare(from entry: ScheduleCalendarEntry) {
         guard let sourceID = entry.resolvedSourceIDs.first,
-              let course = activeSchedule.courses.first(where: { $0.id == sourceID })
+              activeSchedule.courses.contains(where: { $0.id == sourceID })
         else { return }
         guard prefetchedCourseID != sourceID else { return }
 
         prefetchedCourseID = sourceID
         prefetchedCourseResolution = nil
+    }
+
+    @MainActor
+    func resolvePreparedCourseShare() async {
+        guard let sourceID = prefetchedCourseID,
+              let course = activeSchedule.courses.first(where: { $0.id == sourceID }) else { return }
         let generation = viewModel.accountGeneration
-        Task { @MainActor in
-            do {
-                let resolution = try await destinations.resolveCourseShare(course)
-                guard viewModel.accountGeneration == generation,
-                      prefetchedCourseID == sourceID
-                else { return }
-                if let resolution {
-                    prefetchedCourseResolution = resolution
-                } else {
-                    prefetchedCourseID = nil
-                }
-            } catch {
-                guard viewModel.accountGeneration == generation,
-                      prefetchedCourseID == sourceID
-                else { return }
+        do {
+            let resolution = try await destinations.resolveCourseShare(course)
+            guard !Task.isCancelled, viewModel.accountGeneration == generation,
+                  prefetchedCourseID == sourceID else { return }
+            if let resolution {
+                prefetchedCourseResolution = resolution
+            } else {
                 prefetchedCourseID = nil
-                prefetchedCourseResolution = nil
             }
+        } catch {
+            guard !Task.isCancelled, viewModel.accountGeneration == generation,
+                  prefetchedCourseID == sourceID else { return }
+            prefetchedCourseID = nil
+            prefetchedCourseResolution = nil
         }
     }
 

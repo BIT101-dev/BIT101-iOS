@@ -240,7 +240,9 @@ struct CourseScheduleCalendarView: View {
             let headerHeight = displayMode == .weekly
                 ? weekSliderHeight + dateHeaderHeight
                 : AppDesignSystem.Schedule.WeekSlider.compactHeaderHeight
-            let usableHeight = max(proxy.size.height - headerHeight, 1)
+            let groups = quantizedCalendarGroups(entries: entries)
+            let outsideHeight = groups.outside.isEmpty ? 0 : AppDesignSystem.Size.Control.touchTarget
+            let usableHeight = max(proxy.size.height - headerHeight - outsideHeight, 1)
             let rowHeight = usableHeight / CGFloat(max(timeTable.count, 1))
             let visibleWeekdays = (1 ... 7).filter {
                 if $0 == 6 { return showSaturday }
@@ -250,7 +252,6 @@ struct CourseScheduleCalendarView: View {
             let columnWidth = max(proxy.size.width / CGFloat(visibleWeekdays.count + 1), 1)
             let leftWidth = columnWidth
             let dayWidth = columnWidth
-            let cardWidth = max(dayWidth - AppDesignSystem.Schedule.Grid.courseCardTotalInset, 1)
             let weekDates = visibleWeekdays.compactMap {
                 ScheduleDateCodec.calendar.date(
                     byAdding: .day,
@@ -407,7 +408,11 @@ struct CourseScheduleCalendarView: View {
                 }
                 .frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
 
-                ForEach(entries.filter { visibleWeekdays.contains($0.dayOfWeek) }) { entry in
+                ForEach(calendarPlacements(entries: groups.grid.filter { visibleWeekdays.contains($0.dayOfWeek) },
+                                           separateOverlaps: displayMode == .weekly)) { placement in
+                    let entry = placement.entry
+                    let laneWidth = dayWidth / CGFloat(placement.columnCount)
+                    let cardWidth = max(laneWidth - AppDesignSystem.Schedule.Grid.courseCardTotalInset, 1)
                     ZStack(alignment: .topLeading) {
                         ForEach(entry.orderedBackgroundLayers) { layer in
                             // 课程背景使用不透明系统色，网格线保持在卡片后方。
@@ -468,10 +473,40 @@ struct CourseScheduleCalendarView: View {
                     .contentShape(Rectangle())
                     .offset(
                         x: leftWidth + dayWidth * CGFloat(visibleWeekdays.firstIndex(of: entry.dayOfWeek) ?? 0)
+                            + laneWidth * CGFloat(placement.column)
                             + gridLineWidth,
                         y: headerHeight + rowHeight * entry.startSection
                             + gridLineWidth
                     )
+                    .zIndex(1)
+                }
+
+                if !groups.outside.isEmpty {
+                    ScrollView(.horizontal) {
+                        HStack(spacing: AppDesignSystem.Spacing.regular) {
+                            ForEach(groups.outside) { entry in
+                                ZStack {
+                                    Text(entry.title)
+                                        .font(AppDesignSystem.Typography.captionEmphasis)
+                                        .lineLimit(2)
+                                        .padding(.horizontal, AppDesignSystem.Spacing.regular)
+                                    ScheduleEntryInteractionView(entry: entry, onTap: { onSelect(entry) })
+                                }
+                                .frame(width: dayWidth, height: outsideHeight)
+                                .background(AppDesignSystem.Palette.Accent.surface)
+                                .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
+                            }
+                        }
+                    }
+                    .accessibilityIdentifier("schedule.calendar.outside-events")
+                    .frame(height: outsideHeight)
+                    .background {
+                        GeometryReader { geometry in
+                            Color.clear.preference(key: ScheduleHorizontalControlFramesKey.self,
+                                value: [geometry.frame(in: .global)])
+                        }
+                    }
+                    .offset(y: headerHeight + usableHeight)
                     .zIndex(1)
                 }
 

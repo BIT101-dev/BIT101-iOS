@@ -30,9 +30,12 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     }
 
     func application(
-        _: UIApplication,
+        _ application: UIApplication,
         didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+#if RELEASE_NETWORK_SMOKE || ICLOUD_CROSS_DEVICE_SMOKE
+        application.isIdleTimerDisabled = true
+#endif
 #if RELEASE_NETWORK_SMOKE || ICLOUD_CROSS_DEVICE_SMOKE || (BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING)
         return true
 #else
@@ -199,6 +202,7 @@ struct BIT101_iOSApp: App {
             accountChanges: AppAccountSession.storage.changes,
             currentIdentity: { AppAccountSession.storage.communityCredentials.identity },
             scheduleChanges: ScheduleCacheStore.changes, scheduleCloudSync: .shared,
+            refreshScheduleCloud: { await ScheduleCloudSyncManager.shared.refreshFromCloudIfNeeded() },
             isNotificationPermissionDenied: { await ScheduleLiveActivityManager.shared.notificationAuthorizationStateForReminderFallback() == .denied },
             loadScheduleCourses: AppAccountStores.loadScheduleCourses,
             media: AppMedia.environment, localData: AppLocalDataComposition.appService(settings: settings, media: AppMedia.environment),
@@ -250,18 +254,23 @@ struct BIT101_iOSApp: App {
             Color.clear
                 .accessibilityIdentifier("release-network-smoke-host")
                 .task {
-                    guard let smokeRequest = ReleaseNetworkSmokeLaunchRequest.readPendingFile() else { return }
-                    _ = await ReleaseNetworkSmokeRunner().run(
-                        scope: smokeRequest.scope,
-                        runID: smokeRequest.runID,
-                        capture: smokeRequest.capture,
-                        term: smokeRequest.term,
-                        communityFollowTarget: smokeRequest.communityFollowTarget,
-                        communityExpectedAccount: smokeRequest.communityExpectedAccount,
-                        communityRecoveryConfirmation: smokeRequest.communityRecoveryConfirmation,
-                        fixtures: smokeRequest.fixtures,
-                        schoolSMSCodeHandler: smokeRequest.interactiveSMS == true ? networkSmokeSMS.requestCode : nil
-                    )
+                    do {
+                        let smokeRequest = try ReleaseNetworkSmokeLaunchRequest.readPendingFile()
+                        _ = await ReleaseNetworkSmokeRunner().run(
+                            scope: smokeRequest.scope,
+                            runID: smokeRequest.runID,
+                            capture: smokeRequest.capture,
+                            term: smokeRequest.term,
+                            communityFollowTarget: smokeRequest.communityFollowTarget,
+                            communityExpectedAccount: smokeRequest.communityExpectedAccount,
+                            communityRecoveryConfirmation: smokeRequest.communityRecoveryConfirmation,
+                            fixtures: smokeRequest.fixtures,
+                            schoolSMSCodeHandler: smokeRequest.interactiveSMS == true ? networkSmokeSMS.requestCode : nil
+                        )
+                    } catch {
+                        let failure = error as NSError
+                        FileHandle.standardOutput.write(Data("NETWORK_SMOKE_REQUEST_FAIL domain=\(failure.domain) code=\(failure.code)\n".utf8))
+                    }
                 }
                 .onOpenURL { url in
                     guard let smokeRequest = ReleaseNetworkSmokeLaunchRequest(url: url) else { return }
@@ -301,13 +310,14 @@ struct BIT101_iOSApp: App {
                 .environmentObject(lifecycle.scoreViewModel)
                 .environmentObject(lifecycle.settings)
                 .environmentObject(lifecycle.preferenceCloudSync)
+                .environmentObject(lifecycle.prompts)
                 .appKeyboardDismissSupport()
 #if BIT101_UI_TESTING
                 .environment(\.appInteractionEvidence) { identifier, action in
-                    UITestAccessibilityActions.record(identifier, action: action)
+                    UITestAccessibilityActions.recordCallback(identifier, action: action)
                 }
 #endif
-                .appPromptHost()
+                .appPromptHost(updates: lifecycle.updates, prompts: lifecycle.prompts)
 #if BIT101_UI_TESTING
                 .id(uiTestScene.revision)
                 .environment(\.sizeCategory, uiTestScene.largeText ? .accessibilityLarge : .large)
@@ -376,8 +386,20 @@ final class UITestSceneState: ObservableObject {
                             reply(try UITestAccessibilityActions.coverage())
                             return
                         }
+                        if environment["command"] == "map-camera" {
+                            reply(try UITestAccessibilityActions.mapCamera())
+                            return
+                        }
+                        if environment["command"] == "preview-page" {
+                            reply(try UITestAccessibilityActions.previewPage())
+                            return
+                        }
                         if environment["command"] == "identity" {
                             reply(Data(UITestAccessibilityActions.identity(environment).utf8))
+                            return
+                        }
+                        if environment["command"] == "native-observe" {
+                            reply(Data(UITestAccessibilityActions.nativeIdentity(environment).utf8))
                             return
                         }
                         if ["scroll-inventory", "scroll-check", "scroll-restore"].contains(environment["command"] ?? "") {
@@ -386,9 +408,9 @@ final class UITestSceneState: ObservableObject {
                         }
                         if environment["command"] == "record" {
                             UITestAccessibilityActions.invalidate()
-                            UITestAccessibilityActions.record(environment["identifier"] ?? "", label: environment["label"] ?? "",
+                            let recorded = UITestAccessibilityActions.record(environment["identifier"] ?? "", label: environment["label"] ?? "",
                                 type: Int(environment["type"] ?? "") ?? 0, scope: environment["scope"], instance: environment["instance"], action: environment["action"] ?? "activate")
-                            reply(Data("recorded".utf8))
+                            reply(Data((recorded ? "recorded" : "unobserved").utf8))
                             return
                         }
                         if environment["command"] == "state" {

@@ -54,32 +54,50 @@ public struct CommunitySession {
 
 /// 单个会话实例合并同账号的认证恢复，任务归属由身份快照维护。
 public final class CommunitySessionRefreshCoordinator {
-    private var pending: (identity: CommunitySessionIdentity, task: Task<Void, Error>)?
+    private struct Pending {
+        let id: UUID
+        let identity: CommunitySessionIdentity
+        var task: Task<Void, Never>?
+        var waiters: [UUID: CheckedContinuation<Void, any Error>]
+    }
+    private var pending: Pending?
 
     public init() {}
 
-    public func refresh(
-        observed: CommunityCredentials,
-        current: @escaping () -> CommunityCredentials,
-        restore: @escaping () async throws -> Void
-    ) async throws {
+    public func refresh(observed: CommunityCredentials, current: @escaping () -> CommunityCredentials,
+                        restore: @escaping () async throws -> Void) async throws {
         try Task.checkCancellation()
         guard current().identity == observed.identity else { throw CancellationError() }
         guard current().cookie == observed.cookie else { return }
-        if let pending, pending.identity == observed.identity {
-            try await pending.task.value
-            try Task.checkCancellation()
-            guard current().identity == observed.identity else { throw CancellationError() }
-            return
-        }
-        pending?.task.cancel()
-        let task = Task { try await restore() }
-        pending = (observed.identity, task)
-        defer {
-            if pending?.identity == observed.identity { pending = nil }
-        }
-        try await task.value
+        if let pending, pending.identity != observed.identity { finish(pending.id, result: .failure(CancellationError())); pending.task?.cancel() }
+        let waiter = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                guard !Task.isCancelled else { continuation.resume(throwing: CancellationError()); return }
+                if pending != nil { pending?.waiters[waiter] = continuation }
+                else {
+                    let id = UUID()
+                    pending = Pending(id: id, identity: observed.identity, waiters: [waiter: continuation])
+                    pending?.task = Task {
+                        do { try await restore(); self.finish(id, result: .success(())) }
+                        catch { self.finish(id, result: .failure(error)) }
+                    }
+                }
+            }
+        } onCancel: { Task { @MainActor in self.cancel(waiter) } }
         try Task.checkCancellation()
         guard current().identity == observed.identity else { throw CancellationError() }
+    }
+
+    private func finish(_ id: UUID, result: Result<Void, any Error>) {
+        guard let operation = pending, operation.id == id else { return }
+        pending = nil
+        for continuation in operation.waiters.values { continuation.resume(with: result) }
+    }
+
+    private func cancel(_ waiter: UUID) {
+        guard let continuation = pending?.waiters.removeValue(forKey: waiter) else { return }
+        continuation.resume(throwing: CancellationError())
+        if pending?.waiters.isEmpty == true { pending?.task?.cancel(); pending = nil }
     }
 }

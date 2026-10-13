@@ -101,7 +101,7 @@ public nonisolated enum SmallTermWeekNormalizer {
     }
 
     public static func weeksDescribed(in text: String) -> Set<Int> {
-        let pattern = #"(-?\d{1,2})\s*(?:[-－—~～至]\s*(-?\d{1,2}))?\s*周"#
+        let pattern = #"(-?\d{1,2})\s*(?:[-－—~～至]\s*(-?\d{1,2}))?\s*(?:周\s*(?:[（(]\s*([单双])(?:周)?\s*[）)]|([单双])周?)?|[（(]\s*([单双])(?:周)?\s*[）)]\s*周?)"#
         guard let expression = try? NSRegularExpression(pattern: pattern) else { return [] }
         let range = NSRange(text.startIndex..., in: text)
         var result = Set<Int>()
@@ -109,15 +109,19 @@ public nonisolated enum SmallTermWeekNormalizer {
             guard let lowerRange = Range(match.range(at: 1), in: text),
                   let lower = Int(text[lowerRange])
             else { continue }
+            var weeks: [Int]
             if match.range(at: 2).location != NSNotFound,
                let upperRange = Range(match.range(at: 2), in: text),
                let upper = Int(text[upperRange]),
                upper >= lower
             {
-                result.formUnion(lower ... upper)
+                weeks = Array(lower ... upper)
             } else {
-                result.insert(lower)
+                weeks = [lower]
             }
+            let parity = (3...5).compactMap { Range(match.range(at: $0), in: text) }.first.map { String(text[$0]) }
+            if let parity { weeks = weeks.filter { $0.isMultiple(of: 2) == (parity == "双") } }
+            result.formUnion(weeks)
         }
         return result
     }
@@ -142,6 +146,15 @@ public nonisolated enum CourseScheduleRowParser {
         courses.map { course in
             let weeks = narrowedWeeks(for: course)
             return weeks == course.weeks ? course : course.replacingWeeks(weeks)
+        }
+    }
+
+    /// 修复学校缓存中的单双周展开，手动课程安排沿用户选择保留。
+    public static func correctingParityWeeks(_ courses: [CourseRecord]) -> [CourseRecord] {
+        courses.map { course in
+            guard course.description.range(of: #"[（(]\s*[单双](?:周)?\s*[）)]|周\s*[单双]周?"#,
+                options: .regularExpression) != nil else { return course }
+            return course.replacingWeeks(narrowedWeeks(for: course))
         }
     }
 
@@ -177,7 +190,9 @@ public nonisolated enum CourseScheduleRowParser {
     }
 
     private static func occurrences(in text: String) -> [Occurrence] {
-        let pattern = #"((?:-?\d{1,2}\s*(?:[-－—~～至]\s*-?\d{1,2})?\s*周)(?:\s*,\s*(?:-?\d{1,2}\s*(?:[-－—~～至]\s*-?\d{1,2})?\s*周))*)\s*星期([一二三四五六日天])\s*第?(\d{1,2})\s*节?\s*[-－—~～至]\s*第?(\d{1,2})\s*节\s*(.*?)(?=,\s*-?\d{1,2}\s*(?:[-－—~～至]\s*-?\d{1,2})?\s*周|$)"#
+        let week = #"-?\d{1,2}\s*(?:[-－—~～至]\s*-?\d{1,2})?\s*(?:周\s*(?:[（(]\s*[单双](?:周)?\s*[）)]|[单双]周?)?|[（(]\s*[单双](?:周)?\s*[）)]\s*周?)"#
+        let pattern = "(" + week + "(?:\\s*[,，]\\s*" + week + ")*)"
+            + #"\s*星期([一二三四五六日天])\s*第?(\d{1,2})\s*节?\s*[-－—~～至]\s*第?(\d{1,2})\s*节\s*(.*?)(?=[,，]\s*"# + week + "|$)"
         guard let expression = try? NSRegularExpression(pattern: pattern) else { return [] }
         let range = NSRange(text.startIndex..., in: text)
         return expression.matches(in: text, range: range).compactMap { match in

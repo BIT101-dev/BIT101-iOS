@@ -4,12 +4,13 @@ const MAX_ATTACHMENTS = 6;
 const MAX_ATTACHMENT_BYTES = 2 * 1024 * 1024;
 const MAX_REPORT_METADATA_BYTES = 1024 * 1024;
 const MAX_BODY_BYTES = MAX_ATTACHMENTS * 4 * Math.ceil(MAX_ATTACHMENT_BYTES / 3) + MAX_REPORT_METADATA_BYTES;
+const MAX_DELETE_BODY_BYTES = 1024;
 const MAX_REPORTS_PER_DAY = 1000;
 const REPORT_RETENTION_SECONDS = 30 * 24 * 60 * 60;
 const MAX_REPORTS_PER_SOURCE_PER_DAY = 100;
 const MAX_EMAIL_RETRY_DELAY_MS = 60 * 60 * 1000;
 
-async function readReportBody(request) {
+async function readReportBody(request, maximumBytes = MAX_BODY_BYTES) {
   const reader = request.body?.getReader();
   if (!reader) return "";
   const decoder = new TextDecoder("utf-8", { fatal: true });
@@ -20,7 +21,7 @@ async function readReportBody(request) {
       const { done, value } = await reader.read();
       if (done) break;
       bytes += value.byteLength;
-      if (bytes > MAX_BODY_BYTES) {
+      if (bytes > maximumBytes) {
         await reader.cancel();
         return null;
       }
@@ -55,7 +56,7 @@ function validReport(report, request) {
 const PROTECTED_NAMES = ["password", "passwd", "pwd", "cookie", "set-cookie", "authorization", "proxy-authorization", "token",
   "access_token", "refresh_token", "challenge_token", "fake-cookie", "accessToken", "refreshToken", "challengeToken", "fakeCookie",
   "session", "sessionID", "session_id", "sessionid", "ticket", "api-key", "api_key", "apikey", "client_secret", "secret", "captcha",
-  "captcha_payload", "croypto", "execution", "salt"];
+  "captcha_payload", "croypto", "execution", "salt", "csrf", "xsrf", "www-authenticate", "proxy-authenticate", "authentication-info"];
 const SECRET_NAMES = PROTECTED_NAMES.map(value => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
 const SECRET_KEYS = new RegExp(SECRET_NAMES, "i");
 const SECRET_HEADERS = /((?:authorization|proxy-authorization|cookie|set-cookie)\s*[=:]\s*)[^&\r\n]+/gi;
@@ -63,13 +64,32 @@ const SECRET_JSON = new RegExp(`("[^"]*(?:${SECRET_NAMES})[^"]*"\\s*:\\s*")(?:\\
 const SECRET_TEXT = new RegExp("(\\b[\\w$-]*(?:" + SECRET_NAMES + ")[\\w$-]*(?:[\"']\\]?)?\\s*[=:]\\s*)(?:\"(?:\\\\.|[^\"\\\\])*(?:\"|$)|'(?:\\\\.|[^'\\\\])*(?:'|$)|[^&\\r\\n,;]+)", "gi");
 
 function redactHTML(value) {
-  return value.replace(/<(?:input|meta)\b(?:[^>"']|"[^"]*(?:"|$)|'[^']*(?:'|$))*(?:>|$)|<(?:textarea|span)\b(?:[^>"']|"[^"]*"|'[^']*')*>[\s\S]*?(?:<\/(?:textarea|span)\s*>|$)/gi, tag => {
-    const fields = [...tag.matchAll(/\b(?:id|name|type|property|http-equiv)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi)]
+  const tags = /<([a-z][a-z0-9:_-]*)\b(?:[^>"']|"[^"]*(?:"|$)|'[^']*(?:'|$))*(?:>|$)/gi;
+  const voidTags = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"]);
+  let output = "", cursor = 0;
+  for (const tag of value.matchAll(tags)) {
+    if (tag.index < cursor) continue;
+    const text = tag[0], name = tag[1].toLowerCase();
+    const fields = [...text.matchAll(/\b(?:id|name|type|property|http-equiv)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi)]
       .map(match => decodedHTMLAttribute(match[1] ?? match[2] ?? match[3]));
-    if (!fields.some(field => SECRET_KEYS.test(field) || /^(?:login-page-flowkey|login-croypto)$/i.test(field))) return tag;
-    const masked = tag.replace(/(\b(?:value|content)\s*=\s*)(?:"[^"]*(?:"|$)|'[^']*(?:'|$)|[^\s"'=<>`]+)/gi, '$1"[REDACTED]"');
-    return /^<(?:textarea|span)\b/i.test(tag) ? masked.replace(/(>)[\s\S]*(<\/(?:textarea|span)\s*>|$)/gi, "$1[REDACTED]$2") : masked;
-  });
+    if (!fields.some(field => SECRET_KEYS.test(field) || /^(?:login-page-flowkey|login-croypto)$/i.test(field))) continue;
+    output += value.slice(cursor, tag.index) + text.replace(/(\b(?:value|content)\s*=\s*)(?:"[^"]*(?:"|$)|'[^']*(?:'|$)|[^\s"'=<>`]+)/gi, '$1"[REDACTED]"');
+    cursor = tag.index + text.length;
+    if (!text.endsWith(">") || text.endsWith("/>") || voidTags.has(name)) continue;
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const boundaries = new RegExp("</?" + escaped + "\\b(?:[^>\"']|\"[^\"]*\"|'[^']*')*>", "gi");
+    boundaries.lastIndex = cursor;
+    let depth = 1, closing;
+    for (let boundary; (boundary = boundaries.exec(value));) {
+      if (boundary[0].startsWith("</")) depth -= 1;
+      else if (!boundary[0].endsWith("/>")) depth += 1;
+      if (depth === 0) { closing = boundary; break; }
+    }
+    output += "[REDACTED]";
+    if (closing) { output += closing[0]; cursor = closing.index + closing[0].length; }
+    else cursor = value.length;
+  }
+  return output + value.slice(cursor);
 }
 
 function decodedHTMLAttribute(value) {
@@ -146,17 +166,30 @@ function json(data, status = 200) {
 }
 
 export class ReportQuota extends DurableObject {
+  async alarm() {
+    let nextExpiration;
+    for (const [key, expiration] of this.ctx.storage.kv.list({ prefix: "reservation:" })) {
+      if (expiration <= Date.now()) this.ctx.storage.kv.delete(key);
+      else nextExpiration = Math.min(nextExpiration ?? expiration, expiration);
+    }
+    if (nextExpiration != null) await this.ctx.storage.setAlarm(nextExpiration);
+  }
+
   async fetch(request) {
-    const { source, smoke, admission } = await request.json();
+    const { source, smoke, admission, deletion, reservationID } = await request.json();
     let sourceLimit = smoke ? MAX_REPORTS_PER_SOURCE_PER_DAY
       : Number(this.env?.REPORT_SOURCE_DAILY_LIMIT ?? MAX_REPORTS_PER_SOURCE_PER_DAY);
     if (!Number.isSafeInteger(sourceLimit) || sourceLimit < 1 || sourceLimit > MAX_REPORTS_PER_DAY) {
       return Response.json({ allowed: false, error: "invalid_source_quota" }, { status: 503 });
     }
     if (admission) sourceLimit = 2 * Math.max(sourceLimit, MAX_REPORTS_PER_SOURCE_PER_DAY);
-    const key = admission ? "admission" : smoke ? "smoke" : "daily";
+    const key = admission ? deletion ? "deletion-admission" : "admission" : smoke ? "smoke" : "daily";
     const day = new Date().toISOString().slice(0, 10);
+    const reservationKey = !admission && !smoke && reservationID ? `reservation:${reservationID}` : null;
+    const expiration = Date.now() + REPORT_RETENTION_SECONDS * 1000;
+    if (reservationKey && await this.ctx.storage.getAlarm() == null) await this.ctx.storage.setAlarm(expiration);
     const result = this.ctx.storage.transactionSync(() => {
+      if (reservationKey && this.ctx.storage.kv.get(reservationKey) > Date.now()) return { allowed: true };
       const previous = this.ctx.storage.kv.get(key);
       const current = previous?.day === day ? previous : { day, count: 0 };
       if (current.count >= MAX_REPORTS_PER_DAY * (admission ? 2 : 1)) return { allowed: false, error: "daily_limit_reached" };
@@ -164,6 +197,7 @@ export class ReportQuota extends DurableObject {
       const count = sources[source] ?? 0;
       if (count >= sourceLimit) return { allowed: false, error: "source_limit_reached" };
       sources[source] = count + 1;
+      if (reservationKey) this.ctx.storage.kv.put(reservationKey, expiration);
       this.ctx.storage.kv.put(key, { day, count: current.count + 1, sources });
       return { allowed: true };
     });
@@ -262,7 +296,7 @@ export class ReportEmailDelivery extends DurableObject {
     if (!job) {
       const quota = this.env.REPORT_QUOTA.get(this.env.REPORT_QUOTA.idFromName("daily"));
       const response = await quota.fetch("https://quota/reserve", {
-        method: "POST", body: JSON.stringify({ source: incoming.source })
+        method: "POST", body: JSON.stringify({ source: incoming.source, reservationID: `${incoming.id}:${incoming.fingerprint}` })
       });
       if (!response.ok) return json({ error: "quota_unavailable" }, 503);
       const reservation = await response.json();
@@ -272,6 +306,7 @@ export class ReportEmailDelivery extends DurableObject {
       await this.ctx.storage.setAlarm(Date.parse(job.receivedAt) + REPORT_RETENTION_SECONDS * 1000);
       await this.ctx.storage.put("job", job);
     }
+    await this.ctx.storage.setAlarm(Date.now());
     await this.env.ERROR_REPORTS.put(job.key, JSON.stringify({ id: job.id, receivedAt: job.receivedAt,
       report: incoming.report, emailDelivery: job.delivery }), {
       metadata: incoming.metadata, expiration: Math.floor(Date.parse(job.receivedAt) / 1000) + REPORT_RETENTION_SECONDS
@@ -315,25 +350,28 @@ export class ReportEmailDelivery extends DurableObject {
     if (!job) return;
     const expires = Date.parse(job.receivedAt) + REPORT_RETENTION_SECONDS * 1000;
     if (Date.now() >= expires) { await this.ctx.storage.deleteAll(); return; }
-    if (job.deleted || job.accepted === false) return;
+    if (job.deleted) return;
     let stored, record, failure;
     try {
       stored = await this.env.ERROR_REPORTS.getWithMetadata(job.key);
       if (!stored.value) throw new Error("Report storage is pending");
       record = JSON.parse(stored.value);
-      if (job.delivery.status === "pending") {
+      if (job.delivery.status === "pending" || job.accepted === false) {
         const admitted = await this.ctx.blockConcurrencyWhile(async () => {
           const current = await this.ctx.storage.get("job");
-          if (!current || current.deleted) return false;
+          if (!current || current.deleted || current.key !== job.key) return false;
           job = current;
-          job.delivery.attempts += 1;
+          job.accepted = true;
+          if (job.delivery.status === "pending") job.delivery.attempts += 1;
           await this.ctx.storage.put("job", job);
           return true;
         });
         if (!admitted) return;
+      }
+      if (job.delivery.status === "pending") {
         const category = record.report.mode === "suggestion" ? "用户建议" : "错误报告";
         const sent = await this.env.REPORT_EMAIL.send({
-          from: "error-report@aihelpme.dev", to: "idleassetsd@gmail.com",
+          from: "error-report@aihelpme.dev", to: this.env.REPORT_EMAIL_RECIPIENT,
           subject: `${reportEmailSubject(category, record.report)} [${job.id}]`,
           text: reportEmailBody(job.id, job.receivedAt, record.report),
           headers: { "X-BIT101-Report-ID": job.id }
@@ -348,7 +386,7 @@ export class ReportEmailDelivery extends DurableObject {
     }
     await this.ctx.blockConcurrencyWhile(async () => {
       const current = await this.ctx.storage.get("job");
-      if (!current || current.deleted) return;
+      if (!current || current.deleted || current.key !== job.key) return;
       job.delivery.updatedAt = new Date().toISOString();
       await this.ctx.storage.put("job", job);
       if (record) {
@@ -391,6 +429,16 @@ async function deleteReport(report, env) {
   return json({ deleted: true });
 }
 
+async function readVisibleSmokeRecord(storage, key) {
+  const cacheTtl = 30;
+  const deadline = Date.now() + 2 * cacheTtl * 1000;
+  while (true) {
+    const stored = await storage.getWithMetadata(key, { cacheTtl });
+    if (stored.value !== null || Date.now() >= deadline) return stored;
+    await new Promise(resolve => setTimeout(resolve, Math.min(cacheTtl * 1000, deadline - Date.now())));
+  }
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -401,25 +449,23 @@ export default {
     if (!env.ERROR_REPORTS) return json({ error: "storage_not_configured" }, 503);
     if (env.REPORT_EMAIL && !env.REPORT_EMAIL_DELIVERY) return json({ error: "notification_queue_not_configured" }, 503);
     const receivedAt = new Date().toISOString();
-    let source, quota;
-    if (request.method === "POST") {
-      const clientIP = request.headers.get("CF-Connecting-IP");
-      if (!clientIP) return json({ error: "client_identity_unavailable" }, 503);
-      const sourceBytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${receivedAt.slice(0, 10)}:${clientIP}`));
-      source = Array.from(new Uint8Array(sourceBytes), byte => byte.toString(16).padStart(2, "0")).join("");
-      quota = env.REPORT_QUOTA.get(env.REPORT_QUOTA.idFromName("daily"));
-      const admissionResponse = await quota.fetch("https://quota/reserve", {
-        method: "POST", body: JSON.stringify({ source, admission: true })
-      });
-      if (!admissionResponse.ok) return json({ error: "quota_unavailable" }, 503);
-      const admission = await admissionResponse.json();
-      if (!admission.allowed) return json({ error: admission.error }, 429);
-    }
+    const clientIP = request.headers.get("CF-Connecting-IP");
+    if (!clientIP) return json({ error: "client_identity_unavailable" }, 503);
+    const sourceBytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${receivedAt.slice(0, 10)}:${clientIP}`));
+    const source = Array.from(new Uint8Array(sourceBytes), byte => byte.toString(16).padStart(2, "0")).join("");
+    const quota = env.REPORT_QUOTA.get(env.REPORT_QUOTA.idFromName("daily"));
+    const admissionResponse = await quota.fetch("https://quota/reserve", {
+      method: "POST", body: JSON.stringify({ source, admission: true, deletion: request.method === "DELETE" })
+    });
+    if (!admissionResponse.ok) return json({ error: "quota_unavailable" }, 503);
+    const admission = await admissionResponse.json();
+    if (!admission.allowed) return json({ error: admission.error }, 429);
+    const maximumBytes = request.method === "DELETE" ? MAX_DELETE_BODY_BYTES : MAX_BODY_BYTES;
     const length = Number(request.headers.get("content-length") || 0);
-    if (length > MAX_BODY_BYTES) return json({ error: "payload_too_large" }, 413);
+    if (length > maximumBytes) return json({ error: "payload_too_large" }, 413);
     let report;
     try {
-      const body = await readReportBody(request);
+      const body = await readReportBody(request, maximumBytes);
       if (body === null) return json({ error: "payload_too_large" }, 413);
       report = JSON.parse(body);
     } catch { return json({ error: "invalid_json" }, 400); }
@@ -502,11 +548,16 @@ export default {
     ) {
       const runID = report.runID;
       const smokeKey = `smoke:${runID}:${crypto.randomUUID()}`;
-      await env.ERROR_REPORTS.put(smokeKey, serializedRecord, { metadata: recordMetadata, expirationTtl: 60 });
-      const stored = await env.ERROR_REPORTS.getWithMetadata(smokeKey);
-      await env.ERROR_REPORTS.delete(smokeKey);
+      let stored;
+      try {
+        await env.ERROR_REPORTS.put(smokeKey, serializedRecord, { metadata: recordMetadata, expirationTtl: 120 });
+        stored = await readVisibleSmokeRecord(env.ERROR_REPORTS, smokeKey);
+      } finally {
+        await env.ERROR_REPORTS.delete(smokeKey);
+      }
       return stored.value === serializedRecord && JSON.stringify(stored.metadata) === JSON.stringify(recordMetadata)
-        ? json({ ok: true, recordVerified: true, temporaryRecordRemoved: true, quotaReserved: true }, 201) : json({ error: "smoke_write_failed" }, 500);
+        ? json({ ok: true, recordVerified: true, temporaryRecordRemoved: true, quotaReserved: true }, 201)
+        : json({ error: stored.value === null ? "smoke_visibility_timeout" : "smoke_write_failed" }, stored.value === null ? 503 : 500);
     }
 
     const key = `report:${receivedAt}:${id}`;

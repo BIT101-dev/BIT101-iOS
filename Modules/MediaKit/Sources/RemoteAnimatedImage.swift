@@ -37,36 +37,37 @@ actor RemoteAnimatedImageDecoder {
         guard let data = RemoteImageResourceLimits.cachedData(at: file, using: files) else { return nil }
         guard let decoded = Self.animatedImage(from: data, reduceMotion: reduceMotion, budget: maximumDecodedBytes,
                                                maximumPixelSize: maximumPixelSize) else { return nil }
-        let pixelCost = MediaDisplayBudget.pixelBytes(decoded)
-        images.setObject(decoded, forKey: key, cost: max(pixelCost, data.count))
+        let decodedCost = MediaDisplayBudget.decodedBytes(decoded)
+        images.setObject(decoded, forKey: key, cost: max(decodedCost, data.count))
         return decoded
     }
 
     /// 将 GIF 各帧解码成可由 `UIImageView` 循环播放的动画。
     private nonisolated static func animatedImage(from data: Data, reduceMotion: Bool, budget: Int, maximumPixelSize: Int?) -> UIImage? {
-        guard let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
-              CGImageSourceGetStatus(source) == .statusComplete else { return nil }
-        // GIF 数据流沿结束标记核对完整缓存。
-        if CGImageSourceGetType(source) as String? == "com.compuserve.gif", data.last != 0x3B { return nil }
+        guard let source = RemoteImageResourceLimits.completeImageSource(from: data) else { return nil }
         let count = reduceMotion ? min(CGImageSourceGetCount(source), 1) : CGImageSourceGetCount(source)
         let stride = MemoryLayout<UIImage>.stride
         guard count > 0, count < budget / (MemoryLayout<Int>.stride + stride) else { return nil }
         var ticks: [Int] = []
         for index in 0 ..< count {
+            guard !Task.isCancelled else { return nil }
             let delay = frameDelay(source: source, index: index)
             guard delay.isFinite, delay * 100 < Double(Int.max) else { return nil }
             ticks.append(Int((delay * 100).rounded()))
         }
 
         // GIF 以百分之一秒记录时长；共同时间片保持各帧比例并复用位图。
-        let quantum = ticks.reduce(ticks[0]) { divisor, delay in
-            var a = divisor
+        var quantum = ticks[0]
+        for delay in ticks.dropFirst() {
+            guard !Task.isCancelled else { return nil }
+            var a = quantum
             var b = delay
             while b != 0 { (a, b) = (b, a % b) }
-            return a
+            quantum = a
         }
         var expandedCount = 0
         for delay in ticks {
+            guard !Task.isCancelled else { return nil }
             let (sum, overflow) = expandedCount.addingReportingOverflow(delay / quantum)
             guard !overflow, sum < budget / stride else { return nil }
             expandedCount = sum
@@ -157,7 +158,7 @@ struct RemoteAnimatedImage: UIViewRepresentable {
         imageView.layer.cornerRadius = cornerRadius
         if isActive, maximumPixelSize != 0 {
             context.coordinator.load(url: url, into: imageView, media: media, reduceMotion: reduceMotion,
-                                     retryGeneration: media.imageRetryGeneration &+ media.displayBudget.releaseGeneration,
+                                     retryGeneration: media.imageRetryGeneration, budgetGeneration: media.displayBudget.releaseGeneration,
                                      maximumPixelSize: maximumPixelSize)
         } else {
             context.coordinator.cancel(imageView: imageView)
@@ -175,22 +176,25 @@ struct RemoteAnimatedImage: UIViewRepresentable {
         private var currentURL: URL?
         private var currentReduceMotion = false
         private var currentRetryGeneration: UInt64 = 0
+        private var currentBudgetGeneration: UInt64 = 0
         private var currentPixelSize: Int?
         private let displayed = MediaDisplayedImage()
         private var requestGeneration: UInt64 = 0
         private var task: Task<Void, Never>?
 
         func load(url: URL, into imageView: UIImageView, media: MediaEnvironment,
-                  reduceMotion: Bool = false, retryGeneration: UInt64 = 0, maximumPixelSize: Int? = nil) {
+                  reduceMotion: Bool = false, retryGeneration: UInt64 = 0, budgetGeneration: UInt64 = 0, maximumPixelSize: Int? = nil) {
             let sameResource = currentURL == url && self.media === media && currentReduceMotion == reduceMotion
                 && currentPixelSize == maximumPixelSize
             if sameResource, imageView.image != nil { return }
-            if sameResource, currentRetryGeneration == retryGeneration, task != nil { return }
+            if sameResource, currentRetryGeneration == retryGeneration,
+               !displayed.waitingForBudget || currentBudgetGeneration == budgetGeneration { return }
             self.media = media
             currentURL = url
             currentReduceMotion = reduceMotion
             currentPixelSize = maximumPixelSize
             currentRetryGeneration = retryGeneration
+            currentBudgetGeneration = budgetGeneration
             requestGeneration &+= 1
             let generation = requestGeneration
             task?.cancel()
@@ -201,13 +205,9 @@ struct RemoteAnimatedImage: UIViewRepresentable {
             task = Task { [weak self, weak imageView, media] in
                 defer { if self?.requestGeneration == generation { self?.task = nil } }
                 do {
-                    let file = try await media.images.file(for: url)
-                    guard !Task.isCancelled else { return }
-                    let decoded = await media.animatedDecoder.image(
-                        at: file,
-                        reduceMotion: reduceMotion,
-                        maximumPixelSize: maximumPixelSize
-                    )
+                    let decoded = try await media.images.withFile(for: url) { @MainActor [media] file in
+                        await media.animatedDecoder.image(at: file, reduceMotion: reduceMotion, maximumPixelSize: maximumPixelSize)
+                    }
                     guard !Task.isCancelled, self?.currentURL == url, self?.media === media, let decoded, let imageView else { return }
                     guard self?.displayed.set(decoded, budget: media.displayBudget) == true else { return }
                     imageView.image = decoded

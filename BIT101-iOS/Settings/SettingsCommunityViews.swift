@@ -56,7 +56,7 @@ struct GallerySettingsPage: View {
                 .appInteractiveListRow()
             }
 
-            Section("网络诊断") {
+            Section {
                 Button {
                     diagnosisTask = Task {
                         defer { diagnosisTask = nil }
@@ -95,6 +95,10 @@ struct GallerySettingsPage: View {
                     .accessibilityLabel("网络诊断进度")
                     .accessibilityValue("\(networkDiagnosis.completedCount)/\(networkDiagnosis.totalCount)")
                 }
+            } header: {
+                AppListSectionHeader("网络诊断")
+            } footer: {
+                Text("诊断会查询学校服务，并申请和下载完整可信成绩单。")
             }
 
             Section {
@@ -176,6 +180,8 @@ struct GallerySettingsPage: View {
 struct AboutSettingsPage: View {
     let onLogout: () -> Void
     let localData: AppLocalDataService
+    let updates: AppUpdatePromptCoordinator
+    let prompts: AppPromptCoordinator
 
     @Environment(\.openURL) private var openURL
     @EnvironmentObject private var settings: AppSettingsStore
@@ -308,9 +314,9 @@ struct AboutSettingsPage: View {
         defer { isCheckingForUpdates = false }
 
         do {
-            switch try await AppUpdatePromptCoordinator.shared.checkManually() {
+            switch try await updates.checkManually() {
             case let .update(release):
-                AppPromptCoordinator.shared.enqueue(AppPrompt(
+                prompts.enqueue(AppPrompt(
                     id: "manual-app-update-\(UUID().uuidString)",
                     title: "发现新版本 \(release.version)",
                     message: release.updateMessage,
@@ -324,11 +330,11 @@ struct AboutSettingsPage: View {
                         },
                         AppPromptAction(id: "dismiss", title: "本次忽略") {},
                         AppPromptAction(id: "ignore-version", title: "忽略此版本") {
-                            AppUpdatePromptCoordinator.shared.ignore(version: release.version)
+                            updates.ignore(version: release.version)
                         }
                     ],
                     onPresent: {
-                        AppUpdatePromptCoordinator.shared.markPresented(version: release.version)
+                        updates.markPresented(version: release.version)
                     }
                 ))
             case .current:

@@ -28,6 +28,7 @@ extension ScheduleService {
         method: String = "GET",
         body: [(String, String)] = []
     ) async throws -> Response {
+        let owner = credentials.schoolSessionIdentity
         var request = URLRequest(url: buildURL(baseURL: baseURL ?? activeSchoolBaseURL, path: path))
         request.httpMethod = method
         request.setValue("application/json, text/javascript, */*; q=0.01", forHTTPHeaderField: "Accept")
@@ -38,7 +39,7 @@ extension ScheduleService {
             request.httpBody = HTTPFormEncoding.body(body)
         }
 
-        let (data, response) = try await sendRequest(request)
+        let (data, response) = try await sendRequest(request, owner: owner)
         if path.contains("cxxszhxqkb.do") {
             rawCourseResponseHandler?(data)
         }
@@ -50,6 +51,7 @@ extension ScheduleService {
         }
         let result = try await Self.decodeJSONResponse(Response.self, from: data)
         try Task.checkCancellation()
+        try validateAuthenticationOwner(owner)
         switch result {
         case let .decoded(response):
             return response
@@ -191,13 +193,21 @@ extension ScheduleService {
 
     /// 发送返回字符串正文的请求，主要用于 HTML 页和 ICS 文件。
     func sendStringRequest(
+        baseURL: URL? = nil, path: String, method: String = "GET", body: [(String, String)] = [],
+        requiresTeachingCenterSession: Bool = true, owner: SchoolSessionIdentity? = nil
+    ) async throws -> String {
+        try await sendStringResponse(baseURL: baseURL, path: path, method: method, body: body,
+            requiresTeachingCenterSession: requiresTeachingCenterSession, owner: owner).html
+    }
+
+    func sendStringResponse(
         baseURL: URL? = nil,
         path: String,
         method: String = "GET",
         body: [(String, String)] = [],
         requiresTeachingCenterSession: Bool = true,
         owner: SchoolSessionIdentity? = nil
-    ) async throws -> String {
+    ) async throws -> (html: String, url: URL) {
         var request = URLRequest(url: buildURL(baseURL: baseURL ?? activeSchoolBaseURL, path: path))
         request.httpMethod = method
 
@@ -214,14 +224,14 @@ extension ScheduleService {
     }
 
     func sendStringRequest(_ request: URLRequest, owner: SchoolSessionIdentity? = nil) async throws -> String {
-        try await sendStringResponse(request, requiresTeachingCenterSession: false, owner: owner)
+        try await sendStringResponse(request, owner: owner).html
     }
 
-    private func sendStringResponse(
+    func sendStringResponse(
         _ request: URLRequest,
-        requiresTeachingCenterSession: Bool,
-        owner: SchoolSessionIdentity?
-    ) async throws -> String {
+        requiresTeachingCenterSession: Bool = false,
+        owner: SchoolSessionIdentity? = nil
+    ) async throws -> (html: String, url: URL) {
         let (data, response) = try await sendRequest(request, owner: owner)
         if requiresTeachingCenterSession,
            isTeachingCenterAuthenticationFailure(data: data, response: response)
@@ -231,7 +241,8 @@ extension ScheduleService {
         guard (200 ..< 400).contains(response.statusCode) else {
             throw httpError(response.statusCode)
         }
-        return String(decoding: data, as: UTF8.self)
+        guard let url = response.url ?? request.url else { throw ScheduleServiceError.invalidResponse }
+        return (String(decoding: data, as: UTF8.self), url)
     }
 
     /// 统一底层请求入口，并在发起前做 HTTPS 升级。

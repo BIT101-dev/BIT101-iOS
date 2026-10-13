@@ -1,3 +1,4 @@
+import Foundation
 import ScheduleDomain
 import ClientCore
 /// 日程状态机使用的学校系统能力；账号数据归仓库，UI 状态归各子功能。
@@ -30,7 +31,7 @@ public protocol ScheduleClassroomServicing {
     func prepareTeachingCenterAccess() async throws
     func fetchCampuses() async throws -> [CampusRecord]
     func fetchBuildings(campusCode: String?) async throws -> [BuildingRecord]
-    func fetchClassrooms(buildingID: String, term: String) async throws -> [ClassroomRecord]
+    func fetchClassrooms(buildingID: String, term: String, date: Date) async throws -> [ClassroomRecord]
 }
 
 public protocol ScheduleServicing: ScheduleCourseServicing, ScheduleDDLServicing, ScheduleClassroomServicing {}

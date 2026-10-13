@@ -1,6 +1,23 @@
 """Shared design tokens and semantic rule definitions."""
 import re
 
+SWIFTUI_CONTROL_ACTIONS = {
+    "Button": "tap", "NavigationLink": "tap", "Menu": "tap", "Link": "tap", "PhotosPicker": "tap",
+    "Toggle": "tap", "DisclosureGroup": "tap", "Picker": "selection", "DatePicker": "selection", "ColorPicker": "selection",
+    "TextField": "input", "SecureField": "input", "TextEditor": "input", "Slider": "drag", "Stepper": "tap",
+    "ScrollView": "scroll", "List": "scroll", "TabView": "tab-switch", "ShareLink": "tap",
+    "MultiDatePicker": "selection", "EditButton": "tap", "PasteButton": "tap",
+}
+SWIFTUI_MODIFIER_ACTIONS = {
+    "refreshable": "refresh", "onSubmit": "submit", "onDelete": "delete", "onMove": "move", "searchable": "search",
+    "contextMenu": "press", "swipeActions": "swipe", "accessibilityAction": "accessibility", "keyboardShortcut": "keyboard",
+    "onDrag": "drag", "onDrop": "drop", "draggable": "drag", "dropDestination": "drop", "onKeyPress": "keyboard",
+}
+SWIFTUI_GESTURE_MODIFIERS = {"onTapGesture", "onLongPressGesture", "gesture", "simultaneousGesture", "highPriorityGesture"}
+SWIFTUI_INTERACTION_KINDS = set(SWIFTUI_CONTROL_ACTIONS) | set(SWIFTUI_MODIFIER_ACTIONS) | SWIFTUI_GESTURE_MODIFIERS | {
+    "DragGesture", "MagnificationGesture", "TapGesture", "LongPressGesture",
+}
+
 FIXED_GEOMETRY_CONTRACTS = (
     (
         "Modules/CourseFeature/Sources/CourseCommentViews.swift",

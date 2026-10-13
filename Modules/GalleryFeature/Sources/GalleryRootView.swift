@@ -14,6 +14,7 @@ import DesignSystemKit
 import SwiftUI
 import Combine
 import WebKit
+import OSLog
 
 /// “话廊”底部页内部的一级内容分区。
 ///
@@ -147,8 +148,12 @@ private struct GalleryRootViewScene: View {
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
             viewModel.releaseInactiveFeeds()
         }
-        .onChange(of: appSettings.snapshot.galleryHideBotPosterInSearch) { _, hidden in
-            if hidden && viewModel.selectedFeed == .bot { viewModel.selectedFeed = .recommend }
+        .onChange(of: appSettings.snapshot) { previous, settings in
+            guard previous.galleryHideBotPosterInSearch != settings.galleryHideBotPosterInSearch
+                || previous.galleryHiddenUserIDs != settings.galleryHiddenUserIDs
+                || previous.galleryHideAnonymousContent != settings.galleryHideAnonymousContent else { return }
+            if settings.galleryHideBotPosterInSearch && viewModel.selectedFeed == .bot { viewModel.selectedFeed = .recommend }
+            viewModel.contentPreferencesDidChange()
         }
         .navigationDestination(item: $deepLinkedPoster) { poster in
             GalleryPosterDetailView(dependencies: dependencies, media: media, profiles: profiles, poster: poster)
@@ -179,8 +184,7 @@ private struct GalleryRootViewScene: View {
             let webView = WKWebView(frame: .zero, configuration: configuration)
             webView.navigationDelegate = context.coordinator
             webView.allowsBackForwardNavigationGestures = true
-            context.coordinator.observeCredentials(in: webView)
-            webView.load(GalleryWebRequestFactory.request(for: url))
+            context.coordinator.start(in: webView, url: url)
             return webView
         }
 
@@ -351,6 +355,7 @@ private struct GalleryRootViewScene: View {
 }
 
 final class GalleryWebCoordinator: NSObject, WKNavigationDelegate {
+    private static let logger = Logger(subsystem: "BIT101-iOS", category: "GalleryWeb")
     let credentials: GalleryWebCredentials
     let openExternal: (URL) -> Void
     init(credentials: GalleryWebCredentials, openExternal: @escaping (URL) -> Void) {
@@ -359,12 +364,14 @@ final class GalleryWebCoordinator: NSObject, WKNavigationDelegate {
     }
     private var credentialsSubscription: AnyCancellable?
     private var isShowingFailure = false
+    private var credentialGeneration = 0
 
-    func observeCredentials(in webView: WKWebView) {
+    func start(in webView: WKWebView, url: URL) {
         credentialsSubscription = credentials.changes.sink { [weak self, weak webView] _ in
             guard let webView else { return }
             self?.synchronizeCredentials(in: webView)
         }
+        webView.load(GalleryWebRequestFactory.request(for: url))
     }
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
@@ -395,10 +402,11 @@ final class GalleryWebCoordinator: NSObject, WKNavigationDelegate {
     func synchronizeCredentials(in webView: WKWebView) {
         guard !isShowingFailure, !webView.isLoading, GalleryWebRequestFactory.isTrustedPage(webView.url) else { return }
         let fakeCookie = credentials.cookie()
-        guard
-            let encodedCookieData = try? JSONEncoder().encode(fakeCookie),
-            let encodedCookie = String(data: encodedCookieData, encoding: .utf8)
-        else { return }
+        let encodedCookie: String
+        do { encodedCookie = String(decoding: try JSONEncoder().encode(fakeCookie), as: UTF8.self) }
+        catch { showLoadFailure(in: webView, error: error); return }
+        credentialGeneration &+= 1
+        let generation = credentialGeneration
         let script = """
         (() => {
             if (location.origin !== 'https://bit101.cn') return;
@@ -416,8 +424,12 @@ final class GalleryWebCoordinator: NSObject, WKNavigationDelegate {
             return true;
         })();
         """
-        webView.evaluateJavaScript(script) { [weak webView] result, error in
-            if error == nil, result as? Bool == true { webView?.reload() }
+        webView.evaluateJavaScript(script) { [weak self, weak webView] result, error in
+            guard let self, let webView, self.credentialGeneration == generation,
+                  self.credentials.cookie() == fakeCookie, !self.isShowingFailure,
+                  GalleryWebRequestFactory.isTrustedPage(webView.url) else { return }
+            if let error { self.showLoadFailure(in: webView, error: error) }
+            else if result as? Bool == true { webView.reload() }
         }
     }
 
@@ -440,6 +452,7 @@ final class GalleryWebCoordinator: NSObject, WKNavigationDelegate {
     private func showLoadFailure(in webView: WKWebView, error: Error) {
         let failure = error as NSError
         guard !(failure.domain == NSURLErrorDomain && failure.code == NSURLErrorCancelled) else { return }
+        Self.logger.error("Web view failed: domain=\(failure.domain, privacy: .public) code=\(failure.code)")
         isShowingFailure = true
         let padding = Int(AppDesignSystem.Spacing.section)
         webView.loadHTMLString(

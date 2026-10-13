@@ -19,6 +19,7 @@ public nonisolated enum ScheduleICSParser {
 
         var currentEvent: [String: Property]?
         var eventsByID: [String: DDLEventRecord] = [:]
+        var cancelledIDs = Set<String>()
         var components: [String] = []
         var hasCalendar = false
 
@@ -29,6 +30,7 @@ public nonisolated enum ScheduleICSParser {
             let controlLine = line.uppercased()
             if controlLine.hasPrefix("BEGIN:") {
                 let name = String(controlLine.dropFirst(6))
+                guard name != "VTODO" else { throw ParseError.invalidCalendarData }
                 if name == "VCALENDAR" {
                     guard components.isEmpty, !hasCalendar else { throw ParseError.invalidCalendarData }
                     hasCalendar = true
@@ -47,9 +49,17 @@ public nonisolated enum ScheduleICSParser {
                 let name = String(controlLine.dropFirst(4))
                 guard components.last == name else { throw ParseError.invalidCalendarData }
                 if name == "VEVENT" {
-                    guard let properties = currentEvent, let event = makeEvent(from: properties) else { throw ParseError.invalidCalendarData }
-                    guard eventsByID[event.id] == nil || eventsByID[event.id] == event else { throw ParseError.invalidCalendarData }
-                    eventsByID[event.id] = event
+                    guard let properties = currentEvent else { throw ParseError.invalidCalendarData }
+                    if properties["STATUS"]?.value.uppercased() == "CANCELLED" {
+                        guard let uid = properties["UID"]?.value.trimmingCharacters(in: .whitespacesAndNewlines),
+                              !uid.isEmpty else { throw ParseError.invalidCalendarData }
+                        cancelledIDs.insert(uid)
+                        eventsByID[uid] = nil
+                    } else {
+                        guard let event = makeEvent(from: properties) else { throw ParseError.invalidCalendarData }
+                        guard eventsByID[event.id] == nil || eventsByID[event.id] == event else { throw ParseError.invalidCalendarData }
+                        if !cancelledIDs.contains(event.id) { eventsByID[event.id] = event }
+                    }
                     currentEvent = nil
                 }
                 components.removeLast()
@@ -59,6 +69,10 @@ public nonisolated enum ScheduleICSParser {
             guard currentEvent != nil, components.last == "VEVENT" else { continue }
             let (keyParts, value) = try splitProperty(line)
             guard let name = keyParts.first, !name.isEmpty else { throw ParseError.invalidCalendarData }
+            let propertyName = name.uppercased()
+            if ["UID", "DTSTART", "SUMMARY", "DESCRIPTION", "STATUS"].contains(propertyName), currentEvent?[propertyName] != nil {
+                throw ParseError.invalidCalendarData
+            }
             guard !["RRULE", "RDATE", "EXDATE", "RECURRENCE-ID"].contains(name.uppercased()) else {
                 throw ParseError.invalidCalendarData
             }
@@ -67,11 +81,13 @@ public nonisolated enum ScheduleICSParser {
             for parameter in keyParts.dropFirst() {
                 let parameterParts = parameter.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
                 guard parameterParts.count == 2 else { throw ParseError.invalidCalendarData }
-                parameters[String(parameterParts[0]).uppercased()] = String(parameterParts[1])
+                let parameterName = parameterParts[0].uppercased()
+                guard !parameterName.isEmpty, parameters[parameterName] == nil else { throw ParseError.invalidCalendarData }
+                parameters[parameterName] = String(parameterParts[1])
                     .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
             }
 
-            currentEvent?[String(name).uppercased()] = Property(
+            currentEvent?[propertyName] = Property(
                 value: decodeValue(value),
                 parameters: parameters
             )

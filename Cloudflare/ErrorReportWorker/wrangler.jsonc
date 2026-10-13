@@ -8,6 +8,7 @@
       "custom_domain": true
     }
   ],
+  "vars": { "REPORT_EMAIL_RECIPIENT": "idleassetsd@gmail.com" },
   "kv_namespaces": [
     {
       "binding": "ERROR_REPORTS",

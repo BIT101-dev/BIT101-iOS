@@ -123,9 +123,13 @@ else:
     raise SystemExit('常规模拟器 App 就绪验收超时，请检查登录恢复与场景初始化。')
 PYRESTORE
 }
+typeset -a retained_result_groups=()
 restore_on_exit() {
   local workflow_result=$?
   trap - EXIT
+  if (( ${#retained_result_groups[@]} )); then
+    python3 "$ROOT_DIR/Scripts/validation_performance.py" retain-evidence "${retained_result_groups[@]}" || workflow_result=$?
+  fi
   if restore_application; then
     echo "常规模拟器包已恢复。"
   else
@@ -177,20 +181,25 @@ if not plans: raise SystemExit('模拟器编译需要生成对应的运行配置
 print(max(plans, key=lambda path: path.stat().st_mtime))
 PYPLAN
 )"
-python3 "$ROOT_DIR/Scripts/validation_performance.py" reset-results
+retained_result_groups=("${(@f)$(python3 "$ROOT_DIR/Scripts/validation_performance.py" begin-selected)}")
+retained_result_groups=("${(@)retained_result_groups:#}")
 rm -f "$DERIVED_ROOT/test-metrics.txt" "$DERIVED_ROOT/test-failures.txt"
 test_status=0
 trap restore_on_exit EXIT
 bit101_run_logged "$DERIVED_ROOT/simulator.log" "模拟器复验" xcodebuild test-without-building -quiet \
   -xctestrun "$plan" -destination "$destination" -resultBundlePath "$result" \
   -parallel-testing-enabled NO -test-timeouts-enabled YES "${only_testing[@]}" || test_status=$?
-python3 - "$result" "$DERIVED_ROOT/test-metrics.txt" "$ROOT_DIR/Scripts" "$EXPECTED_TESTS" "$test_status" <<'PYRESULT'
+python3 - "$result" "$DERIVED_ROOT/test-metrics.txt" "$ROOT_DIR/Scripts" "$EXPECTED_TESTS" "$test_status" "$mode" "$SIMULATOR_DEVICE" <<'PYRESULT'
 import json
 from pathlib import Path
 import subprocess
 import sys
 sys.path.insert(0, sys.argv[3])
-from validation_evidence import normalized_test_id, validate_community_write_test_output
+from validation_evidence import normalized_test_id, validate_community_write_test_output, native_case_summary, selected_test_summary_complete
+from validation_performance import result_bundle_complete
+result = Path(sys.argv[1])
+if not result_bundle_complete(result):
+    raise SystemExit('模拟器测试执行结束，结果包处于未完成状态；请查看 simulator.log 并重新采样。')
 def read(kind): return json.loads(subprocess.check_output(['xcrun', 'xcresulttool', 'get', 'test-results', kind, '--path', sys.argv[1]], text=True))
 summary, tree = read('summary'), read('tests')
 executed = set()
@@ -208,10 +217,15 @@ expected = set(json.loads(sys.argv[4]))
 headline = (f"模拟器本机定向复验\n结果：{summary.get('result', '?')}；总计 {summary.get('totalTestCount', 0)}；"
     f"通过 {summary.get('passedTests', 0)}；失败 {summary.get('failedTests', 0)}；跳过 {summary.get('skippedTests', 0)}\n")
 text = headline + "已执行用例：" + json.dumps(sorted(executed)) + '\n'
+cases = native_case_summary(tree, sys.argv[6], simulator=True, device_identifier=sys.argv[7])
+text += "测试实例：" + json.dumps(cases) + '\n'
 for failure in summary.get('testFailures', []):
     text += f"{failure.get('testIdentifierString', '?')}: {failure.get('failureText', '?')}\n"
 Path(sys.argv[2]).write_text(text)
-if int(sys.argv[5]) or summary.get('result') != 'Passed' or summary.get('failedTests') or summary.get('skippedTests') or not expected or executed != expected:
+native_summary = {'passed': summary.get('result') == 'Passed', 'totalTests': summary.get('totalTestCount'),
+    'passedTests': summary.get('passedTests'), 'failedTests': summary.get('failedTests'), 'skippedTests': summary.get('skippedTests'),
+    'executedTests': sorted(executed), 'testCases': cases}
+if int(sys.argv[5]) or not selected_test_summary_complete(native_summary, sorted(expected), group=sys.argv[6], simulator=True):
     print(headline, file=sys.stderr, end='')
     for failure in summary.get('testFailures', []):
         message = str(failure.get('failureText', '?')).splitlines()[0]

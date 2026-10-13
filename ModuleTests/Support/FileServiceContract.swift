@@ -5,16 +5,25 @@ import Testing
 public func waitForTestEvent(
     timeout: Duration = .seconds(5),
     isolation: isolated (any Actor)? = #isolation,
-    _ condition: () async throws -> Bool
+    _ condition: () throws -> Bool
 ) async throws {
     let clock = ContinuousClock()
     let deadline = clock.now.advanced(by: timeout)
     while true {
         try Task.checkCancellation()
-        if try await condition() { return }
+        let complete = try condition()
         if clock.now >= deadline { throw URLError(.timedOut) }
-        await Task.yield()
+        if complete { return }
+        try await clock.sleep(for: .milliseconds(1))
     }
+}
+
+public func waitForTestEvent<Owner: Actor>(
+    isolation: isolated Owner,
+    timeout: Duration = .seconds(5),
+    _ condition: @Sendable (isolated Owner) throws -> Bool
+) async throws {
+    try await waitForTestEvent(timeout: timeout, isolation: isolation) { try condition(isolation) }
 }
 
 public nonisolated func verifyFileServiceContract(
@@ -22,8 +31,9 @@ public nonisolated func verifyFileServiceContract(
     root: URL,
     setRemovalFailure: ((Bool) -> Void)? = nil
 ) throws {
+    try files.removeItemIfPresent(at: root)
     try files.createDirectory(at: root)
-    defer { try? files.removeItem(at: root) }
+    defer { do { try files.removeItem(at: root) } catch { Issue.record(error) } }
     let nested = root.appendingPathComponent("nested/child", isDirectory: true)
     let folder = nested.deletingLastPathComponent()
     let item = nested.appendingPathComponent("value")

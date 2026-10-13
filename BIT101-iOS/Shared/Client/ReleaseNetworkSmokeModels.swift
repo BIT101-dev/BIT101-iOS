@@ -48,7 +48,7 @@ enum NetworkSmokeScope: String, Codable, CaseIterable, Sendable {
         case .ddl:
             return area == .ddl
         case .communityWrites:
-            return area == .authentication || area == .communityWrites
+            return area == .authentication || area == .communityWrites || area == .communityWriteImages
         case .communityCleanup:
             return area == .authentication || area == .communityWrites
         }
@@ -92,11 +92,13 @@ enum NetworkSmokeProbe: String, CaseIterable, Sendable {
     case gallerySearch = "gallery.search"
     case messageUnread = "message.unread"
     case courseList = "course.list"
+    case courseSearch = "course.search"
     case courseDetail = "course.detail"
     case courseComments = "course.comments"
     case courseHistory = "course.history"
     case courseWeb = "course.web"
     case paperList = "paper.list"
+    case paperSearch = "paper.search"
     case paperDetail = "paper.detail"
     case paperImage = "paper.image"
     case paperComments = "paper.comments"
@@ -134,6 +136,18 @@ enum NetworkSmokeProbe: String, CaseIterable, Sendable {
     case paperLikes = "paper.list.like"
     case paperCommentSort = "paper.list.comment"
 
+    var requiresCommunitySession: Bool {
+        switch self {
+        case .communityWrites, .galleryNewest, .galleryFollowing, .galleryHot, .galleryDetail, .galleryComments, .galleryImage,
+             .galleryRecommend, .galleryBots, .galleryClaims, .reportTypes, .productionSession, .gallerySearch,
+             .messageUnread, .messageComment, .messageLike, .messageFollow, .messageSystem,
+             .courseList, .courseSearch, .courseDetail, .courseComments, .courseHistory,
+             .paperList, .paperSearch, .paperDetail, .paperImage, .paperComments, .paperNewest, .paperLikes, .paperCommentSort,
+             .myProfile, .myFollowing, .myFollowers, .myPosts, .userProfile, .userPosts: true
+        default: false
+        }
+    }
+
     var displayName: String {
         switch self {
         case .login: "BIT101 登录状态"
@@ -157,11 +171,13 @@ enum NetworkSmokeProbe: String, CaseIterable, Sendable {
         case .gallerySearch: "话廊搜索"
         case .messageUnread: "消息未读数"
         case .courseList: "学业课程列表"
+        case .courseSearch: "学业课程关键词搜索"
         case .courseDetail: "学业课程详情"
         case .courseComments: "学业课程评论"
         case .courseHistory: "学业课程历史成绩"
         case .courseWeb: "学业课程网页详情"
         case .paperList: "文章列表"
+        case .paperSearch: "文章关键词搜索"
         case .paperDetail: "文章详情"
         case .paperImage: "文章正文图片下载"
         case .paperComments: "文章评论"
@@ -227,6 +243,7 @@ enum NetworkSmokeArea: CaseIterable, Hashable, Sendable {
     case school
     case transcript
     case communityWrites
+    case communityWriteImages
 
     var probeKinds: [NetworkSmokeProbe] {
         switch self {
@@ -234,6 +251,8 @@ enum NetworkSmokeArea: CaseIterable, Hashable, Sendable {
             [.login]
         case .communityWrites:
             [.communityWrites]
+        case .communityWriteImages:
+            [.galleryImage]
         case .bit101:
             [
                 .homeRedirect,
@@ -255,11 +274,13 @@ enum NetworkSmokeArea: CaseIterable, Hashable, Sendable {
                 .gallerySearch,
                 .messageUnread,
                 .courseList,
+                .courseSearch,
                 .courseDetail,
                 .courseComments,
                 .courseHistory,
                 .courseWeb,
                 .paperList,
+                .paperSearch,
                 .paperDetail,
                 .paperImage,
                 .paperComments,
@@ -425,7 +446,11 @@ enum ReleaseNetworkSmokeReportStore {
     static func hasPendingCommunityWrites(files: any AppFileService = AppFileDirectories.files,
         directory: URL = AppFileDirectories.applicationSupport.appendingPathComponent(directoryName, isDirectory: true),
         legacyData: Data? = AppFileDirectories.defaults.data(forKey: communityJournalPreferenceKey)) -> Bool {
-        legacyData != nil || files.fileExists(at: directory.appendingPathComponent(communityJournalFileName))
+        if legacyData != nil { return true }
+        do {
+            _ = try files.readData(at: directory.appendingPathComponent(communityJournalFileName))
+            return true
+        } catch { return !AppFileSystem.isMissingFile(error) }
     }
 
     static var fileURL: URL? {
@@ -459,7 +484,7 @@ enum ReleaseNetworkSmokeReportStore {
 
     static func clearRawCourseResponse() throws {
         guard let fileURL = rawCourseResponseFileURL else { throw ScheduleExternalSnapshotStoreError.sharedContainerUnavailable }
-        if AppFileDirectories.files.fileExists(at: fileURL) { try AppFileDirectories.files.removeItem(at: fileURL) }
+        try AppFileDirectories.files.removeItemIfPresent(at: fileURL)
     }
 
     @discardableResult
@@ -467,18 +492,12 @@ enum ReleaseNetworkSmokeReportStore {
         guard let directoryURL = fileURL?.deletingLastPathComponent() else {
             return false
         }
-        let succeeded: Bool
-        if !AppFileDirectories.files.fileExists(at: directoryURL) {
-            succeeded = true
-        } else {
-            do {
-                try AppFileDirectories.files.removeItem(at: directoryURL)
-                succeeded = true
-            } catch {
-                succeeded = false
-            }
+        do {
+            try AppFileDirectories.files.removeItemIfPresent(at: directoryURL)
+            return true
+        } catch {
+            return false
         }
-        return succeeded
     }
 
     static func writeRawCourseResponse(_ data: Data, runID: String) throws {
@@ -534,6 +553,13 @@ extension ScheduleService: NetworkSmokeScheduleServicing {}
 
 @MainActor
 struct ReleaseNetworkSmokeDependencies {
+    static let communityPreferences = CommunityPreferenceSnapshot(hideBots: false, hiddenUserIDs: [],
+        hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
+
+    static func mineService(session: CommunitySession = .appSession()) -> MineService {
+        MineService(session: session, preferences: { communityPreferences })
+    }
+
     var requiresRequestEvidence = true
     var communityIdentity: @MainActor () -> CommunitySessionIdentity = { AppAccountSession.storage.communityCredentials.identity }
     var checkLogin: @MainActor () async throws -> String? = { try await LoginService().checkLogin() }
@@ -542,15 +568,14 @@ struct ReleaseNetworkSmokeDependencies {
     var writeRawCourseResponse: @MainActor (Data, String) throws -> Void = { try ReleaseNetworkSmokeReportStore.writeRawCourseResponse($0, runID: $1) }
     var makeGallery: @MainActor () -> any NetworkSmokeGalleryServicing = {
         GalleryService(session: .appSession(), preferences: {
-            CommunityPreferenceSnapshot(hideBots: false, hiddenUserIDs: [], hideAnonymous: false,
-                useWebView: false, hideMakeupOutliers: false)
+            communityPreferences
         })
     }
     var makeCourses: @MainActor () -> any NetworkSmokeCourseServicing = { CourseService() }
     var makePapers: @MainActor () -> any NetworkSmokePaperServicing = { PaperService() }
-    var makeMine: @MainActor () -> any NetworkSmokeMineServicing = { MineService() }
-    var communityWriteProbe: @MainActor (String, Bool, Int?, Int?, NetworkSmokeFixtures?, CommunityWriteRecoveryConfirmation?) async throws -> [String] = {
-        try await CommunityWriteSmoke(operations: CommunityWriteSmoke.Operations.production(followTarget: $2, courseFixture: $4))
+    var makeMine: @MainActor () -> any NetworkSmokeMineServicing = { mineService() }
+    var communityWriteProbe: @MainActor (String, Bool, Int?, Int?, NetworkSmokeFixtures?, CommunityWriteRecoveryConfirmation?, @escaping @MainActor ([CommunityImage]) async throws -> Void) async throws -> [String] = {
+        try await CommunityWriteSmoke(operations: CommunityWriteSmoke.Operations.production(followTarget: $2, courseFixture: $4, verifyImages: $6))
             .run(marker: $0, cleanupOnly: $1, expectedAccount: $3, recoveryConfirmation: $5)
     }
     var productionSessionProbe: @MainActor () async throws -> [String] = NetworkSmokeProductionSession.run
@@ -564,7 +589,7 @@ struct ReleaseNetworkSmokeDependencies {
     var makeProductionSchedule: @MainActor () -> any NetworkSmokeScheduleServicing = NetworkSmokeProductionSession.school
     var makeEclassSchedule: @MainActor () throws -> any NetworkSmokeScheduleServicing = ReleaseNetworkSmokeRunner.freshEclassService
 
-    private static func probeRemoteImage(at url: URL) async throws -> Int {
+    static func probeRemoteImage(at url: URL) async throws -> Int {
         let files = ScopedAppFileService(root: AppFileDirectories.files.temporaryDirectoryURL
             .appending(path: "NetworkSmokeMedia", directoryHint: .isDirectory))
         if files.fileExists(at: files.root) { try files.removeItem(at: files.root) }
@@ -594,7 +619,6 @@ nonisolated struct NetworkSmokeFixtures: Codable, Sendable {
 
 /// ReleaseNetworkSmokeLaunchRequest 统一解析深链与 XCTest 环境中的网络验收参数。
 struct ReleaseNetworkSmokeLaunchRequest: Codable, Sendable {
-    private static let logger = Logger(subsystem: "BIT101", category: "NetworkSmoke")
     let scope: NetworkSmokeScope
     let runID: String
     let capture: NetworkSmokeCapture
@@ -605,20 +629,45 @@ struct ReleaseNetworkSmokeLaunchRequest: Codable, Sendable {
     var communityRecoveryConfirmation: CommunityWriteRecoveryConfirmation? = nil
     var fixtures: NetworkSmokeFixtures? = nil
 
+    private enum CodingKeys: String, CodingKey {
+        case scope, runID, capture, term, interactiveSMS, communityFollowTarget, communityExpectedAccount
+        case communityRecoveryConfirmation, fixtures
+    }
+
+    private static func validRunID(_ value: String) -> Bool {
+        (1...128).contains(value.utf8.count) && value.utf8.allSatisfy { byte in
+            (48...57).contains(byte) || (65...90).contains(byte) || (97...122).contains(byte) || byte == 45
+        }
+    }
+
+    init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        let identifier = try values.decode(String.self, forKey: .runID)
+        guard Self.validRunID(identifier) else {
+            throw DecodingError.dataCorruptedError(forKey: .runID, in: values,
+                debugDescription: "Smoke run ID requires 1–128 ASCII letters, digits or hyphens.")
+        }
+        runID = identifier
+        scope = try values.decode(NetworkSmokeScope.self, forKey: .scope)
+        capture = try values.decode(NetworkSmokeCapture.self, forKey: .capture)
+        term = try values.decodeIfPresent(String.self, forKey: .term)
+        interactiveSMS = try values.decodeIfPresent(Bool.self, forKey: .interactiveSMS)
+        communityFollowTarget = try values.decodeIfPresent(Int.self, forKey: .communityFollowTarget)
+        communityExpectedAccount = try values.decodeIfPresent(Int.self, forKey: .communityExpectedAccount)
+        communityRecoveryConfirmation = try values.decodeIfPresent(CommunityWriteRecoveryConfirmation.self, forKey: .communityRecoveryConfirmation)
+        fixtures = try values.decodeIfPresent(NetworkSmokeFixtures.self, forKey: .fixtures)
+    }
+
     private static var pendingFileURL: URL? {
         AppFileDirectories.documentFileURL(named: "network-smoke-request.json")
     }
 
-    static func readPendingFile(files: any AppFileService = AppFileDirectories.files, at fileURL: URL? = nil) -> Self? {
-        guard let pendingFileURL = fileURL ?? Self.pendingFileURL,
-              let data = try? files.readData(at: pendingFileURL)
-        else { return nil }
-        do { try files.removeItem(at: pendingFileURL) }
-        catch {
-            logger.error("消费网络验收请求遇到错误：\(String(describing: error), privacy: .private)")
-            return nil
-        }
-        return try? JSONDecoder().decode(Self.self, from: data)
+    static func readPendingFile(files: any AppFileService = AppFileDirectories.files, at fileURL: URL? = nil) throws -> Self {
+        guard let pendingFileURL = fileURL ?? Self.pendingFileURL else { throw CocoaError(.fileNoSuchFile) }
+        let data = try files.readData(at: pendingFileURL)
+        let request = try JSONDecoder().decode(Self.self, from: data)
+        try files.removeItem(at: pendingFileURL)
+        return request
     }
 
     init?(scope: NetworkSmokeScope, environment: [String: String]) {
@@ -684,9 +733,7 @@ struct ReleaseNetworkSmokeLaunchRequest: Codable, Sendable {
         self.term = term?.isEmpty == true ? nil : term
         self.interactiveSMS = components?.queryItems?.contains { $0.name == "sms" && $0.value == "manual" } == true ? true : nil
         if let runID, !runID.isEmpty {
-            guard runID.count <= 128,
-                  runID.unicodeScalars.allSatisfy({ $0.value >= 0x20 && $0.value != 0x7F })
-            else { return nil }
+            guard Self.validRunID(runID) else { return nil }
             self.runID = runID
         } else {
             self.runID = UUID().uuidString

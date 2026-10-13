@@ -54,7 +54,7 @@ public nonisolated struct TimeSlot: Codable, Hashable, Identifiable, Sendable {
         var previousID = 0
         var previousEnd = -1
         for slot in slots {
-            guard (1...ScheduleCourseConstraints.maximumSection).contains(slot.id), slot.id > previousID,
+            guard slot.id == previousID + 1,
                   let start = validMinutes(slot.start), let end = validMinutes(slot.end),
                   start >= previousEnd, end > start else { return false }
             previousID = slot.id
@@ -157,8 +157,9 @@ public nonisolated struct CourseRecord: Codable, Identifiable, Hashable, Sendabl
     public let category: String
     public let department: String
 
-    /// 待排课程保留空坐标，已排课程携带完整周次与上课坐标。
+    /// 学分使用有限数值；待排课程保留空坐标，已排课程携带完整周次与上课坐标。
     public var hasValidPlacement: Bool {
+        guard !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, credit.isFinite else { return false }
         if weeks.isEmpty && weekday == 0 && startSection == 0 && endSection == 0 { return true }
         return !weeks.isEmpty && weeks.allSatisfy(ScheduleCourseConstraints.isValidWeek)
             && (1...7).contains(weekday) && startSection > 0 && endSection >= startSection
@@ -191,7 +192,7 @@ public nonisolated struct CourseRecord: Codable, Identifiable, Hashable, Sendabl
         department = try values.decode(String.self, forKey: .department)
         guard hasValidPlacement else {
             throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath,
-                debugDescription: "Course requires valid weeks, weekday and bounded sections."))
+                debugDescription: "Course requires finite credits, valid weeks, weekday and bounded sections."))
         }
     }
 
@@ -201,7 +202,7 @@ public nonisolated struct CourseRecord: Codable, Identifiable, Hashable, Sendabl
     }
 
     public var creditText: String {
-        guard credit > 0 else { return "-" }
+        guard credit.isFinite, credit > 0 else { return "-" }
         if credit.rounded() == credit {
             return String(format: "%.0f", credit)
         }
@@ -322,12 +323,16 @@ public struct CourseDraft: Equatable {
 
 /// 课程本体的稳定身份，用于合并同一门课的多条排课记录。
 public nonisolated func scheduleCourseIdentity(_ course: CourseRecord) -> String {
-    let number = course.number.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    let name = course.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    scheduleCourseIdentity(number: course.number, name: course.name, teacher: course.teacher)
+}
+
+public nonisolated func scheduleCourseIdentity(number: String, name: String, teacher: String) -> String {
+    let number = number.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    let name = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     if !number.isEmpty {
         return "number:\(number)|name:\(name)"
     }
-    return "name:\(name)|teacher:\(course.teacher.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())"
+    return "name:\(name)|teacher:\(teacher.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())"
 }
 
 /// 同一门课在同一星期、同一节次的排课身份。
@@ -441,6 +446,13 @@ public nonisolated struct DDLEventRecord: Codable, Identifiable, Hashable, Senda
     public var dueAt: Date
     public var done: Bool
     public var isSchoolSynced: Bool { group == "lexue" || group == "eclass" }
+    public var hasValidRecord: Bool {
+        guard !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              dueAt.timeIntervalSince1970.isFinite else { return false }
+        return isSchoolSynced || !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && title.utf8.count <= ScheduleCourseConstraints.maximumFieldBytes
+            && text.utf8.count <= ScheduleCourseConstraints.maximumFieldBytes
+    }
     public var sourceTitle: String {
         switch group {
         case "lexue": "乐学"
@@ -483,7 +495,23 @@ public nonisolated struct CustomScheduleRecord: Codable, Identifiable, Hashable,
     public var dateString: String
     public var beginTime: String
     public var endTime: String
-    public init(id: String, title: String, subtitle: String, description: String, dateString: String, beginTime: String, endTime: String) {
+    public var additionalDateStrings: [String]?
+    public var hasValidPlacement: Bool {
+        let dates = [dateString] + (additionalDateStrings ?? [])
+        guard !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              [title, subtitle, description].allSatisfy({ $0.utf8.count <= ScheduleCourseConstraints.maximumFieldBytes }),
+              dates.allSatisfy({ ScheduleSharedDateCodec.parseDate($0) != nil }), Set(dates).count == dates.count,
+              let start = TimeSlot.validMinutes(beginTime), let end = TimeSlot.validMinutes(endTime) else { return false }
+        return start < 24 * 60 && end > start
+    }
+    public var occurrenceDateStrings: [String] {
+        Array(Set([dateString] + (additionalDateStrings ?? []))).sorted()
+    }
+    public func occurrenceID(for dateString: String) -> String {
+        "custom-\(id)-\(dateString)"
+    }
+    public init(id: String, title: String, subtitle: String, description: String, dateString: String, beginTime: String, endTime: String, additionalDateStrings: [String]? = nil) {
         self.id = id
         self.title = title
         self.subtitle = subtitle
@@ -491,6 +519,7 @@ public nonisolated struct CustomScheduleRecord: Codable, Identifiable, Hashable,
         self.dateString = dateString
         self.beginTime = beginTime
         self.endTime = endTime
+        self.additionalDateStrings = additionalDateStrings
     }
 }
 
@@ -502,13 +531,15 @@ public struct CustomScheduleDraft: Equatable {
     public var date = Date()
     public var beginTime = Date()
     public var endTime = Date()
+    public var selectedWeeks: [Int] = []
     public init(
         title: String = "",
         subtitle: String = "",
         description: String = "",
         date: Date = Date(),
         beginTime: Date = Date(),
-        endTime: Date = Date()
+        endTime: Date = Date(),
+        selectedWeeks: [Int] = []
     ) {
         self.title = title
         self.subtitle = subtitle
@@ -516,6 +547,7 @@ public struct CustomScheduleDraft: Equatable {
         self.date = date
         self.beginTime = beginTime
         self.endTime = endTime
+        self.selectedWeeks = selectedWeeks
     }
 }
 

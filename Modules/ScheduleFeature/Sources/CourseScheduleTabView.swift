@@ -70,7 +70,7 @@ struct CourseScheduleTabView: View {
     }
 
     var supportsEditingDisplayedSchedule: Bool {
-        activeSchedule.isPrimary
+        activeSchedule.isPrimary && viewModel.isCacheWritable
     }
 
     private var addContentMenu: some View {
@@ -338,12 +338,16 @@ struct CourseScheduleTabView: View {
                 },
                 onDeleteCourseOccurrence: { courseID, week in
                     guard let course = activeSchedule.courses.first(where: { $0.id == courseID }) else { return }
-                    viewModel.deleteCourseOccurrence(id: course.id, week: week)
-                    selectedEntry = nil
+                    do {
+                        try viewModel.deleteCourseOccurrence(id: course.id, week: week)
+                        selectedEntry = nil
+                    } catch { presentSaveError(error) }
                 },
                 onDeleteCourse: { courseID in
-                    viewModel.deleteCourse(id: courseID)
-                    selectedEntry = nil
+                    do {
+                        try viewModel.deleteCourse(id: courseID)
+                        selectedEntry = nil
+                    } catch { presentSaveError(error) }
                 },
                 onImportCourseOccurrence: { courseID, week in
                     guard let content = calendarCourseContent(courseID: courseID, week: week) else { return }
@@ -369,7 +373,12 @@ struct CourseScheduleTabView: View {
                     importCalendarEntries(.customSchedule(schedule), term: activeSchedule.currentTerm)
                 },
                 onDeleteCalendarEntry: { markerID, term in
-                    deleteCalendarEntries(markerIDs: Set([markerID]), term: term)
+                    if entry.kind == .custom,
+                       let schedule = activeSchedule.customSchedules.first(where: { $0.id == entry.sourceID }) {
+                        deleteCalendarEntries(.customSchedule(schedule), term: term)
+                    } else {
+                        deleteCalendarEntries(markerIDs: Set([markerID]), term: term)
+                    }
                 },
                 onEditCustomSchedule: {
                     if let schedule = viewModel.courseState.customSchedules.first(where: { $0.id == entry.sourceID }) {
@@ -378,24 +387,20 @@ struct CourseScheduleTabView: View {
                     }
                 },
                 onDeleteCustomSchedule: {
-                    viewModel.deleteCustomSchedule(id: entry.sourceID)
-                    selectedEntry = nil
+                    do {
+                        try viewModel.deleteCustomSchedule(id: entry.sourceID)
+                        selectedEntry = nil
+                    } catch { presentSaveError(error) }
                 }
             )
         }
         .sheet(isPresented: $isShowingEditSchedule) {
             AddEditCustomScheduleSheet(
                 draft: $customScheduleDraft,
+                firstDay: activeSchedule.firstDay,
                 isEditing: editingCustomScheduleID != nil,
                 onSubmit: {
                     do {
-                        let shouldRecommendLinearAxis = editingCustomScheduleID == nil
-                            && calendarAxisMode == .quantized
-                            && !isRepresentableOnQuantizedAxis(
-                                startMinutes: ScheduleDateCodec.minutesOfDay(from: customScheduleDraft.beginTime),
-                                endMinutes: ScheduleDateCodec.minutesOfDay(from: customScheduleDraft.endTime),
-                                timeTable: activeSchedule.timeTable
-                            )
                         if let editingCustomScheduleID {
                             try viewModel.updateCustomSchedule(id: editingCustomScheduleID, draft: customScheduleDraft)
                         } else {
@@ -403,12 +408,6 @@ struct CourseScheduleTabView: View {
                         }
                         editingCustomScheduleID = nil
                         isShowingEditSchedule = false
-                        if shouldRecommendLinearAxis {
-                            viewModel.notice = ScheduleNotice.informational(
-                                title: "日程显示提示",
-                                message: "该日程请使用线性时间轴查看。前往“我的 - 课程表设置”，将“时间轴”切换为“线性”即可查看。"
-                            )
-                        }
                     } catch {
                         presentSaveError(error)
                     }
@@ -445,7 +444,7 @@ struct CourseScheduleTabView: View {
                     do {
                         switch dayAdjustmentDraft.mode {
                         case .holiday:
-                            viewModel.clearCourses(week: context.week, weekday: context.weekday)
+                            try viewModel.clearCourses(week: context.week, weekday: context.weekday)
                         case .transfer:
                             try viewModel.transferCourses(
                                 fromWeek: context.week,
@@ -479,6 +478,7 @@ struct CourseScheduleTabView: View {
             )
         }
         .diagnosticAlert(item: $courseShareAlert)
+        .task(id: prefetchedCourseID) { await resolvePreparedCourseShare() }
         .onDisappear { cancelPendingActions() }
         .onChange(of: viewModel.accountGeneration) { _, _ in
             dismissPresentedSheets()

@@ -14,11 +14,20 @@ public struct ScheduleTermPickerPage: View {
     public var body: some View {
         List {
             Section("选择学期") {
-                if !viewModel.hasLoadedAvailableTerms {
+                if viewModel.isLoadingTerms {
                     HStack(spacing: AppDesignSystem.Spacing.regular) {
                         Spacer()
                         ProgressView()
                         Spacer()
+                    }
+                } else if viewModel.availableTerms.isEmpty {
+                    if viewModel.smsChallenge != nil {
+                        AppEmptyState(title: "等待短信验证", systemImage: "message", message: "完成短信验证后获取学期列表。")
+                    } else {
+                        AppEmptyState(title: viewModel.hasLoadedAvailableTerms ? "暂无可选学期" : "学期列表尚未加载",
+                            systemImage: "calendar", actionTitle: "重新加载") {
+                            Task { await viewModel.loadAvailableTerms() }
+                        }
                     }
                 } else {
                     ForEach(viewModel.availableTerms, id: \.self) { term in

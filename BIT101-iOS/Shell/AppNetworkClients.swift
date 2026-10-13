@@ -3,21 +3,27 @@ import StorageCore
 import TransportCore
 import MediaKit
 import Foundation
+import PhotosUI
+import SwiftUI
+import CoreTransferable
 
 /// 应用侧组装传输提示和诊断记录。
 private struct AppHTTPClientObserver: HTTPClientObserving, Sendable {
     let warningCenter: NetworkMagicWarningCenter?
+    let storage: LoginStorage
+    let diagnostics: NetworkDiagnosticStore
     var identity: SchoolSessionIdentity? = nil
 
     func forRequest() -> any HTTPClientObserving {
-        AppHTTPClientObserver(warningCenter: warningCenter, identity: AppAccountSession.storage.schoolSessionIdentity)
+        AppHTTPClientObserver(warningCenter: warningCenter, storage: storage, diagnostics: diagnostics,
+            identity: storage.schoolSessionIdentity)
     }
 
     func willSend(_ request: URLRequest) async throws {
         if let url = request.url, let warningCenter {
             _ = await warningCenter.consider(url: url)
         }
-        guard identity == AppAccountSession.storage.schoolSessionIdentity else { throw CancellationError() }
+        guard identity == storage.schoolSessionIdentity else { throw CancellationError() }
     }
 
     func didFinish(
@@ -28,7 +34,7 @@ private struct AppHTTPClientObserver: HTTPClientObserving, Sendable {
         elapsed: TimeInterval
     ) async {
         guard let identity else { return }
-        await NetworkDiagnosticStore.shared.record(
+        await diagnostics.record(
             owner: identity, request: request, data: data, response: response, error: error, elapsed: elapsed
         )
     }
@@ -44,14 +50,20 @@ extension HTTPClient {
 #endif
 
     static var appObserver: any HTTPClientObserving & Sendable {
-        AppHTTPClientObserver(warningCenter: defaultNetworkWarningCenter)
+        AppHTTPClientObserver(warningCenter: defaultNetworkWarningCenter,
+            storage: AppAccountSession.storage, diagnostics: .shared)
     }
 
     init(
         transport: any HTTPTransport,
-        networkWarningCenter: NetworkMagicWarningCenter? = HTTPClient.defaultNetworkWarningCenter
+        networkWarningCenter: NetworkMagicWarningCenter? = HTTPClient.defaultNetworkWarningCenter,
+        storage: LoginStorage = AppAccountSession.storage,
+        diagnostics: NetworkDiagnosticStore? = nil
     ) {
-        self.init(transport: Self.appTransport(transport), observer: AppHTTPClientObserver(warningCenter: networkWarningCenter))
+        let selectedDiagnostics = diagnostics ?? (storage === AppAccountSession.storage ? .shared
+            : NetworkDiagnosticStore(currentIdentity: { storage.schoolSessionIdentity }))
+        self.init(transport: Self.appTransport(transport), observer: AppHTTPClientObserver(
+            warningCenter: networkWarningCenter, storage: storage, diagnostics: selectedDiagnostics))
     }
 
     private static func appTransport(_ production: any HTTPTransport) -> any HTTPTransport {
@@ -93,7 +105,8 @@ final class SchoolCookieTransport: HTTPTransport {
 }
 
 enum NetworkSessionPool {
-    private static func make(configuration: URLSessionConfiguration, followsRedirects: Bool = true, productionPolicy: Bool = false) -> any HTTPTransport {
+    static func make(configuration: URLSessionConfiguration, followsRedirects: Bool = true, productionPolicy: Bool = false) -> any HTTPTransport {
+        configuration.timeoutIntervalForResource = min(configuration.timeoutIntervalForResource, 90)
 #if RELEASE_NETWORK_SMOKE
         if !productionPolicy {
             configuration.urlCache = nil
@@ -130,13 +143,17 @@ enum NetworkSessionPool {
         return make(configuration: configuration, productionPolicy: productionPolicy)
     }
 
-    static let scoreAuthentication: any HTTPTransport = SchoolCookieTransport(state: AppSchoolSession.teachingCenter) { cookies in
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.httpCookieStorage = cookies
-        configuration.timeoutIntervalForRequest = 25
-        configuration.timeoutIntervalForResource = 90
-        configuration.waitsForConnectivity = true
-        return make(configuration: configuration)
+    static let scoreAuthentication = scoreAuthenticationTransport(state: AppSchoolSession.teachingCenter)
+
+    static func scoreAuthenticationTransport(state: TeachingCenterSessionState, productionPolicy: Bool = false) -> any HTTPTransport {
+        SchoolCookieTransport(state: state) { cookies in
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.httpCookieStorage = cookies
+            configuration.timeoutIntervalForRequest = 25
+            configuration.timeoutIntervalForResource = 90
+            configuration.waitsForConnectivity = true
+            return make(configuration: configuration, productionPolicy: productionPolicy)
+        }
     }
 
     /// 可信成绩单图片使用内存态 ephemeral 会话，并与共享磁盘缓存隔离。
@@ -204,17 +221,41 @@ enum AppNetworkPath {
     }()
 }
 
+nonisolated struct PickedImageData: Transferable {
+    let data: Data
+    static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(importedContentType: .image) { received in
+            Self(data: try await readFile(at: received.file, using: AppFileSystem.files))
+        }
+    }
+    @concurrent static func readFile(at url: URL, using files: any AppFileService) async throws -> Data {
+        try Task.checkCancellation()
+        let data: Data
+        do { data = try files.readData(at: url, maximumBytes: RemoteImageResourceLimits.maximumEncodedBytes) }
+        catch let error as CocoaError where error.code == .fileReadTooLarge { throw ImportError.tooLarge }
+        try Task.checkCancellation()
+        return data
+    }
+    nonisolated enum ImportError: LocalizedError {
+        case tooLarge
+        var errorDescription: String? { "图片过大，请选择较小的图片。" }
+    }
+}
+
 /// 媒体缓存与下载在应用入口共用同一配置。
 enum AppMedia {
     private static let previewStorage = MediaPreviewStorage(files: AppFileDirectories.files)
     static let environment = makeEnvironment(previewStorage: previewStorage)
-    static func makeEnvironment(files: any AppFileService = AppFileDirectories.files,
+    static func makeEnvironment(files: (any AppFileService)? = nil,
                                 previewStorage: MediaPreviewStorage,
                                 defaults: UserDefaults = AppFileDirectories.defaults,
+                                loadPickedImage: @escaping @Sendable (PhotosPickerItem) async throws -> Data? = {
+                                    try await $0.loadTransferable(type: PickedImageData.self)?.data
+                                },
                                 imageHTTPClient: HTTPClient = .community,
                                 avatarHTTPClient: HTTPClient = .shared) -> MediaEnvironment {
         MediaEnvironment(files: files, previewStorage: previewStorage, defaults: defaults,
-                         imageHTTPClient: imageHTTPClient, avatarHTTPClient: avatarHTTPClient)
+                         loadPickedImage: loadPickedImage, imageHTTPClient: imageHTTPClient, avatarHTTPClient: avatarHTTPClient)
     }
 }
 

@@ -9,7 +9,70 @@ def interaction_inventory_boundary_findings() -> list[str]:
     path = str(ROOT / "Modules/Example/Sources/Example.swift")
     original = swift_syntax_index_sources({path: 'struct Screen: View { var body: some View { Button("入口") {} } }'})
     manifest = {key: (controls, {"ExampleUITests/testScreen"}) for key, controls in interaction_source_inventory(original).items()}
-    findings = []
+    findings = list_row_layout_boundary_findings()
+    for kind, modifier, action in (
+            ('onDrag', 'onDrag { NSItemProvider() }', 'drag'),
+            ('onDrop', 'onDrop(of: ["text"], isTargeted: nil) { _ in true }', 'drop'),
+            ('draggable', 'draggable("内容")', 'drag'),
+            ('dropDestination', 'dropDestination(for: String.self) { _, _ in true }', 'drop'),
+            ('onKeyPress', 'onKeyPress(.return) { .handled }', 'keyboard')):
+        syntax = swift_syntax_index_sources({path: 'struct Screen: View { var body: some View { Text("内容").'
+            + modifier + '.accessibilityIdentifier("carrier") } }'})
+        inventory = interaction_source_inventory(syntax)
+        if list(inventory.values()) != [{kind: 1}] or not source_inventory_findings(syntax, {}, set()):
+            findings.append('UI 清单自测：拖放与键盘事件进入归属库存')
+        modifier_manifest = {key: (controls, {'ExampleUITests/testScreen'}) for key, controls in inventory.items()}
+        row = dict(scope='ExampleUITests/testScreen', identifier='carrier', instance='carrier', actions=[action])
+        if not source_runtime_interaction_findings(syntax, modifier_manifest, []) or source_runtime_interaction_findings(syntax, modifier_manifest, [row]):
+            findings.append('UI 清单自测：拖放与键盘事件核对实际动作证据')
+        if action in {'drag', 'drop'} and not source_runtime_interaction_findings(syntax, modifier_manifest, [dict(row, actions=['swipe'])]):
+            findings.append('UI 清单自测：拖放需要独立于轻扫的动作证据')
+    for gesture, action, wrong in [('DragGesture()', 'swipe', 'pinch'), ('MagnificationGesture()', 'pinch', 'swipe'),
+            ('TapGesture()', 'tap', 'swipe'), ('LongPressGesture()', 'press', 'tap')]:
+        syntax = swift_syntax_index_sources({path: 'struct Screen: View { var body: some View { Text("内容").gesture('
+            + gesture + ').accessibilityIdentifier("carrier") } }'})
+        gesture_manifest = {key: (controls, {'ExampleUITests/testScreen'}) for key, controls in interaction_source_inventory(syntax).items()}
+        row = dict(scope='ExampleUITests/testScreen', identifier='carrier', instance='carrier', actions=[action])
+        if source_runtime_interaction_findings(syntax, gesture_manifest, [row]) or not source_runtime_interaction_findings(syntax, gesture_manifest, [dict(row, actions=[wrong])]):
+            findings.append('UI 清单自测：轻扫、捏合、点击与长按分别验证')
+    for gesture, required in [
+            ('gesture(TapGesture().simultaneously(with: DragGesture()))', {'tap', 'swipe'}),
+            ('gesture(TapGesture().sequenced(before: LongPressGesture()))', {'tap', 'press'}),
+            ('gesture(TapGesture()).simultaneousGesture(DragGesture())', {'tap', 'swipe'}),
+            ('gesture(DragGesture().onChanged { _ in print("MagnificationGesture"); let unused = MagnificationGesture() })', {'swipe'}),
+            ('gesture(DragGesture(/* MagnificationGesture */))', {'swipe'})]:
+        syntax = swift_syntax_index_sources({path: 'struct Screen: View { var body: some View { Text("内容").'
+            + gesture + '.accessibilityIdentifier("carrier") } }'})
+        gesture_manifest = {key: (controls, {'ExampleUITests/testScreen'}) for key, controls in interaction_source_inventory(syntax).items()}
+        row = dict(scope='ExampleUITests/testScreen', identifier='carrier', instance='carrier', actions=sorted(required))
+        if source_runtime_interaction_findings(syntax, gesture_manifest, [row]):
+            findings.append('UI 清单自测：组合手势按实际构造核对完整动作集合')
+        for missing in required:
+            actions = sorted(required - {missing}) or ['pinch']
+            if not source_runtime_interaction_findings(syntax, gesture_manifest, [dict(row, actions=actions)]):
+                findings.append('UI 清单自测：组合手势逐项检查动作缺口')
+    for kind, control, action in (("DisclosureGroup", 'DisclosureGroup("详情") { Text("正文") }', 'tap'),
+            ("ColorPicker", 'ColorPicker("颜色", selection: .constant(.red))', 'selection'),
+            ("MultiDatePicker", 'MultiDatePicker("日期", selection: .constant(Set<DateComponents>()))', 'selection'),
+            ("EditButton", 'EditButton()', 'tap'), ("PasteButton", 'PasteButton(payloadType: String.self) { _ in }', 'tap')):
+        identifier = 'control' if kind in {'MultiDatePicker', 'EditButton', 'PasteButton'} else ''
+        if identifier: control += '.accessibilityIdentifier("control")'
+        syntax = swift_syntax_index_sources({path: 'struct Screen: View { var body: some View { ' + control + ' } }'})
+        control_manifest = {key: (controls, {'ExampleUITests/testScreen'}) for key, controls in interaction_source_inventory(syntax).items()}
+        if list(value[0] for value in control_manifest.values()) != [{kind: 1}] or not source_inventory_findings(syntax, {}, set()):
+            findings.append('UI 清单自测：系统折叠与颜色控件进入归属库存')
+        row = dict(scope='ExampleUITests/testScreen', label='详情' if kind == 'DisclosureGroup' else '颜色', identifier=identifier, instance='control', actions=['tap' if action == 'selection' else action])
+        if not source_runtime_interaction_findings(syntax, control_manifest, []) or source_runtime_interaction_findings(syntax, control_manifest, [row]):
+            findings.append('UI 清单自测：系统控件核对实际动作证据')
+    spacers = swift_syntax_index_sources({path: 'class Screen { func build() { let fixed = UIBarButtonItem(systemItem: .fixedSpace); let flexible: UIBarButtonItem = .init(barButtonSystemItem: .flexibleSpace, target: nil, action: nil) } }'})
+    if interaction_source_inventory(spacers): findings.append('UI 原生清单自测：工具栏间隔沿布局归属')
+    for root, expected in (("BIT101-iOS", True), ("BIT101-iOS/Tests", True), ("ModuleTests/Support", False), ("BIT101-iOSTests", False), ("BIT101-iOSUITests", False)):
+        renamed_path = str(ROOT / root / 'ScreenUITestExample.swift')
+        renamed = swift_syntax_index_sources({renamed_path: 'struct Screen: View { var body: some View { Button("入口") {} }; func build() { let field = UITextField() } }'})
+        if list(interaction_source_inventory(renamed).values()) != ([{"Button": 1, "UITextField": 1}] if expected else []):
+            findings.append("UI 清单自测：生产文件名与实际测试目录归属")
+        if expected and not source_runtime_interaction_findings(renamed, {}, []):
+            findings.append("UI 清单自测：重命名控件继续核对运行证据")
     native_sources = {path: 'class CodeField: UITextField {}; class Screen { func build() { let field = CodeField(); let input: UITextField = .init(); let menu = UIAction(title: "动作") { _ in }; let pinch = UIPinchGestureRecognizer(); let label = UILabel(); accept(.init()) }; func direct() -> UITextField { .init() }; func returned() -> UITextField { let frame: CGRect = .init(); return .init() } }',
         str(Path(path).with_name('Support.swift')): 'extension Screen { func accept(_ field: UITextField, enabled: Bool = true) {} }'}
     native = swift_syntax_index_sources(native_sources)
@@ -79,13 +142,15 @@ def interaction_inventory_boundary_findings() -> list[str]:
             ("SecureField", 'SecureField("输入", text: .constant(""))', "input"),
             ("TextEditor", 'TextEditor(text: .constant(""))', "input"),
             ("Toggle", 'Toggle("启用", isOn: .constant(false))', "tap"),
-            ("Slider", 'Slider(value: .constant(0.5))', "gesture"),
+            ("Slider", 'Slider(value: .constant(0.5))', "drag"),
+            ("MultiDatePicker", 'MultiDatePicker("日期", selection: .constant(Set<DateComponents>()))', "selection"),
+            ("EditButton", 'EditButton()', "tap"), ("PasteButton", 'PasteButton(payloadType: String.self) { _ in }', "tap"),
             ("Stepper", 'Stepper("数值", value: .constant(1))', "tap")]:
         control = swift_syntax_index_sources({path: 'struct Screen: View { var body: some View { ' + invocation + '.accessibilityIdentifier("control") } }'})
         control_manifest = {key: (controls, {"ExampleUITests/testScreen"}) for key, controls in interaction_source_inventory(control).items()}
-        row = dict(evidence[0], identifier="control", instance="control", actions=["tap" if expected != "tap" else "input"])
+        row = dict(evidence[0], identifier="control", instance="control", actions=["input" if expected in {"tap", "selection"} else "tap"])
         if not source_runtime_interaction_findings(control, control_manifest, [row]): findings.append("UI 清单自测：控件需要对应动作类型")
-        if source_runtime_interaction_findings(control, control_manifest, [dict(row, actions=[expected])]): findings.append("UI 清单自测：实际控件动作进入证据")
+        if source_runtime_interaction_findings(control, control_manifest, [dict(row, actions=["tap" if expected == "selection" else expected])]): findings.append("UI 清单自测：实际控件动作进入证据")
     scopes = swift_syntax_index_sources({path: 'struct FirstView: View { var body: some View { Button("取消") {} } }; struct SecondView: View { var body: some View { Button("取消") {} } }'})
     scope_manifest = {key: (controls, {"ExampleUITests/testScreen"}) for key, controls in interaction_source_inventory(scopes).items()}
     cancel = dict(evidence[0], label="取消", instance="cancel.first")
@@ -122,7 +187,7 @@ def interaction_inventory_boundary_findings() -> list[str]:
     combined_evidence = dict(evidence[0], identifier="container", instance="container", actions=["scroll"])
     if not source_runtime_interaction_findings(combined, combined_manifest, [combined_evidence]):
         findings.append("UI 容器自测：共享载体分别核对滚动和业务手势")
-    if source_runtime_interaction_findings(combined, combined_manifest, [dict(combined_evidence, actions=["scroll", "gesture"])]):
+    if source_runtime_interaction_findings(combined, combined_manifest, [dict(combined_evidence, actions=["scroll", "swipe"])]):
         findings.append("UI 容器自测：同一载体的独立动作共同进入证据")
     unrelated = swift_syntax_index_sources({path: 'struct Screen: View { var body: some View { TextField("输入", text: .constant("")).accessibilityIdentifier("shared"); Button("提交") {}.accessibilityIdentifier("shared") } }'})
     unrelated_manifest = {key: (controls, {"ExampleUITests/testScreen"}) for key, controls in interaction_source_inventory(unrelated).items()}
@@ -154,7 +219,7 @@ def native_runtime_boundary_findings(path: str) -> list[str]:
         source = 'class Screen { func build() { let control = ' + declaration + '; control.accessibilityIdentifier = "native" } }'
         syntax = swift_syntax_index_sources({path: source})
         manifest = {key: (controls, {'ExampleUITests/testNative'}) for key, controls in interaction_source_inventory(syntax).items()}
-        row = dict(scope='ExampleUITests/testNative', identifier='native', label='', instance='control', actions=['tap' if action == 'selection' else action])
+        row = dict(scope='ExampleUITests/testNative', identifier='native', label='', instance='control', actions=['tap' if action == 'selection' else 'drag' if action == 'pan' else action])
         if not source_runtime_interaction_findings(syntax, manifest, []):
             findings.append(f'UI 原生运行自测：{kind} 需要实际访问证据')
         if source_runtime_interaction_findings(syntax, manifest, [row]):
@@ -182,8 +247,27 @@ def native_runtime_boundary_findings(path: str) -> list[str]:
     row = dict(scope='ExampleUITests/testNative', identifier='timeline', instance='timeline', actions=['scroll'])
     if not source_runtime_interaction_findings(syntax, manifest, [row]):
         findings.append('UI 原生运行自测：滚动载体需要独立手势动作')
-    if source_runtime_interaction_findings(syntax, manifest, [dict(row, actions=['scroll', 'gesture'])]):
+    if source_runtime_interaction_findings(syntax, manifest, [dict(row, actions=['scroll', 'pinch'])]):
         findings.append('UI 原生运行自测：滚动与原生手势沿同一载体分别验证')
+    return findings
+
+
+def list_row_layout_boundary_findings() -> list[str]:
+    from ui_rules import list_row_layout_findings
+    findings = []
+    cases = [
+        ('struct Page: View { var body: some View { List { Text("行").listRowInsets(.init()) } } }', False),
+        ('struct Page: View { var body: some View { Form { Text("行") }.appListRowInsets() } }', True),
+        ('struct Page: View { var body: some View { List { Text("行") }.listRowInsets(.init()) } }', True),
+        ('extension View { func appGroupedListStyle() -> some View { listStyle(.insetGrouped).listRowInsets(.init()) } }', True),
+        ('struct AppRefreshStatusRow: View { var body: some View { HStack { Text("时间") }.appListRowInsets() } }', False),
+        ('struct AppRefreshStatusRow: View { var body: some View { HStack { Text("时间") }.frame(minHeight: 44).appListRowInsets() } }', False),
+        ('struct AppRefreshStatusRow: View { var body: some View { HStack { Text("时间").appListRowInsets() } } }', True),
+        ('struct AppRefreshStatusRow: View { var body: some View { HStack { Text("时间") } }; func unused() -> some View { HStack {}.appListRowInsets() } }', True),
+    ]
+    for source, expected in cases:
+        if bool(list_row_layout_findings(swift_syntax_index_sources({'ui-self-test.swift': source}))) != expected:
+            findings.append('UI 布局自测：列表容器、行组件和闲置修饰的边距归属')
     return findings
 
 
@@ -199,14 +283,121 @@ def explanatory_text_boundary_findings() -> list[str]:
     path = fixture / "Modules/DesignSystemKit/Sources/AppStateComponents.swift"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text('Section { Text("内容") } footer: {\nText("模块提示")\n}\n'
-                    'ContentUnavailableView { Text("状态") } description: {\nText("模块说明")\n}\n')
+                    'ContentUnavailableView { Text("状态") } description: {\nText("模块说明")\n}\n'
+                    'Section { Text("内容") } footer: { Text(\n"多行提示"\n).font(.body); Text(message) }\n'
+                    'ContentUnavailableView("空", systemImage: "x", description: Text(\n"构造说明"\n))\n'
+                    'AppEmptyState(title: "空", systemImage: "x", message: "传入说明")\n'
+                    'Section { Text("内容") } footer: { Text("换个关键词试试。") }\n'
+                    '// Section { } footer: { Text("注释候选") }\n')
     try:
         with patch.object(rules, "ROOT", fixture), redirect_stdout(StringIO()):
             rules.explanatory_text_report()
         report = (fixture / ".build/explanatory-text-report.txt").read_text()
         assert '模块提示' in report and '模块说明' in report and 'Modules/DesignSystemKit' in report
+        assert all(value in report for value in ('多行提示', 'Text(message)', '构造说明', '传入说明'))
+        assert '.font' not in report and '换个关键词试试。' not in report and '注释候选' not in report
     except (AssertionError, OSError) as error:
         return [f"解释文案范围自测：{error}"]
     finally:
         shutil.rmtree(fixture, ignore_errors=True)
+    return checker_report_boundary_findings()
+
+
+def checker_report_boundary_findings() -> list[str]:
+    import importlib.util
+    import shutil
+    import subprocess
+    import sys
+    from types import ModuleType, SimpleNamespace
+    from unittest.mock import patch
+
+    fixture = ROOT / ".build/static-audit/explanatory-self-test"
+    names = ('code-quality-report.txt', 'ui-consistency-report.txt', 'explanatory-text-report.txt')
+    reports = [fixture / '.build' / name for name in names]
+    (fixture / '.build/static-audit').mkdir(parents=True, exist_ok=True)
+    try:
+        for report in reports:
+            report.write_text('previous report')
+        audit = (ROOT / 'Scripts/run-static-audit.sh').read_text()
+        cleanup = audit.split("trap 'exit 143' TERM\n", 1)[1].split('\nSWIFT_FRONTEND=', 1)[0]
+        result = subprocess.run(['zsh', '-c', 'ROOT_DIR="$1"\nLOG_DIR="$ROOT_DIR/.build/static-audit"\n' + cleanup,
+                                 'checker-report-cleanup', str(fixture)], capture_output=True, text=True, timeout=5)
+        assert result.returncode == 0, result.stderr
+        assert [report for report in reports if report.exists()] == [], '审计启动需要清理固定报告'
+        spec = importlib.util.spec_from_file_location('checker_report_self_test', ROOT / 'Scripts/check-code-quality.py')
+        subject = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(subject)
+        visited = []
+
+        def quality_probe():
+            raise AssertionError('quality fixture failure')
+
+        def ui_probe():
+            raise AssertionError('UI fixture failure')
+
+        def write_report(index, findings):
+            visited.append(names[index])
+            reports[index].write_text('\n'.join(findings))
+            return int(bool(findings))
+
+        module = ModuleType('checker_ui_self_test')
+        module.ast_marker_boundary_findings = ui_probe
+        module.source_boundary_findings = lambda: visited.append('source') or []
+        module.map_theme_color_contract_findings = lambda: visited.append('theme') or []
+        module.interaction_inventory_boundary_findings = lambda: visited.append('interactions') or []
+        module.main = lambda syntax, findings: write_report(1, findings)
+        ui_spec = SimpleNamespace(name=module.__name__, loader=SimpleNamespace(exec_module=lambda loaded: None))
+        with patch.dict(sys.modules), patch.object(subject, 'swift_files', return_value=[]), \
+                patch.object(subject, 'swift_syntax_index', return_value={}), \
+                patch('code_quality_tests.checker_boundary_findings', new=quality_probe), \
+                patch.object(subject.importlib.util, 'spec_from_file_location', return_value=ui_spec), \
+                patch.object(subject.importlib.util, 'module_from_spec', return_value=module), \
+                patch.object(subject, 'main', side_effect=lambda syntax, findings: write_report(0, findings)), \
+                patch.object(subject, 'explanatory_text_report', side_effect=lambda: write_report(2, ['current source'])):
+            assert subject.combined_main() == 1, '自测失败需要保留失败状态'
+        assert visited == ['source', 'theme', 'interactions', names[1], names[0], names[2]]
+        for index, probe in ((0, 'quality_probe'), (1, 'ui_probe')):
+            report = reports[index].read_text()
+            assert probe in report and 'ui_interaction_tests.py:' in report, '当前报告需要记录失败组与位置'
+        assert all('previous report' not in report.read_text() for report in reports)
+    except (AssertionError, OSError, subprocess.TimeoutExpired) as error:
+        return [f'组合检查报告自测：{error}']
+    finally:
+        shutil.rmtree(fixture, ignore_errors=True)
+    return []
+
+
+def visual_contract_boundary_findings() -> list[str]:
+    from ui_rules import visual_contract_present, rendered_component_counts
+    marker = 'StrokeStyle(lineWidth: 2, dash: [5, 4])'
+    contract = 'Modules/CourseFeature/Sources/CourseHistoryGradesViews.swift'
+    moved = ROOT / 'Modules/CourseFeature/Sources/Moved.swift'
+    template = 'struct CourseHistoryGradesChart: View { var body: some View { Text("chart").lineStyle(MARKER) } }'
+    assert visual_contract_present(contract, marker, {moved: template.replace('MARKER', 'StrokeStyle(\n lineWidth: 2,\n dash: [5, 4]\n)')})
+    assert not visual_contract_present(contract, marker, {moved: '// ' + marker})
+    assert not visual_contract_present(contract, marker, {moved: marker.replace('[5, 4]', '[5, 3]')})
+    assert not visual_contract_present(contract, marker, {moved: 'func unused() { _ = ' + marker + ' }'})
+    assert not visual_contract_present(contract, marker, {moved: 'struct CourseHistoryGradesChart: View { var body: some View { Text("chart") }; func unused() -> some View { Text("unused").lineStyle(' + marker + ') } }'})
+    assert not visual_contract_present(contract, marker, {moved: template.replace('CourseHistoryGradesChart', 'OtherChart').replace('MARKER', marker)})
+    for condition, present in [('false', False), ('true', True), ('1 == 2', False), ('isVisible', True)]:
+        content = f'if {condition} {{ Text("chart").lineStyle({marker}) }} else {{ Text("plain") }}'
+        sample = template.replace('Text("chart").lineStyle(MARKER)', content)
+        assert visual_contract_present(contract, marker, {moved: sample}) == present
+        sample = template.replace('Text("chart").lineStyle(MARKER)',
+            f'if {condition} {{ helper() }} else {{ Text("plain") }}')[:-1] + f'; func helper() -> some View {{ Text("chart").lineStyle({marker}) }} }}'
+        assert visual_contract_present(contract, marker, {moved: sample}) == present
+        sample = f'struct Screen: View {{ var body: some View {{ if {condition} {{ AppCard {{ Text("chart") }} }} }} }}'
+        syntax = swift_syntax_index_sources({str(moved): sample})
+        assert bool(rendered_component_counts(syntax[str(moved)], syntax)['AppCard']) == present
+    for content in [f'if true {{ Text("plain") }} else {{ Text("chart").lineStyle({marker}) }}',
+            f'let hidden = false; if hidden {{ Text("chart").lineStyle({marker}) }}',
+            f'let hidden = false; let alias = hidden; if alias {{ Text("chart").lineStyle({marker}) }}',
+            f'false ? Text("chart").lineStyle({marker}) : Text("plain")',
+            f'HStack {{ Text("图表"); if false {{ Text("chart").lineStyle({marker}) }} }}',
+            f'HStack {{ false ? Text("图表").lineStyle({marker}) : Text("plain") }}',
+            f'return Text("plain"); Text("chart").lineStyle({marker})']:
+        assert not visual_contract_present(contract, marker, {moved: template.replace('Text("chart").lineStyle(MARKER)', content)})
+    source = template.replace('Text("chart").lineStyle(MARKER)', f'if false {{ Text("chart").lineStyle({marker}) }}')
+    custom = ROOT / 'Modules/CourseFeature/Sources/Operators.swift'
+    assert visual_contract_present(contract, marker, {moved: source.replace('if false', 'if 1 == 2'), custom: 'struct Bool {}'})
     return []

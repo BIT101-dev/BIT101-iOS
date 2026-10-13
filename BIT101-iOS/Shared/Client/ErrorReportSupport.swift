@@ -7,7 +7,7 @@ import UIKit
 
 
 /// 反馈载荷标记本地 Debug 安装或正式 Release 构建，用户身份字段保持空缺。
-enum AppBuildEnvironment {
+nonisolated enum AppBuildEnvironment {
 #if DEBUG
     static let isDevelopment = true
 #else
@@ -15,50 +15,77 @@ enum AppBuildEnvironment {
 #endif
 }
 
-enum ErrorReportRedactor {
+nonisolated enum ErrorReportRedactor {
     private static let protectedNames = [
         "password", "passwd", "pwd", "cookie", "set-cookie", "authorization", "proxy-authorization", "token",
         "access_token", "refresh_token", "challenge_token", "fake-cookie",
         "accessToken", "refreshToken", "challengeToken", "fakeCookie", "session", "sessionID",
         "session_id", "sessionid", "ticket", "api-key", "api_key", "apikey", "client_secret",
-        "secret", "captcha", "captcha_payload", "croypto", "execution", "salt"
+        "secret", "captcha", "captcha_payload", "croypto", "execution", "salt", "csrf", "xsrf",
+        "www-authenticate", "proxy-authenticate", "authentication-info"
     ]
 
-    private static func redactObject(_ value: Any) -> Any {
+    private static func isProtectedName(_ name: String) -> Bool {
+        protectedNames.contains { name.localizedCaseInsensitiveContains($0) }
+    }
+
+    @MainActor
+    static func redactHeaders(_ headers: [String: String]) -> [String: String] {
+        redactHeaders(headers, credentials: currentCredentials)
+    }
+
+    static func redactHeaders(_ headers: [String: String], credentials: [String]) -> [String: String] {
+        headers.reduce(into: [:]) { result, pair in
+            result[pair.key] = isProtectedName(pair.key) ? "[REDACTED]" : forced(pair.value, credentials: credentials)
+        }
+    }
+
+    private static func redactObject(_ value: Any, credentials: [String]) -> Any {
         if let object = value as? [String: Any] {
             return object.reduce(into: [String: Any]()) { result, entry in
-                result[entry.key] = protectedNames.contains { entry.key.localizedCaseInsensitiveContains($0) }
-                    ? "[REDACTED]" : redactObject(entry.value)
+                result[entry.key] = isProtectedName(entry.key)
+                    ? "[REDACTED]" : redactObject(entry.value, credentials: credentials)
             }
         }
-        if let array = value as? [Any] { return array.map(redactObject) }
-        if let text = value as? String { return forced(text) }
+        if let array = value as? [Any] { return array.map { redactObject($0, credentials: credentials) } }
+        if let text = value as? String { return forced(text, credentials: credentials) }
         return value
     }
 
     private static func redactHTML(_ value: String) -> String {
-        guard let tags = try? NSRegularExpression(pattern: #"<(?:input|meta)\b(?:[^>"']|"[^"]*(?:"|$)|'[^']*(?:'|$))*(?:>|$)|<(?:textarea|span)\b(?:[^>"']|"[^"]*"|'[^']*')*>[\s\S]*?(?:</(?:textarea|span)\s*>|$)"#, options: .caseInsensitive),
+        guard let tags = try? NSRegularExpression(pattern: #"<([a-z][a-z0-9:_-]*)\b(?:[^>"']|"[^"]*(?:"|$)|'[^']*(?:'|$))*(?:>|$)"#, options: .caseInsensitive),
               let fields = try? NSRegularExpression(pattern: #"\b(?:id|name|type|property|http-equiv)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))"#, options: .caseInsensitive)
         else { return value }
-        var output = value
-        for tag in tags.matches(in: value, range: NSRange(value.startIndex..., in: value)).reversed() {
-            guard let range = Range(tag.range, in: output) else { continue }
-            let text = String(output[range])
+        let voidTags = Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"])
+        var output = "", cursor = value.startIndex
+        for tag in tags.matches(in: value, range: NSRange(value.startIndex..., in: value)) {
+            guard let range = Range(tag.range, in: value), range.lowerBound >= cursor,
+                  let nameRange = Range(tag.range(at: 1), in: value) else { continue }
+            let text = String(value[range]), name = String(value[nameRange]).lowercased()
             let identifiers = fields.matches(in: text, range: NSRange(text.startIndex..., in: text)).flatMap { match in
                 (1...3).compactMap { Range(match.range(at: $0), in: text).map { decodedHTMLAttribute(String(text[$0])) } }
             }
-            guard identifiers.contains(where: { field in
-                ["login-page-flowkey", "login-croypto"].contains(field.lowercased())
-                    || protectedNames.contains { field.localizedCaseInsensitiveContains($0) }
-            }) else { continue }
-            var masked = text.replacingOccurrences(of: #"(?i)(\b(?:value|content)\s*=\s*)(?:"[^"]*(?:"|$)|'[^']*(?:'|$)|[^\s"'=<>`]+)"#,
+            guard identifiers.contains(where: { ["login-page-flowkey", "login-croypto"].contains($0.lowercased()) || isProtectedName($0) }) else { continue }
+            output += value[cursor..<range.lowerBound]
+            output += text.replacingOccurrences(of: #"(?i)(\b(?:value|content)\s*=\s*)(?:"[^"]*(?:"|$)|'[^']*(?:'|$)|[^\s"'=<>`]+)"#,
                 with: "$1\"[REDACTED]\"", options: .regularExpression)
-            if text.lowercased().hasPrefix("<textarea") || text.lowercased().hasPrefix("<span") {
-                masked = masked.replacingOccurrences(of: #"(?i)(>)[\s\S]*(</(?:textarea|span)\s*>|$)"#, with: "$1[REDACTED]$2", options: .regularExpression)
+            cursor = range.upperBound
+            guard text.hasSuffix(">"), !text.hasSuffix("/>"), !voidTags.contains(name) else { continue }
+            let escaped = NSRegularExpression.escapedPattern(for: name)
+            let boundaries = try? NSRegularExpression(pattern: "</?" + escaped + #"\b(?:[^>"']|"[^"]*"|'[^']*')*>"#, options: .caseInsensitive)
+            var depth = 1, closing: Range<String.Index>?
+            for boundary in boundaries?.matches(in: value, range: NSRange(cursor..., in: value)) ?? [] {
+                guard let candidate = Range(boundary.range, in: value) else { continue }
+                let token = value[candidate]
+                if token.hasPrefix("</") { depth -= 1 }
+                else if !token.hasSuffix("/>") { depth += 1 }
+                if depth == 0 { closing = candidate; break }
             }
-            output.replaceSubrange(range, with: masked)
+            output += "[REDACTED]"
+            if let closing { output += value[closing]; cursor = closing.upperBound }
+            else { cursor = value.endIndex }
         }
-        return output
+        return output + value[cursor...]
     }
 
     private static func decodedHTMLAttribute(_ value: String) -> String {
@@ -79,6 +106,12 @@ enum ErrorReportRedactor {
 
     private enum PercentDecodingError: Error { case budgetExceeded }
 
+    private static func redactCredentials(_ value: String, credentials: [String]) -> String {
+        credentials.filter { !$0.isEmpty }.reduce(value) {
+            $0.replacingOccurrences(of: $1, with: "[REDACTED]")
+        }
+    }
+
     private static func decodedPercent(_ value: String) throws -> String {
         var output = value
         for _ in 0..<8 {
@@ -88,7 +121,7 @@ enum ErrorReportRedactor {
         throw PercentDecodingError.budgetExceeded
     }
 
-    private static func redactURLs(_ value: String) -> String {
+    private static func redactURLs(_ value: String, credentials: [String] = [], studentID: String? = nil) -> String {
         guard let expression = try? NSRegularExpression(pattern: #"https?://[^\s<>"']+"#, options: .caseInsensitive) else { return value }
         var output = value
         for match in expression.matches(in: value, range: NSRange(value.startIndex..., in: value)).reversed() {
@@ -97,23 +130,35 @@ enum ErrorReportRedactor {
                 output.replaceSubrange(range, with: "[REDACTED]"); continue
             }
             do {
+                let decodedPath = try decodedPercent(url.percentEncodedPath)
+                var safePath = redactCredentials(decodedPath, credentials: credentials)
+                if let studentID { safePath = redactIdentities(safePath, studentID: studentID) }
+                if safePath != decodedPath { url.path = safePath }
                 if url.user != nil || url.password != nil { url.user = "[REDACTED]"; url.password = nil }
+                if studentID != nil { url.fragment = nil }
                 if url.percentEncodedFragment != nil {
+                    let decodedFragment = try decodedPercent(url.percentEncodedFragment ?? "")
                     var fragmentFields = URLComponents()
                     fragmentFields.query = url.fragment ?? ""
-                    let candidates = try [decodedPercent(url.fragment ?? "")] + (fragmentFields.queryItems ?? []).map { try decodedPercent($0.name) }
-                    if url.fragment == nil || candidates.contains(where: { value in
-                        protectedNames.contains { value.localizedCaseInsensitiveContains($0) }
-                    }) { url.fragment = "[REDACTED]" }
+                    let candidates = try [decodedFragment] + (fragmentFields.queryItems ?? []).map { try decodedPercent($0.name) }
+                    if url.fragment == nil || candidates.contains(where: isProtectedName) { url.fragment = "[REDACTED]" }
+                    else {
+                        let safeFragment = redactCredentials(decodedFragment, credentials: credentials)
+                        if safeFragment != decodedFragment { url.fragment = safeFragment }
+                    }
                 }
                 url.queryItems = try url.queryItems?.map { item in
                     let name = try decodedPercent(item.name)
-                    if protectedNames.contains(where: { name.localizedCaseInsensitiveContains($0) }) {
-                        return URLQueryItem(name: item.name, value: "[REDACTED]")
+                    let safeName = redactCredentials(name, credentials: credentials)
+                    let outputName = safeName == name ? item.name : safeName
+                    if studentID != nil || isProtectedName(name) {
+                        return URLQueryItem(name: outputName, value: "[REDACTED]")
                     }
                     let decoded = try item.value.map(decodedPercent)
-                    let nested = decoded.flatMap { $0.range(of: #"https?://"#, options: [.regularExpression, .caseInsensitive]) == nil ? nil : redactURLs($0) }
-                    return URLQueryItem(name: item.name, value: nested ?? item.value)
+                    let nested = decoded.flatMap { $0.range(of: #"https?://"#, options: [.regularExpression, .caseInsensitive]) == nil ? nil : redactURLs($0, credentials: credentials, studentID: studentID) }
+                    let safeValue = (nested ?? decoded).map { redactCredentials($0, credentials: credentials) }
+                    return URLQueryItem(name: outputName,
+                        value: safeValue == decoded ? item.value : safeValue)
                 }
                 output.replaceSubrange(range, with: url.string ?? "[REDACTED]")
             } catch {
@@ -123,10 +168,13 @@ enum ErrorReportRedactor {
         return output
     }
 
-    static func forced(_ value: String) -> String {
+    @MainActor
+    static func forced(_ value: String) -> String { forced(value, credentials: currentCredentials) }
+
+    static func forced(_ value: String, credentials: [String]) -> String {
         var structured = value
         if let object = try? JSONSerialization.jsonObject(with: Data(value.utf8)),
-           let bytes = try? JSONSerialization.data(withJSONObject: redactObject(object)),
+           let bytes = try? JSONSerialization.data(withJSONObject: redactObject(object, credentials: credentials)),
            let json = String(data: bytes, encoding: .utf8) {
             structured = json
         } else {
@@ -134,7 +182,7 @@ enum ErrorReportRedactor {
             let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.hasPrefix("{") || trimmed.hasPrefix("[") { structured = "[REDACTED]" }
         }
-        var output = redactHTML(redactURLs(structured)).replacingOccurrences(
+        var output = redactHTML(redactURLs(structured, credentials: credentials)).replacingOccurrences(
             of: "(?i)((?:authorization|proxy-authorization|cookie|set-cookie)\\s*[=:]\\s*)[^&\\r\\n]+",
             with: "$1[REDACTED]", options: .regularExpression
         )
@@ -145,15 +193,24 @@ enum ErrorReportRedactor {
             output = output.replacingOccurrences(of: jsonPattern, with: "$1[REDACTED]$2", options: .regularExpression)
             output = output.replacingOccurrences(of: keyValuePattern, with: "$1[REDACTED]", options: .regularExpression)
         }
-        let credentials = [AppAccountSession.storage.currentPassword, AppAccountSession.storage.fakeCookie]
-            .filter { !$0.isEmpty }
-        for credential in credentials { output = output.replacingOccurrences(of: credential, with: "[REDACTED]") }
-        return output
+        return redactCredentials(output, credentials: credentials)
     }
 
+    @MainActor
     static func sanitized(_ value: String) -> String {
-        var output = forced(value)
-        let studentID = AppAccountSession.storage.currentStudentID
+        sanitized(value, credentials: currentCredentials, studentID: AppAccountSession.storage.currentStudentID)
+    }
+
+    @MainActor private static var currentCredentials: [String] {
+        [AppAccountSession.storage.currentPassword, AppAccountSession.storage.fakeCookie]
+    }
+
+    static func sanitized(_ value: String, credentials: [String], studentID: String) -> String {
+        redactIdentities(redactURLs(forced(value, credentials: credentials), credentials: credentials, studentID: studentID), studentID: studentID)
+    }
+
+    private static func redactIdentities(_ value: String, studentID: String) -> String {
+        var output = value
         if !studentID.isEmpty { output = output.replacingOccurrences(of: studentID, with: "[REDACTED]") }
         let patterns: [(pattern: String, replacement: String)] = [
             ("(?i)(\\b(?:student_?id|username|name|phone|mobile)\\s*[=:：]\\s*)[^&\\s,;]+", "$1[REDACTED]"),
@@ -165,9 +222,17 @@ enum ErrorReportRedactor {
         }
         return output
     }
+
+    static func sanitizedURL(_ string: String, credentials: [String], studentID: String) -> String {
+        guard var components = URLComponents(string: string) else { return sanitized(string, credentials: credentials, studentID: studentID) }
+        components.path = sanitized(components.path, credentials: credentials, studentID: studentID)
+        components.query = components.queryItems?.map { "\($0.name)=[REDACTED]" }.joined(separator: "&")
+        components.fragment = nil
+        return sanitized(components.string ?? string, credentials: credentials, studentID: studentID)
+    }
 }
 
-struct FeedbackDeviceContext: Encodable {
+nonisolated struct FeedbackDeviceContext: Codable, Sendable {
     let locale: String
     let timeZone: String
     let interfaceStyle: String
@@ -195,7 +260,7 @@ struct FeedbackDeviceContext: Encodable {
     }
 }
 
-struct FeedbackDiagnosticSummary: Encodable {
+nonisolated struct FeedbackDiagnosticSummary: Codable, Sendable {
     let total: Int
     let failed: Int
     let statusCodes: [String: Int]
@@ -240,7 +305,7 @@ struct FeedbackDiagnosticSummary: Encodable {
     }
 }
 
-@MainActor protocol FeedbackSubmissionPayload: Encodable {
+nonisolated protocol FeedbackSubmissionPayload: Encodable, Sendable {
     var requestID: UUID { get }
     func hasSameContent(as other: Self) -> Bool
 }
@@ -248,7 +313,8 @@ struct FeedbackDiagnosticSummary: Encodable {
 /// 同一内容重试复用完整载荷，用户编辑后形成新的提交。
 @MainActor
 final class FeedbackSubmissionAttempt<Payload: FeedbackSubmissionPayload> {
-    private var pending: Payload?
+    private(set) var pending: Payload?
+    func restore(_ payload: Payload?) { pending = payload }
     func prepare(_ candidate: Payload) -> Payload {
         if let pending, pending.hasSameContent(as: candidate) { return pending }
         pending = candidate
@@ -259,7 +325,7 @@ final class FeedbackSubmissionAttempt<Payload: FeedbackSubmissionPayload> {
     }
 }
 
-struct ErrorReportPayload: @MainActor FeedbackSubmissionPayload {
+nonisolated struct ErrorReportPayload: FeedbackSubmissionPayload {
     var requestID = UUID()
     let mode: String
     let isDevelopmentBuild: Bool
@@ -272,7 +338,7 @@ struct ErrorReportPayload: @MainActor FeedbackSubmissionPayload {
     let systemVersion: String
     let deviceModel: String
     let networkStatus: String
-    let diagnostics: [NetworkDiagnosticRecord]
+    var diagnostics: [NetworkDiagnosticRecord]
     let submittedAt: Date
     let context: FeedbackDeviceContext
     let diagnosticSummary: FeedbackDiagnosticSummary
@@ -281,13 +347,60 @@ struct ErrorReportPayload: @MainActor FeedbackSubmissionPayload {
         mode == other.mode && comment == other.comment && contact == other.contact
             && errorTitle == other.errorTitle && errorMessage == other.errorMessage && diagnostics == other.diagnostics
     }
+
+    func fittingMetadataBudget() throws -> Self {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        var bounded = self
+        var bodyLimit = diagnostics.compactMap { $0.responseBody?.count }.max() ?? 0
+        while try encoder.encode(bounded).count > FeedbackSubmissionClient.maximumMetadataBytes {
+            try Task.checkCancellation()
+            guard bodyLimit > 0 else { throw FeedbackSubmissionError.metadataTooLarge }
+            bodyLimit /= 2
+            bounded.diagnostics = diagnostics.map { record in
+                let body = record.responseBody.map { text in
+                    text.count > bodyLimit ? String(text.prefix(bodyLimit)) + "\n[响应正文已按反馈大小限制截取]" : text
+                }
+                return NetworkDiagnosticRecord(id: record.id, occurredAt: record.occurredAt, method: record.method,
+                    url: record.url, statusCode: record.statusCode, elapsedMilliseconds: record.elapsedMilliseconds,
+                    error: record.error, responseHeaders: record.responseHeaders, responseBody: body)
+            }
+        }
+        return bounded
+    }
+
+    @concurrent
+    func preparedForSubmission(credentials: [String], studentID: String) async throws -> Self {
+        let sanitized = mode == "sanitized"
+        let redact: (String) -> String = { value in
+            sanitized ? ErrorReportRedactor.sanitized(value, credentials: credentials, studentID: studentID)
+                : ErrorReportRedactor.forced(value, credentials: credentials)
+        }
+        let selected = try diagnostics.map { record in
+            try Task.checkCancellation()
+            return NetworkDiagnosticRecord(id: record.id, occurredAt: record.occurredAt, method: record.method,
+                url: sanitized ? ErrorReportRedactor.sanitizedURL(record.url, credentials: credentials, studentID: studentID)
+                    : ErrorReportRedactor.forced(record.url, credentials: credentials),
+                statusCode: record.statusCode, elapsedMilliseconds: record.elapsedMilliseconds,
+                error: record.error.map(redact), responseHeaders: sanitized ? [:] : ErrorReportRedactor.redactHeaders(record.responseHeaders, credentials: credentials),
+                responseBody: sanitized ? nil : record.responseBody.map { ErrorReportRedactor.forced($0, credentials: credentials) })
+        }
+        return try Self(requestID: requestID, mode: mode, isDevelopmentBuild: isDevelopmentBuild,
+            comment: comment.map(redact), contact: contact.map { ErrorReportRedactor.forced($0, credentials: credentials) },
+            errorTitle: redact(errorTitle), errorMessage: redact(errorMessage), appVersion: appVersion, build: build,
+            systemVersion: systemVersion, deviceModel: deviceModel, networkStatus: networkStatus, diagnostics: selected,
+            submittedAt: submittedAt, context: context, diagnosticSummary: FeedbackDiagnosticSummary(diagnostics: selected))
+            .fittingMetadataBudget()
+    }
 }
 
 private enum FeedbackSubmissionError: LocalizedError {
     case server(statusCode: Int, message: String?)
+    case metadataTooLarge
 
     var errorDescription: String? {
         switch self {
+        case .metadataTooLarge: return "反馈内容过长，请精简描述后重试。"
         case let .server(statusCode, message):
             if let message, !message.isEmpty {
                 return "服务器响应异常（HTTP \(statusCode)）：\(message)"
@@ -313,6 +426,7 @@ private struct NetworkSmokeResponse: Decodable {
 
 /// 错误报告与开发者建议共用的反馈提交入口。
 struct FeedbackSubmissionClient {
+    nonisolated static let maximumMetadataBytes = 1024 * 1024
     static func validateSubmissionResponse(_ response: HTTPResponse, request: URLRequest, expectedReportID: UUID? = nil) throws {
         struct Receipt: Decodable { let id: String }
         try validateResponseOwnership(response, request: request)
@@ -350,7 +464,7 @@ struct FeedbackSubmissionClient {
     static func submitNetworkSmoke(runID: String) async throws {
         var request = URLRequest(url: AppURL.required("https://feedback.aihelpme.dev/api/error-reports"))
         request.httpMethod = "POST"
-        request.timeoutInterval = 20
+        request.timeoutInterval = 60 + 20
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("1", forHTTPHeaderField: "X-BIT101-Network-Smoke")
         request.httpBody = try JSONEncoder().encode(NetworkSmokePayload(runID: runID))
@@ -420,38 +534,34 @@ final class ErrorReportViewModel: ObservableObject {
         guard !isSubmitting else { return false }
         isSubmitting = true
         defer { isSubmitting = false }
-        let selected = diagnostics.map { record in
-            NetworkDiagnosticRecord(
-                id: record.id, occurredAt: record.occurredAt, method: record.method,
-                url: mode == .sanitized ? sanitizedURL(record.url) : ErrorReportRedactor.forced(record.url),
-                statusCode: record.statusCode, elapsedMilliseconds: record.elapsedMilliseconds,
-                error: record.error.map(viewModelRedactor),
-                responseHeaders: mode == .raw ? redactHeaders(record.responseHeaders) : [:],
-                responseBody: mode == .raw ? record.responseBody.map(ErrorReportRedactor.forced) : nil
-            )
-        }
         let trimmedComment = comment.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedContact = contact.trimmingCharacters(in: .whitespacesAndNewlines)
         let context = FeedbackDeviceContext.current
-        let payload = submissionAttempt.prepare(ErrorReportPayload(
+        let candidate = ErrorReportPayload(
             mode: mode.rawValue,
             isDevelopmentBuild: AppBuildEnvironment.isDevelopment,
-            comment: trimmedComment.isEmpty ? nil : viewModelRedactor(trimmedComment),
-            contact: trimmedContact.isEmpty ? nil : ErrorReportRedactor.forced(trimmedContact),
-            errorTitle: viewModelRedactor(alert.title),
-            errorMessage: viewModelRedactor(alert.message),
+            comment: trimmedComment.isEmpty ? nil : trimmedComment,
+            contact: trimmedContact.isEmpty ? nil : trimmedContact,
+            errorTitle: alert.title,
+            errorMessage: alert.message,
             appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?",
             build: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?",
             systemVersion: UIDevice.current.systemVersion,
             deviceModel: Self.deviceModel,
             networkStatus: context.networkStatus,
-            diagnostics: selected,
+            diagnostics: diagnostics,
             submittedAt: Date(),
             context: context,
-            diagnosticSummary: FeedbackDiagnosticSummary(diagnostics: selected)
-        ))
+            diagnosticSummary: FeedbackDiagnosticSummary(diagnostics: diagnostics)
+        )
         do {
             try Task.checkCancellation()
+            let prepared = try await candidate.preparedForSubmission(
+                credentials: [AppAccountSession.storage.currentPassword, AppAccountSession.storage.fakeCookie],
+                studentID: AppAccountSession.storage.currentStudentID)
+            try Task.checkCancellation()
+            guard isCurrentAccount else { return false }
+            let payload = submissionAttempt.prepare(prepared)
             try await submitReport(payload)
             try Task.checkCancellation()
             guard isCurrentAccount else { return false }
@@ -463,29 +573,6 @@ final class ErrorReportViewModel: ObservableObject {
             resultMessage = "提交失败：\(error.localizedDescription)"
             return false
         }
-    }
-
-    private func viewModelRedactor(_ value: String) -> String {
-        mode == .sanitized ? ErrorReportRedactor.sanitized(value) : ErrorReportRedactor.forced(value)
-    }
-
-    private func sanitizedURL(_ string: String) -> String {
-        guard var components = URLComponents(string: string) else { return ErrorReportRedactor.forced(string) }
-        components.query = components.queryItems?.map { "\($0.name)=[REDACTED]" }.joined(separator: "&")
-        components.fragment = nil
-        return ErrorReportRedactor.forced(components.string ?? string)
-    }
-
-    private func redactHeaders(_ headers: [String: String]) -> [String: String] {
-        let sensitiveNames: Set<String> = [
-            "authorization", "proxy-authorization", "cookie", "set-cookie",
-            "x-api-key", "x-auth-token", "x-access-token"
-        ]
-        return headers.mapValues(ErrorReportRedactor.forced)
-            .reduce(into: [:]) { result, pair in
-                let key = pair.key
-                result[key] = sensitiveNames.contains(key.lowercased()) ? "[REDACTED]" : pair.value
-            }
     }
 
     private static var networkStatus: String { NetworkConnectionDescription.shared.current }

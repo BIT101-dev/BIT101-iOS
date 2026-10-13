@@ -14,6 +14,22 @@ struct PaperDetailRequestTests {
             publicEdit: false, like: false, own: true)
     }
 
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func previewCacheUsesTheBodyDisplayBudget(oversized: Bool) async throws {
+        let store = PaperDetailRequestStore()
+        let body = String(repeating: "x", count: PaperContentResourceLimits.maximumBodyBytes - 12 + (oversized ? 1 : 0))
+        let author = CommunityUser(id: 1, createTime: "", nickname: "作者", avatar: .init(mid: "", url: "", lowUrl: ""),
+            motto: "", identity: .init(id: 0, color: "", text: "", createTime: "", updateTime: "", deleteTime: nil))
+        let value = PaperDetail(id: 1, title: "文章", intro: "", content: body, createTime: "", updateTime: "",
+            updateUser: author, anonymous: false, likeNum: 0, commentNum: 0,
+            publicEdit: false, like: false, own: true)
+        var loads = 0
+        func load() async throws -> PaperDetail { loads += 1; return value }
+        #expect(try await store.preview(id: 1, credentials: credentials, load: load).authorName == "作者")
+        #expect(try await store.detail(id: 1, credentials: credentials, load: load).content == body)
+        #expect(loads == (oversized ? 2 : 1))
+    }
+
     @Test(.timeLimit(.minutes(1))) func previewRequestsShareFourSlotsAndQueuedCancellation() async throws {
         let store = PaperDetailRequestStore()
         let (events, entered) = AsyncStream<Int>.makeStream()
@@ -77,7 +93,7 @@ struct PaperDetailRequestTests {
         #expect(loads == 1)
     }
 
-    @Test func previewHandoffIsConsumedAndRefreshStaysLive() async throws {
+    @Test(.timeLimit(.minutes(1))) func previewHandoffIsConsumedAndRefreshStaysLive() async throws {
         let store = PaperDetailRequestStore()
         var loads = 0
         func load() async throws -> PaperDetail { loads += 1; return Self.detail(1, title: "版本\(loads)") }
@@ -113,7 +129,7 @@ struct PaperDetailRequestTests {
         #expect(opened.title == "新版本")
     }
 
-    @Test func previewCacheRetainsFourResponses() async throws {
+    @Test(.timeLimit(.minutes(1))) func previewCacheRetainsFourResponses() async throws {
         let store = PaperDetailRequestStore()
         var loads = 0
         for id in 1...5 {

@@ -4,17 +4,16 @@ from __future__ import annotations
 from pathlib import Path
 from validation_inputs import native_project_targets, repository_script_paths
 import ast
-import fcntl
 import json
-import os
 import re
 import shlex
 import stat
 import subprocess
 import sys
 from swift_source_index import declaration_conformances, expected_argument_types, scope_contains_type, swift_syntax_index, swift_code
-from contextlib import contextmanager, ExitStack
-from ui_source_facts import explanatory_text_report
+from contextlib import contextmanager
+from validation_artifacts import static_audit_lock as workflow_audit_lock
+from ui_source_facts import explanatory_text_report, view_transport_findings, view_helper_ranges
 
 sys.dont_write_bytecode = True
 
@@ -44,21 +43,7 @@ STDOUT_EXCEPTIONS = {"BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift"}
 
 @contextmanager
 def static_audit_lock():
-    flags = ('BIT101_EXTENDED_TESTS_LOCK_HELD', 'BIT101_STATIC_AUDIT_LOCK_HELD')
-    previous = {flag: os.environ.get(flag) for flag in flags}
-    def restore():
-        for flag, value in previous.items():
-            if value is None: os.environ.pop(flag, None)
-            else: os.environ[flag] = value
-    with ExitStack() as locks:
-        locks.callback(restore)
-        for name, flag in zip(('.build/extended-automation.lock', '.build/static-audit/audit.lock'), flags):
-            if os.environ.get(flag) == '1': continue
-            path = ROOT / name
-            path.parent.mkdir(parents=True, exist_ok=True)
-            lock = locks.enter_context(path.open('a'))
-            fcntl.flock(lock, fcntl.LOCK_EX)
-            os.environ[flag] = '1'
+    with workflow_audit_lock(ROOT):
         yield
 
 
@@ -80,10 +65,9 @@ def ast_has_view_construction(facts: dict, constructed_types: set[str], type_ind
         if not alias.get('lexicalScope')]) for path, entry in context.items()})
     call_context = SwiftBindingTypes(context, resolver)
     conformances = declaration_conformances({"source": facts}) if type_index is None else type_index
-    view_types = {owner for owner, bases in conformances.items() if any(base.rsplit(".", 1)[-1] == "View" for base in bases)}
-    def canonical_type(value, reference):
+    view_types = {owner for owner, bases in conformances.items() if any(base.rsplit(".", 1)[-1] in {'View', 'ViewModifier', 'App', 'Scene'} for base in bases)}
+    def canonical_type(value, reference, reference_file=origin):
         seen = set()
-        reference_file = origin
         while (reference_file, value) not in seen:
             seen.add((reference_file, value))
             value = re.sub(r"\s+", "", mask_literals_and_comments(value)).rstrip("?!")
@@ -105,55 +89,32 @@ def ast_has_view_construction(facts: dict, constructed_types: set[str], type_ind
             reference = {'scope': list(key[1][:-1]), 'lexicalScope': []}
             value = resolver.aliases[key]
         return False
-    for call in facts["calls"]:
-        if not scope_contains_type(call["scope"], view_types): continue
+    helpers = view_helper_ranges(context, resolver, origin=origin)
+    calls = [(origin, facts, call) for call in facts["calls"] if scope_contains_type(call["scope"], view_types)]
+    calls += [(path, entry, call) for path, entry in context.items() for call in entry["calls"]
+        if any(start <= call['start'] < end for start, end in helpers.get(path, set()))]
+    for reference_file, source_facts, call in calls:
         called = re.sub(r"\s+", "", mask_literals_and_comments(call["value"]))
-        if canonical_type(called.removesuffix(".init").removesuffix(".self"), call): return True
+        if canonical_type(called.removesuffix(".init").removesuffix(".self"), call, reference_file): return True
         if called != ".init": continue
-        if any(canonical_type(value, call) for value in expected_argument_types(facts, call, context=call_context, path=origin)): return True
+        if any(canonical_type(value, call, reference_file) for value in expected_argument_types(source_facts, call, context=call_context, path=reference_file)): return True
         bindings = [(binding, re.match(r"\w+\s*:\s*([\w.?!]+)", binding["value"]))
-            for binding in facts.get("bindings", [])
+            for binding in source_facts.get("bindings", [])
             if binding["start"] <= call["start"] < binding["start"] + len(binding["value"].encode())]
         typed = [(binding, match[1]) for binding, match in bindings if match]
         if typed:
             binding, value = max(typed, key=lambda entry: entry[0]["start"])
-            if canonical_type(value, binding): return True
+            if canonical_type(value, binding, reference_file): return True
         else:
-            functions = [function for function in facts.get("functionRanges", [])
+            functions = [function for function in source_facts.get("functionRanges", [])
                 if function["start"] <= call["start"] < function["end"] and function.get("returnType")]
-            if functions and canonical_type(max(functions, key=lambda function: function["start"])["returnType"], call): return True
+            if functions and canonical_type(max(functions, key=lambda function: function["start"])["returnType"], call, reference_file): return True
     return False
 
 
 def relative(path: Path) -> str:
     return path.relative_to(ROOT).as_posix()
 
-
-def view_transport_findings(index: dict) -> list[str]:
-    from swift_type_index import SwiftTypeIndex, SwiftBindingTypes, receiver_resolver
-    from network_capability_rules import NETWORK_TRANSPORT_TYPES, NETWORK_TRANSPORT_METHODS
-    types = SwiftTypeIndex(index)
-    bindings = SwiftBindingTypes(index, types)
-    resolve = receiver_resolver(index)
-    errors = []
-    for path, facts in index.items():
-        if not relative(Path(path)).startswith(('BIT101-iOS/', 'Modules/', 'BIT101ScheduleWidgets/', 'BIT101WatchWidgets/', 'BIT101Watch/')): continue
-        owners = {owner for owner, bases in types.conformances(path).items()
-            if any(base.rsplit('.', 1)[-1] in {'View', 'ViewModifier'} for base in bases)}
-        factories = [fn for fn in facts.get('functionRanges', []) if fn.get('returnsView') and fn.get('bodyStart') is not None]
-        for call in facts.get('invocations', []):
-            if not scope_contains_type(call['scope'], owners) and not any(
-                    fn['bodyStart'] <= call['start'] < fn['end'] for fn in factories): continue
-            method = call['calledExpression'].rsplit('.', 1)[-1]
-            if method not in NETWORK_TRANSPORT_METHODS: continue
-            owner = resolve(dict(call, path=path))
-            kind = owner or bindings.receiver_type(call, path) or ''
-            target = types.resolve(path, kind, call['scope'])
-            if kind.rsplit('.', 1)[-1] in NETWORK_TRANSPORT_TYPES or target and any(
-                    base.rsplit('.', 1)[-1] == 'HTTPTransport' for base in types.bases(target)):
-                line = facts['source'].encode()[:call['start']].count(b'\n') + 1
-                errors.append(f'{relative(Path(path))}:{line}: 视图网络传输沿注入的业务服务执行')
-    return errors
 
 
 def swift_files() -> list[Path]:
@@ -257,6 +218,7 @@ def client_source_findings(path: Path, source: str, facts: dict | None = None, c
     errors: list[str] = []
     name = relative(path)
     code = mask_literals_and_comments(source)
+    add_matches(errors, path, code, re.compile(r'\.\s*loadTransferable\s*\(\s*type\s*:\s*(?:Foundation\.)?Data\s*\.\s*self'), "照片原始数据读取使用 loadBoundedImageData 的容量预算")
     if name not in STDOUT_EXCEPTIONS:
         add_matches(errors, path, code, DIRECT_STDOUT_LOG, "诊断输出使用所属模块的 Logger")
     community_roots = tuple(ROOT / "Modules" / module for module in ("CourseFeature", "GalleryFeature", "PaperFeature", "MineFeature", "CommunityUI"))
@@ -271,28 +233,30 @@ def client_source_findings(path: Path, source: str, facts: dict | None = None, c
     return errors
 
 
-def cancellation_findings(path: Path, source: str, facts: dict | None) -> list[str]:
+def cancellation_findings(path: Path, source: str, facts: dict | None, *, resolver=None) -> list[str]:
     if not any(path.is_relative_to(root) for root in PRODUCTION_ROOTS):
         return []
     findings = []
     code = mask_literals_and_comments(source)
-    for match in re.finditer(r"\b(?:is\b|as\b\s*[?!]?)\s*(?:Swift\s*\.\s*)?CancellationError\b", code):
+    from swift_type_index import SwiftTypeIndex
+    types = resolver or SwiftTypeIndex({str(path): facts or {}})
+    for match in re.finditer(r"\b(?:is\b|as\b\s*[?!]?)\s*([A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)*)", code):
         start = len(source[:match.start()].encode())
         end = len(source[:match.end()].encode())
-        owned = path.is_relative_to(ROOT / "Modules/TransportCore") and any(
-            item["value"] == "CancellationError" and item["scope"] == ["TaskCancellation"]
-            and start <= item["start"] < end
-            for item in (facts or {}).get("scopedIdentifiers", [])
-        )
+        identifiers = [item for item in (facts or {}).get("scopedIdentifiers", []) if start <= item["start"] < end]
+        scope = identifiers[-1]['scope'] if identifiers else []
+        if types.terminal_name(str(path), match[1], scope).removeprefix('Swift.') != 'CancellationError': continue
+        owned = path.is_relative_to(ROOT / "Modules/TransportCore") and scope == ["TaskCancellation"]
         if not owned:
             findings.append(f"{relative(path)}:{line_number(source, match.start())}: 任务取消必须通过 TaskCancellation.matches 统一识别")
     return findings
 
 
 def file_write_calls(index: dict) -> dict[str, set[int]]:
-    from swift_type_index import SwiftTypeIndex, SwiftBindingTypes, receiver_resolver
+    from swift_type_index import SwiftTypeIndex, SwiftBindingTypes, receiver_resolver, callable_effect_index, visible_callable_ranges
     from swift_source_index import matching_functions
     from network_capability_rules import matching_api_calls
+    index = callable_effect_index(index)
     types, resolve = SwiftTypeIndex(index), receiver_resolver(index)
     bindings = SwiftBindingTypes(index, types)
     methods, functions, calls = {}, {}, {}
@@ -317,19 +281,21 @@ def file_write_calls(index: dict) -> dict[str, set[int]]:
                 if receiver_name in {'FileManager.default', 'Foundation.FileManager.default'} \
                         and types.resolve(path, receiver_name.removesuffix('.default'), call['scope']) is None:
                     kind = 'Foundation.FileManager'
-            owner_type = types.resolve(path, kind or '', call['scope'])
-            bases = {types.terminal_name(types.paths[owner_type], base, owner_type[1][:-1])
-                for base in types.bases(owner_type)} if owner_type else set()
-            service = bool(({kind} | bases) & {'AppFileService', 'StorageCore.AppFileService', 'StorageCore.LocalAppFileService'})
+            receiver_types = bindings.receiver_components(call, path) | {kind}
+            owner_types = {owner for name in receiver_types if (owner := types.resolve(path, name or '', call['scope']))}
+            bases = {types.terminal_name(types.paths[owner], base, owner[1][:-1])
+                for owner in owner_types for base in types.bases(owner)}
+            service = bool((receiver_types | bases) & {'AppFileService', 'StorageCore.AppFileService', 'StorageCore.LocalAppFileService'})
             manager = kind in {'FileManager', 'Foundation.FileManager'}
             writer = kind in {'Data', 'String', 'NSData', 'NSMutableData', 'NSString', 'NSMutableString', 'FileWrapper',
                 'NSFileWrapper', 'FileHandle', 'NSFileHandle'} or (kind or '').removeprefix('Foundation.') in {
                 'Data', 'String', 'NSData', 'NSMutableData', 'NSString', 'NSMutableString', 'FileWrapper', 'NSFileWrapper', 'FileHandle', 'NSFileHandle'}
-            if (service or manager) and name in {'removeItem', 'writeData', 'createDirectory', 'moveItem', 'copyItem', 'replaceItemAt'} \
+            if (service or manager) and name in {'removeItem', 'writeData', 'createDirectory', 'moveItem', 'copyItem', 'replaceItemAt',
+                    'setPrivateFileProtection', 'setBackupExcluded', 'setModificationDate'} \
                     or writer and name == 'write' and {'to', 'contentsOf'}.intersection(call.get('argumentLabels', [])):
                 writes[path].add(call['start'])
             enclosing = [function for function in facts.get('functionRanges', [])
-                if function.get('bodyStart') is not None and function['bodyStart'] <= call['start'] < function['end']]
+                if (function.get('bodyStart') if function.get('bodyStart') is not None else function['start']) <= call['start'] < function['end']]
             if enclosing:
                 owner = max(enclosing, key=lambda function: function['start'])
                 owners[key] = (path, owner['start'])
@@ -342,6 +308,9 @@ def file_write_calls(index: dict) -> dict[str, set[int]]:
             unique = {(source, function['start']): (source, function) for source, function in candidates}
             edges[key] = {(source, function['start']) for source, function in
                 matching_api_calls(index, list(unique.values()), dict(call, path=path), types=types, conservative=True)}
+            if '.' not in call['calledExpression'].removeprefix('self.'):
+                edges[key].update((path, alias['start']) for alias in visible_callable_ranges(facts, name, call))
+    callable_keys = {(path, alias['start']) for path, facts in index.items() for alias in facts.get('callableRanges', [])}
     affected = set()
     changed = True
     while changed:
@@ -352,13 +321,12 @@ def file_write_calls(index: dict) -> dict[str, set[int]]:
             owner = owners.get(key)
             if key[1] in writes[key[0]] and owner and owner not in affected:
                 function = functions[owner]
-                if function.get('isThrowing'):
+                if function.get('isThrowing') or owner in callable_keys:
                     affected.add(owner); changed = True
     return writes
 
 
 def discarded_file_write_findings(path: Path, source: str, facts: dict, writes: dict | None = None) -> list[str]:
-    if any(path.is_relative_to(ROOT / name) for name in ("BIT101-iOSTests", "BIT101-iOSUITests", "ModuleTests")): return []
     cache_paths = {ROOT / "Modules/MediaKit/Sources/RemoteImageCache.swift", ROOT / "Modules/MediaKit/Sources/CachedRemoteImage.swift"}
     if path in cache_paths: return []
     if writes is None: writes = file_write_calls({str(path): facts})
@@ -380,18 +348,39 @@ def asynchronous_test_wait_findings(path: Path, source: str, facts: dict) -> lis
     findings = []
     for row in facts.get('controlFlow', []):
         value = mask_literals_and_comments(row['value'])
-        if not re.match(r'while\b', value) or not re.search(r'\bTask\s*\.\s*yield\s*\(', value): continue
+        if not re.match(r'while\b', value): continue
+        polling = re.search(r'\bTask\s*\.\s*yield\s*\(', value)
+        swallowed_sleep = re.search(r'\btry\s*\?\s*await\s+Task\s*\.\s*sleep\s*\(', value)
+        if not polling and not (swallowed_sleep and not re.search(r'\b(?:break|return|throw)\b|\bTask\s*\.\s*(?:isCancelled|checkCancellation)\b', value)): continue
         if name == 'ModuleTests/Support/FileServiceContract.swift' and any(
                 owner['start'] <= row['start'] < owner['start'] + len(owner['value'].encode()) for owner in helper): continue
         line = source.encode()[:row['start']].count(b'\n') + 1
         findings.append(f'{name}:{line}: 异步事件等待统一沿共享 waitForTestEvent 核对取消与期限')
+    tests = {row['start'] for row in facts.get('tests', []) if row.get('isTestingTest')}
+    closures = facts.get('inlineClosureRanges', []) + facts.get('callableRanges', [])
     for function in facts.get('functionRanges', []):
-        if not function['name'].startswith(('waitFor', 'waitUntil')): continue
-        if any(function['bodyStart'] <= call['start'] < function['end']
-                and call['calledExpression'] in {'withCheckedContinuation', 'withCheckedThrowingContinuation'}
-                for call in facts.get('invocations', [])):
+        observer = function['name'].startswith(('waitFor', 'waitUntil'))
+        if not observer and function['start'] not in tests: continue
+        waits = [call for call in facts.get('invocations', []) if function['bodyStart'] <= call['start'] < function['end']
+            and call['calledExpression'] in {'withCheckedContinuation', 'withCheckedThrowingContinuation'}]
+        waits = [call for call in waits if observer or not any(function['start'] < closure['start'] <= call['start'] < closure['end']
+            for closure in closures + facts.get('functionRanges', []))]
+        waits = [call for call in waits if not any(guard['calledExpression'] == 'withTaskCancellationHandler'
+            and guard['start'] <= call['start'] < guard['start'] + len(guard['value'].encode())
+            for guard in facts.get('invocations', []))]
+        if waits:
             line = source.encode()[:function['start']].count(b'\n') + 1
             findings.append(f'{name}:{line}: 异步事件观察沿共享 waitForTestEvent 核对取消与期限')
+    asynchronous = {row['start'] for row in facts.get('functionRanges', []) if row.get('isAsync')}
+    suite_limits = [call['scope'] for call in facts.get('invocations', []) if call['calledExpression'] == '.timeLimit'
+        and re.search(r'@(?:Testing\.)?Suite\s*\([^{}]*$', mask_literals_and_comments(source.encode()[:call['start']].decode()))]
+    for function in facts.get('functions', []):
+        attributes = re.split(r'\bfunc\b', mask_literals_and_comments(function['value']), maxsplit=1)[0]
+        limited = re.search(r'\.\s*timeLimit\s*\(', attributes) or any(
+            function['scope'][:len(scope)] == scope for scope in suite_limits)
+        if function['start'] in tests and function['start'] in asynchronous and not limited:
+            line = source.encode()[:function['start']].count(b'\n') + 1
+            findings.append(f'{name}:{line}: Swift Testing 异步测试需要 timeLimit 期限')
     return findings
 
 
@@ -400,7 +389,7 @@ def source_findings(syntax_index: dict[str, dict] | None = None) -> tuple[list[s
     review: list[str] = []
     writes = file_write_calls(syntax_index or {})
     unsafe_concurrency_escape = re.compile(
-        r"\bnonisolated\s*\(\s*unsafe\s*\)|@\s*unchecked\s+Sendable"
+        r"\bnonisolated\s*\(\s*unsafe\s*\)|@\s*`?unchecked\b`?"
     )
 
     large_files: list[str] = []
@@ -443,9 +432,11 @@ def source_findings(syntax_index: dict[str, dict] | None = None) -> tuple[list[s
         add_matches(errors, path, mask_literals_and_comments(source, keep_comments=True),
                     re.compile(r"\b(?:TODO|FIXME|HACK)\b"), "请清理遗留 TODO/FIXME/HACK")
 
-        errors.extend(cancellation_findings(path, source, syntax_index.get(str(path)) if syntax_index else None))
+        errors.extend(cancellation_findings(path, source, syntax_index.get(str(path)) if syntax_index else None, resolver=types))
         add_matches(errors, path, masked_source, unsafe_concurrency_escape, "禁止绕过 Swift 并发安全检查：请表达真实隔离或使用锁/Actor")
         facts = syntax_index.get(str(path)) if syntax_index else None
+        from validation_test_areas import fixture_resource_findings
+        if facts: errors.extend(fixture_resource_findings(path, facts))
         if facts: errors.extend(asynchronous_test_wait_findings(path, source, facts))
         if facts: errors.extend(discarded_file_write_findings(path, source, facts, writes))
         for clause in (facts or {}).get("emptyCatchClauses", []):
@@ -497,7 +488,13 @@ def script_findings() -> list[str]:
 
 def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
     """核对生命周期调用链与学校业务请求入口。"""
-    from network_capability_rules import call_can_execute
+    from network_capability_rules import call_can_execute, execution_index, matching_execution_entries
+    syntax_index = execution_index(syntax_index)
+    from validation_compilation import active_swift_source, source_architectures, source_platforms
+    active_sources = {path: [active_swift_source(facts['source'], 'restore', platform=platform,
+        architecture=architecture, path=path).encode() for platform in source_platforms(path)
+        for architecture in source_architectures(platform, facts['source'])] for path, facts in syntax_index.items()
+        if '#' in facts.get('source', '')}
     errors: list[str] = []
     forbidden_identifiers = (
         "SchoolDataRefreshCoordinator",
@@ -541,8 +538,10 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
             types.resolve(types.paths[owner], base, owner[1][:-1]) in school_receivers for base in types.records[owner])}:
         school_receivers.update(inherited)
     functions = {}
+    declarations = {}
+    invocations = {(path, node['start'], node['calledExpression']): node for path, facts in syntax_index.items() for node in facts.get('invocations', [])}
     callable_names = {function["name"] for facts in syntax_index.values()
-        for category in ("callableRanges", "functionRanges") for function in facts.get(category, [])}
+        for category in ("callableRanges", "functionRanges", "accessorRanges") for function in facts.get(category, [])}
     from swift_type_index import SwiftBindingTypes
     bindings = SwiftBindingTypes(syntax_index, types)
     type_ids, variable_types, aliases = bindings.type_ids, bindings.variable_types, bindings.aliases
@@ -599,6 +598,7 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
                 label = labels[index] if index < len(labels) else ""
                 property_type = variable_types.get((owner, label), "")
                 memberwise = owner not in explicit_initializers and "->" in property_type
+                stored_names = {label} if memberwise else set()
                 parameters = [(function, parameter) for function in declarations
                     for parameter_index, parameter in enumerate(function["parameters"])
                     if (parameter["label"] == label if label else parameter_index == index)
@@ -606,11 +606,18 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
                 held = parameters and all(function.get("bodyStart") is not None
                     and (id(function), parameter.get("name", parameter["label"])) not in eager_parameters
                     for function, parameter in parameters)
+                for function, parameter in parameters:
+                    if not function.get('isExplicitInitializer'): continue
+                    declaration_facts = syntax_index[function_paths[id(function)]]
+                    stored_names.update(factory['name'] for factory in declaration_facts.get('callableRanges', [])
+                        if factory.get('isPropertyAssignment') and factory.get('referenceTarget') == parameter.get('name', parameter['label'])
+                        and function.get('bodyStart', function['start']) <= factory['start'] < function['end']
+                        and '->' in variable_types.get((owner, factory['name']), ''))
                 if parameters and not held: executed.append((start, end))
-                if memberwise or index in escaping or held:
+                if memberwise or index in escaping or held or stored_names:
                     callback = {"name": label, "scope": list(owner[1:]), "ownerNamespace": owner[0], "lexicalScope": [], "start": start, "end": end}
                     registered.append(callback)
-                    if memberwise: stored.append(callback)
+                    stored.extend(dict(callback, name=name) for name in stored_names)
         return registered, stored, executed
 
     while True:
@@ -636,7 +643,7 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
 
     roots = []
     for path, facts in syntax_index.items():
-        if "Tests/" in path or "UITest" in Path(path).name or "ReleaseNetworkSmoke" in Path(path).name: continue
+        if any(Path(path).is_relative_to(ROOT / root) for root in ("ModuleTests", "BIT101-iOSTests", "BIT101-iOSUITests")): continue
         identifier_ids = {id(reference) for reference in facts.get("scopedIdentifiers", [])}
         member_ranges = [(member["start"], member["start"] + len(member["value"].encode())) for member in facts.get("members", [])]
         assignments = [(expression["start"], expression["start"] + len(match[1].encode()))
@@ -648,21 +655,30 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
             + [node for node in facts.get("scopedIdentifiers", []) if node.get("isExpressionReference")]
             if (re.fullmatch(r"(?:[\w?$]+\.)*\w+", reference["value"]) or reference["value"] == ".init" or reference.get("receiverCall"))
             and call_can_execute(facts, reference)
+            and (path not in active_sources or any(source[reference['start']:reference['start'] + 1] != b' '
+                for source in active_sources[path]))
             and not (id(reference) in identifier_ids and any(start <= reference["start"] < end for start, end in member_ranges))
-            and not any(start <= reference["start"] < end for start, end in discarded)
+            and not (any(start <= reference["start"] < end for start, end in discarded) and not bindings.is_accessor_reference(reference, path))
             and not any(start <= reference["start"] < end for start, end in assignments)
             and ("." in reference["value"] or reference["value"] in callable_names
                 or (variable_scope(path, reference), reference["value"]) not in variable_types)]
         registered, stored, _ = callback_ranges[path]
         deferred_ranges = facts.get("callableRanges", []) + registered
-        range_sets = [facts.get(category, []) for category in ("functionRanges", "callableRanges", "initializers")] + [stored]
+        range_sets = [facts.get(category, []) for category in ("functionRanges", "callableRanges", "initializers", "accessorRanges")] + [stored]
         for ranges in range_sets:
             for function in ranges:
-                key = (variable_scope(path, function), function["name"])
-                functions.setdefault(function["name"], []).append((key, [reference for reference in references
-                    if function.get("bodyStart", function["start"]) <= reference["start"] < function["end"]
-                    and not any(deferred["start"] <= reference["start"] < deferred["end"]
-                        and deferred is not function for deferred in deferred_ranges)]))
+                if ranges is stored or ranges is facts.get('callableRanges'): function = dict(function, isCallableValue=True)
+                bodies = [(function['start'], function.get('bodyStart', function['start']), function['end'])]
+                bodies += [(bounds[0], *bounds) for parameter in function.get('parameters', [])
+                    if (bounds := parameter.get('defaultExpressionRange'))]
+                for identity_start, start, end in bodies:
+                    key = (variable_scope(path, function), function["name"], path, identity_start)
+                    declarations[key] = (path, function)
+                    children = [reference for reference in references if start <= reference['start'] < end
+                        and not any(deferred['start'] <= reference['start'] < deferred['end']
+                            and (function['name'] == 'init' or (deferred['start'], deferred['end']) != (function['start'], function['end'])) for deferred in deferred_ranges)]
+                    functions.setdefault(function['name'], []).append((key, children))
+                    if function.get('isDeinitializer'): roots.extend(children)
         for declaration in facts["declarations"]:
             if "App" in {value.rsplit(".", 1)[-1] for value in declaration["inheritedTypes"]} \
                     or declaration["name"].endswith("Lifecycle") or declaration["name"] == "ScheduleReminderBackgroundRefresh":
@@ -673,6 +689,29 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
             roots.extend(reference for reference in references
                 if lifecycle["start"] <= reference["start"] < lifecycle["end"]
                 and not any(deferred["start"] <= reference["start"] < deferred["end"] for deferred in deferred_ranges))
+        native_callbacks = {
+            'UIApplicationDelegate': {'application', 'applicationDidBecomeActive', 'applicationWillResignActive',
+                'applicationDidEnterBackground', 'applicationWillEnterForeground', 'applicationWillTerminate',
+                'applicationProtectedDataDidBecomeAvailable', 'applicationProtectedDataWillBecomeUnavailable',
+                'applicationSignificantTimeChange'},
+            'UISceneDelegate': {'scene', 'sceneDidBecomeActive', 'sceneWillResignActive', 'sceneDidEnterBackground',
+                'sceneWillEnterForeground', 'sceneDidDisconnect'},
+            'UIViewController': {'viewDidLoad', 'viewWillAppear', 'viewIsAppearing', 'viewDidAppear', 'viewWillDisappear',
+                'viewDidDisappear', 'viewWillLayoutSubviews', 'viewDidLayoutSubviews', 'updateViewConstraints',
+                'traitCollectionDidChange', 'didReceiveMemoryWarning', 'awakeFromNib'},
+            'UIView': {'didMoveToWindow', 'didMoveToSuperview', 'layoutSubviews', 'updateConstraints',
+                'traitCollectionDidChange', 'awakeFromNib'},
+            'UIViewControllerRepresentable': {'makeUIViewController', 'updateUIViewController', 'dismantleUIViewController'},
+            'UIViewRepresentable': {'makeUIView', 'updateUIView', 'dismantleUIView'},
+        }
+        for function in facts.get('functionRanges', []):
+            if not any(function['name'] in names for names in native_callbacks.values()): continue
+            owner = types.resolve(path, '.'.join(function['scope']), aliases=False)
+            bases = {base.rsplit('.', 1)[-1] for base in types.bases(owner)} if owner else set()
+            if any(function['name'] in native_callbacks.get(base, set()) for base in bases):
+                roots.extend(reference for reference in references
+                    if function.get('bodyStart', function['start']) <= reference['start'] < function['end']
+                    and not any(deferred['start'] <= reference['start'] < deferred['end'] for deferred in deferred_ranges))
 
     implementations_by_receiver = {}
     for identity in types.records:
@@ -681,7 +720,7 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
             receiver = canonical_type(base, (namespace,) + owner, types.paths[identity])
             implementations_by_receiver.setdefault(receiver, set()).add((namespace,) + owner)
 
-    def targets(call):
+    def possible_targets(call):
         name = call["value"].rsplit(".", 1)[-1]
         candidates = functions.get(name, [])
         if name[:1].isupper():
@@ -694,7 +733,11 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
         if receiver:
             identity = type_ids.get(receiver)
             receiver_owner = (identity[0],) + identity[1] if identity else None
-            implementations = implementations_by_receiver.get(receiver, ())
+            implementations = set(implementations_by_receiver.get(receiver, ()))
+            if identity:
+                for name in types.bases(identity):
+                    if parent := types.resolve(types.paths[identity], name, identity[1][:-1]):
+                        implementations.add((parent[0],) + parent[1])
             return [entry for entry in candidates if receiver_owner and entry[0][0][:len(receiver_owner)] == receiver_owner
                 or any(entry[0][0][:len(owner)] == owner for owner in implementations)]
         if call["value"] == ".init":
@@ -716,18 +759,30 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
         named = [entry for entry in candidates if any(receiver_name.lower() in owner.lower() for owner in entry[0][0])]
         return named or candidates if "." in call["value"] else [entry for entry in candidates if len(entry[0][0]) == 1]
 
+    def targets(call):
+        path = reference_paths[id(call)]
+        invocation = invocations.get((path, call['start'], call['value']))
+        entries = possible_targets(call)
+        if invocation is None and not any(start <= call['start'] < end for start, end in callback_ranges[path][2]) \
+                and not any(node.get('referenceTarget') and node['start'] <= call['start'] < node['end']
+                    for node in syntax_index[path].get('callableRanges', [])) \
+                and not any(node['start'] <= call['start'] < node['end'] for node in syntax_index[path].get('lifecycleRanges', [])):
+            entries = [entry for entry in entries if declarations[entry[0]][1].get('isAccessor')
+                or declarations[entry[0]][1].get('isCallableValue')]
+        return matching_execution_entries(syntax_index, entries, dict(call, path=path), declarations, invocation, types=types)
+
     reasons = {}
     predecessors = {}
     cloud_operation = "refreshFromCloudIfNeeded"
     def restricted(call):
         operation = call["value"].rsplit(".", 1)[-1].strip()
         if operation in school_operations:
-            receiver = type_ids.get(receiver_type(call))
+            receivers = {type_ids.get(kind) for kind in bindings.receiver_components(call)}
             scope = variable_scope(reference_paths[id(call)], call)
-            return receiver in school_receivers or receiver is None and "." not in call["value"] and any(
+            return bool(receivers & school_receivers) or not (receivers - {None}) and "." not in call["value"] and any(
                 scope[:len(owner) + 1] == (namespace,) + owner for namespace, owner in school_receivers)
         if operation != cloud_operation: return False
-        preference = receiver_type(call) in {"BIT101-iOS.ExperimentalPreferenceCloudSync", "fixture.ExperimentalPreferenceCloudSync"} \
+        preference = receiver_type(call) in {"BIT101-iOS.ExperimentalPreferenceCloudSync", "fixture.ExperimentalPreferenceCloudSync", "ScheduleSync.ScheduleCloudSyncManager"} \
             or "ExperimentalPreferenceCloudSync" in call["scope"] and types.units[reference_paths[id(call)]] in {"BIT101-iOS", "fixture"}
         return not preference
     for entries in functions.values():
@@ -810,6 +865,16 @@ def scheme_inventory_findings(schemes: dict[str, str]) -> list[str]:
 
 def cross_file_view_request_self_test() -> list[str]:
     from swift_source_index import swift_syntax_index_sources
+    for split in (False, True):
+        for action, expected in (('await rawLoad(client: client)', True), ('()', False)):
+            view = str(ROOT / 'BIT101-iOS/HelperScreen.swift')
+            helper = str(ROOT / 'BIT101-iOS/HelperActions.swift')
+            body = 'func rawLoad(client: HTTPClient) async throws { _ = try await client.send(URLRequest(url: url)) }'
+            source = 'struct Screen: View { let client: HTTPClient; var body: some View { Text("value").task { ACTION } } }'.replace('ACTION', action)
+            inputs = {view: source, helper: body} if split else {view: source + "; " + body}
+            facts = swift_syntax_index_sources(inputs)
+            if ast_has_view_request(facts[view], context=facts) != expected or bool(view_transport_findings(facts)) != expected:
+                return ['视图辅助函数边界自测：同文件、跨文件及未调用入口']
     sources = {
         "View.swift": "enum Namespace { struct Screen: SwiftUI.View {}; struct Helper {} }",
         "Actions.swift": "extension Namespace.Screen { func load() { _ = URLRequest(url: url) } }",
@@ -908,4 +973,16 @@ def cross_file_view_request_self_test() -> list[str]:
         source = fixture.replace('RECEIVER', receiver).replace('MODIFIER', modifier).replace('ACTION', action)
         if bool(automatic_school_fetch_findings(swift_syntax_index_sources({'School.swift': source}))) != expected:
             return ['代码质量规则边界自检失败：变更回调、接收者归属与不可执行分支']
+    for owner, callback, action, expected in (
+            ('UIApplicationDelegate', 'applicationDidBecomeActive', 'Task { await service.fetchScores() }', True),
+            ('UIApplicationDelegate', 'application', 'Task { await service.fetchScores() }', True),
+            ('UISceneDelegate', 'sceneDidBecomeActive', 'Task { await service.fetchScores() }', True),
+            ('UISceneDelegate', 'scene', 'Task { await service.fetchScores() }', True),
+            ('NSObject', 'applicationDidBecomeActive', 'Task { await service.fetchScores() }', False),
+            ('UIApplicationDelegate', 'manualRefresh', 'Task { await service.fetchScores() }', False),
+            ('UISceneDelegate', 'sceneDidBecomeActive', '_ = service', False)):
+        source = ('protocol ScoreListServicing { func fetchScores() async }; '
+            f'class Controller: {owner} {{ let service: any ScoreListServicing; func {callback}() {{ {action} }} }}')
+        if bool(automatic_school_fetch_findings(swift_syntax_index_sources({'Delegate.swift': source}))) != expected:
+            return ['代码质量规则边界自检失败：系统 delegate 生命周期及手动入口归属']
     return []

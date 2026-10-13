@@ -57,7 +57,9 @@ public struct MineService {
 
     /// 获取指定用户的公开资料卡信息。
     public func fetchUserInfo(id: Int) async throws -> MineUserInfo {
-        try await api.request(path: "user/info/\(id)")
+        let info: MineUserInfo = try await api.request(path: "user/info/\(id)")
+        guard id > 0, info.user.id == id else { throw MineServiceError.invalidResponse }
+        return info
     }
 
     public func followUser(id: Int) async throws -> MineFollowResult {
@@ -99,10 +101,12 @@ public struct MineService {
         if await shouldHideBotPosters() {
             queryItems.append(URLQueryItem(name: "hide_bot", value: "true"))
         }
-        return try await api.request(
+        let posters: [CommunityPoster] = try await api.request(
             path: "posters",
             queryItems: queryItems
         )
+        guard userID == 0 || posters.allSatisfy({ $0.user.id == userID }) else { throw MineServiceError.invalidResponse }
+        return posters
     }
 
     private func shouldHideBotPosters() async -> Bool {

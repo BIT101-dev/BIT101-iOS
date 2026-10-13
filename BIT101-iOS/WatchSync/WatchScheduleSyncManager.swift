@@ -29,6 +29,23 @@ private nonisolated final class WatchScheduleReply: Sendable {
 nonisolated struct WatchSnapshotDeliveryBuffer {
     private var revision: UInt64?
     private var data: Data?
+    private(set) var pendingData: Data?
+    private(set) var lastDeliveryError: String?
+
+    mutating func stage(_ data: Data) { pendingData = data }
+    mutating func discardPending() { pendingData = nil; lastDeliveryError = nil }
+
+    mutating func deliver(using transfer: (Data) throws -> Void) -> Bool {
+        guard let pendingData else { return true }
+        do {
+            try transfer(pendingData)
+            discardPending()
+            return true
+        } catch {
+            lastDeliveryError = error.localizedDescription
+            return false
+        }
+    }
 
     mutating func accept(_ snapshot: ScheduleExternalSnapshot) throws -> Data {
         if let revision, snapshot.revision <= revision, let data { return data }
@@ -41,12 +58,62 @@ nonisolated struct WatchSnapshotDeliveryBuffer {
 
 /// App 与 Watch 入口组装当前进程的共享快照仓库。
 nonisolated enum PlatformScheduleSnapshotStorage {
-    static let store = ScheduleExternalSnapshotStore(files: AppFileSystem.files, containerURL: AppFileSystem.files.appGroupContainerURL(identifier: ScheduleSharedContainer.identifier))
+    static let store: ScheduleExternalSnapshotStore = {
+#if os(iOS)
+        let files = AppFileDirectories.files
+#else
+        let files = AppFileSystem.files
+#endif
+        return ScheduleExternalSnapshotStore(files: files, containerURL: files.appGroupContainerURL(identifier: ScheduleSharedContainer.identifier))
+    }()
 }
 
 nonisolated enum WatchSnapshotReceptionPolicy {
+    typealias ClearingBoundary = (revision: UInt64, generatedAt: Date)
     static func accepts(receivedAt: ContinuousClock.Instant, afterClearingAt clearedAt: ContinuousClock.Instant?) -> Bool {
         clearedAt.map { receivedAt > $0 } ?? true
+    }
+
+    static func accepts(_ snapshot: ScheduleExternalSnapshot, afterClearing cleared: ClearingBoundary?) -> Bool {
+        guard let cleared else { return true }
+        return snapshot.revision == 0 && cleared.revision == 0
+            ? snapshot.generatedAt > cleared.generatedAt : snapshot.revision > cleared.revision
+    }
+}
+
+/// 接收、版本比较与清理沿同一执行器完成。
+actor WatchSnapshotPersistence {
+    static let shared = WatchSnapshotPersistence()
+    private let store: ScheduleExternalSnapshotStore
+    private var clearedAt: ContinuousClock.Instant?
+    private var clearedVersion: WatchSnapshotReceptionPolicy.ClearingBoundary?
+
+    init(store: ScheduleExternalSnapshotStore = PlatformScheduleSnapshotStorage.store) { self.store = store }
+
+    func latestRevision() -> UInt64 { max(store.latestRevision, clearedVersion?.revision ?? 0) }
+
+    func receive(_ data: Data, receivedAt: ContinuousClock.Instant, accountIdentifier: String?) -> Result<Bool, WatchScheduleSyncError> {
+        guard !data.isEmpty else { return .failure(.noSnapshot) }
+        guard WatchSnapshotReceptionPolicy.accepts(receivedAt: receivedAt, afterClearingAt: clearedAt) else { return .failure(.staleSnapshot) }
+        guard let snapshot = try? ScheduleExternalSnapshotCodec.decode(data) else { return .failure(.invalidPayload) }
+        guard WatchSnapshotReceptionPolicy.accepts(snapshot, afterClearing: clearedVersion) else { return .failure(.staleSnapshot) }
+        if let accountIdentifier, AccountStorageIdentity.stableToken(for: snapshot.studentID)
+            != AccountStorageIdentity.stableToken(for: accountIdentifier) { return .failure(.staleSnapshot) }
+        do { return .success(try store.writeIfNewer(snapshot)) }
+        catch {
+            return .failure(error as? ScheduleExternalSnapshotStoreError == .staleSnapshot ? .staleSnapshot : .persistenceFailed)
+        }
+    }
+
+    func clear(at instant: ContinuousClock.Instant) -> Bool {
+        guard clearedAt.map({ instant >= $0 }) ?? true else { return false }
+        clearedAt = instant
+        let snapshot = store.load()
+        let cleared = store.clearRetainingVersion()
+        if cleared, let snapshot, WatchSnapshotReceptionPolicy.accepts(snapshot, afterClearing: clearedVersion) {
+            clearedVersion = (snapshot.revision, snapshot.generatedAt)
+        }
+        return cleared
     }
 }
 
@@ -89,11 +156,10 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
     )
 
     #if os(iOS)
-    private var pendingSnapshotData: Data?
     private var deliveryBuffer = WatchSnapshotDeliveryBuffer()
+    var lastDeliveryError: String? { deliveryBuffer.lastDeliveryError }
     #elseif os(watchOS)
     private let requestQueue = WatchScheduleRequestQueue()
-    private var lastSnapshotClear: ContinuousClock.Instant?
     #endif
 
     private override init() {
@@ -138,14 +204,13 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
     /// 将快照镜像统一写入 `applicationContext`。
     ///
     /// 主动推送、前台即时回复和 `applicationContext` 请求共用这份逻辑。
-    private nonisolated static func updateApplicationContext(
+    private func updateApplicationContext(
         withSnapshotData data: Data,
         session: WCSession
     ) {
-        do {
-            try session.updateApplicationContext(WatchScheduleTransferProtocol.snapshotContext(data))
-        } catch {
-            Self.logger.error("Failed to update the watch application context: \(String(describing: error), privacy: .public)")
+        deliveryBuffer.stage(data)
+        if !deliveryBuffer.deliver(using: { try session.updateApplicationContext(WatchScheduleTransferProtocol.snapshotContext($0)) }) {
+            Self.logger.error("Failed to update the watch application context: \(self.lastDeliveryError ?? "", privacy: .public)")
         }
     }
     #endif
@@ -162,11 +227,11 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
         let session = WCSession.default
         guard let data = encodedSnapshotData(snapshot) else { return }
         guard session.activationState == .activated else {
-            pendingSnapshotData = data
+            deliveryBuffer.stage(data)
             return
         }
         guard session.isPaired else { return }
-        Self.updateApplicationContext(withSnapshotData: data, session: session)
+        updateApplicationContext(withSnapshotData: data, session: session)
     }
 
     /// 从当前共享快照重新推送一次。
@@ -180,11 +245,11 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
             guard let data = await self.currentSnapshotDataIfAvailable(for: studentID, isLoggedIn: isLoggedIn, knownRevision: knownRevision),
                   credentials == AppAccountSession.storage.communityCredentials else { return }
             guard session.activationState == .activated else {
-                pendingSnapshotData = data
+                deliveryBuffer.stage(data)
                 return
             }
             guard session.isPaired else { return }
-            Self.updateApplicationContext(withSnapshotData: data, session: session)
+            self.updateApplicationContext(withSnapshotData: data, session: session)
         }
     }
     #endif
@@ -210,48 +275,53 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
     }
 
     private func sendRequest(generation: UInt64, completion: @escaping WatchScheduleRequestQueue.Completion) {
-        let session = WCSession.default
-        let knownRevision = PlatformScheduleSnapshotStorage.store.load()?.revision ?? 0
-        if session.isReachable {
-            session.sendMessage(
-                WatchScheduleTransferProtocol.requestContext(knownRevision: knownRevision),
-                replyHandler: { @Sendable context in
-                    let data = WatchScheduleTransferProtocol.snapshotData(from: context) ?? Data()
-                    Task { @MainActor in
-                        guard self.requestQueue.generation == generation else { return }
-                        completion(self.persistSnapshotData(data))
-                    }
-                },
-                errorHandler: { @Sendable error in
-                    Task { @MainActor in
-                        guard self.requestQueue.generation == generation else { return }
-                        Self.logger.notice("Immediate watch sync failed; queueing a context request: \(String(describing: error), privacy: .public)")
-                        do {
-                            try WCSession.default.updateApplicationContext(WatchScheduleTransferProtocol.requestContext(knownRevision: knownRevision))
-                            completion(.success(.requested))
-                        } catch {
-                            Self.logger.error("Failed to queue the watch schedule request: \(String(describing: error), privacy: .public)")
-                            completion(.failure(.transferFailed))
+        Task { @MainActor in
+            let knownRevision = await WatchSnapshotPersistence.shared.latestRevision()
+            guard self.requestQueue.generation == generation else { return }
+            let session = WCSession.default
+            if session.isReachable {
+                session.sendMessage(
+                    WatchScheduleTransferProtocol.requestContext(knownRevision: knownRevision),
+                    replyHandler: { @Sendable context in
+                        let data = WatchScheduleTransferProtocol.snapshotData(from: context) ?? Data()
+                        let receivedAt = ContinuousClock.now
+                        Task { @MainActor in
+                            guard self.requestQueue.generation == generation else { return }
+                            let result = await self.persistSnapshotData(data, receivedAt: receivedAt)
+                            guard self.requestQueue.generation == generation else { return }
+                            completion(result)
+                        }
+                    },
+                    errorHandler: { @Sendable error in
+                        Task { @MainActor in
+                            guard self.requestQueue.generation == generation else { return }
+                            Self.logger.notice("Immediate watch sync failed; queueing a context request: \(String(describing: error), privacy: .public)")
+                            do {
+                                try WCSession.default.updateApplicationContext(WatchScheduleTransferProtocol.requestContext(knownRevision: knownRevision))
+                                completion(.success(.requested))
+                            } catch {
+                                Self.logger.error("Failed to queue the watch schedule request: \(String(describing: error), privacy: .public)")
+                                completion(.failure(.transferFailed))
+                            }
                         }
                     }
-                }
-            )
-            return
-        }
+                )
+                return
+            }
 
-        do {
-            try session.updateApplicationContext(WatchScheduleTransferProtocol.requestContext(knownRevision: knownRevision))
-            completion(.success(.requested))
-        } catch {
-            Self.logger.error("Failed to queue the watch schedule request: \(String(describing: error), privacy: .public)")
-            completion(.failure(.transferFailed))
+            do {
+                try session.updateApplicationContext(WatchScheduleTransferProtocol.requestContext(knownRevision: knownRevision))
+                completion(.success(.requested))
+            } catch {
+                Self.logger.error("Failed to queue the watch schedule request: \(String(describing: error), privacy: .public)")
+                completion(.failure(.transferFailed))
+            }
         }
     }
 
-    func clearSnapshot() -> Bool {
+    func clearSnapshot() async -> Bool {
         requestQueue.clear()
-        lastSnapshotClear = ContinuousClock.now
-        let cleared = PlatformScheduleSnapshotStorage.store.clear()
+        let cleared = await WatchSnapshotPersistence.shared.clear(at: .now)
         #if canImport(WidgetKit)
         if cleared { WidgetCenter.shared.reloadAllTimelines() }
         #endif
@@ -284,11 +354,13 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
         #if os(iOS)
         if activationState == .activated {
             Task { @MainActor in
-                guard let data = self.pendingSnapshotData else { return }
-                self.pendingSnapshotData = nil
+                guard let data = self.deliveryBuffer.pendingData else { return }
                 let studentID = AppAccountSession.storage.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard WCSession.default.isPaired, Self.isSnapshotData(data, for: studentID) else { return }
-                Self.updateApplicationContext(withSnapshotData: data, session: WCSession.default)
+                guard WCSession.default.isPaired, Self.isSnapshotData(data, for: studentID) else {
+                    self.deliveryBuffer.discardPending()
+                    return
+                }
+                self.updateApplicationContext(withSnapshotData: data, session: WCSession.default)
             }
         }
         #endif
@@ -298,6 +370,17 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
     }
 
     #if os(iOS)
+    nonisolated func sessionReachabilityDidChange(_ session: WCSession) {
+        Task { @MainActor in
+            let session = WCSession.default
+            guard session.isReachable, session.activationState == .activated, session.isPaired,
+                  let data = self.deliveryBuffer.pendingData else { return }
+            let studentID = AppAccountSession.storage.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard Self.isSnapshotData(data, for: studentID) else { self.deliveryBuffer.discardPending(); return }
+            self.updateApplicationContext(withSnapshotData: data, session: session)
+        }
+    }
+
     nonisolated func sessionDidBecomeInactive(_ session: WCSession) {}
 
     nonisolated func sessionDidDeactivate(_ session: WCSession) {
@@ -325,7 +408,7 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
                 let data = await self.currentSnapshotDataIfAvailable(for: studentID,
                     isLoggedIn: !AppAccountSession.storage.fakeCookie.isEmpty, knownRevision: knownRevision)
                 guard credentials == AppAccountSession.storage.communityCredentials else { reply.send(nil); return }
-                if let data { Self.updateApplicationContext(withSnapshotData: data, session: WCSession.default) }
+                if let data { self.updateApplicationContext(withSnapshotData: data, session: WCSession.default) }
                 reply.send(data)
             }
             return
@@ -355,10 +438,7 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
         guard let data = WatchScheduleTransferProtocol.snapshotData(from: applicationContext) else { return }
         let receivedAt = ContinuousClock.now
         Task { @MainActor in
-            #if os(watchOS)
-            guard WatchSnapshotReceptionPolicy.accepts(receivedAt: receivedAt, afterClearingAt: self.lastSnapshotClear) else { return }
-            #endif
-            if case let .failure(error) = self.persistSnapshotData(data) {
+            if case let .failure(error) = await self.persistSnapshotData(data, receivedAt: receivedAt) {
                 Self.logger.error("Failed to persist an application-context snapshot: \(String(describing: error), privacy: .public)")
             }
         }
@@ -371,43 +451,30 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
     @MainActor
     func persistSnapshotData(
         _ data: Data,
-        store: ScheduleExternalSnapshotStore = PlatformScheduleSnapshotStorage.store,
-        notificationCenter: NotificationCenter = .default
-    ) -> Result<WatchScheduleSyncOutcome, WatchScheduleSyncError> {
-        guard !data.isEmpty else {
-            return .failure(.noSnapshot)
-        }
-
-        let snapshot: ScheduleExternalSnapshot
-        do {
-            snapshot = try ScheduleExternalSnapshotCodec.decode(data)
-        } catch {
-            Self.logger.error("Failed to decode the watch schedule snapshot: \(String(describing: error), privacy: .public)")
-            return .failure(.invalidPayload)
-        }
-
+        persistence: WatchSnapshotPersistence = .shared,
+        notificationCenter: NotificationCenter = .default,
+        receivedAt: ContinuousClock.Instant = .now
+    ) async -> Result<WatchScheduleSyncOutcome, WatchScheduleSyncError> {
         #if os(iOS)
+        let credentials = AppAccountSession.storage.communityCredentials
         let currentStudentID = AppAccountSession.storage.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let accountToken = AppStorageSession(accountIdentifier: currentStudentID).accountStorageIdentifier
-        guard snapshot.studentID == currentStudentID || snapshot.studentID == accountToken else {
-            return .failure(.staleSnapshot)
-        }
-        let snapshotToPersist = snapshot.replacingStudentID(with: accountToken)
         #else
-        let snapshotToPersist = snapshot
+        let currentStudentID: String? = nil
         #endif
-
-        do {
-            let changed = try store.writeIfNewer(snapshotToPersist)
+        let result = await persistence.receive(data, receivedAt: receivedAt, accountIdentifier: currentStudentID)
+        #if os(iOS)
+        guard credentials == AppAccountSession.storage.communityCredentials else { return .failure(.staleSnapshot) }
+        #endif
+        switch result {
+        case let .success(changed):
             notificationCenter.post(name: Self.snapshotReceivedNotification, object: nil)
             #if canImport(WidgetKit)
             if changed { WidgetCenter.shared.reloadAllTimelines() }
             #endif
             return .success(.received)
-        } catch {
-            if error as? ScheduleExternalSnapshotStoreError == .staleSnapshot { return .failure(.staleSnapshot) }
+        case let .failure(error):
             Self.logger.error("Failed to persist the watch schedule snapshot: \(String(describing: error), privacy: .public)")
-            return .failure(.persistenceFailed)
+            return .failure(error)
         }
     }
 

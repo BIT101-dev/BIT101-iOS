@@ -6,6 +6,8 @@ import validation_performance as subject
 
 
 def run_self_test() -> None:
+    static_audit_cancellation_self_test()
+    failed_regression_self_test()
     with patch.object(subject.subprocess, 'check_output', side_effect=[b'Modules/StorageCore/Sources/AppFileService.swift\0', b'']) as git:
         assert subject.uncommitted_inputs() == ['Modules/StorageCore/Sources/AppFileService.swift']
         assert git.call_args_list[0].args[0] == ['git', 'diff', '--name-only', '-z', 'HEAD', '--']
@@ -44,31 +46,167 @@ def run_self_test() -> None:
         else: raise AssertionError('手填采样需要匹配实际 xcresult 指标')
     producing_run_capture_self_test()
     result_replacement_self_test()
+    selected_result_retention_self_test()
     batch_retention_self_test(raw, test)
     merge_regression_self_test()
     baseline_migration_self_test()
 
 
-def result_replacement_self_test() -> None:
+def static_audit_cancellation_self_test() -> None:
+    import os
+    import signal
+    import subprocess
+    import sys
+    from time import monotonic
+    source = (subject.ROOT / 'Scripts/run-static-audit.sh').read_text()
+    finish = 'finish_audit() {' + source.split('finish_audit() {', 1)[1].split('\ntrap finish_audit EXIT', 1)[0]
+    stop = finish.split("<<'PYSTOP'\n", 1)[1].split('\nPYSTOP', 1)[0]
+    def signal_probe(pid, signum):
+        if signum == 0: raise PermissionError('completed process group')
+    with patch.object(sys, 'argv', ['stop', '123']), patch.object(os, 'killpg', side_effect=signal_probe) as send:
+        exec(compile(stop, 'audit-group-stop', 'exec'), {})
+        assert [call.args[1] for call in send.call_args_list] == [signal.SIGTERM, 0]
+    for ignores_term in (False, True):
+        worker = subprocess.Popen([sys.executable, '-c',
+            'import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); print("ready", flush=True); time.sleep(60)'
+            if ignores_term else 'import time; print("ready", flush=True); time.sleep(60)'],
+            stdout=subprocess.PIPE, text=True, start_new_session=True)
+        try:
+            assert worker.stdout.readline().strip() == 'ready'
+            prefix = f'''ROOT_DIR=/fixture AUDIT_STARTED=$SECONDS
+group_processes=({worker.pid} 0)
+python3() {{
+  if [[ "$1" == /fixture/Scripts/validation_evidence.py ]]; then print -r -- "RECORD $*"; return 0; fi
+  command python3 "$@"
+}}
+'''
+            started = monotonic()
+            result = subprocess.run(['zsh', '-c', prefix + finish + '\ntrap finish_audit EXIT\nexit 143'],
+                text=True, capture_output=True, timeout=15)
+            assert result.returncode == 143 and 'record audit 143' in result.stdout
+            assert worker.wait(timeout=1) == (-signal.SIGKILL if ignores_term else -signal.SIGTERM)
+            assert monotonic() - started < 10
+        finally:
+            if worker.poll() is None: os.killpg(worker.pid, signal.SIGKILL)
+            worker.wait()
+            worker.stdout.close()
+
+
+def selected_result_retention_self_test() -> None:
     import json
-    from contextlib import nullcontext
+    from contextlib import nullcontext, redirect_stderr
+    from io import StringIO
     import validation_provenance
     sha = 'a' * 64
-    report = {'releaseCommit': 'commit', 'mergeCommit': 'commit', 'groups': {
+    environment = {'device': {'identifier': 'phone'}}
+    full = {'scope': 'full', 'exitCode': 0, 'summary': {'passed': True}, 'inputDigest': 'same',
+        'environment': environment, 'resultBundleSHA256': sha, 'recordedAt': subject.utc_now().isoformat()}
+    with redirect_stderr(StringIO()) as diagnostic, patch.object(subject, 'recover_result_step'), patch.object(subject, 'begin_result_step') as begin, \
+            patch.object(subject, 'bundle_digest', side_effect=ValueError('incomplete')), patch.object(Path, 'exists', return_value=True):
+        assert subject.begin_selected_result_step() == []
+        begin.assert_called_once_with(False)
+        assert diagnostic.getvalue() == '中断的 XCTest 结果包已进入清理与重新采样。\n'
+    for changed, retained in (({}, ['all']), ({'inputDigest': 'changed'}, []), ({'exitCode': 1}, []),
+            ({'recordedAt': ''}, []), ({'recordedAt': '2000-01-01T00:00:00Z'}, []), ({'recordedAt': '2200-01-01T00:00:00Z'}, []),
+            ({'environment': {'device': {'identifier': 'other'}}}, []), ({'resultBundleSHA256': 'b' * 64}, [])):
+        row = dict(full, **changed)
+        with patch.object(subject, 'recover_result_step'), patch.object(subject, 'begin_result_step') as begin, \
+                patch.object(subject, 'bundle_digest', return_value=sha), patch.object(subject, 'environment_context', return_value=environment), \
+                patch.object(validation_provenance, 'source_digest', return_value='same'), \
+                patch.object(validation_provenance, 'report_lock', side_effect=nullcontext), patch.object(Path, 'exists', return_value=True), \
+                patch.object(Path, 'is_file', return_value=True), patch.object(Path, 'read_text', return_value=json.dumps({'groups': {'all': row}})):
+            assert subject.begin_selected_result_step() == retained
+            begin.assert_called_once_with(bool(retained))
+    with patch.object(subject, 'retain_result_step') as retain:
+        assert subject.main(['retain-selected', 'all', 'all', 'ui']) == 0
+        retain.assert_called_once_with(['ui', 'all'])
+
+
+def failed_regression_self_test() -> None:
+    from validation_provenance import invalidate_failed_evidence, complete_group_row
+    method = 'ScheduleCourseEditorTests/changeWeeks'
+    full = dict(scope='full', exitCode=0, inputDigest='input', environment={},
+        resultBundleSHA256='a' * 64, summary={'passed': True, 'executedTests': [method + '()']})
+    for scope in ('selected', 'full'):
+        for failure in ({'exitCode': 1, 'summary': {}}, {'exitCode': 0, 'summary': {'passed': False}}):
+            parent = deepcopy(full) if scope == 'full' else dict(deepcopy(full), scope=scope, lastFullRun=deepcopy(full))
+            report = {'groups': {'all': parent, 'ui': dict(deepcopy(full), summary={'passed': True, 'executedTests': ['UITests/render']}),
+                'schedule': dict(failure, scope='selected', runID='regression')}}
+            assert invalidate_failed_evidence(report, 'schedule', {method}) == ['all']
+            assert complete_group_row(report['groups']['all'])['exitCode'] == 1
+            assert report['groups']['all']['summary']['passed'] is False
+            if scope == 'selected': assert report['groups']['all']['lastFullRun']['exitCode'] == 1
+            assert report['groups']['ui']['summary']['passed'] is True
+            report['groups']['schedule'].update(exitCode=0, summary={'passed': True})
+            assert invalidate_failed_evidence(report, 'schedule', {method}) == []
+            assert complete_group_row(report['groups']['all'])['exitCode'] == 1
+    report = {'groups': {'all': deepcopy(full), 'schedule': {'exitCode': 1}}}
+    assert invalidate_failed_evidence(report, 'schedule', {'OtherTests/method'}) == []
+    assert report['groups']['all']['summary']['passed'] is True
+    report['groups']['all'] = dict(deepcopy(full), scope='selected', exitCode=1, lastFullRun=deepcopy(full))
+    assert invalidate_failed_evidence(report, 'all', {method}) == []
+    report['groups']['all'].update(exitCode=0, summary={'passed': True})
+    assert complete_group_row(report['groups']['all'])['scope'] == 'selected'
+    recorded_failure_self_test(full, method)
+    from validation_evidence import network_inventory
+    for group, scope in (('ddl', 'ddl'), ('school-sms', 'school'), ('network', 'bit101')):
+        probes = network_inventory(scope)
+        full = dict(scope='full', exitCode=0, inputDigest='input', environment={},
+            summary={'passed': True, 'probeInventory': sorted(network_inventory('all'))})
+        report = {'groups': {'network': deepcopy(full), 'ui': {'exitCode': 0, 'summary': {'passed': True}},
+            group: {'exitCode': 1, 'scope': 'selected', 'runID': 'regression'}}}
+        if group == 'network': report['groups'][group]['lastFullRun'] = deepcopy(full)
+        assert invalidate_failed_evidence(report, group, probes) == ([] if group == 'network' else ['network'])
+        assert report['groups']['ui']['exitCode'] == 0
+        failed = report['groups']['network'].get('lastFullRun', report['groups']['network'])
+        assert failed['exitCode'] == 1 and failed['summary']['failedRegression']['probes'] == sorted(probes)
+
+
+def recorded_failure_self_test(full: dict, method: str) -> None:
+    import json
+    import os
+    from contextlib import nullcontext, redirect_stderr
+    from io import StringIO
+    import validation_evidence
+    report = {'groups': {'all': deepcopy(full), 'ui': dict(deepcopy(full), summary={'passed': True, 'executedTests': ['UITests/render']})}}
+    with patch.object(validation_evidence, 'source_digest', return_value='input'), \
+            patch.object(validation_evidence, 'environment_context', return_value={}), \
+            patch.object(validation_evidence, 'report_lock', side_effect=nullcontext), \
+            patch.object(validation_evidence, 'write_report', side_effect=lambda value: report.update(value)), \
+            patch.object(Path, 'is_file', return_value=True), \
+            patch.object(Path, 'read_text', new=lambda path, *args, **kwargs: json.dumps(report) if path == validation_evidence.REPORT else 'metrics'), \
+            patch.object(validation_evidence, 'test_summary', return_value={'passed': False, 'executedTests': [method]}), \
+            patch.object(validation_evidence.subprocess, 'check_output', return_value='commit'), \
+            patch.dict(os.environ, BIT101_VALIDATION_RUN_ID='failed-run', BIT101_VALIDATION_EXPECTED_TESTS=json.dumps([method])), redirect_stderr(StringIO()):
+        assert validation_evidence.record('schedule', 1, 'selected', 'input') == 1
+    assert report['groups']['all']['exitCode'] == 1 and report['groups']['all']['summary']['passed'] is False
+    assert report['groups']['ui']['exitCode'] == 0
+
+
+def result_replacement_self_test() -> None:
+    import json
+    from contextlib import nullcontext, redirect_stderr
+    from io import StringIO
+    import validation_provenance
+    sha = 'a' * 64
+    report = {'releaseCommit': 'commit', 'mergeCommit': 'commit', 'resultMerge': {'groups': ['all']}, 'groups': {
         'all': {'resultBundleSHA256': sha},
         'ui': {'lastFullRun': {'resultBundleSHA256': sha}},
         'catalyst': {'resultBundleSHA256': sha}, 'modules': {'runID': 'modules'}},
         'performanceBaseline': {'approvedBy': 'maintainer'}}
-    with patch.object(Path, 'exists', return_value=True), patch.object(Path, 'is_file', return_value=True), \
+    output = StringIO()
+    with redirect_stderr(output), patch.object(Path, 'exists', return_value=True), patch.object(Path, 'is_file', return_value=True), \
             patch.object(Path, 'read_text', return_value=json.dumps(report)), \
             patch.object(validation_provenance, 'report_lock', side_effect=nullcontext), \
             patch.object(subject.shutil, 'rmtree') as remove, \
             patch.object(validation_provenance, 'write_report') as save:
         save.side_effect = lambda value: remove.assert_not_called()
         assert subject.main(['reset-results']) == 0
+        assert output.getvalue() == '覆盖原始结果包：all、catalyst、ui 的验证证据将进入重新验收。\n'
         updated = save.call_args.args[0]
         assert updated['groups'] == {'modules': {'runID': 'modules'}}
         assert 'releaseCommit' not in updated and 'mergeCommit' not in updated
+        assert 'resultMerge' not in updated
         assert updated['performanceBaseline'] == report['performanceBaseline']
         remove.assert_called_once_with(subject.BUNDLE)
         remove.reset_mock(); save.reset_mock()
@@ -132,7 +270,9 @@ def baseline_migration_self_test() -> None:
             else:
                 assert fault == 'none'
                 assert save.call_args.args[0] == {key: value for key, value in retained.items() if key != 'mergeCommit'} | {'performanceBaseline': proof}
-                assert json.loads(measurements.call_args.args[0])['current'] == 'retained'
+                assert save.call_args_list[0].kwargs == {'path': subject.MEASUREMENTS}
+                assert save.call_args_list[0].args[0]['current'] == 'retained'
+                measurements.assert_not_called()
             if fault != 'none':
                 save.assert_not_called(); measurements.assert_not_called()
 
@@ -187,7 +327,8 @@ def batch_retention_self_test(raw: list, test: str) -> None:
     import shutil
     import subprocess
     import sys
-    from contextlib import nullcontext
+    from contextlib import nullcontext, redirect_stderr
+    from io import StringIO
     import validation_provenance
     fixture = subject.ROOT / '.build/static-audit/performance-results-self-test'
     bundle = fixture / '.build/extended-automation/test-results.xcresult'
@@ -222,6 +363,16 @@ def batch_retention_self_test(raw: list, test: str) -> None:
     assert updated['groups']['all']['performance']['records']['sample']['execution']['bundleSHA256'] == 'aggregate'
     assert updated['groups']['all']['performance']['records']['sample']['resultBundle']['sha256'] == 'aggregate'
     assert updated['performanceBaseline'] == report['performanceBaseline']
+    selected = deepcopy(report)
+    selected['groups']['all']['lastFullRun'] = deepcopy(report['groups']['all'])
+    selected['groups']['all'].pop('performance')
+    repeated = deepcopy(raw)
+    repeated[0]['testRuns'].append(deepcopy(raw[0]['testRuns'][0]))
+    repeated[0]['testRuns'][-1]['metrics'][0]['measurements'] = [99]
+    with patch.object(subject.subprocess, 'check_output', return_value=json.dumps(repeated)), patch.object(subject, 'bundle_digest', return_value='aggregate'):
+        rebound = subject.rebind_result_records(selected, ['all'])
+    assert rebound['groups']['all']['lastFullRun']['resultBundleSHA256'] == 'aggregate'
+    assert rebound['groups']['all']['lastFullRun']['runResultBundleSHA256'] == 'original'
     altered = deepcopy(raw)
     altered[0]['testRuns'][0]['metrics'][0]['measurements'] = [99]
     for value in (altered, duplicate):
@@ -257,9 +408,10 @@ def batch_retention_self_test(raw: list, test: str) -> None:
         (bundle / 'Info.plist').rename(bundle / 'database.sqlite3')
         with patch.object(subject, 'BUNDLE', bundle), patch.object(validation_provenance, 'REPORT', report_path), \
                 patch.object(validation_provenance, 'report_lock', side_effect=nullcontext), \
-                patch.object(validation_provenance, 'write_report') as writer, \
+                patch.object(validation_provenance, 'write_report',
+                    side_effect=lambda value: report_path.write_text(json.dumps(value))) as writer, \
                 patch.object(subject.subprocess, 'run', side_effect=merge), \
-                patch.object(subject.subprocess, 'check_output', side_effect=exported):
+                patch.object(subject.subprocess, 'check_output', side_effect=exported), redirect_stderr(StringIO()):
             first_sha = subject.bundle_digest(bundle)
             report['groups']['all']['resultBundleSHA256'] = first_sha
             report_path.write_text(json.dumps(report))
@@ -289,6 +441,7 @@ def batch_retention_self_test(raw: list, test: str) -> None:
             assert (bundle / 'database.sqlite3').is_file()
             assert subject.main(['begin-batch', 'append']) == 0
             create(bundle, b'failed')
+            report_path.write_text(json.dumps(report))
             for failure in ('merge', 'summary', 'interrupt'):
                 for path in (bundle, retained, incoming): shutil.rmtree(path, ignore_errors=True)
                 create(retained, b'previous')
@@ -308,7 +461,7 @@ def batch_retention_self_test(raw: list, test: str) -> None:
                     try: subject.retain_result_step(['all', 'ui'])
                     except (subprocess.CalledProcessError, KeyboardInterrupt): pass
                     else: raise AssertionError('结果合并失败与中断需要传播')
-                writer.assert_not_called()
+                assert json.loads(report_path.read_text())['resultMerge']['groups'] == ['all', 'ui']
                 assert bundle.is_dir() and retained.is_dir() and not incoming.exists()
                 assert (bundle / 'database.sqlite3').read_bytes() == b'failed'
                 assert (retained / 'database.sqlite3').read_bytes() == b'previous'
@@ -338,13 +491,52 @@ def batch_retention_self_test(raw: list, test: str) -> None:
                     try: subject.retain_result_step(['all', 'ui'])
                     except KeyboardInterrupt: pass
                     else: raise AssertionError('结果包提交中断需要传播')
-                writer.assert_not_called()
+                assert json.loads(report_path.read_text())['resultMerge']['groups'] == ['all', 'ui']
                 with patch.object(subject.subprocess, 'run') as repeated_merge:
                     subject.recover_result_step()
                     subject.recover_result_step()
                     repeated_merge.assert_not_called()
                 assert (bundle / 'database.sqlite3').read_bytes() == b'previouscurrent'
                 assert not retained.exists() and not incoming.exists()
+                recovered = json.loads(report_path.read_text())
+                assert 'resultMerge' not in recovered
+                assert recovered['groups']['all']['resultBundleSHA256'] == subject.bundle_digest(bundle)
+            for path in (bundle, retained, incoming): remove(path, ignore_errors=True)
+            create(retained, b'previous'); create(bundle, b'current')
+            def fail_report_publish(value):
+                if 'resultMerge' not in value: raise OSError('report publish failure')
+                report_path.write_text(json.dumps(value))
+            writer.side_effect = fail_report_publish
+            try: subject.merge_result_step(['all', 'ui'])
+            except OSError: pass
+            else: raise AssertionError('报告发布失败需要保留待恢复合并身份')
+            assert (bundle / 'database.sqlite3').read_bytes() == b'previouscurrent'
+            assert 'resultMerge' in json.loads(report_path.read_text())
+            writer.side_effect = lambda value: report_path.write_text(json.dumps(value))
+            subject.recover_result_step()
+            recovered = json.loads(report_path.read_text())
+            assert 'resultMerge' not in recovered
+            assert recovered['groups']['all']['resultBundleSHA256'] == subject.bundle_digest(bundle)
+            for publication in (2, 3):
+                for path in (bundle, retained, incoming): remove(path, ignore_errors=True)
+                create(bundle, b'first')
+                report_path.write_text(json.dumps(report))
+                writes = 0
+                def fail_first_publication(value):
+                    nonlocal writes
+                    writes += 1
+                    if writes == publication: raise OSError('first bundle publication failure')
+                    report_path.write_text(json.dumps(value))
+                writer.side_effect = fail_first_publication
+                try: subject.merge_result_step(['all'])
+                except OSError: pass
+                else: raise AssertionError('首包推广登记与报告发布中断需要传播')
+                writer.side_effect = lambda value: report_path.write_text(json.dumps(value))
+                subject.recover_result_step()
+                recovered = json.loads(report_path.read_text())
+                assert 'resultMerge' not in recovered
+                assert recovered['groups']['all']['resultBundleSHA256'] == subject.bundle_digest(bundle)
+                assert recovered['groups']['all']['runResultBundleSHA256'] == subject.bundle_digest(bundle)
             for fault in ('current', 'current-only', 'published-current', 'published-missing', 'retained', 'merged', 'partial', 'unreadable',
                           'current-partial', 'current-missing', 'current-unreadable', 'current-merged'):
                 for path in (bundle, retained, incoming): shutil.rmtree(path, ignore_errors=True)
@@ -404,17 +596,20 @@ def merge_regression_self_test() -> None:
     assert not subject.merge_findings(report | {'performanceBaseline': shared['performanceBaseline']}, commit)
     assert shared['groups']['all']['performance']['records']['pagination']['execution']['inputDigest'] \
         == report['groups']['all']['performance']['records']['pagination']['execution']['inputDigest']
-    for fault in ('missing-baseline', 'missing-current', 'run', 'clock-regression', 'memory-regression', 'approver', 'environment', 'raw-metrics', 'commit'):
+    for fault in ('missing-baseline', 'missing-current', 'run', 'clock-regression', 'memory-regression', 'clock-tail', 'memory-tail', 'approver', 'environment', 'raw-metrics', 'commit'):
         changed = deepcopy(report)
         current = changed['groups']['all']['performance']['records']['pagination']
         baseline = changed['performanceBaseline']['records']['pagination']
         if fault == 'missing-baseline': changed.pop('performanceBaseline')
         if fault == 'missing-current': changed['groups']['ui']['performance']['records'].pop('startup')
         if fault == 'run': current['execution']['runID'] = 'other'
-        if fault in {'clock-regression', 'memory-regression'}:
-            metric_name = 'clockSeconds' if fault == 'clock-regression' else 'peakPhysicalMemoryBytes'
+        if fault in {'clock-regression', 'memory-regression', 'clock-tail', 'memory-tail'}:
+            metric_name = 'clockSeconds' if fault.startswith('clock') else 'peakPhysicalMemoryBytes'
             identifier, _, factor = subject.METRICS[metric_name]
             samples = [sample * 4 for sample in current['metrics'][metric_name]['samples']]
+            if fault.endswith('tail'):
+                approved = baseline['metrics'][metric_name]['samples']
+                samples = [min(approved) * 0.1] * (len(approved) - 1) + [max(approved) * 2]
             current['metrics'][metric_name].update(samples=samples, mean=sum(samples) / len(samples))
             raw = current['xcresultMetrics'][0]['testRuns'][0]['metrics']
             next(metric for metric in raw if metric['identifier'] == identifier)['measurements'] = [sample / factor for sample in samples]
@@ -435,6 +630,7 @@ def merge_regression_self_test() -> None:
             patch.object(Path, 'write_text'), patch.object(validation_provenance, 'report_lock', side_effect=nullcontext), \
             patch.object(validation_provenance, 'write_report') as writer, redirect_stdout(StringIO()):
         assert subject.main(['baseline', 'maintainer']) == 0
+        assert writer.call_args_list[0].kwargs == {'path': subject.MEASUREMENTS}
         saved = writer.call_args.args[0]
         assert 'mergeCommit' not in saved and set(saved['performanceBaseline']['records']) == set(measurements)
         assert all(record['approvedBy'] == 'maintainer' for record in saved['performanceBaseline']['records'].values())

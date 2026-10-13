@@ -16,7 +16,39 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct ScoreFeatureTests {
-    @Test func protectedCacheRestoreReportsItsReasonAndRetriesAfterReadabilityReturns() async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func detailedFailureKeepsNewBriefScores(startFailed: Bool) async throws {
+        let defaults = try #require(UserDefaults(suiteName: "BIT101ModulesTests.score"))
+        defer { clearPreferences() }
+        clearPreferences()
+        let session = AppStorageSession(accountIdentifier: "brief-score-retry")
+        let files = ModuleScoreFiles()
+        let cache = ScoreCacheStore(files: files, storageRoot: URL(fileURLWithPath: "/brief-score-retry"),
+            defaults: defaults, session: { session })
+        let service = ScoreServiceSpy()
+        service.detailedError = URLError(.cannotConnectToHost)
+        let model = ScoreViewModel(service: service, cacheStore: cache,
+            preferenceStore: ScoreFilterPreferenceStore(defaults: defaults, session: { session }),
+            currentScoreCacheSession: { session }, scheduleCoursesChanges: Empty().eraseToAnyPublisher(), loadScheduleCourses: { _ in [:] })
+        if startFailed {
+            files.setFailures(reading: true, existence: true)
+            await model.restoreCachedDataIfNeeded()
+            #expect(model.state == .failed(ScoreCacheReadError.unreadable.localizedDescription))
+            files.setFailures()
+        }
+        await model.refresh()
+        let saved = try #require(await cache.loadSnapshot(for: session))
+        let savedRows = try #require(saved.rows)
+        #expect(model.state == .loaded && model.rows.first?.score == "90")
+        #expect(ScoreRowComparison.rowsMatch(model.rows, savedRows))
+        #expect(model.lastUpdatedAt == saved.updatedAt && saved.detailedUpdatedAt == nil)
+        #expect(model.alert?.title == "成绩刷新失败" && model.refreshPhase == .idle)
+        service.detailedError = nil
+        await model.refresh()
+        #expect(model.state == .loaded && model.rows.first?.averageScore == "82.5")
+        #expect(service.requestedDetailValues == [false, true, false, true])
+    }
+    @Test(.timeLimit(.minutes(1))) func protectedCacheRestoreReportsItsReasonAndRetriesAfterReadabilityReturns() async throws {
         let domain = "BIT101ModulesTests.score-protected-restore"
         let defaults = try #require(UserDefaults(suiteName: domain))
         defer { defaults.removePersistentDomain(forName: domain) }
@@ -39,13 +71,15 @@ struct ScoreFeatureTests {
     }
 
     @Test(arguments: [("", false), ("1", false), ("123", false), ("1234", true),
-                      ("12345678", true), ("123456789", false), ("12a34", false), (" 1234\n", false)])
+                      ("12345678", true), ("123456789", false), ("12a34", false), (" 1234\n", false),
+                      ("１２３４", false), ("١٢٣٤", false), ("①②③④", false), ("1️⃣234", false)])
     func sharedVerificationCodeValidation(_ sample: (String, Bool)) {
         #expect(AppVerificationCode.isValid(sample.0) == sample.1)
     }
 
     @Test(arguments: [("", ""), ("1234", "1234"), ("12a 34\n", "1234"),
-                      ("1234567890", "12345678"), ("a1b2c3d4e5f6g7h8i9", "12345678")])
+                      ("1234567890", "12345678"), ("a1b2c3d4e5f6g7h8i9", "12345678"),
+                      ("１２٣٤５６", "123456"), ("𝟙𝟚𝟛𝟜", "1234"), ("①②³Ⅳ½", ""), ("1️⃣234", "234")])
     func sharedVerificationCodeNormalization(_ sample: (String, String)) {
         let normalized = AppVerificationCode.normalize(sample.0)
         #expect(normalized == sample.1)
@@ -55,7 +89,9 @@ struct ScoreFeatureTests {
     @Test(arguments: [("", "", false), ("1", "1234", false), ("6", "123456", false),
                       ("123", "123", false), ("1234", "1234", true), ("123456", "123456", true),
                       ("12345678", "12345678", true), ("12 34-56", "123456", true),
-                      ("123456789", "12345678", false), ("1234", "12341234", false)])
+                      ("123456789", "12345678", false), ("1234", "12341234", false),
+                      ("１２٣٤５６", "123456", true), ("١٢٣٤", "1234", true),
+                      ("１２３４５６７８９", "12345678", false), ("①②③④", "1234", false)])
     func sharedVerificationAutomaticSubmission(_ sample: (String, String, Bool)) {
         #expect(AppVerificationCode.shouldSubmitAutomatically(insertedText: sample.0, code: sample.1) == sample.2)
     }
@@ -82,7 +118,7 @@ struct ScoreFeatureTests {
         return (viewModel, cache)
     }
 
-    @Test func localSaveSubscriptionsFanOutAndCancelByOwner() async throws {
+    @Test(.timeLimit(.minutes(1))) func localSaveSubscriptionsFanOutAndCancelByOwner() async throws {
         let (_, cache) = try makeViewModel(service: ScoreServiceSpy(requiresSMS: false))
         var first: [AppStorageSession] = []
         var second: [AppStorageSession] = []
@@ -98,7 +134,7 @@ struct ScoreFeatureTests {
         withExtendedLifetime(secondSubscription) {}
     }
 
-    @Test func preferenceStreamsKeepInstancesScoped() async throws {
+    @Test(.timeLimit(.minutes(1))) func preferenceStreamsKeepInstancesScoped() async throws {
         let defaults = try #require(UserDefaults(suiteName: "BIT101ModulesTests.score.scopes"))
         defer { defaults.removePersistentDomain(forName: "BIT101ModulesTests.score.scopes") }
         let session = AppStorageSession(accountIdentifier: "same-account")
@@ -123,7 +159,7 @@ struct ScoreFeatureTests {
         #expect(second.sortIndex == .term)
     }
 
-    @Test func accountSwitchRestoresIndependentSortingAndDefaults() async throws {
+    @Test(.timeLimit(.minutes(1))) func accountSwitchRestoresIndependentSortingAndDefaults() async throws {
         let domain = "BIT101ModulesTests.score.account-sorting"
         let defaults = try #require(UserDefaults(suiteName: domain))
         defaults.removePersistentDomain(forName: domain)
@@ -152,7 +188,7 @@ struct ScoreFeatureTests {
         }
     }
 
-    @Test func pendingCourseCoverageRequiresEverySelectedTerm() async throws {
+    @Test(.timeLimit(.minutes(1))) func pendingCourseCoverageRequiresEverySelectedTerm() async throws {
         let domain = "BIT101ModulesTests.score.term-coverage"
         let defaults = try #require(UserDefaults(suiteName: domain))
         defer { defaults.removePersistentDomain(forName: domain) }
@@ -176,7 +212,7 @@ struct ScoreFeatureTests {
         #expect(model.pendingCourseCount == nil)
     }
 
-    @Test(arguments: ["distinct", "score-missing", "schedule-missing"])
+    @Test(.timeLimit(.minutes(1)), arguments: ["distinct", "score-missing", "schedule-missing"])
     func pendingCoursesPreferTheirNumbersAndUseNamesForMissingNumbers(_ scenario: String) async throws {
         let domain = "BIT101ModulesTests.score.course-identity"
         let defaults = try #require(UserDefaults(suiteName: domain))
@@ -193,7 +229,7 @@ struct ScoreFeatureTests {
         #expect(model.pendingCourseCount == (scenario == "distinct" ? 1 : 0))
     }
 
-    @Test(arguments: [false, true])
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func entirelyPendingTermsRemainSelectableWithAnEmptyOrOlderScoreCache(hasEarlierScores: Bool) async throws {
         let defaults = try #require(UserDefaults(suiteName: "BIT101ModulesTests.score.pending-term"))
         defaults.removePersistentDomain(forName: "BIT101ModulesTests.score.pending-term")
@@ -260,6 +296,9 @@ struct ScoreFeatureTests {
         var snapshot: ScoreCacheSnapshot
         var suspendRead = false
         var pending: CheckedContinuation<ScoreCacheSnapshot?, Never>?
+        var suspendSave = false
+        var pendingSave: CheckedContinuation<Void, Never>?
+        var cancelledSave = false
         init(rows: [ScoreRow]) { snapshot = .init(rows: rows, updatedAt: Date(timeIntervalSince1970: 100)) }
         func loadSnapshot(for session: AppStorageSession?) async -> ScoreCacheSnapshot? {
             if suspendRead {
@@ -269,11 +308,37 @@ struct ScoreFeatureTests {
             return snapshot
         }
         func save(rows: [ScoreRow], for session: AppStorageSession?) async -> Date? {
+            if suspendSave { await withCheckedContinuation { pendingSave = $0 } }
+            guard !Task.isCancelled else { cancelledSave = true; return nil }
             let date = Date(timeIntervalSince1970: 200)
             snapshot = .init(rows: rows, updatedAt: date, detailedUpdatedAt: date)
             return date
         }
         func saveDetailed(rows: [ScoreRow], for session: AppStorageSession?) async -> Date? { await save(rows: rows, for: session) }
+    }
+
+    @Test(.serialized, .timeLimit(.minutes(1)), arguments: [false, true])
+    func scoreSaveCancellationFollowsRefreshAndAccountGeneration(resetAccount: Bool) async throws {
+        let domain = "BIT101ModulesTests.score-save-cancellation"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let session = AppStorageSession(accountIdentifier: domain)
+        let old = [ScoreRow(index: 0, headers: ["课程名称", "成绩"], values: ["旧成绩", "80"])]
+        let fresh = [ScoreRow(index: 0, headers: ["课程名称", "成绩"], values: ["新成绩", "95"])]
+        let cache = SuspendedSnapshotCache(rows: old)
+        let model = ScoreViewModel(service: ScoreServiceSpy(detailedRows: fresh), cacheStore: cache,
+            preferenceStore: ScoreFilterPreferenceStore(defaults: defaults, session: { session }),
+            currentScoreCacheSession: { session }, scheduleCoursesChanges: Empty().eraseToAnyPublisher(), loadScheduleCourses: { _ in [:] })
+        cache.suspendSave = true
+        let refresh = Task { await model.refresh() }
+        defer { refresh.cancel(); cache.pendingSave?.resume(); cache.pendingSave = nil }
+        try await waitForTestEvent { cache.pendingSave != nil }
+        if resetAccount { model.resetForCurrentAccount() } else { refresh.cancel() }
+        cache.pendingSave?.resume(); cache.pendingSave = nil
+        await refresh.value
+        #expect(cache.cancelledSave && cache.snapshot.rows == old)
+        if resetAccount { #expect(model.rows.isEmpty) }
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
@@ -311,6 +376,7 @@ struct ScoreFeatureTests {
 
     private final class ScoreServiceSpy: ScoreListServicing {
         private(set) var requestedDetailValues: [Bool] = []
+        var detailedError: (any Error)?
         private let requiresSMS: Bool
         private let detailedRowsOverride: [ScoreRow]?
 
@@ -337,6 +403,7 @@ struct ScoreFeatureTests {
             authenticatedBy challenge: BITLoginAuthenticationChallenge
         ) async throws -> [ScoreRow] {
             requestedDetailValues.append(detail)
+            if detail, let detailedError { throw detailedError }
             return detail ? detailedRows : briefRows
         }
 
@@ -421,7 +488,7 @@ struct ScoreFeatureTests {
         }
     }
 
-    @Test("Score refresh requests fields required by the detail UI")
+    @Test("Score refresh requests fields required by the detail UI", .timeLimit(.minutes(1)))
     @MainActor
     func scoreRefreshRequestsDetailedRows() async throws {
         let service = ScoreServiceSpy()
@@ -473,7 +540,7 @@ struct ScoreFeatureTests {
         func saveDetailed(rows: [ScoreRow], for session: AppStorageSession?) async -> Date? { writes += 1; return nil }
     }
 
-    @Test("Score cache write failure presents a save error and retains downloaded rows")
+    @Test("Score cache write failure presents a save error and retains downloaded rows", .timeLimit(.minutes(1)))
     func scoreSaveFailureIsPresented() async throws {
         clearPreferences()
         defer { clearPreferences() }
@@ -493,7 +560,7 @@ struct ScoreFeatureTests {
         #expect(model.refreshPhase == .idle)
     }
 
-    @Test("Refresh cancellation and account reset immediately cancel every score request",
+    @Test("Refresh cancellation and account reset immediately cancel every score request", .timeLimit(.minutes(1)),
           arguments: ["authentication", "summary", "details"], [false, true])
     func scoreRequestsCancelImmediately(_ stage: String, _ resetAccount: Bool) async throws {
         let account = ScoreCacheSessionHolder(session: AppStorageSession(accountIdentifier: "cancel-account-a"))
@@ -514,7 +581,7 @@ struct ScoreFeatureTests {
         #expect(model.refreshPhase == .idle)
     }
 
-    @Test("Score refresh preserves detailed mode after SMS authentication")
+    @Test("Score refresh preserves detailed mode after SMS authentication", .timeLimit(.minutes(1)))
     @MainActor
     func scoreSMSRefreshRequestsDetailedRows() async throws {
         let service = ScoreServiceSpy(requiresSMS: true)
@@ -532,7 +599,7 @@ struct ScoreFeatureTests {
         #expect(viewModel.rows.first?.averageScore == "82.5")
     }
 
-    @Test("A delayed score challenge cannot write into the newly selected account")
+    @Test("A delayed score challenge cannot write into the newly selected account", .timeLimit(.minutes(1)))
     @MainActor
     func delayedScoreChallengeIsDiscardedAfterAccountSwitch() async throws {
         let activeSession = ScoreCacheSessionHolder(
@@ -563,7 +630,7 @@ struct ScoreFeatureTests {
         #expect(!viewModel.isSyncing)
     }
 
-    @Test("Unchanged score refresh presents the latest-state notice")
+    @Test("Unchanged score refresh presents the latest-state notice", .timeLimit(.minutes(1)))
     @MainActor
     func unchangedScoreRefreshPresentsNotice() async throws {
         let rows = [ScoreRow(
@@ -596,6 +663,15 @@ struct ScoreFeatureTests {
         let missing = makeRow(index: 0, score: "")
         #expect(ScoreSortIndex.score.isMissingValue(in: missing))
         #expect(ScoreSortOrder.ascending.toggled == .descending)
+    }
+
+    @Test(arguments: ["nan", "NaN", "inf", "-inf", "Infinity"])
+    func nonFiniteScoresShareTheMissingValueBoundary(value: String) {
+        let row = ScoreRow(index: 0, headers: ["成绩", "平均分", "学分"], values: [value, value, value])
+        for index in [ScoreSortIndex.score, .averageScore, .credit] {
+            #expect(index.isMissingValue(in: row))
+            #expect(index.compare(row, ScoreRow(index: 1, headers: ["成绩", "平均分", "学分"], values: ["90", "90", "3"])) == .orderedDescending)
+        }
     }
 
     private func makeRow(index: Int, score: String) -> ScoreRow {

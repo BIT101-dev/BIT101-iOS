@@ -29,17 +29,17 @@ permissions:
 
 concurrency:
   group: ios-ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
 
 jobs:
   static-audit:
     name: Static audit (Apple toolchain)
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'xcode-27' || fromJSON('["self-hosted","macOS","bit101-xcode-27","bit101-ci"]') }}
-    timeout-minutes: 20
+    timeout-minutes: 105
     outputs:
       physical_required: ${{ steps.physical_scope.outputs.required }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
           clean: false
@@ -53,11 +53,7 @@ jobs:
           base_sha="$(python3 Scripts/ci_evidence.py review-pr "$BIT101_REVIEW_PR")"
           printf 'base_sha=%s\n' "$base_sha" >> "$GITHUB_OUTPUT"
       - name: Show toolchain
-        shell: bash
-        run: |
-          version="$(xcodebuild -version)"
-          printf '%s\n' "$version"
-          grep -Eq '^Xcode (2[7-9]|[3-9][0-9]|[1-9][0-9]{2,})\.' <<<"$version"
+        run: Scripts/build-install-device.sh toolchain
       - name: Select physical acceptance from build inputs
         id: physical_scope
         env:
@@ -66,8 +62,9 @@ jobs:
       - name: Install Worker test dependencies
         working-directory: Cloudflare/EmergencyUpdateWorker
         run: npm ci
+      - name: Install Python analysis tool
+        run: brew install --quiet ruff
       - name: Load target branch coverage baseline
-        if: github.event_name == 'pull_request' || inputs.review_pr > 0
         env:
           GH_TOKEN: ${{ github.token }}
           BIT101_BASE_COMMIT: ${{ github.event.pull_request.base.sha || steps.review.outputs.base_sha }}
@@ -88,7 +85,7 @@ jobs:
 
       - name: Preserve validation diagnostics
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: validation-${{ github.job }}
           compression-level: 0
@@ -99,23 +96,21 @@ jobs:
             .build/ui-consistency-report.txt
             .build/explanatory-text-report.txt
             .build/extended-automation/modules.log
+            .build/extended-automation/module-events.jsonl
+            .build/extended-automation/test-metrics.txt
 
   release-build:
     name: Release app and extension builds
     needs: static-audit
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'xcode-27' || fromJSON('["self-hosted","macOS","bit101-xcode-27","bit101-ci"]') }}
-    timeout-minutes: 45
+    timeout-minutes: 240
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
           clean: false
       - name: Show toolchain
-        shell: bash
-        run: |
-          version="$(xcodebuild -version)"
-          printf '%s\n' "$version"
-          grep -Eq '^Xcode (2[7-9]|[3-9][0-9]|[1-9][0-9]{2,})\.' <<<"$version"
+        run: Scripts/build-install-device.sh toolchain
       - name: Build iOS app, Watch, widgets and tests
         run: Scripts/run-extended-tests.sh build release
       - name: Archive app and extensions with release compiler settings
@@ -133,7 +128,7 @@ jobs:
 
       - name: Preserve validation diagnostics
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: validation-${{ github.job }}
           compression-level: 0
@@ -143,24 +138,37 @@ jobs:
             .build/extended-automation/build-ui.log
             .build/extended-automation/build-network-smoke.log
             .build/extended-automation/build-icloud-smoke.log
+            .build/extended-automation/diagnostics/test-results.xcresult
             build/DeviceInstall/build.log
 
   catalyst-tests:
     name: Mac Catalyst behavior tests
     needs: static-audit
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'xcode-27' || fromJSON('["self-hosted","macOS","bit101-xcode-27","bit101-ci"]') }}
-    timeout-minutes: 20
+    timeout-minutes: 105
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
           clean: false
-      - name: Show toolchain
-        shell: bash
+      - name: Verify maintainer review commit
+        id: review
+        if: github.event_name == 'workflow_dispatch' && inputs.review_pr > 0
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BIT101_REVIEW_PR: ${{ inputs.review_pr }}
         run: |
-          version="$(xcodebuild -version)"
-          printf '%s\n' "$version"
-          grep -Eq '^Xcode (2[7-9]|[3-9][0-9]|[1-9][0-9]{2,})\.' <<<"$version"
+          base_sha="$(python3 Scripts/ci_evidence.py review-pr "$BIT101_REVIEW_PR")"
+          printf 'base_sha=%s\n' "$base_sha" >> "$GITHUB_OUTPUT"
+      - name: Show toolchain
+        run: Scripts/build-install-device.sh toolchain
+      - name: Load target branch coverage baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BIT101_BASE_COMMIT: ${{ github.event.pull_request.base.sha || steps.review.outputs.base_sha }}
+        run: |
+          python3 Scripts/ci_evidence.py baseline "$BIT101_BASE_COMMIT"
+          python3 Scripts/validation_evidence.py baseline "$BIT101_BASE_COMMIT"
       - name: Run behavior and production composition contracts on Mac Catalyst
         run: Scripts/run-extended-tests.sh verify catalyst catalyst-release-runtime
 
@@ -170,7 +178,7 @@ jobs:
 
       - name: Preserve validation diagnostics
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: validation-${{ github.job }}
           compression-level: 0
@@ -187,9 +195,9 @@ jobs:
     if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.static-audit.outputs.physical_required == 'true'
     needs: static-audit
     runs-on: [self-hosted, macOS, bit101-xcode-27, bit101-device]
-    timeout-minutes: 60
+    timeout-minutes: 195
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
           clean: false
@@ -203,7 +211,6 @@ jobs:
           base_sha="$(python3 Scripts/ci_evidence.py review-pr "$BIT101_REVIEW_PR")"
           printf 'base_sha=%s\n' "$base_sha" >> "$GITHUB_OUTPUT"
       - name: Load target branch coverage baseline
-        if: github.event_name == 'pull_request' || inputs.review_pr > 0
         env:
           GH_TOKEN: ${{ github.token }}
           BIT101_BASE_COMMIT: ${{ github.event.pull_request.base.sha || steps.review.outputs.base_sha }}
@@ -219,7 +226,7 @@ jobs:
         run: python3 Scripts/ci_evidence.py export-core
       - name: Publish core validation evidence
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: validation-evidence
           path: .build/extended-automation/core-validation-evidence.json
@@ -229,7 +236,7 @@ jobs:
           include-hidden-files: true
       - name: Preserve validation diagnostics
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: validation-${{ github.job }}
           compression-level: 0
@@ -246,7 +253,7 @@ jobs:
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'xcode-27' || fromJSON('["self-hosted","macOS","bit101-xcode-27","bit101-ci"]') }}
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
           clean: false
@@ -266,7 +273,7 @@ jobs:
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'xcode-27' || fromJSON('["self-hosted","macOS","bit101-xcode-27","bit101-ci"]') }}
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
           clean: false

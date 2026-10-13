@@ -189,7 +189,7 @@ public struct AppCommentThread<Comment: Identifiable, Content: View>: View {
             content(comment, false)
 
             if !subcomments.isEmpty {
-                VStack(spacing: AppDesignSystem.Spacing.none) {
+                LazyVStack(spacing: AppDesignSystem.Spacing.none) {
                     ForEach(Array(subcomments.enumerated()), id: \.element.id) { index, subcomment in
                         VStack(spacing: AppDesignSystem.Spacing.none) {
                             content(subcomment, true)

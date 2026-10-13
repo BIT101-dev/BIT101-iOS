@@ -43,12 +43,17 @@ if [[ "${1:-}" == report || "${1:-}" == screenshot || "${1:-}" == activities || 
   fi
   python3 - "$DERIVED_ROOT/test-results.xcresult" "${2:-}" "$1" "$ROOT_DIR/Scripts" <<'PY'
 import json
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 bundle = Path(sys.argv[1])
+sys.path.insert(0, sys.argv[4])
+from validation_artifacts import clear_diagnostic_exports
+from validation_performance import result_bundle_complete
+diagnostics = bundle.parent / "diagnostics"
+if sys.argv[3] == "diagnostics" and (diagnostics / "test-results.xcresult").is_dir():
+    bundle = diagnostics / "test-results.xcresult"
 if sys.argv[2] == "performance":
     sys.path.insert(0, sys.argv[4])
     from validation_provenance import complete_group_row
@@ -60,7 +65,7 @@ if sys.argv[2] == "performance":
             print(json.dumps({"scenario": name, "test": record["testIdentifier"], "metrics": record["xcresultMetrics"]}))
     raise SystemExit(0)
 
-if not (bundle / "Info.plist").is_file() or (bundle / "Staging").exists():
+if not result_bundle_complete(bundle):
     raise SystemExit("测试结果可在运行结束后通过 report 读取。")
 
 if sys.argv[2] == "performance-run":
@@ -89,8 +94,8 @@ if sys.argv[2] == "coverage":
     raise SystemExit(0)
 
 if sys.argv[3] == "diagnostics":
-    output = bundle.parent / "diagnostics"
-    shutil.rmtree(output, ignore_errors=True)
+    output = diagnostics
+    clear_diagnostic_exports(output)
     subprocess.run(["xcrun", "xcresulttool", "export", "diagnostics", "--path", str(bundle),
                     "--output-path", str(output)], check=True, stdout=subprocess.DEVNULL)
     print(output)
@@ -119,8 +124,8 @@ if sys.argv[2]:
     def attachments(value):
         if isinstance(value, dict):
             screenshot = sys.argv[3] == "screenshot"
-            name = "失败时的界面截图" if screenshot else "失败时的界面元素树"
-            if str(value.get("name", "")).startswith(name):
+            names = ("失败时的界面截图", "界面截图") if screenshot else ("失败时的界面元素树",)
+            if str(value.get("name", "")).startswith(names):
                 identifier = value.get("payloadId")
                 if identifier:
                     output = (Path(sys.argv[1]).parent.parent / "screenshot.png" if screenshot
@@ -180,8 +185,8 @@ fi
 SCRIPT_PATH="$0"
 SCRIPT_ARGS=("$@")
 acquire_test_lock() {
-  if [[ "$MODE" == modules || "$MODE" == catalyst || "$MODE" == catalyst-release-runtime ]] \
-      || $GENERIC_BUILD || [[ "$MODE" == verify && "$verification_needs_device" == false ]]; then
+  if $GENERIC_BUILD || [[ "$BUILD_ONLY" == true && ( "$MODE" == modules || "$MODE" == catalyst || "$MODE" == catalyst-release-runtime ) ]] \
+      || [[ "$MODE" == verify && "$verification_needs_device" == false ]]; then
     bit101_acquire_artifact_lock "$SCRIPT_PATH" "${SCRIPT_ARGS[@]}"
   else
     bit101_acquire_workflow_lock "$SCRIPT_PATH" "${SCRIPT_ARGS[@]}"
@@ -238,6 +243,21 @@ if [[ "$MODE" == "verify" ]]; then
       *) echo "验证组：modules all release-runtime catalyst catalyst-release-runtime ui network community-writes ddl icloud build-archive audit" >&2; exit 64 ;;
     esac
   done
+  for group in "${verification_groups[@]}"; do
+    case "$group" in
+      network) "$ROOT_DIR/Scripts/release-network-smoke.sh" --check-config "${verification_network_args[@]}" ;;
+      community-writes|ddl) "$ROOT_DIR/Scripts/release-network-smoke.sh" --check-config "$group" ;;
+    esac
+  done
+  if [[ -z "${BIT101_WORKFLOW_TIMEOUT_SECONDS:-}" ]]; then
+    export BIT101_WORKFLOW_TIMEOUT_SECONDS="$(python3 - "$ROOT_DIR/Scripts" "${verification_groups[@]}" <<'PYBUDGET'
+import sys
+sys.path.insert(0, sys.argv[1])
+from validation_policy import workflow_timeout_seconds
+print(workflow_timeout_seconds(tuple(sys.argv[2:])))
+PYBUDGET
+)"
+  fi
   acquire_test_lock
   if $verification_needs_device; then
     bit101_require_device || exit 1
@@ -278,7 +298,7 @@ if [[ "$MODE" == "verify" ]]; then
         python3 "$ROOT_DIR/Scripts/validation_performance.py" begin-batch "$retention" || return $?
         ;;
     esac
-    "$@" || step_status=$?
+    BIT101_VALIDATION_RESULT_BATCH_HELD=1 "$@" || step_status=$?
     if $result_step; then
       completed_result_groups+=("$label")
       python3 "$ROOT_DIR/Scripts/validation_performance.py" retain-batch "${completed_result_groups[@]}" || step_status=$?
@@ -373,10 +393,14 @@ fi
 BIT101_VALIDATION_RUN_ID="$(uuidgen)"
 BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest "$validation_group")"
 export BIT101_VALIDATION_RUN_ID BIT101_VALIDATION_SOURCE_DIGEST
+typeset -a retained_result_groups=()
 finish_validation() {
   local validation_status=$?
   trap - EXIT ZERR INT TERM
   python3 "$ROOT_DIR/Scripts/validation_evidence.py" record "$validation_group" "$validation_status" "$validation_scope" || validation_status=$?
+  if (( ${#retained_result_groups[@]} )); then
+    python3 "$ROOT_DIR/Scripts/validation_performance.py" retain-selected "$validation_group" "${retained_result_groups[@]}" || validation_status=$?
+  fi
   exit "$validation_status"
 }
 trap finish_validation EXIT
@@ -405,6 +429,9 @@ if [[ "$BUILD_ONLY" == false && "$MODE" != modules && "$MODE" != catalyst && "$M
     fi
     echo "[测试工作流] ${workflow_seconds} 秒（含恢复）"
     python3 "$ROOT_DIR/Scripts/validation_evidence.py" record "$validation_group" "$test_exit_code" "$validation_scope" || test_exit_code=$?
+    if (( ${#retained_result_groups[@]} )); then
+      python3 "$ROOT_DIR/Scripts/validation_performance.py" retain-selected "$validation_group" "${retained_result_groups[@]}" || test_exit_code=$?
+    fi
     exit "$test_exit_code"
   }
   trap restore_release_app EXIT ZERR
@@ -414,7 +441,14 @@ fi
 
 mkdir -p "$DERIVED_ROOT"
 if ! $BUILD_ONLY; then
-  if [[ "$MODE" != "modules" ]]; then python3 "$ROOT_DIR/Scripts/validation_performance.py" reset-results; fi
+  if [[ "$MODE" != modules && "${BIT101_VALIDATION_RESULT_BATCH_HELD:-0}" != 1 ]]; then
+    if [[ "$validation_scope" == selected ]]; then
+      retained_result_groups=("${(@f)$(python3 "$ROOT_DIR/Scripts/validation_performance.py" begin-selected)}")
+      retained_result_groups=("${(@)retained_result_groups:#}")
+    else
+      python3 "$ROOT_DIR/Scripts/validation_performance.py" reset-results
+    fi
+  fi
   rm -rf "$DERIVED_ROOT/diagnostics"
   rm -f "$DERIVED_ROOT/test-metrics.txt" "$DERIVED_ROOT/test-failures.txt"
   if [[ "$MODE" == ui ]]; then : > "$DERIVED_ROOT/ui-tests.log"; fi
@@ -461,13 +495,12 @@ import sys
 coverage_path, report_path, root_path = map(Path, sys.argv[1:])
 sys.path.insert(0, str(root_path / 'Scripts'))
 from validation_evidence import module_event_summary
+from validation_inputs import module_coverage_executables
 tests = module_event_summary((report_path.parent / "module-events.jsonl").read_text())
 test_count = tests['passedTests']
 executed = tests['executedTests']
 products = coverage_path.parent.parent
-executables = sorted(products.glob("*.xctest/Contents/MacOS/*"))
-if not executables:
-    raise SystemExit("模块覆盖率需要测试消费者的可执行文件。")
+executables = module_coverage_executables(root_path, products)
 command = ["xcrun", "llvm-cov", "export", str(executables[0]),
            "-instr-profile", str(coverage_path.parent / "default.profdata")]
 for executable in executables[1:]:
@@ -659,7 +692,6 @@ record_metrics() {
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -667,6 +699,7 @@ from pathlib import Path
 result_bundle, report_path, mode, elapsed_seconds, device_id, root = sys.argv[1:]
 sys.path.insert(0, str(Path(root) / "Scripts"))
 from validation_evidence import validate_community_write_test_output
+from validation_artifacts import clear_diagnostic_exports
 summary_result = subprocess.run([
     "xcrun", "xcresulttool", "get", "test-results", "summary",
     "--path", result_bundle,
@@ -707,7 +740,7 @@ if coverage is None or mode == "ui":
     if mode == "ui":
         lines.append("交互覆盖依据 docs/UI_INTERACTION_COVERAGE.md；常规场景复用 App 进程，核心持久化场景结束进程后验证冷启动恢复。")
         diagnostics = Path(report_path).parent / "diagnostics"
-        shutil.rmtree(diagnostics, ignore_errors=True)
+        clear_diagnostic_exports(diagnostics)
         try:
             subprocess.run(["xcrun", "xcresulttool", "export", "diagnostics", "--path", result_bundle,
                             "--output-path", str(diagnostics)], check=True, stdout=subprocess.DEVNULL)
@@ -716,7 +749,7 @@ if coverage is None or mode == "ui":
             with (Path(report_path).parent / "ui-tests.log").open("a") as log:
                 log.write("\n" + output)
         finally:
-            shutil.rmtree(diagnostics, ignore_errors=True)
+            clear_diagnostic_exports(diagnostics)
         launches = len(re.findall(r"\bt =\s*[\d.]+s\s+Launch BIT101-dev\.BIT101-iOS\b", output))
         processes = sorted(set(re.findall(r"UI automation App process: (\d+)", output)))
         lines.append(f"App 启动次数：{launches}；App 进程：{', '.join(processes) or '未采集'}")
@@ -844,6 +877,8 @@ visit_tests(test_tree)
 if summary.get("result") == "Passed":
     validate_community_write_test_output(Path(result_bundle), set(executed))
 lines.append("已执行用例：" + json.dumps(sorted(set(executed)), ensure_ascii=False))
+from validation_evidence import native_case_summary
+lines.append("测试实例：" + json.dumps(native_case_summary(test_tree, mode if mode in {'ui', 'catalyst', 'catalyst-release-runtime', 'release-runtime'} else 'all', device_identifier=device_id), ensure_ascii=False))
 if durations:
     lines += ["", "## 用例耗时", f"用例耗时合计：{sum(item[0] for item in durations):.1f} 秒", *[
         f"- {name}: {duration}" for _, name, duration in sorted(durations, reverse=True)[:10]

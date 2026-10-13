@@ -27,7 +27,7 @@ final class AppCommunityDestinations {
     let settings: CommunitySettingsDestinations
     let settingsDependencies: SettingsDependencies
 
-    init(dependencies: AppCommunityDependencies, schedule: ScheduleViewModel, scheduleCloudSync: ScheduleCloudSyncPresentation, media: MediaEnvironment, localData: AppLocalDataService, school: NetworkDiagnosisSchool, transcript: any TrustedTranscriptServicing) {
+    init(dependencies: AppCommunityDependencies, schedule: ScheduleViewModel, scheduleCloudSync: ScheduleCloudSyncPresentation, media: MediaEnvironment, localData: AppLocalDataService, school: NetworkDiagnosisSchool, transcript: any TrustedTranscriptServicing, updates: AppUpdatePromptCoordinator, prompts: AppPromptCoordinator) {
         self.media = media
         profiles = Self.profiles(dependencies: dependencies, media: media)
         posters = Self.posters(dependencies: dependencies, media: media)
@@ -39,7 +39,7 @@ final class AppCommunityDestinations {
             settings: dependencies.settingsStore, schedule: schedule,
             scheduleCloudSync: scheduleCloudSync,
             suggestion: dependencies.suggestion, media: media,
-            localData: localData,
+            localData: localData, updates: updates, prompts: prompts,
             account: SettingsAccountDependencies(
                 service: SettingsNetworkService(session: dependencies.session, checkLogin: dependencies.checkLogin),
                 credentials: { dependencies.session.currentCredentials }
@@ -81,26 +81,28 @@ final class AppCommunityDestinations {
 }
 
 extension GalleryService {
-    init(storage: LoginStorage = AppAccountSession.storage, httpClient: HTTPClient = .community) {
-        self.init(session: .appSession(storage: storage, httpClient: httpClient), preferences: { AppCommunityDependencies.preferenceSnapshot })
+    init(storage: LoginStorage = AppAccountSession.storage, httpClient: HTTPClient? = nil,
+         preferences: @escaping () -> CommunityPreferenceSnapshot = { AppCommunityDependencies.preferenceSnapshot }) {
+        self.init(session: .appSession(storage: storage, httpClient: httpClient), preferences: preferences)
     }
 }
 
 extension CourseService {
-    init(storage: LoginStorage = AppAccountSession.storage, httpClient: HTTPClient = .community) {
+    init(storage: LoginStorage = AppAccountSession.storage, httpClient: HTTPClient? = nil) {
         self.init(session: .appSession(storage: storage, httpClient: httpClient))
     }
 }
 
 extension PaperService {
-    init(storage: LoginStorage = AppAccountSession.storage, httpClient: HTTPClient = .community) {
+    init(storage: LoginStorage = AppAccountSession.storage, httpClient: HTTPClient? = nil) {
         self.init(session: .appSession(storage: storage, httpClient: httpClient))
     }
 }
 
 extension MineService {
-    init(storage: LoginStorage = AppAccountSession.storage, httpClient: HTTPClient = .community) {
-        self.init(session: .appSession(storage: storage, httpClient: httpClient), preferences: { AppCommunityDependencies.preferenceSnapshot })
+    init(storage: LoginStorage = AppAccountSession.storage, httpClient: HTTPClient? = nil,
+         preferences: @escaping () -> CommunityPreferenceSnapshot = { AppCommunityDependencies.preferenceSnapshot }) {
+        self.init(session: .appSession(storage: storage, httpClient: httpClient), preferences: preferences)
     }
 }
 
@@ -140,7 +142,10 @@ final class AppCommunityDependencies {
             saveMakeupFilter: { settings.setHidesCourseHistoryMakeupOutliers($0) }
         )
         self.preferences = preferences
-        suggestion = DeveloperSuggestionDependencies(drafts: drafts, submit: submitSuggestion)
+        suggestion = DeveloperSuggestionDependencies(drafts: drafts, submit: submitSuggestion, captureSubmissionOwner: {
+            let owner = session.currentCredentials
+            return { session.currentCredentials == owner }
+        })
         let galleryService = GalleryService(session: session, preferences: { preferences.snapshot })
         gallery = GalleryDependencies(
             webCredentials: .init(cookie: { session.fakeCookie }, changes: session.credentialsChanges.map { _ in () }.eraseToAnyPublisher()),
@@ -154,16 +159,9 @@ final class AppCommunityDependencies {
         let paperService = PaperService(session: session)
         paper = PaperDependencies(list: paperService, detail: paperService, composer: paperService, networkPath: networkPath)
         let mineService = MineService(session: session, preferences: { preferences.snapshot })
-#if BIT101_UI_TESTING
-        let offlineUITest = AppFileDirectories.isRunningUITest
-            && AppUITestBootstrap.environment["BIT101_UI_TEST_CONTENT"] != "1"
-#else
-        let offlineUITest = false
-#endif
         mine = MineDependencies(
             overview: mineService, profile: mineService,
-            deletePoster: { try await galleryService.deletePoster(id: $0) },
-            isRunningUITest: offlineUITest
+            deletePoster: { try await galleryService.deletePoster(id: $0) }
         )
         settings.$snapshot.combineLatest(settings.$hidesCourseHistoryMakeupOutliers)
             .sink { snapshot, hideMakeup in
@@ -212,25 +210,16 @@ final class AppCommunityDependencies {
 /// 生产系统资源在 App 组装位置绑定，操作服务持有显式能力。
 @MainActor
 enum AppLocalDataComposition {
-    static func appService(settings: AppSettingsStore, media: MediaEnvironment) -> AppLocalDataService {
-#if BIT101_UI_TESTING
-        return AppLocalDataService(files: AppFileDirectories.files, actions: AppLocalDataActions(
-            hasPendingRecovery: { ReleaseNetworkSmokeReportStore.hasPendingCommunityWrites() },
-            clearLogin: { AppAccountSession.resetUITestCredentials(); return true },
-            suspendStorageOperations: AppAccountStores.suspendStorageOperations,
-            resumeStorageOperations: AppAccountStores.resumeStorageOperations,
-            clearSchedule: { await ScheduleCacheStore.clear() },
-            clearSharedSnapshot: { true },
-            clearReports: { true },
-            clearDiagnostics: { await NetworkDiagnosticStore.shared.clear() },
-            clearPreferences: { AppFileDirectories.defaults.removePersistentDomain(forName: AppFileDirectories.defaultsDomain) },
-            clearURLCache: {}, clearWebData: {},
-            clearMedia: { await media.clearCaches() }, resetSettings: { settings.resetToDefaults() }
-        ), cacheDirectories: media.cacheDirectories)
+#if BIT101_AUTOMATED_TESTING
+    static let websiteDataStore = WKWebsiteDataStore.nonPersistent()
 #else
+    static let websiteDataStore = WKWebsiteDataStore.default()
+#endif
+
+    static func appService(settings: AppSettingsStore, media: MediaEnvironment) -> AppLocalDataService {
         let defaults = AppFileDirectories.defaults
         let domain = AppFileDirectories.defaultsDomain
-        let webData = WKWebsiteDataStore.default()
+        let webData = websiteDataStore
         return AppLocalDataService(files: AppFileDirectories.files, actions: AppLocalDataActions(
             hasPendingRecovery: { ReleaseNetworkSmokeReportStore.hasPendingCommunityWrites() },
             clearLogin: { AppAccountSession.storage.clearAllLocalData() },
@@ -254,6 +243,5 @@ enum AppLocalDataComposition {
             clearMedia: { await media.clearCaches() },
             resetSettings: { settings.resetToDefaults() }
         ), cacheDirectories: media.cacheDirectories)
-#endif
     }
 }

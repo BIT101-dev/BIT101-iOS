@@ -5,7 +5,8 @@ from pathlib import Path
 from functools import cache
 import re
 import sys
-from swift_source_index import swift_code
+from swift_source_index import swift_code, expected_argument_types, scope_contains_type
+from swift_type_index import call_can_execute, execution_index
 
 from ui_design_contracts import (
     COMPONENT_INHERITANCE, DERIVED_DESIGN_TOKEN, DIRECT_ACCENT_COLOR, DIRECT_ANIMATION_DURATION,
@@ -461,6 +462,33 @@ def rendered_scope_facts(facts: dict, scope: list[str], syntax: dict[str, dict] 
         for item in part.get("functionRanges", [])
         if item["scope"] == scope
     ]
+    inputs = dict(syntax or {})
+    if not any(part is facts for part in inputs.values()):
+        inputs["ui-fixture.swift"] = facts
+    execution = execution_index(inputs)
+    executable_parts = {id(part): execution[path] for path, part in inputs.items()}
+
+    def can_render(part: dict, start: int) -> bool:
+        return call_can_execute(executable_parts[id(part)], {"start": start})
+
+    hidden_ranges = {
+        id(part): [bounds for branch in part.get("controlFlow", []) + part.get("expressionFlow", [])
+            for bounds in [branch.get(key) for key in ("thenRange", "elseRange", "deadRange", "followingRange")]
+                + branch.get("branchRanges", [])
+            if bounds and not can_render(part, bounds[0])]
+        for part, _ in parts
+    }
+
+    def rendered_node(part: dict, item: dict) -> dict:
+        start, value = item.get("start", -1), item.get("value")
+        if start < 0 or not isinstance(value, str):
+            return item
+        raw = bytearray(value.encode())
+        for lower, upper in hidden_ranges[id(part)]:
+            lower, upper = max(lower, start), min(upper, start + len(raw))
+            if lower < upper and not can_render(part, lower):
+                raw[lower - start:upper - start] = b" " * (upper - lower)
+        return dict(item, value=raw.decode())
 
     def containing_function(part: dict, start: int) -> dict | None:
         candidates = [
@@ -482,7 +510,7 @@ def rendered_scope_facts(facts: dict, scope: list[str], syntax: dict[str, dict] 
         for part, is_root in parts:
             for call in part.get("calls", []):
                 call_start = call.get("start", -1)
-                if call["scope"] != scope or in_callback(part, call_start):
+                if call["scope"] != scope or in_callback(part, call_start) or not can_render(part, call_start):
                     continue
                 owner = containing_function(part, call_start)
                 if owner:
@@ -503,7 +531,7 @@ def rendered_scope_facts(facts: dict, scope: list[str], syntax: dict[str, dict] 
                     changed = True
 
     def is_visible(part: dict, is_root: bool, item: dict) -> bool:
-        if item.get("scope") != scope or in_callback(part, item.get("start", -1)):
+        if item.get("scope") != scope or in_callback(part, item.get("start", -1)) or not can_render(part, item.get("start", -1)):
             return False
         owner = containing_function(part, item.get("start", -1))
         if owner is None:
@@ -517,7 +545,7 @@ def rendered_scope_facts(facts: dict, scope: list[str], syntax: dict[str, dict] 
         "controlFlow", "typeNames", "stringSegments",
     ):
         filtered[collection] = [
-            item
+            rendered_node(part, item)
             for part, is_root in parts
             for item in part.get(collection, [])
             if is_visible(part, is_root, item)
@@ -668,6 +696,45 @@ def pattern_line_number(source: str, node: dict, local_position: int) -> int:
     return prior_lines + local_lines + 1
 
 
+def is_semantic_color_member(path: str, node: dict, context) -> bool:
+    """Apply palette rules to color members in their declared or SwiftUI argument context."""
+    value = mask_literals_and_comments(node['value']).strip()
+    if not re.fullmatch(r'(?:[A-Za-z_]\w*\s*\.)*\s*\.?[A-Za-z_]\w*', value): return False
+    facts = context.index[path]
+    def is_color(kind):
+        return any(context.types.terminal_name(source, name, scope) in
+            {'Color', 'SwiftUI.Color', 'ShapeStyle', 'SwiftUI.ShapeStyle'}
+            for source, name, scope in context.types.components(path, kind, node['scope'], node))
+    if not value.startswith('.'):
+        kind = context.receiver_type(node, path)
+        if kind is None and value.rpartition('.')[0] == 'SwiftUI.Color': kind = 'SwiftUI.Color'
+        return is_color(kind or '')
+    expected = expected_argument_types(facts, node, context=context, path=path)
+    if expected: return any(is_color(kind) for kind in expected)
+    parents = [(call, index) for call in facts.get('invocations', [])
+        for index, bounds in enumerate(call.get('argumentRanges') or [])
+        if bounds[0] <= node['start'] < bounds[1]]
+    if parents:
+        call, index = min(parents, key=lambda entry: len(entry[0]['value'].encode()))
+        labels = call.get('argumentLabels') or []
+        name = call_name(call['calledExpression'])
+        if index == 0 and name in {'foregroundStyle', 'foregroundColor', 'tint', 'background',
+                'overlay', 'fill', 'stroke', 'strokeBorder', 'border', 'listRowBackground'}: return True
+        if name == 'shadow' and labels[index] == 'color': return True
+        return False
+    for binding in facts.get('bindings', []):
+        if binding['start'] <= node['start'] < binding['start'] + len(binding['value'].encode()):
+            initializer = binding['value'].partition('=')[2].strip()
+            if initializer.strip('() ') == value and binding.get('bindingType'):
+                return is_color(binding['bindingType'])
+    returns = [entry for entry in facts.get('functionReturns', [])
+        if entry['start'] == node['start'] and entry['value'].strip() == value]
+    return any(is_color(function.get('returnType') or '') for function in
+        facts.get('functionRanges', []) + facts.get('accessorRanges', [])
+        if function['start'] <= node['start'] < function['end']
+        and any(entry['name'] == function['name'] and entry['scope'] == function['scope'] for entry in returns))
+
+
 def append_rule_finding(
     errors: list[str],
     emitted: set[tuple[str, int, str]],
@@ -711,3 +778,69 @@ def image_only_label_facts(facts: dict) -> list[dict]:
 def explanatory_text_report() -> None:
     from ui_explanatory_text import write_report
     write_report(ROOT)
+
+
+def view_helper_ranges(index: dict, types, *, origin=None) -> dict[str, set[tuple[int, int]]]:
+    """Follow free helper functions called from views and view factories."""
+    from swift_type_index import compilation_unit
+    from network_capability_rules import matching_api_calls
+    functions = [(path, function) for path, facts in index.items() for function in facts.get('functionRanges', [])
+        if not function['scope'] and function.get('bodyStart') is not None]
+    owners = {path: {owner for owner, bases in types.conformances(path).items()
+        if any(base.rsplit('.', 1)[-1] in {'View', 'ViewModifier', 'App', 'Scene'} for base in bases)}
+        if origin is None or path == origin else set() for path in index}
+    ranges = {path: {(function['bodyStart'], function['end']) for function in facts.get('functionRanges', [])
+        if function.get('returnsView') and function.get('bodyStart') is not None and (origin is None or path == origin)}
+        for path, facts in index.items()}
+    changed = True
+    while changed:
+        changed = False
+        for path, facts in index.items():
+            if origin is not None and path != origin and not ranges[path]: continue
+            for call in facts.get('invocations', []):
+                if not scope_contains_type(call['scope'], owners[path]) and not any(
+                        start <= call['start'] < end for start, end in ranges[path]): continue
+                prefix, _, name = call['calledExpression'].rpartition('.')
+                if prefix and prefix != compilation_unit(path): continue
+                candidates = [(source, function) for source, function in functions if function['name'] == name
+                    and compilation_unit(source) == compilation_unit(path) and (
+                        not function.get('isFilePrivate') or source == path) and (
+                        not function.get('lexicalScope') or source == path
+                        and call.get('lexicalScope', [])[:len(function['lexicalScope'])] == function['lexicalScope'])]
+                for source, function in matching_api_calls(index, candidates, dict(call, path=path), types=types, conservative=True):
+                    bounds = (function['bodyStart'], function['end'])
+                    if bounds not in ranges[source]: ranges[source].add(bounds); changed = True
+    return ranges
+
+
+def view_transport_findings(index: dict) -> list[str]:
+    from swift_type_index import SwiftTypeIndex, SwiftBindingTypes, receiver_resolver
+    from network_capability_rules import NETWORK_TRANSPORT_TYPES, NETWORK_TRANSPORT_METHODS, transport_method
+    types = SwiftTypeIndex(index)
+    bindings = SwiftBindingTypes(index, types)
+    resolve = receiver_resolver(index)
+    errors = []
+    helpers = view_helper_ranges(index, types)
+    for path, facts in index.items():
+        if not Path(path).relative_to(ROOT).as_posix().startswith(('BIT101-iOS/', 'Modules/', 'BIT101ScheduleWidgets/', 'BIT101WatchWidgets/', 'BIT101Watch/')): continue
+        owners = {owner for owner, bases in types.conformances(path).items()
+            if any(base.rsplit('.', 1)[-1] in {'View', 'ViewModifier', 'App', 'Scene'} for base in bases)}
+        factories = [fn for fn in facts.get('functionRanges', []) if fn.get('returnsView') and fn.get('bodyStart') is not None]
+        invocations = facts.get('invocations', [])
+        invoked = {call['start'] for call in invocations}
+        references = [dict(member, calledExpression=member['value']) for member in facts.get('members', [])
+            if member['start'] not in invoked]
+        for call in [*invocations, *references]:
+            if not scope_contains_type(call['scope'], owners) and not any(
+                    fn['bodyStart'] <= call['start'] < fn['end'] for fn in factories) and not any(
+                    start <= call['start'] < end for start, end in helpers.get(path, set())): continue
+            method = transport_method(call['calledExpression'])
+            if method not in NETWORK_TRANSPORT_METHODS: continue
+            owner = resolve(dict(call, path=path))
+            kind = owner or bindings.receiver_type(call, path) or ''
+            target = types.resolve(path, kind, call['scope'])
+            if kind.rsplit('.', 1)[-1] in NETWORK_TRANSPORT_TYPES or target and any(
+                    base.rsplit('.', 1)[-1] == 'HTTPTransport' for base in types.bases(target)):
+                line = facts['source'].encode()[:call['start']].count(b'\n') + 1
+                errors.append(f'{Path(path).relative_to(ROOT).as_posix()}:{line}: 视图网络传输沿注入的业务服务执行')
+    return list(dict.fromkeys(errors))

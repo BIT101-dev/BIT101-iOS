@@ -36,27 +36,40 @@ final class AppErrorPresenter {
     private var queue: [AppErrorPresentation] = []
     private var isPresenting = false
     private var activePresentationID: UUID?
+    private weak var activeAlertController: UIAlertController?
     private var dismissalWaiters: [UUID: [DismissalWaiter]] = [:]
     private var reportDelegate: ReportPresentationDelegate?
     private weak var reportController: UIViewController?
     private var presentationGeneration = 0
+    private(set) var retryTask: Task<Void, Never>?
+    private let currentPresenter: @MainActor () -> UIViewController?
+    private let retryDelay: @MainActor () async throws -> Void
 
-    private init() {}
+    init(presenter: (@MainActor () -> UIViewController?)? = nil,
+         retryDelay: @escaping @MainActor () async throws -> Void = { try await Task.sleep(for: .milliseconds(300)) }) {
+        currentPresenter = presenter ?? Self.topViewController
+        self.retryDelay = retryDelay
+    }
+
+    deinit { retryTask?.cancel() }
 
     /// 切换账号时清空关联错误提示，让登录页展示当前账号状态。
     func reset() {
         presentationGeneration += 1
+        retryTask?.cancel()
+        retryTask = nil
         queue.removeAll()
         reportController?.dismiss(animated: false)
         reportController = nil
         reportDelegate = nil
         isPresenting = false
         activePresentationID = nil
+        activeAlertController = nil
         let waiters = dismissalWaiters.values.flatMap { $0 }
         dismissalWaiters.removeAll()
         waiters.forEach { $0.continuation.resume() }
 
-        if let presenter = Self.topViewController(), let alert = presenter as? UIAlertController {
+        if let presenter = currentPresenter(), let alert = presenter as? UIAlertController {
             alert.dismiss(animated: false)
         }
     }
@@ -89,6 +102,7 @@ final class AppErrorPresenter {
         let waiterID = UUID()
         await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
+                guard !Task.isCancelled else { continuation.resume(); return }
                 dismissalWaiters[presentation.id, default: []].append(
                     DismissalWaiter(id: waiterID, continuation: continuation)
                 )
@@ -109,6 +123,19 @@ final class AppErrorPresenter {
         let waiter = waiters.remove(at: index)
         if waiters.isEmpty {
             dismissalWaiters[presentationID] = nil
+            queue.removeAll { $0.id == presentationID }
+            if activePresentationID == presentationID {
+                if let controller = activeAlertController {
+                    controller.dismiss(animated: false) { [weak self] in
+                        guard self?.activePresentationID == presentationID else { return }
+                        self?.finishPresentedItem()
+                    }
+                } else { finishPresentedItem() }
+            }
+            if queue.isEmpty, !isPresenting {
+                retryTask?.cancel()
+                retryTask = nil
+            }
         } else {
             dismissalWaiters[presentationID] = waiters
         }
@@ -128,13 +155,15 @@ final class AppErrorPresenter {
 
     private func presentNextIfPossible() {
         guard !isPresenting, !queue.isEmpty else { return }
-        guard let presenter = Self.topViewController(), !presenter.isBeingDismissed else {
+        guard let presenter = currentPresenter(), !presenter.isBeingDismissed else {
             retryPresentation(); return
         }
         if presenter is UIAlertController {
             retryPresentation(); return
         }
 
+        retryTask?.cancel()
+        retryTask = nil
         isPresenting = true
         let item = queue.removeFirst()
         activePresentationID = item.id
@@ -142,6 +171,7 @@ final class AppErrorPresenter {
             ? "\(item.message)\n\n版本 \(AppErrorPresentation.versionText)"
             : item.message
         let controller = UIAlertController(title: item.title, message: message, preferredStyle: .alert)
+        activeAlertController = controller
 #if BIT101_UI_TESTING
         controller.view.accessibilityIdentifier = "ui-test.scene"
         controller.view.accessibilityValue = "\(ProcessInfo.processInfo.processIdentifier):\(UITestSceneConfiguration.shared.snapshot.revision)"
@@ -197,7 +227,7 @@ final class AppErrorPresenter {
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(300))
             guard let self, self.presentationGeneration == generation else { return }
-            guard let presenter = Self.topViewController(), !(presenter is UIAlertController) else {
+            guard let presenter = currentPresenter(), !(presenter is UIAlertController) else {
                 retryReportSheet(for: item, generation: generation)
                 return
             }
@@ -232,6 +262,7 @@ final class AppErrorPresenter {
             return
         }
         activePresentationID = nil
+        activeAlertController = nil
         isPresenting = false
         let waiters = dismissalWaiters.removeValue(forKey: presentationID) ?? []
         waiters.forEach { $0.continuation.resume() }
@@ -252,10 +283,17 @@ final class AppErrorPresenter {
     }
 
     private func retryPresentation() {
+        guard retryTask == nil else { return }
         let generation = presentationGeneration
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(300))
-            guard let self, self.presentationGeneration == generation else { return }
+        let delay = retryDelay
+        retryTask = Task { @MainActor [weak self] in
+            do { try await delay() }
+            catch {
+                if self?.presentationGeneration == generation { self?.retryTask = nil }
+                return
+            }
+            guard let self, !Task.isCancelled, self.presentationGeneration == generation else { return }
+            self.retryTask = nil
             self.presentNextIfPossible()
         }
     }

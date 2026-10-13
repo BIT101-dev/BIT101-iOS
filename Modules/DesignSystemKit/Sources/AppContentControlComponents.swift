@@ -233,13 +233,14 @@ public struct AppSearchBarContainer<Content: View>: View {
 
 /// AppMultiSelectionList 统一多选列表的行布局、选中图标、全选入口和完成按钮。
 public struct AppMultiSelectionList<Item: Hashable>: View {
-    public init(title: String, items: [Item], itemTitle: @escaping (Item) -> String, selectAllTitle: String?, showsCompletionButton: Bool, selectedItems: Binding<[Item]>) {
+    public init(title: String, items: [Item], itemTitle: @escaping (Item) -> String, selectAllTitle: String?, showsCompletionButton: Bool, selectedItems: Binding<[Item]>, initialScrollItem: Item? = nil) {
         self.title = title
         self.items = items
         self.itemTitle = itemTitle
         self.selectAllTitle = selectAllTitle
         self.showsCompletionButton = showsCompletionButton
         _selectedItems = selectedItems
+        self.initialScrollItem = initialScrollItem
     }
 
     let title: String
@@ -248,9 +249,11 @@ public struct AppMultiSelectionList<Item: Hashable>: View {
     let selectAllTitle: String?
     let showsCompletionButton: Bool
     @Binding var selectedItems: [Item]
+    let initialScrollItem: Item?
     @Environment(\.dismiss) private var dismiss
 
     public var body: some View {
+        ScrollViewReader { proxy in
         List {
             if selectAllTitle != nil {
                 Section {
@@ -282,6 +285,7 @@ public struct AppMultiSelectionList<Item: Hashable>: View {
                     .accessibilityAddTraits(.isButton)
                     .appInteractiveListRow()
                         .accessibilityIdentifier("ui.app-multi-selection-list.item.\(String(reflecting: item))")
+                    .id(item)
                 }
             }
         }
@@ -297,6 +301,10 @@ public struct AppMultiSelectionList<Item: Hashable>: View {
                         .accessibilityIdentifier("ui.app-multi-selection-list.done")
                 }
             }
+        }
+        .onAppear {
+            if let initialScrollItem { proxy.scrollTo(initialScrollItem, anchor: .center) }
+        }
         }
     }
 

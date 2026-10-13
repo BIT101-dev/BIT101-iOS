@@ -41,6 +41,7 @@ nonisolated final class ReleaseNetworkSmokeTests: XCTestCase {
 #endif
 
 #if DEBUG
+import Darwin
 import Foundation
 import Testing
 import ClientCore
@@ -64,7 +65,35 @@ import MediaKit
 @Suite("Network smoke lifecycle")
 @MainActor
 struct ReleaseNetworkSmokeLifecycleTests {
-    @Test func unsentCreationReleasesItsRecoveryAttempt() async throws {
+    @Test func homepageRequiresAVisibleBodyOrApplicationBootstrap() throws {
+        let bootstrap = #"<html><head><title>BIT101</title><script type="module" src="/assets/index.js"></script></head><body><div id="app"></div></body></html>"#
+        try NetworkSmokeHTML.validate(bootstrap, appURL: nil)
+        for invalid in [bootstrap.replacingOccurrences(of: "type=\"module\"", with: "type=\"text/plain\""),
+            bootstrap.replacingOccurrences(of: "id=\"app\"", with: "id=\"other\""),
+            bootstrap.replacingOccurrences(of: "id=\"app\"", with: "id=\"app\" hidden"),
+            bootstrap.replacingOccurrences(of: "/assets/index.js", with: "//unrelated.invalid/index.js"),
+            "<html><title>BIT101</title><body><div hidden>内容</div></body></html>"] {
+            #expect(throws: URLError.self) { try NetworkSmokeHTML.validate(invalid, appURL: nil) }
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1))) @MainActor func paperPagingChecksEachLiveRankingSnapshot() async throws {
+        let first = PaperSummary(id: 1, title: "", intro: "", likeNum: 2, commentNum: 2, updateTime: "2026-01-01T00:00:00Z")
+        let changed = PaperSummary(id: 2, title: "", intro: "", likeNum: 3, commentNum: 3, updateTime: "2026-01-02T00:00:00Z")
+        for order in PaperSortOrder.allCases {
+            let sample = try await NetworkSmokePaging.paperPage(order: order,
+                currentIdentity: { CommunitySessionIdentity(accountIdentifier: "paper-smoke") }) { page in
+                page == 0 ? [first] : [changed]
+            }
+            #expect(sample.map(\.id) == [1, 2])
+            await #expect(throws: URLError.self) {
+                try await NetworkSmokePaging.paperPage(order: order,
+                    currentIdentity: { CommunitySessionIdentity(accountIdentifier: "paper-smoke") }) { _ in [first, changed] }
+            }
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func unsentCreationReleasesItsRecoveryAttempt() async throws {
         let world = CommunityWorld(stage: "unsent-poster")
         await #expect(throws: (any Error).self) { try await world.smoke.run(marker: "fixture", expectedAccount: 1) }
         #expect(world.pending == nil && Set(world.contents.keys) == ["poster77", "course1"])
@@ -72,7 +101,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
         _ = try await world.smoke.run(marker: "fixture", expectedAccount: 1)
         #expect(world.pending == nil)
     }
-    @Test func productionSubmissionSeparatesAdmissionFailureFromUncertainTransportFailure() async throws {
+    @Test(.timeLimit(.minutes(1))) func productionSubmissionSeparatesAdmissionFailureFromUncertainTransportFailure() async throws {
         let route = MissingRoute()
         let observer = AdmissionObserver()
         let client = HTTPClient(transport: route, observer: observer)
@@ -89,12 +118,29 @@ struct ReleaseNetworkSmokeLifecycleTests {
         }
     }
 
-    @Test func connectionFailureBeforeTransmissionReleasesThePersistedAttempt() async throws {
+    @Test(.timeLimit(.minutes(1))) func connectionFailureBeforeTransmissionReleasesThePersistedAttempt() async throws {
         let world = CommunityWorld(stage: "success")
-        let session = try #require(URLSessionTransport.make(configuration: .ephemeral) as? URLSession)
-        defer { session.invalidateAndCancel() }
+        let socket = Darwin.socket(AF_INET, SOCK_STREAM, 0)
+        try #require(socket >= 0)
+        defer { Darwin.close(socket) }
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_addr.s_addr = in_addr_t(INADDR_LOOPBACK).bigEndian
+        let bound = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.bind(socket, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
+        }
+        try #require(bound == 0)
+        var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let queried = withUnsafeMutablePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.getsockname(socket, $0, &length) }
+        }
+        try #require(queried == 0)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.connectionProxyDictionary = [:]
+        let session = URLSessionTransport.make(configuration: configuration)
         let client = HTTPClient(transport: session, observer: nil)
-        var request = URLRequest(url: AppURL.required("https://bit101-smoke.invalid/create"))
+        var request = URLRequest(url: AppURL.required("https://127.0.0.1:\(UInt16(bigEndian: address.sin_port))/create"))
         request.httpMethod = "POST"
         var operations = world.operations
         operations.create = { _, _, _, submit in
@@ -127,6 +173,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
         let response = try JSONDecoder().decode(CourseResponse.self, from: data)
         return CourseSyncPayload(term: "2026-2027-1", firstDayString: date, sourceFirstDayString: "2026-10-19",
             normalizationOffset: 3, rawWeeksByCourse: response.parsedCourses.map(\.rawWeeks),
+            sourceDisplayWeeksByCourse: response.datas.cxxszhxqkb.rows.map(\.displayWeeks),
             courses: courses ?? response.courseRecords, exams: [])
     }
 
@@ -141,12 +188,14 @@ struct ReleaseNetworkSmokeLifecycleTests {
         let payload = try correctedSchedulePayload()
         let wrongWeeks = payload.courses.map { $0.replacingWeeks([4, 5]) }
         #expect(throws: URLError.self) { try ReleaseNetworkSmokeRunner.validateCourseSyncPayload(correctedSchedulePayload(courses: wrongWeeks)) }
+        let truncatedWeeks = payload.courses.map { $0.replacingWeeks([1]) }
+        #expect(throws: URLError.self) { try ReleaseNetworkSmokeRunner.validateCourseSyncPayload(correctedSchedulePayload(courses: truncatedWeeks)) }
         #expect(throws: NSError.self) { try ReleaseNetworkSmokeRunner.validateCourseSyncPayload(correctedSchedulePayload(date: "2026-11-08")) }
     }
 
     @Test(arguments: [#"{"KCM":"课程","SKXQ":8,"KSJC":1,"JSJC":2,"ZCMC":"1周"}"#,
         #"{"KCM":"课程","SKXQ":1,"KSJC":0,"JSJC":2,"ZCMC":"1周"}"#,
-        #"{"KCM":"课程","SKXQ":1,"KSJC":1,"JSJC":2}"#])
+        #"{"KCM":"课程","SKXQ":1,"KSJC":1,"JSJC":2}"#, #"{}"#, #"{"KCM":"  "}"#])
     func smokeRejectsIncompleteCoursePlacements(_ row: String) throws {
         let response = try JSONDecoder().decode(CourseResponse.self,
             from: Data((#"{"datas":{"cxxszhxqkb":{"rows":["# + row + #"]}}}"#).utf8))
@@ -155,15 +204,48 @@ struct ReleaseNetworkSmokeLifecycleTests {
         #expect(throws: URLError.self) { try ReleaseNetworkSmokeRunner.validateCourseSyncPayload(payload) }
     }
 
+    @Test func pendingCoursesKeepDistinctIdentitiesAndReadableNames() throws {
+        let rows: [[String: String]] = [["KCM": "课程甲", "SKJS": "教师甲"], ["KCM": "课程甲", "SKJS": "教师乙"],
+            ["KCM": "课程乙"], ["KCH": "CS101", "KCM": "  "]]
+        let data = try JSONSerialization.data(withJSONObject: ["datas": ["cxxszhxqkb": ["rows": rows]]])
+        let response = try JSONDecoder().decode(CourseResponse.self, from: data)
+        let courses = response.courseRecords
+        #expect(Set(courses.map(\.id)).count == 4)
+        #expect(courses.map(\.name) == ["课程甲", "课程甲", "课程乙", "CS101"])
+        #expect(courses[0].id.contains(scheduleCourseIdentity(courses[0])))
+        func payload(_ records: [CourseRecord]) -> CourseSyncPayload {
+            CourseSyncPayload(term: "2026-2027-1", firstDayString: "2026-09-28", sourceFirstDayString: "2026-09-28",
+                normalizationOffset: 0, rawWeeksByCourse: records.map(\.weeks),
+                sourceDisplayWeeksByCourse: records.map { _ in nil }, courses: records, exams: [])
+        }
+        try ReleaseNetworkSmokeRunner.validateCourseSyncPayload(payload(courses))
+        #expect(throws: URLError.self) { try ReleaseNetworkSmokeRunner.validateCourseSyncPayload(payload(courses + [courses[0]])) }
+    }
+
+    @Test(arguments: ["课程名称", "课程编号", "成绩", "学分"])
+    func scoreSmokeRequiresTheStatisticalFields(_ missingField: String) throws {
+        let fields = [("课程名称", "课程甲"), ("课程编号", "CS101"), ("成绩", "90"), ("学分", "2")]
+        let full = ScoreRow(index: 0, headers: fields.map { $0.0 }, values: fields.map { $0.1 })
+        try NetworkSmokePaging.checkScores(brief: [full], detailed: [full])
+        #expect(ScoreSummary.make(from: [full]).totalCredit == 2)
+        let missing = fields.filter { $0.0 != missingField }
+        let row = ScoreRow(index: 0, headers: missing.map { $0.0 }, values: missing.map { $0.1 })
+        #expect(throws: URLError.self) { try NetworkSmokePaging.checkScores(brief: [row], detailed: [row]) }
+        #expect(throws: URLError.self) { try NetworkSmokePaging.checkScores(brief: [full], detailed: [row]) }
+    }
+
     @Test(arguments: [0, 2, 3, 4])
     func smokeUsesTheSmallTermCorrectionPolicy(rawOffset: Int) throws {
-        let rows: [[String: Any]] = (1...2).map { index in
+        var rows: [[String: Any]] = (1...2).map { index in
             ["KCH": "course-\(index)", "KCM": "课程\(index)", "SKXQ": index, "KSJC": 1, "JSJC": 2,
              "SKZC": String(repeating: "0", count: rawOffset) + "11", "ZCMC": "1-2周", "YPSJDD": "1-2周"]
         }
+        rows.append(["KCH": "ordinary", "KCM": "普通课程", "SKXQ": 3, "KSJC": 1, "JSJC": 2,
+            "SKZC": "11", "ZCMC": "1-2周", "YPSJDD": ""])
         let data = try JSONSerialization.data(withJSONObject: ["datas": ["cxxszhxqkb": ["rows": rows]]])
         let response = try JSONDecoder().decode(CourseResponse.self, from: data)
         let rawWeeks = response.parsedCourses.map(\.rawWeeks)
+        #expect(response.courseRecords.count == 3 && response.courseRecords.last?.description == "")
         let normalized = SmallTermWeekNormalizer.normalize(term: "2026-2027-1", firstDayString: "2026-09-07",
             courses: response.courseRecords, rawWeeksByCourse: rawWeeks)
         let expectedOffset = rawOffset == 3 ? 3 : 0
@@ -171,11 +253,13 @@ struct ReleaseNetworkSmokeLifecycleTests {
         #expect(normalized.firstDayString == (rawOffset == 3 ? "2026-09-28" : "2026-09-07"))
         let payload = CourseSyncPayload(term: "2026-2027-1", firstDayString: normalized.firstDayString,
             sourceFirstDayString: "2026-09-07", normalizationOffset: normalized.offset,
-            rawWeeksByCourse: rawWeeks, courses: normalized.courses, exams: [])
+            rawWeeksByCourse: rawWeeks, sourceDisplayWeeksByCourse: response.datas.cxxszhxqkb.rows.map(\.displayWeeks),
+            courses: normalized.courses, exams: [])
         try ReleaseNetworkSmokeRunner.validateCourseSyncPayload(payload)
         let inconsistent = CourseSyncPayload(term: payload.term, firstDayString: payload.firstDayString,
             sourceFirstDayString: payload.sourceFirstDayString, normalizationOffset: expectedOffset == 0 ? 3 : 0,
-            rawWeeksByCourse: rawWeeks, courses: payload.courses, exams: [])
+            rawWeeksByCourse: rawWeeks, sourceDisplayWeeksByCourse: payload.sourceDisplayWeeksByCourse,
+            courses: payload.courses, exams: [])
         #expect(throws: NSError.self) { try ReleaseNetworkSmokeRunner.validateCourseSyncPayload(inconsistent) }
     }
 
@@ -225,7 +309,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
         }
     }
 
-    @Test func onlineArticleValidationUsesTheEditorWireFormatAndReadsItsText() async throws {
+    @Test(.timeLimit(.minutes(1))) func onlineArticleValidationUsesTheEditorWireFormatAndReadsItsText() async throws {
         let transport = PaperWrites()
         let session = CommunitySession(httpClient: HTTPClient(transport: transport, observer: nil),
             baseURL: AppURL.required("https://example.invalid"),
@@ -259,7 +343,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
         }
     }
 
-    @Test func onlineCourseReviewIncludesItsRequiredRating() async throws {
+    @Test(.timeLimit(.minutes(1))) func onlineCourseReviewIncludesItsRequiredRating() async throws {
         let transport = CourseWrites()
         let session = CommunitySession(httpClient: HTTPClient(transport: transport, observer: nil),
             baseURL: AppURL.required("https://example.invalid"),
@@ -269,7 +353,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
         #expect(comment.rate == 6 && transport.comments == 1)
     }
 
-    @Test func writeCourseTargetUsesItsMaintainedIdentity() async throws {
+    @Test(.timeLimit(.minutes(1))) func writeCourseTargetUsesItsMaintainedIdentity() async throws {
         let route = CourseWrites()
         let session = CommunitySession(httpClient: HTTPClient(transport: route, observer: nil), baseURL: AppURL.required("https://example.invalid"),
             credentials: { .init(identity: .init(accountIdentifier: "fixture"), cookie: "fixture") }, refresh: { _ in })
@@ -306,7 +390,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
         }
     }
 
-    @Test func routeFailuresRemainVisibleThroughProductionReadAndCommentOperations() async throws {
+    @Test(.timeLimit(.minutes(1))) func routeFailuresRemainVisibleThroughProductionReadAndCommentOperations() async throws {
         let route = MissingRoute()
         let session = CommunitySession(httpClient: HTTPClient(transport: route, observer: nil),
             baseURL: AppURL.required("https://example.invalid"),
@@ -357,7 +441,32 @@ struct ReleaseNetworkSmokeLifecycleTests {
         #expect(legacyRemoved == false)
     }
 
-    @Test func savingFailureStopsOnlineCreation() async {
+    @Test(arguments: [false, true])
+    func unreadableJournalKeepsRecoveryState(metadataUnavailable: Bool) throws {
+        let files = PreferenceMemoryFiles(requireExistingParentDirectories: true)
+        let directory = files.temporaryDirectoryURL.appendingPathComponent("NetworkSmoke", isDirectory: true)
+        let original = try JSONEncoder().encode(CommunityWriteSmoke.Journal(marker: "功能验收 recovery", account: 1))
+        try CommunityWriteSmoke.saveJournal(original, files: files, directory: directory)
+        files.setFailures(reading: true, metadata: metadataUnavailable)
+        #expect(ReleaseNetworkSmokeReportStore.hasPendingCommunityWrites(files: files, directory: directory, legacyData: nil))
+        var removed = false
+        for legacy in [nil, original] {
+            #expect(throws: CocoaError.self) {
+                try CommunityWriteSmoke.loadJournal(files: files, directory: directory, legacyData: legacy,
+                    removeLegacy: { removed = true })
+            }
+        }
+        #expect(removed == false)
+        files.setFailures(removal: true, metadata: metadataUnavailable)
+        #expect(throws: CocoaError.self) { try CommunityWriteSmoke.saveJournal(nil, files: files, directory: directory) }
+        files.setFailures()
+        #expect(try CommunityWriteSmoke.loadJournal(files: files, directory: directory, legacyData: nil) == original)
+        try CommunityWriteSmoke.saveJournal(nil, files: files, directory: directory)
+        #expect(!ReleaseNetworkSmokeReportStore.hasPendingCommunityWrites(files: files, directory: directory, legacyData: nil))
+        #expect(ReleaseNetworkSmokeReportStore.hasPendingCommunityWrites(files: files, directory: directory, legacyData: original))
+    }
+
+    @Test(.timeLimit(.minutes(1))) func savingFailureStopsOnlineCreation() async {
         let world = CommunityWorld(stage: "success")
         let smoke = CommunityWriteSmoke(operations: world.operations, load: { nil }, save: { _ in throw CocoaError(.fileWriteNoPermission) })
         await #expect(throws: (any Error).self) { try await smoke.run(marker: "fixture", expectedAccount: 1) }
@@ -365,7 +474,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
         #expect(Set(world.contents.keys) == ["poster77", "course1"])
     }
 
-    @Test func declaredSmokeAccountIsCheckedBeforeRecoveryAndOnlineWrites() async throws {
+    @Test(.timeLimit(.minutes(1))) func declaredSmokeAccountIsCheckedBeforeRecoveryAndOnlineWrites() async throws {
         let world = CommunityWorld(stage: "success")
         let original = try JSONEncoder().encode(CommunityWriteSmoke.Journal(marker: "功能验收 fixture", account: 1))
         world.pending = original
@@ -377,17 +486,21 @@ struct ReleaseNetworkSmokeLifecycleTests {
         #expect(evidence.contains("验收账号 user1") && world.nextID > 100 && world.pending == nil)
     }
 
-    @Test func followInterruptionRetainsItsTargetUntilTheOriginalRelationshipIsConfirmed() async throws {
+    @Test(.timeLimit(.minutes(1))) func followInterruptionRetainsItsTargetUntilTheOriginalRelationshipIsConfirmed() async throws {
         let world = CommunityWorld(stage: "persistent-follow")
         await #expect(throws: (any Error).self) { try await world.smoke.run(marker: "fixture", expectedAccount: 1) }
         let pending = try #require(world.pending)
         #expect(try JSONDecoder().decode(CommunityWriteSmoke.Journal.self, from: pending).followTarget == 2)
         world.stage = "success"
-        _ = try await world.smoke.run(marker: "fixture", cleanupOnly: true)
+        let journal = try JSONDecoder().decode(CommunityWriteSmoke.Journal.self, from: pending)
+        await #expect(throws: (any Error).self) { try await world.smoke.run(marker: "fixture", cleanupOnly: true) }
+        let confirmation = CommunityWriteRecoveryConfirmation(marker: journal.marker, account: 1,
+            serverReceipt: "fixture-request-finished", kinds: [], parents: [], settledMutations: journal.pendingMutationIDs)
+        _ = try await world.smoke.run(marker: "fixture", cleanupOnly: true, recoveryConfirmation: confirmation)
         #expect(world.followsTarget && world.pending == nil)
     }
 
-    @Test(arguments: ["follow-noop", "follow-response-mismatch", "follow-restore-noop"])
+    @Test(.timeLimit(.minutes(1)), arguments: ["follow-noop", "follow-response-mismatch", "follow-restore-noop"])
     func followProbeRequiresBothTransitionsAndRestoresTheRelationship(stage: String) async throws {
         let world = CommunityWorld(stage: stage)
         await #expect(throws: (any Error).self) { try await world.smoke.run(marker: "fixture", expectedAccount: 1) }
@@ -401,9 +514,28 @@ struct ReleaseNetworkSmokeLifecycleTests {
         #expect(world.followsTarget && world.pending == nil)
     }
 
-    @Test func concurrentRunnerEntrypointsSerializeCommunityRecovery() async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: ["late-follow-toggle", "late-course-toggle"])
+    func uncertainToggleRetainsRecoveryAcrossTheOriginalStateAndDelayedCommit(stage: String) async throws {
+        let world = CommunityWorld(stage: stage)
+        await #expect(throws: (any Error).self) { try await world.smoke.run(marker: "fixture", expectedAccount: 1) }
+        #expect(world.followsTarget && world.contents["course1"]?.liked == true)
+        let journal = try JSONDecoder().decode(CommunityWriteSmoke.Journal.self, from: #require(world.pending))
+        #expect(!journal.pendingMutationIDs.isEmpty)
+        world.stage = "success"
+        await #expect(throws: (any Error).self) { try await world.smoke.run(marker: "fixture", cleanupOnly: true) }
+        #expect(world.pending != nil)
+        if let followed = world.delayedFollow { world.followsTarget = followed }
+        if let liked = world.delayedCourseLike { world.contents["course1"] = .init(text: "", owned: false, liked: liked) }
+        await #expect(throws: (any Error).self) { try await world.smoke.run(marker: "fixture", cleanupOnly: true) }
+        #expect(world.pending != nil)
+        let confirmation = CommunityWriteRecoveryConfirmation(marker: journal.marker, account: 1,
+            serverReceipt: "fixture-delayed-request-finished", kinds: [], parents: [], settledMutations: journal.pendingMutationIDs)
+        _ = try await world.smoke.run(marker: "fixture", cleanupOnly: true, recoveryConfirmation: confirmation)
+        #expect(world.pending == nil && world.followsTarget && world.contents["course1"]?.liked == true)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func concurrentRunnerEntrypointsSerializeCommunityRecovery() async throws {
         var waiting: CheckedContinuation<Void, Never>?
-        var reached: CheckedContinuation<Void, Never>?
         var entered = false
         var runs: [String] = []
         var reports: [String] = []
@@ -411,15 +543,16 @@ struct ReleaseNetworkSmokeLifecycleTests {
         var rawCleanupCalls = 0
         let dependencies = ReleaseNetworkSmokeDependencies(requiresRequestEvidence: false, checkLogin: { loginCalls += 1; return "fixture" }, writeReport: { reports.append($0.runID) },
             clearRawCourseResponse: { rawCleanupCalls += 1; throw CocoaError(.fileWriteNoPermission) },
-            communityWriteProbe: { id, _, _, _, _, _ in
+            communityWriteProbe: { id, _, _, _, _, _, _ in
                 runs.append(id)
                 if id == "first" {
-                    await withCheckedContinuation { waiting = $0; entered = true; reached?.resume(); reached = nil }
+                    await withCheckedContinuation { waiting = $0; entered = true }
                 }
                 return ["服务端清理确认完成"]
             })
         let first = Task { await ReleaseNetworkSmokeRunner(dependencies: dependencies).run(scope: .communityCleanup, runID: "first") }
-        if !entered { await withCheckedContinuation { reached = $0 } }
+        defer { first.cancel(); waiting?.resume() }
+        try await waitForTestEvent { entered }
         let cancelled = Task { await ReleaseNetworkSmokeRunner(dependencies: dependencies).run(scope: .all, runID: "cancelled") }
         await Task.yield()
         cancelled.cancel()
@@ -430,7 +563,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
         await Task.yield()
         #expect(runs == ["first"])
         let resume = try #require(waiting)
-        resume.resume()
+        resume.resume(); waiting = nil
         let initial = await first.value
         let next = await second.value
         #expect(initial.passed && next.passed)
@@ -461,7 +594,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
     @Test func futureJournalKeepsTheOriginalRecoveryState() throws {
         let files = PreferenceMemoryFiles(requireExistingParentDirectories: true)
         let directory = files.temporaryDirectoryURL.appendingPathComponent("NetworkSmoke", isDirectory: true)
-        let original = Data(#"{"schemaVersion":5,"marker":"fixture","account":1}"#.utf8)
+        let original = Data("{\"schemaVersion\":\(CommunityWriteSmoke.Journal.currentVersion + 1),\"marker\":\"fixture\",\"account\":1}".utf8)
         var removed = false
         #expect(throws: DecodingError.self) {
             try CommunityWriteSmoke.loadJournal(files: files, directory: directory, legacyData: original,
@@ -475,7 +608,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
         #expect(try files.readData(at: directory.appendingPathComponent("community-write-journal.json")) == original)
     }
 
-    @Test func historicalJournalRecoversItsCreatedObject() async throws {
+    @Test(.timeLimit(.minutes(1))) func historicalJournalRecoversItsCreatedObject() async throws {
         let world = CommunityWorld(stage: "success")
         world.contents["poster101"] = .init(text: "功能验收 fixture", owned: true, liked: false)
         world.pending = Data(#"{"marker":"功能验收 fixture","account":1,"targets":[{"kind":"poster","id":101}]}"#.utf8)
@@ -484,7 +617,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
         #expect(world.contents["poster77"]?.text == "原有内容" && world.pending == nil)
     }
 
-    @Test func historicalJournalRecoversCourseCommentsAndReplies() async throws {
+    @Test(.timeLimit(.minutes(1))) func historicalJournalRecoversCourseCommentsAndReplies() async throws {
         let world = CommunityWorld(stage: "success")
         let comment = try await world.operations.comment(.init(kind: .course, object: "course1"), "功能验收 legacy", { _ in }, {})
         let reply = try await world.operations.comment(.init(kind: .course, object: "comment\(comment.id)"), "功能验收 legacy", { _ in }, {})
@@ -498,7 +631,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
         #expect(world.contents["course1"]?.liked == true)
     }
 
-    @Test func unmappedCommentKeepsAmbiguousFailuresUntilParentAbsenceIsConfirmed() async throws {
+    @Test(.timeLimit(.minutes(1))) func unmappedCommentKeepsAmbiguousFailuresUntilParentAbsenceIsConfirmed() async throws {
         let world = CommunityWorld(stage: "silent-comment-delete")
         let comment = try await world.operations.comment(.init(kind: .course, object: "course1"), "功能验收 fixture", { _ in }, {})
         var journal = CommunityWriteSmoke.Journal(marker: "功能验收 fixture", account: 1)
@@ -520,7 +653,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
         #expect(world.pending == nil)
     }
 
-    @Test(arguments: ["route-read", "route-comments", "missing-comment"])
+    @Test(.timeLimit(.minutes(1)), arguments: ["route-read", "route-comments", "missing-comment"])
     func routeFailuresPreserveRecoveryUntilTheServerConfirmsCleanup(stage: String) async throws {
         let world = CommunityWorld(stage: stage)
         world.contents["poster123"] = .init(text: "功能验收 fixture", owned: true, liked: false)
@@ -542,7 +675,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
         #expect(world.rows.values.allSatisfy { $0.isEmpty })
     }
 
-    @Test(arguments: [false, true])
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func restartedCleanupConfirmsAnAlreadyDeletedCommentFromItsPersistedParent(legacy: Bool) async throws {
         let original = CommunityWorld(stage: "success")
         let comment = try await original.operations.comment(.init(kind: .course, object: "course1"), "功能验收 fixture", { _ in }, {})
@@ -564,7 +697,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
         #expect(restarted.commentDeletionRequests.isEmpty)
     }
 
-    @Test(arguments: ["marker", "account", "target", "comment", "parent", "follow"])
+    @Test(.timeLimit(.minutes(1)), arguments: ["marker", "account", "target", "comment", "parent", "follow"])
     func invalidRecoveryIdentityKeepsTheJournalAndExistingContent(field: String) async throws {
         let world = CommunityWorld(stage: "success")
         var journal = CommunityWriteSmoke.Journal(marker: "功能验收 fixture", account: 1)
@@ -585,7 +718,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
         #expect(world.contents["poster77"]?.text == "原有内容" && world.followsTarget)
     }
 
-    @Test(arguments: ["功能验收 fixture-other", "原有内容"])
+    @Test(.timeLimit(.minutes(1)), arguments: ["功能验收 fixture-other", "原有内容"])
     func recoveryPreservesCommentsAndContentWithDifferentText(text: String) async throws {
         let world = CommunityWorld(stage: "success")
         let comment = try await world.operations.comment(.init(kind: .poster, object: "poster77"), text, { _ in }, {})
@@ -603,7 +736,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
         #expect(world.rows["poster77"]?.map(\.id) == [comment.id])
     }
 
-    @Test(arguments: ["absent", "late", "account", "marker", "receipt", "scope", "unconfirmed"])
+    @Test(.timeLimit(.minutes(1)), arguments: ["absent", "late", "account", "marker", "receipt", "scope", "unconfirmed"])
     func serverAbsenceConfirmationBindsTheJournalAndKeepsLateObjectsRecoverable(mode: String) async throws {
         let world = CommunityWorld(stage: "success")
         var journal = CommunityWriteSmoke.Journal(marker: "功能验收 fixture", account: 1)
@@ -624,11 +757,13 @@ struct ReleaseNetworkSmokeLifecycleTests {
                 try await world.smoke.run(marker: "fixture", cleanupOnly: mode != "scope", expectedAccount: 1,
                                            recoveryConfirmation: mode == "unconfirmed" ? nil : confirmation)
             }
-            #expect(world.pending == original)
+            let restored = try #require(world.pending), saved = try #require(original)
+            #expect(try JSONSerialization.jsonObject(with: restored) as? NSDictionary
+                == JSONSerialization.jsonObject(with: saved) as? NSDictionary)
         }
     }
 
-    @Test func confirmedCommentAbsenceRetiresALostDeletionResponseBeforeRecovery() async throws {
+    @Test(.timeLimit(.minutes(1))) func confirmedCommentAbsenceRetiresALostDeletionResponseBeforeRecovery() async throws {
         let world = CommunityWorld(stage: "lost-delete-response")
         await #expect(throws: (any Error).self) { try await world.smoke.run(marker: "fixture", expectedAccount: 1) }
         let data = try #require(world.pending)
@@ -642,7 +777,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
         #expect(Set(world.commentDeletionRequests).count == 9)
     }
 
-    @Test(arguments: ["persistent-find", "persistent-like", "persistent-delete"])
+    @Test(.timeLimit(.minutes(1)), arguments: ["persistent-find", "persistent-like", "persistent-delete"])
     func independentObjectsAreCleanedWhileOneRecoveryOperationKeepsFailing(stage: String) async throws {
         let world = CommunityWorld(stage: stage)
         await #expect(throws: (any Error).self) { try await world.smoke.run(marker: "fixture", expectedAccount: 1) }
@@ -651,13 +786,17 @@ struct ReleaseNetworkSmokeLifecycleTests {
         #expect(world.contents.keys.filter { $0.hasPrefix("paper") }.count == (stage == "persistent-like" ? 0 : 1))
         #expect(world.rows.values.allSatisfy { $0.isEmpty })
         world.stage = "success"
-        _ = try await world.smoke.run(marker: "fixture", cleanupOnly: true)
+        let journal = try JSONDecoder().decode(CommunityWriteSmoke.Journal.self, from: #require(world.pending))
+        let confirmation = journal.pendingMutationIDs.isEmpty ? nil : CommunityWriteRecoveryConfirmation(
+            marker: journal.marker, account: 1, serverReceipt: "fixture-request-finished",
+            kinds: [], parents: [], settledMutations: journal.pendingMutationIDs)
+        _ = try await world.smoke.run(marker: "fixture", cleanupOnly: true, recoveryConfirmation: confirmation)
         #expect(world.pending == nil)
         #expect(Set(world.contents.keys) == ["poster77", "course1"])
         #expect(world.contents["course1"]?.liked == true)
     }
 
-    @Test(arguments: ["read", "comments", "delete", "comment-delete"])
+    @Test(.timeLimit(.minutes(1)), arguments: ["read", "comments", "delete", "comment-delete"])
     func interruptedCleanupRetainsPersistedJournalForItsOriginalAccount(operation: String) async throws {
         let world = CommunityWorld(stage: "switch-" + operation)
         world.contents["poster123"] = .init(text: "功能验收 fixture", owned: true, liked: false)
@@ -672,7 +811,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
         #expect(Set(world.contents.keys) == ["poster77", "course1"])
     }
 
-    @Test func repliesAreConfirmedWhileTheirParentCommentsRemainReadable() async throws {
+    @Test(.timeLimit(.minutes(1))) func repliesAreConfirmedWhileTheirParentCommentsRemainReadable() async throws {
         let world = CommunityWorld(stage: "deleted-parent-read")
         let evidence = try await world.smoke.run(marker: "fixture", expectedAccount: 1)
         #expect(evidence.filter { $0.hasPrefix("服务端确认删除 comment") }.count == 9)
@@ -681,10 +820,12 @@ struct ReleaseNetworkSmokeLifecycleTests {
         #expect(world.rows.values.allSatisfy { $0.isEmpty })
     }
 
-    @Test(arguments: ["success", "lost-poster", "lost-reply", "cancelled", "cleanup-failure", "duplicate-comments", "invalid-paper", "signed-out-paper", "broken-image",
+    @Test(.timeLimit(.minutes(1)), arguments: ["success", "lost-poster", "lost-reply", "cancelled", "cleanup-failure", "duplicate-comments", "invalid-paper", "signed-out-paper", "broken-image",
         "upload-poster", "upload-comment", "cancel-before-poster", "cancel-before-comment",
         "create-anonymous-poster", "create-anonymous-paper", "edit-anonymous-poster", "edit-anonymous-paper",
         "create-public-poster", "create-public-paper", "edit-public-poster", "edit-public-paper",
+        "create-title", "create-intro", "create-tags", "create-claim", "edit-title", "edit-intro", "edit-tags", "edit-claim",
+        "comment-like-noop", "comment-like-restore", "image-download",
         "wrong-rating", "readback-rating", "anonymous-reply", "wrong-reply-user", "wrong-reply-object", "wrong-directed-user", "wrong-directed-object"])
     func communityWritesCleanAfterLostResponsesCancellationAndResume(stage: String) async throws {
         let world = CommunityWorld(stage: stage)
@@ -714,7 +855,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
         #expect(world.rows.values.allSatisfy { $0.isEmpty })
     }
 
-    @Test(arguments: [false, true])
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func failedSubmissionJournalWritePreservesRecoverableObjects(comment: Bool) async throws {
         let world = CommunityWorld(stage: "success")
         var injected = false
@@ -735,7 +876,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
         #expect(world.rows.values.allSatisfy { $0.isEmpty })
     }
 
-    @Test(arguments: ["late-poster", "hidden-poster", "late-paper", "hidden-paper", "late-comment", "hidden-comment", "late-reply", "hidden-reply", "late-directed", "hidden-directed"])
+    @Test(.timeLimit(.minutes(1)), arguments: ["late-poster", "hidden-poster", "late-paper", "hidden-paper", "late-comment", "hidden-comment", "late-reply", "hidden-reply", "late-directed", "hidden-directed"])
     func recoveryRetainsUnconfirmedWritesUntilTheirObjectsBecomeVisible(stage: String) async throws {
         let world = CommunityWorld(stage: stage)
         await #expect(throws: (any Error).self) { try await world.smoke.run(marker: "fixture", expectedAccount: 1) }
@@ -761,6 +902,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
         func fetchScores(detail: Bool, authenticatedBy challenge: BITLoginAuthenticationChallenge) async throws -> [ScoreRow] { throw ScoreServiceError.invalidResponse }
         func submitScoreSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { throw ScoreServiceError.invalidResponse }
         func fetchTrustedTranscriptPages() async throws -> [Data] {
+            if stage == "sampleGap" { throw NetworkSmokePaging.SamplingError.insufficientSample("维护样本需要补齐") }
             if stage == "invalid" { return [] }
             throw ScoreServiceError.secondFactorRequired(BITLoginAuthenticationChallenge(challengeID: "fixture", accessToken: "fixture",
                 status: "sms_required", maskedPhone: "***", expiresIn: 60))
@@ -772,7 +914,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
         }
     }
 
-    @Test("Transcript orchestration records authentication, cancellation and SMS continuation", arguments: ["blocked", "invalid", "cancelled", "smsSuccess", "smsFailure"])
+    @Test("Transcript orchestration records authentication, cancellation and SMS continuation", .timeLimit(.minutes(1)), arguments: ["blocked", "invalid", "cancelled", "smsSuccess", "smsFailure", "sampleGap"])
     func transcriptOrchestration(stage: String) async throws {
         let image = try #require(UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1)).image { $0.fill(CGRect(x: 0, y: 0, width: 1, height: 1)) }.pngData())
         let scores = Scores(stage: stage, image: image)
@@ -786,15 +928,36 @@ struct ReleaseNetworkSmokeLifecycleTests {
         let report = await ReleaseNetworkSmokeRunner(dependencies: dependencies).run(scope: .transcript, runID: "transcript",
             schoolSMSCodeHandler: ["cancelled", "smsSuccess", "smsFailure"].contains(stage) ? handler : nil)
         #expect(report.executedProbes == NetworkSmokeScope.transcript.requiredProbes)
-        #expect(report.passed == (stage == "smsSuccess"))
+        #expect(report.passed == ["smsSuccess", "sampleGap"].contains(stage))
         #expect(report.coverageComplete == (["blocked", "invalid", "smsSuccess"].contains(stage)))
         #expect(report.verifiedSMSProbes.map(\.purpose) == (stage == "smsSuccess" ? ["jwb_cjd"] : []))
         #expect(report.authenticationBlockers.count == (stage == "blocked" ? 1 : 0))
         #expect(scores.submissions == (["smsSuccess", "smsFailure"].contains(stage) ? 1 : 0))
         #expect(stored?.passed == report.passed)
+        if stage == "sampleGap" { #expect(report.failures.isEmpty && report.coverageGaps.contains { $0.hasPrefix("score.transcript（") }) }
     }
 
-    @Test("Cleanup, authentication and report failures retain failed evidence", arguments: ["cleanup", "signedOut", "login", "report"])
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true], ["valid", "empty", "error"])
+    func communityWriteProbesRequireSuccessfulLogin(cleanup: Bool, login: String) async {
+        var calls: [Bool] = []
+        let dependencies = ReleaseNetworkSmokeDependencies(requiresRequestEvidence: false,
+            checkLogin: {
+                if login == "error" { throw URLError(.notConnectedToInternet) }
+                return login == "valid" ? "fixture" : nil
+            }, writeReport: { _ in },
+            communityWriteProbe: { _, cleanupOnly, _, _, _, _, _ in
+                calls.append(cleanupOnly)
+                return ["服务端清理确认完成"]
+            })
+        let report = await ReleaseNetworkSmokeRunner(dependencies: dependencies).run(
+            scope: cleanup ? .communityCleanup : .communityWrites, runID: "fixture")
+        let executes = cleanup || login == "valid"
+        #expect(calls == (executes ? [cleanup] : []))
+        #expect(report.executedProbes.contains(NetworkSmokeProbe.communityWrites.rawValue) == executes)
+        #expect(report.failures.contains { $0.hasPrefix("[community.login]") } == (login != "valid"))
+    }
+
+    @Test("Cleanup, authentication and report failures retain failed evidence", .timeLimit(.minutes(1)), arguments: ["cleanup", "signedOut", "login", "report"])
     func failureEvidence(stage: String) async {
         var loginCalls = 0
         var reportCalls = 0
@@ -820,10 +983,12 @@ struct ReleaseNetworkSmokeLifecycleTests {
         #expect(report.requiredProbes == NetworkSmokeScope.all.requiredProbes)
         #expect(reportCalls == 1)
         #expect(loginCalls == (stage == "cleanup" ? 0 : 1))
-        #expect(report.failures.count == (stage == "report" ? 2 : 1))
+        #expect(report.failures.contains { $0.hasPrefix(stage == "cleanup" ? "[原始课表采样清理]" : "[community.login]") })
+        #expect(report.failures.contains { $0.hasPrefix("网络 Smoke 报告写入失败：") } == (stage == "report"))
         #expect(stored?.runID == (stage == "report" ? nil : "fixture"))
         let next = await runner.run(scope: .bit101, runID: "next")
-        #expect(next.failures.count == report.failures.count)
+        #expect(next.runID == "next" && !next.passed)
+        #expect(next.failures.contains { $0.hasPrefix(stage == "cleanup" ? "[原始课表采样清理]" : "[community.login]") })
         #expect(next.requiredProbes == NetworkSmokeScope.bit101.requiredProbes)
     }
 }

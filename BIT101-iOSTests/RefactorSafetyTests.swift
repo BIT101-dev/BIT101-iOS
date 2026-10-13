@@ -340,7 +340,7 @@ struct ScheduleClassroomCoordinatorTests {
         #expect(!coordinator.isRequestInFlight)
     }
 
-    @Test("Authentication time is outside the classroom request deadline")
+    @Test("Authentication time is outside the classroom request deadline", .timeLimit(.minutes(1)))
     func authenticationUsesIndependentDeadline() async throws {
         let probe = CancellationProbe()
         let coordinator = ScheduleClassroomCoordinator(waitForDeadline: { _ in
@@ -356,7 +356,7 @@ struct ScheduleClassroomCoordinatorTests {
         #expect(value == 42)
     }
 
-    @Test("Classroom operation timeout remains enforced after authentication")
+    @Test("Classroom operation timeout remains enforced after authentication", .timeLimit(.minutes(1)))
     func operationTimeoutIsEnforced() async {
         let coordinator = ScheduleClassroomCoordinator(timeoutNanoseconds: 5_000_000)
         let cancellationProbe = CancellationProbe()
@@ -404,7 +404,7 @@ struct ScheduleCourseSyncCoordinatorTests {
         #expect(coordinator.smsChallenge == nil)
     }
 
-    @Test("Service responses select the suspended operation and block overlapping requests")
+    @Test("Service responses select the suspended operation and block overlapping requests", .timeLimit(.minutes(1)))
     func recordsContinuationPurpose() async {
         let (coordinator, service, challenge) = context()
         service.authenticationChallenge = challenge
@@ -424,8 +424,26 @@ struct ScheduleCourseSyncCoordinatorTests {
 @Suite("Gallery recommendation prefetch")
 @MainActor
 struct GalleryRecommendationPrefetchTests {
+    @Test(.timeLimit(.minutes(1))) func contentPreferenceChangesClearLoadedFeedsAndRebuildTheSelectedPage() async throws {
+        let service = FeedServiceStub(batches: [0: .init(items: [try makePoster(id: 1)], nextSourcePage: 1, canLoadMore: false)])
+        let model = GalleryViewModel(service: service)
+        await model.refreshSelectedFeed()
+        #expect(model.state(for: .recommend).posters.count == 1)
+        model.selectedFeed = .newest
+        model.contentPreferencesDidChange()
+        #expect(model.state(for: .recommend).posters.isEmpty && model.searchState.posters.isEmpty)
+        await model.enqueueRefresh(for: .newest).value
+        model.selectedFeed = .recommend
+        await model.enqueueRefresh(for: .recommend).value
+        #expect(await service.requestedPages().count == 2)
+    }
     private final class DetailSortingService: GalleryPosterDetailServicing, PaperDetailServicing {
-        let poster: GalleryPosterDetail
+        var poster: GalleryPosterDetail
+        var paperLiked = false
+        var pausesDetail = true
+        var detailError: (any Error)?
+        var likeError: (any Error)?
+        var likeCalls = 0
         var suspendRequests = false
         var suspendedRequestKeys: Set<String> = []
         var completedRequests: Set<String> = []
@@ -455,6 +473,8 @@ struct GalleryRecommendationPrefetchTests {
             catch { cancelledRequests.insert(key); throw error }
         }
         private func pauseDetail() async throws {
+            if let detailError { throw detailError }
+            guard pausesDetail else { return }
             if suspendRequests || suspendedRequestKeys.contains("body") { try await pauseIfRequested("body") }
             else if suspendedRequestKeys.isEmpty { await pause() }
         }
@@ -467,7 +487,7 @@ struct GalleryRecommendationPrefetchTests {
             completedRequests.insert("body")
             return PaperDetail(id: id, title: "loaded", intro: "", content: "", createTime: "", updateTime: "",
                 updateUser: poster.user, anonymous: false, likeNum: 0, commentNum: 0,
-                publicEdit: false, like: false, own: ownsPaper)
+                publicEdit: false, like: paperLiked, own: ownsPaper)
         }
         func fetchComments(objectID: String, order: CommunityCommentOrder, page: Int?) async throws -> GalleryPageBatch<CommunityComment> {
             try await pauseIfRequested("comments")
@@ -482,6 +502,8 @@ struct GalleryRecommendationPrefetchTests {
         }
         var likeGate: (@MainActor () async -> Void)?
         func like(objectID: String) async throws -> CommunityLikeResult {
+            likeCalls += 1
+            if let likeError { throw likeError }
             await likeGate?()
             return CommunityLikeResult(like: true, likeNum: 17)
         }
@@ -497,6 +519,43 @@ struct GalleryRecommendationPrefetchTests {
         func deletePoster(id: Int) async throws {}
         func deletePaper(id: Int) async throws { paperDeleteCalls += 1; try await paperDeletion?() }
         func updatePaper(id: Int, title: String, intro: String, content: String, anonymous: Bool, publicEdit: Bool, lastUpdatedAt: String) async throws {}
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [(false, false), (false, true), (true, false), (true, true)], [false, true])
+    func uncertainLikesRequireAConfirmedReadBeforeAnotherToggle(scene: (Bool, Bool), readFails: Bool) async throws {
+        let (paper, comment) = scene
+        let service = DetailSortingService(poster: try makePoster(id: 1))
+        service.pausesDetail = false
+        let user = CommunityUser.placeholder(id: 7, nickname: "用户")
+        let original = CommunityComment(id: 1, obj: "fixture", images: [], user: user, anonymous: false,
+            createTime: "", updateTime: "", like: false, likeNum: 0, commentNum: 0, own: true,
+            rate: 0, replyUser: user, replyObj: "", text: "评论", sub: [])
+        service.commentHandler = { _ in [original] }
+        let gallery = GalleryPosterDetailViewModel(initialPoster: service.poster.asPoster, service: service)
+        let article = PaperDetailViewModel(initialPaper: PaperSummary(id: 1, title: "标题", intro: "",
+            likeNum: 0, commentNum: 0, updateTime: ""), service: service)
+        func refresh() async { if paper { await article.refreshAll() } else { await gallery.refreshAll() } }
+        func toggle() async {
+            if comment { if paper { await article.toggleCommentLike(original) } else { await gallery.likeComment(original) } }
+            else { if paper { await article.likePaper() } else { await gallery.likePoster() } }
+        }
+        await refresh()
+        service.poster = service.poster.updatingLike(true, likeNum: 17); service.paperLiked = true
+        service.likeError = CommunityToggleOutcomeUnknown(underlying: URLError(.networkConnectionLost))
+        service.commentHandler = { _ in
+            if readFails && comment { throw URLError(.timedOut) }
+            return [original.updatingLike(true, likeNum: 17)]
+        }
+        if readFails && !comment { service.detailError = URLError(.timedOut) }
+        await toggle()
+        #expect(service.likeCalls == 1)
+        if readFails {
+            await toggle(); #expect(service.likeCalls == 1)
+            service.detailError = nil; service.commentHandler = { _ in [original.updatingLike(true, likeNum: 17)] }
+            await refresh()
+        }
+        #expect(comment ? (paper ? article.commentState.items.first?.like : gallery.commentState.items.first?.like) == true : (paper ? article.isPaperLiked : gallery.poster.like))
+        service.likeError = nil; await toggle(); #expect(service.likeCalls == 2)
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [true, false])
@@ -532,7 +591,7 @@ struct GalleryRecommendationPrefetchTests {
         #expect(await retry.value)
     }
 
-    @Test(arguments: [false, true])
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func uncertainCommentStopsAnotherSubmission(paper: Bool) async throws {
         let poster = try makePoster(id: 1)
         let service = DetailSortingService(poster: poster)
@@ -552,6 +611,27 @@ struct GalleryRecommendationPrefetchTests {
         #expect(await submit() == false)
         #expect(submissions == 1 && service.detailCalls == 0)
         #expect((paper ? article.alert?.title : gallery.alert?.title) == "发送结果待确认")
+        #expect((paper ? article.alert?.message : gallery.alert?.message) == CommunityCreateOutcomeUnknown.commentReviewMessage)
+        let user = CommunityUser.placeholder(id: 7, nickname: "用户")
+        service.commentCreation = {
+            submissions += 1
+            return CommunityComment(id: 1, obj: paper ? "paper1" : "poster1", images: [], user: user, anonymous: false,
+                createTime: "", updateTime: "", like: false, likeNum: 0, commentNum: 0, own: true,
+                rate: 0, replyUser: user, replyObj: "", text: "新的评论", sub: [])
+        }
+        let reopenedGallery = GalleryPosterDetailViewModel(initialPoster: poster, service: service)
+        let reopenedArticle = PaperDetailViewModel(initialPaper: PaperSummary(id: 1, title: "标题", intro: "",
+            likeNum: 0, commentNum: 0, updateTime: ""), service: service)
+        defer { service.finish() }
+        let refresh = Task { if paper { await reopenedArticle.refreshAll() } else { await reopenedGallery.refreshAll() } }
+        try await service.waitForDetail(); service.finish(); await refresh.value
+        let retry = Task {
+            if paper { return await reopenedArticle.submitComment(text: "新的评论", anonymous: false, target: .paper(paperID: 1)) }
+            return await reopenedGallery.submitComment(text: "新的评论", anonymous: false, target: .poster(posterID: 1))
+        }
+        try await service.waitForDetail(); service.finish()
+        #expect(await retry.value)
+        #expect(submissions == 2)
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
@@ -804,7 +884,6 @@ struct GalleryRecommendationPrefetchTests {
     func cancelledPagePreservesTheReplacementRequest() async throws {
         var requestCount = 0
         var firstResponse: CheckedContinuation<Void, Never>?
-        var firstRequestStarted: CheckedContinuation<Void, Never>?
         let service = FeedServiceStub(
             batches: [0: GalleryPageBatch<CommunityPoster>(items: [], nextSourcePage: 1, canLoadMore: false)],
             beforeResponse: { _ in
@@ -812,8 +891,6 @@ struct GalleryRecommendationPrefetchTests {
                 if requestCount == 1 {
                     await withCheckedContinuation { continuation in
                         firstResponse = continuation
-                        firstRequestStarted?.resume()
-                        firstRequestStarted = nil
                     }
                 }
             }
@@ -821,9 +898,7 @@ struct GalleryRecommendationPrefetchTests {
         let coordinator = GalleryRecommendPrefetchCoordinator(service: service)
         let firstRequest = Task { @MainActor in try await coordinator.takePage(for: 0) }
         defer { firstRequest.cancel(); firstResponse?.resume() }
-        if firstResponse == nil {
-            await withCheckedContinuation { firstRequestStarted = $0 }
-        }
+        try await waitForTestEvent { firstResponse != nil }
 
         coordinator.reset()
         let replacement = try await coordinator.takePage(for: 0)
@@ -836,7 +911,7 @@ struct GalleryRecommendationPrefetchTests {
         #expect(await service.requestedPages() == [0, 0])
     }
 
-    @Test("Prefetched pages merge stably and never duplicate a source request")
+    @Test("Prefetched pages merge stably and never duplicate a source request", .timeLimit(.minutes(1)))
     func stablePrefetchMerge() async throws {
         let first = try makePoster(id: 1)
         let second = try makePoster(id: 2)

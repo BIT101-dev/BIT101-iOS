@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import json
 import os
 import plistlib
@@ -102,16 +103,42 @@ def app_store_version() -> str:
         headers={"Accept": "application/json", "User-Agent": "BIT101-Version-CI/1.0", "Cache-Control": "no-cache"},
     )
     with urllib.request.urlopen(request, timeout=15) as response:
+        origin = urllib.parse.urlsplit(response.geturl())
+        if response.status != 200 or origin.scheme != 'https' or origin.hostname != 'itunes.apple.com' \
+                or origin.port not in (None, 443) or origin.username or origin.password or origin.path != '/lookup':
+            raise ValueError('Apple Lookup API 响应需要来自原查询端点')
         payload = json.load(response)
-    results = payload.get("results") or []
-    if not results or not isinstance(results[0].get("version"), str):
-        raise ValueError("Apple Lookup API 未返回 BIT101 版本")
-    return results[0]["version"]
+    results = payload.get('results') if isinstance(payload, dict) else None
+    count = payload.get('resultCount') if isinstance(payload, dict) else None
+    if type(count) is not int or count <= 0 or not isinstance(results, list) or count != len(results) \
+            or not isinstance(results[0], dict):
+        raise ValueError('Apple Lookup API 的记录数量需要匹配有效结果')
+    result = results[0]
+    if result.get('bundleId') != 'BIT101-dev.BIT101-iOS' or type(result.get('trackId')) is not int \
+            or result['trackId'] != 6761147125 or not isinstance(result.get('version'), str):
+        raise ValueError('Apple Lookup API 需要返回 BIT101 的应用身份与版本')
+    version_tuple(result['version'])
+    if not isinstance(result.get('trackViewUrl'), str): raise ValueError('Apple Lookup API 需要有效的商店链接')
+    url = urllib.parse.urlsplit(result['trackViewUrl'])
+    if url.scheme != 'https' or url.hostname != 'apps.apple.com' or url.port not in (None, 443) \
+            or url.username or url.password or 'id6761147125' not in url.path.split('/'):
+        raise ValueError('Apple Lookup API 的商店链接需要匹配 BIT101')
+    date = result.get('currentVersionReleaseDate')
+    if not isinstance(date, str) or 'T' not in date or datetime.fromisoformat(date).tzinfo is None:
+        raise ValueError('Apple Lookup API 需要有效的发布时刻')
+    return result['version']
 
 
 def app_store_request_self_test() -> list[str]:
     from io import StringIO
     from unittest.mock import patch
+    valid = dict(resultCount=1, results=[dict(version='99.0.0', bundleId='BIT101-dev.BIT101-iOS', trackId=6761147125,
+        trackViewUrl='https://apps.apple.com/cn/app/bit101/id6761147125', currentVersionReleaseDate='2026-01-01T00:00:00Z')])
+    def response(payload, url=APP_STORE_LOOKUP_URL, status=200):
+        value = StringIO(json.dumps(payload))
+        value.geturl = lambda: url
+        value.status = status
+        return value
     findings = []
     validate_release_tag("v2.0.0", "2.0.0")
     for tag in ("v9.0.0", "v2.0", "v2.0.0-rc1"):
@@ -120,13 +147,27 @@ def app_store_request_self_test() -> list[str]:
         else: findings.append("发布版本自测：标签与工程公开版本对应")
     for instant in (100, 200):
         with patch.object(time, "time", return_value=instant), patch.object(urllib.request, "urlopen",
-                return_value=StringIO('{"results":[{"version":"99.0.0"}]}')) as opener:
+                return_value=response(valid)) as opener:
             if app_store_version() != "99.0.0": findings.append("发布版本自测：商店版本解析")
             request = opener.call_args.args[0]
             query = urllib.parse.parse_qs(urllib.parse.urlsplit(request.full_url).query)
             if query != {"id": ["6761147125"], "country": ["cn"], "requestTime": [str(instant)]} \
                     or request.get_header("Cache-control") != "no-cache":
                 findings.append("发布版本自测：商店查询缓存刷新契约")
+    invalid = [[], {}, dict(valid, resultCount=0), dict(valid, resultCount=True), dict(valid, results=[])]
+    for field, value in [('bundleId', 'other.application'), ('trackId', 1), ('version', ''),
+            ('currentVersionReleaseDate', 'invalid'), ('currentVersionReleaseDate', '2026-01-01'),
+            ('trackViewUrl', 'https://apps.apple.com/cn/app/other/id1'),
+            ('trackViewUrl', 1),
+            ('trackViewUrl', 'https://apps.apple.com@fixture.invalid/id6761147125')]:
+        invalid.append(dict(valid, results=[dict(valid['results'][0], **{field: value})]))
+    for payload, url, status in [(payload, APP_STORE_LOOKUP_URL, 200) for payload in invalid] + [
+            (valid, 'https://fixture.invalid/lookup', 200), (valid, 'https://itunes.apple.com/other', 200),
+            (valid, 'http://itunes.apple.com/lookup', 200), (valid, APP_STORE_LOOKUP_URL, 201)]:
+        with patch.object(urllib.request, 'urlopen', return_value=response(payload, url, status)):
+            try: app_store_version()
+            except ValueError: pass
+            else: findings.append('发布版本自测：应用身份、记录数量、发布时间和响应端点需要匹配')
     return findings
 
 

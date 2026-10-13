@@ -179,19 +179,20 @@ final class AppSettingsStore: ObservableObject {
         hideAnonymousContent: Bool? = nil,
         useWebView: Bool? = nil
     ) {
+        var updated = snapshot
         if let hideBotPosterInSearch {
-            snapshot.galleryHideBotPosterInSearch = hideBotPosterInSearch
+            updated.galleryHideBotPosterInSearch = hideBotPosterInSearch
         }
         if let hiddenUserIDs {
-            snapshot.galleryHiddenUserIDs = Self.normalizedGalleryHiddenUserIDs(hiddenUserIDs)
+            updated.galleryHiddenUserIDs = Self.normalizedGalleryHiddenUserIDs(hiddenUserIDs)
         }
         if let hideAnonymousContent {
-            snapshot.galleryHideAnonymousContent = hideAnonymousContent
+            updated.galleryHideAnonymousContent = hideAnonymousContent
         }
         if let useWebView {
-            snapshot.galleryUseWebView = useWebView
+            updated.galleryUseWebView = useWebView
         }
-        save(syncPreferences: true)
+        save(updated, syncPreferences: true)
     }
 
     /// 修改历史成绩中的疑似补考学期隐藏开关。
@@ -215,15 +216,16 @@ final class AppSettingsStore: ObservableObject {
     @discardableResult
     func markLinuxDoThanksNoticeShown(for expectedSession: AppStorageSession) -> Bool {
         guard session() == expectedSession else { return false }
-        snapshot.hasShownLinuxDoThanksNotice = true
-        save()
-        return true
+        var updated = snapshot
+        updated.hasShownLinuxDoThanksNotice = true
+        return save(updated)
     }
 
     /// 标记“导入分享课表”提示已读。
     func markSharedScheduleImportGuideSeen() {
-        snapshot.hasSeenSharedScheduleImportGuide = true
-        save()
+        var updated = snapshot
+        updated.hasSeenSharedScheduleImportGuide = true
+        save(updated)
     }
 
     /// 把设置恢复到默认值。
@@ -237,12 +239,13 @@ final class AppSettingsStore: ObservableObject {
     }
 
     /// 应用来自 iCloud 的用户偏好，并保留当前设备的一次性提示状态。
-    func applySyncedPreferences(_ payload: AppSettingsSyncPayload) {
-        snapshot.galleryHideBotPosterInSearch = payload.galleryHideBotPosterInSearch
-        snapshot.galleryHiddenUserIDs = Self.normalizedGalleryHiddenUserIDs(payload.galleryHiddenUserIDs)
-        snapshot.galleryHideAnonymousContent = payload.galleryHideAnonymousContent
-        snapshot.galleryUseWebView = payload.galleryUseWebView
-        save()
+    @discardableResult func applySyncedPreferences(_ payload: AppSettingsSyncPayload) -> Bool {
+        var updated = snapshot
+        updated.galleryHideBotPosterInSearch = payload.galleryHideBotPosterInSearch
+        updated.galleryHiddenUserIDs = Self.normalizedGalleryHiddenUserIDs(payload.galleryHiddenUserIDs)
+        updated.galleryHideAnonymousContent = payload.galleryHideAnonymousContent
+        updated.galleryUseWebView = payload.galleryUseWebView
+        return save(updated)
     }
 
     /// 从 `UserDefaults` 加载设置快照。
@@ -315,15 +318,18 @@ final class AppSettingsStore: ObservableObject {
     }
 
     /// 通过公共账号仓库保存快照，并发布本地保存事件。
-    private func save(syncPreferences: Bool = false) {
-        guard !snapshotReadBlocked, snapshotStore.save(snapshot) else {
+    @discardableResult private func save(_ updated: AppSettingsSnapshot? = nil, syncPreferences: Bool = false) -> Bool {
+        let candidate = updated ?? snapshot
+        guard !snapshotReadBlocked, snapshotStore.save(candidate) else {
             storageIssue = "账号设置保存受阻，原始数据已保留。请先恢复数据，再保存设置。"
-            return
+            return false
         }
+        snapshot = candidate
         storageIssue = nil
         if syncPreferences {
             saveSubject.send(session())
         }
+        return true
     }
 
     /// 提供设置快照的静态读取入口。

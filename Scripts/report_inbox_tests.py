@@ -165,12 +165,14 @@ else exit 99; fi
 
 def deletion_boundary_self_test(source: str, fixture: Path) -> None:
     from urllib.request import Request
+    from urllib.error import HTTPError
     block = source.split("<<'PYDELETE'\n", 1)[1].split("\nPYDELETE", 1)[0]
     key = 'report:received:00000000-0000-4000-8000-000000000001'
     path = fixture / 'delete-authorization.json'
     fixture.mkdir(parents=True, exist_ok=True)
-    for failure in (False, True):
+    for outcome in ('success', 'unavailable', 'delayed', 'expired'):
         commands = []
+        clock, attempts = [0], [0]
         def run(arguments, **options):
             commands.append(arguments)
             assert arguments[-3:] == ['--remote', '--namespace-id', 'namespace']
@@ -179,15 +181,75 @@ def deletion_boundary_self_test(source: str, fixture: Path) -> None:
                 assert '--ttl' in arguments
             return subprocess.CompletedProcess(arguments, 0)
         def open_request(request: Request, **options):
-            assert request.get_method() == 'DELETE' and options['timeout'] == 30
+            attempts[0] += 1
+            assert request.get_method() == 'DELETE' and 0 < options['timeout'] <= 30
             payload = json.loads(request.data)
             assert payload['key'] == key and commands[0][4] == 'report-delete-grant:' + payload['grant']
-            if failure: raise OSError('delivery unavailable')
+            if outcome == 'unavailable': raise OSError('delivery unavailable')
+            if outcome == 'expired' or outcome == 'delayed' and attempts[0] < 3:
+                raise HTTPError(request.full_url, 403, 'grant pending', {}, BytesIO())
             return BytesIO(b'{"deleted":true}')
+        def sleep(duration):
+            assert 0 < duration <= 30
+            clock[0] += duration
         with patch.object(sys, 'argv', ['delete', key, '/wrangler', str(ROOT / 'Cloudflare/EmergencyUpdateWorker'), 'namespace', str(path)]), \
-                patch.object(subprocess, 'run', run), patch('urllib.request.urlopen', open_request), redirect_stdout(StringIO()):
+                patch.object(subprocess, 'run', run), patch('urllib.request.urlopen', open_request), \
+                patch('time.monotonic', lambda: clock[0]), patch('time.sleep', sleep), redirect_stdout(StringIO()):
             try: exec(compile(block, 'report-delete-self-test', 'exec'), {})
-            except OSError: assert failure
-            else: assert not failure
+            except OSError: assert outcome in {'unavailable', 'expired'}
+            else: assert outcome in {'success', 'delayed'}
+        assert attempts[0] == (3 if outcome == 'delayed' else 10 if outcome == 'expired' else 1)
         assert len(commands) == 2 and commands[-1][3] == 'delete' and commands[-1][4] == commands[0][4]
         assert not path.exists()
+
+
+def community_recovery_self_test() -> list[str]:
+    from validation_evidence import recover_community_smoke, record
+    directory = Path("/community-recovery-self-test")
+    report = directory / "report/release-network-smoke.json"
+    console = directory / "console.log"
+    findings = []
+    for original_status, cleanup_status in ((1, 0), (130, 0), (1, 7), (1, 8), (1, 9)):
+        parent = {"runID": "parent", "scope": "community-writes", "passed": False, "failures": ["edit failed"],
+            "communityWriteEvidence": ["created poster1"]}
+        files = {report: json.dumps(parent).encode(), console: b"original failure", directory / "build.log": b"original build"}
+        def clean(*args, **kwargs):
+            assert kwargs['env']['BIT101_NETWORK_SMOKE_CAPTURE'] == 'none'
+            assert kwargs['env']['BIT101_NETWORK_SMOKE_TERM'] == kwargs['env']['BIT101_NETWORK_SMOKE_FIXTURES'] == ''
+            if cleanup_status == 9: return subprocess.CompletedProcess(args[0], cleanup_status)
+            files[report] = json.dumps({"runID": "cleanup", "scope": "community-cleanup", "passed": cleanup_status == 0}).encode()
+            if cleanup_status == 8: files[report] = b"partial report"
+            files[console] = b"cleanup outcome"
+            files[directory / "build.log"] = b"cleanup build"
+            return subprocess.CompletedProcess(args[0], cleanup_status)
+        with patch.object(Path, "exists", lambda path: path in files), patch.object(Path, "read_bytes", lambda path: files[path]), \
+            patch.object(Path, "read_text", lambda path: files[path].decode()), patch.object(Path, "write_bytes", lambda path, data: files.__setitem__(path, data)), \
+            patch.object(Path, "write_text", lambda path, data: files.__setitem__(path, data.encode())), patch.object(subprocess, "run", clean):
+            status = recover_community_smoke(Path("/network-smoke"), directory, "parent", original_status)
+        restored = json.loads(files[report])
+        if status != cleanup_status or restored["scope"] != "community-writes" or restored["failures"] != ["edit failed"] \
+            or restored["communityWriteEvidence"] != ["created poster1"] or restored["communityCleanup"]["exitStatus"] != cleanup_status \
+            or files[console].count(b"original failure") != 1 or cleanup_status != 9 and b"cleanup outcome" not in files[console] \
+            or restored["communityCleanup"].get("scope") != "community-cleanup" or files[directory / "build.log"] != b"original build":
+            findings.append("社区恢复自测：原始失败、创建证据与清理结果共同保留")
+    from contextlib import nullcontext
+    from io import StringIO
+    from contextlib import redirect_stderr
+    from validation_evidence_tests import network_trace_fixture
+    cleanup = network_trace_fixture({"runID": "fixture-run", "scope": "community-cleanup", "passed": True,
+        "requiredProbes": ["community.login"], "executedProbes": ["community.login"]})
+    write_row = {"exitCode": 0, "scope": "full", "summary": {"passed": True}}
+    previous = {"sourceDigest": "source", "groups": {"community-writes": write_row}}
+    cleanup_environment = {"host": {"system": "fixture"}, "developer": "/fixture", "xcode": {"version": "fixture"},
+        "compiler": {"modified": 1, "size": 100, "sha256": "a" * 64}, "sdks": {"fixture": {"Version": "1"}}, "device": {
+        "identifier": "fixture-phone", "systemVersion": "fixture-os", "systemBuild": "fixture-build"}}
+    with patch(f"validation_evidence.source_digest", return_value="source"), patch(f"validation_evidence.network_inventory", return_value={"community.login"}), \
+            patch(f"validation_evidence.environment_context", return_value=cleanup_environment), \
+            patch.dict(os.environ, BIT101_VALIDATION_RUN_ID="fixture-run"), \
+            patch(f"validation_evidence.report_lock", side_effect=nullcontext), patch(f"validation_evidence.write_report") as saved, \
+            patch.object(Path, "is_file", return_value=True), patch.object(Path, "read_text", side_effect=[json.dumps(cleanup), json.dumps(previous)]), \
+            patch.object(subprocess, "check_output", return_value="head"), redirect_stderr(StringIO()):
+        result = record("community-cleanup", 0, "full", "source")
+    if result or saved.call_args.args[0]["groups"]["community-writes"] != write_row:
+        findings.append("社区恢复自测：成功清理沿独立范围记录并保留完整写入证据")
+    return findings

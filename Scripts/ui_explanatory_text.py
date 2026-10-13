@@ -1,7 +1,6 @@
 """Write permanent source-text review candidates to their fixed report."""
 from pathlib import Path
-import re
-from swift_source_index import swift_code
+from swift_source_index import swift_syntax_index
 
 
 def write_report(root: Path) -> None:
@@ -24,59 +23,39 @@ def write_report(root: Path) -> None:
     }
 
 
-    def block(source: str, start: int) -> str:
-        structure = swift_code(source)
-        opening = structure.find("{", start)
-        if opening < 0:
-            return ""
-        depth = 0
-        for index in range(opening, len(structure)):
-            if structure[index] == "{":
-                depth += 1
-            elif structure[index] == "}":
-                depth -= 1
-                if depth == 0:
-                    return source[opening + 1 : index]
-        return source[opening + 1 :]
-
-
-    def text_expressions(source: str, path: str) -> list[str]:
-        expressions: list[str] = []
-        for line in source.splitlines():
-            match = re.match(r"Text\((.*)\)\s*$", line.strip())
-            if not match:
-                continue
-            expression = match.group(1)
-            if expression.startswith('"'):
-                if expression[1:-1] not in APPROVED_TEXTS:
-                    expressions.append(expression)
-            elif expression == "verificationHint" and (path, expression) not in APPROVED_DYNAMIC:
-                expressions.append(expression)
-        return expressions
-
-
     footer_items: list[tuple[str, int, list[str]]] = []
     description_items: list[tuple[str, int, list[str]]] = []
-
-    for path in sorted(path for source_root in production_roots for path in source_root.rglob("*.swift")):
-        source = path.read_text(encoding="utf-8")
+    paths = sorted(path for source_root in production_roots for path in source_root.rglob("*.swift"))
+    index = swift_syntax_index(paths)
+    for path in paths:
+        facts = index[str(path)]
+        source = facts['source'].encode('utf-8')
         relative_path = path.relative_to(root).as_posix()
-        if path.name != "ErrorReportSupport.swift":
-            for match in re.finditer(r"\bfooter\s*:\s*\{", source):
-                expressions = text_expressions(block(source, match.start()), relative_path)
-                if expressions:
-                    footer_items.append((path.relative_to(root).as_posix(), source.count("\n", 0, match.start()) + 1, expressions))
 
-        for match in re.finditer(r"\bdescription\s*:\s*\{", source):
-            expressions = text_expressions(block(source, match.start()), relative_path)
+        def approved(expression: str) -> bool:
+            return expression == 'nil' or expression.startswith('"') and expression[1:-1] in APPROVED_TEXTS \
+                or (relative_path, expression) in APPROVED_DYNAMIC
+
+        for call in facts['invocations']:
+            name = call['calledExpression'].removeprefix('SwiftUI.')
+            if name not in {'Section', 'ContentUnavailableView', 'AppEmptyState', 'AppFailureState'}: continue
+            label = 'footer' if name == 'Section' else 'description'
+            if label == 'footer' and path.name == 'ErrorReportSupport.swift': continue
+            arguments, labels = call.get('arguments', []), call.get('argumentLabels', [])
+            expressions, ranges = [], []
+            if name in {'AppEmptyState', 'AppFailureState'}:
+                expressions = [arguments[i] for i, item in enumerate(labels) if item == 'message']
+            else:
+                all_labels = labels + call.get('trailingClosureLabels', [])
+                ranges.extend(call['argumentRanges'][i] for i, item in enumerate(labels) if item == label)
+                ranges.extend([start, end] for i, start, end in call.get('closureArguments', []) if all_labels[i] == label)
+                expressions = [text['arguments'][0] for text in facts['invocations']
+                    if text['calledExpression'] in {'Text', 'SwiftUI.Text'} and text.get('arguments')
+                    and any(start <= text['start'] < end for start, end in ranges)]
+            expressions = [expression for expression in expressions if not approved(expression)]
             if expressions:
-                description_items.append((relative_path, source.count("\n", 0, match.start()) + 1, expressions))
-
-        for match in re.finditer(r"\bdescription\s*:\s*Text\((.*)\)\s*$", source, re.MULTILINE):
-            expression = match.group(1)
-            if expression.startswith('"') and expression[1:-1] in APPROVED_TEXTS:
-                continue
-            description_items.append((relative_path, source.count("\n", 0, match.start()) + 1, [expression]))
+                items = footer_items if label == 'footer' else description_items
+                items.append((relative_path, source.count(b'\n', 0, call['start']) + 1, expressions))
 
 
     lines = [

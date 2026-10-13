@@ -115,7 +115,7 @@ struct AppShellView: View {
     @EnvironmentObject private var settings: AppSettingsStore
     @EnvironmentObject private var scheduleViewModel: ScheduleViewModel
     @EnvironmentObject private var lifecycle: AppAccountLifecycle
-    @ObservedObject private var promptCoordinator = AppPromptCoordinator.shared
+    @EnvironmentObject private var promptCoordinator: AppPromptCoordinator
 #if BIT101_UI_TESTING
     @State private var selectedTab: AppTab = AppUITestBootstrap.environment["BIT101_UI_TEST_SETTINGS"] == nil
         ? AppTab(rawValue: AppUITestBootstrap.environment["BIT101_UI_TEST_TAB"] ?? "schedule") ?? .schedule : .mine
@@ -271,13 +271,10 @@ struct AppShellView: View {
         guard !AppFileDirectories.isRunningUITest else { return }
 #endif
         notificationPromptTask?.cancel()
-        let owner = lifecycle.currentSession()
         notificationPromptTask = Task {
-            let denied = await lifecycle.isNotificationPermissionDenied()
-            await MainActor.run {
-                guard !Task.isCancelled, owner == lifecycle.currentSession(), denied else { return }
-                enqueueScheduleNotificationPrompt()
-            }
+            guard let owner = await lifecycle.scheduleNotificationPromptAccount(),
+                  !Task.isCancelled, owner == lifecycle.accountIdentity else { return }
+            enqueueScheduleNotificationPrompt(account: owner)
         }
     }
 
@@ -326,7 +323,7 @@ struct AppShellView: View {
         refreshScheduleNotificationPromptIfNeeded()
     }
 
-    private func enqueueScheduleNotificationPrompt() {
+    private func enqueueScheduleNotificationPrompt(account: CommunitySessionIdentity) {
         promptCoordinator.enqueue(AppPrompt(
             id: "schedule-notification-permission",
             title: "请开启通知",
@@ -340,7 +337,8 @@ struct AppShellView: View {
                         openURL(fallbackURL)
                     }
                 }
-            ]
+            ],
+            account: account
         ))
     }
 }

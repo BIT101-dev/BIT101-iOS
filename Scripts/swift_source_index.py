@@ -11,6 +11,7 @@ from functools import cache
 from pathlib import Path
 from swift_type_index import canonical_type_scope, visible_variables, argument_parameter_bindings
 from validation_policy import SWIFT_SYNTAX_SOURCE_NAMES
+from ui_design_contracts import SWIFTUI_INTERACTION_KINDS
 
 if not __debug__:
     raise RuntimeError("验证自测需要 Python 默认优化级别；请使用 python3 -E 执行入口。")
@@ -36,10 +37,11 @@ def indexer_toolchain(compiler: Path, host_modules: Path) -> dict:
         if path.is_file():
             with path.open("rb") as stream:
                 digests[str(path)] = hashlib.file_digest(stream, "sha256").hexdigest()
-    return {"environment": environment_context("audit"), "artifacts": digests}
+    return {"environment": environment_context("build-modules"), "artifacts": digests}
 
 
 def _run_swift_syntax_index(request: dict, *, regex_only: bool = False) -> dict[str, dict]:
+    request = dict(request, interactionNames=sorted(SWIFTUI_INTERACTION_KINDS | {"LabeledContent"}))
     swift = subprocess.check_output(["xcrun", "--find", "swift"], text=True).strip()
     swift_path = Path(swift).absolute()
     host_modules = swift_path.parent.parent / "lib/swift/host"
@@ -77,6 +79,7 @@ def _run_swift_syntax_index(request: dict, *, regex_only: bool = False) -> dict[
                 executable.unlink(missing_ok=True)
                 raise RuntimeError(compilation.stderr.strip() or "SwiftSyntax indexer compilation failed")
             signature_file.write_text(signature)
+        fcntl.flock(lock, fcntl.LOCK_SH)
         result = subprocess.run(
             [str(executable)],
             input=json.dumps(request),

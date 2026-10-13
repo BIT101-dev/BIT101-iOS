@@ -22,6 +22,56 @@ import CoreLocation
 
 nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
     @MainActor
+    func testFeedbackFitsWorkerMetadataAndRedactsPathIdentities() async throws {
+        let encodedURL = "https://example.invalid/students/%32%30%32%36%31%32%33%34%35%36?note=%2532%2530%2532%2536%2531%2532%2533%2534%2535%2536#%2532%2530%2532%2536%2531%2532%2533%2534%2535%2536"
+        let sensitiveHeaders = ["X-Challenge-Token", "x-CsRf-ToKeN", "X-Session-ID", "WWW-Authenticate", "Proxy-Authenticate", "Authentication-Info", "X-XSRF", "X-Api-Key"]
+        for raw in [false, true] {
+            var submitted: ErrorReportPayload?
+            let model = ErrorReportViewModel(alert: AppAlert(title: encodedURL, message: encodedURL), submitReport: { submitted = $0 })
+            model.mode = raw ? .raw : .sanitized
+            model.comment = "用户描述 " + encodedURL
+            let body = String(repeating: "诊断\"\\", count: 32_768)
+            model.diagnostics = (0..<10).map { index in
+                NetworkDiagnosticRecord(id: UUID(), occurredAt: Date(), method: "GET",
+                    url: "https://example.invalid/students/" + (index % 2 == 0 ? "2026123456" : "%32%30%32%36%31%32%33%34%35%36") + "?student=2026123456",
+                    statusCode: 500, elapsedMilliseconds: 1, error: encodedURL,
+                    responseHeaders: Dictionary(uniqueKeysWithValues: sensitiveHeaders.map { ($0, "TEST_ONLY_SECRET") } + [("Content-Type", "text/plain")]), responseBody: body)
+            }
+            let submittedSuccessfully = await model.submit()
+            XCTAssertTrue(submittedSuccessfully)
+            let payload = try XCTUnwrap(submitted)
+            let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+            XCTAssertLessThanOrEqual(try encoder.encode(payload).count, 1024 * 1024)
+            XCTAssertEqual(payload.diagnostics.map(\.id), model.diagnostics.map(\.id))
+            XCTAssertEqual(payload.diagnosticSummary.total, 10)
+            XCTAssertEqual(payload.diagnosticSummary.failed, 10)
+            XCTAssertTrue(try XCTUnwrap(payload.comment).hasPrefix("用户描述"))
+            for text in [payload.comment, payload.errorTitle, payload.errorMessage] + payload.diagnostics.map(\.error) {
+                let decoded = try XCTUnwrap(try XCTUnwrap(text).removingPercentEncoding?.removingPercentEncoding)
+                XCTAssertEqual(decoded.contains("2026123456"), raw)
+                XCTAssertTrue(decoded.contains("/students/"))
+            }
+            for record in payload.diagnostics {
+                let path = try XCTUnwrap(URLComponents(string: record.url)).path
+                XCTAssertEqual(path.contains("2026123456"), raw)
+                if raw {
+                    XCTAssertEqual(record.responseHeaders["Content-Type"], "text/plain")
+                    for key in sensitiveHeaders { XCTAssertEqual(record.responseHeaders[key], "[REDACTED]") }
+                    XCTAssertTrue(try XCTUnwrap(record.responseBody).hasSuffix("[响应正文已按反馈大小限制截取]"))
+                } else { XCTAssertNil(record.responseBody) }
+            }
+        }
+        var sent = false
+        let model = ErrorReportViewModel(alert: AppAlert(title: "fixture", message: "fixture"), submitReport: { _ in sent = true })
+        model.comment = String(repeating: "x", count: 1024 * 1024)
+        let submittedSuccessfully = await model.submit()
+        XCTAssertFalse(submittedSuccessfully)
+        XCTAssertFalse(sent)
+        XCTAssertTrue(try XCTUnwrap(model.resultMessage).contains("精简描述"))
+        XCTAssertFalse(model.isSubmitting)
+    }
+
+    @MainActor
     func testProductionSchoolServiceRecordsNetworkFailures() async throws {
         let url = try XCTUnwrap(URL(string: "https://example.invalid/production-school-diagnostic"))
         let service = ScheduleServiceFactory.make(transport: DiagnosticFailureTransport())
@@ -256,7 +306,7 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
     @MainActor
     func testDeeplyEncodedURLsAreMaskedWithinTheDecodingBudget() throws {
         let encoded = "%" + String(repeating: "25", count: 20_000)
-        for suffix in ["?note=\(encoded)", "?\(encoded)=TEST_ONLY_SECRET", "#\(encoded)"] {
+        for suffix in [encoded, "?note=\(encoded)", "?\(encoded)=TEST_ONLY_SECRET", "#\(encoded)"] {
             XCTAssertEqual(ErrorReportRedactor.forced("https://example.invalid/\(suffix)"), "[REDACTED]")
         }
         var nested = "https://school.invalid/?ticket=TEST_ONLY_SECRET"
@@ -274,6 +324,7 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         XCTAssertFalse(output.contains("cookie=session"))
         XCTAssertFalse(output.contains("ST-secret"))
         XCTAssertFalse(ErrorReportRedactor.forced(#"{"accessToken":"abc","sessionID":"xyz"}"#).contains("abc"))
+        XCTAssertFalse(ErrorReportRedactor.forced("https://example.invalid/%54%45%53%54", credentials: ["TEST"]).removingPercentEncoding?.contains("TEST") == true)
         for text in ["Authorization: Bearer TEST_ONLY_SECRET", "Authorization: Basic TEST_ONLY_SECRET",
                      "Cookie: first=TEST_ONLY_SECRET; second=TEST_ONLY_SECRET", "Proxy-Authorization: Basic TEST_ONLY_SECRET",
                      #"{"password":"TEST_ONLY_\"SECRET"}"#,
@@ -734,7 +785,7 @@ struct NetworkEvidenceProjectionTests {
         #expect(metadata["query"] == nil && metadata["responseCourseIDs"] == nil)
     }
 
-    @Test(arguments: ["form", "json", "query"])
+    @Test(.timeLimit(.minutes(1)), arguments: ["form", "json", "query"])
     func finalPostParametersComeFromTheFinalRequest(format: String) async throws {
         let url = AppURL.required("https://example.invalid/submit" + (format == "query" ? "?obj=paper1" : ""))
         var request = URLRequest(url: url); request.httpMethod = "POST"
@@ -763,7 +814,7 @@ struct NetworkEvidenceProjectionTests {
         let encoded = String(decoding: try JSONEncoder().encode(evidence), as: UTF8.self)
         #expect(!encoded.contains("secret") && !encoded.contains("private"))
     }
-    @Test(arguments: [("[]", String?.some("0")), (#"[{"id":3,"text":"secret"},{"id":9,"text":"private"}]"#, .some("3")),
+    @Test(.timeLimit(.minutes(1)), arguments: [("[]", String?.some("0")), (#"[{"id":3,"text":"secret"},{"id":9,"text":"private"}]"#, .some("3")),
         ("{}", nil), ("invalid", nil)], ["poster1", "comment2", "private"])
     func requestEvidenceRecordsObjectsAndResponseCursorsWithRedactedContent(fixture: (String, String?), object: String) async throws {
         let response = try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
@@ -776,12 +827,12 @@ struct NetworkEvidenceProjectionTests {
         try await HTTPRequestEvidenceContext.$didReceive.withValue({ request, response in captured = await NetworkSmokeHTTPRequestEvidence.capture(request: request, response: response.response, body: response.data, finalRequest: response.finalRequest) }) { _ = try await client.send(request) }
         let evidence = try #require(captured)
         #expect(evidence.responseMinimumID == fixture.1)
-        #expect(evidence.query == (object == "private" ? [:] : ["obj": object]))
+        #expect(evidence.query == ["obj": object == "private" ? "[REDACTED]" : object])
         let encoded = String(decoding: try JSONEncoder().encode(evidence), as: UTF8.self)
         #expect(!encoded.contains("secret") && !encoded.contains("private"))
     }
 
-    @Test(arguments: ["0", "99"], ["query", "form", "redirect"])
+    @Test(arguments: ["0", "99"], ["query", "form", "redirect", "sensitive-form", "query-json-sensitive"])
     func requestEvidencePreservesParameterAmbiguity(value: String, location: String) throws {
         let url = AppURL.required("https://example.invalid/probe?page=0&token=secret")
         var request = URLRequest(url: url)
@@ -790,12 +841,20 @@ struct NetworkEvidenceProjectionTests {
             request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
             request.httpBody = Data("XNXQDM=0&XNXQDM=\(value)&password=secret".utf8)
         }
+        if location == "sensitive-form" {
+            request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+            request.httpBody = Data("password=secret&password=\(value)".utf8)
+        }
+        if location == "query-json-sensitive" {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = Data(#"{"token":"secret"}"#.utf8)
+        }
         var finalRequest = request
         if location == "redirect" { finalRequest.url = AppURL.required(url.absoluteString + "&page=\(value)") }
         let finalURL = try #require(finalRequest.url)
         let response = try #require(HTTPURLResponse(url: finalURL, statusCode: 200, httpVersion: nil, headerFields: nil))
         let evidence = NetworkSmokeHTTPRequestEvidence(request: request, response: response, finalRequest: finalRequest)
-        let key = location == "form" ? "XNXQDM" : "page"
+        let key = location == "form" ? "XNXQDM" : location == "sensitive-form" ? "password" : location == "query-json-sensitive" ? "token" : "page"
         let ambiguous = location == "query" ? [key, "token"] : [key]
         #expect(evidence.ambiguousParameters == (location == "redirect" ? nil : ambiguous))
         #expect(evidence.finalAmbiguousParameters == ambiguous && evidence.finalQuery[key] == nil)
@@ -813,12 +872,59 @@ struct NetworkEvidenceProjectionTests {
         request.httpBody = Data("XNXQDM=2025-2026-1&JXLDM=B%2B%26+Room&password=secret".utf8)
         let evidence = NetworkSmokeHTTPRequestEvidence(request: request, response: response)
         #expect(evidence.query == ["search": "BIT101", "hide_bot": "true", "XXXQDM": "campus", "XNXQDM": "2025-2026-1", "JXLDM": "B+& Room", "token": "[REDACTED]"])
+        #expect(evidence.bodyParameterNames == ["JXLDM", "XNXQDM", "password"])
         request.httpBody = Data("requestParamStr=%7B%22XNXQDM%22%3A%222025-2026-1%22%2C%22ZC%22%3A%221%22%7D&password=secret".utf8)
         #expect(NetworkSmokeHTTPRequestEvidence(request: request, response: response).query == ["search": "BIT101", "hide_bot": "true", "XXXQDM": "campus", "XNXQDM": "2025-2026-1", "token": "[REDACTED]"])
+        #expect(NetworkSmokeHTTPRequestEvidence(request: request, response: response).bodyParameterNames ==
+            ["password", "requestParamStr", "requestParamStr.XNXQDM", "requestParamStr.ZC"])
         #expect(!String(decoding: try JSONEncoder().encode(evidence), as: UTF8.self).contains("secret"))
     }
 
-    @Test(arguments: [(#"{"courses":[]}"#, [String]?.some([])), (#"{"courses":[{"id":41,"name":"secret"},{"id":43}]}"#, .some(["41", "43"])),
+    @Test func requestEvidenceRetainsJSONFiltersAndOpaqueFieldNames() throws {
+        var request = URLRequest(url: url)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data(#"{"obj":"paper1","search":"BIT101","page":2,"anonymous":true,"password":"secret"}"#.utf8)
+        let response = try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+        let evidence = NetworkSmokeHTTPRequestEvidence(request: request, response: response)
+        #expect(evidence.query == ["obj": "paper1", "search": "BIT101", "page": "2"])
+        #expect(evidence.bodyParameterNames == ["anonymous", "obj", "page", "password", "search"])
+        #expect(evidence.finalBodyParameterNames == evidence.bodyParameterNames)
+        #expect(!String(decoding: try JSONEncoder().encode(evidence), as: UTF8.self).contains("secret"))
+    }
+
+    @Test(arguments: [(#"{"obj":"paper1","obj":"paper2"}"#, ["obj"]),
+        (#"{"obj":"paper1","\u006fbj":"paper1"}"#, ["obj"]),
+        (#"{"detail":true,"detail":false}"#, ["detail"]),
+        (#"{"obj":"paper1","items":[{"id":1,"id":2}]}"#, ["id"]),
+        (#"{"obj":"paper1","first":{"id":1},"second":{"id":2},"text":"{\"id\":3}"}"#, []),
+        (#"{"obj":"paper1","text":"quote\" and brace }"}"#, [])], [false, true])
+    func requestEvidencePreservesJSONKeyAmbiguity(fixture: (String, [String]), redirected: Bool) throws {
+        let response = try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+        let original = URLRequest(url: url)
+        var request = original
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data(fixture.0.utf8)
+        let evidence = NetworkSmokeHTTPRequestEvidence(request: redirected ? original : request, response: response,
+            finalRequest: redirected ? request : nil)
+        #expect(evidence.finalAmbiguousParameters == (fixture.1.isEmpty ? nil : fixture.1))
+        #expect(evidence.ambiguousParameters == (redirected || fixture.1.isEmpty ? nil : fixture.1))
+        for key in fixture.1 { #expect(evidence.finalQuery[key] == nil) }
+    }
+
+    @Test(arguments: [#"{"XNXQDM":"first","XNXQDM":"second"}"#,
+        #"{"XNXQDM":"first","\u0058NXQDM":"first"}"#])
+    func requestEvidencePreservesJSONFormKeyAmbiguity(json: String) throws {
+        var form = URLComponents()
+        form.queryItems = [URLQueryItem(name: "requestParamStr", value: json)]
+        var request = URLRequest(url: url)
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data(try #require(form.percentEncodedQuery).utf8)
+        let response = try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+        let evidence = NetworkSmokeHTTPRequestEvidence(request: request, response: response)
+        #expect(evidence.ambiguousParameters == ["XNXQDM"] && evidence.query["XNXQDM"] == nil)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [(#"{"courses":[]}"#, [String]?.some([])), (#"{"courses":[{"id":41,"name":"secret"},{"id":43}]}"#, .some(["41", "43"])),
         (#"{"courses":[{"id":true}]}"#, nil), (#"{"courses":[{"id":0}]}"#, nil), ("{}", nil)])
     func requestEvidenceBindsEclassCourseResponsesWithoutTheirContent(fixture: (String, [String]?)) async throws {
         let url = AppURL.required("https://zy-eclass.bit.edu.cn/api/my-courses")
@@ -828,7 +934,7 @@ struct NetworkEvidenceProjectionTests {
         #expect(!String(decoding: try JSONEncoder().encode(evidence), as: UTF8.self).contains("secret"))
     }
 
-    @Test func finalRequestProjectionSurvivesTransportWrappers() async throws {
+    @Test(.timeLimit(.minutes(1))) func finalRequestProjectionSurvivesTransportWrappers() async throws {
         let origin = AppURL.required("https://example.invalid/submit?obj=paper1&token=secret")
         let target = AppURL.required("https://other.invalid/final?obj=paper2&token=private")
         var request = URLRequest(url: origin); request.httpMethod = "POST"
@@ -845,7 +951,7 @@ struct NetworkEvidenceProjectionTests {
     }
 
     private let url = AppURL.required("https://example.invalid/module-test")
-    @Test(arguments: [false, true])
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func emergencyConfigurationEvidenceIdentifiesTheSampledKVContent(enabled: Bool) async throws {
         let url = AppURL.required("https://update.aihelpme.dev/emergency-update.json")
         let response = try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))

@@ -30,7 +30,17 @@ struct AddCourseSheet: View {
                     TextField("", text: $draft.title, prompt: AppInputPrompt.text("课程名称"))
                     TextField("", text: $draft.teacher, prompt: AppInputPrompt.text("教师"))
                     TextField("", text: $draft.classroom, prompt: AppInputPrompt.text("教室"))
-                    TextField("", text: $draft.weeksText, prompt: AppInputPrompt.text("周次（如 1-16,18）"))
+                    NavigationLink {
+                        ScheduleWeekSelectionSheet(weeks: ScheduleCourseConstraints.validWeeks,
+                            selectedWeeks: Binding(
+                                get: { (try? ScheduleCourseEditor.parseWeeks(draft.weeksText)) ?? [] },
+                                set: { draft.weeksText = ScheduleWeekCodec.formatWeeks($0) }
+                            ))
+                    } label: {
+                        LabeledContent("周次", value: draft.weeksText.isEmpty ? "请选择" : "\(draft.weeksText)周")
+                    }
+                    .appInteractiveListRow()
+                    .accessibilityIdentifier("schedule.course.weeks")
                 }
 
                 Section("时间") {
@@ -61,6 +71,8 @@ struct AddCourseSheet: View {
                 }
 
             }
+            .appGroupedListStyle()
+            .tint(AppDesignSystem.Palette.Accent.primary)
             .navigationTitle(mode.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -237,7 +249,8 @@ struct ScheduleWeekSelectionSheet: View {
             itemTitle: { "第\($0)周" },
             selectAllTitle: nil,
             showsCompletionButton: true,
-            selectedItems: $selectedWeeks
+            selectedItems: $selectedWeeks,
+            initialScrollItem: selectedWeeks.first
         )
     }
 }
@@ -302,6 +315,7 @@ struct ScheduleSectionSelectionSheet: View {
 /// 课表页的加号入口使用这一套编辑器。
 struct AddEditCustomScheduleSheet: View {
     @Binding var draft: CustomScheduleDraft
+    let firstDay: Date?
     let isEditing: Bool
     let onSubmit: () -> Void
     let onDismiss: () -> Void
@@ -325,6 +339,18 @@ struct AddEditCustomScheduleSheet: View {
                         .environment(\.timeZone, ScheduleDateCodec.calendar.timeZone)
                         .accessibilityIdentifier("schedule.custom.date")
                     .appInteractiveListRow()
+                    if let firstDay, let week = scheduleWeek(for: draft.date, firstDay: firstDay),
+                       ScheduleCourseConstraints.validWeeks.contains(week) {
+                        NavigationLink {
+                            ScheduleWeekSelectionSheet(weeks: ScheduleCourseConstraints.validWeeks,
+                                selectedWeeks: $draft.selectedWeeks)
+                        } label: {
+                            LabeledContent("周次", value: draft.selectedWeeks.isEmpty
+                                ? "请选择" : "\(ScheduleWeekCodec.formatWeeks(draft.selectedWeeks))周")
+                        }
+                        .appInteractiveListRow()
+                        .accessibilityIdentifier("schedule.custom.weeks")
+                    }
                     DatePicker("开始时间", selection: $draft.beginTime, displayedComponents: .hourAndMinute)
                         .environment(\.calendar, ScheduleDateCodec.calendar)
                         .environment(\.timeZone, ScheduleDateCodec.calendar.timeZone)
@@ -338,11 +364,22 @@ struct AddEditCustomScheduleSheet: View {
                 }
 
             }
+            .appGroupedListStyle()
+            .tint(AppDesignSystem.Palette.Accent.primary)
             .navigationTitle(isEditing ? "修改自定义日程" : "添加自定义日程")
             .navigationBarTitleDisplayMode(.inline)
             .onChange(of: draft.beginTime) { _, newValue in
                 guard draft.endTime <= newValue else { return }
                 draft.endTime = ScheduleDateCodec.calendar.date(byAdding: .minute, value: 60, to: newValue) ?? newValue
+            }
+            .onChange(of: draft.date) { oldDate, newDate in
+                guard let firstDay,
+                      let oldWeek = scheduleWeek(for: oldDate, firstDay: firstDay),
+                      let newWeek = scheduleWeek(for: newDate, firstDay: firstDay),
+                      ScheduleCourseConstraints.validWeeks.contains(newWeek) else { return }
+                if draft.selectedWeeks.isEmpty || draft.selectedWeeks == [oldWeek] {
+                    draft.selectedWeeks = [newWeek]
+                }
             }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -355,6 +392,13 @@ struct AddEditCustomScheduleSheet: View {
                 }
             }
         }
+    }
+
+    private func scheduleWeek(for date: Date, firstDay: Date) -> Int? {
+        let calendar = ScheduleDateCodec.calendar
+        guard let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: firstDay),
+            to: calendar.startOfDay(for: date)).day else { return nil }
+        return ScheduleWeekCodec.weekNumber(forDayOffset: days)
     }
 }
 

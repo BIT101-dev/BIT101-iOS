@@ -7,6 +7,7 @@ import json
 import re
 import subprocess
 import sys
+from network_capability_rules import branch_value, execution_index
 
 from ui_design_contracts import (
     COMPONENT_GROUPS, COMPONENT_INHERITANCE, CONTEXTUAL_COLOR_BYPASSES, DERIVED_DESIGN_TOKEN,
@@ -31,18 +32,19 @@ from ui_source_facts import (
 
 
 def check_composer_lifecycle(errors: list[str], syntax: dict[str, dict]) -> None:
-    for path, facts in syntax.items():
+    for path, facts in execution_index(syntax).items():
         for scope in view_scopes(facts):
             rendered = rendered_scope_facts(facts, scope, syntax)
             callback = any(node.get('scope') == scope and 'async' in node.get('type', '') and '->' in node.get('type', '')
                 and re.search(r'\bBool\b', node['type']) for node in facts.get('typedVariables', []))
             editor = any(call_name(node.get('calledExpression', '')) == 'accessibilityIdentifier'
-                and node.get('arguments') == ['"ui.gallery-composer-scene.submit"'] for node in rendered.get('invocations', []))
+                and node.get('arguments') in (['"ui.gallery-composer-scene.submit"'], ['"ui.paper-composer-view.submit"'])
+                for node in rendered.get('invocations', []))
             comment = any(call_name(node['value']) == 'AppCommentComposerContentSection' for node in rendered.get('calls', []))
             if not editor and not (callback and comment): continue
-            guards = [invocation.get('arguments', []) for invocation in rendered.get('invocations', [])
+            guards = [invocation for invocation in rendered.get('invocations', [])
                 if call_name(invocation['calledExpression']) == 'interactiveDismissDisabled']
-            if not any(not arguments or re.sub(r'[\s()]', '', arguments[0]) != 'false' for arguments in guards):
+            if not any(not invocation.get('arguments') or branch_value(facts, invocation, invocation['arguments'][0]) is not False for invocation in guards):
                 errors.append(f'{path}: {scope[-1]} 的系统关闭需要沿编辑与提交状态保护')
 
 
@@ -51,7 +53,26 @@ def rendered_component_counts(facts: dict, syntax: dict[str, dict]) -> Counter:
         for call in rendered_scope_facts(facts, scope, syntax).get('calls', []))
 
 
+def list_row_layout_findings(syntax: dict[str, dict]) -> list[str]:
+    findings = []
+    for path, facts in syntax.items():
+        containers = {(tuple(node['scope']), node['start']) for node in facts.get('invocations', [])
+            if call_name(node['calledExpression']) in {'List', 'Form', 'listStyle', 'appGroupedListStyle'}}
+        for invocation in facts.get('invocations', []):
+            if call_name(invocation['calledExpression']) in {'listRowInsets', 'appListRowInsets'} and (tuple(invocation['scope']), invocation['start']) in containers:
+                findings.append(f'{path}: 列表行边距需要由实际行持有')
+        for scope in view_scopes(facts):
+            if scope[-1] != 'AppRefreshStatusRow': continue
+            rendered = rendered_scope_facts(facts, scope, syntax)
+            row_starts = {node['start'] for node in rendered.get('invocations', []) if call_name(node['calledExpression']) == 'HStack'}
+            if not any(call_name(node['calledExpression']) == 'appListRowInsets' and node['start'] in row_starts
+                    for node in rendered.get('invocations', [])):
+                findings.append(f'{path}: 更新时间组件需要持有完整行的设计系统边距')
+    return findings
+
+
 def check_component_contracts(errors: list[str], syntax: dict[str, dict]) -> None:
+    errors.extend(list_row_layout_findings(syntax))
     sources = {path: source_text(path) for path in swift_files()}
     code_sources = {path: mask_literals_and_comments(source) for path, source in sources.items()}
     comment_free_sources = {path: mask_comments(source) for path, source in sources.items()}
@@ -554,13 +575,7 @@ def is_registered_map_theme_color_definition(path: Path, source: str, node: dict
         for match in re.finditer(pattern, mask_comments(source)))
 
 
-INTERACTION_KINDS = {
-    "Button", "NavigationLink", "Menu", "Picker", "Toggle", "DatePicker", "Link", "PhotosPicker",
-    "TextField", "SecureField", "TextEditor", "Slider", "Stepper", "ScrollView", "List", "TabView",
-    "onTapGesture", "onLongPressGesture", "gesture", "simultaneousGesture", "highPriorityGesture",
-    "refreshable", "onSubmit", "onDelete", "onMove", "searchable", "contextMenu", "swipeActions", "DragGesture",
-    "MagnificationGesture", "TapGesture", "LongPressGesture", "ShareLink", "accessibilityAction", "keyboardShortcut",
-}
+from ui_design_contracts import SWIFTUI_INTERACTION_KINDS as INTERACTION_KINDS, SWIFTUI_CONTROL_ACTIONS, SWIFTUI_MODIFIER_ACTIONS, SWIFTUI_GESTURE_MODIFIERS
 
 
 from ui_native_interactions import NATIVE_INTERACTION_KINDS, native_interaction_inventory, native_runtime_controls
@@ -584,7 +599,7 @@ def interaction_source_inventory(syntax: dict[str, dict]) -> dict[str, dict[str,
             and call["scope"][:len(scope)] == scope for call in facts["calls"])}
     inventory = {}
     for path, facts in syntax.items():
-        if "Tests/" in path or "UITest" in Path(path).name: continue
+        if any(Path(path).is_relative_to(ROOT / root) for root in ("ModuleTests", "BIT101-iOSTests", "BIT101-iOSUITests")): continue
         for scope in {tuple(call["scope"]) for call in facts["calls"]}:
             controls = Counter(resolved_interaction_name(types, path, call) for call in facts["calls"]
                 if tuple(call["scope"]) == scope and resolved_interaction_name(types, path, call) in INTERACTION_KINDS | components
@@ -648,23 +663,33 @@ def interaction_selector(control: dict, syntax: dict) -> tuple[str, tuple[str, .
     return ("label", (selector[1],)) if selector else None
 
 
+def gesture_actions(control: dict, facts: dict, types, path: str) -> set[str]:
+    kinds = {'MagnificationGesture': 'pinch', 'MagnifyGesture': 'pinch', 'RotationGesture': 'rotate',
+        'LongPressGesture': 'press', 'TapGesture': 'tap', 'DragGesture': 'pan'}
+    invocation = next((node for node in facts.get('invocations', [])
+        if node['start'] == control['start'] and node.get('value') == control['invocation']), None)
+    if not invocation or not invocation.get('argumentRanges'): return {'pan'}
+    start, end = invocation['argumentRanges'][0]
+    closures = facts.get('callableRanges', []) + facts.get('inlineClosureRanges', [])
+    return {kinds[name] for node in facts.get('invocations', [])
+        if start <= node['start'] < end and not any(start <= closure['start'] <= node['start'] < closure['end']
+            for closure in closures)
+        if (name := types.terminal_name(path, node.get('calledExpression', ''), node['scope']).removeprefix('SwiftUI.')) in kinds} or {'pan'}
+
+
 def source_runtime_interaction_findings(syntax: dict[str, dict], documented: dict[str, tuple[dict, set]], evidence: list[dict]) -> list[str]:
     from validation_compilation import active_swift_source
     from swift_type_index import SwiftTypeIndex
     types = SwiftTypeIndex(syntax)
-    actions = {"refreshable": "refresh", "onSubmit": "submit", "onDelete": "delete", "onMove": "move", "searchable": "search", "contextMenu": "press", "swipeActions": "gesture", "ShareLink": "tap", "accessibilityAction": "accessibility", "keyboardShortcut": "keyboard"}
-    native_actions = {"Button": "tap", "NavigationLink": "tap", "Menu": "tap", "Link": "tap", "PhotosPicker": "tap",
-        "Toggle": "tap", "Picker": "selection", "DatePicker": "selection", "TextField": "input",
-        "SecureField": "input", "TextEditor": "input", "Slider": "gesture", "Stepper": "tap",
-        "ScrollView": "scroll", "List": "scroll", "TabView": "tab-switch"}
-    gestures = {"onTapGesture", "onLongPressGesture", "gesture", "simultaneousGesture", "highPriorityGesture"}
+    actions, native_actions, gestures = SWIFTUI_MODIFIER_ACTIONS, SWIFTUI_CONTROL_ACTIONS, SWIFTUI_GESTURE_MODIFIERS
     errors = []
     selectors = Counter()
     contracts = {}
     expressions = {}
+    carriers = {}
     native = native_runtime_controls(syntax)
     for path, facts in syntax.items():
-        if "Tests/" in path or "UITest" in Path(path).name: continue
+        if any(Path(path).is_relative_to(ROOT / root) for root in ("ModuleTests", "BIT101-iOSTests", "BIT101-iOSUITests")): continue
         active = active_swift_source(Path(path).read_text(), "ui", path=path).encode() if Path(path).is_file() else None
         for control in facts.get("accessibilityControls", []) + facts.get("accessibilityControlCandidates", []) + native.get(path, []):
             if "nativeAction" not in control:
@@ -681,17 +706,22 @@ def source_runtime_interaction_findings(syntax: dict[str, dict], documented: dic
                 continue
             kind, names = selector
             action = control.get("nativeAction") or ("tap" if control["name"] == "onTapGesture" else "press" if control["name"] == "onLongPressGesture" else "gesture" if control["name"] in gestures else actions.get(control["name"], native_actions.get(control["name"], "")))
+            required = gesture_actions(control, facts, types, path) if action == "gesture" else {action}
             if control["name"] == "accessibilityAction":
                 named = re.search(r'accessibilityAction\(\s*named:\s*"((?:[^"\\]|\\.)+)"', control["invocation"])
                 if named: action += ":" + named[1]
-            key = (source, kind, names, action)
-            selectors[key] += 1
-            contracts[key] = tests
-            expressions.setdefault(key, set()).add(control["expression"])
+                required = {action}
+            for action in required:
+                key = (source, kind, names, action)
+                selectors[key] += 1
+                contracts[key] = tests
+                expressions.setdefault(key, set()).add(control["expression"])
+                carriers.setdefault(key, set()).add((path, control['start']))
     def shares_carrier(key, other):
         native_carrier = len(expressions[key]) == 1 and next(iter(expressions[key])).startswith("UIKit:")
         return (key[0] == other[0] or native_carrier) and key[1:3] == other[1:3] and key[3] != other[3] \
-            and any(action in {"scroll", "keyboard"} or action.startswith("accessibility") for action in (key[3], other[3])) \
+            and (len(carriers[key]) == 1 and carriers[key] == carriers[other]
+                or any(action in {"scroll", "keyboard"} or action.startswith("accessibility") for action in (key[3], other[3]))) \
             and len(expressions[key]) == 1 and expressions[key] == expressions[other]
     demands = []
     for (source, kind, names, action), count in selectors.items():
@@ -705,7 +735,7 @@ def source_runtime_interaction_findings(syntax: dict[str, dict], documented: dic
             scoped = any(all(re.search(r"(?<!\w)" + re.escape(part) + r"(?!\w)", row.get("scope", ""))
                 for part in journey.split("/")) for journey in contracts[(source, kind, names, action)])
             value = row.get(kind, "").strip()
-            accepted_actions = {"tap", "gesture"} if action == "selection" else {"scroll", "scroll-fit"} if action == "scroll" else {action}
+            accepted_actions = {"tap", "selection"} if action == "selection" else {"swipe", "drag"} if action == "pan" else {"scroll", "scroll-fit"} if action == "scroll" else {action}
             return scoped and bool(accepted_actions & set(row.get("actions", []))) and any(re.fullmatch(pattern, value) is not None
                 or kind == "label" and re.match(pattern + r",\s", value) is not None for pattern in patterns)
         shared = any(shares_carrier(key, other) for other in selectors)

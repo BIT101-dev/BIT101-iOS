@@ -1,5 +1,6 @@
 import BIT101TestSupport
 import CommunityCore
+import CommunityTransport
 import Foundation
 import os
 import Testing
@@ -53,12 +54,14 @@ struct GalleryStateContractTests {
         var failed = false
         var submissions = 0
         var pending: CheckedContinuation<Void, Never>?
+        var failure: (any Error)?
         func fetchReportTypes() async throws -> [GalleryReportType] {
             if failed { throw URLError(.notConnectedToInternet) }
             return types
         }
         func report(objectID: String, typeID: Int, text: String) async throws {
             submissions += 1
+            if let failure { throw failure }
             await withCheckedContinuation { pending = $0 }
             try Task.checkCancellation()
         }
@@ -70,7 +73,7 @@ struct GalleryStateContractTests {
             user: .placeholder(id: 1, nickname: "作者"))
     }
 
-    @Test func failedSearchKeepsTheSuccessfulQueryAndPaginationSnapshot() async {
+    @Test(.timeLimit(.minutes(1))) func failedSearchKeepsTheSuccessfulQueryAndPaginationSnapshot() async {
         let service = Feed()
         let model = GalleryViewModel(service: service)
         model.searchQuery.text = "原查询"
@@ -157,7 +160,7 @@ struct GalleryStateContractTests {
         model.cancelPendingOperations()
     }
 
-    @Test func memoryPressureReleasesInactiveFeedsAndRetainsTheActiveCursor() async {
+    @Test(.timeLimit(.minutes(1))) func memoryPressureReleasesInactiveFeedsAndRetainsTheActiveCursor() async {
         let model = GalleryViewModel(service: Feed())
         await model.refresh(feed: .newest)
         await model.refresh(feed: .follow)
@@ -167,7 +170,7 @@ struct GalleryStateContractTests {
         #expect(model.state(for: .newest).posters.map(\.id) == [1] && model.state(for: .newest).nextPage == 1)
     }
 
-    @Test func reportCategoriesRespectRemoteEmptyAndFailureResults() async throws {
+    @Test(.timeLimit(.minutes(1))) func reportCategoriesRespectRemoteEmptyAndFailureResults() async throws {
         let service = Report()
         let model = GalleryReportViewModel(service: service)
         await model.loadReportTypes()
@@ -180,6 +183,19 @@ struct GalleryStateContractTests {
         service.types = try JSONDecoder().decode([GalleryReportType].self, from: Data(#"[{"id":42,"text":"服务端类型"}]"#.utf8))
         await model.loadReportTypes()
         #expect(model.selectedTypeID == 42 && model.errorMessage == nil)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func reportResponseLossPausesRepeatedSubmission() async throws {
+        let service = Report()
+        service.types = try JSONDecoder().decode([GalleryReportType].self, from: Data(#"[{"id":42,"text":"类型"}]"#.utf8))
+        service.failure = CommunityCreateOutcomeUnknown(underlying: URLError(.networkConnectionLost))
+        let model = GalleryReportViewModel(service: service)
+        await model.loadReportTypes()
+        #expect(await model.submit(objectID: "poster1") == false)
+        #expect(model.resultNeedsReview && model.errorMessage == CommunityCreateOutcomeUnknown.reportReviewMessage)
+        #expect(await model.submit(objectID: "poster1") == false && service.submissions == 1)
+        await model.loadReportTypes()
+        #expect(model.resultNeedsReview && model.errorMessage != nil)
     }
 
     @Test(.timeLimit(.minutes(1)))

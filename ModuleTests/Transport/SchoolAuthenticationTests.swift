@@ -4,6 +4,21 @@ import Foundation
 import Testing
 
 struct SchoolAuthenticationTests {
+    @Test(arguments: [
+        ("https://sso.bit.edu.cn", "https://sso.bit.edu.cn:443/cas/login", true),
+        ("https://sso.bit.edu.cn:443", "https://sso.bit.edu.cn/cas/login", true),
+        ("https://sso.bit.edu.cn", "https://sso.bit.edu.cn:444/cas/login", false),
+        ("https://sso.bit.edu.cn", "http://sso.bit.edu.cn/cas/login", false),
+        ("https://sso.bit.edu.cn", "https://user@sso.bit.edu.cn/cas/login", false)
+    ])
+    func schoolSecondFactorNormalizesTheDefaultSecurePort(fixture: (String, String, Bool)) throws {
+        let (origin, action, valid) = fixture
+        let html = "<form action=\"\(action)\"><input id=\"login-page-flowkey\" value=\"flow\"><input id=\"user-object-id\" value=\"user\"><div id=\"secondSmsLoginForm\"></div></form>"
+        let context = SchoolLoginHTMLParser.parseSecondFactorPage(html: html, baseURL: AppURL.required(origin))
+        if valid { #expect(try #require(context).formAction.absoluteString == action) }
+        else { #expect(context == nil) }
+    }
+
     @Test func schoolLoginParserBuildsSafeSecondFactorContext() throws {
         let html = #"""
         <form action="/cas/login">
@@ -22,6 +37,20 @@ struct SchoolAuthenticationTests {
         #expect(context.execution == "flow-key")
         #expect(context.userObjectID == "user-42")
         #expect(context.formAction.absoluteString == "https://sso.bit.edu.cn/cas/login")
+    }
+
+    @Test(arguments: ["login", "?step=2", "", "https://evil.invalid/login"])
+    func schoolSecondFactorActionsResolveAgainstTheResponseDocument(action: String) throws {
+        let html = "<form action=\"\(action)\"><input id=\"login-page-flowkey\" value=\"flow\"><input id=\"user-object-id\" value=\"user\"><div id=\"secondSmsLoginForm\"></div></form>"
+        let origin = AppURL.required("https://sso.bit.edu.cn")
+        let context = SchoolLoginHTMLParser.parseSecondFactorPage(html: html, baseURL: origin,
+            documentURL: AppURL.required("https://sso.bit.edu.cn/cas/login?service=fixture"))
+        if action.hasPrefix("https:") { #expect(context == nil) }
+        else {
+            let expected = action.isEmpty ? "https://sso.bit.edu.cn/cas/login?service=fixture"
+                : action.hasPrefix("?") ? "https://sso.bit.edu.cn/cas/login?step=2" : "https://sso.bit.edu.cn/cas/login"
+            #expect(try #require(context).formAction.absoluteString == expected)
+        }
     }
 
     @Test func cryptoCompletionAcceptsOnlyExpectedSchoolLanding() {

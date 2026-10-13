@@ -37,6 +37,10 @@ public nonisolated struct ScheduleCloudSyncState: Codable, Sendable {
     var timeTable: [TimeSlot]
     var sharedSchedules: [SharedScheduleRecord]
 
+    public var hasValidManualDDLEvents: Bool {
+        manualDDLEvents.allSatisfy { !$0.isSchoolSynced && $0.hasValidRecord }
+    }
+
     public init(cache: ScheduleCache) {
         primaryScheduleTitle = cache.primaryScheduleTitle
         manualCourseRulesByTerm = cache.manualCourseRulesByTerm.filter { !$0.value.isEmpty }

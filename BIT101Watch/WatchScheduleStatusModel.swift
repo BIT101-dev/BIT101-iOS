@@ -35,8 +35,8 @@ enum WatchScheduleRefreshState: Equatable {
 @MainActor
 struct WatchScheduleStatusDependencies {
     var now: @MainActor () -> Date
-    var loadResolvedSnapshot: @MainActor (Date, Int) -> ScheduleExternalResolvedSnapshot
-    var clearSnapshot: @MainActor () -> Bool
+    var loadResolvedSnapshot: @MainActor (Date, Int) async -> ScheduleExternalResolvedSnapshot
+    var clearSnapshot: @MainActor () async -> Bool
     var activateSync: @MainActor () -> Void
     var requestLatestSnapshot: @MainActor (
         @escaping @MainActor (Result<WatchScheduleSyncOutcome, WatchScheduleSyncError>) -> Void
@@ -49,7 +49,7 @@ struct WatchScheduleStatusDependencies {
     static let live = WatchScheduleStatusDependencies(
         now: Date.init,
         loadResolvedSnapshot: { now, limit in
-            ScheduleOccurrenceResolver.loadResolvedSnapshot(store: PlatformScheduleSnapshotStorage.store, now: now, limit: limit)
+            await ScheduleOccurrenceResolver.loadResolvedSnapshotAsync(store: PlatformScheduleSnapshotStorage.store, now: now, limit: limit)
         },
         clearSnapshot: WatchScheduleSyncManager.shared.clearSnapshot,
         activateSync: WatchScheduleSyncManager.shared.activateIfNeeded,
@@ -75,6 +75,8 @@ final class WatchScheduleStatusModel: ObservableObject {
     private var hasActivated = false
     private var refreshFeedbackTask: Task<Void, Never>?
     private var foregroundRefreshTask: Task<Void, Never>?
+    private var snapshotTask: Task<Void, Never>?
+    private var snapshotGeneration: UInt64 = 0
     private var refreshGeneration: UInt64 = 0
 
 #if os(watchOS)
@@ -91,6 +93,7 @@ final class WatchScheduleStatusModel: ObservableObject {
     deinit {
         refreshFeedbackTask?.cancel()
         foregroundRefreshTask?.cancel()
+        snapshotTask?.cancel()
     }
 
     func activate() {
@@ -107,6 +110,7 @@ final class WatchScheduleStatusModel: ObservableObject {
         case .active:
             reload()
             startForegroundRefresh()
+            if hasActivated { requestLatestSnapshot(reportResult: false) }
         case .inactive, .background:
             stopForegroundRefresh()
         @unknown default:
@@ -114,14 +118,25 @@ final class WatchScheduleStatusModel: ObservableObject {
         }
     }
 
-    func reload(now: Date? = nil) {
+    @discardableResult
+    func reload(now: Date? = nil) -> Task<Void, Never> {
         let now = now ?? dependencies.now()
         referenceDate = now
-        let resolved = dependencies.loadResolvedSnapshot(now, Self.maxVisibleOccurrences)
-        snapshot = resolved.snapshot
-        contentState = resolved.contentState
-        nextOccurrence = resolved.nextOccurrence
-        upcomingOccurrences = resolved.upcomingOccurrences
+        snapshotGeneration &+= 1
+        let generation = snapshotGeneration
+        snapshotTask?.cancel()
+        let load = dependencies.loadResolvedSnapshot
+        let operation = Task { @MainActor [weak self] in
+            let resolved = await load(now, Self.maxVisibleOccurrences)
+            guard !Task.isCancelled, let self, self.snapshotGeneration == generation else { return }
+            self.snapshot = resolved.snapshot
+            self.contentState = resolved.contentState
+            self.nextOccurrence = resolved.nextOccurrence
+            self.upcomingOccurrences = resolved.upcomingOccurrences
+            self.snapshotTask = nil
+        }
+        snapshotTask = operation
+        return operation
     }
 
     func requestRefresh() {
@@ -145,20 +160,34 @@ final class WatchScheduleStatusModel: ObservableObject {
         finishRefresh(as: .succeeded)
     }
 
-    func clearLocalData() {
+    @discardableResult
+    func clearLocalData() -> Task<Void, Never> {
+        snapshotGeneration &+= 1
+        snapshotTask?.cancel()
+        snapshotTask = nil
         refreshGeneration &+= 1
         refreshFeedbackTask?.cancel()
         refreshState = .idle
         referenceDate = dependencies.now()
-        guard dependencies.clearSnapshot() else {
-            reload()
-            refreshState = .clearFailed
-            return
+        let generation = snapshotGeneration
+        let clear = dependencies.clearSnapshot
+        let task = Task { @MainActor [weak self] in
+            guard !Task.isCancelled else { return }
+            let cleared = await clear()
+            guard let self, !Task.isCancelled, self.snapshotGeneration == generation else { return }
+            self.snapshotTask = nil
+            guard cleared else {
+                self.reload()
+                self.refreshState = .clearFailed
+                return
+            }
+            self.snapshot = nil
+            self.contentState = .missing
+            self.nextOccurrence = nil
+            self.upcomingOccurrences = []
         }
-        snapshot = nil
-        contentState = .missing
-        nextOccurrence = nil
-        upcomingOccurrences = []
+        snapshotTask = task
+        return task
     }
 
     var refreshButtonTitle: String { refreshState.buttonTitle }
@@ -207,5 +236,8 @@ final class WatchScheduleStatusModel: ObservableObject {
     private func stopForegroundRefresh() {
         foregroundRefreshTask?.cancel()
         foregroundRefreshTask = nil
+        snapshotGeneration &+= 1
+        snapshotTask?.cancel()
+        snapshotTask = nil
     }
 }

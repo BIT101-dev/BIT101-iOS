@@ -7,11 +7,13 @@ public nonisolated struct ScheduleCloudAccount: Equatable, Sendable {
     public let studentID: String
     public let session: AppStorageSession
     public let generation: Int
+    public let cloudGeneration: Int
 
-    public init(studentID: String, session: AppStorageSession, generation: Int) {
+    public init(studentID: String, session: AppStorageSession, generation: Int, cloudGeneration: Int = 0) {
         self.studentID = studentID
         self.session = session
         self.generation = generation
+        self.cloudGeneration = cloudGeneration
     }
 
     public var accountIdentifier: String { session.accountDirectoryName }

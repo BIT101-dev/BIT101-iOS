@@ -47,6 +47,7 @@ protocol AccountSettingsServicing {
 struct SettingsAccountDependencies {
     let service: any AccountSettingsServicing
     let credentials: () -> CommunityCredentials
+    let profileMutation = AccountProfileMutation()
 
     func acceptsLoginCheck(_ isLoggedIn: Bool, for owner: CommunityCredentials) -> Bool {
         let current = credentials()
@@ -58,6 +59,21 @@ struct SettingsAccountDependencies {
 @MainActor
 final class AccountProfileMutation: ObservableObject {
     @Published private(set) var isUpdating = false
+    @Published private(set) var isRunning = false
+    var isBusy: Bool { isRunning || isUpdating }
+    private var task: Task<Void, Never>?
+    @discardableResult
+    func start(_ operation: @escaping @MainActor () async -> Void) -> Bool {
+        guard !isBusy else { return false }
+        isRunning = true
+        task = Task {
+            defer { task = nil; isRunning = false }
+            guard !Task.isCancelled else { return }
+            await operation()
+        }
+        return true
+    }
+    func cancel() { task?.cancel() }
     func perform(_ operation: () async throws -> Void) async throws {
         try Task.checkCancellation()
         guard !isUpdating else { return }

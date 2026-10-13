@@ -7,6 +7,86 @@ import CommunityTransport
 @MainActor
 @Suite("App Store update reminder", .serialized)
 struct AppUpdateCheckerTests {
+    @Test(.timeLimit(.minutes(1)), arguments: [0, 1, 2])
+    func notificationPermissionChecksKeepTheirAccountGeneration(change: Int) async throws {
+        var identity = CommunitySessionIdentity(accountIdentifier: "first", generation: 1)
+        var pending: CheckedContinuation<Bool, Never>?
+        let task = Task {
+            await AppAccountLifecycle.scheduleNotificationPromptAccount(currentIdentity: { identity }, isDenied: {
+                await withCheckedContinuation { pending = $0 }
+            })
+        }
+        defer { task.cancel(); pending?.resume(returning: false) }
+        try await waitForTestEvent { pending != nil }
+        if change == 0 { identity = .init(accountIdentifier: "second", generation: 2) }
+        if change == 1 { identity = .init(accountIdentifier: "first", generation: 2) }
+        if change == 2 { task.cancel() }
+        let continuation = try #require(pending); pending = nil
+        continuation.resume(returning: true)
+        #expect(await task.value == nil)
+        #expect(await AppAccountLifecycle.scheduleNotificationPromptAccount(currentIdentity: { identity }, isDenied: { true }) == identity)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func launchChecksUseTheSelectedSettingsInstance(enabled: Bool) async throws {
+        let context = try TestContext()
+        defer { context.cleanUp() }
+        let settings = AppSettingsStore(defaults: context.defaults)
+        settings.setAutomaticUpdateChecksEnabled(enabled)
+        var requests = 0
+        let checker = AppUpdateChecker(defaults: context.defaults, now: { context.now }, installedVersion: { "1.7.0" },
+            loadData: { request in
+                requests += 1
+                return try Self.lookupResponse(for: try #require(request.url))
+            })
+        let coordinator = AppUpdatePromptCoordinator(settings: settings, checker: checker,
+            emergencyChecker: EmergencyUpdateChecker(defaults: context.defaults, endpointURL: { nil }))
+        _ = await coordinator.noticeToPresentAtLaunch()
+        #expect(requests == (enabled ? 1 : 0))
+        #expect(await coordinator.noticeToPresentAtLaunch() == nil)
+        #expect(requests == (enabled ? 1 : 0))
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func overlappingLaunchAndManualLookupsPreserveTheLatestSuccessfulResponse(manualFails: Bool) async throws {
+        let context = try TestContext()
+        defer { context.cleanUp() }
+        var pending: CheckedContinuation<(Data, URLResponse), any Error>?
+        var initialURL: URL?
+        var requests = 0
+        let checker = AppUpdateChecker(defaults: context.defaults, now: { context.now }, installedVersion: { "1.7.0" }, loadData: { request in
+            requests += 1
+            let url = try #require(request.url)
+            if requests == 1 {
+                initialURL = url
+                return try await withCheckedThrowingContinuation { pending = $0 }
+            }
+            if manualFails { throw URLError(.notConnectedToInternet) }
+            return try Self.lookupResponse(for: url, version: "1.8.0")
+        })
+        let launch = Task { await checker.releaseToPresentAtLaunch() }
+        defer { pending?.resume(throwing: CancellationError()); launch.cancel() }
+        try await waitForTestEvent { pending != nil }
+        if manualFails {
+            await #expect(throws: URLError.self) { try await checker.checkManually() }
+        } else {
+            guard case let .update(release) = try await checker.checkManually() else {
+                Issue.record("手动检查应展示新版本"); return
+            }
+            #expect(release.version == "1.8.0")
+        }
+        let continuation = try #require(pending)
+        pending = nil
+        continuation.resume(returning: try Self.lookupResponse(for: try #require(initialURL), version: "1.7.1"))
+        let expected = manualFails ? "1.7.1" : "1.8.0"
+        let presented = await launch.value
+        #expect(presented?.version == expected)
+        let cached = try JSONDecoder().decode(AppStoreRelease.self, from: #require(context.defaults.data(forKey: AppUpdateChecker.cachedReleaseKey)))
+        #expect(cached.version == expected)
+        let subsequent = await checker.releaseToPresentAtLaunch()
+        #expect(subsequent?.version == expected && requests == 2)
+    }
+
     @Test func accountPromptsCancelQueuedAndActiveRequestsAcrossAccountChanges() throws {
         let prompts = AppPromptCoordinator(advanceDelay: .zero)
         let first = CommunitySessionIdentity(accountIdentifier: "first", generation: 1)
@@ -85,7 +165,7 @@ struct AppUpdateCheckerTests {
         settings.reloadForCurrentAccount()
         #expect(settings.snapshot.hasShownLinuxDoThanksNotice)
     }
-    @Test(arguments: ["foreign", "downgrade", "port", "credentials"])
+    @Test(.timeLimit(.minutes(1)), arguments: ["foreign", "downgrade", "port", "credentials"])
     func updateJSONFromAnotherOriginKeepsBothPromptsUnpublished(_ scenario: String) async throws {
         let context = try TestContext()
         defer { context.cleanUp() }
@@ -135,7 +215,7 @@ struct AppUpdateCheckerTests {
         #expect(performed == ["first", "second"])
     }
 
-    @Test("Emergency notices target Build numbers and can only be ignored today")
+    @Test("Emergency notices target Build numbers and can only be ignored today", .timeLimit(.minutes(1)))
     func emergencyNoticeEligibility() async throws {
         let context = try TestContext()
         defer { context.cleanUp() }
@@ -160,7 +240,7 @@ struct AppUpdateCheckerTests {
         #expect(await checker.noticeToPresentAtLaunch()?.noticeID == "network-fix")
     }
 
-    @Test("Emergency notice suppresses the ordinary App Store prompt")
+    @Test("Emergency notice suppresses the ordinary App Store prompt", .timeLimit(.minutes(1)))
     func emergencyNoticeHasPriority() async throws {
         let context = try TestContext()
         defer { context.cleanUp() }
@@ -181,6 +261,7 @@ struct AppUpdateCheckerTests {
             }
         )
         let coordinator = AppUpdatePromptCoordinator(
+            settings: AppSettingsStore(defaults: context.defaults),
             checker: storeChecker,
             emergencyChecker: emergencyChecker
         )
@@ -193,7 +274,7 @@ struct AppUpdateCheckerTests {
         #expect(await coordinator.noticeToPresentAtLaunch() == nil)
     }
 
-    @Test("Builds newer than the emergency threshold are unaffected")
+    @Test("Builds newer than the emergency threshold are unaffected", .timeLimit(.minutes(1)))
     func emergencyNoticeDoesNotAffectNewBuilds() async throws {
         let context = try TestContext()
         defer { context.cleanUp() }
@@ -210,7 +291,7 @@ struct AppUpdateCheckerTests {
         #expect(await checker.noticeToPresentAtLaunch() == nil)
     }
 
-    @Test("Automatic App Store reminders wait until the release is seven days old")
+    @Test("Automatic App Store reminders wait until the release is seven days old", .timeLimit(.minutes(1)))
     func automaticReminderWaitsSevenDays() async throws {
         let context = try TestContext()
         defer { context.cleanUp() }
@@ -278,7 +359,7 @@ struct AppUpdateCheckerTests {
         #expect(performed == ["first", "second"])
     }
 
-    @Test("A network prompt gate releases its request after dismissal")
+    @Test("A network prompt gate releases its request after dismissal", .timeLimit(.minutes(1)))
     func promptGateWaitsForDismissal() async throws {
         let coordinator = AppPromptCoordinator(advanceDelay: .zero)
         coordinator.markHostReady()
@@ -310,7 +391,7 @@ struct AppUpdateCheckerTests {
         #expect(!AppVersionComparison.isNewer("1.7.0", than: "1.7.1"))
     }
 
-    @Test("A successful lookup caches release notes and avoids another request for 24 hours")
+    @Test("A successful lookup caches release notes and avoids another request for 24 hours", .timeLimit(.minutes(1)))
     func lookupIsCachedForOneDay() async throws {
         let context = try TestContext()
         defer { context.cleanUp() }
@@ -344,7 +425,7 @@ struct AppUpdateCheckerTests {
         #expect(third == first)
     }
 
-    @Test("Once presented the same release stays hidden for 24 hours")
+    @Test("Once presented the same release stays hidden for 24 hours", .timeLimit(.minutes(1)))
     func presentationCooldown() async throws {
         let context = try TestContext()
         defer { context.cleanUp() }
@@ -370,7 +451,7 @@ struct AppUpdateCheckerTests {
         #expect(requestCount == 2)
     }
 
-    @Test("Ignoring one store version keeps it hidden but does not hide a later version")
+    @Test("Ignoring one store version keeps it hidden but does not hide a later version", .timeLimit(.minutes(1)))
     func ignoredVersionIsScopedToThatRelease() async throws {
         let context = try TestContext()
         defer { context.cleanUp() }
@@ -394,7 +475,7 @@ struct AppUpdateCheckerTests {
         #expect(await checker.releaseToPresentAtLaunch()?.version == "1.7.2")
     }
 
-    @Test("Failed lookups are throttled and never block startup")
+    @Test("Failed lookups are throttled and never block startup", .timeLimit(.minutes(1)))
     func failedLookupIsThrottled() async throws {
         let context = try TestContext()
         defer { context.cleanUp() }
@@ -415,7 +496,7 @@ struct AppUpdateCheckerTests {
         #expect(requestCount == 1)
     }
 
-    @Test("Manual lookup bypasses the automatic 24-hour query gate")
+    @Test("Manual lookup bypasses the automatic 24-hour query gate", .timeLimit(.minutes(1)))
     func manualLookupBypassesAutomaticQueryGate() async throws {
         let context = try TestContext()
         defer { context.cleanUp() }
@@ -443,7 +524,7 @@ struct AppUpdateCheckerTests {
         #expect(requestCount == 2)
     }
 
-    @Test("Manual lookup reports the installed version as current")
+    @Test("Manual lookup reports the installed version as current", .timeLimit(.minutes(1)))
     func manualLookupReportsCurrentVersion() async throws {
         let context = try TestContext()
         defer { context.cleanUp() }
@@ -460,7 +541,7 @@ struct AppUpdateCheckerTests {
         #expect(result == .current)
     }
 
-    @Test func cachedInitialStorePublicationDateRequiresARefreshBeforeAutomaticPresentation() async throws {
+    @Test(.timeLimit(.minutes(1))) func cachedInitialStorePublicationDateRequiresARefreshBeforeAutomaticPresentation() async throws {
         let context = try TestContext()
         defer { context.cleanUp() }
         let old = try JSONSerialization.data(withJSONObject: ["version": "9.0", "releaseDate": 0,

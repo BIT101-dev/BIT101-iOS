@@ -16,7 +16,31 @@ export BIT101_VALIDATION_STARTED_AT
 finish_audit() {
   local audit_status=$?
   trap - EXIT INT TERM
-  for pid in "${group_processes[@]}"; do if (( pid > 0 )); then kill "$pid" 2>/dev/null || true; fi; done
+  python3 - "${group_processes[@]}" <<'PYSTOP'
+import os
+import signal
+import sys
+import time
+
+groups = {int(pid) for pid in sys.argv[1:] if int(pid) > 0}
+def send(signum):
+    for pid in tuple(groups):
+        try: os.killpg(pid, signum)
+        except ProcessLookupError: groups.discard(pid)
+        except PermissionError:
+            if signum: raise
+            groups.discard(pid)
+
+send(signal.SIGTERM)
+deadline = time.monotonic() + 5
+while groups:
+    send(0)
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        send(signal.SIGKILL)
+        break
+    if groups: time.sleep(min(0.1, remaining))
+PYSTOP
   for pid in "${group_processes[@]}"; do if (( pid > 0 )); then wait "$pid" 2>/dev/null || true; fi; done
   local record_status=0
   python3 "$ROOT_DIR/Scripts/validation_evidence.py" record audit "$audit_status" || record_status=$?
@@ -27,6 +51,8 @@ finish_audit() {
 trap finish_audit EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+
+rm -f "$ROOT_DIR/.build/"{code-quality-report,ui-consistency-report,explanatory-text-report}.txt
 
 SWIFT_FRONTEND="$(xcrun --find swift-frontend 2>/dev/null || true)"
 if [[ -z "$SWIFT_FRONTEND" || ! -x "$SWIFT_FRONTEND" ]]; then
@@ -57,10 +83,13 @@ run_group() {
 show_group_log() {
   local log="$1"
   local failed="$2"
-  local line_count="$(wc -l < "$log")"
-  if (( line_count <= 1000 )) || [[ "$failed" == true && "${GITHUB_ACTIONS:-false}" == true ]]; then
+  if [[ "$failed" == true && "${GITHUB_ACTIONS:-false}" == true ]]; then
     cat "$log"
-  else
+    return
+  fi
+  local line_count="$(wc -l < "$log")"
+  head -n 40 "$log"
+  if (( line_count > 40 )); then
     echo "[输出] ${log:t:r} 共 $line_count 行 · $log"
   fi
 }
@@ -82,7 +111,7 @@ python_parse() {
 }
 worker_parse() {
   find "$ROOT_DIR/Cloudflare" \
-    -path '*/node_modules' -prune -o \
+    \( -name node_modules -o -name .wrangler -o -name .git \) -prune -o \
     -type f -name '*.js' -print0 \
     | xargs -0 -n 1 node --check
 }
@@ -106,13 +135,25 @@ docs_check() {
   (cd "$ROOT_DIR" && python3 Scripts/validate_versions.py "${version_args[@]}")
 }
 checker_audit() {
-  python3 "$ROOT_DIR/Scripts/check-file-lengths.py" || return 1
-  python3 "$ROOT_DIR/Scripts/check-file-lengths.py" --staged || return 1
-  python3 "$ROOT_DIR/Scripts/validation_evidence.py" self-test || return 1
-  python3 "$ROOT_DIR/Scripts/check-code-quality.py" --combined
+  local checker_status=0
+  python3 "$ROOT_DIR/Scripts/check-file-lengths.py" || checker_status=1
+  python3 "$ROOT_DIR/Scripts/check-file-lengths.py" --staged || checker_status=1
+  python3 "$ROOT_DIR/Scripts/validation_evidence.py" self-test || checker_status=1
+  python3 "$ROOT_DIR/Scripts/check-code-quality.py" --combined || checker_status=1
+  return "$checker_status"
 }
 module_boundary_audit() { python3 "$ROOT_DIR/Scripts/check-module-boundaries.py"; }
 artifact_hygiene() { python3 "$ROOT_DIR/Scripts/validation_artifacts.py" "$ROOT_DIR"; }
+
+start_group() {
+  local name="$1"
+  local delegate="$2"
+  local worker=$'set -euo pipefail\n'"$(typeset -f run_group "$delegate")"$'\n''run_group "$1" "$2"'
+  ROOT_DIR="$ROOT_DIR" LOG_DIR="$LOG_DIR" SWIFT_FRONTEND="$SWIFT_FRONTEND" command python3 -c \
+    'import os, sys; os.setsid(); os.execvp("zsh", ["zsh", "-c", sys.argv[1], "audit-group", *sys.argv[2:]])' \
+    "$worker" "$name" "$delegate" &
+  group_processes+=($!)
+}
 
 failed_groups=()
 run_group artifact-hygiene artifact_hygiene || failed_groups+=(artifact-hygiene)
@@ -120,8 +161,7 @@ if (( ${#failed_groups} )); then cat "$LOG_DIR/artifact-hygiene.log" >&2; fi
 group_names=(swift-parse shell-parse python-parse worker-parse dependency-audit module-boundary git-diff docs checkers)
 group_commands=(swift_parse shell_parse python_parse worker_parse dependency_audit module_boundary_audit git_check docs_check checker_audit)
 for (( index = 1; index <= ${#group_names}; index++ )); do
-  run_group "$group_names[$index]" "$group_commands[$index]" &
-  group_processes+=($!)
+  start_group "$group_names[$index]" "$group_commands[$index]"
 done
 for (( index = 1; index <= ${#group_names}; index++ )); do
   name="$group_names[$index]"

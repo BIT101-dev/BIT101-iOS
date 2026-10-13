@@ -40,6 +40,7 @@ private struct GalleryPosterDetailViewScene: View {
     private let dependencies: GalleryDependencies
     private let destinations: CommunityProfileDestination
     private let media: MediaEnvironment
+    @ObservedObject private var contentPreferences: CommunityPreferences
     private struct UserRoute: Identifiable, Hashable {
         let userID: Int
         var id: Int { userID }
@@ -66,6 +67,7 @@ private struct GalleryPosterDetailViewScene: View {
     ) {
         self.dependencies = dependencies
         self.media = media
+        _contentPreferences = ObservedObject(wrappedValue: dependencies.preferences)
         self.destinations = profiles
         _viewModel = StateObject(wrappedValue: GalleryPosterDetailViewModel(initialPoster: poster, service: dependencies.posterDetail))
         self.onUpdated = onUpdated
@@ -113,7 +115,7 @@ private struct GalleryPosterDetailViewScene: View {
                             AppDetailCircleButton(
                                 accessibilityLabel: viewModel.poster.like ? "取消帖子点赞" : "点赞帖子"
                             ) {
-                                Task {
+                                viewModel.pendingOperations.enqueue {
                                     await viewModel.likePoster()
                                 }
                             } label: {
@@ -139,7 +141,7 @@ private struct GalleryPosterDetailViewScene: View {
                         systemImage: "exclamationmark.triangle",
                         message: message,
                         onRetry: {
-                            Task { await viewModel.refreshAll() }
+                            viewModel.pendingOperations.enqueue { await viewModel.refreshAll() }
                         }
                     )
                 }
@@ -225,7 +227,7 @@ private struct GalleryPosterDetailViewScene: View {
                     selectedOrder: viewModel.commentOrder,
                     likingCommentIDs: viewModel.likingCommentIDs,
                     onSelectOrder: { order in
-                        Task {
+                        viewModel.pendingOperations.enqueue {
                             await viewModel.setCommentOrder(order)
                         }
                     },
@@ -233,7 +235,7 @@ private struct GalleryPosterDetailViewScene: View {
                         composerTarget = .comment(mainComment: target.mainComment, targetComment: target.targetComment)
                     },
                     onLikeComment: { comment in
-                        Task {
+                        viewModel.pendingOperations.enqueue {
                             await viewModel.likeComment(comment)
                         }
                     },
@@ -241,7 +243,7 @@ private struct GalleryPosterDetailViewScene: View {
                         reportTarget = .comment(comment.id)
                     },
                     onDeleteComment: { comment in
-                        Task { await viewModel.deleteComment(comment) }
+                        viewModel.pendingOperations.enqueue { await viewModel.deleteComment(comment) }
                     },
                     onOpenImage: { index, images in
                         imageViewer = ImagePreviewRequest(remoteImages: images.map(\.previewImage), initialIndex: index)
@@ -251,7 +253,7 @@ private struct GalleryPosterDetailViewScene: View {
                         userRoute = UserRoute(userID: user.id)
                     },
                     onLoadMore: { comment in
-                        Task {
+                        viewModel.pendingOperations.enqueue {
                             await viewModel.loadMoreCommentsIfNeeded(currentComment: comment)
                         }
                     }
@@ -299,8 +301,8 @@ private struct GalleryPosterDetailViewScene: View {
                 )
             }
         }
-        .task {
-            await viewModel.bootstrapIfNeeded()
+        .task(id: contentPreferences.snapshot) {
+            await viewModel.refreshForContentPreferences()
         }
         .systemImagePreview(item: $imageViewer)
         .sheet(isPresented: $isShowingEditor) {
@@ -308,7 +310,7 @@ private struct GalleryPosterDetailViewScene: View {
                 GalleryComposerView(editingPoster: viewModel.poster) {
                     isShowingEditor = false
                     onUpdated?()
-                    Task { await viewModel.refreshAll() }
+                    viewModel.pendingOperations.enqueue { await viewModel.refreshAll() }
                 }
             }
         }
@@ -324,6 +326,7 @@ private struct GalleryPosterDetailViewScene: View {
         .sheet(item: $reportTarget) { target in
             GalleryReportSheet(target: target, service: dependencies.reporting) {}
         }
+        .onDisappear { viewModel.pendingOperations.cancel() }
         .diagnosticAlert(item: $viewModel.alert)
         .alert(
             "删除帖子",
@@ -333,7 +336,7 @@ private struct GalleryPosterDetailViewScene: View {
             Button("取消", role: .cancel) {}
                 .accessibilityIdentifier("ui.gallery-poster-detail-view-scene.cancel")
             Button("删除", role: .destructive) {
-                Task {
+                viewModel.pendingOperations.enqueue {
                     if await viewModel.deletePoster() {
                         onDeleted?()
                         dismiss()

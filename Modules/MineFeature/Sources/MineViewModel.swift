@@ -1,3 +1,4 @@
+import CommunityTransport
 import TransportCore
 import DesignSystemKit
 import CommunityCore
@@ -135,7 +136,6 @@ final class MineViewModel: ObservableObject {
 
             userInfo = nil
             profileStatus = .failed(error.localizedDescription)
-            alert = AppAlert(title: "加载个人信息失败", message: error.localizedDescription)
         }
     }
 
@@ -176,7 +176,6 @@ final class MineViewModel: ObservableObject {
             }
             followerState.status = .failed(error.localizedDescription)
             followerState.canLoadMore = false
-            alert = AppAlert(title: "加载粉丝失败", message: error.localizedDescription)
         }
     }
 
@@ -251,7 +250,6 @@ final class MineViewModel: ObservableObject {
             }
             followingState.status = .failed(error.localizedDescription)
             followingState.canLoadMore = false
-            alert = AppAlert(title: "加载关注失败", message: error.localizedDescription)
         }
     }
 
@@ -331,7 +329,6 @@ final class MineViewModel: ObservableObject {
 
             posterState.status = .failed(error.localizedDescription)
             posterState.canLoadMore = false
-            alert = AppAlert(title: "加载帖子失败", message: error.localizedDescription)
         }
     }
 
@@ -397,6 +394,7 @@ final class UserProfileViewModel: ObservableObject {
     private var posterGeneration = 0
     private var followRevision = 0
     private var latestFollowResult: MineFollowResult?
+    private var followResultNeedsReview = false
 
     init(userID: Int, service: any UserProfileServicing) {
         self.userID = userID
@@ -447,6 +445,7 @@ final class UserProfileViewModel: ObservableObject {
                 latestFollowResult = nil
             }
             profileStatus = .loaded
+            followResultNeedsReview = false
         } catch {
             guard profileGeneration == generation else { return }
             if isMineCancellation(error) {
@@ -466,22 +465,30 @@ final class UserProfileViewModel: ObservableObject {
 
             userInfo = nil
             profileStatus = .failed(error.localizedDescription)
-            alert = AppAlert(title: "加载主页失败", message: error.localizedDescription)
         }
     }
 
     func followUser() async {
+        guard !followResultNeedsReview else {
+            alert = AppAlert(title: "关注结果待确认", message: CommunityToggleOutcomeUnknown.reviewMessage)
+            return
+        }
         guard let userInfo, !userInfo.own, !userInfo.following, !isFollowingUser else { return }
         isFollowingUser = true
         defer { isFollowingUser = false }
 
         do {
             let result = try await service.followUser(id: userID)
-            try Task.checkCancellation()
             followRevision &+= 1
             latestFollowResult = result
             self.userInfo = (self.userInfo ?? userInfo).updatingFollow(result)
         } catch {
+            if error is CommunityToggleOutcomeUnknown {
+                followResultNeedsReview = true
+                await refreshProfile()
+                if followResultNeedsReview { alert = AppAlert(title: "关注结果待确认", message: CommunityToggleOutcomeUnknown.reviewMessage) }
+                return
+            }
             if isMineCancellation(error) { return }
             if isMineNotLoggedIn(error) {
                 requiresLogin = true
@@ -529,7 +536,6 @@ final class UserProfileViewModel: ObservableObject {
 
             posterState.status = .failed(error.localizedDescription)
             posterState.canLoadMore = false
-            alert = AppAlert(title: "加载帖子失败", message: error.localizedDescription)
         }
     }
 

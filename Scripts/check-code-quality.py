@@ -3,7 +3,14 @@
 import sys
 import importlib.util
 sys.dont_write_bytecode = True
-from code_quality_rules import *
+import json
+import subprocess
+import traceback
+from code_quality_rules import (
+    REPORT_PATH, ROOT, SCRIPT_ROOT, audit_wiring_findings, automatic_school_fetch_findings,
+    explanatory_text_report, relative, repository_script_paths, script_findings, source_findings,
+    static_audit_lock, swift_files, swift_syntax_index,
+)
 
 def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[str] | None = None) -> int:
     from code_quality_tests import checker_boundary_findings
@@ -75,6 +82,14 @@ def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[s
 
 
 
+def self_test_findings(checker) -> list[str]:
+    try:
+        return checker()
+    except AssertionError as error:
+        frame = traceback.extract_tb(error.__traceback__)[-1]
+        return [f"自测失败 {checker.__name__}：{frame.filename}:{frame.lineno} {error}"]
+
+
 def combined_main() -> int:
     from code_quality_tests import checker_boundary_findings
     try:
@@ -90,13 +105,11 @@ def combined_main() -> int:
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
-    quality_boundaries = checker_boundary_findings()
-    ui_boundaries = [
-        *module.ast_marker_boundary_findings(),
-        *module.source_boundary_findings(),
-        *module.map_theme_color_contract_findings(),
-        *module.interaction_inventory_boundary_findings(),
-    ]
+    quality_boundaries = self_test_findings(checker_boundary_findings)
+    ui_boundaries = [finding for checker in (
+        module.ast_marker_boundary_findings, module.source_boundary_findings,
+        module.map_theme_color_contract_findings, module.interaction_inventory_boundary_findings,
+    ) for finding in self_test_findings(checker)]
     ui_status = module.main(syntax_index, ui_boundaries)
     quality_status = main(syntax_index, quality_boundaries)
     explanatory_text_report()

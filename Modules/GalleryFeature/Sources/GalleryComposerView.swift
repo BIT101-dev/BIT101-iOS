@@ -4,6 +4,7 @@ import CommunityCore
 import DesignSystemKit
 import PhotosUI
 import SwiftUI
+import MediaKit
 import UIKit
 
 /// 发帖入口按所选依赖实例创建编辑场景。
@@ -24,6 +25,7 @@ struct GalleryComposerView: View {
 }
 
 private struct GalleryComposerScene: View {
+    @Environment(MediaEnvironment.self) private var media
     @StateObject private var viewModel: GalleryComposerViewModel
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
     @State private var isShowingDraftAlert = false
@@ -140,6 +142,16 @@ private struct GalleryComposerScene: View {
                     .appSelectionFeedback(trigger: viewModel.selectedClaimID)
                     .appInteractiveListRow()
 
+                    if let error = viewModel.claimsLoadError {
+                        Text("声明加载失败：\(error)")
+                            .font(AppDesignSystem.Typography.footnote)
+                            .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                        Button("重新加载声明") { Task { await viewModel.loadClaimsIfNeeded() } }
+                            .appInteractiveListRow()
+                            .disabled(viewModel.isLoadingClaims)
+                            .accessibilityIdentifier("gallery.editor.retry-claims")
+                    }
+
                     Toggle("匿名发布", isOn: $viewModel.anonymous)
                         .appSelectionFeedback(trigger: viewModel.anonymous)
                     .appInteractiveListRow()
@@ -221,7 +233,7 @@ private struct GalleryComposerScene: View {
                     }
                 }
             }
-            .disabled(viewModel.isSubmitting || viewModel.isSavingDraft)
+            .disabled(viewModel.isBusy || viewModel.hasPublishedContent)
             .navigationTitle(editingPoster == nil ? "发布帖子" : "编辑帖子")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -230,12 +242,12 @@ private struct GalleryComposerScene: View {
                         .accessibilityIdentifier("ui.gallery-composer-scene.cancel")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button(viewModel.isSubmitting ? "保存中" : editingPoster == nil ? "发布" : "保存") {
+                    Button(viewModel.submitTitle) {
                         Task {
                             if await viewModel.submit() { onCreated(); dismiss() }
                         }
                     }
-                    .disabled(viewModel.isSubmitting)
+                    .disabled(viewModel.isBusy)
                         .accessibilityIdentifier("ui.gallery-composer-scene.submit")
                 }
             }
@@ -244,7 +256,7 @@ private struct GalleryComposerScene: View {
                 guard !newValue.isEmpty else { return }
                 Task {
                     await viewModel.addImages(from: newValue.map { item in
-                        { try await item.loadTransferable(type: Data.self) }
+                        { try await media.loadBoundedImageData(from: item) }
                     })
                     if selectedPhotoItems == newValue { selectedPhotoItems = [] }
                 }
@@ -283,7 +295,11 @@ private struct GalleryComposerScene: View {
     }
 
     private func requestDismiss() {
-        guard !viewModel.isSubmitting, !viewModel.isSavingDraft else { return }
+        guard !viewModel.isBusy else { return }
+        if viewModel.hasPublishedContent {
+            Task { if await viewModel.submit() { onCreated(); dismiss() } }
+            return
+        }
         if editingPoster != nil || !viewModel.hasDraftContent { dismiss() }
         else { isShowingDraftAlert = true }
     }

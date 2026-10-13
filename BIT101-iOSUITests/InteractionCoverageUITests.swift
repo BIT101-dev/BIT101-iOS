@@ -294,7 +294,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         app.buttons["score.query"].tapBriefly()
         let code = app.textFields["verification.code"]
         assertUI(code.appears(timeout: 5), "成绩查询应打开短信验证。")
-        assertUI(!app.buttons["验证并查询成绩"].isEnabled, "空验证码应禁用提交。")
+        app.buttons["验证并查询成绩"].assertDisabled("空验证码应禁用提交。")
         replaceTextWithKeyboard("000000", in: code)
         assertUI(code.value as? String == "000000", "逐位输入应保留完整验证码供手动验证。")
         dismissKeyboard()
@@ -304,10 +304,10 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         let retry = app.buttons["重新查询"]
         assertUI(retry.appears(timeout: 5) && retry.isEnabled, "取消短信应恢复重新查询入口。")
         retry.tapBriefly()
-        fillVerificationCode("000000", in: app.textFields["verification.code"])
+        fillVerificationCode("００٠٠００", in: app.textFields["verification.code"])
         assertUI(app.staticTexts["测试验证码错误。"].appears(timeout: 5), "完整错误验证码自动验证后应允许修改。")
         assertUI(app.buttons["验证并查询成绩"].isEnabled, "自动验证错误后应恢复手动重试。")
-        fillVerificationCode("123456", in: app.textFields["verification.code"])
+        fillVerificationCode("１２٣٤５６", in: app.textFields["verification.code"])
         assertUI(textElement("自动化测试课程").appears(timeout: 5), "替换完整验证码应自动验证并加载成绩。")
         for (route, option) in [("学期", "ui-test-term"), ("种类", "必修")] {
             openScoreFilter(route)
@@ -368,7 +368,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
     }
 
     @MainActor
-    @objc func testTrustedTranscriptSMSRetryPreviewAndCancellation() {
+    @objc func testTrustedTranscriptSMSRetryPreviewAndCancellation() throws {
         app = configureApp(resetStorage: true, animations: true, initialTab: "home")
         tap("申请可信成绩单")
         tap("取消")
@@ -378,12 +378,25 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         assertUI(code.disappears(timeout: 5), "验证成功应关闭短信输入窗口。")
         tap("可信成绩单第1页")
         _ = imagePreviewCloseButton()
+        func assertPreviewPage(_ index: Int) throws {
+            let pageReady = NSPredicate { _, _ in
+                guard let value = UITestControlClient.request(["command": "preview-page"]),
+                      let page = try? JSONSerialization.jsonObject(with: Data(value.utf8)) as? [String: Int] else { return false }
+                return page["count"] == 2 && page["index"] == index
+            }
+            assertUI(waitUntil(pageReady, on: app), "预览应展示两页成绩单中的第 \(index + 1) 页。")
+        }
+        try assertPreviewPage(0)
         app.swipeLeft()
+        try assertPreviewPage(1)
         app.swipeRight()
+        try assertPreviewPage(0)
         closeImagePreview()
         assertUI(app.navigationBars["可信成绩单"].appears(timeout: 5), "关闭预览应返回成绩单。")
         reveal(app.buttons["可信成绩单第2页"])
         app.buttons["可信成绩单第2页"].tapBriefly()
+        _ = imagePreviewCloseButton()
+        try assertPreviewPage(1)
         closeImagePreview()
     }
 
@@ -713,12 +726,9 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         let platform = UIElement(app.native)
         let photos = platform.buttons.matching(NSPredicate(format: "label IN %@", ["照片", "Photos"])).firstMatch
         assertUI(photos.appears(timeout: 5), "图片入口应呈现系统照片选择器。")
-        guard let cancel = platform.buttons.matching(NSPredicate(format: "label IN %@", ["取消", "Cancel"]))
-            .allElementsBoundByIndex.last(where: { $0.isHittable }) else {
-            assertUI(false, "系统照片选择器应提供取消操作。")
-            return
-        }
-        cancel.press(forDuration: 0.01)
+        let cancel = platform.buttons.matching(identifier: "Cancel").firstMatch
+        assertUI(cancel.appears(timeout: 5), "系统照片选择器应提供取消操作。")
+        cancel.tap()
         assertUI(photos.disappears(timeout: 5), "取消图片选择应关闭系统选择器。")
     }
 

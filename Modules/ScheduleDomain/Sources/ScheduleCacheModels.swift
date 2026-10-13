@@ -54,7 +54,8 @@ public nonisolated struct ScheduleCache: Codable, Sendable {
                     debugDescription: "Structured schedule cache requires its schema version."))
             }
             self = try LegacyScheduleCache(from: decoder).migrated()
-            try validateTimeTable(codingPath: decoder.codingPath)
+            correctSchoolParityWeeks()
+            try validateForPersistence(codingPath: decoder.codingPath)
             return
         }
         let version = try container.decode(Int.self, forKey: .schemaVersion)
@@ -70,12 +71,29 @@ public nonisolated struct ScheduleCache: Codable, Sendable {
         presentation = try container.decode(SchedulePresentationPreferences.self, forKey: .presentation)
         syncData = try container.decode(ScheduleSyncData.self, forKey: .syncData)
         updatedAt = try container.decode(Date.self, forKey: .updatedAt)
-        try validateTimeTable(codingPath: decoder.codingPath)
+        correctSchoolParityWeeks()
+        try validateForPersistence(codingPath: decoder.codingPath)
     }
 
-    private func validateTimeTable(codingPath: [any CodingKey]) throws {
-        guard hasValidTimeTables else {
-            throw DecodingError.dataCorrupted(.init(codingPath: codingPath, debugDescription: "Time table requires ordered section IDs and valid, ordered time ranges."))
+    private mutating func correctSchoolParityWeeks() {
+        for (term, snapshot) in courseData.schedulesByTerm {
+            let corrected = CourseScheduleRowParser.correctingParityWeeks(snapshot.courses)
+            guard corrected != snapshot.courses else { continue }
+            courseData.schedulesByTerm[term] = TermScheduleSnapshot(term: term, firstDayString: snapshot.firstDayString,
+                courses: corrected, exams: snapshot.exams, updatedAt: snapshot.updatedAt)
+            courseData.manualCourseRulesByTerm[term] = courseData.manualCourseRulesByTerm[term]?.map { rule in
+                let original = snapshot.courses.filter { scheduleCourseSourceIdentity($0) == rule.sourceIdentity }
+                guard scheduleCourseSourceRecordsEqual(original, rule.sourceCourses) else { return rule }
+                return ScheduleCourseRule(id: rule.id, sourceIdentity: rule.sourceIdentity,
+                    sourceCourses: CourseScheduleRowParser.correctingParityWeeks(rule.sourceCourses),
+                    replacementCourses: rule.replacementCourses)
+            }
+        }
+    }
+
+    private func validateForPersistence(codingPath: [any CodingKey]) throws {
+        guard isValidForPersistence else {
+            throw DecodingError.dataCorrupted(.init(codingPath: codingPath, debugDescription: "Schedule records require valid identities, dates, time ranges and section placements."))
         }
     }
 
@@ -84,24 +102,41 @@ public nonisolated struct ScheduleCache: Codable, Sendable {
     }
 
     public var hasValidCoursePlacements: Bool {
-        courseData.schedulesByTerm.values.allSatisfy { $0.courses.allSatisfy(\.hasValidPlacement) }
-            && sharedSchedules.allSatisfy { $0.courses.allSatisfy(\.hasValidPlacement) }
+        courseData.schedulesByTerm.values.allSatisfy { hasValidCourses($0.courses) }
+            && sharedSchedules.allSatisfy { hasValidCourses($0.courses) }
             && manualCourseRulesByTerm.values.allSatisfy { rules in
-                rules.allSatisfy {
-                    $0.sourceCourses.allSatisfy(\.hasValidPlacement)
-                        && $0.replacementCourses.allSatisfy(\.hasValidPlacement)
+                hasUniqueIdentities(rules.map(\.id)) && rules.allSatisfy {
+                    !$0.sourceIdentity.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        && hasValidCourses($0.sourceCourses) && hasValidCourses($0.replacementCourses)
                 }
             }
+    }
+
+    public var isValidForPersistence: Bool {
+        hasValidTimeTables && hasValidCoursePlacements && hasSupportedCourseSections
+            && customSchedules.allSatisfy(\.hasValidPlacement) && Set(customSchedules.map(\.id)).count == customSchedules.count
+            && ddlEvents.allSatisfy(\.hasValidRecord) && hasUniqueIdentities(ddlEvents.map(\.id))
+            && hasUniqueIdentities(sharedSchedules.map(\.id))
+            && courseData.schedulesByTerm.values.allSatisfy { $0.exams.allSatisfy(\.hasValidPlacement) }
+    }
+
+    private func hasUniqueIdentities(_ ids: [String]) -> Bool {
+        ids.allSatisfy { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } && Set(ids).count == ids.count
+    }
+
+    private func hasValidCourses(_ courses: [CourseRecord]) -> Bool {
+        courses.allSatisfy(\.hasValidPlacement) && hasUniqueIdentities(courses.map(\.id))
     }
 
     public var hasSupportedCourseSections: Bool {
         let terms = Set(courseData.schedulesByTerm.keys).subtracting(courseData.archivedTerms)
             .union(manualCourseRulesByTerm.keys)
-        let courses = terms.flatMap { term in
+        let coursesByTerm = terms.map { term in
             ScheduleCourseEditor.reconcile(rules: manualCourseRulesByTerm[term] ?? [],
                 with: courseData.archivedTerms.contains(term) ? [] : courseData.schoolCourses(for: term)).courses
         }
-        return TimeSlot.supports(courses, in: timeTable)
+        return coursesByTerm.allSatisfy { hasUniqueIdentities($0.map(\.id)) }
+            && TimeSlot.supports(coursesByTerm.flatMap { $0 }, in: timeTable)
             && sharedSchedules.allSatisfy { TimeSlot.supports($0.courses, in: $0.timeTable) }
     }
 

@@ -13,6 +13,132 @@ import os
 
 @MainActor
 struct ScoreInfrastructureBoundaryTests {
+    private nonisolated struct ValueFiles: AppFileService {
+        let base: ModuleScoreFiles
+        var temporaryDirectoryURL: URL { base.temporaryDirectoryURL }
+        func directoryURL(_ directory: FileManager.SearchPathDirectory) -> URL? { base.directoryURL(directory) }
+        func appGroupContainerURL(identifier: String) -> URL? { base.appGroupContainerURL(identifier: identifier) }
+        func fileExists(at url: URL) -> Bool { base.fileExists(at: url) }
+        func readData(at url: URL) throws -> Data { try base.readData(at: url) }
+        func readData(at url: URL, maximumBytes: Int) throws -> Data { try base.readData(at: url, maximumBytes: maximumBytes) }
+        func writeData(_ data: Data, to url: URL, options: Data.WritingOptions) throws { try base.writeData(data, to: url, options: options) }
+        func createDirectory(at url: URL) throws { try base.createDirectory(at: url) }
+        func removeItem(at url: URL) throws { try base.removeItem(at: url) }
+        func setPrivateFileProtection(at url: URL) throws { try base.setPrivateFileProtection(at: url) }
+        func setBackupExcluded(_ excluded: Bool, at url: URL, recursively: Bool) throws { try base.setBackupExcluded(excluded, at: url, recursively: recursively) }
+        func contentsOfDirectory(at url: URL, options: FileManager.DirectoryEnumerationOptions) throws -> [URL] { try base.contentsOfDirectory(at: url, options: options) }
+        func regularFileSize(at url: URL) -> Int? { base.regularFileSize(at: url) }
+        func atomicFileIdentity(at url: URL) -> String? { base.atomicFileIdentity(at: url) }
+        func isRegularFile(at url: URL) -> Bool { base.isRegularFile(at: url) }
+        func modificationDate(at url: URL) -> Date? { base.modificationDate(at: url) }
+        func setModificationDate(_ date: Date, at url: URL) throws { try base.setModificationDate(date, at: url) }
+        func removeContents(of directory: URL) -> Bool { base.removeContents(of: directory) }
+        func totalRegularFileSize(at directory: URL) -> Int64 { base.totalRegularFileSize(at: directory) }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func valueFileBackendsKeepIndependentScoreRepositories() async throws {
+        let domain = "BIT101ModulesTests.score-value-backends"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let session = AppStorageSession(accountIdentifier: domain)
+        let firstFiles = ModuleScoreFiles(), secondFiles = ModuleScoreFiles()
+        let root = URL(fileURLWithPath: "/score-value-backends")
+        let first = ScoreCacheStore(files: ValueFiles(base: firstFiles), storageRoot: root, defaults: defaults, session: { session })
+        let second = ScoreCacheStore(files: ValueFiles(base: secondFiles), storageRoot: root, defaults: defaults, session: { session })
+        let firstRows = [ScoreRow(index: 0, headers: ["成绩"], values: ["95"])]
+        let secondRows = [ScoreRow(index: 0, headers: ["成绩"], values: ["80"])]
+        #expect(await first.save(rows: firstRows) != nil)
+        #expect(try await second.loadSnapshot() == nil)
+        #expect(await second.save(rows: secondRows) != nil)
+        #expect(await first.loadRows() == firstRows)
+        #expect(await second.loadRows() == secondRows)
+        #expect(firstFiles.storedData.count == 1 && secondFiles.storedData.count == 1)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func independentScoreStoresSerializeCloudComparisonWithLocalWrites() async throws {
+        let domain = "BIT101ModulesTests.score-independent-cas"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let session = AppStorageSession(accountIdentifier: domain)
+        let files = ModuleScoreFiles(beforeCreatingDirectory: {
+            _ = DispatchSemaphore(value: 0).wait(timeout: .now() + 0.01)
+        })
+        let root = URL(fileURLWithPath: "/score-independent-cas")
+        let first = ScoreCacheStore(files: files, storageRoot: root, defaults: defaults, session: { session })
+        let second = ScoreCacheStore(files: files, storageRoot: root, defaults: defaults, session: { session })
+        let initial = ScoreCacheSyncPayload(rows: [], updatedAt: Date(timeIntervalSince1970: 100), detailedUpdatedAt: nil)
+        let local = [ScoreRow(index: 0, headers: ["成绩"], values: ["95"])]
+        let remote = ScoreCacheSyncPayload(rows: [ScoreRow(index: 0, headers: ["成绩"], values: ["80"])],
+            updatedAt: Date(timeIntervalSince1970: 200), detailedUpdatedAt: nil)
+        for _ in 0..<12 {
+            #expect(try await first.applySynced(initial))
+            async let cloud = first.applySynced(remote, replacing: initial)
+            async let saved = second.save(rows: local)
+            _ = try await (cloud, saved)
+            #expect(try await first.syncPayload()?.rows == local)
+        }
+    }
+
+    @Test(.serialized, .timeLimit(.minutes(1)), arguments: [false, true])
+    func cancellationDuringScoreCommitPublishesTheSavedSnapshot(detail: Bool) async throws {
+        let domain = "BIT101ModulesTests.score-committed-write"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let entered = OSAllocatedUnfairLock(initialState: false), gate = DispatchSemaphore(value: 0)
+        let files = ModuleScoreFiles(beforeCreatingDirectory: {
+            entered.withLock { $0 = true }
+            _ = gate.wait(timeout: .now() + 10)
+        })
+        let session = AppStorageSession(accountIdentifier: domain)
+        let cache = ScoreCacheStore(files: files, storageRoot: URL(fileURLWithPath: "/scores"), defaults: defaults, session: { session })
+        var saves: [AppStorageSession] = [], changes: [AppStorageSession] = []
+        let saved = cache.localSaves.sink { saves.append($0) }, changed = cache.changes.sink { changes.append($0) }
+        defer { saved.cancel(); changed.cancel(); gate.signal() }
+        let rows = [ScoreRow(index: 0, headers: ["课程名称"], values: ["已提交成绩"])]
+        let task = Task { detail ? await cache.saveDetailed(rows: rows) : await cache.save(rows: rows) }
+        defer { task.cancel() }
+        try await waitForTestEvent { entered.withLock { $0 } }
+        task.cancel(); gate.signal()
+        #expect(await task.value == nil)
+        #expect(await cache.loadRows() == rows)
+        #expect(saves == [session] && changes == [session])
+    }
+
+    @Test(.serialized, .timeLimit(.minutes(1)), arguments: [false, true])
+    func cancelledQueuedScoreWritesPreserveTheCommittedSnapshot(detail: Bool) async throws {
+        let domain = "BIT101ModulesTests.score-queued-write"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let entered = OSAllocatedUnfairLock(initialState: false), gate = DispatchSemaphore(value: 0)
+        let files = ModuleScoreFiles(beforeCreatingDirectory: {
+            entered.withLock { $0 = true }
+            _ = gate.wait(timeout: .now() + 10)
+        })
+        let session = AppStorageSession(accountIdentifier: domain)
+        let cache = ScoreCacheStore(files: files, storageRoot: URL(fileURLWithPath: "/scores"), defaults: defaults, session: { session })
+        var saves = 0
+        let observation = cache.localSaves.sink { _ in saves += 1 }
+        defer { observation.cancel(); gate.signal() }
+        let first = Task { await cache.save(rows: []) }
+        defer { first.cancel() }
+        try await waitForTestEvent { entered.withLock { $0 } }
+        var queued = false
+        let second = Task {
+            queued = true
+            let rows = [ScoreRow(index: 0, headers: ["课程名称"], values: ["迟到成绩"])]
+            return detail ? await cache.saveDetailed(rows: rows) : await cache.save(rows: rows)
+        }
+        defer { second.cancel() }
+        try await waitForTestEvent { queued }
+        second.cancel(); gate.signal()
+        let firstResult = await first.value, secondResult = await second.value
+        #expect(firstResult != nil && secondResult == nil)
+        let snapshot = try await cache.loadSnapshot()
+        #expect(snapshot?.rows?.isEmpty == true && saves == 1)
+    }
+
     @Test(arguments: ["缓考", "", "nan", "inf", "-1", "101"])
     func statisticsExcludeUnavailableAndInvalidScores(score: String) {
         func row(_ number: String, _ value: String, credit: String = "4") -> ScoreRow {
@@ -26,7 +152,7 @@ struct ScoreInfrastructureBoundaryTests {
         let failed = ScoreSummary.make(from: [row("failed", "不及格")])
         #expect(failed.totalCredit == 4 && failed.weightedAverageScore == 0 && failed.weightedAverageGPA == 0)
     }
-    @Test(arguments: [false, true])
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func scoreCacheReadsCheckTheirByteBudgetBeforeLoading(oversized: Bool) async throws {
         let domain = "BIT101ModulesTests.score-byte-budget"
         let defaults = try #require(UserDefaults(suiteName: domain))
@@ -49,7 +175,27 @@ struct ScoreInfrastructureBoundaryTests {
         }
     }
 
-    @Test func oversizedScoreWritesPreserveThePreviouslyCommittedSnapshot() async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func scoreLegacyCleanupChecksItsBudgetWithAHealthyCurrentCache(oversized: Bool) async throws {
+        let domain = "BIT101ModulesTests.score-legacy-cleanup-budget"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let session = AppStorageSession(accountIdentifier: domain)
+        let files = ModuleScoreFiles(), root = URL(fileURLWithPath: "/score-legacy-cleanup-budget")
+        let cache = ScoreCacheStore(files: files, storageRoot: root, defaults: defaults, session: { session })
+        #expect(await cache.save(rows: []) != nil)
+        let legacy = root.appending(path: session.legacyAccountDirectoryNameForMigration).appending(path: "score-cache.json")
+        let previousReads = files.readCount(at: legacy)
+        var data = Data(#"{"rows":[]}"#.utf8)
+        data.append(Data(repeating: 32, count: ScoreCacheStore.maximumCacheBytes + (oversized ? 1 : 0) - data.count))
+        try files.writeData(data, to: legacy, options: [])
+        #expect(await cache.save(rows: []) != nil)
+        #expect(files.readCount(at: legacy) - previousReads == (oversized ? 0 : 1))
+        #expect(files.storedData[legacy] == (oversized ? data : nil))
+        #expect(await cache.loadRows() == [])
+    }
+
+    @Test(.timeLimit(.minutes(1))) func oversizedScoreWritesPreserveThePreviouslyCommittedSnapshot() async throws {
         let domain = "BIT101ModulesTests.score-write-budget"
         let defaults = try #require(UserDefaults(suiteName: domain))
         defer { defaults.removePersistentDomain(forName: domain) }
@@ -97,6 +243,7 @@ struct ScoreInfrastructureBoundaryTests {
         }
         try await waitForTestEvent { !(!cleanupStarted) }
         #expect(await cache.saveDetailed(rows: [], for: account) == nil)
+        await #expect(throws: ScoreCacheReadError.self) { try await cache.applySynced(.init(rows: [], updatedAt: Date(), detailedUpdatedAt: nil)) }
         gate.signal()
         #expect(await cleanup.value)
         _ = await task.value
@@ -113,21 +260,32 @@ struct ScoreInfrastructureBoundaryTests {
 
     private final class SuspendedStages: HTTPTransport {
         let suspendedStage: String
+        var repeatsAuthentication = false
         var pending: CheckedContinuation<Void, Never>?
         var requests: [String] = []
         init(_ stage: String) { suspendedStage = stage }
+        func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
+            let result = try await data(for: request)
+            if let maximumBytes, result.0.count > maximumBytes { throw HTTPClientError.responseTooLarge }
+            return result
+        }
         func data(for request: URLRequest) async throws -> (Data, URLResponse) {
             let url = try #require(request.url)
             let stage = url.path.hasSuffix("/sms") ? "sms" : url.path.hasSuffix("/start") ? "auth"
                 : url.path.hasSuffix("/score") ? "score" : url.path.hasSuffix("/cookies") ? "cookie"
                 : url.path.hasSuffix("/Index") ? "html" : "image"
             requests.append(stage)
+            if repeatsAuthentication && ["score", "cookie"].contains(stage) {
+                guard requests.count <= 3 else { throw URLError(.badServerResponse) }
+                let bytes = Data(#"{"detail":{"challenge_id":"fixture","access_token":"token","status":"authenticated","expires_in":120}}"#.utf8)
+                return (bytes, try #require(HTTPURLResponse(url: url, statusCode: 202, httpVersion: nil, headerFields: nil)))
+            }
             if stage == suspendedStage { await withCheckedContinuation { pending = $0 } }
             let text: String
             switch stage {
             case "auth", "sms": text = #"{"challenge_id":"fixture","access_token":"token","status":"authenticated","expires_in":120}"#
             case "cookie": text = #"{"cookie_str":"SESSION=fixture"}"#
-            case "score": text = #"{"msg":"查询成功","data":[["课程名称","成绩"],["功能验收","80"]]}"#
+            case "score": text = #"{"msg":"查询成功","data":[["课程名称","课程编号","成绩","学分"],["功能验收","C1","80","2"]]}"#
             case "html": text = #"<img src="/cjd/Temp/1.png"><img src="/cjd/Temp/2.png">"#
             default: text = "fixture-image"
             }
@@ -169,7 +327,24 @@ struct ScoreInfrastructureBoundaryTests {
         }
     }
 
-    @Test func newScoreChallengesCarryTheirInitialAccountIdentity() async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: ["score", "transcript"])
+    func repeatedBusinessAuthenticationEndsWithAnActionableFailure(mode: String) async throws {
+        let credentials = MutableCredentials(), transport = SuspendedStages("none")
+        transport.repeatsAuthentication = true
+        let client = HTTPClient(transport: transport, observer: nil)
+        let service = ScoreService(credentials: credentials, httpClient: client, sensitiveHTTPClient: client,
+            endpointBaseURL: AppURL.required("https://example.invalid"))
+        let challenge = BITLoginAuthenticationChallenge(challengeID: "fixture", accessToken: "token", status: "authenticated",
+            maskedPhone: nil, expiresIn: 120, ownerIdentity: credentials.schoolSessionIdentity)
+        do {
+            if mode == "score" { _ = try await service.fetchScores(detail: false, authenticatedBy: challenge) }
+            else { _ = try await service.fetchTrustedTranscriptPages() }
+            Issue.record("Repeated authentication should end with a fresh-operation instruction")
+        } catch ScoreServiceError.challengeInvalid(let message) { #expect(message.contains("再次要求认证")) }
+        #expect(transport.requests == (mode == "score" ? ["score"] : ["cookie", "cookie"]))
+    }
+
+    @Test(.timeLimit(.minutes(1))) func newScoreChallengesCarryTheirInitialAccountIdentity() async throws {
         let credentials = MutableCredentials()
         let client = HTTPClient(transport: SuspendedStages("none"), observer: nil)
         let service = ScoreService(credentials: credentials, httpClient: client, sensitiveHTTPClient: client,
@@ -186,6 +361,11 @@ struct ScoreInfrastructureBoundaryTests {
 
     private final class Transport: HTTPTransport {
         var requests: [URLRequest] = []
+        func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
+            let result = try await data(for: request)
+            if let maximumBytes, result.0.count > maximumBytes { throw HTTPClientError.responseTooLarge }
+            return result
+        }
         func data(for request: URLRequest) async throws -> (Data, URLResponse) {
             requests.append(request)
             throw URLError(.timedOut)
@@ -195,7 +375,13 @@ struct ScoreInfrastructureBoundaryTests {
     private final class TranscriptPages: HTTPTransport {
         let pageBytes: Int
         var imageRequests = 0
+        var responseURL: (URL) -> URL = { $0 }
         init(pageBytes: Int) { self.pageBytes = pageBytes }
+        func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
+            let result = try await data(for: request)
+            if let maximumBytes, result.0.count > maximumBytes { throw HTTPClientError.responseTooLarge }
+            return result
+        }
         func data(for request: URLRequest) async throws -> (Data, URLResponse) {
             let url = try #require(request.url)
             let data: Data
@@ -203,11 +389,44 @@ struct ScoreInfrastructureBoundaryTests {
             else if url.path.hasSuffix("/Index") { data = Data(#"<img src="/cjd/Temp/1.png"><img src="/cjd/Temp/2.png">"#.utf8) }
             else if url.path.contains("/cjd/Temp/") { imageRequests += 1; data = Data(count: pageBytes) }
             else { data = Data(#"{"challenge_id":"fixture","access_token":"token","status":"authenticated","expires_in":120}"#.utf8) }
-            return (data, try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)))
+            return (data, try #require(HTTPURLResponse(url: responseURL(url), statusCode: 200, httpVersion: nil, headerFields: nil)))
         }
     }
 
-    @Test(arguments: ["pages", "single-page", "aggregate", "exact"])
+    @Test(.timeLimit(.minutes(1)), arguments: ["report", "image"], ["host", "scheme", "port", "path", "https443"])
+    func transcriptDownloadsValidateTheFinalOriginAndResourcePath(stage: String, destination: String) async throws {
+        let transport = TranscriptPages(pageBytes: 64)
+        transport.responseURL = { url in
+            guard stage == "report" ? url.path.hasSuffix("/Index") : url.path.hasPrefix("/cjd/Temp/") else { return url }
+            guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+                Issue.record("Transcript fixture URL components unavailable"); return url
+            }
+            switch destination {
+            case "host": components.host = "outside.example"
+            case "scheme": components.scheme = "http"
+            case "port": components.port = 8443
+            case "path": components.path = "/unrelated/resource"
+            default: components.port = 443
+            }
+            guard let redirected = components.url else { Issue.record("Transcript redirect fixture URL unavailable"); return url }
+            return redirected
+        }
+        let client = HTTPClient(transport: UncachedHTTPTransport(base: transport), observer: nil)
+        let service = ScoreService(credentials: Credentials(), httpClient: client, sensitiveHTTPClient: client,
+            endpointBaseURL: AppURL.required("https://example.invalid"))
+        if destination == "https443" {
+            #expect(try await service.fetchTrustedTranscriptPages().count == 2)
+        } else {
+            var rejected = false
+            do {
+                _ = try await service.fetchTrustedTranscriptPages()
+            } catch ScoreServiceError.invalidResponse { rejected = true }
+            #expect(rejected)
+            #expect(transport.imageRequests == (stage == "report" ? 0 : 1))
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: ["pages", "single-page", "aggregate", "exact"])
     func transcriptDownloadsStayWithinTheirPageAndByteBudgets(scenario: String) async throws {
         let transport = TranscriptPages(pageBytes: scenario == "single-page" ? 129 : 64)
         let limits = TrustedTranscriptResourceLimits(maximumPageCount: scenario == "pages" ? 1 : 2,
@@ -224,7 +443,7 @@ struct ScoreInfrastructureBoundaryTests {
         #expect(transport.imageRequests == (scenario == "pages" ? 0 : scenario == "single-page" ? 1 : 2))
     }
 
-    @Test func productionServiceUsesInjectedCredentialsEndpointAndTransport() async throws {
+    @Test(.timeLimit(.minutes(1))) func productionServiceUsesInjectedCredentialsEndpointAndTransport() async throws {
         let authentication = Transport()
         let downloads = Transport()
         let service = ScoreService(credentials: Credentials(), httpClient: HTTPClient(transport: authentication, observer: nil), sensitiveHTTPClient: HTTPClient(transport: downloads, observer: nil), endpointBaseURL: AppURL.required("https://example.invalid"))
@@ -238,7 +457,7 @@ struct ScoreInfrastructureBoundaryTests {
         #expect(downloads.requests.isEmpty)
     }
 
-    @Test(arguments: ["score.detail.cache", "score.detail.cache.updated-at", "score.detail.cache.full-updated-at"])
+    @Test(.timeLimit(.minutes(1)), arguments: ["score.detail.cache", "score.detail.cache.updated-at", "score.detail.cache.full-updated-at"])
     func partialLegacyCorruptionPreservesEveryFragmentAndPausesSync(prefix: String) async throws {
         for malformedType in [false, true] {
             let domain = "BIT101ModulesTests.score-legacy-corruption.\(prefix).\(malformedType)"
@@ -259,14 +478,14 @@ struct ScoreInfrastructureBoundaryTests {
             await #expect(throws: ScoreCacheReadError.self) { try await cache.loadSnapshot() }
             await #expect(throws: ScoreCacheReadError.self) { try await cache.syncPayload() }
             #expect(await cache.save(rows: rows) == nil)
-            #expect(await cache.applySynced(.init(rows: rows, updatedAt: Date(), detailedUpdatedAt: nil)) == false)
+            await #expect(throws: ScoreCacheReadError.self) { try await cache.applySynced(.init(rows: rows, updatedAt: Date(), detailedUpdatedAt: nil)) }
             #expect(defaults.dictionaryRepresentation() as NSDictionary == retained)
             let file = root.appending(path: session.accountStorageIdentifier).appending(path: "score-cache.json")
             #expect(files.fileExists(at: file) == false)
         }
     }
 
-    @Test func healthyLegacyMigrationPreservesRowsAndBothTimestamps() async throws {
+    @Test(.timeLimit(.minutes(1))) func healthyLegacyMigrationPreservesRowsAndBothTimestamps() async throws {
         let domain = "BIT101ModulesTests.score-legacy-valid"
         let defaults = try #require(UserDefaults(suiteName: domain))
         defer { defaults.removePersistentDomain(forName: domain) }
@@ -284,7 +503,7 @@ struct ScoreInfrastructureBoundaryTests {
         #expect(await cache.loadRows() == rows)
     }
 
-    @Test func cloudApplyComparesTheCompleteLocalSnapshotInsideTheRepository() async throws {
+    @Test(.timeLimit(.minutes(1))) func cloudApplyComparesTheCompleteLocalSnapshotInsideTheRepository() async throws {
         let session = AppStorageSession(accountIdentifier: "score-cas")
         let defaults = try #require(UserDefaults(suiteName: "BIT101ModulesTests.score-cas"))
         defer { defaults.removePersistentDomain(forName: "BIT101ModulesTests.score-cas") }
@@ -292,19 +511,43 @@ struct ScoreInfrastructureBoundaryTests {
             defaults: defaults, session: { session })
         let initial = ScoreCacheSyncPayload(rows: [ScoreRow(index: 0, headers: ["成绩"], values: ["80"])],
             updatedAt: Date(timeIntervalSince1970: 100), detailedUpdatedAt: nil)
-        #expect(await cache.applySynced(initial))
+        #expect(try await cache.applySynced(initial))
         let read = try #require(try await cache.syncPayload())
         let newer = [ScoreRow(index: 0, headers: ["成绩"], values: ["95"])]
         #expect(await cache.save(rows: newer) != nil)
         let remote = ScoreCacheSyncPayload(rows: initial.rows, updatedAt: Date(timeIntervalSince1970: 200), detailedUpdatedAt: nil)
-        #expect(await cache.applySynced(remote, replacing: read) == false)
+        #expect(try await cache.applySynced(remote, replacing: read) == false)
         let current = try #require(try await cache.syncPayload())
         #expect(current.rows == newer)
-        #expect(await cache.applySynced(remote, replacing: current))
+        #expect(try await cache.applySynced(remote, replacing: current))
         #expect(try await cache.syncPayload() == remote)
     }
 
-    @Test(arguments: [false, true])
+    @Test(.timeLimit(.minutes(1))) func cloudApplyReportsWriteFailureAndPreservesTheSavedSnapshot() async throws {
+        let session = AppStorageSession(accountIdentifier: "score-write-failure")
+        let defaults = try #require(UserDefaults(suiteName: "BIT101ModulesTests.score-write-failure"))
+        defer { defaults.removePersistentDomain(forName: "BIT101ModulesTests.score-write-failure") }
+        let files = ModuleScoreFiles()
+        let cache = ScoreCacheStore(files: files, storageRoot: URL(fileURLWithPath: "/score-write-failure"), defaults: defaults, session: { session })
+        let original = ScoreCacheSyncPayload(rows: [], updatedAt: Date(timeIntervalSince1970: 100), detailedUpdatedAt: nil)
+        #expect(try await cache.applySynced(original))
+        let remote = ScoreCacheSyncPayload(rows: [], updatedAt: Date(timeIntervalSince1970: 200), detailedUpdatedAt: nil)
+        files.setFailures(writing: true)
+        await #expect(throws: ScoreCacheWriteError.self) { try await cache.applySynced(remote, replacing: original) }
+        #expect(try await cache.syncPayload() == original)
+        files.setFailures()
+        #expect(try await cache.applySynced(remote, replacing: original))
+        #expect(try await cache.syncPayload() == remote)
+        let bytes = files.storedData
+        files.setFailures(protection: true)
+        await #expect(throws: ScoreCacheReadError.self) { try await cache.syncPayload() }
+        await #expect(throws: ScoreCacheReadError.self) { try await cache.applySynced(original) }
+        #expect(files.storedData == bytes)
+        files.setFailures()
+        #expect(try await cache.syncPayload() == remote)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func authoritativeEmptyScoreSnapshotReplacesRowsWhileAnInitialEmptyPayloadPreservesThem(detailed: Bool) async throws {
         let domain = "BIT101ModulesTests.score-empty-sync"
         let defaults = try #require(UserDefaults(suiteName: domain))
@@ -314,18 +557,18 @@ struct ScoreInfrastructureBoundaryTests {
             defaults: defaults, session: { session })
         let initial = ScoreCacheSyncPayload(rows: [ScoreRow(index: 0, headers: ["成绩"], values: ["95"])],
             updatedAt: Date(timeIntervalSince1970: 100), detailedUpdatedAt: nil)
-        #expect(await cache.applySynced(initial))
-        #expect(await cache.applySynced(.init(rows: [], updatedAt: nil, detailedUpdatedAt: nil), replacing: initial) == false)
+        #expect(try await cache.applySynced(initial))
+        #expect(try await cache.applySynced(.init(rows: [], updatedAt: nil, detailedUpdatedAt: nil), replacing: initial) == false)
         #expect(try await cache.syncPayload() == initial)
         let timestamp = Date(timeIntervalSince1970: 200)
         let empty = ScoreCacheSyncPayload(rows: [], updatedAt: detailed ? nil : timestamp,
             detailedUpdatedAt: detailed ? timestamp : nil)
-        #expect(await cache.applySynced(empty, replacing: initial))
+        #expect(try await cache.applySynced(empty, replacing: initial))
         #expect(try await cache.syncPayload() == empty)
         #expect(await cache.loadRows() == [])
     }
 
-    @Test func scoreDiskFormatPreservesAdditionalFieldsAndClearsReplacedDetailMetadata() async throws {
+    @Test(.timeLimit(.minutes(1))) func scoreDiskFormatPreservesAdditionalFieldsAndClearsReplacedDetailMetadata() async throws {
         let session = AppStorageSession(accountIdentifier: "score-format")
         let files = ModuleScoreFiles(), root = URL(fileURLWithPath: "/score-format")
         let defaults = try #require(UserDefaults(suiteName: "BIT101ModulesTests.score-format"))
@@ -346,7 +589,7 @@ struct ScoreInfrastructureBoundaryTests {
         #expect(written["additionalField"] as? NSDictionary == object["additionalField"] as? NSDictionary)
     }
 
-    @Test(arguments: ["{}", #"{"rows":[],"schemaVersion":2}"#, #"{"rows":[],"schemaVersion":true}"#,
+    @Test(.timeLimit(.minutes(1)), arguments: ["{}", #"{"rows":[],"schemaVersion":2}"#, #"{"rows":[],"schemaVersion":true}"#,
                       #"{"rows":[],"schemaVersion":null}"#, #"{"rows":[],"schemaVersion":"1"}"#])
     func unsupportedScoreDiskFormatsPreserveTheirBytes(_ json: String) async throws {
         let session = AppStorageSession(accountIdentifier: "score-format-rejected")
@@ -364,10 +607,12 @@ struct ScoreInfrastructureBoundaryTests {
     }
 
     @Test(arguments: [
+        #"{"msg":"查询成功","data":[["课程名称","课程编号","成绩","学分"],[" ","C1","","2"]]}"#,
+        #"{"msg":"查询成功","data":[["课程名称","课程编号","成绩","学分"],["课程"," ","","2"]]}"#,
         #"{"msg":"查询失败","data":[["课程名称","成绩"],["功能验收","95"]]}"#,
         #"{"msg":"查询成功","data":[["错误"],["未登录"]]}"#,
-        #"{"msg":"查询成功","data":[["课程名称","成绩"],["功能验收"]]}"#,
-        #"{"msg":"查询成功","data":[["课程名称","成绩","成绩"],["功能验收","95","95"]]}"#
+        #"{"msg":"查询成功","data":[["课程名称","课程编号","成绩","学分"],["功能验收","C1","95"]]}"#,
+        #"{"msg":"查询成功","data":[["课程名称","课程编号","成绩","学分","成绩"],["功能验收","C1","95","2","95"]]}"#
     ])
     func malformedAndBusinessFailureScoreResponsesThrow(_ response: String) {
         #expect(throws: (any Error).self) { try ScoreService.decodeScoreRows(Data(response.utf8)) }
@@ -375,7 +620,14 @@ struct ScoreInfrastructureBoundaryTests {
 
     @Test func scoreResponseParsingRunsInThePackageHost() throws {
         #expect(try ScoreService.decodeScoreRows(Data(#"{"msg":"查询成功","data":[]}"#.utf8)).isEmpty)
-        #expect(try ScoreService.decodeScoreRows(Data(#"{"msg":"查询成功","data":[["课程名称","成绩"],["功能验收","95"]]}"#.utf8)).first?.courseName == "功能验收")
+        #expect(try ScoreService.decodeScoreRows(Data(#"{"msg":"查询成功","data":[["课程名称","课程编号","成绩","学分"],["功能验收","C1","95","2"]]}"#.utf8)).first?.courseName == "功能验收")
+    }
+
+    @Test(arguments: Array(ScoreRow.requiredHeaderNames).sorted())
+    func scoreResponseRequiresTheSharedHeaders(missing: String) throws {
+        let headers = ScoreRow.requiredHeaderNames.sorted().filter { $0 != missing }
+        let response = try JSONSerialization.data(withJSONObject: ["msg": "查询成功", "data": [headers]])
+        #expect(throws: ScoreServiceError.self) { try ScoreService.decodeScoreRows(response) }
     }
 }
 
@@ -472,7 +724,7 @@ struct ScorePublicContractTests {
         var session = AppStorageSession(accountIdentifier: "damaged-filter")
     }
 
-    @Test(.serialized, arguments: [false, true])
+    @Test(.timeLimit(.minutes(1)), .serialized, arguments: [false, true])
     func unreadableFilterPreferencesReachThePageAndRetainTheirOriginalBytes(empty: Bool) async throws {
         let domain = "BIT101ModulesTests.score-filter-corruption"
         let defaults = try #require(UserDefaults(suiteName: domain))

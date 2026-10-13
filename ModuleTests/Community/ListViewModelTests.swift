@@ -12,15 +12,37 @@ import Testing
 @MainActor
 @Suite
 struct ListRequestGateTests {
-    @Test func observationHonorsCancellationAndReentry() async throws {
+    @Test(.timeLimit(.minutes(1))) func observationHonorsCancellationAndReentry() async throws {
         let gate = ListRequestGate<Int>()
         let observation = Task { try await gate.waitUntilRequested() }
         observation.cancel()
         await #expect(throws: CancellationError.self) { try await observation.value }
-        let request = Task { await gate.request() }
+        let request = Task { try await gate.request() }
         try await gate.waitUntilRequested()
         gate.finish(41)
-        #expect(await request.value == 41)
+        #expect(try await request.value == 41)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func concurrentRequestsReceiveTheSameCompletion() async throws {
+        let gate = ListRequestGate<Int>()
+        let first = Task { try await gate.request() }
+        let second = Task { try await gate.request() }
+        try await gate.waitUntilRequested(count: 2)
+        gate.finish(41)
+        #expect(try await first.value == 41)
+        #expect(try await second.value == 41)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func timeoutReleasesEveryRequestAndAllowsReentry() async throws {
+        let gate = ListRequestGate<Int>(timeout: .milliseconds(20))
+        let requests = [Task { try await gate.request() }, Task { try await gate.request() }]
+        for request in requests {
+            await #expect(throws: URLError.self) { try await request.value }
+        }
+        let retry = Task { try await gate.request() }
+        try await gate.waitUntilRequested()
+        gate.finish(42)
+        #expect(try await retry.value == 42)
     }
 }
 
@@ -40,7 +62,7 @@ struct CourseListViewModelTests {
         }
     }
 
-    @Test("Refresh trims search and pagination stops after an empty page")
+    @Test("Refresh trims search and pagination stops after an empty page", .timeLimit(.minutes(1)))
     @MainActor
     func refreshAndPaginate() async throws {
         let first = try course(id: 1)
@@ -58,7 +80,7 @@ struct CourseListViewModelTests {
         #expect(!viewModel.state.isLoadingMore)
     }
 
-    @Test("Initial failures enter a retryable state")
+    @Test("Initial failures enter a retryable state", .timeLimit(.minutes(1)))
     @MainActor
     func initialFailure() async throws {
         let first = try course(id: 1)
@@ -82,7 +104,7 @@ struct CourseListViewModelTests {
         #expect(service.requests.map { "\($0.search):\($0.page)" } == [":0", ":0"])
     }
 
-    @Test(arguments: [false, true]) @MainActor
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true]) @MainActor
     func paginationKeepsItsSuccessfulQueryWhileEditingOrAfterFirstPageFailure(failedRefresh: Bool) async throws {
         let first = try course(id: 1)
         let service = ServiceStub(pages: [0: .success([first]), 1: .success([])])
@@ -96,7 +118,7 @@ struct CourseListViewModelTests {
         #expect(model.state.items == [first])
     }
 
-    @Test("Cancellation is silent and returns the initial state to idle")
+    @Test("Cancellation is silent and returns the initial state to idle", .timeLimit(.minutes(1)))
     @MainActor
     func cancellationIsSilent() async {
         let service = ServiceStub(pages: [0: .failure(CancellationError())])
@@ -108,7 +130,7 @@ struct CourseListViewModelTests {
         #expect(viewModel.alert == nil)
     }
 
-    @Test @MainActor func cancelledBootstrapLoadsOnTheNextEntry() async throws {
+    @Test(.timeLimit(.minutes(1))) @MainActor func cancelledBootstrapLoadsOnTheNextEntry() async throws {
         let first = try course(id: 1)
         let service = ServiceStub(pages: [0: .failure(CancellationError())])
         let model = CourseListViewModel(service: service)
@@ -142,7 +164,7 @@ struct CourseListViewModelTests {
         #expect(service.requests.map { "\($0.search):\($0.page)" } == ["fresh:0", "fresh:1"])
     }
 
-    @Test("Prepared searches are visible immediately and continue from the next page")
+    @Test("Prepared searches are visible immediately and continue from the next page", .timeLimit(.minutes(1)))
     @MainActor
     func appliesPreparedSearch() async throws {
         let first = try course(id: 1)
@@ -159,7 +181,7 @@ struct CourseListViewModelTests {
         #expect(service.requests.map { "\($0.search):\($0.page)" } == ["高等数学:1"])
     }
 
-    @Test("Score entry searches directly without rejecting an empty course name")
+    @Test("Score entry searches directly without rejecting an empty course name", .timeLimit(.minutes(1)))
     @MainActor
     func searchesDirectlyFromScoreEntry() async {
         let service = ServiceStub(pages: [0: .success([])])
@@ -215,7 +237,7 @@ struct GalleryPaginationTests {
         await model.loadMoreIfNeeded(for: .newest, currentPoster: listPoster(9))
         let previous = model.state(for: .newest)
         let gate = ListRequestGate<[CommunityPoster]>()
-        service.request = { _ in await gate.request() }
+        service.request = { _ in try await gate.request() }
         let earlier = Task { await model.refresh(feed: .newest) }
         try await gate.waitUntilRequested()
         service.request = { _ in
@@ -238,7 +260,7 @@ struct GalleryPaginationTests {
         service.request = { _ in [listPoster(1)] }
         let model = GalleryViewModel(service: service)
         if pagination { await model.refresh(feed: .newest) }
-        service.request = { _ in await gate.request() }
+        service.request = { _ in try await gate.request() }
         let first = pagination ? model.enqueueLoadMore(for: .newest, currentPoster: listPoster(1)) : model.enqueueRefresh(for: .newest)
         try await gate.waitUntilRequested()
         let second = pagination ? model.enqueueLoadMore(for: .newest, currentPoster: listPoster(1)) : model.enqueueRefresh(for: .newest)
@@ -256,7 +278,7 @@ struct GalleryPaginationTests {
         #expect(model.state(for: .newest).status == .loaded && model.state(for: .newest).isLoadingMore == false)
     }
 
-    @Test(arguments: [false, true])
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func recommendFirstPageAdvancesPastFilteredSourcesToContentOrTheEnd(emptyEnd: Bool) async {
         let service = PagingGalleryService()
         var pages: [Int] = []
@@ -282,7 +304,7 @@ struct GalleryPaginationTests {
         let service = PagingGalleryService()
         var cancelled = false
         service.request = { _ in
-            let result = await gate.request()
+            let result = try await gate.request()
             cancelled = Task.isCancelled
             return result
         }
@@ -316,7 +338,7 @@ struct GalleryPaginationTests {
         var requests: [Int] = []
         service.request = { page in
             requests.append(page)
-            let result = await gate.request()
+            let result = try await gate.request()
             cancelled = Task.isCancelled
             finished = true
             return result
@@ -348,7 +370,7 @@ struct GalleryPaginationTests {
         let previous = model.state(for: .newest)
         #expect(previous.nextPage == 3 && !previous.canLoadMore)
         let gate = ListRequestGate<[CommunityPoster]>()
-        service.request = { _ in await gate.request() }
+        service.request = { _ in try await gate.request() }
         let refresh = model.enqueueRefresh(for: .newest)
         try await gate.waitUntilRequested()
         model.cancelPendingOperations()
@@ -371,7 +393,7 @@ struct GalleryPaginationTests {
         var cancelled = false
         var finished = false
         service.recommend = { page in
-            let posters = await gate.request()
+            let posters = try await gate.request()
             cancelled = Task.isCancelled
             finished = true
             return .init(items: posters, nextSourcePage: page + 1, canLoadMore: true)
@@ -387,7 +409,7 @@ struct GalleryPaginationTests {
         #expect(cancelled)
     }
 
-    @Test(arguments: [GalleryFeedKind.newest, .follow, .hot])
+    @Test(.timeLimit(.minutes(1)), arguments: [GalleryFeedKind.newest, .follow, .hot])
     func ordinaryFeedDeduplicatesAndEndsAtEmptyPage(feed: GalleryFeedKind) async {
         let service = PagingGalleryService()
         service.request = { page in page == 0 ? [listPoster(1), listPoster(1)] : page == 1 ? [listPoster(1), listPoster(2)] : [] }
@@ -406,7 +428,7 @@ struct GalleryPaginationTests {
         #expect(model.state(for: feed).canLoadMore == false)
     }
 
-    @Test func paginationFailureRetainsCursorAndSupportsRetry() async {
+    @Test(.timeLimit(.minutes(1))) func paginationFailureRetainsCursorAndSupportsRetry() async {
         let service = PagingGalleryService()
         service.request = { page in
             if page == 1 { throw URLError(.notConnectedToInternet) }
@@ -425,7 +447,7 @@ struct GalleryPaginationTests {
         #expect(service.pages == [0, 1, 1])
     }
 
-    @Test func refreshFailureAndCancellationRecoverThroughRetry() async {
+    @Test(.timeLimit(.minutes(1))) func refreshFailureAndCancellationRecoverThroughRetry() async {
         let service = PagingGalleryService()
         service.request = { _ in throw URLError(.notConnectedToInternet) }
         let model = GalleryViewModel(service: service)
@@ -448,10 +470,10 @@ struct GalleryPaginationTests {
         #expect(model.state(for: .hot).posters.map(\.id) == [2])
     }
 
-    @Test func refreshedFeedWinsOverDelayedPagination() async throws {
+    @Test(.timeLimit(.minutes(1))) func refreshedFeedWinsOverDelayedPagination() async throws {
         let gate = ListRequestGate<[CommunityPoster]>()
         let service = PagingGalleryService()
-        service.request = { page in page == 0 ? [listPoster(1)] : await gate.request() }
+        service.request = { page in page == 0 ? [listPoster(1)] : try await gate.request() }
         let model = GalleryViewModel(service: service)
         await model.refresh(feed: .newest)
         let pending = Task { await model.loadMoreIfNeeded(for: .newest, currentPoster: listPoster(1)) }
@@ -464,7 +486,7 @@ struct GalleryPaginationTests {
         #expect(model.state(for: .newest).nextPage == 1)
     }
 
-    @Test(arguments: ["duplicate", "filtered", "stalled"])
+    @Test(.timeLimit(.minutes(1)), arguments: ["duplicate", "filtered", "stalled"])
     func recommendSkipsLongEmptyRunsAndRetainsSourceCursor(scenario: String) async {
         let service = PagingGalleryService()
         var pages: [Int] = []
@@ -490,7 +512,7 @@ struct GalleryPaginationTests {
         #expect(model.state(for: .recommend).canLoadMore == false)
     }
 
-    @Test func botFeedUsesSourcePageInsteadOfDisplayPage() async {
+    @Test(.timeLimit(.minutes(1))) func botFeedUsesSourcePageInsteadOfDisplayPage() async {
         let service = PagingGalleryService()
         var pages: [Int] = []
         service.bot = { page in
@@ -505,7 +527,7 @@ struct GalleryPaginationTests {
         #expect(model.state(for: .bot).canLoadMore == false)
     }
 
-    @Test func searchNormalizesConditionsAndPreservesCursorOnFailure() async {
+    @Test(.timeLimit(.minutes(1))) func searchNormalizesConditionsAndPreservesCursorOnFailure() async {
         let service = PagingGalleryService()
         service.request = { _ in [listPoster(1), listPoster(1)] }
         let model = GalleryViewModel(service: service)
@@ -526,13 +548,13 @@ struct GalleryPaginationTests {
         #expect(service.queries.allSatisfy { $0.text == "Swift" && $0.order == .like })
     }
 
-    @Test(arguments: [GalleryFeedKind.newest, .bot, .recommend])
+    @Test(.timeLimit(.minutes(1)), arguments: [GalleryFeedKind.newest, .bot, .recommend])
     func cancelledFeedRequestRestoresStateAfterServiceCompletion(feed: GalleryFeedKind) async throws {
         let gate = ListRequestGate<[CommunityPoster]>()
         let service = PagingGalleryService()
-        service.request = { _ in await gate.request() }
-        service.bot = { page in .init(items: await gate.request(), nextSourcePage: page + 1, canLoadMore: false) }
-        service.recommend = { page in .init(items: await gate.request(), nextSourcePage: page + 1, canLoadMore: false) }
+        service.request = { _ in try await gate.request() }
+        service.bot = { page in .init(items: try await gate.request(), nextSourcePage: page + 1, canLoadMore: false) }
+        service.recommend = { page in .init(items: try await gate.request(), nextSourcePage: page + 1, canLoadMore: false) }
         let model = GalleryViewModel(service: service)
         let pending = Task { await model.refresh(feed: feed) }
         try await gate.waitUntilRequested()
@@ -544,10 +566,10 @@ struct GalleryPaginationTests {
         #expect(model.alert == nil)
     }
 
-    @Test func cancelledReplacementSearchReturnsTheSceneToIdle() async throws {
+    @Test(.timeLimit(.minutes(1))) func cancelledReplacementSearchReturnsTheSceneToIdle() async throws {
         let gate = ListRequestGate<[CommunityPoster]>()
         let service = PagingGalleryService()
-        service.request = { _ in await gate.request() }
+        service.request = { _ in try await gate.request() }
         let model = GalleryViewModel(service: service)
         let pending = Task { await model.performSearch() }
         try await gate.waitUntilRequested()
@@ -561,10 +583,10 @@ struct GalleryPaginationTests {
         #expect(model.alert == nil)
     }
 
-    @Test func latestSearchWinsOverDelayedResults() async throws {
+    @Test(.timeLimit(.minutes(1))) func latestSearchWinsOverDelayedResults() async throws {
         let gate = ListRequestGate<[CommunityPoster]>()
         let service = PagingGalleryService()
-        service.request = { _ in await gate.request() }
+        service.request = { _ in try await gate.request() }
         let model = GalleryViewModel(service: service)
         model.searchQuery.text = "first"
         let pending = Task { await model.performSearch() }

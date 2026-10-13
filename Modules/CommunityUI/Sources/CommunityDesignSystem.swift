@@ -3,6 +3,7 @@ import Foundation
 
 #if os(iOS)
 import DesignSystemKit
+import MediaKit
 import SwiftUI
 
 /// 话题和文章共用评论排序入口及全部排序选项。
@@ -46,6 +47,7 @@ import UIKit
 /// - 失败时允许重试
 /// - 每种状态都提供删除操作
 public struct ComposerImageTile: View {
+    @Environment(\.displayScale) private var displayScale
     let draft: ComposerImageDraft
     let onRetry: () -> Void
     let onRemove: () -> Void
@@ -69,7 +71,8 @@ public struct ComposerImageTile: View {
                 AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card)
                     .fill(AppDesignSystem.Palette.Background.secondaryGrouped)
 
-                if let image = UIImage(data: draft.previewData) {
+                if let image = BoundedStillImageDecoder.image(from: draft.previewData,
+                    pointSize: AppDesignSystem.Size.Media.draft, displayScale: displayScale) {
                     Image(uiImage: image)
                         .resizable()
                         .scaledToFill()

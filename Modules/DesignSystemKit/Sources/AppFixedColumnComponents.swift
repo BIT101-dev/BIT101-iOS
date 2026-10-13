@@ -27,43 +27,59 @@ public struct AppFixedColumnItem {
     }
 }
 
-/// AppFixedColumnRow 按比例分配可用宽度，并使用指定高度显示单行列文本。
+/// AppFixedColumnRow 按比例分配可用宽度，行高容纳当前字体并沿用指定最小高度。
 public struct AppFixedColumnRow: View {
     public init(items: [AppFixedColumnItem], height: CGFloat) {
         self.items = items
-        self.height = height
+        _height = ScaledMetric(wrappedValue: height, relativeTo: .body)
     }
 
     let items: [AppFixedColumnItem]
-    let height: CGFloat
+    @ScaledMetric private var height: CGFloat
 
     public var body: some View {
-        GeometryReader { proxy in
-            let totalRatio = items.reduce(CGFloat.zero) { total, item in
-                total + max(item.ratio, 0)
-            }
-
-            HStack(spacing: AppDesignSystem.Spacing.none) {
-                ForEach(items.indices, id: \.self) { index in
-                    let item = items[index]
-                    let normalizedRatio = totalRatio > 0
-                        ? max(item.ratio, 0) / totalRatio
-                        : 0
-
-                    Text(item.text)
-                        .font(item.font)
-                        .foregroundStyle(item.color)
-                        .lineLimit(1)
-                        .monospacedDigit()
-                        .frame(
-                            width: proxy.size.width * normalizedRatio,
-                            height: height,
-                            alignment: item.alignment
-                        )
-                }
+        AppFixedColumnLayout(ratios: items.map(\.ratio)) {
+            ForEach(items.indices, id: \.self) { index in
+                let item = items[index]
+                Text(item.text)
+                    .font(item.font)
+                    .foregroundStyle(item.color)
+                    .lineLimit(1)
+                    .monospacedDigit()
+                    .frame(maxWidth: .infinity, alignment: item.alignment)
             }
         }
-        .frame(height: height)
+        .frame(minHeight: height)
+    }
+}
+
+private struct AppFixedColumnLayout: Layout {
+    let ratios: [CGFloat]
+
+    private func widths(for width: CGFloat) -> [CGFloat] {
+        let total = ratios.reduce(CGFloat.zero) { $0 + max($1, 0) }
+        return ratios.map { total > 0 ? width * max($0, 0) / total : 0 }
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? subviews.reduce(CGFloat.zero) {
+            $0 + $1.sizeThatFits(.unspecified).width
+        }
+        let columns = widths(for: width)
+        let height = subviews.indices.map { index in
+            subviews[index].sizeThatFits(ProposedViewSize(width: columns[index], height: nil)).height
+        }.max() ?? 0
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let columns = widths(for: bounds.width)
+        var x = bounds.minX
+        for index in subviews.indices {
+            subviews[index].place(at: CGPoint(x: x, y: bounds.midY), anchor: .leading,
+                proposal: ProposedViewSize(width: columns[index], height: bounds.height))
+            x += columns[index]
+        }
     }
 }
 #endif

@@ -20,6 +20,11 @@ final class CommunityWriteSmoke {
         var imageMids: [String] = []
         var anonymous = false
         var publicAccess = false
+        var title = ""
+        var intro = ""
+        var tags: [String] = []
+        var claimID = 0
+        var images: [CommunityImage] = []
     }
     struct CommentDestination {
         let kind: Kind
@@ -42,6 +47,8 @@ final class CommunityWriteSmoke {
         var comment: (CommentDestination, String, RecordImage, RecordSubmission) async throws -> CommunityComment
         var deleteComment: (Int) async throws -> Void
         var like: (Kind, Int) async throws -> Bool
+        var likeComment: (Kind, Int) async throws -> Bool = { _, _ in throw URLError(.unsupportedURL) }
+        var verifyImages: ([CommunityImage]) async throws -> Void = { _ in throw URLError(.unsupportedURL) }
 
         var followTarget: () -> Int? = { nil }
         var following: (Int) async throws -> Bool = { _ in throw URLError(.unsupportedURL) }
@@ -77,7 +84,9 @@ final class CommunityWriteSmoke {
                     })
                 } },
                 deleteComment: { id in try await Self.checked(identity, owner) { try await deleteComment(id) } },
-                like: { kind, id in try await Self.checked(identity, owner) { try await like(kind, id) } }, followTarget: followTarget,
+                like: { kind, id in try await Self.checked(identity, owner) { try await like(kind, id) } },
+                likeComment: { kind, id in try await Self.checked(identity, owner) { try await likeComment(kind, id) } },
+                verifyImages: { images in try await Self.checked(identity, owner) { try await verifyImages(images) } }, followTarget: followTarget,
                 following: { id in try await Self.checked(identity, owner) { try await following(id) } },
                 follow: { id in try await Self.checked(identity, owner) { try await follow(id) } })
         }
@@ -117,8 +126,16 @@ final class CommunityWriteSmoke {
         }
 
         static func production(papers: PaperService = PaperService(), courses: CourseService = CourseService(),
-            gallery: GalleryService = GalleryService(), followTarget: Int? = nil, courseFixture: NetworkSmokeFixtures? = nil) -> Self {
-            let mine = MineService()
+            gallery: GalleryService = GalleryService(), mine: MineService = ReleaseNetworkSmokeDependencies.mineService(),
+            followTarget: Int? = nil, courseFixture: NetworkSmokeFixtures? = nil,
+            verifyImages: @escaping ([CommunityImage]) async throws -> Void = { images in
+                let urls = NetworkSmokePaging.imageURLs(in: images)
+                guard !urls.isEmpty else { throw URLError(.cannotParseResponse) }
+                for value in urls {
+                    guard let url = URL(string: value) else { throw URLError(.badURL) }
+                    _ = try await ReleaseNetworkSmokeDependencies.probeRemoteImage(at: url)
+                }
+            }) -> Self {
             return Self(identity: { AppAccountSession.storage.communityCredentials.identity }, account: { try await mine.fetchMyInfo().user.id }, course: {
                 guard let fixture = courseFixture, fixture.isValid else { throw URLError(.badURL) }
                 let course = try await courses.fetchCourse(id: fixture.courseID)
@@ -145,17 +162,23 @@ final class CommunityWriteSmoke {
                 }
             }, find: { kind, text in
                 var result: Set<Int> = []
+                var scanned: Set<Int> = []
                 var progress = CommunityPageProgress<Int>()
                 var page = 0
                 while true {
+                    try NetworkSmokePaging.checkSampleBudget(page: page, items: scanned.count)
                     if kind == .poster {
                         let rows = try await mine.fetchMyPosters(page: page)
                         if rows.isEmpty { return result.sorted() }
+                        scanned.formUnion(rows.map(\.id))
+                        try NetworkSmokePaging.checkSampleBudget(page: page, items: scanned.count)
                         try progress.record(rows.map(\.id))
                         result.formUnion(rows.filter { $0.text.contains(text) }.map(\.id))
                     } else {
                         let rows = try await papers.fetchPapers(search: text, order: .newest, page: page)
                         if rows.isEmpty { return result.sorted() }
+                        scanned.formUnion(rows.map(\.id))
+                        try NetworkSmokePaging.checkSampleBudget(page: page, items: scanned.count)
                         try progress.record(rows.map(\.id))
                         for row in rows {
                             do {
@@ -172,11 +195,12 @@ final class CommunityWriteSmoke {
                     case .poster:
                         let value = try await gallery.fetchPoster(id: id)
                         return Content(text: value.text, owned: value.own, liked: value.like, imageMids: value.images.map(\.mid),
-                            anonymous: value.anonymous, publicAccess: value.public)
+                            anonymous: value.anonymous, publicAccess: value.public, title: value.title,
+                            tags: value.tags, claimID: value.claim.id, images: value.images)
                     case .paper:
                         let value = try await papers.fetchPaper(id: id)
                         return Content(text: PaperEditorContentBuilder.plainText(from: value.content), owned: value.own, liked: value.like,
-                            anonymous: value.anonymous, publicAccess: value.publicEdit)
+                            anonymous: value.anonymous, publicAccess: value.publicEdit, title: value.title, intro: value.intro)
                     case .course:
                         let value = try await courses.fetchCourse(id: id)
                         return Content(text: "", owned: false, liked: value.like)
@@ -207,11 +231,13 @@ final class CommunityWriteSmoke {
                 var progress = CommunityPageProgress<Int>()
                 var page = 0
                 while true {
+                    try NetworkSmokePaging.checkSampleBudget(page: page, items: result.count)
                     let rows = try await gallery.fetchRawComments(objectID: object,
                         order: identifiers == nil ? .oldest : .newest, page: page)
                     if rows.isEmpty { return result.values.sorted { $0.id < $1.id } }
                     try progress.record(rows.map(\.id))
                     for row in rows { result[row.id] = row }
+                    try NetworkSmokePaging.checkSampleBudget(page: page, items: result.count)
                     if let identifiers, identifiers.isSubset(of: Set(result.keys)) {
                         return result.values.filter { identifiers.contains($0.id) }
                     }
@@ -256,9 +282,21 @@ final class CommunityWriteSmoke {
                 }
                 try await Task.sleep(for: .seconds(1))
                 return value
-            }, followTarget: { followTarget }, following: { id in
+            }, likeComment: { kind, id in
+                let result: CommunityLikeResult
+                if kind == .course { result = try await courses.like(objectID: "comment\(id)") }
+                else { result = try await gallery.like(objectID: "comment\(id)") }
+                try await Task.sleep(for: .seconds(1))
+                return result.like
+            }, verifyImages: verifyImages, followTarget: { followTarget }, following: { id in
                 let info = try await mine.fetchUserInfo(id: id)
                 guard !info.own, info.user.id == id else { throw URLError(.cannotParseResponse) }
+                let identity = AppAccountSession.storage.communityCredentials.identity
+                let posts = try await NetworkSmokePaging.arrayPage(currentIdentity: {
+                    AppAccountSession.storage.communityCredentials.identity
+                }, load: { try await mine.fetchUserPosters(userID: id, page: $0) })
+                guard identity == AppAccountSession.storage.communityCredentials.identity,
+                      posts.allSatisfy({ $0.user.id == id }) else { throw URLError(.cannotParseResponse) }
                 return info.following
             }, follow: { try await mine.followUser(id: $0).following })
         }
@@ -277,8 +315,13 @@ final class CommunityWriteSmoke {
         legacyData: Data? = AppFileDirectories.defaults.data(forKey: journalKey),
         removeLegacy: () -> Void = { AppFileDirectories.defaults.removeObject(forKey: journalKey) }) throws -> Data? {
         let url = directory.appendingPathComponent(ReleaseNetworkSmokeReportStore.communityJournalFileName)
-        if files.fileExists(at: url) {
-            let data = try files.readData(at: url)
+        let stored: Data?
+        do { stored = try files.readData(at: url) }
+        catch {
+            guard AppFileSystem.isMissingFile(error) else { throw error }
+            stored = nil
+        }
+        if let data = stored {
             let normalized = try normalizedJournalData(data)
             if normalized != data { try saveJournal(normalized, files: files, directory: directory) }
             return normalized
@@ -298,8 +341,8 @@ final class CommunityWriteSmoke {
         if let data {
             try files.createDirectory(at: directory)
             try files.writeData(data, to: url, options: AppFileSystem.protectedDataWritingOptions)
-        } else if files.fileExists(at: url) {
-            try files.removeItem(at: url)
+        } else {
+            try files.removeItemIfPresent(at: url)
         }
     }
 
@@ -343,10 +386,10 @@ final class CommunityWriteSmoke {
                   try await operations.following(followTarget) else { throw failure("关注探针需要已关注的专用验收目标") }
             journal.followTarget = followTarget; try persist(journal)
             operation = "取消关注"
-            guard try await operations.follow(followTarget) == false,
+            guard try await submitToggle("follow:user\(followTarget)", journal: &journal, operation: { try await operations.follow(followTarget) }) == false,
                   try await operations.following(followTarget) == false else { throw failure("验收取消关注结果异常") }
             operation = "恢复关注"
-            guard try await operations.follow(followTarget),
+            guard try await submitToggle("follow:user\(followTarget)", journal: &journal, operation: { try await operations.follow(followTarget) }),
                   try await operations.following(followTarget) else { throw failure("验收关注恢复待完成") }
             journal.evidence.append("关注恢复 user\(followTarget)")
             journal.followTarget = nil; try persist(journal)
@@ -379,17 +422,20 @@ final class CommunityWriteSmoke {
                 operation = "读取 " + kind.rawValue
                 guard let created = try await operations.read(kind, id), created.owned,
                       created.text == journal.marker, created.anonymous == false,
-                      created.publicAccess == false else { throw failure("验收内容创建结果异常") }
+                      created.publicAccess == false, fieldsMatch(created, kind: kind, text: journal.marker)
+                else { throw failure("验收内容创建结果异常") }
                 if kind == .poster {
                     guard !created.imageMids.isEmpty,
                           uploadedImage.map({ created.imageMids == [$0] }) ?? true else { throw failure("帖子图片引用验收待完成") }
                     journal.evidence.append("图片提交 poster\(id)")
+                    try await operations.verifyImages(created.images)
                 }
                 let edited = journal.marker + " 编辑"
                 operation = "编辑 " + kind.rawValue
                 try await operations.edit(kind, id, edited)
                 guard let updated = try await operations.read(kind, id), updated.text == edited, updated.owned,
                       updated.anonymous == false, updated.publicAccess == false,
+                      fieldsMatch(updated, kind: kind, text: edited),
                       updated.imageMids == created.imageMids else { throw failure("验收编辑结果异常") }
             }
             operation = "选择课程"
@@ -400,9 +446,9 @@ final class CommunityWriteSmoke {
                 guard try await operations.account() == account else { throw failure("验收账号已切换") }
                 guard let before = try await operations.read(target.kind, target.id) else { throw failure("验收目标缺失") }
                 journal.likes.append(Like(target: target, original: before.liked)); try persist(journal)
-                guard try await operations.like(target.kind, target.id) != before.liked,
+                guard try await submitToggle("like:\(target.kind.rawValue)\(target.id)", journal: &journal, operation: { try await operations.like(target.kind, target.id) }) != before.liked,
                       try await operations.read(target.kind, target.id)?.liked == !before.liked else { throw failure("验收点赞结果异常") }
-                guard try await operations.like(target.kind, target.id) == before.liked,
+                guard try await submitToggle("like:\(target.kind.rawValue)\(target.id)", journal: &journal, operation: { try await operations.like(target.kind, target.id) }) == before.liked,
                       try await operations.read(target.kind, target.id)?.liked == before.liked else { throw failure("验收点赞恢复异常") }
                 journal.evidence.append("点赞恢复 \(target.kind.rawValue)\(target.id)")
                 let parent = target.kind.rawValue + String(target.id)
@@ -412,20 +458,29 @@ final class CommunityWriteSmoke {
                 if target.kind == .poster {
                     guard !comment.images.isEmpty else { throw failure("评论图片引用验收待完成") }
                     journal.evidence.append("图片提交 comment\(comment.id)")
+                    try await operations.verifyImages(comment.images)
                 }
                 let replies = "comment\(comment.id)"
                 journal.parents.append(replies); try persist(journal)
                 try await validateComment(comment, parent: parent, marker: journal.marker, account: account,
                     rate: target.kind == .course ? 6 : 0, operations: operations)
+                guard try await operations.likeComment(target.kind, comment.id) != comment.like,
+                      try await operations.comments(parent, [comment.id]).first(where: { $0.id == comment.id })?.like == !comment.like,
+                      try await operations.likeComment(target.kind, comment.id) == comment.like,
+                      try await operations.comments(parent, [comment.id]).first(where: { $0.id == comment.id })?.like == comment.like
+                else { throw failure("评论点赞恢复验收待完成") }
+                journal.evidence.append("评论点赞恢复 comment\(comment.id)")
                 operation = "回复 " + target.kind.rawValue
                 let reply = try await createComment(.init(kind: target.kind, object: replies), journal: &journal, operations: operations)
                 try await validateComment(reply, parent: replies, marker: journal.marker, account: account, rate: 0, operations: operations)
+                if target.kind == .poster { try await operations.verifyImages(reply.images) }
                 operation = "定向回复 " + target.kind.rawValue
                 let destination = CommentDestination(kind: target.kind, object: replies,
                     replyObjectID: "comment\(reply.id)", replyUID: reply.user.id)
                 let directed = try await createComment(destination, journal: &journal, operations: operations)
                 try await validateComment(directed, parent: replies, marker: journal.marker, account: account,
                     rate: 0, replyObjectID: destination.replyObjectID, replyUID: destination.replyUID, operations: operations)
+                if target.kind == .poster { try await operations.verifyImages(directed.images) }
                 journal.evidence.append("定向回复 \(target.kind.rawValue) 目标 comment\(reply.id)")
             }
         } catch { businessError = failure(operation + "：" + error.localizedDescription) }
@@ -444,6 +499,11 @@ final class CommunityWriteSmoke {
     }
 
     private func persist(_ journal: Journal) throws { try save(JSONEncoder().encode(journal)) }
+
+    private func fieldsMatch(_ content: Content, kind: Kind, text: String) -> Bool {
+        if kind == .poster { return content.title == "功能验收" && content.tags.isEmpty && content.claimID == 0 }
+        return content.title == text && content.intro == text
+    }
 
     private func validateComment(_ submitted: CommunityComment, parent: String, marker: String, account: Int,
         rate: Int, replyObjectID: String? = nil, replyUID: Int? = nil, operations: Operations) async throws {
@@ -493,12 +553,31 @@ final class CommunityWriteSmoke {
         }
     }
 
+    private func submitToggle(_ identifier: String, journal: inout Journal,
+                              operation: () async throws -> Bool) async throws -> Bool {
+        journal.markSubmission(identifier, pending: true); try persist(journal)
+        do {
+            let result = try await operation()
+            journal.markSubmission(identifier, pending: false); try persist(journal)
+            return result
+        } catch {
+            if Self.creationWasRejected(error) { journal.markSubmission(identifier, pending: false); try persist(journal) }
+            throw error
+        }
+    }
+
     private func cleanup(_ journal: inout Journal, operations: Operations, owner: CommunitySessionIdentity,
                          confirmation: CommunityWriteRecoveryConfirmation? = nil) async throws {
         var failures: [String] = []
         if let target = journal.followTarget {
             if try await recoverOperation("恢复关注", failures: &failures, operation: {
-                if try await operations.following(target) == false { _ = try await operations.follow(target) }
+                let identifier = "follow:user\(target)"
+                guard !journal.followSubmissionPending || confirmation?.settledMutations?.contains(identifier) == true
+                else { throw failure("关注切换结果待服务端确认") }
+                journal.followSubmissionPending = false; try persist(journal)
+                if try await operations.following(target) == false {
+                    _ = try await submitToggle(identifier, journal: &journal) { try await operations.follow(target) }
+                }
                 guard try await operations.following(target) else { throw failure("验收关注恢复待完成") }
             }) {
                 journal.followTarget = nil
@@ -522,10 +601,15 @@ final class CommunityWriteSmoke {
         try persist(journal)
         for like in journal.likes {
             if try await recoverOperation("恢复点赞 " + like.target.kind.rawValue, failures: &failures, operation: {
+                guard like.submissionPending != true || confirmation?.settledMutations?.contains(like.recoveryID) == true
+                else { throw failure("点赞切换结果待服务端确认") }
+                journal.markSubmission(like.recoveryID, pending: false); try persist(journal)
                 if let current = try await operations.read(like.target.kind, like.target.id) {
                     guard like.target.kind == .course || current.owned && matches(current.text, marker: journal.marker)
                     else { throw failure("验收点赞目标身份异常") }
-                    if current.liked != like.original { _ = try await operations.like(like.target.kind, like.target.id) }
+                    if current.liked != like.original {
+                        _ = try await submitToggle(like.recoveryID, journal: &journal) { try await operations.like(like.target.kind, like.target.id) }
+                    }
                 }
                 if let restored = try await operations.read(like.target.kind, like.target.id), restored.liked != like.original {
                     throw failure("点赞恢复待完成")
