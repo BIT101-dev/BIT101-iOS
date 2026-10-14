@@ -336,9 +336,16 @@ struct AppLocalDataOwnershipTests {
         #expect(AppAccountSession.storage.fakeCookie.isEmpty && AppAccountSession.storage.currentStudentID.isEmpty)
         #expect(try AppAccountSession.storage.loadCredentials() == nil)
         #expect(defaults.object(forKey: "cleanup-fixture") == nil)
-        try await waitForTestEvent { URLCache.shared.cachedResponse(for: request) == nil }
+        try await Self.waitForSharedCacheEviction(request)
         #expect(URLCache.shared.cachedResponse(for: request) == nil)
         #expect(await cookies.allCookies().isEmpty)
+    }
+
+    @concurrent private nonisolated static func waitForSharedCacheEviction(_ request: URLRequest) async throws {
+        try await waitForTestEvent {
+            #expect(!Thread.isMainThread)
+            return URLCache.shared.cachedResponse(for: request) == nil
+        }
     }
 
     @Test(.timeLimit(.minutes(1)))

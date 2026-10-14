@@ -207,6 +207,76 @@ struct ExternalScheduleInfrastructureTests {
         #expect(try ScheduleExternalSnapshotCodec.decode(data) == snapshot)
     }
 
+    @Test func deadlineWidgetSnapshotRetainsDataAcrossStorageAndAccountRevisions() throws {
+        let deadline = ScheduleExternalDeadlineSnapshot(id: "manual", title: "报告", subtitle: "课程", sourceTitle: "自定义",
+            dueAt: Date(timeIntervalSince1970: 1_000_000))
+        let snapshot = ScheduleExternalSnapshot(revision: 2, isLoggedIn: true, studentID: "owner",
+            firstDayString: "", timeTable: [], courses: [], deadlines: [deadline], ddlAfterDay: 5)
+        let advanced = try #require(snapshot.replacingStudentID(with: "opaque-owner").advancingRevision(after: 10))
+        let decoded = try ScheduleExternalSnapshotCodec.decode(ScheduleExternalSnapshotCodec.encode(advanced))
+        #expect(decoded.deadlines == [deadline] && decoded.ddlAfterDay == 5)
+        #expect(decoded.studentID == "opaque-owner" && decoded.revision == 11)
+        var legacy = try #require(JSONSerialization.jsonObject(with: ScheduleExternalSnapshotCodec.encode(snapshot)) as? [String: Any])
+        legacy.removeValue(forKey: "deadlines")
+        legacy.removeValue(forKey: "ddlAfterDay")
+        let restored = try ScheduleExternalSnapshotCodec.decode(JSONSerialization.data(withJSONObject: legacy))
+        #expect(restored.deadlines.isEmpty && restored.ddlAfterDay == 3)
+        let files = PreferenceMemoryFiles()
+        let store = ScheduleExternalSnapshotStore(files: files, containerURL: files.temporaryDirectoryURL)
+        try store.write(snapshot)
+        #expect(store.load()?.deadlines == [deadline])
+        let cleared = ScheduleExternalSnapshot(revision: 3, isLoggedIn: false, studentID: "owner", firstDayString: "",
+            timeTable: [], courses: [])
+        #expect(try store.writeIfNewer(cleared))
+        #expect(ScheduleDeadlineResolver.resolvedSnapshot(from: store.load()).contentState == .loggedOut)
+        #expect(throws: ScheduleExternalSnapshotStoreError.staleSnapshot) { try store.writeIfNewer(snapshot) }
+    }
+
+    @Test func deadlineWidgetOrdersPendingItemsAndHonorsTheRetentionBoundaryWithoutCourses() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        func deadline(_ id: String, _ offset: TimeInterval) -> ScheduleExternalDeadlineSnapshot {
+            .init(id: id, title: id, subtitle: "", sourceTitle: "自定义", dueAt: now.addingTimeInterval(offset))
+        }
+        let snapshot = ScheduleExternalSnapshot(isLoggedIn: true, studentID: "owner", firstDayString: "", timeTable: [], courses: [],
+            deadlines: [deadline("later", 3_600), deadline("b", -86_400), deadline("a", -86_400), deadline("expired", -86_401)], ddlAfterDay: 1)
+        let resolved = ScheduleDeadlineResolver.resolvedSnapshot(from: snapshot, now: now)
+        #expect(resolved.contentState == .ready && resolved.deadlines.map(\.id) == ["a", "b", "later"])
+        #expect(ScheduleDeadlineResolver.resolvedSnapshot(from: snapshot, now: now, limit: 1).deadlines.map(\.id) == ["a"])
+        #expect(ScheduleDeadlineResolver.resolvedSnapshot(from: snapshot, now: now, limit: 0).contentState == .rest)
+        #expect(ScheduleDeadlineResolver.resolvedSnapshot(from: snapshot, now: now.addingTimeInterval(2 * 86_400)).contentState == .rest)
+        #expect(ScheduleDeadlineResolver.resolvedSnapshot(from: nil).contentState == .missing)
+        let signedOut = ScheduleExternalSnapshot(isLoggedIn: false, studentID: "", firstDayString: "", timeTable: [], courses: [],
+            deadlines: snapshot.deadlines)
+        #expect(ScheduleDeadlineResolver.resolvedSnapshot(from: signedOut).deadlines.isEmpty)
+        #expect(ScheduleDeadlineResolver.resolvedSnapshot(from: signedOut).contentState == .loggedOut)
+    }
+
+    @Test func deadlineWidgetTimelineRefreshesAtDueTimeExpiryAndMidnight() throws {
+        let day = try #require(ScheduleSharedDateCodec.parseDate("2030-10-01"))
+        let now = try #require(ScheduleSharedDateCodec.combine(date: day, time: "12:00"))
+        let deadline = ScheduleExternalDeadlineSnapshot(id: "due", title: "报告", subtitle: "", sourceTitle: "课程中心",
+            dueAt: now.addingTimeInterval(300))
+        let snapshot = ScheduleExternalSnapshot(isLoggedIn: true, studentID: "owner", firstDayString: "", timeTable: [], courses: [],
+            deadlines: [deadline], ddlAfterDay: 0)
+        #expect(ScheduleDeadlineResolver.timelineDates(from: snapshot, now: now)
+            == [now, deadline.dueAt, deadline.dueAt.addingTimeInterval(1), day.addingTimeInterval(86_400), now.addingTimeInterval(86_400)])
+        #expect(ScheduleDeadlineResolver.resolvedSnapshot(from: snapshot, now: deadline.dueAt).contentState == .ready)
+        #expect(ScheduleDeadlineResolver.resolvedSnapshot(from: snapshot, now: deadline.dueAt.addingTimeInterval(1)).contentState == .rest)
+        #expect(ScheduleDeadlineResolver.timelineDates(from: nil, now: now)
+            == [now, day.addingTimeInterval(86_400), now.addingTimeInterval(86_400)])
+    }
+
+    @Test(arguments: ["blank-title", "blank-id", "duplicate-id", "oversized-subtitle", "invalid-retention", "invalid-date"])
+    func damagedDeadlineWidgetPayloadsPreserveTheSharedValidationBoundary(field: String) {
+        let deadline = ScheduleExternalDeadlineSnapshot(id: field == "blank-id" ? " " : "id", title: field == "blank-title" ? " " : "报告",
+            subtitle: field == "oversized-subtitle" ? String(repeating: "x", count: ScheduleExternalSnapshotCodec.maximumFieldBytes + 1) : "",
+            sourceTitle: "乐学", dueAt: Date(timeIntervalSince1970: field == "invalid-date" ? .infinity : 100))
+        let snapshot = ScheduleExternalSnapshot(isLoggedIn: true, studentID: "owner", firstDayString: "", timeTable: [], courses: [],
+            deadlines: field == "duplicate-id" ? [deadline, deadline] : [deadline], ddlAfterDay: field == "invalid-retention" ? 31 : 3)
+        #expect(throws: CocoaError.self) { try ScheduleExternalSnapshotCodec.encode(snapshot) }
+        #expect(ScheduleDeadlineResolver.resolvedSnapshot(from: snapshot).contentState == .invalid)
+    }
+
     @Test("Watch transfer protocol recognizes requests and snapshots")
     func watchTransferProtocol() throws {
         let data = try ScheduleExternalSnapshotCodec.encode(makeSnapshot())
