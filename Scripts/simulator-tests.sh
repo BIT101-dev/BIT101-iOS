@@ -85,7 +85,7 @@ restore_application() {
   restore_digest="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest restore)" || return $?
   bit101_run_logged "$DERIVED_ROOT/build-release.log" "常规模拟器包编译" xcodebuild build -quiet \
     -project "$ROOT_DIR/BIT101-iOS.xcodeproj" -scheme BIT101-iOS -configuration Release -derivedDataPath "$DERIVED_ROOT" \
-    -destination "platform=iOS Simulator,id=$SIMULATOR_DEVICE" BIT101_WORKFLOW_CONDITIONS= \
+    -destination "platform=iOS Simulator,id=$SIMULATOR_DEVICE" BIT101_WORKFLOW_CONDITIONS= ENABLE_TESTABILITY=YES \
     "BIT101_RESTORE_INPUT_DIGEST=$restore_digest" CODE_SIGN_IDENTITY=- || return $?
   bit101_run_logged "$DERIVED_ROOT/restore.log" "常规模拟器包恢复" python3 - "$SIMULATOR_DEVICE" \
     "$DERIVED_ROOT/Build/Products/Release-iphonesimulator/BIT101-iOS.app" "$ROOT_DIR/Scripts" "$restore_digest" \

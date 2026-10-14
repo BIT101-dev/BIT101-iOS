@@ -78,7 +78,7 @@ Scripts/build-install-device.sh mac
 
 Catalyst 安装路径为 `~/Applications/BIT101-iOS.app`。Catalyst 安装在同目录的固定事务路径完成复制，再原子交换完整 App；复制和交换失败保留现有安装，事务结束清理所属目录。截图固定覆盖 `.build/screenshot.png`。课表模型和共享展示改动同时关注主 App、Widget、Watch App 与 Watch Widget。
 
-常规 iOS、Catalyst 构建与归档显式使用空工作流条件和空 Swift 编译宏，归档及分发记录核对产物中的条件和宿主标记。`build` 使用通用 iOS 目的地编译 Release App 及扩展，产物覆盖 `build/DeviceInstall/`。行为测试、专项 Smoke、恢复安装和归档沿工程编译及符号设置执行，Release 使用整模块优化。`archive` 使用工程正式归档配置验证整模块优化及 dSYM，归档固定覆盖 `build/DeviceInstall/BIT101-iOS.xcarchive`，CI 同样执行该入口。真机行为、系统权限和实际跨端传输由设备测试验证。
+常规 iOS、Catalyst 构建与归档显式使用空工作流条件和空 Swift 编译宏，归档及分发记录核对产物中的条件和宿主标记。`build` 使用通用 iOS 目的地编译 Release App 及扩展，产物覆盖 `build/DeviceInstall/`。行为测试、专项 Smoke、恢复安装和归档沿工程编译及符号设置执行，Release 使用整模块优化。模拟器工作流的常规 Release 恢复与测试构建统一设置 `ENABLE_TESTABILITY=YES`，使共享模块保留一致的测试符号；常规恢复使用正式业务组装。`archive` 使用工程正式归档配置验证整模块优化及 dSYM，归档固定覆盖 `build/DeviceInstall/BIT101-iOS.xcarchive`，CI 同样执行该入口。真机行为、系统权限和实际跨端传输由设备测试验证。
 
 ## 包级与 App 行为测试
 

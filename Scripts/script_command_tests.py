@@ -426,7 +426,7 @@ python3() {{ print -r -- "RECORD $*"; return {recording}; }}
     restoration = 'restore_application() {' + simulator_source.split('restore_application() {', 1)[1].split(
         'if [[ "$operation" == restore ]]', 1)[0]
     for original, restore_result in ((0, 0), (7, 0), (0, 9), (7, 9)):
-        stub = f'python3() {{ print digest; }}\nbit101_run_logged() {{ print RESTORE; return {restore_result}; }}\n'
+        stub = f'python3() {{ print digest; }}\nbit101_run_logged() {{ print RESTORE; if [[ "$2" == "常规模拟器包编译" && " $* " != *" ENABLE_TESTABILITY=YES "* ]]; then return 64; fi; return {restore_result}; }}\n'
         result = subprocess.run(['zsh', '-c', stub + restoration + '\ntrap restore_on_exit EXIT\nexit "$1"',
             'simulator-restore-test', str(original)], capture_output=True, text=True)
         if result.returncode != (original or restore_result) or result.stdout.count('RESTORE') != (1 if restore_result else 2):
