@@ -121,10 +121,10 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         let window = app.windows.firstMatch.frame
         let frame = interactionScrollFrame() ?? app.frame
         let origin = app.coordinate(withNormalizedOffset: .zero)
-        for _ in 0..<8 {
+        for attempt in 0..<16 {
             let target = element.exists ? element.frame : CGRect.null
             let horizontal = !target.isNull && (target.maxX <= window.minX || target.minX >= window.maxX)
-            let upward = target.isNull || target.minY >= window.midY
+            let upward = target.isNull ? attempt < 8 : target.minY >= window.midY
             let start = origin.withOffset(CGVector(dx: horizontal ? frame.midX : frame.minX + frame.width * 0.03, dy: frame.midY))
             let end = origin.withOffset(CGVector(dx: horizontal ? frame.minX + frame.width * (target.minX >= window.maxX ? 0.1 : 0.9) : frame.minX + frame.width * 0.03,
                                                 dy: horizontal ? frame.midY : frame.minY + frame.height * (upward ? 0.1 : 0.9)))

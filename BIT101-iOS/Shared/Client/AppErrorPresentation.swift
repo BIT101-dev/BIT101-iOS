@@ -330,7 +330,15 @@ private final class ReportPresentationDelegate: NSObject, UIAdaptivePresentation
 extension View {
     /// 向页面状态组件注入主 App 的诊断恢复操作，保持设计系统与错误基础设施解耦。
     func appDiagnosticRecoveryActions() -> some View {
-        environment(\.appDiagnosticAlert) { AppErrorPresenter.shared.present($0) }
+#if BIT101_UI_TESTING
+        let sceneRevision = UITestSceneConfiguration.shared.snapshot.revision
+#endif
+        return environment(\.appDiagnosticAlert) { alert in
+#if BIT101_UI_TESTING
+            guard UITestSceneConfiguration.shared.snapshot.revision == sceneRevision else { return }
+#endif
+            AppErrorPresenter.shared.present(alert)
+        }
             .environment(\.appFailureDiagnostics) { title, message in
             AnyView(DiagnosticRecoveryActions(title: title, message: message))
         }

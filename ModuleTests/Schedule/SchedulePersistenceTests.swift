@@ -126,7 +126,9 @@ struct SchedulePersistenceTests {
             #expect(try files.readData(at: file) == original)
         }
         try files.writeData(Data("edited".utf8), to: file, options: .atomic)
+        try await waitForTestEvent { try exclusion(directory) != true }
         #expect(try exclusion(directory) != true)
+        #expect(try files.readData(at: file) == Data("edited".utf8))
     }
 
     @Test func localFileMetadataFailurePreservesCommittedBytesAndReadableFiles() throws {
