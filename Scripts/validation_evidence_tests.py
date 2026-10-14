@@ -6,6 +6,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from unittest.mock import patch
 from swift_source_index import swift_syntax_index_sources
 from validation_provenance_tests import network_trace_fixture, network_route_identity_self_test
 
@@ -99,6 +100,7 @@ def icloud_stage_fixture(stage: str, counts: dict) -> dict:
     return dict(counts, stage=stage, runID='fixture', executedTests=['ICloudCrossDeviceSmokeTests/' + stage],
         testTargets=['BIT101-iOSTests'], destination={'platform': 'macOS' if stage.startswith('testMac') else 'iOS', 'deviceIdentifier': 'phone'})
 
+@patch.dict(os.environ, GITHUB_ACTIONS='false', GITHUB_SHA='')
 def run_self_test(subject) -> int:
     from validation_provenance_tests import test_identity_self_test, probe_identity_self_test
     test_identity_self_test()
@@ -121,7 +123,6 @@ def run_self_test(subject) -> int:
     request_body_shape_self_test()
     module_name = subject.__name__
     original_is_file = Path.is_file
-    from unittest.mock import patch
     from validation_environment import host_environment
     from validation_environment import ci_commit_findings
     with patch.dict(os.environ, GITHUB_SHA='a' * 40):

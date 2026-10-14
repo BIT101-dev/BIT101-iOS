@@ -210,6 +210,12 @@ def release(tag: str, *, publish: bool = False) -> None:
 
 
 def self_test() -> None:
+    from unittest.mock import patch
+    with patch.dict(os.environ, GITHUB_ACTIONS='false', GITHUB_SHA=''):
+        _self_test()
+
+
+def _self_test() -> None:
     from io import StringIO
     from unittest.mock import patch
     module = sys.modules[__name__]
