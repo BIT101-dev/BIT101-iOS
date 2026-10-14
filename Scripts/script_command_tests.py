@@ -356,12 +356,22 @@ def script_command_boundary_findings() -> list[str]:
         assert arguments[arguments.index('--path') + 1] == str(diagnostic_bundle)
         assert arguments[arguments.index('--output-path') + 1] == str(diagnostic_bundle.parent)
         assert unlinked.call_count == 1 and not removed.called
-    command = logger + '\nbit101_log_command /dev/null stdin-contract ' + shlex.quote(sys.executable) + ' - delegated-argument\n'
+    memory_report = '''from io import StringIO
+class RetainedLog(StringIO):
+    def close(self): pass
+saved_log = RetainedLog()
+def open_log(path, mode="r", **kwargs):
+    if mode != "w": saved_log.seek(0)
+    return saved_log
+Path.open = open_log
+'''
+    ci_logger = logger.replace('report_path = Path(sys.argv[1])', memory_report + '\nreport_path = Path(sys.argv[1])')
+    command = ci_logger + '\nbit101_log_command /dev/null stdin-contract ' + shlex.quote(sys.executable) + ' - delegated-argument\n'
     for status in (0, 7):
         payload = f'import sys\nassert sys.argv[1] == "delegated-argument"\nprint("warning: delegated-stdin-executed")\nraise SystemExit({status})\n'
         result = subprocess.run(['zsh', '-c', command], input=payload, capture_output=True, text=True)
         if result.returncode != status or 'delegated-stdin-executed' not in result.stdout:
-            findings.append('日志委托自测：子命令继承调用方输入、参数和退出状态')
+            findings.append(f'日志委托自测：子命令继承调用方输入、参数和退出状态；预期 {status}，实际 {result.returncode}；{(result.stdout + result.stderr)[-500:]!r}')
     measured = logger.replace('raise SystemExit(exit_code if exit_code >= 0 else 128 - exit_code)',
         'import resource\nprint("LOGGER_RSS", resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)\nraise SystemExit(exit_code if exit_code >= 0 else 128 - exit_code)')
     peaks = []
@@ -376,16 +386,6 @@ def script_command_boundary_findings() -> list[str]:
         peaks.append(int(peak[1]) * (1 if sys.platform == 'darwin' else 1024))
     if len(peaks) == 2 and peaks[1] - peaks[0] >= (70_000 - 1_000) * 256 // 2:
         findings.append('日志驻留内存自测：摘要占用需要随显示容量保持有限')
-    memory_report = '''from io import StringIO
-class RetainedLog(StringIO):
-    def close(self): pass
-saved_log = RetainedLog()
-def open_log(path, mode="r", **kwargs):
-    if mode != "w": saved_log.seek(0)
-    return saved_log
-Path.open = open_log
-'''
-    ci_logger = logger.replace('report_path = Path(sys.argv[1])', memory_report + '\nreport_path = Path(sys.argv[1])')
     command = ci_logger + '\nbit101_log_command /dev/null ci-contract ' + shlex.quote(sys.executable) + ' -\n'
     payload = 'for index in range(100): print("error: retained", index)\nraise SystemExit(7)\n'
     result = subprocess.run(['zsh', '-c', command], input=payload, capture_output=True, text=True,

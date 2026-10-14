@@ -434,17 +434,19 @@ iOS 的 `checks` 包含 `cold-start-session`、`offline-persistence`、`media-an
 
 聚合验收沿 `xcresulttool merge` 将本次各原生测试组保留到固定 `.build/extended-automation/test-results.xcresult`。合并逐项核对所属设备的原始性能采样，报告保存分组原始摘要及合并包摘要；正式采样消费当前保留包。Mac Catalyst CI 同样聚合行为与生产组装合同。合并中间产物沿固定路径暂存，成功后清理。统一报告先保存待合并分组与原始摘要，推广合并包前绑定完整包摘要，报告重新绑定成功后清理事务字段。中断恢复合并完整的前序包与当前包，并重新绑定报告及性能采样；合并失败继续保留两份原始结果，后续重试沿同一固定路径恢复。
 
-核心真机验收按 PR 的实际编译与测试输入参与合并：App、模块、测试、UI 覆盖合同及验收配置变更执行完整设备流程；普通文档与 Worker 变更沿静态审计、编译和 Catalyst 验收。范围按目标提交与当前合并提交的路径差异计算，删除与重命名共同参与；推送和手动验收执行完整设备流程。完整 `all` 行为、正式 iOS `release-runtime` 合同、完整 `ui` 交互与常规 `restore` 四组需要当前源码与设备输入，并在 24 小时内执行。CI 的 `physical-device` Job 在具有 `self-hosted`、`macOS`、`bit101-xcode-27`、`bit101-device` 标签的专用 Mac 与 iPhone 上执行 `verify modules all release-runtime ui`，恢复常规 App 后执行 `bind-merge`。CI 检出、记录、绑定和证据交换共同核对 GitHub 事件 SHA；检出沿完整提交历史执行，诊断上传沿原始文件保存。
+常规 CI 的 PR、main 推送和手动验收执行静态与完整模块测试、Release 构建、Catalyst 行为和正式组装合同，以及完整 iOS 模拟器行为、正式组装与 UI 库存。`ios-tests` Job 共用项目模拟器入口，省略筛选参数执行对应组的全部用例，逐项核对参数实例、实际模拟器目的地与零跳过结果，完整行为和 UI 组沿版本化覆盖率阈值验收。每组结束后恢复并启动常规 Release App，沿正式就绪信号核对进程、会话和场景。`merge-acceptance` 承接四个常规 Job 的成功结果，并核对 GitHub 事件 SHA 与工作区一致性；该门禁同时参与推送和 PR 验收。
 
-`bind-merge` 将当前提交写入本地固定 JSON，Job 通过 `ci_evidence.py export-core` 导出核心组到固定 `core-validation-evidence.json`，再沿 `upload-artifact` 发布同名 `validation-evidence` 产物。完整人工专项保存在本地报告中，核心交换文件承接模块、行为、正式 iOS、UI 与恢复证据。导入核心文件时覆盖所属核心组，并保留本地专项、发布绑定及覆盖率基准；各组沿输入摘要继续核对有效性。公开交换中的设备身份和宿主绝对路径转为稳定 SHA-256 标识，性能采样与执行环境使用同一标识；输入摘要沿同一转换核对原始报告及交换文件。合并 Job 承接静态审计、编译、Catalyst 和真机结果，仓库内 PR 从当前工作流运行获取该产物，核对 GitHub 合并提交、实际记录环境及四组真机验收的一致工具链。自托管运行器按 GitHub 队列承接工作，项目脚本按工作区锁定固定编译产物；真机操作同时取得用户级设备锁。独立工作区的本机测试与编译可并行，核心真机证据按记录环境核对源码及编译条件。
+版本标签和勾选 `release_check` 的手动发布流程执行 `physical-device` Job。完整 `all` 行为、正式 iOS `release-runtime` 合同、完整 `ui` 交互与常规 `restore` 四组需要当前源码与设备输入，并在 24 小时内执行。真机 Job 在具有 `self-hosted`、`macOS`、`bit101-xcode-27`、`bit101-device` 标签的专用 Mac 与 iPhone 上执行 `verify modules all release-runtime ui`，恢复常规 App 后执行 `bind-merge`。`release-acceptance` 承接四个常规 Job 与真机 Job，再核对所属版本的完整发布回执。CI 检出、记录、绑定和证据交换共同核对 GitHub 事件 SHA；检出沿完整提交历史执行，诊断上传沿原始文件保存。
 
-仓库内分支和维护者手动触发执行真机 Job；fork PR 由维护者审查代码后，将 GitHub 的 `refs/pull/编号/merge` 对应提交保存到仓库内 `review-validation` 分支；从该分支手动启动工作流并填写 `review_pr`。工作流核对当前 PR 合并提交，沿其目标提交载入覆盖率基准，再完成四个 Job 和真机证据绑定。受信宿主工作流按分支排队，保留真机恢复所需的完整执行时间；fork 托管工作流沿新提交自动取消旧任务。维护者随后重新运行原 PR 的合并验收 Job；门禁按原合并 SHA 与 PR 编号查找仓库内成功的手动运行，核对四个实际 Job、有效产物及绑定证据。PR 或目标提交更新后沿新合并提交重新验收。
+`bind-merge` 将当前真机验收提交写入本地固定 JSON，Job 通过 `ci_evidence.py export-core` 导出核心组到固定 `core-validation-evidence.json`，再沿 `upload-artifact` 发布同名 `validation-evidence` 产物。完整人工专项保存在本地报告中，核心交换文件承接模块、行为、正式 iOS、UI 与恢复证据，并供已批准性能基线迁移使用。公开交换中的设备身份和宿主绝对路径转为稳定 SHA-256 标识，性能采样与执行环境使用同一标识；输入摘要沿同一转换核对原始报告及交换文件。自托管运行器按 GitHub 队列承接发布工作，项目脚本按工作区锁定固定编译产物；真机操作同时取得用户级设备锁。独立工作区的本机测试与编译可并行，真机发布证据按记录环境核对源码及编译条件。
 
-常规 Job 使用 GitHub 托管的 `xcode-27` 镜像，每项任务沿独立托管环境运行；[官方镜像公告](https://github.com/actions/runner-images/issues/14404)说明工具链与镜像标签。PR、仓库推送与维护者手动审查共用该运行器合同；手动审查提交核对先于依赖安装。各 Job 在所属固定工作区复用公共编译缓存与增量产物，静态审计逐项核对五个常规 Job 的托管镜像。`bit101-device` 标签归属真机专用宿主，设备连接及 GitHub、Cloudflare、Apple 授权保存在该宿主。真机自托管工具链标签为 `bit101-xcode-27`。角色、标签与设备授权沿 [GitHub 自托管运行器文档](https://docs.github.com/en/actions/how-tos/manage-runners/self-hosted-runners/use-in-a-workflow) 和本项目真机流程配置。
+维护者手动验收外部 PR 时，将 GitHub 的 `refs/pull/编号/merge` 对应提交保存到仓库内 `review-validation` 分支，从该分支启动工作流并填写 `review_pr`。工作流核对当前 PR 合并提交，沿其目标提交载入覆盖率基准，再完成四个常规 Job。工作流按分支排队，发布流程保留真机恢复所需的完整执行时间；fork 托管工作流沿新提交自动取消旧任务。PR 和目标提交更新后沿新的 GitHub 合并提交重新验收。
+
+常规 Job 使用 GitHub 托管的 `xcode-27` 镜像，每项任务沿独立托管环境运行；[官方镜像公告](https://github.com/actions/runner-images/issues/14404)说明工具链与镜像标签。PR、仓库推送与维护者手动审查共用该运行器合同；手动审查提交核对先于依赖安装。各 Job 在所属固定工作区复用公共编译缓存与增量产物，静态审计逐项核对六个常规 Job 的托管镜像。`bit101-device` 标签归属真机发布宿主，设备连接及 GitHub、Cloudflare、Apple 授权保存在该宿主。真机自托管工具链标签为 `bit101-xcode-27`。角色、标签与设备授权沿 [GitHub 自托管运行器文档](https://docs.github.com/en/actions/how-tos/manage-runners/self-hosted-runners/use-in-a-workflow) 和本项目真机流程配置。
 
 公开仓库的 fork 可以修改工作流内容，运行器选择表达式提供项目内的路由约定。自托管宿主的准入由组织运行器组及受保护分支的固定工作流访问策略承接；fork 工作流审批覆盖全部外部贡献者，批准前核对具体提交、工作流及执行代码。运行器组访问策略与审批策略沿管理员权限配置并核实，部署验收记录该边界。平台行为参见 [GitHub 工作流设置](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/enabling-features-for-your-repository/managing-github-actions-settings-for-a-repository)。
 
-完整模块与 iOS 行为组按每模块的整数百分比维护最低覆盖率。`Scripts/validation_policy.py` 保存版本化的 macOS 与 iOS 阈值；完整验收提高覆盖率后同步提高相应阈值并提交评审；门禁比较版本化的最低覆盖率，阈值更新由评审批准。PR 的静态与真机 Job 通过 `ci_evidence.py baseline` 从目标提交读取这两组字典，以 Python AST 字面量解析并核对阈值，再由 `validation_evidence.py baseline` 载入。main、版本标签和普通手动入口明确清理目标提交基准，并沿当前版本阈值验收；各入口在执行分组前设置本次基准。基准随 Git 提交长期保存，读取过程独立于历史工作流、真机状态和产物保留期。同输入的模块筛选复验在统一 JSON 内保留 `lastFullRun`；App、Catalyst 与模拟器定向复验沿固定结果包合并，完整记录及性能采样继续绑定合并后的摘要；中断且缺少完整结果的测试包沿定向复验入口清理并重新采样；完整运行按当前版本与目标提交阈值中的较高值验收，覆盖率门禁按版本化最低阈值判定。新宿主与复用缓存的宿主采用同一版本化门禁。UI 的 Feature 与 UI 模块同样核对目标提交的 iOS 阈值。
+完整模块与 iOS 行为组按每模块的整数百分比维护最低覆盖率。`Scripts/validation_policy.py` 保存版本化的 macOS 与 iOS 阈值；完整验收提高覆盖率后同步提高相应阈值并提交评审；门禁比较版本化的最低覆盖率，阈值更新由评审批准。PR 的静态、Catalyst 与模拟器 Job，以及发布真机 Job 通过 `ci_evidence.py baseline` 从目标提交读取这两组字典，以 Python AST 字面量解析并核对阈值，再由 `validation_evidence.py baseline` 载入。main、版本标签和普通手动入口明确清理目标提交基准，并沿当前版本阈值验收；各入口在执行分组前设置本次基准。基准随 Git 提交长期保存，读取过程独立于历史工作流、真机状态和产物保留期。同输入的模块筛选复验在统一 JSON 内保留 `lastFullRun`；App、Catalyst 与模拟器定向复验沿固定结果包合并，完整记录及性能采样继续绑定合并后的摘要；中断且缺少完整结果的测试包沿定向复验入口清理并重新采样；完整运行按当前版本与目标提交阈值中的较高值验收，覆盖率门禁按版本化最低阈值判定。新宿主与复用缓存的宿主采用同一版本化门禁。UI 的 Feature 与 UI 模块同样核对目标提交的 iOS 阈值。
 
 Catalyst 沿本次运行的原始 profile 与正式 App、模块二进制导出行覆盖率。完整行为组共用 iOS 的版本化模块阈值，ActivityKit 合同沿 iOS 编译条件归属验收；正式组装合同核对宿主、传输与存储生产源码的实际执行。两个 Catalyst 组同时保存实际覆盖率数据，采集缺口进入验收失败。
 
@@ -576,13 +578,13 @@ App 宿主组装测试沿 scheme 串行执行，涉及账号、共享缓存与�
 
 课表 smoke 核对学校原始周次与完整展示周次集合、首周日期及小学期偏移。确定样本覆盖截短周次与错误首周；正式运行条件组验收日程模块边界与提醒上下文。
 
-### 授权后的模拟器定向复验
+### 授权后的模拟器验收
 
-模拟器定向复验沿当次会话的用户显式授权执行，设置 `BIT101_SIMULATOR_AUTHORIZED=1` 后使用 `Scripts/run-extended-tests.sh simulator prepare` 准备项目专用设备，再沿 `simulator app 测试类/方法`、`simulator release-runtime 测试类/方法` 或 `simulator ui 用例关键词` 复验，App 行为组使用 Debug 测试宿主，正式条件与 UI 组使用 Release 测试宿主。`simulator info` 读取运行时库存。入口安装所需官方运行时，复用唯一项目设备、工作流锁、编译缓存和固定测试产物。
+模拟器定向复验沿当次会话的用户显式授权执行，设置 `BIT101_SIMULATOR_AUTHORIZED=1` 后使用 `Scripts/run-extended-tests.sh simulator prepare` 准备项目专用设备，省略测试筛选时，`simulator app`、`simulator release-runtime` 和 `simulator ui` 执行对应组的完整库存；常规 CI 共用这三个入口。筛选复验沿 `simulator app 测试类/方法`、`simulator release-runtime 测试类/方法` 或 `simulator ui 用例关键词` 复验，App 行为组使用 Debug 测试宿主，正式条件与 UI 组使用 Release 测试宿主。`simulator info` 读取运行时库存。入口安装所需官方运行时，复用唯一项目设备、工作流锁、编译缓存和固定测试产物。
 
 测试结束后沿原测试状态恢复并启动常规模拟器包，`simulator restore` 也可独立执行恢复，安装后核对可执行文件与常规 Release 产物的摘要，再沿正式就绪信号核对当前进程、编译输入、登录恢复与活跃场景，并保存实际画面；`simulator inspect` 读取安装包版本与测试宿主标记，并将实际屏幕覆盖保存到 `.build/screenshot.png`。日志委托保留调用方标准输入，回归覆盖子命令正文、参数及退出状态；UI 测试包沿隔离启动参数运行；社区资源替身核对请求方法与实际对象标识，帖子和文章的删除状态分别维护。业务参数证据保留原始请求及重定向的重复键，原生探针与报告验收共同拒绝歧义参数。
 
-模拟器结果用于本机定向检查；实体设备、线上写入、系统权限和跨端验收沿各自环境保存发布证据。
+模拟器完整结果参与常规 CI 验收，筛选结果用于定向检查；实体设备、线上写入、系统权限和跨端验收沿各自环境保存发布证据。
 
 分享落地页 HTTP/HTML 探针核对 App 目的地址、文字或图片内容及常见内联隐藏样式；所属界面专项沿实际页面核对打开入口、深链交接与返回。
 

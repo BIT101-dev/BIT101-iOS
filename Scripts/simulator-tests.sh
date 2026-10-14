@@ -8,12 +8,15 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT_DIR/Scripts/script-support.sh"
 operation="${1:-info}"
 shift $(( $# > 0 ? 1 : 0 ))
-case "$operation" in info|prepare|restore|inspect) [[ $# -eq 0 ]] || exit 64;; app|release-runtime|ui) [[ $# -gt 0 ]] || exit 64;; *) exit 64;; esac
+case "$operation" in info|prepare|restore|inspect) [[ $# -eq 0 ]] || exit 64;; app|release-runtime|ui) ;; *) exit 64;; esac
+TEST_SCOPE=selected
+if (( $# == 0 )); then TEST_SCOPE=full; fi
 bit101_acquire_workflow_lock "$0" "$operation" "$@"
 DERIVED_ROOT="$ROOT_DIR/.build/extended-automation"
 mkdir -p "$DERIVED_ROOT"
 if SIMULATOR_DEVICE="$(python3 - "$DERIVED_ROOT/simulator-device.json" "$operation" 2>> "$DERIVED_ROOT/simulator.log" <<'PYDEVICE'
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -43,6 +46,8 @@ else:
     path.write_text(json.dumps({'identifier': identifier, 'runtime': runtime['identifier']}) + '\n')
     device = {'state': 'Shutdown'}
 if device['state'] != 'Booted': subprocess.run(['xcrun', 'simctl', 'boot', identifier], check=True, stdout=sys.stderr, stderr=sys.stderr)
+if os.getenv('GITHUB_ACTIONS') == 'true':
+    subprocess.run(['defaults', 'write', 'com.apple.iphonesimulator', 'ConnectHardwareKeyboard', '-bool', 'false'], check=True)
 subprocess.run(['xcrun', 'simctl', 'bootstatus', identifier, '-b'], check=True, stdout=sys.stderr, stderr=sys.stderr)
 print(identifier)
 PYDEVICE
@@ -155,6 +160,15 @@ if [[ "$operation" == ui ]]; then
   configuration=Release
   selections=("${(@f)$(bit101_ui_test_selections "$@")}")
 fi
+if [[ "$TEST_SCOPE" == full ]]; then
+  selections=("${(@f)$(python3 - "$ROOT_DIR/Scripts" "$mode" <<'PYINVENTORY'
+import sys
+sys.path.insert(0, sys.argv[1])
+from validation_evidence import normalized_test_id, test_inventory
+print('\n'.join(sorted(normalized_test_id(test) for test in test_inventory(sys.argv[2]))))
+PYINVENTORY
+)}")
+fi
 EXPECTED_TESTS="$(python3 - "$ROOT_DIR/Scripts" "$mode" "${selections[@]}" <<'PYSELECT'
 import json, sys
 sys.path.insert(0, sys.argv[1])
@@ -168,7 +182,7 @@ selections=("${(@f)$(bit101_xcode_test_selections "$mode" "${selections[@]}")}")
 for selection in "${selections[@]}"; do only_testing+=("-only-testing:$bundle/$selection"); done
 destination="platform=iOS Simulator,id=$SIMULATOR_DEVICE"
 result="$DERIVED_ROOT/test-results.xcresult"
-bit101_run_logged "$DERIVED_ROOT/simulator.log" "模拟器测试宿主编译" xcodebuild build-for-testing -quiet \
+bit101_run_logged "$DERIVED_ROOT/$mode.log" "模拟器测试宿主编译" xcodebuild build-for-testing -quiet \
   -project "$ROOT_DIR/BIT101-iOS.xcodeproj" -scheme "$scheme" -configuration "$configuration" -derivedDataPath "$DERIVED_ROOT" \
   -destination "$destination" "BIT101_WORKFLOW_CONDITIONS=$conditions" ENABLE_TESTABILITY=YES \
   -enableCodeCoverage YES ENABLE_CODE_COVERAGE=YES \
@@ -186,16 +200,18 @@ retained_result_groups=("${(@)retained_result_groups:#}")
 rm -f "$DERIVED_ROOT/test-metrics.txt" "$DERIVED_ROOT/test-failures.txt"
 test_status=0
 trap restore_on_exit EXIT
-bit101_run_logged "$DERIVED_ROOT/simulator.log" "模拟器复验" xcodebuild test-without-building -quiet \
+bit101_run_logged "$DERIVED_ROOT/$mode.log" "模拟器测试" xcodebuild test-without-building -quiet \
   -xctestrun "$plan" -destination "$destination" -resultBundlePath "$result" \
   -parallel-testing-enabled NO -test-timeouts-enabled YES "${only_testing[@]}" || test_status=$?
-python3 - "$result" "$DERIVED_ROOT/test-metrics.txt" "$ROOT_DIR/Scripts" "$EXPECTED_TESTS" "$test_status" "$mode" "$SIMULATOR_DEVICE" <<'PYRESULT'
+python3 - "$result" "$DERIVED_ROOT/test-metrics.txt" "$ROOT_DIR/Scripts" "$EXPECTED_TESTS" "$test_status" "$mode" "$SIMULATOR_DEVICE" "$configuration" "$TEST_SCOPE" <<'PYRESULT'
 import json
 from pathlib import Path
 import subprocess
 import sys
 sys.path.insert(0, sys.argv[3])
-from validation_evidence import normalized_test_id, validate_community_write_test_output, native_case_summary, selected_test_summary_complete
+from validation_evidence import normalized_test_id, validate_community_write_test_output, native_case_summary, selected_test_summary_complete, native_source_coverage, coverage_complete, REPORT
+from validation_environment import ci_commit_findings
+from validation_coverage import regressions, policy_floors
 from validation_performance import result_bundle_complete
 result = Path(sys.argv[1])
 if not result_bundle_complete(result):
@@ -214,7 +230,8 @@ def visit(value):
         for child in value: visit(child)
 visit(tree)
 expected = set(json.loads(sys.argv[4]))
-headline = (f"模拟器本机定向复验\n结果：{summary.get('result', '?')}；总计 {summary.get('totalTestCount', 0)}；"
+scope = '完整验收' if sys.argv[9] == 'full' else '定向复验'
+headline = (f"模拟器{scope}\n结果：{summary.get('result', '?')}；总计 {summary.get('totalTestCount', 0)}；"
     f"通过 {summary.get('passedTests', 0)}；失败 {summary.get('failedTests', 0)}；跳过 {summary.get('skippedTests', 0)}\n")
 text = headline + "已执行用例：" + json.dumps(sorted(executed)) + '\n'
 cases = native_case_summary(tree, sys.argv[6], simulator=True, device_identifier=sys.argv[7])
@@ -233,7 +250,25 @@ if int(sys.argv[5]) or not selected_test_summary_complete(native_summary, sorted
     if executed != expected:
         print(f"库存差异：缺少 {sorted(expected - executed)}；额外 {sorted(executed - expected)}", file=sys.stderr)
     print(f"详细结果：{sys.argv[2]}", file=sys.stderr)
-    raise SystemExit('模拟器复验需要全部筛选用例通过，并匹配实际执行库存。')
+    raise SystemExit('模拟器测试需要全部用例通过，并匹配实际执行库存。')
+if sys.argv[9] == 'full' and sys.argv[6] in {'all', 'ui'}:
+    targets = json.loads(subprocess.check_output(['xcrun', 'xccov', 'view', '--report', '--json', sys.argv[1]], text=True))['targets']
+    coverage = {row['name']: {key: row[key] for key in ('coveredLines', 'executableLines')}
+        for row in targets if row['name'] == 'BIT101-iOS.app'}
+    build = result.parent / 'Build'
+    modules = native_source_coverage(build / 'Products' / (sys.argv[8] + '-iphonesimulator'),
+        build / 'ProfileData' / sys.argv[7] / 'Coverage.profdata')
+    coverage.update({'iOS/' + name: dict(coveredLines=covered, executableLines=executable)
+        for name, (covered, executable) in modules.items()})
+    native_summary['coverage'] = coverage
+    policy = json.loads(REPORT.read_text()).get('coveragePolicy', {}) if REPORT.is_file() else {}
+    failures = regressions(coverage, policy_floors(sys.argv[6], policy))
+    with Path(sys.argv[2]).open('a') as metrics:
+        metrics.write('覆盖率：' + json.dumps(coverage) + '\n')
+    if not coverage_complete(sys.argv[6], native_summary) or failures:
+        raise SystemExit('模拟器完整覆盖率需要满足版本化阈值：' + '；'.join(failures))
+commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+if failures := ci_commit_findings(commit): raise SystemExit('\n'.join(failures))
 validate_community_write_test_output(Path(sys.argv[1]), raw_executed)
-print(f"模拟器复验通过：{summary['passedTests']} 项；结果用于本机定向复验。")
+print(f"模拟器{scope}通过：{summary['passedTests']} 项。")
 PYRESULT
