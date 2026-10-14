@@ -76,6 +76,7 @@ struct CommunityCoreTests {
         let session = AppStorageSession(accountIdentifier: "unread-candidates")
         let files = ModuleScoreFiles()
         let store = GalleryMessageReadStore(files: files, storageRoot: URL(fileURLWithPath: "/messages"), defaults: defaults, session: { session })
+        #expect(store.syncSnapshot().seenIDsByType.isEmpty)
         await store.replaceLatestIDs([5, 4, 3], unreadCount: 3, for: .comment)
         await store.markSeen(ids: [4], for: .comment)
         await store.replaceLatestIDs([6, 5], unreadCount: 1, for: .comment)
@@ -125,6 +126,9 @@ struct CommunityCoreTests {
         #expect(!recovering.hasUnreadableSnapshot && recovering.isUnread(id: 42, for: .comment))
         #expect(await recovering.setPendingUnreadAfterID(42, for: .comment))
         #expect(recovering.pendingUnreadAfterID(for: .comment) == 42)
+        #expect(recovering.isUnread(id: 43, for: .comment) && !recovering.isUnread(id: 41, for: .comment))
+        #expect(await recovering.markSeen(ids: [43], for: .comment))
+        #expect(!recovering.isUnread(id: 43, for: .comment) && recovering.isUnread(id: 44, for: .comment))
     }
 
     @Test(.timeLimit(.minutes(1))) func damagedMessageReadStatePreservesBytesAndSuppressesSaveEvents() async throws {

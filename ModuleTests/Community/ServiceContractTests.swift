@@ -30,7 +30,7 @@ struct ServiceContractTests {
 #if os(macOS)
     @Test(.timeLimit(.minutes(1)), arguments: ["gallery.newest", "gallery.following", "gallery.hot", "gallery.recommend", "gallery.bots", "gallery.search"])
     func productionGalleryRequestsPassThePythonSmokeContract(probe: String) async throws {
-        let transport = Transport(Array(repeating: (200, "[]"), count: 10))
+        let transport = Transport(Array(repeating: (200, "[]"), count: probe == "gallery.search" ? 16 : 10))
         let session = CommunitySession(httpClient: HTTPClient(transport: transport, observer: nil),
             baseURL: AppURL.required("https://bit101.flwfdd.xyz"),
             credentials: { .init(identity: .init(accountIdentifier: "contracts"), cookie: "fixture") }, refresh: { _ in })
@@ -42,8 +42,10 @@ struct ServiceContractTests {
             for page in 0...1 {
                 switch probe {
                 case "gallery.search":
-                    for order in GallerySearchOrder.allCases {
-                        _ = try await service.searchPosters(query: .init(text: " BIT101 ", order: order), page: page == 0 ? nil : page)
+                    for keyword in [" BIT101 ", " excluded "] {
+                        for order in GallerySearchOrder.allCases {
+                            _ = try await service.searchPosters(query: .init(text: keyword, order: order), page: page == 0 ? nil : page)
+                        }
                     }
                     for order in [GallerySearchOrder.like, .newest] {
                         _ = try await service.searchPosters(query: .init(text: "", order: order), page: page)
@@ -56,7 +58,8 @@ struct ServiceContractTests {
                 }
             }
         }
-        try assertSmokeContract(probe: probe, requests: requests)
+        try await assertSmokeContract(probe: probe, requests: requests,
+            selectors: probe == "gallery.search" ? ["search": "BIT101", "excludedSearch": "excluded"] : [:])
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: ["paper.detail", "paper.comments"], [false, true])
@@ -74,11 +77,11 @@ struct ServiceContractTests {
             } }
         }
         #expect(transport.authenticationRequests.count == (authenticated ? (probe == "paper.detail" ? 1 : 6) : 0))
-        try assertSmokeContract(probe: probe, requests: requests,
+        try await assertSmokeContract(probe: probe, requests: requests,
             selectors: probe == "paper.detail" ? ["path": "/papers/17"] : ["obj": "paper17"])
     }
 
-    private func assertSmokeContract(probe: String, requests: [(URLRequest, HTTPResponse)], selectors: [String: String] = [:]) throws {
+    private func assertSmokeContract(probe: String, requests: [(URLRequest, HTTPResponse)], selectors: [String: String] = [:]) async throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
@@ -86,6 +89,8 @@ struct ServiceContractTests {
         let input = Pipe(), errors = Pipe()
         process.standardInput = input
         process.standardError = errors
+        let (completion, finished) = AsyncStream<Void>.makeStream()
+        process.terminationHandler = { _ in finished.yield(()); finished.finish() }
         try process.run()
         let rows = try requests.map { request, response in
             let metadata = HTTPRequestEvidence(request: request, response: response.response, finalRequest: response.finalRequest)
@@ -110,7 +115,8 @@ struct ServiceContractTests {
         }
         try input.fileHandleForWriting.write(contentsOf: JSONSerialization.data(withJSONObject: ["probe": probe, "requests": rows, "expectedParameters": selectors]))
         try input.fileHandleForWriting.close()
-        process.waitUntilExit()
+        var iterator = completion.makeAsyncIterator()
+        _ = await iterator.next()
         #expect(process.terminationStatus == 0, Comment(rawValue: String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)))
     }
 #endif
@@ -149,6 +155,7 @@ struct ServiceContractTests {
         var authenticationRequests: [URLRequest] = []
         var failure: (any Error)?
         var authenticationGate: (() async -> Void)?
+        var responseForRequest: ((URLRequest) throws -> (Int, String))?
         private var responses: [(Int, String)]
         var authenticationStatuses: [Int]
         init(_ responses: [(Int, String)], authenticationStatuses: [Int] = []) {
@@ -172,8 +179,9 @@ struct ServiceContractTests {
             }
             requests.append(request)
             if let failure { throw failure }
-            let response = try #require(responses.first)
-            responses.removeFirst()
+            let response: (Int, String)
+            if let responseForRequest { response = try responseForRequest(request) }
+            else { response = try #require(responses.first); responses.removeFirst() }
             let url = try #require(request.url)
             return (Data(response.1.utf8), try #require(HTTPURLResponse(url: url, statusCode: response.0,
                 httpVersion: nil, headerFields: ["Content-Type": "application/json"])))
@@ -462,9 +470,11 @@ struct ServiceContractTests {
     }
 
     @Test(.timeLimit(.minutes(1))) func concurrentPaperPreviewsShareAuthenticationValidation() async throws {
-        let transport = Transport((17..<25).map { id in
-            (200, paperDetailBody(own: true).replacingOccurrences(of: "\"id\":17", with: "\"id\":\(id)"))
-        })
+        let transport = Transport([])
+        transport.responseForRequest = { request in
+            let id = try #require(request.url?.lastPathComponent)
+            return (200, self.paperDetailBody(own: true).replacingOccurrences(of: "\"id\":17", with: "\"id\":\(id)"))
+        }
         var pending: CheckedContinuation<Void, Never>?
         transport.authenticationGate = { await withCheckedContinuation { pending = $0 } }
         let service = PaperService(session: session(transport))
@@ -565,11 +575,18 @@ struct ServiceContractTests {
 
     @Test(.timeLimit(.minutes(1)), arguments: ["{}", "null", "<html>gateway</html>", #"[{"id":"invalid"}]"#])
     func malformedCourseAndPaperListsExposeTheirBusinessErrors(_ response: String) async {
-        await #expect(throws: CourseServiceError.self) {
-            try await CourseService(session: session(Transport([(200, response)]))).fetchCourses(search: "", page: 0)
-        }
-        await #expect(throws: PaperServiceError.self) {
-            try await PaperService(session: session(Transport([(200, response)]), cookie: "")).fetchPapers(search: nil, order: .newest, page: 0)
+        for course in [true, false] {
+            do {
+                let selected = session(Transport([(200, response)]), cookie: course ? "fixture-cookie" : "")
+                if course { _ = try await CourseService(session: selected).fetchCourses(search: "", page: 0) }
+                else { _ = try await PaperService(session: selected).fetchPapers(search: nil, order: .newest, page: 0) }
+                Issue.record("损坏列表需要保留业务错误和解码原因。")
+            } catch {
+                let actual = error as NSError
+                let expected = course ? CourseServiceError.invalidResponse as NSError : PaperServiceError.invalidResponse as NSError
+                #expect(actual.domain == expected.domain && actual.code == expected.code)
+                #expect(actual.userInfo[NSUnderlyingErrorKey] != nil)
+            }
         }
     }
 

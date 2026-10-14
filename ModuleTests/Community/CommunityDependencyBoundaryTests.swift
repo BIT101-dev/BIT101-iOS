@@ -152,6 +152,7 @@ struct CommunityDependencyBoundaryTests {
             return await store.saveGallery(.init(title: "功能验收", text: "功能验收", selectedTags: [], customTags: [],
                 anonymous: false, isPublic: false, selectedClaimID: 0, images: []))
         }
+        let ownedCleanup = suggestion ? await store.captureSuggestionCleanup() : await store.captureGalleryCleanup()
         let pending = Task { await save() }
         try await waitForTestEvent { !(!started.withLock({ $0 })) }
         var cleanupStarted = false
@@ -167,6 +168,13 @@ struct CommunityDependencyBoundaryTests {
         let cleaned = await cleanup.value
         #expect(saved && cleaned)
         #expect(files.storedData.isEmpty)
+        #expect(await store.loadGallery().snapshot == nil)
+        #expect(await store.loadSuggestion().snapshot == nil)
+        #expect(await store.removeGallery() == false)
+        #expect(await store.removeSuggestion() == false)
+        #expect(await ownedCleanup() == false)
+        let suspendedCleanup = await store.captureGalleryCleanup()
+        #expect(await suspendedCleanup() == false && files.storedData.isEmpty)
         operations.resume()
         #expect(await save())
     }

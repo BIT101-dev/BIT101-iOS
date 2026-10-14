@@ -567,19 +567,19 @@ public final class ScoreViewModel: ObservableObject {
     /// 设置成绩列表排序索引。
     func setSortIndex(_ value: ScoreSortIndex) {
         sortIndex = value
-        persistFilterPreferences(userInitiated: true)
+        persistFilterPreferences()
     }
 
     /// 设置成绩列表排序方向。
     func setSortOrder(_ value: ScoreSortOrder) {
         sortOrder = value
-        persistFilterPreferences(userInitiated: true)
+        persistFilterPreferences()
     }
 
     /// 在升序和降序之间切换。
     func toggleSortOrder() {
         sortOrder = sortOrder.toggled
-        persistFilterPreferences(userInitiated: true)
+        persistFilterPreferences()
     }
 
     /// 恢复本机缓存的成绩列表。
@@ -728,8 +728,9 @@ public final class ScoreViewModel: ObservableObject {
     }
 
     /// 保存当前筛选结果到本地偏好。
-    private func persistFilterPreferences(userInitiated: Bool = false) {
-        guard userInitiated || preferenceSnapshot != nil || (didInitializeTermSelection && didInitializeCourseTypeSelection) else { return }
+    private func persistFilterPreferences() {
+        guard preferenceSnapshot != nil || preferenceStore.hasUnreadableSnapshot
+                || (didInitializeTermSelection && didInitializeCourseTypeSelection) else { return }
         let saved = preferenceStore.save(
             selectedTerms: didInitializeTermSelection ? selectedTerms : Set(preferenceSnapshot?.selectedTerms ?? []),
             selectedCourseTypes: didInitializeCourseTypeSelection ? selectedCourseTypes : Set(preferenceSnapshot?.selectedCourseTypes ?? []),

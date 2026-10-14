@@ -198,11 +198,12 @@ PYPLAN
 retained_result_groups=("${(@f)$(python3 "$ROOT_DIR/Scripts/validation_performance.py" begin-selected)}")
 retained_result_groups=("${(@)retained_result_groups:#}")
 rm -f "$DERIVED_ROOT/test-metrics.txt" "$DERIVED_ROOT/test-failures.txt"
+rm -f "$DERIVED_ROOT/Build/ProfileData/$SIMULATOR_DEVICE/"*.profdata(N)
 test_status=0
 trap restore_on_exit EXIT
 bit101_run_logged "$DERIVED_ROOT/$mode.log" "模拟器测试" xcodebuild test-without-building -quiet \
-  -xctestrun "$plan" -destination "$destination" -resultBundlePath "$result" \
-  -parallel-testing-enabled NO -test-timeouts-enabled YES "${only_testing[@]}" || test_status=$?
+  -xctestrun "$plan" -derivedDataPath "$DERIVED_ROOT" -destination "$destination" -resultBundlePath "$result" \
+  -parallel-testing-enabled NO -test-timeouts-enabled YES -enableCodeCoverage YES "${only_testing[@]}" || test_status=$?
 python3 - "$result" "$DERIVED_ROOT/test-metrics.txt" "$ROOT_DIR/Scripts" "$EXPECTED_TESTS" "$test_status" "$mode" "$SIMULATOR_DEVICE" "$configuration" "$TEST_SCOPE" <<'PYRESULT'
 import json
 from pathlib import Path

@@ -512,16 +512,17 @@ struct ExperimentalPreferenceCloudSyncTests {
             refreshCloud: { schedulePulls.append(account.identity) })
         let recordKey = key(.appSettings, account: account)
         owner.start()
-        try await waitForTestEvent { schedulePulls.count == 1 }
         #expect(cloud.synchronizationCalls == 1)
+        try await waitForTestEvent { schedulePulls.count == 1 }
         try await cloud.waitForWrite(to: recordKey)
         #expect(cloud.data(forKey: recordKey) != nil)
         cloud.set(nil, forKey: recordKey)
         let foregroundCalls = cloud.synchronizationCalls
         owner.sceneBecameActive()
-        try await waitForTestEvent { schedulePulls.count == 2 }
         #expect(cloud.synchronizationCalls == foregroundCalls + 1)
+        try await waitForTestEvent { schedulePulls.count == 2 }
         try await cloud.waitForWrite(to: recordKey)
+        #expect(cloud.synchronizationCalls == foregroundCalls + 2)
         #expect(cloud.data(forKey: recordKey) != nil)
         sync.setEnabled(false)
         let calls = cloud.synchronizationCalls

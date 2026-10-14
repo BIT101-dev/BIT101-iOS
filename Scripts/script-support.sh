@@ -145,7 +145,8 @@ def useful_line(line):
     if not line.strip(): return False
     if re.match(r"warning: '.+' is missing a dependency on '.+' because dependency scan of Swift module", line): return False
     if line.startswith(("Test case ", "Test Case ")) and re.search(r"\bpassed(?: on | \(|$)", line): return False
-    if line.startswith(("Test case ", "Test suite ", "Test Case ", "Test Suite ", "◇ ", "✔ ")) and "failed" not in line.lower(): return False
+    if line.startswith(("◇ ", "✔ ")): return False
+    if line.startswith(("Test case ", "Test suite ", "Test Case ", "Test Suite ")) and "failed" not in line.lower(): return False
     if line.rstrip().endswith(" seconds)") and "failed" not in line.lower(): return False
     if line.startswith(("note: Removed stale file ", "Failed frontend command:", "[Pre-planning", "[Computing dependencies]", "[Using on-disk description]", "[Planning deferred tasks]", "[Starting]")): return False
     if line.startswith("[") and line[1:2].isdigit(): return False

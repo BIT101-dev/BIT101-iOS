@@ -576,8 +576,10 @@ extension ReleaseNetworkSmokeLifecycleTests {
         func fetchMessageUnreadCounts() async throws -> GalleryMessageUnreadCounts { GalleryMessageUnreadCounts() }
         func fetchMessages(type: GalleryMessageType, lastID: Int?) async throws -> [GalleryMessage] {
             observed.insert("message-read")
-            return lastID == Int.max && stage != "message-empty-gap" ? try JSONDecoder().decode([GalleryMessage].self,
-                from: Data(#"[{"fromUser":{},"id":9,"linkObj":"poster1","obj":"poster1","text":"","updateTime":""}]"#.utf8)) : []
+            guard stage != "message-empty-gap", let lastID, lastID > 8 else { return [] }
+            let id = lastID == Int.max ? 9 : 8
+            return try JSONDecoder().decode([GalleryMessage].self,
+                from: Data("[{\"fromUser\":{},\"id\":\(id),\"linkObj\":\"poster1\",\"obj\":\"poster1\",\"text\":\"\",\"updateTime\":\"\"}]".utf8))
         }
         func fetchPoster(id: Int) async throws -> GalleryPosterDetail {
             observed.insert("fixture-poster-\(id)")

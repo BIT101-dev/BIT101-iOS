@@ -327,8 +327,8 @@ struct ScheduleContractsTests {
         #expect(store.load() == stored)
     }
 
-    @Test(arguments: [true, false])
-    func futureTimelineIncludesClassTransitionsAndMidnight(phone: Bool) throws {
+    @Test(.timeLimit(.minutes(1)), arguments: [true, false])
+    func futureTimelineIncludesClassTransitionsAndMidnight(phone: Bool) async throws {
         let base = makeSnapshot()
         let course = try #require(base.courses.first)
         let snapshot = ScheduleExternalSnapshot(generatedAt: base.generatedAt, isLoggedIn: base.isLoggedIn,
@@ -350,6 +350,13 @@ struct ScheduleContractsTests {
         #expect(dates.contains(cutoff) == phone)
         #expect(dates.contains(occurrence.endDate) == phone)
         let timeline = ScheduleOccurrenceResolver.resolvedTimeline(from: snapshot, now: now, includeDisplayUntilDates: phone, limit: 1)
+        let store = ScheduleExternalSnapshotStore(files: ModuleScoreFiles(), containerURL: URL(fileURLWithPath: "/timeline-store"))
+        #expect(store.save(snapshot))
+        let storedTimeline = ScheduleOccurrenceResolver.loadResolvedTimeline(store: store, now: now, includeDisplayUntilDates: phone, limit: 1)
+        #expect(storedTimeline.map(\.date) == timeline.map(\.date))
+        #expect(storedTimeline.map(\.resolved.upcomingOccurrences) == timeline.map(\.resolved.upcomingOccurrences))
+        let background = await ScheduleOccurrenceResolver.loadResolvedSnapshotAsync(store: store, now: now, limit: 1)
+        #expect(background.upcomingOccurrences == ScheduleOccurrenceResolver.resolvedSnapshot(from: snapshot, now: now, limit: 1).upcomingOccurrences)
         #expect(timeline.map(\.date) == dates)
         for entry in timeline {
             let reference = ScheduleOccurrenceResolver.resolvedSnapshot(from: snapshot, now: entry.date, limit: 1)
@@ -625,6 +632,9 @@ struct ScheduleSharedStoreTests {
         try files.writeData(Data("invalid-json".utf8), to: url, options: [])
         #expect(throws: ScheduleExternalSnapshotStoreError.invalidSnapshot) { try store.read() }
         #expect(ScheduleOccurrenceResolver.loadResolvedSnapshot(store: store).contentState == .invalid)
+        let now = Date(timeIntervalSince1970: 0)
+        let timeline = ScheduleOccurrenceResolver.loadResolvedTimeline(store: store, now: now, includeDisplayUntilDates: true)
+        #expect(timeline.map(\.date) == [now] && timeline.first?.resolved.contentState == .invalid)
         #expect(try store.writeIfNewer(snapshot()))
         #expect(try store.read() != nil)
     }

@@ -16,6 +16,7 @@ import StorageCore
 import ClientCore
 import ScheduleDomain
 import SchedulePersistence
+import ScheduleSync
 import Foundation
 import Testing
 @testable import BIT101_iOS
@@ -123,6 +124,59 @@ final class SemesterStartDateService: ScheduleServicing {
 
 @MainActor
 struct ScheduleModuleBoundaryTests {
+    private actor UnavailableCloud: ScheduleCloudTransport {
+        var accountChecks = 0
+        func accountAvailable() async throws -> Bool { accountChecks += 1; return false }
+        func record(named name: String) async throws -> ScheduleCloudRecord {
+            Issue.record("iCloud 账号状态受阻时需要保留本机课表。")
+            throw URLError(.notConnectedToInternet)
+        }
+        func save(_ record: ScheduleCloudRecord) async throws -> ScheduleCloudRecord {
+            Issue.record("iCloud 账号状态受阻时需要保留本机课表。")
+            throw URLError(.notConnectedToInternet)
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func cloudAccountAvailabilityPreservesLocalEditsAcrossEverySyncEntry() async {
+        let account = ScheduleCloudAccount(studentID: "cloud-runtime", session: AppStorageSession(accountIdentifier: "cloud-runtime"), generation: 0)
+        var initial = ScheduleCache()
+        initial.iCloudSyncEnabled = true
+        initial.primaryScheduleTitle = "本机编辑"
+        let cached = initial
+        let cloud = UnavailableCloud()
+        var saves = 0
+        var statuses: [ScheduleCloudSyncStatus] = []
+        let local = ScheduleCloudLocalStore(currentAccount: { account }, load: { _ in .loaded(cached) },
+            save: { _, _, _, _ in saves += 1; return true })
+        let manager = ScheduleSync.ScheduleCloudSyncManager(local: local, transport: cloud,
+            presentConflict: { _, _, _ in Issue.record("账号状态受阻时需要呈现同步状态。") },
+            reportStatus: { received, status in #expect(received == account); statuses.append(status) })
+        await manager.refreshFromCloudIfNeeded()
+        await manager.reconcileAfterEnabling()
+        await manager.pushLatestLocalCacheIfNeeded()
+        #expect(await cloud.accountChecks == 3)
+        #expect(statuses == Array(repeating: .unavailable, count: 3) && saves == 0)
+    }
+
+    @Test func independentCourseAdjustmentsAndDDLCompletionsConvergeAcrossDevices() throws {
+        let base = ScheduleCache()
+        var local = base, remote = base
+        local.manualCourseRulesByTerm = ["term": [.init(id: "local", sourceIdentity: "local-course", sourceCourses: [], replacementCourses: [])]]
+        remote.manualCourseRulesByTerm = ["term": [.init(id: "remote", sourceIdentity: "remote-course", sourceCourses: [], replacementCourses: [])]]
+        local.lexueDDLCompletionByID = ["eclass:1": true]
+        remote.lexueDDLCompletionByID = ["lexue:2": true]
+        remote.primaryScheduleTitle = "另一台设备的标题"
+        let baseline = try ScheduleCloudStateMerge.baseline(for: base)
+        for (first, second) in [(local, remote), (remote, local)] {
+            let merged = try #require(try ScheduleCloudStateMerge.merge(local: .init(cache: first), remote: .init(cache: second), baseline: baseline))
+            var result = first
+            merged.apply(to: &result)
+            #expect(Set(result.manualCourseRulesByTerm["term", default: []].map(\.id)) == ["local", "remote"])
+            #expect(result.lexueDDLCompletionByID == ["eclass:1": true, "lexue:2": true])
+            #expect(result.primaryScheduleTitle == remote.primaryScheduleTitle)
+        }
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func invalidScheduleWritesPreserveTheCommittedBytesUnderTheNativeRuntime(hasCommittedFile: Bool) async throws {
         let files = PreferenceMemoryFiles()

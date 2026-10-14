@@ -12,6 +12,9 @@ struct PaperCommentPagingTests {
         var stalls = false
         func data(for request: URLRequest) async throws -> (Data, URLResponse) {
             let url = try #require(request.url)
+            let response = try #require(HTTPURLResponse(url: url, statusCode: 200,
+                httpVersion: nil, headerFields: ["Content-Type": "application/json"]))
+            if url.path.hasSuffix("/user/check") { return (Data(), response) }
             let page = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
                 .first { $0.name == "page" }?.value.flatMap(Int.init) ?? 0
             pages.append(page)
@@ -22,8 +25,6 @@ struct PaperCommentPagingTests {
               "update_time":"","like":false,"like_num":0,"comment_num":0,"own":false,"rate":0,
               "reply_user":\(user),"reply_obj":"","text":"评论","sub":[]}]
             """.utf8)
-            let response = try #require(HTTPURLResponse(url: url, statusCode: 200,
-                httpVersion: nil, headerFields: ["Content-Type": "application/json"]))
             return (data, response)
         }
     }

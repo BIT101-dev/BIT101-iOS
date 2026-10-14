@@ -9,6 +9,7 @@ struct MapFeatureTests {
         #expect(first.campus == .zhongguancun)
         #expect(second.campus == .liangxiang)
         #expect(first.id != second.id)
+        #expect(first.coordinate.latitude > second.coordinate.latitude)
     }
 
     @Test func requestsCarryTheResolvedPlaceIdentity() throws {

@@ -4,6 +4,18 @@ import Foundation
 import Testing
 
 struct SchoolAuthenticationTests {
+    @Test(arguments: [("退出登录", true), ("退出登录<input name=\"username\">", false), ("普通页面", false)])
+    func loginPageMarkersDistinguishAuthenticatedPages(fixture: (String, Bool)) {
+        let context = SchoolLoginHTMLParser.parse(html: fixture.0)
+        #expect(context.isLoggedIn == fixture.1 && context.salt == nil && context.execution == nil)
+    }
+
+    @Test func loginFieldsDecodeEntitiesAndVisibleFlowKeys() {
+        let html = #"<input id="login-croypto" value="&#x41;&#66;"><div id="login-page-flowkey">flow-key</div>"#
+        let context = SchoolLoginHTMLParser.parse(html: html)
+        #expect(context.salt == "AB" && context.execution == "flow-key" && !context.isLoggedIn)
+    }
+
     @Test(arguments: [
         ("https://sso.bit.edu.cn", "https://sso.bit.edu.cn:443/cas/login", true),
         ("https://sso.bit.edu.cn:443", "https://sso.bit.edu.cn/cas/login", true),

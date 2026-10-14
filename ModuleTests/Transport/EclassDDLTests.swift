@@ -346,7 +346,16 @@ struct EclassDDLTests {
                       #"{"visited_courses":[]}"#, #"{}"#])
     func incompleteCourseResponsesFailExplicitly(_ json: String) async {
         let transport = EclassTransport { _ in (200, json, nil) }
-        await #expect(throws: ScheduleServiceError.self) { try await service(transport).fetchEclassDDLEvents() }
+        do {
+            _ = try await service(transport).fetchEclassDDLEvents()
+            Issue.record("不完整课程响应需要保留业务错误。")
+        } catch {
+            let actual = error as NSError, expected = ScheduleServiceError.invalidResponse as NSError
+            #expect(actual.domain == expected.domain && actual.code == expected.code)
+            if json == #"{}"# || json == #"{"visited_courses":[]}"# {
+                #expect(actual.userInfo[NSUnderlyingErrorKey] != nil)
+            }
+        }
     }
 
     @Test(.timeLimit(.minutes(1))) func repeatedCoursePagesStopTheSync() async {

@@ -216,6 +216,8 @@ struct ScoreInfrastructureBoundaryTests {
         }
         #expect(ScoreServiceError.challengeInvalid("认证上下文已变化").errorDescription == "认证上下文已变化")
         #expect(ScoreServiceError.queryFailed("课程查询失败").errorDescription == "课程查询失败")
+        #expect(ScoreCacheReadError.unavailable.errorDescription?.contains("清理") == true)
+        #expect(ScoreCacheWriteError.failed.errorDescription?.contains("原始记录已保留") == true)
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -755,8 +757,8 @@ struct ScorePublicContractTests {
         #expect(model.alert == nil)
         await model.restoreCachedDataIfNeeded()
         model.setSortOrder(.descending)
-        #expect(preferences.load()?.sortOrder == ScoreSortOrder.descending.rawValue)
-        #expect(changes > 0 && defaults.data(forKey: key) == damaged)
+        #expect(preferences.load()?.sortOrder == (empty ? nil : ScoreSortOrder.descending.rawValue))
+        #expect((changes > 0) == !empty && defaults.data(forKey: key) == damaged)
     }
 
     @Test(.timeLimit(.minutes(1))) func publicAssemblyAcceptsIndependentStoragePortsAndFiltersEventSources() async throws {
@@ -796,7 +798,8 @@ struct ScorePublicContractTests {
             #expect(field.isMissingValue(in: first) == false)
             #expect(field.isMissingValue(in: empty))
         }
-        #expect(ScoreSortIndex.averageScore.compare(first, empty) == .orderedSame)
+        #expect(ScoreSortIndex.averageScore.compare(first, empty) == .orderedAscending)
+        #expect(ScoreSortIndex.averageScore.compare(empty, first) == .orderedDescending)
         #expect(ScoreSortOrder.ascending.toggled == .descending)
         #expect(ScoreSortOrder.descending.toggled == .ascending)
         #expect(ScoreSortOrder.allCases.map(\.title) == ["升序", "降序"])

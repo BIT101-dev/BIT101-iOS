@@ -614,7 +614,7 @@ run_tests() {
     fi
     local ui_plan_path
     ui_plan_path="$(ui_test_plan)" || return 1
-    project_args=(-xctestrun "$ui_plan_path")
+    project_args=(-xctestrun "$ui_plan_path" -derivedDataPath "$DERIVED_ROOT")
     test_action=test-without-building
   fi
   if [[ "$BUILD_ONLY" == false && "$MODE" != catalyst && "$MODE" != catalyst-release-runtime ]]; then
