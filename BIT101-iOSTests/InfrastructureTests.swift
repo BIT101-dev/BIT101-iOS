@@ -309,6 +309,8 @@ struct AppDeepLinkRouteTests {
     @Test("Custom links remain supported and foreign hosts are rejected")
     func customAndForeignLinks() throws {
         #expect(AppDeepLinkRoute(url: try #require(URL(string: "bit101://schedule/courses"))) == .scheduleCourses)
+        #expect(AppDeepLinkRoute(url: try #require(URL(string: "bit101://schedule/ddl"))) == .scheduleDDL)
+        #expect(AppDeepLinkRoute(url: try #require(URL(string: "https://open.aihelpme.dev/schedule/ddl"))) == .scheduleDDL)
         #expect(AppDeepLinkRoute(url: try #require(URL(string: "bit101://paper/7"))) == .paper(7))
         #expect(AppDeepLinkRoute(url: try #require(URL(string: "https://example.com/gallery/123"))) == nil)
     }

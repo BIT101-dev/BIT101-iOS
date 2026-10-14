@@ -131,6 +131,24 @@ struct ScheduleNotificationTimeZoneTests {
 
 @Suite("Extended schedule invariants")
 struct ExtendedSchedulePolicyTests {
+    @Test func deadlineExportKeepsPendingSourcesAndClearsCompletedOrSignedOutContent() throws {
+        var cache = ScheduleCache()
+        cache.ddlEvents = [
+            .init(id: "manual", group: "custom", title: "手动待办", text: "", dueAt: .distantFuture, done: false),
+            .init(id: "lexue", group: "lexue", title: "乐学作业", text: " 软件工程导论 \n\n详情", dueAt: .distantPast, done: false),
+            .init(id: "eclass", group: "eclass", title: "课程中心作业", text: "课程", dueAt: .distantPast, done: false),
+            .init(id: "done", group: "lexue", title: "已完成", text: "", dueAt: .distantPast, done: true),
+        ]
+        let deadlines = ScheduleWidgetExporter.makeDeadlines(cache: cache, isLoggedIn: true)
+        #expect(deadlines.map(\.id) == ["eclass", "lexue", "manual"])
+        #expect(deadlines.map(\.sourceTitle) == ["课程中心", "乐学", "自定义"])
+        #expect(deadlines[1].subtitle == "软件工程导论")
+        #expect(ScheduleWidgetExporter.makeDeadlines(cache: cache, isLoggedIn: false).isEmpty)
+        cache.ddlEvents[1].done = true
+        cache.ddlEvents.removeAll { $0.id == "manual" }
+        #expect(ScheduleWidgetExporter.makeDeadlines(cache: cache, isLoggedIn: true).map(\.id) == ["eclass"])
+    }
+
     @Test @MainActor
     func externalSnapshotsIncludeScheduledCoursesAndKeepPendingRowsInTheApp() throws {
         let scheduled = try ScheduleCourseEditor.adding(CourseDraft(title: "已排课程", weeksText: "1"),
@@ -142,7 +160,7 @@ struct ExtendedSchedulePolicyTests {
         cache.currentTerm = "term"
         cache.courseData.store(TermScheduleSnapshot(term: "term", firstDayString: "2026-09-07",
             courses: scheduled + [pending], exams: [], updatedAt: .distantPast))
-        let snapshot = try #require(ScheduleWidgetExporter.makeSnapshot(courses: cache.courseSnapshot,
+        let snapshot = try #require(ScheduleWidgetExporter.makeSnapshot(cache: cache,
             session: AppFileDirectories.currentSession))
         #expect(cache.courses.map(\.id) == ["scheduled", "pending"])
         #expect(snapshot.courses.map(\.id) == ["scheduled"])

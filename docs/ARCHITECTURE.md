@@ -226,6 +226,7 @@ CloudKit 使用带版本的精简载荷，本地记录保留服务器基线、�
 
 - App Group：`group.BIT101-dev.BIT101-iOS.shared`；快照路径：`Widgets/schedule-widget-snapshot.json`。
 - 快照使用稳定的账号摘要表达归属；账号切换后的导出按 generation 串行协调。
+- DDL 小组件沿同一快照读取未完成事项摘要与过期保留天数，独立于课程学期配置。桌面小、中、大尺寸和锁屏文字布局复用设计系统；截止、保留窗口结束及跨日由时间线切换，点击打开 DDL 分页。完成、删除与账号变化沿已有导出及刷新链路更新。
 - `ScheduleContracts` 提供共享编码、状态解析和时间线规划；`ScheduleSharedStore` 注入文件服务、容器地址和通知中心。App、Widget、Watch App 与 Watch Widget 在各自入口选择 App Group 容器，并显式传入快照解析器。
 - 日程日历统一使用 `ScheduleSharedDateCodec.calendar`；课表表头与日期调整文案使用 `ScheduleDateCodec.formatCompactDate`，Live Activity 时间使用共享时分格式。学期、缓存日期和系统日历展开沿同一公历及时区计算。
 - `ScheduleExternalContentState` 区分同步、登录、快照有效性与课程状态；时间线一次推导学期 occurrence，各条目复用排序结果并按展示上限取值。`ScheduleTimelineRefreshPlanner` 规划课程开始、展示截止、结束和跨日刷新，重叠课程结束后保留仍在上课的末节课程。

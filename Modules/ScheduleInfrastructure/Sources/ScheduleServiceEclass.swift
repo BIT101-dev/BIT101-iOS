@@ -89,12 +89,17 @@ final class EclassSnapshotBudget {
     static let parallelRequests = 4
     private let deadline: ContinuousClock.Instant
     private var remainingBytes: Int
+    private let wait: @MainActor (TimeInterval) async throws -> Void
 
     init(timeout: TimeInterval = URLRequest(url: AppURL.required("https://zy-eclass.bit.edu.cn")).timeoutInterval,
-         maximumBytes: Int = HTTPResponseResourceLimits.maximumStructuredBytes * parallelRequests) {
+         maximumBytes: Int = HTTPResponseResourceLimits.maximumStructuredBytes * parallelRequests,
+         wait: @escaping @MainActor (TimeInterval) async throws -> Void = { try await Task.sleep(for: .seconds($0)) }) {
         deadline = ContinuousClock.now.advanced(by: .seconds(timeout))
         remainingBytes = maximumBytes
+        self.wait = wait
     }
+
+    func waitForDeadline() async throws { try await wait(remainingTimeout()) }
 
     func remainingTimeout() throws -> TimeInterval {
         try Task.checkCancellation()
@@ -146,11 +151,11 @@ extension ScheduleService {
     }
 
     func fetchEclassSnapshot(owner: SchoolSessionIdentity, budget: EclassSnapshotBudget = .init()) async throws -> EclassDDLResult {
-        let remaining = try budget.remainingTimeout()
+        _ = try budget.remainingTimeout()
         return try await withThrowingTaskGroup(of: EclassDDLResult.self) { group in
             group.addTask { try await self.fetchEclassSnapshotBody(owner: owner, budget: budget) }
             group.addTask {
-                try await Task.sleep(for: .seconds(remaining))
+                try await budget.waitForDeadline()
                 throw URLError(.timedOut)
             }
             defer { group.cancelAll() }

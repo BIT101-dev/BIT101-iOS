@@ -58,7 +58,7 @@ enum ScheduleWidgetExporter {
         let isLoggedIn = !AppAccountSession.storage.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         if ScheduleSnapshotExportPolicy.requiresAccountReset(snapshot: storedSnapshot, session: session, isLoggedIn: isLoggedIn) {
             lastPublishedContent = nil
-            guard let emptySnapshot = makeSnapshot(courses: ScheduleCache().courseSnapshot, session: session) else { return }
+            guard let emptySnapshot = makeSnapshot(cache: ScheduleCache(), session: session) else { return }
             // 账号切换先更新共享展示的身份，再读取当前账号缓存。
             let written: ScheduleExternalSnapshot?
             do { written = try await ScheduleExternalSnapshotWriteQueue.shared.write(emptySnapshot, generation: generation) }
@@ -83,9 +83,9 @@ enum ScheduleWidgetExporter {
         guard isCurrent(session: session, generation: generation) else { return }
         switch result {
         case .loaded(let cache):
-            await export(courses: cache.courseSnapshot, session: session, generation: generation)
+            await export(cache: cache, session: session, generation: generation)
         case .missing:
-            await export(courses: ScheduleCache().courseSnapshot, session: session, generation: generation)
+            await export(cache: ScheduleCache(), session: session, generation: generation)
         case .unreadable:
             // 保留同账号已发布快照，账号切换沿用身份重置后的快照。
             break
@@ -94,18 +94,18 @@ enum ScheduleWidgetExporter {
 
     /// 把指定缓存同步给外部展示层，并主动刷新 widget 时间线。
     ///
-    /// 这里仅导出课表、小节次和首周信息，保持共享层边界最小化。
-    static func sync(courses: ScheduleCourseSnapshot) {
+    /// 共享快照携带课程定位字段与未完成 DDL 摘要。
+    static func sync(cache: ScheduleCache) {
         let session = AppFileDirectories.currentSession
         let generation = nextExportGeneration()
-        Task { await export(courses: courses, session: session, generation: generation) }
+        Task { await export(cache: cache, session: session, generation: generation) }
     }
 
     /// 写入共享快照的磁盘操作运行在独立任务，完成后回到 MainActor 更新 Watch 与 Widget。
-    static func syncAsync(courses: ScheduleCourseSnapshot, session: AppStorageSession? = nil) async {
+    static func syncAsync(cache: ScheduleCache, session: AppStorageSession? = nil) async {
         let session = session ?? AppFileDirectories.currentSession
         let generation = nextExportGeneration()
-        await export(courses: courses, session: session, generation: generation)
+        await export(cache: cache, session: session, generation: generation)
     }
 
     /// 清除外部快照并使已排队的旧账号导出失效。
@@ -124,7 +124,7 @@ enum ScheduleWidgetExporter {
     ) async -> Bool {
         let session = AppFileDirectories.currentSession
         let generation = nextExportGeneration()
-        guard let emptySnapshot = makeSnapshot(courses: ScheduleCache().courseSnapshot, session: session) else { return false }
+        guard let emptySnapshot = makeSnapshot(cache: ScheduleCache(), session: session) else { return false }
         lastPublishedContent = nil
         let result = await clearSnapshot(emptySnapshot, generation)
         guard isCurrent(session: session, generation: generation) else { return result.didClear }
@@ -135,12 +135,12 @@ enum ScheduleWidgetExporter {
     }
 
     private static func export(
-        courses: ScheduleCourseSnapshot,
+        cache: ScheduleCache,
         session: AppStorageSession,
         generation: UInt64
     ) async {
         guard isCurrent(session: session, generation: generation),
-              let snapshot = makeSnapshot(courses: courses, session: session)
+              let snapshot = makeSnapshot(cache: cache, session: session)
         else { return }
 
         if content(of: snapshot) == lastPublishedContent {
@@ -165,7 +165,8 @@ enum ScheduleWidgetExporter {
     private static func content(of snapshot: ScheduleExternalSnapshot) -> ScheduleExternalSnapshot {
         ScheduleExternalSnapshot(
             generatedAt: .distantPast, isLoggedIn: snapshot.isLoggedIn, studentID: snapshot.studentID,
-            firstDayString: snapshot.firstDayString, timeTable: snapshot.timeTable, courses: snapshot.courses
+            firstDayString: snapshot.firstDayString, timeTable: snapshot.timeTable, courses: snapshot.courses,
+            deadlines: snapshot.deadlines, ddlAfterDay: snapshot.ddlAfterDay
         )
     }
 
@@ -176,7 +177,7 @@ enum ScheduleWidgetExporter {
     }
 
     static func makeSnapshot(
-        courses: ScheduleCourseSnapshot,
+        cache: ScheduleCache,
         session: AppStorageSession
     ) -> ScheduleExternalSnapshot? {
         guard session == AppFileDirectories.currentSession else { return nil }
@@ -185,6 +186,7 @@ enum ScheduleWidgetExporter {
         let previousRevision = max(snapshotRevision, clockRevision)
         guard previousRevision < UInt64.max else { return nil }
         snapshotRevision = previousRevision + 1
+        let courses = cache.courseSnapshot
 
         return ScheduleExternalSnapshot(
             revision: snapshotRevision,
@@ -205,8 +207,19 @@ enum ScheduleWidgetExporter {
                     startSection: $0.startSection,
                     endSection: $0.endSection
                 )
-            }
+            },
+            deadlines: makeDeadlines(cache: cache, isLoggedIn: isLoggedIn),
+            ddlAfterDay: min(max(cache.ddlAfterDay, 0), 30)
         )
+    }
+
+    nonisolated static func makeDeadlines(cache: ScheduleCache, isLoggedIn: Bool) -> [ScheduleExternalDeadlineSnapshot] {
+        guard isLoggedIn else { return [] }
+        return cache.ddlEvents.filter { !$0.done }.map {
+            ScheduleExternalDeadlineSnapshot(id: $0.id, title: $0.title,
+                subtitle: String($0.text.split(whereSeparator: \.isNewline).first ?? "").trimmingCharacters(in: .whitespaces),
+                sourceTitle: $0.sourceTitle, dueAt: $0.dueAt)
+        }.sorted { $0.dueAt == $1.dueAt ? $0.id < $1.id : $0.dueAt < $1.dueAt }
     }
 
     private static func nextExportGeneration() -> UInt64 {

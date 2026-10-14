@@ -78,7 +78,31 @@ public nonisolated struct ScheduleExternalCourseSnapshot: Codable, Hashable, Sen
     public let endSection: Int
 }
 
-/// 主 App 导出、Widget 和 Watch 读取的统一课表快照。
+/// DDL 小组件消费的最小待办摘要。
+public nonisolated struct ScheduleExternalDeadlineSnapshot: Codable, Hashable, Identifiable, Sendable {
+    public let id: String
+    public let title: String
+    public let subtitle: String
+    public let sourceTitle: String
+    public let dueAt: Date
+
+    public init(id: String, title: String, subtitle: String, sourceTitle: String, dueAt: Date) {
+        self.id = id
+        self.title = title
+        self.subtitle = subtitle
+        self.sourceTitle = sourceTitle
+        self.dueAt = dueAt
+    }
+
+    public var hasValidRecord: Bool {
+        !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && dueAt.timeIntervalSince1970.isFinite
+            && [id, title, subtitle, sourceTitle].allSatisfy { $0.utf8.count <= ScheduleCourseConstraints.maximumFieldBytes }
+    }
+}
+
+/// 主 App 导出、Widget 和 Watch 读取的统一日程快照。
 ///
 /// 这份结构定义跨 target 的稳定边界：
 /// - 主 App 从完整缓存裁剪出可共享的最小信息
@@ -92,6 +116,8 @@ public nonisolated struct ScheduleExternalSnapshot: Codable, Hashable, Sendable 
     public let firstDayString: String
     public let timeTable: [ScheduleExternalTimeSlotSnapshot]
     public let courses: [ScheduleExternalCourseSnapshot]
+    public let deadlines: [ScheduleExternalDeadlineSnapshot]
+    public let ddlAfterDay: Int
 
     public init(
         generatedAt: Date = Date(),
@@ -100,7 +126,9 @@ public nonisolated struct ScheduleExternalSnapshot: Codable, Hashable, Sendable 
         studentID: String,
         firstDayString: String,
         timeTable: [ScheduleExternalTimeSlotSnapshot],
-        courses: [ScheduleExternalCourseSnapshot]
+        courses: [ScheduleExternalCourseSnapshot],
+        deadlines: [ScheduleExternalDeadlineSnapshot] = [],
+        ddlAfterDay: Int = 3
     ) {
         self.generatedAt = generatedAt
         self.revision = revision
@@ -109,6 +137,8 @@ public nonisolated struct ScheduleExternalSnapshot: Codable, Hashable, Sendable 
         self.firstDayString = firstDayString
         self.timeTable = timeTable
         self.courses = courses
+        self.deadlines = deadlines
+        self.ddlAfterDay = ddlAfterDay
     }
 
     /// Returns a copy carrying the opaque local account namespace used for cross-device validation.
@@ -120,7 +150,9 @@ public nonisolated struct ScheduleExternalSnapshot: Codable, Hashable, Sendable 
             studentID: identifier,
             firstDayString: firstDayString,
             timeTable: timeTable,
-            courses: courses
+            courses: courses,
+            deadlines: deadlines,
+            ddlAfterDay: ddlAfterDay
         )
     }
 
@@ -130,7 +162,7 @@ public nonisolated struct ScheduleExternalSnapshot: Codable, Hashable, Sendable 
         guard knownRevision < UInt64.max else { return nil }
         return ScheduleExternalSnapshot(generatedAt: generatedAt, revision: knownRevision + 1,
             isLoggedIn: isLoggedIn, studentID: studentID, firstDayString: firstDayString,
-            timeTable: timeTable, courses: courses)
+            timeTable: timeTable, courses: courses, deadlines: deadlines, ddlAfterDay: ddlAfterDay)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -141,6 +173,8 @@ public nonisolated struct ScheduleExternalSnapshot: Codable, Hashable, Sendable 
         case firstDayString
         case timeTable
         case courses
+        case deadlines
+        case ddlAfterDay
     }
 
     public init(from decoder: Decoder) throws {
@@ -152,6 +186,8 @@ public nonisolated struct ScheduleExternalSnapshot: Codable, Hashable, Sendable 
         firstDayString = try container.decodeIfPresent(String.self, forKey: .firstDayString) ?? ""
         timeTable = try container.decodeIfPresent([ScheduleExternalTimeSlotSnapshot].self, forKey: .timeTable) ?? []
         courses = try container.decodeIfPresent([ScheduleExternalCourseSnapshot].self, forKey: .courses) ?? []
+        deadlines = try container.decodeIfPresent([ScheduleExternalDeadlineSnapshot].self, forKey: .deadlines) ?? []
+        ddlAfterDay = try container.decodeIfPresent(Int.self, forKey: .ddlAfterDay) ?? 3
     }
 }
 
@@ -176,6 +212,10 @@ public nonisolated enum ScheduleExternalSnapshotCodec {
         guard snapshot.revision < UInt64.max,
               !snapshot.isLoggedIn || snapshot.courses.isEmpty || ScheduleOccurrenceResolver.hasValidCourses(snapshot),
               snapshot.courses.count <= maximumCourseCount,
+              snapshot.deadlines.count <= maximumCourseCount,
+              snapshot.deadlines.allSatisfy(\.hasValidRecord),
+              Set(snapshot.deadlines.map(\.id)).count == snapshot.deadlines.count,
+              (0...30).contains(snapshot.ddlAfterDay),
               snapshot.timeTable.count <= ScheduleCourseConstraints.maximumSection,
               [snapshot.studentID, snapshot.firstDayString].allSatisfy({ $0.utf8.count <= maximumFieldBytes }),
               snapshot.timeTable.allSatisfy({ $0.start.utf8.count <= maximumFieldBytes && $0.end.utf8.count <= maximumFieldBytes }),
@@ -185,6 +225,7 @@ public nonisolated enum ScheduleExternalSnapshotCodec {
               }) else { throw CocoaError(.coderInvalidValue) }
         let fields = [snapshot.studentID, snapshot.firstDayString] + snapshot.timeTable.flatMap { [$0.start, $0.end] }
             + snapshot.courses.flatMap { [$0.id, $0.name, $0.classroom, $0.teacher] }
+            + snapshot.deadlines.flatMap { [$0.id, $0.title, $0.subtitle, $0.sourceTitle] }
         guard fields.reduce(0, { $0 + $1.utf8.count }) <= maximumEncodedBytes else { throw CocoaError(.fileReadTooLarge) }
     }
 

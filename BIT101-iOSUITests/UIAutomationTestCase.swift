@@ -26,11 +26,12 @@ nonisolated class UIAutomationTestCase: XCTestCase {
 
     @MainActor
     override func tearDown() async throws {
-        if let testRun, testRun.totalFailureCount > 0, !capturedFailure, app.state == .runningForeground {
-            let hierarchy = XCTAttachment(string: app.native.debugDescription)
+        if let testRun, testRun.totalFailureCount > 0, !capturedFailure {
+            let foreground: XCUIElement = app.state == .runningForeground ? app.native : Self.springboard
+            let hierarchy = XCTAttachment(string: foreground.debugDescription)
             hierarchy.name = "失败时的界面元素树"
             add(hierarchy)
-            let screenshot = XCTAttachment(screenshot: app.screenshot())
+            let screenshot = XCTAttachment(screenshot: foreground.screenshot())
             screenshot.name = "失败时的界面截图"
             add(screenshot)
         }

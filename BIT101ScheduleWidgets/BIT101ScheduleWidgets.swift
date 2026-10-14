@@ -18,6 +18,166 @@ private let scheduleWidgetInvalidMessage = "请重新同步课表"
 private let scheduleWidgetLoginMessage = "请登录"
 private let scheduleWidgetRestMessage = "暂无后续课程"
 
+private struct DeadlineWidgetEntry: TimelineEntry {
+    let date: Date
+    let resolved: ScheduleExternalResolvedDeadlines
+}
+
+private struct DeadlineWidgetProvider: TimelineProvider {
+    func placeholder(in _: Context) -> DeadlineWidgetEntry {
+        let now = Date()
+        return DeadlineWidgetEntry(date: now, resolved: .init(deadlines: [
+            .init(id: "preview-report", title: "软件工程作业", subtitle: "软件工程导论", sourceTitle: "乐学", dueAt: now.addingTimeInterval(24 * 60 * 60)),
+            .init(id: "preview-design", title: "课程设计报告", subtitle: "电子技术课程设计", sourceTitle: "课程中心", dueAt: now.addingTimeInterval(2 * 24 * 60 * 60)),
+            .init(id: "preview-practice", title: "算法练习", subtitle: "算法设计", sourceTitle: "乐学", dueAt: now.addingTimeInterval(3 * 24 * 60 * 60)),
+            .init(id: "preview-meeting", title: "准备小组汇报", subtitle: "", sourceTitle: "自定义", dueAt: now.addingTimeInterval(4 * 24 * 60 * 60)),
+        ], contentState: .ready))
+    }
+
+    func getSnapshot(in context: Context, completion: @escaping (DeadlineWidgetEntry) -> Void) {
+        if context.isPreview { completion(placeholder(in: context)); return }
+        completion(loadEntry())
+    }
+
+    func getTimeline(in _: Context, completion: @escaping (Timeline<DeadlineWidgetEntry>) -> Void) {
+        let now = Date()
+        do {
+            let snapshot = try WidgetSnapshotStorage.store.read()
+            let entries = ScheduleDeadlineResolver.timelineDates(from: snapshot, now: now).map { date in
+                DeadlineWidgetEntry(date: date, resolved: ScheduleDeadlineResolver.resolvedSnapshot(from: snapshot, now: date))
+            }
+            completion(Timeline(entries: entries, policy: snapshot == nil ? .after(retryDate(now: now)) : .atEnd))
+        } catch {
+            completion(Timeline(entries: [failedEntry(error, now: now)], policy: .after(retryDate(now: now))))
+        }
+    }
+
+    private func loadEntry(now: Date = Date()) -> DeadlineWidgetEntry {
+        do {
+            return DeadlineWidgetEntry(date: now, resolved: ScheduleDeadlineResolver.resolvedSnapshot(from: try WidgetSnapshotStorage.store.read(), now: now))
+        } catch { return failedEntry(error, now: now) }
+    }
+
+    private func failedEntry(_ error: Error, now: Date) -> DeadlineWidgetEntry {
+        DeadlineWidgetEntry(date: now, resolved: .init(deadlines: [],
+            contentState: error as? ScheduleExternalSnapshotStoreError == .invalidSnapshot ? .invalid : .unavailable))
+    }
+
+    private func retryDate(now: Date) -> Date {
+        ScheduleTimelineRefreshPlanner.nextRefreshDate(for: [], now: now, includeDisplayUntilDates: false, includeNextMidnight: false)
+    }
+}
+
+struct BIT101DeadlineWidget: Widget {
+    let kind = "BIT101DeadlineWidget"
+
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: kind, provider: DeadlineWidgetProvider()) { entry in
+            DeadlineWidgetEntryView(entry: entry)
+                .containerBackground(.fill.tertiary, for: .widget)
+                .widgetURL(URL(string: "bit101://schedule/ddl"))
+        }
+        .configurationDisplayName("DDL")
+        .description("查看未完成事项和截止时间，支持桌面和锁屏组件。")
+        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge, .accessoryRectangular, .accessoryInline])
+    }
+}
+
+private struct DeadlineWidgetEntryView: View {
+    @Environment(\.widgetFamily) private var family
+    let entry: DeadlineWidgetEntry
+
+    var body: some View {
+        switch family {
+        case .accessoryInline:
+            if let first = entry.resolved.deadlines.first {
+                Text("DDL \(first.title)")
+            } else { Text(emptyText) }
+        case .accessoryRectangular:
+            if let first = entry.resolved.deadlines.first {
+                deadlineRow(first, compact: true)
+            } else { Text(emptyText).font(AppDesignSystem.Typography.caption) }
+        default:
+            VStack(alignment: .leading, spacing: family == .systemLarge ? AppDesignSystem.Spacing.tiny : AppDesignSystem.Spacing.regular) {
+                HStack(spacing: AppDesignSystem.Spacing.regular) {
+                    Label("DDL", systemImage: "checklist")
+                    Spacer(minLength: AppDesignSystem.Spacing.none)
+                    if family == .systemMedium, let first = entry.resolved.deadlines.first { remainingText(first) }
+                }
+                    .font(AppDesignSystem.Typography.captionEmphasis)
+                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                if entry.resolved.deadlines.isEmpty {
+                    Text(emptyText)
+                        .font(AppDesignSystem.Typography.subheadlineEmphasis)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    ForEach(Array(entry.resolved.deadlines.prefix(itemLimit))) { deadline in
+                        deadlineRow(deadline, compact: family != .systemSmall)
+                        if family == .systemLarge && deadline.id != entry.resolved.deadlines.prefix(itemLimit).last?.id { Divider() }
+                    }
+                }
+                Spacer(minLength: AppDesignSystem.Spacing.none)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+    }
+
+    private var itemLimit: Int {
+        switch family {
+        case .systemLarge: 4
+        case .systemMedium: 2
+        default: 1
+        }
+    }
+
+    private func deadlineRow(_ deadline: ScheduleExternalDeadlineSnapshot, compact: Bool) -> some View {
+        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tiny) {
+            Text(deadline.title)
+                .font(compact ? AppDesignSystem.Typography.subheadlineEmphasis : AppDesignSystem.Typography.title)
+                .lineLimit(compact ? 1 : 2)
+            if !deadline.subtitle.isEmpty && family == .systemSmall {
+                Text(deadline.subtitle)
+                    .font(AppDesignSystem.Typography.caption)
+                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                    .lineLimit(1)
+            }
+            if family != .systemMedium {
+                remainingText(deadline)
+            }
+            HStack(spacing: AppDesignSystem.Spacing.tiny) {
+                Text("\(ScheduleSharedDateCodec.formatShortDate(deadline.dueAt)) \(ScheduleSharedDateCodec.formatTime(deadline.dueAt))")
+                    .layoutPriority(1)
+                if family != .accessoryRectangular { Text(deadline.sourceTitle) }
+            }
+            .font(AppDesignSystem.Typography.caption)
+            .foregroundStyle(AppDesignSystem.Foreground.secondary)
+            .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func remainingText(_ deadline: ScheduleExternalDeadlineSnapshot) -> some View {
+        HStack(spacing: AppDesignSystem.Spacing.tiny) {
+            Text(deadline.dueAt <= entry.date ? "已逾期" : "剩余")
+            Text(deadline.dueAt, style: .relative)
+        }
+        .font(AppDesignSystem.Typography.captionEmphasis)
+        .foregroundStyle(deadline.dueAt <= entry.date ? AppDesignSystem.Palette.Status.danger : AppDesignSystem.Palette.Accent.primary)
+        .lineLimit(1)
+    }
+
+    private var emptyText: String {
+        switch entry.resolved.contentState {
+        case .missing: "打开 App 刷新 DDL"
+        case .loggedOut: "请登录"
+        case .invalid: "请重新刷新 DDL"
+        case .unavailable: "DDL 读取失败，请重试"
+        case .rest, .ready: "暂无待办"
+        }
+    }
+}
+
 /// 课程提醒 Live Activity 配置。
 ///
 /// 锁屏态展示完整提醒信息；灵动岛提供三种展示：

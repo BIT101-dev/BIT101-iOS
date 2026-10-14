@@ -5,6 +5,71 @@ import os
 
 nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
     @MainActor
+    func testDeadlineWidgetLinkOpensTheDDLSection() throws {
+        app = configureApp(resetStorage: true, ddlFixture: "sources")
+        defer { Self.endSharedSession() }
+        let application = try XCTUnwrap(app.native as? XCUIApplication)
+        application.open(try XCTUnwrap(URL(string: "bit101://schedule/ddl")))
+        UITestSnapshotReader.invalidate()
+        assertUI(app.native.segmentedControls.buttons["DDL"].waitForExistence(timeout: 10), "小组件链接应打开日程页面。")
+        assertUI(app.native.segmentedControls.buttons["DDL"].isSelected, "DDL 小组件链接应选中 DDL 分页。")
+        assertUI(app.staticTexts["课程中心测试作业"].appears(timeout: 5), "小组件入口应展示当前账号的待办。")
+        application.open(try XCTUnwrap(URL(string: "bit101://schedule/courses")))
+        UITestSnapshotReader.invalidate()
+        assertUI(app.native.segmentedControls.buttons["课表"].isSelected, "课表小组件链接应选中课表分页。")
+    }
+
+    @MainActor
+    func testDeadlineWidgetAppearsInTheSystemGallery() throws {
+        app = configureApp(resetStorage: true)
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        defer {
+            let hierarchy = XCTAttachment(string: springboard.debugDescription)
+            hierarchy.name = "失败时的界面元素树：小组件系统元素树"
+            add(hierarchy)
+            let screenshot = XCTAttachment(screenshot: springboard.screenshot())
+            screenshot.name = "界面截图：小组件系统预览"
+            screenshot.lifetime = .keepAlways
+            add(screenshot)
+            XCUIDevice.shared.press(.home)
+            app.activate()
+        }
+        XCUIDevice.shared.press(.home)
+        springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.82)).press(forDuration: 2)
+        let edit = springboard.buttons.matching(NSPredicate(format: "label IN %@", ["Edit", "编辑"])).firstMatch
+        XCTAssertTrue(edit.waitForExistence(timeout: 5))
+        edit.tap()
+        let addWidget = springboard.buttons.matching(NSPredicate(format: "label IN %@", ["Add Widget", "添加小组件"])).firstMatch
+        XCTAssertTrue(addWidget.waitForExistence(timeout: 5))
+        addWidget.tap()
+        let search = springboard.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 10))
+        search.tap()
+        search.typeText("BIT101")
+        let result = springboard.cells["BIT101"].firstMatch
+        XCTAssertTrue(result.waitForExistence(timeout: 5))
+        result.tap()
+        let preview = springboard.buttons["BIT101, DDL"].firstMatch
+        for _ in 0..<6 {
+            if preview.exists && preview.isHittable { break }
+            springboard.swipeLeft()
+        }
+        XCTAssertTrue(preview.waitForExistence(timeout: 5), "系统小组件库应展示 DDL 的真实扩展预览。")
+        var sizes: [CGSize] = []
+        for index in 0..<3 {
+            XCTAssertTrue(preview.isHittable && !preview.frame.isEmpty && springboard.frame.contains(preview.frame), "DDL 应完整显示在当前尺寸预览中。")
+            sizes.append(preview.frame.size)
+            let screenshot = XCTAttachment(screenshot: springboard.screenshot())
+            screenshot.name = "界面截图：DDL 系统预览"
+            screenshot.lifetime = .keepAlways
+            add(screenshot)
+            if index < 2 { springboard.swipeLeft() }
+        }
+        XCTAssertGreaterThan(sizes[1].width, sizes[0].width)
+        XCTAssertGreaterThan(sizes[2].height, sizes[1].height)
+    }
+
+    @MainActor
     private func assertNativeControlParity(_ element: UIElement) throws {
         let actual = try XCTUnwrap(element.attributes(), "渲染查询应提供当前控件状态。")
         let expected = try element.native.snapshot()

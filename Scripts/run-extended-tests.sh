@@ -33,6 +33,8 @@ if [[ "${1:-}" == report || "${1:-}" == screenshot || "${1:-}" == activities || 
   case "$1" in
     report) [[ $# -le 2 ]] || exit 64 ;;
     diagnostics) [[ $# -eq 1 ]] || exit 64 ;;
+    activities) [[ $# -eq 2 || ( $# -eq 3 && "$3" == json ) ]] || exit 64 ;;
+    screenshot) [[ $# -eq 2 || $# -eq 3 ]] || exit 64 ;;
     *) [[ $# -eq 2 ]] || { echo "请提供测试类/方法。" >&2; exit 64; } ;;
   esac
   bit101_acquire_artifact_lock "$0" "$@"
@@ -41,7 +43,7 @@ if [[ "${1:-}" == report || "${1:-}" == screenshot || "${1:-}" == activities || 
     if [[ -f "$DERIVED_ROOT/test-failures.txt" ]]; then cat "$DERIVED_ROOT/test-failures.txt"; fi
     exit 0
   fi
-  python3 - "$DERIVED_ROOT/test-results.xcresult" "${2:-}" "$1" "$ROOT_DIR/Scripts" <<'PY'
+  python3 - "$DERIVED_ROOT/test-results.xcresult" "${2:-}" "$1" "$ROOT_DIR/Scripts" "${3:-}" <<'PY'
 import json
 import subprocess
 import sys
@@ -107,6 +109,9 @@ if sys.argv[2]:
         "--test-id", sys.argv[2],
     ], text=True))
     if sys.argv[3] == "activities":
+        if sys.argv[5] == "json":
+            print(json.dumps(activities, ensure_ascii=False))
+            raise SystemExit(0)
         actions = []
         def titles(value):
             if isinstance(value, dict):
@@ -121,13 +126,17 @@ if sys.argv[2]:
         titles(activities)
         print("\n".join(actions[-30:]))
         raise SystemExit(0)
+    exported_identifiers = set()
     def attachments(value):
         if isinstance(value, dict):
             screenshot = sys.argv[3] == "screenshot"
-            names = ("失败时的界面截图", "界面截图") if screenshot else ("失败时的界面元素树", "Crash Log ")
+            names = ("失败时的界面截图", "界面截图") if screenshot else ("失败时的界面元素树", "App UI hierarchy for", "Debug description for", "Crash Log ")
             if str(value.get("name", "")).startswith(names):
                 identifier = value.get("payloadId")
                 if identifier:
+                    if screenshot and sys.argv[5] and identifier != sys.argv[5]: return
+                    if identifier in exported_identifiers: return
+                    exported_identifiers.add(identifier)
                     output = (Path(sys.argv[1]).parent.parent / "screenshot.png" if screenshot
                               else Path(sys.argv[1]).parent / "failure-hierarchy.txt")
                     subprocess.run(["xcrun", "xcresulttool", "export", "object", "--legacy", "--type", "file",
@@ -180,6 +189,7 @@ if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
   echo "分组：release-runtime、catalyst-release-runtime、schedule、infrastructure、login、extensions、catalyst；组后可直接填写测试类/方法。"
   echo "宿主：release、release-runtime、ui、network-smoke、icloud-smoke、modules、catalyst、catalyst-release-runtime。"
   echo "专项：verify [--sms] [分组]...；diagnostics；report|screenshot|activities 测试类/方法。"
+  echo "附件：activities '测试类/方法()' [json]；screenshot '测试类/方法()' [附件标识]。"
   exit 0
 fi
 SCRIPT_PATH="$0"

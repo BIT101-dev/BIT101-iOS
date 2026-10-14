@@ -89,7 +89,8 @@ struct NetworkClientTests {
             teachingCenterState: TeachingCenterSessionState(cookieStorage: try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)),
             transport: transport)
         do {
-            _ = try await service.fetchEclassSnapshot(owner: credentials.schoolSessionIdentity, budget: EclassSnapshotBudget(timeout: 0.05))
+            _ = try await service.fetchEclassSnapshot(owner: credentials.schoolSessionIdentity,
+                budget: EclassSnapshotBudget(wait: { _ in try await waitForTestEvent { transport.started } }))
             Issue.record("Expected the complete snapshot deadline")
         } catch { #expect((error as? URLError)?.code == .timedOut) }
         #expect(transport.started && transport.cancelled)
@@ -944,7 +945,7 @@ private final class EclassTimeoutTransport: HTTPTransport {
     var cancelled = false
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
         started = true
-        do { try await Task.sleep(for: .seconds(1)) }
+        do { try await Task.sleep(for: .seconds(60)) }
         catch is CancellationError { cancelled = true; throw CancellationError() }
         throw URLError(.networkConnectionLost)
     }

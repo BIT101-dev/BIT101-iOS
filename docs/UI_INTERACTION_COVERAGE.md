@@ -65,6 +65,8 @@ UIKit 控件沿构造类型、继承或别名进入源码清单，运行门禁�
 | `InteractionCoverageUITests/testDDLEditorDetailsDatePickerValidationAndCancelEditing` | 空标题校验、详情输入、日历翻月 / 年月滚轮 / 日期选择、逐列时间滚轮、取消修改 |
 | `LoginAndScheduleUITests/testDDLSettingsWheelSaveCancelAndPersistence` | 滞留天数滚轮、保存 / 取消、重新装载恢复 |
 | `LoginAndScheduleUITests/testSchoolDDLSourcesAndCompletionPersistAcrossSceneReload` | 两类学校日程、详情来源、完成按钮、重新装载恢复 |
+| `LoginAndScheduleUITests/testDeadlineWidgetLinkOpensTheDDLSection` | DDL 小组件链接、当前账号待办、课表小组件链接 |
+| `LoginAndScheduleUITests/testDeadlineWidgetAppearsInTheSystemGallery` | 系统小组件库、DDL 扩展真实预览 |
 | `LoginAndScheduleUITests/testDDLEmptyStateExplainsTheRetentionWindow` | 过期日程与滞留范围说明 |
 | `InteractionCoverageUITests/testSchoolSSODDLVerificationCancelAndContinuation` | 学校 DDL 刷新、SSO 短信取消、验证继续、刷新结果 |
 | `InteractionCoverageUITests/testSchoolTermsClassroomPickersRefreshAndDDLRefresh` | 空结果刷新、节次单选、全选 / 全不选、清除筛选与状态 |

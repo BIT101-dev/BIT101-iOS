@@ -1,3 +1,4 @@
+import BIT101TestSupport
 import ClientCore
 import Foundation
 import ScheduleDomain
@@ -396,15 +397,28 @@ struct EclassDDLTests {
 
     @Test(.timeLimit(.minutes(1))) func theDeadlineCoversTheResponseAndStopsFurtherRequests() async {
         let transport = EclassTransport { _ in (200, #"{"courses":[],"pages":0}"#, nil) }
-        transport.delay = .milliseconds(100)
+        transport.delay = .seconds(60)
+        let budget = EclassSnapshotBudget(wait: { _ in
+            try await waitForTestEvent { !transport.requests.isEmpty }
+        })
         do {
             _ = try await service(transport).fetchEclassSnapshot(owner: Credentials().schoolSessionIdentity,
-                                                                budget: EclassSnapshotBudget(timeout: 0.05))
+                                                                budget: budget)
             Issue.record("Expected the complete snapshot deadline to expire")
         } catch { #expect((error as? URLError)?.code == .timedOut) }
         #expect(transport.requests.count == 1)
-        #expect(transport.requests.first?.timeoutInterval ?? 1 <= 0.05)
+        #expect(transport.requests.first?.timeoutInterval ?? .infinity <= URLRequest(url: AppURL.required("https://zy-eclass.bit.edu.cn")).timeoutInterval)
         #expect(transport.cancelledRequests == 1)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func expiredDeadlineStopsBeforeSendingAnyRequest() async {
+        let transport = EclassTransport { _ in Issue.record("Expired snapshot sent a request"); return (200, "{}", nil) }
+        do {
+            _ = try await service(transport).fetchEclassSnapshot(owner: Credentials().schoolSessionIdentity,
+                budget: EclassSnapshotBudget(timeout: 0))
+            Issue.record("Expected the expired snapshot deadline")
+        } catch { #expect((error as? URLError)?.code == .timedOut) }
+        #expect(transport.requests.isEmpty && transport.cancelledRequests == 0)
     }
 
     @Test(.timeLimit(.minutes(1)))

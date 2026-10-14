@@ -246,6 +246,9 @@ struct AppShellView: View {
         case .scheduleCourses:
             selectTab(.schedule)
             requestedScheduleSection = .courses
+        case .scheduleDDL:
+            selectTab(.schedule)
+            requestedScheduleSection = .ddl
         case let .paper(paperID):
             selectTab(.gallery)
             requestedPaperID = paperID

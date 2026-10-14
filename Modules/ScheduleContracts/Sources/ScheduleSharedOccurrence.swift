@@ -436,6 +436,46 @@ public nonisolated enum ScheduleExternalContentState: Equatable, Sendable {
     case ready
 }
 
+public nonisolated struct ScheduleExternalResolvedDeadlines: Sendable {
+    public let deadlines: [ScheduleExternalDeadlineSnapshot]
+    public let contentState: ScheduleExternalContentState
+
+    public init(deadlines: [ScheduleExternalDeadlineSnapshot], contentState: ScheduleExternalContentState) {
+        self.deadlines = deadlines
+        self.contentState = contentState
+    }
+}
+
+/// 待办独立于课程学期展开，按截止时间和过期保留窗口生成小组件内容。
+public nonisolated enum ScheduleDeadlineResolver {
+    public static func resolvedSnapshot(from snapshot: ScheduleExternalSnapshot?, now: Date = Date(), limit: Int = 4) -> ScheduleExternalResolvedDeadlines {
+        guard let snapshot else { return .init(deadlines: [], contentState: .missing) }
+        guard snapshot.isLoggedIn else { return .init(deadlines: [], contentState: .loggedOut) }
+        guard (0...30).contains(snapshot.ddlAfterDay), snapshot.deadlines.allSatisfy(\.hasValidRecord),
+              Set(snapshot.deadlines.map(\.id)).count == snapshot.deadlines.count
+        else { return .init(deadlines: [], contentState: .invalid) }
+        let threshold = now.addingTimeInterval(-TimeInterval(snapshot.ddlAfterDay) * 24 * 60 * 60)
+        let deadlines = Array(snapshot.deadlines.filter { $0.dueAt >= threshold }.sorted {
+            $0.dueAt == $1.dueAt ? $0.id < $1.id : $0.dueAt < $1.dueAt
+        }.prefix(max(0, limit)))
+        return .init(deadlines: deadlines, contentState: deadlines.isEmpty ? .rest : .ready)
+    }
+
+    public static func timelineDates(from snapshot: ScheduleExternalSnapshot?, now: Date = Date()) -> [Date] {
+        let horizon = now.addingTimeInterval(24 * 60 * 60)
+        var dates = [now, horizon]
+        if let midnight = ScheduleSharedDateCodec.calendar.date(byAdding: .day, value: 1,
+            to: ScheduleSharedDateCodec.calendar.startOfDay(for: now)) { dates.append(midnight) }
+        if let snapshot, resolvedSnapshot(from: snapshot, now: now).contentState == .ready {
+            for deadline in snapshot.deadlines {
+                dates.append(deadline.dueAt)
+                dates.append(deadline.dueAt.addingTimeInterval(TimeInterval(snapshot.ddlAfterDay) * 24 * 60 * 60 + 1))
+            }
+        }
+        return Array(Set(dates.filter { $0 >= now && $0 <= horizon })).sorted()
+    }
+}
+
 /// Widget 时间线的统一刷新时间规划器。
 public nonisolated enum ScheduleTimelineRefreshPlanner {
     /// 提前交付未来一天的课程切换和跨日条目。

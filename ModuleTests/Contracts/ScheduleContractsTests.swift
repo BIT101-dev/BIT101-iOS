@@ -7,6 +7,69 @@ import ScheduleDomain
 import Testing
 
 struct ScheduleContractsTests {
+    @Test func deadlineSnapshotsRoundTripAcrossAccountAndRevisionChanges() throws {
+        let deadline = ScheduleExternalDeadlineSnapshot(id: "manual", title: "报告", subtitle: "课程", sourceTitle: "自定义", dueAt: Date(timeIntervalSince1970: 100))
+        let snapshot = ScheduleExternalSnapshot(revision: 2, isLoggedIn: true, studentID: "owner",
+            firstDayString: "", timeTable: [], courses: [], deadlines: [deadline], ddlAfterDay: 5)
+        let advanced = try #require(snapshot.replacingStudentID(with: "opaque-owner").advancingRevision(after: 10))
+        let decoded = try ScheduleExternalSnapshotCodec.decode(ScheduleExternalSnapshotCodec.encode(advanced))
+        #expect(decoded.deadlines == [deadline] && decoded.ddlAfterDay == 5)
+        #expect(decoded.revision == 11 && decoded.studentID == "opaque-owner")
+        var legacy = try #require(JSONSerialization.jsonObject(with: ScheduleExternalSnapshotCodec.encode(snapshot)) as? [String: Any])
+        legacy.removeValue(forKey: "deadlines")
+        legacy.removeValue(forKey: "ddlAfterDay")
+        let restored = try ScheduleExternalSnapshotCodec.decode(JSONSerialization.data(withJSONObject: legacy))
+        #expect(restored.deadlines.isEmpty && restored.ddlAfterDay == 3)
+        let files = ModuleScoreFiles()
+        let store = ScheduleExternalSnapshotStore(files: files, containerURL: files.temporaryDirectoryURL)
+        try store.write(snapshot)
+        #expect(store.load()?.deadlines == [deadline])
+        let cleared = ScheduleExternalSnapshot(revision: 3, isLoggedIn: false, studentID: "owner", firstDayString: "", timeTable: [], courses: [])
+        #expect(try store.writeIfNewer(cleared))
+        #expect(ScheduleDeadlineResolver.resolvedSnapshot(from: store.load()).contentState == .loggedOut)
+        #expect(throws: ScheduleExternalSnapshotStoreError.staleSnapshot) { try store.writeIfNewer(snapshot) }
+    }
+
+    @Test func deadlineResolutionUsesRetentionAndStableOrderingWithoutCourses() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        func deadline(_ id: String, _ offset: TimeInterval) -> ScheduleExternalDeadlineSnapshot {
+            .init(id: id, title: id, subtitle: "", sourceTitle: "自定义", dueAt: now.addingTimeInterval(offset))
+        }
+        let snapshot = ScheduleExternalSnapshot(isLoggedIn: true, studentID: "owner", firstDayString: "",
+            timeTable: [], courses: [], deadlines: [deadline("later", 3600), deadline("b", -86400), deadline("a", -86400), deadline("expired", -86401)], ddlAfterDay: 1)
+        let resolved = ScheduleDeadlineResolver.resolvedSnapshot(from: snapshot, now: now)
+        #expect(resolved.contentState == .ready && resolved.deadlines.map(\.id) == ["a", "b", "later"])
+        #expect(ScheduleDeadlineResolver.resolvedSnapshot(from: snapshot, now: now, limit: 1).deadlines.map(\.id) == ["a"])
+        #expect(ScheduleDeadlineResolver.resolvedSnapshot(from: snapshot, now: now.addingTimeInterval(2 * 86400)).contentState == .rest)
+        #expect(ScheduleDeadlineResolver.resolvedSnapshot(from: nil).contentState == .missing)
+        let signedOut = ScheduleExternalSnapshot(isLoggedIn: false, studentID: "", firstDayString: "", timeTable: [], courses: [], deadlines: snapshot.deadlines)
+        #expect(ScheduleDeadlineResolver.resolvedSnapshot(from: signedOut).deadlines.isEmpty)
+        #expect(ScheduleDeadlineResolver.resolvedSnapshot(from: signedOut).contentState == .loggedOut)
+    }
+
+    @Test func deadlineTimelineSwitchesAtDueTimeRetentionExpiryAndMidnight() throws {
+        let day = try #require(ScheduleSharedDateCodec.parseDate("2030-10-01"))
+        let now = try #require(ScheduleSharedDateCodec.combine(date: day, time: "12:00"))
+        let deadline = ScheduleExternalDeadlineSnapshot(id: "due", title: "报告", subtitle: "", sourceTitle: "课程中心", dueAt: now.addingTimeInterval(300))
+        let snapshot = ScheduleExternalSnapshot(isLoggedIn: true, studentID: "owner", firstDayString: "", timeTable: [], courses: [], deadlines: [deadline], ddlAfterDay: 0)
+        let dates = ScheduleDeadlineResolver.timelineDates(from: snapshot, now: now)
+        #expect(dates == [now, deadline.dueAt, deadline.dueAt.addingTimeInterval(1), day.addingTimeInterval(86400), now.addingTimeInterval(86400)])
+        #expect(ScheduleDeadlineResolver.resolvedSnapshot(from: snapshot, now: deadline.dueAt).contentState == .ready)
+        #expect(ScheduleDeadlineResolver.resolvedSnapshot(from: snapshot, now: deadline.dueAt.addingTimeInterval(1)).contentState == .rest)
+        #expect(ScheduleDeadlineResolver.timelineDates(from: nil, now: now) == [now, day.addingTimeInterval(86400), now.addingTimeInterval(86400)])
+    }
+
+    @Test(arguments: ["blank-title", "duplicate-id", "oversized-subtitle", "invalid-retention"])
+    func invalidDeadlinePayloadsFailAtTheSharedBoundary(field: String) {
+        let deadline = ScheduleExternalDeadlineSnapshot(id: "id", title: field == "blank-title" ? " " : "报告",
+            subtitle: field == "oversized-subtitle" ? String(repeating: "x", count: ScheduleExternalSnapshotCodec.maximumFieldBytes + 1) : "",
+            sourceTitle: "乐学", dueAt: Date(timeIntervalSince1970: 100))
+        let snapshot = ScheduleExternalSnapshot(isLoggedIn: true, studentID: "owner", firstDayString: "", timeTable: [], courses: [],
+            deadlines: field == "duplicate-id" ? [deadline, deadline] : [deadline], ddlAfterDay: field == "invalid-retention" ? 31 : 3)
+        #expect(throws: Error.self) { try ScheduleExternalSnapshotCodec.encode(snapshot) }
+        #expect(ScheduleDeadlineResolver.resolvedSnapshot(from: snapshot).contentState == .invalid)
+    }
+
     @Test(.timeLimit(.minutes(1))) func maximumSharePayloadRoundTripsThroughConcurrentCodec() async throws {
         let weeks = Array(1...20)
         let courses = (0..<ScheduleShareCodeCodec.maximumCourseCount).map { index in

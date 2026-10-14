@@ -3,6 +3,7 @@ import Foundation
 
 enum AppDeepLinkRoute: Equatable {
     case scheduleCourses
+    case scheduleDDL
     case paper(Int)
     case gallery(Int)
     case course(Int)
@@ -29,6 +30,8 @@ enum AppDeepLinkRoute: Equatable {
         switch routeHead {
         case "schedule" where routeComponents.count == 2 && routeComponents[1].lowercased() == "courses":
             self = .scheduleCourses
+        case "schedule" where routeComponents.count == 2 && routeComponents[1].lowercased() == "ddl":
+            self = .scheduleDDL
         case "paper":
             guard routeComponents.count == 2, let id = Self.positiveID(from: routeComponents[1]) else { return nil }
             self = .paper(id)
