@@ -300,7 +300,8 @@ final class LocalDataActionsSpy {
 @MainActor
 @Suite(.serialized)
 struct AppLocalDataOwnershipTests {
-    @Test(.timeLimit(.minutes(1))) func appCompositionClearsTheSelectedRealResources() async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: [URLCache.StoragePolicy.allowed, .allowedInMemoryOnly])
+    func appCompositionClearsTheSelectedRealResources(storagePolicy: URLCache.StoragePolicy) async throws {
         let files = AppFileDirectories.files, defaults = AppFileDirectories.defaults
         let media = AppMedia.makeEnvironment(previewStorage: MediaPreviewStorage(files: files))
         let settings = AppSettingsStore(defaults: defaults)
@@ -317,15 +318,18 @@ struct AppLocalDataOwnershipTests {
             studentID: "cleanup-fixture", firstDayString: "2026-01-01", timeTable: [], courses: []))
         try AppAccountSession.storage.saveLoginState(studentID: "cleanup-fixture", password: "fixture", fakeCookie: "fixture")
         defaults.set("fixture", forKey: "cleanup-fixture")
-        let request = URLRequest(url: AppURL.required("https://example.invalid/cleanup-fixture"))
-        URLCache.shared.storeCachedResponse(CachedURLResponse(response: URLResponse(url: try #require(request.url),
-            mimeType: "text/plain", expectedContentLength: 3, textEncodingName: nil), data: Data([1, 2, 3])), for: request)
+        let url = AppURL.required("https://example.invalid/cleanup-fixture")
+        let request = URLRequest(url: url)
+        let response = try #require(HTTPURLResponse(url: url, statusCode: 200,
+            httpVersion: "HTTP/1.1", headerFields: ["Cache-Control": "max-age=3600", "Content-Type": "text/plain"]))
+        URLCache.shared.storeCachedResponse(CachedURLResponse(response: response, data: Data([1, 2, 3]),
+            userInfo: nil, storagePolicy: storagePolicy), for: request)
         let cookies = AppLocalDataComposition.websiteDataStore.httpCookieStore
         let cookie = try #require(HTTPCookie(properties: [.domain: "example.invalid", .path: "/",
             .name: "cleanup-fixture", .value: "fixture", .expires: Date().addingTimeInterval(3_600)]))
         await cookies.setCookie(cookie)
         #expect(await cookies.allCookies().contains { $0.name == cookie.name })
-        #expect(URLCache.shared.cachedResponse(for: request) != nil)
+        #expect(URLCache.shared.cachedResponse(for: request)?.data == Data([1, 2, 3]))
         #expect(snapshotStore.load()?.isLoggedIn == true)
         #expect(!AppAccountSession.storage.fakeCookie.isEmpty)
         var loggedOut = false
@@ -336,16 +340,8 @@ struct AppLocalDataOwnershipTests {
         #expect(AppAccountSession.storage.fakeCookie.isEmpty && AppAccountSession.storage.currentStudentID.isEmpty)
         #expect(try AppAccountSession.storage.loadCredentials() == nil)
         #expect(defaults.object(forKey: "cleanup-fixture") == nil)
-        try await Self.waitForSharedCacheEviction(request)
         #expect(URLCache.shared.cachedResponse(for: request) == nil)
         #expect(await cookies.allCookies().isEmpty)
-    }
-
-    @concurrent private nonisolated static func waitForSharedCacheEviction(_ request: URLRequest) async throws {
-        try await waitForTestEvent {
-            #expect(!Thread.isMainThread)
-            return URLCache.shared.cachedResponse(for: request) == nil
-        }
     }
 
     @Test(.timeLimit(.minutes(1)))
