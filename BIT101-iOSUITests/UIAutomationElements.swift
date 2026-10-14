@@ -268,6 +268,19 @@ final class UIElement: NSObject {
         native.press(forDuration: duration)
         recordInteraction(identity, action: duration < 0.1 ? "tap" : "press")
     }
+    func tapVisibleCenter() {
+        Self.beforeNativeTap?()
+        let identity = interactionIdentity, bounds = frame
+        guard let application = UITestSnapshotReader.application, !bounds.isEmpty else {
+            XCTFail("原生点按应使用当前画面中的控件位置。")
+            return
+        }
+        let origin = UITestSnapshotReader.applicationOrigin
+        application.coordinate(withNormalizedOffset: .zero).withOffset(
+            CGVector(dx: bounds.midX - origin.x, dy: bounds.midY - origin.y)).press(forDuration: 0.01)
+        recordInteraction(identity, action: "tap")
+        UITestSnapshotReader.invalidate()
+    }
     func swipeLeft() { performGesture("swipe") { native.swipeLeft() } }
     func swipeRight() { performGesture("swipe") { native.swipeRight() } }
     func swipeUp() { performGesture("swipe") { native.swipeUp() } }
@@ -294,15 +307,8 @@ final class UIElement: NSObject {
             "x": String(Double(bounds.minX)), "y": String(Double(bounds.minY)), "width": String(Double(bounds.width)), "height": String(Double(bounds.height))]
         identity["instance"] = attributes()?["instance"] as? String
             ?? UITestControlClient.request(identity.merging(["command": "identity"]) { _, command in command }) ?? ""
-        if identity["instance"]?.isEmpty != false, let snapshot = currentNativeSnapshot(), !snapshot.frame.isEmpty {
-            identity["identifier"] = snapshot.identifier
-            identity["label"] = snapshot.label
-            identity["type"] = String(snapshot.elementType.rawValue)
-            identity["enabled"] = snapshot.isEnabled ? "1" : "0"
-            identity["x"] = String(Double(snapshot.frame.minX))
-            identity["y"] = String(Double(snapshot.frame.minY))
-            identity["width"] = String(Double(snapshot.frame.width))
-            identity["height"] = String(Double(snapshot.frame.height))
+        if identity["instance"]?.isEmpty != false, !bounds.isEmpty {
+            identity["enabled"] = isEnabled ? "1" : "0"
             identity["instance"] = UITestControlClient.request(identity.merging(["command": "native-observe"]) { _, command in command }) ?? ""
         }
         return identity

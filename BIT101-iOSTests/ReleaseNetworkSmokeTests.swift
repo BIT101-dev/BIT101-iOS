@@ -138,6 +138,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
         try #require(queried == 0)
         let configuration = URLSessionConfiguration.ephemeral
         configuration.connectionProxyDictionary = [:]
+        configuration.timeoutIntervalForResource = 5
         let session = URLSessionTransport.make(configuration: configuration)
         let client = HTTPClient(transport: session, observer: nil)
         var request = URLRequest(url: AppURL.required("https://127.0.0.1:\(UInt16(bigEndian: address.sin_port))/create"))

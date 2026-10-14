@@ -15,6 +15,7 @@ public nonisolated struct RemotePreviewImage: Equatable, Sendable {
 import DesignSystemKit
 import QuickLook
 import OSLog
+import os
 import SwiftUI
 import UIKit
 
@@ -361,13 +362,17 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
 }
 
 /// Quick Look 会在需要时重新读取该对象的 URL，因此高清下载完成后可以原地替换。
-final class MutableQuickLookItem: NSObject, QLPreviewItem {
-    var url: URL
+nonisolated final class MutableQuickLookItem: NSObject, QLPreviewItem, Sendable {
+    private let storedURL: OSAllocatedUnfairLock<URL>
+    var url: URL {
+        get { storedURL.withLock { $0 } }
+        set { storedURL.withLock { $0 = newValue } }
+    }
     var previewItemTitle: String? { nil }
     var previewItemURL: URL? { url }
 
     init(url: URL) {
-        self.url = url
+        storedURL = OSAllocatedUnfairLock(initialState: url)
     }
 }
 

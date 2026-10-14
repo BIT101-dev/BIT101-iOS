@@ -29,16 +29,16 @@ import ScoreInfrastructure
 @Suite(.serialized)
 struct FeatureCompositionTests {
     @Test func fixedColumnRowsContainScaledBodyText() {
-        func measured(_ size: DynamicTypeSize) -> CGFloat {
+        func measured(_ size: DynamicTypeSize, bodyOnly: Bool = false) -> CGFloat {
             let row = AppFixedColumnRow(items: [AppFixedColumnItem(text: "课程名称", ratio: 1,
                 font: .body, color: .primary)], height: AppDesignSystem.Size.CompactRow.primaryHeight)
-            let controller = UIHostingController(rootView: row.environment(\.dynamicTypeSize, size))
+            let content = bodyOnly ? AnyView(Text("课程名称").font(.body)) : AnyView(row)
+            let controller = UIHostingController(rootView: content.environment(\.dynamicTypeSize, size))
             return controller.sizeThatFits(in: CGSize(width: 320, height: 1_000)).height
         }
         let expanded = measured(.accessibility5)
-        let traits = UITraitCollection(preferredContentSizeCategory: .accessibilityExtraExtraExtraLarge)
-        #expect(expanded >= UIFont.preferredFont(forTextStyle: .body, compatibleWith: traits).lineHeight)
-        #expect(expanded > measured(.large))
+        #expect(expanded >= measured(.accessibility5, bodyOnly: true))
+        #expect(measured(.large) >= measured(.large, bodyOnly: true))
     }
 
     @Test(.timeLimit(.minutes(1))) func repeatedAnimationFramesParticipateInTheDisplayMemoryBudget() throws {
@@ -973,9 +973,12 @@ struct MediaPresentationTests {
         try await waitForTestEvent { transport.pending != nil && preview.viewIfLoaded?.window != nil && !preview.isBeingPresented }
         preview.currentPreviewItemIndex = 1
         let oldURL = preview.dataSource?.previewController(preview, previewItemAt: 1).previewItemURL
+        let item = try #require(preview.dataSource?.previewController(preview, previewItemAt: 1) as? MutableQuickLookItem)
+        #expect(await Task.detached { item.previewItemURL }.value == oldURL)
         transport.pending?.resume(); transport.pending = nil
         try await waitForTestEvent { preview.refreshes > 0 }
         #expect(preview.dataSource?.previewController(preview, previewItemAt: 1).previewItemURL != oldURL)
+        #expect(await Task.detached { item.previewItemURL }.value == item.url)
     }
     @Test(.timeLimit(.minutes(1)))
     func initialPreviewFailureReleasesTheRequestAndReportsTheError() async throws {

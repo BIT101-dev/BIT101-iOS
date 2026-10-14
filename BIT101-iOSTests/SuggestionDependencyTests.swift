@@ -336,6 +336,7 @@ struct AppLocalDataOwnershipTests {
         #expect(AppAccountSession.storage.fakeCookie.isEmpty && AppAccountSession.storage.currentStudentID.isEmpty)
         #expect(try AppAccountSession.storage.loadCredentials() == nil)
         #expect(defaults.object(forKey: "cleanup-fixture") == nil)
+        try await waitForTestEvent { URLCache.shared.cachedResponse(for: request) == nil }
         #expect(URLCache.shared.cachedResponse(for: request) == nil)
         #expect(await cookies.allCookies().isEmpty)
     }

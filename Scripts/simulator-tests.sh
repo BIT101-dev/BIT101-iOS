@@ -49,6 +49,8 @@ if device['state'] != 'Booted': subprocess.run(['xcrun', 'simctl', 'boot', ident
 if os.getenv('GITHUB_ACTIONS') == 'true':
     subprocess.run(['defaults', 'write', 'com.apple.iphonesimulator', 'ConnectHardwareKeyboard', '-bool', 'false'], check=True)
 subprocess.run(['xcrun', 'simctl', 'bootstatus', identifier, '-b'], check=True, stdout=sys.stderr, stderr=sys.stderr)
+developer = Path(os.getenv('DEVELOPER_DIR') or subprocess.check_output(['xcode-select', '-p'], text=True).strip())
+subprocess.run(['open', '-a', str(developer.parent / 'Applications/DeviceHub.app')], check=True)
 print(identifier)
 PYDEVICE
 )"; then
@@ -125,6 +127,11 @@ while time.monotonic() < deadline:
             break
     time.sleep(1)
 else:
+    subprocess.run(['xcrun', 'simctl', 'io', sys.argv[1], 'screenshot', sys.argv[5]],
+        check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run(['xcrun', 'simctl', 'spawn', sys.argv[1], 'log', 'show', '--style', 'compact', '--last', '2m',
+        '--predicate', 'subsystem == "BIT101" AND (category == "RestoreReadiness" OR category == "LoginKeychain")'],
+        check=False, stdout=sys.stderr, stderr=sys.stderr)
     raise SystemExit('常规模拟器 App 就绪验收超时，请检查登录恢复与场景初始化。')
 PYRESTORE
 }

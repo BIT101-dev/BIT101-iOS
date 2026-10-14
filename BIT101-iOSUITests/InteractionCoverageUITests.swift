@@ -250,9 +250,16 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         app.buttons["schedule.add-content"].tapBriefly()
         tap("添加日程")
         tap("确定")
-        let unnamed = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "schedule.entry.custom-")).firstMatch
-        assertUI(unnamed.appears(timeout: 5), "空标题应创建采用默认显示名称的日程。")
-        unnamed.tapBriefly()
+        assertUI(app.alerts["保存失败"].appears(timeout: 5), "空标题应展示保存校验提示。")
+        assertUI(textElement("请填写日程标题。").exists, "校验提示应说明标题必填。")
+        closeAlertIfPresent()
+        assertUI(app.textFields["schedule.custom.title"].exists, "关闭校验提示应保留编辑草稿。")
+        replaceText("待编辑日程", in: app.textFields["schedule.custom.title"])
+        dismissKeyboard()
+        tap("确定")
+        let created = app.buttons["自定义日程，待编辑日程"]
+        assertUI(created.appears(timeout: 5), "填写标题后应创建日程。")
+        created.tapBriefly()
         tap("编辑")
         for identifier in ["schedule.custom.date", "schedule.custom.end", "schedule.custom.begin"] {
             openAndDismissDatePicker(identifier, coverage: .integration)

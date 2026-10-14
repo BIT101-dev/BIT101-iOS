@@ -6,7 +6,7 @@
 
 - 构建使用 Xcode 27.x、有效签名和已连接并受信任的真机，默认完成 Release 构建、装机与启动。
 - 本机构建、装机和启动统一使用 `Scripts/build-install-device.sh`；脚本封装所需 Xcode 流程。
-- iOS / watchOS 验收与日常 UI 复验使用真机；包级逻辑测试使用 macOS 原生宿主，Catalyst 行为与正式组装测试使用 macOS runtime，测试宿主采用本机免签名构建。
+- iOS / watchOS 发布验收与日常 UI 复验使用真机；常规 CI 的 iOS 行为、正式组装与 UI 验收使用完整模拟器。包级逻辑测试使用 macOS 原生宿主，Catalyst 行为与正式组装测试使用 macOS runtime，测试宿主采用本机免签名构建。
 - `all` 与 Catalyst 离线行为宿主使用空场景、内存凭据及云偏好、独立偏好域和固定隔离文件根目录。默认传输核对回环地址，消费者测试显式提供受控响应；真实网络由专项 Smoke 验收。正式运行时合同沿 `release-runtime` 的生产编译条件执行。
 - 测试、静态审计、网络 Smoke 和 iCloud Smoke 按用户明确授权的范围执行。失败修复后重跑受影响的分组。
 - 界面验证使用既有 UI 测试、截图脚本与命令行流程。设备自动化授权由 iOS 管理，系统要求时由用户在设备上输入密码，设备继续保留密码保护。
@@ -580,7 +580,7 @@ App 宿主组装测试沿 scheme 串行执行，涉及账号、共享缓存与�
 
 ### 授权后的模拟器验收
 
-模拟器定向复验沿当次会话的用户显式授权执行，设置 `BIT101_SIMULATOR_AUTHORIZED=1` 后使用 `Scripts/run-extended-tests.sh simulator prepare` 准备项目专用设备，省略测试筛选时，`simulator app`、`simulator release-runtime` 和 `simulator ui` 执行对应组的完整库存；常规 CI 共用这三个入口。筛选复验沿 `simulator app 测试类/方法`、`simulator release-runtime 测试类/方法` 或 `simulator ui 用例关键词` 复验，App 行为组使用 Debug 测试宿主，正式条件与 UI 组使用 Release 测试宿主。`simulator info` 读取运行时库存。入口安装所需官方运行时，复用唯一项目设备、工作流锁、编译缓存和固定测试产物。
+模拟器定向复验沿当次会话的用户显式授权执行，设置 `BIT101_SIMULATOR_AUTHORIZED=1` 后使用 `Scripts/run-extended-tests.sh simulator prepare` 准备项目专用设备并启动当前 Xcode 的 Device Hub，省略测试筛选时，`simulator app`、`simulator release-runtime` 和 `simulator ui` 执行对应组的完整库存；常规 CI 共用这三个入口。筛选复验沿 `simulator app 测试类/方法`、`simulator release-runtime 测试类/方法` 或 `simulator ui 用例关键词` 复验，App 行为组使用 Debug 测试宿主，正式条件与 UI 组使用 Release 测试宿主。`simulator info` 读取运行时库存。入口安装所需官方运行时，复用唯一项目设备、工作流锁、编译缓存和固定测试产物。
 
 测试结束后沿原测试状态恢复并启动常规模拟器包，`simulator restore` 也可独立执行恢复，安装后核对可执行文件与常规 Release 产物的摘要，再沿正式就绪信号核对当前进程、编译输入、登录恢复与活跃场景，并保存实际画面；`simulator inspect` 读取安装包版本与测试宿主标记，并将实际屏幕覆盖保存到 `.build/screenshot.png`。日志委托保留调用方标准输入，回归覆盖子命令正文、参数及退出状态；UI 测试包沿隔离启动参数运行；社区资源替身核对请求方法与实际对象标识，帖子和文章的删除状态分别维护。业务参数证据保留原始请求及重定向的重复键，原生探针与报告验收共同拒绝歧义参数。
 

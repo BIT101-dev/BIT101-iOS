@@ -21,12 +21,20 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     @MainActor private var checkedScrollContainers = Set<String>()
     @MainActor private var checkingRefreshRows = false
     @MainActor private var checkedRefreshRows = Set<String>()
+    @MainActor private var capturedFailure = false
     private let runIdentifier = "ui"
 
+    @MainActor
     override func tearDown() async throws {
-        await MainActor.run {
-            Self.captureControlInventory()
+        if let testRun, testRun.totalFailureCount > 0, !capturedFailure, app.state == .runningForeground {
+            let hierarchy = XCTAttachment(string: app.native.debugDescription)
+            hierarchy.name = "失败时的界面元素树"
+            add(hierarchy)
+            let screenshot = XCTAttachment(screenshot: app.screenshot())
+            screenshot.name = "失败时的界面截图"
+            add(screenshot)
         }
+        Self.captureControlInventory()
         try await super.tearDown()
     }
 
@@ -308,7 +316,12 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         if UIElement.usesNativeInteraction {
             let done = app.buttons["keyboard.dismiss"]
             assertUI(done.appears(timeout: 5), "系统键盘应呈现完成按钮。")
-            done.press(forDuration: 0.01)
+            assertUI(waitUntil(NSPredicate { [self] _, _ in
+                let bounds = done.frame, keyboard = app.keyboards.firstMatch.frame
+                return !bounds.isEmpty && !keyboard.isEmpty && bounds.maxY <= keyboard.minY
+                    && keyboard.maxY <= app.frame.maxY
+            }, on: done, timeout: 5), "键盘完成按钮应位于系统键盘上方。")
+            done.tapVisibleCenter()
             assertUI(app.keyboards.firstMatch.disappears(timeout: 5), "原生完成按钮应关闭系统键盘。")
             return
         }
@@ -570,6 +583,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         let state = application.state
         diagnostics = "App 运行状态：\(state.rawValue)。"
         if state == .runningForeground {
+            capturedFailure = true
             let description = application.native.debugDescription
             let hierarchy = XCTAttachment(string: description)
             hierarchy.name = "失败时的界面元素树"

@@ -27,11 +27,14 @@ enum AppRestoreReadiness {
 
     static func recordIfReady() {
         let arguments = ProcessInfo.processInfo.arguments
-        guard initialized, sessionRecovered, !recorded, UIApplication.shared.applicationState == .active,
-              let index = arguments.firstIndex(of: "--restore-run-id"), arguments.indices.contains(index + 1),
-              UUID(uuidString: arguments[index + 1]) != nil,
-              let digest = Bundle.main.object(forInfoDictionaryKey: "BIT101RestoreInputDigest") as? String,
-              digest.count == 64, digest.allSatisfy({ $0.isHexDigit }) else { return }
+        guard !recorded, let index = arguments.firstIndex(of: "--restore-run-id"), arguments.indices.contains(index + 1),
+              UUID(uuidString: arguments[index + 1]) != nil else { return }
+        let digest = Bundle.main.object(forInfoDictionaryKey: "BIT101RestoreInputDigest") as? String ?? ""
+        let active = UIApplication.shared.applicationState == .active
+        let digestValid = digest.count == 64 && digest.allSatisfy({ $0.isHexDigit })
+        Logger(subsystem: "BIT101", category: "RestoreReadiness").info(
+            "Restore readiness initialized=\(initialized) sessionRecovered=\(sessionRecovered) active=\(active) digestValid=\(digestValid)")
+        guard initialized, sessionRecovered, active, digestValid else { return }
         let info = Bundle.main.infoDictionary ?? [:]
         let proof: [String: Any] = ["schemaVersion": 1, "runID": arguments[index + 1], "inputDigest": digest,
             "processIdentifier": ProcessInfo.processInfo.processIdentifier,

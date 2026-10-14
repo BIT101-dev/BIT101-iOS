@@ -124,7 +124,7 @@ if sys.argv[2]:
     def attachments(value):
         if isinstance(value, dict):
             screenshot = sys.argv[3] == "screenshot"
-            names = ("失败时的界面截图", "界面截图") if screenshot else ("失败时的界面元素树",)
+            names = ("失败时的界面截图", "界面截图") if screenshot else ("失败时的界面元素树", "Crash Log ")
             if str(value.get("name", "")).startswith(names):
                 identifier = value.get("payloadId")
                 if identifier:

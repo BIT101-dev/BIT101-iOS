@@ -48,7 +48,7 @@ UIKit 控件沿构造类型、继承或别名进入源码清单，运行门禁�
 | `LoginAndScheduleUITests/testCalendarSettingsPickersTogglesAndRenamePersist` | 时间表非法输入、有效保存、取消保留、课表改名取消 |
 | `InteractionCoverageUITests/testSchoolTermsClassroomPickersRefreshAndDDLRefresh` | 学期下拉刷新 / 切换、日期滚轮取消、手动日期按首周周一保存 / 重新装载恢复 / 学校日期、校区 / 教学楼 / 教室刷新、订阅及学校 DDL 刷新 |
 | `InteractionCoverageUITests/testCustomScheduleEmptyTitleDetailsAndCalendarActions` | 日程详情、编辑保存、删除、新增取消 |
-| `InteractionCoverageUITests/testCustomScheduleEmptyTitleDetailsAndCalendarActions` | 空标题默认名称、地点 / 描述编辑、详情、单项日历导入 / 移除 |
+| `InteractionCoverageUITests/testCustomScheduleEmptyTitleDetailsAndCalendarActions` | 空标题提示与草稿保留、地点 / 描述编辑、详情、单项日历导入 / 移除 |
 | `InteractionCoverageUITests/testCustomScheduleEmptyTitleDetailsAndCalendarActions` | 日期 / 开始时间 / 结束时间选择器、开始 / 结束时间绑定、线性轴显示任意时间、编辑取消保留 |
 | `LoginAndScheduleUITests/testRecurringSchedulesUseDisplayedWeekAndRetainSelection` | 上下间距一致、课程及日程默认显示周次、日程多周点选、整组编辑 / 删除与进程重启恢复 |
 | `LoginAndScheduleUITests/testCourseEditorFieldsPickersSaveDetailAndDelete` | 课程名称 / 教师 / 教室、周次点选、星期 / 起止节次、保存、调课入口、删除确认 / 取消 |
