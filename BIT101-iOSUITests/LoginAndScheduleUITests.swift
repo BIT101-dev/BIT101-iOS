@@ -71,6 +71,7 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
 
     @MainActor
     private func assertNativeControlParity(_ element: UIElement) throws {
+        XCTAssertTrue(element.appears(timeout: 5), "滚动恢复后应完成当前控件的无障碍挂载。")
         let actual = try XCTUnwrap(element.attributes(), "渲染查询应提供当前控件状态。")
         let expected = try element.native.snapshot()
         XCTAssertEqual(actual["identifier"] as? String, expected.identifier)
