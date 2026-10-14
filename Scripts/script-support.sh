@@ -3,6 +3,18 @@
 # 真机脚本共用设备快照，按有线、无线顺序选择，并提供同一设备的两种标识。
 unset PYTHONOPTIMIZE
 
+bit101_set_workflow_budget() {
+  if [[ -z "${BIT101_WORKFLOW_TIMEOUT_SECONDS:-}" ]]; then
+    export BIT101_WORKFLOW_TIMEOUT_SECONDS="$(python3 - "$ROOT_DIR/Scripts" "$@" <<'PYBUDGET'
+import sys
+sys.path.insert(0, sys.argv[1])
+from validation_policy import workflow_timeout_seconds
+print(workflow_timeout_seconds(tuple(sys.argv[2:])))
+PYBUDGET
+)"
+  fi
+}
+
 bit101_acquire_workflow_lock() {
   bit101_acquire_script_lock "$HOME/Library/Caches/BIT101-iOS/device-workflow.lock" BIT101_DEVICE_WORKFLOW_LOCK_HELD "$@"
   bit101_acquire_artifact_lock "$@"

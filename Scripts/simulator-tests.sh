@@ -11,10 +11,11 @@ shift $(( $# > 0 ? 1 : 0 ))
 case "$operation" in info|prepare|restore|inspect) [[ $# -eq 0 ]] || exit 64;; app|release-runtime|ui) ;; *) exit 64;; esac
 TEST_SCOPE=selected
 if (( $# == 0 )); then TEST_SCOPE=full; fi
+if [[ "$operation" == ui ]]; then bit101_set_workflow_budget ui; fi
 bit101_acquire_workflow_lock "$0" "$operation" "$@"
 DERIVED_ROOT="$ROOT_DIR/.build/extended-automation"
 mkdir -p "$DERIVED_ROOT"
-if SIMULATOR_DEVICE="$(python3 - "$DERIVED_ROOT/simulator-device.json" "$operation" 2>> "$DERIVED_ROOT/simulator.log" <<'PYDEVICE'
+if SIMULATOR_DEVICE="$(python3 - "$DERIVED_ROOT/simulator-device.json" "$operation" "$ROOT_DIR/BIT101-iOS/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png" 2>> "$DERIVED_ROOT/simulator.log" <<'PYDEVICE'
 import json
 import os
 from pathlib import Path
@@ -47,8 +48,10 @@ else:
     device = {'state': 'Shutdown'}
 if device['state'] != 'Booted': subprocess.run(['xcrun', 'simctl', 'boot', identifier], check=True, stdout=sys.stderr, stderr=sys.stderr)
 if os.getenv('GITHUB_ACTIONS') == 'true':
-    subprocess.run(['defaults', 'write', 'com.apple.iphonesimulator', 'ConnectHardwareKeyboard', '-bool', 'false'], check=True)
+    subprocess.run(['defaults', 'write', 'com.apple.iphonesimulator', 'ConnectHardwareKeyboard', '-bool', 'true'], check=True)
 subprocess.run(['xcrun', 'simctl', 'bootstatus', identifier, '-b'], check=True, stdout=sys.stderr, stderr=sys.stderr)
+if os.getenv('GITHUB_ACTIONS') == 'true' and operation == 'prepare':
+    subprocess.run(['xcrun', 'simctl', 'addmedia', identifier, sys.argv[3]], check=True, stdout=sys.stderr, stderr=sys.stderr)
 developer = Path(os.getenv('DEVELOPER_DIR') or subprocess.check_output(['xcode-select', '-p'], text=True).strip())
 subprocess.run(['open', '-a', str(developer.parent / 'Applications/DeviceHub.app')], check=True)
 print(identifier)
@@ -141,7 +144,7 @@ PYRESTORE
 typeset -a retained_result_groups=()
 restore_on_exit() {
   local workflow_result=$?
-  trap - EXIT
+  trap - EXIT INT TERM
   if (( ${#retained_result_groups[@]} )); then
     python3 "$ROOT_DIR/Scripts/validation_performance.py" retain-evidence "${retained_result_groups[@]}" || workflow_result=$?
   fi
@@ -211,6 +214,8 @@ rm -f "$DERIVED_ROOT/test-metrics.txt" "$DERIVED_ROOT/test-failures.txt"
 rm -f "$DERIVED_ROOT/Build/ProfileData/$SIMULATOR_DEVICE/"*.profdata(N)
 test_status=0
 trap restore_on_exit EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 bit101_run_logged "$DERIVED_ROOT/$mode.log" "模拟器测试" xcodebuild test-without-building -quiet \
   -xctestrun "$plan" -derivedDataPath "$DERIVED_ROOT" -destination "$destination" -resultBundlePath "$result" \
   -parallel-testing-enabled NO -test-timeouts-enabled YES -enableCodeCoverage YES "${only_testing[@]}" || test_status=$?

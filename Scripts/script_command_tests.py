@@ -548,6 +548,7 @@ bit101_require_device() {
   export BIT101_DEVICE_TRANSPORT=wired BIT101_DEVICE_NAME=phone
 }
 bit101_build_cache() { print CACHE; }
+bit101_set_workflow_budget() { :; }
 bit101_acquire_workflow_lock() { print WORKFLOW_LOCK; print DEVICE_LOCK; }
 bit101_acquire_artifact_lock() { print WORKFLOW_LOCK; print ARTIFACT_LOCK; }
 bit101_acquire_script_lock() { :; }
@@ -765,7 +766,6 @@ bit101_run_logged() { print BUILD; return 79; }
         result = subprocess.run(["zsh", str(SCRIPT_ROOT / filename), *arguments], capture_output=True, text=True)
         if result.returncode != 64:
             findings.append(f"命令自测：{filename} 错误参数在执行前拒绝")
-
     plan_function = re.search(r"(?ms)^ui_test_plan\(\) \{\n.*?^\}$", (SCRIPT_ROOT / "run-extended-tests.sh").read_text())
     plan_source = re.search(r"<<'PY'\n(.*?)^PY$", plan_function[0], re.MULTILINE | re.DOTALL)[1]
     older, newer = Mock(), Mock()

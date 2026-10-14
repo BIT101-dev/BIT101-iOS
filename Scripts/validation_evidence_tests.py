@@ -119,6 +119,8 @@ def run_self_test(subject) -> int:
     summary_status_self_test(subject)
     from validation_test_areas import formal_inventory_self_test
     formal_inventory_self_test()
+    from validation_policy import workflow_budget_self_test
+    workflow_budget_self_test()
     network_route_identity_self_test()
     request_body_shape_self_test()
     module_name = subject.__name__
@@ -312,7 +314,6 @@ def run_self_test(subject) -> int:
         ui_root = subject.ROOT / 'BIT101-iOSUITests'
         sample_path = ui_root / 'Additional/Nested.swift'
         for declaration in ('final class FormatUITests: XCTestCase {\n  func testAdded() {}\n}', 'final\nclass FormatUITests\n: XCTestCase {\n    func testAdded() {}\n}'):
-
             def sample_read(path, *args, **kwargs):
                 if path == sample_path:
                     return declaration
@@ -386,7 +387,6 @@ def run_self_test(subject) -> int:
                 before = {group: subject.source_digest(group, environment={}) for group in groups}
                 inputs[name] += b' changed facts'
                 assert all((subject.source_digest(group, environment={}) != before[group]) == (group != 'manual-device') for group in groups), name
-
         def icloud_summary(value):
             return subject.smoke_summary('icloud', dict(validatedDomains=sorted(subject.ICLOUD_DOMAINS), cloudKitEnvironment='Production', runID='fixture', **value))
         test = {'passed': True, 'totalTests': 1, 'passedTests': 1, 'failedTests': 0, 'skippedTests': 0}

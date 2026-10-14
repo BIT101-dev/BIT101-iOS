@@ -546,12 +546,18 @@ extension InteractionCoverageUITests {
 
     @MainActor
     @objc func testNetworkDiagnosisProgressAndReport() {
-        app = configureApp(resetStorage: true, initialSettings: "gallery")
+        app = configureApp(resetStorage: true, content: true, school: true, initialSettings: "gallery")
         tap("测试网络并生成诊断报告")
         assertUI(app.alerts["网络诊断完成"].appears(timeout: 60), "诊断操作应汇总每个网络步骤。")
         for title in ["网络路径", "BIT101 首页", "话廊接口", "文章接口", "学校当前学期", "课表与考试", "DDL 接口", "可信成绩单"] {
             assertUI(app.alerts.staticTexts.allElementsBoundByIndex.contains { $0.label.contains(title) }, "诊断报告应包含\(title)。")
         }
+        for title in ["话廊接口", "文章接口", "学校当前学期", "课表与考试", "DDL 接口"] {
+            assertUI(app.alerts.staticTexts.allElementsBoundByIndex.contains { $0.label.contains("\(title)：通过") },
+                     "受控诊断服务应完成\(title)。")
+        }
+        assertUI(app.alerts.staticTexts.allElementsBoundByIndex.contains { $0.label.contains("可信成绩单：需要短信验证") },
+                 "成绩单诊断应保留受控服务的短信验证结果。")
         closeAlertIfPresent()
         assertUI(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "测试网络并生成诊断报告")).firstMatch.isEnabled,
                  "诊断结束应恢复执行入口。")

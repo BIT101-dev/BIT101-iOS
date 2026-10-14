@@ -232,6 +232,7 @@ if ! $BUILD_ONLY && [[ $# -gt 0 ]]; then
   esac
 fi
 
+if [[ "$MODE" == ui ]]; then bit101_set_workflow_budget ui; fi
 export BIT101_VALIDATION_SOURCE_DIGEST
 
 if [[ "$MODE" == "verify" ]]; then
@@ -259,15 +260,7 @@ if [[ "$MODE" == "verify" ]]; then
       community-writes|ddl) "$ROOT_DIR/Scripts/release-network-smoke.sh" --check-config "$group" ;;
     esac
   done
-  if [[ -z "${BIT101_WORKFLOW_TIMEOUT_SECONDS:-}" ]]; then
-    export BIT101_WORKFLOW_TIMEOUT_SECONDS="$(python3 - "$ROOT_DIR/Scripts" "${verification_groups[@]}" <<'PYBUDGET'
-import sys
-sys.path.insert(0, sys.argv[1])
-from validation_policy import workflow_timeout_seconds
-print(workflow_timeout_seconds(tuple(sys.argv[2:])))
-PYBUDGET
-)"
-  fi
+  bit101_set_workflow_budget "${verification_groups[@]}"
   acquire_test_lock
   if $verification_needs_device; then
     bit101_require_device || exit 1

@@ -188,15 +188,27 @@ struct BIT101_iOSApp: App {
         scores = productionScores
         transcripts = productionScores
 #endif
-        let diagnosisSchool = ScheduleServiceFactory.make()
+        let diagnosisSchool: NetworkDiagnosisSchool = {
+#if BIT101_UI_TESTING
+            if AppFileDirectories.isRunningUITest && !AppUITestBootstrap.usesProductionComposition {
+                let service = UITestSchoolService()
+                return NetworkDiagnosisSchool(identity: { AppAccountSession.storage.schoolSessionIdentity },
+                    currentTerm: service.fetchCurrentTermOnly,
+                    syncCourses: { _ = try await service.syncCourses(term: $0) },
+                    ddl: { _ = try await service.syncDDLEvents(existingEvents: [], storedURL: "", schoolSMSCodeHandler: nil) })
+            }
+#endif
+            let service = ScheduleServiceFactory.make()
+            return NetworkDiagnosisSchool(identity: { AppAccountSession.storage.schoolSessionIdentity },
+                currentTerm: service.fetchCurrentTermOnly,
+                syncCourses: { _ = try await service.syncCourses(term: $0) },
+                ddl: { _ = try await service.fetchEclassDDLEventsForPreflight() })
+        }()
         return AppAccountLifecycle(
             scheduleViewModel: makeScheduleViewModel(),
             community: .app(settings: settings, stores: stores),
             scoreService: scores, transcriptService: transcripts,
-            diagnosisSchool: NetworkDiagnosisSchool(identity: { AppAccountSession.storage.schoolSessionIdentity },
-                currentTerm: diagnosisSchool.fetchCurrentTermOnly,
-                syncCourses: { _ = try await diagnosisSchool.syncCourses(term: $0) },
-                ddl: { _ = try await diagnosisSchool.fetchEclassDDLEventsForPreflight() }), settings: settings, stores: stores, preferenceCloudSync: preferenceCloudSync,
+            diagnosisSchool: diagnosisSchool, settings: settings, stores: stores, preferenceCloudSync: preferenceCloudSync,
             accountChanges: AppAccountSession.storage.changes,
             currentIdentity: { AppAccountSession.storage.communityCredentials.identity },
             scheduleChanges: ScheduleCacheStore.changes, scheduleCloudSync: .shared,

@@ -31,7 +31,30 @@ REVIEW_JOB_NAMES = {'Static audit (Apple toolchain)', 'Release app and extension
 def workflow_timeout_seconds(groups: tuple[str, ...]) -> int:
     if not groups or any(group not in VERIFY_GROUPS for group in groups):
         raise ValueError('聚合工作流需要有效的验证组。')
-    return len(set(groups)) * 45 * 60 + 5 * 60
+    return sum(90 if group == 'ui' else 45 for group in set(groups)) * 60 + 5 * 60
+
+
+def workflow_budget_self_test() -> None:
+    import os
+    from pathlib import Path
+    import shlex
+    import subprocess
+
+    root = Path(__file__).resolve().parent.parent
+    for groups, expected in ((('ui',), 95 * 60), (('ui', 'ui'), 95 * 60),
+            (('all', 'release-runtime', 'ui'), 185 * 60)):
+        environment = dict(os.environ)
+        environment.pop('BIT101_WORKFLOW_TIMEOUT_SECONDS', None)
+        command = f'ROOT_DIR={shlex.quote(str(root))}; source "$ROOT_DIR/Scripts/script-support.sh"; '
+        command += 'bit101_set_workflow_budget ' + shlex.join(groups) + '; print -r -- "$BIT101_WORKFLOW_TIMEOUT_SECONDS"'
+        actual = subprocess.check_output(['zsh', '-c', command], text=True, env=environment, timeout=10)
+        assert int(actual) == expected
+        environment['BIT101_WORKFLOW_TIMEOUT_SECONDS'] = '17'
+        assert subprocess.check_output(['zsh', '-c', command], text=True, env=environment, timeout=10).strip() == '17'
+    for groups in ((), ('unknown',)):
+        try: workflow_timeout_seconds(groups)
+        except ValueError: continue
+        raise AssertionError('工作流预算需要拒绝无效验证组。')
 
 
 def workflow_conditions(group: str) -> tuple[str, ...]:
