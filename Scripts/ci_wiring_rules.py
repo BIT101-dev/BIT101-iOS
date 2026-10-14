@@ -7,7 +7,7 @@ import shlex
 from audit_callback_rules import audit_callback_findings
 from validation_policy import workflow_timeout_seconds
 
-CI_RUNNER = "${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'xcode-27' || fromJSON('[\"self-hosted\",\"macOS\",\"bit101-xcode-27\",\"bit101-ci\"]') }}"
+CI_RUNNER = "xcode-27"
 CI_CANCELLATION = "${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}"
 DIAGNOSTIC_PATHS = {
     'static-audit': {'.build/static-audit/*.log', '.build/code-quality-report.txt', '.build/ui-consistency-report.txt',
@@ -107,7 +107,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
             if action and not action.startswith(('./', 'docker://')) and not re.fullmatch(r'[^@]+@[0-9a-f]{40}', action):
                 errors.append(f'.github/workflows/ci.yml: {name} 的外部 Action 需要固定完整提交 SHA')
         if name != 'physical-device' and runner_expression(mapping(job).get('runs-on')) != runner_expression(CI_RUNNER):
-            errors.append(f'.github/workflows/ci.yml: {name} 的隔离运行器需要将 fork 放到 GitHub 托管镜像，受信来源放到 bit101-ci')
+            errors.append(f'.github/workflows/ci.yml: {name} 的隔离运行器需要使用 GitHub 托管的 xcode-27 镜像')
         checkouts = [step for step in mapping(job).get('steps', []) if isinstance(step, dict)
             and str(step.get('uses', '')).startswith('actions/checkout@')]
         if len(checkouts) != 1 or mapping(checkouts[0].get('with')).get('clean') is not False:
@@ -356,10 +356,13 @@ def evidence_execution_findings(command: str, key: str, expected: list[str]) -> 
 
 def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
     source = workflow_source
-    for selector in (CI_RUNNER.replace(' && ', '  && '),
-            CI_RUNNER.replace('["self-hosted","macOS","bit101-xcode-27","bit101-ci"]', '["bit101-ci","macOS","bit101-xcode-27","self-hosted"]')):
-        assert not ci_wiring_findings(source.replace(CI_RUNNER, selector))
-    assert runner_expression(CI_RUNNER.replace(' != ', ' ! = ')) != runner_expression(CI_RUNNER)
+    for selector in ('"xcode-27"', "'xcode-27'"):
+        assert not ci_wiring_findings(source.replace('runs-on: xcode-27', 'runs-on: ' + selector))
+    for selector in ('macos-latest', '[self-hosted, macOS, bit101-xcode-27, bit101-ci]'):
+        assert any('隔离运行器' in row for row in ci_wiring_findings(
+            source.replace('runs-on: xcode-27', 'runs-on: ' + selector, 1)))
+    assert runner_expression(CI_CANCELLATION.replace(' && ', '  && ')) == runner_expression(CI_CANCELLATION)
+    assert runner_expression(CI_CANCELLATION.replace(' != ', ' ! = ')) != runner_expression(CI_CANCELLATION)
     for replacement in ('xcodebuild -version', 'echo skipped'):
         assert any('工具链版本核对' in row for row in ci_wiring_findings(
             source.replace('Scripts/build-install-device.sh toolchain', replacement, 1)))
@@ -434,8 +437,8 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
             if not any('诊断上传' in item for item in ci_wiring_findings(exposed)):
                 findings.append(f'代码质量规则边界自检失败：{name} 的历史附件隔离')
     for name in ('static-audit', 'release-build', 'catalyst-tests', 'release-acceptance', 'merge-acceptance'):
-        for selector in ('[self-hosted, macOS, bit101-xcode-27, bit101-ci]', 'xcode-27',
-                         CI_RUNNER.replace(' != github.repository', ' == github.repository')):
+        for selector in ('[self-hosted, macOS, bit101-xcode-27, bit101-ci]', 'macos-latest',
+                         "${{ github.event_name == 'push' && 'xcode-27' || 'macos-latest' }}"):
             unsafe = re.sub(rf'(?s)(  {name}:.*?)runs-on: ' + re.escape(CI_RUNNER),
                 lambda match: match[1] + 'runs-on: ' + selector, workflow_source, count=1)
             if not any('隔离运行器' in item for item in ci_wiring_findings(unsafe)):

@@ -362,7 +362,7 @@ SwiftSyntax 索引器在 `.build/static-audit/` 编译并复用，源码或工�
 
 独立 XCTest 与模拟器测试覆盖固定结果包前，先清除引用该包的完整组、历史完整组及提交绑定；证据写入完成后清理原始包。聚合验证通过结果事务保留并合并所属分组，合并后重绑结果包摘要。本地合并与发布门禁核对完整行为及 UI 组的 SHA-256 与当前保留包；CI 核心证据交换核对两组共享的完整摘要，原始包沿执行宿主保留。
 
-GitHub Actions 的 `.github/workflows/ci.yml` 使用带 `self-hosted`、`macOS`、`bit101-xcode-27`、`bit101-ci` 标签的隔离 runner，各 Job 的 checkout 保留公共编译缓存与增量产物；常规诊断上传采用所属任务的固定日志清单，聚合人工报告与历史 XCTest 结果包保存在本地。先执行静态审计与包级测试，再并行执行 iOS 宿主构建 Job 和独立的 Catalyst 行为 Job。Catalyst Job 执行行为用例及正式编译条件下的生产行为及组装合同；iOS Job 顺序编译正式 Release、UI 和两种 Smoke 的测试宿主，App 依赖图同时编译 Watch 和两种 Widget，Swift / Clang 警告按错误处理。工作流通过系统 Ruby YAML 解析器核对 pull_request 和 push 自动触发、三个 Job 的默认执行、bash shell 继承、静态依赖及各自必备入口。版本、plist 和 PR 基线在静态 job 校验，手动 `release_check` 校验候选版本高于商店版本，标签触发沿工程版本匹配验收。
+GitHub Actions 的 `.github/workflows/ci.yml` 使用 GitHub 托管的 `xcode-27` 镜像，各 Job 的 checkout 保留公共编译缓存与增量产物；常规诊断上传采用所属任务的固定日志清单，聚合人工报告与历史 XCTest 结果包保存在本地。先执行静态审计与包级测试，再并行执行 iOS 宿主构建 Job 和独立的 Catalyst 行为 Job。Catalyst Job 执行行为用例及正式编译条件下的生产行为及组装合同；iOS Job 顺序编译正式 Release、UI 和两种 Smoke 的测试宿主，App 依赖图同时编译 Watch 和两种 Widget，Swift / Clang 警告按错误处理。工作流通过系统 Ruby YAML 解析器核对 pull_request 和 push 自动触发、三个 Job 的默认执行、bash shell 继承、静态依赖及各自必备入口。版本、plist 和 PR 基线在静态 job 校验，手动 `release_check` 校验候选版本高于商店版本，标签触发沿工程版本匹配验收。
 
 本机承接真机行为、UI、网络和 iCloud 验证；发布操作按对应授权执行。
 
@@ -440,7 +440,7 @@ iOS 的 `checks` 包含 `cold-start-session`、`offline-persistence`、`media-an
 
 仓库内分支和维护者手动触发执行真机 Job；fork PR 由维护者审查代码后，将 GitHub 的 `refs/pull/编号/merge` 对应提交保存到仓库内 `review-validation` 分支；从该分支手动启动工作流并填写 `review_pr`。工作流核对当前 PR 合并提交，沿其目标提交载入覆盖率基准，再完成四个 Job 和真机证据绑定。受信宿主工作流按分支排队，保留真机恢复所需的完整执行时间；fork 托管工作流沿新提交自动取消旧任务。维护者随后重新运行原 PR 的合并验收 Job；门禁按原合并 SHA 与 PR 编号查找仓库内成功的手动运行，核对四个实际 Job、有效产物及绑定证据。PR 或目标提交更新后沿新合并提交重新验收。
 
-fork PR 的常规 Job 使用 GitHub 托管的 `xcode-27` 镜像，每项任务沿独立托管环境运行；[官方镜像公告](https://github.com/actions/runner-images/issues/14404)说明工具链与镜像标签。仓库内分支与维护者手动审查任务使用 `bit101-ci` macOS 宿主，复用固定工作区、公共编译缓存与增量产物；手动审查提交核对先于依赖安装。运行器选择按事件及 PR 来源仓库同时判定，静态审计逐项核对五个常规 Job 的选择条件。`bit101-device` 标签归属真机专用宿主，设备连接及 GitHub、Cloudflare、Apple 授权保存在该宿主。自托管工具链标签统一登记为 `bit101-xcode-27`，托管镜像标签 `xcode-27` 归属 GitHub 托管宿主；部署时按这两类标签归属配置运行器。角色、标签与设备授权沿 [GitHub 自托管运行器文档](https://docs.github.com/en/actions/how-tos/manage-runners/self-hosted-runners/use-in-a-workflow) 和本项目真机流程配置。
+常规 Job 使用 GitHub 托管的 `xcode-27` 镜像，每项任务沿独立托管环境运行；[官方镜像公告](https://github.com/actions/runner-images/issues/14404)说明工具链与镜像标签。PR、仓库推送与维护者手动审查共用该运行器合同；手动审查提交核对先于依赖安装。各 Job 在所属固定工作区复用公共编译缓存与增量产物，静态审计逐项核对五个常规 Job 的托管镜像。`bit101-device` 标签归属真机专用宿主，设备连接及 GitHub、Cloudflare、Apple 授权保存在该宿主。真机自托管工具链标签为 `bit101-xcode-27`。角色、标签与设备授权沿 [GitHub 自托管运行器文档](https://docs.github.com/en/actions/how-tos/manage-runners/self-hosted-runners/use-in-a-workflow) 和本项目真机流程配置。
 
 公开仓库的 fork 可以修改工作流内容，运行器选择表达式提供项目内的路由约定。自托管宿主的准入由组织运行器组及受保护分支的固定工作流访问策略承接；fork 工作流审批覆盖全部外部贡献者，批准前核对具体提交、工作流及执行代码。运行器组访问策略与审批策略沿管理员权限配置并核实，部署验收记录该边界。平台行为参见 [GitHub 工作流设置](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/enabling-features-for-your-repository/managing-github-actions-settings-for-a-repository)。
 
