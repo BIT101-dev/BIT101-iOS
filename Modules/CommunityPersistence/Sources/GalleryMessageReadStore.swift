@@ -16,6 +16,9 @@ private nonisolated struct MessageSnapshotState: Sendable {
 
 /// 文件操作和快照计算在存储执行器中串行完成。
 private actor MessageSnapshotFiles {
+    private nonisolated let executor = StorageFileExecutor()
+    nonisolated var unownedExecutor: UnownedSerialExecutor { executor.asUnownedSerialExecutor() }
+
     func read(files: any AppFileService, url: URL, legacy: Data?, invalidLegacy: Bool) -> MessageSnapshotState? {
         do {
             let data: Data

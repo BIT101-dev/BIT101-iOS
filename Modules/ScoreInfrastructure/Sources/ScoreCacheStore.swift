@@ -239,6 +239,9 @@ public final class ScoreCacheStore: ScoreCacheSynchronizing {
 
 /// 对账号成绩文件的全部操作都在 actor 内同步执行，避免主线程 I/O 与并发读改写丢失。
 actor ScoreCacheDiskRepository {
+    private nonisolated let executor = StorageFileExecutor()
+    nonisolated var unownedExecutor: UnownedSerialExecutor { executor.asUnownedSerialExecutor() }
+
     nonisolated private static let logger = Logger(subsystem: "BIT101", category: "ScoreCache")
 
     private let files: any AppFileService

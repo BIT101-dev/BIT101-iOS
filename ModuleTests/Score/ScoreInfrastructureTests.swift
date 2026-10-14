@@ -226,8 +226,11 @@ struct ScoreInfrastructureBoundaryTests {
         defer { defaults.removePersistentDomain(forName: "BIT101ModulesTests.score.cleanup-write") }
         let started = OSAllocatedUnfairLock(initialState: false)
         let gate = DispatchSemaphore(value: 0)
+        defer { gate.signal() }
         let files = ModuleScoreFiles(beforeCreatingDirectory: {
-            if started.withLock({ value in defer { value = true }; return !value }) { gate.wait() }
+            if started.withLock({ value in defer { value = true }; return !value }) {
+                #expect(gate.wait(timeout: .now() + 5) == .success)
+            }
         })
         let root = URL(fileURLWithPath: "/cleanup-write")
         var account = AppStorageSession(accountIdentifier: "cleanup-account")

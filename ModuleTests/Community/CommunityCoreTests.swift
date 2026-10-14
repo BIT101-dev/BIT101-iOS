@@ -330,6 +330,7 @@ struct CommunityCoreTests {
             #expect(gate.wait(timeout: .now() + 5) == .success)
         })
         let tracker = StorageOperationTracker(), root = URL(fileURLWithPath: "/messages")
+        defer { gate.signal() }
         var account = AppStorageSession(accountIdentifier: domain)
         let store = GalleryMessageReadStore(files: files, storageRoot: root, defaults: defaults,
             session: { account }, storageOperations: tracker)
@@ -378,6 +379,7 @@ struct CommunityCoreTests {
             #expect(gate.wait(timeout: .now() + 5) == .success)
         })
         let owner = AppStorageSession(accountIdentifier: domain), root = URL(fileURLWithPath: "/messages")
+        defer { gate.signal() }
         let first = GalleryMessageReadStore(files: files, storageRoot: root, defaults: defaults, session: { owner })
         let other = GalleryMessageReadStore(files: files, storageRoot: root, defaults: defaults, session: { owner })
         await other.prepareSnapshot()

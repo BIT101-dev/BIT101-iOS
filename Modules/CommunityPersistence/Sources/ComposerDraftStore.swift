@@ -456,6 +456,9 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
 }
 
 private actor ComposerDraftStorage {
+    private nonisolated let executor = StorageFileExecutor()
+    nonisolated var unownedExecutor: UnownedSerialExecutor { executor.asUnownedSerialExecutor() }
+
     func saveGallery(store: ComposerDraftStore, _ snapshot: GalleryComposerDraftSnapshot, session: AppStorageSession) -> Bool {
         store.persistGallery(snapshot, session: session)
     }

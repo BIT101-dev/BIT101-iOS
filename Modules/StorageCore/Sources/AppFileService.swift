@@ -1,5 +1,15 @@
 import Foundation
 
+/// 同步文件操作使用独立串行队列，保持异步任务执行线程可用。
+package nonisolated final class StorageFileExecutor: SerialExecutor {
+    private let queue = DispatchQueue(label: "BIT101.StorageFiles")
+    package init() {}
+    package func enqueue(_ job: consuming ExecutorJob) {
+        let job = UnownedJob(job)
+        queue.async { job.runSynchronously(on: self.asUnownedSerialExecutor()) }
+    }
+}
+
 /// 清理前暂停新访问，等待已接收的持久化操作结束。
 @MainActor
 public final class StorageOperationTracker {
