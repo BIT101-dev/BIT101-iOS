@@ -100,7 +100,7 @@ struct SchedulePersistenceTests {
         try verifyFileServiceContract(files, root: root)
     }
 
-    @Test func backupEligibilityRestoresExistingUserDirectoriesAndPreservesBytes() throws {
+    @Test(.timeLimit(.minutes(1))) func backupEligibilityRestoresExistingUserDirectoriesAndPreservesBytes() async throws {
         let support = try #require(FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first)
         let root = support.appendingPathComponent("BIT101Tests-BackupPolicy", isDirectory: true)
         let directory = root.appendingPathComponent("drafts", isDirectory: true)
@@ -118,6 +118,7 @@ struct SchedulePersistenceTests {
         try files.writeData(original, to: file, options: .atomic)
         for excluded in [true, false, true, false] {
             try files.setBackupExcluded(excluded, at: root, recursively: true)
+            try await waitForTestEvent { try [root, directory, file].allSatisfy { (try exclusion($0) == true) == excluded } }
             for target in [root, directory, file] {
                 let actual = try exclusion(target) == true
                 #expect(actual == excluded, "备份排除标记 \(excluded)，目标 \(target.lastPathComponent)。")

@@ -112,7 +112,7 @@ Scripts/run-extended-tests.sh release-runtime
 
 编译条件由当前 Swift 编译器沿宿主目标、SDK 与工作流标志求值，支持框架可用性及 Swift / 编译器版本谓词。本地模块的 canImport 按所属 SwiftPM target 或原生 target 的依赖图求值；包源码同时启用 `SWIFT_PACKAGE`，Xcode 集成包启用 `Xcode` 并按资源声明设置 `SWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE`，macOS 命令行模块沿 SwiftPM 条件执行；网络能力库存覆盖包模块的 iOS、watchOS、macOS、Catalyst 分支，以及 App 的 iOS、Catalyst 分支。包级测试由 `Package.swift` 的 Transport、Community、Schedule、Contracts、Score、Map、Sync 七个消费者 target 管理，代码位于 `ModuleTests/`，使用内存传输、文件服务、偏好和实例级变更流。
 
-模块及 App 行为测试的异步事件统一沿共享 `waitForTestEvent` 等待，默认期限为五秒，轮询间隔沿时钟休眠一毫秒，主动核对任务取消与条件执行后的期限；条件采用同步闭包，Actor 状态沿隔离参数读取。定向回归覆盖超时、取消和事件就绪，静态审计沿调用范围核对事件等待、吞掉取消的条件循环及类型别名中的取消识别；随机测试资源沿辅助函数返回值核对固定用途名称。Swift Testing 异步测试通过方法或上层 Suite 的 timeLimit 设置期限；XCTest 沿工作流启用系统测试期限。
+模块及 App 行为测试的异步事件统一沿共享 `waitForTestEvent` 等待，默认期限为五秒，轮询间隔沿时钟休眠一毫秒，主动核对任务取消与条件执行后的期限；条件采用同步闭包，Actor 状态沿隔离参数读取。定向回归覆盖超时、取消和事件就绪；系统备份元数据回归沿相同期限等待读侧标记稳定，再逐项核对目录、文件及原始内容。静态审计沿调用范围核对事件等待、吞掉取消的条件循环及类型别名中的取消识别；随机测试资源沿辅助函数返回值核对固定用途名称。Swift Testing 异步测试通过方法或上层 Suite 的 timeLimit 设置期限；XCTest 沿工作流启用系统测试期限。
 
 社区列表的延迟请求夹具为各消费者保留 continuation，沿五秒期限结束等待，并支持完成后的再次请求。
 
