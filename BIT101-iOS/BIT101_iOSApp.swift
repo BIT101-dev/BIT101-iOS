@@ -14,13 +14,11 @@ import DesignSystemKit
 //
 
 import SwiftUI
+import Combine
 import CommunityTransport
 import BackgroundTasks
 import UIKit
 import os
-#if BIT101_UI_TESTING
-import Combine
-#endif
 
 final class AppDelegate: NSObject, UIApplicationDelegate {
     var restoreLoginSession: @MainActor () -> Void = { AppAccountSession.storage.retrySessionReadIfNeeded() }
@@ -337,6 +335,9 @@ struct BIT101_iOSApp: App {
                     await AppFileDirectories.preparePersistentBackups()
                     lifecycle.start()
                     AppRestoreReadiness.initializedScene()
+                }
+                .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+                    AppRestoreReadiness.recordIfReady()
                 }
             #endif
         }

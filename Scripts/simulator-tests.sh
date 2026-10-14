@@ -127,10 +127,13 @@ while time.monotonic() < deadline:
             break
     time.sleep(1)
 else:
+    print(json.dumps({'processIdentifier': process_id, 'inputDigest': sys.argv[4],
+        'installedInputDigest': info.get('BIT101RestoreInputDigest'),
+        'readiness': json.loads(readiness.read_text()) if readiness.is_file() else None}, ensure_ascii=False), file=sys.stderr)
     subprocess.run(['xcrun', 'simctl', 'io', sys.argv[1], 'screenshot', sys.argv[5]],
         check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    subprocess.run(['xcrun', 'simctl', 'spawn', sys.argv[1], 'log', 'show', '--style', 'compact', '--last', '2m',
-        '--predicate', 'subsystem == "BIT101" AND (category == "RestoreReadiness" OR category == "LoginKeychain")'],
+    subprocess.run(['xcrun', 'simctl', 'spawn', sys.argv[1], 'log', 'show', '--style', 'compact', '--info', '--last', '2m',
+        '--predicate', 'subsystem == "BIT101" AND (category == "RestoreReadiness" OR category == "LoginKeychain" OR category == "PersistentBackup")'],
         check=False, stdout=sys.stderr, stderr=sys.stderr)
     raise SystemExit('常规模拟器 App 就绪验收超时，请检查登录恢复与场景初始化。')
 PYRESTORE

@@ -7,7 +7,7 @@ import signal
 import shlex
 import subprocess
 import sys
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from unittest.mock import Mock, patch
 from pathlib import Path
@@ -442,7 +442,7 @@ python3() {{ print -r -- "RECORD $*"; return {recording}; }}
         bundleIdentifier='app', version='1', build='1', initialized=True, sessionRecovered=True, active=True,
         readyAt=datetime.now(timezone.utc).isoformat())
     for exited, change, expected in ((False, {}, ''), (True, {}, '就绪前退出'),
-            (False, {'processIdentifier': 124}, '就绪验收超时'), (False, {'sessionRecovered': False}, '就绪验收超时'),
+            (False, {'processIdentifier': 124}, '就绪验收超时'), (False, {'sessionRecovered': False}, '就绪验收超时'), (False, {'active': False}, '就绪验收超时'),
             (False, {'inputDigest': 'b' * 64}, '就绪验收超时')):
         def run_command(command, **kwargs):
             return SimpleNamespace(returncode=int(exited and command[0] == '/bin/kill'), stdout='app: 123')
@@ -452,11 +452,11 @@ python3() {{ print -r -- "RECORD $*"; return {recording}; }}
                 patch.object(Path, 'read_bytes', lambda path: plistlib.dumps(app_info) if path.name == 'Info.plist' else b'app'), \
                 patch.object(Path, 'read_text', return_value=json.dumps(dict(ready, **change))), \
                 patch.object(Path, 'is_file', return_value=True), patch.object(Path, 'unlink'), \
-                patch('time.monotonic', side_effect=[0, 0, 61]), patch('time.sleep'), patch('uuid.uuid4', return_value=restore_id):
-            outcome = ''
-            try: exec(compile(restoration_program, '<simulator-restore>', 'exec'), {})
+                patch('time.monotonic', side_effect=[0, 0, 61]), patch('time.sleep'), patch('uuid.uuid4', return_value=restore_id), redirect_stderr(diagnostics := StringIO()):
+            try: exec(compile(restoration_program, '<simulator-restore>', 'exec'), {}); outcome = ''
             except SystemExit as error: outcome = str(error.code)
-            if expected not in outcome or bool(expected) != bool(outcome):
+            if expected not in outcome or bool(expected) != bool(outcome) \
+                    or expected == '就绪验收超时' and json.loads(diagnostics.getvalue())['readiness'] != dict(ready, **change):
                 findings.append('模拟器恢复自测：实际进程、会话恢复和编译输入共同参与就绪验收')
     support = SCRIPT_ROOT / "script-support.sh"
     icloud_source = (SCRIPT_ROOT / 'run_icloud_cross_device_smoke.sh').read_text()
