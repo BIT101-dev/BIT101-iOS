@@ -423,8 +423,21 @@ python3() {{ print -r -- "RECORD $*"; return {recording}; }}
     if simulator.returncode != 64 or '显式授权' not in simulator.stderr:
         findings.append('模拟器命令自测：执行前核对用户授权标记')
     simulator_source = (SCRIPT_ROOT / 'simulator-tests.sh').read_text()
-    from validation_restore import simulator_restore_findings
+    import validation_evidence as evidence
+    inventory = ['Suite/first', 'Suite/second']
+    with patch.object(evidence, 'test_inventory', return_value=set(inventory)), \
+            patch.object(evidence, 'test_selectors', return_value={name: name + '()' for name in inventory}), \
+            patch('validation_coverage.shard_inventory', return_value=inventory):
+        for scope, selected, shard in (('full', [], None), ('shard', [], '0/1'), ('selected', inventory[:1], None)):
+            expected, selectors = evidence.simulator_test_selection('all', scope, selected, shard)
+            assert expected == (selected if scope == 'selected' else inventory)
+            assert selectors == [name + '()' for name in expected]
+        try: evidence.simulator_test_selection('all', 'selected', ['Missing/test'], None)
+        except ValueError: pass
+        else: findings.append('模拟器库存规划需要传播失效筛选。')
+    from validation_restore import simulator_restore_findings, verification_finish_findings
     findings.extend(simulator_restore_findings(simulator_source))
+    findings.extend(verification_finish_findings((SCRIPT_ROOT / 'run-extended-tests.sh').read_text()))
     support = SCRIPT_ROOT / "script-support.sh"
     icloud_source = (SCRIPT_ROOT / 'run_icloud_cross_device_smoke.sh').read_text()
     recovery = 'finish_smoke() {' + icloud_source.split('finish_smoke() {', 1)[1].split('\ntrap finish_smoke', 1)[0]

@@ -193,34 +193,26 @@ if [[ "$operation" == ui ]]; then
   scheme=BIT101-iOS-UIAutomation
   bundle=BIT101-iOSUITests
   configuration=Release
-  selections=("${(@f)$(bit101_ui_test_selections "$@")}")
+  if (( $# )); then selections=("${(@f)$(bit101_ui_test_selections "$@")}"); fi
 fi
 if [[ -n "${BIT101_CI_SHARD:-}" ]]; then
   [[ "$TEST_SCOPE" == full ]] || { echo "分片验收使用登记的完整库存。" >&2; exit 64; }
   TEST_SCOPE=shard
 fi
-if [[ "$TEST_SCOPE" == full || "$TEST_SCOPE" == shard ]]; then
-  selections=("${(@f)$(python3 - "$ROOT_DIR/Scripts" "$mode" <<'PYINVENTORY'
-import os, sys
+selection_plan="$(python3 - "$ROOT_DIR/Scripts" "$mode" "$TEST_SCOPE" "${selections[@]}" <<'PYSELECT'
+import json, os, sys
 sys.path.insert(0, sys.argv[1])
-from validation_evidence import normalized_test_id, test_inventory
-from validation_coverage import shard_inventory
-tests = shard_inventory(sys.argv[2], *map(int, os.environ['BIT101_CI_SHARD'].split('/'))) \
-    if os.getenv('BIT101_CI_SHARD') else sorted(test_inventory(sys.argv[2]))
-print('\n'.join(normalized_test_id(test) for test in tests))
-PYINVENTORY
-)}")
-fi
-EXPECTED_TESTS="$(python3 - "$ROOT_DIR/Scripts" "$mode" "${selections[@]}" <<'PYSELECT'
-import json, sys
-sys.path.insert(0, sys.argv[1])
-from validation_evidence import selected_test_inventory
-print(json.dumps(sorted(selected_test_inventory(sys.argv[2], sys.argv[3:]))))
+from validation_evidence import simulator_test_selection
+expected, selectors = simulator_test_selection(sys.argv[2], sys.argv[3], sys.argv[4:], os.getenv('BIT101_CI_SHARD'))
+print(json.dumps(expected))
+print('\n'.join(selectors))
 PYSELECT
 )"
+selection_rows=("${(@f)selection_plan}")
+EXPECTED_TESTS="${selection_rows[1]}"
+selections=("${selection_rows[@]:1}")
 conditions="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" conditions "$mode")"
 only_testing=()
-selections=("${(@f)$(bit101_xcode_test_selections "$mode" "${selections[@]}")}")
 for selection in "${selections[@]}"; do only_testing+=("-only-testing:$bundle/$selection"); done
 destination="platform=iOS Simulator,id=$SIMULATOR_DEVICE"
 result="$DERIVED_ROOT/test-results.xcresult"

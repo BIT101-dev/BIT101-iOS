@@ -60,6 +60,14 @@ def xcode_test_selections(group: str, selections: list[str]) -> list[str]:
         for selection in selections))
 
 
+def simulator_test_selection(mode: str, scope: str, selections: list[str], shard: str | None) -> tuple[list[str], list[str]]:
+    from validation_coverage import shard_inventory
+    if scope in {'full', 'shard'}:
+        tests = shard_inventory(mode, *map(int, shard.split('/'))) if shard else sorted(test_inventory(mode))
+        selections = [normalized_test_id(test) for test in tests]
+    return sorted(selected_test_inventory(mode, selections)), xcode_test_selections(mode, selections)
+
+
 def selected_test_summary_complete(summary: dict, expected: list[str], *, group: str = 'all', simulator: bool = False) -> bool:
     executed = {normalized_test_id(test) for test in summary.get("executedTests", [])}
     return bool(expected) and summary.get("passed") is True and successful_test_counts(summary) \

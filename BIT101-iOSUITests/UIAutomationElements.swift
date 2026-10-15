@@ -170,6 +170,10 @@ final class UIElement: NSObject {
             if let value = state.value { attributes["value"] = value }
             return attributes
         }
+        // 无筛选的 firstMatch 沿系统无障碍顺序读取。
+        if path.last?["first"] != nil, !path.contains(where: { $0["predicate"] != nil }) {
+            return UITestSnapshotReader.attributes(path)
+        }
         if path.contains(where: { [18, 19, 38, 39, 42, 51, 57, 58].contains(Int($0["type"] ?? "") ?? -1)
             || ($0["predicate"] ?? "").contains("keyboard.dismiss") || ($0["predicate"] ?? "").contains("下一个键盘") }) {
             return UITestSnapshotReader.attributes(path)
@@ -336,7 +340,15 @@ final class UIElement: NSObject {
         Self.beforeNativeTap?()
         let identity = interactionIdentity
         XCTAssertTrue(native.isHittable, "Return 默认动作应已完成原生弹窗布局。")
-        // 换行字符映射到原生 Return 键。
+        let title = native.label
+        let deadline = Date().addingTimeInterval(5)
+        var ready = false
+        repeat {
+            ready = UITestControlClient.request(["command": "keyboard-state", "return-title": title]) == "ready"
+            if ready { break }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        } while Date() < deadline
+        XCTAssertTrue(ready, "原生弹窗应提供已启用的默认动作与 Return 按键命令。")
         native.typeKey("\n", modifierFlags: [])
         recordInteraction(identity, action: "keyboard")
         UITestSnapshotReader.invalidate()

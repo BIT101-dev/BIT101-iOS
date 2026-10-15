@@ -176,7 +176,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
         if name not in {'ios-tests', 'ios-test-shards'} and not any(command_matches(command, "python3 Scripts/validation_evidence.py summary --recorded-environment")
                 for command, _ in run_commands(job, include_always=True)):
             errors.append(f".github/workflows/ci.yml: {name} 的证据汇总需要采用记录环境")
-        expected_dependencies = 'ios-test-shards' if name == 'ios-tests' else 'static-audit' if name == 'catalyst-tests' else []
+        expected_dependencies = 'ios-test-shards' if name == 'ios-tests' else 'release-build' if name == 'catalyst-tests' else []
         if job.get('needs', []) != expected_dependencies:
             errors.append(f'.github/workflows/ci.yml: {name} 需要按独立执行与最终汇总的依赖图运行')
     static_commands = commands.get("static-audit", [])
@@ -502,7 +502,7 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
     for job in ('release-build', 'ios-test-shards'):
         serialized = workflow_source.replace('  ' + job + ':\n', '  ' + job + ':\n    needs: static-audit\n', 1)
         assert any('依赖图' in item for item in ci_wiring_findings(serialized))
-    assert any('依赖图' in row for row in ci_wiring_findings(workflow_source.replace('  catalyst-tests:\n    needs: static-audit', '  catalyst-tests:')))
+    assert any('依赖图' in row for row in ci_wiring_findings(workflow_source.replace('  catalyst-tests:\n    needs: release-build', '  catalyst-tests:')))
     detached = workflow_source.replace('needs: ios-test-shards', 'needs: []', 1)
     assert any('依赖图' in item for item in ci_wiring_findings(detached))
     misplaced_audit = workflow_source.replace("run: Scripts/run-static-audit.sh", "run: echo skipped", 1)
@@ -527,7 +527,7 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
             findings.append('代码质量规则边界自检失败：完整模拟器合并验收与发布真机分支')
     for before, after in (('run: Scripts/run-extended-tests.sh simulator "${{ matrix.mode }}"', 'run: true'),
             ('run: Scripts/run-extended-tests.sh simulator merge', 'run: true'),
-            ('fail-fast: false', 'fail-fast: true'), ('max-parallel: 3', 'max-parallel: 4'), ('{mode: ui, shard: 0, count: 1, workers: 3}', '{mode: ui, shard: 0, count: 1, workers: 1}'),
+            ('fail-fast: false', 'fail-fast: true'), ('max-parallel: 3', 'max-parallel: 4'), ('{mode: ui, shard: 0, count: 1, workers: 2}', '{mode: ui, shard: 0, count: 1, workers: 1}'),
             ('BIT101_CI_SHARD: ${{ matrix.shard }}/${{ matrix.count }}', 'BIT101_CI_SHARD: 0/1')):
         assert ci_wiring_findings(workflow_source.replace(before, after)), before
     for before, after in (('Scripts/build-install-device.sh toolchain', 'Scripts/build-install-device.sh  toolchain'),
@@ -589,7 +589,9 @@ def audit_wiring_findings(ROOT, scheme_inventory_findings, extension_dependency_
     errors.extend(scheme_inventory_findings({path.name: path.read_text() for path in
         (ROOT / "BIT101-iOS.xcodeproj/xcshareddata/xcschemes").glob("*.xcscheme")}))
     errors.extend(extension_dependency_findings(project))
-    for configuration in project["objects"].values():
+    project_settings = project['objects'][project['objects'][project['rootObject']]['buildConfigurationList']]['buildConfigurations']
+    for identifier in project_settings:
+        configuration = project['objects'][identifier]
         if configuration.get("isa") == "XCBuildConfiguration" and "SWIFT_COMPILATION_MODE" in configuration.get("buildSettings", {}):
             if "$(BIT101_WORKFLOW_CONDITIONS)" not in configuration["buildSettings"].get("SWIFT_ACTIVE_COMPILATION_CONDITIONS", ""):
                 errors.append("App 工程编译条件需要接入工作流变量")

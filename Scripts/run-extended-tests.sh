@@ -8,6 +8,7 @@ WORKFLOW_STARTED_SECONDS=$SECONDS
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PROJECT="$ROOT_DIR/BIT101-iOS.xcodeproj"
 source "$ROOT_DIR/Scripts/script-support.sh"
+export BIT101_WORKFLOW_STARTED_AT="${BIT101_WORKFLOW_STARTED_AT:-$(python3 -c 'import time; print(time.monotonic())')}"
 DERIVED_ROOT="$ROOT_DIR/.build/extended-automation"
 if [[ "${1:-}" == simulator ]]; then
   exec zsh "$ROOT_DIR/Scripts/simulator-tests.sh" "${@:2}"
@@ -266,6 +267,8 @@ if [[ "$MODE" == "verify" ]]; then
     bit101_require_device || exit 1
   fi
   export BIT101_DEFER_APP_RESTORE=1
+  verification_audit_pid=
+  if (( ${verification_groups[(Ie)audit]} )); then verification_groups=(${verification_groups:#audit} audit); fi
   finish_verification() {
     local verification_status=$?
     trap - EXIT ZERR INT TERM
@@ -277,6 +280,17 @@ if [[ "$MODE" == "verify" ]]; then
         if (( verification_status == 0 )); then verification_status=1; fi
       fi
     fi
+    if [[ -n "$verification_audit_pid" ]]; then
+      local audit_status=0
+      wait "$verification_audit_pid" || audit_status=$?
+      if (( verification_status == 0 )); then verification_status=$audit_status; fi
+    fi
+    local total_seconds="$(python3 - <<'PYELAPSED'
+import os, time
+print(round(time.monotonic() - float(os.environ['BIT101_WORKFLOW_STARTED_AT']), 1))
+PYELAPSED
+)"
+    echo "[完整验证总耗时] $total_seconds 秒（含等待、编译、测试、汇总及常规 App 恢复）"
     exit "$verification_status"
   }
   trap finish_verification EXIT ZERR
@@ -286,6 +300,11 @@ if [[ "$MODE" == "verify" ]]; then
   verify_step() {
     local label="$1"
     shift
+    if [[ "$label" == audit && "${BIT101_AUDIT_BACKGROUND:-0}" != 1 ]]; then
+      (trap - EXIT ZERR INT TERM; BIT101_AUDIT_BACKGROUND=1 verify_step "$label" "$@") &
+      verification_audit_pid=$!
+      return 0
+    fi
     local started_at=$SECONDS
     if [[ "$label" == modules ]] && python3 "$ROOT_DIR/Scripts/validation_evidence.py" check-group modules >/dev/null 2>&1; then
       echo "[验证通过] modules · 复用当前源码和执行环境的完整证据"
@@ -584,7 +603,7 @@ run_tests() {
     execution_args+=(-resultBundlePath "$RESULT_BUNDLE")
     rm -f "$DERIVED_ROOT/Build/ProfileData/"*/*.profdata(N)
   fi
-  if [[ "$MODE" == "ui" ]]; then
+  if ! $BUILD_ONLY; then
     execution_args+=(-parallel-testing-enabled NO)
   fi
   if (( ${#TEST_SELECTIONS[@]} > 0 )); then

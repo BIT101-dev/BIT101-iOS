@@ -136,6 +136,42 @@ def simulator_restore_findings(simulator_source: str) -> list[str]:
     return findings
 
 
+def verification_finish_findings(source: str) -> list[str]:
+    import os
+    step = 'verify_step() {' + source.split('verify_step() {', 1)[1].split('\n  for group in', 1)[0]
+    finish = 'finish_verification() {' + source.split('finish_verification() {', 1)[1].split('\n  trap finish_verification', 1)[0]
+    finish = finish.replace('"$ROOT_DIR/Scripts/build-install-device.sh"', 'restore_probe')
+    findings = []
+    for restore_status, audit_status in ((0, 0), (9, 0), (0, 11), (9, 11)):
+        reader, writer = os.pipe()
+        try:
+            harness = f'''set -euo pipefail
+ROOT_DIR=/fixture verification_needs_device=true verification_audit_pid=
+completed_result_groups=()
+python3() {{ print 17.0; }}
+restore_probe() {{ print RESTORE; print ready >&{writer}; return {restore_status}; }}
+audit_probe() {{ read -r message <&{reader}; print AUDIT_FINISHED; return {audit_status}; }}
+'''
+            result = subprocess.run(['zsh', '-c', harness + step + '\n' + finish +
+                '\ntrap finish_verification EXIT\nverify_step audit audit_probe\nexit 0'],
+                capture_output=True, text=True, pass_fds=(reader, writer), timeout=5)
+            expected = int(bool(restore_status or audit_status))
+            if result.returncode != expected or result.stdout.index('RESTORE') > result.stdout.index('AUDIT_FINISHED') \
+                    or '[完整验证总耗时] 17.0 秒' not in result.stdout:
+                findings.append('聚合恢复自测：审计与单设备 App 恢复重叠，完成后汇总状态和总耗时')
+        finally:
+            os.close(reader)
+            os.close(writer)
+    clock = source.split("<<'PYELAPSED'\n", 1)[1].split('\nPYELAPSED', 1)[0]
+    from unittest.mock import patch
+    from io import StringIO
+    from contextlib import redirect_stdout
+    with patch.dict(os.environ, BIT101_WORKFLOW_STARTED_AT='100'), patch('time.monotonic', return_value=191.5), redirect_stdout(output := StringIO()):
+        exec(compile(clock, '<workflow-elapsed>', 'exec'), {})
+    assert output.getvalue().strip() == '91.5'
+    return findings
+
+
 def self_test() -> None:
     from validation_provenance import utc_now
     row = dict(kind='restore', initialized=True, sessionRecovered=True, active=True, processAlive=True, processIdentifier=1,

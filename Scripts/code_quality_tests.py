@@ -825,7 +825,7 @@ fail_command
             for trigger in triggers:
                 harness = f'''
 set -euo pipefail
-verification_needs_device=true
+verification_needs_device=true verification_audit_pid=
 DEVICE_TEST_EXECUTION_STARTED=true
 WORKFLOW_STARTED_SECONDS=$SECONDS
 DERIVED_ROOT=/dev/null

@@ -475,7 +475,7 @@ final class UITestSceneState: ObservableObject {
                             return
                         }
                         if environment["command"] == "keyboard-state" {
-                            reply(Data(UITestAccessibilityActions.keyboardState().utf8))
+                            reply(Data(UITestAccessibilityActions.keyboardState(returnTitle: environment["return-title"]).utf8))
                             return
                         }
                         self.configure(environment)

@@ -566,8 +566,20 @@ enum UITestAccessibilityActions {
             .lazy.compactMap(find).first
     }
 
-    static func keyboardState() -> String {
-        focusedInput() != nil || frameClock.keyboardVisible ? "active" : "hidden"
+    static func keyboardState(returnTitle: String? = nil) -> String {
+        if let returnTitle {
+            for window in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).flatMap(\.windows) {
+                var controller = window.rootViewController
+                while let presented = controller?.presentedViewController { controller = presented }
+                if let alert = controller as? UIAlertController {
+                    let commands = alert.keyCommands ?? []
+                    if alert.preferredAction?.title == returnTitle, alert.preferredAction?.isEnabled == true,
+                       commands.contains(where: { $0.input == "\r" && $0.modifierFlags.isEmpty }) { return "ready" }
+                }
+            }
+            return "waiting"
+        }
+        return focusedInput() != nil || frameClock.keyboardVisible ? "active" : "hidden"
     }
 
     static func selectInput() -> String {

@@ -3,7 +3,7 @@ from pathlib import Path
 
 COVERAGE_GROUPS = frozenset({'modules', 'all', 'ui', 'catalyst', 'catalyst-release-runtime'})
 SIMULATOR_SHARDS = {'all': 1, 'ui': 1, 'release-runtime': 1}
-SIMULATOR_WORKERS = {'app': 1, 'ui': 3, 'release-runtime': 1}
+SIMULATOR_WORKERS = {'app': 1, 'ui': 2, 'release-runtime': 1}
 SIMULATOR_KEYBOARD_TESTS = frozenset({
     'ServiceInteractionUITests/testManualUpdatePromptAllActionsAndCurrentVersion',
     'AccountRecoveryUITests/testFutureScheduleImportUpdateCancellationAndLink',
@@ -13,7 +13,9 @@ SIMULATOR_KEYBOARD_TESTS = frozenset({
 def simulator_ui_batches(selections: list[str], workers: int) -> list[tuple[list[str], int]]:
     keyboard = [row for row in selections if row.removeprefix('-only-testing:BIT101-iOSUITests/') in SIMULATOR_KEYBOARD_TESTS]
     remaining = [row for row in selections if row not in keyboard]
-    return [(rows, count) for rows, count in ((keyboard, 1), (remaining, workers)) if rows]
+    count = min(workers, len({row.split('/')[1] for row in remaining}))
+    if count <= 1: return [(selections, 1)] if selections else []
+    return [(rows, size) for rows, size in ((keyboard, 1), (remaining, count)) if rows]
 
 
 def run_simulator_ui(plan: Path, derived: Path, device: str, workers: int, selections: list[str]) -> int:
@@ -132,7 +134,8 @@ def self_test() -> None:
     assert [count for _, count in batches] == [1, 3]
     assert len(batches[0][0]) == len(SIMULATOR_KEYBOARD_TESTS)
     assert sorted(row for rows, _ in batches for row in rows) == selections
-    assert simulator_ui_batches([selections[0]], 3) == [([selections[0]], 1 if inventory[0] in SIMULATOR_KEYBOARD_TESTS else 3)]
+    assert simulator_ui_batches([selections[0]], 3) == [([selections[0]], 1)]
+    assert simulator_ui_batches([], 3) == []
     import plistlib
     from types import SimpleNamespace
     from unittest.mock import patch

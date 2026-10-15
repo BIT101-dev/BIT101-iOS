@@ -134,7 +134,7 @@ jobs:
             build/DeviceInstall/build.log
 
   catalyst-tests:
-    needs: static-audit
+    needs: release-build
     name: Mac Catalyst behavior tests
     runs-on: xcode-27
     timeout-minutes: 105
@@ -192,7 +192,7 @@ jobs:
       matrix:
         include:
           - {mode: app, shard: 0, count: 1, workers: 1}
-          - {mode: ui, shard: 0, count: 1, workers: 3}
+          - {mode: ui, shard: 0, count: 1, workers: 2}
           - {mode: release-runtime, shard: 0, count: 1, workers: 1}
     env:
       BIT101_SIMULATOR_AUTHORIZED: '1'
