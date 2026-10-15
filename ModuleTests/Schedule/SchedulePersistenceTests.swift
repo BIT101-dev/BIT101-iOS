@@ -118,16 +118,23 @@ struct SchedulePersistenceTests {
         try files.writeData(original, to: file, options: .atomic)
         for excluded in [true, false, true, false] {
             try files.setBackupExcluded(excluded, at: root, recursively: true)
-            try await waitForTestEvent { try [root, directory, file].allSatisfy { (try exclusion($0) == true) == excluded } }
-            for target in [root, directory, file] {
-                let actual = try exclusion(target) == true
+            var observed: [Bool] = []
+            try await waitForTestEvent {
+                observed = try [root, directory, file].map { try exclusion($0) == true }
+                return observed.allSatisfy { $0 == excluded }
+            }
+            for (target, actual) in zip([root, directory, file], observed) {
                 #expect(actual == excluded, "备份排除标记 \(excluded)，目标 \(target.lastPathComponent)。")
             }
             #expect(try files.readData(at: file) == original)
         }
         try files.writeData(Data("edited".utf8), to: file, options: .atomic)
-        try await waitForTestEvent { try exclusion(directory) != true }
-        #expect(try exclusion(directory) != true)
+        var directoryExcluded: Bool? = nil
+        try await waitForTestEvent {
+            directoryExcluded = try exclusion(directory)
+            return directoryExcluded != true
+        }
+        #expect(directoryExcluded != true)
         #expect(try files.readData(at: file) == Data("edited".utf8))
     }
 
