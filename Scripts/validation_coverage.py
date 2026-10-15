@@ -39,7 +39,7 @@ def run_simulator_ui(plan: Path, derived: Path, device: str, workers: int, selec
             '-derivedDataPath', str(derived), '-destination', 'platform=iOS Simulator,id=' + device,
             '-resultBundlePath', str(result), *arguments, '-test-timeouts-enabled', 'YES', '-collect-test-diagnostics', 'never', '-enableCodeCoverage', 'YES', *tests])
         status = status or completed.returncode
-        if completed.returncode or not result_bundle_complete(result): return status or 1
+        if not result_bundle_complete(result) or completed.returncode and index + 1 < len(batches): return status or 1
         if index + 1 < len(batches):
             result.rename(keyboard_result)
             shutil.copyfile(derived / 'Build/ProfileData' / device / 'Coverage.profdata', keyboard_profile)
@@ -143,7 +143,7 @@ def self_test() -> None:
     with patch.object(Path, 'read_bytes', return_value=plan), patch.object(Path, 'write_bytes') as written, \
             patch.object(Path, 'rename') as renamed, patch.object(Path, 'exists', return_value=True), \
             patch('shutil.rmtree'), patch('shutil.copyfile') as copied, \
-            patch('subprocess.run', side_effect=[SimpleNamespace(returncode=7), SimpleNamespace(returncode=0)]) as executed, \
+            patch('subprocess.run', side_effect=[SimpleNamespace(returncode=0), SimpleNamespace(returncode=7)]) as executed, \
             patch('validation_performance.result_bundle_complete', return_value=True), \
             patch('validation_performance.merge_result_bundles') as merged:
         assert run_simulator_ui(Path('/fixture/plan'), Path('/fixture'), 'device', 3, selections) == 7
