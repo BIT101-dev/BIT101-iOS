@@ -334,15 +334,18 @@ final class UIElement: NSObject {
         Self.beforeNativeTap?()
         let identity = interactionIdentity
         XCTAssertTrue(native.isHittable, "Return 默认动作应已完成原生弹窗布局。")
+        XCUIElement.perform(withKeyModifiers: .shift) {}
         let title = native.label
         let deadline = Date().addingTimeInterval(5)
         var ready = false
+        var keyboardState = "waiting"
         repeat {
-            ready = UITestControlClient.request(["command": "keyboard-state", "return-title": title]) == "ready"
+            keyboardState = UITestControlClient.request(["command": "keyboard-state", "return-title": title]) ?? "empty"
+            ready = keyboardState == "ready"
             if ready { break }
             RunLoop.current.run(until: Date().addingTimeInterval(0.01))
         } while Date() < deadline
-        XCTAssertTrue(ready, "原生弹窗应提供已启用的默认动作与 Return 按键命令。")
+        XCTAssertTrue(ready, "原生弹窗应提供已启用的默认动作与 Return 按键命令：\(keyboardState)。")
         native.typeKey("\n", modifierFlags: [])
         recordInteraction(identity, action: "keyboard")
         UITestSnapshotReader.invalidate()

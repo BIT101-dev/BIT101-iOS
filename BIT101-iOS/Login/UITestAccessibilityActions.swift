@@ -575,6 +575,7 @@ enum UITestAccessibilityActions {
                     let commands = alert.keyCommands ?? []
                     if alert.preferredAction?.title == returnTitle, alert.preferredAction?.isEnabled == true,
                        commands.contains(where: { $0.input == "\r" && $0.modifierFlags.isEmpty }) { return "ready" }
+                    return "waiting: preferred=\(alert.preferredAction?.title ?? "none"), enabled=\(alert.preferredAction?.isEnabled == true), commands=\(commands.map { String(reflecting: $0.input) }.joined(separator: ","))"
                 }
             }
             return "waiting"

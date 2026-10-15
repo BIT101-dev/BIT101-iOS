@@ -70,6 +70,7 @@ def _run_swift_syntax_index(request: dict, *, regex_only: bool = False) -> dict[
                 fcntl.flock(compilation_lock, fcntl.LOCK_EX)
                 compilation = subprocess.run([
                     str(compiler), "-target", f"{os.uname().machine}-apple-macosx14.0", "-sdk", sdk,
+                    "-j", str(os.cpu_count() or 1),
                     "-module-cache-path", str(module_cache), "-warnings-as-errors",
                     "-I", str(host_modules), "-L", str(host_modules),
                     "-lSwiftSyntax", "-lSwiftParser", "-lSwiftOperators", "-Xlinker", "-rpath", "-Xlinker", str(host_modules),
