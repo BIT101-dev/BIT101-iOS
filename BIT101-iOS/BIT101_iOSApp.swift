@@ -469,6 +469,11 @@ final class UITestSceneState: ObservableObject {
                             reply(Data(UITestAccessibilityActions.selectInput().utf8))
                             return
                         }
+                        if environment["command"] == "consume-opened-url" {
+                            reply(Data((UITestAccessibilityActions.openedExternalURL ?? "").utf8))
+                            UITestAccessibilityActions.openedExternalURL = nil
+                            return
+                        }
                         if environment["command"] == "keyboard-state" {
                             reply(Data(UITestAccessibilityActions.keyboardState().utf8))
                             return
@@ -487,6 +492,7 @@ final class UITestSceneState: ObservableObject {
 
     private func configure(_ environment: [String: String]) {
         UITestAccessibilityActions.invalidate()
+        UITestAccessibilityActions.openedExternalURL = nil
         AppErrorPresenter.shared.reset()
         UITestSceneConfiguration.shared.replace(with: environment)
         largeText = environment["BIT101_UI_TEST_LARGE_TEXT"] == "1"

@@ -249,6 +249,7 @@ public struct ScheduleImportCodeSheet: View {
     @State private var localAlert: AppAlert?
     @State private var unsupportedFormatVersion: Int?
     @State private var importTask: Task<Void, Never>?
+    @FocusState private var isEditingCode: Bool
 
     public init(initialText: String, appStoreURL: URL, onImport: @escaping (String) async throws -> Void) {
         self.onImport = onImport
@@ -260,6 +261,7 @@ public struct ScheduleImportCodeSheet: View {
         NavigationStack {
             VStack(spacing: AppDesignSystem.Spacing.section) {
                 TextEditor(text: $text)
+                    .focused($isEditingCode)
                     .font(AppDesignSystem.Typography.footnote.monospacedDigit())
                     .frame(minHeight: AppDesignSystem.Schedule.settingsPanelMinimumHeight)
                     .padding(AppDesignSystem.Spacing.regular)
@@ -286,6 +288,7 @@ public struct ScheduleImportCodeSheet: View {
 
                     Button {
                         guard importTask == nil else { return }
+                        isEditingCode = false
                         let code = text
                         importTask = Task { @MainActor in
                             defer { importTask = nil }

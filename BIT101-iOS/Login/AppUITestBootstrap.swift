@@ -151,7 +151,7 @@ extension View {
     /// 外部链接的 UI 场景读取页面实际发出的地址。
     func uiTestExternalURLs() -> some View {
         environment(\.openURL, OpenURLAction { url in
-            AppErrorPresenter.shared.present(AppAlert.informational(title: "打开链接", message: url.absoluteString))
+            UITestAccessibilityActions.openedExternalURL = url.absoluteString
             return .handled
         })
     }

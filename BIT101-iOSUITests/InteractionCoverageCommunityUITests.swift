@@ -200,11 +200,12 @@ extension InteractionCoverageUITests {
 
     @MainActor
     func assertOpenedURL(_ target: String) {
-        let alert = app.alerts["打开链接"]
-        assertUI(alert.appears(timeout: 5), "链接操作应发出页面选定的地址。")
-        assertUI(alert.staticTexts.allElementsBoundByIndex.contains { $0.label.contains(target) }, "链接地址应匹配\(target)。")
-        alert.buttons["知道了"].tapBriefly()
-        assertUI(alert.disappears(timeout: 5), "关闭链接提示应恢复来源页面。")
+        var openedURL = ""
+        assertUI(waitUntil(NSPredicate { _, _ in
+            openedURL = UITestControlClient.request(["command": "consume-opened-url"]) ?? ""
+            return !openedURL.isEmpty
+        }, on: app), "链接操作应发出页面选定的地址。")
+        assertUI(openedURL.contains(target), "链接地址应匹配\(target)，实际地址：\(openedURL)。")
     }
 
     @MainActor
@@ -669,8 +670,10 @@ extension InteractionCoverageUITests {
         assertOpenedURL("apps.apple.com/cn/app/bit101/id6761147125")
         tap("导入")
         assertUI(app.alerts["需要更新 BIT101"].appears(timeout: 5), "键盘验收应展示导入版本提示。")
+        assertUI(UITestControlClient.request(["command": "keyboard-state"]) == "hidden", "版本提示应释放编码编辑焦点。")
         app.alerts.buttons["前往 App Store"].pressReturnKey()
         assertOpenedURL("apps.apple.com/cn/app/bit101/id6761147125")
+        assertUI(app.alerts["需要更新 BIT101"].disappears(timeout: 5), "Return 应关闭导入版本提示。")
         tap("取消")
     }
 

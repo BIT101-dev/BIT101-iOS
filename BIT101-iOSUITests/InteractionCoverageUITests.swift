@@ -732,7 +732,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         dismissNotificationBanner()
         let platform = UIElement(app.native)
         let photos = platform.buttons.matching(NSPredicate(format: "label IN %@", ["照片", "Photos"])).firstMatch
-        assertUI(photos.appears(timeout: 5), "图片入口应呈现系统照片选择器。")
+        assertUI(photos.appears(timeout: 10), "图片入口应呈现系统照片选择器。")
         let cancel = platform.buttons.matching(identifier: "Cancel").firstMatch
         assertUI(cancel.appears(timeout: 5), "系统照片选择器应提供取消操作。")
         cancel.tap()

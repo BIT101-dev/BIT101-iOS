@@ -22,6 +22,7 @@ import QuickLook
 
 @MainActor
 enum UITestAccessibilityActions {
+    static var openedExternalURL: String?
     private final class FrameClock: NSObject {
         var keyboardVisible = false
         override init() {
