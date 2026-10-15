@@ -133,7 +133,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
                 and str(step.get('uses', '')).startswith('actions/upload-artifact@')]
             if len(uploads) != 1 or set(mapping(uploads[0].get('with')).get('path', '').splitlines()) != DIAGNOSTIC_PATHS[name]:
                 errors.append(f'.github/workflows/ci.yml: {name} 的诊断上传需要采用所属任务的文件清单，人工附件保留在本地')
-            if len(uploads) != 1 or uploads[0].get('if') != 'always()' \
+            if len(uploads) != 1 or uploads[0].get('if') != '${{ !cancelled() }}' \
                     or mapping(uploads[0].get('with')).get('compression-level') != 0 \
                     or mapping(uploads[0].get('with')).get('include-hidden-files') is not True:
                 errors.append(f'.github/workflows/ci.yml: {name} 的诊断上传需要始终保存原始文件及隐藏路径')
@@ -160,7 +160,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
             if step.get("shell", shell) != "bash":
                 errors.append(".github/workflows/ci.yml: CI 执行步骤需要 bash shell")
                 continue
-            if "if" in step and not (include_always and step["if"] == "always()") \
+            if "if" in step and not (include_always and step["if"] in {"always()", "${{ !cancelled() }}"}) \
                     or step.get("continue-on-error", False) is not False: continue
             command = step["run"]
             if isinstance(command, str): commands.append((command.strip(), step))
@@ -223,7 +223,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
     if not any(command_matches(command, "python3 Scripts/ci_evidence.py check-release") for command, _ in run_commands(acceptance)):
         errors.append(".github/workflows/ci.yml: 发布验收需要默认核对提交绑定证据")
     merge = mapping(jobs.get("merge-acceptance"))
-    if merge.get("if") != "always()" \
+    if merge.get("if") != "always() && !cancelled()" \
             or set(merge.get("needs", [])) != {"static-audit", "release-build", "catalyst-tests", "ios-tests"} \
             or merge.get("continue-on-error", False) is not False:
         errors.append(".github/workflows/ci.yml: 常规验收需要静态、编译、Catalyst 与完整模拟器 Job")
