@@ -260,12 +260,17 @@ def simulator_ui_preparation_self_test() -> None:
             assert commands[2] == ['xcrun', 'simctl', 'bootstatus', 'device', '-b']
             assert len(commands) == (4 if ui else 3)
             if ui: assert commands[3] == ['xcrun', 'simctl', 'addmedia', 'device', '/repo/BIT101-iOS/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png']
-    with patch('subprocess.run') as run, patch.object(Path, 'is_dir', return_value=False), \
-            patch('time.monotonic', side_effect=[0, 11]):
-        try: prepare_simulator_system('device', Path('/repo'), ui=True)
-        except ValueError as error: assert '应用容器' in str(error)
-        else: raise AssertionError('系统初始化应沿容器就绪期限结束。')
-        assert len(run.call_args_list) == 1
+    for developer in ('/Applications/Xcode.app/Contents/Developer', ''):
+        with patch('subprocess.run') as run, patch.object(Path, 'is_dir', return_value=False), \
+                patch.dict('os.environ', {'DEVELOPER_DIR': developer}), \
+                patch('subprocess.check_output', return_value='/Applications/Xcode.app/Contents/Developer') as selected, \
+                patch('time.monotonic', side_effect=[0, 11]):
+            try: prepare_simulator_system('device', Path('/repo'), ui=True)
+            except ValueError as error: assert '应用容器' in str(error)
+            else: raise AssertionError('系统初始化应沿容器就绪期限结束。')
+            assert len(run.call_args_list) == 1
+            if developer: selected.assert_not_called()
+            else: selected.assert_called_once_with(['xcode-select', '-p'], text=True)
     for response, expected in (('simulator-bootstrap / 登录', True), ('', False),
             ('another scene / 登录', False), ('simulator-bootstrap / 日程', False)):
         with patch('socket.create_connection') as connect, patch('subprocess.run') as run, \
