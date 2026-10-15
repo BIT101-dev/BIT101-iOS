@@ -28,8 +28,8 @@ permissions:
   actions: read
 
 concurrency:
-  group: ios-ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+  group: ios-ci-${{ github.ref }}-${{ startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' && inputs.release_check }}
+  cancel-in-progress: ${{ !(startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' && inputs.release_check) }}
 
 jobs:
   static-audit:

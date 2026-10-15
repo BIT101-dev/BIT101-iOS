@@ -9,7 +9,9 @@ from audit_callback_rules import audit_callback_findings
 from validation_policy import workflow_timeout_seconds
 
 CI_RUNNER = "xcode-27"
-CI_CANCELLATION = "${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}"
+CI_RELEASE_CONTEXT = "startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' && inputs.release_check"
+CI_CANCELLATION = '${{ !(' + CI_RELEASE_CONTEXT + ') }}'
+CI_CONCURRENCY_GROUP = 'ios-ci-${{ github.ref }}-${{ ' + CI_RELEASE_CONTEXT + ' }}'
 DIAGNOSTIC_PATHS = {
     'static-audit': {'.build/static-audit/*.log', '.build/code-quality-report.txt', '.build/ui-consistency-report.txt',
         '.build/explanatory-text-report.txt', '.build/extended-automation/modules.log',
@@ -85,8 +87,10 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
         return value if isinstance(value, dict) else {}
 
     cancellation = mapping(workflow.get('concurrency')).get('cancel-in-progress')
-    if cancellation is not False and runner_expression(cancellation) != runner_expression(CI_CANCELLATION):
-        errors.append('.github/workflows/ci.yml: 真机与受信宿主工作流需要保留完整恢复时间，自动取消归属 fork 托管任务')
+    concurrency_group = mapping(workflow.get('concurrency')).get('group')
+    if runner_expression(concurrency_group) != runner_expression(CI_CONCURRENCY_GROUP) \
+            or cancellation is not False and runner_expression(cancellation) != runner_expression(CI_CANCELLATION):
+        errors.append('.github/workflows/ci.yml: 发布真机需要独立并发组保留完整恢复时间，常规托管验证自动取消同分支旧运行')
 
     def shell(step):
         value = mapping(step).get('run', '')
@@ -392,13 +396,14 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
         assert any('隔离运行器' in row for row in ci_wiring_findings(
             source.replace('runs-on: xcode-27', 'runs-on: ' + selector, 1)))
     assert runner_expression(CI_CANCELLATION.replace(' && ', '  && ')) == runner_expression(CI_CANCELLATION)
-    assert runner_expression(CI_CANCELLATION.replace(' != ', ' ! = ')) != runner_expression(CI_CANCELLATION)
+    assert runner_expression(CI_CANCELLATION.replace('!(', '! =(')) != runner_expression(CI_CANCELLATION)
     for replacement in ('xcodebuild -version', 'echo skipped'):
         assert any('工具链版本核对' in row for row in ci_wiring_findings(
             source.replace('Scripts/build-install-device.sh toolchain', replacement, 1)))
     for cancellation in ('true', '[]', '{}', '0', "${{ github.event_name == 'pull_request' }}"):
         assert any('完整恢复时间' in row for row in ci_wiring_findings(source.replace(CI_CANCELLATION, cancellation)))
     assert not ci_wiring_findings(source.replace(CI_CANCELLATION, 'false'))
+    assert any('完整恢复时间' in row for row in ci_wiring_findings(source.replace(CI_CONCURRENCY_GROUP, 'ios-ci-${{ github.ref }}')))
     catalyst_start = source.index('  catalyst-tests:')
     baseline_start = source.index('      - name: Load target branch coverage baseline', catalyst_start)
     baseline_end = source.index('      - ', baseline_start + 8)
