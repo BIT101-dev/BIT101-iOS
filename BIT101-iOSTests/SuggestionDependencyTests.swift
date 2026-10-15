@@ -312,6 +312,15 @@ nonisolated final class AppLocalDataResourceTests: XCTestCase {
     @MainActor
     private func verifyAppComposition(storagePolicy: URLCache.StoragePolicy) async throws {
         let files = AppFileDirectories.files, defaults = AppFileDirectories.defaults
+        let originalCache = URLCache.shared
+        let cacheDirectory = try XCTUnwrap(files.directoryURL(.cachesDirectory)).appending(path: "cleanup-fixture")
+        let cache = URLCache(memoryCapacity: storagePolicy == .allowed ? 0 : originalCache.memoryCapacity,
+                             diskCapacity: originalCache.diskCapacity, directory: cacheDirectory)
+        URLCache.shared = cache
+        defer {
+            cache.removeAllCachedResponses()
+            URLCache.shared = originalCache
+        }
         let media = AppMedia.makeEnvironment(previewStorage: MediaPreviewStorage(files: files))
         let settings = AppSettingsStore(defaults: defaults)
         let service = AppLocalDataComposition.appService(settings: settings, media: media)
@@ -331,7 +340,7 @@ nonisolated final class AppLocalDataResourceTests: XCTestCase {
         let request = URLRequest(url: url)
         let response = try XCTUnwrap(HTTPURLResponse(url: url, statusCode: 200,
             httpVersion: "HTTP/1.1", headerFields: ["Cache-Control": "max-age=3600", "Content-Type": "text/plain"]))
-        URLCache.shared.storeCachedResponse(CachedURLResponse(response: response, data: Data([1, 2, 3]),
+        cache.storeCachedResponse(CachedURLResponse(response: response, data: Data([1, 2, 3]),
             userInfo: nil, storagePolicy: storagePolicy), for: request)
         let cookies = AppLocalDataComposition.websiteDataStore.httpCookieStore
         let cookie = try XCTUnwrap(HTTPCookie(properties: [.domain: "example.invalid", .path: "/",
@@ -339,7 +348,8 @@ nonisolated final class AppLocalDataResourceTests: XCTestCase {
         await cookies.setCookie(cookie)
         let seededCookies = await cookies.allCookies()
         XCTAssertTrue(seededCookies.contains { $0.name == cookie.name })
-        XCTAssertTrue(URLCache.shared.cachedResponse(for: request)?.data == Data([1, 2, 3]))
+        try await waitForTestEvent { cache.cachedResponse(for: request)?.data == Data([1, 2, 3]) }
+        if storagePolicy == .allowed { XCTAssertGreaterThan(cache.currentDiskUsage, 0) }
         XCTAssertTrue(snapshotStore.load()?.isLoggedIn == true)
         XCTAssertTrue(!AppAccountSession.storage.fakeCookie.isEmpty)
         var loggedOut = false
@@ -351,7 +361,8 @@ nonisolated final class AppLocalDataResourceTests: XCTestCase {
         XCTAssertTrue(AppAccountSession.storage.fakeCookie.isEmpty && AppAccountSession.storage.currentStudentID.isEmpty)
         XCTAssertTrue(try AppAccountSession.storage.loadCredentials() == nil)
         XCTAssertTrue(defaults.object(forKey: "cleanup-fixture") == nil)
-        try await waitForTestEvent { URLCache.shared.cachedResponse(for: request) == nil }
+        XCTAssertTrue(URLCache.shared === cache)
+        try await waitForTestEvent { cache.cachedResponse(for: request) == nil }
         let remainingCookies = await cookies.allCookies()
         XCTAssertTrue(remainingCookies.isEmpty)
     }

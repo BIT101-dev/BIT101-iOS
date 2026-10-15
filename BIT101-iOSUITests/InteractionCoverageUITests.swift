@@ -316,7 +316,8 @@ nonisolated final class ScoreInteractionUITests: UIAutomationTestCase {
         retry.tapBriefly()
         fillVerificationCode("００٠٠００", in: app.textFields["verification.code"])
         assertUI(app.staticTexts["测试验证码错误。"].appears(timeout: 5), "完整错误验证码自动验证后应允许修改。")
-        assertUI(app.buttons["验证并查询成绩"].isEnabled, "自动验证错误后应恢复手动重试。")
+        assertUI(waitUntil(NSPredicate(format: "enabled == true"), on: app.buttons["验证并查询成绩"]),
+                 "自动验证错误后应恢复手动重试。")
         fillVerificationCode("１２٣٤５６", in: app.textFields["verification.code"])
         assertUI(textElement("自动化测试课程").appears(timeout: 5), "替换完整验证码应自动验证并加载成绩。")
         for (route, option) in [("学期", "ui-test-term"), ("种类", "必修")] {

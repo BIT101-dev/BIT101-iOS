@@ -2,7 +2,7 @@
 from pathlib import Path
 
 COVERAGE_GROUPS = frozenset({'modules', 'all', 'ui', 'catalyst', 'catalyst-release-runtime'})
-SIMULATOR_SHARDS = {'all': 1, 'ui': 1, 'release-runtime': 1}
+SIMULATOR_SHARDS = {'all': 1, 'ui': 2, 'release-runtime': 1}
 SIMULATOR_WORKERS = {'app': 1, 'ui': 1, 'release-runtime': 1}
 SIMULATOR_KEYBOARD_TESTS = frozenset({
     'ServiceInteractionUITests/testManualUpdatePromptAllActionsAndCurrentVersion',
@@ -172,10 +172,11 @@ def self_test() -> None:
     assert not regressions({'Feature': {'coveredLines': 801, 'executableLines': 1001}}, {'Feature': 80})
     from unittest.mock import patch
     with patch('validation_test_areas.test_inventory', return_value={'a', 'b', 'c', 'd', 'e'}):
-        parts = [shard_inventory('ui', 0, 1)]
+        count = SIMULATOR_SHARDS['ui']
+        parts = [shard_inventory('ui', index, count) for index in range(count)]
         assert sorted(test for part in parts for test in part) == ['a', 'b', 'c', 'd', 'e']
-        for index, count in ((-1, 1), (1, 1), (0, 3)):
-            try: shard_inventory('ui', index, count)
+        for index, invalid_count in ((-1, count), (count, count), (0, count + 1)):
+            try: shard_inventory('ui', index, invalid_count)
             except ValueError: pass
             else: raise AssertionError('分片边界及登记数量需要严格匹配。')
     first = lcov_lines('SF:/repo/Modules/Feature/Sources/A.swift\nDA:1,1\nDA:2,0\nDA:3,0\nend_of_record', Path('/repo'))

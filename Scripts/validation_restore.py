@@ -87,7 +87,7 @@ def simulator_restore_findings(simulator_source: str) -> list[str]:
     from contextlib import redirect_stderr
     from io import StringIO
     SCRIPT_ROOT = ROOT / 'Scripts'
-    findings = []
+    findings = simulator_startup_findings(simulator_source)
     restoration = 'restore_application() {' + simulator_source.split('restore_application() {', 1)[1].split(
         'if [[ "$operation" == restore ]]', 1)[0]
     for original, restore_result in ((0, 0), (7, 0), (0, 9), (7, 9)):
@@ -133,6 +133,47 @@ def simulator_restore_findings(simulator_source: str) -> list[str]:
             if expected not in outcome or bool(expected) != bool(outcome) \
                     or expected == '就绪验收超时' and json.loads(diagnostics.getvalue())['readiness'] != dict(ready, **change):
                 findings.append('模拟器恢复自测：实际进程、会话恢复和编译输入共同参与就绪验收')
+    return findings
+
+
+def simulator_startup_findings(source: str) -> list[str]:
+    import os
+    import sys
+    from contextlib import redirect_stdout
+    from io import StringIO
+    from unittest.mock import patch
+    device_program = source.split("<<'PYDEVICE'\n", 1)[1].split('\nPYDEVICE', 1)[0]
+    ready_program = source.split("<<'PYREADY'\n", 1)[1].split('\nPYREADY', 1)[0]
+    inventory = {'runtimes': [{'isAvailable': True, 'identifier': 'com.apple.CoreSimulator.SimRuntime.iOS-27'}],
+        'devices': {'runtime': [{'udid': 'device', 'isAvailable': True, 'state': 'Shutdown'}]}}
+    findings = []
+    for hosted in ('true', 'false'):
+        for operation in ('prepare', 'app', 'release-runtime', 'ui'):
+            commands = []
+            with patch.dict(os.environ, GITHUB_ACTIONS=hosted, DEVELOPER_DIR='/fixture/Xcode.app/Contents/Developer'), \
+                    patch.object(sys, 'argv', ['device', '/fixture/device.json', operation, '/fixture/icon.png']), \
+                    patch.object(subprocess, 'check_output', return_value=json.dumps(inventory)), \
+                    patch.object(subprocess, 'run', side_effect=lambda command, **kwargs: commands.append(command)), \
+                    patch.object(Path, 'is_file', return_value=True), \
+                    patch.object(Path, 'read_text', return_value=json.dumps({'identifier': 'device'})), redirect_stdout(StringIO()):
+                exec(compile(device_program, '<simulator-device>', 'exec'), {})
+            expected = [] if hosted == 'true' else [['xcrun', 'simctl', 'boot', 'device'],
+                ['xcrun', 'simctl', 'bootstatus', 'device', '-b'], ['open', '-a', '/fixture/Xcode.app/Contents/Applications/DeviceHub.app']]
+            if commands != expected:
+                findings.append('模拟器启动自测：托管编译先于系统启动，本机准备完成设备启动')
+    for operation in ('app', 'release-runtime', 'ui'):
+        commands = []
+        with patch.dict(os.environ, DEVELOPER_DIR='/fixture/Xcode.app/Contents/Developer'), \
+                patch.object(sys, 'argv', ['ready', 'device', operation, '/fixture/icon.png']), \
+                patch.object(Path, 'is_dir', return_value=True), \
+                patch.object(subprocess, 'run', side_effect=lambda command, **kwargs: commands.append(command)):
+            exec(compile(ready_program, '<simulator-ready>', 'exec'), {})
+        expected = [['open', '-g', '-a', '/fixture/Xcode.app/Contents/Applications/DeviceHub.app'],
+            ['defaults', '-container', 'com.apple.dt.Devices', 'write', 'com.apple.dt.Devices', 'alwaysSimulateHardwareKeyboard', '-bool', 'true'],
+            ['xcrun', 'simctl', 'bootstatus', 'device', '-b']]
+        if operation == 'ui': expected.append(['xcrun', 'simctl', 'addmedia', 'device', '/fixture/icon.png'])
+        if commands != expected or source.index('xcodebuild build-for-testing') > source.index("<<'PYREADY'"):
+            findings.append('模拟器启动自测：编译后依次准备原生键盘、系统就绪及 UI 媒体')
     return findings
 
 

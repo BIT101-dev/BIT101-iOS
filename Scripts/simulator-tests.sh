@@ -54,20 +54,10 @@ else:
     device = {'state': 'Shutdown'}
 developer = Path(os.getenv('DEVELOPER_DIR') or subprocess.check_output(['xcode-select', '-p'], text=True).strip())
 device_hub = str(developer.parent / 'Applications/DeviceHub.app')
-if os.getenv('GITHUB_ACTIONS') == 'true':
-    import time
-    subprocess.run(['open', '-g', '-a', device_hub], check=True)
-    container = Path.home() / 'Library/Containers/com.apple.dt.Devices'
-    deadline = time.monotonic() + 10
-    while not container.is_dir():
-        if time.monotonic() >= deadline: raise SystemExit('Device Hub 首次启动需要建立应用容器。')
-        time.sleep(0.1)
-    subprocess.run(['defaults', '-container', 'com.apple.dt.Devices', 'write', 'com.apple.dt.Devices',
-        'alwaysSimulateHardwareKeyboard', '-bool', 'true'], check=True)
-if device['state'] != 'Booted': subprocess.run(['xcrun', 'simctl', 'boot', identifier], check=True, stdout=sys.stderr, stderr=sys.stderr)
 if os.getenv('GITHUB_ACTIONS') != 'true' or operation not in {'prepare', 'app', 'release-runtime', 'ui'}:
+    if device['state'] != 'Booted': subprocess.run(['xcrun', 'simctl', 'boot', identifier], check=True, stdout=sys.stderr, stderr=sys.stderr)
     subprocess.run(['xcrun', 'simctl', 'bootstatus', identifier, '-b'], check=True, stdout=sys.stderr, stderr=sys.stderr)
-subprocess.run(['open', '-a', device_hub], check=True)
+    subprocess.run(['open', '-a', device_hub], check=True)
 print(identifier)
 PYDEVICE
 )"; then
@@ -77,7 +67,7 @@ else
   exit 1
 fi
 if [[ "$operation" == info ]]; then print -r -- "$SIMULATOR_DEVICE"; exit 0; fi
-if [[ "$operation" == prepare ]]; then echo "项目模拟器已启动。"; exit 0; fi
+if [[ "$operation" == prepare ]]; then echo "项目模拟器已准备。"; exit 0; fi
 if [[ "$operation" == inspect ]]; then
   python3 - "$SIMULATOR_DEVICE" "$ROOT_DIR/.build/screenshot.png" <<'PYINSPECT'
 import json
@@ -226,8 +216,21 @@ bit101_run_logged "$DERIVED_ROOT/$mode.log" "模拟器测试宿主编译" xcodeb
 if [[ "${GITHUB_ACTIONS:-false}" == true ]]; then
   bit101_run_logged "$DERIVED_ROOT/simulator.log" "模拟器系统就绪" python3 - "$SIMULATOR_DEVICE" "$operation" \
     "$ROOT_DIR/BIT101-iOS/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png" <<'PYREADY'
+import os
+from pathlib import Path
 import subprocess
 import sys
+import time
+developer = Path(os.getenv('DEVELOPER_DIR') or subprocess.check_output(['xcode-select', '-p'], text=True).strip())
+device_hub = str(developer.parent / 'Applications/DeviceHub.app')
+subprocess.run(['open', '-g', '-a', device_hub], check=True)
+container = Path.home() / 'Library/Containers/com.apple.dt.Devices'
+deadline = time.monotonic() + 10
+while not container.is_dir():
+    if time.monotonic() >= deadline: raise SystemExit('Device Hub 首次启动需要建立应用容器。')
+    time.sleep(0.1)
+subprocess.run(['defaults', '-container', 'com.apple.dt.Devices', 'write', 'com.apple.dt.Devices',
+    'alwaysSimulateHardwareKeyboard', '-bool', 'true'], check=True)
 subprocess.run(['xcrun', 'simctl', 'bootstatus', sys.argv[1], '-b'], check=True)
 if sys.argv[2] == 'ui':
     subprocess.run(['xcrun', 'simctl', 'addmedia', sys.argv[1], sys.argv[3]], check=True)
