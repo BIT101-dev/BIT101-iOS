@@ -1,6 +1,52 @@
-"""Compare coverage with versioned policy."""
+"""Compare coverage with versioned policy and combine complete Simulator shards."""
+from pathlib import Path
 
 COVERAGE_GROUPS = frozenset({'modules', 'all', 'ui', 'catalyst', 'catalyst-release-runtime'})
+SIMULATOR_SHARDS = {'all': 2, 'ui': 4, 'release-runtime': 1}
+
+
+def shard_inventory(group: str, index: int, count: int) -> list[str]:
+    from validation_test_areas import test_inventory
+    if group not in SIMULATOR_SHARDS or count != SIMULATOR_SHARDS[group] or not 0 <= index < count:
+        raise ValueError('模拟器分片需要匹配登记的完整库存分配。')
+    return sorted(test_inventory(group))[index::count]
+
+
+def lcov_lines(source: str, root: Path) -> dict[str, dict[str, list[int]]]:
+    files, path, lines = {}, None, {}
+    for row in source.splitlines():
+        if row.startswith('SF:'):
+            path, lines = Path(row[3:]), {}
+        elif row.startswith('DA:'):
+            number, hits, *_ = row[3:].split(',')
+            lines[int(number)] = int(hits)
+        elif row == 'end_of_record' and path is not None and path.is_relative_to(root):
+            name = path.relative_to(root).as_posix()
+            files[name] = {'executable': sorted(lines), 'covered': sorted(line for line, hits in lines.items() if hits > 0)}
+    if not files: raise ValueError('分片覆盖率需要包含生产源码行。')
+    return files
+
+
+def combined_line_coverage(shards: list[dict]) -> dict:
+    if not shards: raise ValueError('覆盖率汇总需要完整分片。')
+    reference = {name: row['executable'] for name, row in shards[0].items()}
+    covered = {name: set() for name in reference}
+    for shard in shards:
+        if {name: row['executable'] for name, row in shard.items()} != reference:
+            raise ValueError('分片覆盖率需要来自相同的可执行源码行。')
+        for name, row in shard.items():
+            if not set(row['covered']) <= set(reference[name]): raise ValueError('覆盖行需要归属于可执行源码行。')
+            covered[name].update(row['covered'])
+    result = {}
+    for name, executable in reference.items():
+        targets = ['BIT101-iOS.app']
+        if name.startswith('Modules/') and '/Sources/' in name: targets.append('iOS/' + name.split('/')[1])
+        for target in targets:
+            row = result.setdefault(target, {'coveredLines': 0, 'executableLines': 0})
+            row['coveredLines'] += len(covered[name])
+            row['executableLines'] += len(executable)
+    return result
+
 
 def policy_floors(group: str, policy: dict) -> dict[str, int]:
     from validation_policy import APP_COVERAGE_FLOOR, MODULE_COVERAGE_FLOORS, IOS_MODULE_COVERAGE_FLOORS, UI_PRODUCTION_MODULES
@@ -54,3 +100,21 @@ def self_test() -> None:
         policy_floors('ui', {'all': {'GalleryFeature': 40}}))
     assert regressions({'Feature': {'coveredLines': 79, 'executableLines': 100}}, {'Feature': 80})
     assert not regressions({'Feature': {'coveredLines': 801, 'executableLines': 1001}}, {'Feature': 80})
+    from unittest.mock import patch
+    with patch('validation_test_areas.test_inventory', return_value={'a', 'b', 'c', 'd', 'e'}):
+        parts = [shard_inventory('ui', index, 4) for index in range(4)]
+        assert sorted(test for part in parts for test in part) == ['a', 'b', 'c', 'd', 'e']
+        for index, count in ((-1, 4), (4, 4), (0, 3)):
+            try: shard_inventory('ui', index, count)
+            except ValueError: pass
+            else: raise AssertionError('分片边界及登记数量需要严格匹配。')
+    first = lcov_lines('SF:/repo/Modules/Feature/Sources/A.swift\nDA:1,1\nDA:2,0\nDA:3,0\nend_of_record', Path('/repo'))
+    second = lcov_lines('SF:/repo/Modules/Feature/Sources/A.swift\nDA:1,2\nDA:2,1\nDA:3,0\nend_of_record', Path('/repo'))
+    assert combined_line_coverage([first, second]) == {name: {'coveredLines': 2, 'executableLines': 3}
+        for name in ('iOS/Feature', 'BIT101-iOS.app')}
+    assert combined_line_coverage([first, first])['iOS/Feature']['coveredLines'] == 1
+    for invalid in ({}, {'Modules/Feature/Sources/A.swift': {'executable': [1, 2], 'covered': [1]}},
+            {'Modules/Feature/Sources/A.swift': {'executable': [1, 2, 3], 'covered': [4]}}):
+        try: combined_line_coverage([first, invalid])
+        except ValueError: pass
+        else: raise AssertionError('覆盖率汇总需要验证源码行身份。')

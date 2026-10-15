@@ -6,6 +6,7 @@ sys.dont_write_bytecode = True
 import json
 import subprocess
 import traceback
+import time
 from code_quality_rules import (
     REPORT_PATH, ROOT, SCRIPT_ROOT, audit_wiring_findings, automatic_school_fetch_findings,
     explanatory_text_report, relative, repository_script_paths, script_findings, source_findings,
@@ -92,6 +93,7 @@ def self_test_findings(checker) -> list[str]:
 
 def combined_main() -> int:
     from code_quality_tests import checker_boundary_findings
+    started = time.monotonic()
     try:
         syntax_index = swift_syntax_index(swift_files())
     except (OSError, subprocess.CalledProcessError, RuntimeError) as error:
@@ -105,14 +107,19 @@ def combined_main() -> int:
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
+    indexed = time.monotonic()
     quality_boundaries = self_test_findings(checker_boundary_findings)
     ui_boundaries = [finding for checker in (
         module.ast_marker_boundary_findings, module.source_boundary_findings,
         module.map_theme_color_contract_findings, module.interaction_inventory_boundary_findings,
     ) for finding in self_test_findings(checker)]
+    tested = time.monotonic()
     ui_status = module.main(syntax_index, ui_boundaries)
+    ui_checked = time.monotonic()
     quality_status = main(syntax_index, quality_boundaries)
     explanatory_text_report()
+    print(f'审计耗时：索引 {indexed - started:.1f} 秒 · 规则自测 {tested - indexed:.1f} 秒 · '
+        f'UI {ui_checked - tested:.1f} 秒 · 代码 {time.monotonic() - ui_checked:.1f} 秒')
     return int(ui_status != 0 or quality_status != 0)
 
 

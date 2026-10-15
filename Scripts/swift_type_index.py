@@ -113,6 +113,7 @@ class SwiftTypeIndex:
                 self.paths.setdefault(key, path)
         self._bases = {}
         self._resolutions = {}
+        self._function_scopes = {}
         self.enum_cases = {}
         for path, facts in index.items():
             for case in facts.get('enumCases', []):
@@ -197,6 +198,12 @@ class SwiftTypeIndex:
         return {(namespace,) + owner: self.bases((namespace, owner)) for namespace, owner in self.records}
 
     def function_scope(self, path: str, scope):
+        identity = (path, tuple(scope))
+        if identity not in self._function_scopes:
+            self._function_scopes[identity] = self._function_scope(path, scope)
+        return self._function_scopes[identity]
+
+    def _function_scope(self, path: str, scope):
         key = self.resolve(path, '.'.join(scope), aliases=False) if scope else None
         return (key[0],) + key[1] if key else (self.units[path],) + canonical_type_scope(scope)
 

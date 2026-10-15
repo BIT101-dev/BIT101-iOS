@@ -457,7 +457,7 @@ def coverage_complete(group: str, summary: dict) -> bool:
     return True
 
 
-def native_source_coverage(products: Path, profile: Path, *, catalyst: bool = False) -> dict[str, tuple[int, int]]:
+def native_source_coverage(products: Path, profile: Path, *, catalyst: bool = False, line_details: bool = False) -> dict:
     import plistlib
     app = products / "BIT101-iOS.app"
     contents = app / 'Contents' if catalyst else app
@@ -469,9 +469,13 @@ def native_source_coverage(products: Path, profile: Path, *, catalyst: bool = Fa
         with (framework / 'Resources/Info.plist' if catalyst else framework / 'Info.plist').open("rb") as stream:
             binary = framework / plistlib.load(stream)["CFBundleExecutable"]
         command += ["-object", str(binary)]
+    if line_details: command.append('-format=lcov')
     result = subprocess.run(command, capture_output=True, text=True, check=True)
     if result.stderr.strip():
         raise ValueError("iOS 模块覆盖率采集诊断：" + result.stderr.strip())
+    if line_details:
+        from validation_coverage import lcov_lines
+        return lcov_lines(result.stdout, ROOT)
     files = {}
     for section in json.loads(result.stdout)["data"]:
         for file in section["files"]:

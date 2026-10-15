@@ -8,13 +8,17 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT_DIR/Scripts/script-support.sh"
 operation="${1:-info}"
 shift $(( $# > 0 ? 1 : 0 ))
-case "$operation" in info|prepare|restore|inspect) [[ $# -eq 0 ]] || exit 64;; app|release-runtime|ui) ;; *) exit 64;; esac
+case "$operation" in info|prepare|restore|inspect|merge) [[ $# -eq 0 ]] || exit 64;; app|release-runtime|ui) ;; *) exit 64;; esac
 TEST_SCOPE=selected
 if (( $# == 0 )); then TEST_SCOPE=full; fi
 if [[ "$operation" == ui ]]; then bit101_set_workflow_budget ui; fi
 bit101_acquire_workflow_lock "$0" "$operation" "$@"
 DERIVED_ROOT="$ROOT_DIR/.build/extended-automation"
 mkdir -p "$DERIVED_ROOT"
+if [[ "$operation" == merge ]]; then
+  python3 "$ROOT_DIR/Scripts/ci_evidence.py" simulator-merge
+  exit 0
+fi
 if SIMULATOR_DEVICE="$(python3 - "$DERIVED_ROOT/simulator-device.json" "$operation" "$ROOT_DIR/BIT101-iOS/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png" 2>> "$DERIVED_ROOT/simulator.log" <<'PYDEVICE'
 import json
 import os
@@ -173,12 +177,19 @@ if [[ "$operation" == ui ]]; then
   configuration=Release
   selections=("${(@f)$(bit101_ui_test_selections "$@")}")
 fi
-if [[ "$TEST_SCOPE" == full ]]; then
+if [[ -n "${BIT101_CI_SHARD:-}" ]]; then
+  [[ "$TEST_SCOPE" == full ]] || { echo "分片验收使用登记的完整库存。" >&2; exit 64; }
+  TEST_SCOPE=shard
+fi
+if [[ "$TEST_SCOPE" == full || "$TEST_SCOPE" == shard ]]; then
   selections=("${(@f)$(python3 - "$ROOT_DIR/Scripts" "$mode" <<'PYINVENTORY'
-import sys
+import os, sys
 sys.path.insert(0, sys.argv[1])
 from validation_evidence import normalized_test_id, test_inventory
-print('\n'.join(sorted(normalized_test_id(test) for test in test_inventory(sys.argv[2]))))
+from validation_coverage import shard_inventory
+tests = shard_inventory(sys.argv[2], *map(int, os.environ['BIT101_CI_SHARD'].split('/'))) \
+    if os.getenv('BIT101_CI_SHARD') else sorted(test_inventory(sys.argv[2]))
+print('\n'.join(normalized_test_id(test) for test in tests))
 PYINVENTORY
 )}")
 fi
@@ -221,6 +232,7 @@ bit101_run_logged "$DERIVED_ROOT/$mode.log" "模拟器测试" xcodebuild test-wi
   -parallel-testing-enabled NO -test-timeouts-enabled YES -enableCodeCoverage YES "${only_testing[@]}" || test_status=$?
 python3 - "$result" "$DERIVED_ROOT/test-metrics.txt" "$ROOT_DIR/Scripts" "$EXPECTED_TESTS" "$test_status" "$mode" "$SIMULATOR_DEVICE" "$configuration" "$TEST_SCOPE" <<'PYRESULT'
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -246,7 +258,7 @@ def visit(value):
         for child in value: visit(child)
 visit(tree)
 expected = set(json.loads(sys.argv[4]))
-scope = '完整验收' if sys.argv[9] == 'full' else '定向复验'
+scope = '完整验收' if sys.argv[9] == 'full' else '分片验收' if sys.argv[9] == 'shard' else '定向复验'
 headline = (f"模拟器{scope}\n结果：{summary.get('result', '?')}；总计 {summary.get('totalTestCount', 0)}；"
     f"通过 {summary.get('passedTests', 0)}；失败 {summary.get('failedTests', 0)}；跳过 {summary.get('skippedTests', 0)}\n")
 text = headline + "已执行用例：" + json.dumps(sorted(executed)) + '\n'
@@ -286,5 +298,13 @@ if sys.argv[9] == 'full' and sys.argv[6] in {'all', 'ui'}:
 commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
 if failures := ci_commit_findings(commit): raise SystemExit('\n'.join(failures))
 validate_community_write_test_output(Path(sys.argv[1]), raw_executed)
+if sys.argv[9] == 'shard' and sys.argv[6] in {'all', 'ui'}:
+    index, count = map(int, os.environ['BIT101_CI_SHARD'].split('/'))
+    build = result.parent / 'Build'
+    coverage_lines = native_source_coverage(build / 'Products' / (sys.argv[8] + '-iphonesimulator'),
+        build / 'ProfileData' / sys.argv[7] / 'Coverage.profdata', line_details=True)
+    with Path(sys.argv[2]).open('a') as metrics:
+        metrics.write('分片：' + json.dumps({'identity': {'group': sys.argv[6], 'index': index, 'count': count,
+            'commit': commit, 'run': os.getenv('GITHUB_RUN_ID', '')}, 'coverageLines': coverage_lines}) + '\n')
 print(f"模拟器{scope}通过：{summary['passedTests']} 项。")
 PYRESULT

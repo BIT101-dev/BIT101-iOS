@@ -63,7 +63,10 @@ def ast_has_view_construction(facts: dict, constructed_types: set[str], type_ind
     origin = next((path for path, entry in context.items() if entry is facts), "source")
     resolver = resolver or SwiftTypeIndex({path: dict(entry, typeAliases=[alias for alias in entry.get('typeAliases', [])
         if not alias.get('lexicalScope')]) for path, entry in context.items()})
-    call_context = SwiftBindingTypes(context, resolver)
+    call_context = getattr(resolver, '_view_bindings', None)
+    if call_context is None or call_context.index is not context:
+        call_context = SwiftBindingTypes(context, resolver)
+        resolver._view_bindings = call_context
     conformances = declaration_conformances({"source": facts}) if type_index is None else type_index
     view_types = {owner for owner, bases in conformances.items() if any(base.rsplit(".", 1)[-1] in {'View', 'ViewModifier', 'App', 'Scene'} for base in bases)}
     def canonical_type(value, reference, reference_file=origin):

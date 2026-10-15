@@ -337,11 +337,11 @@ struct FeatureCompositionTests {
         window.rootViewController = controller
         window.makeKeyAndVisible()
         defer { window.isHidden = true; window.rootViewController = nil }
-        try await operation()
+        window.layoutIfNeeded()
         await withCheckedContinuation { continuation in
             DispatchQueue.main.async { continuation.resume() }
         }
-        window.layoutIfNeeded()
+        try await operation()
     }
 
     @Test(.timeLimit(.minutes(1)))

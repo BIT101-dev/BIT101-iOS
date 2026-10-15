@@ -7,6 +7,7 @@ import os
 import re
 import subprocess
 import sys
+import shutil
 from types import SimpleNamespace
 from pathlib import Path
 from validation_publication import RECEIPT, CORE_REPORT, release_receipt, receipt_findings, core_exchange
@@ -159,6 +160,65 @@ def release(tag: str, *, publish: bool = False) -> None:
         subprocess.run(command, cwd=ROOT, capture_output=True, text=True, check=True)
 
 
+def read_native_summary(bundle: Path, group: str) -> dict:
+    from validation_evidence import native_case_summary
+    def read(kind):
+        return json.loads(subprocess.check_output(['xcrun', 'xcresulttool', 'get', 'test-results', kind,
+            '--path', str(bundle)], text=True))
+    raw, tree = read('summary'), read('tests')
+    cases = native_case_summary(tree, group, simulator=True)
+    return {'passed': raw.get('result') == 'Passed', 'totalTests': raw.get('totalTestCount'),
+        'passedTests': raw.get('passedTests'), 'failedTests': raw.get('failedTests'), 'skippedTests': raw.get('skippedTests'),
+        'executedTests': sorted(cases['byTest']), 'testCases': cases}
+
+
+def merge_simulator_ci() -> None:
+    from validation_evidence import ROOT, REPORT, selected_test_summary_complete, coverage_complete, test_inventory
+    from validation_coverage import SIMULATOR_SHARDS, shard_inventory, combined_line_coverage, regressions, policy_floors
+    from validation_environment import ci_commit_findings
+    root = ROOT / '.build/extended-automation'
+    bundle = root / 'test-results.xcresult'
+    retained = bundle.with_suffix('.retained.xcresult')
+    incoming = bundle.with_suffix('.incoming.xcresult')
+    commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+    if errors := ci_commit_findings(commit): raise ValueError('\n'.join(errors))
+    policy = json.loads(REPORT.read_text()).get('coveragePolicy', {})
+    run = os.environ['GITHUB_RUN_ID']
+    report = []
+    for group in ('all', 'ui'):
+        line_shards = []
+        shutil.rmtree(bundle, ignore_errors=True)
+        for index in range(SIMULATOR_SHARDS[group]):
+            if bundle.exists(): shutil.move(str(bundle), str(retained))
+            operation = 'app' if group == 'all' else group
+            subprocess.run(['gh', 'run', 'download', run, '--name', f'validation-ios-test-shards-{operation}-{index}',
+                '--dir', str(ROOT / '.build')], check=True, capture_output=True, text=True)
+            metrics = (root / 'test-metrics.txt').read_text()
+            metadata = json.loads(next(row.removeprefix('分片：') for row in metrics.splitlines() if row.startswith('分片：')))
+            expected = shard_inventory(group, index, SIMULATOR_SHARDS[group])
+            if metadata['identity'] != {'group': group, 'index': index, 'count': SIMULATOR_SHARDS[group],
+                    'commit': commit, 'run': run}:
+                raise ValueError('分片需要绑定当前运行、提交及所属库存。')
+            summary = read_native_summary(bundle, group)
+            if not selected_test_summary_complete(summary, expected, group=group, simulator=True):
+                raise ValueError('每个模拟器分片需要完整执行分配的测试及实例。')
+            line_shards.append(metadata['coverageLines'])
+            if retained.exists():
+                subprocess.run(['xcrun', 'xcresulttool', 'merge', '--output-path', str(incoming), str(retained), str(bundle)],
+                    check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+                shutil.rmtree(retained)
+                shutil.rmtree(bundle)
+                shutil.move(str(incoming), str(bundle))
+        summary = read_native_summary(bundle, group)
+        summary['coverage'] = combined_line_coverage(line_shards)
+        failures = regressions(summary['coverage'], policy_floors(group, policy))
+        if not selected_test_summary_complete(summary, sorted(test_inventory(group)), group=group, simulator=True) \
+                or not coverage_complete(group, summary) or failures:
+            raise ValueError('模拟器合并验收需要完整库存及版本化覆盖率：' + '；'.join(failures))
+        report.append(f"{group} 完整分片验收通过：{summary['passedTests']} 项；覆盖率：" + json.dumps(summary['coverage']))
+        print(f"{group} 完整分片验收通过：{summary['passedTests']} 项。")
+    (root / 'test-metrics.txt').write_text('\n'.join(report) + '\n')
+
 def self_test() -> None:
     from unittest.mock import patch
     with patch.dict(os.environ, GITHUB_ACTIONS='false', GITHUB_SHA=''):
@@ -269,6 +329,7 @@ def _self_test() -> None:
         (['publish', 'v1.0'], 'release', (('v1.0',), {'publish': True})),
         (['check-release'], 'check_release', ((), {})),
         (['export-core'], 'export_core', ((), {})),
+        (['simulator-merge'], 'merge_simulator_ci', ((), {})),
         (['import-baseline', '7'], 'import_baseline', ((7,), {})),
     ):
         with patch.object(sys, 'argv', ['ci_evidence.py', *arguments]), patch.object(module, operation, return_value='b' * 40) as execute, \
@@ -282,7 +343,7 @@ def _self_test() -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('baseline', 'current', 'review-pr', 'release', 'publish', 'check-release', 'export-core', 'import-baseline'))
+    parser.add_argument('action', choices=('baseline', 'current', 'review-pr', 'release', 'publish', 'check-release', 'export-core', 'import-baseline', 'simulator-merge'))
     parser.add_argument('identity', nargs='?', default='')
     parser.add_argument('--results', default='')
     args = parser.parse_args()
@@ -292,6 +353,7 @@ def main() -> int:
         elif args.action == 'review-pr': print(review_pr(int(args.identity)))
         elif args.action == 'check-release': check_release()
         elif args.action == 'export-core': export_core()
+        elif args.action == 'simulator-merge': merge_simulator_ci()
         elif args.action == 'import-baseline': import_baseline(int(args.identity))
         else: release(args.identity, publish=args.action == 'publish')
         return 0
