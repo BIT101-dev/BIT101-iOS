@@ -10,15 +10,32 @@ SIMULATOR_KEYBOARD_TESTS = frozenset({
 })
 
 
-def prepare_simulator_ui(device: str, products: Path, root: Path) -> None:
+def prepare_simulator_system(device: str, root: Path, *, ui: bool) -> None:
+    import os
+    import subprocess
+    import time
+    developer = Path(os.getenv('DEVELOPER_DIR') or subprocess.check_output(['xcode-select', '-p'], text=True).strip())
+    subprocess.run(['open', '-g', '-a', str(developer.parent / 'Applications/DeviceHub.app')], check=True)
+    container = Path.home() / 'Library/Containers/com.apple.dt.Devices'
+    deadline = time.monotonic() + 10
+    while not container.is_dir():
+        if time.monotonic() >= deadline: raise ValueError('Device Hub 首次启动需要建立应用容器。')
+        time.sleep(0.1)
+    subprocess.run(['defaults', '-container', 'com.apple.dt.Devices', 'write', 'com.apple.dt.Devices',
+        'alwaysSimulateHardwareKeyboard', '-bool', 'true'], check=True)
+    subprocess.run(['xcrun', 'simctl', 'bootstatus', device, '-b'], check=True)
+    if ui:
+        subprocess.run(['xcrun', 'simctl', 'addmedia', device,
+            str(root / 'BIT101-iOS/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png')], check=True)
+
+
+def prepare_simulator_ui(device: str, products: Path) -> None:
     import json
     import os
     import socket
     import subprocess
     import time
     app = products / 'Release-iphonesimulator/BIT101-iOS.app'
-    subprocess.run(['xcrun', 'simctl', 'addmedia', device,
-        str(root / 'BIT101-iOS/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png')], check=True)
     subprocess.run(['xcrun', 'simctl', 'install', device, str(app)], check=True)
     port = 20000 + int(device[-4:], 16) % 40000
     environment = dict(os.environ, **{'SIMCTL_CHILD_' + key: value for key, value in {
@@ -233,23 +250,38 @@ def simulator_ui_preparation_self_test() -> None:
     import io
     import json
     from unittest.mock import patch
+    for ui in (False, True):
+        with patch('subprocess.run') as run, patch.object(Path, 'is_dir', return_value=True), \
+                patch.dict('os.environ', {'DEVELOPER_DIR': '/Applications/Xcode.app/Contents/Developer'}):
+            prepare_simulator_system('device', Path('/repo'), ui=ui)
+            commands = [call.args[0] for call in run.call_args_list]
+            assert commands[0] == ['open', '-g', '-a', '/Applications/Xcode.app/Contents/Applications/DeviceHub.app']
+            assert commands[1][-3:] == ['alwaysSimulateHardwareKeyboard', '-bool', 'true']
+            assert commands[2] == ['xcrun', 'simctl', 'bootstatus', 'device', '-b']
+            assert len(commands) == (4 if ui else 3)
+            if ui: assert commands[3] == ['xcrun', 'simctl', 'addmedia', 'device', '/repo/BIT101-iOS/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png']
+    with patch('subprocess.run') as run, patch.object(Path, 'is_dir', return_value=False), \
+            patch('time.monotonic', side_effect=[0, 11]):
+        try: prepare_simulator_system('device', Path('/repo'), ui=True)
+        except ValueError as error: assert '应用容器' in str(error)
+        else: raise AssertionError('系统初始化应沿容器就绪期限结束。')
+        assert len(run.call_args_list) == 1
     for response, expected in (('simulator-bootstrap / 登录', True), ('', False),
             ('another scene / 登录', False), ('simulator-bootstrap / 日程', False)):
         with patch('socket.create_connection') as connect, patch('subprocess.run') as run, \
                 patch('time.monotonic', side_effect=[0, 0, 61]), patch('time.sleep'):
             connection = connect.return_value.__enter__.return_value
             connection.makefile.return_value = io.BytesIO(response.encode() + b'\n')
-            try: prepare_simulator_ui('0000abcd', Path('/products'), Path('/repo')); passed = True
+            try: prepare_simulator_ui('0000abcd', Path('/products')); passed = True
             except ValueError as error:
                 assert '登录首屏' in str(error)
                 passed = False
             assert passed == expected
             commands = [call.args[0] for call in run.call_args_list]
-            assert [command[2] for command in commands] == ['addmedia', 'install', 'launch', 'terminate']
-            assert commands[0][-1] == '/repo/BIT101-iOS/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png'
-            assert commands[1][-1] == '/products/Release-iphonesimulator/BIT101-iOS.app'
-            assert commands[2][-1] == '--ui-testing' and commands[-1][-1] == 'BIT101-dev.BIT101-iOS'
-            environment = run.call_args_list[2].kwargs['env']
+            assert [command[2] for command in commands] == ['install', 'launch', 'terminate']
+            assert commands[0][-1] == '/products/Release-iphonesimulator/BIT101-iOS.app'
+            assert commands[1][-1] == '--ui-testing' and commands[-1][-1] == 'BIT101-dev.BIT101-iOS'
+            environment = run.call_args_list[1].kwargs['env']
             assert environment['SIMCTL_CHILD_BIT101_UI_TEST_RESET_STORAGE'] == '1'
             assert environment['SIMCTL_CHILD_BIT101_UI_TEST_CASE'] == 'simulator-bootstrap'
             assert connect.call_args.args[0] == ('127.0.0.1', int(environment['SIMCTL_CHILD_BIT101_UI_TEST_CONTROL_PORT']))

@@ -307,6 +307,10 @@ nonisolated final class ServiceInteractionUITests: UIAutomationTestCase {
         tap("取消")
         tap("刷新学校日程")
         fillVerificationCode("123456", in: app.textFields["verification.code"])
+        let success = app.alerts["DDL 同步成功"]
+        assertUI(success.appears(timeout: 5), "学校验证完成后应展示同步成功结果。")
+        closeAlertIfPresent()
+        assertUI(success.disappears(timeout: 5), "确认同步结果应关闭成功提示。")
         assertUI(textElement("课程中心测试作业").appears(timeout: 5), "SSO 验证成功应恢复学校日程请求。")
     }
 

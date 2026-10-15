@@ -310,12 +310,15 @@ final class UIElement: NSObject {
     func swipeDown() { performGesture("swipe") { native.swipeDown() } }
     func dragScroll(vertical: Bool, towardEnd: Bool) {
         performGesture("swipe") {
-            let start = towardEnd ? 0.75 : 0.25
+            let span = vertical ? frame.height : frame.width
+            guard span > 0 else { XCTFail("滚动手势应使用已挂载容器的布局。"); return }
+            let distance = min(0.25, 44 / (2 * span))
+            let start = 0.5 + (towardEnd ? distance : -distance)
             let end = 1 - start
             native.coordinate(withNormalizedOffset: CGVector(dx: vertical ? 0.1 : start, dy: vertical ? start : 0.5))
                 .press(forDuration: 0.01,
                        thenDragTo: native.coordinate(withNormalizedOffset: CGVector(dx: vertical ? 0.1 : end, dy: vertical ? end : 0.5)),
-                       withVelocity: .fast, thenHoldForDuration: 0.1)
+                       withVelocity: .fast, thenHoldForDuration: 0.2)
         }
     }
     func pinch(withScale scale: CGFloat, velocity: CGFloat) { performGesture("pinch") { native.pinch(withScale: scale, velocity: velocity) } }

@@ -1,5 +1,6 @@
 """Workflow dispatch tests use tool and filesystem substitutes."""
 import os
+import fcntl
 import json
 import re
 import shutil
@@ -935,13 +936,17 @@ def workflow_lock_boundary_findings() -> list[str]:
         second = subprocess.Popen(["zsh", str(worker)], stdout=subprocess.PIPE,
                                   stderr=subprocess.PIPE, text=True, env=other_checkout)
         processes.append(second)
-        if not line(second).startswith("[等待]"):
-            raise ValueError("子进程清理期间保持工作流锁")
+        for lock_path in (fixture / 'device-workflow.lock', fixture / '.build/extended-automation.lock'):
+            with lock_path.open('a') as handle:
+                try: fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError: continue
+                raise ValueError(f"子进程清理期间保持工作流锁：{lock_path.name}")
         with release.open("w") as stream:
             stream.write("done\n")
         first.communicate(timeout=5)
         output, _ = second.communicate(timeout=5)
-        if first.returncode != 143 or second.returncode or output.strip() != "entered":
+        entered = [row for row in output.splitlines() if not row.startswith('[等待]')]
+        if first.returncode != 143 or second.returncode or entered != ["entered"]:
             raise ValueError("信号清理完成后释放锁并保持退出状态")
         first = subprocess.Popen(["zsh", str(worker), "hold"], stdout=subprocess.PIPE,
                                  stderr=subprocess.PIPE, text=True, env=environment)

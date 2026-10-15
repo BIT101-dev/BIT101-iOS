@@ -218,34 +218,39 @@ only_testing=()
 for selection in "${selections[@]}"; do only_testing+=("-only-testing:$bundle/$selection"); done
 destination="platform=iOS Simulator,id=$SIMULATOR_DEVICE"
 result="$DERIVED_ROOT/test-results.xcresult"
+simulator_prepare_pid=
+if [[ "${GITHUB_ACTIONS:-false}" == true ]]; then
+  bit101_run_logged "$DERIVED_ROOT/simulator.log" "模拟器系统就绪" python3 - "$ROOT_DIR/Scripts" "$SIMULATOR_DEVICE" "$ROOT_DIR" "$mode" <<'PYREADY' &
+from pathlib import Path
+import sys
+sys.path.insert(0, sys.argv[1])
+from validation_coverage import prepare_simulator_system
+prepare_simulator_system(sys.argv[2], Path(sys.argv[3]), ui=sys.argv[4] == 'ui')
+PYREADY
+  simulator_prepare_pid=$!
+fi
+simulator_build_status=0
 bit101_run_logged "$DERIVED_ROOT/$mode.log" "模拟器测试宿主编译" xcodebuild build-for-testing -quiet \
   -project "$ROOT_DIR/BIT101-iOS.xcodeproj" -scheme "$scheme" -configuration "$configuration" -derivedDataPath "$DERIVED_ROOT" \
   -destination "$destination" "BIT101_WORKFLOW_CONDITIONS=$conditions" ENABLE_TESTABILITY=YES \
   -enableCodeCoverage YES ENABLE_CODE_COVERAGE=YES \
-  SWIFT_TREAT_WARNINGS_AS_ERRORS=YES GCC_TREAT_WARNINGS_AS_ERRORS=YES CODE_SIGN_IDENTITY=- "${only_testing[@]}"
-if [[ "${GITHUB_ACTIONS:-false}" == true ]]; then
-  bit101_run_logged "$DERIVED_ROOT/simulator.log" "模拟器系统就绪" python3 - "$SIMULATOR_DEVICE" "$mode" "$DERIVED_ROOT/Build/Products" "$ROOT_DIR" <<'PYREADY'
-import os
+  SWIFT_TREAT_WARNINGS_AS_ERRORS=YES GCC_TREAT_WARNINGS_AS_ERRORS=YES CODE_SIGN_IDENTITY=- "${only_testing[@]}" || simulator_build_status=$?
+simulator_prepare_status=0
+if [[ -n "$simulator_prepare_pid" ]]; then wait "$simulator_prepare_pid" || simulator_prepare_status=$?; fi
+if (( simulator_build_status )); then exit "$simulator_build_status"; fi
+if (( simulator_prepare_status )); then exit "$simulator_prepare_status"; fi
+if [[ "${GITHUB_ACTIONS:-false}" == true && "$mode" == ui ]]; then
+  simulator_app_started=$SECONDS
+  simulator_app_status=0
+  python3 - "$ROOT_DIR/Scripts" "$SIMULATOR_DEVICE" "$DERIVED_ROOT/Build/Products" >> "$DERIVED_ROOT/simulator.log" 2>&1 <<'PYAPPREADY' || simulator_app_status=$?
 from pathlib import Path
-import subprocess
 import sys
-import time
-developer = Path(os.getenv('DEVELOPER_DIR') or subprocess.check_output(['xcode-select', '-p'], text=True).strip())
-device_hub = str(developer.parent / 'Applications/DeviceHub.app')
-subprocess.run(['open', '-g', '-a', device_hub], check=True)
-container = Path.home() / 'Library/Containers/com.apple.dt.Devices'
-deadline = time.monotonic() + 10
-while not container.is_dir():
-    if time.monotonic() >= deadline: raise SystemExit('Device Hub 首次启动需要建立应用容器。')
-    time.sleep(0.1)
-subprocess.run(['defaults', '-container', 'com.apple.dt.Devices', 'write', 'com.apple.dt.Devices',
-    'alwaysSimulateHardwareKeyboard', '-bool', 'true'], check=True)
-subprocess.run(['xcrun', 'simctl', 'bootstatus', sys.argv[1], '-b'], check=True)
-if sys.argv[2] == 'ui':
-    sys.path.insert(0, str(Path(sys.argv[4]) / 'Scripts'))
-    from validation_coverage import prepare_simulator_ui
-    prepare_simulator_ui(sys.argv[1], Path(sys.argv[3]), Path(sys.argv[4]))
-PYREADY
+sys.path.insert(0, sys.argv[1])
+from validation_coverage import prepare_simulator_ui
+prepare_simulator_ui(sys.argv[2], Path(sys.argv[3]))
+PYAPPREADY
+  if (( simulator_app_status )); then tail -40 "$DERIVED_ROOT/simulator.log" >&2; exit "$simulator_app_status"; fi
+  echo "[完成] 模拟器 App 就绪 · $(( SECONDS - simulator_app_started )) 秒"
 fi
 plan="$(python3 - "$DERIVED_ROOT/Build/Products" "$scheme" "$SIMULATOR_WORKERS" <<'PYPLAN'
 from pathlib import Path
