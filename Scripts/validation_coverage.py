@@ -3,7 +3,48 @@ from pathlib import Path
 
 COVERAGE_GROUPS = frozenset({'modules', 'all', 'ui', 'catalyst', 'catalyst-release-runtime'})
 SIMULATOR_SHARDS = {'all': 1, 'ui': 1, 'release-runtime': 1}
-SIMULATOR_WORKERS = {'app': 2, 'ui': 3, 'release-runtime': 2}
+SIMULATOR_WORKERS = {'app': 1, 'ui': 3, 'release-runtime': 1}
+SIMULATOR_KEYBOARD_TESTS = frozenset({
+    'ServiceInteractionUITests/testManualUpdatePromptAllActionsAndCurrentVersion',
+    'AccountRecoveryUITests/testFutureScheduleImportUpdateCancellationAndLink',
+})
+
+
+def simulator_ui_batches(selections: list[str], workers: int) -> list[tuple[list[str], int]]:
+    keyboard = [row for row in selections if row.removeprefix('-only-testing:BIT101-iOSUITests/') in SIMULATOR_KEYBOARD_TESTS]
+    remaining = [row for row in selections if row not in keyboard]
+    return [(rows, count) for rows, count in ((keyboard, 1), (remaining, workers)) if rows]
+
+
+def run_simulator_ui(plan: Path, derived: Path, device: str, workers: int, selections: list[str]) -> int:
+    import plistlib
+    import shutil
+    import subprocess
+    from validation_performance import result_bundle_complete
+    result = derived / 'test-results.xcresult'
+    keyboard_result = derived / 'Build/keyboard-tests.xcresult'
+    shutil.rmtree(keyboard_result, ignore_errors=True)
+    keyboard_profile = derived / 'Build/ProfileData/keyboard.profdata'
+    batches = simulator_ui_batches(selections, workers)
+    status = 0
+    for index, (tests, count) in enumerate(batches):
+        configuration = plistlib.loads(plan.read_bytes())
+        for group in configuration.get('TestConfigurations', []):
+            for target in group.get('TestTargets', []): target['ParallelizationEnabled'] = count > 1
+        plan.write_bytes(plistlib.dumps(configuration))
+        arguments = ['-parallel-testing-enabled', 'YES', '-parallel-testing-worker-count', str(count)] if count > 1 else ['-parallel-testing-enabled', 'NO']
+        completed = subprocess.run(['xcodebuild', 'test-without-building', '-quiet', '-xctestrun', str(plan),
+            '-derivedDataPath', str(derived), '-destination', 'platform=iOS Simulator,id=' + device,
+            '-resultBundlePath', str(result), *arguments, '-test-timeouts-enabled', 'YES', '-enableCodeCoverage', 'YES', *tests])
+        status = status or completed.returncode
+        if not result_bundle_complete(result): return status or 1
+        if index + 1 < len(batches):
+            result.rename(keyboard_result)
+            shutil.copyfile(derived / 'Build/ProfileData' / device / 'Coverage.profdata', keyboard_profile)
+    if keyboard_result.exists():
+        from validation_performance import merge_result_bundles
+        merge_result_bundles(keyboard_result, result.with_suffix('.incoming.xcresult'))
+    return status
 
 
 def shard_inventory(group: str, index: int, count: int) -> list[str]:
@@ -83,6 +124,31 @@ def policy_findings(report: dict, group: str) -> list[str]:
 
 def self_test() -> None:
     from validation_policy import workflow_timeout_seconds
+    from validation_test_areas import test_inventory
+    inventory = sorted(test_inventory('ui'))
+    assert SIMULATOR_KEYBOARD_TESTS <= set(inventory)
+    selections = ['-only-testing:BIT101-iOSUITests/' + row for row in inventory]
+    batches = simulator_ui_batches(selections, 3)
+    assert [count for _, count in batches] == [1, 3]
+    assert len(batches[0][0]) == len(SIMULATOR_KEYBOARD_TESTS)
+    assert sorted(row for rows, _ in batches for row in rows) == selections
+    assert simulator_ui_batches([selections[0]], 3) == [([selections[0]], 1 if inventory[0] in SIMULATOR_KEYBOARD_TESTS else 3)]
+    import plistlib
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    plan = plistlib.dumps({'TestConfigurations': [{'TestTargets': [{}]}]})
+    with patch.object(Path, 'read_bytes', return_value=plan), patch.object(Path, 'write_bytes') as written, \
+            patch.object(Path, 'rename') as renamed, patch.object(Path, 'exists', return_value=True), \
+            patch('shutil.rmtree'), patch('shutil.copyfile') as copied, \
+            patch('subprocess.run', side_effect=[SimpleNamespace(returncode=7), SimpleNamespace(returncode=0)]) as executed, \
+            patch('validation_performance.result_bundle_complete', return_value=True), \
+            patch('validation_performance.merge_result_bundles') as merged:
+        assert run_simulator_ui(Path('/fixture/plan'), Path('/fixture'), 'device', 3, selections) == 7
+        assert [plistlib.loads(call.args[0])['TestConfigurations'][0]['TestTargets'][0]['ParallelizationEnabled']
+            for call in written.call_args_list] == [False, True]
+        assert [call.args[0][call.args[0].index('-parallel-testing-enabled') + 1] for call in executed.call_args_list] == ['NO', 'YES']
+        assert renamed.call_count == copied.call_count == merged.call_count == 1
+        assert [[arg for arg in call.args[0] if arg.startswith('-only-testing:')] for call in executed.call_args_list] == [rows for rows, _ in batches]
     assert workflow_timeout_seconds(('network', 'community-writes')) == 95 * 60
     assert workflow_timeout_seconds(('all', 'all')) == 50 * 60
     for group in ('all', 'ui', 'catalyst'):

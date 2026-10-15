@@ -3,7 +3,7 @@ import CoreGraphics
 import Network
 import os
 
-nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
+nonisolated final class ScheduleLayoutUITests: UIAutomationTestCase {
     @MainActor
     func testDeadlineWidgetLinkOpensTheDDLSection() throws {
         app = configureApp(resetStorage: true, ddlFixture: "sources")
@@ -292,6 +292,9 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         XCTAssertFalse(alert.native.exists)
     }
 
+}
+
+nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
     @MainActor
     func testScheduleWeekButtonsAndSectionSwipes() {
         app = configureApp(resetStorage: true, school: true)
@@ -560,6 +563,9 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
     }
 
 
+}
+
+nonisolated final class CommunityPublishingUITests: UIAutomationTestCase {
     @MainActor
     func testGallerySettingsValidationTogglesAndPersistence() {
         app = configureApp(resetStorage: true)
@@ -757,6 +763,9 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         tap("不保存")
     }
 
+}
+
+nonisolated final class ScheduleEditingUITests: UIAutomationTestCase {
     @MainActor
     func testCourseEditorFieldsPickersSaveDetailAndDelete() {
         app = configureApp(resetStorage: true)

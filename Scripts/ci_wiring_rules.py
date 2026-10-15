@@ -176,7 +176,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
         if name not in {'ios-tests', 'ios-test-shards'} and not any(command_matches(command, "python3 Scripts/validation_evidence.py summary --recorded-environment")
                 for command, _ in run_commands(job, include_always=True)):
             errors.append(f".github/workflows/ci.yml: {name} 的证据汇总需要采用记录环境")
-        expected_dependencies = 'ios-test-shards' if name == 'ios-tests' else 'release-build' if name == 'static-audit' else []
+        expected_dependencies = 'ios-test-shards' if name == 'ios-tests' else 'static-audit' if name == 'catalyst-tests' else []
         if job.get('needs', []) != expected_dependencies:
             errors.append(f'.github/workflows/ci.yml: {name} 需要按独立执行与最终汇总的依赖图运行')
     static_commands = commands.get("static-audit", [])
@@ -502,7 +502,7 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
     for job in ('release-build', 'ios-test-shards'):
         serialized = workflow_source.replace('  ' + job + ':\n', '  ' + job + ':\n    needs: static-audit\n', 1)
         assert any('依赖图' in item for item in ci_wiring_findings(serialized))
-    assert any('依赖图' in row for row in ci_wiring_findings(workflow_source.replace('  static-audit:\n    needs: release-build', '  static-audit:')))
+    assert any('依赖图' in row for row in ci_wiring_findings(workflow_source.replace('  catalyst-tests:\n    needs: static-audit', '  catalyst-tests:')))
     detached = workflow_source.replace('needs: ios-test-shards', 'needs: []', 1)
     assert any('依赖图' in item for item in ci_wiring_findings(detached))
     misplaced_audit = workflow_source.replace("run: Scripts/run-static-audit.sh", "run: echo skipped", 1)

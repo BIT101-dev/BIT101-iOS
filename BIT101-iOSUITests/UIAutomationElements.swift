@@ -335,6 +335,7 @@ final class UIElement: NSObject {
     func pressReturnKey() {
         Self.beforeNativeTap?()
         let identity = interactionIdentity
+        XCTAssertTrue(native.isHittable, "Return 默认动作应已完成原生弹窗布局。")
         // 换行字符映射到原生 Return 键。
         native.typeKey("\n", modifierFlags: [])
         recordInteraction(identity, action: "keyboard")

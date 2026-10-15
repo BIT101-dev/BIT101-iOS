@@ -33,7 +33,6 @@ concurrency:
 
 jobs:
   static-audit:
-    needs: release-build
     name: Static audit (Apple toolchain)
     runs-on: xcode-27
     timeout-minutes: 105
@@ -135,6 +134,7 @@ jobs:
             build/DeviceInstall/build.log
 
   catalyst-tests:
+    needs: static-audit
     name: Mac Catalyst behavior tests
     runs-on: xcode-27
     timeout-minutes: 105
@@ -191,9 +191,9 @@ jobs:
       max-parallel: 3
       matrix:
         include:
-          - {mode: app, shard: 0, count: 1, workers: 2}
+          - {mode: app, shard: 0, count: 1, workers: 1}
           - {mode: ui, shard: 0, count: 1, workers: 3}
-          - {mode: release-runtime, shard: 0, count: 1, workers: 2}
+          - {mode: release-runtime, shard: 0, count: 1, workers: 1}
     env:
       BIT101_SIMULATOR_AUTHORIZED: '1'
       BIT101_CI_SHARD: ${{ matrix.shard }}/${{ matrix.count }}

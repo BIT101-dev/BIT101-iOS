@@ -1,7 +1,7 @@
 import XCTest
 import CoreGraphics
 
-extension InteractionCoverageUITests {
+nonisolated final class CommunityInteractionUITests: UIAutomationTestCase {
     @MainActor
     @objc func testGalleryBlockingUpdatesLoadedFeedsAndUnblockingRestoresThem() {
         app = configureApp(resetStorage: true, content: true, initialTab: "gallery")
@@ -189,65 +189,9 @@ extension InteractionCoverageUITests {
         assertOpenedURL("http")
     }
 
-    @MainActor
-    func tapLink(_ title: String) {
-        let types = [Int(XCUIElement.ElementType.link.rawValue), Int(XCUIElement.ElementType.button.rawValue)]
-        let link = app.descendants(matching: .any)
-            .matching(NSPredicate(format: "elementType IN %@ AND label CONTAINS %@", types, title)).firstMatch
-        reveal(link, description: title)
-        link.tapBriefly()
-    }
+}
 
-    @MainActor
-    func assertOpenedURL(_ target: String) {
-        var openedURL = ""
-        assertUI(waitUntil(NSPredicate { _, _ in
-            openedURL = UITestControlClient.request(["command": "consume-opened-url"]) ?? ""
-            return !openedURL.isEmpty
-        }, on: app), "链接操作应发出页面选定的地址。")
-        assertUI(openedURL.contains(target), "链接地址应匹配\(target)，实际地址：\(openedURL)。")
-    }
-
-    @MainActor
-    func dismissShareSheet() {
-        dismissNotificationBanner()
-        let sheet = app.navigationBars["UIActivityContentView"]
-        assertUI(sheet.appears(timeout: 5), "分享入口应打开系统分享面板。")
-        let dismissRegion = app.otherElements.matching(identifier: "PopoverDismissRegion").firstMatch
-        let close = app.buttons.matching(NSPredicate(format: "label IN %@", ["关闭", "Close"])).firstMatch
-        let popover = app.popovers.firstMatch
-        if dismissRegion.exists, popover.exists {
-            dismissSystemPopover(popover)
-        } else {
-            assertUI(close.appears(timeout: 5), "分享面板应提供关闭控件。")
-            close.tapBriefly()
-        }
-        assertUI(waitUntil(NSPredicate(format: "exists == false"), on: sheet, timeout: 5), "关闭分享面板应返回来源页面。")
-    }
-
-    @MainActor
-    func dismissSystemPopover(_ popover: UIElement, within bounds: CGRect? = nil) {
-        let dismiss = app.buttons["PopoverDismissRegion"]
-        let isSourceForm = bounds != nil
-        let bounds = bounds ?? app.frame
-        let panel = popover.frame
-        let gaps = [
-            CGRect(x: bounds.minX, y: bounds.minY, width: panel.minX - bounds.minX, height: bounds.height),
-            CGRect(x: panel.maxX, y: bounds.minY, width: bounds.maxX - panel.maxX, height: bounds.height),
-            CGRect(x: bounds.minX, y: bounds.minY, width: bounds.width, height: panel.minY - bounds.minY),
-            CGRect(x: bounds.minX, y: panel.maxY, width: bounds.width, height: bounds.maxY - panel.maxY),
-        ].filter { $0.size.width > 0 && $0.size.height > 0 }
-            .map { $0.intersection(bounds) }.filter { !$0.isNull && !$0.isEmpty }
-        guard let gap = isSourceForm ? gaps.first : gaps.max(by: { $0.width * $0.height < $1.width * $1.height }) else {
-            assertUI(false, "系统浮窗外应提供可点击的页面区域。")
-            return
-        }
-        let origin = dismiss.exists ? dismiss.coordinate(withNormalizedOffset: .zero)
-            : app.coordinate(withNormalizedOffset: .zero)
-        origin.withOffset(CGVector(dx: gap.midX, dy: gap.midY)).tapBriefly()
-        assertUI(popover.disappears(timeout: 5), "点击浮窗外应关闭系统浮窗。")
-    }
-
+nonisolated final class ServiceInteractionUITests: UIAutomationTestCase {
     @MainActor
     @objc func testManualUpdatePromptAllActionsAndCurrentVersion() {
         app = configureApp(resetStorage: true, animations: true, update: "new", initialSettings: "about")
@@ -365,6 +309,9 @@ extension InteractionCoverageUITests {
         assertUI(textElement("课程中心测试作业").appears(timeout: 5), "SSO 验证成功应恢复学校日程请求。")
     }
 
+}
+
+nonisolated final class ScheduleNavigationUITests: UIAutomationTestCase {
     @MainActor
     @objc func testHolidayAndTransferConfirmedMutations() {
         app = configureApp(resetStorage: true, school: true)
@@ -441,18 +388,6 @@ extension InteractionCoverageUITests {
 
 
     @MainActor
-    func pullToRefresh() {
-        guard let bounds = interactionScrollFrame() else {
-            assertUI(false, "刷新场景应提供可滚动区域。")
-            return
-        }
-        let origin = app.coordinate(withNormalizedOffset: .zero)
-        let start = origin.withOffset(CGVector(dx: bounds.minX + bounds.width * 0.03, dy: bounds.minY + bounds.height * 0.2))
-        let end = origin.withOffset(CGVector(dx: bounds.minX + bounds.width * 0.03, dy: bounds.minY + bounds.height * 0.9))
-        start.press(forDuration: 0.01, thenDragTo: end, withVelocity: .fast, thenHoldForDuration: 0.1)
-    }
-
-    @MainActor
     @objc func testMinePublicProfileFollowAndPostDeletion() {
         app = configureApp(resetStorage: true, initialTab: "mine")
         assertUI(textElement("个人信息加载失败").appears(timeout: 5), "离线个人页应完成服务加载并展示恢复入口。")
@@ -503,16 +438,6 @@ extension InteractionCoverageUITests {
     }
 
     @MainActor
-    func dismissPosterSheet(returningTo title: String) {
-        let detail = app.navigationBars["帖子详情"]
-        detail.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.1)).press(forDuration: 0.1,
-            thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)),
-            withVelocity: .fast, thenHoldForDuration: 0.1)
-        assertUI(detail.disappears(timeout: 5), "下滑应关闭帖子详情。")
-        assertUI(waitUntil(NSPredicate(format: "hittable == true"), on: app.navigationBars[title]), "关闭详情应恢复\(title)。")
-    }
-
-    @MainActor
     @objc func testMapLocationAndScheduleLocationRoute() {
         app = configureApp(resetStorage: true, content: true, school: true)
         tap("学校测试课程")
@@ -536,14 +461,6 @@ extension InteractionCoverageUITests {
         assertUI(location.appears(timeout: 5), "从系统地图返回应恢复地图控件。")
     }
 
-
-    @MainActor
-    func tapSearchSort(_ title: String) {
-        let menu = app.buttons["search.sort"]
-        reveal(menu, description: "搜索排序")
-        assertUI(menu.label.contains(title), "搜索排序应显示当前选项\(title)。")
-        menu.tapBriefly()
-    }
 
     @MainActor
     @objc func testNetworkDiagnosisProgressAndReport() {
@@ -651,9 +568,12 @@ extension InteractionCoverageUITests {
         assertUI(app.buttons["添加待办"].exists, "取消新增应恢复待办列表。")
     }
 
+}
+
+nonisolated final class AccountRecoveryUITests: UIAutomationTestCase {
     @MainActor
     @objc func testFutureScheduleImportUpdateCancellationAndLink() {
-        app = configureApp(resetStorage: true, initialSettings: "calendar")
+        app = configureApp(resetStorage: true, animations: true, initialSettings: "calendar")
         tap("导入课表")
         tap("知道了")
         let code = app.textViews["schedule.import.code"]
@@ -744,6 +664,147 @@ extension InteractionCoverageUITests {
         assertUI(submit.isEnabled, "完整填写凭据应启用登录按钮。")
         submit.tapBriefly()
         assertUI(app.tabBars.buttons["日程"].appears(timeout: 10), "点击登录按钮应进入主界面。")
+    }
+
+
+}
+
+nonisolated final class AccountRegistrationUITests: UIAutomationTestCase {
+    @MainActor
+    func testRegistrationResetAndCommunityPasswordLogin() throws {
+        for method in ["统一身份认证", "校园邮箱"] {
+            app = configureApp(resetStorage: true, account: nil, nativeInteraction: true)
+            app.buttons["login.register"].tapBriefly()
+            let submit = app.buttons["registration.submit"]
+            submit.assertDisabled("注册需要完整密码及身份验证。")
+            replaceTextWithKeyboard("1120260001", in: app.textFields["registration.student-id"])
+            replaceTextWithKeyboard("community-password", in: app.secureTextFields["registration.password"])
+            replaceTextWithKeyboard("different-password", in: app.secureTextFields["registration.confirmation"])
+            dismissKeyboard()
+            if method == "校园邮箱" { choose("验证方式", option: method) }
+            if method == "统一身份认证" {
+                replaceTextWithKeyboard("school-password", in: app.secureTextFields["registration.school-password"])
+                dismissKeyboard()
+                app.buttons["registration.verify"].tapBriefly()
+                assertUI(textElement("身份验证成功").appears(timeout: 5), "学校认证应呈现成功状态。")
+                app.buttons["registration.verify"].assertDisabled("已验证身份应保持当前验证结果。")
+            } else {
+                app.buttons["registration.send-code"].tapBriefly()
+                app.buttons["registration.send-code"].assertDisabled("发送成功后应显示重发倒计时。")
+                replaceTextWithKeyboard("123456", in: app.textFields["registration.code"])
+                dismissKeyboard()
+            }
+            reveal(submit)
+            submit.assertDisabled("两次密码一致后可提交。")
+            replaceTextWithKeyboard("community-password", in: app.secureTextFields["registration.confirmation"])
+            dismissKeyboard()
+            reveal(submit)
+            XCTAssertTrue(submit.native.isEnabled && submit.native.isHittable)
+            let screenshot = XCTAttachment(screenshot: app.native.screenshot())
+            screenshot.name = "界面截图"; screenshot.lifetime = .keepAlways; add(screenshot)
+            submit.tapBriefly()
+            assertUI(app.tabBars.buttons["日程"].appears(timeout: 10), "注册或重置成功应进入已登录页面。")
+        }
+        app = configureApp(resetStorage: true, account: nil, nativeInteraction: true)
+        app.buttons["login.register"].tapBriefly()
+        back()
+        choose("登录方式", option: "BIT101 密码")
+        replaceTextWithKeyboard("1120260001", in: app.textFields["login.student-id"])
+        replaceTextWithKeyboard("community-password", in: app.secureTextFields["login.password"])
+        dismissKeyboard()
+        app.buttons["login.submit"].tapBriefly()
+        assertUI(app.tabBars.buttons["日程"].appears(timeout: 10), "BIT101 密码登录应进入已登录页面。")
+    }
+}
+
+extension UIAutomationTestCase {
+    @MainActor
+    func tapLink(_ title: String) {
+        let types = [Int(XCUIElement.ElementType.link.rawValue), Int(XCUIElement.ElementType.button.rawValue)]
+        let link = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "elementType IN %@ AND label CONTAINS %@", types, title)).firstMatch
+        reveal(link, description: title)
+        link.tapBriefly()
+    }
+
+    @MainActor
+    func assertOpenedURL(_ target: String) {
+        var openedURL = ""
+        assertUI(waitUntil(NSPredicate { _, _ in
+            openedURL = UITestControlClient.request(["command": "consume-opened-url"]) ?? ""
+            return !openedURL.isEmpty
+        }, on: app), "链接操作应发出页面选定的地址。")
+        assertUI(openedURL.contains(target), "链接地址应匹配\(target)，实际地址：\(openedURL)。")
+    }
+
+    @MainActor
+    func dismissShareSheet() {
+        dismissNotificationBanner()
+        let sheet = app.navigationBars["UIActivityContentView"]
+        assertUI(sheet.appears(timeout: 5), "分享入口应打开系统分享面板。")
+        let dismissRegion = app.otherElements.matching(identifier: "PopoverDismissRegion").firstMatch
+        let close = app.buttons.matching(NSPredicate(format: "label IN %@", ["关闭", "Close"])).firstMatch
+        let popover = app.popovers.firstMatch
+        if dismissRegion.exists, popover.exists {
+            dismissSystemPopover(popover)
+        } else {
+            assertUI(close.appears(timeout: 5), "分享面板应提供关闭控件。")
+            close.tapBriefly()
+        }
+        assertUI(waitUntil(NSPredicate(format: "exists == false"), on: sheet, timeout: 5), "关闭分享面板应返回来源页面。")
+    }
+
+    @MainActor
+    func dismissSystemPopover(_ popover: UIElement, within bounds: CGRect? = nil) {
+        let dismiss = app.buttons["PopoverDismissRegion"]
+        let isSourceForm = bounds != nil
+        let bounds = bounds ?? app.frame
+        let panel = popover.frame
+        let gaps = [
+            CGRect(x: bounds.minX, y: bounds.minY, width: panel.minX - bounds.minX, height: bounds.height),
+            CGRect(x: panel.maxX, y: bounds.minY, width: bounds.maxX - panel.maxX, height: bounds.height),
+            CGRect(x: bounds.minX, y: bounds.minY, width: bounds.width, height: panel.minY - bounds.minY),
+            CGRect(x: bounds.minX, y: panel.maxY, width: bounds.width, height: bounds.maxY - panel.maxY),
+        ].filter { $0.size.width > 0 && $0.size.height > 0 }
+            .map { $0.intersection(bounds) }.filter { !$0.isNull && !$0.isEmpty }
+        guard let gap = isSourceForm ? gaps.first : gaps.max(by: { $0.width * $0.height < $1.width * $1.height }) else {
+            assertUI(false, "系统浮窗外应提供可点击的页面区域。")
+            return
+        }
+        let origin = dismiss.exists ? dismiss.coordinate(withNormalizedOffset: .zero)
+            : app.coordinate(withNormalizedOffset: .zero)
+        origin.withOffset(CGVector(dx: gap.midX, dy: gap.midY)).tapBriefly()
+        assertUI(popover.disappears(timeout: 5), "点击浮窗外应关闭系统浮窗。")
+    }
+
+    @MainActor
+    func pullToRefresh() {
+        guard let bounds = interactionScrollFrame() else {
+            assertUI(false, "刷新场景应提供可滚动区域。")
+            return
+        }
+        let origin = app.coordinate(withNormalizedOffset: .zero)
+        let start = origin.withOffset(CGVector(dx: bounds.minX + bounds.width * 0.03, dy: bounds.minY + bounds.height * 0.2))
+        let end = origin.withOffset(CGVector(dx: bounds.minX + bounds.width * 0.03, dy: bounds.minY + bounds.height * 0.9))
+        start.press(forDuration: 0.01, thenDragTo: end, withVelocity: .fast, thenHoldForDuration: 0.1)
+    }
+
+    @MainActor
+    func dismissPosterSheet(returningTo title: String) {
+        let detail = app.navigationBars["帖子详情"]
+        detail.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.1)).press(forDuration: 0.1,
+            thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)),
+            withVelocity: .fast, thenHoldForDuration: 0.1)
+        assertUI(detail.disappears(timeout: 5), "下滑应关闭帖子详情。")
+        assertUI(waitUntil(NSPredicate(format: "hittable == true"), on: app.navigationBars[title]), "关闭详情应恢复\(title)。")
+    }
+
+    @MainActor
+    func tapSearchSort(_ title: String) {
+        let menu = app.buttons["search.sort"]
+        reveal(menu, description: "搜索排序")
+        assertUI(menu.label.contains(title), "搜索排序应显示当前选项\(title)。")
+        menu.tapBriefly()
     }
 
     enum DatePickerCoverage {
@@ -841,53 +902,41 @@ extension InteractionCoverageUITests {
         }
         selected.tapBriefly()
     }
-
-}
-
-nonisolated final class AccountRegistrationUITests: UIAutomationTestCase {
     @MainActor
-    func testRegistrationResetAndCommunityPasswordLogin() throws {
-        for method in ["统一身份认证", "校园邮箱"] {
-            app = configureApp(resetStorage: true, account: nil, nativeInteraction: true)
-            app.buttons["login.register"].tapBriefly()
-            let submit = app.buttons["registration.submit"]
-            submit.assertDisabled("注册需要完整密码及身份验证。")
-            replaceTextWithKeyboard("1120260001", in: app.textFields["registration.student-id"])
-            replaceTextWithKeyboard("community-password", in: app.secureTextFields["registration.password"])
-            replaceTextWithKeyboard("different-password", in: app.secureTextFields["registration.confirmation"])
-            dismissKeyboard()
-            if method == "校园邮箱" { choose("验证方式", option: method) }
-            if method == "统一身份认证" {
-                replaceTextWithKeyboard("school-password", in: app.secureTextFields["registration.school-password"])
-                dismissKeyboard()
-                app.buttons["registration.verify"].tapBriefly()
-                assertUI(textElement("身份验证成功").appears(timeout: 5), "学校认证应呈现成功状态。")
-                app.buttons["registration.verify"].assertDisabled("已验证身份应保持当前验证结果。")
-            } else {
-                app.buttons["registration.send-code"].tapBriefly()
-                app.buttons["registration.send-code"].assertDisabled("发送成功后应显示重发倒计时。")
-                replaceTextWithKeyboard("123456", in: app.textFields["registration.code"])
-                dismissKeyboard()
+    func tapImage(_ title: String) {
+        let image = app.buttons[title]
+        var frame = CGRect.zero
+        if image.exists {
+            frame = image.frame
+            if frame.isEmpty {
+                assertUI(waitUntil(NSPredicate { _, _ in !image.frame.isEmpty }, on: image), "图片入口应完成布局。")
+                frame = image.frame
             }
-            reveal(submit)
-            submit.assertDisabled("两次密码一致后可提交。")
-            replaceTextWithKeyboard("community-password", in: app.secureTextFields["registration.confirmation"])
-            dismissKeyboard()
-            reveal(submit)
-            XCTAssertTrue(submit.native.isEnabled && submit.native.isHittable)
-            let screenshot = XCTAttachment(screenshot: app.native.screenshot())
-            screenshot.name = "界面截图"; screenshot.lifetime = .keepAlways; add(screenshot)
-            submit.tapBriefly()
-            assertUI(app.tabBars.buttons["日程"].appears(timeout: 10), "注册或重置成功应进入已登录页面。")
         }
-        app = configureApp(resetStorage: true, account: nil, nativeInteraction: true)
-        app.buttons["login.register"].tapBriefly()
-        back()
-        choose("登录方式", option: "BIT101 密码")
-        replaceTextWithKeyboard("1120260001", in: app.textFields["login.student-id"])
-        replaceTextWithKeyboard("community-password", in: app.secureTextFields["login.password"])
-        dismissKeyboard()
-        app.buttons["login.submit"].tapBriefly()
-        assertUI(app.tabBars.buttons["日程"].appears(timeout: 10), "BIT101 密码登录应进入已登录页面。")
+        if frame.isEmpty || !app.windows.firstMatch.frame.contains(frame) {
+            reveal(image, description: title)
+        }
+        image.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tapBriefly()
     }
+
+    @MainActor
+    func closeImagePreview() {
+        dismissNotificationBanner()
+        let close = imagePreviewCloseButton()
+        close.press(forDuration: 0.01)
+        assertUI(app.otherElements["QLPreviewControllerView"].disappears(timeout: 5), "关闭图片预览应恢复来源页面。")
+    }
+
+    @MainActor
+    func imagePreviewCloseButton() -> UIElement {
+        let platform = UIElement(app.native)
+        let preview = platform.otherElements["QLPreviewControllerView"]
+        assertUI(preview.appears(timeout: 30), "图片交互应进入系统 Quick Look。")
+        let done = platform.buttons.matching(NSPredicate(format: "label IN %@", ["完成", "Done", "关闭", "Close"])).firstMatch
+        if done.appears(timeout: 2) { return done }
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)).tapBriefly()
+        assertUI(done.appears(timeout: 10), "点击预览画布应显示关闭控件。")
+        return done
+    }
+
 }

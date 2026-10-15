@@ -24,7 +24,7 @@ struct LoginRootView: View {
     }
 }
 
-/// 统一身份认证登录表单。
+/// 登录方式与账号表单。
 ///
 /// 表单采用 SwiftUI 原生组件，沿用系统输入、焦点和辅助功能行为。
 private struct LoginFormView: View {
@@ -98,7 +98,7 @@ private struct LoginFormView: View {
                     }
                 }
                 .accessibilityLabel(viewModel.isSubmitting ? "正在登录" : "登录")
-                .accessibilityHint(viewModel.isSubmitting ? "请稍候" : "提交学校统一身份认证账号密码")
+                .accessibilityHint(viewModel.isSubmitting ? "请稍候" : (viewModel.method == .school ? "提交学校统一身份认证账号密码" : "提交 BIT101 账号密码"))
                 .accessibilityIdentifier("login.submit")
                 .disabled(!viewModel.canSubmit)
                 .appInteractiveListRow()

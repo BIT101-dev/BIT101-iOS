@@ -65,9 +65,8 @@ if os.getenv('GITHUB_ACTIONS') == 'true':
     subprocess.run(['defaults', '-container', 'com.apple.dt.Devices', 'write', 'com.apple.dt.Devices',
         'alwaysSimulateHardwareKeyboard', '-bool', 'true'], check=True)
 if device['state'] != 'Booted': subprocess.run(['xcrun', 'simctl', 'boot', identifier], check=True, stdout=sys.stderr, stderr=sys.stderr)
-subprocess.run(['xcrun', 'simctl', 'bootstatus', identifier, '-b'], check=True, stdout=sys.stderr, stderr=sys.stderr)
-if os.getenv('GITHUB_ACTIONS') == 'true' and operation == 'prepare':
-    subprocess.run(['xcrun', 'simctl', 'addmedia', identifier, sys.argv[3]], check=True, stdout=sys.stderr, stderr=sys.stderr)
+if os.getenv('GITHUB_ACTIONS') != 'true' or operation not in {'prepare', 'app', 'release-runtime', 'ui'}:
+    subprocess.run(['xcrun', 'simctl', 'bootstatus', identifier, '-b'], check=True, stdout=sys.stderr, stderr=sys.stderr)
 subprocess.run(['open', '-a', device_hub], check=True)
 print(identifier)
 PYDEVICE
@@ -78,7 +77,7 @@ else
   exit 1
 fi
 if [[ "$operation" == info ]]; then print -r -- "$SIMULATOR_DEVICE"; exit 0; fi
-if [[ "$operation" == prepare ]]; then echo "项目模拟器已就绪。"; exit 0; fi
+if [[ "$operation" == prepare ]]; then echo "项目模拟器已启动。"; exit 0; fi
 if [[ "$operation" == inspect ]]; then
   python3 - "$SIMULATOR_DEVICE" "$ROOT_DIR/.build/screenshot.png" <<'PYINSPECT'
 import json
@@ -230,7 +229,17 @@ bit101_run_logged "$DERIVED_ROOT/$mode.log" "模拟器测试宿主编译" xcodeb
   -destination "$destination" "BIT101_WORKFLOW_CONDITIONS=$conditions" ENABLE_TESTABILITY=YES \
   -enableCodeCoverage YES ENABLE_CODE_COVERAGE=YES \
   SWIFT_TREAT_WARNINGS_AS_ERRORS=YES GCC_TREAT_WARNINGS_AS_ERRORS=YES CODE_SIGN_IDENTITY=- "${only_testing[@]}"
-plan="$(python3 - "$DERIVED_ROOT/Build/Products" "$scheme" <<'PYPLAN'
+if [[ "${GITHUB_ACTIONS:-false}" == true ]]; then
+  bit101_run_logged "$DERIVED_ROOT/simulator.log" "模拟器系统就绪" python3 - "$SIMULATOR_DEVICE" "$operation" \
+    "$ROOT_DIR/BIT101-iOS/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png" <<'PYREADY'
+import subprocess
+import sys
+subprocess.run(['xcrun', 'simctl', 'bootstatus', sys.argv[1], '-b'], check=True)
+if sys.argv[2] == 'ui':
+    subprocess.run(['xcrun', 'simctl', 'addmedia', sys.argv[1], sys.argv[3]], check=True)
+PYREADY
+fi
+plan="$(python3 - "$DERIVED_ROOT/Build/Products" "$scheme" "$SIMULATOR_WORKERS" <<'PYPLAN'
 from pathlib import Path
 import plistlib
 import sys
@@ -239,7 +248,7 @@ if not plans: raise SystemExit('模拟器编译需要生成对应的运行配置
 plan = max(plans, key=lambda path: path.stat().st_mtime)
 configuration = plistlib.loads(plan.read_bytes())
 for group in configuration.get('TestConfigurations', []):
-    for target in group.get('TestTargets', []): target['ParallelizationEnabled'] = True
+    for target in group.get('TestTargets', []): target['ParallelizationEnabled'] = sys.argv[3] != '1'
 plan.write_bytes(plistlib.dumps(configuration))
 print(plan)
 PYPLAN
@@ -248,6 +257,7 @@ retained_result_groups=("${(@f)$(python3 "$ROOT_DIR/Scripts/validation_performan
 retained_result_groups=("${(@)retained_result_groups:#}")
 rm -f "$DERIVED_ROOT/test-metrics.txt" "$DERIVED_ROOT/test-failures.txt"
 rm -f "$DERIVED_ROOT/Build/ProfileData/"*/Coverage.profdata(N)
+rm -f "$DERIVED_ROOT/Build/ProfileData/keyboard.profdata"
 parallel_arguments=(-parallel-testing-enabled NO)
 if (( SIMULATOR_WORKERS > 1 )); then
   parallel_arguments=(-parallel-testing-enabled YES -parallel-testing-worker-count "$SIMULATOR_WORKERS")
@@ -256,9 +266,20 @@ test_status=0
 trap restore_on_exit EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
-bit101_run_logged "$DERIVED_ROOT/$mode.log" "模拟器测试" xcodebuild test-without-building -quiet \
+if [[ "$mode" == ui && "$SIMULATOR_WORKERS" -gt 1 ]]; then
+  bit101_run_logged "$DERIVED_ROOT/$mode.log" "模拟器测试" python3 - "$ROOT_DIR/Scripts" "$plan" \
+    "$DERIVED_ROOT" "$SIMULATOR_DEVICE" "$SIMULATOR_WORKERS" "${only_testing[@]}" <<'PYUI' || test_status=$?
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from validation_coverage import run_simulator_ui
+raise SystemExit(run_simulator_ui(Path(sys.argv[2]), Path(sys.argv[3]), sys.argv[4], int(sys.argv[5]), sys.argv[6:]))
+PYUI
+else
+  bit101_run_logged "$DERIVED_ROOT/$mode.log" "模拟器测试" xcodebuild test-without-building -quiet \
   -xctestrun "$plan" -derivedDataPath "$DERIVED_ROOT" -destination "$destination" -resultBundlePath "$result" \
   "${parallel_arguments[@]}" -test-timeouts-enabled YES -enableCodeCoverage YES "${only_testing[@]}" || test_status=$?
+fi
 python3 - "$result" "$DERIVED_ROOT/test-metrics.txt" "$ROOT_DIR/Scripts" "$EXPECTED_TESTS" "$test_status" "$mode" "$SIMULATOR_DEVICE" "$configuration" "$TEST_SCOPE" "$SIMULATOR_WORKERS" <<'PYRESULT'
 import json
 import os
@@ -315,6 +336,8 @@ if sys.argv[6] in {'all', 'ui'}:
     devices = {row['deviceIdentifier'] for row in cases['destinations']} | {sys.argv[7]}
     if not profiles or any(path.parent.name not in devices for path in profiles):
         raise SystemExit('模拟器覆盖率需要来自本次实际执行设备。')
+    keyboard_profile = build / 'ProfileData/keyboard.profdata'
+    if keyboard_profile.is_file(): profiles.append(keyboard_profile)
     merged = profile.with_suffix('.incoming.profdata')
     merged.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(['xcrun', 'llvm-profdata', 'merge', '-sparse', *map(str, profiles), '-o', str(merged)], check=True)

@@ -1,7 +1,7 @@
 import XCTest
 import CoreGraphics
 
-nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
+nonisolated final class CalendarInteractionUITests: UIAutomationTestCase {
     @MainActor
     @objc func testCalendarReminderCloudSwitchesAndLeadTimePersistence() {
         app = configureApp(resetStorage: true, animations: true, initialSettings: "calendar")
@@ -295,6 +295,9 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         assertUI(app.buttons["schedule.add-content"].exists, "取消新增应恢复课表。")
     }
 
+}
+
+nonisolated final class ScoreInteractionUITests: UIAutomationTestCase {
     @MainActor
     @objc func testScoreIndividualFiltersRefreshCancelAndPendingDetail() {
         app = configureApp(resetStorage: true, content: true, animations: true, school: true, initialTab: "home")
@@ -408,6 +411,9 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
     }
 
 
+}
+
+nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
     @MainActor
     @objc func testCommunityCommentLikesRepliesSortsAndPhotoPicker() {
         app = configureApp(resetStorage: true, content: true, initialTab: "gallery")
@@ -739,41 +745,5 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         assertUI(photos.disappears(timeout: 5), "取消图片选择应关闭系统选择器。")
     }
 
-    @MainActor
-    private func tapImage(_ title: String) {
-        let image = app.buttons[title]
-        var frame = CGRect.zero
-        if image.exists {
-            frame = image.frame
-            if frame.isEmpty {
-                assertUI(waitUntil(NSPredicate { _, _ in !image.frame.isEmpty }, on: image), "图片入口应完成布局。")
-                frame = image.frame
-            }
-        }
-        if frame.isEmpty || !app.windows.firstMatch.frame.contains(frame) {
-            reveal(image, description: title)
-        }
-        image.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tapBriefly()
-    }
-
-    @MainActor
-    func closeImagePreview() {
-        dismissNotificationBanner()
-        let close = imagePreviewCloseButton()
-        close.press(forDuration: 0.01)
-        assertUI(app.otherElements["QLPreviewControllerView"].disappears(timeout: 5), "关闭图片预览应恢复来源页面。")
-    }
-
-    @MainActor
-    private func imagePreviewCloseButton() -> UIElement {
-        let platform = UIElement(app.native)
-        let preview = platform.otherElements["QLPreviewControllerView"]
-        assertUI(preview.appears(timeout: 30), "图片交互应进入系统 Quick Look。")
-        let done = platform.buttons.matching(NSPredicate(format: "label IN %@", ["完成", "Done", "关闭", "Close"])).firstMatch
-        if done.appears(timeout: 2) { return done }
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)).tapBriefly()
-        assertUI(done.appears(timeout: 10), "点击预览画布应显示关闭控件。")
-        return done
-    }
 
 }
