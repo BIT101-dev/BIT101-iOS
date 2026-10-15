@@ -435,7 +435,6 @@ python3() {{ print -r -- "RECORD $*"; return {recording}; }}
         try: evidence.simulator_test_selection('all', 'selected', ['Missing/test'], None)
         except ValueError: pass
         else: findings.append('模拟器库存规划需要传播失效筛选。')
-    import plistlib
     from types import SimpleNamespace
     from validation_coverage import run_simulator_ui, SIMULATOR_KEYBOARD_TESTS
     selected = ['-only-testing:BIT101-iOSUITests/' + sorted(SIMULATOR_KEYBOARD_TESTS)[0],
