@@ -33,6 +33,7 @@ concurrency:
 
 jobs:
   static-audit:
+    needs: release-build
     name: Static audit (Apple toolchain)
     runs-on: xcode-27
     timeout-minutes: 105
@@ -187,18 +188,16 @@ jobs:
     timeout-minutes: 45
     strategy:
       fail-fast: false
+      max-parallel: 3
       matrix:
         include:
-          - {mode: app, shard: 0, count: 2}
-          - {mode: app, shard: 1, count: 2}
-          - {mode: release-runtime, shard: 0, count: 1}
-          - {mode: ui, shard: 0, count: 4}
-          - {mode: ui, shard: 1, count: 4}
-          - {mode: ui, shard: 2, count: 4}
-          - {mode: ui, shard: 3, count: 4}
+          - {mode: app, shard: 0, count: 1, workers: 2}
+          - {mode: ui, shard: 0, count: 1, workers: 3}
+          - {mode: release-runtime, shard: 0, count: 1, workers: 2}
     env:
       BIT101_SIMULATOR_AUTHORIZED: '1'
       BIT101_CI_SHARD: ${{ matrix.shard }}/${{ matrix.count }}
+      BIT101_SIMULATOR_WORKERS: ${{ matrix.workers }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:

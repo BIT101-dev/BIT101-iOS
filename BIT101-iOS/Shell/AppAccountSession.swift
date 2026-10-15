@@ -50,7 +50,7 @@ enum AppAccountSession {
 
     @discardableResult
     static func resetUITestCredentials() -> Bool {
-        KeychainLoginCredentials(service: uiTestKeychainService).deleteAll()
+        storage.clearAllLocalData()
     }
 #endif
 }

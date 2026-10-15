@@ -138,8 +138,12 @@ checker_audit() {
   local checker_status=0
   python3 "$ROOT_DIR/Scripts/check-file-lengths.py" || checker_status=1
   python3 "$ROOT_DIR/Scripts/check-file-lengths.py" --staged || checker_status=1
-  python3 "$ROOT_DIR/Scripts/validation_evidence.py" self-test || checker_status=1
-  python3 "$ROOT_DIR/Scripts/check-code-quality.py" --combined || checker_status=1
+  python3 "$ROOT_DIR/Scripts/validation_evidence.py" self-test &
+  local evidence_process=$!
+  python3 "$ROOT_DIR/Scripts/check-code-quality.py" --combined &
+  local quality_process=$!
+  wait "$evidence_process" || checker_status=1
+  wait "$quality_process" || checker_status=1
   return "$checker_status"
 }
 module_boundary_audit() { python3 "$ROOT_DIR/Scripts/check-module-boundaries.py"; }

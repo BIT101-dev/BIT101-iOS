@@ -843,3 +843,51 @@ extension InteractionCoverageUITests {
     }
 
 }
+
+nonisolated final class AccountRegistrationUITests: UIAutomationTestCase {
+    @MainActor
+    func testRegistrationResetAndCommunityPasswordLogin() throws {
+        for method in ["统一身份认证", "校园邮箱"] {
+            app = configureApp(resetStorage: true, account: nil, nativeInteraction: true)
+            app.buttons["login.register"].tapBriefly()
+            let submit = app.buttons["registration.submit"]
+            submit.assertDisabled("注册需要完整密码及身份验证。")
+            replaceTextWithKeyboard("1120260001", in: app.textFields["registration.student-id"])
+            replaceTextWithKeyboard("community-password", in: app.secureTextFields["registration.password"])
+            replaceTextWithKeyboard("different-password", in: app.secureTextFields["registration.confirmation"])
+            dismissKeyboard()
+            if method == "校园邮箱" { choose("验证方式", option: method) }
+            if method == "统一身份认证" {
+                replaceTextWithKeyboard("school-password", in: app.secureTextFields["registration.school-password"])
+                dismissKeyboard()
+                app.buttons["registration.verify"].tapBriefly()
+                assertUI(textElement("身份验证成功").appears(timeout: 5), "学校认证应呈现成功状态。")
+                app.buttons["registration.verify"].assertDisabled("已验证身份应保持当前验证结果。")
+            } else {
+                app.buttons["registration.send-code"].tapBriefly()
+                app.buttons["registration.send-code"].assertDisabled("发送成功后应显示重发倒计时。")
+                replaceTextWithKeyboard("123456", in: app.textFields["registration.code"])
+                dismissKeyboard()
+            }
+            reveal(submit)
+            submit.assertDisabled("两次密码一致后可提交。")
+            replaceTextWithKeyboard("community-password", in: app.secureTextFields["registration.confirmation"])
+            dismissKeyboard()
+            reveal(submit)
+            XCTAssertTrue(submit.native.isEnabled && submit.native.isHittable)
+            let screenshot = XCTAttachment(screenshot: app.native.screenshot())
+            screenshot.name = "界面截图"; screenshot.lifetime = .keepAlways; add(screenshot)
+            submit.tapBriefly()
+            assertUI(app.tabBars.buttons["日程"].appears(timeout: 10), "注册或重置成功应进入已登录页面。")
+        }
+        app = configureApp(resetStorage: true, account: nil, nativeInteraction: true)
+        app.buttons["login.register"].tapBriefly()
+        back()
+        choose("登录方式", option: "BIT101 密码")
+        replaceTextWithKeyboard("1120260001", in: app.textFields["login.student-id"])
+        replaceTextWithKeyboard("community-password", in: app.secureTextFields["login.password"])
+        dismissKeyboard()
+        app.buttons["login.submit"].tapBriefly()
+        assertUI(app.tabBars.buttons["日程"].appears(timeout: 10), "BIT101 密码登录应进入已登录页面。")
+    }
+}

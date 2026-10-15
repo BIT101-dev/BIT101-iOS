@@ -9,10 +9,26 @@ protocol LoginServicing {
 
     func checkLogin() async throws -> String?
     func login(studentID: String, password: String) async throws -> String
+    func loginCommunity(studentID: String, password: String) async throws -> String
     func logout()
 }
 
 extension LoginService: LoginServicing {}
+
+protocol AccountRegistrationServicing {
+    func sendRegistrationEmail(studentID: String) async throws -> String
+    func verifyRegistrationIdentity(studentID: String, password: String) async throws -> WebVPNVerifyResponse
+    func registerAccount(studentID: String, password: String, token: String, code: String, schoolPassword: String?) async throws
+}
+
+extension LoginService: AccountRegistrationServicing {
+    static func registrationRuntimeService() -> any AccountRegistrationServicing {
+#if BIT101_UI_TESTING
+        if AppFileDirectories.isRunningUITest && !AppUITestBootstrap.usesProductionComposition { return UITestLoginService() }
+#endif
+        return LoginService()
+    }
+}
 
 extension LoginService {
     static func appRuntimeService() -> any LoginServicing {
@@ -26,7 +42,7 @@ extension LoginService {
 }
 
 #if BIT101_UI_TESTING
-struct UITestLoginService: LoginServicing {
+struct UITestLoginService: LoginServicing, AccountRegistrationServicing {
     private enum Key {
         static let studentID = "ui-test.session.student-id"
         static let hasSession = "ui-test.session.has-session"
@@ -99,6 +115,23 @@ struct UITestLoginService: LoginServicing {
     func logout() {
         defaults.set(false, forKey: Key.hasSession)
         AppAccountSession.storage.clearSession()
+    }
+
+    func loginCommunity(studentID: String, password: String) async throws -> String {
+        try await login(studentID: studentID, password: password)
+    }
+
+    func sendRegistrationEmail(studentID: String) async throws -> String { "ui-test-mail-token" }
+
+    func verifyRegistrationIdentity(studentID: String, password: String) async throws -> WebVPNVerifyResponse {
+        WebVPNVerifyResponse(token: "ui-test-school-token", code: "123456")
+    }
+
+    func registerAccount(studentID: String, password: String, token: String, code: String, schoolPassword: String?) async throws {
+        guard code == "123456" else { throw LoginServiceError.invalidServerResponse }
+        _ = try await login(studentID: studentID, password: schoolPassword ?? password)
+        try AppAccountSession.storage.saveLoginState(studentID: studentID, password: schoolPassword ?? "",
+            fakeCookie: "ui-test-cookie", communityPasswordDigest: LoginCrypto.md5Hex(password))
     }
 }
 #endif

@@ -423,41 +423,8 @@ python3() {{ print -r -- "RECORD $*"; return {recording}; }}
     if simulator.returncode != 64 or '显式授权' not in simulator.stderr:
         findings.append('模拟器命令自测：执行前核对用户授权标记')
     simulator_source = (SCRIPT_ROOT / 'simulator-tests.sh').read_text()
-    restoration = 'restore_application() {' + simulator_source.split('restore_application() {', 1)[1].split(
-        'if [[ "$operation" == restore ]]', 1)[0]
-    for original, restore_result in ((0, 0), (7, 0), (0, 9), (7, 9)):
-        stub = f'python3() {{ print digest; }}\nbit101_run_logged() {{ print RESTORE; if [[ "$2" == "常规模拟器包编译" && " $* " != *" ENABLE_TESTABILITY=YES "* ]]; then return 64; fi; return {restore_result}; }}\n'
-        result = subprocess.run(['zsh', '-c', stub + restoration + '\ntrap restore_on_exit EXIT\nexit "$1"',
-            'simulator-restore-test', str(original)], capture_output=True, text=True)
-        if result.returncode != (original or restore_result) or result.stdout.count('RESTORE') != (1 if restore_result else 2):
-            findings.append('模拟器恢复自测：退出时恢复常规包并保留测试失败状态')
-    restoration_program = simulator_source.split("<<'PYRESTORE'\n", 1)[1].split('\nPYRESTORE', 1)[0]
-    from datetime import datetime, timezone
-    from types import SimpleNamespace
-    import uuid
-    restore_id = uuid.UUID('00000000-0000-4000-8000-000000000001')
-    app_info = dict(CFBundleExecutable='App', CFBundleIdentifier='app', CFBundleShortVersionString='1',
-        CFBundleVersion='1', BIT101RestoreInputDigest='a' * 64)
-    ready = dict(schemaVersion=1, runID=str(restore_id), inputDigest='a' * 64, processIdentifier=123,
-        bundleIdentifier='app', version='1', build='1', initialized=True, sessionRecovered=True, active=True,
-        readyAt=datetime.now(timezone.utc).isoformat())
-    for exited, change, expected in ((False, {}, ''), (True, {}, '就绪前退出'),
-            (False, {'processIdentifier': 124}, '就绪验收超时'), (False, {'sessionRecovered': False}, '就绪验收超时'), (False, {'active': False}, '就绪验收超时'),
-            (False, {'inputDigest': 'b' * 64}, '就绪验收超时')):
-        def run_command(command, **kwargs):
-            return SimpleNamespace(returncode=int(exited and command[0] == '/bin/kill'), stdout='app: 123')
-        with patch.object(sys, 'argv', ['restore', 'device', '/fixture/App', str(SCRIPT_ROOT), 'a' * 64, '/fixture/screenshot.png']), \
-                patch.object(subprocess, 'run', side_effect=run_command), \
-                patch.object(subprocess, 'check_output', return_value='/fixture/container'), \
-                patch.object(Path, 'read_bytes', lambda path: plistlib.dumps(app_info) if path.name == 'Info.plist' else b'app'), \
-                patch.object(Path, 'read_text', return_value=json.dumps(dict(ready, **change))), \
-                patch.object(Path, 'is_file', return_value=True), patch.object(Path, 'unlink'), \
-                patch('time.monotonic', side_effect=[0, 0, 61]), patch('time.sleep'), patch('uuid.uuid4', return_value=restore_id), redirect_stderr(diagnostics := StringIO()):
-            try: exec(compile(restoration_program, '<simulator-restore>', 'exec'), {}); outcome = ''
-            except SystemExit as error: outcome = str(error.code)
-            if expected not in outcome or bool(expected) != bool(outcome) \
-                    or expected == '就绪验收超时' and json.loads(diagnostics.getvalue())['readiness'] != dict(ready, **change):
-                findings.append('模拟器恢复自测：实际进程、会话恢复和编译输入共同参与就绪验收')
+    from validation_restore import simulator_restore_findings
+    findings.extend(simulator_restore_findings(simulator_source))
     support = SCRIPT_ROOT / "script-support.sh"
     icloud_source = (SCRIPT_ROOT / 'run_icloud_cross_device_smoke.sh').read_text()
     recovery = 'finish_smoke() {' + icloud_source.split('finish_smoke() {', 1)[1].split('\ntrap finish_smoke', 1)[0]

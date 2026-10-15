@@ -9,6 +9,8 @@ source "$ROOT_DIR/Scripts/script-support.sh"
 operation="${1:-info}"
 shift $(( $# > 0 ? 1 : 0 ))
 case "$operation" in info|prepare|restore|inspect|merge) [[ $# -eq 0 ]] || exit 64;; app|release-runtime|ui) ;; *) exit 64;; esac
+SIMULATOR_WORKERS="${BIT101_SIMULATOR_WORKERS:-1}"
+[[ "$SIMULATOR_WORKERS" == <1-> ]] || { echo "模拟器工作进程数需要为正整数。" >&2; exit 64; }
 TEST_SCOPE=selected
 if (( $# == 0 )); then TEST_SCOPE=full; fi
 if [[ "$operation" == ui ]]; then bit101_set_workflow_budget ui; fi
@@ -50,9 +52,10 @@ else:
     identifier = subprocess.check_output(['xcrun', 'simctl', 'create', 'BIT101', phone['identifier'], runtime['identifier']], text=True).strip()
     path.write_text(json.dumps({'identifier': identifier, 'runtime': runtime['identifier']}) + '\n')
     device = {'state': 'Shutdown'}
-if device['state'] != 'Booted': subprocess.run(['xcrun', 'simctl', 'boot', identifier], check=True, stdout=sys.stderr, stderr=sys.stderr)
 if os.getenv('GITHUB_ACTIONS') == 'true':
-    subprocess.run(['defaults', 'write', 'com.apple.iphonesimulator', 'ConnectHardwareKeyboard', '-bool', 'true'], check=True)
+    subprocess.run(['defaults', '-container', 'com.apple.dt.Devices', 'write', 'com.apple.dt.Devices',
+        'alwaysSimulateHardwareKeyboard', '-bool', 'true'], check=True)
+if device['state'] != 'Booted': subprocess.run(['xcrun', 'simctl', 'boot', identifier], check=True, stdout=sys.stderr, stderr=sys.stderr)
 subprocess.run(['xcrun', 'simctl', 'bootstatus', identifier, '-b'], check=True, stdout=sys.stderr, stderr=sys.stderr)
 if os.getenv('GITHUB_ACTIONS') == 'true' and operation == 'prepare':
     subprocess.run(['xcrun', 'simctl', 'addmedia', identifier, sys.argv[3]], check=True, stdout=sys.stderr, stderr=sys.stderr)
@@ -102,6 +105,10 @@ import subprocess
 import sys
 import time
 import uuid
+inventory = json.loads(subprocess.check_output(['xcrun', 'simctl', 'list', 'devices', '--json'], text=True))
+device = next(row for rows in inventory['devices'].values() for row in rows if row['udid'] == sys.argv[1])
+if device['state'] != 'Booted': subprocess.run(['xcrun', 'simctl', 'boot', sys.argv[1]], check=True)
+subprocess.run(['xcrun', 'simctl', 'bootstatus', sys.argv[1], '-b'], check=True, stdout=subprocess.DEVNULL)
 subprocess.run(['xcrun', 'simctl', 'install', sys.argv[1], sys.argv[2]], check=True)
 from hashlib import sha256
 from pathlib import Path
@@ -151,6 +158,10 @@ restore_on_exit() {
   trap - EXIT INT TERM
   if (( ${#retained_result_groups[@]} )); then
     python3 "$ROOT_DIR/Scripts/validation_performance.py" retain-evidence "${retained_result_groups[@]}" || workflow_result=$?
+  fi
+  if [[ "${GITHUB_ACTIONS:-false}" == true && "${RUNNER_ENVIRONMENT:-}" == github-hosted ]]; then
+    echo "托管模拟器验收结束，运行器由 GitHub 回收。"
+    exit "$workflow_result"
   fi
   if restore_application; then
     echo "常规模拟器包已恢复。"
@@ -213,24 +224,34 @@ bit101_run_logged "$DERIVED_ROOT/$mode.log" "模拟器测试宿主编译" xcodeb
   SWIFT_TREAT_WARNINGS_AS_ERRORS=YES GCC_TREAT_WARNINGS_AS_ERRORS=YES CODE_SIGN_IDENTITY=- "${only_testing[@]}"
 plan="$(python3 - "$DERIVED_ROOT/Build/Products" "$scheme" <<'PYPLAN'
 from pathlib import Path
+import plistlib
 import sys
 plans = list(Path(sys.argv[1]).glob(sys.argv[2] + '_*iphonesimulator*.xctestrun'))
 if not plans: raise SystemExit('模拟器编译需要生成对应的运行配置。')
-print(max(plans, key=lambda path: path.stat().st_mtime))
+plan = max(plans, key=lambda path: path.stat().st_mtime)
+configuration = plistlib.loads(plan.read_bytes())
+for group in configuration.get('TestConfigurations', []):
+    for target in group.get('TestTargets', []): target['ParallelizationEnabled'] = True
+plan.write_bytes(plistlib.dumps(configuration))
+print(plan)
 PYPLAN
 )"
 retained_result_groups=("${(@f)$(python3 "$ROOT_DIR/Scripts/validation_performance.py" begin-selected)}")
 retained_result_groups=("${(@)retained_result_groups:#}")
 rm -f "$DERIVED_ROOT/test-metrics.txt" "$DERIVED_ROOT/test-failures.txt"
-rm -f "$DERIVED_ROOT/Build/ProfileData/$SIMULATOR_DEVICE/"*.profdata(N)
+rm -f "$DERIVED_ROOT/Build/ProfileData/"*/Coverage.profdata(N)
+parallel_arguments=(-parallel-testing-enabled NO)
+if (( SIMULATOR_WORKERS > 1 )); then
+  parallel_arguments=(-parallel-testing-enabled YES -parallel-testing-worker-count "$SIMULATOR_WORKERS")
+fi
 test_status=0
 trap restore_on_exit EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 bit101_run_logged "$DERIVED_ROOT/$mode.log" "模拟器测试" xcodebuild test-without-building -quiet \
   -xctestrun "$plan" -derivedDataPath "$DERIVED_ROOT" -destination "$destination" -resultBundlePath "$result" \
-  -parallel-testing-enabled NO -test-timeouts-enabled YES -enableCodeCoverage YES "${only_testing[@]}" || test_status=$?
-python3 - "$result" "$DERIVED_ROOT/test-metrics.txt" "$ROOT_DIR/Scripts" "$EXPECTED_TESTS" "$test_status" "$mode" "$SIMULATOR_DEVICE" "$configuration" "$TEST_SCOPE" <<'PYRESULT'
+  "${parallel_arguments[@]}" -test-timeouts-enabled YES -enableCodeCoverage YES "${only_testing[@]}" || test_status=$?
+python3 - "$result" "$DERIVED_ROOT/test-metrics.txt" "$ROOT_DIR/Scripts" "$EXPECTED_TESTS" "$test_status" "$mode" "$SIMULATOR_DEVICE" "$configuration" "$TEST_SCOPE" "$SIMULATOR_WORKERS" <<'PYRESULT'
 import json
 import os
 from pathlib import Path
@@ -262,7 +283,7 @@ scope = '完整验收' if sys.argv[9] == 'full' else '分片验收' if sys.argv[
 headline = (f"模拟器{scope}\n结果：{summary.get('result', '?')}；总计 {summary.get('totalTestCount', 0)}；"
     f"通过 {summary.get('passedTests', 0)}；失败 {summary.get('failedTests', 0)}；跳过 {summary.get('skippedTests', 0)}\n")
 text = headline + "已执行用例：" + json.dumps(sorted(executed)) + '\n'
-cases = native_case_summary(tree, sys.argv[6], simulator=True, device_identifier=sys.argv[7])
+cases = native_case_summary(tree, sys.argv[6], simulator=True, device_identifier=sys.argv[7] if sys.argv[10] == '1' else '')
 text += "测试实例：" + json.dumps(cases) + '\n'
 for failure in summary.get('testFailures', []):
     text += f"{failure.get('testIdentifierString', '?')}: {failure.get('failureText', '?')}\n"
@@ -279,13 +300,26 @@ if int(sys.argv[5]) or not selected_test_summary_complete(native_summary, sorted
         print(f"库存差异：缺少 {sorted(expected - executed)}；额外 {sorted(executed - expected)}", file=sys.stderr)
     print(f"详细结果：{sys.argv[2]}", file=sys.stderr)
     raise SystemExit('模拟器测试需要全部用例通过，并匹配实际执行库存。')
+build = result.parent / 'Build'
+profile = build / 'ProfileData' / sys.argv[7] / 'Coverage.profdata'
+if sys.argv[6] in {'all', 'ui'}:
+    profiles = sorted((build / 'ProfileData').glob('*/Coverage.profdata'))
+    devices = {row['deviceIdentifier'] for row in cases['destinations']} | {sys.argv[7]}
+    if not profiles or any(path.parent.name not in devices for path in profiles):
+        raise SystemExit('模拟器覆盖率需要来自本次实际执行设备。')
+    merged = profile.with_suffix('.incoming.profdata')
+    merged.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(['xcrun', 'llvm-profdata', 'merge', '-sparse', *map(str, profiles), '-o', str(merged)], check=True)
+    merged.replace(profile)
+    for source in profiles:
+        if source != profile: source.unlink()
 if sys.argv[9] == 'full' and sys.argv[6] in {'all', 'ui'}:
     targets = json.loads(subprocess.check_output(['xcrun', 'xccov', 'view', '--report', '--json', sys.argv[1]], text=True))['targets']
     coverage = {row['name']: {key: row[key] for key in ('coveredLines', 'executableLines')}
         for row in targets if row['name'] == 'BIT101-iOS.app'}
     build = result.parent / 'Build'
     modules = native_source_coverage(build / 'Products' / (sys.argv[8] + '-iphonesimulator'),
-        build / 'ProfileData' / sys.argv[7] / 'Coverage.profdata')
+        profile)
     coverage.update({'iOS/' + name: dict(coveredLines=covered, executableLines=executable)
         for name, (covered, executable) in modules.items()})
     native_summary['coverage'] = coverage
@@ -302,7 +336,7 @@ if sys.argv[9] == 'shard' and sys.argv[6] in {'all', 'ui'}:
     index, count = map(int, os.environ['BIT101_CI_SHARD'].split('/'))
     build = result.parent / 'Build'
     coverage_lines = native_source_coverage(build / 'Products' / (sys.argv[8] + '-iphonesimulator'),
-        build / 'ProfileData' / sys.argv[7] / 'Coverage.profdata', line_details=True)
+        profile, line_details=True)
     with Path(sys.argv[2]).open('a') as metrics:
         metrics.write('分片：' + json.dumps({'identity': {'group': sys.argv[6], 'index': index, 'count': count,
             'commit': commit, 'run': os.getenv('GITHUB_RUN_ID', '')}, 'coverageLines': coverage_lines}) + '\n')

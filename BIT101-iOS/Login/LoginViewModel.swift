@@ -20,6 +20,11 @@ enum LoginScreenState: Equatable {
     case signedIn(studentID: String)
 }
 
+enum LoginMethod: String, CaseIterable {
+    case school = "统一身份认证"
+    case community = "BIT101 密码"
+}
+
 /// 管理本地登录态恢复、登录提交状态和退出后的界面回退。
 @MainActor
 final class LoginViewModel: ObservableObject {
@@ -27,6 +32,7 @@ final class LoginViewModel: ObservableObject {
     @Published var studentID: String
     /// 密码输入框内容。
     @Published var password = ""
+    @Published var method: LoginMethod = .school
     /// 登录模块当前处于登录页还是主壳层。
     @Published private(set) var screenState: LoginScreenState
     /// 是否正在执行登录请求。
@@ -127,7 +133,7 @@ final class LoginViewModel: ObservableObject {
         }
 
         guard !password.isEmpty else {
-            alert = AppAlert.userInput(title: "密码不能为空", message: "请输入学校统一身份认证使用的密码。")
+            alert = AppAlert.userInput(title: "密码不能为空", message: method == .school ? "请输入学校统一身份认证密码。" : "请输入 BIT101 密码。")
             return
         }
 
@@ -136,7 +142,11 @@ final class LoginViewModel: ObservableObject {
         defer { isSubmitting = false }
 
         do {
-            let studentID = try await service.login(studentID: trimmedStudentID, password: password)
+            let studentID: String
+            switch method {
+            case .school: studentID = try await service.login(studentID: trimmedStudentID, password: password)
+            case .community: studentID = try await service.loginCommunity(studentID: trimmedStudentID, password: password)
+            }
             guard sessionRevision == revision else { return }
             self.studentID = studentID
             self.password = ""
@@ -168,5 +178,96 @@ final class LoginViewModel: ObservableObject {
         studentID = service.savedStudentID
         password = ""
         screenState = .signedOut
+    }
+}
+
+enum RegistrationVerificationMethod: String, CaseIterable {
+    case school = "统一身份认证"
+    case email = "校园邮箱"
+}
+
+@MainActor
+final class AccountRegistrationViewModel: ObservableObject {
+    @Published var studentID: String { didSet { invalidateVerification() } }
+    @Published var password = ""
+    @Published var confirmation = ""
+    @Published var schoolPassword = "" { didSet { if method == .school { invalidateVerification() } } }
+    @Published var code = ""
+    @Published var method: RegistrationVerificationMethod = .school { didSet { invalidateVerification() } }
+    @Published private(set) var isVerifying = false
+    @Published private(set) var isSubmitting = false
+    @Published private(set) var verified = false
+    @Published private(set) var resendAt = Date.distantPast
+    @Published var alert: AppAlert?
+    private var token = ""
+    private var revision = 0
+    private let service: any AccountRegistrationServicing
+
+    init(studentID: String, service: (any AccountRegistrationServicing)? = nil) {
+        self.studentID = studentID
+        self.service = service ?? LoginService.registrationRuntimeService()
+    }
+
+    var account: String { studentID.trimmingCharacters(in: .whitespacesAndNewlines) }
+    var isBusy: Bool { isVerifying || isSubmitting }
+    var canVerify: Bool { !isBusy && !account.isEmpty && (method == .email || !schoolPassword.isEmpty) }
+    var passwordsMatch: Bool { password.count >= 8 && password == confirmation }
+    var canSubmit: Bool {
+        !isBusy && passwordsMatch && !token.isEmpty &&
+            (method == .school ? verified : code.count == 6 && code.allSatisfy { $0.isASCII && $0.isNumber })
+    }
+
+    private func invalidateVerification() {
+        revision &+= 1
+        token = ""
+        code = ""
+        verified = false
+    }
+
+    func verify(now: Date = Date()) async {
+        guard canVerify, method == .school || now >= resendAt else { return }
+        isVerifying = true
+        let currentRevision = revision
+        defer { isVerifying = false }
+        do {
+            if method == .school {
+                let proof = try await service.verifyRegistrationIdentity(studentID: account, password: schoolPassword)
+                try Task.checkCancellation()
+                guard revision == currentRevision else { return }
+                guard !proof.token.isEmpty, !proof.code.isEmpty else { throw LoginServiceError.invalidServerResponse }
+                token = proof.token
+                code = proof.code
+                verified = true
+            } else {
+                let mailToken = try await service.sendRegistrationEmail(studentID: account)
+                try Task.checkCancellation()
+                guard revision == currentRevision else { return }
+                guard !mailToken.isEmpty else { throw LoginServiceError.invalidServerResponse }
+                token = mailToken
+                resendAt = Date().addingTimeInterval(60)
+            }
+        } catch {
+            if revision == currentRevision && !TaskCancellation.matches(error) {
+                alert = AppAlert(title: "身份验证失败", message: error.localizedDescription)
+            }
+        }
+    }
+
+    func submit() async {
+        guard canSubmit else { return }
+        isSubmitting = true
+        defer { isSubmitting = false }
+        do {
+            try await service.registerAccount(studentID: account, password: password, token: token, code: code,
+                schoolPassword: method == .school ? schoolPassword : nil)
+            password = ""
+            confirmation = ""
+            schoolPassword = ""
+            invalidateVerification()
+        } catch {
+            if !TaskCancellation.matches(error) {
+                alert = AppAlert(title: "注册或重置失败", message: error.localizedDescription)
+            }
+        }
     }
 }

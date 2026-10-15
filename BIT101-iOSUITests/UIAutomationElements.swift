@@ -38,6 +38,12 @@ nonisolated final class UITestControlReply: Sendable {
 
 @MainActor
 enum UITestControlClient {
+    static var port: UInt16 {
+        guard let device = ProcessInfo.processInfo.environment["SIMULATOR_UDID"],
+              let suffix = UInt16(device.suffix(4), radix: 16) else { return 19101 }
+        return 20000 + suffix % 40000
+    }
+
     static func activate(_ parameters: [String: String], element: XCUIElement) {
         let started = ProcessInfo.processInfo.systemUptime
         let result = request(parameters.merging(["command": "activate"]) { _, command in command }, timeout: 5)
@@ -52,7 +58,8 @@ enum UITestControlClient {
     }
 
     static func request(_ parameters: [String: String], timeout: TimeInterval = 10) -> String? {
-        let connection = NWConnection(host: "127.0.0.1", port: 19101, using: .tcp)
+        guard let endpointPort = NWEndpoint.Port(rawValue: port) else { XCTFail("UI 通道端口需要有效。"); return nil }
+        let connection = NWConnection(host: "127.0.0.1", port: endpointPort, using: .tcp)
         let response = UITestControlReply()
         let received = XCTestExpectation(description: "本机 UI 操作")
         let payload: Data

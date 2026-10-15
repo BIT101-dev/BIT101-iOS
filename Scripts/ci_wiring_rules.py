@@ -176,7 +176,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
         if name not in {'ios-tests', 'ios-test-shards'} and not any(command_matches(command, "python3 Scripts/validation_evidence.py summary --recorded-environment")
                 for command, _ in run_commands(job, include_always=True)):
             errors.append(f".github/workflows/ci.yml: {name} 的证据汇总需要采用记录环境")
-        expected_dependencies = 'ios-test-shards' if name == 'ios-tests' else []
+        expected_dependencies = 'ios-test-shards' if name == 'ios-tests' else 'release-build' if name == 'static-audit' else []
         if job.get('needs', []) != expected_dependencies:
             errors.append(f'.github/workflows/ci.yml: {name} 需要按独立执行与最终汇总的依赖图运行')
     static_commands = commands.get("static-audit", [])
@@ -246,14 +246,15 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
                 or any('BIT101_SIMULATOR_AUTHORIZED' in mapping(step.get('env'))
                     for step in job.get('steps', []) if isinstance(step, dict)):
             errors.append('.github/workflows/ci.yml: 完整模拟器 CI 需要统一显式授权标记')
-    from validation_coverage import SIMULATOR_SHARDS
-    expected_matrix = [{'mode': 'app' if group == 'all' else group, 'shard': index, 'count': count}
+    from validation_coverage import SIMULATOR_SHARDS, SIMULATOR_WORKERS
+    expected_matrix = [{'mode': 'app' if group == 'all' else group, 'shard': index, 'count': count, 'workers': SIMULATOR_WORKERS['app' if group == 'all' else group]}
         for group, count in SIMULATOR_SHARDS.items() for index in range(count)]
     strategy = mapping(shard_job.get('strategy'))
     actual_matrix = mapping(strategy.get('matrix')).get('include', [])
     canonical = lambda rows: sorted(json.dumps(row, sort_keys=True) for row in rows)
-    if strategy.get('fail-fast') is not False or canonical(actual_matrix) != canonical(expected_matrix) \
-            or mapping(shard_job.get('env')).get('BIT101_CI_SHARD') != '${{ matrix.shard }}/${{ matrix.count }}':
+    if strategy.get('max-parallel') != 3 or strategy.get('fail-fast') is not False or canonical(actual_matrix) != canonical(expected_matrix) \
+            or mapping(shard_job.get('env')).get('BIT101_CI_SHARD') != '${{ matrix.shard }}/${{ matrix.count }}' \
+            or mapping(shard_job.get('env')).get('BIT101_SIMULATOR_WORKERS') != '${{ matrix.workers }}':
         errors.append('.github/workflows/ci.yml: 模拟器完整 UI 库存需要精确分片、全部执行及统一身份')
     for job, groups in (('static-audit', ('audit', 'modules')),
             ('release-build', ('all', 'build-archive', 'ui', 'network', 'icloud')),
@@ -498,9 +499,10 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
     downgraded_release = workflow_source.replace('  release-acceptance:\n', '  release-acceptance:\n    continue-on-error: true\n')
     if not ci_wiring_findings(downgraded_release):
         findings.append('代码质量规则边界自检失败：发布验收的失败传播')
-    for job in ('release-build', 'catalyst-tests', 'ios-test-shards'):
+    for job in ('release-build', 'ios-test-shards'):
         serialized = workflow_source.replace('  ' + job + ':\n', '  ' + job + ':\n    needs: static-audit\n', 1)
         assert any('依赖图' in item for item in ci_wiring_findings(serialized))
+    assert any('依赖图' in row for row in ci_wiring_findings(workflow_source.replace('  static-audit:\n    needs: release-build', '  static-audit:')))
     detached = workflow_source.replace('needs: ios-test-shards', 'needs: []', 1)
     assert any('依赖图' in item for item in ci_wiring_findings(detached))
     misplaced_audit = workflow_source.replace("run: Scripts/run-static-audit.sh", "run: echo skipped", 1)
@@ -525,7 +527,7 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
             findings.append('代码质量规则边界自检失败：完整模拟器合并验收与发布真机分支')
     for before, after in (('run: Scripts/run-extended-tests.sh simulator "${{ matrix.mode }}"', 'run: true'),
             ('run: Scripts/run-extended-tests.sh simulator merge', 'run: true'),
-            ('fail-fast: false', 'fail-fast: true'), ('{mode: ui, shard: 3, count: 4}', '{mode: ui, shard: 2, count: 4}'),
+            ('fail-fast: false', 'fail-fast: true'), ('max-parallel: 3', 'max-parallel: 4'), ('{mode: ui, shard: 0, count: 1, workers: 3}', '{mode: ui, shard: 0, count: 1, workers: 1}'),
             ('BIT101_CI_SHARD: ${{ matrix.shard }}/${{ matrix.count }}', 'BIT101_CI_SHARD: 0/1')):
         assert ci_wiring_findings(workflow_source.replace(before, after)), before
     for before, after in (('Scripts/build-install-device.sh toolchain', 'Scripts/build-install-device.sh  toolchain'),

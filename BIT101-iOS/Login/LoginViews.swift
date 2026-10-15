@@ -37,17 +37,20 @@ private struct LoginFormView: View {
     var body: some View {
         Form {
             Section {
+                Picker("登录方式", selection: $viewModel.method) {
+                    ForEach(LoginMethod.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                }
+                .accessibilityIdentifier("login.method")
+                .appSelectionFeedback(trigger: viewModel.method)
+                .appInteractiveListRow()
+                .onChange(of: viewModel.method) { _, _ in viewModel.password = "" }
                 // 学号输入完成后将焦点移到密码框，减少一次手动点按。
                 TextField("", text: $viewModel.studentID, prompt: AppInputPrompt.text("学号"))
                     // 学号输入框使用可显示 QuickType 的键盘；聚焦学号框时系统提供凭据建议。
                     .keyboardType(.asciiCapable)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
-#if BIT101_UI_TESTING
-                    .textContentType(AppFileDirectories.isRunningUITest ? .oneTimeCode : .username)
-#else
-                    .textContentType(.username)
-#endif
+                    .textContentType(loginContentType(.username))
                     .submitLabel(.next)
                     .focused($focusedField, equals: .studentID)
                     .accessibilityLabel("学号")
@@ -62,15 +65,11 @@ private struct LoginFormView: View {
                 SecureField("", text: $viewModel.password, prompt: AppInputPrompt.text("密码"))
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
-#if BIT101_UI_TESTING
-                    .textContentType(AppFileDirectories.isRunningUITest ? .oneTimeCode : .password)
-#else
-                    .textContentType(.password)
-#endif
+                    .textContentType(loginContentType(.password))
                     .submitLabel(.go)
                     .focused($focusedField, equals: .password)
                     .accessibilityLabel("密码")
-                    .accessibilityHint("输入学校统一身份认证密码")
+                    .accessibilityHint(viewModel.method == .school ? "输入学校统一身份认证密码" : "输入 BIT101 账号密码")
                     .accessibilityIdentifier("login.password")
                     .onSubmit {
                     interactionEvidence?("interaction.LoginFormView.onSubmit.password", "submit")
@@ -104,6 +103,16 @@ private struct LoginFormView: View {
                 .disabled(!viewModel.canSubmit)
                 .appInteractiveListRow()
             }
+
+            Section {
+                NavigationLink {
+                    AccountRegistrationView(studentID: viewModel.studentID)
+                } label: {
+                    Text("注册或重置密码")
+                }
+                .accessibilityIdentifier("login.register")
+                .appInteractiveListRow()
+            }
         }
         .navigationTitle("登录")
         .navigationBarTitleDisplayMode(.inline)
@@ -128,10 +137,122 @@ private struct LoginFormView: View {
     }
 }
 
+private struct AccountRegistrationView: View {
+    @StateObject private var viewModel: AccountRegistrationViewModel
+    @FocusState private var focusedField: Field?
+    private enum Field: Hashable { case studentID, password, confirmation, schoolPassword, code }
+
+    init(studentID: String) {
+        _viewModel = StateObject(wrappedValue: AccountRegistrationViewModel(studentID: studentID))
+    }
+
+    var body: some View {
+        Form {
+            Section {
+                TextField("", text: $viewModel.studentID, prompt: AppInputPrompt.text("学号"))
+                    .keyboardType(.asciiCapable)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .textContentType(loginContentType(.username))
+                    .focused($focusedField, equals: .studentID)
+                    .accessibilityLabel("学号")
+                    .accessibilityIdentifier("registration.student-id")
+                SecureField("", text: $viewModel.password, prompt: AppInputPrompt.text("BIT101 新密码"))
+                    .textContentType(loginContentType(.newPassword))
+                    .focused($focusedField, equals: .password)
+                    .accessibilityLabel("BIT101 新密码")
+                    .accessibilityIdentifier("registration.password")
+                SecureField("", text: $viewModel.confirmation, prompt: AppInputPrompt.text("确认密码"))
+                    .textContentType(loginContentType(.newPassword))
+                    .focused($focusedField, equals: .confirmation)
+                    .accessibilityLabel("确认密码")
+                    .accessibilityIdentifier("registration.confirmation")
+            } footer: {
+                Text("设置至少 8 位的 BIT101 密码，用于 App 和网页端登录。已有账号完成验证后将重置密码。")
+            }
+
+            Section {
+                Picker("验证方式", selection: $viewModel.method) {
+                    ForEach(RegistrationVerificationMethod.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                }
+                .accessibilityIdentifier("registration.method")
+                .appSelectionFeedback(trigger: viewModel.method)
+                .appInteractiveListRow()
+                if viewModel.method == .school {
+                    SecureField("", text: $viewModel.schoolPassword, prompt: AppInputPrompt.text("学校统一身份认证密码"))
+                        .textContentType(loginContentType(.password))
+                        .focused($focusedField, equals: .schoolPassword)
+                        .accessibilityLabel("学校统一身份认证密码")
+                        .accessibilityIdentifier("registration.school-password")
+                    if viewModel.verified {
+                        Label("身份验证成功", systemImage: "checkmark.circle")
+                            .foregroundStyle(AppDesignSystem.Palette.Status.success)
+                    }
+                    Button("验证身份") { verify() }
+                        .disabled(!viewModel.canVerify || viewModel.verified)
+                        .accessibilityIdentifier("registration.verify")
+                        .appInteractiveListRow()
+                } else {
+                    TextField("", text: $viewModel.code, prompt: AppInputPrompt.text("6 位验证码"))
+                        .keyboardType(.numberPad)
+                        .textContentType(.oneTimeCode)
+                        .focused($focusedField, equals: .code)
+                        .accessibilityLabel("6 位验证码")
+                        .accessibilityIdentifier("registration.code")
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        let remaining = max(0, Int(ceil(viewModel.resendAt.timeIntervalSince(context.date))))
+                        Button(remaining > 0 ? "\(remaining) 秒后重新发送" : "发送验证码") { verify() }
+                            .disabled(!viewModel.canVerify || remaining > 0)
+                            .accessibilityIdentifier("registration.send-code")
+                            .appInteractiveListRow()
+                    }
+                }
+                if viewModel.isVerifying { AppInlineLoadingState("正在验证") }
+            } footer: {
+                if viewModel.method == .email {
+                    Text("验证码将发送至 \(viewModel.account)@bit.edu.cn。课表等学校服务需使用统一身份认证登录。")
+                }
+            }
+
+            Section {
+                Button {
+                    focusedField = nil
+                    Task { await viewModel.submit() }
+                } label: {
+                    if viewModel.isSubmitting { AppInlineLoadingState("正在提交") }
+                    else { Text("注册或重置并登录") }
+                }
+                .disabled(!viewModel.canSubmit)
+                .appInteractiveListRow()
+                .accessibilityIdentifier("registration.submit")
+            }
+        }
+        .disabled(viewModel.isBusy)
+        .navigationTitle("注册或重置密码")
+        .navigationBarTitleDisplayMode(.inline)
+        .scrollDismissesKeyboard(.interactively)
+        .diagnosticAlert(item: $viewModel.alert)
+    }
+
+    private func verify() {
+        focusedField = nil
+        Task { await viewModel.verify() }
+    }
+}
+
 /// 登录表单里的焦点路由枚举。
 ///
 /// 焦点路由包含学号和密码两项，枚举让焦点切换逻辑保持明确并支持扩展。
 private enum LoginField: Hashable {
     case studentID
     case password
+}
+
+
+private func loginContentType(_ type: UITextContentType) -> UITextContentType {
+#if BIT101_UI_TESTING
+    return AppFileDirectories.isRunningUITest ? .oneTimeCode : type
+#else
+    return type
+#endif
 }

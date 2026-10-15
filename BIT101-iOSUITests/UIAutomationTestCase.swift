@@ -318,10 +318,11 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             let done = app.buttons["keyboard.dismiss"]
             assertUI(done.appears(timeout: 5), "系统键盘应呈现完成按钮。")
             assertUI(waitUntil(NSPredicate { [self] _, _ in
-                let bounds = done.frame, keyboard = app.keyboards.firstMatch.frame
-                return !bounds.isEmpty && !keyboard.isEmpty && bounds.maxY <= keyboard.minY
-                    && keyboard.maxY <= app.frame.maxY
-            }, on: done, timeout: 5), "键盘完成按钮应位于系统键盘上方。")
+                let bounds = done.native.frame, window = app.native.frame
+                let keyboard = app.keyboards.firstMatch.native.frame.intersection(window)
+                return !bounds.isEmpty && window.contains(bounds)
+                    && (keyboard.isNull || keyboard.isEmpty || bounds.maxY <= keyboard.minY)
+            }, on: done, timeout: 5), "完成按钮应位于可见键盘上方或硬件键盘附件区。")
             done.tapVisibleCenter()
             assertUI(app.keyboards.firstMatch.disappears(timeout: 5), "原生完成按钮应关闭系统键盘。")
             return
@@ -711,6 +712,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         application.launchEnvironment["BIT101_UI_TEST_LARGE_TEXT"] = accessibilityTextSize ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_STYLE"] = userInterfaceStyle
         application.launchEnvironment["BIT101_UI_TESTING"] = "1"
+        application.launchEnvironment["BIT101_UI_TEST_CONTROL_PORT"] = String(UITestControlClient.port)
         application.launchEnvironment["BIT101_UI_TEST_CASE"] = name
         application.launchEnvironment["BIT101_UI_TEST_TAB"] = initialTab
         application.launchEnvironment["BIT101_UI_TEST_SETTINGS"] = initialSettings

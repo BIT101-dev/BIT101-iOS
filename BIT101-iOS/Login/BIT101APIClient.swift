@@ -65,6 +65,15 @@ struct RegisterResponse: Decodable {
     let fakeCookie: String
 }
 
+struct MailVerifyResponse: Decodable {
+    let token: String
+}
+
+struct CommunityLoginRequest: Encodable {
+    let sid: String
+    let password: String
+}
+
 /// 登录相关的网络客户端。
 ///
 /// 既负责学校 CAS，也负责 BIT101 自己的 `webvpn_verify` / `register` 接口。
@@ -294,8 +303,22 @@ struct BIT101APIClient {
             || normalized.contains("password") && normalized.contains("invalid")
     }
 
-    /// 使用“登录模式”完成 BIT101 自身注册/登录。
-    func register(password: String, token: String, code: String) async throws -> RegisterResponse {
+    func mailVerify(studentID: String) async throws -> MailVerifyResponse {
+        try await sendJSONRequest(url: bit101BaseURL.appending(path: "user/mail_verify"), method: "POST",
+            body: WebVPNVerifyInitRequest(sid: studentID))
+    }
+
+    func loginCommunity(studentID: String, passwordDigest: String) async throws -> RegisterResponse {
+        do {
+            return try await sendJSONRequest(url: bit101BaseURL.appending(path: "user/login"), method: "POST",
+                body: CommunityLoginRequest(sid: studentID, password: passwordDigest))
+        } catch let error as LoginServerResponseError where error.indicatesCredentialFailure {
+            throw LoginServiceError.invalidCredentials
+        }
+    }
+
+    /// 登录模式保留已有密码，注册或重置模式保存用户设置的密码。
+    func register(password: String, token: String, code: String, loginMode: Bool = true) async throws -> RegisterResponse {
         try await sendJSONRequest(
             url: bit101BaseURL.appending(path: "user/register"),
             method: "POST",
@@ -303,7 +326,7 @@ struct BIT101APIClient {
                 password: password,
                 token: token,
                 code: code,
-                loginMode: true
+                loginMode: loginMode
             )
         )
     }

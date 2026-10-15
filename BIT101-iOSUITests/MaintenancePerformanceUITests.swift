@@ -7,6 +7,7 @@ nonisolated final class MaintenancePerformanceUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-testing", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
         app.launchEnvironment = [
+            "BIT101_UI_TEST_CONTROL_PORT": String(UITestControlClient.port),
             "BIT101_UI_TESTING": "1", "BIT101_UI_TEST_CASE": name,
             "BIT101_UI_TEST_RUN_ID": "ui", "BIT101_UI_TEST_RESET_STORAGE": "1",
             "BIT101_UI_TEST_ACCOUNT": "ui-test-student", "BIT101_UI_TEST_TAB": "schedule",

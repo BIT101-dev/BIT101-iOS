@@ -2,7 +2,8 @@
 from pathlib import Path
 
 COVERAGE_GROUPS = frozenset({'modules', 'all', 'ui', 'catalyst', 'catalyst-release-runtime'})
-SIMULATOR_SHARDS = {'all': 2, 'ui': 4, 'release-runtime': 1}
+SIMULATOR_SHARDS = {'all': 1, 'ui': 1, 'release-runtime': 1}
+SIMULATOR_WORKERS = {'app': 2, 'ui': 3, 'release-runtime': 2}
 
 
 def shard_inventory(group: str, index: int, count: int) -> list[str]:
@@ -102,9 +103,9 @@ def self_test() -> None:
     assert not regressions({'Feature': {'coveredLines': 801, 'executableLines': 1001}}, {'Feature': 80})
     from unittest.mock import patch
     with patch('validation_test_areas.test_inventory', return_value={'a', 'b', 'c', 'd', 'e'}):
-        parts = [shard_inventory('ui', index, 4) for index in range(4)]
+        parts = [shard_inventory('ui', 0, 1)]
         assert sorted(test for part in parts for test in part) == ['a', 'b', 'c', 'd', 'e']
-        for index, count in ((-1, 4), (4, 4), (0, 3)):
+        for index, count in ((-1, 1), (1, 1), (0, 3)):
             try: shard_inventory('ui', index, count)
             except ValueError: pass
             else: raise AssertionError('分片边界及登记数量需要严格匹配。')

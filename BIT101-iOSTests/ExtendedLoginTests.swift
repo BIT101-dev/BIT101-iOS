@@ -49,6 +49,10 @@ struct ExtendedLoginTests {
             return try loginResult.get()
         }
 
+        func loginCommunity(studentID: String, password: String) async throws -> String {
+            try await login(studentID: studentID, password: password)
+        }
+
         func logout() {}
     }
 
@@ -641,5 +645,142 @@ struct LoginStorageTests {
             #expect(model.screenState == .signedIn(studentID: "A"))
             #expect(reopened.fakeCookie == "cookie-A" && reopened.credentialReadIssue == nil)
         }
+    }
+}
+
+
+extension LoginStorageTests {
+    private final class RegistrationResponses: HTTPTransport {
+        var requests: [(String, [String: Any])] = []
+        var registerStatus = 200
+        var beforeResponse: (() async -> Void)?
+        func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+            let url = try #require(request.url)
+            let payload = try JSONSerialization.jsonObject(with: #require(request.httpBody)) as? [String: Any] ?? [:]
+            requests.append((url.path, payload))
+            await beforeResponse?()
+            let body: String
+            switch url.path {
+            case "/user/mail_verify": body = #"{"token":"mail-proof"}"#
+            case "/user/webvpn_verify_init":
+                body = #"{"salt":"AAAAAAAAAAAAAAAAAAAAAA==","cookie":"fixture","execution":"fixture","captcha":""}"#
+            case "/user/webvpn_verify": body = #"{"token":"school-proof","code":"123456"}"#
+            case "/user/register", "/user/login": body = #"{"fake_cookie":"registered-cookie"}"#
+            default: throw URLError(.unsupportedURL)
+            }
+            return (Data(body.utf8), try #require(HTTPURLResponse(url: url,
+                statusCode: url.path == "/user/register" ? registerStatus : 200, httpVersion: nil, headerFields: nil)))
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [RegistrationVerificationMethod.school, .email])
+    func registrationAndResetUseTheVerifiedIdentityAndKeepSchoolCredentialsSeparate(method: RegistrationVerificationMethod) async throws {
+        let defaults = try #require(UserDefaults(suiteName: "BIT101Tests.registration"))
+        defer { defaults.removePersistentDomain(forName: "BIT101Tests.registration") }
+        let credentials = Credentials()
+        let storage = LoginStorage(defaults: defaults, credentials: credentials, clearSchoolCookies: {})
+        let transport = RegistrationResponses(), http = HTTPClient(transport: transport, observer: nil)
+        let service = LoginService(storage: storage, apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http))
+        let model = AccountRegistrationViewModel(studentID: " 1120260001 ", service: service)
+        model.password = "community-password"; model.confirmation = model.password
+        model.method = method; model.schoolPassword = "school-password"
+        #expect(model.canVerify && !model.canSubmit)
+        await model.verify()
+        if method == .email {
+            #expect(model.resendAt > Date() && !model.canSubmit)
+            await model.verify()
+            #expect(transport.requests.count == 1)
+            model.code = "１２３４５６"
+            #expect(!model.canSubmit)
+            model.code = "123456"
+        } else { #expect(model.verified) }
+        model.confirmation = "different"
+        #expect(!model.canSubmit)
+        model.confirmation = model.password
+        #expect(model.canSubmit)
+        await model.submit()
+        #expect(model.alert == nil && model.password.isEmpty && model.schoolPassword.isEmpty)
+        let request = try #require(transport.requests.last)
+        #expect(request.0 == "/user/register")
+        #expect(request.1["login_mode"] as? Bool == false)
+        #expect(request.1["password"] as? String == LoginCrypto.md5Hex("community-password"))
+        #expect(request.1["token"] as? String == (method == .school ? "school-proof" : "mail-proof"))
+        #expect(request.1["code"] as? String == "123456")
+        #expect(storage.currentStudentID == "1120260001" && storage.fakeCookie == "registered-cookie")
+        #expect(storage.currentPassword == (method == .school ? "school-password" : ""))
+        #expect(try storage.loadCredentials()?.password == (method == .school ? "school-password" : nil))
+        let reopened = LoginStorage(defaults: defaults, credentials: credentials, clearSchoolCookies: {})
+        #expect(try reopened.loadCommunityPasswordDigest() == LoginCrypto.md5Hex("community-password"))
+        let reopenedService = LoginService(storage: reopened, apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http))
+        try await reopenedService.renewCommunitySession(expectedIdentity: reopened.communityCredentials.identity)
+        #expect(transport.requests.last?.0 == "/user/login")
+        #expect(transport.requests.last?.1["password"] as? String == LoginCrypto.md5Hex("community-password"))
+        reopened.clearSession()
+        #expect(try reopened.loadCommunityPasswordDigest() == nil && reopened.loadCredentials() == nil)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func communityPasswordLoginRetainsSchoolCredentialsForTheirAccount() async throws {
+        let defaults = try #require(UserDefaults(suiteName: "BIT101Tests.community-password"))
+        defer { defaults.removePersistentDomain(forName: "BIT101Tests.community-password") }
+        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: {})
+        try storage.saveLoginState(studentID: "A", password: "school-password", fakeCookie: "old-cookie")
+        let transport = RegistrationResponses(), http = HTTPClient(transport: transport, observer: nil)
+        let service = LoginService(storage: storage, apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http))
+        let model = LoginViewModel(service: service)
+        model.studentID = "A"; model.password = "community-password"; model.method = .community
+        await model.login()
+        #expect(model.screenState == .signedIn(studentID: "A"))
+        #expect(storage.currentPassword == "school-password")
+        _ = try await service.loginCommunity(studentID: "B", password: "another-password")
+        #expect(storage.currentPassword.isEmpty && storage.currentStudentID == "B")
+        #expect(try storage.loadCommunityPasswordDigest() == LoginCrypto.md5Hex("another-password"))
+        #expect(transport.requests.map(\.0) == ["/user/login", "/user/login"])
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func registrationProofsFollowTheirAccountAndVerificationMethod() async throws {
+        let defaults = try #require(UserDefaults(suiteName: "BIT101Tests.registration-proof"))
+        defer { defaults.removePersistentDomain(forName: "BIT101Tests.registration-proof") }
+        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: {})
+        let transport = RegistrationResponses(), http = HTTPClient(transport: transport, observer: nil)
+        let service = LoginService(storage: storage, apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http))
+        let model = AccountRegistrationViewModel(studentID: "A", service: service)
+        model.password = "community-password"; model.confirmation = model.password; model.schoolPassword = "school-password"
+        await model.verify()
+        #expect(model.canSubmit)
+        model.studentID = "B"
+        #expect(!model.canSubmit && !model.verified)
+        await model.verify()
+        model.schoolPassword = "changed-password"
+        #expect(!model.canSubmit && !model.verified)
+        model.method = .email
+        var pending: CheckedContinuation<Void, Never>?
+        transport.beforeResponse = { await withCheckedContinuation { pending = $0 } }
+        let operation = Task { await model.verify() }
+        try await waitForTestEvent { !(pending == nil) }
+        model.studentID = "C"
+        pending?.resume(); await operation.value
+        model.code = "123456"
+        #expect(!model.canSubmit && model.alert == nil)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func failedOrSupersededRegistrationKeepsTheCurrentSession(superseded: Bool) async throws {
+        let defaults = try #require(UserDefaults(suiteName: "BIT101Tests.registration-session"))
+        defer { defaults.removePersistentDomain(forName: "BIT101Tests.registration-session") }
+        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: {})
+        try storage.saveLoginState(studentID: "A", password: "school", fakeCookie: "old-cookie")
+        let transport = RegistrationResponses(), http = HTTPClient(transport: transport, observer: nil)
+        let service = LoginService(storage: storage, apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http))
+        if superseded {
+            transport.beforeResponse = { try? storage.saveLoginState(studentID: "B", password: "school-B", fakeCookie: "new-cookie") }
+        } else { transport.registerStatus = 400 }
+        do {
+            try await service.registerAccount(studentID: "A", password: "community-password", token: "proof", code: "123456", schoolPassword: nil)
+            Issue.record("A failed or superseded response must preserve the active session")
+        } catch { #expect(TaskCancellation.matches(error) == superseded) }
+        #expect(storage.fakeCookie == (superseded ? "new-cookie" : "old-cookie"))
+        #expect(try storage.loadCommunityPasswordDigest() == nil)
     }
 }

@@ -150,9 +150,60 @@ struct LoginService {
         return normalizedStudentID
     }
 
+    func loginCommunity(studentID: String, password: String) async throws -> String {
+        let account = studentID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !account.isEmpty, !password.isEmpty else { throw LoginServiceError.invalidCredentials }
+        let identity = storage.communityCredentials.identity
+        let digest = LoginCrypto.md5Hex(password)
+        let response = try await apiClient.loginCommunity(studentID: account, passwordDigest: digest)
+        try Task.checkCancellation()
+        guard storage.communityCredentials.identity == identity else { throw CancellationError() }
+        let schoolPassword = storage.currentStudentID == account ? storage.currentPassword : ""
+        try storage.saveLoginState(studentID: account, password: schoolPassword, fakeCookie: response.fakeCookie,
+            communityPasswordDigest: digest)
+        return account
+    }
+
+    func sendRegistrationEmail(studentID: String) async throws -> String {
+        let response = try await apiClient.mailVerify(studentID: studentID)
+        guard !response.token.isEmpty else { throw LoginServiceError.invalidServerResponse }
+        return response.token
+    }
+
+    func verifyRegistrationIdentity(studentID: String, password: String) async throws -> WebVPNVerifyResponse {
+        let context = try await apiClient.webVPNVerifyInit(studentID: studentID)
+        return try await apiClient.webVPNVerify(studentID: studentID,
+            password: LoginCrypto.encryptPassword(password, saltBase64: context.salt),
+            execution: context.execution, cookie: context.cookie, salt: context.salt)
+    }
+
+    func registerAccount(studentID: String, password: String, token: String, code: String, schoolPassword: String?) async throws {
+        let identity = storage.communityCredentials.identity
+        let digest = LoginCrypto.md5Hex(password)
+        let response = try await apiClient.register(password: digest, token: token, code: code, loginMode: false)
+        try Task.checkCancellation()
+        guard storage.communityCredentials.identity == identity else { throw CancellationError() }
+        let savedSchoolPassword = schoolPassword ?? (storage.currentStudentID == studentID ? storage.currentPassword : "")
+        try storage.saveLoginState(studentID: studentID, password: savedSchoolPassword, fakeCookie: response.fakeCookie,
+            communityPasswordDigest: digest)
+    }
+
     /// 认证恢复在保存前核对账号归属，网络和取消错误沿原语义返回。
     func renewCommunitySession(expectedIdentity: CommunitySessionIdentity) async throws {
         guard storage.communityCredentials.identity == expectedIdentity else { throw CancellationError() }
+        if let digest = try storage.loadCommunityPasswordDigest() {
+            let account = storage.currentStudentID
+            let response: RegisterResponse
+            do { response = try await apiClient.loginCommunity(studentID: account, passwordDigest: digest) }
+            catch let error as LoginServiceError where error.isCredentialFailure {
+                throw CommunitySessionRestorationError.credentialsRejected
+            }
+            try Task.checkCancellation()
+            guard storage.communityCredentials.identity == expectedIdentity else { throw CancellationError() }
+            try storage.saveLoginState(studentID: account, password: storage.currentPassword,
+                fakeCookie: response.fakeCookie, communityPasswordDigest: digest)
+            return
+        }
         guard let credentials = try storage.loadCredentials() else {
             throw CommunitySessionRestorationError.credentialsRejected
         }

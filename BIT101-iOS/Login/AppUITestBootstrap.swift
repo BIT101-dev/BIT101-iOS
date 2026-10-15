@@ -21,7 +21,9 @@ nonisolated final class UITestControlServer: Sendable {
 
     init(handle: @escaping @Sendable (Data, @escaping @Sendable (Data) -> Void) -> Void) throws {
         let parameters = NWParameters.tcp
-        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: 19101)
+        guard let rawPort = ProcessInfo.processInfo.environment["BIT101_UI_TEST_CONTROL_PORT"].flatMap(UInt16.init),
+              let port = NWEndpoint.Port(rawValue: rawPort) else { throw URLError(.badURL) }
+        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: port)
         listener = try NWListener(using: parameters)
         listener.newConnectionHandler = { [queue] connection in
             connection.start(queue: queue)

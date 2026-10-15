@@ -338,10 +338,10 @@ struct FeatureCompositionTests {
         window.makeKeyAndVisible()
         defer { window.isHidden = true; window.rootViewController = nil }
         window.layoutIfNeeded()
-        await withCheckedContinuation { continuation in
-            DispatchQueue.main.async { continuation.resume() }
-        }
+        await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
         try await operation()
+        await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+        window.layoutIfNeeded()
     }
 
     @Test(.timeLimit(.minutes(1)))

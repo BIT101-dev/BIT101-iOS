@@ -39,6 +39,7 @@ final class LoginStorage: SchoolCredentialsProviding {
         var studentID: String
         var password: String
         var fakeCookie: String
+        var communityPasswordDigest: String? = nil
     }
 
     private let defaults: UserDefaults
@@ -113,6 +114,12 @@ final class LoginStorage: SchoolCredentialsProviding {
         return StoredCredentials(studentID: studentID, password: password)
     }
 
+    func loadCommunityPasswordDigest() throws -> String? {
+        guard defaults.object(forKey: DefaultsKey.revokedSession) == nil else { return nil }
+        if sessionReadError != nil { try restoreSession() }
+        return session.communityPasswordDigest
+    }
+
     func retrySessionReadIfNeeded() {
         guard sessionReadError != nil, defaults.object(forKey: DefaultsKey.revokedSession) == nil else { return }
         do { try restoreSession() }
@@ -123,10 +130,11 @@ final class LoginStorage: SchoolCredentialsProviding {
     ///
     /// 这里保存可长期复用的账号密码和当前 fake-cookie。
     /// 应用重启后可以直接进入主界面，并在需要时于后台静默重登学校 SSO。
-    func saveLoginState(studentID: String, password: String, fakeCookie: String) throws {
+    func saveLoginState(studentID: String, password: String, fakeCookie: String, communityPasswordDigest: String? = nil) throws {
         let normalizedStudentID = studentID.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedFakeCookie = fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedStudentID.isEmpty, !password.isEmpty else {
+        let digest = communityPasswordDigest ?? (currentStudentID == normalizedStudentID ? session.communityPasswordDigest : nil)
+        guard !normalizedStudentID.isEmpty, !password.isEmpty || digest?.isEmpty == false else {
             throw LoginServiceError.invalidCredentials
         }
         guard !normalizedFakeCookie.isEmpty else {
@@ -134,7 +142,8 @@ final class LoginStorage: SchoolCredentialsProviding {
         }
 
         let accountChanged = currentStudentID != normalizedStudentID || self.fakeCookie.isEmpty
-        try saveSession(Session(studentID: normalizedStudentID, password: password, fakeCookie: normalizedFakeCookie))
+        try saveSession(Session(studentID: normalizedStudentID, password: password, fakeCookie: normalizedFakeCookie,
+            communityPasswordDigest: digest))
         defaults.set(true, forKey: DefaultsKey.installationMarker)
         defaults.removeObject(forKey: DefaultsKey.revokedSession)
         defaults.removeObject(forKey: DefaultsKey.fakeCookie)
@@ -252,6 +261,7 @@ final class LoginStorage: SchoolCredentialsProviding {
             if defaults.object(forKey: DefaultsKey.revokedSession) != nil {
                 session.password = ""
                 session.fakeCookie = ""
+                session.communityPasswordDigest = nil
             }
             sessionReadError = nil
             if publishChange, previousAccount != currentStudentID {
