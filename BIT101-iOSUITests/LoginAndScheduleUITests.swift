@@ -204,7 +204,12 @@ nonisolated final class ScheduleLayoutUITests: UIAutomationTestCase {
         submit.assertDisabled("空凭据应禁用登录。")
         XCTAssertEqual(Set(try checkedDisabledControls()).subtracting(previousChecks).count, 1,
                        "成功的禁用断言应登记当前控件。")
+        XCTAssertTrue(["native", "input focus missing"].contains(app.textFields["login.student-id"].insertText("待聚焦输入") ?? ""))
+        XCTAssertEqual(app.textFields["login.student-id"].value as? String, "", "输入写入应由当前实际焦点承接。")
         replaceTextWithKeyboard("20230001", in: app.textFields["login.student-id"])
+        XCTAssertEqual(app.textFields["login.student-id"].insertText("20230002"), "entered")
+        XCTAssertEqual(app.textFields["login.student-id"].value as? String, "20230002")
+        XCTAssertEqual(app.textFields["login.student-id"].insertText("20230001"), "entered")
         replaceTextWithKeyboard("fixture-password", in: app.secureTextFields["login.password"])
         dismissKeyboard()
         XCTAssertTrue(submit.isEnabled)

@@ -93,15 +93,17 @@ def simulator_restore_findings(simulator_source: str) -> list[str]:
     for original, restore_result in ((0, 0), (7, 0), (0, 9), (7, 9)):
         stub = f'python3() {{ print digest; }}\nbit101_run_logged() {{ print RESTORE; if [[ "$2" == "常规模拟器包编译" && " $* " != *" ENABLE_TESTABILITY=YES "* ]]; then return 64; fi; return {restore_result}; }}\n'
         result = subprocess.run(['zsh', '-c', stub + restoration + '\ntrap restore_on_exit EXIT\nexit "$1"',
-            'simulator-restore-test', str(original)], env=dict(os.environ, GITHUB_ACTIONS='false'), capture_output=True, text=True)
+            'simulator-restore-test', str(original)], env=dict(os.environ, GITHUB_ACTIONS='false', BIT101_DEFER_APP_RESTORE='0'), capture_output=True, text=True)
         if result.returncode != (original or restore_result) or result.stdout.count('RESTORE') != (1 if restore_result else 2):
             findings.append('模拟器恢复自测：退出时恢复常规包并保留测试失败状态')
-    for original in (0, 7):
-        result = subprocess.run(['zsh', '-c', 'GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted\n' +
-            'bit101_run_logged() { print UNEXPECTED; return 99; }\n' + restoration +
-            '\ntrap restore_on_exit EXIT\nexit "$1"', 'simulator-hosted-test', str(original)], capture_output=True, text=True)
-        if result.returncode != original or 'UNEXPECTED' in result.stdout:
-            findings.append('托管模拟器退出自测：临时运行器回收并保留测试失败状态')
+    for hosted, deferred in ((True, False), (False, True)):
+        for original in (0, 7):
+            result = subprocess.run(['zsh', '-c', 'bit101_run_logged() { print UNEXPECTED; return 99; }\n' + restoration +
+                '\ntrap restore_on_exit EXIT\nexit "$1"', 'simulator-deferred-test', str(original)],
+                env=dict(os.environ, GITHUB_ACTIONS=str(hosted).lower(), RUNNER_ENVIRONMENT='github-hosted',
+                    BIT101_DEFER_APP_RESTORE='1' if deferred else '0'), capture_output=True, text=True)
+            if result.returncode != original or 'UNEXPECTED' in result.stdout:
+                findings.append('聚合与托管模拟器退出自测：外层恢复或运行器回收并保留测试失败状态')
     restoration_program = simulator_source.split("<<'PYRESTORE'\n", 1)[1].split('\nPYRESTORE', 1)[0]
     from datetime import datetime, timezone
     from types import SimpleNamespace
@@ -180,14 +182,17 @@ def simulator_startup_findings(source: str) -> list[str]:
     for operation in ('app', 'release-runtime', 'ui'):
         commands = []
         with patch.dict(os.environ, DEVELOPER_DIR='/fixture/Xcode.app/Contents/Developer'), \
-                patch.object(sys, 'argv', ['ready', 'device']), \
+                patch.object(sys, 'argv', ['ready', 'device', operation, '/fixture/Build/Products', '/fixture']), \
+                patch('validation_coverage.prepare_simulator_ui') as prepared, \
                 patch.object(Path, 'is_dir', return_value=True), \
                 patch.object(subprocess, 'run', side_effect=lambda command, **kwargs: commands.append(command)):
             exec(compile(ready_program, '<simulator-ready>', 'exec'), {})
         expected = [['open', '-g', '-a', '/fixture/Xcode.app/Contents/Applications/DeviceHub.app'],
             ['defaults', '-container', 'com.apple.dt.Devices', 'write', 'com.apple.dt.Devices', 'alwaysSimulateHardwareKeyboard', '-bool', 'true'],
             ['xcrun', 'simctl', 'bootstatus', 'device', '-b']]
-        if commands != expected or source.index('xcodebuild build-for-testing') > source.index("<<'PYREADY'"):
+        if commands != expected or prepared.call_count != int(operation == 'ui') \
+                or operation == 'ui' and prepared.call_args.args != ('device', Path('/fixture/Build/Products'), Path('/fixture')) \
+                or source.index('xcodebuild build-for-testing') > source.index("<<'PYREADY'"):
             findings.append('模拟器启动自测：编译后依次准备原生键盘与系统就绪')
     return findings
 

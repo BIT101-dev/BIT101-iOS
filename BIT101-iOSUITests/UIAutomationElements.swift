@@ -427,7 +427,6 @@ final class UIElement: NSObject {
         guard let path, let data = try? JSONSerialization.data(withJSONObject: path) else { return "native" }
         return UITestControlClient.request([
             "command": "query-input", "query": String(decoding: data, as: UTF8.self), "text": text,
-            "hittable": isHittable ? "1" : "0",
         ], timeout: 5)
     }
 

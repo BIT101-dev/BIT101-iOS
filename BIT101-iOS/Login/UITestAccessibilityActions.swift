@@ -364,7 +364,7 @@ enum UITestAccessibilityActions {
             return Data("revealed".utf8)
         }
         if parameters["command"] == "query-input" {
-            guard let element = elements.first, parameters["hittable"] == "1",
+            guard let element = elements.first,
                   let frame = element.attributes["frame"] as? [Double] else { return Data("native".utf8) }
             invalidate()
             let response = input(["x": String(frame[0] + frame[2] / 2), "y": String(frame[1] + frame[3] / 2),
@@ -614,6 +614,7 @@ enum UITestAccessibilityActions {
                 while let candidate = view {
                     if candidate is UITextField || candidate is UITextView,
                        let input = candidate as? (UIView & UITextInput) {
+                        guard input.isFirstResponder else { return "input focus missing" }
                         guard let range = input.textRange(from: input.beginningOfDocument, to: input.endOfDocument) else {
                             return "input range missing"
                         }

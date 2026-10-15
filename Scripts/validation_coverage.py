@@ -10,6 +10,43 @@ SIMULATOR_KEYBOARD_TESTS = frozenset({
 })
 
 
+def prepare_simulator_ui(device: str, products: Path, root: Path) -> None:
+    import json
+    import os
+    import socket
+    import subprocess
+    import time
+    app = products / 'Release-iphonesimulator/BIT101-iOS.app'
+    subprocess.run(['xcrun', 'simctl', 'addmedia', device,
+        str(root / 'BIT101-iOS/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png')], check=True)
+    subprocess.run(['xcrun', 'simctl', 'install', device, str(app)], check=True)
+    port = 20000 + int(device[-4:], 16) % 40000
+    environment = dict(os.environ, **{'SIMCTL_CHILD_' + key: value for key, value in {
+        'BIT101_UI_TESTING': '1', 'BIT101_UI_TEST_CONTROL_PORT': str(port),
+        'BIT101_UI_TEST_CASE': 'simulator-bootstrap', 'BIT101_UI_TEST_RUN_ID': 'ui',
+        'BIT101_UI_TEST_RESET_STORAGE': '1',
+    }.items()})
+    subprocess.run(['xcrun', 'simctl', 'launch', '--terminate-running-process', device,
+        'BIT101-dev.BIT101-iOS', '--ui-testing'], env=environment, check=True, stdout=subprocess.DEVNULL)
+    try:
+        request = json.dumps({'command': 'observe'}).encode() + b'\n'
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline:
+            try:
+                with socket.create_connection(('127.0.0.1', port), timeout=1) as connection:
+                    connection.sendall(request)
+                    with connection.makefile('rb') as stream: response = stream.readline().decode().strip()
+                if response == 'simulator-bootstrap / 登录':
+                    break
+            except OSError:
+                pass
+            time.sleep(0.1)
+        else:
+            raise ValueError('完整模拟器初始化需要呈现隔离测试 App 的登录首屏。')
+    finally:
+        subprocess.run(['xcrun', 'simctl', 'terminate', device, 'BIT101-dev.BIT101-iOS'], check=True)
+
+
 def simulator_ui_batches(selections: list[str], workers: int) -> list[tuple[list[str], int]]:
     keyboard = [row for row in selections if row.removeprefix('-only-testing:BIT101-iOSUITests/') in SIMULATOR_KEYBOARD_TESTS]
     remaining = [row for row in selections if row not in keyboard]
@@ -125,6 +162,7 @@ def policy_findings(report: dict, group: str) -> list[str]:
 
 
 def self_test() -> None:
+    simulator_ui_preparation_self_test()
     from validation_policy import workflow_timeout_seconds
     from validation_test_areas import test_inventory
     inventory = sorted(test_inventory('ui'))
@@ -189,3 +227,30 @@ def self_test() -> None:
         try: combined_line_coverage([first, invalid])
         except ValueError: pass
         else: raise AssertionError('覆盖率汇总需要验证源码行身份。')
+
+
+def simulator_ui_preparation_self_test() -> None:
+    import io
+    import json
+    from unittest.mock import patch
+    for response, expected in (('simulator-bootstrap / 登录', True), ('', False),
+            ('another scene / 登录', False), ('simulator-bootstrap / 日程', False)):
+        with patch('socket.create_connection') as connect, patch('subprocess.run') as run, \
+                patch('time.monotonic', side_effect=[0, 0, 61]), patch('time.sleep'):
+            connection = connect.return_value.__enter__.return_value
+            connection.makefile.return_value = io.BytesIO(response.encode() + b'\n')
+            try: prepare_simulator_ui('0000abcd', Path('/products'), Path('/repo')); passed = True
+            except ValueError as error:
+                assert '登录首屏' in str(error)
+                passed = False
+            assert passed == expected
+            commands = [call.args[0] for call in run.call_args_list]
+            assert [command[2] for command in commands] == ['addmedia', 'install', 'launch', 'terminate']
+            assert commands[0][-1] == '/repo/BIT101-iOS/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png'
+            assert commands[1][-1] == '/products/Release-iphonesimulator/BIT101-iOS.app'
+            assert commands[2][-1] == '--ui-testing' and commands[-1][-1] == 'BIT101-dev.BIT101-iOS'
+            environment = run.call_args_list[2].kwargs['env']
+            assert environment['SIMCTL_CHILD_BIT101_UI_TEST_RESET_STORAGE'] == '1'
+            assert environment['SIMCTL_CHILD_BIT101_UI_TEST_CASE'] == 'simulator-bootstrap'
+            assert connect.call_args.args[0] == ('127.0.0.1', int(environment['SIMCTL_CHILD_BIT101_UI_TEST_CONTROL_PORT']))
+            assert json.loads(connection.sendall.call_args.args[0]) == {'command': 'observe'}

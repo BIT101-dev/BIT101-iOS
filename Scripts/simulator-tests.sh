@@ -224,7 +224,7 @@ bit101_run_logged "$DERIVED_ROOT/$mode.log" "模拟器测试宿主编译" xcodeb
   -enableCodeCoverage YES ENABLE_CODE_COVERAGE=YES \
   SWIFT_TREAT_WARNINGS_AS_ERRORS=YES GCC_TREAT_WARNINGS_AS_ERRORS=YES CODE_SIGN_IDENTITY=- "${only_testing[@]}"
 if [[ "${GITHUB_ACTIONS:-false}" == true ]]; then
-  bit101_run_logged "$DERIVED_ROOT/simulator.log" "模拟器系统就绪" python3 - "$SIMULATOR_DEVICE" <<'PYREADY'
+  bit101_run_logged "$DERIVED_ROOT/simulator.log" "模拟器系统就绪" python3 - "$SIMULATOR_DEVICE" "$mode" "$DERIVED_ROOT/Build/Products" "$ROOT_DIR" <<'PYREADY'
 import os
 from pathlib import Path
 import subprocess
@@ -241,6 +241,10 @@ while not container.is_dir():
 subprocess.run(['defaults', '-container', 'com.apple.dt.Devices', 'write', 'com.apple.dt.Devices',
     'alwaysSimulateHardwareKeyboard', '-bool', 'true'], check=True)
 subprocess.run(['xcrun', 'simctl', 'bootstatus', sys.argv[1], '-b'], check=True)
+if sys.argv[2] == 'ui':
+    sys.path.insert(0, str(Path(sys.argv[4]) / 'Scripts'))
+    from validation_coverage import prepare_simulator_ui
+    prepare_simulator_ui(sys.argv[1], Path(sys.argv[3]), Path(sys.argv[4]))
 PYREADY
 fi
 plan="$(python3 - "$DERIVED_ROOT/Build/Products" "$scheme" "$SIMULATOR_WORKERS" <<'PYPLAN'
