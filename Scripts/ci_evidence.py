@@ -172,6 +172,16 @@ def read_native_summary(bundle: Path, group: str) -> dict:
         'executedTests': sorted(cases['byTest']), 'testCases': cases}
 
 
+def download_simulator_shard(run: str, operation: str, index: int) -> None:
+    root = ROOT / '.build/extended-automation'
+    for name in ('simulator.log', 'all.log', 'release-runtime.log', 'ui.log',
+            'build-release.log', 'restore.log', 'test-metrics.txt'):
+        (root / name).unlink(missing_ok=True)
+    (ROOT / '.build/screenshot.png').unlink(missing_ok=True)
+    subprocess.run(['gh', 'run', 'download', run, '--name', f'validation-ios-test-shards-{operation}-{index}',
+        '--dir', str(ROOT / '.build')], check=True, capture_output=True, text=True)
+
+
 def merge_simulator_ci() -> None:
     from validation_evidence import ROOT, REPORT, selected_test_summary_complete, coverage_complete, test_inventory
     from validation_coverage import SIMULATOR_SHARDS, shard_inventory, combined_line_coverage, regressions, policy_floors
@@ -195,8 +205,7 @@ def merge_simulator_ci() -> None:
         for index in range(SIMULATOR_SHARDS[group]):
             if bundle.exists(): shutil.move(str(bundle), str(retained))
             operation = 'app' if group == 'all' else group
-            subprocess.run(['gh', 'run', 'download', run, '--name', f'validation-ios-test-shards-{operation}-{index}',
-                '--dir', str(ROOT / '.build')], check=True, capture_output=True, text=True)
+            download_simulator_shard(run, operation, index)
             metrics = (root / 'test-metrics.txt').read_text()
             metadata = json.loads(next(row.removeprefix('分片：') for row in metrics.splitlines() if row.startswith('分片：')))
             expected = shard_inventory(group, index, SIMULATOR_SHARDS[group])
@@ -233,6 +242,24 @@ def _self_test() -> None:
     from io import StringIO
     from unittest.mock import patch
     module = sys.modules[__name__]
+    root = Path('/fixture')
+    metrics = root / '.build/extended-automation/test-metrics.txt'
+    preserved = {root / '.build/static-audit/swift-syntax-indexer',
+        root / '.build/extended-automation/modules.log',
+        root / '.build/extended-automation/test-results.retained.xcresult'}
+    files = preserved | {metrics, root / '.build/extended-automation/simulator.log'}
+    def download(command, **kwargs):
+        assert command[:4] == ['gh', 'run', 'download', '7']
+        assert metrics not in files
+        assert root / '.build/extended-automation/simulator.log' not in files
+        assert preserved <= files
+        files.update({metrics, root / '.build/extended-automation/simulator.log'})
+    with patch.object(module, 'ROOT', root), \
+            patch.object(Path, 'unlink', lambda path, **kwargs: files.discard(path)), \
+            patch.object(subprocess, 'run', side_effect=download) as command:
+        for operation, index in (('app', 0), ('ui', 0), ('ui', 1)):
+            download_simulator_shard('7', operation, index)
+            assert command.call_args.args[0][5] == f'validation-ios-test-shards-{operation}-{index}'
     commit = 'a' * 40
     from contextlib import nullcontext
     retained = {'releaseCommit': commit, 'coveragePolicy': {'all': {'Feature': 70}},
@@ -362,7 +389,9 @@ def main() -> int:
         else: release(args.identity, publish=args.action == 'publish')
         return 0
     except (ValueError, SyntaxError, KeyError, OSError, subprocess.CalledProcessError) as error:
-        print(str(error), file=sys.stderr)
+        detail = error.stderr if isinstance(error, subprocess.CalledProcessError) else None
+        if isinstance(detail, bytes): detail = detail.decode(errors='replace')
+        print(detail.strip() if detail else str(error), file=sys.stderr)
         return 1
 
 

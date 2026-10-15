@@ -90,8 +90,10 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     }
 
     @MainActor
-    func dismissNotificationBanner() {
-        if app.state != .runningForeground { app.activate() }
+    @discardableResult
+    func dismissNotificationBanner() -> XCUIApplication.State {
+        var state = app.state
+        if state != .runningForeground { app.activate(); state = app.state }
         let banner = Self.springboard.descendants(matching: .any).matching(identifier: "NotificationShortLookView").firstMatch
         if banner.exists && banner.isHittable {
             let frame = banner.frame
@@ -101,8 +103,10 @@ nonisolated class UIAutomationTestCase: XCTestCase {
                        withVelocity: .fast, thenHoldForDuration: 0.01)
             assertUI(banner.disappears(timeout: 2), "系统通知横幅应收起并恢复顶栏交互。")
             print("UI notification banner dismissed")
-            if app.state != .runningForeground { app.activate() }
+            state = app.state
+            if state != .runningForeground { app.activate(); state = app.state }
         }
+        return state
     }
 
     @MainActor
@@ -485,9 +489,16 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     }
 
     @MainActor
-    func checkScrollContainers() {
-        guard !preparingScene, !checkingScrollContainers, app.state == .runningForeground,
+    func checkCurrentSurface(state: XCUIApplication.State? = nil) {
+        guard !preparingScene, !checkingScrollContainers, !checkingRefreshRows,
+              (state ?? app.state) == .runningForeground,
               UITestControlClient.request(["command": "keyboard-state"]) == "hidden" else { return }
+        checkRefreshStatusRows()
+        checkScrollContainers()
+    }
+
+    @MainActor
+    func checkScrollContainers() {
         checkingScrollContainers = true
         defer { checkingScrollContainers = false }
         guard let response = UITestControlClient.request(["command": "scroll-inventory"]),
@@ -544,8 +555,6 @@ nonisolated class UIAutomationTestCase: XCTestCase {
 
     @MainActor
     func checkRefreshStatusRows() {
-        guard !preparingScene, !checkingRefreshRows, app.state == .runningForeground,
-              UITestControlClient.request(["command": "keyboard-state"]) == "hidden" else { return }
         let timestamp = app.staticTexts["app.refresh-status.timestamp"]
         guard timestamp.attributes(renderedOnly: true)?["exists"] as? Bool == true else { return }
         checkingRefreshRows = true
@@ -581,7 +590,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        guard !condition() else { checkRefreshStatusRows(); checkScrollContainers(); return }
+        guard !condition() else { checkCurrentSurface(); return }
         var diagnostics = ""
         let application = app
         let state = application.state
@@ -742,9 +751,10 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         UITestSnapshotReader.application = application
         UITestSnapshotReader.invalidate()
         UIElement.beforeNativeTap = { [weak self] in
-            self?.dismissNotificationBanner()
+            guard let self else { return }
+            let state = self.dismissNotificationBanner()
             _ = UITestControlClient.request(["command": "observe"])
-            self?.checkScrollContainers()
+            self.checkCurrentSurface(state: state)
         }
         var expectedScene: String?
         if Self.sessionApplication == nil {
@@ -862,7 +872,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
                      "动画场景应启用系统动画并使用窗口默认速度。")
         }
         preparingScene = false
-        checkScrollContainers()
+        checkCurrentSurface()
         return app
     }
 }
