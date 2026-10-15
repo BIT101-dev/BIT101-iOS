@@ -3,7 +3,11 @@ import SwiftUI
 import UIKit
 
 @MainActor
-private enum AppKeyboard {
+private final class AppKeyboard: NSObject {
+    static let shared = AppKeyboard()
+
+    @objc func donePressed() { Self.dismiss() }
+
     static func dismiss() {
         for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
             for window in scene.windows { window.endEditing(true) }
@@ -152,14 +156,18 @@ struct KeyboardBackgroundTapInstaller: UIViewRepresentable {
                 return
             }
             if let toolbar = existingAccessory as? UIToolbar,
-               toolbar.items?.contains(where: { $0.accessibilityIdentifier == "keyboard.dismiss" }) == true { return }
+               let doneButton = toolbar.items?.first(where: { $0.accessibilityIdentifier == "keyboard.dismiss" }) {
+                doneButton.target = AppKeyboard.shared
+                doneButton.action = #selector(AppKeyboard.donePressed)
+                return
+            }
 
             let toolbar = UIToolbar()
             let doneButton = UIBarButtonItem(
                 title: "✓ 完成",
                 style: .done,
-                target: self,
-                action: #selector(donePressed)
+                target: AppKeyboard.shared,
+                action: #selector(AppKeyboard.donePressed)
             )
             doneButton.accessibilityIdentifier = "keyboard.dismiss"
             toolbar.items = [
@@ -175,10 +183,6 @@ struct KeyboardBackgroundTapInstaller: UIViewRepresentable {
                 textView.inputAccessoryView = toolbar
                 textView.reloadInputViews()
             }
-        }
-
-        @objc private func donePressed() {
-            AppKeyboard.dismiss()
         }
 
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {

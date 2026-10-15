@@ -151,7 +151,7 @@ def simulator_startup_findings(source: str) -> list[str]:
         for operation in ('prepare', 'app', 'release-runtime', 'ui'):
             commands = []
             with patch.dict(os.environ, GITHUB_ACTIONS=hosted, DEVELOPER_DIR='/fixture/Xcode.app/Contents/Developer'), \
-                    patch.object(sys, 'argv', ['device', '/fixture/device.json', operation, '/fixture/icon.png']), \
+                    patch.object(sys, 'argv', ['device', '/fixture/device.json', operation]), \
                     patch.object(subprocess, 'check_output', return_value=json.dumps(inventory)), \
                     patch.object(subprocess, 'run', side_effect=lambda command, **kwargs: commands.append(command)), \
                     patch.object(Path, 'is_file', return_value=True), \
@@ -170,7 +170,7 @@ def simulator_startup_findings(source: str) -> list[str]:
         def command_output(command, **kwargs):
             return json.dumps(stock) if command[2] == 'list' else 'created'
         with patch.dict(os.environ, GITHUB_ACTIONS=hosted, DEVELOPER_DIR='/fixture/Xcode.app/Contents/Developer'), \
-                patch.object(sys, 'argv', ['device', '/fixture/device.json', 'prepare', '/fixture/icon.png']), \
+                patch.object(sys, 'argv', ['device', '/fixture/device.json', 'prepare']), \
                 patch.object(Path, 'is_file', return_value=False), patch.object(Path, 'write_text') as saved, \
                 patch.object(subprocess, 'check_output', side_effect=command_output) as executed, \
                 patch.object(subprocess, 'run'), redirect_stdout(StringIO()):
@@ -180,16 +180,15 @@ def simulator_startup_findings(source: str) -> list[str]:
     for operation in ('app', 'release-runtime', 'ui'):
         commands = []
         with patch.dict(os.environ, DEVELOPER_DIR='/fixture/Xcode.app/Contents/Developer'), \
-                patch.object(sys, 'argv', ['ready', 'device', operation, '/fixture/icon.png']), \
+                patch.object(sys, 'argv', ['ready', 'device']), \
                 patch.object(Path, 'is_dir', return_value=True), \
                 patch.object(subprocess, 'run', side_effect=lambda command, **kwargs: commands.append(command)):
             exec(compile(ready_program, '<simulator-ready>', 'exec'), {})
         expected = [['open', '-g', '-a', '/fixture/Xcode.app/Contents/Applications/DeviceHub.app'],
             ['defaults', '-container', 'com.apple.dt.Devices', 'write', 'com.apple.dt.Devices', 'alwaysSimulateHardwareKeyboard', '-bool', 'true'],
             ['xcrun', 'simctl', 'bootstatus', 'device', '-b']]
-        if operation == 'ui': expected.append(['xcrun', 'simctl', 'addmedia', 'device', '/fixture/icon.png'])
         if commands != expected or source.index('xcodebuild build-for-testing') > source.index("<<'PYREADY'"):
-            findings.append('模拟器启动自测：编译后依次准备原生键盘、系统就绪及 UI 媒体')
+            findings.append('模拟器启动自测：编译后依次准备原生键盘与系统就绪')
     return findings
 
 

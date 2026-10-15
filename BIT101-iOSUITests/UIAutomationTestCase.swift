@@ -543,13 +543,14 @@ nonisolated class UIAutomationTestCase: XCTestCase {
 
     @MainActor
     func checkRefreshStatusRows() {
-        guard !preparingScene, !checkingRefreshRows, app.state == .runningForeground else { return }
+        guard !preparingScene, !checkingRefreshRows, app.state == .runningForeground,
+              UITestControlClient.request(["command": "keyboard-state"]) == "hidden" else { return }
         let timestamp = app.staticTexts["app.refresh-status.timestamp"]
-        guard timestamp.exists else { return }
+        guard timestamp.attributes(renderedOnly: true)?["exists"] as? Bool == true else { return }
         checkingRefreshRows = true
         defer { checkingRefreshRows = false }
         let largeText = Self.sessionApplication?.launchEnvironment["BIT101_UI_TEST_LARGE_TEXT"] == "1"
-        let viewport = app.native.frame.size
+        let viewport = app.frame.size
         let key = "\(app.segmentedControls.firstMatch.value ?? "成绩"):\(timestamp.label):\(largeText):\(viewport)"
         guard !checkedRefreshRows.contains(key) else { return }
         let nativeText = app.native.staticTexts["app.refresh-status.timestamp"].firstMatch
@@ -684,8 +685,10 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         continueAfterFailure = false
         UIElement.usesNativeInteraction = nativeInteraction
         let previousProcess = Self.sessionProcess
-        if restartProcess {
-            guard !resetStorage, let previousApplication = Self.sessionApplication, previousProcess != nil else {
+        let previousTextSize = Self.sessionApplication?.launchEnvironment["BIT101_UI_TEST_LARGE_TEXT"]
+        let requiresFontRestart = previousTextSize != nil && previousTextSize != (accessibilityTextSize ? "1" : "0")
+        if restartProcess || requiresFontRestart {
+            guard (!restartProcess || !resetStorage), let previousApplication = Self.sessionApplication, previousProcess != nil else {
                 assertUI(false, "冷启动验收需要已运行的 App 及已保存的隔离数据。")
                 return app
             }
@@ -699,12 +702,10 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         let application = Self.sessionApplication ?? XCUIApplication()
         application.launchEnvironment = [:]
         application.launchArguments = ["--ui-testing", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
-        if accessibilityTextSize {
-            application.launchArguments += [
-                "-UIPreferredContentSizeCategoryName",
-                "UICTContentSizeCategoryAccessibilityL",
-            ]
-        }
+        application.launchArguments += [
+            "-UIPreferredContentSizeCategoryName",
+            accessibilityTextSize ? "UICTContentSizeCategoryAccessibilityL" : "UICTContentSizeCategoryL",
+        ]
         if let userInterfaceStyle {
             application.launchArguments += ["-UIUserInterfaceStyle", userInterfaceStyle]
         }
@@ -843,7 +844,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         if Self.sessionProcess == nil {
             let process = String(identity.prefix(while: { $0 != ":" }))
             assertUI(!process.isEmpty, "场景身份应包含 App 进程。")
-            if restartProcess {
+            if restartProcess || requiresFontRestart {
                 assertUI(process != previousProcess, "冷启动应由新的 App 进程恢复会话与持久化数据。")
                 print("UI persistence App restart: \(previousProcess ?? "") -> \(process)")
             }

@@ -155,7 +155,7 @@ final class UIElement: NSObject {
         self.path = path
     }
 
-    func attributes() -> [String: Any]? {
+    func attributes(renderedOnly: Bool = false) -> [String: Any]? {
         let started = ProcessInfo.processInfo.systemUptime
         guard let path else {
             guard let state = currentNativeSnapshot() else {
@@ -186,6 +186,7 @@ final class UIElement: NSObject {
             return UITestSnapshotReader.attributes(path)
         }
         print(String(format: "UI live query: %.3f", ProcessInfo.processInfo.systemUptime - started))
+        if renderedOnly && elements.isEmpty { return ["exists": false] }
         if elements.isEmpty, path.contains(where: { [0, 1, 5, 7, 48].contains(Int($0["type"] ?? "") ?? -1) }) {
             return UITestSnapshotReader.attributes(path)
         }
@@ -282,7 +283,7 @@ final class UIElement: NSObject {
     func tapVisibleCenter() {
         Self.beforeNativeTap?()
         let identity = interactionIdentity
-        native.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 0.01)
+        native.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         recordInteraction(identity, action: "tap")
         UITestSnapshotReader.invalidate()
     }

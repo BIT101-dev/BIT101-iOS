@@ -22,6 +22,7 @@ import os
 import Security
 import Testing
 import UIKit
+import XCTest
 @testable import BIT101_iOS
 
 private nonisolated final class DelayedSchoolCookieServer: Sendable {
@@ -865,4 +866,45 @@ struct ScorePresentationTests {
         }
     }
 
+}
+
+nonisolated final class KeyboardAccessoryOwnershipTests: XCTestCase {
+    @MainActor
+    func testAccessoryActionSurvivesCoordinatorReplacement() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousWindow = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = UIViewController()
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            previousWindow?.makeKeyAndVisible()
+        }
+        let inputs: [UIView & UITextInput] = [
+            UITextField(frame: CGRect(x: 0, y: 0, width: 200, height: 44)),
+            UITextView(frame: CGRect(x: 0, y: 0, width: 200, height: 100)),
+        ]
+        for input in inputs {
+            var owner: KeyboardBackgroundTapInstaller.Coordinator? = .init()
+            owner?.attach(to: window)
+            window.addSubview(input)
+            defer { input.resignFirstResponder(); input.removeFromSuperview() }
+            XCTAssertTrue(input.becomeFirstResponder())
+            try await waitForTestEvent { input.inputAccessoryView is UIToolbar }
+            let toolbar = try XCTUnwrap(input.inputAccessoryView as? UIToolbar)
+            let button = try XCTUnwrap(toolbar.items?.first { $0.accessibilityIdentifier == "keyboard.dismiss" })
+            owner?.detach()
+            owner = nil
+            var replacement: KeyboardBackgroundTapInstaller.Coordinator? = .init()
+            replacement?.attach(to: window)
+            try await waitForTestEvent { button.target != nil }
+            replacement?.detach()
+            replacement = nil
+            XCTAssertNotNil(button.target, "键盘附件动作应与输入控件共享存活期。")
+            XCTAssertTrue(input.inputAccessoryView === toolbar)
+            XCTAssertTrue(UIApplication.shared.sendAction(try XCTUnwrap(button.action), to: button.target, from: button, for: nil))
+            XCTAssertFalse(input.isFirstResponder)
+        }
+    }
 }

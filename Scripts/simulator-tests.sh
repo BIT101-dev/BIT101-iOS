@@ -21,7 +21,7 @@ if [[ "$operation" == merge ]]; then
   python3 "$ROOT_DIR/Scripts/ci_evidence.py" simulator-merge
   exit 0
 fi
-if SIMULATOR_DEVICE="$(python3 - "$DERIVED_ROOT/simulator-device.json" "$operation" "$ROOT_DIR/BIT101-iOS/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png" 2>> "$DERIVED_ROOT/simulator.log" <<'PYDEVICE'
+if SIMULATOR_DEVICE="$(python3 - "$DERIVED_ROOT/simulator-device.json" "$operation" 2>> "$DERIVED_ROOT/simulator.log" <<'PYDEVICE'
 import json
 import os
 from pathlib import Path
@@ -223,8 +223,7 @@ bit101_run_logged "$DERIVED_ROOT/$mode.log" "模拟器测试宿主编译" xcodeb
   -enableCodeCoverage YES ENABLE_CODE_COVERAGE=YES \
   SWIFT_TREAT_WARNINGS_AS_ERRORS=YES GCC_TREAT_WARNINGS_AS_ERRORS=YES CODE_SIGN_IDENTITY=- "${only_testing[@]}"
 if [[ "${GITHUB_ACTIONS:-false}" == true ]]; then
-  bit101_run_logged "$DERIVED_ROOT/simulator.log" "模拟器系统就绪" python3 - "$SIMULATOR_DEVICE" "$operation" \
-    "$ROOT_DIR/BIT101-iOS/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png" <<'PYREADY'
+  bit101_run_logged "$DERIVED_ROOT/simulator.log" "模拟器系统就绪" python3 - "$SIMULATOR_DEVICE" <<'PYREADY'
 import os
 from pathlib import Path
 import subprocess
@@ -241,8 +240,6 @@ while not container.is_dir():
 subprocess.run(['defaults', '-container', 'com.apple.dt.Devices', 'write', 'com.apple.dt.Devices',
     'alwaysSimulateHardwareKeyboard', '-bool', 'true'], check=True)
 subprocess.run(['xcrun', 'simctl', 'bootstatus', sys.argv[1], '-b'], check=True)
-if sys.argv[2] == 'ui':
-    subprocess.run(['xcrun', 'simctl', 'addmedia', sys.argv[1], sys.argv[3]], check=True)
 PYREADY
 fi
 plan="$(python3 - "$DERIVED_ROOT/Build/Products" "$scheme" "$SIMULATOR_WORKERS" <<'PYPLAN'
