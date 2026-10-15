@@ -273,7 +273,7 @@ Swift 词法扫描保留普通、原始、多行及嵌套字符串的插值表�
 
 静态审计入口通过 `.build/static-audit/audit.lock` 串行维护固定日志；产物检查完成后，独立检查组并行执行并统一汇总失败。规则自测失败时直接输出失败组及源码位置，后续源码分析沿自测通过的规则执行。SwiftUI 规则共用语法树和已解析的渲染范围，词法扫描直接跳转到字符串、正则或注释，三元表达式正则参与自测。学校生命周期请求图合并正式平台的编译分支并覆盖实例属性初始化，保存的手动回调沿实际调用接入执行图。UI 交互库存按实际测试目录筛选源码，生产文件名沿常规规则核对；SwiftUI 控件类型与动作从共享合同传入索引器并用于库存及访问证据。网络能力库存沿精确方法签名登记基础传输豁免，基础层新增业务端点继续进入库存与 Smoke 登记检查；执行闭包与本地 helper 的立即执行参数沿同一库存传播，识别 WebKit 加载及重载入口，网页协调器逐方法绑定登录、账号切换及退出的人工观察；架构条件沿所选 SDK 支持架构分别求值后合并源码。解释文案候选归 UI 源码事实模块维护。
 
-正式运行组 `release-runtime` 沿正式 Release 编译条件执行组装合同，验收账号会话、实际网络状态、公共警告中心及反馈环境。iOS 正式合同关闭覆盖率插桩，默认聚合流程先执行正式合同以复用常规 Release 编译缓存；行为组与 UI 组继续采集覆盖率并执行完整门禁。完整验收同时核对实际执行用例与生产代码行覆盖率。`validation_evidence.py` 维护 macOS 可执行模块、iOS 可执行模块和 App 宿主的覆盖率基线；新增模块同步补充基线与消费者测试。`validation_test_areas.py` 登记账号代际、后台会话验证、取消、同步冲突、上传失败恢复及成绩快照比较的关键状态转换合同，静态审计核对其行为用例持续存在。UI 生产模块通过验证策略显式登记，SwiftUI 导入库存核对完整性，MediaKit 与 DesignSystemKit 共同参与 UI 行覆盖率门禁。UI 和 Catalyst 的验收分别沿用控件库存及平台测试结果。学校自动请求审计沿 App 与账号生命周期调用链追踪生产学校请求入口，故障注入覆盖入口改名和包装方法。通知回归核对时区与绝对触发时间，日历事务回归核对失败批次清理与后续提交隔离。
+正式运行组 `release-runtime` 沿正式 Release 编译条件执行组装合同，验收账号会话、实际网络状态、公共警告中心及反馈环境。完整验收同时核对实际执行用例与生产代码行覆盖率。`validation_evidence.py` 维护 macOS 可执行模块、iOS 可执行模块和 App 宿主的覆盖率基线；新增模块同步补充基线与消费者测试。`validation_test_areas.py` 登记账号代际、后台会话验证、取消、同步冲突、上传失败恢复及成绩快照比较的关键状态转换合同，静态审计核对其行为用例持续存在。UI 生产模块通过验证策略显式登记，SwiftUI 导入库存核对完整性，MediaKit 与 DesignSystemKit 共同参与 UI 行覆盖率门禁。UI 和 Catalyst 的验收分别沿用控件库存及平台测试结果。学校自动请求审计沿 App 与账号生命周期调用链追踪生产学校请求入口，故障注入覆盖入口改名和包装方法。通知回归核对时区与绝对触发时间，日历事务回归核对失败批次清理与后续提交隔离。
 
 ## 网络与 iCloud Smoke
 
@@ -452,7 +452,7 @@ iOS 的 `checks` 包含 `cold-start-session`、`offline-persistence`、`media-an
 
 常规 CI 的 PR、main 推送和手动验收执行静态与完整模块测试、Release 构建、Catalyst 行为和正式组装合同，以及完整 iOS 模拟器行为、正式组装与 UI 库存。`ios-tests` Job 共用项目模拟器入口，省略筛选参数执行对应组的全部用例，逐项核对参数实例、实际模拟器目的地与零跳过结果，完整行为和 UI 组沿版本化覆盖率阈值验收。每组结束后恢复并启动常规 Release App，沿正式就绪信号核对进程、会话和场景。`merge-acceptance` 承接四个常规 Job 的成功结果，并核对 GitHub 事件 SHA 与工作区一致性；该门禁同时参与推送和 PR 验收。
 
-版本标签和勾选 `release_check` 的手动发布流程执行 `physical-device` Job。完整 `all` 行为、正式 iOS `release-runtime` 合同、完整 `ui` 交互与常规 `restore` 四组需要当前源码与设备输入，并在 24 小时内执行。真机 Job 在具有 `self-hosted`、`macOS`、`bit101-xcode-27`、`bit101-device` 标签的专用 Mac 与 iPhone 上执行 `verify modules release-runtime all ui`，恢复常规 App 后执行 `bind-merge`。`release-acceptance` 承接四个常规 Job 与真机 Job，再核对所属版本的完整发布回执。CI 检出、记录、绑定和证据交换共同核对 GitHub 事件 SHA；检出沿完整提交历史执行，诊断上传沿原始文件保存。
+版本标签和勾选 `release_check` 的手动发布流程执行 `physical-device` Job。完整 `all` 行为、正式 iOS `release-runtime` 合同、完整 `ui` 交互与常规 `restore` 四组需要当前源码与设备输入，并在 24 小时内执行。真机 Job 在具有 `self-hosted`、`macOS`、`bit101-xcode-27`、`bit101-device` 标签的专用 Mac 与 iPhone 上执行 `verify modules all release-runtime ui`，恢复常规 App 后执行 `bind-merge`。`release-acceptance` 承接四个常规 Job 与真机 Job，再核对所属版本的完整发布回执。CI 检出、记录、绑定和证据交换共同核对 GitHub 事件 SHA；检出沿完整提交历史执行，诊断上传沿原始文件保存。
 
 `bind-merge` 将当前真机验收提交写入本地固定 JSON，Job 通过 `ci_evidence.py export-core` 导出核心组到固定 `core-validation-evidence.json`，再沿 `upload-artifact` 发布同名 `validation-evidence` 产物。完整人工专项保存在本地报告中，核心交换文件承接模块、行为、正式 iOS、UI 与恢复证据，并供已批准性能基线迁移使用。公开交换中的设备身份和宿主绝对路径转为稳定 SHA-256 标识，性能采样与执行环境使用同一标识；输入摘要沿同一转换核对原始报告及交换文件。自托管运行器按 GitHub 队列承接发布工作，项目脚本按工作区锁定固定编译产物；真机操作同时取得用户级设备锁。独立工作区的本机测试与编译可并行，真机发布证据按记录环境核对源码及编译条件。
 

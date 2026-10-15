@@ -218,8 +218,6 @@ only_testing=()
 for selection in "${selections[@]}"; do only_testing+=("-only-testing:$bundle/$selection"); done
 destination="platform=iOS Simulator,id=$SIMULATOR_DEVICE"
 result="$DERIVED_ROOT/test-results.xcresult"
-coverage_arguments=(-enableCodeCoverage YES ENABLE_CODE_COVERAGE=YES)
-if [[ "$mode" == release-runtime ]]; then coverage_arguments=(-enableCodeCoverage NO ENABLE_CODE_COVERAGE=NO); fi
 simulator_prepare_pid=
 if [[ "${GITHUB_ACTIONS:-false}" == true ]]; then
   bit101_run_logged "$DERIVED_ROOT/simulator.log" "模拟器系统就绪" python3 - "$ROOT_DIR/Scripts" "$SIMULATOR_DEVICE" "$ROOT_DIR" "$mode" <<'PYREADY' &
@@ -235,7 +233,7 @@ simulator_build_status=0
 bit101_run_logged "$DERIVED_ROOT/$mode.log" "模拟器测试宿主编译" xcodebuild build-for-testing -quiet \
   -project "$ROOT_DIR/BIT101-iOS.xcodeproj" -scheme "$scheme" -configuration "$configuration" -derivedDataPath "$DERIVED_ROOT" \
   -destination "$destination" "BIT101_WORKFLOW_CONDITIONS=$conditions" ENABLE_TESTABILITY=YES \
-  "${coverage_arguments[@]}" \
+  -enableCodeCoverage YES ENABLE_CODE_COVERAGE=YES \
   SWIFT_TREAT_WARNINGS_AS_ERRORS=YES GCC_TREAT_WARNINGS_AS_ERRORS=YES CODE_SIGN_IDENTITY=- "${only_testing[@]}" || simulator_build_status=$?
 simulator_prepare_status=0
 if [[ -n "$simulator_prepare_pid" ]]; then wait "$simulator_prepare_pid" || simulator_prepare_status=$?; fi
@@ -297,7 +295,7 @@ PYUI
 else
   bit101_run_logged "$DERIVED_ROOT/$mode.log" "模拟器测试" xcodebuild test-without-building "${test_logging[@]}" \
   -xctestrun "$plan" -derivedDataPath "$DERIVED_ROOT" -destination "$destination" -resultBundlePath "$result" \
-  "${parallel_arguments[@]}" -test-timeouts-enabled YES -collect-test-diagnostics never "${coverage_arguments[@]}" "${only_testing[@]}" || test_status=$?
+  "${parallel_arguments[@]}" -test-timeouts-enabled YES -collect-test-diagnostics never -enableCodeCoverage YES "${only_testing[@]}" || test_status=$?
 fi
 python3 - "$result" "$DERIVED_ROOT/test-metrics.txt" "$ROOT_DIR/Scripts" "$EXPECTED_TESTS" "$test_status" "$mode" "$SIMULATOR_DEVICE" "$configuration" "$TEST_SCOPE" "$SIMULATOR_WORKERS" <<'PYRESULT'
 import json

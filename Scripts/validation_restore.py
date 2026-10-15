@@ -198,7 +198,7 @@ def simulator_startup_findings(source: str) -> list[str]:
     if source.index("<<'PYREADY'") > source.index('xcodebuild build-for-testing') \
             or source.split("<<'PYREADY'", 1)[1].split('\n', 1)[0].strip() != '&':
         findings.append('模拟器启动自测：系统初始化与测试宿主编译并行执行')
-    body = 'coverage_arguments=(' + source.split('coverage_arguments=(', 1)[1].split('\nplan="$(', 1)[0]
+    body = 'simulator_prepare_pid=\n' + source.split('simulator_prepare_pid=\n', 1)[1].split('\nplan="$(', 1)[0]
     body = body.replace('>> "$DERIVED_ROOT/simulator.log" 2>&1', '')
     for hosted in ('true', 'false'):
         for operation in ('app', 'release-runtime', 'ui'):
@@ -206,7 +206,7 @@ def simulator_startup_findings(source: str) -> list[str]:
                 harness = f'''set -euo pipefail
 ROOT_DIR=/fixture DERIVED_ROOT=/fixture SIMULATOR_DEVICE=device mode={operation} scheme=scheme configuration=Release destination=target conditions= GITHUB_ACTIONS={hosted}
 only_testing=()
-bit101_run_logged() {{ if [[ "$3" == python3 ]]; then cat >/dev/null; print PREPARE; return {ready_status}; else local coverage=YES; [[ "$mode" == release-runtime ]] && coverage=NO; [[ " $* " == *" -enableCodeCoverage $coverage ENABLE_CODE_COVERAGE=$coverage "* ]] || return 88; print BUILD; return {build_status}; fi; }}
+bit101_run_logged() {{ if [[ "$3" == python3 ]]; then cat >/dev/null; print PREPARE; return {ready_status}; else print BUILD; return {build_status}; fi; }}
 python3() {{ cat >/dev/null; print APPREADY; }}
 '''
                 result = subprocess.run(['zsh', '-c', harness + body + '\nprint COMPLETE'], capture_output=True, text=True, timeout=10)

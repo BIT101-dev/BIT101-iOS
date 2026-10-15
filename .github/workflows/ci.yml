@@ -373,7 +373,7 @@ jobs:
           python3 Scripts/ci_evidence.py baseline "$BIT101_BASE_COMMIT"
           python3 Scripts/validation_evidence.py baseline "$BIT101_BASE_COMMIT"
       - name: Run physical-device acceptance
-        run: Scripts/run-extended-tests.sh verify modules release-runtime all ui
+        run: Scripts/run-extended-tests.sh verify modules all release-runtime ui
       - name: Bind core validation evidence
         run: python3 Scripts/validation_evidence.py bind-merge
       - name: Export core CI evidence
