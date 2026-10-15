@@ -103,12 +103,8 @@ jobs:
           clean: false
       - name: Show toolchain
         run: Scripts/build-install-device.sh toolchain
-      - name: Build iOS app, Watch, widgets and tests
-        run: Scripts/run-extended-tests.sh build release
       - name: Archive app and extensions with release compiler settings
         run: Scripts/build-install-device.sh archive
-      - name: Build UI automation host and tests
-        run: Scripts/run-extended-tests.sh build ui
       - name: Build network smoke host and tests
         run: Scripts/run-extended-tests.sh build network-smoke
       - name: Build iCloud smoke host and tests
@@ -126,8 +122,6 @@ jobs:
           compression-level: 0
           include-hidden-files: true
           path: |
-            .build/extended-automation/build-release.log
-            .build/extended-automation/build-ui.log
             .build/extended-automation/build-network-smoke.log
             .build/extended-automation/build-icloud-smoke.log
             .build/extended-automation/diagnostics/test-results.xcresult

@@ -195,6 +195,7 @@ nonisolated final class ServiceInteractionUITests: UIAutomationTestCase {
     @MainActor
     @objc func testManualUpdatePromptAllActionsAndCurrentVersion() {
         app = configureApp(resetStorage: true, animations: true, update: "new", initialSettings: "about")
+        app.native.typeKey(XCUIKeyboardKey.shift, modifierFlags: [])
         for action in ["本次忽略", "忽略此版本", "前往 App Store"] {
             tap("检查更新")
             assertUI(app.alerts["发现新版本 999.0"].appears(timeout: 5), "更新响应应展示新版本。")
@@ -574,6 +575,7 @@ nonisolated final class AccountRecoveryUITests: UIAutomationTestCase {
     @MainActor
     @objc func testFutureScheduleImportUpdateCancellationAndLink() {
         app = configureApp(resetStorage: true, animations: true, initialSettings: "calendar")
+        app.native.typeKey(XCUIKeyboardKey.shift, modifierFlags: [])
         tap("导入课表")
         tap("知道了")
         let code = app.textViews["schedule.import.code"]
@@ -792,9 +794,9 @@ extension UIAutomationTestCase {
     @MainActor
     func dismissPosterSheet(returningTo title: String) {
         let detail = app.navigationBars["帖子详情"]
-        detail.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 0.1,
+        detail.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0)).press(forDuration: 0.01,
             thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)),
-            withVelocity: .default, thenHoldForDuration: 0.1)
+            withVelocity: .fast, thenHoldForDuration: 0.01)
         assertUI(waitUntil(NSPredicate { _, _ in !detail.native.exists }, on: detail), "下滑应关闭帖子详情。")
         assertUI(waitUntil(NSPredicate(format: "hittable == true"), on: app.navigationBars[title]), "关闭详情应恢复\(title)。")
     }

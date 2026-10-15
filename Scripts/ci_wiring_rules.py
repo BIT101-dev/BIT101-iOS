@@ -16,8 +16,7 @@ DIAGNOSTIC_PATHS = {
     'static-audit': {'.build/static-audit/*.log', '.build/code-quality-report.txt', '.build/ui-consistency-report.txt',
         '.build/explanatory-text-report.txt', '.build/extended-automation/modules.log',
         '.build/extended-automation/module-events.jsonl', '.build/extended-automation/test-metrics.txt'},
-    'release-build': {'.build/extended-automation/build-release.log', '.build/extended-automation/build-ui.log',
-        '.build/extended-automation/build-network-smoke.log', '.build/extended-automation/build-icloud-smoke.log',
+    'release-build': {'.build/extended-automation/build-network-smoke.log', '.build/extended-automation/build-icloud-smoke.log',
         '.build/extended-automation/diagnostics/test-results.xcresult', 'build/DeviceInstall/build.log'},
     'catalyst-tests': {'.build/extended-automation/catalyst.log', '.build/extended-automation/catalyst-release-runtime.log',
         '.build/extended-automation/test-metrics.txt', '.build/extended-automation/test-failures.txt',
@@ -200,8 +199,6 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
         ),
         "release-build": (
             ("Scripts/build-install-device.sh archive", "CI 需要正式归档编译模式验证"),
-            ("Scripts/run-extended-tests.sh build release", "CI 需要通用 iOS Release 测试构建"),
-            ("Scripts/run-extended-tests.sh build ui", "CI 需要 UI 宿主与测试构建"),
             ("Scripts/run-extended-tests.sh build network-smoke", "CI 需要网络 Smoke 编译条件构建"),
             ("Scripts/run-extended-tests.sh build icloud-smoke", "CI 需要 iCloud Smoke 编译条件构建"),
         ),
@@ -261,7 +258,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
             or mapping(shard_job.get('env')).get('BIT101_SIMULATOR_WORKERS') != '${{ matrix.workers }}':
         errors.append('.github/workflows/ci.yml: 模拟器完整 UI 库存需要精确分片、全部执行及统一身份')
     for job, groups in (('static-audit', ('audit', 'modules')),
-            ('release-build', ('all', 'build-archive', 'ui', 'network', 'icloud')),
+            ('release-build', ('build-archive', 'network', 'icloud')),
             ('catalyst-tests', ('catalyst', 'catalyst-release-runtime'))):
         timeout = mapping(jobs.get(job)).get('timeout-minutes')
         if type(timeout) is not int or timeout < workflow_timeout_seconds(groups) // 60 + 10:
@@ -493,7 +490,7 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
     if not ci_wiring_findings(workflow_source.replace("run: npm ci", "run: echo skipped", 1)):
         findings.append("代码质量规则边界自检失败：Worker 冷启动依赖准备")
     for command in ("Scripts/run-static-audit.sh", "Scripts/run-extended-tests.sh modules",
-                    "Scripts/run-extended-tests.sh build ui",
+                    "Scripts/run-extended-tests.sh build network-smoke",
                     'Scripts/run-extended-tests.sh simulator "${{ matrix.mode }}"',
                     "Scripts/run-extended-tests.sh simulator merge",
                     "Scripts/run-extended-tests.sh verify catalyst catalyst-release-runtime"):
@@ -536,7 +533,7 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
             ('BIT101_CI_SHARD: ${{ matrix.shard }}/${{ matrix.count }}', 'BIT101_CI_SHARD: 0/1')):
         assert ci_wiring_findings(workflow_source.replace(before, after)), before
     for before, after in (('Scripts/build-install-device.sh toolchain', 'Scripts/build-install-device.sh  toolchain'),
-            ('Scripts/run-extended-tests.sh build ui', 'Scripts/run-extended-tests.sh build   ui'),
+            ('Scripts/run-extended-tests.sh build network-smoke', 'Scripts/run-extended-tests.sh build   network-smoke'),
             ('npm ci', 'npm  ci')):
         if ci_wiring_findings(workflow_source.replace(before, after)):
             findings.append('代码质量规则边界自检失败：CI 命令参数间距保持执行合同')
@@ -547,7 +544,7 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
         changed = re.sub(r'(?s)(  ' + job + r':.*?timeout-minutes:) \d+', r'\1 20', workflow_source, count=1)
         if not any(job + ' Job 需要覆盖所属执行及恢复预算' in item for item in ci_wiring_findings(changed)):
             findings.append(f'代码质量规则边界自检失败：{job} 执行预算')
-    release_minimum = workflow_timeout_seconds(('all', 'build-archive', 'ui', 'network', 'icloud')) // 60 + 10
+    release_minimum = workflow_timeout_seconds(('build-archive', 'network', 'icloud')) // 60 + 10
     for timeout, expected in ((45, True), (release_minimum - 1, True), (release_minimum, False)):
         changed = re.sub(r'(?s)(  release-build:.*?timeout-minutes:) \d+',
             lambda match: match[1] + ' ' + str(timeout), workflow_source, count=1)

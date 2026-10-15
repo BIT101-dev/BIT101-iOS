@@ -14,6 +14,7 @@ import StorageCore
 import ScorePorts
 import ClientCore
 import Testing
+import XCTest
 import WebKit
 @testable import BIT101_iOS
 
@@ -297,18 +298,26 @@ final class LocalDataActionsSpy {
     }
 }
 
-@MainActor
-@Suite(.serialized)
-struct AppLocalDataOwnershipTests {
-    @Test(.timeLimit(.minutes(1)), arguments: [URLCache.StoragePolicy.allowed, .allowedInMemoryOnly])
-    func appCompositionClearsTheSelectedRealResources(storagePolicy: URLCache.StoragePolicy) async throws {
+nonisolated final class AppLocalDataResourceTests: XCTestCase {
+    @MainActor
+    func testAppCompositionClearsDiskResources() async throws {
+        try await verifyAppComposition(storagePolicy: .allowed)
+    }
+
+    @MainActor
+    func testAppCompositionClearsMemoryResources() async throws {
+        try await verifyAppComposition(storagePolicy: .allowedInMemoryOnly)
+    }
+
+    @MainActor
+    private func verifyAppComposition(storagePolicy: URLCache.StoragePolicy) async throws {
         let files = AppFileDirectories.files, defaults = AppFileDirectories.defaults
         let media = AppMedia.makeEnvironment(previewStorage: MediaPreviewStorage(files: files))
         let settings = AppSettingsStore(defaults: defaults)
         let service = AppLocalDataComposition.appService(settings: settings, media: media)
         let support = AppFileDirectories.applicationSupport.appending(path: "cleanup-fixture.dat")
-        let report = try #require(ReleaseNetworkSmokeReportStore.fileURL)
-        let mediaCache = try #require(media.cacheDirectories.first).appending(path: "cleanup-fixture.dat")
+        let report = try XCTUnwrap(ReleaseNetworkSmokeReportStore.fileURL)
+        let mediaCache = try XCTUnwrap(media.cacheDirectories.first).appending(path: "cleanup-fixture.dat")
         for file in [support, report, mediaCache] {
             try files.createDirectory(at: file.deletingLastPathComponent())
             try files.writeData(Data([1, 2, 3]), to: file, options: [.atomic])
@@ -320,30 +329,37 @@ struct AppLocalDataOwnershipTests {
         defaults.set("fixture", forKey: "cleanup-fixture")
         let url = AppURL.required("https://example.invalid/cleanup-fixture")
         let request = URLRequest(url: url)
-        let response = try #require(HTTPURLResponse(url: url, statusCode: 200,
+        let response = try XCTUnwrap(HTTPURLResponse(url: url, statusCode: 200,
             httpVersion: "HTTP/1.1", headerFields: ["Cache-Control": "max-age=3600", "Content-Type": "text/plain"]))
         URLCache.shared.storeCachedResponse(CachedURLResponse(response: response, data: Data([1, 2, 3]),
             userInfo: nil, storagePolicy: storagePolicy), for: request)
         let cookies = AppLocalDataComposition.websiteDataStore.httpCookieStore
-        let cookie = try #require(HTTPCookie(properties: [.domain: "example.invalid", .path: "/",
+        let cookie = try XCTUnwrap(HTTPCookie(properties: [.domain: "example.invalid", .path: "/",
             .name: "cleanup-fixture", .value: "fixture", .expires: Date().addingTimeInterval(3_600)]))
         await cookies.setCookie(cookie)
-        #expect(await cookies.allCookies().contains { $0.name == cookie.name })
-        #expect(URLCache.shared.cachedResponse(for: request)?.data == Data([1, 2, 3]))
-        #expect(snapshotStore.load()?.isLoggedIn == true)
-        #expect(!AppAccountSession.storage.fakeCookie.isEmpty)
+        let seededCookies = await cookies.allCookies()
+        XCTAssertTrue(seededCookies.contains { $0.name == cookie.name })
+        XCTAssertTrue(URLCache.shared.cachedResponse(for: request)?.data == Data([1, 2, 3]))
+        XCTAssertTrue(snapshotStore.load()?.isLoggedIn == true)
+        XCTAssertTrue(!AppAccountSession.storage.fakeCookie.isEmpty)
         var loggedOut = false
-        #expect(await service.resetAllLocalData { loggedOut = true })
-        #expect(loggedOut && !service.isCleaning)
-        for file in [support, report, mediaCache] { #expect(files.fileExists(at: file) == false) }
-        #expect(snapshotStore.load() == nil)
-        #expect(AppAccountSession.storage.fakeCookie.isEmpty && AppAccountSession.storage.currentStudentID.isEmpty)
-        #expect(try AppAccountSession.storage.loadCredentials() == nil)
-        #expect(defaults.object(forKey: "cleanup-fixture") == nil)
+        let reset = await service.resetAllLocalData { loggedOut = true }
+        XCTAssertTrue(reset)
+        XCTAssertTrue(loggedOut && !service.isCleaning)
+        for file in [support, report, mediaCache] { XCTAssertTrue(files.fileExists(at: file) == false) }
+        XCTAssertTrue(snapshotStore.load() == nil)
+        XCTAssertTrue(AppAccountSession.storage.fakeCookie.isEmpty && AppAccountSession.storage.currentStudentID.isEmpty)
+        XCTAssertTrue(try AppAccountSession.storage.loadCredentials() == nil)
+        XCTAssertTrue(defaults.object(forKey: "cleanup-fixture") == nil)
         try await waitForTestEvent { URLCache.shared.cachedResponse(for: request) == nil }
-        #expect(await cookies.allCookies().isEmpty)
+        let remainingCookies = await cookies.allCookies()
+        XCTAssertTrue(remainingCookies.isEmpty)
     }
+}
 
+@MainActor
+@Suite(.serialized)
+struct AppLocalDataOwnershipTests {
     @Test(.timeLimit(.minutes(1)))
     func loginChecksPublishTheSharedBusyStateBeforeSchedulingAndReleaseItForProfileEdits() async throws {
         let mutation = AccountProfileMutation()
