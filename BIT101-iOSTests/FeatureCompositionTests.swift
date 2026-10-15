@@ -394,6 +394,7 @@ struct FeatureCompositionTests {
     private final class TabRoute: ObservableObject {
         @Published var selection = 0
         var otherAppeared = false
+        var paperDisappeared = false
     }
 
     private struct PaperTabs: View {
@@ -403,6 +404,7 @@ struct FeatureCompositionTests {
         var body: some View {
             TabView(selection: $route.selection) {
                 NavigationStack { PaperRootView(dependencies: dependencies, media: media) }
+                    .onDisappear { route.paperDisappeared = true }
                     .tabItem { Text("文章") }.tag(0)
                 Text("其他页面").onAppear { route.otherAppeared = true }
                     .tabItem { Text("其他") }.tag(1)
@@ -424,7 +426,7 @@ struct FeatureCompositionTests {
         try await host(PaperTabs(route: routes, dependencies: dependencies, media: media())) {
             try await waitForTestEvent { !(service.pending == nil || service.pages.count < 2) }
             routes.selection = 1
-            try await waitForTestEvent { !(!routes.otherAppeared) }
+            try await waitForTestEvent { routes.otherAppeared && routes.paperDisappeared }
             routes.selection = 0
             try await waitForTestEvent { !(service.previewRequests < 2) }
             service.pending?.resume(returning: PaperPreviewMetadata(authorName: "迟到的作者", avatarURL: nil, isAnonymous: false))
