@@ -281,14 +281,8 @@ final class UIElement: NSObject {
     }
     func tapVisibleCenter() {
         Self.beforeNativeTap?()
-        let identity = interactionIdentity, bounds = frame
-        guard let application = UITestSnapshotReader.application, !bounds.isEmpty else {
-            XCTFail("原生点按应使用当前画面中的控件位置。")
-            return
-        }
-        let origin = UITestSnapshotReader.applicationOrigin
-        application.coordinate(withNormalizedOffset: .zero).withOffset(
-            CGVector(dx: bounds.midX - origin.x, dy: bounds.midY - origin.y)).press(forDuration: 0.01)
+        let identity = interactionIdentity
+        native.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 0.01)
         recordInteraction(identity, action: "tap")
         UITestSnapshotReader.invalidate()
     }

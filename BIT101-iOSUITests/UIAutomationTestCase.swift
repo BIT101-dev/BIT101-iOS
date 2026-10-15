@@ -77,11 +77,11 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         let matches = exactExists ? exact : app.buttons.matching(NSPredicate(format: "label CONTAINS %@", title))
         let button = matches.firstMatch
         if exactExists || button.exists {
-            if button.isHittable {
+            if UIElement.usesNativeInteraction ? button.native.isHittable : button.isHittable {
                 button.tapBriefly()
                 return
             }
-            if let visible = matches.allElementsBoundByIndex.first(where: { $0.isHittable }) {
+            if let visible = matches.allElementsBoundByIndex.first(where: { UIElement.usesNativeInteraction ? $0.native.isHittable : $0.isHittable }) {
                 visible.press(forDuration: 0.01)
                 return
             }

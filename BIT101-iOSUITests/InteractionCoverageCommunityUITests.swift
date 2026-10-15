@@ -792,10 +792,10 @@ extension UIAutomationTestCase {
     @MainActor
     func dismissPosterSheet(returningTo title: String) {
         let detail = app.navigationBars["帖子详情"]
-        detail.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.1)).press(forDuration: 0.1,
+        detail.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 0.1,
             thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)),
-            withVelocity: .fast, thenHoldForDuration: 0.1)
-        assertUI(detail.disappears(timeout: 5), "下滑应关闭帖子详情。")
+            withVelocity: .default, thenHoldForDuration: 0.1)
+        assertUI(waitUntil(NSPredicate { _, _ in !detail.native.exists }, on: detail), "下滑应关闭帖子详情。")
         assertUI(waitUntil(NSPredicate(format: "hittable == true"), on: app.navigationBars[title]), "关闭详情应恢复\(title)。")
     }
 

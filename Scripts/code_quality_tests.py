@@ -631,8 +631,9 @@ def build_cache_boundary_findings() -> list[str]:
             if [value for value in builds[-1] if value.startswith("DEBUG_INFORMATION_FORMAT=")] != expected:
                 findings.append("缓存自测：开发 DWARF、显式符号设置和发行归档边界")
             expected_mode = [value for value in settings if value.startswith("SWIFT_COMPILATION_MODE=")]
+            if not expected_mode and action != 'archive': expected_mode = ['SWIFT_COMPILATION_MODE=incremental']
             if [value for value in builds[-1] if value.startswith("SWIFT_COMPILATION_MODE=")] != expected_mode:
-                findings.append("缓存自测：行为测试和归档沿工程默认编译模式，并保留显式设置")
+                findings.append("缓存自测：测试宿主使用增量编译，归档及显式编译模式沿工程配置")
             if not all(setting in builds[-1] for setting in ("SWIFT_TREAT_WARNINGS_AS_ERRORS=YES", "GCC_TREAT_WARNINGS_AS_ERRORS=YES")):
                 findings.append("编译入口自测：构建、测试与正式归档的警告门禁")
     finally:

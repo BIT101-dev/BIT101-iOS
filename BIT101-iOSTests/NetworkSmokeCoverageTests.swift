@@ -289,10 +289,12 @@ struct NetworkSmokeCoverageTests {
         #expect(batch.items.map(\.id) == [1, 2])
     }
 
-    @Test(.timeLimit(.minutes(1)), arguments: ["provisional", "navigation", "process", "credentials"])
+    @Test(.serialized, .timeLimit(.minutes(1)), arguments: ["provisional", "navigation", "process", "credentials"])
     func galleryWebFailuresRenderTheRetryDocument(path: String) async throws {
         let coordinator = GalleryWebCoordinator(credentials: .init(cookie: { "fixture" }, changes: Empty().eraseToAnyPublisher()), openExternal: { _ in })
-        let webView = WKWebView()
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = coordinator
         switch path {
         case "provisional": coordinator.webView(webView, didFailProvisionalNavigation: nil, withError: URLError(.notConnectedToInternet))
@@ -312,7 +314,6 @@ struct NetworkSmokeCoverageTests {
         #expect(text.contains("话廊网页加载失败") && text.contains("重新加载"))
         #expect(try await webView.evaluateJavaScript("document.querySelector('a')?.href") as? String == "https://bit101.cn/gallery")
     }
-
     private final class CredentialWebView: WKWebView {
         var reloads = 0
         var initialRequest: URLRequest?
@@ -325,7 +326,6 @@ struct NetworkSmokeCoverageTests {
             return loadHTMLString("<body>fixture</body>", baseURL: AppURL.required("https://bit101.cn/gallery"))
         }
     }
-
     @Test(.timeLimit(.minutes(1))) func galleryWebCredentialsFollowLoginAccountChangesAndSignOut() async throws {
         var cookie = "account-a\"\\\n"
         let changes = PassthroughSubject<Void, Never>()

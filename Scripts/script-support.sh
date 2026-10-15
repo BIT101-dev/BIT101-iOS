@@ -308,6 +308,7 @@ with ((root / ".build/extended-automation.lock").open("a")
         command = arguments[2:]
         if command[0] == "xcodebuild" and any(action in command for action in ("build", "build-for-testing", "test", "archive")):
             defaults = ["SWIFT_TREAT_WARNINGS_AS_ERRORS=YES", "GCC_TREAT_WARNINGS_AS_ERRORS=YES"]
+            if 'archive' not in command: defaults.append('SWIFT_COMPILATION_MODE=incremental')
             for setting in defaults:
                 if not any(value.startswith(setting.split("=", 1)[0] + "=") for value in command):
                     arguments.append(setting)
