@@ -52,15 +52,23 @@ else:
     identifier = subprocess.check_output(['xcrun', 'simctl', 'create', 'BIT101', phone['identifier'], runtime['identifier']], text=True).strip()
     path.write_text(json.dumps({'identifier': identifier, 'runtime': runtime['identifier']}) + '\n')
     device = {'state': 'Shutdown'}
+developer = Path(os.getenv('DEVELOPER_DIR') or subprocess.check_output(['xcode-select', '-p'], text=True).strip())
+device_hub = str(developer.parent / 'Applications/DeviceHub.app')
 if os.getenv('GITHUB_ACTIONS') == 'true':
+    import time
+    subprocess.run(['open', '-g', '-a', device_hub], check=True)
+    container = Path.home() / 'Library/Containers/com.apple.dt.Devices'
+    deadline = time.monotonic() + 10
+    while not container.is_dir():
+        if time.monotonic() >= deadline: raise SystemExit('Device Hub 首次启动需要建立应用容器。')
+        time.sleep(0.1)
     subprocess.run(['defaults', '-container', 'com.apple.dt.Devices', 'write', 'com.apple.dt.Devices',
         'alwaysSimulateHardwareKeyboard', '-bool', 'true'], check=True)
 if device['state'] != 'Booted': subprocess.run(['xcrun', 'simctl', 'boot', identifier], check=True, stdout=sys.stderr, stderr=sys.stderr)
 subprocess.run(['xcrun', 'simctl', 'bootstatus', identifier, '-b'], check=True, stdout=sys.stderr, stderr=sys.stderr)
 if os.getenv('GITHUB_ACTIONS') == 'true' and operation == 'prepare':
     subprocess.run(['xcrun', 'simctl', 'addmedia', identifier, sys.argv[3]], check=True, stdout=sys.stderr, stderr=sys.stderr)
-developer = Path(os.getenv('DEVELOPER_DIR') or subprocess.check_output(['xcode-select', '-p'], text=True).strip())
-subprocess.run(['open', '-a', str(developer.parent / 'Applications/DeviceHub.app')], check=True)
+subprocess.run(['open', '-a', device_hub], check=True)
 print(identifier)
 PYDEVICE
 )"; then
