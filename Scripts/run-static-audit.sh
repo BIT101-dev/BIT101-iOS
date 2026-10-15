@@ -9,6 +9,12 @@ source "$ROOT_DIR/Scripts/script-support.sh"
 bit101_acquire_artifact_lock "$0" "$@"
 bit101_acquire_script_lock "$ROOT_DIR/.build/static-audit/audit.lock" BIT101_STATIC_AUDIT_LOCK_HELD "$0" "$@"
 LOG_DIR="$ROOT_DIR/.build/static-audit"
+if [[ "${1:-}" == prepare && $# -eq 1 ]]; then
+  python3 "$ROOT_DIR/Scripts/validation_performance.py" recover-batch
+  python3 "$ROOT_DIR/Scripts/validation_artifacts.py" "$ROOT_DIR"
+  exit 0
+fi
+[[ $# -eq 0 ]] || exit 64
 AUDIT_STARTED=$SECONDS
 group_processes=()
 BIT101_VALIDATION_STARTED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
@@ -59,7 +65,9 @@ if [[ -z "$SWIFT_FRONTEND" || ! -x "$SWIFT_FRONTEND" ]]; then
   echo "[失败] 找不到可用的 swift-frontend；请检查当前 Xcode 工具链" >&2
   exit 1
 fi
-python3 "$ROOT_DIR/Scripts/validation_performance.py" recover-batch
+if [[ "${BIT101_AUDIT_ARTIFACTS_PREPARED:-0}" != 1 ]]; then
+  python3 "$ROOT_DIR/Scripts/validation_performance.py" recover-batch
+fi
 BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest audit)"
 BIT101_VALIDATION_RUN_ID="$(uuidgen)"
 export BIT101_VALIDATION_SOURCE_DIGEST BIT101_VALIDATION_RUN_ID
@@ -160,7 +168,9 @@ start_group() {
 }
 
 failed_groups=()
-run_group artifact-hygiene artifact_hygiene || failed_groups+=(artifact-hygiene)
+if [[ "${BIT101_AUDIT_ARTIFACTS_PREPARED:-0}" != 1 ]]; then
+  run_group artifact-hygiene artifact_hygiene || failed_groups+=(artifact-hygiene)
+fi
 if (( ${#failed_groups} )); then cat "$LOG_DIR/artifact-hygiene.log" >&2; fi
 group_names=(swift-parse shell-parse python-parse worker-parse dependency-audit module-boundary git-diff docs checkers)
 group_commands=(swift_parse shell_parse python_parse worker_parse dependency_audit module_boundary_audit git_check docs_check checker_audit)

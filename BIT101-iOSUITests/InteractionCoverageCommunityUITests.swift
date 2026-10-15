@@ -520,9 +520,7 @@ nonisolated final class ScheduleNavigationUITests: UIAutomationTestCase {
         app.buttons["schedule.add-content"].tapBriefly()
         tap("添加日程")
         let sheet = app.navigationBars["添加自定义日程"]
-        sheet.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.1)).press(forDuration: 0.1,
-            thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)),
-            withVelocity: .fast, thenHoldForDuration: 0.1)
+        swipeSheetHeader(sheet)
         assertUI(waitUntil(NSPredicate(format: "hittable == true"), on: app.buttons["schedule.add-content"], timeout: 5), "下滑关闭应恢复课表入口。")
     }
 
@@ -792,11 +790,16 @@ extension UIAutomationTestCase {
     }
 
     @MainActor
-    func dismissPosterSheet(returningTo title: String) {
-        let detail = app.navigationBars["帖子详情"]
-        detail.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0)).press(forDuration: 0.01,
+    func swipeSheetHeader(_ header: UIElement) {
+        header.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0)).press(forDuration: 0.01,
             thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)),
             withVelocity: .fast, thenHoldForDuration: 0.01)
+    }
+
+    @MainActor
+    func dismissPosterSheet(returningTo title: String) {
+        let detail = app.navigationBars["帖子详情"]
+        swipeSheetHeader(detail)
         assertUI(waitUntil(NSPredicate { _, _ in !detail.native.exists }, on: detail), "下滑应关闭帖子详情。")
         assertUI(waitUntil(NSPredicate(format: "hittable == true"), on: app.navigationBars[title]), "关闭详情应恢复\(title)。")
     }

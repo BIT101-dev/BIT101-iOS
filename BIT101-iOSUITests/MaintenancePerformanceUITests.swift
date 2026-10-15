@@ -58,9 +58,9 @@ nonisolated final class MaintenancePerformanceUITests: XCTestCase {
         }
         measure(metrics: [XCTClockMetric(), XCTMemoryMetric(application: app)]) {
             for _ in 0..<pairs {
-                app.buttons["下一周"].tap()
+                app.buttons["下一周"].press(forDuration: 0.01)
                 XCTAssertTrue(app.buttons["第2周"].isSelected)
-                app.buttons["上一周"].tap()
+                app.buttons["上一周"].press(forDuration: 0.01)
                 XCTAssertTrue(app.buttons["第1周"].isSelected)
             }
         }

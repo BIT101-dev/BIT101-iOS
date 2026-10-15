@@ -165,11 +165,19 @@ export class QuotaFixture extends ReportQuota {
     const grantKey = `report-delete-grant:${grant}`;
     const remove = (value = grant) => mf.dispatchFetch("https://feedback.invalid/api/error-reports", {
       method: "DELETE", headers: { "CF-Connecting-IP": "192.0.2.1" }, body: JSON.stringify({ key: attachmentKey, grant: value }) });
-    for (const headers of [{ "CF-Connecting-IP": "192.0.2.1" }, { "CF-Connecting-IP": "192.0.2.1", "content-length": "1048578" }]) {
+    const oversizedDeleteBody = "{}".padEnd(1024 + 1);
+    for (const declaredLength of [false, true]) {
+      const headers = { "CF-Connecting-IP": "192.0.2.1" };
+      if (declaredLength) headers["content-length"] = String(Buffer.byteLength(oversizedDeleteBody));
+      const body = declaredLength ? oversizedDeleteBody : new ReadableStream({ start(controller) {
+        controller.enqueue(new TextEncoder().encode(oversizedDeleteBody)); controller.close();
+      } });
       assert.equal((await mf.dispatchFetch("https://feedback.invalid/api/error-reports", {
-        method: "DELETE", headers, body: "{}" + " ".repeat(1024 * 1024) })).status, 413);
+        method: "DELETE", headers, body, duplex: "half" })).status, 413);
     }
-    assert.equal((await remove()).status, 403);
+    assert.equal((await mf.dispatchFetch("https://feedback.invalid/api/error-reports", {
+      method: "DELETE", headers: { "CF-Connecting-IP": "192.0.2.1" },
+      body: JSON.stringify({ key: attachmentKey, grant }).padEnd(1024) })).status, 403);
     await kv.put(grantKey, JSON.stringify({ key: "report:mismatched" }));
     assert.equal((await remove()).status, 403);
     await kv.put(grantKey, JSON.stringify({ key: attachmentKey }));

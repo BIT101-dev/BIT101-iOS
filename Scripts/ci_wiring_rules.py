@@ -14,6 +14,8 @@ CI_CANCELLATION = '${{ !(' + CI_RELEASE_CONTEXT + ') }}'
 CI_CONCURRENCY_GROUP = 'ios-ci-${{ github.ref }}-${{ ' + CI_RELEASE_CONTEXT + ' }}'
 DIAGNOSTIC_PATHS = {
     'static-audit': {'.build/static-audit/*.log', '.build/code-quality-report.txt', '.build/ui-consistency-report.txt',
+        '.build/static-audit/swift-syntax-indexer', '.build/static-audit/swift-syntax-indexer-inputs.json',
+        '.build/static-audit/compilation-conditions.json',
         '.build/explanatory-text-report.txt', '.build/extended-automation/modules.log',
         '.build/extended-automation/module-events.jsonl', '.build/extended-automation/test-metrics.txt'},
     'release-build': {'.build/extended-automation/build-network-smoke.log', '.build/extended-automation/build-icloud-smoke.log',
@@ -179,7 +181,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
         if name not in {'ios-tests', 'ios-test-shards'} and not any(command_matches(command, "python3 Scripts/validation_evidence.py summary --recorded-environment")
                 for command, _ in run_commands(job, include_always=True)):
             errors.append(f".github/workflows/ci.yml: {name} 的证据汇总需要采用记录环境")
-        expected_dependencies = 'ios-test-shards' if name == 'ios-tests' else 'release-build' if name == 'catalyst-tests' else []
+        expected_dependencies = ['static-audit', 'ios-test-shards'] if name == 'ios-tests' else 'release-build' if name == 'catalyst-tests' else []
         if job.get('needs', []) != expected_dependencies:
             errors.append(f'.github/workflows/ci.yml: {name} 需要按独立执行与最终汇总的依赖图运行')
     static_commands = commands.get("static-audit", [])
@@ -263,7 +265,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
         timeout = mapping(jobs.get(job)).get('timeout-minutes')
         if type(timeout) is not int or timeout < workflow_timeout_seconds(groups) // 60 + 10:
             errors.append(f'.github/workflows/ci.yml: {job} Job 需要覆盖所属执行及恢复预算')
-    for job, minimum in (('ios-test-shards', 30), ('ios-tests', 10)):
+    for job, minimum in (('ios-test-shards', workflow_timeout_seconds(('ui',)) // 60 + 10), ('ios-tests', 10)):
         timeout = mapping(jobs.get(job)).get('timeout-minutes')
         if type(timeout) is not int or timeout < minimum:
             errors.append(f'.github/workflows/ci.yml: {job} Job 需要覆盖所属执行及恢复预算')
@@ -505,7 +507,7 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
         serialized = workflow_source.replace('  ' + job + ':\n', '  ' + job + ':\n    needs: static-audit\n', 1)
         assert any('依赖图' in item for item in ci_wiring_findings(serialized))
     assert any('依赖图' in row for row in ci_wiring_findings(workflow_source.replace('  catalyst-tests:\n    needs: release-build', '  catalyst-tests:')))
-    detached = workflow_source.replace('needs: ios-test-shards', 'needs: []', 1)
+    detached = workflow_source.replace('needs: [static-audit, ios-test-shards]', 'needs: []', 1)
     assert any('依赖图' in item for item in ci_wiring_findings(detached))
     misplaced_audit = workflow_source.replace("run: Scripts/run-static-audit.sh", "run: echo skipped", 1)
     misplaced_audit += "\n# Scripts/run-static-audit.sh\n"
@@ -515,7 +517,7 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
     if not any("Catalyst 行为 Job 需要聚合执行" in item for item in ci_wiring_findings(skipped_catalyst)):
         findings.append("代码质量规则边界自检失败：并行 Catalyst 行为用例执行门禁")
     for before, after in (("run: Scripts/run-extended-tests.sh verify modules all release-runtime ui", "run: true"),
-            ('timeout-minutes: 45', 'timeout-minutes: 20'), ('timeout-minutes: 105', 'timeout-minutes: 20'),
+            ('timeout-minutes: 105', 'timeout-minutes: 20'),
             ("name: validation-evidence\n", "name: other-evidence\n"),
             ('baseline "$BIT101_BASE_COMMIT"', 'baseline "wrong-commit"'),
             ("ios-tests, physical-device]", "ios-tests]")):
@@ -529,7 +531,7 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
             findings.append('代码质量规则边界自检失败：完整模拟器合并验收与发布真机分支')
     for before, after in (('run: Scripts/run-extended-tests.sh simulator "${{ matrix.mode }}"', 'run: true'),
             ('run: Scripts/run-extended-tests.sh simulator merge', 'run: true'),
-            ('fail-fast: false', 'fail-fast: true'), ('max-parallel: 3', 'max-parallel: 4'), ('{mode: ui, shard: 0, count: 1, workers: 2}', '{mode: ui, shard: 0, count: 1, workers: 1}'),
+            ('fail-fast: false', 'fail-fast: true'), ('max-parallel: 3', 'max-parallel: 4'), ('{mode: ui, shard: 0, count: 1, workers: 1}', '{mode: ui, shard: 0, count: 1, workers: 2}'),
             ('BIT101_CI_SHARD: ${{ matrix.shard }}/${{ matrix.count }}', 'BIT101_CI_SHARD: 0/1')):
         assert ci_wiring_findings(workflow_source.replace(before, after)), before
     for before, after in (('Scripts/build-install-device.sh toolchain', 'Scripts/build-install-device.sh  toolchain'),

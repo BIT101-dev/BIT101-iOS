@@ -113,6 +113,9 @@ def combined_main() -> int:
         module.ast_marker_boundary_findings, module.source_boundary_findings,
         module.map_theme_color_contract_findings, module.interaction_inventory_boundary_findings,
     ) for finding in self_test_findings(checker)]
+    if quality_boundaries or ui_boundaries:
+        print('\n'.join(quality_boundaries + ui_boundaries))
+        return 1
     tested = time.monotonic()
     ui_status = module.main(syntax_index, ui_boundaries)
     ui_checked = time.monotonic()

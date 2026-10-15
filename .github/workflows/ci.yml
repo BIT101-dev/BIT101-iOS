@@ -85,6 +85,9 @@ jobs:
           include-hidden-files: true
           path: |
             .build/static-audit/*.log
+            .build/static-audit/swift-syntax-indexer
+            .build/static-audit/swift-syntax-indexer-inputs.json
+            .build/static-audit/compilation-conditions.json
             .build/code-quality-report.txt
             .build/ui-consistency-report.txt
             .build/explanatory-text-report.txt
@@ -179,14 +182,14 @@ jobs:
   ios-test-shards:
     name: iOS Simulator ${{ matrix.mode }} (${{ matrix.shard }})
     runs-on: xcode-27
-    timeout-minutes: 45
+    timeout-minutes: 105
     strategy:
       fail-fast: false
       max-parallel: 3
       matrix:
         include:
           - {mode: app, shard: 0, count: 1, workers: 1}
-          - {mode: ui, shard: 0, count: 1, workers: 2}
+          - {mode: ui, shard: 0, count: 1, workers: 1}
           - {mode: release-runtime, shard: 0, count: 1, workers: 1}
     env:
       BIT101_SIMULATOR_AUTHORIZED: '1'
@@ -240,7 +243,7 @@ jobs:
   ios-tests:
     name: iOS Simulator behavior and UI tests
     runs-on: xcode-27
-    needs: ios-test-shards
+    needs: [static-audit, ios-test-shards]
     timeout-minutes: 15
     env:
       BIT101_SIMULATOR_AUTHORIZED: '1'

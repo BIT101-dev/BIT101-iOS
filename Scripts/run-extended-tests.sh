@@ -268,7 +268,7 @@ if [[ "$MODE" == "verify" ]]; then
   fi
   export BIT101_DEFER_APP_RESTORE=1
   verification_audit_pid=
-  if (( ${verification_groups[(Ie)audit]} )); then verification_groups=(${verification_groups:#audit} audit); fi
+  if (( ${verification_groups[(Ie)audit]} )); then verification_groups=(audit ${verification_groups:#audit}); fi
   finish_verification() {
     local verification_status=$?
     trap - EXIT ZERR INT TERM
@@ -301,7 +301,8 @@ PYELAPSED
     local label="$1"
     shift
     if [[ "$label" == audit && "${BIT101_AUDIT_BACKGROUND:-0}" != 1 ]]; then
-      (trap - EXIT ZERR INT TERM; BIT101_AUDIT_BACKGROUND=1 verify_step "$label" "$@") &
+      "$ROOT_DIR/Scripts/run-static-audit.sh" prepare || return $?
+      (trap - EXIT ZERR INT TERM; BIT101_AUDIT_BACKGROUND=1 BIT101_AUDIT_ARTIFACTS_PREPARED=1 verify_step "$label" "$@") &
       verification_audit_pid=$!
       return 0
     fi

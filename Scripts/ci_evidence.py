@@ -184,6 +184,10 @@ def merge_simulator_ci() -> None:
     if errors := ci_commit_findings(commit): raise ValueError('\n'.join(errors))
     policy = json.loads(REPORT.read_text()).get('coveragePolicy', {})
     run = os.environ['GITHUB_RUN_ID']
+    subprocess.run(['gh', 'run', 'download', run, '--name', 'validation-static-audit',
+        '--dir', str(ROOT / '.build')], check=True, capture_output=True, text=True)
+    indexer = ROOT / '.build/static-audit/swift-syntax-indexer'
+    indexer.chmod(indexer.stat().st_mode | 0o100)
     report = []
     for group in ('all', 'ui'):
         line_shards = []

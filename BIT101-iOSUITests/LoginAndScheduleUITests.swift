@@ -617,7 +617,7 @@ nonisolated final class CommunityPublishingUITests: UIAutomationTestCase {
         closeAlertIfPresent()
         replaceText("测试草稿", in: app.textFields["标题"])
         dismissKeyboard()
-        app.navigationBars["发布帖子"].swipeDown()
+        swipeSheetHeader(app.navigationBars["发布帖子"])
         assertUI(app.textFields["标题"].value as? String == "测试草稿", "下拉关闭应保留草稿输入并等待明确关闭操作。")
         XCUIDevice.shared.press(.home)
         app.activate()
@@ -688,7 +688,7 @@ nonisolated final class CommunityPublishingUITests: UIAutomationTestCase {
             replaceText(text, in: app.textFields[title])
         }
         dismissKeyboard()
-        paperComposer.swipeDown()
+        swipeSheetHeader(paperComposer)
         assertUI(paperComposer.exists, "下滑关闭应保留文章编辑内容。")
         assertUI(app.textFields["正文"].value as? String == "文章发布测试正文", "文章正文应继续保留。")
         tap("发布")

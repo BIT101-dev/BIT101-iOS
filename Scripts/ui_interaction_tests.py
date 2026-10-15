@@ -304,6 +304,8 @@ def explanatory_text_boundary_findings() -> list[str]:
 
 
 def checker_report_boundary_findings() -> list[str]:
+    from contextlib import redirect_stdout
+    from io import StringIO
     import importlib.util
     import shutil
     import subprocess
@@ -353,13 +355,13 @@ def checker_report_boundary_findings() -> list[str]:
                 patch.object(subject.importlib.util, 'spec_from_file_location', return_value=ui_spec), \
                 patch.object(subject.importlib.util, 'module_from_spec', return_value=module), \
                 patch.object(subject, 'main', side_effect=lambda syntax, findings: write_report(0, findings)), \
-                patch.object(subject, 'explanatory_text_report', side_effect=lambda: write_report(2, ['current source'])):
+                patch.object(subject, 'explanatory_text_report', side_effect=lambda: write_report(2, ['current source'])), \
+                redirect_stdout(output := StringIO()):
             assert subject.combined_main() == 1, '自测失败需要保留失败状态'
-        assert visited == ['source', 'theme', 'interactions', names[1], names[0], names[2]]
-        for index, probe in ((0, 'quality_probe'), (1, 'ui_probe')):
-            report = reports[index].read_text()
-            assert probe in report and 'ui_interaction_tests.py:' in report, '当前报告需要记录失败组与位置'
-        assert all('previous report' not in report.read_text() for report in reports)
+        assert visited == ['source', 'theme', 'interactions'], '自测失败后立即返回诊断'
+        for probe in ('quality_probe', 'ui_probe'):
+            assert probe in output.getvalue() and 'ui_interaction_tests.py:' in output.getvalue(), '诊断需要记录失败组与位置'
+        assert [report for report in reports if report.exists()] == [], '失败时沿已清理报告和当前诊断验收'
     except (AssertionError, OSError, subprocess.TimeoutExpired) as error:
         return [f'组合检查报告自测：{error}']
     finally:
