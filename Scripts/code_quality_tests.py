@@ -407,6 +407,22 @@ def script_output_boundary_findings() -> list[str]:
         expected_lines = count if ci and status != 0 else min(count, 40)
         if sum(line.startswith("error:") for line in output.splitlines()) != expected_lines:
             findings.append("日志自测：首批诊断与 CI 完整诊断展示")
+    for ci in (True, False):
+        visible, log = StringIO(), StringIO()
+        case = "Test Case '-[UITests testAction]' passed (1.234 seconds).\n"
+        def native_output():
+            yield "    t = 0.10s Press button\n"
+            yield case
+            assert ("[用例]" in visible.getvalue()) == ci
+        process = SimpleNamespace(stdout=native_output(), wait=lambda: 0)
+        with patch.object(sys, 'argv', ['logger', '/audit/ui.log', '模拟器测试', 'xcodebuild']), \
+                patch.object(subprocess, 'Popen', return_value=process), patch.object(Path, 'mkdir'), \
+                patch.object(Path, 'open', lambda *args, **kwargs: nullcontext(log)), \
+                patch.dict(os.environ, GITHUB_ACTIONS='true' if ci else 'false'), redirect_stdout(visible):
+            try: exec(compile(block[1], '<native-progress>', 'exec'), {})
+            except SystemExit as error: assert error.code == 0
+        if log.getvalue() != "    t = 0.10s Press button\n" + case:
+            findings.append('日志自测：原生用例进度即时展示，完整操作记录沿固定日志保留')
     script = (SCRIPT_ROOT / "run-extended-tests.sh").read_text()
     metrics = re.search(r"(?ms)^record_metrics\(\) \{.*?<<'PY'\n(.*?)^PY$", script)[1]
     with patch.object(sys, "argv", ["metrics", "/result", "/report", "ui", "1", "device", "/audit"]), \

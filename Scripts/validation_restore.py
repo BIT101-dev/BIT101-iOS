@@ -161,6 +161,22 @@ def simulator_startup_findings(source: str) -> list[str]:
                 ['xcrun', 'simctl', 'bootstatus', 'device', '-b'], ['open', '-a', '/fixture/Xcode.app/Contents/Applications/DeviceHub.app']]
             if commands != expected:
                 findings.append('模拟器启动自测：托管编译先于系统启动，本机准备完成设备启动')
+    runtime = 'com.apple.CoreSimulator.SimRuntime.iOS-27'
+    stock = {'runtimes': [{'isAvailable': True, 'identifier': runtime, 'version': '27.0',
+        'supportedDeviceTypes': [{'name': 'iPhone', 'identifier': 'phone'}]}], 'devices': {runtime: [
+            {'udid': 'shutdown', 'name': 'iPhone', 'isAvailable': True, 'state': 'Shutdown'},
+            {'udid': 'booted', 'name': 'iPhone', 'isAvailable': True, 'state': 'Booted'}]}}
+    for hosted, expected in (('true', 'shutdown'), ('false', 'created')):
+        def command_output(command, **kwargs):
+            return json.dumps(stock) if command[2] == 'list' else 'created'
+        with patch.dict(os.environ, GITHUB_ACTIONS=hosted, DEVELOPER_DIR='/fixture/Xcode.app/Contents/Developer'), \
+                patch.object(sys, 'argv', ['device', '/fixture/device.json', 'prepare', '/fixture/icon.png']), \
+                patch.object(Path, 'is_file', return_value=False), patch.object(Path, 'write_text') as saved, \
+                patch.object(subprocess, 'check_output', side_effect=command_output) as executed, \
+                patch.object(subprocess, 'run'), redirect_stdout(StringIO()):
+            exec(compile(device_program, '<simulator-stock-device>', 'exec'), {})
+        if json.loads(saved.call_args.args[0])['identifier'] != expected or executed.call_count != (1 if hosted == 'true' else 2):
+            findings.append('模拟器选择自测：托管环境复用库存 iPhone，本机维护项目独立设备')
     for operation in ('app', 'release-runtime', 'ui'):
         commands = []
         with patch.dict(os.environ, DEVELOPER_DIR='/fixture/Xcode.app/Contents/Developer'), \

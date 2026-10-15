@@ -68,8 +68,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
                 ? (label == title ? NSPredicate(format: "label == %@", title) : NSPredicate(format: "label CONTAINS %@", title))
                 : NSPredicate(format: "identifier == %@ AND label CONTAINS %@", identifier, title)
             let button = app.buttons.matching(predicate).firstMatch
-            if !button.isHittable { reveal(button, description: title) }
-            button.tapBriefly()
+            button.tapBriefly { self.reveal(button, description: title) }
             return
         }
         let exact = app.buttons.matching(NSPredicate(format: "label == %@", title))

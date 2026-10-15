@@ -172,27 +172,22 @@ def read_native_summary(bundle: Path, group: str) -> dict:
         'executedTests': sorted(cases['byTest']), 'testCases': cases}
 
 
-def reuse_static_tools() -> str:
-    from validation_environment import ci_commit_findings
-    commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
-    if errors := ci_commit_findings(commit): raise ValueError('\n'.join(errors))
-    subprocess.run(['gh', 'run', 'download', os.environ['GITHUB_RUN_ID'], '--name', 'validation-static-audit',
-        '--dir', str(ROOT / '.build')], check=True, capture_output=True, text=True)
-    indexer = ROOT / '.build/static-audit/swift-syntax-indexer'
-    indexer.chmod(indexer.stat().st_mode | 0o100)
-    return commit
-
-
 def merge_simulator_ci() -> None:
     from validation_evidence import ROOT, REPORT, selected_test_summary_complete, coverage_complete, test_inventory
     from validation_coverage import SIMULATOR_SHARDS, shard_inventory, combined_line_coverage, regressions, policy_floors
+    from validation_environment import ci_commit_findings
     root = ROOT / '.build/extended-automation'
     bundle = root / 'test-results.xcresult'
     retained = bundle.with_suffix('.retained.xcresult')
     incoming = bundle.with_suffix('.incoming.xcresult')
-    commit = reuse_static_tools()
+    commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+    if errors := ci_commit_findings(commit): raise ValueError('\n'.join(errors))
     policy = json.loads(REPORT.read_text()).get('coveragePolicy', {})
     run = os.environ['GITHUB_RUN_ID']
+    subprocess.run(['gh', 'run', 'download', run, '--name', 'validation-static-audit',
+        '--dir', str(ROOT / '.build')], check=True, capture_output=True, text=True)
+    indexer = ROOT / '.build/static-audit/swift-syntax-indexer'
+    indexer.chmod(indexer.stat().st_mode | 0o100)
     report = []
     for group in ('all', 'ui'):
         line_shards = []
@@ -339,7 +334,6 @@ def _self_test() -> None:
         (['check-release'], 'check_release', ((), {})),
         (['export-core'], 'export_core', ((), {})),
         (['simulator-merge'], 'merge_simulator_ci', ((), {})),
-        (['static-tools'], 'reuse_static_tools', ((), {})),
         (['import-baseline', '7'], 'import_baseline', ((7,), {})),
     ):
         with patch.object(sys, 'argv', ['ci_evidence.py', *arguments]), patch.object(module, operation, return_value='b' * 40) as execute, \
@@ -353,7 +347,7 @@ def _self_test() -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('baseline', 'current', 'review-pr', 'release', 'publish', 'check-release', 'export-core', 'import-baseline', 'simulator-merge', 'static-tools'))
+    parser.add_argument('action', choices=('baseline', 'current', 'review-pr', 'release', 'publish', 'check-release', 'export-core', 'import-baseline', 'simulator-merge'))
     parser.add_argument('identity', nargs='?', default='')
     parser.add_argument('--results', default='')
     args = parser.parse_args()
@@ -363,7 +357,6 @@ def main() -> int:
         elif args.action == 'review-pr': print(review_pr(int(args.identity)))
         elif args.action == 'check-release': check_release()
         elif args.action == 'export-core': export_core()
-        elif args.action == 'static-tools': reuse_static_tools()
         elif args.action == 'simulator-merge': merge_simulator_ci()
         elif args.action == 'import-baseline': import_baseline(int(args.identity))
         else: release(args.identity, publish=args.action == 'publish')

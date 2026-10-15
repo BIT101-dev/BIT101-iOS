@@ -351,9 +351,17 @@ final class UIElement: NSObject {
         UITestSnapshotReader.invalidate()
     }
 
-    func tapBriefly() {
+    func tapBriefly(reveal: (() -> Void)? = nil) {
         if !Self.usesNativeInteraction { Self.beforeNativeTap?() }
         defer { UITestSnapshotReader.invalidate() }
+        var preparedHittability: Bool?
+        if let reveal {
+            preparedHittability = isHittable
+            if preparedHittability == false {
+                reveal()
+                preparedHittability = isHittable
+            }
+        }
         if Self.usesNativeInteraction {
             press(forDuration: 0.01)
             return
@@ -371,7 +379,7 @@ final class UIElement: NSObject {
         if let actionPath, let data = try? JSONSerialization.data(withJSONObject: actionPath) {
             let started = ProcessInfo.processInfo.systemUptime
             let response = UITestControlClient.request(["command": "query-activate", "query": String(decoding: data, as: UTF8.self),
-                                                       "hittable": isHittable ? "1" : "0", "label": label, "identifier": identifier], timeout: 5)
+                                                       "hittable": (preparedHittability ?? isHittable) ? "1" : "0", "label": label, "identifier": identifier], timeout: 5)
             if response == "activated" {
                 print(String(format: "UI accessibility activate: %.3f", ProcessInfo.processInfo.systemUptime - started))
                 return

@@ -48,10 +48,19 @@ if path.is_file():
     identifier = owned['identifier']
 else:
     runtime = max(available, key=lambda row: tuple(map(int, row['version'].split('.'))))
-    phone = next(row for row in runtime['supportedDeviceTypes'] if row['name'].startswith('iPhone'))
-    identifier = subprocess.check_output(['xcrun', 'simctl', 'create', 'BIT101', phone['identifier'], runtime['identifier']], text=True).strip()
+    hosted_phones = [row for row in data['devices'].get(runtime['identifier'], [])
+        if os.getenv('GITHUB_ACTIONS') == 'true' and row.get('isAvailable') and row['name'].startswith('iPhone')]
+    if hosted_phones:
+        device = min(hosted_phones, key=lambda row: row['state'] != 'Shutdown')
+        identifier = device['udid']
+        if device['state'] == 'Booted':
+            subprocess.run(['xcrun', 'simctl', 'shutdown', identifier], check=True, stdout=sys.stderr, stderr=sys.stderr)
+            device['state'] = 'Shutdown'
+    else:
+        phone = next(row for row in runtime['supportedDeviceTypes'] if row['name'].startswith('iPhone'))
+        identifier = subprocess.check_output(['xcrun', 'simctl', 'create', 'BIT101', phone['identifier'], runtime['identifier']], text=True).strip()
+        device = {'state': 'Shutdown'}
     path.write_text(json.dumps({'identifier': identifier, 'runtime': runtime['identifier']}) + '\n')
-    device = {'state': 'Shutdown'}
 developer = Path(os.getenv('DEVELOPER_DIR') or subprocess.check_output(['xcode-select', '-p'], text=True).strip())
 device_hub = str(developer.parent / 'Applications/DeviceHub.app')
 if os.getenv('GITHUB_ACTIONS') != 'true' or operation not in {'prepare', 'app', 'release-runtime', 'ui'}:
@@ -256,6 +265,8 @@ rm -f "$DERIVED_ROOT/test-metrics.txt" "$DERIVED_ROOT/test-failures.txt"
 rm -f "$DERIVED_ROOT/Build/ProfileData/"*/Coverage.profdata(N)
 rm -f "$DERIVED_ROOT/Build/ProfileData/keyboard.profdata"
 parallel_arguments=(-parallel-testing-enabled NO)
+test_logging=(-quiet)
+if [[ "$mode" == ui ]]; then test_logging=(); fi
 if (( SIMULATOR_WORKERS > 1 )); then
   parallel_arguments=(-parallel-testing-enabled YES -parallel-testing-worker-count "$SIMULATOR_WORKERS")
 fi
@@ -273,7 +284,7 @@ from validation_coverage import run_simulator_ui
 raise SystemExit(run_simulator_ui(Path(sys.argv[2]), Path(sys.argv[3]), sys.argv[4], int(sys.argv[5]), sys.argv[6:]))
 PYUI
 else
-  bit101_run_logged "$DERIVED_ROOT/$mode.log" "模拟器测试" xcodebuild test-without-building -quiet \
+  bit101_run_logged "$DERIVED_ROOT/$mode.log" "模拟器测试" xcodebuild test-without-building "${test_logging[@]}" \
   -xctestrun "$plan" -derivedDataPath "$DERIVED_ROOT" -destination "$destination" -resultBundlePath "$result" \
   "${parallel_arguments[@]}" -test-timeouts-enabled YES -collect-test-diagnostics never -enableCodeCoverage YES "${only_testing[@]}" || test_status=$?
 fi

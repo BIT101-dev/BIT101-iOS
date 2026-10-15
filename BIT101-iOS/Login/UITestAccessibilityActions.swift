@@ -422,10 +422,9 @@ enum UITestAccessibilityActions {
                     ancestor = candidate.superview
                 }
             }
-            let point = window.convert(CGPoint(x: frame.midX, y: frame.midY), from: window.screen.coordinateSpace)
-            let hit = window.hitTest(point, with: nil)
-            var inputView = hit
-            while let view = inputView, !(view is UITextField || view is UITextView) { inputView = view.superview }
+            let accessible = object.isAccessibilityElement
+            let traits = object.accessibilityTraits
+            var inputView: UIView?
             let type: Int
             switch object {
             case is UIWindow: type = 4
@@ -442,13 +441,17 @@ enum UITestAccessibilityActions {
             case is UITextView: type = 52
             case is UIScrollView: type = 46
             default:
-                if object.isAccessibilityElement && object.accessibilityTraits.contains(.toggleButton) { type = 40 }
-                else if object.isAccessibilityElement && object.accessibilityTraits.contains(.link) { type = 42 }
-                else if object.isAccessibilityElement && object.accessibilityTraits.contains(.button) { type = 9 }
-                else if object.isAccessibilityElement, let input = inputView as? UITextField { type = input.isSecureTextEntry ? 50 : 49 }
-                else if object.isAccessibilityElement, inputView is UITextView { type = 52 }
-                else if object.isAccessibilityElement && object.accessibilityTraits.contains(.staticText) { type = 48 }
-                else { type = 1 }
+                if accessible && traits.contains(.toggleButton) { type = 40 }
+                else if accessible && traits.contains(.link) { type = 42 }
+                else if accessible && traits.contains(.button) { type = 9 }
+                else if accessible {
+                    let point = window.convert(CGPoint(x: frame.midX, y: frame.midY), from: window.screen.coordinateSpace)
+                    inputView = window.hitTest(point, with: nil)
+                    while let view = inputView, !(view is UITextField || view is UITextView) { inputView = view.superview }
+                    if let input = inputView as? UITextField { type = input.isSecureTextEntry ? 50 : 49 }
+                    else if inputView is UITextView { type = 52 }
+                    else { type = traits.contains(.staticText) ? 48 : 1 }
+                } else { type = 1 }
             }
             var label = object.accessibilityLabel ?? ""
             var id = identifier(of: object) ?? ""
@@ -463,22 +466,24 @@ enum UITestAccessibilityActions {
                 placeholder = field.placeholder ?? ""
             } else if let field = (object as? UITextView) ?? (type == 52 ? inputView as? UITextView : nil) { value = field.text }
             else if let control = object as? UISwitch { value = control.isOn ? "1" : "0" }
-            let enabled = !object.accessibilityTraits.contains(.notEnabled) && (object as? UIControl)?.isEnabled != false
-            var selected = object.accessibilityTraits.contains(.selected) || (object as? UIControl)?.isSelected == true
-            var container: Any? = object
-            var ancestors = Set<ObjectIdentifier>()
-            while let element = container as? NSObject, ancestors.insert(ObjectIdentifier(element)).inserted {
-                if let view = element as? UIView {
-                    if type == 9, let segmented = view as? UISegmentedControl, segmented.selectedSegmentIndex >= 0,
-                       let title = segmented.titleForSegment(at: segmented.selectedSegmentIndex) {
-                        selected = label == title
-                    }
-                    container = view.superview
-                } else { container = (element as? UIAccessibilityElement)?.accessibilityContainer }
+            let enabled = !traits.contains(.notEnabled) && (object as? UIControl)?.isEnabled != false
+            var selected = traits.contains(.selected) || (object as? UIControl)?.isSelected == true
+            if type == 9 {
+                var container: Any? = object
+                var ancestors = Set<ObjectIdentifier>()
+                while let element = container as? NSObject, ancestors.insert(ObjectIdentifier(element)).inserted {
+                    if let view = element as? UIView {
+                        if let segmented = view as? UISegmentedControl, segmented.selectedSegmentIndex >= 0,
+                           let title = segmented.titleForSegment(at: segmented.selectedSegmentIndex) {
+                            selected = label == title
+                        }
+                        container = view.superview
+                    } else { container = (element as? UIAccessibilityElement)?.accessibilityContainer }
+                }
             }
             var instance = ""
             let scrollContainer = [26, 32, 46].contains(type) && !id.isEmpty
-            if scrollContainer || object.isAccessibilityElement && [9, 33, 37, 40, 41, 42, 45, 49, 50, 52, 79].contains(type) {
+            if scrollContainer || accessible && [9, 33, 37, 40, 41, 42, 45, 49, 50, 52, 79].contains(type) {
                 if id.isEmpty && label.isEmpty { unidentified.insert("\(currentScope):\(type)") }
                 else {
                     let key = UITestControlIdentity.key(scope: currentScope, ancestors: identityPath, identifier: id, label: label, type: type)
