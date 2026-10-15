@@ -135,10 +135,10 @@ nonisolated final class ScheduleLayoutUITests: UIAutomationTestCase {
         let status = app.native.cells.containing(.button, identifier: "app.refresh-status.action").firstMatch
         let segmented = app.native.segmentedControls.firstMatch
         let tabBar = app.native.tabBars.firstMatch
-        let settled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+        let settled = NSPredicate { _, _ in
             abs((tabBar.frame.minY - calendar.frame.maxY) - (status.frame.minY - segmented.frame.maxY)) <= 1
-        }, object: nil)
-        let layoutSettled = XCTWaiter.wait(for: [settled], timeout: 5) == .completed
+        }
+        let layoutSettled = waitUntil(settled, on: app, timeout: 5)
         let topGap = status.frame.minY - segmented.frame.maxY
         let bottomGap = app.native.tabBars.firstMatch.frame.minY - calendar.frame.maxY
         assertUI(layoutSettled, "课表上下间隙应保持一致：顶部 \(topGap)，底部 \(bottomGap)，更新时间行 \(status.frame)，课表 \(calendar.frame)，顶部栏 \(segmented.frame)，底部栏 \(tabBar.frame)。")

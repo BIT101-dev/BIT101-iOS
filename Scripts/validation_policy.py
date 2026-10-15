@@ -22,7 +22,7 @@ SCHOOL_SMS_PROBES = {
 }
 RELEASE_GROUPS = {"modules", "all", "release-runtime", "catalyst", "catalyst-release-runtime", "ui", "network", "school-sms", "icloud", "audit", "restore", "manual-device", "build-archive", "community-writes"}
 BUILD_HOSTS = {"release", "release-runtime", "ui", "network-smoke", "icloud-smoke", "modules", "catalyst", "catalyst-release-runtime"}
-VERIFY_GROUPS = ("modules", "all", "release-runtime", "catalyst", "catalyst-release-runtime", "ui", "network", "community-writes", "ddl", "icloud", "build-archive", "audit")
+VERIFY_GROUPS = ("modules", "release-runtime", "all", "catalyst", "catalyst-release-runtime", "ui", "network", "community-writes", "ddl", "icloud", "build-archive", "audit")
 DEFAULT_VERIFY_GROUPS = tuple(group for group in VERIFY_GROUPS if group != "ddl")
 REVIEW_JOB_NAMES = {'Static audit (Apple toolchain)', 'Release app and extension builds',
     'Mac Catalyst behavior tests', 'iOS Simulator behavior and UI tests'}

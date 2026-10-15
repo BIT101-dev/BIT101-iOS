@@ -281,7 +281,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
             errors.append(f'.github/workflows/ci.yml: {job} Job 需要覆盖所属执行及恢复预算')
     physical_commands = {command for command, _ in run_commands(physical, include_always=True)}
     if any(not any(command_matches(command, marker) for command in physical_commands) for marker in (
-            "Scripts/run-extended-tests.sh verify modules all release-runtime ui",
+            "Scripts/run-extended-tests.sh verify modules release-runtime all ui",
             "python3 Scripts/validation_evidence.py bind-merge", "python3 Scripts/ci_evidence.py export-core")):
         errors.append(".github/workflows/ci.yml: 真机 Job 需要执行、恢复并绑定完整验收")
     publishers = [step for step in physical.get("steps", []) if isinstance(step, dict)
@@ -340,7 +340,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
     if len(checkouts) != 1 or mapping(checkouts[0].get('with')).get('clean') is not False:
         errors.append('.github/workflows/ci.yml: 真机工作区需要保留共享增量编译缓存')
     load = next((i for i, step in enumerate(steps) if baseline_command in shell(step)), -1)
-    verify = next((i for i, step in enumerate(steps) if isinstance(step, dict) and step.get("run") == "Scripts/run-extended-tests.sh verify modules all release-runtime ui"), -1)
+    verify = next((i for i, step in enumerate(steps) if isinstance(step, dict) and step.get("run") == "Scripts/run-extended-tests.sh verify modules release-runtime all ui"), -1)
     bind = next((i for i, step in enumerate(steps) if isinstance(step, dict) and step.get("run") == "python3 Scripts/validation_evidence.py bind-merge"), -1)
     if not 0 <= load < verify < bind:
         errors.append(".github/workflows/ci.yml: 真机证据需要沿基准、执行和提交绑定顺序生成")
@@ -534,7 +534,7 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
     skipped_catalyst = workflow_source.replace("run: Scripts/run-extended-tests.sh verify catalyst catalyst-release-runtime", "run: echo skipped", 1)
     if not any("Catalyst 行为 Job 需要聚合执行" in item for item in ci_wiring_findings(skipped_catalyst)):
         findings.append("代码质量规则边界自检失败：并行 Catalyst 行为用例执行门禁")
-    for before, after in (("run: Scripts/run-extended-tests.sh verify modules all release-runtime ui", "run: true"),
+    for before, after in (("run: Scripts/run-extended-tests.sh verify modules release-runtime all ui", "run: true"),
             ('timeout-minutes: 105', 'timeout-minutes: 20'),
             ("name: validation-evidence\n", "name: other-evidence\n"),
             ('baseline "$BIT101_BASE_COMMIT"', 'baseline "wrong-commit"'),

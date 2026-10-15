@@ -144,8 +144,12 @@ def simulator_startup_findings(source: str) -> list[str]:
     from contextlib import redirect_stdout
     from io import StringIO
     from unittest.mock import patch
-    device_program = source.split("<<'PYDEVICE'\n", 1)[1].split('\nPYDEVICE', 1)[0]
-    ready_program = source.split("<<'PYREADY'\n", 1)[1].split('\nPYREADY', 1)[0]
+    try:
+        programs = {marker: source.split(f"<<'{marker}'", 1)[1].split('\n', 1)[1].split('\n' + marker, 1)[0]
+            for marker in ('PYDEVICE', 'PYREADY', 'PYAPPREADY')}
+    except IndexError:
+        return ['模拟器启动自测：设备、系统与 App 初始化入口应提供完整脚本正文。']
+    device_program = programs['PYDEVICE']
     inventory = {'runtimes': [{'isAvailable': True, 'identifier': 'com.apple.CoreSimulator.SimRuntime.iOS-27'}],
         'devices': {'runtime': [{'udid': 'device', 'isAvailable': True, 'state': 'Shutdown'}]}}
     findings = []
@@ -162,7 +166,7 @@ def simulator_startup_findings(source: str) -> list[str]:
             expected = [] if hosted == 'true' else [['xcrun', 'simctl', 'boot', 'device'],
                 ['xcrun', 'simctl', 'bootstatus', 'device', '-b'], ['open', '-a', '/fixture/Xcode.app/Contents/Applications/DeviceHub.app']]
             if commands != expected:
-                findings.append('模拟器启动自测：托管编译先于系统启动，本机准备完成设备启动')
+                findings.append('模拟器启动自测：托管设备选择与系统初始化分离，本机准备完成设备启动')
     runtime = 'com.apple.CoreSimulator.SimRuntime.iOS-27'
     stock = {'runtimes': [{'isAvailable': True, 'identifier': runtime, 'version': '27.0',
         'supportedDeviceTypes': [{'name': 'iPhone', 'identifier': 'phone'}]}], 'devices': {runtime: [
@@ -180,20 +184,42 @@ def simulator_startup_findings(source: str) -> list[str]:
         if json.loads(saved.call_args.args[0])['identifier'] != expected or executed.call_count != (1 if hosted == 'true' else 2):
             findings.append('模拟器选择自测：托管环境复用库存 iPhone，本机维护项目独立设备')
     for operation in ('app', 'release-runtime', 'ui'):
-        commands = []
-        with patch.dict(os.environ, DEVELOPER_DIR='/fixture/Xcode.app/Contents/Developer'), \
-                patch.object(sys, 'argv', ['ready', 'device', operation, '/fixture/Build/Products', '/fixture']), \
-                patch('validation_coverage.prepare_simulator_ui') as prepared, \
-                patch.object(Path, 'is_dir', return_value=True), \
-                patch.object(subprocess, 'run', side_effect=lambda command, **kwargs: commands.append(command)):
-            exec(compile(ready_program, '<simulator-ready>', 'exec'), {})
-        expected = [['open', '-g', '-a', '/fixture/Xcode.app/Contents/Applications/DeviceHub.app'],
-            ['defaults', '-container', 'com.apple.dt.Devices', 'write', 'com.apple.dt.Devices', 'alwaysSimulateHardwareKeyboard', '-bool', 'true'],
-            ['xcrun', 'simctl', 'bootstatus', 'device', '-b']]
-        if commands != expected or prepared.call_count != int(operation == 'ui') \
-                or operation == 'ui' and prepared.call_args.args != ('device', Path('/fixture/Build/Products'), Path('/fixture')) \
-                or source.index('xcodebuild build-for-testing') > source.index("<<'PYREADY'"):
-            findings.append('模拟器启动自测：编译后依次准备原生键盘与系统就绪')
+        with patch.object(sys, 'argv', ['ready', str(ROOT / 'Scripts'), 'device', '/fixture', operation]), \
+                patch('validation_coverage.prepare_simulator_system') as prepared:
+            exec(compile(programs['PYREADY'], '<simulator-ready>', 'exec'), {})
+        if prepared.call_count != 1 or prepared.call_args.args != ('device', Path('/fixture')) \
+                or prepared.call_args.kwargs != {'ui': operation == 'ui'}:
+            findings.append('模拟器启动自测：系统初始化接入实际设备及所属测试模式')
+    with patch.object(sys, 'argv', ['app-ready', str(ROOT / 'Scripts'), 'device', '/fixture/Build/Products']), \
+            patch('validation_coverage.prepare_simulator_ui') as prepared:
+        exec(compile(programs['PYAPPREADY'], '<simulator-app-ready>', 'exec'), {})
+    if prepared.call_count != 1 or prepared.call_args.args != ('device', Path('/fixture/Build/Products')):
+        findings.append('模拟器启动自测：UI 初始化使用已编译的测试宿主')
+    if source.index("<<'PYREADY'") > source.index('xcodebuild build-for-testing') \
+            or source.split("<<'PYREADY'", 1)[1].split('\n', 1)[0].strip() != '&':
+        findings.append('模拟器启动自测：系统初始化与测试宿主编译并行执行')
+    body = 'coverage_arguments=(' + source.split('coverage_arguments=(', 1)[1].split('\nplan="$(', 1)[0]
+    body = body.replace('>> "$DERIVED_ROOT/simulator.log" 2>&1', '')
+    for hosted in ('true', 'false'):
+        for operation in ('app', 'release-runtime', 'ui'):
+            for build_status, ready_status in ((0, 0), (7, 0), (0, 9), (7, 9)):
+                harness = f'''set -euo pipefail
+ROOT_DIR=/fixture DERIVED_ROOT=/fixture SIMULATOR_DEVICE=device mode={operation} scheme=scheme configuration=Release destination=target conditions= GITHUB_ACTIONS={hosted}
+only_testing=()
+bit101_run_logged() {{ if [[ "$3" == python3 ]]; then cat >/dev/null; print PREPARE; return {ready_status}; else local coverage=YES; [[ "$mode" == release-runtime ]] && coverage=NO; [[ " $* " == *" -enableCodeCoverage $coverage ENABLE_CODE_COVERAGE=$coverage "* ]] || return 88; print BUILD; return {build_status}; fi; }}
+python3() {{ cat >/dev/null; print APPREADY; }}
+'''
+                result = subprocess.run(['zsh', '-c', harness + body + '\nprint COMPLETE'], capture_output=True, text=True, timeout=10)
+                expected = build_status or (ready_status if hosted == 'true' else 0)
+                rows = result.stdout.splitlines()
+                complete = result.returncode == expected and 'BUILD' in rows and ('PREPARE' in rows) == (hosted == 'true') \
+                    and ('COMPLETE' in rows) == (expected == 0)
+                app_ready = hosted == 'true' and operation == 'ui' and expected == 0
+                complete = complete and ('APPREADY' in rows) == app_ready
+                if complete and app_ready:
+                    complete = rows.index('APPREADY') > max(rows.index('BUILD'), rows.index('PREPARE'))
+                if not complete:
+                    findings.append('模拟器启动自测：两项完成后初始化 App，失败状态归集后结束')
     return findings
 
 

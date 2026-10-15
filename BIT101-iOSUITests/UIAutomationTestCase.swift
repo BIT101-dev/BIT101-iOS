@@ -580,10 +580,10 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         guard cell.exists else { return }
         if !largeText {
             let expected = max(44, nativeText.frame.height) + 8
-            let settled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            let settled = NSPredicate { _, _ in
                 abs(cell.frame.height - expected) <= 1
-            }, object: nil)
-            assertUI(XCTWaiter.wait(for: [settled], timeout: 5) == .completed,
+            }
+            assertUI(waitUntil(settled, on: app, timeout: 5),
                 "更新时间行应遵循统一行高：实际 \(cell.frame)，文字 \(nativeText.frame)，预期 \(expected)。")
         }
         assertUI(cell.frame.insetBy(dx: 0, dy: 3).contains(nativeText.frame),

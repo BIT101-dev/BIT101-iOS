@@ -16,13 +16,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_ROOT = ROOT / "Scripts"
 
-def test_build_argument_findings(output: str) -> list[str]:
+def test_build_argument_findings(output: str, *, formal: bool = False) -> list[str]:
     findings = []
     for line in output.splitlines():
         if not line.startswith('ARGUMENTS '): continue
         arguments = shlex.split(line)[3:]
         if arguments[:1] == ['xcodebuild']:
-            required = ('-enableCodeCoverage YES', 'ENABLE_CODE_COVERAGE=YES',
+            coverage = 'NO' if formal else 'YES'
+            required = (f'-enableCodeCoverage {coverage}', f'ENABLE_CODE_COVERAGE={coverage}',
                         'SWIFT_TREAT_WARNINGS_AS_ERRORS=YES', 'GCC_TREAT_WARNINGS_AS_ERRORS=YES',
                         '-configuration Release')
         elif arguments[:2] == ['xcrun', 'swift']:
@@ -642,6 +643,7 @@ xcrun() {
         ("build-install-device.sh", ["screenshot"], 0, "截图已保存", "DEVICE"),
         ("run-extended-tests.sh", ["build"], 0, "build-for-testing", ""),
         ("run-extended-tests.sh", ["build", "ui"], 0, "BIT101-iOS-UIAutomation", ""),
+        ("run-extended-tests.sh", ["build", "release-runtime"], 0, "BIT101_WORKFLOW_CONDITIONS=", ""),
         ("run-extended-tests.sh", ["build", "network-smoke"], 0, "RELEASE_NETWORK_SMOKE", ""),
         ("run-extended-tests.sh", ["build", "icloud-smoke"], 0, "ICLOUD_CROSS_DEVICE_SMOKE", ""),
         ("run-extended-tests.sh", ["build", "modules"], 0, "swift build", ""),
@@ -716,7 +718,7 @@ bit101_run_logged() { print BUILD; return 79; }
         if result.returncode != expected or marker not in result.stdout or ("DEVICE\n" in result.stdout) != bool(device) or filename == 'build-install-device.sh' and command_output and any(not re.search(r'\b' + name + r'=(?:\s|$)', command_output) for name in ('BIT101_WORKFLOW_CONDITIONS', 'SWIFT_ACTIVE_COMPILATION_CONDITIONS')):
             findings.append(f"命令自测：{filename} {' '.join(arguments)} 分派及自动选机；{result.stderr}")
         if filename == 'run-extended-tests.sh':
-            findings.extend(test_build_argument_findings(result.stdout))
+            findings.extend(test_build_argument_findings(result.stdout, formal='release-runtime' in arguments))
             if arguments in (['build'], ['modules']):
                 options = ('--enable-code-coverage',) if arguments == ['modules'] else (
                     '-enableCodeCoverage YES', 'ENABLE_CODE_COVERAGE=YES',

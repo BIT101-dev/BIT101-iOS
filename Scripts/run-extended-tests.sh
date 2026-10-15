@@ -597,6 +597,7 @@ run_tests() {
   local test_action=test
   local execution_args=()
   local coverage_args=(-enableCodeCoverage YES ENABLE_CODE_COVERAGE=YES)
+  if [[ "$MODE" == release-runtime ]]; then coverage_args=(-enableCodeCoverage NO ENABLE_CODE_COVERAGE=NO); fi
   local started_at=$SECONDS
   if $BUILD_ONLY; then
     test_action=build-for-testing
