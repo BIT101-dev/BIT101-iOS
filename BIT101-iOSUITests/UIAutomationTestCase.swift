@@ -18,6 +18,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     }
     @MainActor private var checkingScrollContainers = false
     @MainActor private var preparingScene = false
+    @MainActor private var preparingInteraction = false
     @MainActor private var checkedScrollContainers = Set<String>()
     @MainActor private var checkingRefreshRows = false
     @MainActor private var checkedRefreshRows = Set<String>()
@@ -26,6 +27,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
 
     @MainActor
     override func tearDown() async throws {
+        if testRun?.totalFailureCount == 0 { checkCurrentSurface() }
         if let testRun, testRun.totalFailureCount > 0, !capturedFailure {
             let foreground: XCUIElement = app.state == .runningForeground ? app.native : Self.springboard
             let hierarchy = XCTAttachment(string: foreground.debugDescription)
@@ -596,7 +598,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        guard !condition() else { checkCurrentSurface(); return }
+        guard !condition() else { return }
         var diagnostics = ""
         let application = app
         let state = application.state
@@ -693,6 +695,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         initialTab: String = "schedule",
         initialSettings: String? = nil
     ) -> UIElement {
+        if let previous = Self.sessionApplication, app.native === previous { checkCurrentSurface() }
         preparingScene = true
         checkedScrollContainers.removeAll()
         checkedRefreshRows.removeAll()
@@ -757,7 +760,10 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         UITestSnapshotReader.application = application
         UITestSnapshotReader.invalidate()
         UIElement.beforeNativeTap = { [weak self] in
-            guard let self else { return }
+            guard let self, !self.preparingInteraction, !self.preparingScene,
+                  !self.checkingScrollContainers, !self.checkingRefreshRows else { return }
+            self.preparingInteraction = true
+            defer { self.preparingInteraction = false }
             let state = self.dismissNotificationBanner()
             _ = UITestControlClient.request(["command": "observe"])
             self.checkCurrentSurface(state: state)

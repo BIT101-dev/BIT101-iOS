@@ -276,7 +276,7 @@ final class UIElement: NSObject {
     func press(forDuration duration: TimeInterval) {
         defer { UITestSnapshotReader.invalidate() }
         let identity = interactionIdentity
-        if duration < 0.1 { Self.beforeNativeTap?() }
+        Self.beforeNativeTap?()
         native.press(forDuration: duration)
         recordInteraction(identity, action: duration < 0.1 ? "tap" : "press")
     }
@@ -321,12 +321,14 @@ final class UIElement: NSObject {
     func pinch(withScale scale: CGFloat, velocity: CGFloat) { performGesture("pinch") { native.pinch(withScale: scale, velocity: velocity) } }
     func adjust(toPickerWheelValue value: String) { performGesture("selection") { native.adjust(toPickerWheelValue: value) } }
     private func performGesture(_ action: String, _ operation: () -> Void) {
+        Self.beforeNativeTap?()
         let identity = interactionIdentity
         operation()
         UITestSnapshotReader.invalidate()
         recordInteraction(identity, action: action)
     }
     func typeText(_ text: String) {
+        Self.beforeNativeTap?()
         defer { UITestSnapshotReader.invalidate() }
         let identity = interactionIdentity
         native.typeText(text)
@@ -501,10 +503,11 @@ struct UIAutomationCoordinate {
         UITestSnapshotReader.invalidate()
     }
     func withOffset(_ offset: CGVector) -> Self { Self(native: native.withOffset(offset), identifier: identifier, label: label, type: type, scope: scope, instance: instance) }
-    func tapBriefly() { native.press(forDuration: 0.01); record(action: "tap") }
-    func press(forDuration duration: TimeInterval) { native.press(forDuration: duration); record(action: "press") }
+    func tapBriefly() { UIElement.beforeNativeTap?(); native.press(forDuration: 0.01); record(action: "tap") }
+    func press(forDuration duration: TimeInterval) { UIElement.beforeNativeTap?(); native.press(forDuration: duration); record(action: "press") }
     func press(forDuration duration: TimeInterval, thenDragTo coordinate: Self,
                withVelocity velocity: XCUIGestureVelocity, thenHoldForDuration hold: TimeInterval) {
+        UIElement.beforeNativeTap?()
         native.press(forDuration: duration, thenDragTo: coordinate.native, withVelocity: velocity, thenHoldForDuration: hold)
         record(action: "drag")
         coordinate.record(action: "drop")

@@ -300,7 +300,7 @@ nonisolated final class ServiceInteractionUITests: UIAutomationTestCase {
 
     @MainActor
     @objc func testSchoolSSODDLVerificationCancelAndContinuation() {
-        app = configureApp(resetStorage: true, school: true, schoolSMS: true)
+        app = configureApp(resetStorage: true, animations: true, school: true, schoolSMS: true)
         tapHeader(app.segmentedControls.buttons["DDL"])
         tap("刷新学校日程")
         assertUI(app.buttons["验证并继续"].appears(timeout: 5), "学校日程应展示 SSO 短信面板。")
