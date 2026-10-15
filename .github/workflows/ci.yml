@@ -296,7 +296,6 @@ jobs:
   physical-device:
     name: Physical-device behavior and UI acceptance
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' && inputs.release_check
-    needs: static-audit
     runs-on: [self-hosted, macOS, bit101-xcode-27, bit101-device]
     timeout-minutes: 240
     steps:

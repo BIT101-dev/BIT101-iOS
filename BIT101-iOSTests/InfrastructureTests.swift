@@ -898,13 +898,56 @@ nonisolated final class KeyboardAccessoryOwnershipTests: XCTestCase {
             owner = nil
             var replacement: KeyboardBackgroundTapInstaller.Coordinator? = .init()
             replacement?.attach(to: window)
-            try await waitForTestEvent { button.target != nil }
+            await Task.yield()
             replacement?.detach()
             replacement = nil
-            XCTAssertNotNil(button.target, "键盘附件动作应与输入控件共享存活期。")
+            XCTAssertNotNil(button.customView, "键盘附件动作应与输入控件共享存活期。")
             XCTAssertTrue(input.inputAccessoryView === toolbar)
-            XCTAssertTrue(UIApplication.shared.sendAction(try XCTUnwrap(button.action), to: button.target, from: button, for: nil))
+            try XCTUnwrap(button.customView as? UIButton).sendActions(for: .touchUpInside)
             XCTAssertFalse(input.isFirstResponder)
         }
     }
+    @MainActor
+    func testGlobalKeyboardAccessory() async throws {
+        let coordinator = KeyboardBackgroundTapInstaller.Coordinator()
+        let window = try XCTUnwrap(
+            UIApplication.shared.connectedScenes
+                .compactMap { $0 as? UIWindowScene }
+                .flatMap(\.windows)
+                .first(where: \.isKeyWindow)
+        )
+        coordinator.attach(to: window)
+        defer { coordinator.detach() }
+        let inputs: [UIView & UITextInput] = [
+            UITextField(frame: CGRect(x: 0, y: 0, width: 200, height: 44)),
+            UITextView(frame: CGRect(x: 0, y: 0, width: 200, height: 100)),
+        ]
+        for input in inputs {
+            window.addSubview(input)
+            defer {
+                input.resignFirstResponder()
+                input.removeFromSuperview()
+            }
+            XCTAssertTrue(input.becomeFirstResponder())
+            await Task.yield()
+            XCTAssertTrue(input.inputAccessoryView is UIToolbar)
+            let original = try XCTUnwrap(input.inputAccessoryView as? UIToolbar)
+            XCTAssertTrue(input.resignFirstResponder())
+            if let field = input as? UITextField { field.inputAccessoryView = nil }
+            if let view = input as? UITextView { view.inputAccessoryView = nil }
+            XCTAssertTrue(input.becomeFirstResponder())
+            try await waitForTestEvent { input.inputAccessoryView is UIToolbar }
+            let toolbar = try XCTUnwrap(input.inputAccessoryView as? UIToolbar)
+            XCTAssertTrue(toolbar === original, "键盘附件恢复应保留原控件及其动作身份。")
+            NotificationCenter.default.post(name: UIResponder.keyboardDidShowNotification, object: nil)
+            await Task.yield()
+            XCTAssertTrue(input.inputAccessoryView === toolbar, "键盘显示周期应保留已安装的附件。")
+            let buttons = toolbar.items?.filter { $0.accessibilityIdentifier == "keyboard.dismiss" } ?? []
+            XCTAssertEqual(buttons.count, 1)
+            let button = try XCTUnwrap(buttons.first)
+            try XCTUnwrap(button.customView as? UIButton).sendActions(for: .touchUpInside)
+            XCTAssertFalse(input.isFirstResponder)
+        }
+    }
+
 }

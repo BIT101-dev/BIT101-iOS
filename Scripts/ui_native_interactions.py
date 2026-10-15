@@ -48,6 +48,7 @@ def native_controls(syntax: dict):
                      if base.removeprefix("UIKit.") in NATIVE_INTERACTION_KINDS), None)
                 if kind:
                     if kind == 'UIBarButtonItem' and re.search(r'\b(?:systemItem|barButtonSystemItem):\s*(?:UIBarButtonItem\.SystemItem)?\.(?:flexibleSpace|fixedSpace)\b', call['value']): continue
+                    if kind == 'UIBarButtonItem' and re.search(r'\bcustomView:', call['value']): continue
                     action = NATIVE_INTERACTION_ACTIONS[kind]
                     if kind == "UITextView":
                         for binding in facts.get("bindings", []):

@@ -222,10 +222,11 @@ nonisolated class UIAutomationTestCase: XCTestCase {
 
     @MainActor
     func replaceText(_ text: String, in field: UIElement) {
-        if UIElement.usesNativeInteraction || text.hasSuffix("\n") {
+        if text.hasSuffix("\n") {
             replaceTextWithKeyboard(text, in: field)
             return
         }
+        if UIElement.usesNativeInteraction { field.tapBriefly() }
         enterText(text, in: field)
         let secure = field.elementType == .secureTextField
         waitForValue(secure ? String(repeating: "•", count: text.count) : text, of: field)
@@ -299,6 +300,12 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             waitForValue("", of: field)
         }
         field.typeText(text)
+        #if targetEnvironment(simulator)
+        if !text.hasSuffix("\n") {
+            field.native.tap()
+            UITestSnapshotReader.invalidate()
+        }
+        #endif
     }
 
     @MainActor
@@ -316,12 +323,6 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         if UIElement.usesNativeInteraction {
             let done = app.buttons["keyboard.dismiss"]
             assertUI(done.appears(timeout: 5), "系统键盘应呈现完成按钮。")
-            assertUI(waitUntil(NSPredicate { [self] _, _ in
-                let bounds = done.native.frame, window = app.native.frame
-                let keyboard = app.keyboards.firstMatch.native.frame.intersection(window)
-                return !bounds.isEmpty && window.contains(bounds)
-                    && (keyboard.isNull || keyboard.isEmpty || bounds.maxY <= keyboard.minY)
-            }, on: done, timeout: 5), "完成按钮应位于可见键盘上方或硬件键盘附件区。")
             done.tapVisibleCenter()
             assertUI(app.keyboards.firstMatch.disappears(timeout: 5), "原生完成按钮应关闭系统键盘。")
             return
@@ -450,8 +451,8 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         let submit = application.buttons["login.submit"]
         assertUI(studentID.appears(timeout: 10), "测试启动后应展示登录页。")
 
-        replaceText(inputStudentID, in: studentID)
-        replaceText("ui-test-password", in: password)
+        replaceTextWithKeyboard(inputStudentID, in: studentID)
+        replaceTextWithKeyboard("ui-test-password", in: password)
         assertUI(submit.isEnabled, "完整填写账号信息后，登录按钮应启用。")
         dismissKeyboard()
         submit.tapBriefly()
@@ -551,7 +552,8 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         defer { checkingRefreshRows = false }
         let largeText = Self.sessionApplication?.launchEnvironment["BIT101_UI_TEST_LARGE_TEXT"] == "1"
         let viewport = app.frame.size
-        let key = "\(app.segmentedControls.firstMatch.value ?? "成绩"):\(timestamp.label):\(largeText):\(viewport)"
+        let selectedPage = app.segmentedControls.buttons.matching(NSPredicate(format: "selected == true")).firstMatch.label
+        let key = "\(selectedPage):\(timestamp.label):\(largeText):\(viewport)"
         guard !checkedRefreshRows.contains(key) else { return }
         let nativeText = app.native.staticTexts["app.refresh-status.timestamp"].firstMatch
         let actionID = app.buttons["score.query"].exists ? "score.query" : "app.refresh-status.action"

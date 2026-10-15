@@ -165,6 +165,7 @@ restore_on_exit() {
   if (( ${#retained_result_groups[@]} )); then
     python3 "$ROOT_DIR/Scripts/validation_performance.py" retain-evidence "${retained_result_groups[@]}" || workflow_result=$?
   fi
+  if [[ "${BIT101_DEFER_APP_RESTORE:-0}" == 1 ]]; then exit "$workflow_result"; fi
   if [[ "${GITHUB_ACTIONS:-false}" == true && "${RUNNER_ENVIRONMENT:-}" == github-hosted ]]; then
     echo "托管模拟器验收结束，运行器由 GitHub 回收。"
     exit "$workflow_result"
@@ -256,8 +257,10 @@ plan.write_bytes(plistlib.dumps(configuration))
 print(plan)
 PYPLAN
 )"
-retained_result_groups=("${(@f)$(python3 "$ROOT_DIR/Scripts/validation_performance.py" begin-selected)}")
-retained_result_groups=("${(@)retained_result_groups:#}")
+if [[ "${BIT101_VALIDATION_RESULT_BATCH_HELD:-0}" != 1 ]]; then
+  retained_result_groups=("${(@f)$(python3 "$ROOT_DIR/Scripts/validation_performance.py" begin-selected)}")
+  retained_result_groups=("${(@)retained_result_groups:#}")
+fi
 rm -f "$DERIVED_ROOT/test-metrics.txt" "$DERIVED_ROOT/test-failures.txt"
 rm -f "$DERIVED_ROOT/Build/ProfileData/"*/Coverage.profdata(N)
 rm -f "$DERIVED_ROOT/Build/ProfileData/keyboard.profdata"

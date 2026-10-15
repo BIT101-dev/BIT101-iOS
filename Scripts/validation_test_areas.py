@@ -786,8 +786,13 @@ def test_case_inventory(group: str) -> dict[str, int]:
                 if len(arguments) != 1 or not (match := re.fullmatch(r'([\w.]+)\.allCases', arguments[0])):
                     raise ValueError(f"参数库存需要字面量数组或 CaseIterable 枚举：{test['value']}")
                 if enum_index is None:
+                    names = {argument.removesuffix('.allCases').rsplit('.', 1)[-1]
+                        for source in index.values() for entry in source['tests'] for argument in entry.get('arguments', [])
+                        if re.fullmatch(r'[\w.]+\.allCases', argument)}
+                    referenced_enum = re.compile(r'\b(?:' + '|'.join(map(re.escape, sorted(names))) + r')\b')
                     enum_sources = {str(ROOT / name): active_swift_source((ROOT / name).read_text(), effective, path=name)
                         for name in repository_input_names(ROOT) if name.endswith('.swift') and includes_input(name, effective)
+                        and referenced_enum.search((ROOT / name).read_text())
                         and re.search(r'\benum\s+|\ballCases\b', (ROOT / name).read_text())}
                     enum_index = swift_syntax_index_sources(enum_sources)
                 scope = match[1].split('.')

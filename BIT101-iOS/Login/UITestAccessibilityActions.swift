@@ -543,8 +543,9 @@ enum UITestAccessibilityActions {
 
     static func finishInput() -> String {
         if let input = focusedInput(), let accessory = input.inputAccessoryView as? UIToolbar,
-           let item = accessory.items?.first(where: { $0.accessibilityIdentifier == "keyboard.dismiss" }), let action = item.action {
-            return UIApplication.shared.sendAction(action, to: item.target, from: item, for: nil) ? "finished" : "input action missing"
+           let item = accessory.items?.first(where: { $0.accessibilityIdentifier == "keyboard.dismiss" }), let button = item.customView as? UIButton {
+            button.sendActions(for: .touchUpInside)
+            return "finished"
         }
         func item(in view: UIView) -> UIBarButtonItem? {
             if let toolbar = view as? UIToolbar,
@@ -553,8 +554,9 @@ enum UITestAccessibilityActions {
         }
         for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
             for window in scene.windows where !window.isHidden {
-                if let item = item(in: window), let action = item.action {
-                    return UIApplication.shared.sendAction(action, to: item.target, from: item, for: nil) ? "finished" : "input action missing"
+                if let item = item(in: window), let button = item.customView as? UIButton {
+                    button.sendActions(for: .touchUpInside)
+                    return "finished"
                 }
             }
         }

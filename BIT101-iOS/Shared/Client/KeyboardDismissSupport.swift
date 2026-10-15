@@ -3,11 +3,8 @@ import SwiftUI
 import UIKit
 
 @MainActor
-private final class AppKeyboard: NSObject {
-    static let shared = AppKeyboard()
-
-    @objc func donePressed() { Self.dismiss() }
-
+private enum AppKeyboard {
+    static let accessories = NSMapTable<UIResponder, UIToolbar>.weakToStrongObjects()
     static func dismiss() {
         for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
             for window in scene.windows { window.endEditing(true) }
@@ -80,12 +77,6 @@ struct KeyboardBackgroundTapInstaller: UIViewRepresentable {
                 name: UITextView.textDidBeginEditingNotification,
                 object: nil
             )
-            NotificationCenter.default.addObserver(
-                self,
-                selector: #selector(keyboardDidShow),
-                name: UIResponder.keyboardDidShowNotification,
-                object: nil
-            )
         }
 
         deinit {
@@ -125,11 +116,6 @@ struct KeyboardBackgroundTapInstaller: UIViewRepresentable {
             }
         }
 
-        @objc private func keyboardDidShow() {
-            guard let window, let input = Self.focusedInput(in: window) else { return }
-            scheduleAccessory(on: input)
-        }
-
         private func scheduleAccessory(on input: UIResponder & UITextInput) {
             DispatchQueue.main.async { [weak self, weak input] in
                 guard let self, let input, input.isFirstResponder,
@@ -155,33 +141,38 @@ struct KeyboardBackgroundTapInstaller: UIViewRepresentable {
             } else {
                 return
             }
-            if let toolbar = existingAccessory as? UIToolbar,
-               let doneButton = toolbar.items?.first(where: { $0.accessibilityIdentifier == "keyboard.dismiss" }) {
-                doneButton.target = AppKeyboard.shared
-                doneButton.action = #selector(AppKeyboard.donePressed)
-                return
+            let toolbar: UIToolbar
+            if let installed = AppKeyboard.accessories.object(forKey: input) {
+                toolbar = installed
+            } else if let existing = existingAccessory as? UIToolbar,
+                      existing.items?.contains(where: { $0.accessibilityIdentifier == "keyboard.dismiss" }) == true {
+                toolbar = existing
+            } else {
+                toolbar = UIToolbar()
+                let doneButton = UIButton(type: .system)
+                doneButton.setTitle("✓ 完成", for: .normal)
+                doneButton.accessibilityIdentifier = "keyboard.dismiss"
+                doneButton.addAction(UIAction { _ in AppKeyboard.dismiss() }, for: .touchUpInside)
+                doneButton.heightAnchor.constraint(greaterThanOrEqualToConstant: AppDesignSystem.Size.Control.touchTarget).isActive = true
+                doneButton.widthAnchor.constraint(greaterThanOrEqualToConstant: AppDesignSystem.Size.Control.touchTarget).isActive = true
+                let doneItem = UIBarButtonItem(customView: doneButton)
+                doneItem.accessibilityIdentifier = "keyboard.dismiss"
+                toolbar.items = [
+                    UIBarButtonItem(systemItem: .flexibleSpace),
+                    doneItem,
+                ]
+                toolbar.sizeToFit()
             }
-
-            let toolbar = UIToolbar()
-            let doneButton = UIBarButtonItem(
-                title: "✓ 完成",
-                style: .done,
-                target: AppKeyboard.shared,
-                action: #selector(AppKeyboard.donePressed)
-            )
-            doneButton.accessibilityIdentifier = "keyboard.dismiss"
-            toolbar.items = [
-                UIBarButtonItem(systemItem: .flexibleSpace),
-                doneButton,
-            ]
-            toolbar.sizeToFit()
+            AppKeyboard.accessories.setObject(toolbar, forKey: input)
+            guard existingAccessory !== toolbar else { return }
+            let needsReload = toolbar.window == nil
 
             if let textField = input as? UITextField {
                 textField.inputAccessoryView = toolbar
-                textField.reloadInputViews()
+                if needsReload { textField.reloadInputViews() }
             } else if let textView = input as? UITextView {
                 textView.inputAccessoryView = toolbar
-                textView.reloadInputViews()
+                if needsReload { textView.reloadInputViews() }
             }
         }
 

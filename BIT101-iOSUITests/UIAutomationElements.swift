@@ -282,13 +282,23 @@ final class UIElement: NSObject {
     }
     func tapVisibleCenter() {
         Self.beforeNativeTap?()
-        let identity = interactionIdentity
         guard let application = UITestSnapshotReader.application else {
             XCTFail("坐标触摸应绑定当前 App 窗口。")
             return
         }
-        let bounds = native.frame
-        let origin = application.frame.origin
+        UITestSnapshotReader.invalidate()
+        guard let snapshot = try? application.snapshot() else {
+            XCTFail("坐标触摸应读取完整的原生界面快照。")
+            return
+        }
+        UITestSnapshotReader.retain(snapshot)
+        let bounds = frame
+        guard !bounds.isEmpty, snapshot.frame.contains(bounds) else {
+            XCTFail("坐标触摸应位于可见窗口内：\(bounds)。")
+            return
+        }
+        let identity = interactionIdentity
+        let origin = snapshot.frame.origin
         application.coordinate(withNormalizedOffset: .zero)
             .withOffset(CGVector(dx: bounds.midX - origin.x, dy: bounds.midY - origin.y)).tap()
         recordInteraction(identity, action: "tap")

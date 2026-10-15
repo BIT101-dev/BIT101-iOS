@@ -66,6 +66,17 @@ def interaction_inventory_boundary_findings() -> list[str]:
             findings.append('UI 清单自测：系统控件核对实际动作证据')
     spacers = swift_syntax_index_sources({path: 'class Screen { func build() { let fixed = UIBarButtonItem(systemItem: .fixedSpace); let flexible: UIBarButtonItem = .init(barButtonSystemItem: .flexibleSpace, target: nil, action: nil) } }'})
     if interaction_source_inventory(spacers): findings.append('UI 原生清单自测：工具栏间隔沿布局归属')
+    wrapped = swift_syntax_index_sources({path: 'class Screen { func build() { let button = UIButton(type: .system); button.accessibilityIdentifier = "done"; let item = UIBarButtonItem(customView: button); item.accessibilityIdentifier = "done" } }'})
+    wrapped_manifest = {key: (controls, {'ExampleUITests/testNative'}) for key, controls in interaction_source_inventory(wrapped).items()}
+    if list(value[0] for value in wrapped_manifest.values()) != [{'UIButton': 1}]:
+        findings.append('UI 原生清单自测：自定义工具栏按钮沿实际控件归属')
+    wrapped_row = dict(scope='ExampleUITests/testNative', identifier='done', instance='done', actions=['tap'])
+    if not source_runtime_interaction_findings(wrapped, wrapped_manifest, []) or source_runtime_interaction_findings(wrapped, wrapped_manifest, [wrapped_row]):
+        findings.append('UI 原生清单自测：自定义工具栏按钮核对实际点击证据')
+    independent = swift_syntax_index_sources({path: 'class Screen { func build() { let item = UIBarButtonItem(title: "独立", style: .plain, target: self, action: #selector(done)); item.accessibilityIdentifier = "independent" } }'})
+    independent_manifest = {key: (controls, {'ExampleUITests/testNative'}) for key, controls in interaction_source_inventory(independent).items()}
+    if list(value[0] for value in independent_manifest.values()) != [{'UIBarButtonItem': 1}] or not source_runtime_interaction_findings(independent, independent_manifest, [wrapped_row]):
+        findings.append('UI 原生清单自测：独立工具栏按钮保留自身点击验收')
     for root, expected in (("BIT101-iOS", True), ("BIT101-iOS/Tests", True), ("ModuleTests/Support", False), ("BIT101-iOSTests", False), ("BIT101-iOSUITests", False)):
         renamed_path = str(ROOT / root / 'ScreenUITestExample.swift')
         renamed = swift_syntax_index_sources({renamed_path: 'struct Screen: View { var body: some View { Button("入口") {} }; func build() { let field = UITextField() } }'})

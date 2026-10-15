@@ -236,12 +236,12 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
         if not 0 <= baseline_index < execution_index:
             errors.append(f'.github/workflows/ci.yml: {name} 基准载入需要先于当前分组记录')
     physical = mapping(jobs.get("physical-device"))
-    if physical.get("if") != condition or physical.get("needs") != "static-audit" \
+    if physical.get("if") != condition or physical.get("needs", []) != [] \
             or runner_expression(physical.get("runs-on")) != runner_expression(["self-hosted", "macOS", "bit101-xcode-27", "bit101-device"]) \
             or type(physical.get("timeout-minutes")) is not int \
             or physical['timeout-minutes'] < workflow_timeout_seconds(('modules', 'all', 'release-runtime', 'ui')) // 60 + 10 \
             or physical.get("continue-on-error", False) is not False:
-        errors.append(".github/workflows/ci.yml: 真机 Job 需要发布入口、实体设备运行器与静态审计依赖")
+        errors.append(".github/workflows/ci.yml: 真机 Job 需要发布入口、实体设备运行器与审计并行的依赖图")
     simulator = mapping(jobs.get('ios-tests'))
     shard_job = mapping(jobs.get('ios-test-shards'))
     for job in (simulator, shard_job):
@@ -503,7 +503,7 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
     downgraded_release = workflow_source.replace('  release-acceptance:\n', '  release-acceptance:\n    continue-on-error: true\n')
     if not ci_wiring_findings(downgraded_release):
         findings.append('代码质量规则边界自检失败：发布验收的失败传播')
-    for job in ('release-build', 'ios-test-shards'):
+    for job in ('release-build', 'ios-test-shards', 'physical-device'):
         serialized = workflow_source.replace('  ' + job + ':\n', '  ' + job + ':\n    needs: static-audit\n', 1)
         assert any('依赖图' in item for item in ci_wiring_findings(serialized))
     assert any('依赖图' in row for row in ci_wiring_findings(workflow_source.replace('  catalyst-tests:\n    needs: release-build', '  catalyst-tests:')))

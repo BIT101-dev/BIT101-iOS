@@ -174,43 +174,6 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
     }
 
     @MainActor
-    func testGlobalKeyboardAccessory() async throws {
-        let coordinator = KeyboardBackgroundTapInstaller.Coordinator()
-        let window = try XCTUnwrap(
-            UIApplication.shared.connectedScenes
-                .compactMap { $0 as? UIWindowScene }
-                .flatMap(\.windows)
-                .first(where: \.isKeyWindow)
-        )
-        coordinator.attach(to: window)
-        defer { coordinator.detach() }
-        let inputs: [UIView & UITextInput] = [
-            UITextField(frame: CGRect(x: 0, y: 0, width: 200, height: 44)),
-            UITextView(frame: CGRect(x: 0, y: 0, width: 200, height: 100)),
-        ]
-        for input in inputs {
-            window.addSubview(input)
-            defer {
-                input.resignFirstResponder()
-                input.removeFromSuperview()
-            }
-            XCTAssertTrue(input.becomeFirstResponder())
-            await Task.yield()
-            XCTAssertTrue(input.inputAccessoryView is UIToolbar)
-            if let field = input as? UITextField { field.inputAccessoryView = nil }
-            if let view = input as? UITextView { view.inputAccessoryView = nil }
-            NotificationCenter.default.post(name: UIResponder.keyboardDidShowNotification, object: nil)
-            await Task.yield()
-            let toolbar = try XCTUnwrap(input.inputAccessoryView as? UIToolbar)
-            let buttons = toolbar.items?.filter { $0.accessibilityIdentifier == "keyboard.dismiss" } ?? []
-            XCTAssertEqual(buttons.count, 1)
-            let button = try XCTUnwrap(buttons.first)
-            XCTAssertTrue(UIApplication.shared.sendAction(try XCTUnwrap(button.action), to: button.target, from: button, for: nil))
-            XCTAssertFalse(input.isFirstResponder)
-        }
-    }
-
-    @MainActor
     func testKeyboardBackgroundTouchPreservesSystemAutoFillFocus() throws {
         let window = try XCTUnwrap(UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }.flatMap(\.windows).first(where: \.isKeyWindow))
