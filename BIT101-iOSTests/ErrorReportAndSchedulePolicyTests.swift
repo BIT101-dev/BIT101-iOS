@@ -19,7 +19,6 @@ import UIKit
 import SwiftUI
 import CoreLocation
 @testable import BIT101_iOS
-
 nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
     @MainActor
     func testFeedbackFitsWorkerMetadataAndRedactsPathIdentities() async throws {
@@ -70,7 +69,6 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         XCTAssertTrue(try XCTUnwrap(model.resultMessage).contains("精简描述"))
         XCTAssertFalse(model.isSubmitting)
     }
-
     @MainActor
     func testProductionSchoolServiceRecordsNetworkFailures() async throws {
         let url = try XCTUnwrap(URL(string: "https://example.invalid/production-school-diagnostic"))
@@ -86,12 +84,10 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         XCTAssertNil(record.statusCode)
         XCTAssertEqual(record.error, URLError(.cannotFindHost).localizedDescription)
     }
-
     @MainActor
     private final class DiagnosticAccount {
         var identity = SchoolSessionIdentity(accountIdentifier: "diagnostic-a", generation: 0)
     }
-
     @MainActor
     func testDiagnosticsFilterAccountsGenerationsAndLateResults() async throws {
         let account = DiagnosticAccount()
@@ -122,13 +118,11 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         let empty3 = await store.recent().isEmpty
         XCTAssertTrue(empty3)
     }
-
     private nonisolated struct DiagnosticFailureTransport: HTTPTransport {
         func data(for request: URLRequest) async throws -> (Data, URLResponse) {
             throw URLError(.cannotFindHost)
         }
     }
-
     @MainActor
     func testAuthenticationBusinessFailurePreservesCauseInDiagnostics() async throws {
         let store = NetworkDiagnosticStore()
@@ -188,26 +182,32 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
                 .flatMap(\.windows)
                 .first(where: \.isKeyWindow)
         )
-        let textField = UITextField(frame: CGRect(x: 0, y: 0, width: 200, height: 44))
-        window.addSubview(textField)
         coordinator.attach(to: window)
-        defer {
-            coordinator.detach()
-            textField.resignFirstResponder()
-            textField.removeFromSuperview()
+        defer { coordinator.detach() }
+        let inputs: [UIView & UITextInput] = [
+            UITextField(frame: CGRect(x: 0, y: 0, width: 200, height: 44)),
+            UITextView(frame: CGRect(x: 0, y: 0, width: 200, height: 100)),
+        ]
+        for input in inputs {
+            window.addSubview(input)
+            defer {
+                input.resignFirstResponder()
+                input.removeFromSuperview()
+            }
+            XCTAssertTrue(input.becomeFirstResponder())
+            await Task.yield()
+            XCTAssertTrue(input.inputAccessoryView is UIToolbar)
+            if let field = input as? UITextField { field.inputAccessoryView = nil }
+            if let view = input as? UITextView { view.inputAccessoryView = nil }
+            NotificationCenter.default.post(name: UIResponder.keyboardDidShowNotification, object: nil)
+            await Task.yield()
+            let toolbar = try XCTUnwrap(input.inputAccessoryView as? UIToolbar)
+            let buttons = toolbar.items?.filter { $0.accessibilityIdentifier == "keyboard.dismiss" } ?? []
+            XCTAssertEqual(buttons.count, 1)
+            let button = try XCTUnwrap(buttons.first)
+            XCTAssertTrue(UIApplication.shared.sendAction(try XCTUnwrap(button.action), to: button.target, from: button, for: nil))
+            XCTAssertFalse(input.isFirstResponder)
         }
-
-        XCTAssertTrue(textField.becomeFirstResponder())
-        await Task.yield()
-        XCTAssertTrue(textField.inputAccessoryView is UIToolbar)
-
-        textField.inputAccessoryView = nil
-        NotificationCenter.default.post(name: UIResponder.keyboardDidShowNotification, object: nil)
-        await Task.yield()
-        let toolbar = try XCTUnwrap(textField.inputAccessoryView as? UIToolbar)
-        XCTAssertEqual(toolbar.items?.filter { $0.accessibilityIdentifier == "keyboard.dismiss" }.count, 1)
-
-        _ = coordinator
     }
 
     @MainActor

@@ -5,12 +5,9 @@ import UIKit
 @MainActor
 private enum AppKeyboard {
     static func dismiss() {
-        UIApplication.shared.sendAction(
-            #selector(UIResponder.resignFirstResponder),
-            to: nil,
-            from: nil,
-            for: nil
-        )
+        for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
+            for window in scene.windows { window.endEditing(true) }
+        }
     }
 }
 

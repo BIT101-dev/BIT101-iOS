@@ -39,7 +39,7 @@ def run_simulator_ui(plan: Path, derived: Path, device: str, workers: int, selec
             '-derivedDataPath', str(derived), '-destination', 'platform=iOS Simulator,id=' + device,
             '-resultBundlePath', str(result), *arguments, '-test-timeouts-enabled', 'YES', '-collect-test-diagnostics', 'never', '-enableCodeCoverage', 'YES', *tests])
         status = status or completed.returncode
-        if not result_bundle_complete(result): return status or 1
+        if completed.returncode or not result_bundle_complete(result): return status or 1
         if index + 1 < len(batches):
             result.rename(keyboard_result)
             shutil.copyfile(derived / 'Build/ProfileData' / device / 'Coverage.profdata', keyboard_profile)

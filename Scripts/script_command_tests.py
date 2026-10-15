@@ -435,6 +435,19 @@ python3() {{ print -r -- "RECORD $*"; return {recording}; }}
         try: evidence.simulator_test_selection('all', 'selected', ['Missing/test'], None)
         except ValueError: pass
         else: findings.append('模拟器库存规划需要传播失效筛选。')
+    import plistlib
+    from types import SimpleNamespace
+    from validation_coverage import run_simulator_ui, SIMULATOR_KEYBOARD_TESTS
+    selected = ['-only-testing:BIT101-iOSUITests/' + sorted(SIMULATOR_KEYBOARD_TESTS)[0],
+        '-only-testing:BIT101-iOSUITests/First/test', '-only-testing:BIT101-iOSUITests/Second/test']
+    with patch.object(Path, 'read_bytes', return_value=plistlib.dumps({'TestConfigurations': []})), \
+            patch.object(Path, 'write_bytes'), patch.object(shutil, 'rmtree'), \
+            patch.object(shutil, 'copyfile') as copied, \
+            patch.object(subprocess, 'run', return_value=SimpleNamespace(returncode=65)) as executed, \
+            patch('validation_performance.result_bundle_complete', return_value=True):
+        result = run_simulator_ui(Path('/audit/plan'), Path('/audit/derived'), 'device', 2, selected)
+        if result != 65 or executed.call_count != 1 or copied.called:
+            findings.append('原生键盘阶段失败应保留原始退出状态和结果包并立即结束。')
     from validation_restore import simulator_restore_findings, verification_finish_findings
     findings.extend(simulator_restore_findings(simulator_source))
     findings.extend(verification_finish_findings((SCRIPT_ROOT / 'run-extended-tests.sh').read_text()))
