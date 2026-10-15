@@ -512,6 +512,7 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         tap("导入")
         assertUI(app.alerts["导入成功"].appears(timeout: 5), "导入分享课表应展示成功结果。")
         closeAlertIfPresent()
+        assertUI(code.disappears(timeout: 5), "导入完成应关闭编码页面并恢复课表设置。")
         let shared = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "schedule.settings.shared.")).firstMatch
         reveal(shared, description: "分享课表名称")
         shared.tapBriefly()

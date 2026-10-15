@@ -230,6 +230,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             replaceTextWithKeyboard(text, in: field)
             return
         }
+        assertUI(field.appears(timeout: 5), "输入操作应等待字段出现。")
         if UIElement.usesNativeInteraction { field.tapBriefly() }
         enterText(text, in: field)
         let secure = field.elementType == .secureTextField
@@ -238,7 +239,6 @@ nonisolated class UIAutomationTestCase: XCTestCase {
 
     @MainActor
     private func enterText(_ text: String, in field: UIElement) {
-        assertUI(field.appears(timeout: 5), "输入操作应等待字段出现。")
         let started = ProcessInfo.processInfo.systemUptime
         let response = field.insertText(text)
         if response == "native" {
@@ -261,6 +261,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
 
     @MainActor
     func fillVerificationCode(_ text: String, in field: UIElement) {
+        assertUI(field.appears(timeout: 5), "验证码输入应等待字段出现。")
         field.press(forDuration: 0.01)
         assertUI(app.keyboards.firstMatch.appears(timeout: 5), "完整验证码输入应等待系统键盘就绪。")
         enterText(text, in: field)
@@ -494,11 +495,16 @@ nonisolated class UIAutomationTestCase: XCTestCase {
               (state ?? app.state) == .runningForeground,
               UITestControlClient.request(["command": "keyboard-state"]) == "hidden" else { return }
         checkRefreshStatusRows()
-        checkScrollContainers()
+        checkScrollContainerGeometry()
     }
 
     @MainActor
     func checkScrollContainers() {
+        checkCurrentSurface()
+    }
+
+    @MainActor
+    private func checkScrollContainerGeometry() {
         checkingScrollContainers = true
         defer { checkingScrollContainers = false }
         guard let response = UITestControlClient.request(["command": "scroll-inventory"]),
@@ -532,15 +538,15 @@ nonisolated class UIAutomationTestCase: XCTestCase {
                 let element = app.descendants(matching: .any)[identifier]
                 let selectedButtons = element.buttons.matching(NSPredicate(format: "selected == true"))
                     .allElementsBoundByIndex.map { ($0.identifier, $0.label) }
-                if range[1] > 0 {
-                    if remaining[1] > 0 { element.swipeUp() } else { element.swipeDown() }
-                } else {
-                    if remaining[0] > 0 { element.swipeLeft() } else { element.swipeRight() }
-                }
+                let axis = range[1] > 0 ? 1 : 0
+                element.dragScroll(vertical: axis == 1, towardEnd: remaining[axis] > 0)
                 let outcome = UITestControlClient.request(parameters.merging(["command": "scroll-check"]) { _, value in value })
                 XCTAssertEqual(outcome, "scrolled", "滚动手势应改变内容位置：\(identifier)，范围 \(range)，位置 \(offset)，剩余 \(remaining)。")
-                XCTAssertEqual(UITestControlClient.request(parameters.merging(["command": "scroll-restore"]) { _, value in value }), "restored",
-                    "容器验收应恢复起始位置：\(identifier)。")
+                let restored = NSPredicate { _, _ in
+                    UITestControlClient.request(parameters.merging(["command": "scroll-restore"]) { _, value in value }) == "restored"
+                }
+                XCTAssertTrue(waitUntil(restored, on: element, timeout: 5),
+                    "容器验收应完成滚动并核对起始位置：\(identifier)。")
                 UITestSnapshotReader.invalidate()
                 for (identifier, label) in selectedButtons {
                     let button = element.buttons.matching(NSPredicate(format: "identifier == %@ AND label == %@", identifier, label)).firstMatch

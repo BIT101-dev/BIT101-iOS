@@ -203,9 +203,13 @@ enum UITestAccessibilityActions {
               let x = parameters["offsetX"].flatMap(Double.init), let y = parameters["offsetY"].flatMap(Double.init)
         else { return Data("target missing".utf8) }
         if parameters["command"] == "scroll-restore" {
+            guard !scroll.isDragging, !scroll.isDecelerating, !scroll.isTracking else { return Data("scrolling".utf8) }
             scroll.setContentOffset(CGPoint(x: x, y: y), animated: false)
+            scroll.layoutIfNeeded()
             invalidate()
-            return Data("restored".utf8)
+            let tolerance = 1 / window.screen.scale
+            let restored = abs(scroll.contentOffset.x - x) <= tolerance && abs(scroll.contentOffset.y - y) <= tolerance
+            return Data((restored ? "restored" : "layout pending").utf8)
         }
         let scale = Double(window.screen.scale)
         let fits = UITestScrollGeometry.visibleDistance(Double(scroll.contentSize.width + scroll.adjustedContentInset.left + scroll.adjustedContentInset.right - scroll.bounds.width), scale: scale) == 0

@@ -30,6 +30,6 @@ final class ScheduleConflictUITests: UIAutomationTestCase {
             "schedule.settings.primary-name", title)).firstMatch
         assertUI(selectedName.appears(timeout: 5), "课表名称应采用所选冲突版本。")
         app = configureApp(resetStorage: false, restartProcess: true, initialSettings: "calendar")
-        assertUI(app.buttons["schedule.settings.primary-name"].label.contains(title), "冷启动应恢复已保存版本。")
+        assertUI(selectedName.appears(timeout: 5), "冷启动应恢复已保存版本。")
     }
 }

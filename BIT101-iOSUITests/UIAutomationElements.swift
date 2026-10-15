@@ -308,6 +308,16 @@ final class UIElement: NSObject {
     func swipeRight() { performGesture("swipe") { native.swipeRight() } }
     func swipeUp() { performGesture("swipe") { native.swipeUp() } }
     func swipeDown() { performGesture("swipe") { native.swipeDown() } }
+    func dragScroll(vertical: Bool, towardEnd: Bool) {
+        performGesture("swipe") {
+            let start = towardEnd ? 0.75 : 0.25
+            let end = 1 - start
+            native.coordinate(withNormalizedOffset: CGVector(dx: vertical ? 0.1 : start, dy: vertical ? start : 0.5))
+                .press(forDuration: 0.01,
+                       thenDragTo: native.coordinate(withNormalizedOffset: CGVector(dx: vertical ? 0.1 : end, dy: vertical ? end : 0.5)),
+                       withVelocity: .fast, thenHoldForDuration: 0.1)
+        }
+    }
     func pinch(withScale scale: CGFloat, velocity: CGFloat) { performGesture("pinch") { native.pinch(withScale: scale, velocity: velocity) } }
     func adjust(toPickerWheelValue value: String) { performGesture("selection") { native.adjust(toPickerWheelValue: value) } }
     private func performGesture(_ action: String, _ operation: () -> Void) {
