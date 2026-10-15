@@ -334,7 +334,7 @@ final class UIElement: NSObject {
         Self.beforeNativeTap?()
         let identity = interactionIdentity
         XCTAssertTrue(native.isHittable, "Return 默认动作应已完成原生弹窗布局。")
-        XCUIElement.perform(withKeyModifiers: .shift) {}
+        native.typeKey(XCUIKeyboardKey.shift, modifierFlags: [])
         let title = native.label
         let deadline = Date().addingTimeInterval(5)
         var ready = false

@@ -199,6 +199,7 @@ if [[ -n "${BIT101_CI_SHARD:-}" ]]; then
   [[ "$TEST_SCOPE" == full ]] || { echo "分片验收使用登记的完整库存。" >&2; exit 64; }
   TEST_SCOPE=shard
 fi
+selection_started=$SECONDS
 selection_plan="$(python3 - "$ROOT_DIR/Scripts" "$mode" "$TEST_SCOPE" "${selections[@]}" <<'PYSELECT'
 import json, os, sys
 sys.path.insert(0, sys.argv[1])
@@ -208,6 +209,7 @@ print(json.dumps(expected))
 print('\n'.join(selectors))
 PYSELECT
 )"
+echo "[完成] 模拟器库存规划 · $(( SECONDS - selection_started )) 秒"
 selection_rows=("${(@f)selection_plan}")
 EXPECTED_TESTS="${selection_rows[1]}"
 selections=("${selection_rows[@]:1}")
