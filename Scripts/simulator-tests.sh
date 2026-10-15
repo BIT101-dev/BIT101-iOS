@@ -270,7 +270,7 @@ PYUI
 else
   bit101_run_logged "$DERIVED_ROOT/$mode.log" "模拟器测试" xcodebuild test-without-building -quiet \
   -xctestrun "$plan" -derivedDataPath "$DERIVED_ROOT" -destination "$destination" -resultBundlePath "$result" \
-  "${parallel_arguments[@]}" -test-timeouts-enabled YES -enableCodeCoverage YES "${only_testing[@]}" || test_status=$?
+  "${parallel_arguments[@]}" -test-timeouts-enabled YES -collect-test-diagnostics never -enableCodeCoverage YES "${only_testing[@]}" || test_status=$?
 fi
 python3 - "$result" "$DERIVED_ROOT/test-metrics.txt" "$ROOT_DIR/Scripts" "$EXPECTED_TESTS" "$test_status" "$mode" "$SIMULATOR_DEVICE" "$configuration" "$TEST_SCOPE" "$SIMULATOR_WORKERS" <<'PYRESULT'
 import json

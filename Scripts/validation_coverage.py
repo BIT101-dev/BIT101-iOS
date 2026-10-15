@@ -37,7 +37,7 @@ def run_simulator_ui(plan: Path, derived: Path, device: str, workers: int, selec
         arguments = ['-parallel-testing-enabled', 'YES', '-parallel-testing-worker-count', str(count)] if count > 1 else ['-parallel-testing-enabled', 'NO']
         completed = subprocess.run(['xcodebuild', 'test-without-building', '-quiet', '-xctestrun', str(plan),
             '-derivedDataPath', str(derived), '-destination', 'platform=iOS Simulator,id=' + device,
-            '-resultBundlePath', str(result), *arguments, '-test-timeouts-enabled', 'YES', '-enableCodeCoverage', 'YES', *tests])
+            '-resultBundlePath', str(result), *arguments, '-test-timeouts-enabled', 'YES', '-collect-test-diagnostics', 'never', '-enableCodeCoverage', 'YES', *tests])
         status = status or completed.returncode
         if not result_bundle_complete(result): return status or 1
         if index + 1 < len(batches):
