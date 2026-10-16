@@ -160,10 +160,8 @@ artifact_hygiene() { python3 "$ROOT_DIR/Scripts/validation_artifacts.py" "$ROOT_
 start_group() {
   local name="$1"
   local delegate="$2"
-  local priority=()
-  if [[ "${BIT101_AUDIT_BACKGROUND:-0}" == 1 ]]; then priority=(nice); fi
   local worker=$'set -euo pipefail\n'"$(typeset -f run_group "$delegate")"$'\n''run_group "$1" "$2"'
-  ROOT_DIR="$ROOT_DIR" LOG_DIR="$LOG_DIR" SWIFT_FRONTEND="$SWIFT_FRONTEND" command "${priority[@]}" python3 -c \
+  ROOT_DIR="$ROOT_DIR" LOG_DIR="$LOG_DIR" SWIFT_FRONTEND="$SWIFT_FRONTEND" command python3 -c \
     'import os, sys; os.setsid(); os.execvp("zsh", ["zsh", "-c", sys.argv[1], "audit-group", *sys.argv[2:]])' \
     "$worker" "$name" "$delegate" &
   group_processes+=($!)

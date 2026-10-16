@@ -449,6 +449,10 @@ nonisolated final class ScheduleNavigationUITests: UIAutomationTestCase {
         assertUI(followed.appears(timeout: 5), "关注成功应展示已关注状态。")
         followed.assertDisabled("已关注状态应保持禁用。")
         tap("查看头像")
+        let previewClose = imagePreviewCloseButton()
+        app.native.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)).tap()
+        UITestSnapshotReader.invalidate()
+        assertUI(previewClose.disappears(timeout: 5), "点击预览画布应收起系统工具栏。")
         closeImagePreview()
         for route in ["粉丝", "关注", "帖子"] {
             assertUI(textElement(route).exists, "公开主页应显示\(route)统计。")
@@ -966,7 +970,8 @@ extension UIAutomationTestCase {
     func closeImagePreview() {
         dismissNotificationBanner()
         let close = imagePreviewCloseButton()
-        close.press(forDuration: 0.01)
+        close.native.tap()
+        UITestSnapshotReader.invalidate()
         assertUI(app.otherElements["QLPreviewControllerView"].disappears(timeout: 5), "关闭图片预览应恢复来源页面。")
     }
 
@@ -976,9 +981,10 @@ extension UIAutomationTestCase {
         let preview = platform.otherElements["QLPreviewControllerView"]
         assertUI(preview.appears(timeout: 30), "图片交互应进入系统 Quick Look。")
         let done = platform.buttons.matching(NSPredicate(format: "label IN %@", ["完成", "Done", "关闭", "Close"])).firstMatch
-        if done.appears(timeout: 2) { return done }
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)).tapBriefly()
-        assertUI(done.appears(timeout: 10), "点击预览画布应显示关闭控件。")
+        if done.isHittable { return done }
+        preview.native.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)).tap()
+        UITestSnapshotReader.invalidate()
+        assertUI(waitUntil(NSPredicate(format: "hittable == true"), on: done, timeout: 10), "点击预览画布应显示关闭控件。")
         return done
     }
 

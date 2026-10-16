@@ -64,13 +64,11 @@ jobs:
         run: |
           python3 Scripts/ci_evidence.py baseline "$BIT101_BASE_COMMIT"
           python3 Scripts/validation_evidence.py baseline "$BIT101_BASE_COMMIT"
-      - name: Run static audit
+      - name: Run static audit and Swift modules
         env:
           BIT101_VERSION_BASE_REF: ${{ github.base_ref && format('origin/{0}', github.base_ref) || steps.review.outputs.base_sha || '' }}
           BIT101_RELEASE_CHECK: ${{ github.event_name == 'workflow_dispatch' && inputs.release_check }}
-        run: Scripts/run-static-audit.sh
-      - name: Test local Swift modules
-        run: Scripts/run-extended-tests.sh modules
+        run: Scripts/run-extended-tests.sh verify audit modules
 
       - name: Publish validation evidence
         if: ${{ !cancelled() }}

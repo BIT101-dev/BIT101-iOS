@@ -34,6 +34,9 @@ import subprocess
 import sys
 
 path, operation = Path(sys.argv[1]), sys.argv[2]
+if os.getenv('GITHUB_ACTIONS') == 'true' and operation in {'app', 'release-runtime', 'ui'} and path.is_file():
+    print(json.loads(path.read_text())['identifier'])
+    raise SystemExit(0)
 def inventory(): return json.loads(subprocess.check_output(['xcrun', 'simctl', 'list', '--json'], text=True))
 def runtimes(data): return [row for row in data['runtimes'] if row.get('isAvailable') and '.iOS-' in row['identifier']]
 data = inventory()
@@ -137,14 +140,13 @@ device = next(row for rows in inventory['devices'].values() for row in rows if r
 if device['state'] != 'Booted': subprocess.run(['xcrun', 'simctl', 'boot', sys.argv[1]], check=True)
 subprocess.run(['xcrun', 'simctl', 'bootstatus', sys.argv[1], '-b'], check=True, stdout=subprocess.DEVNULL)
 subprocess.run(['xcrun', 'simctl', 'install', sys.argv[1], sys.argv[2]], check=True)
-from hashlib import sha256
 from pathlib import Path
 import plistlib
 source = Path(sys.argv[2])
 info = plistlib.loads((source / 'Info.plist').read_bytes())
 executable = info['CFBundleExecutable']
 installed = Path(subprocess.check_output(['xcrun', 'simctl', 'get_app_container', sys.argv[1], 'BIT101-dev.BIT101-iOS', 'app'], text=True).strip())
-if sha256((source / executable).read_bytes()).digest() != sha256((installed / executable).read_bytes()).digest():
+if (source / executable).read_bytes() != (installed / executable).read_bytes():
     raise SystemExit('安装后的可执行文件需要匹配常规 Release 产物。')
 sys.path.insert(0, sys.argv[3])
 from validation_restore import complete, matches_app

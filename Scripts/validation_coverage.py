@@ -320,6 +320,25 @@ def simulator_ui_preparation_self_test() -> None:
     from unittest.mock import patch
     import plistlib
     from types import SimpleNamespace
+    from contextlib import redirect_stdout
+    device_source = Path(__file__).with_name('simulator-tests.sh').read_text().split("<<'PYDEVICE'\n", 1)[1].split('\nPYDEVICE\n', 1)[0]
+    for hosted, operation, prepared, reused in (
+            ('true', 'app', True, True), ('true', 'release-runtime', True, True), ('true', 'ui', True, True),
+            ('false', 'app', True, False), ('true', 'prepare', True, False), ('true', 'ui', False, False)):
+        output = io.StringIO()
+        with patch.dict('os.environ', {'GITHUB_ACTIONS': hosted}), \
+                patch('sys.argv', ['device-selection', '/fixture/device.json', operation]), \
+                patch.object(Path, 'is_file', return_value=prepared), \
+                patch.object(Path, 'read_text', return_value='{"identifier":"device"}'), \
+                patch('subprocess.check_output', side_effect=RuntimeError('inventory')) as inventory, redirect_stdout(output):
+            try: exec(compile(device_source, 'simulator-device-selection', 'exec'), {})
+            except SystemExit as result:
+                assert reused and result.code == 0 and output.getvalue().strip() == 'device'
+                inventory.assert_not_called()
+            except RuntimeError as error:
+                assert not reused and str(error) == 'inventory'
+                inventory.assert_called_once_with(['xcrun', 'simctl', 'list', '--json'], text=True)
+            else: raise AssertionError('设备选择需要复用准备结果或读取原生库存。')
     with patch.object(Path, 'iterdir', return_value=iter([Path('/products/Release-iphonesimulator'), Path('/products/Release-maccatalyst')])), \
             patch.object(Path, 'rglob', return_value=[Path('/products/Release-iphonesimulator/Host.app/Info.plist')]) as bundles, \
             patch.object(Path, 'read_bytes', return_value=plistlib.dumps({'CFBundleExecutable': 'Host'})), \

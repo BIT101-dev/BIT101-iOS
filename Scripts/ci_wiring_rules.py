@@ -189,7 +189,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
         if job.get('needs', []) != expected_dependencies:
             errors.append(f'.github/workflows/ci.yml: {name} 需要按独立执行与最终汇总的依赖图运行')
     static_commands = commands.get("static-audit", [])
-    audit_index = next((index for index, (command, _) in enumerate(static_commands) if command_matches(command, "Scripts/run-static-audit.sh")), -1)
+    audit_index = next((index for index, (command, _) in enumerate(static_commands) if command_matches(command, "Scripts/run-extended-tests.sh verify audit modules")), -1)
     setup_index = next((index for index, (command, step) in enumerate(static_commands)
                         if command_matches(command, "npm ci") and step.get("working-directory") == "Cloudflare/EmergencyUpdateWorker"), -1)
     if audit_index < 0: errors.append(".github/workflows/ci.yml: 静态审计 Job 缺少执行入口")
@@ -199,7 +199,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
     if setup_index < 0 or audit_index < 0 or setup_index >= audit_index:
         errors.append(".github/workflows/ci.yml: Worker 锁定依赖需要在静态审计前安装并传播失败")
     required = {
-        "static-audit": (("Scripts/run-extended-tests.sh modules", "模块行为测试需要默认执行并传播失败"),),
+        "static-audit": (("Scripts/run-extended-tests.sh verify audit modules", "静态审计与模块行为测试需要沿聚合入口执行并传播失败"),),
         "catalyst-tests": (
             ("Scripts/run-extended-tests.sh verify catalyst catalyst-release-runtime", "Mac Catalyst 行为 Job 需要聚合执行行为用例和正式组装合同"),
         ),
@@ -234,7 +234,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
             or set(merge.get("needs", [])) != {"static-audit", "release-build", "catalyst-tests", "ios-tests"} \
             or merge.get("continue-on-error", False) is not False:
         errors.append(".github/workflows/ci.yml: 常规验收需要静态、编译、Catalyst 与完整模拟器 Job")
-    for name, command in (('static-audit', 'Scripts/run-static-audit.sh'),
+    for name, command in (('static-audit', 'Scripts/run-extended-tests.sh verify audit modules'),
                           ('catalyst-tests', 'Scripts/run-extended-tests.sh verify catalyst catalyst-release-runtime'),
                           ('ios-tests', 'Scripts/run-extended-tests.sh simulator merge'),
                           ('ios-app-tests', 'Scripts/run-extended-tests.sh simulator app'),
@@ -601,7 +601,7 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
                 findings.append(f'代码质量规则边界自检失败：{name} 的完整仓库检出')
     if not ci_wiring_findings(workflow_source.replace("run: npm ci", "run: echo skipped", 1)):
         findings.append("代码质量规则边界自检失败：Worker 冷启动依赖准备")
-    for command in ("Scripts/run-static-audit.sh", "Scripts/run-extended-tests.sh modules",
+    for command in ("Scripts/run-extended-tests.sh verify audit modules",
                     "Scripts/run-extended-tests.sh build network-smoke",
                     'Scripts/run-extended-tests.sh simulator "${{ matrix.mode }}"',
                     'Scripts/run-extended-tests.sh simulator release-runtime',
@@ -633,8 +633,8 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
     assert any('依赖图' in item for item in ci_wiring_findings(detached))
     detached_formal = workflow_source.replace('needs: [static-audit, ios-test-shards, ios-app-tests]', 'needs: [static-audit, ios-test-shards]', 1)
     assert any('依赖图' in item for item in ci_wiring_findings(detached_formal))
-    misplaced_audit = workflow_source.replace("run: Scripts/run-static-audit.sh", "run: echo skipped", 1)
-    misplaced_audit += "\n# Scripts/run-static-audit.sh\n"
+    misplaced_audit = workflow_source.replace("run: Scripts/run-extended-tests.sh verify audit modules", "run: echo skipped", 1)
+    misplaced_audit += "\n# Scripts/run-extended-tests.sh verify audit modules\n"
     if not any("静态审计 Job 缺少执行入口" in item for item in ci_wiring_findings(misplaced_audit)):
         findings.append("代码质量规则边界自检失败：CI 注释中的审计标记隔离")
     skipped_catalyst = workflow_source.replace("run: Scripts/run-extended-tests.sh verify catalyst catalyst-release-runtime", "run: echo skipped", 1)
