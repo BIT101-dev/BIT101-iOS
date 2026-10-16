@@ -97,7 +97,7 @@ def restore_cache(flavor: str) -> None:
             commit = run['head_sha']
             if not re.fullmatch('[0-9a-f]{40}', commit): continue
             if subprocess.run(['git', 'merge-base', '--is-ancestor', commit, 'HEAD'], cwd=ROOT, capture_output=True).returncode: continue
-            payload = subprocess.check_output(['gh', 'api', f"repos/{repo}/actions/artifacts/{artifact['id']}/zip"])
+            payload = download_cache_payload(repo, artifact['id'])
             print('编译缓存：' + ('已恢复工具链匹配的原生数据。' if restore_cache_payload(payload, flavor) else '当前工具链重新建立缓存。'))
             return
         print('编译缓存：首次建立当前分组的原生数据。')
@@ -120,12 +120,66 @@ def prune_caches() -> None:
         else: retained.add(row['name'])
 
 
+def download_cache_payload(repo: str, artifact_id: int) -> bytes:
+    import io
+    import http.client
+    from concurrent.futures import ThreadPoolExecutor
+    endpoint = f'repos/{repo}/actions/artifacts/{artifact_id}/zip'
+    probe = io.BytesIO(subprocess.check_output(['gh', 'api', '--include', '-H', 'Range: bytes=0-0', endpoint]))
+    status = probe.readline().split()
+    headers = http.client.parse_headers(probe)
+    size = re.fullmatch(r'bytes 0-0/([1-9][0-9]*)', headers.get('Content-Range', ''))
+    if len(status) < 2 or status[1] != b'206' or size is None or len(probe.read()) != 1:
+        raise ValueError('编译缓存响应需要包含完整的 HTTP 分段范围。')
+    length = int(size[1])
+    count = min(os.cpu_count() or 1, length)
+    def read_part(index):
+        start, end = length * index // count, length * (index + 1) // count - 1
+        result = subprocess.check_output(['gh', 'api', '-H', f'Range: bytes={start}-{end}', endpoint])
+        if len(result) != end - start + 1: raise ValueError('编译缓存分段需要包含请求的全部字节。')
+        return result
+    with ThreadPoolExecutor() as pool:
+        return b''.join(pool.map(read_part, range(count)))
+
+
+def cache_download_self_test() -> None:
+    from unittest.mock import patch
+    data = b'0123456789abcdefg'
+    probe = b'HTTP/2.0 206 Partial Content\r\nContent-Range: bytes 0-0/17\r\n\r\n0'
+    observed = []
+    def response(command, **kwargs):
+        assert command[-1] == 'repos/owner/repo/actions/artifacts/7/zip'
+        if '--include' in command: return probe
+        match = re.fullmatch(r'Range: bytes=(\d+)-(\d+)', command[command.index('-H') + 1])
+        start, end = map(int, match.groups())
+        observed.append((start, end))
+        return data[start:end + 1]
+    for cores in (1, 3, 32):
+        observed.clear()
+        with patch.object(os, 'cpu_count', return_value=cores), patch.object(subprocess, 'check_output', side_effect=response):
+            assert download_cache_payload('owner/repo', 7) == data
+        assert [offset for start, end in sorted(observed) for offset in range(start, end + 1)] == list(range(len(data)))
+    for invalid in (probe.replace(b'206', b'200'), probe.replace(b'0-0/17', b'0-1/17'), probe[:-1]):
+        with patch.object(subprocess, 'check_output', return_value=invalid):
+            try: download_cache_payload('owner/repo', 7)
+            except ValueError: pass
+            else: raise AssertionError('分段协议需要有效状态、范围与完整数据。')
+    def truncated(command, **kwargs):
+        value = response(command, **kwargs)
+        return value if '--include' in command else value[:-1]
+    with patch.object(os, 'cpu_count', return_value=3), patch.object(subprocess, 'check_output', side_effect=truncated):
+        try: download_cache_payload('owner/repo', 7)
+        except ValueError: pass
+        else: raise AssertionError('缺少字节的分段需要结束恢复。')
+
+
 def cache_self_test() -> None:
     import io
     import zipfile
     from contextlib import redirect_stdout
     from unittest.mock import patch
     module = sys.modules[__name__]
+    cache_download_self_test()
     identity = {'toolchain': 'compiler'}
     def payload(name=CACHE_STORE + '/data', *, context=identity, link=False, tools=False):
         buffer = io.BytesIO()
@@ -173,10 +227,11 @@ def cache_self_test() -> None:
                 patch.object(module, 'api_pages', return_value=[{'artifacts': [artifact]}]), \
                 patch.object(Path, 'mkdir'), patch.object(Path, 'open'), patch.object(Path, 'exists', return_value=False), \
                 patch('fcntl.flock'), patch.object(subprocess, 'check_output', side_effect=response), \
+                patch.object(module, 'download_cache_payload', return_value=payload()) as downloaded, \
                 patch.object(subprocess, 'run', return_value=SimpleNamespace(returncode=ancestor)), \
                 patch.object(module, 'restore_cache_payload', return_value=True) as restored, redirect_stdout(io.StringIO()):
             restore_cache('simulator-ui')
-            assert restored.called == accepted, (change, ancestor)
+            assert restored.called == downloaded.called == accepted, (change, ancestor)
     artifacts = [dict(id=index, name=name, expired=False, workflow_run={'id': 1}) for index, name in [
         (1, 'compilation-cache-simulator-ui'), (2, 'validation-evidence'), (3, 'compilation-cache-simulator-ui'),
         (4, 'compilation-cache-simulator-app')]]
