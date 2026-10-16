@@ -14,7 +14,7 @@ CI_CANCELLATION = '${{ !(' + CI_RELEASE_CONTEXT + ') }}'
 CI_CONCURRENCY_GROUP = 'ios-ci-${{ github.ref }}-${{ ' + CI_RELEASE_CONTEXT + ' }}'
 DIAGNOSTIC_PATHS = {
     'static-audit': {'.build/static-audit/*.log', '.build/code-quality-report.txt', '.build/ui-consistency-report.txt',
-        '.build/static-audit/swift-syntax-indexer', '.build/static-audit/swift-syntax-indexer-inputs.json',
+        '.build/compiler-cache/swift-syntax-indexer', '.build/compiler-cache/swift-syntax-indexer-inputs.json',
         '.build/static-audit/compilation-conditions.json',
         '.build/explanatory-text-report.txt', '.build/extended-automation/modules.log',
         '.build/extended-automation/module-events.jsonl', '.build/extended-automation/test-metrics.txt'},
@@ -331,7 +331,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
         if len(save) == 1 and any(mapping(save[0].get('with')).get(key) != value for key, value in {
                 'name': 'compilation-cache-' + flavor, 'compression-level': 0, 'overwrite': True,
                 'include-hidden-files': True, 'if-no-files-found': 'error',
-                'path': '.build/compiler-cache/CompilationCache.noindex\n.build/compiler-cache/compilation-cache.json\n'}.items()):
+                'path': '.build/compiler-cache/CompilationCache.noindex\n.build/compiler-cache/compilation-cache.json\n.build/compiler-cache/swift-syntax-indexer\n.build/compiler-cache/swift-syntax-indexer-inputs.json\n'}.items()):
             errors.append(f'.github/workflows/ci.yml: {name} 需要沿固定目录零压缩保存原生缓存')
     cleanup = mapping(jobs.get('compiler-cache-cleanup'))
     if cleanup.get('if') != "github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')" \

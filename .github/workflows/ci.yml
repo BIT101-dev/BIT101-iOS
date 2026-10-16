@@ -85,8 +85,8 @@ jobs:
           include-hidden-files: true
           path: |
             .build/static-audit/*.log
-            .build/static-audit/swift-syntax-indexer
-            .build/static-audit/swift-syntax-indexer-inputs.json
+            .build/compiler-cache/swift-syntax-indexer
+            .build/compiler-cache/swift-syntax-indexer-inputs.json
             .build/static-audit/compilation-conditions.json
             .build/code-quality-report.txt
             .build/ui-consistency-report.txt
@@ -136,6 +136,8 @@ jobs:
           path: |
             .build/compiler-cache/CompilationCache.noindex
             .build/compiler-cache/compilation-cache.json
+            .build/compiler-cache/swift-syntax-indexer
+            .build/compiler-cache/swift-syntax-indexer-inputs.json
       - name: Preserve validation diagnostics
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -203,6 +205,8 @@ jobs:
           path: |
             .build/compiler-cache/CompilationCache.noindex
             .build/compiler-cache/compilation-cache.json
+            .build/compiler-cache/swift-syntax-indexer
+            .build/compiler-cache/swift-syntax-indexer-inputs.json
       - name: Preserve validation diagnostics
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -279,6 +283,8 @@ jobs:
           path: |
             .build/compiler-cache/CompilationCache.noindex
             .build/compiler-cache/compilation-cache.json
+            .build/compiler-cache/swift-syntax-indexer
+            .build/compiler-cache/swift-syntax-indexer-inputs.json
       - name: Preserve validation diagnostics
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -371,6 +377,8 @@ jobs:
           path: |
             .build/compiler-cache/CompilationCache.noindex
             .build/compiler-cache/compilation-cache.json
+            .build/compiler-cache/swift-syntax-indexer
+            .build/compiler-cache/swift-syntax-indexer-inputs.json
       - name: Preserve validation diagnostics
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7

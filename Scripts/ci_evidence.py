@@ -22,6 +22,7 @@ CACHE_FLAVORS = {'release-build', 'catalyst-tests', 'simulator-app', 'simulator-
 CACHE_ROOT = ROOT / '.build/compiler-cache'
 CACHE_STORE = 'CompilationCache.noindex'
 CACHE_METADATA = 'compilation-cache.json'
+CACHE_TOOLS = frozenset({'swift-syntax-indexer', 'swift-syntax-indexer-inputs.json'})
 
 
 def cache_identity() -> dict:
@@ -34,6 +35,9 @@ def export_cache(flavor: str) -> None:
     if flavor not in CACHE_FLAVORS: raise ValueError('编译缓存需要登记的构建分组。')
     if not (CACHE_ROOT / CACHE_STORE).is_dir(): raise ValueError('编译完成后需要生成原生缓存。')
     (CACHE_ROOT / CACHE_METADATA).write_text(json.dumps(dict(identity=cache_identity(), flavor=flavor)))
+    files = [*(CACHE_ROOT / CACHE_STORE).rglob('*'), *(CACHE_ROOT / name for name in CACHE_TOOLS | {CACHE_METADATA})]
+    size = sum(path.stat().st_size for path in files if path.is_file())
+    print(f'编译缓存原始文件：{size / 1024**3:.2f} GiB。')
 
 
 def restore_cache_payload(payload: bytes, flavor: str) -> bool:
@@ -45,10 +49,14 @@ def restore_cache_payload(payload: bytes, flavor: str) -> bool:
         if metadata != dict(identity=cache_identity(), flavor=flavor): return False
         members = [row for row in archive.infolist() if row.filename != CACHE_METADATA]
         if not any(not row.is_dir() for row in members): raise ValueError('原生缓存需要包含编译数据。')
+        tools = CACHE_TOOLS.intersection(row.filename for row in members)
+        if tools and tools != CACHE_TOOLS: raise ValueError('检查工具与输入指纹需要成对恢复。')
         for row in members:
             path = PurePosixPath(row.filename)
-            if path.is_absolute() or '..' in path.parts or path.parts[:1] != (CACHE_STORE,) \
-                    or not row.is_dir() and len(path.parts) < 2 or (row.external_attr >> 16) & 0o170000 == 0o120000:
+            if path.is_absolute() or '..' in path.parts \
+                    or not (path.parts[:1] == (CACHE_STORE,) and (row.is_dir() or len(path.parts) >= 2)
+                            or row.filename in CACHE_TOOLS and not row.is_dir()) \
+                    or (row.external_attr >> 16) & 0o170000 == 0o120000:
                 raise ValueError('缓存产物需要保持固定目录及普通文件。')
         destination = CACHE_ROOT / CACHE_STORE
         try:
@@ -58,8 +66,10 @@ def restore_cache_payload(payload: bytes, flavor: str) -> bool:
                 else:
                     target.parent.mkdir(parents=True, exist_ok=True)
                     with archive.open(row) as source, target.open('wb') as output: shutil.copyfileobj(source, output)
+                    if row.filename == 'swift-syntax-indexer': target.chmod(0o755)
         except BaseException:
             shutil.rmtree(destination, ignore_errors=True)
+            for name in CACHE_TOOLS: (CACHE_ROOT / name).unlink(missing_ok=True)
             raise
     return True
 
@@ -116,19 +126,25 @@ def cache_self_test() -> None:
     from unittest.mock import patch
     module = sys.modules[__name__]
     identity = {'toolchain': 'compiler'}
-    def payload(name=CACHE_STORE + '/data', *, context=identity, link=False):
+    def payload(name=CACHE_STORE + '/data', *, context=identity, link=False, tools=False):
         buffer = io.BytesIO()
         with zipfile.ZipFile(buffer, 'w', compression=zipfile.ZIP_STORED) as archive:
             archive.writestr(CACHE_METADATA, json.dumps(dict(identity=context, flavor='simulator-ui')))
             entry = zipfile.ZipInfo(name)
             if link: entry.external_attr = 0o120777 << 16
             archive.writestr(entry, b'compiled')
+            if tools:
+                for tool in sorted(CACHE_TOOLS): archive.writestr(tool, tool.encode())
         return buffer.getvalue()
     transferred = []
     with patch.object(module, 'cache_identity', return_value=identity), patch.object(Path, 'mkdir'), \
-            patch.object(Path, 'open'), patch.object(shutil, 'copyfileobj', side_effect=lambda source, target: transferred.append(source.read())) as copied:
+            patch.object(Path, 'open'), patch.object(Path, 'chmod') as permissions, \
+            patch.object(shutil, 'copyfileobj', side_effect=lambda source, target: transferred.append(source.read())) as copied:
         assert restore_cache_payload(payload(), 'simulator-ui')
         assert transferred == [b'compiled']
+        assert restore_cache_payload(payload(tools=True), 'simulator-ui')
+        assert transferred[1:] == [b'compiled', *(name.encode() for name in sorted(CACHE_TOOLS))]
+        permissions.assert_called_once_with(0o755)
         copied.reset_mock()
         assert not restore_cache_payload(payload(context={}), 'simulator-ui')
         assert not restore_cache_payload(payload(), 'simulator-app')
@@ -138,7 +154,8 @@ def cache_self_test() -> None:
         export_cache('simulator-ui')
         assert json.loads(saved.call_args.args[0]) == dict(identity=identity, flavor='simulator-ui')
         for name, link in [('../escape', False), ('/escape', False), (CACHE_STORE + '/../escape', False),
-                           (CACHE_STORE, False), (CACHE_STORE + '/link', True)]:
+                           (CACHE_STORE, False), (CACHE_STORE + '/link', True),
+                           ('swift-syntax-indexer', False), ('swift-syntax-indexer/escape', False)]:
             try: restore_cache_payload(payload(name, link=link), 'simulator-ui')
             except ValueError: pass
             else: raise AssertionError(name)
@@ -361,7 +378,7 @@ def merge_simulator_ci() -> None:
     run = os.environ['GITHUB_RUN_ID']
     subprocess.run(['gh', 'run', 'download', run, '--name', 'validation-static-audit',
         '--dir', str(ROOT / '.build')], check=True, capture_output=True, text=True)
-    indexer = ROOT / '.build/static-audit/swift-syntax-indexer'
+    indexer = ROOT / '.build/compiler-cache/swift-syntax-indexer'
     indexer.chmod(indexer.stat().st_mode | 0o100)
     report = []
     for group in ('all', 'ui'):
@@ -410,7 +427,7 @@ def _self_test() -> None:
     module = sys.modules[__name__]
     root = Path('/fixture')
     metrics = root / '.build/extended-automation/test-metrics.txt'
-    preserved = {root / '.build/static-audit/swift-syntax-indexer',
+    preserved = {root / '.build/compiler-cache/swift-syntax-indexer',
         root / '.build/extended-automation/modules.log',
         root / '.build/extended-automation/test-results.retained.xcresult'}
     files = preserved | {metrics, root / '.build/extended-automation/simulator.log'}

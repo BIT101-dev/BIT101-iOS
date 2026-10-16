@@ -14,10 +14,10 @@ if not __debug__:
 cache_names = {"SDKExplicitPrecompiledModules", "ModuleCache.noindex", "SDKStatCaches.noindex", "CompilationCache.noindex", "Index.noindex"}
 derived_names = cache_names | {"Build", "Logs", "SourcePackages", "info.plist"}
 fixed_children = {
-    ".build/compiler-cache": cache_names | {"cache.lock", "compilation-cache.json"},
+    ".build/compiler-cache": cache_names | {"cache.lock", "compilation-cache.json",
+        "swift-syntax-indexer", "swift-syntax-indexer-inputs.json", "swift-syntax-indexer.lock"},
     ".build/static-audit": {"artifact-hygiene.log", "audit.lock", "checkers.log", "dependency-audit.log", "docs.log",
         "git-diff.log", "module-boundary.log", "python-parse.log", "shell-parse.log", "swift-parse.log", "worker-parse.log",
-        "swift-syntax-indexer", "swift-syntax-indexer-inputs.json", "swift-syntax-indexer.lock",
         "compilation-conditions.json", "compilation-conditions.lock",
         "staged-content-self-test.lock", "staged-content-self-test", "evidence-media-probe", "evidence-media-probe-inputs.json",
         "evidence-media-probe.lock", "evidence-media.mp4"},
@@ -141,6 +141,8 @@ def recover_self_test_artifacts(root: Path) -> None:
 
 def main(root: Path) -> None:
     recover_self_test_artifacts(root)
+    for name in ("swift-syntax-indexer", "swift-syntax-indexer-inputs.json", "swift-syntax-indexer.lock"):
+        (root / '.build/static-audit' / name).unlink(missing_ok=True)
     clear_diagnostic_exports(root / '.build/extended-automation/diagnostics')
     self_test()
     allowed_root_files = {

@@ -47,7 +47,7 @@ def _run_swift_syntax_index(request: dict, *, regex_only: bool = False) -> dict[
     host_modules = swift_path.parent.parent / "lib/swift/host"
     if not (host_modules / "SwiftSyntax.swiftmodule").is_dir():
         raise RuntimeError(f"Xcode SwiftSyntax modules not found: {host_modules}")
-    cache = ROOT / ".build/static-audit"
+    cache = ROOT / ".build/compiler-cache"
     cache.mkdir(parents=True, exist_ok=True)
     with (cache / "swift-syntax-indexer.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
@@ -71,9 +71,6 @@ def _run_swift_syntax_index(request: dict, *, regex_only: bool = False) -> dict[
                 compilation = subprocess.run([
                     str(compiler), "-target", f"{os.uname().machine}-apple-macosx14.0", "-sdk", sdk,
                     "-j", str(os.cpu_count() or 1),
-                    "-explicit-module-build", "-cache-compile-job", "-cas-path", str(compiler_cache / "CompilationCache.noindex"),
-                    "-scanner-prefix-map-sdk", "/^sdk", "-scanner-prefix-map-toolchain", "/^toolchain",
-                    "-scanner-prefix-map", str(ROOT) + "=/^src",
                     "-module-cache-path", str(module_cache), "-warnings-as-errors",
                     "-I", str(host_modules), "-L", str(host_modules),
                     "-lSwiftSyntax", "-lSwiftParser", "-lSwiftOperators", "-Xlinker", "-rpath", "-Xlinker", str(host_modules),
