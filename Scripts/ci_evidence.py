@@ -125,7 +125,7 @@ def download_cache_payload(repo: str, artifact_id: int) -> bytes:
     import http.client
     from concurrent.futures import ThreadPoolExecutor
     endpoint = f'repos/{repo}/actions/artifacts/{artifact_id}/zip'
-    probe = io.BytesIO(subprocess.check_output(['gh', 'api', '--include', '-H', 'Range: bytes=0-0', endpoint]))
+    probe = io.BytesIO(subprocess.check_output(['gh', 'api', '--allow-escape-sequences', '--include', '-H', 'Range: bytes=0-0', endpoint]))
     status = probe.readline().split()
     headers = http.client.parse_headers(probe)
     size = re.fullmatch(r'bytes 0-0/([1-9][0-9]*)', headers.get('Content-Range', ''))
@@ -135,7 +135,7 @@ def download_cache_payload(repo: str, artifact_id: int) -> bytes:
     count = min(os.cpu_count() or 1, length)
     def read_part(index):
         start, end = length * index // count, length * (index + 1) // count - 1
-        result = subprocess.check_output(['gh', 'api', '-H', f'Range: bytes={start}-{end}', endpoint])
+        result = subprocess.check_output(['gh', 'api', '--allow-escape-sequences', '-H', f'Range: bytes={start}-{end}', endpoint])
         if len(result) != end - start + 1: raise ValueError('编译缓存分段需要包含请求的全部字节。')
         return result
     with ThreadPoolExecutor() as pool:
@@ -144,10 +144,11 @@ def download_cache_payload(repo: str, artifact_id: int) -> bytes:
 
 def cache_download_self_test() -> None:
     from unittest.mock import patch
-    data = b'0123456789abcdefg'
+    data = b'0123456789ab\x1b[31m'
     probe = b'HTTP/2.0 206 Partial Content\r\nContent-Range: bytes 0-0/17\r\n\r\n0'
     observed = []
     def response(command, **kwargs):
+        assert '--allow-escape-sequences' in command
         assert command[-1] == 'repos/owner/repo/actions/artifacts/7/zip'
         if '--include' in command: return probe
         match = re.fullmatch(r'Range: bytes=(\d+)-(\d+)', command[command.index('-H') + 1])

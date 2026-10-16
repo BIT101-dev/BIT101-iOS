@@ -356,7 +356,6 @@ jobs:
             .build/screenshot.png
 
   ios-app-tests:
-    needs: release-build
     name: iOS Simulator app and formal runtime
     runs-on: xcode-27
     timeout-minutes: 105

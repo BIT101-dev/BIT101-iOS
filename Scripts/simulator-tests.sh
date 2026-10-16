@@ -25,6 +25,7 @@ if [[ "$operation" == merge ]]; then
   python3 "$ROOT_DIR/Scripts/ci_evidence.py" simulator-merge
   exit 0
 fi
+simulator_device_started=$SECONDS
 if SIMULATOR_DEVICE="$(python3 - "$DERIVED_ROOT/simulator-device.json" "$operation" 2>> "$DERIVED_ROOT/simulator.log" <<'PYDEVICE'
 import json
 import os
@@ -78,6 +79,7 @@ else
   echo "模拟器准备失败：$DERIVED_ROOT/simulator.log" >&2
   exit 1
 fi
+echo "[完成] 模拟器设备选择 · $(( SECONDS - simulator_device_started )) 秒"
 if [[ "$operation" == build-ui ]]; then
   bit101_run_logged "$DERIVED_ROOT/ui.log" "UI 宿主库存" python3 - "$ROOT_DIR/Scripts" <<'PYINVENTORY'
 import sys

@@ -184,7 +184,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
                 for command, _ in run_commands(job, include_always=True)):
             errors.append(f".github/workflows/ci.yml: {name} 的证据汇总需要采用记录环境")
         expected_dependencies = {'ios-tests': ['static-audit', 'ios-test-shards', 'ios-app-tests'],
-            'catalyst-tests': ['release-build', 'static-audit'], 'ios-app-tests': 'release-build',
+            'catalyst-tests': ['release-build', 'static-audit'],
             'ios-test-shards': 'ios-ui-build'}.get(name, [])
         if job.get('needs', []) != expected_dependencies:
             errors.append(f'.github/workflows/ci.yml: {name} 需要按独立执行与最终汇总的依赖图运行')
@@ -614,7 +614,7 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
     downgraded_release = workflow_source.replace('  release-acceptance:\n', '  release-acceptance:\n    continue-on-error: true\n')
     if not ci_wiring_findings(downgraded_release):
         findings.append('代码质量规则边界自检失败：发布验收的失败传播')
-    for job in ('release-build', 'ios-ui-build', 'physical-device'):
+    for job in ('release-build', 'ios-ui-build', 'ios-app-tests', 'physical-device'):
         serialized = workflow_source.replace('  ' + job + ':\n', '  ' + job + ':\n    needs: static-audit\n', 1)
         assert any('依赖图' in item for item in ci_wiring_findings(serialized))
     for dependency in ('', '    needs: static-audit\n'):
@@ -626,8 +626,8 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
     for dependency in ('', '    needs: release-build\n', '    needs: static-audit\n'):
         changed = workflow_source.replace('  catalyst-tests:\n    needs: [release-build, static-audit]\n', '  catalyst-tests:\n' + dependency)
         assert any('依赖图' in row for row in ci_wiring_findings(changed))
-    for dependency in ('', '    needs: static-audit\n'):
-        changed = workflow_source.replace('  ios-app-tests:\n    needs: release-build\n', '  ios-app-tests:\n' + dependency)
+    for dependency in ('    needs: release-build\n', '    needs: ios-ui-build\n'):
+        changed = workflow_source.replace('  ios-app-tests:\n', '  ios-app-tests:\n' + dependency)
         assert any('依赖图' in row for row in ci_wiring_findings(changed))
     detached = workflow_source.replace('needs: [static-audit, ios-test-shards, ios-app-tests]', 'needs: []', 1)
     assert any('依赖图' in item for item in ci_wiring_findings(detached))
