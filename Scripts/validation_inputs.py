@@ -25,6 +25,22 @@ BUILD_SCRIPTS = {"script-support.sh", "build-install-device.sh", "ci_evidence.py
 TEST_SCRIPTS = BUILD_SCRIPTS | VALIDATION_SCRIPTS | {"run-extended-tests.sh", "simulator-tests.sh"}
 INPUT_TRANSACTION_FILES = {'BIT101-iOSTests/Fixtures/campus-map-locations.lock', 'BIT101-iOSTests/Fixtures/campus-map-locations.incoming'}
 WORKER_GENERATED_DIRECTORIES = frozenset({'node_modules', '.wrangler', '.git'})
+CI_VALIDATION_GROUPS = {
+    'modules': (('modules',), ('Static audit (Apple toolchain)',), ('validation-static-audit',)),
+    'release': (('build-archive', 'build-network-smoke', 'build-icloud-smoke'),
+        ('Release app and extension builds',), ('validation-release-build',)),
+    'catalyst': (('catalyst', 'catalyst-release-runtime'),
+        ('Mac Catalyst behavior tests',), ('validation-catalyst-tests',)),
+    'app': (('all', 'release-runtime'),
+        ('iOS Simulator app and formal runtime',), ('validation-ios-test-shards-app-0',)),
+    'ui': (('ui',), ('Build shared iOS UI test host', *(f'iOS Simulator ui ({index})' for index in range(3))),
+        tuple(f'validation-ios-test-shards-ui-{index}' for index in range(3))),
+}
+
+
+def ci_validation_affected(names: list[str], group: str) -> bool:
+    return any(name == '.github/workflows/ci.yml' or any(includes_input(name, scope)
+        for scope in CI_VALIDATION_GROUPS[group][0]) for name in names)
 
 
 def is_worker_generated(path: PurePosixPath) -> bool:

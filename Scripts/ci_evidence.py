@@ -17,7 +17,7 @@ from validate_versions import PROJECT_PATH, extract_versions, validate_release_t
 ROOT = Path(__file__).resolve().parents[1]
 REPORT = ROOT / '.build/extended-automation/validation-evidence.json'
 ARTIFACT = 'validation-evidence'
-REQUIRED_JOBS = {'static-audit', 'release-build', 'catalyst-tests', 'ios-tests'}
+REQUIRED_JOBS = {'validation-plan', 'static-audit', 'release-build', 'catalyst-tests', 'ios-tests'}
 CACHE_FLAVORS = {'release-build', 'catalyst-tests', 'simulator-app', 'simulator-ui'}
 CACHE_ROOT = ROOT / '.build/compiler-cache'
 CACHE_STORE = 'CompilationCache.noindex'
@@ -77,6 +77,76 @@ def restore_cache_payload(payload: bytes, flavor: str) -> bool:
 def trusted_cache_run(run: dict, repo: str) -> bool:
     return run.get('event') in {'push', 'workflow_dispatch'} and run.get('head_branch') == 'main' \
         and (run.get('head_repository') or {}).get('full_name') == repo and run.get('path') == '.github/workflows/ci.yml'
+
+
+def select_validation_plan(commit: str, run_id: str, candidates, changed_files, *, full: bool = False) -> dict:
+    from validation_inputs import CI_VALIDATION_GROUPS, ci_validation_affected
+    jobs = {group: {'execute': True, 'reason': '完整验收' if full else '建立当前输入的成功结果'}
+        for group in CI_VALIDATION_GROUPS}
+    pending = set() if full else set(jobs)
+    for candidate in (() if full else candidates):
+        changed = changed_files(candidate['head_sha'])
+        observed = {job['name']: job for job in candidate['jobs']}
+        artifacts = {row['name'] for row in candidate['artifacts'] if not row.get('expired')}
+        for group in tuple(pending):
+            _, names, required = CI_VALIDATION_GROUPS[group]
+            sources = [observed.get(name, {}) for name in names]
+            if any(job.get('conclusion') != 'success' for job in sources):
+                jobs[group]['reason'] = '上次任务需要复验'
+                pending.remove(group)
+            elif ci_validation_affected(changed, group):
+                jobs[group]['reason'] = '验证输入发生变化'
+                pending.remove(group)
+            elif set(required) <= artifacts:
+                jobs[group] = {'execute': False, 'run': str(candidate['id']), 'commit': candidate['head_sha'],
+                    'reason': '输入内容一致，复用成功结果'}
+                pending.remove(group)
+        if not pending: break
+    return {'commit': commit, 'run': run_id, 'jobs': jobs}
+
+
+def validation_plan() -> None:
+    from validation_environment import ci_commit_findings
+    commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
+    if errors := ci_commit_findings(commit): raise ValueError('\n'.join(errors))
+    repo, run_id = repository(), os.environ['GITHUB_RUN_ID']
+    full = os.getenv('BIT101_RELEASE_CHECK') == 'true' or os.getenv('GITHUB_REF', '').startswith('refs/tags/v')
+    def candidates():
+        runs = json.loads(subprocess.check_output(['gh', 'api',
+            f'repos/{repo}/actions/workflows/ci.yml/runs?branch=main'], text=True))['workflow_runs']
+        for run in runs:
+            if str(run['id']) == run_id or run.get('status') != 'completed' or not trusted_cache_run(run, repo): continue
+            if subprocess.run(['git', 'merge-base', '--is-ancestor', run['head_sha'], commit],
+                    cwd=ROOT, capture_output=True).returncode: continue
+            yield run | {'jobs': [job for page in api_pages(f'repos/{repo}/actions/runs/{run["id"]}/jobs') for job in page['jobs']],
+                'artifacts': [row for page in api_pages(f'repos/{repo}/actions/runs/{run["id"]}/artifacts') for row in page['artifacts']]}
+    def changed_files(source):
+        return [name for name in subprocess.check_output(['git', 'diff', '--name-only', '-z', '--no-renames',
+            source, commit], cwd=ROOT).decode().split('\0') if name]
+    plan = select_validation_plan(commit, run_id, candidates(), changed_files, full=full)
+    with Path(os.environ['GITHUB_OUTPUT']).open('a') as output: output.write('plan=' + json.dumps(plan) + '\n')
+    for group, row in plan['jobs'].items(): print(f'{group}：{row["reason"]}')
+
+
+def read_validation_plan() -> dict:
+    plan = json.loads(os.environ['BIT101_CI_PLAN'])
+    from validation_inputs import CI_VALIDATION_GROUPS
+    if plan.get('commit') != os.environ['GITHUB_SHA'] or plan.get('run') != os.environ['GITHUB_RUN_ID'] \
+            or set(plan.get('jobs', {})) != set(CI_VALIDATION_GROUPS):
+        raise ValueError('增量计划需要绑定当前提交、运行及完整验证组。')
+    for row in plan['jobs'].values():
+        if type(row.get('execute')) is not bool or not row['execute'] and (
+                not re.fullmatch('[0-9a-f]{40}', row.get('commit', '')) or not re.fullmatch('[1-9][0-9]*', row.get('run', ''))):
+            raise ValueError('复用结果需要有效的来源提交与运行。')
+    return plan
+
+
+def reuse_validation(group: str) -> None:
+    row = read_validation_plan()['jobs'][group]
+    if row['execute']: raise ValueError('当前验证组需要执行测试。')
+    message = f'{group}：复用提交 {row["commit"]} 的成功结果：https://github.com/{repository()}/actions/runs/{row["run"]}'
+    print(message)
+    with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as summary: summary.write(message + '\n')
 
 
 def restore_cache(flavor: str) -> None:
@@ -369,7 +439,7 @@ def current(results: str) -> None:
     states = results.split(',')
     if len(states) == len(REQUIRED_JOBS) and all(state == 'success' for state in states):
         return
-    raise ValueError('常规 CI 需要静态、编译、Catalyst 与完整模拟器任务全部通过。')
+    raise ValueError('常规 CI 需要增量计划、静态、编译、Catalyst 与完整模拟器任务全部通过。')
 
 
 def version_tag(tag: str) -> None:
@@ -434,24 +504,28 @@ def merge_simulator_ci() -> None:
     if errors := ci_commit_findings(commit): raise ValueError('\n'.join(errors))
     policy = json.loads(REPORT.read_text()).get('coveragePolicy', {})
     run = os.environ['GITHUB_RUN_ID']
+    plan = read_validation_plan()['jobs'] if os.getenv('BIT101_CI_PLAN') else {}
     subprocess.run(['gh', 'run', 'download', run, '--name', 'validation-static-audit',
         '--dir', str(ROOT / '.build')], check=True, capture_output=True, text=True)
     indexer = ROOT / '.build/compiler-cache/swift-syntax-indexer'
     indexer.chmod(indexer.stat().st_mode | 0o100)
     report = []
     for group in ('all', 'ui'):
+        source = plan.get('app' if group == 'all' else group, {'execute': True})
+        source_run = run if source['execute'] else source['run']
+        source_commit = commit if source['execute'] else source['commit']
         line_shards = []
         shutil.rmtree(bundle, ignore_errors=True)
         for index in range(SIMULATOR_SHARDS[group]):
             if bundle.exists(): shutil.move(str(bundle), str(retained))
             operation = 'app' if group == 'all' else group
-            download_simulator_shard(run, operation, index)
+            download_simulator_shard(source_run, operation, index)
             metrics = (root / 'test-metrics.txt').read_text()
             metadata = json.loads(next(row.removeprefix('分片：') for row in metrics.splitlines() if row.startswith('分片：')))
             expected = shard_inventory(group, index, SIMULATOR_SHARDS[group])
             if metadata['identity'] != {'group': group, 'index': index, 'count': SIMULATOR_SHARDS[group],
-                    'commit': commit, 'run': run}:
-                raise ValueError('分片需要绑定当前运行、提交及所属库存。')
+                    'commit': source_commit, 'run': source_run}:
+                raise ValueError('分片需要绑定计划中的来源运行、提交及所属库存。')
             summary = read_native_summary(bundle, group)
             if not selected_test_summary_complete(summary, expected, group=group, simulator=True):
                 raise ValueError('每个模拟器分片需要完整执行分配的测试及实例。')
@@ -468,7 +542,7 @@ def merge_simulator_ci() -> None:
         if not selected_test_summary_complete(summary, sorted(test_inventory(group)), group=group, simulator=True) \
                 or not coverage_complete(group, summary) or failures:
             raise ValueError('模拟器合并验收需要完整库存及版本化覆盖率：' + '；'.join(failures))
-        report.append(f"{group} 完整分片验收通过：{summary['passedTests']} 项；覆盖率：" + json.dumps(summary['coverage']))
+        report.append(f"{group} 完整分片验收通过：{summary['passedTests']} 项；来源：{source_commit} / {source_run}；覆盖率：" + json.dumps(summary['coverage']))
         print(f"{group} 完整分片验收通过：{summary['passedTests']} 项。")
     (root / 'test-metrics.txt').write_text('\n'.join(report) + '\n')
 
@@ -477,6 +551,64 @@ def self_test() -> None:
     with patch.dict(os.environ, GITHUB_ACTIONS='false', GITHUB_SHA=''):
         _self_test()
         cache_self_test()
+        validation_plan_self_test()
+
+
+def validation_plan_self_test() -> None:
+    from copy import deepcopy
+    from unittest.mock import patch
+    from validation_inputs import CI_VALIDATION_GROUPS
+    commit = 'a' * 40
+    candidate = {'id': 7, 'head_sha': 'b' * 40,
+        'jobs': [{'name': name, 'conclusion': 'success'} for _, names, _ in CI_VALIDATION_GROUPS.values() for name in names],
+        'artifacts': [{'name': name, 'expired': False} for _, _, names in CI_VALIDATION_GROUPS.values() for name in names]}
+    for names, required in (([], set()), (['README.md'], set()),
+            (['BIT101-iOSUITests/InteractionCoverageCommunityUITests.swift'], {'ui'}),
+            (['BIT101-iOSTests/AccountTests.swift'], {'release', 'app', 'catalyst'}),
+            (['BIT101-iOSTests/PerformanceWorkloads.json'], {'release', 'app', 'catalyst', 'ui'}),
+            (['BIT101-iOS/Feature.swift'], {'release', 'app', 'catalyst', 'ui'}),
+            (['Modules/Feature/Sources/Feature.swift'], set(CI_VALIDATION_GROUPS)),
+            (['.github/workflows/ci.yml'], set(CI_VALIDATION_GROUPS)),
+            (['Scripts/simulator-tests.sh'], set(CI_VALIDATION_GROUPS))):
+        plan = select_validation_plan(commit, '8', [candidate], lambda _: names)
+        assert {group for group, row in plan['jobs'].items() if row['execute']} == required, names
+        assert all(row['run'] == '7' and row['commit'] == 'b' * 40 for row in plan['jobs'].values() if not row['execute'])
+    for conclusion in ('failure', 'cancelled', 'skipped', None):
+        failed = deepcopy(candidate)
+        next(job for job in failed['jobs'] if job['name'] == 'iOS Simulator ui (1)')['conclusion'] = conclusion
+        older = candidate | {'id': 6}
+        plan = select_validation_plan(commit, '8', [failed, older], lambda _: [])
+        assert plan['jobs']['ui']['execute'] and not plan['jobs']['app']['execute']
+    missing = deepcopy(candidate)
+    next(row for row in missing['artifacts'] if row['name'] == 'validation-ios-test-shards-app-0')['expired'] = True
+    plan = select_validation_plan(commit, '8', [missing], lambda _: [])
+    assert plan['jobs']['app']['execute'] and not plan['jobs']['ui']['execute']
+    plan = select_validation_plan(commit, '8', [missing, candidate | {'id': 6}], lambda _: [])
+    assert plan['jobs']['app']['run'] == '6'
+    def unused():
+        raise AssertionError('发布全量验收沿当前运行执行。')
+        yield
+    assert all(row['execute'] for row in select_validation_plan(commit, '8', unused(), lambda _: [], full=True)['jobs'].values())
+    def affected():
+        yield candidate
+        raise AssertionError('受影响的验证组沿当前运行执行。')
+    assert all(row['execute'] for row in select_validation_plan(commit, '8', affected(),
+        lambda _: ['.github/workflows/ci.yml'])['jobs'].values())
+    valid = select_validation_plan(commit, '8', [candidate], lambda _: [])
+    with patch.dict(os.environ, GITHUB_SHA=commit, GITHUB_RUN_ID='8', BIT101_CI_PLAN=json.dumps(valid)):
+        assert read_validation_plan() == valid
+    for key, value in (('commit', 'c' * 40), ('run', '9'), ('jobs', {})):
+        with patch.dict(os.environ, GITHUB_SHA=commit, GITHUB_RUN_ID='8', BIT101_CI_PLAN=json.dumps(valid | {key: value})):
+            try: read_validation_plan()
+            except ValueError: pass
+            else: raise AssertionError('来源计划需要匹配当前运行与全部验证组。')
+    for key, value in (('execute', 'false'), ('commit', 'invalid'), ('run', '0')):
+        malformed = deepcopy(valid)
+        malformed['jobs']['ui'][key] = value
+        with patch.dict(os.environ, GITHUB_SHA=commit, GITHUB_RUN_ID='8', BIT101_CI_PLAN=json.dumps(malformed)):
+            try: read_validation_plan()
+            except ValueError: pass
+            else: raise AssertionError('复用来源需要有效的执行状态与身份。')
 
 
 def _self_test() -> None:
@@ -530,10 +662,11 @@ def _self_test() -> None:
         api.assert_not_called()
     with patch.dict(os.environ, GITHUB_SHA=commit), \
             patch.object(subprocess, 'check_output', return_value=commit), patch.object(module, 'api_pages') as api:
-        current('success,success,success,success')
+        current('success,success,success,success,success')
         api.assert_not_called()
-        for states in ('success,success,success', 'success,success,skipped,success', 'failure,success,success,success',
-                'success,success,success,success,success'):
+        for states in ('success,success,success', 'success,success,success,success',
+                'success,success,skipped,success,success', 'failure,success,success,success,success',
+                'success,success,success,success,success,success'):
             try: current(states)
             except ValueError: pass
             else: raise AssertionError('全部常规 Job 共同参与验收')
@@ -554,13 +687,13 @@ def _self_test() -> None:
             except ValueError: assert not accepted
             else: assert accepted and result == 'b' * 40
     with patch.dict(os.environ, GITHUB_SHA=commit), patch.object(subprocess, 'check_output', return_value='b' * 40):
-        try: current('success,success,success,success')
+        try: current('success,success,success,success,success')
         except ValueError: pass
         else: raise AssertionError('CI 需要验收事件提交')
     for changed in (b'', b' M Scripts/ci_evidence.py\0'):
         with patch.dict(os.environ, GITHUB_SHA=commit, GITHUB_ACTIONS='true'), \
                 patch.object(subprocess, 'check_output', side_effect=[commit, changed]):
-            try: current('success,success,success,success')
+            try: current('success,success,success,success,success')
             except ValueError: assert changed
             else: assert not changed
     with patch.object(module, 'version_tag'), patch.object(module, 'repository', return_value='owner/repo'), \
@@ -596,7 +729,7 @@ def _self_test() -> None:
         upload.assert_not_called()
     for arguments, operation, expected in (
         (['baseline', commit], 'baseline', ((commit,), {})),
-        (['current', '--results', 'success,success,success,success'], 'current', (('success,success,success,success',), {})),
+        (['current', '--results', 'success,success,success,success,success'], 'current', (('success,success,success,success,success',), {})),
         (['review-pr', '12'], 'review_pr', ((12,), {})),
         (['release', 'v1.0'], 'release', (('v1.0',), {'publish': False})),
         (['publish', 'v1.0'], 'release', (('v1.0',), {'publish': True})),
@@ -607,6 +740,8 @@ def _self_test() -> None:
         (['cache-restore', 'simulator-ui'], 'restore_cache', (('simulator-ui',), {})),
         (['cache-export', 'simulator-ui'], 'export_cache', (('simulator-ui',), {})),
         (['cache-prune'], 'prune_caches', ((), {})),
+        (['plan'], 'validation_plan', ((), {})),
+        (['reuse', 'ui'], 'reuse_validation', (('ui',), {})),
     ):
         with patch.object(sys, 'argv', ['ci_evidence.py', *arguments]), patch.object(module, operation, return_value='b' * 40) as execute, \
                 patch.object(sys, 'stdout', StringIO()) as output:
@@ -619,7 +754,7 @@ def _self_test() -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('baseline', 'current', 'review-pr', 'release', 'publish', 'check-release', 'export-core', 'import-baseline', 'simulator-merge', 'cache-restore', 'cache-export', 'cache-prune'))
+    parser.add_argument('action', choices=('baseline', 'current', 'review-pr', 'release', 'publish', 'check-release', 'export-core', 'import-baseline', 'simulator-merge', 'cache-restore', 'cache-export', 'cache-prune', 'plan', 'reuse'))
     parser.add_argument('identity', nargs='?', default='')
     parser.add_argument('--results', default='')
     args = parser.parse_args()
@@ -634,6 +769,8 @@ def main() -> int:
         elif args.action == 'cache-restore': restore_cache(args.identity)
         elif args.action == 'cache-export': export_cache(args.identity)
         elif args.action == 'cache-prune': prune_caches()
+        elif args.action == 'plan': validation_plan()
+        elif args.action == 'reuse': reuse_validation(args.identity)
         else: release(args.identity, publish=args.action == 'publish')
         return 0
     except (ValueError, SyntaxError, KeyError, OSError, zipfile.BadZipFile, subprocess.CalledProcessError) as error:
