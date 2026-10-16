@@ -306,9 +306,12 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
             errors.append(f'.github/workflows/ci.yml: {name} 需要实际恢复所属原生编译缓存')
         if name in {'ios-test-shards', 'ios-release-runtime'}:
             boot = [step for step in steps if step.get('name') == 'Prepare full iOS Simulator']
+            network = [step for step in steps if step.get('name') in {'Restore native compilation cache', 'Load target branch coverage baseline'}]
+            inventory = [step for step in steps if step.get('name') in {'Run assigned complete Simulator inventory', 'Run complete formal runtime inventory'}]
             if len(boot) != 1 or boot[0].get('run') != 'Scripts/run-extended-tests.sh simulator prepare' \
-                    or len(restore) != 1 or steps.index(boot[0]) > steps.index(restore[0]):
-                errors.append(f'.github/workflows/ci.yml: {name} 需要在缓存恢复前启动完整模拟器')
+                    or len(network) != 2 or len(inventory) != 1 \
+                    or not max(map(steps.index, network)) < steps.index(boot[0]) < steps.index(inventory[0]):
+                errors.append(f'.github/workflows/ci.yml: {name} 需要完成缓存与基准请求后启动完整模拟器，再执行测试库存')
         if len(prepare) != 1 or prepare[0].get('if') != condition \
                 or prepare[0].get('run') != f'python3 Scripts/ci_evidence.py cache-export "{flavor}"' \
                 or len(save) != 1 or save[0].get('if') != condition:
@@ -525,9 +528,9 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
     boot_step = '      - name: Prepare full iOS Simulator\n        run: Scripts/run-extended-tests.sh simulator prepare\n'
     for name in ('ios-test-shards', 'ios-release-runtime'):
         block = re.search(r'(?ms)^  ' + name + r':\n.*?(?=^  [\w-]+:|\Z)', source)[0]
-        delayed = block.replace(boot_step, '').replace('      - name: Load target branch coverage baseline',
-            boot_step + '      - name: Load target branch coverage baseline', 1)
-        assert any('缓存恢复前' in row for row in ci_wiring_findings(source.replace(block, delayed, 1))), name
+        for anchor in ('Restore native compilation cache', 'Load target branch coverage baseline', 'Prepare native compilation cache'):
+            reordered = block.replace(boot_step, '').replace('      - name: ' + anchor, boot_step + '      - name: ' + anchor, 1)
+            assert any('缓存与基准请求后' in row for row in ci_wiring_findings(source.replace(block, reordered, 1))), (name, anchor)
     for name in ('static-audit', 'release-build', 'catalyst-tests', 'ios-tests', 'release-acceptance', 'merge-acceptance'):
         for selector in ('[self-hosted, macOS, bit101-xcode-27, bit101-ci]', 'macos-latest',
                          "${{ github.event_name == 'push' && 'xcode-27' || 'macos-latest' }}"):

@@ -249,8 +249,6 @@ jobs:
           printf 'base_sha=%s\n' "$base_sha" >> "$GITHUB_OUTPUT"
       - name: Show toolchain
         run: Scripts/build-install-device.sh toolchain
-      - name: Prepare full iOS Simulator
-        run: Scripts/run-extended-tests.sh simulator prepare
       - name: Restore native compilation cache
         env:
           GH_TOKEN: ${{ github.token }}
@@ -262,6 +260,8 @@ jobs:
         run: |
           python3 Scripts/ci_evidence.py baseline "$BIT101_BASE_COMMIT"
           python3 Scripts/validation_evidence.py baseline "$BIT101_BASE_COMMIT"
+      - name: Prepare full iOS Simulator
+        run: Scripts/run-extended-tests.sh simulator prepare
       - name: Run assigned complete Simulator inventory
         run: Scripts/run-extended-tests.sh simulator "${{ matrix.mode }}"
       - name: Prepare native compilation cache
@@ -322,8 +322,6 @@ jobs:
           printf 'base_sha=%s\n' "$base_sha" >> "$GITHUB_OUTPUT"
       - name: Show toolchain
         run: Scripts/build-install-device.sh toolchain
-      - name: Prepare full iOS Simulator
-        run: Scripts/run-extended-tests.sh simulator prepare
       - name: Restore native compilation cache
         env:
           GH_TOKEN: ${{ github.token }}
@@ -335,6 +333,8 @@ jobs:
         run: |
           python3 Scripts/ci_evidence.py baseline "$BIT101_BASE_COMMIT"
           python3 Scripts/validation_evidence.py baseline "$BIT101_BASE_COMMIT"
+      - name: Prepare full iOS Simulator
+        run: Scripts/run-extended-tests.sh simulator prepare
       - name: Run complete formal runtime inventory
         run: Scripts/run-extended-tests.sh simulator release-runtime
       - name: Prepare native compilation cache
