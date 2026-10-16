@@ -184,9 +184,9 @@ def policy_findings(report: dict, group: str) -> list[str]:
         row.get('summary', {}).get('coverage', {}), policy_floors(group, report.get('coveragePolicy', {})))]
 
 
-def self_test() -> None:
+def self_test(evidence) -> None:
     simulator_ui_preparation_self_test()
-    native_coverage_self_test()
+    native_coverage_self_test(evidence)
     from validation_policy import workflow_timeout_seconds
     from validation_test_areas import test_inventory
     inventory = sorted(test_inventory('ui'))
@@ -258,13 +258,12 @@ def self_test() -> None:
         else: raise AssertionError('覆盖率汇总需要验证源码行身份。')
 
 
-def native_coverage_self_test() -> None:
+def native_coverage_self_test(evidence) -> None:
     import io
     import json
     import plistlib
     from types import SimpleNamespace
     from unittest.mock import patch
-    import validation_evidence as evidence
     root = Path('/fixture')
     for catalyst in (False, True):
         for debug in (False, True):

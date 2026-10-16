@@ -159,7 +159,7 @@ def run_self_test(subject) -> int:
         from validation_restore import self_test as restore_self_test
         restore_self_test()
         from validation_coverage import self_test as coverage_self_test
-        coverage_self_test()
+        coverage_self_test(subject)
         from ci_evidence import self_test as ci_evidence_self_test
         ci_evidence_self_test()
         from validation_publication import self_test as publication_self_test
