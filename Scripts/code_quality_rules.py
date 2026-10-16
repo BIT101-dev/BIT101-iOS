@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from functools import cache
 from validation_inputs import native_project_targets, repository_script_paths
 import ast
 import json
@@ -350,8 +351,8 @@ def asynchronous_test_wait_findings(path: Path, source: str, facts: dict) -> lis
         and re.search(r'\bfunc\s+waitForTestEvent\b', row['value'])]
     findings = []
     for row in facts.get('controlFlow', []):
+        if not re.match(r'while\b', row['value']): continue
         value = mask_literals_and_comments(row['value'])
-        if not re.match(r'while\b', value): continue
         polling = re.search(r'\bTask\s*\.\s*yield\s*\(', value)
         swallowed_sleep = re.search(r'\btry\s*\?\s*await\s+Task\s*\.\s*sleep\s*\(', value)
         if not polling and not (swallowed_sleep and not re.search(r'\b(?:break|return|throw)\b|\bTask\s*\.\s*(?:isCancelled|checkCancellation)\b', value)): continue
@@ -378,10 +379,11 @@ def asynchronous_test_wait_findings(path: Path, source: str, facts: dict) -> lis
     suite_limits = [call['scope'] for call in facts.get('invocations', []) if call['calledExpression'] == '.timeLimit'
         and re.search(r'@(?:Testing\.)?Suite\s*\([^{}]*$', mask_literals_and_comments(source.encode()[:call['start']].decode()))]
     for function in facts.get('functions', []):
+        if function['start'] not in tests or function['start'] not in asynchronous: continue
         attributes = re.split(r'\bfunc\b', mask_literals_and_comments(function['value']), maxsplit=1)[0]
         limited = re.search(r'\.\s*timeLimit\s*\(', attributes) or any(
             function['scope'][:len(scope)] == scope for scope in suite_limits)
-        if function['start'] in tests and function['start'] in asynchronous and not limited:
+        if not limited:
             line = source.encode()[:function['start']].count(b'\n') + 1
             findings.append(f'{name}:{line}: Swift Testing 异步测试需要 timeLimit 期限')
     return findings
@@ -568,8 +570,9 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
             execution_calls.setdefault((path, tuple(call["scope"]), call["value"]), []).append((facts, call))
     eager_parameters = set()
 
-    def registered_callbacks(path, facts):
-        registered, stored, executed = [], [], []
+    @cache
+    def callback_invocations(path):
+        facts, result = syntax_index[path], []
         calls = {(call["start"], call["value"]): call for call in facts["calls"]}
         for invocation in facts.get("invocations", []):
             call = calls.get((invocation["start"], invocation.get("calledExpression")))
@@ -592,6 +595,12 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
                     else types.function_scope(function_paths[id(function)], function["scope"]) == receiver_owner if receiver
                     else variable_scope(path, call)[:len(types.function_scope(function_paths[id(function)], function["scope"]))]
                         == types.function_scope(function_paths[id(function)], function["scope"]))]
+            result.append((invocation, owner, escaping, declarations))
+        return result
+
+    def registered_callbacks(path, facts):
+        registered, stored, executed = [], [], []
+        for invocation, owner, escaping, declarations in callback_invocations(path):
             arguments = list(invocation.get("closureArguments", []))
             arguments += [[index, *bounds] for index, (argument, bounds) in enumerate(zip(
                 invocation.get("arguments", []), invocation.get("argumentRanges", [])))
