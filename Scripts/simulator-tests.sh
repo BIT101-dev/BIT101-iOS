@@ -101,7 +101,7 @@ restore_application() {
   restore_digest="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest restore)" || return $?
   bit101_run_logged "$DERIVED_ROOT/build-release.log" "常规模拟器包编译" xcodebuild build -quiet \
     -project "$ROOT_DIR/BIT101-iOS.xcodeproj" -scheme BIT101-iOS -configuration Release -derivedDataPath "$DERIVED_ROOT" \
-    -destination "platform=iOS Simulator,id=$SIMULATOR_DEVICE" BIT101_WORKFLOW_CONDITIONS= ENABLE_TESTABILITY=YES \
+    -destination "platform=iOS Simulator,id=$SIMULATOR_DEVICE" ONLY_ACTIVE_ARCH=YES BIT101_WORKFLOW_CONDITIONS= ENABLE_TESTABILITY=YES \
     "BIT101_RESTORE_INPUT_DIGEST=$restore_digest" CODE_SIGN_IDENTITY=- || return $?
   bit101_run_logged "$DERIVED_ROOT/restore.log" "常规模拟器包恢复" python3 - "$SIMULATOR_DEVICE" \
     "$DERIVED_ROOT/Build/Products/Release-iphonesimulator/BIT101-iOS.app" "$ROOT_DIR/Scripts" "$restore_digest" \
@@ -232,7 +232,7 @@ fi
 simulator_build_status=0
 bit101_run_logged "$DERIVED_ROOT/$mode.log" "模拟器测试宿主编译" xcodebuild build-for-testing -quiet \
   -project "$ROOT_DIR/BIT101-iOS.xcodeproj" -scheme "$scheme" -configuration "$configuration" -derivedDataPath "$DERIVED_ROOT" \
-  -destination "$destination" "BIT101_WORKFLOW_CONDITIONS=$conditions" ENABLE_TESTABILITY=YES \
+  -destination "$destination" ONLY_ACTIVE_ARCH=YES "BIT101_WORKFLOW_CONDITIONS=$conditions" ENABLE_TESTABILITY=YES \
   -enableCodeCoverage YES ENABLE_CODE_COVERAGE=YES \
   SWIFT_TREAT_WARNINGS_AS_ERRORS=YES GCC_TREAT_WARNINGS_AS_ERRORS=YES CODE_SIGN_IDENTITY=- "${only_testing[@]}" || simulator_build_status=$?
 simulator_prepare_status=0

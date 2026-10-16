@@ -627,6 +627,7 @@ run_tests() {
   fi
 
   local project_args=(-project "$PROJECT" -scheme "$TEST_SCHEME" -configuration Release -derivedDataPath "$DERIVED_ROOT")
+  if [[ "$BUILD_ONLY" == false ]]; then project_args+=(ONLY_ACTIVE_ARCH=YES); fi
   if [[ "$MODE" == ui && "$BUILD_ONLY" == false ]]; then
     if ! bit101_run_logged "$DERIVED_ROOT/ui-tests-build.log" "UI 宿主编译" xcodebuild build-for-testing -quiet \
       "${project_args[@]}" -destination "$TEST_DESTINATION" \

@@ -16,7 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_ROOT = ROOT / "Scripts"
 
-def test_build_argument_findings(output: str) -> list[str]:
+def test_build_argument_findings(output: str, *, testing_device: bool = False) -> list[str]:
     findings = []
     for line in output.splitlines():
         if not line.startswith('ARGUMENTS '): continue
@@ -25,6 +25,7 @@ def test_build_argument_findings(output: str) -> list[str]:
             required = ('-enableCodeCoverage YES', 'ENABLE_CODE_COVERAGE=YES',
                         'SWIFT_TREAT_WARNINGS_AS_ERRORS=YES', 'GCC_TREAT_WARNINGS_AS_ERRORS=YES',
                         '-configuration Release')
+            if testing_device: required += ('ONLY_ACTIVE_ARCH=YES',)
         elif arguments[:2] == ['xcrun', 'swift']:
             required = ('--configuration release',)
             if 'test' in arguments: required += ('--enable-code-coverage',)
@@ -320,6 +321,7 @@ def script_command_boundary_findings() -> list[str]:
         '-configuration', 'Release', '-enableCodeCoverage', 'YES', 'ENABLE_CODE_COVERAGE=YES', 'GCC_TREAT_WARNINGS_AS_ERRORS=YES']
     assert any(metadata_option in finding for finding in test_build_argument_findings(shlex.join(metadata_arguments))), \
         '日志标签中的参数进入元数据，实际编译命令承担参数门禁'
+    assert any('ONLY_ACTIVE_ARCH=YES' in finding for finding in test_build_argument_findings(shlex.join(metadata_arguments), testing_device=True))
 
     findings = result_retention_boundary_findings() + audit_cancellation_findings() + build_cache_exit_self_test()
     support = (SCRIPT_ROOT / 'script-support.sh').read_text()
@@ -716,7 +718,7 @@ bit101_run_logged() { print BUILD; return 79; }
         if result.returncode != expected or marker not in result.stdout or ("DEVICE\n" in result.stdout) != bool(device) or filename == 'build-install-device.sh' and command_output and any(not re.search(r'\b' + name + r'=(?:\s|$)', command_output) for name in ('BIT101_WORKFLOW_CONDITIONS', 'SWIFT_ACTIVE_COMPILATION_CONDITIONS')):
             findings.append(f"命令自测：{filename} {' '.join(arguments)} 分派及自动选机；{result.stderr}")
         if filename == 'run-extended-tests.sh':
-            findings.extend(test_build_argument_findings(result.stdout))
+            findings.extend(test_build_argument_findings(result.stdout, testing_device=arguments[:1] != ['build']))
             if arguments in (['build'], ['modules']):
                 options = ('--enable-code-coverage',) if arguments == ['modules'] else (
                     '-enableCodeCoverage YES', 'ENABLE_CODE_COVERAGE=YES',

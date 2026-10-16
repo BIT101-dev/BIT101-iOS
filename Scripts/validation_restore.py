@@ -91,7 +91,7 @@ def simulator_restore_findings(simulator_source: str) -> list[str]:
     restoration = 'restore_application() {' + simulator_source.split('restore_application() {', 1)[1].split(
         'if [[ "$operation" == restore ]]', 1)[0]
     for original, restore_result in ((0, 0), (7, 0), (0, 9), (7, 9)):
-        stub = f'python3() {{ print digest; }}\nbit101_run_logged() {{ print RESTORE; if [[ "$2" == "常规模拟器包编译" && " $* " != *" ENABLE_TESTABILITY=YES "* ]]; then return 64; fi; return {restore_result}; }}\n'
+        stub = f'python3() {{ print digest; }}\nbit101_run_logged() {{ print RESTORE; if [[ "$2" == "常规模拟器包编译" && ( " $* " != *" ENABLE_TESTABILITY=YES "* || " $* " != *" ONLY_ACTIVE_ARCH=YES "* ) ]]; then return 64; fi; return {restore_result}; }}\n'
         result = subprocess.run(['zsh', '-c', stub + restoration + '\ntrap restore_on_exit EXIT\nexit "$1"',
             'simulator-restore-test', str(original)], env=dict(os.environ, GITHUB_ACTIONS='false', BIT101_DEFER_APP_RESTORE='0'), capture_output=True, text=True)
         if result.returncode != (original or restore_result) or result.stdout.count('RESTORE') != (1 if restore_result else 2):
@@ -206,7 +206,7 @@ def simulator_startup_findings(source: str) -> list[str]:
                 harness = f'''set -euo pipefail
 ROOT_DIR=/fixture DERIVED_ROOT=/fixture SIMULATOR_DEVICE=device mode={operation} scheme=scheme configuration=Release destination=target conditions= GITHUB_ACTIONS={hosted}
 only_testing=()
-bit101_run_logged() {{ if [[ "$3" == python3 ]]; then cat >/dev/null; print PREPARE; return {ready_status}; else print BUILD; return {build_status}; fi; }}
+bit101_run_logged() {{ if [[ "$3" == python3 ]]; then cat >/dev/null; print PREPARE; return {ready_status}; else print BUILD; [[ " $* " == *" ONLY_ACTIVE_ARCH=YES "* ]] || return 64; return {build_status}; fi; }}
 python3() {{ cat >/dev/null; print APPREADY; }}
 '''
                 result = subprocess.run(['zsh', '-c', harness + body + '\nprint COMPLETE'], capture_output=True, text=True, timeout=10)
