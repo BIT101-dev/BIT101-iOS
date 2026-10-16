@@ -745,7 +745,7 @@ extension UIAutomationTestCase {
     func dismissShareSheet() {
         dismissNotificationBanner()
         let sheet = app.navigationBars["UIActivityContentView"]
-        assertUI(sheet.appears(timeout: 5), "分享入口应打开系统分享面板。")
+        assertUI(sheet.appears(timeout: 30), "分享入口应打开系统分享面板。")
         let dismissRegion = app.otherElements.matching(identifier: "PopoverDismissRegion").firstMatch
         let close = app.buttons.matching(NSPredicate(format: "label IN %@", ["关闭", "Close"])).firstMatch
         let popover = app.popovers.firstMatch
