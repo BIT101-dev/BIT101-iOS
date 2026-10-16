@@ -298,6 +298,8 @@ def simulator_startup_findings(source: str) -> list[str]:
     if prepared.call_count != 1 or prepared.call_args.args != ('device', Path('/fixture/Build/Products')):
         findings.append('模拟器启动自测：UI 初始化使用已编译的测试宿主')
     execution = source.split('simulator_prepare_pid=\n', 1)[1]
+    if source.index('chmod +x "$ROOT_DIR/.build/compiler-cache/swift-syntax-indexer"') > source.index('selection_started='):
+        findings.append('共享宿主自测：库存规划前恢复下载工具的执行权限')
     if execution.index("<<'PYREADY'") > execution.index('xcodebuild build-for-testing') \
             or execution.split("<<'PYREADY'", 1)[1].split('\n', 1)[0].strip() != '&':
         findings.append('模拟器启动自测：系统初始化与测试宿主编译并行执行')
@@ -329,16 +331,15 @@ python3() {{ cat >/dev/null; print APPREADY; }}
 ROOT_DIR=/fixture DERIVED_ROOT=/fixture SIMULATOR_DEVICE=device mode=ui GITHUB_ACTIONS={hosted} BIT101_REUSE_UI_HOST=1
 bit101_run_logged() {{ cat >/dev/null; print PREPARE; return {ready_status}; }}
 python3() {{ cat >/dev/null; if [[ "$3" == device ]]; then print APPREADY; else print PERMISSIONS; fi; }}
-chmod() {{ print EXECUTABLE; }}
 '''
             result = subprocess.run(['zsh', '-c', harness + body + '\nprint COMPLETE'], capture_output=True, text=True, timeout=10)
             rows = result.stdout.splitlines()
             expected = ready_status if hosted == 'true' else 0
-            complete = result.returncode == expected and 'PERMISSIONS' in rows and 'EXECUTABLE' in rows \
+            complete = result.returncode == expected and 'PERMISSIONS' in rows \
                 and ('PREPARE' in rows) == (hosted == 'true') and ('COMPLETE' in rows) == (expected == 0) \
                 and ('APPREADY' in rows) == (hosted == 'true' and expected == 0)
             if complete and 'APPREADY' in rows:
-                complete = rows.index('APPREADY') > max(rows.index('PREPARE'), rows.index('EXECUTABLE'))
+                complete = rows.index('APPREADY') > max(rows.index('PREPARE'), rows.index('PERMISSIONS'))
             if not complete: findings.append('共享宿主自测：恢复执行权限，归集系统就绪状态后执行 App 初始化')
     return findings
 

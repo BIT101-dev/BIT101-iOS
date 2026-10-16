@@ -221,6 +221,7 @@ if [[ "$operation" == ui ]]; then
   scheme=BIT101-iOS-UIAutomation
   bundle=BIT101-iOSUITests
   configuration=Release
+  if [[ "${BIT101_REUSE_UI_HOST:-0}" == 1 ]]; then chmod +x "$ROOT_DIR/.build/compiler-cache/swift-syntax-indexer"; fi
   if (( $# )); then selections=("${(@f)$(bit101_ui_test_selections "$@")}"); fi
 fi
 if [[ -n "${BIT101_CI_SHARD:-}" ]]; then
@@ -266,7 +267,6 @@ sys.path.insert(0, sys.argv[1])
 from validation_coverage import restore_test_host_permissions
 restore_test_host_permissions(Path(sys.argv[2]))
 PYHOST
-  chmod +x "$ROOT_DIR/.build/compiler-cache/swift-syntax-indexer"
   echo "[复用] 共享 UI 测试宿主"
 else
 bit101_run_logged "$DERIVED_ROOT/$mode.log" "模拟器测试宿主编译" xcodebuild build-for-testing -quiet \
