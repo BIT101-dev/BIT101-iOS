@@ -150,7 +150,7 @@ final class AppCommunityDependencies {
         gallery = GalleryDependencies(
             webCredentials: .init(cookie: { session.fakeCookie }, changes: session.credentialsChanges.map { _ in () }.eraseToAnyPublisher()),
             currentIdentity: { session.currentCredentials.identity },
-            feed: galleryService, messageService: galleryService, posterDetail: galleryService,
+            feed: galleryService, messageService: galleryService, posterDetail: galleryService, subscriptions: galleryService,
             reporting: galleryService, composer: galleryService, images: galleryService, preferences: preferences,
             messages: messages, drafts: drafts, networkPath: networkPath
         )

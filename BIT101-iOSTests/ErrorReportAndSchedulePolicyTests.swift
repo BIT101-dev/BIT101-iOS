@@ -728,7 +728,7 @@ struct NetworkEvidenceProjectionTests {
         #expect(NetworkSmokeProbe.galleryNewest.rawValue == "gallery.newest")
         #expect(NetworkSmokeProbe.galleryNewest.displayName == "话廊最新列表")
         #expect(GalleryMessageType.allCases.map(NetworkSmokeProbe.message).map(\.rawValue) ==
-            ["message.comment", "message.like", "message.follow", "message.system"])
+            ["message.comment", "message.like", "message.follow", "message.subscription", "message.system"])
         #expect(PaperSortOrder.allCases.map(NetworkSmokeProbe.paperSort).map(\.rawValue) ==
             ["paper.list.newest", "paper.list.like", "paper.list.comment"])
     }

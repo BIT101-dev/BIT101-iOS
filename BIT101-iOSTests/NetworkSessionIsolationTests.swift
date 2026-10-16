@@ -1,4 +1,5 @@
 import CommunityTransport
+import GalleryFeature
 import DesignSystemKit
 import Foundation
 import Network
@@ -124,6 +125,53 @@ private final class CommunityLoopbackTransport: HTTPTransport {
         return (data, mapped)
     }
 }
+
+#if DEBUG
+private final class SubscriptionSmokeTransport: HTTPTransport {
+    var level = 0
+    var failComment = false
+    var writes: [Int] = []
+    var deleted = false
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        let url = try #require(request.url)
+        #expect(request.value(forHTTPHeaderField: "fake-cookie") == "fixture")
+        var status = 200
+        var body = "{}"
+        if url.path == "/subscriptions" {
+            let data = try #require(request.httpBody)
+            let payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            #expect(payload["obj"] as? String == "poster42")
+            let next = try #require(payload["level"] as? Int)
+            writes.append(next)
+            if failComment && next == 3 { status = 500 } else { level = next }
+        } else if request.httpMethod == "DELETE" { deleted = true }
+        else if request.httpMethod == "GET" {
+            body = #"{"id":42,"anonymous":false,"claim":{"id":0,"text":""},"comment_num":0,"create_time":"","edit_time":"","images":[{"mid":"image","url":"","low_url":""}],"like":false,"like_num":0,"own":true,"plugins":"[]","public":false,"tags":[],"text":"fixture","title":"功能验收","update_time":"","user":{"id":1,"create_time":"","nickname":"作者","avatar":{"mid":"","url":"","low_url":""},"motto":"","identity":{"id":0,"color":"","text":"","create_time":"","update_time":""}},"subscription":LEVEL}"#.replacingOccurrences(of: "LEVEL", with: String(level))
+        }
+        return (Data(body.utf8), try #require(HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil)))
+    }
+}
+
+extension NetworkClientTests {
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    @MainActor
+    func ownedPosterSubscriptionSmokeRestoresBeforeDeletion(failed: Bool) async throws {
+        let transport = SubscriptionSmokeTransport()
+        transport.failComment = failed
+        let session = CommunitySession(httpClient: HTTPClient(transport: transport, observer: nil),
+            baseURL: AppURL.required("https://example.invalid"),
+            credentials: { .init(identity: .init(accountIdentifier: "fixture"), cookie: "fixture") }, refresh: { _ in })
+        let service = GalleryService(session: session, preferences: {
+            .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
+        })
+        let operations = CommunityWriteSmoke.Operations.production(gallery: service)
+        if failed { await #expect(throws: (any Error).self) { try await operations.edit(.poster, 42, "fixture") } }
+        else { try await operations.edit(.poster, 42, "fixture") }
+        try await operations.delete(.poster, 42)
+        #expect(transport.writes == [1, 2, 3, 0] && transport.level == 0 && transport.deleted)
+    }
+}
+#endif
 
 extension NetworkClientTests {
     @Test(.timeLimit(.minutes(1)))

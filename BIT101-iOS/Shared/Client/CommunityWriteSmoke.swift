@@ -215,6 +215,12 @@ final class CommunityWriteSmoke {
                     guard !current.images.isEmpty else { throw URLError(.cannotParseResponse) }
                     try await gallery.updatePoster(id: id, title: "功能验收", text: text,
                         imageMids: current.images.map(\.mid), plugins: "[]", anonymous: false, tags: [], claimID: 0, isPublic: false)
+                    for level in [GallerySubscriptionLevel.silent, .update, .comment, .none] {
+                        try await gallery.setSubscription(objectID: "poster\(id)", level: level)
+                        guard try await gallery.fetchPoster(id: id).subscription == level else {
+                            throw URLError(.cannotParseResponse)
+                        }
+                    }
                 case .paper:
                     let current = try await papers.fetchPaper(id: id)
                     try await papers.updatePaper(id: id, title: text, intro: text,
@@ -223,7 +229,13 @@ final class CommunityWriteSmoke {
                 case .course: throw URLError(.unsupportedURL)
                 }
             }, delete: { kind, id in
-                if kind == .poster { try await gallery.deletePoster(id: id) }
+                if kind == .poster {
+                    let detail = try await gallery.fetchPoster(id: id)
+                    if (detail.subscription?.rawValue ?? 0) > 0 {
+                        try await gallery.setSubscription(objectID: "poster\(id)", level: .none)
+                    }
+                    try await gallery.deletePoster(id: id)
+                }
                 else { try await papers.deletePaper(id: id) }
             }, comments: { object, identifiers in
                 if identifiers?.isEmpty == true { return [] }

@@ -11,6 +11,43 @@ import BIT101TestSupport
 
 @MainActor
 struct ServiceContractTests {
+    @Test(.timeLimit(.minutes(1)), arguments: GallerySubscriptionLevel.allCases)
+    func subscriptionWritesUseTheServerLevelAndAccount(level: GallerySubscriptionLevel) async throws {
+        let transport = Transport([(200, "{}")])
+        let session = CommunitySession(httpClient: HTTPClient(transport: transport, observer: nil),
+            baseURL: AppURL.required("https://example.invalid"),
+            credentials: { .init(identity: .init(accountIdentifier: "subscriptions"), cookie: "fixture") }, refresh: { _ in })
+        let service = GalleryService(session: session, preferences: {
+            .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
+        })
+        try await service.setSubscription(objectID: "poster42", level: level)
+        let request = try #require(transport.requests.first)
+        let data = try #require(request.httpBody)
+        let body = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(request.httpMethod == "POST" && request.url?.path == "/subscriptions")
+        #expect(body["obj"] as? String == "poster42" && body["level"] as? Int == level.rawValue)
+        #expect(request.value(forHTTPHeaderField: "fake-cookie") == "fixture" && !request.httpShouldHandleCookies)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func subscriptionsDecodeWebFavoritesAndKeepTheirSourcePage() async throws {
+        let body = #"[{"id":4,"subscription_time":"2026-10-01T00:00:00Z","obj":"poster42","level":1,"text":"收藏话题"},{"id":5,"subscription_time":"","obj":"paper17","level":3,"text":"收藏文章"}]"#
+        let transport = Transport([(200, body)])
+        let session = CommunitySession(httpClient: HTTPClient(transport: transport, observer: nil),
+            baseURL: AppURL.required("https://example.invalid"),
+            credentials: { .init(identity: .init(accountIdentifier: "subscriptions"), cookie: "fixture") }, refresh: { _ in })
+        let service = GalleryService(session: session, preferences: {
+            .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
+        })
+        let items = try await service.fetchSubscriptions(page: 2)
+        #expect(items.map(\.level) == [.silent, .comment])
+        #expect(items.first?.resource?.id == 42 && items.last?.resource?.kind == "paper")
+        #expect(items.first?.subscriptionTime == "2026-10-01T00:00:00Z")
+        #expect(transport.requests.first?.url?.query == "page=2")
+        let counts = try JSONDecoder().decode(GalleryMessageUnreadCounts.self, from: Data(#"{"subscription":3}"#.utf8))
+        #expect(counts.unreadCount(for: .subscription) == 3)
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: ["reaction/like", "user/follow/1"], ["sent", "before-send", "rejected"])
     func togglesClassifyUncertainOutcomesAtTheRequestBoundary(path: String, boundary: String) async {
         let transport = Transport([(400, "{}")])
@@ -28,7 +65,7 @@ struct ServiceContractTests {
         #expect(transport.requests.count == 1)
     }
 #if os(macOS)
-    @Test(.timeLimit(.minutes(1)), arguments: ["gallery.newest", "gallery.following", "gallery.hot", "gallery.recommend", "gallery.bots", "gallery.search"])
+    @Test(.timeLimit(.minutes(1)), arguments: ["gallery.newest", "gallery.following", "gallery.hot", "gallery.recommend", "gallery.bots", "gallery.search", "gallery.subscriptions"])
     func productionGalleryRequestsPassThePythonSmokeContract(probe: String) async throws {
         let transport = Transport(Array(repeating: (200, "[]"), count: probe == "gallery.search" ? 16 : 10))
         let session = CommunitySession(httpClient: HTTPClient(transport: transport, observer: nil),
@@ -51,6 +88,7 @@ struct ServiceContractTests {
                         _ = try await service.searchPosters(query: .init(text: "", order: order), page: page)
                     }
                 case "gallery.recommend": _ = try await service.fetchRecommendPage(sourcePage: page)
+                case "gallery.subscriptions": _ = try await service.fetchSubscriptions(page: page)
                 case "gallery.bots": _ = try await service.fetchBotFeed(startPage: page)
                 default:
                     let kind: GalleryFeedKind = probe == "gallery.following" ? .follow : (probe == "gallery.hot" ? .hot : .newest)

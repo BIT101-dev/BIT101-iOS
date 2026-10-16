@@ -606,6 +606,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
             return order == .oldest ? Array(values.reversed()) : values
         }
         func fetchClaims() async throws -> [CommunityClaim] { [poster.claim] }
+        func fetchSubscriptions(page: Int) async throws -> [GallerySubscription] { [] }
         func fetchReportTypes() async throws -> [GalleryReportType] {
             let data = stage == "report-types-empty-failure" ? "[]" : stage == "report-types-duplicate-failure"
                 ? #"[{"id":1,"text":"first"},{"id":1,"text":"second"}]"# : stage == "report-types-text-failure"
@@ -865,7 +866,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
         if stage.hasPrefix("poster-") { #expect(report.failures.contains { $0.contains("gallery.search") }) }
         if stage.hasPrefix("report-types-") { #expect(report.failures.count == 1 && report.failures[0].contains("community.report-types")) }
         if stage == "course-comment-ranking-failure" { #expect(report.failures.contains { $0.contains("course.comments") }) }
-        if stage.hasPrefix("message-account-") { #expect(report.failures.count == 4 && !services.observed.contains("message-read")) }
+        if stage.hasPrefix("message-account-") { #expect(report.failures.count == GalleryMessageType.allCases.count && !services.observed.contains("message-read")) }
         if stage == "course-history-statistics-failure" { #expect(report.failures.contains { $0.contains("course.history") }) }
         if stage == "maintained-fixtures-success" {
             #expect(services.observed.isSuperset(of: GallerySearchOrder.allCases.map { "gallery-search-\($0.rawValue)" }))

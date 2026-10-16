@@ -854,6 +854,7 @@ private final class PagedMessageService: GalleryMessageServicing {
 }
 
 private final class SuspendedMessageDetails: GalleryPosterDetailServicing {
+    func setSubscription(objectID: String, level: GallerySubscriptionLevel) async throws { throw URLError(.unsupportedURL) }
     var pending: [Int: CheckedContinuation<GalleryPosterDetail, Error>] = [:]
     func fetchPoster(id: Int) async throws -> GalleryPosterDetail {
         try await withCheckedThrowingContinuation { pending[id] = $0 }

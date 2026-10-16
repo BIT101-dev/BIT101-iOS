@@ -276,6 +276,30 @@ private struct GalleryPosterDetailViewScene: View {
         }
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
+                Menu {
+                    ForEach(GallerySubscriptionLevel.allCases) { level in
+                        Button {
+                            viewModel.pendingOperations.enqueue {
+                                if await viewModel.setSubscription(level) { onUpdated?() }
+                            }
+                        } label: {
+                            Label(level.title, systemImage: viewModel.subscriptionLevel == level ? "checkmark" : "bookmark")
+                        }
+                        .disabled(viewModel.subscriptionLevel == level)
+                        .accessibilityIdentifier("gallery.subscription-level.\(level.rawValue)")
+                    }
+                } label: {
+                    if viewModel.isSavingSubscription {
+                        ProgressView()
+                    } else {
+                        Image(systemName: viewModel.subscriptionLevel == .none ? "bookmark" : "bookmark.fill")
+                    }
+                }
+                .accessibilityLabel("插眼收藏")
+                .accessibilityIdentifier("gallery.subscription-menu")
+                .accessibilityValue(viewModel.subscriptionLevel == .none ? "尚未插眼" : viewModel.subscriptionLevel.title)
+                .disabled(viewModel.isSavingSubscription || viewModel.posterStatus != .loaded)
+
                 AppDetailShareLink(
                     item: posterShareURL,
                     subject: viewModel.poster.title.isEmpty ? "BIT101 话题" : viewModel.poster.title,

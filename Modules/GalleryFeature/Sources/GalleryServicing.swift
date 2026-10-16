@@ -18,6 +18,7 @@ public protocol GalleryMessageServicing {
 /// 帖子详情及评论区所需的网络能力。
 public protocol GalleryPosterDetailServicing {
     func fetchPoster(id: Int) async throws -> GalleryPosterDetail
+    func setSubscription(objectID: String, level: GallerySubscriptionLevel) async throws
     func fetchComments(objectID: String, order: CommunityCommentOrder, page: Int?) async throws -> GalleryPageBatch<CommunityComment>
     func like(objectID: String) async throws -> CommunityLikeResult
     func createComment(
@@ -30,6 +31,10 @@ public protocol GalleryPosterDetailServicing {
     ) async throws -> CommunityComment
     func deleteComment(id: Int) async throws
     func deletePoster(id: Int) async throws
+}
+
+public protocol GallerySubscriptionServicing {
+    func fetchSubscriptions(page: Int) async throws -> [GallerySubscription]
 }
 
 public protocol GalleryReportServicing {
@@ -47,4 +52,4 @@ public protocol GalleryComposerServicing: GalleryImageUploading {
     func updatePoster(id: Int, title: String, text: String, imageMids: [String], plugins: String, anonymous: Bool, tags: [String], claimID: Int, isPublic: Bool) async throws
 }
 
-extension GalleryService: GalleryFeedServicing, GalleryMessageServicing, GalleryPosterDetailServicing, GalleryReportServicing, GalleryComposerServicing {}
+extension GalleryService: GalleryFeedServicing, GalleryMessageServicing, GalleryPosterDetailServicing, GallerySubscriptionServicing, GalleryReportServicing, GalleryComposerServicing {}

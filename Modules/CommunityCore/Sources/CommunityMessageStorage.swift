@@ -9,6 +9,7 @@ public nonisolated enum GalleryMessageType: String, CaseIterable, Identifiable, 
     case comment
     case like
     case follow
+    case subscription
     case system
 
     /// 供 `Picker` 和状态字典使用的稳定标识。
@@ -23,6 +24,8 @@ public nonisolated enum GalleryMessageType: String, CaseIterable, Identifiable, 
             return "点赞"
         case .follow:
             return "关注"
+        case .subscription:
+            return "插眼"
         case .system:
             return "系统"
         }

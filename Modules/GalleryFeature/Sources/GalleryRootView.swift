@@ -60,6 +60,7 @@ public struct GalleryRootView: View {
 }
 
 private struct GalleryRootViewScene: View {
+    @Environment(\.openURL) private var openURL
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let dependencies: GalleryDependencies
     private let destinations: CommunityPaperDestination
@@ -75,6 +76,7 @@ private struct GalleryRootViewScene: View {
     @ObservedObject private var appSettings: CommunityPreferences
     @State private var isShowingComposer = false
     @State private var isShowingMessages = false
+    @State private var isShowingSubscriptions = false
     @Binding private var requestedPaperID: Int?
     @Binding private var requestedPosterID: Int?
     @State private var selectedSurface: GallerySurface = .gallery
@@ -242,6 +244,9 @@ private struct GalleryRootViewScene: View {
             .accessibilityIdentifier("gallery.feed-surface")
 
             AppFloatingActionStack {
+                AppFloatingActionButton(systemImage: "bookmark", accessibilityLabel: "我的收藏") {
+                    isShowingSubscriptions = true
+                }
                 AppFloatingActionButton(
                     systemImage: "bell.badge",
                     badgeText: messageBadgeText,
@@ -301,6 +306,20 @@ private struct GalleryRootViewScene: View {
                 GalleryMessagesView(viewModel: messageViewModel)
             }
             .presentationDragIndicator(.hidden)
+        }
+        .sheet(isPresented: $isShowingSubscriptions) {
+            NavigationStack {
+                GallerySubscriptionsView(service: dependencies.subscriptions) { kind, id in
+                    if kind == "paper" {
+                        isShowingSubscriptions = false
+                        isShowingNativePaperRoute = true
+                        selectedSurface = .paper
+                        requestedPaperID = id
+                    } else if kind == "course" {
+                        openURL(AppURL.required("https://bit101.cn/course/\(id)"))
+                    }
+                }
+            }
         }
         .sheet(isPresented: $isShowingComposer) {
             GalleryComposerView {

@@ -24,6 +24,7 @@ public final class GalleryDependencies {
     let feed: any GalleryFeedServicing
     let messageService: any GalleryMessageServicing
     let posterDetail: any GalleryPosterDetailServicing
+    let subscriptions: any GallerySubscriptionServicing
     let reporting: any GalleryReportServicing
     let composer: any GalleryComposerServicing
     let images: any GalleryImageUploading
@@ -38,6 +39,7 @@ public final class GalleryDependencies {
         feed: any GalleryFeedServicing,
         messageService: any GalleryMessageServicing,
         posterDetail: any GalleryPosterDetailServicing,
+        subscriptions: any GallerySubscriptionServicing,
         reporting: any GalleryReportServicing,
         composer: any GalleryComposerServicing,
         images: any GalleryImageUploading,
@@ -51,6 +53,7 @@ public final class GalleryDependencies {
         self.feed = feed
         self.messageService = messageService
         self.posterDetail = posterDetail
+        self.subscriptions = subscriptions
         self.reporting = reporting
         self.composer = composer
         self.images = images

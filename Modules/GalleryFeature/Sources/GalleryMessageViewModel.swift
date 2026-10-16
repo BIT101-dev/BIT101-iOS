@@ -207,6 +207,7 @@ final class GalleryMessageViewModel: ObservableObject {
             case .follow: unreadCounts.follow = 0
             case .like: unreadCounts.like = 0
             case .system: unreadCounts.system = 0
+            case .subscription: unreadCounts.subscription = 0
             }
             await refreshUnreadCounts()
         } catch {

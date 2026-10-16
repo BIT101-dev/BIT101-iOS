@@ -9,6 +9,123 @@ import Testing
 
 @MainActor
 struct GalleryStateContractTests {
+    private final class Subscriptions: GallerySubscriptionServicing {
+        var pages: [Int: [GallerySubscription]] = [:]
+        var failedPage: Int?
+        var gate: ListRequestGate<[GallerySubscription]>?
+        var requests: [Int] = []
+        func fetchSubscriptions(page: Int) async throws -> [GallerySubscription] {
+            requests.append(page)
+            if failedPage == page { throw URLError(.notConnectedToInternet) }
+            if page > 0, let gate { return try await gate.request() }
+            return pages[page] ?? []
+        }
+    }
+
+    private func subscription(_ id: Int) -> GallerySubscription {
+        .init(id: id, subscriptionTime: "", obj: "poster\(id)", level: .silent, text: "话题\(id)")
+    }
+
+    private final class SubscriptionDetails: GalleryPosterDetailServicing {
+        var poster = GalleryPosterDetail(poster: listPoster(1)).updatingSubscription(.none)
+        var failure: (any Error)?
+        var writeGate: ListRequestGate<Void>?
+        var readGate: ListRequestGate<GalleryPosterDetail>?
+        var writes = 0
+        func fetchPoster(id: Int) async throws -> GalleryPosterDetail {
+            if let readGate { return try await readGate.request() }
+            return poster
+        }
+        func setSubscription(objectID: String, level: GallerySubscriptionLevel) async throws {
+            writes += 1
+            if let failure { throw failure }
+            if let writeGate { try await writeGate.request() }
+            poster = poster.updatingSubscription(level)
+        }
+        func fetchComments(objectID: String, order: CommunityCommentOrder, page: Int?) async throws -> GalleryPageBatch<CommunityComment> {
+            .init(items: [], nextSourcePage: 0, canLoadMore: false)
+        }
+        func like(objectID: String) async throws -> CommunityLikeResult { throw URLError(.unsupportedURL) }
+        func createComment(objectID: String, text: String, replyObjectID: String?, replyUID: Int?, anonymous: Bool, imageMids: [String]) async throws -> CommunityComment { throw URLError(.unsupportedURL) }
+        func deleteComment(id: Int) async throws { throw URLError(.unsupportedURL) }
+        func deletePoster(id: Int) async throws { throw URLError(.unsupportedURL) }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func subscriptionWriteFailuresKeepConfirmedStateAndCanBeRetried() async {
+        let service = SubscriptionDetails()
+        let model = GalleryPosterDetailViewModel(initialPoster: listPoster(1), service: service)
+        await model.refreshAll()
+        #expect(await model.setSubscription(.silent))
+        service.failure = URLError(.networkConnectionLost)
+        #expect(await model.setSubscription(.update) == false)
+        #expect(model.poster.subscription == .silent && !model.isSavingSubscription && model.alert != nil)
+        service.failure = nil
+        #expect(await model.setSubscription(.update))
+        #expect(model.poster.subscription == .update && service.writes == 3)
+        #expect(model.poster.updatingLike(true, likeNum: 1).subscription == .update)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func subscriptionSaveSurvivesAnOlderRefreshAndSerializesRepeatedTaps() async throws {
+        let service = SubscriptionDetails()
+        let model = GalleryPosterDetailViewModel(initialPoster: listPoster(1), service: service)
+        await model.refreshAll()
+        let oldPoster = service.poster
+        let write = ListRequestGate<Void>(), read = ListRequestGate<GalleryPosterDetail>()
+        service.writeGate = write
+        let saving = Task { await model.setSubscription(.comment) }
+        try await write.waitUntilRequested()
+        #expect(await model.setSubscription(.silent) == false && service.writes == 1)
+        service.readGate = read
+        let refresh = Task { await model.refreshAll() }
+        try await read.waitUntilRequested()
+        write.finish(())
+        #expect(await saving.value)
+        read.finish(oldPoster)
+        await refresh.value
+        #expect(model.poster.subscription == .comment && model.posterStatus == .loaded)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func subscriptionPaginationDeduplicatesAndRetainsFailedPageForRetry() async {
+        let service = Subscriptions()
+        service.pages = [0: [subscription(1)], 1: [subscription(1), subscription(2)]]
+        let model = GallerySubscriptionsViewModel(service: service)
+        await model.refresh()
+        service.failedPage = 1
+        await model.loadMore()
+        #expect(model.items.map(\.id) == [1] && model.canLoadMore && !model.isLoadingMore && model.alert != nil)
+        service.failedPage = nil
+        await model.loadMore()
+        #expect(model.items.map(\.id) == [1, 2] && service.requests == [0, 1, 1])
+        await model.loadMore()
+        #expect(!model.canLoadMore && model.status == .loaded)
+        service.pages[0] = []
+        await model.refresh()
+        #expect(model.items.isEmpty && !model.canLoadMore && model.status == .loaded)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func subscriptionRefreshSupersedesAnOlderNextPage() async throws {
+        let service = Subscriptions()
+        service.pages[0] = [subscription(1)]
+        let model = GallerySubscriptionsViewModel(service: service)
+        await model.refresh()
+        let gate = ListRequestGate<[GallerySubscription]>()
+        service.gate = gate
+        let page = Task { await model.loadMore() }
+        try await gate.waitUntilRequested()
+        service.pages[0] = [subscription(2)]
+        await model.refresh()
+        gate.finish([subscription(3)])
+        await page.value
+        #expect(model.items.map(\.id) == [2] && model.status == .loaded && !model.isLoadingMore)
+        service.failedPage = 0
+        await model.refresh()
+        #expect(model.items.map(\.id) == [2] && model.alert != nil && model.status == .loaded)
+    }
+
     private nonisolated struct IndexedItem: Identifiable {
         let value: Int
         let reads: OSAllocatedUnfairLock<Int>

@@ -2,6 +2,7 @@
 import CommunityUI
 import MediaKit
 import CommunityCore
+import TransportCore
 import DesignSystemKit
 //
 //  GalleryFeedViews.swift
@@ -11,6 +12,106 @@ import DesignSystemKit
 //
 
 import SwiftUI
+
+struct GallerySubscriptionsView: View {
+    @Environment(\.appInteractionEvidence) private var interactionEvidence
+    @Environment(GalleryDependencies.self) private var dependencies
+    @Environment(MediaEnvironment.self) private var media
+    @Environment(CommunityProfileDestination.self) private var profiles
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var viewModel: GallerySubscriptionsViewModel
+    @State private var selectedPoster: CommunityPoster?
+    @State private var openingID: Int?
+    let onOpenResource: (String, Int) -> Void
+
+    init(service: any GallerySubscriptionServicing, onOpenResource: @escaping (String, Int) -> Void) {
+        _viewModel = StateObject(wrappedValue: GallerySubscriptionsViewModel(service: service))
+        self.onOpenResource = onOpenResource
+    }
+
+    var body: some View {
+        List {
+            if viewModel.items.isEmpty {
+                if case let .failed(message) = viewModel.status {
+                    AppFailureState(title: "加载收藏失败", systemImage: "bookmark", message: message) {
+                        viewModel.pendingOperations.enqueue { await viewModel.refresh() }
+                    }
+                } else if viewModel.status == .loading || viewModel.status == .idle {
+                    AppInlineLoadingState("正在加载收藏")
+                } else {
+                    AppEmptyState(title: "还没有收藏", systemImage: "bookmark",
+                        message: "在话题详情中点按插眼收藏，方便日后继续阅读。")
+                }
+            }
+            ForEach(viewModel.items) { item in
+                Button {
+                    guard let resource = item.resource else { return }
+                    if resource.kind == "poster" {
+                        openingID = item.id
+                        viewModel.pendingOperations.enqueue {
+                            defer { openingID = nil }
+                            do { selectedPoster = try await dependencies.posterDetail.fetchPoster(id: resource.id).asPoster }
+                            catch {
+                                if !TaskCancellation.matches(error) {
+                                    viewModel.alert = AppAlert(title: "无法打开话题", message: error.localizedDescription)
+                                }
+                            }
+                        }
+                    } else { onOpenResource(resource.kind, resource.id) }
+                } label: {
+                    VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
+                        Text(item.text.isEmpty ? item.resourceTitle : item.text)
+                            .font(AppDesignSystem.Typography.bodyEmphasis)
+                            .lineLimit(3)
+                        HStack(spacing: AppDesignSystem.Spacing.content) {
+                            Text(item.resourceTitle)
+                            Text(item.level.title)
+                            Spacer()
+                            if openingID == item.id { ProgressView() }
+                        }
+                        .font(AppDesignSystem.Typography.caption)
+                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                    }
+                    .padding(.vertical, AppDesignSystem.Spacing.content)
+                }
+                .appInteractiveListRow()
+                .disabled(openingID != nil || item.resource == nil)
+                .accessibilityIdentifier("gallery.subscription.\(item.id)")
+            }
+            if !viewModel.items.isEmpty, viewModel.canLoadMore {
+                if viewModel.isLoadingMore { AppInlineLoadingState() }
+                else {
+                    Button("加载更多收藏") { viewModel.pendingOperations.enqueue { await viewModel.loadMore() } }
+                        .appInteractiveListRow()
+                        .accessibilityIdentifier("gallery.subscriptions.more")
+                }
+            }
+        }
+        .accessibilityIdentifier("interaction.GallerySubscriptionsView.list")
+        .appGroupedListStyle()
+        .scrollContentBackground(.hidden)
+        .background(AppDesignSystem.Palette.Background.grouped)
+        .navigationTitle("我的收藏")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("完成") { dismiss() }.accessibilityIdentifier("gallery.subscriptions.done")
+            }
+        }
+        .task { await viewModel.refresh() }
+        .refreshable {
+            interactionEvidence?("interaction.GallerySubscriptionsView.refreshable", "refresh")
+            await viewModel.refresh()
+        }
+        .onDisappear { viewModel.pendingOperations.cancel() }
+        .diagnosticAlert(item: $viewModel.alert)
+        .navigationDestination(item: $selectedPoster) { poster in
+            GalleryPosterDetailView(dependencies: dependencies, media: media, profiles: profiles, poster: poster,
+                onUpdated: { viewModel.pendingOperations.enqueue { await viewModel.refresh() } },
+                onDeleted: { viewModel.pendingOperations.enqueue { await viewModel.refresh() } })
+        }
+    }
+}
 
 struct GalleryFeedView: View {
     @Environment(\.appInteractionEvidence) private var interactionEvidence

@@ -87,6 +87,7 @@ enum NetworkSmokeProbe: String, CaseIterable, Sendable {
     case galleryRecommend = "gallery.recommend"
     case galleryBots = "gallery.bots"
     case galleryClaims = "gallery.claims"
+    case gallerySubscriptions = "gallery.subscriptions"
     case reportTypes = "community.report-types"
     case productionSession = "community.session"
     case gallerySearch = "gallery.search"
@@ -132,6 +133,7 @@ enum NetworkSmokeProbe: String, CaseIterable, Sendable {
     case messageLike = "message.like"
     case messageFollow = "message.follow"
     case messageSystem = "message.system"
+    case messageSubscription = "message.subscription"
     case paperNewest = "paper.list.newest"
     case paperLikes = "paper.list.like"
     case paperCommentSort = "paper.list.comment"
@@ -139,8 +141,8 @@ enum NetworkSmokeProbe: String, CaseIterable, Sendable {
     var requiresCommunitySession: Bool {
         switch self {
         case .communityWrites, .galleryNewest, .galleryFollowing, .galleryHot, .galleryDetail, .galleryComments, .galleryImage,
-             .galleryRecommend, .galleryBots, .galleryClaims, .reportTypes, .productionSession, .gallerySearch,
-             .messageUnread, .messageComment, .messageLike, .messageFollow, .messageSystem,
+             .galleryRecommend, .galleryBots, .galleryClaims, .gallerySubscriptions, .reportTypes, .productionSession, .gallerySearch,
+             .messageUnread, .messageComment, .messageLike, .messageFollow, .messageSystem, .messageSubscription,
              .courseList, .courseSearch, .courseDetail, .courseComments, .courseHistory,
              .paperList, .paperSearch, .paperDetail, .paperImage, .paperComments, .paperNewest, .paperLikes, .paperCommentSort,
              .myProfile, .myFollowing, .myFollowers, .myPosts, .userProfile, .userPosts: true
@@ -166,6 +168,7 @@ enum NetworkSmokeProbe: String, CaseIterable, Sendable {
         case .galleryRecommend: "话廊推荐流"
         case .galleryBots: "话廊机器人流"
         case .galleryClaims: "帖子声明列表"
+        case .gallerySubscriptions: "话廊收藏列表"
         case .reportTypes: "社区举报类型"
         case .productionSession: "生产共享会话"
         case .gallerySearch: "话廊搜索"
@@ -211,6 +214,7 @@ enum NetworkSmokeProbe: String, CaseIterable, Sendable {
         case .messageLike: "消息列表-like"
         case .messageFollow: "消息列表-follow"
         case .messageSystem: "消息列表-system"
+        case .messageSubscription: "消息列表-subscription"
         case .paperNewest: "文章列表-最新"
         case .paperLikes: "文章列表-高赞"
         case .paperCommentSort: "文章列表-热评"
@@ -223,6 +227,7 @@ enum NetworkSmokeProbe: String, CaseIterable, Sendable {
         case .like: .messageLike
         case .follow: .messageFollow
         case .system: .messageSystem
+        case .subscription: .messageSubscription
         }
     }
 
@@ -269,6 +274,7 @@ enum NetworkSmokeArea: CaseIterable, Hashable, Sendable {
                 .galleryRecommend,
                 .galleryBots,
                 .galleryClaims,
+                .gallerySubscriptions,
                 .reportTypes,
                 .productionSession,
                 .gallerySearch,
@@ -512,7 +518,7 @@ enum ReleaseNetworkSmokeReportStore {
 
 #if DEBUG || RELEASE_NETWORK_SMOKE
 @MainActor
-protocol NetworkSmokeGalleryServicing: GalleryFeedServicing, GalleryMessageServicing {
+protocol NetworkSmokeGalleryServicing: GalleryFeedServicing, GalleryMessageServicing, GallerySubscriptionServicing {
     func fetchPoster(id: Int) async throws -> GalleryPosterDetail
     func fetchComments(objectID: String, order: CommunityCommentOrder, page: Int?) async throws -> GalleryPageBatch<CommunityComment>
     func fetchClaims() async throws -> [CommunityClaim]

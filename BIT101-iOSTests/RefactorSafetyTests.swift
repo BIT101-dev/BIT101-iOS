@@ -438,6 +438,7 @@ struct GalleryRecommendationPrefetchTests {
         #expect(await service.requestedPages().count == 2)
     }
     private final class DetailSortingService: GalleryPosterDetailServicing, PaperDetailServicing {
+        func setSubscription(objectID: String, level: GallerySubscriptionLevel) async throws { poster = poster.updatingSubscription(level) }
         var poster: GalleryPosterDetail
         var paperLiked = false
         var pausesDetail = true

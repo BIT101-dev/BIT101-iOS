@@ -154,6 +154,8 @@ NETWORK_CAPABILITIES = {
                                    'searchPosters(query:GallerySearchQuery,page:Int?)': 'network',
                                    'fetchBotFeed(startPage:Int)': 'network',
                                    'fetchClaims()': 'network',
+                                   'fetchSubscriptions(page:Int)': 'network',
+                                   'setSubscription(objectID:String,level:GallerySubscriptionLevel)': 'community-writes',
                                    'uploadImage(data:Data,filename:String)': 'community-writes',
                                    'createPoster(title:String,text:String,imageMids:[String],anonymous:Bool,tags:[String],claimID:Int,isPublic:Bool)': 'community-writes',
                                    'fetchPoster(id:Int)': 'network',

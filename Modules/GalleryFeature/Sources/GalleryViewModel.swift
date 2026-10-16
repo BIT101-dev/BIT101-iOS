@@ -18,6 +18,63 @@ import Foundation
 private func isGalleryCancellation(_ error: Error) -> Bool {
     TaskCancellation.matches(error)
 }
+
+@MainActor
+final class GallerySubscriptionsViewModel: ObservableObject {
+    let pendingOperations = CommunityDetailTasks()
+    @Published private(set) var items: [GallerySubscription] = []
+    @Published private(set) var status: CommunityLoadStatus = .idle
+    @Published private(set) var isLoadingMore = false
+    @Published private(set) var canLoadMore = true
+    @Published var alert: AppAlert?
+    private let service: any GallerySubscriptionServicing
+    private var nextPage = 0
+    private var generation = 0
+
+    init(service: any GallerySubscriptionServicing) { self.service = service }
+
+    func refresh() async {
+        generation &+= 1
+        let requestGeneration = generation
+        status = .loading
+        isLoadingMore = false
+        do {
+            let result = try await service.fetchSubscriptions(page: 0)
+            guard generation == requestGeneration else { return }
+            try Task.checkCancellation()
+            var ids = Set<Int>()
+            items = result.filter { ids.insert($0.id).inserted }
+            nextPage = 1
+            canLoadMore = !result.isEmpty
+            status = .loaded
+        } catch {
+            guard generation == requestGeneration else { return }
+            if TaskCancellation.matches(error) { status = items.isEmpty ? .idle : .loaded }
+            else if items.isEmpty { status = .failed(error.localizedDescription) }
+            else { status = .loaded; alert = AppAlert(title: "刷新收藏失败", message: error.localizedDescription) }
+        }
+    }
+
+    func loadMore() async {
+        guard status == .loaded, canLoadMore, !isLoadingMore else { return }
+        let requestGeneration = generation
+        isLoadingMore = true
+        defer { if generation == requestGeneration { isLoadingMore = false } }
+        do {
+            let result = try await service.fetchSubscriptions(page: nextPage)
+            guard generation == requestGeneration else { return }
+            try Task.checkCancellation()
+            var ids = Set(items.map(\.id))
+            items.append(contentsOf: result.filter { ids.insert($0.id).inserted })
+            nextPage += 1
+            canLoadMore = !result.isEmpty
+        } catch {
+            guard generation == requestGeneration, !TaskCancellation.matches(error) else { return }
+            alert = AppAlert(title: "加载收藏失败", message: error.localizedDescription)
+        }
+    }
+}
+
 @MainActor
 /// 话廊页状态机。
 ///

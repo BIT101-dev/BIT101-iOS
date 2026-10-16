@@ -3,6 +3,40 @@ import CoreGraphics
 
 nonisolated final class CommunityInteractionUITests: UIAutomationTestCase {
     @MainActor
+    @objc func testPosterSubscriptionsPersistAndAppearInFavorites() {
+        app = configureApp(resetStorage: true, content: true, initialTab: "gallery")
+        tap("我的收藏")
+        assertUI(textElement("加载收藏失败").appears(timeout: 5), "收藏请求失败应提供重试。")
+        tap("重试")
+        assertUI(textElement("还没有收藏").appears(timeout: 5), "空列表应解释收藏入口。")
+        pullToRefresh()
+        tap("完成")
+        tap("自动化测试话题")
+        let bookmark = app.buttons["插眼收藏"]
+        assertUI(bookmark.appears(timeout: 5), "话题详情应提供插眼入口。")
+        for level in ["悄悄收藏", "订阅更新", "订阅更新与评论"] {
+            tapHeader(bookmark)
+            tap(level)
+            assertUI(waitUntil(NSPredicate(format: "value == %@", level), on: bookmark, timeout: 5), "插眼应保存所选订阅级别。")
+        }
+        back()
+        tap("我的收藏")
+        tap("加载更多收藏")
+        tap("自动化测试话题")
+        assertUI(waitUntil(NSPredicate(format: "value == %@", "订阅更新与评论"), on: bookmark, timeout: 5), "从收藏重开详情应读取服务端状态。")
+        tapHeader(bookmark)
+        tap("取消插眼")
+        assertUI(waitUntil(NSPredicate(format: "value == %@", "尚未插眼"), on: bookmark, timeout: 5), "取消后应恢复空心收藏状态。")
+        back()
+        assertUI(textElement("还没有收藏").appears(timeout: 5), "取消插眼后收藏列表应同步移除话题。")
+        tap("完成")
+        tap("消息")
+        tapHeader(app.segmentedControls.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "插眼")).firstMatch)
+        assertUI(textElement("自动化测试消息").appears(timeout: 5), "消息中心应展示插眼更新。")
+        tap("取消")
+    }
+
+    @MainActor
     @objc func testGalleryBlockingUpdatesLoadedFeedsAndUnblockingRestoresThem() {
         app = configureApp(resetStorage: true, content: true, initialTab: "gallery")
         assertUI(textElement("自动化测试话题").appears(timeout: 5), "首页应展示已加载的话题。")

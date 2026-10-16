@@ -293,6 +293,7 @@ final class ReleaseNetworkSmokeRunner {
             } },
             { _ = await self.probe(.reportTypes, area: .bit101, scope: scope) { try NetworkSmokePaging.checkedReportTypes(try await gallery.fetchReportTypes()) } },
             { _ = await self.probe(.galleryClaims, area: .bit101, scope: scope) { try await gallery.fetchClaims() } },
+            { _ = await self.probe(.gallerySubscriptions, area: .bit101, scope: scope) { try await NetworkSmokePaging.arrayPage(currentIdentity: self.dependencies.communityIdentity) { try await gallery.fetchSubscriptions(page: $0) } } },
             {
                 _ = await self.probe(.gallerySearch, area: .bit101, scope: scope, expectedParameters: ["search": gallerySearchText, "excludedSearch": NetworkSmokePaging.excludedSearchText]) {
                     try await NetworkSmokePaging.posterSearch(matching: validatedFixtures?.posterID ?? 0, keyword: gallerySearchText,

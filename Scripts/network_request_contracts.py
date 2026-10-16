@@ -95,6 +95,7 @@ def community(path: str, *, query: dict | None = None, minimum: int = 1, paging:
         elif path.startswith('/papers'): body = {'title', 'intro', 'content', 'anonymous', 'public_edit', 'last_time'}
         elif path == '/reaction/comments': body = {'obj', 'text', 'reply_obj', 'reply_uid', 'anonymous', 'rate', 'image_mids'}
         elif path == '/reaction/like': body = {'obj'}
+        elif path == '/subscriptions': body = {'obj', 'level'}
         elif path == '/user/webvpn_verify_init': body = {'sid'}
         elif path == '/user/webvpn_verify': body = {'sid', 'password', 'execution', 'cookie', 'salt', 'captcha'}
     required = body if path.startswith(('/posters', '/papers')) else set()
@@ -102,7 +103,7 @@ def community(path: str, *, query: dict | None = None, minimum: int = 1, paging:
     if path == '/reaction/comments' and method == 'POST':
         required = {'obj', 'text', 'anonymous', 'image_mids'}
         if (query or {}).get('obj', '').startswith('course'): required.add('rate')
-    if path in {'/reaction/like', '/user/webvpn_verify_init', '/user/webvpn_verify'}: required = body
+    if path in {'/reaction/like', '/subscriptions', '/user/webvpn_verify_init', '/user/webvpn_verify'}: required = body
     variants = (frozenset(), frozenset({'reply_obj', 'reply_uid'})) if path == '/reaction/comments' and method == 'POST' else ()
     return RequestContract(re.escape(API), path, method, query or {}, minimum, paging, statuses=statuses,
         additional_parameters=parameters, body_parameters=frozenset(body), required_body_parameters=frozenset(required), body_parameter_variants=variants)
@@ -192,7 +193,9 @@ CONTRACTS = {
         body_parameters=frozenset({'mode', 'runID'}), required_body_parameters=frozenset({'mode', 'runID'}))],
     'update.app-store': [RequestContract(r'(?:itunes|apps)\.apple\.com', '/lookup', query={'id': '.+', 'country': '.+', 'requestTime': '.+'})],
     'update.emergency': [RequestContract(r'update\.aihelpme\.dev', '/emergency-update.json')],
-    'community.writes': [community('/posters', method='POST'), community(r'/posters/\d+', method='DELETE'),
+    'gallery.subscriptions': [community('/subscriptions', paging='page')],
+    'community.writes': [community('/subscriptions', method='POST', query={'obj': r'poster\d+'}, minimum=4),
+        community('/posters', method='POST'), community(r'/posters/\d+', method='DELETE'),
         community(r'/posters/\d+', method='PUT'), community('/papers', method='POST'),
         community(r'/papers/\d+', method='DELETE'), community(r'/papers/\d+', method='PUT'),
         community('/upload/image', method='POST', minimum=4),
@@ -220,7 +223,7 @@ def contracts_for(probe: str, expected_parameters: dict | None = None) -> list[R
                         for keyword in (expected_parameters['search'], expected_parameters['excludedSearch']))
             return expanded
         return contracts
-    if probe in {'message.comment', 'message.like', 'message.follow', 'message.system'}:
+    if probe in {'message.comment', 'message.like', 'message.follow', 'message.system', 'message.subscription'}:
         return [community('/messages', query={'type': re.escape(probe.removeprefix('message.'))}, paging='last_id')]
     if probe.startswith('paper.list.'):
         orders = {'newest': None, 'like': 'like', 'comment': 'comment'}

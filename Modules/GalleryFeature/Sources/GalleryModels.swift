@@ -8,6 +8,42 @@ import CommunityCore
 
 import Foundation
 
+public nonisolated enum GallerySubscriptionLevel: Int, Codable, CaseIterable, Identifiable, Sendable {
+    case none, silent, update, comment
+    public var id: Int { rawValue }
+    public var title: String {
+        switch self {
+        case .none: "取消插眼"
+        case .silent: "悄悄收藏"
+        case .update: "订阅更新"
+        case .comment: "订阅更新与评论"
+        }
+    }
+}
+
+public nonisolated struct GallerySubscription: Decodable, Identifiable, Hashable, Sendable {
+    public let id: Int
+    public let subscriptionTime: String
+    public let obj: String
+    public let level: GallerySubscriptionLevel
+    public let text: String
+
+    public var resource: (kind: String, id: Int)? {
+        for kind in ["poster", "paper", "course"] where obj.hasPrefix(kind) {
+            if let id = Int(obj.dropFirst(kind.count)), id > 0 { return (kind, id) }
+        }
+        return nil
+    }
+    public var resourceTitle: String {
+        switch resource?.kind {
+        case "poster": "话题"
+        case "paper": "文章"
+        case "course": "课程"
+        default: "内容"
+        }
+    }
+}
+
 /// 画廊首页的 feed 类型。
 ///
 /// feed 类型统一提供顶部分类、请求参数和本地机器人分栏定义。
@@ -138,6 +174,7 @@ public nonisolated struct GalleryPosterDetail: Decodable, Identifiable, Hashable
     public let title: String
     public let updateTime: String
     public let user: CommunityUser
+    public var subscription: GallerySubscriptionLevel? = nil
 
     /// 将详情模型转换为列表卡片模型，供“我的帖子”等列表复用。
     public var asPoster: CommunityPoster {
@@ -178,8 +215,15 @@ public nonisolated struct GalleryPosterDetail: Decodable, Identifiable, Hashable
             text: text,
             title: title,
             updateTime: updateTime,
-            user: user
+            user: user,
+            subscription: subscription
         )
+    }
+
+    public func updatingSubscription(_ level: GallerySubscriptionLevel) -> Self {
+        var copy = self
+        copy.subscription = level
+        return copy
     }
 }
 
@@ -281,6 +325,8 @@ extension GalleryMessageType {
             return message.obj.hasPrefix("comment") ? "点赞了你的评论" : "点赞了你的帖子"
         case .follow:
             return "关注了你"
+        case .subscription:
+            return "插眼内容有更新"
         case .system:
             return "系统通知"
         }
@@ -366,12 +412,14 @@ public nonisolated struct GalleryMessageUnreadCounts: Decodable, Equatable, Send
     public var follow: Int
     public var like: Int
     public var system: Int
+    public var subscription: Int
 
-    public init(comment: Int = 0, follow: Int = 0, like: Int = 0, system: Int = 0) {
+    public init(comment: Int = 0, follow: Int = 0, like: Int = 0, system: Int = 0, subscription: Int = 0) {
         self.comment = comment
         self.follow = follow
         self.like = like
         self.system = system
+        self.subscription = subscription
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -379,6 +427,7 @@ public nonisolated struct GalleryMessageUnreadCounts: Decodable, Equatable, Send
         case follow
         case like
         case system
+        case subscription
     }
 
     public init(from decoder: Decoder) throws {
@@ -387,8 +436,9 @@ public nonisolated struct GalleryMessageUnreadCounts: Decodable, Equatable, Send
         follow = try container.decodeIfPresent(Int.self, forKey: .follow) ?? 0
         like = try container.decodeIfPresent(Int.self, forKey: .like) ?? 0
         system = try container.decodeIfPresent(Int.self, forKey: .system) ?? 0
+        subscription = try container.decodeIfPresent(Int.self, forKey: .subscription) ?? 0
         var total = 0
-        for count in [comment, follow, like, system] {
+        for count in [comment, follow, like, system, subscription] {
             let sum = total.addingReportingOverflow(count)
             guard count >= 0, !sum.overflow else {
                 throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Invalid unread counts"))
@@ -408,6 +458,8 @@ public nonisolated struct GalleryMessageUnreadCounts: Decodable, Equatable, Send
             return like
         case .system:
             return system
+        case .subscription:
+            return subscription
         }
     }
 }

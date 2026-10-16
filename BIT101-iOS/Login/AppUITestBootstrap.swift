@@ -163,6 +163,7 @@ extension View {
 final class UITestHTTPTransport: HTTPTransport {
     private var fixtureRevision = -1
     private var likedObjects: Set<String> = []
+    private var subscriptions: [String: Int] = [:]
     private var comments: [[String: Any]] = []
     private var createdPosters: [[String: Any]] = []
     private var createdPapers: [[String: Any]] = []
@@ -188,6 +189,7 @@ final class UITestHTTPTransport: HTTPTransport {
         if fixtureRevision != snapshot.revision {
             fixtureRevision = snapshot.revision
             likedObjects = []
+            subscriptions = [:]
             comments = []
             createdPosters = []
             createdPapers = []
@@ -260,12 +262,25 @@ final class UITestHTTPTransport: HTTPTransport {
         case "posters/claims": payload = [["id": 1, "text": "日常"]]
         case "manage/report_types": payload = [["id": 1, "text": "其他"]]
         case "manage/reports": payload = [:] as [String: String]
+        case "subscriptions":
+            if method == "POST" {
+                guard let object = body["obj"] as? String, let level = body["level"] as? Int,
+                    (0...3).contains(level) else { throw URLError(.badURL) }
+                subscriptions[object] = level
+                payload = [:] as [String: String]
+            } else {
+                if failedPaths.insert(path).inserted { throw URLError(.networkConnectionLost) }
+                payload = page == "0" ? subscriptions.sorted { $0.key < $1.key }.filter { $0.value > 0 }.enumerated().map { index, item in
+                    ["id": index + 1, "subscription_time": timestamp, "obj": item.key, "level": item.value,
+                        "text": "自动化测试话题"] as [String: Any]
+                } : []
+            }
         case "upload/image":
             imageUploads += 1
             if imageUploads == 1 { throw URLError(.networkConnectionLost) }
             payload = mediaImage
         case "messages/unread_nums": payload = Dictionary(uniqueKeysWithValues:
-            ["comment", "follow", "like", "system"].map { ($0, clearedMessageTypes.contains($0) ? 0 : 1) })
+            ["comment", "follow", "like", "subscription", "system"].map { ($0, clearedMessageTypes.contains($0) ? 0 : 1) })
         case "messages":
             let cursor = query.first(where: { $0.name == "last_id" })?.value.flatMap(Int.init)
             if cursor == nil || cursor == 0 { clearedMessageTypes.insert(query.first(where: { $0.name == "type" })?.value ?? "comment") }
@@ -427,7 +442,8 @@ final class UITestHTTPTransport: HTTPTransport {
         let base: [String: Any] = ["id": 1, "anonymous": false, "claim": ["id": 1, "text": "日常"], "comment_num": 1,
          "create_time": timestamp, "edit_time": timestamp, "update_time": timestamp,
          "images": mediaEnabled ? [mediaImage] : [], "like": likedObjects.contains("poster1"), "like_num": 1, "own": true,
-         "plugins": "[]", "public": true, "tags": ["测试", "自动化"], "text": "自动化测试话题正文", "title": "自动化测试话题", "user": user]
+         "plugins": "[]", "public": true, "tags": ["测试", "自动化"], "text": "自动化测试话题正文", "title": "自动化测试话题", "user": user,
+         "subscription": subscriptions["poster1"] ?? 0]
         return base.merging(posterChanges) { _, new in new }
     }
 

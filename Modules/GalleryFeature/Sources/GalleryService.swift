@@ -325,6 +325,15 @@ public struct GalleryService {
         try await api.request(path: "posters/claims")
     }
 
+    public func fetchSubscriptions(page: Int) async throws -> [GallerySubscription] {
+        try await api.request(path: "subscriptions", queryItems: [URLQueryItem(name: "page", value: String(page))])
+    }
+
+    public func setSubscription(objectID: String, level: GallerySubscriptionLevel) async throws {
+        struct Request: Encodable { let obj: String; let level: GallerySubscriptionLevel }
+        try await api.requestVoid(path: "subscriptions", method: "POST", body: api.encode(Request(obj: objectID, level: level)))
+    }
+
     /// 上传一张发帖图片，返回服务端生成的图片资源对象。
     ///
     /// 图片上传返回服务端资源对象；发帖请求通过 `image_mids` 引用该资源。

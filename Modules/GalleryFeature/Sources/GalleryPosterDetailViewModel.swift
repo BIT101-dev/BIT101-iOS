@@ -96,6 +96,9 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     @Published var commentOrder: CommunityCommentOrder = .newest
     /// 点赞请求是否进行中，重复操作直接返回。
     @Published private(set) var isLikingPoster = false
+    @Published private(set) var isSavingSubscription = false
+    var subscriptionLevel: GallerySubscriptionLevel { poster.subscription ?? GallerySubscriptionLevel.none }
+    private var subscriptionRevision = 0
     /// 当前正在点赞的评论 ID 集合。
     @Published private(set) var likingCommentIDs: Set<Int> = []
     /// 评论提交请求是否进行中。
@@ -146,6 +149,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     /// 并行刷新帖子详情和评论列表。
     func refreshAll() async {
         let likeRevisionAtStart = likeRevision
+        let subscriptionRevisionAtStart = subscriptionRevision
         refreshGeneration &+= 1
         commentRefreshGeneration &+= 1
         let generation = refreshGeneration
@@ -164,7 +168,8 @@ final class GalleryPosterDetailViewModel: ObservableObject {
 
         let resolvedPosterResult = await posterResult
         guard refreshGeneration == generation else { return }
-        handlePosterResult(resolvedPosterResult, previousStatus: previousPosterStatus, likeRevisionAtStart: likeRevisionAtStart)
+        handlePosterResult(resolvedPosterResult, previousStatus: previousPosterStatus, likeRevisionAtStart: likeRevisionAtStart,
+            subscriptionRevisionAtStart: subscriptionRevisionAtStart)
 
         let resolvedCommentResult = await commentResult
         guard commentRefreshGeneration == commentsGeneration else { return }
@@ -277,6 +282,21 @@ final class GalleryPosterDetailViewModel: ObservableObject {
             }
             if isCancellation(error) { return }
             alert = AppAlert(title: "点赞失败", message: error.localizedDescription)
+        }
+    }
+
+    func setSubscription(_ level: GallerySubscriptionLevel) async -> Bool {
+        guard !isSavingSubscription, posterStatus == .loaded, subscriptionLevel != level else { return false }
+        isSavingSubscription = true
+        defer { isSavingSubscription = false }
+        do {
+            try await service.setSubscription(objectID: posterObjectID, level: level)
+            subscriptionRevision &+= 1
+            poster = poster.updatingSubscription(level)
+            return true
+        } catch {
+            if !isCancellation(error) { alert = AppAlert(title: "插眼设置失败", message: error.localizedDescription) }
+            return false
         }
     }
 
@@ -394,16 +414,21 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     private func handlePosterResult(
         _ result: Result<GalleryPosterDetail, Error>,
         previousStatus: CommunityLoadStatus,
-        likeRevisionAtStart: Int
+        likeRevisionAtStart: Int,
+        subscriptionRevisionAtStart: Int
     ) {
         switch result {
         case let .success(poster):
             likeResultNeedsReview = false
+            let previousSubscription = self.poster.subscription
             if likeRevision != likeRevisionAtStart, let latestLikeResult {
                 self.poster = poster.updatingLike(latestLikeResult.like, likeNum: latestLikeResult.likeNum)
             } else {
                 self.poster = poster
                 latestLikeResult = nil
+            }
+            if subscriptionRevision != subscriptionRevisionAtStart, let previousSubscription {
+                self.poster = self.poster.updatingSubscription(previousSubscription)
             }
             posterStatus = .loaded
         case let .failure(error):

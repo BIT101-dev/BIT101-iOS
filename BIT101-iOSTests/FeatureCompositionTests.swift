@@ -310,7 +310,7 @@ struct FeatureCompositionTests {
         let service = GalleryService(session: session, preferences: { preferences.snapshot })
         return GalleryDependencies(webCredentials: .init(cookie: { session.fakeCookie }, changes: session.credentialsChanges.map { _ in () }.eraseToAnyPublisher()),
             currentIdentity: { session.currentCredentials.identity },
-            feed: service, messageService: service, posterDetail: service,
+            feed: service, messageService: service, posterDetail: service, subscriptions: service,
             reporting: service, composer: service, images: service, preferences: preferences,
             messages: GalleryMessageReadStore(files: PreferenceMemoryFiles(), storageRoot: URL(fileURLWithPath: "/preference-sync"), defaults: AppFileDirectories.defaults, session: { AppStorageSession(accountIdentifier: "composition") }),
             drafts: ComposerDraftStore(files: PreferenceMemoryFiles(), applicationSupport: URL(fileURLWithPath: "/preference-sync"),
