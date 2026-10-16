@@ -342,7 +342,7 @@ def download_simulator_shard(run: str, operation: str, index: int) -> None:
         (root / name).unlink(missing_ok=True)
     (ROOT / '.build/screenshot.png').unlink(missing_ok=True)
     subprocess.run(['gh', 'run', 'download', run, '--name', f'validation-ios-test-shards-{operation}-{index}',
-        '--dir', str(ROOT / '.build')], check=True, capture_output=True, text=True)
+        '--dir', str(ROOT)], check=True, capture_output=True, text=True)
 
 
 def merge_simulator_ci() -> None:
@@ -414,6 +414,7 @@ def _self_test() -> None:
     files = preserved | {metrics, root / '.build/extended-automation/simulator.log'}
     def download(command, **kwargs):
         assert command[:4] == ['gh', 'run', 'download', '7']
+        assert command[6:] == ['--dir', str(root)]
         assert metrics not in files
         assert root / '.build/extended-automation/simulator.log' not in files
         assert preserved <= files
