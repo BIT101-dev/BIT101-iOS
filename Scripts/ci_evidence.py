@@ -103,7 +103,8 @@ def prune_caches() -> None:
         if run_id not in runs:
             runs[run_id] = json.loads(subprocess.check_output(['gh', 'api', f'repos/{repo}/actions/runs/{run_id}'], text=True))
         if not trusted_cache_run(runs[run_id], repo) or row['name'] in retained:
-            subprocess.run(['gh', 'api', '-X', 'DELETE', f"repos/{repo}/actions/artifacts/{row['id']}"], check=True)
+            deleted = subprocess.run(['gh', 'api', '-X', 'DELETE', f"repos/{repo}/actions/artifacts/{row['id']}"], capture_output=True, text=True)
+            if deleted.returncode and '(HTTP 404)' not in deleted.stderr: deleted.check_returncode()
         else: retained.add(row['name'])
 
 
@@ -165,9 +166,20 @@ def cache_self_test() -> None:
         return json.dumps(dict(trusted, head_repository={'full_name': 'fork/repo'}) if command[-1].endswith('/2') else trusted)
     with patch.object(module, 'repository', return_value='owner/repo'), \
             patch.object(module, 'api_pages', return_value=[{'artifacts': artifacts}]), \
-            patch.object(subprocess, 'check_output', side_effect=producer), patch.object(subprocess, 'run') as deleted:
+            patch.object(subprocess, 'check_output', side_effect=producer), \
+            patch.object(subprocess, 'run', return_value=SimpleNamespace(returncode=0)) as deleted:
         prune_caches()
         assert [call.args[0][-1] for call in deleted.call_args_list] == ['repos/owner/repo/actions/artifacts/5', 'repos/owner/repo/actions/artifacts/1']
+    for code, error in ((1, 'gh: Not Found (HTTP 404)'), (1, 'gh: Forbidden (HTTP 403)'), (1, 'connection failed')):
+        def deleted_artifact(command, **kwargs):
+            return subprocess.CompletedProcess(command, code, '', error)
+        with patch.object(module, 'repository', return_value='owner/repo'), \
+                patch.object(module, 'api_pages', return_value=[{'artifacts': artifacts}]), \
+                patch.object(subprocess, 'check_output', side_effect=producer), \
+                patch.object(subprocess, 'run', side_effect=deleted_artifact):
+            try: prune_caches()
+            except subprocess.CalledProcessError as failure: assert failure.stderr == error and '(HTTP 404)' not in error
+            else: assert '(HTTP 404)' in error
 
 
 def repository() -> str:
