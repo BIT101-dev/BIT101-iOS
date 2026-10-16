@@ -55,11 +55,8 @@ else:
     hosted_phones = [row for row in data['devices'].get(runtime['identifier'], [])
         if os.getenv('GITHUB_ACTIONS') == 'true' and row.get('isAvailable') and row['name'].startswith('iPhone')]
     if hosted_phones:
-        device = min(hosted_phones, key=lambda row: row['state'] != 'Shutdown')
+        device = min(hosted_phones, key=lambda row: row['state'] != 'Booted')
         identifier = device['udid']
-        if device['state'] == 'Booted':
-            subprocess.run(['xcrun', 'simctl', 'shutdown', identifier], check=True, stdout=sys.stderr, stderr=sys.stderr)
-            device['state'] = 'Shutdown'
     else:
         phone = next(row for row in runtime['supportedDeviceTypes'] if row['name'].startswith('iPhone'))
         identifier = subprocess.check_output(['xcrun', 'simctl', 'create', 'BIT101', phone['identifier'], runtime['identifier']], text=True).strip()
@@ -67,6 +64,8 @@ else:
     path.write_text(json.dumps({'identifier': identifier, 'runtime': runtime['identifier']}) + '\n')
 developer = Path(os.getenv('DEVELOPER_DIR') or subprocess.check_output(['xcode-select', '-p'], text=True).strip())
 device_hub = str(developer.parent / 'Applications/DeviceHub.app')
+if os.getenv('GITHUB_ACTIONS') == 'true' and operation == 'prepare' and device['state'] != 'Booted':
+    subprocess.run(['xcrun', 'simctl', 'boot', identifier], check=True, stdout=sys.stderr, stderr=sys.stderr)
 if operation != 'prepare-restore' and (os.getenv('GITHUB_ACTIONS') != 'true' or operation not in {'prepare', 'app', 'release-runtime', 'ui'}):
     if device['state'] != 'Booted': subprocess.run(['xcrun', 'simctl', 'boot', identifier], check=True, stdout=sys.stderr, stderr=sys.stderr)
     subprocess.run(['xcrun', 'simctl', 'bootstatus', identifier, '-b'], check=True, stdout=sys.stderr, stderr=sys.stderr)

@@ -631,7 +631,7 @@ def build_cache_boundary_findings() -> list[str]:
             ("build", [], []),
             ("test", ["DEBUG_INFORMATION_FORMAT=dwarf-with-dsym"], ["DEBUG_INFORMATION_FORMAT=dwarf-with-dsym"]),
             ("archive", [], []),
-            ("build-for-testing", ["SWIFT_COMPILATION_MODE=wholemodule"], []),
+            ("build-for-testing", ["SWIFT_COMPILATION_MODE=wholemodule", "SWIFT_ENABLE_PROJECT_PREFIX_MAPPING=NO"], []),
             ("swift-build", [], None), ("swift-test", [], None),
         ):
             command = ["xcrun", "swift", action.removeprefix("swift-")] if expected is None else ["xcodebuild", action]
@@ -651,8 +651,11 @@ def build_cache_boundary_findings() -> list[str]:
             expected_mode = [value for value in settings if value.startswith("SWIFT_COMPILATION_MODE=")]
             if [value for value in builds[-1] if value.startswith("SWIFT_COMPILATION_MODE=")] != expected_mode:
                 findings.append("缓存自测：构建、测试与归档沿工程配置及显式编译模式")
-            if not all(setting in builds[-1] for setting in ("SWIFT_TREAT_WARNINGS_AS_ERRORS=YES", "GCC_TREAT_WARNINGS_AS_ERRORS=YES", "COMPILATION_CACHE_ENABLE_CACHING=YES")):
-                findings.append("编译入口自测：构建、测试与正式归档的警告门禁")
+            defaults = ("SWIFT_TREAT_WARNINGS_AS_ERRORS=YES", "GCC_TREAT_WARNINGS_AS_ERRORS=YES", "COMPILATION_CACHE_ENABLE_CACHING=YES",
+                "SWIFT_ENABLE_PREFIX_MAPPING=YES", "SWIFT_ENABLE_PROJECT_PREFIX_MAPPING=YES", "CLANG_ENABLE_PREFIX_MAPPING=YES", "CLANG_ENABLE_PROJECT_PREFIX_MAPPING=YES")
+            if any([value for value in builds[-1] if value.startswith(setting.split('=')[0] + '=')] !=
+                    ([value for value in settings if value.startswith(setting.split('=')[0] + '=')] or [setting]) for setting in defaults):
+                findings.append("编译入口自测：构建、测试与正式归档的警告门禁及缓存路径映射")
     finally:
         shutil.rmtree(fixture, ignore_errors=True)
     return findings

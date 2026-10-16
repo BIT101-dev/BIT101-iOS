@@ -304,6 +304,11 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
         if len(restore) != 1 or restore[0].get('run') != f'python3 Scripts/ci_evidence.py cache-restore "{flavor}"' \
                 or restore[0].get('if') is not None or mapping(restore[0].get('env')).get('GH_TOKEN') != '${{ github.token }}':
             errors.append(f'.github/workflows/ci.yml: {name} 需要实际恢复所属原生编译缓存')
+        if name in {'ios-test-shards', 'ios-release-runtime'}:
+            boot = [step for step in steps if step.get('name') == 'Prepare full iOS Simulator']
+            if len(boot) != 1 or boot[0].get('run') != 'Scripts/run-extended-tests.sh simulator prepare' \
+                    or len(restore) != 1 or steps.index(boot[0]) > steps.index(restore[0]):
+                errors.append(f'.github/workflows/ci.yml: {name} 需要在缓存恢复前启动完整模拟器')
         if len(prepare) != 1 or prepare[0].get('if') != condition \
                 or prepare[0].get('run') != f'python3 Scripts/ci_evidence.py cache-export "{flavor}"' \
                 or len(save) != 1 or save[0].get('if') != condition:
@@ -517,6 +522,12 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
             ('include-hidden-files: true', 'include-hidden-files: false'), ('CompilationCache.noindex', '**'),
             ("github.ref == 'refs/heads/main'", 'true')]:
         assert any('缓存' in row for row in ci_wiring_findings(source.replace(cache_step, cache_step.replace(before, after), 1))), before
+    boot_step = '      - name: Prepare full iOS Simulator\n        run: Scripts/run-extended-tests.sh simulator prepare\n'
+    for name in ('ios-test-shards', 'ios-release-runtime'):
+        block = re.search(r'(?ms)^  ' + name + r':\n.*?(?=^  [\w-]+:|\Z)', source)[0]
+        delayed = block.replace(boot_step, '').replace('      - name: Load target branch coverage baseline',
+            boot_step + '      - name: Load target branch coverage baseline', 1)
+        assert any('缓存恢复前' in row for row in ci_wiring_findings(source.replace(block, delayed, 1))), name
     for name in ('static-audit', 'release-build', 'catalyst-tests', 'ios-tests', 'release-acceptance', 'merge-acceptance'):
         for selector in ('[self-hosted, macOS, bit101-xcode-27, bit101-ci]', 'macos-latest',
                          "${{ github.event_name == 'push' && 'xcode-27' || 'macos-latest' }}"):

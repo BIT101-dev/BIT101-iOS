@@ -263,26 +263,28 @@ def simulator_startup_findings(source: str) -> list[str]:
                     patch.object(Path, 'is_file', return_value=True), \
                     patch.object(Path, 'read_text', return_value=json.dumps({'identifier': 'device'})), redirect_stdout(StringIO()):
                 exec(compile(device_program, '<simulator-device>', 'exec'), {})
-            expected = [] if hosted == 'true' or operation == 'prepare-restore' else [['xcrun', 'simctl', 'boot', 'device'],
+            expected = [['xcrun', 'simctl', 'boot', 'device']] if hosted == 'true' and operation == 'prepare' else []
+            if hosted == 'false' and operation != 'prepare-restore': expected = [['xcrun', 'simctl', 'boot', 'device'],
                 ['xcrun', 'simctl', 'bootstatus', 'device', '-b'], ['open', '-a', '/fixture/Xcode.app/Contents/Applications/DeviceHub.app']]
             if commands != expected:
-                findings.append('模拟器启动自测：托管设备选择与系统初始化分离，本机准备完成设备启动')
+                findings.append('模拟器启动自测：托管准备请求启动，完整系统与本机初始化沿实际执行核对')
     runtime = 'com.apple.CoreSimulator.SimRuntime.iOS-27'
     stock = {'runtimes': [{'isAvailable': True, 'identifier': runtime, 'version': '27.0',
         'supportedDeviceTypes': [{'name': 'iPhone', 'identifier': 'phone'}]}], 'devices': {runtime: [
             {'udid': 'shutdown', 'name': 'iPhone', 'isAvailable': True, 'state': 'Shutdown'},
             {'udid': 'booted', 'name': 'iPhone', 'isAvailable': True, 'state': 'Booted'}]}}
-    for hosted, expected in (('true', 'shutdown'), ('false', 'created')):
+    for hosted, expected in (('true', 'booted'), ('false', 'created')):
         def command_output(command, **kwargs):
             return json.dumps(stock) if command[2] == 'list' else 'created'
         with patch.dict(os.environ, GITHUB_ACTIONS=hosted, DEVELOPER_DIR='/fixture/Xcode.app/Contents/Developer'), \
                 patch.object(sys, 'argv', ['device', '/fixture/device.json', 'prepare']), \
                 patch.object(Path, 'is_file', return_value=False), patch.object(Path, 'write_text') as saved, \
                 patch.object(subprocess, 'check_output', side_effect=command_output) as executed, \
-                patch.object(subprocess, 'run'), redirect_stdout(StringIO()):
+                patch.object(subprocess, 'run') as prepared, redirect_stdout(StringIO()):
             exec(compile(device_program, '<simulator-stock-device>', 'exec'), {})
         if json.loads(saved.call_args.args[0])['identifier'] != expected or executed.call_count != (1 if hosted == 'true' else 2):
-            findings.append('模拟器选择自测：托管环境复用库存 iPhone，本机维护项目独立设备')
+            findings.append('模拟器选择自测：托管环境优先复用已启动 iPhone，本机维护项目独立设备')
+        if hosted == 'true' and prepared.call_count: findings.append('模拟器选择自测：已启动库存设备保持运行')
     for operation in ('app', 'release-runtime', 'ui'):
         with patch.object(sys, 'argv', ['ready', str(ROOT / 'Scripts'), 'device', '/fixture', operation]), \
                 patch('validation_coverage.prepare_simulator_system') as prepared:
