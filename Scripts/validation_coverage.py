@@ -186,6 +186,7 @@ def policy_findings(report: dict, group: str) -> list[str]:
 
 def self_test() -> None:
     simulator_ui_preparation_self_test()
+    native_coverage_self_test()
     from validation_policy import workflow_timeout_seconds
     from validation_test_areas import test_inventory
     inventory = sorted(test_inventory('ui'))
@@ -255,6 +256,35 @@ def self_test() -> None:
         try: combined_line_coverage([first, invalid])
         except ValueError: pass
         else: raise AssertionError('覆盖率汇总需要验证源码行身份。')
+
+
+def native_coverage_self_test() -> None:
+    import io
+    import json
+    import plistlib
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    import validation_evidence as evidence
+    root = Path('/fixture')
+    for catalyst in (False, True):
+        for debug in (False, True):
+            for include_app in (False, True):
+                contents = root / 'Products/BIT101-iOS.app' / ('Contents' if catalyst else '')
+                executable = contents / ('MacOS/Executable' if catalyst else 'Executable')
+                framework = contents / 'Frameworks/Feature.framework'
+                def artifacts(path, pattern):
+                    return [framework] if pattern == '*.framework' else [executable.parent / 'Executable.debug.dylib'] if debug else []
+                raw = {'data': [{'files': [dict(filename=path, summary={'lines': dict(covered=hit, count=total)})
+                    for path, hit, total in [('/^src/BIT101-iOS/Main.swift', 4, 10),
+                        ('/^src/Modules/Feature/Sources/A.swift', 8, 10), ('/^sdk/Foundation.swift', 100, 100)]]}]}
+                with patch.object(evidence, 'ROOT', root), patch.object(Path, 'glob', artifacts), \
+                        patch.object(Path, 'open', side_effect=lambda *args, **kwargs: io.BytesIO(plistlib.dumps({'CFBundleExecutable': 'Executable'}))), \
+                        patch('subprocess.run', return_value=SimpleNamespace(stdout=json.dumps(raw), stderr='')) as exported:
+                    result = evidence.native_source_coverage(root / 'Products', root / 'Coverage.profdata', catalyst=catalyst, include_app=include_app)
+                assert result == {'Feature': (8, 10)} | ({'BIT101-iOS.app': (4, 10)} if catalyst or include_app else {})
+                command = exported.call_args.args[0]
+                assert (str(executable.parent / 'Executable.debug.dylib') in command) == debug
+                assert str(framework / 'Executable') in command
 
 
 def simulator_ui_preparation_self_test() -> None:

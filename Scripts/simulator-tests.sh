@@ -380,21 +380,18 @@ if sys.argv[6] in {'all', 'ui'}:
     for source in profiles:
         if source != profile: source.unlink()
 if sys.argv[9] == 'full' and sys.argv[6] in {'all', 'ui'}:
-    targets = json.loads(subprocess.check_output(['xcrun', 'xccov', 'view', '--report', '--json', sys.argv[1]], text=True))['targets']
-    coverage = {row['name']: {key: row[key] for key in ('coveredLines', 'executableLines')}
-        for row in targets if row['name'] == 'BIT101-iOS.app'}
     build = result.parent / 'Build'
     modules = native_source_coverage(build / 'Products' / (sys.argv[8] + '-iphonesimulator'),
-        profile)
-    coverage.update({'iOS/' + name: dict(coveredLines=covered, executableLines=executable)
-        for name, (covered, executable) in modules.items()})
+        profile, include_app=True)
+    coverage = {name if name == 'BIT101-iOS.app' else 'iOS/' + name: dict(coveredLines=covered, executableLines=executable)
+        for name, (covered, executable) in modules.items()}
     native_summary['coverage'] = coverage
     policy = json.loads(REPORT.read_text()).get('coveragePolicy', {}) if REPORT.is_file() else {}
     failures = regressions(coverage, policy_floors(sys.argv[6], policy))
     with Path(sys.argv[2]).open('a') as metrics:
         metrics.write('覆盖率：' + json.dumps(coverage) + '\n')
     if not coverage_complete(sys.argv[6], native_summary) or failures:
-        raise SystemExit('模拟器完整覆盖率需要满足版本化阈值：' + '；'.join(failures))
+        raise SystemExit('模拟器完整覆盖率需要有效原始行计数及版本化阈值：' + ('；'.join(failures) or f'请查看 {sys.argv[2]}'))
 commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
 if failures := ci_commit_findings(commit): raise SystemExit('\n'.join(failures))
 validate_community_write_test_output(Path(sys.argv[1]), raw_executed)

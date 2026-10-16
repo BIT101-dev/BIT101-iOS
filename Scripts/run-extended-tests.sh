@@ -872,9 +872,10 @@ if coverage is not None:
     sys.path.insert(0, str(Path(root) / "Scripts"))
     from validation_evidence import native_source_coverage
     build = Path(report_path).parent / "Build"
-    ios_modules = native_source_coverage(build / "Products/Release-iphoneos", build / "ProfileData" / device_id / "Coverage.profdata")
+    ios_modules = native_source_coverage(build / "Products/Release-iphoneos", build / "ProfileData" / device_id / "Coverage.profdata", include_app=True)
     for name, (covered, executable) in sorted(ios_modules.items()):
-        if executable: lines.append(f"- iOS/{name}: {covered * 100 / executable:.2f}% ({covered}/{executable} lines)")
+        label = name if name == 'BIT101-iOS.app' else 'iOS/' + name
+        if executable: lines.append(f"- {label}: {covered * 100 / executable:.2f}% ({covered}/{executable} lines)")
     if not target_rows:
         lines.append(json.dumps(coverage, ensure_ascii=False, indent=2, sort_keys=True))
 

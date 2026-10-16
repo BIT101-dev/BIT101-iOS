@@ -802,8 +802,8 @@ def ui_metrics_boundary_findings() -> list[str]:
     diagnostic = Path("/audit/diagnostics/StandardOutputAndStandardError.txt")
     original_read, original_open, original_rglob = Path.read_text, Path.open, Path.rglob
     def run(arguments, **kwargs):
-        response = summary if "summary" in arguments else {'targets': [{'name': 'BIT101-iOS.app', 'lineCoverage': 0.5,
-            'coveredLines': 50, 'executableLines': 100}]} if 'xccov' in arguments else None
+        response = summary if "summary" in arguments else {'targets': [{'name': 'BIT101-iOS.app', 'lineCoverage': 0,
+            'coveredLines': 0, 'executableLines': 0}]} if 'xccov' in arguments else None
         return subprocess.CompletedProcess(arguments, 0, json.dumps(response) if response is not None else "", "")
     with patch('validation_evidence.test_case_inventory', return_value={}), \
             patch.object(sys, "argv", ["metrics", "/audit/result.xcresult", "/audit/test-metrics.txt", "ui", "1", "device", str(ROOT)]), \
@@ -813,13 +813,13 @@ def ui_metrics_boundary_findings() -> list[str]:
             patch.object(Path, "read_text", lambda path, *args, **kwargs: output if path == diagnostic else original_read(path, *args, **kwargs)), \
             patch.object(Path, "open", lambda path, *args, **kwargs: StringIO() if path == Path("/audit/ui-tests.log") else original_open(path, *args, **kwargs)), \
             patch.object(Path, "write_text", lambda path, value, **kwargs: report.__setitem__(path, value)), \
-            patch('validation_evidence.native_source_coverage', return_value={'ScoreFeature': (30, 100)}), \
+            patch('validation_evidence.native_source_coverage', return_value={'ScoreFeature': (30, 100), 'BIT101-iOS.app': (60, 100)}), \
             patch.dict(os.environ, BIT101_VALIDATION_SOURCE_DIGEST="digest", BIT101_VALIDATION_RUN_ID="run"), redirect_stdout(StringIO()):
         exec(compile(source, "ui-metrics-self-test", "exec"), {})
     result = json.loads(next(line.split("：", 1)[1] for line in report[Path("/audit/test-metrics.txt")].splitlines() if line.startswith("控件库存：")))
     if result["processIdentifiers"] == ["10", "20"] and result["observed"] == 3 and result["visited"] == 2 \
             and result["pending"] == ["10:pending"] and {row["identifier"] for row in result["visitedControls"]} == {"first", "second"} \
-            and '- iOS/ScoreFeature: 30.00% (30/100 lines)' in report[Path('/audit/test-metrics.txt')]:
+            and all(row in report[Path('/audit/test-metrics.txt')] for row in ('- iOS/ScoreFeature: 30.00% (30/100 lines)', '- BIT101-iOS.app: 60.00% (60/100 lines)')):
         return []
     return ["UI 指标自测：冷启动前后的实际库存与待访问项共同保留"]
 

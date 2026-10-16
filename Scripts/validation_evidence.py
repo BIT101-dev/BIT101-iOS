@@ -465,7 +465,7 @@ def coverage_complete(group: str, summary: dict) -> bool:
     return True
 
 
-def native_source_coverage(products: Path, profile: Path, *, catalyst: bool = False, line_details: bool = False) -> dict:
+def native_source_coverage(products: Path, profile: Path, *, catalyst: bool = False, line_details: bool = False, include_app: bool = False) -> dict:
     import plistlib
     app = products / "BIT101-iOS.app"
     contents = app / 'Contents' if catalyst else app
@@ -473,6 +473,8 @@ def native_source_coverage(products: Path, profile: Path, *, catalyst: bool = Fa
         executable_name = plistlib.load(stream)["CFBundleExecutable"]
     executable = contents / 'MacOS' / executable_name if catalyst else app / executable_name
     command = ["xcrun", "llvm-cov", "export", str(executable), "-instr-profile", str(profile)]
+    for binary in sorted(executable.parent.glob('*.debug.dylib')):
+        command += ['-object', str(binary)]
     for framework in sorted((contents / "Frameworks").glob("*.framework")):
         with (framework / 'Resources/Info.plist' if catalyst else framework / 'Info.plist').open("rb") as stream:
             binary = framework / plistlib.load(stream)["CFBundleExecutable"]
@@ -488,7 +490,7 @@ def native_source_coverage(products: Path, profile: Path, *, catalyst: bool = Fa
     for section in json.loads(result.stdout)["data"]:
         for file in section["files"]:
             path = coverage_source_path(file["filename"], ROOT)
-            if (path.is_relative_to(ROOT / "Modules") and "/Sources/" in str(path)) or catalyst and path.is_relative_to(ROOT / 'BIT101-iOS'):
+            if (path.is_relative_to(ROOT / "Modules") and "/Sources/" in str(path)) or (catalyst or include_app) and path.is_relative_to(ROOT / 'BIT101-iOS'):
                 files[path] = file["summary"]["lines"]
     modules = {}
     for path, lines in files.items():
