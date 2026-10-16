@@ -106,6 +106,10 @@ jobs:
           clean: false
       - name: Show toolchain
         run: Scripts/build-install-device.sh toolchain
+      - name: Restore native compilation cache
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 Scripts/ci_evidence.py cache-restore "release-build"
       - name: Archive app and extensions with release compiler settings
         run: Scripts/build-install-device.sh archive
       - name: Build network smoke host and tests
@@ -117,6 +121,21 @@ jobs:
         if: ${{ !cancelled() }}
         run: python3 Scripts/validation_evidence.py summary --recorded-environment
 
+      - name: Prepare native compilation cache
+        if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+        run: python3 Scripts/ci_evidence.py cache-export "release-build"
+      - name: Preserve native compilation cache
+        if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: compilation-cache-release-build
+          compression-level: 0
+          overwrite: true
+          include-hidden-files: true
+          if-no-files-found: error
+          path: |
+            .build/compiler-cache/CompilationCache.noindex
+            .build/compiler-cache/compilation-cache.json
       - name: Preserve validation diagnostics
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -151,6 +170,10 @@ jobs:
           printf 'base_sha=%s\n' "$base_sha" >> "$GITHUB_OUTPUT"
       - name: Show toolchain
         run: Scripts/build-install-device.sh toolchain
+      - name: Restore native compilation cache
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 Scripts/ci_evidence.py cache-restore "catalyst-tests"
       - name: Load target branch coverage baseline
         env:
           GH_TOKEN: ${{ github.token }}
@@ -165,6 +188,21 @@ jobs:
         if: ${{ !cancelled() }}
         run: python3 Scripts/validation_evidence.py summary --recorded-environment
 
+      - name: Prepare native compilation cache
+        if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+        run: python3 Scripts/ci_evidence.py cache-export "catalyst-tests"
+      - name: Preserve native compilation cache
+        if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: compilation-cache-catalyst-tests
+          compression-level: 0
+          overwrite: true
+          include-hidden-files: true
+          if-no-files-found: error
+          path: |
+            .build/compiler-cache/CompilationCache.noindex
+            .build/compiler-cache/compilation-cache.json
       - name: Preserve validation diagnostics
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -211,6 +249,10 @@ jobs:
           printf 'base_sha=%s\n' "$base_sha" >> "$GITHUB_OUTPUT"
       - name: Show toolchain
         run: Scripts/build-install-device.sh toolchain
+      - name: Restore native compilation cache
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 Scripts/ci_evidence.py cache-restore "simulator-${{ matrix.mode }}"
       - name: Load target branch coverage baseline
         env:
           GH_TOKEN: ${{ github.token }}
@@ -222,6 +264,21 @@ jobs:
         run: Scripts/run-extended-tests.sh simulator prepare
       - name: Run assigned complete Simulator inventory
         run: Scripts/run-extended-tests.sh simulator "${{ matrix.mode }}"
+      - name: Prepare native compilation cache
+        if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (matrix.mode != 'ui' || matrix.shard == 0) }}
+        run: python3 Scripts/ci_evidence.py cache-export "simulator-${{ matrix.mode }}"
+      - name: Preserve native compilation cache
+        if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (matrix.mode != 'ui' || matrix.shard == 0) }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: compilation-cache-simulator-${{ matrix.mode }}
+          compression-level: 0
+          overwrite: true
+          include-hidden-files: true
+          if-no-files-found: error
+          path: |
+            .build/compiler-cache/CompilationCache.noindex
+            .build/compiler-cache/compilation-cache.json
       - name: Preserve validation diagnostics
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -265,6 +322,10 @@ jobs:
           printf 'base_sha=%s\n' "$base_sha" >> "$GITHUB_OUTPUT"
       - name: Show toolchain
         run: Scripts/build-install-device.sh toolchain
+      - name: Restore native compilation cache
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 Scripts/ci_evidence.py cache-restore "simulator-release-runtime"
       - name: Load target branch coverage baseline
         env:
           GH_TOKEN: ${{ github.token }}
@@ -276,6 +337,21 @@ jobs:
         run: Scripts/run-extended-tests.sh simulator prepare
       - name: Run complete formal runtime inventory
         run: Scripts/run-extended-tests.sh simulator release-runtime
+      - name: Prepare native compilation cache
+        if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+        run: python3 Scripts/ci_evidence.py cache-export "simulator-release-runtime"
+      - name: Preserve native compilation cache
+        if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: compilation-cache-simulator-release-runtime
+          compression-level: 0
+          overwrite: true
+          include-hidden-files: true
+          if-no-files-found: error
+          path: |
+            .build/compiler-cache/CompilationCache.noindex
+            .build/compiler-cache/compilation-cache.json
       - name: Preserve validation diagnostics
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -438,3 +514,21 @@ jobs:
           BIT101_REQUIRED_RESULTS: ${{ join(needs.*.result, ',') }}
         run: |
           python3 Scripts/ci_evidence.py current --results "$BIT101_REQUIRED_RESULTS"
+
+  compiler-cache-cleanup:
+    name: Keep one native compilation cache per group
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    needs: [release-build, catalyst-tests, ios-test-shards, ios-release-runtime]
+    runs-on: xcode-27
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          clean: false
+      - name: Remove replaced compilation caches
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 Scripts/ci_evidence.py cache-prune

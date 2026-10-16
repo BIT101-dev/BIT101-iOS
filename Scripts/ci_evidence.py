@@ -8,6 +8,7 @@ import re
 import subprocess
 import sys
 import shutil
+import zipfile
 from types import SimpleNamespace
 from pathlib import Path
 from validation_publication import RECEIPT, CORE_REPORT, release_receipt, receipt_findings, core_exchange
@@ -17,6 +18,145 @@ ROOT = Path(__file__).resolve().parents[1]
 REPORT = ROOT / '.build/extended-automation/validation-evidence.json'
 ARTIFACT = 'validation-evidence'
 REQUIRED_JOBS = {'static-audit', 'release-build', 'catalyst-tests', 'ios-tests'}
+CACHE_FLAVORS = {'release-build', 'catalyst-tests', 'simulator-app', 'simulator-ui', 'simulator-release-runtime'}
+CACHE_ROOT = ROOT / '.build/compiler-cache'
+CACHE_STORE = 'CompilationCache.noindex'
+CACHE_METADATA = 'compilation-cache.json'
+
+
+def cache_identity() -> dict:
+    from validation_environment import environment_context, toolchain_identity
+    context = environment_context('build-release')
+    return dict(toolchain=toolchain_identity(context), architecture=context['host']['architecture'])
+
+
+def export_cache(flavor: str) -> None:
+    if flavor not in CACHE_FLAVORS: raise ValueError('编译缓存需要登记的构建分组。')
+    if not (CACHE_ROOT / CACHE_STORE).is_dir(): raise ValueError('编译完成后需要生成原生缓存。')
+    (CACHE_ROOT / CACHE_METADATA).write_text(json.dumps(dict(identity=cache_identity(), flavor=flavor)))
+
+
+def restore_cache_payload(payload: bytes, flavor: str) -> bool:
+    import io
+    import zipfile
+    from pathlib import PurePosixPath
+    with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+        metadata = json.loads(archive.read(CACHE_METADATA))
+        if metadata != dict(identity=cache_identity(), flavor=flavor): return False
+        members = [row for row in archive.infolist() if row.filename != CACHE_METADATA]
+        if not any(not row.is_dir() for row in members): raise ValueError('原生缓存需要包含编译数据。')
+        for row in members:
+            path = PurePosixPath(row.filename)
+            if path.is_absolute() or '..' in path.parts or path.parts[:1] != (CACHE_STORE,) \
+                    or not row.is_dir() and len(path.parts) < 2 or (row.external_attr >> 16) & 0o170000 == 0o120000:
+                raise ValueError('缓存产物需要保持固定目录及普通文件。')
+        destination = CACHE_ROOT / CACHE_STORE
+        try:
+            for row in members:
+                target = CACHE_ROOT / row.filename
+                if row.is_dir(): target.mkdir(parents=True, exist_ok=True)
+                else:
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    with archive.open(row) as source, target.open('wb') as output: shutil.copyfileobj(source, output)
+        except BaseException:
+            shutil.rmtree(destination, ignore_errors=True)
+            raise
+    return True
+
+
+def restore_cache(flavor: str) -> None:
+    import fcntl
+    if flavor not in CACHE_FLAVORS: raise ValueError('编译缓存需要登记的构建分组。')
+    CACHE_ROOT.mkdir(parents=True, exist_ok=True)
+    with (CACHE_ROOT / 'cache.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if (CACHE_ROOT / CACHE_STORE).exists():
+            print('编译缓存：复用工作区原生产物。')
+            return
+        repo = repository()
+        artifacts = [row for page in api_pages(f'repos/{repo}/actions/artifacts?name=compilation-cache-{flavor}&per_page=100')
+            for row in page['artifacts'] if row['name'] == 'compilation-cache-' + flavor and not row['expired']]
+        for artifact in sorted(artifacts, key=lambda row: row['id'], reverse=True):
+            run = json.loads(subprocess.check_output(['gh', 'api', f"repos/{repo}/actions/runs/{artifact['workflow_run']['id']}"], text=True))
+            if run['event'] not in {'push', 'workflow_dispatch'} or run['head_branch'] != 'main' \
+                    or run['head_repository']['full_name'] != repo or run['path'] != '.github/workflows/ci.yml': continue
+            commit = run['head_sha']
+            if not re.fullmatch('[0-9a-f]{40}', commit): continue
+            if subprocess.run(['git', 'merge-base', '--is-ancestor', commit, 'HEAD'], cwd=ROOT, capture_output=True).returncode: continue
+            payload = subprocess.check_output(['gh', 'api', f"repos/{repo}/actions/artifacts/{artifact['id']}/zip"])
+            print('编译缓存：' + ('已恢复工具链匹配的原生数据。' if restore_cache_payload(payload, flavor) else '当前工具链重新建立缓存。'))
+            return
+        print('编译缓存：首次建立当前分组的原生数据。')
+
+
+def prune_caches() -> None:
+    repo = repository()
+    artifacts = [row for page in api_pages(f'repos/{repo}/actions/artifacts?per_page=100') for row in page['artifacts']]
+    retained = set()
+    for row in sorted(artifacts, key=lambda value: value['id'], reverse=True):
+        if row.get('expired') or row['name'] not in {'compilation-cache-' + flavor for flavor in CACHE_FLAVORS}: continue
+        if row['name'] in retained:
+            subprocess.run(['gh', 'api', '-X', 'DELETE', f"repos/{repo}/actions/artifacts/{row['id']}"], check=True)
+        else: retained.add(row['name'])
+
+
+def cache_self_test() -> None:
+    import io
+    import zipfile
+    from contextlib import redirect_stdout
+    from unittest.mock import patch
+    module = sys.modules[__name__]
+    identity = {'toolchain': 'compiler'}
+    def payload(name=CACHE_STORE + '/data', *, context=identity, link=False):
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, 'w', compression=zipfile.ZIP_STORED) as archive:
+            archive.writestr(CACHE_METADATA, json.dumps(dict(identity=context, flavor='simulator-ui')))
+            entry = zipfile.ZipInfo(name)
+            if link: entry.external_attr = 0o120777 << 16
+            archive.writestr(entry, b'compiled')
+        return buffer.getvalue()
+    transferred = []
+    with patch.object(module, 'cache_identity', return_value=identity), patch.object(Path, 'mkdir'), \
+            patch.object(Path, 'open'), patch.object(shutil, 'copyfileobj', side_effect=lambda source, target: transferred.append(source.read())) as copied:
+        assert restore_cache_payload(payload(), 'simulator-ui')
+        assert transferred == [b'compiled']
+        copied.reset_mock()
+        assert not restore_cache_payload(payload(context={}), 'simulator-ui')
+        assert not restore_cache_payload(payload(), 'simulator-app')
+        copied.assert_not_called()
+    with patch.object(module, 'cache_identity', return_value=identity), patch.object(Path, 'is_dir', return_value=True), \
+            patch.object(Path, 'write_text') as saved:
+        export_cache('simulator-ui')
+        assert json.loads(saved.call_args.args[0]) == dict(identity=identity, flavor='simulator-ui')
+        for name, link in [('../escape', False), ('/escape', False), (CACHE_STORE + '/../escape', False),
+                           (CACHE_STORE, False), (CACHE_STORE + '/link', True)]:
+            try: restore_cache_payload(payload(name, link=link), 'simulator-ui')
+            except ValueError: pass
+            else: raise AssertionError(name)
+        copied.assert_not_called()
+    trusted = dict(event='push', head_branch='main', head_repository={'full_name': 'owner/repo'},
+        path='.github/workflows/ci.yml', head_sha='a' * 40)
+    artifact = dict(id=1, name='compilation-cache-simulator-ui', expired=False, workflow_run={'id': 1})
+    for change, ancestor, accepted in [({}, 0, True), ({'event': 'workflow_dispatch'}, 0, True), ({'event': 'pull_request'}, 0, False),
+            ({'head_branch': 'feature'}, 0, False), ({'head_repository': {'full_name': 'fork/repo'}}, 0, False),
+            ({'path': 'other.yml'}, 0, False), ({'head_sha': 'invalid'}, 0, False), ({}, 1, False)]:
+        def response(command, **kwargs):
+            return payload() if command[-1].endswith('/zip') else json.dumps(dict(trusted, **change))
+        with patch.object(module, 'repository', return_value='owner/repo'), \
+                patch.object(module, 'api_pages', return_value=[{'artifacts': [artifact]}]), \
+                patch.object(Path, 'mkdir'), patch.object(Path, 'open'), patch.object(Path, 'exists', return_value=False), \
+                patch('fcntl.flock'), patch.object(subprocess, 'check_output', side_effect=response), \
+                patch.object(subprocess, 'run', return_value=SimpleNamespace(returncode=ancestor)), \
+                patch.object(module, 'restore_cache_payload', return_value=True) as restored, redirect_stdout(io.StringIO()):
+            restore_cache('simulator-ui')
+            assert restored.called == accepted, (change, ancestor)
+    artifacts = [dict(id=index, name=name, expired=False) for index, name in [
+        (1, 'compilation-cache-simulator-ui'), (2, 'validation-evidence'), (3, 'compilation-cache-simulator-ui'),
+        (4, 'compilation-cache-simulator-app')]]
+    with patch.object(module, 'repository', return_value='owner/repo'), \
+            patch.object(module, 'api_pages', return_value=[{'artifacts': artifacts}]), patch.object(subprocess, 'run') as deleted:
+        prune_caches()
+        assert [call.args[0][-1] for call in deleted.call_args_list] == ['repos/owner/repo/actions/artifacts/1']
 
 
 def repository() -> str:
@@ -236,6 +376,7 @@ def self_test() -> None:
     from unittest.mock import patch
     with patch.dict(os.environ, GITHUB_ACTIONS='false', GITHUB_SHA=''):
         _self_test()
+        cache_self_test()
 
 
 def _self_test() -> None:
@@ -362,6 +503,9 @@ def _self_test() -> None:
         (['export-core'], 'export_core', ((), {})),
         (['simulator-merge'], 'merge_simulator_ci', ((), {})),
         (['import-baseline', '7'], 'import_baseline', ((7,), {})),
+        (['cache-restore', 'simulator-ui'], 'restore_cache', (('simulator-ui',), {})),
+        (['cache-export', 'simulator-ui'], 'export_cache', (('simulator-ui',), {})),
+        (['cache-prune'], 'prune_caches', ((), {})),
     ):
         with patch.object(sys, 'argv', ['ci_evidence.py', *arguments]), patch.object(module, operation, return_value='b' * 40) as execute, \
                 patch.object(sys, 'stdout', StringIO()) as output:
@@ -374,7 +518,7 @@ def _self_test() -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('baseline', 'current', 'review-pr', 'release', 'publish', 'check-release', 'export-core', 'import-baseline', 'simulator-merge'))
+    parser.add_argument('action', choices=('baseline', 'current', 'review-pr', 'release', 'publish', 'check-release', 'export-core', 'import-baseline', 'simulator-merge', 'cache-restore', 'cache-export', 'cache-prune'))
     parser.add_argument('identity', nargs='?', default='')
     parser.add_argument('--results', default='')
     args = parser.parse_args()
@@ -386,9 +530,12 @@ def main() -> int:
         elif args.action == 'export-core': export_core()
         elif args.action == 'simulator-merge': merge_simulator_ci()
         elif args.action == 'import-baseline': import_baseline(int(args.identity))
+        elif args.action == 'cache-restore': restore_cache(args.identity)
+        elif args.action == 'cache-export': export_cache(args.identity)
+        elif args.action == 'cache-prune': prune_caches()
         else: release(args.identity, publish=args.action == 'publish')
         return 0
-    except (ValueError, SyntaxError, KeyError, OSError, subprocess.CalledProcessError) as error:
+    except (ValueError, SyntaxError, KeyError, OSError, zipfile.BadZipFile, subprocess.CalledProcessError) as error:
         detail = error.stderr if isinstance(error, subprocess.CalledProcessError) else None
         if isinstance(detail, bytes): detail = detail.decode(errors='replace')
         print(detail.strip() if detail else str(error), file=sys.stderr)

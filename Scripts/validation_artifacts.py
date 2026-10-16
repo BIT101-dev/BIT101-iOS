@@ -14,7 +14,7 @@ if not __debug__:
 cache_names = {"SDKExplicitPrecompiledModules", "ModuleCache.noindex", "SDKStatCaches.noindex", "CompilationCache.noindex", "Index.noindex"}
 derived_names = cache_names | {"Build", "Logs", "SourcePackages", "info.plist"}
 fixed_children = {
-    ".build/compiler-cache": cache_names | {"cache.lock"},
+    ".build/compiler-cache": cache_names | {"cache.lock", "compilation-cache.json"},
     ".build/static-audit": {"artifact-hygiene.log", "audit.lock", "checkers.log", "dependency-audit.log", "docs.log",
         "git-diff.log", "module-boundary.log", "python-parse.log", "shell-parse.log", "swift-parse.log", "worker-parse.log",
         "swift-syntax-indexer", "swift-syntax-indexer-inputs.json", "swift-syntax-indexer.lock",

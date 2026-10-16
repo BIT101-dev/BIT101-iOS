@@ -132,7 +132,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
             errors.append(f'.github/workflows/ci.yml: {name} 的检出需要默认执行、完整提交历史及失败传播')
         if name in DIAGNOSTIC_PATHS:
             uploads = [step for step in mapping(job).get('steps', []) if isinstance(step, dict)
-                and str(step.get('uses', '')).startswith('actions/upload-artifact@')]
+                and str(step.get('uses', '')).startswith('actions/upload-artifact@') and step.get('name') == 'Preserve validation diagnostics']
             if len(uploads) != 1 or set(mapping(uploads[0].get('with')).get('path', '').splitlines()) != DIAGNOSTIC_PATHS[name]:
                 errors.append(f'.github/workflows/ci.yml: {name} 的诊断上传需要采用所属任务的文件清单，人工附件保留在本地')
             if len(uploads) != 1 or uploads[0].get('if') != '${{ !cancelled() }}' \
@@ -293,6 +293,34 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
         errors.append(".github/workflows/ci.yml: 真机证据需要固定产物发布与完整诊断保留")
     if mapping(workflow.get("permissions")).get("actions") != "read":
         errors.append(".github/workflows/ci.yml: 提交证据读取需要 Actions 读取权限")
+    cache_condition = "${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')"
+    for name, flavor in {'release-build': 'release-build', 'catalyst-tests': 'catalyst-tests',
+            'ios-test-shards': 'simulator-${{ matrix.mode }}', 'ios-release-runtime': 'simulator-release-runtime'}.items():
+        steps = mapping(jobs.get(name)).get('steps', [])
+        restore = [step for step in steps if step.get('name') == 'Restore native compilation cache']
+        prepare = [step for step in steps if step.get('name') == 'Prepare native compilation cache']
+        save = [step for step in steps if step.get('name') == 'Preserve native compilation cache']
+        condition = cache_condition + (" && (matrix.mode != 'ui' || matrix.shard == 0)" if name == 'ios-test-shards' else '') + ' }}'
+        if len(restore) != 1 or restore[0].get('run') != f'python3 Scripts/ci_evidence.py cache-restore "{flavor}"' \
+                or restore[0].get('if') is not None or mapping(restore[0].get('env')).get('GH_TOKEN') != '${{ github.token }}':
+            errors.append(f'.github/workflows/ci.yml: {name} 需要实际恢复所属原生编译缓存')
+        if len(prepare) != 1 or prepare[0].get('if') != condition \
+                or prepare[0].get('run') != f'python3 Scripts/ci_evidence.py cache-export "{flavor}"' \
+                or len(save) != 1 or save[0].get('if') != condition:
+            errors.append(f'.github/workflows/ci.yml: {name} 的缓存发布需要来自 main 运行及唯一生产者')
+        if len(save) == 1 and any(mapping(save[0].get('with')).get(key) != value for key, value in {
+                'name': 'compilation-cache-' + flavor, 'compression-level': 0, 'overwrite': True,
+                'include-hidden-files': True, 'if-no-files-found': 'error',
+                'path': '.build/compiler-cache/CompilationCache.noindex\n.build/compiler-cache/compilation-cache.json\n'}.items()):
+            errors.append(f'.github/workflows/ci.yml: {name} 需要沿固定目录零压缩保存原生缓存')
+    cleanup = mapping(jobs.get('compiler-cache-cleanup'))
+    if cleanup.get('if') != "github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')" \
+            or mapping(cleanup.get('permissions')) != {'contents': 'read', 'actions': 'write'} \
+            or cleanup.get('needs') != ['release-build', 'catalyst-tests', 'ios-test-shards', 'ios-release-runtime'] \
+            or not any(step.get('run') == 'python3 Scripts/ci_evidence.py cache-prune' for step in cleanup.get('steps', [])):
+        errors.append('.github/workflows/ci.yml: 缓存替换需要 main 专用的清理任务')
+    if any(mapping(job.get('permissions')).get('actions', 'read') != 'read' for name, job in jobs.items() if name != 'compiler-cache-cleanup'):
+        errors.append('.github/workflows/ci.yml: 验证任务沿 Actions 读取权限执行')
     baseline_command = 'python3 Scripts/ci_evidence.py baseline "$BIT101_BASE_COMMIT"'
     for job, step_name, key, expression, expected in (
             (acceptance, "Download release validation evidence", "BIT101_RELEASE_TAG", "${{ inputs.validation_tag || github.ref_name }}",
@@ -471,17 +499,24 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
                 lambda match: match[1] + match[2].replace('            ' + required_path + '\n', ''), workflow_source, count=1)
             if not any('诊断上传' in item for item in ci_wiring_findings(omitted)):
                 findings.append(f'代码质量规则边界自检失败：{name} 的必要诊断文件')
-        compressed = re.sub(rf'(?s)(  {name}:.*?)          compression-level: 0',
+        compressed = re.sub(rf'(?s)(  {name}:.*?      - name: Preserve validation diagnostics.*?)          compression-level: 0',
             r'\1          compression-level: 9', workflow_source, count=1)
         if not any('始终保存原始文件' in item for item in ci_wiring_findings(compressed)):
             findings.append(f'代码质量规则边界自检失败：{name} 的原始诊断上传')
         private_paths = {'.build/extended-automation/validation-evidence.json', '.build/extended-automation/**',
             '.build/extended-automation/test-results.xcresult'} - DIAGNOSTIC_PATHS[name]
         for private_path in sorted(private_paths):
-            exposed = re.sub(rf'(?s)(  {name}:.*?          path: \|\n)',
+            exposed = re.sub(rf'(?s)(  {name}:.*?      - name: Preserve validation diagnostics.*?          path: \|\n)',
                 lambda match: match[1] + '            ' + private_path + '\n', workflow_source, count=1)
             if not any('诊断上传' in item for item in ci_wiring_findings(exposed)):
                 findings.append(f'代码质量规则边界自检失败：{name} 的历史附件隔离')
+    cache_start = source.index('      - name: Preserve native compilation cache')
+    cache_end = source.index('      - name: ', cache_start + 8)
+    cache_step = source[cache_start:cache_end]
+    for before, after in [('compression-level: 0', 'compression-level: 6'), ('overwrite: true', 'overwrite: false'),
+            ('include-hidden-files: true', 'include-hidden-files: false'), ('CompilationCache.noindex', '**'),
+            ("github.ref == 'refs/heads/main'", 'true')]:
+        assert any('缓存' in row for row in ci_wiring_findings(source.replace(cache_step, cache_step.replace(before, after), 1))), before
     for name in ('static-audit', 'release-build', 'catalyst-tests', 'ios-tests', 'release-acceptance', 'merge-acceptance'):
         for selector in ('[self-hosted, macOS, bit101-xcode-27, bit101-ci]', 'macos-latest',
                          "${{ github.event_name == 'push' && 'xcode-27' || 'macos-latest' }}"):
