@@ -234,7 +234,7 @@ jobs:
             .build/extended-automation/all.log
             .build/extended-automation/release-runtime.log
             .build/extended-automation/ui.log
-            .build/extended-automation/build-release.log
+            build/DeviceInstall/build.log
             .build/extended-automation/restore.log
             .build/extended-automation/test-metrics.txt
             .build/extended-automation/test-results.xcresult
@@ -288,7 +288,7 @@ jobs:
             .build/extended-automation/all.log
             .build/extended-automation/release-runtime.log
             .build/extended-automation/ui.log
-            .build/extended-automation/build-release.log
+            build/DeviceInstall/build.log
             .build/extended-automation/restore.log
             .build/extended-automation/test-metrics.txt
             .build/extended-automation/test-results.xcresult
@@ -340,7 +340,7 @@ jobs:
             .build/extended-automation/all.log
             .build/extended-automation/release-runtime.log
             .build/extended-automation/ui.log
-            .build/extended-automation/build-release.log
+            build/DeviceInstall/build.log
             .build/extended-automation/restore.log
             .build/extended-automation/test-metrics.txt
             .build/extended-automation/test-results.xcresult

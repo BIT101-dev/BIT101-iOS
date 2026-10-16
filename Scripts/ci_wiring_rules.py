@@ -25,7 +25,7 @@ DIAGNOSTIC_PATHS = {
         '.build/extended-automation/test-results.xcresult'},
     'ios-tests': {'.build/extended-automation/simulator.log', '.build/extended-automation/all.log',
         '.build/extended-automation/release-runtime.log', '.build/extended-automation/ui.log',
-        '.build/extended-automation/build-release.log', '.build/extended-automation/restore.log',
+        'build/DeviceInstall/build.log', '.build/extended-automation/restore.log',
         '.build/extended-automation/test-metrics.txt', '.build/extended-automation/test-results.xcresult',
         '.build/screenshot.png'},
 }

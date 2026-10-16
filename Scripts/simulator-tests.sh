@@ -8,7 +8,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT_DIR/Scripts/script-support.sh"
 operation="${1:-info}"
 shift $(( $# > 0 ? 1 : 0 ))
-case "$operation" in info|prepare|restore|inspect|merge) [[ $# -eq 0 ]] || exit 64;; app|release-runtime|ui) ;; *) exit 64;; esac
+case "$operation" in info|prepare|prepare-restore|restore|inspect|merge|verify) [[ $# -eq 0 ]] || exit 64;; app|release-runtime|ui) ;; *) exit 64;; esac
 SIMULATOR_WORKERS="${BIT101_SIMULATOR_WORKERS:-1}"
 [[ "$SIMULATOR_WORKERS" == <1-> ]] || { echo "模拟器工作进程数需要为正整数。" >&2; exit 64; }
 TEST_SCOPE=selected
@@ -17,6 +17,10 @@ if [[ "$operation" == ui ]]; then bit101_set_workflow_budget ui; fi
 bit101_acquire_workflow_lock "$0" "$operation" "$@"
 DERIVED_ROOT="$ROOT_DIR/.build/extended-automation"
 mkdir -p "$DERIVED_ROOT"
+if [[ "$operation" == verify ]]; then
+  python3 "$ROOT_DIR/Scripts/validation_restore.py" simulator-verify
+  exit $?
+fi
 if [[ "$operation" == merge ]]; then
   python3 "$ROOT_DIR/Scripts/ci_evidence.py" simulator-merge
   exit 0
@@ -63,7 +67,7 @@ else:
     path.write_text(json.dumps({'identifier': identifier, 'runtime': runtime['identifier']}) + '\n')
 developer = Path(os.getenv('DEVELOPER_DIR') or subprocess.check_output(['xcode-select', '-p'], text=True).strip())
 device_hub = str(developer.parent / 'Applications/DeviceHub.app')
-if os.getenv('GITHUB_ACTIONS') != 'true' or operation not in {'prepare', 'app', 'release-runtime', 'ui'}:
+if operation != 'prepare-restore' and (os.getenv('GITHUB_ACTIONS') != 'true' or operation not in {'prepare', 'app', 'release-runtime', 'ui'}):
     if device['state'] != 'Booted': subprocess.run(['xcrun', 'simctl', 'boot', identifier], check=True, stdout=sys.stderr, stderr=sys.stderr)
     subprocess.run(['xcrun', 'simctl', 'bootstatus', identifier, '-b'], check=True, stdout=sys.stderr, stderr=sys.stderr)
     subprocess.run(['open', '-a', device_hub], check=True)
@@ -99,12 +103,13 @@ fi
 restore_application() {
   local restore_digest
   restore_digest="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest restore)" || return $?
-  bit101_run_logged "$DERIVED_ROOT/build-release.log" "常规模拟器包编译" xcodebuild build -quiet \
-    -project "$ROOT_DIR/BIT101-iOS.xcodeproj" -scheme BIT101-iOS -configuration Release -derivedDataPath "$DERIVED_ROOT" \
+  bit101_run_logged "$ROOT_DIR/build/DeviceInstall/build.log" "常规模拟器包编译" xcodebuild build -quiet \
+    -project "$ROOT_DIR/BIT101-iOS.xcodeproj" -scheme BIT101-iOS -configuration Release -derivedDataPath "$ROOT_DIR/build/DeviceInstall" \
     -destination "platform=iOS Simulator,id=$SIMULATOR_DEVICE" ONLY_ACTIVE_ARCH=YES BIT101_WORKFLOW_CONDITIONS= ENABLE_TESTABILITY=YES \
     "BIT101_RESTORE_INPUT_DIGEST=$restore_digest" CODE_SIGN_IDENTITY=- || return $?
+  if [[ "$operation" == prepare-restore ]]; then return 0; fi
   bit101_run_logged "$DERIVED_ROOT/restore.log" "常规模拟器包恢复" python3 - "$SIMULATOR_DEVICE" \
-    "$DERIVED_ROOT/Build/Products/Release-iphonesimulator/BIT101-iOS.app" "$ROOT_DIR/Scripts" "$restore_digest" \
+    "$ROOT_DIR/build/DeviceInstall/Build/Products/Release-iphonesimulator/BIT101-iOS.app" "$ROOT_DIR/Scripts" "$restore_digest" \
     "$ROOT_DIR/.build/screenshot.png" <<'PYRESTORE'
 import json
 import subprocess
@@ -178,7 +183,11 @@ restore_on_exit() {
   fi
   exit "$workflow_result"
 }
-if [[ "$operation" == restore ]]; then restore_application; echo "常规模拟器包已恢复。"; exit 0; fi
+if [[ "$operation" == restore || "$operation" == prepare-restore ]]; then
+  restore_application
+  if [[ "$operation" == restore ]]; then echo "常规模拟器包已恢复。"; fi
+  exit 0
+fi
 mode=all
 scheme=BIT101-iOS
 bundle=BIT101-iOSTests
