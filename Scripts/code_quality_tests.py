@@ -651,7 +651,7 @@ def build_cache_boundary_findings() -> list[str]:
             expected_mode = [value for value in settings if value.startswith("SWIFT_COMPILATION_MODE=")]
             if [value for value in builds[-1] if value.startswith("SWIFT_COMPILATION_MODE=")] != expected_mode:
                 findings.append("缓存自测：构建、测试与归档沿工程配置及显式编译模式")
-            if not all(setting in builds[-1] for setting in ("SWIFT_TREAT_WARNINGS_AS_ERRORS=YES", "GCC_TREAT_WARNINGS_AS_ERRORS=YES")):
+            if not all(setting in builds[-1] for setting in ("SWIFT_TREAT_WARNINGS_AS_ERRORS=YES", "GCC_TREAT_WARNINGS_AS_ERRORS=YES", "COMPILATION_CACHE_ENABLE_CACHING=YES")):
                 findings.append("编译入口自测：构建、测试与正式归档的警告门禁")
     finally:
         shutil.rmtree(fixture, ignore_errors=True)

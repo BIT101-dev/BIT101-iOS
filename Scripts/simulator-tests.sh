@@ -167,6 +167,11 @@ typeset -a retained_result_groups=()
 restore_on_exit() {
   local workflow_result=$?
   trap - EXIT INT TERM
+  if [[ -n "${simulator_restore_prepare_pid:-}" ]]; then
+    local prepare_status=0
+    wait "$simulator_restore_prepare_pid" || prepare_status=$?
+    if (( workflow_result == 0 )); then workflow_result=$prepare_status; fi
+  fi
   if (( ${#retained_result_groups[@]} )); then
     python3 "$ROOT_DIR/Scripts/validation_performance.py" retain-evidence "${retained_result_groups[@]}" || workflow_result=$?
   fi
@@ -292,6 +297,11 @@ test_status=0
 trap restore_on_exit EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+simulator_restore_prepare_pid=
+if [[ "$operation" == app && "${BIT101_SIMULATOR_PREPARE_RESTORE:-0}" == 1 ]]; then
+  "$ROOT_DIR/Scripts/run-extended-tests.sh" simulator prepare-restore &
+  simulator_restore_prepare_pid=$!
+fi
 if [[ "$mode" == ui && "$SIMULATOR_WORKERS" -gt 1 ]]; then
   bit101_run_logged "$DERIVED_ROOT/$mode.log" "模拟器测试" python3 - "$ROOT_DIR/Scripts" "$plan" \
     "$DERIVED_ROOT" "$SIMULATOR_DEVICE" "$SIMULATOR_WORKERS" "${only_testing[@]}" <<'PYUI' || test_status=$?

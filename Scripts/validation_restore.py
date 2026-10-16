@@ -83,19 +83,18 @@ def mac_ready(app: Path, proof_path: Path, run_id: str, digest: str) -> bool:
 def verify_simulator() -> int:
     import os
     import time
-    environment = dict(os.environ, BIT101_DEFER_APP_RESTORE='1', BIT101_VALIDATION_RESULT_BATCH_HELD='1')
+    environment = dict(os.environ, BIT101_DEFER_APP_RESTORE='1', BIT101_VALIDATION_RESULT_BATCH_HELD='1', BIT101_SIMULATOR_PREPARE_RESTORE='1')
     started = float(environment.get('BIT101_WORKFLOW_STARTED_AT', time.monotonic()))
     def run(*arguments):
         return subprocess.run(arguments, cwd=ROOT, env=environment).returncode
     status = run('Scripts/run-static-audit.sh', 'prepare')
-    audit = preparation = None
+    audit = None
     completed = []
     try:
         if status == 0: status = run('Scripts/run-extended-tests.sh', 'simulator', 'prepare')
         if status == 0:
             audit = subprocess.Popen(['Scripts/run-static-audit.sh'], cwd=ROOT,
                 env=dict(environment, BIT101_AUDIT_BACKGROUND='1', BIT101_AUDIT_ARTIFACTS_PREPARED='1'))
-            preparation = subprocess.Popen(['Scripts/run-extended-tests.sh', 'simulator', 'prepare-restore'], cwd=ROOT, env=environment)
             status = run('Scripts/run-extended-tests.sh', 'modules')
         for operation, group in [('app', 'all'), ('release-runtime', 'release-runtime'), ('ui', 'ui')]:
             if status: break
@@ -106,9 +105,6 @@ def verify_simulator() -> int:
             retained = run('python3', '-B', 'Scripts/validation_performance.py', 'retain-batch', *completed)
             status = status or retained
     finally:
-        if preparation is not None:
-            prepared = preparation.wait()
-            status = status or prepared
         restored = run('Scripts/run-extended-tests.sh', 'simulator', 'restore')
         status = status or restored
         if audit is not None:
@@ -129,16 +125,17 @@ def simulator_verification_self_test() -> None:
         *[('Scripts/run-extended-tests.sh', 'simulator', mode) for mode in ('app', 'release-runtime', 'ui', 'restore')],
         ('python3', '-B', 'Scripts/validation_performance.py', 'begin-batch', 'append'),
         ('python3', '-B', 'Scripts/validation_performance.py', 'retain-batch', 'all'),
-        'preparation', 'audit']
+        'audit']
     for failure in failures:
         events = []
         def run(arguments, **kwargs):
             events.append(tuple(arguments))
             assert kwargs['env']['BIT101_DEFER_APP_RESTORE'] == '1'
             assert kwargs['env']['BIT101_VALIDATION_RESULT_BATCH_HELD'] == '1'
+            assert kwargs['env']['BIT101_SIMULATOR_PREPARE_RESTORE'] == '1'
             return SimpleNamespace(returncode=7 if tuple(arguments) == failure else 0)
         def launch(arguments, **kwargs):
-            label = 'audit' if arguments[0] == 'Scripts/run-static-audit.sh' else 'preparation'
+            label = 'audit'
             events.append(label)
             if label == 'audit': assert kwargs['env']['BIT101_AUDIT_ARTIFACTS_PREPARED'] == '1'
             def wait():
@@ -151,8 +148,8 @@ def simulator_verification_self_test() -> None:
             assert verify_simulator() == (7 if failure else 0), failure
         restore = ('Scripts/run-extended-tests.sh', 'simulator', 'restore')
         assert events.count(restore) == 1 and '17.0 秒' in output.getvalue()
-        if 'preparation' in events:
-            assert events.index(('wait', 'preparation')) < events.index(restore) < events.index(('wait', 'audit'))
+        if 'audit' in events:
+            assert events.index(restore) < events.index(('wait', 'audit'))
         if failure is None:
             native = [row[-1] for row in events if isinstance(row, tuple) and row[:2] == ('Scripts/run-extended-tests.sh', 'simulator')]
             assert native == ['prepare', 'app', 'release-runtime', 'ui', 'restore']
@@ -169,6 +166,26 @@ def simulator_restore_findings(simulator_source: str) -> list[str]:
     simulator_verification_self_test()
     restoration = 'restore_application() {' + simulator_source.split('restore_application() {', 1)[1].split(
         'if [[ "$operation" == restore ||', 1)[0]
+    launch = 'simulator_restore_prepare_pid=\n' + simulator_source.split('simulator_restore_prepare_pid=\n', 1)[1].split('\nif [[ "$mode" == ui', 1)[0]
+    launch = launch.replace('"$ROOT_DIR/Scripts/run-extended-tests.sh" simulator prepare-restore', 'preparation_probe')
+    if simulator_source.index('simulator_restore_prepare_pid=\n') < simulator_source.index('xcodebuild build-for-testing'):
+        findings.append('恢复准备自测：测试宿主编译完成后并行准备生产 App')
+    for operation in ('app', 'ui'):
+        for original, prepared in ((0, 0), (7, 0), (0, 9), (7, 9)):
+            reader, writer = os.pipe()
+            try:
+                harness = f'''operation={operation} BIT101_SIMULATOR_PREPARE_RESTORE=1 BIT101_DEFER_APP_RESTORE=1
+preparation_probe() {{ read -r message <&{reader}; print PREPARED; return {prepared}; }}
+'''
+                result = subprocess.run(['zsh', '-c', harness + restoration + launch +
+                    f'\nprint native >&{writer}\ntrap restore_on_exit EXIT\nexit {original}'],
+                    capture_output=True, text=True, pass_fds=(reader, writer), timeout=5)
+                if result.returncode != (original or (prepared if operation == 'app' else 0)) \
+                        or ('PREPARED' in result.stdout) != (operation == 'app'):
+                    findings.append('恢复准备自测：原生测试与主机编译重叠，设备操作完成后归集子进程及失败状态')
+            finally:
+                os.close(reader)
+                os.close(writer)
     stub = 'ROOT_DIR=/fixture\npython3() { print digest; }\nbit101_run_logged() { print RESTORE; if [[ "$2" == "常规模拟器包编译" && ( " $* " != *" ENABLE_TESTABILITY=YES "* || " $* " != *" ONLY_ACTIVE_ARCH=YES "* || " $* " != *" -derivedDataPath /fixture/build/DeviceInstall "* ) ]]; then return 64; fi; return $probe_restore_status; }\n'
     for original, restore_result in ((0, 0), (7, 0), (0, 9), (7, 9)):
         result = subprocess.run(['zsh', '-c', f'probe_restore_status={restore_result}\n' + stub + restoration + '\ntrap restore_on_exit EXIT\nexit "$1"',
