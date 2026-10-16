@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 REPORT = ROOT / '.build/extended-automation/validation-evidence.json'
 ARTIFACT = 'validation-evidence'
 REQUIRED_JOBS = {'static-audit', 'release-build', 'catalyst-tests', 'ios-tests'}
-CACHE_FLAVORS = {'release-build', 'catalyst-tests', 'simulator-app', 'simulator-ui', 'simulator-release-runtime'}
+CACHE_FLAVORS = {'release-build', 'catalyst-tests', 'simulator-app', 'simulator-ui'}
 CACHE_ROOT = ROOT / '.build/compiler-cache'
 CACHE_STORE = 'CompilationCache.noindex'
 CACHE_METADATA = 'compilation-cache.json'
@@ -98,11 +98,12 @@ def prune_caches() -> None:
     artifacts = [row for page in api_pages(f'repos/{repo}/actions/artifacts?per_page=100') for row in page['artifacts']]
     retained, runs = set(), {}
     for row in sorted(artifacts, key=lambda value: value['id'], reverse=True):
-        if row.get('expired') or row['name'] not in {'compilation-cache-' + flavor for flavor in CACHE_FLAVORS}: continue
+        if row.get('expired') or not row['name'].startswith('compilation-cache-'): continue
         run_id = row['workflow_run']['id']
         if run_id not in runs:
             runs[run_id] = json.loads(subprocess.check_output(['gh', 'api', f'repos/{repo}/actions/runs/{run_id}'], text=True))
-        if not trusted_cache_run(runs[run_id], repo) or row['name'] in retained:
+        if row['name'] not in {'compilation-cache-' + flavor for flavor in CACHE_FLAVORS} \
+                or not trusted_cache_run(runs[run_id], repo) or row['name'] in retained:
             deleted = subprocess.run(['gh', 'api', '-X', 'DELETE', f"repos/{repo}/actions/artifacts/{row['id']}"], capture_output=True, text=True)
             if deleted.returncode and '(HTTP 404)' not in deleted.stderr: deleted.check_returncode()
         else: retained.add(row['name'])
@@ -162,6 +163,7 @@ def cache_self_test() -> None:
         (1, 'compilation-cache-simulator-ui'), (2, 'validation-evidence'), (3, 'compilation-cache-simulator-ui'),
         (4, 'compilation-cache-simulator-app')]]
     artifacts.append(dict(id=5, name='compilation-cache-simulator-ui', expired=False, workflow_run={'id': 2}))
+    artifacts.append(dict(id=6, name='compilation-cache-unused', expired=False, workflow_run={'id': 1}))
     def producer(command, **kwargs):
         return json.dumps(dict(trusted, head_repository={'full_name': 'fork/repo'}) if command[-1].endswith('/2') else trusted)
     with patch.object(module, 'repository', return_value='owner/repo'), \
@@ -169,7 +171,7 @@ def cache_self_test() -> None:
             patch.object(subprocess, 'check_output', side_effect=producer), \
             patch.object(subprocess, 'run', return_value=SimpleNamespace(returncode=0)) as deleted:
         prune_caches()
-        assert [call.args[0][-1] for call in deleted.call_args_list] == ['repos/owner/repo/actions/artifacts/5', 'repos/owner/repo/actions/artifacts/1']
+        assert [call.args[0][-1] for call in deleted.call_args_list] == [f'repos/owner/repo/actions/artifacts/{index}' for index in (6, 5, 1)]
     for code, error in ((1, 'gh: Not Found (HTTP 404)'), (1, 'gh: Forbidden (HTTP 403)'), (1, 'connection failed')):
         def deleted_artifact(command, **kwargs):
             return subprocess.CompletedProcess(command, code, '', error)

@@ -307,12 +307,6 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             waitForValue("", of: field)
         }
         field.typeText(text)
-        #if targetEnvironment(simulator)
-        if !text.hasSuffix("\n") {
-            field.native.tap()
-            UITestSnapshotReader.invalidate()
-        }
-        #endif
     }
 
     @MainActor

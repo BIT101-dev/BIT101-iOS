@@ -30,7 +30,7 @@ DIAGNOSTIC_PATHS = {
         '.build/screenshot.png'},
 }
 DIAGNOSTIC_PATHS['ios-test-shards'] = DIAGNOSTIC_PATHS['ios-tests']
-DIAGNOSTIC_PATHS['ios-release-runtime'] = DIAGNOSTIC_PATHS['ios-tests']
+DIAGNOSTIC_PATHS['ios-app-tests'] = DIAGNOSTIC_PATHS['ios-tests']
 
 
 def hook_documents_checked(source: str) -> bool:
@@ -169,7 +169,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
         return commands
 
     commands = {}
-    for name in ("static-audit", "release-build", "catalyst-tests", "ios-tests", "ios-test-shards", "ios-release-runtime"):
+    for name in ("static-audit", "release-build", "catalyst-tests", "ios-tests", "ios-test-shards", "ios-app-tests"):
         job = mapping(jobs.get(name))
         if not job:
             errors.append(f".github/workflows/ci.yml: CI 缺少 {name} Job")
@@ -179,10 +179,10 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
         commands[name] = run_commands(job)
         if not any(command_matches(command, "Scripts/build-install-device.sh toolchain") for command, _ in commands[name]):
             errors.append(f".github/workflows/ci.yml: {name} 的工具链版本核对需要共用构建脚本入口")
-        if name not in {'ios-tests', 'ios-test-shards', 'ios-release-runtime'} and not any(command_matches(command, "python3 Scripts/validation_evidence.py summary --recorded-environment")
+        if name not in {'ios-tests', 'ios-test-shards', 'ios-app-tests'} and not any(command_matches(command, "python3 Scripts/validation_evidence.py summary --recorded-environment")
                 for command, _ in run_commands(job, include_always=True)):
             errors.append(f".github/workflows/ci.yml: {name} 的证据汇总需要采用记录环境")
-        expected_dependencies = ['static-audit', 'ios-test-shards', 'ios-release-runtime'] if name == 'ios-tests' else 'release-build' if name in {'catalyst-tests', 'ios-release-runtime'} else []
+        expected_dependencies = ['static-audit', 'ios-test-shards', 'ios-app-tests'] if name == 'ios-tests' else ['release-build', 'static-audit'] if name == 'catalyst-tests' else 'release-build' if name == 'ios-app-tests' else []
         if job.get('needs', []) != expected_dependencies:
             errors.append(f'.github/workflows/ci.yml: {name} 需要按独立执行与最终汇总的依赖图运行')
     static_commands = commands.get("static-audit", [])
@@ -208,7 +208,8 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
         "ios-tests": (("Scripts/run-extended-tests.sh simulator merge", "模拟器 Job 需要汇总完整库存及覆盖率"),),
         "ios-test-shards": (("Scripts/run-extended-tests.sh simulator prepare", "模拟器分片需要准备完整模拟器"),
             ('Scripts/run-extended-tests.sh simulator "${{ matrix.mode }}"', "模拟器分片需要执行完整分配库存")),
-        "ios-release-runtime": (("Scripts/run-extended-tests.sh simulator prepare", "正式组装需要准备完整模拟器"),
+        "ios-app-tests": (("Scripts/run-extended-tests.sh simulator prepare", "正式组装需要准备完整模拟器"),
+            ("Scripts/run-extended-tests.sh simulator app", "App 行为需要执行完整合同库存"),
             ("Scripts/run-extended-tests.sh simulator release-runtime", "正式组装需要执行完整合同库存")),
     }
     for name, rules in required.items():
@@ -232,7 +233,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
     for name, command in (('static-audit', 'Scripts/run-static-audit.sh'),
                           ('catalyst-tests', 'Scripts/run-extended-tests.sh verify catalyst catalyst-release-runtime'),
                           ('ios-tests', 'Scripts/run-extended-tests.sh simulator merge'),
-                          ('ios-release-runtime', 'Scripts/run-extended-tests.sh simulator release-runtime'),
+                          ('ios-app-tests', 'Scripts/run-extended-tests.sh simulator app'),
                           ('ios-test-shards', 'Scripts/run-extended-tests.sh simulator "${{ matrix.mode }}"')):
         steps = mapping(jobs.get(name)).get('steps', [])
         baseline_index = next((index for index, step in enumerate(steps) if isinstance(step, dict) and step.get('name') == 'Load target branch coverage baseline'), -1)
@@ -248,7 +249,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
         errors.append(".github/workflows/ci.yml: 真机 Job 需要发布入口、实体设备运行器与审计并行的依赖图")
     simulator = mapping(jobs.get('ios-tests'))
     shard_job = mapping(jobs.get('ios-test-shards'))
-    formal_job = mapping(jobs.get('ios-release-runtime'))
+    formal_job = mapping(jobs.get('ios-app-tests'))
     for job in (simulator, shard_job, formal_job):
         if mapping(job.get('env')).get('BIT101_SIMULATOR_AUTHORIZED') != '1' \
                 or any('BIT101_SIMULATOR_AUTHORIZED' in mapping(step.get('env'))
@@ -256,7 +257,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
             errors.append('.github/workflows/ci.yml: 完整模拟器 CI 需要统一显式授权标记')
     from validation_coverage import SIMULATOR_SHARDS, SIMULATOR_WORKERS
     expected_matrix = [{'mode': 'app' if group == 'all' else group, 'shard': index, 'count': count, 'workers': SIMULATOR_WORKERS['app' if group == 'all' else group]}
-        for group, count in SIMULATOR_SHARDS.items() if group != 'release-runtime' for index in range(count)]
+        for group, count in SIMULATOR_SHARDS.items() if group == 'ui' for index in range(count)]
     strategy = mapping(shard_job.get('strategy'))
     actual_matrix = mapping(strategy.get('matrix')).get('include', [])
     canonical = lambda rows: sorted(json.dumps(row, sort_keys=True) for row in rows)
@@ -267,7 +268,18 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
     if mapping(formal_job.get('env')).get('BIT101_CI_SHARD') != f"0/{SIMULATOR_SHARDS['release-runtime']}" \
             or mapping(formal_job.get('env')).get('BIT101_SIMULATOR_WORKERS') != str(SIMULATOR_WORKERS['release-runtime']) \
             or 'strategy' in formal_job:
-        errors.append('.github/workflows/ci.yml: 正式组装需要独立依赖图、完整库存与单个工作进程')
+        errors.append('.github/workflows/ci.yml: App 与正式组装需要共用完整库存和单个工作进程')
+    app_steps = formal_job.get('steps', [])
+    app_run = next((i for i, step in enumerate(app_steps) if step.get('run') == 'Scripts/run-extended-tests.sh simulator app'), -1)
+    formal_run = next((i for i, step in enumerate(app_steps) if step.get('run') == 'Scripts/run-extended-tests.sh simulator release-runtime'), -1)
+    app_upload = [step for step in app_steps if step.get('name') == 'Preserve App validation diagnostics']
+    if len(app_upload) != 1 or not 0 <= app_run < app_steps.index(app_upload[0]) < formal_run \
+            or app_upload[0].get('if') != '${{ !cancelled() }}' \
+            or not str(app_upload[0].get('uses', '')).startswith('actions/upload-artifact@') \
+            or any(mapping(app_upload[0].get('with')).get(key) != value for key, value in {
+                'name': 'validation-ios-test-shards-app-0', 'compression-level': 0, 'include-hidden-files': True}.items()) \
+            or set(mapping(app_upload[0].get('with')).get('path', '').splitlines()) != DIAGNOSTIC_PATHS['ios-app-tests']:
+        errors.append('.github/workflows/ci.yml: 同设备正式组装前需要顺序执行 App 库存并保留原始诊断上传')
     for job, groups in (('static-audit', ('audit', 'modules')),
             ('release-build', ('build-archive', 'network', 'icloud')),
             ('catalyst-tests', ('catalyst', 'catalyst-release-runtime'))):
@@ -275,7 +287,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
         if type(timeout) is not int or timeout < workflow_timeout_seconds(groups) // 60 + 10:
             errors.append(f'.github/workflows/ci.yml: {job} Job 需要覆盖所属执行及恢复预算')
     for job, minimum in (('ios-test-shards', workflow_timeout_seconds(('ui',)) // 60 + 10),
-            ('ios-release-runtime', workflow_timeout_seconds(('release-runtime',)) // 60 + 10), ('ios-tests', 10)):
+            ('ios-app-tests', workflow_timeout_seconds(('all', 'release-runtime')) // 60 + 10), ('ios-tests', 10)):
         timeout = mapping(jobs.get(job)).get('timeout-minutes')
         if type(timeout) is not int or timeout < minimum:
             errors.append(f'.github/workflows/ci.yml: {job} Job 需要覆盖所属执行及恢复预算')
@@ -295,7 +307,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
         errors.append(".github/workflows/ci.yml: 提交证据读取需要 Actions 读取权限")
     cache_condition = "${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')"
     for name, flavor in {'release-build': 'release-build', 'catalyst-tests': 'catalyst-tests',
-            'ios-test-shards': 'simulator-${{ matrix.mode }}', 'ios-release-runtime': 'simulator-release-runtime'}.items():
+            'ios-test-shards': 'simulator-${{ matrix.mode }}', 'ios-app-tests': 'simulator-app'}.items():
         steps = mapping(jobs.get(name)).get('steps', [])
         restore = [step for step in steps if step.get('name') == 'Restore native compilation cache']
         prepare = [step for step in steps if step.get('name') == 'Prepare native compilation cache']
@@ -304,10 +316,10 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
         if len(restore) != 1 or restore[0].get('run') != f'python3 Scripts/ci_evidence.py cache-restore "{flavor}"' \
                 or restore[0].get('if') is not None or mapping(restore[0].get('env')).get('GH_TOKEN') != '${{ github.token }}':
             errors.append(f'.github/workflows/ci.yml: {name} 需要实际恢复所属原生编译缓存')
-        if name in {'ios-test-shards', 'ios-release-runtime'}:
+        if name in {'ios-test-shards', 'ios-app-tests'}:
             boot = [step for step in steps if step.get('name') == 'Prepare full iOS Simulator']
             network = [step for step in steps if step.get('name') in {'Restore native compilation cache', 'Load target branch coverage baseline'}]
-            inventory = [step for step in steps if step.get('name') in {'Run assigned complete Simulator inventory', 'Run complete formal runtime inventory'}]
+            inventory = [step for step in steps if step.get('name') == ('Run assigned complete Simulator inventory' if name == 'ios-test-shards' else 'Run complete App behavior inventory')]
             if len(boot) != 1 or boot[0].get('run') != 'Scripts/run-extended-tests.sh simulator prepare' \
                     or len(network) != 2 or len(inventory) != 1 \
                     or not max(map(steps.index, network)) < steps.index(boot[0]) < steps.index(inventory[0]):
@@ -324,7 +336,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
     cleanup = mapping(jobs.get('compiler-cache-cleanup'))
     if cleanup.get('if') != "github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')" \
             or mapping(cleanup.get('permissions')) != {'contents': 'read', 'actions': 'write'} \
-            or cleanup.get('needs') != ['release-build', 'catalyst-tests', 'ios-test-shards', 'ios-release-runtime'] \
+            or cleanup.get('needs') != ['release-build', 'catalyst-tests', 'ios-test-shards', 'ios-app-tests'] \
             or not any(step.get('run') == 'python3 Scripts/ci_evidence.py cache-prune' for step in cleanup.get('steps', [])):
         errors.append('.github/workflows/ci.yml: 缓存替换需要 main 专用的清理任务')
     if any(mapping(job.get('permissions')).get('actions', 'read') != 'read' for name, job in jobs.items() if name != 'compiler-cache-cleanup'):
@@ -387,7 +399,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
     if mapping(inputs.get('review_pr')).get('type') != 'number' or mapping(inputs.get('review_pr')).get('default') != 0 \
             or workflow.get('run-name') != "${{ inputs.review_pr && format('iOS CI review PR {0}', inputs.review_pr) || github.ref_name }}":
         errors.append('.github/workflows/ci.yml: fork 审查需要 PR 输入与运行身份')
-    for name in ('static-audit', 'catalyst-tests', 'ios-tests', 'ios-test-shards', 'ios-release-runtime', 'physical-device'):
+    for name in ('static-audit', 'catalyst-tests', 'ios-tests', 'ios-test-shards', 'ios-app-tests', 'physical-device'):
         steps = mapping(jobs.get(name)).get('steps', [])
         review = [(i, step) for i, step in enumerate(steps) if isinstance(step, dict) and step.get('name') == 'Verify maintainer review commit']
         baseline = next((i for i, step in enumerate(steps) if isinstance(step, dict) and step.get('name') == 'Load target branch coverage baseline'), -1)
@@ -526,11 +538,20 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
             ("github.ref == 'refs/heads/main'", 'true')]:
         assert any('缓存' in row for row in ci_wiring_findings(source.replace(cache_step, cache_step.replace(before, after), 1))), before
     boot_step = '      - name: Prepare full iOS Simulator\n        run: Scripts/run-extended-tests.sh simulator prepare\n'
-    for name in ('ios-test-shards', 'ios-release-runtime'):
+    for name in ('ios-test-shards', 'ios-app-tests'):
         block = re.search(r'(?ms)^  ' + name + r':\n.*?(?=^  [\w-]+:|\Z)', source)[0]
         for anchor in ('Restore native compilation cache', 'Load target branch coverage baseline', 'Prepare native compilation cache'):
             reordered = block.replace(boot_step, '').replace('      - name: ' + anchor, boot_step + '      - name: ' + anchor, 1)
             assert any('缓存与基准请求后' in row for row in ci_wiring_findings(source.replace(block, reordered, 1))), (name, anchor)
+    app_block = re.search(r'(?ms)^  ios-app-tests:\n.*?(?=^  [\w-]+:|\Z)', source)[0]
+    upload = app_block[app_block.index('      - name: Preserve App validation diagnostics'):app_block.index('      - name: Run complete formal runtime inventory')]
+    for replacement in ('', upload.replace('validation-ios-test-shards-app-0', 'validation-unused'),
+            upload.replace('compression-level: 0', 'compression-level: 6'),
+            upload.replace('            .build/extended-automation/test-results.xcresult\n', '')):
+        assert any('同设备' in row for row in ci_wiring_findings(source.replace(upload, replacement, 1)))
+    reordered = app_block.replace(upload, '').replace('      - name: Prepare native compilation cache',
+        upload + '      - name: Prepare native compilation cache', 1)
+    assert any('同设备' in row for row in ci_wiring_findings(source.replace(app_block, reordered, 1)))
     for name in ('static-audit', 'release-build', 'catalyst-tests', 'ios-tests', 'release-acceptance', 'merge-acceptance'):
         for selector in ('[self-hosted, macOS, bit101-xcode-27, bit101-ci]', 'macos-latest',
                          "${{ github.event_name == 'push' && 'xcode-27' || 'macos-latest' }}"):
@@ -568,13 +589,15 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
     for job in ('release-build', 'ios-test-shards', 'physical-device'):
         serialized = workflow_source.replace('  ' + job + ':\n', '  ' + job + ':\n    needs: static-audit\n', 1)
         assert any('依赖图' in item for item in ci_wiring_findings(serialized))
-    assert any('依赖图' in row for row in ci_wiring_findings(workflow_source.replace('  catalyst-tests:\n    needs: release-build', '  catalyst-tests:')))
-    for dependency in ('', '    needs: static-audit\n'):
-        changed = workflow_source.replace('  ios-release-runtime:\n    needs: release-build\n', '  ios-release-runtime:\n' + dependency)
+    for dependency in ('', '    needs: release-build\n', '    needs: static-audit\n'):
+        changed = workflow_source.replace('  catalyst-tests:\n    needs: [release-build, static-audit]\n', '  catalyst-tests:\n' + dependency)
         assert any('依赖图' in row for row in ci_wiring_findings(changed))
-    detached = workflow_source.replace('needs: [static-audit, ios-test-shards, ios-release-runtime]', 'needs: []', 1)
+    for dependency in ('', '    needs: static-audit\n'):
+        changed = workflow_source.replace('  ios-app-tests:\n    needs: release-build\n', '  ios-app-tests:\n' + dependency)
+        assert any('依赖图' in row for row in ci_wiring_findings(changed))
+    detached = workflow_source.replace('needs: [static-audit, ios-test-shards, ios-app-tests]', 'needs: []', 1)
     assert any('依赖图' in item for item in ci_wiring_findings(detached))
-    detached_formal = workflow_source.replace('needs: [static-audit, ios-test-shards, ios-release-runtime]', 'needs: [static-audit, ios-test-shards]', 1)
+    detached_formal = workflow_source.replace('needs: [static-audit, ios-test-shards, ios-app-tests]', 'needs: [static-audit, ios-test-shards]', 1)
     assert any('依赖图' in item for item in ci_wiring_findings(detached_formal))
     misplaced_audit = workflow_source.replace("run: Scripts/run-static-audit.sh", "run: echo skipped", 1)
     misplaced_audit += "\n# Scripts/run-static-audit.sh\n"
@@ -598,7 +621,7 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
             findings.append('代码质量规则边界自检失败：完整模拟器合并验收与发布真机分支')
     for before, after in (('run: Scripts/run-extended-tests.sh simulator "${{ matrix.mode }}"', 'run: true'),
             ('run: Scripts/run-extended-tests.sh simulator merge', 'run: true'),
-            ('fail-fast: false', 'fail-fast: true'), ('max-parallel: 3', 'max-parallel: 4'), ('{mode: ui, shard: 0, count: 2, workers: 1}', '{mode: ui, shard: 0, count: 2, workers: 2}'),
+            ('fail-fast: false', 'fail-fast: true'), ('max-parallel: 3', 'max-parallel: 4'), ('{mode: ui, shard: 0, count: 3, workers: 1}', '{mode: ui, shard: 0, count: 3, workers: 2}'),
             ('BIT101_CI_SHARD: ${{ matrix.shard }}/${{ matrix.count }}', 'BIT101_CI_SHARD: 0/1')):
         assert ci_wiring_findings(workflow_source.replace(before, after)), before
     for before, after in (('Scripts/build-install-device.sh toolchain', 'Scripts/build-install-device.sh  toolchain'),
@@ -609,7 +632,7 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
     for replacement in ('"\'Scripts/build-install-device.sh toolchain\'"', 'Scripts/build-install-device.sh toolchain extra'):
         if not ci_wiring_findings(workflow_source.replace('run: Scripts/build-install-device.sh toolchain', 'run: ' + replacement)):
             findings.append('代码质量规则边界自检失败：CI 可执行文件与参数边界')
-    for job in ('static-audit', 'release-build', 'catalyst-tests', 'ios-test-shards', 'ios-release-runtime'):
+    for job in ('static-audit', 'release-build', 'catalyst-tests', 'ios-test-shards', 'ios-app-tests'):
         changed = re.sub(r'(?s)(  ' + job + r':.*?timeout-minutes:) \d+', r'\1 20', workflow_source, count=1)
         if not any(job + ' Job 需要覆盖所属执行及恢复预算' in item for item in ci_wiring_findings(changed)):
             findings.append(f'代码质量规则边界自检失败：{job} 执行预算')

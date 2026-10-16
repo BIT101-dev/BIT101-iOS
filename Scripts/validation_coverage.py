@@ -2,7 +2,7 @@
 from pathlib import Path
 
 COVERAGE_GROUPS = frozenset({'modules', 'all', 'ui', 'catalyst', 'catalyst-release-runtime'})
-SIMULATOR_SHARDS = {'all': 1, 'ui': 2, 'release-runtime': 1}
+SIMULATOR_SHARDS = {'all': 1, 'ui': 3, 'release-runtime': 1}
 SIMULATOR_WORKERS = {'app': 1, 'ui': 1, 'release-runtime': 1}
 SIMULATOR_KEYBOARD_TESTS = frozenset({
     'ServiceInteractionUITests/testManualUpdatePromptAllActionsAndCurrentVersion',
