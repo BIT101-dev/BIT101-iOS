@@ -254,7 +254,7 @@ def simulator_startup_findings(source: str) -> list[str]:
         'devices': {'runtime': [{'udid': 'device', 'isAvailable': True, 'state': 'Shutdown'}]}}
     findings = []
     for hosted in ('true', 'false'):
-        for operation in ('prepare', 'prepare-restore', 'app', 'release-runtime', 'ui'):
+        for operation in ('prepare', 'prepare-restore', 'build-ui', 'app', 'release-runtime', 'ui'):
             commands = []
             with patch.dict(os.environ, GITHUB_ACTIONS=hosted, DEVELOPER_DIR='/fixture/Xcode.app/Contents/Developer'), \
                     patch.object(sys, 'argv', ['device', '/fixture/device.json', operation]), \
@@ -264,7 +264,7 @@ def simulator_startup_findings(source: str) -> list[str]:
                     patch.object(Path, 'read_text', return_value=json.dumps({'identifier': 'device'})), redirect_stdout(StringIO()):
                 exec(compile(device_program, '<simulator-device>', 'exec'), {})
             expected = [['xcrun', 'simctl', 'boot', 'device']] if hosted == 'true' and operation == 'prepare' else []
-            if hosted == 'false' and operation != 'prepare-restore': expected = [['xcrun', 'simctl', 'boot', 'device'],
+            if hosted == 'false' and operation not in {'prepare-restore', 'build-ui'}: expected = [['xcrun', 'simctl', 'boot', 'device'],
                 ['xcrun', 'simctl', 'bootstatus', 'device', '-b'], ['open', '-a', '/fixture/Xcode.app/Contents/Applications/DeviceHub.app']]
             if commands != expected:
                 findings.append('模拟器启动自测：托管准备请求启动，完整系统与本机初始化沿实际执行核对')
@@ -297,8 +297,9 @@ def simulator_startup_findings(source: str) -> list[str]:
         exec(compile(programs['PYAPPREADY'], '<simulator-app-ready>', 'exec'), {})
     if prepared.call_count != 1 or prepared.call_args.args != ('device', Path('/fixture/Build/Products')):
         findings.append('模拟器启动自测：UI 初始化使用已编译的测试宿主')
-    if source.index("<<'PYREADY'") > source.index('xcodebuild build-for-testing') \
-            or source.split("<<'PYREADY'", 1)[1].split('\n', 1)[0].strip() != '&':
+    execution = source.split('simulator_prepare_pid=\n', 1)[1]
+    if execution.index("<<'PYREADY'") > execution.index('xcodebuild build-for-testing') \
+            or execution.split("<<'PYREADY'", 1)[1].split('\n', 1)[0].strip() != '&':
         findings.append('模拟器启动自测：系统初始化与测试宿主编译并行执行')
     body = 'simulator_prepare_pid=\n' + source.split('simulator_prepare_pid=\n', 1)[1].split('\nplan="$(', 1)[0]
     body = body.replace('>> "$DERIVED_ROOT/simulator.log" 2>&1', '')
@@ -306,7 +307,7 @@ def simulator_startup_findings(source: str) -> list[str]:
         for operation in ('app', 'release-runtime', 'ui'):
             for build_status, ready_status in ((0, 0), (7, 0), (0, 9), (7, 9)):
                 harness = f'''set -euo pipefail
-ROOT_DIR=/fixture DERIVED_ROOT=/fixture SIMULATOR_DEVICE=device mode={operation} scheme=scheme configuration=Release destination=target conditions= GITHUB_ACTIONS={hosted}
+ROOT_DIR=/fixture DERIVED_ROOT=/fixture SIMULATOR_DEVICE=device mode={operation} scheme=scheme configuration=Release destination=target conditions= GITHUB_ACTIONS={hosted} BIT101_REUSE_UI_HOST=0
 only_testing=()
 bit101_run_logged() {{ if [[ "$3" == python3 ]]; then cat >/dev/null; print PREPARE; return {ready_status}; else print BUILD; [[ " $* " == *" ONLY_ACTIVE_ARCH=YES "* ]] || return 64; return {build_status}; fi; }}
 python3() {{ cat >/dev/null; print APPREADY; }}
@@ -322,6 +323,23 @@ python3() {{ cat >/dev/null; print APPREADY; }}
                     complete = rows.index('APPREADY') > max(rows.index('BUILD'), rows.index('PREPARE'))
                 if not complete:
                     findings.append('模拟器启动自测：两项完成后初始化 App，失败状态归集后结束')
+    for hosted in ('true', 'false'):
+        for ready_status in (0, 9):
+            harness = f'''set -euo pipefail
+ROOT_DIR=/fixture DERIVED_ROOT=/fixture SIMULATOR_DEVICE=device mode=ui GITHUB_ACTIONS={hosted} BIT101_REUSE_UI_HOST=1
+bit101_run_logged() {{ cat >/dev/null; print PREPARE; return {ready_status}; }}
+python3() {{ cat >/dev/null; if [[ "$3" == device ]]; then print APPREADY; else print PERMISSIONS; fi; }}
+chmod() {{ print EXECUTABLE; }}
+'''
+            result = subprocess.run(['zsh', '-c', harness + body + '\nprint COMPLETE'], capture_output=True, text=True, timeout=10)
+            rows = result.stdout.splitlines()
+            expected = ready_status if hosted == 'true' else 0
+            complete = result.returncode == expected and 'PERMISSIONS' in rows and 'EXECUTABLE' in rows \
+                and ('PREPARE' in rows) == (hosted == 'true') and ('COMPLETE' in rows) == (expected == 0) \
+                and ('APPREADY' in rows) == (hosted == 'true' and expected == 0)
+            if complete and 'APPREADY' in rows:
+                complete = rows.index('APPREADY') > max(rows.index('PREPARE'), rows.index('EXECUTABLE'))
+            if not complete: findings.append('共享宿主自测：恢复执行权限，归集系统就绪状态后执行 App 初始化')
     return findings
 
 

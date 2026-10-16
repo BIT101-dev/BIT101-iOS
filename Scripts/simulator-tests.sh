@@ -8,7 +8,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT_DIR/Scripts/script-support.sh"
 operation="${1:-info}"
 shift $(( $# > 0 ? 1 : 0 ))
-case "$operation" in info|prepare|prepare-restore|restore|inspect|merge|verify) [[ $# -eq 0 ]] || exit 64;; app|release-runtime|ui) ;; *) exit 64;; esac
+case "$operation" in info|prepare|prepare-restore|restore|inspect|merge|verify|build-ui) [[ $# -eq 0 ]] || exit 64;; app|release-runtime|ui) ;; *) exit 64;; esac
 SIMULATOR_WORKERS="${BIT101_SIMULATOR_WORKERS:-1}"
 [[ "$SIMULATOR_WORKERS" == <1-> ]] || { echo "模拟器工作进程数需要为正整数。" >&2; exit 64; }
 TEST_SCOPE=selected
@@ -66,7 +66,7 @@ developer = Path(os.getenv('DEVELOPER_DIR') or subprocess.check_output(['xcode-s
 device_hub = str(developer.parent / 'Applications/DeviceHub.app')
 if os.getenv('GITHUB_ACTIONS') == 'true' and operation == 'prepare' and device['state'] != 'Booted':
     subprocess.run(['xcrun', 'simctl', 'boot', identifier], check=True, stdout=sys.stderr, stderr=sys.stderr)
-if operation != 'prepare-restore' and (os.getenv('GITHUB_ACTIONS') != 'true' or operation not in {'prepare', 'app', 'release-runtime', 'ui'}):
+if operation not in {'prepare-restore', 'build-ui'} and (os.getenv('GITHUB_ACTIONS') != 'true' or operation not in {'prepare', 'app', 'release-runtime', 'ui'}):
     if device['state'] != 'Booted': subprocess.run(['xcrun', 'simctl', 'boot', identifier], check=True, stdout=sys.stderr, stderr=sys.stderr)
     subprocess.run(['xcrun', 'simctl', 'bootstatus', identifier, '-b'], check=True, stdout=sys.stderr, stderr=sys.stderr)
     subprocess.run(['open', '-a', device_hub], check=True)
@@ -77,6 +77,21 @@ PYDEVICE
 else
   echo "模拟器准备失败：$DERIVED_ROOT/simulator.log" >&2
   exit 1
+fi
+if [[ "$operation" == build-ui ]]; then
+  bit101_run_logged "$DERIVED_ROOT/ui.log" "UI 宿主库存" python3 - "$ROOT_DIR/Scripts" <<'PYINVENTORY'
+import sys
+sys.path.insert(0, sys.argv[1])
+from validation_test_areas import test_inventory
+print(f"UI 测试宿主库存：{len(test_inventory('ui'))} 项。")
+PYINVENTORY
+  conditions="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" conditions ui)"
+  bit101_run_logged "$DERIVED_ROOT/ui.log" "共享 UI 测试宿主编译" xcodebuild build-for-testing -quiet \
+    -project "$ROOT_DIR/BIT101-iOS.xcodeproj" -scheme BIT101-iOS-UIAutomation -configuration Release -derivedDataPath "$DERIVED_ROOT" \
+    -destination "platform=iOS Simulator,id=$SIMULATOR_DEVICE" ONLY_ACTIVE_ARCH=YES \
+    "BIT101_WORKFLOW_CONDITIONS=$conditions" ENABLE_TESTABILITY=YES -enableCodeCoverage YES ENABLE_CODE_COVERAGE=YES \
+    SWIFT_TREAT_WARNINGS_AS_ERRORS=YES GCC_TREAT_WARNINGS_AS_ERRORS=YES CODE_SIGN_IDENTITY=-
+  exit 0
 fi
 if [[ "$operation" == info ]]; then print -r -- "$SIMULATOR_DEVICE"; exit 0; fi
 if [[ "$operation" == prepare ]]; then echo "项目模拟器已准备。"; exit 0; fi
@@ -243,11 +258,23 @@ PYREADY
   simulator_prepare_pid=$!
 fi
 simulator_build_status=0
+if [[ "$mode" == ui && "${BIT101_REUSE_UI_HOST:-0}" == 1 ]]; then
+  python3 - "$ROOT_DIR/Scripts" "$DERIVED_ROOT/Build/Products" <<'PYHOST'
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from validation_coverage import restore_test_host_permissions
+restore_test_host_permissions(Path(sys.argv[2]))
+PYHOST
+  chmod +x "$ROOT_DIR/.build/compiler-cache/swift-syntax-indexer"
+  echo "[复用] 共享 UI 测试宿主"
+else
 bit101_run_logged "$DERIVED_ROOT/$mode.log" "模拟器测试宿主编译" xcodebuild build-for-testing -quiet \
   -project "$ROOT_DIR/BIT101-iOS.xcodeproj" -scheme "$scheme" -configuration "$configuration" -derivedDataPath "$DERIVED_ROOT" \
   -destination "$destination" ONLY_ACTIVE_ARCH=YES "BIT101_WORKFLOW_CONDITIONS=$conditions" ENABLE_TESTABILITY=YES \
   -enableCodeCoverage YES ENABLE_CODE_COVERAGE=YES \
   SWIFT_TREAT_WARNINGS_AS_ERRORS=YES GCC_TREAT_WARNINGS_AS_ERRORS=YES CODE_SIGN_IDENTITY=- "${only_testing[@]}" || simulator_build_status=$?
+fi
 simulator_prepare_status=0
 if [[ -n "$simulator_prepare_pid" ]]; then wait "$simulator_prepare_pid" || simulator_prepare_status=$?; fi
 if (( simulator_build_status )); then exit "$simulator_build_status"; fi

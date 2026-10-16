@@ -10,6 +10,18 @@ SIMULATOR_KEYBOARD_TESTS = frozenset({
 })
 
 
+def restore_test_host_permissions(products: Path) -> None:
+    import plistlib
+    import stat
+    for directory in products.iterdir():
+        if not directory.name.endswith(('-iphonesimulator', '-watchsimulator')): continue
+        for info in directory.rglob('Info.plist'):
+            metadata = plistlib.loads(info.read_bytes())
+            if name := metadata.get('CFBundleExecutable'):
+                executable = info.parent / name
+                executable.chmod(executable.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+
 def prepare_simulator_system(device: str, root: Path, *, ui: bool) -> None:
     import os
     import subprocess
@@ -290,6 +302,15 @@ def simulator_ui_preparation_self_test() -> None:
     import io
     import json
     from unittest.mock import patch
+    import plistlib
+    from types import SimpleNamespace
+    with patch.object(Path, 'iterdir', return_value=iter([Path('/products/Release-iphonesimulator'), Path('/products/Release-maccatalyst')])), \
+            patch.object(Path, 'rglob', return_value=[Path('/products/Release-iphonesimulator/Host.app/Info.plist')]) as bundles, \
+            patch.object(Path, 'read_bytes', return_value=plistlib.dumps({'CFBundleExecutable': 'Host'})), \
+            patch.object(Path, 'stat', return_value=SimpleNamespace(st_mode=0o100644)), patch.object(Path, 'chmod') as permissions:
+        restore_test_host_permissions(Path('/products'))
+        bundles.assert_called_once_with('Info.plist')
+        permissions.assert_called_once_with(0o100755)
     for ui in (False, True):
         with patch('subprocess.run') as run, patch.object(Path, 'is_dir', return_value=True), \
                 patch.dict('os.environ', {'DEVELOPER_DIR': '/Applications/Xcode.app/Contents/Developer'}):

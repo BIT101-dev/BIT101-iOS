@@ -221,22 +221,12 @@ jobs:
             .build/extended-automation/test-failures.txt
             .build/extended-automation/test-results.xcresult
 
-  ios-test-shards:
-    name: iOS Simulator ${{ matrix.mode }} (${{ matrix.shard }})
+  ios-ui-build:
+    name: Build shared iOS UI test host
     runs-on: xcode-27
     timeout-minutes: 105
-    strategy:
-      fail-fast: false
-      max-parallel: 3
-      matrix:
-        include:
-          - {mode: ui, shard: 0, count: 3, workers: 1}
-          - {mode: ui, shard: 1, count: 3, workers: 1}
-          - {mode: ui, shard: 2, count: 3, workers: 1}
     env:
       BIT101_SIMULATOR_AUTHORIZED: '1'
-      BIT101_CI_SHARD: ${{ matrix.shard }}/${{ matrix.count }}
-      BIT101_SIMULATOR_WORKERS: ${{ matrix.workers }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -256,7 +246,86 @@ jobs:
       - name: Restore native compilation cache
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 Scripts/ci_evidence.py cache-restore "simulator-${{ matrix.mode }}"
+        run: python3 Scripts/ci_evidence.py cache-restore "simulator-ui"
+      - name: Build complete UI test host
+        run: Scripts/run-extended-tests.sh simulator build-ui
+      - name: Preserve shared UI test host
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: ui-test-host
+          compression-level: 0
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+          path: |
+            .build/extended-automation/Build/Products
+            .build/compiler-cache/swift-syntax-indexer
+            .build/compiler-cache/swift-syntax-indexer-inputs.json
+      - name: Prepare native compilation cache
+        if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+        run: python3 Scripts/ci_evidence.py cache-export "simulator-ui"
+      - name: Preserve native compilation cache
+        if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: compilation-cache-simulator-ui
+          compression-level: 0
+          overwrite: true
+          include-hidden-files: true
+          if-no-files-found: error
+          path: |
+            .build/compiler-cache/CompilationCache.noindex
+            .build/compiler-cache/compilation-cache.json
+            .build/compiler-cache/swift-syntax-indexer
+            .build/compiler-cache/swift-syntax-indexer-inputs.json
+      - name: Preserve validation diagnostics
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: validation-${{ github.job }}
+          compression-level: 0
+          include-hidden-files: true
+          path: |
+            .build/extended-automation/ui.log
+
+  ios-test-shards:
+    needs: ios-ui-build
+    name: iOS Simulator ${{ matrix.mode }} (${{ matrix.shard }})
+    runs-on: xcode-27
+    timeout-minutes: 105
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        include:
+          - {mode: ui, shard: 0, count: 3, workers: 1}
+          - {mode: ui, shard: 1, count: 3, workers: 1}
+          - {mode: ui, shard: 2, count: 3, workers: 1}
+    env:
+      BIT101_SIMULATOR_AUTHORIZED: '1'
+      BIT101_REUSE_UI_HOST: '1'
+      BIT101_CI_SHARD: ${{ matrix.shard }}/${{ matrix.count }}
+      BIT101_SIMULATOR_WORKERS: ${{ matrix.workers }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          clean: false
+      - name: Verify maintainer review commit
+        id: review
+        if: github.event_name == 'workflow_dispatch' && inputs.review_pr > 0
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BIT101_REVIEW_PR: ${{ inputs.review_pr }}
+        run: |
+          base_sha="$(python3 Scripts/ci_evidence.py review-pr "$BIT101_REVIEW_PR")"
+          printf 'base_sha=%s\n' "$base_sha" >> "$GITHUB_OUTPUT"
+      - name: Show toolchain
+        run: Scripts/build-install-device.sh toolchain
+      - name: Restore shared UI test host
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download "$GITHUB_RUN_ID" --name ui-test-host --dir .build
       - name: Load target branch coverage baseline
         env:
           GH_TOKEN: ${{ github.token }}
@@ -268,23 +337,6 @@ jobs:
         run: Scripts/run-extended-tests.sh simulator prepare
       - name: Run assigned complete Simulator inventory
         run: Scripts/run-extended-tests.sh simulator "${{ matrix.mode }}"
-      - name: Prepare native compilation cache
-        if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (matrix.mode != 'ui' || matrix.shard == 0) }}
-        run: python3 Scripts/ci_evidence.py cache-export "simulator-${{ matrix.mode }}"
-      - name: Preserve native compilation cache
-        if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (matrix.mode != 'ui' || matrix.shard == 0) }}
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: compilation-cache-simulator-${{ matrix.mode }}
-          compression-level: 0
-          overwrite: true
-          include-hidden-files: true
-          if-no-files-found: error
-          path: |
-            .build/compiler-cache/CompilationCache.noindex
-            .build/compiler-cache/compilation-cache.json
-            .build/compiler-cache/swift-syntax-indexer
-            .build/compiler-cache/swift-syntax-indexer-inputs.json
       - name: Preserve validation diagnostics
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -545,7 +597,7 @@ jobs:
   compiler-cache-cleanup:
     name: Keep one native compilation cache per group
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    needs: [release-build, catalyst-tests, ios-test-shards, ios-app-tests]
+    needs: [release-build, catalyst-tests, ios-ui-build, ios-test-shards, ios-app-tests]
     runs-on: xcode-27
     permissions:
       contents: read
