@@ -484,6 +484,7 @@ def read_native_summary(bundle: Path, group: str) -> dict:
 
 def download_simulator_shard(run: str, operation: str, index: int) -> None:
     root = ROOT / '.build/extended-automation'
+    shutil.rmtree(root / 'test-results.xcresult', ignore_errors=True)
     for name in ('simulator.log', 'all.log', 'release-runtime.log', 'ui.log',
             'build-release.log', 'restore.log', 'test-metrics.txt'):
         (root / name).unlink(missing_ok=True)
@@ -630,10 +631,12 @@ def _self_test() -> None:
         files.update({metrics, root / '.build/extended-automation/simulator.log'})
     with patch.object(module, 'ROOT', root), \
             patch.object(Path, 'unlink', lambda path, **kwargs: files.discard(path)), \
+            patch.object(shutil, 'rmtree') as clear, \
             patch.object(subprocess, 'run', side_effect=download) as command:
         for operation, index in (('app', 0), ('ui', 0), ('ui', 1)):
             download_simulator_shard('7', operation, index)
             assert command.call_args.args[0][5] == f'validation-ios-test-shards-{operation}-{index}'
+            clear.assert_called_with(root / '.build/extended-automation/test-results.xcresult', ignore_errors=True)
     commit = 'a' * 40
     from contextlib import nullcontext
     retained = {'releaseCommit': commit, 'coveragePolicy': {'all': {'Feature': 70}},

@@ -972,20 +972,27 @@ extension UIAutomationTestCase {
         let close = imagePreviewCloseButton()
         close.native.tap()
         UITestSnapshotReader.invalidate()
-        assertUI(app.otherElements["QLPreviewControllerView"].disappears(timeout: 5), "关闭图片预览应恢复来源页面。")
+        assertUI(waitForImagePreview(visible: false, timeout: 5), "关闭图片预览应恢复来源页面。")
     }
 
     @MainActor
     func imagePreviewCloseButton() -> UIElement {
         let platform = UIElement(app.native)
-        let preview = platform.otherElements["QLPreviewControllerView"]
-        assertUI(preview.appears(timeout: 30), "图片交互应进入系统 Quick Look。")
+        assertUI(waitForImagePreview(visible: true, timeout: 30), "图片交互应进入系统 Quick Look。")
         let done = platform.buttons.matching(NSPredicate(format: "label IN %@", ["完成", "Done", "关闭", "Close"])).firstMatch
         if done.isHittable { return done }
-        preview.native.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)).tap()
+        app.native.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)).tap()
         UITestSnapshotReader.invalidate()
         assertUI(waitUntil(NSPredicate(format: "hittable == true"), on: done, timeout: 10), "点击预览画布应显示关闭控件。")
         return done
     }
 
+    @MainActor
+    func waitForImagePreview(visible: Bool, timeout: TimeInterval) -> Bool {
+        waitUntil(NSPredicate { _, _ in
+            guard let snapshot = try? self.app.native.snapshot() else { return false }
+            let preview = snapshot.firstSnapshot { $0.identifier == "QLPreviewControllerView" && !$0.frame.isEmpty }
+            return (preview != nil) == visible
+        }, on: app, timeout: timeout)
+    }
 }
