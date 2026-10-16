@@ -64,6 +64,11 @@ def restore_cache_payload(payload: bytes, flavor: str) -> bool:
     return True
 
 
+def trusted_cache_run(run: dict, repo: str) -> bool:
+    return run.get('event') in {'push', 'workflow_dispatch'} and run.get('head_branch') == 'main' \
+        and (run.get('head_repository') or {}).get('full_name') == repo and run.get('path') == '.github/workflows/ci.yml'
+
+
 def restore_cache(flavor: str) -> None:
     import fcntl
     if flavor not in CACHE_FLAVORS: raise ValueError('编译缓存需要登记的构建分组。')
@@ -78,8 +83,7 @@ def restore_cache(flavor: str) -> None:
             for row in page['artifacts'] if row['name'] == 'compilation-cache-' + flavor and not row['expired']]
         for artifact in sorted(artifacts, key=lambda row: row['id'], reverse=True):
             run = json.loads(subprocess.check_output(['gh', 'api', f"repos/{repo}/actions/runs/{artifact['workflow_run']['id']}"], text=True))
-            if run['event'] not in {'push', 'workflow_dispatch'} or run['head_branch'] != 'main' \
-                    or run['head_repository']['full_name'] != repo or run['path'] != '.github/workflows/ci.yml': continue
+            if not trusted_cache_run(run, repo): continue
             commit = run['head_sha']
             if not re.fullmatch('[0-9a-f]{40}', commit): continue
             if subprocess.run(['git', 'merge-base', '--is-ancestor', commit, 'HEAD'], cwd=ROOT, capture_output=True).returncode: continue
@@ -92,10 +96,13 @@ def restore_cache(flavor: str) -> None:
 def prune_caches() -> None:
     repo = repository()
     artifacts = [row for page in api_pages(f'repos/{repo}/actions/artifacts?per_page=100') for row in page['artifacts']]
-    retained = set()
+    retained, runs = set(), {}
     for row in sorted(artifacts, key=lambda value: value['id'], reverse=True):
         if row.get('expired') or row['name'] not in {'compilation-cache-' + flavor for flavor in CACHE_FLAVORS}: continue
-        if row['name'] in retained:
+        run_id = row['workflow_run']['id']
+        if run_id not in runs:
+            runs[run_id] = json.loads(subprocess.check_output(['gh', 'api', f'repos/{repo}/actions/runs/{run_id}'], text=True))
+        if not trusted_cache_run(runs[run_id], repo) or row['name'] in retained:
             subprocess.run(['gh', 'api', '-X', 'DELETE', f"repos/{repo}/actions/artifacts/{row['id']}"], check=True)
         else: retained.add(row['name'])
 
@@ -138,7 +145,7 @@ def cache_self_test() -> None:
         path='.github/workflows/ci.yml', head_sha='a' * 40)
     artifact = dict(id=1, name='compilation-cache-simulator-ui', expired=False, workflow_run={'id': 1})
     for change, ancestor, accepted in [({}, 0, True), ({'event': 'workflow_dispatch'}, 0, True), ({'event': 'pull_request'}, 0, False),
-            ({'head_branch': 'feature'}, 0, False), ({'head_repository': {'full_name': 'fork/repo'}}, 0, False),
+            ({'head_branch': 'feature'}, 0, False), ({'head_repository': None}, 0, False), ({'head_repository': {'full_name': 'fork/repo'}}, 0, False),
             ({'path': 'other.yml'}, 0, False), ({'head_sha': 'invalid'}, 0, False), ({}, 1, False)]:
         def response(command, **kwargs):
             return payload() if command[-1].endswith('/zip') else json.dumps(dict(trusted, **change))
@@ -150,13 +157,17 @@ def cache_self_test() -> None:
                 patch.object(module, 'restore_cache_payload', return_value=True) as restored, redirect_stdout(io.StringIO()):
             restore_cache('simulator-ui')
             assert restored.called == accepted, (change, ancestor)
-    artifacts = [dict(id=index, name=name, expired=False) for index, name in [
+    artifacts = [dict(id=index, name=name, expired=False, workflow_run={'id': 1}) for index, name in [
         (1, 'compilation-cache-simulator-ui'), (2, 'validation-evidence'), (3, 'compilation-cache-simulator-ui'),
         (4, 'compilation-cache-simulator-app')]]
+    artifacts.append(dict(id=5, name='compilation-cache-simulator-ui', expired=False, workflow_run={'id': 2}))
+    def producer(command, **kwargs):
+        return json.dumps(dict(trusted, head_repository={'full_name': 'fork/repo'}) if command[-1].endswith('/2') else trusted)
     with patch.object(module, 'repository', return_value='owner/repo'), \
-            patch.object(module, 'api_pages', return_value=[{'artifacts': artifacts}]), patch.object(subprocess, 'run') as deleted:
+            patch.object(module, 'api_pages', return_value=[{'artifacts': artifacts}]), \
+            patch.object(subprocess, 'check_output', side_effect=producer), patch.object(subprocess, 'run') as deleted:
         prune_caches()
-        assert [call.args[0][-1] for call in deleted.call_args_list] == ['repos/owner/repo/actions/artifacts/1']
+        assert [call.args[0][-1] for call in deleted.call_args_list] == ['repos/owner/repo/actions/artifacts/5', 'repos/owner/repo/actions/artifacts/1']
 
 
 def repository() -> str:
