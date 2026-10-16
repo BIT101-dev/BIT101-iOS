@@ -481,13 +481,13 @@ def native_source_coverage(products: Path, profile: Path, *, catalyst: bool = Fa
     result = subprocess.run(command, capture_output=True, text=True, check=True)
     if result.stderr.strip():
         raise ValueError("iOS 模块覆盖率采集诊断：" + result.stderr.strip())
+    from validation_coverage import coverage_source_path, lcov_lines
     if line_details:
-        from validation_coverage import lcov_lines
         return lcov_lines(result.stdout, ROOT)
     files = {}
     for section in json.loads(result.stdout)["data"]:
         for file in section["files"]:
-            path = Path(file["filename"])
+            path = coverage_source_path(file["filename"], ROOT)
             if (path.is_relative_to(ROOT / "Modules") and "/Sources/" in str(path)) or catalyst and path.is_relative_to(ROOT / 'BIT101-iOS'):
                 files[path] = file["summary"]["lines"]
     modules = {}

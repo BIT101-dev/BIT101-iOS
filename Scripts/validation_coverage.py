@@ -110,11 +110,17 @@ def shard_inventory(group: str, index: int, count: int) -> list[str]:
     return sorted(test_inventory(group))[index::count]
 
 
+def coverage_source_path(filename: str, root: Path) -> Path:
+    path = Path(filename)
+    prefix = Path('/^src')
+    return (root / path.relative_to(prefix)).resolve() if path.is_relative_to(prefix) else path
+
+
 def lcov_lines(source: str, root: Path) -> dict[str, dict[str, list[int]]]:
     files, path, lines = {}, None, {}
     for row in source.splitlines():
         if row.startswith('SF:'):
-            path, lines = Path(row[3:]), {}
+            path, lines = coverage_source_path(row[3:], root), {}
         elif row.startswith('DA:'):
             number, hits, *_ = row[3:].split(',')
             lines[int(number)] = int(hits)
@@ -236,6 +242,11 @@ def self_test() -> None:
             else: raise AssertionError('分片边界及登记数量需要严格匹配。')
     first = lcov_lines('SF:/repo/Modules/Feature/Sources/A.swift\nDA:1,1\nDA:2,0\nDA:3,0\nend_of_record', Path('/repo'))
     second = lcov_lines('SF:/repo/Modules/Feature/Sources/A.swift\nDA:1,2\nDA:2,1\nDA:3,0\nend_of_record', Path('/repo'))
+    mapped = 'SF:/^src/Modules/Feature/Sources/A.swift\nDA:1,1\nDA:2,0\nDA:3,0\nend_of_record'
+    assert lcov_lines(mapped, Path('/repo')) == first
+    foreign = '\nSF:/^src/../foreign/A.swift\nDA:1,1\nend_of_record'
+    assert lcov_lines(mapped + foreign, Path('/repo')) == first
+    assert coverage_source_path('/^sdk/Foundation.swift', Path('/repo')) == Path('/^sdk/Foundation.swift')
     assert combined_line_coverage([first, second]) == {name: {'coveredLines': 2, 'executableLines': 3}
         for name in ('iOS/Feature', 'BIT101-iOS.app')}
     assert combined_line_coverage([first, first])['iOS/Feature']['coveredLines'] == 1
