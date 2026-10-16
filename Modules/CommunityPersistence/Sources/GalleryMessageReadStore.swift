@@ -71,7 +71,7 @@ public final class GalleryMessageReadStore: GalleryMessageReadStoring {
     private let storageRoot: URL
     private let worker = MessageSnapshotFiles()
     private var cacheGeneration = 0
-    private var cached: (session: AppStorageSession, revision: Int, state: MessageSnapshotState?)?
+    private var cached: (session: AppStorageSession, revisionKey: String, revision: Int, state: MessageSnapshotState?)?
     private var loadTask: (session: AppStorageSession, revision: Int, generation: Int, task: Task<Bool, Never>)?
     private nonisolated struct WriteKey: Hashable {
         let url: URL
@@ -105,8 +105,8 @@ public final class GalleryMessageReadStore: GalleryMessageReadStoring {
     }
 
     private var currentState: MessageSnapshotState? {
-        let account = session(), revision = defaults.integer(forKey: revisionKey)
-        guard let cached, cached.session == account, cached.revision == revision else {
+        let account = session()
+        guard let cached, cached.session == account, cached.revision == defaults.integer(forKey: cached.revisionKey) else {
             Task { [weak self] in await self?.prepareSnapshot() }
             return nil
         }
@@ -134,7 +134,7 @@ public final class GalleryMessageReadStore: GalleryMessageReadStoring {
             if self.loadTask?.session == account && self.loadTask?.revision == revision && self.loadTask?.generation == generation { self.loadTask = nil }
             guard generation == self.cacheGeneration, account == self.session(), revision == self.defaults.integer(forKey: revisionKey) else { return false }
             let previous = self.cached?.session == account ? self.cached?.state?.unread : nil
-            self.cached = (account, revision, state)
+            self.cached = (account, revisionKey, revision, state)
             self.loadTask = nil
             if state != nil, let legacy, self.defaults.object(forKey: key) == nil {
                 self.defaults.set(legacy, forKey: key)
@@ -172,7 +172,7 @@ public final class GalleryMessageReadStore: GalleryMessageReadStoring {
                 self.defaults.set(revision, forKey: revisionKey)
                 self.defaults.removeObject(forKey: key)
                 let isCurrent = generation == self.cacheGeneration && account == self.session()
-                if isCurrent { self.cached = (account, revision, saved) }
+                if isCurrent { self.cached = (account, revisionKey, revision, saved) }
                 if shouldSync { self.saveSubject.send(account) }
                 self.changeSubject.send(account)
                 return isCurrent

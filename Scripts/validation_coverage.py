@@ -119,7 +119,16 @@ def shard_inventory(group: str, index: int, count: int) -> list[str]:
     from validation_test_areas import test_inventory
     if group not in SIMULATOR_SHARDS or count != SIMULATOR_SHARDS[group] or not 0 <= index < count:
         raise ValueError('模拟器分片需要匹配登记的完整库存分配。')
-    return sorted(test_inventory(group))[index::count]
+    inventory = sorted(test_inventory(group))
+    if group != 'ui': return inventory[index::count]
+    from validation_inputs import performance_workloads
+    weights = {test: workload.get('weekSwitchPairs', 1) for test, workload in performance_workloads().values()}
+    parts, costs = [[] for _ in range(count)], [0] * count
+    for test in sorted(inventory, key=lambda test: (-weights.get(test, 1), test)):
+        destination = min(range(count), key=costs.__getitem__)
+        parts[destination].append(test)
+        costs[destination] += weights.get(test, 1)
+    return sorted(parts[index])
 
 
 def coverage_source_path(filename: str, root: Path) -> Path:
@@ -253,6 +262,13 @@ def self_test(evidence) -> None:
             try: shard_inventory('ui', index, invalid_count)
             except ValueError: pass
             else: raise AssertionError('分片边界及登记数量需要严格匹配。')
+    inventory = {'Layout/testWeeks', *(f'Suite/test{index:02}' for index in range(30))}
+    with patch('validation_test_areas.test_inventory', return_value=inventory), \
+            patch('validation_inputs.performance_workloads', return_value={'layout': ('Layout/testWeeks', {'weekSwitchPairs': 10})}):
+        parts = [shard_inventory('ui', index, 3) for index in range(3)]
+        costs = [sum(10 if test == 'Layout/testWeeks' else 1 for test in part) for part in parts]
+        assert max(costs) - min(costs) <= 1 and 'Layout/testWeeks' in parts[0]
+        assert sorted(test for part in parts for test in part) == sorted(inventory)
     first = lcov_lines('SF:/repo/Modules/Feature/Sources/A.swift\nDA:1,1\nDA:2,0\nDA:3,0\nend_of_record', Path('/repo'))
     second = lcov_lines('SF:/repo/Modules/Feature/Sources/A.swift\nDA:1,2\nDA:2,1\nDA:3,0\nend_of_record', Path('/repo'))
     mapped = 'SF:/^src/Modules/Feature/Sources/A.swift\nDA:1,1\nDA:2,0\nDA:3,0\nend_of_record'

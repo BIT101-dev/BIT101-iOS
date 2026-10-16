@@ -893,10 +893,10 @@ def workflow_lock_boundary_findings() -> list[str]:
         worker.write_text('ROOT_DIR="$BIT101_LOCK_TEST_CHECKOUT"\n' + support + '\n' + test_lock + '\n'
                          'case "${1:-}" in modules|catalyst|catalyst-release-runtime) MODE="$1"; BUILD_ONLY=false; GENERIC_BUILD=false; SCRIPT_PATH="$0"; SCRIPT_ARGS=("$@"); acquire_test_lock ;; *)\n'
                          'ACTION=install; case "${1:-}" in artifact) ACTION=build ;; mac) ACTION=mac ;; esac\n'
-                         + 'if [[ "$ACTION" == install' + dispatch + '\n;; esac\nprint entered\n'
+                         + 'if [[ "$ACTION" == install' + dispatch + '\n;; esac\n'
                          'if [[ "${1:-}" == signal || "${1:-}" == budget ]]; then\n'
                          '  trap \'print cleanup; if [[ "$1" == signal ]]; then read -r reply < "$ROOT_DIR/release"; fi; exit 143\' TERM\n'
-                         'fi\n'
+                         'fi\nprint entered\n'
                          'case "${1:-}" in hold|signal|budget) read -r reply < "$ROOT_DIR/release" ;; esac\n')
         def line(process):
             return process.stdout.readline().strip() if select.select([process.stdout], [], [], 5)[0] else "timeout"
