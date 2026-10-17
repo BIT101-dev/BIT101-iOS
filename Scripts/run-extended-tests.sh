@@ -161,19 +161,7 @@ print(f"{summary.get('result', '?')} · {summary.get('passedTests', 0)}/{summary
 for failure in summary.get("testFailures", []):
     message = str(failure.get("failureText", "?")).splitlines()[0][:240]
     print(f"{failure.get('testIdentifierString', '?')}: {message}")
-tests = json.loads(subprocess.check_output([
-    "xcrun", "xcresulttool", "get", "test-results", "tests", "--path", sys.argv[1],
-], text=True))
-def visit(value):
-    if isinstance(value, dict):
-        if value.get("nodeType") == "Test Case":
-            print(f"{value.get('name', '?')} · {value.get('duration', '?')} · {value.get('result', '?')}")
-        for child in value.values():
-            visit(child)
-    elif isinstance(value, list):
-        for child in value:
-            visit(child)
-visit(tests)
+
 PY
   exit 0
 fi

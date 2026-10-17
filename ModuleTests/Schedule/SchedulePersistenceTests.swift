@@ -110,6 +110,7 @@ struct SchedulePersistenceTests {
             fresh.removeAllCachedResourceValues()
             return try fresh.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup
         }
+        let inheritedExclusion = try exclusion(support) == true
         try files.removeItemIfPresent(at: root)
         try files.createDirectory(at: directory)
         defer { do { try files.removeItem(at: root) } catch { Issue.record(error) } }
@@ -118,13 +119,19 @@ struct SchedulePersistenceTests {
         try files.writeData(original, to: file, options: .atomic)
         for excluded in [true, false, true, false] {
             try files.setBackupExcluded(excluded, at: root, recursively: true)
+            let expected = excluded || inheritedExclusion
             var observed: [Bool] = []
-            try await waitForTestEvent {
-                observed = try [root, directory, file].map { try exclusion($0) == true }
-                return observed.allSatisfy { $0 == excluded }
+            do {
+                try await waitForTestEvent {
+                    observed = try [root, directory, file].map { try exclusion($0) == true }
+                    return observed.allSatisfy { $0 == expected }
+                }
+            } catch {
+                Issue.record("备份排除标记期望 \(expected)，父目录标记 \(inheritedExclusion)，根目录、草稿目录及文件实际标记：\(observed)。")
+                throw error
             }
             for (target, actual) in zip([root, directory, file], observed) {
-                #expect(actual == excluded, "备份排除标记 \(excluded)，目标 \(target.lastPathComponent)。")
+                #expect(actual == expected, "备份排除标记 \(expected)，目标 \(target.lastPathComponent)。")
             }
             #expect(try files.readData(at: file) == original)
         }
@@ -132,9 +139,9 @@ struct SchedulePersistenceTests {
         var directoryExcluded: Bool? = nil
         try await waitForTestEvent {
             directoryExcluded = try exclusion(directory)
-            return directoryExcluded != true
+            return (directoryExcluded == true) == inheritedExclusion
         }
-        #expect(directoryExcluded != true)
+        #expect((directoryExcluded == true) == inheritedExclusion)
         #expect(try files.readData(at: file) == Data("edited".utf8))
     }
 

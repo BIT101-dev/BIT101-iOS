@@ -424,6 +424,18 @@ def script_output_boundary_findings() -> list[str]:
         if log.getvalue() != "    t = 0.10s Press button\n" + case:
             findings.append('日志自测：原生用例进度即时展示，完整操作记录沿固定日志保留')
     script = (SCRIPT_ROOT / "run-extended-tests.sh").read_text()
+    summary = script[script.index('summary = json.loads(subprocess.check_output(['):].split('\nPY\n', 1)[0]
+    for failures in ([], [{'testIdentifierString': 'Suite/test', 'failureText': 'assertion'}]):
+        visible = StringIO()
+        sample = dict(result='Failed' if failures else 'Passed', passedTests=2 if failures else 3,
+            totalTestCount=3, testFailures=failures)
+        with patch.object(sys, 'argv', ['report', '/result']), \
+                patch.object(subprocess, 'check_output', return_value=json.dumps(sample)) as read, redirect_stdout(visible):
+            exec(compile(summary, '<report-summary>', 'exec'), dict(json=json, subprocess=subprocess, sys=sys))
+        expected = [f"{sample['result']} · {sample['passedTests']}/3 通过"]
+        if failures: expected.append('Suite/test: assertion')
+        if visible.getvalue().splitlines() != expected or read.call_count != 1:
+            findings.append('报告默认输出摘要与失败项，完整用例树沿 report json 读取。')
     metrics = re.search(r"(?ms)^record_metrics\(\) \{.*?<<'PY'\n(.*?)^PY$", script)[1]
     with patch.object(sys, "argv", ["metrics", "/result", "/report", "ui", "1", "device", "/audit"]), \
             patch.object(subprocess, "run", return_value=subprocess.CompletedProcess([], 64, "", "incomplete result")):

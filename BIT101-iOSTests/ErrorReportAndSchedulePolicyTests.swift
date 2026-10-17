@@ -707,6 +707,7 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
 
 @MainActor
 struct NetworkEvidenceProjectionTests {
+#if DEBUG || RELEASE_NETWORK_SMOKE
     @Test func feedbackSmokeRequiresEveryCleanupAndQuotaReceiptField() throws {
         let fields = ["ok", "recordVerified", "temporaryRecordRemoved", "quotaReserved"]
         let valid = Dictionary(uniqueKeysWithValues: fields.map { ($0, true) })
@@ -723,6 +724,7 @@ struct NetworkEvidenceProjectionTests {
             #expect(throws: (any Error).self) { try FeedbackSubmissionClient.validateNetworkSmokeResponse(JSONEncoder().encode(rejected)) }
         }
     }
+#endif
 
     @Test func communityConfigurationUsesTheCurrentAccountAndExistingObjects() throws {
         let request = try JSONDecoder().decode(ReleaseNetworkSmokeLaunchRequest.self,

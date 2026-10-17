@@ -205,6 +205,9 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         let initial = control.value as? String
         let nativeSwitch = control.switches.firstMatch
         if nativeSwitch.exists { nativeSwitch.tap() } else { control.tap() }
+        reveal(control, description: title)
+        assertUI(waitUntil(NSPredicate { _, _ in control.value as? String != nil }, on: control, timeout: 5),
+            "开关操作后应恢复当前设置项的可读数值：\(title)。")
         guard let value = control.value as? String else {
             assertUI(false, "开关操作后应保留当前设置页和可读数值：\(title)。")
             return ""
@@ -219,9 +222,12 @@ nonisolated class UIAutomationTestCase: XCTestCase {
 
     @MainActor
     func choose(_ title: String, option: String) {
-        tap(title)
-        tap(option)
         let row = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch
+        reveal(row, description: title)
+        row.tap()
+        let choice = app.buttons.matching(NSPredicate(format: "label == %@", option)).firstMatch
+        guard choice.appears(timeout: 5) else { assertUI(false, "选择菜单应展示选项：\(option)。"); return }
+        choice.tap()
         if row.label.hasSuffix(option) || row.value as? String == option { return }
         assertUI(waitUntil(NSPredicate(format: "label ENDSWITH %@ OR value == %@", option, option), on: row, timeout: 5), "选择应更新\(title)为\(option)。")
     }
@@ -324,7 +330,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         if UIElement.usesNativeInteraction {
             let done = app.buttons["keyboard.dismiss"]
             assertUI(done.appears(timeout: 5), "系统键盘应呈现完成按钮。")
-            done.tapVisibleCenter()
+            done.tap()
             assertUI(app.keyboards.firstMatch.disappears(timeout: 5), "原生完成按钮应关闭系统键盘。")
             return
         }

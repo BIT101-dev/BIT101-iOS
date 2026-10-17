@@ -460,7 +460,7 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         let savedSwitches = Dictionary(uniqueKeysWithValues: ["显示周六", "显示周日", "显示考试安排"].map { ($0, toggle($0)) })
         let nameRow = app.buttons["schedule.settings.primary-name"]
         reveal(nameRow, description: "课表名称")
-        nameRow.tapBriefly()
+        nameRow.tap()
         let name = app.textFields["schedule.rename.name"]
         assertUI(name.appears(timeout: 5), "重命名应展示输入框。")
         replaceText("测试课表名称", in: name)

@@ -519,7 +519,7 @@ struct FeatureCompositionTests {
     }
 
     @Test(.timeLimit(.minutes(1))) func profileFollowUsesItsInjectedCommunitySessionAndUpdatesTheDisplayedCard() async throws {
-        let transport = TraceTransport()
+        let transport = TraceTransport(); var following = false
         transport.response = { request in
             #expect(request.value(forHTTPHeaderField: "fake-cookie") == "fixture")
             if request.url?.path == "/user/info/42" {
@@ -528,7 +528,7 @@ struct FeatureCompositionTests {
             }
             #expect(request.url?.path == "/user/follow/42")
             #expect(request.httpMethod == "POST")
-            return Data(#"{"following":true,"follower":true,"followingNum":4,"followerNum":5}"#.utf8)
+            following.toggle(); return Data(#"{"following":\#(following),"follower":true,"followingNum":4,"followerNum":\#(following ? 5 : 4)}"#.utf8)
         }
         let model = UserProfileViewModel(userID: 42, service: mine(transport).profile)
         await model.refreshProfile()
@@ -539,7 +539,7 @@ struct FeatureCompositionTests {
         #expect(model.userInfo?.followingNum == 4 && model.userInfo?.followerNum == 5)
         #expect(model.isFollowingUser == false && model.alert == nil)
         await model.followUser()
-        #expect(transport.requests.count == 2)
+        #expect(transport.requests.count == 3 && model.userInfo?.following == false && model.userInfo?.followerNum == 4)
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [ScheduleSection.courses, .ddl, .classroom])

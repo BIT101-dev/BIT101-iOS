@@ -430,9 +430,9 @@ final class UIElement: NSObject {
     }
     func tap() {
         defer { UITestSnapshotReader.invalidate() }
-        if path == nil {
-            let identity = interactionIdentity
+        if Self.usesNativeInteraction || path == nil {
             Self.beforeNativeTap?()
+            let identity = interactionIdentity
             native.tap()
             recordInteraction(identity, action: "tap")
         } else { tapBriefly() }
