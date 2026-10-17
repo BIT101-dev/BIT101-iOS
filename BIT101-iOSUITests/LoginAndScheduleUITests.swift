@@ -845,9 +845,8 @@ nonisolated final class ScheduleEditingUITests: UIAutomationTestCase {
         ddl.tapBriefly()
         let eclass = app.staticTexts["课程中心测试作业"]
         assertUI(eclass.appears(timeout: 5), "DDL 页应展示课程中心作业。")
-        let timestamp = app.native.staticTexts["app.refresh-status.timestamp"].firstMatch
-        XCTAssertEqual(eclass.native.frame.minX, timestamp.frame.minX, accuracy: 1,
-            "DDL 内容应沿更新时间行的设计系统边距对齐。")
+        let ddlCell = app.native.cells.containing(.staticText, identifier: "课程中心测试作业").firstMatch
+        let leadingInset = eclass.native.frame.minX - ddlCell.frame.minX
         assertUI(app.staticTexts["乐学测试日程"].exists, "DDL 页应展示乐学日程。")
         XCTAssertEqual(app.staticTexts["ddl.preview.lexue-ui"].label, "测试课程\n测试说明\n补充说明",
             "列表预览应按有效文本行排列课程名和作业说明。")
@@ -874,6 +873,10 @@ nonisolated final class ScheduleEditingUITests: UIAutomationTestCase {
         assertUI(completion.value as? String == "已完成", "点击后应保存完成状态。")
         eclass.tapBriefly()
         assertUI(app.navigationBars["DDL 详情"].appears(timeout: 5), "课程中心作业应打开详情。")
+        let detailTitle = app.native.staticTexts["课程中心测试作业"].firstMatch
+        let detailCell = app.native.cells.containing(.staticText, identifier: "课程中心测试作业").firstMatch
+        XCTAssertEqual(leadingInset, detailTitle.frame.minX - detailCell.frame.minX, accuracy: 1,
+            "DDL 卡片与普通列表应沿用相同的系统默认行边距。")
         assertUI(app.staticTexts["课程中心"].exists, "详情应显示中文来源。")
         assertUI(!app.buttons["编辑"].exists && !app.buttons["删除"].exists, "学校作业应按同步来源展示。")
         tapHeader(app.buttons["取消"])

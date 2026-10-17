@@ -73,11 +73,7 @@ public struct AppDetailShareLink: View {
 
     public var body: some View {
         ShareLink(item: item, subject: Text(subject)) {
-            Image(systemName: "square.and.arrow.up")
-                .frame(
-                    width: AppDesignSystem.Size.Control.touchTarget,
-                    height: AppDesignSystem.Size.Control.touchTarget
-                )
+            Label(accessibilityLabel, systemImage: "square.and.arrow.up")
         }
         .accessibilityLabel(accessibilityLabel)
         .accessibilityIdentifier("detail.share")

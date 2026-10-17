@@ -198,8 +198,6 @@ private struct DDLEventRow: View {
             .accessibilityIdentifier("ddl.done.\(event.id)")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, AppDesignSystem.Spacing.content)
-        .appListRowInsets()
         .contentShape(Rectangle())
         .onTapGesture(perform: onOpenDetail)
         .accessibilityElement(children: .contain)

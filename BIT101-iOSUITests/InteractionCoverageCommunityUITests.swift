@@ -121,6 +121,8 @@ nonisolated final class CommunityInteractionUITests: UIAutomationTestCase {
         reveal(textElement("文章回复内容"))
         assertUI(textElement("文章回复内容").exists, "文章回复应显示正文。")
         tap("更多操作")
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "界面截图：文章更多菜单"; screenshot.lifetime = .keepAlways; add(screenshot)
         tap("分享文章")
         dismissShareSheet()
         tap("评论文章")
