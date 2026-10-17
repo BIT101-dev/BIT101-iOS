@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Scheme
-   LastUpgradeVersion = "2700"
+   LastUpgradeVersion = "2710"
    version = "1.7">
    <BuildAction
       parallelizeBuildables = "YES"
@@ -9,8 +9,8 @@
       <BuildActionEntries>
          <BuildActionEntry
             buildForTesting = "YES"
-            buildForRunning = "NO"
-            buildForProfiling = "NO"
+            buildForRunning = "YES"
+            buildForProfiling = "YES"
             buildForArchiving = "NO"
             buildForAnalyzing = "YES">
             <BuildableReference
@@ -41,12 +41,16 @@
       buildConfiguration = "Release"
       selectedDebuggerIdentifier = ""
       selectedLauncherIdentifier = "Xcode.IDEFoundation.Launcher.PosixSpawn"
-      shouldUseLaunchSchemeArgsEnv = "YES"
-      shouldAutocreateTestPlan = "NO">
+      shouldUseLaunchSchemeArgsEnv = "YES">
+      <TestPlans>
+         <TestPlanReference
+            reference = "container:BIT101-iOS.xcodeproj/xcshareddata/xctestplans/BIT101-iOS-UIAutomation.xctestplan"
+            default = "YES">
+         </TestPlanReference>
+      </TestPlans>
       <Testables>
          <TestableReference
-            skipped = "NO"
-            parallelizable = "NO">
+            skipped = "NO">
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "B10100000000000000000005"
@@ -56,12 +60,6 @@
             </BuildableReference>
          </TestableReference>
       </Testables>
-      <TestPlans>
-         <TestPlanReference
-            reference = "container:BIT101-iOS.xcodeproj/xcshareddata/xctestplans/BIT101-iOS-UIAutomation.xctestplan"
-            default = "YES">
-         </TestPlanReference>
-      </TestPlans>
    </TestAction>
    <LaunchAction
       buildConfiguration = "Release"
@@ -101,7 +99,8 @@
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>
-   <AnalyzeAction buildConfiguration = "Release">
+   <AnalyzeAction
+      buildConfiguration = "Release">
    </AnalyzeAction>
    <ArchiveAction
       buildConfiguration = "Release"

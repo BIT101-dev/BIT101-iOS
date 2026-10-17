@@ -170,6 +170,7 @@ struct GalleryStateContractTests {
         var types: [GalleryReportType] = []
         var failed = false
         var submissions = 0
+        var submitted: (objectID: String, typeID: Int, text: String)?
         var pending: CheckedContinuation<Void, Never>?
         var failure: (any Error)?
         func fetchReportTypes() async throws -> [GalleryReportType] {
@@ -178,6 +179,7 @@ struct GalleryStateContractTests {
         }
         func report(objectID: String, typeID: Int, text: String) async throws {
             submissions += 1
+            submitted = (objectID, typeID, text)
             if let failure { throw failure }
             await withCheckedContinuation { pending = $0 }
             try Task.checkCancellation()
@@ -297,9 +299,24 @@ struct GalleryStateContractTests {
         await model.loadReportTypes()
         #expect(model.errorMessage != nil && model.selectedTypeID == nil)
         service.failed = false
-        service.types = try JSONDecoder().decode([GalleryReportType].self, from: Data(#"[{"id":42,"text":"服务端类型"}]"#.utf8))
+        service.types = try JSONDecoder().decode([GalleryReportType].self,
+            from: Data(#"[{"id":42,"text":"服务端类型"},{"id":7,"text":"其他类型"}]"#.utf8))
         await model.loadReportTypes()
-        #expect(model.selectedTypeID == 42 && model.errorMessage == nil)
+        #expect(model.reportTypes.map(\.id) == [42, 7] && model.selectedTypeID == 42 && model.errorMessage == nil)
+        #expect(!model.isLoading && !model.isSubmitting)
+        model.selectedTypeID = 999
+        #expect(await model.submit(objectID: "poster1") == false && service.submissions == 0)
+        model.selectedTypeID = 7
+        model.text = "  举报说明\n"
+        let submission = Task { await model.submit(objectID: "poster1") }
+        try await waitForTestEvent { service.pending != nil }
+        #expect(model.isSubmitting && service.submissions == 1)
+        let pending = try #require(service.pending)
+        service.pending = nil
+        pending.resume()
+        #expect(await submission.value)
+        #expect(service.submitted?.objectID == "poster1" && service.submitted?.typeID == 7)
+        #expect(service.submitted?.text == "举报说明" && !model.isSubmitting && model.errorMessage == nil)
     }
 
     @Test(.timeLimit(.minutes(1))) func reportResponseLossPausesRepeatedSubmission() async throws {

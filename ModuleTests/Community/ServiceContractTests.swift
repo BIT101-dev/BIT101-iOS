@@ -260,14 +260,21 @@ struct ServiceContractTests {
         }
     }
 
-    @Test(.timeLimit(.minutes(1))) func botBatchesDeduplicateOverlappingSourcePages() async throws {
-        let first = poster(id: 1, bot: true), second = poster(id: 2, bot: true), third = poster(id: 3, bot: true)
-        let transport = Transport([(200, "[" + first + "," + second + "]"), (200, "[" + second + "," + third + "]"), (200, "[]")])
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func botBatchesDeduplicateOverlappingSourcePages(hideBots: Bool) async throws {
+        let first = poster(id: 1, bot: true)
+        let second = poster(id: 2, bot: true).replacingOccurrences(of: "[\"bot\"]", with: "[\"新闻\"]")
+        let third = poster(id: 3, bot: true).replacingOccurrences(of: "[\"bot\"]", with: "[\"RoBoT\"]")
+        let transport = Transport([(200, "[" + poster(id: 9) + "," + first + "," + second + "]"),
+            (200, "[" + second + "," + third + "]"), (200, "[]")])
         let service = GalleryService(session: session(transport), preferences: {
-            .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
+            .init(hideBots: hideBots, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
         })
         let batch = try await service.fetchBotFeed(startPage: 0)
         #expect(batch.items.map(\.id) == [1, 2, 3] && batch.nextSourcePage == 3 && !batch.canLoadMore)
+        #expect(batch.sourceIDs == [9, 1, 2, 2, 3])
+        #expect(try transport.requests.map { try query($0)["page"] } == [nil, "1", "2"])
+        #expect(try transport.requests.allSatisfy { try query($0)["hide_bot"] == nil })
     }
 
     @Test(.timeLimit(.minutes(1))) func botFilteringPreservesItsCursorAcrossBoundedBatches() async throws {
@@ -405,18 +412,19 @@ struct ServiceContractTests {
         #expect(try query(transport.requests[2])["page"] == "2")
     }
 
-    @Test(.timeLimit(.minutes(1))) func messageHistoryCanStartAtTheUpperBoundAndPreserveUnreadCounts() async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: GalleryMessageType.allCases)
+    func messageHistoryCanStartAtTheUpperBoundAndPreserveUnreadCounts(type: GalleryMessageType) async throws {
         let transport = Transport([(200, "[]")])
         let service = GalleryService(session: session(transport), preferences: {
             CommunityPreferenceSnapshot(hideBots: false, hiddenUserIDs: [], hideAnonymous: false,
                                         useWebView: false, hideMakeupOutliers: false)
         })
-        #expect(try await service.fetchMessages(type: .comment, lastID: .max).isEmpty)
-        #expect(try query(transport.requests[0]) == ["type": "comment", "last_id": String(Int.max)])
+        #expect(try await service.fetchMessages(type: type, lastID: .max).isEmpty)
+        #expect(try query(transport.requests[0]) == ["type": type.rawValue, "last_id": String(Int.max)])
     }
 
-    @Test(.timeLimit(.minutes(1)), arguments: [[89, 80], [], [95], [90], [80, 89], [89, 89], [0]])
-    func messageHistoryRequiresStrictlyOlderOrderedPages(ids: [Int]) async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: GalleryMessageType.allCases, [[89, 80], [], [95], [90], [80, 89], [89, 89], [0]])
+    func messageHistoryRequiresStrictlyOlderOrderedPages(type: GalleryMessageType, ids: [Int]) async throws {
         let messages = ids.map { id in
             #"{"id":\#(id),"from_user":{},"link_obj":"poster1","obj":"poster1","text":"消息","update_time":""}"#
         }
@@ -425,11 +433,73 @@ struct ServiceContractTests {
             .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
         })
         if ids == [89, 80] || ids.isEmpty {
-            #expect(try await service.fetchMessages(type: .comment, lastID: 90).map(\.id) == ids)
+            #expect(try await service.fetchMessages(type: type, lastID: 90).map(\.id) == ids)
         } else {
-            await #expect(throws: GalleryServiceError.self) { try await service.fetchMessages(type: .comment, lastID: 90) }
+            await #expect(throws: GalleryServiceError.self) { try await service.fetchMessages(type: type, lastID: 90) }
         }
-        #expect(try query(transport.requests[0]) == ["type": "comment", "last_id": "90"])
+        #expect(try query(transport.requests[0]) == ["type": type.rawValue, "last_id": "90"])
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: GalleryMessageType.allCases)
+    func messageCategoriesKeepTheirCursorAcrossTwoHistoryPages(type: GalleryMessageType) async throws {
+        func page(_ ids: [Int]) -> String {
+            let rows = ids.map { id in
+                #"{"id":\#(id),"from_user":{},"link_obj":"poster\#(id)","obj":"poster\#(id)","text":"消息","update_time":"2026-10-01T00:00:00Z"}"#
+            }
+            return "[" + rows.joined(separator: ",") + "]"
+        }
+        let transport = Transport([[90, 80], [90, 80], [70, 60], []].map { (200, page($0)) })
+        let service = GalleryService(session: session(transport), preferences: {
+            .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
+        })
+        for (cursor, ids) in [(nil as Int?, [90, 80]), (Int.max, [90, 80]), (80, [70, 60]), (60, [])] {
+            let messages = try await service.fetchMessages(type: type, lastID: cursor)
+            #expect(messages.map(\.id) == ids && messages.compactMap(\.linkedPosterID) == ids)
+            let request = try #require(transport.requests.last)
+            #expect(request.url?.path == "/messages")
+            var expected = ["type": type.rawValue]
+            if let cursor { expected["last_id"] = String(cursor) }
+            #expect(try query(request) == expected)
+        }
+        #expect(transport.requests.count == 4)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func commentOrdersUseDistinctSamplesAndRestartPagination() async throws {
+        func comment(_ id: Int) -> String {
+            #"{"id":\#(id),"obj":"poster1","images":[],"user":\#(user),"anonymous":false,"create_time":"2026-10-0\#(4 - id)T00:00:00Z","update_time":"2026-10-01T00:00:00Z","like":false,"like_num":\#(id == 2 ? 9 : id == 3 ? 6 : 3),"comment_num":0,"own":true,"rate":0,"reply_user":\#(user),"reply_obj":"","text":"评论\#(id)","sub":[]}"#
+        }
+        let ranked = ["new": [1, 2, 3], "old": [3, 2, 1], "like": [2, 3, 1]]
+        let transport = Transport([])
+        transport.responseForRequest = { request in
+            let parameters = try query(request)
+            let order = try #require(parameters["order"])
+            let ids = try #require(ranked[order])
+            let page = Int(parameters["page"] ?? "0") ?? 0
+            let rows = page == 0 ? Array(ids.prefix(2)) : page == 1 ? Array(ids.suffix(1)) : []
+            return (200, "[" + rows.map(comment).joined(separator: ",") + "]")
+        }
+        let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let initial = try decoder.decode(CommunityPoster.self, from: Data(poster(id: 1).utf8))
+        let model = GalleryPosterDetailViewModel(initialPoster: initial, service: GalleryService(session: session(transport), preferences: {
+            .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
+        }))
+        for order in [CommunityCommentOrder.newest, .oldest, .like, .newest] {
+            let ids = try #require(ranked[order.rawValue]), start = transport.requests.count
+            if model.commentState.status == .idle { await model.refreshComments() }
+            else { await model.setCommentOrder(order) }
+            #expect(model.commentOrder == order && model.commentState.items.map(\.id) == Array(ids.prefix(2)))
+            #expect(model.commentState.nextPage == 1 && model.commentState.canLoadMore)
+            #expect(Set(model.commentState.items.map(\.createTime)).count == 2)
+            #expect(Set(model.commentState.items.map(\.likeNum)).count == 2)
+            await model.loadMoreCommentsIfNeeded(currentComment: model.commentState.items.last)
+            #expect(model.commentState.items.map(\.id) == ids && model.commentState.nextPage == 2)
+            await model.loadMoreCommentsIfNeeded(currentComment: model.commentState.items.last)
+            #expect(!model.commentState.canLoadMore && !model.commentState.isLoadingMore)
+            let requests = Array(transport.requests.dropFirst(start))
+            #expect(requests.count == 3)
+            #expect(try requests.map { try query($0)["page"] } == [nil, "1", "2"])
+            #expect(try requests.allSatisfy { try query($0)["order"] == order.rawValue && query($0)["obj"] == "poster1" })
+        }
     }
 
     private func session(_ transport: Transport, cookie: String = "fixture-cookie") -> CommunitySession {

@@ -403,7 +403,8 @@ struct CommunityDependencyBoundaryTests {
         #expect(state.nextCursor == 9 && !state.canLoadMore)
     }
 
-    @Test(.timeLimit(.minutes(1))) func messagesCaptureTheUnreadWindowAcrossSourcePagesAndRetainHistoricalPaging() async throws {
+    @Test(.timeLimit(.minutes(1)), .serialized, arguments: GalleryMessageType.allCases)
+    func messagesCaptureTheUnreadWindowAcrossSourcePagesAndRetainHistoricalPaging(type: GalleryMessageType) async throws {
         let domain = "BIT101ModulesTests.message-window"
         let defaults = try #require(UserDefaults(suiteName: domain))
         defaults.removePersistentDomain(forName: domain)
@@ -412,34 +413,43 @@ struct CommunityDependencyBoundaryTests {
         let files = ModuleScoreFiles()
         let store = GalleryMessageReadStore(files: files, storageRoot: URL(fileURLWithPath: "/messages"), defaults: defaults, session: { session })
         let service = PagedMessageService()
+        service.messageType = type
         let model = GalleryMessageViewModel(service: service, readStore: store)
         await model.refreshUnreadCounts()
-        await model.refresh(type: .comment)
+        await model.refresh(type: type)
         #expect(service.cursors == [Int.max, 5, 3, nil, Int.max])
-        #expect(model.state(for: .comment).items.map(\.id) == [6, 5])
-        #expect(model.unreadCount(for: .comment) == 5)
-        #expect(store.isUnread(id: 2, for: .comment) && !store.isUnread(id: 1, for: .comment))
-        await model.loadMoreIfNeeded(for: .comment, currentMessage: model.state(for: .comment).items.last)
-        await model.loadMoreIfNeeded(for: .comment, currentMessage: model.state(for: .comment).items.last)
-        await model.loadMoreIfNeeded(for: .comment, currentMessage: model.state(for: .comment).items.last)
+        #expect(model.state(for: type).items.map(\.id) == [6, 5])
+        #expect(model.unreadCount(for: type) == 5)
+        #expect(store.isUnread(id: 2, for: type) && !store.isUnread(id: 1, for: type))
+        await model.loadMoreIfNeeded(for: type, currentMessage: model.state(for: type).items.last)
+        await model.loadMoreIfNeeded(for: type, currentMessage: model.state(for: type).items.last)
+        await model.loadMoreIfNeeded(for: type, currentMessage: model.state(for: type).items.last)
         #expect(service.cursors == [Int.max, 5, 3, nil, Int.max, 5, 3, 1])
-        #expect(!model.state(for: .comment).canLoadMore)
-        await model.refresh(type: .comment)
-        #expect(store.unreadCount(for: .comment) == 5)
-        let before = model.state(for: .comment)
+        #expect(!model.state(for: type).canLoadMore)
+        await model.refresh(type: type)
+        #expect(store.unreadCount(for: type) == 5)
+        let before = model.state(for: type)
         for error in [URLError(.timedOut) as any Error, CancellationError()] {
             model.alert = nil
             service.failure = error
-            await model.refresh(type: .comment)
-            let current = model.state(for: .comment)
+            await model.refresh(type: type)
+            let current = model.state(for: type)
             #expect(current.status == .loaded && current.items.map(\.id) == before.items.map(\.id))
             #expect(current.nextCursor == before.nextCursor && current.canLoadMore == before.canLoadMore)
             #expect(!current.isLoadingMore)
             #expect(model.alert?.title == (error is CancellationError ? nil : "加载消息失败"))
         }
         service.failure = nil
-        await model.refresh(type: .comment)
-        #expect(model.state(for: .comment).status == .loaded)
+        await model.refresh(type: type)
+        #expect(model.state(for: type).status == .loaded)
+        service.identifiers = []
+        await model.refresh(type: type)
+        #expect(model.state(for: type).items.isEmpty && model.state(for: type).status == .loaded)
+        #expect(!model.state(for: type).canLoadMore && !model.state(for: type).isLoadingMore)
+        #expect(service.requestedTypes.allSatisfy { $0 == type })
+        for other in GalleryMessageType.allCases where other != type {
+            #expect(model.state(for: other).items.isEmpty && store.unreadCount(for: other) == 0)
+        }
     }
 
     @Test(.timeLimit(.minutes(1))) func messagesDisplayFirstPageWhileUnreadRecoveryWaits() async throws {
@@ -825,6 +835,8 @@ private struct RecordingMessageService: GalleryMessageServicing {
 
 private final class PagedMessageService: GalleryMessageServicing {
     var unread = 5
+    var messageType: GalleryMessageType = .comment
+    var requestedTypes: [GalleryMessageType] = []
     var failure: (any Error)?
     var laterPageFailure: (any Error)?
     var beforeLaterPage: (() async -> Void)?
@@ -838,10 +850,13 @@ private final class PagedMessageService: GalleryMessageServicing {
     var cursors: [Int?] = []
     func fetchMessageUnreadCounts() async throws -> GalleryMessageUnreadCounts {
         if cursors.contains(Int.max), let beforeUnreadSummary { self.beforeUnreadSummary = nil; beforeUnreadSummary() }
-        return .init(comment: unread)
+        return .init(comment: messageType == .comment ? unread : 0, follow: messageType == .follow ? unread : 0,
+            like: messageType == .like ? unread : 0, system: messageType == .system ? unread : 0,
+            subscription: messageType == .subscription ? unread : 0)
     }
     func fetchMessages(type: GalleryMessageType, lastID: Int?) async throws -> [GalleryMessage] {
         cursors.append(lastID)
+        requestedTypes.append(type)
         if let failure { throw failure }
         if lastID == Int.max, let beforeFirstPage { self.beforeFirstPage = nil; beforeFirstPage() }
         if lastID == nil {

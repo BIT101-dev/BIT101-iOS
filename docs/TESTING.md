@@ -503,6 +503,19 @@ iPad 专项覆盖竖屏、横屏、分屏及窗口调整，核对登录、主要
 
 日常开发沿模块和场景选择定向测试，模块入口支持 `Scripts/run-extended-tests.sh modules 测试类/方法`，多个筛选合并执行并登记定向证据。Xcode 入口沿源码补齐 Swift Testing 方法括号和参数标签，XCTest 方法沿其原生选择格式执行。发布验收将源码、工具链和完整候选产物共同绑定，实时服务、依赖漏洞审计与人工观察沿一天有效期核对；完整输入范围用于维持产物与证据的对应关系。专项采集围绕同一候选产物集中完成，发布流程执行完整验收。
 
+数据稀疏场景沿以下 macOS 原生模块入口验证客户端合同。传输响应和消息存储使用固定内存样本，覆盖评论差异排序与切换后的分页、举报类型空态恢复与选项提交、关注／插眼／系统／点赞／评论五类消息的空态和跨页历史，以及机器人标签分类、去重和独立筛选语义。五类消息还核对游标约束、未读恢复、错误重试和分类隔离。客户端离线证据与实网采样分别登记，实网覆盖由对应线上样本验收承接。
+
+```sh
+Scripts/run-extended-tests.sh modules \
+  ServiceContractTests/commentOrdersUseDistinctSamplesAndRestartPagination \
+  GalleryStateContractTests/reportCategoriesRespectRemoteEmptyAndFailureResults \
+  ServiceContractTests/messageHistoryCanStartAtTheUpperBoundAndPreserveUnreadCounts \
+  ServiceContractTests/messageHistoryRequiresStrictlyOlderOrderedPages \
+  ServiceContractTests/messageCategoriesKeepTheirCursorAcrossTwoHistoryPages \
+  CommunityDependencyBoundaryTests/messagesCaptureTheUnreadWindowAcrossSourcePagesAndRetainHistoricalPaging \
+  ServiceContractTests/botBatchesDeduplicateOverlappingSourcePages
+```
+
 同源码摘要与执行环境的成功定向测试及网络复验继续保留最近的完整记录；完整记录沿原采样期限接受时效校验。
 
 人工附件每份编码前控制在 32 MiB 内，图像解码、PDF 内嵌 XObject 图片和视频单帧使用 48 MiB 像素数据预算；PDF 在渲染前沿跨页共享资源、Form、图案和遮罩累计图片尺寸，重复资源计入一次。大压缩比 PDF 图片沿像素预算拒绝。视频长度为 30 秒以内，最多 1800 帧，PDF 最多 16 页。附件解码工具使用 30 秒执行预算，人工检查按 JSON 实际序列化大小核对预算，聚合 JSON 的完整编码最多 128 MiB；超出预算时保留已提交证据并呈现验收错误。短视频和系统截图分别记录所属操作与观察结果，全部人工检查共同参与发布验收。
