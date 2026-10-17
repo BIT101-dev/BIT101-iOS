@@ -463,7 +463,7 @@ def script_output_boundary_findings() -> list[str]:
             findings.append("脚本快照自测：执行期间改写源码影响既有流程")
     finally:
         fixture.unlink(missing_ok=True)
-    for check in (build_cache_boundary_findings, script_command_boundary_findings, workflow_lock_boundary_findings,
+    for check in (build_cache_boundary_findings, catalyst_signing_boundary_findings, script_command_boundary_findings, workflow_lock_boundary_findings,
                   audit_lock_boundary_findings, restore_installation_boundary_findings, worker_boundary_findings, report_inbox_boundary_findings, explanatory_text_boundary_findings, school_lifecycle_boundary_findings):
         findings.extend(check())
     support = (SCRIPT_ROOT / "script-support.sh").read_text()
@@ -498,6 +498,27 @@ start_group() { run_group "$1" "$2" & group_processes+=($!); }
         if aggregation.returncode != 1 or len(set(groups)) != 10 - prepared \
                 or ('artifact-hygiene' in groups) != (prepared == 0) or "shell-parse, docs" not in aggregation.stderr:
             findings.append("静态审计自测：产物准备、并行分组执行完整性与多个失败汇总")
+    return findings
+
+
+def catalyst_signing_boundary_findings() -> list[str]:
+    """本机 Catalyst 沿工程签名，托管 CI 使用临时宿主。"""
+    source = (SCRIPT_ROOT / 'run-extended-tests.sh').read_text()
+    start = 'if [[ "$MODE" == "modules" ]]; then\n  acquire_test_lock\n'
+    block = start + source.split(start, 1)[1].split('\nBIT101_VALIDATION_RUN_ID=', 1)[0]
+    harness = '''set -euo pipefail
+MODE="$1" GITHUB_ACTIONS="$2" GENERIC_BUILD=false
+acquire_test_lock() { :; }
+bit101_require_device() { return 99; }
+'''
+    findings = []
+    for mode in ('catalyst', 'catalyst-release-runtime'):
+        for ci in ('', 'false', 'true'):
+            result = subprocess.run(['zsh', '-c', harness + block + '\nprint -r -l -- "${SIGNING_ARGS[@]}"',
+                'catalyst-signing', mode, ci], capture_output=True, text=True)
+            expected = ['CODE_SIGNING_ALLOWED=NO'] if ci == 'true' else ['-allowProvisioningUpdates']
+            if result.returncode or result.stdout.splitlines() != expected:
+                findings.append(f'Catalyst 签名自测：{mode} 在 {ci or "local"} 环境沿所属签名策略执行')
     return findings
 
 

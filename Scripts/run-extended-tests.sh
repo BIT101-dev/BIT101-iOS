@@ -388,7 +388,11 @@ elif $GENERIC_BUILD; then
 elif [[ "$MODE" == catalyst || "$MODE" == catalyst-release-runtime ]]; then
   acquire_test_lock
   TEST_DESTINATION="platform=macOS,variant=Mac Catalyst"
-  SIGNING_ARGS=(CODE_SIGNING_ALLOWED=NO)
+  if [[ "${GITHUB_ACTIONS:-false}" == true ]]; then
+    SIGNING_ARGS=(CODE_SIGNING_ALLOWED=NO)
+  else
+    SIGNING_ARGS=(-allowProvisioningUpdates)
+  fi
 else
   acquire_test_lock
   bit101_require_device || exit 1

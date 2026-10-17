@@ -6,7 +6,7 @@
 
 - 构建使用 Xcode 27.x、有效签名和已连接并受信任的真机，默认完成 Release 构建、装机与启动。
 - 本机构建、装机和启动统一使用 `Scripts/build-install-device.sh`；脚本封装所需 Xcode 流程。
-- iOS / watchOS 发布验收与日常 UI 复验使用真机；常规 CI 的 iOS 行为、正式组装与 UI 验收使用完整模拟器。包级逻辑测试使用 macOS 原生宿主，Catalyst 行为与正式组装测试使用 macOS runtime，测试宿主采用本机免签名构建。
+- iOS / watchOS 发布验收与日常 UI 复验使用真机；常规 CI 的 iOS 行为、正式组装与 UI 验收使用完整模拟器。包级逻辑测试使用 macOS 原生宿主，Catalyst 行为与正式组装测试使用 macOS runtime；本机测试宿主沿工程的自动签名团队和开发证书构建，桌面文件授权沿稳定应用身份复用，托管 CI 使用免签名构建。
 - `all` 与 Catalyst 离线行为宿主使用空场景、内存凭据及云偏好、独立偏好域和固定隔离文件根目录。默认传输核对回环地址，消费者测试显式提供受控响应；真实网络由专项 Smoke 验收。正式运行时合同沿 `release-runtime` 的生产编译条件执行。
 - 测试、静态审计、网络 Smoke 和 iCloud Smoke 按用户明确授权的范围执行。失败修复后重跑受影响的分组。
 - 真机排查与回归结束后保留测试宿主、结果和现场，退出钩子负责必要的测试数据清理与证据归集。相关测试全部通过后，统一执行一次 `Scripts/build-install-device.sh` 安装并启动常规 Release App。
