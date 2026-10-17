@@ -330,7 +330,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         if UIElement.usesNativeInteraction {
             let done = app.buttons["keyboard.dismiss"]
             assertUI(done.appears(timeout: 5), "系统键盘应呈现完成按钮。")
-            done.tap()
+            done.press(forDuration: 0.01)
             assertUI(app.keyboards.firstMatch.disappears(timeout: 5), "原生完成按钮应关闭系统键盘。")
             return
         }

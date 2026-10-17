@@ -130,6 +130,7 @@ TEST_AREA_SUITES = {
         "GalleryRecommendationPrefetchTests", "ICloudSmokeEvidenceTests", "ImageCacheDiskQuotaTests",
         "InfrastructureTests", "KeyboardAccessoryOwnershipTests", "MediaDependencyTests", "MediaPresentationTests", "NetworkClientTests", "NetworkSmokeSMSPromptTests",
         "PaperCommentPagingTests", "NetworkEvidenceProjectionTests", "NetworkSmokeCoverageTests", "NetworkSmokeExternalContentTests",
+        "NetworkSmokeRegressionContractTests",
         "MaintenancePerformanceTests",
         "PreferenceCloudPayloadTests", "PreferenceMergeTests", "ReleaseNetworkSmokeLifecycleTests",
         "SchoolCookieIsolationTests", "ScoreCacheDiskRepositoryTests", "ScorePresentationTests",
