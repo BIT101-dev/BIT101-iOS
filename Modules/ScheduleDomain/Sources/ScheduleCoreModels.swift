@@ -446,6 +446,13 @@ public nonisolated struct DDLEventRecord: Codable, Identifiable, Hashable, Senda
     public var dueAt: Date
     public var done: Bool
     public var isSchoolSynced: Bool { group == "lexue" || group == "eclass" }
+    public var displayTitle: String {
+        guard group == "lexue" else { return title }
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let suffix = " 已到期"
+        guard trimmedTitle.hasSuffix(suffix) else { return title }
+        return String(trimmedTitle.dropLast(suffix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
     public var hasValidRecord: Bool {
         guard !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               dueAt.timeIntervalSince1970.isFinite else { return false }

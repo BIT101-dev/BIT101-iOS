@@ -216,7 +216,7 @@ enum ScheduleWidgetExporter {
     nonisolated static func makeDeadlines(cache: ScheduleCache, isLoggedIn: Bool) -> [ScheduleExternalDeadlineSnapshot] {
         guard isLoggedIn else { return [] }
         return cache.ddlEvents.filter { !$0.done }.map {
-            ScheduleExternalDeadlineSnapshot(id: $0.id, title: $0.title,
+            ScheduleExternalDeadlineSnapshot(id: $0.id, title: $0.displayTitle,
                 subtitle: String($0.text.split(whereSeparator: \.isNewline).first ?? "").trimmingCharacters(in: .whitespaces),
                 sourceTitle: $0.sourceTitle, dueAt: $0.dueAt)
         }.sorted { $0.dueAt == $1.dueAt ? $0.id < $1.id : $0.dueAt < $1.dueAt }

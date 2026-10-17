@@ -10,6 +10,26 @@ import TransportCore
 
 @MainActor
 struct EclassDDLSyncTests {
+    @Test(arguments: [
+        ("lexue", "作业 已到期", "作业"),
+        ("lexue", "  实验报告   已到期 \n", "实验报告"),
+        ("lexue", "已到期任务说明", "已到期任务说明"),
+        ("lexue", "作业", "作业"),
+        ("lexue", "已到期", "已到期"),
+        ("eclass", "作业 已到期", "作业 已到期"),
+        ("main", "作业 已到期", "作业 已到期"),
+    ])
+    func deadlineDisplayTitlesFollowTheirSourceAndPreserveStoredContent(
+        group: String, title: String, expected: String
+    ) throws {
+        let event = DDLEventRecord(id: "title", group: group, title: title, text: "课程与作业描述",
+            dueAt: .distantFuture, done: true)
+        #expect(event.displayTitle == expected)
+        let restored = try JSONDecoder().decode(DDLEventRecord.self, from: JSONEncoder().encode(event))
+        #expect(restored == event)
+        #expect(restored.title == title && restored.displayTitle == expected)
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func blockedDDLStorageReportsFailureBeforeSchoolRequests(loading: Bool) async {
         let repository = ScheduleRepository(session: { AppStorageSession(accountIdentifier: "eclass") },

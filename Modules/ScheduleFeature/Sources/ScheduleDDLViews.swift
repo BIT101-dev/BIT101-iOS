@@ -155,7 +155,7 @@ private struct DDLEventRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: AppDesignSystem.Spacing.content) {
             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
-                Text(event.title)
+                Text(event.displayTitle)
                     .font(AppDesignSystem.Typography.title)
                     .strikethrough(event.done)
 
@@ -233,7 +233,7 @@ private struct DDLEventDetailSheet: View {
         NavigationStack {
             List {
                 Section {
-                    Text(event.title)
+                    Text(event.displayTitle)
                         .font(AppDesignSystem.Typography.title)
                         .strikethrough(event.done)
                     Text(ScheduleDateCodec.formatDateTime(event.dueAt))

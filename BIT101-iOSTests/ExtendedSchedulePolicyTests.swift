@@ -135,13 +135,14 @@ struct ExtendedSchedulePolicyTests {
         var cache = ScheduleCache()
         cache.ddlEvents = [
             .init(id: "manual", group: "custom", title: "手动待办", text: "", dueAt: .distantFuture, done: false),
-            .init(id: "lexue", group: "lexue", title: "乐学作业", text: " 软件工程导论 \n\n详情", dueAt: .distantPast, done: false),
+            .init(id: "lexue", group: "lexue", title: "乐学作业 已到期", text: " 软件工程导论 \n\n详情", dueAt: .distantPast, done: false),
             .init(id: "eclass", group: "eclass", title: "课程中心作业", text: "课程", dueAt: .distantPast, done: false),
             .init(id: "done", group: "lexue", title: "已完成", text: "", dueAt: .distantPast, done: true),
         ]
         let deadlines = ScheduleWidgetExporter.makeDeadlines(cache: cache, isLoggedIn: true)
         #expect(deadlines.map(\.id) == ["eclass", "lexue", "manual"])
         #expect(deadlines.map(\.sourceTitle) == ["课程中心", "乐学", "自定义"])
+        #expect(deadlines[1].title == "乐学作业")
         #expect(deadlines[1].subtitle == "软件工程导论")
         #expect(ScheduleWidgetExporter.makeDeadlines(cache: cache, isLoggedIn: false).isEmpty)
         cache.ddlEvents[1].done = true
