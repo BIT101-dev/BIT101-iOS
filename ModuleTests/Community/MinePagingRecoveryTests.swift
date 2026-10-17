@@ -361,10 +361,12 @@ struct MineLifecycleTests {
             MineFollowResult(following: true, follower: true, followingNum: 4, followerNum: 5)
         }
         await model.followUser()
-        await model.followUser()
         #expect(service.followingRequests == 2)
         #expect(model.userInfo?.following == true)
         #expect(model.userInfo?.followerNum == 5)
+        service.follow = { MineFollowResult(following: false, follower: true, followingNum: 4, followerNum: 4) }
+        await model.followUser()
+        #expect(service.followingRequests == 3 && model.userInfo?.following == false && model.userInfo?.followerNum == 4)
         await model.loadMorePostersIfNeeded(currentPoster: listPoster(1))
         #expect(model.posterCountText == "1")
         #expect(model.posterState.canLoadMore == false)

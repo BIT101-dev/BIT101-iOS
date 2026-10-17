@@ -73,7 +73,7 @@ nonisolated struct NetworkSmokeHTTPRequestEvidence: Codable, Sendable {
     private static func parameters(_ request: URLRequest) -> (values: [String: String], ambiguous: [String]?, bodyNames: [String]) {
         let endpoint = request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
         let allowed = Set(["page", "last_id", "obj", "order", "mode", "type", "uid", "detail", "detailed", "search", "hide_bot",
-                           "XNXQDM", "JXLDM", "XXXQDM", "dicCode", "SFSY", "RQ", "XQDM", "XNDM", "GPA", "page_size", "fields", "conditions"])
+                           "XNXQDM", "JXLDM", "XXXQDM", "dicCode", "SFSY", "RQ", "XQDM", "XNDM", "GPA", "page_size", "fields", "conditions", "appName", "EMAP_LANG"])
         var parameters: [String: [String]] = [:]
         var occurrences: [String: Int] = [:]
         var jsonAmbiguities = Set<String>()

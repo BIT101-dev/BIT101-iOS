@@ -387,7 +387,7 @@ with ((root / ".build/extended-automation.lock").open("a")
         print(f"缓存整理：{before / 1048576:.2f} → {after / 1048576:.2f} GiB；释放 {(before - after) / 1048576:.2f} GiB")
     else:
         result = subprocess.run(["zsh", "-c",
-            'source "$1/Scripts/script-support.sh"; shift; bit101_log_command "$@"',
+            'ROOT_DIR="$1"; source "$ROOT_DIR/Scripts/script-support.sh"; shift; bit101_log_command "$@"',
             "cache-build", str(root), *arguments])
         raise SystemExit(result.returncode if result.returncode >= 0 else 128 - result.returncode)
 PY

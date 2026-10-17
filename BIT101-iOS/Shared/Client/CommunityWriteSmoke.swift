@@ -374,7 +374,7 @@ final class CommunityWriteSmoke {
         let account = try await operations.account()
         if !cleanupOnly {
             guard let expectedAccount, expectedAccount > 0, account == expectedAccount
-            else { throw failure("社区写入需要与明确指定的专用验收账号一致") }
+            else { throw failure("社区写入需要与明确指定的验收账号一致") }
         }
         var recoveredEvidence: [String] = []
         if let data = try load() {
@@ -395,7 +395,7 @@ final class CommunityWriteSmoke {
         var operation = "创建内容"
         do {
             guard let followTarget = operations.followTarget(), followTarget > 0,
-                  try await operations.following(followTarget) else { throw failure("关注探针需要已关注的专用验收目标") }
+                  try await operations.following(followTarget) else { throw failure("关注探针需要已关注的验收目标") }
             journal.followTarget = followTarget; try persist(journal)
             operation = "取消关注"
             guard try await submitToggle("follow:user\(followTarget)", journal: &journal, operation: { try await operations.follow(followTarget) }) == false,

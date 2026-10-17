@@ -478,8 +478,16 @@ struct FeedbackSubmissionClient {
                 message: HTTPClient.errorMessage(from: data)
             )
         }
-        let result = try JSONDecoder().decode(NetworkSmokeResponse.self, from: data)
         try validateResponseOwnership(response, request: request)
+        try validateNetworkSmokeResponse(data)
+    }
+
+    static func validateNetworkSmokeResponse(_ data: Data) throws {
+        let result: NetworkSmokeResponse
+        do { result = try JSONDecoder().decode(NetworkSmokeResponse.self, from: data) }
+        catch DecodingError.keyNotFound(let key, _) {
+            throw URLError(.cannotParseResponse, userInfo: [NSLocalizedDescriptionKey: "反馈验收响应需要字段：\(key.stringValue)"])
+        }
         guard result.ok, result.recordVerified, result.temporaryRecordRemoved, result.quotaReserved else {
             throw URLError(.dataNotAllowed)
         }

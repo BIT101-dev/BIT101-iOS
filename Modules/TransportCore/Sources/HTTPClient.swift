@@ -11,11 +11,25 @@ public struct HTTPRequestNotSent: LocalizedError, CustomNSError {
     }
 }
 
-private final class HTTPTransmissionMetrics: NSObject, URLSessionTaskDelegate {
+final class HTTPTransmissionMetrics: NSObject, URLSessionTaskDelegate {
     private let started = OSAllocatedUnfairLock<Bool?>(initialState: nil)
+    private let acceptedRequest: OSAllocatedUnfairLock<URLRequest>
     private let redirects: (any URLSessionTaskDelegate)?
-    init(redirects: (any URLSessionTaskDelegate)?) { self.redirects = redirects }
+    init(request: URLRequest, redirects: (any URLSessionTaskDelegate)?) {
+        acceptedRequest = OSAllocatedUnfairLock(initialState: request)
+        self.redirects = redirects
+    }
     var confirmedUnsent: Bool { started.withLock { $0 == false } }
+
+    func finalRequest(from current: URLRequest?) -> URLRequest? {
+        guard var current else { return nil }
+        let accepted = acceptedRequest.withLock { $0 }
+        if current.url == accepted.url, current.httpMethod == accepted.httpMethod,
+           current.httpBody == nil, let body = accepted.httpBody {
+            current.httpBody = body
+        }
+        return current
+    }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didFinishCollecting metrics: URLSessionTaskMetrics) {
         guard !metrics.transactionMetrics.isEmpty else { return }
@@ -24,10 +38,14 @@ private final class HTTPTransmissionMetrics: NSObject, URLSessionTaskDelegate {
 
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
-        if let redirect = redirects?.urlSession(_:task:willPerformHTTPRedirection:newRequest:completionHandler:) {
-            redirect(session, task, response, request, completionHandler)
-        } else {
+        let accept: @Sendable (URLRequest?) -> Void = { [self] request in
+            if let request { acceptedRequest.withLock { $0 = request } }
             completionHandler(request)
+        }
+        if let redirect = redirects?.urlSession(_:task:willPerformHTTPRedirection:newRequest:completionHandler:) {
+            redirect(session, task, response, request, accept)
+        } else {
+            accept(request)
         }
     }
 }
@@ -42,7 +60,7 @@ extension URLSession: HTTPTransport {
     public func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
         guard let maximumBytes else { return try await data(for: request) }
         guard maximumBytes >= 0 else { throw HTTPClientError.responseTooLarge }
-        let metrics = HTTPTransmissionMetrics(redirects: delegate as? any URLSessionTaskDelegate)
+        let metrics = HTTPTransmissionMetrics(request: request, redirects: delegate as? any URLSessionTaskDelegate)
         let bytes: URLSession.AsyncBytes
         let response: URLResponse
         do {
@@ -68,7 +86,7 @@ extension URLSession: HTTPTransport {
         }
         try Task.checkCancellation()
         data.append(contentsOf: chunk)
-        if let finalRequest = bytes.task.currentRequest {
+        if let finalRequest = metrics.finalRequest(from: bytes.task.currentRequest) {
             await HTTPRequestEvidenceContext.didReceiveFinalRequest?(finalRequest)
         }
         return (data, response)

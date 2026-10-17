@@ -10,6 +10,7 @@ PROJECT="$ROOT_DIR/BIT101-iOS.xcodeproj"
 source "$ROOT_DIR/Scripts/script-support.sh"
 
 CHECK_CONFIG_ONLY=false
+PREPARE_ONLY=false
 if [[ "${1:-}" == --check-config ]]; then CHECK_CONFIG_ONLY=true; shift; fi
 
 DERIVED_DATA="$ROOT_DIR/.build/release-network-smoke"
@@ -25,6 +26,7 @@ APP_GROUP_ID="group.BIT101-dev.BIT101-iOS.shared"
 APP_BUNDLE_ID="BIT101-dev.BIT101-iOS"
 SMOKE_SCOPE="${1:-all}"
 SMOKE_CAPTURE="${BIT101_NETWORK_SMOKE_CAPTURE:-none}"
+if [[ "$SMOKE_SCOPE" == prepare ]]; then PREPARE_ONLY=true; SMOKE_SCOPE=bit101; SMOKE_CAPTURE=communityFixtures; fi
 SMOKE_TERM="${BIT101_NETWORK_SMOKE_TERM:-}"
 SMOKE_FIXTURES="${BIT101_NETWORK_SMOKE_FIXTURES:-}"
 RECOVERY_CONFIRMATION="${BIT101_COMMUNITY_RECOVERY_CONFIRMATION:-}"
@@ -37,6 +39,7 @@ case "$SMOKE_SCOPE" in
   all|bit101|school|transcript|schedule|ddl|community-writes|community-cleanup) ;;
   -h|--help)
     echo "Scripts/release-network-smoke.sh   自动选机、验证全部网络探针"
+    echo "Scripts/release-network-smoke.sh prepare  从当前账号采集验收配置"
     echo "指定范围：bit101、school、transcript、schedule、ddl、community-writes、community-cleanup。"
     echo "短信专项：all sms、school sms；真实发送与验证码输入按用户授权执行。"
     echo "all、bit101、community-writes 需要 BIT101_NETWORK_SMOKE_FIXTURES 中的维护对象。"
@@ -45,9 +48,10 @@ case "$SMOKE_SCOPE" in
   *) echo "网络范围：all、bit101、school、transcript、schedule、ddl、community-writes、community-cleanup。" >&2; exit 64 ;;
 esac
 case "$SMOKE_CAPTURE" in
-  ""|none|scheduleCache|rawCourseResponse) ;;
+  ""|none|scheduleCache|rawCourseResponse|communityFixtures) ;;
   *) echo "BIT101_NETWORK_SMOKE_CAPTURE 参数无效。" >&2; exit 64 ;;
 esac
+if [[ "$SMOKE_CAPTURE" == communityFixtures ]] && ! $PREPARE_ONLY; then echo "社区配置采样使用 prepare 入口。" >&2; exit 64; fi
 if [[ -n "$RECOVERY_CONFIRMATION" ]]; then
   [[ "$SMOKE_SCOPE" == community-cleanup ]] || { echo "服务端未创建确认使用 community-cleanup 范围。" >&2; exit 64; }
   python3 - "$RECOVERY_CONFIRMATION" <<'PYCONFIRMATION' || { echo "服务端未创建确认需要账号、验收标记、服务端凭据及待确认对象。" >&2; exit 64; }
@@ -90,11 +94,11 @@ except (ValueError, TypeError):
 raise SystemExit(0 if valid else 1)
 PYFIXTURES
 fi
-if [[ "$SMOKE_SCOPE" == all || "$SMOKE_SCOPE" == bit101 || "$SMOKE_SCOPE" == community-writes ]]; then
+if ! $PREPARE_ONLY && [[ "$SMOKE_SCOPE" == all || "$SMOKE_SCOPE" == bit101 || "$SMOKE_SCOPE" == community-writes ]]; then
   [[ -n "$SMOKE_FIXTURES" ]] || { echo "此范围需要 BIT101_NETWORK_SMOKE_FIXTURES 中的维护对象。" >&2; exit 64; }
 fi
-if [[ "$SMOKE_SCOPE" == all || "$SMOKE_SCOPE" == bit101 || "$SMOKE_SCOPE" == community-writes ]]; then
-  python3 -c 'import sys; value=sys.argv[1]; sys.exit(0 if len(value) <= 19 and value.isascii() and value.isdecimal() and 0 < int(value) <= 2**63 - 1 else 1)' "${BIT101_COMMUNITY_SMOKE_ACCOUNT:-}" || { echo "社区验收需要明确专用账号 BIT101_COMMUNITY_SMOKE_ACCOUNT。" >&2; exit 64; }
+if ! $PREPARE_ONLY && [[ "$SMOKE_SCOPE" == all || "$SMOKE_SCOPE" == bit101 || "$SMOKE_SCOPE" == community-writes ]]; then
+  python3 -c 'import sys; value=sys.argv[1]; sys.exit(0 if len(value) <= 19 and value.isascii() and value.isdecimal() and 0 < int(value) <= 2**63 - 1 else 1)' "${BIT101_COMMUNITY_SMOKE_ACCOUNT:-}" || { echo "社区验收需要明确指定账号 BIT101_COMMUNITY_SMOKE_ACCOUNT。" >&2; exit 64; }
 fi
 if [[ "$SMOKE_SCOPE" == community-writes ]]; then
   python3 -c 'import sys; value=sys.argv[1]; sys.exit(0 if len(value) <= 19 and value.isascii() and value.isdecimal() and 0 < int(value) <= 2**63 - 1 else 1)' "${BIT101_COMMUNITY_FOLLOW_TARGET:-}" || { echo "社区写入需要已关注的专用目标 BIT101_COMMUNITY_FOLLOW_TARGET。" >&2; exit 64; }
@@ -117,7 +121,8 @@ if [[ "$SMS_MODE" == sms && "$SMOKE_SCOPE" == school ]]; then validation_group=s
 if [[ -n "$SMOKE_TERM" && ( "$SMOKE_SCOPE" == all || "$SMOKE_SCOPE" == school || "$SMOKE_SCOPE" == schedule ) ]]; then validation_scope=selected; fi
 RUN_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
 BIT101_VALIDATION_RUN_ID="$RUN_ID"
-BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest "$validation_group")"
+BIT101_VALIDATION_SOURCE_DIGEST=""
+if ! $PREPARE_ONLY; then BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest "$validation_group")"; fi
 SCHOOL_SMS_STARTED_DIGEST=""
 if [[ "$SMS_MODE" == sms && "$SMOKE_SCOPE" == all ]]; then
   SCHOOL_SMS_STARTED_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest school-sms)"
@@ -171,7 +176,7 @@ PY
       [[ $smoke_status -eq 0 ]] && smoke_status=1
     fi
   fi
-  python3 "$ROOT_DIR/Scripts/validation_evidence.py" record "$validation_group" "$smoke_status" "$validation_scope" || smoke_status=$?
+  if ! $PREPARE_ONLY; then python3 "$ROOT_DIR/Scripts/validation_evidence.py" record "$validation_group" "$smoke_status" "$validation_scope" || smoke_status=$?; fi
   if [[ "$SMS_MODE" == sms && "$SMOKE_SCOPE" == all ]]; then
     BIT101_VALIDATION_SOURCE_DIGEST="$SCHOOL_SMS_STARTED_DIGEST" \
       python3 "$ROOT_DIR/Scripts/validation_evidence.py" record school-sms "$school_sms_status" "$validation_scope" || smoke_status=$?
@@ -184,7 +189,7 @@ trap 'exit 143' TERM
 mkdir -p "$DERIVED_DATA" "$REPORT_DIR"
 rm -f "$BUILD_LOG" "$SUMMARY_OUTPUT" "$LOCAL_REPORT_PATH" "$LOCAL_RAW_COURSE_PATH" "$LOCAL_REQUEST_PATH"
 WORKER_SNAPSHOT=""
-if ! WORKER_SNAPSHOT="$(python3 "$ROOT_DIR/Scripts/validation_provenance.py" worker-snapshot "$SMOKE_SCOPE")"; then
+if ! $PREPARE_ONLY && ! WORKER_SNAPSHOT="$(python3 "$ROOT_DIR/Scripts/validation_provenance.py" worker-snapshot "$SMOKE_SCOPE")"; then
   echo "Worker 部署身份待补齐，继续归集网络健康探针。" >&2
 fi
 DEVICE_ID="$BIT101_XCODE_DEVICE_ID"
@@ -229,7 +234,7 @@ with open(path, "w", encoding="utf-8") as stream:
         "term": term or None,
         "interactiveSMS": sms_mode == "sms",
         "communityFollowTarget": int(follow_target) if scope == "community-writes" else None,
-        "communityExpectedAccount": int(smoke_account) if scope in {"all", "bit101", "community-writes"} else None,
+        "communityExpectedAccount": int(smoke_account) if capture != "communityFixtures" and scope in {"all", "bit101", "community-writes"} else None,
         "communityRecoveryConfirmation": json.loads(confirmation) if confirmation else None,
         "fixtures": json.loads(fixtures) if fixtures else None,
     }, stream)
@@ -295,7 +300,7 @@ if ! $REPORT_READY; then
   echo "网络 Smoke 等待超过 30 分钟：$REMOTE_REPORT_PATH" >&2
   exit 1
 fi
-if ! python3 "$ROOT_DIR/Scripts/validation_provenance.py" worker-attach "$LOCAL_REPORT_PATH" "$WORKER_SNAPSHOT"; then
+if ! $PREPARE_ONLY && ! { [[ -n "$WORKER_SNAPSHOT" ]] && python3 "$ROOT_DIR/Scripts/validation_provenance.py" worker-attach "$LOCAL_REPORT_PATH" "$WORKER_SNAPSHOT"; }; then
   python3 - "$LOCAL_REPORT_PATH" <<'PYWORKER'
 import json
 import sys
@@ -326,6 +331,20 @@ if capture.get("runID") != sys.argv[2] or "response" not in capture:
     raise SystemExit("原始课表采样需要匹配本次运行标记和响应正文。")
 PY
   echo "原始课表响应已保存：$LOCAL_RAW_COURSE_PATH"
+fi
+
+if $PREPARE_ONLY; then
+  python3 - "$LOCAL_REPORT_PATH" <<'PYCONFIGURATION'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as stream:
+    report = json.load(stream)
+value = report.get('communityConfiguration')
+if report.get('passed') is not True or not isinstance(value, dict):
+    raise SystemExit('\n'.join(report.get('failures', [])) or '社区验收配置采样待完成。')
+print('社区验收配置：' + json.dumps(value, ensure_ascii=False))
+PYCONFIGURATION
+  exit 0
 fi
 
 if SUMMARY_OUTPUT_TEXT="$(python3 - "$LOCAL_REPORT_PATH" <<'PY'

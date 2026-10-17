@@ -477,8 +477,8 @@ private struct MineProfileCard: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(info.following || isFollowRequestInFlight)
-                .accessibilityLabel(info.following ? (info.follower ? "互相关注" : "已关注") : "关注")
+                .disabled(isFollowRequestInFlight)
+                .accessibilityLabel(info.following ? "取消关注" : "关注")
                 .padding(.top, AppDesignSystem.Spacing.regular)
                     .accessibilityIdentifier("ui.mine-profile-card.follow")
             }

@@ -342,6 +342,7 @@ enum NetworkSmokeCapture: String, Codable, Sendable {
     case none
     case scheduleCache
     case rawCourseResponse
+    case communityFixtures
 }
 
 struct ScheduleCacheAuditCourse: Codable, Sendable {
@@ -407,6 +408,7 @@ struct ReleaseNetworkSmokeReport: Codable {
     var requestedSMSPurposes: [String] = []
     var communityWriteEvidence: [String] = []
     var productionSessionEvidence: [String] = []
+    var communityConfiguration: NetworkSmokeCommunityConfiguration? = nil
     var requestedTerm: String? = nil
     var currentTerm: String? = nil
     var validatedTerm: String? = nil
@@ -448,6 +450,21 @@ enum ReleaseNetworkSmokeReportStore {
     static let rawCourseResponseFileName = "raw-course-response.json"
     static let communityJournalFileName = "community-write-journal.json"
     static let communityJournalPreferenceKey = "network-smoke.community-writes.pending"
+
+    @MainActor
+    static func complete(_ source: ReleaseNetworkSmokeReport,
+        writer: @MainActor (ReleaseNetworkSmokeReport) throws -> Void) -> ReleaseNetworkSmokeReport {
+        var report = source
+        do { try writer(report) }
+        catch {
+            report.passed = false
+            report.failures.append("网络 Smoke 报告写入失败：" + ErrorReportRedactor.sanitized(error.localizedDescription))
+            FileHandle.standardOutput.write(Data("NETWORK_SMOKE_REPORT_WRITE_FAIL run_id=\(report.runID) error=\(ErrorReportRedactor.sanitized(error.localizedDescription))\n".utf8))
+        }
+        FileHandle.standardOutput.write(Data((report.summaryLine + "\n").utf8))
+        if !report.passed { print(report.failureMessage) }
+        return report
+    }
 
     static func hasPendingCommunityWrites(files: any AppFileService = AppFileDirectories.files,
         directory: URL = AppFileDirectories.applicationSupport.appendingPathComponent(directoryName, isDirectory: true),
@@ -621,6 +638,12 @@ nonisolated struct NetworkSmokeFixtures: Codable, Sendable {
         posterID > 0 && courseID > 0 && paperID > 0 && !courseNumber.isEmpty
             && courseNumber == courseNumber.trimmingCharacters(in: .whitespacesAndNewlines)
     }
+}
+
+nonisolated struct NetworkSmokeCommunityConfiguration: Codable, Sendable {
+    let accountID: Int
+    let followTarget: Int
+    let fixtures: NetworkSmokeFixtures
 }
 
 /// ReleaseNetworkSmokeLaunchRequest 统一解析深链与 XCTest 环境中的网络验收参数。

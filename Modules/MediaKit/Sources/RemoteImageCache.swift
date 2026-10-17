@@ -531,12 +531,26 @@ public nonisolated enum BoundedStillImageDecoder {
         let budgetSide = Int(Double(maximumDecodedBytes / bytesPerPixel).squareRoot())
         let side = min(budgetSide, maximumPixelSize ?? budgetSide)
         guard side > 0 else { return nil }
-        let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceThumbnailMaxPixelSize: side,
-            kCGImageSourceShouldCacheImmediately: true, kCGImageSourceShouldAllowFloat: false]
-        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary),
-              image.bytesPerRow * image.height <= maximumDecodedBytes, !Task.isCancelled else { return nil }
+        guard let image = thumbnail(from: source, at: 0, maximumPixelSize: side,
+                                    maximumDecodedBytes: maximumDecodedBytes) else { return nil }
         return UIImage(cgImage: image)
+    }
+
+    /// 按实际行跨度收敛缩略图尺寸，将 ImageIO 的行对齐开销计入解码预算。
+    static func thumbnail(from source: CGImageSource, at index: Int, maximumPixelSize: Int,
+                          maximumDecodedBytes: Int) -> CGImage? {
+        var side = maximumPixelSize
+        while side > 0, !Task.isCancelled {
+            let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceThumbnailMaxPixelSize: side,
+                kCGImageSourceShouldCacheImmediately: true, kCGImageSourceShouldAllowFloat: false]
+            guard let image = CGImageSourceCreateThumbnailAtIndex(source, index, options as CFDictionary) else { return nil }
+            let cost = image.bytesPerRow * image.height
+            if cost <= maximumDecodedBytes { return Task.isCancelled ? nil : image }
+            let scale = (Double(maximumDecodedBytes) / Double(cost)).squareRoot()
+            side = min(side - 1, Int((Double(side) * scale).rounded(.down)))
+        }
+        return nil
     }
 }
 

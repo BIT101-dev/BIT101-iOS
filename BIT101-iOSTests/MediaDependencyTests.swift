@@ -960,6 +960,18 @@ struct MediaDependencyTests {
         coordinator.cancel(imageView: view)
     }
 
+    @Test(.timeLimit(.minutes(1))) func wideJPEGRespectsAlignedDecodeBudget() async throws {
+        let bytes = try #require(UIImage(data: png(width: 4728, height: 1701))?.jpegData(compressionQuality: 0.8))
+        let files = PreferenceMemoryFiles(), budget = RemoteImageResourceLimits.maximumDecodedBytes / 2
+        let file = files.temporaryDirectoryURL.appending(path: "wide.jpeg")
+        try files.writeData(bytes, to: file, options: [])
+        let decoder = RemoteAnimatedImageDecoder(files: files, maximumDecodedBytes: budget)
+        let image = try #require(await decoder.image(at: file, reduceMotion: false))
+        let pixels = try #require(image.cgImage)
+        #expect(pixels.bytesPerRow * pixels.height <= budget)
+        #expect(image.size.width < 4728 && image.size.height < 1701)
+    }
+
     @Test(.timeLimit(.minutes(1))) func animatedImageDownsamplesFramesBeforeExceedingItsDecodeBudget() async throws {
         let data = NSMutableData()
         let destination = try #require(CGImageDestinationCreateWithData(data, UTType.gif.identifier as CFString, 4, nil))

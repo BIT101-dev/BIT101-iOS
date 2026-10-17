@@ -351,6 +351,31 @@ private final class RecordingObserver: HTTPClientObserving {
 
 @MainActor
 struct ClientCoreTests {
+    @Test(arguments: ["native", "stream", "changed-body", "changed-url", "changed-method", "redirect-body-removal", "missing"])
+    func nativeFinalRequestEvidencePreservesAcceptedBodies(stage: String) throws {
+        let url = AppURL.required("https://example.invalid/submit")
+        var sent = URLRequest(url: url); sent.httpMethod = "POST"; sent.httpBody = Data("page=1".utf8)
+        let metrics = HTTPTransmissionMetrics(request: sent, redirects: nil)
+        var current = sent; current.httpBody = nil
+        if stage == "missing" { #expect(metrics.finalRequest(from: nil) == nil); return }
+        if stage == "stream" { current.httpBodyStream = InputStream(data: try #require(sent.httpBody)) }
+        if stage == "changed-body" { current.httpBody = Data("page=2".utf8) }
+        if stage == "changed-url" { current.url = AppURL.required("https://example.invalid/other") }
+        if stage == "changed-method" { current.httpMethod = "GET" }
+        if stage == "redirect-body-removal" {
+            let session = URLSession(configuration: .ephemeral)
+            defer { session.invalidateAndCancel() }
+            let task = session.dataTask(with: sent)
+            let response = try #require(HTTPURLResponse(url: url, statusCode: 307, httpVersion: nil, headerFields: nil))
+            metrics.urlSession(session, task: task, willPerformHTTPRedirection: response, newRequest: current) { _ in }
+        }
+        let captured = try #require(metrics.finalRequest(from: current))
+        let expected = stage == "changed-body" ? current.httpBody
+            : ["native", "stream"].contains(stage) ? sent.httpBody : nil
+        #expect(captured.httpBody == expected)
+        #expect(captured.url == current.url && captured.httpMethod == current.httpMethod)
+    }
+
     @Test(.timeLimit(.minutes(1))) func finalRequestEvidenceSurvivesTransportWrappers() async throws {
         let origin = AppURL.required("https://example.invalid/submit?obj=paper1&token=secret")
         let target = AppURL.required("https://other.invalid/final?obj=paper2&token=private")

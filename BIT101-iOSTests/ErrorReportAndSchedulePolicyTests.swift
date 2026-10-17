@@ -707,14 +707,41 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
 
 @MainActor
 struct NetworkEvidenceProjectionTests {
+    @Test func feedbackSmokeRequiresEveryCleanupAndQuotaReceiptField() throws {
+        let fields = ["ok", "recordVerified", "temporaryRecordRemoved", "quotaReserved"]
+        let valid = Dictionary(uniqueKeysWithValues: fields.map { ($0, true) })
+        try FeedbackSubmissionClient.validateNetworkSmokeResponse(JSONEncoder().encode(valid))
+        for field in fields {
+            var missing = valid
+            missing.removeValue(forKey: field)
+            do {
+                try FeedbackSubmissionClient.validateNetworkSmokeResponse(JSONEncoder().encode(missing))
+                Issue.record("响应需要全部验收字段。")
+            } catch { #expect(error.localizedDescription.contains(field)) }
+            var rejected = valid
+            rejected[field] = false
+            #expect(throws: (any Error).self) { try FeedbackSubmissionClient.validateNetworkSmokeResponse(JSONEncoder().encode(rejected)) }
+        }
+    }
+
+    @Test func communityConfigurationUsesTheCurrentAccountAndExistingObjects() throws {
+        let request = try JSONDecoder().decode(ReleaseNetworkSmokeLaunchRequest.self,
+            from: Data(#"{"scope":"bit101","runID":"configuration","capture":"communityFixtures"}"#.utf8))
+        #expect(request.scope == .bit101 && request.capture == .communityFixtures)
+        let value = NetworkSmokeCommunityConfiguration(accountID: 7, followTarget: 8,
+            fixtures: .init(posterID: 41, courseID: 43, courseNumber: "CS-001", paperID: 42))
+        let restored = try JSONDecoder().decode(NetworkSmokeCommunityConfiguration.self, from: JSONEncoder().encode(value))
+        #expect(restored.accountID == 7 && restored.followTarget == 8 && restored.fixtures.isValid)
+    }
+
     @Test func schoolBusinessSelectorsRemainVisibleInRequestEvidence() throws {
-        var request = URLRequest(url: AppURL.required("https://example.invalid/classrooms?dicCode=48682&SFSY=1&GPA=1&token=secret"))
+        var request = URLRequest(url: AppURL.required("https://example.invalid/classrooms?dicCode=48682&SFSY=1&GPA=1&appName=wdkbby&EMAP_LANG=zh&token=secret"))
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.httpBody = Data("XNXQDM=2025-2026-1&JXLDM=building&RQ=2026-09-07&XQDM=1&XNDM=2025-2026&password=secret".utf8)
         let url = try #require(request.url)
         let response = try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
         let evidence = NetworkSmokeHTTPRequestEvidence(request: request, response: response)
-        #expect(evidence.query == ["dicCode": "48682", "SFSY": "1", "GPA": "1", "token": "[REDACTED]",
+        #expect(evidence.query == ["dicCode": "48682", "SFSY": "1", "GPA": "1", "appName": "wdkbby", "EMAP_LANG": "zh", "token": "[REDACTED]",
                                   "XNXQDM": "2025-2026-1", "JXLDM": "building", "RQ": "2026-09-07", "XQDM": "1", "XNDM": "2025-2026"])
         #expect(evidence.finalQuery == evidence.query)
     }

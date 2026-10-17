@@ -53,9 +53,9 @@ struct CommunityDependencyBoundaryTests {
             await subject.refreshProfile()
         }
         #expect(subject.userInfo?.following == committed)
-        service.follow = { MineFollowResult(following: true, follower: false, followingNum: 2, followerNum: 4) }
+        service.follow = { MineFollowResult(following: !committed, follower: false, followingNum: 2, followerNum: committed ? 2 : 4) }
         await subject.followUser()
-        #expect(service.followingRequests == (committed ? 1 : 2))
+        #expect(service.followingRequests == 2 && subject.userInfo?.following == !committed)
     }
 
     @Test(.timeLimit(.minutes(1))) func fileProtectionFailuresPreserveBothComposerDrafts() async throws {
@@ -379,8 +379,9 @@ struct CommunityDependencyBoundaryTests {
         #expect(model.userInfo?.user.nickname == "已刷新")
         #expect(model.userInfo?.following == true && model.userInfo?.followerNum == 5)
         #expect(model.isFollowingUser == false && model.alert == nil)
+        service.follow = { MineFollowResult(following: false, follower: true, followingNum: 4, followerNum: 4) }
         await model.followUser()
-        #expect(service.followingRequests == 1)
+        #expect(service.followingRequests == 2 && model.userInfo?.following == false)
     }
 
     @Test func cursorMessagePagesDeduplicateAndRetireStalledOrRevisitedCursors() throws {

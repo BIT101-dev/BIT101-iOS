@@ -48,7 +48,7 @@ def worker_command(folder: str, *arguments: str) -> list[str]:
 
 def worker_cli_json(folder: str, *arguments: str) -> dict:
     result = subprocess.run(worker_command(folder, *arguments, '--json'), cwd=WRANGLER_ROOT,
-        env=dict(worker_environment(), WRANGLER_LOG='error'),
+        env=worker_environment(),
         capture_output=True, text=True, timeout=60)
     if result.returncode:
         raise ValueError(f'{folder} 部署身份读取失败；请核对 Wrangler 认证与线上部署。')
@@ -87,9 +87,9 @@ def capture_worker_deployments(scope: str) -> dict:
         for traffic in deployment['versions']:
             identifier = traffic['version_id']
             version = worker_cli_json(folder, 'versions', 'view', identifier)
-            if version['id'] != identifier: raise ValueError('Worker 版本需要匹配实际部署。')
+            if version['id'] != identifier: raise ValueError(f'{folder} 版本需要匹配实际部署。')
             message = version.get('annotations', {}).get('workers/message', '')
-            if not message.startswith(WORKER_SOURCE_PREFIX): raise ValueError('Worker 版本需要通过源码绑定入口部署。')
+            if not message.startswith(WORKER_SOURCE_PREFIX): raise ValueError(f'{folder} 版本需要通过源码绑定入口部署。')
             versions.append({'versionID': identifier, 'percentage': traffic['percentage'],
                 'sourceDigest': message.removeprefix(WORKER_SOURCE_PREFIX)})
         proof[folder] = {'deploymentID': deployment['id'], 'sourceDigest': worker_source_digest(folder),

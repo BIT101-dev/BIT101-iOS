@@ -473,7 +473,7 @@ final class UserProfileViewModel: ObservableObject {
             alert = AppAlert(title: "关注结果待确认", message: CommunityToggleOutcomeUnknown.reviewMessage)
             return
         }
-        guard let userInfo, !userInfo.own, !userInfo.following, !isFollowingUser else { return }
+        guard let userInfo, !userInfo.own, !isFollowingUser else { return }
         isFollowingUser = true
         defer { isFollowingUser = false }
 
@@ -494,7 +494,7 @@ final class UserProfileViewModel: ObservableObject {
                 requiresLogin = true
                 return
             }
-            alert = AppAlert(title: "关注失败", message: error.localizedDescription)
+            alert = AppAlert(title: userInfo.following ? "取消关注失败" : "关注失败", message: error.localizedDescription)
         }
     }
 

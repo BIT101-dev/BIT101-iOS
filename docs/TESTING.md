@@ -146,7 +146,7 @@ DDL 小组件回归覆盖共享快照编码、账号与版本变化、缺少 DDL
 
 课程与文章服务契约测试覆盖分页、特殊课程号路径、Snake Case 解码、认证恢复、评论及文章写入；课程详情场景覆盖刷新代际、失败保留、评论去重、历史成绩重试、回复身份及点赞；学校响应测试覆盖业务失败、认证失效、格式变化和 HTTP 状态分类，教学中心会话覆盖认证、预热复用和短信 challenge，乐学订阅覆盖安全 URL 与已完成日程保留。云同步测试同时验收成功、待同步、失败和账号不可用状态。MapKit 页面、UIKit、Quick Look 和可信成绩单展示通过 App 宿主验证。
 
-`FeatureCompositionTests` 在 App 宿主组合不同的环境依赖，验证课程、Gallery → Paper、Paper、Mine、Profile、Schedule、Score 的构造归属，恢复所选课表与成绩缓存，并验证同一宿主中 Paper / Gallery 依赖替换的场景重建。`MediaDependencyTests` 验证内存存储、静态 / GIF 解码和预览字节；预览关闭回归等待后台释放任务完成，响应性回归在目录清理及磁盘写入阻塞期间核对主线程会话开关。`SuggestionDependencyTests` 验证草稿及提交归属；同文件的 `ErrorReportURLRedactionTests` 覆盖两种反馈模式下 URL 各组成部分及嵌套 URL 的编码凭据遮盖，`AppLocalDataOwnershipTests` 与 `SettingsDependencyOwnershipTests` 验证清理动作顺序、失败汇总、后端隔离和设置媒体 / 账号归属；`AppLocalDataResourceTests` 在串行 XCTest 阶段验证生产组装对共享 URLCache、WebKit Cookie、账号与文件资源的实际清理，覆盖磁盘及内存缓存策略。
+`FeatureCompositionTests` 在 App 宿主组合不同的环境依赖，验证课程、Gallery → Paper、Paper、Mine、Profile、Schedule、Score 的构造归属，恢复所选课表与成绩缓存，并验证同一宿主中 Paper / Gallery 依赖替换的场景重建。`MediaDependencyTests` 验证内存存储、静态 / GIF 解码和预览字节；解码预算按实际位图行跨度核算，宽图在同一预算内收敛缩略图尺寸；预览关闭回归等待后台释放任务完成，响应性回归在目录清理及磁盘写入阻塞期间核对主线程会话开关。`SuggestionDependencyTests` 验证草稿及提交归属；同文件的 `ErrorReportURLRedactionTests` 覆盖两种反馈模式下 URL 各组成部分及嵌套 URL 的编码凭据遮盖，`AppLocalDataOwnershipTests` 与 `SettingsDependencyOwnershipTests` 验证清理动作顺序、失败汇总、后端隔离和设置媒体 / 账号归属；`AppLocalDataResourceTests` 在串行 XCTest 阶段验证生产组装对共享 URLCache、WebKit Cookie、账号与文件资源的实际清理，覆盖磁盘及内存缓存策略。
 
 清理组装合同通过默认工厂对隔离凭据、偏好、真实共享快照、报告及媒体文件、URL 缓存和 WebKit Cookie 执行清理，并核对资源状态；UI 清理沿相同操作绑定验收确认与重新登录。`PreferenceMergeTests` 使用独立设备偏好与云存储验证离线字段合并、已读并集、同版本收敛、可选字段清除与重载。`LoginStorageTests` 使用注入凭据后端验证事件代际、实例隔离、迁移和写入失败；提醒规划及同步状态呈现通过纯输入与账号事件验证。
 
@@ -394,7 +394,7 @@ GitHub Actions 的 `.github/workflows/ci.yml` 使用 GitHub 托管的 `xcode-27`
 
 UI 摘要合并本批全部 App 进程的完整控件标识与访问动作，冷启动前和各用例结束时采样，同进程的后续访问清除对应待访问项，跨进程保持独立身份；已挂载的可交互控件全部访问，并由显式 `assertDisabled` 在断言成功后记录禁用状态证据；源码交互清单核对各作用域的声明及有效验收归属。Swift 条件编译过滤按实际换行拆分，保留 CRLF 和 UTF-8 字节位置，Unicode 注释中的分隔字符参与库存回归验证。分页探针读取首页和实际续页，复用生产源页进度合同，连续四个非空页缺少新增标识时失败；短暂重复、合法部分重叠和末页参与回归。已读取页面共同构成去重后的列表内容。消息使用实际末条标识，推荐及机器人使用返回的源游标与过滤前标识；每次读取共同核对当前账号代际。共享会话探针沿生产 Cookie 与缓存配置读取资料，学校探针复用正式学校状态及传输配置。
 
-社区详情验收通过 `BIT101_NETWORK_SMOKE_FIXTURES` 提供 JSON 配置，字段为 `posterID`、`courseID`、`courseNumber`、`paperID`。对象 ID 取正数，课程编号与指定课程详情一致。验收账号长期维护帖子和文章对象，维护帖子包含有效图片，课程选用稳定学业记录，文章正文包含可渲染文本块及有效内嵌图片；列表端点继续采样实时数据，详情、评论、历史成绩和网页探针沿指定对象验收。配置随既有 `network-smoke-request.json` 传入宿主；调试链接使用 `fixtures` 查询参数传入相同 JSON。脚本在构建与选机前要求 `all`、`bit101` 及 `community-writes` 配置有效维护对象；宿主将直接调用中的配置缺口记录到覆盖缺口清单。
+社区详情验收通过 `BIT101_NETWORK_SMOKE_FIXTURES` 提供 JSON 配置，字段为 `posterID`、`courseID`、`courseNumber`、`paperID`。对象 ID 取正数，课程编号与指定课程详情一致。验收对象采用明确指定的现有内容，维护帖子包含有效图片，课程选用稳定学业记录，文章正文包含可渲染文本块及有效内嵌图片；列表端点继续采样实时数据，详情、评论、历史成绩和网页探针沿指定对象验收。`Scripts/release-network-smoke.sh prepare` 从当前登录账号及实时列表采集账号 UID、已关注目标和有效详情对象，配置写入既有 `release-network-smoke.json` 的 `communityConfiguration` 字段；配置采样与网络验收分别执行。配置随既有 `network-smoke-request.json` 传入宿主；调试链接使用 `fixtures` 查询参数传入相同 JSON。脚本在构建与选机前要求 `all`、`bit101` 及 `community-writes` 配置有效维护对象；宿主将直接调用中的配置缺口记录到覆盖缺口清单。
 
 `BIT101_NETWORK_SMOKE_CAPTURE` 默认使用 `none`；`scheduleCache` 与 `rawCourseResponse` 采样采用 `all`、`school` 或 `schedule` 范围。入口在设备操作前核对参数组合。社区失败恢复采用独立清理范围，并将采样、学期和详情对象参数重置为空闲值。
 
@@ -418,7 +418,7 @@ iOS 的 `checks` 包含 `cold-start-session`、`offline-persistence`、`media-an
 
 静态审计环境同时记录 Python、Ruby、Node.js 与 npm 版本，各运行时升级使审计证据进入复验。SwiftSyntax 索引编译缓存绑定所选 Swift 工具链、macOS SDK 及解析库内容，脚本运行时版本由审计证据管理。CI 外部 Action 固定完整提交 SHA，升级时沿官方提交核对版本与变更，并同步执行工作流边界回归。
 
-社区线上写入通过 `BIT101_COMMUNITY_SMOKE_ACCOUNT=专用验收账号ID BIT101_COMMUNITY_FOLLOW_TARGET=已关注的专用用户ID Scripts/release-network-smoke.sh community-writes` 执行，采用明确授权的专用验收账号、专用关注目标和“功能验收”中性文案。线上写入先通过服务端资料核对明确指定的专用账号，账号确认后恢复待清理记录并记录账号证据；关注探针读取既有关系，执行关注接口并恢复已关注状态；写入前将目标保存到同一清理记录，进程中断后沿该目标恢复。帖子和评论上传实际 JPEG，通过服务端 MID 提交，并读取图片引用；编辑保留同一资源引用，内容删除验收覆盖关联帖子和评论。上传资源遵循服务端媒体保留策略。
+社区线上写入通过 `BIT101_COMMUNITY_SMOKE_ACCOUNT=验收账号ID BIT101_COMMUNITY_FOLLOW_TARGET=已关注的目标UID Scripts/release-network-smoke.sh community-writes` 执行，采用明确授权的验收账号、关注目标和“功能验收”中性文案。已有账号经用户授权后可用于验收；消息探针会清零分类未读数，写入专项会创建并清理测试内容。线上写入先通过服务端资料核对明确指定的账号，账号确认后恢复待清理记录并记录账号证据；关注探针读取既有关系，执行关注接口并恢复已关注状态；写入前将目标保存到同一清理记录，进程中断后沿该目标恢复。帖子和评论上传实际 JPEG，通过服务端 MID 提交，并读取图片引用；编辑保留同一资源引用，内容删除验收覆盖关联帖子和评论。上传资源遵循服务端媒体保留策略。
 
 创建独立帖子、文章及三个业务域的评论和回复，验证内容编辑、点赞及恢复，点赞与评论写入按服务端一秒冷却推进；课程采用 `BIT101_NETWORK_SMOKE_FIXTURES` 指定的 courseID，并核对 courseNumber。文章探针复用编辑器的 Editor.js 正文序列化与纯文本读取，业务失败报告标注创建、编辑、点赞、评论或回复步骤。评论创建与清理发现共同持久保存评论到父对象的映射，历史格式依据成功创建证据迁移；进程重启后沿所属父对象列表确认已删除评论。历史清理记录补齐已知目标的父对象候选，读取顶级评论后登记其回复父对象，逐个删除记录中的评论标识。成功读取的服务端列表确认评论删除后更新清理记录，评论读取及删除接口的错误保留待确认标识；帖子与文章的缺失判定同时核对业务域及资源缺失文案。未知父对象的待确认标识继续保留。
 
@@ -518,7 +518,7 @@ iPad 专项覆盖竖屏、横屏、分屏及窗口调整，核对登录、主要
 
 社区图片探针复用 `CommunityWriteMedia` 中固定的一像素 JPEG 字节；上传返回的 MID 在创建帖子或评论前持久记录于同一事务日志，资源记录保存成功后，在提交业务创建请求前保存待确认记录。上传或提交记录保存失败时沿已创建对象完成清理；传输准入前失败时清除待确认记录，业务请求结果未知时持续查找并保留恢复记录。课程写入探针读取 `BIT101_NETWORK_SMOKE_FIXTURES` 指定的课程，并在业务写入前核对课程编号。公开服务端 [ImageService.Save](https://github.com/BIT101-dev/BIT101-GO/blob/main/api/service/image.go) 按内容 MD5 生成 MID 并复用已存在图片，[路由](https://github.com/BIT101-dev/BIT101-GO/blob/main/api/router.go) 将图片作为独立共享资源提供上传。验收帖子和评论沿服务端读取与删除确认清理，共享验收图片持续复用；恢复证据保留其 MID。实际线上资源策略沿已部署服务端契约核对。
 
-系统传输通过具备事务记录的任务指标核对 HTTP 请求是否开始，传输错误封装通过标准 underlying error 链保留取消、DNS 及证书错误身份；指标确认发送前失败时，社区写入清理已持久化的创建尝试。请求已经开始或缺少指标时保留待确认恢复记录，后续沿服务端对象查找与删除确认收敛。
+系统传输通过具备事务记录的任务指标核对 HTTP 请求是否开始，传输错误封装通过标准 underlying error 链保留取消、DNS 及证书错误身份；指标确认发送前失败时，社区写入清理已持久化的创建尝试。最终请求证据按任务确认的 URL 和方法，从原始请求及实际接受的重定向中保留数据正文，覆盖系统任务快照的流化表示。请求已经开始或缺少指标时保留待确认恢复记录，后续沿服务端对象查找与删除确认收敛。
 
 文章与帖子详情的已知缺失响应由服务层转换为明确的错误类型，恢复器沿类型确认缺失；后端业务响应转换集中在各服务的接口错误定义中。通用路由失败与其他服务错误保留验收失败结果。iCloud smoke 阶段、初始身份与退出报告复用证据原子写入器，写入中断时保留原恢复身份。
 

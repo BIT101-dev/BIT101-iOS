@@ -204,8 +204,8 @@ def worker_deployment_self_test() -> None:
             try: subject.capture_worker_deployments('all')
             except ValueError: pass
             else: raise AssertionError('旧部署需要拒绝新源码证据。')
-    with patch.object(subject.subprocess, 'run', return_value=SimpleNamespace(returncode=0,
-            stdout=json.dumps({'id': 'deployment'}))) as run:
+    with patch.object(subject.subprocess, 'run', side_effect=lambda *args, **kwargs: SimpleNamespace(returncode=0,
+            stdout='' if kwargs['env'].get('WRANGLER_LOG') == 'error' else json.dumps({'id': 'deployment'}))) as run:
         assert subject.worker_cli_json(folder, 'deployments', 'status') == {'id': 'deployment'}
         assert run.call_args.args[0][1:4] == ['deployments', 'status', '--json']
         assert run.call_args.kwargs['env']['WRANGLER_LOG_PATH'] == str(subject.WORKER_LOG)
@@ -950,7 +950,15 @@ def network_route_identity_self_test() -> None:
     assert complete('community.login', [dict(login, statusCode=401), authentication, login])
     assert not complete('community.login', [dict(login, statusCode=401), dict(authentication, statusCode=500), login])
     teaching = {'method': 'GET', 'endpoint': 'https://jxzxehallapp.bit.edu.cn/jwapp/sys/wdkbby/modules/jshkcb/dqxnxq.do', 'statusCode': 200, 'query': {}}
-    preheat = dict(teaching, endpoint='https://jxzxehallapp.bit.edu.cn/jwapp/i18n.do')
+    preheat = dict(teaching, endpoint='https://jxzxehallapp.bit.edu.cn/jwapp/i18n.do', query={'appName': 'wdkbby', 'EMAP_LANG': 'zh'})
+    for query in ({'appName': 'other', 'EMAP_LANG': 'zh'}, {'appName': 'wdkbby', 'EMAP_LANG': 'en'}, {}):
+        assert not complete('schedule.current-term', [dict(preheat, query=query), teaching])
+    gate = dict(teaching, endpoint='https://sso.bit.edu.cn/gate/cas-success/', statusCode=401, query={'ticket': '[REDACTED]'})
+    assert complete('eclass.authentication', [gate] + network_trace_fixture({'requiredProbes': ['eclass.authentication']})['requestEvidence'][0]['requests'])
+    lexue = network_trace_fixture({'requiredProbes': ['lexue.calendar']})['requestEvidence'][0]['requests']
+    vpn = dict(teaching, endpoint='https://webvpn.bit.edu.cn/https/a/', finalEndpoint='https://webvpn.bit.edu.cn/https/b/cas/login', finalQuery={'service': '[REDACTED]'})
+    assert complete('lexue.calendar', [vpn] + lexue)
+    assert not complete('lexue.calendar', [dict(vpn, finalEndpoint='https://example.invalid/cas/login')] + lexue)
     cookies = dict(authentication, endpoint='https://login.bit101.flwfdd.xyz/api/jxzxehall/cookies', **{field: ['username', 'password'] for field in ('bodyParameterNames', 'finalBodyParameterNames')})
     assert complete('schedule.current-term', [cookies, preheat, teaching])
     redirected = dict(teaching, finalEndpoint='https://sso.bit.edu.cn/cas/login', finalMethod='GET', finalQuery={})

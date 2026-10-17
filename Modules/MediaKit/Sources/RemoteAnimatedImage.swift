@@ -87,10 +87,8 @@ actor RemoteAnimatedImageDecoder {
             let budgetSide = max(Int((max(width, height) * scale).rounded(.down)), 1)
             let side = min(budgetSide, maximumPixelSize ?? budgetSide)
             guard side > 0 else { return nil }
-            let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceThumbnailMaxPixelSize: side, kCGImageSourceShouldCacheImmediately: true]
-            guard let image = CGImageSourceCreateThumbnailAtIndex(source, index, options as CFDictionary),
-                  image.bytesPerRow * image.height <= pixelBudget else { return nil }
+            guard let image = BoundedStillImageDecoder.thumbnail(from: source, at: index,
+                maximumPixelSize: side, maximumDecodedBytes: perFrameBudget) else { return nil }
             pixelBudget -= image.bytesPerRow * image.height
             let frame = UIImage(cgImage: image)
             if count == 1 { return frame }

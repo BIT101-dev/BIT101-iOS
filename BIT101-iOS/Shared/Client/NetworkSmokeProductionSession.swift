@@ -2,13 +2,67 @@ import Foundation
 import ClientCore
 import CommunityTransport
 import CommunityCore
+import CourseFeature
+import GalleryFeature
 import MineFeature
+import PaperFeature
 import ScheduleInfrastructure
 import TransportCore
 
 #if DEBUG || RELEASE_NETWORK_SMOKE
 @MainActor
 enum NetworkSmokeProductionSession {
+    static func prepareReport(runID: String, dependencies: ReleaseNetworkSmokeDependencies) async -> ReleaseNetworkSmokeReport {
+        let started = Date()
+        var configuration: NetworkSmokeCommunityConfiguration?
+        var failures: [String] = []
+        do {
+            let owner = dependencies.communityIdentity()
+            let mine = dependencies.makeMine()
+            let account = try await mine.fetchMyInfo()
+            guard account.own, account.user.id > 0 else { throw URLError(.userAuthenticationRequired) }
+            let following = try await mine.fetchFollowings(page: 0)
+            guard let target = following.first(where: { $0.id > 0 && $0.id != account.user.id })
+            else { throw configurationError("关注验收需要一个已关注的用户") }
+            let feed = try await dependencies.makeGallery().fetchFeed(kind: .newest, page: nil)
+            guard let poster = feed.items.sorted(by: { $0.commentNum > $1.commentNum })
+                .first(where: { $0.id > 0 && !NetworkSmokePaging.imageURLs(in: $0.images).isEmpty })
+            else { throw configurationError("帖子验收需要带有效图片的对象") }
+            let courses = dependencies.makeCourses()
+            let courseRows = try await courses.fetchCourses(search: "", page: 0)
+            var selectedCourse: (id: Int, number: String)?
+            for row in courseRows.sorted(by: { $0.commentNum > $1.commentNum }) where row.id > 0 && !row.number.isEmpty {
+                if try await courses.fetchCourseHistories(number: row.number).isEmpty { continue }
+                selectedCourse = (row.id, row.number)
+                break
+            }
+            guard let course = selectedCourse else { throw configurationError("课程验收需要带历史成绩的对象") }
+            let papers = dependencies.makePapers()
+            let paperRows = try await papers.fetchPapers(search: nil, order: .newest, page: 0)
+            var selectedPaper: Int?
+            for row in paperRows where row.id > 0 {
+                let detail = try await papers.fetchPaper(id: row.id)
+                if (try? NetworkSmokePaging.checkPaperContent(detail.content)) != nil {
+                    selectedPaper = row.id
+                    break
+                }
+            }
+            guard let paper = selectedPaper else { throw configurationError("文章验收需要带可读正文及图片的对象") }
+            guard dependencies.communityIdentity() == owner else { throw CancellationError() }
+            configuration = .init(accountID: account.user.id, followTarget: target.id,
+                fixtures: .init(posterID: poster.id, courseID: course.id, courseNumber: course.number, paperID: paper))
+        } catch { failures.append(error.localizedDescription) }
+        let report = ReleaseNetworkSmokeReport(runID: runID, scope: .bit101, startedAt: started, finishedAt: Date(),
+            passed: configuration != nil, failures: failures, authenticationBlockers: [], scheduleCache: nil,
+            executedProbes: [], skippedProbes: [], coverageGaps: [], schoolSMSCoverage: "not_run",
+            communityConfiguration: configuration)
+        return ReleaseNetworkSmokeReportStore.complete(report, writer: dependencies.writeReport)
+    }
+
+    private static func configurationError(_ message: String) -> NSError {
+        NSError(domain: "BIT101.NetworkSmoke.Configuration", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+    }
+
     static func run() async throws -> [String] {
         let original = AppAccountSession.storage.communityCredentials
         var selected = original

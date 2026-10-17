@@ -497,6 +497,11 @@ def build_cache_boundary_findings() -> list[str]:
     block = re.search(r"<<'PY'[^\n]*\n(.*?)^PY$", function, re.MULTILINE | re.DOTALL)
     fixture = ROOT / ".build/static-audit/cache-self-test"
     findings: list[str] = []
+    child = re.search(r'result = subprocess.run\(\["zsh", "-c",\s*\n\s*\x27(.*?)\x27', block[1])[1]
+    harness = 'source() { bit101_log_command() { print -r -- "$ROOT_DIR"; }; }\n' + child
+    result = subprocess.run(['zsh', '-c', harness, 'cache-build', '/audit'], capture_output=True, text=True)
+    if result.returncode or result.stdout.strip() != '/audit':
+        findings.append('构建缓存子进程需要沿仓库根目录归集失败诊断。')
     try:
         from validation_artifacts import SELF_TEST_ARTIFACTS, recover_self_test_artifacts
         audit_folder = fixture / '.build/static-audit'

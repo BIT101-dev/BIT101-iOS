@@ -447,9 +447,9 @@ nonisolated final class ScheduleNavigationUITests: UIAutomationTestCase {
         assertUI(textElement("自动化测试用户").exists, "关注刷新应恢复用户。")
         tap("自动化测试用户")
         tap("关注")
-        let followed = app.buttons["已关注"]
+        let followed = app.buttons["取消关注"]
         assertUI(followed.appears(timeout: 5), "关注成功应展示已关注状态。")
-        followed.assertDisabled("已关注状态应保持禁用。")
+        followed.tapBriefly(); assertUI(app.buttons["关注"].appears(timeout: 5), "再次点击应恢复关注入口。")
         tap("查看头像")
         let previewClose = imagePreviewCloseButton()
         app.native.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)).tap()

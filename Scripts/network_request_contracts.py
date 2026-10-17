@@ -11,7 +11,7 @@ API = 'bit101.flwfdd.xyz'
 SCHOOL = r'(?:jxzxehallapp|webvpn)\.bit\.edu\.cn'
 VPN = r'(?:/https/[0-9a-f]+)?'
 VISIBLE_PARAMETERS = frozenset({'page', 'last_id', 'obj', 'order', 'mode', 'type', 'uid', 'detail', 'detailed', 'search', 'hide_bot',
-    'XNXQDM', 'JXLDM', 'XXXQDM', 'dicCode', 'SFSY', 'RQ', 'XQDM', 'XNDM', 'GPA', 'page_size', 'fields', 'conditions'})
+    'XNXQDM', 'JXLDM', 'XXXQDM', 'dicCode', 'SFSY', 'RQ', 'XQDM', 'XNDM', 'GPA', 'page_size', 'fields', 'conditions', 'appName', 'EMAP_LANG'})
 SCHOOL_AUTHENTICATION_BODIES = (frozenset({'challenge_id'}), frozenset({'username', 'password'}))
 
 
@@ -151,7 +151,7 @@ CONTRACTS = {
     'user.profile': [community(r'/user/info/\d+')],
     'schedule.current-term': [teaching('/jwapp/sys/wdkbby/modules/jshkcb/dqxnxq.do')],
     'school.session': [teaching('/jwapp/sys/wdkbby/modules/jshkcb/dqxnxq.do')],
-    'schedule.teaching-center': [teaching('/jwapp/sys/funauthapp/api/getAppConfig/wdkbby-5959167891382285.do'), teaching('/jwapp/i18n.do')],
+    'schedule.teaching-center': [teaching('/jwapp/sys/funauthapp/api/getAppConfig/wdkbby-5959167891382285.do'), teaching('/jwapp/i18n.do', query={'appName': 'wdkbby', 'EMAP_LANG': 'zh'})],
     'schedule.terms': [teaching('/jwapp/sys/wdkbby/modules/jshkcb/xnxqcx.do')],
     'schedule.sync': [teaching(path, 'POST', query={'XNXQDM': '.+'}) for path in (
         '/jwapp/sys/wdkbby/modules/xskcb/cxxszhxqkb.do', '/jwapp/sys/wdksapMobile/modules/ksap/cxxsksap.do',
@@ -253,7 +253,7 @@ def auxiliary_contracts(probe: str, contracts: list[RequestContract], *, allow_s
             additional_parameters=frozenset({'service', 'renew', 'gateway', 'ticket', 'type'}),
             body_parameters=frozenset({'username', 'password', 'execution', 'croypto', 'captcha_payload',
                 'geolocation', 'captcha_code', '_eventId', 'trustDevice'}) if method == 'POST' else frozenset()) for method in ('GET', 'POST'))
-        rows.append(RequestContract(r'sso\.bit\.edu\.cn', '/gate/cas-success', statuses=(200, 401), additional_parameters=frozenset({'ticket'})))
+        rows.append(RequestContract(r'sso\.bit\.edu\.cn', r'/gate/cas-success/?', statuses=(200, 401), additional_parameters=frozenset({'ticket'})))
     if probe in SCHOOL_SMS_PROBES['school_sso_second_factor']:
         rows.append(RequestContract(r'sso\.bit\.edu\.cn', '/cas/api/protected/sms/getPhoneNumberByUserId', 'POST'))
         if allow_sms:
@@ -275,6 +275,7 @@ def auxiliary_contracts(probe: str, contracts: list[RequestContract], *, allow_s
             RequestContract(r'zy-eclass\.bit\.edu\.cn', r'/api/courses/[1-9]\d*/activities')])
     if probe in {'lexue.calendar', 'lexue.ddl'}:
         rows.extend([RequestContract(r'(?:lexue|webvpn)\.bit\.edu\.cn', VPN + '/'),
+            RequestContract(r'webvpn\.bit\.edu\.cn', r'/https/[0-9a-f]+/', final_path=r'/https/[0-9a-f]+/cas/login', additional_parameters=frozenset({'service'})),
             *CONTRACTS['lexue.calendar']])
     if probe == 'score.transcript':
         rows.append(RequestContract(r'jwb\.bit\.edu\.cn', '/cjd/Temp/.+'))

@@ -142,6 +142,7 @@ final class ReleaseNetworkSmokeRunner {
             schoolSMSHandler = nil
         }
         defer { schoolSMSHandler = nil; schoolSMSSchedule = nil }
+        if capture == .communityFixtures { return await NetworkSmokeProductionSession.prepareReport(runID: runID, dependencies: dependencies) }
 
         if scope != .communityCleanup && scope != .communityWrites {
             do { try dependencies.clearRawCourseResponse() }
@@ -683,16 +684,7 @@ final class ReleaseNetworkSmokeRunner {
         report.validatedTerm = validatedScheduleTerm
         report.requestEvidence = requestEvidence
         report.requestEvidenceRequired = dependencies.requiresRequestEvidence
-        do {
-            try dependencies.writeReport(report)
-        } catch {
-            report.passed = false
-            report.failures.append("网络 Smoke 报告写入失败：" + ErrorReportRedactor.sanitized(error.localizedDescription))
-            FileHandle.standardOutput.write(Data("NETWORK_SMOKE_REPORT_WRITE_FAIL run_id=\(runID) error=\(ErrorReportRedactor.sanitized(error.localizedDescription))\n".utf8))
-        }
-        FileHandle.standardOutput.write(Data((report.summaryLine + "\n").utf8))
-        if !report.passed { print(report.failureMessage) }
-        return report
+        return ReleaseNetworkSmokeReportStore.complete(report, writer: dependencies.writeReport)
     }
 
     private func captureScheduleCache(from payload: CourseSyncPayload) -> ScheduleCacheAuditSnapshot {
