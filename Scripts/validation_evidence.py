@@ -742,7 +742,7 @@ def recover_community_smoke(script: Path, directory: Path, run_id: str, original
     names = ("build.log", "console.log", "report/network-smoke-summary.txt", "report/release-network-smoke.json")
     original = {name: (directory / name).read_bytes() for name in names if (directory / name).exists()}
     status = subprocess.run([str(script), "community-cleanup"],
-        env=dict(os.environ, BIT101_DEFER_APP_RESTORE="1", BIT101_NETWORK_SMOKE_CAPTURE="none",
+        env=dict(os.environ, BIT101_NETWORK_SMOKE_CAPTURE="none",
                  BIT101_NETWORK_SMOKE_TERM="", BIT101_NETWORK_SMOKE_FIXTURES="")).returncode
     report_name = names[-1]
     child_path = directory / report_name

@@ -266,20 +266,11 @@ if [[ "$MODE" == "verify" ]]; then
   if $verification_needs_device; then
     bit101_require_device || exit 1
   fi
-  export BIT101_DEFER_APP_RESTORE=1
   verification_audit_pid=
   if (( ${verification_groups[(Ie)audit]} )); then verification_groups=(audit ${verification_groups:#audit}); fi
   finish_verification() {
     local verification_status=$?
     trap - EXIT ZERR INT TERM
-    if $verification_needs_device; then
-      echo "[恢复] 安装并启动常规 Release App"
-      local restore_status=0
-      if ! "$ROOT_DIR/Scripts/build-install-device.sh"; then
-        restore_status=1
-        if (( verification_status == 0 )); then verification_status=1; fi
-      fi
-    fi
     if [[ -n "$verification_audit_pid" ]]; then
       local audit_status=0
       wait "$verification_audit_pid" || audit_status=$?
@@ -290,7 +281,7 @@ import os, time
 print(round(time.monotonic() - float(os.environ['BIT101_WORKFLOW_STARTED_AT']), 1))
 PYELAPSED
 )"
-    echo "[完整验证总耗时] $total_seconds 秒（含等待、编译、测试、汇总及常规 App 恢复）"
+    echo "[完整验证总耗时] $total_seconds 秒（含等待、编译、测试及汇总）"
     exit "$verification_status"
   }
   trap finish_verification EXIT ZERR
@@ -420,46 +411,25 @@ typeset -a retained_result_groups=()
 finish_validation() {
   local validation_status=$?
   trap - EXIT ZERR INT TERM
+  if ! $BUILD_ONLY; then
+    local workflow_seconds=$(( SECONDS - WORKFLOW_STARTED_SECONDS ))
+    if [[ -f "$DERIVED_ROOT/test-metrics.txt" ]]; then
+      print -r -- "$validation_group 工作流总耗时：${workflow_seconds} 秒" >> "$DERIVED_ROOT/test-metrics.txt"
+    fi
+    echo "[测试工作流] ${workflow_seconds} 秒"
+  fi
   python3 "$ROOT_DIR/Scripts/validation_evidence.py" record "$validation_group" "$validation_status" "$validation_scope" || validation_status=$?
   if (( ${#retained_result_groups[@]} )); then
     python3 "$ROOT_DIR/Scripts/validation_performance.py" retain-selected "$validation_group" "${retained_result_groups[@]}" || validation_status=$?
   fi
   exit "$validation_status"
 }
-trap finish_validation EXIT
+trap finish_validation EXIT ZERR
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 if [[ "$MODE" == ui && ${#TEST_SELECTIONS[@]} -gt 0 ]]; then
   echo "[筛选] ${#TEST_SELECTIONS[@]} 项 UI 用例 · 同一批次执行"
-fi
-
-if [[ "$BUILD_ONLY" == false && "$MODE" != modules && "$MODE" != catalyst && "$MODE" != catalyst-release-runtime && "${BIT101_DEFER_APP_RESTORE:-0}" != "1" ]]; then
-  DEVICE_TEST_EXECUTION_STARTED=false
-  restore_release_app() {
-    local test_exit_code=$?
-    trap - EXIT ZERR INT TERM
-    if $DEVICE_TEST_EXECUTION_STARTED; then
-      echo "[恢复] 安装并启动常规 Release App"
-      local restore_status=0
-      if ! "$ROOT_DIR/Scripts/build-install-device.sh"; then
-        restore_status=1
-        echo "常规 Release App 恢复失败，请运行 Scripts/build-install-device.sh" >&2
-        if (( test_exit_code == 0 )); then test_exit_code=1; fi
-      fi
-    fi
-    local workflow_seconds=$(( SECONDS - WORKFLOW_STARTED_SECONDS ))
-    if [[ -f "$DERIVED_ROOT/test-metrics.txt" ]]; then
-      print -r -- "$validation_group 工作流总耗时（含恢复）：${workflow_seconds} 秒" >> "$DERIVED_ROOT/test-metrics.txt"
-    fi
-    echo "[测试工作流] ${workflow_seconds} 秒（含恢复）"
-    python3 "$ROOT_DIR/Scripts/validation_evidence.py" record "$validation_group" "$test_exit_code" "$validation_scope" || test_exit_code=$?
-    if (( ${#retained_result_groups[@]} )); then
-      python3 "$ROOT_DIR/Scripts/validation_performance.py" retain-selected "$validation_group" "${retained_result_groups[@]}" || test_exit_code=$?
-    fi
-    exit "$test_exit_code"
-  }
-  trap restore_release_app EXIT ZERR
-  trap 'exit 130' INT
-  trap 'exit 143' TERM
 fi
 
 mkdir -p "$DERIVED_ROOT"
@@ -643,7 +613,6 @@ run_tests() {
   fi
   if [[ "$BUILD_ONLY" == false && "$MODE" != catalyst && "$MODE" != catalyst-release-runtime ]]; then
     bit101_invalidate_restore || return $?
-    DEVICE_TEST_EXECUTION_STARTED=true
   fi
   if [[ "$BUILD_ONLY" == false ]]; then execution_args+=(-test-timeouts-enabled YES); fi
   echo "[$test_action] $group"

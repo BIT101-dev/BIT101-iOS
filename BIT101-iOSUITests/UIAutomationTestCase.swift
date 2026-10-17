@@ -612,6 +612,33 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     }
 
     @MainActor
+    func renderedLeadingTextInset(_ text: XCUIElement, in cell: XCUIElement) throws -> CGFloat {
+        let screenshot = try XCTUnwrap(app.screenshot().image.cgImage)
+        let window = app.windows.firstMatch.frame
+        let scale = CGFloat(screenshot.width) / window.width
+        let rectangle = CGRect(x: (cell.frame.minX - window.minX) * scale,
+            y: (text.frame.minY - window.minY) * scale, width: cell.frame.width * scale,
+            height: text.frame.height * scale).integral
+        let glyphs = try XCTUnwrap(screenshot.cropping(to: rectangle))
+        let width = glyphs.width, height = glyphs.height
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        let column = try pixels.withUnsafeMutableBytes { bytes -> Int in
+            let context = try XCTUnwrap(CGContext(data: bytes.baseAddress, width: width, height: height,
+                bitsPerComponent: 8, bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            context.draw(glyphs, in: CGRect(x: 0, y: 0, width: width, height: height))
+            let background = (0..<3).reduce(0) { $0 + Int(bytes[height / 2 * width * 4 + $1]) }
+            return try XCTUnwrap((0..<width).first { x in
+                (0..<height).contains { y in
+                    let brightness = (0..<3).reduce(0) { $0 + Int(bytes[(y * width + x) * 4 + $1]) }
+                    return abs(brightness - background) > 3 * 50
+                }
+            })
+        }
+        return CGFloat(column) / scale
+    }
+
+    @MainActor
     func assertInteractiveLabelIsColored(_ title: String) {
         let label = app.staticTexts[title]
         assertUI(label.appears(timeout: 5), "交互行应展示左侧标题：\(title)")

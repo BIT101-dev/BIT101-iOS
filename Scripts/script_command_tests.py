@@ -77,22 +77,17 @@ child() {{ print executed; }}
             text=True, capture_output=True)
         if result.returncode or ('executed\n' in result.stdout) == current or f'checks={1 if current else 2}' not in result.stdout:
             findings.append('模块聚合复验：当前完整证据复用，缺失与过期证据执行后验收')
-    restore = 'restore_release_app() {' + source.split('restore_release_app() {', 1)[1].split('\n  trap restore_release_app', 1)[0]
-    restore = restore.replace('"$ROOT_DIR/Scripts/build-install-device.sh"', 'restore_probe')
     finish = 'finish_validation() {' + source.split('finish_validation() {', 1)[1].split('\ntrap finish_validation', 1)[0]
-    for hook in (finish, restore):
-        for test_status, merge_status in ((0, 0), (7, 0), (0, 9), (7, 9)):
-            harness = f'''ROOT_DIR=/fixture DERIVED_ROOT=/fixture validation_group=all validation_scope=selected
-WORKFLOW_STARTED_SECONDS=$SECONDS DEVICE_TEST_EXECUTION_STARTED=true
+    for test_status, merge_status in ((0, 0), (7, 0), (0, 9), (7, 9)):
+        harness = f'''ROOT_DIR=/fixture DERIVED_ROOT=/fixture validation_group=all validation_scope=selected
+BUILD_ONLY=false WORKFLOW_STARTED_SECONDS=$SECONDS
 retained_result_groups=(all ui)
-restore_probe() {{ print RESTORE; }}
 python3() {{ print -r -- "PY $*"; [[ "$2" != retain-selected ]] || return {merge_status}; }}
 '''
-            name = 'restore_release_app' if hook == restore else 'finish_validation'
-            result = subprocess.run(['zsh', '-c', harness + hook + f'\ntrap {name} EXIT\nexit {test_status}'],
-                capture_output=True, text=True)
-            if result.returncode != (merge_status or test_status) or 'retain-selected all all ui' not in result.stdout:
-                findings.append('定向结果保留自测：退出与 App 恢复钩子合并有效证据并传播失败')
+        result = subprocess.run(['zsh', '-c', harness + finish + f'\ntrap finish_validation EXIT\nexit {test_status}'],
+            capture_output=True, text=True)
+        if result.returncode != (merge_status or test_status) or 'retain-selected all all ui' not in result.stdout:
+            findings.append('定向结果保留自测：退出钩子合并有效证据并传播失败')
     return findings
 
 def restore_installation_boundary_findings() -> list[str]:
@@ -465,14 +460,14 @@ python3() {{ :; }}
 report_result() {{ :; }}
 '''
         result = subprocess.run(['zsh', '-c', stub + recovery + '\ntrap finish_smoke EXIT\nexit "$1"',
-            'icloud-recovery-test', str(original)], env=dict(os.environ, BIT101_DEFER_APP_RESTORE='1'), capture_output=True, text=True)
+            'icloud-recovery-test', str(original)], capture_output=True, text=True)
         if result.returncode != (original or int(bool(phone_status or mac_status))) \
                 or result.stdout.splitlines().count('PHONE') != 1 or result.stdout.splitlines().count('MAC') != 1:
             findings.append('iCloud 恢复自测：双端清理独立执行并保留原始失败状态')
     availability = icloud_source.split('PHONE_AVAILABLE=true\n', 1)[1].split('BIT101_VALIDATION_RUN_ID=', 1)[0]
     cleanup_entry = 'cleanup_status=0\n' + icloud_source.split('cleanup_status=0\n', 1)[1].split(
         'echo "[构建] 准备 Mac Catalyst 测试宿主"', 1)[0]
-    cleanup_recovery = recovery.replace('"$ROOT_DIR/Scripts/build-install-device.sh"', 'restore_normal_app')
+    cleanup_recovery = recovery
     for phone, mac, build, test, expected in ((0, 0, 0, 0, 0), (1, 0, 0, 0, 1), (1, 9, 0, 0, 1),
             (0, 9, 0, 0, 1), (0, 0, 9, 0, 9), (0, 0, 0, 9, 1)):
         stub = f'''set -euo pipefail
@@ -484,16 +479,15 @@ bit101_require_device() {{ [[ "$1" == phone-a ]] || exit 81; return {phone}; }}
 bit101_run_logged() {{ print BUILD; return {build}; }}
 run_phone_test() {{ print PHONE; return {test}; }}
 run_mac_cleanup() {{ print MAC; return {mac}; }}
-restore_normal_app() {{ print RESTORE; }}
 python3() {{ :; }}
 report_result() {{ :; }}
 '''
         result = subprocess.run(['zsh', '-c', stub + availability + cleanup_recovery +
             '\ntrap finish_smoke EXIT ZERR\n' + cleanup_entry],
-            env=dict(os.environ, BIT101_DEFER_APP_RESTORE='0'), capture_output=True, text=True)
+            capture_output=True, text=True)
         rows = result.stdout.splitlines()
         if result.returncode != expected or 'MAC' not in rows \
-                or phone and any(marker in rows for marker in ('BUILD', 'PHONE', 'RESTORE')) \
+                or 'RESTORE' in rows or phone and any(marker in rows for marker in ('BUILD', 'PHONE')) \
                 or not phone and ('BUILD' not in rows or rows.index('MAC') > rows.index('BUILD')) \
                 or not phone and not build and 'PHONE' not in rows:
             findings.append('iCloud 恢复自测：手机离线及构建失败仍推进 Mac 清理，两端失败保留待恢复状态')
@@ -667,7 +661,7 @@ xcrun() {
         ("release-network-smoke.sh", ["school", "sms"], 86, "RELEASE_NETWORK_SMOKE", "DEVICE"),
         ("run_icloud_cross_device_smoke.sh", [], 86, "ICLOUD_CROSS_DEVICE_SMOKE", "DEVICE"), ("run_icloud_cross_device_smoke.sh", ["report"], 0, "REPORT", ""),
     )
-    environment = dict(os.environ, BIT101_WORKFLOW_CONDITIONS='DEBUG RELEASE_NETWORK_SMOKE', BIT101_EXTENDED_TESTS_LOCK_HELD="1", BIT101_DEFER_APP_RESTORE="1", BIT101_NETWORK_SMOKE_FIXTURES=json.dumps(valid_fixture), BIT101_COMMUNITY_SMOKE_ACCOUNT='1')
+    environment = dict(os.environ, BIT101_WORKFLOW_CONDITIONS='DEBUG RELEASE_NETWORK_SMOKE', BIT101_EXTENDED_TESTS_LOCK_HELD="1", BIT101_NETWORK_SMOKE_FIXTURES=json.dumps(valid_fixture), BIT101_COMMUNITY_SMOKE_ACCOUNT='1')
     for filename, arguments in (("build-install-device.sh", ["archive"]), ("run-extended-tests.sh", ["build"]),
                                 ("release-network-smoke.sh", ["ddl"]), ("run_icloud_cross_device_smoke.sh", []),
                                 ("run-static-audit.sh", [])):
@@ -692,13 +686,11 @@ python3() {
   elif [[ "$*" == *"validation_evidence.py record"* ]]; then print -r -- "RECORD $3 $4 $5";
   else return 0; fi
 }
-restore_probe() { print RESTORE; }
 bit101_run_logged() { print BUILD; return 79; }
 '''
-        source = path.read_text().replace('source "$ROOT_DIR/Scripts/script-support.sh"', failure).replace(
-            '"$ROOT_DIR/Scripts/build-install-device.sh"', 'restore_probe')
+        source = path.read_text().replace('source "$ROOT_DIR/Scripts/script-support.sh"', failure)
         result = subprocess.run(['zsh', '-c', source, str(path), *arguments],
-            env=dict(environment, BIT101_DEFER_APP_RESTORE='0'), capture_output=True, text=True)
+            env=environment, capture_output=True, text=True)
         records = [line for line in result.stdout.splitlines() if line.startswith('RECORD ')]
         if result.returncode != 79 or records != [f'RECORD {group} 79 full' for group in groups] \
                 or 'BUILD\n' not in result.stdout or 'RESTORE\n' in result.stdout:

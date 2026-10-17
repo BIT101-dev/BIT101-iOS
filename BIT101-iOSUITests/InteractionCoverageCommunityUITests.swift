@@ -432,7 +432,7 @@ nonisolated final class ScheduleNavigationUITests: UIAutomationTestCase {
     @objc func testMinePublicProfileFollowAndPostDeletion() {
         app = configureApp(resetStorage: true, initialTab: "mine")
         assertUI(textElement("个人信息加载失败").appears(timeout: 5), "离线个人页应完成服务加载并展示恢复入口。")
-        app = configureApp(resetStorage: true, content: true, animations: true, media: true, initialTab: "mine")
+        app = configureApp(resetStorage: true, content: true, media: true, initialTab: "mine")
         assertUI(textElement("自动化测试用户").appears(timeout: 5), "个人页应加载账号资料。")
         tap("粉丝")
         assertUI(app.navigationBars["我的粉丝"].appears(timeout: 5), "粉丝统计应打开粉丝列表。")
@@ -452,7 +452,7 @@ nonisolated final class ScheduleNavigationUITests: UIAutomationTestCase {
         followed.tapBriefly(); assertUI(app.buttons["关注"].appears(timeout: 5), "再次点击应恢复关注入口。")
         tap("查看头像")
         let previewClose = imagePreviewCloseButton()
-        app.native.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)).tap()
+        app.native.descendants(matching: .any)["QLPreviewControllerView"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         UITestSnapshotReader.invalidate()
         assertUI(previewClose.disappears(timeout: 5), "点击预览画布应收起系统工具栏。")
         closeImagePreview()
@@ -983,7 +983,7 @@ extension UIAutomationTestCase {
         assertUI(waitForImagePreview(visible: true, timeout: 30), "图片交互应进入系统 Quick Look。")
         let done = platform.buttons.matching(NSPredicate(format: "label IN %@", ["完成", "Done", "关闭", "Close"])).firstMatch
         if done.isHittable { return done }
-        app.native.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)).tap()
+        app.native.descendants(matching: .any)["QLPreviewControllerView"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         UITestSnapshotReader.invalidate()
         assertUI(waitUntil(NSPredicate(format: "hittable == true"), on: done, timeout: 10), "点击预览画布应显示关闭控件。")
         return done

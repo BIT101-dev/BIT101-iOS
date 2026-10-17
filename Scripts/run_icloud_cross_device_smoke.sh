@@ -18,7 +18,7 @@ export TEST_RUNNER_BIT101_ICLOUD_SMOKE_RUN_ID="$RUN_ID"
 if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
   echo "Scripts/run_icloud_cross_device_smoke.sh          自动选机、验证 iPhone 与 Mac 双向同步"
   echo "Scripts/run_icloud_cross_device_smoke.sh report   读取报告"
-  echo "Scripts/run_icloud_cross_device_smoke.sh cleanup  清理测试状态并恢复 App"
+  echo "Scripts/run_icloud_cross_device_smoke.sh cleanup  清理测试状态"
   exit 0
 fi
 
@@ -194,14 +194,6 @@ finish_smoke() {
       if (( smoke_status == 0 )); then smoke_status=1; fi
     fi
   fi
-  if $PHONE_AVAILABLE && [[ "${BIT101_DEFER_APP_RESTORE:-0}" != "1" ]]; then
-    echo "[恢复] 安装并启动常规 Release App"
-    local restore_status=0
-    if ! "$ROOT_DIR/Scripts/build-install-device.sh"; then
-      restore_status=1
-      if (( smoke_status == 0 )); then smoke_status=1; fi
-    fi
-  fi
   PYTHONPATH="$ROOT_DIR/Scripts${PYTHONPATH:+:$PYTHONPATH}" python3 - "$SUMMARY_PATH" "$smoke_status" "$CLEANUP_ONLY" <<'PY'
 import json
 from datetime import datetime, timezone
@@ -224,7 +216,7 @@ PY
   report_result "$SUMMARY_PATH"
   python3 "$ROOT_DIR/Scripts/validation_evidence.py" record "$validation_group" "$smoke_status" || smoke_status=$?
   if (( smoke_status == 0 )); then
-    echo "iCloud Smoke 验证与恢复完成。"
+    echo "iCloud Smoke 验证与清理完成。"
   fi
   exit "$smoke_status"
 }

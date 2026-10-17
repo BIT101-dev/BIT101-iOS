@@ -435,7 +435,7 @@ def script_output_boundary_findings() -> list[str]:
             findings.append("测试指标自测：中断阶段保持失败状态")
     validation = re.search(r"(?ms)^finish_validation\(\) \{\n.*?^\}$", script)
     for test_status, evidence_status in ((0, 0), (23, 0), (0, 7)):
-        frame = 'ROOT_DIR=/audit\nvalidation_group=ui\nvalidation_scope=full\n'
+        frame = 'ROOT_DIR=/audit\nBUILD_ONLY=true\nvalidation_group=ui\nvalidation_scope=full\n'
         frame += f'python3() {{ print -r -- "$3 $4 $5"; return {evidence_status}; }}\n'
         frame += validation[0] + f'\ntrap finish_validation EXIT\nexit {test_status}\n'
         result = subprocess.run(["zsh", "-c", frame], capture_output=True, text=True)
@@ -667,7 +667,7 @@ def build_cache_boundary_findings() -> list[str]:
 
 
 def smoke_script_boundary_findings() -> list[str]:
-    "通过故障注入验证恢复顺序、状态传播和失败证据保留。"
+    "通过故障注入验证清理顺序、状态传播和测试现场保留。"
 
     source = (SCRIPT_ROOT / "run_icloud_cross_device_smoke.sh").read_text()
     findings: list[str] = []
@@ -754,30 +754,19 @@ bit101_invalidate_restore() { :; }
             except ProcessLookupError: pass
             else: os.killpg(detached_pid, signal.SIGKILL)
         supervisor.wait(timeout=5)
-    finish = shell_function("finish_smoke").replace('"$ROOT_DIR/Scripts/build-install-device.sh"', "restore_normal_app")
+    finish = shell_function("finish_smoke")
     trap_registration = "\n".join(re.findall(r"(?m)^trap .+$", source))
-    cases = ((7, 0, 0, 7), (7, 1, 0, 7), (7, 0, 1, 7), (0, 1, 0, 1), (0, 0, 1, 1), (0, 0, 0, 0), (130, 0, 0, 130), (143, 0, 0, 143))
-    for initial, cleanup_status, restore_status, expected in cases:
+    cases = ((7, 0, 7), (7, 1, 7), (0, 1, 1), (0, 0, 0), (130, 0, 130), (143, 0, 143))
+    for initial, cleanup_status, expected in cases:
         triggers = [f"exit {initial}", f"fail_command() {{ return {initial}; }}; fail_command"]
-        if initial in (130, 143):
-            triggers.append(f"kill -s {'INT' if initial == 130 else 'TERM'} $$")
+        if initial in (130, 143): triggers.append(f"kill -s {'INT' if initial == 130 else 'TERM'} $$")
         for trigger in triggers:
             harness = f'''
 set -euo pipefail
-PHONE_TESTS_STARTED=true
-PHONE_CLEANED_UP=false
-PHONE_TEST_PID=""
-MAC_TESTS_STARTED=false
-MAC_CLEANED_UP=false
-CLEANUP_ONLY=false
-PHONE_AVAILABLE=true
-SUMMARY_PATH=/smoke/report.json
-validation_group=icloud
-DEVICE_ID=device
-ROOT_DIR=/audit
-BIT101_DEFER_APP_RESTORE=0
+PHONE_TESTS_STARTED=true PHONE_CLEANED_UP=false PHONE_TEST_PID=""
+MAC_TESTS_STARTED=false MAC_CLEANED_UP=false CLEANUP_ONLY=false
+SUMMARY_PATH=/smoke/report.json validation_group=icloud ROOT_DIR=/audit
 run_phone_test() {{ print cleanup; return {cleanup_status}; }}
-restore_normal_app() {{ print restore; return {restore_status}; }}
 report_result() {{ print report; }}
 python3() {{ if [[ "$1" == - ]]; then cat >/dev/null; fi; }}
 {finish}
@@ -785,107 +774,62 @@ python3() {{ if [[ "$1" == - ]]; then cat >/dev/null; fi; }}
 {trigger}
 '''
             result = subprocess.run(["zsh", "-c", harness], capture_output=True, text=True)
-            if result.returncode != expected or not re.search(r"(?ms)^cleanup$.*^restore$.*^report$", result.stdout):
-                findings.append(f"Smoke 恢复自测失败：状态 {initial}/{cleanup_status}/{restore_status}；{trigger}")
+            if result.returncode != expected or not re.search(r"(?ms)^cleanup$.*^report$", result.stdout):
+                findings.append(f"Smoke 清理自测：状态 {initial}/{cleanup_status}；{trigger}")
     network_source = (SCRIPT_ROOT / "release-network-smoke.sh").read_text()
-    restore = shell_function("restore_normal_app", network_source).replace(
-        '"$ROOT_DIR/Scripts/build-install-device.sh"',
-        "restore_release",
-    )
-    assert restore.count('restore_release') == 1, '网络 Smoke 恢复替身需要绑定实际执行命令'
+    finish_network = shell_function("finish_smoke", network_source)
     network_traps = "\n".join(line.strip() for line in network_source.splitlines() if line.strip().startswith("trap "))
-    cases = ((7, 0, 7, "preflight", False, 0), (7, 1, 7, "preflight", False, 0),
-        (0, 1, 1, "preflight", False, 0), (0, 0, 0, "preflight", False, 0),
-        (0, 0, 0, "sms", False, 0), (7, 0, 7, "sms", False, 0),
-        (1, 0, 1, "sms", True, 0), (1, 1, 1, "sms", True, 0),
-        (130, 0, 130, "sms", True, 0), (0, 0, 1, "sms", True, 1))
-    for initial, restore_status, expected, sms, ready, school_record_status in cases:
+    cases = ((7, 7, "preflight", False, 0), (0, 0, "preflight", False, 0),
+        (0, 0, "sms", False, 0), (7, 7, "sms", False, 0), (1, 1, "sms", True, 0),
+        (130, 130, "sms", True, 0), (0, 1, "sms", True, 1))
+    for initial, expected, sms, ready, school_record_status in cases:
         harness = f'''
 set -euo pipefail
-DEVICE_ID=device
-ROOT_DIR=/audit
-validation_group=network
-validation_scope=full
-community_started=false
-app_restore_needed=true
-report_ready={str(ready).lower()}
-SMOKE_SCOPE=all
-SMS_MODE={sms}
-BIT101_VALIDATION_SOURCE_DIGEST=network-inputs
-SCHOOL_SMS_STARTED_DIGEST=school-inputs
-BIT101_DEFER_APP_RESTORE=0
-console_process=""
+ROOT_DIR=/audit validation_group=network validation_scope=full
+community_started=false PREPARE_ONLY=false report_ready={str(ready).lower()}
+SMOKE_SCOPE=all SMS_MODE={sms} console_process=""
+BIT101_VALIDATION_SOURCE_DIGEST=network-inputs SCHOOL_SMS_STARTED_DIGEST=school-inputs
 python3() {{ print -r -- "$BIT101_VALIDATION_SOURCE_DIGEST $*"; if [[ "$*" == *'record school-sms'* ]]; then return {school_record_status}; fi; return 0; }}
-restore_release() {{ print restore; return {restore_status}; }}
-{restore}
+{finish_network}
 {network_traps}
 fail_command() {{ return {initial}; }}
 fail_command
 '''
         result = subprocess.run(["zsh", "-c", harness], capture_output=True, text=True)
-        if result.returncode != expected or result.stdout.count("restore\n") != 1:
-            findings.append(f"网络 Smoke 恢复自测失败：状态 {initial}/{restore_status}")
-        network_status = initial or restore_status
-        school_status = restore_status if ready and initial <= 2 else network_status
-        if sms == "sms" and (f"network-inputs /audit/Scripts/validation_evidence.py record network {network_status} full" not in result.stdout
+        if result.returncode != expected: findings.append(f"网络 Smoke 退出自测：状态 {initial}")
+        school_status = 0 if ready and initial <= 2 else initial
+        if sms == "sms" and (f"network-inputs /audit/Scripts/validation_evidence.py record network {initial} full" not in result.stdout
                 or f"school-inputs /audit/Scripts/validation_evidence.py record school-sms {school_status} full" not in result.stdout):
-            findings.append("全量短信验收恢复自测：两个验证范围维持各自结果、恢复状态与开始摘要")
+            findings.append("全量短信验收退出自测：两个验证范围维持各自结果与开始摘要")
     extended_source = (SCRIPT_ROOT / "run-extended-tests.sh").read_text()
-    restore_condition = re.search(r'(?m)^if (\[\[.*\]\]); then\n  DEVICE_TEST_EXECUTION_STARTED=false', extended_source)[1]
-    for mode, build, deferred, expected in (("all", "false", 0, True), ("schedule", "false", 0, True), ("infrastructure", "false", 0, True), ("login", "false", 0, True), ("extensions", "false", 0, True), ("release-runtime", "false", 0, True), ("ui", "false", 0, True), ("modules", "false", 0, False), ("catalyst", "false", 0, False), ("ui", "true", 0, False), ("all", "false", 1, False)):
-        result = subprocess.run(["zsh", "-c", f'MODE={mode}; BUILD_ONLY={build}; BIT101_DEFER_APP_RESTORE={deferred}; if {restore_condition}; then print restore; fi'], capture_output=True, text=True)
-        if result.returncode or (result.stdout.strip() == "restore") != expected:
-            findings.append(f"测试恢复入口自测失败：{mode}/{build}/{deferred}")
-    for name in ("finish_verification", "restore_release_app"):
-        recovery = shell_function(name, extended_source).replace(
-            '"$ROOT_DIR/Scripts/build-install-device.sh"', "restore_release",
-        )
+    for name in ("finish_verification", "finish_validation"):
+        finish = shell_function(name, extended_source)
         registration = re.search(rf"(?m)^[ \t]*trap {name} [^\n]+(?:\n[ \t]*trap [^\n]+)*", extended_source)
         if registration is None:
-            findings.append(f"测试恢复自测需要 {name} 错误钩子")
+            findings.append(f"测试退出自测需要 {name} 错误钩子")
             continue
-        for initial, restore_status, expected in ((7, 0, 7), (7, 1, 7), (0, 1, 1), (0, 0, 0), (130, 0, 130), (143, 0, 143)):
+        for initial in (0, 7, 130, 143):
             triggers = [f"exit {initial}", f"fail_command() {{ return {initial}; }}; fail_command"]
-            if initial in (130, 143):
-                triggers.append(f"kill -s {'INT' if initial == 130 else 'TERM'} $$")
+            if initial in (130, 143): triggers.append(f"kill -s {'INT' if initial == 130 else 'TERM'} $$")
             for trigger in triggers:
                 harness = f'''
 set -euo pipefail
-verification_needs_device=true verification_audit_pid=
-DEVICE_TEST_EXECUTION_STARTED=true
-WORKFLOW_STARTED_SECONDS=$SECONDS
-DERIVED_ROOT=/dev/null
-ROOT_DIR=/audit
-validation_group=ui
-validation_scope=full
+verification_audit_pid= BUILD_ONLY=false WORKFLOW_STARTED_SECONDS=$SECONDS
+DERIVED_ROOT=/dev/null ROOT_DIR=/audit validation_group=ui validation_scope=full
+retained_result_groups=()
 python3() {{ return 0; }}
-restore_release() {{ print restore; return {restore_status}; }}
-{recovery}
+{finish}
 {registration[0]}
 {trigger}
 '''
                 result = subprocess.run(["zsh", "-c", harness], capture_output=True, text=True)
-                if result.returncode != expected or result.stdout.count("restore\n") != 1:
-                    findings.append(f"测试恢复自测失败：{name}；状态 {initial}/{restore_status}；{trigger}")
-        if name == "restore_release_app":
-            for initial in (1, 130, 143):
-                harness = f'''
-set -euo pipefail
-DEVICE_TEST_EXECUTION_STARTED=false
-WORKFLOW_STARTED_SECONDS=$SECONDS
-DERIVED_ROOT=/dev/null
-ROOT_DIR=/audit
-validation_group=ui
-validation_scope=full
-python3() {{ return 0; }}
-restore_release() {{ print restore; return 0; }}
-{recovery}
-{registration[0]}
-exit {initial}
-'''
-                result = subprocess.run(["zsh", "-c", harness], capture_output=True, text=True)
-                if result.returncode != initial or "restore\n" in result.stdout:
-                    findings.append(f"UI 编译失败恢复自测失败：状态 {initial}")
+                if result.returncode != initial:
+                    findings.append(f"测试退出自测：{name}；状态 {initial}；{trigger}")
+    for filename in ('run-extended-tests.sh', 'release-network-smoke.sh', 'run_icloud_cross_device_smoke.sh'):
+        shell = (SCRIPT_ROOT / filename).read_text()
+        calls = [line.strip() for line in shell.splitlines() if '"$ROOT_DIR/Scripts/build-install-device.sh"' in line]
+        expected = ['build-archive) verify_step build-archive "$ROOT_DIR/Scripts/build-install-device.sh" archive ;;'] if filename == 'run-extended-tests.sh' else []
+        if calls != expected: findings.append(f"测试入口保留测试宿主，常规 App 装机沿独立步骤执行：{filename}")
     stage_source = (SCRIPT_ROOT / "icloud-smoke-support.sh").read_text()
     match = re.search(r"(?ms)^record_result\(\).*?<<'PY'\n(.*?)^PY$", stage_source)
     if match is None:

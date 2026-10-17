@@ -19,7 +19,6 @@ CONSOLE_LOG="$DERIVED_DATA/console.log"
 console_process=""
 community_started=false
 report_ready=false
-app_restore_needed=false
 REPORT_DIR="$DERIVED_DATA/report"
 SUMMARY_OUTPUT="$REPORT_DIR/network-smoke-summary.txt"
 APP_GROUP_ID="group.BIT101-dev.BIT101-iOS.shared"
@@ -147,7 +146,7 @@ emit_output() {
   fi
 }
 
-restore_normal_app() {
+finish_smoke() {
   local smoke_status=$?
   local school_sms_status=$smoke_status
   if $report_ready && (( smoke_status <= 2 )); then school_sms_status=0; fi
@@ -167,15 +166,6 @@ PY
       smoke_status=1
     fi
   fi
-  if $app_restore_needed && [[ "${BIT101_DEFER_APP_RESTORE:-0}" != "1" ]]; then
-    local restore_status=0
-    if ! "$ROOT_DIR/Scripts/build-install-device.sh"; then
-      restore_status=1
-      school_sms_status=1
-      echo "恢复正常 App 失败，当前设备可能仍运行网络采样宿主。" >&2
-      [[ $smoke_status -eq 0 ]] && smoke_status=1
-    fi
-  fi
   if ! $PREPARE_ONLY; then python3 "$ROOT_DIR/Scripts/validation_evidence.py" record "$validation_group" "$smoke_status" "$validation_scope" || smoke_status=$?; fi
   if [[ "$SMS_MODE" == sms && "$SMOKE_SCOPE" == all ]]; then
     BIT101_VALIDATION_SOURCE_DIGEST="$SCHOOL_SMS_STARTED_DIGEST" \
@@ -183,7 +173,7 @@ PY
   fi
   exit "$smoke_status"
 }
-trap restore_normal_app EXIT ZERR
+trap finish_smoke EXIT ZERR
 trap 'exit 130' INT
 trap 'exit 143' TERM
 mkdir -p "$DERIVED_DATA" "$REPORT_DIR"
@@ -215,7 +205,6 @@ if [[ $BUILD_STATUS -ne 0 ]]; then
 fi
 
 SMOKE_APP_PATH="$DERIVED_DATA/Build/Products/Release-iphoneos/BIT101-iOS.app"
-app_restore_needed=true
 bit101_invalidate_restore
 xcrun devicectl device install app \
   --device "$DEVICETCL_DEVICE_ID" \

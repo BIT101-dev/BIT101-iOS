@@ -349,32 +349,24 @@ def verification_finish_findings(source: str) -> list[str]:
     step = 'verify_step() {' + source.split('verify_step() {', 1)[1].split('\n  for group in', 1)[0]
     step = step.replace('"$ROOT_DIR/Scripts/run-static-audit.sh" prepare', 'prepare_probe')
     finish = 'finish_verification() {' + source.split('finish_verification() {', 1)[1].split('\n  trap finish_verification', 1)[0]
-    finish = finish.replace('"$ROOT_DIR/Scripts/build-install-device.sh"', 'restore_probe')
     findings = []
-    for prepare_status, restore_status, audit_status in ((0, 0, 0), (0, 9, 0), (0, 0, 11), (0, 9, 11), (13, 0, 0)):
-        reader, writer = os.pipe()
-        try:
-            harness = f'''set -euo pipefail
+    for prepare_status, audit_status, initial in ((0, 0, 0), (0, 11, 0), (13, 0, 0), (0, 11, 7), (0, 0, 7)):
+        harness = f'''set -euo pipefail
 unset BIT101_AUDIT_BACKGROUND BIT101_AUDIT_ARTIFACTS_PREPARED
-ROOT_DIR=/fixture verification_needs_device=true verification_audit_pid=
+ROOT_DIR=/fixture verification_audit_pid=
 completed_result_groups=()
 python3() {{ print 17.0; }}
 prepare_probe() {{ print PREPARE; return {prepare_status}; }}
-restore_probe() {{ print RESTORE; print ready >&{writer}; return {restore_status}; }}
-audit_probe() {{ [[ "$BIT101_AUDIT_ARTIFACTS_PREPARED" == 1 ]]; read -r message <&{reader}; print AUDIT_FINISHED; return {audit_status}; }}
+audit_probe() {{ [[ "$BIT101_AUDIT_ARTIFACTS_PREPARED" == 1 ]]; print AUDIT_FINISHED; return {audit_status}; }}
 '''
-            result = subprocess.run(['zsh', '-c', harness + step + '\n' + finish +
-                '\ntrap finish_verification EXIT ZERR\nverify_step audit audit_probe\nexit 0'],
-                capture_output=True, text=True, pass_fds=(reader, writer), timeout=5)
-            expected = prepare_status or int(bool(restore_status or audit_status))
-            if result.returncode != expected or result.stdout.index('PREPARE') > result.stdout.index('RESTORE') \
-                    or bool(prepare_status) == ('AUDIT_FINISHED' in result.stdout) \
-                    or not prepare_status and result.stdout.index('RESTORE') > result.stdout.index('AUDIT_FINISHED') \
-                    or '[完整验证总耗时] 17.0 秒' not in result.stdout:
-                findings.append('聚合恢复自测：产物准备成功后并行审计，单设备恢复完成后汇总状态和总耗时')
-        finally:
-            os.close(reader)
-            os.close(writer)
+        result = subprocess.run(['zsh', '-c', harness + step + '\n' + finish +
+            f'\ntrap finish_verification EXIT ZERR\nverify_step audit audit_probe\nexit {initial}'],
+            capture_output=True, text=True, timeout=5)
+        expected = prepare_status or initial or int(bool(audit_status))
+        if result.returncode != expected or bool(prepare_status) == ('AUDIT_FINISHED' in result.stdout) \
+                or not prepare_status and result.stdout.index('PREPARE') > result.stdout.index('AUDIT_FINISHED') \
+                or '[完整验证总耗时] 17.0 秒' not in result.stdout:
+            findings.append('聚合退出自测：归集后台审计、原始失败状态与完整耗时')
     clock = source.split("<<'PYELAPSED'\n", 1)[1].split('\nPYELAPSED', 1)[0]
     from unittest.mock import patch
     from io import StringIO
