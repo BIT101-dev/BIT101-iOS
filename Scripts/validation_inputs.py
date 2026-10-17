@@ -209,7 +209,7 @@ def includes_input(name: str, group: str) -> bool:
         tests = root == "BIT101-iOSUITests" or name == "docs/UI_INTERACTION_COVERAGE.md"
         scripts = TEST_SCRIPTS | {"ui_source_facts.py", "ui_explanatory_text.py", "ui_rules.py", "ui_native_interactions.py", "ui_design_contracts.py", "ui_inventory.py"}
     elif host in NETWORK_GROUPS:
-        tests = root == "Cloudflare" and path.suffix != ".md" or build and root == "BIT101-iOSTests"
+        tests = root == "Cloudflare" and path.suffix != ".md" or (build or group == "network-smoke") and root == "BIT101-iOSTests"
         scripts = BUILD_SCRIPTS | VALIDATION_SCRIPTS | {"run-extended-tests.sh", "release-network-smoke.sh"}
     elif host == "icloud":
         tests = root == "BIT101-iOSTests" if build else name == "BIT101-iOSTests/ManualICloudCrossDeviceSmokeTests.swift"
@@ -223,7 +223,7 @@ def includes_input(name: str, group: str) -> bool:
         scripts = BUILD_SCRIPTS | VALIDATION_SCRIPTS
     else:
         raise ValueError(f"需要登记验证组的输入范围：{group}")
-    compiled_tests = build and host in NETWORK_GROUPS | {"icloud"}
+    compiled_tests = (build or group == "network-smoke") and host in NETWORK_GROUPS | {"icloud"}
     return product or tests or name in SHARED_TEST_FILES and (host in APP_TEST_GROUPS or compiled_tests) \
         or name in PERFORMANCE_TEST_FILES and (host in APP_TEST_GROUPS | {"ui"} or compiled_tests) \
         or root == "Scripts" and PurePosixPath(*path.parts[1:]).as_posix() in script_inputs(frozenset(scripts))
@@ -295,6 +295,8 @@ def self_test() -> None:
     assert verification_dispatch(dispatch.replace('audit) verify_step audit', 'obsolete) verify_step audit')) != set(VERIFY_GROUPS)
     assert set(DEFAULT_VERIFY_GROUPS) <= set(VERIFY_GROUPS)
     assert includes_input("README.md", "audit")
+    assert includes_input("BIT101-iOSTests/NetworkSmokeRegressionTests.swift", "network-smoke")
+    assert includes_input("BIT101-iOSTests/PerformanceWorkload.swift", "network-smoke")
     for group in APP_TEST_GROUPS | NETWORK_GROUPS | {"modules", "ui", "icloud", "restore", "manual-device", "build-archive"}:
         assert not includes_input("README.md", group)
         assert not includes_input("AGENTS.md", group)

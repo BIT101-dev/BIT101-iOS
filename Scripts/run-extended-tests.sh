@@ -214,7 +214,7 @@ if [[ "${1:-}" == build ]]; then
 fi
 if ! $BUILD_ONLY && [[ $# -gt 0 ]]; then
   case "$1" in
-    all|release-runtime|schedule|infrastructure|login|extensions|ui|catalyst|catalyst-release-runtime|modules|verify)
+    all|release-runtime|network-smoke|schedule|infrastructure|login|extensions|ui|catalyst|catalyst-release-runtime|modules|verify)
       MODE="$1"
       shift
       ;;
@@ -343,6 +343,9 @@ for selection in "$@"; do
   fi
 done
 TEST_SELECTIONS=("$@")
+if [[ "$MODE" == network-smoke && "$BUILD_ONLY" == false && ${#TEST_SELECTIONS[@]} -eq 0 ]]; then
+  echo "请提供定向网络测试类或方法。" >&2; exit 64
+fi
 if [[ "$MODE" == ui && ${#TEST_SELECTIONS[@]} -gt 0 ]]; then
   selections="$(bit101_ui_test_selections "${TEST_SELECTIONS[@]}")" || exit 64
   TEST_SELECTIONS=("${(@f)selections}")

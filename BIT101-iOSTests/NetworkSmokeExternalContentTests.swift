@@ -608,7 +608,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
         func fetchClaims() async throws -> [CommunityClaim] { [poster.claim] }
         func fetchSubscriptions(page: Int) async throws -> [GallerySubscription] { [] }
         func fetchReportTypes() async throws -> [GalleryReportType] {
-            let data = stage == "report-types-empty-failure" ? "[]" : stage == "report-types-duplicate-failure"
+            let data = stage == "report-types-empty-gap" ? "[]" : stage == "report-types-duplicate-failure"
                 ? #"[{"id":1,"text":"first"},{"id":1,"text":"second"}]"# : stage == "report-types-text-failure"
                 ? #"[{"id":1,"text":"  "}]"# : #"[{"id":1,"text":"fixture"}]"#
             return try JSONDecoder().decode([GalleryReportType].self, from: Data(data.utf8))
@@ -643,12 +643,12 @@ extension ReleaseNetworkSmokeLifecycleTests {
             if search == NetworkSmokePaging.excludedSearchText && stage != "paper-search-ignored-failure" { return [] }
             observed.insert("paper-list")
             if let search { observed.insert("paper-search-\(search)-\(page)") }
-            if stage == "paper-default-order-failure", search != nil { return [] }
+            if stage == "paper-default-date-failure", search != nil { return [] }
             if stage == "empty-list-failure" { return [] }
-            if stage == "paper-\(order.requestValue ?? "newest")-order-failure" || stage == "paper-default-order-failure" {
+            if stage == "paper-\(order.requestValue ?? "newest")-order-failure" || stage == "paper-newest-date-failure" && order == .newest || stage == "paper-default-date-failure" {
                 return page == 0 ? (0..<2).map { index in
                     PaperSummary(id: index + 1, title: "fixture", intro: "", likeNum: index, commentNum: index,
-                        updateTime: index == 0 ? "2026-01-01T00:00:00Z" : "2026-01-02T00:00:00Z")
+                        updateTime: stage.contains("-date-") ? "invalid" : index == 0 ? "2026-01-01T00:00:00Z" : "2026-01-02T00:00:00Z")
                 } : []
             }
             guard page == 0 else { return [] }
@@ -807,10 +807,10 @@ extension ReleaseNetworkSmokeLifecycleTests {
          "gallery-comment-page-failure", "course-comment-page-failure", "paper-comment-page-failure", "gallery-comment-ranking-failure", "paper-comment-ranking-failure", "cors-method-failure", "cors-header-failure",
          "schedule-term-failure", "historical-term-success", "maintained-fixtures-success", "feed-images-missing-success", "fixture-image-missing-failure",
          "missing-fixtures-failure", "fixture-course-number-failure", "empty-list-failure", "all-score-mismatch-failure",
-         "bot-classification-failure", "paper-like-order-failure", "paper-comment-order-failure", "paper-newest-order-failure", "paper-default-order-failure", "paper-content-failure", "paper-image-failure", "campus-selection-failure",
+         "bot-classification-failure", "paper-like-order-failure", "paper-comment-order-failure", "paper-newest-date-failure", "paper-default-date-failure", "paper-content-failure", "paper-image-failure", "campus-selection-failure",
          "invalid-exam-failure", "pending-exam-success", "empty-course-gap", "pending-course-gap", "invalid-classroom-failure", "empty-classroom-gap", "paper-media-success", "paper-media-original-failure", "paper-media-thumbnail-failure",
          "school-independent-success", "transcript-independent-success", "schedule-independent-success", "ddl-independent-success",
-         "course-comment-ranking-failure", "course-history-statistics-failure", "poster-like-order-failure", "poster-new-order-failure", "message-account-missing-failure", "message-account-mismatch-failure", "course-search-target-failure", "paper-search-target-failure", "course-search-later-success", "report-types-empty-failure", "report-types-duplicate-failure", "report-types-text-failure"])
+         "course-comment-ranking-failure", "course-history-statistics-failure", "poster-like-order-failure", "poster-new-order-failure", "message-account-missing-failure", "message-account-mismatch-failure", "course-search-target-failure", "paper-search-target-failure", "course-search-later-success", "report-types-empty-gap", "report-types-duplicate-failure", "report-types-text-failure"])
     func completeOrchestration(stage: String) async throws {
         let image = try #require(UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1)).image { $0.fill(CGRect(x: 0, y: 0, width: 1, height: 1)) }.pngData())
         let services = Services(stage: stage, image: image)
@@ -864,7 +864,8 @@ extension ReleaseNetworkSmokeLifecycleTests {
         if stage.contains("search-target-failure") || stage.contains("search-ignored-failure") { #expect(report.failures.contains { $0.contains(stage.hasPrefix("course-") ? "course.search" : stage.hasPrefix("gallery-") ? "gallery.search" : "paper.search") }) }
         if stage == "course-search-later-success" { #expect(services.observed.contains("course-search-COURSE-2")) }
         if stage.hasPrefix("poster-") { #expect(report.failures.contains { $0.contains("gallery.search") }) }
-        if stage.hasPrefix("report-types-") { #expect(report.failures.count == 1 && report.failures[0].contains("community.report-types")) }
+        if stage == "report-types-empty-gap" { #expect(report.passed && !report.coverageComplete && report.coverageGaps.contains { $0.contains("community.report-types") }) }
+        else if stage.hasPrefix("report-types-") { #expect(report.failures.count == 1 && report.failures[0].contains("community.report-types")) }
         if stage == "course-comment-ranking-failure" { #expect(report.failures.contains { $0.contains("course.comments") }) }
         if stage.hasPrefix("message-account-") { #expect(report.failures.count == GalleryMessageType.allCases.count && !services.observed.contains("message-read")) }
         if stage == "course-history-statistics-failure" { #expect(report.failures.contains { $0.contains("course.history") }) }

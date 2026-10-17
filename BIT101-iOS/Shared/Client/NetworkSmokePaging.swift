@@ -29,7 +29,8 @@ enum NetworkSmokePaging {
         guard page < maximumSamplePages, items <= maximumSampleItems else { throw SamplingError.budgetExceeded }
     }
     static func checkedReportTypes(_ types: [GalleryReportType]) throws -> [GalleryReportType] {
-        guard !types.isEmpty, Set(types.map(\.id)).count == types.count,
+        guard !types.isEmpty else { throw SamplingError.insufficientSample("举报类型列表为空，举报选项交互验收需要有效类型。") }
+        guard Set(types.map(\.id)).count == types.count,
               types.allSatisfy({ !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
         else { throw URLError(.cannotParseResponse) }
         return types
@@ -136,12 +137,12 @@ enum NetworkSmokePaging {
             switch order {
             case .like: hasOrderingSample = hasOrderingSample || Set(papers.map(\.likeNum)).count > 1
             case .comment: hasOrderingSample = hasOrderingSample || Set(papers.map(\.commentNum)).count > 1
-            case .newest: hasOrderingSample = hasOrderingSample || Set(papers.compactMap { AppDateText.date(from: $0.updateTime) }).count > 1
+            case .newest: hasOrderingSample = hasOrderingSample || papers.count > 1
             }
             return papers
         }
         guard !requiresOrderingEvidence || hasOrderingSample else {
-            throw SamplingError.insufficientSample("排序验收需要同一响应中至少两项排序值不同的样本，请维护验收数据。")
+            throw SamplingError.insufficientSample(order == .newest ? "文章默认列表验收需要同一响应中至少两个有效条目。" : "排序验收需要同一响应中至少两项排序值不同的样本，请维护验收数据。")
         }
         return sampled
     }
@@ -334,11 +335,8 @@ enum NetworkSmokePaging {
         case .like: sorted = zip(papers, papers.dropFirst()).allSatisfy { $0.likeNum >= $1.likeNum }
         case .comment: sorted = zip(papers, papers.dropFirst()).allSatisfy { $0.commentNum >= $1.commentNum }
         case .newest:
-            let dates = try papers.map { paper in
-                guard let date = AppDateText.date(from: paper.updateTime) else { throw URLError(.badServerResponse) }
-                return date
-            }
-            sorted = zip(dates, dates.dropFirst()).allSatisfy { $0 >= $1 }
+            // 默认排序使用服务端活动时间，摘要 updateTime 表示编辑时间。
+            sorted = papers.allSatisfy { AppDateText.date(from: $0.updateTime) != nil }
         }
         guard sorted else { throw URLError(.badServerResponse) }
     }

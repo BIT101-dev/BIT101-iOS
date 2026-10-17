@@ -10,7 +10,7 @@ MAXIMUM_PDF_PAGES = 16
 MAXIMUM_REPORT_BYTES = 128 * 1024 * 1024
 MEDIA_PROBE_TIMEOUT_SECONDS = 30
 
-APP_TEST_GROUPS = {"all", "release-runtime", "catalyst", "catalyst-release-runtime", "schedule", "infrastructure", "login", "extensions"}
+APP_TEST_GROUPS = {"all", "release-runtime", "network-smoke", "catalyst", "catalyst-release-runtime", "schedule", "infrastructure", "login", "extensions"}
 TEST_GROUPS = APP_TEST_GROUPS | {"modules", "ui"}
 CORE_GROUPS = {'all', 'release-runtime', 'ui', 'restore'}
 NETWORK_GROUPS = {"network", "ddl", "school-sms", "community-writes", "community-cleanup"}

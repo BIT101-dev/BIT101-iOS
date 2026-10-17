@@ -77,22 +77,6 @@ struct ReleaseNetworkSmokeLifecycleTests {
         }
     }
 
-    @Test(.timeLimit(.minutes(1))) @MainActor func paperPagingChecksEachLiveRankingSnapshot() async throws {
-        let first = PaperSummary(id: 1, title: "", intro: "", likeNum: 2, commentNum: 2, updateTime: "2026-01-01T00:00:00Z")
-        let changed = PaperSummary(id: 2, title: "", intro: "", likeNum: 3, commentNum: 3, updateTime: "2026-01-02T00:00:00Z")
-        for order in PaperSortOrder.allCases {
-            let sample = try await NetworkSmokePaging.paperPage(order: order,
-                currentIdentity: { CommunitySessionIdentity(accountIdentifier: "paper-smoke") }) { page in
-                page == 0 ? [first] : [changed]
-            }
-            #expect(sample.map(\.id) == [1, 2])
-            await #expect(throws: URLError.self) {
-                try await NetworkSmokePaging.paperPage(order: order,
-                    currentIdentity: { CommunitySessionIdentity(accountIdentifier: "paper-smoke") }) { _ in [first, changed] }
-            }
-        }
-    }
-
     @Test(.timeLimit(.minutes(1))) func unsentCreationReleasesItsRecoveryAttempt() async throws {
         let world = CommunityWorld(stage: "unsent-poster")
         await #expect(throws: (any Error).self) { try await world.smoke.run(marker: "fixture", expectedAccount: 1) }

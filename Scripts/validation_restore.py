@@ -262,7 +262,9 @@ def simulator_startup_findings(source: str) -> list[str]:
                     patch.object(subprocess, 'run', side_effect=lambda command, **kwargs: commands.append(command)), \
                     patch.object(Path, 'is_file', return_value=True), \
                     patch.object(Path, 'read_text', return_value=json.dumps({'identifier': 'device'})), redirect_stdout(StringIO()):
-                exec(compile(device_program, '<simulator-device>', 'exec'), {})
+                try: exec(compile(device_program, '<simulator-device>', 'exec'), {})
+                except SystemExit as error:
+                    if error.code not in (None, 0): raise
             expected = [['xcrun', 'simctl', 'boot', 'device']] if hosted == 'true' and operation == 'prepare' else []
             if hosted == 'false' and operation not in {'prepare-restore', 'build-ui'}: expected = [['xcrun', 'simctl', 'boot', 'device'],
                 ['xcrun', 'simctl', 'bootstatus', 'device', '-b'], ['open', '-a', '/fixture/Xcode.app/Contents/Applications/DeviceHub.app']]

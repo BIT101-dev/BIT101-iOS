@@ -646,6 +646,7 @@ xcrun() {
         ("run-extended-tests.sh", ["catalyst"], 86, "all-tests", ""),
         ("run-extended-tests.sh", ["catalyst-release-runtime"], 86, "ReleaseRuntimeContractTests", ""),
         ("run-extended-tests.sh", ["release-runtime"], 86, "ReleaseRuntimeContractTests", "DEVICE"),
+        ("run-extended-tests.sh", ["network-smoke", "NetworkSmokeRegressionTests"], 86, "RELEASE_NETWORK_SMOKE", "DEVICE"),
         ("run-extended-tests.sh", ["ui", "About", "About"], 86, "CommunityPublishingUITests/testAboutLicenseUpdateAndResetConfirmation", "DEVICE"),
         ("run-extended-tests.sh", ["ui", "Schedule"], 86, "testScheduleWeekButtonsAndSectionSwipes", "DEVICE"),
         ("run-extended-tests.sh", ["ui", "DDLEditor"], 86, "ScheduleNavigationUITests/testDDLEditorDetailsDatePickerValidationAndCancelEditing", "DEVICE"),
@@ -743,6 +744,7 @@ bit101_run_logged() { print BUILD; return 79; }
         if arguments == ["ui", "test"] and command_output.count("-only-testing:BIT101-iOSUITests/") != ui_test_count:
             findings.append("命令自测：两个测试类的全部交互用例可通过关键词选择")
     for filename, arguments in (
+        ("run-extended-tests.sh", ["network-smoke"]),
         ("build-install-device.sh", ["build", "extra"]),
         ("run-extended-tests.sh", ["ui", "unmatched-keyword"]),
         ("run-extended-tests.sh", ["build", "unknown"]),
@@ -761,7 +763,9 @@ bit101_run_logged() { print BUILD; return 79; }
     selected = StringIO()
     with patch.object(sys, "argv", ["ui-plan", "/audit/Products"]), \
          patch.object(Path, "glob", return_value=[older, newer]), redirect_stdout(selected):
-        exec(compile(plan_source, "ui-plan-self-test", "exec"), {})
+        try: exec(compile(plan_source, "ui-plan-self-test", "exec"), {})
+        except SystemExit as error:
+            if error.code not in (None, 0): raise
     if older.open.called or newer.open.called or selected.getvalue().strip() != str(newer):
         findings.append("UI 计划自测：最新构建选择及默认诊断配置保留")
     with patch.object(sys, "argv", ["ui-plan", "/audit/Products"]), patch.object(Path, "glob", return_value=[]):

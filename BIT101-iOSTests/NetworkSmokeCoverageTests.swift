@@ -188,9 +188,9 @@ struct NetworkSmokeCoverageTests {
                 default: return page == 0 ? [first, second] : []
                 }
             }
-            if ["distinct", "continued", "cross-page"].contains(sample) {
+            if ["distinct", "continued", "cross-page"].contains(sample) || sample == "equal" && order == .newest {
                 #expect(try await NetworkSmokePaging.paperPage(order: order, requiresOrderingEvidence: true,
-                    currentIdentity: { .init(accountIdentifier: "ordering") }, load: load).count == (sample == "distinct" ? 2 : 3))
+                    currentIdentity: { .init(accountIdentifier: "ordering") }, load: load).count == (["distinct", "equal"].contains(sample) ? 2 : 3))
             } else {
                 await #expect(throws: Error.self) {
                     try await NetworkSmokePaging.paperPage(order: order, requiresOrderingEvidence: true,
@@ -545,20 +545,6 @@ struct NetworkSmokeCoverageTests {
         }
         #expect(throws: URLError.self) { try NetworkSmokePaging.checkBotPosters([poster(tags: ["生活"])]) }
         #expect(throws: URLError.self) { try NetworkSmokePaging.checkBotPosters([poster(tags: ["BOT"]), poster(tags: [])]) }
-    }
-
-    @Test(arguments: PaperSortOrder.allCases)
-    func paperSmokeChecksRankTimezonesAndTies(order: PaperSortOrder) throws {
-        let first = PaperSummary(id: 1, title: "", intro: "", likeNum: 2, commentNum: 3, updateTime: "2026-01-02T00:00:00Z")
-        let tied = PaperSummary(id: 2, title: "", intro: "", likeNum: 2, commentNum: 3, updateTime: "2026-01-02T08:00:00+08:00")
-        let older = PaperSummary(id: 3, title: "", intro: "", likeNum: 1, commentNum: 2, updateTime: "2026-01-01 08:00:00")
-        try NetworkSmokePaging.checkPapers([], order: order)
-        try NetworkSmokePaging.checkPapers([first, tied, older], order: order)
-        #expect(throws: URLError.self) { try NetworkSmokePaging.checkPapers([older, first], order: order) }
-        if order == .newest {
-            let invalid = PaperSummary(id: 4, title: "", intro: "", likeNum: 0, commentNum: 0, updateTime: "invalid")
-            #expect(throws: URLError.self) { try NetworkSmokePaging.checkPapers([invalid], order: order) }
-        }
     }
 
     @Test(arguments: CommunityCommentOrder.allCases)

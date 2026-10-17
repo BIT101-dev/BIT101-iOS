@@ -298,6 +298,8 @@ Scripts/release-network-smoke.sh school
 Scripts/release-network-smoke.sh ddl
 ```
 
+失败接口沿 `Scripts/run-extended-tests.sh network-smoke NetworkSmokeRegressionTests` 定向复验，覆盖反馈恢复回执、举报类型读取、热门续页及文章默认列表和搜索。单项方法名可继续筛选，脱敏 HTTP 证据保存在 XCTest 附件。举报类型空响应进入选项交互覆盖缺口；文章默认列表沿服务端顺序展示，摘要编辑时间参与字段有效性校验，高赞与热评继续核对数值顺序。
+
 可选范围为 `all`、`bit101`、`school`、`transcript`、`schedule` 和 `ddl`。学校、成绩单、课表及 DDL 范围直接执行所属学校认证，社区登录前置归完整与社区范围。每个范围均维护必需探针清单，报告分别记录服务健康、执行探针和覆盖完整度。覆盖判定核对该范围的完整清单与实际执行记录，部分覆盖返回状态码 2。学校短信 challenge 记录为认证受阻，短信输入由真机流程验证；反馈探针在同一请求内创建、读取并清理临时报告。
 
 AASA 探针使用终止重定向的独立传输，核对原始 URL、HTTP 200、JSON 内容类型、128 KB 大小上限及三个分享路径的完整配置。离线编排用例覆盖重定向、响应类型及路径排除配置错误。发布版本查询与 App 更新查询通过请求时间参数及缓存刷新头获取商店版本。
