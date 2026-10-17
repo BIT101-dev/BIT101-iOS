@@ -75,6 +75,30 @@ struct EclassDDLSyncTests {
         #expect(model.visibleDDLEvents().map(\.id) == ["eclass:overdue"])
     }
 
+    @Test(.timeLimit(.minutes(1)), arguments: ["main", "lexue", "eclass"])
+    func visibleDeadlinesKeepRecentOverdueItemsAheadOfOlderOnes(group: String) async {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        func deadline(_ id: String, _ offset: TimeInterval, done: Bool = false) -> DDLEventRecord {
+            .init(id: id, group: group, title: id, text: "", dueAt: now.addingTimeInterval(offset), done: done)
+        }
+        var cache = ScheduleCache()
+        cache.ddlAfterDay = 7
+        cache.ddlEvents = [
+            deadline("later", 7_200), deadline("older", -7_200),
+            deadline("done-older", -10_800, done: true), deadline("recent", -3_600),
+            deadline("soon", 3_600), deadline("done-recent", -1_800, done: true),
+            deadline("due-now", 0), deadline("outside-retention", -8 * 86_400),
+        ]
+        let repository = ScheduleRepository(session: { AppStorageSession(accountIdentifier: "ddl-order") },
+            load: { _ in .loaded(cache) }, save: { _, _, _ in })
+        let model = ScheduleDDLViewModel(service: Service(payload: DDLSyncPayload(url: "", events: [])), repository: repository)
+        await repository.loadIfNeeded()
+        #expect(model.visibleDDLEvents(at: now).map(\.id)
+            == ["recent", "older", "due-now", "soon", "later", "done-recent", "done-older"])
+        #expect(model.visibleDDLEvents(at: now.addingTimeInterval(8_000)).map(\.id)
+            == ["later", "soon", "due-now", "recent", "older", "done-recent", "done-older"])
+    }
+
     @Test(.timeLimit(.minutes(1))) func advancingTheClockUpdatesCountdownTintAndRetention() async {
         var cache = ScheduleCache()
         var deadline = event("manual", group: "main")

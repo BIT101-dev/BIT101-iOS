@@ -105,6 +105,9 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
                 if lhs.done != rhs.done {
                     return !lhs.done
                 }
+                if lhs.dueAt < now, rhs.dueAt < now {
+                    return lhs.dueAt > rhs.dueAt
+                }
                 return lhs.dueAt < rhs.dueAt
             }
     }
