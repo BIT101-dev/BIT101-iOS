@@ -446,6 +446,7 @@ struct ReleaseNetworkSmokeReport: Codable {
 
 /// ReleaseNetworkSmokeReportStore 保存网络冒烟报告。
 enum ReleaseNetworkSmokeReportStore {
+    private static let logger = Logger(subsystem: "BIT101", category: "ReleaseNetworkSmoke")
     private static let directoryName = "NetworkSmoke"
     static let rawCourseResponseFileName = "raw-course-response.json"
     static let communityJournalFileName = "community-write-journal.json"
@@ -462,7 +463,7 @@ enum ReleaseNetworkSmokeReportStore {
             FileHandle.standardOutput.write(Data("NETWORK_SMOKE_REPORT_WRITE_FAIL run_id=\(report.runID) error=\(ErrorReportRedactor.sanitized(error.localizedDescription))\n".utf8))
         }
         FileHandle.standardOutput.write(Data((report.summaryLine + "\n").utf8))
-        if !report.passed { print(report.failureMessage) }
+        if !report.passed { logger.error("\(report.failureMessage, privacy: .public)") }
         return report
     }
 
