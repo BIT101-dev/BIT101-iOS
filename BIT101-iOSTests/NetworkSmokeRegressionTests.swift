@@ -112,7 +112,7 @@ struct NetworkSmokeRegressionContractTests {
         }
     }
 
-    @Test func newestRequestAndServerOrderRemainIntact() async throws {
+    @Test(.timeLimit(.minutes(1))) func newestRequestAndServerOrderRemainIntact() async throws {
         let route = PaperRoute()
         let session = CommunitySession(httpClient: HTTPClient(transport: route, observer: nil),
             baseURL: AppURL.required("https://example.invalid"),

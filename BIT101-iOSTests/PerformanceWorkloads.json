@@ -52,7 +52,7 @@
       "courses": 200,
       "weeks": 20,
       "coursesPerSlot": 4,
-      "weekSwitchPairs": 10,
+      "weekSwitchPairs": 1,
       "animations": true
     }
   },

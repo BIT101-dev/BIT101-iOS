@@ -546,7 +546,7 @@ Scripts/run-extended-tests.sh modules \
 
 媒体预览行为验收覆盖资源创建、清理、关闭，以及多个活动消费者共享存储时的所有权保护。
 
-`MaintenancePerformanceTests` 沿 XCTest 默认测量选项记录 `PaperListViewModel` 的实际分页与消息列表追加、PNG 解码、复杂内联格式的文章解析与纯文本生成、GIF 解码、Widget 时间线计算、URLSession 响应聚合，以及多页本地图片的首个预览文件编码与写盘的时钟和物理内存指标。`MaintenancePerformanceUITests` 记录恢复持久化账号与 200 门、20 周课程后的进程结束、启动至课表就绪，以及启用动画、每时段四门重叠课程的 200 门、20 周课表往返切周布局；切周以原生短按驱动，每次切换继续核对选中周次，测量次数沿 XCTest 默认值。UI 时钟沿端到端操作记录进程管理、交互驱动、可访问性查询与内容就绪，UI 内存指标采集目标 App 进程；模块性能专项同时记录解析、解码、存储和时间线的产品调用边界。分页负载每轮刷新文章与消息消费者，消息首屏沿生产状态替换，续页使用正数降序标识，并核对每轮数量与最终游标。性能基线沿同一真机 runner 的 XCTest 默认参数维护。
+`MaintenancePerformanceTests` 沿 XCTest 默认测量选项记录 `PaperListViewModel` 的实际分页与消息列表追加、PNG 解码、复杂内联格式的文章解析与纯文本生成、GIF 解码、Widget 时间线计算、URLSession 响应聚合，以及多页本地图片的首个预览文件编码与写盘的时钟和物理内存指标。`MaintenancePerformanceUITests` 记录恢复持久化账号与 200 门、20 周课程后的进程结束、启动至课表就绪，以及启用动画、每时段四门重叠课程的 200 门、20 周课表往返切周布局；每个采样以原生短按完成一次切周往返，每次切换继续核对选中周次，测量次数沿 XCTest 默认值。UI 时钟沿端到端操作记录进程管理、交互驱动、可访问性查询与内容就绪，UI 内存指标采集目标 App 进程；模块性能专项同时记录解析、解码、存储和时间线的产品调用边界。分页负载每轮刷新文章与消息消费者，消息首屏沿生产状态替换，续页使用正数降序标识，并核对每轮数量与最终游标。性能基线沿同一真机 runner 的 XCTest 默认参数维护。
 
 `performance-baseline` 人工专项登记 `pagination`、`image-decoding`、`startup`、`schedule-layout`、`long-article`、`gif-decoding`、`widget-timeline`、`response-aggregation`、`local-preview`、`media-pipeline`、`image-quota-scan`、`message-read-queries`、`course-editing` 场景的结构化比较及影像，参与完整发布验收。`media-pipeline` 同时保留满额活跃位图、头像及 GIF 缓存并执行四路最大图片传输，记录组合场景的进程峰值内存和耗时，并核对内存压力回收后的活跃画面。行为场景归属 `all`，启动与课表布局归属 `ui`；每条采样保留所属完整测试组的执行证据。
 
