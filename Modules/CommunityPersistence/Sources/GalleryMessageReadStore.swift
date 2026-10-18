@@ -204,7 +204,16 @@ public final class GalleryMessageReadStore: GalleryMessageReadStoring {
     }
 
     @discardableResult public func markSeen(ids: [Int], for type: GalleryMessageType) async -> Bool {
+        await markSeen(ids: ids, for: type, includingUnread: false)
+    }
+
+    @discardableResult public func markAllSeen(including ids: [Int], for type: GalleryMessageType) async -> Bool {
+        await markSeen(ids: ids, for: type, includingUnread: true)
+    }
+
+    private func markSeen(ids: [Int], for type: GalleryMessageType, includingUnread: Bool) async -> Bool {
         await save { snapshot in
+            let ids = includingUnread ? ids + (snapshot.latestIDsByType[type.rawValue] ?? []) : ids
             let seen = Set(snapshot.seenIDsByType[type.rawValue] ?? [])
             let floor = snapshot.retainedFromIDByType[type.rawValue] ?? Int.min
             guard ids.contains(where: { $0 >= floor && !seen.contains($0) }) else { return nil }

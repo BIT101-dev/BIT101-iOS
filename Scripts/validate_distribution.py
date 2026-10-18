@@ -13,6 +13,7 @@ import uuid
 from xml.parsers.expat import ExpatError
 from validate_versions import extract_versions
 from validation_provenance import sampling_evidence_current, utc_now
+from validation_environment import input_identity_complete
 
 ROOT = Path(__file__).resolve().parents[1]
 REPORT = ROOT / "build/DeviceInstall/distribution-signing.json"
@@ -23,8 +24,7 @@ def archive_provenance(info: dict) -> dict:
 
 
 def valid_archive_provenance(provenance: dict) -> bool:
-    return isinstance(provenance, dict) and isinstance(provenance.get("inputDigest"), str) \
-        and re.fullmatch(r"[0-9a-f]{64}", provenance["inputDigest"]) is not None \
+    return isinstance(provenance, dict) and input_identity_complete(provenance.get("inputDigest")) \
         and isinstance(provenance.get("runID"), str) and bool(provenance["runID"].strip())
 
 

@@ -428,6 +428,15 @@ struct CommunityDependencyBoundaryTests {
         #expect(!model.state(for: type).canLoadMore)
         await model.refresh(type: type)
         #expect(store.unreadCount(for: type) == 5)
+        model.selectedType = type
+        await model.markCurrentTypeAsRead()
+        #expect(model.unreadCount(for: type) == 0)
+        #expect(model.state(for: type).items.map(\.id) == [6, 5])
+        let reopened = GalleryMessageReadStore(files: files, storageRoot: URL(fileURLWithPath: "/messages"), defaults: defaults, session: { session })
+        #expect(await reopened.prepareSnapshot())
+        #expect(reopened.unreadCount(for: type) == 0 && !reopened.isUnread(id: 2, for: type))
+        await model.markCurrentTypeAsRead()
+        #expect(model.unreadCount(for: type) == 0)
         let before = model.state(for: type)
         for error in [URLError(.timedOut) as any Error, CancellationError()] {
             model.alert = nil
@@ -815,6 +824,9 @@ private final class RecordingMessageReadStore: GalleryMessageReadStoring {
         seenIDs = ids
         changeSubject.send(currentSession)
         return true
+    }
+    @discardableResult func markAllSeen(including ids: [Int], for type: GalleryMessageType) -> Bool {
+        markSeen(ids: Array(Set(ids + latestIDs)).sorted(), for: type)
     }
     func unreadCount(for type: GalleryMessageType) -> Int { type == .comment ? unread : 0 }
     func isUnread(id: Int, for type: GalleryMessageType) -> Bool { id == 42 }

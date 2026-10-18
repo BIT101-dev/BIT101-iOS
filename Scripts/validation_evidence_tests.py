@@ -141,9 +141,9 @@ def run_self_test(subject) -> int:
         assert host_environment.__wrapped__()['compiler']['path'] == selected_compiler
         lookup.assert_called_once_with(['xcrun', '--find', 'swift-frontend'], text=True)
     from validation_inputs import self_test as input_self_test
-    fixture_environment = {'host': {'system': 'fixture'}, 'developer': '/fixture', 'xcode': {'version': 'fixture'}, 'compiler': {'path': '/fixture/swift-frontend', 'modified': 1, 'size': 100, 'sha256': 'a' * 64}, 'sdks': {'fixture': {'Version': '1'}}, 'device': {'identifier': 'fixture-phone', 'systemVersion': 'fixture-os', 'systemBuild': 'fixture-build'}}
+    fixture_environment = {'host': {'system': 'fixture'}, 'developer': '/fixture', 'xcode': {'version': 'fixture'}, 'compiler': {'path': '/fixture/swift-frontend', 'modified': 1, 'size': 100, 'version': 'a' * 64}, 'sdks': {'fixture': {'Version': '1'}}, 'device': {'identifier': 'fixture-phone', 'systemVersion': 'fixture-os', 'systemBuild': 'fixture-build'}}
     fixture_environment['runtimes'] = {name: 'fixture-version' for name in ('python', 'ruby', 'node', 'npm', 'ruff')}
-    with patch(f'{module_name}.environment_context', return_value=fixture_environment), \
+    with patch(f'{module_name}.environment_context', return_value=fixture_environment), patch('validation_provenance._local_source_identity', side_effect=__import__('validation_performance_tests').source_identity_fixture()), \
             patch('validation_merge.environment_context', return_value=fixture_environment), \
             patch('validation_provenance.environment_context', return_value=fixture_environment), \
             patch('validation_merge.result_bundle_findings', side_effect=lambda *args, **kwargs: []), \
@@ -215,7 +215,7 @@ def run_self_test(subject) -> int:
             compiler=dict(fixture_environment['compiler'], path='/other/swift-frontend', modified=2))
         with patch('validation_merge.environment_context', return_value=relocated):
             assert not merge_findings(core, digest=current_digest, complete=lambda *args: True, commit='commit', recorded_environment=True)
-        for field, value in (('compiler', dict(fixture_environment['compiler'], sha256='b' * 64)),
+        for field, value in (('compiler', dict(fixture_environment['compiler'], version='b' * 64)),
                 ('sdks', {'fixture': {'Version': '2'}}), ('xcode', {'version': 'other'})):
             with patch('validation_merge.environment_context', return_value=dict(fixture_environment, **{field: value})):
                 assert any('当前 CI' in error for error in merge_findings(core, digest=current_digest,
@@ -249,7 +249,7 @@ def run_self_test(subject) -> int:
         compiler = fixture_environment['compiler']
         relocated = dict(compiler, path='/other-host/swift-frontend', modified=2)
         assert toolchain_identity(fixture_environment) == toolchain_identity(dict(fixture_environment, compiler=relocated))
-        assert toolchain_identity(fixture_environment) != toolchain_identity(dict(fixture_environment, compiler=dict(compiler, sha256='b' * 64)))
+        assert toolchain_identity(fixture_environment) != toolchain_identity(dict(fixture_environment, compiler=dict(compiler, version='b' * 64)))
         from contextlib import redirect_stdout
         from io import StringIO
         output = StringIO()
@@ -379,7 +379,7 @@ def run_self_test(subject) -> int:
         from swift_source_index import SWIFT_SYNTAX_SOURCE_NAMES
         inputs = {'Scripts/' + name: b'indexer source' for name in SWIFT_SYNTAX_SOURCE_NAMES}
         groups = subject.RELEASE_GROUPS | subject.TEST_GROUPS | {'network', 'icloud', 'manual-device', 'build-archive'}
-        with patch('validation_provenance.repository_input_names', return_value=list(inputs)), \
+        with patch('validation_provenance.repository_input_names', return_value=list(inputs)), patch('validation_provenance._clean_source_identity', return_value=None), \
                 patch.object(Path, 'is_file', return_value=True), \
                 patch.object(Path, 'read_bytes', lambda path: inputs[path.relative_to(subject.ROOT).as_posix()]), \
                 patch.object(Path, 'stat', return_value=SimpleNamespace(st_mode=420)):
@@ -492,7 +492,7 @@ def run_self_test(subject) -> int:
             try: capture('操作', '结果', Path('/missing'), 'photos', 'passed', subject.utc_now().isoformat())
             except FileNotFoundError: pass
             else: raise AssertionError('人工证据需要已有附件')
-        for field, value in [('dataBase64', ''), ('dataBase64', 'bad%base64'), ('dataBase64', 'b3RoZXI='), ('sha256', 'a' * 64), ('byteCount', 1)]:
+        for field, value in [('dataBase64', ''), ('dataBase64', 'bad%base64'), ('dataBase64', 'b3RoZXI='), ('byteCount', 1)]:
             changed = json.loads(json.dumps(checks))
             next(iter(changed.values()))['evidence'][field] = value
             assert not complete(changed)
@@ -642,7 +642,7 @@ def run_self_test(subject) -> int:
                     assert f'| modules | full | {expected} |' in output.getvalue()
             with patch(f'{module_name}.environment_context', return_value=dict(fixture_environment, xcode={'version': 'changed'})):
                 assert subject.release_findings(report, 'source', recorded_environment=True)
-            with patch(f'{module_name}.environment_context', return_value=dict(fixture_environment, compiler=dict(compiler, sha256='b' * 64))):
+            with patch(f'{module_name}.environment_context', return_value=dict(fixture_environment, compiler=dict(compiler, version='b' * 64))):
                 assert any('编译工具链' in error for error in subject.release_findings(report, 'source', recorded_environment=True))
         assert subject.release_findings(report, 'changed')
         groups['ui']['scope'] = 'selected'

@@ -328,6 +328,10 @@ struct LoginStorageTests {
             let old = request.value(forHTTPHeaderField: "fake-cookie") == "old-cookie"
             if old { await withCheckedContinuation { pending = $0 } }
             let url = try #require(request.url)
+            if url.path == "/user/login" {
+                return (Data(#"{"detail":"账号或密码错误"}"#.utf8), try #require(HTTPURLResponse(url: url,
+                    statusCode: 401, httpVersion: nil, headerFields: nil)))
+            }
             return (Data(), try #require(HTTPURLResponse(url: url,
                 statusCode: old ? oldStatus : 200, httpVersion: nil, headerFields: nil)))
         }
@@ -368,7 +372,7 @@ struct LoginStorageTests {
         defaults.removePersistentDomain(forName: domain)
         defer { defaults.removePersistentDomain(forName: domain) }
         let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: {})
-        try storage.saveLoginState(studentID: "A", password: "fixture", fakeCookie: "old-cookie")
+        try storage.saveLoginState(studentID: "A", password: "fixture", fakeCookie: "old-cookie", communityPasswordDigest: "fixture-digest")
         let owner = storage.communityCredentials.identity
         let transport = SuspendedCookieCheck(oldStatus: 401)
         let http = HTTPClient(transport: transport, observer: nil)
@@ -653,6 +657,7 @@ extension LoginStorageTests {
     private final class RegistrationResponses: HTTPTransport {
         var requests: [(String, [String: Any])] = []
         var registerStatus = 200
+        var captcha = ""
         var beforeResponse: (() async -> Void)?
         func data(for request: URLRequest) async throws -> (Data, URLResponse) {
             let url = try #require(request.url)
@@ -664,12 +669,121 @@ extension LoginStorageTests {
             case "/user/mail_verify": body = #"{"token":"mail-proof"}"#
             case "/user/webvpn_verify_init":
                 body = #"{"salt":"AAAAAAAAAAAAAAAAAAAAAA==","cookie":"fixture","execution":"fixture","captcha":""}"#
+                    .replacingOccurrences(of: #""captcha":"""#, with: #""captcha":"\#(captcha)""#)
             case "/user/webvpn_verify": body = #"{"token":"school-proof","code":"123456"}"#
             case "/user/register", "/user/login": body = #"{"fake_cookie":"registered-cookie"}"#
             default: throw URLError(.unsupportedURL)
             }
             return (Data(body.utf8), try #require(HTTPURLResponse(url: url,
                 statusCode: url.path == "/user/register" ? registerStatus : 200, httpVersion: nil, headerFields: nil)))
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func schoolCaptchaOffersTheAvailableLoginAndVerificationMethods() async throws {
+        let domain = "BIT101Tests.school-captcha"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: {})
+        let transport = RegistrationResponses(), http = HTTPClient(transport: transport, observer: nil)
+        transport.captcha = "data:image/png;base64,fixture"
+        let service = LoginService(storage: storage, apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http))
+        for registration in [false, true] {
+            do {
+                if registration { _ = try await service.verifyRegistrationIdentity(studentID: "A", password: "fixture") }
+                else { _ = try await service.login(studentID: "A", password: "fixture") }
+                Issue.record("Captcha requires an actionable authentication response")
+            } catch LoginServiceError.schoolCaptchaRequired {
+                #expect(LoginServiceError.schoolCaptchaRequired.localizedDescription.contains("校园邮箱"))
+            }
+        }
+        #expect(transport.requests.map(\.0) == ["/user/webvpn_verify_init", "/user/webvpn_verify_init"])
+    }
+
+    private final class SharedRenewalResponses: HTTPTransport {
+        var paths: [String] = []
+        var outcome = "success"
+        var beforeRenew: (() async throws -> Void)?
+        func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+            let url = try #require(request.url)
+            paths.append(url.path)
+            var status = request.value(forHTTPHeaderField: "fake-cookie") == "old-cookie" ? 401 : 200
+            var body = "{}"
+            if url.path == "/user/login" {
+                try await beforeRenew?()
+                if outcome == "offline" { throw URLError(.timedOut) }
+                status = outcome == "rejected" ? 401 : 200
+                body = outcome == "rejected" ? #"{"detail":"账号或密码错误"}"# : #"{"fake_cookie":"renewed-cookie"}"#
+            }
+            return (Data(body.utf8), try #require(HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil)))
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func startupAndCommunityRequestsShareOneCredentialRecoveryInEitherOrder() async throws {
+        let domain = "BIT101Tests.shared-community-renewal"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        for startupFirst in [false, true] {
+            for sessionFactory in [false, true] {
+                let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: {})
+                try storage.saveLoginState(studentID: "A", password: "fixture", fakeCookie: "old-cookie", communityPasswordDigest: "digest")
+                let transport = SharedRenewalResponses(), http = HTTPClient(transport: transport, observer: nil)
+                let login = LoginService(storage: storage, apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http))
+                let model = LoginViewModel(service: login)
+                let client: CommunityAPIClient<RefreshFailure> = sessionFactory
+                    ? CommunitySession.appSession(storage: storage, httpClient: http).client(errorDomain: "fixture")
+                    : CommunityAPIClient(storage: storage, httpClient: http, errorDomain: "fixture")
+                var pending: CheckedContinuation<Void, Never>?
+                transport.beforeRenew = { await withCheckedContinuation { pending = $0 } }
+                let first = Task {
+                    if startupFirst { #expect(try await login.checkLogin() == "A") }
+                    else { try await client.requestVoid(path: "fixture-renewal", method: "GET") }
+                }
+                try await waitForTestEvent { pending != nil }
+                let second = Task {
+                    if startupFirst { try await client.requestVoid(path: "fixture-renewal", method: "GET") }
+                    else { #expect(try await login.checkLogin() == "A") }
+                }
+                try await waitForTestEvent { transport.paths.contains(startupFirst ? "/fixture-renewal" : "/user/check") }
+                pending?.resume()
+                try await first.value; try await second.value
+                #expect(transport.paths.filter { $0 == "/user/login" }.count == 1)
+                #expect(storage.fakeCookie == "renewed-cookie" && model.screenState == .signedIn(studentID: "A"))
+                #expect(storage.currentPassword == "fixture")
+            }
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func credentialRejectionAndTransientFailureHaveConsistentRootPresentation() async throws {
+        let domain = "BIT101Tests.community-rejection"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        for outcome in ["rejected", "offline"] {
+            for entry in ["startup", "client", "session"] {
+                let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: {})
+                try storage.saveLoginState(studentID: "A", password: "fixture", fakeCookie: "old-cookie", communityPasswordDigest: "digest")
+                let transport = SharedRenewalResponses(), http = HTTPClient(transport: transport, observer: nil)
+                transport.outcome = outcome
+                let login = LoginService(storage: storage, apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http))
+                let model = LoginViewModel(service: login)
+                do {
+                    if entry == "startup" { #expect(try await login.checkLogin() == nil && outcome == "rejected") }
+                    else {
+                        let client: CommunityAPIClient<RefreshFailure> = entry == "session"
+                            ? CommunitySession.appSession(storage: storage, httpClient: http).client(errorDomain: "fixture")
+                            : CommunityAPIClient(storage: storage, httpClient: http, errorDomain: "fixture")
+                        try await client.requestVoid(path: "fixture-renewal", method: "GET")
+                        Issue.record("An expired session requires recovery")
+                    }
+                } catch {
+                    #expect(outcome == "offline" ? (error as? URLError)?.code == .timedOut : TaskCancellation.matches(error))
+                }
+                #expect(model.screenState == (outcome == "rejected" ? .signedOut : .signedIn(studentID: "A")))
+                #expect(storage.fakeCookie == (outcome == "rejected" ? "" : "old-cookie"))
+                #expect(storage.currentPassword == (outcome == "rejected" ? "" : "fixture"))
+            }
         }
     }
 
@@ -712,7 +826,7 @@ extension LoginStorageTests {
         let reopened = LoginStorage(defaults: defaults, credentials: credentials, clearSchoolCookies: {})
         #expect(try reopened.loadCommunityPasswordDigest() == LoginCrypto.md5Hex("community-password"))
         let reopenedService = LoginService(storage: reopened, apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http))
-        try await reopenedService.renewCommunitySession(expectedIdentity: reopened.communityCredentials.identity)
+        try await reopenedService.renewCommunitySession(observed: reopened.communityCredentials)
         #expect(transport.requests.last?.0 == "/user/login")
         #expect(transport.requests.last?.1["password"] as? String == LoginCrypto.md5Hex("community-password"))
         reopened.clearSession()

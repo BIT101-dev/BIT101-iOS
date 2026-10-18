@@ -278,13 +278,13 @@ def run_self_test(recorder) -> None:
                 patch.object(module, "complete_summary", return_value=True), patch.object(module, "environment_context", return_value={}), \
                 patch.object(Path, "is_file", return_value=True), patch.object(Path, "read_text", side_effect=values), \
                 patch.object(module.subprocess, "check_output", return_value="head"), \
-                patch("validation_performance.bundle_digest", return_value="a" * 64), patch("validation_performance.current_commit", return_value="head"), \
+                patch("validation_performance.bundle_identity", return_value="a" * 64), patch("validation_performance.current_commit", return_value="head"), \
                 patch("validation_performance.extract_measurements", return_value={"records": {}}), \
                 patch.dict(os.environ, BIT101_VALIDATION_RUN_ID=run_id, BIT101_VALIDATION_STARTED_AT=utc_now().isoformat()), redirect_stderr(StringIO()):
             assert recorder(group, 0, "full", start) == expected, (group, artifact)
             assert saved.call_args.args[0]["groups"][group]["exitCode"] == expected
             if group in {"all", "ui"} and expected == 0:
-                assert saved.call_args.args[0]["groups"][group]["resultBundleSHA256"] == "a" * 64
+                assert saved.call_args.args[0]["groups"][group]["resultBundleIdentity"] == "a" * 64
                 assert saved.call_args.args[0]["groups"][group]["sourceCommit"] == "head"
     group_row = {"scope": "full", "exitCode": 0, "runID": "run", "inputDigest": "current", "summary": summary,
         "recordedAt": utc_now().isoformat(), "environment": module.environment_context('all')}
@@ -342,7 +342,7 @@ def check_group_bundle_self_test(module) -> None:
     for group in ('all', 'ui'):
         for stored, raw in (('a' * 64, 'a' * 64), ('b' * 64, 'a' * 64), ('invalid', 'a' * 64), ('a' * 64, None)):
             row = {'scope': 'full', 'exitCode': 0, 'runID': 'run', 'inputDigest': 'current',
-                'resultBundleSHA256': stored, 'summary': {'passed': True}, 'recordedAt': utc_now().isoformat()}
+                'resultBundleIdentity': stored, 'summary': {'passed': True}, 'recordedAt': utc_now().isoformat()}
             report = {'groups': {group: row}}
             with patch.object(module, 'report_lock', side_effect=nullcontext), \
                     patch.object(module, 'source_digest', return_value='current'), \
@@ -350,7 +350,7 @@ def check_group_bundle_self_test(module) -> None:
                     patch.object(module, 'complete_environment', return_value=True), \
                     patch('validation_coverage.policy_floors', return_value={}), \
                     patch.object(module, 'result_bundle_findings', wraps=result_bundle_findings), \
-                    patch('validation_performance.bundle_digest', side_effect=lambda path: raw
+                    patch('validation_performance.bundle_identity', side_effect=lambda path: raw
                         if raw else (_ for _ in ()).throw(ValueError('absent result bundle'))), \
                     patch.object(Path, 'is_file', return_value=True), \
                     patch.object(Path, 'read_text', return_value=json.dumps(report)), \
@@ -462,7 +462,7 @@ def selected_coverage_self_test(module) -> None:
                 patch.object(Path, "is_file", return_value=True), \
                 patch.object(Path, "read_text", side_effect=['验证输入：digest\n验证运行：run\n', json.dumps(report)]), \
                 patch.object(subprocess, "check_output", return_value="head"), \
-                patch("validation_performance.bundle_digest", return_value="a" * 64), patch("validation_performance.current_commit", return_value="head"), \
+                patch("validation_performance.bundle_identity", return_value="a" * 64), patch("validation_performance.current_commit", return_value="head"), \
                 patch('validation_policy.IOS_MODULE_COVERAGE_FLOORS', {'Feature': 94}), \
                 patch('validation_performance.extract_measurements', return_value={}), \
                 patch.dict(os.environ, BIT101_VALIDATION_RUN_ID="run", BIT101_VALIDATION_EXPECTED_TESTS='["Suite/testRun"]'), redirect_stderr(StringIO()):

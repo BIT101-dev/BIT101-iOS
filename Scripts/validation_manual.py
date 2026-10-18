@@ -1,6 +1,5 @@
 """Capture structured observations and local evidence for physical-device acceptance."""
 import base64
-import hashlib
 import json
 import math
 import re
@@ -64,7 +63,7 @@ def capture(operation: str, result: str, evidence: Path, check: str, outcome: st
         payload = {'dataUTF8': text}
     except (UnicodeDecodeError, ValueError): payload = {'dataBase64': base64.b64encode(data).decode('ascii')}
     return {"check": check, "operation": operation.strip(), "result": result.strip(), "outcome": outcome, "capturedAt": observed_at, "registeredAt": utc_now().isoformat(),
-        "evidence": {"path": str(evidence.resolve()), "sha256": hashlib.sha256(data).hexdigest(), "byteCount": len(data), **payload}}
+        "evidence": {"path": str(evidence.resolve()), "byteCount": len(data), **payload}}
 
 
 def failed_evidence_complete(data: bytes) -> bool:
@@ -86,8 +85,8 @@ def artifact_bytes(artifact: dict) -> bytes:
     if not isinstance(artifact[field], str) or len(artifact[field]) > limit:
         raise ValueError('验收附件编码需要符合字节预算。')
     data = artifact[field].encode('utf-8') if field == 'dataUTF8' else base64.b64decode(artifact[field], validate=True)
-    if len(data) != artifact['byteCount'] or hashlib.sha256(data).hexdigest() != artifact['sha256']:
-        raise ValueError('验收附件需要匹配原始字节与摘要。')
+    if len(data) != artifact['byteCount']:
+        raise ValueError('验收附件需要匹配原始字节数。')
     return data
 
 

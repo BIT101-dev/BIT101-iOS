@@ -115,7 +115,7 @@ enum ScheduleReminderBackgroundRefresh {
 
             completed = await refreshIfCurrent(
                 isCurrent: { identity == AppAccountSession.storage.communityCredentials.identity },
-                nextBeginDate: { await ScheduleLiveActivityManager.shared.preferredBackgroundRefreshBeginDate() },
+                nextBeginDate: { try await ScheduleLiveActivityManager.shared.preferredBackgroundRefreshBeginDate() },
                 schedule: { schedule(earliestBeginDate: $0) },
                 refresh: { await ScheduleLiveActivityManager.shared.refreshFromCurrentCache(trigger: "bg_app_refresh") })
         }
@@ -125,10 +125,11 @@ enum ScheduleReminderBackgroundRefresh {
         }
     }
 
-    static func refreshIfCurrent(isCurrent: () -> Bool, nextBeginDate: () async -> Date?,
+    static func refreshIfCurrent(isCurrent: () -> Bool, nextBeginDate: () async throws -> Date?,
         schedule: (Date?) -> Bool, refresh: () async -> Void) async -> Bool {
         guard !Task.isCancelled, isCurrent() else { return false }
-        let next = await nextBeginDate()
+        let next: Date?
+        do { next = try await nextBeginDate() } catch { return false }
         guard !Task.isCancelled, isCurrent() else { return false }
         let submitted = schedule(next)
         await refresh()

@@ -11,6 +11,77 @@ import Testing
 
 @MainActor
 struct ScheduleFeatureTests {
+    private func editableCourse(_ id: String, weekday: Int, weeks: String, title: String = "同一课程", sections: [Int] = [1, 2]) throws -> CourseRecord {
+        try #require(ScheduleCourseEditor.adding(CourseDraft(title: title, classroom: "文萃A101",
+            weekday: weekday, weeksText: weeks, selectedSections: sections), to: [], term: "term", id: id).first)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func batchCourseArrangementChangesKeepEverySourceWeekAcrossMergesAndSwaps() async throws {
+        for swap in [false, true] {
+            for reverse in [false, true] {
+                let first = try editableCourse("first", weekday: 1, weeks: "1-5")
+                let second = try editableCourse("second", weekday: 2, weeks: "6-10")
+                let other = try editableCourse("other", weekday: 7, weeks: "20", title: "其他课程")
+                var cache = ScheduleCache()
+                cache.currentTerm = "term"
+                cache.courseData.store(TermScheduleSnapshot(term: "term", firstDayString: "2026-09-07",
+                    courses: [first, second, other], exams: [], updatedAt: Date()))
+                var saved: ScheduleCache?
+                let repository = ScheduleRepository(session: { AppStorageSession(accountIdentifier: "batch-course-edit") },
+                    load: { _ in .loaded(cache) }, save: { value, _, _ in saved = value })
+                await repository.loadIfNeeded()
+                let model = makeViewModel(repository: repository, actions: ModuleSchedulePlatformActions())
+                let occurrence = model.courseArrangementDraft(for: first, week: 2)
+                #expect(occurrence.availableWeeks == first.weeks && occurrence.draft.weeksText == "2")
+                var arrangements = model.courseArrangementDrafts(forCourseID: first.id)
+                #expect(arrangements.count == 2)
+                arrangements[0].draft.weekday = 2
+                if swap { arrangements[1].draft.weekday = 1 }
+                if reverse { arrangements.reverse() }
+                try model.updateCourseArrangements(arrangements)
+                #expect(await repository.persistAndWait())
+                let courses = model.courseState.courses
+                #expect(Set(courses.map(\.id)) == ["first", "second", "other"])
+                #expect(courses.first { $0.id == "first" }?.weeks == Array(1...5))
+                #expect(courses.first { $0.id == "second" }?.weeks == Array(6...10))
+                #expect(courses.first { $0.id == "first" }?.weekday == 2)
+                #expect(courses.first { $0.id == "second" }?.weekday == (swap ? 1 : 2))
+                #expect(saved?.manualCourseRulesByTerm["term"]?.flatMap(\.replacementCourses).filter { $0.name == "同一课程" }.count == 2)
+            }
+        }
+    }
+
+    @Test func occurrenceActionsFollowTheClickedDaySectionsAndSource() throws {
+        let monday = try editableCourse("monday", weekday: 1, weeks: "1-5")
+        let wednesday = try editableCourse("wednesday", weekday: 3, weeks: "1-5")
+        let later = try editableCourse("later", weekday: 3, weeks: "6-10")
+        let otherTime = try editableCourse("afternoon", weekday: 3, weeks: "1-5", sections: [5, 6])
+        let courses = [monday, otherTime, later, wednesday]
+        let entry = ScheduleCalendarEntry(id: "clicked", sourceID: wednesday.id, sourceIDs: courses.map(\.id),
+            dayOfWeek: 3, startSection: 0, endSection: 2, title: "同一课程", subtitle: "", detailLines: [], kind: .course)
+        #expect(entry.courseOccurrence(in: courses, currentWeek: 2)?.course.id == wednesday.id)
+        #expect(entry.courseOccurrence(in: courses, currentWeek: 7)?.course.id == later.id)
+        #expect(entry.courseOccurrence(in: courses, currentWeek: 0)?.course.id == wednesday.id)
+        #expect(entry.courseOccurrence(in: courses, currentWeek: 0)?.week == 1)
+        #expect(entry.courseOccurrence(in: [monday, otherTime], currentWeek: 2) == nil)
+    }
+
+    @Test func explicitEmptySectionsAndUnavailableOccurrenceWeeksRequireCorrection() throws {
+        var draft = CourseDraft(title: "课程", weeksText: "1-5")
+        #expect(try ScheduleCourseEditor.resolve(draft).startSection == 1)
+        draft.selectedSections = []
+        #expect(throws: Error.self) { try ScheduleCourseEditor.resolve(draft) }
+        draft.selectedSections = [2, 3]
+        #expect(try ScheduleCourseEditor.resolve(draft).startSection == 2)
+        let original = try editableCourse("original", weekday: 1, weeks: "1-5")
+        for weeks in [[], [18], [1, 18]] {
+            #expect(throws: Error.self) {
+                try ScheduleCourseEditor.updatingOccurrence(id: original.id, weeks: weeks, with: draft, in: [original])
+            }
+        }
+    }
+
     @Test(arguments: [false, true]) func manualDDLFieldsRespectTheSharedByteBudget(detail: Bool) throws {
         let limit = ScheduleCourseConstraints.maximumFieldBytes
         let within = String(repeating: "界", count: limit / 3) + String(repeating: "a", count: limit % 3)

@@ -203,7 +203,7 @@ struct ScheduleEntryDetailSheet: View {
             let arrangements = academicCourseGroupsByCourse[index]
             let allCourses = arrangements.flatMap { $0 }
             let first = allCourses[0]
-            let target = mutationTarget(for: allCourses)
+            let target = entry.courseOccurrence(in: allCourses, currentWeek: currentWeek)
             Section {
                 ForEach(courseAttributeRows(for: allCourses), id: \.label) { row in
                     LabeledContent(row.label, value: row.value)
@@ -229,7 +229,7 @@ struct ScheduleEntryDetailSheet: View {
                 .appInteractiveListRow()
             }
 
-            if allowsCourseMutation {
+            if allowsCourseMutation, let target {
                 Section {
                     Button("调这节课") {
                         guard let draft = courseArrangementDraftForOccurrence(target.course.id, target.week) else { return }
@@ -355,19 +355,6 @@ struct ScheduleEntryDetailSheet: View {
         return titles.indices.contains(weekday) ? titles[weekday] : "?"
     }
 
-    private func mutationTarget(for courses: [CourseRecord]) -> (course: CourseRecord, week: Int) {
-        guard let first = courses.first else {
-            fatalError("课程详情缺少课程记录")
-        }
-        if let currentCourse = courses.first(where: { $0.weeks.contains(currentWeek) }) {
-            return (currentCourse, currentWeek)
-        }
-        if let firstWeek = courses.flatMap(\.weeks).sorted().first,
-           let firstCourse = courses.first(where: { $0.weeks.contains(firstWeek) }) {
-            return (firstCourse, firstWeek)
-        }
-        return (first, currentWeek)
-    }
 }
 
 #endif

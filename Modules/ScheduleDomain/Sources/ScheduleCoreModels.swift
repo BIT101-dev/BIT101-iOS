@@ -295,7 +295,8 @@ public struct CourseDraft: Equatable {
     public var startSection = 1
     public var endSection = 2
     public var weeksText = ""
-    public var selectedSections: [Int] = []
+    /// 空值沿起止节次初始化，空数组保留用户清空后的选择。
+    public var selectedSections: [Int]?
     public init(
         title: String = "",
         teacher: String = "",
@@ -306,7 +307,7 @@ public struct CourseDraft: Equatable {
         startSection: Int = 1,
         endSection: Int = 2,
         weeksText: String = "",
-        selectedSections: [Int] = []
+        selectedSections: [Int]? = nil
     ) {
         self.title = title
         self.teacher = teacher

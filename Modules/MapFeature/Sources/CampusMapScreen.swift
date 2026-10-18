@@ -201,15 +201,9 @@ public struct CampusMapScreen: View {
     private func focusOnNextCourseIfPossible(animated: Bool) {
         pendingCenterOnUserAfterAuthorization = false
         centerOnUserRequestID = nil
-        guard let target = nextCourseTarget else {
-            focusRequest = MapFocusRequest(preset: selectedCampus, animated: animated)
-            return
-        }
-
-        if let campus = target.campus {
-            selectedCampusID = campus.rawValue
-            focusRequest = MapFocusRequest(preset: campus, animated: animated)
-        }
+        let campus = nextCourseTarget?.campus ?? selectedCampus
+        selectedCampusID = campus.rawValue
+        focusRequest = MapFocusRequest(preset: campus, animated: animated)
     }
 
     /// 交给系统地图提供步行导航；App 内地图聚焦校园定位，转向播报由系统处理。

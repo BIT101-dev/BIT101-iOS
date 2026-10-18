@@ -21,12 +21,13 @@ nonisolated struct ScheduleReminderSession: Equatable, Sendable {
 @MainActor
 struct ScheduleReminderContext {
     let currentSession: () -> ScheduleReminderSession
-    let loadCache: (AppStorageSession) async -> ScheduleCache
+    let loadCache: (AppStorageSession) async -> ScheduleCacheLoadResult
 
-    func loadCurrentCache() async -> (session: ScheduleReminderSession, cache: ScheduleCache)? {
+    func loadCurrentCache() async throws -> (session: ScheduleReminderSession, cache: ScheduleCache) {
         let session = currentSession()
-        let cache = await loadCache(session.storage)
-        guard currentSession() == session, !Task.isCancelled else { return nil }
+        let result = await loadCache(session.storage)
+        guard currentSession() == session, !Task.isCancelled else { throw CancellationError() }
+        guard let cache = result.cacheIfReadable else { throw CocoaError(.fileReadCorruptFile) }
         return (session, cache)
     }
 }
@@ -100,7 +101,7 @@ final class ScheduleLiveActivityManager {
     private var activityOperationTask: Task<Void, Never>?
     private var activityOperationID: UUID?
 
-    init(context: ScheduleReminderContext, notificationCenter: UNUserNotificationCenter) {
+    init(context: ScheduleReminderContext, notificationCenter: any ScheduleReminderNotificationCenter) {
         self.context = context
         self.notifications = ScheduleReminderNotifications(center: notificationCenter)
     }
@@ -148,7 +149,7 @@ final class ScheduleLiveActivityManager {
             return
         }
 
-        guard let loaded = await context.loadCurrentCache(), loaded.session == session else { return }
+        guard let loaded = try? await context.loadCurrentCache(), loaded.session == session else { return }
         let cache = loaded.cache
         guard cache.showCourseLiveActivityReminder else {
             logger.debug("course live activity reminder disabled in settings; ending all activities")
@@ -208,7 +209,7 @@ final class ScheduleLiveActivityManager {
     }
 
     func notificationAuthorizationStateForReminderFallback() async -> NotificationAuthorizationState {
-        guard let loaded = await context.loadCurrentCache(), loaded.cache.showCourseLiveActivityReminder else { return .allowed }
+        guard let loaded = try? await context.loadCurrentCache(), loaded.cache.showCourseLiveActivityReminder else { return .allowed }
         return await notifications.authorizationState()
     }
 
@@ -415,8 +416,9 @@ final class ScheduleLiveActivityManager {
     ///
     /// 该值表示系统可开始安排后台时间的最早时刻，实际启动时间由系统后台调度策略决定。
     /// 申请时间比真实边界提前 5 分钟。
-    func preferredBackgroundRefreshBeginDate() async -> Date? {
-        guard let loaded = await context.loadCurrentCache(), loaded.session.signedIn else { return nil }
+    func preferredBackgroundRefreshBeginDate() async throws -> Date? {
+        let loaded = try await context.loadCurrentCache()
+        guard loaded.session.signedIn else { return nil }
         let cache = loaded.cache
         guard cache.showCourseLiveActivityReminder else { return nil }
 
@@ -576,7 +578,7 @@ final class ScheduleLiveActivityManager {
     func clearFallbackNotifications() async {}
 
     /// Catalyst 下保持 BGAppRefreshTask 链路关闭。
-    func preferredBackgroundRefreshBeginDate() async -> Date? { nil }
+    func preferredBackgroundRefreshBeginDate() async throws -> Date? { nil }
 }
 
 #endif

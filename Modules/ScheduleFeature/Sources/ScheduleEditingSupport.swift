@@ -1,4 +1,5 @@
 import ScheduleDomain
+import ScheduleContracts
 import DesignSystemKit
 //
 //  ScheduleEditingSupport.swift
@@ -37,6 +38,7 @@ enum CourseArrangementEditorMode: Hashable, Identifiable {
 struct CourseArrangementDraft: Identifiable, Equatable {
     let id: String
     let original: CourseDraft
+    let availableWeeks: [Int]
     var draft: CourseDraft
 
     var title: String {
@@ -45,9 +47,10 @@ struct CourseArrangementDraft: Identifiable, Equatable {
         return "周\(weekdayText) · 第\(original.startSection)-\(original.endSection)节"
     }
 
-    init(id: String, original: CourseDraft) {
+    init(id: String, original: CourseDraft, availableWeeks: [Int] = ScheduleCourseConstraints.validWeeks) {
         self.id = id
         self.original = original
+        self.availableWeeks = availableWeeks
         self.draft = original
     }
 }

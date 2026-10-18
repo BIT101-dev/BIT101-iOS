@@ -15,7 +15,7 @@ struct AppExternalDisplayCoordinator: AppExternalDisplayCoordinating {
     let activateWatch: () -> Void
     let resetPresentation: () -> Void
     let exportWidget: () async -> Void
-    let nextReminderRefresh: () async -> Date?
+    let nextReminderRefresh: () async throws -> Date?
     let scheduleBackgroundRefresh: (Date?) -> Void
     let endActivities: () async -> Void
     let refreshActivities: (String) async -> Void
@@ -32,7 +32,8 @@ struct AppExternalDisplayCoordinator: AppExternalDisplayCoordinating {
             await endActivities()
             return
         }
-        let date = await nextReminderRefresh()
+        let date: Date?
+        do { date = try await nextReminderRefresh() } catch { return }
         guard !Task.isCancelled, session == currentSession() else { return }
         scheduleBackgroundRefresh(date)
         await refreshActivities(trigger)

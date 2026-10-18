@@ -241,7 +241,7 @@ def community_recovery_self_test() -> list[str]:
     write_row = {"exitCode": 0, "scope": "full", "summary": {"passed": True}}
     previous = {"sourceDigest": "source", "groups": {"community-writes": write_row}}
     cleanup_environment = {"host": {"system": "fixture"}, "developer": "/fixture", "xcode": {"version": "fixture"},
-        "compiler": {"modified": 1, "size": 100, "sha256": "a" * 64}, "sdks": {"fixture": {"Version": "1"}}, "device": {
+        "compiler": {"modified": 1, "size": 100, "version": "a" * 64}, "sdks": {"fixture": {"Version": "1"}}, "device": {
         "identifier": "fixture-phone", "systemVersion": "fixture-os", "systemBuild": "fixture-build"}}
     with patch(f"validation_evidence.source_digest", return_value="source"), patch(f"validation_evidence.network_inventory", return_value={"community.login"}), \
             patch(f"validation_evidence.environment_context", return_value=cleanup_environment), \

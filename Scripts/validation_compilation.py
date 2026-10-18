@@ -1,6 +1,5 @@
 """Evaluate Swift conditional compilation with the selected production toolchain."""
 import fcntl
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -176,8 +175,8 @@ def compilation_condition(condition: str, group: str, *, language_mode: str | No
     condition = local_import_conditions(condition, path)
     environment_group = "modules" if native else "build-ui"
     environment = environment_context(environment_group)
-    context_signature = hashlib.sha256(json.dumps([environment, Path(__file__).read_text()], sort_keys=True).encode()).hexdigest()
-    signature = hashlib.sha256(json.dumps([condition, target, sorted(enabled), language_mode], sort_keys=True).encode()).hexdigest()
+    context_signature = json.dumps([environment, Path(__file__).read_text()], sort_keys=True)
+    signature = json.dumps([condition, target, sorted(enabled), language_mode])
     cache_root = ROOT / ".build/static-audit"
     cache_root.mkdir(parents=True, exist_ok=True)
     with (cache_root / "compilation-conditions.lock").open("a") as lock:

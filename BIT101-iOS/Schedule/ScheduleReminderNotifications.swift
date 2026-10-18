@@ -38,7 +38,7 @@ protocol ScheduleReminderNotificationCenter {
 }
 
 @MainActor
-private struct SystemScheduleReminderNotificationCenter: ScheduleReminderNotificationCenter {
+struct SystemScheduleReminderNotificationCenter: ScheduleReminderNotificationCenter {
     let center: UNUserNotificationCenter
     func authorizationStatus() async -> UNAuthorizationStatus { await center.notificationSettings().authorizationStatus }
     func pendingRequests() async -> [UNNotificationRequest] { await center.pendingNotificationRequests() }

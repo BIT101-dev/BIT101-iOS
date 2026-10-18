@@ -97,6 +97,7 @@ public protocol GalleryMessageReadStoring: AnyObject {
     @discardableResult func prepareSnapshot() async -> Bool
     @discardableResult func replaceLatestIDs(_ ids: [Int], unreadCount: Int, for type: GalleryMessageType) async -> Bool
     @discardableResult func markSeen(ids: [Int], for type: GalleryMessageType) async -> Bool
+    @discardableResult func markAllSeen(including ids: [Int], for type: GalleryMessageType) async -> Bool
     func pendingUnreadAfterID(for type: GalleryMessageType) -> Int?
     @discardableResult func setPendingUnreadAfterID(_ id: Int?, for type: GalleryMessageType) async -> Bool
     func unreadCount(for type: GalleryMessageType) -> Int

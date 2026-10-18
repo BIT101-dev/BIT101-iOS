@@ -69,6 +69,17 @@ struct ScheduleCalendarEntry: Identifiable {
         sourceIDs.isEmpty ? [sourceID] : sourceIDs
     }
 
+    func courseOccurrence(in courses: [CourseRecord], currentWeek: Int) -> (course: CourseRecord, week: Int)? {
+        let sourceIDs = Set(resolvedSourceIDs)
+        let candidates = courses.filter {
+            sourceIDs.contains($0.id) && $0.weekday == dayOfWeek
+                && CGFloat($0.startSection - 1) < endSection && CGFloat($0.endSection) > startSection
+        }
+        if let current = candidates.first(where: { $0.weeks.contains(currentWeek) }) { return (current, currentWeek) }
+        guard let first = candidates.first(where: { $0.id == sourceID }) ?? candidates.first else { return nil }
+        return (first, first.weeks.min() ?? currentWeek)
+    }
+
     /// 重叠课程按中心位置绘制：中心更靠前的课程最后绘制，位于上层。
     var orderedBackgroundLayers: [ScheduleCalendarLayer] {
         backgroundLayers.sorted { lhs, rhs in

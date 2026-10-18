@@ -33,6 +33,32 @@ private final class ReminderNotificationCenterFixture: ScheduleReminderNotificat
 }
 
 extension ReminderContextTests {
+    @Test(.timeLimit(.minutes(1))) func unreadableCachePreservesNotificationsAndBackgroundScheduleUntilRecovery() async {
+        let (center, session, _) = notificationFixture()
+        let original = center.pending.mapValues(\.content.title)
+        let delivered = center.delivered
+        var result = ScheduleCacheLoadResult.unreadable
+        let context = ScheduleReminderContext(currentSession: { session }, loadCache: { _ in result })
+        let manager = ScheduleLiveActivityManager(context: context, notificationCenter: center)
+        await manager.refreshFromCurrentCache()
+        #expect(center.pending.mapValues(\.content.title) == original && center.delivered == delivered)
+        var scheduled: [Date?] = []
+        var refreshed = 0
+        func refresh() async -> Bool {
+            await ScheduleReminderBackgroundRefresh.refreshIfCurrent(isCurrent: { true },
+                nextBeginDate: { try await manager.preferredBackgroundRefreshBeginDate() },
+                schedule: { scheduled.append($0); return true },
+                refresh: { refreshed += 1; await manager.refreshFromCurrentCache() })
+        }
+        #expect(await refresh() == false)
+        #expect(scheduled.isEmpty && refreshed == 0)
+        #expect(center.pending.mapValues(\.content.title) == original && center.delivered == delivered)
+        result = .missing
+        #expect(await refresh())
+        #expect(scheduled.count == 1 && scheduled[0] == nil && refreshed == 1)
+        #expect(Set(center.pending.keys) == ["other"] && center.delivered == ["other"])
+    }
+
     private func notificationFixture() -> (ReminderNotificationCenterFixture, ScheduleReminderSession, [CourseReminderOccurrence]) {
         let center = ReminderNotificationCenterFixture()
         for identifier in ["BIT101.ScheduleReminder.A.0", "BIT101.ScheduleReminder.A.1", "BIT101.ScheduleReminder.A.9", "other"] {
@@ -128,6 +154,24 @@ extension ReminderContextTests {
 
 @MainActor
 struct ReminderContextTests {
+    @Test(.timeLimit(.minutes(1))) func unreadableReminderStatePreservesTheExternalDisplaySchedule() async {
+        let session = AppStorageSession(accountIdentifier: "reminder-read-failure")
+        var unreadable = true
+        var events: [String] = []
+        let adapter = AppExternalDisplayCoordinator(currentSession: { session }, isSignedIn: { true },
+            activateWatch: {}, resetPresentation: {}, exportWidget: { events.append("widget") },
+            nextReminderRefresh: {
+                if unreadable { throw CocoaError(.fileReadCorruptFile) }
+                return nil
+            }, scheduleBackgroundRefresh: { _ in events.append("schedule") },
+            endActivities: { events.append("end") }, refreshActivities: { events.append($0) })
+        await adapter.refresh(trigger: "refresh", syncWidgetSnapshot: true, session: session)
+        #expect(events == ["widget"])
+        unreadable = false
+        await adapter.refresh(trigger: "refresh", syncWidgetSnapshot: true, session: session)
+        #expect(events == ["widget", "widget", "schedule", "refresh"])
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func firedTimerCanRearmWhileItsRefreshContinues() async throws {
         let timer = ScheduleReminderTimer()
@@ -210,9 +254,9 @@ struct ReminderContextTests {
             #expect(captured.accountIdentifier == "A")
             entered = true
             var events = gate.stream.makeAsyncIterator()
-            return await events.next() ?? ScheduleCache()
+            return .loaded(await events.next() ?? ScheduleCache())
         })
-        let task = Task { await context.loadCurrentCache() }
+        let task = Task { try? await context.loadCurrentCache() }
         defer { task.cancel(); gate.continuation.finish() }
         try await waitForTestEvent { entered }
         current = ScheduleReminderSession(studentID: "A", storage: current.storage, generation: 3, signedIn: true)
@@ -221,17 +265,17 @@ struct ReminderContextTests {
         #expect(await task.value == nil)
     }
 
-    @Test(.timeLimit(.minutes(1))) func currentSnapshotUsesTheInjectedAccountPartition() async {
+    @Test(.timeLimit(.minutes(1))) func currentSnapshotUsesTheInjectedAccountPartition() async throws {
         let session = ScheduleReminderSession(studentID: "B", storage: AppStorageSession(accountIdentifier: "B"), generation: 1, signedIn: true)
         let context = ScheduleReminderContext(currentSession: { session }, loadCache: { storage in
             #expect(storage == session.storage)
             var cache = ScheduleCache()
             cache.primaryScheduleTitle = "injected reminder"
-            return cache
+            return .loaded(cache)
         })
-        let value = await context.loadCurrentCache()
-        #expect(value?.session == session)
-        #expect(value?.cache.primaryScheduleTitle == "injected reminder")
+        let value = try await context.loadCurrentCache()
+        #expect(value.session == session)
+        #expect(value.cache.primaryScheduleTitle == "injected reminder")
     }
 }
 

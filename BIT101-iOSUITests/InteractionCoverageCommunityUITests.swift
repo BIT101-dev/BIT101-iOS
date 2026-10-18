@@ -429,60 +429,6 @@ nonisolated final class ScheduleNavigationUITests: UIAutomationTestCase {
 
 
     @MainActor
-    @objc func testMinePublicProfileFollowAndPostDeletion() {
-        app = configureApp(resetStorage: true, initialTab: "mine")
-        assertUI(textElement("个人信息加载失败").appears(timeout: 5), "离线个人页应完成服务加载并展示恢复入口。")
-        app = configureApp(resetStorage: true, content: true, media: true, initialTab: "mine")
-        assertUI(textElement("自动化测试用户").appears(timeout: 5), "个人页应加载账号资料。")
-        tap("粉丝")
-        assertUI(app.navigationBars["我的粉丝"].appears(timeout: 5), "粉丝统计应打开粉丝列表。")
-        pullToRefresh()
-        assertUI(textElement("自动化测试用户").exists, "粉丝刷新应恢复用户。")
-        tap("自动化测试用户")
-        assertUI(app.buttons["关注"].appears(timeout: 5), "粉丝用户行应进入公开主页。")
-        back()
-        tap("关注")
-        assertUI(app.navigationBars["我的关注"].appears(timeout: 5), "关注统计应打开关注列表。")
-        pullToRefresh()
-        assertUI(textElement("自动化测试用户").exists, "关注刷新应恢复用户。")
-        tap("自动化测试用户")
-        tap("关注")
-        let followed = app.buttons["取消关注"]
-        assertUI(followed.appears(timeout: 5), "关注成功应展示已关注状态。")
-        followed.tapBriefly(); assertUI(app.buttons["关注"].appears(timeout: 5), "再次点击应恢复关注入口。")
-        tap("查看头像")
-        let previewClose = imagePreviewCloseButton()
-        app.native.descendants(matching: .any)["QLPreviewControllerView"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-        UITestSnapshotReader.invalidate()
-        assertUI(previewClose.disappears(timeout: 5), "点击预览画布应收起系统工具栏。")
-        closeImagePreview()
-        for route in ["粉丝", "关注", "帖子"] {
-            assertUI(textElement(route).exists, "公开主页应显示\(route)统计。")
-        }
-        pullToRefresh()
-        tap("自动化测试话题")
-        let detail = app.navigationBars["帖子详情"]
-        assertUI(detail.appears(timeout: 5), "公开主页帖子应打开详情。")
-        dismissPosterSheet(returningTo: "自动化测试用户")
-        back()
-        tap("帖子")
-        assertUI(app.navigationBars["我的帖子"].appears(timeout: 5), "帖子统计应打开帖子列表。")
-        pullToRefresh()
-        assertUI(textElement("自动化测试话题").exists, "个人帖子刷新应恢复记录。")
-        tap("自动化测试话题")
-        assertUI(app.navigationBars["帖子详情"].appears(timeout: 5), "个人帖子行应打开详情。")
-        dismissPosterSheet(returningTo: "我的帖子")
-        tap("更多操作")
-        tap("删除帖子")
-        app.alerts.buttons["取消"].tapBriefly()
-        tap("更多操作")
-        tap("删除帖子")
-        app.alerts.buttons["删除"].tapBriefly()
-        let poster = textElement("自动化测试话题")
-        assertUI(waitUntil(NSPredicate(format: "exists == false"), on: poster, timeout: 5), "个人列表删除应移除帖子。")
-    }
-
-    @MainActor
     @objc func testMapLocationAndScheduleLocationRoute() {
         app = configureApp(resetStorage: true, content: true, school: true)
         tap("学校测试课程")

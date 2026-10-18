@@ -380,11 +380,11 @@ struct ServiceContractTests {
             let first = kind == "search" ? model.searchState : model.state(for: .newest)
             #expect(first.posters.isEmpty && first.nextPage == 5 && first.canLoadMore)
             #expect(transport.requests.count == 5)
-            if kind == "search" { await model.loadMoreSearchResultsIfNeeded(currentPoster: nil) }
+            if kind == "search" { await model.enqueueSearchLoadMore(currentPoster: nil).value }
             else { await model.loadMoreIfNeeded(for: .newest, currentPoster: nil) }
             let next = kind == "search" ? model.searchState : model.state(for: .newest)
             #expect(next.posters.map(\.id) == [6] && next.nextPage == 6)
-            if kind == "search" { await model.loadMoreSearchResultsIfNeeded(currentPoster: next.posters.last) }
+            if kind == "search" { await model.enqueueSearchLoadMore(currentPoster: next.posters.last).value }
             else { await model.loadMoreIfNeeded(for: .newest, currentPoster: next.posters.last) }
             #expect(!(kind == "search" ? model.searchState : model.state(for: .newest)).canLoadMore)
         }

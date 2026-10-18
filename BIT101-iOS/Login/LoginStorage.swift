@@ -45,6 +45,7 @@ final class LoginStorage: SchoolCredentialsProviding {
     private let defaults: UserDefaults
     private let credentials: any LoginCredentialsStoring
     private let clearSchoolCookies: () -> Void
+    let communityRefreshCoordinator = CommunitySessionRefreshCoordinator()
     private var sessionGeneration = 0
     private var session = Session(studentID: "", password: "", fakeCookie: "")
     private var sessionReadError: (any Error)?

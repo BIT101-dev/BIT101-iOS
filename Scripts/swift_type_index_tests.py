@@ -44,12 +44,12 @@ def indexer_environment_self_test():
     environment.environment_context.cache_clear()
     indexer_toolchain.cache_clear()
     try:
-        with patch.object(environment, 'host_environment', return_value={'developer': '/toolchain', 'compiler': {'sha256': 'frontend'}}), \
+        with patch.object(environment, 'host_environment', return_value={'developer': '/toolchain', 'compiler': {'version': 'frontend'}}), \
              patch.object(environment, 'plist_values', return_value={'Version': 'sdk'}), \
              patch.object(environment.subprocess, 'check_output', side_effect=AssertionError('Swift 索引沿编译依赖采集环境')), \
              patch.object(Path, 'is_file', return_value=False), patch.object(Path, 'rglob', return_value=[]):
             context = indexer_toolchain(Path('/toolchain/swiftc'), Path('/toolchain/host'))['environment']
-            assert set(context['sdks']) == {'MacOSX'} and context['compiler']['sha256'] == 'frontend'
+            assert set(context['sdks']) == {'MacOSX'} and context['compiler']['version'] == 'frontend'
             assert 'runtimes' not in context
     finally:
         environment.environment_context.cache_clear()
@@ -218,10 +218,10 @@ def self_test():
     host_modules = Path('/toolchain/usr/lib/swift/host')
     artifacts = {str(compiler): b'compiler', str(host_modules / 'libSwiftSyntax.dylib'): b'syntax',
         str(host_modules / 'libSwiftParser.dylib'): b'parser', str(host_modules / 'libSwiftOperators.dylib'): b'operators'}
-    with patch('validation_environment.environment_context', return_value={'compiler': {'sha256': 'frontend'}}), \
+    with patch('validation_environment.environment_context', return_value={'compiler': {'version': 'frontend'}}), \
          patch.object(Path, 'is_file', return_value=True), patch.object(Path, 'rglob', return_value=[]), \
          patch.object(Path, 'open', lambda path, *args, **kwargs: BytesIO(artifacts[str(path)])), \
-         patch.object(Path, 'stat', side_effect=AssertionError('工具链指纹沿文件内容验收')):
+         patch.object(Path, 'stat', new=lambda path: __import__('types').SimpleNamespace(st_size=len(artifacts[str(path)]), st_mtime_ns=1)):
         indexer_toolchain.cache_clear()
         original = indexer_toolchain(compiler, host_modules)
         for module in ('SwiftSyntax', 'SwiftParser', 'SwiftOperators'):

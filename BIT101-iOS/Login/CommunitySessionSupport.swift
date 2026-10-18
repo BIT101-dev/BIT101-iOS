@@ -10,7 +10,6 @@ extension CommunityAPIClient {
         baseURL: URL = AppURL.required("https://bit101.flwfdd.xyz"),
         errorDomain: String
     ) {
-        let coordinator = CommunitySessionRefreshCoordinator()
         let selectedClient = httpClient ?? HTTPClient(transport: NetworkSessionPool.community, storage: storage)
         let login = LoginService(storage: storage, apiClient: BIT101APIClient(
             httpClient: selectedClient, noRedirectHTTPClient: selectedClient))
@@ -20,9 +19,7 @@ extension CommunityAPIClient {
             errorDomain: errorDomain,
             credentials: { storage.communityCredentials },
             refreshHandler: { observed in
-                try await coordinator.refresh(observed: observed, current: { storage.communityCredentials }) {
-                    try await login.renewCommunitySession(expectedIdentity: observed.identity)
-                }
+                try await login.renewCommunitySession(observed: observed)
             }
         )
     }
@@ -30,7 +27,6 @@ extension CommunityAPIClient {
 
 extension CommunitySession {
     static func appSession(storage: LoginStorage = AppAccountSession.storage, httpClient: HTTPClient? = nil) -> CommunitySession {
-        let coordinator = CommunitySessionRefreshCoordinator()
         let selectedClient = httpClient ?? HTTPClient(transport: NetworkSessionPool.community, storage: storage)
         let login = LoginService(storage: storage, apiClient: BIT101APIClient(
             httpClient: selectedClient, noRedirectHTTPClient: selectedClient))
@@ -39,9 +35,7 @@ extension CommunitySession {
             baseURL: AppURL.required("https://bit101.flwfdd.xyz"),
             credentials: { storage.communityCredentials },
             refresh: { observed in
-                try await coordinator.refresh(observed: observed, current: { storage.communityCredentials }) {
-                    try await login.renewCommunitySession(expectedIdentity: observed.identity)
-                }
+                try await login.renewCommunitySession(observed: observed)
             },
             credentialsChanges: storage.credentialsChanges
         )

@@ -20,6 +20,17 @@ import WebKit
 
 @MainActor
 struct ErrorReportURLRedactionTests {
+    @Test(.timeLimit(.minutes(1)), arguments: [1_000, 12_000])
+    func deeplyNestedURLsStayWithinTheInputBudget(depth: Int) async {
+        let input = String(repeating: "https://a.invalid/?x=", count: depth)
+            + "https://z.invalid/?ticket=secret"
+        for output in [ErrorReportRedactor.forced(input, credentials: []),
+                       ErrorReportRedactor.sanitized(input, credentials: [], studentID: "")] {
+            #expect(output.utf8.count < input.utf8.count)
+            #expect(!output.contains("secret"))
+        }
+    }
+
     @Test func encodedCredentialsAreMaskedAcrossURLComponents() throws {
         let credentials = ["a&b", "密 码"]
         for suffix in ["?value=a%26b", "?value=%2561%2526%2562", "?a%26b=ordinary", "?password-a%26b=ordinary",

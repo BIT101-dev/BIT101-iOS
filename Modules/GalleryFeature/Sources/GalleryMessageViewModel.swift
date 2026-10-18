@@ -262,13 +262,13 @@ final class GalleryMessageViewModel: ObservableObject {
         return readStore.isUnread(id: message.id, for: type)
     }
 
-    /// 将当前分类里已加载到页面上的消息全部标记为已读。
+    /// 将当前分类中已加载和持久化的未读消息一起标记为已读。
     ///
     /// 操作写入本地；服务端分类未读数在首次拉列表时清零。
     func markCurrentTypeAsRead() async {
-        let ids = state(for: selectedType).items.map(\.id)
-        guard !ids.isEmpty else { return }
-        guard await readStore.markSeen(ids: ids, for: selectedType) else {
+        let type = selectedType
+        let ids = state(for: type).items.map(\.id)
+        guard await readStore.markAllSeen(including: ids, for: type) else {
             alert = AppAlert(title: "保存消息状态失败", message: GalleryMessagePersistenceError.unavailable.localizedDescription)
             return
         }

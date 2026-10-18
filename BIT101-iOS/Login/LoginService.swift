@@ -48,7 +48,7 @@ struct LoginService {
     /// 负责确认 BIT101 自有会话并返回当前学号。学校 SSO 会话按需通过
     /// `restoreSchoolSessionIfNeeded()` 恢复。
     ///
-    /// 远端明确返回当前会话失效时清除本地 session；网络错误沿调用链抛出，
+    /// 远端返回会话过期时共享社区凭据恢复，凭据明确遭拒时清除本地 session；网络错误沿调用链抛出，
     /// 本地数据继续支撑主 App、watch 和 widget 的当前登录展示。
     func checkLogin() async throws -> String? {
         let fakeCookie = storage.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -58,15 +58,16 @@ struct LoginService {
 
         // App 的全局登录态依赖 BIT101 自有 fake-cookie。
         // 学校 SSO 服务课表、空教室等按需功能，App 进入流程以 BIT101 fake-cookie 校验为准。
-        let identity = storage.communityCredentials.identity
+        let observed = storage.communityCredentials
         let bit101LoggedIn = try await apiClient.checkBIT101Login(fakeCookie: fakeCookie)
         try Task.checkCancellation()
-        guard storage.communityCredentials.identity == identity,
+        guard storage.communityCredentials.identity == observed.identity,
               storage.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines) == fakeCookie
         else { throw CancellationError() }
         guard bit101LoggedIn else {
-            storage.clearSession()
-            return nil
+            do { try await renewCommunitySession(observed: observed) }
+            catch CommunitySessionRestorationError.credentialsRejected { return nil }
+            return savedStudentID
         }
 
         let studentID = savedStudentID
@@ -172,6 +173,7 @@ struct LoginService {
 
     func verifyRegistrationIdentity(studentID: String, password: String) async throws -> WebVPNVerifyResponse {
         let context = try await apiClient.webVPNVerifyInit(studentID: studentID)
+        guard context.captcha.isEmpty else { throw LoginServiceError.schoolCaptchaRequired }
         return try await apiClient.webVPNVerify(studentID: studentID,
             password: LoginCrypto.encryptPassword(password, saltBase64: context.salt),
             execution: context.execution, cookie: context.cookie, salt: context.salt)
@@ -189,7 +191,19 @@ struct LoginService {
     }
 
     /// 认证恢复在保存前核对账号归属，网络和取消错误沿原语义返回。
-    func renewCommunitySession(expectedIdentity: CommunitySessionIdentity) async throws {
+    func renewCommunitySession(observed: CommunityCredentials) async throws {
+        try await storage.communityRefreshCoordinator.refresh(observed: observed, current: { storage.communityCredentials }) {
+            do { try await authenticateCommunitySession(expectedIdentity: observed.identity) }
+            catch CommunitySessionRestorationError.credentialsRejected {
+                try Task.checkCancellation()
+                guard storage.communityCredentials == observed else { throw CancellationError() }
+                storage.clearSession()
+                throw CommunitySessionRestorationError.credentialsRejected
+            }
+        }
+    }
+
+    private func authenticateCommunitySession(expectedIdentity: CommunitySessionIdentity) async throws {
         guard storage.communityCredentials.identity == expectedIdentity else { throw CancellationError() }
         if let digest = try storage.loadCommunityPasswordDigest() {
             let account = storage.currentStudentID
@@ -220,15 +234,7 @@ struct LoginService {
 
     private func authenticate(studentID: String, password: String) async throws -> String {
         // 与 BIT101-GO 的现有接口保持一致：初始化验证上下文 -> 校验 WebVPN -> 登录模式注册。
-        let initResponse = try await apiClient.webVPNVerifyInit(studentID: studentID)
-        let encryptedPassword = try LoginCrypto.encryptPassword(password, saltBase64: initResponse.salt)
-        let verifyResponse = try await apiClient.webVPNVerify(
-            studentID: studentID,
-            password: encryptedPassword,
-            execution: initResponse.execution,
-            cookie: initResponse.cookie,
-            salt: initResponse.salt
-        )
+        let verifyResponse = try await verifyRegistrationIdentity(studentID: studentID, password: password)
         let md5Password = LoginCrypto.md5Hex(password)
         let registerResponse = try await apiClient.register(
             password: md5Password,

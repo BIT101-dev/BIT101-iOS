@@ -1,6 +1,5 @@
 """Decode manual media evidence with the Apple platform format implementations."""
 import fcntl
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -9,7 +8,7 @@ from validation_environment import environment_context
 from validation_policy import MAXIMUM_ATTACHMENT_BYTES, MAXIMUM_DECODED_MEDIA_BYTES, MAXIMUM_VIDEO_SECONDS, MAXIMUM_VIDEO_FRAMES, MAXIMUM_PDF_PAGES, MEDIA_PROBE_TIMEOUT_SECONDS
 
 ROOT = Path(__file__).resolve().parents[1]
-RESULTS: dict[str, bool] = {}
+RESULTS: dict[bytes, bool] = {}
 
 
 def run_probe(data: bytes, *, self_test: bool = False) -> bool:
@@ -22,7 +21,7 @@ def run_probe(data: bytes, *, self_test: bool = False) -> bool:
         compiler = Path(context['compiler']['path']).with_name('swiftc')
         module_cache = ROOT / '.build/compiler-cache/ModuleCache.noindex'
         module_cache.mkdir(parents=True, exist_ok=True)
-        signature = hashlib.sha256(source.read_bytes() + json.dumps(context, sort_keys=True).encode()).hexdigest()
+        signature = json.dumps([source.read_text(), context], sort_keys=True)
         inputs = cache / 'evidence-media-probe-inputs.json'
         executable = cache / 'evidence-media-probe'
         if not executable.exists() or not inputs.exists() or inputs.read_text() != signature:
@@ -54,7 +53,6 @@ def decode_probe(executable: Path, arguments: list[str], data: bytes, *, self_te
 
 def media_complete(data: bytes) -> bool:
     if not data or len(data) > MAXIMUM_ATTACHMENT_BYTES: return False
-    digest = hashlib.sha256(data).hexdigest()
-    if digest not in RESULTS:
-        RESULTS[digest] = run_probe(data)
-    return RESULTS[digest]
+    if data not in RESULTS:
+        RESULTS[data] = run_probe(data)
+    return RESULTS[data]

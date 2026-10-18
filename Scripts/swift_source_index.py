@@ -2,7 +2,6 @@
 """Shared SwiftSyntax source facts and the fixed, reusable compiler artifact."""
 from __future__ import annotations
 import fcntl
-import hashlib
 import json
 import os
 import re
@@ -32,12 +31,12 @@ def indexer_toolchain(compiler: Path, host_modules: Path) -> dict:
     files = [compiler, *(host_modules / f"lib{module}.dylib" for module in ("SwiftSyntax", "SwiftParser", "SwiftOperators"))]
     for module in ("SwiftSyntax", "SwiftParser", "SwiftOperators"):
         files.extend(sorted((host_modules / (module + ".swiftmodule")).rglob("*")))
-    digests = {}
+    artifacts = {}
     for path in files:
         if path.is_file():
-            with path.open("rb") as stream:
-                digests[str(path)] = hashlib.file_digest(stream, "sha256").hexdigest()
-    return {"environment": environment_context("build-modules"), "artifacts": digests}
+            stat = path.stat()
+            artifacts[str(path)] = {"size": stat.st_size, "modified": stat.st_mtime_ns}
+    return {"environment": environment_context("build-modules"), "artifacts": artifacts}
 
 
 def _run_swift_syntax_index(request: dict, *, regex_only: bool = False) -> dict[str, dict]:
@@ -59,8 +58,8 @@ def _run_swift_syntax_index(request: dict, *, regex_only: bool = False) -> dict[
         compiler_cache = ROOT / ".build/compiler-cache"
         module_cache = compiler_cache / "ModuleCache.noindex"
         module_cache.mkdir(parents=True, exist_ok=True)
-        toolchain = json.dumps(indexer_toolchain(compiler, host_modules), sort_keys=True).encode()
-        signature = hashlib.sha256(b"".join(source.read_bytes() for source in sources) + Path(__file__).read_bytes() + toolchain + str(module_cache).encode()).hexdigest()
+        signature = json.dumps({"sources": {str(source): source.read_text() for source in [*sources, Path(__file__)]},
+            "toolchain": indexer_toolchain(compiler, host_modules), "moduleCache": str(module_cache)}, sort_keys=True)
         source_changed = not signature_file.exists() or signature_file.read_text() != signature
         if source_changed or not executable.exists():
             executable.unlink(missing_ok=True)

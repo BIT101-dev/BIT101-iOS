@@ -174,10 +174,11 @@ extension ScheduleLiveActivityManager {
                     storage: AppFileDirectories.currentSession, generation: storage.communityCredentials.identity.generation,
                     signedIn: !storage.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             },
-            loadCache: { await ScheduleCacheStore.loadResultAsync(for: $0).cacheIfReadable ?? ScheduleCache() }
+            loadCache: { await ScheduleCacheStore.loadResultAsync(for: $0) }
         )
         #if canImport(ActivityKit) && !targetEnvironment(macCatalyst)
-        return ScheduleLiveActivityManager(context: context, notificationCenter: .current())
+        return ScheduleLiveActivityManager(context: context,
+            notificationCenter: SystemScheduleReminderNotificationCenter(center: .current()))
         #else
         return ScheduleLiveActivityManager(context: context)
         #endif

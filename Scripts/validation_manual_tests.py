@@ -12,6 +12,7 @@ import struct
 import subprocess
 from types import SimpleNamespace
 from unittest.mock import patch
+from validation_performance_tests import source_identity_fixture
 import zlib
 import uuid
 from validation_manual import MANUAL_DEVICE_CHECKS, capture, complete, evidence_content_complete
@@ -50,7 +51,7 @@ def distribution_fixture() -> tuple[dict, dict]:
 
 def captured_media_fixture() -> dict:
     data = evidence_fixture('_media')
-    return {'path': '/evidence/media', 'sha256': hashlib.sha256(data).hexdigest(),
+    return {'path': '/evidence/media',
         'byteCount': len(data), 'dataBase64': base64.b64encode(data).decode()}
 
 
@@ -100,30 +101,30 @@ def evidence_fixture(check: str) -> bytes:
                 group = performance_group(test)
                 current = {'testIdentifier': test, 'sourceCommit': 'a' * 40, 'input': workload, 'capturedAt': row['capturedAt'],
                     'environment': {'deviceIdentifier': 'fixture-phone', 'deviceModel': 'iPhone', 'systemVersion': '26.0',
-                        'systemBuild': 'fixture', 'xcodeBuild': 'fixture', 'configuration': 'Release', 'compilerSHA256': 'a' * 64,
+                        'systemBuild': 'fixture', 'xcodeBuild': 'fixture', 'configuration': 'Release', 'compilerVersion': 'a' * 64,
                         'compilationConditions': ['DEBUG', 'BIT101_AUTOMATED_TESTING']},
-                    'resultBundle': {'path': '.build/extended-automation/test-results.xcresult', 'sha256': 'a' * 64},
+                    'resultBundle': {'path': '.build/extended-automation/test-results.xcresult', 'identity': 'a' * 64},
                     'metrics': {'clockSeconds': {'samples': [0.1] * 10, 'mean': 0.1},
                         'peakPhysicalMemoryBytes': {'samples': [1024] * 10, 'mean': 1024}}}
                 from validation_performance import current_commit
                 from validation_provenance import source_digest
                 context = {'host': {'system': 'fixture'}, 'developer': '/fixture',
-                    'xcode': {'DTXcodeBuild': 'fixture'}, 'compiler': {'modified': 1, 'size': 1, 'sha256': 'a' * 64},
+                    'xcode': {'DTXcodeBuild': 'fixture'}, 'compiler': {'modified': 1, 'size': 1, 'version': 'a' * 64},
                     'sdks': {'iPhoneOS': {'Version': '26.0'}},
                     'device': {'identifier': 'fixture-phone', 'model': 'iPhone', 'systemVersion': '26.0', 'systemBuild': 'fixture'}}
                 current['sourceCommit'] = current_commit()
                 current['environment']['compilationConditions'] = sorted(workflow_conditions(group))
                 from validation_performance import normalize_metrics
                 current['execution'] = {'group': group, 'runID': 'fixture-run', 'environment': context,
-                    'sourceCommit': current['sourceCommit'], 'inputDigest': source_digest(group, environment=context), 'bundleSHA256': 'a' * 64}
+                    'sourceCommit': current['sourceCommit'], 'inputDigest': source_digest(group, environment=context), 'bundleIdentity': 'a' * 64}
                 current['xcresultMetrics'] = [{'testIdentifier': test + '()', 'testRuns': [{'device': {'deviceId': 'fixture-phone'},
                     'metrics': [{'identifier': 'com.apple.dt.XCTMetric_Clock.time.monotonic', 'unitOfMeasurement': 's', 'measurements': [0.1] * 10},
                         {'identifier': 'com.apple.dt.XCTMetric_Memory.physical_peak', 'unitOfMeasurement': 'kB', 'measurements': [1.024] * 10}]}]}]
                 current['metrics'] = normalize_metrics(current['xcresultMetrics'], test, 'fixture-phone')
                 baseline = copy.deepcopy(current)
                 baseline.update(capturedAt=(utc_now() - timedelta(days=1)).isoformat(), approvedAt=(utc_now() - timedelta(hours=1)).isoformat(), approvedBy='maintainer')
-                baseline['resultBundle']['sha256'] = 'b' * 64
-                baseline['execution']['bundleSHA256'] = 'b' * 64
+                baseline['resultBundle']['identity'] = 'b' * 64
+                baseline['execution']['bundleIdentity'] = 'b' * 64
                 for metric in baseline['metrics'].values(): metric['maximumRegressionPercent'] = 10
                 row['measurement'] = {'current': current, 'baseline': baseline}
         return json.dumps({'schemaVersion': 1, 'deviceFamily': 'iPad', 'deviceIdentifier': 'fixture-pad', 'scenarios': scenarios}).encode()
@@ -175,6 +176,7 @@ def captured_fixture(check: str, provenance: dict | None = None) -> dict:
         return capture('实际操作', '观察结果', path, check, 'passed', utc_now().isoformat())
 
 
+@patch('validation_provenance._local_source_identity', new=source_identity_fixture())
 def registration_self_test(subject) -> None:
     from contextlib import nullcontext, redirect_stderr
     from io import StringIO
@@ -240,7 +242,7 @@ def manual_artifact_encoding_self_test() -> None:
     assert artifact_complete(binary, 'photos', observed_at=observation['capturedAt'])
     assert len(json.dumps(artifact)) < len(json.dumps(binary))
     for altered in (dict(artifact, dataBase64=binary['dataBase64']), dict(artifact, dataUTF8='altered'),
-            dict(artifact, byteCount=artifact['byteCount'] + 1), dict(artifact, sha256='a' * 64),
+            dict(artifact, byteCount=artifact['byteCount'] + 1),
             dict(artifact, dataUTF8='\ud800')):
         assert not artifact_complete(altered, 'photos', observed_at=observation['capturedAt'])
     with patch('validation_manual.MAXIMUM_ATTACHMENT_BYTES', len(raw) - 1):
@@ -248,7 +250,8 @@ def manual_artifact_encoding_self_test() -> None:
     with patch('validation_manual.MAXIMUM_REPORT_BYTES', 1): assert not complete({'photos': observation})
 
 
-def run_self_test() -> None:
+@patch('validation_provenance.source_digest', side_effect=lambda group='', *, environment=None: json.dumps([group, environment], sort_keys=True))
+def run_self_test(_source_identity) -> None:
     manual_artifact_encoding_self_test()
     application = Path('/identity/BIT101-iOS.app')
     info = {'CFBundleIdentifier': 'BIT101-dev.BIT101-iOS', 'CFBundleShortVersionString': '1.0',
@@ -504,7 +507,7 @@ def run_self_test() -> None:
         assert not scenario_complete('performance-baseline', changed)
         from validation_manual import performance_comparison_complete
         measurement = row['measurement']
-        for field, value in [('deviceIdentifier', 'other-phone'), ('configuration', 'Debug'), ('compilerSHA256', '')]:
+        for field, value in [('deviceIdentifier', 'other-phone'), ('configuration', 'Debug'), ('compilerVersion', '')]:
             changed = copy.deepcopy(measurement)
             changed['current']['environment'][field] = value
             assert not performance_comparison_complete(name, changed)
@@ -521,7 +524,7 @@ def run_self_test() -> None:
         changed = copy.deepcopy(measurement)
         changed['baseline']['approvedBy'] = ''
         assert not performance_comparison_complete(name, changed)
-        for field, value in [('sourceCommit', '0' * 40), ('resultBundle', {'path': '/does-not-exist/current.xcresult', 'sha256': 'a' * 64})]:
+        for field, value in [('sourceCommit', '0' * 40), ('resultBundle', {'path': '/does-not-exist/current.xcresult', 'identity': 'a' * 64})]:
             changed = copy.deepcopy(measurement)
             changed['current'][field] = value
             assert not performance_comparison_complete(name, changed)

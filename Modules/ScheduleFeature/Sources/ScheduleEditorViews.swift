@@ -133,7 +133,7 @@ struct CourseArrangementEditorSheet: View {
 
                         NavigationLink {
                             ScheduleWeekSelectionSheet(
-                                weeks: ScheduleCourseConstraints.validWeeks,
+                                weeks: arrangement.availableWeeks,
                                 selectedWeeks: weekSelectionBinding(for: $arrangement)
                             )
                         } label: {
@@ -202,9 +202,7 @@ struct CourseArrangementEditorSheet: View {
         Binding(
             get: {
                 let draft = arrangement.wrappedValue.draft
-                return draft.selectedSections.isEmpty
-                    ? Array(draft.startSection ... draft.endSection)
-                    : draft.selectedSections
+                return draft.selectedSections ?? Array(draft.startSection ... draft.endSection)
             },
             set: { sections in
                 let sorted = Array(Set(sections)).sorted()
@@ -223,9 +221,7 @@ struct CourseArrangementEditorSheet: View {
     }
 
     private func sectionsText(for draft: CourseDraft) -> String {
-        let sections = draft.selectedSections.isEmpty
-            ? Array(draft.startSection ... draft.endSection)
-            : draft.selectedSections.sorted()
+        let sections = (draft.selectedSections ?? Array(draft.startSection ... draft.endSection)).sorted()
         guard let first = sections.first, let last = sections.last else { return "请选择" }
         return sections == Array(first ... last)
             ? "第\(first)-\(last)节"

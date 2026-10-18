@@ -91,9 +91,11 @@ def select_validation_plan(commit: str, run_id: str, candidates, changed_files, 
         for group in tuple(pending):
             _, names, required = CI_VALIDATION_GROUPS[group]
             sources = [observed.get(name, {}) for name in names]
-            if any(job.get('conclusion') != 'success' for job in sources):
+            if any(job.get('conclusion') not in {'success', 'cancelled', 'skipped', None} for job in sources):
                 jobs[group]['reason'] = '上次任务需要复验'
                 pending.remove(group)
+            elif any(job.get('conclusion') != 'success' for job in sources):
+                continue
             elif ci_validation_affected(changed, group):
                 jobs[group]['reason'] = '验证输入发生变化'
                 pending.remove(group)
@@ -574,12 +576,27 @@ def validation_plan_self_test() -> None:
         plan = select_validation_plan(commit, '8', [candidate], lambda _: names)
         assert {group for group, row in plan['jobs'].items() if row['execute']} == required, names
         assert all(row['run'] == '7' and row['commit'] == 'b' * 40 for row in plan['jobs'].values() if not row['execute'])
-    for conclusion in ('failure', 'cancelled', 'skipped', None):
+    for conclusion in ('failure', 'timed_out', 'action_required', 'cancelled', 'skipped', None):
         failed = deepcopy(candidate)
         next(job for job in failed['jobs'] if job['name'] == 'iOS Simulator ui (1)')['conclusion'] = conclusion
         older = candidate | {'id': 6}
         plan = select_validation_plan(commit, '8', [failed, older], lambda _: [])
-        assert plan['jobs']['ui']['execute'] and not plan['jobs']['app']['execute']
+        assert not plan['jobs']['app']['execute']
+        if conclusion in ('failure', 'timed_out', 'action_required'):
+            assert plan['jobs']['ui']['execute']
+        else:
+            assert not plan['jobs']['ui']['execute'] and plan['jobs']['ui']['run'] == '6'
+            failed['head_sha'] = 'c' * 40
+            plan = select_validation_plan(commit, '8', [failed, older],
+                lambda source: ['BIT101-iOS/Feature.swift'] if source == failed['head_sha'] else [])
+            assert plan['jobs']['ui']['run'] == '6'
+            plan = select_validation_plan(commit, '8', [failed, older], lambda _: ['BIT101-iOS/Feature.swift'])
+            assert plan['jobs']['ui']['execute']
+            plan = select_validation_plan(commit, '8', [failed], lambda _: [])
+            assert plan['jobs']['ui']['execute']
+    absent = deepcopy(candidate)
+    absent['jobs'] = [job for job in absent['jobs'] if job['name'] != 'iOS Simulator ui (1)']
+    assert select_validation_plan(commit, '8', [absent, older], lambda _: [])['jobs']['ui']['run'] == '6'
     missing = deepcopy(candidate)
     next(row for row in missing['artifacts'] if row['name'] == 'validation-ios-test-shards-app-0')['expired'] = True
     plan = select_validation_plan(commit, '8', [missing], lambda _: [])

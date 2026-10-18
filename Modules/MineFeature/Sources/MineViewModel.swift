@@ -95,6 +95,12 @@ final class MineViewModel: ObservableObject {
         if profileStatus == .idle || posterState.status == .idle { hasBootstrapped = false }
     }
 
+    /// 返回主页时更新资料，首次进入时同时加载帖子摘要。
+    func refreshOverview() async {
+        if hasBootstrapped { await refreshProfile() }
+        else { await bootstrapIfNeeded() }
+    }
+
     /// 资料卡里展示的帖子数摘要。
     var posterCountText: String {
         minePosterCountText(for: posterState)

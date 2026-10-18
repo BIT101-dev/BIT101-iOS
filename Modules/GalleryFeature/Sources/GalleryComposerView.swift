@@ -80,7 +80,7 @@ private struct GalleryComposerScene: View {
                         alignment: .leading,
                         spacing: AppDesignSystem.Spacing.regular
                     ) {
-                        ForEach(Self.suggestedTags, id: \.self) { tag in
+                        ForEach(Self.suggestedTags + viewModel.selectedTags.filter { !Self.suggestedTags.contains($0) }, id: \.self) { tag in
                             Button {
                                 viewModel.toggleTag(tag)
                             } label: {
@@ -162,7 +162,8 @@ private struct GalleryComposerScene: View {
                 }
 
                 Section("图片") {
-                    PhotosPicker(selection: $selectedPhotoItems, maxSelectionCount: GalleryComposerViewModel.maximumImageCount, matching: .images) {
+                    PhotosPicker(selection: $selectedPhotoItems,
+                        maxSelectionCount: max(1, GalleryComposerViewModel.maximumImageCount - viewModel.existingImages.count - viewModel.imageDrafts.count), matching: .images) {
                         Text("插入图片")
                     }
                     .disabled(

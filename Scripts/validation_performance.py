@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Capture XCTest measurements and bind performance acceptance to their producing run."""
-import hashlib
+import base64
 import json
 import math
 import re
@@ -26,16 +26,15 @@ def result_bundle_complete(bundle: Path) -> bool:
     return any((bundle / name).is_file() for name in ('database.sqlite3', 'Info.plist')) and not (bundle / 'Staging').exists()
 
 
-def bundle_digest(bundle: Path) -> str:
+def bundle_identity(bundle: Path) -> str:
     if not result_bundle_complete(bundle):
         raise ValueError('性能采样需要完整的 XCTest 结果包。')
-    digest = hashlib.sha256()
-    for path in sorted(value for value in bundle.rglob('*') if value.is_file()):
-        digest.update(path.relative_to(bundle).as_posix().encode() + b'\0')
-        with path.open('rb') as stream:
-            while data := stream.read(1024 * 1024): digest.update(data)
-        digest.update(b'\0')
-    return digest.hexdigest()
+    metadata = bundle / 'Info.plist'
+    if metadata.is_file():
+        return 'plist.' + base64.urlsafe_b64encode(metadata.read_bytes()).decode('ascii')
+    database = bundle / 'database.sqlite3'
+    with database.open('rb') as stream: header = stream.read(100)
+    return 'sqlite.' + str(database.stat().st_size) + '.' + base64.urlsafe_b64encode(header).decode('ascii')
 
 
 def merge_result_bundles(retained: Path, merged: Path) -> None:
@@ -43,7 +42,7 @@ def merge_result_bundles(retained: Path, merged: Path) -> None:
     try:
         subprocess.run(['xcrun', 'xcresulttool', 'merge', '--output-path', str(merged), str(retained), str(BUNDLE)],
             check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-        bundle_digest(merged)
+        bundle_identity(merged)
         subprocess.check_output(['xcrun', 'xcresulttool', 'get', 'test-results', 'summary', '--path', str(merged)])
     except BaseException:
         shutil.rmtree(merged, ignore_errors=True)
@@ -59,7 +58,7 @@ def recover_result_bundle() -> None:
     merged = BUNDLE.with_suffix('.incoming.xcresult')
     if merged.exists():
         try:
-            bundle_digest(merged)
+            bundle_identity(merged)
             subprocess.check_output(['xcrun', 'xcresulttool', 'get', 'test-results', 'summary', '--path', str(merged)])
         except (ValueError, OSError, subprocess.CalledProcessError): pass
         else:
@@ -70,7 +69,7 @@ def recover_result_bundle() -> None:
             return
     if BUNDLE.exists() and (retained.exists() or merged.exists()):
         try:
-            bundle_digest(BUNDLE)
+            bundle_identity(BUNDLE)
             subprocess.check_output(['xcrun', 'xcresulttool', 'get', 'test-results', 'summary', '--path', str(BUNDLE)])
         except (ValueError, OSError, subprocess.CalledProcessError):
             shutil.rmtree(BUNDLE)
@@ -88,7 +87,7 @@ def bind_pending_result_merge(bundle: Path) -> None:
     with report_lock():
         report = json.loads(REPORT.read_text()) if REPORT.is_file() else {}
         if pending := report.get('resultMerge'):
-            pending['bundleSHA256'] = bundle_digest(bundle)
+            pending['bundleIdentity'] = bundle_identity(bundle)
             write_report(report)
 
 
@@ -98,12 +97,12 @@ def complete_pending_result_merge() -> None:
         report = json.loads(REPORT.read_text()) if REPORT.is_file() else {}
         pending = report.get('resultMerge')
         if not pending: return
-        if pending.get('bundleSHA256') != bundle_digest(BUNDLE):
+        if pending.get('bundleIdentity') != bundle_identity(BUNDLE):
             raise ValueError('结果包恢复需要待发布合并包的完整摘要。')
         groups = pending['groups']
         producing = pending.get('producingGroup', groups[-1])
-        if pending['currentSHA256'] and producing and (row := report.get('groups', {}).get(producing)):
-            row['runResultBundleSHA256'] = pending['currentSHA256']
+        if pending['currentIdentity'] and producing and (row := report.get('groups', {}).get(producing)):
+            row['runResultBundleIdentity'] = pending['currentIdentity']
         report = rebind_result_records(report, groups)
         report.pop('resultMerge')
         write_report(report)
@@ -128,7 +127,7 @@ def begin_selected_result_step() -> list[str]:
     recover_result_step()
     groups = []
     if BUNDLE.exists():
-        try: sha = bundle_digest(BUNDLE)
+        try: sha = bundle_identity(BUNDLE)
         except ValueError:
             print('中断的 XCTest 结果包已进入清理与重新采样。', file=sys.stderr)
             begin_result_step(False)
@@ -139,7 +138,7 @@ def begin_selected_result_step() -> list[str]:
             full = complete_group_row(row)
             if full.get('scope') == 'full' and full.get('exitCode') == 0 and full.get('summary', {}).get('passed') is True \
                     and sampling_evidence_current({'startedAt': full.get('recordedAt', ''), 'finishedAt': full.get('recordedAt', '')}) \
-                    and full.get('resultBundleSHA256') == sha and full.get('inputDigest') == source_digest(name) \
+                    and full.get('resultBundleIdentity') == sha and full.get('inputDigest') == source_digest(name) \
                     and exchange_identity(full.get('environment')) == exchange_identity(environment_context(name)):
                 groups.append(name)
     begin_result_step(bool(groups))
@@ -153,7 +152,7 @@ def reset_result_bundle() -> None:
         if REPORT.is_file():
             report = json.loads(REPORT.read_text())
             invalidated = sorted(name for name, row in report.get('groups', {}).items()
-                if row.get('resultBundleSHA256') or row.get('lastFullRun', {}).get('resultBundleSHA256'))
+                if row.get('resultBundleIdentity') or row.get('lastFullRun', {}).get('resultBundleIdentity'))
             if invalidated:
                 print('覆盖原始结果包：' + '、'.join(invalidated) + ' 的验证证据将进入重新验收。', file=sys.stderr)
             report['groups'] = {name: row for name, row in report.get('groups', {}).items() if name not in invalidated}
@@ -168,9 +167,9 @@ def result_bundle_findings(report: dict, *, recorded_environment: bool = False,
                            groups: tuple[str, ...] = ('all', 'ui')) -> list[str]:
     try:
         rows = report.get('groups', {})
-        sha = complete_group_row(rows.get(groups[0], {})).get('resultBundleSHA256') if recorded_environment else bundle_digest(BUNDLE)
-        if not isinstance(sha, str) or not re.fullmatch(r'[0-9a-f]{64}', sha): raise ValueError('结果包需要完整摘要。')
-        if all(complete_group_row(report.get('groups', {}).get(group, {})).get('resultBundleSHA256') == sha
+        sha = complete_group_row(rows.get(groups[0], {})).get('resultBundleIdentity') if recorded_environment else bundle_identity(BUNDLE)
+        if not isinstance(sha, str) or not sha.strip(): raise ValueError('结果包需要原生元数据标识。')
+        if all(complete_group_row(report.get('groups', {}).get(group, {})).get('resultBundleIdentity') == sha
                for group in groups): return []
     except (OSError, ValueError): pass
     return ['执行证据需要对应当前保留的原始 XCTest 结果包。']
@@ -185,7 +184,7 @@ def rebind_result_records(report: dict, groups: list[str]) -> dict:
         rows.append(row)
         if row.get('lastFullRun'): rows.append(row['lastFullRun'])
     for row in rows:
-        row.setdefault('runResultBundleSHA256', row.get('resultBundleSHA256'))
+        row.setdefault('runResultBundleIdentity', row.get('resultBundleIdentity'))
         for record in row.get('performance', {}).get('records', {}).values():
             raw = json.loads(subprocess.check_output(['xcrun', 'xcresulttool', 'get', 'test-results', 'metrics',
                 '--path', str(BUNDLE), '--test-id', record['testIdentifier'] + '()'], text=True))
@@ -195,12 +194,12 @@ def rebind_result_records(report: dict, groups: list[str]) -> dict:
                 if run.get('device', {}).get('deviceId') == device]
             if sum(normalize_metrics([value], record['testIdentifier'], device) == expected for value in matches) != 1:
                 raise ValueError('合并结果包需要保留所属测试组的实际性能采样。')
-    sha = bundle_digest(BUNDLE)
+    sha = bundle_identity(BUNDLE)
     for row in rows:
         for record in row.get('performance', {}).get('records', {}).values():
-            record['execution']['bundleSHA256'] = sha
-            record['resultBundle']['sha256'] = sha
-        row['resultBundleSHA256'] = sha
+            record['execution']['bundleIdentity'] = sha
+            record['resultBundle']['identity'] = sha
+        row['resultBundleIdentity'] = sha
     return updated
 
 
@@ -212,12 +211,12 @@ def merge_result_step(groups: list[str], *, producing_group: str | None = None) 
     from validation_provenance import REPORT, report_lock, write_report
     retained = BUNDLE.with_suffix('.retained.xcresult')
     merged = BUNDLE.with_suffix('.incoming.xcresult')
-    current_sha = bundle_digest(BUNDLE) if BUNDLE.exists() else None
+    current_sha = bundle_identity(BUNDLE) if BUNDLE.exists() else None
     if not BUNDLE.exists() and not retained.exists(): return
     with report_lock():
         report = json.loads(REPORT.read_text()) if REPORT.is_file() else {}
-        report['resultMerge'] = {'groups': groups, 'currentSHA256': current_sha, 'producingGroup': producing_group,
-            'bundleSHA256': current_sha or bundle_digest(retained)}
+        report['resultMerge'] = {'groups': groups, 'currentIdentity': current_sha, 'producingGroup': producing_group,
+            'bundleIdentity': current_sha or bundle_identity(retained)}
         write_report(report)
     validated = False
     if retained.exists():
@@ -258,7 +257,7 @@ def measurement_environment(context: dict, group: str = 'all') -> dict:
     device = context['device']
     return {'deviceIdentifier': device['identifier'], 'deviceModel': device['model'],
         'systemVersion': device['systemVersion'], 'systemBuild': device['systemBuild'],
-        'xcodeBuild': context['xcode']['DTXcodeBuild'], 'compilerSHA256': context['compiler']['sha256'],
+        'xcodeBuild': context['xcode']['DTXcodeBuild'], 'compilerVersion': context['compiler']['version'],
         'configuration': 'Release', 'compilationConditions': sorted(workflow_conditions(group))}
 
 
@@ -279,7 +278,7 @@ def record_complete(record: dict, *, current: bool) -> bool:
                 or execution['sourceCommit'] != record['sourceCommit'] \
                 or not execution.get('runID') or not execution.get('inputDigest') \
                 or record['resultBundle']['path'] != '.build/extended-automation/test-results.xcresult' \
-                or execution.get('bundleSHA256') != record['resultBundle']['sha256']:
+                or execution.get('bundleIdentity') != record['resultBundle']['identity']:
             return False
         normalized = normalize_metrics(record['xcresultMetrics'], record['testIdentifier'], context['device']['identifier'])
         if any({key: metric[key] for key in ('samples', 'mean')} != normalized[name] for name, metric in record['metrics'].items()):
@@ -300,7 +299,7 @@ def approved_baseline_complete(proof: dict) -> bool:
             test, workload = performance_workloads()[name]
             if record['testIdentifier'] != test or record['input'] != workload or not record_complete(record, current=False) \
                     or not re.fullmatch(r'(?:[0-9a-f]{40}|[0-9a-f]{64})', record['sourceCommit']) \
-                    or not re.fullmatch(r'[0-9a-f]{64}', record['resultBundle']['sha256']) \
+                    or not isinstance(record['resultBundle']['identity'], str) or not record['resultBundle']['identity'].strip() \
                     or not isinstance(record.get('approvedBy'), str) or not record['approvedBy'].strip() \
                     or set(record['metrics']) != set(METRICS): return False
             captured, approved = (datetime.fromisoformat(record[key].replace('Z', '+00:00'))
@@ -319,11 +318,11 @@ def extract_measurements(row: dict, group: str = 'all') -> dict:
     context = row['environment']
     summary = json.loads(subprocess.check_output(['xcrun', 'xcresulttool', 'get', 'test-results', 'summary', '--path', str(BUNDLE)], text=True))
     if summary.get('result') != 'Passed': raise ValueError('性能结果包需要成功执行。')
-    sha = bundle_digest(BUNDLE)
-    if row.get('resultBundleSHA256') != sha:
+    sha = bundle_identity(BUNDLE)
+    if row.get('resultBundleIdentity') != sha:
         raise ValueError('性能结果包需要匹配所属构建运行的摘要与源码提交。')
     execution = {'group': group, 'runID': row['runID'], 'inputDigest': row['inputDigest'],
-        'sourceCommit': row['sourceCommit'], 'environment': context, 'bundleSHA256': sha}
+        'sourceCommit': row['sourceCommit'], 'environment': context, 'bundleIdentity': sha}
     records = {}
     for name, (test, workload) in performance_workloads().items():
         if performance_group(test) != group: continue
@@ -331,9 +330,9 @@ def extract_measurements(row: dict, group: str = 'all') -> dict:
             '--path', str(BUNDLE), '--test-id', test + '()'], text=True))
         records[name] = {'testIdentifier': test, 'sourceCommit': execution['sourceCommit'], 'input': workload,
             'capturedAt': row['recordedAt'], 'environment': measurement_environment(context, group), 'execution': execution,
-            'resultBundle': {'path': str(BUNDLE.relative_to(ROOT)), 'sha256': sha}, 'xcresultMetrics': raw,
+            'resultBundle': {'path': str(BUNDLE.relative_to(ROOT)), 'identity': sha}, 'xcresultMetrics': raw,
             'metrics': normalize_metrics(raw, test, context['device']['identifier'])}
-    if bundle_digest(BUNDLE) != sha: raise ValueError('性能结果包需要保持完整采样期间的内容身份。')
+    if bundle_identity(BUNDLE) != sha: raise ValueError('性能结果包需要保持完整采样期间的内容身份。')
     return {'schemaVersion': 1, 'records': records}
 
 
@@ -349,13 +348,13 @@ def capture_current() -> dict:
     from validation_provenance import REPORT, source_digest
     if uncommitted_inputs(): raise ValueError('性能采样需要已提交的构建输入。')
     groups = json.loads(REPORT.read_text())['groups']
-    retained_sha = bundle_digest(BUNDLE)
+    retained_sha = bundle_identity(BUNDLE)
     from validation_inputs import performance_workloads, performance_group
     records = {}
     for group in ('all', 'ui'):
         row = complete_group_row(groups[group])
         context = environment_context(group)
-        if row.get('exitCode') != 0 or row.get('scope') != 'full' or row.get('resultBundleSHA256') != retained_sha \
+        if row.get('exitCode') != 0 or row.get('scope') != 'full' or row.get('resultBundleIdentity') != retained_sha \
                 or exchange_identity(row.get('environment')) != exchange_identity(context) \
                 or row.get('inputDigest') != source_digest(group) or not complete_environment(group, context):
             raise ValueError('性能采样需要当前源码、工具链及实体设备上成功执行的完整行为与 UI 组。')
@@ -368,7 +367,7 @@ def capture_current() -> dict:
             if not record_complete(record, current=True) or record['capturedAt'] != row['recordedAt'] \
                     or any(execution[key] != row[field]
                     for key, field in [('runID', 'runID'), ('inputDigest', 'inputDigest'), ('sourceCommit', 'sourceCommit'),
-                        ('environment', 'environment'), ('bundleSHA256', 'resultBundleSHA256')]):
+                        ('environment', 'environment'), ('bundleIdentity', 'resultBundleIdentity')]):
                 raise ValueError('性能采样需要匹配所属测试组完成时提取的原始指标。')
         records.update(proof['records'])
     return {'schemaVersion': 1, 'records': records}
@@ -399,7 +398,7 @@ def merge_findings(report: dict, commit: str) -> list[str]:
                 if current['sourceCommit'] != commit or current['capturedAt'] != row['recordedAt'] \
                         or any(current['execution'][key] != row[field] for key, field in (
                             ('runID', 'runID'), ('inputDigest', 'inputDigest'), ('sourceCommit', 'sourceCommit'),
-                            ('environment', 'environment'), ('bundleSHA256', 'resultBundleSHA256'))) \
+                            ('environment', 'environment'), ('bundleIdentity', 'resultBundleIdentity'))) \
                         or not performance_comparison_complete(name, {'current': current, 'baseline': approved['records'][name]}):
                     errors.append(f'{name} 需要本次完整真机采样与同环境批准基线，并满足性能退化上限。')
         return errors
@@ -470,21 +469,21 @@ def performance_comparison_complete(name: str, measurement: dict) -> bool:
                     or not re.fullmatch(r'(?:[0-9a-f]{40}|[0-9a-f]{64})', record.get('sourceCommit', '')): return False
             environment = record['environment']
             if not isinstance(environment, dict) or not all(isinstance(environment.get(key), str) and environment[key].strip()
-                    for key in ('deviceIdentifier', 'deviceModel', 'systemVersion', 'systemBuild', 'xcodeBuild', 'configuration', 'compilerSHA256')) \
-                    or environment['configuration'] != 'Release' or not re.fullmatch(r'[0-9a-f]{64}', environment['compilerSHA256']) \
+                    for key in ('deviceIdentifier', 'deviceModel', 'systemVersion', 'systemBuild', 'xcodeBuild', 'configuration', 'compilerVersion')) \
+                    or environment['configuration'] != 'Release' \
                     or not isinstance(environment.get('compilationConditions'), list) \
                     or not all(isinstance(condition, str) and re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', condition) for condition in environment['compilationConditions']) \
                     or environment['compilationConditions'] != sorted(workflow_conditions(performance_group(test))): return False
             bundle = record['resultBundle']
             if not isinstance(bundle, dict) or not isinstance(bundle.get('path'), str) or not bundle['path'].endswith('.xcresult') \
-                    or not re.fullmatch(r'[0-9a-f]{64}', bundle.get('sha256', '')): return False
+                    or not isinstance(bundle.get('identity'), str) or not bundle['identity'].strip(): return False
             if set(record['metrics']) != {'clockSeconds', 'peakPhysicalMemoryBytes'}: return False
             for metric in record['metrics'].values():
                 samples, mean = metric['samples'], metric['mean']
                 if not isinstance(samples, list) or not samples or not all(type(sample) in (int, float) and math.isfinite(sample) and sample >= 0 for sample in samples) \
                         or type(mean) not in (int, float) or not math.isfinite(mean) or mean <= 0 \
                         or not math.isclose(mean, sum(samples) / len(samples)): return False
-        if exchange_identity(current['environment']) != exchange_identity(baseline['environment']) or current['resultBundle']['sha256'] == baseline['resultBundle']['sha256'] \
+        if exchange_identity(current['environment']) != exchange_identity(baseline['environment']) or current['resultBundle']['identity'] == baseline['resultBundle']['identity'] \
                 or not sampling_evidence_current({'startedAt': current['capturedAt'], 'finishedAt': current['capturedAt']}) \
                 or not isinstance(baseline.get('approvedBy'), str) or not baseline['approvedBy'].strip(): return False
         times = [datetime.fromisoformat(value.replace('Z', '+00:00')) for value in

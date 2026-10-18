@@ -218,7 +218,12 @@ actor NetworkDiagnosticStore {
         } ?? [:]
         let body = data.flatMap { data -> String? in
             let limited = data.prefix(256 * 1024)
-            return String(data: limited, encoding: .utf8) ?? "[非文本响应，\(data.count) 字节]"
+            let truncated = limited.count < data.count
+            let text = String(data: limited, encoding: .utf8) ?? (truncated
+                ? (1...3).lazy.compactMap { String(data: limited.dropLast($0), encoding: .utf8) }.first
+                : nil)
+            guard let text else { return "[非文本响应，\(data.count) 字节]" }
+            return text + (truncated ? "\n[响应正文已按诊断大小限制截取]" : "")
         }
         records.append((owner, NetworkDiagnosticRecord(
             id: UUID(), occurredAt: Date(), method: request.httpMethod ?? "GET",

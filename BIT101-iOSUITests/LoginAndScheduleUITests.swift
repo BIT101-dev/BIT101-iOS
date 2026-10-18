@@ -777,7 +777,7 @@ nonisolated final class ScheduleEditingUITests: UIAutomationTestCase {
         app = configureApp(resetStorage: true)
         app.buttons["schedule.add-content"].tapBriefly()
         tap("添加课程")
-        for (title, value) in [("课程名称", "测试补录课程"), ("教师", "测试教师"), ("教室", "文萃A101")] {
+        for (title, value) in [("课程名称", "测试补录课程"), ("教师", "测试教师"), ("教室", "线上")] {
             let field = app.textFields[title]
             assertUI(field.exists, "课程编辑应支持字段：\(title)")
             replaceText(value, in: field)
@@ -801,7 +801,20 @@ nonisolated final class ScheduleEditingUITests: UIAutomationTestCase {
         assertUI(course.appears(timeout: 5), "单周课程应显示在第3周。")
         tap("第1周")
         assertUI(course.appears(timeout: 5), "返回第1周应恢复课程。")
-        course.tapBriefly()
+        app.tabBars.buttons["地图"].tapBriefly()
+        app.buttons["切换到珠海校区"].tapBriefly()
+        app = configureApp(resetStorage: false, restartProcess: true)
+        assertUI(textElement("测试补录课程").appears(timeout: 5), "重启应先恢复含线上课程的课表。")
+        app.tabBars.buttons["地图"].tapBriefly()
+        assertUI(app.buttons["切换到珠海校区"].appears(timeout: 5), "地图应恢复已选校区。")
+        let camera = UITestControlClient.request(["command": "map-camera"])
+            .flatMap { $0.data(using: .utf8) }.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        XCTAssertEqual(camera?["latitude"] as? Double ?? 0, 22.359413, accuracy: 0.01,
+                       "下一节课校区未知时，相机应与持久化的珠海选中状态一致。")
+        app.tabBars.buttons["日程"].tapBriefly()
+        let restoredCourse = textElement("测试补录课程")
+        assertUI(restoredCourse.appears(timeout: 5), "返回日程应恢复补录课程。")
+        restoredCourse.tapBriefly()
         tap("调这门课")
         assertUI(app.navigationBars["调这门课"].appears(timeout: 5), "调课应打开安排编辑器。")
         assertUI(app.textFields["房间号"].exists, "调课应支持地点编辑。")
@@ -812,7 +825,7 @@ nonisolated final class ScheduleEditingUITests: UIAutomationTestCase {
         assertUI(app.buttons["删除这门课"].exists, "取消删除应保留课程详情。")
         app.buttons["删除这门课"].press(forDuration: 0.01)
         app.alerts.buttons["删除"].tapBriefly()
-        assertUI(course.disappears(timeout: 5), "确认删除应移除课程。")
+        assertUI(restoredCourse.disappears(timeout: 5), "确认删除应移除课程。")
         app.buttons["schedule.add-content"].tapBriefly()
         tap("添加课程")
         tap("取消")

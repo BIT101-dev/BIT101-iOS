@@ -227,7 +227,8 @@ final class GalleryViewModel: ObservableObject {
         }
     }
 
-    func enqueueSearchLoadMore(currentPoster: CommunityPoster) {
+    @discardableResult
+    func enqueueSearchLoadMore(currentPoster: CommunityPoster?) -> Task<Void, Never> {
         enqueueInteractionTask(key: "search-load-more") { [weak self] in
             await self?.loadMoreSearchResultsIfNeeded(currentPoster: currentPoster)
         }

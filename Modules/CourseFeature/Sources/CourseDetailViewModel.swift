@@ -72,7 +72,7 @@ enum CourseCommentComposerTarget: Identifiable, Equatable {
         case .course:
             return nil
         case let .comment(mainComment, targetComment):
-            guard mainComment.id != targetComment.id, targetComment.user.id > 0 else { return nil }
+            guard mainComment.id != targetComment.id, targetComment.user.id != 0 else { return nil }
             return targetComment.user.id
         }
     }

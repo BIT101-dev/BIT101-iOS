@@ -178,6 +178,7 @@ nonisolated final class CalendarInteractionUITests: UIAutomationTestCase {
         dismissKeyboard()
         app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "周次")).firstMatch.tapBriefly()
         assertUI(app.navigationBars["周次"].appears(timeout: 5), "周次入口应完成页面导航。")
+        assertUI(app.buttons["第4周"].exists == false, "课节周次应沿用原课程覆盖范围。")
         tap("第2周")
         app.navigationBars["周次"].buttons["完成"].tapBriefly()
         assertUI(app.navigationBars["调这节课"].appears(timeout: 5), "周次完成应返回课程调整。")
@@ -187,6 +188,11 @@ nonisolated final class CalendarInteractionUITests: UIAutomationTestCase {
         assertUI(app.navigationBars["调这节课"].appears(timeout: 5), "选择星期应返回课程调整。")
         app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "节次")).firstMatch.tapBriefly()
         assertUI(app.navigationBars["节次"].appears(timeout: 5), "节次入口应完成页面导航。")
+        for section in [1, 2] {
+            let option = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "第\(section)节")).firstMatch
+            option.tapBriefly()
+            assertUI(option.value as? String == "未选择", "逐项清空应保留空选择状态。")
+        }
         tap("第3节")
         app.navigationBars["节次"].buttons["完成"].tapBriefly()
         assertUI(app.navigationBars["调这节课"].appears(timeout: 5), "节次完成应返回课程调整。")
@@ -433,6 +439,13 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         tap("发送")
         assertUI(textElement("测试新增评论").appears(timeout: 5), "发送后应显示评论。")
         tap("编辑帖子")
+        assertUI(app.buttons["测试"].appears(timeout: 5) && app.buttons["自动化"].exists, "编辑应显示帖子原有的自定义标签。")
+        tap("测试")
+        tap("自动化")
+        tap("水")
+        tap("自定义")
+        replaceText("讲座", in: app.textFields["自定义标签"])
+        dismissKeyboard()
         replaceText("保存后的测试话题", in: app.textFields["标题"])
         replaceText("保存后的话题正文", in: app.textFields["正文"])
         dismissKeyboard()
@@ -440,6 +453,12 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         tap("保存")
         assertUI(textElement("保存后的测试话题").appears(timeout: 5), "保存应刷新详情标题。")
         assertUI(textElement("保存后的话题正文").exists, "保存应刷新正文。")
+        tap("编辑帖子")
+        assertUI(app.buttons["讲座"].appears(timeout: 5), "保存后的自定义标签应继续可编辑。")
+        assertUI(!app.buttons["测试"].exists && !app.buttons["自动化"].exists, "移除的旧标签应随保存更新。")
+        tap("讲座")
+        tap("活动")
+        tap("保存")
         for title in ["最新", "高赞", "最旧"] {
             tap("排序")
             tap(title)
@@ -610,7 +629,8 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
 
     @MainActor
     @objc func testAccountProfileSaveLoginCheckAndLogout() {
-        app = configureApp(resetStorage: true, content: true)
+        app = configureApp(resetStorage: true, content: true, initialTab: "mine")
+        assertUI(textElement("自动化测试用户").appears(timeout: 5), "个人主页应先完成资料加载。")
         openSettings("account")
         let student = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "学号")).firstMatch
         assertUI(student.appears(timeout: 5), "固定账号应提供学号显示开关。")
@@ -641,6 +661,12 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
             tap("确定")
             assertUI(textElement(value).appears(timeout: 5), "资料提交应重新加载保存的值。")
         }
+        back()
+        assertUI(textElement("保存后的昵称").appears(timeout: 5) && textElement("保存后的签名").exists,
+                 "设置保存后返回主页应更新资料卡。")
+        pullToRefresh()
+        assertUI(textElement("保存后的昵称").exists, "主页下拉刷新应保留已保存资料。")
+        openSettings("account")
         tap("登录状态检查")
         assertUI(textElement("已登录").appears(timeout: 5), "登录检查应保留有效测试会话。")
         tap("退出登录")
@@ -749,4 +775,64 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
     }
 
 
+}
+
+nonisolated final class MineInteractionUITests: UIAutomationTestCase {
+    @MainActor
+    @objc func testMinePublicProfileFollowAndPostDeletion() {
+        app = configureApp(resetStorage: true, initialTab: "mine")
+        assertUI(textElement("个人信息加载失败").appears(timeout: 5), "离线个人页应完成服务加载并展示恢复入口。")
+        app = configureApp(resetStorage: true, content: true, media: true, initialTab: "mine")
+        assertUI(textElement("自动化测试用户").appears(timeout: 5), "个人页应加载账号资料。")
+        tap("粉丝")
+        assertUI(app.navigationBars["我的粉丝"].appears(timeout: 5), "粉丝统计应打开粉丝列表。")
+        pullToRefresh()
+        assertUI(textElement("自动化测试用户").exists, "粉丝刷新应恢复用户。")
+        tap("自动化测试用户")
+        assertUI(app.buttons["关注"].appears(timeout: 5), "粉丝用户行应进入公开主页。")
+        back()
+        assertUI(app.navigationBars["我的粉丝"].appears(timeout: 5), "返回应恢复粉丝列表。")
+        back()
+        tap("关注")
+        assertUI(app.navigationBars["我的关注"].appears(timeout: 5), "关注统计应打开关注列表。")
+        pullToRefresh()
+        assertUI(textElement("自动化测试用户").exists, "关注刷新应恢复用户。")
+        tap("自动化测试用户")
+        tap("关注")
+        let followed = app.buttons["取消关注"]
+        assertUI(followed.appears(timeout: 5), "关注成功应展示已关注状态。")
+        followed.tapBriefly(); assertUI(app.buttons["关注"].appears(timeout: 5), "再次点击应恢复关注入口。")
+        tap("查看头像")
+        let previewClose = imagePreviewCloseButton()
+        app.native.descendants(matching: .any)["QLPreviewControllerView"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        UITestSnapshotReader.invalidate()
+        assertUI(previewClose.disappears(timeout: 5), "点击预览画布应收起系统工具栏。")
+        closeImagePreview()
+        for route in ["粉丝", "关注", "帖子"] {
+            assertUI(textElement(route).exists, "公开主页应显示\(route)统计。")
+        }
+        pullToRefresh()
+        tap("自动化测试话题")
+        let detail = app.navigationBars["帖子详情"]
+        assertUI(detail.appears(timeout: 5), "公开主页帖子应打开详情。")
+        dismissPosterSheet(returningTo: "自动化测试用户")
+        back()
+        assertUI(app.navigationBars["我的关注"].appears(timeout: 5), "返回应恢复关注列表。")
+        back()
+        tap("帖子")
+        assertUI(app.navigationBars["我的帖子"].appears(timeout: 5), "帖子统计应打开帖子列表。")
+        pullToRefresh()
+        assertUI(textElement("自动化测试话题").exists, "个人帖子刷新应恢复记录。")
+        tap("自动化测试话题")
+        assertUI(app.navigationBars["帖子详情"].appears(timeout: 5), "个人帖子行应打开详情。")
+        dismissPosterSheet(returningTo: "我的帖子")
+        tap("更多操作")
+        tap("删除帖子")
+        app.alerts.buttons["取消"].tapBriefly()
+        tap("更多操作")
+        tap("删除帖子")
+        app.alerts.buttons["删除"].tapBriefly()
+        let poster = textElement("自动化测试话题")
+        assertUI(waitUntil(NSPredicate(format: "exists == false"), on: poster, timeout: 5), "个人列表删除应移除帖子。")
+    }
 }

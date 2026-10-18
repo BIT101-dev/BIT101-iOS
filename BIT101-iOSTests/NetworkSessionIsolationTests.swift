@@ -450,6 +450,25 @@ extension NetworkSmokeCoverageTests {
 #endif
 
 extension NetworkClientTests {
+    @Test(.timeLimit(.minutes(1))) @MainActor
+    func diagnosticTextSurvivesUTF8BoundariesAndMarksTruncation() async throws {
+        let owner = AppAccountSession.storage.schoolSessionIdentity
+        let store = NetworkDiagnosticStore(currentIdentity: { owner })
+        let request = URLRequest(url: try #require(URL(string: "https://example.invalid/diagnostics")))
+        for character in ["中", "😀"] {
+            for offset in 1..<character.utf8.count {
+                let prefix = String(repeating: "a", count: 256 * 1024 - offset)
+                await store.record(owner: owner, request: request, data: Data((prefix + character + "tail").utf8),
+                    response: nil, error: nil, elapsed: 0)
+                #expect(await store.recent().last?.responseBody == prefix + "\n[响应正文已按诊断大小限制截取]")
+            }
+        }
+        for (data, expected) in [(Data("完整文本😀".utf8), "完整文本😀"), (Data([0xff, 0x00]), "[非文本响应，2 字节]")] {
+            await store.record(owner: owner, request: request, data: data, response: nil, error: nil, elapsed: 0)
+            #expect(await store.recent().last?.responseBody == expected)
+        }
+    }
+
     @Test("Network diagnostics follow the injected connection state")
     @MainActor
     func networkDescriptionUsesSelectedPath() {

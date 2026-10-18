@@ -384,12 +384,14 @@ Path.open = open_log
         peaks.append(int(peak[1]) * (1 if sys.platform == 'darwin' else 1024))
     if len(peaks) == 2 and peaks[1] - peaks[0] >= (70_000 - 1_000) * 256 // 2:
         findings.append('日志驻留内存自测：摘要占用需要随显示容量保持有限')
-    command = ci_logger + '\nbit101_log_command /dev/null ci-contract ' + shlex.quote(sys.executable) + ' -\n'
-    payload = 'for index in range(100): print("error: retained", index)\nraise SystemExit(7)\n'
+    inventory_logger = ci_logger.replace('raise SystemExit(exit_code if exit_code >= 0 else 128 - exit_code)',
+        'assert "UI control inventory:" in saved_log.getvalue()\nraise SystemExit(exit_code if exit_code >= 0 else 128 - exit_code)')
+    command = inventory_logger + '\nbit101_log_command /dev/null ci-contract ' + shlex.quote(sys.executable) + ' -\n'
+    payload = 'for index in range(100): print("error: retained", index)\nprint("UI control inventory: {}")\nraise SystemExit(7)\n'
     result = subprocess.run(['zsh', '-c', command], input=payload, capture_output=True, text=True,
         env={**os.environ, 'GITHUB_ACTIONS': 'true'})
-    if result.returncode != 7 or 'error: retained 0\n' not in result.stdout or 'error: retained 99\n' not in result.stdout:
-        findings.append('日志磁盘重读自测：CI 失败完整呈现摘要容量之外的诊断')
+    if result.returncode != 7 or 'error: retained 0\n' not in result.stdout or 'error: retained 99\n' not in result.stdout or 'UI control inventory:' in result.stdout:
+        findings.append('日志磁盘重读自测：CI 失败完整呈现诊断，控件库存保留在原始日志')
     isolated_digest = '''from pathlib import Path
 from unittest.mock import patch
 import sys

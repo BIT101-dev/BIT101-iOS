@@ -211,14 +211,14 @@ public nonisolated enum ScheduleCourseEditor {
         guard (1 ... 7).contains(draft.weekday) else { throw validationError("星期设置不合法。") }
 
         let sectionIDs: [Int]
-        if draft.selectedSections.isEmpty {
+        if let selectedSections = draft.selectedSections {
+            sectionIDs = Array(Set(selectedSections)).sorted()
+        } else {
             guard draft.startSection > 0, draft.endSection >= draft.startSection,
                   draft.endSection <= ScheduleCourseConstraints.maximumSection else {
                 throw validationError("至少选择一节课。")
             }
             sectionIDs = Array(draft.startSection ... draft.endSection)
-        } else {
-            sectionIDs = Array(Set(draft.selectedSections)).sorted()
         }
         guard !sectionIDs.isEmpty, sectionIDs.allSatisfy({ (1...ScheduleCourseConstraints.maximumSection).contains($0) }) else {
             throw validationError("至少选择一节课。")
@@ -296,12 +296,22 @@ public nonisolated enum ScheduleCourseEditor {
         with draft: CourseDraft,
         in courses: [CourseRecord]
     ) throws -> [CourseRecord] {
-        guard let anchor = courses.first(where: { $0.id == id }) else { return courses }
-        let resolved = try resolve(draft)
-        let identity = scheduleCourseArrangementIdentity(anchor)
-        var updated = courses.filter { scheduleCourseArrangementIdentity($0) != identity }
-        updated.append(applying(resolved, to: anchor))
-        return updated
+        try updatingArrangements([(id, draft)], in: courses)
+    }
+
+    public static func updatingArrangements(
+        _ arrangements: [(id: String, draft: CourseDraft)],
+        in courses: [CourseRecord]
+    ) throws -> [CourseRecord] {
+        var identities = Set<String>()
+        var replacements: [CourseRecord] = []
+        for arrangement in arrangements {
+            guard let anchor = courses.first(where: { $0.id == arrangement.id }) else { continue }
+            let resolved = try resolve(arrangement.draft)
+            identities.insert(scheduleCourseArrangementIdentity(anchor))
+            replacements.append(applying(resolved, to: anchor))
+        }
+        return courses.filter { !identities.contains(scheduleCourseArrangementIdentity($0)) } + replacements
     }
 
     public static func updatingOccurrence(
@@ -333,7 +343,7 @@ public nonisolated enum ScheduleCourseEditor {
         let selectedWeeks = Array(Set(weeks)).sorted()
         guard !selectedWeeks.isEmpty,
               selectedWeeks.allSatisfy({ original.weeks.contains($0) }) else {
-            return courses
+            throw validationError("请选择原课程包含的周次。")
         }
         let resolved = try resolve(draft, fixedWeeks: selectedWeeks)
         let remainingWeeks = original.weeks.filter { !selectedWeeks.contains($0) }

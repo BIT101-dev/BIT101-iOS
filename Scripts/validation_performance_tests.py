@@ -2,10 +2,51 @@
 from copy import deepcopy
 from pathlib import Path
 from unittest.mock import patch
+from uuid import UUID
 import validation_performance as subject
+from validation_provenance import _local_source_identity
+
+
+def source_identity_fixture():
+    snapshots = []
+    def identify(group, files, context):
+        snapshot = [group, deepcopy(files), deepcopy(context)]
+        if snapshot not in snapshots: snapshots.append(snapshot)
+        return str(UUID(int=snapshots.index(snapshot) + 1))
+    return identify
+
+
+def source_identity_registry_self_test() -> None:
+    import json
+    from contextlib import nullcontext
+    import validation_provenance as provenance
+    state = {'groups': {'audit': {'exitCode': 0}}}
+    def save(report, **kwargs):
+        state.clear()
+        state.update(deepcopy(report))
+    with patch.object(provenance, 'report_lock', side_effect=nullcontext), \
+            patch.object(Path, 'is_file', return_value=True), \
+            patch.object(Path, 'read_text', side_effect=lambda: json.dumps(state)), \
+            patch.object(provenance, 'write_report', side_effect=save):
+        files = {'source.swift': {'executable': False, 'content': 'first'}}
+        initial = _local_source_identity('modules', files, {})
+        assert _local_source_identity('modules', files, {}) == initial
+        files['source.swift']['content'] = 'other'
+        changed = _local_source_identity('modules', files, {})
+        assert changed != initial
+        files['source.swift']['executable'] = True
+        executable = _local_source_identity('modules', files, {})
+        assert executable != changed
+        assert _local_source_identity('modules', files, {'compiler': 'other'}) != executable
+        assert _local_source_identity('modules', {}, {}) != executable
+        assert state['groups']['audit']['exitCode'] == 0
+        assert set(state['sourceInputs']['files']) == {'source.swift'}
+    provenance._REPORT_INPUTS.pop(provenance.REPORT, None)
 
 
 def run_self_test() -> None:
+    source_identity_registry_self_test()
+    committed_source_identity_self_test()
     static_audit_cancellation_self_test()
     failed_regression_self_test()
     with patch.object(subject.subprocess, 'check_output', side_effect=[b'Modules/StorageCore/Sources/AppFileService.swift\0', b'']) as git:
@@ -30,7 +71,7 @@ def run_self_test() -> None:
         try: subject.normalize_metrics(changed, test, 'phone')
         except ValueError: pass
         else: raise AssertionError('指标需要匹配实际设备、单位及原始采样')
-    try: subject.bundle_digest(Path('/does-not-exist/current.xcresult'))
+    try: subject.bundle_identity(Path('/does-not-exist/current.xcresult'))
     except ValueError: pass
     else: raise AssertionError('性能捕获需要实际结果包')
     current = {'pagination': {'testIdentifier': test, 'metrics': normalized}}
@@ -50,6 +91,20 @@ def run_self_test() -> None:
     batch_retention_self_test(raw, test)
     merge_regression_self_test()
     baseline_migration_self_test()
+
+
+def committed_source_identity_self_test() -> None:
+    import validation_provenance as provenance
+    commit = b'a' * 40
+    with patch.object(provenance.subprocess, 'check_output', side_effect=[b'', b'', commit]) as git:
+        identity = provenance._clean_source_identity('manual-device', {'compiler': 'fixture'})
+        assert identity.startswith('git.' + commit.decode() + '.')
+        assert git.call_args.args[0] == ['git', 'rev-parse', 'HEAD']
+    for tracked, untracked in ((b'Modules/Feature/Sources/File.swift\0', b''), (b'', b'Modules/Feature/Sources/File.swift\0')):
+        with patch.object(provenance.subprocess, 'check_output', side_effect=[tracked, untracked]):
+            assert provenance._clean_source_identity('manual-device', {}) is None
+    with patch.object(provenance.subprocess, 'check_output', side_effect=[b'README.md\0', b'', commit]):
+        assert provenance._clean_source_identity('manual-device', {})
 
 
 def static_audit_cancellation_self_test() -> None:
@@ -100,18 +155,18 @@ def selected_result_retention_self_test() -> None:
     sha = 'a' * 64
     environment = {'device': {'identifier': 'phone'}}
     full = {'scope': 'full', 'exitCode': 0, 'summary': {'passed': True}, 'inputDigest': 'same',
-        'environment': environment, 'resultBundleSHA256': sha, 'recordedAt': subject.utc_now().isoformat()}
+        'environment': environment, 'resultBundleIdentity': sha, 'recordedAt': subject.utc_now().isoformat()}
     with redirect_stderr(StringIO()) as diagnostic, patch.object(subject, 'recover_result_step'), patch.object(subject, 'begin_result_step') as begin, \
-            patch.object(subject, 'bundle_digest', side_effect=ValueError('incomplete')), patch.object(Path, 'exists', return_value=True):
+            patch.object(subject, 'bundle_identity', side_effect=ValueError('incomplete')), patch.object(Path, 'exists', return_value=True):
         assert subject.begin_selected_result_step() == []
         begin.assert_called_once_with(False)
         assert diagnostic.getvalue() == '中断的 XCTest 结果包已进入清理与重新采样。\n'
     for changed, retained in (({}, ['all']), ({'inputDigest': 'changed'}, []), ({'exitCode': 1}, []),
             ({'recordedAt': ''}, []), ({'recordedAt': '2000-01-01T00:00:00Z'}, []), ({'recordedAt': '2200-01-01T00:00:00Z'}, []),
-            ({'environment': {'device': {'identifier': 'other'}}}, []), ({'resultBundleSHA256': 'b' * 64}, [])):
+            ({'environment': {'device': {'identifier': 'other'}}}, []), ({'resultBundleIdentity': 'b' * 64}, [])):
         row = dict(full, **changed)
         with patch.object(subject, 'recover_result_step'), patch.object(subject, 'begin_result_step') as begin, \
-                patch.object(subject, 'bundle_digest', return_value=sha), patch.object(subject, 'environment_context', return_value=environment), \
+                patch.object(subject, 'bundle_identity', return_value=sha), patch.object(subject, 'environment_context', return_value=environment), \
                 patch.object(validation_provenance, 'source_digest', return_value='same'), \
                 patch.object(validation_provenance, 'report_lock', side_effect=nullcontext), patch.object(Path, 'exists', return_value=True), \
                 patch.object(Path, 'is_file', return_value=True), patch.object(Path, 'read_text', return_value=json.dumps({'groups': {'all': row}})):
@@ -126,7 +181,7 @@ def failed_regression_self_test() -> None:
     from validation_provenance import invalidate_failed_evidence, complete_group_row
     method = 'ScheduleCourseEditorTests/changeWeeks'
     full = dict(scope='full', exitCode=0, inputDigest='input', environment={},
-        resultBundleSHA256='a' * 64, summary={'passed': True, 'executedTests': [method + '()']})
+        resultBundleIdentity='a' * 64, summary={'passed': True, 'executedTests': [method + '()']})
     for scope in ('selected', 'full'):
         for failure in ({'exitCode': 1, 'summary': {}}, {'exitCode': 0, 'summary': {'passed': False}}):
             parent = deepcopy(full) if scope == 'full' else dict(deepcopy(full), scope=scope, lastFullRun=deepcopy(full))
@@ -190,9 +245,9 @@ def result_replacement_self_test() -> None:
     import validation_provenance
     sha = 'a' * 64
     report = {'releaseCommit': 'commit', 'mergeCommit': 'commit', 'resultMerge': {'groups': ['all']}, 'groups': {
-        'all': {'resultBundleSHA256': sha},
-        'ui': {'lastFullRun': {'resultBundleSHA256': sha}},
-        'catalyst': {'resultBundleSHA256': sha}, 'modules': {'runID': 'modules'}},
+        'all': {'resultBundleIdentity': sha},
+        'ui': {'lastFullRun': {'resultBundleIdentity': sha}},
+        'catalyst': {'resultBundleIdentity': sha}, 'modules': {'runID': 'modules'}},
         'performanceBaseline': {'approvedBy': 'maintainer'}}
     output = StringIO()
     with redirect_stderr(output), patch.object(Path, 'exists', return_value=True), patch.object(Path, 'is_file', return_value=True), \
@@ -217,15 +272,15 @@ def result_replacement_self_test() -> None:
         remove.assert_not_called()
         with patch.object(Path, 'exists', return_value=False): subject.reset_result_bundle()
         assert save.call_count == 1
-    rows = {group: {'resultBundleSHA256': sha} for group in ('all', 'ui')}
-    with patch.object(subject, 'bundle_digest', return_value=sha) as digest:
+    rows = {group: {'resultBundleIdentity': sha} for group in ('all', 'ui')}
+    with patch.object(subject, 'bundle_identity', return_value=sha) as digest:
         assert not subject.result_bundle_findings({'groups': rows})
-        changed = deepcopy(rows); changed['ui']['resultBundleSHA256'] = 'b' * 64
+        changed = deepcopy(rows); changed['ui']['resultBundleIdentity'] = 'b' * 64
         assert subject.result_bundle_findings({'groups': changed})
         for value in ('b' * 64, None):
-            with patch.object(subject, 'bundle_digest', return_value=value):
+            with patch.object(subject, 'bundle_identity', return_value=value):
                 assert subject.result_bundle_findings({'groups': rows})
-        with patch.object(subject, 'bundle_digest', side_effect=ValueError('missing bundle')):
+        with patch.object(subject, 'bundle_identity', side_effect=ValueError('missing bundle')):
             assert subject.result_bundle_findings({'groups': rows})
         digest.reset_mock()
         assert not subject.result_bundle_findings({'groups': rows}, recorded_environment=True)
@@ -233,7 +288,7 @@ def result_replacement_self_test() -> None:
         assert subject.result_bundle_findings({'groups': changed}, recorded_environment=True)
         assert subject.result_bundle_findings({'groups': {}}, recorded_environment=True)
         complete = dict(rows['all'], scope='full', exitCode=0, inputDigest='input', summary={'passed': True})
-        selected = dict(complete, scope='selected', resultBundleSHA256='b' * 64, lastFullRun=complete)
+        selected = dict(complete, scope='selected', resultBundleIdentity='b' * 64, lastFullRun=complete)
         assert not subject.result_bundle_findings({'groups': rows | {'all': selected}})
 
 
@@ -281,9 +336,9 @@ def producing_run_capture_self_test() -> None:
     import json
     from validation_manual import PERFORMANCE_WORKLOADS, performance_group
     environment = {'device': {'identifier': 'phone', 'model': 'iPhone', 'systemVersion': '17', 'systemBuild': 'build'},
-        'xcode': {'DTXcodeBuild': 'xcode'}, 'compiler': {'sha256': 'a' * 64}}
+        'xcode': {'DTXcodeBuild': 'xcode'}, 'compiler': {'version': 'a' * 64}}
     rows = {group: {'exitCode': 0, 'scope': 'full', 'inputDigest': 'digest', 'runID': group, 'sourceCommit': 'commit',
-        'recordedAt': 'captured', 'environment': environment, 'resultBundleSHA256': 'b' * 64} for group in ('all', 'ui')}
+        'recordedAt': 'captured', 'environment': environment, 'resultBundleIdentity': 'b' * 64} for group in ('all', 'ui')}
     def exported(command, **kwargs):
         if 'summary' in command: return '{"result":"Passed"}'
         return json.dumps([{'testIdentifier': command[-1], 'testRuns': [{'device': {'deviceId': 'phone'}, 'metrics': [
@@ -291,7 +346,7 @@ def producing_run_capture_self_test() -> None:
             for identifier, unit, _ in subject.METRICS.values()]}]}])
     combined = {}
     with patch.object(subject.subprocess, 'check_output', side_effect=exported), \
-            patch.object(subject, 'bundle_digest', return_value='b' * 64):
+            patch.object(subject, 'bundle_identity', return_value='b' * 64):
         for group, row in rows.items():
             row['performance'] = subject.extract_measurements(row, group)
             expected = {name for name, (test, _) in PERFORMANCE_WORKLOADS.items() if performance_group(test) == group}
@@ -304,7 +359,7 @@ def producing_run_capture_self_test() -> None:
             patch.object(subject, 'complete_environment', return_value=True), \
             patch.object(subject, 'uncommitted_inputs', return_value=[]), \
             patch.object(subject, 'record_complete', return_value=True), \
-            patch.object(subject, 'bundle_digest', return_value='b' * 64), \
+            patch.object(subject, 'bundle_identity', return_value='b' * 64), \
             patch('validation_provenance.source_digest', return_value='digest'), \
             patch.object(subject.subprocess, 'check_output', side_effect=AssertionError('后续宿主沿固定结果包继续运行')):
         assert subject.capture_current() == {'schemaVersion': 1, 'records': combined}
@@ -313,7 +368,7 @@ def producing_run_capture_self_test() -> None:
         with patch.object(Path, 'read_text', return_value=json.dumps(shared)):
             assert subject.capture_current()['records'] == shared['groups']['all']['performance']['records'] | shared['groups']['ui']['performance']['records']
         for group in rows:
-            for field, value in [('runID', 'other'), ('resultBundleSHA256', 'c' * 64), ('sourceCommit', 'other')]:
+            for field, value in [('runID', 'other'), ('resultBundleIdentity', 'c' * 64), ('sourceCommit', 'other')]:
                 changed = deepcopy(rows)
                 changed[group][field] = value
                 with patch.object(Path, 'read_text', return_value=json.dumps({'groups': changed})):
@@ -340,9 +395,9 @@ def batch_retention_self_test(raw: list, test: str) -> None:
         return audit_run([sys.executable, '-B', str(subject.ROOT / 'Scripts/validation_artifacts.py'), str(fixture)],
             capture_output=True, text=True).returncode
     record = {'testIdentifier': test, 'xcresultMetrics': raw,
-        'execution': {'environment': {'device': {'identifier': 'phone'}}, 'bundleSHA256': 'original', 'runID': 'run'},
-        'resultBundle': {'sha256': 'original'}}
-    report = {'groups': {'all': {'resultBundleSHA256': 'original', 'performance': {'records': {'sample': record}}},
+        'execution': {'environment': {'device': {'identifier': 'phone'}}, 'bundleIdentity': 'original', 'runID': 'run'},
+        'resultBundle': {'identity': 'original'}}
+    report = {'groups': {'all': {'resultBundleIdentity': 'original', 'performance': {'records': {'sample': record}}},
         'ui': {'runID': 'ui'}}, 'performanceBaseline': deepcopy(record)}
     foreign = deepcopy(raw[0]['testRuns'][0])
     foreign['device']['deviceId'] = 'mac'
@@ -355,13 +410,13 @@ def batch_retention_self_test(raw: list, test: str) -> None:
     except ValueError: pass
     else: raise AssertionError('所属设备需要唯一的性能运行')
     with patch.object(subject.subprocess, 'check_output', return_value=json.dumps(combined)), \
-            patch.object(subject, 'bundle_digest', return_value='aggregate') as digest:
+            patch.object(subject, 'bundle_identity', return_value='aggregate') as digest:
         updated = subject.rebind_result_records(report, ['all', 'ui'])
         digest.assert_called_once_with(subject.BUNDLE)
-    assert report['groups']['all']['resultBundleSHA256'] == 'original'
-    assert updated['groups']['all']['runResultBundleSHA256'] == 'original'
-    assert updated['groups']['all']['performance']['records']['sample']['execution']['bundleSHA256'] == 'aggregate'
-    assert updated['groups']['all']['performance']['records']['sample']['resultBundle']['sha256'] == 'aggregate'
+    assert report['groups']['all']['resultBundleIdentity'] == 'original'
+    assert updated['groups']['all']['runResultBundleIdentity'] == 'original'
+    assert updated['groups']['all']['performance']['records']['sample']['execution']['bundleIdentity'] == 'aggregate'
+    assert updated['groups']['all']['performance']['records']['sample']['resultBundle']['identity'] == 'aggregate'
     assert updated['performanceBaseline'] == report['performanceBaseline']
     selected = deepcopy(report)
     selected['groups']['all']['lastFullRun'] = deepcopy(report['groups']['all'])
@@ -369,10 +424,10 @@ def batch_retention_self_test(raw: list, test: str) -> None:
     repeated = deepcopy(raw)
     repeated[0]['testRuns'].append(deepcopy(raw[0]['testRuns'][0]))
     repeated[0]['testRuns'][-1]['metrics'][0]['measurements'] = [99]
-    with patch.object(subject.subprocess, 'check_output', return_value=json.dumps(repeated)), patch.object(subject, 'bundle_digest', return_value='aggregate'):
+    with patch.object(subject.subprocess, 'check_output', return_value=json.dumps(repeated)), patch.object(subject, 'bundle_identity', return_value='aggregate'):
         rebound = subject.rebind_result_records(selected, ['all'])
-    assert rebound['groups']['all']['lastFullRun']['resultBundleSHA256'] == 'aggregate'
-    assert rebound['groups']['all']['lastFullRun']['runResultBundleSHA256'] == 'original'
+    assert rebound['groups']['all']['lastFullRun']['resultBundleIdentity'] == 'aggregate'
+    assert rebound['groups']['all']['lastFullRun']['runResultBundleIdentity'] == 'original'
     altered = deepcopy(raw)
     altered[0]['testRuns'][0]['metrics'][0]['measurements'] = [99]
     for value in (altered, duplicate):
@@ -380,7 +435,7 @@ def batch_retention_self_test(raw: list, test: str) -> None:
             try: subject.rebind_result_records(report, ['all'])
             except ValueError: pass
             else: raise AssertionError('合并结果包需要保留所属运行的原始采样')
-        assert report['groups']['all']['resultBundleSHA256'] == 'original'
+        assert report['groups']['all']['resultBundleIdentity'] == 'original'
     def create(path, data):
         path.mkdir(parents=True)
         (path / 'database.sqlite3').write_bytes(data)
@@ -399,9 +454,9 @@ def batch_retention_self_test(raw: list, test: str) -> None:
         shutil.rmtree(fixture, ignore_errors=True)
         create(bundle, b'first')
         (bundle / 'database.sqlite3').rename(bundle / 'Info.plist')
-        assert subject.bundle_digest(bundle)
+        assert subject.bundle_identity(bundle)
         (bundle / 'Staging').mkdir()
-        try: subject.bundle_digest(bundle)
+        try: subject.bundle_identity(bundle)
         except ValueError: pass
         else: raise AssertionError('结果包完成写入后提供采样摘要')
         (bundle / 'Staging').rmdir()
@@ -412,22 +467,22 @@ def batch_retention_self_test(raw: list, test: str) -> None:
                     side_effect=lambda value: report_path.write_text(json.dumps(value))) as writer, \
                 patch.object(subject.subprocess, 'run', side_effect=merge), \
                 patch.object(subject.subprocess, 'check_output', side_effect=exported), redirect_stderr(StringIO()):
-            first_sha = subject.bundle_digest(bundle)
-            report['groups']['all']['resultBundleSHA256'] = first_sha
+            first_sha = subject.bundle_identity(bundle)
+            report['groups']['all']['resultBundleIdentity'] = first_sha
             report_path.write_text(json.dumps(report))
             assert subject.main(['begin-batch', 'append']) == 0
             assert retained.is_dir() and not bundle.exists()
             assert subject.main(['reset-results']) == 0
             writer.assert_not_called()
             create(bundle, b'second')
-            second_sha = subject.bundle_digest(bundle)
+            second_sha = subject.bundle_identity(bundle)
             assert subject.main(['retain-batch', 'all', 'ui']) == 0
             saved = writer.call_args.args[0]
             assert (bundle / 'database.sqlite3').read_bytes() == b'firstsecond'
             assert not retained.exists() and not incoming.exists()
-            assert saved['groups']['all']['runResultBundleSHA256'] == first_sha
-            assert saved['groups']['ui']['runResultBundleSHA256'] == second_sha
-            assert all(row['resultBundleSHA256'] == subject.bundle_digest(bundle) for row in saved['groups'].values())
+            assert saved['groups']['all']['runResultBundleIdentity'] == first_sha
+            assert saved['groups']['ui']['runResultBundleIdentity'] == second_sha
+            assert all(row['resultBundleIdentity'] == subject.bundle_identity(bundle) for row in saved['groups'].values())
             assert (bundle / 'Info.plist').is_file() and (bundle / 'database.sqlite3').is_file()
             writer.reset_mock()
             assert subject.main(['begin-batch', 'append']) == 0
@@ -437,7 +492,7 @@ def batch_retention_self_test(raw: list, test: str) -> None:
             assert subject.main(['begin-batch', 'append']) == 0
             create(bundle, b'catalyst')
             assert subject.main(['retain-batch', 'catalyst']) == 0
-            assert writer.call_args.args[0]['groups']['catalyst']['resultBundleSHA256'] == subject.bundle_digest(bundle)
+            assert writer.call_args.args[0]['groups']['catalyst']['resultBundleIdentity'] == subject.bundle_identity(bundle)
             assert (bundle / 'database.sqlite3').is_file()
             assert subject.main(['begin-batch', 'append']) == 0
             create(bundle, b'failed')
@@ -500,7 +555,7 @@ def batch_retention_self_test(raw: list, test: str) -> None:
                 assert not retained.exists() and not incoming.exists()
                 recovered = json.loads(report_path.read_text())
                 assert 'resultMerge' not in recovered
-                assert recovered['groups']['all']['resultBundleSHA256'] == subject.bundle_digest(bundle)
+                assert recovered['groups']['all']['resultBundleIdentity'] == subject.bundle_identity(bundle)
             for path in (bundle, retained, incoming): remove(path, ignore_errors=True)
             create(retained, b'previous'); create(bundle, b'current')
             def fail_report_publish(value):
@@ -516,7 +571,7 @@ def batch_retention_self_test(raw: list, test: str) -> None:
             subject.recover_result_step()
             recovered = json.loads(report_path.read_text())
             assert 'resultMerge' not in recovered
-            assert recovered['groups']['all']['resultBundleSHA256'] == subject.bundle_digest(bundle)
+            assert recovered['groups']['all']['resultBundleIdentity'] == subject.bundle_identity(bundle)
             for publication in (2, 3):
                 for path in (bundle, retained, incoming): remove(path, ignore_errors=True)
                 create(bundle, b'first')
@@ -535,8 +590,8 @@ def batch_retention_self_test(raw: list, test: str) -> None:
                 subject.recover_result_step()
                 recovered = json.loads(report_path.read_text())
                 assert 'resultMerge' not in recovered
-                assert recovered['groups']['all']['resultBundleSHA256'] == subject.bundle_digest(bundle)
-                assert recovered['groups']['all']['runResultBundleSHA256'] == subject.bundle_digest(bundle)
+                assert recovered['groups']['all']['resultBundleIdentity'] == subject.bundle_identity(bundle)
+                assert recovered['groups']['all']['runResultBundleIdentity'] == subject.bundle_identity(bundle)
             for fault in ('current', 'current-only', 'published-current', 'published-missing', 'retained', 'merged', 'partial', 'unreadable',
                           'current-partial', 'current-missing', 'current-unreadable', 'current-merged'):
                 for path in (bundle, retained, incoming): shutil.rmtree(path, ignore_errors=True)
@@ -583,7 +638,7 @@ def merge_regression_self_test() -> None:
         current, baseline = scenario['measurement']['current'], scenario['measurement']['baseline']
         execution = current['execution']
         row = report['groups'].setdefault(execution['group'], dict(execution,
-            recordedAt=current['capturedAt'], resultBundleSHA256=execution['bundleSHA256'],
+            recordedAt=current['capturedAt'], resultBundleIdentity=execution['bundleIdentity'],
             performance={'schemaVersion': 1, 'records': {}}))
         current['capturedAt'] = row['recordedAt']
         row['performance']['records'][name] = current

@@ -3,6 +3,7 @@
 import json
 import plistlib
 import uuid
+from validation_environment import input_identity_complete
 import re
 import subprocess
 from pathlib import Path
@@ -26,7 +27,7 @@ def invalidate() -> None:
 
 def valid_identity(proof: dict) -> bool:
     try:
-        return str(uuid.UUID(proof['runID'])).lower() == proof['runID'].lower() and bool(re.fullmatch(r'[0-9a-f]{64}', proof['inputDigest']))
+        return str(uuid.UUID(proof['runID'])).lower() == proof['runID'].lower() and input_identity_complete(proof['inputDigest'])
     except (ValueError, TypeError, KeyError, AttributeError): return False
 
 

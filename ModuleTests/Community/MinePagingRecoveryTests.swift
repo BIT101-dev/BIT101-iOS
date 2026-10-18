@@ -121,6 +121,24 @@ final class PagingMineService: MineOverviewServicing, UserProfileServicing {
 
 @MainActor
 struct MineLifecycleTests {
+    @Test(.timeLimit(.minutes(1))) func returningToMineRefreshesSavedProfileAndKeepsThePosterSummary() async {
+        let service = PagingMineService()
+        service.posters = { _ in [listPoster(1)] }
+        let model = MineViewModel(service: service)
+        await model.refreshOverview()
+        service.profile = {
+            MineUserInfo(user: .placeholder(id: 1, nickname: "保存后的昵称"), followingNum: 4,
+                followerNum: 5, following: false, follower: false, own: true)
+        }
+        await model.refreshOverview()
+        #expect(model.userInfo?.user.nickname == "保存后的昵称" && model.userInfo?.followingNum == 4)
+        #expect(model.posterState.items.map(\.id) == [1] && service.pages == [0] && service.profileRequests == 2)
+        service.profile = { throw URLError(.notConnectedToInternet) }
+        await model.refreshOverview()
+        #expect(model.userInfo?.user.nickname == "保存后的昵称" && model.profileStatus == .loaded)
+        #expect(model.alert?.title == "刷新个人信息失败")
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: [true, false]) func cancelledBootstrapRetriesBothProfileAndPosters(onOwnProfile: Bool) async {
         let service = PagingMineService()
         service.profile = { throw CancellationError() }

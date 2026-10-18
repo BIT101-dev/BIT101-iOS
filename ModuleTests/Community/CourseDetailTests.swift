@@ -131,9 +131,9 @@ struct CourseDetailTests {
         }
     }
 
-    private static func comment(_ id: Int, sub: [CommunityComment] = []) -> CommunityComment {
-        let user = CommunityUser.placeholder(id: 7, nickname: "用户")
-        return CommunityComment(id: id, obj: "course42", images: [], user: user, anonymous: false,
+    private static func comment(_ id: Int, sub: [CommunityComment] = [], userID: Int = 7) -> CommunityComment {
+        let user = CommunityUser.placeholder(id: userID, nickname: userID == -1 ? "匿名用户" : "用户")
+        return CommunityComment(id: id, obj: "course42", images: [], user: user, anonymous: userID == -1,
             createTime: "", updateTime: "", like: false, likeNum: 0, commentNum: sub.count, own: true,
             rate: 0, replyUser: user, replyObj: "", text: "评论", sub: sub)
     }
@@ -317,9 +317,10 @@ struct CourseDetailTests {
         #expect(viewModel.historyGradeStatus == .loaded && viewModel.historyGrades.count == 2)
     }
 
-    @Test(.timeLimit(.minutes(1))) func courseLikesAndReplySubmissionKeepTheNestedCommentIdentity() async {
+    @Test(.timeLimit(.minutes(1)), arguments: [-1, 0, 7])
+    func courseLikesAndReplySubmissionKeepTheNestedCommentIdentity(userID: Int) async {
         let service = Service()
-        let child = Self.comment(2)
+        let child = Self.comment(2, userID: userID)
         let main = Self.comment(1, sub: [child])
         service.commentResult = .success([main])
         let viewModel = model(service)
@@ -334,7 +335,7 @@ struct CourseDetailTests {
         #expect(await viewModel.submitComment(text: " 回复 ", anonymous: true, rate: 8,
             target: .comment(mainComment: main, targetComment: child)))
         #expect(service.submitted?.0 == "comment1" && service.submitted?.1 == "回复")
-        #expect(service.submitted?.2 == "comment2" && service.submitted?.3 == 7)
+        #expect(service.submitted?.2 == "comment2" && service.submitted?.3 == (userID == 0 ? nil : userID))
         #expect(service.submitted?.4 == true && service.submitted?.5 == 8)
         #expect(viewModel.isSubmittingComment == false)
     }

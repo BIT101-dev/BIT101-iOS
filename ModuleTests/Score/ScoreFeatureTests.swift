@@ -118,6 +118,66 @@ struct ScoreFeatureTests {
         return (viewModel, cache)
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func missingFilterFieldsRemainVisibleAndSelectable() async throws {
+        defer { clearPreferences() }
+        clearPreferences()
+        let defaults = try #require(UserDefaults(suiteName: "BIT101ModulesTests.score"))
+        let session = AppStorageSession(accountIdentifier: "missing-filters")
+        let cache = ScoreCacheStore(files: ModuleScoreFiles(), storageRoot: URL(fileURLWithPath: "/missing-filters"),
+            defaults: defaults, session: { session })
+        let headers = ["课程名称", "成绩", "学分", "开课学期", "课程性质"]
+        let rows = [
+            ScoreRow(index: 0, headers: headers, values: ["已分类课程", "90", "2", "A", "必修"]),
+            ScoreRow(index: 1, headers: headers, values: ["缺少性质", "80", "2", "A", " \n"]),
+            ScoreRow(index: 2, headers: headers, values: ["缺少学期", "70", "2", "", "必修"])
+        ]
+        #expect(await cache.saveDetailed(rows: rows) != nil)
+        let model = ScoreViewModel(service: ScoreServiceSpy(), cacheStore: cache,
+            preferenceStore: ScoreFilterPreferenceStore(defaults: defaults, session: { session }),
+            currentScoreCacheSession: { session }, scheduleCoursesChanges: Empty().eraseToAnyPublisher(),
+            loadScheduleCourses: { _ in [:] })
+        await model.restoreCachedDataIfNeeded()
+        #expect(model.visibleRows.count == 3)
+        #expect(model.summary.selectedCourseCount == 3 && model.summary.weightedAverageScore == 80)
+        #expect(Set(model.availableTerms) == ["A", "未分类"])
+        #expect(Set(model.availableCourseTypes) == ["必修", "未分类"])
+        model.setSelectedTerms(["未分类"])
+        #expect(model.visibleRows.map(\.courseName) == ["缺少学期"])
+        model.toggleAllTerms()
+        model.setSelectedCourseTypes(["未分类"])
+        #expect(model.visibleRows.map(\.courseName) == ["缺少性质"])
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func pendingCoursesFollowLocalAndSyncedCourseTypeFilters() async throws {
+        let domain = "BIT101ModulesTests.score.pending-types"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let session = AppStorageSession(accountIdentifier: "pending-types")
+        let preferences = ScoreFilterPreferenceStore(defaults: defaults, session: { session })
+        let courses = ["必修", "选修", ""].map { type in
+            ScoreCourseSummary(id: type, term: "A", name: "待出分\(type)", number: type, type: type,
+                teacher: "", classroom: "", campus: "", description: "", creditText: "",
+                scheduleText: "", weeksText: "", hourText: "")
+        }
+        let model = ScoreViewModel(service: ScoreServiceSpy(), cacheStore: ScoreCacheStore(files: ModuleScoreFiles(),
+            storageRoot: URL(fileURLWithPath: "/pending-types"), defaults: defaults, session: { session }),
+            preferenceStore: preferences, currentScoreCacheSession: { session },
+            scheduleCoursesChanges: Empty().eraseToAnyPublisher(), loadScheduleCourses: { _ in ["A": courses] })
+        await model.restoreCachedDataIfNeeded()
+        #expect(model.pendingCourseCount == 3 && Set(model.availableCourseTypes) == ["必修", "选修", "未分类"])
+        model.setSelectedCourseTypes(["必修"])
+        #expect(model.pendingCourses?.map(\.type) == ["必修"])
+        model.toggleAllCourseTypes()
+        #expect(model.pendingCourseCount == 3)
+        model.toggleAllCourseTypes()
+        #expect(model.pendingCourseCount == 0)
+        preferences.applySynced(.init(selectedTerms: ["A"], selectedCourseTypes: ["选修"]))
+        #expect(model.pendingCourses?.map(\.type) == ["选修"])
+    }
+
     @Test(.timeLimit(.minutes(1))) func localSaveSubscriptionsFanOutAndCancelByOwner() async throws {
         let (_, cache) = try makeViewModel(service: ScoreServiceSpy(requiresSMS: false))
         var first: [AppStorageSession] = []

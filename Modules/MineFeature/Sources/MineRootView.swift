@@ -19,7 +19,6 @@ private enum MineRoute: Hashable, Identifiable {
     case followers
     case followings
     case posters
-    case user(Int)
 
     /// 供导航绑定使用的稳定标识。
     var id: Self { self }
@@ -43,6 +42,7 @@ public struct MineRootView: View {
 }
 
 private struct MineRootViewScene: View {
+    @Environment(\.appInteractionEvidence) private var interactionEvidence
     private let dependencies: MineDependencies
     private let destinations: CommunitySettingsDestinations
     private let posters: CommunityPosterDestination
@@ -65,11 +65,12 @@ private struct MineRootViewScene: View {
     }
     /// 粉丝 / 关注 / 帖子子列表路由。
     @State private var route: MineRoute?
+    @State private var selectedUserID: Int?
     /// 设置页内部路由。
     @State private var settingsRoute: CommunitySettingsEntry?
     /// 建议入口通过独立 sheet 呈现，设置入口使用设置导航路由。
     @State private var isShowingSuggestion = false
-    @State private var isProfileRetryRequested = false
+    @State private var profileRefreshID = 0
 
     /// “我的”主页主体。
     ///
@@ -103,7 +104,7 @@ private struct MineRootViewScene: View {
                         isLoadingMore: viewModel.followerState.isLoadingMore,
                         onRefresh: { await viewModel.refreshFollowers() },
                         onLoadMore: { user in await viewModel.loadMoreFollowersIfNeeded(currentUser: user) },
-                        onOpenUser: { route = .user($0.id) }
+                        onOpenUser: { selectedUserID = $0.id }
                     )
                 case .followings:
                     MineUserListView(
@@ -114,7 +115,7 @@ private struct MineRootViewScene: View {
                         isLoadingMore: viewModel.followingState.isLoadingMore,
                         onRefresh: { await viewModel.refreshFollowings() },
                         onLoadMore: { user in await viewModel.loadMoreFollowingsIfNeeded(currentUser: user) },
-                        onOpenUser: { route = .user($0.id) }
+                        onOpenUser: { selectedUserID = $0.id }
                     )
                 case .posters:
                     MinePosterListView(
@@ -125,9 +126,10 @@ private struct MineRootViewScene: View {
                         onRefresh: { await viewModel.refreshPosters() },
                         onLoadMore: { poster in await viewModel.loadMorePostersIfNeeded(currentPoster: poster) }
                     )
-                case let .user(userID):
-                    UserProfileRootView(dependencies: dependencies, media: media, posters: posters, userID: userID, onLogout: onLogout)
                 }
+            }
+            .navigationDestination(item: $selectedUserID) { userID in
+                UserProfileRootView(dependencies: dependencies, media: media, posters: posters, userID: userID, onLogout: onLogout)
             }
             .environment(dependencies)
             .environment(media)
@@ -141,14 +143,13 @@ private struct MineRootViewScene: View {
                 destinations.suggestion()
             }
         }
-        .task(id: isProfileRetryRequested) {
-            if isProfileRetryRequested {
-                await viewModel.refreshProfile()
-                guard !Task.isCancelled else { return }
-                isProfileRetryRequested = false
-            } else {
-                await viewModel.bootstrapIfNeeded()
-            }
+        .task(id: settingsRoute == nil ? profileRefreshID : nil) {
+            guard settingsRoute == nil else { return }
+            await viewModel.refreshOverview()
+        }
+        .refreshable {
+            interactionEvidence?("interaction.MineRootViewScene.refreshable", "refresh")
+            await viewModel.refreshOverview()
         }
         .diagnosticAlert(item: $viewModel.alert)
         .onChange(of: viewModel.requiresLogin) { _, requiresLogin in
@@ -169,7 +170,7 @@ private struct MineRootViewScene: View {
                 systemImage: "person.crop.circle.badge.exclamationmark",
                 message: message,
                 onRetry: {
-                    isProfileRetryRequested = true
+                    profileRefreshID &+= 1
                 }
             )
             .frame(maxWidth: .infinity)

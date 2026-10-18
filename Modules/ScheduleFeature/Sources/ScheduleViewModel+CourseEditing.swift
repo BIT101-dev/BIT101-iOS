@@ -82,7 +82,7 @@ extension ScheduleViewModel {
             weeksText: "\(week)",
             selectedSections: Array(record.startSection ... record.endSection)
         )
-        return CourseArrangementDraft(id: record.id, original: original)
+        return CourseArrangementDraft(id: record.id, original: original, availableWeeks: record.weeks)
     }
 
     /// 新增一条本地课程。
@@ -106,14 +106,8 @@ extension ScheduleViewModel {
         guard !arrangements.isEmpty else { return }
         let previousCourses = courseState.courses
         let anchor = previousCourses.first(where: { $0.id == arrangements[0].id })
-        var updatedCourses = courseState.courses
-        for arrangement in arrangements {
-            updatedCourses = try ScheduleCourseEditor.updatingArrangement(
-                id: arrangement.id,
-                with: arrangement.draft,
-                in: updatedCourses
-            )
-        }
+        let updatedCourses = try ScheduleCourseEditor.updatingArrangements(
+            arrangements.map { (id: $0.id, draft: $0.draft) }, in: previousCourses)
         if let anchor {
             try validateCourseConflicts(
                 updatedCourses,

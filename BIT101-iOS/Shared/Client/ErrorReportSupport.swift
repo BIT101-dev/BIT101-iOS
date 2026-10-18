@@ -121,7 +121,8 @@ nonisolated enum ErrorReportRedactor {
         throw PercentDecodingError.budgetExceeded
     }
 
-    private static func redactURLs(_ value: String, credentials: [String] = [], studentID: String? = nil) -> String {
+    private static func redactURLs(_ value: String, credentials: [String] = [], studentID: String? = nil, depth: Int = 0) -> String {
+        guard depth < 8, !Task.isCancelled else { return "[REDACTED]" }
         guard let expression = try? NSRegularExpression(pattern: #"https?://[^\s<>"']+"#, options: .caseInsensitive) else { return value }
         var output = value
         for match in expression.matches(in: value, range: NSRange(value.startIndex..., in: value)).reversed() {
@@ -155,7 +156,7 @@ nonisolated enum ErrorReportRedactor {
                         return URLQueryItem(name: outputName, value: "[REDACTED]")
                     }
                     let decoded = try item.value.map(decodedPercent)
-                    let nested = decoded.flatMap { $0.range(of: #"https?://"#, options: [.regularExpression, .caseInsensitive]) == nil ? nil : redactURLs($0, credentials: credentials, studentID: studentID) }
+                    let nested = decoded.flatMap { $0.range(of: #"https?://"#, options: [.regularExpression, .caseInsensitive]) == nil ? nil : redactURLs($0, credentials: credentials, studentID: studentID, depth: depth + 1) }
                     let safeValue = (nested ?? decoded).map { redactCredentials($0, credentials: credentials) }
                     return URLQueryItem(name: outputName,
                         value: safeValue == decoded ? item.value : safeValue)

@@ -642,8 +642,8 @@ def record(group: str, status: int, scope: str, started_digest: str) -> int:
             try:
                 row["summary"] = test_summary(text)
                 if group in {"all", "ui"} and status == 0:
-                    from validation_performance import bundle_digest, BUNDLE, current_commit
-                    row["resultBundleSHA256"] = bundle_digest(BUNDLE)
+                    from validation_performance import bundle_identity, BUNDLE, current_commit
+                    row["resultBundleIdentity"] = bundle_identity(BUNDLE)
                     row["sourceCommit"] = current_commit()
             except ValueError:
                 if status == 0:

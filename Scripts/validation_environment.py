@@ -15,6 +15,11 @@ DEVICE_GROUPS = {"all", "release-runtime", "ui", "schedule", "infrastructure", "
                  "icloud", "icloud-cleanup", "restore", "manual-device"} | NETWORK_GROUPS
 
 
+def input_identity_complete(value: object) -> bool:
+    return isinstance(value, str) and bool(re.fullmatch(
+        r'(?:[0-9a-f]{64}|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|git\.(?:[0-9a-f]{40}|[0-9a-f]{64})\.[A-Za-z0-9_-]+)', value))
+
+
 def native_destinations_complete(rows: object, group: str, *, simulator: bool = False, expected_device: str = '') -> bool:
     expected_platform = 'iOS Simulator' if simulator else 'macOS' if group in {'catalyst', 'catalyst-release-runtime'} else 'iOS'
     return isinstance(rows, list) and bool(rows) and all(isinstance(row, dict)
@@ -55,8 +60,7 @@ def complete_environment(group: str, context: dict) -> bool:
     compiler = context.get("compiler", {})
     if not (context.get("host") and context.get("developer") and context.get("xcode")
             and isinstance(compiler, dict) and compiler.get("modified") and type(compiler.get("size")) is int
-            and compiler["size"] > 0 and isinstance(compiler.get("sha256"), str)
-            and re.fullmatch(r"[0-9a-f]{64}", compiler["sha256"])
+            and compiler["size"] > 0 and isinstance(compiler.get("version"), str) and compiler["version"].strip()
             and context.get("sdks")
             and all(sdk.get("Version") for sdk in context["sdks"].values())):
         return False
@@ -72,7 +76,7 @@ def complete_environment(group: str, context: dict) -> bool:
 
 def toolchain_identity(context: dict) -> dict:
     return {"xcode": context.get("xcode"), "toolchains": context.get("toolchains"),
-            "compiler": {key: context.get("compiler", {}).get(key) for key in ("size", "sha256")},
+            "compiler": {key: context.get("compiler", {}).get(key) for key in ("size", "version")},
             "sdks": {name: {key: value for key, value in sdk.items() if key != "path"}
                      for name, sdk in context.get("sdks", {}).items()}}
 
@@ -96,8 +100,7 @@ def host_environment() -> dict:
     if frontend.is_file():
         stat = frontend.stat()
         compiler.update(size=stat.st_size, modified=stat.st_mtime_ns)
-        with frontend.open("rb") as stream:
-            compiler["sha256"] = hashlib.file_digest(stream, "sha256").hexdigest()
+        compiler["version"] = subprocess.check_output([str(frontend), "--version"], text=True).strip()
     return {
         "host": dict(system=platform.system(), architecture=platform.machine(),
                      **plist_values(Path("/System/Library/CoreServices/SystemVersion.plist"), ("ProductVersion", "ProductBuildVersion"))),

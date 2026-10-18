@@ -32,7 +32,6 @@ struct GallerySearchView: View {
             },
             onPrefetch: { _ in },
             onLoadMore: { poster in
-                guard let poster else { return }
                 viewModel.enqueueSearchLoadMore(currentPoster: poster)
             }
         )

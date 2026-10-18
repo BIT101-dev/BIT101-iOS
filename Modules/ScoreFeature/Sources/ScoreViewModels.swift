@@ -183,7 +183,7 @@ public final class ScoreViewModel: ObservableObject {
         guard isCurrent(session, generation: generation), readGeneration == scheduleReadGeneration else { return }
         cachedCoursesByTerm = courses
         if state != .idle {
-            availableTerms = uniqueNonEmptyValues(from: rows.map(\.term) + Array(courses.keys))
+            updateFilterOptions()
             synchronizeFilters()
             pendingCourses = calculatePendingCourses()
         }
@@ -486,6 +486,7 @@ public final class ScoreViewModel: ObservableObject {
         }
         let coveredTerms = scoreTerms.filter { cachedCoursesByTerm[$0] != nil }
         guard coveredTerms.count == scoreTerms.count else { return nil }
+        guard !selectedCourseTypes.isEmpty else { return [] }
 
         let scoredNumbers = Set(rows.compactMap { row -> String? in
             let number = normalizedCourseIdentity(row.courseNumber)
@@ -506,6 +507,7 @@ public final class ScoreViewModel: ObservableObject {
 
         for term in coveredTerms {
             for course in cachedCoursesByTerm[term] ?? [] {
+                guard selectedCourseTypes.contains(normalizedFilterValue(course.type)) else { continue }
                 let number = normalizedCourseIdentity(course.number)
                 let name = normalizedCourseIdentity(course.name)
                 let hasScore = (!number.isEmpty && scoredNumbers.contains("\(term)|\(number)"))
@@ -546,6 +548,7 @@ public final class ScoreViewModel: ObservableObject {
     /// 更新课程性质筛选结果，并保留现有选项中的有效值。
     func setSelectedCourseTypes(_ values: Set<String>) {
         selectedCourseTypes = values.intersection(Set(availableCourseTypes))
+        pendingCourses = calculatePendingCourses()
         persistFilterPreferences()
     }
 
@@ -561,6 +564,7 @@ public final class ScoreViewModel: ObservableObject {
     func toggleAllCourseTypes() {
         let allCourseTypes = Set(availableCourseTypes)
         selectedCourseTypes = selectedCourseTypes == allCourseTypes ? [] : allCourseTypes
+        pendingCourses = calculatePendingCourses()
         persistFilterPreferences()
     }
 
@@ -639,11 +643,16 @@ public final class ScoreViewModel: ObservableObject {
     private func applyRows(_ newRows: [ScoreRow]) {
         presentationGeneration &+= 1
         rows = newRows
-        availableTerms = uniqueNonEmptyValues(from: newRows.map(\.term) + Array(cachedCoursesByTerm.keys))
-        availableCourseTypes = uniqueNonEmptyValues(from: newRows.map(\.courseType))
+        updateFilterOptions()
         synchronizeFilters()
         pendingCourses = calculatePendingCourses()
         state = .loaded
+    }
+
+    private func updateFilterOptions() {
+        availableTerms = uniqueFilterValues(from: rows.map(\.term) + Array(cachedCoursesByTerm.keys).sorted())
+        availableCourseTypes = uniqueFilterValues(from: rows.map(\.courseType)
+            + cachedCoursesByTerm.keys.sorted().flatMap { cachedCoursesByTerm[$0, default: []].map(\.type) })
     }
 
     /// 刷新可选项后，同步修正当前筛选集合。
@@ -691,11 +700,11 @@ public final class ScoreViewModel: ObservableObject {
         restoreSortPreferences()
         if didInitializeTermSelection {
             selectedTerms = Set(preferenceSnapshot.selectedTerms).intersection(Set(availableTerms))
-            pendingCourses = calculatePendingCourses()
         }
         if didInitializeCourseTypeSelection {
             selectedCourseTypes = Set(preferenceSnapshot.selectedCourseTypes).intersection(Set(availableCourseTypes))
         }
+        pendingCourses = calculatePendingCourses()
     }
 
     private func restoreSortPreferences() {
@@ -703,13 +712,13 @@ public final class ScoreViewModel: ObservableObject {
         sortOrder = preferenceSnapshot?.sortOrder.flatMap(ScoreSortOrder.init(rawValue:)) ?? .ascending
     }
 
-    /// 提取去重后的非空字符串列表，并保留原始出现顺序。
-    private func uniqueNonEmptyValues(from source: [String]) -> [String] {
+    /// 提取筛选项并保留原始出现顺序，缺失字段归入“未分类”。
+    private func uniqueFilterValues(from source: [String]) -> [String] {
         var seen = Set<String>()
         var values: [String] = []
         for item in source {
-            let trimmed = item.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty, !seen.contains(trimmed) else { continue }
+            let trimmed = normalizedFilterValue(item)
+            guard !seen.contains(trimmed) else { continue }
             seen.insert(trimmed)
             values.append(trimmed)
         }
@@ -724,7 +733,8 @@ public final class ScoreViewModel: ObservableObject {
     }
 
     private func normalizedFilterValue(_ value: String) -> String {
-        value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "未分类" : trimmed
     }
 
     /// 保存当前筛选结果到本地偏好。

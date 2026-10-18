@@ -31,7 +31,9 @@ enum AppRestoreReadiness {
               UUID(uuidString: arguments[index + 1]) != nil else { return }
         let digest = Bundle.main.object(forInfoDictionaryKey: "BIT101RestoreInputDigest") as? String ?? ""
         let active = UIApplication.shared.applicationState == .active
-        let digestValid = digest.count == 64 && digest.allSatisfy({ $0.isHexDigit })
+        let digestValid = (UUID(uuidString: digest) != nil || digest.hasPrefix("git.")) && digest.utf8.allSatisfy {
+            (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || [45, 46, 95].contains($0)
+        }
         Logger(subsystem: "BIT101", category: "RestoreReadiness").info(
             "Restore readiness initialized=\(initialized) sessionRecovered=\(sessionRecovered) active=\(active) digestValid=\(digestValid)")
         guard initialized, sessionRecovered, active, digestValid else { return }

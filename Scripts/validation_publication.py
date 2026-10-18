@@ -1,5 +1,4 @@
 """Produce a public release receipt and a separate core CI exchange payload."""
-import hashlib
 import json
 import re
 from pathlib import Path
@@ -20,25 +19,24 @@ def release_receipt(report: dict, tag: str, digest) -> dict:
         toolchain = toolchain_identity(original['environment'])
         rows[group] = {'passed': True, 'scope': 'full', 'toolchain': toolchain,
             'inputDigest': digest(group, environment=toolchain),
-            'summaryDigest': hashlib.sha256(json.dumps(summary, sort_keys=True, separators=(',', ':')).encode()).hexdigest(),
             'sampling': {key: summary[key] for key in ('startedAt', 'finishedAt') if key in summary}}
         if group in CORE_GROUPS: rows[group]['recordedAt'] = original['recordedAt']
         if group == 'audit': rows[group]['releaseVersionChecked'] = summary.get('releaseVersionChecked') is True
-    return {'schemaVersion': 2, 'tag': tag, 'releaseCommit': report['releaseCommit'], 'groups': rows}
+    return {'schemaVersion': 3, 'tag': tag, 'releaseCommit': report['releaseCommit'], 'groups': rows}
 
 
 def receipt_findings(receipt: dict, tag: str, commit: str, digest) -> list[str]:
-    """Validate the maintainer's release declaration; summary digests identify locally reviewed evidence."""
+    """Validate the maintainer's release declaration and its producing inputs."""
     if not isinstance(receipt, dict): return ['公开发布回执需要结构化格式。']
     errors = []
-    if set(receipt) != {'schemaVersion', 'tag', 'releaseCommit', 'groups'} or receipt.get('schemaVersion') != 2 \
+    if set(receipt) != {'schemaVersion', 'tag', 'releaseCommit', 'groups'} or receipt.get('schemaVersion') != 3 \
             or receipt.get('tag') != tag or receipt.get('releaseCommit') != commit:
         errors.append('公开发布回执需要绑定当前版本标签与提交。')
     rows = receipt.get('groups', {})
     if not isinstance(rows, dict) or set(rows) != RELEASE_GROUPS:
         return errors + ['公开发布回执需要完整验收组。']
     for group, row in rows.items():
-        fields = {'passed', 'scope', 'toolchain', 'inputDigest', 'summaryDigest', 'sampling'} \
+        fields = {'passed', 'scope', 'toolchain', 'inputDigest', 'sampling'} \
             | ({'recordedAt'} if group in CORE_GROUPS else set()) | ({'releaseVersionChecked'} if group == 'audit' else set())
         if not isinstance(row, dict) or set(row) != fields:
             errors.append(f'{group} 需要公开验收回执格式。')
@@ -47,7 +45,6 @@ def receipt_findings(receipt: dict, tag: str, commit: str, digest) -> list[str]:
         if row.get('passed') is not True or row.get('scope') != 'full' or row.get('toolchain') != expected \
                 or group == 'audit' and row.get('releaseVersionChecked') is not True \
                 or row.get('inputDigest') != digest(group, environment=expected) \
-                or not isinstance(row.get('summaryDigest'), str) or not re.fullmatch(r'[0-9a-f]{64}', row['summaryDigest']) \
                 or not isinstance(row.get('sampling'), dict) or set(row['sampling']) - {'startedAt', 'finishedAt'} \
                 or not group_evidence_current(group, {'summary': row['sampling'], 'recordedAt': row.get('recordedAt')}):
             errors.append(f'{group} 需要当前源码、工具链与有效采样时间的完整验收回执。')
@@ -101,7 +98,7 @@ def self_test() -> None:
     assert core['performanceBaseline'] == {'records': {'fixture': 'approved'}}
     assert core['coverageBaseCommit'] == 'base' and core['coveragePolicy'] == {'all': {'GalleryFeature': 50}}
     assert 'manual-device' not in core['groups'] and 'private' not in core
-    context = {'developer': '/Users/fixture/Xcode', 'compiler': {'path': '/Users/fixture/compiler', 'sha256': 'a' * 64},
+    context = {'developer': '/Users/fixture/Xcode', 'compiler': {'path': '/Users/fixture/compiler', 'version': 'a' * 64},
         'device': {'identifier': 'fixture-udid', 'model': 'iPhone', 'systemVersion': '27', 'systemBuild': 'fixture-build'},
         'sdks': {'iPhoneOS': {'path': '/Users/fixture/sdk', 'Version': '27'}}}
     original = {'groups': {'all': {'environment': context, 'performance': {

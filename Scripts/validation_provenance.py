@@ -3,12 +3,14 @@
 from datetime import datetime, timedelta, timezone
 import re
 import hashlib
+import base64
 import json
 import os
 from pathlib import Path
 import subprocess
 import uuid
 import fcntl
+import threading
 from contextlib import contextmanager
 from validation_inputs import includes_input, repository_input_names, is_worker_generated
 from validation_environment import environment_context, exchange_identity
@@ -23,6 +25,9 @@ WORKER_FOLDERS = ('OpenWorker', 'EmergencyUpdateWorker', 'ErrorReportWorker')
 WRANGLER_ROOT = ROOT / 'Cloudflare/EmergencyUpdateWorker'
 WORKER_LOG = ROOT / '.build/extended-automation/worker.log'
 WORKER_SOURCE_PREFIX = 'bit101-source-sha256:'
+_REPORT_THREAD_LOCK = threading.RLock()
+_REPORT_LOCK_DEPTH: dict[Path, int] = {}
+_REPORT_INPUTS: dict[Path, dict] = {}
 
 
 def worker_source_digest(folder: str) -> str:
@@ -281,16 +286,26 @@ def network_requests_complete(required: set[str], value: dict) -> bool:
 @contextmanager
 def report_lock(*, path: Path | None = None):
     destination = path if path is not None else REPORT
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    with destination.with_suffix(".lock").open("a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        yield
+    with _REPORT_THREAD_LOCK:
+        if _REPORT_LOCK_DEPTH.get(destination, 0):
+            yield
+            return
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        with destination.with_suffix(".lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            _REPORT_LOCK_DEPTH[destination] = 1
+            try: yield
+            finally:
+                _REPORT_LOCK_DEPTH.pop(destination)
+                _REPORT_INPUTS.pop(destination, None)
 
 
 
-def write_report(report: dict, *, path: Path | None = None) -> None:
+def write_report(report: dict, *, path: Path | None = None, preserve_inputs: bool = True) -> None:
     from validation_policy import MAXIMUM_REPORT_BYTES
     destination = path if path is not None else REPORT
+    if preserve_inputs and destination in _REPORT_INPUTS:
+        report['sourceInputs'] = _REPORT_INPUTS[destination]
     incoming = destination.with_suffix(".incoming")
     size = 1
     try:
@@ -316,17 +331,50 @@ def normalized_test_id(identifier: str) -> str:
 
 def source_digest(group: str = "", *, environment: dict | None = None) -> str:
     names = repository_input_names(ROOT)
-    digest = hashlib.sha256(group.encode() + b"\0")
+    context = {}
     if group:
         context = environment_context(group) if environment is None else environment
         if group == 'manual-device': context = {key: value for key, value in context.items() if key != 'device'}
-        digest.update(json.dumps(exchange_identity(context), sort_keys=True).encode() + b"\0")
+        context = exchange_identity(context)
+    if identity := _clean_source_identity(group, context): return identity
+    files = {}
     for name in sorted(set(names) - {""}):
         path = ROOT / name
         if path.is_file() and includes_input(name, group):
-            executable = b"x" if path.stat().st_mode & 0o111 else b"-"
-            digest.update(name.encode() + b"\0" + executable + path.read_bytes() + b"\0")
-    return digest.hexdigest()
+            files[name] = {'executable': bool(path.stat().st_mode & 0o111),
+                'content': base64.b64encode(path.read_bytes()).decode('ascii')}
+    return _local_source_identity(group, files, context)
+
+
+def _clean_source_identity(group: str, context: dict) -> str | None:
+    def git(*arguments):
+        return subprocess.check_output(['git', *arguments], cwd=ROOT).decode().strip()
+    changed = git('diff', '--name-only', '--no-renames', '-z', 'HEAD').split('\0')
+    changed += git('ls-files', '--others', '--exclude-standard', '-z').split('\0')
+    if any(name and includes_input(name, group) for name in changed): return None
+    commit = git('rev-parse', 'HEAD')
+    if re.fullmatch(r'(?:[0-9a-f]{40}|[0-9a-f]{64})', commit) is None: return None
+    environment = base64.urlsafe_b64encode(json.dumps([group, context], sort_keys=True).encode()).decode().rstrip('=')
+    return f'git.{commit}.{environment}'
+
+
+def _local_source_identity(group: str, files: dict, context: dict) -> str:
+    with report_lock():
+        report = json.loads(REPORT.read_text()) if REPORT.is_file() else {}
+        inputs = report.setdefault('sourceInputs', {'files': {}, 'groups': {}})
+        _REPORT_INPUTS[REPORT] = inputs
+        references = {}
+        for name, content in files.items():
+            previous = inputs['files'].get(name, {})
+            if previous.get('content') != content:
+                previous = inputs['files'][name] = {'content': content, 'identity': str(uuid.uuid4())}
+            references[name] = previous['identity']
+        snapshot = {'files': references, 'environment': context}
+        previous = inputs['groups'].get(group, {})
+        if previous.get('snapshot') != snapshot:
+            previous = inputs['groups'][group] = {'snapshot': snapshot, 'identity': str(uuid.uuid4())}
+            write_report(report, preserve_inputs=False)
+        return previous['identity']
 
 
 if __name__ == '__main__':
