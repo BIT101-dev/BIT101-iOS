@@ -12,12 +12,20 @@ import struct
 import subprocess
 from types import SimpleNamespace
 from unittest.mock import patch
-from validation_performance_tests import source_identity_fixture
 import zlib
 import uuid
 from validation_manual import MANUAL_DEVICE_CHECKS, capture, complete, evidence_content_complete
 from validation_provenance import utc_now
 import validate_distribution as distribution
+
+
+def source_identity_fixture():
+    snapshots = []
+    def identify(group, files, context):
+        snapshot = [group, copy.deepcopy(files), copy.deepcopy(context)]
+        if snapshot not in snapshots: snapshots.append(snapshot)
+        return str(uuid.UUID(int=snapshots.index(snapshot) + 1))
+    return identify
 
 
 def distribution_fixture() -> tuple[dict, dict]:

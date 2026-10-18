@@ -2,18 +2,8 @@
 from copy import deepcopy
 from pathlib import Path
 from unittest.mock import patch
-from uuid import UUID
 import validation_performance as subject
 from validation_provenance import _local_source_identity
-
-
-def source_identity_fixture():
-    snapshots = []
-    def identify(group, files, context):
-        snapshot = [group, deepcopy(files), deepcopy(context)]
-        if snapshot not in snapshots: snapshots.append(snapshot)
-        return str(UUID(int=snapshots.index(snapshot) + 1))
-    return identify
 
 
 def source_identity_registry_self_test() -> None:

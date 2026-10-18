@@ -108,7 +108,7 @@ def run_self_test(subject) -> int:
     package_condition_self_test()
     additional_network_probe_self_test()
     sms_request_mode_self_test()
-    from validation_manual_tests import registration_self_test
+    from validation_manual_tests import registration_self_test, source_identity_fixture
     registration_self_test(subject)
     network_scope_boolean_self_test(subject)
     developer_directory_self_test()
@@ -143,7 +143,7 @@ def run_self_test(subject) -> int:
     from validation_inputs import self_test as input_self_test
     fixture_environment = {'host': {'system': 'fixture'}, 'developer': '/fixture', 'xcode': {'version': 'fixture'}, 'compiler': {'path': '/fixture/swift-frontend', 'modified': 1, 'size': 100, 'version': 'a' * 64}, 'sdks': {'fixture': {'Version': '1'}}, 'device': {'identifier': 'fixture-phone', 'systemVersion': 'fixture-os', 'systemBuild': 'fixture-build'}}
     fixture_environment['runtimes'] = {name: 'fixture-version' for name in ('python', 'ruby', 'node', 'npm', 'ruff')}
-    with patch(f'{module_name}.environment_context', return_value=fixture_environment), patch('validation_provenance._local_source_identity', side_effect=__import__('validation_performance_tests').source_identity_fixture()), \
+    with patch(f'{module_name}.environment_context', return_value=fixture_environment), patch('validation_provenance._local_source_identity', side_effect=source_identity_fixture()), \
             patch('validation_merge.environment_context', return_value=fixture_environment), \
             patch('validation_provenance.environment_context', return_value=fixture_environment), \
             patch('validation_merge.result_bundle_findings', side_effect=lambda *args, **kwargs: []), \
