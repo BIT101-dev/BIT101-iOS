@@ -8,6 +8,11 @@ on:
     tags: ['v*']
   workflow_dispatch:
     inputs:
+      full_check:
+        description: Execute every ordinary CI validation group in this run
+        required: false
+        default: false
+        type: boolean
       review_pr:
         description: Reviewed fork PR number; select the internal branch containing its exact GitHub merge commit
         required: false
@@ -47,6 +52,7 @@ jobs:
         id: plan
         env:
           GH_TOKEN: ${{ github.token }}
+          BIT101_FULL_CHECK: ${{ github.event_name == 'workflow_dispatch' && inputs.full_check }}
           BIT101_RELEASE_CHECK: ${{ github.event_name == 'workflow_dispatch' && inputs.release_check }}
         run: python3 Scripts/ci_evidence.py plan
 

@@ -112,7 +112,8 @@ def validation_plan() -> None:
     commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
     if errors := ci_commit_findings(commit): raise ValueError('\n'.join(errors))
     repo, run_id = repository(), os.environ['GITHUB_RUN_ID']
-    full = os.getenv('BIT101_RELEASE_CHECK') == 'true' or os.getenv('GITHUB_REF', '').startswith('refs/tags/v')
+    full = any(os.getenv(name) == 'true' for name in ('BIT101_FULL_CHECK', 'BIT101_RELEASE_CHECK')) \
+        or os.getenv('GITHUB_REF', '').startswith('refs/tags/v')
     def candidates():
         runs = json.loads(subprocess.check_output(['gh', 'api',
             f'repos/{repo}/actions/workflows/ci.yml/runs?branch=main'], text=True))['workflow_runs']
@@ -607,6 +608,23 @@ def validation_plan_self_test() -> None:
         raise AssertionError('发布全量验收沿当前运行执行。')
         yield
     assert all(row['execute'] for row in select_validation_plan(commit, '8', unused(), lambda _: [], full=True)['jobs'].values())
+    from contextlib import redirect_stdout
+    from io import StringIO
+    module = sys.modules[__name__]
+    for environment, full in (({}, False), ({'BIT101_FULL_CHECK': 'true'}, True),
+            ({'BIT101_FULL_CHECK': 'false'}, False), ({'BIT101_RELEASE_CHECK': 'true'}, True),
+            ({'GITHUB_REF': 'refs/tags/v1.0'}, True)):
+        context = dict(BIT101_FULL_CHECK='false', BIT101_RELEASE_CHECK='false', GITHUB_REF='refs/heads/main',
+            GITHUB_RUN_ID='8', GITHUB_OUTPUT='plan') | environment
+        with patch.dict(os.environ, context), patch('validation_environment.ci_commit_findings', return_value=[]), \
+                patch.object(module, 'repository', return_value='owner/repo'), patch.object(Path, 'open') as output, \
+                patch.object(subprocess, 'check_output', side_effect=[commit, '{"workflow_runs": []}']) as requests, \
+                redirect_stdout(StringIO()):
+            validation_plan()
+            written = json.loads(output.return_value.__enter__.return_value.write.call_args.args[0].removeprefix('plan='))
+            assert written['commit'] == commit and written['run'] == '8'
+            assert all(row['execute'] and (row['reason'] == '完整验收') == full for row in written['jobs'].values())
+            assert requests.call_count == (1 if full else 2), environment
     def affected():
         yield candidate
         raise AssertionError('受影响的验证组沿当前运行执行。')

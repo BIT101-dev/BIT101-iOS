@@ -356,6 +356,8 @@ Mac 清理、手机宿主构建和手机清理的失败各自保留结果，两�
 
 ## 固定产物、CI 与验收合同
 
+手动全量常规 CI 使用 `gh workflow run ci.yml --ref main -f full_check=true`，模块、静态审计、Release 编译、App 行为、正式运行时、全部 UI 与 Catalyst 均在当次运行执行，编译缓存继续复用。`release_check` 承接真机及绑定证据的发布验收。
+
 | 类别 | 固定路径 |
 | --- | --- |
 | 共享 SDK、模块与 SDK 状态缓存 | `.build/compiler-cache/` |

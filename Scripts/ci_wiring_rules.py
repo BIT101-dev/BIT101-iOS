@@ -153,9 +153,10 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
             or len(plan_steps) != 1 or plan_steps[0].get('run') != 'python3 Scripts/ci_evidence.py plan' \
             or 'if' in plan_steps[0] or plan_steps[0].get('continue-on-error', False) is not False \
             or mapping(plan_steps[0].get('env')).get('GH_TOKEN') != '${{ github.token }}' \
+            or mapping(plan_steps[0].get('env')).get('BIT101_FULL_CHECK') != '${{ github.event_name == \'workflow_dispatch\' && inputs.full_check }}' \
             or mapping(plan_steps[0].get('env')).get('BIT101_RELEASE_CHECK') != '${{ github.event_name == \'workflow_dispatch\' && inputs.release_check }}' \
             or mapping(planner.get('outputs')).get('plan') != '${{ steps.plan.outputs.plan }}':
-        errors.append('.github/workflows/ci.yml: 增量计划需要默认执行并绑定发布上下文与任务输出')
+        errors.append('.github/workflows/ci.yml: 验证计划需要默认执行并绑定全量、发布上下文与任务输出')
     for name, group in (CI_PLANNED_GROUPS | {'static-audit': 'modules'}).items():
         job = mapping(jobs.get(name))
         environment = mapping(job.get('env'))
@@ -466,6 +467,9 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
     if {mapping(jobs.get(name)).get('name') for name in ('static-audit', 'release-build', 'catalyst-tests', 'ios-tests')} != REVIEW_JOB_NAMES:
         errors.append('.github/workflows/ci.yml: 审查证据需要核对四个实际 Job 名称')
     inputs = mapping(mapping(mapping(workflow.get('on')).get('workflow_dispatch')).get('inputs'))
+    full_check = mapping(inputs.get('full_check'))
+    if full_check.get('type') != 'boolean' or full_check.get('default') is not False or full_check.get('required') is not False:
+        errors.append('.github/workflows/ci.yml: 全量常规验收需要默认关闭的可选布尔输入 full_check')
     if mapping(inputs.get('review_pr')).get('type') != 'number' or mapping(inputs.get('review_pr')).get('default') != 0 \
             or workflow.get('run-name') != "${{ inputs.review_pr && format('iOS CI review PR {0}', inputs.review_pr) || github.ref_name }}":
         errors.append('.github/workflows/ci.yml: fork 审查需要 PR 输入与运行身份')
@@ -521,6 +525,10 @@ def _evidence_execution_findings(command: str, key: str, expected: tuple[str, ..
 def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
     source = workflow_source
     for before, after in (
+            ('BIT101_FULL_CHECK: ${{ github.event_name == \'workflow_dispatch\' && inputs.full_check }}', 'BIT101_FULL_CHECK: false'),
+            ('      full_check:', '      unused_check:'),
+            ('description: Execute every ordinary CI validation group in this run\n        required: false\n        default: false\n        type: boolean',
+             'description: Execute every ordinary CI validation group in this run\n        required: false\n        default: false\n        type: string'),
             ('run: python3 Scripts/ci_evidence.py plan', 'run: true'),
             ('${{ steps.plan.outputs.plan }}', '${{ steps.unused.outputs.plan }}'),
             ('BIT101_CI_GROUP: app', 'BIT101_CI_GROUP: ui'),
