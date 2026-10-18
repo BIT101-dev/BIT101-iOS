@@ -388,8 +388,8 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
             or any(mapping(host_upload[0].get('with')).get(key) != value for key, value in {
                 'name': 'ui-test-host', 'compression-level': 0, 'include-hidden-files': True,
                 'if-no-files-found': 'error', 'retention-days': 1,
-                'path': '.build/extended-automation/Build/Products\n.build/compiler-cache/swift-syntax-indexer\n.build/compiler-cache/swift-syntax-indexer-inputs.json\n'}.items()):
-        errors.append('.github/workflows/ci.yml: UI 宿主需要完整保存运行产物及索引工具')
+                'path': '.build/extended-automation/Build/Products\n.build/compiler-cache/swift-syntax-indexer\n.build/compiler-cache/swift-syntax-indexer-inputs.json\n.build/static-audit/compilation-conditions.json\n'}.items()):
+        errors.append('.github/workflows/ci.yml: UI 宿主需要完整保存运行产物、索引工具及编译条件缓存')
     shard_steps = shard_job.get('steps', [])
     download = [step for step in shard_steps if step.get('name') == 'Restore shared UI test host']
     if mapping(shard_job.get('env')).get('BIT101_REUSE_UI_HOST') != '1' or len(download) != 1 \
@@ -678,6 +678,8 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
     for before, after in (("BIT101_REUSE_UI_HOST: '1'", "BIT101_REUSE_UI_HOST: '0'"),
             ('--name ui-test-host --dir .build', '--pattern ui-* --dir .build')):
         assert any('共享宿主' in row for row in ci_wiring_findings(source.replace(before, after, 1)))
+    marker = '.build/extended-automation/Build/Products\n            .build/compiler-cache/swift-syntax-indexer\n            .build/compiler-cache/swift-syntax-indexer-inputs.json\n            .build/static-audit/compilation-conditions.json'
+    assert any('UI 宿主需要' in row for row in ci_wiring_findings(source.replace(marker, marker.rsplit('\n', 1)[0], 1)))
     for dependency in ('', '    needs: release-build\n', '    needs: static-audit\n'):
         changed = workflow_source.replace('  catalyst-tests:\n    needs: [validation-plan, release-build, static-audit]\n', '  catalyst-tests:\n' + dependency)
         assert any('依赖图' in row for row in ci_wiring_findings(changed))

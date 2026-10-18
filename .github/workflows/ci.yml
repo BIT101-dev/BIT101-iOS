@@ -324,6 +324,7 @@ jobs:
             .build/extended-automation/Build/Products
             .build/compiler-cache/swift-syntax-indexer
             .build/compiler-cache/swift-syntax-indexer-inputs.json
+            .build/static-audit/compilation-conditions.json
       - name: Prepare native compilation cache
         if: ${{ (github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) && fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
         run: python3 Scripts/ci_evidence.py cache-export "simulator-ui"
