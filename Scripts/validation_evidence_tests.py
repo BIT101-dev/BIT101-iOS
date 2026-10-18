@@ -141,6 +141,7 @@ def run_self_test(subject) -> int:
         assert host_environment.__wrapped__()['compiler']['path'] == selected_compiler
         lookup.assert_called_once_with(['xcrun', '--find', 'swift-frontend'], text=True)
     from validation_inputs import self_test as input_self_test
+    from validation_performance_tests import run_self_test as performance_self_test
     fixture_environment = {'host': {'system': 'fixture'}, 'developer': '/fixture', 'xcode': {'version': 'fixture'}, 'compiler': {'path': '/fixture/swift-frontend', 'modified': 1, 'size': 100, 'version': 'a' * 64}, 'sdks': {'fixture': {'Version': '1'}}, 'device': {'identifier': 'fixture-phone', 'systemVersion': 'fixture-os', 'systemBuild': 'fixture-build'}}
     fixture_environment['runtimes'] = {name: 'fixture-version' for name in ('python', 'ruby', 'node', 'npm', 'ruff')}
     with patch(f'{module_name}.environment_context', return_value=fixture_environment), patch('validation_provenance._local_source_identity', side_effect=source_identity_fixture()), \
@@ -154,7 +155,6 @@ def run_self_test(subject) -> int:
         provenance_self_test(subject.record)
         from validation_manual_tests import run_self_test as manual_self_test, captured_fixture, distribution_fixture
         manual_self_test()
-        from validation_performance_tests import run_self_test as performance_self_test
         performance_self_test()
         from validation_restore import self_test as restore_self_test
         restore_self_test()
