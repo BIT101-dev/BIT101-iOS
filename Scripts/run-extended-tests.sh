@@ -687,6 +687,7 @@ import sys
 from pathlib import Path
 
 result_bundle, report_path, mode, elapsed_seconds, device_id, root = sys.argv[1:]
+if mode in {"catalyst", "catalyst-release-runtime"}: device_id = ""
 sys.path.insert(0, str(Path(root) / "Scripts"))
 from validation_evidence import validate_community_write_test_output
 from validation_artifacts import clear_diagnostic_exports

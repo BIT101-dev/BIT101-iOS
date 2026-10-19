@@ -294,13 +294,12 @@ blocked_task() { python3 -c 'import os, time; print(os.getpid(), os.getpgrp(), f
             findings.append(f'审计中断自测：{reason}')
         finally:
             if worker_group is not None:
-                try: os.killpg(worker_group, signal.SIGKILL)
+                try:
+                    if os.getpgid(worker) == worker_group: os.killpg(worker_group, signal.SIGKILL)
                 except ProcessLookupError: pass
             if process.poll() is None: os.killpg(process.pid, signal.SIGKILL)
             process.communicate(timeout=5)
     return findings
-
-
 def script_command_boundary_findings() -> list[str]:
     from ci_wiring_rules import hook_documents_checked, active_script_markers
     from module_boundary_tests import build_cache_exit_self_test
