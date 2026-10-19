@@ -645,7 +645,8 @@ xcrun() {
         ("run-extended-tests.sh", ["build", "modules"], 0, "swift build", ""),
         ("run-extended-tests.sh", ["build", "catalyst"], 0, "variant=Mac Catalyst", ""),
         ("run-extended-tests.sh", ["build", "catalyst-release-runtime"], 0, "BIT101_WORKFLOW_CONDITIONS=", ""),
-        ("run-extended-tests.sh", ["catalyst"], 86, "all-tests", ""),
+        ("run-extended-tests.sh", ["catalyst"], 86, "-only-testing:BIT101-iOSTests", ""),
+        ("run-extended-tests.sh", ["catalyst", "LoginStorageTests"], 86, "-only-testing:BIT101-iOSTests/LoginStorageTests", ""),
         ("run-extended-tests.sh", ["catalyst-release-runtime"], 86, "ReleaseRuntimeContractTests", ""),
         ("run-extended-tests.sh", ["release-runtime"], 86, "ReleaseRuntimeContractTests", "DEVICE"),
         ("run-extended-tests.sh", ["network-smoke", "NetworkSmokeRegressionTests"], 86, "RELEASE_NETWORK_SMOKE", "DEVICE"),
@@ -711,7 +712,7 @@ bit101_run_logged() { print BUILD; return 79; }
                                 capture_output=True, text=True)
         command_output = '\n'.join(line for line in result.stdout.splitlines() if line.startswith('BUILD '))
         if result.returncode != expected or marker not in result.stdout or ("DEVICE\n" in result.stdout) != bool(device) or filename == 'build-install-device.sh' and command_output and any(not re.search(r'\b' + name + r'=(?:\s|$)', command_output) for name in ('BIT101_WORKFLOW_CONDITIONS', 'SWIFT_ACTIVE_COMPILATION_CONDITIONS')):
-            findings.append(f"命令自测：{filename} {' '.join(arguments)} 分派及自动选机；{result.stderr}")
+            findings.append(f"命令自测：{filename} {' '.join(arguments)} 退出 {result.returncode}/{expected}；目标参数 {marker!r}；{result.stderr}")
         if filename == 'run-extended-tests.sh':
             findings.extend(test_build_argument_findings(result.stdout, testing_device=arguments[:1] != ['build']))
             if arguments in (['build'], ['modules']):
