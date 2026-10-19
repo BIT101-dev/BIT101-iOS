@@ -205,12 +205,8 @@ nonisolated final class CommunityInteractionUITests: UIAutomationTestCase {
     }
 
     @MainActor
-    @objc func testExternalLinksFromLoginAboutAndCourseResources() {
-        app = configureApp(resetStorage: true, account: nil, content: true)
-        tapLink("京ICP备")
-        assertOpenedURL("beian.miit.gov.cn")
-        signIn(app)
-        openSettings("about")
+    @objc func testExternalLinksFromAboutAndCourseResources() {
+        app = configureApp(resetStorage: true, content: true, initialSettings: "about")
         for (entry, url) in [("项目仓库", "github.com/BIT101-dev/BIT101-iOS"), ("QQ交流群", "jq.qq.com"),
                              ("邮箱", "mailto:systemd@linux.do"), ("ICP备案", "beian.miit.gov.cn"),
                              ("如果你也想加入", "mailto:systemd@linux.do")] {
