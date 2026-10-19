@@ -227,7 +227,7 @@ private struct AccountRegistrationView: View {
                     .accessibilityLabel("确认密码")
                     .accessibilityIdentifier("registration.confirmation")
             } footer: {
-                Text("设置至少 8 位的 BIT101 密码，用于 App 和网页端登录。已有账号完成验证后将重置密码。")
+                Text("设置至少 8 位的 BIT101 密码，用于网页端登录。已有账号完成验证后将重置密码。")
             }
 
             Section {
