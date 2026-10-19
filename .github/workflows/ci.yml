@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       full_check:
-        description: Execute every ordinary CI validation group in this run
+        description: Run full compilation, module, behavior and UI validation
         required: false
         default: false
         type: boolean
@@ -39,6 +39,7 @@ concurrency:
 jobs:
   validation-plan:
     name: Select affected validation groups
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' && (inputs.full_check || inputs.release_check)
     runs-on: xcode-27
     timeout-minutes: 10
     outputs:
@@ -58,6 +59,7 @@ jobs:
 
   static-audit:
     needs: [validation-plan]
+    if: ${{ !cancelled() && (needs.validation-plan.result == 'success' || needs.validation-plan.result == 'skipped') }}
     name: Static audit (Apple toolchain)
     runs-on: xcode-27
     timeout-minutes: 105
@@ -81,7 +83,7 @@ jobs:
       - name: Show toolchain
         run: Scripts/build-install-device.sh toolchain
       - name: Reuse compatible successful validation
-        if: ${{ !fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
+        if: ${{ (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' && (inputs.full_check || inputs.release_check)) && !fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
         run: python3 Scripts/ci_evidence.py reuse "$BIT101_CI_GROUP"
       - name: Install Worker test dependencies
         working-directory: Cloudflare/EmergencyUpdateWorker
@@ -89,6 +91,7 @@ jobs:
       - name: Install Python analysis tool
         run: brew install --quiet ruff
       - name: Load target branch coverage baseline
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' && (inputs.full_check || inputs.release_check)
         env:
           GH_TOKEN: ${{ github.token }}
           BIT101_BASE_COMMIT: ${{ github.event.pull_request.base.sha || steps.review.outputs.base_sha }}
@@ -96,13 +99,13 @@ jobs:
           python3 Scripts/ci_evidence.py baseline "$BIT101_BASE_COMMIT"
           python3 Scripts/validation_evidence.py baseline "$BIT101_BASE_COMMIT"
       - name: Run static audit and Swift modules
-        if: ${{ fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
+        if: ${{ (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' && (inputs.full_check || inputs.release_check)) && fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
         env:
           BIT101_VERSION_BASE_REF: ${{ github.base_ref && format('origin/{0}', github.base_ref) || steps.review.outputs.base_sha || '' }}
           BIT101_RELEASE_CHECK: ${{ github.event_name == 'workflow_dispatch' && inputs.release_check }}
         run: Scripts/run-extended-tests.sh verify audit modules
       - name: Run static audit
-        if: ${{ !fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
+        if: ${{ !(startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' && (inputs.full_check || inputs.release_check)) || !fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
         env:
           BIT101_VERSION_BASE_REF: ${{ github.base_ref && format('origin/{0}', github.base_ref) || steps.review.outputs.base_sha || '' }}
           BIT101_RELEASE_CHECK: ${{ github.event_name == 'workflow_dispatch' && inputs.release_check }}
@@ -134,6 +137,7 @@ jobs:
 
   release-build:
     needs: [validation-plan]
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' && (inputs.full_check || inputs.release_check)
     name: Release app and extension builds
     runs-on: xcode-27
     timeout-minutes: 285
@@ -203,6 +207,7 @@ jobs:
 
   catalyst-tests:
     needs: [validation-plan, release-build, static-audit]
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' && (inputs.full_check || inputs.release_check)
     name: Mac Catalyst behavior tests
     runs-on: xcode-27
     timeout-minutes: 105
@@ -284,6 +289,7 @@ jobs:
 
   ios-ui-build:
     needs: [validation-plan]
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' && (inputs.full_check || inputs.release_check)
     name: Build shared iOS UI test host
     runs-on: xcode-27
     timeout-minutes: 105
@@ -364,6 +370,7 @@ jobs:
 
   ios-test-shards:
     needs: [validation-plan, ios-ui-build]
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' && (inputs.full_check || inputs.release_check)
     name: iOS Simulator ${{ matrix.mode }} (${{ matrix.shard }})
     runs-on: xcode-27
     timeout-minutes: 105
@@ -441,6 +448,7 @@ jobs:
 
   ios-app-tests:
     needs: [validation-plan]
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' && (inputs.full_check || inputs.release_check)
     name: iOS Simulator app and formal runtime
     runs-on: xcode-27
     timeout-minutes: 105
@@ -548,6 +556,7 @@ jobs:
 
   ios-tests:
     name: iOS Simulator behavior and UI tests
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' && (inputs.full_check || inputs.release_check)
     runs-on: xcode-27
     needs: [validation-plan, static-audit, ios-test-shards, ios-app-tests]
     timeout-minutes: 15
@@ -692,13 +701,14 @@ jobs:
       - name: Check current CI results
         env:
           GH_TOKEN: ${{ github.token }}
-          BIT101_REQUIRED_RESULTS: ${{ join(needs.*.result, ',') }}
+          BIT101_REQUIRED_RESULTS: ${{ toJSON(needs) }}
+          BIT101_NATIVE_CHECK: ${{ startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' && (inputs.full_check || inputs.release_check) }}
         run: |
           python3 Scripts/ci_evidence.py current --results "$BIT101_REQUIRED_RESULTS"
 
   compiler-cache-cleanup:
     name: Keep one native compilation cache per group
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && (inputs.full_check || inputs.release_check)
     needs: [release-build, catalyst-tests, ios-ui-build, ios-test-shards, ios-app-tests]
     runs-on: xcode-27
     permissions:

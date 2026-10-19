@@ -458,10 +458,13 @@ def current(results: str) -> None:
     from validation_environment import ci_commit_findings
     commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
     if errors := ci_commit_findings(commit): raise ValueError('\n'.join(errors))
-    states = results.split(',')
-    if len(states) == len(REQUIRED_JOBS) and all(state == 'success' for state in states):
-        return
-    raise ValueError('常规 CI 需要增量计划、静态、编译、Catalyst 与完整模拟器任务全部通过。')
+    jobs = json.loads(results)
+    native = os.environ['BIT101_NATIVE_CHECK'] == 'true'
+    expected = {name: 'success' if native or name == 'static-audit' else 'skipped' for name in REQUIRED_JOBS}
+    if not isinstance(jobs, dict) or {name: job.get('result') if isinstance(job, dict) else None
+            for name, job in jobs.items()} != expected:
+        raise ValueError('CI 验收需要静态审计通过，并按所选范围核对完整验收任务状态。')
+    print('完整编译、行为与 UI 验收通过。' if native else '静态审计验收通过。')
 
 
 def version_tag(tag: str) -> None:
@@ -717,16 +720,22 @@ def _self_test() -> None:
         git.assert_called_once_with(['git', 'show', f'{commit}:Scripts/validation_policy.py'], cwd=ROOT, text=True)
         assert save.call_args.args[0] == {'coverageBaseCommit': commit, 'coveragePolicy': {'modules': {'Feature': 80}, 'all': {'Feature': 70, 'BIT101-iOS.app': 60}}}
         api.assert_not_called()
-    with patch.dict(os.environ, GITHUB_SHA=commit), \
-            patch.object(subprocess, 'check_output', return_value=commit), patch.object(module, 'api_pages') as api:
-        current('success,success,success,success,success')
-        api.assert_not_called()
-        for states in ('success,success,success', 'success,success,success,success',
-                'success,success,skipped,success,success', 'failure,success,success,success,success',
-                'success,success,success,success,success,success'):
-            try: current(states)
-            except ValueError: pass
-            else: raise AssertionError('全部常规 Job 共同参与验收')
+    full_results = {name: {'result': 'success'} for name in REQUIRED_JOBS}
+    static_results = {name: {'result': 'success' if name == 'static-audit' else 'skipped'} for name in REQUIRED_JOBS}
+    for native, results in (('false', static_results), ('true', full_results)):
+        with patch.dict(os.environ, GITHUB_SHA=commit, GITHUB_ACTIONS='false', BIT101_NATIVE_CHECK=native), \
+                patch.object(subprocess, 'check_output', return_value=commit), patch.object(module, 'api_pages') as api:
+            current(json.dumps(results))
+            api.assert_not_called()
+            rejected = [[], {}, results | {'extra': {'result': 'success'}},
+                {name: job for name, job in results.items() if name != 'static-audit'}]
+            for name in REQUIRED_JOBS:
+                rejected.extend(results | {name: {'result': state}} for state in
+                    ('success', 'skipped', 'failure', 'cancelled', None) if state != results[name]['result'])
+            for states in rejected:
+                try: current(json.dumps(states))
+                except ValueError: pass
+                else: raise AssertionError('静态与完整验收需要分别核对每项任务的执行状态')
     for source in ('MODULE_COVERAGE_FLOORS = {}', policy_source.replace('60', '101'), policy_source.replace('60', 'True'),
                    policy_source.replace('80', '101'), policy_source.replace('80', 'True'),
                    policy_source.replace('{"Feature": 80}', 'execute()')):
@@ -744,13 +753,13 @@ def _self_test() -> None:
             except ValueError: assert not accepted
             else: assert accepted and result == 'b' * 40
     with patch.dict(os.environ, GITHUB_SHA=commit), patch.object(subprocess, 'check_output', return_value='b' * 40):
-        try: current('success,success,success,success,success')
+        try: current(json.dumps(full_results))
         except ValueError: pass
         else: raise AssertionError('CI 需要验收事件提交')
     for changed in (b'', b' M Scripts/ci_evidence.py\0'):
-        with patch.dict(os.environ, GITHUB_SHA=commit, GITHUB_ACTIONS='true'), \
+        with patch.dict(os.environ, GITHUB_SHA=commit, GITHUB_ACTIONS='true', BIT101_NATIVE_CHECK='true'), \
                 patch.object(subprocess, 'check_output', side_effect=[commit, changed]):
-            try: current('success,success,success,success,success')
+            try: current(json.dumps(full_results))
             except ValueError: assert changed
             else: assert not changed
     with patch.object(module, 'version_tag'), patch.object(module, 'repository', return_value='owner/repo'), \
@@ -786,7 +795,7 @@ def _self_test() -> None:
         upload.assert_not_called()
     for arguments, operation, expected in (
         (['baseline', commit], 'baseline', ((commit,), {})),
-        (['current', '--results', 'success,success,success,success,success'], 'current', (('success,success,success,success,success',), {})),
+        (['current', '--results', json.dumps(full_results)], 'current', ((json.dumps(full_results),), {})),
         (['review-pr', '12'], 'review_pr', ((12,), {})),
         (['release', 'v1.0'], 'release', (('v1.0',), {'publish': False})),
         (['publish', 'v1.0'], 'release', (('v1.0',), {'publish': True})),

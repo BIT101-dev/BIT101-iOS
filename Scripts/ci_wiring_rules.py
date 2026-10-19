@@ -10,12 +10,17 @@ from validation_policy import workflow_timeout_seconds
 
 CI_RUNNER = "xcode-27"
 CI_RELEASE_CONTEXT = "startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' && inputs.release_check"
+CI_NATIVE_CONTEXT = "startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' && (inputs.full_check || inputs.release_check)"
+CI_STATIC_GATE = "${{ !cancelled() && (needs.validation-plan.result == 'success' || needs.validation-plan.result == 'skipped') }}"
 CI_CANCELLATION = '${{ !(' + CI_RELEASE_CONTEXT + ') }}'
 CI_CONCURRENCY_GROUP = 'ios-ci-${{ github.ref }}-${{ ' + CI_RELEASE_CONTEXT + ' }}'
 CI_PLANNED_GROUPS = {'release-build': 'release', 'catalyst-tests': 'catalyst', 'ios-ui-build': 'ui',
     'ios-test-shards': 'ui', 'ios-app-tests': 'app'}
 CI_EXECUTE = 'fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute'
 CI_EXECUTION = '${{ ' + CI_EXECUTE + ' }}'
+CI_NATIVE_EXECUTION = '${{ (' + CI_NATIVE_CONTEXT + ') && ' + CI_EXECUTE + ' }}'
+CI_NATIVE_REUSE = '${{ (' + CI_NATIVE_CONTEXT + ') && !' + CI_EXECUTE + ' }}'
+CI_STATIC_EXECUTION = '${{ !(' + CI_NATIVE_CONTEXT + ') || !' + CI_EXECUTE + ' }}'
 CI_DIAGNOSTICS = '${{ !cancelled() && ' + CI_EXECUTE + ' }}'
 DIAGNOSTIC_PATHS = {
     'static-audit': {'.build/static-audit/*.log', '.build/code-quality-report.txt', '.build/ui-consistency-report.txt',
@@ -149,21 +154,21 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
                 errors.append(f'.github/workflows/ci.yml: {name} 的诊断上传需要始终保存原始文件及隐藏路径')
     planner = mapping(jobs.get('validation-plan'))
     plan_steps = [step for step in planner.get('steps', []) if step.get('id') == 'plan']
-    if 'if' in planner or planner.get('needs', []) != [] or planner.get('continue-on-error', False) is not False \
+    if planner.get('if') != CI_NATIVE_CONTEXT or planner.get('needs', []) != [] or planner.get('continue-on-error', False) is not False \
             or len(plan_steps) != 1 or plan_steps[0].get('run') != 'python3 Scripts/ci_evidence.py plan' \
             or 'if' in plan_steps[0] or plan_steps[0].get('continue-on-error', False) is not False \
             or mapping(plan_steps[0].get('env')).get('GH_TOKEN') != '${{ github.token }}' \
             or mapping(plan_steps[0].get('env')).get('BIT101_FULL_CHECK') != '${{ github.event_name == \'workflow_dispatch\' && inputs.full_check }}' \
             or mapping(plan_steps[0].get('env')).get('BIT101_RELEASE_CHECK') != '${{ github.event_name == \'workflow_dispatch\' && inputs.release_check }}' \
             or mapping(planner.get('outputs')).get('plan') != '${{ steps.plan.outputs.plan }}':
-        errors.append('.github/workflows/ci.yml: 验证计划需要默认执行并绑定全量、发布上下文与任务输出')
+        errors.append('.github/workflows/ci.yml: 验证计划需要绑定手动全量、发布上下文与任务输出')
     for name, group in (CI_PLANNED_GROUPS | {'static-audit': 'modules'}).items():
         job = mapping(jobs.get(name))
         environment = mapping(job.get('env'))
         reuse = [step for step in job.get('steps', []) if step.get('name') == 'Reuse compatible successful validation']
         if environment.get('BIT101_CI_PLAN') != '${{ needs.validation-plan.outputs.plan }}' \
                 or environment.get('BIT101_CI_GROUP') != group or len(reuse) != 1 \
-                or reuse[0].get('if') != '${{ !' + CI_EXECUTE + ' }}' \
+                or reuse[0].get('if') != (CI_NATIVE_REUSE if name == 'static-audit' else '${{ !' + CI_EXECUTE + ' }}') \
                 or reuse[0].get('run') != 'python3 Scripts/ci_evidence.py reuse "$BIT101_CI_GROUP"' \
                 or reuse[0].get('continue-on-error', False) is not False:
             errors.append(f'.github/workflows/ci.yml: {name} 需要采用所属输入计划并展示成功结果来源')
@@ -194,7 +199,8 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
                 continue
             planned = mapping(job.get('env')).get('BIT101_CI_GROUP') in {*CI_PLANNED_GROUPS.values(), 'modules'}
             conditions = {CI_EXECUTION} if planned else set()
-            if job is jobs.get('static-audit'): conditions.add('${{ !' + CI_EXECUTE + ' }}')
+            if job is jobs.get('static-audit'):
+                conditions.update({CI_NATIVE_EXECUTION, CI_NATIVE_REUSE, CI_STATIC_EXECUTION, CI_NATIVE_CONTEXT})
             if include_always: conditions.update({'always()', '${{ !cancelled() }}', CI_DIAGNOSTICS})
             if planned and mapping(job.get('env')).get('BIT101_CI_GROUP') != 'modules' \
                     and step.get('name') != 'Show toolchain' and step.get('if') not in conditions: continue
@@ -213,8 +219,9 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
         if not job:
             errors.append(f".github/workflows/ci.yml: CI 缺少 {name} Job")
             continue
-        if "if" in job or job.get("continue-on-error", False) is not False:
-            errors.append(f".github/workflows/ci.yml: {name} 需要默认执行并传播失败")
+        expected_gate = CI_STATIC_GATE if name == 'static-audit' else CI_NATIVE_CONTEXT
+        if job.get('if') != expected_gate or job.get("continue-on-error", False) is not False:
+            errors.append(f".github/workflows/ci.yml: {name} 需要按静态与手动全量、发布范围执行并传播失败")
         commands[name] = run_commands(job)
         if not any(command_matches(command, "Scripts/build-install-device.sh toolchain") for command, _ in commands[name]):
             errors.append(f".github/workflows/ci.yml: {name} 的工具链版本核对需要共用构建脚本入口")
@@ -233,12 +240,12 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
     if audit_index < 0: errors.append(".github/workflows/ci.yml: 静态审计 Job 缺少执行入口")
     audit_only = [step for step in mapping(jobs.get('static-audit')).get('steps', []) if step.get('name') == 'Run static audit']
     if len(audit_only) != 1 or audit_only[0].get('run') != 'Scripts/run-static-audit.sh' \
-            or audit_only[0].get('if') != '${{ !' + CI_EXECUTE + ' }}' \
+            or audit_only[0].get('if') != CI_STATIC_EXECUTION \
             or audit_only[0].get('continue-on-error', False) is not False \
             or not any(command_matches(command, 'Scripts/run-static-audit.sh') for command, _ in static_commands) \
-            or audit_index >= 0 and (static_commands[audit_index][1].get('if') != CI_EXECUTION \
+            or audit_index >= 0 and (static_commands[audit_index][1].get('if') != CI_NATIVE_EXECUTION \
                 or mapping(audit_only[0].get('env')) != mapping(static_commands[audit_index][1].get('env'))):
-        errors.append('.github/workflows/ci.yml: 模块结果复用时需要执行完整静态审计')
+        errors.append('.github/workflows/ci.yml: 推送与 PR 需要执行静态审计，模块测试限定在手动全量和发布流程')
     release_expression = "${{ github.event_name == 'workflow_dispatch' && inputs.release_check }}"
     if audit_index >= 0 and mapping(static_commands[audit_index][1].get('env')).get('BIT101_RELEASE_CHECK') != release_expression:
         errors.append('.github/workflows/ci.yml: 手动上传预检需要 App Store 版本前进核对')
@@ -279,7 +286,10 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
     if merge.get("if") != "always() && !cancelled()" \
             or set(merge.get("needs", [])) != {"validation-plan", "static-audit", "release-build", "catalyst-tests", "ios-tests"} \
             or merge.get("continue-on-error", False) is not False:
-        errors.append(".github/workflows/ci.yml: 常规验收需要静态、编译、Catalyst 与完整模拟器 Job")
+        errors.append(".github/workflows/ci.yml: 最终验收需要按所选范围核对静态、编译、Catalyst 与完整模拟器 Job")
+    result_steps = [step for step in merge.get('steps', []) if step.get('name') == 'Check current CI results']
+    if len(result_steps) != 1 or mapping(result_steps[0].get('env')).get('BIT101_NATIVE_CHECK') != '${{ ' + CI_NATIVE_CONTEXT + ' }}':
+        errors.append('.github/workflows/ci.yml: 最终验收需要绑定静态与完整验收范围')
     for name, command in (('static-audit', 'Scripts/run-extended-tests.sh verify audit modules'),
                           ('catalyst-tests', 'Scripts/run-extended-tests.sh verify catalyst catalyst-release-runtime'),
                           ('ios-tests', 'Scripts/run-extended-tests.sh simulator merge'),
@@ -406,7 +416,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
     if len(download) == 1 and not shard_steps.index(download[0]) < baseline < boot:
         errors.append('.github/workflows/ci.yml: UI 分组需要在宿主与基准读取完成后启动模拟器')
     cleanup = mapping(jobs.get('compiler-cache-cleanup'))
-    if cleanup.get('if') != "github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')" \
+    if cleanup.get('if') != "github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && (inputs.full_check || inputs.release_check)" \
             or mapping(cleanup.get('permissions')) != {'contents': 'read', 'actions': 'write'} \
             or cleanup.get('needs') != ['release-build', 'catalyst-tests', 'ios-ui-build', 'ios-test-shards', 'ios-app-tests'] \
             or not any(step.get('run') == 'python3 Scripts/ci_evidence.py cache-prune' for step in cleanup.get('steps', [])):
@@ -417,7 +427,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
     for job, step_name, key, expression, expected in (
             (acceptance, "Download release validation evidence", "BIT101_RELEASE_TAG", "${{ inputs.validation_tag || github.ref_name }}",
                 ["Scripts/ci_evidence.py", "release", "fixture"]),
-            (merge, "Check current CI results", "BIT101_REQUIRED_RESULTS", "${{ join(needs.*.result, ',') }}",
+            (merge, "Check current CI results", "BIT101_REQUIRED_RESULTS", "${{ toJSON(needs) }}",
                 ["Scripts/ci_evidence.py", "current", "--results", "fixture"]),
             (mapping(jobs.get("static-audit")), "Load target branch coverage baseline", "BIT101_BASE_COMMIT", "${{ github.event.pull_request.base.sha || steps.review.outputs.base_sha }}",
                 ["Scripts/ci_evidence.py", "baseline", "fixture", "Scripts/validation_evidence.py", "baseline", "fixture"]),
@@ -437,6 +447,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
             errors.append(".github/workflows/ci.yml: 合并与覆盖率证据请求需要所属提交身份")
             continue
         expected_condition = CI_EXECUTION if mapping(job.get('env')).get('BIT101_CI_GROUP') in CI_PLANNED_GROUPS.values() else None
+        if job is jobs.get('static-audit'): expected_condition = CI_NATIVE_CONTEXT
         if step_name == 'Load target branch coverage baseline' and candidates[0].get('if') != expected_condition:
             errors.append('.github/workflows/ci.yml: 每个执行入口需要设置所属覆盖率基准')
         step = candidates[0]
@@ -471,7 +482,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
     inputs = mapping(mapping(mapping(workflow.get('on')).get('workflow_dispatch')).get('inputs'))
     full_check = mapping(inputs.get('full_check'))
     if full_check.get('type') != 'boolean' or full_check.get('default') is not False or full_check.get('required') is not False:
-        errors.append('.github/workflows/ci.yml: 全量常规验收需要默认关闭的可选布尔输入 full_check')
+        errors.append('.github/workflows/ci.yml: 手动全量验收需要默认关闭的可选布尔输入 full_check')
     if mapping(inputs.get('review_pr')).get('type') != 'number' or mapping(inputs.get('review_pr')).get('default') != 0 \
             or workflow.get('run-name') != "${{ inputs.review_pr && format('iOS CI review PR {0}', inputs.review_pr) || github.ref_name }}":
         errors.append('.github/workflows/ci.yml: fork 审查需要 PR 输入与运行身份')
@@ -526,13 +537,22 @@ def _evidence_execution_findings(command: str, key: str, expected: tuple[str, ..
 
 def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
     source = workflow_source
+    for name in ('validation-plan', *CI_PLANNED_GROUPS, 'ios-tests'):
+        block = re.search(r'(?ms)^  ' + name + r':\n.*?(?=^  [\w-]+:|\Z)', source)[0]
+        for condition in ('', '    if: true\n', "    if: github.event_name == 'pull_request'\n"):
+            changed = block.replace('    if: ' + CI_NATIVE_CONTEXT + '\n', condition, 1)
+            assert changed != block and ci_wiring_findings(source.replace(block, changed, 1)), name
+    for before, after in ((CI_STATIC_GATE, '${{ success() }}'), (CI_NATIVE_EXECUTION, CI_EXECUTION),
+            (CI_STATIC_EXECUTION, '${{ !' + CI_EXECUTE + ' }}'),
+            ('BIT101_NATIVE_CHECK: ${{ ' + CI_NATIVE_CONTEXT + ' }}', 'BIT101_NATIVE_CHECK: false')):
+        assert ci_wiring_findings(source.replace(before, after)), before
     for before, after in (
             ('      - name: Preserve native compilation cache\n        continue-on-error: true',
              '      - name: Preserve native compilation cache'),
             ('BIT101_FULL_CHECK: ${{ github.event_name == \'workflow_dispatch\' && inputs.full_check }}', 'BIT101_FULL_CHECK: false'),
             ('      full_check:', '      unused_check:'),
-            ('description: Execute every ordinary CI validation group in this run\n        required: false\n        default: false\n        type: boolean',
-             'description: Execute every ordinary CI validation group in this run\n        required: false\n        default: false\n        type: string'),
+            ('description: Run full compilation, module, behavior and UI validation\n        required: false\n        default: false\n        type: boolean',
+             'description: Run full compilation, module, behavior and UI validation\n        required: false\n        default: false\n        type: string'),
             ('run: python3 Scripts/ci_evidence.py plan', 'run: true'),
             ('${{ steps.plan.outputs.plan }}', '${{ steps.unused.outputs.plan }}'),
             ('BIT101_CI_GROUP: app', 'BIT101_CI_GROUP: ui'),
@@ -564,7 +584,7 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
     execution = removed.index('run: Scripts/run-extended-tests.sh verify catalyst catalyst-release-runtime', catalyst_start)
     after = removed.index('\n', execution) + 1
     assert any('catalyst-tests 基准载入' in row for row in ci_wiring_findings(removed[:after] + baseline + removed[after:]))
-    conditional = source.replace('      - name: Load target branch coverage baseline\n',
+    conditional = source.replace('      - name: Load target branch coverage baseline\n        if: ' + CI_NATIVE_CONTEXT + '\n',
         "      - name: Load target branch coverage baseline\n        if: github.event_name == 'pull_request'\n", 1)
     assert any('每个执行入口' in row for row in ci_wiring_findings(conditional))
     tag_store_check = source.replace("BIT101_RELEASE_CHECK: ${{ github.event_name == 'workflow_dispatch' && inputs.release_check }}",
