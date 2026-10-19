@@ -776,7 +776,7 @@ extension UIAutomationTestCase {
 
     @MainActor
     func swipeSheetHeader(_ header: UIElement) {
-        header.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0)).press(forDuration: 0.01,
+        header.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 0.01,
             thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)),
             withVelocity: .fast, thenHoldForDuration: 0.01)
     }

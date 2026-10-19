@@ -1,7 +1,6 @@
 import ScoreDomain
 import ScorePorts
 #if DEBUG || ICLOUD_CROSS_DEVICE_SMOKE
-import CryptoKit
 import Foundation
 import StorageCore
 import Testing
@@ -23,18 +22,18 @@ nonisolated enum ICloudSmokeEvidence {
         return result
     }
 
-    static func fingerprint(_ payload: ScoreCacheSyncPayload) throws -> String {
+    static func encodedPayload(_ payload: ScoreCacheSyncPayload) throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys
-        return SHA256.hash(data: try encoder.encode(payload)).map { String(format: "%02x", $0) }.joined()
+        return try encoder.encode(payload)
     }
 
     static func matches(
-        _ payload: ScoreCacheSyncPayload?, fingerprint expected: String,
+        _ payload: ScoreCacheSyncPayload?, encodedPayload expected: Data,
         localVersion: Date?, expectedVersion: Date
     ) -> Bool {
         guard let payload, !payload.rows.isEmpty, localVersion == expectedVersion else { return false }
-        return (try? fingerprint(payload)) == expected
+        return (try? encodedPayload(payload)) == expected
     }
 
     @MainActor
@@ -85,24 +84,24 @@ struct ICloudSmokeEvidenceTests {
         let version = Date(timeIntervalSince1970: 100)
         let row = ScoreRow(index: 0, headers: ["课程名称", "成绩"], values: ["课程", "90"])
         let payload = ScoreCacheSyncPayload(rows: [row], updatedAt: version, detailedUpdatedAt: nil)
-        let digest = try ICloudSmokeEvidence.fingerprint(payload)
+        let encoded = try ICloudSmokeEvidence.encodedPayload(payload)
         let returned = try ICloudSmokeEvidence.returningPayload(payload, token: "mac")
         #expect(returned.rows.count == payload.rows.count)
         #expect(returned.updatedAt == payload.updatedAt)
-        #expect(try ICloudSmokeEvidence.fingerprint(returned) != digest)
-        #expect(!ICloudSmokeEvidence.matches(payload, fingerprint: try ICloudSmokeEvidence.fingerprint(returned),
+        #expect(try ICloudSmokeEvidence.encodedPayload(returned) != encoded)
+        #expect(!ICloudSmokeEvidence.matches(payload, encodedPayload: try ICloudSmokeEvidence.encodedPayload(returned),
                                             localVersion: version, expectedVersion: version))
-        #expect(ICloudSmokeEvidence.matches(payload, fingerprint: digest, localVersion: version, expectedVersion: version))
-        #expect(!ICloudSmokeEvidence.matches(payload, fingerprint: digest, localVersion: nil, expectedVersion: version))
-        #expect(!ICloudSmokeEvidence.matches(payload, fingerprint: digest, localVersion: version, expectedVersion: version.addingTimeInterval(1)))
-        #expect(!ICloudSmokeEvidence.matches(nil, fingerprint: digest, localVersion: version, expectedVersion: version))
+        #expect(ICloudSmokeEvidence.matches(payload, encodedPayload: encoded, localVersion: version, expectedVersion: version))
+        #expect(!ICloudSmokeEvidence.matches(payload, encodedPayload: encoded, localVersion: nil, expectedVersion: version))
+        #expect(!ICloudSmokeEvidence.matches(payload, encodedPayload: encoded, localVersion: version, expectedVersion: version.addingTimeInterval(1)))
+        #expect(!ICloudSmokeEvidence.matches(nil, encodedPayload: encoded, localVersion: version, expectedVersion: version))
         let changed = ScoreCacheSyncPayload(
             rows: [ScoreRow(index: 0, headers: ["课程名称", "成绩"], values: ["课程", "80"])],
             updatedAt: version, detailedUpdatedAt: nil
         )
-        #expect(!ICloudSmokeEvidence.matches(changed, fingerprint: digest, localVersion: version, expectedVersion: version))
+        #expect(!ICloudSmokeEvidence.matches(changed, encodedPayload: encoded, localVersion: version, expectedVersion: version))
         let empty = ScoreCacheSyncPayload(rows: [], updatedAt: version, detailedUpdatedAt: nil)
-        #expect(!ICloudSmokeEvidence.matches(empty, fingerprint: try ICloudSmokeEvidence.fingerprint(empty), localVersion: version, expectedVersion: version))
+        #expect(!ICloudSmokeEvidence.matches(empty, encodedPayload: try ICloudSmokeEvidence.encodedPayload(empty), localVersion: version, expectedVersion: version))
     }
 }
 #endif
@@ -130,7 +129,7 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
         var account: String
         var accountIdentifier: String
         var stage: Stage
-        var scoreFingerprint: String
+        var scorePayload: Data
         var phoneVersion: Date?
         var macVersion: Date?
         var preferenceVersions: [String: Date] = [:]
@@ -231,12 +230,12 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
         var coordination = Coordination(
             token: try runID(), account: try smokeSession.accountDirectoryName,
             accountIdentifier: try smokeSession.accountIdentifier, stage: .preparing,
-            scoreFingerprint: try ICloudSmokeEvidence.fingerprint(payload)
+            scorePayload: try ICloudSmokeEvidence.encodedPayload(payload)
         )
         try save(coordination)
         manager.setEnabled(true)
         coordination.phoneVersion = try await publishScores(
-            fingerprint: coordination.scoreFingerprint, after: Date(), coordinator: manager
+            encodedPayload: coordination.scorePayload, after: Date(), coordinator: manager
         )
         coordination.preferenceVersions = try await publishPreferences(coordinator: manager)
         coordination.stage = .phoneUploaded
@@ -271,6 +270,9 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
         try await schedule.verifyReopenedCache()
         let priorRecord = try await schedule.transport.record(named: schedule.account.recordName)
         var returningSchedule = try scheduleFixture(stage: "mac")
+        returningSchedule.cloudSyncBaselineAt = schedule.cache.cloudSyncBaselineAt
+        returningSchedule.cloudSyncBaselineRecordTag = schedule.cache.cloudSyncBaselineRecordTag
+        returningSchedule.syncData.cloudSyncBaselineUserState = schedule.cache.syncData.cloudSyncBaselineUserState
         returningSchedule.updatedAt = Date().addingTimeInterval(1)
         returningSchedule.hasUnpushedCloudChanges = true
         try await schedule.replaceCache(returningSchedule, source: .localWithoutCloudPush, expected: schedule.cache.updatedAt)
@@ -288,10 +290,10 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
         let returningPayload = try ICloudSmokeEvidence.returningPayload(receivedPayload, token: try runID() + "-mac")
         let applied = try await coordinator.stores.scoreCache.applySynced(returningPayload, for: nil, replacing: nil)
         XCTAssertTrue(applied)
-        completed.scoreFingerprint = try ICloudSmokeEvidence.fingerprint(returningPayload)
-        XCTAssertNotEqual(completed.scoreFingerprint, coordination.scoreFingerprint)
+        completed.scorePayload = try ICloudSmokeEvidence.encodedPayload(returningPayload)
+        XCTAssertNotEqual(completed.scorePayload, coordination.scorePayload)
         completed.macVersion = try await publishScores(
-            fingerprint: completed.scoreFingerprint, after: phoneVersion, coordinator: coordinator
+            encodedPayload: completed.scorePayload, after: phoneVersion, coordinator: coordinator
         )
         await configurePreferences(stage: "mac", coordinator: coordinator)
         completed.preferenceVersions = try await publishPreferences(coordinator: coordinator)
@@ -367,8 +369,8 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
             defaults: try XCTUnwrap(UserDefaults(suiteName: preferenceDomain)), session: { session })
         let current = try await coordinator.stores.scoreCache.syncPayload(for: nil)
         let persisted = try await reopened.syncPayload(for: nil)
-        XCTAssertEqual(try ICloudSmokeEvidence.fingerprint(XCTUnwrap(persisted)),
-                       try ICloudSmokeEvidence.fingerprint(XCTUnwrap(current)))
+        XCTAssertEqual(try ICloudSmokeEvidence.encodedPayload(XCTUnwrap(persisted)),
+                       try ICloudSmokeEvidence.encodedPayload(XCTUnwrap(current)))
     }
 
     private func clearLocalSmokeFiles() throws {
@@ -449,7 +451,7 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
     }
 
     @MainActor
-    private func publishScores(fingerprint: String, after previousVersion: Date, coordinator: ExperimentalPreferenceCloudSync) async throws -> Date {
+    private func publishScores(encodedPayload: Data, after previousVersion: Date, coordinator: ExperimentalPreferenceCloudSync) async throws -> Date {
         coordinator.localValueDidChange(in: .scoreCache)
         var publishedVersion: Date?
         let uploaded = await waitUntil {
@@ -457,7 +459,7 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
                 self.remoteEnvelope(account: coordinator.stores.currentSession().accountDirectoryName),
                 envelope.updatedAt > previousVersion,
                 ICloudSmokeEvidence.matches(
-                    envelope.payload, fingerprint: fingerprint,
+                    envelope.payload, encodedPayload: encodedPayload,
                     localVersion: coordinator.synchronizedVersion(for: .scoreCache),
                     expectedVersion: envelope.updatedAt
                 )
@@ -476,7 +478,7 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
     private func localScoresMatch(_ coordination: Coordination, version: Date, coordinator: ExperimentalPreferenceCloudSync) async -> Bool {
         let payload = try? await coordinator.stores.scoreCache.syncPayload(for: nil)
         return ICloudSmokeEvidence.matches(
-            payload, fingerprint: coordination.scoreFingerprint,
+            payload, encodedPayload: coordination.scorePayload,
             localVersion: coordinator.synchronizedVersion(for: .scoreCache), expectedVersion: version
         )
     }
