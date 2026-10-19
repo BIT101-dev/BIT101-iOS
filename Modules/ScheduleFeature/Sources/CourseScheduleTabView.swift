@@ -249,9 +249,12 @@ struct CourseScheduleTabView: View {
                                         .disabled(viewModel.isSyncingCourses)
                                     }
                                 }
-                                .frame(maxWidth: .infinity)
+                                .padding(.horizontal, AppDesignSystem.Spacing.content)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
                                 addContentMenu
                             }
+                            .frame(height: calendarHeight)
+                            .listRowInsets(EdgeInsets())
                         }
                     }
                 }
