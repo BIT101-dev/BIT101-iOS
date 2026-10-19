@@ -336,7 +336,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             assertUI(done.appears(timeout: 5), "系统键盘应呈现完成按钮。")
             assertUI(waitUntil(NSPredicate(format: "hittable == true"), on: done, timeout: 5),
                      "键盘完成按钮应进入可触达状态。")
-            done.tapVisibleCenter()
+            done.tap()
             assertUI(app.keyboards.firstMatch.disappears(timeout: 5), "原生完成按钮应关闭系统键盘。")
             return
         }
