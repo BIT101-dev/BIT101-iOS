@@ -724,7 +724,8 @@ def _self_test() -> None:
     static_results = {name: {'result': 'success' if name == 'static-audit' else 'skipped'} for name in REQUIRED_JOBS}
     for native, results in (('false', static_results), ('true', full_results)):
         with patch.dict(os.environ, GITHUB_SHA=commit, GITHUB_ACTIONS='false', BIT101_NATIVE_CHECK=native), \
-                patch.object(subprocess, 'check_output', return_value=commit), patch.object(module, 'api_pages') as api:
+                patch.object(subprocess, 'check_output', return_value=commit), patch.object(module, 'api_pages') as api, \
+                patch.object(sys, 'stdout', StringIO()):
             current(json.dumps(results))
             api.assert_not_called()
             rejected = [[], {}, results | {'extra': {'result': 'success'}},
@@ -758,7 +759,7 @@ def _self_test() -> None:
         else: raise AssertionError('CI 需要验收事件提交')
     for changed in (b'', b' M Scripts/ci_evidence.py\0'):
         with patch.dict(os.environ, GITHUB_SHA=commit, GITHUB_ACTIONS='true', BIT101_NATIVE_CHECK='true'), \
-                patch.object(subprocess, 'check_output', side_effect=[commit, changed]):
+                patch.object(subprocess, 'check_output', side_effect=[commit, changed]), patch.object(sys, 'stdout', StringIO()):
             try: current(json.dumps(full_results))
             except ValueError: assert changed
             else: assert not changed
