@@ -483,7 +483,12 @@ def interactive_list_row_findings(path: Path, facts: dict, syntax: dict[str, dic
         suffix = mask_literals_and_comments(row["expression"][len(row["invocation"]):])
         line = source_text(path).encode()[:row["start"]].count(b"\n") + 1 if path.is_file() else 1
         location = f"{path.relative_to(ROOT) if path.is_relative_to(ROOT) else path}:{line}"
-        if not re.search(r"\.appInteractiveListRow\s*\(", suffix):
+        has_list_style = re.search(r"\.appInteractiveListRow\s*\(", suffix)
+        if re.search(r"\.buttonStyle\s*\(\s*\.borderedProminent\s*\)", suffix):
+            if has_list_style:
+                findings.append(f"{location}: 填充按钮应沿用系统文字样式")
+            continue
+        if not has_list_style:
             findings.append(f"{location}: {row['name']} 交互列表行必须接入 appInteractiveListRow")
         if re.search(r"\brole\s*:\s*\.destructive\b", mask_comments(row["invocation"]).split("label:", 1)[0]) and not re.search(r"appInteractiveListRow\s*\(\s*isDestructive:\s*true", suffix):
             findings.append(f"{location}: 删除列表行必须使用警示色")

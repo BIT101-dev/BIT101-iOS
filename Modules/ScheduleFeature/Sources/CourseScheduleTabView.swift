@@ -247,7 +247,6 @@ struct CourseScheduleTabView: View {
                                         }
                                         .buttonStyle(.borderedProminent)
                                         .disabled(viewModel.isSyncingCourses)
-                                        .appInteractiveListRow()
                                     }
                                 }
                                 .frame(maxWidth: .infinity)

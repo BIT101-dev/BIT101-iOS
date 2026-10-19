@@ -865,6 +865,8 @@ struct RowColors: View {
             NavigationLink(destination: Text("目标")) { NeutralTitle() }.appInteractiveListRow()
             Button("伪造") { print(".appInteractiveListRow()") }
             Button("覆盖颜色") {}.appInteractiveListRow().foregroundStyle(.primary)
+            Button("系统填充按钮") {}.buttonStyle(.borderedProminent)
+            Button("冲突填充按钮") {}.buttonStyle(.borderedProminent).appInteractiveListRow()
             Button {} label: { LabeledContent("左侧") { Text("右侧").foregroundStyle(.secondary) } }.appInteractiveListRow()
             Button {} label: {
                 LabeledContent { Text("右侧").foregroundStyle(.secondary) } label: { Text("左侧").foregroundStyle(.tint) }
@@ -881,8 +883,8 @@ struct RowColors: View {
     row_path = ROOT / ".build/static-audit/row-color-self-test.swift"
     row_syntax = swift_syntax_index_sources({str(row_path): row_source})
     row_findings = interactive_list_row_findings(row_path, row_syntax[str(row_path)], row_syntax)
-    if len(row_findings) != 7:
-        findings.append(f"UI 检查器自测：列表标题、颜色覆盖、删除警示色、子组件、计算属性及字符串边界应报告 7 项，实际 {len(row_findings)} 项")
+    if len(row_findings) != 8:
+        findings.append(f"UI 检查器自测：列表标题、颜色覆盖、删除警示色、子组件、计算属性、填充按钮及字符串边界应报告 8 项，实际 {len(row_findings)} 项")
     return findings
 
 
