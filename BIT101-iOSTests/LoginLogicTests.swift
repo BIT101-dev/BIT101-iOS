@@ -286,7 +286,8 @@ extension LoginLogicTests {
 
     @Test(.timeLimit(.minutes(1)))
     func schoolPasswordPromptUsesSecureInputAndDismissesOnCancellation() async throws {
-        let window = UIWindow(frame: UIScreen.main.bounds)
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
         let controller = UIViewController()
         window.rootViewController = controller
         window.makeKeyAndVisible()

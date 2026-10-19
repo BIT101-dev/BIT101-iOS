@@ -669,6 +669,8 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         openSettings("account")
         tap("settings.account.school-password")
         assertUI(app.secureTextFields["school.credentials.password"].appears(timeout: 5), "学校认证应使用安全密码输入框。")
+        app.alerts["学校统一身份认证"].buttons["保存并继续"].assertDisabled("学校密码填写后可保存。")
+        replaceText("cancelled-school-password", in: app.secureTextFields["school.credentials.password"])
         app.alerts["学校统一身份认证"].buttons["取消"].tapBriefly()
         tap("settings.account.school-password")
         replaceText("school-password", in: app.secureTextFields["school.credentials.password"])
