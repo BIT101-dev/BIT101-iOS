@@ -98,9 +98,7 @@ struct AppShellView: View {
     @Environment(AppCommunityDestinations.self) private var destinations
     private static let startupNoticeTitle = "\(AppSettingsStore.currentStartupNoticeVersion) 版本更新"
     private static let startupNoticeBody = """
-    添加 DDL 桌面小组件。
-    修复课表显示问题。
-    优化大量使用逻辑。
+    修复了登录问题。
     """
     private static let linuxDoThanksTitle = "特别鸣谢 LINUX DO"
     private static let linuxDoThanksBody = "特别感谢 LINUX DO（L站）以及佬友们。这个 App 的诞生，离不开他们提供的免费 tokens 与无私的支持。L站倡导“真诚、友善、团结、专业，共建你我引以为荣之社区。”某种意义上，BIT101 也是在这样的氛围里，被一点点推出来的。\n\n如果你也想加入，可以向开发者发送邮件索要 L 站邀请码：systemd@linux.do"
