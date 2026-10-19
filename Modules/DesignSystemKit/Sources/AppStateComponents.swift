@@ -124,11 +124,12 @@ public struct AppFailureState: View {
     }
 }
 
-/// AppEmptyState 统一提供无数据状态的图标、说明和可选操作入口。
+/// AppEmptyState 统一提供无数据状态的图标、说明、加载状态和可选操作入口。
 public struct AppEmptyState: View {
     let title: String
     let systemImage: String
     let message: String?
+    let isLoading: Bool
     let actionTitle: String?
     let onAction: (() -> Void)?
 
@@ -136,12 +137,14 @@ public struct AppEmptyState: View {
         title: String,
         systemImage: String,
         message: String? = nil,
+        isLoading: Bool = false,
         actionTitle: String? = nil,
         onAction: (() -> Void)? = nil
     ) {
         self.title = title
         self.systemImage = systemImage
         self.message = message
+        self.isLoading = isLoading
         self.actionTitle = actionTitle
         self.onAction = onAction
     }
@@ -154,7 +157,11 @@ public struct AppEmptyState: View {
                 Text(message)
             }
         } actions: {
-            if let onAction, let actionTitle {
+            if isLoading {
+                ProgressView()
+                    .accessibilityLabel("正在刷新")
+                    .accessibilityIdentifier("ui.app-empty-state.loading")
+            } else if let onAction, let actionTitle {
                 Button(actionTitle, action: onAction)
                     .accessibilityIdentifier("ui.app-empty-state.action")
             }

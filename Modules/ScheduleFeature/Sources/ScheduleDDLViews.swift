@@ -45,8 +45,7 @@ struct DDLScheduleTabView: View {
                             title: "暂无 DDL",
                             systemImage: "list.bullet.clipboard",
                             message: viewModel.ddlEmptyStateMessage,
-                            actionTitle: "刷新学校日程",
-                            onAction: { Task { await refreshDDL() } }
+                            isLoading: viewModel.isSyncingDDL
                         )
                         .frame(maxWidth: .infinity)
                     }

@@ -334,10 +334,10 @@ nonisolated final class ServiceInteractionUITests: UIAutomationTestCase {
     @objc func testSchoolSSODDLVerificationCancelAndContinuation() {
         app = configureApp(resetStorage: true, animations: true, school: true, schoolSMS: true)
         tapHeader(app.segmentedControls.buttons["DDL"])
-        tap("刷新学校日程")
+        app.buttons["app.refresh-status.action"].tapBriefly()
         assertUI(app.buttons["验证并继续"].appears(timeout: 5), "学校日程应展示 SSO 短信面板。")
         tap("取消")
-        tap("刷新学校日程")
+        app.buttons["app.refresh-status.action"].tapBriefly()
         fillVerificationCode("123456", in: app.textFields["verification.code"])
         let success = app.alerts["DDL 同步成功"]
         assertUI(success.appears(timeout: 5), "学校验证完成后应展示同步成功结果。")

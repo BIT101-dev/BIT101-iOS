@@ -229,26 +229,14 @@ struct CourseScheduleTabView: View {
                     } else {
                         Section {
                             ZStack(alignment: .bottomTrailing) {
-                                VStack(spacing: AppDesignSystem.Spacing.section) {
-                                    Text(activeSchedule.isPrimary ? "课表尚未同步学期起始日期" : "分享课表缺少起始日期")
-                                        .font(AppDesignSystem.Typography.title)
-                                    Text(activeSchedule.isPrimary ? "请先同步所选学期。" : "试试上下滑切换到别的课表，或重新导入一份分享课表。")
-                                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                                    if supportsEditingDisplayedSchedule {
-                                        Button {
-                                            Task { await viewModel.syncSelectedTerm() }
-                                        } label: {
-                                            HStack(spacing: AppDesignSystem.Spacing.regular) {
-                                                if viewModel.isSyncingCourses {
-                                                    ProgressView()
-                                                }
-                                                Text("重新获取所选学期")
-                                            }
-                                        }
-                                        .buttonStyle(.borderedProminent)
-                                        .disabled(viewModel.isSyncingCourses)
-                                    }
-                                }
+                                AppEmptyState(
+                                    title: activeSchedule.isPrimary ? "暂无课表" : "分享课表缺少起始日期",
+                                    systemImage: "calendar",
+                                    message: activeSchedule.isPrimary
+                                        ? "点击上方刷新获取学校课表，也可手动添加日程。"
+                                        : "试试上下滑切换到别的课表，或重新导入一份分享课表。",
+                                    isLoading: activeSchedule.isPrimary && viewModel.isSyncingCourses
+                                )
                                 .padding(.horizontal, AppDesignSystem.Spacing.content)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                                 addContentMenu
