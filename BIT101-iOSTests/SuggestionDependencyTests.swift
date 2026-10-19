@@ -335,7 +335,7 @@ nonisolated final class AppLocalDataResourceTests: XCTestCase {
         let media = AppMedia.makeEnvironment(previewStorage: MediaPreviewStorage(files: files))
         let settings = AppSettingsStore(defaults: defaults)
         let service = AppLocalDataComposition.appService(settings: settings, media: media)
-        let support = AppFileDirectories.applicationSupport.appending(path: "cleanup-fixture.dat")
+        let support = AppFileDirectories.applicationSupportDirectoryURL(named: "BIT101-iOS").appending(path: "cleanup-fixture.dat")
         let report = try XCTUnwrap(ReleaseNetworkSmokeReportStore.fileURL)
         let mediaCache = try XCTUnwrap(media.cacheDirectories.first).appending(path: "cleanup-fixture.dat")
         for file in [support, report, mediaCache] {
@@ -537,7 +537,7 @@ struct AppLocalDataOwnershipTests {
     @Test(.timeLimit(.minutes(1))) func resettingAccountDataKeepsTemporaryExportsAndOtherCacheOwners() async throws {
         let files = PreferenceMemoryFiles(separatesDirectories: true)
         let actions = LocalDataActionsSpy()
-        let support = try #require(files.directoryURL(.applicationSupportDirectory)).appending(path: "account.dat")
+        let support = try #require(files.directoryURL(.applicationSupportDirectory)).appending(path: "BIT101-iOS/account.dat")
         let cache = try #require(files.directoryURL(.cachesDirectory)).appending(path: "other-cache.dat")
         let export = files.temporaryDirectoryURL.appending(path: "active-export.dat")
         for file in [support, cache, export] { try files.writeData(Data([1]), to: file, options: []) }
@@ -545,6 +545,34 @@ struct AppLocalDataOwnershipTests {
         #expect(files.fileExists(at: support) == false)
         #expect(try files.readData(at: cache) == Data([1]))
         #expect(try files.readData(at: export) == Data([1]))
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func resetClearsOwnedDataAndContentsOfManagedDocumentDirectories(ownedRemovalFails: Bool) async throws {
+        let files = PreferenceMemoryFiles(separatesDirectories: true)
+        let support = try #require(files.directoryURL(.applicationSupportDirectory))
+        let documents = try #require(files.directoryURL(.documentDirectory))
+        let account = support.appending(path: "BIT101-iOS")
+        let managed = support.appending(path: "com.apple.system")
+        let inbox = documents.appending(path: "Inbox")
+        let owned = [account.appending(path: "account.dat"), support.appending(path: "ComposerDrafts/draft.dat"),
+            support.appending(path: "NetworkSmoke/report.json"), documents.appending(path: "document.dat"),
+            inbox.appending(path: "imported.dat")]
+        let systemFile = managed.appending(path: "system.dat")
+        for file in owned + [systemFile] {
+            try files.createDirectory(at: file.deletingLastPathComponent())
+            try files.writeData(Data([1]), to: file, options: [])
+        }
+        files.protectRemoval(of: ownedRemovalFails ? [managed, inbox, account] : [managed, inbox])
+        let service = AppLocalDataService(files: files, actions: LocalDataActionsSpy().actions)
+        #expect(await service.resetAllLocalData {} == !ownedRemovalFails)
+        for file in owned {
+            #expect(files.fileExists(at: file) == (ownedRemovalFails && file.deletingLastPathComponent().path == account.path))
+        }
+        #expect(try files.readData(at: systemFile) == Data([1]))
+        #expect(files.fileExists(at: inbox))
+        #expect(service.resetFailureMessage == (ownedRemovalFails
+            ? "以下本机数据仍待清理：本机文稿与应用数据。请稍后重试。" : nil))
     }
 }
 

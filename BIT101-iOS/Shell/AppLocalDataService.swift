@@ -92,26 +92,52 @@ final class AppLocalDataService: ObservableObject {
         return AppCacheCleanupResult(reclaimedBytes: max(0, originalBytes - remainingBytes), succeeded: succeeded)
     }
 
-    /// 账号存储暂停后清空文稿与应用支持目录。
+    /// 账号存储暂停后清理文稿与应用持有的存储目录。
     private func clearSandboxFileData() async -> Bool {
-        let directories: [FileManager.SearchPathDirectory] = [
-            .documentDirectory,
-            .applicationSupportDirectory,
-        ]
-        let urls = Set(directories.compactMap { files.directoryURL($0) })
-        return await AppLocalFileCleanup.removeContents(files: files, directories: urls)
+        await AppLocalFileCleanup.removeLocalData(files: files)
     }
 
 }
 
 nonisolated enum AppLocalFileCleanup {
+    private static let logger = Logger(subsystem: "BIT101", category: "LocalDataCleanup")
     @concurrent static func usedBytes(files: any AppFileService, directories: Set<URL>) async -> Int64 {
         directories.reduce(Int64(0)) { $0 + files.totalRegularFileSize(at: $1) }
     }
 
-    @concurrent static func removeContents(files: any AppFileService, directories: Set<URL>) async -> Bool {
+    @concurrent static func removeLocalData(files: any AppFileService) async -> Bool {
         var succeeded = true
-        for directory in directories { succeeded = files.removeContents(of: directory) && succeeded }
+        if let support = files.directoryURL(.applicationSupportDirectory) {
+            for name in ["BIT101-iOS", "ComposerDrafts", "NetworkSmoke"] {
+                succeeded = removeItem(files: files, url: support.appending(path: name)) && succeeded
+            }
+        }
+        if let documents = files.directoryURL(.documentDirectory) {
+            do {
+                for child in try files.contentsOfDirectory(at: documents, options: []) {
+                    if child.lastPathComponent == "Inbox" {
+                        succeeded = files.removeContents(of: child) && succeeded
+                    } else {
+                        succeeded = removeItem(files: files, url: child) && succeeded
+                    }
+                }
+            } catch {
+                if !AppFileSystem.isMissingFile(error) {
+                    succeeded = false
+                    recordFailure(error, at: documents)
+                }
+            }
+        }
         return succeeded
+    }
+
+    private static func removeItem(files: any AppFileService, url: URL) -> Bool {
+        do { try files.removeItemIfPresent(at: url); return true }
+        catch { recordFailure(error, at: url); return false }
+    }
+
+    private static func recordFailure(_ error: any Error, at url: URL) {
+        let failure = error as NSError
+        logger.error("Local data removal failed: \(url.path, privacy: .private) domain=\(failure.domain, privacy: .public) code=\(failure.code)")
     }
 }

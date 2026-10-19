@@ -11,9 +11,10 @@ import Testing
 
 @MainActor
 struct ScheduleFeatureTests {
-    private func editableCourse(_ id: String, weekday: Int, weeks: String, title: String = "同一课程", sections: [Int] = [1, 2]) throws -> CourseRecord {
+    private func editableCourse(_ id: String, weekday: Int, weeks: String, title: String = "同一课程",
+        sections: [Int] = [1, 2], term: String = "term") throws -> CourseRecord {
         try #require(ScheduleCourseEditor.adding(CourseDraft(title: title, classroom: "文萃A101",
-            weekday: weekday, weeksText: weeks, selectedSections: sections), to: [], term: "term", id: id).first)
+            weekday: weekday, weeksText: weeks, selectedSections: sections), to: [], term: term, id: id).first)
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -203,6 +204,68 @@ struct ScheduleFeatureTests {
         let next = try #require(ScheduleDateCodec.parseDate("2026-09-14"))
         #expect(resolvedCurrentWeek(firstDay: first, now: first) == 1)
         #expect(resolvedCurrentWeek(firstDay: first, now: next) == 2)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func firstCourseSyncSelectsTheReturnedTermAndPublishesItsSchedule(requiresSMS: Bool) async throws {
+        var saved: ScheduleCache?
+        let repository = ScheduleRepository(session: { AppStorageSession(accountIdentifier: "first-sync") },
+            load: { _ in .missing }, save: { cache, _, _ in saved = cache })
+        let service = ModuleScheduleService()
+        let course = try editableCourse("first-course", weekday: 1, weeks: "1-20")
+        let payload = CourseSyncPayload(term: "term", firstDayString: "2026-09-07",
+            sourceFirstDayString: "2026-09-07", normalizationOffset: 0, rawWeeksByCourse: [], courses: [course], exams: [])
+        service.payload = payload
+        if requiresSMS {
+            service.challenge = BITLoginAuthenticationChallenge(challengeID: "first-sync", accessToken: "token",
+                status: "waiting_sms", maskedPhone: "138****0000", expiresIn: 300)
+        } else {
+            service.onSync = { term in #expect(term == nil); return payload }
+        }
+        let model = makeViewModel(repository: repository, actions: ModuleSchedulePlatformActions(), service: service)
+        await model.loadIfNeeded()
+        #expect(model.activeCourseSchedule.currentTerm.isEmpty && !model.hasCourseData)
+        await model.syncCourses()
+        if requiresSMS { await model.submitSMSCode("123456") }
+        #expect(model.activeCourseSchedule.currentTerm == "term")
+        #expect(model.hasCourseData && model.activeCourseSchedule.courses == [course])
+        #expect(model.activeCourseSchedule.firstDayString == payload.firstDayString)
+        #expect(model.courseState.coursesUpdatedAt != .distantPast)
+        #expect(saved?.currentTerm == "term" && saved?.courses == [course])
+        #expect(!model.isSyncingCourses && model.smsChallenge == nil)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true], [false, true])
+    func existingCourseRefreshPublishesContentAndItsSuccessfulUpdateTime(contentChanged: Bool, switchesTerm: Bool) async throws {
+        let targetTerm = switchesTerm ? "next-term" : "term"
+        let old = try editableCourse("same-course", weekday: 1, weeks: "1-20", title: "原课程")
+        let updated = try editableCourse("same-course", weekday: contentChanged ? 3 : 1,
+            weeks: contentChanged ? "2-20" : "1-20", title: contentChanged ? "更新课程" : "原课程", term: targetTerm)
+        var disk = ScheduleCache()
+        disk.currentTerm = "term"
+        disk.courseData.store(TermScheduleSnapshot(term: "term", firstDayString: "2026-09-07",
+            courses: [old], exams: [], updatedAt: Date(timeIntervalSince1970: 1)))
+        let repository = ScheduleRepository(session: { AppStorageSession(accountIdentifier: "existing-refresh") },
+            load: { _ in .loaded(disk) }, save: { cache, _, _ in disk = cache })
+        let service = ModuleScheduleService()
+        service.onSync = { term in
+            #expect(term == targetTerm)
+            return CourseSyncPayload(term: targetTerm, firstDayString: "2026-09-07",
+                sourceFirstDayString: "2026-09-07", normalizationOffset: 0, rawWeeksByCourse: [], courses: [updated], exams: [])
+        }
+        let model = makeViewModel(repository: repository, actions: ModuleSchedulePlatformActions(), service: service)
+        await model.loadIfNeeded()
+        let previousUpdate = model.courseState.coursesUpdatedAt
+        var changes = 0
+        let observation = model.objectWillChange.sink { changes += 1 }
+        defer { observation.cancel() }
+        if switchesTerm { await model.syncCourses(term: targetTerm) } else { await model.syncSelectedTerm() }
+        #expect(model.activeCourseSchedule.currentTerm == targetTerm)
+        #expect(model.activeCourseSchedule.courses == [updated] && model.hasCourseData)
+        #expect(model.courseState.coursesUpdatedAt > previousUpdate)
+        #expect(disk.courses == [updated] && disk.coursesUpdatedAt == model.courseState.coursesUpdatedAt)
+        if switchesTerm { #expect(disk.termSchedulesByTerm["term"]?.courses == [old]) }
+        #expect(changes > 0 && !model.isSyncingCourses)
     }
 
     @Test(.timeLimit(.minutes(1))) func courseVerificationFailurePreservesChallengeAndRetryResumesChosenTerm() async throws {

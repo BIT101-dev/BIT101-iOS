@@ -421,6 +421,7 @@ nonisolated final class PreferenceMemoryFiles: AppFileService, Sendable {
         var failsWriting = false
         var failsReading = false
         var failsMetadata = false
+        var protectedRemovalPaths: Set<URL> = []
         var nextRead: (@Sendable () -> Void)?
         var nextWrite: (@Sendable () -> Void)?
         var nextEnumeration: (@Sendable () -> Void)?
@@ -433,6 +434,9 @@ nonisolated final class PreferenceMemoryFiles: AppFileService, Sendable {
         state.withLock {
             $0.failsRemoval = removal; $0.failsWriting = writing; $0.failsReading = reading; $0.failsMetadata = metadata
         }
+    }
+    func protectRemoval(of directories: Set<URL>) {
+        state.withLock { $0.protectedRemovalPaths = directories }
     }
     private var root: URL { URL(fileURLWithPath: "/preference-sync") }
     var temporaryDirectoryURL: URL { separatesDirectories ? root.appending(path: "Temporary") : root }
@@ -480,7 +484,7 @@ nonisolated final class PreferenceMemoryFiles: AppFileService, Sendable {
     }
     func removeItem(at url: URL) throws {
         try state.withLock { state in
-            if state.failsRemoval { throw CocoaError(.fileWriteNoPermission) }
+            if state.failsRemoval || state.protectedRemovalPaths.contains(url) { throw CocoaError(.fileWriteNoPermission) }
             let prefix = url.path + "/"
             state.data = state.data.filter { $0.key.path != url.path && !$0.key.path.hasPrefix(prefix) }
             state.revisions = state.revisions.filter { state.data[$0.key] != nil }
@@ -536,7 +540,8 @@ nonisolated final class PreferenceMemoryFiles: AppFileService, Sendable {
             let hasContents = state.data.keys.contains { $0.path.hasPrefix(directory.path + "/") } ||
                 state.directories.contains { $0.path.hasPrefix(directory.path + "/") }
             guard hasContents else { return true }
-            guard !state.failsRemoval else { return false }
+            guard !state.failsRemoval,
+                  !state.protectedRemovalPaths.contains(where: { $0.path.hasPrefix(directory.path + "/") }) else { return false }
             state.data = state.data.filter { !$0.key.path.hasPrefix(directory.path + "/") }
             state.revisions = state.revisions.filter { state.data[$0.key] != nil }
             state.directories = state.directories.filter { !$0.path.hasPrefix(directory.path + "/") }

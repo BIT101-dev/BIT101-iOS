@@ -64,6 +64,7 @@ extension ScheduleViewModel {
                 message: "新课程使用了当前时间表以外的节次。已有课表已保留，请在课表设置中补齐节次时间后重新同步。")
             return
         }
+        repository.resolveCurrentTerm(payload.term)
         courseState.data.store(snapshot)
 
         if courseState.currentTerm == payload.term {
