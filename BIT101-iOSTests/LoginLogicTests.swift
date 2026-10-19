@@ -171,7 +171,7 @@ extension LoginLogicTests {
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: ["terms", "courses", "classrooms", "scores", "school-session"])
-    func freshCommunityLoginContinuesSchoolRequestsAfterPasswordEntry(first: String) async throws {
+    func freshLoginMakesSchoolFeaturesUsableWithOnePassword(first: String) async throws {
         let domain = "BIT101Tests.community-school"
         let defaults = try #require(UserDefaults(suiteName: domain))
         defaults.removePersistentDomain(forName: domain)
@@ -180,12 +180,12 @@ extension LoginLogicTests {
         var prompts: [String] = []
         let storage = LoginStorage(defaults: defaults, credentials: credentials, clearSchoolCookies: {}, requestSchoolPassword: {
             prompts.append($0)
-            return "school-password"
+            return "unexpected-password"
         })
         let http = HTTPClient(transport: transport, observer: nil)
         let login = LoginService(storage: storage, apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http))
-        #expect(try await login.login(studentID: "A", password: "community-password") == "A")
-        #expect(storage.currentPassword.isEmpty && prompts.isEmpty)
+        #expect(try await login.login(studentID: "A", password: "account-password") == "A")
+        #expect(storage.currentPassword == "account-password" && prompts.isEmpty)
         let owner = storage.communityCredentials
         let school = try schoolService(storage: storage, transport: transport)
         func use(_ feature: String) async throws {
@@ -208,20 +208,37 @@ extension LoginLogicTests {
         }
         try await use(first)
         for feature in ["terms", "courses", "classrooms", "scores", "school-session"] where feature != first { try await use(feature) }
-        #expect(prompts == ["A"] && storage.currentPassword == "school-password")
+        #expect(prompts.isEmpty && storage.currentPassword == "account-password")
         #expect(storage.communityCredentials == owner)
-        #expect(try storage.loadCommunityPasswordDigest() == LoginCrypto.md5Hex("community-password"))
+        #expect(try storage.loadCommunityPasswordDigest() == LoginCrypto.md5Hex("account-password"))
         let loginRequest = try #require(transport.requests.first?.httpBody)
         let loginBody = try #require(JSONSerialization.jsonObject(with: loginRequest) as? [String: String])
-        #expect(loginBody["password"] == LoginCrypto.md5Hex("community-password"))
+        #expect(loginBody["password"] == LoginCrypto.md5Hex("account-password"))
         for request in transport.requests where ["cookies", "start"].contains(request.url?.lastPathComponent ?? "") {
             let data = try #require(request.httpBody)
             let body = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
-            #expect(body["password"] as? String == "school-password")
+            #expect(body["password"] as? String == "account-password")
         }
         let reopened = LoginStorage(defaults: defaults, credentials: credentials, clearSchoolCookies: {})
         try await reopened.prepareSchoolCredentials()
-        #expect(reopened.currentPassword == "school-password" && reopened.communityCredentials.cookie == owner.cookie)
+        #expect(reopened.currentPassword == "account-password" && reopened.communityCredentials.cookie == owner.cookie)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: ["empty-password", "saved-password", "switch-account"])
+    func loginReusesPasswordWithinTheSelectedAccount(state: String) async throws {
+        let domain = "BIT101Tests.login-password-reuse"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: {})
+        try storage.saveLoginState(studentID: state == "switch-account" ? "B" : "A",
+            password: state == "empty-password" ? "" : "saved-school-password", fakeCookie: "old-cookie",
+            communityPasswordDigest: "old-digest")
+        let http = HTTPClient(transport: SchoolLoginResponses(), observer: nil)
+        let login = LoginService(storage: storage, apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http))
+        #expect(try await login.login(studentID: "A", password: "account-password") == "A")
+        #expect(storage.currentPassword == (state == "saved-password" ? "saved-school-password" : "account-password"))
+        #expect(try storage.loadCommunityPasswordDigest() == LoginCrypto.md5Hex("account-password"))
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: ["cancel", "switch", "write-failure", "empty"])

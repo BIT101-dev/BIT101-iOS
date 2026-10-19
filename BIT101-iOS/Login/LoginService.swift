@@ -128,7 +128,7 @@ struct LoginService {
         return studentID
     }
 
-    /// 使用 BIT101 账号密码登录，学校凭据沿学校功能的认证入口补充。
+    /// 登录输入自动供学校功能复用，同账号已保存的学校密码继续沿用。
     func login(studentID: String, password: String) async throws -> String {
         let account = studentID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !account.isEmpty, !password.isEmpty else { throw LoginServiceError.invalidCredentials }
@@ -137,7 +137,8 @@ struct LoginService {
         let response = try await apiClient.loginCommunity(studentID: account, passwordDigest: digest)
         try Task.checkCancellation()
         guard storage.communityCredentials.identity == identity else { throw CancellationError() }
-        let schoolPassword = storage.currentStudentID == account ? storage.currentPassword : ""
+        let schoolPassword = storage.currentStudentID == account && !storage.currentPassword.isEmpty
+            ? storage.currentPassword : password
         try storage.saveLoginState(studentID: account, password: schoolPassword, fakeCookie: response.fakeCookie,
             communityPasswordDigest: digest)
         return account

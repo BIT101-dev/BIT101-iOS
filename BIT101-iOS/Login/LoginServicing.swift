@@ -62,8 +62,10 @@ struct UITestLoginService: LoginServicing, AccountRegistrationServicing {
         let account = studentID.trimmingCharacters(in: .whitespacesAndNewlines)
         defaults.set(account, forKey: Key.studentID)
         defaults.set(true, forKey: Key.hasSession)
-        let schoolPassword = AppAccountSession.storage.currentStudentID == account ? AppAccountSession.storage.currentPassword : ""
-        try AppAccountSession.storage.saveLoginState(studentID: account, password: schoolPassword, fakeCookie: "ui-test-cookie",
+        let storage = AppAccountSession.storage
+        let schoolPassword = storage.currentStudentID == account && !storage.currentPassword.isEmpty
+            ? storage.currentPassword : password
+        try storage.saveLoginState(studentID: account, password: schoolPassword, fakeCookie: "ui-test-cookie",
             communityPasswordDigest: LoginCrypto.md5Hex(password))
         var seededAccounts = defaults.stringArray(forKey: Key.seededScheduleAccounts) ?? []
         if !seededAccounts.contains(account) {
