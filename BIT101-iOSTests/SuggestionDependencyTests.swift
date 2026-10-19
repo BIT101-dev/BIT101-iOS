@@ -365,7 +365,7 @@ nonisolated final class AppLocalDataResourceTests: XCTestCase {
         XCTAssertTrue(!AppAccountSession.storage.fakeCookie.isEmpty)
         var loggedOut = false
         let reset = await service.resetAllLocalData { loggedOut = true }
-        XCTAssertTrue(reset)
+        XCTAssertTrue(reset, service.resetFailureMessage ?? "Local data reset completed")
         XCTAssertTrue(loggedOut && !service.isCleaning)
         for file in [support, report, mediaCache] { XCTAssertTrue(files.fileExists(at: file) == false) }
         XCTAssertTrue(snapshotStore.load() == nil)
@@ -482,6 +482,7 @@ struct AppLocalDataOwnershipTests {
         try surroundingFiles.writeData(Data([4]), to: url, options: [])
         let service = AppLocalDataService(files: files, actions: selected.actions)
         #expect(await service.resetAllLocalData { selected.events.append("logout") } == false)
+        #expect(service.resetFailureMessage == "以下本机数据仍待清理：登录凭据、课表缓存、小组件与手表数据、网络验收记录、图片缓存。请稍后重试。")
         #expect(selected.events == ["login", "storage", "schedule", "shared", "reports", "diagnostics", "preferences", "media", "url-cache", "web-data", "settings", "storage-resume", "logout"])
         #expect(files.fileExists(at: url) == false)
         #expect(try surroundingFiles.readData(at: url) == Data([4]))

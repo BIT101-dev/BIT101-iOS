@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 
 /// 同步文件操作使用独立串行队列，保持异步任务执行线程可用。
 package nonisolated final class StorageFileExecutor: SerialExecutor {
@@ -104,6 +105,7 @@ extension AppFileService {
 
 /// 本机文件系统的默认实现。
 public nonisolated struct LocalAppFileService: AppFileService, Sendable {
+    private static let logger = Logger(subsystem: "BIT101", category: "LocalFileCleanup")
     private let configureBackup: @Sendable (URL, Bool) throws -> Void
 
     public init() { configureBackup = Self.configureBackup }
@@ -225,13 +227,20 @@ public nonisolated struct LocalAppFileService: AppFileService, Sendable {
     public func removeContents(of directory: URL) -> Bool {
         let children: [URL]
         do { children = try contentsOfDirectory(at: directory, options: []) }
-        catch { return AppFileSystem.isMissingFile(error) }
+        catch {
+            if AppFileSystem.isMissingFile(error) { return true }
+            let failure = error as NSError
+            Self.logger.error("Cleanup directory read failed: \(directory.path, privacy: .private) domain=\(failure.domain, privacy: .public) code=\(failure.code)")
+            return false
+        }
         var succeeded = true
         for child in children {
             do {
                 try removeItemIfPresent(at: child)
             } catch {
                 succeeded = false
+                let failure = error as NSError
+                Self.logger.error("Cleanup removal failed: \(child.path, privacy: .private) domain=\(failure.domain, privacy: .public) code=\(failure.code)")
             }
         }
         return succeeded

@@ -1,6 +1,7 @@
 import StorageCore
 import Foundation
 import Combine
+import OSLog
 
 nonisolated struct AppCacheCleanupResult: Sendable {
     let reclaimedBytes: Int64
@@ -28,6 +29,7 @@ struct AppLocalDataActions {
 /// 应用本地数据清理由操作服务承接，页面绑定进度与结果。
 @MainActor
 final class AppLocalDataService: ObservableObject {
+    private static let logger = Logger(subsystem: "BIT101", category: "LocalDataCleanup")
     @Published private(set) var isCleaning = false
     private(set) var resetFailureMessage: String?
     private let files: any AppFileService
@@ -63,7 +65,20 @@ final class AppLocalDataService: ObservableObject {
         actions.resetSettings()
         actions.resumeStorageOperations()
         onLogout()
-        return didClearLoginData && didClearSchedule && didClearSharedSnapshot && didClearSmokeArtifacts && didClearMedia && didClearSandboxFiles
+        let failures = [
+            (didClearLoginData, "登录凭据"),
+            (didClearSchedule, "课表缓存"),
+            (didClearSharedSnapshot, "小组件与手表数据"),
+            (didClearSmokeArtifacts, "网络验收记录"),
+            (didClearMedia, "图片缓存"),
+            (didClearSandboxFiles, "本机文稿与应用数据"),
+        ].filter { !$0.0 }.map(\.1)
+        if !failures.isEmpty {
+            let items = failures.joined(separator: "、")
+            resetFailureMessage = "以下本机数据仍待清理：\(items)。请稍后重试。"
+            Self.logger.error("Local data cleanup pending: \(items, privacy: .public)")
+        }
+        return failures.isEmpty
     }
 
     func clearCaches() async -> AppCacheCleanupResult {
