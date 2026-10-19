@@ -100,14 +100,23 @@ with lock_path.open("a") as lock:
     script = Path(sys.argv[3])
     command = ["zsh", "-c", script.read_text(), str(script), *sys.argv[4:]]
     owns_process_group = os.environ.get("BIT101_DEVICE_WORKFLOW_LOCK_HELD") != "1"
-    process = subprocess.Popen(command, env=environment, start_new_session=owns_process_group)
+    process = None
+    pending_signal = None
     def interrupt(signum, _frame):
+        global pending_signal
+        if process is None:
+            pending_signal = signum
+            return
         try:
             if owns_process_group and process.poll() is None: os.killpg(process.pid, signum)
         except ProcessLookupError:
             pass
     for signum in (signal.SIGINT, signal.SIGTERM):
         signal.signal(signum, interrupt)
+    process = subprocess.Popen(command, env=environment, start_new_session=owns_process_group)
+    if pending_signal is not None and process.poll() is None:
+        if owns_process_group: interrupt(pending_signal, None)
+        else: process.send_signal(pending_signal)
     try:
         status = process.wait(timeout=max(0, deadline - time.monotonic())) if owns_process_group else process.wait()
     except subprocess.TimeoutExpired:

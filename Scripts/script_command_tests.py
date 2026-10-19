@@ -887,6 +887,8 @@ def workflow_lock_boundary_findings() -> list[str]:
         fixture.mkdir(parents=True, exist_ok=True); os.mkfifo(release)
         support = (SCRIPT_ROOT / "script-support.sh").read_text().replace(
             '"$HOME/Library/Caches/BIT101-iOS/device-workflow.lock"', shlex.quote(str(fixture / "device-workflow.lock")))
+        launch = '    process = subprocess.Popen(command, env=environment, start_new_session=owns_process_group)'
+        support = support.replace(launch, launch + '\n    if not owns_process_group and sys.argv[-1] == "signal": time.sleep(1)')
         dispatch = (SCRIPT_ROOT / 'build-install-device.sh').read_text().split('if [[ "$ACTION" == install', 1)[1].split('\nif [[ "$ACTION" == install', 1)[0]
         test_lock = re.search(r'(?ms)^acquire_test_lock\(\) \{.*?^\}', (SCRIPT_ROOT / 'run-extended-tests.sh').read_text())[0]
         worker.write_text('ROOT_DIR="$BIT101_LOCK_TEST_CHECKOUT"\n' + support + '\n' + test_lock + '\n'

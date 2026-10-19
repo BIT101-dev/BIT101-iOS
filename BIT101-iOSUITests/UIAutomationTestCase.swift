@@ -118,12 +118,16 @@ nonisolated class UIAutomationTestCase: XCTestCase {
 
     @MainActor
     func reveal(_ element: UIElement, description: String = "交互控件") {
-        if element.exists && element.isHittable { return }
-        if !UIElement.usesNativeInteraction, element.revealInScrollView() == "revealed", element.exists && element.isHittable {
+        let window = app.windows.firstMatch.frame
+        func isVisible() -> Bool {
+            guard element.exists, element.isHittable else { return false }
+            return window.contains(CGPoint(x: element.frame.midX, y: element.frame.midY))
+        }
+        if isVisible() { return }
+        if !UIElement.usesNativeInteraction, element.revealInScrollView() == "revealed", isVisible() {
             print("UI scroll reveal")
             return
         }
-        let window = app.windows.firstMatch.frame
         let frame = interactionScrollFrame() ?? app.frame
         let origin = app.coordinate(withNormalizedOffset: .zero)
         for attempt in 0..<16 {
@@ -134,7 +138,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             let end = origin.withOffset(CGVector(dx: horizontal ? frame.minX + frame.width * (target.minX >= window.maxX ? 0.1 : 0.9) : frame.minX + frame.width * 0.03,
                                                 dy: horizontal ? frame.midY : frame.minY + frame.height * (upward ? 0.1 : 0.9)))
             start.press(forDuration: 0.01, thenDragTo: end, withVelocity: .fast, thenHoldForDuration: 0.1)
-            if element.exists && element.isHittable { return }
+            if isVisible() { return }
         }
         assertUI(false, "滚动后目标应可触达：\(description)。存在：\(element.exists)，窗口：\(app.windows.firstMatch.frame)。\(focusedAccessibilitySnapshot(app, matching: [description, "Button", "Alert"]))")
     }
@@ -330,7 +334,9 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         if UIElement.usesNativeInteraction {
             let done = app.buttons["keyboard.dismiss"]
             assertUI(done.appears(timeout: 5), "系统键盘应呈现完成按钮。")
-            done.press(forDuration: 0.01)
+            assertUI(waitUntil(NSPredicate(format: "hittable == true"), on: done, timeout: 5),
+                     "键盘完成按钮应进入可触达状态。")
+            done.tapVisibleCenter()
             assertUI(app.keyboards.firstMatch.disappears(timeout: 5), "原生完成按钮应关闭系统键盘。")
             return
         }
@@ -542,7 +548,12 @@ nonisolated class UIAutomationTestCase: XCTestCase {
                     .allElementsBoundByIndex.map { ($0.identifier, $0.label) }
                 let axis = range[1] > 0 ? 1 : 0
                 element.dragScroll(vertical: axis == 1, towardEnd: remaining[axis] > 0)
-                let outcome = UITestControlClient.request(parameters.merging(["command": "scroll-check"]) { _, value in value })
+                var outcome: String?
+                let moved = NSPredicate { _, _ in
+                    outcome = UITestControlClient.request(parameters.merging(["command": "scroll-check"]) { _, value in value })
+                    return outcome == "scrolled"
+                }
+                _ = waitUntil(moved, on: element, timeout: 5)
                 XCTAssertEqual(outcome, "scrolled", "滚动手势应改变内容位置：\(identifier)，范围 \(range)，位置 \(offset)，剩余 \(remaining)。")
                 let restored = NSPredicate { _, _ in
                     UITestControlClient.request(parameters.merging(["command": "scroll-restore"]) { _, value in value }) == "restored"
