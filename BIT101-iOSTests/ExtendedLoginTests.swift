@@ -594,19 +594,54 @@ struct LoginStorageTests {
         #expect(reopened.currentStudentID == "C" && reopened.fakeCookie == "cookie-C")
     }
 
-    @Test func credentialMigrationUsesTheSelectedBackend() throws {
+    @Test(arguments: [false, true])
+    func freshInstallationClearsCredentialsLeftInKeychain(hasResidue: Bool) throws {
+        let domain = "BIT101Tests.login-storage.fresh-install"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let backend = Credentials()
+        if hasResidue {
+            backend.values = ["login.sid": "previous-account", "login.password": "previous-password",
+                "login.fakeCookie": "previous-cookie",
+                "login.session": #"{"studentID":"previous-account","password":"previous-password","fakeCookie":"previous-cookie"}"#]
+        }
+        var schoolCookieClears = 0
+        let storage = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: { schoolCookieClears += 1 })
+        #expect(storage.currentStudentID.isEmpty && storage.currentPassword.isEmpty && storage.fakeCookie.isEmpty)
+        #expect(try storage.loadCredentials() == nil && storage.loadCommunityPasswordDigest() == nil)
+        #expect(backend.values.isEmpty && schoolCookieClears == 1)
+        #expect(defaults.bool(forKey: "login.installationMarker"))
+        try storage.saveLoginState(studentID: "new-account", password: "school-password", fakeCookie: "new-cookie")
+        let reopened = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: {})
+        #expect(reopened.currentStudentID == "new-account" && reopened.currentPassword == "school-password")
+        #expect(reopened.fakeCookie == "new-cookie")
+    }
+
+    @Test(arguments: ["legacy-keys", "session-record"])
+    func credentialMigrationUsesTheSelectedBackend(format: String) throws {
         let domain = "BIT101Tests.login-storage.migration"
         let defaults = try #require(UserDefaults(suiteName: domain))
         defaults.removePersistentDomain(forName: domain)
         defer { defaults.removePersistentDomain(forName: domain) }
         defaults.set(true, forKey: "login.installationMarker")
-        defaults.set("legacy-cookie", forKey: "login.fakeCookie")
         let backend = Credentials()
-        backend.values["login.sid"] = "A"
-        let storage = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: {})
+        if format == "legacy-keys" {
+            defaults.set("legacy-cookie", forKey: "login.fakeCookie")
+            backend.values = ["login.sid": "A", "login.password": "school-password"]
+        } else {
+            backend.values["login.session"] = #"{"studentID":"A","password":"school-password","fakeCookie":"legacy-cookie"}"#
+        }
+        var schoolCookieClears = 0
+        let storage = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: { schoolCookieClears += 1 })
         #expect(storage.fakeCookie == "legacy-cookie")
+        #expect(storage.currentPassword == "school-password" && schoolCookieClears == 0)
         #expect(storage.communityCredentials.identity == .init(accountIdentifier: "A"))
         #expect(defaults.object(forKey: "login.fakeCookie") == nil)
+        #expect(try storage.loadCommunityPasswordDigest() == nil)
+        let reopened = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: {})
+        #expect(reopened.currentStudentID == "A" && reopened.currentPassword == "school-password")
+        #expect(reopened.fakeCookie == "legacy-cookie")
     }
 
     @Test func clearingPreferencesAndSigningInAgainKeepsTheNewSessionAcrossLaunch() throws {

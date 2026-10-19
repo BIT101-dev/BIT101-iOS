@@ -610,8 +610,10 @@ run_tests() {
     bit101_invalidate_restore || return $?
   fi
   if [[ "$BUILD_ONLY" == false ]]; then execution_args+=(-test-timeouts-enabled YES); fi
-  echo "[$test_action] $group"
-  if bit101_run_logged "$log" "$group 输出" xcodebuild "$test_action" -quiet \
+  local inventory_label="$MODE · 完整库存"
+  if (( ${#TEST_SELECTIONS[@]} > 0 )); then inventory_label="$MODE · 定向回归 · ${#TEST_SELECTIONS[@]} 个筛选"; fi
+  echo "[$test_action] $inventory_label"
+  if bit101_run_logged "$log" "$inventory_label 输出" xcodebuild "$test_action" -quiet \
     "${project_args[@]}" \
     -destination "$TEST_DESTINATION" \
     -collect-test-diagnostics "$diagnostics" \

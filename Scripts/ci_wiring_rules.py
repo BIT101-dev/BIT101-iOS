@@ -383,6 +383,8 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
                 'include-hidden-files': True, 'if-no-files-found': 'error',
                 'path': '.build/compiler-cache/CompilationCache.noindex\n.build/compiler-cache/compilation-cache.json\n.build/compiler-cache/swift-syntax-indexer\n.build/compiler-cache/swift-syntax-indexer-inputs.json\n'}.items()):
             errors.append(f'.github/workflows/ci.yml: {name} 需要沿固定目录零压缩保存原生缓存')
+        if len(save) == 1 and save[0].get('continue-on-error') is not True:
+            errors.append(f'.github/workflows/ci.yml: {name} 的缓存上传需要独立于验证结果')
     host = mapping(jobs.get('ios-ui-build'))
     host_upload = [step for step in host.get('steps', []) if step.get('name') == 'Preserve shared UI test host']
     if len(host_upload) != 1 or not re.fullmatch(r'actions/upload-artifact@[0-9a-f]{40}', str(host_upload[0].get('uses', ''))) \
@@ -525,6 +527,8 @@ def _evidence_execution_findings(command: str, key: str, expected: tuple[str, ..
 def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
     source = workflow_source
     for before, after in (
+            ('      - name: Preserve native compilation cache\n        continue-on-error: true',
+             '      - name: Preserve native compilation cache'),
             ('BIT101_FULL_CHECK: ${{ github.event_name == \'workflow_dispatch\' && inputs.full_check }}', 'BIT101_FULL_CHECK: false'),
             ('      full_check:', '      unused_check:'),
             ('description: Execute every ordinary CI validation group in this run\n        required: false\n        default: false\n        type: boolean',

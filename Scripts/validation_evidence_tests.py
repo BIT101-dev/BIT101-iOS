@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 from unittest.mock import patch
 from swift_source_index import swift_syntax_index_sources
+from validation_performance_tests import developer_directory_self_test
 from validation_provenance_tests import network_trace_fixture, network_route_identity_self_test
 
 def request_body_shape_self_test() -> None:
@@ -812,44 +813,6 @@ def native_cases_self_test(subject) -> None:
             assert not subject.selected_test_summary_complete(forged, [method])
     facts = subject.swift_syntax_index_sources({'parameter-count': 'import Testing; struct Suite { @Test(arguments: [1, 2], [true, false, true]) func image(_: Int, _: Bool) {} }'})['parameter-count']
     assert facts['tests'][0]['testCaseCount'] == 6
-
-def developer_directory_self_test() -> None:
-    from io import BytesIO
-    from types import SimpleNamespace
-    from unittest.mock import patch
-    import validation_environment as environment
-    developer = Path('/chosen/Xcode.app/Contents/Developer')
-    def plist(path, keys):
-        if path == developer.parent / 'Info.plist': return {'CFBundleShortVersionString': 'fixture', 'CFBundleVersion': '1'}
-        if path == developer / 'Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/SDKSettings.plist': return {'Version': 'fixture'}
-        return {}
-    try:
-        with patch.object(environment.subprocess, 'check_output', side_effect=lambda args, **kwargs:
-                '/chosen/swift-frontend\n' if args[0] == 'xcrun' else args[0] + ' fixture-version\n'), \
-                patch.object(environment, 'plist_values', side_effect=plist), \
-                patch.object(Path, 'is_file', return_value=True), \
-                patch.object(Path, 'stat', return_value=SimpleNamespace(st_size=8, st_mtime_ns=1)), \
-                patch.object(Path, 'open', side_effect=lambda *args, **kwargs: BytesIO(b'compiler')):
-            contexts = []
-            for selected in ('/chosen/Xcode.app', str(developer)):
-                with patch.dict(os.environ, DEVELOPER_DIR=selected):
-                    environment.host_environment.cache_clear()
-                    environment.environment_context.cache_clear()
-                    context = environment.environment_context('audit')
-                    assert environment.complete_environment('audit', context), selected
-                    assert context['runtimes'] == {'python': sys.version,
-                        **{name: name + ' fixture-version' for name in ('ruby', 'node', 'npm', 'ruff')}}
-                    assert not environment.complete_environment('audit', context | {'runtimes': {
-                        name: value for name, value in context['runtimes'].items() if name != 'ruff'}})
-                    contexts.append(context)
-            assert contexts[0] == contexts[1]
-    finally:
-        environment.host_environment.cache_clear()
-        environment.environment_context.cache_clear()
-    from validation_provenance import source_digest
-    context = contexts[0]
-    assert source_digest('audit', environment=context) != source_digest('audit', environment=context | {
-        'runtimes': context['runtimes'] | {'ruff': 'changed-version'}})
 
 def module_events_self_test(subject) -> None:
     from unittest.mock import patch

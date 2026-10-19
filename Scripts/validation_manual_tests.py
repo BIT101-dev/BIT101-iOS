@@ -85,6 +85,13 @@ def evidence_fixture(check: str) -> bytes:
                 if row['platform'] == ('watchOS' if check == 'watch' else 'iOS') and not row['extension'])
             identifier, row = contract
             bundle = next(value for value in distribution_fixture()[1]['bundles'] if value['identifier'] == identifier)
+            if check == 'installation-paths':
+                from validation_manual import INSTALLATION_ACTIONS
+                for name, actions in INSTALLATION_ACTIONS.items():
+                    scenarios[name]['actions'] = {action: {'operation': '实际操作', 'result': '观察结果', 'outcome': 'passed'} for action in actions}
+                scenarios['app-store-upgrade'].update(
+                    sourceApplication={'identifier': identifier, 'version': '1.0', 'build': '1', 'distributionChannel': 'app-store'},
+                    appStoreLookup={'trackId': 6761147125, 'bundleId': identifier, 'version': '1.0'})
             desktop = check == 'catalyst-desktop'
             platform = 'macCatalyst' if desktop else 'watchOS' if check == 'watch' else 'iOS'
             minimum = compilation_settings('macOS' if desktop else platform)[1]
@@ -500,6 +507,26 @@ def run_self_test(_source_identity) -> None:
                     else: observations[capability]['result'] = ''
                     assert not scenario_complete(check, changed)
     from validation_test_areas import NETWORK_CAPABILITIES, MANUAL_CAPABILITY_SCENARIOS
+    installation = json.loads(evidence_fixture('installation-paths'))
+    for name, row in installation['scenarios'].items():
+        for action in row['actions']:
+            for fault in ('missing', 'failed', 'empty'):
+                changed = copy.deepcopy(installation)
+                actions = changed['scenarios'][name]['actions']
+                if fault == 'missing': del actions[action]
+                elif fault == 'failed': actions[action]['outcome'] = 'failed'
+                else: actions[action]['result'] = ''
+                assert not scenario_complete('installation-paths', changed)
+    for field, key, value in [('sourceApplication', 'distributionChannel', 'testflight'),
+            ('sourceApplication', 'build', ''), ('sourceApplication', 'identifier', 'other'),
+            ('appStoreLookup', 'trackId', 0), ('appStoreLookup', 'bundleId', 'other'), ('appStoreLookup', 'version', 'other')]:
+        changed = copy.deepcopy(installation)
+        changed['scenarios']['app-store-upgrade'][field][key] = value
+        assert not scenario_complete('installation-paths', changed)
+    for field in ('sourceApplication', 'appStoreLookup'):
+        changed = copy.deepcopy(installation)
+        del changed['scenarios']['app-store-upgrade'][field]
+        assert not scenario_complete('installation-paths', changed)
     profile = json.loads(evidence_fixture('profile-writes'))
     owner = 'BIT101-iOS.SettingsNetworkService'
     with patch.dict(NETWORK_CAPABILITIES[owner], {'newProfileWrite()': 'profile-writes'}), \

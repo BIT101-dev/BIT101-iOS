@@ -97,6 +97,50 @@ def committed_source_identity_self_test() -> None:
         assert provenance._clean_source_identity('manual-device', {})
 
 
+def developer_directory_self_test() -> None:
+    import os
+    import sys
+    from io import BytesIO
+    from validation_manual_tests import source_identity_fixture
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    import validation_environment as environment
+    developer = Path('/chosen/Xcode.app/Contents/Developer')
+    def plist(path, keys):
+        if path == developer.parent / 'Info.plist': return {'CFBundleShortVersionString': 'fixture', 'CFBundleVersion': '1'}
+        if path == developer / 'Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/SDKSettings.plist': return {'Version': 'fixture'}
+        return {}
+    try:
+        with patch.object(environment.subprocess, 'check_output', side_effect=lambda args, **kwargs:
+                '/chosen/swift-frontend\n' if args[0] == 'xcrun' else args[0] + ' fixture-version\n'), \
+                patch.object(environment, 'plist_values', side_effect=plist), \
+                patch.object(Path, 'is_file', return_value=True), \
+                patch.object(Path, 'stat', return_value=SimpleNamespace(st_size=8, st_mtime_ns=1)), \
+                patch.object(Path, 'open', side_effect=lambda *args, **kwargs: BytesIO(b'compiler')):
+            contexts = []
+            for selected in ('/chosen/Xcode.app', str(developer)):
+                with patch.dict(os.environ, DEVELOPER_DIR=selected):
+                    environment.host_environment.cache_clear()
+                    environment.environment_context.cache_clear()
+                    context = environment.environment_context('audit')
+                    assert environment.complete_environment('audit', context), selected
+                    assert context['runtimes'] == {'python': sys.version,
+                        **{name: name + ' fixture-version' for name in ('ruby', 'node', 'npm', 'ruff')}}
+                    assert not environment.complete_environment('audit', context | {'runtimes': {
+                        name: value for name, value in context['runtimes'].items() if name != 'ruff'}})
+                    contexts.append(context)
+            assert contexts[0] == contexts[1]
+    finally:
+        environment.host_environment.cache_clear()
+        environment.environment_context.cache_clear()
+    from validation_provenance import source_digest
+    context = contexts[0]
+    with patch('validation_provenance._clean_source_identity', return_value=None), \
+            patch('validation_provenance._local_source_identity', side_effect=source_identity_fixture()):
+        assert source_digest('audit', environment=context) != source_digest('audit', environment=context | {
+            'runtimes': context['runtimes'] | {'ruff': 'changed-version'}})
+
+
 def static_audit_cancellation_self_test() -> None:
     import os
     import signal

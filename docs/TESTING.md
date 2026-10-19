@@ -10,6 +10,7 @@
 - `all` 与 Catalyst 离线行为宿主使用空场景、内存凭据及云偏好、独立偏好域和固定隔离文件根目录。默认传输核对回环地址，消费者测试显式提供受控响应；真实网络由专项 Smoke 验收。正式运行时合同沿 `release-runtime` 的生产编译条件执行。
 - 测试、静态审计、网络 Smoke 和 iCloud Smoke 按用户明确授权的范围执行。失败修复后重跑受影响的分组。
 - 真机排查与回归结束后保留测试宿主、结果和现场，退出钩子负责必要的测试数据清理与证据归集。相关测试全部通过后，统一执行一次 `Scripts/build-install-device.sh` 安装并启动常规 Release App。
+- 安装路径分别验收全新安装与从 App Store 当前正式版覆盖升级。常规回归覆盖空偏好域、卸载后钥匙串残留和旧凭据迁移；发布流程通过 `installation-paths` 真机专项完成两条实际安装路径。
 - 界面验证使用既有 UI 测试、截图脚本与命令行流程。设备自动化授权由 iOS 管理，系统要求时由用户在设备上输入密码，设备继续保留密码保护。
 - `BIT101-iOSTests/Fixtures/` 和测试 target 内的样例、fixture、校准及人工准备数据属于长期资产，沿用固定路径。清理或改写前确认来源、用途和恢复方式，并取得用户明确同意。
 
@@ -24,6 +25,8 @@
 Xcode 构建启用原生编译结果缓存，沿共享的 `CompilationCache.noindex` 按实际源码与编译输入复用结果。Swift 与 Clang 使用 Xcode 的标准路径映射，将工具链、源码与构建目录纳入稳定的缓存键；跨机器缓存的路径要求沿 [Swift 编译器团队说明](https://forums.swift.org/t/about-swift-shared-cache-across-machines/81850)核对。LLVM 覆盖率共同采集主可执行文件、Debug 动态库与嵌入框架，沿标准前缀还原实际源码路径，并继续核对原始可执行行和版本化门槛。测试宿主切换和增量重建共用该缓存，调用方的显式设置继续生效。
 
 托管 CI 按构建分组交换原生编译缓存，以零压缩级别保存缓存目录与工具链身份。恢复沿 HTTP 范围请求并行下载，并发份数沿运行器 CPU 库存分配；逐段核对字节数，完整归档在内存中合并，再交由 ZIP 读取器解析并核对身份、路径与符号链接。恢复核对仓库、main 分支来源、工作流、提交祖先关系、编译器与 SDK 身份；源码和编译参数继续由原生缓存核对。验证任务沿 Actions 读取权限运行，main 推送与 main 手动运行发布更新的缓存；专用清理任务保留每组的一份缓存。缓存首轮建立后，后续完整工作流的计时继续包含恢复、上传及清理成本。
+
+编译缓存承担加速职责；远端缓存读取、下载或解析失败时沿当前源码编译，缓存上传独立报告结果。测试、覆盖率、共享 UI 宿主和验收证据按各自必需步骤验收。工具链与输入身份自测使用隔离的内存记录，正式报告保留实际执行环境。测试方法清单与参数实例计数共用按源码内容缓存的解析结果，源码变化进入新的解析输入。终端测试入口明确显示定向回归或完整库存，完整验收由所属库存、覆盖率与发布检查共同确认。
 
 常规托管 CI 自动取消同分支的旧运行。版本标签与手动发布验收使用独立并发组，真机验收和 App 恢复沿完整流程完成。托管运行器优先复用已启动的库存 iPhone，完成缓存恢复与基准请求后提交系统启动请求，系统初始化与宿主编译并行；测试前归集系统就绪及 UI 宿主初始化结果。模拟器执行沿项目日志与原始 XCTest 结果保存诊断，CI 即时展示已完成 UI 用例的名称与耗时，自动系统诊断采集由显式导出流程承接。
 
@@ -489,13 +492,17 @@ Catalyst 沿本次运行的原始 profile 与正式 App、模块二进制导出�
 
 发布资产按可分享的回执范围审阅，上传沿用户明确授权执行。
 
-人工观察由执行人员确认操作、账号、服务端结果与对应媒体的关联，结构门禁核对能力库存、场景完成状态及媒体有效性。分享页 HTTP/HTML 探针核对目的地址，浏览器交接专项沿实际页面按钮确认打开 App 并返回。首次登录、个人资料写入、举报与 iPad 布局使用结构化人工专项，分别登记 `first-login`、`profile-writes`、`gallery-report` 与 `ipad-layout`。
+人工观察由执行人员确认操作、账号、服务端结果与对应媒体的关联，结构门禁核对能力库存、场景完成状态及媒体有效性。分享页 HTTP/HTML 探针核对目的地址，浏览器交接专项沿实际页面按钮确认打开 App 并返回。首次登录、安装路径、个人资料写入、举报与 iPad 布局使用结构化人工专项，分别登记 `first-login`、`installation-paths`、`profile-writes`、`gallery-report` 与 `ipad-layout`。
 
 `message-read` 核对本地已读保存与服务端分类清零；`web-interactions` 分别观察网络诊断、启动更新检查、手动更新检查、学校短信续验、学校日历同步，以及网页话廊登录、账号切换和退出后的 localStorage 凭据及页面重载。首次登录在正式 App 中清理登录态，以学校统一身份认证密码完成登录并取得社区会话，随后访问学期、课表、空教室、DDL 和成绩，核对学校功能自动复用登录凭据；授权的新账号通过学校身份或校园邮箱验证完成注册并进入主界面。资料专项使用专用账号实际保存昵称、上传并绑定头像，随后恢复原资料并重新读取核对；举报专项使用明确授权的专用帖子确认服务端接收。
 
 iPad 专项覆盖竖屏、横屏、分屏及窗口调整，核对登录、主要导航、课表、内容详情与键盘操作。iPad 沿系统旋转和窗口管理适配尺寸，配置采用支持多方向的常规模式；迁移依据 [Apple 的 iPad 全屏模式说明](https://developer.apple.com/documentation/technotes/tn3192-migrating-your-app-from-the-deprecated-uirequiresfullscreen-key)。
 
 各专项附件使用 `schemaVersion: 1` 与 `scenarios` 字典，键名沿 `Scripts/validation_manual.py` 的 `MANUAL_SCENARIOS` 登记。每个场景记录 `operation`、`result`、`outcome: "passed"`、实际 `capturedAt` 与 `capture` 使用的影像证据结构。涉及网络能力的场景增加 `capabilities` 字典，键名为 `Scripts/validation_policy.py` 的完整所属类型与方法签名，各项记录实际 `operation`、`result` 与 `outcome: "passed"`；`MANUAL_CAPABILITY_SCENARIOS` 登记方法对应场景，新增方法需要独立观察。
+
+`installation-paths` 包含 `clean-install` 与 `app-store-upgrade`。两项可在同一台 iPhone 上顺序执行：先从 App Store 安装当前正式版，准备已登录账号、课表与调课、自定义日程、已完成 DDL 和用户设置，随后通过 TestFlight 保留现有数据覆盖安装候选版，核对数据和功能，采集升级证据；完成数据保留验收后，在已授权清理的测试数据上执行全新安装。全新安装同时覆盖空钥匙串和卸载后保留钥匙串两种初始状态。每条路径独立执行学校与社区功能，并在退出进程后重新启动核对持久化；学校功能包含学期选择、课表同步、空教室查询、两套乐学 DDL 和成绩。
+
+安装场景的 `actions` 按 `INSTALLATION_ACTIONS` 逐项记录 `operation`、`result` 与 `outcome: "passed"`。升级场景增加 `sourceApplication`，保存原 App Store 包的 `identifier`、`version`、`build` 和 `distributionChannel: "app-store"`；`appStoreLookup` 保存验收时从 Apple 官方 `https://itunes.apple.com/lookup?id=6761147125&country=cn` 返回的所属应用记录，门禁核对 `trackId`、`bundleId` 与 `version`。目标候选包沿专项顶层 `application` 登记。原登录态有效时核对自动恢复，凭据过期时核对一次重新登录及数据保留。空状态及迁移夹具回归、开发包覆盖安装、已登录宿主运行分别登记各自结果；实际商店覆盖升级由该专项的安装来源、前后数据观察和影像共同验收。
 
 反馈投递附件在顶层使用相同 `capabilities` 结构，并保留存储与邮件回执。iPad 附件增加 `platform: "iOS"`、`deviceFamily: "iPad"`、设备标识、型号、系统版本与构建；系统版本达到 iOS 部署要求。`application` 保存正式包标识、版本、构建、Release 配置、空测试宿主标记、最低系统版本、可执行文件 SHA-256 与 Mach-O UUID，`inputDigest` 沿 `source_digest("manual-device", environment={})` 绑定源码和验证输入。
 

@@ -45,7 +45,7 @@ def test_identity_self_test() -> None:
     facts[str(first)]['tests'][0]['value'] = 'FirstTests.Probe/check'
     other['tests'][0]['value'] = 'SecondTests.Probe/check'
     facts[str(second)] = other
-    with patch.object(subject, 'swift_syntax_index_sources', return_value=facts):
+    with patch.object(subject, 'indexed_test_sources', return_value=facts):
         try: subject.test_selectors.__wrapped__('modules')
         except ValueError as error: assert 'Probe/check' in str(error)
         else: raise AssertionError('模块前缀归一化后的歧义需要进入库存失败')

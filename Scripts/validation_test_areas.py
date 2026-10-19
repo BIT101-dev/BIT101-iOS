@@ -1,6 +1,6 @@
 """Declare App test inventories and verify smoke capability coverage."""
 from pathlib import Path
-from functools import cache
+from functools import cache, lru_cache
 import re
 from validation_policy import FORMAL_RUNTIME_SUITES, NETWORK_CAPABILITIES, MANUAL_CAPABILITY_SCENARIOS, manual_capabilities
 from validation_compilation import active_swift_source
@@ -176,6 +176,11 @@ extension ExistingRegularTests { @Test func productionOnly() {} }
     assert any('NewProductionTests' in row for row in formal_inventory_findings(raw, regular, 'release-runtime'))
     assert any('ExistingRegularTests/productionOnly' in row for row in formal_inventory_findings(raw, regular, 'release-runtime'))
     assert not any('ExistingRegularTests/existing' in row for row in formal_inventory_findings(raw, regular, 'release-runtime'))
+    original = ((path, source),)
+    facts = indexed_test_sources(original)
+    assert indexed_test_sources(original) is facts
+    updated = indexed_test_sources(((path, source + '\n@Test func addedContract() {}'),))
+    assert {test['value'] for test in updated[path]['tests']} - {test['value'] for test in facts[path]['tests']} == {'addedContract'}
 
 
 
@@ -733,6 +738,11 @@ public final class Observer {
         assert any(call['calledExpression'] == 'service.fetch' for call in calls) == expected, execution
 
 
+@lru_cache
+def indexed_test_sources(sources: tuple[tuple[str, str], ...]) -> dict:
+    return swift_syntax_index_sources(dict(sources))
+
+
 def raw_test_selectors(group: str) -> dict[str, str]:
     if group in TEST_AREA_SUITES:
         return {test: selector for test, selector in test_selectors("all").items()
@@ -743,7 +753,7 @@ def raw_test_selectors(group: str) -> dict[str, str]:
         sources[str(path)] = active_swift_source(path.read_text(), group, path=str(path))
     selectors = {}
     origins = {}
-    for path, facts in swift_syntax_index_sources(sources).items():
+    for path, facts in indexed_test_sources(tuple(sorted(sources.items()))).items():
         functions = {function['start']: function for function in facts['functionRanges']}
         for test in facts['tests']:
             selector = test['value']
@@ -777,7 +787,7 @@ def test_case_inventory(group: str) -> dict[str, int]:
     directory = ROOT / ('BIT101-iOSUITests' if effective == 'ui' else 'BIT101-iOSTests')
     sources = {str(path): active_swift_source(path.read_text(), effective, path=str(path))
         for path in directory.rglob('*.swift')}
-    index = swift_syntax_index_sources(sources)
+    index = indexed_test_sources(tuple(sorted(sources.items())))
     expected, enum_index = {}, None
     for path, facts in index.items():
         for test in facts['tests']:

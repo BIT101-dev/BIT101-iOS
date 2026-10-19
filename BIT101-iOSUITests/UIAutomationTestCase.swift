@@ -73,7 +73,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             button.tapBriefly { self.reveal(button, description: title) }
             return
         }
-        let exact = app.buttons.matching(NSPredicate(format: "label == %@", title))
+        let exact = app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", title, title))
         let exactExists = exact.firstMatch.exists
         let matches = exactExists ? exact : app.buttons.matching(NSPredicate(format: "label CONTAINS %@", title))
         let button = matches.firstMatch

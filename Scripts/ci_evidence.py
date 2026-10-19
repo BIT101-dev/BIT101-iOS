@@ -161,19 +161,26 @@ def restore_cache(flavor: str) -> None:
         if (CACHE_ROOT / CACHE_STORE).exists():
             print('编译缓存：复用工作区原生产物。')
             return
-        repo = repository()
-        artifacts = [row for page in api_pages(f'repos/{repo}/actions/artifacts?name=compilation-cache-{flavor}&per_page=100')
-            for row in page['artifacts'] if row['name'] == 'compilation-cache-' + flavor and not row['expired']]
-        for artifact in sorted(artifacts, key=lambda row: row['id'], reverse=True):
-            run = json.loads(subprocess.check_output(['gh', 'api', f"repos/{repo}/actions/runs/{artifact['workflow_run']['id']}"], text=True))
-            if not trusted_cache_run(run, repo): continue
-            commit = run['head_sha']
-            if not re.fullmatch('[0-9a-f]{40}', commit): continue
-            if subprocess.run(['git', 'merge-base', '--is-ancestor', commit, 'HEAD'], cwd=ROOT, capture_output=True).returncode: continue
-            payload = download_cache_payload(repo, artifact['id'])
-            print('编译缓存：' + ('已恢复工具链匹配的原生数据。' if restore_cache_payload(payload, flavor) else '当前工具链重新建立缓存。'))
-            return
-        print('编译缓存：首次建立当前分组的原生数据。')
+        try:
+            restore_remote_cache(flavor)
+        except (subprocess.CalledProcessError, OSError, ValueError, KeyError, zipfile.BadZipFile) as error:
+            print(f'编译缓存：沿当前源码重新编译（{type(error).__name__}）。')
+
+
+def restore_remote_cache(flavor: str) -> None:
+    repo = repository()
+    artifacts = [row for page in api_pages(f'repos/{repo}/actions/artifacts?name=compilation-cache-{flavor}&per_page=100')
+        for row in page['artifacts'] if row['name'] == 'compilation-cache-' + flavor and not row['expired']]
+    for artifact in sorted(artifacts, key=lambda row: row['id'], reverse=True):
+        run = json.loads(subprocess.check_output(['gh', 'api', f"repos/{repo}/actions/runs/{artifact['workflow_run']['id']}"], text=True))
+        if not trusted_cache_run(run, repo): continue
+        commit = run['head_sha']
+        if not re.fullmatch('[0-9a-f]{40}', commit): continue
+        if subprocess.run(['git', 'merge-base', '--is-ancestor', commit, 'HEAD'], cwd=ROOT, capture_output=True).returncode: continue
+        payload = download_cache_payload(repo, artifact['id'])
+        print('编译缓存：' + ('已恢复工具链匹配的原生数据。' if restore_cache_payload(payload, flavor) else '当前工具链重新建立缓存。'))
+        return
+    print('编译缓存：首次建立当前分组的原生数据。')
 
 
 def prune_caches() -> None:
@@ -254,6 +261,18 @@ def cache_self_test() -> None:
     from unittest.mock import patch
     module = sys.modules[__name__]
     cache_download_self_test()
+    for failure in (subprocess.CalledProcessError(1, ['gh', 'api']), OSError('cache unavailable'),
+            ValueError('invalid metadata'), KeyError('cache metadata'), zipfile.BadZipFile('truncated cache')):
+        with patch.object(Path, 'mkdir'), patch.object(Path, 'open'), patch.object(Path, 'exists', return_value=False), \
+                patch('fcntl.flock'), patch.object(module, 'restore_remote_cache', side_effect=failure) as restore, \
+                redirect_stdout(io.StringIO()) as output:
+            restore_cache('simulator-ui')
+            restore.assert_called_once_with('simulator-ui')
+            assert '沿当前源码重新编译' in output.getvalue()
+    with patch.object(Path, 'mkdir'), patch.object(Path, 'open'), patch.object(Path, 'exists', return_value=True), \
+            patch('fcntl.flock'), patch.object(module, 'restore_remote_cache') as restore, redirect_stdout(io.StringIO()):
+        restore_cache('simulator-ui')
+        restore.assert_not_called()
     identity = {'toolchain': 'compiler'}
     def payload(name=CACHE_STORE + '/data', *, context=identity, link=False, tools=False):
         buffer = io.BytesIO()

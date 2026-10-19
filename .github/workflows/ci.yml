@@ -173,6 +173,7 @@ jobs:
         if: ${{ (github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) && fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
         run: python3 Scripts/ci_evidence.py cache-export "release-build"
       - name: Preserve native compilation cache
+        continue-on-error: true
         if: ${{ (github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) && fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
@@ -252,6 +253,7 @@ jobs:
         if: ${{ (github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) && fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
         run: python3 Scripts/ci_evidence.py cache-export "catalyst-tests"
       - name: Preserve native compilation cache
+        continue-on-error: true
         if: ${{ (github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) && fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
@@ -335,6 +337,7 @@ jobs:
         if: ${{ (github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) && fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
         run: python3 Scripts/ci_evidence.py cache-export "simulator-ui"
       - name: Preserve native compilation cache
+        continue-on-error: true
         if: ${{ (github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) && fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
@@ -510,6 +513,7 @@ jobs:
         if: ${{ (github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) && fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
         run: python3 Scripts/ci_evidence.py cache-export "simulator-app"
       - name: Preserve native compilation cache
+        continue-on-error: true
         if: ${{ (github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) && fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:

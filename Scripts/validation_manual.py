@@ -18,6 +18,7 @@ from validation_performance import performance_comparison_complete
 MANUAL_DEVICE_CHECKS = {"system-autofill", "photos", "calendar-permissions", "notifications", "external-handoff", "web-interactions", "widget", "watch", "feedback-delivery", "distribution-signing", "minimum-platforms"}
 MANUAL_SCENARIOS = {
     'first-login': {'registered-account', 'new-account-registration'},
+    'installation-paths': {'clean-install', 'app-store-upgrade'},
     'profile-writes': {'nickname-save', 'avatar-bind', 'restore-profile'},
     'gallery-report': {'submit-and-confirm'},
     'message-read': {'first-open', 'interrupted-paging', 'local-save-failure'},
@@ -38,6 +39,11 @@ MANUAL_SCENARIOS = {
 }
 MANUAL_DEVICE_CHECKS.update(MANUAL_SCENARIOS)
 APPLICATION_SCENARIOS = set(MANUAL_SCENARIOS)
+INSTALLATION_ACTIONS = {
+    'clean-install': {'first-launch', 'single-login', 'keychain-residue', 'school-features', 'community-features', 'cold-start'},
+    'app-store-upgrade': {'install-over-store', 'preserve-login', 'preserve-schedule', 'preserve-ddl', 'preserve-settings',
+        'school-features', 'community-features', 'cold-start'},
+}
 BASELINE_CHECKS = {'iOS': {'cold-start-session', 'offline-persistence', 'media-and-navigation'},
     'watchOS': {'snapshot-receive', 'timeline-render', 'clear-and-retry'}}
 PERFORMANCE_WORKLOADS = performance_workloads()
@@ -208,6 +214,7 @@ def scenario_complete(check: str, proof: dict) -> bool:
                 or not isinstance(row.get('evidence'), dict) or not artifact_complete(row['evidence'], 'photos', media_only=True) \
                 or not capability_observations_complete(check, name, row.get('capabilities')): return False
         if check == 'performance-baseline' and not performance_comparison_complete(name, row.get('measurement')): return False
+        if check == 'installation-paths' and not installation_path_complete(name, row, proof['application']): return False
         if check == 'catalyst-desktop':
             required = {'menu-actions': {'app-menu', 'window-menu'}, 'keyboard-navigation': {'tab', 'return', 'escape'},
                 'permission-dialogs': {'photos', 'calendar', 'notifications'}}.get(name)
@@ -225,6 +232,22 @@ def scenario_complete(check: str, proof: dict) -> bool:
                     or not all(type(row['previousWindowSize'].get(axis)) is int and row['previousWindowSize'][axis] > 0 for axis in ('width', 'height'))
                     or row['previousWindowSize'] == size): return False
     return True
+
+
+def installation_path_complete(name: str, row: dict, application: dict) -> bool:
+    actions = row.get('actions')
+    if not isinstance(actions, dict) or set(actions) != INSTALLATION_ACTIONS[name] or not all(
+            isinstance(action, dict) and action.get('outcome') == 'passed'
+            and all(isinstance(action.get(key), str) and action[key].strip() for key in ('operation', 'result'))
+            for action in actions.values()): return False
+    if name == 'clean-install': return True
+    source = row.get('sourceApplication')
+    lookup = row.get('appStoreLookup')
+    return isinstance(source, dict) and isinstance(lookup, dict) \
+        and source.get('distributionChannel') == 'app-store' and source.get('identifier') == application['identifier'] \
+        and all(isinstance(source.get(key), str) and source[key].strip() for key in ('version', 'build')) \
+        and lookup.get('trackId') == 6761147125 and lookup.get('bundleId') == source['identifier'] \
+        and lookup.get('version') == source['version']
 
 
 def application_identity_complete(proof: dict, platform: str) -> bool:
