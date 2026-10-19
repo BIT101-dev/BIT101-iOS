@@ -85,6 +85,21 @@ public nonisolated func verifyFileServiceContract(
         #expect(throws: CocoaError.self) { try files.removeItem(at: hidden) }
         setRemovalFailure(false)
     }
+    if files is LocalAppFileService {
+        let manager = FileManager.default
+        let permissions = try #require(manager.attributesOfItem(atPath: root.path)[.posixPermissions])
+        defer {
+            do { try manager.setAttributes([.posixPermissions: permissions], ofItemAtPath: root.path) }
+            catch { Issue.record(error) }
+        }
+        try manager.setAttributes([.posixPermissions: 0o500], ofItemAtPath: root.path)
+        #expect(!files.removeContents(of: root))
+        #expect(try files.readData(at: hidden) == Data([4]))
+        try manager.setAttributes([.posixPermissions: 0o000], ofItemAtPath: root.path)
+        #expect(!files.removeContents(of: root))
+        try manager.setAttributes([.posixPermissions: permissions], ofItemAtPath: root.path)
+        #expect(try files.readData(at: hidden) == Data([4]))
+    }
     #expect(files.removeContents(of: root))
     #expect(files.fileExists(at: root))
     #expect(try files.contentsOfDirectory(at: root, options: []).isEmpty)
