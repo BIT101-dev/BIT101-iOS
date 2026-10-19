@@ -20,11 +20,6 @@ enum LoginScreenState: Equatable {
     case signedIn(studentID: String)
 }
 
-enum LoginMethod: String, CaseIterable {
-    case school = "统一身份认证"
-    case community = "BIT101 密码"
-}
-
 /// 管理本地登录态恢复、登录提交状态和退出后的界面回退。
 @MainActor
 final class LoginViewModel: ObservableObject {
@@ -32,7 +27,6 @@ final class LoginViewModel: ObservableObject {
     @Published var studentID: String
     /// 密码输入框内容。
     @Published var password = ""
-    @Published var method: LoginMethod = .school
     /// 登录模块当前处于登录页还是主壳层。
     @Published private(set) var screenState: LoginScreenState
     /// 是否正在执行登录请求。
@@ -133,7 +127,7 @@ final class LoginViewModel: ObservableObject {
         }
 
         guard !password.isEmpty else {
-            alert = AppAlert.userInput(title: "密码不能为空", message: method == .school ? "请输入学校统一身份认证密码。" : "请输入 BIT101 密码。")
+            alert = AppAlert.userInput(title: "密码不能为空", message: "请输入 BIT101 密码。")
             return
         }
 
@@ -142,11 +136,7 @@ final class LoginViewModel: ObservableObject {
         defer { isSubmitting = false }
 
         do {
-            let studentID: String
-            switch method {
-            case .school: studentID = try await service.login(studentID: trimmedStudentID, password: password)
-            case .community: studentID = try await service.loginCommunity(studentID: trimmedStudentID, password: password)
-            }
+            let studentID = try await service.login(studentID: trimmedStudentID, password: password)
             guard sessionRevision == revision else { return }
             self.studentID = studentID
             self.password = ""

@@ -502,23 +502,24 @@ start_group() { run_group "$1" "$2" & group_processes+=($!); }
 
 
 def catalyst_signing_boundary_findings() -> list[str]:
-    """本机 Catalyst 沿工程签名，托管 CI 使用临时宿主。"""
+    """覆盖本机默认签名、显式免签名和托管 CI 策略。"""
     source = (SCRIPT_ROOT / 'run-extended-tests.sh').read_text()
     start = 'if [[ "$MODE" == "modules" ]]; then\n  acquire_test_lock\n'
     block = start + source.split(start, 1)[1].split('\nBIT101_VALIDATION_RUN_ID=', 1)[0]
     harness = '''set -euo pipefail
-MODE="$1" GITHUB_ACTIONS="$2" GENERIC_BUILD=false
+MODE="$1" GITHUB_ACTIONS="$2" BIT101_CATALYST_UNSIGNED_TESTS="$3" GENERIC_BUILD=false
 acquire_test_lock() { :; }
 bit101_require_device() { return 99; }
 '''
     findings = []
     for mode in ('catalyst', 'catalyst-release-runtime'):
         for ci in ('', 'false', 'true'):
-            result = subprocess.run(['zsh', '-c', harness + block + '\nprint -r -l -- "${SIGNING_ARGS[@]}"',
-                'catalyst-signing', mode, ci], capture_output=True, text=True)
-            expected = ['CODE_SIGNING_ALLOWED=NO'] if ci == 'true' else ['-allowProvisioningUpdates']
-            if result.returncode or result.stdout.splitlines() != expected:
-                findings.append(f'Catalyst 签名自测：{mode} 在 {ci or "local"} 环境沿所属签名策略执行')
+            for unsigned in ('', '0', '1'):
+                result = subprocess.run(['zsh', '-c', harness + block + '\nprint -r -l -- "${SIGNING_ARGS[@]}"',
+                    'catalyst-signing', mode, ci, unsigned], capture_output=True, text=True)
+                expected = ['CODE_SIGNING_ALLOWED=NO'] if ci == 'true' or unsigned == '1' else ['-allowProvisioningUpdates']
+                if result.returncode or result.stdout.splitlines() != expected:
+                    findings.append(f'Catalyst 签名自测：{mode} 在 {ci or "local"}、免签名 {unsigned or "默认"} 时沿所属策略执行')
     return findings
 
 

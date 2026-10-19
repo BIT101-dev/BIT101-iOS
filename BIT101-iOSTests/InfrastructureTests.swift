@@ -584,7 +584,6 @@ struct LoginBootstrapTests {
         }
 
         func login(studentID: String, password: String) async throws -> String { studentID }
-        func loginCommunity(studentID: String, password: String) async throws -> String { studentID }
         func logout() {}
     }
 

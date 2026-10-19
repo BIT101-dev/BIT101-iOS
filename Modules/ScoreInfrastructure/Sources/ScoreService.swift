@@ -85,6 +85,7 @@ public struct ScoreService {
 
     /// 建立一次 JWB 会话，供简略成绩与详细成绩两个阶段复用。
     public func startScoreChallenge() async throws -> BITLoginAuthenticationChallenge {
+        try await credentials.prepareSchoolCredentials()
         let owner = credentials.schoolSessionIdentity
         let studentID = credentials.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
         let password = credentials.currentPassword
@@ -152,6 +153,7 @@ public struct ScoreService {
 
     /// 向 bit-login 的 `jwb_cjd` 服务申请由学校实时生成的可信成绩单。
     public func fetchTrustedTranscriptPages() async throws -> [Data] {
+        try await credentials.prepareSchoolCredentials()
         let owner = credentials.schoolSessionIdentity
         let studentID = credentials.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
         let password = credentials.currentPassword

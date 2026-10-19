@@ -23,6 +23,11 @@ public protocol SchoolCredentialsProviding {
     var schoolSessionIdentity: SchoolSessionIdentity { get }
     var currentStudentID: String { get }
     var currentPassword: String { get }
+    @MainActor func prepareSchoolCredentials() async throws
+}
+
+public extension SchoolCredentialsProviding {
+    @MainActor func prepareSchoolCredentials() async throws {}
 }
 
 /// 学校 URL 加密能力，应用层提供具体密码学实现。

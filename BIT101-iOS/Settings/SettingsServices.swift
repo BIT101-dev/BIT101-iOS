@@ -47,6 +47,7 @@ protocol AccountSettingsServicing {
 struct SettingsAccountDependencies {
     let service: any AccountSettingsServicing
     let credentials: () -> CommunityCredentials
+    var updateSchoolCredentials: () async throws -> Void = { throw LoginServiceError.schoolCredentialsRequired }
     let profileMutation = AccountProfileMutation()
 
     func acceptsLoginCheck(_ isLoggedIn: Bool, for owner: CommunityCredentials) -> Bool {

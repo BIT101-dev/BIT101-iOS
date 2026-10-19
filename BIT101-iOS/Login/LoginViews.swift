@@ -5,6 +5,72 @@ import DesignSystemKit
 //
 
 import SwiftUI
+import UIKit
+
+/// 学校凭据在当前页面上方通过系统安全输入框收集。
+@MainActor
+final class SchoolPasswordPrompt {
+    static let shared = SchoolPasswordPrompt()
+    private let presenter: @MainActor () -> UIViewController?
+    private var active: (id: UUID, alert: UIAlertController, continuation: CheckedContinuation<String, Error>)?
+
+    init(presenter: @escaping @MainActor () -> UIViewController? = AppErrorPresenter.topViewController) {
+        self.presenter = presenter
+    }
+
+    func requestPassword(studentID: String) async throws -> String {
+        try Task.checkCancellation()
+        while let controller = presenter(), controller is UIAlertController || controller.isBeingDismissed {
+            try await Task.sleep(for: .milliseconds(300))
+        }
+        let id = UUID()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                guard active == nil, let controller = presenter() else {
+                    continuation.resume(throwing: LoginServiceError.schoolCredentialsRequired)
+                    return
+                }
+                let alert = UIAlertController(title: "学校统一身份认证",
+                    message: "学号：\(studentID)\n课表、空教室、DDL 和成绩使用学校密码。密码保存在本机钥匙串，保存后继续当前操作。",
+                    preferredStyle: .alert)
+                alert.addTextField { field in
+                    field.placeholder = "学校统一身份认证密码"
+                    field.isSecureTextEntry = true
+                    field.textContentType = .password
+                    field.autocapitalizationType = .none
+                    field.autocorrectionType = .no
+                    field.accessibilityIdentifier = "school.credentials.password"
+                }
+                alert.addAction(UIAlertAction(title: "取消", style: .cancel) { [weak self] _ in
+                    self?.finish(id, result: .failure(CancellationError()))
+                })
+                let save = UIAlertAction(title: "保存并继续", style: .default) { [weak self, weak alert] _ in
+                    guard let password = alert?.textFields?.first?.text, !password.isEmpty else { return }
+                    self?.finish(id, result: .success(password))
+                }
+                save.isEnabled = false
+                alert.addAction(save)
+                alert.preferredAction = save
+                if let field = alert.textFields?.first {
+                    field.addAction(UIAction { [weak field, weak save] _ in
+                        save?.isEnabled = field?.text?.isEmpty == false
+                    }, for: .editingChanged)
+                }
+                active = (id, alert, continuation)
+                controller.present(alert, animated: true)
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.finish(id, result: .failure(CancellationError())) }
+        }
+    }
+
+    private func finish(_ id: UUID, result: Result<String, Error>) {
+        guard let current = active, current.id == id else { return }
+        active = nil
+        current.alert.textFields?.first?.text = ""
+        current.alert.dismiss(animated: true) { current.continuation.resume(with: result) }
+    }
+}
 
 // MARK: - Login Root
 
@@ -24,7 +90,7 @@ struct LoginRootView: View {
     }
 }
 
-/// 登录方式与账号表单。
+/// BIT101 账号表单。
 ///
 /// 表单采用 SwiftUI 原生组件，沿用系统输入、焦点和辅助功能行为。
 private struct LoginFormView: View {
@@ -37,13 +103,6 @@ private struct LoginFormView: View {
     var body: some View {
         Form {
             Section {
-                Picker("登录方式", selection: $viewModel.method) {
-                    ForEach(LoginMethod.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                }
-                .accessibilityIdentifier("login.method")
-                .appSelectionFeedback(trigger: viewModel.method)
-                .appInteractiveListRow()
-                .onChange(of: viewModel.method) { _, _ in viewModel.password = "" }
                 // 学号输入完成后将焦点移到密码框，减少一次手动点按。
                 TextField("", text: $viewModel.studentID, prompt: AppInputPrompt.text("学号"))
                     // 学号输入框使用可显示 QuickType 的键盘；聚焦学号框时系统提供凭据建议。
@@ -54,7 +113,7 @@ private struct LoginFormView: View {
                     .submitLabel(.next)
                     .focused($focusedField, equals: .studentID)
                     .accessibilityLabel("学号")
-                    .accessibilityHint("输入学校统一身份认证学号")
+                    .accessibilityHint("输入 BIT101 账号的学号")
                     .accessibilityIdentifier("login.student-id")
                     .onSubmit {
                     interactionEvidence?("interaction.LoginFormView.onSubmit.student-id", "submit")
@@ -69,7 +128,7 @@ private struct LoginFormView: View {
                     .submitLabel(.go)
                     .focused($focusedField, equals: .password)
                     .accessibilityLabel("密码")
-                    .accessibilityHint(viewModel.method == .school ? "输入学校统一身份认证密码" : "输入 BIT101 账号密码")
+                    .accessibilityHint("输入 BIT101 账号密码")
                     .accessibilityIdentifier("login.password")
                     .onSubmit {
                     interactionEvidence?("interaction.LoginFormView.onSubmit.password", "submit")
@@ -98,7 +157,7 @@ private struct LoginFormView: View {
                     }
                 }
                 .accessibilityLabel(viewModel.isSubmitting ? "正在登录" : "登录")
-                .accessibilityHint(viewModel.isSubmitting ? "请稍候" : (viewModel.method == .school ? "提交学校统一身份认证账号密码" : "提交 BIT101 账号密码"))
+                .accessibilityHint(viewModel.isSubmitting ? "请稍候" : "提交 BIT101 账号密码")
                 .accessibilityIdentifier("login.submit")
                 .disabled(!viewModel.canSubmit)
                 .appInteractiveListRow()
@@ -210,7 +269,7 @@ private struct AccountRegistrationView: View {
                 if viewModel.isVerifying { AppInlineLoadingState("正在验证") }
             } footer: {
                 if viewModel.method == .email {
-                    Text("验证码将发送至 \(viewModel.account)@bit.edu.cn。课表等学校服务需使用统一身份认证登录。")
+                    Text("验证码将发送至 \(viewModel.account)@bit.edu.cn。首次使用学校功能时填写学校统一身份认证密码。")
                 }
             }
 

@@ -9,7 +9,6 @@ protocol LoginServicing {
 
     func checkLogin() async throws -> String?
     func login(studentID: String, password: String) async throws -> String
-    func loginCommunity(studentID: String, password: String) async throws -> String
     func logout()
 }
 
@@ -63,7 +62,9 @@ struct UITestLoginService: LoginServicing, AccountRegistrationServicing {
         let account = studentID.trimmingCharacters(in: .whitespacesAndNewlines)
         defaults.set(account, forKey: Key.studentID)
         defaults.set(true, forKey: Key.hasSession)
-        try AppAccountSession.storage.saveLoginState(studentID: account, password: password, fakeCookie: "ui-test-cookie")
+        let schoolPassword = AppAccountSession.storage.currentStudentID == account ? AppAccountSession.storage.currentPassword : ""
+        try AppAccountSession.storage.saveLoginState(studentID: account, password: schoolPassword, fakeCookie: "ui-test-cookie",
+            communityPasswordDigest: LoginCrypto.md5Hex(password))
         var seededAccounts = defaults.stringArray(forKey: Key.seededScheduleAccounts) ?? []
         if !seededAccounts.contains(account) {
             var cache = ScheduleCache()
@@ -115,10 +116,6 @@ struct UITestLoginService: LoginServicing, AccountRegistrationServicing {
     func logout() {
         defaults.set(false, forKey: Key.hasSession)
         AppAccountSession.storage.clearSession()
-    }
-
-    func loginCommunity(studentID: String, password: String) async throws -> String {
-        try await login(studentID: studentID, password: password)
     }
 
     func sendRegistrationEmail(studentID: String) async throws -> String { "ui-test-mail-token" }

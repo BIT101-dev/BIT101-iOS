@@ -24,7 +24,8 @@ enum AppAccountSession {
         clearSchoolCookies = { AppSchoolSession.clearSchoolAuthenticationCookies() }
 #endif
         return LoginStorage(defaults: AppFileDirectories.defaults,
-            credentials: KeychainLoginCredentials(service: service), clearSchoolCookies: clearSchoolCookies)
+            credentials: KeychainLoginCredentials(service: service), clearSchoolCookies: clearSchoolCookies,
+            requestSchoolPassword: { try await SchoolPasswordPrompt.shared.requestPassword(studentID: $0) })
 #endif
     }()
 

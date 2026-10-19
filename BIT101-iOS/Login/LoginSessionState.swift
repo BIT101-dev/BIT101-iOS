@@ -20,6 +20,7 @@ enum LoginServiceError: LocalizedError {
     case invalidSchoolLoginPage
     case schoolLoginFailed
     case invalidCredentials
+    case schoolCredentialsRequired
     case schoolCaptchaRequired
     case schoolSMSRequired(SchoolSecondFactorContext)
     case schoolSMSCodeInvalid(String)
@@ -46,8 +47,10 @@ enum LoginServiceError: LocalizedError {
             return "学校统一身份认证登录失败，请检查学号和密码。"
         case .invalidCredentials:
             return "学号或密码错误，请检查后重试。"
+        case .schoolCredentialsRequired:
+            return "请填写学校统一身份认证密码，以继续使用学校服务。"
         case .schoolCaptchaRequired:
-            return "学校要求图形验证码，请使用 BIT101 密码登录，或选择校园邮箱注册、重置密码。"
+            return "学校要求图形验证码，请选择校园邮箱完成身份验证。"
         case .schoolSMSRequired:
             return "学校统一身份认证需要短信验证。"
         case let .schoolSMSCodeInvalid(message):

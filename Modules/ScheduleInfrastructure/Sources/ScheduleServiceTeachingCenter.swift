@@ -62,6 +62,7 @@ extension ScheduleService {
     func withTeachingCenterSessionRetry<T>(
         operation: () async throws -> T
     ) async throws -> T {
+        try await credentials.prepareSchoolCredentials()
         let studentID = credentials.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
         if teachingCenterState.shouldPreferDirect(for: studentID) {
             return try await withDirectTeachingCenterSessionRetry(operation: operation)

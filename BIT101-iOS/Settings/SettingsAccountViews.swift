@@ -108,6 +108,13 @@ struct AccountSettingsPage: View {
             }
 
             Section("登录状态") {
+                Button("学校统一身份认证密码") {
+                    profileMutation.start { await updateSchoolCredentials() }
+                }
+                .accessibilityIdentifier("settings.account.school-password")
+                .disabled(isBusy)
+                .appInteractiveListRow()
+
                 Button {
                     profileMutation.start { await checkLogin() }
                 } label: {
@@ -191,6 +198,16 @@ struct AccountSettingsPage: View {
                 profile = nil
             }
             alert = AppAlert(title: "加载失败", message: error.localizedDescription)
+        }
+    }
+
+    private func updateSchoolCredentials() async {
+        do {
+            try await dependencies.updateSchoolCredentials()
+            alert = .userInput(title: "学校密码已保存", message: "学校功能将使用新密码继续认证。")
+        } catch {
+            guard !TaskCancellation.matches(error) else { return }
+            alert = AppAlert(title: "学校密码保存失败", message: error.localizedDescription)
         }
     }
 

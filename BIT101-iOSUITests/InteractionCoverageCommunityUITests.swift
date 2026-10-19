@@ -698,7 +698,6 @@ nonisolated final class AccountRegistrationUITests: UIAutomationTestCase {
         app = configureApp(resetStorage: true, account: nil, nativeInteraction: true)
         app.buttons["login.register"].tapBriefly()
         back()
-        choose("登录方式", option: "BIT101 密码")
         replaceTextWithKeyboard("1120260001", in: app.textFields["login.student-id"])
         replaceTextWithKeyboard("community-password", in: app.secureTextFields["login.password"])
         dismissKeyboard()
