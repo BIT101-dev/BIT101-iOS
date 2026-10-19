@@ -44,8 +44,7 @@ struct DDLScheduleTabView: View {
                         AppEmptyState(
                             title: "暂无 DDL",
                             systemImage: "list.bullet.clipboard",
-                            message: viewModel.ddlEmptyStateMessage,
-                            isLoading: viewModel.isSyncingDDL
+                            message: viewModel.ddlEmptyStateMessage
                         )
                         .frame(maxWidth: .infinity)
                     }

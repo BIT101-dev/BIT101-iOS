@@ -234,8 +234,7 @@ struct CourseScheduleTabView: View {
                                     systemImage: "calendar",
                                     message: activeSchedule.isPrimary
                                         ? "点击上方刷新获取学校课表，也可手动添加日程。"
-                                        : "试试上下滑切换到别的课表，或重新导入一份分享课表。",
-                                    isLoading: activeSchedule.isPrimary && viewModel.isSyncingCourses
+                                        : "试试上下滑切换到别的课表，或重新导入一份分享课表。"
                                 )
                                 .padding(.horizontal, AppDesignSystem.Spacing.content)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
