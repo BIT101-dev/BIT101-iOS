@@ -140,8 +140,16 @@ extension LoginLogicTests {
             requests.append(request)
             let body: Data
             switch url.lastPathComponent {
-            case "login": body = Data((url.host == "sso.bit.edu.cn"
-                ? #"<a href="/logout">退出登录</a>"# : #"{"fake_cookie":"community-cookie"}"#).utf8)
+            case "login":
+                guard url.host == "sso.bit.edu.cn" else {
+                    return (Data(#"{"msg":"用户名或密码错误"}"#.utf8),
+                        try #require(HTTPURLResponse(url: url, statusCode: 401, httpVersion: nil, headerFields: nil)))
+                }
+                body = Data(#"<a href="/logout">退出登录</a>"#.utf8)
+            case "webvpn_verify_init":
+                body = Data(#"{"salt":"AAAAAAAAAAAAAAAAAAAAAA==","execution":"school-flow","cookie":"school-cookie","captcha":""}"#.utf8)
+            case "webvpn_verify": body = Data(#"{"token":"school-proof","code":"123456"}"#.utf8)
+            case "register": body = Data(#"{"fake_cookie":"community-cookie"}"#.utf8)
             case "cookies": body = Data(#"{"data":{"wengine_vpn_ticket":"school-ticket"}}"#.utf8)
             case "xnxqcx.do": body = Data(#"{"datas":{"xnxqcx":{"rows":[{"DM":"2026-2027-1"},{"DM":"2025-2026-2"}]}}}"#.utf8)
             case "dqxnxq.do": body = Data(#"{"datas":{"dqxnxq":{"rows":[{"DM":"2026-2027-1"}]}}}"#.utf8)
@@ -210,10 +218,12 @@ extension LoginLogicTests {
         for feature in ["terms", "courses", "classrooms", "scores", "school-session"] where feature != first { try await use(feature) }
         #expect(prompts.isEmpty && storage.currentPassword == "account-password")
         #expect(storage.communityCredentials == owner)
-        #expect(try storage.loadCommunityPasswordDigest() == LoginCrypto.md5Hex("account-password"))
-        let loginRequest = try #require(transport.requests.first?.httpBody)
-        let loginBody = try #require(JSONSerialization.jsonObject(with: loginRequest) as? [String: String])
-        #expect(loginBody["password"] == LoginCrypto.md5Hex("account-password"))
+        #expect(try storage.loadCommunityPasswordDigest() == nil)
+        #expect(transport.requests.prefix(3).map(\.url?.lastPathComponent) == ["webvpn_verify_init", "webvpn_verify", "register"])
+        let loginRequest = try #require(transport.requests.first { $0.url?.lastPathComponent == "register" }?.httpBody)
+        let loginBody = try #require(JSONSerialization.jsonObject(with: loginRequest) as? [String: Any])
+        #expect(loginBody["password"] as? String == LoginCrypto.md5Hex("account-password"))
+        #expect(loginBody["login_mode"] as? Bool == true)
         for request in transport.requests where ["cookies", "start"].contains(request.url?.lastPathComponent ?? "") {
             let data = try #require(request.httpBody)
             let body = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
@@ -225,7 +235,7 @@ extension LoginLogicTests {
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: ["empty-password", "saved-password", "switch-account"])
-    func loginReusesPasswordWithinTheSelectedAccount(state: String) async throws {
+    func schoolLoginUpdatesCredentialsWithinTheSelectedAccount(state: String) async throws {
         let domain = "BIT101Tests.login-password-reuse"
         let defaults = try #require(UserDefaults(suiteName: domain))
         defaults.removePersistentDomain(forName: domain)
@@ -237,8 +247,8 @@ extension LoginLogicTests {
         let http = HTTPClient(transport: SchoolLoginResponses(), observer: nil)
         let login = LoginService(storage: storage, apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http))
         #expect(try await login.login(studentID: "A", password: "account-password") == "A")
-        #expect(storage.currentPassword == (state == "saved-password" ? "saved-school-password" : "account-password"))
-        #expect(try storage.loadCommunityPasswordDigest() == LoginCrypto.md5Hex("account-password"))
+        #expect(storage.currentPassword == "account-password" && storage.currentStudentID == "A")
+        #expect(try storage.loadCommunityPasswordDigest() == (state == "switch-account" ? nil : "old-digest"))
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: ["cancel", "switch", "write-failure", "empty"])
