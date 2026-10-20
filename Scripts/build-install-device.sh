@@ -10,24 +10,35 @@ DERIVED_DATA="$ROOT_DIR/build/DeviceInstall"
 source "$ROOT_DIR/Scripts/script-support.sh"
 
 ACTION="${1:-install}"
-if [[ $# -gt 1 ]]; then
-  echo "用法：Scripts/build-install-device.sh [build|archive|archive-signed|mac|screenshot|info|toolchain]" >&2
-  exit 64
-fi
+case "$ACTION" in
+  install-archive)
+    if [[ $# -lt 2 || $# -gt 3 || ( $# -eq 3 && "$3" != --clean ) ]]; then
+      echo "用法：Scripts/build-install-device.sh install-archive <归档路径> [--clean]" >&2
+      exit 64
+    fi
+    ;;
+  *)
+    if [[ $# -gt 1 ]]; then
+      echo "用法：Scripts/build-install-device.sh [build|archive|archive-signed|mac|screenshot|info|toolchain]" >&2
+      exit 64
+    fi
+    ;;
+esac
 case "$ACTION" in
   -h|--help)
     echo "Scripts/build-install-device.sh              自动选机、构建、安装并启动"
     echo "Scripts/build-install-device.sh build        编译 iOS App 与扩展"
     echo "Scripts/build-install-device.sh archive      编译正式归档及 dSYM"
     echo "Scripts/build-install-device.sh archive-signed 归档并签名，供 App Store 导出"
+    echo "Scripts/build-install-device.sh install-archive <归档路径> [--clean] 安装并启动归档；--clean 先卸载现有 App"
     echo "Scripts/build-install-device.sh mac          构建并安装到本机 Mac"
     echo "Scripts/build-install-device.sh screenshot   真机截图"
     echo "Scripts/build-install-device.sh info         真机连接与锁定状态"
     echo "Scripts/build-install-device.sh toolchain    核对 Xcode 工具链版本"
     exit 0
     ;;
-  install|build|archive|archive-signed|mac|screenshot|info|toolchain) ;;
-  *) echo "操作：build、archive、archive-signed、mac、screenshot、info、toolchain；直接运行自动装机。" >&2; exit 64 ;;
+  install|install-archive|build|archive|archive-signed|mac|screenshot|info|toolchain) ;;
+  *) echo "操作：build、archive、archive-signed、install-archive、mac、screenshot、info、toolchain；直接运行自动装机。" >&2; exit 64 ;;
 esac
 
 if [[ "$ACTION" == toolchain ]]; then
@@ -57,10 +68,28 @@ if [[ "$ACTION" == screenshot || "$ACTION" == info ]]; then
   exit 0
 fi
 
-if [[ "$ACTION" == install || "$ACTION" == mac ]]; then
+if [[ "$ACTION" == install || "$ACTION" == mac || "$ACTION" == install-archive ]]; then
   bit101_acquire_workflow_lock "$0" "$@"
 else
   bit101_acquire_artifact_lock "$0" "$@"
+fi
+if [[ "$ACTION" == install-archive ]]; then
+  APP_PATH="${2:A}/Products/Applications/BIT101-iOS.app"
+  if [[ ! -f "$APP_PATH/Info.plist" || ! -f "$APP_PATH/embedded.mobileprovision" ]]; then
+    echo "请提供包含已签名 BIT101-iOS App 的归档。" >&2
+    exit 64
+  fi
+  APP_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_PATH/Info.plist")"
+  APP_BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP_PATH/Info.plist")"
+  bit101_require_device || exit 1
+  if [[ "${3:-}" == --clean ]]; then
+    xcrun devicectl device uninstall app --device "$BIT101_DEVICETCL_DEVICE_ID" BIT101-dev.BIT101-iOS --quiet
+  fi
+  xcrun devicectl device install app --device "$BIT101_DEVICETCL_DEVICE_ID" "$APP_PATH" --quiet
+  xcrun devicectl device process launch --device "$BIT101_DEVICETCL_DEVICE_ID" --terminate-existing \
+    BIT101-dev.BIT101-iOS --quiet
+  echo "归档 App 已安装并启动：$APP_VERSION ($APP_BUILD) · $BIT101_DEVICE_NAME"
+  exit 0
 fi
 if [[ "$ACTION" == install ]]; then
   bit101_require_device || exit 1

@@ -77,8 +77,11 @@ iCloud 成绩验收使用无害的合成完整载荷、独立验收账号和磁�
 Scripts/build-install-device.sh
 Scripts/build-install-device.sh build
 Scripts/build-install-device.sh archive
+Scripts/build-install-device.sh install-archive /absolute/path/BIT101-iOS.xcarchive --clean
 Scripts/build-install-device.sh screenshot
 ```
+
+归档安装沿归档中已有的开发或设备分发签名执行；`--clean` 先卸载当前 App，适用于用户明确要求的清洁装机。省略该选项时覆盖安装并保留应用容器，供旧版缓存到修复版的升级验收使用。
 
 所有真机入口共用 `Scripts/script-support.sh`，自动识别已配对的真实设备：依据一次 CoreDevice 设备快照优先选择 USB 有线设备，再选择当前可发现的无线设备，同类连接优先使用已建立隧道的设备。构建、装机、启动、截图、测试、网络 Smoke 与 iCloud Smoke 共用所选设备。终端显示设备名称，设备标识由脚本内部传递；连续工作流复用同一次快照。
 
