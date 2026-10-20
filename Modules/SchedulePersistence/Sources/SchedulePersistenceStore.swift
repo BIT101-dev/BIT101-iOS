@@ -10,6 +10,7 @@ public actor SchedulePersistenceStore {
     private nonisolated let storageRoot: URL
     private let userStateMatches: @Sendable (ScheduleCache, ScheduleCache) throws -> Bool
     private nonisolated static let logger = Logger(subsystem: "BIT101", category: "ScheduleCache")
+    private var lastReadFailure: (url: URL, summary: String)?
 
     public init(files: any AppFileService, storageRoot: URL, userStateMatches: @escaping @Sendable (ScheduleCache, ScheduleCache) throws -> Bool) {
         self.files = files
@@ -29,6 +30,13 @@ public actor SchedulePersistenceStore {
         storageRoot.appending(path: accountIdentifier, directoryHint: .isDirectory).appending(path: "schedule-cache.json")
     }
 
+    public func readFailure(for session: AppStorageSession) -> String? {
+        guard let failure = lastReadFailure,
+              [session.accountStorageIdentifier, session.legacyAccountDirectoryNameForMigration]
+                .contains(where: { cacheFileURL(for: $0) == failure.url }) else { return nil }
+        return failure.summary
+    }
+
     private nonisolated static func makeEncoder() -> JSONEncoder {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -40,7 +48,8 @@ public actor SchedulePersistenceStore {
         decoder.dateDecodingStrategy = .custom { decoder in
             let value = try decoder.singleValueContainer()
             if let legacy = try? value.decode(String.self) {
-                return try Date(legacy, strategy: .iso8601)
+                do { return try Date(legacy, strategy: .iso8601) }
+                catch { throw DecodingError.dataCorruptedError(in: value, debugDescription: "Schedule cache date requires ISO 8601.") }
             }
             return Date(timeIntervalSinceReferenceDate: try value.decode(Double.self))
         }
@@ -66,28 +75,62 @@ public actor SchedulePersistenceStore {
     }
 
     private func readCacheFile(at url: URL) -> ScheduleCacheLoadResult {
+        if lastReadFailure?.url == url { lastReadFailure = nil }
+        var operation = "protection"
         do {
             try files.setPrivateFileProtection(at: url)
+            operation = "read"
             let data = try files.readData(at: url, maximumBytes: Self.maximumCacheBytes)
-            let result = Self.decodeCache(data)
-            if result.isUnreadable {
-                Self.logger.error("课表缓存解码失败，保留原文件：\(url.lastPathComponent, privacy: .public)")
+            let result = Self.decodeCache(data) { summary in
+                lastReadFailure = (url, summary)
+            }
+            if let failure = lastReadFailure, failure.url == url {
+                Self.logger.error("课表缓存解码失败，保留原文件：\(failure.summary, privacy: .public)")
             }
             return result
         } catch {
             if AppFileSystem.isMissingFile(error) { return .missing }
-            Self.logger.error("课表缓存读取失败，保留原文件：\(String(describing: error), privacy: .public)")
+            let failure = error as NSError
+            let summary = "file.\(operation):\(failure.domain).\(failure.code)"
+            lastReadFailure = (url, summary)
+            Self.logger.error("课表缓存读取失败，保留原文件：\(summary, privacy: .public)")
             return .unreadable
         }
     }
 
-    public nonisolated static func decodeCache(_ data: Data) -> ScheduleCacheLoadResult {
-        guard data.count <= maximumCacheBytes,
-              let cache = try? Self.makeDecoder().decode(ScheduleCache.self, from: data),
-              cache.isValidForPersistence else {
+    public nonisolated static func decodeCache(_ data: Data, onFailure: (String) -> Void = { _ in }) -> ScheduleCacheLoadResult {
+        guard data.count <= maximumCacheBytes else {
+            onFailure("decode.sizeLimit")
             return .unreadable
         }
-        return .loaded(cache)
+        do {
+            return .loaded(try Self.makeDecoder().decode(ScheduleCache.self, from: data))
+        } catch {
+            onFailure(decodingFailureSummary(error))
+            return .unreadable
+        }
+    }
+
+    private nonisolated static func decodingFailureSummary(_ error: Error) -> String {
+        let kind: String, path: [any CodingKey]
+        switch error {
+        case DecodingError.keyNotFound(let key, let context): kind = "missing"; path = context.codingPath + [key]
+        case DecodingError.typeMismatch(_, let context): kind = "type"; path = context.codingPath
+        case DecodingError.valueNotFound(_, let context): kind = "null"; path = context.codingPath
+        case DecodingError.dataCorrupted(let context): kind = "invalid"; path = context.codingPath
+        default: return "decode.error"
+        }
+        let fields: Set<String> = ["schemaVersion", "courseData", "ddlData", "classroomData", "presentation", "syncData", "updatedAt",
+            "primaryScheduleTitle", "currentTerm", "manualFirstDayStringsByTerm", "manualCourseRulesByTerm", "customSchedules",
+            "timeTable", "sharedSchedules", "schedulesByTerm", "archivedTerms", "firstDayString", "courses", "exams", "term",
+            "id", "name", "teacher", "classroom", "description", "weeks", "weekday", "startSection", "endSection", "campus",
+            "number", "credit", "hour", "type", "category", "department", "sourceIdentity", "sourceCourses", "replacementCourses",
+            "title", "subtitle", "dateString", "additionalDateStrings", "beginTime", "endTime", "importedAt", "sharedAt",
+            "lexueCalendarURL", "ddlEvents", "lexueDDLCompletionByID", "lexueDDLRetiredAtByID", "ddlUpdatedAt", "ddlBeforeDay",
+            "ddlAfterDay", "group", "text", "dueAt", "done", "start", "end", "iCloudSyncEnabled", "cloudSyncBaselineAt",
+            "cloudSyncBaselineRecordTag", "cloudSyncBaselineUserState", "hasUnpushedCloudChanges"]
+        let location = path.map { key in key.intValue != nil ? "[]" : fields.contains(key.stringValue) ? key.stringValue : "*" }
+        return "decode.\(kind):\(location.isEmpty ? "$" : location.joined(separator: "."))"
     }
 
     private func migrateLegacyIfNeeded(
@@ -209,6 +252,7 @@ public actor SchedulePersistenceStore {
         do {
             for url in urls {
                 try files.removeItemIfPresent(at: url)
+                if lastReadFailure?.url == url { lastReadFailure = nil }
             }
 
             for directory in Set(urls.map({ $0.deletingLastPathComponent() })) {

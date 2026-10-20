@@ -73,7 +73,47 @@ struct SchedulePersistenceTests {
         let bytes = try JSONEncoder().encode(damaged)
         try files.writeData(bytes, to: url, options: .atomic)
         #expect(await store.load(for: account).isUnreadable)
+        var failure: String?
+        #expect(SchedulePersistenceStore.decodeCache(bytes, onFailure: { failure = $0 }).isUnreadable)
+        let field = kind.hasPrefix("ddl") ? "ddlEvents" : kind == "shared-id" ? "sharedSchedules"
+            : kind.hasPrefix("course") || kind == "rule-id" ? "courses" : kind == "exam" ? "exams" : "customSchedules"
+        #expect(failure?.contains(field) == true)
+        #expect(await store.readFailure(for: account) == failure)
+        #expect(await store.readFailure(for: AppStorageSession(accountIdentifier: "other-account")) == nil)
         #expect(try files.readData(at: url) == bytes)
+    }
+
+    @Test(arguments: ["missing", "type", "date", "path", "size"])
+    func cacheReadDiagnosticsIdentifyFieldsAndMaskPersonalKeys(kind: String) throws {
+        let secret = "PRIVATE_USER_CONTENT"
+        let course = try #require(ScheduleCourseEditor.adding(CourseDraft(title: secret, weekday: 1, weeksText: "1"),
+            to: [], term: "term", id: "course").first)
+        var cache = ScheduleCache()
+        cache.courseData.store(.init(term: "term", firstDayString: "2026-09-07", courses: [course], exams: [], updatedAt: .distantPast))
+        var object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(cache)) as? [String: Any])
+        let expected: String
+        switch kind {
+        case "missing": object.removeValue(forKey: "courseData"); expected = "decode.missing:courseData"
+        case "type": object["ddlData"] = secret; expected = "decode.type:ddlData"
+        case "date": object["updatedAt"] = secret; expected = "decode.invalid:updatedAt"
+        case "path":
+            var data = try #require(object["courseData"] as? [String: Any])
+            let snapshots = try #require(data["schedulesByTerm"] as? [String: Any])
+            var snapshot = try #require(snapshots["term"] as? [String: Any])
+            var course = try #require((snapshot["courses"] as? [[String: Any]])?.first)
+            course["weekday"] = secret
+            snapshot["courses"] = [course]
+            data["schedulesByTerm"] = [secret: snapshot]
+            object["courseData"] = data
+            expected = "decode.type:courseData.schedulesByTerm.*.courses.[].weekday"
+        default: expected = "decode.sizeLimit"
+        }
+        let bytes = kind == "size" ? Data(repeating: 0, count: SchedulePersistenceStore.maximumCacheBytes + 1)
+            : try JSONSerialization.data(withJSONObject: object)
+        var failure: String?
+        #expect(SchedulePersistenceStore.decodeCache(bytes, onFailure: { failure = $0 }).isUnreadable)
+        #expect(failure == expected)
+        #expect(failure?.contains(secret) == false)
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
@@ -88,6 +128,7 @@ struct SchedulePersistenceTests {
         files.setFailures(reading: !protection, existence: true, protection: protection)
         #expect(!files.fileExists(at: url))
         #expect(await store.load(for: account).isUnreadable)
+        #expect(await store.readFailure(for: account)?.hasPrefix(protection ? "file.protection:" : "file.read:") == true)
         #expect(await store.write(cache, accountIdentifier: account.accountStorageIdentifier,
             legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) == nil)
         files.setFailures(removal: true, existence: true)
@@ -95,6 +136,7 @@ struct SchedulePersistenceTests {
         #expect(files.storedData[url] == original)
         files.setFailures()
         #expect(await store.load(for: account).cacheIfReadable != nil)
+        #expect(await store.readFailure(for: account) == nil)
         #expect(await store.clear(urls: [url]))
         #expect(await store.load(for: account).isUnreadable == false)
     }

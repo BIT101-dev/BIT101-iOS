@@ -39,6 +39,10 @@ enum ScheduleCacheStore {
         await writeQueue.load(for: session)
     }
 
+    static func readFailureAsync() async -> String? {
+        await writeQueue.readFailure(for: AppFileDirectories.currentSession)
+    }
+
     /// 将缓存文件读取与解码移到独立任务，避免页面恢复阶段阻塞 MainActor。
     static func loadAsync() async -> ScheduleCache {
         await loadResultAsync().cacheIfReadable ?? ScheduleCache()

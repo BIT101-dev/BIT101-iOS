@@ -119,8 +119,9 @@ public nonisolated struct ScheduleCache: Codable, Sendable {
     }
 
     private func validateForPersistence(codingPath: [any CodingKey]) throws {
-        guard isValidForPersistence else {
-            throw DecodingError.dataCorrupted(.init(codingPath: codingPath, debugDescription: "Schedule records require valid identities, dates, time ranges and section placements."))
+        if let field = invalidPersistenceField {
+            throw DecodingError.dataCorrupted(.init(codingPath: codingPath + [field],
+                debugDescription: "Schedule records require valid identities, dates, time ranges and section placements."))
         }
     }
 
@@ -139,12 +140,21 @@ public nonisolated struct ScheduleCache: Codable, Sendable {
             }
     }
 
-    public var isValidForPersistence: Bool {
-        hasValidTimeTables && hasValidCoursePlacements && hasSupportedCourseSections
-            && customSchedules.allSatisfy(\.hasValidPlacement) && Set(customSchedules.map(\.id)).count == customSchedules.count
-            && ddlEvents.allSatisfy(\.hasValidRecord) && hasUniqueIdentities(ddlEvents.map(\.id))
-            && hasUniqueIdentities(sharedSchedules.map(\.id))
-            && courseData.schedulesByTerm.values.allSatisfy { $0.exams.allSatisfy(\.hasValidPlacement) }
+    public var isValidForPersistence: Bool { invalidPersistenceField == nil }
+
+    private enum ValidationField: String, CodingKey {
+        case timeTable, courses, customSchedules, ddlEvents, sharedSchedules, exams
+    }
+
+    private var invalidPersistenceField: ValidationField? {
+        if !hasValidTimeTables { return .timeTable }
+        if !hasValidCoursePlacements || !hasSupportedCourseSections { return .courses }
+        if !customSchedules.allSatisfy(\.hasValidPlacement)
+            || Set(customSchedules.map(\.id)).count != customSchedules.count { return .customSchedules }
+        if !ddlEvents.allSatisfy(\.hasValidRecord) || !hasUniqueIdentities(ddlEvents.map(\.id)) { return .ddlEvents }
+        if !hasUniqueIdentities(sharedSchedules.map(\.id)) { return .sharedSchedules }
+        if !courseData.schedulesByTerm.values.allSatisfy({ $0.exams.allSatisfy(\.hasValidPlacement) }) { return .exams }
+        return nil
     }
 
     private func hasUniqueIdentities(_ ids: [String]) -> Bool {

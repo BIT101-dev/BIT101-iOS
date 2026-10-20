@@ -343,6 +343,7 @@ nonisolated struct ErrorReportPayload: FeedbackSubmissionPayload {
     let submittedAt: Date
     let context: FeedbackDeviceContext
     let diagnosticSummary: FeedbackDiagnosticSummary
+    var scheduleCacheReadFailure: String?
 
     func hasSameContent(as other: Self) -> Bool {
         mode == other.mode && comment == other.comment && contact == other.contact
@@ -390,7 +391,8 @@ nonisolated struct ErrorReportPayload: FeedbackSubmissionPayload {
             comment: comment.map(redact), contact: contact.map { ErrorReportRedactor.forced($0, credentials: credentials) },
             errorTitle: redact(errorTitle), errorMessage: redact(errorMessage), appVersion: appVersion, build: build,
             systemVersion: systemVersion, deviceModel: deviceModel, networkStatus: networkStatus, diagnostics: selected,
-            submittedAt: submittedAt, context: context, diagnosticSummary: FeedbackDiagnosticSummary(diagnostics: selected))
+            submittedAt: submittedAt, context: context, diagnosticSummary: FeedbackDiagnosticSummary(diagnostics: selected),
+            scheduleCacheReadFailure: scheduleCacheReadFailure.map(redact))
             .fittingMetadataBudget()
     }
 }
@@ -561,7 +563,8 @@ final class ErrorReportViewModel: ObservableObject {
             diagnostics: diagnostics,
             submittedAt: Date(),
             context: context,
-            diagnosticSummary: FeedbackDiagnosticSummary(diagnostics: diagnostics)
+            diagnosticSummary: FeedbackDiagnosticSummary(diagnostics: diagnostics),
+            scheduleCacheReadFailure: await ScheduleCacheStore.readFailureAsync()
         )
         do {
             try Task.checkCancellation()

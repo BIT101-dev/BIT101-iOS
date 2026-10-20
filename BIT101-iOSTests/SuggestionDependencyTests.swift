@@ -63,7 +63,8 @@ struct SuggestionDependencyTests {
         let payload = ErrorReportPayload(mode: "raw", isDevelopmentBuild: false, comment: marker, contact: nil,
             errorTitle: "fixture", errorMessage: marker, appVersion: "test", build: "test", systemVersion: "test",
             deviceModel: "test", networkStatus: context.networkStatus, diagnostics: diagnostics, submittedAt: Date(),
-            context: context, diagnosticSummary: FeedbackDiagnosticSummary(diagnostics: diagnostics))
+            context: context, diagnosticSummary: FeedbackDiagnosticSummary(diagnostics: diagnostics),
+            scheduleCacheReadFailure: "decode.invalid:courses \(marker)")
         var heartbeat = false
         let mainActorWork = Task { @MainActor in heartbeat = true }
         defer { mainActorWork.cancel() }
@@ -74,6 +75,7 @@ struct SuggestionDependencyTests {
         let encoded = try encoder.encode(prepared)
         #expect(encoded.count <= 1_024 * 1_024)
         #expect(String(decoding: encoded, as: UTF8.self).contains(marker) == false)
+        #expect(prepared.scheduleCacheReadFailure == "decode.invalid:courses [REDACTED]")
         #expect(payload.diagnostics.first?.responseBody == body)
     }
 
