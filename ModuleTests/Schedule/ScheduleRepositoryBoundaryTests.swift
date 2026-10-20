@@ -306,6 +306,11 @@ struct ScheduleRepositoryBoundaryTests {
         #expect(repository.persistenceSnapshot.primaryScheduleTitle == "保留内容")
         #expect(repository.isWritable == false)
         #expect(repository.notice?.title == "本地课表缓存读取失败")
+        #expect(repository.notice?.message.contains("删除所有文稿与数据") == true)
+        #expect(repository.notice?.message.contains("重新同步课表") == true)
+        repository.notice = nil
+        await repository.reload()
+        #expect(repository.notice == nil)
         #expect(savedCount == 0)
     }
 

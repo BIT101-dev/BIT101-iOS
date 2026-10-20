@@ -54,6 +54,7 @@ public nonisolated struct ScheduleCache: Codable, Sendable {
                     debugDescription: "Structured schedule cache requires its schema version."))
             }
             self = try LegacyScheduleCache(from: decoder).migrated()
+            removeRepeatedLegacyRecords()
             correctSchoolParityWeeks()
             try validateForPersistence(codingPath: decoder.codingPath)
             return
@@ -71,8 +72,34 @@ public nonisolated struct ScheduleCache: Codable, Sendable {
         presentation = try container.decode(SchedulePresentationPreferences.self, forKey: .presentation)
         syncData = try container.decode(ScheduleSyncData.self, forKey: .syncData)
         updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        removeRepeatedLegacyRecords()
         correctSchoolParityWeeks()
         try validateForPersistence(codingPath: decoder.codingPath)
+    }
+
+    /// 历史缓存中的完全相同记录按首次出现顺序合并，身份冲突继续参与完整校验。
+    private mutating func removeRepeatedLegacyRecords() {
+        func unique<Record: Hashable>(_ records: [Record]) -> [Record] {
+            var seen = Set<Record>()
+            return records.filter { seen.insert($0).inserted }
+        }
+        courseData.schedulesByTerm = courseData.schedulesByTerm.mapValues { snapshot in
+            TermScheduleSnapshot(term: snapshot.term, firstDayString: snapshot.firstDayString,
+                courses: unique(snapshot.courses), exams: snapshot.exams, updatedAt: snapshot.updatedAt)
+        }
+        courseData.manualCourseRulesByTerm = courseData.manualCourseRulesByTerm.mapValues { rules in
+            unique(rules).map { rule in
+                ScheduleCourseRule(id: rule.id, sourceIdentity: rule.sourceIdentity,
+                    sourceCourses: unique(rule.sourceCourses), replacementCourses: unique(rule.replacementCourses))
+            }
+        }
+        courseData.customSchedules = unique(courseData.customSchedules)
+        ddlData.ddlEvents = unique(ddlData.ddlEvents)
+        courseData.sharedSchedules = unique(courseData.sharedSchedules).map { shared in
+            SharedScheduleRecord(id: shared.id, title: shared.title, importedAt: shared.importedAt,
+                payload: ScheduleExportPayload(exportedAt: shared.sharedAt, currentTerm: shared.currentTerm,
+                    firstDayString: shared.firstDayString, timeTable: shared.timeTable, courses: unique(shared.courses)))
+        }
     }
 
     private mutating func correctSchoolParityWeeks() {

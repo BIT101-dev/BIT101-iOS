@@ -35,28 +35,37 @@ struct SchedulePersistenceTests {
             switch kind {
             case "rule-id":
                 let rule = ScheduleCourseRule(id: "rule", sourceIdentity: "local:course", sourceCourses: [], replacementCourses: courses)
-                damaged.manualCourseRulesByTerm = ["term": [rule, rule]]
+                let conflicting = ScheduleCourseRule(id: rule.id, sourceIdentity: "local:other", sourceCourses: [], replacementCourses: courses)
+                damaged.manualCourseRulesByTerm = ["term": [rule, conflicting]]
             case "shared-id":
                 let shared = SharedScheduleRecord(id: "shared", title: "分享", payload: .init(currentTerm: "term",
                     firstDayString: "2026-09-07", timeTable: damaged.timeTable, courses: courses))
-                damaged.sharedSchedules = [shared, shared]
+                var conflicting = shared
+                conflicting.title = "另一份分享"
+                damaged.sharedSchedules = [shared, conflicting]
             default:
+                let conflicting = try ScheduleCourseEditor.adding(CourseDraft(title: "另一门课程", weekday: 2, weeksText: "1"),
+                    to: [], term: "term", id: "course")
                 damaged.courseData.store(.init(term: "term", firstDayString: "2026-09-07",
-                    courses: kind == "course-duplicate" ? courses + courses : courses, exams: [], updatedAt: .distantPast))
+                    courses: kind == "course-duplicate" ? courses + conflicting : courses, exams: [], updatedAt: .distantPast))
             }
         case "ddl-id", "ddl-duplicate", "ddl-title", "ddl-text":
             let event = DDLEventRecord(id: kind == "ddl-id" ? "" : "ddl", group: "main",
                 title: kind == "ddl-title" ? " \n" : "作业",
                 text: kind == "ddl-text" ? String(repeating: "x", count: ScheduleCourseConstraints.maximumFieldBytes + 1) : "",
                 dueAt: .distantFuture, done: false)
-            damaged.ddlEvents = kind == "ddl-duplicate" ? [event, event] : [event]
+            var conflicting = event
+            conflicting.title = "另一份作业"
+            damaged.ddlEvents = kind == "ddl-duplicate" ? [event, conflicting] : [event]
         case "exam":
             let exam = ExamRecord(id: "exam", term: "term", name: "考试", courseID: "course", teacher: "", classroom: "",
                 dateString: "2026-09-07", beginTime: "12:00", endTime: "11:00", examMode: "", seatID: "")
             damaged.courseData.store(.init(term: "term", firstDayString: "", courses: [], exams: [exam], updatedAt: .distantPast))
         default: break
         }
-        damaged.customSchedules = kind == "duplicate" ? [record, record] : [record]
+        var conflicting = record
+        conflicting.title = "另一项活动"
+        damaged.customSchedules = kind == "duplicate" ? [record, conflicting] : [record]
         #expect(!damaged.isValidForPersistence)
         #expect(await store.write(damaged, accountIdentifier: account.accountStorageIdentifier,
             legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) == nil)
@@ -600,6 +609,79 @@ struct ScheduleSchemaAndEditingTests {
     private func snapshot(_ courses: [CourseRecord], term: String = "2026-2027-1") -> TermScheduleSnapshot {
         TermScheduleSnapshot(term: term, firstDayString: "2026-09-07", courses: courses,
             exams: [], updatedAt: Date(timeIntervalSince1970: 100))
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func repeatedLegacyRecordsRecoverWithoutLosingUserData(legacy: Bool) async throws {
+        let original = try course()
+        let other = try #require(ScheduleCourseEditor.adding(CourseDraft(title: "其他课程", weekday: 2, weeksText: "1-4"),
+            to: [], term: original.term, id: "other").first)
+        let replacement = try course(id: "adjusted", weekday: 3)
+        let rule = ScheduleCourseRule(id: "rule", sourceIdentity: scheduleCourseSourceIdentity(original),
+            sourceCourses: [original], replacementCourses: [replacement])
+        let custom = CustomScheduleRecord(id: "custom", title: "个人安排", subtitle: "地点", description: "备注",
+            dateString: "2026-09-08", beginTime: "12:10", endTime: "12:40")
+        let ddl = DDLEventRecord(id: "ddl", group: "main", title: "作业", text: "个人备注", dueAt: .distantFuture, done: true)
+        let shared = SharedScheduleRecord(id: "shared", title: "分享课表", importedAt: Date(timeIntervalSince1970: 200),
+            payload: .init(exportedAt: Date(timeIntervalSince1970: 150), currentTerm: original.term,
+                firstDayString: "2026-09-07", timeTable: TimeSlot.default, courses: [original, other]))
+        var expected = ScheduleCache()
+        expected.currentTerm = original.term
+        expected.courseData.schedulesByTerm[original.term] = snapshot([original, other])
+        expected.manualCourseRulesByTerm = [original.term: [rule]]
+        expected.customSchedules = [custom]
+        expected.ddlEvents = [ddl]
+        expected.lexueDDLCompletionByID = ["lexue": true]
+        expected.sharedSchedules = [shared]
+        expected.cloudSyncBaselineAt = Date(timeIntervalSince1970: 80)
+        expected.cloudSyncBaselineRecordTag = "baseline"
+        if !legacy { expected.syncData.cloudSyncBaselineUserState = Data("baseline state".utf8) }
+        expected.updatedAt = Date(timeIntervalSince1970: 300)
+        var old = expected
+        old.courseData.schedulesByTerm[original.term] = snapshot([original, other, original])
+        let repeatedRule = ScheduleCourseRule(id: rule.id, sourceIdentity: rule.sourceIdentity,
+            sourceCourses: [original, original], replacementCourses: [replacement, replacement])
+        old.manualCourseRulesByTerm = [original.term: [repeatedRule, repeatedRule]]
+        old.customSchedules = [custom, custom]
+        old.ddlEvents = [ddl, ddl]
+        let repeatedShared = SharedScheduleRecord(id: shared.id, title: shared.title, importedAt: shared.importedAt,
+            payload: .init(exportedAt: shared.sharedAt, currentTerm: shared.currentTerm,
+                firstDayString: shared.firstDayString, timeTable: shared.timeTable, courses: [original, other, original]))
+        old.sharedSchedules = [repeatedShared, repeatedShared]
+        let encoder = JSONEncoder()
+        var object = try #require(JSONSerialization.jsonObject(with: encoder.encode(old)) as? [String: Any])
+        if legacy {
+            var flat: [String: Any] = ["storedCourseScheduleParserVersion": 2, "updatedAt": try #require(object["updatedAt"])]
+            for key in ["courseData", "ddlData", "classroomData", "presentation", "syncData"] {
+                flat.merge(try #require(object[key] as? [String: Any])) { _, value in value }
+            }
+            flat["termSchedulesByTerm"] = flat.removeValue(forKey: "schedulesByTerm")
+            object = flat
+        }
+        let bytes = try JSONSerialization.data(withJSONObject: object)
+        let files = ModuleScoreFiles(), account = AppStorageSession(accountIdentifier: "duplicate-migration")
+        let store = SchedulePersistenceStore(files: files, storageRoot: URL(fileURLWithPath: "/duplicate-migration"),
+            userStateMatches: { _, _ in true })
+        let url = store.cacheFileURL(for: account.accountStorageIdentifier)
+        #expect(await store.write(old, accountIdentifier: account.accountStorageIdentifier,
+            legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) == nil)
+        try files.writeData(bytes, to: url, options: .atomic)
+        let restored = try #require(await store.load(for: account).cacheIfReadable)
+        #expect(restored.courseData == expected.courseData)
+        #expect(restored.ddlData == expected.ddlData)
+        #expect(restored.syncData == expected.syncData)
+        #expect(restored.updatedAt == expected.updatedAt)
+        #expect(restored.courses == [other, replacement])
+        #expect(try files.readData(at: url) == bytes)
+        var edited = restored
+        edited.primaryScheduleTitle = "恢复后编辑"
+        let saved = try #require(await store.write(edited, accountIdentifier: account.accountStorageIdentifier,
+            legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration,
+            source: .local, expectedUpdatedAt: restored.updatedAt))
+        let reopened = try #require(await store.load(for: account).cacheIfReadable)
+        #expect(reopened.courseData == saved.courseData)
+        #expect(reopened.ddlData == expected.ddlData)
+        #expect(reopened.syncData == expected.syncData)
     }
 
     @Test func versionedDiskUsesOneSchoolAuthorityAndDerivedPresentation() throws {

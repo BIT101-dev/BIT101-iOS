@@ -303,7 +303,7 @@ struct AboutSettingsPage: View {
             }
                 .accessibilityIdentifier("ui.about-settings-page.delete")
         } message: {
-            Text("此操作不可撤销。应用将清空本机数据并返回登录页；已同步到 iCloud 的数据继续保留。")
+            Text("应用将清空本机数据并返回登录页，本机自建日程、待办和草稿将一并删除。学校课表可在重新登录后同步获取；已同步到 iCloud 的数据继续保留。")
         }
     }
 

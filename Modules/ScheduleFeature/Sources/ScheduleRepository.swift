@@ -105,11 +105,13 @@ public final class ScheduleRepository: ObservableObject {
             guard !Task.isCancelled, generation == accountGeneration, account == session(), request == loadGeneration else { return false }
             isWritable = true
         case .unreadable:
+            if isWritable || !hasLoaded {
+                notice = .informational(
+                    title: "本地课表缓存读取失败",
+                    message: "原数据已保留。可前往“我的 → 设置 → 关于 → 删除所有文稿与数据”重置，再登录并从学校服务重新同步课表。本机自建日程、待办和草稿将随清理删除。"
+                )
+            }
             isWritable = false
-            notice = .informational(
-                title: "本地课表缓存读取失败",
-                message: "原文件已保留，当前课表只读并暂停保存。请联系维护者恢复缓存后重试。"
-            )
         }
         hasLoaded = true
         return true
