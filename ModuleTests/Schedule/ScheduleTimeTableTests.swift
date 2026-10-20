@@ -9,6 +9,58 @@ import Testing
 
 @MainActor
 struct ScheduleTimeTableTests {
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true], ["ddl", "custom", "shared", "rules", "presentation", "course", "json"])
+    func damagedBlocksResetWhileHealthyCoursesStayAvailableOffline(legacy: Bool, block: String) async throws {
+        let courses = try ScheduleCourseEditor.adding(CourseDraft(title: "已有课表", weekday: 1, weeksText: "1-4"),
+            to: [], term: "term", id: "course")
+        var cache = ScheduleCache()
+        cache.currentTerm = "term"
+        cache.courseData.store(.init(term: "term", firstDayString: "2026-09-07", courses: courses,
+            exams: [], updatedAt: Date(timeIntervalSince1970: 100)))
+        var root = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(cache)) as? [String: Any])
+        var course = try #require(root["courseData"] as? [String: Any])
+        let courseKey = ["custom": "customSchedules", "shared": "sharedSchedules", "rules": "manualCourseRulesByTerm", "course": "schedulesByTerm"][block]
+        if let courseKey { course[courseKey] = "damaged" }
+        root["courseData"] = course
+        if block == "ddl" { root["ddlData"] = ["ddlEvents": "damaged"] }
+        if block == "presentation" { root["presentation"] = ["showSaturday": "damaged"] }
+        if legacy {
+            var flat: [String: Any] = ["storedCourseScheduleParserVersion": 2]
+            for key in ["courseData", "ddlData", "presentation"] {
+                flat.merge(try #require(root[key] as? [String: Any])) { _, value in value }
+            }
+            flat["termSchedulesByTerm"] = flat.removeValue(forKey: "schedulesByTerm")
+            root = flat
+        }
+        let bytes = block == "json" ? Data("{damaged".utf8) : try JSONSerialization.data(withJSONObject: root)
+        let files = ModuleScoreFiles(), account = AppStorageSession(accountIdentifier: "block-reset")
+        let store = SchedulePersistenceStore(files: files, storageRoot: URL(fileURLWithPath: "/block-reset"), userStateMatches: { _, _ in true })
+        let url = store.cacheFileURL(for: account.accountStorageIdentifier)
+        try files.writeData(bytes, to: url, options: .atomic)
+        let restored = try #require(await store.load(for: account).cacheIfReadable)
+        #expect(restored.isValidForPersistence)
+        #expect(restored.courses == (block == "course" || block == "json" ? [] : courses))
+        let rebuilt = try files.readData(at: url)
+        #expect(rebuilt != bytes)
+        #expect(SchedulePersistenceStore.decodeCache(rebuilt).cacheIfReadable?.courseData == restored.courseData)
+        #expect(await store.load(for: account).cacheIfReadable?.courseData == restored.courseData)
+        #expect(try files.readData(at: url) == rebuilt)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func anUnselectedCachedTermAppearsWithoutFetchingCourses() async throws {
+        let courses = try ScheduleCourseEditor.adding(CourseDraft(title: "已有课表", weekday: 1, weeksText: "1-4"),
+            to: [], term: "term", id: "course")
+        var cache = ScheduleCache()
+        cache.courseData.store(.init(term: "term", firstDayString: "2026-09-07", courses: courses, exams: [], updatedAt: .distantPast))
+        let files = ModuleScoreFiles(), account = AppStorageSession(accountIdentifier: "cached-term")
+        let store = SchedulePersistenceStore(files: files, storageRoot: URL(fileURLWithPath: "/cached-term"), userStateMatches: { _, _ in true })
+        let url = store.cacheFileURL(for: account.accountStorageIdentifier)
+        try files.writeData(JSONEncoder().encode(cache), to: url, options: .atomic)
+        let restored = try #require(await store.load(for: account).cacheIfReadable)
+        #expect(restored.currentTerm == "term" && restored.courses == courses)
+        #expect(SchedulePersistenceStore.decodeCache(try files.readData(at: url)).cacheIfReadable?.currentTerm == "term")
+    }
+
     @Test func touchingSectionEndpointsRoundTripThroughCacheAndShare() throws {
         let slots = [TimeSlot(id: 1, start: "08:00", end: "08:45"), TimeSlot(id: 2, start: "08:45", end: "09:30")]
         #expect(TimeSlot.isValidTable(slots))
@@ -128,7 +180,7 @@ struct ScheduleTimeTableTests {
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: ["school", "manual", "shared"])
-    func incompatibleCachedCoursesPreserveBytesAndDisableEditing(source: String) async throws {
+    func incompatibleCachedCourseBlocksResetAndKeepEditingAvailable(source: String) async throws {
         let files = ModuleScoreFiles()
         let store = SchedulePersistenceStore(files: files, storageRoot: URL(fileURLWithPath: "/time-table"), userStateMatches: { _, _ in true })
         let account = AppStorageSession(accountIdentifier: "invalid-sections")
@@ -152,11 +204,11 @@ struct ScheduleTimeTableTests {
         try files.writeData(bytes, to: url, options: .atomic)
         let repository = ScheduleRepository(session: { account }, load: { await store.load(for: $0) }, save: { _, _, _ in })
         await repository.loadIfNeeded()
-        #expect(repository.isWritable == false)
-        #expect(await store.load(for: account).isUnreadable)
+        #expect(repository.isWritable)
+        #expect(await store.load(for: account).cacheIfReadable?.isValidForPersistence == true)
         #expect(await store.write(ScheduleCache(), accountIdentifier: account.accountStorageIdentifier,
-            legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) == nil)
-        #expect(try files.readData(at: url) == bytes)
+            legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) != nil)
+        #expect(try files.readData(at: url) != bytes)
     }
 
     @Test(.timeLimit(.minutes(1))) func theDayBoundaryHasOneContractAndShrinkingRetainsCourseData() async throws {

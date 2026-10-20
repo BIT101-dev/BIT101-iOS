@@ -72,15 +72,16 @@ struct SchedulePersistenceTests {
         #expect(try files.readData(at: url) == original)
         let bytes = try JSONEncoder().encode(damaged)
         try files.writeData(bytes, to: url, options: .atomic)
-        #expect(await store.load(for: account).isUnreadable)
+        let reset = try #require(await store.load(for: account).cacheIfReadable)
+        #expect(reset.isValidForPersistence)
         var failure: String?
         #expect(SchedulePersistenceStore.decodeCache(bytes, onFailure: { failure = $0 }).isUnreadable)
         let field = kind.hasPrefix("ddl") ? "ddlEvents" : kind == "shared-id" ? "sharedSchedules"
             : kind.hasPrefix("course") || kind == "rule-id" ? "courses" : kind == "exam" ? "exams" : "customSchedules"
         #expect(failure?.contains(field) == true)
-        #expect(await store.readFailure(for: account) == failure)
+        #expect(await store.readFailure(for: account) == nil)
         #expect(await store.readFailure(for: AppStorageSession(accountIdentifier: "other-account")) == nil)
-        #expect(try files.readData(at: url) == bytes)
+        #expect(try files.readData(at: url) != bytes)
     }
 
     @Test(arguments: ["missing", "type", "date", "path", "size"])
@@ -125,9 +126,9 @@ struct SchedulePersistenceTests {
         #expect(await store.write(cache, accountIdentifier: account.accountStorageIdentifier,
             legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) != nil)
         let original = try files.readData(at: url)
-        files.setFailures(reading: !protection, existence: true, protection: protection)
+        files.setFailures(writing: true, reading: !protection, existence: true, protection: protection)
         #expect(!files.fileExists(at: url))
-        #expect(await store.load(for: account).isUnreadable)
+        #expect(await store.load(for: account).cacheIfReadable != nil)
         #expect(await store.readFailure(for: account)?.hasPrefix(protection ? "file.protection:" : "file.read:") == true)
         #expect(await store.write(cache, accountIdentifier: account.accountStorageIdentifier,
             legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) == nil)
@@ -217,18 +218,17 @@ struct SchedulePersistenceTests {
         SchedulePersistenceStore(files: files, storageRoot: URL(fileURLWithPath: root), userStateMatches: { $0.primaryScheduleTitle == $1.primaryScheduleTitle })
     }
 
-    @Test(.timeLimit(.minutes(1))) func oversizedScheduleFilesKeepTheirBytesAndWriteGate() async throws {
+    @Test(.timeLimit(.minutes(1))) func oversizedScheduleFilesResetAndKeepStorageAvailable() async throws {
         let files = ModuleScoreFiles()
         let persistence = store(files: files)
         let account = AppStorageSession(accountIdentifier: "oversized")
         let url = persistence.cacheFileURL(for: account.accountStorageIdentifier)
         let bytes = Data(repeating: 32, count: SchedulePersistenceStore.maximumCacheBytes + 1)
         try files.writeData(bytes, to: url, options: [])
-        #expect(await persistence.load(for: account).isUnreadable)
-        #expect(files.readCount(at: url) == 0)
+        #expect(await persistence.load(for: account).cacheIfReadable?.isValidForPersistence == true)
         #expect(await persistence.write(ScheduleCache(), accountIdentifier: account.accountStorageIdentifier,
-            legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) == nil)
-        #expect(files.storedData[url] == bytes)
+            legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) != nil)
+        #expect(files.storedData[url] != bytes)
         #expect(SchedulePersistenceStore.decodeCache(bytes).isUnreadable)
     }
 
@@ -302,7 +302,7 @@ struct SchedulePersistenceTests {
         #expect(SchedulePersistenceStore.decodeCache(try legacyEncoder.encode(initial)).cacheIfReadable?.updatedAt == Date(timeIntervalSince1970: 1_700_000_000))
     }
 
-    @Test(.timeLimit(.minutes(1))) func malformedAggregateSectionsPreserveTheCompleteDiskTransaction() async throws {
+    @Test(.timeLimit(.minutes(1))) func malformedAggregateSectionsResetAndKeepStorageAvailable() async throws {
         let files = ModuleScoreFiles()
         let persistence = store(files: files)
         let account = AppStorageSession(accountIdentifier: "malformed-sections")
@@ -310,14 +310,14 @@ struct SchedulePersistenceTests {
         for key in ["courses", "cachedCoursesByTerm", "ddlEvents", "customSchedules", "selectedClassroomSectionIDs", "timeTable"] {
             let bytes = try JSONSerialization.data(withJSONObject: ["primaryScheduleTitle": "retained", key: "malformed"])
             try files.writeData(bytes, to: url, options: [])
-            #expect(await persistence.load(for: account).isUnreadable)
+            #expect(await persistence.load(for: account).cacheIfReadable?.isValidForPersistence == true)
             #expect(await persistence.write(ScheduleCache(), accountIdentifier: account.accountStorageIdentifier,
-                legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) == nil)
-            #expect(try files.readData(at: url) == bytes)
+                legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) != nil)
+            #expect(try files.readData(at: url) != bytes)
         }
     }
 
-    @Test(.timeLimit(.minutes(1))) func repeatedTimeTableIDsRejectBothDiskFormatsAndPreserveTheirBytes() async throws {
+    @Test(.timeLimit(.minutes(1))) func repeatedTimeTableIDsResetBothDiskFormats() async throws {
         let files = ModuleScoreFiles()
         let account = AppStorageSession(accountIdentifier: "repeated-sections")
         let repository = store(files: files)
@@ -329,10 +329,10 @@ struct SchedulePersistenceTests {
         for bytes in [try JSONEncoder().encode(cache), legacy] {
             #expect(SchedulePersistenceStore.decodeCache(bytes).isUnreadable)
             try files.writeData(bytes, to: url, options: [])
-            #expect(await repository.load(for: account).isUnreadable)
+            #expect(await repository.load(for: account).cacheIfReadable?.timeTable == TimeSlot.default)
             #expect(await repository.write(ScheduleCache(), accountIdentifier: account.accountStorageIdentifier,
-                legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) == nil)
-            #expect(try files.readData(at: url) == bytes)
+                legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) != nil)
+            #expect(try files.readData(at: url) != bytes)
         }
     }
 
@@ -383,16 +383,16 @@ struct SchedulePersistenceTests {
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: ["corrupt-source", "{}", #"{"unrelated":1}"#, #"{"courseData":{},"updatedAt":0}"#])
-    func corruptedSourceKeepsItsBytesAndWriteGate(source: String) async throws {
+    func corruptedSourceResetsAndKeepsStorageAvailable(source: String) async throws {
         let files = ModuleScoreFiles()
         let persistence = store(files: files)
         let account = AppStorageSession(accountIdentifier: "corrupt")
         let url = persistence.cacheFileURL(for: account.accountStorageIdentifier)
         let bytes = Data(source.utf8)
         try files.writeData(bytes, to: url, options: [])
-        #expect(await persistence.load(for: account).isUnreadable)
-        #expect(await persistence.write(ScheduleCache(), accountIdentifier: account.accountStorageIdentifier, legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) == nil)
-        #expect(try files.readData(at: url) == bytes)
+        #expect(await persistence.load(for: account).cacheIfReadable?.isValidForPersistence == true)
+        #expect(await persistence.write(ScheduleCache(), accountIdentifier: account.accountStorageIdentifier, legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) != nil)
+        #expect(try files.readData(at: url) != bytes)
     }
 
     @Test(.timeLimit(.minutes(1))) func failedWritesReturnFailureAndPreserveTheStoredVersion() async throws {
@@ -810,17 +810,17 @@ struct ScheduleSchemaAndEditingTests {
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: ["99", "null", #""future""#, "1"])
-    func rejectedSchemasProtectStoredBytesAndWriteAdmission(header: String) async throws {
+    func damagedSchemasResetAndKeepWriteAdmission(header: String) async throws {
         let files = ModuleScoreFiles()
         let store = SchedulePersistenceStore(files: files, storageRoot: URL(fileURLWithPath: "/schedule"), userStateMatches: { _, _ in true })
         let account = AppStorageSession(accountIdentifier: "schema-owner")
         let url = store.cacheFileURL(for: account.accountStorageIdentifier)
         let bytes = Data("{\"schemaVersion\":\(header),\"currentTerm\":\"retained\"}".utf8)
         try files.writeData(bytes, to: url, options: [])
-        #expect(await store.load(for: account).isUnreadable)
+        #expect(await store.load(for: account).cacheIfReadable?.isValidForPersistence == true)
         #expect(await store.write(ScheduleCache(), accountIdentifier: account.accountStorageIdentifier,
-            legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) == nil)
-        #expect(try files.readData(at: url) == bytes)
+            legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) != nil)
+        #expect(try files.readData(at: url) != bytes)
     }
 
     @Test func pendingCloudCourseRulesSurviveUntilTheSchoolSnapshotArrives() throws {

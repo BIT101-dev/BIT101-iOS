@@ -291,7 +291,7 @@ struct ScheduleRepositoryBoundaryTests {
         #expect(repository.persistenceSnapshot.primaryScheduleTitle == "本机编辑")
     }
 
-    @Test(.timeLimit(.minutes(1))) func unreadableCachePreservesMemoryAndWriteGate() async {
+    @Test(.timeLimit(.minutes(1))) func unreadableCacheKeepsTheVisibleScheduleAndEditingAvailable() async {
         var savedCount = 0
         var first = true
         let repository = makeRepository(load: { _ in
@@ -303,15 +303,13 @@ struct ScheduleRepositoryBoundaryTests {
         await repository.reload()
         repository.courseState.primaryScheduleTitle = "修改内容"
         _ = await repository.persistAndWait()
-        #expect(repository.persistenceSnapshot.primaryScheduleTitle == "保留内容")
-        #expect(repository.isWritable == false)
-        #expect(repository.notice?.title == "本地课表缓存读取失败")
-        #expect(repository.notice?.message.contains("删除所有文稿与数据") == true)
-        #expect(repository.notice?.message.contains("重新同步课表") == true)
+        #expect(repository.persistenceSnapshot.primaryScheduleTitle == "修改内容")
+        #expect(repository.isWritable)
+        #expect(repository.notice == nil)
         repository.notice = nil
         await repository.reload()
         #expect(repository.notice == nil)
-        #expect(savedCount == 0)
+        #expect(savedCount == 1)
     }
 
     @Test(.timeLimit(.minutes(1))) func pendingInitialReadRetainsStoredDataAndFinishesLoading() async throws {

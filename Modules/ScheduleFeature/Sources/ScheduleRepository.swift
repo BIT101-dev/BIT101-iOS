@@ -105,13 +105,7 @@ public final class ScheduleRepository: ObservableObject {
             guard !Task.isCancelled, generation == accountGeneration, account == session(), request == loadGeneration else { return false }
             isWritable = true
         case .unreadable:
-            if isWritable || !hasLoaded {
-                notice = .informational(
-                    title: "本地课表缓存读取失败",
-                    message: "原数据已保留。可前往“我的 → 设置 → 关于 → 删除所有文稿与数据”重置，再登录并从学校服务重新同步课表。本机自建日程、待办和草稿将随清理删除。"
-                )
-            }
-            isWritable = false
+            isWritable = true
         }
         hasLoaded = true
         return true
@@ -127,7 +121,7 @@ public final class ScheduleRepository: ObservableObject {
         guard acceptsEdits else {
             throw NSError(domain: "ScheduleRepository", code: 1, userInfo: [NSLocalizedDescriptionKey:
                 hasPersistenceConflict ? "请先选择需要保留的日程版本，再继续编辑。" :
-                    (isLoading ? "正在读取日程，请稍后重试。" : "课表缓存读取受阻，恢复后继续编辑。")])
+                    (isLoading ? "正在读取日程，请稍后重试。" : "请重新打开日程后继续编辑。")])
         }
     }
 

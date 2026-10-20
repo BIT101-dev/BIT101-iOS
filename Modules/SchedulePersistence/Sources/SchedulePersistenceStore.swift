@@ -85,17 +85,89 @@ public actor SchedulePersistenceStore {
                 lastReadFailure = (url, summary)
             }
             if let failure = lastReadFailure, failure.url == url {
-                Self.logger.error("课表缓存解码失败，保留原文件：\(failure.summary, privacy: .public)")
+                Self.logger.error("课表缓存重建：\(failure.summary, privacy: .public)")
             }
-            return result
+            var cache = result.cacheIfReadable ?? Self.resetDamagedBlocks(data)
+            var needsWrite = result.isUnreadable
+            if cache.currentTerm.isEmpty, let snapshot = cache.termSchedulesByTerm.values
+                .filter({ $0.hasDisplayableData && $0.firstDay != nil })
+                .sorted(by: { $0.updatedAt == $1.updatedAt ? $0.term > $1.term : $0.updatedAt > $1.updatedAt }).first {
+                cache.currentTerm = snapshot.term
+                needsWrite = true
+            }
+            if needsWrite {
+                do {
+                    let repaired = try Self.makeEncoder().encode(cache)
+                    guard repaired.count <= Self.maximumCacheBytes else { throw CocoaError(.fileWriteOutOfSpace) }
+                    try files.writeData(repaired, to: url, options: AppFileSystem.protectedDataWritingOptions)
+                } catch {
+                    Self.logger.error("课表缓存重建保存失败：\(String(describing: error), privacy: .public)")
+                }
+            }
+            return .loaded(cache)
         } catch {
             if AppFileSystem.isMissingFile(error) { return .missing }
             let failure = error as NSError
             let summary = "file.\(operation):\(failure.domain).\(failure.code)"
             lastReadFailure = (url, summary)
-            Self.logger.error("课表缓存读取失败，保留原文件：\(summary, privacy: .public)")
-            return .unreadable
+            Self.logger.error("课表缓存读取后重置：\(summary, privacy: .public)")
+            let cache = ScheduleCache()
+            do { try files.writeData(Self.makeEncoder().encode(cache), to: url, options: AppFileSystem.protectedDataWritingOptions) }
+            catch { Self.logger.error("课表缓存重置保存失败：\(String(describing: error), privacy: .public)") }
+            return .loaded(cache)
         }
+    }
+
+    /// 各数据块独立读取，异常块使用默认值。
+    private nonisolated static func resetDamagedBlocks(_ data: Data) -> ScheduleCache {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let defaults = try? JSONSerialization.jsonObject(with: makeEncoder().encode(ScheduleCache())) as? [String: Any]
+        else { return ScheduleCache() }
+        let structured = root["schemaVersion"] != nil
+        if structured, (root["schemaVersion"] as? Int) != ScheduleCache.schemaVersion { return ScheduleCache() }
+        func block(_ path: [String], legacyKeys: Set<String>) -> ScheduleCache? {
+            var object: [String: Any]
+            if structured {
+                object = defaults
+                if path.count == 1 {
+                    object[path[0]] = root[path[0]]
+                    if path[0] == "courseData", var course = object["courseData"] as? [String: Any] {
+                        for key in ["customSchedules", "sharedSchedules", "manualCourseRulesByTerm"] {
+                            course[key] = (defaults["courseData"] as? [String: Any])?[key]
+                        }
+                        object["courseData"] = course
+                    }
+                } else {
+                    var course = defaults["courseData"] as? [String: Any] ?? [:]
+                    course[path[1]] = (root["courseData"] as? [String: Any])?[path[1]]
+                    object["courseData"] = course
+                }
+            } else {
+                object = root.filter { legacyKeys.contains($0.key) }
+            }
+            guard let bytes = try? JSONSerialization.data(withJSONObject: object) else { return nil }
+            return decodeCache(bytes).cacheIfReadable
+        }
+        var cache = ScheduleCache()
+        cache.courseData = block(["courseData"], legacyKeys: ["storedCourseScheduleParserVersion", "primaryScheduleTitle",
+            "currentTerm", "firstDayString", "coursesUpdatedAt", "courses", "exams", "cachedCoursesByTerm",
+            "schoolCoursesByTerm", "termSchedulesByTerm", "manualFirstDayStringsByTerm", "timeTable"])?.courseData ?? cache.courseData
+        cache.customSchedules = block(["courseData", "customSchedules"], legacyKeys: ["customSchedules"])?.customSchedules ?? []
+        cache.sharedSchedules = block(["courseData", "sharedSchedules"], legacyKeys: ["sharedSchedules"])?.sharedSchedules ?? []
+        cache.manualCourseRulesByTerm = block(["courseData", "manualCourseRulesByTerm"], legacyKeys: ["manualCourseRulesByTerm"])?.manualCourseRulesByTerm ?? [:]
+        cache.ddlData = block(["ddlData"], legacyKeys: ["lexueCalendarURL", "ddlEvents", "lexueDDLCompletionByID", "ddlUpdatedAt",
+            "ddlBeforeDay", "ddlAfterDay"])?.ddlData ?? cache.ddlData
+        cache.classroomData = block(["classroomData"], legacyKeys: ["selectedCampusName", "selectedCampusCode", "selectedBuildingID",
+            "cachedClassroomCampuses", "cachedClassroomBuildingsByCampusCode", "selectedClassroomSectionIDs",
+            "isClassroomSectionFilterCustomized"])?.classroomData ?? cache.classroomData
+        cache.presentation = block(["presentation"], legacyKeys: ["showSaturday", "showSunday", "showExamInfo", "scheduleDisplayMode",
+            "scheduleCardContentModeV2", "showCourseLiveActivityReminder", "courseLiveActivityLeadMinutes"])?.presentation ?? cache.presentation
+        cache.syncData = block(["syncData"], legacyKeys: ["iCloudSyncEnabled", "cloudSyncBaselineAt", "cloudSyncBaselineRecordTag",
+            "hasUnpushedCloudChanges"])?.syncData ?? cache.syncData
+        if !cache.hasSupportedCourseSections { cache.manualCourseRulesByTerm = [:] }
+        if let rawDate = root["updatedAt"], let bytes = try? JSONSerialization.data(withJSONObject: rawDate, options: .fragmentsAllowed),
+           let date = try? makeDecoder().decode(Date.self, from: bytes) { cache.updatedAt = date }
+        return cache
     }
 
     public nonisolated static func decodeCache(_ data: Data, onFailure: (String) -> Void = { _ in }) -> ScheduleCacheLoadResult {
