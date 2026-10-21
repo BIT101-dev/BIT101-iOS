@@ -126,10 +126,11 @@ struct SchedulePersistenceTests {
         #expect(await store.write(cache, accountIdentifier: account.accountStorageIdentifier,
             legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) != nil)
         let original = try files.readData(at: url)
-        files.setFailures(writing: true, reading: !protection, existence: true, protection: protection)
+        files.setFailures(reading: !protection, existence: true, protection: protection)
         #expect(!files.fileExists(at: url))
-        #expect(await store.load(for: account).cacheIfReadable != nil)
+        #expect(await store.load(for: account).isUnreadable)
         #expect(await store.readFailure(for: account)?.hasPrefix(protection ? "file.protection:" : "file.read:") == true)
+        #expect(files.storedData[url] == original)
         #expect(await store.write(cache, accountIdentifier: account.accountStorageIdentifier,
             legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) == nil)
         files.setFailures(removal: true, existence: true)
@@ -218,17 +219,17 @@ struct SchedulePersistenceTests {
         SchedulePersistenceStore(files: files, storageRoot: URL(fileURLWithPath: root), userStateMatches: { $0.primaryScheduleTitle == $1.primaryScheduleTitle })
     }
 
-    @Test(.timeLimit(.minutes(1))) func oversizedScheduleFilesResetAndKeepStorageAvailable() async throws {
+    @Test(.timeLimit(.minutes(1))) func oversizedScheduleFilesPreserveTheStoredBytes() async throws {
         let files = ModuleScoreFiles()
         let persistence = store(files: files)
         let account = AppStorageSession(accountIdentifier: "oversized")
         let url = persistence.cacheFileURL(for: account.accountStorageIdentifier)
         let bytes = Data(repeating: 32, count: SchedulePersistenceStore.maximumCacheBytes + 1)
         try files.writeData(bytes, to: url, options: [])
-        #expect(await persistence.load(for: account).cacheIfReadable?.isValidForPersistence == true)
+        #expect(await persistence.load(for: account).isUnreadable)
         #expect(await persistence.write(ScheduleCache(), accountIdentifier: account.accountStorageIdentifier,
-            legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) != nil)
-        #expect(files.storedData[url] != bytes)
+            legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) == nil)
+        #expect(files.storedData[url] == bytes)
         #expect(SchedulePersistenceStore.decodeCache(bytes).isUnreadable)
     }
 
@@ -809,18 +810,18 @@ struct ScheduleSchemaAndEditingTests {
         #expect(cache.firstDayString == "2026-09-07")
     }
 
-    @Test(.timeLimit(.minutes(1)), arguments: ["99", "null", #""future""#, "1"])
-    func damagedSchemasResetAndKeepWriteAdmission(header: String) async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: ["99", "null", #""future""#, "true", "1.5"])
+    func unsupportedSchemasPreserveTheStoredFile(header: String) async throws {
         let files = ModuleScoreFiles()
         let store = SchedulePersistenceStore(files: files, storageRoot: URL(fileURLWithPath: "/schedule"), userStateMatches: { _, _ in true })
         let account = AppStorageSession(accountIdentifier: "schema-owner")
         let url = store.cacheFileURL(for: account.accountStorageIdentifier)
         let bytes = Data("{\"schemaVersion\":\(header),\"currentTerm\":\"retained\"}".utf8)
         try files.writeData(bytes, to: url, options: [])
-        #expect(await store.load(for: account).cacheIfReadable?.isValidForPersistence == true)
+        #expect(await store.load(for: account).isUnreadable)
         #expect(await store.write(ScheduleCache(), accountIdentifier: account.accountStorageIdentifier,
-            legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) != nil)
-        #expect(try files.readData(at: url) != bytes)
+            legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) == nil)
+        #expect(try files.readData(at: url) == bytes)
     }
 
     @Test func pendingCloudCourseRulesSurviveUntilTheSchoolSnapshotArrives() throws {

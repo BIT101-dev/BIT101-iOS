@@ -154,6 +154,7 @@ public final class ScheduleRepository: ObservableObject {
                 guard self.accountGeneration == generation, account == self.session() else { return false }
                 self.loadedCache = snapshot
                 self.loadedRevision = localRevision
+                self.notice = nil
                 if self.persistenceGeneration == operation, self.reloadAfterPersistence {
                     self.reloadAfterPersistence = false
                     self.persistenceTask = nil

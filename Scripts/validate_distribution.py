@@ -54,7 +54,7 @@ def application_infos(application: Path) -> dict:
     return {path: plistlib.loads((path / "Info.plist").read_bytes()) for path in bundles}
 
 
-def privacy_manifest_digest(bundle: Path) -> str:
+def privacy_manifest(bundle: Path) -> dict:
     try:
         manifest = plistlib.loads((bundle / "PrivacyInfo.xcprivacy").read_bytes())
         expected = plistlib.loads((ROOT / "BIT101-iOS/PrivacyInfo.xcprivacy").read_bytes())
@@ -69,7 +69,7 @@ def privacy_manifest_digest(bundle: Path) -> str:
                 and isinstance(row.get("NSPrivacyAccessedAPITypeReasons"), list)
                 and reason in row["NSPrivacyAccessedAPITypeReasons"] for row in rows) for category, reason in required.items()):
         raise ValueError(f"隐私清单需要匹配共享资源及文件时间戳、UserDefaults 使用原因：{bundle}")
-    return hashlib.sha256(plistlib.dumps(manifest, sort_keys=True)).hexdigest()
+    return manifest
 
 
 def production_build_metadata(application: Path, info: dict) -> dict:
@@ -88,7 +88,7 @@ def archive_build_summary(application: Path) -> dict:
     return {"passed": True, "kind": "build", "archiveProvenance": archive_provenance(infos[application]),
         "executables": {info["CFBundleIdentifier"]: executable_uuids(path, info) for path, info in infos.items()},
         "productionBuilds": {info['CFBundleIdentifier']: production_build_metadata(path, info) for path, info in infos.items()},
-        "privacyManifests": {info["CFBundleIdentifier"]: privacy_manifest_digest(path) for path, info in infos.items()}}
+        "privacyManifests": {info["CFBundleIdentifier"]: privacy_manifest(path) for path, info in infos.items()}}
 
 
 def catalyst_application_identity(application: Path) -> dict:
@@ -173,7 +173,7 @@ def app_store_profile_complete(profile: dict, signed: dict, team: str) -> bool:
 
 def distribution_complete(report: dict, contracts: dict | None = None) -> bool:
     contracts = distribution_contracts() if contracts is None else contracts
-    try: privacy_digest = privacy_manifest_digest(ROOT / "BIT101-iOS")
+    try: expected_privacy = privacy_manifest(ROOT / "BIT101-iOS")
     except ValueError: return False
     rows = report.get("bundles", [])
     if report.get("schemaVersion") != 1 or not valid_archive_provenance(report.get("archiveProvenance")) \
@@ -190,10 +190,9 @@ def distribution_complete(report: dict, contracts: dict | None = None) -> bool:
                 or entitlements.get("get-task-allow", False) is not False or row.get("version") != contract["version"] \
                 or row.get("build") != contract["build"] or not isinstance(row.get("sha256"), str) \
                 or not re.fullmatch(r"[0-9a-f]{64}", row["sha256"]) \
-                or not isinstance(row.get('bundleSHA256'), str) or not re.fullmatch(r'[0-9a-f]{64}', row['bundleSHA256']) \
                 or not valid_executable_uuids(row.get("executableUUIDs")) \
                 or row.get('compilationConditions') != [] or row.get('testHostMarkers') != [] \
-                or row.get("privacyManifestDigest") != privacy_digest:
+                or row.get("privacyManifest") != expected_privacy:
             return False
         platform, supported = ('watchos', 'WatchOS') if contract['platform'] == 'watchOS' else ('iphoneos', 'iPhoneOS')
         if row.get('platform') != platform or row.get('supportedPlatforms') != [supported] \
@@ -222,15 +221,6 @@ def distribution_complete(report: dict, contracts: dict | None = None) -> bool:
     return True
 
 
-def bundle_digest(path: Path) -> str:
-    digest = hashlib.sha256()
-    for file in sorted(path.rglob("*")):
-        if file.is_file():
-            digest.update(file.relative_to(path).as_posix().encode() + b"\0")
-            digest.update(hashlib.sha256(file.read_bytes()).digest())
-    return digest.hexdigest()
-
-
 def inspect_application(application: Path) -> dict:
     if application.suffix != ".app" or not application.is_dir():
         raise ValueError("签名验收需要最终导出产物中的 .app 目录")
@@ -246,8 +236,8 @@ def inspect_application(application: Path) -> dict:
         rows.append({"identifier": info["CFBundleIdentifier"], "version": info["CFBundleShortVersionString"],
             **production_build_metadata(path, info),
             "build": info["CFBundleVersion"], "team": team[1] if team else "", "entitlements": entitlements,
-            "signatureVerified": True, "sha256": executable_digest(path, info), "bundleSHA256": bundle_digest(path),
-            "privacyManifestDigest": privacy_manifest_digest(path),
+            "signatureVerified": True, "sha256": executable_digest(path, info),
+            "privacyManifest": privacy_manifest(path),
             "executableUUIDs": executable_uuids(path, info),
             "platform": info.get('DTPlatformName'), "supportedPlatforms": info.get('CFBundleSupportedPlatforms'),
             "minimumOSVersion": info.get('MinimumOSVersion'), "provisioningProfile": provisioning_profile(path),

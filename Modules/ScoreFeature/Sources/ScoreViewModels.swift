@@ -194,6 +194,7 @@ public final class ScoreViewModel: ObservableObject {
     /// 页面已有内容时在原列表上刷新数据。
     func refresh(showErrors: Bool = true) async {
         guard !isRefreshing, !isSubmittingSMSCode, smsChallenge == nil else { return }
+        alert = nil
         presentationGeneration &+= 1
 
         let session = currentScoreCacheSession()
@@ -355,7 +356,13 @@ public final class ScoreViewModel: ObservableObject {
         generation: Int
     ) async throws {
         refreshPhase = .summary
-        let cachedSnapshot = try await cacheStore.loadSnapshot(for: session)
+        let cachedSnapshot: ScoreCacheSnapshot?
+        do {
+            cachedSnapshot = try await cacheStore.loadSnapshot(for: session)
+        } catch {
+            if isCancellation(error) { throw error }
+            cachedSnapshot = nil
+        }
         guard isCurrent(session, generation: generation) else { return }
         let cachedRows = cachedSnapshot?.rows
         let briefTask = Task { @MainActor [service = self.service] in
@@ -599,7 +606,7 @@ public final class ScoreViewModel: ObservableObject {
         catch {
             guard isCurrent(session, generation: generation), presentation == presentationGeneration,
                   !isRefreshing, !isSubmittingSMSCode, smsChallenge == nil else { return }
-            state = .failed(error.localizedDescription)
+            presentCacheReadFailure(error)
             return
         }
         guard isCurrent(session, generation: generation), presentation == presentationGeneration,
@@ -623,7 +630,7 @@ public final class ScoreViewModel: ObservableObject {
             guard isCurrent(session, generation: generation), presentation == presentationGeneration,
                   !isRefreshing, !isSubmittingSMSCode, smsChallenge == nil else { return }
             didRestoreCachedRows = false
-            state = .failed(error.localizedDescription)
+            presentCacheReadFailure(error)
             return
         }
         guard let snapshot, isCurrent(session, generation: generation), presentation == presentationGeneration,
@@ -631,6 +638,16 @@ public final class ScoreViewModel: ObservableObject {
         didRestoreCachedRows = true
         lastUpdatedAt = snapshot.updatedAt
         applyRows(cachedRows)
+    }
+
+    private func presentCacheReadFailure(_ error: Error) {
+        guard !isCancellation(error) else { return }
+        if hasContent {
+            state = .loaded
+            alert = AppAlert(title: "成绩缓存读取受阻", message: error.localizedDescription)
+        } else {
+            state = .failed(error.localizedDescription)
+        }
     }
 
     /// 非同步状态下常驻显示的最近更新时间。

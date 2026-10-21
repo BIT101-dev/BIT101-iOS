@@ -63,7 +63,7 @@ public nonisolated enum ScoreCacheReadError: LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .unreadable: "本机成绩缓存读取受阻，原文件已保留。请解锁设备后重试；持续异常请联系维护者恢复缓存，或在“设置 → 关于 → 删除所有文稿与数据”清空本机数据后重新登录查询。该操作会清空本机文稿与数据并返回登录页。"
+        case .unreadable: "本机成绩缓存读取受阻，原文件已保留。请解锁设备后重试，也可重新查询在线成绩。"
         case .unavailable: "本机数据清理处理中，请稍后重试。"
         }
     }

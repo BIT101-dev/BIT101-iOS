@@ -1,17 +1,34 @@
 #!/usr/bin/env python3
 """Compile repository Python and embedded Zsh Python delegates."""
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+import argparse
 import ast
 import re
+import runpy
 import shlex
 import subprocess
 import sys
-from validation_inputs import repository_script_paths, python_import_dependencies, python_execution_modules
+from validation_inputs import repository_script_paths, python_import_dependencies, python_execution_modules, is_worker_generated
 
 if not __debug__:
     raise RuntimeError("验证自测需要 Python 默认优化级别；请使用 python3 -E 执行入口。")
 
-root = Path(sys.argv[1])
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('root', nargs='?', type=Path, default=Path('.'))
+parser.add_argument('--staged', action='store_true', help='validate the complete Git index')
+args = parser.parse_args()
+root = args.root.resolve()
+if args.staged:
+    index_files = runpy.run_path(str(Path(__file__).with_name('check-file-lengths.py')))['index_files']
+    def included_script(name):
+        path = PurePosixPath(name)
+        return path.parts[0] in {'Scripts', 'Cloudflare', '.githooks'} and not is_worker_generated(path) \
+            and (path.suffix in {'.py', '.sh'} or path.parts[0] == '.githooks' and not path.suffix)
+    script_sources = {name: data.decode('utf-8') for name, data in index_files(root, include=included_script).items()
+        if included_script(name)}
+else:
+    script_sources = {path.relative_to(root).as_posix(): path.read_text(encoding='utf-8')
+        for path in repository_script_paths(root, {'.py', '.sh'})}
 
 def checked_python(source, path):
     compile(source, str(path), 'exec')
@@ -340,10 +357,9 @@ for source in ('from code_quality_rules import *', 'from code_quality_rules impo
         if 'undefined_detector_name' in source: assert 'F405' in str(error)
     else: raise AssertionError('Python 名称审计需要显式导入及确定的名称来源')
 
-for path in repository_script_paths(root, {'.py'}):
-    checked_python(path.read_text(encoding="utf-8"), path)
-for path in repository_script_paths(root, {'.sh'}):
-    compile_embedded_python(path.read_text(encoding="utf-8"), path)
+for name, source in script_sources.items():
+    if name.endswith('.py'): checked_python(source, root / name)
+    else: compile_embedded_python(source, root / name)
 
 
 def import_cycles(sources, directory=''):
@@ -382,10 +398,10 @@ assert import_cycles({'a': 'from pkg import b', 'pkg.b': 'from a import value', 
 assert import_cycles({'pkg.entry': 'import helper', 'pkg.helper': 'import entry'}, 'pkg') == [('pkg.entry', 'pkg.helper')]
 assert import_cycles({'helper': 'pass', 'pkg.entry': 'import helper', 'pkg.helper': 'import entry'}, 'pkg') == [('pkg.entry', 'pkg.helper')]
 assert import_cycles({'pkg.entry': 'import helper', 'pkg.helper': 'import json'}, 'pkg') == []
-sources = {'.'.join(path.relative_to(root / 'Scripts').with_suffix('').parts[:-1] if path.stem == '__init__'
-                   else path.relative_to(root / 'Scripts').with_suffix('').parts): path.read_text()
-           for path in repository_script_paths(root, {'.py'})
-           if path.is_relative_to(root / 'Scripts')}
+sources = {'.'.join(path.with_suffix('').parts[:-1] if path.stem == '__init__'
+                   else path.with_suffix('').parts): source
+           for name, source in script_sources.items() if name.startswith('Scripts/') and name.endswith('.py')
+           for path in [PurePosixPath(name).relative_to('Scripts')]}
 cycles = sorted({cycle for directory in {'', *(name.rpartition('.')[0] for name in sources)}
                  for cycle in import_cycles(sources, directory)})
 if cycles:

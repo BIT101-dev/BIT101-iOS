@@ -195,6 +195,24 @@ def staged_content_fixture() -> None:
         assert findings(staged=True, root=fixture) == [] and findings(root=fixture)
         subprocess.run(["git", "rm", "--cached", "-q", "source.swift"], cwd=fixture, check=True, capture_output=True)
         assert findings(staged=True, root=fixture)
+        scripts = fixture / 'Scripts'
+        scripts.mkdir()
+        checker = ROOT / 'Scripts/check-python-syntax.py'
+        for name, invalid, valid in [('fixture.py', 'if True\n', 'pass\n'),
+                ('fixture.sh', "python3 -c 'if True'\n", "python3 -c 'pass'\n")]:
+            source = scripts / name
+            def validate(staged):
+                return subprocess.run([sys.executable, str(checker), str(fixture), *(['--staged'] if staged else [])],
+                    capture_output=True, text=True).returncode
+            source.write_text(invalid)
+            subprocess.run(['git', 'add', str(source)], cwd=fixture, check=True, capture_output=True)
+            source.write_text(valid)
+            assert validate(True) != 0 and validate(False) == 0
+            subprocess.run(['git', 'add', str(source)], cwd=fixture, check=True, capture_output=True)
+            source.write_text(invalid)
+            assert validate(True) == 0 and validate(False) != 0
+            source.unlink()
+            assert validate(True) == 0
     finally:
         shutil.rmtree(fixture)
 

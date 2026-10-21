@@ -557,6 +557,8 @@ CRITICAL_CONTRACTS = {
         "云端上传失败支持恢复": "ScheduleSyncTests/mergedChangesStayPendingOnDiskAfterUploadFailureAndRetrySuccessfully",
         "成绩认证各阶段维持账号归属": "ScoreInfrastructureBoundaryTests/eachScoreAndTranscriptStageRejectsAnAccountOrGenerationChange",
         "成绩云端比较完整快照": "ScoreInfrastructureBoundaryTests/cloudApplyComparesTheCompleteLocalSnapshotInsideTheRepository",
+        "成绩缓存受阻期间持续提供在线与页面恢复": "ScoreFeatureTests/unreadableCacheKeepsOnlineScoresVisible",
+        "日程存储受阻期间保留编辑并恢复保存": "ScheduleRepositoryReconciliationTests/inaccessibleStorageKeepsVisibleEditsAndResumesSaving",
     },
 }
 

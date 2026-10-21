@@ -80,6 +80,34 @@ struct ScheduleRepositoryReconciliationTests {
             source: source, expectedUpdatedAt: nil) != nil else { throw CocoaError(.fileWriteUnknown) }
     }
 
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func inaccessibleStorageKeepsVisibleEditsAndResumesSaving(protection: Bool) async throws {
+        let account = AppStorageSession(accountIdentifier: "repository-storage-recovery")
+        let files = ModuleScoreFiles()
+        let store = SchedulePersistenceStore(files: files, storageRoot: URL(fileURLWithPath: "/repository-storage-recovery"),
+            userStateMatches: ScheduleCloudSyncState.matches)
+        var initial = ScheduleCache()
+        initial.primaryScheduleTitle = "已保存课表"
+        try await write(initial, to: store, account: account)
+        let url = store.cacheFileURL(for: account.accountStorageIdentifier)
+        let original = try files.readData(at: url)
+        let repository = ScheduleRepository(session: { account }, load: { await store.load(for: $0) },
+            save: { cache, source, owner in try await write(cache, to: store, account: owner, source: source) })
+        await repository.loadIfNeeded()
+        files.setFailures(reading: !protection, protection: protection)
+        await repository.reload()
+        #expect(repository.persistenceSnapshot.primaryScheduleTitle == initial.primaryScheduleTitle)
+        repository.courseState.primaryScheduleTitle = "本机编辑"
+        #expect(repository.acceptsEdits)
+        #expect(await repository.persistAndWait() == false)
+        #expect(files.storedData[url] == original)
+        #expect(repository.persistenceSnapshot.primaryScheduleTitle == "本机编辑")
+        files.setFailures()
+        #expect(await repository.persistAndWait())
+        #expect(repository.notice == nil)
+        #expect(await store.load(for: account).cacheIfReadable?.primaryScheduleTitle == "本机编辑")
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: [ScheduleCacheSaveSource.local, .localWithoutCloudPush], [false, true])
     func cloudWritesDuringTheQueuePreserveIndependentEditsAndResumeSaving(source: ScheduleCacheSaveSource, queuedEdit: Bool) async throws {
         let account = AppStorageSession(accountIdentifier: "repository-rebase")

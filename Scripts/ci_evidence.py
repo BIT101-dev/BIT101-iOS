@@ -40,11 +40,10 @@ def export_cache(flavor: str) -> None:
     print(f'编译缓存原始文件：{size / 1024**3:.2f} GiB。')
 
 
-def restore_cache_payload(payload: bytes, flavor: str) -> bool:
-    import io
+def restore_cache_payload(payload, flavor: str) -> bool:
     import zipfile
     from pathlib import PurePosixPath
-    with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+    with zipfile.ZipFile(payload) as archive:
         metadata = json.loads(archive.read(CACHE_METADATA))
         if metadata != dict(identity=cache_identity(), flavor=flavor): return False
         members = [row for row in archive.infolist() if row.filename != CACHE_METADATA]
@@ -158,6 +157,7 @@ def restore_cache(flavor: str) -> None:
     CACHE_ROOT.mkdir(parents=True, exist_ok=True)
     with (CACHE_ROOT / 'cache.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
+        (CACHE_ROOT / 'compilation-cache-download').unlink(missing_ok=True)
         if (CACHE_ROOT / CACHE_STORE).exists():
             print('编译缓存：复用工作区原生产物。')
             return
@@ -177,9 +177,14 @@ def restore_remote_cache(flavor: str) -> None:
         commit = run['head_sha']
         if not re.fullmatch('[0-9a-f]{40}', commit): continue
         if subprocess.run(['git', 'merge-base', '--is-ancestor', commit, 'HEAD'], cwd=ROOT, capture_output=True).returncode: continue
-        payload = download_cache_payload(repo, artifact['id'])
-        print('编译缓存：' + ('已恢复工具链匹配的原生数据。' if restore_cache_payload(payload, flavor) else '当前工具链重新建立缓存。'))
-        return
+        payload = CACHE_ROOT / 'compilation-cache-download'
+        try:
+            download_cache_payload(repo, artifact['id'], payload)
+            if restore_cache_payload(payload, flavor):
+                print('编译缓存：已恢复工具链匹配的原生数据。')
+                return
+        finally:
+            payload.unlink(missing_ok=True)
     print('编译缓存：首次建立当前分组的原生数据。')
 
 
@@ -200,7 +205,7 @@ def prune_caches() -> None:
         else: retained.add(row['name'])
 
 
-def download_cache_payload(repo: str, artifact_id: int) -> bytes:
+def download_cache_payload(repo: str, artifact_id: int, destination: Path) -> None:
     import io
     import http.client
     from concurrent.futures import ThreadPoolExecutor
@@ -213,13 +218,16 @@ def download_cache_payload(repo: str, artifact_id: int) -> bytes:
         raise ValueError('编译缓存响应需要包含完整的 HTTP 分段范围。')
     length = int(size[1])
     count = min(os.cpu_count() or 1, length)
+    with destination.open('wb') as output: output.truncate(length)
     def read_part(index):
         start, end = length * index // count, length * (index + 1) // count - 1
-        result = subprocess.check_output(['gh', 'api', '--allow-escape-sequences', '-H', f'Range: bytes={start}-{end}', endpoint])
-        if len(result) != end - start + 1: raise ValueError('编译缓存分段需要包含请求的全部字节。')
-        return result
+        with destination.open('r+b') as output:
+            output.seek(start)
+            subprocess.run(['gh', 'api', '--allow-escape-sequences', '-H', f'Range: bytes={start}-{end}', endpoint],
+                stdout=output, stderr=subprocess.PIPE, check=True)
+            if output.tell() != end + 1: raise ValueError('编译缓存分段需要包含请求的全部字节。')
     with ThreadPoolExecutor() as pool:
-        return b''.join(pool.map(read_part, range(count)))
+        list(pool.map(read_part, range(count)))
 
 
 def cache_download_self_test() -> None:
@@ -227,31 +235,45 @@ def cache_download_self_test() -> None:
     data = b'0123456789ab\x1b[31m'
     probe = b'HTTP/2.0 206 Partial Content\r\nContent-Range: bytes 0-0/17\r\n\r\n0'
     observed = []
+    destination = ROOT / '.build/static-audit/cache-download-self-test'
+    destination.parent.mkdir(parents=True, exist_ok=True)
     def response(command, **kwargs):
         assert '--allow-escape-sequences' in command
         assert command[-1] == 'repos/owner/repo/actions/artifacts/7/zip'
-        if '--include' in command: return probe
+        assert '--include' in command
+        return probe
+    def transfer(command, **kwargs):
+        assert kwargs['check'] and kwargs['stdout'].fileno() >= 0
+        assert '--allow-escape-sequences' in command
+        assert command[-1] == 'repos/owner/repo/actions/artifacts/7/zip'
         match = re.fullmatch(r'Range: bytes=(\d+)-(\d+)', command[command.index('-H') + 1])
         start, end = map(int, match.groups())
         observed.append((start, end))
-        return data[start:end + 1]
-    for cores in (1, 3, 32):
-        observed.clear()
-        with patch.object(os, 'cpu_count', return_value=cores), patch.object(subprocess, 'check_output', side_effect=response):
-            assert download_cache_payload('owner/repo', 7) == data
-        assert [offset for start, end in sorted(observed) for offset in range(start, end + 1)] == list(range(len(data)))
-    for invalid in (probe.replace(b'206', b'200'), probe.replace(b'0-0/17', b'0-1/17'), probe[:-1]):
-        with patch.object(subprocess, 'check_output', return_value=invalid):
-            try: download_cache_payload('owner/repo', 7)
+        kwargs['stdout'].write(data[start:end + 1])
+    try:
+        for cores in (1, 3, 32):
+            observed.clear()
+            with patch.object(os, 'cpu_count', return_value=cores), patch.object(subprocess, 'check_output', side_effect=response), \
+                    patch.object(subprocess, 'run', side_effect=transfer):
+                download_cache_payload('owner/repo', 7, destination)
+                assert destination.read_bytes() == data
+            assert [offset for start, end in sorted(observed) for offset in range(start, end + 1)] == list(range(len(data)))
+        for invalid in (probe.replace(b'206', b'200'), probe.replace(b'0-0/17', b'0-1/17'), probe[:-1]):
+            with patch.object(subprocess, 'check_output', return_value=invalid):
+                try: download_cache_payload('owner/repo', 7, destination)
+                except ValueError: pass
+                else: raise AssertionError('分段协议需要有效状态、范围与完整数据。')
+        def truncated(command, **kwargs):
+            match = re.fullmatch(r'Range: bytes=(\d+)-(\d+)', command[command.index('-H') + 1])
+            start, end = map(int, match.groups())
+            kwargs['stdout'].write(data[start:end])
+        with patch.object(os, 'cpu_count', return_value=3), patch.object(subprocess, 'check_output', side_effect=response), \
+                patch.object(subprocess, 'run', side_effect=truncated):
+            try: download_cache_payload('owner/repo', 7, destination)
             except ValueError: pass
-            else: raise AssertionError('分段协议需要有效状态、范围与完整数据。')
-    def truncated(command, **kwargs):
-        value = response(command, **kwargs)
-        return value if '--include' in command else value[:-1]
-    with patch.object(os, 'cpu_count', return_value=3), patch.object(subprocess, 'check_output', side_effect=truncated):
-        try: download_cache_payload('owner/repo', 7)
-        except ValueError: pass
-        else: raise AssertionError('缺少字节的分段需要结束恢复。')
+            else: raise AssertionError('缺少字节的分段需要结束恢复。')
+    finally:
+        destination.unlink(missing_ok=True)
 
 
 def cache_self_test() -> None:
@@ -283,7 +305,8 @@ def cache_self_test() -> None:
             archive.writestr(entry, b'compiled')
             if tools:
                 for tool in sorted(CACHE_TOOLS): archive.writestr(tool, tool.encode())
-        return buffer.getvalue()
+        buffer.seek(0)
+        return buffer
     transferred = []
     with patch.object(module, 'cache_identity', return_value=identity), patch.object(Path, 'mkdir'), \
             patch.object(Path, 'open'), patch.object(Path, 'chmod') as permissions, \
@@ -298,7 +321,7 @@ def cache_self_test() -> None:
         assert not restore_cache_payload(payload(), 'simulator-app')
         copied.assert_not_called()
     with patch.object(module, 'cache_identity', return_value=identity), patch.object(Path, 'is_dir', return_value=True), \
-            patch.object(Path, 'write_text') as saved:
+            patch.object(Path, 'write_text') as saved, redirect_stdout(io.StringIO()):
         export_cache('simulator-ui')
         assert json.loads(saved.call_args.args[0]) == dict(identity=identity, flavor='simulator-ui')
         for name, link in [('../escape', False), ('/escape', False), (CACHE_STORE + '/../escape', False),
@@ -325,6 +348,15 @@ def cache_self_test() -> None:
                 patch.object(module, 'restore_cache_payload', return_value=True) as restored, redirect_stdout(io.StringIO()):
             restore_cache('simulator-ui')
             assert restored.called == downloaded.called == accepted, (change, ancestor)
+    with patch.object(module, 'repository', return_value='owner/repo'), \
+            patch.object(module, 'api_pages', return_value=[{'artifacts': [artifact, dict(artifact, id=2)]}]), \
+            patch.object(subprocess, 'check_output', return_value=json.dumps(trusted)), \
+            patch.object(subprocess, 'run', return_value=SimpleNamespace(returncode=0)), \
+            patch.object(module, 'download_cache_payload') as downloaded, patch.object(Path, 'unlink') as cleanup, \
+            patch.object(module, 'restore_cache_payload', side_effect=[False, True]) as restored, redirect_stdout(io.StringIO()):
+        restore_remote_cache('simulator-ui')
+        assert [call.args[1] for call in downloaded.call_args_list] == [2, 1]
+        assert restored.call_count == cleanup.call_count == 2
     artifacts = [dict(id=index, name=name, expired=False, workflow_run={'id': 1}) for index, name in [
         (1, 'compilation-cache-simulator-ui'), (2, 'validation-evidence'), (3, 'compilation-cache-simulator-ui'),
         (4, 'compilation-cache-simulator-app')]]

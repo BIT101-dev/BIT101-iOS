@@ -42,8 +42,8 @@ def distribution_fixture() -> tuple[dict, dict]:
         rows.append({'identifier': identifier, 'team': value['team'], 'version': value['version'], 'build': value['build'],
             'entitlements': entitlements, 'signatureVerified': True,
             'compilationConditions': [], 'testHostMarkers': [],
-            'sha256': hashlib.sha256(('executable:' + identifier).encode()).hexdigest(), 'bundleSHA256': 'b' * 64,
-            'privacyManifestDigest': distribution.privacy_manifest_digest(distribution.ROOT / 'BIT101-iOS'),
+            'sha256': hashlib.sha256(('executable:' + identifier).encode()).hexdigest(),
+            'privacyManifest': distribution.privacy_manifest(distribution.ROOT / 'BIT101-iOS'),
             'platform': 'watchos' if value['platform'] == 'watchOS' else 'iphoneos',
             'supportedPlatforms': ['WatchOS' if value['platform'] == 'watchOS' else 'iPhoneOS'],
             'minimumOSVersion': value['minimumOSVersion'],
@@ -319,8 +319,8 @@ def run_self_test(_source_identity) -> None:
         assert not distribution.distribution_complete(report, contracts)
     for index, row in enumerate(report['bundles']):
         for key, value in [('signatureVerified', False), ('version', '0.0.0'), ('build', '0'), ('team', 'other'),
-                ('containerIdentifier', 'wrong'), ('sha256', 'invalid'), ('bundleSHA256', None), ('bundleSHA256', 'invalid'), ('executableUUIDs', []),
-                ('privacyManifestDigest', None), ('privacyManifestDigest', 'a' * 64)]:
+                ('containerIdentifier', 'wrong'), ('sha256', 'invalid'), ('executableUUIDs', []),
+                ('privacyManifest', None), ('privacyManifest', {})]:
             if key == 'containerIdentifier' and not row['containerIdentifier']: continue
             changed = copy.deepcopy(report)
             changed['bundles'][index][key] = value
@@ -397,17 +397,17 @@ def run_self_test(_source_identity) -> None:
         row = by_path[path]
         return SimpleNamespace(stdout=plistlib.dumps(row['entitlements']) if '--entitlements' in command else b'', stderr='TeamIdentifier=' + row['team'])
     with patch.object(Path, 'is_dir', return_value=True), patch.object(Path, 'rglob', return_value=list(by_path)[1:]), \
-            patch.object(Path, 'read_bytes', read), patch.object(distribution, 'bundle_digest', return_value='b' * 64), \
+            patch.object(Path, 'read_bytes', read), \
             patch.object(distribution, 'distribution_contracts', return_value=contracts), patch.object(subprocess, 'run', side_effect=signed) as commands:
         collected_distribution = distribution.inspect_application(root)
         assert distribution.distribution_complete(collected_distribution, contracts)
         for row in collected_distribution['bundles']:
             expected = next(value for value in report['bundles'] if value['identifier'] == row['identifier'])
-            assert row['sha256'] == expected['sha256'] and row['sha256'] != row['bundleSHA256']
+            assert row['sha256'] == expected['sha256']
         build = distribution.archive_build_summary(root)
         assert build['archiveProvenance'] == report['archiveProvenance']
         assert build['executables'] == {row['identifier']: row['executableUUIDs'] for row in report['bundles']}
-        assert build['privacyManifests'] == {row['identifier']: row['privacyManifestDigest'] for row in report['bundles']}
+        assert build['privacyManifests'] == {row['identifier']: row['privacyManifest'] for row in report['bundles']}
         assert sum('--verify' in call.args[0] and '--deep' in call.args[0] and '--strict' in call.args[0] for call in commands.call_args_list) == 4
         assert sum(call.args[0][:3] == ['security', 'cms', '-D'] for call in commands.call_args_list) == 4
         altered = plistlib.loads(privacy_bytes)
@@ -426,7 +426,7 @@ def run_self_test(_source_identity) -> None:
                         else: raise AssertionError(f'归档及分发需要验收实际隐私清单：{bundle}')
             with patch.object(Path, 'read_bytes', side_effect=lambda path: plistlib.dumps(plistlib.loads(privacy_bytes),
                     fmt=plistlib.FMT_BINARY) if path == manifest_path else read(path), autospec=True):
-                assert distribution.archive_build_summary(root)['privacyManifests'][by_path[bundle]['identifier']] == by_path[bundle]['privacyManifestDigest']
+                assert distribution.archive_build_summary(root)['privacyManifests'][by_path[bundle]['identifier']] == by_path[bundle]['privacyManifest']
         commands.side_effect = subprocess.CalledProcessError(1, 'codesign')
         try: distribution.inspect_application(root)
         except subprocess.CalledProcessError: pass

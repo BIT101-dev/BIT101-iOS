@@ -6,11 +6,14 @@ import StorageCore
 /// 注入式日程磁盘仓库，账号路径与串行写入归单个实例维护。
 public actor SchedulePersistenceStore {
     public nonisolated static let maximumCacheBytes = 16 * 1_024 * 1_024
+    private nonisolated let executor = StorageFileExecutor()
+    public nonisolated var unownedExecutor: UnownedSerialExecutor { executor.asUnownedSerialExecutor() }
     private nonisolated let files: any AppFileService
     private nonisolated let storageRoot: URL
     private let userStateMatches: @Sendable (ScheduleCache, ScheduleCache) throws -> Bool
     private nonisolated static let logger = Logger(subsystem: "BIT101", category: "ScheduleCache")
     private var lastReadFailure: (url: URL, summary: String)?
+    private nonisolated struct CacheVersion: Decodable { let schemaVersion: Int }
 
     public init(files: any AppFileService, storageRoot: URL, userStateMatches: @escaping @Sendable (ScheduleCache, ScheduleCache) throws -> Bool) {
         self.files = files
@@ -87,7 +90,7 @@ public actor SchedulePersistenceStore {
             if let failure = lastReadFailure, failure.url == url {
                 Self.logger.error("课表缓存重建：\(failure.summary, privacy: .public)")
             }
-            var cache = result.cacheIfReadable ?? Self.resetDamagedBlocks(data)
+            guard var cache = result.cacheIfReadable ?? Self.resetDamagedBlocks(data) else { return .unreadable }
             var needsWrite = result.isUnreadable
             if cache.currentTerm.isEmpty, let snapshot = cache.termSchedulesByTerm.values
                 .filter({ $0.hasDisplayableData && $0.firstDay != nil })
@@ -110,21 +113,21 @@ public actor SchedulePersistenceStore {
             let failure = error as NSError
             let summary = "file.\(operation):\(failure.domain).\(failure.code)"
             lastReadFailure = (url, summary)
-            Self.logger.error("课表缓存读取后重置：\(summary, privacy: .public)")
-            let cache = ScheduleCache()
-            do { try files.writeData(Self.makeEncoder().encode(cache), to: url, options: AppFileSystem.protectedDataWritingOptions) }
-            catch { Self.logger.error("课表缓存重置保存失败：\(String(describing: error), privacy: .public)") }
-            return .loaded(cache)
+            Self.logger.error("课表缓存读取失败，保留现有内容：\(summary, privacy: .public)")
+            return .unreadable
         }
     }
 
     /// 各数据块独立读取，异常块使用默认值。
-    private nonisolated static func resetDamagedBlocks(_ data: Data) -> ScheduleCache {
+    private nonisolated static func resetDamagedBlocks(_ data: Data) -> ScheduleCache? {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let defaults = try? JSONSerialization.jsonObject(with: makeEncoder().encode(ScheduleCache())) as? [String: Any]
         else { return ScheduleCache() }
         let structured = root["schemaVersion"] != nil
-        if structured, (root["schemaVersion"] as? Int) != ScheduleCache.schemaVersion { return ScheduleCache() }
+        if structured {
+            guard let version = try? makeDecoder().decode(CacheVersion.self, from: data),
+                  version.schemaVersion == ScheduleCache.schemaVersion else { return nil }
+        }
         func block(_ path: [String], legacyKeys: Set<String>) -> ScheduleCache? {
             var object: [String: Any]
             if structured {

@@ -70,6 +70,51 @@ struct ScoreFeatureTests {
         #expect(model.state == .loaded && model.rows == rows)
     }
 
+    @Test(.timeLimit(.minutes(1)), arguments: ["reading", "protection", "corrupt"], [false, true])
+    func unreadableCacheKeepsOnlineScoresVisible(failure: String, detailedFailure: Bool) async throws {
+        clearPreferences()
+        defer { clearPreferences() }
+        let defaults = try #require(UserDefaults(suiteName: "BIT101ModulesTests.score"))
+        let session = AppStorageSession(accountIdentifier: "online-score-recovery")
+        let files = ModuleScoreFiles()
+        let cache = ScoreCacheStore(files: files, storageRoot: URL(fileURLWithPath: "/online-score-recovery"),
+            defaults: defaults, session: { session })
+        #expect(await cache.saveDetailed(rows: [ScoreRow(index: 0, headers: ["成绩"], values: ["95"])]) != nil)
+        if failure == "corrupt" {
+            let url = try #require(files.storedData.keys.first)
+            try files.writeData(Data("corrupt-cache".utf8), to: url, options: .atomic)
+        } else {
+            files.setFailures(reading: failure == "reading", protection: failure == "protection")
+        }
+        let retained = files.storedData
+        let service = ScoreServiceSpy()
+        if detailedFailure { service.detailedError = URLError(.cannotConnectToHost) }
+        let model = ScoreViewModel(service: service, cacheStore: cache,
+            preferenceStore: ScoreFilterPreferenceStore(defaults: defaults, session: { session }),
+            currentScoreCacheSession: { session }, scheduleCoursesChanges: Empty().eraseToAnyPublisher(), loadScheduleCourses: { _ in [:] })
+        await model.restoreCachedDataIfNeeded()
+        #expect(model.state == .failed(ScoreCacheReadError.unreadable.localizedDescription))
+        await model.refresh()
+        #expect(service.requestedDetailValues == [false, true])
+        #expect(model.state == .loaded && model.rows.first?.score == "90")
+        if !detailedFailure { #expect(model.rows.first?.averageScore == "82.5") }
+        #expect(model.alert?.title == "成绩保存失败" && model.refreshPhase == .idle)
+        #expect(files.storedData == retained)
+        let visibleRows = model.rows
+        await model.restoreCachedDataIfNeeded()
+        #expect(model.state == .loaded && model.rows == visibleRows)
+        await model.applySyncedScoreCacheIfAvailable()
+        #expect(model.state == .loaded && model.rows == visibleRows)
+        #expect(files.storedData == retained)
+        if failure != "corrupt" {
+            files.setFailures()
+            service.detailedError = nil
+            await model.refresh()
+            #expect(model.state == .loaded && model.alert == nil)
+            #expect(await cache.loadRows(for: session) == model.rows)
+        }
+    }
+
     @Test(arguments: [("", false), ("1", false), ("123", false), ("1234", true),
                       ("12345678", true), ("123456789", false), ("12a34", false), (" 1234\n", false),
                       ("１２３４", false), ("١٢٣٤", false), ("①②③④", false), ("1️⃣234", false)])
