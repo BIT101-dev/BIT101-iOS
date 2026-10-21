@@ -79,8 +79,11 @@ struct SchedulePersistenceTests {
         let field = kind.hasPrefix("ddl") ? "ddlEvents" : kind == "shared-id" ? "sharedSchedules"
             : kind.hasPrefix("course") || kind == "rule-id" ? "courses" : kind == "exam" ? "exams" : "customSchedules"
         #expect(failure?.contains(field) == true)
-        #expect(await store.readFailure(for: account) == nil)
+        #expect(await store.readFailure(for: account)?.contains(field) == true)
         #expect(await store.readFailure(for: AppStorageSession(accountIdentifier: "other-account")) == nil)
+        #expect(try files.readData(at: url) == bytes)
+        #expect(await store.write(reset, accountIdentifier: account.accountStorageIdentifier,
+            legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) != nil)
         #expect(try files.readData(at: url) != bytes)
     }
 

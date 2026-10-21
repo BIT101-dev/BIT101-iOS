@@ -221,9 +221,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--all", action="store_true", help="display every finding")
     parser.add_argument("--staged", action="store_true", help="validate links against the complete Git index")
+    parser.add_argument("--self-test", action="store_true", help="run link and staged-content regression cases")
     args = parser.parse_args()
-    staged_self_test()
-    link_self_test()
+    if args.self_test:
+        staged_self_test()
+        link_self_test()
     errors = findings(staged=args.staged)
     if errors:
         print("\n".join(errors))

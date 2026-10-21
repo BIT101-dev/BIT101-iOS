@@ -2,6 +2,13 @@
 
 # 真机脚本共用设备快照，按有线、无线顺序选择，并提供同一设备的两种标识。
 unset PYTHONOPTIMIZE
+if command -v brew >/dev/null 2>&1; then
+  bit101_python_prefix="$(brew --prefix)/opt/python@3"
+  if [[ -x "$bit101_python_prefix/libexec/bin/python3" ]]; then
+    export PATH="$bit101_python_prefix/libexec/bin:$PATH"
+  fi
+  unset bit101_python_prefix
+fi
 
 bit101_set_workflow_budget() {
   if [[ -z "${BIT101_WORKFLOW_TIMEOUT_SECONDS:-}" ]]; then
@@ -146,6 +153,7 @@ import sys
 import tempfile
 import time
 import signal
+from collections import deque
 
 signal.signal(signal.SIGINT, lambda *_: sys.exit(130))
 report_path = Path(sys.argv[1])
@@ -153,11 +161,12 @@ label = sys.argv[2]
 started = time.monotonic()
 report_path.parent.mkdir(parents=True, exist_ok=True)
 process = subprocess.Popen(sys.argv[3:], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-details = []
-seen = set()
 diagnostics = []
 diagnostic_seen = set()
+errors = []
+error_seen = set()
 display_limit = 40
+recent_details = deque(maxlen=display_limit)
 detail_count = diagnostic_count = module_scan_count = 0
 summary_count = summary_tests = 0
 summary = ""
@@ -191,7 +200,11 @@ with report_path.open("w", encoding="utf-8") as report:
                     continue
         if not line.strip():
             continue
-        if "error:" in line or "warning:" in line:
+        if "error:" in line.lower() or useful_line(line) and (line.lstrip().startswith("✘") or "failed" in line.lower()):
+            if line not in error_seen and len(errors) < display_limit:
+                errors.append(line)
+                error_seen.add(line)
+        if "error:" in line or "warning:" in line or useful_line(line) and (line.lstrip().startswith("✘") or "failed" in line.lower()):
             if re.match(r"warning: '.+' is missing a dependency on '.+' because dependency scan of Swift module", line):
                 module_scan_count += 1
             elif line not in diagnostic_seen:
@@ -203,11 +216,9 @@ with report_path.open("w", encoding="utf-8") as report:
             summary = line.strip()
             summary_count += 1
             summary_tests += int(re.search(r"Test run with (\d+) tests?", line)[1])
-        if useful_line(line) and line not in seen:
+        if useful_line(line):
+            recent_details.append(line)
             detail_count += 1
-            if len(details) < display_limit:
-                details.append(line)
-                seen.add(line)
 exit_code = process.wait()
 for path in temporary_results:
     if exit_code and path.is_dir():
@@ -218,7 +229,7 @@ for path in temporary_results:
         print(f"[诊断] 构建失败结果包 · {destination}")
     else:
         shutil.rmtree(path, ignore_errors=True)
-output = details if exit_code else diagnostics
+output = list(dict.fromkeys([*errors, *diagnostics, *recent_details]))[:display_limit] if exit_code else diagnostics
 output_count = detail_count if exit_code else diagnostic_count
 if not exit_code and module_scan_count:
     print(f"[提示] 编译器模块依赖扫描 · {module_scan_count} 条 · {report_path}")

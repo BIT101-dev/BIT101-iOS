@@ -112,25 +112,20 @@ struct SuggestionDependencyTests {
         let drafts = SuggestionDraftPort()
         var delivered: [String] = []
         let page = DeveloperSuggestionPage(dependencies: .init(drafts: drafts, submit: { delivered.append($0.comment) }))
-        try await page.dependencies.submitAndClear(payload())
+        _ = await (try await page.dependencies.submitAndClear(payload())).value
         #expect(delivered == ["injected suggestion"])
         #expect(drafts.cleanups == 1)
     }
 
-    @Test(.timeLimit(.minutes(1))) func confirmedSuggestionExposesCleanupRetryWithoutAnotherDelivery() async throws {
+    @Test(.timeLimit(.minutes(1))) func confirmedSuggestionCompletesWhileCleanupFails() async throws {
         let drafts = SuggestionDraftPort()
         drafts.failsCleanup = true
         var deliveries = 0
         let dependencies = DeveloperSuggestionDependencies(drafts: drafts, submit: { _ in deliveries += 1 })
-        do {
-            try await dependencies.submitAndClear(payload())
-            Issue.record("草稿清理失败应返回可重试结果")
-        } catch let cleanup as DeveloperSuggestionCleanupRequired {
-            #expect(deliveries == 1)
-            drafts.failsCleanup = false
-            #expect(await cleanup.retry())
-            #expect(deliveries == 1 && drafts.cleanups == 2)
-        }
+        let cleanup = try await dependencies.submitAndClear(payload())
+        #expect(deliveries == 1)
+        #expect(await cleanup.value == false)
+        #expect(deliveries == 1 && drafts.cleanups == 1)
     }
 
     @Test(.timeLimit(.minutes(1))) func successfulSubmissionUsesTheChosenDraftAndDeliveryOwner() async throws {
@@ -142,7 +137,7 @@ struct SuggestionDependencyTests {
         let dependencies = DeveloperSuggestionDependencies(drafts: first, submit: { delivered.append($0.comment) })
         let page = DeveloperSuggestionPage(dependencies: dependencies)
         #expect(await page.dependencies.drafts.loadSuggestion().snapshot?.text == "first draft")
-        try await page.dependencies.submitAndClear(payload())
+        _ = await (try await page.dependencies.submitAndClear(payload())).value
         #expect(delivered == ["injected suggestion"])
         #expect(await first.loadSuggestion().snapshot == nil)
         #expect(await second.loadSuggestion().snapshot?.text == "second draft")
@@ -166,7 +161,7 @@ struct SuggestionDependencyTests {
         let attempt = FeedbackSubmissionAttempt<DeveloperSuggestionPayload>()
         func submit(_ candidate: DeveloperSuggestionPayload) async throws {
             let prepared = attempt.prepare(candidate)
-            try await dependencies.submitAndClear(prepared)
+            _ = await (try await dependencies.submitAndClear(prepared)).value
             attempt.finish(prepared)
         }
         for _ in 0..<2 { await #expect(throws: URLError.self) { try await submit(payload()) } }
@@ -206,7 +201,7 @@ struct SuggestionDependencyTests {
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]; encoder.dateEncodingStrategy = .iso8601
         #expect(try encoder.encode(retry) == encoder.encode(original))
         let successful = DeveloperSuggestionDependencies(drafts: drafts, submit: { deliveries.append($0) })
-        try await successful.submitAndClear(retry)
+        _ = await (try await successful.submitAndClear(retry)).value
         #expect(deliveries.count == 2 && deliveries[0].requestID == deliveries[1].requestID)
         #expect(await drafts.loadSuggestion().snapshot == nil)
         let edited = DeveloperSuggestionDraftSnapshot(text: "edited", images: images, contact: draft.contact)
@@ -214,17 +209,17 @@ struct SuggestionDependencyTests {
         #expect(attempt.prepare(payload(comment: "edited")).requestID != original.requestID)
     }
 
-    @Test(.timeLimit(.minutes(1))) func suggestionPersistenceFailureStopsDeliveryAndPreservesTheDraft() async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func suggestionPersistenceFailureKeepsDeliveryAvailableAndPreservesTheDraft(readFailure: Bool) async throws {
         let files = PreferenceMemoryFiles()
         let drafts = store(files)
         #expect(await drafts.saveSuggestion(.init(text: "saved content", images: [])))
-        files.setFailures(writing: true)
+        files.setFailures(writing: !readFailure, reading: readFailure)
         var deliveries = 0
         let dependencies = DeveloperSuggestionDependencies(drafts: drafts, submit: { _ in deliveries += 1 })
-        await #expect(throws: CocoaError.self) {
-            try await dependencies.submitAndClear(payload(), persisting: .init(text: "edited content", images: []))
-        }
-        #expect(deliveries == 0)
+        let cleanup = try await dependencies.submitAndClear(payload(), persisting: .init(text: "edited content", images: []))
+        #expect(deliveries == 1)
+        #expect(await cleanup.value == false)
         files.setFailures()
         #expect(await drafts.loadSuggestion().snapshot?.text == "saved content")
     }
@@ -237,7 +232,7 @@ struct SuggestionDependencyTests {
         let dependencies = DeveloperSuggestionDependencies(drafts: drafts, submit: { _ in deliveries += 1 },
             captureSubmissionOwner: { let captured = generation; return { captured == generation } })
         await #expect(throws: CancellationError.self) {
-            try await dependencies.submitAndClear(payload(), persisting: .init(text: "saved content", images: []))
+            _ = await (try await dependencies.submitAndClear(payload(), persisting: .init(text: "saved content", images: []))).value
         }
         #expect(deliveries == 0 && drafts.cleanups == 0)
     }
@@ -262,7 +257,7 @@ struct SuggestionDependencyTests {
         let dependencies = DeveloperSuggestionDependencies(drafts: drafts, submit: { _ in
             account.session = AppStorageSession(accountIdentifier: "B")
         })
-        try await dependencies.submitAndClear(payload())
+        _ = await (try await dependencies.submitAndClear(payload())).value
         #expect(await drafts.loadSuggestion().snapshot?.text == "B draft")
         account.session = AppStorageSession(accountIdentifier: "A")
         #expect(await drafts.loadSuggestion().snapshot == nil)
@@ -274,7 +269,7 @@ struct SuggestionDependencyTests {
         let dependencies = DeveloperSuggestionDependencies(drafts: drafts, submit: { _ in
             #expect(await drafts.saveSuggestion(.init(text: "continued edit", images: [])))
         })
-        try await dependencies.submitAndClear(payload())
+        _ = await (try await dependencies.submitAndClear(payload())).value
         #expect(await drafts.loadSuggestion().snapshot?.text == "continued edit")
     }
 

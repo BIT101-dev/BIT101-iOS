@@ -20,10 +20,10 @@ private func isMineNotLoggedIn(_ error: Error) -> Bool {
 
 /// 为第一页加载准备分页状态。
 ///
-/// 多个列表使用同一套分页状态结构，第一页刷新前统一设置加载状态并重置分页。
-private func resetMinePagedState<Item: Identifiable>(_ state: inout MinePagedState<Item>) {
+/// 首屏请求完成后提交新分页，加载期间保留已有列表与游标。
+private func prepareMinePagedRefresh<Item: Identifiable>(_ state: inout MinePagedState<Item>) {
     state.status = .loading
-    state.resetPagination()
+    state.isLoadingMore = false
 }
 
 /// 将第一页结果写入分页状态并标记加载完成。
@@ -152,7 +152,7 @@ final class MineViewModel: ObservableObject {
         followerGeneration &+= 1
         let generation = followerGeneration
         let previousState = followerState
-        resetMinePagedState(&followerState)
+        prepareMinePagedRefresh(&followerState)
 
         do {
             let users = try await service.fetchFollowers(page: 0)
@@ -226,7 +226,7 @@ final class MineViewModel: ObservableObject {
         followingGeneration &+= 1
         let generation = followingGeneration
         let previousState = followingState
-        resetMinePagedState(&followingState)
+        prepareMinePagedRefresh(&followingState)
 
         do {
             let users = try await service.fetchFollowings(page: 0)
@@ -303,7 +303,7 @@ final class MineViewModel: ObservableObject {
         let generation = posterGeneration
         let hadPosters = !posterState.items.isEmpty || posterState.status == .loaded
         if !hadPosters {
-            resetMinePagedState(&posterState)
+            prepareMinePagedRefresh(&posterState)
         } else {
             posterState.status = .loading
             posterState.isLoadingMore = false
@@ -510,7 +510,7 @@ final class UserProfileViewModel: ObservableObject {
         let generation = posterGeneration
         let hadPosters = !posterState.items.isEmpty || posterState.status == .loaded
         if !hadPosters {
-            resetMinePagedState(&posterState)
+            prepareMinePagedRefresh(&posterState)
         } else {
             posterState.status = .loading
             posterState.isLoadingMore = false

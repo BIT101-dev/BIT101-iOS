@@ -1,4 +1,8 @@
 """Shared workflow registration and platform coverage policy."""
+import sys
+
+if sys.version_info < (3, 10):
+    raise SystemExit('维护工具需要 Python 3.10 及以上版本；请按 docs/SETUP.md 选择 Homebrew Python。')
 
 SWIFT_SYNTAX_SOURCE_NAMES = ("SwiftSyntaxIndexer.swift", "SwiftSyntaxFacts.swift")
 

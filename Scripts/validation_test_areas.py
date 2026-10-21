@@ -549,6 +549,9 @@ CRITICAL_CONTRACTS = {
         "共享预览存储维持活动文件": "MediaDependencyTests/sharedPreviewStorageRetainsFilesAcrossEnvironmentCleanupAndClosing",
         "预览创建与登记阻止并发清理": "MediaDependencyTests/previewCreationAndRegistrationExcludeConcurrentCleanup",
         "远程图片复制与登记阻止并发清理": "MediaDependencyTests/remotePreviewCopyPinsBeforeConcurrentCleanup",
+        "账号设置独立恢复": "AppSettingsPersistenceBoundaryTests/corruptSettingsRetainTheirSourceThroughLoadEditsAndAccountReload",
+        "建议提交与草稿清理解耦": "SuggestionDependencyTests/confirmedSuggestionCompletesWhileCleanupFails",
+        "建议暂存受阻期间持续受理": "SuggestionDependencyTests/suggestionPersistenceFailureKeepsDeliveryAvailableAndPreservesTheDraft",
     },
     "modules": {
         "云端冲突决策写入基线": "ScheduleSyncTests/keepingLocalConflictPersistsTheNewBaselineThroughTheProductionRepository",
@@ -559,6 +562,10 @@ CRITICAL_CONTRACTS = {
         "成绩云端比较完整快照": "ScoreInfrastructureBoundaryTests/cloudApplyComparesTheCompleteLocalSnapshotInsideTheRepository",
         "成绩缓存受阻期间持续提供在线与页面恢复": "ScoreFeatureTests/unreadableCacheKeepsOnlineScoresVisible",
         "日程存储受阻期间保留编辑并恢复保存": "ScheduleRepositoryReconciliationTests/inaccessibleStorageKeepsVisibleEditsAndResumesSaving",
+        "消息正文独立于未读摘要恢复": "CommunityDependencyBoundaryTests/failedUnreadSummariesKeepReadStateAndRecoverBeforeAcknowledgingMessages",
+        "草稿图片局部恢复": "ComposerRecoveryTests/missingImageKeepsTheTextAndOtherImagesUntilAnExplicitSave",
+        "发帖成功与草稿清理解耦": "ComposerLifecycleTests/confirmedPublicationCompletesWhileCleanupFails",
+        "日程记录局部恢复与原文保留": "ScheduleRecoveryTests/damagedRecordsKeepTheirValidNeighborsAndOriginalBytes",
     },
 }
 

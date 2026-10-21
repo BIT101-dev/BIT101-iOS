@@ -552,6 +552,7 @@ struct ComposerRecoveryTests {
             if let gallery = value as? GalleryComposerDraftSnapshot { gallery.text }
             else if let suggestion = value as? DeveloperSuggestionDraftSnapshot { suggestion.text }
             else { "loaded" }
+        case .recovered(_, let count): "recovered-\(count)"
         case .unreadable: "unreadable"
         case .unsupportedVersion(let version): "version-\(version)"
         }
@@ -566,7 +567,7 @@ struct ComposerRecoveryTests {
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: ["gallery", "suggestion"])
-    func imageGrowthDuringReadPreservesDraftAndBlocksReplacement(_ name: String) async throws {
+    func imageGrowthDuringReadKeepsTextAndAllowsAnExplicitReplacement(_ name: String) async throws {
         let readState = OSAllocatedUnfairLock(initialState: (reads: 0, files: Optional<ModuleScoreFiles>.none, image: Optional<URL>.none))
         let oversized = Data(count: ComposerDraftImagePolicy.maximumBytes + 1)
         let files = ModuleScoreFiles(beforeReading: {
@@ -586,15 +587,16 @@ struct ComposerRecoveryTests {
         let original = files.storedData
         let asset = try #require(original.keys.first { $0.pathExtension == "jpg" })
         readState.withLock { $0.files = files; $0.image = asset }
-        #expect(await read(drafts, name) == "unreadable")
-        #expect(await save(drafts, name) == false)
+        #expect(await read(drafts, name) == "recovered-1")
         #expect(files.storedData[file(name)] == original[file(name)])
         #expect(files.storedData[asset] == oversized)
         readState.withLock { $0.files = nil }
+        #expect(await save(drafts, name))
+        #expect(await read(drafts, name) == "新草稿")
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: ["gallery", "suggestion"])
-    func savingAReplacementPrunesBothOldAndInterruptedImageRevisions(_ name: String) async throws {
+    func textEditsReuseImageAssetsAndPruneInterruptedRevisions(_ name: String) async throws {
         let files = ModuleScoreFiles()
         let drafts = store(files)
         let image = ComposerImageDraftSnapshot(filename: "image.jpg", previewData: Data([7]), uploadData: nil)
@@ -604,19 +606,22 @@ struct ComposerRecoveryTests {
         let old = try #require(first["assetRevision"] as? String)
         let assets = metadata.appendingPathExtension("assets")
         let oldImage = assets.appending(path: old).appending(path: "image-0.jpg")
+        let identity = files.atomicFileIdentity(at: oldImage)
+        let reads = files.readCount(at: oldImage)
         let interrupted = assets.appending(path: "interrupted", directoryHint: .isDirectory)
         try files.createDirectory(at: interrupted)
         let interruptedImage = interrupted.appending(path: "image-0.jpg")
         try files.writeData(Data([1]), to: interruptedImage, options: [.atomic])
         #expect(files.fileExists(at: assets))
-        #expect(await save(drafts, name, images: [image]))
-        #expect(!files.fileExists(at: oldImage) && !files.fileExists(at: interruptedImage))
-        #expect(await read(drafts, name) == "新草稿")
+        #expect(await save(drafts, name, text: "更新文字", images: [image]))
+        #expect(files.atomicFileIdentity(at: oldImage) == identity && !files.fileExists(at: interruptedImage))
+        #expect(files.readCount(at: oldImage) == reads + 1)
+        #expect(await read(drafts, name) == "更新文字")
         #expect(files.storedData.filter { $0.key.path.hasPrefix(assets.path) }.count == 1)
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: ["gallery", "suggestion"], ["sidecar", "references", "legacyBytes", "legacyCount", "metadata"])
-    func excessiveDraftResourcesPreserveFilesAndBlockFurtherWrites(_ name: String, damage: String) async throws {
+    func excessiveDraftResourcesKeepRecoverableContentUntilAnExplicitSave(_ name: String, damage: String) async throws {
         let files = ModuleScoreFiles()
         let drafts = store(files)
         let metadata = file(name)
@@ -640,11 +645,17 @@ struct ComposerRecoveryTests {
         }
         let original = files.storedData
         let reads = files.readCount(at: damage == "metadata" ? metadata : asset)
-        #expect(await read(drafts, name) == "unreadable")
-        if ["metadata", "references", "sidecar"].contains(damage) { #expect(files.readCount(at: damage == "metadata" ? metadata : asset) == reads) }
-        #expect(await save(drafts, name) == false)
-        #expect(await cleanup(drafts, name)() == false)
+        #expect(await read(drafts, name) == (damage == "metadata" ? "unreadable" : damage == "references" ? "recovered-9" : "recovered-1"))
+        if ["metadata", "sidecar"].contains(damage) { #expect(files.readCount(at: damage == "metadata" ? metadata : asset) == reads) }
         #expect(files.storedData == original)
+        if damage == "metadata" {
+            #expect(await save(drafts, name) == false)
+            #expect(await cleanup(drafts, name)() == false)
+            #expect(files.storedData == original)
+        } else {
+            #expect(await save(drafts, name))
+            #expect(await read(drafts, name) == "新草稿")
+        }
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: ["gallery", "suggestion"])
@@ -713,7 +724,7 @@ struct ComposerRecoveryTests {
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: ["gallery", "suggestion"])
-    func missingImageProtectsTheWholeDraft(_ name: String) async throws {
+    func missingImageKeepsTheTextAndOtherImagesUntilAnExplicitSave(_ name: String) async throws {
         let files = ModuleScoreFiles()
         let drafts = store(files)
         let images = [1, 2].map { ComposerImageDraftSnapshot(filename: "\($0).jpg", previewData: Data([UInt8($0)]), uploadData: nil) }
@@ -722,10 +733,23 @@ struct ComposerRecoveryTests {
         let imageURL = try #require(files.storedData.keys.first { $0.lastPathComponent == "image-0.jpg" })
         try files.removeItem(at: imageURL)
         let original = files.storedData
-        #expect(await read(drafts, name) == "unreadable")
-        #expect(await save(drafts, name) == false)
-        #expect(await submittedCleanup() == false)
+        #expect(await read(drafts, name) == "recovered-1")
         #expect(files.storedData == original)
+        let restoredImages: [ComposerImageDraftSnapshot]
+        if name == "gallery" {
+            let recovered = await drafts.loadGallery()
+            #expect(recovered.snapshot?.text == "新草稿" && recovered.recoveryMessage != nil)
+            restoredImages = try #require(recovered.snapshot?.images)
+        } else {
+            let recovered = await drafts.loadSuggestion()
+            #expect(recovered.snapshot?.text == "新草稿" && recovered.recoveryMessage != nil)
+            restoredImages = try #require(recovered.snapshot?.images)
+        }
+        #expect(restoredImages.map(\.filename) == ["2.jpg"])
+        #expect(await save(drafts, name, text: "继续编辑", images: restoredImages))
+        #expect(await submittedCleanup())
+        #expect(await read(drafts, name) == "继续编辑")
+        #expect(files.storedData.first { $0.key.lastPathComponent == "image-0.jpg" }?.value == Data([2]))
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: ["gallery", "suggestion"])

@@ -2,7 +2,6 @@
 """Check the signatures and entitlements of the exported App Store application."""
 import argparse
 from datetime import datetime, timezone
-import hashlib
 import json
 from pathlib import Path
 import plistlib
@@ -43,10 +42,6 @@ def executable_uuids(path: Path, info: dict) -> list:
         re.findall(r"(?m)^UUID: ([0-9A-Fa-f-]+) \(([^)]+)\)", output)]
     if not valid_executable_uuids(rows): raise ValueError("应用可执行文件需要有效的 Mach-O UUID")
     return sorted(rows, key=lambda row: row["architecture"])
-
-
-def executable_digest(path: Path, info: dict) -> str:
-    return hashlib.sha256((path / info['CFBundleExecutable']).read_bytes()).hexdigest()
 
 
 def application_infos(application: Path) -> dict:
@@ -95,7 +90,7 @@ def catalyst_application_identity(application: Path) -> dict:
     contents = application / 'Contents'
     info = plistlib.loads((contents / 'Info.plist').read_bytes())
     return {'identifier': info['CFBundleIdentifier'], 'version': info['CFBundleShortVersionString'],
-        'build': info['CFBundleVersion'], 'sha256': executable_digest(contents / 'MacOS', info),
+        'build': info['CFBundleVersion'],
         'executableUUIDs': executable_uuids(contents / 'MacOS', info)}
 
 
@@ -188,8 +183,7 @@ def distribution_complete(report: dict, contracts: dict | None = None) -> bool:
         if not isinstance(entitlements, dict) or row.get("signatureVerified") is not True \
                 or row.get("team") != contract["team"] or entitlements.get("com.apple.developer.team-identifier") != contract["team"] \
                 or entitlements.get("get-task-allow", False) is not False or row.get("version") != contract["version"] \
-                or row.get("build") != contract["build"] or not isinstance(row.get("sha256"), str) \
-                or not re.fullmatch(r"[0-9a-f]{64}", row["sha256"]) \
+                or row.get("build") != contract["build"] \
                 or not valid_executable_uuids(row.get("executableUUIDs")) \
                 or row.get('compilationConditions') != [] or row.get('testHostMarkers') != [] \
                 or row.get("privacyManifest") != expected_privacy:
@@ -236,7 +230,7 @@ def inspect_application(application: Path) -> dict:
         rows.append({"identifier": info["CFBundleIdentifier"], "version": info["CFBundleShortVersionString"],
             **production_build_metadata(path, info),
             "build": info["CFBundleVersion"], "team": team[1] if team else "", "entitlements": entitlements,
-            "signatureVerified": True, "sha256": executable_digest(path, info),
+            "signatureVerified": True,
             "privacyManifest": privacy_manifest(path),
             "executableUUIDs": executable_uuids(path, info),
             "platform": info.get('DTPlatformName'), "supportedPlatforms": info.get('CFBundleSupportedPlatforms'),

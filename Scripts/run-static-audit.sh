@@ -115,7 +115,7 @@ shell_parse() {
   python3 "$ROOT_DIR/Scripts/check-shell-syntax.py"
 }
 python_parse() {
-  python3 "$ROOT_DIR/Scripts/check-python-syntax.py" "$ROOT_DIR"
+  python3 "$ROOT_DIR/Scripts/check-python-syntax.py" "$ROOT_DIR" --self-test
 }
 worker_parse() {
   find "$ROOT_DIR/Cloudflare" \
@@ -138,7 +138,7 @@ docs_check() {
   if [[ "${BIT101_RELEASE_CHECK:-false}" == "true" ]]; then
     version_args+=(--check-app-store)
   fi
-  (cd "$ROOT_DIR" && python3 Scripts/check-docs.py --all) || return 1
+  (cd "$ROOT_DIR" && python3 Scripts/check-docs.py --all --self-test) || return 1
   (cd "$ROOT_DIR" && python3 Scripts/check-docs.py --staged) || return 1
   (cd "$ROOT_DIR" && python3 Scripts/validate_versions.py "${version_args[@]}")
 }

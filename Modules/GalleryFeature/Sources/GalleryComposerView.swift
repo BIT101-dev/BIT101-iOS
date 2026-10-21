@@ -298,7 +298,8 @@ private struct GalleryComposerScene: View {
     private func requestDismiss() {
         guard !viewModel.isBusy else { return }
         if viewModel.hasPublishedContent {
-            Task { if await viewModel.submit() { onCreated(); dismiss() } }
+            onCreated()
+            dismiss()
             return
         }
         if editingPoster != nil || !viewModel.hasDraftContent { dismiss() }

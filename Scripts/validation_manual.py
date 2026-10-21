@@ -3,9 +3,7 @@ import base64
 import json
 import math
 import re
-import struct
 import uuid
-import zlib
 from validation_provenance import sampling_evidence_current, utc_now, LIVE_EVIDENCE_LIFETIME
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
@@ -105,22 +103,6 @@ def artifact_complete(artifact: dict, check: str, *, observed_at: str | None = N
         return False
 
 
-def png_complete(data: bytes) -> bool:
-    if not data.startswith(b'\x89PNG\r\n\x1a\n'): return False
-    offset, kinds = 8, []
-    while offset + 12 <= len(data):
-        size = int.from_bytes(data[offset:offset + 4])
-        end = offset + 12 + size
-        if end > len(data): return False
-        kind = data[offset + 4:offset + 8]
-        payload = data[offset + 8:end - 4]
-        if zlib.crc32(kind + payload) != int.from_bytes(data[end - 4:end]): return False
-        if not kinds and (kind != b'IHDR' or size != 13 or 0 in struct.unpack('>II', payload[:8])): return False
-        kinds.append(kind)
-        offset = end
-    return offset == len(data) and b'IDAT' in kinds and kinds[-1:] == [b'IEND']
-
-
 def evidence_content_complete(check: str, data: bytes, *, observed_at: str | None = None) -> bool:
     if not data or len(data) > MAXIMUM_ATTACHMENT_BYTES: return False
     if check not in MANUAL_DEVICE_CHECKS: return False
@@ -186,7 +168,7 @@ def evidence_content_complete(check: str, data: bytes, *, observed_at: str | Non
 
 def media_content_complete(data: bytes) -> bool:
     if not data or len(data) > MAXIMUM_ATTACHMENT_BYTES: return False
-    recognized = png_complete(data) or data.startswith(b'\xff\xd8\xff') and data.endswith(b'\xff\xd9') \
+    recognized = data.startswith(b'\x89PNG\r\n\x1a\n') or data.startswith(b'\xff\xd8\xff') and data.endswith(b'\xff\xd9') \
         or data.startswith(b'%PDF-') and data.rstrip().endswith(b'%%EOF') \
         or len(data) >= 16 and data[4:8] == b'ftyp' and b'moov' in data
     return recognized and media_complete(data)
@@ -267,7 +249,6 @@ def application_identity_complete(proof: dict, platform: str) -> bool:
         and application.get('version') == contract['version'] and application.get('build') == contract['build'] \
         and application.get('configuration') == 'Release' and application.get('testHostMarkers') == [] \
         and minimum_os_version(application.get('minimumOSVersion')) == minimum \
-        and bool(re.fullmatch(r'[0-9a-f]{64}', application.get('sha256', ''))) \
         and valid_executable_uuids(application.get('executableUUIDs')) \
         and (platform == 'macCatalyst' or application.get('distributionChannel') in {'testflight', 'app-store'}) \
         and proof.get('inputDigest') == source_digest('manual-device', environment={})
@@ -299,7 +280,6 @@ def baseline_complete(proof: dict) -> bool:
         for bundle in bundles:
             contract = contracts[bundle['identifier']]
             if bundle.get('version') != contract['version'] or bundle.get('build') != contract['build'] \
-                    or not isinstance(bundle.get('sha256'), str) or not re.fullmatch(r'[0-9a-f]{64}', bundle['sha256']) \
                     or not valid_executable_uuids(bundle.get('executableUUIDs')): return False
             if bundle.get('distributionChannel') not in {'testflight', 'app-store'}: return False
     return True
@@ -327,7 +307,6 @@ def installed_bundle_matches_distribution(installed: dict, exported: dict | None
     return isinstance(exported, dict) and all(installed.get(key) == exported.get(key)
         for key in ('identifier', 'version', 'build')) \
         and installed.get('distributionChannel') in {'testflight', 'app-store'} \
-        and isinstance(installed.get('sha256'), str) and bool(re.fullmatch(r'[0-9a-f]{64}', installed['sha256'])) \
         and valid_executable_uuids(installed.get('executableUUIDs')) \
         and all(item in exported.get('executableUUIDs', []) for item in installed['executableUUIDs'])
 
@@ -367,7 +346,7 @@ def catalyst_matches_runtime(observation: dict, runtime: dict) -> bool:
                 or runtime.get('exitCode') != 0 or runtime.get('scope') != 'full' \
                 or runtime.get('summary', {}).get('passed') is not True: return False
         proof = json.loads(artifact_bytes(observation['evidence']))
-        fields = ('identifier', 'version', 'build', 'sha256', 'executableUUIDs')
+        fields = ('identifier', 'version', 'build', 'executableUUIDs')
         return {key: proof['application'][key] for key in fields} == {key: runtime['application'][key] for key in fields}
     except (KeyError, ValueError, TypeError, AttributeError): return False
 

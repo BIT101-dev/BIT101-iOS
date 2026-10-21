@@ -108,14 +108,26 @@ struct SettingsRootView: View {
 
 private struct SettingsStorageNotice: View {
     @ObservedObject var settings: AppSettingsStore
+    @State private var showsRecoveryConfirmation = false
     var body: some View {
         if let issue = settings.storageIssue {
-            Text(issue)
-                .font(AppDesignSystem.Typography.caption)
-                .foregroundStyle(AppDesignSystem.Palette.Status.danger)
-                .padding(AppDesignSystem.Spacing.regular)
-                .frame(maxWidth: .infinity)
-                .background(AppDesignSystem.Palette.Background.grouped)
+            VStack(spacing: AppDesignSystem.Spacing.regular) {
+                Text(issue)
+                    .font(AppDesignSystem.Typography.caption)
+                    .foregroundStyle(AppDesignSystem.Palette.Status.danger)
+                Button("恢复账号设置", role: .destructive) { showsRecoveryConfirmation = true }
+                    .accessibilityIdentifier("settings.storage.recover")
+            }
+            .padding(AppDesignSystem.Spacing.regular)
+            .frame(maxWidth: .infinity)
+            .background(AppDesignSystem.Palette.Background.grouped)
+            .alert("恢复当前账号的设置？", isPresented: $showsRecoveryConfirmation) {
+                Button("恢复账号设置", role: .destructive) { settings.restoreAccountPreferences() }
+                    .accessibilityIdentifier("settings.storage.confirm-recovery")
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("话廊偏好与账号内的提示设置恢复为默认值。日程、成绩、登录状态与设备偏好继续保留。")
+            }
         }
     }
 }
@@ -270,11 +282,7 @@ private enum DeveloperSuggestionConfirmation: String, Identifiable {
     var id: String { rawValue }
 }
 
-/// 此页面向开发者提交功能建议，并复用错误反馈 Worker 与邮件通知链路。
-struct DeveloperSuggestionCleanupRequired: Error {
-    let retry: ComposerDraftCleanup
-}
-
+/// 建议提交与所属草稿清理通过注入端口组装。
 struct DeveloperSuggestionDependencies {
     let drafts: any DeveloperSuggestionDraftStoring
     private let send: (DeveloperSuggestionPayload) async throws -> Void
@@ -287,16 +295,21 @@ struct DeveloperSuggestionDependencies {
         self.captureSubmissionOwner = captureSubmissionOwner
     }
 
-    func submitAndClear(_ payload: DeveloperSuggestionPayload, persisting draft: DeveloperSuggestionDraftSnapshot? = nil) async throws {
+    @discardableResult
+    func submitAndClear(_ payload: DeveloperSuggestionPayload, persisting draft: DeveloperSuggestionDraftSnapshot? = nil) async throws -> Task<Bool, Never> {
         let ownerIsCurrent = captureSubmissionOwner()
+        let persisted: Bool
         if let draft {
-            guard await drafts.saveSuggestion(draft) else { throw CocoaError(.fileWriteUnknown) }
-        }
+            persisted = await drafts.saveSuggestion(draft)
+        } else { persisted = true }
         guard ownerIsCurrent() else { throw CancellationError() }
-        let cleanup = await drafts.captureSuggestionCleanup()
+        let cleanup = persisted ? await drafts.captureSuggestionCleanup() : nil
         guard ownerIsCurrent() else { throw CancellationError() }
         try await send(payload)
-        guard await cleanup() else { throw DeveloperSuggestionCleanupRequired(retry: cleanup) }
+        return Task {
+            guard let cleanup else { return false }
+            return await cleanup()
+        }
     }
 }
 
@@ -317,7 +330,6 @@ struct DeveloperSuggestionPage: View {
     @FocusState private var isContactFocused: Bool
     @State private var didCheckDraft = false
     @State private var submissionAttempt = FeedbackSubmissionAttempt<DeveloperSuggestionPayload>()
-    @State private var pendingPublishedCleanup: ComposerDraftCleanup?
     @State private var submissionRecoveryFailed = false
 
     var body: some View {
@@ -373,13 +385,12 @@ struct DeveloperSuggestionPage: View {
             }
         }
         .appGroupedListStyle()
-        .disabled(pendingPublishedCleanup != nil)
         .navigationTitle("向开发者提建议")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             AppComposerToolbar(
                 isSubmitting: isSubmitting,
-                submitTitle: pendingPublishedCleanup == nil ? "提交" : "完成草稿清理",
+                submitTitle: "提交",
                 submittingTitle: "提交中",
                 isSubmitDisabled: text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                 onCancel: {
@@ -449,9 +460,7 @@ struct DeveloperSuggestionPage: View {
 
     private func requestSubmission() {
         guard !isSubmitting else { return }
-        if pendingPublishedCleanup != nil {
-            Task { await submit() }
-        } else if contact.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if contact.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             confirmation = .missingContact
         } else {
             Task { await submit() }
@@ -461,13 +470,6 @@ struct DeveloperSuggestionPage: View {
     @MainActor
     private func submit() async {
         guard !isSubmitting else { return }
-        if let cleanup = pendingPublishedCleanup {
-            isSubmitting = true
-            defer { isSubmitting = false }
-            if await cleanup() { pendingPublishedCleanup = nil; dismiss() }
-            else { alert = AppAlert(title: "已提交，草稿清理待完成", message: "请重试草稿清理，已提交的建议保持原样。") }
-            return
-        }
         let suggestion = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !suggestion.isEmpty else { return }
         guard !submissionRecoveryFailed else {
@@ -518,9 +520,6 @@ struct DeveloperSuggestionPage: View {
             contact = ""
             alert = nil
             dismiss()
-        } catch let cleanup as DeveloperSuggestionCleanupRequired {
-            pendingPublishedCleanup = cleanup.retry
-            alert = AppAlert(title: "已提交，草稿清理待完成", message: "请重试草稿清理，已提交的建议保持原样。")
         } catch {
             alert = AppAlert(title: "提交失败", message: error.localizedDescription)
         }
@@ -528,10 +527,6 @@ struct DeveloperSuggestionPage: View {
 
     private func requestDismiss() {
         guard !isSubmitting else { return }
-        if pendingPublishedCleanup != nil {
-            Task { await submit() }
-            return
-        }
         guard hasDraftContent else {
             dismiss()
             return

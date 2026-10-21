@@ -133,13 +133,16 @@ nonisolated final class PreviewFileOwnership: Sendable {
 
 /// Enforces the image-cache setting across gallery media and avatar files as one LRU pool.
 actor ImageCacheDiskQuota {
-
+    private nonisolated let executor = StorageFileExecutor()
+    nonisolated var unownedExecutor: UnownedSerialExecutor { executor.asUnownedSerialExecutor() }
     private let files: any AppFileService
     private let configuredDirectories: [URL]?
     private let cacheLimitMB: @MainActor @Sendable () async -> Int
     private let previewOwnership: PreviewFileOwnership
     private let pruneInterval: TimeInterval
     private var lastPruneDate = Date.distantPast
+    private var inventory: [URL: AppRegularFileMetadata] = [:]
+    private var inventoryBytes: Int64 = 0
 
     init(
         files: any AppFileService,
@@ -166,7 +169,13 @@ actor ImageCacheDiskQuota {
         }
     }
 
-    func clearDirectory(_ directory: URL) -> Bool { previewOwnership.clearDirectory(directory, using: files) }
+    func clearDirectory(_ directory: URL) -> Bool {
+        let cleared = previewOwnership.clearDirectory(directory, using: files)
+        lastPruneDate = .distantPast
+        inventory = [:]
+        inventoryBytes = 0
+        return cleared
+    }
 
     nonisolated func beginFileUse(_ file: URL, owner: UUID, prepare: @Sendable () throws -> Void) throws {
         previewOwnership.begin(owner)
@@ -178,37 +187,67 @@ actor ImageCacheDiskQuota {
 
     func enforce(force: Bool = false, protecting protectedURLs: Set<URL> = []) async {
         let now = Date()
-        guard force || now.timeIntervalSince(lastPruneDate) >= pruneInterval else { return }
-        lastPruneDate = now
-
-        let limitMB = await cacheLimitMB()
-        guard limitMB > 0 else { return }
-        let limit = Int64(limitMB) * 1_024 * 1_024
-        let cacheDirectories = directories
-        let protectedPaths = Set(protectedURLs.map { files.canonicalFileURL($0).path })
-            .union(previewOwnership.withPaths { $0 })
-        let cacheFiles = cacheDirectories.flatMap { directory -> [(URL, Int64, Date)] in
-            guard let children = try? files.regularFileMetadata(in: directory) else { return [] }
-            return children.compactMap { metadata in
-                guard !protectedPaths.contains(metadata.url.path),
-                      metadata.url.lastPathComponent != "preview-placeholder.png" else { return nil }
-                return (metadata.url, Int64(metadata.size), metadata.modificationDate)
+        for url in protectedURLs {
+            let key = files.canonicalFileURL(url)
+            if let metadata = inventory[key] {
+                inventory[key] = .init(url: key, size: metadata.size, modificationDate: now)
             }
         }
-        var total = cacheFiles.reduce(Int64(0)) { $0 + $1.1 }
-        total += protectedPaths.reduce(Int64(0)) {
-            $0 + Int64(files.regularFileSize(at: URL(fileURLWithPath: $1)) ?? 0)
+        guard force || now.timeIntervalSince(lastPruneDate) >= pruneInterval else { return }
+        lastPruneDate = now
+        inventory = [:]
+        inventoryBytes = 0
+        let limitMB = await cacheLimitMB()
+        guard limitMB > 0 else { return }
+        for directory in directories {
+            guard let entries = try? files.regularFileMetadata(in: directory) else { continue }
+            for entry in entries where entry.url.lastPathComponent != "preview-placeholder.png" { inventory[entry.url] = entry }
+        }
+        inventoryBytes = inventory.values.reduce(Int64(0)) { $0 + Int64($1.size) }
+        prune(limitMB: limitMB, protecting: protectedURLs)
+    }
+
+    /// 写入时更新所属条目；全目录扫描沿现有周期及显式清理执行。
+    func didWrite(_ url: URL) async {
+        let limitMB = await cacheLimitMB()
+        guard limitMB > 0 else { return }
+        let key = files.canonicalFileURL(url)
+        guard Date().timeIntervalSince(lastPruneDate) < pruneInterval else {
+            await enforce(force: true, protecting: [key])
+            return
+        }
+        inventoryBytes -= Int64(inventory.removeValue(forKey: key)?.size ?? 0)
+        if let size = files.regularFileSize(at: key) {
+            inventory[key] = .init(url: key, size: size, modificationDate: files.modificationDate(at: key) ?? Date())
+            inventoryBytes += Int64(size)
+        }
+        prune(limitMB: limitMB, protecting: [key])
+    }
+
+    private func prune(limitMB: Int, protecting protectedURLs: Set<URL>) {
+        let limit = Int64(limitMB) * 1_024 * 1_024
+        let protectedPaths = Set(protectedURLs.map { files.canonicalFileURL($0).path })
+            .union(previewOwnership.withPaths { $0 })
+        var total = inventoryBytes + protectedPaths.reduce(Int64(0)) { total, path in
+            let url = URL(fileURLWithPath: path)
+            return total + (inventory[url] == nil ? Int64(files.regularFileSize(at: url) ?? 0) : 0)
         }
         guard total > limit else { return }
 
         let target = Int64(Double(limit) * 0.85)
-        for (url, size, _) in cacheFiles.sorted(by: { $0.2 < $1.2 }) where total > target {
+        for entry in inventory.values.sorted(by: { $0.modificationDate < $1.modificationDate }) where total > target {
+            let url = entry.url
+            guard !protectedPaths.contains(url.path) else { continue }
             let removed = previewOwnership.withPaths { currentPaths in
                 guard !currentPaths.contains(url.path) else { return false }
                 do { try files.removeItem(at: url); return true }
                 catch { return false }
             }
-            if removed { total -= size }
+            if removed {
+                total -= Int64(entry.size)
+                inventoryBytes -= Int64(entry.size)
+                inventory[url] = nil
+            }
         }
     }
 
@@ -382,7 +421,7 @@ actor RemoteImageCache {
                 try? files.setModificationDate(Date(), at: target)
             }
             activeFileUses.insert(id)
-            await quota.enforce(force: true, protecting: Set([target]))
+            await quota.didWrite(target)
             completed = .success(target)
         } catch { completed = .failure(error) }
         guard downloads[key]?.id == id, let operation = downloads.removeValue(forKey: key) else { return }

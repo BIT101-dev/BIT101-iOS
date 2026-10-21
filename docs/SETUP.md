@@ -44,6 +44,7 @@ export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 
 ```sh
 brew install python
+export PATH="$(brew --prefix)/opt/python@3/libexec/bin:$PATH"
 git --version
 python3 --version
 ```
@@ -58,6 +59,8 @@ gh --version
 rg --version
 ruff --version
 ```
+
+将上述 Python PATH 配置加入 shell 启动配置，终端使用 Homebrew Python。构建、测试脚本与提交钩子也通过公共入口优先选择该解释器。
 
 ### 3. 克隆或更新仓库
 

@@ -230,11 +230,16 @@ final class AppSettingsStore: ObservableObject {
 
     /// 把设置恢复到默认值。
     func resetToDefaults() {
+        restoreAccountPreferences()
+        setHidesCourseHistoryMakeupOutliers(true)
+        setAutomaticUpdateChecksEnabled(true)
+    }
+
+    /// 恢复当前账号的设置快照，保留其他业务数据与设备偏好。
+    func restoreAccountPreferences() {
         snapshotStore.remove()
         snapshotReadBlocked = false
         snapshot = AppSettingsSnapshot()
-        setHidesCourseHistoryMakeupOutliers(true)
-        setAutomaticUpdateChecksEnabled(true)
         save(syncPreferences: true)
     }
 

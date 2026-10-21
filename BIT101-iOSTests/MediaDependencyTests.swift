@@ -474,6 +474,7 @@ struct MediaDependencyTests {
         let files = PreferenceMemoryFiles()
         let quota = ImageCacheDiskQuota(files: files, cacheLimitMB: { 1 })
         await quota.enforce()
+        let initialScans = files.metadataScanCount
         let bytes = try png(width: 2) + Data(repeating: 1, count: 600_000)
         let images = RemoteImageCache(files: files, quota: quota,
             httpClient: HTTPClient(transport: Images(bytes: bytes), observer: nil))
@@ -489,6 +490,7 @@ struct MediaDependencyTests {
             }
             #expect(await quota.usedBytes() <= 1_048_576)
         }
+        #expect(files.metadataScanCount == initialScans)
     }
 
     @Test(.timeLimit(.minutes(1))) func previewOwnershipRetainsEarlierPagesUntilTheSessionCloses() async throws {

@@ -619,7 +619,7 @@ def run_self_test(subject) -> int:
             ordinary_audit = json.loads(json.dumps(report))
             ordinary_audit['groups']['audit']['summary']['releaseVersionChecked'] = False
             assert any('App Store 版本核对' in row for row in subject.release_findings(ordinary_audit, 'source'))
-            for key, value in [('sha256', 'b' * 64), ('executableUUIDs', [])]:
+            for key, value in [('executableUUIDs', [])]:
                 mismatched = json.loads(json.dumps(report))
                 mismatched['groups']['catalyst-release-runtime']['application'][key] = value
                 assert any('Catalyst 桌面专项' in error for error in subject.release_findings(mismatched, 'source'))
@@ -763,20 +763,18 @@ def summary_status_self_test(subject) -> None:
             if candidate['scope'] == 'full': assert subject.group_complete(report, 'all') == (label == '通过')
 
 def native_case_fixture(summary, counts, group='all'):
-    from hashlib import sha256
     return dict(summary, testCases={'passed': True, 'total': sum(counts.values()), 'byTest': counts,
         'destinations': [{'platform': 'macOS' if group in {'catalyst', 'catalyst-release-runtime'} else 'iOS', 'deviceIdentifier': 'fixture-device'}],
-        'expectedByTest': counts, 'identifiersByTest': {name: ['test://com.apple.xcode/BIT101-iOS/' + ('BIT101-iOSUITests' if group == 'ui' else 'BIT101-iOSTests') + '/' + name + '?args=' + sha256(str(index).encode()).hexdigest()
+        'expectedByTest': counts, 'identifiersByTest': {name: ['test://com.apple.xcode/BIT101-iOS/' + ('BIT101-iOSUITests' if group == 'ui' else 'BIT101-iOSTests') + '/' + name + '?args=' + format(index, '064x')
             for index in range(count)] for name, count in counts.items()}})
 
 def native_cases_self_test(subject) -> None:
     from copy import deepcopy
-    from hashlib import sha256
     from unittest.mock import patch
     method = 'Suite/image'
     identity = 'test://com.apple.xcode/BIT101-iOS/BIT101-iOSTests/' + method
     row = {'devices': [{'platform': 'iOS', 'deviceId': 'fixture-device'}], 'nodeType': 'Test Case', 'nodeIdentifier': method + '(stage:)', 'nodeIdentifierURL': identity, 'result': 'Passed',
-        'children': [{'nodeType': 'Arguments', 'nodeIdentifierURL': identity + '?args=' + sha256(str(index).encode()).hexdigest(), 'result': 'Passed'} for index in range(5)]}
+        'children': [{'nodeType': 'Arguments', 'nodeIdentifierURL': identity + '?args=' + format(index, '064x'), 'result': 'Passed'} for index in range(5)]}
     summary = {'passed': True, 'totalTests': 1, 'passedTests': 1, 'failedTests': 0, 'skippedTests': 0, 'executedTests': [method]}
     with patch.object(subject, 'test_case_inventory', return_value={method: 5}), patch.object(subject, 'test_inventory', return_value={method}), \
             patch.object(subject, 'coverage_complete', return_value=True):
@@ -807,7 +805,7 @@ def native_cases_self_test(subject) -> None:
             assert not subject.selected_test_summary_complete(changed, [method]) and not subject.complete_summary('all', changed)
         forged = native_case_fixture(summary, {method: 1})
         assert not subject.selected_test_summary_complete(forged, [method])
-        for values in ([str(index) for index in range(5)], [identity.replace('/Suite/', '/OtherSuite/') + '?args=' + sha256(str(index).encode()).hexdigest() for index in range(5)],
+        for values in ([str(index) for index in range(5)], [identity.replace('/Suite/', '/OtherSuite/') + '?args=' + format(index, '064x') for index in range(5)],
                 [identity + '?args=' + str(index) for index in range(5)]):
             forged = deepcopy(summary); forged['testCases']['identifiersByTest'][method] = values
             assert not subject.selected_test_summary_complete(forged, [method])

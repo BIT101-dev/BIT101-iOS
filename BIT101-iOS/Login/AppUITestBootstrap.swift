@@ -92,6 +92,14 @@ enum AppUITestBootstrap {
 
     static func prepareSessionIfNeeded() async {
         let environment = Self.environment
+        defer {
+            if environment["BIT101_UI_TEST_SETTINGS_RECOVERY"] == "1" {
+                let key = AppFileDirectories.currentSession.key(AppSettingsStore.storageKeyPrefix,
+                    guestIdentifier: AppSettingsStore.defaultAccountIdentifier)
+                AppFileDirectories.defaults.set(Data("damaged-ui-settings".utf8), forKey: key)
+                AppSettingsStore.shared.reloadForCurrentAccount()
+            }
+        }
         guard environment["BIT101_UI_TEST_RESET_STORAGE"] == "1",
               let account = environment["BIT101_UI_TEST_ACCOUNT"], !account.isEmpty else { return }
         do {

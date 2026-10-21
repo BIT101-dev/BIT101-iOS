@@ -424,6 +424,33 @@ nonisolated final class ScoreInteractionUITests: UIAutomationTestCase {
 
 nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
     @MainActor
+    @objc func testSettingsRecoveryPreservesScheduleAndAccount() {
+        app = configureApp(resetStorage: true, content: true)
+        addCustomSchedule("设置恢复保留日程", in: app)
+        app = configureApp(resetStorage: false, content: true, settingsRecovery: true, initialSettings: "gallery")
+        tap("settings.storage.recover")
+        let dialog = app.alerts["恢复当前账号的设置？"]
+        let cancel = dialog.buttons["取消"]
+        assertUI(cancel.appears(timeout: 5), "恢复设置应提供确认与取消操作。")
+        cancel.tapBriefly()
+        assertUI(cancel.disappears(timeout: 5), "取消后应返回原设置页面。")
+        assertUI(app.buttons["settings.storage.recover"].exists, "取消恢复后应保留账号设置的恢复入口。")
+        tap("settings.storage.recover")
+        let confirm = dialog.buttons["恢复账号设置"]
+        assertUI(confirm.appears(timeout: 5), "再次恢复应展示原生确认操作。")
+        confirm.tapBriefly()
+        assertUI(app.buttons["settings.storage.recover"].disappears(timeout: 5), "恢复后应继续保存设置。")
+        let value = toggle("隐藏机器人帖子")
+        app = configureApp(resetStorage: false, content: true, initialSettings: "gallery")
+        let control = app.switches.matching(NSPredicate(format: "label CONTAINS %@", "隐藏机器人帖子")).firstMatch
+        reveal(control)
+        waitForValue(value, of: control)
+        back()
+        app.tabBars.buttons["日程"].tapBriefly()
+        assertUI(textElement("设置恢复保留日程").appears(timeout: 5), "恢复设置后应保留登录账号与原日程。")
+    }
+
+    @MainActor
     @objc func testCommunityCommentLikesRepliesSortsAndPhotoPicker() {
         app = configureApp(resetStorage: true, content: true, initialTab: "gallery")
         tap("自动化测试话题")

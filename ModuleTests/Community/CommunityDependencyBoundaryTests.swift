@@ -100,11 +100,12 @@ struct CommunityDependencyBoundaryTests {
         let model = GalleryMessageViewModel(service: service, readStore: store)
         await model.bootstrapIfNeeded()
         #expect(model.unreadCountsFailure != nil && model.alert != nil)
-        #expect(store.latestIDs == [99] && service.cursors.isEmpty)
+        #expect(store.latestIDs == [99] && service.cursors == [Int.max])
+        #expect(model.state(for: .comment).status == .loaded && model.state(for: .comment).items.map(\.id) == [42])
         service.error = nil
         await model.refreshSelectedType()
         #expect(model.unreadCountsFailure == nil && model.state(for: .comment).items.map(\.id) == [42])
-        #expect(service.cursors == [Int.max, nil, Int.max])
+        #expect(service.cursors == [Int.max, Int.max, nil, Int.max])
     }
 
     @Test(arguments: [#"{"comment":-1}"#, #"{"follow":-1}"#, #"{"like":-1}"#, #"{"system":-1}"#,
@@ -558,8 +559,9 @@ struct CommunityDependencyBoundaryTests {
         await model.refreshUnreadCounts()
         await model.refresh(type: .comment)
         #expect(service.unread == 5 && !service.cursors.contains(nil))
-        if damaged { #expect(service.cursors.isEmpty) }
-        #expect(model.alert?.title == "加载消息失败")
+        if damaged { #expect(service.cursors == [Int.max]) }
+        #expect(model.state(for: .comment).status == .loaded && !model.state(for: .comment).items.isEmpty)
+        #expect(model.alert?.title == "消息状态同步受阻")
         #expect(model.alert?.message.contains(damaged ? "读取失败" : "保存失败") == true)
         model.alert = nil
         await model.markMessageAsRead(try #require(RecordingMessageService.messages([42]).first), in: .comment)

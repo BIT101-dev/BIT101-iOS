@@ -86,7 +86,11 @@ struct MinePagingRecoveryTests {
         }
         await refresh()
         await next()
-        service.users = { _ in throw URLError(.notConnectedToInternet) }
+        service.users = { _ in
+            let visible = followers ? model.followerState : model.followingState
+            #expect(visible.items.map(\.id) == [1, 2] && visible.nextPage == 2)
+            throw URLError(.notConnectedToInternet)
+        }
         await refresh()
         let state = followers ? model.followerState : model.followingState
         #expect(state.items.map(\.id) == [1, 2] && state.nextPage == 2 && state.status == .loaded)

@@ -44,7 +44,7 @@ public nonisolated enum ComposerDraftImagePolicy {
     public static let maximumLegacyMetadataBytes = maximumImageCount * 2 * ((maximumBytes + 2) / 3 * 4) + maximumMetadataBytes
 }
 
-public nonisolated struct ComposerImageDraftSnapshot: Codable, Sendable {
+public nonisolated struct ComposerImageDraftSnapshot: Codable, Equatable, Sendable {
     public let filename: String
     public let previewData: Data
     public let uploadData: Data?
@@ -55,7 +55,11 @@ public nonisolated struct ComposerImageDraftSnapshot: Codable, Sendable {
     }
 }
 
-public nonisolated struct GalleryComposerDraftSnapshot: Codable, Sendable {
+public nonisolated protocol ComposerDraftSnapshot: Codable, Sendable {
+    var images: [ComposerImageDraftSnapshot] { get set }
+}
+
+public nonisolated struct GalleryComposerDraftSnapshot: ComposerDraftSnapshot {
     public let title: String
     public let text: String
     public let selectedTags: [String]
@@ -63,7 +67,7 @@ public nonisolated struct GalleryComposerDraftSnapshot: Codable, Sendable {
     public let anonymous: Bool
     public let isPublic: Bool
     public let selectedClaimID: Int
-    public let images: [ComposerImageDraftSnapshot]
+    public var images: [ComposerImageDraftSnapshot]
     public init(title: String, text: String, selectedTags: [String], customTags: [String], anonymous: Bool, isPublic: Bool, selectedClaimID: Int, images: [ComposerImageDraftSnapshot]) {
         self.title = title
         self.text = text
@@ -76,9 +80,9 @@ public nonisolated struct GalleryComposerDraftSnapshot: Codable, Sendable {
     }
 }
 
-public nonisolated struct DeveloperSuggestionDraftSnapshot: Codable, Sendable {
+public nonisolated struct DeveloperSuggestionDraftSnapshot: ComposerDraftSnapshot {
     public let text: String
-    public let images: [ComposerImageDraftSnapshot]
+    public var images: [ComposerImageDraftSnapshot]
     public let contact: String
     public let pendingSubmissionMetadata: Data?
 
@@ -117,17 +121,20 @@ public typealias ComposerDraftCleanup = @Sendable () async -> Bool
 public nonisolated enum ComposerDraftLoadResult<Snapshot: Sendable>: Sendable {
     case missing
     case loaded(Snapshot)
+    case recovered(Snapshot, unavailableImages: Int)
     case unreadable
     case unsupportedVersion(Int)
 
     public var snapshot: Snapshot? {
-        guard case .loaded(let snapshot) = self else { return nil }
-        return snapshot
+        switch self {
+        case .loaded(let snapshot), .recovered(let snapshot, _): snapshot
+        case .missing, .unreadable, .unsupportedVersion: nil
+        }
     }
 
     public var allowsWrite: Bool {
         switch self {
-        case .missing, .loaded: true
+        case .missing, .loaded, .recovered: true
         case .unreadable, .unsupportedVersion: false
         }
     }
@@ -135,6 +142,7 @@ public nonisolated enum ComposerDraftLoadResult<Snapshot: Sendable>: Sendable {
     public var recoveryMessage: String? {
         switch self {
         case .missing, .loaded: nil
+        case .recovered(_, let count): "已恢复文字与可用图片，\(count) 张图片需要重新选择。暂存会保存当前页面内容。"
         case .unreadable: "草稿原文件与图片已保留，保存已暂停。请联系维护者恢复草稿后重试。"
         case .unsupportedVersion: "草稿由其他格式版本保存，原文件与图片已保留。请使用支持该格式的版本恢复草稿。"
         }

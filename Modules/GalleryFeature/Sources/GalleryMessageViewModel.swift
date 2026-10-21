@@ -130,7 +130,7 @@ final class GalleryMessageViewModel: ObservableObject {
 
     /// 从第一页重新拉取指定消息分类。
     ///
-    /// 首次分页会清空该分类未读数，成功后同步刷新摘要。
+    /// 先读取历史首屏，再确认可持久化的未读窗口并刷新摘要。
     func refresh(type: GalleryMessageType) async {
         guard refreshingTypes.insert(type).inserted else { return }
         defer {
@@ -157,14 +157,14 @@ final class GalleryMessageViewModel: ObservableObject {
             page.isLoadingMore = true
             listStates[type] = page
         }
-        setState(for: type) { $0.status = .loading; $0.resetCursorPagination() }
+        setState(for: type) { $0.status = .loading; $0.isLoadingMore = false }
         do {
-            if let unreadCountsFailure { throw GalleryMessagePersistenceError.unreadSummary(unreadCountsFailure) }
-            guard await readStore.prepareSnapshot() else { throw GalleryMessagePersistenceError.unreadable }
-            try checkCurrent()
             var first = try await service.fetchMessages(type: type, lastID: Int.max)
             try checkCurrent()
             show(first)
+            if let unreadCountsFailure { throw GalleryMessagePersistenceError.unreadSummary(unreadCountsFailure) }
+            guard await readStore.prepareSnapshot() else { throw GalleryMessagePersistenceError.unreadable }
+            try checkCurrent()
             var currentUnread = try await service.fetchMessageUnreadCounts().unreadCount(for: type)
             try checkCurrent()
             var unreadLimit = serverUnreadBeforeFetch
@@ -220,7 +220,8 @@ final class GalleryMessageViewModel: ObservableObject {
                 }
             }
             if cancelled { return }
-            alert = AppAlert(title: "加载消息失败", message: error.localizedDescription)
+            alert = AppAlert(title: error is GalleryMessagePersistenceError ? "消息状态同步受阻" : "加载消息失败",
+                message: error.localizedDescription)
         }
     }
 
@@ -264,7 +265,7 @@ final class GalleryMessageViewModel: ObservableObject {
 
     /// 将当前分类中已加载和持久化的未读消息一起标记为已读。
     ///
-    /// 操作写入本地；服务端分类未读数在首次拉列表时清零。
+    /// 操作提交本地已读状态；服务端分类清零由未读窗口确认流程执行。
     func markCurrentTypeAsRead() async {
         let type = selectedType
         let ids = state(for: type).items.map(\.id)

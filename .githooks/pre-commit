@@ -1,4 +1,6 @@
-#!/bin/sh
+#!/bin/zsh
+
+source Scripts/script-support.sh
 
 git diff --cached --check || exit $?
 python3 Scripts/check-python-syntax.py . --staged || exit $?

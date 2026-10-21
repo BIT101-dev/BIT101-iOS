@@ -127,6 +127,7 @@ UIKit 控件沿构造类型、继承或别名进入源码清单，运行门禁�
 | `InteractionCoverageUITests/testSuggestionMissingContactConfirmationAndSubmitFailure` | 图片选择器取消、缺少联系信息返回补充 / 继续、提交失败保留、草稿丢弃 |
 | `ServiceInteractionUITests/testSuggestionSuccessfulSubmissionAndDiscardSavedDraft` | 草稿放弃加载、提交确认、受理后响应丢失保留完整载荷并重试、成功关闭、草稿清理 |
 | `InteractionCoverageUITests/testCacheLimitPersistenceClearAndConfirmedReset` | 缓存上限输入 / 重新装载保留、缓存清理、文稿删除确认、返回登录、测试日程清理 |
+| `InteractionCoverageUITests/testSettingsRecoveryPreservesScheduleAndAccount` | 设置快照恢复入口、取消 / 确认、偏好重新保存与加载、账号及已有日程保留 |
 | `CommunityPublishingUITests/testAboutLicenseUpdateAndResetConfirmation` | 开源声明滚动、自动更新开关、离线检查提示、重置取消 |
 | `ServiceInteractionUITests/testManualUpdatePromptAllActionsAndCurrentVersion` | 新版本本次忽略 / 忽略此版本 / App Store、当前版本提示 |
 | `CommunityInteractionUITests/testExternalLinksFromAboutAndCourseResources` | 关于页备案、仓库、QQ、邮件、邀请码、课程共享资料目标 URL |
@@ -192,6 +193,7 @@ SwiftSyntax 清点每个源码作用域的控件、输入、滚动和手势声�
 | `BIT101-iOS/Settings/SettingsRootView.swift:DeveloperSuggestionPage` | `{"ComposerImageTile":1,"PhotosPicker":1,"ScrollView":1,"TextField":2}` | `CommunityPublishingUITests/testSuggestionDraftRestoreAndDiscard,InteractionCoverageUITests/testSuggestionMissingContactConfirmationAndSubmitFailure,ServiceInteractionUITests/testSuggestionSuccessfulSubmissionAndDiscardSavedDraft` |
 | `BIT101-iOS/Settings/SettingsRootView.swift:SettingsIndexPage` | `{"Button":1,"NavigationLink":1,"ScrollView":1}` | `LoginAndScheduleUITests/testCalendarSettingsPickersTogglesAndRenamePersist` |
 | `BIT101-iOS/Settings/SettingsRootView.swift:SettingsRootView` | `{"Button":1}` | `LoginAndScheduleUITests/testCalendarSettingsPickersTogglesAndRenamePersist` |
+| `BIT101-iOS/Settings/SettingsRootView.swift:SettingsStorageNotice` | `{"Button":3}` | `InteractionCoverageUITests/testSettingsRecoveryPreservesScheduleAndAccount` |
 | `BIT101-iOS/Settings/SettingsScheduleViews.swift:AppCalendarSettingsPage` | `{"Button":5,"Toggle":1}` | `LoginAndScheduleUITests/testCalendarSettingsPickersTogglesAndRenamePersist,CalendarInteractionUITests/testCalendarReminderCloudSwitchesAndLeadTimePersistence` |
 | `BIT101-iOS/Settings/SettingsSupportViews.swift:SettingsTextEditSheet` | `{"Button":2,"TextField":1}` | `InteractionCoverageUITests/testAccountProfileSaveLoginCheckAndLogout` |
 | `BIT101-iOS/Shared/Client/AppErrorPresentation.swift:AppErrorReportSheet` | `{"Button":2,"Picker":1,"TextField":2}` | `AccountRecoveryUITests/testErrorReportSanitizedSubmissionAndFailureRecovery,ServiceInteractionUITests/testOfflineRecoveryRetryAndErrorReportEditor` |

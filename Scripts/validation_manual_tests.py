@@ -2,17 +2,14 @@
 from contextlib import nullcontext
 import copy
 import base64
-import hashlib
 from datetime import timedelta
 from io import BytesIO
 import json
 from pathlib import Path
 import plistlib
-import struct
 import subprocess
 from types import SimpleNamespace
 from unittest.mock import patch
-import zlib
 import uuid
 from validation_manual import MANUAL_DEVICE_CHECKS, capture, complete, evidence_content_complete
 from validation_provenance import utc_now
@@ -42,7 +39,6 @@ def distribution_fixture() -> tuple[dict, dict]:
         rows.append({'identifier': identifier, 'team': value['team'], 'version': value['version'], 'build': value['build'],
             'entitlements': entitlements, 'signatureVerified': True,
             'compilationConditions': [], 'testHostMarkers': [],
-            'sha256': hashlib.sha256(('executable:' + identifier).encode()).hexdigest(),
             'privacyManifest': distribution.privacy_manifest(distribution.ROOT / 'BIT101-iOS'),
             'platform': 'watchos' if value['platform'] == 'watchOS' else 'iphoneos',
             'supportedPlatforms': ['WatchOS' if value['platform'] == 'watchOS' else 'iPhoneOS'],
@@ -104,7 +100,7 @@ def evidence_fixture(check: str) -> bytes:
                 'deviceIdentifier': 'fixture-mac' if desktop else 'fixture-pad', 'deviceModel': 'Mac' if desktop else 'iPad', 'deviceFamily': 'iPad',
                 'systemVersion': minimum, 'systemBuild': 'fixture-build', 'inputDigest': source_digest('manual-device', environment={}),
                 'application': {'identifier': identifier, 'version': row['version'], 'build': row['build'], 'configuration': 'Release',
-                    'testHostMarkers': [], 'minimumOSVersion': minimum, 'sha256': 'a' * 64 if desktop else bundle['sha256'],
+                    'testHostMarkers': [], 'minimumOSVersion': minimum,
                     **({} if desktop else {'distributionChannel': 'testflight'}),
                     'executableUUIDs': bundle['executableUUIDs']},
                 'scenarios': scenarios}).encode()
@@ -154,7 +150,7 @@ def evidence_fixture(check: str) -> bytes:
                 key=distribution.minimum_os_version)
             platforms[platform] = {'deviceIdentifier': platform + '-fixture', 'deviceModel': platform + '-device',
                 'systemVersion': version, 'systemBuild': 'fixture-build', 'capturedAt': utc_now().isoformat(),
-                'installedBundles': [{key: bundle[key] for key in ('identifier', 'version', 'build', 'sha256', 'executableUUIDs')} | {'distributionChannel': 'testflight'}
+                'installedBundles': [{key: bundle[key] for key in ('identifier', 'version', 'build', 'executableUUIDs')} | {'distributionChannel': 'testflight'}
                     for bundle in bundles if contracts[bundle['identifier']]['platform'] == platform],
                 'checks': {name: {'operation': '实际操作', 'result': '观察结果', 'outcome': 'passed'} for name in checks},
                 'evidence': captured_media_fixture()}
@@ -173,10 +169,7 @@ def evidence_fixture(check: str) -> bytes:
             'emailHeaders': {'To': recipient, 'Message-ID': '<receipt@example.invalid>', 'X-BIT101-Report-ID': identifier,
                 'Date': format_datetime(received_time)},
             'emailMessageID': '<receipt@example.invalid>', 'emailBody': '报告编号：' + identifier + '\n接收时间：' + received}).encode()
-    def chunk(kind, content):
-        return struct.pack('>I', len(content)) + kind + content + struct.pack('>I', zlib.crc32(kind + content))
-    return b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', 1, 1, 8, 2, 0, 0, 0)) \
-        + chunk(b'IDAT', zlib.compress(b'\0\0\0\0')) + chunk(b'IEND', b'')
+    return base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jub0AAAAASUVORK5CYII=')
 
 
 def captured_fixture(check: str, provenance: dict | None = None) -> dict:
@@ -278,7 +271,6 @@ def run_self_test(_source_identity) -> None:
             patch.object(distribution.subprocess, 'check_output', return_value=output) as uuids:
         identity = distribution.catalyst_application_identity(application)
         assert identity == {'identifier': info['CFBundleIdentifier'], 'version': '1.0', 'build': '1',
-            'sha256': distribution.hashlib.sha256(b'executable').hexdigest(),
             'executableUUIDs': [{'architecture': 'arm64', 'uuid': '00000000-0000-4000-8000-000000000001'}]}
         assert uuids.call_args.args[0] == ['xcrun', 'dwarfdump', '--uuid', str(executable)]
     from validation_media import run_probe
@@ -319,7 +311,7 @@ def run_self_test(_source_identity) -> None:
         assert not distribution.distribution_complete(report, contracts)
     for index, row in enumerate(report['bundles']):
         for key, value in [('signatureVerified', False), ('version', '0.0.0'), ('build', '0'), ('team', 'other'),
-                ('containerIdentifier', 'wrong'), ('sha256', 'invalid'), ('executableUUIDs', []),
+                ('containerIdentifier', 'wrong'), ('executableUUIDs', []),
                 ('privacyManifest', None), ('privacyManifest', {})]:
             if key == 'containerIdentifier' and not row['containerIdentifier']: continue
             changed = copy.deepcopy(report)
@@ -403,7 +395,7 @@ def run_self_test(_source_identity) -> None:
         assert distribution.distribution_complete(collected_distribution, contracts)
         for row in collected_distribution['bundles']:
             expected = next(value for value in report['bundles'] if value['identifier'] == row['identifier'])
-            assert row['sha256'] == expected['sha256']
+            assert row['executableUUIDs'] == expected['executableUUIDs']
         build = distribution.archive_build_summary(root)
         assert build['archiveProvenance'] == report['archiveProvenance']
         assert build['executables'] == {row['identifier']: row['executableUUIDs'] for row in report['bundles']}
@@ -444,7 +436,7 @@ def run_self_test(_source_identity) -> None:
     collected_observation = copy.deepcopy(checks['distribution-signing'])
     encoded = json.dumps(collected_distribution).encode()
     collected_observation['evidence'].update(dataUTF8=encoded.decode(),
-        byteCount=len(encoded), sha256=hashlib.sha256(encoded).hexdigest())
+        byteCount=len(encoded))
     assert scenarios_match_distribution(checks, collected_observation)
     assert baseline_matches_distribution(checks['minimum-platforms'], collected_observation)
     receipt = json.loads(evidence_fixture('feedback-delivery'))
@@ -582,21 +574,21 @@ def run_self_test(_source_identity) -> None:
         changed = copy.deepcopy(proof)
         changed['application']['distributionChannel'] = 'development'
         assert not scenario_complete(check, changed), check
-        for field, value in [('sha256', 'b' * 64), ('executableUUIDs', [{'architecture': 'arm64', 'uuid': str(uuid.uuid4()).upper()}])]:
+        for field, value in [('executableUUIDs', [{'architecture': 'arm64', 'uuid': str(uuid.uuid4()).upper()}])]:
             changed = copy.deepcopy(proof)
             changed['application'][field] = value
             observation = copy.deepcopy(checks[check])
             data = json.dumps(changed).encode()
-            observation['evidence'].update(dataUTF8=data.decode(), byteCount=len(data), sha256=hashlib.sha256(data).hexdigest())
+            observation['evidence'].update(dataUTF8=data.decode(), byteCount=len(data))
             mutated = checks | {check: observation}
             assert scenario_complete(check, changed), (check, field)
-            assert scenarios_match_distribution(mutated, checks['distribution-signing']) == (field == 'sha256'), (check, field)
-            assert complete(mutated) == (field == 'sha256'), (check, field)
+            assert not scenarios_match_distribution(mutated, checks['distribution-signing']), (check, field)
+            assert not complete(mutated), (check, field)
     assert scenario_complete('catalyst-desktop', desktop)
     from validation_manual import catalyst_matches_runtime
     runtime = {'exitCode': 0, 'scope': 'full', 'summary': {'passed': True}, 'application': desktop['application']}
     assert catalyst_matches_runtime(checks['catalyst-desktop'], runtime)
-    for key, value in [('sha256', 'b' * 64), ('executableUUIDs', [{'architecture': 'arm64', 'uuid': str(uuid.uuid4()).upper()}])]:
+    for key, value in [('executableUUIDs', [{'architecture': 'arm64', 'uuid': str(uuid.uuid4()).upper()}])]:
         changed = copy.deepcopy(runtime)
         changed['application'][key] = value
         assert not catalyst_matches_runtime(checks['catalyst-desktop'], changed), key
@@ -605,7 +597,7 @@ def run_self_test(_source_identity) -> None:
     for key, value in [('platform', 'iOS'), ('systemVersion', '99.0'), ('inputDigest', 'stale'), ('deviceIdentifier', '')]:
         assert not scenario_complete('catalyst-desktop', desktop | {key: value}), key
     for key, value in [('version', 'other'), ('configuration', 'Debug'), ('testHostMarkers', ['BIT101_AUTOMATED_TESTING']),
-            ('minimumOSVersion', '99.0'), ('sha256', 'invalid'), ('executableUUIDs', [])]:
+            ('minimumOSVersion', '99.0'), ('executableUUIDs', [])]:
         assert not scenario_complete('catalyst-desktop', desktop | {'application': desktop['application'] | {key: value}}), key
     for name in ('menu-actions', 'keyboard-navigation', 'permission-dialogs'):
         changed = copy.deepcopy(desktop)
@@ -620,7 +612,7 @@ def run_self_test(_source_identity) -> None:
     for key, value in [('platform', 'macCatalyst'), ('systemVersion', '1.0'), ('inputDigest', 'stale'), ('deviceIdentifier', '')]:
         assert not scenario_complete('ipad-layout', pad | {key: value}), key
     for key, value in [('version', 'old'), ('build', 'old'), ('configuration', 'Debug'), ('testHostMarkers', ['BIT101_AUTOMATED_TESTING']),
-            ('minimumOSVersion', '99.0'), ('sha256', 'invalid'), ('executableUUIDs', [])]:
+            ('minimumOSVersion', '99.0'), ('executableUUIDs', [])]:
         assert not scenario_complete('ipad-layout', pad | {'application': pad['application'] | {key: value}}), key
     for key in ('application', 'inputDigest'):
         changed = dict(pad)
@@ -665,18 +657,18 @@ def run_self_test(_source_identity) -> None:
             changed = copy.deepcopy(baseline)
             changed['platforms'][platform][key] = value
             assert not evidence_content_complete('minimum-platforms', json.dumps(changed).encode()), (platform, key)
-        for field, value in [('version', '0'), ('build', '0'), ('sha256', 'invalid'), ('executableUUIDs', []), ('distributionChannel', 'development')]:
+        for field, value in [('version', '0'), ('build', '0'), ('executableUUIDs', []), ('distributionChannel', 'development')]:
             changed = copy.deepcopy(baseline)
             changed['platforms'][platform]['installedBundles'][0][field] = value
             assert not evidence_content_complete('minimum-platforms', json.dumps(changed).encode()), (platform, field)
-    for field, value in [('sha256', 'b' * 64), ('executableUUIDs', [{'architecture': 'arm64', 'uuid': str(uuid.uuid4()).upper()}])]:
+    for field, value in [('executableUUIDs', [{'architecture': 'arm64', 'uuid': str(uuid.uuid4()).upper()}])]:
         changed = copy.deepcopy(baseline)
         changed['platforms']['iOS']['installedBundles'][0][field] = value
         data = json.dumps(changed).encode()
         assert evidence_content_complete('minimum-platforms', data)
         observation = copy.deepcopy(checks['minimum-platforms'])
-        observation['evidence'].update(dataUTF8=data.decode(), byteCount=len(data), sha256=hashlib.sha256(data).hexdigest())
-        assert baseline_matches_distribution(observation, checks['distribution-signing']) == (field == 'sha256'), field
+        observation['evidence'].update(dataUTF8=data.decode(), byteCount=len(data))
+        assert not baseline_matches_distribution(observation, checks['distribution-signing']), field
     for platform in baseline['platforms']:
         major, minor, _ = distribution.minimum_os_version(baseline['platforms'][platform]['systemVersion'])
         contracts = distribution.distribution_contracts()

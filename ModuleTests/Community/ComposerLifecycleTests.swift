@@ -27,6 +27,7 @@ struct ComposerLifecycleTests {
         var loadCount = 0
         var saveCount = 0
         var cleanupCount = 0
+        var cleanupAttempts = 0
         var removalCount = 0
         var revision = 0
         var failsSaving = false
@@ -47,7 +48,7 @@ struct ComposerLifecycleTests {
             let gate = saveGate
             saveGate = nil
             await gate?.pause()
-            guard !failsSaving else { return false }
+            guard !failsSaving, result.allowsWrite else { return false }
             revision += 1
             result = .loaded(snapshot)
             return true
@@ -66,6 +67,7 @@ struct ComposerLifecycleTests {
             return { await self.removeSubmittedRevision(captured) }
         }
         private func removeSubmittedRevision(_ captured: Int) -> Bool {
+            cleanupAttempts += 1
             guard revision == captured else { return true }
             guard !failsRemoval else { return false }
             cleanupCount += 1; revision += 1; result = .missing
@@ -240,7 +242,7 @@ struct ComposerLifecycleTests {
             #expect(await viewModel.saveDraft() == false)
             #expect(viewModel.alert?.title == "发帖草稿恢复需要处理")
             #expect(viewModel.title == " 标题 ")
-            #expect(drafts.saveCount == 0)
+            #expect(drafts.saveCount == 1)
             #expect(await viewModel.discardDraft())
             #expect(await viewModel.saveDraft())
         }
@@ -271,7 +273,7 @@ struct ComposerLifecycleTests {
         #expect(viewModel.isSavingDraft == false)
     }
 
-    @Test(.timeLimit(.minutes(1))) func successfulCreationUsesTheSelectedUploaderAndClearsItsDraft() async {
+    @Test(.timeLimit(.minutes(1))) func successfulCreationUsesTheSelectedUploaderAndClearsItsDraft() async throws {
         let service = Service()
         let uploader = Service()
         let drafts = Drafts()
@@ -284,23 +286,24 @@ struct ComposerLifecycleTests {
         #expect(service.submissions.first?.title == "标题")
         #expect(service.submissions.first?.text == "正文")
         #expect(service.submissions.first?.mids == ["image-1"])
+        try await waitForTestEvent { drafts.cleanupCount == 1 }
         #expect(drafts.cleanupCount == 1)
         #expect(viewModel.isSubmitting == false)
     }
 
-    @Test(.timeLimit(.minutes(1))) func confirmedPublicationRetriesCleanupWithoutAnotherCreate() async {
+    @Test(.timeLimit(.minutes(1))) func confirmedPublicationCompletesWhileCleanupFails() async throws {
         let service = Service(), drafts = Drafts()
         drafts.failsRemoval = true
         let viewModel = model(service, drafts: drafts)
         valid(viewModel)
-        #expect(await viewModel.submit() == false)
-        #expect(service.submissions.count == 1 && viewModel.submitTitle == "完成草稿清理")
-        #expect(viewModel.alert?.title == "已发布，草稿清理待完成")
+        #expect(await viewModel.submit())
+        try await waitForTestEvent { drafts.cleanupAttempts == 1 }
+        #expect(service.submissions.count == 1 && viewModel.submitTitle == "已发布")
+        #expect(viewModel.hasPublishedContent && !viewModel.isBusy)
         #expect(await viewModel.saveDraft() == false)
         #expect(await viewModel.discardDraft() == false)
-        drafts.failsRemoval = false
         #expect(await viewModel.submit())
-        #expect(service.submissions.count == 1 && drafts.cleanupCount == 1)
+        #expect(service.submissions.count == 1 && drafts.cleanupCount == 0)
     }
 
     @Test(.timeLimit(.minutes(1))) func editingPostsPreservesNewPostDraftsAndExistingImages() async {

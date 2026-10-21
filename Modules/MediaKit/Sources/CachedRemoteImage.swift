@@ -300,7 +300,7 @@ actor CachedRemoteImageStore {
         } catch { return }
         activeFileUses.insert(use)
         defer { activeFileUses.remove(use); quota.endFileUse(use) }
-        await quota.enforce(force: true, protecting: Set([fileURL]))
+        await quota.didWrite(fileURL)
     }
 
     /// 写入下载数据，并缓存准备显示的位图。

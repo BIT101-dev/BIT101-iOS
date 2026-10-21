@@ -3,6 +3,7 @@ import CommunityCore
 import CommunityTransport
 import DesignSystemKit
 import Foundation
+import OSLog
 import TransportCore
 
 nonisolated struct GalleryCustomTagDraft: Identifiable, Sendable {
@@ -13,6 +14,7 @@ nonisolated struct GalleryCustomTagDraft: Identifiable, Sendable {
 /// 发帖场景持有编辑、草稿与上传状态，异步结果核对账号和页面生命周期。
 @MainActor
 final class GalleryComposerViewModel: ObservableObject {
+    private static let logger = Logger(subsystem: "BIT101", category: "GalleryComposer")
     static let maximumImageCount = ComposerDraftImagePolicy.maximumImageCount
     @Published var title: String
     @Published var text: String
@@ -47,7 +49,7 @@ final class GalleryComposerViewModel: ObservableObject {
     private var uploads: [UUID: Task<Void, Never>] = [:]
     private var submissionTask: Task<Bool, Never>?
     private var createResultNeedsReview = false
-    private var pendingPublishedCleanup: ComposerDraftCleanup?
+    private var didPublish = false
     private var savingTask: Task<Bool, Never>?
 
     init(editingPoster: GalleryPosterDetail? = nil, service: any GalleryComposerServicing,
@@ -109,7 +111,7 @@ final class GalleryComposerViewModel: ObservableObject {
     }
 
     var hasUploadingImages: Bool { imageDrafts.contains { $0.isUploading } }
-    var hasPublishedContent: Bool { pendingPublishedCleanup != nil }
+    var hasPublishedContent: Bool { didPublish }
 
     var isBusy: Bool { isSubmitting || isSavingDraft || isDiscardingDraft || isRestoringDraft }
 
@@ -134,7 +136,7 @@ final class GalleryComposerViewModel: ObservableObject {
     func restoreDraft() async {
         let operation = generation
         guard editingPoster == nil, !isBusy, !isAddingImages, !hasUploadingImages,
-              pendingPublishedCleanup == nil, isCurrent(operation) else { return }
+              !didPublish, isCurrent(operation) else { return }
         isRestoringDraft = true
         defer { if generation == operation { isRestoringDraft = false } }
         let result = await drafts.loadGallery()
@@ -168,7 +170,7 @@ final class GalleryComposerViewModel: ObservableObject {
 
     func discardDraft() async -> Bool {
         let operation = generation
-        guard !isBusy, pendingPublishedCleanup == nil, isCurrent(operation) else { return false }
+        guard !isBusy, !didPublish, isCurrent(operation) else { return false }
         isDiscardingDraft = true
         defer { if generation == operation { isDiscardingDraft = false } }
         let removed = await drafts.removeGallery()
@@ -181,18 +183,19 @@ final class GalleryComposerViewModel: ObservableObject {
 
     func saveDraft() async -> Bool {
         let operation = generation
-        guard editingPoster == nil, !isBusy, pendingPublishedCleanup == nil, isCurrent(operation) else { return false }
+        guard editingPoster == nil, !isBusy, !didPublish, isCurrent(operation) else { return false }
         let snapshot = draftSnapshot
         isSavingDraft = true
         let task = Task { [self] in
-            let result = await drafts.loadGallery()
-            guard isCurrent(operation) else { return false }
-            presentRecovery(result)
-            guard result.allowsWrite else { return false }
             let saved = await drafts.saveGallery(snapshot)
             guard isCurrent(operation) else { return false }
             if !saved {
-                alert = .informational(title: "草稿暂存遇到问题", message: "当前页面内容已保留，请稍后重试保存。")
+                let recovery = await drafts.loadGallery()
+                guard isCurrent(operation) else { return false }
+                presentRecovery(recovery)
+                if recovery.recoveryMessage == nil {
+                    alert = .informational(title: "草稿暂存遇到问题", message: "当前页面内容已保留，请稍后重试保存。")
+                }
             }
             return saved
         }
@@ -300,31 +303,14 @@ final class GalleryComposerViewModel: ObservableObject {
 
     var submitTitle: String {
         if isSubmitting { return "保存中" }
-        if pendingPublishedCleanup != nil { return "完成草稿清理" }
+        if didPublish { return "已发布" }
         return editingPoster == nil ? "发布" : "保存"
-    }
-
-    private func finishPublishedCleanup(_ cleanup: ComposerDraftCleanup, operation: Int) async -> Bool {
-        guard await cleanup(), isCurrent(operation) else {
-            if isCurrent(operation) {
-                alert = AppAlert(title: "已发布，草稿清理待完成", message: "请重试草稿清理，已发布的内容保持原样。")
-            }
-            return false
-        }
-        pendingPublishedCleanup = nil
-        return true
     }
 
     func submit() async -> Bool {
         let operation = generation
         guard !isBusy, isCurrent(operation) else { return false }
-        if let cleanup = pendingPublishedCleanup {
-            isSubmitting = true
-            let task = Task { await self.finishPublishedCleanup(cleanup, operation: operation) }
-            submissionTask = task
-            defer { if generation == operation { submissionTask = nil; isSubmitting = false } }
-            return await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
-        }
+        if didPublish { return true }
         guard !createResultNeedsReview else {
             alert = AppAlert(title: "发布结果待确认", message: CommunityCreateOutcomeUnknown.reviewMessage)
             return false
@@ -360,8 +346,10 @@ final class GalleryComposerViewModel: ObservableObject {
                 }
                 guard isCurrent(operation) else { return false }
                 if let cleanup {
-                    pendingPublishedCleanup = cleanup
-                    return await finishPublishedCleanup(cleanup, operation: operation)
+                    didPublish = true
+                    Task {
+                        if await cleanup() == false { Self.logger.error("已发布内容的草稿清理受阻，保留原草稿供后续处理。") }
+                    }
                 }
                 return isCurrent(operation)
             } catch {
