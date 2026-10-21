@@ -78,20 +78,22 @@ public struct ScoreListPage: View {
                         }
                         .appInteractiveListRow()
 
-                        NavigationLink {
-                            ScoreFilterPage(
-                                title: "种类筛选",
-                                options: viewModel.availableCourseTypes,
-                                selectedValues: Binding(
-                                    get: { viewModel.selectedCourseTypes },
-                                    set: { viewModel.setSelectedCourseTypes($0) }
-                                ),
-                                onToggleAll: viewModel.toggleAllCourseTypes
-                            )
-                        } label: {
-                            LabeledContent("种类", value: selectionDescription(selected: viewModel.selectedCourseTypes, all: viewModel.availableCourseTypes))
+                        if !viewModel.availableCourseTypes.isEmpty {
+                            NavigationLink {
+                                ScoreFilterPage(
+                                    title: "种类筛选",
+                                    options: viewModel.availableCourseTypes,
+                                    selectedValues: Binding(
+                                        get: { viewModel.selectedCourseTypes },
+                                        set: { viewModel.setSelectedCourseTypes($0) }
+                                    ),
+                                    onToggleAll: viewModel.toggleAllCourseTypes
+                                )
+                            } label: {
+                                LabeledContent("种类", value: selectionDescription(selected: viewModel.selectedCourseTypes, all: viewModel.availableCourseTypes))
+                            }
+                            .appInteractiveListRow()
                         }
-                        .appInteractiveListRow()
 
                         NavigationLink {
                             ScoreSortPage(

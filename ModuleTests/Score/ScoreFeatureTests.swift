@@ -136,7 +136,9 @@ struct ScoreFeatureTests {
         let model = ScoreViewModel(service: ScoreServiceSpy(), cacheStore: cache,
             preferenceStore: ScoreFilterPreferenceStore(defaults: defaults, session: { session }),
             currentScoreCacheSession: { session }, scheduleCoursesChanges: Empty().eraseToAnyPublisher(),
-            loadScheduleCourses: { _ in [:] })
+            loadScheduleCourses: { _ in ["A": [ScoreCourseSummary(id: "schedule-only-type", term: "A",
+                name: "课表课程", number: "schedule-only", type: "选修", teacher: "", classroom: "", campus: "",
+                description: "", creditText: "", scheduleText: "", weeksText: "", hourText: "")]] })
         await model.restoreCachedDataIfNeeded()
         #expect(model.visibleRows.count == 3)
         #expect(model.summary.selectedCourseCount == 3 && model.summary.weightedAverageScore == 80)
@@ -147,6 +149,44 @@ struct ScoreFeatureTests {
         model.toggleAllTerms()
         model.setSelectedCourseTypes(["未分类"])
         #expect(model.visibleRows.map(\.courseName) == ["缺少性质"])
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true], ["missing", "", " \n"])
+    func scoresWithoutCourseTypesIgnoreScheduleCategories(restorePreference: Bool, field: String) async throws {
+        let domain = "BIT101ModulesTests.score.without-types"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let session = AppStorageSession(accountIdentifier: "without-types")
+        let preferences = ScoreFilterPreferenceStore(defaults: defaults, session: { session })
+        if restorePreference {
+            #expect(preferences.save(selectedTerms: ["A"], selectedCourseTypes: ["必修"],
+                sortIndex: .courseName, sortOrder: .ascending))
+        }
+        let cache = ScoreCacheStore(files: ModuleScoreFiles(), storageRoot: URL(fileURLWithPath: "/without-types"),
+            defaults: defaults, session: { session })
+        let hasField = field != "missing"
+        let headers = ["课程名称", "课程编号", "成绩", "学分", "开课学期"] + (hasField ? ["课程性质"] : [])
+        let rows = [ScoreRow(index: 0, headers: headers,
+            values: ["已出分课程", "scored", "90", "2", "A"] + (hasField ? [field] : []))]
+        #expect(await cache.saveDetailed(rows: rows) != nil)
+        let courses = ["必修", "选修", ""].map { type in
+            ScoreCourseSummary(id: type, term: "A", name: "待出分\(type)", number: type, type: type,
+                teacher: "", classroom: "", campus: "", description: "", creditText: "",
+                scheduleText: "", weeksText: "", hourText: "")
+        }
+        let model = ScoreViewModel(service: ScoreServiceSpy(), cacheStore: cache, preferenceStore: preferences,
+            currentScoreCacheSession: { session }, scheduleCoursesChanges: Empty().eraseToAnyPublisher(),
+            loadScheduleCourses: { _ in ["A": courses] })
+        await model.restoreCachedDataIfNeeded()
+        #expect(model.availableCourseTypes.isEmpty && model.visibleRows == rows)
+        #expect(model.summary.selectedCourseCount == 1 && model.pendingCourseCount == 3)
+        model.setSelectedCourseTypes(["必修"])
+        #expect(model.visibleRows == rows && model.pendingCourseCount == 3)
+        model.setSortIndex(.score)
+        #expect(preferences.load()?.sortIndex == ScoreSortIndex.score.rawValue)
+        preferences.applySynced(.init(selectedTerms: ["A"], selectedCourseTypes: ["选修"]))
+        #expect(model.visibleRows == rows && model.pendingCourseCount == 3)
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -162,8 +202,14 @@ struct ScoreFeatureTests {
                 teacher: "", classroom: "", campus: "", description: "", creditText: "",
                 scheduleText: "", weeksText: "", hourText: "")
         }
-        let model = ScoreViewModel(service: ScoreServiceSpy(), cacheStore: ScoreCacheStore(files: ModuleScoreFiles(),
-            storageRoot: URL(fileURLWithPath: "/pending-types"), defaults: defaults, session: { session }),
+        let cache = ScoreCacheStore(files: ModuleScoreFiles(), storageRoot: URL(fileURLWithPath: "/pending-types"),
+            defaults: defaults, session: { session })
+        let rows = ["必修", "选修", ""].enumerated().map { index, type in
+            ScoreRow(index: index, headers: ["课程名称", "成绩", "开课学期", "课程性质"],
+                values: ["已出分\(index)", "90", "A", type])
+        }
+        #expect(await cache.saveDetailed(rows: rows) != nil)
+        let model = ScoreViewModel(service: ScoreServiceSpy(), cacheStore: cache,
             preferenceStore: preferences, currentScoreCacheSession: { session },
             scheduleCoursesChanges: Empty().eraseToAnyPublisher(), loadScheduleCourses: { _ in ["A": courses] })
         await model.restoreCachedDataIfNeeded()

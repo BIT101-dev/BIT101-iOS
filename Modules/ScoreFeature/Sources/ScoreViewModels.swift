@@ -432,7 +432,7 @@ public final class ScoreViewModel: ObservableObject {
     var filteredRows: [ScoreRow] {
         rows.filter { row in
             let matchesTerm = selectedTerms.contains(normalizedFilterValue(row.term))
-            let matchesType = selectedCourseTypes.contains(normalizedFilterValue(row.courseType))
+            let matchesType = availableCourseTypes.isEmpty || selectedCourseTypes.contains(normalizedFilterValue(row.courseType))
             return matchesTerm && matchesType
         }
     }
@@ -486,7 +486,7 @@ public final class ScoreViewModel: ObservableObject {
         }
         let coveredTerms = scoreTerms.filter { cachedCoursesByTerm[$0] != nil }
         guard coveredTerms.count == scoreTerms.count else { return nil }
-        guard !selectedCourseTypes.isEmpty else { return [] }
+        guard availableCourseTypes.isEmpty || !selectedCourseTypes.isEmpty else { return [] }
 
         let scoredNumbers = Set(rows.compactMap { row -> String? in
             let number = normalizedCourseIdentity(row.courseNumber)
@@ -507,7 +507,7 @@ public final class ScoreViewModel: ObservableObject {
 
         for term in coveredTerms {
             for course in cachedCoursesByTerm[term] ?? [] {
-                guard selectedCourseTypes.contains(normalizedFilterValue(course.type)) else { continue }
+                guard availableCourseTypes.isEmpty || selectedCourseTypes.contains(normalizedFilterValue(course.type)) else { continue }
                 let number = normalizedCourseIdentity(course.number)
                 let name = normalizedCourseIdentity(course.name)
                 let hasScore = (!number.isEmpty && scoredNumbers.contains("\(term)|\(number)"))
@@ -651,8 +651,9 @@ public final class ScoreViewModel: ObservableObject {
 
     private func updateFilterOptions() {
         availableTerms = uniqueFilterValues(from: rows.map(\.term) + Array(cachedCoursesByTerm.keys).sorted())
-        availableCourseTypes = uniqueFilterValues(from: rows.map(\.courseType)
-            + cachedCoursesByTerm.keys.sorted().flatMap { cachedCoursesByTerm[$0, default: []].map(\.type) })
+        let courseTypes = rows.map(\.courseType)
+        availableCourseTypes = courseTypes.contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            ? uniqueFilterValues(from: courseTypes) : []
     }
 
     /// 刷新可选项后，同步修正当前筛选集合。
@@ -740,7 +741,7 @@ public final class ScoreViewModel: ObservableObject {
     /// 保存当前筛选结果到本地偏好。
     private func persistFilterPreferences() {
         guard preferenceSnapshot != nil || preferenceStore.hasUnreadableSnapshot
-                || (didInitializeTermSelection && didInitializeCourseTypeSelection) else { return }
+                || (didInitializeTermSelection && (didInitializeCourseTypeSelection || !rows.isEmpty)) else { return }
         let saved = preferenceStore.save(
             selectedTerms: didInitializeTermSelection ? selectedTerms : Set(preferenceSnapshot?.selectedTerms ?? []),
             selectedCourseTypes: didInitializeCourseTypeSelection ? selectedCourseTypes : Set(preferenceSnapshot?.selectedCourseTypes ?? []),

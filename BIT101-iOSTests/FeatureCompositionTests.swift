@@ -187,8 +187,8 @@ struct FeatureCompositionTests {
             loadScheduleCourses: { _ in ["fixture": [course]] })
         await model.restoreCachedDataIfNeeded()
         model.setSortIndex(.score)
-        #expect(model.selectedTerms == ["fixture"] && model.availableCourseTypes == ["必修"])
-        #expect(model.selectedCourseTypes == ["必修"] && preferences.load()?.selectedCourseTypes == ["必修"])
+        #expect(model.selectedTerms == ["fixture"] && model.availableCourseTypes.isEmpty)
+        #expect(model.selectedCourseTypes.isEmpty && preferences.load() == nil)
         cache.rows = rows
         await model.applySyncedScoreCacheIfAvailable()
         #expect(model.filteredRows == rows && model.selectedCourseTypes == ["必修"])
