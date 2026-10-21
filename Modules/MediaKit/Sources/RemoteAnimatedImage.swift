@@ -35,6 +35,21 @@ actor RemoteAnimatedImageDecoder {
             return cached
         }
         guard let data = RemoteImageResourceLimits.cachedData(at: file, using: files) else { return nil }
+        return decode(data, key: key, reduceMotion: reduceMotion, maximumPixelSize: maximumPixelSize)
+    }
+
+    func image(from source: RemoteImageSource, reduceMotion: Bool, maximumPixelSize: Int? = nil) -> UIImage? {
+        guard !Task.isCancelled else { return nil }
+        switch source {
+        case .file(let file): return image(at: file, reduceMotion: reduceMotion, maximumPixelSize: maximumPixelSize)
+        case .memory(let data, let identity):
+            let key = "memory:\(identity)|reduce-motion:\(reduceMotion)|pixels:\(maximumPixelSize ?? 0)" as NSString
+            if let cached = images.object(forKey: key) { return cached }
+            return decode(data, key: key, reduceMotion: reduceMotion, maximumPixelSize: maximumPixelSize)
+        }
+    }
+
+    private func decode(_ data: Data, key: NSString, reduceMotion: Bool, maximumPixelSize: Int?) -> UIImage? {
         guard let decoded = Self.animatedImage(from: data, reduceMotion: reduceMotion, budget: maximumDecodedBytes,
                                                maximumPixelSize: maximumPixelSize) else { return nil }
         let decodedCost = MediaDisplayBudget.decodedBytes(decoded)
@@ -203,8 +218,8 @@ struct RemoteAnimatedImage: UIViewRepresentable {
             task = Task { [weak self, weak imageView, media] in
                 defer { if self?.requestGeneration == generation { self?.task = nil } }
                 do {
-                    let decoded = try await media.images.withFile(for: url) { @MainActor [media] file in
-                        await media.animatedDecoder.image(at: file, reduceMotion: reduceMotion, maximumPixelSize: maximumPixelSize)
+                    let decoded = try await media.images.withSource(for: url) { @MainActor [media] source in
+                        await media.animatedDecoder.image(from: source, reduceMotion: reduceMotion, maximumPixelSize: maximumPixelSize)
                     }
                     guard !Task.isCancelled, self?.currentURL == url, self?.media === media, let decoded, let imageView else { return }
                     guard self?.displayed.set(decoded, budget: media.displayBudget) == true else { return }

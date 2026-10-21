@@ -480,6 +480,12 @@ final class ReleaseNetworkSmokeRunner {
                 result = try await transcriptService.fetchTrustedTranscriptPages(authenticatedBy: authenticated)
             }
             if let failure = result.failure { throw failure }
+            if let report = result.report {
+                let retry = try await report.loadPages(excluding: Set(result.pages.dropFirst().map(\.number)), maximumBytes: TrustedTranscriptResourceLimits().maximumEncodedBytes)
+                if let failure = retry.failure { throw failure }
+                guard retry.pages.map(\.number) == [1] else { throw ScoreServiceError.invalidResponse }
+                _ = try Self.validateTrustedTranscriptPages(retry.pages.map(\.data))
+            }
             return try Self.validateTrustedTranscriptPages(result.pages.map(\.data))
         }
 

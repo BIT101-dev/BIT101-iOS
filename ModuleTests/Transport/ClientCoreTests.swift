@@ -712,9 +712,11 @@ extension ScheduleInfrastructureTests {
         do {
             let _: CurrentTermResponse = try await selected.sendJSONRequest(baseURL: AppURL.required("https://example.invalid"), path: "/term")
             Issue.record("A malformed school payload must expose a response error")
-        } catch let error as ScheduleServiceError {
-            if case .invalidResponse = error {} else { Issue.record("Unexpected school response classification: \(error)") }
-        } catch { Issue.record("Unexpected error: \(error)") }
+        } catch {
+            let actual = error as NSError, expected = ScheduleServiceError.invalidResponse as NSError
+            #expect(actual.domain == expected.domain && actual.code == expected.code)
+            #expect(actual.userInfo[NSUnderlyingErrorKey] is DecodingError)
+        }
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [401, 403])

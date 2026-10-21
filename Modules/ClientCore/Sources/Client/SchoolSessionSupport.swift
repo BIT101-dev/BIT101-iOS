@@ -1,4 +1,5 @@
 import Foundation
+import TransportCore
 
 /// 学校系统请求短信验证码时交给应用层的交互上下文。
 public struct SchoolSMSCodeRequest: Identifiable, Sendable {
@@ -44,6 +45,10 @@ public nonisolated struct SchoolLoginContext: Sendable {
 /// 认证状态属于学校网络基础设施，页面层通过服务协议消费它。
 @MainActor
 public final class TeachingCenterSessionState {
+    public let authenticationRecovery = SessionRefreshCoordinator<SchoolSessionIdentity>()
+    public let preparationRecovery = SessionRefreshCoordinator<SchoolSessionIdentity>()
+    public private(set) var sessionRevision: UInt64 = 0
+    private var owner: SchoolSessionIdentity?
     private var selectedCookieStorage: HTTPCookieStorage
     public var cookieStorage: HTTPCookieStorage {
         return selectedCookieStorage
@@ -57,7 +62,19 @@ public final class TeachingCenterSessionState {
         selectedCookieStorage = cookieStorage
     }
 
+    public func selectOwner(_ identity: SchoolSessionIdentity) {
+        defer { owner = identity }
+        guard let owner, owner != identity else { return }
+        authenticationRecovery.cancel()
+        preparationRecovery.cancel()
+        invalidate()
+    }
+
     public func replaceCookieStorage(with cookieStorage: HTTPCookieStorage) {
+        authenticationRecovery.cancel()
+        preparationRecovery.cancel()
+        owner = nil
+        sessionRevision &+= 1
         selectedCookieStorage = cookieStorage
         authenticatedStudentID = nil
         preparedStudentID = nil
@@ -81,6 +98,7 @@ public final class TeachingCenterSessionState {
     }
 
     public func markAuthenticated(for studentID: String) {
+        sessionRevision &+= 1
         authenticatedStudentID = studentID
         preparedStudentID = nil
         directStudentID = nil
@@ -100,6 +118,7 @@ public final class TeachingCenterSessionState {
     }
 
     public func markDirectPreferred(for studentID: String, now: Date = Date()) {
+        sessionRevision &+= 1
         authenticatedStudentID = nil
         preparedStudentID = nil
         directStudentID = studentID
@@ -118,6 +137,7 @@ public final class TeachingCenterSessionState {
     }
 
     public func invalidate(clearCookies: Bool = true) {
+        sessionRevision &+= 1
         authenticatedStudentID = nil
         preparedStudentID = nil
         directStudentID = nil

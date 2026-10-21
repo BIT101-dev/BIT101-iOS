@@ -105,6 +105,7 @@ public final class MediaEnvironment {
     isolated deinit { memoryWarningTask?.cancel() }
 
     func releaseCachedImages() async {
+        await images.clearMemory()
         await avatars.clearMemory()
         await stillDecoder.clear()
         await animatedDecoder.clear()

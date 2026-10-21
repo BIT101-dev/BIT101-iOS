@@ -125,6 +125,7 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
                 value = try await Self.decodeResponse(Response.self, from: response.data)
             } catch {
                 if TaskCancellation.matches(error) { throw error }
+                await response.reportValidationFailure(error)
                 let failure = Failure.communityInvalidResponse as NSError
                 throw NSError(domain: failure.domain, code: failure.code,
                     userInfo: failure.userInfo.merging([NSUnderlyingErrorKey: error,
@@ -287,8 +288,10 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
 
         do {
             let response = try await httpClient.send(request)
-            try validateResponse(response, request: request)
-            try validateIdentity(identity)
+            do {
+                try validateResponse(response, request: request)
+                try validateIdentity(identity)
+            } catch { await response.reportValidationFailure(error); throw error }
             return response
         } catch let HTTPClientError.unacceptableStatus(code, _) where code == 401 && authentication != .none
             && !observed.cookie.isEmpty && retryPolicy == .afterCredentialRefresh {
@@ -313,8 +316,10 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
 
             do {
                 let response = try await httpClient.send(request)
-                try validateResponse(response, request: request)
-                try validateIdentity(identity)
+                do {
+                    try validateResponse(response, request: request)
+                    try validateIdentity(identity)
+                } catch { await response.reportValidationFailure(error); throw error }
                 return response
             } catch let HTTPClientError.unacceptableStatus(retryCode, retryMessage) {
                 try validateIdentity(identity)

@@ -260,18 +260,37 @@ actor ImageCacheDiskQuota {
 
 }
 
-private nonisolated final class RemoteImageFileLease: Sendable {
+nonisolated enum RemoteImageSource: Sendable {
+    case file(URL)
+    case memory(Data, identity: UUID)
+}
+
+private nonisolated final class MemoryImageEntry: NSObject {
+    let data: Data
+    let target: URL
+    let identity = UUID()
+    init(data: Data, target: URL) { self.data = data; self.target = target }
+}
+
+private nonisolated final class RemoteImageLease: Sendable {
     let url: URL
+    let source: RemoteImageSource
     let owner = UUID()
-    private let quota: ImageCacheDiskQuota
+    private let quota: ImageCacheDiskQuota?
     init(url: URL, files: any AppFileService, quota: ImageCacheDiskQuota) throws {
         self.url = url
+        source = .file(url)
         self.quota = quota
         try quota.beginFileUse(url, owner: owner) {
             guard files.fileExists(at: url) else { throw CocoaError(.fileReadNoSuchFile) }
         }
     }
-    deinit { quota.endFileUse(owner) }
+    init(memory: MemoryImageEntry) {
+        url = memory.target
+        source = .memory(memory.data, identity: memory.identity)
+        quota = nil
+    }
+    deinit { quota?.endFileUse(owner) }
 }
 
 /// 低清图、高清图和 GIF 共用的持久磁盘缓存。
@@ -279,6 +298,13 @@ private nonisolated final class RemoteImageFileLease: Sendable {
 /// 读取时更新文件修改时间，将其作为轻量 LRU 的“最近使用时间”；写入后若超过用户
 /// 设置的上限，会从最久未使用的文件开始清理到上限的 85%，避免反复触发清理。
 actor RemoteImageCache {
+    private nonisolated let executor = StorageFileExecutor()
+    nonisolated var unownedExecutor: UnownedSerialExecutor { executor.asUnownedSerialExecutor() }
+    private let transientImages: NSCache<NSURL, MemoryImageEntry> = {
+        let cache = NSCache<NSURL, MemoryImageEntry>()
+        cache.totalCostLimit = RemoteImageResourceLimits.maximumEncodedBytes
+        return cache
+    }()
 
     private struct DownloadResult: Sendable {
         let data: Data
@@ -288,7 +314,7 @@ actor RemoteImageCache {
     private struct DownloadOperation {
         let id: UUID
         let task: Task<Void, Never>
-        var waiters: [UUID: CheckedContinuation<RemoteImageFileLease, any Error>]
+        var waiters: [UUID: CheckedContinuation<RemoteImageLease, any Error>]
     }
 
     private let files: any AppFileService
@@ -311,18 +337,24 @@ actor RemoteImageCache {
         self.quota = quota
         self.download = download ?? { try await httpClient.send(URLRequest(url: $0), maximumBytes: RemoteImageResourceLimits.maximumEncodedBytes) }
         directory = ImageCacheDirectories.gallery(using: files)
+        Task { await self.removeLegacyFiles() }
+    }
+
+    private func removeLegacyFiles() {
         for file in (try? files.contentsOfDirectory(at: directory, options: [])) ?? []
             where file.lastPathComponent.hasPrefix("low-") || file.lastPathComponent.hasPrefix("high-") {
             try? files.removeItem(at: file)
         }
     }
 
+    func clearMemory() { transientImages.removeAllObjects() }
+
     /// 返回已有缓存并刷新其 LRU 时间，不发起网络请求。
     func cachedFile(for remoteURL: URL) async -> URL? {
         await acquireCachedFile(for: remoteURL)?.url
     }
 
-    private func acquireCachedFile(for remoteURL: URL) async -> RemoteImageFileLease? {
+    private func acquireCachedFile(for remoteURL: URL) async -> RemoteImageLease? {
         let owner = generation
         let prefix = filePrefix(for: remoteURL)
         for extensionName in supportedExtensions {
@@ -339,7 +371,7 @@ actor RemoteImageCache {
             }
             validatedFiles.setObject(identity as NSString, forKey: file as NSURL)
             touch(file)
-            guard let lease = try? RemoteImageFileLease(url: file, files: files, quota: quota) else { continue }
+            guard let lease = try? RemoteImageLease(url: file, files: files, quota: quota) else { continue }
             activeFileUses.insert(lease.owner)
             defer { activeFileUses.remove(lease.owner) }
             await quota.enforce(protecting: Set([file]))
@@ -368,7 +400,37 @@ actor RemoteImageCache {
         return try await operation(lease.url)
     }
 
-    private func acquireFile(for remoteURL: URL) async throws -> RemoteImageFileLease {
+    func withSource<Value: Sendable>(for remoteURL: URL, operation: @Sendable (RemoteImageSource) async throws -> Value) async throws -> Value {
+        let lease = try await acquireResource(for: remoteURL)
+        defer { withExtendedLifetime(lease) {} }
+        try Task.checkCancellation()
+        return try await operation(lease.source)
+    }
+
+    private func write(_ data: Data, to target: URL, owner: UUID) async throws {
+        try quota.beginFileUse(target, owner: owner) { [files, directory] in
+            try files.createDirectory(at: directory)
+            try files.writeData(data, to: target, options: [.atomic])
+            try? files.setModificationDate(Date(), at: target)
+        }
+        activeFileUses.insert(owner)
+        await quota.didWrite(target)
+    }
+
+    private func acquireFile(for remoteURL: URL) async throws -> RemoteImageLease {
+        let generation = self.generation
+        let lease = try await acquireResource(for: remoteURL)
+        if case .file = lease.source { return lease }
+        guard case let .memory(data, _) = lease.source else { throw CocoaError(.fileReadUnknown) }
+        let owner = UUID()
+        defer { activeFileUses.remove(owner); quota.endFileUse(owner) }
+        try await write(data, to: lease.url, owner: owner)
+        guard generation == self.generation, !Task.isCancelled else { throw CancellationError() }
+        transientImages.removeObject(forKey: remoteURL as NSURL)
+        return try RemoteImageLease(url: lease.url, files: files, quota: quota)
+    }
+
+    private func acquireResource(for remoteURL: URL) async throws -> RemoteImageLease {
         try Task.checkCancellation()
         let owner = generation
         if let cached = await acquireCachedFile(for: remoteURL) {
@@ -376,6 +438,7 @@ actor RemoteImageCache {
         }
         try Task.checkCancellation()
         guard owner == generation else { throw CancellationError() }
+        if let memory = transientImages.object(forKey: remoteURL as NSURL) { return RemoteImageLease(memory: memory) }
 
         let requestKey = remoteURL.absoluteString
         let waiter = UUID()
@@ -407,30 +470,26 @@ actor RemoteImageCache {
                                 remoteURL: URL) async {
         guard downloads[key]?.id == id else { return }
         defer { activeFileUses.remove(id); quota.endFileUse(id) }
-        let completed: Result<URL, any Error>
+        let completed: Result<RemoteImageLease, any Error>
         do {
             let result = try result.get()
-            guard isDecodableImage(data: result.data) else {
-                throw CocoaError(.fileReadCorruptFile)
-            }
+            guard isDecodableImage(data: result.data) else { throw CocoaError(.fileReadCorruptFile) }
             let ext = preferredExtension(for: remoteURL, mimeType: result.mimeType)
             let target = directory.appendingPathComponent("\(filePrefix(for: remoteURL)).\(ext)")
-            try quota.beginFileUse(target, owner: id) { [files, directory] in
-                try files.createDirectory(at: directory)
-                try files.writeData(result.data, to: target, options: [.atomic])
-                try? files.setModificationDate(Date(), at: target)
+            do {
+                try await write(result.data, to: target, owner: id)
+                guard downloads[key]?.id == id else { return }
+                completed = .success(try RemoteImageLease(url: target, files: files, quota: quota))
+            } catch {
+                guard downloads[key]?.id == id else { return }
+                if TaskCancellation.matches(error) { throw error }
+                let memory = MemoryImageEntry(data: result.data, target: target)
+                transientImages.setObject(memory, forKey: remoteURL as NSURL, cost: result.data.count)
+                completed = .success(RemoteImageLease(memory: memory))
             }
-            activeFileUses.insert(id)
-            await quota.didWrite(target)
-            completed = .success(target)
         } catch { completed = .failure(error) }
         guard downloads[key]?.id == id, let operation = downloads.removeValue(forKey: key) else { return }
-        for continuation in operation.waiters.values {
-            do {
-                let file = try completed.get()
-                continuation.resume(returning: try RemoteImageFileLease(url: file, files: files, quota: quota))
-            } catch { continuation.resume(throwing: error) }
-        }
+        for continuation in operation.waiters.values { continuation.resume(with: completed) }
     }
 
     private func cancelWaiter(_ waiter: UUID, key: String) {
@@ -446,6 +505,7 @@ actor RemoteImageCache {
 
     @discardableResult func clearAll() async -> Bool {
         generation &+= 1
+        transientImages.removeAllObjects()
         validatedFiles.removeAllObjects()
         for use in activeFileUses { quota.endFileUse(use) }
         activeFileUses.removeAll()
@@ -620,6 +680,21 @@ actor GalleryThumbnailDecoder {
             return cached
         }
         guard let data = RemoteImageResourceLimits.cachedData(at: file, using: files) else { return nil }
+        return decode(data, key: key, maximumPixelSize: maximumPixelSize)
+    }
+
+    func image(from source: RemoteImageSource, maximumPixelSize: Int? = nil) -> UIImage? {
+        guard !Task.isCancelled else { return nil }
+        switch source {
+        case .file(let file): return image(at: file, maximumPixelSize: maximumPixelSize)
+        case .memory(let data, let identity):
+            let key = "memory:\(identity)|pixels:\(maximumPixelSize ?? 0)" as NSString
+            if let cached = images.object(forKey: key) { return cached }
+            return decode(data, key: key, maximumPixelSize: maximumPixelSize)
+        }
+    }
+
+    private func decode(_ data: Data, key: NSString, maximumPixelSize: Int?) -> UIImage? {
         guard let decoded = BoundedStillImageDecoder.image(from: data, maximumDecodedBytes: images.totalCostLimit,
                                                           maximumPixelSize: maximumPixelSize),
               let pixels = decoded.cgImage else { return nil }
@@ -666,8 +741,8 @@ public struct RemoteCachedStillImage: View {
             guard image == nil else { return }
             guard let url else { return }
             do {
-                let decoded = try await media.images.withFile(for: url) { @MainActor [media, pixelSize] file in
-                    await media.stillDecoder.image(at: file, maximumPixelSize: pixelSize)
+                let decoded = try await media.images.withSource(for: url) { @MainActor [media, pixelSize] source in
+                    await media.stillDecoder.image(from: source, maximumPixelSize: pixelSize)
                 }
                 guard !Task.isCancelled else { return }
                 if let decoded { displayed.set(decoded, budget: media.displayBudget) }
@@ -739,8 +814,8 @@ public struct RemoteProgressiveStillImage: View {
     private func loadThumbnail() async {
         guard let thumbnailURL else { return }
         do {
-            let decoded = try await media.images.withFile(for: thumbnailURL) { @MainActor [media, pixelSize] file in
-                await media.stillDecoder.image(at: file, maximumPixelSize: pixelSize)
+            let decoded = try await media.images.withSource(for: thumbnailURL) { @MainActor [media, pixelSize] source in
+                await media.stillDecoder.image(from: source, maximumPixelSize: pixelSize)
             }
             guard !Task.isCancelled else { return }
             if let decoded { displayed.set(decoded, budget: media.displayBudget) }
@@ -756,8 +831,8 @@ public struct RemoteProgressiveStillImage: View {
               originalURL != thumbnailURL
         else { return }
         do {
-            let decoded = try await media.images.withFile(for: originalURL) { @MainActor [media, pixelSize] file in
-                await media.stillDecoder.image(at: file, maximumPixelSize: pixelSize)
+            let decoded = try await media.images.withSource(for: originalURL) { @MainActor [media, pixelSize] source in
+                await media.stillDecoder.image(from: source, maximumPixelSize: pixelSize)
             }
             guard !Task.isCancelled, let decoded else { return }
             hasOriginalImage = displayed.set(decoded, budget: media.displayBudget)

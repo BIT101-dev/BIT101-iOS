@@ -4,9 +4,7 @@ from validation_test_areas import (MANUAL_CAPABILITY_SCENARIOS, NETWORK_CAPABILI
 
 def network_capability_self_test() -> None:
     from swift_type_index_tests import stored_network_callback_self_test, dynamic_network_callback_self_test, callable_object_network_self_test
-    stored_network_callback_self_test()
-    dynamic_network_callback_self_test()
-    callable_object_network_self_test()
+    for check in (stored_network_callback_self_test, dynamic_network_callback_self_test, callable_object_network_self_test): check()
     from unittest.mock import patch
     from validation_compilation import compilation_condition
     assert compilation_condition('RELEASE_NETWORK_SMOKE', 'network')
@@ -27,15 +25,17 @@ def network_capability_self_test() -> None:
         ('community-writes', 'BIT101-iOS/Shared/Client/CommunityWriteSmoke.swift', ['CommunityWriteSmoke', 'Operations'], 'production'))
     guard = '#if RELEASE_NETWORK_SMOKE\n'; offset = len(guard)
     for route, file, scope, entry in entries:
+        selected = [(owner, method) for owner, methods in NETWORK_CAPABILITIES.items() for method, target in methods.items() if target == route]
         calls = [{'calledExpression': (owner.split('.')[1] if signature_function(method, [])['isStatic'] else bindings[owner.split('.')[1]])
             + '.' + signature_function(method, [])['name'], 'argumentLabels': [p['label'] for p in signature_function(method, [])['parameters']],
-            'arguments': [p['type'] + '()' for p in signature_function(method, [])['parameters']], 'start': offset + 10, 'scope': scope}
-            for owner, methods in NETWORK_CAPABILITIES.items() for method, target in methods.items() if target == route]
-        index[file] = {'source': guard + 'f' * 100 + '\n#endif', 'functionRanges': [{'name': entry, 'scope': scope, 'start': offset, 'end': offset + 100}], 'invocations': calls,
+            'arguments': [p['type'] + '()' for p in signature_function(method, [])['parameters']], 'start': offset + 10 + position, 'scope': scope}
+            for position, (owner, method) in enumerate(selected)]
+        length = max(100, len(calls) + 20)
+        index[file] = {'source': guard + 'f' * length + '\n#endif', 'functionRanges': [{'name': entry, 'scope': scope, 'start': offset, 'end': offset + length}], 'invocations': calls,
             'typedVariables': [{'name': bindings[owner.split('.')[1]], 'type': owner, 'scope': scope, 'start': offset}
                 for owner in NETWORK_CAPABILITIES]}
     index['BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift']['invocations'].append({'calledExpression': 'CommunityWriteSmoke.Operations.production', 'start': offset + 10, 'scope': ['ReleaseNetworkSmokeRunner']})
-    assert network_capability_findings(index) == []
+    assert network_capability_findings(index) == [], network_capability_findings(index)
     with patch.dict(MANUAL_CAPABILITY_SCENARIOS['BIT101-iOS.NetworkDiagnosisRunner'], {}, clear=True):
         assert any('逐方法登记' in error for error in network_capability_findings(index))
     with patch.dict(MANUAL_CAPABILITY_SCENARIOS['BIT101-iOS.NetworkDiagnosisRunner'], {'run()': 'unknown-scene'}):

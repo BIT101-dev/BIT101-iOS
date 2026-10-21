@@ -652,6 +652,7 @@ final class FactVisitor: SyntaxVisitor {
 
     override func visit(_ node: MemberAccessExprSyntax) -> SyntaxVisitorContinueKind {
         var member = fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset)
+        member.isExpressionReference = true
         if let sequence = node.parent?.parent?.as(SequenceExprSyntax.self),
            sequence.elements.first?.id == node.id,
            sequence.elements.dropFirst().first?.is(AssignmentExprSyntax.self) == true {

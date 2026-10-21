@@ -8,6 +8,7 @@ import OSLog
 import Combine
 import ClientCore
 import CommunityTransport
+import TransportCore
 
 /// 凭据读写通过所选后端执行，账号变化由 LoginStorage 发布。
 protocol LoginCredentialsStoring {
@@ -46,7 +47,7 @@ final class LoginStorage: SchoolCredentialsProviding {
     private let credentials: any LoginCredentialsStoring
     private let clearSchoolCookies: () -> Void
     private let requestSchoolPassword: @MainActor (String) async throws -> String
-    private let schoolPasswordRequests = CommunitySessionRefreshCoordinator()
+    private let schoolPasswordRequests = SessionRefreshCoordinator<SchoolSessionIdentity>()
     let communityRefreshCoordinator = CommunitySessionRefreshCoordinator()
     private var sessionGeneration = 0
     private var session = Session(studentID: "", password: "", fakeCookie: "")
@@ -143,7 +144,7 @@ final class LoginStorage: SchoolCredentialsProviding {
         let owner = schoolSessionIdentity
         guard !owner.accountIdentifier.isEmpty, !fakeCookie.isEmpty else { throw LoginServiceError.schoolCredentialsRequired }
         if !force, !currentPassword.isEmpty { return }
-        try await schoolPasswordRequests.refresh(identity: .init(accountIdentifier: owner.accountIdentifier, generation: owner.generation)) { [self] in
+        try await schoolPasswordRequests.refresh(identity: owner) { [self] in
             let password = try await requestSchoolPassword(owner.accountIdentifier)
             try Task.checkCancellation()
             guard schoolSessionIdentity == owner else { throw CancellationError() }

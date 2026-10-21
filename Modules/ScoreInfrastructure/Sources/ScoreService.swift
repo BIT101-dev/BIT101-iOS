@@ -106,13 +106,14 @@ public struct ScoreService {
             )
         )
 
-        let (data, response) = try await send(request, owner: owner)
+        let wire = try await send(request, owner: owner)
+        let data = wire.data, response = wire.response
         guard (200 ..< 300).contains(response.statusCode) else {
             throw ScoreServiceError.queryFailed(
                 BITLoginChallengeSupport.errorMessage(from: data) ?? "无法启动成绩认证。"
             )
         }
-        let payload = try decodeBITLoginChallengePayload(data)
+        let payload = try await decodedChallenge(wire)
         guard let accessToken = payload.accessToken, !accessToken.isEmpty else {
             throw ScoreServiceError.invalidResponse
         }
@@ -207,7 +208,8 @@ public struct ScoreService {
         request.setValue(challenge.accessToken, forHTTPHeaderField: "X-Challenge-Token")
         request.httpBody = try JSONEncoder().encode(BITLoginSMSCodeRequest(code: code))
 
-        let (data, response) = try await send(request, owner: owner)
+        let wire = try await send(request, owner: owner)
+        let data = wire.data, response = wire.response
         guard (200 ..< 300).contains(response.statusCode) else {
             let message = BITLoginChallengeSupport.errorMessage(from: data) ?? "短信验证码验证失败。"
             if [403, 404, 409].contains(response.statusCode) {
@@ -218,7 +220,7 @@ public struct ScoreService {
             throw ScoreServiceError.queryFailed(message)
         }
 
-        let payload = try decodeBITLoginChallengePayload(data)
+        let payload = try await decodedChallenge(wire)
         let current = try await waitUntilActionable(
             payload,
             accessToken: challenge.accessToken,
@@ -242,12 +244,13 @@ public struct ScoreService {
         }
         request.httpBody = try JSONEncoder().encode(body)
 
-        let (data, response) = try await send(request, owner: owner)
+        let wire = try await send(request, owner: owner)
+        let data = wire.data, response = wire.response
         if response.statusCode == 202 {
             guard authorization == nil else {
                 throw ScoreServiceError.challengeInvalid("成绩单会话再次要求认证，请重新申请可信成绩单。")
             }
-            let envelope = try decodeChallengeEnvelope(data)
+            let envelope = try await decodedEnvelope(wire)
             guard
                 let accessToken = envelope.detail.accessToken,
                 !accessToken.isEmpty
@@ -285,11 +288,9 @@ public struct ScoreService {
             )
         }
 
-        let payload: CookieResponse
-        do {
-            payload = try JSONDecoder().decode(CookieResponse.self, from: data)
-        } catch {
-            throw ScoreServiceError.invalidResponse.caused(by: error)
+        let payload: CookieResponse = try await wire.validated { data, _ in
+            do { return try JSONDecoder().decode(CookieResponse.self, from: data) }
+            catch { throw ScoreServiceError.invalidResponse.caused(by: error) }
         }
         let cookieString = payload.cookieString.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cookieString.isEmpty else {
@@ -348,33 +349,23 @@ public struct ScoreService {
             throw ScoreServiceError.queryFailed("学校未返回可识别的成绩单页面，请重新申请。")
         }
 
-        var pages: [TrustedTranscriptPages.Page] = []
-        var failure: (any Error)?
-        var remainingBytes = transcriptLimits.maximumEncodedBytes
-        for (index, url) in pageURLs.enumerated() {
-            guard remainingBytes > 0 else { throw HTTPClientError.responseTooLarge }
+        let session = TrustedTranscriptReport(pageCount: pageURLs.count) { [self, pageURLs] number, maximumBytes in
+            let url = pageURLs[number - 1]
             var request = URLRequest(url: url)
             request.timeoutInterval = Self.requestTimeoutSeconds
             request.setValue(cookieString, forHTTPHeaderField: "Cookie")
             let response: HTTPResponse
             do {
-                response = try await ownedResponse(request, using: sensitiveHTTPClient, owner: owner, maximumBytes: remainingBytes)
+                response = try await ownedResponse(request, using: sensitiveHTTPClient, owner: owner, maximumBytes: maximumBytes)
             } catch {
-                if TaskCancellation.matches(error) { throw error }
-                if case HTTPClientError.responseTooLarge = error { throw error }
-                if failure == nil { failure = error }
-                break
+                if TaskCancellation.matches(error) { throw CancellationError() }
+                throw error
             }
-            try validateTranscriptSource(response.response, requestedURL: url)
-            guard !response.data.isEmpty else {
-                if failure == nil { failure = ScoreServiceError.invalidResponse }
-                continue
-            }
-            pages.append(.init(number: index + 1, data: response.data))
-            remainingBytes -= response.data.count
+            do { try validateTranscriptSource(response.response, requestedURL: url) }
+            catch { throw TrustedTranscriptReport.Failure.invalidSource(error) }
+            return response.data
         }
-        if pages.isEmpty, let failure { throw failure }
-        return TrustedTranscriptPages(pages: pages, expectedPageCount: pageURLs.count, failure: failure)
+        return try await session.loadPages(maximumBytes: transcriptLimits.maximumEncodedBytes)
     }
 
     private func validateTranscriptSource(_ response: HTTPURLResponse, requestedURL: URL) throws {
@@ -428,12 +419,13 @@ public struct ScoreService {
         }
         request.httpBody = try JSONEncoder().encode(body)
 
-        let (data, response) = try await send(request, owner: owner)
+        let wire = try await send(request, owner: owner)
+        let data = wire.data, response = wire.response
         if response.statusCode == 202 {
             guard authorization == nil else {
                 throw ScoreServiceError.challengeInvalid("成绩查询会话再次要求认证，请重新查询成绩。")
             }
-            let payload = try decodeChallengeEnvelope(data).detail
+            let payload = try await decodedEnvelope(wire).detail
             guard
                 let accessToken = payload.accessToken,
                 !accessToken.isEmpty
@@ -449,7 +441,7 @@ public struct ScoreService {
                 BITLoginChallengeSupport.errorMessage(from: data) ?? "成绩查询失败。"
             )
         }
-        let rows = try await Self.decodeScoreRowsOffMain(data)
+        let rows = try await wire.validated { data, _ in try await Self.decodeScoreRowsOffMain(data) }
         try validateOwner(owner)
         return rows
     }
@@ -501,13 +493,14 @@ public struct ScoreService {
             )
             request.timeoutInterval = Self.requestTimeoutSeconds
             request.setValue(accessToken, forHTTPHeaderField: "X-Challenge-Token")
-            let (data, response) = try await send(request, owner: owner)
+            let wire = try await send(request, owner: owner)
+            let data = wire.data, response = wire.response
             guard (200 ..< 300).contains(response.statusCode) else {
                 throw ScoreServiceError.queryFailed(
                     BITLoginChallengeSupport.errorMessage(from: data) ?? "无法获取统一身份认证状态。"
                 )
             }
-            return try decodeBITLoginChallengePayload(data)
+            return try await decodedChallenge(wire)
         }
 
         if payload.status == "failed", let error = payload.error, !error.isEmpty {
@@ -518,10 +511,10 @@ public struct ScoreService {
         return BITLoginChallengeSupport.challenge(from: payload, accessToken: accessToken, ownerIdentity: owner)
     }
 
-    private func send(_ request: URLRequest, owner: SchoolSessionIdentity) async throws -> (Data, HTTPURLResponse) {
+    private func send(_ request: URLRequest, owner: SchoolSessionIdentity) async throws -> HTTPResponse {
         do {
             let response = try await ownedResponse(request, using: httpClient, owner: owner, accepting: 100 ..< 600)
-            return (response.data, response.response)
+            return response
         } catch let error as URLError where error.code == .timedOut {
             throw ScoreServiceError.requestTimedOut.caused(by: error)
         } catch let error as HTTPClientError {
@@ -553,6 +546,26 @@ public struct ScoreService {
             try validateOwner(owner)
             throw error
         }
+    }
+
+    private func decodedChallenge(_ wire: HTTPResponse) async throws -> BITLoginChallengePayload {
+        let payload = try await wire.validated { data, _ in try decodeBITLoginChallengePayload(data) }
+        if payload.status == "failed" {
+            await wire.reportValidationFailure(ScoreServiceError.challengeInvalid(payload.error ?? "统一身份认证失败。"))
+        }
+        return payload
+    }
+
+    private func decodedEnvelope(_ wire: HTTPResponse) async throws -> BITLoginChallengeEnvelope {
+        let envelope = try await wire.validated { data, _ in
+            let envelope = try decodeChallengeEnvelope(data)
+            guard envelope.detail.accessToken?.isEmpty == false else { throw ScoreServiceError.invalidResponse }
+            return envelope
+        }
+        if envelope.detail.status == "failed" {
+            await wire.reportValidationFailure(ScoreServiceError.challengeInvalid(envelope.detail.error ?? "统一身份认证失败。"))
+        }
+        return envelope
     }
 
     private nonisolated func decodeChallengeEnvelope(_ data: Data) throws -> BITLoginChallengeEnvelope {

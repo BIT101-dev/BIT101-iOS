@@ -13,6 +13,20 @@ import os
 
 @MainActor
 struct ScoreInfrastructureBoundaryTests {
+    @Test(.timeLimit(.minutes(1)))
+    func transcriptCancellationStopsTheReportBeforeReadingFurtherPages() async throws {
+        var pages: [Int] = []
+        let report = TrustedTranscriptReport(pageCount: 3) { number, _ in
+            pages.append(number)
+            if number == 2 {
+                throw NSError(domain: "fixture", code: 1, userInfo: [NSUnderlyingErrorKey: URLError(.cancelled)])
+            }
+            return Data([1])
+        }
+        await #expect(throws: CancellationError.self) { try await report.loadPages(maximumBytes: 3) }
+        #expect(pages == [1, 2])
+    }
+
     private nonisolated struct ValueFiles: AppFileService {
         let base: ModuleScoreFiles
         var temporaryDirectoryURL: URL { base.temporaryDirectoryURL }
@@ -415,11 +429,13 @@ struct ScoreInfrastructureBoundaryTests {
         let authenticated = try await service.submitTranscriptSMSCode("123456", for: challenge)
         #expect(authenticated.status == "authenticated" && transport.paths == ["/api/auth/fixture/sms"])
         let partial = try await service.fetchTrustedTranscriptPages(authenticatedBy: authenticated)
-        #expect(partial.pages.map(\.number) == [1] && partial.expectedPageCount == 3 && partial.failure != nil)
-        #expect(!transport.paths.contains("/cjd/Temp/3.png"))
+        #expect(partial.pages.map(\.number) == [1, 3] && partial.expectedPageCount == 3 && partial.failure != nil)
+        #expect(transport.paths.contains("/cjd/Temp/3.png"))
         transport.failingPage = nil
-        let recovered = try await service.fetchTrustedTranscriptPages(authenticatedBy: authenticated)
-        #expect(recovered.pages.count == 3 && recovered.failure == nil)
+        let report = try #require(partial.report)
+        let recovered = try await report.loadPages(excluding: Set(partial.pages.map(\.number)), maximumBytes: 64)
+        #expect(recovered.pages.map(\.number) == [2] && recovered.failure == nil)
+        #expect(transport.paths.filter { $0.hasSuffix("/cookies") }.count == 1)
         #expect(transport.paths.filter { $0.hasSuffix("/sms") }.count == 1)
     }
 
@@ -478,10 +494,13 @@ struct ScoreInfrastructureBoundaryTests {
         if scenario == "exact" {
             let pages = try await service.fetchTrustedTranscriptPages()
             #expect(pages.pages.count == 2 && pages.pages.reduce(0, { $0 + $1.data.count }) == 128)
+        } else if scenario == "aggregate" {
+            let partial = try await service.fetchTrustedTranscriptPages()
+            #expect(partial.pages.count == 1 && partial.pages[0].data.count == 64 && partial.failure is HTTPClientError)
         } else {
             await #expect(throws: HTTPClientError.self) { try await service.fetchTrustedTranscriptPages() }
         }
-        #expect(transport.imageRequests == (scenario == "pages" ? 0 : scenario == "single-page" ? 1 : 2))
+        #expect(transport.imageRequests == (scenario == "pages" ? 0 : 2))
     }
 
     @Test(.timeLimit(.minutes(1))) func productionServiceUsesInjectedCredentialsEndpointAndTransport() async throws {

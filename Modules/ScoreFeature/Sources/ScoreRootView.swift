@@ -218,6 +218,7 @@ public struct ScoreListPage: View {
     private var storageRecoveryButton: some View {
         Button("恢复成绩存储", action: viewModel.requestStorageRecovery)
             .disabled(viewModel.isSyncing || viewModel.isRecoveringStorage)
+            .appInteractiveListRow()
             .accessibilityIdentifier("score.recover-storage")
     }
 
@@ -285,11 +286,13 @@ private struct TrustedTranscriptPage: View {
                             LazyVStack(spacing: AppDesignSystem.Spacing.content) {
                                 if let warning = viewModel.deliveryWarning {
                                     AppFailureState(title: "部分成绩单待恢复", systemImage: "doc.text", message: warning,
-                                        onRetry: {
+                                        allowsDiagnostics: viewModel.allowsDiagnostics, onRetry: {
                                             viewModel.prepareRetry()
                                             retryGeneration &+= 1
                                         })
+                                        .disabled(viewModel.isLoadingPages)
                                 }
+                                if viewModel.isLoadingPages { AppInlineLoadingState("正在补全成绩单") }
                                 ForEach(Array(viewModel.images.enumerated()), id: \.offset) { index, image in
                                     Button {
                                         imageViewer = ImagePreviewRequest(localImages: viewModel.images, initialIndex: index)

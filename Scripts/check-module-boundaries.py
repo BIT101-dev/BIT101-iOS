@@ -227,7 +227,7 @@ def expanded_resource_source(source: str, aliases: tuple = (), path: str = "reso
 
 SERVICE_RESOURCE_OWNERS = {
     'web': {('GalleryFeature', 'GalleryRootViewScene.GalleryWebView'), ('GalleryFeature', 'GalleryWebCoordinator')},
-    'transport': {('TransportCore', owner) for owner in ('HTTPClient', 'HTTPTransmissionMetrics', 'HTTPTransport',
+    'transport': {('TransportCore', owner) for owner in ('HTTPClient', 'HTTPTransmissionMetrics', 'HTTPBoundedTransfer', 'HTTPTransport',
         'URLSession', 'URLSessionTransport', 'NoRedirectURLSessionDelegate', 'HTTPSUpgradingRedirectDelegate', 'UncachedHTTPTransport')},
     'cache': {('TransportCore', 'URLSessionTransport')},
     'requests': {('TransportCore', owner) for owner in ('HTTPClient', 'HTTPTransport', 'URLSession', 'URLSessionTransport', 'UncachedHTTPTransport')},

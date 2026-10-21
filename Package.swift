@@ -35,7 +35,7 @@ let package = Package(
     ],
     targets: [
         .target(name: "SchedulePorts", dependencies: ["ClientCore", "ScheduleDomain", "StorageCore"], path: "Modules/SchedulePorts/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
-        .target(name: "ScorePorts", dependencies: ["ScoreDomain", "ClientCore", "StorageCore"], path: "Modules/ScorePorts/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
+        .target(name: "ScorePorts", dependencies: ["ScoreDomain", "ClientCore", "StorageCore", "TransportCore"], path: "Modules/ScorePorts/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
         .target(name: "ScoreDomain", dependencies: [], path: "Modules/ScoreDomain/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
         .target(name: "ScheduleFeature", dependencies: ["SchedulePorts", "ClientCore", "DesignSystemKit", "ScheduleDomain", "ScheduleContracts", "StorageCore", "TransportCore"], path: "Modules/ScheduleFeature/Sources", swiftSettings: [.defaultIsolation(MainActor.self)]),
         .target(

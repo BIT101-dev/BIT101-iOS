@@ -106,6 +106,24 @@ struct GalleryStateContractTests {
         #expect(model.items.isEmpty && !model.canLoadMore && model.status == .loaded)
     }
 
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func subscriptionDuplicatePagesAdvanceWithinTheSharedProgressBound(stalled: Bool) async {
+        let service = Subscriptions()
+        service.pages = Dictionary(uniqueKeysWithValues: (0...4).map { ($0, [subscription(1)]) })
+        if !stalled { service.pages[3] = [subscription(2)] }
+        let model = GallerySubscriptionsViewModel(service: service)
+        await model.refresh()
+        await model.loadMore()
+        #expect(service.requests == (stalled ? [0, 1, 2, 3, 4] : [0, 1, 2, 3]))
+        #expect(model.items.map(\.id) == (stalled ? [1] : [1, 2]))
+        if stalled {
+            #expect(model.alert != nil && !model.isLoadingMore && model.canLoadMore)
+            service.pages[4] = [subscription(2)]
+            await model.loadMore()
+            #expect(service.requests.last == 4 && model.items.map(\.id) == [1, 2])
+        }
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func subscriptionRefreshSupersedesAnOlderNextPage() async throws {
         let service = Subscriptions()

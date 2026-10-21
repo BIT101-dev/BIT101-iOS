@@ -11,7 +11,9 @@ public nonisolated struct CourseSyncPayload: Sendable {
     public let rawWeeksByCourse: [[Int]]
     public let sourceDisplayWeeksByCourse: [String?]
     public let courses: [CourseRecord]
-    public let exams: [ExamRecord]
+    /// nil 表示本次考试来源读取受阻，消费方继续保留该学期已有考试。
+    public let exams: [ExamRecord]?
+    public let warnings: [String]
 
     public init(
         term: String,
@@ -21,7 +23,8 @@ public nonisolated struct CourseSyncPayload: Sendable {
         rawWeeksByCourse: [[Int]],
         sourceDisplayWeeksByCourse: [String?] = [],
         courses: [CourseRecord],
-        exams: [ExamRecord]
+        exams: [ExamRecord]?,
+        warnings: [String] = []
     ) {
         self.term = term
         self.firstDayString = firstDayString
@@ -31,6 +34,7 @@ public nonisolated struct CourseSyncPayload: Sendable {
         self.sourceDisplayWeeksByCourse = sourceDisplayWeeksByCourse
         self.courses = courses
         self.exams = exams
+        self.warnings = warnings
     }
 }
 

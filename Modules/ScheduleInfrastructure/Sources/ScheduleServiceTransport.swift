@@ -39,28 +39,30 @@ extension ScheduleService {
             request.httpBody = HTTPFormEncoding.body(body)
         }
 
-        let (data, response) = try await sendRequest(request, owner: owner)
-        if path.contains("cxxszhxqkb.do") {
-            rawCourseResponseHandler?(data)
-        }
-        if isTeachingCenterAuthenticationFailure(data: data, response: response) {
-            throw ScheduleServiceError.teachingCenterSessionExpired
-        }
-        guard (200 ..< 300).contains(response.statusCode) else {
-            throw httpError(response.statusCode)
-        }
-        let result = try await Self.decodeJSONResponse(Response.self, from: data)
-        try Task.checkCancellation()
-        try validateAuthenticationOwner(owner)
-        switch result {
-        case let .decoded(response):
-            return response
-        case let .businessError(message):
-            throw ScheduleServiceError.schoolResponse(message)
-        case let .invalidResponse(error):
-            // 登录页 HTML 已在上方按内容特征识别。其余无法解码的 2xx 响应可能只是学校
-            // 网关故障或接口改版，不能误导用户说“登录失效”。
-            throw ScheduleServiceError.invalidResponse.caused(by: error)
+        let wire = try await sendObservedRequest(request, owner: owner)
+        return try await wire.validated { data, response in
+            if path.contains("cxxszhxqkb.do") {
+                rawCourseResponseHandler?(data)
+            }
+            if isTeachingCenterAuthenticationFailure(data: data, response: response) {
+                throw ScheduleServiceError.teachingCenterSessionExpired
+            }
+            guard (200 ..< 300).contains(response.statusCode) else {
+                throw httpError(response.statusCode)
+            }
+            let result = try await Self.decodeJSONResponse(Response.self, from: data)
+            try Task.checkCancellation()
+            try validateAuthenticationOwner(owner)
+            switch result {
+            case let .decoded(response):
+                return response
+            case let .businessError(message):
+                throw ScheduleServiceError.schoolResponse(message)
+            case let .invalidResponse(error):
+                // 登录页 HTML 已在上方按内容特征识别。其余无法解码的 2xx 响应可能只是学校
+                // 网关故障或接口改版，不能误导用户说“登录失效”。
+                throw ScheduleServiceError.invalidResponse.caused(by: error)
+            }
         }
     }
 
@@ -232,21 +234,28 @@ extension ScheduleService {
         requiresTeachingCenterSession: Bool = false,
         owner: SchoolSessionIdentity? = nil
     ) async throws -> (html: String, url: URL) {
-        let (data, response) = try await sendRequest(request, owner: owner)
-        if requiresTeachingCenterSession,
-           isTeachingCenterAuthenticationFailure(data: data, response: response)
-        {
-            throw ScheduleServiceError.teachingCenterSessionExpired
+        let wire = try await sendObservedRequest(request, owner: owner)
+        return try await wire.validated { data, response in
+            if requiresTeachingCenterSession,
+               isTeachingCenterAuthenticationFailure(data: data, response: response)
+            {
+                throw ScheduleServiceError.teachingCenterSessionExpired
+            }
+            guard (200 ..< 400).contains(response.statusCode) else {
+                throw httpError(response.statusCode)
+            }
+            guard let url = response.url ?? request.url else { throw ScheduleServiceError.invalidResponse }
+            return (String(decoding: data, as: UTF8.self), url)
         }
-        guard (200 ..< 400).contains(response.statusCode) else {
-            throw httpError(response.statusCode)
-        }
-        guard let url = response.url ?? request.url else { throw ScheduleServiceError.invalidResponse }
-        return (String(decoding: data, as: UTF8.self), url)
     }
 
     /// 统一底层请求入口，并在发起前做 HTTPS 升级。
     func sendRequest(_ request: URLRequest, owner: SchoolSessionIdentity? = nil) async throws -> (Data, HTTPURLResponse) {
+        let result = try await sendObservedRequest(request, owner: owner)
+        return (result.data, result.response)
+    }
+
+    func sendObservedRequest(_ request: URLRequest, owner: SchoolSessionIdentity? = nil) async throws -> HTTPResponse {
         let owner = owner ?? credentials.schoolSessionIdentity
         try validateAuthenticationOwner(owner)
         let secureRequest: URLRequest
@@ -264,7 +273,7 @@ extension ScheduleService {
                 accepting: 100 ..< 600
             )
             try validateAuthenticationOwner(owner)
-            return (result.data, result.response)
+            return result
         } catch {
             try validateAuthenticationOwner(owner)
             if isCertificateValidationError(error) {

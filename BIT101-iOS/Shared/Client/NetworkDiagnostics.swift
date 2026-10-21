@@ -190,7 +190,7 @@ actor NetworkDiagnosticStore {
         self.currentIdentity = currentIdentity
     }
 
-    func record(owner: SchoolSessionIdentity, request: URLRequest, data: Data?, response: URLResponse?, error: Error?, elapsed: TimeInterval) async {
+    func record(owner: SchoolSessionIdentity, id: UUID = UUID(), request: URLRequest, data: Data?, response: URLResponse?, error: Error?, elapsed: TimeInterval) async {
         guard owner == (await currentIdentity()) else { return }
         guard request.url?.host?.lowercased() != "feedback.aihelpme.dev" else { return }
         records.removeAll { $0.owner != owner }
@@ -207,17 +207,30 @@ actor NetworkDiagnosticStore {
             guard let text else { return "[非文本响应，\(data.count) 字节]" }
             return text + (truncated ? "\n[响应正文已按诊断大小限制截取]" : "")
         }
-        let diagnosticError = error?.localizedDescription ?? Self.authenticationFailure(in: data, url: request.url)
+        let diagnosticError = error.map(Self.failureDescription) ?? Self.authenticationFailure(in: data, url: request.url)
         let failed = (http?.statusCode ?? 200) >= 400
             || (error.map { !TaskCancellation.matches($0) } ?? (diagnosticError != nil))
-        records.append((owner, NetworkDiagnosticRecord(
-            id: UUID(), occurredAt: Date(), method: request.httpMethod ?? "GET",
+        let index = records.firstIndex { $0.record.id == id }
+        let record = NetworkDiagnosticRecord(
+            id: id, occurredAt: index.map { records[$0].record.occurredAt } ?? Date(), method: request.httpMethod ?? "GET",
             url: request.url?.absoluteString ?? "", statusCode: http?.statusCode,
             elapsedMilliseconds: Int(elapsed * 1_000),
             error: diagnosticError,
             responseHeaders: headers, responseBody: body
-        ), failed))
+        )
+        if let index { records[index] = (owner, record, failed) }
+        else { records.append((owner, record, failed)) }
         records = prioritized(records, limit: 20)
+    }
+
+    private nonisolated static func failureDescription(_ error: any Error) -> String {
+        var decoding: String?
+        _ = ErrorChain.contains(error) { candidate in
+            guard let value = candidate as? DecodingError else { return false }
+            decoding = String(describing: value)
+            return true
+        }
+        return error.localizedDescription + (decoding.map { "\n" + $0 } ?? "")
     }
 
     func clear() { records.removeAll() }

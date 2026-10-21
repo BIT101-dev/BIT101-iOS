@@ -346,10 +346,11 @@ enum NetworkSmokePaging {
 #if DEBUG || RELEASE_NETWORK_SMOKE
 extension ReleaseNetworkSmokeRunner {
     nonisolated static func validateCourseSyncPayload(_ payload: CourseSyncPayload) throws {
-        guard payload.courses.allSatisfy({ $0.hasValidPlacement
+        guard let exams = payload.exams, payload.warnings.isEmpty,
+              payload.courses.allSatisfy({ $0.hasValidPlacement
             && !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !$0.id.isEmpty }),
               Set(payload.courses.map(\.id)).count == payload.courses.count,
-              payload.exams.allSatisfy(\.hasValidPlacement)
+              exams.allSatisfy(\.hasValidPlacement)
         else { throw URLError(.cannotParseResponse) }
         guard payload.rawWeeksByCourse.count == payload.courses.count,
               payload.sourceDisplayWeeksByCourse.count == payload.courses.count else { throw URLError(.cannotParseResponse) }

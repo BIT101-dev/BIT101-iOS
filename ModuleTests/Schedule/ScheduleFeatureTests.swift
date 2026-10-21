@@ -207,6 +207,29 @@ struct ScheduleFeatureTests {
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func courseSyncRetainsUnavailableExamsAndAppliesAnAuthoritativeEmptyList(unavailable: Bool) async throws {
+        let exam = ExamRecord(id: "existing", term: "term", name: "已有考试", courseID: "course", teacher: "", classroom: "A101",
+            dateString: "2026-10-22", beginTime: "08:00", endTime: "10:00", examMode: "", seatID: "")
+        var cache = ScheduleCache()
+        cache.currentTerm = "term"
+        cache.courseData.store(TermScheduleSnapshot(term: "term", firstDayString: "2026-09-07", courses: [], exams: [exam], updatedAt: .distantPast))
+        var saved: ScheduleCache?
+        let repository = ScheduleRepository(session: { AppStorageSession(accountIdentifier: "partial-exams") },
+            load: { _ in .loaded(cache) }, save: { value, _, _ in saved = value })
+        let service = ModuleScheduleService(), course = try editableCourse("new", weekday: 1, weeks: "1-20")
+        service.payload = CourseSyncPayload(term: "term", firstDayString: "2026-09-07", sourceFirstDayString: "2026-09-07",
+            normalizationOffset: 0, rawWeeksByCourse: [], courses: [course], exams: unavailable ? nil : [], warnings: unavailable ? ["考试来源待恢复"] : [])
+        let payload = try #require(service.payload)
+        service.onSync = { _ in payload }
+        let model = makeViewModel(repository: repository, actions: ModuleSchedulePlatformActions(), service: service)
+        await model.loadIfNeeded()
+        await model.syncCourses()
+        #expect(model.activeCourseSchedule.courses == [course] && saved?.courses == [course])
+        #expect(saved?.exams == (unavailable ? [exam] : []))
+        if unavailable { #expect(model.notice?.message.contains("考试") == true) }
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func firstCourseSyncSelectsTheReturnedTermAndPublishesItsSchedule(requiresSMS: Bool) async throws {
         var saved: ScheduleCache?
         let repository = ScheduleRepository(session: { AppStorageSession(accountIdentifier: "first-sync") },

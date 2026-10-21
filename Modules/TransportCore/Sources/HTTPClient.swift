@@ -61,35 +61,28 @@ extension URLSession: HTTPTransport {
         guard let maximumBytes else { return try await data(for: request) }
         guard maximumBytes >= 0 else { throw HTTPClientError.responseTooLarge }
         let metrics = HTTPTransmissionMetrics(request: request, redirects: delegate as? any URLSessionTaskDelegate)
-        let bytes: URLSession.AsyncBytes
-        let response: URLResponse
-        do {
-            (bytes, response) = try await self.bytes(for: request, delegate: metrics)
-        } catch {
-            if metrics.confirmedUnsent { throw HTTPRequestNotSent(underlying: error) }
-            throw error
-        }
-        defer { bytes.task.cancel() }
-        guard response.expectedContentLength <= Int64(maximumBytes) else { throw HTTPClientError.responseTooLarge }
-        var data = Data()
-        if response.expectedContentLength > 0 { data.reserveCapacity(Int(response.expectedContentLength)) }
-        var chunk: [UInt8] = []
-        chunk.reserveCapacity(64 * 1_024)
-        for try await byte in bytes {
-            guard data.count + chunk.count < maximumBytes else { throw HTTPClientError.responseTooLarge }
-            chunk.append(byte)
-            if chunk.count == 64 * 1_024 {
-                try Task.checkCancellation()
-                data.append(contentsOf: chunk)
-                chunk.removeAll(keepingCapacity: true)
-            }
-        }
+        let transfer = HTTPBoundedTransfer(maximumBytes: maximumBytes, metrics: metrics)
+        let task = dataTask(with: request)
+        task.delegate = transfer
+        defer { task.cancel() }
+        let (data, response) = try await transfer.receive(task)
         try Task.checkCancellation()
-        data.append(contentsOf: chunk)
-        if let finalRequest = metrics.finalRequest(from: bytes.task.currentRequest) {
+        if let finalRequest = metrics.finalRequest(from: task.currentRequest) {
             await HTTPRequestEvidenceContext.didReceiveFinalRequest?(finalRequest)
         }
         return (data, response)
+    }
+}
+
+@MainActor
+fileprivate final class HTTPValidationObservation {
+    private let record: @MainActor (any Error) async -> Void
+    private var recordedFailure = false
+    init(_ record: @escaping @MainActor (any Error) async -> Void) { self.record = record }
+    func report(_ error: any Error) async {
+        guard !recordedFailure, !TaskCancellation.matches(error) else { return }
+        recordedFailure = true
+        await record(error)
     }
 }
 
@@ -98,6 +91,20 @@ public nonisolated struct HTTPResponse: Sendable {
         self.data = data
         self.response = response
         self.finalRequest = finalRequest
+        validation = nil
+    }
+
+    private init(data: Data, response: HTTPURLResponse, finalRequest: URLRequest?, validation: HTTPValidationObservation) {
+        self.data = data; self.response = response; self.finalRequest = finalRequest; self.validation = validation
+    }
+    private let validation: HTTPValidationObservation?
+    @MainActor fileprivate func observingValidation(_ report: @escaping @MainActor (any Error) async -> Void) -> HTTPResponse {
+        .init(data: data, response: response, finalRequest: finalRequest, validation: HTTPValidationObservation(report))
+    }
+    public func reportValidationFailure(_ error: any Error) async { await validation?.report(error) }
+    @MainActor public func validated<Value: Sendable>(_ decode: (Data, HTTPURLResponse) async throws -> Value) async throws -> Value {
+        do { return try await decode(data, response) }
+        catch { await reportValidationFailure(error); throw error }
     }
 
     public let data: Data
@@ -214,7 +221,11 @@ public struct HTTPClient {
             elapsed: Date().timeIntervalSince(startedAt)
         )
         try Task.checkCancellation()
-        return result
+        guard let observer else { return result }
+        return result.observingValidation { error in
+            await observer.didFinish(request: request, data: result.data, response: result.response,
+                error: error, elapsed: Date().timeIntervalSince(startedAt))
+        }
     }
 
     @concurrent

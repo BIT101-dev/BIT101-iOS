@@ -61,13 +61,23 @@ final class GallerySubscriptionsViewModel: ObservableObject {
         isLoadingMore = true
         defer { if generation == requestGeneration { isLoadingMore = false } }
         do {
-            let result = try await service.fetchSubscriptions(page: nextPage)
-            guard generation == requestGeneration else { return }
-            try Task.checkCancellation()
-            var ids = Set(items.map(\.id))
-            items.append(contentsOf: result.filter { ids.insert($0.id).inserted })
-            nextPage += 1
-            canLoadMore = !result.isEmpty
+            var progress = CommunityPageProgress<Int>()
+            while true {
+                let result = try await service.fetchSubscriptions(page: nextPage)
+                guard generation == requestGeneration else { return }
+                try Task.checkCancellation()
+                let known = Set(items.map(\.id))
+                try progress.record(result.map(\.id), knownIDs: known)
+                var ids = known
+                let added = result.filter { ids.insert($0.id).inserted }
+                if result.isEmpty || !added.isEmpty {
+                    items.append(contentsOf: added)
+                    nextPage += 1
+                    canLoadMore = !result.isEmpty
+                    return
+                }
+                nextPage += 1
+            }
         } catch {
             guard generation == requestGeneration, !TaskCancellation.matches(error) else { return }
             alert = AppAlert(title: "加载收藏失败", message: error.localizedDescription)

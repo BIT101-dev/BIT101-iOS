@@ -12,6 +12,7 @@ private struct AppHTTPClientObserver: HTTPClientObserving, Sendable {
     let warningCenter: NetworkMagicWarningCenter?
     let storage: LoginStorage
     let diagnostics: NetworkDiagnosticStore
+    let requestID = UUID()
     var identity: SchoolSessionIdentity? = nil
 
     func forRequest() -> any HTTPClientObserving {
@@ -35,7 +36,7 @@ private struct AppHTTPClientObserver: HTTPClientObserving, Sendable {
     ) async {
         guard let identity else { return }
         await diagnostics.record(
-            owner: identity, request: request, data: data, response: response, error: error, elapsed: elapsed
+            owner: identity, id: requestID, request: request, data: data, response: response, error: error, elapsed: elapsed
         )
     }
 }

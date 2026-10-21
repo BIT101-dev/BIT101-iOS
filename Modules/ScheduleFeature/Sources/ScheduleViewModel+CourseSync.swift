@@ -73,13 +73,17 @@ extension ScheduleViewModel {
         trimTermSnapshots(preserving: Set([payload.term]))
         guard await persistAndWait(), accountGeneration == generation else { return }
 
+        let warnings = payload.warnings.joined(separator: "\n")
         if !reconciliation.invalidRules.isEmpty {
             let names = uniqueCourseNames(from: reconciliation.invalidRules)
             let courseText = names.isEmpty ? "相关课程" : names.joined(separator: "、")
-            notice = ScheduleNotice.userInput(
+            notice = ScheduleNotice(
                 title: "手动调课已失效",
-                message: "学校课表中的 \(courseText) 发生了变化，相关手动调课已移除，当前显示最新课程安排。"
+                message: "学校课表中的 \(courseText) 发生了变化，相关手动调课已移除，当前显示最新课程安排。" + (warnings.isEmpty ? "" : "\n" + warnings),
+                allowsDiagnostics: !warnings.isEmpty
             )
+        } else if !warnings.isEmpty {
+            notice = ScheduleNotice(title: "课表已更新", message: warnings)
         } else if coursesAreIdentical {
             notice = ScheduleNotice.informational(
                 title: "课表已是最新",
@@ -93,7 +97,7 @@ extension ScheduleViewModel {
             term: payload.term,
             firstDayString: payload.firstDayString,
             courses: payload.courses,
-            exams: payload.exams,
+            exams: payload.exams ?? courseState.data.schedulesByTerm[payload.term]?.exams ?? [],
             updatedAt: now
         )
     }

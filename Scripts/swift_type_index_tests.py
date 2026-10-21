@@ -548,6 +548,10 @@ def foundation_collection_self_test(service_boundary_errors) -> None:
     callbacks = "func collect(read: () -> Int, write: (Int) -> Void) { write(read()) }; func run() { collect(read: { 1 }, write: { _ in }) }"
     assert not service_boundary_errors(path, callbacks)
     assert service_boundary_errors(path, callbacks + "; func unsafe() { _ = Darwin.read(0, nil, 0) }")
+    aliases = 'let openSocket = Darwin.socket; let sendBytes = Glibc.send'
+    facts = swift_syntax_index_sources({path: aliases})[path]
+    assert all(member['isExpressionReference'] for member in facts['members'])
+    assert service_boundary_errors(path, aliases)
     for kind in ('NSDictionary', 'NSMutableDictionary', 'NSArray', 'NSMutableArray'):
         for body in (
                 f'_ = {kind}(contentsOf: url)', f'_ = Foundation.{kind}.init(contentsOfFile: file)',

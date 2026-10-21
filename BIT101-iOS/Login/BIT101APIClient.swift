@@ -365,7 +365,8 @@ struct BIT101APIClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try encoder.encode(body)
 
-        let (data, response) = try await sendRequest(request, followRedirects: true, requiresBusinessEndpoint: true)
+        let wire = try await sendObservedRequest(request, followRedirects: true, requiresBusinessEndpoint: true)
+        let data = wire.data, response = wire.response
         guard (200 ..< 300).contains(response.statusCode) else {
             throw LoginServerResponseError(
                 statusCode: response.statusCode,
@@ -376,6 +377,7 @@ struct BIT101APIClient {
         do {
             return try decoder.decode(Response.self, from: data)
         } catch {
+            await wire.reportValidationFailure(error)
             throw LoginServiceError.invalidServerResponse
         }
     }
@@ -387,6 +389,11 @@ struct BIT101APIClient {
 
     /// 按重定向策略选择注入客户端，并统一做 HTTPS 升级。
     private func sendRequest(_ request: URLRequest, followRedirects: Bool, requiresBusinessEndpoint: Bool = false) async throws -> (Data, HTTPURLResponse) {
+        let wire = try await sendObservedRequest(request, followRedirects: followRedirects, requiresBusinessEndpoint: requiresBusinessEndpoint)
+        return (wire.data, wire.response)
+    }
+
+    private func sendObservedRequest(_ request: URLRequest, followRedirects: Bool, requiresBusinessEndpoint: Bool) async throws -> HTTPResponse {
         let activeClient = followRedirects ? httpClient : noRedirectHTTPClient
         let finalRequest: URLRequest
 
@@ -409,15 +416,17 @@ struct BIT101APIClient {
             throw describeNetworkError(error, request: finalRequest)
         }
         guard result.response.url?.scheme?.lowercased() == "https" else {
+            await result.reportValidationFailure(LoginServiceError.invalidServerResponse)
             throw LoginServiceError.invalidServerResponse
         }
         if requiresBusinessEndpoint {
             let evidence = HTTPRequestEvidence(request: finalRequest, response: result.response, finalRequest: result.finalRequest)
             guard result.response.url == finalRequest.url, evidence.method == evidence.finalMethod else {
+                await result.reportValidationFailure(LoginServiceError.invalidServerResponse)
                 throw LoginServiceError.invalidServerResponse
             }
         }
-        return (result.data, result.response)
+        return result
     }
 
     /// 把 HTTP 状态码转成统一错误对象。

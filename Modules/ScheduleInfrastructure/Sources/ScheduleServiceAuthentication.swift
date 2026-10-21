@@ -9,11 +9,12 @@ import ScheduleDomain
 //
 
 import Foundation
+import TransportCore
 
 extension ScheduleService {
     /// 同步课表、考试和首周日期。
     ///
-    /// 这三个结果会同时影响课表页面、当前周计算、小组件和灵动岛，所以同步时必须成套获取。
+    /// 课程与日期基准组成可用课表，考试来源独立返回状态。
     public func syncCourses(term: String? = nil) async throws -> CourseSyncPayload {
         try await withPreparedTeachingCenterSession {
             try await fetchCourseSyncPayload(term: term)
@@ -65,7 +66,8 @@ extension ScheduleService {
         request.setValue(challenge.accessToken, forHTTPHeaderField: "X-Challenge-Token")
         request.httpBody = try JSONEncoder().encode(BITLoginSMSCodeRequest(code: code))
 
-        let (data, response) = try await sendRequest(request)
+        let wire = try await sendObservedRequest(request)
+        let data = wire.data, response = wire.response
         try validateAuthenticationOwner(owner)
         guard (200 ..< 300).contains(response.statusCode) else {
             let message = BITLoginChallengeSupport.errorMessage(from: data) ?? "短信验证码验证失败。"
@@ -77,7 +79,7 @@ extension ScheduleService {
             throw ScheduleServiceError.authenticationFailed(message)
         }
 
-        let payload = try decodeBITLoginChallengePayload(data)
+        let payload = try await decodedAuthenticationChallenge(wire)
         let current = try await waitUntilAuthenticationActionable(
             payload,
             accessToken: challenge.accessToken,
@@ -91,19 +93,27 @@ extension ScheduleService {
         let normalizedTerm = requestedTerm?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let term = normalizedTerm.isEmpty ? try await fetchCurrentTerm() : normalizedTerm
         async let coursesTask = fetchParsedCourses(term: term)
-        async let examsTask = fetchExams(term: term)
+        async let examsTask = fetchExamsForCourseSync(term: term)
         async let firstDayTask = fetchFirstDayString(term: term)
         let (parsedCourses, exams, firstDayString) = try await (coursesTask, examsTask, firstDayTask)
         let payload = try await Self.makeCourseSyncPayload(
-            term: term, parsedCourses: parsedCourses, exams: exams, firstDayString: firstDayString
+            term: term, parsedCourses: parsedCourses, exams: exams.records, warnings: exams.warnings, firstDayString: firstDayString
         )
         try validateAuthenticationOwner(owner)
         return payload
     }
 
+    private func fetchExamsForCourseSync(term: String) async throws -> (records: [ExamRecord]?, warnings: [String]) {
+        do { return (try await fetchExams(term: term), []) }
+        catch {
+            if TaskCancellation.matches(error) { throw error }
+            return (nil, ["课程已更新，考试数据待恢复。" + error.localizedDescription])
+        }
+    }
+
     @concurrent
     private static func makeCourseSyncPayload(
-        term: String, parsedCourses: [CourseResponse.ParsedCourse], exams: [ExamRecord], firstDayString: String
+        term: String, parsedCourses: [CourseResponse.ParsedCourse], exams: [ExamRecord]?, warnings: [String], firstDayString: String
     ) async throws -> CourseSyncPayload {
         try Task.checkCancellation()
         let rawWeeks = parsedCourses.map(\.rawWeeks)
@@ -120,7 +130,8 @@ extension ScheduleService {
             rawWeeksByCourse: rawWeeks,
             sourceDisplayWeeksByCourse: parsedCourses.map(\.sourceDisplayWeeks),
             courses: normalized.courses,
-            exams: exams
+            exams: exams,
+            warnings: warnings
         )
     }
 
@@ -133,12 +144,18 @@ extension ScheduleService {
             throw ScheduleServiceError.notLoggedIn
         }
 
-        if force {
-            teachingCenterState.invalidate()
-        } else if teachingCenterState.hasUsableSession(for: username) {
-            return
+        teachingCenterState.selectOwner(owner)
+        if !force, teachingCenterState.hasUsableSession(for: username) { return }
+        try await teachingCenterState.authenticationRecovery.refresh(identity: owner) { [self] in
+            try validateAuthenticationOwner(owner)
+            if !force, teachingCenterState.hasUsableSession(for: username) { return }
+            if force { teachingCenterState.invalidate() }
+            try await restoreTeachingCenterAuthentication(owner: owner, username: username, password: password)
         }
+        try validateAuthenticationOwner(owner)
+    }
 
+    private func restoreTeachingCenterAuthentication(owner: SchoolSessionIdentity, username: String, password: String) async throws {
         let body = AuthenticationCredentials(
             username: username,
             password: password,
@@ -195,17 +212,19 @@ extension ScheduleService {
         }
         request.httpBody = try JSONEncoder().encode(body)
 
-        let (data, response) = try await sendRequest(request)
+        let wire = try await sendObservedRequest(request)
+        let data = wire.data, response = wire.response
         try validateAuthenticationOwner(owner)
         if response.statusCode == 202 {
             guard accessToken == nil else {
                 throw ScheduleServiceError.challengeInvalid("教学中心会话再次要求认证，请重新同步课表。")
             }
-            guard
-                let envelope = try? JSONDecoder().decode(BITLoginChallengeEnvelope.self, from: data),
-                let accessToken = envelope.detail.accessToken,
-                !accessToken.isEmpty
-            else {
+            let envelope = try await wire.validated { data, _ in
+                do { return try JSONDecoder().decode(BITLoginChallengeEnvelope.self, from: data) }
+                catch { throw ScheduleServiceError.invalidResponse.caused(by: error) }
+            }
+            guard let accessToken = envelope.detail.accessToken, !accessToken.isEmpty else {
+                await wire.reportValidationFailure(ScheduleServiceError.invalidResponse)
                 throw ScheduleServiceError.invalidResponse
             }
             let current = try await waitUntilAuthenticationActionable(
@@ -222,7 +241,7 @@ extension ScheduleService {
                 BITLoginChallengeSupport.errorMessage(from: data) ?? "教学中心统一认证失败。"
             )
         }
-        try installTeachingCenterCookies(from: data, owner: owner)
+        try await wire.validated { data, _ in try installTeachingCenterCookies(from: data, owner: owner) }
     }
 
     private func finishTeachingCenterAuthentication(
@@ -267,14 +286,15 @@ extension ScheduleService {
                 url: bitLoginBaseURL.appending(path: "api/auth/\(challengeID)")
             )
             request.setValue(accessToken, forHTTPHeaderField: "X-Challenge-Token")
-            let (data, response) = try await sendRequest(request)
+            let wire = try await sendObservedRequest(request)
+            let data = wire.data, response = wire.response
             try await validateAuthenticationOwner(owner)
             guard (200 ..< 300).contains(response.statusCode) else {
                 throw ScheduleServiceError.authenticationFailed(
                     BITLoginChallengeSupport.errorMessage(from: data) ?? "无法获取统一认证状态。"
                 )
             }
-            return try decodeBITLoginChallengePayload(data)
+            return try await decodedAuthenticationChallenge(wire)
         }
 
         try validateAuthenticationOwner(owner)
@@ -282,6 +302,14 @@ extension ScheduleService {
             throw ScheduleServiceError.authenticationFailed(error)
         }
         return BITLoginChallengeSupport.challenge(from: payload, accessToken: accessToken, ownerIdentity: owner)
+    }
+
+    private func decodedAuthenticationChallenge(_ wire: HTTPResponse) async throws -> BITLoginChallengePayload {
+        let payload = try await wire.validated { data, _ in try decodeBITLoginChallengePayload(data) }
+        if payload.status == "failed" {
+            await wire.reportValidationFailure(ScheduleServiceError.authenticationFailed(payload.error ?? "统一身份认证失败。"))
+        }
+        return payload
     }
 
     private nonisolated func decodeBITLoginChallengePayload(_ data: Data) throws -> BITLoginChallengePayload {
@@ -303,7 +331,7 @@ extension ScheduleService {
         do {
             response = try JSONDecoder().decode(CookieResponse.self, from: data)
         } catch {
-            throw ScheduleServiceError.invalidResponse
+            throw ScheduleServiceError.invalidResponse.caused(by: error)
         }
         guard !response.data.isEmpty else {
             throw ScheduleServiceError.invalidResponse

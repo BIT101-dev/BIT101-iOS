@@ -36,8 +36,9 @@ public nonisolated struct TrustedTranscriptPages: Sendable {
     public let pages: [Page]
     public let expectedPageCount: Int
     public let failure: (any Error)?
-    public init(pages: [Page], expectedPageCount: Int, failure: (any Error)? = nil) {
-        self.pages = pages; self.expectedPageCount = expectedPageCount; self.failure = failure
+    public let report: TrustedTranscriptReport?
+    public init(pages: [Page], expectedPageCount: Int, failure: (any Error)? = nil, report: TrustedTranscriptReport? = nil) {
+        self.pages = pages; self.expectedPageCount = expectedPageCount; self.failure = failure; self.report = report
     }
     public init(_ pages: [Data]) {
         self.init(pages: pages.enumerated().map { Page(number: $0.offset + 1, data: $0.element) }, expectedPageCount: pages.count)

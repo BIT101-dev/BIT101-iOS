@@ -10,6 +10,8 @@ from swift_type_index import (
 
 NETWORK_FOUNDATION_API = {
     'TransportCore.HTTPClient': {'send(:URLRequest,accepting:Range<Int>,maximumBytes:Int?)'},
+    'TransportCore.HTTPBoundedTransfer': {'receive(:URLSessionDataTask)'},
+    'ScorePorts.TrustedTranscriptReport': {'loadPages(excluding:Set<Int>,maximumBytes:Int)'},
     'TransportCore.URLSessionTransport': {'deinit()', 'static make(configuration:URLSessionConfiguration,followsRedirects:Bool)'},
     'CommunityTransport.CommunitySession': {'client(errorDomain:String)'},
     'CommunityTransport.CommunityAPIClient': {
@@ -26,7 +28,8 @@ NETWORK_FOUNDATION_API = {
         'prepareInitialItems(for:ImagePreviewRequest,media:MediaEnvironment)'},
     'MediaKit.CachedRemoteImageLoader': {'load(url:URL?,media:MediaEnvironment,maximumPixelSize:Int?)'},
     'MediaKit.RemoteImageCache': {'init(files:anyAppFileService,quota:ImageCacheDiskQuota,httpClient:HTTPClient,download:(@Sendable(URL)asyncthrows->HTTPResponse)?)',
-        'file(for:URL)', 'withFile(for:URL,operation:@Sendable(URL)asyncthrows->Value)'},
+        'file(for:URL)', 'withFile(for:URL,operation:@Sendable(URL)asyncthrows->Value)',
+        'withSource(for:URL,operation:@Sendable(RemoteImageSource)asyncthrows->Value)'},
     'BIT101-iOS.AppScheduleSchoolSessionRestorer': {'restoreSchoolSessionIfNeeded()'},
 }
 NETWORK_TRANSPORT_TYPES = {'HTTPClient', 'HTTPTransport', 'URLSession', 'CommunityAPIClient', 'CommunitySession',

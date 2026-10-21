@@ -49,7 +49,14 @@ extension ScheduleService {
         operation: () async throws -> T
     ) async throws -> T {
         try await withTeachingCenterSessionRetry {
-            try await prepareJXZX()
+            let owner = credentials.schoolSessionIdentity
+            if !teachingCenterState.isPrepared(for: owner.accountIdentifier) {
+                try await teachingCenterState.preparationRecovery.refresh(identity: owner) { [self] in
+                    try validateAuthenticationOwner(owner)
+                    try await prepareJXZX()
+                    try validateAuthenticationOwner(owner)
+                }
+            }
             return try await operation()
         }
     }
@@ -63,6 +70,7 @@ extension ScheduleService {
         operation: () async throws -> T
     ) async throws -> T {
         try await credentials.prepareSchoolCredentials()
+        teachingCenterState.selectOwner(credentials.schoolSessionIdentity)
         let studentID = credentials.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
         if teachingCenterState.shouldPreferDirect(for: studentID) {
             return try await withDirectTeachingCenterSessionRetry(operation: operation)
@@ -146,17 +154,24 @@ extension ScheduleService {
 
         // WebVPN 会话失效时重新认证，并在认证状态可用后重试业务请求；短信验证由用户完成。
         for recoveryAttempt in 0 ... 2 {
+            let revision = teachingCenterState.sessionRevision
             do {
                 return try await operation()
             } catch ScheduleServiceError.teachingCenterSessionExpired {
-                teachingCenterState.invalidate()
+                let studentID = credentials.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
+                if teachingCenterState.shouldPreferDirect(for: studentID) {
+                    return try await withDirectTeachingCenterSessionRetry(operation: operation)
+                }
+                if teachingCenterState.sessionRevision == revision { teachingCenterState.invalidate() }
                 guard recoveryAttempt < 2 else {
                     throw ScheduleServiceError.teachingCenterSessionExpired
                 }
                 if recoveryAttempt > 0 {
                     try await Task.sleep(for: .seconds(1))
                 }
-                try await ensureTeachingCenterAuthentication(force: true)
+                if !teachingCenterState.hasUsableSession(for: studentID) {
+                    try await ensureTeachingCenterAuthentication(force: true)
+                }
             }
         }
 
@@ -259,6 +274,7 @@ extension ScheduleService {
     ///
     /// 读取 App 配置和语言资源，准备教学中心会话状态。
     func prepareJXZX() async throws {
+        let owner = credentials.schoolSessionIdentity
         let studentID = credentials.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !studentID.isEmpty else { throw ScheduleServiceError.notLoggedIn }
         guard !teachingCenterState.isPrepared(for: studentID) else { return }
@@ -266,6 +282,7 @@ extension ScheduleService {
         // App 配置和语言资源请求为教学中心数据请求准备服务端会话。
         _ = try await sendStringRequest(path: "/jwapp/sys/funauthapp/api/getAppConfig/wdkbby-5959167891382285.do")
         _ = try await sendStringRequest(path: "/jwapp/i18n.do?appName=wdkbby&EMAP_LANG=zh")
+        try validateAuthenticationOwner(owner)
         teachingCenterState.markPrepared(for: studentID)
     }
 
