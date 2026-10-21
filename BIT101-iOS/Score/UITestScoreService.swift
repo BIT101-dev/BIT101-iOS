@@ -8,6 +8,7 @@ import UIKit
 
 struct UITestScoreService: ScoreListServicing, TrustedTranscriptServicing {
     let transcriptServiceIdentity: AnyHashable = UUID()
+    private static var transcriptFailureScene: Int?
     private static let challenge = BITLoginAuthenticationChallenge(
         challengeID: "ui-test-score-challenge",
         accessToken: "ui-test-score-token",
@@ -43,18 +44,27 @@ struct UITestScoreService: ScoreListServicing, TrustedTranscriptServicing {
         return Self.challenge
     }
 
-    func fetchTrustedTranscriptPages() async throws -> [Data] {
+    func fetchTrustedTranscriptPages() async throws -> TrustedTranscriptPages {
         throw ScoreServiceError.secondFactorRequired(Self.challenge)
     }
 
-    func submitTranscriptSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> [Data] {
+    func submitTranscriptSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge {
         _ = try await submitScoreSMSCode(code, for: challenge)
-        return [UIColor.systemBlue, UIColor.systemOrange].map { color in
+        return challenge
+    }
+    func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge) async throws -> TrustedTranscriptPages {
+        let pages = [UIColor.systemBlue, UIColor.systemOrange].map { color in
             UIGraphicsImageRenderer(size: CGSize(width: 300, height: 400)).pngData { context in
                 color.setFill()
                 context.fill(CGRect(x: 0, y: 0, width: 300, height: 400))
             }
         }
+        let scene = UITestSceneConfiguration.shared.snapshot
+        if scene.environment["BIT101_UI_TEST_TRANSCRIPT_FAILURE_ONCE"] == "1", Self.transcriptFailureScene != scene.revision {
+            Self.transcriptFailureScene = scene.revision
+            return .init(pages: [.init(number: 1, data: pages[0])], expectedPageCount: 2, failure: URLError(.networkConnectionLost))
+        }
+        return .init(pages)
     }
 }
 #endif

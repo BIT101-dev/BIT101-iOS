@@ -558,6 +558,7 @@ def implicit_file_accesses(source: str, functions: str = POSIX_FILE_FUNCTIONS, *
             and reference["scope"][:len(binding["scope"])] == binding["scope"]
             and reference["lexicalScope"][:len(binding["lexicalScope"])] == binding["lexicalScope"] for binding in facts["bindings"])
     for reference in facts["members"] + facts["scopedIdentifiers"]:
+        if not reference.get("isExpressionReference", True): continue
         qualified = re.fullmatch(r"(?:Darwin|Glibc)\s*\.\s*(" + functions + r")", reference["value"])
         bare = re.fullmatch(functions, reference["value"])
         own = any(function["name"] == reference["value"] and reference["scope"][:len(function["scope"])] == function["scope"]
@@ -790,8 +791,12 @@ def native_target_errors(root: Path, package: dict, modules: set[str]) -> list[s
 
 
 def main() -> int:
-    from module_boundary_tests import run_self_test
-    run_self_test(globals())
+    if sys.argv[1:] not in ([], ["--self-test"]):
+        print("usage: check-module-boundaries.py [--self-test]", file=sys.stderr)
+        return 2
+    if "--self-test" in sys.argv[1:]:
+        from module_boundary_tests import run_self_test
+        run_self_test(globals())
     root = Path(__file__).resolve().parents[1]
     try:
         package = read_manifest(root)

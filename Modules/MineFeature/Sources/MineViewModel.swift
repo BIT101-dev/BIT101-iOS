@@ -18,36 +18,92 @@ private func isMineNotLoggedIn(_ error: Error) -> Bool {
     return false
 }
 
-/// 为第一页加载准备分页状态。
-///
-/// 首屏请求完成后提交新分页，加载期间保留已有列表与游标。
-private func prepareMinePagedRefresh<Item: Identifiable>(_ state: inout MinePagedState<Item>) {
-    state.status = .loading
-    state.isLoadingMore = false
+/// 四类主页列表共用第一页恢复与分页推进规则，业务对象持有代际与提示。
+@MainActor
+private func refreshMinePage<Item: Identifiable>(
+    read: () -> MinePagedState<Item>, write: (MinePagedState<Item>) -> Void,
+    isCurrent: () -> Bool, fetch: () async throws -> [Item], failureTitle: String,
+    onLogin: () -> Void, onAlert: (AppAlert) -> Void
+) async {
+    let previous = read()
+    var loading = previous
+    loading.status = .loading
+    loading.isLoadingMore = false
+    loading.loadMoreError = nil
+    write(loading)
+    do {
+        let items = try await fetch()
+        try Task.checkCancellation()
+        guard isCurrent() else { return }
+        var state = read()
+        state.applyFirstPage(items)
+        state.status = .loaded
+        state.loadMoreError = nil
+        write(state)
+    } catch {
+        guard isCurrent() else { return }
+        var state = previous
+        state.isLoadingMore = false
+        let hadItems = !previous.items.isEmpty || previous.status == .loaded
+        if isMineCancellation(error) || isMineNotLoggedIn(error) {
+            state.status = hadItems ? .loaded : .idle
+            write(state)
+            if isMineNotLoggedIn(error) { onLogin() }
+            return
+        }
+        state.status = hadItems ? .loaded : .failed(error.localizedDescription)
+        if !hadItems { state.canLoadMore = false }
+        write(state)
+        if hadItems { onAlert(AppAlert(title: failureTitle, message: error.localizedDescription)) }
+    }
 }
 
-/// 将第一页结果写入分页状态并标记加载完成。
-private func applyMinePagedRefreshResult<Item: Identifiable>(_ items: [Item], to state: inout MinePagedState<Item>) {
-    state.applyFirstPage(items)
-    state.status = .loaded
-}
-
-/// 将新加载的一页结果追加到现有分页状态。
-private func appendMinePagedPage<Item: Identifiable>(_ items: [Item], to state: inout MinePagedState<Item>) {
-    state.appendPage(items)
+@MainActor
+private func loadMoreMinePage<Item: Identifiable>(
+    current: Item?, read: () -> MinePagedState<Item>, write: (MinePagedState<Item>) -> Void,
+    isCurrent: () -> Bool, fetch: (Int) async throws -> [Item], onLogin: () -> Void
+) async {
+    guard let current else { return }
+    var state = read()
+    guard state.status == .loaded, state.shouldLoadMore(currentID: current.id) else { return }
+    state.isLoadingMore = true
+    state.loadMoreError = nil
+    write(state)
+    do {
+        var progress = CommunityPageProgress<Item.ID>()
+        while true {
+            let items = try await fetch(read().nextPage)
+            try Task.checkCancellation()
+            guard isCurrent() else { return }
+            state = read()
+            try progress.record(items.map(\.id), knownIDs: state.pagedItems.ids)
+            if items.isEmpty || items.contains(where: { !state.pagedItems.ids.contains($0.id) }) {
+                state.appendPage(items)
+                write(state)
+                return
+            }
+            state.nextPage += 1
+            write(state)
+        }
+    } catch {
+        guard isCurrent() else { return }
+        state = read()
+        state.isLoadingMore = false
+        if isMineNotLoggedIn(error) { onLogin() }
+        else if !isMineCancellation(error) { state.loadMoreError = error.localizedDescription }
+        write(state)
+    }
 }
 
 /// 生成资料卡展示的帖子数摘要。
 ///
 /// 分页结果的数量后缀 `+` 表示当前页后续可能还有更多帖子。
 private func minePosterCountText(for state: MinePagedState<CommunityPoster>) -> String {
+    if !state.items.isEmpty { return state.canLoadMore ? "\(state.items.count)+" : "\(state.items.count)" }
     switch state.status {
-    case .idle, .loading:
-        return "..."
-    case .loaded:
-        return state.canLoadMore ? "\(state.items.count)+" : "\(state.items.count)"
-    case .failed:
-        return "0"
+    case .idle, .loading: return "..."
+    case .loaded: return "0"
+    case .failed: return "待恢复"
     }
 }
 
@@ -101,6 +157,13 @@ final class MineViewModel: ObservableObject {
         else { await bootstrapIfNeeded() }
     }
 
+    /// 用户刷新主页时同步资料卡与帖子摘要。
+    func refreshAll() async {
+        async let profile: Void = refreshProfile()
+        async let posters: Void = refreshPosters()
+        _ = await (profile, posters)
+    }
+
     /// 资料卡里展示的帖子数摘要。
     var posterCountText: String {
         minePosterCountText(for: posterState)
@@ -147,152 +210,38 @@ final class MineViewModel: ObservableObject {
 
     /// 重新拉取粉丝第一页。
     ///
-    /// 粉丝和关注量通常不大，刷新时重置分页状态并请求第一页。
+    /// 刷新成功后提交第一页和新游标，失败时保留可用列表。
     func refreshFollowers() async {
         followerGeneration &+= 1
         let generation = followerGeneration
-        let previousState = followerState
-        prepareMinePagedRefresh(&followerState)
-
-        do {
-            let users = try await service.fetchFollowers(page: 0)
-            try Task.checkCancellation()
-            guard followerGeneration == generation else { return }
-            applyMinePagedRefreshResult(users, to: &followerState)
-        } catch {
-            guard followerGeneration == generation else { return }
-            if isMineCancellation(error) {
-                followerState = previousState
-                followerState.isLoadingMore = false
-                if case .loading = previousState.status {
-                    followerState.status = previousState.items.isEmpty ? .idle : .loaded
-                }
-                return
-            }
-            if isMineNotLoggedIn(error) {
-                requiresLogin = true
-                return
-            }
-            if previousState.status == .loaded || !previousState.items.isEmpty {
-                followerState = previousState
-                followerState.isLoadingMore = false
-                followerState.status = .loaded
-                alert = AppAlert(title: "刷新粉丝失败", message: error.localizedDescription)
-                return
-            }
-            followerState.status = .failed(error.localizedDescription)
-            followerState.canLoadMore = false
-        }
+        await refreshMinePage(read: { self.followerState }, write: { self.followerState = $0 },
+            isCurrent: { self.followerGeneration == generation }, fetch: { try await self.service.fetchFollowers(page: 0) },
+            failureTitle: "刷新粉丝失败", onLogin: { self.requiresLogin = true }, onAlert: { self.alert = $0 })
     }
 
     /// 粉丝列表的分页加载。
     func loadMoreFollowersIfNeeded(currentUser: CommunityUser?) async {
-        guard let currentUser else { return }
-        guard followerState.status == .loaded, followerState.shouldLoadMore(currentID: currentUser.id) else { return }
-
         let generation = followerGeneration
-        followerState.isLoadingMore = true
-        do {
-            var progress = CommunityPageProgress<Int>()
-            while true {
-                let users = try await service.fetchFollowers(page: followerState.nextPage)
-                try Task.checkCancellation()
-                guard followerGeneration == generation else { return }
-                try progress.record(users.map(\.id), knownIDs: followerState.pagedItems.ids)
-                if users.isEmpty || users.contains(where: { !followerState.pagedItems.ids.contains($0.id) }) {
-                    appendMinePagedPage(users, to: &followerState)
-                    break
-                }
-                followerState.nextPage += 1
-            }
-        } catch {
-            guard followerGeneration == generation else { return }
-            if isMineCancellation(error) {
-                followerState.isLoadingMore = false
-                return
-            }
-            if isMineNotLoggedIn(error) {
-                followerState.isLoadingMore = false
-                requiresLogin = true
-                return
-            }
-            followerState.isLoadingMore = false
-            alert = AppAlert(title: "加载更多失败", message: error.localizedDescription)
-        }
+        await loadMoreMinePage(current: currentUser, read: { self.followerState }, write: { self.followerState = $0 },
+            isCurrent: { self.followerGeneration == generation }, fetch: { try await self.service.fetchFollowers(page: $0) },
+            onLogin: { self.requiresLogin = true })
     }
 
     /// 重新拉取关注列表第一页。
     func refreshFollowings() async {
         followingGeneration &+= 1
         let generation = followingGeneration
-        let previousState = followingState
-        prepareMinePagedRefresh(&followingState)
-
-        do {
-            let users = try await service.fetchFollowings(page: 0)
-            try Task.checkCancellation()
-            guard followingGeneration == generation else { return }
-            applyMinePagedRefreshResult(users, to: &followingState)
-        } catch {
-            guard followingGeneration == generation else { return }
-            if isMineCancellation(error) {
-                followingState = previousState
-                followingState.isLoadingMore = false
-                if case .loading = previousState.status {
-                    followingState.status = previousState.items.isEmpty ? .idle : .loaded
-                }
-                return
-            }
-            if isMineNotLoggedIn(error) {
-                requiresLogin = true
-                return
-            }
-            if previousState.status == .loaded || !previousState.items.isEmpty {
-                followingState = previousState
-                followingState.isLoadingMore = false
-                followingState.status = .loaded
-                alert = AppAlert(title: "刷新关注失败", message: error.localizedDescription)
-                return
-            }
-            followingState.status = .failed(error.localizedDescription)
-            followingState.canLoadMore = false
-        }
+        await refreshMinePage(read: { self.followingState }, write: { self.followingState = $0 },
+            isCurrent: { self.followingGeneration == generation }, fetch: { try await self.service.fetchFollowings(page: 0) },
+            failureTitle: "刷新关注失败", onLogin: { self.requiresLogin = true }, onAlert: { self.alert = $0 })
     }
 
     /// 关注列表的分页加载。
     func loadMoreFollowingsIfNeeded(currentUser: CommunityUser?) async {
-        guard let currentUser else { return }
-        guard followingState.status == .loaded, followingState.shouldLoadMore(currentID: currentUser.id) else { return }
-
         let generation = followingGeneration
-        followingState.isLoadingMore = true
-        do {
-            var progress = CommunityPageProgress<Int>()
-            while true {
-                let users = try await service.fetchFollowings(page: followingState.nextPage)
-                try Task.checkCancellation()
-                guard followingGeneration == generation else { return }
-                try progress.record(users.map(\.id), knownIDs: followingState.pagedItems.ids)
-                if users.isEmpty || users.contains(where: { !followingState.pagedItems.ids.contains($0.id) }) {
-                    appendMinePagedPage(users, to: &followingState)
-                    break
-                }
-                followingState.nextPage += 1
-            }
-        } catch {
-            guard followingGeneration == generation else { return }
-            if isMineCancellation(error) {
-                followingState.isLoadingMore = false
-                return
-            }
-            if isMineNotLoggedIn(error) {
-                followingState.isLoadingMore = false
-                requiresLogin = true
-                return
-            }
-            followingState.isLoadingMore = false
-            alert = AppAlert(title: "加载更多失败", message: error.localizedDescription)
-        }
+        await loadMoreMinePage(current: currentUser, read: { self.followingState }, write: { self.followingState = $0 },
+            isCurrent: { self.followingGeneration == generation }, fetch: { try await self.service.fetchFollowings(page: $0) },
+            onLogin: { self.requiresLogin = true })
     }
 
     /// 重新拉取“我的帖子”第一页。
@@ -301,77 +250,17 @@ final class MineViewModel: ObservableObject {
     func refreshPosters() async {
         posterGeneration &+= 1
         let generation = posterGeneration
-        let hadPosters = !posterState.items.isEmpty || posterState.status == .loaded
-        if !hadPosters {
-            prepareMinePagedRefresh(&posterState)
-        } else {
-            posterState.status = .loading
-            posterState.isLoadingMore = false
-        }
-
-        do {
-            let posters = try await service.fetchMyPosters(page: 0)
-            try Task.checkCancellation()
-            guard posterGeneration == generation else { return }
-            applyMinePagedRefreshResult(posters, to: &posterState)
-        } catch {
-            guard posterGeneration == generation else { return }
-            posterState.isLoadingMore = false
-
-            if isMineCancellation(error) {
-                posterState.status = hadPosters ? .loaded : .idle
-                return
-            }
-            if isMineNotLoggedIn(error) {
-                requiresLogin = true
-                return
-            }
-
-            if hadPosters {
-                posterState.status = .loaded
-                alert = AppAlert(title: "刷新帖子失败", message: error.localizedDescription)
-                return
-            }
-
-            posterState.status = .failed(error.localizedDescription)
-            posterState.canLoadMore = false
-        }
+        await refreshMinePage(read: { self.posterState }, write: { self.posterState = $0 },
+            isCurrent: { self.posterGeneration == generation }, fetch: { try await self.service.fetchMyPosters(page: 0) },
+            failureTitle: "刷新帖子失败", onLogin: { self.requiresLogin = true }, onAlert: { self.alert = $0 })
     }
 
     /// “我的帖子”列表的分页加载。
     func loadMorePostersIfNeeded(currentPoster: CommunityPoster?) async {
-        guard let currentPoster else { return }
-        guard posterState.status == .loaded, posterState.shouldLoadMore(currentID: currentPoster.id) else { return }
-
         let generation = posterGeneration
-        posterState.isLoadingMore = true
-        do {
-            var progress = CommunityPageProgress<Int>()
-            while true {
-                let posters = try await service.fetchMyPosters(page: posterState.nextPage)
-                try Task.checkCancellation()
-                guard posterGeneration == generation else { return }
-                try progress.record(posters.map(\.id), knownIDs: posterState.pagedItems.ids)
-                if posters.isEmpty || posters.contains(where: { !posterState.pagedItems.ids.contains($0.id) }) {
-                    appendMinePagedPage(posters, to: &posterState)
-                    break
-                }
-                posterState.nextPage += 1
-            }
-        } catch {
-            guard posterGeneration == generation else { return }
-            if isMineCancellation(error) {
-                posterState.isLoadingMore = false
-                return
-            }
-            if isMineNotLoggedIn(error) {
-                posterState.isLoadingMore = false
-                requiresLogin = true
-                return
-            }
-            posterState.isLoadingMore = false
-            alert = AppAlert(title: "加载更多失败", message: error.localizedDescription)
-        }
+        await loadMoreMinePage(current: currentPoster, read: { self.posterState }, write: { self.posterState = $0 },
+            isCurrent: { self.posterGeneration == generation }, fetch: { try await self.service.fetchMyPosters(page: $0) },
+            onLogin: { self.requiresLogin = true })
     }
 
 }
@@ -508,77 +397,17 @@ final class UserProfileViewModel: ObservableObject {
     func refreshPosters() async {
         posterGeneration &+= 1
         let generation = posterGeneration
-        let hadPosters = !posterState.items.isEmpty || posterState.status == .loaded
-        if !hadPosters {
-            prepareMinePagedRefresh(&posterState)
-        } else {
-            posterState.status = .loading
-            posterState.isLoadingMore = false
-        }
-
-        do {
-            let posters = try await service.fetchUserPosters(userID: userID, page: 0)
-            try Task.checkCancellation()
-            guard posterGeneration == generation else { return }
-            applyMinePagedRefreshResult(posters, to: &posterState)
-        } catch {
-            guard posterGeneration == generation else { return }
-            posterState.isLoadingMore = false
-
-            if isMineCancellation(error) {
-                posterState.status = hadPosters ? .loaded : .idle
-                return
-            }
-            if isMineNotLoggedIn(error) {
-                requiresLogin = true
-                return
-            }
-
-            if hadPosters {
-                posterState.status = .loaded
-                alert = AppAlert(title: "刷新帖子失败", message: error.localizedDescription)
-                return
-            }
-
-            posterState.status = .failed(error.localizedDescription)
-            posterState.canLoadMore = false
-        }
+        await refreshMinePage(read: { self.posterState }, write: { self.posterState = $0 },
+            isCurrent: { self.posterGeneration == generation }, fetch: { try await self.service.fetchUserPosters(userID: self.userID, page: 0) },
+            failureTitle: "刷新帖子失败", onLogin: { self.requiresLogin = true }, onAlert: { self.alert = $0 })
     }
 
     /// 指定用户帖子列表分页加载。
     func loadMorePostersIfNeeded(currentPoster: CommunityPoster?) async {
-        guard let currentPoster else { return }
-        guard posterState.status == .loaded, posterState.shouldLoadMore(currentID: currentPoster.id) else { return }
-
         let generation = posterGeneration
-        posterState.isLoadingMore = true
-        do {
-            var progress = CommunityPageProgress<Int>()
-            while true {
-                let posters = try await service.fetchUserPosters(userID: userID, page: posterState.nextPage)
-                try Task.checkCancellation()
-                guard posterGeneration == generation else { return }
-                try progress.record(posters.map(\.id), knownIDs: posterState.pagedItems.ids)
-                if posters.isEmpty || posters.contains(where: { !posterState.pagedItems.ids.contains($0.id) }) {
-                    appendMinePagedPage(posters, to: &posterState)
-                    break
-                }
-                posterState.nextPage += 1
-            }
-        } catch {
-            guard posterGeneration == generation else { return }
-            if isMineCancellation(error) {
-                posterState.isLoadingMore = false
-                return
-            }
-            if isMineNotLoggedIn(error) {
-                posterState.isLoadingMore = false
-                requiresLogin = true
-                return
-            }
-            posterState.isLoadingMore = false
-            alert = AppAlert(title: "加载更多失败", message: error.localizedDescription)
-        }
+        await loadMoreMinePage(current: currentPoster, read: { self.posterState }, write: { self.posterState = $0 },
+            isCurrent: { self.posterGeneration == generation }, fetch: { try await self.service.fetchUserPosters(userID: self.userID, page: $0) },
+            onLogin: { self.requiresLogin = true })
     }
 
 }

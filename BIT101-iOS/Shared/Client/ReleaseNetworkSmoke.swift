@@ -471,14 +471,16 @@ final class ReleaseNetworkSmokeRunner {
         // 可信成绩单探针位于学校相关探针的首段，模拟用户手动点击“申请可信成绩单”的路径。
         let transcriptService = dependencies.makeScores()
         _ = await probe(.transcript, area: .transcript, scope: scope) {
-            let pages: [Data]
-            do { pages = try await transcriptService.fetchTrustedTranscriptPages() }
+            let result: TrustedTranscriptPages
+            do { result = try await transcriptService.fetchTrustedTranscriptPages() }
             catch ScoreServiceError.secondFactorRequired(let challenge) {
                 guard let handler = self.schoolSMSHandler else { throw ScoreServiceError.secondFactorRequired(challenge) }
                 let code = try await handler(SchoolSMSCodeRequest(maskedPhone: challenge.maskedPhone ?? "", purpose: "jwb_cjd"))
-                pages = try await transcriptService.submitTranscriptSMSCode(code, for: challenge)
+                let authenticated = try await transcriptService.submitTranscriptSMSCode(code, for: challenge)
+                result = try await transcriptService.fetchTrustedTranscriptPages(authenticatedBy: authenticated)
             }
-            return try Self.validateTrustedTranscriptPages(pages)
+            if let failure = result.failure { throw failure }
+            return try Self.validateTrustedTranscriptPages(result.pages.map(\.data))
         }
 
         var rawCourseResponseHandler: ((Data) -> Void)?

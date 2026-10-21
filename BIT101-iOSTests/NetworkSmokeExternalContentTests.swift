@@ -736,11 +736,12 @@ extension ReleaseNetworkSmokeLifecycleTests {
                 values: ["1", "CS101", "课程", stage == "all-score-mismatch-failure" && detail ? "80" : "90", "2025", "2"])]
         }
         func submitScoreSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { .init(challengeID: "fixture", accessToken: "fixture", status: "authenticated", maskedPhone: nil, expiresIn: 60) }
-        func fetchTrustedTranscriptPages() async throws -> [Data] {
+        func fetchTrustedTranscriptPages() async throws -> TrustedTranscriptPages {
             if stage.hasPrefix("all-sms-") && stage != "all-sms-not-required" { throw ScoreServiceError.secondFactorRequired(smsChallenge) }
-            return [image]
+            return .init([image])
         }
-        func submitTranscriptSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> [Data] { [image] }
+        func submitTranscriptSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { return challenge }
+        func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge) async throws -> TrustedTranscriptPages { .init([image]) }
     }
     private final class External: HTTPTransport {
         let image: Data

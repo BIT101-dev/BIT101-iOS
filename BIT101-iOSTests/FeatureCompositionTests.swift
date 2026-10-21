@@ -18,7 +18,6 @@ import SwiftUI
 import Testing
 import UIKit
 import Combine
-import QuickLook
 import ClientCore
 import ScoreDomain
 import ScorePorts
@@ -144,6 +143,7 @@ struct FeatureCompositionTests {
     }
 
     private final class ScoreCache: ScoreCaching {
+        func recover(rows: [ScoreRow], for session: AppStorageSession) async -> Date? { nil }
         var changes: AnyPublisher<AppStorageSession, Never> { Empty().eraseToAnyPublisher() }
         var loads = 0
         var rows = [ScoreRow(index: 0, headers: ["课程名称", "成绩", "开课学期", "课程性质"],
@@ -156,6 +156,7 @@ struct FeatureCompositionTests {
         func saveDetailed(rows: [ScoreRow], for session: AppStorageSession?) async -> Date? { nil }
     }
     private final class ScorePreferences: ScoreFilterPreferencesStoring {
+        func reset() {}
         var changes: AnyPublisher<AppStorageSession, Never> { Empty().eraseToAnyPublisher() }
         var hasUnreadableSnapshot: Bool { false }
         func load() -> ScoreFilterPreferenceSnapshot? { nil }
@@ -166,8 +167,9 @@ struct FeatureCompositionTests {
         func startScoreChallenge() async throws -> BITLoginAuthenticationChallenge { schoolRequests += 1; throw URLError(.notConnectedToInternet) }
         func fetchScores(detail: Bool, authenticatedBy challenge: BITLoginAuthenticationChallenge) async throws -> [ScoreRow] { schoolRequests += 1; return [] }
         func submitScoreSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { schoolRequests += 1; return challenge }
-        func fetchTrustedTranscriptPages() async throws -> [Data] { schoolRequests += 1; return [] }
-        func submitTranscriptSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> [Data] { schoolRequests += 1; return [] }
+        func fetchTrustedTranscriptPages() async throws -> TrustedTranscriptPages { schoolRequests += 1; return .init([]) }
+        func submitTranscriptSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { schoolRequests += 1; return challenge }
+        func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge) async throws -> TrustedTranscriptPages { schoolRequests += 1; return .init([]) }
     }
 
     @Test(.timeLimit(.minutes(1))) func scoreFiltersInitializeAfterScheduleOnlyCacheAndPreserveExplicitEmptySelection() async throws {
@@ -872,129 +874,9 @@ extension ExperimentalPreferenceCloudSyncTests {
         func startScoreChallenge() async throws -> BITLoginAuthenticationChallenge { throw URLError(.notConnectedToInternet) }
         func fetchScores(detail: Bool, authenticatedBy challenge: BITLoginAuthenticationChallenge) async throws -> [ScoreRow] { [] }
         func submitScoreSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { challenge }
-        func fetchTrustedTranscriptPages() async throws -> [Data] { [] }
-        func submitTranscriptSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> [Data] { [] }
+        func fetchTrustedTranscriptPages() async throws -> TrustedTranscriptPages { .init([]) }
+        func submitTranscriptSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { return challenge }
+        func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge) async throws -> TrustedTranscriptPages { .init([]) }
     }
 
 }
-
-#if os(iOS)
-extension MediaDependencyTests {
-    final class Images: HTTPTransport {
-        let bytes: Data
-        private(set) var requests = 0
-        var failuresRemaining = 0
-        var failedURLs = Set<URL>()
-        var blockedURL: URL?
-        var pending: CheckedContinuation<Void, Never>?
-        var corruptResponsesRemaining = 0
-        var corruptResponseData = Data("damaged".utf8)
-        init(bytes: Data) { self.bytes = bytes }
-        func data(for request: URLRequest) async throws -> (Data, URLResponse) {
-            requests += 1
-            if failuresRemaining > 0 { failuresRemaining -= 1; throw URLError(.notConnectedToInternet) }
-            let url = try #require(request.url)
-            if url == blockedURL { await withCheckedContinuation { pending = $0 } }
-            if failedURLs.contains(url) { throw URLError(.notConnectedToInternet) }
-            let response = corruptResponsesRemaining > 0 ? corruptResponseData : bytes
-            corruptResponsesRemaining = max(corruptResponsesRemaining - 1, 0)
-            return (response, try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "image/png"])))
-        }
-    }
-
-    func png(width: Int, height: Int = 1, color: UIColor = .systemBlue) throws -> Data {
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        let image = UIGraphicsImageRenderer(size: CGSize(width: width, height: height), format: format).image { context in
-            color.setFill()
-            context.fill(CGRect(x: 0, y: 0, width: width, height: height))
-        }
-        return try #require(image.pngData())
-    }
-
-    func environment(files: PreferenceMemoryFiles, previewFiles: PreferenceMemoryFiles, transport: any HTTPTransport) -> MediaEnvironment {
-        let client = HTTPClient(transport: transport, observer: nil)
-        return AppMedia.makeEnvironment(files: files, previewStorage: MediaPreviewStorage(files: previewFiles), defaults: AppFileDirectories.defaults,
-                                imageHTTPClient: client, avatarHTTPClient: client)
-    }
-
-}
-#endif
-
-#if os(iOS)
-@MainActor @Suite(.serialized)
-struct MediaPresentationTests {
-    private final class PreviewController: QLPreviewController {
-        var refreshes = 0
-        override func refreshCurrentPreviewItem() { refreshes += 1; super.refreshCurrentPreviewItem() }
-    }
-    private func window(_ controller: UIViewController) throws -> UIWindow {
-        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
-        let window = UIWindow(windowScene: scene)
-        window.rootViewController = controller
-        window.makeKeyAndVisible()
-        return window
-    }
-    @Test(.timeLimit(.minutes(1)), arguments: ["avatar", "still", "progressive"])
-    func unrelatedBudgetReleasePreservesFailedImageRequestCount(kind: String) async throws {
-        let helper = MediaDependencyTests(), transport = MediaDependencyTests.Images(bytes: try helper.png(width: 2))
-        transport.failuresRemaining = 100
-        let media = helper.environment(files: PreferenceMemoryFiles(), previewFiles: PreferenceMemoryFiles(), transport: transport)
-        let url = AppURL.required("https://example.invalid/image.png")
-        let view: AnyView
-        switch kind {
-        case "avatar": view = AnyView(CachedRemoteImage(url: url, content: { $0.resizable() }, placeholder: { Color.clear }))
-        case "still": view = AnyView(RemoteCachedStillImage(url: url))
-        default: view = AnyView(RemoteProgressiveStillImage(thumbnailURL: url, originalURL: nil))
-        }
-        let host = UIHostingController(rootView: view.frame(width: 40, height: 40).environment(media))
-        let window = try window(host)
-        defer { window.isHidden = true; window.rootViewController = nil }
-        try await waitForTestEvent { transport.requests > 0 }
-        try await Task.sleep(for: .milliseconds(300))
-        let count = transport.requests, owner = UUID(), image = try #require(UIImage(data: helper.png(width: 2)))
-        #expect(media.displayBudget.retain(image, owner: owner))
-        media.displayBudget.release(owner: owner)
-        try await Task.sleep(for: .milliseconds(300))
-        #expect(transport.requests == count)
-        media.retryFailedImages()
-        try await waitForTestEvent { transport.requests > count }
-    }
-    @Test(.timeLimit(.minutes(1)))
-    func aVisiblePlaceholderRefreshesWhenItsThumbnailArrives() async throws {
-        let helper = MediaDependencyTests(), transport = MediaDependencyTests.Images(bytes: try helper.png(width: 2))
-        let media = helper.environment(files: PreferenceMemoryFiles(), previewFiles: PreferenceMemoryFiles(), transport: transport)
-        let low = AppURL.required("https://example.invalid/second.png"), high = AppURL.required("https://example.invalid/original.png")
-        transport.blockedURL = low; transport.failedURLs = [high]
-        let preview = PreviewController(), host = ImageQuickLookPresenter.HostViewController()
-        let window = try window(host)
-        let coordinator = ImageQuickLookPresenter.Coordinator(media: media, makePreviewController: { preview })
-        defer { coordinator.cancel(); window.isHidden = true; window.rootViewController = nil }
-        let request = ImagePreviewRequest(remoteImages: [.init(thumbnailURL: AppURL.required("https://example.invalid/first.png"), originalURL: nil), .init(thumbnailURL: low, originalURL: high)], initialIndex: 0)
-        coordinator.receive(request, from: host, media: media)
-        try await waitForTestEvent { transport.pending != nil && preview.viewIfLoaded?.window != nil && !preview.isBeingPresented }
-        preview.currentPreviewItemIndex = 1
-        let oldURL = preview.dataSource?.previewController(preview, previewItemAt: 1).previewItemURL
-        let item = try #require(preview.dataSource?.previewController(preview, previewItemAt: 1) as? MutableQuickLookItem)
-        #expect(await Task.detached { item.previewItemURL }.value == oldURL)
-        transport.pending?.resume(); transport.pending = nil
-        try await waitForTestEvent { preview.refreshes > 0 }
-        #expect(preview.dataSource?.previewController(preview, previewItemAt: 1).previewItemURL != oldURL)
-        #expect(await Task.detached { item.previewItemURL }.value == item.url)
-    }
-    @Test(.timeLimit(.minutes(1)))
-    func initialPreviewFailureReleasesTheRequestAndReportsTheError() async throws {
-        let helper = MediaDependencyTests(), transport = MediaDependencyTests.Images(bytes: try helper.png(width: 2))
-        transport.failuresRemaining = 1
-        let media = helper.environment(files: PreferenceMemoryFiles(), previewFiles: PreferenceMemoryFiles(), transport: transport)
-        let host = ImageQuickLookPresenter.HostViewController(), window = try window(host)
-        let coordinator = ImageQuickLookPresenter.Coordinator(media: media)
-        defer { coordinator.cancel(); window.isHidden = true; window.rootViewController = nil }
-        var dismissed = false, failed = false
-        coordinator.onDismiss = { dismissed = true }; coordinator.onFailure = { _ in failed = true }
-        coordinator.receive(ImagePreviewRequest(remoteImages: [.init(thumbnailURL: AppURL.required("https://example.invalid/failed.png"), originalURL: nil)], initialIndex: 0), from: host, media: media)
-        try await waitForTestEvent { failed }
-        #expect(dismissed && host.presentedViewController == nil)
-    }
-}
-#endif

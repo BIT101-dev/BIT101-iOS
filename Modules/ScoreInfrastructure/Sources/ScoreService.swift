@@ -152,7 +152,7 @@ public struct ScoreService {
     }
 
     /// 向 bit-login 的 `jwb_cjd` 服务申请由学校实时生成的可信成绩单。
-    public func fetchTrustedTranscriptPages() async throws -> [Data] {
+    public func fetchTrustedTranscriptPages() async throws -> TrustedTranscriptPages {
         try await credentials.prepareSchoolCredentials()
         let owner = credentials.schoolSessionIdentity
         let studentID = credentials.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -172,13 +172,21 @@ public struct ScoreService {
         )
     }
 
-    /// 完成可信成绩单自己的短信挑战，并继续原申请。
+    /// 完成可信成绩单短信挑战，返回可继续下载的认证会话。
     public func submitTranscriptSMSCode(
         _ code: String,
         for challenge: BITLoginAuthenticationChallenge
-    ) async throws -> [Data] {
+    ) async throws -> BITLoginAuthenticationChallenge {
         let current = try await submitSMSAuthentication(code, for: challenge)
-        return try await finishTranscriptAuthentication(current)
+        guard current.status == "authenticated" else {
+            if current.status == "waiting_sms" { throw ScoreServiceError.secondFactorRequired(current) }
+            throw ScoreServiceError.challengeInvalid("统一身份认证失败，请重新申请可信成绩单。")
+        }
+        return current
+    }
+
+    public func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge) async throws -> TrustedTranscriptPages {
+        try await finishTranscriptAuthentication(challenge)
     }
 
     /// 提交任一 JWB 系列 challenge 的短信验证码，并返回认证后的 challenge 状态。
@@ -224,7 +232,7 @@ public struct ScoreService {
         authorization: String?,
         owner: SchoolSessionIdentity,
         remainingTransientRetries: Int = 2
-    ) async throws -> [Data] {
+    ) async throws -> TrustedTranscriptPages {
         var request = URLRequest(url: endpointBaseURL.appending(path: "api/jwb/cjd/cookies"))
         request.timeoutInterval = Self.authenticationWaitSeconds
         request.httpMethod = "POST"
@@ -239,8 +247,8 @@ public struct ScoreService {
             guard authorization == nil else {
                 throw ScoreServiceError.challengeInvalid("成绩单会话再次要求认证，请重新申请可信成绩单。")
             }
+            let envelope = try decodeChallengeEnvelope(data)
             guard
-                let envelope = try? JSONDecoder().decode(BITLoginChallengeEnvelope.self, from: data),
                 let accessToken = envelope.detail.accessToken,
                 !accessToken.isEmpty
             else {
@@ -281,7 +289,7 @@ public struct ScoreService {
         do {
             payload = try JSONDecoder().decode(CookieResponse.self, from: data)
         } catch {
-            throw ScoreServiceError.invalidResponse
+            throw ScoreServiceError.invalidResponse.caused(by: error)
         }
         let cookieString = payload.cookieString.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cookieString.isEmpty else {
@@ -293,7 +301,7 @@ public struct ScoreService {
     /// 使用成绩单系统 Cookie 读取申请结果页，并下载其中全部分页图片。
     ///
     /// 解析学校结果页中的全部分页图片，覆盖成绩较多时的多页结果。Cookie 与图片的生命周期属于临时内存会话。
-    private func downloadTranscriptPages(cookieString: String, owner: SchoolSessionIdentity) async throws -> [Data] {
+    private func downloadTranscriptPages(cookieString: String, owner: SchoolSessionIdentity) async throws -> TrustedTranscriptPages {
         guard !cookieString.isEmpty else { throw ScoreServiceError.invalidResponse }
 
         let reportURL = AppURL.required("https://jwb.bit.edu.cn/cjd/ScoreReport2/Index?GPA=1")
@@ -307,7 +315,7 @@ public struct ScoreService {
                 maximumBytes: transcriptLimits.maximumEncodedBytes)
         } catch {
             if TaskCancellation.matches(error) { throw error }
-            throw ScoreServiceError.queryFailed("学校可信成绩单页面暂时无法访问，请重新申请。")
+            throw ScoreServiceError.queryFailed("学校可信成绩单页面暂时无法访问，请重试。").caused(by: error)
         }
         guard (200 ..< 300).contains(report.response.statusCode) else {
             throw ScoreServiceError.queryFailed("学校可信成绩单页面暂时无法访问，请重新申请。")
@@ -340,22 +348,33 @@ public struct ScoreService {
             throw ScoreServiceError.queryFailed("学校未返回可识别的成绩单页面，请重新申请。")
         }
 
-        var pages: [Data] = []
+        var pages: [TrustedTranscriptPages.Page] = []
+        var failure: (any Error)?
         var remainingBytes = transcriptLimits.maximumEncodedBytes
-        for url in pageURLs {
+        for (index, url) in pageURLs.enumerated() {
             guard remainingBytes > 0 else { throw HTTPClientError.responseTooLarge }
             var request = URLRequest(url: url)
             request.timeoutInterval = Self.requestTimeoutSeconds
             request.setValue(cookieString, forHTTPHeaderField: "Cookie")
-            let response = try await ownedResponse(request, using: sensitiveHTTPClient, owner: owner, maximumBytes: remainingBytes)
+            let response: HTTPResponse
+            do {
+                response = try await ownedResponse(request, using: sensitiveHTTPClient, owner: owner, maximumBytes: remainingBytes)
+            } catch {
+                if TaskCancellation.matches(error) { throw error }
+                if case HTTPClientError.responseTooLarge = error { throw error }
+                if failure == nil { failure = error }
+                break
+            }
             try validateTranscriptSource(response.response, requestedURL: url)
             guard !response.data.isEmpty else {
-                throw ScoreServiceError.invalidResponse
+                if failure == nil { failure = ScoreServiceError.invalidResponse }
+                continue
             }
-            pages.append(response.data)
+            pages.append(.init(number: index + 1, data: response.data))
             remainingBytes -= response.data.count
         }
-        return pages
+        if pages.isEmpty, let failure { throw failure }
+        return TrustedTranscriptPages(pages: pages, expectedPageCount: pageURLs.count, failure: failure)
     }
 
     private func validateTranscriptSource(_ response: HTTPURLResponse, requestedURL: URL) throws {
@@ -367,7 +386,7 @@ public struct ScoreService {
 
     private func finishTranscriptAuthentication(
         _ challenge: BITLoginAuthenticationChallenge
-    ) async throws -> [Data] {
+    ) async throws -> TrustedTranscriptPages {
         let owner = try authenticationOwner(challenge)
         switch challenge.status {
         case "authenticated":
@@ -414,9 +433,8 @@ public struct ScoreService {
             guard authorization == nil else {
                 throw ScoreServiceError.challengeInvalid("成绩查询会话再次要求认证，请重新查询成绩。")
             }
-            let envelope = try? JSONDecoder().decode(BITLoginChallengeEnvelope.self, from: data)
+            let payload = try decodeChallengeEnvelope(data).detail
             guard
-                let payload = envelope?.detail,
                 let accessToken = payload.accessToken,
                 !accessToken.isEmpty
             else {
@@ -505,9 +523,9 @@ public struct ScoreService {
             let response = try await ownedResponse(request, using: httpClient, owner: owner, accepting: 100 ..< 600)
             return (response.data, response.response)
         } catch let error as URLError where error.code == .timedOut {
-            throw ScoreServiceError.requestTimedOut
-        } catch is HTTPClientError {
-            throw ScoreServiceError.invalidResponse
+            throw ScoreServiceError.requestTimedOut.caused(by: error)
+        } catch let error as HTTPClientError {
+            throw ScoreServiceError.invalidResponse.caused(by: error)
         }
     }
 
@@ -537,11 +555,16 @@ public struct ScoreService {
         }
     }
 
+    private nonisolated func decodeChallengeEnvelope(_ data: Data) throws -> BITLoginChallengeEnvelope {
+        do { return try JSONDecoder().decode(BITLoginChallengeEnvelope.self, from: data) }
+        catch { throw ScoreServiceError.invalidResponse.caused(by: error) }
+    }
+
     private nonisolated func decodeBITLoginChallengePayload(_ data: Data) throws -> BITLoginChallengePayload {
         do {
             return try BITLoginChallengeSupport.decodePayload(from: data)
         } catch {
-            throw ScoreServiceError.invalidResponse
+            throw ScoreServiceError.invalidResponse.caused(by: error)
         }
     }
 
@@ -556,7 +579,7 @@ public struct ScoreService {
         do {
             payload = try JSONDecoder().decode(ScoreResponse.self, from: data)
         } catch {
-            throw ScoreServiceError.invalidResponse
+            throw ScoreServiceError.invalidResponse.caused(by: error)
         }
         try Task.checkCancellation()
 

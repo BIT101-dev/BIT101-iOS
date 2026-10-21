@@ -224,7 +224,7 @@ public nonisolated struct ScoreSummary: Sendable {
     }
 
     /// 将网页端等级描述映射为百分制成绩和 GPA。
-    private static func gradeMapping(from raw: String) -> (score: Double, gpa: Double)? {
+    fileprivate static func gradeMapping(from raw: String) -> (score: Double, gpa: Double)? {
         switch raw.trimmingCharacters(in: .whitespacesAndNewlines) {
         case "优秀":
             return (95, 4)
@@ -346,14 +346,7 @@ public nonisolated enum ScoreSortIndex: String, CaseIterable, Identifiable, Send
 
     private func scoreComparableValue(from raw: String) -> Double? {
         let trimmed = normalizedText(raw)
-        switch trimmed {
-        case "优秀": return 95
-        case "良好": return 85
-        case "中等": return 75
-        case "及格": return 65
-        case "不及格": return 0
-        default: return numericComparableValue(from: trimmed)
-        }
+        return ScoreSummary.gradeMapping(from: trimmed)?.score ?? numericComparableValue(from: trimmed)
     }
 
     private func compareNumbers(_ lhs: Double?, _ rhs: Double?) -> ComparisonResult {

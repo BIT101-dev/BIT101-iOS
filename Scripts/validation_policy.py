@@ -210,6 +210,7 @@ NETWORK_CAPABILITIES = {
                                       'fetchScores(detail:Bool,authenticatedBy:BITLoginAuthenticationChallenge)': 'network',
                                       'submitScoreSMSCode(:String,for:BITLoginAuthenticationChallenge)': 'network',
                                       'fetchTrustedTranscriptPages()': 'network',
+                                      'fetchTrustedTranscriptPages(authenticatedBy:BITLoginAuthenticationChallenge)': 'network',
                                       'submitTranscriptSMSCode(:String,for:BITLoginAuthenticationChallenge)': 'network'}}
 
 

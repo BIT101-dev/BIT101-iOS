@@ -19,23 +19,30 @@ public struct ScoreListPage: View {
     }
 
     public var body: some View {
+        let summary = viewModel.summary
+        let visibleRows = viewModel.visibleRows
         Group {
             switch viewModel.state {
             case .idle, .loading:
                 AppLoadingState(title: "正在查询成绩")
                     .background(AppDesignSystem.Palette.Background.grouped)
             case let .failed(message):
-                AppFailureState(
-                    title: "加载失败",
-                    systemImage: "exclamationmark.triangle",
-                    message: message,
-                    retryTitle: "重新查询",
-                    allowsDiagnostics: viewModel.allowsDiagnostics,
-                    onRetry: {
-                        Task { await viewModel.refresh() }
+                VStack {
+                    AppFailureState(
+                        title: "加载失败",
+                        systemImage: "exclamationmark.triangle",
+                        message: message,
+                        retryTitle: "重新查询",
+                        allowsDiagnostics: viewModel.allowsDiagnostics,
+                        onRetry: {
+                            Task { await viewModel.refresh() }
+                        }
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    if viewModel.needsStorageRecovery {
+                        storageRecoveryButton.padding(AppDesignSystem.Spacing.section)
                     }
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
                 .background(AppDesignSystem.Palette.Background.grouped)
             case .loaded:
                 List {
@@ -50,6 +57,12 @@ public struct ScoreListPage: View {
                             },
                             actionAccessibilityIdentifier: "score.query"
                         )
+                        if viewModel.needsStorageRecovery {
+                            Text("当前可用成绩和筛选继续生效，可通过“恢复成绩存储”重建本账号的本机缓存与筛选偏好。")
+                                .font(AppDesignSystem.Typography.caption)
+                                .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                            storageRecoveryButton
+                        }
                     }
 
                     Section {
@@ -115,17 +128,17 @@ public struct ScoreListPage: View {
                     }
 
                     Section("统计") {
-                        LabeledContent("已出分", value: "\(viewModel.summary.selectedCourseCount)")
+                        LabeledContent("已出分", value: "\(summary.selectedCourseCount)")
                         if let pendingCourseCount = viewModel.pendingCourseCount {
                             LabeledContent("未出分", value: "\(pendingCourseCount)")
                         }
-                        LabeledContent("总学分", value: formatScoreDecimal(viewModel.summary.totalCredit))
-                        LabeledContent("加权平均分", value: formatOptionalScore(viewModel.summary.weightedAverageScore))
-                        LabeledContent("加权 GPA", value: formatOptionalScore(viewModel.summary.weightedAverageGPA))
+                        LabeledContent("总学分", value: formatScoreDecimal(summary.totalCredit))
+                        LabeledContent("加权平均分", value: formatOptionalScore(summary.weightedAverageScore))
+                        LabeledContent("加权 GPA", value: formatOptionalScore(summary.weightedAverageGPA))
                     }
 
                     Section("成绩列表") {
-                        if viewModel.visibleRows.isEmpty {
+                        if visibleRows.isEmpty {
                             AppEmptyState(
                                 title: "暂无成绩",
                                 systemImage: "chart.bar.doc.horizontal",
@@ -133,7 +146,7 @@ public struct ScoreListPage: View {
                             )
                             .frame(maxWidth: .infinity)
                         } else {
-                            ForEach(viewModel.visibleRows) { row in
+                            ForEach(visibleRows) { row in
                                 NavigationLink {
                                     ScoreDetailView(
                                         row: row,
@@ -172,6 +185,12 @@ public struct ScoreListPage: View {
         .task {
             await viewModel.restoreCachedDataIfNeeded()
         }
+        .alert("恢复成绩存储", isPresented: $viewModel.isStorageRecoveryPresented) {
+            Button("取消", role: .cancel, action: viewModel.cancelStorageRecovery)
+            Button("恢复", role: .destructive) { Task { await viewModel.recoverStorage() } }
+        } message: {
+            Text("将重建本账号的本机成绩缓存与筛选偏好，当前可用成绩会保留。其他账号和课表数据继续保留。")
+        }
         .diagnosticAlert(item: $viewModel.alert)
         .sheet(
             item: Binding(
@@ -194,6 +213,12 @@ public struct ScoreListPage: View {
                 }
             )
         }
+    }
+
+    private var storageRecoveryButton: some View {
+        Button("恢复成绩存储", action: viewModel.requestStorageRecovery)
+            .disabled(viewModel.isSyncing || viewModel.isRecoveringStorage)
+            .accessibilityIdentifier("score.recover-storage")
     }
 
     /// 该方法根据当前筛选状态生成摘要文本。
@@ -258,6 +283,13 @@ private struct TrustedTranscriptPage: View {
                 } else {
                     ScrollView {
                             LazyVStack(spacing: AppDesignSystem.Spacing.content) {
+                                if let warning = viewModel.deliveryWarning {
+                                    AppFailureState(title: "部分成绩单待恢复", systemImage: "doc.text", message: warning,
+                                        onRetry: {
+                                            viewModel.prepareRetry()
+                                            retryGeneration &+= 1
+                                        })
+                                }
                                 ForEach(Array(viewModel.images.enumerated()), id: \.offset) { index, image in
                                     Button {
                                         imageViewer = ImagePreviewRequest(localImages: viewModel.images, initialIndex: index)
@@ -267,8 +299,8 @@ private struct TrustedTranscriptPage: View {
                                             .scaledToFit()
                                     }
                                     .buttonStyle(.plain)
-                                    .accessibilityLabel("可信成绩单第\(index + 1)页")
-                                    .accessibilityValue("共\(viewModel.images.count)页")
+                                    .accessibilityLabel("可信成绩单第\(viewModel.pageNumbers[index])页")
+                                    .accessibilityValue("共\(viewModel.expectedPageCount)页")
                                     .accessibilityHint("双击查看大图")
                                 }
                             }

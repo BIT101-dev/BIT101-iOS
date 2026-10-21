@@ -48,7 +48,7 @@ public struct BITLoginSMSCodeRequest: Encodable, Sendable {
     }
 }
 
-public struct BITLoginChallengeEnvelope: Decodable, Sendable {
+public nonisolated struct BITLoginChallengeEnvelope: Decodable, Sendable {
     public let detail: BITLoginChallengePayload
 }
 

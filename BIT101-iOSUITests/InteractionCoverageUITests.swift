@@ -387,14 +387,36 @@ nonisolated final class ScoreInteractionUITests: UIAutomationTestCase {
     }
 
     @MainActor
+    @objc func testScoreStorageRecoveryConfirmationAndPersistence() {
+        app = configureApp(resetStorage: true, scoreRecovery: true, initialTab: "home")
+        closeAlertIfPresent()
+        tap("score.recover-storage")
+        let confirmation = app.alerts["恢复成绩存储"]
+        assertUI(confirmation.appears(timeout: 5), "成绩恢复应展示账号数据影响。")
+        confirmation.buttons["取消"].tapBriefly()
+        assertUI(app.buttons["score.recover-storage"].exists, "取消后应继续保留恢复入口。")
+        tap("score.recover-storage")
+        assertUI(confirmation.appears(timeout: 5), "再次恢复应展示确认。")
+        confirmation.buttons["恢复"].tapBriefly()
+        assertUI(app.buttons["score.recover-storage"].disappears(timeout: 5), "恢复完成应更新存储状态。")
+        app = configureApp(resetStorage: false, initialTab: "home")
+        assertUI(app.buttons["score.query"].appears(timeout: 5), "重新打开应展示成绩查询。")
+        assertUI(!app.buttons["score.recover-storage"].exists, "重新加载应读取恢复后的筛选偏好。")
+    }
+
+    @MainActor
     @objc func testTrustedTranscriptSMSRetryPreviewAndCancellation() throws {
-        app = configureApp(resetStorage: true, animations: true, initialTab: "home")
+        app = configureApp(resetStorage: true, animations: true, transcriptFailureOnce: true, initialTab: "home")
         tap("申请可信成绩单")
         tap("取消")
         tap("重试")
         let code = app.textFields["verification.code"]
         fillVerificationCode("123456", in: code)
         assertUI(code.disappears(timeout: 5), "验证成功应关闭短信输入窗口。")
+        assertUI(app.staticTexts["部分成绩单待恢复"].appears(timeout: 5), "分页故障应保留已取得的成绩单页面。")
+        assertUI(app.buttons["可信成绩单第1页"].exists, "可用页面应继续提供预览。")
+        tap("重试")
+        assertUI(app.staticTexts["部分成绩单待恢复"].disappears(timeout: 5), "重试应复用认证并恢复完整页面。")
         tap("可信成绩单第1页")
         _ = imagePreviewCloseButton()
         func assertPreviewPage(_ index: Int) throws {
@@ -824,19 +846,29 @@ nonisolated final class MineInteractionUITests: UIAutomationTestCase {
     @objc func testMinePublicProfileFollowAndPostDeletion() {
         app = configureApp(resetStorage: true, initialTab: "mine")
         assertUI(textElement("个人信息加载失败").appears(timeout: 5), "离线个人页应完成服务加载并展示恢复入口。")
-        app = configureApp(resetStorage: true, content: true, media: true, initialTab: "mine")
+        app = configureApp(resetStorage: true, content: true, media: true, minePagingFailureOnce: true, initialTab: "mine")
+        func retryPageInPlace() {
+            let failure = textElement("加载更多失败")
+            reveal(failure, description: "分页恢复")
+            assertUI(failure.appears(timeout: 5), "分页故障应展示原位重试。")
+            tap("重试")
+            assertUI(failure.disappears(timeout: 5), "重试应完成当前页并保留已加载内容。")
+        }
         assertUI(textElement("自动化测试用户").appears(timeout: 5), "个人页应加载账号资料。")
         tap("粉丝")
         assertUI(app.navigationBars["我的粉丝"].appears(timeout: 5), "粉丝统计应打开粉丝列表。")
+        retryPageInPlace()
         pullToRefresh()
         assertUI(textElement("自动化测试用户").exists, "粉丝刷新应恢复用户。")
         tap("自动化测试用户")
         assertUI(app.buttons["关注"].appears(timeout: 5), "粉丝用户行应进入公开主页。")
+        retryPageInPlace()
         back()
         assertUI(app.navigationBars["我的粉丝"].appears(timeout: 5), "返回应恢复粉丝列表。")
         back()
         tap("关注")
         assertUI(app.navigationBars["我的关注"].appears(timeout: 5), "关注统计应打开关注列表。")
+        retryPageInPlace()
         pullToRefresh()
         assertUI(textElement("自动化测试用户").exists, "关注刷新应恢复用户。")
         tap("自动化测试用户")
@@ -863,6 +895,7 @@ nonisolated final class MineInteractionUITests: UIAutomationTestCase {
         back()
         tap("帖子")
         assertUI(app.navigationBars["我的帖子"].appears(timeout: 5), "帖子统计应打开帖子列表。")
+        retryPageInPlace()
         pullToRefresh()
         assertUI(textElement("自动化测试话题").exists, "个人帖子刷新应恢复记录。")
         tap("自动化测试话题")

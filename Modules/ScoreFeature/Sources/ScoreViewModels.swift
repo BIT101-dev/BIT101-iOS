@@ -56,6 +56,10 @@ public final class ScoreViewModel: ObservableObject {
     @Published private(set) var smsVerificationError: String?
     @Published private(set) var isSubmittingSMSCode = false
     @Published var alert: AppAlert?
+    @Published private(set) var needsStorageRecovery = false
+    @Published private(set) var isRecoveringStorage = false
+    @Published var isStorageRecoveryPresented = false
+    private var recoverySession: AppStorageSession?
 
     private let service: any ScoreListServicing
     private let currentScoreCacheSession: @MainActor () -> AppStorageSession
@@ -71,6 +75,7 @@ public final class ScoreViewModel: ObservableObject {
     private var didRestoreCachedRows = false
     private var didInitializeTermSelection = false
     private var didInitializeCourseTypeSelection = false
+    private var isSynchronizingScoreFields = false
     /// 初始化时读取一次已持久化的筛选快照。
     private let cacheStore: any ScoreCaching
     private let preferenceStore: any ScoreFilterPreferencesStoring
@@ -118,11 +123,15 @@ public final class ScoreViewModel: ObservableObject {
                 await self.loadCachedScheduleCourses(for: session, generation: generation, readGeneration: readGeneration)
             }
         }
-        presentUnreadableFilterPreferences()
+        updateFilterStorageRecovery()
     }
 
     /// 切换账号后重置内存状态；下一次启动按新学号恢复磁盘缓存。
     public func resetForCurrentAccount() {
+        isSynchronizingScoreFields = false
+        recoverySession = nil
+        isStorageRecoveryPresented = false
+        needsStorageRecovery = false
         accountGeneration &+= 1
         presentationGeneration &+= 1
         scheduleReadGeneration &+= 1
@@ -150,12 +159,12 @@ public final class ScoreViewModel: ObservableObject {
         preferenceSnapshot = preferenceStore.load()
         restoreSortPreferences()
         alert = nil
-        presentUnreadableFilterPreferences()
+        updateFilterStorageRecovery()
     }
 
     /// 进入成绩页时恢复本地缓存；学校请求由用户操作触发。
     ///
-    /// “查询成绩”和下拉刷新触发真实成绩查询，短信验证码在当前操作链路中展示。
+    /// “查询成绩”和刷新按钮触发真实成绩查询，短信验证码在当前操作链路中展示。
     func restoreCachedDataIfNeeded() async {
         guard state == .idle || !didRestoreCachedRows,
               !isRefreshing, !isSubmittingSMSCode, smsChallenge == nil else { return }
@@ -183,8 +192,9 @@ public final class ScoreViewModel: ObservableObject {
         guard isCurrent(session, generation: generation), readGeneration == scheduleReadGeneration else { return }
         cachedCoursesByTerm = courses
         if state != .idle {
+            let previousTerms = Set(availableTerms), previousTypes = Set(availableCourseTypes)
             updateFilterOptions()
-            synchronizeFilters()
+            synchronizeFilters(previousTerms: previousTerms, previousTypes: previousTypes)
             pendingCourses = calculatePendingCourses()
         }
     }
@@ -355,6 +365,13 @@ public final class ScoreViewModel: ObservableObject {
         session: AppStorageSession,
         generation: Int
     ) async throws {
+        isSynchronizingScoreFields = true
+        defer {
+            if isCurrent(session, generation: generation) {
+                isSynchronizingScoreFields = false
+                if !Task.isCancelled { persistFilterPreferences() }
+            }
+        }
         refreshPhase = .summary
         let cachedSnapshot: ScoreCacheSnapshot?
         do {
@@ -362,6 +379,7 @@ public final class ScoreViewModel: ObservableObject {
         } catch {
             if isCancellation(error) { throw error }
             cachedSnapshot = nil
+            needsStorageRecovery = true
         }
         guard isCurrent(session, generation: generation) else { return }
         let cachedRows = cachedSnapshot?.rows
@@ -371,7 +389,8 @@ public final class ScoreViewModel: ObservableObject {
         }
         let briefRows = try await awaitTrackedRequest(briefTask)
         guard isCurrent(session, generation: generation) else { return }
-        applyRows(ScoreRowComparison.retainingDetailedFields(briefRows, from: previousRows))
+        let availableRows = ScoreRowComparison.retainingDetailedFields(briefRows, from: previousRows)
+        applyRows(availableRows)
 
         refreshPhase = .details
         syncStatusText = "同步详细信息中"
@@ -388,7 +407,7 @@ public final class ScoreViewModel: ObservableObject {
             applyRows(detailedRows)
             let updatedAt = try await saveCurrentRows(detailedRows, detail: true, session: session, generation: generation)
             guard isCurrent(session, generation: generation) else { return }
-            guard let updatedAt else { throw ScorePersistenceError.saveFailed }
+            guard let updatedAt else { needsStorageRecovery = true; throw ScorePersistenceError.saveFailed }
             lastUpdatedAt = updatedAt
             if scoresAreIdentical {
                 presentUnchangedNotice()
@@ -407,9 +426,9 @@ public final class ScoreViewModel: ObservableObject {
                 applyRows(cachedRows)
                 lastUpdatedAt = cachedSnapshot?.updatedAt
             } else {
-                let updatedAt = try await saveCurrentRows(briefRows, detail: false, session: session, generation: generation)
+                let updatedAt = try await saveCurrentRows(availableRows, detail: false, session: session, generation: generation)
                 guard isCurrent(session, generation: generation) else { return }
-                guard let updatedAt else { throw ScorePersistenceError.saveFailed }
+                guard let updatedAt else { needsStorageRecovery = true; throw ScorePersistenceError.saveFailed }
                 lastUpdatedAt = updatedAt
             }
             throw error
@@ -620,7 +639,7 @@ public final class ScoreViewModel: ObservableObject {
 
     /// iCloud 成绩缓存到达时立即刷新当前页面，页面继续使用本地缓存数据。
     func applySyncedScoreCacheIfAvailable() async {
-        guard !isRefreshing, !isSubmittingSMSCode, smsChallenge == nil else { return }
+        guard !isRefreshing, !isSubmittingSMSCode, smsChallenge == nil, !isRecoveringStorage else { return }
         presentationGeneration &+= 1
         let presentation = presentationGeneration
         let session = currentScoreCacheSession()
@@ -643,6 +662,7 @@ public final class ScoreViewModel: ObservableObject {
 
     private func presentCacheReadFailure(_ error: Error) {
         guard !isCancellation(error) else { return }
+        needsStorageRecovery = true
         if hasContent {
             state = .loaded
             alert = AppAlert(title: "成绩缓存读取受阻", message: error.localizedDescription)
@@ -661,8 +681,9 @@ public final class ScoreViewModel: ObservableObject {
     private func applyRows(_ newRows: [ScoreRow]) {
         presentationGeneration &+= 1
         rows = newRows
+        let previousTerms = Set(availableTerms), previousTypes = Set(availableCourseTypes)
         updateFilterOptions()
-        synchronizeFilters()
+        synchronizeFilters(previousTerms: previousTerms, previousTypes: previousTypes)
         pendingCourses = calculatePendingCourses()
         state = .loaded
     }
@@ -677,8 +698,8 @@ public final class ScoreViewModel: ObservableObject {
     /// 刷新可选项后，同步修正当前筛选集合。
     ///
     /// 首次进入时恢复本地偏好；后续刷新时把当前筛选限制在现有选项范围内。
-    private func synchronizeFilters() {
-        let previousTerms = selectedTerms
+    private func synchronizeFilters(previousTerms: Set<String>, previousTypes: Set<String>) {
+        let originalTerms = selectedTerms
         let previousCourseTypes = selectedCourseTypes
         let termSet = Set(availableTerms)
         let typeSet = Set(availableCourseTypes)
@@ -691,7 +712,7 @@ public final class ScoreViewModel: ObservableObject {
             }
             didInitializeTermSelection = true
         } else if didInitializeTermSelection, !termSet.isEmpty {
-            selectedTerms = selectedTerms.intersection(termSet)
+            selectedTerms = !previousTerms.isEmpty && selectedTerms == previousTerms ? termSet : selectedTerms.intersection(termSet)
         }
 
         if !didInitializeCourseTypeSelection, !typeSet.isEmpty {
@@ -702,10 +723,10 @@ public final class ScoreViewModel: ObservableObject {
             }
             didInitializeCourseTypeSelection = true
         } else if didInitializeCourseTypeSelection, !typeSet.isEmpty {
-            selectedCourseTypes = selectedCourseTypes.intersection(typeSet)
+            selectedCourseTypes = !previousTypes.isEmpty && selectedCourseTypes == previousTypes ? typeSet : selectedCourseTypes.intersection(typeSet)
         }
 
-        if previousTerms != selectedTerms || previousCourseTypes != selectedCourseTypes {
+        if originalTerms != selectedTerms || previousCourseTypes != selectedCourseTypes {
             persistFilterPreferences()
         }
     }
@@ -713,7 +734,7 @@ public final class ScoreViewModel: ObservableObject {
     /// iCloud 拉取完成后立即更新已存在的成绩页面。
     private func applyPersistedFilterPreferences() {
         preferenceSnapshot = preferenceStore.load()
-        presentUnreadableFilterPreferences()
+        updateFilterStorageRecovery()
         guard let preferenceSnapshot else { return }
 
         restoreSortPreferences()
@@ -758,7 +779,9 @@ public final class ScoreViewModel: ObservableObject {
 
     /// 保存当前筛选结果到本地偏好。
     private func persistFilterPreferences() {
-        guard preferenceSnapshot != nil || preferenceStore.hasUnreadableSnapshot
+        guard !isSynchronizingScoreFields else { return }
+        if preferenceStore.hasUnreadableSnapshot { needsStorageRecovery = true; return }
+        guard preferenceSnapshot != nil
                 || (didInitializeTermSelection && (didInitializeCourseTypeSelection || !rows.isEmpty)) else { return }
         let saved = preferenceStore.save(
             selectedTerms: didInitializeTermSelection ? selectedTerms : Set(preferenceSnapshot?.selectedTerms ?? []),
@@ -767,14 +790,53 @@ public final class ScoreViewModel: ObservableObject {
             sortOrder: sortOrder
         )
         if !saved {
-            alert = AppAlert(title: "筛选偏好保存受阻", message: "当前筛选与排序在本次使用中生效。原始偏好数据已保留，请联系维护者处理存储问题。")
+            needsStorageRecovery = true
+            alert = AppAlert(title: "筛选偏好保存受阻", message: "当前筛选与排序在本次使用中生效。原始偏好数据已保留，可通过“恢复成绩存储”重建本账号的成绩与筛选。")
         }
     }
 
-    private func presentUnreadableFilterPreferences() {
+    private func updateFilterStorageRecovery() {
         if preferenceStore.hasUnreadableSnapshot {
-            alert = AppAlert(title: "筛选偏好读取受阻", message: "原始偏好数据已保留。当前使用默认筛选与排序，请联系维护者处理存储问题。")
+            needsStorageRecovery = true
         }
+    }
+
+    func requestStorageRecovery() {
+        guard !isSyncing, !isSubmittingSMSCode, smsChallenge == nil, !isRecoveringStorage else { return }
+        recoverySession = currentScoreCacheSession()
+        alert = nil
+        isStorageRecoveryPresented = true
+    }
+
+    func cancelStorageRecovery() {
+        recoverySession = nil
+        isStorageRecoveryPresented = false
+    }
+
+    func recoverStorage() async {
+        guard let session = recoverySession, session == currentScoreCacheSession(),
+              !isSyncing, !isSubmittingSMSCode, smsChallenge == nil, !isRecoveringStorage else { return }
+        recoverySession = nil
+        isStorageRecoveryPresented = false
+        let generation = accountGeneration
+        let availableRows = rows
+        isRecoveringStorage = true
+        defer { isRecoveringStorage = false }
+        let saved = await cacheStore.recover(rows: availableRows, for: session)
+        guard isCurrent(session, generation: generation) else { return }
+        guard let saved else {
+            alert = AppAlert(title: "成绩存储恢复受阻", message: "原始缓存已保留，请稍后重试。")
+            return
+        }
+        preferenceStore.reset()
+        preferenceSnapshot = nil
+        didInitializeTermSelection = false
+        didInitializeCourseTypeSelection = false
+        restoreSortPreferences()
+        needsStorageRecovery = false
+        lastUpdatedAt = saved
+        didRestoreCachedRows = true
+        applyRows(availableRows)
     }
 
     /// 同时兼容 Swift Concurrency 和 URLSession 的取消错误。

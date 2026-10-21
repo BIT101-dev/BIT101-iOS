@@ -102,6 +102,7 @@ private struct MineRootViewScene: View {
                         status: viewModel.followerState.status,
                         nextPage: viewModel.followerState.nextPage,
                         isLoadingMore: viewModel.followerState.isLoadingMore,
+                        loadMoreError: viewModel.followerState.loadMoreError,
                         onRefresh: { await viewModel.refreshFollowers() },
                         onLoadMore: { user in await viewModel.loadMoreFollowersIfNeeded(currentUser: user) },
                         onOpenUser: { selectedUserID = $0.id }
@@ -113,6 +114,7 @@ private struct MineRootViewScene: View {
                         status: viewModel.followingState.status,
                         nextPage: viewModel.followingState.nextPage,
                         isLoadingMore: viewModel.followingState.isLoadingMore,
+                        loadMoreError: viewModel.followingState.loadMoreError,
                         onRefresh: { await viewModel.refreshFollowings() },
                         onLoadMore: { user in await viewModel.loadMoreFollowingsIfNeeded(currentUser: user) },
                         onOpenUser: { selectedUserID = $0.id }
@@ -123,6 +125,7 @@ private struct MineRootViewScene: View {
                         status: viewModel.posterState.status,
                         nextPage: viewModel.posterState.nextPage,
                         isLoadingMore: viewModel.posterState.isLoadingMore,
+                        loadMoreError: viewModel.posterState.loadMoreError,
                         onRefresh: { await viewModel.refreshPosters() },
                         onLoadMore: { poster in await viewModel.loadMorePostersIfNeeded(currentPoster: poster) }
                     )
@@ -149,7 +152,7 @@ private struct MineRootViewScene: View {
         }
         .refreshable {
             interactionEvidence?("interaction.MineRootViewScene.refreshable", "refresh")
-            await viewModel.refreshOverview()
+            await viewModel.refreshAll()
         }
         .diagnosticAlert(item: $viewModel.alert)
         .onChange(of: viewModel.requiresLogin) { _, requiresLogin in
@@ -234,6 +237,7 @@ public struct UserProfileRootView: View {
 }
 
 private struct UserProfileRootViewScene: View {
+    @Environment(\.appInteractionEvidence) private var interactionEvidence
     private let dependencies: MineDependencies
     private let destinations: CommunityPosterDestination
     private let media: MediaEnvironment
@@ -272,6 +276,10 @@ private struct UserProfileRootViewScene: View {
         }
         .accessibilityIdentifier("interaction.UserProfileRootViewScene.list")
         .appGroupedListStyle()
+        .refreshable {
+            interactionEvidence?("interaction.UserProfileRootViewScene.refreshable", "refresh")
+            await viewModel.refreshAll()
+        }
         .navigationTitle(navigationTitle)
         .navigationBarTitleDisplayMode(.inline)
         .task(id: isProfileRetryRequested) {
@@ -375,6 +383,10 @@ private struct UserProfileRootViewScene: View {
                     .listRowBackground(Color.clear)
                 }
 
+                if let message = viewModel.posterState.loadMoreError {
+                    AppFailureState(title: "加载更多失败", systemImage: "arrow.clockwise", message: message,
+                        onRetry: { Task { await viewModel.loadMorePostersIfNeeded(currentPoster: visiblePosters.last) } })
+                }
                 if viewModel.posterState.isLoadingMore {
                     AppInlineLoadingState()
                         .listRowSeparator(.hidden)
@@ -498,7 +510,7 @@ private struct MineProfileCard: View {
     }
 
     private var identityColor: Color {
-        MineColorDecoder.color(from: info.user.identity.color) ?? .secondary
+        Color(hex: info.user.identity.color) ?? .secondary
     }
 }
 
@@ -512,6 +524,7 @@ private struct MineUserListView: View {
     let status: MineLoadStatus
     let nextPage: Int
     let isLoadingMore: Bool
+    let loadMoreError: String?
     let onRefresh: () async -> Void
     let onLoadMore: (CommunityUser?) async -> Void
     let onOpenUser: (CommunityUser) -> Void
@@ -551,7 +564,7 @@ private struct MineUserListView: View {
                                         if !user.identity.text.isEmpty {
                                             Text(user.identity.text)
                                                 .font(AppDesignSystem.Typography.captionEmphasis)
-                                                .foregroundStyle(MineColorDecoder.color(from: user.identity.color) ?? AppDesignSystem.Palette.Status.info)
+                                                .foregroundStyle(Color(hex: user.identity.color) ?? AppDesignSystem.Palette.Status.info)
                                         }
                                     }
 
@@ -573,6 +586,10 @@ private struct MineUserListView: View {
                             .accessibilityIdentifier("ui.mine-user-list-view.user")
                     }
 
+                    if let loadMoreError {
+                        AppFailureState(title: "加载更多失败", systemImage: "arrow.clockwise", message: loadMoreError,
+                            onRetry: { Task { await onLoadMore(users.last) } })
+                    }
                     if isLoadingMore {
                         AppInlineLoadingState()
                     }
@@ -615,6 +632,7 @@ private struct MinePosterListView: View {
     let status: MineLoadStatus
     let nextPage: Int
     let isLoadingMore: Bool
+    let loadMoreError: String?
     let onRefresh: () async -> Void
     let onLoadMore: (CommunityPoster?) async -> Void
     @State private var selectedPoster: CommunityPoster?
@@ -666,6 +684,10 @@ private struct MinePosterListView: View {
                             }
                         }
 
+                        if let loadMoreError {
+                            AppFailureState(title: "加载更多失败", systemImage: "arrow.clockwise", message: loadMoreError,
+                                onRetry: { Task { await onLoadMore(visiblePosters.last) } })
+                        }
                         if isLoadingMore {
                             AppInlineLoadingState()
                         }
@@ -788,22 +810,5 @@ private struct MineStatButton: View {
     }
 }
 
-/// 我的页使用的颜色解码工具。
-///
-/// 处理服务端提供的十六进制用户身份颜色。
-private enum MineColorDecoder {
-    static func color(from hex: String) -> Color? {
-        let sanitized = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
-        guard sanitized.count == 6, let value = Int(sanitized, radix: 16) else {
-            return nil
-        }
-
-        return Color(
-            red: Double((value >> 16) & 0xFF) / 255.0,
-            green: Double((value >> 8) & 0xFF) / 255.0,
-            blue: Double(value & 0xFF) / 255.0
-        )
-    }
-}
 
 #endif

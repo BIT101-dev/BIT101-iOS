@@ -82,7 +82,8 @@ UIKit 控件沿构造类型、继承或别名进入源码清单，运行门禁�
 | `ScoreInteractionUITests/testScoreIndividualFiltersRefreshCancelAndPendingDetail` | 查询、短信输入、验证继续、成绩展示 |
 | `ScoreInteractionUITests/testScoreIndividualFiltersRefreshCancelAndPendingDetail` | 空 / 错误 / 正确验证码、公共筛选页全选和清空、学期 / 类型独立绑定、六种排序、方向、成绩详情 |
 | `ScoreInteractionUITests/testScoreIndividualFiltersRefreshCancelAndPendingDetail` | 查询取消、逐项筛选、已有成绩刷新、未出分详情、成绩到课程评价路由 |
-| `ScoreInteractionUITests/testTrustedTranscriptSMSRetryPreviewAndCancellation` | 申请、短信取消、申请重试、验证成功、两页点击与 Quick Look 左右滑动 / 关闭 |
+| `ScoreInteractionUITests/testTrustedTranscriptSMSRetryPreviewAndCancellation` | 申请、短信取消、申请重试、验证成功、部分分页保留与重试、两页点击与 Quick Look 左右滑动 / 关闭 |
+| `ScoreInteractionUITests/testScoreStorageRecoveryConfirmationAndPersistence` | 账号内成绩存储恢复、取消、确认及重新装载 |
 | `CommunityInteractionUITests/testCourseCommentPublishingRepliesRatingsCleaningSearchAndShare` | 课程搜索、详情、历史成绩、课程点赞 / 取消、评分评论发布 |
 | `CommunityInteractionUITests/testCourseCommentPublishingRepliesRatingsCleaningSearchAndShare` | 清除搜索、数据清洗开关、十种半星评分 / 再选清空、匿名 / 取消、评论点赞 / 图片 / 回复、课程分享 |
 | `ScheduleNavigationUITests/testCourseHistoryChartSelectionAndHomeSurfaceSwipes` | 成绩 / 课程横滑、历史图双向拖动和学期选中值 |
@@ -254,12 +255,12 @@ SwiftSyntax 清点每个源码作用域的控件、输入、滚动和手势声�
 | `Modules/GalleryFeature/Sources/GallerySearchView.swift:GallerySearchView` | `{"AppOrderedSearchBar":1,"Button":1}` | `InteractionCoverageUITests/testGalleryFeedAndSurfaceSwipesMessagesAndSearchResultRoutes,InteractionCoverageUITests/testCommunityCommentLikesRepliesSortsAndPhotoPicker` |
 | `Modules/MapFeature/Sources/CampusMapScreen.swift:CampusMapScreen` | `{"AppFloatingActionButton":3}` | `LoginAndScheduleUITests/testMapCampusLayerPanAndZoomPersist,ScheduleEditingUITests/testCourseEditorFieldsPickersSaveDetailAndDelete` |
 | `Modules/MapFeature/Sources/CampusMapScreen.swift:FloatingMapLabelButton` | `{"Button":1}` | `LoginAndScheduleUITests/testMapCampusLayerPanAndZoomPersist` |
-| `Modules/MineFeature/Sources/MineRootView.swift:MinePosterListView` | `{"AppEmptyState":1,"AppFailureState":1,"Button":2,"CommunityPosterCard":1,"ScrollView":1,"refreshable":1}` | `MineInteractionUITests/testMinePublicProfileFollowAndPostDeletion` |
+| `Modules/MineFeature/Sources/MineRootView.swift:MinePosterListView` | `{"AppEmptyState":1,"AppFailureState":2,"Button":2,"CommunityPosterCard":1,"ScrollView":1,"refreshable":1}` | `MineInteractionUITests/testMinePublicProfileFollowAndPostDeletion` |
 | `Modules/MineFeature/Sources/MineRootView.swift:MineProfileCard` | `{"Button":2}` | `MineInteractionUITests/testMinePublicProfileFollowAndPostDeletion` |
 | `Modules/MineFeature/Sources/MineRootView.swift:MineRootViewScene` | `{"AppFailureState":1,"Button":1,"List":1,"refreshable":1}` | `MineInteractionUITests/testMinePublicProfileFollowAndPostDeletion,InteractionCoverageUITests/testAccountProfileSaveLoginCheckAndLogout` |
 | `Modules/MineFeature/Sources/MineRootView.swift:MineStatButton` | `{"Button":1}` | `MineInteractionUITests/testMinePublicProfileFollowAndPostDeletion` |
-| `Modules/MineFeature/Sources/MineRootView.swift:MineUserListView` | `{"AppFailureState":1,"Button":1,"List":1,"refreshable":1}` | `MineInteractionUITests/testMinePublicProfileFollowAndPostDeletion` |
-| `Modules/MineFeature/Sources/MineRootView.swift:UserProfileRootViewScene` | `{"AppEmptyState":1,"AppFailureState":2,"CommunityPosterCard":1,"List":1}` | `MineInteractionUITests/testMinePublicProfileFollowAndPostDeletion` |
+| `Modules/MineFeature/Sources/MineRootView.swift:MineUserListView` | `{"AppFailureState":2,"Button":1,"List":1,"refreshable":1}` | `MineInteractionUITests/testMinePublicProfileFollowAndPostDeletion` |
+| `Modules/MineFeature/Sources/MineRootView.swift:UserProfileRootViewScene` | `{"AppEmptyState":1,"AppFailureState":3,"CommunityPosterCard":1,"List":1,"refreshable":1}` | `MineInteractionUITests/testMinePublicProfileFollowAndPostDeletion` |
 | `Modules/PaperFeature/Sources/PaperCommentViews.swift:PaperCommentRow` | `{"AppCommentActionBar":1,"AppCommentIdentityHeader":1}` | `CommunityInteractionUITests/testPaperImagePreviewCommentsSortAndShare,InteractionCoverageUITests/testGalleryFeedAndSurfaceSwipesMessagesAndSearchResultRoutes` |
 | `Modules/PaperFeature/Sources/PaperCommentViews.swift:PaperCommentsSection` | `{"AppFailureState":1,"CommunityCommentSortPicker":1}` | `CommunityInteractionUITests/testPaperImagePreviewCommentsSortAndShare,InteractionCoverageUITests/testGalleryFeedAndSurfaceSwipesMessagesAndSearchResultRoutes` |
 | `Modules/PaperFeature/Sources/PaperComposerViews.swift:PaperCommentComposerSheet` | `{"AppCommentComposerContentSection":1,"List":1,"TextField":1}` | `CommunityPublishingUITests/testPaperPublishEditCommentAndDelete` |
@@ -310,8 +311,8 @@ SwiftSyntax 清点每个源码作用域的控件、输入、滚动和手势声�
 | `Modules/ScoreFeature/Sources/ScoreFilterViews.swift:ScoreSortPage` | `{"Button":2,"List":1}` | `ScoreInteractionUITests/testScoreIndividualFiltersRefreshCancelAndPendingDetail` |
 | `Modules/ScoreFeature/Sources/ScoreRootView.swift:PendingScoreDetailView` | `{"ScrollView":1}` | `ScoreInteractionUITests/testScoreIndividualFiltersRefreshCancelAndPendingDetail` |
 | `Modules/ScoreFeature/Sources/ScoreRootView.swift:ScoreDetailView` | `{"Button":1,"List":1}` | `ScoreInteractionUITests/testScoreIndividualFiltersRefreshCancelAndPendingDetail` |
-| `Modules/ScoreFeature/Sources/ScoreRootView.swift:ScoreListPage` | `{"AppEmptyState":1,"AppFailureState":1,"AppRefreshStatusRow":1,"AppSMSVerificationSheet":1,"List":1,"NavigationLink":6}` | `ScoreInteractionUITests/testScoreIndividualFiltersRefreshCancelAndPendingDetail,ScoreInteractionUITests/testTrustedTranscriptSMSRetryPreviewAndCancellation,ScheduleLayoutUITests/testRefreshStatusRowsUseConsistentNativeGeometry` |
-| `Modules/ScoreFeature/Sources/ScoreRootView.swift:TrustedTranscriptPage` | `{"AppEmptyState":1,"AppFailureState":1,"AppSMSVerificationSheet":1,"Button":1,"ScrollView":1}` | `ScoreInteractionUITests/testTrustedTranscriptSMSRetryPreviewAndCancellation` |
+| `Modules/ScoreFeature/Sources/ScoreRootView.swift:ScoreListPage` | `{"AppEmptyState":1,"AppFailureState":1,"AppRefreshStatusRow":1,"AppSMSVerificationSheet":1,"Button":3,"List":1,"NavigationLink":6}` | `ScoreInteractionUITests/testScoreIndividualFiltersRefreshCancelAndPendingDetail,ScoreInteractionUITests/testTrustedTranscriptSMSRetryPreviewAndCancellation,ScheduleLayoutUITests/testRefreshStatusRowsUseConsistentNativeGeometry,ScoreInteractionUITests/testScoreStorageRecoveryConfirmationAndPersistence` |
+| `Modules/ScoreFeature/Sources/ScoreRootView.swift:TrustedTranscriptPage` | `{"AppEmptyState":1,"AppFailureState":2,"AppSMSVerificationSheet":1,"Button":1,"ScrollView":1}` | `ScoreInteractionUITests/testTrustedTranscriptSMSRetryPreviewAndCancellation` |
 
 滚动容器使用稳定身份参与源码与运行证据核对。手势检查与位置恢复沿实际 UIKit 滚动对象定位，页面路径身份用于交互库存归属。UI 用例在操作前验收当前容器：可滚动内容通过原生滑动核对位置变化并恢复起始位置，完整显示的内容核对边界并记录 `scroll-fit`；容器动作与子控件动作分别核对。底栏选中项变化记录 `tab-switch`，用于 TabView 的独立切换证据。
 

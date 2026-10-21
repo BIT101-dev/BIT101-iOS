@@ -112,6 +112,13 @@ public final class ScoreCacheStore: ScoreCacheSynchronizing {
         try? await loadSnapshot(for: session)?.rows
     }
 
+    public func recover(rows: [ScoreRow], for session: AppStorageSession) async -> Date? {
+        guard !Task.isCancelled, storageOperations.begin() else { return nil }
+        defer { storageOperations.finish() }
+        let result = await repository.recover(rows: rows, for: session)
+        return finishWrite(result, for: session, syncPreference: !rows.isEmpty)
+    }
+
     @discardableResult
     public func save(rows: [ScoreRow], for session: AppStorageSession? = nil) async -> Date? {
         guard !Task.isCancelled else { return nil }
@@ -243,6 +250,16 @@ actor ScoreCacheDiskRepository {
     nonisolated var unownedExecutor: UnownedSerialExecutor { executor.asUnownedSerialExecutor() }
 
     nonisolated private static let logger = Logger(subsystem: "BIT101", category: "ScoreCache")
+
+    func recover(rows: [ScoreRow], for session: AppStorageSession) -> ScoreCacheDiskWriteResult {
+        guard !Task.isCancelled else { return .superseded }
+        let snapshot = ScoreCacheSnapshot(rows: rows, updatedAt: Date())
+        do {
+            try write(DiskSnapshot(snapshot: snapshot), for: session)
+            removeLegacyFile(for: session)
+            return .saved(snapshot)
+        } catch { return .failed }
+    }
 
     private let files: any AppFileService
     private let storageRoot: URL

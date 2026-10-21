@@ -151,9 +151,6 @@ public struct CampusMapScreen: View {
             focusOnNextCourseIfPossible(animated: false)
             consumeRequestedLocationIfNeeded()
         }
-        .onChange(of: nextCourseTarget) { _, _ in
-            focusOnNextCourseIfPossible(animated: false)
-        }
         .onChange(of: requestedLocation?.id) { _, _ in
             consumeRequestedLocationIfNeeded()
         }
@@ -197,7 +194,7 @@ public struct CampusMapScreen: View {
             : CampusMapDisplayMode.standard.rawValue
     }
 
-    /// 地图首次出现或课表缓存更新后，自动切换到下一节课所在校区。
+    /// 地图首次出现时聚焦下一节课所在校区，后续更新保持用户当前视野。
     private func focusOnNextCourseIfPossible(animated: Bool) {
         pendingCenterOnUserAfterAuthorization = false
         centerOnUserRequestID = nil

@@ -380,6 +380,9 @@ struct ScoreInfrastructureBoundaryTests {
     private final class TranscriptPages: HTTPTransport {
         let pageBytes: Int
         var imageRequests = 0
+        var pageCount = 2
+        var failingPage: String?
+        var paths: [String] = []
         var responseURL: (URL) -> URL = { $0 }
         init(pageBytes: Int) { self.pageBytes = pageBytes }
         func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
@@ -389,12 +392,45 @@ struct ScoreInfrastructureBoundaryTests {
         }
         func data(for request: URLRequest) async throws -> (Data, URLResponse) {
             let url = try #require(request.url)
+            paths.append(url.path)
+            if url.path == failingPage { throw URLError(.networkConnectionLost) }
             let data: Data
             if url.path.hasSuffix("/cookies") { data = Data(#"{"cookie_str":"SESSION=fixture"}"#.utf8) }
-            else if url.path.hasSuffix("/Index") { data = Data(#"<img src="/cjd/Temp/1.png"><img src="/cjd/Temp/2.png">"#.utf8) }
+            else if url.path.hasSuffix("/Index") { data = Data((1...pageCount).map { "<img src=\"/cjd/Temp/\($0).png\">" }.joined().utf8) }
             else if url.path.contains("/cjd/Temp/") { imageRequests += 1; data = Data(count: pageBytes) }
             else { data = Data(#"{"challenge_id":"fixture","access_token":"token","status":"authenticated","expires_in":120}"#.utf8) }
             return (data, try #require(HTTPURLResponse(url: responseURL(url), statusCode: 200, httpVersion: nil, headerFields: nil)))
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func transcriptAuthenticationCompletesBeforeARecoverablePageDownload() async throws {
+        let transport = TranscriptPages(pageBytes: 64)
+        transport.failingPage = "/cjd/Temp/2.png"
+        transport.pageCount = 3
+        let client = HTTPClient(transport: transport, observer: nil)
+        let service = ScoreService(credentials: Credentials(), httpClient: client, sensitiveHTTPClient: client,
+            endpointBaseURL: AppURL.required("https://example.invalid"))
+        let challenge = BITLoginAuthenticationChallenge(challengeID: "fixture", accessToken: "token", status: "waiting_sms",
+            maskedPhone: nil, expiresIn: 120, ownerIdentity: Credentials().schoolSessionIdentity)
+        let authenticated = try await service.submitTranscriptSMSCode("123456", for: challenge)
+        #expect(authenticated.status == "authenticated" && transport.paths == ["/api/auth/fixture/sms"])
+        let partial = try await service.fetchTrustedTranscriptPages(authenticatedBy: authenticated)
+        #expect(partial.pages.map(\.number) == [1] && partial.expectedPageCount == 3 && partial.failure != nil)
+        #expect(!transport.paths.contains("/cjd/Temp/3.png"))
+        transport.failingPage = nil
+        let recovered = try await service.fetchTrustedTranscriptPages(authenticatedBy: authenticated)
+        #expect(recovered.pages.count == 3 && recovered.failure == nil)
+        #expect(transport.paths.filter { $0.hasSuffix("/sms") }.count == 1)
+    }
+
+    @Test func scoreDecodingRetainsTheMissingFieldPath() {
+        do { _ = try ScoreService.decodeScoreRows(Data(#"{"msg":"查询成功","data":7}"#.utf8)); Issue.record("Expected malformed score payload") }
+        catch {
+            #expect(error.localizedDescription == ScoreServiceError.invalidResponse.localizedDescription)
+            guard case let DecodingError.typeMismatch(_, context)? = (error as NSError).userInfo[NSUnderlyingErrorKey] as? DecodingError else {
+                Issue.record("Expected retained decoding error"); return
+            }
+            #expect(context.codingPath.map(\.stringValue) == ["data"])
         }
     }
 
@@ -420,7 +456,7 @@ struct ScoreInfrastructureBoundaryTests {
         let service = ScoreService(credentials: Credentials(), httpClient: client, sensitiveHTTPClient: client,
             endpointBaseURL: AppURL.required("https://example.invalid"))
         if destination == "https443" {
-            #expect(try await service.fetchTrustedTranscriptPages().count == 2)
+            #expect(try await service.fetchTrustedTranscriptPages().pages.count == 2)
         } else {
             var rejected = false
             do {
@@ -441,7 +477,7 @@ struct ScoreInfrastructureBoundaryTests {
             endpointBaseURL: AppURL.required("https://example.invalid"), transcriptLimits: limits)
         if scenario == "exact" {
             let pages = try await service.fetchTrustedTranscriptPages()
-            #expect(pages.count == 2 && pages.reduce(0, { $0 + $1.count }) == 128)
+            #expect(pages.pages.count == 2 && pages.pages.reduce(0, { $0 + $1.data.count }) == 128)
         } else {
             await #expect(throws: HTTPClientError.self) { try await service.fetchTrustedTranscriptPages() }
         }
@@ -452,7 +488,11 @@ struct ScoreInfrastructureBoundaryTests {
         let authentication = Transport()
         let downloads = Transport()
         let service = ScoreService(credentials: Credentials(), httpClient: HTTPClient(transport: authentication, observer: nil), sensitiveHTTPClient: HTTPClient(transport: downloads, observer: nil), endpointBaseURL: AppURL.required("https://example.invalid"))
-        await #expect(throws: ScoreServiceError.self) { try await service.startScoreChallenge() }
+        do { _ = try await service.startScoreChallenge(); Issue.record("Expected authentication timeout") }
+        catch {
+            #expect(error.localizedDescription == ScoreServiceError.requestTimedOut.localizedDescription)
+            #expect(((error as NSError).userInfo[NSUnderlyingErrorKey] as? URLError)?.code == .timedOut)
+        }
         let request = try #require(authentication.requests.first)
         #expect(request.url?.absoluteString == "https://example.invalid/api/auth/start")
         let payload = try JSONSerialization.jsonObject(with: #require(request.httpBody)) as? [String: Any]
@@ -697,6 +737,7 @@ struct ScorePublicContractTests {
             setRemovalFailure: { files.setFailures(removal: $0) })
     }
     private final class Cache: ScoreCaching {
+        func recover(rows: [ScoreRow], for session: AppStorageSession) async -> Date? { nil }
         let changeSubject = PassthroughSubject<AppStorageSession, Never>()
         var changes: AnyPublisher<AppStorageSession, Never> { changeSubject.eraseToAnyPublisher() }
         var loads = 0
@@ -712,6 +753,7 @@ struct ScorePublicContractTests {
         }
     }
     private final class Preferences: ScoreFilterPreferencesStoring {
+        func reset() {}
         let changeSubject = PassthroughSubject<AppStorageSession, Never>()
         var changes: AnyPublisher<AppStorageSession, Never> { changeSubject.eraseToAnyPublisher() }
         var loads = 0
@@ -749,15 +791,15 @@ struct ScorePublicContractTests {
         let model = ScoreViewModel(service: Service(), cacheStore: cache, preferenceStore: preferences,
             currentScoreCacheSession: { account.session }, scheduleCoursesChanges: Empty().eraseToAnyPublisher(),
             loadScheduleCourses: { _ in [:] })
-        #expect(model.alert?.title == "筛选偏好读取受阻")
+        #expect(model.needsStorageRecovery && model.alert == nil)
         await model.restoreCachedDataIfNeeded()
         model.setSortOrder(.descending)
-        #expect(model.alert?.title == "筛选偏好保存受阻")
+        #expect(model.needsStorageRecovery && model.alert == nil)
         #expect(model.sortOrder == .descending && changes == 0)
         #expect(defaults.data(forKey: key) == damaged)
         account.session = AppStorageSession(accountIdentifier: "healthy-filter")
         model.resetForCurrentAccount()
-        #expect(model.alert == nil)
+        #expect(model.alert == nil && !model.needsStorageRecovery)
         await model.restoreCachedDataIfNeeded()
         model.setSortOrder(.descending)
         #expect(preferences.load()?.sortOrder == (empty ? nil : ScoreSortOrder.descending.rawValue))

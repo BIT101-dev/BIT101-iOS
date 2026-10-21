@@ -18,11 +18,30 @@ public protocol ScoreListServicing {
 
 public protocol TrustedTranscriptServicing {
     var transcriptServiceIdentity: AnyHashable { get }
-    func fetchTrustedTranscriptPages() async throws -> [Data]
+    func fetchTrustedTranscriptPages() async throws -> TrustedTranscriptPages
+    func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge) async throws -> TrustedTranscriptPages
     func submitTranscriptSMSCode(
         _ code: String,
         for challenge: BITLoginAuthenticationChallenge
-    ) async throws -> [Data]
+    ) async throws -> BITLoginAuthenticationChallenge
+}
+
+/// 成绩单各页独立恢复，原始页码与完整页数用于展示读取进度。
+public nonisolated struct TrustedTranscriptPages: Sendable {
+    public nonisolated struct Page: Sendable {
+        public let number: Int
+        public let data: Data
+        public init(number: Int, data: Data) { self.number = number; self.data = data }
+    }
+    public let pages: [Page]
+    public let expectedPageCount: Int
+    public let failure: (any Error)?
+    public init(pages: [Page], expectedPageCount: Int, failure: (any Error)? = nil) {
+        self.pages = pages; self.expectedPageCount = expectedPageCount; self.failure = failure
+    }
+    public init(_ pages: [Data]) {
+        self.init(pages: pages.enumerated().map { Page(number: $0.offset + 1, data: $0.element) }, expectedPageCount: pages.count)
+    }
 }
 
 public extension TrustedTranscriptServicing where Self: AnyObject {
@@ -36,6 +55,15 @@ public enum ScoreServiceError: LocalizedError {
     case secondFactorRequired(BITLoginAuthenticationChallenge)
     case challengeInvalid(String)
     case queryFailed(String)
+
+    /// 页面文案和原始传输、解析原因通过标准错误链共同保留。
+    public func caused(by error: any Error) -> NSError {
+        let failure = self as NSError
+        return NSError(domain: failure.domain, code: failure.code, userInfo: failure.userInfo.merging([
+            NSUnderlyingErrorKey: error, NSLocalizedDescriptionKey: failure.localizedDescription,
+            NSDebugDescriptionErrorKey: String(describing: error)
+        ]) { _, value in value })
+    }
 
     public var errorDescription: String? {
         switch self {
@@ -82,6 +110,8 @@ public protocol ScoreCaching: AnyObject {
     func loadSnapshot(for session: AppStorageSession?) async throws -> ScoreCacheSnapshot?
     func save(rows: [ScoreRow], for session: AppStorageSession?) async -> Date?
     func saveDetailed(rows: [ScoreRow], for session: AppStorageSession?) async -> Date?
+    /// 用户确认后以当前可用成绩重建该账号的本机缓存。
+    func recover(rows: [ScoreRow], for session: AppStorageSession) async -> Date?
 }
 
 /// 云同步消费版本快照，并在写入时核对读取时的本地内容。
@@ -98,6 +128,7 @@ public protocol ScoreFilterPreferencesStoring: AnyObject {
     var changes: AnyPublisher<AppStorageSession, Never> { get }
     var hasUnreadableSnapshot: Bool { get }
     func load() -> ScoreFilterPreferenceSnapshot?
+    func reset()
     @discardableResult
     func save(selectedTerms: Set<String>, selectedCourseTypes: Set<String>, sortIndex: ScoreSortIndex, sortOrder: ScoreSortOrder) -> Bool
 }

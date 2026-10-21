@@ -69,6 +69,8 @@ struct MinePagedState<Item: Identifiable> {
     var nextPage = 0
     /// 列表正在请求下一页时为 `true`。
     var isLoadingMore = false
+    /// 页尾故障保留游标，通过原位重试继续当前页。
+    var loadMoreError: String?
     /// 后端提供更多数据时为 `true`；值为 `false` 时停止分页。
     var canLoadMore = true
 }

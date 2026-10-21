@@ -23,6 +23,9 @@ final class TrustedTranscriptViewModel: ObservableObject {
 
     @Published private(set) var state: State = .idle
     @Published private(set) var images: [UIImage] = []
+    @Published private(set) var pageNumbers: [Int] = []
+    @Published private(set) var expectedPageCount = 0
+    @Published private(set) var deliveryWarning: String?
     @Published private(set) var smsChallenge: BITLoginAuthenticationChallenge?
     @Published private(set) var smsVerificationError: String?
     @Published private(set) var isSubmittingSMSCode = false
@@ -30,6 +33,7 @@ final class TrustedTranscriptViewModel: ObservableObject {
 
     private let service: any TrustedTranscriptServicing
     private let limits: TrustedTranscriptResourceLimits
+    private var authenticatedChallenge: BITLoginAuthenticationChallenge?
 
     init(service: any TrustedTranscriptServicing, limits: TrustedTranscriptResourceLimits = .init()) {
         self.service = service
@@ -44,21 +48,26 @@ final class TrustedTranscriptViewModel: ObservableObject {
     }
 
     func prepareRetry() {
-        guard case .failed = state else { return }
-        state = .idle
+        if case .failed = state { state = .idle }
+        else if deliveryWarning != nil { state = .idle }
     }
 
     /// 发起一次新的学校可信成绩单申请。
     func apply() async {
         guard !Task.isCancelled else { return }
         guard state != .loading, !isSubmittingSMSCode, smsChallenge == nil else { return }
-        images = []
         smsVerificationError = nil
         allowsDiagnostics = true
         state = .loading
 
         do {
-            let pages = try await service.fetchTrustedTranscriptPages()
+            let pages: TrustedTranscriptPages
+            if let challenge = authenticatedChallenge, !challenge.isExpired {
+                pages = try await service.fetchTrustedTranscriptPages(authenticatedBy: challenge)
+            } else {
+                authenticatedChallenge = nil
+                pages = try await service.fetchTrustedTranscriptPages()
+            }
             try await loadImages(from: pages)
         } catch ScoreServiceError.secondFactorRequired(let challenge) {
             guard !Task.isCancelled else { state = .idle; return }
@@ -67,14 +76,15 @@ final class TrustedTranscriptViewModel: ObservableObject {
         } catch ScoreServiceError.challengeInvalid(let message) {
             guard !Task.isCancelled else { state = .idle; return }
             smsChallenge = nil
+            authenticatedChallenge = nil
             allowsDiagnostics = false
             state = .failed(message)
         } catch {
             if Task.isCancelled || TaskCancellation.matches(error) {
-                state = .idle
+                state = images.isEmpty ? .idle : .loaded
                 return
             }
-            state = .failed(error.localizedDescription)
+            presentDeliveryFailure(error)
         }
     }
 
@@ -93,13 +103,16 @@ final class TrustedTranscriptViewModel: ObservableObject {
         defer { isSubmittingSMSCode = false }
 
         do {
-            let pages = try await service.submitTranscriptSMSCode(normalizedCode, for: challenge)
+            authenticatedChallenge = try await service.submitTranscriptSMSCode(normalizedCode, for: challenge)
             smsChallenge = nil
             state = .loading
+            guard let authenticatedChallenge else { return }
+            let pages = try await service.fetchTrustedTranscriptPages(authenticatedBy: authenticatedChallenge)
             try await loadImages(from: pages)
         } catch ScoreServiceError.challengeInvalid(let message) {
             guard !Task.isCancelled else { state = .idle; return }
             smsChallenge = nil
+            authenticatedChallenge = nil
             allowsDiagnostics = false
             state = .failed(message)
         } catch ScoreServiceError.secondFactorRequired(let challenge) {
@@ -116,9 +129,14 @@ final class TrustedTranscriptViewModel: ObservableObject {
                 // 普通错误（尤其是错误验证码）继续显示在输入面板，用户可以修改验证码后重试。
                 smsVerificationError = error.localizedDescription
             } else {
-                state = .failed(error.localizedDescription)
+                presentDeliveryFailure(error)
             }
         }
+    }
+
+    private func presentDeliveryFailure(_ error: any Error) {
+        if images.isEmpty { state = .failed(error.localizedDescription) }
+        else { deliveryWarning = error.localizedDescription; state = .loaded }
     }
 
     /// 关闭短信验证面板并将申请状态更新为失败。
@@ -130,29 +148,39 @@ final class TrustedTranscriptViewModel: ObservableObject {
         state = .failed("已取消短信验证，未申请可信成绩单。")
     }
 
-    private func loadImages(from pages: [Data]) async throws {
-        let prepared = try await Self.prepareImages(pages, limits: limits)
+    private func loadImages(from result: TrustedTranscriptPages) async throws {
+        let prepared = try await Self.prepareImages(result, limits: limits)
         try Task.checkCancellation()
-        images = prepared
+        images = prepared.images
+        pageNumbers = prepared.numbers
+        expectedPageCount = result.expectedPageCount
+        deliveryWarning = prepared.failure.map { "已加载 \(images.count) / \(expectedPageCount) 页。\n" + $0.localizedDescription }
         state = .loaded
     }
 
     @concurrent
-    private nonisolated static func prepareImages(_ pages: [Data], limits: TrustedTranscriptResourceLimits) async throws -> [UIImage] {
-        guard !pages.isEmpty, pages.count <= limits.maximumPageCount else { throw ScoreServiceError.invalidResponse }
+    private nonisolated static func prepareImages(_ result: TrustedTranscriptPages, limits: TrustedTranscriptResourceLimits) async throws
+        -> (images: [UIImage], numbers: [Int], failure: (any Error)?) {
+        guard result.expectedPageCount > 0, result.expectedPageCount <= limits.maximumPageCount,
+              !result.pages.isEmpty, result.pages.count <= result.expectedPageCount else { throw ScoreServiceError.invalidResponse }
         var remainingBytes = limits.maximumEncodedBytes
-        for page in pages {
-            guard page.count <= remainingBytes else { throw HTTPClientError.responseTooLarge }
-            remainingBytes -= page.count
+        for page in result.pages {
+            guard page.data.count <= remainingBytes else { throw HTTPClientError.responseTooLarge }
+            remainingBytes -= page.data.count
         }
-        let perPageBudget = limits.maximumDecodedBytes / pages.count
-        return try pages.map { page in
+        let perPageBudget = limits.maximumDecodedBytes / result.expectedPageCount
+        var images: [UIImage] = [], numbers: [Int] = []
+        var failure = result.failure
+        for page in result.pages {
             try Task.checkCancellation()
-            guard let image = BoundedStillImageDecoder.image(from: page, maximumDecodedBytes: perPageBudget) else {
-                throw ScoreServiceError.queryFailed("学校返回的成绩单图片无法识别，请重新申请。")
+            if let image = BoundedStillImageDecoder.image(from: page.data, maximumDecodedBytes: perPageBudget) {
+                images.append(image); numbers.append(page.number)
+            } else if failure == nil {
+                failure = ScoreServiceError.queryFailed("部分成绩单图片读取失败，请重试。")
             }
-            return image
         }
+        guard !images.isEmpty else { throw failure ?? ScoreServiceError.invalidResponse }
+        return (images, numbers, failure)
     }
 }
 

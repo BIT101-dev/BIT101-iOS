@@ -121,6 +121,7 @@ public struct AppFailureState: View {
                 appFailureDiagnostics(title, message)
             }
         }
+        .buttonStyle(.borderless)
     }
 }
 

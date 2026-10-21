@@ -93,6 +93,10 @@ enum AppUITestBootstrap {
     static func prepareSessionIfNeeded() async {
         let environment = Self.environment
         defer {
+            if environment["BIT101_UI_TEST_SCORE_RECOVERY"] == "1" {
+                AppFileDirectories.defaults.set(Data("damaged-ui-score-filters".utf8),
+                    forKey: AppFileDirectories.currentSession.key("score.filter.preferences"))
+            }
             if environment["BIT101_UI_TEST_SETTINGS_RECOVERY"] == "1" {
                 let key = AppFileDirectories.currentSession.key(AppSettingsStore.storageKeyPrefix,
                     guestIdentifier: AppSettingsStore.defaultAccountIdentifier)
@@ -262,6 +266,12 @@ final class UITestHTTPTransport: HTTPTransport {
         }
         let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
         let page = query.first(where: { $0.name == "page" })?.value ?? "0"
+        let userID = query.first { $0.name == "uid" }?.value
+        if AppUITestBootstrap.environment["BIT101_UI_TEST_MINE_PAGING_FAILURE_ONCE"] == "1", page == "1",
+           ["user/followers", "user/followings"].contains(path) || (path == "posters" && userID != nil),
+           failedPaths.insert("mine-page-" + path + (userID ?? "")).inserted {
+            throw URLError(.networkConnectionLost)
+        }
         let body = (request.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) }) as? [String: Any] ?? [:]
         let method = request.httpMethod ?? "GET"
         let payload: Any

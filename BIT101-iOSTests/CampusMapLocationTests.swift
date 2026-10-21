@@ -84,6 +84,22 @@ struct CampusMapLocationTests {
         #expect(map.showsUserLocation && map.tracking == .none)
     }
 
+    @Test("A fresh accurate position completes a request after stale or unusable fixes")
+    @MainActor func staleAndInaccuratePositionsWaitForANewFix() {
+        for (age, accuracy) in [(-3_600.0, 20.0), (0.0, -1.0), (0.0, 3_000.0)] {
+            let map = MapViewLocationFixture(), coordinator = CampusNativeMapView.Coordinator()
+            let stale = CLLocation(coordinate: .init(latitude: 39.7, longitude: 116.2), altitude: 0,
+                horizontalAccuracy: accuracy, verticalAccuracy: 0, timestamp: Date().addingTimeInterval(age))
+            map.position.position = stale
+            coordinator.centerOnUser(in: map, requestID: UUID())
+            coordinator.mapView(map, didUpdate: map.position)
+            #expect(map.centered == nil && map.tracking == .follow)
+            map.position.position = CLLocation(latitude: 40, longitude: 117)
+            coordinator.mapView(map, didUpdate: map.position)
+            #expect(map.centered?.latitude == 40 && map.tracking == .none)
+        }
+    }
+
     @Test("A pending position tolerates transient failure and waits for valid coordinates")
     @MainActor func pendingPositionWaitsForValidCoordinates() throws {
         let map = MapViewLocationFixture()

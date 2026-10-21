@@ -240,6 +240,7 @@ struct ExperimentalPreferenceCloudSyncTests {
     }
 
     private final class SuspendedScoreCache: ScoreCacheSynchronizing {
+        func recover(rows: [ScoreRow], for session: AppStorageSession) async -> Date? { nil }
         let saves = PassthroughSubject<AppStorageSession, Never>()
         var localSaves: AnyPublisher<AppStorageSession, Never> { saves.eraseToAnyPublisher() }
         var changes: AnyPublisher<AppStorageSession, Never> { Empty().eraseToAnyPublisher() }

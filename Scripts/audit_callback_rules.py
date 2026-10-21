@@ -54,7 +54,7 @@ def audit_callback_findings(source: str) -> list[str]:
         "git_check": ["git|-C|/audit|diff|--check", "git|-C|/audit|diff|--cached|--check"],
         "docs_check": ["cd|/audit", "python3|Scripts/check-docs.py|--all|--self-test", "cd|/audit", "python3|Scripts/check-docs.py|--staged", "cd|/audit", "python3|Scripts/validate_versions.py|--compare-git-ref|base|--check-app-store"],
         "checker_audit": ["python3|/audit/Scripts/check-file-lengths.py", "python3|/audit/Scripts/check-file-lengths.py|--staged", "python3|/audit/Scripts/validation_evidence.py|self-test", "python3|/audit/Scripts/check-code-quality.py|--combined|--self-test"],
-        "module_boundary_audit": ["python3|/audit/Scripts/check-module-boundaries.py"],
+        "module_boundary_audit": ["python3|/audit/Scripts/check-module-boundaries.py|--self-test"],
         "artifact_hygiene": ["python3|/audit/Scripts/validation_artifacts.py|/audit"],
     }
     harness = r'''

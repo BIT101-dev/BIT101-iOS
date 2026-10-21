@@ -154,7 +154,7 @@ checker_audit() {
   wait "$quality_process" || checker_status=1
   return "$checker_status"
 }
-module_boundary_audit() { python3 "$ROOT_DIR/Scripts/check-module-boundaries.py"; }
+module_boundary_audit() { python3 "$ROOT_DIR/Scripts/check-module-boundaries.py" --self-test; }
 artifact_hygiene() { python3 "$ROOT_DIR/Scripts/validation_artifacts.py" "$ROOT_DIR"; }
 
 start_group() {

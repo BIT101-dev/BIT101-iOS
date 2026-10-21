@@ -67,6 +67,14 @@ struct MinePagingRecoveryTests {
         #expect(ids() == (stalled ? [1] : [1, 2]))
         #expect(service.pages == (stalled ? [0, 1, 2, 3, 4] : [0, 1, 2, 3]))
         if stalled {
+            let message: String?
+            switch scene {
+            case "followers": message = mine.followerState.loadMoreError
+            case "followings": message = mine.followingState.loadMoreError
+            case "mine": message = mine.posterState.loadMoreError
+            default: message = profile.posterState.loadMoreError
+            }
+            #expect(message != nil)
             service.users = { _ in [user(2)] }
             service.posters = { _ in [poster(2)] }
             await next()
@@ -125,6 +133,17 @@ final class PagingMineService: MineOverviewServicing, UserProfileServicing {
 
 @MainActor
 struct MineLifecycleTests {
+    @Test(.timeLimit(.minutes(1))) func explicitOverviewRefreshRecoversTheFailedPosterSummary() async {
+        let service = PagingMineService()
+        service.posters = { _ in throw URLError(.notConnectedToInternet) }
+        let model = MineViewModel(service: service)
+        await model.bootstrapIfNeeded()
+        #expect(model.posterCountText == "待恢复")
+        service.posters = { _ in [listPoster(1)] }
+        await model.refreshAll()
+        #expect(model.posterCountText == "1+" && model.posterState.items.count == 1)
+    }
+
     @Test(.timeLimit(.minutes(1))) func returningToMineRefreshesSavedProfileAndKeepsThePosterSummary() async {
         let service = PagingMineService()
         service.posters = { _ in [listPoster(1)] }

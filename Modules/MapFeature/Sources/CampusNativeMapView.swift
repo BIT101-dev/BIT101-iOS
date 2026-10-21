@@ -212,7 +212,7 @@ struct CampusNativeMapView: UIViewRepresentable {
         func centerOnUser(in mapView: MKMapView, requestID: UUID) {
             lastCenterOnUserRequestID = requestID
             mapView.showsUserLocation = true
-            if let coordinate = validUserCoordinate(from: mapView) {
+            if let coordinate = validUserCoordinate(mapView.userLocation.location) {
                 mapView.setUserTrackingMode(.none, animated: false)
                 mapView.setCenter(coordinate, animated: false)
                 pendingCenterOnUserRequestID = nil
@@ -225,8 +225,7 @@ struct CampusNativeMapView: UIViewRepresentable {
 
         func mapView(_ mapView: MKMapView, didUpdate userLocation: MKUserLocation) {
             guard let requestID = pendingCenterOnUserRequestID,
-                  let coordinate = userLocation.location?.coordinate,
-                  CLLocationCoordinate2DIsValid(coordinate) else {
+                  let coordinate = validUserCoordinate(userLocation.location) else {
                 return
             }
 
@@ -249,8 +248,10 @@ struct CampusNativeMapView: UIViewRepresentable {
         }
 
         /// 过滤掉无效或缺失的用户坐标。
-        private func validUserCoordinate(from mapView: MKMapView) -> CLLocationCoordinate2D? {
-            guard let location = mapView.userLocation.location else {
+        private func validUserCoordinate(_ location: CLLocation?) -> CLLocationCoordinate2D? {
+            guard let location, location.horizontalAccuracy >= 0,
+                  location.horizontalAccuracy <= kCLLocationAccuracyHundredMeters,
+                  abs(location.timestamp.timeIntervalSinceNow) <= 60 else {
                 return nil
             }
 

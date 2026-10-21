@@ -16,6 +16,67 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct ScoreFeatureTests {
+    @Test(.timeLimit(.minutes(1))) func detailedFailurePersistsMatchedDetailsAlongsideNewCourses() async throws {
+        let headers = ["课程编号", "课程名称", "成绩", "学分", "开课学期", "平均分", "本人成绩在班级中占"]
+        let original = ScoreRow(index: 0, headers: headers, values: ["MATH", "数学", "90", "4", "term", "82.5", "1/20"])
+        let service = ScoreServiceSpy()
+        service.briefRowsOverride = [ScoreRow(index: 0, headers: Array(headers.prefix(5)), values: ["MATH", "数学", "90", "4", "term"]),
+            ScoreRow(index: 1, headers: Array(headers.prefix(5)), values: ["NEW", "新课程", "85", "2", "term"])]
+        service.detailedError = URLError(.notConnectedToInternet)
+        let (model, cache) = try makeViewModel(service: service)
+        defer { clearPreferences() }
+        #expect(await cache.saveDetailed(rows: [original]) != nil)
+        await model.restoreCachedDataIfNeeded()
+        await model.refresh()
+        let saved = try #require(await cache.loadSnapshot())
+        #expect(saved.rows?.count == 2 && saved.detailedUpdatedAt == nil)
+        #expect(saved.rows?.first?.averageScore == "82.5" && saved.rows?.first?.classRank == "1/20")
+        #expect(ScoreRowComparison.rowsMatch(model.rows, saved.rows ?? []))
+    }
+
+    @Test(.timeLimit(.minutes(1))) func detailedFilterFieldsPreserveTheInitialAllSelection() async throws {
+        let detailed = ScoreRow(index: 0, headers: ["课程编号", "课程名称", "成绩", "学分", "开课学期", "课程性质"],
+            values: ["MATH", "数学", "90", "4", "term", "必修"])
+        let service = ScoreServiceSpy(detailedRows: [detailed])
+        service.briefRowsOverride = [ScoreRow(index: 0, headers: ["课程编号", "课程名称", "成绩", "学分"], values: ["MATH", "数学", "90", "4"])]
+        let (model, _) = try makeViewModel(service: service)
+        defer { clearPreferences() }
+        await model.refresh()
+        #expect(model.selectedTerms == ["term"] && model.selectedCourseTypes == ["必修"])
+        #expect(model.visibleRows.count == 1)
+        await model.restoreCachedDataIfNeeded()
+        #expect(model.visibleRows.count == 1)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func confirmedScoreRecoveryPreservesOtherAccountsAndOnlineRows() async throws {
+        let domain = "BIT101ModulesTests.score-recovery"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let session = AppStorageSession(accountIdentifier: "recover"), other = AppStorageSession(accountIdentifier: "other")
+        let files = ModuleScoreFiles(), root = URL(fileURLWithPath: "/score-recovery")
+        let file = root.appending(path: session.accountStorageIdentifier).appending(path: "score-cache.json")
+        let otherFile = root.appending(path: other.accountStorageIdentifier).appending(path: "score-cache.json")
+        let damaged = Data("damaged".utf8)
+        try files.writeData(damaged, to: file, options: [])
+        try files.writeData(damaged, to: otherFile, options: [])
+        defaults.set(damaged, forKey: session.key("score.filter.preferences"))
+        defaults.set(damaged, forKey: other.key("score.filter.preferences"))
+        let cache = ScoreCacheStore(files: files, storageRoot: root, defaults: defaults, session: { session })
+        let preferences = ScoreFilterPreferenceStore(defaults: defaults, session: { session })
+        let model = ScoreViewModel(service: ScoreServiceSpy(), cacheStore: cache, preferenceStore: preferences,
+            currentScoreCacheSession: { session }, scheduleCoursesChanges: Empty().eraseToAnyPublisher(), loadScheduleCourses: { _ in [:] })
+        await model.refresh()
+        #expect(model.needsStorageRecovery && !model.rows.isEmpty && files.storedData[file] == damaged)
+        model.requestStorageRecovery()
+        model.cancelStorageRecovery()
+        #expect(files.storedData[file] == damaged && preferences.hasUnreadableSnapshot)
+        model.requestStorageRecovery()
+        await model.recoverStorage()
+        #expect(!model.needsStorageRecovery && !preferences.hasUnreadableSnapshot)
+        #expect(try await cache.loadSnapshot()?.rows == model.rows)
+        #expect(files.storedData[otherFile] == damaged && defaults.data(forKey: other.key("score.filter.preferences")) == damaged)
+    }
+
     @Test(.timeLimit(.minutes(1))) func cancelledDetailsKeepThePriorCompleteSnapshotVisible() async throws {
         let service = CancellableScoreService(stage: "details")
         let (model, cache) = try makeViewModel(service: service)
@@ -464,6 +525,7 @@ struct ScoreFeatureTests {
     }
 
     private final class SuspendedSnapshotCache: ScoreCaching {
+        func recover(rows: [ScoreRow], for session: AppStorageSession) async -> Date? { nil }
         let events = PassthroughSubject<AppStorageSession, Never>()
         var changes: AnyPublisher<AppStorageSession, Never> { events.eraseToAnyPublisher() }
         var snapshot: ScoreCacheSnapshot
@@ -552,6 +614,7 @@ struct ScoreFeatureTests {
         var detailedError: (any Error)?
         private let requiresSMS: Bool
         private let detailedRowsOverride: [ScoreRow]?
+        var briefRowsOverride: [ScoreRow]?
 
         init(requiresSMS: Bool = false, detailedRows: [ScoreRow]? = nil) {
             self.requiresSMS = requiresSMS
@@ -577,7 +640,7 @@ struct ScoreFeatureTests {
         ) async throws -> [ScoreRow] {
             requestedDetailValues.append(detail)
             if detail, let detailedError { throw detailedError }
-            return detail ? detailedRows : briefRows
+            return detail ? detailedRows : briefRowsOverride ?? briefRows
         }
 
         func submitScoreSMSCode(
@@ -705,6 +768,7 @@ struct ScoreFeatureTests {
     }
 
     private final class RejectingScoreCache: ScoreCaching {
+        func recover(rows: [ScoreRow], for session: AppStorageSession) async -> Date? { nil }
         var changes: AnyPublisher<AppStorageSession, Never> { Empty().eraseToAnyPublisher() }
         var writes = 0
         let snapshot: ScoreCacheSnapshot

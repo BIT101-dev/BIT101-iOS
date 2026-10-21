@@ -737,6 +737,9 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         schoolSMS: Bool = false,
         scheduleConflict: Bool = false,
         settingsRecovery: Bool = false,
+        scoreRecovery: Bool = false,
+        transcriptFailureOnce: Bool = false,
+        minePagingFailureOnce: Bool = false,
         initialTab: String = "schedule",
         initialSettings: String? = nil
     ) -> UIElement {
@@ -785,6 +788,9 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         application.launchEnvironment["BIT101_UI_TEST_CONTENT"] = content ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_SCHEDULE_CONFLICT"] = scheduleConflict ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_SETTINGS_RECOVERY"] = settingsRecovery ? "1" : "0"
+        application.launchEnvironment["BIT101_UI_TEST_SCORE_RECOVERY"] = scoreRecovery ? "1" : "0"
+        application.launchEnvironment["BIT101_UI_TEST_TRANSCRIPT_FAILURE_ONCE"] = transcriptFailureOnce ? "1" : "0"
+        application.launchEnvironment["BIT101_UI_TEST_MINE_PAGING_FAILURE_ONCE"] = minePagingFailureOnce ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_ANIMATIONS"] = animations ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_SCHOOL"] = school ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_MEDIA"] = media ? "1" : "0"

@@ -545,6 +545,9 @@ def foundation_collection_self_test(service_boundary_errors) -> None:
     from network_capability_rules import business_methods
     path = 'Modules/CommunityPersistence/Sources/Store.swift'
     reader_path = 'Modules/StorageCore/Sources/AppFileService.swift'
+    callbacks = "func collect(read: () -> Int, write: (Int) -> Void) { write(read()) }; func run() { collect(read: { 1 }, write: { _ in }) }"
+    assert not service_boundary_errors(path, callbacks)
+    assert service_boundary_errors(path, callbacks + "; func unsafe() { _ = Darwin.read(0, nil, 0) }")
     for kind in ('NSDictionary', 'NSMutableDictionary', 'NSArray', 'NSMutableArray'):
         for body in (
                 f'_ = {kind}(contentsOf: url)', f'_ = Foundation.{kind}.init(contentsOfFile: file)',

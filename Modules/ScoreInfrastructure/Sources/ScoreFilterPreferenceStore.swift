@@ -24,6 +24,11 @@ public final class ScoreFilterPreferenceStore: ScoreFilterPreferencesStoring {
         store.load()
     }
 
+    public func reset() {
+        store.remove()
+        changeSubject.send(session())
+    }
+
     public var hasUnreadableSnapshot: Bool {
         if case .unreadable = store.read() { return true }
         return false
