@@ -105,7 +105,7 @@ struct CommunityDependencyBoundaryTests {
         service.error = nil
         await model.refreshSelectedType()
         #expect(model.unreadCountsFailure == nil && model.state(for: .comment).items.map(\.id) == [42])
-        #expect(service.cursors == [Int.max, Int.max, nil, Int.max])
+        #expect(service.cursors == [Int.max, Int.max, Int.max, nil, Int.max])
     }
 
     @Test(arguments: [#"{"comment":-1}"#, #"{"follow":-1}"#, #"{"like":-1}"#, #"{"system":-1}"#,

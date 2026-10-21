@@ -10,8 +10,13 @@ struct PaperCommentPagingTests {
     private final class Transport: HTTPTransport {
         var pages: [Int] = []
         var stalls = false
+        var pendingDetail: CheckedContinuation<Void, Error>?
         func data(for request: URLRequest) async throws -> (Data, URLResponse) {
             let url = try #require(request.url)
+            if url.path.hasSuffix("/papers/1") {
+                try await withCheckedThrowingContinuation { pendingDetail = $0 }
+                throw URLError(.timedOut)
+            }
             let response = try #require(HTTPURLResponse(url: url, statusCode: 200,
                 httpVersion: nil, headerFields: ["Content-Type": "application/json"]))
             if url.path.hasSuffix("/user/check") { return (Data(), response) }
@@ -27,6 +32,24 @@ struct PaperCommentPagingTests {
             """.utf8)
             return (data, response)
         }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func commentsAppearWhilePaperDetailsArePending() async throws {
+        let transport = Transport()
+        let session = CommunitySession(httpClient: HTTPClient(transport: transport, observer: nil),
+            baseURL: AppURL.required("https://example.invalid"),
+            credentials: { .init(identity: .init(accountIdentifier: "paper-paging"), cookie: "fixture-cookie") }, refresh: { _ in })
+        let model = PaperDetailViewModel(initialPaper: PaperSummary(id: 1, title: "文章", intro: "",
+            likeNum: 0, commentNum: 0, updateTime: ""), service: PaperService(session: session))
+        let loading = Task { await model.refreshAll() }
+        defer { loading.cancel(); transport.pendingDetail?.resume(throwing: CancellationError()); transport.pendingDetail = nil }
+        try await waitForTestEvent { transport.pendingDetail != nil && !transport.pages.isEmpty }
+        try await waitForTestEvent { model.commentState.status == .loaded }
+        #expect(model.commentState.items.map(\.id) == [1])
+        transport.pendingDetail?.resume()
+        transport.pendingDetail = nil
+        await loading.value
+        #expect(model.commentState.status == .loaded)
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])

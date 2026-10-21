@@ -89,9 +89,8 @@ final class GalleryMessageViewModel: ObservableObject {
         unreadCount(for: selectedType) > 0
     }
 
-    /// 首次进入消息页时刷新未读数，并加载默认分类。
+    /// 首次进入消息页时加载默认分类，并同步未读状态。
     func bootstrapIfNeeded() async {
-        await refreshUnreadCounts()
         guard state(for: selectedType).status == .idle else { return }
         await refresh(type: selectedType)
     }
@@ -118,8 +117,15 @@ final class GalleryMessageViewModel: ObservableObject {
 
     /// 刷新当前选中的消息分类。
     func refreshSelectedType() async {
-        if unreadCountsFailure != nil { await refreshUnreadCounts() }
         await refresh(type: selectedType)
+    }
+
+    private func fetchUnreadSummary() async throws -> GalleryMessageUnreadCounts {
+        do { return try await service.fetchMessageUnreadCounts() }
+        catch {
+            if isGalleryMessageCancellation(error) { throw error }
+            throw GalleryMessagePersistenceError.unreadSummary(error.localizedDescription)
+        }
     }
 
     func paginationTaskID(for type: GalleryMessageType) -> String? {
@@ -162,18 +168,18 @@ final class GalleryMessageViewModel: ObservableObject {
             var first = try await service.fetchMessages(type: type, lastID: Int.max)
             try checkCurrent()
             show(first)
-            if let unreadCountsFailure { throw GalleryMessagePersistenceError.unreadSummary(unreadCountsFailure) }
             guard await readStore.prepareSnapshot() else { throw GalleryMessagePersistenceError.unreadable }
             try checkCurrent()
-            var currentUnread = try await service.fetchMessageUnreadCounts().unreadCount(for: type)
+            var currentUnread = try await fetchUnreadSummary().unreadCount(for: type)
             try checkCurrent()
+            unreadCountsFailure = nil
             var unreadLimit = serverUnreadBeforeFetch
             if currentUnread > unreadLimit {
                 unreadLimit = currentUnread
                 first = try await service.fetchMessages(type: type, lastID: Int.max)
                 try checkCurrent()
                 show(first)
-                currentUnread = try await service.fetchMessageUnreadCounts().unreadCount(for: type)
+                currentUnread = try await fetchUnreadSummary().unreadCount(for: type)
                 try checkCurrent()
                 guard currentUnread <= unreadLimit else { throw GalleryMessagePersistenceError.changingSummary }
             }
@@ -212,6 +218,9 @@ final class GalleryMessageViewModel: ObservableObject {
             await refreshUnreadCounts()
         } catch {
             guard listGenerations[type] == generation, session == readStore.currentSession else { return }
+            if let failure = error as? GalleryMessagePersistenceError, case .unreadSummary(let reason) = failure {
+                unreadCountsFailure = reason
+            }
             let cancelled = isGalleryMessageCancellation(error)
             if state(for: type).status == .loading {
                 listStates[type] = previousState

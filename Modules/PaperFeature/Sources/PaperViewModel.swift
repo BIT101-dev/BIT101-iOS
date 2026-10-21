@@ -19,8 +19,8 @@ private extension PaperListState {
 }
 
 @MainActor
-/// 文章列表状态机。
-final class PaperListViewModel: ObservableObject {
+/// 文章集合统一维护刷新、分页、取消恢复与预览元数据。
+class PaperCollectionViewModel: ObservableObject {
     @Published private(set) var state = PaperListState()
     @Published private(set) var previewMetadataByPaperID: [Int: PaperPreviewMetadata] = [:]
     @Published private(set) var previewFailedIDs: Set<Int> = []
@@ -29,6 +29,7 @@ final class PaperListViewModel: ObservableObject {
     @Published var alert: AppAlert?
 
     private let service: any PaperListServicing
+    private let requiresSearchText: Bool
     private var hasBootstrapped = false
     private var pageQuery: (search: String?, order: PaperSortOrder)?
     private var previewLoadingIDs: Set<Int> = []
@@ -36,8 +37,9 @@ final class PaperListViewModel: ObservableObject {
     private var refreshTask: Task<Void, Never>?
     private var refreshPreviousState: (state: PaperListState, metadata: [Int: PaperPreviewMetadata], failures: Set<Int>)?
 
-    init(service: any PaperListServicing) {
+    init(service: any PaperListServicing, requiresSearchText: Bool) {
         self.service = service
+        self.requiresSearchText = requiresSearchText
     }
 
     deinit { refreshTask?.cancel() }
@@ -84,6 +86,7 @@ final class PaperListViewModel: ObservableObject {
     private func performRefresh() async {
         let generation = refreshGeneration
         let query = (search: trimmedSearchText, order: selectedOrder)
+        guard !requiresSearchText || query.search != nil else { reset(); return }
         let previousState = state
         let previousMetadata = previewMetadataByPaperID
         let previousFailures = previewFailedIDs
@@ -92,7 +95,7 @@ final class PaperListViewModel: ObservableObject {
         previewFailedIDs = []
         previewLoadingIDs = []
         defer { if refreshGeneration == generation { refreshPreviousState = nil } }
-        if state.items.isEmpty {
+        if requiresSearchText || state.items.isEmpty {
             state.prepareForRefresh()
         } else {
             state.status = .loading
@@ -127,18 +130,14 @@ final class PaperListViewModel: ObservableObject {
                 previewFailedIDs = previousFailures
                 return
             }
-            if previousState.items.isEmpty {
-                state.status = .failed(error.localizedDescription)
-                state.canLoadMore = false
-                alert = AppAlert(title: "加载文章失败", message: error.localizedDescription)
-            } else {
-                state = previousState
-                previewMetadataByPaperID = previousMetadata
-                previewFailedIDs = previousFailures
-                state.status = .loaded
-                state.isLoadingMore = false
-                alert = AppAlert(title: "刷新文章失败", message: error.localizedDescription)
-            }
+            state = previousState
+            previewMetadataByPaperID = previousMetadata
+            previewFailedIDs = previousFailures
+            state.status = previousState.items.isEmpty ? .failed(error.localizedDescription) : .loaded
+            state.isLoadingMore = false
+            if previousState.items.isEmpty && !requiresSearchText { state.canLoadMore = false }
+            let title = requiresSearchText ? "搜索文章失败" : previousState.items.isEmpty ? "加载文章失败" : "刷新文章失败"
+            alert = AppAlert(title: title, message: error.localizedDescription)
         }
     }
 
@@ -197,179 +196,8 @@ final class PaperListViewModel: ObservableObject {
         previewMetadataByPaperID[paperID]
     }
 
-    private var trimmedSearchText: String? {
-        normalizedPaperSearchText(searchText)
-    }
-}
-
-@MainActor
-/// 文章搜索状态机。
-///
-/// 搜索页维护独立的文章列表状态，主列表保留首页当前列表。
-final class PaperSearchViewModel: ObservableObject {
-    @Published private(set) var state = PaperListState()
-    @Published private(set) var previewMetadataByPaperID: [Int: PaperPreviewMetadata] = [:]
-    @Published private(set) var previewFailedIDs: Set<Int> = []
-    @Published var selectedOrder: PaperSortOrder = .newest
-    @Published var searchText = ""
-    @Published var alert: AppAlert?
-
-    private let service: any PaperListServicing
-    private var previewLoadingIDs: Set<Int> = []
-    private var pageQuery: (search: String, order: PaperSortOrder)?
-    @Published private(set) var searchGeneration = 0
-    private var searchTask: Task<Void, Never>?
-    private var searchPreviousState: (state: PaperListState, metadata: [Int: PaperPreviewMetadata], failures: Set<Int>)?
-
-    init(service: any PaperListServicing) {
-        self.service = service
-    }
-
-    deinit { searchTask?.cancel() }
-
-    func cancelSearchOperations() {
-        searchTask?.cancel(); searchTask = nil
-        searchGeneration &+= 1
-        previewLoadingIDs.removeAll()
-        if let searchPreviousState {
-            state = searchPreviousState.state
-            previewMetadataByPaperID = searchPreviousState.metadata
-            previewFailedIDs = searchPreviousState.failures
-        }
-        searchPreviousState = nil
-        if state.status == .loading { state.status = state.items.isEmpty ? .idle : .loaded }
-        state.isLoadingMore = false
-    }
-
-    @discardableResult
-    func enqueueSearch() -> Task<Void, Never> {
-        cancelSearchOperations()
-        let generation = searchGeneration
-        let task = Task { [weak self] in
-            guard let self, self.searchGeneration == generation, !Task.isCancelled else { return }
-            await self.executeSearch()
-            if self.searchGeneration == generation { self.searchTask = nil }
-        }
-        searchTask = task
-        return task
-    }
-
-    func performSearch() async {
-        let task = enqueueSearch()
-        await withTaskCancellationHandler(operation: { await task.value }, onCancel: { task.cancel() })
-    }
-
-    private func executeSearch() async {
-        let generation = searchGeneration
-        guard let trimmedSearchText else {
-            reset()
-            return
-        }
-        let query = (search: trimmedSearchText, order: selectedOrder)
-
-        let previousState = state
-        let previousMetadata = previewMetadataByPaperID
-        let previousFailures = previewFailedIDs
-        searchPreviousState = (previousState, previousMetadata, previousFailures)
-        previewMetadataByPaperID = [:]
-        previewFailedIDs = []
-        previewLoadingIDs = []
-        defer { if searchGeneration == generation { searchPreviousState = nil } }
-        state.prepareForRefresh()
-
-        do {
-            let papers = try await service.fetchPapers(
-                search: query.search,
-                order: query.order,
-                page: 0
-            )
-            try Task.checkCancellation()
-            guard searchGeneration == generation else { return }
-            state.applyFirstPage(papers)
-            pageQuery = query
-            state.status = .loaded
-        } catch {
-            guard searchGeneration == generation else { return }
-            if TaskCancellation.matches(error) {
-                var restoredState = previousState
-                restoredState.isLoadingMore = false
-                if !restoredState.items.isEmpty {
-                    restoredState.status = .loaded
-                } else if case .loading = restoredState.status {
-                    restoredState.status = .idle
-                }
-                state = restoredState
-                previewMetadataByPaperID = previousMetadata
-                previewFailedIDs = previousFailures
-                return
-            }
-            state = previousState
-            previewMetadataByPaperID = previousMetadata
-            previewFailedIDs = previousFailures
-            state.status = previousState.items.isEmpty ? .failed(error.localizedDescription) : .loaded
-            state.isLoadingMore = false
-            alert = AppAlert(title: "搜索文章失败", message: error.localizedDescription)
-        }
-    }
-
-    func loadMoreIfNeeded(currentPaper: PaperSummary?) async {
-        guard let currentPaper, let query = pageQuery else { return }
-        let generation = searchGeneration
-        guard state.status == .loaded, state.shouldLoadMore(currentID: currentPaper.id) else { return }
-
-        state.isLoadingMore = true
-        defer {
-            if searchGeneration == generation {
-                state.isLoadingMore = false
-            }
-        }
-
-        do {
-            let previousCount = state.items.count
-            var progress = CommunityPageProgress<Int>()
-            repeat {
-                try Task.checkCancellation()
-                state.isLoadingMore = true
-                let papers = try await service.fetchPapers(search: query.search, order: query.order, page: state.nextPage)
-                try Task.checkCancellation()
-                guard searchGeneration == generation else { return }
-                try progress.record(papers.map(\.id), knownIDs: state.pagedItems.ids)
-                state.appendPage(papers)
-            } while state.canLoadMore && state.items.count == previousCount
-        } catch {
-            guard searchGeneration == generation else { return }
-            if TaskCancellation.matches(error) { return }
-            alert = AppAlert(title: "加载更多失败", message: error.localizedDescription)
-        }
-    }
-
-    /// 搜索结果页按需请求文章详情，并缓存作者预览元数据。
-    func loadPreviewMetadataIfNeeded(for paper: PaperSummary) async {
-        guard previewMetadataByPaperID[paper.id] == nil else { return }
-        guard !previewLoadingIDs.contains(paper.id) else { return }
-
-        let generation = searchGeneration
-        previewLoadingIDs.insert(paper.id)
-        previewFailedIDs.remove(paper.id)
-        defer { if searchGeneration == generation { previewLoadingIDs.remove(paper.id) } }
-
-        do {
-            let metadata = try await service.fetchPreviewMetadata(id: paper.id)
-            try Task.checkCancellation()
-            guard searchGeneration == generation else { return }
-            previewMetadataByPaperID[paper.id] = metadata
-        } catch {
-            guard searchGeneration == generation, !TaskCancellation.matches(error) else { return }
-            previewFailedIDs.insert(paper.id)
-        }
-    }
-
-    func previewMetadata(for paperID: Int) -> PaperPreviewMetadata? {
-        previewMetadataByPaperID[paperID]
-    }
-
     func reset() {
-        cancelSearchOperations()
+        cancelRefreshOperations()
         previewMetadataByPaperID = [:]
         previewFailedIDs = []
         previewLoadingIDs = []
@@ -380,6 +208,27 @@ final class PaperSearchViewModel: ObservableObject {
     private var trimmedSearchText: String? {
         normalizedPaperSearchText(searchText)
     }
+}
+
+@MainActor
+final class PaperListViewModel: PaperCollectionViewModel {
+    init(service: any PaperListServicing) {
+        super.init(service: service, requiresSearchText: false)
+    }
+}
+
+@MainActor
+/// 搜索页持有独立集合，空查询沿搜索语义清空结果。
+final class PaperSearchViewModel: PaperCollectionViewModel {
+    var searchGeneration: Int { refreshGeneration }
+
+    init(service: any PaperListServicing) {
+        super.init(service: service, requiresSearchText: true)
+    }
+
+    func cancelSearchOperations() { cancelRefreshOperations() }
+    @discardableResult func enqueueSearch() -> Task<Void, Never> { enqueueRefresh() }
+    func performSearch() async { await refresh() }
 }
 
 #if os(iOS)
@@ -432,20 +281,17 @@ final class PaperDetailViewModel: ObservableObject {
         paperStatus = .loading
         resetCommentStateForRefresh()
 
-        async let paperResult = loadResult { [self] in
-            try await self.service.fetchPaper(id: self.initialPaper.id)
-        }
-        async let commentResult = loadResult { [self, commentOrder] in
-            try await self.service.fetchComments(paperID: self.initialPaper.id, order: commentOrder, page: nil)
-        }
-
-        let resolvedPaperResult = await paperResult
-        guard refreshGeneration == generation else { return }
-        handlePaperResult(resolvedPaperResult, previousStatus: previousPaperStatus, likeRevisionAtStart: likeRevisionAtStart)
-
-        let resolvedCommentResult = await commentResult
-        guard commentRefreshGeneration == commentsGeneration else { return }
-        handleCommentRefreshResult(resolvedCommentResult, previousState: previousCommentState)
+        async let paperRefresh: Void = { @MainActor [self] in
+            let result = await loadResult { [self] in try await service.fetchPaper(id: initialPaper.id) }
+            guard refreshGeneration == generation else { return }
+            handlePaperResult(result, previousStatus: previousPaperStatus, likeRevisionAtStart: likeRevisionAtStart)
+        }()
+        async let commentRefresh: Void = { @MainActor [self, commentOrder] in
+            let result = await loadResult { [self] in try await service.fetchComments(paperID: initialPaper.id, order: commentOrder, page: nil) }
+            guard commentRefreshGeneration == commentsGeneration else { return }
+            handleCommentRefreshResult(result, previousState: previousCommentState)
+        }()
+        _ = await (paperRefresh, commentRefresh)
     }
 
     func refreshComments() async {

@@ -355,6 +355,35 @@ struct ScheduleSyncTests {
         }
     }
 
+    @Test(.timeLimit(.minutes(1)), arguments: [ScheduleCacheConflictResolution.keepLocal, .useCloud])
+    func conflictChoicesPreserveIndependentRecordsThroughTheProductionRepository(resolution: ScheduleCacheConflictResolution) async throws {
+        func event(_ id: String, title: String = "DDL") -> DDLEventRecord {
+            .init(id: id, group: "main", title: title, text: "", dueAt: Date(timeIntervalSince1970: 100), done: false)
+        }
+        let local = Local()
+        var base = local.cache
+        base.primaryScheduleTitle = "base"
+        base.ddlEvents = [event("shared")]
+        local.cache.syncData.cloudSyncBaselineUserState = try ScheduleCloudStateMerge.baseline(for: base)
+        local.cache.cloudSyncBaselineAt = Date(timeIntervalSince1970: 20)
+        local.cache.cloudSyncBaselineRecordTag = "base-tag"
+        local.cache.hasUnpushedCloudChanges = true
+        local.cache.ddlEvents = [event("shared", title: "local edit"), event("local")]
+        try await local.useDiskPersistence()
+        let cloud = Cloud(remote: try record(title: "remote", updatedAt: 40,
+            manualDDLEvents: [event("shared", title: "remote edit"), event("remote")]))
+        let manager = local.manager(cloud)
+        await manager.pushLatestLocalCacheIfNeeded()
+        let resolve = try #require(local.resolutions.first)
+        await resolve(resolution)
+        #expect(Set(local.cache.ddlEvents.map(\.id)) == ["shared", "local", "remote"])
+        #expect(local.cache.ddlEvents.first { $0.id == "shared" }?.title == (resolution == .keepLocal ? "local edit" : "remote edit"))
+        #expect(await cloud.saved.count == 1)
+        let persisted = try #require(await local.persistence?.load(for: local.account.session).cacheIfReadable)
+        #expect(Set(persisted.ddlEvents.map(\.id)) == ["shared", "local", "remote"])
+        #expect(!persisted.hasUnpushedCloudChanges && persisted.cloudSyncBaselineRecordTag == "saved-tag")
+    }
+
     private func record(title: String, updatedAt: TimeInterval, tag: String = "remote-tag",
                         studentID: String = "A", version: Int = 3, recordName: String = "schedule-cache-A",
                         timeTable: [TimeSlot] = TimeSlot.default, manualEventID: String? = nil,

@@ -69,7 +69,14 @@ public final class CommunitySessionRefreshCoordinator {
         try Task.checkCancellation()
         guard current().identity == observed.identity else { throw CancellationError() }
         guard current().cookie == observed.cookie else { return }
-        if let pending, pending.identity != observed.identity { finish(pending.id, result: .failure(CancellationError())); pending.task?.cancel() }
+        try await refresh(identity: observed.identity, restore: restore)
+        guard current().identity == observed.identity else { throw CancellationError() }
+    }
+
+    /// 同账号认证共用操作，各等待者分别结束自己的请求。
+    public func refresh(identity: CommunitySessionIdentity, restore: @escaping () async throws -> Void) async throws {
+        try Task.checkCancellation()
+        if let pending, pending.identity != identity { cancel() }
         let waiter = UUID()
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
@@ -77,7 +84,7 @@ public final class CommunitySessionRefreshCoordinator {
                 if pending != nil { pending?.waiters[waiter] = continuation }
                 else {
                     let id = UUID()
-                    pending = Pending(id: id, identity: observed.identity, waiters: [waiter: continuation])
+                    pending = Pending(id: id, identity: identity, waiters: [waiter: continuation])
                     pending?.task = Task {
                         do { try await restore(); self.finish(id, result: .success(())) }
                         catch { self.finish(id, result: .failure(error)) }
@@ -86,7 +93,12 @@ public final class CommunitySessionRefreshCoordinator {
             }
         } onCancel: { Task { @MainActor in self.cancel(waiter) } }
         try Task.checkCancellation()
-        guard current().identity == observed.identity else { throw CancellationError() }
+    }
+
+    public func cancel() {
+        guard let operation = pending else { return }
+        finish(operation.id, result: .failure(CancellationError()))
+        operation.task?.cancel()
     }
 
     private func finish(_ id: UUID, result: Result<Void, any Error>) {

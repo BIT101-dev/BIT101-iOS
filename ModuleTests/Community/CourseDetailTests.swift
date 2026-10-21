@@ -8,6 +8,21 @@ import TransportCore
 
 @MainActor
 struct CourseDetailTests {
+    @Test(.timeLimit(.minutes(1))) func commentsAppearWhileCourseDetailsArePending() async throws {
+        let service = Service(), gate = Gate()
+        service.firstDetailGate = gate
+        service.commentResult = .success([Self.comment(1)])
+        let viewModel = model(service)
+        let loading = Task { await viewModel.refresh() }
+        defer { loading.cancel(); gate.resume() }
+        try await gate.waitForEntry()
+        try await waitForTestEvent { !service.commentRequests.isEmpty }
+        #expect(viewModel.commentState.status == .loaded && viewModel.commentState.items.map(\.id) == [1])
+        gate.resume()
+        await loading.value
+        #expect(viewModel.status == .loaded)
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: [false, true], [false, true])
     func uncertainLikesReadTheCommittedStateAndWaitForRecovery(comment: Bool, readFails: Bool) async {
         let service = Service(), viewModel = model(service)

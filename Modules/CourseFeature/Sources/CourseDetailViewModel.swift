@@ -202,20 +202,17 @@ final class CourseDetailViewModel: ObservableObject {
         }
         resetCommentStateForRefresh()
 
-        async let courseResult = loadResult { [self] in
-            try await self.service.fetchCourse(id: self.initialCourse.id)
-        }
-        async let commentResult = loadResult { [self] in
-            try await self.service.fetchComments(courseID: self.initialCourse.id, page: nil)
-        }
-
-        let resolvedCourseResult = await courseResult
-        guard refreshGeneration == generation else { return }
-        handleCourseResult(resolvedCourseResult, previousStatus: previousStatus, likeRevisionAtStart: likeRevisionAtStart)
-
-        let resolvedCommentResult = await commentResult
-        guard refreshGeneration == generation else { return }
-        handleCommentRefreshResult(resolvedCommentResult, previousState: previousCommentState)
+        async let courseRefresh: Void = { @MainActor [self] in
+            let result = await loadResult { [self] in try await service.fetchCourse(id: initialCourse.id) }
+            guard refreshGeneration == generation else { return }
+            handleCourseResult(result, previousStatus: previousStatus, likeRevisionAtStart: likeRevisionAtStart)
+        }()
+        async let commentRefresh: Void = { @MainActor [self] in
+            let result = await loadResult { [self] in try await service.fetchComments(courseID: initialCourse.id, page: nil) }
+            guard refreshGeneration == generation else { return }
+            handleCommentRefreshResult(result, previousState: previousCommentState)
+        }()
+        _ = await (courseRefresh, commentRefresh)
     }
 
     func loadMoreCommentsIfNeeded(currentComment: CommunityComment?) async {

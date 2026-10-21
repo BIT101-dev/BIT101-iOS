@@ -311,6 +311,43 @@ extension LoginLogicTests {
         #expect(storage.communityCredentials == owner)
     }
 
+    @Test(.timeLimit(.minutes(1))) func schoolPasswordWaitersCancelIndependently() async throws {
+        let domain = "BIT101Tests.school-password-waiters"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        for cancelFirst in [false, true] {
+            defaults.removePersistentDomain(forName: domain)
+            var prompts = 0, firstFinished = false, secondFinished = false, secondStarted = false
+            var reply: CheckedContinuation<String, Error>?
+            let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: {}, requestSchoolPassword: { _ in
+                prompts += 1
+                return try await withCheckedThrowingContinuation { reply = $0 }
+            })
+            try storage.saveLoginState(studentID: "A", password: "", fakeCookie: "cookie", communityPasswordDigest: "community")
+            func request(first: Bool) async -> Result<Void, Error> {
+                defer { if first { firstFinished = true } else { secondFinished = true } }
+                do { try await storage.prepareSchoolCredentials(); return .success(()) }
+                catch { return .failure(error) }
+            }
+            let first = Task { await request(first: true) }
+            try await waitForTestEvent { reply != nil }
+            let second = Task { secondStarted = true; return await request(first: false) }
+            defer { first.cancel(); second.cancel(); reply?.resume(throwing: CancellationError()); reply = nil }
+            try await waitForTestEvent { secondStarted }
+            if cancelFirst { first.cancel() } else { second.cancel() }
+            try await waitForTestEvent { cancelFirst ? firstFinished : secondFinished }
+            #expect(prompts == 1 && storage.currentPassword.isEmpty)
+            reply?.resume(returning: "school-password")
+            reply = nil
+            let cancelled = await (cancelFirst ? first : second).value
+            let surviving = await (cancelFirst ? second : first).value
+            if case .failure(let error) = cancelled { #expect(error is CancellationError) }
+            else { Issue.record("已取消等待者应立即结束自己的认证请求") }
+            if case .failure(let error) = surviving { Issue.record(error) }
+            #expect(prompts == 1 && storage.currentPassword == "school-password")
+        }
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func schoolPasswordPromptUsesSecureInputAndDismissesOnCancellation() async throws {
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)

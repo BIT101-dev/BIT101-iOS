@@ -349,7 +349,7 @@ public final class ScoreViewModel: ObservableObject {
     /// 使用同一个认证会话依次获取简略列表和完整详细字段。
     ///
     /// 简略结果到达后立即更新页面，详细请求完成后保存完整缓存。
-    /// 详细请求的状态文案至少展示半秒。
+    /// 状态文案随实际请求阶段更新。
     private func synchronizeScores(
         authenticatedBy challenge: BITLoginAuthenticationChallenge,
         session: AppStorageSession,
@@ -371,8 +371,9 @@ public final class ScoreViewModel: ObservableObject {
         let briefRows = try await awaitTrackedRequest(briefTask)
         guard isCurrent(session, generation: generation) else { return }
         applyRows(briefRows)
-        syncStatusText = "简略成绩同步完成"
 
+        refreshPhase = .details
+        syncStatusText = "同步详细信息中"
         let detailedRowsTask = Task { @MainActor [service = self.service] in
             try await service.fetchScores(
                 detail: true,
@@ -380,12 +381,7 @@ public final class ScoreViewModel: ObservableObject {
             )
         }
         do {
-            let detailedRows = try await awaitTrackedRequest(detailedRowsTask) {
-                try await Task.sleep(for: .milliseconds(500))
-                guard self.isCurrent(session, generation: generation) else { throw CancellationError() }
-                self.refreshPhase = .details
-                self.syncStatusText = "同步详细信息中"
-            }
+            let detailedRows = try await awaitTrackedRequest(detailedRowsTask)
             guard isCurrent(session, generation: generation) else { return }
             let scoresAreIdentical = cachedRows.map { ScoreRowComparison.rowsMatch(detailedRows, $0) } ?? false
             applyRows(detailedRows)
@@ -795,8 +791,7 @@ public final class ScoreViewModel: ObservableObject {
     }
 
     private func awaitTrackedRequest<Value: Sendable>(
-        _ task: Task<Value, Error>,
-        beforeAwait: @MainActor () async throws -> Void = {}
+        _ task: Task<Value, Error>
     ) async throws -> Value {
         let requestID = UUID()
         activeRequestID = requestID
@@ -810,7 +805,6 @@ public final class ScoreViewModel: ObservableObject {
         }
         return try await withTaskCancellationHandler {
             try Task.checkCancellation()
-            try await beforeAwait()
             let value = try await task.value
             try Task.checkCancellation()
             return value

@@ -46,7 +46,7 @@ final class LoginStorage: SchoolCredentialsProviding {
     private let credentials: any LoginCredentialsStoring
     private let clearSchoolCookies: () -> Void
     private let requestSchoolPassword: @MainActor (String) async throws -> String
-    private var schoolPasswordRequest: (owner: SchoolSessionIdentity, task: Task<Void, Error>)?
+    private let schoolPasswordRequests = CommunitySessionRefreshCoordinator()
     let communityRefreshCoordinator = CommunitySessionRefreshCoordinator()
     private var sessionGeneration = 0
     private var session = Session(studentID: "", password: "", fakeCookie: "")
@@ -143,12 +143,7 @@ final class LoginStorage: SchoolCredentialsProviding {
         let owner = schoolSessionIdentity
         guard !owner.accountIdentifier.isEmpty, !fakeCookie.isEmpty else { throw LoginServiceError.schoolCredentialsRequired }
         if !force, !currentPassword.isEmpty { return }
-        if let pending = schoolPasswordRequest, pending.owner == owner {
-            try await pending.task.value
-            try Task.checkCancellation()
-            return
-        }
-        let task = Task {
+        try await schoolPasswordRequests.refresh(identity: .init(accountIdentifier: owner.accountIdentifier, generation: owner.generation)) { [self] in
             let password = try await requestSchoolPassword(owner.accountIdentifier)
             try Task.checkCancellation()
             guard schoolSessionIdentity == owner else { throw CancellationError() }
@@ -158,10 +153,8 @@ final class LoginStorage: SchoolCredentialsProviding {
             try saveSession(updated)
             clearSchoolCookies()
         }
-        schoolPasswordRequest = (owner, task)
-        defer { if schoolPasswordRequest?.owner == owner { schoolPasswordRequest = nil } }
-        try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
         try Task.checkCancellation()
+        guard schoolSessionIdentity == owner else { throw CancellationError() }
     }
 
     /// 保存登录成功后的本地会话。
@@ -187,7 +180,7 @@ final class LoginStorage: SchoolCredentialsProviding {
         defaults.removeObject(forKey: DefaultsKey.fakeCookie)
         retireLegacyCredentials()
         if accountChanged {
-            schoolPasswordRequest?.task.cancel()
+            schoolPasswordRequests.cancel()
             clearSchoolCookies()
             sessionGeneration &+= 1
             notifyAccountChanged()
@@ -200,7 +193,7 @@ final class LoginStorage: SchoolCredentialsProviding {
     ///
     /// 这是“退出登录并保留学号”的语义，适用于远端会话失效后快速回到未登录态。
     func clearSession() {
-        schoolPasswordRequest?.task.cancel()
+        schoolPasswordRequests.cancel()
         let studentID = currentStudentID
         let revoked = defaults.string(forKey: DefaultsKey.revokedSession) == "all" ? "all" : "logout"
         defaults.set(revoked, forKey: DefaultsKey.revokedSession)
@@ -246,7 +239,7 @@ final class LoginStorage: SchoolCredentialsProviding {
 
     @discardableResult
     private func clearPersistedLoginData() -> Bool {
-        schoolPasswordRequest?.task.cancel()
+        schoolPasswordRequests.cancel()
         session = Session(studentID: "", password: "", fakeCookie: "")
         sessionReadError = nil
         defaults.set("all", forKey: DefaultsKey.revokedSession)

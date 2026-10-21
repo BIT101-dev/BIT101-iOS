@@ -397,49 +397,47 @@ public actor ScheduleCloudSyncManager {
             return
         }
 
-        switch resolution {
-        case .keepLocal:
+        do {
             var cache = currentLocalState.cache
-            cache.cloudSyncBaselineAt = conflict.remoteModifiedAt
-            cache.cloudSyncBaselineRecordTag = conflict.remoteRecordTag
-            cache.syncData.cloudSyncBaselineUserState = try? ScheduleCloudStateMerge.baseline(for: conflict.remoteCache)
-            cache.hasUnpushedCloudChanges = true
-            cache.updatedAt = ScheduleCacheTimestamp.next(
-                after: max(cache.updatedAt, conflict.remoteModifiedAt),
-                now: Date()
-            )
-            guard await local.save(cache, .cloudBaseline, conflict.account, currentLocalState.cache.updatedAt) else {
-                promptedConflictSignatures.remove(signature)
-                await publishStatus(.failed("日程同步状态保存失败，请重试同步。"), for: conflict.account)
-                return
+            if let baseline = cache.syncData.cloudSyncBaselineUserState {
+                guard let merged = try ScheduleCloudStateMerge.merge(local: ScheduleCloudSyncState(cache: cache),
+                    remote: ScheduleCloudSyncState(cache: conflict.remoteCache), baseline: baseline, resolution: resolution)
+                else { throw CocoaError(.coderReadCorrupt) }
+                merged.apply(to: &cache)
+            } else if resolution == .useCloud {
+                cache = cache.applyingCloudSyncState(from: conflict.remoteCache)
             }
-            pendingCloudConflicts[accountIdentifier] = nil
-            promptedConflictSignatures.remove(signature)
-            await pushLatestLocalCacheIfNeeded()
-        case .useCloud:
-            var cache = currentLocalState.cache.applyingCloudSyncState(from: conflict.remoteCache)
             guard cache.hasSupportedCourseSections else {
                 promptedConflictSignatures.remove(signature)
                 await publishStatus(.failed("iCloud 节次时间表与本机课程存在差异，请重新同步学校课表后重试，或选择保留本机版本。"), for: conflict.account)
                 return
             }
+            let containsLocalChanges = try !ScheduleCloudSyncState.matches(cache, conflict.remoteCache)
+            let needsUpload = resolution == .keepLocal || conflict.requiresPayloadMigration || containsLocalChanges
             cache.cloudSyncBaselineAt = conflict.remoteModifiedAt
             cache.cloudSyncBaselineRecordTag = conflict.remoteRecordTag
-            cache.syncData.cloudSyncBaselineUserState = try? ScheduleCloudStateMerge.baseline(for: conflict.remoteCache)
-            cache.hasUnpushedCloudChanges = false
-            cache.updatedAt = max(currentLocalState.cache.updatedAt, conflict.remoteCache.updatedAt)
-            guard await local.save(cache, .cloud, conflict.account, currentLocalState.cache.updatedAt) else {
+            cache.syncData.cloudSyncBaselineUserState = try ScheduleCloudStateMerge.baseline(for: conflict.remoteCache)
+            cache.hasUnpushedCloudChanges = needsUpload
+            cache.updatedAt = needsUpload
+                ? ScheduleCacheTimestamp.next(after: max(cache.updatedAt, conflict.remoteModifiedAt), now: Date())
+                : max(cache.updatedAt, conflict.remoteCache.updatedAt)
+            try Task.checkCancellation()
+            guard await local.save(cache, needsUpload ? .cloudBaseline : .cloud, conflict.account, currentLocalState.cache.updatedAt) else {
                 promptedConflictSignatures.remove(signature)
                 await publishStatus(.failed("日程同步状态保存失败，请重试同步。"), for: conflict.account)
                 return
             }
             pendingCloudConflicts[accountIdentifier] = nil
             promptedConflictSignatures.remove(signature)
-            if conflict.requiresPayloadMigration {
+            if needsUpload {
                 await pushLatestLocalCacheIfNeeded()
             } else {
                 await publishStatus(.synchronized, for: conflict.account)
             }
+        } catch {
+            promptedConflictSignatures.remove(signature)
+            await publishStatus(.failed(error.localizedDescription), for: conflict.account)
+            logError("cloud conflict resolution failed: \(describe(error))")
         }
     }
 

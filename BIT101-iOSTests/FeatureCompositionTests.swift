@@ -135,7 +135,7 @@ struct FeatureCompositionTests {
         let service = StreamingMessages(), model = GalleryMessageViewModel(service: service, readStore: store)
         await model.refreshUnreadCounts(); await model.refresh(type: .comment)
         #expect(service.cursors == [Int.max, Int.max] && service.unread == 7)
-        #expect(model.alert?.title == "加载消息失败" && store.unreadCount(for: .comment) == 0)
+        #expect(model.alert?.title == "消息状态同步受阻" && store.unreadCount(for: .comment) == 0)
         #expect(store.pendingUnreadAfterID(for: .comment) == nil)
         service.growing = false; model.alert = nil
         await model.refreshSelectedType()
