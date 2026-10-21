@@ -3,6 +3,8 @@ import ScheduleContracts
 
 public nonisolated enum ScheduleCacheLoadResult: Sendable {
     case loaded(ScheduleCache)
+    /// 有效部分供展示，本机编辑保存后提交新的完整快照。
+    case recovered(ScheduleCache)
     case missing
     case unreadable
 
@@ -15,7 +17,7 @@ public nonisolated enum ScheduleCacheLoadResult: Sendable {
 
     public var cacheIfReadable: ScheduleCache? {
         switch self {
-        case .loaded(let cache): return cache
+        case .loaded(let cache), .recovered(let cache): return cache
         case .missing: return ScheduleCache()
         case .unreadable: return nil
         }
@@ -23,6 +25,7 @@ public nonisolated enum ScheduleCacheLoadResult: Sendable {
 }
 
 public nonisolated enum ScheduleCacheSaveSource: Sendable {
+    /// 本机编辑提交用户确认的日程状态。
     case local
     case localWithoutCloudPush
     case cloud

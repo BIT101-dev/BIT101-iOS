@@ -6,6 +6,20 @@ import Testing
 
 @MainActor
 struct PaperDetailRequestTests {
+    @Test(.timeLimit(.minutes(1))) func previewOwnershipSurvivesRenewalAndTracksSignedInState() async throws {
+        let store = PaperDetailRequestStore()
+        var loads = 0
+        func load() async throws -> PaperDetail { loads += 1; return Self.detail(1) }
+        _ = try await store.preview(id: 1, credentials: credentials, load: load)
+        let renewed = CommunityCredentials(identity: credentials.identity, cookie: "renewed")
+        _ = try await store.detail(id: 1, credentials: renewed, load: load)
+        #expect(loads == 1)
+        _ = try await store.preview(id: 1, credentials: renewed, load: load)
+        let guest = CommunityCredentials(identity: credentials.identity, cookie: "")
+        _ = try await store.detail(id: 1, credentials: guest, load: load)
+        #expect(loads == 3)
+    }
+
     private let credentials = CommunityCredentials(identity: .init(accountIdentifier: "paper-preview"), cookie: "fixture")
 
     private static func detail(_ id: Int, title: String = "文章") -> PaperDetail {

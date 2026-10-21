@@ -159,21 +159,18 @@ final class GalleryPosterDetailViewModel: ObservableObject {
         posterStatus = .loading
         resetCommentStateForRefresh()
 
-        async let posterResult = loadResult { [self] in
-            try await self.service.fetchPoster(id: self.posterID)
-        }
-        async let commentResult = loadResult { [self, commentOrder] in
-            try await self.service.fetchComments(objectID: self.posterObjectID, order: commentOrder, page: nil)
-        }
-
-        let resolvedPosterResult = await posterResult
-        guard refreshGeneration == generation else { return }
-        handlePosterResult(resolvedPosterResult, previousStatus: previousPosterStatus, likeRevisionAtStart: likeRevisionAtStart,
-            subscriptionRevisionAtStart: subscriptionRevisionAtStart)
-
-        let resolvedCommentResult = await commentResult
-        guard commentRefreshGeneration == commentsGeneration else { return }
-        handleCommentRefreshResult(resolvedCommentResult, previousState: previousCommentState)
+        async let posterRefresh: Void = { @MainActor [self] in
+            let result = await loadResult { [self] in try await service.fetchPoster(id: posterID) }
+            guard refreshGeneration == generation else { return }
+            handlePosterResult(result, previousStatus: previousPosterStatus, likeRevisionAtStart: likeRevisionAtStart,
+                subscriptionRevisionAtStart: subscriptionRevisionAtStart)
+        }()
+        async let commentRefresh: Void = { @MainActor [self, commentOrder] in
+            let result = await loadResult { [self] in try await service.fetchComments(objectID: posterObjectID, order: commentOrder, page: nil) }
+            guard commentRefreshGeneration == commentsGeneration else { return }
+            handleCommentRefreshResult(result, previousState: previousCommentState)
+        }()
+        _ = await (posterRefresh, commentRefresh)
     }
 
     /// 仅刷新评论区，不重新请求帖子正文。

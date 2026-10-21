@@ -7,6 +7,38 @@ import Testing
 
 @MainActor
 struct ScheduleRecoveryTests {
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func damagedFieldsKeepSchoolSchedulesAndCloudConsentUntilLocalSave(wholeSyncBlock: Bool) async throws {
+        let files = ModuleScoreFiles(), account = AppStorageSession(accountIdentifier: "schedule-field-recovery")
+        let store = SchedulePersistenceStore(files: files, storageRoot: URL(fileURLWithPath: "/schedule-field-recovery"),
+            userStateMatches: ScheduleCloudSyncState.matches)
+        var cache = ScheduleCache()
+        cache.currentTerm = "2026-2027-1"
+        cache.iCloudSyncEnabled = false
+        let courses = try ScheduleCourseEditor.adding(.init(title: "课程", weekday: 1, weeksText: "1"),
+            to: [], term: cache.currentTerm, id: "school-course")
+        cache.courseData.store(.init(term: cache.currentTerm, firstDayString: "2026-09-07", courses: courses,
+            exams: [], updatedAt: Date(timeIntervalSince1970: 100)))
+        var root = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(cache)) as? [String: Any])
+        var course = try #require(root["courseData"] as? [String: Any])
+        course["manualFirstDayStringsByTerm"] = 7
+        root["courseData"] = course
+        var sync = try #require(root["syncData"] as? [String: Any])
+        sync["cloudSyncBaselineAt"] = "damaged date"
+        root["syncData"] = wholeSyncBlock ? 7 : sync
+        let bytes = try JSONSerialization.data(withJSONObject: root)
+        let url = store.cacheFileURL(for: account.accountStorageIdentifier)
+        try files.writeData(bytes, to: url, options: [])
+        let recovered = try #require(await store.load(for: account).cacheIfReadable)
+        #expect(recovered.currentTerm == cache.currentTerm && recovered.courses == courses)
+        #expect(recovered.iCloudSyncEnabled == false && files.storedData[url] == bytes)
+        #expect(await store.write(recovered, accountIdentifier: account.accountStorageIdentifier,
+            legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .cloud, expectedUpdatedAt: nil) == nil)
+        #expect(files.storedData[url] == bytes)
+        #expect(await store.write(recovered, accountIdentifier: account.accountStorageIdentifier,
+            legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) != nil)
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: [false, true], ["customSchedules", "sharedSchedules", "manualCourseRulesByTerm", "ddlEvents"])
     func damagedRecordsKeepTheirValidNeighborsAndOriginalBytes(structured: Bool, collection: String) async throws {
         for (defect, legacyFile) in [("invalid", false), ("duplicate", false), ("scalar", true)] {

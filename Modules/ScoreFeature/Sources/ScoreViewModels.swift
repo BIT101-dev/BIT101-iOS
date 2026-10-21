@@ -365,12 +365,13 @@ public final class ScoreViewModel: ObservableObject {
         }
         guard isCurrent(session, generation: generation) else { return }
         let cachedRows = cachedSnapshot?.rows
+        let previousRows = rows.isEmpty ? cachedRows ?? [] : rows
         let briefTask = Task { @MainActor [service = self.service] in
             try await service.fetchScores(detail: false, authenticatedBy: challenge)
         }
         let briefRows = try await awaitTrackedRequest(briefTask)
         guard isCurrent(session, generation: generation) else { return }
-        applyRows(briefRows)
+        applyRows(ScoreRowComparison.retainingDetailedFields(briefRows, from: previousRows))
 
         refreshPhase = .details
         syncStatusText = "同步详细信息中"
@@ -394,7 +395,11 @@ public final class ScoreViewModel: ObservableObject {
             }
         } catch {
             guard isCurrent(session, generation: generation) else { return }
-            if isCancellation(error) || error is ScorePersistenceError { throw error }
+            if isCancellation(error) {
+                if !previousRows.isEmpty { applyRows(previousRows) }
+                throw error
+            }
+            if error is ScorePersistenceError { throw error }
             if let cachedRows,
                ScoreRowComparison.briefRowsMatchCache(briefRows, cachedRows: cachedRows)
             {

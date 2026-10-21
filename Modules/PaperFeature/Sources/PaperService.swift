@@ -39,7 +39,6 @@ public struct PaperService {
     private let api: CommunityAPIClient<PaperServiceError>
     private let session: CommunitySession
     private let details = PaperDetailRequestStore()
-    private let previewReadValidation = CommunitySessionRefreshCoordinator()
 
 
 
@@ -85,8 +84,6 @@ public struct PaperService {
 
     /// 拉取文章列表。
     public func fetchPapers(search: String?, order: PaperSortOrder, page: Int) async throws -> [PaperSummary] {
-        try await validateAuthenticatedRead()
-        if page == 0 { details.invalidate() }
         var queryItems = [URLQueryItem(name: "page", value: String(page))]
         if let search, !search.isEmpty {
             queryItems.append(URLQueryItem(name: "search", value: search))
@@ -94,12 +91,13 @@ public struct PaperService {
         if let orderValue = order.requestValue {
             queryItems.append(URLQueryItem(name: "order", value: orderValue))
         }
-        return try await api.request(path: "papers", queryItems: queryItems, authentication: .optional)
+        let papers: [PaperSummary] = try await api.request(path: "papers", queryItems: queryItems, authentication: .optional)
+        if page == 0 { details.invalidate() }
+        return papers
     }
 
     /// 拉取单篇文章详情。
     public func fetchPaper(id: Int) async throws -> PaperDetail {
-        try await validateAuthenticatedRead()
         let credentials = session.currentCredentials
         return try await details.detail(id: id, credentials: credentials) {
             guard self.session.currentCredentials.identity == credentials.identity else { throw CancellationError() }
@@ -110,8 +108,6 @@ public struct PaperService {
     }
 
     public func fetchPreviewMetadata(id: Int) async throws -> PaperPreviewMetadata {
-        try await previewReadValidation.refresh(observed: session.currentCredentials,
-            current: { self.session.currentCredentials }, restore: { try await self.validateAuthenticatedRead() })
         let credentials = session.currentCredentials
         return try await details.preview(id: id, credentials: credentials) {
             guard self.session.currentCredentials.identity == credentials.identity else { throw CancellationError() }
@@ -121,15 +117,8 @@ public struct PaperService {
         }
     }
 
-    private func validateAuthenticatedRead() async throws {
-        if !session.fakeCookie.isEmpty {
-            try await api.requestVoid(path: "user/check", method: "GET")
-        }
-    }
-
     /// 拉取文章评论。
     public func fetchComments(paperID: Int, order: CommunityCommentOrder, page: Int?) async throws -> [CommunityComment] {
-        try await validateAuthenticatedRead()
         var queryItems = [
             URLQueryItem(name: "obj", value: "paper\(paperID)"),
             URLQueryItem(name: "order", value: order.rawValue),

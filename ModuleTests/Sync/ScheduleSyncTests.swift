@@ -8,6 +8,19 @@ import Testing
 
 @MainActor
 struct ScheduleSyncTests {
+    @Test(.timeLimit(.minutes(1))) func recoveredLocalSnapshotsWaitForLocalConfirmationBeforeCloudActivity() async throws {
+        let local = Local()
+        local.returnsRecovered = true
+        local.cache.hasUnpushedCloudChanges = true
+        let cloud = Cloud(remote: try record(title: "remote", updatedAt: 40))
+        let manager = local.manager(cloud)
+        await manager.refreshFromCloudIfNeeded()
+        await manager.pushLatestLocalCacheIfNeeded()
+        #expect(await cloud.readCount == 0)
+        #expect(await cloud.saved.isEmpty)
+        #expect(local.sources.isEmpty && local.cache.primaryScheduleTitle == "local")
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: ["id", "duplicate", "title", "text", "source", "rule", "replacement"])
     func invalidManualCloudRecordsPreserveLocalData(kind: String) async throws {
         let event = DDLEventRecord(id: kind == "id" ? "" : "ddl", group: kind == "source" ? "lexue" : "main",
@@ -228,6 +241,7 @@ struct ScheduleSyncTests {
         var sources: [ScheduleCacheSaveSource] = []
         var statuses: [ScheduleCloudSyncStatus] = []
         var failsSave = false
+        var returnsRecovered = false
         var persistence: SchedulePersistenceStore?
         var resolutions: [@Sendable (ScheduleCacheConflictResolution?) async -> Void] = []
         var conflictAccounts: [ScheduleCloudAccount] = []
@@ -241,7 +255,9 @@ struct ScheduleSyncTests {
         var store: ScheduleCloudLocalStore {
             ScheduleCloudLocalStore(
                 currentAccount: { self.account },
-                load: { session in await MainActor.run { session == self.account.session ? .loaded(self.cache) : .missing } },
+                load: { session in await MainActor.run {
+                    session == self.account.session ? (self.returnsRecovered ? .recovered(self.cache) : .loaded(self.cache)) : .missing
+                } },
                 save: { value, source, account, expected in
                     guard account == self.account, expected == nil || expected == self.cache.updatedAt,
                           !self.failsSave else { return false }
@@ -286,6 +302,7 @@ struct ScheduleSyncTests {
     private actor Cloud: ScheduleCloudTransport {
         var remote: ScheduleCloudRecord?
         var saved: [ScheduleCloudRecord] = []
+        var readCount = 0
         var readGate: CheckedContinuation<Void, Never>?
         var saveGate: CheckedContinuation<Void, Never>?
         var entered = false
@@ -320,6 +337,7 @@ struct ScheduleSyncTests {
             entered = true
         }
         func record(named name: String) async throws -> ScheduleCloudRecord {
+            readCount += 1
             if failsRead { throw URLError(.notConnectedToInternet) }
             if holdRead && !entered {
                 await withCheckedContinuation { readGate = $0; signal() }

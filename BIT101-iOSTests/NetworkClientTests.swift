@@ -47,6 +47,29 @@ private func makeTestURL(_ value: String) throws -> URL {
 
 @Suite("Network stack")
 struct NetworkClientTests {
+    @Test(.timeLimit(.minutes(1))) @MainActor func schoolResponseDecodingRetainsItsFieldPathAndUserMessage() async throws {
+        let credentials = ScoreCredentials()
+        let transport = MockHTTPTransport { request in
+            let url = try #require(request.url)
+            return (Data(#"{"required":7}"#.utf8), try #require(HTTPURLResponse(url: url, statusCode: 200,
+                httpVersion: nil, headerFields: nil)))
+        }
+        let service = ScheduleService(credentials: credentials, crypto: AppScheduleServiceCrypto(),
+            schoolSessionRestorer: AppScheduleSchoolSessionRestorer(restore: { credentials.currentStudentID }),
+            teachingCenterState: TeachingCenterSessionState(cookieStorage: try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)),
+            transport: transport)
+        do {
+            let _: [String: String] = try await service.sendJSONRequest(path: "decoding-contract")
+            Issue.record("响应类型差异应携带字段诊断")
+        } catch {
+            let failure = error as NSError
+            let underlying = try #require(failure.userInfo[NSUnderlyingErrorKey] as? DecodingError)
+            if case .typeMismatch(_, let context) = underlying { #expect(context.codingPath.map(\.stringValue) == ["required"]) }
+            else { Issue.record("诊断应保留实际字段类型差异") }
+            #expect(failure.localizedDescription == ScheduleServiceError.invalidResponse.localizedDescription)
+        }
+    }
+
     @Test("Classroom warmup and session retry preserve the requested date", .timeLimit(.minutes(1)))
     @MainActor
     func classroomRetryPreservesQueryDate() async throws {
@@ -229,9 +252,9 @@ struct NetworkClientTests {
         let accepted: Bool
     }
 
-    @Test("School network warning gates the injected transport", .timeLimit(.minutes(1)))
+    @Test("School network warning leaves the injected transport available", .timeLimit(.minutes(1)))
     @MainActor
-    func networkWarningPrecedesTransport() async throws {
+    func networkWarningKeepsTransportAvailable() async throws {
         let provider = StubNetworkPathProvider(
             snapshot: NetworkConnectionSnapshot(
                 summary: "已连接 · Wi‑Fi + 虚拟/未知接口",
@@ -271,10 +294,9 @@ struct NetworkClientTests {
             }
         }
 
-        for _ in 0 ..< 100 where coordinator.activePrompt == nil {
-            await Task.yield()
-        }
-        #expect(!transportStarted)
+        try await waitForTestEvent { coordinator.activePrompt != nil && transportStarted }
+        _ = try await task.value
+        #expect(transportStarted)
         #expect(coordinator.activePrompt?.title == "检测到可能在使用魔法")
         #expect(coordinator.activePrompt?.message == "关闭食用效果更佳～")
         #expect(coordinator.activePrompt?.actions.map(\.title) == ["知道了"])
@@ -288,7 +310,7 @@ struct NetworkClientTests {
 
     @Test(.timeLimit(.minutes(1)))
     @MainActor
-    func cancellingOneWarningWaiterKeepsTheOtherRequestWaitingForDismissal() async throws {
+    func cancelledRequestsKeepOtherRequestsAndTheWarningAvailable() async throws {
         let provider = StubNetworkPathProvider(snapshot: .init(summary: "virtual", virtualNetworkLikely: true))
         let coordinator = AppPromptCoordinator(advanceDelay: .zero)
         coordinator.markHostReady()
@@ -304,6 +326,7 @@ struct NetworkClientTests {
         let client = HTTPClient(transport: transport, networkWarningCenter: center)
         let request = URLRequest(url: AppURL.required("https://sso.bit.edu.cn/cas/login"))
         let cancelled = Task { try await client.send(request) }
+        cancelled.cancel()
         let continuing = Task { try await client.send(request) }
         defer {
             cancelled.cancel(); continuing.cancel()
@@ -312,9 +335,9 @@ struct NetworkClientTests {
             }
         }
         try await waitForTestEvent { !(coordinator.activePrompt == nil) }
-        cancelled.cancel()
         await #expect(throws: CancellationError.self) { try await cancelled.value }
-        #expect(sends == 0)
+        _ = try await continuing.value
+        #expect(sends == 1)
         #expect(coordinator.activePrompt != nil)
         coordinator.perform(try #require(coordinator.activePrompt?.actions.first), promptID: coordinator.activePrompt?.id)
         _ = try await continuing.value
@@ -959,30 +982,3 @@ private nonisolated struct EclassDecodingProbe: Decodable, Sendable {
         leftMainThread = !Thread.isMainThread
     }
 }
-
-#if !DEBUG && !BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING && !RELEASE_NETWORK_SMOKE && !ICLOUD_CROSS_DEVICE_SMOKE
-@Suite("Release runtime composition")
-@MainActor
-struct ReleaseRuntimeContractTests {
-    @Test func scoreStorageUsesTheCurrentAccount() {
-        #expect(AppFileDirectories.scoreCacheSession == AppFileDirectories.currentSession)
-        #expect(AppAccountStores.shared.scoreSession() == AppFileDirectories.currentSession)
-    }
-
-    @Test(.timeLimit(.minutes(1)))
-    func diagnosticsReceiveTheSystemNetworkPath() async throws {
-        while AppNetworkPath.state.snapshot.status == .checking { try await Task.sleep(for: .milliseconds(20)) }
-        let snapshot = AppNetworkPath.state.snapshot
-        if snapshot.status == .connected { #expect(!snapshot.interfaces.isEmpty) }
-        #expect(NetworkConnectionDescription.shared.snapshot.virtualNetworkLikely == snapshot.virtualNetworkLikely)
-        #expect(FeedbackDeviceContext.current.networkStatus == NetworkConnectionDescription.shared.current)
-    }
-
-    @Test func schoolWarningsUseTheProductionCoordinator() {
-        #expect(HTTPClient.defaultNetworkWarningCenter === NetworkMagicWarningCenter.shared)
-    }
-    @Test func feedbackIdentifiesTheReleaseBuild() {
-        #expect(AppBuildEnvironment.isDevelopment == false)
-    }
-}
-#endif

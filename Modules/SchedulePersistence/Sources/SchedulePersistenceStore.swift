@@ -14,6 +14,17 @@ public actor SchedulePersistenceStore {
     private nonisolated static let logger = Logger(subsystem: "BIT101", category: "ScheduleCache")
     private var lastReadFailure: (url: URL, summary: String)?
     private nonisolated struct CacheVersion: Decodable { let schemaVersion: Int }
+    private static let legacyBlockKeys: [String: Set<String>] = [
+        "courseData": ["storedCourseScheduleParserVersion", "primaryScheduleTitle", "currentTerm", "firstDayString",
+            "coursesUpdatedAt", "courses", "exams", "cachedCoursesByTerm", "schoolCoursesByTerm", "termSchedulesByTerm",
+            "manualFirstDayStringsByTerm", "timeTable"],
+        "ddlData": ["lexueCalendarURL", "ddlEvents", "lexueDDLCompletionByID", "ddlUpdatedAt", "ddlBeforeDay", "ddlAfterDay"],
+        "classroomData": ["selectedCampusName", "selectedCampusCode", "selectedBuildingID", "cachedClassroomCampuses",
+            "cachedClassroomBuildingsByCampusCode", "selectedClassroomSectionIDs", "isClassroomSectionFilterCustomized"],
+        "presentation": ["showSaturday", "showSunday", "showExamInfo", "scheduleDisplayMode", "scheduleCardContentModeV2",
+            "showCourseLiveActivityReminder", "courseLiveActivityLeadMinutes"],
+        "syncData": ["iCloudSyncEnabled", "cloudSyncBaselineAt", "cloudSyncBaselineRecordTag", "hasUnpushedCloudChanges"],
+    ]
 
     public init(files: any AppFileService, storageRoot: URL, userStateMatches: @escaping @Sendable (ScheduleCache, ScheduleCache) throws -> Bool) {
         self.files = files
@@ -66,7 +77,7 @@ public actor SchedulePersistenceStore {
         let currentURL = cacheFileURL(for: accountIdentifier)
         let currentResult = readCacheFile(at: currentURL)
         switch currentResult {
-        case .loaded, .unreadable:
+        case .loaded, .recovered, .unreadable:
             return currentResult
         case .missing:
             break
@@ -90,13 +101,14 @@ public actor SchedulePersistenceStore {
             if let failure = lastReadFailure, failure.url == url {
                 Self.logger.error("课表缓存重建：\(failure.summary, privacy: .public)")
             }
+            let recovered = result.isUnreadable
             guard var cache = result.cacheIfReadable ?? Self.resetDamagedBlocks(data) else { return .unreadable }
             if cache.currentTerm.isEmpty, let snapshot = cache.termSchedulesByTerm.values
                 .filter({ $0.hasDisplayableData && $0.firstDay != nil })
                 .sorted(by: { $0.updatedAt == $1.updatedAt ? $0.term > $1.term : $0.updatedAt > $1.updatedAt }).first {
                 cache.currentTerm = snapshot.term
             }
-            return .loaded(cache)
+            return recovered ? .recovered(cache) : .loaded(cache)
         } catch {
             if AppFileSystem.isMissingFile(error) { return .missing }
             let failure = error as NSError
@@ -107,17 +119,28 @@ public actor SchedulePersistenceStore {
         }
     }
 
-    /// 各数据块独立读取，异常块使用默认值。
+    private nonisolated static func admittedRoot(_ data: Data) -> [String: Any]? {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        if root["schemaVersion"] == nil {
+            guard Set(root.keys).isDisjoint(with: legacyBlockKeys.keys) else { return nil }
+            let known = legacyBlockKeys.values.reduce(into: Set(["updatedAt"])) { $0.formUnion($1) }
+                .union(["customSchedules", "sharedSchedules", "manualCourseRulesByTerm"])
+            guard root.isEmpty || !Set(root.keys).isDisjoint(with: known) else { return nil }
+        }
+        return root
+    }
+
+    /// 数据块按字段和记录恢复，原始字节由本机保存决策承接。
     private nonisolated static func resetDamagedBlocks(_ data: Data) -> ScheduleCache? {
-        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+        guard let root = admittedRoot(data),
               let defaults = try? JSONSerialization.jsonObject(with: makeEncoder().encode(ScheduleCache())) as? [String: Any]
-        else { return ScheduleCache() }
+        else { return nil }
         let structured = root["schemaVersion"] != nil
         if structured {
             guard let version = try? makeDecoder().decode(CacheVersion.self, from: data),
                   version.schemaVersion == ScheduleCache.schemaVersion else { return nil }
         }
-        func block(_ name: String, legacyKeys: Set<String>) -> ScheduleCache? {
+        func block(_ name: String) -> ScheduleCache? {
             var object: [String: Any]
             if structured {
                 object = defaults
@@ -133,11 +156,42 @@ public actor SchedulePersistenceStore {
                     object[name] = ddl
                 }
             } else {
-                object = root.filter { legacyKeys.contains($0.key) }
+                object = root.filter { legacyBlockKeys[name, default: []].contains($0.key) }
                 if name == "ddlData" { object.removeValue(forKey: "ddlEvents") }
             }
-            guard let bytes = try? JSONSerialization.data(withJSONObject: object) else { return nil }
-            return decodeCache(bytes).cacheIfReadable
+            func decoded(_ fields: [String: Any]) -> ScheduleCache? {
+                var candidate = object
+                if structured { candidate[name] = fields } else { candidate = fields }
+                guard let bytes = try? JSONSerialization.data(withJSONObject: candidate) else { return nil }
+                return decodeCache(bytes).cacheIfReadable
+            }
+            guard let fields = structured ? object[name] as? [String: Any] : object else { return nil }
+            if let result = decoded(fields) { return result }
+            var accepted = structured ? defaults[name] as? [String: Any] ?? [:] : [:]
+            let first = ["timeTable", "storedCourseScheduleParserVersion", "currentTerm", "firstDayString", "coursesUpdatedAt", "archivedTerms"]
+            for key in first + fields.keys.sorted().filter({ !first.contains($0) }) {
+                guard let value = fields[key] else { continue }
+                func accepts(_ value: Any) -> Bool {
+                    var candidate = accepted
+                    candidate[key] = value
+                    return decoded(candidate) != nil
+                }
+                if accepts(value) { accepted[key] = value }
+                else if let entries = value as? [String: Any] {
+                    var kept: [String: Any] = [:]
+                    for entry in entries.keys.sorted() {
+                        var candidate = kept
+                        candidate[entry] = entries[entry]
+                        if accepts(candidate) { kept = candidate }
+                    }
+                    if accepts(kept) { accepted[key] = kept }
+                } else if key != "timeTable", let values = value as? [Any] {
+                    var kept: [Any] = []
+                    for entry in values where accepts(kept + [entry]) { kept.append(entry) }
+                    if accepts(kept) { accepted[key] = kept }
+                }
+            }
+            return decoded(accepted)
         }
         func records<Record: Decodable & Identifiable>(_ raw: Any?, as type: Record.Type,
             valid: (Record) -> Bool) -> [Record] {
@@ -151,9 +205,7 @@ public actor SchedulePersistenceStore {
             }
         }
         var cache = ScheduleCache()
-        cache.courseData = block("courseData", legacyKeys: ["storedCourseScheduleParserVersion", "primaryScheduleTitle",
-            "currentTerm", "firstDayString", "coursesUpdatedAt", "courses", "exams", "cachedCoursesByTerm",
-            "schoolCoursesByTerm", "termSchedulesByTerm", "manualFirstDayStringsByTerm", "timeTable"])?.courseData ?? cache.courseData
+        cache.courseData = block("courseData")?.courseData ?? cache.courseData
         let course = structured ? root["courseData"] as? [String: Any] ?? [:] : root
         cache.customSchedules = records(course["customSchedules"], as: CustomScheduleRecord.self, valid: { $0.hasValidPlacement })
         cache.sharedSchedules = records(course["sharedSchedules"], as: SharedScheduleRecord.self, valid: { record in
@@ -161,15 +213,13 @@ public actor SchedulePersistenceStore {
             probe.sharedSchedules = [record]
             return probe.isValidForPersistence
         })
-        cache.ddlData = block("ddlData", legacyKeys: ["lexueCalendarURL", "ddlEvents", "lexueDDLCompletionByID", "ddlUpdatedAt",
-            "ddlBeforeDay", "ddlAfterDay"])?.ddlData ?? cache.ddlData
-        cache.classroomData = block("classroomData", legacyKeys: ["selectedCampusName", "selectedCampusCode", "selectedBuildingID",
-            "cachedClassroomCampuses", "cachedClassroomBuildingsByCampusCode", "selectedClassroomSectionIDs",
-            "isClassroomSectionFilterCustomized"])?.classroomData ?? cache.classroomData
-        cache.presentation = block("presentation", legacyKeys: ["showSaturday", "showSunday", "showExamInfo", "scheduleDisplayMode",
-            "scheduleCardContentModeV2", "showCourseLiveActivityReminder", "courseLiveActivityLeadMinutes"])?.presentation ?? cache.presentation
-        cache.syncData = block("syncData", legacyKeys: ["iCloudSyncEnabled", "cloudSyncBaselineAt", "cloudSyncBaselineRecordTag",
-            "hasUnpushedCloudChanges"])?.syncData ?? cache.syncData
+        cache.ddlData = block("ddlData")?.ddlData ?? cache.ddlData
+        cache.classroomData = block("classroomData")?.classroomData ?? cache.classroomData
+        cache.presentation = block("presentation")?.presentation ?? cache.presentation
+        cache.syncData = block("syncData")?.syncData ?? cache.syncData
+        let rawSync = structured ? root["syncData"] as? [String: Any] ?? [:] : root
+        let consent = rawSync["iCloudSyncEnabled"].flatMap { try? JSONSerialization.data(withJSONObject: $0, options: .fragmentsAllowed) }
+        cache.iCloudSyncEnabled = consent.flatMap { try? makeDecoder().decode(Bool.self, from: $0) } ?? false
         let ddl = structured ? root["ddlData"] as? [String: Any] ?? [:] : root
         cache.ddlEvents = records(ddl["ddlEvents"], as: DDLEventRecord.self, valid: { $0.hasValidRecord })
         for (term, values) in (course["manualCourseRulesByTerm"] as? [String: Any] ?? [:]) {
@@ -196,6 +246,7 @@ public actor SchedulePersistenceStore {
             onFailure("decode.sizeLimit")
             return .unreadable
         }
+        guard admittedRoot(data) != nil else { onFailure("decode.root"); return .unreadable }
         do {
             return .loaded(try Self.makeDecoder().decode(ScheduleCache.self, from: data))
         } catch {
@@ -271,28 +322,34 @@ public actor SchedulePersistenceStore {
         let url = cacheFileURL(for: accountIdentifier)
         let directory = url.deletingLastPathComponent()
         let currentResult = readCacheFile(at: url)
+        if case .recovered = currentResult, source != .local { return nil }
         guard currentResult.allowsWrite else {
             Self.logger.error("保留无法读取的课表缓存，跳过保存")
             return nil
         }
         var storedUpdatedAt = Date.distantPast
         var storedCache: ScheduleCache?
-        if case .loaded(let currentCache) = currentResult {
+        switch currentResult {
+        case .loaded(let currentCache), .recovered(let currentCache):
             storedUpdatedAt = currentCache.updatedAt
             storedCache = currentCache
+        case .missing, .unreadable: break
         }
         if case .missing = currentResult,
            legacyAccountIdentifier != accountIdentifier
         {
             let legacyURL = cacheFileURL(for: legacyAccountIdentifier)
             let legacyResult = readCacheFile(at: legacyURL)
+            if case .recovered = legacyResult, source != .local { return nil }
             guard legacyResult.allowsWrite else {
                 Self.logger.error("保留无法读取的旧版课表缓存，跳过保存")
                 return nil
             }
-            if case .loaded(let legacyCache) = legacyResult {
+            switch legacyResult {
+            case .loaded(let legacyCache), .recovered(let legacyCache):
                 storedUpdatedAt = legacyCache.updatedAt
                 storedCache = legacyCache
+            case .missing, .unreadable: break
             }
         }
         if let expectedUpdatedAt, expectedUpdatedAt != storedUpdatedAt {

@@ -183,6 +183,7 @@ private struct PaperDetailViewScene: View {
         .refreshable {
                     interactionEvidence?("interaction.PaperDetailViewScene.refreshable", "refresh")
 
+            media.retryFailedImages()
             await viewModel.refreshAll()
         }
         .navigationTitle("文章详情")

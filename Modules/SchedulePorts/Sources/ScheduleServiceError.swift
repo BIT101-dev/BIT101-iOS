@@ -21,6 +21,15 @@ public nonisolated enum ScheduleServiceError: LocalizedError {
     case eclassAuthenticationFailed
     case schoolResponse(String)
 
+    /// 页面文案与原始解析原因共同进入标准 NSError 链路。
+    public func caused(by error: any Error) -> NSError {
+        let failure = self as NSError
+        return NSError(domain: failure.domain, code: failure.code, userInfo: failure.userInfo.merging([
+            NSUnderlyingErrorKey: error, NSLocalizedDescriptionKey: failure.localizedDescription,
+            NSDebugDescriptionErrorKey: String(describing: error)
+        ]) { _, value in value })
+    }
+
     public var isUnpublishedCourseSchedule: Bool {
         guard case let .schoolResponse(message) = self else { return false }
         return message.contains("课表未发布") || message.contains("课表尚未发布")

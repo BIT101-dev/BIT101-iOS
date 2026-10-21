@@ -16,6 +16,28 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct ScoreFeatureTests {
+    @Test(.timeLimit(.minutes(1))) func cancelledDetailsKeepThePriorCompleteSnapshotVisible() async throws {
+        let service = CancellableScoreService(stage: "details")
+        let (model, cache) = try makeViewModel(service: service)
+        defer { clearPreferences() }
+        let headers = ["课程编号", "课程名称", "成绩", "学分", "开课学期", "平均分", "本人成绩在班级中占"]
+        let original = ScoreRow(index: 0, headers: headers, values: ["MATH", "数学", "90", "4", "term", "82.5", "1/20"])
+        let briefHeaders = Array(headers.prefix(5))
+        service.briefRows = [ScoreRow(index: 0, headers: briefHeaders, values: ["MATH", "数学", "90", "4", "term"]),
+            ScoreRow(index: 1, headers: briefHeaders, values: ["NEW", "新课程", "85", "2", "term"])]
+        #expect(await cache.saveDetailed(rows: [original]) != nil)
+        await model.restoreCachedDataIfNeeded()
+        let loading = Task { await model.refresh() }
+        defer { loading.cancel() }
+        try await service.waitUntilStarted()
+        #expect(model.rows.first?.averageScore == "82.5" && model.rows.first?.classRank == "1/20")
+        #expect(model.rows.count == 2)
+        loading.cancel()
+        await loading.value
+        #expect(model.rows == [original] && model.alert == nil && model.refreshPhase == .idle)
+        #expect(try await cache.loadSnapshot()?.rows == [original])
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func detailedFailureKeepsNewBriefScores(startFailed: Bool) async throws {
         let defaults = try #require(UserDefaults(suiteName: "BIT101ModulesTests.score"))
@@ -654,6 +676,7 @@ struct ScoreFeatureTests {
 
     private final class CancellableScoreService: ScoreListServicing {
         let stage: String
+        var briefRows: [ScoreRow] = []
         let cancelled = OSAllocatedUnfairLock(initialState: false)
         private var started = false
         private let challenge = BITLoginAuthenticationChallenge(challengeID: "cancel-test", accessToken: "test-token",
@@ -676,7 +699,7 @@ struct ScoreFeatureTests {
         }
         func fetchScores(detail: Bool, authenticatedBy challenge: BITLoginAuthenticationChallenge) async throws -> [ScoreRow] {
             if stage == (detail ? "details" : "summary") { try await suspend() }
-            return []
+            return detail ? [] : briefRows
         }
         func submitScoreSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { challenge }
     }

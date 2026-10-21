@@ -82,7 +82,7 @@ enum ScheduleWidgetExporter {
         let result = await ScheduleCacheStore.loadResultAsync(for: session)
         guard isCurrent(session: session, generation: generation) else { return }
         switch result {
-        case .loaded(let cache):
+        case .loaded(let cache), .recovered(let cache):
             await export(cache: cache, session: session, generation: generation)
         case .missing:
             await export(cache: ScheduleCache(), session: session, generation: generation)

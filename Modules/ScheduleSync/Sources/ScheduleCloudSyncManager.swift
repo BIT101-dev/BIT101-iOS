@@ -730,6 +730,7 @@ public actor ScheduleCloudSyncManager {
         }
         guard current == account, !Task.isCancelled else { return nil }
         let result = await local.load(account.session)
+        if case .recovered = result { return nil }
         guard let cache = result.cacheIfReadable, cache.iCloudSyncEnabled,
               await local.currentAccount() == account, !Task.isCancelled else { return nil }
         return LocalCloudState(cache: cache, account: account)

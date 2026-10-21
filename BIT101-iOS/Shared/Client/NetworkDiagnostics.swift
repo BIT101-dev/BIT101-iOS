@@ -26,23 +26,9 @@ final class NetworkMagicWarningCenter {
     private var lastShownAtByScope: [String: Date] = [:]
     private var lastPathSummaryByScope: [String: String] = [:]
     private var activeWarningTask: Task<Void, Never>?
-    private var warningWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
 
     deinit {
         activeWarningTask?.cancel()
-        warningWaiters.values.forEach { $0.resume() }
-    }
-
-    private func waitForActiveWarning() async {
-        let waiterID = UUID()
-        await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
-                guard !Task.isCancelled, activeWarningTask != nil else { continuation.resume(); return }
-                warningWaiters[waiterID] = continuation
-            }
-        } onCancel: { [weak self] in
-            Task { @MainActor in self?.warningWaiters.removeValue(forKey: waiterID)?.resume() }
-        }
     }
 
     init(
@@ -75,9 +61,7 @@ final class NetworkMagicWarningCenter {
     func consider(url: URL?) async -> Bool {
         guard !Task.isCancelled else { return false }
         guard let host = url?.host?.lowercased(), !Self.isBIT101Host(host) else { return false }
-        if activeWarningTask != nil {
-            await waitForActiveWarning()
-        }
+        guard activeWarningTask == nil else { return false }
         guard !Task.isCancelled else { return false }
         let snapshot = pathProvider.snapshot
         guard snapshot.virtualNetworkLikely else { return false }
@@ -123,11 +107,7 @@ final class NetworkMagicWarningCenter {
             }
             guard let self else { return }
             self.activeWarningTask = nil
-            let waiters = self.warningWaiters.values
-            self.warningWaiters.removeAll()
-            waiters.forEach { $0.resume() }
         }
-        await waitForActiveWarning()
 #endif
         return true
     }
@@ -202,7 +182,8 @@ nonisolated struct NetworkDiagnosticRecord: Codable, Identifiable, Equatable, Se
 
 actor NetworkDiagnosticStore {
     static let shared = NetworkDiagnosticStore()
-    private var records: [(owner: SchoolSessionIdentity, record: NetworkDiagnosticRecord)] = []
+    private typealias Entry = (owner: SchoolSessionIdentity, record: NetworkDiagnosticRecord, failed: Bool)
+    private var records: [Entry] = []
     private let currentIdentity: @MainActor @Sendable () -> SchoolSessionIdentity
 
     init(currentIdentity: @escaping @MainActor @Sendable () -> SchoolSessionIdentity = { AppAccountSession.storage.schoolSessionIdentity }) {
@@ -212,6 +193,7 @@ actor NetworkDiagnosticStore {
     func record(owner: SchoolSessionIdentity, request: URLRequest, data: Data?, response: URLResponse?, error: Error?, elapsed: TimeInterval) async {
         guard owner == (await currentIdentity()) else { return }
         guard request.url?.host?.lowercased() != "feedback.aihelpme.dev" else { return }
+        records.removeAll { $0.owner != owner }
         let http = response as? HTTPURLResponse
         let headers = http?.allHeaderFields.reduce(into: [String: String]()) { result, item in
             result[String(describing: item.key)] = String(describing: item.value)
@@ -225,25 +207,41 @@ actor NetworkDiagnosticStore {
             guard let text else { return "[非文本响应，\(data.count) 字节]" }
             return text + (truncated ? "\n[响应正文已按诊断大小限制截取]" : "")
         }
+        let diagnosticError = error?.localizedDescription ?? Self.authenticationFailure(in: data, url: request.url)
+        let failed = (http?.statusCode ?? 200) >= 400
+            || (error.map { !TaskCancellation.matches($0) } ?? (diagnosticError != nil))
         records.append((owner, NetworkDiagnosticRecord(
             id: UUID(), occurredAt: Date(), method: request.httpMethod ?? "GET",
             url: request.url?.absoluteString ?? "", statusCode: http?.statusCode,
             elapsedMilliseconds: Int(elapsed * 1_000),
-            error: error?.localizedDescription ?? Self.authenticationFailure(in: data, url: request.url),
+            error: diagnosticError,
             responseHeaders: headers, responseBody: body
-        )))
-        records = Array(records.suffix(20))
+        ), failed))
+        records = prioritized(records, limit: 20)
     }
 
     func clear() { records.removeAll() }
 
-    private func currentRecords() async -> [NetworkDiagnosticRecord] {
-        let owner = await currentIdentity()
-        records.removeAll { $0.owner != owner }
-        return records.map(\.record)
+    private func prioritized(_ entries: [Entry], limit: Int) -> [Entry] {
+        let failures = entries.indices.reversed().filter { entries[$0].failed }
+        var selected = Array(entries.indices.suffix(max(1, limit / 2)))
+        for index in failures where selected.count < limit && !selected.contains(index) { selected.append(index) }
+        for index in failures {
+            for neighbor in [index - 1, index + 1] where entries.indices.contains(neighbor) {
+                if selected.count < limit && !selected.contains(neighbor) { selected.append(neighbor) }
+            }
+        }
+        for index in entries.indices.reversed() where selected.count < limit && !selected.contains(index) { selected.append(index) }
+        return selected.sorted().map { entries[$0] }
     }
 
-    func recent() async -> [NetworkDiagnosticRecord] { Array(await currentRecords().suffix(10)) }
+    private func currentRecords(limit: Int) async -> [NetworkDiagnosticRecord] {
+        let owner = await currentIdentity()
+        records.removeAll { $0.owner != owner }
+        return prioritized(records, limit: limit).map(\.record)
+    }
+
+    func recent() async -> [NetworkDiagnosticRecord] { await currentRecords(limit: 10) }
 
     /// 统一认证轮询以 HTTP 200 返回业务失败，诊断保留服务端原因。
     private static func authenticationFailure(in data: Data?, url: URL?) -> String? {
@@ -266,7 +264,7 @@ actor NetworkDiagnosticStore {
             "jxzxehallapp.bit.edu.cn"
         ])
 
-        for record in await currentRecords().reversed() {
+        for record in await currentRecords(limit: 20).reversed() {
             let bodyIndicatesFailure = record.responseBody?.localizedCaseInsensitiveContains("error") == true
                 || record.responseBody?.localizedCaseInsensitiveContains("certificate") == true
             let failed = record.error != nil || (record.statusCode ?? 200) >= 400 || bodyIndicatesFailure

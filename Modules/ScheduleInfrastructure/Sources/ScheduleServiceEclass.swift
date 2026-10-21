@@ -232,10 +232,7 @@ extension ScheduleService {
         let result: Response
         do { result = try decoder.decode(Response.self, from: data) }
         catch {
-            let failure = ScheduleServiceError.invalidResponse as NSError
-            throw NSError(domain: failure.domain, code: failure.code,
-                userInfo: failure.userInfo.merging([NSUnderlyingErrorKey: error,
-                    NSLocalizedDescriptionKey: failure.localizedDescription]) { _, value in value })
+            throw ScheduleServiceError.invalidResponse.caused(by: error)
         }
         try Task.checkCancellation()
         return result

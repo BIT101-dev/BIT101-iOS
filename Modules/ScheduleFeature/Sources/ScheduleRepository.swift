@@ -96,10 +96,13 @@ public final class ScheduleRepository: ObservableObject {
         guard !Task.isCancelled, generation == accountGeneration, account == session(),
               request == loadGeneration, localRevision == revision else { return false }
         switch result {
-        case .loaded(let value):
+        case .loaded(let value), .recovered(let value):
             _ = await reconcile(with: value)
             guard !Task.isCancelled, generation == accountGeneration, account == session(), request == loadGeneration else { return false }
             isWritable = true
+            if case .recovered = result {
+                notice = .informational(title: "日程已部分恢复", message: "可用日程继续展示。请核对内容，保存本机编辑后确认恢复结果。")
+            }
         case .missing:
             _ = await reconcile(with: ScheduleCache())
             guard !Task.isCancelled, generation == accountGeneration, account == session(), request == loadGeneration else { return false }

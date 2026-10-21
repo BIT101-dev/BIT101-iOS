@@ -15,7 +15,7 @@ import CoreFoundation
 private nonisolated enum ScheduleJSONResponseResult<Value: Sendable>: Sendable {
     case decoded(Value)
     case businessError(String)
-    case invalidResponse
+    case invalidResponse(any Error)
 }
 
 extension ScheduleService {
@@ -57,10 +57,10 @@ extension ScheduleService {
             return response
         case let .businessError(message):
             throw ScheduleServiceError.schoolResponse(message)
-        case .invalidResponse:
+        case let .invalidResponse(error):
             // 登录页 HTML 已在上方按内容特征识别。其余无法解码的 2xx 响应可能只是学校
             // 网关故障或接口改版，不能误导用户说“登录失效”。
-            throw ScheduleServiceError.invalidResponse
+            throw ScheduleServiceError.invalidResponse.caused(by: error)
         }
     }
 
@@ -78,7 +78,7 @@ extension ScheduleService {
         do {
             result = .decoded(try JSONDecoder().decode(type, from: data))
         } catch {
-            result = .invalidResponse
+            result = .invalidResponse(error)
         }
         try Task.checkCancellation()
         return result

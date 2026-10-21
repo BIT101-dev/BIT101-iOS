@@ -299,6 +299,8 @@ extension ScheduleService {
         if isScheduleTransientNetworkError(error) { return true }
 
         let nsError = error as NSError
+        let decodingFailure = ScheduleServiceError.invalidResponse as NSError
+        if nsError.domain == decodingFailure.domain, nsError.code == decodingFailure.code { return true }
         if nsError.domain == "BIT101.Schedule", (400 ..< 600).contains(nsError.code) {
             return true
         }

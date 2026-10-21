@@ -386,17 +386,17 @@ struct SchedulePersistenceTests {
         }
     }
 
-    @Test(.timeLimit(.minutes(1)), arguments: ["corrupt-source", "{}", #"{"unrelated":1}"#, #"{"courseData":{},"updatedAt":0}"#])
-    func corruptedSourceResetsAndKeepsStorageAvailable(source: String) async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: ["corrupt-source", "[]", "null", #"{"unrelated":1}"#, #"{"courseData":{},"updatedAt":0}"#])
+    func unrecognizedCacheRootsPreserveTheirBytesAndRejectOverwrites(source: String) async throws {
         let files = ModuleScoreFiles()
         let persistence = store(files: files)
         let account = AppStorageSession(accountIdentifier: "corrupt")
         let url = persistence.cacheFileURL(for: account.accountStorageIdentifier)
         let bytes = Data(source.utf8)
         try files.writeData(bytes, to: url, options: [])
-        #expect(await persistence.load(for: account).cacheIfReadable?.isValidForPersistence == true)
-        #expect(await persistence.write(ScheduleCache(), accountIdentifier: account.accountStorageIdentifier, legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) != nil)
-        #expect(try files.readData(at: url) != bytes)
+        #expect(await persistence.load(for: account).isUnreadable)
+        #expect(await persistence.write(ScheduleCache(), accountIdentifier: account.accountStorageIdentifier, legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) == nil)
+        #expect(try files.readData(at: url) == bytes)
     }
 
     @Test(.timeLimit(.minutes(1))) func failedWritesReturnFailureAndPreserveTheStoredVersion() async throws {

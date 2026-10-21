@@ -330,6 +330,9 @@ struct CourseDetailTests {
         service.historyResult = .failure(CancellationError())
         await viewModel.reloadHistoryGrades()
         #expect(viewModel.historyGradeStatus == .loaded && viewModel.historyGrades.count == 2)
+        service.historyResult = .failure(URLError(.timedOut))
+        await viewModel.reloadHistoryGrades()
+        #expect(viewModel.historyGrades.count == 2 && viewModel.sharedMaterialsURL != nil)
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [-1, 0, 7])

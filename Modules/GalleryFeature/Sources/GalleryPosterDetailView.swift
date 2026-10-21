@@ -266,6 +266,7 @@ private struct GalleryPosterDetailViewScene: View {
         .refreshable {
                     interactionEvidence?("interaction.GalleryPosterDetailViewScene.refreshable", "refresh")
 
+            media.retryFailedImages()
             await viewModel.refreshAll()
         }
         .background(AppDesignSystem.Palette.Background.grouped)

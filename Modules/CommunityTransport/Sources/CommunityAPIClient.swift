@@ -290,7 +290,8 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
             try validateResponse(response, request: request)
             try validateIdentity(identity)
             return response
-        } catch let HTTPClientError.unacceptableStatus(code, _) where code == 401 && authentication == .required && retryPolicy == .afterCredentialRefresh {
+        } catch let HTTPClientError.unacceptableStatus(code, _) where code == 401 && authentication != .none
+            && !observed.cookie.isEmpty && retryPolicy == .afterCredentialRefresh {
             do {
                 try validateIdentity(identity)
                 try await CommunityCredentialRefreshContext.$isRestoring.withValue(true) { try await refreshHandler(observed) }

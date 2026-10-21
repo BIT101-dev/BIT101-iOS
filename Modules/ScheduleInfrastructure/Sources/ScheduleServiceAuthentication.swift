@@ -288,7 +288,7 @@ extension ScheduleService {
         do {
             return try BITLoginChallengeSupport.decodePayload(from: data)
         } catch {
-            throw ScheduleServiceError.invalidResponse
+            throw ScheduleServiceError.invalidResponse.caused(by: error)
         }
     }
 

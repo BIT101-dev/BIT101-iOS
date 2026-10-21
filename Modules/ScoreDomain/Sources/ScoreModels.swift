@@ -63,6 +63,11 @@ public nonisolated struct ScoreRow: Codable, Identifiable, Equatable, Sendable {
     public let id: String
     public let values: [ScoreField]
 
+    fileprivate init(id: String, values: [ScoreField]) {
+        self.id = id
+        self.values = values
+    }
+
     /// 使用表头和值数组构造单行成绩记录。
     ///
     /// 模型按表头名称建立字段映射；接口字段顺序变化时，访问器仍按键名读取字段。
@@ -110,6 +115,18 @@ public nonisolated struct ScoreRow: Codable, Identifiable, Equatable, Sendable {
 /// 对比完整成绩与简略载荷，维护缓存状态和刷新反馈。
 public nonisolated enum ScoreRowComparison {
     private static let ignoredBriefKeys: Set<String> = ["序号", "操作栏"]
+
+    public static func retainingDetailedFields(_ briefRows: [ScoreRow], from cachedRows: [ScoreRow]) -> [ScoreRow] {
+        guard !briefRows.isEmpty else { return briefRows }
+        let keys = comparableKeys(from: briefRows).union(["开课学期"])
+        let cached = Dictionary(grouping: cachedRows) { signatures(for: [$0], keys: keys)[0] }
+        return briefRows.map { row in
+            let signature = signatures(for: [row], keys: keys)[0]
+            guard let matches = cached[signature], matches.count == 1 else { return row }
+            let present = Set(row.values.map(\.key)).union(ignoredBriefKeys)
+            return ScoreRow(id: row.id, values: row.values + matches[0].values.filter { !present.contains($0.key) })
+        }
+    }
 
     public static func briefRowsMatchCache(_ briefRows: [ScoreRow], cachedRows: [ScoreRow]) -> Bool {
         guard !briefRows.isEmpty, !cachedRows.isEmpty else { return false }

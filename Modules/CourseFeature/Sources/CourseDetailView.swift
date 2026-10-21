@@ -196,6 +196,13 @@ private struct CourseDetailViewScene: View {
     @ViewBuilder
     private var historyGradesSection: some View {
         VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.section) {
+            if !viewModel.historyGrades.isEmpty {
+                CourseHistoryGradesChart(
+                    grades: viewModel.historyGrades,
+                    courseNumber: viewModel.resolvedNumber,
+                    hidesMakeupOutliers: appSettings.hidesCourseHistoryMakeupOutliers
+                )
+            }
             switch viewModel.historyGradeStatus {
             case .idle, .loading:
                 AppInlineLoadingState("正在加载历史成绩")
@@ -217,16 +224,9 @@ private struct CourseDetailViewScene: View {
                         title: "暂无历史成绩",
                         systemImage: "chart.line.uptrend.xyaxis"
                     )
-                } else {
-                    CourseHistoryGradesChart(
-                        grades: viewModel.historyGrades,
-                        courseNumber: viewModel.resolvedNumber,
-                        hidesMakeupOutliers: appSettings.hidesCourseHistoryMakeupOutliers
-                    )
-
-                    courseResourceCards
                 }
             }
+            courseResourceCards
         }
     }
 

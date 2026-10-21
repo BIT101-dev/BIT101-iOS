@@ -9,13 +9,13 @@ final class PaperDetailRequestStore {
         let id: Int
         let account: String
         let generation: Int
-        let cookie: String
+        let authenticated: Bool
         let epoch: Int
         init(id: Int, credentials: CommunityCredentials, epoch: Int) {
             self.id = id
             account = credentials.identity.accountIdentifier
             generation = credentials.identity.generation
-            cookie = credentials.cookie
+            authenticated = !credentials.cookie.isEmpty
             self.epoch = epoch
         }
     }

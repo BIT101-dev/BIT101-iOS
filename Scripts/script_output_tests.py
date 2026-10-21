@@ -61,7 +61,8 @@ Path.open = open_log
     command = ci_logger + '\nbit101_log_command /dev/null stdin-contract ' + shlex.quote(sys.executable) + ' - delegated-argument\n'
     for status in (0, 7):
         payload = f'import sys\nassert sys.argv[1] == "delegated-argument"\nprint("warning: delegated-stdin-executed")\nraise SystemExit({status})\n'
-        result = subprocess.run(['zsh', '-c', command], input=payload, capture_output=True, text=True)
+        result = subprocess.run(['zsh', '-c', command], input=payload, capture_output=True, text=True,
+            env={**os.environ, 'GITHUB_ACTIONS': 'false'})
         if result.returncode != status or 'delegated-stdin-executed' not in result.stdout:
             findings.append(f'日志委托自测：子命令继承调用方输入、参数和退出状态；预期 {status}，实际 {result.returncode}；{(result.stdout + result.stderr)[-500:]!r}')
     measured = logger.replace('raise SystemExit(exit_code if exit_code >= 0 else 128 - exit_code)',
@@ -89,7 +90,8 @@ Path.open = open_log
     command = logger + '\nbit101_log_command /dev/null late-error ' + shlex.quote(sys.executable) + ' -\n'
     for prefix in ('progress', 'warning:'):
         payload = f'for index in range(45): print("{prefix}", index)\nprint("error: late-root-cause")\nprint("tail-context")\nraise SystemExit(7)\n'
-        result = subprocess.run(['zsh', '-c', command], input=payload, capture_output=True, text=True)
+        result = subprocess.run(['zsh', '-c', command], input=payload, capture_output=True, text=True,
+            env={**os.environ, 'GITHUB_ACTIONS': 'false'})
         if result.returncode != 7 or 'error: late-root-cause' not in result.stdout:
             findings.append('失败摘要需要优先呈现末尾出现的根因诊断')
     return findings
