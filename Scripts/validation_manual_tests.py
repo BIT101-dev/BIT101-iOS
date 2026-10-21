@@ -18,7 +18,7 @@ import validate_distribution as distribution
 
 def source_identity_fixture():
     snapshots = []
-    def identify(group, files, context):
+    def identify(group, files, context, **kwargs):
         snapshot = [group, copy.deepcopy(files), copy.deepcopy(context)]
         if snapshot not in snapshots: snapshots.append(snapshot)
         return str(uuid.UUID(int=snapshots.index(snapshot) + 1))

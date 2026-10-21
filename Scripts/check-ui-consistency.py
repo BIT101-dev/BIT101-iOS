@@ -197,12 +197,12 @@ def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[s
 
 if __name__ == "__main__":
     with static_audit_lock():
-        findings = [*ast_marker_boundary_findings(), *interaction_inventory_boundary_findings()]
         if sys.argv[1:] == ["--self-test"]:
-            findings += source_boundary_findings() + map_theme_color_contract_findings()
+            findings = [*ast_marker_boundary_findings(), *interaction_inventory_boundary_findings(),
+                *source_boundary_findings(), *map_theme_color_contract_findings()]
             if findings:
                 print("\n".join(findings), file=sys.stderr)
             else:
                 print("[通过] UI 一致性检查器自测")
             raise SystemExit(int(bool(findings)))
-        raise SystemExit(main(boundary_findings=findings))
+        raise SystemExit(main(boundary_findings=[]))

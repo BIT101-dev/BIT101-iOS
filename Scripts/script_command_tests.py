@@ -485,6 +485,14 @@ xcrun() {
   else print -ru2 -- "TOOL $*"; fi
 }
 '''
+    archive = (SCRIPT_ROOT / 'build-install-device.sh').read_text().split('if [[ "$ACTION" == install-archive ]]; then', 1)[1]
+    archive = 'bit101_require_device || exit 1' + archive.split('bit101_require_device || exit 1', 1)[1].split('\nfi\n', 1)[0]
+    for clean in (False, True):
+        program = frame + '\nAPP_PATH=/archive/App.app\nAPP_VERSION=1\nAPP_BUILD=1\n' + archive
+        result = subprocess.run(['zsh', '-c', program, 'archive-install', 'install-archive', '/archive',
+            *(['--clean'] if clean else [])], capture_output=True, text=True)
+        assert result.returncode == 0 and 'RESTORE_INVALIDATED' in result.stdout
+        assert 'device install app' in result.stderr and ('device uninstall app' in result.stderr) == clean
     valid_fixture = dict(posterID=1, courseID=2, courseNumber='COURSE', paperID=3)
     export_source = (SCRIPT_ROOT / "run-extended-tests.sh").read_text().replace('source "$ROOT_DIR/Scripts/script-support.sh"', frame)
     scope_source = (SCRIPT_ROOT / "release-network-smoke.sh").read_text().replace('source "$ROOT_DIR/Scripts/script-support.sh"', frame).split('RUN_ID="', 1)[0]
@@ -723,7 +731,9 @@ def ui_metrics_boundary_findings() -> list[str]:
             "unidentifiedInstances": [], "visitedControls": [{"instance": key, "identifier": key,
                 "scope": f"Journey{process}/testRun", "actions": ["tap"]}]}
     output = "\n".join(["UI automation App process: 10", "UI control inventory: " + json.dumps(inventory(10, "first", ["pending"])),
-        "UI automation App process: 20", "UI control inventory: " + json.dumps(inventory(20, "second"))])
+        "UI automation App process: 20", "UI control inventory: " + json.dumps(inventory(20, "second")),
+        'UI query metrics: {"liveQueries":{"count":20,"seconds":0.5},"sharedSnapshots":{"count":2,"seconds":1.5}}',
+        'UI query metrics: {"liveQueries":{"count":3,"seconds":0.2}}'])
     summary = {"result": "Passed", "totalTestCount": 2, "passedTests": 2, "failedTests": 0, "skippedTests": 0}
     report = {}
     diagnostic = Path("/audit/diagnostics/StandardOutputAndStandardError.txt")
@@ -746,7 +756,8 @@ def ui_metrics_boundary_findings() -> list[str]:
     result = json.loads(next(line.split("：", 1)[1] for line in report[Path("/audit/test-metrics.txt")].splitlines() if line.startswith("控件库存：")))
     if result["processIdentifiers"] == ["10", "20"] and result["observed"] == 3 and result["visited"] == 2 \
             and result["pending"] == ["10:pending"] and {row["identifier"] for row in result["visitedControls"]} == {"first", "second"} \
-            and all(row in report[Path('/audit/test-metrics.txt')] for row in ('- iOS/ScoreFeature: 30.00% (30/100 lines)', '- BIT101-iOS.app: 60.00% (60/100 lines)')):
+            and all(row in report[Path('/audit/test-metrics.txt')] for row in ('- iOS/ScoreFeature: 30.00% (30/100 lines)', '- BIT101-iOS.app: 60.00% (60/100 lines)',
+                'App 内界面查询：23 次；累计 0.7 秒', '共享原生快照读取：2 次；累计 1.5 秒')):
         return []
     return ["UI 指标自测：冷启动前后的实际库存与待访问项共同保留"]
 

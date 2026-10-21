@@ -440,6 +440,12 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         assertUI(confirm.appears(timeout: 5), "再次恢复应展示原生确认操作。")
         confirm.tapBriefly()
         assertUI(app.buttons["settings.storage.recover"].disappears(timeout: 5), "恢复后应继续保存设置。")
+        if let coverage = UITestControlClient.request(["command": "coverage"]),
+           let inventory = try? JSONSerialization.jsonObject(with: Data(coverage.utf8)) as? [String: Any],
+           let observed = inventory["observedControls"] as? [String] {
+            let confirmations = observed.filter { $0.contains("恢复当前账号的设置？") && $0.contains("settings.storage.confirm-recovery") }
+            XCTAssertEqual(confirmations.count, 2, "两次确认框应各捕获一个恢复按钮。")
+        } else { XCTFail("恢复操作应提供控件观察证据。") }
         let value = toggle("隐藏机器人帖子")
         app = configureApp(resetStorage: false, content: true, initialSettings: "gallery")
         let control = app.switches.matching(NSPredicate(format: "label CONTAINS %@", "隐藏机器人帖子")).firstMatch

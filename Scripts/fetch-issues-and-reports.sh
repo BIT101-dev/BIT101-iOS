@@ -252,7 +252,6 @@ CLOUDFLARE_STATE=success
 if REPORT_COUNT="$(python3 - "$OUTPUT_DIR/error-report-keys.json" "$STAGING_DIR" "$WRANGLER_DIR" "$NAMESPACE_ID" "$OUTPUT_DIR/report-keys.txt" <<'PY'
 import json
 import base64
-import hashlib
 import pathlib
 import os
 import subprocess
@@ -294,8 +293,7 @@ def cache_complete(item):
         for index, attachment in enumerate(attachments, 1):
             asset = path.parent / (path.stem + "_附件") / f"图片-{index:02d}{attachment_suffix(attachment)}"
             if asset.stat().st_size != attachment["bytes"]: return False
-            with asset.open("rb") as stream:
-                if hashlib.file_digest(stream, "sha256").hexdigest() != attachment["sha256"]: return False
+            if asset.read_bytes() != base64.b64decode(attachment["data"], validate=True): return False
         return True
     except (OSError, ValueError, KeyError, TypeError, AttributeError): return False
 
@@ -350,8 +348,7 @@ def fetch(key):
             extension = attachment_suffix(attachment)
             (attachment_dir / f"图片-{index:02d}{extension}").write_bytes(data)
             downloaded_attachments.append(
-                {key: value for key, value in attachment.items() if key != "data"}
-                    | {"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+                dict(attachment, bytes=len(data))
             )
         report["attachments"] = downloaded_attachments
         item["report"] = report

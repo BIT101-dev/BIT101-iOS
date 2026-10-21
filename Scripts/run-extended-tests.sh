@@ -749,10 +749,11 @@ if coverage is None or mode == "ui":
             f"{action} {actions.count(action)}" for action in ["Tap", "Type", "Swipe", "Press", "Pinch"]))
         activations = [float(value) for value in re.findall(r"UI accessibility activate: ([\d.]+)", output)]
         lines.append(f"控件无障碍激活：{len(activations)} 次；累计 {sum(activations):.1f} 秒")
-        live_queries = [float(value) for value in re.findall(r"UI live query: ([\d.]+)", output)]
-        lines.append(f"App 内界面查询：{len(live_queries)} 次；累计 {sum(live_queries):.1f} 秒")
-        shared_snapshots = [float(value) for value in re.findall(r"UI shared snapshot: ([\d.]+)", output)]
-        lines.append(f"共享原生快照读取：{len(shared_snapshots)} 次；累计 {sum(shared_snapshots):.1f} 秒")
+        query_metrics = [json.loads(value) for value in re.findall(r"UI query metrics: (\{[^\n]+\})", output)]
+        for kind, label in (("liveQueries", "App 内界面查询"), ("sharedSnapshots", "共享原生快照读取")):
+            count = sum(row.get(kind, {}).get("count", 0) for row in query_metrics)
+            seconds = sum(row.get(kind, {}).get("seconds", 0) for row in query_metrics)
+            lines.append(f"{label}：{int(count)} 次；累计 {seconds:.1f} 秒")
         control_actions = [float(value) for value in re.findall(r"UI control action: ([\d.]+)", output)]
         lines.append(f"UIKit 控件事件：{len(control_actions)} 次；累计 {sum(control_actions):.1f} 秒")
         inventories = re.findall(r"UI control inventory: (\{[^\n]+\})", output)

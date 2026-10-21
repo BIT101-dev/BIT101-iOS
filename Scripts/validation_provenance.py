@@ -331,34 +331,49 @@ def normalized_test_id(identifier: str) -> str:
 
 def source_digest(group: str = "", *, environment: dict | None = None) -> str:
     names = repository_input_names(ROOT)
-    context = {}
-    if group:
-        context = environment_context(group) if environment is None else environment
-        if group == 'manual-device': context = {key: value for key, value in context.items() if key != 'device'}
-        context = exchange_identity(context)
-    if identity := _clean_source_identity(group, context): return identity
+    context = _source_context(group, environment)
     files = {}
     for name in sorted(set(names) - {""}):
         path = ROOT / name
         if path.is_file() and includes_input(name, group):
             files[name] = {'executable': bool(path.stat().st_mode & 0o111),
                 'content': base64.b64encode(path.read_bytes()).decode('ascii')}
-    return _local_source_identity(group, files, context)
+    return _local_source_identity(group, files, context, committed_identity=_clean_source_identity(group, context))
+
+
+def committed_source_digest(group: str = "", *, environment: dict | None = None) -> str:
+    identity = _clean_source_identity(group, _source_context(group, environment))
+    if identity is None: raise ValueError('公开发布回执需要已提交的验证输入。')
+    return identity
+
+
+def _source_context(group: str, environment: dict | None) -> dict:
+    context = {}
+    if group:
+        context = environment_context(group) if environment is None else environment
+        if group == 'manual-device': context = {key: value for key, value in context.items() if key != 'device'}
+        context = exchange_identity(context)
+    return context
 
 
 def _clean_source_identity(group: str, context: dict) -> str | None:
     def git(*arguments):
-        return subprocess.check_output(['git', *arguments], cwd=ROOT).decode().strip()
+        return subprocess.check_output(['git', *arguments], cwd=ROOT).decode()
     changed = git('diff', '--name-only', '--no-renames', '-z', 'HEAD').split('\0')
     changed += git('ls-files', '--others', '--exclude-standard', '-z').split('\0')
     if any(name and includes_input(name, group) for name in changed): return None
-    commit = git('rev-parse', 'HEAD')
-    if re.fullmatch(r'(?:[0-9a-f]{40}|[0-9a-f]{64})', commit) is None: return None
+    commit = None
+    for entry in git('log', '--format=commit:%H', '--name-only', '-z', 'HEAD').split('\0'):
+        value = entry.lstrip('\n')
+        if re.fullmatch(r'commit:(?:[0-9a-f]{40}|[0-9a-f]{64})', value): commit = value.removeprefix('commit:')
+        elif value and includes_input(value, group): break
+    else: return None
+    if commit is None: return None
     environment = base64.urlsafe_b64encode(json.dumps([group, context], sort_keys=True).encode()).decode().rstrip('=')
     return f'git.{commit}.{environment}'
 
 
-def _local_source_identity(group: str, files: dict, context: dict) -> str:
+def _local_source_identity(group: str, files: dict, context: dict, *, committed_identity: str | None = None) -> str:
     with report_lock():
         report = json.loads(REPORT.read_text()) if REPORT.is_file() else {}
         inputs = report.setdefault('sourceInputs', {'files': {}, 'groups': {}})
@@ -372,7 +387,7 @@ def _local_source_identity(group: str, files: dict, context: dict) -> str:
         snapshot = {'files': references, 'environment': context}
         previous = inputs['groups'].get(group, {})
         if previous.get('snapshot') != snapshot:
-            previous = inputs['groups'][group] = {'snapshot': snapshot, 'identity': str(uuid.uuid4())}
+            previous = inputs['groups'][group] = {'snapshot': snapshot, 'identity': committed_identity or str(uuid.uuid4())}
             write_report(report, preserve_inputs=False)
         return previous['identity']
 

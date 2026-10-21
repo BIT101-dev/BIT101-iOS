@@ -19,11 +19,13 @@ def source_identity_registry_self_test() -> None:
             patch.object(Path, 'read_text', side_effect=lambda: json.dumps(state)), \
             patch.object(provenance, 'write_report', side_effect=save):
         files = {'source.swift': {'executable': False, 'content': 'first'}}
-        initial = _local_source_identity('modules', files, {})
+        initial = _local_source_identity('modules', files, {}, committed_identity='git.original')
+        assert initial == 'git.original'
         assert _local_source_identity('modules', files, {}) == initial
         files['source.swift']['content'] = 'other'
         changed = _local_source_identity('modules', files, {})
         assert changed != initial
+        assert _local_source_identity('modules', files, {}, committed_identity='git.committed') == changed
         files['source.swift']['executable'] = True
         executable = _local_source_identity('modules', files, {})
         assert executable != changed
@@ -31,6 +33,14 @@ def source_identity_registry_self_test() -> None:
         assert _local_source_identity('modules', {}, {}) != executable
         assert state['groups']['audit']['exitCode'] == 0
         assert set(state['sourceInputs']['files']) == {'source.swift'}
+        from validation_publication import core_exchange
+        transferred = _local_source_identity('modules', files, {})
+        shared = core_exchange(state)
+        state.clear()
+        state.update(shared)
+        assert _local_source_identity('modules', files, {}) == transferred
+        files['source.swift']['content'] = 'changed after exchange'
+        assert _local_source_identity('modules', files, {}) != transferred
     provenance._REPORT_INPUTS.pop(provenance.REPORT, None)
 
 
@@ -86,15 +96,16 @@ def run_self_test() -> None:
 def committed_source_identity_self_test() -> None:
     import validation_provenance as provenance
     commit = b'a' * 40
-    with patch.object(provenance.subprocess, 'check_output', side_effect=[b'', b'', commit]) as git:
+    history = b'commit:' + b'b' * 40 + b'\0\nREADME.md\0\0commit:' + commit + b'\0\nModules/Feature/Sources/Removed.swift\0'
+    with patch.object(provenance.subprocess, 'check_output', side_effect=[b'', b'', history]) as git:
         identity = provenance._clean_source_identity('manual-device', {'compiler': 'fixture'})
         assert identity.startswith('git.' + commit.decode() + '.')
-        assert git.call_args.args[0] == ['git', 'rev-parse', 'HEAD']
+        assert git.call_args.args[0] == ['git', 'log', '--format=commit:%H', '--name-only', '-z', 'HEAD']
     for tracked, untracked in ((b'Modules/Feature/Sources/File.swift\0', b''), (b'', b'Modules/Feature/Sources/File.swift\0')):
         with patch.object(provenance.subprocess, 'check_output', side_effect=[tracked, untracked]):
             assert provenance._clean_source_identity('manual-device', {}) is None
-    with patch.object(provenance.subprocess, 'check_output', side_effect=[b'README.md\0', b'', commit]):
-        assert provenance._clean_source_identity('manual-device', {})
+    with patch.object(provenance.subprocess, 'check_output', side_effect=[b'README.md\0', b'', history]):
+        assert provenance._clean_source_identity('manual-device', {}).startswith('git.' + commit.decode() + '.')
 
 
 def developer_directory_self_test() -> None:

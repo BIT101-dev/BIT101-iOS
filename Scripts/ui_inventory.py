@@ -4,6 +4,29 @@ import json
 IDENTITY_SCOPE = "testCaseNavigationPresentationAndOccurrence"
 
 
+def has_action_evidence(inventory: dict) -> bool:
+    """Mounted instances bind real actions; source contracts define interaction coverage."""
+    if not isinstance(inventory, dict) or inventory.get("scope") != "mounted-controls" \
+            or inventory.get("identityScope") != IDENTITY_SCOPE:
+        return False
+    observed, visited = inventory.get("observed"), inventory.get("visited")
+    controls, pending = inventory.get("visitedControls"), inventory.get("pending")
+    if type(observed) is not int or type(visited) is not int or not 0 < visited <= observed \
+            or not isinstance(controls, list) or len(controls) != visited \
+            or not isinstance(pending, list) or any(not isinstance(key, str) or not key for key in pending) \
+            or len(pending) != len(set(pending)) or len(pending) != observed - visited:
+        return False
+    identities = set()
+    for control in controls:
+        if not isinstance(control, dict) or not isinstance(control.get("instance"), str) or not control["instance"] \
+                or not isinstance(control.get("scope"), str) or not control["scope"] \
+                or not isinstance(control.get("actions"), list) or not control["actions"] \
+                or any(not isinstance(action, str) or not action.strip() for action in control["actions"]):
+            return False
+        identities.add(control["instance"])
+    return len(identities) == visited and identities.isdisjoint(pending)
+
+
 def merge(snapshots: list[dict], processes: set[str]) -> dict:
     observed, disabled, checked, unidentified = set(), set(), set(), set()
     visited = {}
@@ -55,10 +78,14 @@ def self_test() -> None:
     # 诊断输出可以跨文件重新排序；同进程集合合并保留随后完成的访问。
     result = merge([completed, first, restarted, restarted], {"10", "20"})
     assert result["observed"] == result["visited"] == 3 and result["pending"] == []
+    assert has_action_evidence(result)
     assert {row["scope"] for row in result["visitedControls"]} == {"Journey10/testRun", "Journey20/testRun"}
     assert result["unidentifiedControls"] == 1 and result["pendingDisabled"] == []
     earlier_pending = merge([first, restarted], {"10", "20"})
     assert earlier_pending["pending"] == ["10:later"] and earlier_pending["pendingDisabled"] == ["10:disabled"]
+    assert has_action_evidence(earlier_pending)
+    assert not has_action_evidence(dict(earlier_pending, visited=3))
+    assert not has_action_evidence(dict(earlier_pending, visitedControls=[]))
     other_process = snapshot(20, ["same"], ["same"], checked=["disabled"])
     assert merge([first, other_process], {"10", "20"})["pendingDisabled"] == ["10:disabled"]
     additional_action = json.loads(json.dumps(completed))

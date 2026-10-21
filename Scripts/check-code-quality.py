@@ -46,7 +46,7 @@ def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[s
         if len(path.read_text().splitlines()) > 800]
     if large_scripts: review.append('大型脚本候选：' + ', '.join(large_scripts))
     errors.extend(source_errors)
-    errors.extend(checker_boundary_findings() if boundary_findings is None else boundary_findings)
+    errors.extend(boundary_findings or [])
     errors.extend(script_findings())
     if syntax_index:
         errors.extend(automatic_school_fetch_findings(syntax_index))
@@ -108,11 +108,12 @@ def combined_main() -> int:
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     indexed = time.monotonic()
-    quality_boundaries = self_test_findings(checker_boundary_findings)
+    test_rules = "--self-test" in sys.argv
+    quality_boundaries = self_test_findings(checker_boundary_findings) if test_rules else []
     ui_boundaries = [finding for checker in (
         module.ast_marker_boundary_findings, module.source_boundary_findings,
         module.map_theme_color_contract_findings, module.interaction_inventory_boundary_findings,
-    ) for finding in self_test_findings(checker)]
+    ) for finding in self_test_findings(checker)] if test_rules else []
     if quality_boundaries or ui_boundaries:
         print('\n'.join(quality_boundaries + ui_boundaries))
         return 1

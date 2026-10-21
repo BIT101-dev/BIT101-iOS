@@ -2,7 +2,9 @@
 nonisolated enum UITestControlIdentity {
     static func key(scope: String, ancestors: [String], identifier: String, label: String, type: Int) -> String {
         let control = identifier.isEmpty ? "\(type):\(label)" : identifier
-        return ([scope] + ancestors + [control]).map { "\($0.utf8.count):\($0)" }.joined(separator: ":")
+        var path = ancestors
+        while !identifier.isEmpty && path.last == identifier { path.removeLast() }
+        return ([scope] + path + [control]).map { "\($0.utf8.count):\($0)" }.joined(separator: ":")
     }
 }
 
@@ -124,7 +126,8 @@ enum UITestAccessibilityActions {
             else { return false }
             return zip(bounds, frame).allSatisfy { abs($0 - $1) <= 1 }
         }
-        return matches.count == 1 ? matches[0].attributes["instance"] as? String ?? "" : ""
+        let instances = Set(matches.compactMap { $0.attributes["instance"] as? String }.filter { !$0.isEmpty })
+        return instances.count == 1 ? instances.first ?? "" : ""
     }
 
     @discardableResult
@@ -411,7 +414,7 @@ enum UITestAccessibilityActions {
         } else { presentedController = nil }
         currentScope = ([scenario] + navigation + modal).joined(separator: " / ")
         var visited = Set<ObjectIdentifier>()
-        var occurrences: [String: Int] = [:]
+        var occurrenceFrames: [String: [CGRect]] = [:]
         func make(_ object: NSObject, scroll inherited: UIScrollView? = nil, identityPath: [String] = []) -> Element? {
             guard visited.insert(ObjectIdentifier(object)).inserted else { return nil }
             if object is UIDatePicker || object is UIPickerView { return nil }
@@ -491,8 +494,9 @@ enum UITestAccessibilityActions {
                 if id.isEmpty && label.isEmpty { unidentified.insert("\(currentScope):\(type)") }
                 else {
                     let key = UITestControlIdentity.key(scope: currentScope, ancestors: identityPath, identifier: id, label: label, type: type)
-                    let ordinal = occurrences[key, default: 0]
-                    occurrences[key] = ordinal + 1
+                    var frames = occurrenceFrames[key, default: []]
+                    let ordinal = frames.firstIndex(of: frame) ?? frames.count
+                    if ordinal == frames.count { frames.append(frame); occurrenceFrames[key] = frames }
                     instance = key + "#\(ordinal)"
                     observations[instance] = ["identifier": id, "label": label, "type": type, "scope": currentScope]
                     if enabled { observed.insert(instance) } else { disabledObserved.insert(instance) }

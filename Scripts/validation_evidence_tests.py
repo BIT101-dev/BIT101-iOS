@@ -468,7 +468,10 @@ def run_self_test(subject) -> int:
         assert not subject.coverage_complete('modules', dict(summaries['modules'], coverage=missing))
         missing['ScheduleSync'] = {'coveredLines': 75, 'executableLines': 100}
         assert not subject.coverage_complete('modules', dict(summaries['modules'], coverage=missing))
-        summaries['ui']['uiInventory'] = {'observed': 1, 'visited': 1, 'pending': [], 'scope': 'mounted-controls', 'unidentifiedControls': 0, 'pendingDisabled': [], 'identityScope': 'testCaseNavigationPresentationAndOccurrence'}
+        summaries['ui']['uiInventory'] = {'observed': 2, 'visited': 1, 'pending': ['another-mounted-value'],
+            'scope': 'mounted-controls', 'unidentifiedControls': 0, 'pendingDisabled': [],
+            'identityScope': 'testCaseNavigationPresentationAndOccurrence',
+            'visitedControls': [{'instance': 'control', 'scope': 'Fixture/example', 'actions': ['tap']}]}
         summaries['audit'] = {'passed': True, 'kind': 'audit', 'releaseVersionChecked': True,
             'startedAt': subject.utc_now().isoformat(), 'finishedAt': subject.utc_now().isoformat()}
         summaries['restore'] = dict(passed=True, kind='restore', initialized=True, sessionRecovered=True, active=True, processAlive=True, processIdentifier=1, runID='00000000-0000-4000-8000-000000000001', inputDigest=subject.source_digest('restore'), startedAt=subject.utc_now().isoformat(), finishedAt=subject.utc_now().isoformat())
@@ -611,6 +614,9 @@ def run_self_test(subject) -> int:
         with patch('ui_rules.source_runtime_interaction_findings', return_value=[]):
             findings = subject.release_findings(report, 'source')
             assert not findings, findings
+            assert subject.complete_summary('ui', summaries['ui'])
+            with patch('ui_rules.source_runtime_interaction_findings', return_value=['missing source action']):
+                assert not subject.complete_summary('ui', summaries['ui'])
             regressed = json.loads(json.dumps(report))
             regressed['coveragePolicy'] = {'all': {'GalleryFeature': 50}}
             regressed['groups']['ui']['summary']['coverage']['iOS/GalleryFeature'] = {'coveredLines': 20, 'executableLines': 100}
@@ -630,7 +636,8 @@ def run_self_test(subject) -> int:
             with patch(f'{module_name}.environment_context', return_value=dict(fixture_environment, host={'system': 'changed'})), \
                     patch('validation_provenance.environment_context', return_value=dict(fixture_environment, host={'system': 'changed'})):
                 assert subject.release_findings(report, 'source')
-                assert subject.release_findings(report, 'source', recorded_environment=True) == []
+                recorded_findings = subject.release_findings(report, 'source', recorded_environment=True)
+                assert not recorded_findings, recorded_findings
                 from contextlib import nullcontext, redirect_stdout
                 from io import StringIO
                 for recorded, expected in ((False, '待复验'), (True, '通过')):
@@ -657,7 +664,7 @@ def run_self_test(subject) -> int:
         assert subject.test_summary('总计 0；通过 0；失败 0；跳过 0')['passed'] is False
         assert subject.complete_summary('ui', dict(test, executedTests=['Fixture/example'])) is False
         summaries['ui']['passedTests'] = summaries['ui']['totalTests']
-        summaries['ui']['uiInventory']['pending'] = ['new-control']
+        summaries['ui']['uiInventory']['visitedControls'][0]['actions'] = []
         assert subject.complete_summary('ui', summaries['ui']) is False
         network = network_trace_fixture({'passed': True, 'scope': 'all', 'executedProbes': sorted(subject.network_inventory()), 'requiredProbes': sorted(subject.network_inventory()), 'currentTerm': 'fixture-current', 'validatedTerm': 'fixture-current'})
         assert subject.smoke_summary('network', network)['passed']

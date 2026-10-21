@@ -82,6 +82,7 @@ if [[ "$ACTION" == install-archive ]]; then
   APP_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_PATH/Info.plist")"
   APP_BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP_PATH/Info.plist")"
   bit101_require_device || exit 1
+  bit101_invalidate_restore
   if [[ "${3:-}" == --clean ]]; then
     xcrun devicectl device uninstall app --device "$BIT101_DEVICETCL_DEVICE_ID" BIT101-dev.BIT101-iOS --quiet
   fi

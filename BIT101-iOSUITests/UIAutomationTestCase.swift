@@ -27,7 +27,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
 
     @MainActor
     override func tearDown() async throws {
-        if testRun?.totalFailureCount == 0 { checkCurrentSurface() }
+        if testRun?.totalFailureCount == 0 { checkScrollContainers() }
         if let testRun, testRun.totalFailureCount > 0, !capturedFailure {
             let foreground: XCUIElement = app.state == .runningForeground ? app.native : Self.springboard
             let hierarchy = XCTAttachment(string: foreground.debugDescription)
@@ -38,6 +38,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             add(screenshot)
         }
         Self.captureControlInventory()
+        UITestSnapshotReader.printTimingSummary()
         try await super.tearDown()
     }
 
@@ -509,10 +510,14 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     @MainActor
     func checkScrollContainers() {
         checkCurrentSurface()
+        guard !preparingScene, !checkingScrollContainers, !checkingRefreshRows,
+              app.state == .runningForeground,
+              UITestControlClient.request(["command": "keyboard-state"]) == "hidden" else { return }
+        checkScrollContainerGeometry(exerciseScrolling: true)
     }
 
     @MainActor
-    private func checkScrollContainerGeometry() {
+    private func checkScrollContainerGeometry(exerciseScrolling: Bool = false) {
         checkingScrollContainers = true
         defer { checkingScrollContainers = false }
         guard let response = UITestControlClient.request(["command": "scroll-inventory"]),
@@ -527,6 +532,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
                   let offset = container["offset"] as? [Double], offset.count == 2,
                   let range = container["range"] as? [Double], range.count == 2,
                   let remaining = container["remaining"] as? [Double], remaining.count == 2 else { continue }
+            if range.contains(where: { $0 > 0 }) && !exerciseScrolling { continue }
             let checkIdentity = instance + ":" + range.map { String($0.rounded(.up)) }.joined(separator: ",")
             guard !checkedScrollContainers.contains(checkIdentity) else { continue }
             let parameters = ["scrollInstance": scrollInstance, "offsetX": String(offset[0]), "offsetY": String(offset[1])]
@@ -734,7 +740,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         initialTab: String = "schedule",
         initialSettings: String? = nil
     ) -> UIElement {
-        if let previous = Self.sessionApplication, app.native === previous { checkCurrentSurface() }
+        if let previous = Self.sessionApplication, app.native === previous { checkScrollContainers() }
         preparingScene = true
         checkedScrollContainers.removeAll()
         checkedRefreshRows.removeAll()
@@ -804,9 +810,8 @@ nonisolated class UIAutomationTestCase: XCTestCase {
                   !self.checkingScrollContainers, !self.checkingRefreshRows else { return }
             self.preparingInteraction = true
             defer { self.preparingInteraction = false }
-            let state = self.dismissNotificationBanner()
+            _ = self.dismissNotificationBanner()
             _ = UITestControlClient.request(["command": "observe"])
-            self.checkCurrentSurface(state: state)
         }
         var expectedScene: String?
         if Self.sessionApplication == nil {

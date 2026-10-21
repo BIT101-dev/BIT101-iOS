@@ -91,7 +91,7 @@ Scripts/run-extended-tests.sh ui
 
 常规场景复用 App 进程并核对进程身份。连续编辑、短信重试、媒体预览和多层弹窗场景使用系统动画；字体与启动配置变化时重新启动所属场景。持久化断言重新读取文件与偏好。验证码覆盖逐位输入、整段自动提交、失败重试、取消和原业务继续。
 
-交互库存按场景、祖先行与稳定控件标识区分身份，访问证据核对实际动作及业务断言。完整覆盖表包含各页面、平台专项及对应夹具，维护入口为 [UI 交互覆盖](UI_INTERACTION_COVERAGE.md)。
+交互库存按场景、祖先行与稳定控件标识区分身份，访问证据核对实际动作及业务断言。完整门禁按源码控件、动作类型和归属用例核对覆盖；挂载实例的待访问项用于诊断，日期等值域和互斥分支由所属测试断言验收。完整覆盖表包含各页面、平台专项及对应夹具，维护入口为 [UI 交互覆盖](UI_INTERACTION_COVERAGE.md)。
 
 真机执行期间保持 App 前台并暂停手动操作。设备要求 Enable UI Automation 验证时，在设备上完成系统授权后重试。失败附件保留原生元素树和截图；实际执行与通过数量沿原始 XCTest 结果验收。
 
@@ -144,7 +144,16 @@ Scripts/release-network-smoke.sh all sms
 
 读取范围为 `all`、`bit101`、`school`、`transcript`、`schedule`、`ddl`。宿主使用授权账号的正式会话与业务服务，并按探针强制远端读取。学校范围执行对应认证；短信模式在设备面板完成服务端提出的 challenge，随后验证原业务继续。指定学期的 `BIT101_NETWORK_SMOKE_TERM` 形成定向结果。
 
-社区验收沿 `BIT101_COMMUNITY_SMOKE_ACCOUNT` 核对专用账号。`prepare` 从当前会话及列表采集维护对象，存入固定报告的 `communityConfiguration`；也可通过 `BIT101_NETWORK_SMOKE_FIXTURES` 指定 `posterID`、`courseID`、`courseNumber`、`paperID`。对象需提供对应文本、图片、评论、搜索与分页样本。消息读取会影响服务端未读数，使用具备历史分页样本的专用账号。
+社区验收沿 `BIT101_COMMUNITY_SMOKE_ACCOUNT` 核对专用账号。`prepare` 从当前会话及列表采集维护对象，存入固定报告的 `communityConfiguration`。准备完成后，将配置载入当前终端，再执行验收：
+
+```sh
+smoke_report=.build/release-network-smoke/report/release-network-smoke.json
+export BIT101_COMMUNITY_SMOKE_ACCOUNT="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["communityConfiguration"]["accountID"])' "$smoke_report")"
+export BIT101_NETWORK_SMOKE_FIXTURES="$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))["communityConfiguration"]["fixtures"]))' "$smoke_report")"
+Scripts/release-network-smoke.sh bit101
+```
+
+也可直接设置账号及包含 `posterID`、`courseID`、`courseNumber`、`paperID` 的 fixtures JSON。对象需提供对应文本、图片、评论、搜索与分页样本。消息读取会影响服务端未读数，使用具备历史分页样本的专用账号。后续运行覆盖同一份报告，终端中的环境变量承接已确认配置。
 
 报告分别记录服务健康、必需探针、认证、请求合同和样本覆盖。空业务结果保持其真实语义；完整验收继续核对所属探针需要的样本，覆盖缺口以状态码 2 呈现。独立探针继续归集结果。端点、方法、参数、实体与分页合同沿 [网络请求合同](../Scripts/network_request_contracts.py)及实际响应验收。
 
@@ -204,6 +213,8 @@ Scripts/run-extended-tests.sh cache
 
 原生结果按事务合并到固定结果包，中断时沿事务恢复前序结果。定向复验保留有效完整结果的来源；输入变化、相关失败或证据过期时，所属完整组进入重新验收。
 
+本地验证按所属文件的直接内容、执行权限和环境保存输入快照，相同内容在提交前后沿用身份。已提交输入以最近影响所属组的 Git 版本建立可交换身份；文档等范围外提交保留相关结果。核心证据携带所属输入快照，公开发布回执沿已提交输入与工具链核对。
+
 ## CI 与覆盖率
 
 日常 PR、main 推送与默认手动工作流执行完整静态审计。该范围由项目维护策略确定。语义编译和原生行为在本地定向回归、手动完整验收及发布工作流执行。
@@ -217,7 +228,7 @@ gh run rerun 运行编号 --failed
 
 托管任务采用工作流登记的 Apple 工具链镜像；真机任务沿专用自托管 Mac 与 iPhone 执行。外部 PR 的运行器准入和审批由仓库及组织设置管理。维护者审查外部 PR 时，使用 GitHub 实际 merge 提交创建 `review-validation` 分支，并填写 `review_pr`；提交与目标分支变化后重新验收。
 
-全量工作流按所属验证组复用成功结果和公共缓存；显式完整验收在当次执行全部组。UI 宿主构建一次后按库存分片，归集时核对全部用例、参数实例、来源提交、实际设备和合并覆盖率。性能目标为完整工作流 30 分钟以内，计时包含准备、编译、缓存传输、测试、恢复和汇总；单个阶段的超时预算属于执行上限。
+版本标签和 `release_check` 按所属验证组复用输入相同的成功结果和公共缓存；`full_check` 在当次执行全部组。UI 宿主构建一次后按库存分片，归集时核对全部用例、参数实例、来源提交、实际设备和合并覆盖率。性能目标为完整工作流 30 分钟以内，计时包含准备、编译、缓存传输、测试、恢复和汇总；单个阶段的超时预算属于执行上限。
 
 [验证策略](../Scripts/validation_policy.py)维护 macOS、iOS、App 及 UI 的版本化行覆盖门槛，目标提交门槛参与合并验收。行覆盖、实际状态断言和控件交互分别提供各自证据。关键失败、账号变化、取消和恢复路径按 [状态合同库存](../Scripts/validation_test_areas.py)维护；新增行为同步补充对应回归。平台数据沿各自的实际编译范围解释。
 

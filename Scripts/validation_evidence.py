@@ -512,12 +512,9 @@ def complete_summary(group: str, summary: dict) -> bool:
         if group == 'modules': complete = complete and module_cases_complete(summary)
         else: complete = complete and native_cases_complete(summary, group)
         if group == "ui":
+            from ui_inventory import has_action_evidence
             inventory = summary.get("uiInventory")
-            complete = complete and isinstance(inventory, dict) and inventory.get("observed", 0) > 0 \
-                and inventory.get("visited") == inventory.get("observed") and inventory.get("pending") == [] \
-                and inventory.get("scope") == "mounted-controls" and inventory.get("unidentifiedControls") == 0 \
-                and inventory.get("pendingDisabled") == [] \
-                and inventory.get("identityScope") == "testCaseNavigationPresentationAndOccurrence"
+            complete = complete and has_action_evidence(inventory)
             if complete:
                 from ui_rules import documented_interactions, source_runtime_interaction_findings
                 from ui_source_facts import syntax_index

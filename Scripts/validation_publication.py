@@ -52,9 +52,14 @@ def receipt_findings(receipt: dict, tag: str, commit: str, digest) -> list[str]:
 
 
 def core_exchange(report: dict) -> dict:
-    return exchange_identity({key: value for key, value in report.items() if key in {
+    payload = {key: value for key, value in report.items() if key in {
         'mergeCommit', 'testedCommit', 'sourceDigest', 'performanceBaseline', 'coverageBaseCommit', 'coveragePolicy'}} | {
-        'groups': {name: complete_group_row(row) for name, row in report.get('groups', {}).items() if name in CORE_GROUPS | {'modules'}}})
+        'groups': {name: complete_group_row(row) for name, row in report.get('groups', {}).items() if name in CORE_GROUPS | {'modules'}}}
+    if inputs := report.get('sourceInputs'):
+        groups = {name: row for name, row in inputs['groups'].items() if name in CORE_GROUPS | {'modules', ''}}
+        names = {name for row in groups.values() for name in row['snapshot']['files']}
+        payload['sourceInputs'] = {'groups': groups, 'files': {name: row for name, row in inputs['files'].items() if name in names}}
+    return exchange_identity(payload)
 
 
 def self_test() -> None:

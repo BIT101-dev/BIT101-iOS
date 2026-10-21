@@ -33,5 +33,14 @@ nonisolated final class UIInventoryIdentityTests: XCTestCase {
         XCTAssertNotEqual(UITestControlIdentity.key(scope: "a:b", ancestors: [], identifier: "c", label: "", type: 9),
             UITestControlIdentity.key(scope: "a", ancestors: ["b"], identifier: "c", label: "", type: 9))
     }
+
+    func testAccessibilityWrapperAndNativeControlShareTheirIdentity() {
+        let control = UITestControlIdentity.key(scope: "Settings / Recovery", ancestors: ["settings"],
+            identifier: "confirm", label: "恢复", type: 9)
+        XCTAssertEqual(control, UITestControlIdentity.key(scope: "Settings / Recovery", ancestors: ["settings", "confirm", "confirm"],
+            identifier: "confirm", label: "恢复", type: 9))
+        XCTAssertNotEqual(control, UITestControlIdentity.key(scope: "Settings / Recovery", ancestors: ["account", "confirm"],
+            identifier: "confirm", label: "恢复", type: 9))
+    }
 }
 #endif

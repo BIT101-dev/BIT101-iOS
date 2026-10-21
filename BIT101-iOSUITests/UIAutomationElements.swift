@@ -97,6 +97,19 @@ enum UITestSnapshotReader {
     private(set) static var generation = 0
     private static var cached: (any XCUIElementSnapshot)?
     static var liveQueries: [Data: [String: Any]] = [:]
+    private static var queryMetrics: [String: [String: Double]] = [:]
+
+    static func recordTiming(_ kind: String, since start: TimeInterval) {
+        queryMetrics[kind, default: ["count": 0, "seconds": 0]]["count", default: 0] += 1
+        queryMetrics[kind, default: [:]]["seconds", default: 0] += ProcessInfo.processInfo.systemUptime - start
+    }
+
+    static func printTimingSummary() {
+        if let data = try? JSONSerialization.data(withJSONObject: queryMetrics, options: .sortedKeys) {
+            print("UI query metrics: \(String(decoding: data, as: UTF8.self))")
+        }
+        queryMetrics.removeAll(keepingCapacity: true)
+    }
 
     static func invalidate() { cached = nil; liveQueries.removeAll(keepingCapacity: true); generation += 1 }
 
@@ -107,7 +120,7 @@ enum UITestSnapshotReader {
         let started = ProcessInfo.processInfo.systemUptime
         let snapshot = try application.snapshot()
         cached = snapshot
-        print(String(format: "UI shared snapshot: %.3f", ProcessInfo.processInfo.systemUptime - started))
+        recordTiming("sharedSnapshots", since: started)
         return snapshot
     }
 
@@ -185,7 +198,7 @@ final class UIElement: NSObject {
               let elements = try? JSONSerialization.jsonObject(with: Data(response.utf8)) as? [[String: Any]] else {
             return UITestSnapshotReader.attributes(path)
         }
-        print(String(format: "UI live query: %.3f", ProcessInfo.processInfo.systemUptime - started))
+        UITestSnapshotReader.recordTiming("liveQueries", since: started)
         if renderedOnly && elements.isEmpty { return ["exists": false] }
         if elements.isEmpty, path.contains(where: { [0, 1, 5, 7, 48].contains(Int($0["type"] ?? "") ?? -1) }) {
             return UITestSnapshotReader.attributes(path)

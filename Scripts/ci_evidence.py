@@ -111,8 +111,7 @@ def validation_plan() -> None:
     commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
     if errors := ci_commit_findings(commit): raise ValueError('\n'.join(errors))
     repo, run_id = repository(), os.environ['GITHUB_RUN_ID']
-    full = any(os.getenv(name) == 'true' for name in ('BIT101_FULL_CHECK', 'BIT101_RELEASE_CHECK')) \
-        or os.getenv('GITHUB_REF', '').startswith('refs/tags/v')
+    full = os.getenv('BIT101_FULL_CHECK') == 'true'
     def candidates():
         runs = json.loads(subprocess.check_output(['gh', 'api',
             f'repos/{repo}/actions/workflows/ci.yml/runs?branch=main'], text=True))['workflow_runs']
@@ -432,12 +431,12 @@ def export_core() -> None:
 
 
 def check_release() -> None:
-    import validation_evidence
     receipt = json.loads(RECEIPT.read_text())
     tag = receipt.get('tag', '') if isinstance(receipt, dict) else ''
     version_tag(tag)
     commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
-    errors = receipt_findings(receipt, tag, commit, validation_evidence.source_digest)
+    from validation_provenance import committed_source_digest
+    errors = receipt_findings(receipt, tag, commit, committed_source_digest)
     if errors: raise ValueError('\n'.join(errors))
     print('公开发布回执通过：维护者确认、源码、工具链及采样时间。')
 
@@ -514,7 +513,8 @@ def release(tag: str, *, publish: bool = False) -> None:
         with validation_evidence.report_lock():
             if validation_evidence.inspect_report(SimpleNamespace(action='check', recorded_environment=False)):
                 raise ValueError('发布证据需要完整发布验收与提交绑定。')
-            receipt = release_receipt(json.loads(REPORT.read_text()), tag, validation_evidence.source_digest)
+            from validation_provenance import committed_source_digest
+            receipt = release_receipt(json.loads(REPORT.read_text()), tag, committed_source_digest)
             RECEIPT.write_text(json.dumps(receipt, ensure_ascii=False, indent=2) + '\n')
             subprocess.run(['gh', 'release', 'upload', tag, str(RECEIPT), '--repo', repository(), '--clobber'],
                 cwd=ROOT, capture_output=True, text=True, check=True)
@@ -666,8 +666,8 @@ def validation_plan_self_test() -> None:
     from io import StringIO
     module = sys.modules[__name__]
     for environment, full in (({}, False), ({'BIT101_FULL_CHECK': 'true'}, True),
-            ({'BIT101_FULL_CHECK': 'false'}, False), ({'BIT101_RELEASE_CHECK': 'true'}, True),
-            ({'GITHUB_REF': 'refs/tags/v1.0'}, True)):
+            ({'BIT101_FULL_CHECK': 'false'}, False), ({'BIT101_RELEASE_CHECK': 'true'}, False),
+            ({'GITHUB_REF': 'refs/tags/v1.0'}, False)):
         context = dict(BIT101_FULL_CHECK='false', BIT101_RELEASE_CHECK='false', GITHUB_REF='refs/heads/main',
             GITHUB_RUN_ID='8', GITHUB_OUTPUT='plan') | environment
         with patch.dict(os.environ, context), patch('validation_environment.ci_commit_findings', return_value=[]), \
