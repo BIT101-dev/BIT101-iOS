@@ -138,6 +138,8 @@ def checker_boundary_findings() -> list[str]:
     findings.extend(community_recovery_self_test())
     findings.extend(script_output_boundary_findings())
     campus_fixture_self_test()
+    from development_workflow_tests import development_workflow_self_test
+    development_workflow_self_test()
     markers = mask_literals_and_comments('// TODO\n/* FIXME /* HACK */ */\nlet text = "TODO"', keep_comments=True)
     if len(re.findall(r"\b(?:TODO|FIXME|HACK)\b", markers)) != 3:
         findings.append("代码质量规则边界自检失败：维护标记覆盖行注释及嵌套块注释")
@@ -376,10 +378,7 @@ def script_output_boundary_findings() -> list[str]:
     """通过内存命令输出验证阈值、完整留档及进程状态。"""
     from types import SimpleNamespace
 
-    source = (SCRIPT_ROOT / "script-support.sh").read_text()
-    block = re.search(r"<<'PY'\n(.*?)^PY$", source, re.MULTILINE | re.DOTALL)
-    if block is None:
-        return ["日志自测需要公共输出处理器"]
+    from command_output import run_command
     findings: list[str] = []
     for status, count, ci in ((0, 10, False), (7, 40, False), (7, 41, False),
                               (-15, 1, False), (0, 41, True), (7, 41, True)):
@@ -394,14 +393,9 @@ def script_output_boundary_findings() -> list[str]:
              patch.object(Path, "mkdir"), patch.object(Path, "open", open_log), \
              patch.dict(os.environ, {"GITHUB_ACTIONS": "true" if ci else "false"}), \
              redirect_stdout(visible):
-            try:
-                exec(compile(block[1], "logger-self-test", "exec"), {})
-            except SystemExit as error:
-                expected = status if status >= 0 else 128 - status
-                if error.code != expected:
-                    findings.append("日志自测：进程退出状态传递")
-            else:
-                findings.append("日志自测：进程退出状态缺失")
+            expected = status if status >= 0 else 128 - status
+            if run_command(sys.argv[1:]) != expected:
+                findings.append("日志自测：进程退出状态传递")
         output = visible.getvalue()
         if log.getvalue() != "".join(lines):
             findings.append("日志自测：完整输出留档")
@@ -423,8 +417,7 @@ def script_output_boundary_findings() -> list[str]:
                 patch.object(subprocess, 'Popen', return_value=process), patch.object(Path, 'mkdir'), \
                 patch.object(Path, 'open', lambda *args, **kwargs: nullcontext(log)), \
                 patch.dict(os.environ, GITHUB_ACTIONS='true' if ci else 'false'), redirect_stdout(visible):
-            try: exec(compile(block[1], '<native-progress>', 'exec'), {})
-            except SystemExit as error: assert error.code == 0
+            assert run_command(sys.argv[1:]) == 0
         if log.getvalue() != "    t = 0.10s Press button\n" + case:
             findings.append('日志自测：原生用例进度即时展示，完整操作记录沿固定日志保留')
     script = (SCRIPT_ROOT / "run-extended-tests.sh").read_text()
@@ -524,16 +517,9 @@ def catalyst_signing_boundary_findings() -> list[str]:
 def build_cache_boundary_findings() -> list[str]:
     "验证缓存合并、热文件保留、链接复用和清理边界。"
 
-    source = (SCRIPT_ROOT / "script-support.sh").read_text()
-    function = source.split("bit101_build_cache() {", 1)[1].split("\n}\n", 1)[0]
-    block = re.search(r"<<'PY'[^\n]*\n(.*?)^PY$", function, re.MULTILINE | re.DOTALL)
+    from compiler_cache import run_cache
     fixture = ROOT / ".build/static-audit/cache-self-test"
     findings: list[str] = []
-    child = re.search(r'result = subprocess.run\(\["zsh", "-c",\s*\n\s*\x27(.*?)\x27', block[1])[1]
-    harness = 'source() { bit101_log_command() { print -r -- "$ROOT_DIR"; }; }\n' + child
-    result = subprocess.run(['zsh', '-c', harness, 'cache-build', '/audit'], capture_output=True, text=True)
-    if result.returncode or result.stdout.strip() != '/audit':
-        findings.append('构建缓存子进程需要沿仓库根目录归集失败诊断。')
     try:
         from validation_artifacts import SELF_TEST_ARTIFACTS, recover_self_test_artifacts
         audit_folder = fixture / '.build/static-audit'
@@ -628,7 +614,7 @@ def build_cache_boundary_findings() -> list[str]:
         for _ in range(2):
             with patch.object(sys, "argv", ["cache", str(fixture), "--maintenance"]), \
                     patch.object(subprocess, "run", inspect_module), redirect_stdout(StringIO()):
-                exec(compile(block[1], "cache-self-test", "exec"), {})
+                run_cache(sys.argv[1:])
         if not old.is_symlink() or old.resolve() != shared.resolve():
             findings.append("缓存自测：同类缓存目录共享")
         if not cas.is_symlink() or any((cas / name).read_bytes() != content for name in ("index", "data")):
@@ -661,7 +647,7 @@ def build_cache_boundary_findings() -> list[str]:
         dependencies.write_text("{")
         with patch.object(sys, "argv", ["cache", str(fixture), "--maintenance"]), \
                 patch.object(subprocess, "run", inspect_module), redirect_stdout(StringIO()):
-            exec(compile(block[1], "cache-self-test", "exec"), {})
+            run_cache(sys.argv[1:])
         if not (sdk / "incomplete-map.pcm").is_file():
             findings.append("缓存自测：依赖清单受损时保留缓存")
         for action, settings, expected in (
@@ -675,10 +661,11 @@ def build_cache_boundary_findings() -> list[str]:
             arguments = ["cache", str(fixture), "build.log", "build", *command, *settings]
             with patch.object(sys, "argv", arguments), patch.object(subprocess, "run", inspect_module):
                 try:
-                    exec(compile(block[1], "cache-self-test", "exec"), {})
+                    run_cache(sys.argv[1:])
                 except SystemExit as result:
                     if result.code != 0:
                         raise
+            assert builds[-1][3:5] == ['cache-build', str(fixture)]
             if expected is None:
                 if not all(flag in builds[-1] for flag in ("-Xswiftc", "-warnings-as-errors", "-Xcc", "-Werror")):
                     findings.append("编译入口自测：SwiftPM 构建与测试的警告门禁")

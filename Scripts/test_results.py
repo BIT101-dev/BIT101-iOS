@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Read test results, export diagnostics and format workflow measurements."""
 import sys
+from pathlib import Path
 from validation_artifacts import clear_diagnostic_exports
 
 
@@ -166,6 +167,47 @@ def report_result_summary(bundle: str) -> None:
 def workflow_elapsed(arguments: list[str]) -> None:
     import os, time
     print(round(time.monotonic() - float(os.environ['BIT101_WORKFLOW_STARTED_AT']), 1))
+
+
+def simulator_plan(products: Path, scheme: str) -> Path:
+    plans = list(products.glob(scheme + '_*iphonesimulator*.xctestrun'))
+    if not plans: raise ValueError('模拟器编译需要生成对应的运行配置。')
+    return max(plans, key=lambda path: path.stat().st_mtime_ns)
+
+
+def ui_host_product_paths(products: Path) -> list[Path]:
+    import plistlib
+    plan = simulator_plan(products, 'BIT101-iOS-UIAutomation')
+    paths = {plan}
+    def visit(value, key=''):
+        if isinstance(value, dict):
+            for name, child in value.items(): visit(child, name)
+        elif isinstance(value, list):
+            for child in value: visit(child, key)
+        elif isinstance(value, str) and value.startswith('__TESTROOT__/') and key in {
+                'TestHostPath', 'UITargetAppPath', 'TestBundlePath', 'DependentProductPaths'}:
+            relative = Path(value.removeprefix('__TESTROOT__/'))
+            if relative.is_absolute() or '..' in relative.parts: raise ValueError('UI 宿主路径需要属于产品目录。')
+            for index, part in enumerate(relative.parts):
+                if Path(part).suffix in {'.app', '.appex', '.framework', '.xctest'}:
+                    relative = Path(*relative.parts[:index + 1]); break
+            path = products / relative
+            if not path.exists(): raise ValueError(f'UI 宿主需要运行配置引用的产物：{path}')
+            paths.add(path)
+    visit(plistlib.loads(plan.read_bytes()))
+    return sorted(path for path in paths if not any(parent in paths for parent in path.parents))
+
+
+def ui_host_paths(arguments: list[str]) -> None:
+    import os
+    products = Path(arguments[0])
+    root = Path(__file__).resolve().parents[1]
+    files = ui_host_product_paths(products) + [root / name for name in (
+        '.build/compiler-cache/swift-syntax-indexer', '.build/compiler-cache/swift-syntax-indexer-inputs.json',
+        '.build/static-audit/compilation-conditions.json')]
+    paths = '\n'.join(str(path.resolve().relative_to(root)) for path in files)
+    with Path(os.environ['GITHUB_OUTPUT']).open('a') as output:
+        output.write('paths<<BIT101_UI_HOST_PATHS\n' + paths + '\nBIT101_UI_HOST_PATHS\n')
 
 
 def ui_test_plan(arguments: list[str]) -> None:
@@ -497,7 +539,7 @@ def module_filter(arguments: list[str]) -> None:
 
 if __name__ == "__main__":
     commands = {'report': report_test_results, 'elapsed': workflow_elapsed, 'start': workflow_start,
-        'ui-plan': ui_test_plan, 'failures': report_test_failures, 'native-metrics': record_native_metrics,
+        'ui-plan': ui_test_plan, 'ui-host-paths': ui_host_paths, 'failures': report_test_failures, 'native-metrics': record_native_metrics,
         'module-metrics': export_module_metrics, 'select': selected_inventory, 'module-filter': module_filter}
     if len(sys.argv) < 2 or sys.argv[1] not in commands:
         raise SystemExit('用法：test_results.py report|ui-plan|failures|native-metrics|module-metrics|select|module-filter 参数...')

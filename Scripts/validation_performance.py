@@ -113,15 +113,49 @@ def complete_pending_result_merge() -> None:
         write_report(report)
 
 
+def complete_selected_result_step() -> bool:
+    from validation_provenance import REPORT, report_lock, write_report
+    with report_lock():
+        report = json.loads(REPORT.read_text()) if REPORT.is_file() else {}
+        pending = report.get('selectedResult')
+        if not pending: return False
+        retained = BUNDLE.with_suffix('.retained.xcresult')
+        diagnostic = BUNDLE.parent / 'diagnostics/test-results.xcresult'
+        if retained.exists():
+            if BUNDLE.exists():
+                diagnostic.parent.mkdir(parents=True, exist_ok=True)
+                shutil.rmtree(diagnostic, ignore_errors=True)
+                shutil.move(str(BUNDLE), str(diagnostic))
+            shutil.move(str(retained), str(BUNDLE))
+        if not BUNDLE.exists() or bundle_identity(BUNDLE) != pending['baselineIdentity']:
+            raise ValueError('定向回归需要保留完整验收的原始结果包。')
+        current = bundle_identity(diagnostic) if result_bundle_complete(diagnostic) else None
+        for row in report.get('groups', {}).values():
+            if row.get('scope') == 'selected' and current and row.get('resultBundleIdentity') == current:
+                row['resultBundlePath'] = str(diagnostic)
+                for record in row.get('performance', {}).get('records', {}).values():
+                    record['resultBundle']['path'] = str(diagnostic.relative_to(ROOT))
+        report.pop('selectedResult')
+        write_report(report)
+    return True
+
+
 def recover_result_step() -> None:
+    complete_selected_result_step()
     recover_result_bundle()
     complete_pending_result_merge()
 
 
-def begin_result_step(retain_previous: bool) -> None:
+def begin_result_step(retain_previous: bool, *, selected_groups: list[str] | None = None) -> None:
     recover_result_step()
     retained = BUNDLE.with_suffix('.retained.xcresult')
     if retain_previous and BUNDLE.exists():
+        if selected_groups:
+            from validation_provenance import REPORT, report_lock, write_report
+            with report_lock():
+                report = json.loads(REPORT.read_text()) if REPORT.is_file() else {}
+                report['selectedResult'] = {'groups': selected_groups, 'baselineIdentity': bundle_identity(BUNDLE)}
+                write_report(report)
         shutil.move(str(BUNDLE), str(retained))
     else:
         reset_result_bundle()
@@ -147,7 +181,10 @@ def begin_selected_result_step(replacing_group: str | None = None) -> list[str]:
                     and full.get('resultBundleIdentity') == identity and full.get('inputDigest') == source_digest(name) \
                     and exchange_identity(full.get('environment')) == exchange_identity(environment_context(name)):
                 groups.append(name)
-    begin_result_step(bool(groups))
+    if replacing_group is None:
+        begin_result_step(bool(groups), selected_groups=groups)
+    else:
+        begin_result_step(bool(groups))
     return groups
 
 
@@ -214,6 +251,7 @@ def retain_result_step(groups: list[str]) -> None:
 
 
 def merge_result_step(groups: list[str], *, producing_group: str | None = None) -> None:
+    if complete_selected_result_step(): return
     from validation_provenance import REPORT, report_lock, write_report
     retained = BUNDLE.with_suffix('.retained.xcresult')
     merged = BUNDLE.with_suffix('.incoming.xcresult')

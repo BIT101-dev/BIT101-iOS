@@ -150,7 +150,7 @@ Scripts/build-install-device.sh info
 Scripts/build-install-device.sh
 ```
 
-默认入口自动优先选择 USB 设备，其次选择可发现的无线设备，完成 Release 编译、安装和启动。
+默认入口自动选择已配对设备，已连接设备优先，同等连接状态下 USB 优先，最后按 UDID 稳定排序，完成 Release 编译、安装和启动。
 
 ## 维护账号与专项流程
 

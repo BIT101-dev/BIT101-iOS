@@ -12,8 +12,7 @@ def report_inbox_boundary_findings() -> list[str]:
     "验证反馈正文、附件、旧键和重复拉取的保存合同。"
 
     source = (SCRIPT_ROOT / "fetch-issues-and-reports.sh").read_text()
-    block = next(match[1] for match in re.finditer(r"<<'PY'\n(.*?)^PY$", source, re.MULTILINE | re.DOTALL)
-                 if "processed_path =" in match[1])
+    from report_inbox import archive_reports
     fixture = ROOT / ".build/static-audit/report-inbox-self-test"
     staging = fixture / ".incoming"
     keys_path, processed_path = fixture / "keys.json", fixture / "report-keys.txt"
@@ -37,7 +36,7 @@ def report_inbox_boundary_findings() -> list[str]:
         output = StringIO()
         with patch.object(sys, "argv", ["inbox", str(keys_path), str(staging), "/worker", "namespace", str(processed_path)]), \
                 patch.object(subprocess, "run", fetch), redirect_stdout(output):
-            exec(compile(block, "report-inbox-self-test", "exec"), {})
+            archive_reports(sys.argv[1:])
         return int(output.getvalue())
     try:
         namespace_configuration_self_test(source, fixture)
@@ -137,7 +136,11 @@ else exit 99; fi
 ''')
         fake_gh.chmod(0o700)
         shell_source = source.replace('OUTPUT_DIR="$ROOT_DIR/.build/issue-report-inbox"', 'OUTPUT_DIR=' + shlex.quote(str(fixture)))
-        shell_source = shell_source.replace('source "$ROOT_DIR/Scripts/script-support.sh"', 'bit101_acquire_script_lock() { :; }\nmock_wrangler() { print \'[]\'; }')
+        stubs = '''bit101_acquire_script_lock() { :; }
+mock_wrangler() { [[ "$INBOX_SELF_TEST_MODE" != cloudflare-list-failure ]] || return 21; print '[]'; }
+node() { [[ "$INBOX_SELF_TEST_MODE" != cloudflare-config-failure ]] || return 22; command node "$@"; }
+'''
+        shell_source = shell_source.replace('source "$ROOT_DIR/Scripts/script-support.sh"', stubs)
         shell_source = shell_source.replace('WRANGLER="$WRANGLER_DIR/node_modules/.bin/wrangler"', 'WRANGLER=mock_wrangler')
         issue_path, ci_path = fixture / "github-issues.json", fixture / "github-ci.json"
         old_issue = '[{"number":1,"state":"open","title":"cached issue","url":"fixture"}]'
@@ -157,6 +160,11 @@ else exit 99; fi
         assert run_fetch("log-failure").returncode == 1
         repeated = json.loads(ci_path.read_text())[0]
         assert repeated["previousFailedLog"] == "cached log" and "failedLogError" in repeated
+        for mode in ('cloudflare-config-failure', 'cloudflare-list-failure'):
+            result = run_fetch(mode)
+            assert result.returncode == 1 and (fixture / 'summary.txt').is_file(), result.stderr
+            assert 'GitHub Issues：' in result.stdout and 'failed' in result.stdout
+            assert not staging.exists()
         assert run_fetch("log-success").returncode == 0
         complete = json.loads(ci_path.read_text())[0]["failedLog"]
         assert len(complete) > 30000 and complete.startswith("error: first diagnostic\n")
@@ -203,7 +211,7 @@ def namespace_configuration_self_test(source: str, fixture: Path) -> None:
 def deletion_boundary_self_test(source: str, fixture: Path) -> None:
     from urllib.request import Request
     from urllib.error import HTTPError
-    block = source.split("<<'PYDELETE'\n", 1)[1].split("\nPYDELETE", 1)[0]
+    block = heredoc_body(source, "PYDELETE")
     key = 'report:received:00000000-0000-4000-8000-000000000001'
     path = fixture / 'delete-authorization.json'
     fixture.mkdir(parents=True, exist_ok=True)

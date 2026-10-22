@@ -297,7 +297,7 @@ def selected_result_retention_self_test() -> None:
                 patch.object(validation_provenance, 'report_lock', side_effect=nullcontext), patch.object(Path, 'exists', return_value=True), \
                 patch.object(Path, 'is_file', return_value=True), patch.object(Path, 'read_text', return_value=json.dumps({'groups': {'all': row}})):
             assert subject.begin_selected_result_step() == retained
-            begin.assert_called_once_with(bool(retained))
+            begin.assert_called_once_with(bool(retained), selected_groups=retained)
     with patch.object(subject, 'recover_result_step'), patch.object(subject, 'begin_result_step') as begin, \
             patch.object(subject, 'bundle_identity', return_value=sha), patch.object(subject, 'environment_context', return_value=environment), \
             patch.object(validation_provenance, 'source_digest', return_value='same'), \

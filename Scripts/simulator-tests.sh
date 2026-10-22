@@ -297,13 +297,13 @@ PYAPPREADY
   if (( simulator_app_status )); then tail -40 "$DERIVED_ROOT/simulator.log" >&2; exit "$simulator_app_status"; fi
   echo "[完成] 模拟器 App 就绪 · $(( SECONDS - simulator_app_started )) 秒"
 fi
-plan="$(python3 - "$DERIVED_ROOT/Build/Products" "$scheme" "$SIMULATOR_WORKERS" <<'PYPLAN'
+plan="$(python3 - "$DERIVED_ROOT/Build/Products" "$scheme" "$SIMULATOR_WORKERS" "$ROOT_DIR/Scripts" <<'PYPLAN'
 from pathlib import Path
 import plistlib
 import sys
-plans = list(Path(sys.argv[1]).glob(sys.argv[2] + '_*iphonesimulator*.xctestrun'))
-if not plans: raise SystemExit('模拟器编译需要生成对应的运行配置。')
-plan = max(plans, key=lambda path: path.stat().st_mtime)
+sys.path.insert(0, sys.argv[4])
+from test_results import simulator_plan
+plan = simulator_plan(Path(sys.argv[1]), sys.argv[2])
 configuration = plistlib.loads(plan.read_bytes())
 for group in configuration.get('TestConfigurations', []):
     for target in group.get('TestTargets', []): target['ParallelizationEnabled'] = sys.argv[3] != '1'

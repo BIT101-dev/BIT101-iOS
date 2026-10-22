@@ -241,6 +241,11 @@ def reuse_validation(group: str) -> None:
     with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as summary: summary.write(message + '\n')
 
 
+def native_cache_available(path: Path) -> bool:
+    return path.is_dir() and any(item.is_file() and (item.name == 'data' or item.name.startswith('data.'))
+        and item.stat().st_size for item in path.rglob('*'))
+
+
 def restore_cache(flavor: str) -> None:
     import fcntl
     if flavor not in CACHE_FLAVORS: raise ValueError('编译缓存需要登记的构建分组。')
@@ -248,7 +253,7 @@ def restore_cache(flavor: str) -> None:
     with (CACHE_ROOT / 'cache.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         (CACHE_ROOT / 'compilation-cache-download').unlink(missing_ok=True)
-        if (CACHE_ROOT / CACHE_STORE).exists():
+        if native_cache_available(CACHE_ROOT / CACHE_STORE):
             print('编译缓存：复用工作区原生产物。')
             return
         try:
@@ -398,13 +403,13 @@ def cache_self_test() -> None:
     for failure in (subprocess.CalledProcessError(1, ['gh', 'api']), OSError('cache unavailable'),
             ValueError('invalid metadata'), KeyError('cache metadata'), zipfile.BadZipFile('truncated cache')):
         with patch.object(Path, 'mkdir'), patch.object(Path, 'open'), patch.object(Path, 'exists', return_value=False), \
-                patch('fcntl.flock'), patch.object(module, 'restore_remote_cache', side_effect=failure) as restore, \
+                patch('fcntl.flock'), patch.object(module, 'native_cache_available', return_value=False), patch.object(module, 'restore_remote_cache', side_effect=failure) as restore, \
                 redirect_stdout(io.StringIO()) as output:
             restore_cache('simulator-ui')
             restore.assert_called_once_with('simulator-ui')
             assert '沿当前源码重新编译' in output.getvalue()
     with patch.object(Path, 'mkdir'), patch.object(Path, 'open'), patch.object(Path, 'exists', return_value=True), \
-            patch('fcntl.flock'), patch.object(module, 'restore_remote_cache') as restore, redirect_stdout(io.StringIO()):
+            patch('fcntl.flock'), patch.object(module, 'native_cache_available', return_value=True), patch.object(module, 'restore_remote_cache') as restore, redirect_stdout(io.StringIO()):
         restore_cache('simulator-ui')
         restore.assert_not_called()
     identity = {'toolchain': 'compiler', 'architecture': 'arm64'}
@@ -454,7 +459,7 @@ def cache_self_test() -> None:
         with patch.object(module, 'repository', return_value='owner/repo'), \
                 patch.object(module, 'api_pages', return_value=[{'artifacts': [artifact]}]), \
                 patch.object(Path, 'mkdir'), patch.object(Path, 'open'), patch.object(Path, 'exists', return_value=False), \
-                patch('fcntl.flock'), patch.object(subprocess, 'check_output', side_effect=response), \
+                patch('fcntl.flock'), patch.object(module, 'native_cache_available', return_value=False), patch.object(subprocess, 'check_output', side_effect=response), \
                 patch.object(module, 'download_cache_payload', return_value=payload()) as downloaded, \
                 patch.object(module, 'cache_result_matches', return_value=True), \
                 patch.object(subprocess, 'run', return_value=SimpleNamespace(returncode=ancestor)), \

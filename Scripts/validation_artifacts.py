@@ -39,7 +39,7 @@ fixed_children = {
 SELF_TEST_ARTIFACTS = frozenset({
     "network-configuration-self-test",
     "campus-fixture-self-test", "report-inbox-self-test", "report-write-self-test", "explanatory-self-test",
-    "cache-self-test", "cache-download-self-test", "performance-results-self-test", "workflow-lock-self-test",
+    "cache-self-test", "cache-download-self-test", "development-workflow-self-test", "performance-results-self-test", "workflow-lock-self-test",
     "row-color-self-test.swift", "source-digest-self-test.sh", "module-manifest-lock", "script-snapshot.sh",
 })
 

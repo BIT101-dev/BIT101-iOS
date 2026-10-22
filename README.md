@@ -34,7 +34,7 @@ BIT101 的原生 iOS 客户端，已上架 App Store。项目以 Android 端能�
 Scripts/build-install-device.sh
 ```
 
-脚本自动选择已配对设备，优先使用 USB，其次使用无线连接。日常操作使用短命令：
+脚本自动选择已配对设备，已连接设备优先，同等连接状态下 USB 优先，最后按 UDID 稳定排序。日常操作使用短命令：
 
 ```sh
 Scripts/build-install-device.sh build

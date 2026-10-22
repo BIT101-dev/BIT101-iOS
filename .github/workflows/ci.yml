@@ -366,6 +366,10 @@ jobs:
       - name: Build complete UI test host
         if: ${{ fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
         run: Scripts/run-extended-tests.sh simulator build-ui
+      - name: Select current UI host products
+        id: ui-host
+        if: ${{ fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
+        run: python3 Scripts/test_results.py ui-host-paths .build/extended-automation/Build/Products
       - name: Preserve shared UI test host
         if: ${{ fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -376,11 +380,7 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 1
-          path: |
-            .build/extended-automation/Build/Products
-            .build/compiler-cache/swift-syntax-indexer
-            .build/compiler-cache/swift-syntax-indexer-inputs.json
-            .build/static-audit/compilation-conditions.json
+          path: ${{ steps.ui-host.outputs.paths }}
       - name: Prepare native compilation cache
         if: ${{ (github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) && fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
         run: python3 Scripts/ci_evidence.py cache-export "simulator-ui"
