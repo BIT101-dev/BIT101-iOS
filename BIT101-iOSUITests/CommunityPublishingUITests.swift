@@ -195,6 +195,8 @@ nonisolated final class CommunityPublishingUITests: UIAutomationTestCase {
         let contact = app.textFields["联系方式"]
         replaceText("测试联系信息", in: contact)
         dismissKeyboard()
+        swipeSheetHeader(app.navigationBars["向开发者提建议"])
+        assertUI(text.value as? String == "自动化测试建议", "下滑关闭应保留建议内容并等待保存选择。")
         tap("取消")
         tap("保存草稿")
         openSettings("suggestion")

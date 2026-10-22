@@ -2,6 +2,31 @@ import XCTest
 
 nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
     @MainActor
+    @objc func testMessageReadStorageRecoveryKeepsMessagesAvailable() {
+        app = configureApp(resetStorage: true, content: true, messageStorageRecovery: true, initialTab: "gallery")
+        tap("消息")
+        assertUI(app.alerts["消息状态同步受阻"].appears(timeout: 5), "已读存储受损应保留读取原因。")
+        closeAlertIfPresent()
+        assertUI(app.buttons["messages.storage.recover"].appears(timeout: 5), "消息正文旁应提供已读状态恢复入口。")
+        assertUI(textElement("自动化测试消息").exists, "已读存储受损时应继续展示消息正文。")
+        tap("messages.storage.retry")
+        assertUI(app.alerts["消息状态同步受阻"].appears(timeout: 5), "重试应继续保留原始记录并展示结果。")
+        closeAlertIfPresent()
+        tap("messages.storage.recover")
+        let confirmation = app.alerts["恢复消息已读状态？"]
+        assertUI(confirmation.appears(timeout: 5), "恢复入口应展示当前账号已读记录的影响确认。")
+        confirmation.buttons["取消"].tapBriefly()
+        assertUI(app.buttons["messages.storage.recover"].exists, "取消恢复应保留原始已读记录。")
+        tap("messages.storage.recover")
+        assertUI(confirmation.appears(timeout: 5), "再次恢复应展示确认。")
+        confirmation.buttons["恢复已读状态"].tapBriefly()
+        assertUI(app.buttons["messages.storage.recover"].disappears(timeout: 5), "确认恢复应重建当前账号已读状态。")
+        assertUI(textElement("自动化测试消息").exists, "恢复已读状态后应继续展示消息正文。")
+        assertUI(app.buttons["取消"].exists, "恢复后应继续展示消息页面。")
+        tap("取消")
+    }
+
+    @MainActor
     @objc func testDuplicatePagesKeepTheVisibleTailLoading() {
         for (tab, section, title) in [("home", "课程", "分页课程"), ("gallery", "文章", "分页文章"), ("mine", "", "分页话题")] {
             app = configureApp(resetStorage: true, content: true, pagination: true, duplicatePages: true, initialTab: tab)

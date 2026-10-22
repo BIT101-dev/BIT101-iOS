@@ -26,6 +26,8 @@ struct GalleryMessagesView: View {
     @Environment(\.dismiss) private var dismiss
     private var networkObserver: NetworkPathState { dependencies.networkPath }
     @State private var requestedMessage: GalleryMessage?
+    @State private var showsReadRecoveryConfirmation = false
+    @State private var readRecovery: (@MainActor () async -> Void)?
 
     var body: some View {
         let type = viewModel.selectedType
@@ -151,6 +153,8 @@ struct GalleryMessagesView: View {
                 Task {
                     await viewModel.refresh(type: newType)
                 }
+            } else {
+                Task { await viewModel.retrySelectedTypeIfNeeded() }
             }
         }
         .task(id: requestedMessage) {
@@ -166,6 +170,32 @@ struct GalleryMessagesView: View {
             case let .course(id): courses.course(id)
             }
         }
+        .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
+            if viewModel.needsReadStateRecovery {
+                VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
+                    Text("消息已读记录需要恢复").font(AppDesignSystem.Typography.title)
+                    Text("当前消息继续展示。请重试读取，或确认恢复本机已读记录。")
+                    Button("重试读取") { Task { await viewModel.refreshSelectedType() } }
+                        .accessibilityIdentifier("messages.storage.retry")
+                    Button("恢复已读状态") {
+                        readRecovery = viewModel.readStateRecoveryAction()
+                        showsReadRecoveryConfirmation = true
+                    }
+                    .accessibilityIdentifier("messages.storage.recover")
+                }
+                .buttonStyle(.borderless)
+                .disabled(viewModel.isRecoveringReadState)
+                .padding(AppDesignSystem.Spacing.content)
+                .background(AppDesignSystem.Palette.Background.grouped)
+            }
+        }
+        .alert("恢复消息已读状态？", isPresented: $showsReadRecoveryConfirmation) {
+            Button("恢复已读状态", role: .destructive) { Task { await readRecovery?() } }
+                .accessibilityIdentifier("messages.storage.confirm")
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("当前账号的本机已读记录将重新建立，部分消息可能再次显示为未读。消息内容与其他资料继续保留。")
+        }
         .diagnosticAlert(item: $viewModel.alert)
     }
 
@@ -176,13 +206,7 @@ struct GalleryMessagesView: View {
     /// 网络恢复或回到前台时，继续当前分类的失败读取。
     private func retryCurrentTypeIfNeeded() async {
         guard networkObserver.isReachable else { return }
-        let state = currentState
-        if state.paginationError != nil {
-            await viewModel.loadMoreIfNeeded(for: viewModel.selectedType, currentMessage: state.items.last)
-            return
-        }
-        guard case .failed = state.status, state.items.isEmpty else { return }
-        await viewModel.refreshSelectedType()
+        await viewModel.retrySelectedTypeIfNeeded()
     }
 
     private var isInitialLoading: Bool {

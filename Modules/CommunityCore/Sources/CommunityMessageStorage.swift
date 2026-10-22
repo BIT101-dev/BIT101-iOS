@@ -95,6 +95,8 @@ public protocol GalleryMessageReadStoring: AnyObject {
     /// 本地保存和外部导入发布同一实例的账号变更。
     var changes: AnyPublisher<AppStorageSession, Never> { get }
     @discardableResult func prepareSnapshot() async -> Bool
+    /// 用户确认后重建当前账号的已读记录，保留可读取的磁盘状态。
+    @discardableResult func recoverSnapshot() async -> Bool
     @discardableResult func replaceLatestIDs(_ ids: [Int], unreadCount: Int, for type: GalleryMessageType) async -> Bool
     @discardableResult func markSeen(ids: [Int], for type: GalleryMessageType) async -> Bool
     @discardableResult func markAllSeen(including ids: [Int], for type: GalleryMessageType) async -> Bool

@@ -66,6 +66,7 @@ final class UITestSceneConfiguration {
     }
 
     func replace(with environment: [String: String]) {
+        AppUITestBootstrap.releaseFeedback()
         values = environment
         revision += 1
     }
@@ -76,6 +77,13 @@ enum AppUITestBootstrap {
     nonisolated static let usesProductionComposition = ProcessInfo.processInfo.environment["BIT101_UI_TEST_PRODUCTION_COMPOSITION"] == "1"
     static var environment: [String: String] { UITestSceneConfiguration.shared.snapshot.environment }
     private static var injectedScheduleConflictScene: Int?
+    static var pendingFeedback: CheckedContinuation<Void, Never>?
+    static var recoveredSuggestionID: UUID?
+
+    static func releaseFeedback() {
+        pendingFeedback?.resume()
+        pendingFeedback = nil
+    }
 
     static func prepareScheduleConflictIfRequested(cache: ScheduleCache, session: AppStorageSession) async throws {
         let scene = UITestSceneConfiguration.shared.snapshot
@@ -108,6 +116,17 @@ enum AppUITestBootstrap {
               let account = environment["BIT101_UI_TEST_ACCOUNT"], !account.isEmpty else { return }
         do {
             _ = try await UITestLoginService().login(studentID: account, password: "ui-test-password")
+            recoveredSuggestionID = nil
+            if environment["BIT101_UI_TEST_MESSAGE_STORAGE_RECOVERY"] == "1" {
+                let url = AppFileDirectories.accountSupportFileURL(
+                    accountDirectoryName: AppFileDirectories.currentSession.accountStorageIdentifier, named: "message-read-snapshot.json")
+                try AppFileDirectories.files.createDirectory(at: url.deletingLastPathComponent())
+                try AppFileDirectories.files.writeData(Data("{damaged".utf8), to: url, options: .atomic)
+                AppAccountStores.shared.communityMessages.invalidateSnapshot()
+            }
+            if environment["BIT101_UI_TEST_SUGGESTION_RECOVERY"] == "1" {
+                try await prepareRecoveredSuggestion()
+            }
             if environment["BIT101_UI_TEST_BOT_PAGING"] == "1" {
                 AppSettingsStore.shared.updateGallerySettings(hideBotPosterInSearch: false)
             }
@@ -165,6 +184,27 @@ enum AppUITestBootstrap {
 }
 
 extension AppUITestBootstrap {
+    private static func prepareRecoveredSuggestion() async throws {
+        let images = ["ui-image.png", "missing-image.png"].map {
+            ComposerImageDraftSnapshot(filename: $0, previewData: mediaData, uploadData: mediaData)
+        }
+        let draft = DeveloperSuggestionDraftSnapshot(text: "恢复建议草稿", images: images, contact: "测试联系信息")
+        let context = FeedbackDeviceContext.current
+        let payload = DeveloperSuggestionPayload(comment: draft.text, contact: draft.contact, appVersion: "test", build: "test",
+            systemVersion: "test", deviceModel: "test", networkStatus: context.networkStatus, submittedAt: Date(), context: context,
+            attachments: images.map { .init(filename: $0.filename, contentType: "image/jpeg", data: mediaData.base64EncodedString()) })
+        recoveredSuggestionID = payload.requestID
+        let saved = DeveloperSuggestionDraftSnapshot(text: draft.text, images: images, contact: draft.contact,
+            pendingSubmissionMetadata: try payload.draftMetadata(matching: draft))
+        guard await AppAccountStores.shared.composerDrafts.saveSuggestion(saved) else { throw URLError(.cannotWriteToFile) }
+        let url = AppFileDirectories.accountSupportFileURL(
+            accountDirectoryName: AppFileDirectories.currentSession.accountStorageIdentifier, named: "composer-suggestion.json")
+        let data = try AppFileDirectories.files.readData(at: url)
+        guard let body = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let revision = body["assetRevision"] as? String else { throw CocoaError(.coderInvalidValue) }
+        try AppFileDirectories.files.removeItem(at: url.appendingPathExtension("assets").appending(path: revision).appending(path: "image-1.jpg"))
+    }
+
     static var mediaData: Data {
         UIGraphicsImageRenderer(size: CGSize(width: 80, height: 80)).pngData { context in
             UIColor.systemBlue.setFill()
@@ -236,6 +276,15 @@ final class UITestHTTPTransport: HTTPTransport {
                 throw URLError(.badServerResponse)
             }
             let payload = try JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])
+            if AppUITestBootstrap.environment["BIT101_UI_TEST_SUGGESTION_RECOVERY"] == "1" {
+                guard id != AppUITestBootstrap.recoveredSuggestionID?.uuidString,
+                      body["comment"] as? String == "恢复建议草稿",
+                      body["contact"] as? String == "测试联系信息",
+                      (body["attachments"] as? [[String: Any]])?.count == 1 else { throw URLError(.badServerResponse) }
+            }
+            if AppUITestBootstrap.environment["BIT101_UI_TEST_FEEDBACK_HOLD"] == "1" {
+                await withCheckedContinuation { AppUITestBootstrap.pendingFeedback = $0 }
+            }
             if AppUITestBootstrap.environment["BIT101_UI_TEST_FEEDBACK_RESPONSE_LOST_ONCE"] == "1",
                failedPaths.insert("feedback").inserted {
                 feedbackRetryPayload = payload

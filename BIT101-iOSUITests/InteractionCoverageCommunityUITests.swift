@@ -318,6 +318,53 @@ nonisolated final class ServiceInteractionUITests: UIAutomationTestCase {
     }
 
     @MainActor
+    @objc func testSuggestionSubmissionProtectsThePendingPayload() {
+        app = configureApp(resetStorage: true, content: true, animations: true, feedbackHold: true)
+        openSettings("suggestion")
+        replaceText("提交期间保留建议", in: app.textFields["建议内容"])
+        dismissKeyboard()
+        replaceText("测试联系信息", in: app.textFields["联系方式"])
+        dismissKeyboard()
+        tap("提交")
+        assertUI(waitUntil(NSPredicate { _, _ in UITestControlClient.request(["command": "feedback-state"]) == "pending" }, on: app),
+            "建议请求应进入受控的等待状态。")
+        app.textFields["建议内容"].assertDisabled("等待提交结果期间应保护建议正文。")
+        app.textFields["联系方式"].assertDisabled("等待提交结果期间应保护联系方式。")
+        app.buttons["ui.developer-suggestion-page.插入图片"].assertDisabled("等待提交结果期间应保护附件。")
+        app.buttons["取消"].assertDisabled("等待提交结果期间应保留编辑器。")
+        let page = app.navigationBars["向开发者提建议"]
+        swipeSheetHeader(page)
+        assertUI(page.exists && app.textFields["建议内容"].value as? String == "提交期间保留建议", "下滑应保留等待中的建议与结果上下文。")
+        assertUI(UITestControlClient.request(["command": "release-feedback"]) == "released", "传输夹具应完成原请求。")
+        assertUI(page.disappears(timeout: 5), "提交成功应完成建议流程。")
+    }
+
+    @MainActor
+    @objc func testRecoveredSuggestionPreservesContentAndConfirmsANewSubmission() {
+        app = configureApp(resetStorage: true, content: true, suggestionRecovery: true)
+        openSettings("suggestion")
+        tap("加载草稿")
+        assertUI(app.alerts["建议内容已部分恢复"].appears(timeout: 5), "待确认建议的附件缺失应说明恢复内容。")
+        closeAlertIfPresent()
+        assertUI(app.textFields["建议内容"].value as? String == "恢复建议草稿", "恢复建议应保留文字。")
+        assertUI(app.textFields["联系方式"].value as? String == "测试联系信息", "恢复建议应保留联系方式。")
+        assertUI(app.buttons["移除图片"].exists, "恢复建议应保留可用附件。")
+        tap("suggestion.recovery.continue")
+        assertUI(app.alerts["将恢复内容作为新建议？"].appears(timeout: 5), "继续编辑应说明上一份建议的发送状态。")
+        tap("返回核对")
+        assertUI(app.buttons["suggestion.recovery.continue"].exists, "返回核对应保留恢复选择。")
+        tap("suggestion.recovery.continue")
+        tap("继续编辑")
+        tap("取消")
+        tap("保存草稿")
+        openSettings("suggestion")
+        tap("加载草稿")
+        assertUI(app.textFields["建议内容"].value as? String == "恢复建议草稿", "确认后的恢复内容应持续保存。")
+        tap("提交")
+        assertUI(app.navigationBars["向开发者提建议"].disappears(timeout: 5), "恢复的文字、联系方式和可用图片应以新的提交身份成功发送。")
+    }
+
+    @MainActor
     @objc func testSchoolSMSCourseSyncValidationCancelAndContinuation() {
         app = configureApp(resetStorage: true, animations: true, school: true, schoolSMS: true)
         tap("刷新")

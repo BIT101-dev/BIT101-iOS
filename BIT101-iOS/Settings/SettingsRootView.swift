@@ -278,6 +278,7 @@ private enum DeveloperSuggestionConfirmation: String, Identifiable {
     case saveDraft
     case restoreDraft
     case missingContact
+    case rebuildSubmission
 
     var id: String { rawValue }
 }
@@ -325,6 +326,7 @@ struct DeveloperSuggestionPage: View {
     @State private var imageTask: Task<Void, Never>?
     @State private var imagePreparer = ComposerImagePreparer()
     @State private var isSubmitting = false
+    @State private var isUpdatingDraft = false
     @State private var alert: AppAlert?
     @State private var confirmation: DeveloperSuggestionConfirmation?
     @FocusState private var isContactFocused: Bool
@@ -332,8 +334,18 @@ struct DeveloperSuggestionPage: View {
     @State private var submissionAttempt = FeedbackSubmissionAttempt<DeveloperSuggestionPayload>()
     @State private var submissionRecoveryFailed = false
 
+    private var isBusy: Bool { isSubmitting || isUpdatingDraft }
+
     var body: some View {
         Form {
+            if submissionRecoveryFailed {
+                Section {
+                    Text("已恢复的文字与图片已保留。请核对内容，并确认作为新建议继续编辑。")
+                    Button("使用恢复内容继续编辑") { confirmation = .rebuildSubmission }
+                        .appInteractiveListRow()
+                        .accessibilityIdentifier("suggestion.recovery.continue")
+                }
+            }
             Section("建议内容") {
                 TextField(
                     "",
@@ -384,14 +396,16 @@ struct DeveloperSuggestionPage: View {
                 }
             }
         }
+        .disabled(isBusy)
+        .interactiveDismissDisabled(hasDraftContent || isBusy || isLoadingImages)
         .appGroupedListStyle()
         .navigationTitle("向开发者提建议")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             AppComposerToolbar(
-                isSubmitting: isSubmitting,
+                isSubmitting: isBusy,
                 submitTitle: "提交",
-                submittingTitle: "提交中",
+                submittingTitle: isUpdatingDraft ? "处理中" : "提交中",
                 isSubmitDisabled: text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                 onCancel: {
                     requestDismiss()
@@ -402,13 +416,23 @@ struct DeveloperSuggestionPage: View {
             )
         }
         .onChange(of: selectedPhotoItems) { _, newValue in
-            guard !newValue.isEmpty else { return }
+            guard !isBusy, !newValue.isEmpty else { return }
             startImageTask { await addImages(from: newValue) }
         }
         .onDisappear { imageTask?.cancel() }
         .task { await checkDraftOnAppear() }
         .alert(item: $confirmation) { item in
             switch item {
+            case .rebuildSubmission:
+                Alert(
+                    title: Text("将恢复内容作为新建议？"),
+                    message: Text("上一份建议可能已经送达。确认后保留当前文字和图片，后续提交将建立另一份建议。"),
+                    primaryButton: .default(Text("继续编辑"), action: {
+                        submissionAttempt.restore(nil)
+                        submissionRecoveryFailed = false
+                    }),
+                    secondaryButton: .cancel(Text("返回核对"))
+                )
             case .saveDraft:
                 Alert(
                     title: Text("保存草稿？"),
@@ -459,7 +483,8 @@ struct DeveloperSuggestionPage: View {
     }
 
     private func requestSubmission() {
-        guard !isSubmitting else { return }
+        guard !isBusy else { return }
+        if submissionRecoveryFailed { confirmation = .rebuildSubmission; return }
         if contact.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             confirmation = .missingContact
         } else {
@@ -469,11 +494,11 @@ struct DeveloperSuggestionPage: View {
 
     @MainActor
     private func submit() async {
-        guard !isSubmitting else { return }
+        guard !isBusy else { return }
         let suggestion = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !suggestion.isEmpty else { return }
         guard !submissionRecoveryFailed else {
-            alert = AppAlert.informational(title: "提交记录恢复需要处理", message: "草稿内容已保留，请清理草稿后重新填写建议。")
+            confirmation = .rebuildSubmission
             return
         }
         guard !hasProcessingImages else {
@@ -526,7 +551,7 @@ struct DeveloperSuggestionPage: View {
     }
 
     private func requestDismiss() {
-        guard !isSubmitting else { return }
+        guard !isBusy else { return }
         guard hasDraftContent else {
             dismiss()
             return
@@ -535,6 +560,9 @@ struct DeveloperSuggestionPage: View {
     }
 
     private func discardDraft() async -> Bool {
+        guard !isBusy else { return false }
+        isUpdatingDraft = true
+        defer { isUpdatingDraft = false }
         let removed = await dependencies.drafts.removeSuggestion()
         if removed { submissionAttempt.restore(nil); submissionRecoveryFailed = false }
         if !removed {
@@ -544,7 +572,9 @@ struct DeveloperSuggestionPage: View {
     }
 
     private func saveDraft() async -> Bool {
-        guard !submissionRecoveryFailed else { return false }
+        guard !isBusy, !submissionRecoveryFailed else { return false }
+        isUpdatingDraft = true
+        defer { isUpdatingDraft = false }
         do { return await dependencies.drafts.saveSuggestion(try draftSnapshot()) }
         catch { return false }
     }
@@ -563,7 +593,7 @@ struct DeveloperSuggestionPage: View {
         guard !Task.isCancelled else { return }
         didCheckDraft = true
         if result.snapshot != nil { confirmation = .restoreDraft }
-        if let message = result.recoveryMessage {
+        else if let message = result.recoveryMessage {
             alert = AppAlert.informational(title: "建议草稿恢复需要处理", message: message)
         }
     }
@@ -583,9 +613,12 @@ struct DeveloperSuggestionPage: View {
         do {
             submissionAttempt.restore(try DeveloperSuggestionPayload.restored(from: draft))
             submissionRecoveryFailed = false
+            if let message = result.recoveryMessage {
+                alert = AppAlert.informational(title: "建议内容已部分恢复", message: message)
+            }
         } catch {
             submissionRecoveryFailed = true
-            alert = AppAlert.informational(title: "提交记录恢复需要处理", message: "草稿内容已保留，请清理草稿后重新填写建议。")
+            alert = AppAlert.informational(title: "建议内容已部分恢复", message: "文字与可用图片已保留。请核对内容，并选择使用恢复内容继续编辑。")
         }
         imageDrafts = draft.images.map {
             ComposerImageDraft(
@@ -697,6 +730,7 @@ struct DeveloperSuggestionPage: View {
     }
 
     private func removeImageDraft(id: ComposerImageDraft.ID) {
+        guard !isBusy else { return }
         imageDrafts.removeAll { $0.id == id }
     }
 

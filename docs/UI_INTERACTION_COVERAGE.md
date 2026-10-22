@@ -120,6 +120,7 @@ UIKit 控件沿构造类型、继承或别名进入源码清单，运行门禁�
 | `CommunityRecoveryUITests/testCourseLookupFailureKeepsTheSearchIdentity` | 两路检索故障后转入原生课程搜索，保留课程名称并展示可选择的结果 |
 | `CommunityRecoveryUITests/testDuplicatePagesKeepTheVisibleTailLoading` | 课程、文章与个人帖子跳过重复页后自动继续，保留实际行任务生命周期 |
 | `CommunityRecoveryUITests/testMessagePaginationRetriesAtTheVisibleTail` | 消息后续页故障提示、页尾原位重试与已加载消息保留 |
+| `CommunityRecoveryUITests/testMessageReadStorageRecoveryKeepsMessagesAvailable` | 消息已读存储受损时保留正文、读取重试、恢复取消与确认、恢复后继续展示 |
 | `CommunityRecoveryUITests/testCommentReviewContinuesTheConfirmedSubmission` | 评论结果待确认、人工核对确认 / 取消、同一内容再次发送 |
 | `CommunityRecoveryUITests/testMessagesAndFavoritesOpenNativeResources` | 文章与课程消息打开各自原生详情，课程收藏进入原生课程页 |
 | `ServiceInteractionUITests/testOfflineRecoveryRetryAndErrorReportEditor` | 离线重试、诊断编辑、原始模式、复现 / 联系方式、确认取消 / 确认、提交失败保留、关闭 |
@@ -136,9 +137,11 @@ UIKit 控件沿构造类型、继承或别名进入源码清单，运行门禁�
 | `InteractionCoverageUITests/testAccountProfileSaveLoginCheckAndLogout` | 学号 / UID 显示和隐藏、昵称 / 签名编辑取消、头像选择器取消 |
 | `InteractionCoverageUITests/testAccountProfileSaveLoginCheckAndLogout` | 昵称 / 签名保存及重新加载、登录检查、退出、重新登录 |
 | `CommunityPublishingUITests/testGallerySettingsValidationTogglesAndPersistence` | 机器人 / 匿名 / 网页开关及持久化状态、屏蔽 UID 校验 / 键盘提交 / 保存 / 重新装载 |
-| `CommunityPublishingUITests/testSuggestionDraftRestoreAndDiscard` | 建议 / 联系方式输入、空提交禁用、草稿保存 / 加载 / 丢弃 |
+| `CommunityPublishingUITests/testSuggestionDraftRestoreAndDiscard` | 建议 / 联系方式输入、空提交禁用、下滑关闭保护、草稿保存 / 加载 / 丢弃 |
 | `InteractionCoverageUITests/testSuggestionMissingContactConfirmationAndSubmitFailure` | 图片选择器取消、缺少联系信息返回补充 / 继续、提交失败保留、草稿丢弃 |
 | `ServiceInteractionUITests/testSuggestionSuccessfulSubmissionAndDiscardSavedDraft` | 草稿放弃加载、提交确认、受理后响应丢失保留完整载荷并重试、成功关闭、草稿清理 |
+| `ServiceInteractionUITests/testSuggestionSubmissionProtectsThePendingPayload` | 提交期间正文 / 联系方式 / 附件与关闭控件禁用、下滑关闭保护、原请求完成后关闭 |
+| `ServiceInteractionUITests/testRecoveredSuggestionPreservesContentAndConfirmsANewSubmission` | 待确认建议附件部分恢复、文字 / 联系方式 / 可用图片保留、新建议身份确认 / 返回核对、保存重载与提交 |
 | `InteractionCoverageUITests/testCacheLimitPersistenceClearAndConfirmedReset` | 缓存上限输入 / 重新装载保留、缓存清理、文稿删除确认、返回登录、测试日程清理 |
 | `InteractionCoverageUITests/testSettingsRecoveryPreservesScheduleAndAccount` | 设置快照恢复入口、取消 / 确认、偏好重新保存与加载、账号及已有日程保留 |
 | `CommunityPublishingUITests/testAboutLicenseUpdateAndResetConfirmation` | 开源声明滚动、自动更新开关、离线检查提示、重置取消 |
@@ -157,6 +160,9 @@ UIKit 控件沿构造类型、继承或别名进入源码清单，运行门禁�
 | `BIT101_UI_TEST_MEDIA_RECOVERY=1` | 两页图片预览，后续页原图首次请求失败、原生重试后成功 |
 | `BIT101_UI_TEST_DUPLICATE_PAGES=1` | 源页包含重复首屏，后续响应延迟以覆盖行任务取消窗口 |
 | `BIT101_UI_TEST_MESSAGE_PAGING_FAILURE_ONCE=1` | 消息分页首次读取失败，重试后返回后续消息 |
+| `BIT101_UI_TEST_MESSAGE_STORAGE_RECOVERY=1` | 当前账号已读快照受损，保留消息正文并由用户确认恢复 |
+| `BIT101_UI_TEST_SUGGESTION_RECOVERY=1` | 待确认建议保留文字、联系方式与一张可用图片，另一张图片缺失；传输验收新的提交身份与恢复内容 |
+| `BIT101_UI_TEST_FEEDBACK_HOLD=1` | 建议请求等待控制通道释放，验收提交期间的表单与关闭保护 |
 | `BIT101_UI_TEST_COMMENT_OUTCOME_UNKNOWN_ONCE=1` | 首次评论响应缺少有效身份，人工核对后再次发送 |
 | `BIT101_UI_TEST_MEDIA=1` | 合成 PNG、帖子 / 评论 / 头像图片、Editor.js 正文图片与链接、带图片的两类草稿；第一次上传失败，第二次成功 |
 | `BIT101_UI_TEST_FAILURE_ONCE=1` | 课程、话题和文章首次请求失败，随后重试成功 |
@@ -210,7 +216,7 @@ SwiftSyntax 清点每个源码作用域的控件、输入、滚动和手势声�
 | `BIT101-iOS/Settings/SettingsAccountViews.swift:SettingsSensitiveValueRow` | `{"Button":1}` | `InteractionCoverageUITests/testAccountProfileSaveLoginCheckAndLogout` |
 | `BIT101-iOS/Settings/SettingsCommunityViews.swift:AboutSettingsPage` | `{"Button":5,"Link":5,"List":1,"NavigationLink":1,"ScrollView":1,"Toggle":1}` | `CommunityPublishingUITests/testAboutLicenseUpdateAndResetConfirmation,CommunityInteractionUITests/testExternalLinksFromAboutAndCourseResources,ServiceInteractionUITests/testManualUpdatePromptAllActionsAndCurrentVersion,InteractionCoverageUITests/testCacheLimitPersistenceClearAndConfirmedReset` |
 | `BIT101-iOS/Settings/SettingsCommunityViews.swift:GallerySettingsPage` | `{"Button":1,"List":1,"TextField":2,"Toggle":3,"onSubmit":1}` | `CommunityPublishingUITests/testGallerySettingsValidationTogglesAndPersistence,InteractionCoverageUITests/testGalleryFeedAndSurfaceSwipesMessagesAndSearchResultRoutes,AccountRecoveryUITests/testWebGallerySettingPersistenceScrollingAndNativeReturn,ScheduleNavigationUITests/testNetworkDiagnosisProgressAndReport,InteractionCoverageUITests/testCacheLimitPersistenceClearAndConfirmedReset,ScheduleLayoutUITests/testAccessibilityQueryParityAndNativeButtonContract` |
-| `BIT101-iOS/Settings/SettingsRootView.swift:DeveloperSuggestionPage` | `{"ComposerImageTile":1,"PhotosPicker":1,"ScrollView":1,"TextField":2}` | `CommunityPublishingUITests/testSuggestionDraftRestoreAndDiscard,InteractionCoverageUITests/testSuggestionMissingContactConfirmationAndSubmitFailure,ServiceInteractionUITests/testSuggestionSuccessfulSubmissionAndDiscardSavedDraft` |
+| `BIT101-iOS/Settings/SettingsRootView.swift:DeveloperSuggestionPage` | `{"Button":1,"ComposerImageTile":1,"PhotosPicker":1,"ScrollView":1,"TextField":2}` | `CommunityPublishingUITests/testSuggestionDraftRestoreAndDiscard,InteractionCoverageUITests/testSuggestionMissingContactConfirmationAndSubmitFailure,ServiceInteractionUITests/testSuggestionSuccessfulSubmissionAndDiscardSavedDraft,ServiceInteractionUITests/testSuggestionSubmissionProtectsThePendingPayload,ServiceInteractionUITests/testRecoveredSuggestionPreservesContentAndConfirmsANewSubmission` |
 | `BIT101-iOS/Settings/SettingsRootView.swift:SettingsIndexPage` | `{"Button":1,"NavigationLink":1,"ScrollView":1}` | `LoginAndScheduleUITests/testCalendarSettingsPickersTogglesAndRenamePersist` |
 | `BIT101-iOS/Settings/SettingsRootView.swift:SettingsRootView` | `{"Button":1}` | `LoginAndScheduleUITests/testCalendarSettingsPickersTogglesAndRenamePersist` |
 | `BIT101-iOS/Settings/SettingsRootView.swift:SettingsStorageNotice` | `{"Button":3}` | `InteractionCoverageUITests/testSettingsRecoveryPreservesScheduleAndAccount` |
@@ -265,7 +271,7 @@ SwiftSyntax 清点每个源码作用域的控件、输入、滚动和手势声�
 | `Modules/GalleryFeature/Sources/GalleryFeedViews.swift:GalleryFeedView` | `{"AppEmptyState":1,"AppFailureState":1,"CommunityPaginationFooter":1,"CommunityPosterCard":1,"ScrollView":1,"refreshable":1}` | `CommunityRecoveryUITests/testCommunityPaginationRetriesFromTheVisibleTail,InteractionCoverageUITests/testBotFeedContinuesAcrossEmptyScanBatches,InteractionCoverageUITests/testCommunityCommentLikesRepliesSortsAndPhotoPicker,InteractionCoverageUITests/testGalleryFeedAndSurfaceSwipesMessagesAndSearchResultRoutes` |
 | `Modules/GalleryFeature/Sources/GalleryFeedViews.swift:GallerySubscriptionsView` | `{"AppEmptyState":1,"AppFailureState":1,"Button":3,"List":1,"refreshable":1}` | `CommunityInteractionUITests/testPosterSubscriptionsPersistAndAppearInFavorites,CommunityRecoveryUITests/testMessagesAndFavoritesOpenNativeResources` |
 | `Modules/GalleryFeature/Sources/GalleryMessagesView.swift:GalleryMessageRow` | `{"onTapGesture":1}` | `InteractionCoverageUITests/testGalleryFeedAndSurfaceSwipesMessagesAndSearchResultRoutes,InteractionCoverageUITests/testCommunityCommentLikesRepliesSortsAndPhotoPicker` |
-| `Modules/GalleryFeature/Sources/GalleryMessagesView.swift:GalleryMessagesView` | `{"AppEmptyState":1,"AppFailureState":1,"Button":2,"CommunityPaginationFooter":1,"List":1,"refreshable":1,"simultaneousGesture":1}` | `CommunityRecoveryUITests/testMessagesAndFavoritesOpenNativeResources,InteractionCoverageUITests/testCommunityCommentLikesRepliesSortsAndPhotoPicker,InteractionCoverageUITests/testGalleryFeedAndSurfaceSwipesMessagesAndSearchResultRoutes,CommunityRecoveryUITests/testMessagePaginationRetriesAtTheVisibleTail` |
+| `Modules/GalleryFeature/Sources/GalleryMessagesView.swift:GalleryMessagesView` | `{"AppEmptyState":1,"AppFailureState":1,"Button":6,"CommunityPaginationFooter":1,"List":1,"refreshable":1,"simultaneousGesture":1}` | `CommunityRecoveryUITests/testMessagesAndFavoritesOpenNativeResources,InteractionCoverageUITests/testCommunityCommentLikesRepliesSortsAndPhotoPicker,InteractionCoverageUITests/testGalleryFeedAndSurfaceSwipesMessagesAndSearchResultRoutes,CommunityRecoveryUITests/testMessagePaginationRetriesAtTheVisibleTail,CommunityRecoveryUITests/testMessageReadStorageRecoveryKeepsMessagesAvailable` |
 | `Modules/GalleryFeature/Sources/GalleryPosterActionViews.swift:GalleryReportSheet` | `{"Button":4,"Picker":1,"TextField":1}` | `CommunityInteractionUITests/testPosterReportSelectionCancellationAndSubmission` |
 | `Modules/GalleryFeature/Sources/GalleryPosterDetailView.swift:GalleryPosterDetailViewScene` | `{"AppDetailCircleButton":2,"AppDetailShareLink":1,"AppFailureState":1,"Button":6,"CommunityPosterActionMenu":1,"Menu":1,"ScrollView":2,"refreshable":1}` | `InteractionCoverageUITests/testGalleryFeedAndSurfaceSwipesMessagesAndSearchResultRoutes,InteractionCoverageUITests/testCommunityCommentLikesRepliesSortsAndPhotoPicker,InteractionCoverageUITests/testCommunityMediaPreviewsDraftRetryAndRemoval,MineInteractionUITests/testMinePublicProfileFollowAndPostDeletion,CommunityPublishingUITests/testGalleryComposerTagsSettingsPublishAndDelete,CommunityInteractionUITests/testPosterSubscriptionsPersistAndAppearInFavorites` |
 | `Modules/GalleryFeature/Sources/GalleryRootView.swift:GalleryRootViewScene` | `{"AppFloatingActionButton":4,"simultaneousGesture":1}` | `InteractionCoverageUITests/testGalleryFeedAndSurfaceSwipesMessagesAndSearchResultRoutes,InteractionCoverageUITests/testCommunityCommentLikesRepliesSortsAndPhotoPicker,CommunityInteractionUITests/testPosterSubscriptionsPersistAndAppearInFavorites` |

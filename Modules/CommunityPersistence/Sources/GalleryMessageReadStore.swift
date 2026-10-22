@@ -2,6 +2,7 @@ import CommunityCore
 import StorageCore
 import Combine
 import Foundation
+import OSLog
 
 private nonisolated struct MessageSnapshotState: Sendable {
     let snapshot: GalleryMessageReadSnapshot
@@ -19,32 +20,38 @@ private actor MessageSnapshotFiles {
     private nonisolated let executor = StorageFileExecutor()
     nonisolated var unownedExecutor: UnownedSerialExecutor { executor.asUnownedSerialExecutor() }
 
-    func read(files: any AppFileService, url: URL, legacy: Data?, invalidLegacy: Bool) -> MessageSnapshotState? {
+    private static let fields: Set<String> = ["schemaVersion", "latestIDsByType", "seenIDsByType", "retainedFromIDByType", "pendingUnreadAfterIDByType"]
+
+    func read(files: any AppFileService, url: URL, legacy: Data?, invalidLegacy: Bool) -> Result<MessageSnapshotState, StorageFailureDiagnostic> {
+        var operation = "protection"
         do {
             let data: Data
             do {
                 try files.setPrivateFileProtection(at: url)
+                operation = "read"
                 data = try files.readData(at: url, maximumBytes: GalleryMessageReadSnapshot.maximumSnapshotBytes)
             } catch {
-                guard AppFileSystem.isMissingFile(error) else { return nil }
-                guard !invalidLegacy else { return nil }
-                guard let legacy else { return MessageSnapshotState(GalleryMessageReadSnapshot()) }
+                guard AppFileSystem.isMissingFile(error) else { throw error }
+                operation = "legacy"
+                guard !invalidLegacy else { throw CocoaError(.coderReadCorrupt) }
+                guard let legacy else { return .success(MessageSnapshotState(GalleryMessageReadSnapshot())) }
                 data = legacy
             }
-            guard data.count <= GalleryMessageReadSnapshot.maximumSnapshotBytes else { return nil }
-            return MessageSnapshotState(try JSONDecoder().decode(GalleryMessageReadSnapshot.self, from: data))
-        } catch { return nil }
+            guard data.count <= GalleryMessageReadSnapshot.maximumSnapshotBytes else { throw CocoaError(.fileReadTooLarge) }
+            operation = "decode"
+            return .success(MessageSnapshotState(try JSONDecoder().decode(GalleryMessageReadSnapshot.self, from: data)))
+        } catch { return .failure(StorageFailureDiagnostic(error, operation: operation, fields: Self.fields)) }
     }
 
     func write(_ original: GalleryMessageReadSnapshot, files: any AppFileService, url: URL,
-               edit: @Sendable (GalleryMessageReadSnapshot) -> GalleryMessageReadSnapshot?) throws -> MessageSnapshotState? {
+               recoveringUnreadable: Bool, edit: @Sendable (GalleryMessageReadSnapshot) -> GalleryMessageReadSnapshot?) throws -> MessageSnapshotState? {
         let source: GalleryMessageReadSnapshot
         do {
             try files.setPrivateFileProtection(at: url)
             source = try JSONDecoder().decode(GalleryMessageReadSnapshot.self,
                 from: files.readData(at: url, maximumBytes: GalleryMessageReadSnapshot.maximumSnapshotBytes))
         } catch {
-            guard AppFileSystem.isMissingFile(error) else { throw error }
+            guard AppFileSystem.isMissingFile(error) || recoveringUnreadable else { throw error }
             source = original
         }
         guard let edited = edit(source) else { return nil }
@@ -59,6 +66,7 @@ private actor MessageSnapshotFiles {
 
 /// 界面读取内存索引；异步保存完成后发布所属账号的状态。
 public final class GalleryMessageReadStore: GalleryMessageReadStoring {
+    private nonisolated static let logger = Logger(subsystem: "BIT101", category: "MessageReadCache")
     private let changeSubject = PassthroughSubject<AppStorageSession, Never>()
     public var changes: AnyPublisher<AppStorageSession, Never> { changeSubject.eraseToAnyPublisher() }
     public var currentSession: AppStorageSession { session() }
@@ -129,25 +137,34 @@ public final class GalleryMessageReadStore: GalleryMessageReadStoring {
         let legacy = legacyValue as? Data
         let invalidLegacy = legacyValue != nil && legacy == nil
         let task = Task { [weak self, worker, files] in
-            let state = await worker.read(files: files, url: url, legacy: legacy, invalidLegacy: invalidLegacy)
+            let result = await worker.read(files: files, url: url, legacy: legacy, invalidLegacy: invalidLegacy)
             guard let self else { return false }
             if self.loadTask?.session == account && self.loadTask?.revision == revision && self.loadTask?.generation == generation { self.loadTask = nil }
             guard generation == self.cacheGeneration, account == self.session(), revision == self.defaults.integer(forKey: revisionKey) else { return false }
+            let state: MessageSnapshotState?
+            switch result {
+            case .success(let value): state = value
+            case .failure(let failure):
+                state = nil
+                Self.logger.error("消息记录读取受阻：\(failure.summary, privacy: .public)")
+            }
             let previous = self.cached?.session == account ? self.cached?.state?.unread : nil
+            let wasUnreadable = self.cached?.session == account && self.cached?.state == nil
             self.cached = (account, revisionKey, revision, state)
             self.loadTask = nil
             if state != nil, let legacy, self.defaults.object(forKey: key) == nil {
                 self.defaults.set(legacy, forKey: key)
                 self.defaults.removeObject(forKey: legacyKey)
             }
-            if previous != state?.unread, previous != nil || state?.unread.isEmpty == false { self.changeSubject.send(account) }
+            let unreadChanged = previous != state?.unread && (previous != nil || state?.unread.isEmpty == false)
+            if unreadChanged || wasUnreadable != (state == nil) { self.changeSubject.send(account) }
             return state != nil
         }
         loadTask = (account, revision, generation, task)
         return await task.value
     }
 
-    private func save(shouldSync: Bool = true,
+    private func save(shouldSync: Bool = true, recoveringUnreadable: Bool = false,
                       edit: @escaping @Sendable (GalleryMessageReadSnapshot) -> GalleryMessageReadSnapshot?) async -> Bool {
         guard storageOperations.begin() else { return false }
         defer { storageOperations.finish() }
@@ -162,11 +179,19 @@ public final class GalleryMessageReadStore: GalleryMessageReadStoring {
                 if Self.writeTasks[writeKey]?.id == writeID { Self.writeTasks.removeValue(forKey: writeKey) }
             }
             _ = await previous?.value
-            guard let self, generation == self.cacheGeneration, account == self.session(), await self.prepareSnapshot(),
-                  generation == self.cacheGeneration, account == self.session(), let state = self.currentState else { return false }
+            guard let self, generation == self.cacheGeneration, account == self.session() else { return false }
+            let original: GalleryMessageReadSnapshot
+            if recoveringUnreadable {
+                original = self.cached?.session == account ? self.cached?.state?.snapshot ?? .init() : .init()
+            } else {
+                guard await self.prepareSnapshot(), generation == self.cacheGeneration, account == self.session(),
+                      let state = self.currentState else { return false }
+                original = state.snapshot
+            }
             let url = self.fileURL, key = self.snapshotStore.storageKey, revisionKey = self.revisionKey
             do {
-                guard let saved = try await self.worker.write(state.snapshot, files: self.files, url: url, edit: edit) else { return true }
+                guard let saved = try await self.worker.write(original, files: self.files, url: url,
+                    recoveringUnreadable: recoveringUnreadable, edit: edit) else { return true }
                 self.defaults.removeObject(forKey: account.legacyKey("gallery.message.read.snapshot"))
                 let revision = self.defaults.integer(forKey: revisionKey) &+ 1
                 self.defaults.set(revision, forKey: revisionKey)
@@ -176,7 +201,16 @@ public final class GalleryMessageReadStore: GalleryMessageReadStoring {
                 if shouldSync { self.saveSubject.send(account) }
                 self.changeSubject.send(account)
                 return isCurrent
-            } catch { self.cached = nil; return false }
+            } catch {
+                let failure = StorageFailureDiagnostic(error, operation: "write")
+                Self.logger.error("消息记录保存受阻：\(failure.summary, privacy: .public)")
+                if generation == self.cacheGeneration, account == self.session() {
+                    if recoveringUnreadable {
+                        self.cached = (account, revisionKey, self.defaults.integer(forKey: revisionKey), nil)
+                    } else { self.cached = nil }
+                }
+                return false
+            }
         }
         Self.writeTasks[writeKey] = (writeID, task)
         return await task.value
@@ -187,6 +221,11 @@ public final class GalleryMessageReadStore: GalleryMessageReadStoring {
         snapshot.latestIDsByType = [:]
         snapshot.pendingUnreadAfterIDByType = [:]
         return snapshot
+    }
+
+    @discardableResult public func recoverSnapshot() async -> Bool {
+        guard hasUnreadableSnapshot else { return await prepareSnapshot() }
+        return await save(recoveringUnreadable: true) { $0 }
     }
 
     @discardableResult public func applySyncedSnapshot(_ snapshot: GalleryMessageReadSnapshot) async -> Bool {

@@ -484,6 +484,15 @@ final class UITestSceneState: ObservableObject {
                             reply(Data(UITestAccessibilityActions.keyboardState(returnTitle: environment["return-title"]).utf8))
                             return
                         }
+                        if environment["command"] == "feedback-state" {
+                            reply(Data((AppUITestBootstrap.pendingFeedback == nil ? "idle" : "pending").utf8))
+                            return
+                        }
+                        if environment["command"] == "release-feedback" {
+                            AppUITestBootstrap.releaseFeedback()
+                            reply(Data("released".utf8))
+                            return
+                        }
                         self.configure(environment)
                         reply(Data("\(ProcessInfo.processInfo.processIdentifier):\(self.revision)".utf8))
                     } catch {

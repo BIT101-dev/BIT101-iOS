@@ -818,6 +818,12 @@ private final class RecordingMessageReadStore: GalleryMessageReadStoring {
     var currentSession = AppStorageSession(accountIdentifier: "message-port")
     var hasUnreadableSnapshot = false
     func prepareSnapshot() async -> Bool { !hasUnreadableSnapshot }
+    func recoverSnapshot() async -> Bool {
+        guard saveSucceeds else { return false }
+        hasUnreadableSnapshot = false
+        changeSubject.send(currentSession)
+        return true
+    }
     var saveSucceeds = true
     let changeSubject = PassthroughSubject<AppStorageSession, Never>()
     var changes: AnyPublisher<AppStorageSession, Never> { changeSubject.eraseToAnyPublisher() }

@@ -748,6 +748,9 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         claimsFailureOnce: Bool = false,
         reportFailureOnce: Bool = false,
         feedbackResponseLostOnce: Bool = false,
+        feedbackHold: Bool = false,
+        suggestionRecovery: Bool = false,
+        messageStorageRecovery: Bool = false,
         update: String? = nil,
         schoolSMS: Bool = false,
         scheduleConflict: Bool = false,
@@ -826,6 +829,9 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         application.launchEnvironment["BIT101_UI_TEST_CLAIMS_FAILURE_ONCE"] = claimsFailureOnce ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_REPORT_FAILURE_ONCE"] = reportFailureOnce ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_FEEDBACK_RESPONSE_LOST_ONCE"] = feedbackResponseLostOnce ? "1" : "0"
+        application.launchEnvironment["BIT101_UI_TEST_FEEDBACK_HOLD"] = feedbackHold ? "1" : "0"
+        application.launchEnvironment["BIT101_UI_TEST_SUGGESTION_RECOVERY"] = suggestionRecovery ? "1" : "0"
+        application.launchEnvironment["BIT101_UI_TEST_MESSAGE_STORAGE_RECOVERY"] = messageStorageRecovery ? "1" : "0"
         if let update { application.launchEnvironment["BIT101_UI_TEST_UPDATE"] = update }
         application.launchEnvironment["BIT101_UI_TEST_SCHOOL_SMS"] = schoolSMS ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_RUN_ID"] = runIdentifier

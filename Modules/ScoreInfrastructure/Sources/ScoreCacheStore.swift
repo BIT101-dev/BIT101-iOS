@@ -376,13 +376,17 @@ actor ScoreCacheDiskRepository {
     }
 
     private func readFile(at url: URL) -> ExistingFileResult {
+        var operation = "protection"
         do {
             try files.setPrivateFileProtection(at: url)
+            operation = "read"
             let data = try files.readData(at: url, maximumBytes: ScoreCacheStore.maximumCacheBytes)
+            operation = "decode"
             return .loaded(try decodeStoredData(data))
         } catch {
             if AppFileSystem.isMissingFile(error) { return .missing }
-            Self.logger.error("成绩缓存无法读取，保留原文件：\(url.lastPathComponent, privacy: .public)")
+            let failure = StorageFailureDiagnostic(error, operation: operation, fields: Self.snapshotKeys.union(["schemaVersion", "index", "headers", "values"]))
+            Self.logger.error("成绩缓存读取受阻：\(url.lastPathComponent, privacy: .public) · \(failure.summary, privacy: .public)")
             return .unreadable
         }
     }

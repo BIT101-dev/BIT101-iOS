@@ -37,6 +37,8 @@ final class GalleryMessageViewModel: ObservableObject {
     /// 服务端返回的分类未读摘要。
     @Published private(set) var unreadCounts = GalleryMessageUnreadCounts()
     @Published private(set) var unreadCountsFailure: String?
+    @Published private(set) var isRecoveringReadState = false
+    @Published private var pendingRecoveryTypes: Set<GalleryMessageType> = []
     private static let logger = Logger(subsystem: "BIT101-dev.BIT101-iOS", category: "GalleryMessages")
     @Published var alert: AppAlert?
     @Published var destination: GalleryMessageDestination?
@@ -91,6 +93,43 @@ final class GalleryMessageViewModel: ObservableObject {
         unreadCount(for: selectedType) > 0
     }
 
+    var needsReadStateRecovery: Bool { readStore.hasUnreadableSnapshot }
+
+    func readStateRecoveryAction() -> @MainActor () async -> Void {
+        let owner = readStore.currentSession
+        return { [weak self] in
+            guard let self, owner == self.readStore.currentSession, !self.isRecoveringReadState else { return }
+            self.isRecoveringReadState = true
+            defer { self.isRecoveringReadState = false }
+            let recovered = await self.readStore.recoverSnapshot()
+            guard owner == self.readStore.currentSession else { return }
+            if recovered {
+                self.alert = nil
+                await self.refreshSelectedType()
+            } else {
+                self.alert = AppAlert(title: "消息状态恢复受阻", message: "当前消息与原始记录已保留，请稍后重试恢复。")
+            }
+        }
+    }
+
+    /// 可见消息继续展示，摘要、确认和分页沿各自失败状态恢复。
+    func retrySelectedTypeIfNeeded() async {
+        guard !needsReadStateRecovery, !isRecoveringReadState else { return }
+        let type = selectedType
+        if pendingRecoveryTypes.contains(type) {
+            await refresh(type: type)
+            return
+        }
+        if unreadCountsFailure != nil { await refreshUnreadCounts() }
+        guard type == selectedType else { return }
+        let page = state(for: type)
+        if page.paginationError != nil {
+            await loadMoreIfNeeded(for: type, currentMessage: page.items.last)
+        } else if case .failed = page.status, page.items.isEmpty {
+            await refresh(type: type)
+        }
+    }
+
     /// 首次进入消息页时加载默认分类，并同步未读状态。
     func bootstrapIfNeeded() async {
         guard state(for: selectedType).status == .idle else { return }
@@ -101,17 +140,18 @@ final class GalleryMessageViewModel: ObservableObject {
     ///
     /// 未读摘要用于悬浮按钮角标；请求失败时保留摘要并记录恢复原因。
     func refreshUnreadCounts() async {
+        let owner = readStore.currentSession
         unreadGeneration &+= 1
         let generation = unreadGeneration
         do {
             let counts = try await service.fetchMessageUnreadCounts()
             try Task.checkCancellation()
-            guard unreadGeneration == generation else { return }
+            guard unreadGeneration == generation, owner == readStore.currentSession else { return }
             unreadCounts = counts
             unreadCountsFailure = nil
         } catch {
             if TaskCancellation.matches(error) { return }
-            guard unreadGeneration == generation else { return }
+            guard unreadGeneration == generation, owner == readStore.currentSession else { return }
             unreadCountsFailure = error.localizedDescription
             Self.logger.error("Unread summary failed: \(String(describing: error), privacy: .public)")
         }
@@ -219,6 +259,8 @@ final class GalleryMessageViewModel: ObservableObject {
             case .subscription: unreadCounts.subscription = 0
             }
             await refreshUnreadCounts()
+            try checkCurrent()
+            pendingRecoveryTypes.remove(type)
         } catch {
             guard listGenerations[type] == generation, session == readStore.currentSession else { return }
             if let failure = error as? GalleryMessagePersistenceError, case .unreadSummary(let reason) = failure {
@@ -232,6 +274,7 @@ final class GalleryMessageViewModel: ObservableObject {
                 }
             }
             if cancelled { return }
+            pendingRecoveryTypes.insert(type)
             alert = AppAlert(title: error is GalleryMessagePersistenceError ? "消息状态同步受阻" : "加载消息失败",
                 message: error.localizedDescription)
         }
