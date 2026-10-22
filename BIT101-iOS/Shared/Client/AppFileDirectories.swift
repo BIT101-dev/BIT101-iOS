@@ -16,7 +16,7 @@ enum AppFileDirectories {
 #endif
     }()
     private nonisolated static let persistentBackupPreparation = Task {
-        await migratePersistentBackupMetadata(files: files, defaultsDomain: defaultsDomain)
+        await migratePersistentBackupMetadata(files: files)
     }
 
     static func preparePersistentBackups() async {
@@ -25,7 +25,7 @@ enum AppFileDirectories {
 
     /// 历史文件迁移一次备份元数据，日常写入沿用文件服务的目录策略。
     @concurrent
-    static func migratePersistentBackupMetadata(files: any AppFileService, defaultsDomain: String) async {
+    static func migratePersistentBackupMetadata(files: any AppFileService, defaultsDomain: String? = nil) async {
         let defaults = Self.defaults(inDomain: defaultsDomain)
         let key = "storage.persistent-backup-metadata.prepared"
         guard !defaults.bool(forKey: key) else { return }
