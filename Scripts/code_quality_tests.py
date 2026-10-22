@@ -326,6 +326,10 @@ struct Handler { var value: String!; func read() -> String { value }; func catch
     findings.extend(ci_trigger_shell_self_test(workflow_source) + cross_file_view_request_self_test())
     from ci_wiring_rules import ci_wiring_findings
     upload = re.search(r"actions/upload-artifact@[0-9a-f]{40}", workflow_source)[0]
+    renamed_steps = re.sub(r'(?m)^(\s+- name:).*$', r'\1 Descriptive workflow label', workflow_source)
+    assert not ci_wiring_findings(renamed_steps)
+    spaced = workflow_source.replace('run: python3 Scripts/ci_evidence.py reuse ', 'run: python3  "Scripts/ci_evidence.py"   reuse ')
+    assert not ci_wiring_findings(spaced)
     assert not ci_wiring_findings(workflow_source.replace(upload, "actions/upload-artifact@" + "a" * 40))
     for reference in ("v8", "main"):
         assert ci_wiring_findings(workflow_source.replace(upload, "actions/upload-artifact@" + reference))
@@ -424,23 +428,22 @@ def script_output_boundary_findings() -> list[str]:
         if log.getvalue() != "    t = 0.10s Press button\n" + case:
             findings.append('日志自测：原生用例进度即时展示，完整操作记录沿固定日志保留')
     script = (SCRIPT_ROOT / "run-extended-tests.sh").read_text()
-    summary = script[script.index('summary = json.loads(subprocess.check_output(['):].split('\nPY\n', 1)[0]
+    from test_results import report_result_summary, record_native_metrics
     for failures in ([], [{'testIdentifierString': 'Suite/test', 'failureText': 'assertion'}]):
         visible = StringIO()
         sample = dict(result='Failed' if failures else 'Passed', passedTests=2 if failures else 3,
             totalTestCount=3, testFailures=failures)
         with patch.object(sys, 'argv', ['report', '/result']), \
                 patch.object(subprocess, 'check_output', return_value=json.dumps(sample)) as read, redirect_stdout(visible):
-            exec(compile(summary, '<report-summary>', 'exec'), dict(json=json, subprocess=subprocess, sys=sys))
+            report_result_summary('/result')
         expected = [f"{sample['result']} · {sample['passedTests']}/3 通过"]
         if failures: expected.append('Suite/test: assertion')
         if visible.getvalue().splitlines() != expected or read.call_count != 1:
             findings.append('报告默认输出摘要与失败项，完整用例树沿 report json 读取。')
-    metrics = re.search(r"(?ms)^record_metrics\(\) \{.*?<<'PY'\n(.*?)^PY$", script)[1]
     with patch.object(sys, "argv", ["metrics", "/result", "/report", "ui", "1", "device", "/audit"]), \
             patch.object(subprocess, "run", return_value=subprocess.CompletedProcess([], 64, "", "incomplete result")):
         try:
-            exec(compile(metrics, "metrics-interruption-self-test", "exec"), {})
+            record_native_metrics(sys.argv[1:])
         except SystemExit as error:
             if "XCTest 结果包" not in str(error): findings.append("测试指标自测：启动中断摘要")
         else:

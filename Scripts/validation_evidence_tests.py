@@ -898,6 +898,8 @@ def network_recording_self_test(subject, results) -> None:
     assert set(results) == subject.NETWORK_GROUPS
     assert subject.NETWORK_GROUPS <= DEVICE_GROUPS
     bit101_probes = sorted(subject.network_inventory('bit101'))
+    inventories = {scope: subject.network_inventory(scope) for scope in
+        {'all', 'bit101', *(result['scope'] for result in results.values())}}
     check_output = subject.subprocess.check_output
     for group, result in results.items():
         for passed in (True, False):
@@ -909,10 +911,11 @@ def network_recording_self_test(subject, results) -> None:
             def save(value):
                 report.update(value)
             with patch.object(subject, 'source_digest', return_value='current'), \
+                    patch.object(subject, 'network_inventory', side_effect=lambda scope='all': inventories[scope]), \
                     patch.object(subject, 'report_lock', side_effect=nullcontext), patch.object(subject, 'write_report', side_effect=save), \
                     patch.object(Path, 'is_file', return_value=True), patch.object(Path, 'read_text', read), \
                     patch.object(subject.subprocess, 'check_output', side_effect=lambda command, *args, **kwargs:
-                        'head' if command == ['git', 'rev-parse', 'HEAD'] else check_output(command, *args, **kwargs)), \
+                        'head' if command == ['git', 'rev-parse', 'HEAD'] and kwargs.get('text') else check_output(command, *args, **kwargs)), \
                     patch.dict(os.environ, BIT101_VALIDATION_RUN_ID='network-run'), redirect_stderr(StringIO()):
                 assert subject.record(group, 0, 'full', 'current') == (0 if passed else 1), group
                 with patch.object(sys, 'argv', ['validation_evidence.py', 'check-group', group]):

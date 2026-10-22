@@ -168,7 +168,7 @@ def audit_lock_boundary_findings() -> list[str]:
     environment = dict(os.environ)
     for name in ('BIT101_EXTENDED_TESTS_LOCK_HELD', 'BIT101_STATIC_AUDIT_LOCK_HELD', 'BIT101_WORKFLOW_DEADLINE'):
         environment.pop(name, None)
-    shell = (SCRIPT_ROOT / 'run-static-audit.sh').read_text().split('LOG_DIR=', 1)[0]
+    shell = 'ROOT_DIR=' + (SCRIPT_ROOT / 'run-static-audit.sh').read_text().split('ROOT_DIR=', 1)[1].split('LOG_DIR=', 1)[0]
     shell = re.sub(r'(?m)^ROOT_DIR=.*$', 'ROOT_DIR=' + shlex.quote(str(fixture)), shell)
     shell = shell.replace('source "$ROOT_DIR/Scripts/script-support.sh"', 'source ' + shlex.quote(str(SCRIPT_ROOT / 'script-support.sh')))
     manifest = f'''import ast, fcntl, os, runpy, sys
@@ -301,6 +301,16 @@ blocked_task() { python3 -c 'import os, time; print(os.getpid(), os.getpgrp(), f
             process.communicate(timeout=5)
     return findings
 def script_command_boundary_findings() -> list[str]:
+    from test_results import module_filter
+    selected = StringIO()
+    with redirect_stdout(selected): module_filter(['Suite', 'Other/name()'])
+    pattern = selected.getvalue().strip()
+    assert re.search(pattern, 'App.Suite/works()') and re.search(pattern, 'Other/name()')
+    assert not re.search(pattern, 'App.SuiteExtra/works()')
+    audit = (SCRIPT_ROOT / 'run-static-audit.sh').read_text()
+    for option, status in (('--help', 0), ('--unknown', 64)):
+        result = subprocess.run(['zsh', '-c', audit, '/missing/audit', option], text=True, capture_output=True)
+        assert result.returncode == status and '用法' in result.stdout + result.stderr
     from ci_wiring_rules import hook_documents_checked, active_script_markers
     from module_boundary_tests import build_cache_exit_self_test
     assert hook_documents_checked('exec python3 Scripts/check-docs.py --all --staged')
@@ -375,7 +385,8 @@ python3() {{ print -r -- "RECORD $*"; return {recording}; }}
         result = run_simulator_ui(Path('/audit/plan'), Path('/audit/derived'), 'device', 2, selected)
         if result != 65 or executed.call_count != 1 or copied.called:
             findings.append('原生键盘阶段失败应保留原始退出状态和结果包并立即结束。')
-    from validation_restore import simulator_restore_findings, verification_finish_findings
+    from validation_restore import simulator_restore_findings
+    from script_output_tests import verification_finish_findings
     findings.extend(simulator_restore_findings(simulator_source))
     findings.extend(verification_finish_findings((SCRIPT_ROOT / 'run-extended-tests.sh').read_text()))
     support = SCRIPT_ROOT / "script-support.sh"
@@ -447,8 +458,7 @@ report_result() {{ :; }}
             except SystemExit: succeeded = False
         if succeeded != valid or output.getvalue().splitlines() != ([run_id, 'phone-a'] if valid else []):
             findings.append('iCloud 恢复自测：沿原执行设备读取账号，身份冲突保留既有报告')
-    report_program = (SCRIPT_ROOT / 'run-extended-tests.sh').read_text().split(
-        ' <<\'PY\'\n', 1)[1].split('\nPY\n', 1)[0]
+    from test_results import report_test_results
     for has_info, staging in ((True, False), (True, True), (False, False)):
         output = StringIO()
         with patch.object(sys, 'argv', ['report', '/fixture/results.xcresult', 'json', 'report', str(SCRIPT_ROOT)]), \
@@ -456,7 +466,7 @@ report_result() {{ :; }}
                 patch.object(Path, 'exists', lambda path: staging and path.name == 'Staging'), \
                 patch.object(subprocess, 'check_output', return_value='{}'), redirect_stdout(output):
             try:
-                exec(compile(report_program, '<result-report>', 'exec'), {})
+                report_test_results(sys.argv[1:])
             except SystemExit as error:
                 if (error.code == 0) != (has_info and not staging):
                     findings.append('结果包读取自测：已完成的文件存储格式沿 xcresulttool 读取')
@@ -550,7 +560,8 @@ xcrun() {
         if result.returncode or result.stdout.splitlines()[-1:] != [expected]:
             findings.append('网络学期自测：覆盖学期采样沿定向范围登记')
     export_source = export_source[:export_source.index('if [[ "${1:-}" == -h')]
-    export_source = export_source.replace('  python3 - "$DERIVED_ROOT/test-results.xcresult"', '  exit 86\n  python3 - "$DERIVED_ROOT/test-results.xcresult"')
+    export_source = export_source.replace('  python3 "$ROOT_DIR/Scripts/test_results.py" report',
+        '  exit 86\n  python3 "$ROOT_DIR/Scripts/test_results.py" report')
     for arguments in (["report", "json"], ["diagnostics"], ["activities", "test"], ["screenshot", "test"]):
         result = subprocess.run(["zsh", "-c", export_source, str(SCRIPT_ROOT / "run-extended-tests.sh"), *arguments],
                                 env=dict(os.environ, BIT101_EXTENDED_TESTS_LOCK_HELD="1"), capture_output=True, text=True)
@@ -694,22 +705,21 @@ bit101_run_logged() { print BUILD; return 79; }
         result = subprocess.run(["zsh", str(SCRIPT_ROOT / filename), *arguments], capture_output=True, text=True)
         if result.returncode != 64:
             findings.append(f"命令自测：{filename} 错误参数在执行前拒绝")
-    plan_function = re.search(r"(?ms)^ui_test_plan\(\) \{\n.*?^\}$", (SCRIPT_ROOT / "run-extended-tests.sh").read_text())
-    plan_source = re.search(r"<<'PY'\n(.*?)^PY$", plan_function[0], re.MULTILINE | re.DOTALL)[1]
+    from test_results import ui_test_plan
     older, newer = Mock(), Mock()
     older.stat.return_value.st_mtime = 1
     newer.stat.return_value.st_mtime = 2
     selected = StringIO()
     with patch.object(sys, "argv", ["ui-plan", "/audit/Products"]), \
          patch.object(Path, "glob", return_value=[older, newer]), redirect_stdout(selected):
-        try: exec(compile(plan_source, "ui-plan-self-test", "exec"), {})
+        try: ui_test_plan(sys.argv[1:])
         except SystemExit as error:
             if error.code not in (None, 0): raise
     if older.open.called or newer.open.called or selected.getvalue().strip() != str(newer):
         findings.append("UI 计划自测：最新构建选择及默认诊断配置保留")
     with patch.object(sys, "argv", ["ui-plan", "/audit/Products"]), patch.object(Path, "glob", return_value=[]):
         try:
-            exec(compile(plan_source, "ui-plan-empty-self-test", "exec"), {})
+            ui_test_plan(sys.argv[1:])
         except SystemExit as error:
             if ".xctestrun" not in str(error):
                 findings.append("UI 计划自测：冷缓存缺少运行配置时的诊断")
@@ -722,8 +732,7 @@ bit101_run_logged() { print BUILD; return 79; }
 
 
 def ui_metrics_boundary_findings() -> list[str]:
-    source = (SCRIPT_ROOT / "run-extended-tests.sh").read_text().split("record_metrics() {", 1)[1]
-    source = re.search(r"<<'PY'\n(.*?)^PY$", source, re.MULTILINE | re.DOTALL)[1]
+    from test_results import record_native_metrics
     def inventory(process, key, pending=()):
         return {"processIdentifier": process, "scope": "mounted-controls",
             "identityScope": "testCaseNavigationPresentationAndOccurrence",
@@ -752,7 +761,7 @@ def ui_metrics_boundary_findings() -> list[str]:
             patch.object(Path, "write_text", lambda path, value, **kwargs: report.__setitem__(path, value)), \
             patch('validation_evidence.native_source_coverage', return_value={'ScoreFeature': (30, 100), 'BIT101-iOS.app': (60, 100)}), \
             patch.dict(os.environ, BIT101_VALIDATION_SOURCE_DIGEST="digest", BIT101_VALIDATION_RUN_ID="run"), redirect_stdout(StringIO()):
-        exec(compile(source, "ui-metrics-self-test", "exec"), {})
+        record_native_metrics(sys.argv[1:])
     result = json.loads(next(line.split("：", 1)[1] for line in report[Path("/audit/test-metrics.txt")].splitlines() if line.startswith("控件库存：")))
     if result["processIdentifiers"] == ["10", "20"] and result["observed"] == 3 and result["visited"] == 2 \
             and result["pending"] == ["10:pending"] and {row["identifier"] for row in result["visitedControls"]} == {"first", "second"} \

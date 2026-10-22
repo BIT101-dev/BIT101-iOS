@@ -3,10 +3,9 @@ import CoreFoundation
 import TransportCore
 import GalleryFeature
 import PaperFeature
-import CryptoKit
 
 nonisolated struct NetworkSmokeConfigurationEvidence: Codable, Sendable {
-    let digest: String
+    let content: String
     let enabled: Bool
     let noticeID: String?
 }
@@ -176,7 +175,7 @@ nonisolated struct NetworkSmokeHTTPRequestEvidence: Codable, Sendable {
         let configuration: NetworkSmokeConfigurationEvidence?
         if request.url?.host == "update.aihelpme.dev", request.url?.path == "/emergency-update.json",
            let envelope = try? JSONDecoder().decode(EmergencyConfiguration.self, from: body), envelope.schemaVersion == 1 {
-            configuration = .init(digest: SHA256.hash(data: body).map { String(format: "%02x", $0) }.joined(),
+            configuration = .init(content: body.base64EncodedString(),
                 enabled: envelope.enabled, noticeID: envelope.noticeID)
         } else { configuration = nil }
         var contentMissing: Bool?

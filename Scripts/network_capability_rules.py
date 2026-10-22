@@ -99,6 +99,16 @@ def executed_callback_positions(call: dict, *, project_call: bool = False, poten
     return set(range(len(call.get('arguments', [])))) | {position for position, _, _ in call.get('closureArguments', [])}
 
 
+def snapshot_execution_checker():
+    """复用固定语法快照中每处引用的可达性结果。"""
+    states = {}
+    def check(facts, call):
+        key = (id(facts), id(call))
+        if key not in states: states[key] = (facts, call, call_can_execute(facts, call))
+        return states[key][2]
+    return check
+
+
 def execution_index(index: dict) -> dict:
     return autoclosure_index(scalar_execution_index(index))
 

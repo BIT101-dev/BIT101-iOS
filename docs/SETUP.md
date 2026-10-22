@@ -101,7 +101,14 @@ Wrangler 与 Miniflare 共用仓库内的安装位置：
 python3 -m pip install --break-system-packages openpyxl
 ```
 
-这里使用 Homebrew Python 的既有环境。地图数据准备沿用 `Scripts/generate_campus_map_fixture.py` 和现有人工审核流程，命令说明见 [构建与测试](TESTING.md)。
+这里使用 Homebrew Python 的既有环境。地图 fixture 读取教务导出的 Excel，工作表包含“学校校区”和“已排时间地点”列：
+
+```sh
+python3 Scripts/generate_campus_map_fixture.py /path/to/课程表.xlsx --allow-new
+Scripts/run-extended-tests.sh CampusMapLocationTests
+```
+
+生成器合并地点并更新固定文件 `BIT101-iOSTests/Fixtures/campus-map-locations.json`。新增地点标为 `review: pending`，人工核对校园地图后，将可匹配地点的 `expected` 填为建筑名称并标为 `mapped`；排除地点的 `expected` 填为 `null` 并标为 `excluded`。完成审核后运行上述地点回归，验收全部记录的审核状态与匹配结果。
 
 ## 编译与运行
 

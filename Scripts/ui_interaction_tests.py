@@ -363,6 +363,7 @@ def checker_report_boundary_findings() -> list[str]:
         with patch.dict(sys.modules), patch.object(subject, 'swift_files', return_value=[]), \
                 patch.object(subject, 'swift_syntax_index', return_value={}), \
                 patch('code_quality_tests.checker_boundary_findings', new=quality_probe), \
+                patch.object(sys, 'argv', ['check-code-quality.py', '--combined', '--self-test']), \
                 patch.object(subject.importlib.util, 'spec_from_file_location', return_value=ui_spec), \
                 patch.object(subject.importlib.util, 'module_from_spec', return_value=module), \
                 patch.object(subject, 'main', side_effect=lambda syntax, findings: write_report(0, findings)), \

@@ -33,6 +33,11 @@ else:
 
 def checked_python(source, path):
     compile(source, str(path), 'exec')
+    if Path(path).name == 'validation_provenance.py' and any(
+            isinstance(node, ast.Import) and any(alias.name in {'hashlib', 'hmac'} for alias in node.names)
+            or isinstance(node, ast.ImportFrom) and node.module in {'hashlib', 'hmac'}
+            for node in ast.walk(ast.parse(source))):
+        raise SyntaxError(f'{path}: 一致性验收沿直接内容比较和原生身份执行。')
     filename = str(path) if str(path).endswith('.py') else str(path) + '.py'
     result = subprocess.run(['ruff', 'check', '--isolated', '--no-cache', '--select', 'F403,F405,F811,F821,F841',
         '--output-format', 'concise', '--stdin-filename', filename, '-'], input=source, capture_output=True, text=True)
@@ -246,6 +251,10 @@ def compile_embedded_python(source, path):
     if pending: raise SyntaxError(f'{path}: heredoc 正文缺失')
 
 if args.self_test:
+    for code in ('import hashlib', 'from hashlib import sha256 as identity', 'import hmac'):
+        try: checked_python(code, Path('Scripts/validation_provenance.py'))
+        except SyntaxError: pass
+        else: raise AssertionError('一致性验收沿内容比较执行')
     for opening in ["<<PY", "<< 'PY'", '<<"PY"', "<<'PY'", "<<-PY", "<<'PY' >/dev/null", "<<'PY' | cat", "<<'PY' 2>&1", "<<'EOF'", '<<"END_SCRIPT"', "<<'PY-CODE'", r"<<\EOF", '<<"PY CODE"', "<<E'OF'"]:
         label = command_argument(opening, re.match(r'<<-?\s*', opening).end())[0].decode('utf-8')
         prefix = "\t" if opening == "<<-PY" else ""

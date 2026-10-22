@@ -4,6 +4,17 @@ if [[ -z "${ZSH_EXECUTION_STRING:-}" ]]; then
 fi
 set -euo pipefail
 
+case "${1:-}" in
+  --help|-h)
+    print -r -- "用法：Scripts/run-static-audit.sh"
+    print -r -- "运行 Swift、架构、界面、脚本、文档和依赖静态审计。"
+    exit 0
+    ;;
+  "") ;;
+  prepare) [[ $# -eq 1 ]] || { print -u2 -- "用法：Scripts/run-static-audit.sh [--help]"; exit 64; } ;;
+  *) print -u2 -- "用法：Scripts/run-static-audit.sh [--help]"; exit 64 ;;
+esac
+
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT_DIR/Scripts/script-support.sh"
 bit101_acquire_artifact_lock "$0" "$@"

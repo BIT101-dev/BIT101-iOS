@@ -541,7 +541,20 @@ def extension_protocol_self_test() -> None:
         assert 'ChildProtocol' in bases
 
 
+def literal_masking_self_test() -> None:
+    from unittest.mock import patch
+    from swift_source_index import swift_code
+    source = 'let address = "https://literal-boundary.example/path"; /* /comment/ */\nlet value = 1'
+    with patch('swift_source_index._run_swift_syntax_index', side_effect=AssertionError('文字与注释沿词法边界处理')):
+        masked = swift_code(source)
+    assert 'literal-boundary' not in masked and masked.endswith('let value = 1')
+    expression = 'let expression = #/a"//b/#; let value = 1'
+    masked = swift_code(expression)
+    assert 'let expression =' in masked and masked.endswith('; let value = 1') and 'a"//b' not in masked
+
+
 def foundation_collection_self_test(service_boundary_errors) -> None:
+    literal_masking_self_test()
     from network_capability_rules import business_methods
     path = 'Modules/CommunityPersistence/Sources/Store.swift'
     reader_path = 'Modules/StorageCore/Sources/AppFileService.swift'

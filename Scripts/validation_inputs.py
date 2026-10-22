@@ -8,7 +8,7 @@ import fcntl
 import os
 from contextlib import ExitStack
 from functools import cache
-from validation_policy import SWIFT_SYNTAX_SOURCE_NAMES
+from validation_policy import SWIFT_SYNTAX_SOURCE_NAMES, NETWORK_CAPABILITIES
 from validation_policy import APP_TEST_GROUPS, TEST_GROUPS, NETWORK_GROUPS, RELEASE_GROUPS, BUILD_HOSTS, VERIFY_GROUPS, DEFAULT_VERIFY_GROUPS
 
 NATIVE_PRODUCT_ROOTS = ("BIT101-iOS", "BIT101ScheduleWidgets", "BIT101Watch", "BIT101WatchWidgets")
@@ -187,6 +187,35 @@ def script_inputs(seeds: frozenset[str]) -> set[str]:
     return script_dependency_closure(seeds, sources)
 
 
+def swift_module_imports(source: str) -> set[str]:
+    return set(re.findall(r'\bimport\s+(?:(?:class|struct|enum|protocol|func|var|let|typealias)\s+)?`?(\w+)', source))
+
+
+@cache
+def sampled_module_inputs(host: str) -> frozenset[str]:
+    root = Path(__file__).resolve().parents[1]
+    modules = {path.name: path for path in (root / 'Modules').iterdir() if path.is_dir()}
+    graph = {name: set().union(*(swift_module_imports(path.read_bytes().decode('utf-8'))
+        for path in (directory / 'Sources').rglob('*.swift'))) & modules.keys() for name, directory in modules.items()}
+    if host == 'icloud':
+        roots = set().union(*(swift_module_imports(path.read_bytes().decode('utf-8'))
+            for path in (root / 'BIT101-iOS').rglob('*.swift')
+            if 'Cloud' in path.name)) & modules.keys()
+        roots |= swift_module_imports((root / 'BIT101-iOSTests/ManualICloudCrossDeviceSmokeTests.swift').read_bytes().decode('utf-8')) & modules.keys()
+        if not roots: raise ValueError('iCloud 采样需要明确的生产模块依赖。')
+    else:
+        route = 'community-writes' if host == 'community-writes' else 'network'
+        roots = {owner.split('.')[0] for owner, methods in NETWORK_CAPABILITIES.items()
+            if route in methods.values()} & modules.keys()
+    pending, included = list(roots), set()
+    while pending:
+        name = pending.pop()
+        if name in included: continue
+        included.add(name)
+        pending.extend(graph[name] - included)
+    return frozenset(included)
+
+
 def includes_input(name: str, group: str) -> bool:
     if not group or group == "audit":
         return True
@@ -196,6 +225,8 @@ def includes_input(name: str, group: str) -> bool:
     path = PurePosixPath(name)
     root = path.parts[0]
     product = name in PRODUCT_FILES or root in PRODUCT_ROOTS and path.suffix != ".md"
+    if root == 'Modules' and not build and host in NETWORK_GROUPS | {'icloud'}:
+        product = product and len(path.parts) > 1 and path.parts[1] in sampled_module_inputs(host)
     fixture = name.startswith("BIT101-iOSTests/Fixtures/")
     scripts = set()
     if host == "modules":

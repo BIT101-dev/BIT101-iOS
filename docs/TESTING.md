@@ -19,6 +19,8 @@
 
 包级测试使用 macOS 原生宿主；iOS 行为、系统权限、真实设备交互和跨端能力按所属平台验收。各入口的 `--help` 提供完整参数。网络、短信、线上写入、iCloud 和模拟器按会话授权执行。
 
+编译验收覆盖完整产品输入。网络与 iCloud 的已完成采样沿生产能力及其模块依赖绑定，壳层组装、资源、manifest 和所属脚本共同参与输入；独立模块的改动按实际依赖决定专项复验。完整行为组与 UI 组沿同一固定结果路径事务合并，各组保留自己的原始执行身份与性能采样。覆盖率按平台的实际可执行源码验收，账号切换、取消、存储故障和内容恢复由关键合同逐例检查。
+
 ## 执行环境与数据边界
 
 - 使用 Xcode 27.x。`Scripts/build-install-device.sh toolchain` 显示当前工具链；`DEVELOPER_DIR` 和 `TOOLCHAINS` 选择由项目脚本传递给 Apple 工具。
@@ -225,6 +227,8 @@ gh run rerun 运行编号 --failed
 ```
 
 手动 `full_check` 执行模块、Release 归档、App 行为、正式组装、全部 UI 与 Catalyst。版本标签和 `release_check` 进一步执行专用真机 Job 与发布回执验收；手动发布同时填写 `validation_tag`。新增提交自动取消同分支常规旧运行，发布流程保留设备恢复时间。
+
+操作者选择 `full_check`、`release_check` 或发布标签时，授权对应 GitHub 运行器准备并执行工作流中的模拟器范围。开发代理执行本机模拟器流程时，沿当前会话的明确授权设置入口标记。
 
 托管任务采用工作流登记的 Apple 工具链镜像；真机任务沿专用自托管 Mac 与 iPhone 执行。外部 PR 的运行器准入和审批由仓库及组织设置管理。维护者审查外部 PR 时，使用 GitHub 实际 merge 提交创建 `review-validation` 分支，并填写 `review_pr`；提交与目标分支变化后重新验收。
 

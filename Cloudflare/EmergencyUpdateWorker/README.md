@@ -19,7 +19,7 @@ npx wrangler kv namespace create bit101-emergency-config \
 python3 ../../Scripts/validation_provenance.py deploy-worker EmergencyUpdateWorker
 ```
 
-`npm run deploy` 共用上述源码绑定入口，部署版本携带源码摘要供网络 Smoke 核对。
+`npm run deploy` 共用上述源码绑定入口，部署前提交 Worker 输入，部署版本携带源码提交身份供网络 Smoke 核对。
 
 发布提醒：
 

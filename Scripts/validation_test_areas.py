@@ -539,6 +539,12 @@ def network_capability_findings(index: dict) -> list[str]:
 
 CRITICAL_CONTRACTS = {
     "all": {
+        "成绩单补页持续展示已有页面": "TrustedTranscriptRecoveryTests/retriesKeepVisiblePagesAndLoadTheMissingPageFromTheSameReport",
+        "成绩单来源替换保留完整结果": "TrustedTranscriptRecoveryTests/aPartialReplacementKeepsTheFullerCoherentReport",
+        "缓存写入故障维持静态与动画图片": "MediaAvailabilityTests/cacheWriteFailureKeepsDownloadedImagesAvailable",
+        "媒体内存压力释放临时内容": "MediaAvailabilityTests/memoryPressureReleasesTransientEncodedImages",
+        "成绩业务失败回写请求诊断": "NetworkBusinessDiagnosticsTests/scoreValidationAmendsOneRequestAndKeepsItsFailureAfterImageTraffic",
+        "登录解析诊断保留字段路径": "NetworkBusinessDiagnosticsTests/loginParsingFailureKeepsItsFieldPathInTheRequestDiagnostic",
         "账号切换后恢复请求维持归属": "LoginStorageTests/schoolRestoreKeepsItsCapturedAccountAcrossBothNetworkWaits",
         "后台验证维持新会话": "LoginStorageTests/backgroundCookieValidationKeepsTheNewlyRenewedSameAccountSession",
         "凭据写入原子发布": "LoginStorageTests/credentialWriteFailurePreservesThePublishedIdentity",

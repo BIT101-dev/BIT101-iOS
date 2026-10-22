@@ -2,7 +2,6 @@
 """Associate workflow results with their producing run and network sampling interval."""
 from datetime import datetime, timedelta, timezone
 import re
-import hashlib
 import base64
 import json
 import os
@@ -10,6 +9,7 @@ from pathlib import Path
 import subprocess
 import uuid
 import fcntl
+from functools import cache
 import threading
 from contextlib import contextmanager
 from validation_inputs import includes_input, repository_input_names, is_worker_generated
@@ -24,25 +24,53 @@ REPORT = ROOT / '.build/extended-automation/validation-evidence.json'
 WORKER_FOLDERS = ('OpenWorker', 'EmergencyUpdateWorker', 'ErrorReportWorker')
 WRANGLER_ROOT = ROOT / 'Cloudflare/EmergencyUpdateWorker'
 WORKER_LOG = ROOT / '.build/extended-automation/worker.log'
-WORKER_SOURCE_PREFIX = 'bit101-source-sha256:'
+WORKER_SOURCE_PREFIX = 'bit101-source-git:'
 _REPORT_THREAD_LOCK = threading.RLock()
 _REPORT_LOCK_DEPTH: dict[Path, int] = {}
 _REPORT_INPUTS: dict[Path, dict] = {}
 
 
-def worker_source_digest(folder: str) -> str:
-    if folder not in WORKER_FOLDERS: raise ValueError('Worker 需要登记到部署合同。')
-    paths = [WRANGLER_ROOT / 'package.json', WRANGLER_ROOT / 'package-lock.json']
-    if folder == 'OpenWorker': paths.append(ROOT / 'BIT101-iOS/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png')
-    operational_inputs = {'Cloudflare/EmergencyUpdateWorker/config/emergency-update.json',
+def worker_input_name(folder: str, name: str) -> bool:
+    shared = {'Cloudflare/EmergencyUpdateWorker/package.json', 'Cloudflare/EmergencyUpdateWorker/package-lock.json'}
+    if folder == 'OpenWorker': shared.add('BIT101-iOS/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png')
+    operational = {'Cloudflare/EmergencyUpdateWorker/config/emergency-update.json',
         'Cloudflare/EmergencyUpdateWorker/Scripts/publish-emergency-update.sh'}
-    paths.extend(ROOT / name for name in repository_input_names(ROOT)
-        if name.startswith('Cloudflare/' + folder + '/') and Path(name).suffix != '.md'
-        and name not in operational_inputs and not is_worker_generated(Path(name)))
-    digest = hashlib.sha256()
-    for path in sorted(set(paths)):
-        digest.update(path.relative_to(ROOT).as_posix().encode() + b'\0' + path.read_bytes() + b'\0')
-    return digest.hexdigest()
+    return name in shared or name.startswith('Cloudflare/' + folder + '/') and Path(name).suffix != '.md' \
+        and name not in operational and not is_worker_generated(Path(name))
+
+
+def worker_source_inputs(folder: str) -> dict[str, bytes]:
+    if folder not in WORKER_FOLDERS: raise ValueError('Worker 需要登记到部署合同。')
+    try:
+        return {name: (ROOT / name).read_bytes() for name in repository_input_names(ROOT) if worker_input_name(folder, name)}
+    except OSError as error:
+        raise ValueError('Worker 部署需要完整且已提交的源码输入。') from error
+
+
+def worker_source_revision(folder: str) -> str:
+    inputs = tuple(sorted(worker_source_inputs(folder).items()))
+    revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT).decode().strip()
+    return _committed_worker_revision(folder, revision, inputs)
+
+
+@cache
+def _committed_worker_revision(folder: str, revision: str, inputs: tuple[tuple[str, bytes], ...]) -> str:
+    inputs = dict(inputs)
+    paths = [f'Cloudflare/{folder}', 'Cloudflare/EmergencyUpdateWorker/package.json', 'Cloudflare/EmergencyUpdateWorker/package-lock.json']
+    if folder == 'OpenWorker': paths.append('BIT101-iOS/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png')
+    def git(*arguments):
+        return subprocess.check_output(['git', *arguments], cwd=ROOT, stderr=subprocess.PIPE)
+    names = {name for name in git('ls-tree', '-r', '--name-only', '-z', revision, '--', *paths).decode().split('\0')
+        if name and worker_input_name(folder, name)}
+    if names != set(inputs) or any(git('show', revision + ':' + name) != content for name, content in inputs.items()):
+        raise ValueError('Worker 部署需要先提交当前源码、配置、资产与依赖锁。')
+    source_revision = None
+    for entry in git('log', '--format=commit:%H', '--name-only', '-z', revision, '--', *paths).decode().split('\0'):
+        value = entry.lstrip('\n')
+        if re.fullmatch(r'commit:(?:[0-9a-f]{40}|[0-9a-f]{64})', value): source_revision = value.removeprefix('commit:')
+        elif value and worker_input_name(folder, value):
+            if source_revision: return source_revision
+    raise ValueError('Worker 源码需要可读取的 Git 提交身份。')
 
 
 def worker_command(folder: str, *arguments: str) -> list[str]:
@@ -71,17 +99,17 @@ def worker_deployments_complete(scope: str, proof: dict) -> bool:
     try:
         for folder, row in proof.items():
             if not isinstance(row, dict) or str(uuid.UUID(row['deploymentID'])) != row['deploymentID'] \
-                    or row['sourceDigest'] != worker_source_digest(folder): return False
+                    or row['sourceRevision'] != worker_source_revision(folder): return False
             versions = row['versions']
             if not isinstance(versions, list) or not versions or any(not isinstance(version, dict) for version in versions): return False
             if len({version['versionID'] for version in versions}) != len(versions): return False
             for version in versions:
                 if str(uuid.UUID(version['versionID'])) != version['versionID'] \
                         or type(version['percentage']) not in {int, float} or not 0 < version['percentage'] <= 100 \
-                        or version['sourceDigest'] != row['sourceDigest']: return False
+                        or version['sourceRevision'] != row['sourceRevision']: return False
             if sum(version['percentage'] for version in versions) != 100: return False
         return True
-    except (KeyError, TypeError, ValueError, AttributeError): return False
+    except (KeyError, TypeError, ValueError, AttributeError, OSError, subprocess.SubprocessError): return False
 
 
 def capture_worker_deployments(scope: str) -> dict:
@@ -96,8 +124,8 @@ def capture_worker_deployments(scope: str) -> dict:
             message = version.get('annotations', {}).get('workers/message', '')
             if not message.startswith(WORKER_SOURCE_PREFIX): raise ValueError(f'{folder} 版本需要通过源码绑定入口部署。')
             versions.append({'versionID': identifier, 'percentage': traffic['percentage'],
-                'sourceDigest': message.removeprefix(WORKER_SOURCE_PREFIX)})
-        proof[folder] = {'deploymentID': deployment['id'], 'sourceDigest': worker_source_digest(folder),
+                'sourceRevision': message.removeprefix(WORKER_SOURCE_PREFIX)})
+        proof[folder] = {'deploymentID': deployment['id'], 'sourceRevision': worker_source_revision(folder),
             'versions': sorted(versions, key=lambda row: row['versionID'])}
     if not worker_deployments_complete(scope, proof): raise ValueError('活跃 Worker 部署需要匹配当前源码与全部流量版本。')
     return proof
@@ -115,8 +143,8 @@ def release_worker_findings(summary: dict) -> list[str]:
                 raise ValueError('紧急更新配置需要由登记端点直接返回。')
             body = response.read(1_048_577)
             if len(body) > 1_048_576: raise ValueError('紧急更新配置超过响应范围。')
-        current = hashlib.sha256(body).hexdigest()
-        sampled = {request['responseConfiguration'].get('digest')
+        current = base64.b64encode(body).decode('ascii')
+        sampled = {request['responseConfiguration'].get('content')
             for probe in summary.get('requestEvidence', []) if probe.get('probe') == 'update.emergency'
             for request in probe.get('requests', []) if isinstance(request.get('responseConfiguration'), dict)}
         if sampled != {current}:
@@ -142,10 +170,10 @@ def worker_main() -> int:
         with report_lock(path=WORKER_LOG):
             WORKER_LOG.write_text('')
             if args.action == 'deploy-worker':
-                digest = worker_source_digest(args.folder)
-                subprocess.run(worker_command(args.folder, 'deploy', '--message', WORKER_SOURCE_PREFIX + digest),
+                revision = worker_source_revision(args.folder)
+                subprocess.run(worker_command(args.folder, 'deploy', '--message', WORKER_SOURCE_PREFIX + revision),
                     cwd=WRANGLER_ROOT, env=worker_environment(), check=True)
-                if worker_source_digest(args.folder) != digest: raise ValueError('部署期间源码发生变化；请按当前输入重新部署。')
+                if worker_source_revision(args.folder) != revision: raise ValueError('部署期间源码发生变化；请按当前输入重新部署。')
             elif args.action == 'worker-snapshot':
                 print(json.dumps(capture_worker_deployments(args.scope)))
             else:
@@ -338,7 +366,8 @@ def source_digest(group: str = "", *, environment: dict | None = None) -> str:
         if path.is_file() and includes_input(name, group):
             files[name] = {'executable': bool(path.stat().st_mode & 0o111),
                 'content': base64.b64encode(path.read_bytes()).decode('ascii')}
-    return _local_source_identity(group, files, context, committed_identity=_clean_source_identity(group, context))
+    return _local_source_identity(group, files, context, current_inputs=set(names),
+        committed_identity=_clean_source_identity(group, context))
 
 
 def committed_source_digest(group: str = "", *, environment: dict | None = None) -> str:
@@ -373,7 +402,7 @@ def _clean_source_identity(group: str, context: dict) -> str | None:
     return f'git.{commit}.{environment}'
 
 
-def _local_source_identity(group: str, files: dict, context: dict, *, committed_identity: str | None = None) -> str:
+def _local_source_identity(group: str, files: dict, context: dict, *, current_inputs: set[str], committed_identity: str | None = None) -> str:
     with report_lock():
         report = json.loads(REPORT.read_text()) if REPORT.is_file() else {}
         inputs = report.setdefault('sourceInputs', {'files': {}, 'groups': {}})
@@ -386,8 +415,17 @@ def _local_source_identity(group: str, files: dict, context: dict, *, committed_
             references[name] = previous['identity']
         snapshot = {'files': references, 'environment': context}
         previous = inputs['groups'].get(group, {})
-        if previous.get('snapshot') != snapshot:
+        changed = previous.get('snapshot') != snapshot
+        if changed:
             previous = inputs['groups'][group] = {'snapshot': snapshot, 'identity': committed_identity or str(uuid.uuid4())}
+        retained = {name: row for name, row in inputs['groups'].items()
+            if all(path in current_inputs and inputs['files'].get(path, {}).get('identity') == identity
+                for path, identity in row['snapshot']['files'].items())}
+        used = {path for row in retained.values() for path in row['snapshot']['files']}
+        changed = changed or inputs['groups'] != retained or set(inputs['files']) != used
+        inputs['groups'] = retained
+        inputs['files'] = {name: row for name, row in inputs['files'].items() if name in used}
+        if changed:
             write_report(report, preserve_inputs=False)
         return previous['identity']
 

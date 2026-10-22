@@ -19,33 +19,60 @@ def source_identity_registry_self_test() -> None:
             patch.object(Path, 'read_text', side_effect=lambda: json.dumps(state)), \
             patch.object(provenance, 'write_report', side_effect=save):
         files = {'source.swift': {'executable': False, 'content': 'first'}}
-        initial = _local_source_identity('modules', files, {}, committed_identity='git.original')
+        initial = _local_source_identity('modules', files, {}, current_inputs=set(files), committed_identity='git.original')
         assert initial == 'git.original'
-        assert _local_source_identity('modules', files, {}) == initial
+        assert _local_source_identity('modules', files, {}, current_inputs=set(files)) == initial
         files['source.swift']['content'] = 'other'
-        changed = _local_source_identity('modules', files, {})
+        changed = _local_source_identity('modules', files, {}, current_inputs=set(files))
         assert changed != initial
-        assert _local_source_identity('modules', files, {}, committed_identity='git.committed') == changed
+        assert _local_source_identity('modules', files, {}, current_inputs=set(files), committed_identity='git.committed') == changed
         files['source.swift']['executable'] = True
-        executable = _local_source_identity('modules', files, {})
+        executable = _local_source_identity('modules', files, {}, current_inputs=set(files))
         assert executable != changed
-        assert _local_source_identity('modules', files, {'compiler': 'other'}) != executable
-        assert _local_source_identity('modules', {}, {}) != executable
+        assert _local_source_identity('modules', files, {'compiler': 'other'}, current_inputs=set(files)) != executable
+        assert _local_source_identity('modules', {}, {}, current_inputs=set(files)) != executable
         assert state['groups']['audit']['exitCode'] == 0
-        assert set(state['sourceInputs']['files']) == {'source.swift'}
+        assert state['sourceInputs']['files'] == {}
         from validation_publication import core_exchange
-        transferred = _local_source_identity('modules', files, {})
+        transferred = _local_source_identity('modules', files, {}, current_inputs=set(files))
         shared = core_exchange(state)
         state.clear()
         state.update(shared)
-        assert _local_source_identity('modules', files, {}) == transferred
+        assert _local_source_identity('modules', files, {}, current_inputs=set(files)) == transferred
         files['source.swift']['content'] = 'changed after exchange'
-        assert _local_source_identity('modules', files, {}) != transferred
+        assert _local_source_identity('modules', files, {}, current_inputs=set(files)) != transferred
+        _local_source_identity('ui', files, {}, current_inputs=set(files))
+        renamed = {'renamed.swift': files['source.swift']}
+        _local_source_identity('modules', renamed, {}, current_inputs=set(renamed))
+        assert set(state['sourceInputs']['files']) == {'renamed.swift'}
+        assert set(state['sourceInputs']['groups']) == {'modules'}
+        _local_source_identity('ui', renamed, {}, current_inputs=set(renamed))
+        assert set(state['sourceInputs']['groups']) == {'modules', 'ui'}
     provenance._REPORT_INPUTS.pop(provenance.REPORT, None)
+
+
+def native_bundle_identity_self_test() -> None:
+    import json
+    bundle = Path('/fixture/results.xcresult')
+    runs = [({'startTime': 1, 'finishTime': 2}, {'testNodes': [{'result': 'Passed'}]}),
+        ({'startTime': 1, 'finishTime': 2}, {'testNodes': [{'result': 'Failed'}]})]
+    with patch.object(subject, 'result_bundle_complete', return_value=True), \
+            patch.object(Path, 'is_file', return_value=False), \
+            patch.object(Path, 'open', side_effect=AssertionError('结果身份读取原生执行记录')), \
+            patch.object(subject.subprocess, 'check_output', side_effect=[json.dumps(value).encode() for run in runs for value in run]) as native:
+        assert subject.bundle_identity(bundle) != subject.bundle_identity(bundle)
+        assert [call.args[0][4] for call in native.call_args_list] == ['summary', 'tests', 'summary', 'tests']
+    with patch.object(subject, 'result_bundle_complete', return_value=True), \
+            patch.object(Path, 'is_file', return_value=False), \
+            patch.object(subject.subprocess, 'check_output', return_value=b'{}'):
+        try: subject.bundle_identity(bundle)
+        except ValueError: pass
+        else: raise AssertionError('原生记录需要有效内容')
 
 
 def run_self_test() -> None:
     source_identity_registry_self_test()
+    native_bundle_identity_self_test()
     committed_source_identity_self_test()
     static_audit_cancellation_self_test()
     failed_regression_self_test()
@@ -217,6 +244,16 @@ def selected_result_retention_self_test() -> None:
                 patch.object(Path, 'is_file', return_value=True), patch.object(Path, 'read_text', return_value=json.dumps({'groups': {'all': row}})):
             assert subject.begin_selected_result_step() == retained
             begin.assert_called_once_with(bool(retained))
+    with patch.object(subject, 'recover_result_step'), patch.object(subject, 'begin_result_step') as begin, \
+            patch.object(subject, 'bundle_identity', return_value=sha), patch.object(subject, 'environment_context', return_value=environment), \
+            patch.object(validation_provenance, 'source_digest', return_value='same'), \
+            patch.object(validation_provenance, 'report_lock', side_effect=nullcontext), patch.object(Path, 'exists', return_value=True), \
+            patch.object(Path, 'is_file', return_value=True), patch.object(Path, 'read_text', return_value=json.dumps({'groups': {'all': full, 'ui': full}})):
+        from contextlib import redirect_stdout
+        console = StringIO()
+        with redirect_stdout(console): assert subject.main(['begin-full', 'ui']) == 0
+        assert console.getvalue().splitlines() == ['all']
+        begin.assert_called_once_with(True)
     with patch.object(subject, 'retain_result_step') as retain:
         assert subject.main(['retain-selected', 'all', 'all', 'ui']) == 0
         retain.assert_called_once_with(['ui', 'all'])
@@ -475,7 +512,11 @@ def batch_retention_self_test(raw: list, test: str) -> None:
     assert rebound['groups']['all']['lastFullRun']['runResultBundleIdentity'] == 'original'
     altered = deepcopy(raw)
     altered[0]['testRuns'][0]['metrics'][0]['measurements'] = [99]
-    for value in (altered, duplicate):
+    with patch.object(subject.subprocess, 'check_output', return_value=json.dumps(duplicate)), \
+            patch.object(subject, 'bundle_identity', return_value='aggregate'):
+        equivalent = subject.rebind_result_records(report, ['all'])
+        assert equivalent['groups']['all']['runResultBundleIdentity'] == 'original'
+    for value in (altered,):
         with patch.object(subject.subprocess, 'check_output', return_value=json.dumps(value)):
             try: subject.rebind_result_records(report, ['all'])
             except ValueError: pass
@@ -494,6 +535,10 @@ def batch_retention_self_test(raw: list, test: str) -> None:
         candidate = Path(command[command.index('--path') + 1]) if '--path' in command else bundle
         if 'summary' in command and (candidate / 'Info.plist').exists() and not (candidate / 'database.sqlite3').exists():
             (candidate / 'database.sqlite3').write_bytes((candidate / 'Info.plist').read_bytes())
+        if 'summary' in command:
+            return json.dumps({'result': 'Passed', 'execution': (candidate / 'database.sqlite3').read_bytes().decode()})
+        if 'tests' in command:
+            return json.dumps({'testNodes': [{'name': test, 'result': 'Passed'}]})
         return json.dumps(combined)
     try:
         shutil.rmtree(fixture, ignore_errors=True)
@@ -620,7 +665,10 @@ def batch_retention_self_test(raw: list, test: str) -> None:
             for publication in (2, 3):
                 for path in (bundle, retained, incoming): remove(path, ignore_errors=True)
                 create(bundle, b'first')
-                report_path.write_text(json.dumps(report))
+                receipt = deepcopy(report)
+                identity = subject.bundle_identity(bundle)
+                receipt['groups']['all'].update(resultBundleIdentity=identity, runResultBundleIdentity=identity)
+                report_path.write_text(json.dumps(receipt))
                 writes = 0
                 def fail_first_publication(value):
                     nonlocal writes

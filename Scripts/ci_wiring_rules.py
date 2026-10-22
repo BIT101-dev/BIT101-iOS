@@ -1,5 +1,6 @@
 """Validate CI execution context, required jobs and coverage baseline ordering."""
 import json
+import ast
 import os
 import re
 import subprocess
@@ -61,8 +62,11 @@ def active_script_markers(source: str) -> str:
 
 
 def command_matches(actual: str, expected: str) -> bool:
+    if not isinstance(actual, str) or not isinstance(expected, str): return False
     try:
-        return shlex.split(actual, comments=True) == shlex.split(expected, comments=True)
+        commands = [shlex.split(line, comments=True) for line in actual.replace('\\\n', ' ').splitlines()]
+        commands = [words for words in commands if words]
+        return len(commands) == 1 and commands[0] == shlex.split(expected, comments=True)
     except ValueError:
         return False
 
@@ -109,6 +113,40 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
         value = mapping(step).get('run', '')
         return value if isinstance(value, str) else ''
 
+    def step_has_role(step, role):
+        step = mapping(step)
+        if role == 'Verify maintainer review commit': return step.get('id') == 'review'
+        artifacts = {'Preserve native compilation cache': 'compilation-cache-',
+            'Preserve shared UI test host': 'ui-test-host',
+            'Preserve validation diagnostics': 'validation-${{ github.job }}',
+            'Preserve App validation diagnostics': 'validation-ios-test-shards-app-0'}
+        if role in artifacts:
+            name = str(mapping(step.get('with')).get('name', ''))
+            return str(step.get('uses', '')).startswith('actions/upload-artifact@') \
+                and (name == artifacts[role] if role in {'Preserve shared UI test host', 'Preserve App validation diagnostics'}
+                    else name.startswith(artifacts[role]))
+        commands = {
+            'Show toolchain': 'Scripts/build-install-device.sh toolchain',
+            'Reuse compatible successful validation': 'python3 Scripts/ci_evidence.py reuse',
+            'Run static audit': 'Scripts/run-static-audit.sh',
+            'Check current CI results': 'python3 Scripts/ci_evidence.py current',
+            'Download release validation evidence': 'python3 Scripts/ci_evidence.py release',
+            'Load target branch coverage baseline': 'python3 Scripts/ci_evidence.py baseline',
+            'Restore native compilation cache': 'python3 Scripts/ci_evidence.py cache-restore',
+            'Prepare native compilation cache': 'python3 Scripts/ci_evidence.py cache-export',
+            'Prepare full iOS Simulator': 'Scripts/run-extended-tests.sh simulator prepare',
+            'Run assigned complete Simulator inventory': 'Scripts/run-extended-tests.sh simulator "${{ matrix.mode }}"',
+            'Run complete App behavior inventory': 'Scripts/run-extended-tests.sh simulator app',
+            'Restore shared UI test host': 'gh run download "$GITHUB_RUN_ID" --name ui-test-host',
+            'Build complete UI test host': 'Scripts/run-extended-tests.sh simulator build-ui',
+        }
+        if role not in commands: return False
+        expected = shlex.split(commands[role])
+        try:
+            return any(shlex.split(line, comments=True)[:len(expected)] == expected
+                for line in shell(step).replace('\\\n', ' ').splitlines())
+        except ValueError: return False
+
     events = workflow.get("on", {})
     events = {events} if isinstance(events, str) else events if isinstance(events, (list, dict)) else {}
     if not {"pull_request", "push"}.issubset(events):
@@ -143,7 +181,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
             errors.append(f'.github/workflows/ci.yml: {name} 的检出需要默认执行、完整提交历史及失败传播')
         if name in DIAGNOSTIC_PATHS:
             uploads = [step for step in mapping(job).get('steps', []) if isinstance(step, dict)
-                and str(step.get('uses', '')).startswith('actions/upload-artifact@') and step.get('name') == 'Preserve validation diagnostics']
+                and str(step.get('uses', '')).startswith('actions/upload-artifact@') and step_has_role(step, 'Preserve validation diagnostics')]
             if len(uploads) != 1 or set(mapping(uploads[0].get('with')).get('path', '').splitlines()) != DIAGNOSTIC_PATHS[name]:
                 errors.append(f'.github/workflows/ci.yml: {name} 的诊断上传需要采用所属任务的文件清单，人工附件保留在本地')
             diagnostic_condition = CI_DIAGNOSTICS if name in CI_PLANNED_GROUPS else '${{ !cancelled() }}'
@@ -155,7 +193,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
     planner = mapping(jobs.get('validation-plan'))
     plan_steps = [step for step in planner.get('steps', []) if step.get('id') == 'plan']
     if planner.get('if') != CI_NATIVE_CONTEXT or planner.get('needs', []) != [] or planner.get('continue-on-error', False) is not False \
-            or len(plan_steps) != 1 or plan_steps[0].get('run') != 'python3 Scripts/ci_evidence.py plan' \
+            or len(plan_steps) != 1 or not command_matches(str(plan_steps[0].get('run') or ""), 'python3 Scripts/ci_evidence.py plan') \
             or 'if' in plan_steps[0] or plan_steps[0].get('continue-on-error', False) is not False \
             or mapping(plan_steps[0].get('env')).get('GH_TOKEN') != '${{ github.token }}' \
             or mapping(plan_steps[0].get('env')).get('BIT101_FULL_CHECK') != '${{ github.event_name == \'workflow_dispatch\' && inputs.full_check }}' \
@@ -165,11 +203,11 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
     for name, group in (CI_PLANNED_GROUPS | {'static-audit': 'modules'}).items():
         job = mapping(jobs.get(name))
         environment = mapping(job.get('env'))
-        reuse = [step for step in job.get('steps', []) if step.get('name') == 'Reuse compatible successful validation']
+        reuse = [step for step in job.get('steps', []) if step_has_role(step, 'Reuse compatible successful validation')]
         if environment.get('BIT101_CI_PLAN') != '${{ needs.validation-plan.outputs.plan }}' \
                 or environment.get('BIT101_CI_GROUP') != group or len(reuse) != 1 \
                 or reuse[0].get('if') != (CI_NATIVE_REUSE if name == 'static-audit' else '${{ !' + CI_EXECUTE + ' }}') \
-                or reuse[0].get('run') != 'python3 Scripts/ci_evidence.py reuse "$BIT101_CI_GROUP"' \
+                or not command_matches(str(reuse[0].get('run') or ""), 'python3 Scripts/ci_evidence.py reuse "$BIT101_CI_GROUP"') \
                 or reuse[0].get('continue-on-error', False) is not False:
             errors.append(f'.github/workflows/ci.yml: {name} 需要采用所属输入计划并展示成功结果来源')
     if mapping(mapping(jobs.get('ios-tests')).get('env')).get('BIT101_CI_PLAN') != '${{ needs.validation-plan.outputs.plan }}':
@@ -203,7 +241,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
                 conditions.update({CI_NATIVE_EXECUTION, CI_NATIVE_REUSE, CI_STATIC_EXECUTION, CI_NATIVE_CONTEXT})
             if include_always: conditions.update({'always()', '${{ !cancelled() }}', CI_DIAGNOSTICS})
             if planned and mapping(job.get('env')).get('BIT101_CI_GROUP') != 'modules' \
-                    and step.get('name') != 'Show toolchain' and step.get('if') not in conditions: continue
+                    and not step_has_role(step, 'Show toolchain') and step.get('if') not in conditions: continue
             if "if" in step and step['if'] not in conditions \
                     or step.get("continue-on-error", False) is not False: continue
             command = step["run"]
@@ -238,8 +276,8 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
     setup_index = next((index for index, (command, step) in enumerate(static_commands)
                         if command_matches(command, "npm ci") and step.get("working-directory") == "Cloudflare/EmergencyUpdateWorker"), -1)
     if audit_index < 0: errors.append(".github/workflows/ci.yml: 静态审计 Job 缺少执行入口")
-    audit_only = [step for step in mapping(jobs.get('static-audit')).get('steps', []) if step.get('name') == 'Run static audit']
-    if len(audit_only) != 1 or audit_only[0].get('run') != 'Scripts/run-static-audit.sh' \
+    audit_only = [step for step in mapping(jobs.get('static-audit')).get('steps', []) if step_has_role(step, 'Run static audit')]
+    if len(audit_only) != 1 or not command_matches(str(audit_only[0].get('run') or ""), 'Scripts/run-static-audit.sh') \
             or audit_only[0].get('if') != CI_STATIC_EXECUTION \
             or audit_only[0].get('continue-on-error', False) is not False \
             or not any(command_matches(command, 'Scripts/run-static-audit.sh') for command, _ in static_commands) \
@@ -287,7 +325,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
             or set(merge.get("needs", [])) != {"validation-plan", "static-audit", "release-build", "catalyst-tests", "ios-tests"} \
             or merge.get("continue-on-error", False) is not False:
         errors.append(".github/workflows/ci.yml: 最终验收需要按所选范围核对静态、编译、Catalyst 与完整模拟器 Job")
-    result_steps = [step for step in merge.get('steps', []) if step.get('name') == 'Check current CI results']
+    result_steps = [step for step in merge.get('steps', []) if step_has_role(step, 'Check current CI results')]
     if len(result_steps) != 1 or mapping(result_steps[0].get('env')).get('BIT101_NATIVE_CHECK') != '${{ ' + CI_NATIVE_CONTEXT + ' }}':
         errors.append('.github/workflows/ci.yml: 最终验收需要绑定静态与完整验收范围')
     for name, command in (('static-audit', 'Scripts/run-extended-tests.sh verify audit modules'),
@@ -296,7 +334,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
                           ('ios-app-tests', 'Scripts/run-extended-tests.sh simulator app'),
                           ('ios-test-shards', 'Scripts/run-extended-tests.sh simulator "${{ matrix.mode }}"')):
         steps = mapping(jobs.get(name)).get('steps', [])
-        baseline_index = next((index for index, step in enumerate(steps) if isinstance(step, dict) and step.get('name') == 'Load target branch coverage baseline'), -1)
+        baseline_index = next((index for index, step in enumerate(steps) if isinstance(step, dict) and step_has_role(step, 'Load target branch coverage baseline')), -1)
         execution_index = next((index for index, step in enumerate(steps) if isinstance(step, dict) and command_matches(str(step.get('run', '')), command)), -1)
         if not 0 <= baseline_index < execution_index:
             errors.append(f'.github/workflows/ci.yml: {name} 基准载入需要先于当前分组记录')
@@ -330,9 +368,9 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
             or 'strategy' in formal_job:
         errors.append('.github/workflows/ci.yml: App 与正式组装需要共用完整库存和单个工作进程')
     app_steps = formal_job.get('steps', [])
-    app_run = next((i for i, step in enumerate(app_steps) if step.get('run') == 'Scripts/run-extended-tests.sh simulator app'), -1)
-    formal_run = next((i for i, step in enumerate(app_steps) if step.get('run') == 'Scripts/run-extended-tests.sh simulator release-runtime'), -1)
-    app_upload = [step for step in app_steps if step.get('name') == 'Preserve App validation diagnostics']
+    app_run = next((i for i, step in enumerate(app_steps) if command_matches(str(step.get('run') or ""), 'Scripts/run-extended-tests.sh simulator app')), -1)
+    formal_run = next((i for i, step in enumerate(app_steps) if command_matches(str(step.get('run') or ""), 'Scripts/run-extended-tests.sh simulator release-runtime')), -1)
+    app_upload = [step for step in app_steps if step_has_role(step, 'Preserve App validation diagnostics')]
     if len(app_upload) != 1 or not 0 <= app_run < app_steps.index(app_upload[0]) < formal_run \
             or app_upload[0].get('if') != CI_DIAGNOSTICS \
             or not str(app_upload[0].get('uses', '')).startswith('actions/upload-artifact@') \
@@ -369,23 +407,23 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
     for name, flavor in {'release-build': 'release-build', 'catalyst-tests': 'catalyst-tests',
             'ios-ui-build': 'simulator-ui', 'ios-app-tests': 'simulator-app'}.items():
         steps = mapping(jobs.get(name)).get('steps', [])
-        restore = [step for step in steps if step.get('name') == 'Restore native compilation cache']
-        prepare = [step for step in steps if step.get('name') == 'Prepare native compilation cache']
-        save = [step for step in steps if step.get('name') == 'Preserve native compilation cache']
+        restore = [step for step in steps if step_has_role(step, 'Restore native compilation cache')]
+        prepare = [step for step in steps if step_has_role(step, 'Prepare native compilation cache')]
+        save = [step for step in steps if step_has_role(step, 'Preserve native compilation cache')]
         condition = '${{ (' + cache_condition.removeprefix('${{ ') + ') && ' + CI_EXECUTE + ' }}'
-        if len(restore) != 1 or restore[0].get('run') != f'python3 Scripts/ci_evidence.py cache-restore "{flavor}"' \
+        if len(restore) != 1 or not command_matches(str(restore[0].get('run') or ""), f'python3 Scripts/ci_evidence.py cache-restore "{flavor}"') \
                 or restore[0].get('if') != CI_EXECUTION or mapping(restore[0].get('env')).get('GH_TOKEN') != '${{ github.token }}':
             errors.append(f'.github/workflows/ci.yml: {name} 需要实际恢复所属原生编译缓存')
         if name == 'ios-app-tests':
-            boot = [step for step in steps if step.get('name') == 'Prepare full iOS Simulator']
-            network = [step for step in steps if step.get('name') in {'Restore native compilation cache', 'Load target branch coverage baseline'}]
-            inventory = [step for step in steps if step.get('name') == ('Run assigned complete Simulator inventory' if name == 'ios-test-shards' else 'Run complete App behavior inventory')]
-            if len(boot) != 1 or boot[0].get('run') != 'Scripts/run-extended-tests.sh simulator prepare' \
+            boot = [step for step in steps if step_has_role(step, 'Prepare full iOS Simulator')]
+            network = [step for step in steps if any(step_has_role(step, role) for role in {'Restore native compilation cache', 'Load target branch coverage baseline'})]
+            inventory = [step for step in steps if step_has_role(step, 'Run assigned complete Simulator inventory' if name == 'ios-test-shards' else 'Run complete App behavior inventory')]
+            if len(boot) != 1 or not command_matches(str(boot[0].get('run') or ""), 'Scripts/run-extended-tests.sh simulator prepare') \
                     or len(network) != 2 or len(inventory) != 1 \
                     or not max(map(steps.index, network)) < steps.index(boot[0]) < steps.index(inventory[0]):
                 errors.append(f'.github/workflows/ci.yml: {name} 需要完成缓存与基准请求后启动完整模拟器，再执行测试库存')
         if len(prepare) != 1 or prepare[0].get('if') != condition \
-                or prepare[0].get('run') != f'python3 Scripts/ci_evidence.py cache-export "{flavor}"' \
+                or not command_matches(str(prepare[0].get('run') or ""), f'python3 Scripts/ci_evidence.py cache-export "{flavor}"') \
                 or len(save) != 1 or save[0].get('if') != condition:
             errors.append(f'.github/workflows/ci.yml: {name} 的缓存发布需要来自 main 运行及唯一生产者')
         if len(save) == 1 and any(mapping(save[0].get('with')).get(key) != value for key, value in {
@@ -396,7 +434,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
         if len(save) == 1 and save[0].get('continue-on-error') is not True:
             errors.append(f'.github/workflows/ci.yml: {name} 的缓存上传需要独立于验证结果')
     host = mapping(jobs.get('ios-ui-build'))
-    host_upload = [step for step in host.get('steps', []) if step.get('name') == 'Preserve shared UI test host']
+    host_upload = [step for step in host.get('steps', []) if step_has_role(step, 'Preserve shared UI test host')]
     if len(host_upload) != 1 or not re.fullmatch(r'actions/upload-artifact@[0-9a-f]{40}', str(host_upload[0].get('uses', ''))) \
             or any(mapping(host_upload[0].get('with')).get(key) != value for key, value in {
                 'name': 'ui-test-host', 'compression-level': 0, 'include-hidden-files': True,
@@ -404,22 +442,22 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
                 'path': '.build/extended-automation/Build/Products\n.build/compiler-cache/swift-syntax-indexer\n.build/compiler-cache/swift-syntax-indexer-inputs.json\n.build/static-audit/compilation-conditions.json\n'}.items()):
         errors.append('.github/workflows/ci.yml: UI 宿主需要完整保存运行产物、索引工具及编译条件缓存')
     shard_steps = shard_job.get('steps', [])
-    download = [step for step in shard_steps if step.get('name') == 'Restore shared UI test host']
+    download = [step for step in shard_steps if step_has_role(step, 'Restore shared UI test host')]
     if mapping(shard_job.get('env')).get('BIT101_REUSE_UI_HOST') != '1' or len(download) != 1 \
-            or download[0].get('run') != 'gh run download "$GITHUB_RUN_ID" --name ui-test-host --dir .build' \
+            or not command_matches(str(download[0].get('run') or ""), 'gh run download "$GITHUB_RUN_ID" --name ui-test-host --dir .build') \
             or mapping(download[0].get('env')).get('GH_TOKEN') != '${{ github.token }}' \
-            or any(step.get('name') in {'Restore native compilation cache', 'Prepare native compilation cache',
-                'Preserve native compilation cache'} for step in shard_steps):
+            or any(any(step_has_role(step, role) for role in {'Restore native compilation cache', 'Prepare native compilation cache',
+                'Preserve native compilation cache'}) for step in shard_steps):
         errors.append('.github/workflows/ci.yml: UI 分组需要复用当前运行的共享宿主及唯一缓存生产者')
-    boot = next((i for i, step in enumerate(shard_steps) if step.get('name') == 'Prepare full iOS Simulator'), -1)
-    baseline = next((i for i, step in enumerate(shard_steps) if step.get('name') == 'Load target branch coverage baseline'), -1)
+    boot = next((i for i, step in enumerate(shard_steps) if step_has_role(step, 'Prepare full iOS Simulator')), -1)
+    baseline = next((i for i, step in enumerate(shard_steps) if step_has_role(step, 'Load target branch coverage baseline')), -1)
     if len(download) == 1 and not shard_steps.index(download[0]) < baseline < boot:
         errors.append('.github/workflows/ci.yml: UI 分组需要在宿主与基准读取完成后启动模拟器')
     cleanup = mapping(jobs.get('compiler-cache-cleanup'))
     if cleanup.get('if') != "github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && (inputs.full_check || inputs.release_check)" \
             or mapping(cleanup.get('permissions')) != {'contents': 'read', 'actions': 'write'} \
             or cleanup.get('needs') != ['release-build', 'catalyst-tests', 'ios-ui-build', 'ios-test-shards', 'ios-app-tests'] \
-            or not any(step.get('run') == 'python3 Scripts/ci_evidence.py cache-prune' for step in cleanup.get('steps', [])):
+            or not any(command_matches(str(step.get('run') or ""), 'python3 Scripts/ci_evidence.py cache-prune') for step in cleanup.get('steps', [])):
         errors.append('.github/workflows/ci.yml: 缓存替换需要 main 专用的清理任务')
     if any(mapping(job.get('permissions')).get('actions', 'read') != 'read' for name, job in jobs.items() if name != 'compiler-cache-cleanup'):
         errors.append('.github/workflows/ci.yml: 验证任务沿 Actions 读取权限执行')
@@ -441,7 +479,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
                 ["Scripts/ci_evidence.py", "baseline", "fixture", "Scripts/validation_evidence.py", "baseline", "fixture"]),
             (physical, "Load target branch coverage baseline", "BIT101_BASE_COMMIT", "${{ github.event.pull_request.base.sha || steps.review.outputs.base_sha }}",
                 ["Scripts/ci_evidence.py", "baseline", "fixture", "Scripts/validation_evidence.py", "baseline", "fixture"])):
-        candidates = [step for step in job.get("steps", []) if isinstance(step, dict) and step.get("name") == step_name]
+        candidates = [step for step in job.get("steps", []) if isinstance(step, dict) and step_has_role(step, step_name)]
         if len(candidates) != 1 or mapping(candidates[0].get("env")).get(key) != expression \
                 or mapping(candidates[0].get("env")).get("GH_TOKEN") != "${{ github.token }}":
             errors.append(".github/workflows/ci.yml: 合并与覆盖率证据请求需要所属提交身份")
@@ -455,11 +493,11 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
             errors.append(".github/workflows/ci.yml: 提交证据读取失败需要传播")
         errors.extend(evidence_execution_findings(shell(step), key, expected))
     steps = physical.get("steps", [])
-    exports = [step for step in steps if isinstance(step, dict) and step.get('run') == 'python3 Scripts/ci_evidence.py export-core']
+    exports = [step for step in steps if isinstance(step, dict) and command_matches(str(step.get('run') or ""), 'python3 Scripts/ci_evidence.py export-core')]
     if len(exports) != 1 or exports[0].get('if') != 'always()' or not publishers \
             or steps.index(exports[0]) >= steps.index(publishers[0]):
         errors.append('.github/workflows/ci.yml: CI 交换需要先导出核心验证组，保留完整人工证明在本地')
-    diagnostics = [step for step in steps if isinstance(step, dict) and step.get('name') == 'Preserve validation diagnostics']
+    diagnostics = [step for step in steps if isinstance(step, dict) and step_has_role(step, 'Preserve validation diagnostics')]
     if len(diagnostics) != 1 or diagnostics[0].get('if') != 'always()' \
             or not diagnostics[0].get('uses', '').startswith('actions/upload-artifact@') \
             or mapping(diagnostics[0].get('with')).get('compression-level') != 0 \
@@ -472,8 +510,8 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
     if len(checkouts) != 1 or mapping(checkouts[0].get('with')).get('clean') is not False:
         errors.append('.github/workflows/ci.yml: 真机工作区需要保留共享增量编译缓存')
     load = next((i for i, step in enumerate(steps) if baseline_command in shell(step)), -1)
-    verify = next((i for i, step in enumerate(steps) if isinstance(step, dict) and step.get("run") == "Scripts/run-extended-tests.sh verify modules all release-runtime ui"), -1)
-    bind = next((i for i, step in enumerate(steps) if isinstance(step, dict) and step.get("run") == "python3 Scripts/validation_evidence.py bind-merge"), -1)
+    verify = next((i for i, step in enumerate(steps) if isinstance(step, dict) and command_matches(str(step.get("run") or ""), "Scripts/run-extended-tests.sh verify modules all release-runtime ui")), -1)
+    bind = next((i for i, step in enumerate(steps) if isinstance(step, dict) and command_matches(str(step.get("run") or ""), "python3 Scripts/validation_evidence.py bind-merge")), -1)
     if not 0 <= load < verify < bind:
         errors.append(".github/workflows/ci.yml: 真机证据需要沿基准、执行和提交绑定顺序生成")
     from validation_policy import REVIEW_JOB_NAMES
@@ -488,9 +526,9 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
         errors.append('.github/workflows/ci.yml: fork 审查需要 PR 输入与运行身份')
     for name in ('static-audit', 'catalyst-tests', 'ios-tests', 'ios-test-shards', 'ios-app-tests', 'ios-ui-build', 'physical-device'):
         steps = mapping(jobs.get(name)).get('steps', [])
-        review = [(i, step) for i, step in enumerate(steps) if isinstance(step, dict) and step.get('name') == 'Verify maintainer review commit']
+        review = [(i, step) for i, step in enumerate(steps) if isinstance(step, dict) and step_has_role(step, 'Verify maintainer review commit')]
         next_step = 'Build complete UI test host' if name == 'ios-ui-build' else 'Load target branch coverage baseline'
-        baseline = next((i for i, step in enumerate(steps) if isinstance(step, dict) and step.get('name') == next_step), -1)
+        baseline = next((i for i, step in enumerate(steps) if isinstance(step, dict) and step_has_role(step, next_step)), -1)
         if len(review) != 1: errors.append('.github/workflows/ci.yml: 审查提交验证需要唯一入口'); continue
         position, step = review[0]
         if position >= baseline or step.get('id') != 'review' or step.get('if') != "github.event_name == 'workflow_dispatch' && inputs.review_pr > 0" \
@@ -821,8 +859,18 @@ def audit_wiring_findings(ROOT, scheme_inventory_findings, extension_dependency_
         errors.append("Scripts/run-extended-tests.sh: 真机测试入口不存在")
     else:
         test_source = active_script_markers(test_script.read_text(encoding="utf-8"))
+        metrics = ast.parse((SCRIPT_ROOT / 'test_results.py').read_text())
+        handlers = [value.id for node in ast.walk(metrics) if isinstance(node, ast.Dict)
+            for key, value in zip(node.keys, node.values)
+            if isinstance(key, ast.Constant) and key.value == 'native-metrics' and isinstance(value, ast.Name)]
+        native_coverage = any(isinstance(node, ast.Constant) and node.value == 'xccov'
+            for function in metrics.body if isinstance(function, ast.FunctionDef) and function.name in handlers
+            for node in ast.walk(function))
+        if not native_coverage:
+            errors.append('Scripts/test_results.py: 原生指标处理需要提取代码覆盖率')
         required_test_metrics = (
-            ("xccov", "真机测试未提取代码覆盖率"),
+            ("native-metrics", "真机测试需要接入原生指标处理"),
+            ("Scripts/test_results.py", "真机指标需要沿共享结果入口处理"),
             ("test-metrics.txt", "真机测试指标未写入固定报告"),
             ("generic/platform=iOS", "测试编译需要通用 iOS 目的地"),
             ("extensions)", "缺少扩展共享逻辑测试分组"),

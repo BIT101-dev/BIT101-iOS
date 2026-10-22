@@ -2,6 +2,8 @@
 """Match smoke responses to business routes and explicit pagination requests."""
 from dataclasses import dataclass, field, replace
 from datetime import date
+import base64
+import json
 import re
 import sys
 from urllib.parse import unquote, urlsplit
@@ -347,8 +349,15 @@ def complete(probe: str, requests: list[dict], expected_parameters: dict | None 
         for row in requests:
             if not contracts[0].matches(row): continue
             configuration = row.get('responseConfiguration')
-            if not isinstance(configuration, dict) or not re.fullmatch(r'[0-9a-f]{64}', configuration.get('digest', '')) \
-                    or type(configuration.get('enabled')) is not bool: return False
+            if not isinstance(configuration, dict) or type(configuration.get('enabled')) is not bool: return False
+            try:
+                content = base64.b64decode(configuration.get('content', ''), validate=True)
+                payload = json.loads(content)
+            except (ValueError, TypeError): return False
+            if len(content) > 1_048_576 or not isinstance(payload, dict) \
+                    or type(payload.get('schema_version')) is not int or payload['schema_version'] != 1 \
+                    or type(payload.get('enabled')) is not bool or payload['enabled'] != configuration['enabled'] \
+                    or payload.get('notice_id') != configuration.get('noticeID'): return False
             notice = configuration.get('noticeID')
             if configuration['enabled'] and (not isinstance(notice, str) or not notice.strip()): return False
     if matched and probe in {'gallery.image', 'paper.image'}:

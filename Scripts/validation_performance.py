@@ -32,9 +32,14 @@ def bundle_identity(bundle: Path) -> str:
     metadata = bundle / 'Info.plist'
     if metadata.is_file():
         return 'plist.' + base64.urlsafe_b64encode(metadata.read_bytes()).decode('ascii')
-    database = bundle / 'database.sqlite3'
-    with database.open('rb') as stream: header = stream.read(100)
-    return 'sqlite.' + str(database.stat().st_size) + '.' + base64.urlsafe_b64encode(header).decode('ascii')
+    try:
+        records = [json.loads(subprocess.check_output(['xcrun', 'xcresulttool', 'get', 'test-results', kind,
+            '--path', str(bundle)])) for kind in ('summary', 'tests')]
+        if any(not isinstance(record, dict) or not record for record in records):
+            raise ValueError('结果包需要完整的原生运行与用例记录。')
+    except (subprocess.SubprocessError, OSError, ValueError) as error:
+        raise ValueError('结果包需要可读取的原生运行与用例记录。') from error
+    return 'native.' + base64.urlsafe_b64encode(json.dumps(records, sort_keys=True).encode()).decode('ascii')
 
 
 def merge_result_bundles(retained: Path, merged: Path) -> None:
@@ -98,7 +103,7 @@ def complete_pending_result_merge() -> None:
         pending = report.get('resultMerge')
         if not pending: return
         if pending.get('bundleIdentity') != bundle_identity(BUNDLE):
-            raise ValueError('结果包恢复需要待发布合并包的完整摘要。')
+            raise ValueError('结果包恢复需要待发布合并包的原生记录身份。')
         groups = pending['groups']
         producing = pending.get('producingGroup', groups[-1])
         if pending['currentIdentity'] and producing and (row := report.get('groups', {}).get(producing)):
@@ -122,12 +127,12 @@ def begin_result_step(retain_previous: bool) -> None:
         reset_result_bundle()
 
 
-def begin_selected_result_step() -> list[str]:
+def begin_selected_result_step(replacing_group: str | None = None) -> list[str]:
     from validation_provenance import REPORT, source_digest, report_lock
     recover_result_step()
     groups = []
     if BUNDLE.exists():
-        try: sha = bundle_identity(BUNDLE)
+        try: identity = bundle_identity(BUNDLE)
         except ValueError:
             print('中断的 XCTest 结果包已进入清理与重新采样。', file=sys.stderr)
             begin_result_step(False)
@@ -135,10 +140,11 @@ def begin_selected_result_step() -> list[str]:
         with report_lock():
             report = json.loads(REPORT.read_text()) if REPORT.is_file() else {}
         for name, row in report.get('groups', {}).items():
+            if name == replacing_group: continue
             full = complete_group_row(row)
             if full.get('scope') == 'full' and full.get('exitCode') == 0 and full.get('summary', {}).get('passed') is True \
                     and sampling_evidence_current({'startedAt': full.get('recordedAt', ''), 'finishedAt': full.get('recordedAt', '')}) \
-                    and full.get('resultBundleIdentity') == sha and full.get('inputDigest') == source_digest(name) \
+                    and full.get('resultBundleIdentity') == identity and full.get('inputDigest') == source_digest(name) \
                     and exchange_identity(full.get('environment')) == exchange_identity(environment_context(name)):
                 groups.append(name)
     begin_result_step(bool(groups))
@@ -167,9 +173,9 @@ def result_bundle_findings(report: dict, *, recorded_environment: bool = False,
                            groups: tuple[str, ...] = ('all', 'ui')) -> list[str]:
     try:
         rows = report.get('groups', {})
-        sha = complete_group_row(rows.get(groups[0], {})).get('resultBundleIdentity') if recorded_environment else bundle_identity(BUNDLE)
-        if not isinstance(sha, str) or not sha.strip(): raise ValueError('结果包需要原生元数据标识。')
-        if all(complete_group_row(report.get('groups', {}).get(group, {})).get('resultBundleIdentity') == sha
+        identity = complete_group_row(rows.get(groups[0], {})).get('resultBundleIdentity') if recorded_environment else bundle_identity(BUNDLE)
+        if not isinstance(identity, str) or not identity.strip(): raise ValueError('结果包需要原生元数据标识。')
+        if all(complete_group_row(report.get('groups', {}).get(group, {})).get('resultBundleIdentity') == identity
                for group in groups): return []
     except (OSError, ValueError): pass
     return ['执行证据需要对应当前保留的原始 XCTest 结果包。']
@@ -192,14 +198,14 @@ def rebind_result_records(report: dict, groups: list[str]) -> dict:
             expected = normalize_metrics(record['xcresultMetrics'], record['testIdentifier'], device)
             matches = [dict(value, testRuns=[run]) for value in raw for run in value.get('testRuns', [])
                 if run.get('device', {}).get('deviceId') == device]
-            if sum(normalize_metrics([value], record['testIdentifier'], device) == expected for value in matches) != 1:
+            if not any(normalize_metrics([value], record['testIdentifier'], device) == expected for value in matches):
                 raise ValueError('合并结果包需要保留所属测试组的实际性能采样。')
-    sha = bundle_identity(BUNDLE)
+    identity = bundle_identity(BUNDLE)
     for row in rows:
         for record in row.get('performance', {}).get('records', {}).values():
-            record['execution']['bundleIdentity'] = sha
-            record['resultBundle']['identity'] = sha
-        row['resultBundleIdentity'] = sha
+            record['execution']['bundleIdentity'] = identity
+            record['resultBundle']['identity'] = identity
+        row['resultBundleIdentity'] = identity
     return updated
 
 
@@ -318,11 +324,11 @@ def extract_measurements(row: dict, group: str = 'all') -> dict:
     context = row['environment']
     summary = json.loads(subprocess.check_output(['xcrun', 'xcresulttool', 'get', 'test-results', 'summary', '--path', str(BUNDLE)], text=True))
     if summary.get('result') != 'Passed': raise ValueError('性能结果包需要成功执行。')
-    sha = bundle_identity(BUNDLE)
-    if row.get('resultBundleIdentity') != sha:
+    identity = bundle_identity(BUNDLE)
+    if row.get('resultBundleIdentity') != identity:
         raise ValueError('性能结果包需要匹配所属构建运行的摘要与源码提交。')
     execution = {'group': group, 'runID': row['runID'], 'inputDigest': row['inputDigest'],
-        'sourceCommit': row['sourceCommit'], 'environment': context, 'bundleIdentity': sha}
+        'sourceCommit': row['sourceCommit'], 'environment': context, 'bundleIdentity': identity}
     records = {}
     for name, (test, workload) in performance_workloads().items():
         if performance_group(test) != group: continue
@@ -330,9 +336,9 @@ def extract_measurements(row: dict, group: str = 'all') -> dict:
             '--path', str(BUNDLE), '--test-id', test + '()'], text=True))
         records[name] = {'testIdentifier': test, 'sourceCommit': execution['sourceCommit'], 'input': workload,
             'capturedAt': row['recordedAt'], 'environment': measurement_environment(context, group), 'execution': execution,
-            'resultBundle': {'path': str(BUNDLE.relative_to(ROOT)), 'identity': sha}, 'xcresultMetrics': raw,
+            'resultBundle': {'path': str(BUNDLE.relative_to(ROOT)), 'identity': identity}, 'xcresultMetrics': raw,
             'metrics': normalize_metrics(raw, test, context['device']['identifier'])}
-    if bundle_identity(BUNDLE) != sha: raise ValueError('性能结果包需要保持完整采样期间的内容身份。')
+    if bundle_identity(BUNDLE) != identity: raise ValueError('性能结果包需要保持完整采样期间的内容身份。')
     return {'schemaVersion': 1, 'records': records}
 
 
@@ -407,6 +413,9 @@ def merge_findings(report: dict, commit: str) -> list[str]:
 
 
 def main(arguments: list[str]) -> int:
+    if len(arguments) == 2 and arguments[0] == 'begin-full':
+        print('\n'.join(begin_selected_result_step(replacing_group=arguments[1])))
+        return 0
     if arguments == ['begin-selected']:
         print('\n'.join(begin_selected_result_step()))
         return 0
@@ -506,7 +515,7 @@ def performance_comparison_complete(name: str, measurement: dict) -> bool:
 if __name__ == '__main__':
     try:
         raise SystemExit(main(sys.argv[1:]))
-    except (ValueError, OSError, subprocess.CalledProcessError) as error:
+    except (ValueError, KeyError, OSError, subprocess.CalledProcessError) as error:
         detail = error.stderr.decode(errors='replace').strip() if isinstance(error, subprocess.CalledProcessError) and error.stderr else str(error)
         print(detail, file=sys.stderr)
         raise SystemExit(1)

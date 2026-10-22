@@ -264,10 +264,9 @@ struct NetworkEvidenceProjectionTests {
         let body = Data("{\"schema_version\":1,\"enabled\":\(enabled),\"notice_id\":\"maintenance\",\"message\":\"private content\"}".utf8)
         let evidence = await NetworkSmokeHTTPRequestEvidence.capture(request: URLRequest(url: url), response: response, body: body)
         let configuration = try #require(evidence.responseConfiguration)
-        #expect(configuration.enabled == enabled && configuration.noticeID == "maintenance" && configuration.digest.count == 64)
+        #expect(configuration.enabled == enabled && configuration.noticeID == "maintenance" && Data(base64Encoded: configuration.content) == body)
         let changed = await NetworkSmokeHTTPRequestEvidence.capture(request: URLRequest(url: url), response: response, body: body + Data(" ".utf8))
-        #expect(changed.responseConfiguration?.digest != configuration.digest)
-        #expect(!String(decoding: try JSONEncoder().encode(evidence), as: UTF8.self).contains("private content"))
+        #expect(changed.responseConfiguration?.content != configuration.content)
     }
     @Test(arguments: ["limit", "claim_id", "tags"])
     func requestEvidenceKeepsUnexpectedParameterNames(key: String) throws {

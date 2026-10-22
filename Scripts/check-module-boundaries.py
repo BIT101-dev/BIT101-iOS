@@ -821,7 +821,14 @@ def main() -> int:
     module_aliases = type_aliases(swift_syntax_index([path for info in modules.values()
         for path in (root / info["path"]).rglob("*.swift") if "typealias" in swift_code(path.read_text())]))
 
-    network_index = {}
+    module_files = {module: sorted((root / info['path']).rglob('*.swift')) for module, info in modules.items()}
+    source_texts = {path: path.read_text() for paths in module_files.values() for path in paths}
+    source_inputs = {}
+    for module, paths in module_files.items():
+        aliases = tuple(alias for alias in module_aliases if alias_module(alias[4]) == module)
+        source_inputs.update({path.relative_to(root).as_posix(): expanded_resource_source(source_texts[path],
+            imported_aliases(source_texts[path], aliases, module_aliases), path.relative_to(root).as_posix()) for path in paths})
+    network_index = swift_syntax_index_sources(source_inputs)
     ui_modules = set()
     for module, info in modules.items():
         source_root = root / info["path"]
@@ -830,16 +837,13 @@ def main() -> int:
         if not source_root.is_dir():
             errors.append(f"{module} source root missing: {source_root}")
             continue
-        source_files = sorted(source_root.rglob("*.swift"))
+        source_files = module_files[module]
         aliases = tuple(alias for alias in module_aliases if alias_module(alias[4]) == module)
-        unit_index = swift_syntax_index_sources({path.relative_to(root).as_posix():
-            expanded_resource_source(path.read_text(), imported_aliases(path.read_text(), aliases, module_aliases), path.relative_to(root).as_posix())
-            for path in source_files})
-        network_index.update(unit_index)
+        unit_index = {path.relative_to(root).as_posix(): network_index[path.relative_to(root).as_posix()] for path in source_files}
         call_context = SwiftBindingTypes(unit_index)
         for path in source_files:
             unit_context = compilation_type_context(unit_index, path.relative_to(root).as_posix())
-            text = path.read_text(encoding="utf-8")
+            text = source_texts[path]
             context = imported_aliases(text, aliases, module_aliases)
             imports = raw_imports(text)
             if 'SwiftUI' in imports: ui_modules.add(module)

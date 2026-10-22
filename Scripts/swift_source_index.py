@@ -39,10 +39,20 @@ def indexer_toolchain(compiler: Path, host_modules: Path) -> dict:
     return {"environment": environment_context("build-modules"), "artifacts": artifacts}
 
 
+@cache
+def indexer_swift_path(environment: tuple[tuple[str, str], ...]) -> Path:
+    return Path(subprocess.check_output(['xcrun', '--find', 'swift'], text=True).strip()).absolute()
+
+
+@cache
+def indexer_signature(compiler: Path, host_modules: Path, module_cache: Path, sources: tuple[tuple[str, str], ...]) -> str:
+    return json.dumps({'sources': dict(sources), 'toolchain': indexer_toolchain(compiler, host_modules),
+        'moduleCache': str(module_cache)}, sort_keys=True)
+
+
 def _run_swift_syntax_index(request: dict, *, regex_only: bool = False) -> dict[str, dict]:
     request = dict(request, interactionNames=sorted(SWIFTUI_INTERACTION_KINDS | {"LabeledContent"}))
-    swift = subprocess.check_output(["xcrun", "--find", "swift"], text=True).strip()
-    swift_path = Path(swift).absolute()
+    swift_path = indexer_swift_path(tuple((name, os.environ.get(name, '')) for name in ('DEVELOPER_DIR', 'TOOLCHAINS', 'PATH')))
     host_modules = swift_path.parent.parent / "lib/swift/host"
     if not (host_modules / "SwiftSyntax.swiftmodule").is_dir():
         raise RuntimeError(f"Xcode SwiftSyntax modules not found: {host_modules}")
@@ -58,8 +68,8 @@ def _run_swift_syntax_index(request: dict, *, regex_only: bool = False) -> dict[
         compiler_cache = ROOT / ".build/compiler-cache"
         module_cache = compiler_cache / "ModuleCache.noindex"
         module_cache.mkdir(parents=True, exist_ok=True)
-        signature = json.dumps({"sources": {str(source): source.read_text() for source in [*sources, Path(__file__)]},
-            "toolchain": indexer_toolchain(compiler, host_modules), "moduleCache": str(module_cache)}, sort_keys=True)
+        signature = indexer_signature(compiler, host_modules, module_cache,
+            tuple((str(source), source.read_text()) for source in [*sources, Path(__file__)]))
         source_changed = not signature_file.exists() or signature_file.read_text() != signature
         if source_changed or not executable.exists():
             executable.unlink(missing_ok=True)
@@ -148,12 +158,17 @@ def swift_code(source: str, keep_comments: bool = False, keep_literals: bool = F
     """Retain executable Swift, including interpolation, with stable positions."""
     result = ["\n" if char == "\n" else " " for char in source]
     string_start = re.compile(r'(#{0,})("""|")')
-    regex_ranges = swift_regex_ranges(source)
+    regex_ranges = REGEX_RANGES_BY_SOURCE.get(source)
+    regex_start = re.compile(r'#+/')
 
     def code(index: int, interpolation: bool = False) -> int:
+        nonlocal regex_ranges
         depth = 1
         while index < len(source):
-            if index in regex_ranges:
+            if regex_ranges is None and (source[index] == '/' and not source.startswith(('//', '/*'), index)
+                    or source[index] == '#' and regex_start.match(source, index)):
+                regex_ranges = swift_regex_ranges(source)
+            if regex_ranges and index in regex_ranges:
                 end = regex_ranges[index]
                 if keep_literals: result[index:end] = source[index:end]
                 index = end

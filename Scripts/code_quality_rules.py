@@ -493,8 +493,8 @@ def script_findings() -> list[str]:
 
 def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
     """核对生命周期调用链与学校业务请求入口。"""
-    from network_capability_rules import call_can_execute, execution_index, matching_execution_entries
-    syntax_index = execution_index(syntax_index)
+    from network_capability_rules import snapshot_execution_checker, execution_index, matching_execution_entries
+    syntax_index, call_can_execute = execution_index(syntax_index), snapshot_execution_checker()
     from validation_compilation import active_swift_source, source_architectures, source_platforms
     active_sources = {path: [active_swift_source(facts['source'], 'restore', platform=platform,
         architecture=architecture, path=path).encode() for platform in source_platforms(path)

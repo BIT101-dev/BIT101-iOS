@@ -33,8 +33,7 @@ def log_output_boundary_findings() -> list[str]:
             except SystemExit as error: assert error.code == status
             assert moved.call_args.args == (str(temporary_bundle), str(diagnostic_bundle)) if status else not moved.called
             assert removed.call_args.args[0] == (diagnostic_bundle if status else temporary_bundle)
-    diagnostics_program = (SCRIPT_ROOT / 'run-extended-tests.sh').read_text().split(
-        'python3 - "$DERIVED_ROOT/test-results.xcresult"', 1)[1].split("<<'PY'\n", 1)[1].split('\nPY\n', 1)[0]
+    from test_results import report_test_results
     exported = diagnostic_bundle.parent / 'session.log'
     with patch.object(sys, 'argv', ['diagnostics', '/fixture/test-results.xcresult', '', 'diagnostics', str(SCRIPT_ROOT)]), \
             patch.object(Path, 'is_file', return_value=True), patch.object(Path, 'exists', lambda path: path == diagnostic_bundle.parent), \
@@ -42,7 +41,7 @@ def log_output_boundary_findings() -> list[str]:
             patch.object(Path, 'iterdir', return_value=[diagnostic_bundle, exported]), \
             patch.object(Path, 'unlink') as unlinked, patch.object(shutil, 'rmtree') as removed, \
             patch.object(subprocess, 'run') as export, redirect_stdout(StringIO()):
-        try: exec(compile(diagnostics_program, '<diagnostic-export>', 'exec'), {})
+        try: report_test_results(sys.argv[1:])
         except SystemExit as error: assert error.code == 0
         arguments = export.call_args.args[0]
         assert arguments[arguments.index('--path') + 1] == str(diagnostic_bundle)
@@ -94,4 +93,37 @@ Path.open = open_log
             env={**os.environ, 'GITHUB_ACTIONS': 'false'})
         if result.returncode != 7 or 'error: late-root-cause' not in result.stdout:
             findings.append('失败摘要需要优先呈现末尾出现的根因诊断')
+    return findings
+
+
+def verification_finish_findings(source: str) -> list[str]:
+    import os
+    step = 'verify_step() {' + source.split('verify_step() {', 1)[1].split('\n  for group in', 1)[0]
+    step = step.replace('"$ROOT_DIR/Scripts/run-static-audit.sh" prepare', 'prepare_probe')
+    finish = 'finish_verification() {' + source.split('finish_verification() {', 1)[1].split('\n  trap finish_verification', 1)[0]
+    findings = []
+    for prepare_status, audit_status, initial in ((0, 0, 0), (0, 11, 0), (13, 0, 0), (0, 11, 7), (0, 0, 7)):
+        harness = f'''set -euo pipefail
+unset BIT101_AUDIT_BACKGROUND BIT101_AUDIT_ARTIFACTS_PREPARED
+ROOT_DIR=/fixture verification_audit_pid=
+completed_result_groups=()
+python3() {{ print 17.0; }}
+prepare_probe() {{ print PREPARE; return {prepare_status}; }}
+audit_probe() {{ [[ "$BIT101_AUDIT_ARTIFACTS_PREPARED" == 1 ]]; print AUDIT_FINISHED; return {audit_status}; }}
+'''
+        result = subprocess.run(['zsh', '-c', harness + step + '\n' + finish +
+            f'\ntrap finish_verification EXIT ZERR\nverify_step audit audit_probe\nexit {initial}'],
+            capture_output=True, text=True, timeout=5)
+        expected = prepare_status or initial or int(bool(audit_status))
+        if result.returncode != expected or bool(prepare_status) == ('AUDIT_FINISHED' in result.stdout) \
+                or not prepare_status and result.stdout.index('PREPARE') > result.stdout.index('AUDIT_FINISHED') \
+                or '[完整验证总耗时] 17.0 秒' not in result.stdout:
+            findings.append('聚合退出自测：归集后台审计、原始失败状态与完整耗时')
+    from test_results import workflow_elapsed
+    from unittest.mock import patch
+    from io import StringIO
+    from contextlib import redirect_stdout
+    with patch.dict(os.environ, BIT101_WORKFLOW_STARTED_AT='100'), patch('time.monotonic', return_value=191.5), redirect_stdout(output := StringIO()):
+        workflow_elapsed([])
+    assert output.getvalue().strip() == '91.5'
     return findings
