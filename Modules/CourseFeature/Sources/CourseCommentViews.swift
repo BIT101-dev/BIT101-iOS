@@ -222,6 +222,7 @@ private struct CourseCommentImagesView: View {
 struct CourseCommentComposerSheet: View {
     let target: CourseCommentComposerTarget
     let isSubmitting: Bool
+    let review: CommunityCommentReviewActions
     let onSubmit: (String, Bool, Int?) async -> Bool
 
     @Environment(\.dismiss) private var dismiss
@@ -232,6 +233,8 @@ struct CourseCommentComposerSheet: View {
     @State private var rating = 0
 
     var body: some View {
+        let submission = CommunityCommentSubmission(objectID: target.objectID, text: text.trimmingCharacters(in: .whitespacesAndNewlines),
+            anonymous: anonymous, replyObjectID: target.replyObjectID, replyUID: target.replyUID, rate: rawRating)
         NavigationStack {
             Form {
                 AppCommentComposerContentSection(anonymous: $anonymous) {
@@ -240,6 +243,7 @@ struct CourseCommentComposerSheet: View {
                         .accessibilityIdentifier("ui.course-comment-composer-sheet.input")
                 }
 
+                CommunityCommentReviewSection(submission: submission, actions: review) { isSubmissionRequested = true }
                 if supportsCourseRating {
                     Section("评分") {
                         VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {

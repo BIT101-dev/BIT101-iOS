@@ -28,6 +28,8 @@ struct GalleryMessagesView: View {
     @State private var requestedMessage: GalleryMessage?
 
     var body: some View {
+        let type = viewModel.selectedType
+        let state = viewModel.state(for: type)
         ZStack {
             AppDesignSystem.Palette.Background.grouped
                 .ignoresSafeArea()
@@ -60,7 +62,6 @@ struct GalleryMessagesView: View {
                             .listRowBackground(Color.clear)
                         } else {
                             ForEach(Array(currentState.items.enumerated()), id: \.element.id) { index, message in
-                                let type = viewModel.selectedType
                                 VStack(spacing: AppDesignSystem.Spacing.none) {
                                     GalleryMessageRow(
                                         type: type,
@@ -84,11 +85,11 @@ struct GalleryMessagesView: View {
                                 }
                             }
 
-                            if currentState.isLoadingMore {
-                                AppInlineLoadingState()
-                                    .listRowSeparator(.hidden)
-                                    .listRowBackground(Color.clear)
+                            CommunityPaginationFooter(isLoading: currentState.isLoadingMore, errorMessage: currentState.paginationError) {
+                                await viewModel.loadMoreIfNeeded(for: type, currentMessage: state.items.last)
                             }
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
                         }
                     }
                     .accessibilityIdentifier("interaction.GalleryMessagesView.list")
@@ -172,10 +173,14 @@ struct GalleryMessagesView: View {
         viewModel.state(for: viewModel.selectedType)
     }
 
-    /// 网络恢复或回到前台时，当前消息分类处于失败状态且消息为空时自动刷新一次。
+    /// 网络恢复或回到前台时，继续当前分类的失败读取。
     private func retryCurrentTypeIfNeeded() async {
         guard networkObserver.isReachable else { return }
         let state = currentState
+        if state.paginationError != nil {
+            await viewModel.loadMoreIfNeeded(for: viewModel.selectedType, currentMessage: state.items.last)
+            return
+        }
         guard case .failed = state.status, state.items.isEmpty else { return }
         await viewModel.refreshSelectedType()
     }

@@ -343,7 +343,8 @@ private struct GalleryPosterDetailViewScene: View {
         .sheet(item: $composerTarget) { target in
             GalleryCommentComposerSheet(
                 target: target,
-                isSubmitting: viewModel.isSubmittingComment
+                isSubmitting: viewModel.isSubmittingComment,
+                review: viewModel.commentReview
             ) { text, anonymous, images in
                 await viewModel.submitComment(text: text, anonymous: anonymous, imageMids: images.map(\.mid), target: target)
             }

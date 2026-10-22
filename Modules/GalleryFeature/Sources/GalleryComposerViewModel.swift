@@ -110,6 +110,14 @@ final class GalleryComposerViewModel: ObservableObject {
             || anonymous || !isPublic || selectedClaimID != 0
     }
 
+    var hasUnsavedEdits: Bool {
+        guard let original = editingPoster else { return false }
+        return title != original.title || text != original.text || selectedTags != original.tags ||
+            customTagDrafts.contains { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ||
+            anonymous != original.anonymous || isPublic != original.public || selectedClaimID != original.claim.id ||
+            existingImages != original.images || !imageDrafts.isEmpty || isAddingImages
+    }
+
     var hasUploadingImages: Bool { imageDrafts.contains { $0.isUploading } }
     var hasPublishedContent: Bool { didPublish }
 

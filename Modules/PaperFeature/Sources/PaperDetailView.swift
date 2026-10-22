@@ -221,7 +221,8 @@ private struct PaperDetailViewScene: View {
             NavigationStack {
                 PaperCommentComposerSheet(
                     target: target,
-                    isSubmitting: viewModel.isSubmittingComment
+                    isSubmitting: viewModel.isSubmittingComment,
+                review: viewModel.commentReview
                 ) { text, anonymous in
                     await viewModel.submitComment(text: text, anonymous: anonymous, target: target)
                 }

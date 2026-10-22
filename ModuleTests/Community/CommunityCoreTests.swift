@@ -20,6 +20,9 @@ struct CommunityCoreTests {
         state.recordUncertainSubmission(first)
         state.restoreAfterRefreshFailure(previous)
         #expect(state.needsReview(first) && state.needsReview(other) == false)
+        state.recordUncertainSubmission(other)
+        state.acknowledgeSubmissionReview(first)
+        #expect(state.needsReview(first) == false && state.needsReview(other))
     }
 
     @Test(arguments: [false, true])

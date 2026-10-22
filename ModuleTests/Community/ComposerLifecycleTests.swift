@@ -313,6 +313,11 @@ struct ComposerLifecycleTests {
         let image = CommunityImage(mid: "existing", url: "https://example.invalid/image.jpg", lowUrl: "")
         let viewModel = model(service, drafts: drafts, editing: poster(images: [image], plugins: #"[{"type":"future","data":{"value":"preserved"}}]"#))
         #expect(viewModel.title == "帖子标题")
+        #expect(viewModel.hasUnsavedEdits == false)
+        viewModel.title = "修改标题"
+        #expect(viewModel.hasUnsavedEdits)
+        viewModel.title = "帖子标题"
+        #expect(viewModel.hasUnsavedEdits == false)
         #expect(viewModel.anonymous && viewModel.isPublic == false)
         #expect(await viewModel.checkDraftOnAppear() == false)
         await viewModel.restoreDraft()

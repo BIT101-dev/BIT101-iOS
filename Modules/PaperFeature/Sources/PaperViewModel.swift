@@ -154,21 +154,28 @@ class PaperCollectionViewModel: ObservableObject {
             }
         }
 
+        var sourcePage = state.nextPage
         do {
-            let previousCount = state.items.count
             var progress = CommunityPageProgress<Int>()
-            repeat {
+            while true {
                 try Task.checkCancellation()
-                state.isLoadingMore = true
-                let papers = try await service.fetchPapers(search: query.search, order: query.order, page: state.nextPage)
+                let papers = try await service.fetchPapers(search: query.search, order: query.order, page: sourcePage)
                 try Task.checkCancellation()
                 guard refreshGeneration == generation else { return }
                 try progress.record(papers.map(\.id), knownIDs: state.pagedItems.ids)
-                state.appendPage(papers)
-                state.paginationError = nil
-            } while state.canLoadMore && state.items.count == previousCount
+                if papers.isEmpty || papers.contains(where: { !state.pagedItems.ids.contains($0.id) }) {
+                    var updated = state
+                    updated.nextPage = sourcePage
+                    updated.appendPage(papers)
+                    updated.paginationError = nil
+                    state = updated
+                    return
+                }
+                sourcePage += 1
+            }
         } catch {
             guard refreshGeneration == generation else { return }
+            state.nextPage = sourcePage
             if TaskCancellation.matches(error) { return }
             state.paginationError = error.localizedDescription
             alert = AppAlert(title: "加载更多失败", message: error.localizedDescription)
@@ -268,8 +275,11 @@ final class PaperDetailViewModel: ObservableObject {
     func bootstrapIfNeeded() async {
         guard !hasBootstrapped else { return }
         hasBootstrapped = true
+        if paper == nil, let cached = await service.cachedPaper(id: initialPaper.id), !Task.isCancelled {
+            handlePaperResult(.success(cached), previousStatus: .idle, likeRevisionAtStart: likeRevision)
+        }
         await refreshAll()
-        if paperStatus == .idle || commentState.status == .idle { hasBootstrapped = false }
+        if Task.isCancelled || paperStatus == .idle || commentState.status == .idle { hasBootstrapped = false }
     }
 
     func refreshAll() async {
@@ -427,6 +437,11 @@ final class PaperDetailViewModel: ObservableObject {
             if TaskCancellation.matches(error) { return }
             alert = AppAlert(title: "点赞失败", message: error.localizedDescription)
         }
+    }
+
+    var commentReview: CommunityCommentReviewActions {
+        .init(needsReview: { self.commentState.needsReview($0) },
+            acknowledge: { self.commentState.acknowledgeSubmissionReview($0) })
     }
 
     func submitComment(text: String, anonymous: Bool, target: PaperCommentComposerTarget) async -> Bool {

@@ -30,6 +30,7 @@ private struct GalleryComposerScene: View {
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
     @State private var isShowingDraftAlert = false
     @State private var isShowingDraftRestoreAlert = false
+    @State private var isConfirmingDiscard = false
     @Environment(\.dismiss) private var dismiss
     let editingPoster: GalleryPosterDetail?
     let onCreated: () -> Void
@@ -291,6 +292,12 @@ private struct GalleryComposerScene: View {
                 Text("发现上次保存的发帖草稿。")
             }
             .diagnosticAlert(item: $viewModel.alert)
+            .alert("放弃帖子修改？", isPresented: $isConfirmingDiscard) {
+                Button("放弃修改", role: .destructive) { dismiss() }
+                    .accessibilityIdentifier("gallery.editor.discard.confirm")
+                Button("取消", role: .cancel) {}
+                    .accessibilityIdentifier("gallery.editor.discard.cancel")
+            }
         }
         .interactiveDismissDisabled()
     }
@@ -302,7 +309,11 @@ private struct GalleryComposerScene: View {
             dismiss()
             return
         }
-        if editingPoster != nil || !viewModel.hasDraftContent { dismiss() }
+        if editingPoster != nil {
+            if viewModel.hasUnsavedEdits { isConfirmingDiscard = true }
+            else { dismiss() }
+        }
+        else if !viewModel.hasDraftContent { dismiss() }
         else { isShowingDraftAlert = true }
     }
 }

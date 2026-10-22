@@ -491,6 +491,7 @@ nonisolated struct GalleryMessageListState {
     var status: CommunityLoadStatus = .idle
     /// 是否正在请求下一页。
     var isLoadingMore = false
+    var paginationError: String?
     /// 下一次分页请求要带的最后一条消息 ID。
     var nextCursor: Int?
     /// 服务端是否还有更多历史消息。

@@ -270,7 +270,10 @@ final class UITestHTTPTransport: HTTPTransport {
             return (AppUITestBootstrap.mediaData, response)
         }
         let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
-        let page = query.first(where: { $0.name == "page" })?.value ?? "0"
+        let requestedPage = query.first(where: { $0.name == "page" })?.value ?? "0"
+        let repeatedPages = AppUITestBootstrap.environment["BIT101_UI_TEST_DUPLICATE_PAGES"] == "1"
+        let page = repeatedPages ? String(max(0, (Int(requestedPage) ?? 0) - 1)) : requestedPage
+        if repeatedPages, requestedPage == "2" { try await Task.sleep(for: .milliseconds(100)) }
         let userID = query.first { $0.name == "uid" }?.value
         if AppUITestBootstrap.environment["BIT101_UI_TEST_MINE_PAGING_FAILURE_ONCE"] == "1", page == "1",
            ["user/followers", "user/followings"].contains(path) || (path == "posters" && userID != nil),
@@ -316,10 +319,15 @@ final class UITestHTTPTransport: HTTPTransport {
             ["comment", "follow", "like", "subscription", "system"].map { ($0, clearedMessageTypes.contains($0) ? 0 : 1) })
         case "messages":
             let cursor = query.first(where: { $0.name == "last_id" })?.value.flatMap(Int.init)
+            if AppUITestBootstrap.environment["BIT101_UI_TEST_MESSAGE_PAGING_FAILURE_ONCE"] == "1", cursor == 3,
+               failedPaths.insert("message-page").inserted { throw URLError(.networkConnectionLost) }
             if cursor == nil || cursor == 0 { clearedMessageTypes.insert(query.first(where: { $0.name == "type" })?.value ?? "comment") }
-            let resources = AppUITestBootstrap.environment["BIT101_UI_TEST_RESOURCE_ROUTES"] == "1"
+            let resources = AppUITestBootstrap.environment["BIT101_UI_TEST_MESSAGE_PAGING_FAILURE_ONCE"] == "1"
+                ? [(3, "poster1", "分页首屏消息"), (2, "poster1", "重试后的消息")]
+                : AppUITestBootstrap.environment["BIT101_UI_TEST_RESOURCE_ROUTES"] == "1"
                 ? [(2, "course1", "课程更新"), (1, "paper1", "文章更新")] : [(1, "poster1", "自动化测试消息")]
-            payload = resources.filter { cursor == nil || cursor == 0 || $0.0 < (cursor ?? 0) }.map { id, object, text in
+            let pageSize = AppUITestBootstrap.environment["BIT101_UI_TEST_MESSAGE_PAGING_FAILURE_ONCE"] == "1" ? 1 : resources.count
+            payload = resources.filter { cursor == nil || cursor == 0 || $0.0 < (cursor ?? 0) }.prefix(pageSize).map { id, object, text in
                 ["id": id, "from_user": user, "link_obj": object, "obj": object,
                     "text": text, "update_time": timestamp] as [String: Any]
             }
@@ -332,7 +340,9 @@ final class UITestHTTPTransport: HTTPTransport {
                 var comment = makeComment(id: comments.count + 2, text: body["text"] as? String ?? "测试回复")
                 comment["reply_obj"] = body["reply_obj"] ?? ""
                 comment["obj"] = body["obj"] ?? "poster1"
-                comments.append(comment)
+                if AppUITestBootstrap.environment["BIT101_UI_TEST_COMMENT_OUTCOME_UNKNOWN_ONCE"] == "1",
+                   failedPaths.insert("comment-outcome").inserted { comment["id"] = 0 }
+                else { comments.append(comment) }
                 payload = comment
             } else {
                 payload = page == "0" ? ([makeComment(id: 1, text: "自动化测试评论")] + comments)

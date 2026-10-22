@@ -6,6 +6,7 @@ public protocol PaperListServicing {
 }
 
 public protocol PaperDetailServicing {
+    func cachedPaper(id: Int) async -> PaperDetail?
     func fetchPaper(id: Int) async throws -> PaperDetail
     func fetchComments(paperID: Int, order: CommunityCommentOrder, page: Int?) async throws -> [CommunityComment]
     func likePaper(id: Int) async throws -> CommunityLikeResult
@@ -27,6 +28,10 @@ public protocol PaperDetailServicing {
         lastUpdatedAt: String
     ) async throws
     func deletePaper(id: Int) async throws
+}
+
+extension PaperDetailServicing {
+    public func cachedPaper(id: Int) async -> PaperDetail? { nil }
 }
 
 public protocol PaperComposerServicing {

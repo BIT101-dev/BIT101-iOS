@@ -7,6 +7,43 @@ import TransportCore
 
 @MainActor
 struct PaperCommentPagingTests {
+    private static func revalidationPaper(_ id: Int, title: String) -> PaperDetail {
+        PaperDetail(id: id, title: title, intro: "", content: title, createTime: "", updateTime: "",
+            updateUser: .placeholder(id: 1, nickname: "作者"), anonymous: false, likeNum: 0, commentNum: 0,
+            publicEdit: false, like: false, own: true)
+    }
+
+    private final class RevalidatingService: PaperDetailServicing {
+        var pending: CheckedContinuation<PaperDetail, any Error>?
+        func cachedPaper(id: Int) async -> PaperDetail? { PaperCommentPagingTests.revalidationPaper(id, title: "缓存正文") }
+        func fetchPaper(id: Int) async throws -> PaperDetail { try await withCheckedThrowingContinuation { pending = $0 } }
+        func fetchComments(paperID: Int, order: CommunityCommentOrder, page: Int?) async throws -> [CommunityComment] { [] }
+        func likePaper(id: Int) async throws -> CommunityLikeResult { throw URLError(.unsupportedURL) }
+        func sendLike(objectID: String) async throws -> CommunityLikeResult { throw URLError(.unsupportedURL) }
+        func createComment(objectID: String, text: String, replyObjectID: String?, replyUID: Int?, anonymous: Bool) async throws -> CommunityComment { throw URLError(.unsupportedURL) }
+        func updatePaper(id: Int, title: String, intro: String, content: String, anonymous: Bool, publicEdit: Bool, lastUpdatedAt: String) async throws { throw URLError(.unsupportedURL) }
+        func deletePaper(id: Int) async throws { throw URLError(.unsupportedURL) }
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func cachedArticleAppearsDuringRevalidationAndSurvivesAFailedRead(fails: Bool) async throws {
+        let service = RevalidatingService()
+        let model = PaperDetailViewModel(initialPaper: PaperSummary(id: 1, title: "列表标题", intro: "", likeNum: 0, commentNum: 0, updateTime: ""), service: service)
+        let loading = Task { await model.bootstrapIfNeeded() }
+        defer { loading.cancel(); service.pending?.resume(throwing: CancellationError()); service.pending = nil }
+        try await waitForTestEvent { service.pending != nil }
+        #expect(model.paper?.title == "缓存正文")
+        #expect(model.paper?.content == "缓存正文")
+        if fails { service.pending?.resume(throwing: URLError(.notConnectedToInternet)) }
+        else { service.pending?.resume(returning: Self.revalidationPaper(1, title: "更新正文")) }
+        service.pending = nil
+        await loading.value
+        #expect(model.paper?.title == (fails ? "缓存正文" : "更新正文"))
+        #expect(model.paper?.content == (fails ? "缓存正文" : "更新正文"))
+        #expect(model.contentBlocks.isEmpty == false)
+        #expect(model.paperStatus == (fails ? .failed(URLError(.notConnectedToInternet).localizedDescription) : .loaded))
+    }
+
     private final class Transport: HTTPTransport {
         var pages: [Int] = []
         var stalls = false

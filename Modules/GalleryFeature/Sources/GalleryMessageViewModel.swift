@@ -137,7 +137,7 @@ final class GalleryMessageViewModel: ObservableObject {
     func paginationTaskID(for type: GalleryMessageType) -> String? {
         let state = state(for: type)
         guard state.status == .loaded else { return nil }
-        return "\(completedRefreshGenerations[type] ?? 0)-\(state.nextCursor ?? 0)"
+        return "\(type.rawValue)-\(completedRefreshGenerations[type] ?? 0)-\(state.nextCursor ?? 0)"
     }
 
     /// 从第一页重新拉取指定消息分类。
@@ -165,6 +165,7 @@ final class GalleryMessageViewModel: ObservableObject {
         func show(_ messages: [GalleryMessage]) {
             var page = GalleryMessageListState()
             page.applyFirstCursorPage(messages)
+            page.paginationError = nil
             page.status = .loaded
             page.isLoadingMore = true
             listStates[type] = page
@@ -337,7 +338,7 @@ final class GalleryMessageViewModel: ObservableObject {
               state.shouldLoadMore(currentID: currentMessage.id)
         else { return }
 
-        setState(for: type) { $0.isLoadingMore = true }
+        setState(for: type) { $0.isLoadingMore = true; $0.paginationError = nil }
 
         do {
             let messages = try await service.fetchMessages(type: type, lastID: state.nextCursor)
@@ -345,6 +346,7 @@ final class GalleryMessageViewModel: ObservableObject {
             guard listGenerations[type] == generation, session == readStore.currentSession else { return }
             setState(for: type) {
                 $0.appendCursorPage(messages)
+                $0.paginationError = nil
             }
         } catch {
             guard listGenerations[type] == generation, session == readStore.currentSession else { return }
@@ -352,7 +354,7 @@ final class GalleryMessageViewModel: ObservableObject {
                 setState(for: type) { $0.isLoadingMore = false }
                 return
             }
-            setState(for: type) { $0.isLoadingMore = false }
+            setState(for: type) { $0.isLoadingMore = false; $0.paginationError = error.localizedDescription }
             alert = AppAlert(title: "加载更多失败", message: error.localizedDescription)
         }
     }

@@ -44,13 +44,15 @@ final class PaperDetailRequestStore {
         return detail.previewMetadata
     }
 
+    func cachedDetail(id: Int, credentials: CommunityCredentials) -> PaperDetail? {
+        let key = Key(id: id, credentials: credentials, epoch: cacheEpoch)
+        cacheOrder.removeAll { $0 == key }
+        return cache.removeValue(forKey: key)
+    }
+
     func detail(id: Int, credentials: CommunityCredentials, load: @escaping @MainActor () async throws -> PaperDetail) async throws -> PaperDetail {
         try Task.checkCancellation()
         let key = Key(id: id, credentials: credentials, epoch: cacheEpoch)
-        if let detail = cache.removeValue(forKey: key) {
-            cacheOrder.removeAll { $0 == key }
-            return detail
-        }
         let detail = try await response(key: key, cacheResult: false, foreground: true, load: load)
         try Task.checkCancellation()
         cache[key] = nil

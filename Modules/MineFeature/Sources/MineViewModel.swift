@@ -69,25 +69,27 @@ private func loadMoreMinePage<Item: Identifiable>(
     state.isLoadingMore = true
     state.loadMoreError = nil
     write(state)
+    var sourcePage = state.nextPage
     do {
         var progress = CommunityPageProgress<Item.ID>()
         while true {
-            let items = try await fetch(read().nextPage)
+            let items = try await fetch(sourcePage)
             try Task.checkCancellation()
             guard isCurrent() else { return }
             state = read()
             try progress.record(items.map(\.id), knownIDs: state.pagedItems.ids)
             if items.isEmpty || items.contains(where: { !state.pagedItems.ids.contains($0.id) }) {
+                state.nextPage = sourcePage
                 state.appendPage(items)
                 write(state)
                 return
             }
-            state.nextPage += 1
-            write(state)
+            sourcePage += 1
         }
     } catch {
         guard isCurrent() else { return }
         state = read()
+        state.nextPage = sourcePage
         state.isLoadingMore = false
         if isMineNotLoggedIn(error) { onLogin() }
         else if !isMineCancellation(error) { state.loadMoreError = error.localizedDescription }

@@ -520,6 +520,14 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     private func checkScrollContainerGeometry(exerciseScrolling: Bool = false) {
         checkingScrollContainers = true
         defer { checkingScrollContainers = false }
+        func isCurrentContainer(_ instance: String) -> Bool? {
+            guard let refreshed = UITestControlClient.request(["command": "scroll-inventory"]),
+                  let current = try? JSONSerialization.jsonObject(with: Data(refreshed.utf8)) as? [[String: Any]] else {
+                XCTFail("布局更新后应提供当前滚动容器身份。")
+                return nil
+            }
+            return current.contains { $0["scrollInstance"] as? String == instance }
+        }
         guard let response = UITestControlClient.request(["command": "scroll-inventory"]),
               let containers = try? JSONSerialization.jsonObject(with: Data(response.utf8)) as? [[String: Any]] else {
             XCTFail("滚动容器应提供当前布局与身份。")
@@ -539,17 +547,19 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             if range.allSatisfy({ $0 == 0 }) {
                 let outcome = UITestControlClient.request(parameters.merging(["command": "scroll-check"]) { _, value in value })
                 if outcome == "target missing" {
-                    guard let refreshed = UITestControlClient.request(["command": "scroll-inventory"]),
-                          let current = try? JSONSerialization.jsonObject(with: Data(refreshed.utf8)) as? [[String: Any]] else {
-                        XCTFail("布局更新后应提供当前滚动容器身份。")
-                        return
-                    }
-                    if current.allSatisfy({ $0["scrollInstance"] as? String != scrollInstance }) { continue }
+                    guard let isCurrent = isCurrentContainer(scrollInstance) else { return }
+                    if !isCurrent { continue }
                 }
                 XCTAssertEqual(outcome, "fit",
                     "完整显示的容器应核对内容边界：\(identifier)。")
             } else {
                 let element = app.descendants(matching: .any)[identifier]
+                guard element.exists else {
+                    guard let isCurrent = isCurrentContainer(scrollInstance) else { return }
+                    if !isCurrent { continue }
+                    XCTFail("当前滚动容器应提供原生元素：\(identifier)。")
+                    return
+                }
                 let selectedButtons = element.buttons.matching(NSPredicate(format: "selected == true"))
                     .allElementsBoundByIndex.map { ($0.identifier, $0.label) }
                 let axis = range[1] > 0 ? 1 : 0
@@ -728,6 +738,9 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         mediaRecovery: Bool = false,
         botPaging: Bool = false,
         pagination: Bool = false,
+        duplicatePages: Bool = false,
+        messagePagingFailureOnce: Bool = false,
+        commentOutcomeUnknownOnce: Bool = false,
         paginationFailureOnce: Bool = false,
         courseLookupFailureOnce: Bool = false,
         resourceRoutes: Bool = false,
@@ -801,6 +814,9 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         application.launchEnvironment["BIT101_UI_TEST_MEDIA_RECOVERY"] = mediaRecovery ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_BOT_PAGING"] = botPaging ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_PAGINATION"] = pagination ? "1" : "0"
+        application.launchEnvironment["BIT101_UI_TEST_DUPLICATE_PAGES"] = duplicatePages ? "1" : "0"
+        application.launchEnvironment["BIT101_UI_TEST_MESSAGE_PAGING_FAILURE_ONCE"] = messagePagingFailureOnce ? "1" : "0"
+        application.launchEnvironment["BIT101_UI_TEST_COMMENT_OUTCOME_UNKNOWN_ONCE"] = commentOutcomeUnknownOnce ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_PAGINATION_FAILURE_ONCE"] = paginationFailureOnce ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_COURSE_LOOKUP_FAILURE_ONCE"] = courseLookupFailureOnce ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_RESOURCE_ROUTES"] = resourceRoutes ? "1" : "0"

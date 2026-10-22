@@ -53,12 +53,14 @@ struct PaperDetailRequestTests {
         func load() async throws -> PaperDetail { loads += 1; return Self.detail(1) }
         _ = try await store.preview(id: 1, credentials: credentials, load: load)
         let renewed = CommunityCredentials(identity: credentials.identity, cookie: "renewed")
-        _ = try await store.detail(id: 1, credentials: renewed, load: load)
+        #expect(store.cachedDetail(id: 1, credentials: renewed)?.id == 1)
         #expect(loads == 1)
+        _ = try await store.detail(id: 1, credentials: renewed, load: load)
+        #expect(loads == 2)
         _ = try await store.preview(id: 1, credentials: renewed, load: load)
         let guest = CommunityCredentials(identity: credentials.identity, cookie: "")
         _ = try await store.detail(id: 1, credentials: guest, load: load)
-        #expect(loads == 3)
+        #expect(loads == 4)
     }
 
     private let credentials = CommunityCredentials(identity: .init(accountIdentifier: "paper-preview"), cookie: "fixture")
@@ -81,8 +83,9 @@ struct PaperDetailRequestTests {
         var loads = 0
         func load() async throws -> PaperDetail { loads += 1; return value }
         #expect(try await store.preview(id: 1, credentials: credentials, load: load).authorName == "作者")
+        #expect((store.cachedDetail(id: 1, credentials: credentials) != nil) == !oversized)
         #expect(try await store.detail(id: 1, credentials: credentials, load: load).content == body)
-        #expect(loads == (oversized ? 2 : 1))
+        #expect(loads == 2)
     }
 
     @Test(.timeLimit(.minutes(1))) func previewRequestsShareFourSlotsAndQueuedCancellation() async throws {
@@ -153,7 +156,7 @@ struct PaperDetailRequestTests {
         var loads = 0
         func load() async throws -> PaperDetail { loads += 1; return Self.detail(1, title: "版本\(loads)") }
         _ = try await store.preview(id: 1, credentials: credentials, load: load)
-        #expect(try await store.detail(id: 1, credentials: credentials, load: load).title == "版本1")
+        #expect(store.cachedDetail(id: 1, credentials: credentials)?.title == "版本1")
         #expect(try await store.detail(id: 1, credentials: credentials, load: load).title == "版本2")
         _ = try await store.preview(id: 1, credentials: credentials, load: load)
         store.invalidate()
@@ -177,11 +180,9 @@ struct PaperDetailRequestTests {
         _ = try await store.preview(id: 1, credentials: credentials) { Self.detail(1, title: "新版本") }
         oldCompletion?.resume(returning: Self.detail(1, title: "旧版本"))
         _ = try await old.value
-        let opened = try await store.detail(id: 1, credentials: credentials) {
-            Issue.record("当前预览需要保留用于详情复用")
-            return Self.detail(1)
-        }
-        #expect(opened.title == "新版本")
+        #expect(store.cachedDetail(id: 1, credentials: credentials)?.title == "新版本")
+        let opened = try await store.detail(id: 1, credentials: credentials) { Self.detail(1, title: "重新校验") }
+        #expect(opened.title == "重新校验")
     }
 
     @Test(.timeLimit(.minutes(1))) func previewCacheRetainsFourResponses() async throws {
@@ -192,7 +193,9 @@ struct PaperDetailRequestTests {
         }
         _ = try await store.detail(id: 1, credentials: credentials) { loads += 1; return Self.detail(1) }
         #expect(loads == 6)
-        _ = try await store.detail(id: 5, credentials: credentials) { loads += 1; return Self.detail(5) }
+        #expect(store.cachedDetail(id: 5, credentials: credentials)?.id == 5)
         #expect(loads == 6)
+        _ = try await store.detail(id: 5, credentials: credentials) { loads += 1; return Self.detail(5) }
+        #expect(loads == 7)
     }
 }

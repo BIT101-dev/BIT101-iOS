@@ -96,7 +96,13 @@ public struct PaperService {
         return papers
     }
 
-    /// 拉取单篇文章详情。
+    /// 读取作者预览交接的文章内容。
+    public func cachedPaper(id: Int) async -> PaperDetail? {
+        guard !Task.isCancelled else { return nil }
+        return details.cachedDetail(id: id, credentials: session.currentCredentials)
+    }
+
+    /// 重新确认文章正文及当前账号的交互状态。
     public func fetchPaper(id: Int) async throws -> PaperDetail {
         let credentials = session.currentCredentials
         return try await details.detail(id: id, credentials: credentials) {

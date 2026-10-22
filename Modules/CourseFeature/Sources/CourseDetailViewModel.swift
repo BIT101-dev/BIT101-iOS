@@ -357,6 +357,11 @@ final class CourseDetailViewModel: ObservableObject {
         }
     }
 
+    var commentReview: CommunityCommentReviewActions {
+        .init(needsReview: { self.commentState.needsReview($0) },
+            acknowledge: { self.commentState.acknowledgeSubmissionReview($0) })
+    }
+
     func submitComment(text: String, anonymous: Bool, rate: Int?, target: CourseCommentComposerTarget) async -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {

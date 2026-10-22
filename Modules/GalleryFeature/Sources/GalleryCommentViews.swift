@@ -227,6 +227,7 @@ struct GalleryCommentComposerSheet: View {
     @Environment(GalleryDependencies.self) private var dependencies
     let target: GalleryCommentComposerTarget
     let isSubmitting: Bool
+    let review: CommunityCommentReviewActions
     let onSubmit: (String, Bool, [CommunityImage]) async -> Bool
 
     @Environment(\.dismiss) private var dismiss
@@ -242,6 +243,8 @@ struct GalleryCommentComposerSheet: View {
     private var service: any GalleryImageUploading { dependencies.images }
 
     var body: some View {
+        let submission = CommunityCommentSubmission(objectID: target.objectID, text: text.trimmingCharacters(in: .whitespacesAndNewlines),
+            anonymous: anonymous, replyObjectID: target.replyObjectID, replyUID: target.replyUID, imageMids: uploadedImages.map(\.mid))
         let uploadedImageCount = uploadedImages.count
         NavigationStack {
             Form {
@@ -251,6 +254,8 @@ struct GalleryCommentComposerSheet: View {
                         .accessibilityIdentifier("ui.gallery-comment-composer-sheet.input")
                 }
 
+                CommunityCommentReviewSection(submission: submission, actions: review) { isSubmissionRequested = true }
+                    .disabled(isUploadingImages)
                 Section("图片") {
                     PhotosPicker(
                         selection: $selectedPhotoItems,

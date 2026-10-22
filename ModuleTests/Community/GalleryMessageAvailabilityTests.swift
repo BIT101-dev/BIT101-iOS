@@ -12,6 +12,7 @@ struct GalleryMessageAvailabilityTests {
         var pending: CheckedContinuation<GalleryMessageUnreadCounts, Never>?
         var failure: URLError?
         var delay = true
+        var pageFails = false
         var unread = 1
         var cursors: [Int?] = []
         var beforeAcknowledgement: (() -> Void)?
@@ -24,12 +25,43 @@ struct GalleryMessageAvailabilityTests {
 
         func fetchMessages(type: GalleryMessageType, lastID: Int?) async throws -> [GalleryMessage] {
             cursors.append(lastID)
+            if lastID == 42, pageFails { throw URLError(.notConnectedToInternet) }
+            if lastID == 41 { return [] }
             if lastID == nil { beforeAcknowledgement?(); unread = 0 }
             let decoder = JSONDecoder()
             decoder.keyDecodingStrategy = .convertFromSnakeCase
+            let id = lastID == 42 ? 41 : 42
             return try decoder.decode([GalleryMessage].self, from: Data(
-                #"[{"from_user":{},"id":42,"link_obj":"","obj":"","text":"首屏正文","update_time":""}]"#.utf8))
+                #"[{"from_user":{},"id":\#(id),"link_obj":"","obj":"","text":"首屏正文","update_time":""}]"#.utf8))
         }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func failedMessagePageRemainsAvailableForAnInPlaceRetry() async throws {
+        let domain = "BIT101Tests.message-pagination"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let session = AppStorageSession(accountIdentifier: domain)
+        let store = GalleryMessageReadStore(files: ModuleScoreFiles(), storageRoot: URL(fileURLWithPath: "/message-pagination"),
+            defaults: defaults, session: { session })
+        let service = DeferredSummaryService()
+        service.delay = false; service.unread = 0
+        let model = GalleryMessageViewModel(service: service, readStore: store)
+        await model.refreshSelectedType()
+        await model.refresh(type: .like)
+        #expect(model.paginationTaskID(for: .comment) != model.paginationTaskID(for: .like))
+        service.pageFails = true
+        await model.loadMoreIfNeeded(for: .comment, currentMessage: model.state(for: .comment).items.last)
+        let failed = model.state(for: .comment)
+        #expect(failed.items.map(\.id) == [42] && failed.nextCursor == 42 && failed.paginationError != nil)
+        await model.refreshSelectedType()
+        #expect(model.state(for: .comment).paginationError == nil)
+        await model.loadMoreIfNeeded(for: .comment, currentMessage: model.state(for: .comment).items.last)
+        #expect(model.state(for: .comment).paginationError != nil)
+        service.pageFails = false
+        await model.loadMoreIfNeeded(for: .comment, currentMessage: failed.items.last)
+        #expect(model.state(for: .comment).items.map(\.id) == [42, 41] && model.state(for: .comment).paginationError == nil)
+        await model.loadMoreIfNeeded(for: .comment, currentMessage: model.state(for: .comment).items.last)
+        #expect(model.state(for: .comment).canLoadMore == false)
     }
 
     @Test(.timeLimit(.minutes(1)))

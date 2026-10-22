@@ -328,6 +328,11 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     /// 发送评论或回复。
     ///
     /// 发送确认后立即合并评论，关联计数沿页面任务刷新。
+    var commentReview: CommunityCommentReviewActions {
+        .init(needsReview: { self.commentState.needsReview($0) },
+            acknowledge: { self.commentState.acknowledgeSubmissionReview($0) })
+    }
+
     func submitComment(
         text: String,
         anonymous: Bool,

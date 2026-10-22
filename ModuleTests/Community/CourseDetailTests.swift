@@ -184,6 +184,10 @@ struct CourseDetailTests {
         #expect(await viewModel.submitComment(text: "评论", anonymous: false, rate: 6, target: .course(courseID: 42)) == false)
         #expect(await viewModel.submitComment(text: "新的评论", anonymous: false, rate: 6, target: .course(courseID: 42)))
         #expect(service.submissionCount == 2)
+        viewModel.commentReview.acknowledge(.init(objectID: "course42", text: "评论", anonymous: false,
+            replyObjectID: nil, replyUID: nil, rate: 6))
+        #expect(await viewModel.submitComment(text: "评论", anonymous: false, rate: 6, target: .course(courseID: 42)))
+        #expect(service.submissionCount == 3)
     }
 
     @Test(.timeLimit(.minutes(1))) func cancelledCommentSubmissionRetainsTheNewEditorAndAllowsRetry() async throws {

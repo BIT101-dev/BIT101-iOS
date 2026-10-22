@@ -1,5 +1,6 @@
 #if os(iOS)
 import CommunityUI
+import CommunityCore
 import CommunityTransport
 import DesignSystemKit
 //
@@ -58,6 +59,7 @@ struct PaperComposerView: View {
         .scrollDismissesKeyboard(.immediately)
         .navigationTitle(model.editingPaper == nil ? "发布文章" : "编辑文章")
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(model.hasUnsavedChanges || model.isSubmitting)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("取消") {
@@ -180,6 +182,7 @@ final class PaperComposerViewModel {
 struct PaperCommentComposerSheet: View {
     let target: PaperCommentComposerTarget
     let isSubmitting: Bool
+    let review: CommunityCommentReviewActions
     let onSubmit: (String, Bool) async -> Bool
 
     @Environment(\.dismiss) private var dismiss
@@ -188,6 +191,8 @@ struct PaperCommentComposerSheet: View {
     @State private var isSubmissionRequested = false
 
     var body: some View {
+        let submission = CommunityCommentSubmission(objectID: target.objectID, text: text.trimmingCharacters(in: .whitespacesAndNewlines),
+            anonymous: anonymous, replyObjectID: target.replyObjectID, replyUID: target.replyUID)
         List {
             AppCommentComposerContentSection(title: target.title, anonymous: $anonymous) {
                 TextField(
@@ -202,6 +207,7 @@ struct PaperCommentComposerSheet: View {
                 .accessibilityLabel(target.placeholder)
                     .accessibilityIdentifier("ui.paper-comment-composer-sheet.input")
             }
+                CommunityCommentReviewSection(submission: submission, actions: review) { isSubmissionRequested = true }
         }
         .disabled(isSubmitting || isSubmissionRequested)
         .accessibilityIdentifier("interaction.PaperCommentComposerSheet.list")

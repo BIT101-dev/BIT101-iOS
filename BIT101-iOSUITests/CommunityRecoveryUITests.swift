@@ -2,6 +2,54 @@ import XCTest
 
 nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
     @MainActor
+    @objc func testDuplicatePagesKeepTheVisibleTailLoading() {
+        for (tab, section, title) in [("home", "课程", "分页课程"), ("gallery", "文章", "分页文章"), ("mine", "", "分页话题")] {
+            app = configureApp(resetStorage: true, content: true, pagination: true, duplicatePages: true, initialTab: tab)
+            if tab == "mine" { tap("帖子") }
+            else { tapHeader(app.segmentedControls.buttons[section]) }
+            assertUI(textElement("\(title) 1").appears(timeout: 5), "首屏应展示分页夹具。")
+            let next = textElement("\(title) 9")
+            reveal(next, description: "重复页之后的内容")
+            assertUI(next.isHittable, "跳过重复页后应继续加载新内容。")
+        }
+    }
+
+    @MainActor
+    @objc func testMessagePaginationRetriesAtTheVisibleTail() {
+        app = configureApp(resetStorage: true, content: true, messagePagingFailureOnce: true, initialTab: "gallery")
+        tap("消息")
+        assertUI(app.alerts["加载更多失败"].appears(timeout: 10), "后续消息读取故障应展示原因。")
+        closeAlertIfPresent()
+        let retry = app.buttons["community.pagination.retry"]
+        reveal(retry, description: "消息页尾重试")
+        retry.tapBriefly()
+        assertUI(textElement("重试后的消息").appears(timeout: 5), "原位重试应追加后续消息。")
+        assertUI(textElement("分页首屏消息").exists, "重试应保留已加载消息。")
+        tap("取消")
+    }
+
+    @MainActor
+    @objc func testCommentReviewContinuesTheConfirmedSubmission() {
+        app = configureApp(resetStorage: true, content: true, commentOutcomeUnknownOnce: true, initialTab: "gallery")
+        tapHeader(app.segmentedControls.buttons["文章"])
+        tap("自动化测试文章")
+        tap("评论文章")
+        replaceText("人工核对评论", in: app.textFields.firstMatch)
+        dismissKeyboard()
+        tap("发布")
+        assertUI(app.alerts["发送结果待确认"].appears(timeout: 5), "发送结果待确认时应保留输入。")
+        closeAlertIfPresent()
+        assertUI(app.textFields.firstMatch.value as? String == "人工核对评论", "取消再次发送应保留输入。")
+        tap("取消")
+        assertUI(textElement("人工核对评论").exists == false, "核对列表时应显示当前已确认的评论。")
+        tap("评论文章")
+        replaceText("人工核对评论", in: app.textFields.firstMatch)
+        dismissKeyboard()
+        tap("community.comment.review")
+        assertUI(textElement("人工核对评论").appears(timeout: 5), "人工核对后应完成同一评论发送。")
+    }
+
+    @MainActor
     @objc func testLaterPreviewPageRecoversThroughTheNativeRetryButton() {
         app = configureApp(resetStorage: true, content: true, animations: true, media: true,
             mediaRecovery: true, initialTab: "gallery")

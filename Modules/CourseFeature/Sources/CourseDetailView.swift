@@ -123,7 +123,8 @@ private struct CourseDetailViewScene: View {
         .sheet(item: $composerTarget) { target in
             CourseCommentComposerSheet(
                 target: target,
-                isSubmitting: viewModel.isSubmittingComment
+                isSubmitting: viewModel.isSubmittingComment,
+                review: viewModel.commentReview
             ) { text, anonymous, rate in
                 await viewModel.submitComment(text: text, anonymous: anonymous, rate: rate, target: target)
             }

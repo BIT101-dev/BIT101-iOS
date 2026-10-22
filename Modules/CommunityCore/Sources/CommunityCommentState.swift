@@ -17,6 +17,17 @@ public nonisolated struct CommunityCommentSubmission: Hashable, Sendable {
     }
 }
 
+public struct CommunityCommentReviewActions {
+    public let needsReview: @MainActor (CommunityCommentSubmission) -> Bool
+    public let acknowledge: @MainActor (CommunityCommentSubmission) -> Void
+
+    public init(needsReview: @escaping @MainActor (CommunityCommentSubmission) -> Bool,
+        acknowledge: @escaping @MainActor (CommunityCommentSubmission) -> Void) {
+        self.needsReview = needsReview
+        self.acknowledge = acknowledge
+    }
+}
+
 /// 帖子详情评论列表的分页状态。
 public struct CommunityCommentState {
     public init() {}
@@ -52,6 +63,10 @@ public struct CommunityCommentState {
 
     public mutating func recordUncertainSubmission(_ submission: CommunityCommentSubmission) {
         uncertainSubmissions.insert(submission)
+    }
+
+    public mutating func acknowledgeSubmissionReview(_ submission: CommunityCommentSubmission) {
+        uncertainSubmissions.remove(submission)
     }
     public private(set) var likeRevision = 0
     private var likeResults: [Int: (revision: Int, result: CommunityLikeResult)] = [:]
