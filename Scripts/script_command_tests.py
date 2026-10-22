@@ -41,7 +41,8 @@ def test_build_argument_findings(output: str, *, testing_device: bool = False) -
 def result_retention_boundary_findings() -> list[str]:
     "聚合验收保留各组结果，并传播准备、测试及合并的失败。"
     source = (SCRIPT_ROOT / 'run-extended-tests.sh').read_text()
-    step = 'verify_step() {' + source.split('verify_step() {', 1)[1].split('\n  for group in', 1)[0]
+    from script_test_support import shell_function
+    step = shell_function(SCRIPT_ROOT / 'script-support.sh', 'bit101_check_verification_audit') + '\n' + shell_function(SCRIPT_ROOT / 'script-support.sh', 'bit101_verify_step')
     findings = []
     for child_status, retain_status, begin_status in ((0, 0, 0), (7, 0, 0), (0, 9, 0), (0, 0, 5)):
         harness = f'''set -euo pipefail
@@ -55,7 +56,7 @@ python3() {{
   return 0
 }}
 '''
-        result = subprocess.run(['zsh', '-c', harness + step + '\nverify_step all child all\nverify_step ui child ui'],
+        result = subprocess.run(['zsh', '-c', harness + step + '\nbit101_verify_step all child all\nbit101_verify_step ui child ui'],
             text=True, capture_output=True)
         expected = begin_status or int(bool(child_status or retain_status))
         output = result.stdout
@@ -75,7 +76,7 @@ checks=0
 python3() {{ (( checks += 1 )); [[ $checks -gt 1 ]] || return {0 if current else 1}; }}
 child() {{ print executed; }}
 '''
-        result = subprocess.run(['zsh', '-c', harness + step + '\nverify_step modules child\nprint checks=$checks'],
+        result = subprocess.run(['zsh', '-c', harness + step + '\nbit101_verify_step modules child\nprint checks=$checks'],
             text=True, capture_output=True)
         if result.returncode or ('executed\n' in result.stdout) == current or f'checks={1 if current else 2}' not in result.stdout:
             findings.append('模块聚合复验：当前完整证据复用，缺失与过期证据执行后验收')
@@ -271,15 +272,21 @@ def audit_cancellation_findings() -> list[str]:
     import select
     source = (SCRIPT_ROOT / 'run-static-audit.sh').read_text()
     cleanup = 'finish_audit() {' + source.split('finish_audit() {', 1)[1].split('\nSWIFT_FRONTEND=', 1)[0]
-    launcher = 'start_group() {' + source.split('start_group() {', 1)[1].split('\nfailed_groups=()', 1)[0]
-    runner = ('run_group() {' + source.split('run_group() {', 1)[1].split('\nshow_group_log()', 1)[0]).replace('> "$log" 2>&1', '')
-    harness = '''ROOT_DIR=/fixture LOG_DIR=/fixture SWIFT_FRONTEND=frontend AUDIT_STARTED=$SECONDS group_processes=()
+    from script_test_support import shell_function
+    launcher = shell_function(SCRIPT_ROOT / 'script-support.sh', 'bit101_start_audit_group')
+    runner = shell_function(SCRIPT_ROOT / 'script-support.sh', 'bit101_run_audit_group')
+    fixture = ROOT / '.build/static-audit/audit-cancellation-self-test'
+    fixture.mkdir(parents=True, exist_ok=True)
+    harness = 'LOG_DIR=' + shlex.quote(str(fixture)) + '''
+exec 3>&1
+ROOT_DIR=/fixture SWIFT_FRONTEND=frontend AUDIT_STARTED=$SECONDS group_processes=()
 python3() { if [[ "$1" == /fixture/Scripts/validation_evidence.py ]]; then return 0; fi; command python3 "$@"; }
-blocked_task() { python3 -c 'import os, time; print(os.getpid(), os.getpgrp(), flush=True); time.sleep(60)'; }
+bit101_show_audit_log() { :; }
+blocked_task() { python3 -c 'import os, time; print(os.getpid(), os.getpgrp(), flush=True); time.sleep(60)' >&3; }
 '''
     findings = []
     for signum, expected in ((signal.SIGINT, 130), (signal.SIGTERM, 143)):
-        process = subprocess.Popen(['zsh', '-c', harness + cleanup + runner + launcher + '\nstart_group sample blocked_task\nwait "$group_processes[1]"'],
+        process = subprocess.Popen(['zsh', '-c', harness + cleanup + runner + launcher + '\nbit101_start_audit_group stdout blocked_task\nwait "$group_processes[1]"'],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
         worker_group = None
         try:
@@ -301,6 +308,7 @@ blocked_task() { python3 -c 'import os, time; print(os.getpid(), os.getpgrp(), f
                 except ProcessLookupError: pass
             if process.poll() is None: os.killpg(process.pid, signal.SIGKILL)
             process.communicate(timeout=5)
+    shutil.rmtree(fixture)
     return findings
 def script_command_boundary_findings() -> list[str]:
     from test_results import module_filter
@@ -392,7 +400,7 @@ python3() {{ print -r -- "RECORD $*"; return {recording}; }}
     from validation_restore import simulator_restore_findings
     from script_output_tests import verification_finish_findings
     findings.extend(simulator_restore_findings(simulator_source))
-    findings.extend(verification_finish_findings((SCRIPT_ROOT / 'run-extended-tests.sh').read_text()))
+    findings.extend(verification_finish_findings())
     support = SCRIPT_ROOT / "script-support.sh"
     icloud_source = (SCRIPT_ROOT / 'run_icloud_cross_device_smoke.sh').read_text()
     recovery = 'finish_smoke() {' + icloud_source.split('finish_smoke() {', 1)[1].split('\ntrap finish_smoke', 1)[0]

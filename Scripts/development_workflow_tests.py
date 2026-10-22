@@ -24,6 +24,8 @@ def development_workflow_self_test() -> None:
         archive_prune_then_fetch(fixture)
         cache_cleanup_after_failure()
         audit_failure_summary(fixture)
+        changed_staged_scripts(fixture)
+        immediate_audit_output(fixture)
     finally:
         shutil.rmtree(fixture, ignore_errors=True)
 
@@ -183,6 +185,23 @@ def result_readers(fixture: Path) -> None:
     combined = (root / 'failure-hierarchy.txt').read_text()
     assert all(kind + ' current attachment' in combined for kind in ('native', 'app', 'crash'))
     assert not (root / 'diagnostics/failure-hierarchy.txt').exists()
+    screenshot = root.parent / 'screenshot.png'
+    retained_image = screenshot.read_bytes()
+    for choice, failed_export in (('missing', False), ('image', True)):
+        with patch.object(subprocess, 'check_output', side_effect=read), \
+                patch.object(subprocess, 'run', side_effect=subprocess.CalledProcessError(7, 'export')) as exported, redirect_stdout(StringIO()):
+            try: report_test_results([str(bundle), 'Current/test()', 'screenshot', str(ROOT / 'Scripts'), choice])
+            except (SystemExit, subprocess.CalledProcessError): pass
+            else: raise AssertionError('截图选择及导出失败需要返回失败。')
+        assert exported.called == failed_export and screenshot.read_bytes() == retained_image
+        assert not (root / 'diagnostics/screenshot.png').exists()
+    metrics = root / 'test-metrics.txt'
+    metrics.write_text('结果：Failed；总计 1；通过 0；失败 1\n构建与运行耗时：2 秒\n测试实例：' + 'raw inventory ' * 1000)
+    (root / 'test-failures.txt').write_text('error: current failure\n' * 50)
+    with redirect_stdout(console := StringIO()):
+        report_test_results([str(bundle), '', 'report', str(ROOT / 'Scripts'), ''])
+    assert '结果：Failed' in console.getvalue() and str(metrics) in console.getvalue()
+    assert 'raw inventory' not in console.getvalue() and len(console.getvalue().splitlines()) < 50
     create(bundle, 30)
     assert current_result_bundle(bundle) == bundle
     (bundle / 'Staging').mkdir()
@@ -234,3 +253,75 @@ def audit_failure_summary(fixture: Path) -> None:
     path.write_text(''.join(f'error: preceding {index}\n' for index in range(45)) + 'error: decisive current cause\n')
     with patch.dict(os.environ, GITHUB_ACTIONS='false'), redirect_stdout(output := StringIO()): show_log(path, True)
     assert 'preceding 0' in output.getvalue() and 'decisive current cause' in output.getvalue()
+
+
+def changed_staged_scripts(fixture: Path) -> None:
+    repo = fixture / 'staged-scripts'
+    (repo / 'Scripts').mkdir(parents=True)
+    def git(*arguments):
+        result = subprocess.run(['git', *arguments], cwd=repo, capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
+    git('init', '-q')
+    (repo / 'Scripts/existing.py').write_text('print(undefined_name)\n')
+    target = repo / 'Scripts/changed.py'
+    target.write_text('print("initial")\n')
+    git('add', '.')
+    git('-c', 'core.hooksPath=/dev/null', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+        '-c', 'commit.gpgsign=false', 'commit', '-qm', 'Fixture')
+    (repo / 'README.md').write_text('Documentation\n'); git('add', 'README.md')
+    command = [str(Path(os.sys.executable)), '-B', str(ROOT / 'Scripts/check-python-syntax.py'), str(repo), '--staged']
+    result = subprocess.run([*command, '--changed'], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    target.write_text('print("staged")\n'); git('add', str(target))
+    target.write_text('print(worktree_only_name)\n')
+    result = subprocess.run([*command, '--changed'], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    target.write_text('print(staged_undefined_name)\n'); git('add', str(target))
+    result = subprocess.run([*command, '--changed'], capture_output=True, text=True)
+    assert result.returncode and 'staged_undefined_name' in result.stderr
+    result = subprocess.run(command, capture_output=True, text=True)
+    assert result.returncode and 'undefined_name' in result.stderr
+
+
+def immediate_audit_output(fixture: Path) -> None:
+    import select
+    import shlex
+    import signal
+    from script_test_support import shell_function
+    support = ROOT / 'Scripts/script-support.sh'
+    functions = '\n'.join(shell_function(support, name) for name in (
+        'bit101_show_audit_log', 'bit101_run_audit_group', 'bit101_wait_audit_groups'))
+    harness = 'ROOT_DIR=' + shlex.quote(str(ROOT)) + '\nLOG_DIR=' + shlex.quote(str(fixture)) + '\n' + functions + '''
+slow_probe() { sleep 60; }
+failed_probe() { print 'error: immediate failure'; return 7; }
+bit101_run_audit_group slow slow_probe &
+slow_pid=$!
+bit101_run_audit_group fast failed_probe || true
+wait "$slow_pid"
+'''
+    process = subprocess.Popen(['zsh', '-c', harness], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        start_new_session=True, env=dict(os.environ, GITHUB_ACTIONS='false'))
+    try:
+        assert select.select([process.stdout], [], [], 5)[0], '失败组需要即时显示根因。'
+        assert 'immediate failure' in process.stdout.readline() and process.poll() is None
+    finally:
+        os.killpg(process.pid, signal.SIGTERM)
+        process.communicate(timeout=5)
+    harness = functions + '''
+BIT101_AUDIT_BACKGROUND=1
+group_names=(slow fast)
+group_processes=()
+failed_groups=()
+sleep 60 & group_processes+=($!)
+(exit 7) & group_processes+=($!)
+bit101_wait_audit_groups
+print -r -- "AGGREGATED ${failed_groups[*]}"
+wait "$group_processes[1]"
+'''
+    process = subprocess.Popen(['zsh', '-c', harness], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
+    try:
+        assert select.select([process.stdout], [], [], 5)[0], '后台聚合需要及时归集已完成的失败组。'
+        assert process.stdout.readline().strip() == 'AGGREGATED fast' and process.poll() is None
+    finally:
+        os.killpg(process.pid, signal.SIGTERM)
+        process.communicate(timeout=5)

@@ -110,12 +110,13 @@ xargs() {
 def self_test() -> None:
     from pathlib import Path
     source = Path(__file__).with_name("run-static-audit.sh").read_text()
-    logger = re.search(r'(?ms)^show_group_log\(\) \{.*?^\}', source)[0]
+    from script_test_support import shell_function
+    logger = shell_function(Path(__file__).with_name('script-support.sh'), 'bit101_show_audit_log')
     for count, failed, ci in ((1000, False, False), (1001, False, True), (1001, True, False), (1001, True, True)):
         harness = 'ROOT_DIR=' + shlex.quote(str(Path(__file__).resolve().parents[1])) \
             + f'; export GITHUB_ACTIONS={str(ci).lower()};\n'
         payload = ''.join(f'diagnostic {index}\n' for index in range(count - 1)) + 'error: decisive cause\n'
-        result = subprocess.run(['zsh', '-c', harness + logger + f'\nshow_group_log /dev/stdin {str(failed).lower()}'],
+        result = subprocess.run(['zsh', '-c', harness + logger + f'\nbit101_show_audit_log /dev/stdin {str(failed).lower()}'],
             capture_output=True, text=True, input=payload)
         assert result.returncode == 0, result.stderr
         assert 'diagnostic 0\n' in result.stdout and 'error: decisive cause\n' in result.stdout

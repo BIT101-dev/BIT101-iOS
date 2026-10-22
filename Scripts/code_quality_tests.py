@@ -473,26 +473,27 @@ bit101_run_logged /log build xcodebuild build-for-testing
         findings.append("脚本自测：测试执行与编译缓存锁的生命周期")
     audit = (SCRIPT_ROOT / "run-static-audit.sh").read_text()
     tail = audit[audit.index("failed_groups=()"):]
+    from script_test_support import shell_function
+    wait_groups = shell_function(SCRIPT_ROOT / 'script-support.sh', 'bit101_wait_audit_groups')
     harness = r'''
 set -euo pipefail
 LOG_DIR=/audit
 ROOT_DIR=/audit
 AUDIT_STARTED=$SECONDS
-cat() { :; }
-show_group_log() { :; }
 python3() { return 0; }
-run_group() {
+bit101_run_audit_group() {
     print -r -- "RAN $1"
     case "$1" in shell-parse|docs) return 7;; esac
     return 0
 }
-start_group() { run_group "$1" "$2" & group_processes+=($!); }
+bit101_start_audit_group() { bit101_run_audit_group "$1" "$2" & group_processes+=($!); }
 '''
     for prepared in (0, 1):
-        aggregation = subprocess.run(["zsh", "-c", harness + f'\nBIT101_AUDIT_ARTIFACTS_PREPARED={prepared}\n' + tail], capture_output=True, text=True)
+        aggregation = subprocess.run(["zsh", "-c", harness + wait_groups + f'\nBIT101_AUDIT_ARTIFACTS_PREPARED={prepared}\n' + tail], capture_output=True, text=True)
         groups = re.findall(r"^RAN (.+)$", aggregation.stdout, re.MULTILINE)
         if aggregation.returncode != 1 or len(set(groups)) != 10 - prepared \
-                or ('artifact-hygiene' in groups) != (prepared == 0) or "shell-parse, docs" not in aggregation.stderr:
+                or ('artifact-hygiene' in groups) != (prepared == 0) \
+                or set(aggregation.stderr.removeprefix('[失败汇总] ').strip().split(', ')) != {'shell-parse', 'docs'}:
             findings.append("静态审计自测：产物准备、并行分组执行完整性与多个失败汇总")
     return findings
 

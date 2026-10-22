@@ -29,6 +29,9 @@ def report_test_results(arguments: list[str]) -> None:
     sys.path.insert(0, cli_arguments[4])
     from validation_performance import result_bundle_complete
     metrics_path = bundle.parent / 'test-metrics.txt'
+    if cli_arguments[3] == 'report' and not cli_arguments[2] and metrics_path.is_file():
+        report_metrics(metrics_path)
+        return
     if cli_arguments[3] == 'report' and cli_arguments[2] in {'json', 'coverage'} and metrics_path.is_file():
         sources = [json.loads(line.removeprefix('结果来源：')) for line in metrics_path.read_text().splitlines()
             if line.startswith('结果来源：')]
@@ -114,7 +117,6 @@ def report_test_results(arguments: list[str]) -> None:
             raise SystemExit(0)
         if cli_arguments[3] == 'screenshot':
             output = Path(cli_arguments[1]).parent.parent / 'screenshot.png'
-            output.unlink(missing_ok=True)
             screenshots = {}
             def collect(value):
                 if isinstance(value, dict):
@@ -128,9 +130,16 @@ def report_test_results(arguments: list[str]) -> None:
             if len(identifiers) != 1:
                 available = '\n'.join(f'{key} · {name}' for key, name in sorted(screenshots.items()))
                 raise SystemExit('请按当前测试的截图附件标识选择一张图片。' + ('\n' + available if available else '\n当前测试包含零张截图附件。'))
-            subprocess.run(['xcrun', 'xcresulttool', 'export', 'object', '--legacy', '--type', 'file',
-                '--path', str(bundle), '--id', identifiers[0], '--output-path', str(output)],
-                check=True, stdout=subprocess.DEVNULL)
+            incoming = diagnostics / 'screenshot.png'
+            diagnostics.mkdir(parents=True, exist_ok=True)
+            try:
+                incoming.unlink(missing_ok=True)
+                subprocess.run(['xcrun', 'xcresulttool', 'export', 'object', '--legacy', '--type', 'file',
+                    '--path', str(bundle), '--id', identifiers[0], '--output-path', str(incoming)],
+                    check=True, stdout=subprocess.DEVNULL)
+                incoming.replace(output)
+            finally:
+                incoming.unlink(missing_ok=True)
             print(output)
             raise SystemExit(0)
         selected = {}
@@ -156,16 +165,32 @@ def report_test_results(arguments: list[str]) -> None:
                             '--path', str(bundle), '--id', identifier, '--output-path', str(incoming)],
                             check=True, stdout=subprocess.DEVNULL)
                         title = f'=== {name} · {identifier} ===\n'
-                        combined.write(title); print(title, end='')
+                        combined.write(title)
                         with incoming.open() as attachment:
                             for line in attachment:
-                                combined.write(line); print(line, end='')
-                        combined.write('\n'); print()
+                                combined.write(line)
+                        combined.write('\n')
             finally:
                 incoming.unlink(missing_ok=True)
+            print(f'失败附件：{len(selected)} 份 · {bundle}')
+            print(output)
+        else:
+            print(f'当前用例包含零份元素树或崩溃附件 · {bundle}')
         raise SystemExit(0)
 
     report_result_summary(str(bundle))
+
+
+def report_metrics(metrics: Path) -> None:
+    from command_output import show_log
+    prefixes = ('测试分组：', '结果：', '总计 ', '构建与运行耗时：', '统计范围：', '合计：', '用例耗时合计：')
+    for line in metrics.read_text().splitlines():
+        if line.startswith(prefixes): print(line)
+    print(f'完整指标：{metrics}')
+    failures = metrics.with_name('test-failures.txt')
+    if failures.is_file() and failures.stat().st_size:
+        show_log(failures, True)
+        print(f'完整失败记录：{failures}')
 
 
 def report_result_summary(bundle: str) -> None:

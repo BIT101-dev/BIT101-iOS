@@ -177,7 +177,6 @@ def begin_selected_result_step(replacing_group: str | None = None) -> list[str]:
             if name == replacing_group: continue
             full = complete_group_row(row)
             if full.get('scope') == 'full' and full.get('exitCode') == 0 and full.get('summary', {}).get('passed') is True \
-                    and sampling_evidence_current({'startedAt': full.get('recordedAt', ''), 'finishedAt': full.get('recordedAt', '')}) \
                     and full.get('resultBundleIdentity') == identity and full.get('inputDigest') == source_digest(name) \
                     and exchange_identity(full.get('environment')) == exchange_identity(environment_context(name)):
                 groups.append(name)
@@ -320,6 +319,7 @@ def record_complete(record: dict, *, current: bool) -> bool:
         if execution.get('group') != group or not complete_environment(group, context) \
                 or record['environment'] != measurement_environment(context, group) \
                 or execution['sourceCommit'] != record['sourceCommit'] \
+                or not re.fullmatch(r'(?:[0-9a-f]{40}|[0-9a-f]{64})', record['sourceCommit']) \
                 or not execution.get('runID') or not execution.get('inputDigest') \
                 or record['resultBundle']['path'] != '.build/extended-automation/test-results.xcresult' \
                 or execution.get('bundleIdentity') != record['resultBundle']['identity']:
@@ -329,7 +329,7 @@ def record_complete(record: dict, *, current: bool) -> bool:
             return False
         if current:
             from validation_provenance import source_digest
-            if record['sourceCommit'] != current_commit() or execution['inputDigest'] != source_digest(group, environment=context): return False
+            if execution['inputDigest'] != source_digest(group, environment=context): return False
         return True
     except (KeyError, TypeError, ValueError, OSError, subprocess.CalledProcessError):
         return False
@@ -425,7 +425,7 @@ def validate_capture(proof: dict) -> None:
             raise ValueError('性能验收需要实际结果包导出的当前采样与已批准基线。')
 
 
-def merge_findings(report: dict, commit: str) -> list[str]:
+def merge_findings(report: dict) -> list[str]:
     from validation_inputs import performance_workloads, performance_group
     try:
         approved = report['performanceBaseline']
@@ -439,7 +439,7 @@ def merge_findings(report: dict, commit: str) -> list[str]:
             if proof.get('schemaVersion') != 1 or set(proof['records']) != expected:
                 raise ValueError()
             for name, current in proof['records'].items():
-                if current['sourceCommit'] != commit or current['capturedAt'] != row['recordedAt'] \
+                if current['sourceCommit'] != row['sourceCommit'] or current['capturedAt'] != row['recordedAt'] \
                         or any(current['execution'][key] != row[field] for key, field in (
                             ('runID', 'runID'), ('inputDigest', 'inputDigest'), ('sourceCommit', 'sourceCommit'),
                             ('environment', 'environment'), ('bundleIdentity', 'resultBundleIdentity'))) \

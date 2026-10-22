@@ -28,6 +28,6 @@ def findings(report: dict, *, digest, complete, commit: str, recorded_environmen
                 or row.get('scope') != 'full' or row.get('exitCode') != 0 or not complete(group, row.get('summary', {})) \
                 or not group_evidence_current(group, row):
             errors.append(f'{group} 需要当前输入的完整真机验收，并在 24 小时内执行。')
-    errors.extend(performance_findings(report, commit))
+    errors.extend(performance_findings(report))
     errors.extend(result_bundle_findings(report, recorded_environment=recorded_environment))
     return list(dict.fromkeys(errors))

@@ -16,17 +16,31 @@ if not __debug__:
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('root', nargs='?', type=Path, default=Path('.'))
 parser.add_argument('--staged', action='store_true', help='validate the complete Git index')
+parser.add_argument('--changed', action='store_true', help='validate changed staged scripts and their import graph')
 parser.add_argument('--self-test', action='store_true', help='run parser and import regression cases')
 args = parser.parse_args()
 root = args.root.resolve()
+if args.changed and not args.staged: parser.error('--changed requires --staged')
+syntax_targets = None
 if args.staged:
     index_files = runpy.run_path(str(Path(__file__).with_name('check-file-lengths.py')))['index_files']
     def included_script(name):
         path = PurePosixPath(name)
         return path.parts[0] in {'Scripts', 'Cloudflare', '.githooks'} and not is_worker_generated(path) \
             and (path.suffix in {'.py', '.sh'} or path.parts[0] == '.githooks' and not path.suffix)
-    script_sources = {name: data.decode('utf-8') for name, data in index_files(root, include=included_script).items()
-        if included_script(name)}
+    if args.changed:
+        changed = set(filter(None, subprocess.check_output(['git', 'diff', '--cached', '--name-only', '-z',
+            '--diff-filter=ACMR'], cwd=root).decode().split('\0')))
+        if not changed.intersection({'Scripts/check-python-syntax.py', 'Scripts/check-file-lengths.py',
+                'Scripts/validation_inputs.py', '.githooks/pre-commit'}):
+            syntax_targets = {name for name in changed if included_script(name)}
+            if not syntax_targets and not args.self_test: raise SystemExit(0)
+    needs_import_graph = syntax_targets is None or any(name.endswith('.py') for name in syntax_targets)
+    def included_source(name):
+        return included_script(name) and (syntax_targets is None or name in syntax_targets
+            or needs_import_graph and name.startswith('Scripts/') and name.endswith('.py'))
+    script_sources = {name: data.decode('utf-8') for name, data in index_files(root, include=included_source).items()
+        if included_source(name)}
 else:
     script_sources = {path.relative_to(root).as_posix(): path.read_text(encoding='utf-8')
         for path in repository_script_paths(root, {'.py', '.sh'})}
@@ -369,6 +383,7 @@ if args.self_test:
         else: raise AssertionError('Python 名称审计需要显式导入及确定的名称来源')
 
 for name, source in script_sources.items():
+    if syntax_targets is not None and name not in syntax_targets: continue
     if name.endswith('.py'): checked_python(source, root / name)
     else: compile_embedded_python(source, root / name)
 

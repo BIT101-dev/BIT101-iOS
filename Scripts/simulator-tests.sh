@@ -252,51 +252,7 @@ only_testing=()
 for selection in "${selections[@]}"; do only_testing+=("-only-testing:$bundle/$selection"); done
 destination="platform=iOS Simulator,id=$SIMULATOR_DEVICE"
 result="$DERIVED_ROOT/test-results.xcresult"
-simulator_prepare_pid=
-if [[ "${GITHUB_ACTIONS:-false}" == true ]]; then
-  bit101_run_logged "$DERIVED_ROOT/simulator.log" "模拟器系统就绪" python3 - "$ROOT_DIR/Scripts" "$SIMULATOR_DEVICE" "$ROOT_DIR" "$mode" <<'PYREADY' &
-from pathlib import Path
-import sys
-sys.path.insert(0, sys.argv[1])
-from validation_coverage import prepare_simulator_system
-prepare_simulator_system(sys.argv[2], Path(sys.argv[3]), ui=sys.argv[4] == 'ui')
-PYREADY
-  simulator_prepare_pid=$!
-fi
-simulator_build_status=0
-if [[ "$mode" == ui && "${BIT101_REUSE_UI_HOST:-0}" == 1 ]]; then
-  python3 - "$ROOT_DIR/Scripts" "$DERIVED_ROOT/Build/Products" <<'PYHOST'
-import sys
-from pathlib import Path
-sys.path.insert(0, sys.argv[1])
-from validation_coverage import restore_test_host_permissions
-restore_test_host_permissions(Path(sys.argv[2]))
-PYHOST
-  echo "[复用] 共享 UI 测试宿主"
-else
-bit101_run_logged "$DERIVED_ROOT/$mode.log" "模拟器测试宿主编译" xcodebuild build-for-testing -quiet \
-  -project "$ROOT_DIR/BIT101-iOS.xcodeproj" -scheme "$scheme" -configuration "$configuration" -derivedDataPath "$DERIVED_ROOT" \
-  -destination "$destination" ONLY_ACTIVE_ARCH=YES "BIT101_WORKFLOW_CONDITIONS=$conditions" ENABLE_TESTABILITY=YES \
-  -enableCodeCoverage YES ENABLE_CODE_COVERAGE=YES \
-  SWIFT_TREAT_WARNINGS_AS_ERRORS=YES GCC_TREAT_WARNINGS_AS_ERRORS=YES CODE_SIGN_IDENTITY=- "${only_testing[@]}" || simulator_build_status=$?
-fi
-simulator_prepare_status=0
-if [[ -n "$simulator_prepare_pid" ]]; then wait "$simulator_prepare_pid" || simulator_prepare_status=$?; fi
-if (( simulator_build_status )); then exit "$simulator_build_status"; fi
-if (( simulator_prepare_status )); then exit "$simulator_prepare_status"; fi
-if [[ "${GITHUB_ACTIONS:-false}" == true && "$mode" == ui ]]; then
-  simulator_app_started=$SECONDS
-  simulator_app_status=0
-  python3 - "$ROOT_DIR/Scripts" "$SIMULATOR_DEVICE" "$DERIVED_ROOT/Build/Products" >> "$DERIVED_ROOT/simulator.log" 2>&1 <<'PYAPPREADY' || simulator_app_status=$?
-from pathlib import Path
-import sys
-sys.path.insert(0, sys.argv[1])
-from validation_coverage import prepare_simulator_ui
-prepare_simulator_ui(sys.argv[2], Path(sys.argv[3]))
-PYAPPREADY
-  if (( simulator_app_status )); then tail -40 "$DERIVED_ROOT/simulator.log" >&2; exit "$simulator_app_status"; fi
-  echo "[完成] 模拟器 App 就绪 · $(( SECONDS - simulator_app_started )) 秒"
-fi
+bit101_prepare_simulator_test_host
 plan="$(python3 - "$DERIVED_ROOT/Build/Products" "$scheme" "$SIMULATOR_WORKERS" "$ROOT_DIR/Scripts" <<'PYPLAN'
 from pathlib import Path
 import plistlib

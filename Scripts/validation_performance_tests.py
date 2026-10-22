@@ -288,7 +288,7 @@ def selected_result_retention_self_test() -> None:
         begin.assert_called_once_with(False)
         assert diagnostic.getvalue() == '中断的 XCTest 结果包已进入清理与重新采样。\n'
     for changed, retained in (({}, ['all']), ({'inputDigest': 'changed'}, []), ({'exitCode': 1}, []),
-            ({'recordedAt': ''}, []), ({'recordedAt': '2000-01-01T00:00:00Z'}, []), ({'recordedAt': '2200-01-01T00:00:00Z'}, []),
+            ({'recordedAt': ''}, ['all']), ({'recordedAt': '2000-01-01T00:00:00Z'}, ['all']), ({'recordedAt': '2200-01-01T00:00:00Z'}, ['all']),
             ({'environment': {'device': {'identifier': 'other'}}}, []), ({'resultBundleIdentity': 'b' * 64}, [])):
         row = dict(full, **changed)
         with patch.object(subject, 'recover_result_step'), patch.object(subject, 'begin_result_step') as begin, \
@@ -790,12 +790,18 @@ def merge_regression_self_test() -> None:
         current['capturedAt'] = row['recordedAt']
         row['performance']['records'][name] = current
         report['performanceBaseline']['records'][name] = baseline
-    commit = subject.current_commit()
-    assert not subject.merge_findings(report, commit)
+    assert not subject.merge_findings(report)
+    with patch.object(subject, 'current_commit', return_value='0' * 40):
+        assert not subject.merge_findings(report)
+        with patch('validation_provenance.source_digest', side_effect=lambda group, **kwargs: report['groups'][group]['inputDigest']):
+            for row in report['groups'].values():
+                assert all(subject.record_complete(record, current=True) for record in row['performance']['records'].values())
+        with patch('validation_provenance.source_digest', return_value='changed input'):
+            assert not subject.record_complete(report['groups']['all']['performance']['records']['pagination'], current=True)
     from validation_publication import core_exchange
     shared = core_exchange(report)
-    assert not subject.merge_findings(shared, commit)
-    assert not subject.merge_findings(report | {'performanceBaseline': shared['performanceBaseline']}, commit)
+    assert not subject.merge_findings(shared)
+    assert not subject.merge_findings(report | {'performanceBaseline': shared['performanceBaseline']})
     assert shared['groups']['all']['performance']['records']['pagination']['execution']['inputDigest'] \
         == report['groups']['all']['performance']['records']['pagination']['execution']['inputDigest']
     for fault in ('missing-baseline', 'missing-current', 'run', 'clock-regression', 'memory-regression', 'clock-tail', 'memory-tail', 'approver', 'environment', 'raw-metrics', 'commit'):
@@ -822,7 +828,7 @@ def merge_regression_self_test() -> None:
         if fault == 'environment': baseline['environment']['systemBuild'] = 'other'
         if fault == 'raw-metrics': current['xcresultMetrics'][0]['testRuns'][0]['metrics'][0]['measurements'] = [0.01] * 10
         if fault == 'commit': current['sourceCommit'] = '0' * 40
-        assert subject.merge_findings(changed, commit), fault
+        assert subject.merge_findings(changed), fault
     approved = deepcopy(report['performanceBaseline'])
     for record in approved['records'].values():
         for metric in record['xcresultMetrics'][0]['testRuns'][0]['metrics']: metric['maxPercentRegression'] = 10

@@ -257,3 +257,163 @@ bit101_require_device() {
   echo "请将已配对 iPhone 通过 USB 或同一局域网连接到 Mac 后重新运行。" >&2
   return 1
 }
+
+bit101_check_verification_audit() {
+  local audit_status=0
+  if [[ -n "${verification_audit_pid:-}" ]] && ! kill -0 "$verification_audit_pid" 2>/dev/null; then
+    wait "$verification_audit_pid" || audit_status=$?
+    verification_audit_pid=
+  fi
+  return "$audit_status"
+}
+
+bit101_finish_verification() {
+  local verification_status=$?
+  trap - EXIT ZERR INT TERM
+  if [[ -n "$verification_audit_pid" ]]; then
+    local audit_status=0
+    wait "$verification_audit_pid" || audit_status=$?
+    if (( verification_status == 0 )); then verification_status=$audit_status; fi
+  fi
+  local total_seconds="$(python3 "$ROOT_DIR/Scripts/test_results.py" elapsed)"
+  echo "[完整验证总耗时] $total_seconds 秒（含等待、编译、测试及汇总）"
+  exit "$verification_status"
+}
+
+bit101_verify_step() {
+  local label="$1"
+  shift
+  bit101_check_verification_audit || return $?
+  if [[ "$label" == audit && "${BIT101_AUDIT_BACKGROUND:-0}" != 1 ]]; then
+    "$@" prepare || return $?
+    (trap - EXIT ZERR INT TERM; BIT101_AUDIT_BACKGROUND=1 BIT101_AUDIT_ARTIFACTS_PREPARED=1 bit101_verify_step "$label" "$@") &
+    verification_audit_pid=$!
+    return 0
+  fi
+  local started_at=$SECONDS
+  if [[ "$label" == modules ]] && python3 "$ROOT_DIR/Scripts/validation_evidence.py" check-group modules >/dev/null 2>&1; then
+    echo "[验证通过] modules · 复用当前源码和执行环境的完整证据"
+    return 0
+  fi
+  local step_status=0
+  local result_step=false
+  case "$label" in
+    all|release-runtime|ui|catalyst|catalyst-release-runtime)
+      result_step=true
+      local retention=first
+      if (( ${#completed_result_groups[@]} > 0 )); then retention=append; fi
+      python3 "$ROOT_DIR/Scripts/validation_performance.py" begin-batch "$retention" || return $?
+      ;;
+  esac
+  BIT101_VALIDATION_RESULT_BATCH_HELD=1 "$@" || step_status=$?
+  if $result_step; then
+    completed_result_groups+=("$label")
+    python3 "$ROOT_DIR/Scripts/validation_performance.py" retain-batch "${completed_result_groups[@]}" || step_status=$?
+  fi
+  if (( step_status == 0 )); then bit101_check_verification_audit || step_status=$?; fi
+  if (( step_status == 0 )); then
+    python3 "$ROOT_DIR/Scripts/validation_evidence.py" check-group "$label" || step_status=$?
+  fi
+  if (( step_status == 0 )); then
+    echo "[验证通过] $label · $(( SECONDS - started_at )) 秒"
+  else
+    echo "[验证失败] $label · $(( SECONDS - started_at )) 秒" >&2
+    exit 1
+  fi
+}
+
+bit101_prepare_simulator_test_host() {
+  simulator_prepare_pid=
+  if [[ "${GITHUB_ACTIONS:-false}" == true ]]; then
+    bit101_run_logged "$DERIVED_ROOT/simulator.log" "模拟器系统就绪" python3 - "$ROOT_DIR/Scripts" "$SIMULATOR_DEVICE" "$ROOT_DIR" "$mode" <<'PYREADY' &
+from pathlib import Path
+import sys
+sys.path.insert(0, sys.argv[1])
+from validation_coverage import prepare_simulator_system
+prepare_simulator_system(sys.argv[2], Path(sys.argv[3]), ui=sys.argv[4] == 'ui')
+PYREADY
+    simulator_prepare_pid=$!
+  fi
+  simulator_build_status=0
+  if [[ "$mode" == ui && "${BIT101_REUSE_UI_HOST:-0}" == 1 ]]; then
+    python3 - "$ROOT_DIR/Scripts" "$DERIVED_ROOT/Build/Products" <<'PYHOST'
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from validation_coverage import restore_test_host_permissions
+restore_test_host_permissions(Path(sys.argv[2]))
+PYHOST
+    echo "[复用] 共享 UI 测试宿主"
+  else
+  bit101_run_logged "$DERIVED_ROOT/$mode.log" "模拟器测试宿主编译" xcodebuild build-for-testing -quiet \
+    -project "$ROOT_DIR/BIT101-iOS.xcodeproj" -scheme "$scheme" -configuration "$configuration" -derivedDataPath "$DERIVED_ROOT" \
+    -destination "$destination" ONLY_ACTIVE_ARCH=YES "BIT101_WORKFLOW_CONDITIONS=$conditions" ENABLE_TESTABILITY=YES \
+    -enableCodeCoverage YES ENABLE_CODE_COVERAGE=YES \
+    SWIFT_TREAT_WARNINGS_AS_ERRORS=YES GCC_TREAT_WARNINGS_AS_ERRORS=YES CODE_SIGN_IDENTITY=- "${only_testing[@]}" || simulator_build_status=$?
+  fi
+  simulator_prepare_status=0
+  if [[ -n "$simulator_prepare_pid" ]]; then wait "$simulator_prepare_pid" || simulator_prepare_status=$?; fi
+  if (( simulator_build_status )); then return "$simulator_build_status"; fi
+  if (( simulator_prepare_status )); then return "$simulator_prepare_status"; fi
+  if [[ "${GITHUB_ACTIONS:-false}" == true && "$mode" == ui ]]; then
+    simulator_app_started=$SECONDS
+    simulator_app_status=0
+    python3 - "$ROOT_DIR/Scripts" "$SIMULATOR_DEVICE" "$DERIVED_ROOT/Build/Products" >> "$DERIVED_ROOT/simulator.log" 2>&1 <<'PYAPPREADY' || simulator_app_status=$?
+from pathlib import Path
+import sys
+sys.path.insert(0, sys.argv[1])
+from validation_coverage import prepare_simulator_ui
+prepare_simulator_ui(sys.argv[2], Path(sys.argv[3]))
+PYAPPREADY
+    if (( simulator_app_status )); then tail -40 "$DERIVED_ROOT/simulator.log" >&2; return "$simulator_app_status"; fi
+    echo "[完成] 模拟器 App 就绪 · $(( SECONDS - simulator_app_started )) 秒"
+  fi
+}
+
+bit101_run_audit_group() {
+  local name="$1"
+  shift
+  local log="$LOG_DIR/$name.log"
+  local started=$SECONDS
+  local group_status=0
+  if "$@" > "$log" 2>&1; then
+    if [[ "$name" == checkers ]]; then bit101_show_audit_log "$log" false; fi
+  else
+    group_status=1
+    echo "[失败] $name · $(( SECONDS - started )) 秒" >> "$log"
+    bit101_show_audit_log "$log" true
+  fi
+  return "$group_status"
+}
+
+bit101_show_audit_log() {
+  python3 "$ROOT_DIR/Scripts/command_output.py" show-log "$1" "$2"
+}
+
+bit101_start_audit_group() {
+  local name="$1"
+  local delegate="$2"
+  local worker=$'set -euo pipefail\n'"$(typeset -f bit101_run_audit_group bit101_show_audit_log "$delegate")"$'\n''bit101_run_audit_group "$1" "$2"'
+  ROOT_DIR="$ROOT_DIR" LOG_DIR="$LOG_DIR" SWIFT_FRONTEND="$SWIFT_FRONTEND" command python3 -c \
+    'import os, sys; os.setsid(); os.execvp("zsh", ["zsh", "-c", sys.argv[1], "audit-group", *sys.argv[2:]])' \
+    "$worker" "$name" "$delegate" &
+  group_processes+=($!)
+}
+
+bit101_wait_audit_groups() {
+  local remaining=${#group_processes}
+  local index pid
+  while (( remaining )); do
+    for (( index = 1; index <= ${#group_processes}; index++ )); do
+      pid=$group_processes[$index]
+      if (( pid > 0 )) && ! kill -0 "$pid" 2>/dev/null; then
+        group_processes[$index]=0
+        (( remaining -= 1 )) || true
+        if wait "$pid"; then continue; fi
+        failed_groups+=("$group_names[$index]")
+        if [[ "${BIT101_AUDIT_BACKGROUND:-0}" == 1 ]]; then return 0; fi
+      fi
+    done
+    if (( remaining )); then sleep 1; fi
+  done
+}

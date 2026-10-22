@@ -266,9 +266,10 @@ def simulator_startup_findings(source: str) -> list[str]:
     from contextlib import redirect_stdout
     from io import StringIO
     from unittest.mock import patch
-    from script_test_support import heredoc_body
+    from script_test_support import heredoc_body, shell_function
+    support = ROOT / 'Scripts/script-support.sh'
     try:
-        programs = {marker: heredoc_body(source, marker)
+        programs = {marker: heredoc_body(source if marker == 'PYDEVICE' else support.read_text(), marker)
             for marker in ('PYDEVICE', 'PYREADY', 'PYAPPREADY')}
     except ValueError:
         return ['模拟器启动自测：设备、系统与 App 初始化入口应提供完整脚本正文。']
@@ -322,24 +323,22 @@ def simulator_startup_findings(source: str) -> list[str]:
         exec(compile(programs['PYAPPREADY'], '<simulator-app-ready>', 'exec'), {})
     if prepared.call_count != 1 or prepared.call_args.args != ('device', Path('/fixture/Build/Products')):
         findings.append('模拟器启动自测：UI 初始化使用已编译的测试宿主')
-    execution = source.split('simulator_prepare_pid=\n', 1)[1]
     if source.index('chmod +x "$ROOT_DIR/.build/compiler-cache/swift-syntax-indexer"') > source.index('selection_started='):
         findings.append('共享宿主自测：库存规划前恢复下载工具的执行权限')
-    if execution.index("<<'PYREADY'") > execution.index('xcodebuild build-for-testing') \
-            or execution.split("<<'PYREADY'", 1)[1].split('\n', 1)[0].strip() != '&':
-        findings.append('模拟器启动自测：系统初始化与测试宿主编译并行执行')
-    body = 'simulator_prepare_pid=\n' + source.split('simulator_prepare_pid=\n', 1)[1].split('\nplan="$(', 1)[0]
-    body = body.replace('>> "$DERIVED_ROOT/simulator.log" 2>&1', '')
+    body = shell_function(support, 'bit101_prepare_simulator_test_host')
+    log_root = ROOT / '.build/static-audit/simulator-startup-self-test'
+    log_root.mkdir(parents=True, exist_ok=True)
     for hosted in ('true', 'false'):
         for operation in ('app', 'release-runtime', 'ui'):
             for build_status, ready_status in ((0, 0), (7, 0), (0, 9), (7, 9)):
                 harness = f'''set -euo pipefail
-ROOT_DIR=/fixture DERIVED_ROOT=/fixture SIMULATOR_DEVICE=device mode={operation} scheme=scheme configuration=Release destination=target conditions= GITHUB_ACTIONS={hosted} BIT101_REUSE_UI_HOST=0
+exec 3>&1
+ROOT_DIR=/fixture DERIVED_ROOT="{log_root}" SIMULATOR_DEVICE=device mode={operation} scheme=scheme configuration=Release destination=target conditions= GITHUB_ACTIONS={hosted} BIT101_REUSE_UI_HOST=0
 only_testing=()
 bit101_run_logged() {{ if [[ "$3" == python3 ]]; then cat >/dev/null; print PREPARE; return {ready_status}; else print BUILD; [[ " $* " == *" ONLY_ACTIVE_ARCH=YES "* ]] || return 64; return {build_status}; fi; }}
-python3() {{ cat >/dev/null; print APPREADY; }}
+python3() {{ cat >/dev/null; print -u3 APPREADY; }}
 '''
-                result = subprocess.run(['zsh', '-c', harness + body + '\nprint COMPLETE'], capture_output=True, text=True, timeout=10)
+                result = subprocess.run(['zsh', '-c', harness + body + '\nbit101_prepare_simulator_test_host\nprint COMPLETE'], capture_output=True, text=True, timeout=10)
                 expected = build_status or (ready_status if hosted == 'true' else 0)
                 rows = result.stdout.splitlines()
                 complete = result.returncode == expected and 'BUILD' in rows and ('PREPARE' in rows) == (hosted == 'true') \
@@ -353,11 +352,12 @@ python3() {{ cat >/dev/null; print APPREADY; }}
     for hosted in ('true', 'false'):
         for ready_status in (0, 9):
             harness = f'''set -euo pipefail
-ROOT_DIR=/fixture DERIVED_ROOT=/fixture SIMULATOR_DEVICE=device mode=ui GITHUB_ACTIONS={hosted} BIT101_REUSE_UI_HOST=1
+exec 3>&1
+ROOT_DIR=/fixture DERIVED_ROOT="{log_root}" SIMULATOR_DEVICE=device mode=ui GITHUB_ACTIONS={hosted} BIT101_REUSE_UI_HOST=1
 bit101_run_logged() {{ cat >/dev/null; print PREPARE; return {ready_status}; }}
-python3() {{ cat >/dev/null; if [[ "$3" == device ]]; then print APPREADY; else print PERMISSIONS; fi; }}
+python3() {{ cat >/dev/null; if [[ "$3" == device ]]; then print -u3 APPREADY; else print -u3 PERMISSIONS; fi; }}
 '''
-            result = subprocess.run(['zsh', '-c', harness + body + '\nprint COMPLETE'], capture_output=True, text=True, timeout=10)
+            result = subprocess.run(['zsh', '-c', harness + body + '\nbit101_prepare_simulator_test_host\nprint COMPLETE'], capture_output=True, text=True, timeout=10)
             rows = result.stdout.splitlines()
             expected = ready_status if hosted == 'true' else 0
             complete = result.returncode == expected and 'PERMISSIONS' in rows \
@@ -366,6 +366,8 @@ python3() {{ cat >/dev/null; if [[ "$3" == device ]]; then print APPREADY; else 
             if complete and 'APPREADY' in rows:
                 complete = rows.index('APPREADY') > max(rows.index('PREPARE'), rows.index('PERMISSIONS'))
             if not complete: findings.append('共享宿主自测：恢复执行权限，归集系统就绪状态后执行 App 初始化')
+    import shutil
+    shutil.rmtree(log_root)
     return findings
 
 

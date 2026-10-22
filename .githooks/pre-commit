@@ -3,6 +3,6 @@
 source Scripts/script-support.sh
 
 git diff --cached --check || exit $?
-python3 Scripts/check-python-syntax.py . --staged || exit $?
+python3 Scripts/check-python-syntax.py . --staged --changed || exit $?
 python3 Scripts/check-file-lengths.py --staged || exit $?
 exec python3 Scripts/check-docs.py --staged

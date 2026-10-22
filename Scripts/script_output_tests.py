@@ -90,11 +90,11 @@ def log_output_boundary_findings() -> list[str]:
     return findings
 
 
-def verification_finish_findings(source: str) -> list[str]:
+def verification_finish_findings() -> list[str]:
     import os
-    step = 'verify_step() {' + source.split('verify_step() {', 1)[1].split('\n  for group in', 1)[0]
-    step = step.replace('"$ROOT_DIR/Scripts/run-static-audit.sh" prepare', 'prepare_probe')
-    finish = 'finish_verification() {' + source.split('finish_verification() {', 1)[1].split('\n  trap finish_verification', 1)[0]
+    from script_test_support import shell_function
+    step = shell_function(SCRIPT_ROOT / 'script-support.sh', 'bit101_check_verification_audit') + '\n' + shell_function(SCRIPT_ROOT / 'script-support.sh', 'bit101_verify_step')
+    finish = shell_function(SCRIPT_ROOT / 'script-support.sh', 'bit101_finish_verification')
     findings = []
     for prepare_status, audit_status, initial in ((0, 0, 0), (0, 11, 0), (13, 0, 0), (0, 11, 7), (0, 0, 7)):
         harness = f'''set -euo pipefail
@@ -102,11 +102,10 @@ unset BIT101_AUDIT_BACKGROUND BIT101_AUDIT_ARTIFACTS_PREPARED
 ROOT_DIR=/fixture verification_audit_pid=
 completed_result_groups=()
 python3() {{ print 17.0; }}
-prepare_probe() {{ print PREPARE; return {prepare_status}; }}
-audit_probe() {{ [[ "$BIT101_AUDIT_ARTIFACTS_PREPARED" == 1 ]]; print AUDIT_FINISHED; return {audit_status}; }}
+audit_probe() {{ if [[ "${{1:-}}" == prepare ]]; then print PREPARE; return {prepare_status}; fi; [[ "$BIT101_AUDIT_ARTIFACTS_PREPARED" == 1 ]]; print AUDIT_FINISHED; return {audit_status}; }}
 '''
         result = subprocess.run(['zsh', '-c', harness + step + '\n' + finish +
-            f'\ntrap finish_verification EXIT ZERR\nverify_step audit audit_probe\nexit {initial}'],
+            f'\ntrap bit101_finish_verification EXIT ZERR\nbit101_verify_step audit audit_probe\nexit {initial}'],
             capture_output=True, text=True, timeout=5)
         expected = prepare_status or initial or int(bool(audit_status))
         if result.returncode != expected or bool(prepare_status) == ('AUDIT_FINISHED' in result.stdout) \
@@ -120,4 +119,19 @@ audit_probe() {{ [[ "$BIT101_AUDIT_ARTIFACTS_PREPARED" == 1 ]]; print AUDIT_FINI
     with patch.dict(os.environ, BIT101_WORKFLOW_STARTED_AT='100'), patch('time.monotonic', return_value=191.5), redirect_stdout(output := StringIO()):
         workflow_elapsed([])
     assert output.getvalue().strip() == '91.5'
+    for audit_status in (0, 7):
+        harness = f'''set -euo pipefail
+ROOT_DIR=/fixture verification_audit_pid=
+completed_result_groups=()
+python3() {{ return 0; }}
+audit_probe() {{ [[ "${{1:-}}" == prepare ]] && return 0; return {audit_status}; }}
+child() {{ print NEXT_PHASE; }}
+'''
+        result = subprocess.run(['zsh', '-c', harness + step + '''
+bit101_verify_step audit audit_probe
+while kill -0 "$verification_audit_pid" 2>/dev/null; do sleep 0.01; done
+bit101_verify_step all child
+'''], capture_output=True, text=True, timeout=5)
+        assert bool(result.returncode) == bool(audit_status), result.stderr
+        assert ('NEXT_PHASE' in result.stdout) == (audit_status == 0)
     return findings

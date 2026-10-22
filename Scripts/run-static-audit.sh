@@ -86,22 +86,6 @@ export BIT101_VALIDATION_SOURCE_DIGEST BIT101_VALIDATION_RUN_ID
 mkdir -p "$LOG_DIR"
 rm -f "$LOG_DIR"/*.log(N)
 
-run_group() {
-  local name="$1"
-  shift
-  local log="$LOG_DIR/$name.log"
-  local started=$SECONDS
-  if "$@" > "$log" 2>&1; then
-    return 0
-  else
-    echo "[失败] $name · $(( SECONDS - started )) 秒" >> "$log"
-    return 1
-  fi
-}
-
-show_group_log() {
-  python3 "$ROOT_DIR/Scripts/command_output.py" show-log "$1" "$2"
-}
 
 swift_parse() {
   find "$ROOT_DIR/Modules" "$ROOT_DIR/BIT101-iOS" "$ROOT_DIR/BIT101ScheduleWidgets" \
@@ -158,40 +142,17 @@ checker_audit() {
 module_boundary_audit() { python3 "$ROOT_DIR/Scripts/check-module-boundaries.py" --self-test; }
 artifact_hygiene() { python3 "$ROOT_DIR/Scripts/validation_artifacts.py" "$ROOT_DIR"; }
 
-start_group() {
-  local name="$1"
-  local delegate="$2"
-  local worker=$'set -euo pipefail\n'"$(typeset -f run_group "$delegate")"$'\n''run_group "$1" "$2"'
-  ROOT_DIR="$ROOT_DIR" LOG_DIR="$LOG_DIR" SWIFT_FRONTEND="$SWIFT_FRONTEND" command python3 -c \
-    'import os, sys; os.setsid(); os.execvp("zsh", ["zsh", "-c", sys.argv[1], "audit-group", *sys.argv[2:]])' \
-    "$worker" "$name" "$delegate" &
-  group_processes+=($!)
-}
 
 failed_groups=()
 if [[ "${BIT101_AUDIT_ARTIFACTS_PREPARED:-0}" != 1 ]]; then
-  run_group artifact-hygiene artifact_hygiene || failed_groups+=(artifact-hygiene)
+  bit101_run_audit_group artifact-hygiene artifact_hygiene || failed_groups+=(artifact-hygiene)
 fi
-if (( ${#failed_groups} )); then cat "$LOG_DIR/artifact-hygiene.log" >&2; fi
 group_names=(swift-parse shell-parse python-parse worker-parse dependency-audit module-boundary git-diff docs checkers)
 group_commands=(swift_parse shell_parse python_parse worker_parse dependency_audit module_boundary_audit git_check docs_check checker_audit)
 for (( index = 1; index <= ${#group_names}; index++ )); do
-  start_group "$group_names[$index]" "$group_commands[$index]"
+  bit101_start_audit_group "$group_names[$index]" "$group_commands[$index]"
 done
-for (( index = 1; index <= ${#group_names}; index++ )); do
-  name="$group_names[$index]"
-  group_failed=false
-  if wait "$group_processes[$index]"; then
-    group_processes[$index]=0
-    [[ "$name" == checkers ]] || continue
-  else
-    group_processes[$index]=0
-    failed_groups+=($name)
-    group_failed=true
-  fi
-  log="$LOG_DIR/$name.log"
-  show_group_log "$log" "$group_failed"
-done
+bit101_wait_audit_groups
 if (( ${#failed_groups[@]} > 0 )); then
   printf '[失败汇总] %s\n' "${(j:, :)failed_groups}" >&2
   exit 1

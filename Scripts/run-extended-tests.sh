@@ -36,11 +36,6 @@ if [[ "${1:-}" == report || "${1:-}" == screenshot || "${1:-}" == activities || 
     report:|report:json|report:coverage|report:performance|report:performance-run|report:performance-schema|activities:*) ;;
     *) bit101_acquire_artifact_lock "$0" "$@" ;;
   esac
-  if [[ "$1" == report && $# -eq 1 && -f "$DERIVED_ROOT/test-metrics.txt" ]]; then
-    cat "$DERIVED_ROOT/test-metrics.txt"
-    if [[ -f "$DERIVED_ROOT/test-failures.txt" ]]; then cat "$DERIVED_ROOT/test-failures.txt"; fi
-    exit 0
-  fi
   python3 "$ROOT_DIR/Scripts/test_results.py" report "$DERIVED_ROOT/test-results.xcresult" "${2:-}" "$1" "$ROOT_DIR/Scripts" "${3:-}"
   exit 0
 fi
@@ -135,71 +130,22 @@ if [[ "$MODE" == "verify" ]]; then
   fi
   verification_audit_pid=
   if (( ${verification_groups[(Ie)audit]} )); then verification_groups=(audit ${verification_groups:#audit}); fi
-  finish_verification() {
-    local verification_status=$?
-    trap - EXIT ZERR INT TERM
-    if [[ -n "$verification_audit_pid" ]]; then
-      local audit_status=0
-      wait "$verification_audit_pid" || audit_status=$?
-      if (( verification_status == 0 )); then verification_status=$audit_status; fi
-    fi
-    local total_seconds="$(python3 "$ROOT_DIR/Scripts/test_results.py" elapsed)"
-    echo "[完整验证总耗时] $total_seconds 秒（含等待、编译、测试及汇总）"
-    exit "$verification_status"
-  }
-  trap finish_verification EXIT ZERR
+
+  trap bit101_finish_verification EXIT ZERR
   trap 'exit 130' INT
   trap 'exit 143' TERM
   typeset -a completed_result_groups=()
-  verify_step() {
-    local label="$1"
-    shift
-    if [[ "$label" == audit && "${BIT101_AUDIT_BACKGROUND:-0}" != 1 ]]; then
-      "$ROOT_DIR/Scripts/run-static-audit.sh" prepare || return $?
-      (trap - EXIT ZERR INT TERM; BIT101_AUDIT_BACKGROUND=1 BIT101_AUDIT_ARTIFACTS_PREPARED=1 verify_step "$label" "$@") &
-      verification_audit_pid=$!
-      return 0
-    fi
-    local started_at=$SECONDS
-    if [[ "$label" == modules ]] && python3 "$ROOT_DIR/Scripts/validation_evidence.py" check-group modules >/dev/null 2>&1; then
-      echo "[验证通过] modules · 复用当前源码和执行环境的完整证据"
-      return 0
-    fi
-    local step_status=0
-    local result_step=false
-    case "$label" in
-      all|release-runtime|ui|catalyst|catalyst-release-runtime)
-        result_step=true
-        local retention=first
-        if (( ${#completed_result_groups[@]} > 0 )); then retention=append; fi
-        python3 "$ROOT_DIR/Scripts/validation_performance.py" begin-batch "$retention" || return $?
-        ;;
-    esac
-    BIT101_VALIDATION_RESULT_BATCH_HELD=1 "$@" || step_status=$?
-    if $result_step; then
-      completed_result_groups+=("$label")
-      python3 "$ROOT_DIR/Scripts/validation_performance.py" retain-batch "${completed_result_groups[@]}" || step_status=$?
-    fi
-    if (( step_status == 0 )); then
-      python3 "$ROOT_DIR/Scripts/validation_evidence.py" check-group "$label" || step_status=$?
-    fi
-    if (( step_status == 0 )); then
-      echo "[验证通过] $label · $(( SECONDS - started_at )) 秒"
-    else
-      echo "[验证失败] $label · $(( SECONDS - started_at )) 秒" >&2
-      exit 1
-    fi
-  }
+
   for group in "${verification_groups[@]}"; do
     case "$group" in
-      modules|catalyst|catalyst-release-runtime) verify_step "$group" "$0" "$group" ;;
-      all|release-runtime|ui) verify_step "$group" "$0" "$group" ;;
-      network) verify_step network "$ROOT_DIR/Scripts/release-network-smoke.sh" "${verification_network_args[@]}" ;;
-      community-writes) verify_step community-writes "$ROOT_DIR/Scripts/release-network-smoke.sh" community-writes ;;
-      ddl) verify_step ddl "$ROOT_DIR/Scripts/release-network-smoke.sh" ddl ;;
-      icloud) verify_step icloud "$ROOT_DIR/Scripts/run_icloud_cross_device_smoke.sh" ;;
-      build-archive) verify_step build-archive "$ROOT_DIR/Scripts/build-install-device.sh" archive ;;
-      audit) verify_step audit "$ROOT_DIR/Scripts/run-static-audit.sh" ;;
+      modules|catalyst|catalyst-release-runtime) bit101_verify_step "$group" "$0" "$group" ;;
+      all|release-runtime|ui) bit101_verify_step "$group" "$0" "$group" ;;
+      network) bit101_verify_step network "$ROOT_DIR/Scripts/release-network-smoke.sh" "${verification_network_args[@]}" ;;
+      community-writes) bit101_verify_step community-writes "$ROOT_DIR/Scripts/release-network-smoke.sh" community-writes ;;
+      ddl) bit101_verify_step ddl "$ROOT_DIR/Scripts/release-network-smoke.sh" ddl ;;
+      icloud) bit101_verify_step icloud "$ROOT_DIR/Scripts/run_icloud_cross_device_smoke.sh" ;;
+      build-archive) bit101_verify_step build-archive "$ROOT_DIR/Scripts/build-install-device.sh" archive ;;
+      audit) bit101_verify_step audit "$ROOT_DIR/Scripts/run-static-audit.sh" ;;
     esac
   done
   exit 0

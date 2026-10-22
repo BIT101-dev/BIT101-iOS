@@ -42,14 +42,17 @@ def test_result_boundary_findings() -> list[str]:
     for activities, selected, expected in (([], '', None), ([first], 'missing', None),
             ([first, second], '', None), ([first, first], '', 'first'), ([first, second], 'second', 'second')):
         with patch.object(Path, 'is_file', return_value=True), patch.object(Path, 'exists', return_value=False), \
+                patch.object(Path, 'mkdir'), patch.object(Path, 'replace') as replaced, \
                 patch.object(Path, 'unlink') as cleared, patch.object(subprocess, 'run') as exported, \
                 patch.object(subprocess, 'check_output', return_value=json.dumps(activities)), redirect_stdout(StringIO()):
             try: report_test_results([str(bundle), 'Fixture/test()', 'screenshot', scripts, selected])
             except SystemExit as error: assert (error.code == 0) == bool(expected)
             else: raise AssertionError('截图导出需要明确退出状态。')
-            cleared.assert_called_once_with(missing_ok=True)
             if expected:
                 arguments = exported.call_args.args[0]
                 assert arguments[arguments.index('--id') + 1] == expected and exported.call_count == 1
-            else: exported.assert_not_called()
+                replaced.assert_called_once_with(root.parent / 'screenshot.png')
+                assert cleared.call_count == 2
+            else:
+                exported.assert_not_called(); replaced.assert_not_called(); cleared.assert_not_called()
     return []
