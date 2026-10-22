@@ -25,6 +25,8 @@ BUILD_SCRIPTS = {"script-support.sh", "build-install-device.sh", "ci_evidence.py
 TEST_SCRIPTS = BUILD_SCRIPTS | VALIDATION_SCRIPTS | {"run-extended-tests.sh", "simulator-tests.sh"}
 INPUT_TRANSACTION_FILES = {'BIT101-iOSTests/Fixtures/campus-map-locations.lock', 'BIT101-iOSTests/Fixtures/campus-map-locations.incoming'}
 WORKER_GENERATED_DIRECTORIES = frozenset({'node_modules', '.wrangler', '.git'})
+CI_RESULT_ARTIFACTS = {group: 'verified-result-' + ('ios' if group in {'app', 'ui'} else group)
+    for group in ('modules', 'release', 'catalyst', 'app', 'ui')}
 CI_VALIDATION_GROUPS = {
     'modules': (('modules',), ('Static audit (Apple toolchain)',), ('validation-static-audit',)),
     'release': (('build-archive', 'build-network-smoke', 'build-icloud-smoke'),
@@ -32,10 +34,12 @@ CI_VALIDATION_GROUPS = {
     'catalyst': (('catalyst', 'catalyst-release-runtime'),
         ('Mac Catalyst behavior tests',), ('validation-catalyst-tests',)),
     'app': (('all', 'release-runtime'),
-        ('iOS Simulator app and formal runtime',), ('validation-ios-test-shards-app-0',)),
-    'ui': (('ui',), ('Build shared iOS UI test host', *(f'iOS Simulator ui ({index})' for index in range(3))),
+        ('iOS Simulator app and formal runtime', 'iOS Simulator behavior and UI tests'), ('validation-ios-test-shards-app-0',)),
+    'ui': (('ui',), ('Build shared iOS UI test host', 'iOS Simulator behavior and UI tests', *(f'iOS Simulator ui ({index})' for index in range(3))),
         tuple(f'validation-ios-test-shards-ui-{index}' for index in range(3))),
 }
+CI_VALIDATION_GROUPS = {group: (scopes, jobs, (*artifacts, CI_RESULT_ARTIFACTS[group]))
+    for group, (scopes, jobs, artifacts) in CI_VALIDATION_GROUPS.items()}
 
 
 def ci_validation_affected(names: list[str], group: str) -> bool:

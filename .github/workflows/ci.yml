@@ -115,6 +115,20 @@ jobs:
         if: ${{ !cancelled() }}
         run: python3 Scripts/validation_evidence.py summary --recorded-environment
 
+      - name: Export validated result
+        if: ${{ (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' && (inputs.full_check || inputs.release_check)) && fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
+        run: python3 Scripts/ci_evidence.py export-result modules
+      - name: Publish validated result
+        if: ${{ (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' && (inputs.full_check || inputs.release_check)) && fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: verified-result-modules
+          path: .build/extended-automation/ci-validation-result.json
+          compression-level: 0
+          overwrite: true
+          if-no-files-found: error
+          include-hidden-files: true
+
       - name: Preserve validation diagnostics
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -172,6 +186,20 @@ jobs:
       - name: Publish validation evidence
         if: ${{ !cancelled() && fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
         run: python3 Scripts/validation_evidence.py summary --recorded-environment
+
+      - name: Export validated result
+        if: ${{ fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
+        run: python3 Scripts/ci_evidence.py export-result release
+      - name: Publish validated result
+        if: ${{ fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: verified-result-release
+          path: .build/extended-automation/ci-validation-result.json
+          compression-level: 0
+          overwrite: true
+          if-no-files-found: error
+          include-hidden-files: true
 
       - name: Prepare native compilation cache
         if: ${{ (github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) && fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
@@ -253,6 +281,20 @@ jobs:
       - name: Publish validation evidence
         if: ${{ !cancelled() && fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
         run: python3 Scripts/validation_evidence.py summary --recorded-environment
+
+      - name: Export validated result
+        if: ${{ fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
+        run: python3 Scripts/ci_evidence.py export-result catalyst
+      - name: Publish validated result
+        if: ${{ fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: verified-result-catalyst
+          path: .build/extended-automation/ci-validation-result.json
+          compression-level: 0
+          overwrite: true
+          if-no-files-found: error
+          include-hidden-files: true
 
       - name: Prepare native compilation cache
         if: ${{ (github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) && fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
@@ -590,6 +632,20 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: Scripts/run-extended-tests.sh simulator merge
+      - name: Export validated result
+        if: ${{ fromJSON(env.BIT101_CI_PLAN).jobs.app.execute || fromJSON(env.BIT101_CI_PLAN).jobs.ui.execute }}
+        run: python3 Scripts/ci_evidence.py export-result ios
+      - name: Publish validated result
+        if: ${{ fromJSON(env.BIT101_CI_PLAN).jobs.app.execute || fromJSON(env.BIT101_CI_PLAN).jobs.ui.execute }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: verified-result-ios
+          path: .build/extended-automation/ci-validation-result.json
+          compression-level: 0
+          overwrite: true
+          if-no-files-found: error
+          include-hidden-files: true
+
       - name: Preserve validation diagnostics
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7

@@ -86,6 +86,38 @@ def runner_expression(value):
     return tuple(tokens)
 
 
+def ci_result_wiring_findings(jobs: dict) -> list[str]:
+    errors = []
+    def configuration(step):
+        value = step.get('with')
+        return value if isinstance(value, dict) else {}
+    for name, group, condition, producer in (
+            ('static-audit', 'modules', CI_NATIVE_EXECUTION, 'Scripts/run-extended-tests.sh verify audit modules'),
+            ('release-build', 'release', CI_EXECUTION, 'Scripts/run-extended-tests.sh build icloud-smoke'),
+            ('catalyst-tests', 'catalyst', CI_EXECUTION, 'Scripts/run-extended-tests.sh verify catalyst catalyst-release-runtime'),
+            ('ios-tests', 'ios', '${{ fromJSON(env.BIT101_CI_PLAN).jobs.app.execute || fromJSON(env.BIT101_CI_PLAN).jobs.ui.execute }}',
+                'Scripts/run-extended-tests.sh simulator merge')):
+        job = jobs.get(name)
+        steps = job.get('steps', []) if isinstance(job, dict) else []
+        steps = [step for step in steps if isinstance(step, dict)] if isinstance(steps, list) else []
+        exports = [step for step in steps if command_matches(step.get('run'), 'python3 Scripts/ci_evidence.py export-result ' + group)]
+        uploads = [step for step in steps if configuration(step).get('name') == 'verified-result-' + group]
+        producers = [step for step in steps if command_matches(step.get('run'), producer)]
+        if len(exports) != 1 or len(uploads) != 1 or len(producers) != 1:
+            errors.append(f'.github/workflows/ci.yml: {name} 需要独立的完整成功记录')
+            continue
+        export, upload = exports[0], uploads[0]
+        settings = configuration(upload)
+        if not steps.index(producers[0]) < steps.index(export) < steps.index(upload) \
+                or any(step.get('if') != condition or step.get('continue-on-error', False) for step in (export, upload)) \
+                or not str(upload.get('uses', '')).startswith('actions/upload-artifact@') \
+                or settings.get('path') != '.build/extended-automation/ci-validation-result.json' \
+                or settings.get('compression-level') != 0 or settings.get('overwrite') is not True \
+                or settings.get('include-hidden-files') is not True or settings.get('if-no-files-found') != 'error':
+            errors.append(f'.github/workflows/ci.yml: {name} 的完整成功记录需要绑定实际验收与固定产物')
+    return errors
+
+
 def ci_wiring_findings(workflow_source: str) -> list[str]:
     errors: list[str] = []
     try:
@@ -163,6 +195,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
     if push.get('branches') != ['main'] or 'branches-ignore' in push:
         errors.append('.github/workflows/ci.yml: push 需要覆盖 main 分支更新')
     jobs = mapping(workflow.get("jobs"))
+    errors.extend(ci_result_wiring_findings(jobs))
     for name, job in jobs.items():
         for step in mapping(job).get('steps', []):
             action = str(mapping(step).get('uses', ''))
