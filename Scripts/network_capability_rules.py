@@ -9,7 +9,7 @@ from swift_type_index import (
 )
 
 NETWORK_FOUNDATION_API = {
-    'TransportCore.HTTPClient': {'send(:URLRequest,accepting:Range<Int>,maximumBytes:Int?)'},
+    'TransportCore.HTTPClient': {'send(:URLRequest,accepting:Range<Int>,alsoAccepting:Set<Int>,maximumBytes:Int?)'},
     'TransportCore.HTTPBoundedTransfer': {'receive(:URLSessionDataTask)'},
     'ScorePorts.TrustedTranscriptReport': {'loadPages(excluding:Set<Int>,maximumBytes:Int,onPage:TrustedTranscriptPageDelivery?)'},
     'TransportCore.URLSessionTransport': {'deinit()', 'static make(configuration:URLSessionConfiguration,followsRedirects:Bool)'},

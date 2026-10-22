@@ -399,7 +399,7 @@ public struct GalleryService {
 
     /// 删除一条帖子。
     ///
-    /// 删除接口没有复杂返回体，只以 HTTP 成功与否为准。
+    /// 服务端确认删除或目标已消失时完成操作。
     public func deletePoster(id: Int) async throws {
         try await api.requestVoid(path: "posters/\(id)", method: "DELETE")
     }

@@ -73,7 +73,7 @@ def workflow_conditions(group: str) -> tuple[str, ...]:
 
 
 FORMAL_RUNTIME_SUITES = {"ReleaseRuntimeContractTests", "CommunitySessionRecoveryTests", "ExtendedLoginTests", "LoginStorageTests", "LoginBootstrapTests", "NetworkClientTests",
-    "FeatureCompositionTests", "ExperimentalPreferenceCloudSyncTests", "AppExternalDisplayTests", "ReminderContextTests", "ScheduleModuleBoundaryTests"}
+    "FeatureCompositionTests", "CommunityRecoveryCompositionTests", "ExperimentalPreferenceCloudSyncTests", "AppExternalDisplayTests", "ReminderContextTests", "ScheduleModuleBoundaryTests"}
 APP_COVERAGE_FLOOR = 35
 MODULE_COVERAGE_FLOORS = {
     "ClientCore": 63, "CommunityCore": 87, "CommunityPersistence": 98, "CommunityTransport": 82,

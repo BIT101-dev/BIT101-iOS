@@ -920,7 +920,7 @@ public struct UnregisteredEndpoint {
     source = '''import Foundation
 public struct HTTPClient {
     let session: URLSession
-    public func send(_ request: URLRequest, accepting: Range<Int>, maximumBytes: Int?) async throws -> Data {
+    public func send(_ request: URLRequest, accepting: Range<Int>, alsoAccepting: Set<Int>, maximumBytes: Int?) async throws -> Data {
         try await session.data(for: request).0
     }
     public func fetch(url: URL) async throws -> Data { try await session.data(for: URLRequest(url: url)).0 }

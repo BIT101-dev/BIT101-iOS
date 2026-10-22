@@ -341,7 +341,7 @@ struct MineLifecycleTests {
         #expect(model.alert == nil && model.profileStatus == .failed(URLError(.networkConnectionLost).localizedDescription))
     }
 
-    @Test(.timeLimit(.minutes(1))) func expiredSessionReturnsTheOwnedSceneToLogin() async {
+    @Test(.timeLimit(.minutes(1))) func expiredCommunitySessionKeepsTheOwnedSceneRecoverable() async {
         let service = PagingMineService()
         service.profile = { throw MineServiceError.notLoggedIn }
         service.posters = { _ in throw MineServiceError.notLoggedIn }
@@ -350,11 +350,12 @@ struct MineLifecycleTests {
         await model.bootstrapIfNeeded()
         await model.refreshFollowers()
         await model.refreshFollowings()
-        #expect(model.requiresLogin)
+        #expect(model.profileStatus == .failed(MineServiceError.notLoggedIn.localizedDescription))
+        #expect(model.followerState.status == .failed(MineServiceError.notLoggedIn.localizedDescription))
+        #expect(model.followingState.status == .failed(MineServiceError.notLoggedIn.localizedDescription))
         #expect(model.alert == nil)
         let profile = UserProfileViewModel(userID: 1, service: service)
         await profile.bootstrapIfNeeded()
-        #expect(profile.requiresLogin)
         #expect(profile.alert == nil)
         #expect(profile.profileStatus == .failed(MineServiceError.notLoggedIn.localizedDescription))
         #expect(profile.posterState.status == .failed(MineServiceError.notLoggedIn.localizedDescription))

@@ -33,6 +33,7 @@ private enum GalleryMessagePersistenceError: LocalizedError {
 ///
 /// 负责未读数、分类切换和按 `last_id` 分页加载消息列表。
 final class GalleryMessageViewModel: ObservableObject {
+    let pendingOperations = CommunityDetailTasks()
     @Published var selectedType: GalleryMessageType = .comment
     /// 服务端返回的分类未读摘要。
     @Published private(set) var unreadCounts = GalleryMessageUnreadCounts()
@@ -102,7 +103,7 @@ final class GalleryMessageViewModel: ObservableObject {
             self.isRecoveringReadState = true
             defer { self.isRecoveringReadState = false }
             let recovered = await self.readStore.recoverSnapshot()
-            guard owner == self.readStore.currentSession else { return }
+            guard owner == self.readStore.currentSession, !Task.isCancelled else { return }
             if recovered {
                 self.alert = nil
                 await self.refreshSelectedType()
@@ -273,8 +274,8 @@ final class GalleryMessageViewModel: ObservableObject {
                     $0.status = previousState.items.isEmpty ? (cancelled ? .idle : .failed(error.localizedDescription)) : .loaded
                 }
             }
-            if cancelled { return }
             pendingRecoveryTypes.insert(type)
+            if cancelled { return }
             alert = AppAlert(title: error is GalleryMessagePersistenceError ? "消息状态同步受阻" : "加载消息失败",
                 message: error.localizedDescription)
         }

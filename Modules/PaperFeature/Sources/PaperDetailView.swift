@@ -264,8 +264,8 @@ private struct PaperDetailViewScene: View {
         .task {
             await viewModel.bootstrapIfNeeded()
         }
-        .onChange(of: networkObserver.isReachable) { oldValue, newValue in
-            guard newValue, !oldValue else { return }
+        .onChange(of: networkObserver.snapshot.status) { _, newValue in
+            guard newValue == .connected else { return }
             viewModel.pendingOperations.enqueue {
                 await retryDetailIfNeeded()
             }

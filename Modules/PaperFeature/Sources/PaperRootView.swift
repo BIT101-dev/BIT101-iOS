@@ -186,8 +186,8 @@ private struct PaperRootViewScene: View {
             guard oldValue != newValue else { return }
             viewModel.enqueueRefresh()
         }
-        .onChange(of: networkObserver.isReachable) { oldValue, newValue in
-            guard newValue, !oldValue else { return }
+        .onChange(of: networkObserver.snapshot.status) { _, newValue in
+            guard newValue == .connected else { return }
             retryListIfNeeded()
         }
         .onChange(of: scenePhase) { _, newValue in

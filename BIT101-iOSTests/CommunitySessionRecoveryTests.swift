@@ -3,10 +3,55 @@ import ClientCore
 import Foundation
 import CommunityTransport
 import Testing
+import SwiftUI
+import UIKit
+import MineFeature
+import MediaKit
+import CommunityCore
+import CommunityUI
 @testable import BIT101_iOS
 
 @MainActor
 struct CommunitySessionRecoveryTests {
+    @Test(.serialized, .timeLimit(.minutes(1)), arguments: [false, true])
+    func expiredCommunityCredentialsKeepMineAndProfileInsideTheLocalSession(profile: Bool) async throws {
+        let domain = "BIT101Tests.community-page-recovery"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        var schoolCookieClears = 0
+        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: { schoolCookieClears += 1 })
+        try storage.saveLoginState(studentID: "A", password: "school-password", fakeCookie: "old-cookie", communityPasswordDigest: "digest")
+        let transport = SharedRenewalResponses(); transport.outcome = "rejected"
+        let http = HTTPClient(transport: transport, observer: nil)
+        let login = LoginService(storage: storage, apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http))
+        let root = LoginViewModel(service: login), owner = storage.schoolSessionIdentity
+        schoolCookieClears = 0
+        let session = CommunitySession(httpClient: http, baseURL: AppURL.required("https://example.invalid"),
+            credentials: { storage.communityCredentials }, refresh: { try await login.renewCommunitySession(observed: $0) })
+        let service = MineService(session: session, preferences: {
+            .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
+        })
+        let dependencies = MineDependencies(overview: service, profile: service, deletePoster: { _ in })
+        let media = AppMedia.makeEnvironment(files: PreferenceMemoryFiles(), previewStorage: MediaPreviewStorage(files: PreferenceMemoryFiles()),
+            imageHTTPClient: http, avatarHTTPClient: http)
+        let poster = CommunityPosterDestination { _, _ in AnyView(Text("poster")) }
+        let settings = CommunitySettingsDestinations(settingsEntries: [], settings: { _ in AnyView(Text("settings")) }, suggestion: { AnyView(Text("suggestion")) })
+        let view: AnyView = profile
+            ? AnyView(UserProfileRootView(dependencies: dependencies, media: media, posters: poster, userID: 42))
+            : AnyView(MineRootView(dependencies: dependencies, media: media, posters: poster, settings: settings, fallbackStudentID: "A", onLogout: root.logout))
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = UIHostingController(rootView: NavigationStack { view })
+        window.makeKeyAndVisible(); window.layoutIfNeeded()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        try await waitForTestEvent { storage.fakeCookie.isEmpty && transport.paths.contains("/user/login") }
+        var rendered = false
+        DispatchQueue.main.async { rendered = true }
+        try await waitForTestEvent { rendered }
+        #expect(root.screenState == .signedIn(studentID: "A") && storage.hasCachedSession)
+        #expect(storage.currentPassword == "school-password" && storage.schoolSessionIdentity == owner && schoolCookieClears == 0)
+    }
+
     @Test(.serialized, .timeLimit(.minutes(1)), arguments: ["switch", "logout", "cancel"])
     func reauthenticationKeepsItsCapturedAccountAndCancellationBoundary(interruption: String) async throws {
         let domain = "BIT101Tests.community-reauthentication-owner"

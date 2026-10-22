@@ -5,19 +5,12 @@ import CommunityCore
 import Combine
 import Foundation
 
-/// 主页与分页统一识别社区登录状态错误。
-private func isMineNotLoggedIn(_ error: Error) -> Bool {
-    guard let serviceError = error as? MineServiceError else { return false }
-    if case .notLoggedIn = serviceError { return true }
-    return false
-}
-
 /// 四类主页列表共用第一页恢复与分页推进规则，业务对象持有代际与提示。
 @MainActor
 private func refreshMinePage<Item: Identifiable>(
     read: () -> MinePagedState<Item>, write: (MinePagedState<Item>) -> Void,
     isCurrent: () -> Bool, fetch: () async throws -> [Item], failureTitle: String,
-    onLogin: () -> Void, onAlert: (AppAlert) -> Void
+    onAlert: (AppAlert) -> Void
 ) async {
     let previous = read()
     var loading = previous
@@ -47,7 +40,6 @@ private func refreshMinePage<Item: Identifiable>(
         state.status = hadItems ? .loaded : .failed(error.localizedDescription)
         if !hadItems { state.canLoadMore = false }
         write(state)
-        if isMineNotLoggedIn(error) { onLogin(); return }
         if hadItems { onAlert(AppAlert(title: failureTitle, message: error.localizedDescription)) }
     }
 }
@@ -55,7 +47,7 @@ private func refreshMinePage<Item: Identifiable>(
 @MainActor
 private func loadMoreMinePage<Item: Identifiable>(
     current: Item?, read: () -> MinePagedState<Item>, write: (MinePagedState<Item>) -> Void,
-    isCurrent: () -> Bool, fetch: (Int) async throws -> [Item], onLogin: () -> Void
+    isCurrent: () -> Bool, fetch: (Int) async throws -> [Item]
 ) async {
     guard let current else { return }
     var state = read()
@@ -85,8 +77,7 @@ private func loadMoreMinePage<Item: Identifiable>(
         state = read()
         state.nextPage = sourcePage
         state.isLoadingMore = false
-        if isMineNotLoggedIn(error) { state.loadMoreError = error.localizedDescription; onLogin() }
-        else if !TaskCancellation.matches(error) { state.loadMoreError = error.localizedDescription }
+        if !TaskCancellation.matches(error) { state.loadMoreError = error.localizedDescription }
         write(state)
     }
 }
@@ -118,8 +109,6 @@ final class MineViewModel: ObservableObject {
     @Published private(set) var followingState = MinePagedState<CommunityUser>()
     /// 我的帖子列表分页状态。
     @Published private(set) var posterState = MinePagedState<CommunityPoster>()
-    /// 社区会话失效时通知页面回到登录流程。
-    @Published private(set) var requiresLogin = false
     @Published var alert: AppAlert?
 
     private let service: any MineOverviewServicing
@@ -188,12 +177,6 @@ final class MineViewModel: ObservableObject {
                 profileStatus = hadUserInfo ? .loaded : .idle
                 return
             }
-            if isMineNotLoggedIn(error) {
-                profileStatus = hadUserInfo ? .loaded : .failed(error.localizedDescription)
-                requiresLogin = true
-                return
-            }
-
             if hadUserInfo {
                 profileStatus = .loaded
                 alert = AppAlert(title: "刷新个人信息失败", message: error.localizedDescription)
@@ -213,15 +196,14 @@ final class MineViewModel: ObservableObject {
         let generation = followerGeneration
         await refreshMinePage(read: { self.followerState }, write: { self.followerState = $0 },
             isCurrent: { self.followerGeneration == generation }, fetch: { try await self.service.fetchFollowers(page: 0) },
-            failureTitle: "刷新粉丝失败", onLogin: { self.requiresLogin = true }, onAlert: { self.alert = $0 })
+            failureTitle: "刷新粉丝失败", onAlert: { self.alert = $0 })
     }
 
     /// 粉丝列表的分页加载。
     func loadMoreFollowersIfNeeded(currentUser: CommunityUser?) async {
         let generation = followerGeneration
         await loadMoreMinePage(current: currentUser, read: { self.followerState }, write: { self.followerState = $0 },
-            isCurrent: { self.followerGeneration == generation }, fetch: { try await self.service.fetchFollowers(page: $0) },
-            onLogin: { self.requiresLogin = true })
+            isCurrent: { self.followerGeneration == generation }, fetch: { try await self.service.fetchFollowers(page: $0) })
     }
 
     /// 重新拉取关注列表第一页。
@@ -230,15 +212,14 @@ final class MineViewModel: ObservableObject {
         let generation = followingGeneration
         await refreshMinePage(read: { self.followingState }, write: { self.followingState = $0 },
             isCurrent: { self.followingGeneration == generation }, fetch: { try await self.service.fetchFollowings(page: 0) },
-            failureTitle: "刷新关注失败", onLogin: { self.requiresLogin = true }, onAlert: { self.alert = $0 })
+            failureTitle: "刷新关注失败", onAlert: { self.alert = $0 })
     }
 
     /// 关注列表的分页加载。
     func loadMoreFollowingsIfNeeded(currentUser: CommunityUser?) async {
         let generation = followingGeneration
         await loadMoreMinePage(current: currentUser, read: { self.followingState }, write: { self.followingState = $0 },
-            isCurrent: { self.followingGeneration == generation }, fetch: { try await self.service.fetchFollowings(page: $0) },
-            onLogin: { self.requiresLogin = true })
+            isCurrent: { self.followingGeneration == generation }, fetch: { try await self.service.fetchFollowings(page: $0) })
     }
 
     /// 重新拉取“我的帖子”第一页。
@@ -249,15 +230,14 @@ final class MineViewModel: ObservableObject {
         let generation = posterGeneration
         await refreshMinePage(read: { self.posterState }, write: { self.posterState = $0 },
             isCurrent: { self.posterGeneration == generation }, fetch: { try await self.service.fetchMyPosters(page: 0) },
-            failureTitle: "刷新帖子失败", onLogin: { self.requiresLogin = true }, onAlert: { self.alert = $0 })
+            failureTitle: "刷新帖子失败", onAlert: { self.alert = $0 })
     }
 
     /// “我的帖子”列表的分页加载。
     func loadMorePostersIfNeeded(currentPoster: CommunityPoster?) async {
         let generation = posterGeneration
         await loadMoreMinePage(current: currentPoster, read: { self.posterState }, write: { self.posterState = $0 },
-            isCurrent: { self.posterGeneration == generation }, fetch: { try await self.service.fetchMyPosters(page: $0) },
-            onLogin: { self.requiresLogin = true })
+            isCurrent: { self.posterGeneration == generation }, fetch: { try await self.service.fetchMyPosters(page: $0) })
     }
 
 }
@@ -274,8 +254,6 @@ final class UserProfileViewModel: ObservableObject {
     /// 他人帖子列表分页状态。
     @Published private(set) var posterState = MinePagedState<CommunityPoster>()
     @Published private(set) var isFollowingUser = false
-    /// 社区会话失效时通知页面回到登录流程。
-    @Published private(set) var requiresLogin = false
     @Published var alert: AppAlert?
 
     private let userID: Int
@@ -344,12 +322,6 @@ final class UserProfileViewModel: ObservableObject {
                 profileStatus = hadUserInfo ? .loaded : .idle
                 return
             }
-            if isMineNotLoggedIn(error) {
-                profileStatus = hadUserInfo ? .loaded : .failed(error.localizedDescription)
-                requiresLogin = true
-                return
-            }
-
             if hadUserInfo {
                 profileStatus = .loaded
                 alert = AppAlert(title: "刷新主页失败", message: error.localizedDescription)
@@ -383,10 +355,6 @@ final class UserProfileViewModel: ObservableObject {
                 return
             }
             if TaskCancellation.matches(error) { return }
-            if isMineNotLoggedIn(error) {
-                requiresLogin = true
-                return
-            }
             alert = AppAlert(title: userInfo.following ? "取消关注失败" : "关注失败", message: error.localizedDescription)
         }
     }
@@ -397,15 +365,14 @@ final class UserProfileViewModel: ObservableObject {
         let generation = posterGeneration
         await refreshMinePage(read: { self.posterState }, write: { self.posterState = $0 },
             isCurrent: { self.posterGeneration == generation }, fetch: { try await self.service.fetchUserPosters(userID: self.userID, page: 0) },
-            failureTitle: "刷新帖子失败", onLogin: { self.requiresLogin = true }, onAlert: { self.alert = $0 })
+            failureTitle: "刷新帖子失败", onAlert: { self.alert = $0 })
     }
 
     /// 指定用户帖子列表分页加载。
     func loadMorePostersIfNeeded(currentPoster: CommunityPoster?) async {
         let generation = posterGeneration
         await loadMoreMinePage(current: currentPoster, read: { self.posterState }, write: { self.posterState = $0 },
-            isCurrent: { self.posterGeneration == generation }, fetch: { try await self.service.fetchUserPosters(userID: self.userID, page: $0) },
-            onLogin: { self.requiresLogin = true })
+            isCurrent: { self.posterGeneration == generation }, fetch: { try await self.service.fetchUserPosters(userID: self.userID, page: $0) })
     }
 
 }

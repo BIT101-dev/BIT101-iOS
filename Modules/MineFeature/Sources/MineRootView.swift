@@ -132,7 +132,7 @@ private struct MineRootViewScene: View {
                 }
             }
             .navigationDestination(item: $selectedUserID) { userID in
-                UserProfileRootView(dependencies: dependencies, media: media, posters: posters, userID: userID, onLogout: onLogout)
+                UserProfileRootView(dependencies: dependencies, media: media, posters: posters, userID: userID)
             }
             .environment(dependencies)
             .environment(media)
@@ -155,10 +155,6 @@ private struct MineRootViewScene: View {
             await viewModel.refreshAll()
         }
         .diagnosticAlert(item: $viewModel.alert)
-        .onChange(of: viewModel.requiresLogin) { _, requiresLogin in
-            guard requiresLogin else { return }
-            onLogout()
-        }
     }
 
     /// 资料卡区域，根据加载状态展示骨架、错误页或真实内容。
@@ -224,8 +220,8 @@ public struct UserProfileRootView: View {
     private let identity: [ObjectIdentifier]
     private let resourceID: Int
 
-    public init(dependencies: MineDependencies, media: MediaEnvironment, posters: CommunityPosterDestination, userID: Int, onLogout: @escaping () -> Void = {}) {
-        scene = UserProfileRootViewScene(dependencies: dependencies, media: media, posters: posters, userID: userID, onLogout: onLogout)
+    public init(dependencies: MineDependencies, media: MediaEnvironment, posters: CommunityPosterDestination, userID: Int) {
+        scene = UserProfileRootViewScene(dependencies: dependencies, media: media, posters: posters, userID: userID)
         identity = [ObjectIdentifier(dependencies), ObjectIdentifier(media)]
         resourceID = userID
     }
@@ -242,7 +238,6 @@ private struct UserProfileRootViewScene: View {
     private let destinations: CommunityPosterDestination
     private let media: MediaEnvironment
     let userID: Int
-    let onLogout: () -> Void
 
     /// 指定用户主页状态机。
     @StateObject private var viewModel: UserProfileViewModel
@@ -251,12 +246,11 @@ private struct UserProfileRootViewScene: View {
     @State private var isProfileRetryRequested = false
     @State private var isPosterRetryRequested = false
 
-    init(dependencies: MineDependencies, media: MediaEnvironment, posters: CommunityPosterDestination, userID: Int, onLogout: @escaping () -> Void = {}) {
+    init(dependencies: MineDependencies, media: MediaEnvironment, posters: CommunityPosterDestination, userID: Int) {
         self.dependencies = dependencies
         self.media = media
         self.destinations = posters
         self.userID = userID
-        self.onLogout = onLogout
         _viewModel = StateObject(wrappedValue: UserProfileViewModel(userID: userID, service: dependencies.profile))
     }
 
@@ -296,10 +290,6 @@ private struct UserProfileRootViewScene: View {
             await viewModel.refreshPosters()
             guard !Task.isCancelled else { return }
             isPosterRetryRequested = false
-        }
-        .onChange(of: viewModel.requiresLogin) { _, requiresLogin in
-            guard requiresLogin else { return }
-            onLogout()
         }
         .sheet(item: $selectedPoster) { poster in
             NavigationStack {

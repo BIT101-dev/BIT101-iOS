@@ -30,6 +30,67 @@ struct ScheduleRepositoryBoundaryTests {
         }
     }
 
+    private final class SelectedClassroomService: ScheduleClassroomServicing {
+        var authenticationCount = 0, cancellationCount = 0
+        var suspendFirst = false
+        var gate: CheckedContinuation<Void, Never>?
+        var holdAuthentication = false
+        var requests: [(String, String, Date)] = []
+        func prepareTeachingCenterAccess() async throws {
+            authenticationCount += 1
+            if suspendFirst && authenticationCount == 1 {
+                do { try await Task.sleep(for: .seconds(60)) }
+                catch { cancellationCount += 1; throw error }
+            }
+            if holdAuthentication { await withCheckedContinuation { gate = $0 } }
+        }
+        func fetchCurrentTermOnly() async throws -> String { "test-term" }
+        func fetchCampuses() async throws -> [CampusRecord] { [] }
+        func fetchBuildings(campusCode: String?) async throws -> [BuildingRecord] {
+            [BuildingRecord(id: "building", name: "楼", buildingCode: "building", campusName: "校区", campusCode: campusCode ?? "")]
+        }
+        func fetchClassrooms(buildingID: String, term: String, date: Date) async throws -> [ClassroomRecord] {
+            requests.append((buildingID, term, date))
+            return [ClassroomRecord(id: buildingID, name: buildingID, busyTimeCodes: [])]
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func classroomSelectionCancelsThePreviousAuthentication(campus: Bool) async throws {
+        var initial = ScheduleCache(); initial.currentTerm = "test-term"
+        let repository = makeRepository(load: { _ in .loaded(initial) }, save: { _, _, _ in })
+        await repository.loadIfNeeded()
+        let service = SelectedClassroomService(); service.suspendFirst = true
+        let model = ScheduleClassroomViewModel(service: service, repository: repository)
+        let first = try #require(campus ? model.selectCampus(code: "A") : model.selectBuilding(id: "A"))
+        defer { first.cancel() }
+        try await waitForTestEvent { service.authenticationCount == 1 }
+        let second = try #require(campus ? model.selectCampus(code: "B") : model.selectBuilding(id: "B"))
+        await second.value; await first.value
+        #expect(service.cancellationCount == 1 && service.requests.count == 1)
+        #expect(service.requests.first?.0 == (campus ? "building" : "B"))
+        #expect(model.classroomAvailabilities.map(\.id) == [campus ? "building" : "B"])
+        #expect(model.notice == nil && !model.isLoadingClassrooms && !model.shouldShowInitialClassroomSpinner)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func classroomQueryCapturesItsTermBuildingAndDateBeforeAuthentication() async throws {
+        var initial = ScheduleCache(); initial.currentTerm = "test-term"
+        let repository = makeRepository(load: { _ in .loaded(initial) }, save: { _, _, _ in })
+        await repository.loadIfNeeded()
+        var date = Date(timeIntervalSince1970: 1_000)
+        let service = SelectedClassroomService(); service.holdAuthentication = true
+        let model = ScheduleClassroomViewModel(service: service, repository: repository, now: { date })
+        let work = try #require(model.selectBuilding(id: "A"))
+        defer { work.cancel(); service.gate?.resume(); service.gate = nil }
+        try await waitForTestEvent { service.gate != nil }
+        repository.resolveCurrentTerm("changed-term"); date = date.addingTimeInterval(86_400)
+        service.gate?.resume(); service.gate = nil
+        await work.value
+        #expect(service.requests.count == 1 && service.requests.first?.0 == "A")
+        #expect(service.requests.first?.1 == "test-term" && service.requests.first?.2 == Date(timeIntervalSince1970: 1_000))
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: [7, 10])
     func classroomDefaultsFollowTheInjectedCourseClock(hour: Int) async throws {
         let firstDay = try #require(ScheduleDateCodec.parseDate("2001-01-01"))

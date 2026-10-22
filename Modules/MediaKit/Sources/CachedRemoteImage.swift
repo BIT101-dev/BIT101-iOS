@@ -280,7 +280,7 @@ actor CachedRemoteImageStore {
                                                           maximumPixelSize: maximumPixelSize)
         else { return nil }
         guard cacheGeneration == generation else { return nil }
-        imageCache.setObject(decoded, forKey: key as NSString, cost: decodedPixelCost(decoded))
+        imageCache.setObject(decoded, forKey: key as NSString, cost: MediaDisplayBudget.pixelBytes(decoded))
         return decoded
     }
 
@@ -313,7 +313,7 @@ actor CachedRemoteImageStore {
         await store(data, for: url)
         guard cacheGeneration == generation, !Task.isCancelled else { return nil }
         let key = "\(cacheKey(for: url))|pixels:\(maximumPixelSize ?? 0)" as NSString
-        imageCache.setObject(decoded, forKey: key, cost: decodedPixelCost(decoded))
+        imageCache.setObject(decoded, forKey: key, cost: MediaDisplayBudget.pixelBytes(decoded))
         return decoded
     }
 
@@ -347,9 +347,6 @@ actor CachedRemoteImageStore {
         try? files.setModificationDate(Date(), at: fileURL)
     }
 
-    private func decodedPixelCost(_ image: UIImage) -> Int {
-        Int(image.size.width * image.scale) * Int(image.size.height * image.scale) * 4
-    }
 }
 
 #endif

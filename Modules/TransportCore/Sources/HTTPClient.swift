@@ -167,6 +167,7 @@ public struct HTTPClient {
     public func send(
         _ request: URLRequest,
         accepting statusCodes: Range<Int> = 200 ..< 300,
+        alsoAccepting additionalStatusCodes: Set<Int> = [],
         maximumBytes: Int? = HTTPResponseResourceLimits.maximumStructuredBytes
     ) async throws -> HTTPResponse {
         try Task.checkCancellation()
@@ -201,7 +202,7 @@ public struct HTTPClient {
                 await record(request, HTTPResponse(data: data, response: httpResponse, finalRequest: finalRequest))
                 try Task.checkCancellation()
             }
-            guard statusCodes.contains(httpResponse.statusCode) else {
+            guard statusCodes.contains(httpResponse.statusCode) || additionalStatusCodes.contains(httpResponse.statusCode) else {
                 let message = try await Self.errorMessageInBackground(from: data)
                 throw HTTPClientError.unacceptableStatus(
                     code: httpResponse.statusCode,

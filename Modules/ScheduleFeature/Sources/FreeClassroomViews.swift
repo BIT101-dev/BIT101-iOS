@@ -46,9 +46,7 @@ struct FreeClassroomTabView: View {
                 Picker("校区", selection: Binding(
                     get: { viewModel.cache.selectedCampusCode },
                     set: { newValue in
-                        Task {
-                            await viewModel.selectCampus(code: newValue)
-                        }
+                        viewModel.selectCampus(code: newValue)
                     }
                 )) {
                     ForEach(viewModel.campuses) { campus in
@@ -61,9 +59,7 @@ struct FreeClassroomTabView: View {
                 Picker("教学楼", selection: Binding(
                     get: { viewModel.selectedBuildingID },
                     set: { newValue in
-                        Task {
-                            await viewModel.selectBuilding(id: newValue)
-                        }
+                        viewModel.selectBuilding(id: newValue)
                     }
                 )) {
                     ForEach(viewModel.buildings) { building in

@@ -375,7 +375,8 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
     }
 
     private func sendResponse(_ request: URLRequest, identity: CommunitySessionIdentity?) async throws -> (response: HTTPResponse, isAuthenticated: Bool) {
-        let response = try await httpClient.send(request)
+        // DELETE 的目标已消失时，沿同一端点与账号校验完成幂等删除。
+        let response = try await httpClient.send(request, alsoAccepting: request.httpMethod == "DELETE" ? [404] : [])
         do {
             try validateResponse(response, request: request)
             try validateIdentity(identity)

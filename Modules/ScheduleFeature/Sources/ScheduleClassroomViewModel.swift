@@ -27,8 +27,8 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
     private var classroomRecords: [ClassroomRecord] = []
     private var classroomQueryDate: Date?
     private let now: @MainActor () -> Date
-    private var classroomPageTask: Task<Void, Never>?
-    private var classroomPageTaskID: UUID?
+    private var classroomTask: Task<Void, Never>?
+    private var classroomTaskID: UUID?
     private var subscription: AnyCancellable?
     private var cacheSubscription: AnyCancellable?
 
@@ -42,14 +42,14 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
             .sink { [weak self] in self?.selectedBuildingID = $0 }
     }
 
-    deinit { classroomPageTask?.cancel() }
+    deinit { classroomTask?.cancel() }
 
     func restoreSelection() { selectedBuildingID = cache.selectedBuildingID }
 
     func reset() {
-        classroomPageTask?.cancel()
-        classroomPageTask = nil
-        classroomPageTaskID = nil
+        classroomTask?.cancel()
+        classroomTask = nil
+        classroomTaskID = nil
         classroomCoordinator.reset()
         isLoadingClassroomMeta = false
         isLoadingClassrooms = false
@@ -83,55 +83,35 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
         return "更新时间：\(updatedAt.formatted(.dateTime.month().day().hour().minute()))"
     }
 
-    /// 切换空教室查询校区。
-    func selectCampus(code: String) async {
-        guard code != cache.selectedCampusCode else { return }
-
-        let requestID = beginClassroomRequest()
-        defer {
-            finishClassroomRequestIfCurrent(requestID)
-        }
+    /// 切换选择时取消旧查询，由当前选择持有后续认证与读取。
+    @discardableResult
+    func selectCampus(code: String) -> Task<Void, Never>? {
+        guard code != cache.selectedCampusCode else { return nil }
         cache.selectedCampusCode = code
         cache.selectedCampusName = campuses.first(where: { $0.code == code })?.name ?? ""
         selectedBuildingID = ""
         cache.selectedBuildingID = ""
         buildings = cache.cachedClassroomBuildingsByCampusCode[code] ?? []
-        if !buildings.isEmpty {
-            resolveSelectedBuildingIfNeeded()
-        }
+        if !buildings.isEmpty { resolveSelectedBuildingIfNeeded() }
         classroomRecords = []
         classroomQueryDate = nil
         persist()
-
-        do {
-            try await loadBuildings(requestID: requestID)
-            if !selectedBuildingID.isEmpty {
-                try await refreshClassrooms(requestID: requestID)
-            }
-        } catch {
-            handleClassroomRequestError(error, requestID: requestID, title: "空教室同步失败")
+        return startClassroomRequest { model, requestID in
+            try await model.loadBuildings(requestID: requestID)
+            try await model.refreshClassrooms(requestID: requestID)
         }
     }
 
-    /// 切换当前教学楼并刷新空教室结果。
-    func selectBuilding(id: String) async {
-        guard id != selectedBuildingID else { return }
-
-        let requestID = beginClassroomRequest()
-        defer {
-            finishClassroomRequestIfCurrent(requestID)
-        }
+    @discardableResult
+    func selectBuilding(id: String) -> Task<Void, Never>? {
+        guard id != selectedBuildingID else { return nil }
         selectedBuildingID = id
         cache.selectedBuildingID = id
-        isLoadingClassrooms = true
         classroomRecords = []
         classroomQueryDate = nil
         persist()
-
-        do {
-            try await refreshClassrooms(requestID: requestID)
-        } catch {
-            handleClassroomRequestError(error, requestID: requestID, title: "空教室同步失败")
+        return startClassroomRequest { model, requestID in
+            try await model.refreshClassrooms(requestID: requestID)
         }
     }
 
@@ -146,23 +126,21 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
     ///
     /// 如果当前学期编码还未知，会先补查学期，再请求教室占用。
     func refreshClassrooms() async {
-        let requestID = beginClassroomRequest()
-        defer {
-            finishClassroomRequestIfCurrent(requestID)
-        }
-        do {
-            try await refreshClassrooms(requestID: requestID)
-        } catch {
-            handleClassroomRequestError(error, requestID: requestID, title: "空教室同步失败")
-        }
+        await startClassroomRequest { model, requestID in
+            try await model.refreshClassrooms(requestID: requestID)
+        }.value
     }
 
     /// 当前教学楼的空教室状态刷新实现。
     ///
     /// 网络刷新入口先分配 `requestID`，UI 回写资格始终归属于最新请求。
     private func refreshClassrooms(requestID: Int) async throws {
-        if cache.currentTerm.isEmpty {
-            let term = try await withClassroomRequestTimeout { [self] in
+        guard isCurrentClassroomRequest(requestID), !selectedBuildingID.isEmpty else { return }
+        let buildingID = selectedBuildingID
+        let queryDate = now()
+        var term = cache.currentTerm
+        if term.isEmpty {
+            term = try await withClassroomRequestTimeout { [self] in
                 try await service.fetchCurrentTermOnly()
             }
             guard isCurrentClassroomRequest(requestID) else { throw CancellationError() }
@@ -179,9 +157,9 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
             }
         }
 
-        let queryDate = now()
-        let records = try await withClassroomRequestTimeout { [self] in
-            try await service.fetchClassrooms(buildingID: selectedBuildingID, term: cache.currentTerm, date: queryDate)
+        let requestTerm = term
+        let records = try await withClassroomRequestTimeout { [service] in
+            try await service.fetchClassrooms(buildingID: buildingID, term: requestTerm, date: queryDate)
         }
         guard isCurrentClassroomRequest(requestID) else { throw CancellationError() }
 
@@ -196,7 +174,7 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
     /// ViewModel 持有请求任务，页面离开空教室分栏后请求继续执行。
     func refreshClassroomPage() async {
         startClassroomPageRefresh()
-        guard let task = classroomPageTask else { return }
+        guard let task = classroomTask else { return }
         await task.value
     }
 
@@ -205,47 +183,46 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
     /// 分栏进入动作负责触发，网络任务由 ViewModel 持有；已有请求进行中时复用它，
     /// 让 DDL / 空教室快速切换保持同一请求状态。
     func startClassroomPageRefresh() {
-        guard classroomPageTask == nil else { return }
-
-        let taskID = UUID()
-        let generation = accountGeneration
-        classroomPageTaskID = taskID
-        classroomPageTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            guard self.accountGeneration == generation, !Task.isCancelled else { return }
-            await self.performClassroomPageRefresh(accountGeneration: generation)
-            guard self.accountGeneration == generation,
-                  self.classroomPageTaskID == taskID
-            else { return }
-            self.classroomPageTask = nil
-            self.classroomPageTaskID = nil
+        guard classroomTask == nil else { return }
+        applyCurrentClassroomSectionBlock()
+        startClassroomRequest { model, requestID in
+            if model.needsCompleteClassroomCampusCatalog || model.buildings.isEmpty {
+                try await model.loadClassroomMeta(requestID: requestID)
+            }
+            try Task.checkCancellation()
+            guard model.isCurrentClassroomRequest(requestID) else { return }
+            try await model.refreshClassrooms(requestID: requestID)
         }
     }
 
-    /// 空教室页面刷新实现；外层负责请求任务的持有和复用。
-    private func performClassroomPageRefresh(accountGeneration: Int) async {
-        guard self.accountGeneration == accountGeneration, !Task.isCancelled else { return }
-        applyCurrentClassroomSectionBlock()
+    /// 页面刷新与选择查询共享任务所有权，分栏切换继续复用当前请求。
+    @discardableResult
+    private func startClassroomRequest(
+        _ operation: @escaping @MainActor (ScheduleClassroomViewModel, Int) async throws -> Void
+    ) -> Task<Void, Never> {
+        classroomTask?.cancel()
+        let taskID = UUID()
+        let generation = accountGeneration
         let requestID = beginClassroomRequest()
-        defer {
-            finishClassroomRequestIfCurrent(requestID)
-        }
-
-        do {
-            if needsCompleteClassroomCampusCatalog || buildings.isEmpty {
-                try await loadClassroomMeta(requestID: requestID)
+        classroomTaskID = taskID
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                if self.classroomTaskID == taskID {
+                    self.finishClassroomRequestIfCurrent(requestID)
+                    self.classroomTask = nil
+                    self.classroomTaskID = nil
+                }
             }
-
-            guard self.accountGeneration == accountGeneration,
-                  !Task.isCancelled,
-                  isCurrentClassroomRequest(requestID),
-                  !selectedBuildingID.isEmpty
-            else { return }
-            try await refreshClassrooms(requestID: requestID)
-        } catch {
-            guard self.accountGeneration == accountGeneration else { return }
-            handleClassroomRequestError(error, requestID: requestID, title: "空教室同步失败")
+            guard self.accountGeneration == generation, !Task.isCancelled else { return }
+            do { try await operation(self, requestID) }
+            catch {
+                guard self.accountGeneration == generation else { return }
+                self.handleClassroomRequestError(error, requestID: requestID, title: "空教室同步失败")
+            }
         }
+        classroomTask = task
+        return task
     }
 
     /// 加载空教室所需的校区和教学楼元数据。

@@ -1,0 +1,142 @@
+@testable import BIT101_iOS
+@testable import GalleryFeature
+@testable import PaperFeature
+@testable import TransportCore
+import ClientCore
+import StorageCore
+import Foundation
+import Combine
+import CommunityCore
+import CommunityPersistence
+import CommunityTransport
+import CommunityUI
+import MediaKit
+import SwiftUI
+import Testing
+import UIKit
+
+@MainActor
+@Suite(.serialized)
+struct CommunityRecoveryCompositionTests {
+    private final class PaperReads: PaperListServicing {
+        var calls = 0, offline = true
+        func fetchPapers(search: String?, order: PaperSortOrder, page: Int) async throws -> [PaperSummary] {
+            calls += 1
+            if offline { throw URLError(.notConnectedToInternet) }
+            return []
+        }
+        func fetchPaper(id: Int) async throws -> PaperDetail { throw URLError(.unsupportedURL) }
+        func fetchPreviewMetadata(id: Int) async throws -> PaperPreviewMetadata { throw URLError(.unsupportedURL) }
+    }
+
+    private final class Messages: GalleryMessageServicing {
+        var failSummary = false, holdSummary = false, isSuspended = false, cancellations = 0
+        var cursors: [Int?] = []
+        func fetchMessageUnreadCounts() async throws -> GalleryMessageUnreadCounts {
+            if failSummary { throw URLError(.notConnectedToInternet) }
+            if holdSummary {
+                isSuspended = true
+                defer { isSuspended = false }
+                do { try await Task.sleep(for: .seconds(60)) }
+                catch { cancellations += 1; throw error }
+            }
+            return .init()
+        }
+        func fetchMessages(type: GalleryMessageType, lastID: Int?) async throws -> [GalleryMessage] {
+            cursors.append(lastID)
+            return []
+        }
+    }
+
+    private final class UnusedTransport: HTTPTransport {
+        func data(for request: URLRequest) async throws -> (Data, URLResponse) { throw URLError(.unsupportedURL) }
+    }
+
+    private func session() -> CommunitySession {
+        CommunitySession(httpClient: HTTPClient(transport: UnusedTransport(), observer: nil),
+            baseURL: AppURL.required("https://example.invalid"), credentials: {
+                .init(identity: .init(accountIdentifier: "composition-recovery"), cookie: "fixture")
+            }, refresh: { _ in })
+    }
+
+    private func media() -> MediaEnvironment {
+        let files = PreferenceMemoryFiles(), client = HTTPClient(transport: UnusedTransport(), observer: nil)
+        return AppMedia.makeEnvironment(files: files, previewStorage: MediaPreviewStorage(files: files),
+            imageHTTPClient: client, avatarHTTPClient: client)
+    }
+
+    private func window<V: View>(_ view: V) throws -> (UIWindow, UIHostingController<AnyView>) {
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene), controller = UIHostingController(rootView: AnyView(view))
+        window.rootViewController = controller; window.makeKeyAndVisible(); window.layoutIfNeeded()
+        return (window, controller)
+    }
+
+    private func render() async throws {
+        var rendered = false
+        DispatchQueue.main.async {
+            DispatchQueue.main.async { rendered = true }
+        }
+        try await waitForTestEvent { rendered }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func paperRecoveryWaitsForTheConnectedTransitionAfterConnectionIsRequired() async throws {
+        let path = NetworkPathState(snapshot: .init(status: .disconnected)), service = PaperReads()
+        let details = PaperService(session: session())
+        let dependencies = PaperDependencies(list: service, detail: details, composer: details, networkPath: path)
+        let (window, _) = try window(NavigationStack { PaperRootView(dependencies: dependencies, media: media()) })
+        defer { window.isHidden = true; window.rootViewController = nil }
+        try await waitForTestEvent { service.calls == 1 }
+        path.update(snapshot: .init(status: .requiresConnection))
+        try await render()
+        #expect(service.calls == 1)
+        service.offline = false
+        path.update(snapshot: .init(status: .connected))
+        try await waitForTestEvent { service.calls == 2 }
+        #expect(service.calls == 2)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func messageRecoveryCancellationKeepsItsWindowRetryableAfterOwnerExit(changeType: Bool) async throws {
+        let domain = "BIT101Tests.message-owner-recovery"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let files = PreferenceMemoryFiles(), account = AppStorageSession(accountIdentifier: domain)
+        let readStore = GalleryMessageReadStore(files: files, storageRoot: URL(fileURLWithPath: "/message-owner-recovery"),
+            defaults: defaults, session: { account })
+        let service = Messages(), model = GalleryMessageViewModel(service: service, readStore: readStore)
+        await model.refreshSelectedType()
+        let path = NetworkPathState(snapshot: .init(status: .disconnected))
+        let preferences = CommunityPreferences(snapshot: .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false,
+            useWebView: false, hideMakeupOutliers: false), saveMakeupFilter: { _ in })
+        let gallery = GalleryService(session: session(), preferences: { preferences.snapshot })
+        let dependencies = GalleryDependencies(webCredentials: .init(cookie: { "fixture" }, changes: Empty().eraseToAnyPublisher()),
+            currentIdentity: { .init(accountIdentifier: domain) }, feed: gallery, messageService: service, posterDetail: gallery,
+            subscriptions: gallery, reporting: gallery, composer: gallery, images: gallery, preferences: preferences, messages: readStore,
+            drafts: ComposerDraftStore(files: files, applicationSupport: URL(fileURLWithPath: "/message-owner-recovery"),
+                session: { account }, prepareImageData: ComposerDraftImageCompressor.compress), networkPath: path)
+        let view = GalleryMessagesView(papers: .init(papers: { _, _ in AnyView(Text("papers")) }, detail: { _ in AnyView(Text("paper")) }),
+            courses: .init { _ in AnyView(Text("course")) }, viewModel: model)
+            .environment(dependencies).environment(media()).environment(CommunityProfileDestination { _ in AnyView(Text("profile")) })
+        let (window, controller) = try window(NavigationStack { view })
+        defer { window.isHidden = true; window.rootViewController = nil; model.pendingOperations.cancel() }
+        try await render()
+        service.failSummary = true
+        await model.refreshSelectedType(); model.alert = nil
+        service.failSummary = false; service.holdSummary = true
+        path.update(snapshot: .init(status: .connected))
+        try await waitForTestEvent { service.isSuspended }
+        if changeType { model.selectedType = .like }
+        else { controller.rootView = AnyView(Text("closed")) }
+        try await waitForTestEvent { service.cancellations > 0 }
+        service.holdSummary = false
+        controller.rootView = AnyView(Text("closed"))
+        try await render()
+        model.selectedType = .comment
+        let previous = service.cursors.count
+        await model.retrySelectedTypeIfNeeded()
+        #expect(service.cursors.count > previous && model.state(for: .comment).status == .loaded)
+        #expect(model.alert == nil && !service.cursors.contains(nil))
+    }
+}

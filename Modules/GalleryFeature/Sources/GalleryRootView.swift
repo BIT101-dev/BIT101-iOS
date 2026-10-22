@@ -293,8 +293,8 @@ private struct GalleryRootViewScene: View {
                 viewModel.enqueueRefresh(for: newFeed)
             }
         }
-        .onChange(of: networkObserver.isReachable) { oldValue, newValue in
-            guard newValue, !oldValue else { return }
+        .onChange(of: networkObserver.snapshot.status) { _, newValue in
+            guard newValue == .connected else { return }
             media.retryFailedImages()
             viewModel.enqueueRetry(for: viewModel.selectedFeed)
             unreadRefreshGeneration &+= 1

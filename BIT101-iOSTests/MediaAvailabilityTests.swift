@@ -9,6 +9,22 @@ import os
 
 @MainActor
 struct MediaAvailabilityTests {
+    @Test(arguments: [8, 16, 32])
+    func decodedMemoryBudgetIncludesComponentDepthAndPaddedRows(bits: Int) throws {
+        let rowBytes = 64, height = 2
+        let provider = try #require(CGDataProvider(data: Data(repeating: 0, count: rowBytes * height) as CFData))
+        var info = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+        if bits == 32 { info.insert(.floatComponents) }
+        let pixels = try #require(CGImage(width: 3, height: height, bitsPerComponent: bits,
+            bitsPerPixel: bits * 4, bytesPerRow: rowBytes, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: info,
+            provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent))
+        let image = UIImage(cgImage: pixels), owner = UUID()
+        #expect(MediaDisplayBudget.pixelBytes(image) == rowBytes * height)
+        #expect(!MediaDisplayBudget(maximumBytes: rowBytes * height - 1).retain(image, owner: owner))
+        let budget = MediaDisplayBudget(maximumBytes: rowBytes * height)
+        #expect(budget.retain(image, owner: owner) && budget.usedBytes == rowBytes * height)
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func cacheWriteFailureKeepsDownloadedImagesAvailable(animated: Bool) async throws {
         let helper = MediaDependencyTests()

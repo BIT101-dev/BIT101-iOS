@@ -126,7 +126,7 @@ TEST_AREA_SUITES = {
         "AppDeepLinkRouteTests", "AppLocalDataOwnershipTests", "AppLocalDataResourceTests", "AppSettingsPersistenceBoundaryTests",
         "AppUpdateCheckerTests", "CampusMapLocationTests", "ComposerDraftStorageTests",
         "ErrorReportAndSchedulePolicyTests", "ErrorReportURLRedactionTests", "ExperimentalPreferenceCloudSyncTests", "ExtendedInfrastructureTests",
-        "ExternalScheduleInfrastructureTests", "FeatureCompositionTests", "GalleryContentFilterTests",
+        "ExternalScheduleInfrastructureTests", "CommunityRecoveryCompositionTests", "FeatureCompositionTests", "GalleryContentFilterTests",
         "GalleryRecommendationPrefetchTests", "ICloudSmokeEvidenceTests", "ImageCacheDiskQuotaTests",
         "InfrastructureTests", "KeyboardAccessoryOwnershipTests", "MediaAvailabilityTests", "MediaDependencyTests", "MediaPresentationTests", "NetworkClientTests", "NetworkSmokeSMSPromptTests",
         "PaperCommentPagingTests", "NetworkEvidenceProjectionTests", "NetworkSmokeCoverageTests", "NetworkSmokeExternalContentTests",

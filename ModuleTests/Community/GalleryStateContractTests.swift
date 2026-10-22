@@ -32,7 +32,9 @@ struct GalleryStateContractTests {
         var writeGate: ListRequestGate<Void>?
         var readGate: ListRequestGate<GalleryPosterDetail>?
         var writes = 0
+        var readFailure: (any Error)?
         func fetchPoster(id: Int) async throws -> GalleryPosterDetail {
+            if let readFailure { throw readFailure }
             if let readGate { return try await readGate.request() }
             return poster
         }
@@ -49,6 +51,23 @@ struct GalleryStateContractTests {
         func createComment(objectID: String, text: String, replyObjectID: String?, replyUID: Int?, anonymous: Bool, imageMids: [String]) async throws -> CommunityComment { throw URLError(.unsupportedURL) }
         func deleteComment(id: Int) async throws { throw URLError(.unsupportedURL) }
         func deletePoster(id: Int) async throws { throw URLError(.unsupportedURL) }
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func detailRefreshFailurePreservesConfirmedSubscriptionActions(loaded: Bool) async {
+        let service = SubscriptionDetails()
+        let model = GalleryPosterDetailViewModel(initialPoster: listPoster(1), service: service)
+        if loaded { await model.refreshAll() }
+        service.readFailure = URLError(.timedOut)
+        await model.refreshAll()
+        #expect(model.alert?.title == "加载帖子失败")
+        #expect(model.posterStatus == (loaded ? .loaded : .failed(URLError(.timedOut).localizedDescription)))
+        #expect(await model.setSubscription(.comment) == loaded)
+        #expect(service.writes == (loaded ? 1 : 0))
+        service.readFailure = nil
+        await model.refreshAll()
+        #expect(model.posterStatus == .loaded)
+        #expect(await model.setSubscription(.update))
     }
 
     @Test(.timeLimit(.minutes(1)))

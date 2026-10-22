@@ -45,7 +45,7 @@ struct GalleryMessagesView: View {
                         systemImage: "bell.badge",
                         message: message,
                         onRetry: {
-                            Task {
+                            viewModel.pendingOperations.enqueue {
                                 await viewModel.refreshSelectedType()
                             }
                         }
@@ -120,7 +120,7 @@ struct GalleryMessagesView: View {
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button("全部已读") {
-                    Task { await viewModel.markCurrentTypeAsRead() }
+                    viewModel.pendingOperations.enqueue { await viewModel.markCurrentTypeAsRead() }
                 }
                 .disabled(!viewModel.hasUnreadInCurrentType)
             }
@@ -132,31 +132,27 @@ struct GalleryMessagesView: View {
                 }
             }
         }
-        .task {
-            await viewModel.bootstrapIfNeeded()
+        .task(id: viewModel.selectedType) {
+            if currentState.status == .idle { await viewModel.bootstrapIfNeeded() }
+            else { await viewModel.retrySelectedTypeIfNeeded() }
         }
-        .onChange(of: networkObserver.isReachable) { oldValue, newValue in
-            guard newValue, !oldValue else { return }
-            Task {
+        .onChange(of: networkObserver.snapshot.status) { _, newValue in
+            guard newValue == .connected else { return }
+            viewModel.pendingOperations.enqueue {
                 await retryCurrentTypeIfNeeded()
             }
         }
         .onChange(of: scenePhase) { _, newPhase in
             guard newPhase == .active else { return }
-            Task {
+            viewModel.pendingOperations.enqueue {
                 await retryCurrentTypeIfNeeded()
             }
         }
-        .onChange(of: viewModel.selectedType) { _, newType in
+        .onChange(of: viewModel.selectedType) { _, _ in
             requestedMessage = nil
-            if viewModel.state(for: newType).status == .idle {
-                Task {
-                    await viewModel.refresh(type: newType)
-                }
-            } else {
-                Task { await viewModel.retrySelectedTypeIfNeeded() }
-            }
+            viewModel.pendingOperations.cancel()
         }
+        .onDisappear { viewModel.pendingOperations.cancel() }
         .task(id: requestedMessage) {
             guard let message = requestedMessage else { return }
             await viewModel.openMessage(message, in: viewModel.selectedType, using: dependencies.posterDetail)
@@ -175,7 +171,7 @@ struct GalleryMessagesView: View {
                 VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
                     Text("消息已读记录需要恢复").font(AppDesignSystem.Typography.title)
                     Text("当前消息继续展示。请重试读取，或确认恢复本机已读记录。")
-                    Button("重试读取") { Task { await viewModel.refreshSelectedType() } }
+                    Button("重试读取") { viewModel.pendingOperations.enqueue { await viewModel.refreshSelectedType() } }
                         .accessibilityIdentifier("messages.storage.retry")
                     Button("恢复已读状态") {
                         readRecovery = viewModel.readStateRecoveryAction()
@@ -190,7 +186,7 @@ struct GalleryMessagesView: View {
             }
         }
         .alert("恢复消息已读状态？", isPresented: $showsReadRecoveryConfirmation) {
-            Button("恢复已读状态", role: .destructive) { Task { await readRecovery?() } }
+            Button("恢复已读状态", role: .destructive) { viewModel.pendingOperations.enqueue { await readRecovery?() } }
                 .accessibilityIdentifier("messages.storage.confirm")
             Button("取消", role: .cancel) {}
         } message: {

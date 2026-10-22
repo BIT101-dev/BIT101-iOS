@@ -373,7 +373,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
                 posterStatus = previousStatus == .loading ? .idle : previousStatus
                 return
             }
-            posterStatus = .failed(error.localizedDescription)
+            posterStatus = hasKnownLikeState ? .loaded : .failed(error.localizedDescription)
             alert = AppAlert(title: "加载帖子失败", message: error.localizedDescription)
         }
     }
