@@ -64,13 +64,21 @@ def _committed_worker_revision(folder: str, revision: str, inputs: tuple[tuple[s
         if name and worker_input_name(folder, name)}
     if names != set(inputs) or any(git('show', revision + ':' + name) != content for name, content in inputs.items()):
         raise ValueError('Worker 部署需要先提交当前源码、配置、资产与依赖锁。')
+    source_revision = _last_input_commit(revision, lambda name: worker_input_name(folder, name), paths)
+    if source_revision: return source_revision
+    raise ValueError('Worker 源码需要可读取的 Git 提交身份。')
+
+
+def _last_input_commit(revision: str, includes, paths=()) -> str | None:
+    history = subprocess.check_output(['git', 'log', '--first-parent', '--diff-merges=first-parent', '--no-renames',
+        '--format=commit:%H', '--name-only', '-z', revision, *(['--', *paths] if paths else [])], cwd=ROOT, stderr=subprocess.PIPE)
     source_revision = None
-    for entry in git('log', '--format=commit:%H', '--name-only', '-z', revision, '--', *paths).decode().split('\0'):
+    for entry in history.decode().split('\0'):
         value = entry.lstrip('\n')
         if re.fullmatch(r'commit:(?:[0-9a-f]{40}|[0-9a-f]{64})', value): source_revision = value.removeprefix('commit:')
-        elif value and worker_input_name(folder, value):
+        elif value and includes(value):
             if source_revision: return source_revision
-    raise ValueError('Worker 源码需要可读取的 Git 提交身份。')
+    return None
 
 
 def worker_command(folder: str, *arguments: str) -> list[str]:
@@ -391,12 +399,7 @@ def _clean_source_identity(group: str, context: dict) -> str | None:
     changed = git('diff', '--name-only', '--no-renames', '-z', 'HEAD').split('\0')
     changed += git('ls-files', '--others', '--exclude-standard', '-z').split('\0')
     if any(name and includes_input(name, group) for name in changed): return None
-    commit = None
-    for entry in git('log', '--format=commit:%H', '--name-only', '-z', 'HEAD').split('\0'):
-        value = entry.lstrip('\n')
-        if re.fullmatch(r'commit:(?:[0-9a-f]{40}|[0-9a-f]{64})', value): commit = value.removeprefix('commit:')
-        elif value and includes_input(value, group): break
-    else: return None
+    commit = _last_input_commit('HEAD', lambda name: includes_input(name, group))
     if commit is None: return None
     environment = base64.urlsafe_b64encode(json.dumps([group, context], sort_keys=True).encode()).decode().rstrip('=')
     return f'git.{commit}.{environment}'

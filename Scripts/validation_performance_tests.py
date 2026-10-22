@@ -74,6 +74,7 @@ def run_self_test() -> None:
     source_identity_registry_self_test()
     native_bundle_identity_self_test()
     committed_source_identity_self_test()
+    merged_source_identity_self_test()
     static_audit_cancellation_self_test()
     failed_regression_self_test()
     with patch.object(subject.subprocess, 'check_output', side_effect=[b'Modules/StorageCore/Sources/AppFileService.swift\0', b'']) as git:
@@ -127,12 +128,65 @@ def committed_source_identity_self_test() -> None:
     with patch.object(provenance.subprocess, 'check_output', side_effect=[b'', b'', history]) as git:
         identity = provenance._clean_source_identity('manual-device', {'compiler': 'fixture'})
         assert identity.startswith('git.' + commit.decode() + '.')
-        assert git.call_args.args[0] == ['git', 'log', '--format=commit:%H', '--name-only', '-z', 'HEAD']
+        assert git.call_args.args[0] == ['git', 'log', '--first-parent', '--diff-merges=first-parent', '--no-renames',
+            '--format=commit:%H', '--name-only', '-z', 'HEAD']
     for tracked, untracked in ((b'Modules/Feature/Sources/File.swift\0', b''), (b'', b'Modules/Feature/Sources/File.swift\0')):
         with patch.object(provenance.subprocess, 'check_output', side_effect=[tracked, untracked]):
             assert provenance._clean_source_identity('manual-device', {}) is None
     with patch.object(provenance.subprocess, 'check_output', side_effect=[b'README.md\0', b'', history]):
         assert provenance._clean_source_identity('manual-device', {}).startswith('git.' + commit.decode() + '.')
+
+
+def merged_source_identity_self_test() -> None:
+    import os
+    import shutil
+    import subprocess
+    import validation_provenance as provenance
+    fixture = Path(__file__).resolve().parents[1] / '.build/static-audit/source-identity-self-test'
+    shutil.rmtree(fixture, ignore_errors=True)
+    fixture.mkdir(parents=True)
+    environment = dict(os.environ, GIT_AUTHOR_NAME='Fixture', GIT_AUTHOR_EMAIL='fixture@example.invalid',
+        GIT_COMMITTER_NAME='Fixture', GIT_COMMITTER_EMAIL='fixture@example.invalid')
+    def git(*arguments):
+        return subprocess.check_output(['git', '-c', 'commit.gpgsign=false', *arguments], cwd=fixture, env=environment,
+            stderr=subprocess.PIPE).decode().strip()
+    def store(name, content):
+        path = fixture / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+    swift = 'Modules/StorageCore/Sources/'
+    worker = 'Cloudflare/ErrorReportWorker/'
+    try:
+        git('init', '-q', '-b', 'main')
+        for name in (swift + 'First.swift', swift + 'Second.swift', worker + 'first.js', worker + 'second.js'):
+            store(name, 'base')
+        git('add', '.')
+        git('commit', '-qm', 'base')
+        git('checkout', '-qb', 'feature')
+        store(swift + 'Second.swift', 'feature')
+        store(worker + 'second.js', 'feature')
+        git('commit', '-qam', 'feature')
+        git('checkout', '-q', 'main')
+        store(swift + 'First.swift', 'main')
+        store(worker + 'first.js', 'main')
+        git('commit', '-qam', 'main')
+        with patch.object(provenance, 'ROOT', fixture), \
+                patch.object(provenance, 'includes_input', side_effect=lambda name, group: name.endswith('.swift')):
+            original = provenance._clean_source_identity('modules', {})
+            original_worker = provenance.worker_source_revision('ErrorReportWorker')
+            git('merge', '--no-ff', '-qm', 'merge', 'feature')
+            merged = git('rev-parse', 'HEAD')
+            identity = provenance._clean_source_identity('modules', {})
+            assert identity != original and identity.startswith('git.' + merged + '.')
+            assert provenance.worker_source_revision('ErrorReportWorker') == merged != original_worker
+            store('README.md', 'documentation')
+            git('add', '.')
+            git('commit', '-qm', 'documentation')
+            assert provenance._clean_source_identity('modules', {}) == identity
+            assert provenance.worker_source_revision('ErrorReportWorker') == merged
+    finally:
+        provenance._committed_worker_revision.cache_clear()
+        shutil.rmtree(fixture)
 
 
 def developer_directory_self_test() -> None:

@@ -23,8 +23,8 @@ PYBUDGET
 }
 
 bit101_acquire_workflow_lock() {
-  bit101_acquire_script_lock "$HOME/Library/Caches/BIT101-iOS/device-workflow.lock" BIT101_DEVICE_WORKFLOW_LOCK_HELD "$@"
   bit101_acquire_artifact_lock "$@"
+  bit101_acquire_script_lock "$HOME/Library/Caches/BIT101-iOS/device-workflow.lock" BIT101_DEVICE_WORKFLOW_LOCK_HELD "$@"
 }
 
 bit101_acquire_artifact_lock() {
@@ -106,7 +106,8 @@ with lock_path.open("a") as lock:
     environment["BIT101_WORKFLOW_DEADLINE"] = str(deadline)
     script = Path(sys.argv[3])
     command = ["zsh", "-c", script.read_text(), str(script), *sys.argv[4:]]
-    owns_process_group = os.environ.get("BIT101_DEVICE_WORKFLOW_LOCK_HELD") != "1"
+    owns_process_group = not any(os.environ.get(flag) == "1"
+        for flag in ("BIT101_DEVICE_WORKFLOW_LOCK_HELD", "BIT101_EXTENDED_TESTS_LOCK_HELD"))
     process = None
     pending_signal = None
     def interrupt(signum, _frame):

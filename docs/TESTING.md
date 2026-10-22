@@ -211,11 +211,11 @@ Scripts/run-extended-tests.sh cache
 
 同类日志、截图和报告覆盖固定路径。`test-metrics.txt` 保存构建与运行耗时、逐例结果、最慢用例、进程及交互统计。`activities` 读取原始操作记录，`diagnostics` 导出当前失败包，排查完成后清理导出副本并保留原始结果。
 
-缓存维护保留增量编译所需文件，共享 SDK、模块、原生 CompilationCache 和索引。远端原生缓存按来源提交与工具链选择，恢复失败后沿当前源码编译。缓存与诊断保持原始形式，CI 产物使用零压缩传输。长流程共用用户级工作流锁和工作副本产物锁；聚合流程继承锁、设备及总时钟。
+缓存维护保留增量编译所需文件，共享 SDK、模块、原生 CompilationCache 和索引。远端原生缓存按来源提交与工具链选择，恢复失败后沿当前源码编译。缓存与诊断保持原始形式，CI 产物使用零压缩传输。工作流统一先取得工作副本产物锁，再取得用户级共享资源锁；模块与 Catalyst 测试的固定系统偏好同样沿共享锁串行验收。聚合流程继承锁、设备及总时钟。
 
 原生结果按事务合并到固定结果包，中断时沿事务恢复前序结果。定向复验保留有效完整结果的来源；输入变化、相关失败或证据过期时，所属完整组进入重新验收。
 
-本地验证按所属文件的直接内容、执行权限和环境保存输入快照，相同内容在提交前后沿用身份。已提交输入以最近影响所属组的 Git 版本建立可交换身份；文档等范围外提交保留相关结果。核心证据携带所属输入快照，公开发布回执沿已提交输入与工具链核对。
+本地验证按所属文件的直接内容、执行权限和环境保存输入快照，相同内容在提交前后沿用身份。已提交输入沿 Git 第一父提交链读取相关差异，合并提交纳入相对第一父提交的改动，所属组与 Worker 共用这一身份口径；文档等范围外提交保留相关结果。核心证据携带所属输入快照，公开发布回执沿已提交输入与工具链核对。大型文件等维护候选保留在固定代码质量报告中，按需打开审阅。
 
 ## CI 与覆盖率
 
@@ -250,7 +250,7 @@ python3 Scripts/validation_evidence.py manual 检查项 \
 
 系统权限专项覆盖授权、拒绝、设置撤销与恢复。最低平台和安装专项记录实际设备、系统、应用版本、构建、分发来源和可执行 UUID。照片、Widget、Watch 和真实系统投递通过设备观察验收；邮件送达绑定正式报告、存储记录与实际收件头。
 
-分发验收先执行 `Scripts/build-install-device.sh archive-signed`，再通过 Xcode 的 App Store 导出流程取得最终 `.app`，运行 `python3 Scripts/validate_distribution.py 导出应用路径`。签名、描述文件、团队、版本、平台、最低系统、扩展归属、权益和最终隐私清单共同形成 `build/DeviceInstall/distribution-signing.json`，并登记到 `distribution-signing` 人工专项。
+分发验收先执行 `Scripts/build-install-device.sh archive-signed`，再通过 Xcode 的 App Store 导出流程取得最终 `.app`，运行 `python3 Scripts/validate_distribution.py 导出应用路径`。签名、描述文件、团队、版本、平台、最低系统、扩展归属、权益和最终隐私清单共同形成 `build/DeviceInstall/distribution-signing.json`，并登记到 `distribution-signing` 人工专项。发布上传同时向 App Store Connect 交付当前归档中的 App 与各扩展 dSYM，沿 [Apple 的符号上传说明](https://developer.apple.com/documentation/xcode/building-your-app-to-include-debugging-information)操作；在对应版本的处理结果中确认符号接收，将平台回执登记为该专项的证据。固定归档路径在下一次归档时覆盖，后续商店崩溃报告沿该版本已上传的符号解析。
 
 性能采样使用 [性能负载](../BIT101-iOSTests/PerformanceWorkloads.json)和原始 XCTest 指标，比较同设备、系统、工具链及生产配置下的耗时与内存。完整行为和 UI 运行后，通过 `Scripts/run-extended-tests.sh performance baseline 批准人` 保存批准基线，后续候选使用 `performance current`；迁移工作区使用 `python3 Scripts/ci_evidence.py import-baseline CI运行编号`。
 

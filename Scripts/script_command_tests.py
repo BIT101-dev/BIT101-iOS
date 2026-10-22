@@ -840,7 +840,8 @@ def workflow_lock_boundary_findings() -> list[str]:
         dispatch = (SCRIPT_ROOT / 'build-install-device.sh').read_text().split('if [[ "$ACTION" == install', 1)[1].split('\nif [[ "$ACTION" == install', 1)[0]
         test_lock = re.search(r'(?ms)^acquire_test_lock\(\) \{.*?^\}', (SCRIPT_ROOT / 'run-extended-tests.sh').read_text())[0]
         worker.write_text('ROOT_DIR="$BIT101_LOCK_TEST_CHECKOUT"\n' + support + '\n' + test_lock + '\n'
-                         'case "${1:-}" in modules|catalyst|catalyst-release-runtime) MODE="$1"; BUILD_ONLY=false; GENERIC_BUILD=false; SCRIPT_PATH="$0"; SCRIPT_ARGS=("$@"); acquire_test_lock ;; *)\n'
+                         'case "${1:-}" in aggregate) MODE=verify; verification_needs_device=false; BUILD_ONLY=false; GENERIC_BUILD=false; SCRIPT_PATH="$0"; SCRIPT_ARGS=("$@"); acquire_test_lock; if [[ "${BIT101_DEVICE_WORKFLOW_LOCK_HELD:-0}" != 1 ]]; then print artifacts-held; read -r reply < "$ROOT_DIR/release"; MODE=modules; acquire_test_lock; fi ;;\n'
+                         'modules|catalyst|catalyst-release-runtime) MODE="$1"; BUILD_ONLY=false; GENERIC_BUILD=false; SCRIPT_PATH="$0"; SCRIPT_ARGS=("$@"); acquire_test_lock ;; *)\n'
                          'ACTION=install; case "${1:-}" in artifact) ACTION=build ;; mac) ACTION=mac ;; esac\n'
                          + 'if [[ "$ACTION" == install' + dispatch + '\n;; esac\n'
                          'if [[ "${1:-}" == signal || "${1:-}" == budget ]]; then\n'
@@ -862,6 +863,19 @@ def workflow_lock_boundary_findings() -> list[str]:
         if (line(burst), line(burst)) != ('one', 'two'):
             raise ValueError('连续状态行按已到达的字节读取')
         burst.communicate(input='done\n', timeout=5)
+        aggregate = subprocess.Popen(['zsh', str(worker), 'aggregate'], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, env=dict(environment, BIT101_WORKFLOW_TIMEOUT_SECONDS='2'))
+        processes.append(aggregate)
+        if line(aggregate) != 'artifacts-held': raise ValueError('聚合流程取得产物锁')
+        direct = subprocess.Popen(['zsh', str(worker), 'modules'], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, env=dict(environment, BIT101_WORKFLOW_TIMEOUT_SECONDS='2'))
+        processes.append(direct)
+        if not line(direct).startswith('[等待]'): raise ValueError('单独流程等待同一工作区产物')
+        with release.open('w') as stream: stream.write('done\n')
+        aggregate_output, _ = aggregate.communicate(timeout=5)
+        direct_output, _ = direct.communicate(timeout=5)
+        if aggregate.returncode or direct.returncode or aggregate_output.strip() != 'entered' or direct_output.strip() != 'entered':
+            raise ValueError('聚合与单独流程沿同一锁顺序完成')
         first = subprocess.Popen(["zsh", str(worker), "hold"], stdin=subprocess.PIPE,
                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=environment)
         processes.append(first)

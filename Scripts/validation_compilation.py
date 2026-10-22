@@ -125,7 +125,7 @@ def repository_conditions() -> set[str]:
 
 
 def prepare_cache(recorded: dict, group: str, environment: str, conditions: set[str]) -> dict:
-    recorded = {key: value for key, value in recorded.items() if key in {'modules', 'build-ui'}
+    recorded = {key: {'environment': value['environment'], 'results': dict(value['results'])} for key, value in recorded.items() if key in {'modules', 'build-ui'}
         and isinstance(value, dict) and isinstance(value.get('environment'), str) and isinstance(value.get('results'), dict)} \
         if isinstance(recorded, dict) else {}
     for context in recorded.values():
@@ -182,12 +182,12 @@ def compilation_condition(condition: str, group: str, *, language_mode: str | No
     with (cache_root / "compilation-conditions.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         cache_path = cache_root / "compilation-conditions.json"
-        recorded = read_cache(cache_path)
+        previous = read_cache(cache_path)
         conditions = repository_conditions()
-        recorded = prepare_cache(recorded, environment_group, context_signature, conditions)
+        recorded = prepare_cache(previous, environment_group, context_signature, conditions)
         results = recorded[environment_group]['results']
         if signature in results:
-            write_cache(cache_path, recorded)
+            if recorded != previous: write_cache(cache_path, recorded)
             return results[signature]['value']
         compiler = subprocess.check_output(["xcrun", "--find", "swiftc"], text=True).strip()
         sdk = subprocess.check_output(["xcrun", "--sdk", sdk_name, "--show-sdk-path"], text=True).strip()
@@ -209,7 +209,7 @@ def compilation_condition(condition: str, group: str, *, language_mode: str | No
             raise ValueError(f"Swift 编译条件求值失败：{condition}\n{result.stderr.strip()}")
         value = errors == {"BIT101_CONDITION_TRUE"}
         if condition in conditions: results[signature] = {'condition': condition, 'value': value}
-        write_cache(cache_path, recorded)
+        if recorded != previous: write_cache(cache_path, recorded)
         return value
 
 
@@ -338,6 +338,10 @@ def cache_transaction_self_test() -> None:
             assert compilation_condition.__wrapped__('DEBUG', 'modules') is False
             compiler.assert_called_once()
             assert next(iter(json.loads(files[path])['modules']['results'].values()))['value'] is False
+            with patch(f'{__name__}.write_cache') as saved:
+                assert compilation_condition.__wrapped__('DEBUG', 'modules') is False
+                saved.assert_not_called()
+                compiler.assert_called_once()
 
 
 def active_swift_source(source: str, group: str, *, platform: str | None = None,

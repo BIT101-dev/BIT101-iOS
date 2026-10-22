@@ -76,8 +76,6 @@ def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[s
 
     if errors:
         return 1
-    if review:
-        print(f'维护审查候选：{len(review)} 项 · {relative(REPORT_PATH)}')
     return 0
 
 
