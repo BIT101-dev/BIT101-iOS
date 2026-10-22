@@ -340,16 +340,17 @@ public struct GalleryService {
     public func uploadImage(data: Data, filename: String = "poster.jpg") async throws -> CommunityImage {
         let multipart = MultipartFormData.jpegFile(data: data, filename: filename)
         do {
-            let image: CommunityImage = try await api.request(
+            return try await api.request(
                 path: "upload/image",
                 method: "POST",
                 body: multipart.body,
-                contentType: multipart.contentType
+                contentType: multipart.contentType,
+                validate: { image in
+                    guard !image.mid.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                        throw GalleryServiceError.invalidResponse
+                    }
+                }
             )
-            guard !image.mid.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                throw GalleryServiceError.invalidResponse
-            }
-            return image
         } catch let error as NSError where error.domain == "BIT101.Gallery" && error.code >= 400 {
             throw GalleryServiceError.uploadFailed
         }
@@ -391,9 +392,9 @@ public struct GalleryService {
     ///
     /// 帖子详情会额外包含 `like / own / plugins` 等当前用户态字段，因此不能完全用列表卡片代替。
     public func fetchPoster(id: Int) async throws -> GalleryPosterDetail {
-        let detail: GalleryPosterDetail = try await api.request(path: "posters/\(id)")
-        guard id > 0, detail.id == id else { throw GalleryServiceError.invalidResponse }
-        return detail
+        try await api.request(path: "posters/\(id)", validate: { detail in
+            guard id > 0, detail.id == id else { throw GalleryServiceError.invalidResponse }
+        })
     }
 
     /// 删除一条帖子。
@@ -434,7 +435,8 @@ public struct GalleryService {
 
     /// 获取社区内容举报类型。
     public func fetchReportTypes() async throws -> [GalleryReportType] {
-        try await api.request(path: "manage/report_types")
+        let types: [GalleryReportType] = try await api.request(path: "manage/report_types")
+        return GalleryReportType.usableOptions(types)
     }
 
     /// 提交帖子或评论举报。
@@ -488,9 +490,9 @@ public struct GalleryService {
         if let page {
             queryItems.append(URLQueryItem(name: "page", value: String(page)))
         }
-        let comments: [CommunityComment] = try await api.request(path: "reaction/comments", queryItems: queryItems)
-        guard CommunityComment.validatesResponse(comments, for: objectID) else { throw GalleryServiceError.invalidResponse }
-        return comments
+        return try await api.request(path: "reaction/comments", queryItems: queryItems, validate: { comments in
+            guard CommunityComment.validatesResponse(comments, for: objectID) else { throw GalleryServiceError.invalidResponse }
+        })
     }
 
     /// 对帖子或评论执行点赞操作。
@@ -557,13 +559,13 @@ public struct GalleryService {
         if let lastID {
             queryItems.append(URLQueryItem(name: "last_id", value: String(lastID)))
         }
-        let messages: [GalleryMessage] = try await api.request(path: "messages", queryItems: queryItems)
         let cursor = lastID.flatMap { $0 > 0 ? $0 : nil }
-        guard messages.allSatisfy({ message in message.id > 0 && (cursor.map { message.id < $0 } ?? true) }),
-              zip(messages, messages.dropFirst()).allSatisfy({ $0.id > $1.id }) else {
-            throw GalleryServiceError.invalidResponse
-        }
-        return messages
+        return try await api.request(path: "messages", queryItems: queryItems, validate: { messages in
+            guard messages.allSatisfy({ message in message.id > 0 && (cursor.map { message.id < $0 } ?? true) }),
+                  zip(messages, messages.dropFirst()).allSatisfy({ $0.id > $1.id }) else {
+                throw GalleryServiceError.invalidResponse
+            }
+        })
     }
 
     /// 统一拼装帖子流接口参数。

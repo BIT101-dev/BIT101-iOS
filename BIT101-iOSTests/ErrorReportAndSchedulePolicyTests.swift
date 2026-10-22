@@ -504,7 +504,7 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         var initialRequests = 0
         var downloads = 0
         init(page: Data, mode: String) { self.page = page; self.mode = mode }
-        func fetchTrustedTranscriptPages() async throws -> TrustedTranscriptPages {
+        func fetchTrustedTranscriptPages(onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
             initialRequests += 1
             throw ScoreServiceError.secondFactorRequired(.init(challengeID: "fixture", accessToken: "token", status: "waiting_sms",
                 maskedPhone: nil, expiresIn: 600))
@@ -513,7 +513,7 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
             submissions += 1
             return .init(challengeID: challenge.challengeID, accessToken: challenge.accessToken, status: "authenticated", maskedPhone: nil, expiresIn: 600)
         }
-        func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge) async throws -> TrustedTranscriptPages {
+        func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge, onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
             downloads += 1
             if downloads == 1 {
                 if mode == "download" { throw URLError(.networkConnectionLost) }
@@ -561,7 +561,7 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         var pending: CheckedContinuation<Void, Never>?
         var cancelled = false
         init(page: Data, returnsChallenge: Bool) { self.page = page; self.returnsChallenge = returnsChallenge }
-        func fetchTrustedTranscriptPages() async throws -> TrustedTranscriptPages {
+        func fetchTrustedTranscriptPages(onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
             requests += 1
             if requests == 1 { throw ScoreServiceError.queryFailed("fixture") }
             if requests == 2 {
@@ -575,7 +575,7 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
             return .init([page])
         }
         func submitTranscriptSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { return challenge }
-        func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge) async throws -> TrustedTranscriptPages { .init([page]) }
+        func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge, onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages { .init([page]) }
     }
 
     @MainActor
@@ -605,9 +605,9 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
     private struct TranscriptPageService: TrustedTranscriptServicing {
         let transcriptServiceIdentity: AnyHashable = UUID()
         let pages: [Data]
-        func fetchTrustedTranscriptPages() async throws -> TrustedTranscriptPages { .init(pages) }
+        func fetchTrustedTranscriptPages(onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages { .init(pages) }
         func submitTranscriptSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { return challenge }
-        func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge) async throws -> TrustedTranscriptPages { .init(pages) }
+        func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge, onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages { .init(pages) }
     }
 
     @MainActor
@@ -643,7 +643,7 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
 
     private struct StubTrustedTranscriptService: TrustedTranscriptServicing {
         let transcriptServiceIdentity: AnyHashable = UUID()
-        func fetchTrustedTranscriptPages() async throws -> TrustedTranscriptPages {
+        func fetchTrustedTranscriptPages(onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
             throw ScoreServiceError.secondFactorRequired(BITLoginAuthenticationChallenge(
                 challengeID: "test-transcript", accessToken: "test-token", status: "sms_required",
                 maskedPhone: "138****0000", expiresIn: 600
@@ -654,7 +654,7 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
             guard code == "123456" else { throw ScoreServiceError.queryFailed("验证码错误") }
             return challenge
         }
-        func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge) async throws -> TrustedTranscriptPages {
+        func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge, onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
             .init([UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1)).pngData { _ in }])
         }
     }

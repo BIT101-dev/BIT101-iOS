@@ -957,6 +957,14 @@ extension UIAutomationTestCase {
     }
 
     @MainActor
+    func swipeImagePreview(towardEnd: Bool) {
+        let preview = app.native.descendants(matching: .any)["QLPreviewControllerView"]
+        if towardEnd { preview.swipeLeft(velocity: .slow) }
+        else { preview.swipeRight(velocity: .slow) }
+        UITestSnapshotReader.invalidate()
+    }
+
+    @MainActor
     func closeImagePreview() {
         dismissNotificationBanner()
         let close = imagePreviewCloseButton()

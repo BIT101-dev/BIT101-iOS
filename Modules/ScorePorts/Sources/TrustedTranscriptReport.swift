@@ -15,7 +15,8 @@ public final class TrustedTranscriptReport {
         self.readPage = readPage
     }
 
-    public func loadPages(excluding completed: Set<Int> = [], maximumBytes: Int) async throws -> TrustedTranscriptPages {
+    public func loadPages(excluding completed: Set<Int> = [], maximumBytes: Int,
+                          onPage: TrustedTranscriptPageDelivery? = nil) async throws -> TrustedTranscriptPages {
         guard !isInvalid, pageCount > 0, maximumBytes >= 0 else { throw ScoreServiceError.invalidResponse }
         var pages: [TrustedTranscriptPages.Page] = []
         var remaining = maximumBytes
@@ -29,9 +30,15 @@ public final class TrustedTranscriptReport {
             do {
                 let data = try await readPage(number, remaining)
                 guard !data.isEmpty, data.count <= remaining else { throw ScoreServiceError.invalidResponse }
-                pages.append(.init(number: number, data: data))
+                let page = TrustedTranscriptPages.Page(number: number, data: data)
+                pages.append(page)
                 remaining -= data.count
-            } catch Failure.invalidSource(let error) { isInvalid = true; throw error }
+                try await onPage?(.init(pages: [page], expectedPageCount: pageCount, report: self))
+            } catch Failure.invalidSource(let error) {
+                isInvalid = true
+                failure = error
+                break
+            }
             catch {
                 if Task.isCancelled || TaskCancellation.matches(error) { throw CancellationError() }
                 if failure == nil { failure = error }

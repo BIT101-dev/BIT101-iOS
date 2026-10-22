@@ -472,12 +472,12 @@ final class ReleaseNetworkSmokeRunner {
         let transcriptService = dependencies.makeScores()
         _ = await probe(.transcript, area: .transcript, scope: scope) {
             let result: TrustedTranscriptPages
-            do { result = try await transcriptService.fetchTrustedTranscriptPages() }
+            do { result = try await transcriptService.fetchTrustedTranscriptPages(onPage: nil) }
             catch ScoreServiceError.secondFactorRequired(let challenge) {
                 guard let handler = self.schoolSMSHandler else { throw ScoreServiceError.secondFactorRequired(challenge) }
                 let code = try await handler(SchoolSMSCodeRequest(maskedPhone: challenge.maskedPhone ?? "", purpose: "jwb_cjd"))
                 let authenticated = try await transcriptService.submitTranscriptSMSCode(code, for: challenge)
-                result = try await transcriptService.fetchTrustedTranscriptPages(authenticatedBy: authenticated)
+                result = try await transcriptService.fetchTrustedTranscriptPages(authenticatedBy: authenticated, onPage: nil)
             }
             if let failure = result.failure { throw failure }
             if let report = result.report {

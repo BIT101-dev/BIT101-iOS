@@ -291,6 +291,13 @@ private struct TrustedTranscriptPage: View {
                                             retryGeneration &+= 1
                                         })
                                         .disabled(viewModel.isLoadingPages)
+                                    Button("重新申请") {
+                                        viewModel.prepareReapplication()
+                                        retryGeneration &+= 1
+                                    }
+                                    .disabled(viewModel.isLoadingPages)
+                                    .appInteractiveListRow()
+                                    .accessibilityIdentifier("ui.trusted-transcript-page.reapply")
                                 }
                                 if viewModel.isLoadingPages { AppInlineLoadingState("正在补全成绩单") }
                                 ForEach(Array(viewModel.images.enumerated()), id: \.offset) { index, image in

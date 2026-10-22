@@ -209,8 +209,8 @@ NETWORK_CAPABILITIES = {
  'ScoreInfrastructure.ScoreService': {'startScoreChallenge()': 'network',
                                       'fetchScores(detail:Bool,authenticatedBy:BITLoginAuthenticationChallenge)': 'network',
                                       'submitScoreSMSCode(:String,for:BITLoginAuthenticationChallenge)': 'network',
-                                      'fetchTrustedTranscriptPages()': 'network',
-                                      'fetchTrustedTranscriptPages(authenticatedBy:BITLoginAuthenticationChallenge)': 'network',
+                                      'fetchTrustedTranscriptPages(onPage:TrustedTranscriptPageDelivery?)': 'network',
+                                      'fetchTrustedTranscriptPages(authenticatedBy:BITLoginAuthenticationChallenge,onPage:TrustedTranscriptPageDelivery?)': 'network',
                                       'submitTranscriptSMSCode(:String,for:BITLoginAuthenticationChallenge)': 'network'}}
 
 

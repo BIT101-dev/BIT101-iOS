@@ -153,7 +153,7 @@ public struct ScoreService {
     }
 
     /// 向 bit-login 的 `jwb_cjd` 服务申请由学校实时生成的可信成绩单。
-    public func fetchTrustedTranscriptPages() async throws -> TrustedTranscriptPages {
+    public func fetchTrustedTranscriptPages(onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
         try await credentials.prepareSchoolCredentials()
         let owner = credentials.schoolSessionIdentity
         let studentID = credentials.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -169,7 +169,8 @@ public struct ScoreService {
                 challengeID: nil
             ),
             authorization: nil,
-            owner: owner
+            owner: owner,
+            onPage: onPage
         )
     }
 
@@ -186,8 +187,8 @@ public struct ScoreService {
         return current
     }
 
-    public func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge) async throws -> TrustedTranscriptPages {
-        try await finishTranscriptAuthentication(challenge)
+    public func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge, onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
+        try await finishTranscriptAuthentication(challenge, onPage: onPage)
     }
 
     /// 提交任一 JWB 系列 challenge 的短信验证码，并返回认证后的 challenge 状态。
@@ -233,6 +234,7 @@ public struct ScoreService {
         body: TranscriptRequest,
         authorization: String?,
         owner: SchoolSessionIdentity,
+        onPage: TrustedTranscriptPageDelivery?,
         remainingTransientRetries: Int = 2
     ) async throws -> TrustedTranscriptPages {
         var request = URLRequest(url: endpointBaseURL.appending(path: "api/jwb/cjd/cookies"))
@@ -258,7 +260,7 @@ public struct ScoreService {
                 throw ScoreServiceError.invalidResponse
             }
             let current = try await waitUntilActionable(envelope.detail, accessToken: accessToken, owner: owner)
-            return try await finishTranscriptAuthentication(current)
+            return try await finishTranscriptAuthentication(current, onPage: onPage)
         }
 
         guard (200 ..< 300).contains(response.statusCode) else {
@@ -274,6 +276,7 @@ public struct ScoreService {
                     body: body,
                     authorization: authorization,
                     owner: owner,
+                    onPage: onPage,
                     remainingTransientRetries: remainingTransientRetries - 1
                 )
             }
@@ -296,13 +299,14 @@ public struct ScoreService {
         guard !cookieString.isEmpty else {
             throw ScoreServiceError.invalidResponse
         }
-        return try await downloadTranscriptPages(cookieString: cookieString, owner: owner)
+        return try await downloadTranscriptPages(cookieString: cookieString, owner: owner, onPage: onPage)
     }
 
     /// 使用成绩单系统 Cookie 读取申请结果页，并下载其中全部分页图片。
     ///
     /// 解析学校结果页中的全部分页图片，覆盖成绩较多时的多页结果。Cookie 与图片的生命周期属于临时内存会话。
-    private func downloadTranscriptPages(cookieString: String, owner: SchoolSessionIdentity) async throws -> TrustedTranscriptPages {
+    private func downloadTranscriptPages(cookieString: String, owner: SchoolSessionIdentity,
+                                         onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
         guard !cookieString.isEmpty else { throw ScoreServiceError.invalidResponse }
 
         let reportURL = AppURL.required("https://jwb.bit.edu.cn/cjd/ScoreReport2/Index?GPA=1")
@@ -365,7 +369,7 @@ public struct ScoreService {
             catch { throw TrustedTranscriptReport.Failure.invalidSource(error) }
             return response.data
         }
-        return try await session.loadPages(maximumBytes: transcriptLimits.maximumEncodedBytes)
+        return try await session.loadPages(maximumBytes: transcriptLimits.maximumEncodedBytes, onPage: onPage)
     }
 
     private func validateTranscriptSource(_ response: HTTPURLResponse, requestedURL: URL) throws {
@@ -376,7 +380,8 @@ public struct ScoreService {
     }
 
     private func finishTranscriptAuthentication(
-        _ challenge: BITLoginAuthenticationChallenge
+        _ challenge: BITLoginAuthenticationChallenge,
+        onPage: TrustedTranscriptPageDelivery?
     ) async throws -> TrustedTranscriptPages {
         let owner = try authenticationOwner(challenge)
         switch challenge.status {
@@ -388,7 +393,8 @@ public struct ScoreService {
                     challengeID: challenge.challengeID
                 ),
                 authorization: challenge.accessToken,
-                owner: owner
+                owner: owner,
+                onPage: onPage
             )
         case "waiting_sms":
             throw ScoreServiceError.secondFactorRequired(challenge)

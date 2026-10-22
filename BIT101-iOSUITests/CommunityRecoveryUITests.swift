@@ -84,9 +84,8 @@ nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
         assertUI(waitForImagePreview(visible: true, timeout: 15), "首张图片应打开系统预览。")
         _ = imagePreviewCloseButton()
         let failure = app.alerts["图片预览失败"]
-        let preview = app.native.descendants(matching: .any)["QLPreviewControllerView"]
         for _ in 0..<2 {
-            preview.swipeLeft(velocity: .slow)
+            swipeImagePreview(towardEnd: true)
             if failure.appears(timeout: 2) { break }
         }
         assertUI(failure.exists, "后续页故障应展示图片恢复提示。")

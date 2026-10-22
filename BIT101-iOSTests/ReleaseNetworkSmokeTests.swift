@@ -886,7 +886,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
         func startScoreChallenge() async throws -> BITLoginAuthenticationChallenge { throw ScoreServiceError.invalidResponse }
         func fetchScores(detail: Bool, authenticatedBy challenge: BITLoginAuthenticationChallenge) async throws -> [ScoreRow] { throw ScoreServiceError.invalidResponse }
         func submitScoreSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { throw ScoreServiceError.invalidResponse }
-        func fetchTrustedTranscriptPages() async throws -> TrustedTranscriptPages {
+        func fetchTrustedTranscriptPages(onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
             if stage == "sampleGap" { throw NetworkSmokePaging.SamplingError.insufficientSample("维护样本需要补齐") }
             if stage == "invalid" { return .init([]) }
             throw ScoreServiceError.secondFactorRequired(BITLoginAuthenticationChallenge(challengeID: "fixture", accessToken: "fixture",
@@ -897,7 +897,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
             if stage == "smsFailure" { throw ScoreServiceError.challengeInvalid("验证码错误") }
             return challenge
         }
-        func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge) async throws -> TrustedTranscriptPages { .init([image]) }
+        func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge, onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages { .init([image]) }
     }
 
     @Test("Transcript orchestration records authentication, cancellation and SMS continuation", .timeLimit(.minutes(1)), arguments: ["blocked", "invalid", "cancelled", "smsSuccess", "smsFailure", "sampleGap"])

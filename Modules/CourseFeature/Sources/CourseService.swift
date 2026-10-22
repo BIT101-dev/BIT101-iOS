@@ -61,18 +61,18 @@ public struct CourseService {
 
     /// 拉取单门课程详情。
     public func fetchCourse(id: Int) async throws -> CourseDetail {
-        let detail: CourseDetail = try await api.request(path: "courses/\(id)")
-        guard id > 0, detail.id == id else { throw CourseServiceError.invalidResponse }
-        return detail
+        try await api.request(path: "courses/\(id)", validate: { detail in
+            guard id > 0, detail.id == id else { throw CourseServiceError.invalidResponse }
+        })
     }
 
     /// 拉取单门课程按学期聚合的历史成绩统计。
     public func fetchCourseHistories(number: String) async throws -> [CourseHistoryGrade] {
-        let grades: [CourseHistoryGrade] = try await api.request(path: "courses/histories", pathComponent: number)
-        guard grades.allSatisfy(\.hasValidStatistics), Set(grades.map(\.term)).count == grades.count else {
-            throw CourseServiceError.invalidResponse
-        }
-        return grades
+        try await api.request(path: "courses/histories", pathComponent: number, validate: { grades in
+            guard grades.allSatisfy(\.hasValidStatistics), Set(grades.map(\.term)).count == grades.count else {
+                throw CourseServiceError.invalidResponse
+            }
+        })
     }
 
     /// 拉取课程评论。
@@ -86,9 +86,9 @@ public struct CourseService {
         if let page {
             queryItems.append(URLQueryItem(name: "page", value: String(page)))
         }
-        let comments: [CommunityComment] = try await api.request(path: "reaction/comments", queryItems: queryItems)
-        guard CommunityComment.validatesResponse(comments, for: "course\(courseID)") else { throw CourseServiceError.invalidResponse }
-        return comments
+        return try await api.request(path: "reaction/comments", queryItems: queryItems, validate: { comments in
+            guard CommunityComment.validatesResponse(comments, for: "course\(courseID)") else { throw CourseServiceError.invalidResponse }
+        })
     }
 
     /// 对课程评论执行点赞或取消点赞。

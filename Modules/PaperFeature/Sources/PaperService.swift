@@ -107,9 +107,9 @@ public struct PaperService {
         let credentials = session.currentCredentials
         return try await details.detail(id: id, credentials: credentials) {
             guard self.session.currentCredentials.identity == credentials.identity else { throw CancellationError() }
-            let detail: PaperDetail = try await self.api.request(path: "papers/\(id)", authentication: .optional)
-            guard id > 0, detail.id == id else { throw PaperServiceError.invalidResponse }
-            return detail
+            return try await self.api.request(path: "papers/\(id)", authentication: .optional, validate: { detail in
+                guard id > 0, detail.id == id else { throw PaperServiceError.invalidResponse }
+            })
         }
     }
 
@@ -117,9 +117,9 @@ public struct PaperService {
         let credentials = session.currentCredentials
         return try await details.preview(id: id, credentials: credentials) {
             guard self.session.currentCredentials.identity == credentials.identity else { throw CancellationError() }
-            let detail: PaperDetail = try await self.api.request(path: "papers/\(id)", authentication: .optional)
-            guard id > 0, detail.id == id else { throw PaperServiceError.invalidResponse }
-            return detail
+            return try await self.api.request(path: "papers/\(id)", authentication: .optional, validate: { detail in
+                guard id > 0, detail.id == id else { throw PaperServiceError.invalidResponse }
+            })
         }
     }
 
@@ -132,9 +132,9 @@ public struct PaperService {
         if let page {
             queryItems.append(URLQueryItem(name: "page", value: String(page)))
         }
-        let comments: [CommunityComment] = try await api.request(path: "reaction/comments", queryItems: queryItems, authentication: .optional)
-        guard CommunityComment.validatesResponse(comments, for: "paper\(paperID)") else { throw PaperServiceError.invalidResponse }
-        return comments
+        return try await api.request(path: "reaction/comments", queryItems: queryItems, authentication: .optional, validate: { comments in
+            guard CommunityComment.validatesResponse(comments, for: "paper\(paperID)") else { throw PaperServiceError.invalidResponse }
+        })
     }
 
     /// 点赞或取消点赞文章。

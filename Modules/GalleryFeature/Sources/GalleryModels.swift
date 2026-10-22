@@ -286,6 +286,15 @@ public nonisolated struct GalleryReportType: Decodable, Identifiable, Hashable, 
     public let id: Int
     public let text: String
 
+    /// 按服务端顺序保留每个标识的首个有效名称。
+    public static func usableOptions(_ types: [Self]) -> [Self] {
+        var seen: Set<Int> = []
+        return types.compactMap { type in
+            let text = type.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty, seen.insert(type.id).inserted else { return nil }
+            return Self(id: type.id, text: text)
+        }
+    }
 }
 
 public enum GalleryReportTarget: Identifiable, Hashable {

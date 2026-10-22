@@ -16,14 +16,25 @@ public protocol ScoreListServicing {
     ) async throws -> BITLoginAuthenticationChallenge
 }
 
+public typealias TrustedTranscriptPageDelivery = @MainActor @Sendable (TrustedTranscriptPages) async throws -> Void
+
 public protocol TrustedTranscriptServicing {
     var transcriptServiceIdentity: AnyHashable { get }
-    func fetchTrustedTranscriptPages() async throws -> TrustedTranscriptPages
-    func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge) async throws -> TrustedTranscriptPages
+    func fetchTrustedTranscriptPages(onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages
+    func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge, onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages
     func submitTranscriptSMSCode(
         _ code: String,
         for challenge: BITLoginAuthenticationChallenge
     ) async throws -> BITLoginAuthenticationChallenge
+}
+
+public extension TrustedTranscriptServicing {
+    func fetchTrustedTranscriptPages() async throws -> TrustedTranscriptPages {
+        try await fetchTrustedTranscriptPages(onPage: nil)
+    }
+    func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge) async throws -> TrustedTranscriptPages {
+        try await fetchTrustedTranscriptPages(authenticatedBy: challenge, onPage: nil)
+    }
 }
 
 /// 成绩单各页独立恢复，原始页码与完整页数用于展示读取进度。

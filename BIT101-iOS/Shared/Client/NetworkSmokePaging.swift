@@ -30,8 +30,7 @@ enum NetworkSmokePaging {
     }
     static func checkedReportTypes(_ types: [GalleryReportType]) throws -> [GalleryReportType] {
         guard !types.isEmpty else { throw SamplingError.insufficientSample("举报类型列表为空，举报选项交互验收需要有效类型。") }
-        guard Set(types.map(\.id)).count == types.count,
-              types.allSatisfy({ !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
+        guard GalleryReportType.usableOptions(types).count == types.count
         else { throw URLError(.cannotParseResponse) }
         return types
     }

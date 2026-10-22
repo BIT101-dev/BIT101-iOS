@@ -451,9 +451,9 @@ nonisolated final class ScoreInteractionUITests: UIAutomationTestCase {
             assertUI(waitUntil(pageReady, on: app), "预览应展示两页成绩单中的第 \(index + 1) 页。")
         }
         try assertPreviewPage(0)
-        app.swipeLeft()
+        swipeImagePreview(towardEnd: true)
         try assertPreviewPage(1)
-        app.swipeRight()
+        swipeImagePreview(towardEnd: false)
         try assertPreviewPage(0)
         closeImagePreview()
         assertUI(app.navigationBars["可信成绩单"].appears(timeout: 5), "关闭预览应返回成绩单。")
@@ -462,6 +462,19 @@ nonisolated final class ScoreInteractionUITests: UIAutomationTestCase {
         _ = imagePreviewCloseButton()
         try assertPreviewPage(1)
         closeImagePreview()
+    }
+
+    @MainActor
+    @objc func testTrustedTranscriptReapplicationKeepsAvailablePages() {
+        app = configureApp(resetStorage: true, animations: true, transcriptFailureOnce: true, initialTab: "home")
+        tap("申请可信成绩单")
+        fillVerificationCode("123456", in: app.textFields["verification.code"])
+        assertUI(app.staticTexts["部分成绩单待恢复"].appears(timeout: 5), "补页提示应保留当前报告的有效页。")
+        assertUI(app.buttons["可信成绩单第1页"].exists, "当前成绩单应保持可读。")
+        tap("ui.trusted-transcript-page.reapply")
+        assertUI(app.staticTexts["部分成绩单待恢复"].disappears(timeout: 5), "重新申请应取得完整报告。")
+        assertUI(app.buttons["可信成绩单第1页"].exists && app.buttons["可信成绩单第2页"].exists,
+            "新报告应完整展示两页内容。")
     }
 
 

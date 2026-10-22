@@ -44,7 +44,7 @@ struct UITestScoreService: ScoreListServicing, TrustedTranscriptServicing {
         return Self.challenge
     }
 
-    func fetchTrustedTranscriptPages() async throws -> TrustedTranscriptPages {
+    func fetchTrustedTranscriptPages(onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
         throw ScoreServiceError.secondFactorRequired(Self.challenge)
     }
 
@@ -52,7 +52,7 @@ struct UITestScoreService: ScoreListServicing, TrustedTranscriptServicing {
         _ = try await submitScoreSMSCode(code, for: challenge)
         return challenge
     }
-    func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge) async throws -> TrustedTranscriptPages {
+    func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge, onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
         let pages = [UIColor.systemBlue, UIColor.systemOrange].map { color in
             UIGraphicsImageRenderer(size: CGSize(width: 300, height: 400)).pngData { context in
                 color.setFill()

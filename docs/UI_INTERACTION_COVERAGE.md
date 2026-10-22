@@ -87,6 +87,7 @@ UIKit 控件沿构造类型、继承或别名进入源码清单，运行门禁�
 | `ScoreInteractionUITests/testScoreIndividualFiltersRefreshCancelAndPendingDetail` | 空 / 错误 / 正确验证码、公共筛选页全选和清空、学期 / 类型独立绑定、六种排序、方向、成绩详情 |
 | `ScoreInteractionUITests/testScoreIndividualFiltersRefreshCancelAndPendingDetail` | 查询取消、逐项筛选、已有成绩刷新、未出分详情、成绩到课程评价路由 |
 | `ScoreInteractionUITests/testTrustedTranscriptSMSRetryPreviewAndCancellation` | 申请、短信取消、申请重试、验证成功、部分分页保留与重试、两页点击与 Quick Look 左右滑动 / 关闭 |
+| `ScoreInteractionUITests/testTrustedTranscriptReapplicationKeepsAvailablePages` | 部分报告保留、重新申请与完整分页展示 |
 | `ScoreInteractionUITests/testScoreStorageRecoveryConfirmationAndPersistence` | 账号内成绩存储恢复、取消、确认及重新装载 |
 | `CommunityInteractionUITests/testCourseCommentPublishingRepliesRatingsCleaningSearchAndShare` | 课程搜索、详情、历史成绩、课程点赞 / 取消、评分评论发布 |
 | `CommunityInteractionUITests/testCourseCommentPublishingRepliesRatingsCleaningSearchAndShare` | 清除搜索、数据清洗开关、十种半星评分 / 再选清空、匿名 / 取消、评论点赞 / 图片 / 回复、课程分享 |
@@ -346,8 +347,8 @@ SwiftSyntax 清点每个源码作用域的控件、输入、滚动和手势声�
 | `Modules/ScoreFeature/Sources/ScoreFilterViews.swift:ScoreSortPage` | `{"Button":2,"List":1}` | `ScoreInteractionUITests/testScoreIndividualFiltersRefreshCancelAndPendingDetail` |
 | `Modules/ScoreFeature/Sources/ScoreRootView.swift:PendingScoreDetailView` | `{"ScrollView":1}` | `ScoreInteractionUITests/testScoreIndividualFiltersRefreshCancelAndPendingDetail` |
 | `Modules/ScoreFeature/Sources/ScoreRootView.swift:ScoreDetailView` | `{"Button":1,"List":1}` | `ScoreInteractionUITests/testScoreIndividualFiltersRefreshCancelAndPendingDetail` |
-| `Modules/ScoreFeature/Sources/ScoreRootView.swift:ScoreListPage` | `{"AppEmptyState":1,"AppFailureState":1,"AppRefreshStatusRow":1,"AppSMSVerificationSheet":1,"Button":3,"List":1,"NavigationLink":6}` | `ScoreInteractionUITests/testScoreIndividualFiltersRefreshCancelAndPendingDetail,ScoreInteractionUITests/testTrustedTranscriptSMSRetryPreviewAndCancellation,ScheduleLayoutUITests/testRefreshStatusRowsUseConsistentNativeGeometry,ScoreInteractionUITests/testScoreStorageRecoveryConfirmationAndPersistence` |
-| `Modules/ScoreFeature/Sources/ScoreRootView.swift:TrustedTranscriptPage` | `{"AppEmptyState":1,"AppFailureState":2,"AppSMSVerificationSheet":1,"Button":1,"ScrollView":1}` | `ScoreInteractionUITests/testTrustedTranscriptSMSRetryPreviewAndCancellation` |
+| `Modules/ScoreFeature/Sources/ScoreRootView.swift:ScoreListPage` | `{"AppEmptyState":1,"AppFailureState":1,"AppRefreshStatusRow":1,"AppSMSVerificationSheet":1,"Button":3,"List":1,"NavigationLink":6}` | `ScoreInteractionUITests/testScoreIndividualFiltersRefreshCancelAndPendingDetail,ScoreInteractionUITests/testTrustedTranscriptSMSRetryPreviewAndCancellation,ScoreInteractionUITests/testTrustedTranscriptReapplicationKeepsAvailablePages,ScheduleLayoutUITests/testRefreshStatusRowsUseConsistentNativeGeometry,ScoreInteractionUITests/testScoreStorageRecoveryConfirmationAndPersistence` |
+| `Modules/ScoreFeature/Sources/ScoreRootView.swift:TrustedTranscriptPage` | `{"AppEmptyState":1,"AppFailureState":2,"AppSMSVerificationSheet":1,"Button":2,"ScrollView":1}` | `ScoreInteractionUITests/testTrustedTranscriptSMSRetryPreviewAndCancellation,ScoreInteractionUITests/testTrustedTranscriptReapplicationKeepsAvailablePages` |
 
 滚动容器使用稳定身份参与源码与运行证据核对。手势检查与位置恢复沿实际 UIKit 滚动对象定位，页面路径身份用于交互库存归属。UI 用例在操作前验收当前容器：可滚动内容通过原生滑动核对位置变化并恢复起始位置，完整显示的内容核对边界并记录 `scroll-fit`；容器动作与子控件动作分别核对。底栏选中项变化记录 `tab-switch`，用于 TabView 的独立切换证据。
 

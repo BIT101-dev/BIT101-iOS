@@ -578,9 +578,9 @@ struct AppLocalDataOwnershipTests {
 struct SettingsDependencyOwnershipTests {
     private final class DiagnosisTranscript: TrustedTranscriptServicing {
         var calls = 0
-        func fetchTrustedTranscriptPages() async throws -> TrustedTranscriptPages { calls += 1; return .init([]) }
+        func fetchTrustedTranscriptPages(onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages { calls += 1; return .init([]) }
         func submitTranscriptSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { return challenge }
-        func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge) async throws -> TrustedTranscriptPages { .init([]) }
+        func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge, onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages { .init([]) }
     }
 
     private final class OfflineTransport: HTTPTransport {

@@ -43,8 +43,8 @@ final class GalleryReportViewModel {
             let types = try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
             try Task.checkCancellation()
             guard generation == operation else { return }
-            reportTypes = types
-            selectedTypeID = types.first?.id
+            reportTypes = GalleryReportType.usableOptions(types)
+            selectedTypeID = reportTypes.first?.id
         } catch {
             guard generation == operation, !TaskCancellation.matches(error) else { return }
             reportTypes = []

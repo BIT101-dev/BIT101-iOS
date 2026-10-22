@@ -14,6 +14,21 @@ import os
 @MainActor
 struct ScoreInfrastructureBoundaryTests {
     @Test(.timeLimit(.minutes(1)))
+    func transcriptSourceInvalidationRetainsAndPublishesTheValidPages() async throws {
+        var reads: [Int] = [], published: [Int] = []
+        let report = TrustedTranscriptReport(pageCount: 3) { number, _ in
+            reads.append(number)
+            if number == 2 { throw TrustedTranscriptReport.Failure.invalidSource(URLError(.badServerResponse)) }
+            return Data([1])
+        }
+        let result = try await report.loadPages(maximumBytes: 3, onPage: { page in
+            published.append(contentsOf: page.pages.map(\.number))
+        })
+        #expect(reads == [1, 2] && published == [1])
+        #expect(result.pages.map(\.number) == [1] && result.failure != nil && report.isInvalid)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func transcriptCancellationStopsTheReportBeforeReadingFurtherPages() async throws {
         var pages: [Int] = []
         let report = TrustedTranscriptReport(pageCount: 3) { number, _ in
@@ -428,7 +443,11 @@ struct ScoreInfrastructureBoundaryTests {
             maskedPhone: nil, expiresIn: 120, ownerIdentity: Credentials().schoolSessionIdentity)
         let authenticated = try await service.submitTranscriptSMSCode("123456", for: challenge)
         #expect(authenticated.status == "authenticated" && transport.paths == ["/api/auth/fixture/sms"])
-        let partial = try await service.fetchTrustedTranscriptPages(authenticatedBy: authenticated)
+        var delivered: [Int] = []
+        let partial = try await service.fetchTrustedTranscriptPages(authenticatedBy: authenticated, onPage: { page in
+            delivered.append(contentsOf: page.pages.map(\.number))
+        })
+        #expect(delivered == [1, 3])
         #expect(partial.pages.map(\.number) == [1, 3] && partial.expectedPageCount == 3 && partial.failure != nil)
         #expect(transport.paths.contains("/cjd/Temp/3.png"))
         transport.failingPage = nil

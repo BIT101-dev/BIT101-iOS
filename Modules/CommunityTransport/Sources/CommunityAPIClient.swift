@@ -128,6 +128,7 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
             } catch {
                 if TaskCancellation.matches(error) { throw error }
                 await response.reportValidationFailure(error)
+                if let failure = error as? Failure { throw failure }
                 let failure = Failure.communityInvalidResponse as NSError
                 throw NSError(domain: failure.domain, code: failure.code,
                     userInfo: failure.userInfo.merging([NSUnderlyingErrorKey: error,

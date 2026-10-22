@@ -321,9 +321,10 @@ struct GalleryStateContractTests {
         #expect(model.errorMessage != nil && model.selectedTypeID == nil)
         service.failed = false
         service.types = try JSONDecoder().decode([GalleryReportType].self,
-            from: Data(#"[{"id":42,"text":"服务端类型"},{"id":7,"text":"其他类型"}]"#.utf8))
+            from: Data(#"[{"id":42,"text":" 服务端类型\n"},{"id":42,"text":"重复类型"},{"id":7,"text":" "},{"id":7,"text":"其他类型"}]"#.utf8))
         await model.loadReportTypes()
         #expect(model.reportTypes.map(\.id) == [42, 7] && model.selectedTypeID == 42 && model.errorMessage == nil)
+        #expect(model.reportTypes.map(\.text) == ["服务端类型", "其他类型"])
         #expect(!model.isLoading && !model.isSubmitting)
         model.selectedTypeID = 999
         #expect(await model.submit(objectID: "poster1") == false && service.submissions == 0)

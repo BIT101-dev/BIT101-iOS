@@ -11,6 +11,23 @@ import BIT101TestSupport
 
 @MainActor
 struct ServiceContractTests {
+    private final class ResponseObserver: HTTPClientObserving {
+        var failures = 0
+        func willSend(_ request: URLRequest) async throws {}
+        func didFinish(request: URLRequest, data: Data?, response: URLResponse?, error: (any Error)?, elapsed: TimeInterval) async {
+            if error != nil { failures += 1 }
+        }
+    }
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func reportTypesKeepUsableUniqueChoices(empty: Bool) async throws {
+        let body = empty ? #"[{"id":7,"text":" "}]"# : #"[{"id":7,"text":" "},{"id":42,"text":" 原因 "},{"id":42,"text":"重复"},{"id":7,"text":"其他"}]"#
+        let service = GalleryService(session: session(Transport([(200, body)])), preferences: {
+            .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
+        })
+        let types = try await service.fetchReportTypes()
+        #expect(types.map(\.id) == (empty ? [] : [42, 7]))
+        #expect(types.map(\.text) == (empty ? [] : ["原因", "其他"]))
+    }
     @Test(.timeLimit(.minutes(1)), arguments: GallerySubscriptionLevel.allCases)
     func subscriptionWritesUseTheServerLevelAndAccount(level: GallerySubscriptionLevel) async throws {
         let transport = Transport([(200, "{}")])
@@ -427,7 +444,8 @@ struct ServiceContractTests {
             #"{"id":\#(id),"from_user":{},"link_obj":"poster1","obj":"poster1","text":"消息","update_time":""}"#
         }
         let transport = Transport([(200, "[" + messages.joined(separator: ",") + "]")])
-        let service = GalleryService(session: session(transport), preferences: {
+        let observer = ResponseObserver()
+        let service = GalleryService(session: session(transport, observer: observer), preferences: {
             .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
         })
         if ids == [89, 80] || ids.isEmpty {
@@ -436,6 +454,7 @@ struct ServiceContractTests {
             await #expect(throws: GalleryServiceError.self) { try await service.fetchMessages(type: type, lastID: 90) }
         }
         #expect(try query(transport.requests[0]) == ["type": type.rawValue, "last_id": "90"])
+        #expect(observer.failures == (ids == [89, 80] || ids.isEmpty ? 0 : 1))
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: GalleryMessageType.allCases)
@@ -500,8 +519,8 @@ struct ServiceContractTests {
         }
     }
 
-    private func session(_ transport: Transport, cookie: String = "fixture-cookie") -> CommunitySession {
-        CommunitySession(httpClient: HTTPClient(transport: transport, observer: nil), baseURL: AppURL.required("https://example.invalid"),
+    private func session(_ transport: Transport, cookie: String = "fixture-cookie", observer: (any HTTPClientObserving)? = nil) -> CommunitySession {
+        CommunitySession(httpClient: HTTPClient(transport: transport, observer: observer), baseURL: AppURL.required("https://example.invalid"),
             credentials: { .init(identity: .init(accountIdentifier: "contracts"), cookie: cookie) }, refresh: { _ in })
     }
 
@@ -556,7 +575,7 @@ struct ServiceContractTests {
             (200, paperDetailBody(own: true)), (200, #"{"like":true,"like_num":4}"#), (200, paperDetailBody(own: true, title: "修改后"))])
         let service = PaperService(session: session(transport))
         _ = try await service.fetchPreviewMetadata(id: 17)
-        #expect(try await service.fetchPaper(id: 17).title == "文章")
+        #expect(await service.cachedPaper(id: 17)?.title == "文章")
         #expect(transport.requests.count == 1)
         #expect(try await service.fetchPaper(id: 17).title == "刷新")
         _ = try await service.fetchPreviewMetadata(id: 17)
@@ -574,7 +593,7 @@ struct ServiceContractTests {
             })
         let service = PaperService(session: session)
         _ = try await service.fetchPreviewMetadata(id: 17)
-        #expect(try await service.fetchPaper(id: 17).own)
+        #expect(await service.cachedPaper(id: 17)?.own == true)
         #expect(transport.requests.count == 2 && transport.authenticationRequests.isEmpty)
         #expect(transport.requests.map { $0.value(forHTTPHeaderField: "fake-cookie") } == ["expired", "fresh"])
     }
@@ -588,7 +607,7 @@ struct ServiceContractTests {
         if failedListRefresh {
             await #expect(throws: URLError.self) { _ = try await service.fetchPapers(search: nil, order: .newest, page: 0) }
         }
-        #expect(try await service.fetchPaper(id: 17).own)
+        #expect(await service.cachedPaper(id: 17)?.own == true)
         #expect(transport.requests.count == (failedListRefresh ? 2 : 1) && transport.authenticationRequests.isEmpty)
     }
 
@@ -667,9 +686,11 @@ struct ServiceContractTests {
         #"[{"term":"term","max_score":101}]"#, #"[{"term":"term","avg_score":1e300}]"#])
     func courseHistoryRejectsDuplicateTermsAndInvalidStatistics(body: String) async throws {
         let transport = Transport([(200, body)])
+        let observer = ResponseObserver()
         await #expect(throws: CourseServiceError.self) {
-            try await CourseService(session: session(transport)).fetchCourseHistories(number: "MATH")
+            try await CourseService(session: session(transport, observer: observer)).fetchCourseHistories(number: "MATH")
         }
+        #expect(observer.failures == 1)
     }
 
     @Test(.timeLimit(.minutes(1))) func expiredCourseCredentialsRestoreOnceAndReplayTheOwnedPage() async throws {
@@ -806,7 +827,8 @@ struct ServiceContractTests {
     func imageUploadRequiresAResourceIdentifier(mid: String) async throws {
         let response = "{\"mid\":\"\(mid)\",\"url\":\"https://example.invalid/image.jpg\",\"low_url\":\"https://example.invalid/small.jpg\"}"
         let transport = Transport([(200, response)])
-        let gallery = GalleryService(session: session(transport), preferences: {
+        let observer = ResponseObserver()
+        let gallery = GalleryService(session: session(transport, observer: observer), preferences: {
             .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
         })
         if mid == "fixture-image" {
@@ -814,6 +836,7 @@ struct ServiceContractTests {
         } else {
             await #expect(throws: GalleryServiceError.self) { try await gallery.uploadImage(data: Data([1, 2, 3])) }
         }
+        #expect(observer.failures == (mid == "fixture-image" ? 0 : 1))
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [0, -1, 18])
@@ -822,7 +845,8 @@ struct ServiceContractTests {
         let course = String(course.replacingOccurrences(of: "\"id\":42", with: "\"id\":\(returnedID)").dropLast()) + #", "like":false}"#
         let poster = String(poster(id: returnedID).dropLast()) + #", "like":false, "own":true, "plugins":"[]"}"#
         let transport = Transport([(200, poster), (200, paper), (200, paper), (200, course)])
-        let shared = session(transport)
+        let observer = ResponseObserver()
+        let shared = session(transport, observer: observer)
         let gallery = GalleryService(session: shared, preferences: {
             .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
         })
@@ -832,6 +856,7 @@ struct ServiceContractTests {
         await #expect(throws: PaperServiceError.self) { try await service.fetchPreviewMetadata(id: 17) }
         await #expect(throws: CourseServiceError.self) { try await CourseService(session: shared).fetchCourse(id: 42) }
         #expect(transport.requests.count == 4)
+        #expect(observer.failures == 4)
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [0, -1, 18, 17])
@@ -839,7 +864,8 @@ struct ServiceContractTests {
         let returnedUser = user.replacingOccurrences(of: "\"id\":1", with: "\"id\":\(returnedID)")
         let profile = #"{"user":\#(returnedUser),"followingNum":2,"followerNum":3,"following":false,"follower":false,"own":false}"#
         let transport = Transport([(200, profile)])
-        let service = MineService(session: session(transport), preferences: {
+        let observer = ResponseObserver()
+        let service = MineService(session: session(transport, observer: observer), preferences: {
             .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
         })
         if returnedID == 17 {
@@ -848,6 +874,7 @@ struct ServiceContractTests {
             await #expect(throws: MineServiceError.self) { try await service.fetchUserInfo(id: 17) }
         }
         #expect(transport.requests.map { $0.url?.path } == ["/user/info/17"])
+        #expect(observer.failures == (returnedID == 17 ? 0 : 1))
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: ["valid", "object", "zero", "nested-zero", "duplicate", "nested-duplicate"])
@@ -861,7 +888,8 @@ struct ServiceContractTests {
         let rows = "[" + root + (damage == "duplicate" ? "," + root : "") + "]"
         let objects = ["poster1", "course1", "paper1"]
         let transport = Transport(objects.map { (200, rows.replacingOccurrences(of: "OBJECT", with: damage == "object" ? "poster2" : $0)) })
-        let shared = session(transport)
+        let observer = ResponseObserver()
+        let shared = session(transport, observer: observer)
         let gallery = GalleryService(session: shared, preferences: {
             .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
         })
@@ -875,17 +903,20 @@ struct ServiceContractTests {
             await #expect(throws: CourseServiceError.self) { try await course.fetchComments(courseID: 1, page: nil) }
             await #expect(throws: PaperServiceError.self) { try await paper.fetchComments(paperID: 1, order: .newest, page: nil) }
         }
+        #expect(observer.failures == (damage == "valid" ? 0 : 3))
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func userPosterSearchChecksTheRequestedAuthor(matching: Bool) async throws {
         let rows = "[" + poster(id: 1, userID: matching ? 1 : 2) + "]"
         let transport = Transport([(200, rows)])
-        let service = MineService(session: session(transport), preferences: {
+        let observer = ResponseObserver()
+        let service = MineService(session: session(transport, observer: observer), preferences: {
             .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
         })
         if matching { #expect(try await service.fetchUserPosters(userID: 1, page: 0).first?.user.id == 1) }
         else { await #expect(throws: MineServiceError.self) { try await service.fetchUserPosters(userID: 1, page: 0) } }
+        #expect(observer.failures == (matching ? 0 : 1))
     }
 
     @Test(.timeLimit(.minutes(1))) func paperCreationEditingAndDeletionPreserveTheWireContract() async throws {
