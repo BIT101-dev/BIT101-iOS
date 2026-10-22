@@ -113,6 +113,62 @@ struct MediaPresentationTests {
         #expect(await Task.detached { item.previewItemURL }.value == item.url)
     }
     @Test(.timeLimit(.minutes(1)))
+    func cachedSingleImageOpensWithReadOnlySharedStorageAndReusesItsFile() async throws {
+        let helper = MediaDependencyTests(), files = PreferenceMemoryFiles()
+        let transport = MediaDependencyTests.Images(bytes: try helper.png(width: 2))
+        let media = helper.environment(files: files, previewFiles: files, transport: transport)
+        let url = AppURL.required("https://example.invalid/cached.png")
+        let cached = try await media.images.file(for: url)
+        let reads = files.readCount(at: cached)
+        files.setFailures(writing: true)
+        let coordinator = ImageQuickLookPresenter.Coordinator(media: media)
+        let request = ImagePreviewRequest(remoteImages: [.init(thumbnailURL: url, originalURL: nil)], initialIndex: 0)
+        media.beginPreview(owner: request.id)
+        defer { media.endPreview(owner: request.id) }
+        #expect(try await media.previewFile(at: cached, owner: request.id) == cached)
+        #expect(files.readCount(at: cached) == reads)
+        let prepared = try await coordinator.prepareInitialItems(for: request, media: media)
+        #expect(prepared.items.count == 1 && prepared.items[0].url == cached)
+        #expect(transport.requests == 1)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func failedLaterPagesRecoverThroughTheNativeActionAndNetworkGeneration(networkRetry: Bool) async throws {
+        let helper = MediaDependencyTests(), transport = MediaDependencyTests.Images(bytes: try helper.png(width: 2))
+        let media = helper.environment(files: PreferenceMemoryFiles(), previewFiles: PreferenceMemoryFiles(), transport: transport)
+        let second = AppURL.required("https://example.invalid/second.png")
+        transport.failedURLs = [second]
+        let preview = PreviewController(), host = ImageQuickLookPresenter.HostViewController(), window = try window(host)
+        let coordinator = ImageQuickLookPresenter.Coordinator(media: media, makePreviewController: { preview })
+        defer { coordinator.cancel(); window.isHidden = true; window.rootViewController = nil }
+        var failures = 0
+        coordinator.onFailure = { _ in failures += 1 }
+        let request = ImagePreviewRequest(remoteImages: [.init(thumbnailURL: AppURL.required("https://example.invalid/first.png"), originalURL: nil),
+            .init(thumbnailURL: second, originalURL: nil)], initialIndex: 0)
+        coordinator.receive(request, from: host, media: media)
+        try await waitForTestEvent {
+            preview.viewIfLoaded?.window != nil && !preview.isBeingPresented &&
+            preview.dataSource?.previewController(preview, previewItemAt: 1).previewItemTitle == "图片待恢复"
+        }
+        #expect(failures == 0)
+        preview.currentPreviewItemIndex = 1
+        try await waitForTestEvent { failures == 1 }
+        let button = try #require(preview.navigationItem.leftBarButtonItems?.first { $0.accessibilityIdentifier == "media.preview.retry" })
+        #expect(button.isEnabled)
+        transport.failedURLs = []
+        if networkRetry {
+            media.retryFailedImages()
+            coordinator.receive(request, from: host, media: media)
+        } else {
+            let action = try #require(button.action)
+            #expect(UIApplication.shared.sendAction(action, to: button.target, from: button, for: nil))
+        }
+        try await waitForTestEvent { preview.dataSource?.previewController(preview, previewItemAt: 1).previewItemURL != nil }
+        #expect(preview.dataSource?.previewController(preview, previewItemAt: 1).previewItemTitle == "图片 2")
+        #expect(preview.navigationItem.leftBarButtonItems?.contains { $0.accessibilityIdentifier == "media.preview.retry" } == false)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func initialPreviewFailureReleasesTheRequestAndReportsTheError() async throws {
         let helper = MediaDependencyTests(), transport = MediaDependencyTests.Images(bytes: try helper.png(width: 2))
         transport.failuresRemaining = 1

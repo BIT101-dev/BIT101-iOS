@@ -104,7 +104,20 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
         private var pendingRequest: ImagePreviewRequest?
         private var preparationTask: Task<Void, Never>?
         private var upgradeTask: Task<Void, Never>?
+        private var retryTask: Task<Void, Never>?
+        private var selectionObservation: NSKeyValueObservation?
+        private var activeRequest: ImagePreviewRequest?
+        private var failures: [Int: any Error] = [:]
+        private var failureGenerations: [Int: UInt64] = [:]
+        private var reportedFailures: Set<Int> = []
+        private lazy var retryButton: UIBarButtonItem = {
+            let button = UIBarButtonItem(barButtonSystemItem: .refresh, target: self, action: #selector(retryCurrentImage))
+            button.accessibilityIdentifier = "media.preview.retry"
+            button.accessibilityLabel = "重新加载图片"
+            return button
+        }()
         private var previewController: QLPreviewController?
+        private var previewNavigationController: UINavigationController?
         private var placeholderURL: URL?
         private var items: [MutableQuickLookItem] = []
         private var isPreviewPresentationComplete = false
@@ -121,9 +134,17 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
                 if previewController == nil { cancel() }
                 return
             }
-            guard request.id != requestID else { return }
+            let retryGeneration = media.imageRetryGeneration
+            guard request.id != requestID else {
+                if let index = previewController?.currentPreviewItemIndex,
+                   failures[index] != nil, failureGenerations[index] != retryGeneration {
+                    retryCurrentImage()
+                }
+                return
+            }
             cancel()
             requestID = request.id
+            activeRequest = request
             media.beginPreview(owner: request.id)
             pendingRequest = request
             presentPendingIfPossible(from: host)
@@ -144,14 +165,26 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
                     controller.delegate = self
                     controller.currentPreviewItemIndex = prepared.initialIndex
                     previewController = controller
+                    let navigation = UINavigationController(rootViewController: controller)
+                    navigation.modalPresentationStyle = .fullScreen
+                    let close = UIBarButtonItem(barButtonSystemItem: .done, target: self, action: #selector(closePreview))
+                    close.accessibilityIdentifier = "media.preview.close"
+                    controller.navigationItem.leftBarButtonItem = close
+                    previewNavigationController = navigation
+                    let observedRequestID = request.id
+                    selectionObservation = controller.observe(\.currentPreviewItemIndex, options: [.new]) { [weak self] _, change in
+                        guard let index = change.newValue else { return }
+                        Task { @MainActor [weak self] in self?.selectionDidChange(index, requestID: observedRequestID) }
+                    }
                     isPreviewPresentationComplete = false
-                    host.present(controller, animated: true) { [weak self, weak controller] in
+                    host.present(navigation, animated: true) { [weak self, weak controller] in
                         guard let self, let controller, self.previewController === controller, self.media === media else { return }
                         isPreviewPresentationComplete = true
                         if pendingCurrentRefresh {
                             pendingCurrentRefresh = false
                             refreshCurrentPreviewItemSmoothly()
                         }
+                        selectionDidChange(controller.currentPreviewItemIndex, requestID: request.id)
                     }
 
                     upgradeTask = Task { [weak self, media] in
@@ -187,12 +220,24 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
         func cancel() {
             preparationTask?.cancel()
             upgradeTask?.cancel()
+            retryTask?.cancel()
+            selectionObservation?.invalidate()
+            selectionObservation = nil
             if let requestID { media.endPreview(owner: requestID) }
             let controller = previewController
+            let presentation: UIViewController? = previewNavigationController ?? controller
             previewController = nil
-            controller?.dismiss(animated: false)
+            previewNavigationController = nil
+            controller?.dataSource = nil
+            controller?.delegate = nil
+            presentation?.dismiss(animated: false)
             preparationTask = nil
             upgradeTask = nil
+            retryTask = nil
+            activeRequest = nil
+            failures.removeAll()
+            failureGenerations.removeAll()
+            reportedFailures.removeAll()
             pendingRequest = nil
             requestID = nil
             items = []
@@ -205,58 +250,61 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
             for request: ImagePreviewRequest,
             media: MediaEnvironment
         ) async throws -> (items: [MutableQuickLookItem], initialIndex: Int) {
+            let count: Int
+            let initialIndex: Int
+            let file: URL
             switch request.source {
             case let .local(images):
                 guard !images.isEmpty else { throw QuickLookPreparationError.noImages }
-                let initialIndex = min(max(request.initialIndex, 0), images.count - 1)
-                let cachedPlaceholder = try await media.images.placeholderFile()
-                let placeholder = try await media.previewFile(at: cachedPlaceholder, owner: request.id)
-                placeholderURL = placeholder
-                let prepared = images.map { _ in MutableQuickLookItem(url: placeholder) }
-                prepared[initialIndex].url = try await media.localPreviewFile(image: images[initialIndex], owner: request.id)
-                return (prepared, initialIndex)
-
+                count = images.count
+                initialIndex = min(max(request.initialIndex, 0), images.count - 1)
+                file = try await media.localPreviewFile(image: images[initialIndex], owner: request.id)
             case let .remote(images):
                 guard !images.isEmpty else { throw QuickLookPreparationError.noImages }
-                let initialIndex = min(max(request.initialIndex, 0), images.count - 1)
-                let cachedPlaceholder = try await media.images.placeholderFile()
-                let placeholder = try await media.previewFile(at: cachedPlaceholder, owner: request.id)
-                placeholderURL = placeholder
-                let prepared = images.map { _ in MutableQuickLookItem(url: placeholder) }
-
-                let initialImage = images[initialIndex]
-                let highURL = initialImage.originalURL
-                if let highURL,
-                   let high = try await media.cachedRemotePreviewFile(for: highURL, owner: request.id) {
-                    prepared[initialIndex].url = high
-                } else if let lowURL = initialImage.thumbnailURL {
-                    // 先查询已展示缩略图的统一缓存，当前图片优先进入系统预览。
-                    if let cached = try await media.cachedRemotePreviewFile(for: lowURL, owner: request.id) {
-                        prepared[initialIndex].url = cached
-                    } else if let lowFile = try? await media.remotePreviewFile(for: lowURL, owner: request.id) {
-                        // 极少数情况下，用户可能在图片尚未加载完成时立即点击；只有
-                        // 这种缓存确实缺失的场景才兜底下载当前缩略图。
-                        prepared[initialIndex].url = lowFile
-                    } else if let highURL {
-                        // 缩略图服务异常时仍尝试原图，避免高清图可用却因低清失败而
-                        // 直接关闭系统预览。
-                        prepared[initialIndex].url = try await media.remotePreviewFile(for: highURL, owner: request.id)
-                    }
-                } else if let highURL {
-                    prepared[initialIndex].url = try await media.remotePreviewFile(for: highURL, owner: request.id)
-                }
-                guard prepared[initialIndex].url != placeholder else { throw QuickLookPreparationError.unavailable }
-                return (prepared, initialIndex)
+                count = images.count
+                initialIndex = min(max(request.initialIndex, 0), images.count - 1)
+                let image = images[initialIndex]
+                if let highURL = image.originalURL,
+                   let cached = try await media.cachedRemotePreviewFile(for: highURL, owner: request.id) {
+                    file = cached
+                } else if let lowURL = image.thumbnailURL,
+                          let cached = try await media.cachedRemotePreviewFile(for: lowURL, owner: request.id) {
+                    file = cached
+                } else if let lowURL = image.thumbnailURL,
+                          let downloaded = try? await media.remotePreviewFile(for: lowURL, owner: request.id) {
+                    file = downloaded
+                } else if let highURL = image.originalURL {
+                    file = try await media.remotePreviewFile(for: highURL, owner: request.id)
+                } else { throw QuickLookPreparationError.unavailable }
             }
+            placeholderURL = nil
+            if count > 1 {
+                do {
+                    let placeholder = try await media.images.placeholderFile()
+                    placeholderURL = try await media.previewFile(at: placeholder, owner: request.id)
+                } catch {
+                    try Task.checkCancellation()
+                    Self.logger.debug("其余预览页待恢复：\(error.localizedDescription, privacy: .private)")
+                }
+            }
+            let prepared = (0..<count).map { index in
+                MutableQuickLookItem(url: index == initialIndex ? file : placeholderURL, title: "图片 \(index + 1)")
+            }
+            return (prepared, initialIndex)
         }
 
         private func prepareRemainingLocalItems(for request: ImagePreviewRequest, initialIndex: Int, media: MediaEnvironment) async {
             guard case let .local(images) = request.source else { return }
             for index in images.indices where index != initialIndex {
                 guard !Task.isCancelled, requestID == request.id, self.media === media else { return }
-                guard let file = try? await media.localPreviewFile(image: images[index], owner: request.id) else { continue }
-                guard !Task.isCancelled, requestID == request.id, items.indices.contains(index), self.media === media else { return }
-                updateItem(at: index, to: file)
+                do {
+                    let file = try await media.localPreviewFile(image: images[index], owner: request.id)
+                    guard !Task.isCancelled, requestID == request.id, items.indices.contains(index), self.media === media else { return }
+                    updateItem(at: index, to: file)
+                } catch {
+                    guard !Task.isCancelled, requestID == request.id, self.media === media else { return }
+                    recordFailure(error, at: index)
+                }
             }
         }
 
@@ -286,7 +334,7 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
                     } catch {
                         guard !Task.isCancelled, requestID == request.id, self.media === media else { return }
                         Self.logger.debug("图片缩略图准备失败：\(error.localizedDescription, privacy: .private)")
-                        if image.originalURL == nil, previewController?.currentPreviewItemIndex == index { reportFailure(error) }
+                        if image.originalURL == nil { recordFailure(error, at: index) }
                     }
                 }
             }
@@ -299,7 +347,10 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
         }
 
         private func upgradeOriginal(_ image: RemotePreviewImage, at index: Int, requestID expectedID: UUID, media: MediaEnvironment) async {
-            guard let highURL = image.originalURL else { return }
+            guard let highURL = image.originalURL else {
+                if image.thumbnailURL == nil { recordFailure(QuickLookPreparationError.unavailable, at: index) }
+                return
+            }
             do {
                 let preview = try await media.remotePreviewFile(for: highURL, owner: expectedID)
                 guard !Task.isCancelled, requestID == expectedID, items.indices.contains(index), self.media === media else { return }
@@ -307,12 +358,17 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
             } catch {
                 guard !Task.isCancelled, requestID == expectedID, items.indices.contains(index), self.media === media else { return }
                 Self.logger.debug("图片原图准备失败：\(error.localizedDescription, privacy: .private)")
-                if items[index].url == placeholderURL, previewController?.currentPreviewItemIndex == index { reportFailure(error) }
+                if items[index].url == placeholderURL || items[index].url == nil { recordFailure(error, at: index) }
             }
         }
 
         private func updateItem(at index: Int, to url: URL) {
+            failures[index] = nil
+            failureGenerations[index] = nil
+            reportedFailures.remove(index)
+            items[index].title = "图片 \(index + 1)"
             items[index].url = url
+            updateRetryButton()
             if previewController?.currentPreviewItemIndex == index {
                 if isPreviewPresentationComplete {
                     refreshCurrentPreviewItemSmoothly()
@@ -322,6 +378,78 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
                     pendingCurrentRefresh = true
                 }
             }
+        }
+
+        private func recordFailure(_ error: any Error, at index: Int) {
+            guard items.indices.contains(index), let requestID else { return }
+            failures[index] = error
+            failureGenerations[index] = media.imageRetryGeneration
+            items[index].url = nil
+            items[index].title = "图片待恢复"
+            selectionDidChange(previewController?.currentPreviewItemIndex ?? -1, requestID: requestID)
+        }
+
+        private func selectionDidChange(_ index: Int, requestID expectedID: UUID) {
+            guard requestID == expectedID, previewController?.currentPreviewItemIndex == index else { return }
+            guard isPreviewPresentationComplete, let error = failures[index] else { updateRetryButton(); return }
+            if failureGenerations[index] != media.imageRetryGeneration {
+                retryCurrentImage()
+                return
+            }
+            previewController?.refreshCurrentPreviewItem()
+            updateRetryButton()
+            if reportedFailures.insert(index).inserted { reportFailure(error) }
+        }
+
+        private func updateRetryButton() {
+            guard let controller = previewController else { return }
+            var buttons = (controller.navigationItem.leftBarButtonItems ?? []).filter { $0 !== retryButton }
+            if failures[controller.currentPreviewItemIndex] != nil {
+                retryButton.isEnabled = retryTask == nil
+                buttons.append(retryButton)
+            }
+            controller.navigationItem.leftBarButtonItems = buttons
+        }
+
+        @objc private func closePreview() {
+            onDismiss?()
+            cancel()
+        }
+
+        @objc private func retryCurrentImage() {
+            guard retryTask == nil, let request = activeRequest, let index = previewController?.currentPreviewItemIndex,
+                  failures[index] != nil, items.indices.contains(index) else { return }
+            reportedFailures.remove(index)
+            retryTask = Task { [weak self, media] in
+                guard let self else { return }
+                defer {
+                    if requestID == request.id { retryTask = nil; updateRetryButton() }
+                }
+                do {
+                    let file: URL
+                    switch request.source {
+                    case let .local(images):
+                        file = try await media.localPreviewFile(image: images[index], owner: request.id)
+                    case let .remote(images):
+                        let image = images[index]
+                        if let low = image.thumbnailURL,
+                           let preview = try? await media.remotePreviewFile(for: low, owner: request.id) {
+                            file = preview
+                        } else if let high = image.originalURL {
+                            file = try await media.remotePreviewFile(for: high, owner: request.id)
+                        } else { throw QuickLookPreparationError.unavailable }
+                    }
+                    guard !Task.isCancelled, requestID == request.id, self.media === media else { return }
+                    updateItem(at: index, to: file)
+                    if case let .remote(images) = request.source {
+                        await upgradeOriginal(images[index], at: index, requestID: request.id, media: media)
+                    }
+                } catch {
+                    guard !Task.isCancelled, requestID == request.id, self.media === media else { return }
+                    recordFailure(error, at: index)
+                }
+            }
+            updateRetryButton()
         }
 
         private func reportFailure(_ error: any Error) {
@@ -363,16 +491,21 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
 
 /// Quick Look 会在需要时重新读取该对象的 URL，因此高清下载完成后可以原地替换。
 nonisolated final class MutableQuickLookItem: NSObject, QLPreviewItem, Sendable {
-    private let storedURL: OSAllocatedUnfairLock<URL>
-    var url: URL {
-        get { storedURL.withLock { $0 } }
-        set { storedURL.withLock { $0 = newValue } }
+    private struct State { var url: URL?; var title: String? }
+    private let state: OSAllocatedUnfairLock<State>
+    var url: URL? {
+        get { state.withLock { $0.url } }
+        set { state.withLock { $0.url = newValue } }
     }
-    var previewItemTitle: String? { nil }
+    var title: String? {
+        get { state.withLock { $0.title } }
+        set { state.withLock { $0.title = newValue } }
+    }
+    var previewItemTitle: String? { title }
     var previewItemURL: URL? { url }
 
-    init(url: URL) {
-        storedURL = OSAllocatedUnfairLock(initialState: url)
+    init(url: URL?, title: String? = nil) {
+        state = OSAllocatedUnfairLock(initialState: State(url: url, title: title))
     }
 }
 

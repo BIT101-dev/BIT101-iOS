@@ -166,6 +166,7 @@ enum ScheduleWidgetExporter {
         ScheduleExternalSnapshot(
             generatedAt: .distantPast, isLoggedIn: snapshot.isLoggedIn, studentID: snapshot.studentID,
             firstDayString: snapshot.firstDayString, timeTable: snapshot.timeTable, courses: snapshot.courses,
+            customSchedules: snapshot.customSchedules,
             deadlines: snapshot.deadlines, ddlAfterDay: snapshot.ddlAfterDay
         )
     }
@@ -208,6 +209,10 @@ enum ScheduleWidgetExporter {
                     endSection: $0.endSection
                 )
             },
+            customSchedules: isLoggedIn ? cache.customSchedules.filter(\.hasValidPlacement).map {
+                ScheduleExternalCustomScheduleSnapshot(id: $0.id, title: $0.title, subtitle: $0.subtitle,
+                    dateStrings: $0.occurrenceDateStrings, beginTime: $0.beginTime, endTime: $0.endTime)
+            } : [],
             deadlines: makeDeadlines(cache: cache, isLoggedIn: isLoggedIn),
             ddlAfterDay: min(max(cache.ddlAfterDay, 0), 30)
         )

@@ -22,6 +22,7 @@ struct AppScheduleCacheEffects: SchedulePlatformActions {
     let importDrafts: ([ScheduleSystemCalendarEventDraft], String) async throws -> Int
     let deleteEntries: (Set<String>, String?) async throws -> ScheduleSystemCalendarMutationResult
     let deleteAllEntries: () async throws -> ScheduleSystemCalendarMutationResult
+    let rebuildCalendarHistory: () async throws -> Int
 
     func didSave(session: AppStorageSession, source: ScheduleCacheSaveSource, cloudSyncEnabled: Bool) async {
         guard source == .local, cloudSyncEnabled, session == currentSession() else { return }
@@ -64,6 +65,8 @@ struct AppScheduleCacheEffects: SchedulePlatformActions {
     func deleteImportedSystemCalendarEvents() async throws -> ScheduleSystemCalendarMutationResult {
         try await deleteAllEntries()
     }
+
+    func rebuildSystemCalendarImportHistory() async throws -> Int { try await rebuildCalendarHistory() }
 }
 
 struct AppScheduleSchoolSessionRestorer: SchoolSessionRestoring, Sendable {

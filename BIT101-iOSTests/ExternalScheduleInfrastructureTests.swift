@@ -58,6 +58,15 @@ struct ExternalScheduleInfrastructureTests {
         }
         override var defaultCalendarForNewEvents: EKCalendar? { nil }
         override var sources: [EKSource] { [] }
+        override func predicateForEvents(withStart startDate: Date, end endDate: Date, calendars: [EKCalendar]?) -> NSPredicate {
+            #expect(!Thread.isMainThread)
+            #expect(calendars == nil)
+            return NSPredicate(value: true)
+        }
+        override func events(matching predicate: NSPredicate) -> [EKEvent] {
+            #expect(!Thread.isMainThread)
+            return []
+        }
     }
 
     @Test(.timeLimit(.minutes(1))) func queuedCalendarOperationsKeepTheirOriginalAccountAndResetWaitsForTheTransaction() async throws {
@@ -150,8 +159,24 @@ struct ExternalScheduleInfrastructureTests {
         #expect(queries.withLock { $0 } == 0)
         let retained = defaults.object(forKey: key)
         #expect(retained as? Data == source as? Data && retained as? String == source as? String)
-        defaults.set(Data("[]".utf8), forKey: key)
+        #expect(try await manager.rebuildImportHistory() == 0)
         #expect(try await manager.deleteAllImportedEvents() == .noOp)
+    }
+
+    @Test func calendarHistoryRecoveryFindsMovedEventsAndKeepsAccountOwnership() throws {
+        let session = AppStorageSession(accountIdentifier: "calendar-owner")
+        let foreign = AppStorageSession(accountIdentifier: "other-owner")
+        let start = Date(timeIntervalSince1970: 100), finish = Date(timeIntervalSince1970: 200)
+        func record(_ id: String, _ owner: AppStorageSession?, calendar: String = "personal-calendar", end: Date? = nil) -> ScheduleSystemCalendarManager.ImportHistoryEvent {
+            .init(id: id, calendarID: calendar,
+                url: owner.flatMap { ScheduleSystemCalendarEventMarker.url(id: id, term: "term", session: $0) }, start: start, end: end ?? finish)
+        }
+        let batches = ScheduleSystemCalendarManager.recoveredBatches(from: [record("owned", session), record("foreign", foreign),
+            record("unmarked", nil), record("invalid", session, end: start), record("no-calendar", session, calendar: "")], session: session)
+        #expect(batches.count == 1)
+        let batch = try #require(batches.first)
+        #expect(batch.term == "term" && batch.calendarIdentifier == "personal-calendar")
+        #expect(batch.eventIdentifiers == ["owned"] && batch.startDate == start && batch.endDate == finish)
     }
 
     @MainActor @Test func damagedDiskSnapshotsReachTheInvalidDisplayState() throws {
@@ -258,11 +283,11 @@ struct ExternalScheduleInfrastructureTests {
             dueAt: now.addingTimeInterval(300))
         let snapshot = ScheduleExternalSnapshot(isLoggedIn: true, studentID: "owner", firstDayString: "", timeTable: [], courses: [],
             deadlines: [deadline], ddlAfterDay: 0)
-        #expect(ScheduleDeadlineResolver.timelineDates(from: snapshot, now: now)
+        #expect(ScheduleDeadlineResolver.timelineEntries(from: snapshot, now: now).map(\.date)
             == [now, deadline.dueAt, deadline.dueAt.addingTimeInterval(1), day.addingTimeInterval(86_400), now.addingTimeInterval(86_400)])
         #expect(ScheduleDeadlineResolver.resolvedSnapshot(from: snapshot, now: deadline.dueAt).contentState == .ready)
         #expect(ScheduleDeadlineResolver.resolvedSnapshot(from: snapshot, now: deadline.dueAt.addingTimeInterval(1)).contentState == .rest)
-        #expect(ScheduleDeadlineResolver.timelineDates(from: nil, now: now)
+        #expect(ScheduleDeadlineResolver.timelineEntries(from: nil, now: now).map(\.date)
             == [now, day.addingTimeInterval(86_400), now.addingTimeInterval(86_400)])
     }
 

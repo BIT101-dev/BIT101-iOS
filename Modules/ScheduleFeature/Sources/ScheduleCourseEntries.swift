@@ -55,88 +55,83 @@ extension CourseScheduleTabView {
         }
 
         let examEntries = viewModel.presentationPreferences.showExamInfo ? activeSchedule.exams.compactMap { exam -> ScheduleCalendarEntry? in
-            guard
-                let examDate = ScheduleDateCodec.parseDate(exam.dateString),
-                examDate >= weekStart,
-                examDate < weekEnd
-            else {
-                return nil
-            }
-
-            let weekday = ScheduleDateCodec.weekdayIndex(from: examDate)
-            guard
-                let startMinutes = parseScheduleEntryMinutes(exam.beginTime),
-                let endMinutes = parseScheduleEntryMinutes(exam.endTime)
-            else { return nil }
-            let startSection = convertTimeToSection(timeText: exam.beginTime, timeTable: activeSchedule.timeTable)
-            let endSection = convertTimeToSection(timeText: exam.endTime, timeTable: activeSchedule.timeTable)
-
-            guard endMinutes > startMinutes else { return nil }
-
-            return ScheduleCalendarEntry(
-                id: "exam-\(exam.id)",
-                sourceID: exam.id,
-                sourceIDs: [exam.id],
-                dayOfWeek: weekday,
-                startSection: startSection,
-                endSection: endSection,
-                startMinutes: startMinutes,
-                endMinutes: endMinutes,
-                title: "(考试)\n\(exam.name)",
-                subtitle: normalizeDisplayedClassroom(exam.classroom),
-                detailLines: [
-                    exam.teacher.isEmpty ? nil : "教师：\(exam.teacher)",
-                    exam.classroom.isEmpty ? nil : "教室：\(normalizeDisplayedClassroom(exam.classroom))",
-                    exam.examMode.isEmpty ? nil : "形式：\(exam.examMode)",
-                    (exam.beginTime.isEmpty || exam.endTime.isEmpty) ? nil : "时间：\(exam.beginTime)-\(exam.endTime)",
-                    exam.seatID.isEmpty ? nil : "座位号：\(exam.seatID)",
-                ].compactMap { $0 },
-                kind: .exam
-            )
+            guard let date = ScheduleDateCodec.parseDate(exam.dateString), date >= weekStart, date < weekEnd else { return nil }
+            return examEntry(for: exam)
         } : []
-
         let customEntries = activeSchedule.customSchedules.flatMap { schedule in
             schedule.occurrenceDateStrings.compactMap { dateString -> ScheduleCalendarEntry? in
-                guard
-                    let date = ScheduleDateCodec.parseDate(dateString),
-                    date >= weekStart,
-                    date < weekEnd
-                else {
-                    return nil
-                }
-
-                let weekday = ScheduleDateCodec.weekdayIndex(from: date)
-                guard
-                    let startMinutes = parseScheduleEntryMinutes(schedule.beginTime),
-                    let endMinutes = parseScheduleEntryMinutes(schedule.endTime)
-                else { return nil }
-                let startSection = convertTimeToSection(timeText: schedule.beginTime, timeTable: activeSchedule.timeTable)
-                let endSection = convertTimeToSection(timeText: schedule.endTime, timeTable: activeSchedule.timeTable)
-                guard endMinutes > startMinutes else { return nil }
-
-                return ScheduleCalendarEntry(
-                    id: schedule.occurrenceID(for: dateString),
-                    sourceID: schedule.id,
-                    sourceIDs: [schedule.id],
-                    dayOfWeek: weekday,
-                    startSection: startSection,
-                    endSection: endSection,
-                    startMinutes: startMinutes,
-                    endMinutes: endMinutes,
-                    title: schedule.title,
-                    subtitle: schedule.subtitle,
-                    detailLines: [
-                        schedule.subtitle.isEmpty ? nil : "副标题：\(schedule.subtitle)",
-                        schedule.description.isEmpty ? nil : "描述：\(schedule.description)",
-                        "日期：\(dateString)",
-                        "时间：\(schedule.beginTime)-\(schedule.endTime)",
-                    ].compactMap { $0 },
-                    kind: .custom
-                )
+                guard let date = ScheduleDateCodec.parseDate(dateString), date >= weekStart, date < weekEnd else { return nil }
+                return customEntry(for: schedule, dateString: dateString)
             }
         }
 
         return courseEntries + examEntries + customEntries
+    }
+
+    func examEntry(for exam: ExamRecord) -> ScheduleCalendarEntry? {
+        guard let examDate = ScheduleDateCodec.parseDate(exam.dateString) else { return nil }
+        let weekday = ScheduleDateCodec.weekdayIndex(from: examDate)
+        guard
+            let startMinutes = parseScheduleEntryMinutes(exam.beginTime),
+            let endMinutes = parseScheduleEntryMinutes(exam.endTime)
+        else { return nil }
+        let startSection = convertTimeToSection(timeText: exam.beginTime, timeTable: activeSchedule.timeTable)
+        let endSection = convertTimeToSection(timeText: exam.endTime, timeTable: activeSchedule.timeTable)
+
+        guard endMinutes > startMinutes else { return nil }
+
+        return ScheduleCalendarEntry(
+            id: "exam-\(exam.id)",
+            sourceID: exam.id,
+            sourceIDs: [exam.id],
+            dayOfWeek: weekday,
+            startSection: startSection,
+            endSection: endSection,
+            startMinutes: startMinutes,
+            endMinutes: endMinutes,
+            title: "(考试)\n\(exam.name)",
+            subtitle: normalizeDisplayedClassroom(exam.classroom),
+            detailLines: [
+                exam.teacher.isEmpty ? nil : "教师：\(exam.teacher)",
+                exam.classroom.isEmpty ? nil : "教室：\(normalizeDisplayedClassroom(exam.classroom))",
+                exam.examMode.isEmpty ? nil : "形式：\(exam.examMode)",
+                (exam.beginTime.isEmpty || exam.endTime.isEmpty) ? nil : "时间：\(exam.beginTime)-\(exam.endTime)",
+                exam.seatID.isEmpty ? nil : "座位号：\(exam.seatID)",
+            ].compactMap { $0 },
+            kind: .exam
+        )
+    }
+
+    func customEntry(for schedule: CustomScheduleRecord, dateString: String) -> ScheduleCalendarEntry? {
+        guard let date = ScheduleDateCodec.parseDate(dateString) else { return nil }
+        let weekday = ScheduleDateCodec.weekdayIndex(from: date)
+        guard
+            let startMinutes = parseScheduleEntryMinutes(schedule.beginTime),
+            let endMinutes = parseScheduleEntryMinutes(schedule.endTime)
+        else { return nil }
+        let startSection = convertTimeToSection(timeText: schedule.beginTime, timeTable: activeSchedule.timeTable)
+        let endSection = convertTimeToSection(timeText: schedule.endTime, timeTable: activeSchedule.timeTable)
+        guard endMinutes > startMinutes else { return nil }
+
+        return ScheduleCalendarEntry(
+            id: schedule.occurrenceID(for: dateString),
+            sourceID: schedule.id,
+            sourceIDs: [schedule.id],
+            dayOfWeek: weekday,
+            startSection: startSection,
+            endSection: endSection,
+            startMinutes: startMinutes,
+            endMinutes: endMinutes,
+            title: schedule.title,
+            subtitle: schedule.subtitle,
+            detailLines: [
+                schedule.subtitle.isEmpty ? nil : "副标题：\(schedule.subtitle)",
+                schedule.description.isEmpty ? nil : "描述：\(schedule.description)",
+                "日期：\(dateString)",
+                "时间：\(schedule.beginTime)-\(schedule.endTime)",
+            ].compactMap { $0 },
+            kind: .custom
+        )
     }
 
     func courseEntry(

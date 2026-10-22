@@ -62,6 +62,10 @@ extension ScheduleViewModel {
         try await platformActions.deleteImportedSystemCalendarEvents()
     }
 
+    public func rebuildSystemCalendarImportHistory() async throws -> Int {
+        try await platformActions.rebuildSystemCalendarImportHistory()
+    }
+
     /// 把周次快速重置到当前周。
     func resetToCurrentWeek() {
         selectedWeek = resolvedAutomaticWeek()

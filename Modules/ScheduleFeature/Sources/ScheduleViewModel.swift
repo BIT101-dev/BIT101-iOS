@@ -71,6 +71,7 @@ public final class ScheduleViewModel: ObservableObject, ScheduleStateConsumer {
     /// 是否正在同步课表/考试。
     public var isSyncingCourses: Bool { courseSyncCoordinator.isSyncingCourses }
     @Published var selectedWeek = 1
+    @Published var requestedSystemCalendarEvent: ScheduleSystemCalendarNavigationRequest?
     @Published private var selectedCourseScheduleID = "__primary__"
     var selectedCourseScheduleIndex: Int {
         get { courseSchedules.firstIndex { $0.id == selectedCourseScheduleID } ?? 0 }
@@ -164,6 +165,7 @@ public final class ScheduleViewModel: ObservableObject, ScheduleStateConsumer {
         classroom.reset()
         ddl.reset()
         hasLoaded = false
+        requestedSystemCalendarEvent = nil
         courseSyncCoordinator.reset()
         notice = nil
         Task { @MainActor [weak self] in await self?.reloadFromDisk() }
@@ -249,6 +251,12 @@ public final class ScheduleViewModel: ObservableObject, ScheduleStateConsumer {
         guard await reloadFromDisk(), !Task.isCancelled, generation == repository.accountGeneration else { return }
         hasLoaded = true
         selectedWeek = resolvedAutomaticWeek()
+    }
+
+    public func requestSystemCalendarEntry(markerID: String, term: String) {
+        guard hasLoaded else { return }
+        selectedSection = .courses
+        requestedSystemCalendarEvent = .init(markerID: markerID, term: term)
     }
 
     /// 根据首周日期推导当前周次。

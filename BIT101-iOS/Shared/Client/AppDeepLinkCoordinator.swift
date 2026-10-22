@@ -7,6 +7,7 @@ enum AppDeepLinkRoute: Equatable {
     case paper(Int)
     case gallery(Int)
     case course(Int)
+    case calendarEvent(markerID: String, term: String, account: String)
 
     nonisolated init?(url: URL) {
         let scheme = url.scheme?.lowercased()
@@ -41,6 +42,13 @@ enum AppDeepLinkRoute: Equatable {
         case "course":
             guard routeComponents.count == 2, let id = Self.positiveID(from: routeComponents[1]) else { return nil }
             self = .course(id)
+        case "calendar-course":
+            guard routeComponents.count >= 2,
+                  let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+                  let term = components.queryItems?.first(where: { $0.name == "term" })?.value, !term.isEmpty,
+                  let account = components.queryItems?.first(where: { $0.name == "account" })?.value, !account.isEmpty
+            else { return nil }
+            self = .calendarEvent(markerID: routeComponents.dropFirst().joined(separator: "/"), term: term, account: account)
         default:
             return nil
         }

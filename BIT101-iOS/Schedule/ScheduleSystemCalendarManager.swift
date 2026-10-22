@@ -121,7 +121,7 @@ nonisolated enum ScheduleSystemCalendarEventBuilder {
                 }
 
                 return ScheduleSystemCalendarEventDraft(
-                    markerID: "\(course.id)-w\(week)",
+                    markerID: ScheduleSystemCalendarMarkerID.course(course.id, week: week),
                     title: course.name,
                     location: displayLocation(campus: course.campus, classroom: course.classroom),
                     structuredLocation: structuredLocation,
@@ -159,7 +159,7 @@ nonisolated enum ScheduleSystemCalendarEventBuilder {
         ].compactMap { $0 }
 
         return ScheduleSystemCalendarEventDraft(
-            markerID: "exam-\(exam.id)",
+            markerID: ScheduleSystemCalendarMarkerID.exam(exam.id),
             title: "[考试] \(exam.name)",
             location: exam.classroom,
             structuredLocation: structuredLocation(campus: "", classroom: exam.classroom),
@@ -326,12 +326,19 @@ nonisolated enum ScheduleSystemCalendarEventMarker {
 actor ScheduleSystemCalendarManager {
     @MainActor static let shared = ScheduleSystemCalendarManager()
 
-    private nonisolated struct ImportedBatch: Codable {
+    nonisolated struct ImportedBatch: Codable {
         let term: String
         let calendarIdentifier: String
         let eventIdentifiers: [String]
         let startDate: Date
         let endDate: Date
+    }
+    nonisolated struct ImportHistoryEvent {
+        let id: String
+        let calendarID: String
+        let url: URL?
+        let start: Date
+        let end: Date
     }
 
     private static let calendarTitle = "BIT101 课表"
@@ -525,6 +532,53 @@ actor ScheduleSystemCalendarManager {
         try await performDeleteAllImportedEvents(owner: currentIdentity())
     }
 
+    /// 沿现有日历标记重建当前账号的导入索引，事件内容保持完整。
+    @MainActor func rebuildImportHistory() async throws -> Int {
+        try await performRebuildImportHistory(owner: currentIdentity())
+    }
+
+    private func performRebuildImportHistory(owner: SchoolSessionIdentity) async throws -> Int {
+        guard await currentIdentity() == owner else { throw CancellationError() }
+        try await requireFullAccess()
+        guard await currentIdentity() == owner else { throw CancellationError() }
+        try Task.checkCancellation()
+        storageSession = AppStorageSession(accountIdentifier: owner.accountIdentifier)
+        let lower = ScheduleSharedDateCodec.calendar.date(byAdding: .year, value: -10, to: Date()) ?? .distantPast
+        let upper = ScheduleSharedDateCodec.calendar.date(byAdding: .year, value: 10, to: Date()) ?? .distantFuture
+        let events = calendarEvents(calendars: nil, startDate: lower, endDate: upper).compactMap { event -> ImportHistoryEvent? in
+            guard let id = event.eventIdentifier, let calendar = event.calendar,
+                  let start = event.startDate, let end = event.endDate else { return nil }
+            return .init(id: id, calendarID: calendar.calendarIdentifier, url: event.url, start: start, end: end)
+        }
+        let batches = Self.recoveredBatches(from: events, session: storageSession)
+        try Task.checkCancellation()
+        guard await currentIdentity() == owner else { throw CancellationError() }
+        saveBatches(batches)
+        return batches.reduce(0) { $0 + $1.eventIdentifiers.count }
+    }
+
+    nonisolated static func recoveredBatches(from events: [ImportHistoryEvent], session: AppStorageSession) -> [ImportedBatch] {
+        struct BatchKey: Hashable {
+            let term: String
+            let calendarID: String
+        }
+        let valid = events.filter {
+            !$0.id.isEmpty && !$0.calendarID.isEmpty && $0.start.timeIntervalSince1970.isFinite &&
+            $0.end.timeIntervalSince1970.isFinite && $0.end > $0.start && ScheduleSystemCalendarEventMarker.matches($0.url, session: session)
+        }
+        let grouped = Dictionary(grouping: valid) { event in
+            let term = event.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?
+                .queryItems?.first(where: { $0.name == "term" })?.value ?? ""
+            return BatchKey(term: term, calendarID: event.calendarID)
+        }
+        return grouped.compactMap { key, events -> ImportedBatch? in
+            guard !key.term.isEmpty, !key.calendarID.isEmpty else { return nil }
+            guard let start = events.map(\.start).min(), let end = events.map(\.end).max() else { return nil }
+            return ImportedBatch(term: key.term, calendarIdentifier: key.calendarID,
+                eventIdentifiers: events.map(\.id), startDate: start, endDate: end)
+        }
+    }
+
     /// 账号清理等待当前同步事务及其本地批次写入完成。
     func finishPendingTransactions() {}
 
@@ -688,7 +742,7 @@ actor ScheduleSystemCalendarManager {
         for interval in ScheduleSystemCalendarQuery.intervals(start: startDate, end: endDate) {
             let predicate = eventStore.predicateForEvents(withStart: interval.start, end: interval.end, calendars: calendars)
             for event in eventStore.events(matching: predicate) {
-                eventsByIdentifier[event.eventIdentifier] = event
+                if let identifier = event.eventIdentifier { eventsByIdentifier[identifier] = event }
             }
         }
         return Array(eventsByIdentifier.values)

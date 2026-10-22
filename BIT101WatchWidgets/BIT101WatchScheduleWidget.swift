@@ -16,7 +16,7 @@ private let watchScheduleWidgetInvalidMessage = "请在手机上重新同步课�
 /// Watch 端需要登录时使用的提示文案。
 private let watchScheduleWidgetLoginMessage = "请先登录"
 /// 后续课程为空时使用的提示文案。
-private let watchScheduleWidgetRestMessage = "暂无后续课程"
+private let watchScheduleWidgetRestMessage = "暂无后续日程"
 
 /// Apple Watch complication 的时间线条目。
 private struct WatchScheduleEntry: TimelineEntry {
@@ -195,7 +195,7 @@ struct BIT101WatchScheduleWidget: Widget {
                 .containerBackground(.fill.tertiary, for: .widget)
         }
         .configurationDisplayName("课表")
-        .description("在表盘或 Smart Stack 里查看下一节课。")
+        .description("在表盘或 Smart Stack 里查看接下来的课程与日程。")
         .supportedFamilies([
             .accessoryCircular,
             .accessoryInline,

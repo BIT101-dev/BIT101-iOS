@@ -73,10 +73,11 @@ struct CampusMapLocationTests {
         }
     }
 
-    @Test("An available user position centers the native map")
-    @MainActor func availablePositionCentersMap() throws {
+    @Test("Available precise and approximate positions center the native map", arguments: [0.0, 3_000.0])
+    @MainActor func availablePositionCentersMap(accuracy: Double) throws {
         let map = MapViewLocationFixture()
-        map.position.position = CLLocation(latitude: 39.7, longitude: 116.2)
+        map.position.position = CLLocation(coordinate: .init(latitude: 39.7, longitude: 116.2), altitude: 0,
+            horizontalAccuracy: accuracy, verticalAccuracy: 0, timestamp: Date())
         let coordinator = CampusNativeMapView.Coordinator()
         coordinator.centerOnUser(in: map, requestID: UUID())
         let center = try #require(map.centered)
@@ -84,9 +85,9 @@ struct CampusMapLocationTests {
         #expect(map.showsUserLocation && map.tracking == .none)
     }
 
-    @Test("A fresh accurate position completes a request after stale or unusable fixes")
-    @MainActor func staleAndInaccuratePositionsWaitForANewFix() {
-        for (age, accuracy) in [(-3_600.0, 20.0), (0.0, -1.0), (0.0, 3_000.0)] {
+    @Test("A fresh usable position completes a request after stale or invalid fixes")
+    @MainActor func staleAndInvalidPositionsWaitForANewFix() {
+        for (age, accuracy) in [(-3_600.0, 20.0), (0.0, -1.0)] {
             let map = MapViewLocationFixture(), coordinator = CampusNativeMapView.Coordinator()
             let stale = CLLocation(coordinate: .init(latitude: 39.7, longitude: 116.2), altitude: 0,
                 horizontalAccuracy: accuracy, verticalAccuracy: 0, timestamp: Date().addingTimeInterval(age))

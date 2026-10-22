@@ -57,6 +57,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
     @State private var isShowingLiveActivityExperimentalWarning = false
     @State private var isShowingSystemCalendarImportConfirmation = false
     @State private var isShowingSystemCalendarDeleteConfirmation = false
+    @State private var isShowingCalendarHistoryRecoveryConfirmation = false
     @State private var isUpdatingSystemCalendar = false
     @State private var calendarMutationTask: Task<Void, Never>?
     @State private var scheduleExportTask: Task<Void, Never>?
@@ -140,6 +141,10 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
             }
             .disabled(isUpdatingSystemCalendar)
             .appInteractiveListRow(isDestructive: true)
+            Button("重建日历导入记录") { isShowingCalendarHistoryRecoveryConfirmation = true }
+                .disabled(isUpdatingSystemCalendar)
+                .appInteractiveListRow()
+                .accessibilityIdentifier("schedule.calendar.recover-history")
         }
     }
 
@@ -393,6 +398,15 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
             scheduleExportTask?.cancel()
             isShowingSystemCalendarImportConfirmation = false
             isShowingSystemCalendarDeleteConfirmation = false
+            isShowingCalendarHistoryRecoveryConfirmation = false
+        }
+        .alert("重建日历导入记录？", isPresented: $isShowingCalendarHistoryRecoveryConfirmation) {
+            Button("重建") { rebuildCalendarImportHistory() }
+                .accessibilityIdentifier("schedule.calendar.recover-history.confirm")
+            Button("取消", role: .cancel) {}
+                .accessibilityIdentifier("schedule.calendar.recover-history.cancel")
+        } message: {
+            Text("根据系统日历中近十年与未来十年的 BIT101 标记重建导入记录，日历事件保持完整。")
         }
         .alert("当前课表为空", isPresented: $isShowingEmptyScheduleExportConfirmation) {
             Button("取消", role: .cancel) {}
@@ -456,7 +470,8 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
         isUpdatingSystemCalendar = false
     }
 
-    private func performCalendarMutation(failureTitle: String, operation: @escaping @MainActor () async throws -> ScheduleNotice) {
+    private func performCalendarMutation(failureTitle: String,
+        operation: @escaping @MainActor () async throws -> ScheduleNotice) {
         cancelCalendarMutation()
         let account = viewModel.accountGeneration
         let generation = calendarMutationGeneration
@@ -486,6 +501,13 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
         performCalendarMutation(failureTitle: "导入失败") {
             let count = try await viewModel.importCurrentTermToSystemCalendar()
             return ScheduleNotice.informational(title: "导入成功", message: "已向“BIT101 课表”日历写入 \(count) 节课程。")
+        }
+    }
+
+    private func rebuildCalendarImportHistory() {
+        performCalendarMutation(failureTitle: "重建导入记录失败") {
+            let count = try await viewModel.rebuildSystemCalendarImportHistory()
+            return ScheduleNotice.userInput(title: "导入记录已恢复", message: "已从系统日历恢复 \(count) 条 BIT101 事件记录。")
         }
     }
 

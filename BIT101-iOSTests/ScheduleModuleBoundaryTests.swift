@@ -48,6 +48,8 @@ final class RecordingSchedulePlatformActions: SchedulePlatformActions {
         return 7
     }
 
+    func rebuildSystemCalendarImportHistory() async throws -> Int { 0 }
+
     func deleteImportedSystemCalendarEvents() async throws -> ScheduleSystemCalendarMutationResult {
         deleteCount += 1
         return .changed(3)

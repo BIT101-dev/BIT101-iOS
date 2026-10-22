@@ -52,11 +52,11 @@ struct ScheduleContractsTests {
         let now = try #require(ScheduleSharedDateCodec.combine(date: day, time: "12:00"))
         let deadline = ScheduleExternalDeadlineSnapshot(id: "due", title: "报告", subtitle: "", sourceTitle: "课程中心", dueAt: now.addingTimeInterval(300))
         let snapshot = ScheduleExternalSnapshot(isLoggedIn: true, studentID: "owner", firstDayString: "", timeTable: [], courses: [], deadlines: [deadline], ddlAfterDay: 0)
-        let dates = ScheduleDeadlineResolver.timelineDates(from: snapshot, now: now)
+        let dates = ScheduleDeadlineResolver.timelineEntries(from: snapshot, now: now).map(\.date)
         #expect(dates == [now, deadline.dueAt, deadline.dueAt.addingTimeInterval(1), day.addingTimeInterval(86400), now.addingTimeInterval(86400)])
         #expect(ScheduleDeadlineResolver.resolvedSnapshot(from: snapshot, now: deadline.dueAt).contentState == .ready)
         #expect(ScheduleDeadlineResolver.resolvedSnapshot(from: snapshot, now: deadline.dueAt.addingTimeInterval(1)).contentState == .rest)
-        #expect(ScheduleDeadlineResolver.timelineDates(from: nil, now: now) == [now, day.addingTimeInterval(86400), now.addingTimeInterval(86400)])
+        #expect(ScheduleDeadlineResolver.timelineEntries(from: nil, now: now).map(\.date) == [now, day.addingTimeInterval(86400), now.addingTimeInterval(86400)])
     }
 
     @Test(arguments: ["blank-title", "duplicate-id", "oversized-subtitle", "invalid-retention"])

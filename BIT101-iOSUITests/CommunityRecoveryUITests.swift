@@ -2,6 +2,30 @@ import XCTest
 
 nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
     @MainActor
+    @objc func testLaterPreviewPageRecoversThroughTheNativeRetryButton() {
+        app = configureApp(resetStorage: true, content: true, animations: true, media: true,
+            mediaRecovery: true, initialTab: "gallery")
+        assertUI(textElement("+1").appears(timeout: 5), "恢复场景应提供两张预览图片。")
+        tap("查看第1张图片")
+        assertUI(waitForImagePreview(visible: true, timeout: 15), "首张图片应打开系统预览。")
+        _ = imagePreviewCloseButton()
+        let failure = app.alerts["图片预览失败"]
+        let preview = app.native.descendants(matching: .any)["QLPreviewControllerView"]
+        for _ in 0..<2 {
+            preview.swipeLeft(velocity: .slow)
+            if failure.appears(timeout: 2) { break }
+        }
+        assertUI(failure.exists, "后续页故障应展示图片恢复提示。")
+        closeAlertIfPresent()
+        let retry = UIElement(app.native).buttons["media.preview.retry"]
+        assertUI(retry.appears(timeout: 10), "后续页加载失败应提供原生重试按钮。")
+        retry.tapBriefly()
+        assertUI(retry.disappears(timeout: 10), "重试成功后应恢复图片并收起重试按钮。")
+        assertUI(waitForImagePreview(visible: true, timeout: 5), "恢复图片应保留系统预览。")
+        closeImagePreview()
+    }
+
+    @MainActor
     @objc func testMessagesAndFavoritesOpenNativeResources() {
         app = configureApp(resetStorage: true, content: true, resourceRoutes: true, initialTab: "gallery")
         tap("消息")

@@ -725,6 +725,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         nativeInteraction: Bool = true,
         school: Bool = false,
         media: Bool = false,
+        mediaRecovery: Bool = false,
         botPaging: Bool = false,
         pagination: Bool = false,
         paginationFailureOnce: Bool = false,
@@ -739,6 +740,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         scheduleConflict: Bool = false,
         settingsRecovery: Bool = false,
         scoreRecovery: Bool = false,
+        calendarHistoryRecovery: Bool = false,
         transcriptFailureOnce: Bool = false,
         minePagingFailureOnce: Bool = false,
         initialTab: String = "schedule",
@@ -790,11 +792,13 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         application.launchEnvironment["BIT101_UI_TEST_SCHEDULE_CONFLICT"] = scheduleConflict ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_SETTINGS_RECOVERY"] = settingsRecovery ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_SCORE_RECOVERY"] = scoreRecovery ? "1" : "0"
+        application.launchEnvironment["BIT101_UI_TEST_CALENDAR_HISTORY_RECOVERY"] = calendarHistoryRecovery ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_TRANSCRIPT_FAILURE_ONCE"] = transcriptFailureOnce ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_MINE_PAGING_FAILURE_ONCE"] = minePagingFailureOnce ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_ANIMATIONS"] = animations ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_SCHOOL"] = school ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_MEDIA"] = media ? "1" : "0"
+        application.launchEnvironment["BIT101_UI_TEST_MEDIA_RECOVERY"] = mediaRecovery ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_BOT_PAGING"] = botPaging ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_PAGINATION"] = pagination ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_PAGINATION_FAILURE_ONCE"] = paginationFailureOnce ? "1" : "0"

@@ -16,7 +16,7 @@ private let scheduleWidgetSyncMessage = "请先获取课表"
 private let scheduleWidgetUnavailableMessage = "课表读取失败，请重试"
 private let scheduleWidgetInvalidMessage = "请重新同步课表"
 private let scheduleWidgetLoginMessage = "请登录"
-private let scheduleWidgetRestMessage = "暂无后续课程"
+private let scheduleWidgetRestMessage = "暂无后续日程"
 
 private struct DeadlineWidgetEntry: TimelineEntry {
     let date: Date
@@ -43,8 +43,8 @@ private struct DeadlineWidgetProvider: TimelineProvider {
         let now = Date()
         do {
             let snapshot = try WidgetSnapshotStorage.store.read()
-            let entries = ScheduleDeadlineResolver.timelineDates(from: snapshot, now: now).map { date in
-                DeadlineWidgetEntry(date: date, resolved: ScheduleDeadlineResolver.resolvedSnapshot(from: snapshot, now: date))
+            let entries = ScheduleDeadlineResolver.timelineEntries(from: snapshot, now: now).map { entry in
+                DeadlineWidgetEntry(date: entry.date, resolved: entry.resolved)
             }
             completion(Timeline(entries: entries, policy: snapshot == nil ? .after(retryDate(now: now)) : .atEnd))
         } catch {
@@ -439,7 +439,7 @@ struct BIT101ScheduleWidgets: Widget {
                 .widgetURL(URL(string: "bit101://schedule/courses"))
         }
         .configurationDisplayName("课程表")
-        .description("查看下一节课，支持桌面和锁屏组件。")
+        .description("查看接下来的课程与日程，支持桌面和锁屏组件。")
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge, .accessoryRectangular, .accessoryInline, .accessoryCircular])
     }
 }
@@ -468,7 +468,7 @@ private struct ScheduleWidgetEntryView: View {
     }
 
     private func courseStatusText(for occurrence: ScheduleExternalOccurrence) -> String {
-        occurrence.isCurrent(at: entry.date) ? "正在上课" : "下一节"
+        occurrence.isCurrent(at: entry.date) ? "正在进行" : "下一节"
     }
 
     @ViewBuilder
@@ -744,17 +744,17 @@ private struct ScheduleWidgetEntryView: View {
             Text(entry.message ?? scheduleWidgetRestMessage)
                 .font(AppDesignSystem.Typography.subheadlineEmphasis)
             if entry.message == scheduleWidgetSyncMessage {
-                Text("打开 App 同步课表后，这里会显示下一节课。")
+                Text("打开 App 同步课表后，这里会显示接下来的日程。")
                     .font(AppDesignSystem.Typography.caption)
                     .foregroundStyle(AppDesignSystem.Foreground.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             } else if entry.message == scheduleWidgetInvalidMessage {
-                Text("打开 App 重新同步课表后，这里会显示下一节课。")
+                Text("打开 App 重新同步课表后，这里会显示接下来的日程。")
                     .font(AppDesignSystem.Typography.caption)
                     .foregroundStyle(AppDesignSystem.Foreground.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             } else if entry.message == scheduleWidgetLoginMessage {
-                Text("登录后，这里会显示下一节课。")
+                Text("登录后，这里会显示接下来的日程。")
                     .font(AppDesignSystem.Typography.caption)
                     .foregroundStyle(AppDesignSystem.Foreground.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -771,7 +771,7 @@ private struct ScheduleWidgetEntryView: View {
         case scheduleWidgetInvalidMessage:
             return "请重新同步"
         default:
-            return "暂无课程"
+            return "暂无日程"
         }
     }
 

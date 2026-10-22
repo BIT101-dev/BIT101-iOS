@@ -250,7 +250,6 @@ struct CampusNativeMapView: UIViewRepresentable {
         /// 过滤掉无效或缺失的用户坐标。
         private func validUserCoordinate(_ location: CLLocation?) -> CLLocationCoordinate2D? {
             guard let location, location.horizontalAccuracy >= 0,
-                  location.horizontalAccuracy <= kCLLocationAccuracyHundredMeters,
                   abs(location.timestamp.timeIntervalSinceNow) <= 60 else {
                 return nil
             }

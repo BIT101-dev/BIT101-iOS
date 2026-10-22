@@ -468,6 +468,8 @@ struct CourseScheduleTabView: View {
         }
         .diagnosticAlert(item: $courseShareAlert)
         .task(id: prefetchedCourseID) { await resolvePreparedCourseShare() }
+        .onAppear { consumeSystemCalendarRequest() }
+        .onChange(of: viewModel.requestedSystemCalendarEvent) { _, _ in consumeSystemCalendarRequest() }
         .onDisappear { cancelPendingActions() }
         .onChange(of: viewModel.accountGeneration) { _, _ in
             dismissPresentedSheets()

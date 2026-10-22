@@ -448,32 +448,69 @@ public nonisolated struct ScheduleExternalResolvedDeadlines: Sendable {
 
 /// 待办独立于课程学期展开，按截止时间和过期保留窗口生成小组件内容。
 public nonisolated enum ScheduleDeadlineResolver {
-    public static func resolvedSnapshot(from snapshot: ScheduleExternalSnapshot?, now: Date = Date(), limit: Int = 4) -> ScheduleExternalResolvedDeadlines {
-        guard let snapshot else { return .init(deadlines: [], contentState: .missing) }
-        guard snapshot.isLoggedIn else { return .init(deadlines: [], contentState: .loggedOut) }
+    public static let defaultLimit = 4
+    private struct Prepared {
+        let deadlines: [ScheduleExternalDeadlineSnapshot]
+        let state: ScheduleExternalContentState
+        let retention: TimeInterval
+    }
+
+    private static func prepare(_ snapshot: ScheduleExternalSnapshot?) -> Prepared {
+        guard let snapshot else { return .init(deadlines: [], state: .missing, retention: 0) }
+        guard snapshot.isLoggedIn else { return .init(deadlines: [], state: .loggedOut, retention: 0) }
         guard (0...30).contains(snapshot.ddlAfterDay), snapshot.deadlines.allSatisfy(\.hasValidRecord),
               Set(snapshot.deadlines.map(\.id)).count == snapshot.deadlines.count
-        else { return .init(deadlines: [], contentState: .invalid) }
-        let threshold = now.addingTimeInterval(-TimeInterval(snapshot.ddlAfterDay) * 24 * 60 * 60)
-        let deadlines = Array(snapshot.deadlines.filter { $0.dueAt >= threshold }.sorted {
+        else { return .init(deadlines: [], state: .invalid, retention: 0) }
+        return .init(deadlines: snapshot.deadlines.sorted {
             $0.dueAt == $1.dueAt ? $0.id < $1.id : $0.dueAt < $1.dueAt
-        }.prefix(max(0, limit)))
+        }, state: .ready, retention: TimeInterval(snapshot.ddlAfterDay) * 24 * 60 * 60)
+    }
+
+    private static func firstActiveIndex(_ prepared: Prepared, now: Date) -> Int {
+        let threshold = now.addingTimeInterval(-prepared.retention)
+        var lower = 0, upper = prepared.deadlines.count
+        while lower < upper {
+            let middle = lower + (upper - lower) / 2
+            if prepared.deadlines[middle].dueAt < threshold { lower = middle + 1 }
+            else { upper = middle }
+        }
+        return lower
+    }
+
+    private static func resolve(_ prepared: Prepared, now: Date, limit: Int) -> ScheduleExternalResolvedDeadlines {
+        guard prepared.state == .ready else { return .init(deadlines: [], contentState: prepared.state) }
+        let start = firstActiveIndex(prepared, now: now)
+        let deadlines = Array(prepared.deadlines.dropFirst(start).prefix(max(0, limit)))
         return .init(deadlines: deadlines, contentState: deadlines.isEmpty ? .rest : .ready)
     }
 
-    public static func timelineDates(from snapshot: ScheduleExternalSnapshot?, now: Date = Date()) -> [Date] {
+    public static func resolvedSnapshot(from snapshot: ScheduleExternalSnapshot?, now: Date = Date(), limit: Int = defaultLimit) -> ScheduleExternalResolvedDeadlines {
+        resolve(prepare(snapshot), now: now, limit: limit)
+    }
+
+    /// 时间线共享一次排序；可见窗口推进后交由系统继续请求下一批。
+    public static func timelineEntries(from snapshot: ScheduleExternalSnapshot?, now: Date = Date())
+        -> [(date: Date, resolved: ScheduleExternalResolvedDeadlines)] {
+        let prepared = prepare(snapshot)
+        let current = resolve(prepared, now: now, limit: defaultLimit)
         let horizon = now.addingTimeInterval(24 * 60 * 60)
-        var dates = [now, horizon]
+        let end: Date
+        if let first = current.deadlines.first,
+           firstActiveIndex(prepared, now: now) + current.deadlines.count < prepared.deadlines.count {
+            end = min(horizon, first.dueAt.addingTimeInterval(prepared.retention + 1))
+        } else { end = horizon }
+        var dates = [now, end]
         if let midnight = ScheduleSharedDateCodec.calendar.date(byAdding: .day, value: 1,
             to: ScheduleSharedDateCodec.calendar.startOfDay(for: now)) { dates.append(midnight) }
-        if let snapshot, resolvedSnapshot(from: snapshot, now: now).contentState == .ready {
-            for deadline in snapshot.deadlines {
-                dates.append(deadline.dueAt)
-                dates.append(deadline.dueAt.addingTimeInterval(TimeInterval(snapshot.ddlAfterDay) * 24 * 60 * 60 + 1))
-            }
+        for deadline in current.deadlines {
+            dates.append(deadline.dueAt)
+            dates.append(deadline.dueAt.addingTimeInterval(prepared.retention + 1))
         }
-        return Array(Set(dates.filter { $0 >= now && $0 <= horizon })).sorted()
+        return Set(dates.filter { $0 >= now && $0 <= end }).sorted().map {
+            (date: $0, resolved: resolve(prepared, now: $0, limit: defaultLimit))
+        }
     }
+
 }
 
 /// Widget 时间线的统一刷新时间规划器。
@@ -543,20 +580,18 @@ public nonisolated enum ScheduleOccurrenceResolver {
     }
 
     private static func rawOccurrences(from snapshot: ScheduleExternalSnapshot, now: Date) -> [ScheduleExternalOccurrence] {
-        guard let firstDay = ScheduleSharedDateCodec.parseDate(snapshot.firstDayString) else {
-            return []
-        }
+        let firstDay = ScheduleSharedDateCodec.parseDate(snapshot.firstDayString)
 
         let slotMap = Dictionary(
             snapshot.timeTable.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
 
-        let rawOccurrencesByID = snapshot.courses
+        let courseOccurrences = snapshot.courses
             .flatMap { course in
                 course.weeks.compactMap { week -> ScheduleExternalOccurrence? in
                     guard
-                        !Task.isCancelled, ScheduleCourseConstraints.isValidWeek(week),
+                        !Task.isCancelled, let firstDay, ScheduleCourseConstraints.isValidWeek(week),
                         (1...7).contains(course.weekday),
                         let startSlot = slotMap[course.startSection],
                         let endSlot = slotMap[course.endSection],
@@ -579,6 +614,17 @@ public nonisolated enum ScheduleOccurrenceResolver {
                     )
                 }
             }
+        let customOccurrences = snapshot.customSchedules.flatMap { item in
+            item.dateStrings.compactMap { value -> ScheduleExternalOccurrence? in
+                guard !Task.isCancelled, let day = ScheduleSharedDateCodec.parseDate(value),
+                      let start = ScheduleSharedDateCodec.combine(date: day, time: item.beginTime),
+                      let end = ScheduleSharedDateCodec.combine(date: day, time: item.endTime), end > start, end > now
+                else { return nil }
+                return ScheduleExternalOccurrence(id: "custom-\(item.id)-\(value)", title: item.title,
+                    classroom: item.subtitle, teacher: "", startDate: start, endDate: end, displayUntilDate: end)
+            }
+        }
+        let rawOccurrencesByID = (courseOccurrences + customOccurrences)
             .reduce(into: [String: ScheduleExternalOccurrence]()) { result, occurrence in
                 result[occurrence.id] = occurrence
             }
@@ -688,8 +734,10 @@ public nonisolated enum ScheduleOccurrenceResolver {
     private static func contentState(for snapshot: ScheduleExternalSnapshot?) -> ScheduleExternalContentState {
         guard let snapshot else { return .missing }
         guard snapshot.isLoggedIn else { return .loggedOut }
+        guard snapshot.customSchedules.allSatisfy(\.hasValidRecord),
+              Set(snapshot.customSchedules.map(\.id)).count == snapshot.customSchedules.count else { return .invalid }
+        if snapshot.courses.isEmpty { return snapshot.customSchedules.isEmpty ? .rest : .ready }
         guard let firstDay = ScheduleSharedDateCodec.parseDate(snapshot.firstDayString) else { return .invalid }
-        guard !snapshot.courses.isEmpty else { return .rest }
         return hasValidCourses(snapshot, firstDay: firstDay) ? .ready : .invalid
     }
 

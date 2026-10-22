@@ -259,6 +259,11 @@ final class UITestHTTPTransport: HTTPTransport {
             throw URLError(.networkConnectionLost)
         }
         if path.hasPrefix("ui-images/") {
+            if AppUITestBootstrap.environment["BIT101_UI_TEST_MEDIA_RECOVERY"] == "1",
+               path == "ui-images/preview-missing.png" ||
+                (path == "ui-images/preview-recovery.png" && failedPaths.insert(path).inserted) {
+                throw URLError(.notConnectedToInternet)
+            }
             guard let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "image/png"]) else {
                 throw URLError(.badServerResponse)
             }
@@ -473,7 +478,7 @@ final class UITestHTTPTransport: HTTPTransport {
     private var poster: [String: Any] {
         let base: [String: Any] = ["id": 1, "anonymous": false, "claim": ["id": 1, "text": "日常"], "comment_num": 1,
          "create_time": timestamp, "edit_time": timestamp, "update_time": timestamp,
-         "images": mediaEnabled ? [mediaImage] : [], "like": likedObjects.contains("poster1"), "like_num": 1, "own": true,
+         "images": mediaEnabled ? posterImages : [], "like": likedObjects.contains("poster1"), "like_num": 1, "own": true,
          "plugins": "[]", "public": true, "tags": ["测试", "自动化"], "text": "自动化测试话题正文", "title": "自动化测试话题", "user": user,
          "subscription": subscriptions["poster1"] ?? 0]
         return base.merging(posterChanges) { _, new in new }
@@ -527,6 +532,11 @@ final class UITestHTTPTransport: HTTPTransport {
 
 extension UITestHTTPTransport {
     private var mediaEnabled: Bool { AppUITestBootstrap.environment["BIT101_UI_TEST_MEDIA"] == "1" }
+    private var posterImages: [[String: Any]] {
+        guard AppUITestBootstrap.environment["BIT101_UI_TEST_MEDIA_RECOVERY"] == "1" else { return [mediaImage] }
+        return [mediaImage, ["mid": "preview-recovery", "url": "https://bit101.flwfdd.xyz/ui-images/preview-recovery.png",
+            "low_url": "https://bit101.flwfdd.xyz/ui-images/preview-missing.png"]]
+    }
     private var mediaImage: [String: Any] {
         ["mid": "ui-image", "url": "https://bit101.flwfdd.xyz/ui-images/image.png", "low_url": "https://bit101.flwfdd.xyz/ui-images/image.png"]
     }
@@ -615,13 +625,23 @@ final class UITestSchoolService: ScheduleServicing {
 @MainActor
 final class UITestSchedulePlatformActions: SchedulePlatformActions {
     private var imported = false
+    private var recoveredHistory = false
+    private let historyNeedsRecovery: Bool
+    init(historyNeedsRecovery: Bool) { self.historyNeedsRecovery = historyNeedsRecovery }
     func enableCloudSync(session: AppStorageSession) async {}
     func enableCourseReminder(session: AppStorageSession) async {}
-    func importSystemCalendar(courses: ScheduleCourseSnapshot, term: String) async throws -> Int { imported = true; return 1 }
+    func importSystemCalendar(courses: ScheduleCourseSnapshot, term: String) async throws -> Int {
+        if historyNeedsRecovery, !recoveredHistory {
+            throw ScheduleSystemCalendarError.importHistoryUnreadable
+        }
+        imported = true
+        return 1
+    }
     func importSystemCalendarEntries(_ content: ScheduleSystemCalendarContent, term: String) async throws -> Int { imported = true; return 1 }
     func deleteSystemCalendarEntries(_ content: ScheduleSystemCalendarContent, term: String) async throws -> ScheduleSystemCalendarMutationResult { remove() }
     func deleteSystemCalendarEntries(markerIDs: Set<String>, term: String) async throws -> ScheduleSystemCalendarMutationResult { remove() }
     func deleteImportedSystemCalendarEvents() async throws -> ScheduleSystemCalendarMutationResult { remove() }
+    func rebuildSystemCalendarImportHistory() async throws -> Int { recoveredHistory = true; return 1 }
     private func remove() -> ScheduleSystemCalendarMutationResult {
         let result: ScheduleSystemCalendarMutationResult = imported ? .changed(1) : .noOp
         imported = false

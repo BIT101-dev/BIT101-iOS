@@ -518,11 +518,17 @@ actor RemoteImageCache {
         return await quota.clearDirectory(directory)
     }
 
-    func previewFile(at cachedURL: URL, using previewFiles: any AppFileService, ownership: PreviewFileOwnership, owner: UUID?) throws -> URL {
+    func previewFile(at cachedURL: URL, using previewFiles: any AppFileService, sharesStorage: Bool,
+        ownership: PreviewFileOwnership, owner: UUID?) throws -> URL {
+        if sharesStorage {
+            guard files.isRegularFile(at: cachedURL) else { throw CocoaError(.fileReadNoSuchFile) }
+            if let owner, !ownership.pin(cachedURL, using: previewFiles, owner: owner) { throw CancellationError() }
+            return cachedURL
+        }
         let data = try files.readData(at: cachedURL)
         let directory = ImageCacheDirectories.gallery(using: previewFiles)
         let name = "local-\(SHA256.hash(data: data).hexString).\(cachedURL.pathExtension)"
-        let target = (try? previewFiles.readData(at: cachedURL)) == data ? cachedURL : directory.appendingPathComponent(name)
+        let target = directory.appendingPathComponent(name)
         let materialize: @Sendable () throws -> Void = {
             try previewFiles.createDirectory(at: target.deletingLastPathComponent())
             if (try? previewFiles.readData(at: target)) != data {

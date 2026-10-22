@@ -499,6 +499,8 @@ final class ModuleSchedulePlatformActions: SchedulePlatformActions {
     func enableCloudSync(session: AppStorageSession) async {}
     func enableCourseReminder(session: AppStorageSession) async {}
     func importSystemCalendar(courses: ScheduleCourseSnapshot, term: String) async throws -> Int { 0 }
+    func rebuildSystemCalendarImportHistory() async throws -> Int { 0 }
+
     func deleteImportedSystemCalendarEvents() async throws -> ScheduleSystemCalendarMutationResult { .noOp }
 
     func importSystemCalendarEntries(_ content: ScheduleSystemCalendarContent, term: String) async throws -> Int {

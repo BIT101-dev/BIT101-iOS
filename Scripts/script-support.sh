@@ -173,6 +173,7 @@ summary = ""
 temporary_results = set()
 def useful_line(line):
     if not line.strip(): return False
+    if re.match(r"^\s*t =\s*(?:[\d.]+s|nans)\s", line) and not re.search(r"error:|failed", line, re.IGNORECASE): return False
     if line.startswith("UI control inventory: "): return False
     if re.match(r"warning: '.+' is missing a dependency on '.+' because dependency scan of Swift module", line): return False
     if line.startswith(("Test case ", "Test Case ")) and re.search(r"\bpassed(?: on | \(|$)", line): return False

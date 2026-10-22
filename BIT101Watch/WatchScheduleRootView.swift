@@ -50,7 +50,7 @@ struct WatchScheduleRootView: View {
                             alignment: .firstTextBaseline,
                             spacing: AppDesignSystem.Spacing.regular
                         ) {
-                            Text(next.isCurrent(at: model.referenceDate) ? "正在上课" : "下一节")
+                            Text(next.isCurrent(at: model.referenceDate) ? "正在进行" : "下一节")
                                 .font(AppDesignSystem.Typography.caption)
                                 .foregroundStyle(AppDesignSystem.Foreground.secondary)
 
@@ -122,7 +122,7 @@ struct WatchScheduleRootView: View {
             } else if model.contentState == .loggedOut {
                 WatchScheduleEmptyStateView(message: "请先在手机上登录")
             } else if model.contentState == .rest {
-                WatchScheduleEmptyStateView(message: "暂无后续课程")
+                WatchScheduleEmptyStateView(message: "暂无后续日程")
             } else if model.contentState == .invalid || model.contentState == .unavailable {
                 WatchScheduleEmptyStateView(
                     message: model.contentState == .unavailable ? "课表读取失败，请重试" : "请在手机上重新同步课表",

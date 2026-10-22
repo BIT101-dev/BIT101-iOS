@@ -25,7 +25,7 @@ NETWORK_FOUNDATION_API = {
     'MediaKit.ImageQuickLookPresenter': {'static dismantleUIViewController(:HostViewController,coordinator:Coordinator)'},
     'MediaKit.ImageQuickLookPresenter.Coordinator': {'receive(:ImagePreviewRequest?,from:HostViewController,media:MediaEnvironment)',
         'presentPendingIfPossible(from:HostViewController)', 'previewControllerDidDismiss(:QLPreviewController)', 'cancel()',
-        'prepareInitialItems(for:ImagePreviewRequest,media:MediaEnvironment)'},
+        'prepareInitialItems(for:ImagePreviewRequest,media:MediaEnvironment)', 'retryCurrentImage()', 'closePreview()'},
     'MediaKit.CachedRemoteImageLoader': {'load(url:URL?,media:MediaEnvironment,maximumPixelSize:Int?)'},
     'MediaKit.RemoteImageCache': {'init(files:anyAppFileService,quota:ImageCacheDiskQuota,httpClient:HTTPClient,download:(@Sendable(URL)asyncthrows->HTTPResponse)?)',
         'file(for:URL)', 'withFile(for:URL,operation:@Sendable(URL)asyncthrows->Value)',

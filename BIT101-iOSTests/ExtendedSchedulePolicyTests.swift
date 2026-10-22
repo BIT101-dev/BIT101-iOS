@@ -24,6 +24,7 @@ struct ScheduleCalendarTransactionTests {
         let url = try #require(ScheduleSystemCalendarEventMarker.url(id: "course-w1", term: term, session: first))
         #expect(ScheduleSystemCalendarEventMarker.matches(url, session: first, term: term))
         #expect(ScheduleSystemCalendarEventMarker.matches(url, session: first))
+        #expect(AppDeepLinkRoute(url: url) == .calendarEvent(markerID: "course-w1", term: term, account: first.accountStorageIdentifier))
         #expect(ScheduleSystemCalendarEventMarker.matches(url, session: second, term: term) == false)
         #expect(ScheduleSystemCalendarEventMarker.matches(url, session: guest, term: term) == false)
         #expect(ScheduleSystemCalendarEventMarker.matches(url, session: first, term: "other") == false)
@@ -31,6 +32,10 @@ struct ScheduleCalendarTransactionTests {
         for foreign in [nil, URL(string: "bit101://calendar-course/course-w1?term=2026-2027-1"),
                         URL(string: "https://example.invalid/course-w1")] {
             #expect(ScheduleSystemCalendarEventMarker.matches(foreign, session: first, term: term) == false)
+        }
+        for value in ["bit101://calendar-course/course-w1?term=term", "bit101://calendar-course/?term=term&account=owner"] {
+            let invalid = try #require(URL(string: value))
+            #expect(AppDeepLinkRoute(url: invalid) == nil)
         }
     }
 
@@ -827,7 +832,8 @@ struct AppScheduleCacheEffectsTests {
             importCourses: { state.importedCourses = $0; state.calendarTerm = $1; return 7 },
             importDrafts: { state.importedDrafts = $0; state.calendarTerm = $1; return $0.count },
             deleteEntries: { state.deletedMarkers = $0; state.calendarTerm = $1; return .changed($0.count) },
-            deleteAllEntries: { state.deleteAllCount += 1; return .changed(3) }
+            deleteAllEntries: { state.deleteAllCount += 1; return .changed(3) },
+            rebuildCalendarHistory: { 0 }
         )
     }
 

@@ -234,7 +234,9 @@ struct BIT101_iOSApp: App {
     private static func makeScheduleViewModel() -> ScheduleViewModel {
 #if BIT101_UI_TESTING
         if !AppUITestBootstrap.usesProductionComposition {
-            return ScheduleServiceFactory.makeViewModel(platformActions: UITestSchedulePlatformActions(), didSave: { _, _, _ in })
+            let actions = UITestSchedulePlatformActions(historyNeedsRecovery:
+                AppUITestBootstrap.environment["BIT101_UI_TEST_CALENDAR_HISTORY_RECOVERY"] == "1")
+            return ScheduleServiceFactory.makeViewModel(platformActions: actions, didSave: { _, _, _ in })
         }
 #endif
         let calendar = ScheduleSystemCalendarManager.shared
@@ -248,7 +250,8 @@ struct BIT101_iOSApp: App {
             importCourses: { try await calendar.importCurrentTerm(from: $0, term: $1) },
             importDrafts: { try await calendar.importDrafts($0, term: $1) },
             deleteEntries: { try await calendar.deleteImportedEvents(markerIDs: $0, term: $1) },
-            deleteAllEntries: { try await calendar.deleteAllImportedEvents() }
+            deleteAllEntries: { try await calendar.deleteAllImportedEvents() },
+            rebuildCalendarHistory: { try await calendar.rebuildImportHistory() }
         )
         return ScheduleServiceFactory.makeViewModel(platformActions: effects, didSave: effects.didSave)
     }

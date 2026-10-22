@@ -59,6 +59,7 @@ public final class MediaEnvironment {
     private let cacheQuota: ImageCacheDiskQuota
     private let previewFiles: any AppFileService
     private let cacheFiles: any AppFileService
+    private let cacheSharesPreviewStorage: Bool
     private let preferences: GalleryImageCachePreferences
     private let previewOwnership: PreviewFileOwnership
     private var temporaryPreviewFiles: [UUID: Set<URL>] = [:]
@@ -78,13 +79,15 @@ public final class MediaEnvironment {
         let files = cacheFileOverride ?? previewStorage.files
         cacheFiles = files
         let previewFiles = previewStorage.files
+        let sharesStorage = cacheFileOverride == nil || (files as AnyObject) === (previewFiles as AnyObject)
+        cacheSharesPreviewStorage = sharesStorage
         let ownership = previewStorage.ownership
         previewOwnership = ownership
         let quota = ImageCacheDiskQuota(files: files, cacheLimitMB: { preferences.limitMB }, previewOwnership: ownership)
         cacheQuota = quota
         self.preferences = preferences
         self.previewFiles = previewFiles
-        previewQuota = cacheFileOverride == nil ? quota : ImageCacheDiskQuota(files: previewFiles,
+        previewQuota = sharesStorage ? quota : ImageCacheDiskQuota(files: previewFiles,
             cacheLimitMB: { preferences.limitMB }, previewOwnership: ownership)
         let downloads = MediaDownloadCoordinator(avatarClient: avatarHTTPClient, galleryClient: imageHTTPClient)
         self.downloads = downloads
@@ -195,7 +198,8 @@ public final class MediaEnvironment {
 
     func previewFile(at cachedURL: URL, owner: UUID? = nil) async throws -> URL {
         if let owner, !previewOwnership.contains(owner) { throw CancellationError() }
-        let file = try await images.previewFile(at: cachedURL, using: previewFiles, ownership: previewOwnership, owner: owner)
+        let file = try await images.previewFile(at: cachedURL, using: previewFiles, sharesStorage: cacheSharesPreviewStorage,
+            ownership: previewOwnership, owner: owner)
         try Task.checkCancellation()
         if let owner {
             guard previewOwnership.contains(owner) else { throw CancellationError() }

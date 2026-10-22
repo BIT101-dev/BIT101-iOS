@@ -3,6 +3,29 @@ import CoreGraphics
 
 nonisolated final class CalendarInteractionUITests: UIAutomationTestCase {
     @MainActor
+    @objc func testCalendarImportHistoryRecoveryKeepsImportAvailable() {
+        app = configureApp(resetStorage: true, school: true, calendarHistoryRecovery: true, initialSettings: "calendar")
+        let recovery = app.buttons["schedule.calendar.recover-history"]
+        reveal(recovery, description: "日历记录重建入口")
+        assertUI(recovery.isHittable, "课表设置应直接提供日历记录重建入口。")
+        tap("导入到系统日历")
+        app.alerts["导入当前学期到系统日历？"].buttons["导入并替换本学期旧事件"].tapBriefly()
+        assertUI(app.alerts["导入失败"].appears(timeout: 5), "导入记录受损应展示恢复提示。")
+        closeAlertIfPresent()
+        tap("schedule.calendar.recover-history")
+        assertUI(app.alerts["重建日历导入记录？"].appears(timeout: 5), "重建应先展示影响确认。")
+        app.alerts["重建日历导入记录？"].buttons["schedule.calendar.recover-history.cancel"].tapBriefly()
+        tap("schedule.calendar.recover-history")
+        app.alerts["重建日历导入记录？"].buttons["schedule.calendar.recover-history.confirm"].tapBriefly()
+        assertUI(app.alerts["导入记录已恢复"].appears(timeout: 5), "重建后应展示恢复结果。")
+        closeAlertIfPresent()
+        tap("导入到系统日历")
+        app.alerts["导入当前学期到系统日历？"].buttons["导入并替换本学期旧事件"].tapBriefly()
+        assertUI(app.alerts["导入成功"].appears(timeout: 5), "恢复后应完成当前学期导入。")
+        closeAlertIfPresent()
+    }
+
+    @MainActor
     @objc func testCalendarReminderCloudSwitchesAndLeadTimePersistence() {
         app = configureApp(resetStorage: true, animations: true, initialSettings: "calendar")
         let sync = toggle("iCloud 多端同步")

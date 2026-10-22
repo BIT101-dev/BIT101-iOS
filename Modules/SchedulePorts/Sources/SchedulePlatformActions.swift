@@ -12,6 +12,12 @@ public protocol SchedulePlatformActions {
     func deleteSystemCalendarEntries(_ content: ScheduleSystemCalendarContent, term: String) async throws -> ScheduleSystemCalendarMutationResult
     func deleteSystemCalendarEntries(markerIDs: Set<String>, term: String) async throws -> ScheduleSystemCalendarMutationResult
     func deleteImportedSystemCalendarEvents() async throws -> ScheduleSystemCalendarMutationResult
+    func rebuildSystemCalendarImportHistory() async throws -> Int
+}
+
+public nonisolated enum ScheduleSystemCalendarMarkerID {
+    public static func course(_ id: String, week: Int) -> String { "\(id)-w\(week)" }
+    public static func exam(_ id: String) -> String { "exam-\(id)" }
 }
 
 /// 日程向平台适配器传递业务记录，事件展开与系统写入由适配器维护。
@@ -62,7 +68,7 @@ public nonisolated enum ScheduleSystemCalendarError: LocalizedError {
         case .noImportedEvents:
             return "没有找到由 BIT101 导入的日历事件。"
         case .importHistoryUnreadable:
-            return "课表日历导入记录读取失败，原始记录已保留。请恢复记录后重试。"
+            return "课表日历导入记录读取失败，原始记录已保留。请使用“重建日历导入记录”后重试。"
         case let .invalidEntry(message):
             return message
         }

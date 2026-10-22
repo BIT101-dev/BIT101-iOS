@@ -7,6 +7,7 @@ import ScoreFeature
 import ScheduleFeature
 import MapFeature
 import ScheduleDomain
+import StorageCore
 import DesignSystemKit
 //
 //  AppShellView.swift
@@ -122,6 +123,7 @@ struct AppShellView: View {
     @State private var selectedTab: AppTab = .schedule
 #endif
     @State private var requestedScheduleSection: ScheduleSection?
+    @State private var requestedCalendarRoute: AppDeepLinkRoute?
     @State private var requestedPaperID: Int?
     @State private var requestedPosterID: Int?
     @State private var requestedCourse: CourseNavigationRequest?
@@ -190,6 +192,17 @@ struct AppShellView: View {
         .accessibilityIdentifier("app.shell")
         .tint(selectedTab.tintColor)
         .appSelectionFeedback(trigger: selectedTab.rawValue)
+        .task(id: requestedCalendarRoute) {
+            guard let route = requestedCalendarRoute,
+                  case let .calendarEvent(markerID, term, account) = route else { return }
+            let identity = lifecycle.accountIdentity
+            defer { if requestedCalendarRoute == route { requestedCalendarRoute = nil } }
+            await scheduleViewModel.loadIfNeeded()
+            guard !Task.isCancelled, requestedCalendarRoute == route,
+                  identity == lifecycle.accountIdentity,
+                  account == AppAccountSession.currentSession.accountStorageIdentifier else { return }
+            scheduleViewModel.requestSystemCalendarEntry(markerID: markerID, term: term)
+        }
         .onChange(of: selectedTab) { _, _ in
             interactionEvidence?("app.shell", "tab-switch")
         }
@@ -239,6 +252,7 @@ struct AppShellView: View {
     /// 同时接收 `bit101://` 内部链接和 `https://open.aihelpme.dev` Universal Link。
     private func handleIncomingURL(_ url: URL) {
         guard let route = AppDeepLinkRoute(url: url) else { return }
+        requestedCalendarRoute = nil
 
         switch route {
         case .scheduleCourses:
@@ -256,6 +270,14 @@ struct AppShellView: View {
         case let .course(courseID):
             selectTab(.score)
             requestedCourse = CourseNavigationRequest(courseID: courseID)
+        case let .calendarEvent(_, _, account):
+            selectTab(.schedule)
+            guard account == AppAccountSession.currentSession.accountStorageIdentifier else {
+                AppErrorPresenter.shared.present(AppAlert(title: "日历事件账号", message: "请切换到创建该事件的账号后查看。"))
+                return
+            }
+            requestedScheduleSection = nil
+            requestedCalendarRoute = route
         }
     }
 

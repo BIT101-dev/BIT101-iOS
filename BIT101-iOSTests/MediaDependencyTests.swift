@@ -648,7 +648,7 @@ struct MediaDependencyTests {
             ready.wait()
             #expect(finished.wait(timeout: .now() + 1) == .timedOut)
         }
-        let preview = try await images.previewFile(at: source, using: previewFiles, ownership: ownership, owner: owner)
+        let preview = try await images.previewFile(at: source, using: previewFiles, sharesStorage: false, ownership: ownership, owner: owner)
         try await waitForTestEvent { finished.wait(timeout: .now()) == .success }
         #expect(try previewFiles.readData(at: preview) == bytes)
     }
@@ -879,7 +879,7 @@ struct MediaDependencyTests {
         let coordinator = ImageQuickLookPresenter.Coordinator(media: media)
         let prepared = try await coordinator.prepareInitialItems(for: request, media: media)
         #expect(prepared.initialIndex == 63 && prepared.items.count == 64)
-        let selectedFile = prepared.items[63].url
+        let selectedFile = try #require(prepared.items[63].url)
         #expect(UIImage(data: try files.readData(at: selectedFile))?.size.width == 64)
         #expect(prepared.items.dropLast().allSatisfy { $0.url != selectedFile })
         let localFiles = try files.contentsOfDirectory(at: ImageCacheDirectories.gallery(using: files), options: [])

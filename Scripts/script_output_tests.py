@@ -87,6 +87,11 @@ Path.open = open_log
     if result.returncode != 7 or 'error: retained 0\n' not in result.stdout or 'error: retained 99\n' not in result.stdout or 'UI control inventory:' in result.stdout:
         findings.append('日志磁盘重读自测：CI 失败完整呈现诊断，控件库存保留在原始日志')
     command = logger + '\nbit101_log_command /dev/null late-error ' + shlex.quote(sys.executable) + ' -\n'
+    payload = 'print("error: image-retry-failed")\nfor index in range(100): print("    t = 1.0s Checking existence of retry button")\nraise SystemExit(7)\n'
+    result = subprocess.run(['zsh', '-c', command], input=payload, capture_output=True, text=True,
+        env={**os.environ, 'GITHUB_ACTIONS': 'false'})
+    if result.returncode != 7 or 'error: image-retry-failed' not in result.stdout or 'Checking existence' in result.stdout:
+        findings.append('UI 失败摘要呈现根因，轮询进度沿原始日志保留')
     for prefix in ('progress', 'warning:'):
         payload = f'for index in range(45): print("{prefix}", index)\nprint("error: late-root-cause")\nprint("tail-context")\nraise SystemExit(7)\n'
         result = subprocess.run(['zsh', '-c', command], input=payload, capture_output=True, text=True,
