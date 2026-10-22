@@ -20,6 +20,7 @@ PERFORMANCE_TEST_FILES = {"BIT101-iOSTests/PerformanceWorkload.swift", "BIT101-i
 SWIFT_ROOTS = ("Modules", "ModuleTests", *NATIVE_PRODUCT_ROOTS, *NATIVE_TEST_ROOTS)
 VALIDATION_SCRIPTS = {"validation_evidence.py", "validation_inputs.py", "validation_policy.py", "validation_coverage.py", "validation_merge.py", "validation_environment.py", "validation_provenance.py", "validation_test_areas.py", "validation_manual.py", "validation_restore.py", "validation_media.py", "ManualEvidenceProbe.swift", "validate_distribution.py", "validate_versions.py", "swift_source_index.py", "code_quality_rules.py", "audit_callback_rules.py", "ci_wiring_rules.py", "check-module-boundaries.py"} | set(SWIFT_SYNTAX_SOURCE_NAMES)
 VALIDATION_SCRIPTS.add("swift_type_index.py")
+VALIDATION_SCRIPTS.add("validation_simulator.py")
 VALIDATION_SCRIPTS.update({"validation_publication.py", "validation_compilation.py", "validation_performance.py", "network_capability_rules.py", "network_request_contracts.py"})
 BUILD_SCRIPTS = {"script-support.sh", "build-install-device.sh", "ci_evidence.py", "validation_artifacts.py"}
 TEST_SCRIPTS = BUILD_SCRIPTS | VALIDATION_SCRIPTS | {"run-extended-tests.sh", "simulator-tests.sh"}
@@ -34,7 +35,8 @@ CI_VALIDATION_GROUPS = {
     'catalyst': (('catalyst', 'catalyst-release-runtime'),
         ('Mac Catalyst behavior tests',), ('validation-catalyst-tests',)),
     'app': (('all', 'release-runtime'),
-        ('iOS Simulator app and formal runtime', 'iOS Simulator behavior and UI tests'), ('validation-ios-test-shards-app-0',)),
+        ('iOS Simulator app and formal runtime', 'iOS Simulator behavior and UI tests'),
+        ('validation-ios-test-shards-app-0', 'validation-ios-app-tests')),
     'ui': (('ui',), ('Build shared iOS UI test host', 'iOS Simulator behavior and UI tests', *(f'iOS Simulator ui ({index})' for index in range(3))),
         tuple(f'validation-ios-test-shards-ui-{index}' for index in range(3))),
 }

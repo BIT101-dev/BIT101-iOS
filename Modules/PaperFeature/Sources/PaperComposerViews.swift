@@ -180,7 +180,7 @@ final class PaperComposerViewModel {
 }
 
 struct PaperCommentComposerSheet: View {
-    let target: PaperCommentComposerTarget
+    let target: CommunityCommentComposerTarget
     let isSubmitting: Bool
     let review: CommunityCommentReviewActions
     let onSubmit: (String, Bool) async -> Bool

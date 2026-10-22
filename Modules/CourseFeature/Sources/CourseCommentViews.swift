@@ -220,7 +220,7 @@ private struct CourseCommentImagesView: View {
 ///
 /// 顶层课程评论提交 0.5 至 5 星评分；回复提交文本。
 struct CourseCommentComposerSheet: View {
-    let target: CourseCommentComposerTarget
+    let target: CommunityCommentComposerTarget
     let isSubmitting: Bool
     let review: CommunityCommentReviewActions
     let onSubmit: (String, Bool, Int?) async -> Bool

@@ -11,14 +11,6 @@ import CommunityCore
 import Combine
 import Foundation
 
-/// 文件内统一使用的取消错误判断。
-///
-/// 话廊模块大量使用 Swift Concurrency 和 URLSession；二者的取消错误类型存在差异，
-/// 因此在文件级收敛成一个 helper，避免每个调用点重复写同样的判断。
-private func isGalleryCancellation(_ error: Error) -> Bool {
-    TaskCancellation.matches(error)
-}
-
 @MainActor
 final class GallerySubscriptionsViewModel: ObservableObject {
     let pendingOperations = CommunityDetailTasks()
@@ -357,7 +349,7 @@ final class GalleryViewModel: ObservableObject {
             }
         } catch {
             guard refreshGenerations[feed] == generation else { return }
-            let cancelled = isGalleryCancellation(error)
+            let cancelled = TaskCancellation.matches(error)
             setState(for: feed) {
                 $0.posters = previousState.posters
                 $0.status = previousState.posters.isEmpty ? (cancelled ? .idle : .failed(error.localizedDescription)) : .loaded
@@ -428,7 +420,7 @@ final class GalleryViewModel: ObservableObject {
 
         } catch {
             guard refreshGenerations[feed] == generation else { return }
-            if isGalleryCancellation(error) {
+            if TaskCancellation.matches(error) {
                 setState(for: feed) { $0.isLoadingMore = false }
                 return
             }
@@ -465,7 +457,7 @@ final class GalleryViewModel: ObservableObject {
             searchState.status = .loaded
         } catch {
             guard searchGeneration == generation else { return }
-            if isGalleryCancellation(error) {
+            if TaskCancellation.matches(error) {
                 searchState = previousState
                 if previousState.status == .loading {
                     searchState.status = previousState.posters.isEmpty ? .idle : .loaded
@@ -508,7 +500,7 @@ final class GalleryViewModel: ObservableObject {
             Self.commit(batch, into: &searchState)
         } catch {
             guard searchGeneration == generation else { return }
-            if isGalleryCancellation(error) {
+            if TaskCancellation.matches(error) {
                 searchState.isLoadingMore = false
                 return
             }

@@ -1,3 +1,4 @@
+import CommunityUI
 import TransportCore
 import DesignSystemKit
 import CommunityCore
@@ -56,12 +57,14 @@ class PaperCollectionViewModel: ObservableObject {
         }
         refreshPreviousState = nil
         if state.status == .loading { state.status = state.items.isEmpty ? .idle : .loaded }
+        if state.status == .idle { hasBootstrapped = false }
         state.isLoadingMore = false
     }
 
     @discardableResult
     func enqueueRefresh() -> Task<Void, Never> {
         cancelRefreshOperations()
+        hasBootstrapped = true
         let generation = refreshGeneration
         let task = Task { [weak self] in
             guard let self, self.refreshGeneration == generation, !Task.isCancelled else { return }
@@ -444,7 +447,7 @@ final class PaperDetailViewModel: ObservableObject {
             acknowledge: { self.commentState.acknowledgeSubmissionReview($0) })
     }
 
-    func submitComment(text: String, anonymous: Bool, target: PaperCommentComposerTarget) async -> Bool {
+    func submitComment(text: String, anonymous: Bool, target: CommunityCommentComposerTarget) async -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             alert = AppAlert.userInput(title: "发送失败", message: "评论不能为空。")

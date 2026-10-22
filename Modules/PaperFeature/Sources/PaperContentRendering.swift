@@ -3,6 +3,7 @@ import Foundation
 import UIKit
 import CommunityCore
 
+/// Editor.js 正文沿本地渲染，未知块提供打开原文的恢复入口。
 public enum PaperContentBlock: Identifiable {
     case header(id: String, text: AttributedString, level: Int)
     case paragraph(id: String, text: AttributedString)

@@ -36,7 +36,7 @@ private struct PaperDetailViewScene: View {
 
     @StateObject private var viewModel: PaperDetailViewModel
     private var networkObserver: NetworkPathState { dependencies.networkPath }
-    @State private var composerTarget: PaperCommentComposerTarget?
+    @State private var composerTarget: CommunityCommentComposerTarget?
     @State private var editingPaper: PaperDetail?
     @State private var imageViewer: ImagePreviewRequest?
     @State private var isShowingDeleteConfirmation = false

@@ -12,6 +12,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from unittest.mock import Mock, patch
 from pathlib import Path
+from script_device_tests import device_discovery_boundary_findings
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_ROOT = ROOT / "Scripts"
@@ -330,6 +331,8 @@ def script_command_boundary_findings() -> list[str]:
     findings = result_retention_boundary_findings() + audit_cancellation_findings() + build_cache_exit_self_test()
     from script_output_tests import log_output_boundary_findings
     findings += log_output_boundary_findings()
+    from test_results_tests import test_result_boundary_findings
+    findings += test_result_boundary_findings()
     isolated_digest = '''from pathlib import Path
 from unittest.mock import patch
 import sys
@@ -769,47 +772,6 @@ def ui_metrics_boundary_findings() -> list[str]:
                 'App 内界面查询：23 次；累计 0.7 秒', '共享原生快照读取：2 次；累计 1.5 秒')):
         return []
     return ["UI 指标自测：冷启动前后的实际库存与待访问项共同保留"]
-
-
-def device_discovery_boundary_findings() -> list[str]:
-    import json
-    import shlex
-    support = ROOT / "Scripts/script-support.sh"
-    findings = []
-    def candidate(name, transport, tunnel="connected", pairing="paired", reality="physical"):
-        return {"identifier": name, "hardwareProperties": {"udid": name, "deviceType": "iPhone", "reality": reality},
-                "connectionProperties": {"transportType": transport, "tunnelState": tunnel, "pairingState": pairing},
-                "deviceProperties": {"name": name}}
-
-    for devices, expected in (
-        ([candidate("wireless", "localNetwork"), candidate("wired", "wired")], "wired"),
-        ([candidate("wireless", "localNetwork"), candidate("offline", None)], "wireless"),
-        ([candidate("pending", "wired", "disconnected"), candidate("connected", "wired")], "connected"),
-        ([candidate("unpaired", "wired", pairing="unpaired"), candidate("virtual", "wired", reality="virtual")], ""),
-    ):
-        snapshot = shlex.quote(json.dumps({"result": {"devices": devices}}))
-        code = f'source {shlex.quote(str(support))}\nunset BIT101_XCODE_DEVICE_ID BIT101_DEVICETCL_DEVICE_ID BIT101_DEVICE_TRANSPORT BIT101_DEVICE_NAME\n'
-        code += f'bit101_device_snapshot() {{ print -r -- {snapshot}; }}\nbit101_find_device || exit 1\nprint -r -- "$BIT101_DEVICE_NAME"\n'
-        result = subprocess.run(["zsh", "-c", code], capture_output=True, text=True)
-        if (expected and (result.returncode or result.stdout.strip() != expected)) or (not expected and result.returncode != 1):
-            findings.append("设备自测：有线优先、无线发现、连接状态及真实配对设备范围")
-    for requested, devices, cached, expected in (
-        ('phone-a', [candidate('phone-b', 'wired'), candidate('phone-a', 'localNetwork')], 'phone-b', 'phone-a'),
-        ('phone-a', [candidate('phone-b', 'wired')], 'phone-b', ''),
-        ('phone-a', [candidate('phone-a', 'wired')], 'phone-a', 'phone-a'),
-        ('', [], 'phone-b', 'phone-b'),
-    ):
-        snapshot = shlex.quote(json.dumps({'result': {'devices': devices}}))
-        code = f'source {shlex.quote(str(support))}\n'
-        code += f'BIT101_XCODE_DEVICE_ID={cached} BIT101_DEVICETCL_DEVICE_ID=cached-pair BIT101_DEVICE_TRANSPORT=wired BIT101_DEVICE_NAME={cached}\n'
-        code += f'bit101_device_snapshot() {{ print -r -- {snapshot}; }}\nbit101_find_device {shlex.quote(requested)} || exit 1\n'
-        code += 'print -r -- "$BIT101_XCODE_DEVICE_ID:$BIT101_DEVICETCL_DEVICE_ID"\n'
-        result = subprocess.run(['zsh', '-c', code], capture_output=True, text=True)
-        paired = expected if requested else 'cached-pair'
-        if (expected and (result.returncode or result.stdout.strip() != f'{expected}:{paired}')) \
-                or (not expected and result.returncode != 1):
-            findings.append('设备自测：指定原执行设备时刷新身份配对，普通流程复用已选设备')
-    return findings
 
 
 def workflow_lock_boundary_findings() -> list[str]:

@@ -1,3 +1,4 @@
+import CommunityUI
 import BIT101TestSupport
 import TransportCore
 import CommunityCore
@@ -323,7 +324,7 @@ struct GalleryPaginationTests {
         let comment = CommunityComment(id: 1, obj: "poster1", images: [], user: user, anonymous: anonymous,
             createTime: "", updateTime: "", like: false, likeNum: 0, commentNum: 0,
             own: false, rate: 0, replyUser: user, replyObj: "", text: "", sub: [])
-        let target = GalleryCommentComposerTarget.comment(mainComment: comment, targetComment: comment)
+        let target = CommunityCommentComposerTarget.comment(mainComment: comment, targetComment: comment)
         let expected = "回复 @\(anonymous ? AppUserPresentation.anonymousName : user.nickname)"
         #expect(target.title == expected)
         #expect(target.placeholder == expected)

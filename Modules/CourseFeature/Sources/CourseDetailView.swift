@@ -42,7 +42,7 @@ private struct CourseDetailViewScene: View {
     @Environment(\.openURL) private var openURL
     @StateObject private var viewModel: CourseDetailViewModel
     @ObservedObject private var appSettings: CommunityPreferences
-    @State private var composerTarget: CourseCommentComposerTarget?
+    @State private var composerTarget: CommunityCommentComposerTarget?
     @State private var imageViewer: ImagePreviewRequest?
     @State private var userRoute: UserRoute?
 

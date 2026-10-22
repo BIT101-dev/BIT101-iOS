@@ -88,9 +88,9 @@ def export_validation_result(group: str) -> None:
     commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
     if errors := ci_commit_findings(commit): raise ValueError('\n'.join(errors))
     report = json.loads(REPORT.read_text())
-    groups = ('app', 'ui') if group == 'ios' else (group,)
-    rows = {}
-    for name in groups:
+    from validation_simulator import result_rows
+    rows = result_rows(report, plan, commit, os.environ['GITHUB_RUN_ID'], result_environment_matches) if group == 'ios' else {}
+    for name in (() if group == 'ios' else (group,)):
         if not plan['jobs'][name]['execute']: continue
         scopes = CI_VALIDATION_GROUPS[name][0]
         environments = []
@@ -103,8 +103,6 @@ def export_validation_result(group: str) -> None:
             current = dict(ci_validation_environment(name))
             current.pop('runtimes', None)
             if environment != current: raise ValueError(f'{scope} 的工具链与 SDK 需要对应当前任务。')
-            if name in {'app', 'ui'}:
-                environment['platform'] = {key: context['device'][key] for key in ('systemVersion', 'systemBuild')}
             environments.append(environment)
         if any(value != environments[0] for value in environments): raise ValueError('同组验收需要同一执行环境。')
         rows[name] = dict(passed=True, scopes=list(scopes), environment=environments[0])
@@ -638,63 +636,14 @@ def download_simulator_shard(run: str, operation: str, index: int) -> None:
             'build-release.log', 'restore.log', 'test-metrics.txt'):
         (root / name).unlink(missing_ok=True)
     (ROOT / '.build/screenshot.png').unlink(missing_ok=True)
-    subprocess.run(['gh', 'run', 'download', run, '--name', f'validation-ios-test-shards-{operation}-{index}',
+    artifact = 'validation-ios-app-tests' if operation == 'release-runtime' else f'validation-ios-test-shards-{operation}-{index}'
+    subprocess.run(['gh', 'run', 'download', run, '--name', artifact,
         '--dir', str(ROOT)], check=True, capture_output=True, text=True)
 
 
 def merge_simulator_ci() -> None:
-    from validation_evidence import ROOT, REPORT, selected_test_summary_complete, coverage_complete, test_inventory
-    from validation_coverage import SIMULATOR_SHARDS, shard_inventory, combined_line_coverage, regressions, policy_floors
-    from validation_environment import ci_commit_findings
-    root = ROOT / '.build/extended-automation'
-    bundle = root / 'test-results.xcresult'
-    retained = bundle.with_suffix('.retained.xcresult')
-    incoming = bundle.with_suffix('.incoming.xcresult')
-    commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
-    if errors := ci_commit_findings(commit): raise ValueError('\n'.join(errors))
-    policy = json.loads(REPORT.read_text()).get('coveragePolicy', {})
-    run = os.environ['GITHUB_RUN_ID']
-    plan = read_validation_plan()['jobs'] if os.getenv('BIT101_CI_PLAN') else {}
-    subprocess.run(['gh', 'run', 'download', run, '--name', 'validation-static-audit',
-        '--dir', str(ROOT / '.build')], check=True, capture_output=True, text=True)
-    indexer = ROOT / '.build/compiler-cache/swift-syntax-indexer'
-    indexer.chmod(indexer.stat().st_mode | 0o100)
-    report = []
-    for group in ('all', 'ui'):
-        source = plan.get('app' if group == 'all' else group, {'execute': True})
-        source_run = run if source['execute'] else source['run']
-        source_commit = commit if source['execute'] else source['commit']
-        line_shards = []
-        shutil.rmtree(bundle, ignore_errors=True)
-        for index in range(SIMULATOR_SHARDS[group]):
-            if bundle.exists(): shutil.move(str(bundle), str(retained))
-            operation = 'app' if group == 'all' else group
-            download_simulator_shard(source_run, operation, index)
-            metrics = (root / 'test-metrics.txt').read_text()
-            metadata = json.loads(next(row.removeprefix('分片：') for row in metrics.splitlines() if row.startswith('分片：')))
-            expected = shard_inventory(group, index, SIMULATOR_SHARDS[group])
-            if metadata['identity'] != {'group': group, 'index': index, 'count': SIMULATOR_SHARDS[group],
-                    'commit': source_commit, 'run': source_run}:
-                raise ValueError('分片需要绑定计划中的来源运行、提交及所属库存。')
-            summary = read_native_summary(bundle, group)
-            if not selected_test_summary_complete(summary, expected, group=group, simulator=True):
-                raise ValueError('每个模拟器分片需要完整执行分配的测试及实例。')
-            line_shards.append(metadata['coverageLines'])
-            if retained.exists():
-                subprocess.run(['xcrun', 'xcresulttool', 'merge', '--output-path', str(incoming), str(retained), str(bundle)],
-                    check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-                shutil.rmtree(retained)
-                shutil.rmtree(bundle)
-                shutil.move(str(incoming), str(bundle))
-        summary = read_native_summary(bundle, group)
-        summary['coverage'] = combined_line_coverage(line_shards)
-        failures = regressions(summary['coverage'], policy_floors(group, policy))
-        if not selected_test_summary_complete(summary, sorted(test_inventory(group)), group=group, simulator=True) \
-                or not coverage_complete(group, summary) or failures:
-            raise ValueError('模拟器合并验收需要完整库存及版本化覆盖率：' + '；'.join(failures))
-        report.append(f"{group} 完整分片验收通过：{summary['passedTests']} 项；来源：{source_commit} / {source_run}；覆盖率：" + json.dumps(summary['coverage']))
-        print(f"{group} 完整分片验收通过：{summary['passedTests']} 项。")
-    (root / 'test-metrics.txt').write_text('\n'.join(report) + '\n')
+    from validation_simulator import merge_ci_results
+    merge_ci_results(sys.modules[__name__])
 
 def self_test() -> None:
     from unittest.mock import patch

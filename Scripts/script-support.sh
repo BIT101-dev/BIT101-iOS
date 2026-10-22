@@ -1,6 +1,6 @@
 #!/bin/zsh
 
-# 真机脚本共用设备快照，按有线、无线顺序选择，并提供同一设备的两种标识。
+# 真机脚本共用设备快照，优先选择已连接设备，并提供同一设备的两种标识。
 unset PYTHONOPTIMIZE
 if command -v brew >/dev/null 2>&1; then
   bit101_python_prefix="$(brew --prefix)/opt/python@3"
@@ -469,11 +469,12 @@ bit101_find_device() {
   if [[ -z "${1:-}" && -n "${BIT101_XCODE_DEVICE_ID:-}" && -n "${BIT101_DEVICETCL_DEVICE_ID:-}" && -n "${BIT101_DEVICE_TRANSPORT:-}" && -n "${BIT101_DEVICE_NAME:-}" ]]; then
     return 0
   fi
-  local snapshot selection
+  local snapshot selection requested="${1:-${BIT101_XCODE_DEVICE_ID:-}}"
   local -a identifiers
   BIT101_XCODE_DEVICE_ID=""
   BIT101_DEVICETCL_DEVICE_ID=""
   BIT101_DEVICE_TRANSPORT=""
+  BIT101_DEVICE_NAME=""
   snapshot="$(bit101_device_snapshot)" || return 1
   selection="$(print -r -- "$snapshot" | python3 -c '
 import json
@@ -493,12 +494,12 @@ for device in json.load(sys.stdin)["result"]["devices"]:
     if transport not in {"wired", "localNetwork"} or not identifier or not udid or (sys.argv[1] and udid != sys.argv[1]):
         continue
     name = device.get("deviceProperties", {}).get("name") or hardware.get("deviceType", "iPhone")
-    candidates.append((transport != "wired", connection.get("tunnelState") != "connected", identifier, udid, transport, name))
+    candidates.append((connection.get("tunnelState") != "connected", transport != "wired", identifier, udid, transport, name))
 
 if candidates:
-    selected = min(candidates, key=lambda candidate: candidate[:2])
+    selected = min(candidates, key=lambda candidate: (*candidate[:2], candidate[3], candidate[2]))
     print("\n".join(selected[2:]))
-' "${1:-}")" || return 1
+' "$requested")" || return 1
   [[ -n "$selection" ]] || return 1
   identifiers=("${(@f)selection}")
   BIT101_DEVICETCL_DEVICE_ID="${identifiers[1]}"

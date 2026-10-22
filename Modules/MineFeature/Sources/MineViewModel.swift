@@ -8,10 +8,6 @@ import Foundation
 /// “我的”模块统一识别取消错误。
 ///
 /// 页面切换、下拉刷新和任务复用都可能触发取消。统一识别 Swift Concurrency 与 URLSession 的取消信号。
-private func isMineCancellation(_ error: Error) -> Bool {
-    TaskCancellation.matches(error)
-}
-
 private func isMineNotLoggedIn(_ error: Error) -> Bool {
     guard let serviceError = error as? MineServiceError else { return false }
     if case .notLoggedIn = serviceError { return true }
@@ -45,7 +41,7 @@ private func refreshMinePage<Item: Identifiable>(
         var state = previous
         state.isLoadingMore = false
         let hadItems = !previous.items.isEmpty || previous.status == .loaded
-        if isMineCancellation(error) || isMineNotLoggedIn(error) {
+        if TaskCancellation.matches(error) || isMineNotLoggedIn(error) {
             state.status = hadItems ? .loaded : .idle
             write(state)
             if isMineNotLoggedIn(error) { onLogin() }
@@ -92,7 +88,7 @@ private func loadMoreMinePage<Item: Identifiable>(
         state.nextPage = sourcePage
         state.isLoadingMore = false
         if isMineNotLoggedIn(error) { onLogin() }
-        else if !isMineCancellation(error) { state.loadMoreError = error.localizedDescription }
+        else if !TaskCancellation.matches(error) { state.loadMoreError = error.localizedDescription }
         write(state)
     }
 }
@@ -190,7 +186,7 @@ final class MineViewModel: ObservableObject {
             profileStatus = .loaded
         } catch {
             guard profileGeneration == generation else { return }
-            if isMineCancellation(error) {
+            if TaskCancellation.matches(error) {
                 profileStatus = hadUserInfo ? .loaded : .idle
                 return
             }
@@ -345,7 +341,7 @@ final class UserProfileViewModel: ObservableObject {
             followResultNeedsReview = false
         } catch {
             guard profileGeneration == generation else { return }
-            if isMineCancellation(error) {
+            if TaskCancellation.matches(error) {
                 profileStatus = hadUserInfo ? .loaded : .idle
                 return
             }
@@ -386,7 +382,7 @@ final class UserProfileViewModel: ObservableObject {
                 if followResultNeedsReview { alert = AppAlert(title: "关注结果待确认", message: CommunityToggleOutcomeUnknown.reviewMessage) }
                 return
             }
-            if isMineCancellation(error) { return }
+            if TaskCancellation.matches(error) { return }
             if isMineNotLoggedIn(error) {
                 requiresLogin = true
                 return

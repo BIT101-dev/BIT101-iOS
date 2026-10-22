@@ -64,7 +64,6 @@ private nonisolated struct StoredDeveloperSuggestionDraft: Codable, StoredCompos
 }
 
 public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, DeveloperSuggestionDraftStoring {
-    private static let directoryName = "ComposerDrafts"
     private static let logger = Logger(subsystem: "BIT101", category: "ComposerDraft")
     private static let currentSchemaVersion = 1
     private let storage = ComposerDraftStorage()
@@ -289,10 +288,6 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
         guard storageOperations.begin() else { return false }
         defer { storageOperations.finish() }
         return await storage.removeSuggestion(store: self, session: currentSession())
-    }
-
-    private var directoryURL: URL {
-        applicationSupport.appending(path: Self.directoryName, directoryHint: .isDirectory)
     }
 
     private func write<T: Encodable>(_ value: T, to fileURL: URL) throws {

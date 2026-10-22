@@ -13,12 +13,14 @@ struct PaperSearchViewModelTests {
     private final class ServiceStub: PaperListServicing {
         private(set) var requests: [(search: String?, order: PaperSortOrder, page: Int)] = []
         var result: Result<[PaperSummary], Error>
+        var fetch: (() async throws -> [PaperSummary])?
         var metadata: (Int) async throws -> PaperDetail = { _ in throw URLError(.unsupportedURL) }
 
         init(result: Result<[PaperSummary], Error>) { self.result = result }
 
         func fetchPapers(search: String?, order: PaperSortOrder, page: Int) async throws -> [PaperSummary] {
             requests.append((search, order, page))
+            if let fetch { return try await fetch() }
             return try result.get()
         }
 
@@ -166,6 +168,24 @@ struct PaperSearchViewModelTests {
         await refresh(); await load()
         #expect(failures().isEmpty)
         #expect(search ? results.previewMetadata(for: paper.id) != nil : list.previewMetadata(for: paper.id) != nil)
+    }
+
+    @Test(.timeLimit(.minutes(1))) @MainActor
+    func returningBeforeTheCancelledBootstrapEndsStartsAFreshRequest() async throws {
+        let paper = PaperSummary(id: 1, title: "fixture", intro: "", likeNum: 0, commentNum: 0, updateTime: "")
+        let service = ServiceStub(result: .success([paper]))
+        let gate = ListRequestGate<[PaperSummary]>()
+        service.fetch = { try await gate.request() }
+        let model = PaperListViewModel(service: service)
+        let earlier = Task { await model.bootstrapIfNeeded() }
+        try await gate.waitUntilRequested()
+        model.cancelRefreshOperations()
+        service.fetch = nil
+        await model.bootstrapIfNeeded()
+        #expect(service.requests.count == 2 && model.state.items == [paper])
+        gate.finish([])
+        await earlier.value
+        #expect(model.state.status == .loaded && model.state.items == [paper])
     }
 
     @Test(.timeLimit(.minutes(1))) @MainActor func paperListRetriesItsCancelledBootstrapWhenThePageReturns() async {

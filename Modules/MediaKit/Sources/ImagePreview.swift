@@ -104,6 +104,7 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
         private var pendingRequest: ImagePreviewRequest?
         private var preparationTask: Task<Void, Never>?
         private var upgradeTask: Task<Void, Never>?
+        private var originalTasks: [Int: Task<Void, Never>] = [:]
         private var retryTask: Task<Void, Never>?
         private var selectionObservation: NSKeyValueObservation?
         private var activeRequest: ImagePreviewRequest?
@@ -220,6 +221,8 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
         func cancel() {
             preparationTask?.cancel()
             upgradeTask?.cancel()
+            for task in originalTasks.values { task.cancel() }
+            originalTasks.removeAll()
             retryTask?.cancel()
             selectionObservation?.invalidate()
             selectionObservation = nil
@@ -308,15 +311,24 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
             }
         }
 
-        /// 当前图优先升级高清，其余图片随后逐张补低清并缓存高清。
+        private func originalUpgrade(for image: RemotePreviewImage, at index: Int, requestID: UUID, media: MediaEnvironment) -> Task<Void, Never> {
+            if let task = originalTasks[index] { return task }
+            let task = Task<Void, Never> { [weak self, media] in
+                await self?.upgradeOriginal(image, at: index, requestID: requestID, media: media)
+            }
+            originalTasks[index] = task
+            return task
+        }
+
+        /// 当前选中页优先升级高清，其余图片随后逐张补低清并缓存高清。
         private func upgradeRemoteItems(for request: ImagePreviewRequest, initialIndex: Int, media: MediaEnvironment) async {
             guard case let .remote(images) = request.source else { return }
             let remainingIndices = images.indices.filter { $0 != initialIndex }
 
             // 当前高清下载与其它页低清补齐并行，既尽快让当前画面变清晰，也避免用户
             // 在高清大图下载期间左右滑动时看到透明占位。
-            async let currentUpgrade: Void = upgradeOriginal(
-                images[initialIndex],
+            let currentUpgrade = originalUpgrade(
+                for: images[initialIndex],
                 at: initialIndex,
                 requestID: request.id, media: media
             )
@@ -330,7 +342,9 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
                     do {
                         let preview = try await media.remotePreviewFile(for: lowURL, owner: request.id)
                         guard !Task.isCancelled, requestID == request.id, items.indices.contains(index), self.media === media else { return }
-                        updateItem(at: index, to: preview)
+                        if items[index].url == placeholderURL || items[index].url == nil {
+                            updateItem(at: index, to: preview, clearsFailure: image.originalURL == nil)
+                        }
                     } catch {
                         guard !Task.isCancelled, requestID == request.id, self.media === media else { return }
                         Self.logger.debug("图片缩略图准备失败：\(error.localizedDescription, privacy: .private)")
@@ -338,43 +352,44 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
                     }
                 }
             }
-            await currentUpgrade
+            await currentUpgrade.value
 
             for index in remainingIndices {
                 guard !Task.isCancelled, requestID == request.id, images.indices.contains(index) else { return }
-                await upgradeOriginal(images[index], at: index, requestID: request.id, media: media)
+                await originalUpgrade(for: images[index], at: index, requestID: request.id, media: media).value
             }
         }
 
         private func upgradeOriginal(_ image: RemotePreviewImage, at index: Int, requestID expectedID: UUID, media: MediaEnvironment) async {
-            guard let highURL = image.originalURL else {
-                if image.thumbnailURL == nil { recordFailure(QuickLookPreparationError.unavailable, at: index) }
-                return
-            }
+            guard !Task.isCancelled, requestID == expectedID, items.indices.contains(index), self.media === media else { return }
+            guard let remoteURL = image.originalURL ?? image.thumbnailURL else { recordFailure(QuickLookPreparationError.unavailable, at: index); return }
+            if image.originalURL == nil, items[index].url != nil, items[index].url != placeholderURL { return }
             do {
-                let preview = try await media.remotePreviewFile(for: highURL, owner: expectedID)
+                let preview = try await media.remotePreviewFile(for: remoteURL, owner: expectedID)
                 guard !Task.isCancelled, requestID == expectedID, items.indices.contains(index), self.media === media else { return }
                 updateItem(at: index, to: preview)
             } catch {
                 guard !Task.isCancelled, requestID == expectedID, items.indices.contains(index), self.media === media else { return }
                 Self.logger.debug("图片原图准备失败：\(error.localizedDescription, privacy: .private)")
-                if items[index].url == placeholderURL || items[index].url == nil { recordFailure(error, at: index) }
+                recordFailure(error, at: index)
             }
         }
 
-        private func updateItem(at index: Int, to url: URL) {
-            failures[index] = nil
-            failureGenerations[index] = nil
-            reportedFailures.remove(index)
+        private func updateItem(at index: Int, to url: URL, clearsFailure: Bool = true) {
+            let changed = items[index].url != url
+            if clearsFailure {
+                failures[index] = nil
+                failureGenerations[index] = nil
+                reportedFailures.remove(index)
+            }
             items[index].title = "图片 \(index + 1)"
             items[index].url = url
             updateRetryButton()
-            if previewController?.currentPreviewItemIndex == index {
+            if changed, previewController?.currentPreviewItemIndex == index {
                 if isPreviewPresentationComplete {
                     refreshCurrentPreviewItemSmoothly()
                 } else {
-                    // 高清在系统入场动画完成前就已就绪时，只更新数据源，延后视觉刷新。
-                    // 避免给正在从底部上移的控制器截图，造成动画中途像被“按住”一下。
+                    // 高清在系统入场动画完成前就绪时，视觉刷新延后到入场结束。
                     pendingCurrentRefresh = true
                 }
             }
@@ -384,18 +399,24 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
             guard items.indices.contains(index), let requestID else { return }
             failures[index] = error
             failureGenerations[index] = media.imageRetryGeneration
-            items[index].url = nil
-            items[index].title = "图片待恢复"
+            if items[index].url == placeholderURL || items[index].url == nil {
+                items[index].url = nil
+                items[index].title = "图片待恢复"
+            }
             selectionDidChange(previewController?.currentPreviewItemIndex ?? -1, requestID: requestID)
         }
 
         private func selectionDidChange(_ index: Int, requestID expectedID: UUID) {
             guard requestID == expectedID, previewController?.currentPreviewItemIndex == index else { return }
+            if let request = activeRequest, case let .remote(images) = request.source, items.indices.contains(index) {
+                _ = originalUpgrade(for: images[index], at: index, requestID: request.id, media: media)
+            }
             guard isPreviewPresentationComplete, let error = failures[index] else { updateRetryButton(); return }
             if failureGenerations[index] != media.imageRetryGeneration {
                 retryCurrentImage()
                 return
             }
+            if items[index].url != nil { updateRetryButton(); return }
             previewController?.refreshCurrentPreviewItem()
             updateRetryButton()
             if reportedFailures.insert(index).inserted { reportFailure(error) }
@@ -427,11 +448,14 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
                 }
                 do {
                     let file: URL
+                    let clearsFailure: Bool
                     switch request.source {
                     case let .local(images):
                         file = try await media.localPreviewFile(image: images[index], owner: request.id)
+                        clearsFailure = true
                     case let .remote(images):
                         let image = images[index]
+                        clearsFailure = image.originalURL == nil
                         if let low = image.thumbnailURL,
                            let preview = try? await media.remotePreviewFile(for: low, owner: request.id) {
                             file = preview
@@ -440,7 +464,7 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
                         } else { throw QuickLookPreparationError.unavailable }
                     }
                     guard !Task.isCancelled, requestID == request.id, self.media === media else { return }
-                    updateItem(at: index, to: file)
+                    updateItem(at: index, to: file, clearsFailure: clearsFailure)
                     if case let .remote(images) = request.source {
                         await upgradeOriginal(images[index], at: index, requestID: request.id, media: media)
                     }

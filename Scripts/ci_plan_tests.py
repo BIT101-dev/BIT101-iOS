@@ -38,6 +38,8 @@ def self_test(subject) -> None:
     archive_self_test(subject)
     environment_self_test(subject)
     wiring_self_test(subject)
+    from ci_simulator_tests import self_test as simulator_self_test
+    simulator_self_test(subject, CONTEXT, PLATFORM, environment_fixture)
 
 def plan_self_test(subject) -> None:
     from copy import deepcopy
@@ -196,7 +198,7 @@ def export_self_test(subject) -> None:
     plan = dict(jobs={group: {'execute': True} for group in CI_VALIDATION_GROUPS})
     report = dict(groups={scope: dict(scope='full', environment=CONTEXT)
         for scopes, _, _ in CI_VALIDATION_GROUPS.values() for scope in scopes})
-    for group in ('modules', 'release', 'catalyst', 'ios'):
+    for group in ('modules', 'release', 'catalyst'):
         with patch.object(subject, 'read_validation_plan', return_value=plan), \
                 patch.object(Path, 'read_text', return_value=json.dumps(report)), patch.object(Path, 'mkdir'), \
                 patch.object(Path, 'write_text') as saved, patch.object(subprocess, 'check_output', return_value='a' * 40), \

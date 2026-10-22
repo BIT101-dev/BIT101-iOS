@@ -48,7 +48,7 @@ private struct GalleryPosterDetailViewScene: View {
 
     @StateObject private var viewModel: GalleryPosterDetailViewModel
     @State private var imageViewer: ImagePreviewRequest?
-    @State private var composerTarget: GalleryCommentComposerTarget?
+    @State private var composerTarget: CommunityCommentComposerTarget?
     @State private var userRoute: UserRoute?
     @State private var isShowingDeleteConfirmation = false
     @State private var reportTarget: GalleryReportTarget?

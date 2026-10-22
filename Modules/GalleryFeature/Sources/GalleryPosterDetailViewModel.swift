@@ -1,3 +1,4 @@
+import CommunityUI
 import TransportCore
 import DesignSystemKit
 import CommunityCore
@@ -5,84 +6,6 @@ import CommunityTransport
 import Combine
 import Foundation
 
-/// 评论输入的目标。
-///
-/// 发评论页既支持“直接评论帖子”，也支持“回复某条评论”。
-/// 这两种场景使用不同的接口参数，这个枚举统一表示两个评论目标。
-enum GalleryCommentComposerTarget: Identifiable, Equatable {
-    case poster(posterID: Int)
-    case comment(mainComment: CommunityComment, targetComment: CommunityComment)
-
-    /// 供 sheet 和焦点状态使用的稳定标识。
-    var id: String {
-        switch self {
-        case let .poster(posterID):
-            return "poster-\(posterID)"
-        case let .comment(mainComment, targetComment):
-            return "comment-\(mainComment.id)-\(targetComment.id)"
-        }
-    }
-
-    /// 当前输入行为的可读标题。
-    var title: String {
-        switch self {
-        case .poster:
-            return "发表评论"
-        case let .comment(_, targetComment):
-            return "回复 @\(targetCommentDisplayName(targetComment))"
-        }
-    }
-
-    /// 评论输入框占位文案。
-    var placeholder: String {
-        switch self {
-        case .poster:
-            return "写点什么吧"
-        case let .comment(_, targetComment):
-            return "回复 @\(targetCommentDisplayName(targetComment))"
-        }
-    }
-
-    private func targetCommentDisplayName(_ comment: CommunityComment) -> String {
-        comment.anonymous ? AppUserPresentation.anonymousName : comment.user.nickname
-    }
-
-    /// 发评论接口里的目标对象 ID。
-    var objectID: String {
-        switch self {
-        case let .poster(posterID):
-            return "poster\(posterID)"
-        case let .comment(mainComment, _):
-            return "comment\(mainComment.id)"
-        }
-    }
-
-    /// 回复评论时需要带上的次级目标对象 ID。
-    var replyObjectID: String? {
-        switch self {
-        case .poster:
-            return nil
-        case let .comment(mainComment, targetComment):
-            guard mainComment.id != targetComment.id else { return nil }
-            return "comment\(targetComment.id)"
-        }
-    }
-
-    /// 回复评论时用于 @ 提示的用户 ID。
-    var replyUID: Int? {
-        switch self {
-        case .poster:
-            return nil
-        case let .comment(mainComment, targetComment):
-            guard mainComment.id != targetComment.id else { return nil }
-            return targetComment.user.id
-        }
-    }
-}
-
-/// 帖子详情状态机。
-///
-/// 负责重新拉取帖子详情、评论分页、排序切换、点赞和评论发送。
 @MainActor
 final class GalleryPosterDetailViewModel: ObservableObject {
     let pendingOperations = CommunityDetailTasks()
@@ -237,7 +160,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
             commentState.paginationError = nil
         case let .failure(error):
             guard commentRefreshGeneration == generation else { return }
-            if isCancellation(error) {
+            if TaskCancellation.matches(error) {
                 return
             }
             alert = AppAlert(title: "加载更多失败", message: error.localizedDescription)
@@ -278,7 +201,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
                 if likeResultNeedsReview { alert = AppAlert(title: "点赞结果待确认", message: CommunityToggleOutcomeUnknown.reviewMessage) }
                 return
             }
-            if isCancellation(error) { return }
+            if TaskCancellation.matches(error) { return }
             alert = AppAlert(title: "点赞失败", message: error.localizedDescription)
         }
     }
@@ -293,7 +216,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
             poster = poster.updatingSubscription(level)
             return true
         } catch {
-            if !isCancellation(error) { alert = AppAlert(title: "插眼设置失败", message: error.localizedDescription) }
+            if !TaskCancellation.matches(error) { alert = AppAlert(title: "插眼设置失败", message: error.localizedDescription) }
             return false
         }
     }
@@ -320,7 +243,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
                 if commentState.likesNeedingReview.contains(comment.id) { alert = AppAlert(title: "点赞结果待确认", message: CommunityToggleOutcomeUnknown.reviewMessage) }
                 return
             }
-            if isCancellation(error) { return }
+            if TaskCancellation.matches(error) { return }
             alert = AppAlert(title: "点赞失败", message: error.localizedDescription)
         }
     }
@@ -337,7 +260,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
         text: String,
         anonymous: Bool,
         imageMids: [String] = [],
-        target: GalleryCommentComposerTarget
+        target: CommunityCommentComposerTarget
     ) async -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -376,7 +299,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
                 alert = AppAlert(title: "发送结果待确认", message: CommunityCreateOutcomeUnknown.commentReviewMessage)
                 return false
             }
-            if Task.isCancelled || isCancellation(error) { return false }
+            if Task.isCancelled || TaskCancellation.matches(error) { return false }
             alert = AppAlert(title: "发送失败", message: error.localizedDescription)
             return false
         }
@@ -392,7 +315,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
             commentState.recordDeleted(comment.id)
             pendingOperations.enqueue { [weak self] in await self?.refreshAll() }
         } catch {
-            if isCancellation(error) { return }
+            if TaskCancellation.matches(error) { return }
             alert = AppAlert(title: "删除评论失败", message: error.localizedDescription)
         }
     }
@@ -411,7 +334,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
             try await service.deletePoster(id: posterID)
             return true
         } catch {
-            if isCancellation(error) { return false }
+            if TaskCancellation.matches(error) { return false }
             alert = AppAlert(title: "删除失败", message: error.localizedDescription)
             return false
         }
@@ -441,7 +364,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
             }
             posterStatus = .loaded
         case let .failure(error):
-            if isCancellation(error) {
+            if TaskCancellation.matches(error) {
                 posterStatus = previousStatus == .loading ? .idle : previousStatus
                 return
             }
@@ -466,7 +389,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
             commentState.status = .loaded
             commentState.paginationError = nil
         case let .failure(error):
-            let cancelled = isCancellation(error)
+            let cancelled = TaskCancellation.matches(error)
             commentState.restoreAfterRefreshFailure(previousState, failureStatus: cancelled ? nil : .failed(error.localizedDescription))
             if !commentState.items.isEmpty { commentOrder = commentState.order }
             if cancelled { return }
@@ -494,8 +417,4 @@ final class GalleryPosterDetailViewModel: ObservableObject {
         }
     }
 
-    /// 同时兼容 Swift Concurrency 的 `CancellationError` 和 URLSession 的 `-999 cancelled`。
-    private func isCancellation(_ error: Error) -> Bool {
-        TaskCancellation.matches(error)
-    }
 }

@@ -5,10 +5,6 @@ import Combine
 import Foundation
 import OSLog
 
-private func isGalleryMessageCancellation(_ error: Error) -> Bool {
-    TaskCancellation.matches(error)
-}
-
 nonisolated enum GalleryMessageDestination: Hashable {
     case poster(CommunityPoster)
     case paper(Int)
@@ -114,7 +110,7 @@ final class GalleryMessageViewModel: ObservableObject {
             unreadCounts = counts
             unreadCountsFailure = nil
         } catch {
-            if isGalleryMessageCancellation(error) { return }
+            if TaskCancellation.matches(error) { return }
             guard unreadGeneration == generation else { return }
             unreadCountsFailure = error.localizedDescription
             Self.logger.error("Unread summary failed: \(String(describing: error), privacy: .public)")
@@ -129,7 +125,7 @@ final class GalleryMessageViewModel: ObservableObject {
     private func fetchUnreadSummary() async throws -> GalleryMessageUnreadCounts {
         do { return try await service.fetchMessageUnreadCounts() }
         catch {
-            if isGalleryMessageCancellation(error) { throw error }
+            if TaskCancellation.matches(error) { throw error }
             throw GalleryMessagePersistenceError.unreadSummary(error.localizedDescription)
         }
     }
@@ -228,7 +224,7 @@ final class GalleryMessageViewModel: ObservableObject {
             if let failure = error as? GalleryMessagePersistenceError, case .unreadSummary(let reason) = failure {
                 unreadCountsFailure = reason
             }
-            let cancelled = isGalleryMessageCancellation(error)
+            let cancelled = TaskCancellation.matches(error)
             if state(for: type).status == .loading {
                 listStates[type] = previousState
                 setState(for: type) {
@@ -350,7 +346,7 @@ final class GalleryMessageViewModel: ObservableObject {
             }
         } catch {
             guard listGenerations[type] == generation, session == readStore.currentSession else { return }
-            if isGalleryMessageCancellation(error) {
+            if TaskCancellation.matches(error) {
                 setState(for: type) { $0.isLoadingMore = false }
                 return
             }

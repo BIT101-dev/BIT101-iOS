@@ -258,7 +258,7 @@ public final class ScoreViewModel: ObservableObject {
             }
         } catch {
             guard isCurrent(session, generation: generation) else { return }
-            if isCancellation(error) {
+            if TaskCancellation.matches(error) {
                 state = hasContent ? .loaded : .idle
                 return
             }
@@ -343,7 +343,7 @@ public final class ScoreViewModel: ObservableObject {
             alert = AppAlert.userInput(title: "验证已失效", message: message)
         } catch {
             guard isCurrent(session, generation: generation) else { return }
-            if isCancellation(error) {
+            if TaskCancellation.matches(error) {
                 state = rows.isEmpty ? .idle : .loaded
                 return
             }
@@ -377,7 +377,7 @@ public final class ScoreViewModel: ObservableObject {
         do {
             cachedSnapshot = try await cacheStore.loadSnapshot(for: session)
         } catch {
-            if isCancellation(error) { throw error }
+            if TaskCancellation.matches(error) { throw error }
             cachedSnapshot = nil
             needsStorageRecovery = true
         }
@@ -414,7 +414,7 @@ public final class ScoreViewModel: ObservableObject {
             }
         } catch {
             guard isCurrent(session, generation: generation) else { return }
-            if isCancellation(error) {
+            if TaskCancellation.matches(error) {
                 if !previousRows.isEmpty { applyRows(previousRows) }
                 throw error
             }
@@ -661,7 +661,7 @@ public final class ScoreViewModel: ObservableObject {
     }
 
     private func presentCacheReadFailure(_ error: Error) {
-        guard !isCancellation(error) else { return }
+        guard !TaskCancellation.matches(error) else { return }
         needsStorageRecovery = true
         if hasContent {
             state = .loaded
@@ -837,11 +837,6 @@ public final class ScoreViewModel: ObservableObject {
         lastUpdatedAt = saved
         didRestoreCachedRows = true
         applyRows(availableRows)
-    }
-
-    /// 同时兼容 Swift Concurrency 和 URLSession 的取消错误。
-    private func isCancellation(_ error: Error) -> Bool {
-        TaskCancellation.matches(error)
     }
 
     private func isCurrent(_ session: AppStorageSession, generation: Int) -> Bool {

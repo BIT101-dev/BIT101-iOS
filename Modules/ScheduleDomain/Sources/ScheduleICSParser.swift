@@ -22,6 +22,7 @@ public nonisolated enum ScheduleICSParser {
         var cancelledIDs = Set<String>()
         var components: [String] = []
         var hasCalendar = false
+        var dates = DateParser()
 
         for (index, line) in lines.enumerated() {
             if index.isMultiple(of: 128) {
@@ -56,7 +57,7 @@ public nonisolated enum ScheduleICSParser {
                         cancelledIDs.insert(uid)
                         eventsByID[uid] = nil
                     } else {
-                        guard let event = makeEvent(from: properties) else { throw ParseError.invalidCalendarData }
+                        guard let event = makeEvent(from: properties, dates: &dates) else { throw ParseError.invalidCalendarData }
                         guard eventsByID[event.id] == nil || eventsByID[event.id] == event else { throw ParseError.invalidCalendarData }
                         if !cancelledIDs.contains(event.id) { eventsByID[event.id] = event }
                     }
@@ -101,7 +102,8 @@ public nonisolated enum ScheduleICSParser {
     }
 
     public static func parseDate(_ value: String) -> Date? {
-        parseDate(value, timeZone: nil)
+        var dates = DateParser()
+        return dates.parse(value, timeZone: nil)
     }
 
     public static func decodeValue(_ value: String) -> String {
@@ -172,7 +174,7 @@ public nonisolated enum ScheduleICSParser {
         return lines
     }
 
-    private static func makeEvent(from properties: [String: Property]) -> DDLEventRecord? {
+    private static func makeEvent(from properties: [String: Property], dates: inout DateParser) -> DDLEventRecord? {
         guard
             let uid = properties["UID"]?.value.trimmingCharacters(in: .whitespacesAndNewlines),
             !uid.isEmpty,
@@ -189,7 +191,7 @@ public nonisolated enum ScheduleICSParser {
         } else {
             timeZone = nil
         }
-        guard let dueAt = parseDate(start.value, timeZone: timeZone) else { return nil }
+        guard let dueAt = dates.parse(start.value, timeZone: timeZone) else { return nil }
 
         let description = (properties["DESCRIPTION"]?.value ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -205,23 +207,25 @@ public nonisolated enum ScheduleICSParser {
         )
     }
 
-    private static func parseDate(_ value: String, timeZone: TimeZone?) -> Date? {
-        let value = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        if value.hasSuffix("Z") {
-            return parse(value, timeZone: .gmt, format: "yyyyMMdd'T'HHmmss'Z'")
-        }
+    private struct DateParser {
+        private let defaultTimeZone = TimeZone(identifier: "Asia/Shanghai") ?? .current
+        private var formatters: [String: DateFormatter] = [:]
 
-        let resolvedTimeZone = timeZone ?? TimeZone(identifier: "Asia/Shanghai") ?? .current
-        return parse(value, timeZone: resolvedTimeZone, format: "yyyyMMdd'T'HHmmss")
-            ?? parse(value, timeZone: resolvedTimeZone, format: "yyyyMMdd")
-    }
-
-    private static func parse(_ value: String, timeZone: TimeZone, format: String) -> Date? {
-        let formatter = formatter(timeZone: timeZone, format: format)
-        guard let date = formatter.date(from: value), formatter.string(from: date) == value else {
-            return nil
+        mutating func parse(_ value: String, timeZone: TimeZone?) -> Date? {
+            let value = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            let utc = value.hasSuffix("Z")
+            let zone = utc ? .gmt : timeZone ?? defaultTimeZone
+            let format = utc ? "yyyyMMdd'T'HHmmss'Z'" : value.contains("T") ? "yyyyMMdd'T'HHmmss" : "yyyyMMdd"
+            let key = zone.identifier + "/" + format
+            let formatter: DateFormatter
+            if let cached = formatters[key] { formatter = cached }
+            else {
+                formatter = ScheduleICSParser.formatter(timeZone: zone, format: format)
+                formatters[key] = formatter
+            }
+            guard let date = formatter.date(from: value), formatter.string(from: date) == value else { return nil }
+            return date
         }
-        return date
     }
 
     private static func formatter(timeZone: TimeZone, format: String) -> DateFormatter {

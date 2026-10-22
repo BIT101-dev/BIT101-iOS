@@ -348,7 +348,6 @@ else
 fi
 python3 - "$result" "$DERIVED_ROOT/test-metrics.txt" "$ROOT_DIR/Scripts" "$EXPECTED_TESTS" "$test_status" "$mode" "$SIMULATOR_DEVICE" "$configuration" "$TEST_SCOPE" "$SIMULATOR_WORKERS" <<'PYRESULT'
 import json
-import os
 from pathlib import Path
 import subprocess
 import sys
@@ -426,13 +425,12 @@ if sys.argv[9] == 'full' and sys.argv[6] in {'all', 'ui'}:
 commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
 if failures := ci_commit_findings(commit): raise SystemExit('\n'.join(failures))
 validate_community_write_test_output(Path(sys.argv[1]), raw_executed)
+coverage_lines = None
 if sys.argv[9] == 'shard' and sys.argv[6] in {'all', 'ui'}:
-    index, count = map(int, os.environ['BIT101_CI_SHARD'].split('/'))
     build = result.parent / 'Build'
     coverage_lines = native_source_coverage(build / 'Products' / (sys.argv[8] + '-iphonesimulator'),
         profile, line_details=True)
-    with Path(sys.argv[2]).open('a') as metrics:
-        metrics.write('分片：' + json.dumps({'identity': {'group': sys.argv[6], 'index': index, 'count': count,
-            'commit': commit, 'run': os.getenv('GITHUB_RUN_ID', '')}, 'coverageLines': coverage_lines}) + '\n')
+from validation_simulator import write_result_metadata
+write_result_metadata(Path(sys.argv[2]), sys.argv[6], sys.argv[9], commit, sys.argv[7], coverage_lines)
 print(f"模拟器{scope}通过：{summary['passedTests']} 项。")
 PYRESULT

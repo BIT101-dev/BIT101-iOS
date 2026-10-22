@@ -15,6 +15,7 @@ extension MediaDependencyTests {
         private(set) var requests = 0
         var failuresRemaining = 0
         var failedURLs = Set<URL>()
+        var responses: [URL: Data] = [:]
         var blockedURL: URL?
         var pending: CheckedContinuation<Void, Never>?
         var corruptResponsesRemaining = 0
@@ -26,7 +27,7 @@ extension MediaDependencyTests {
             let url = try #require(request.url)
             if url == blockedURL { await withCheckedContinuation { pending = $0 } }
             if failedURLs.contains(url) { throw URLError(.notConnectedToInternet) }
-            let response = corruptResponsesRemaining > 0 ? corruptResponseData : bytes
+            let response = corruptResponsesRemaining > 0 ? corruptResponseData : responses[url] ?? bytes
             corruptResponsesRemaining = max(corruptResponsesRemaining - 1, 0)
             return (response, try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "image/png"])))
         }
@@ -166,6 +167,68 @@ struct MediaPresentationTests {
         try await waitForTestEvent { preview.dataSource?.previewController(preview, previewItemAt: 1).previewItemURL != nil }
         #expect(preview.dataSource?.previewController(preview, previewItemAt: 1).previewItemTitle == "图片 2")
         #expect(preview.navigationItem.leftBarButtonItems?.contains { $0.accessibilityIdentifier == "media.preview.retry" } == false)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func selectingAnotherPageStartsItsDownloadWhileTheEarlierOriginalIsPending() async throws {
+        let helper = MediaDependencyTests(), transport = MediaDependencyTests.Images(bytes: try helper.png(width: 2))
+        let media = helper.environment(files: PreferenceMemoryFiles(), previewFiles: PreferenceMemoryFiles(), transport: transport)
+        let first = AppURL.required("https://example.invalid/first-original.png")
+        let second = AppURL.required("https://example.invalid/selected.png")
+        transport.blockedURL = first
+        let preview = PreviewController(), host = ImageQuickLookPresenter.HostViewController(), window = try window(host)
+        let coordinator = ImageQuickLookPresenter.Coordinator(media: media, makePreviewController: { preview })
+        defer {
+            transport.pending?.resume(); transport.pending = nil
+            coordinator.cancel(); window.isHidden = true; window.rootViewController = nil
+        }
+        let request = ImagePreviewRequest(remoteImages: [
+            .init(thumbnailURL: AppURL.required("https://example.invalid/first-low.png"), originalURL: first),
+            .init(thumbnailURL: nil, originalURL: second)
+        ], initialIndex: 0)
+        coordinator.receive(request, from: host, media: media)
+        try await waitForTestEvent { transport.pending != nil && preview.viewIfLoaded?.window != nil && !preview.isBeingPresented }
+        let placeholder = preview.dataSource?.previewController(preview, previewItemAt: 1).previewItemURL
+        transport.blockedURL = nil
+        preview.currentPreviewItemIndex = 1
+        try await waitForTestEvent {
+            let file = preview.dataSource?.previewController(preview, previewItemAt: 1).previewItemURL
+            return file != nil && file != placeholder
+        }
+        #expect(transport.pending != nil)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func failedOriginalKeepsTheThumbnailAndCanUpgradeThroughRetry(networkRetry: Bool) async throws {
+        let helper = MediaDependencyTests(), transport = MediaDependencyTests.Images(bytes: try helper.png(width: 2))
+        let files = PreferenceMemoryFiles()
+        let media = helper.environment(files: PreferenceMemoryFiles(), previewFiles: files, transport: transport)
+        let high = AppURL.required("https://example.invalid/high.png")
+        let highBytes = try helper.png(width: 4)
+        transport.responses[high] = highBytes
+        transport.failedURLs = [high]
+        let preview = PreviewController(), host = ImageQuickLookPresenter.HostViewController(), window = try window(host)
+        let coordinator = ImageQuickLookPresenter.Coordinator(media: media, makePreviewController: { preview })
+        defer { coordinator.cancel(); window.isHidden = true; window.rootViewController = nil }
+        let request = ImagePreviewRequest(remoteImages: [.init(thumbnailURL: AppURL.required("https://example.invalid/low.png"), originalURL: high)], initialIndex: 0)
+        coordinator.receive(request, from: host, media: media)
+        try await waitForTestEvent { preview.navigationItem.leftBarButtonItems?.contains { $0.accessibilityIdentifier == "media.preview.retry" } == true }
+        let low = try #require(preview.dataSource?.previewController(preview, previewItemAt: 0).previewItemURL)
+        #expect(try files.readData(at: low) == transport.bytes)
+        #expect(preview.dataSource?.previewController(preview, previewItemAt: 0).previewItemTitle == "图片 1")
+        transport.failedURLs = []
+        if networkRetry {
+            media.retryFailedImages()
+            coordinator.receive(request, from: host, media: media)
+        } else {
+            let button = try #require(preview.navigationItem.leftBarButtonItems?.first { $0.accessibilityIdentifier == "media.preview.retry" })
+            #expect(UIApplication.shared.sendAction(try #require(button.action), to: button.target, from: button, for: nil))
+        }
+        try await waitForTestEvent {
+            guard let file = preview.dataSource?.previewController(preview, previewItemAt: 0).previewItemURL else { return false }
+            return (try? files.readData(at: file)) == highBytes &&
+                preview.navigationItem.leftBarButtonItems?.contains { $0.accessibilityIdentifier == "media.preview.retry" } == false
+        }
     }
 
     @Test(.timeLimit(.minutes(1)))

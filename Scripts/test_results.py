@@ -19,6 +19,17 @@ def report_test_results(arguments: list[str]) -> None:
     bundle = Path(cli_arguments[1])
     sys.path.insert(0, cli_arguments[4])
     from validation_performance import result_bundle_complete
+    metrics_path = bundle.parent / 'test-metrics.txt'
+    if cli_arguments[3] == 'report' and cli_arguments[2] in {'json', 'coverage'} and metrics_path.is_file():
+        sources = [json.loads(line.removeprefix('结果来源：')) for line in metrics_path.read_text().splitlines()
+            if line.startswith('结果来源：')]
+        if len(sources) == 1 and sources[0]['family'] == 'modules':
+            if cli_arguments[2] == 'json':
+                from validation_evidence import module_event_summary
+                print(json.dumps(module_event_summary((bundle.parent / 'module-events.jsonl').read_text()), ensure_ascii=False))
+            else:
+                print(Path(sources[0]['coverage']).read_text())
+            raise SystemExit(0)
     diagnostics = bundle.parent / "diagnostics"
     if cli_arguments[3] == "diagnostics" and (diagnostics / "test-results.xcresult").is_dir():
         bundle = diagnostics / "test-results.xcresult"
@@ -92,23 +103,41 @@ def report_test_results(arguments: list[str]) -> None:
             titles(activities)
             print("\n".join(actions[-30:]))
             raise SystemExit(0)
+        if cli_arguments[3] == 'screenshot':
+            output = Path(cli_arguments[1]).parent.parent / 'screenshot.png'
+            output.unlink(missing_ok=True)
+            screenshots = {}
+            def collect(value):
+                if isinstance(value, dict):
+                    if str(value.get('name', '')).startswith(('失败时的界面截图', '界面截图')) and value.get('payloadId'):
+                        screenshots[value['payloadId']] = value['name']
+                    for child in value.values(): collect(child)
+                elif isinstance(value, list):
+                    for child in value: collect(child)
+            collect(activities)
+            identifiers = [value for value in screenshots if not cli_arguments[5] or value == cli_arguments[5]]
+            if len(identifiers) != 1:
+                available = '\n'.join(f'{key} · {name}' for key, name in sorted(screenshots.items()))
+                raise SystemExit('请按当前测试的截图附件标识选择一张图片。' + ('\n' + available if available else '\n当前测试包含零张截图附件。'))
+            subprocess.run(['xcrun', 'xcresulttool', 'export', 'object', '--legacy', '--type', 'file',
+                '--path', cli_arguments[1], '--id', identifiers[0], '--output-path', str(output)],
+                check=True, stdout=subprocess.DEVNULL)
+            print(output)
+            raise SystemExit(0)
         exported_identifiers = set()
         def attachments(value):
             if isinstance(value, dict):
-                screenshot = cli_arguments[3] == "screenshot"
-                names = ("失败时的界面截图", "界面截图") if screenshot else ("失败时的界面元素树", "App UI hierarchy for", "Debug description for", "Crash Log ")
+                names = ("失败时的界面元素树", "App UI hierarchy for", "Debug description for", "Crash Log ")
                 if str(value.get("name", "")).startswith(names):
                     identifier = value.get("payloadId")
                     if identifier:
-                        if screenshot and cli_arguments[5] and identifier != cli_arguments[5]: return
                         if identifier in exported_identifiers: return
                         exported_identifiers.add(identifier)
-                        output = (Path(cli_arguments[1]).parent.parent / "screenshot.png" if screenshot
-                                  else Path(cli_arguments[1]).parent / "failure-hierarchy.txt")
+                        output = Path(cli_arguments[1]).parent / "failure-hierarchy.txt"
                         subprocess.run(["xcrun", "xcresulttool", "export", "object", "--legacy", "--type", "file",
                                         "--path", cli_arguments[1], "--id", identifier, "--output-path", str(output)], check=True,
                                        stdout=subprocess.DEVNULL)
-                        print(output if screenshot else output.read_text())
+                        print(output.read_text())
                     else:
                         print(json.dumps(value, ensure_ascii=False))
                 for child in value.values():
@@ -430,7 +459,7 @@ def export_module_metrics(arguments: list[str]) -> None:
         raise SystemExit("模块覆盖率需要包含生产源码。")
     covered = sum(row[0] for row in modules.values())
     count = sum(row[1] for row in modules.values())
-    rows = ["# 模块生产源码行覆盖率",
+    rows = ["# 模块生产源码行覆盖率", '结果来源：' + json.dumps(dict(family='modules', coverage=str(coverage_path))),
         f"总计 {tests['totalTests']}；通过 {test_count}；失败 {tests['failedTests']}；跳过 {tests['skippedTests']}",
         "测试实例：" + json.dumps(tests['testCases']),
         "验证输入：" + os.environ["BIT101_VALIDATION_SOURCE_DIGEST"], "验证运行：" + os.environ["BIT101_VALIDATION_RUN_ID"],

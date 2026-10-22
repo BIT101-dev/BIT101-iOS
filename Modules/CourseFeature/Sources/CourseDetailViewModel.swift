@@ -1,82 +1,10 @@
+import CommunityUI
 import TransportCore
 import CommunityCore
 import CommunityTransport
 import DesignSystemKit
 import Combine
 import Foundation
-
-private func isCourseDetailCancellation(_ error: Error) -> Bool {
-    TaskCancellation.matches(error)
-}
-
-/// 课程评论输入目标。
-///
-/// 顶层评论直接挂在课程对象下；回复评论则同时记录“主评论”和“当前回复目标”，
-/// 这样既能正确决定提交对象，也能在 UI 上还原“回复谁”的文案。
-enum CourseCommentComposerTarget: Identifiable, Equatable {
-    case course(courseID: Int)
-    case comment(mainComment: CommunityComment, targetComment: CommunityComment)
-
-    var id: String {
-        switch self {
-        case let .course(courseID):
-            return "course-\(courseID)"
-        case let .comment(mainComment, targetComment):
-            return "comment-\(mainComment.id)-\(targetComment.id)"
-        }
-    }
-
-    var title: String {
-        switch self {
-        case .course:
-            return "发表评论"
-        case let .comment(_, targetComment):
-            return "回复 @\(targetCommentDisplayName(targetComment))"
-        }
-    }
-
-    var placeholder: String {
-        switch self {
-        case .course:
-            return "写点什么吧"
-        case let .comment(_, targetComment):
-            return "回复 @\(targetCommentDisplayName(targetComment))"
-        }
-    }
-
-    private func targetCommentDisplayName(_ comment: CommunityComment) -> String {
-        comment.anonymous ? AppUserPresentation.anonymousName : comment.user.nickname
-    }
-
-    var objectID: String {
-        switch self {
-        case let .course(courseID):
-            return "course\(courseID)"
-        case let .comment(mainComment, _):
-            return "comment\(mainComment.id)"
-        }
-    }
-
-    var replyObjectID: String? {
-        switch self {
-        case .course:
-            return nil
-        case let .comment(mainComment, targetComment):
-            guard mainComment.id != targetComment.id else { return nil }
-            return "comment\(targetComment.id)"
-        }
-    }
-
-    var replyUID: Int? {
-        switch self {
-        case .course:
-            return nil
-        case let .comment(mainComment, targetComment):
-            guard mainComment.id != targetComment.id, targetComment.user.id != 0 else { return nil }
-            return targetComment.user.id
-        }
-    }
-}
 
 @MainActor
 final class CourseDetailViewModel: ObservableObject {
@@ -255,7 +183,7 @@ final class CourseDetailViewModel: ObservableObject {
             commentState.paginationError = nil
         case let .failure(error):
             guard refreshGeneration == generation else { return }
-            if isCourseDetailCancellation(error) { return }
+            if TaskCancellation.matches(error) { return }
             commentState.paginationError = error.localizedDescription
             alert = AppAlert(title: "加载更多评论失败", message: error.localizedDescription)
         }
@@ -295,7 +223,7 @@ final class CourseDetailViewModel: ObservableObject {
             }
             historyGradeStatus = .loaded
         case let .failure(error):
-            if isCourseDetailCancellation(error) {
+            if TaskCancellation.matches(error) {
                 historyGradeStatus = historyGrades.isEmpty ? .idle : .loaded
                 return
             }
@@ -328,7 +256,7 @@ final class CourseDetailViewModel: ObservableObject {
                 if likeResultNeedsReview { alert = AppAlert(title: "点赞结果待确认", message: CommunityToggleOutcomeUnknown.reviewMessage) }
                 return
             }
-            if isCourseDetailCancellation(error) { return }
+            if TaskCancellation.matches(error) { return }
             alert = AppAlert(title: "点赞失败", message: error.localizedDescription)
         }
     }
@@ -352,7 +280,7 @@ final class CourseDetailViewModel: ObservableObject {
                 if commentState.likesNeedingReview.contains(comment.id) { alert = AppAlert(title: "点赞结果待确认", message: CommunityToggleOutcomeUnknown.reviewMessage) }
                 return
             }
-            if isCourseDetailCancellation(error) { return }
+            if TaskCancellation.matches(error) { return }
             alert = AppAlert(title: "点赞失败", message: error.localizedDescription)
         }
     }
@@ -362,7 +290,7 @@ final class CourseDetailViewModel: ObservableObject {
             acknowledge: { self.commentState.acknowledgeSubmissionReview($0) })
     }
 
-    func submitComment(text: String, anonymous: Bool, rate: Int?, target: CourseCommentComposerTarget) async -> Bool {
+    func submitComment(text: String, anonymous: Bool, rate: Int?, target: CommunityCommentComposerTarget) async -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             alert = AppAlert.userInput(title: "发送失败", message: "评论不能为空。")
@@ -404,7 +332,7 @@ final class CourseDetailViewModel: ObservableObject {
                 alert = AppAlert(title: "发送结果待确认", message: CommunityCreateOutcomeUnknown.commentReviewMessage)
                 return false
             }
-            if Task.isCancelled || isCourseDetailCancellation(error) { return false }
+            if Task.isCancelled || TaskCancellation.matches(error) { return false }
             alert = AppAlert(title: "发送失败", message: error.localizedDescription)
             return false
         }
@@ -438,7 +366,7 @@ final class CourseDetailViewModel: ObservableObject {
             }
             status = .loaded
         case let .failure(error):
-            if isCourseDetailCancellation(error) {
+            if TaskCancellation.matches(error) {
                 if course == nil {
                     status = previousStatus
                     if case .loading = previousStatus {
@@ -473,7 +401,7 @@ final class CourseDetailViewModel: ObservableObject {
             commentState.paginationError = nil
             commentState.status = .loaded
         case let .failure(error):
-            let cancelled = isCourseDetailCancellation(error)
+            let cancelled = TaskCancellation.matches(error)
             commentState.restoreAfterRefreshFailure(previousState, failureStatus: cancelled ? nil : .failed(error.localizedDescription))
             if cancelled { return }
             alert = AppAlert(title: "加载评论失败", message: error.localizedDescription)

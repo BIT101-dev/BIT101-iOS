@@ -12,10 +12,6 @@ import Combine
 import Foundation
 
 /// 识别课程请求的任务取消状态，切页或重复刷新时跳过失败提示。
-private func isCourseRequestCancellation(_ error: Error) -> Bool {
-    TaskCancellation.matches(error)
-}
-
 private extension CoursePagedState {
     /// 开始首屏刷新并重置分页游标。
     mutating func prepareForRefresh() {
@@ -139,7 +135,7 @@ public final class CourseListViewModel: ObservableObject {
             state.status = .loaded
         } catch {
             guard refreshGeneration == generation else { return }
-            if isCourseRequestCancellation(error) {
+            if TaskCancellation.matches(error) {
                 var restoredState = previousState
                 restoredState.isLoadingMore = false
                 if !restoredState.items.isEmpty {
@@ -199,7 +195,7 @@ public final class CourseListViewModel: ObservableObject {
         } catch {
             guard refreshGeneration == generation else { return }
             state.nextPage = sourcePage
-            if isCourseRequestCancellation(error) {
+            if TaskCancellation.matches(error) {
                 return
             }
 

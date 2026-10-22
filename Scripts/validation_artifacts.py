@@ -25,7 +25,7 @@ fixed_children = {
         "TestResults", "artifacts", "checkouts", "repositories", "debug", "release", "debug.yaml", "release.yaml",
         "out", "manifest.pif", "workspace-state.json", "module-events.jsonl", "test-metrics.txt", "test-failures.txt",
         "test-results.xcresult", "ui-tests.log", "ui-tests-build.log", "failure-hierarchy.txt", "diagnostics",
-        "validation-evidence.json", "validation-evidence.lock", "manual-scenarios.json", "performance-measurements.json",
+        "validation-evidence.json", "validation-evidence.lock", "ci-validation-result.json", "manual-scenarios.json", "performance-measurements.json",
         "release-receipt.json", "core-validation-evidence.json", "simulator-device.json", "simulator.log", "restore.log", "worker.log", "worker.lock"} | {name + ".log" for name in TEST_GROUPS}
         | {"build-" + name + ".log" for name in BUILD_HOSTS},
     ".build/extended-automation/diagnostics": {"test-results.xcresult"},
@@ -92,6 +92,7 @@ def self_test() -> None:
             (".build/compiler-cache", "diagnostics.zip")):
         assert not artifact_name_allowed(parent, name)
     assert artifact_name_allowed(".build/extended-automation", "modules.log")
+    assert artifact_name_allowed(".build/extended-automation", "ci-validation-result.json")
     assert artifact_name_allowed(".build/compiler-cache", "Index.noindex")
     assert artifact_name_allowed(".build/release-network-smoke/report", "release-network-smoke.json")
     assert artifact_name_allowed(".build/extended-automation/diagnostics", "test-results.xcresult")

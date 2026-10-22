@@ -225,7 +225,7 @@ private struct GalleryCommentRow: View {
 struct GalleryCommentComposerSheet: View {
     @Environment(MediaEnvironment.self) private var media
     @Environment(GalleryDependencies.self) private var dependencies
-    let target: GalleryCommentComposerTarget
+    let target: CommunityCommentComposerTarget
     let isSubmitting: Bool
     let review: CommunityCommentReviewActions
     let onSubmit: (String, Bool, [CommunityImage]) async -> Bool
