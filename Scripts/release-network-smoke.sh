@@ -14,6 +14,7 @@ PREPARE_ONLY=false
 if [[ "${1:-}" == --check-config ]]; then CHECK_CONFIG_ONLY=true; shift; fi
 
 DERIVED_DATA="$ROOT_DIR/.build/release-network-smoke"
+COMMUNITY_CONFIGURATION="$DERIVED_DATA/community-configuration.json"
 BUILD_LOG="$DERIVED_DATA/build.log"
 CONSOLE_LOG="$DERIVED_DATA/console.log"
 console_process=""
@@ -28,6 +29,7 @@ SMOKE_CAPTURE="${BIT101_NETWORK_SMOKE_CAPTURE:-none}"
 if [[ "$SMOKE_SCOPE" == prepare ]]; then PREPARE_ONLY=true; SMOKE_SCOPE=bit101; SMOKE_CAPTURE=communityFixtures; fi
 SMOKE_TERM="${BIT101_NETWORK_SMOKE_TERM:-}"
 SMOKE_FIXTURES="${BIT101_NETWORK_SMOKE_FIXTURES:-}"
+SMOKE_ACCOUNT="${BIT101_COMMUNITY_SMOKE_ACCOUNT:-}"
 RECOVERY_CONFIRMATION="${BIT101_COMMUNITY_RECOVERY_CONFIRMATION:-}"
 SMS_MODE="${2:-preflight}"
 [[ $# -le 2 ]] || { echo "用法：Scripts/release-network-smoke.sh [范围] [sms]" >&2; exit 64; }
@@ -41,7 +43,7 @@ case "$SMOKE_SCOPE" in
     echo "Scripts/release-network-smoke.sh prepare  从当前账号采集验收配置"
     echo "指定范围：bit101、school、transcript、schedule、ddl、community-writes、community-cleanup。"
     echo "短信专项：all sms、school sms；真实发送与验证码输入按用户授权执行。"
-    echo "all、bit101、community-writes 需要 BIT101_NETWORK_SMOKE_FIXTURES 中的维护对象。"
+    echo "all、bit101、community-writes 使用 prepare 保存的维护对象；环境变量可指定账号与对象。"
     exit 0
     ;;
   *) echo "网络范围：all、bit101、school、transcript、schedule、ddl、community-writes、community-cleanup。" >&2; exit 64 ;;
@@ -78,26 +80,12 @@ if [[ "$SMOKE_CAPTURE" == scheduleCache || "$SMOKE_CAPTURE" == rawCourseResponse
   [[ "$SMOKE_SCOPE" == all || "$SMOKE_SCOPE" == school || "$SMOKE_SCOPE" == schedule ]] \
     || { echo "课表采样使用 all、school 或 schedule 范围。" >&2; exit 64; }
 fi
-if [[ -n "$SMOKE_FIXTURES" ]]; then
-  python3 - "$SMOKE_FIXTURES" <<'PYFIXTURES' || { echo "BIT101_NETWORK_SMOKE_FIXTURES 需要有效的 posterID、courseID、courseNumber 和 paperID。" >&2; exit 64; }
-import json
-import sys
-try:
-    value = json.loads(sys.argv[1])
-    valid = isinstance(value, dict) and all(type(value.get(key)) is int and 0 < value[key] <= 2**63 - 1
-        for key in ('posterID', 'courseID', 'paperID'))
-    number = value.get('courseNumber') if isinstance(value, dict) else None
-    valid = valid and isinstance(number, str) and bool(number) and number == number.strip()
-except (ValueError, TypeError):
-    valid = False
-raise SystemExit(0 if valid else 1)
-PYFIXTURES
-fi
 if ! $PREPARE_ONLY && [[ "$SMOKE_SCOPE" == all || "$SMOKE_SCOPE" == bit101 || "$SMOKE_SCOPE" == community-writes ]]; then
-  [[ -n "$SMOKE_FIXTURES" ]] || { echo "此范围需要 BIT101_NETWORK_SMOKE_FIXTURES 中的维护对象。" >&2; exit 64; }
-fi
-if ! $PREPARE_ONLY && [[ "$SMOKE_SCOPE" == all || "$SMOKE_SCOPE" == bit101 || "$SMOKE_SCOPE" == community-writes ]]; then
-  python3 -c 'import sys; value=sys.argv[1]; sys.exit(0 if len(value) <= 19 and value.isascii() and value.isdecimal() and 0 < int(value) <= 2**63 - 1 else 1)' "${BIT101_COMMUNITY_SMOKE_ACCOUNT:-}" || { echo "社区验收需要明确指定账号 BIT101_COMMUNITY_SMOKE_ACCOUNT。" >&2; exit 64; }
+  CONFIGURATION=("${(@f)$(python3 "$ROOT_DIR/Scripts/network_smoke_config.py" load "$COMMUNITY_CONFIGURATION" "$SMOKE_ACCOUNT" "$SMOKE_FIXTURES")}") || exit $?
+  SMOKE_ACCOUNT="${CONFIGURATION[1]}"
+  SMOKE_FIXTURES="${CONFIGURATION[2]}"
+elif [[ -n "$SMOKE_FIXTURES" ]]; then
+  python3 "$ROOT_DIR/Scripts/network_smoke_config.py" fixtures "$SMOKE_FIXTURES" || exit $?
 fi
 if [[ "$SMOKE_SCOPE" == community-writes ]]; then
   python3 -c 'import sys; value=sys.argv[1]; sys.exit(0 if len(value) <= 19 and value.isascii() and value.isdecimal() and 0 < int(value) <= 2**63 - 1 else 1)' "${BIT101_COMMUNITY_FOLLOW_TARGET:-}" || { echo "社区写入需要已关注的专用目标 BIT101_COMMUNITY_FOLLOW_TARGET。" >&2; exit 64; }
@@ -210,7 +198,7 @@ xcrun devicectl device install app \
   --device "$DEVICETCL_DEVICE_ID" \
   "$SMOKE_APP_PATH" >/dev/null
 
-python3 - "$LOCAL_REQUEST_PATH" "$SMOKE_SCOPE" "$RUN_ID" "$SMOKE_CAPTURE" "$SMOKE_TERM" "$SMS_MODE" "${BIT101_COMMUNITY_FOLLOW_TARGET:-}" "${BIT101_COMMUNITY_SMOKE_ACCOUNT:-}" "$SMOKE_FIXTURES" "$RECOVERY_CONFIRMATION" <<'PY'
+python3 - "$LOCAL_REQUEST_PATH" "$SMOKE_SCOPE" "$RUN_ID" "$SMOKE_CAPTURE" "$SMOKE_TERM" "$SMS_MODE" "${BIT101_COMMUNITY_FOLLOW_TARGET:-}" "$SMOKE_ACCOUNT" "$SMOKE_FIXTURES" "$RECOVERY_CONFIRMATION" <<'PY'
 import json
 import sys
 
@@ -323,16 +311,7 @@ PY
 fi
 
 if $PREPARE_ONLY; then
-  python3 - "$LOCAL_REPORT_PATH" <<'PYCONFIGURATION'
-import json
-import sys
-with open(sys.argv[1], encoding="utf-8") as stream:
-    report = json.load(stream)
-value = report.get('communityConfiguration')
-if report.get('passed') is not True or not isinstance(value, dict):
-    raise SystemExit('\n'.join(report.get('failures', [])) or '社区验收配置采样待完成。')
-print('社区验收配置：' + json.dumps(value, ensure_ascii=False))
-PYCONFIGURATION
+  python3 "$ROOT_DIR/Scripts/network_smoke_config.py" capture "$LOCAL_REPORT_PATH" "$COMMUNITY_CONFIGURATION"
   exit 0
 fi
 

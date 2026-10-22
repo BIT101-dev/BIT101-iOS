@@ -15,6 +15,25 @@ PROOF = ROOT / 'build/DeviceInstall/restore-readiness.json'
 PROCESS = ROOT / 'build/DeviceInstall/restore-process.json'
 
 
+def simulator_startup_diagnostics(device: str, process: int) -> None:
+    import sys
+    subprocess.run(['xcrun', 'simctl', 'spawn', device, 'log', 'show', '--style', 'compact', '--info', '--last', '2m',
+        '--predicate', 'subsystem == "BIT101" AND (category == "RestoreReadiness" OR category == "LoginKeychain" OR category == "PersistentBackup")'],
+        check=False, stdout=sys.stderr, stderr=sys.stderr)
+    reports = Path.home() / 'Library/Logs/DiagnosticReports'
+    for report in reports.glob('BIT101-iOS-*.ips'):
+        try:
+            payload = json.loads(report.read_text().partition('\n')[2])
+            if not isinstance(payload, dict) or payload.get('pid') != process: continue
+            print(f'启动崩溃：{report} · {json.dumps(payload.get("exception"), ensure_ascii=False)}', file=sys.stderr)
+            thread = payload.get('threads', [])[payload.get('faultingThread', 0)]
+            for frame in thread.get('frames', []):
+                print('  ' + str(frame.get('symbol') or frame.get('imageOffset')), file=sys.stderr)
+            break
+        except (OSError, ValueError, TypeError, IndexError):
+            continue
+
+
 def invalidate() -> None:
     from validation_provenance import REPORT, report_lock, write_report
     with report_lock():
@@ -162,6 +181,7 @@ def simulator_restore_findings(simulator_source: str) -> list[str]:
     from unittest.mock import patch
     from contextlib import redirect_stderr
     from io import StringIO
+    from script_test_support import heredoc_body
     SCRIPT_ROOT = ROOT / 'Scripts'
     findings = simulator_startup_findings(simulator_source)
     simulator_verification_self_test()
@@ -205,7 +225,7 @@ preparation_probe() {{ read -r message <&{reader}; print PREPARED; return {prepa
                     BIT101_DEFER_APP_RESTORE='1' if deferred else '0'), capture_output=True, text=True)
             if result.returncode != original or 'UNEXPECTED' in result.stdout:
                 findings.append('聚合与托管模拟器退出自测：外层恢复或运行器回收并保留测试失败状态')
-    restoration_program = simulator_source.split("<<'PYRESTORE'\n", 1)[1].split('\nPYRESTORE', 1)[0]
+    restoration_program = heredoc_body(simulator_source, 'PYRESTORE')
     from datetime import datetime, timezone
     from types import SimpleNamespace
     import uuid
@@ -230,10 +250,11 @@ preparation_probe() {{ read -r message <&{reader}; print PREPARED; return {prepa
                 patch.object(Path, 'read_bytes', lambda path: plistlib.dumps(app_info) if path.name == 'Info.plist' else b'app'), \
                 patch.object(Path, 'read_text', return_value=json.dumps(dict(ready, **change))), \
                 patch.object(Path, 'is_file', return_value=True), patch.object(Path, 'unlink'), \
+                patch('validation_restore.simulator_startup_diagnostics') as diagnosed, \
                 patch('time.monotonic', side_effect=[0, 0, 61]), patch('time.sleep'), patch('uuid.uuid4', return_value=restore_id), redirect_stderr(diagnostics := StringIO()):
             try: exec(compile(restoration_program, '<simulator-restore>', 'exec'), {}); outcome = ''
             except SystemExit as error: outcome = str(error.code)
-            if expected not in outcome or bool(expected) != bool(outcome) \
+            if expected not in outcome or bool(expected) != bool(outcome) or diagnosed.called != bool(expected) \
                     or expected == '就绪验收超时' and json.loads(diagnostics.getvalue())['readiness'] != dict(ready, **change):
                 findings.append('模拟器恢复自测：实际进程、会话恢复和编译输入共同参与就绪验收')
     return findings
@@ -245,10 +266,11 @@ def simulator_startup_findings(source: str) -> list[str]:
     from contextlib import redirect_stdout
     from io import StringIO
     from unittest.mock import patch
+    from script_test_support import heredoc_body
     try:
-        programs = {marker: source.split(f"<<'{marker}'", 1)[1].split('\n', 1)[1].split('\n' + marker, 1)[0]
+        programs = {marker: heredoc_body(source, marker)
             for marker in ('PYDEVICE', 'PYREADY', 'PYAPPREADY')}
-    except IndexError:
+    except ValueError:
         return ['模拟器启动自测：设备、系统与 App 初始化入口应提供完整脚本正文。']
     device_program = programs['PYDEVICE']
     inventory = {'runtimes': [{'isAvailable': True, 'identifier': 'com.apple.CoreSimulator.SimRuntime.iOS-27'}],

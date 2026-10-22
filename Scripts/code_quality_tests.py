@@ -506,19 +506,14 @@ start_group() { run_group "$1" "$2" & group_processes+=($!); }
 
 def catalyst_signing_boundary_findings() -> list[str]:
     """覆盖本机默认签名、显式免签名和托管 CI 策略。"""
-    source = (SCRIPT_ROOT / 'run-extended-tests.sh').read_text()
-    start = 'if [[ "$MODE" == "modules" ]]; then\n  acquire_test_lock\n'
-    block = start + source.split(start, 1)[1].split('\nBIT101_VALIDATION_RUN_ID=', 1)[0]
-    harness = '''set -euo pipefail
-MODE="$1" GITHUB_ACTIONS="$2" BIT101_CATALYST_UNSIGNED_TESTS="$3" GENERIC_BUILD=false
-acquire_test_lock() { :; }
-bit101_require_device() { return 99; }
-'''
+    from script_test_support import shell_function
+    signing = shell_function(SCRIPT_ROOT / 'script-support.sh', 'bit101_catalyst_signing_arguments')
+    harness = 'set -euo pipefail\nGITHUB_ACTIONS="$2" BIT101_CATALYST_UNSIGNED_TESTS="$3"\n' + signing
     findings = []
     for mode in ('catalyst', 'catalyst-release-runtime'):
         for ci in ('', 'false', 'true'):
             for unsigned in ('', '0', '1'):
-                result = subprocess.run(['zsh', '-c', harness + block + '\nprint -r -l -- "${SIGNING_ARGS[@]}"',
+                result = subprocess.run(['zsh', '-c', harness + '\nbit101_catalyst_signing_arguments',
                     'catalyst-signing', mode, ci, unsigned], capture_output=True, text=True)
                 expected = ['CODE_SIGNING_ALLOWED=NO'] if ci == 'true' or unsigned == '1' else ['-allowProvisioningUpdates']
                 if result.returncode or result.stdout.splitlines() != expected:

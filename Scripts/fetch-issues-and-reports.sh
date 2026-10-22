@@ -13,25 +13,42 @@ CI_REPORT_PATH="$OUTPUT_DIR/github-ci.json"
 ACTION="${1:-fetch}"
 case "$ACTION" in
   -h|--help)
-    echo "用法：Scripts/fetch-issues-and-reports.sh [fetch|list|latest|show <报告键>|delete <报告键>]"
+    echo "用法：Scripts/fetch-issues-and-reports.sh [fetch|list|latest|show <报告键>|delete <报告键>|clear-archive]"
     exit 0
     ;;
-  fetch|list|latest) [[ $# -le 1 ]] || exit 64 ;;
+  fetch|list|latest|clear-archive) [[ $# -le 1 ]] || exit 64 ;;
   show|delete) [[ $# -eq 2 ]] || { echo "请提供报告键。" >&2; exit 64; } ;;
-  *) echo "报告操作：fetch、list、latest、show、delete。" >&2; exit 64 ;;
+  *) echo "报告操作：fetch、list、latest、show、delete、clear-archive。" >&2; exit 64 ;;
 esac
 source "$ROOT_DIR/Scripts/script-support.sh"
 bit101_acquire_script_lock "$OUTPUT_DIR/inbox.lock" BIT101_REPORT_INBOX_LOCK_HELD "$0" "$@"
-NAMESPACE_ID="$(python3 - "$ROOT_DIR/Cloudflare/ErrorReportWorker/wrangler.jsonc" <<'PYNAMESPACE'
-import json
+if [[ "$ACTION" == clear-archive ]]; then
+  python3 - "$OUTPUT_DIR" <<'PYCLEAR'
 from pathlib import Path
+import shutil
 import sys
-
-configuration = json.loads(Path(sys.argv[1]).read_text())
-print(next(row["id"] for row in configuration["kv_namespaces"] if row["binding"] == "ERROR_REPORTS"))
-PYNAMESPACE
-)"
+root = Path(sys.argv[1])
+count = 0
+for report in root.glob('*/*/report_*.json'):
+    count += 1
+for source in ('开发版', '正式版', '来源未知'):
+    shutil.rmtree(root / source, ignore_errors=True)
+for name in ('report-keys.txt', 'error-report-keys.json', 'error-report.json', 'summary.txt'):
+    (root / name).unlink(missing_ok=True)
+print(f'本地反馈归档已清理：{count} 份。')
+PYCLEAR
+  exit 0
+fi
 WRANGLER="$WRANGLER_DIR/node_modules/.bin/wrangler"
+WORKER_CONFIG=("${(@f)$(cd "$WRANGLER_DIR" && node - "$ROOT_DIR/Cloudflare/ErrorReportWorker/wrangler.jsonc" <<'NODECONFIG'
+const { experimental_readRawConfig } = require('wrangler');
+const configuration = experimental_readRawConfig({ config: process.argv[2] }).rawConfig;
+console.log(configuration.kv_namespaces.find(row => row.binding === 'ERROR_REPORTS').id);
+console.log(configuration.routes.find(row => row.custom_domain).pattern);
+NODECONFIG
+)}")
+NAMESPACE_ID="${WORKER_CONFIG[1]}"
+REPORT_DOMAIN="${WORKER_CONFIG[2]}"
 mkdir -p "$OUTPUT_DIR"
 export WRANGLER_LOG_PATH="$WRANGLER_LOG"
 rm -f "$WRANGLER_LOG"
@@ -87,7 +104,7 @@ case "$ACTION" in
   delete)
     key="${2:-}"
     [[ "$key" == report:* ]] || { echo "请提供 report: 开头的报告键。" >&2; exit 64; }
-    python3 - "$key" "$WRANGLER" "$WRANGLER_DIR" "$NAMESPACE_ID" "$OUTPUT_DIR/delete-authorization.json" <<'PYDELETE'
+    python3 - "$key" "$WRANGLER" "$WRANGLER_DIR" "$NAMESPACE_ID" "$OUTPUT_DIR/delete-authorization.json" "$REPORT_DOMAIN" <<'PYDELETE'
 import json
 from pathlib import Path
 import subprocess
@@ -97,12 +114,10 @@ from urllib.error import HTTPError
 import time
 import uuid
 
-key, wrangler, directory, namespace, filename = sys.argv[1:]
+key, wrangler, directory, namespace, filename, domain = sys.argv[1:]
 grant = str(uuid.uuid4())
 grant_key = 'report-delete-grant:' + grant
 path = Path(filename)
-configuration = json.loads((Path(directory).parent / 'ErrorReportWorker/wrangler.jsonc').read_text())
-domain = next(route['pattern'] for route in configuration['routes'] if route.get('custom_domain'))
 def run(*arguments, check=True):
     return subprocess.run([wrangler, 'kv', 'key', *arguments, '--remote', '--namespace-id', namespace],
         cwd=directory, check=check, stdout=subprocess.DEVNULL)
@@ -487,10 +502,18 @@ for run in ci_runs:
 lines.append("")
 current_counts = category_counts(report_dir)
 current_sources = source_counts(report_dir)
+try:
+    remote_keys = json.loads((report_dir / 'error-report-keys.json').read_text())
+    remote_count = sum(1 for item in remote_keys if item['name'].startswith('report:'))
+    remote_inventory = f"远端现存 {remote_count} 条"
+except (OSError, ValueError, KeyError, TypeError):
+    remote_inventory = "远端列表待读取"
 lines.append(
-    f"Cloudflare 报告：本次拉取 {new_report_count} 条 · {cloudflare_state}"
-    f"（错误报告 {current_counts['错误报告']}，用户建议 {current_counts['用户建议']}；"
-    f"开发版 {current_sources['开发版']}，正式版 {current_sources['正式版']}，来源未知 {current_sources['来源未知']}）"
+    f"Cloudflare 报告：{remote_inventory}，本次拉取 {new_report_count} 条 · {cloudflare_state}"
+)
+lines.append(
+    f"本地归档：错误报告 {current_counts['错误报告']}，用户建议 {current_counts['用户建议']}；"
+    f"开发版 {current_sources['开发版']}，正式版 {current_sources['正式版']}，来源未知 {current_sources['来源未知']}"
 )
 
 summary = "\n".join(lines) + "\n"

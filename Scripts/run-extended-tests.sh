@@ -250,11 +250,7 @@ elif $GENERIC_BUILD; then
 elif [[ "$MODE" == catalyst || "$MODE" == catalyst-release-runtime ]]; then
   acquire_test_lock
   TEST_DESTINATION="platform=macOS,variant=Mac Catalyst"
-  if [[ "${GITHUB_ACTIONS:-false}" == true || "${BIT101_CATALYST_UNSIGNED_TESTS:-0}" == 1 ]]; then
-    SIGNING_ARGS=(CODE_SIGNING_ALLOWED=NO)
-  else
-    SIGNING_ARGS=(-allowProvisioningUpdates)
-  fi
+  SIGNING_ARGS=("${(@f)$(bit101_catalyst_signing_arguments)}")
 else
   acquire_test_lock
   bit101_require_device || exit 1

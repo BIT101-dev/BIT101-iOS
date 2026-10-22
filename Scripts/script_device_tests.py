@@ -53,4 +53,65 @@ def device_discovery_boundary_findings() -> list[str]:
         if (expected and (result.returncode or result.stdout.strip() != f'{expected}:{expected}')) \
                 or (not expected and result.returncode != 1):
             findings.append('设备自测：单个公开 UDID 配置约束全部真机入口')
-    return findings
+    return findings + simulator_identity_boundary_findings() + simulator_diagnostic_boundary_findings()
+
+
+def simulator_identity_boundary_findings() -> list[str]:
+    from contextlib import redirect_stdout
+    from io import StringIO
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    import os
+    import sys
+    from script_test_support import heredoc_body
+    source = Path(__file__).with_name('simulator-tests.sh').read_text()
+    program = heredoc_body(source, 'PYDEVICE')
+    path = Path('/fixture/simulator-device.json')
+    runtime = {'identifier': 'com.apple.CoreSimulator.SimRuntime.iOS-27-0', 'version': '27.0', 'isAvailable': True,
+        'supportedDeviceTypes': [{'name': 'iPhone', 'identifier': 'phone-type'}]}
+    for ci, state in [(False, 'valid'), (False, 'deleted'), (False, 'unavailable'),
+                      (False, 'manifest-missing'), (False, 'empty'), (True, 'deleted'), (True, 'unavailable'), (True, 'empty')]:
+        old = {'udid': 'old', 'name': 'BIT101', 'isAvailable': state == 'valid', 'state': 'Booted'}
+        reusable = {'udid': 'ready', 'name': 'iPhone' if ci else 'BIT101', 'isAvailable': True, 'state': 'Booted'}
+        devices = [] if state == 'empty' else [reusable] + ([old] if state in {'valid', 'unavailable'} else [])
+        data = {'runtimes': [runtime], 'devices': {runtime['identifier']: devices}}
+        saved, commands = [], []
+        def output(command, **kwargs):
+            if command[:4] == ['xcrun', 'simctl', 'list', '--json']: return json.dumps(data)
+            if command[:3] == ['xcrun', 'simctl', 'create']: return 'created'
+            raise AssertionError(command)
+        def run(command, **kwargs):
+            commands.append(command)
+            return SimpleNamespace(returncode=0)
+        with patch.object(sys, 'argv', ['device', str(path), 'prepare']), \
+                patch.dict(os.environ, GITHUB_ACTIONS='true' if ci else 'false', DEVELOPER_DIR='/Xcode/Contents/Developer'), \
+                patch.object(Path, 'is_file', return_value=state != 'manifest-missing'), \
+                patch.object(Path, 'read_text', return_value=json.dumps({'identifier': 'old', 'runtime': runtime['identifier']})), \
+                patch.object(Path, 'write_text', side_effect=lambda text: saved.append(json.loads(text))), \
+                patch.object(subprocess, 'check_output', side_effect=output), patch.object(subprocess, 'run', side_effect=run), \
+                redirect_stdout(StringIO()) as console:
+            exec(compile(program, 'simulator-device-selection', 'exec'), {})
+        expected = 'old' if state == 'valid' else 'created' if state == 'empty' else 'ready'
+        assert console.getvalue().strip() == expected, (ci, state)
+        assert saved == ([] if state == 'valid' else [{'identifier': expected, 'runtime': runtime['identifier']}]), (ci, state)
+        assert (['xcrun', 'simctl', 'delete', 'old'] in commands) == (state == 'unavailable'), (ci, state)
+    return []
+
+
+def simulator_diagnostic_boundary_findings() -> list[str]:
+    from contextlib import redirect_stderr
+    from io import StringIO
+    from unittest.mock import patch
+    from validation_restore import simulator_startup_diagnostics
+    reports = [Path('/fixture/old.ips'), Path('/fixture/current.ips')]
+    payload = {'pid': 42, 'exception': {'type': 'EXC_BREAKPOINT'}, 'faultingThread': 0,
+        'threads': [{'frames': [{'symbol': 'AppFileDirectories.defaults(inDomain:)'}]}]}
+    for first in ('malformed', '{}\n' + json.dumps(payload | {'pid': 41})):
+        with patch.object(Path, 'glob', return_value=reports), \
+                patch.object(Path, 'read_text', side_effect=[first, '{}\n' + json.dumps(payload)]), \
+                patch('subprocess.run') as run, redirect_stderr(StringIO()) as output:
+            simulator_startup_diagnostics('device', 42)
+        assert 'AppFileDirectories.defaults(inDomain:)' in output.getvalue()
+        assert 'EXC_BREAKPOINT' in output.getvalue() and 'old.ips' not in output.getvalue()
+        assert run.call_args.args[0][:4] == ['xcrun', 'simctl', 'spawn', 'device']
+    return []

@@ -331,6 +331,8 @@ def self_test() -> None:
         assert verification_dispatch(source) == set(VERIFY_GROUPS)
     assert verification_dispatch(dispatch.replace('audit) verify_step audit', 'obsolete) verify_step audit')) != set(VERIFY_GROUPS)
     assert set(DEFAULT_VERIFY_GROUPS) <= set(VERIFY_GROUPS)
+    for group in NETWORK_GROUPS:
+        assert includes_input('Scripts/network_smoke_config.py', group), group
     assert includes_input("README.md", "audit")
     assert includes_input("BIT101-iOSTests/NetworkSmokeRegressionTests.swift", "network-smoke")
     assert includes_input("BIT101-iOSTests/PerformanceWorkload.swift", "network-smoke")

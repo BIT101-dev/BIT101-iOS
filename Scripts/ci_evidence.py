@@ -111,6 +111,7 @@ def export_validation_result(group: str) -> None:
     RESULT_FILE.write_text(json.dumps(dict(schemaVersion=1, commit=commit, run=os.environ['GITHUB_RUN_ID'], groups=rows)) + '\n')
 
 
+@cache
 def cache_identity() -> dict:
     from validation_environment import environment_context, toolchain_identity
     context = environment_context('build-release')
@@ -266,6 +267,7 @@ def restore_remote_cache(flavor: str) -> None:
         commit = run['head_sha']
         if not re.fullmatch('[0-9a-f]{40}', commit): continue
         if subprocess.run(['git', 'merge-base', '--is-ancestor', commit, 'HEAD'], cwd=ROOT, capture_output=True).returncode: continue
+        if not cache_result_matches(repo, run, flavor): continue
         payload = CACHE_ROOT / 'compilation-cache-download'
         try:
             download_cache_payload(repo, artifact['id'], payload)
@@ -275,6 +277,27 @@ def restore_remote_cache(flavor: str) -> None:
         finally:
             payload.unlink(missing_ok=True)
     print('编译缓存：首次建立当前分组的原生数据。')
+
+
+def cache_result_matches(repo: str, run: dict, flavor: str) -> bool:
+    from validation_inputs import CI_RESULT_ARTIFACTS
+    group = {'release-build': 'release', 'catalyst-tests': 'catalyst', 'simulator-app': 'app', 'simulator-ui': 'ui'}[flavor]
+    artifact_name = CI_RESULT_ARTIFACTS[group]
+    artifact = next((row for page in api_pages(f'repos/{repo}/actions/runs/{run["id"]}/artifacts')
+        for row in page['artifacts'] if row['name'] == artifact_name and not row.get('expired')), None)
+    if artifact is None: return False
+    result = read_validation_result(repo, artifact['id'])
+    if not isinstance(result, dict) or result.get('schemaVersion') != 1 \
+            or result.get('commit') != run['head_sha'] or result.get('run') != str(run['id']): return False
+    groups = result.get('groups')
+    if not isinstance(groups, dict): return False
+    row = groups.get(group)
+    if not isinstance(row, dict) or not isinstance(row.get('environment'), dict): return False
+    environment = row['environment']
+    if not isinstance(environment.get('host'), dict): return False
+    identity = cache_identity()
+    return row.get('passed') is True and environment.get('toolchain') == identity['toolchain'] \
+        and environment.get('host', {}).get('architecture') == identity['architecture']
 
 
 def prune_caches() -> None:
@@ -384,7 +407,7 @@ def cache_self_test() -> None:
             patch('fcntl.flock'), patch.object(module, 'restore_remote_cache') as restore, redirect_stdout(io.StringIO()):
         restore_cache('simulator-ui')
         restore.assert_not_called()
-    identity = {'toolchain': 'compiler'}
+    identity = {'toolchain': 'compiler', 'architecture': 'arm64'}
     def payload(name=CACHE_STORE + '/data', *, context=identity, link=False, tools=False):
         buffer = io.BytesIO()
         with zipfile.ZipFile(buffer, 'w', compression=zipfile.ZIP_STORED) as archive:
@@ -421,7 +444,7 @@ def cache_self_test() -> None:
             else: raise AssertionError(name)
         copied.assert_not_called()
     trusted = dict(event='push', head_branch='main', head_repository={'full_name': 'owner/repo'},
-        path='.github/workflows/ci.yml', head_sha='a' * 40)
+        path='.github/workflows/ci.yml', head_sha='a' * 40, id=1)
     artifact = dict(id=1, name='compilation-cache-simulator-ui', expired=False, workflow_run={'id': 1})
     for change, ancestor, accepted in [({}, 0, True), ({'event': 'workflow_dispatch'}, 0, True), ({'event': 'pull_request'}, 0, False),
             ({'head_branch': 'feature'}, 0, False), ({'head_repository': None}, 0, False), ({'head_repository': {'full_name': 'fork/repo'}}, 0, False),
@@ -433,6 +456,7 @@ def cache_self_test() -> None:
                 patch.object(Path, 'mkdir'), patch.object(Path, 'open'), patch.object(Path, 'exists', return_value=False), \
                 patch('fcntl.flock'), patch.object(subprocess, 'check_output', side_effect=response), \
                 patch.object(module, 'download_cache_payload', return_value=payload()) as downloaded, \
+                patch.object(module, 'cache_result_matches', return_value=True), \
                 patch.object(subprocess, 'run', return_value=SimpleNamespace(returncode=ancestor)), \
                 patch.object(module, 'restore_cache_payload', return_value=True) as restored, redirect_stdout(io.StringIO()):
             restore_cache('simulator-ui')
@@ -442,10 +466,26 @@ def cache_self_test() -> None:
             patch.object(subprocess, 'check_output', return_value=json.dumps(trusted)), \
             patch.object(subprocess, 'run', return_value=SimpleNamespace(returncode=0)), \
             patch.object(module, 'download_cache_payload') as downloaded, patch.object(Path, 'unlink') as cleanup, \
-            patch.object(module, 'restore_cache_payload', side_effect=[False, True]) as restored, redirect_stdout(io.StringIO()):
+            patch.object(module, 'cache_result_matches', side_effect=[False, True]), \
+            patch.object(module, 'restore_cache_payload', return_value=True) as restored, redirect_stdout(io.StringIO()):
         restore_remote_cache('simulator-ui')
-        assert [call.args[1] for call in downloaded.call_args_list] == [2, 1]
-        assert restored.call_count == cleanup.call_count == 2
+        assert [call.args[1] for call in downloaded.call_args_list] == [1]
+        assert restored.call_count == cleanup.call_count == 1
+    result = {'schemaVersion': 1, 'commit': trusted['head_sha'], 'run': '1',
+        'groups': {'ui': {'passed': True, 'environment': {'toolchain': identity['toolchain'], 'host': {'architecture': identity['architecture']}}}}}
+    for fault in ('none', 'toolchain', 'architecture', 'commit', 'run', 'failed', 'missing'):
+        import copy
+        changed = copy.deepcopy(result)
+        if fault in {'toolchain', 'architecture'}:
+            environment = changed['groups']['ui']['environment']
+            if fault == 'toolchain': environment['toolchain'] = {}
+            else: environment['host']['architecture'] = 'other'
+        elif fault in {'commit', 'run'}: changed[fault] = 'other'
+        elif fault == 'failed': changed['groups']['ui']['passed'] = False
+        with patch.object(module, 'api_pages', return_value=[{'artifacts': [{'id': 2, 'name': 'verified-result-ios', 'expired': False}]}]), \
+                patch.object(module, 'read_validation_result', return_value=None if fault == 'missing' else changed), \
+                patch.object(module, 'cache_identity', return_value=identity):
+            assert cache_result_matches('owner/repo', trusted, 'simulator-ui') == (fault == 'none'), fault
     artifacts = [dict(id=index, name=name, expired=False, workflow_run={'id': 1}) for index, name in [
         (1, 'compilation-cache-simulator-ui'), (2, 'validation-evidence'), (3, 'compilation-cache-simulator-ui'),
         (4, 'compilation-cache-simulator-app')]]

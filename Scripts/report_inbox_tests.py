@@ -5,21 +5,13 @@ from contextlib import redirect_stdout, redirect_stderr
 from unittest.mock import patch
 import json, os, re, subprocess, sys, shutil
 from code_quality_rules import ROOT, SCRIPT_ROOT
+from script_test_support import heredoc_body
 
 
 def report_inbox_boundary_findings() -> list[str]:
     "验证反馈正文、附件、旧键和重复拉取的保存合同。"
 
     source = (SCRIPT_ROOT / "fetch-issues-and-reports.sh").read_text()
-    namespace = source.split("<<'PYNAMESPACE'\n", 1)[1].split('\nPYNAMESPACE', 1)[0]
-    for identifier in ('initial-namespace', 'migrated-namespace'):
-        configuration = {'kv_namespaces': [{'binding': 'OTHER', 'id': 'other-namespace'},
-            {'binding': 'ERROR_REPORTS', 'id': identifier}]}
-        output = StringIO()
-        with patch.object(sys, 'argv', ['namespace', '/fixture/wrangler.jsonc']), \
-                patch.object(Path, 'read_text', return_value=json.dumps(configuration)), redirect_stdout(output):
-            exec(compile(namespace, '<report-namespace>', 'exec'), {})
-        assert output.getvalue().strip() == identifier
     block = next(match[1] for match in re.finditer(r"<<'PY'\n(.*?)^PY$", source, re.MULTILINE | re.DOTALL)
                  if "processed_path =" in match[1])
     fixture = ROOT / ".build/static-audit/report-inbox-self-test"
@@ -48,6 +40,7 @@ def report_inbox_boundary_findings() -> list[str]:
             exec(compile(block, "report-inbox-self-test", "exec"), {})
         return int(output.getvalue())
     try:
+        namespace_configuration_self_test(source, fixture)
         deletion_boundary_self_test(source, fixture)
         assert execute() == 2
         saved = {path.relative_to(fixture): path.read_bytes() for path in fixture.glob("*/*/*") if path.is_file()}
@@ -176,11 +169,35 @@ else exit 99; fi
         assert json.loads(ci_path.read_text())[0]["failedLog"] == complete
         assert run_fetch("success").returncode == 0
         assert json.loads(issue_path.read_text()) == json.loads(ci_path.read_text()) == []
+        orphan = fixture / '正式版/错误报告/report_orphan_附件'
+        orphan.mkdir(parents=True, exist_ok=True)
+        (orphan / 'image.png').write_bytes(b'image')
+        result = subprocess.run(['zsh', '-c', shell_source, str(SCRIPT_ROOT / 'fetch-issues-and-reports.sh'), 'clear-archive'],
+            capture_output=True, text=True)
+        assert result.returncode == 0 and '本地反馈归档已清理' in result.stdout, result.stderr
+        assert not list(fixture.glob('*/*/report_*.json')) and not orphan.exists()
+        assert not processed_path.exists() and not (fixture / 'summary.txt').exists()
+        assert issue_path.exists() and ci_path.exists()
     except (AssertionError, OSError) as error:
-        findings.append(f"反馈收件箱自测：{error}")
+        import traceback
+        location = traceback.extract_tb(error.__traceback__)[-1]
+        findings.append(f"反馈收件箱自测：{location.name}:{location.lineno} · {type(error).__name__} {error}")
     finally:
         shutil.rmtree(fixture, ignore_errors=True)
     return findings
+
+
+def namespace_configuration_self_test(source: str, fixture: Path) -> None:
+    path = fixture / 'wrangler.jsonc'
+    fixture.mkdir(parents=True, exist_ok=True)
+    for identifier in ('initial-namespace', 'migrated-namespace'):
+        path.write_text('// JSONC configuration\n{"kv_namespaces":[{"binding":"OTHER","id":"other"},'
+            '{"binding":"ERROR_REPORTS","id":' + json.dumps(identifier) + '},],'
+            '"routes":[{"pattern":"feedback.example","custom_domain":true},],}')
+        result = subprocess.run(['node', '-', str(path)], input=heredoc_body(source, 'NODECONFIG'),
+            cwd=ROOT / 'Cloudflare/EmergencyUpdateWorker', capture_output=True, text=True, check=True)
+        assert result.stdout.splitlines() == [identifier, 'feedback.example']
+    path.unlink()
 
 
 def deletion_boundary_self_test(source: str, fixture: Path) -> None:
@@ -212,7 +229,7 @@ def deletion_boundary_self_test(source: str, fixture: Path) -> None:
         def sleep(duration):
             assert 0 < duration <= 30
             clock[0] += duration
-        with patch.object(sys, 'argv', ['delete', key, '/wrangler', str(ROOT / 'Cloudflare/EmergencyUpdateWorker'), 'namespace', str(path)]), \
+        with patch.object(sys, 'argv', ['delete', key, '/wrangler', str(ROOT / 'Cloudflare/EmergencyUpdateWorker'), 'namespace', str(path), 'feedback.example']), \
                 patch.object(subprocess, 'run', run), patch('urllib.request.urlopen', open_request), \
                 patch('time.monotonic', lambda: clock[0]), patch('time.sleep', sleep), redirect_stdout(StringIO()):
             try: exec(compile(block, 'report-delete-self-test', 'exec'), {})

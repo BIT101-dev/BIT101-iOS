@@ -10,16 +10,16 @@ from contextlib import redirect_stdout
 from io import StringIO
 from types import SimpleNamespace
 from unittest.mock import patch
+from script_test_support import shell_function, heredoc_body, with_heredoc
 
 SCRIPT_ROOT = Path(__file__).resolve().parent
 
 
 def log_output_boundary_findings() -> list[str]:
     findings = []
-    support = (SCRIPT_ROOT / 'script-support.sh').read_text()
-    logger = support.split('\nbit101_set_workflow_budget() {', 1)[0] + '\nbit101_log_command() {' \
-        + support.split('bit101_log_command() {', 1)[1].split('\nbit101_build_cache() {', 1)[0]
-    log_program = logger.split("3<<'PY'\n", 1)[1].split('\nPY\n', 1)[0]
+    logger = 'ROOT_DIR=' + shlex.quote(str(SCRIPT_ROOT.parent)) + '\n' \
+        + shell_function(SCRIPT_ROOT / 'script-support.sh', 'bit101_log_command')
+    log_program = heredoc_body(logger, 'PY')
     temporary_bundle = Path('/fixture/cache/ResultBundle_failure.xcresult')
     diagnostic_bundle = Path('/fixture/diagnostics/test-results.xcresult')
     for status in (0, 7):
@@ -48,6 +48,7 @@ def log_output_boundary_findings() -> list[str]:
         assert arguments[arguments.index('--output-path') + 1] == str(diagnostic_bundle.parent)
         assert unlinked.call_count == 1 and not removed.called
     memory_report = '''from io import StringIO
+from pathlib import Path
 class RetainedLog(StringIO):
     def close(self): pass
 saved_log = RetainedLog()
@@ -56,7 +57,7 @@ def open_log(path, mode="r", **kwargs):
     return saved_log
 Path.open = open_log
 '''
-    ci_logger = logger.replace('report_path = Path(sys.argv[1])', memory_report + '\nreport_path = Path(sys.argv[1])')
+    ci_logger = with_heredoc(logger, 'PY', memory_report + '\n' + log_program)
     command = ci_logger + '\nbit101_log_command /dev/null stdin-contract ' + shlex.quote(sys.executable) + ' - delegated-argument\n'
     for status in (0, 7):
         payload = f'import sys\nassert sys.argv[1] == "delegated-argument"\nprint("warning: delegated-stdin-executed")\nraise SystemExit({status})\n'
@@ -64,8 +65,8 @@ Path.open = open_log
             env={**os.environ, 'GITHUB_ACTIONS': 'false'})
         if result.returncode != status or 'delegated-stdin-executed' not in result.stdout:
             findings.append(f'日志委托自测：子命令继承调用方输入、参数和退出状态；预期 {status}，实际 {result.returncode}；{(result.stdout + result.stderr)[-500:]!r}')
-    measured = logger.replace('raise SystemExit(exit_code if exit_code >= 0 else 128 - exit_code)',
-        'import resource\nprint("LOGGER_RSS", resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)\nraise SystemExit(exit_code if exit_code >= 0 else 128 - exit_code)')
+    measured = with_heredoc(logger, 'PY',
+        'import atexit, resource\natexit.register(lambda: print("LOGGER_RSS", resource.getrusage(resource.RUSAGE_SELF).ru_maxrss))\n' + log_program)
     peaks = []
     for lines in (1_000, 70_000):
         payload = f'for index in range({lines}): print("warning:", index, "x" * 256)\n'
@@ -78,13 +79,15 @@ Path.open = open_log
         peaks.append(int(peak[1]) * (1 if sys.platform == 'darwin' else 1024))
     if len(peaks) == 2 and peaks[1] - peaks[0] >= (70_000 - 1_000) * 256 // 2:
         findings.append('日志驻留内存自测：摘要占用需要随显示容量保持有限')
-    inventory_logger = ci_logger.replace('raise SystemExit(exit_code if exit_code >= 0 else 128 - exit_code)',
-        'assert "UI control inventory:" in saved_log.getvalue()\nraise SystemExit(exit_code if exit_code >= 0 else 128 - exit_code)')
+    inventory_logger = with_heredoc(ci_logger, 'PY',
+        'import atexit\natexit.register(lambda: print("INVENTORY_RETAINED", "UI control inventory:" in saved_log.getvalue()))\n'
+        + heredoc_body(ci_logger, 'PY'))
     command = inventory_logger + '\nbit101_log_command /dev/null ci-contract ' + shlex.quote(sys.executable) + ' -\n'
     payload = 'for index in range(100): print("error: retained", index)\nprint("UI control inventory: {}")\nraise SystemExit(7)\n'
     result = subprocess.run(['zsh', '-c', command], input=payload, capture_output=True, text=True,
         env={**os.environ, 'GITHUB_ACTIONS': 'true'})
-    if result.returncode != 7 or 'error: retained 0\n' not in result.stdout or 'error: retained 99\n' not in result.stdout or 'UI control inventory:' in result.stdout:
+    if result.returncode != 7 or 'error: retained 0\n' not in result.stdout or 'error: retained 99\n' not in result.stdout \
+            or 'UI control inventory:' in result.stdout or 'INVENTORY_RETAINED True' not in result.stdout:
         findings.append('日志磁盘重读自测：CI 失败完整呈现诊断，控件库存保留在原始日志')
     command = logger + '\nbit101_log_command /dev/null late-error ' + shlex.quote(sys.executable) + ' -\n'
     payload = 'print("error: image-retry-failed")\nfor index in range(100): print("    t = 1.0s Checking existence of retry button")\nraise SystemExit(7)\n'

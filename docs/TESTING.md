@@ -146,16 +146,9 @@ Scripts/release-network-smoke.sh all sms
 
 读取范围为 `all`、`bit101`、`school`、`transcript`、`schedule`、`ddl`。宿主使用授权账号的正式会话与业务服务，并按探针强制远端读取。学校范围执行对应认证；短信模式在设备面板完成服务端提出的 challenge，随后验证原业务继续。指定学期的 `BIT101_NETWORK_SMOKE_TERM` 形成定向结果。
 
-社区验收沿 `BIT101_COMMUNITY_SMOKE_ACCOUNT` 核对专用账号。`prepare` 从当前会话及列表采集维护对象，存入固定报告的 `communityConfiguration`。准备完成后，将配置载入当前终端，再执行验收：
+`prepare` 从当前会话及列表采集专用账号和维护对象，保存到 `.build/release-network-smoke/community-configuration.json`。后续 `all`、`bit101`、`community-writes` 自动读取这份配置，宿主在执行社区操作前核对当前账号。配置与采样报告分别维护，连续采样沿用已准备对象。
 
-```sh
-smoke_report=.build/release-network-smoke/report/release-network-smoke.json
-export BIT101_COMMUNITY_SMOKE_ACCOUNT="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["communityConfiguration"]["accountID"])' "$smoke_report")"
-export BIT101_NETWORK_SMOKE_FIXTURES="$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))["communityConfiguration"]["fixtures"]))' "$smoke_report")"
-Scripts/release-network-smoke.sh bit101
-```
-
-也可直接设置账号及包含 `posterID`、`courseID`、`courseNumber`、`paperID` 的 fixtures JSON。对象需提供对应文本、图片、评论、搜索与分页样本。消息读取会影响服务端未读数，使用具备历史分页样本的专用账号。后续运行覆盖同一份报告，终端中的环境变量承接已确认配置。
+也可通过 `BIT101_COMMUNITY_SMOKE_ACCOUNT` 和 `BIT101_NETWORK_SMOKE_FIXTURES` 显式指定账号及包含 `posterID`、`courseID`、`courseNumber`、`paperID` 的维护对象。对象需提供对应文本、图片、评论、搜索与分页样本。消息读取会影响服务端未读数，使用具备历史分页样本的专用账号。
 
 报告分别记录服务健康、必需探针、认证、请求合同和样本覆盖。空业务结果保持其真实语义；完整验收继续核对所属探针需要的样本，覆盖缺口以状态码 2 呈现。独立探针继续归集结果。端点、方法、参数、实体与分页合同沿 [网络请求合同](../Scripts/network_request_contracts.py)及实际响应验收。
 
@@ -196,6 +189,7 @@ iPhone 与 Catalyst 使用同一 Apple ID，并可访问 KVS、CloudKit Producti
 | 验证报告 | `.build/extended-automation/validation-evidence.json` |
 | 设备截图 | `.build/screenshot.png` |
 | 网络 Smoke | `.build/release-network-smoke/report/release-network-smoke.json` |
+| 社区验收配置 | `.build/release-network-smoke/community-configuration.json` |
 | iCloud Smoke | `.build/icloud-cross-device-smoke/report.json` |
 
 ```sh
@@ -240,7 +234,7 @@ gh run rerun 运行编号 --failed
 
 获得对应专项授权后，`Scripts/run-extended-tests.sh verify` 聚合自动组；可显式选择分组，例如 `verify all ui`。最终发布同时核对网络、学校短信、社区写入、iCloud、正式归档、设备恢复及人工专项。核心设备与外部采样采用 24 小时有效期。
 
-人工专项覆盖最低系统、分发签名、首次登录、安装路径、系统自动填充、照片、日历、定位、通知、外部交接、网页、Widget、Watch、消息、资料写入、举报、iPad 布局和反馈送达。每项保存实际操作、观察结果、通过或失败状态、观察时间和原始附件；完整场景与结构由 [人工证据合同](../Scripts/validation_manual.py)维护。
+人工专项覆盖最低系统、分发签名、首次登录、安装路径、系统自动填充、照片、日历、定位、通知、外部交接、网页、Widget、Watch、消息、资料写入、举报、iPad 布局和反馈送达。每项保存实际操作、观察结果、通过或失败状态、观察时间和原始附件；完整场景与结构由 [人工证据合同](../Scripts/validation_manual.py)维护。发布证据核对当前分发二进制、归档与可执行 UUID，整包输入共同约束实际安装产物的验收身份。
 
 ```sh
 python3 Scripts/validation_evidence.py manual 检查项 \

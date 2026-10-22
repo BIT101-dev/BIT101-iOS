@@ -49,17 +49,19 @@ if not available:
     data = inventory()
     available = runtimes(data)
 if not available: raise SystemExit('iOS 模拟器运行时安装完成后需要出现在系统库存。')
-if path.is_file():
-    owned = json.loads(path.read_text())
-    device = next((row for rows in data['devices'].values() for row in rows if row['udid'] == owned['identifier']), None)
-    if device is None or not device.get('isAvailable'): raise SystemExit('项目模拟器需要恢复可用状态。')
+owned = json.loads(path.read_text()) if path.is_file() else None
+device = next((row for rows in data['devices'].values() for row in rows
+    if owned and row['udid'] == owned['identifier']), None)
+if device and device.get('isAvailable'):
     identifier = owned['identifier']
 else:
+    if device and device.get('name') == 'BIT101':
+        subprocess.run(['xcrun', 'simctl', 'delete', device['udid']], check=True, stdout=sys.stderr, stderr=sys.stderr)
     runtime = max(available, key=lambda row: tuple(map(int, row['version'].split('.'))))
-    hosted_phones = [row for row in data['devices'].get(runtime['identifier'], [])
-        if os.getenv('GITHUB_ACTIONS') == 'true' and row.get('isAvailable') and row['name'].startswith('iPhone')]
-    if hosted_phones:
-        device = min(hosted_phones, key=lambda row: row['state'] != 'Booted')
+    reusable = [row for row in data['devices'].get(runtime['identifier'], []) if row.get('isAvailable')
+        and (row['name'].startswith('iPhone') if os.getenv('GITHUB_ACTIONS') == 'true' else row['name'] == 'BIT101')]
+    if reusable:
+        device = min(reusable, key=lambda row: (row['state'] != 'Booted', row['udid']))
         identifier = device['udid']
     else:
         phone = next(row for row in runtime['supportedDeviceTypes'] if row['name'].startswith('iPhone'))
@@ -149,7 +151,7 @@ installed = Path(subprocess.check_output(['xcrun', 'simctl', 'get_app_container'
 if (source / executable).read_bytes() != (installed / executable).read_bytes():
     raise SystemExit('安装后的可执行文件需要匹配常规 Release 产物。')
 sys.path.insert(0, sys.argv[3])
-from validation_restore import complete, matches_app
+from validation_restore import complete, matches_app, simulator_startup_diagnostics
 container = Path(subprocess.check_output(['xcrun', 'simctl', 'get_app_container', sys.argv[1], 'BIT101-dev.BIT101-iOS', 'data'], text=True).strip())
 readiness = container / 'Documents/restore-readiness.json'
 readiness.unlink(missing_ok=True)
@@ -160,6 +162,7 @@ process_id = int(launched.stdout.rsplit(':', 1)[1].strip())
 deadline = time.monotonic() + 60
 while time.monotonic() < deadline:
     if subprocess.run(['/bin/kill', '-0', str(process_id)], capture_output=True).returncode:
+        simulator_startup_diagnostics(sys.argv[1], process_id)
         raise SystemExit('常规模拟器 App 在就绪前退出，请检查启动崩溃。')
     if readiness.is_file():
         proof = json.loads(readiness.read_text())
@@ -175,9 +178,7 @@ else:
         'readiness': json.loads(readiness.read_text()) if readiness.is_file() else None}, ensure_ascii=False), file=sys.stderr)
     subprocess.run(['xcrun', 'simctl', 'io', sys.argv[1], 'screenshot', sys.argv[5]],
         check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    subprocess.run(['xcrun', 'simctl', 'spawn', sys.argv[1], 'log', 'show', '--style', 'compact', '--info', '--last', '2m',
-        '--predicate', 'subsystem == "BIT101" AND (category == "RestoreReadiness" OR category == "LoginKeychain" OR category == "PersistentBackup")'],
-        check=False, stdout=sys.stderr, stderr=sys.stderr)
+    simulator_startup_diagnostics(sys.argv[1], process_id)
     raise SystemExit('常规模拟器 App 就绪验收超时，请检查登录恢复与场景初始化。')
 PYRESTORE
 }

@@ -255,6 +255,14 @@ raise SystemExit(exit_code if exit_code >= 0 else 128 - exit_code)
 PY
 }
 
+bit101_catalyst_signing_arguments() {
+  if [[ "${GITHUB_ACTIONS:-false}" == true || "${BIT101_CATALYST_UNSIGNED_TESTS:-0}" == 1 ]]; then
+    print -r -- CODE_SIGNING_ALLOWED=NO
+  else
+    print -r -- -allowProvisioningUpdates
+  fi
+}
+
 bit101_build_cache() {
   python3 - "$ROOT_DIR" "$@" <<'PY' || return $?
 import fcntl

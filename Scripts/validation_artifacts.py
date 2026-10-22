@@ -31,12 +31,13 @@ fixed_children = {
     ".build/extended-automation/diagnostics": {"test-results.xcresult"},
     ".build/icloud-cross-device-smoke": {"Phone", "Mac", "test-results.xcresult", "report.json", "report.lock", "signing.entitlements",
         "build.log", "mac-build.log", "mac-receive.log", "mac-cleanup.log", "testPhoneRoundTrip.log", "testCleanup.log"},
-    ".build/release-network-smoke": derived_names | {"build.log", "console.log", "report"},
+    ".build/release-network-smoke": derived_names | {"build.log", "console.log", "report", "community-configuration.json"},
     ".build/release-network-smoke/report": {"network-smoke-summary.txt", "release-network-smoke.json",
         "raw-course-response.json", "network-smoke-request.json"},
     "build/DeviceInstall": derived_names | {"BIT101-iOS.xcarchive", "build.log", "distribution-signing.json", "restore-readiness.json", "restore-process.json"},
 }
 SELF_TEST_ARTIFACTS = frozenset({
+    "network-configuration-self-test",
     "campus-fixture-self-test", "report-inbox-self-test", "report-write-self-test", "explanatory-self-test",
     "cache-self-test", "cache-download-self-test", "performance-results-self-test", "workflow-lock-self-test",
     "row-color-self-test.swift", "source-digest-self-test.sh", "module-manifest-lock", "script-snapshot.sh",
@@ -95,6 +96,7 @@ def self_test() -> None:
     assert artifact_name_allowed(".build/extended-automation", "ci-validation-result.json")
     assert artifact_name_allowed(".build/compiler-cache", "Index.noindex")
     assert artifact_name_allowed(".build/release-network-smoke/report", "release-network-smoke.json")
+    assert artifact_name_allowed(".build/release-network-smoke", "community-configuration.json")
     assert artifact_name_allowed(".build/extended-automation/diagnostics", "test-results.xcresult")
     assert not artifact_name_allowed(".build/extended-automation/diagnostics", "exported.log")
     assert compressed_artifact("cache/diagnostics.ZIP")

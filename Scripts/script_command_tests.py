@@ -13,6 +13,7 @@ from io import StringIO
 from unittest.mock import Mock, patch
 from pathlib import Path
 from script_device_tests import device_discovery_boundary_findings
+from network_smoke_config_tests import network_configuration_boundary_findings
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_ROOT = ROOT / "Scripts"
@@ -498,6 +499,8 @@ xcrun() {
   else print -ru2 -- "TOOL $*"; fi
 }
 '''
+    from script_test_support import shell_function
+    frame += shell_function(SCRIPT_ROOT / 'script-support.sh', 'bit101_catalyst_signing_arguments')
     archive = (SCRIPT_ROOT / 'build-install-device.sh').read_text().split('if [[ "$ACTION" == install-archive ]]; then', 1)[1]
     archive = 'bit101_require_device || exit 1' + archive.split('bit101_require_device || exit 1', 1)[1].split('\nfi\n', 1)[0]
     for clean in (False, True):
@@ -509,21 +512,7 @@ xcrun() {
     valid_fixture = dict(posterID=1, courseID=2, courseNumber='COURSE', paperID=3)
     export_source = (SCRIPT_ROOT / "run-extended-tests.sh").read_text().replace('source "$ROOT_DIR/Scripts/script-support.sh"', frame)
     scope_source = (SCRIPT_ROOT / "release-network-smoke.sh").read_text().replace('source "$ROOT_DIR/Scripts/script-support.sh"', frame).split('RUN_ID="', 1)[0]
-    for scope in ('all', 'bit101', 'community-writes'):
-        result = subprocess.run(['zsh', '-c', scope_source, str(SCRIPT_ROOT / 'release-network-smoke.sh'), scope],
-            env=dict(os.environ, BIT101_NETWORK_SMOKE_FIXTURES=''), capture_output=True, text=True)
-        assert result.returncode == 64 and 'WORKFLOW_LOCK' not in result.stdout, '维护对象配置需要在构建与选机前验收'
-    for scope, configuration in (('all', {}), ('all', {'BIT101_NETWORK_SMOKE_FIXTURES': json.dumps(valid_fixture)}), ('all', {'BIT101_NETWORK_SMOKE_FIXTURES': json.dumps(valid_fixture), 'BIT101_COMMUNITY_SMOKE_ACCOUNT': ''}),
-            ('community-writes', {'BIT101_NETWORK_SMOKE_FIXTURES': json.dumps(valid_fixture)}),
-            ('community-writes', {'BIT101_NETWORK_SMOKE_FIXTURES': json.dumps(valid_fixture),
-                'BIT101_COMMUNITY_SMOKE_ACCOUNT': '1', 'BIT101_COMMUNITY_FOLLOW_TARGET': '2'})):
-        environment = dict(os.environ, BIT101_NETWORK_SMOKE_FIXTURES='', BIT101_NETWORK_SMOKE_CAPTURE='none',
-            BIT101_COMMUNITY_SMOKE_ACCOUNT='1', BIT101_COMMUNITY_FOLLOW_TARGET='', BIT101_COMMUNITY_RECOVERY_CONFIRMATION='')
-        environment.update(configuration)
-        result = subprocess.run(['zsh', '-c', scope_source, str(SCRIPT_ROOT / 'release-network-smoke.sh'), '--check-config', scope],
-            env=environment, capture_output=True, text=True)
-        expected = bool(configuration) and (scope == 'all' and bool(environment['BIT101_COMMUNITY_SMOKE_ACCOUNT']) or scope != 'all' and 'BIT101_COMMUNITY_SMOKE_ACCOUNT' in configuration)
-        assert (result.returncode == 0) == expected and not result.stdout, '配置预检沿叶子流程验收，设备与产物保持独立'
+    findings.extend(network_configuration_boundary_findings())
     preflight = re.search(r'(?ms)^  for group in .*?^  acquire_test_lock$', export_source)[0]
     assert '--check-config' in preflight and 'verify_step' not in preflight
     block = re.search(r'(?ms)^  verification_network_args=.*?(?=^  acquire_test_lock$)', export_source)[0]
@@ -636,6 +625,7 @@ xcrun() {
         failure = frame.replace('trap() { :; }', '') + r'''
 python3() {
   if [[ "$*" == *"validation_evidence.py digest"* ]]; then print self-test-inputs;
+  elif [[ "$1" == *"/network_smoke_config.py" ]]; then command python3 "$@";
   elif [[ "$*" == *"validation_provenance.py worker-snapshot"* ]]; then return 79;
   elif [[ "$*" == *"validation_evidence.py record"* ]]; then print -r -- "RECORD $3 $4 $5";
   else return 0; fi
@@ -648,7 +638,7 @@ bit101_run_logged() { print BUILD; return 79; }
         records = [line for line in result.stdout.splitlines() if line.startswith('RECORD ')]
         if result.returncode != 79 or records != [f'RECORD {group} 79 full' for group in groups] \
                 or 'BUILD\n' not in result.stdout or 'RESTORE\n' in result.stdout:
-            findings.append('网络部署身份缺口自测：构建失败保留设备现有 App 并登记采样结果')
+            findings.append(f'网络部署身份缺口自测：{arguments} 构建失败保留设备现有 App 并登记采样结果；退出 {result.returncode}；{result.stderr[-400:]}')
     for filename, arguments, expected, marker, device in cases:
         path = SCRIPT_ROOT / filename
         source = path.read_text().replace('source "$ROOT_DIR/Scripts/script-support.sh"',
