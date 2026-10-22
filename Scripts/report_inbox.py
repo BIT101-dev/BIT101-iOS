@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from command_output import show_report
 
 import time
 
@@ -281,10 +282,7 @@ def publish_summary(arguments):
 
     summary = "\n".join(lines) + "\n"
     summary_path.write_text(summary, encoding="utf-8")
-    if len(lines) <= 1000:
-        print(summary, end="")
-    else:
-        print(f"汇总共 {len(lines)} 行 · {summary_path}")
+    show_report(summary_path, '反馈汇总')
 
 
 if __name__ == '__main__':

@@ -127,11 +127,7 @@ emit_output() {
   local label="$2"
   local output="$3"
   printf '%s\n' "$output" > "$output_path"
-  if (( ${#${(f)output}} <= 1000 )); then
-    print -r -- "$output"
-  else
-    echo "[输出] $label 共 ${#${(f)output}} 行 · $output_path"
-  fi
+  python3 "$ROOT_DIR/Scripts/command_output.py" show-report "$output_path" "$label"
 }
 
 finish_smoke() {

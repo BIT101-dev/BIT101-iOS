@@ -94,18 +94,26 @@ for attachment in item.get("report", {}).get("attachments", []):
             attachment["bytes"] = len(data) * 3 // 4 - (len(data) - len(data.rstrip("=")))
 text = json.dumps(item, ensure_ascii=False, indent=2)
 report.write_text(text + "\n", encoding="utf-8")
-if len(text.splitlines()) <= 1000:
-    print(text)
-else:
-    print(f"报告共 {len(text.splitlines())} 行 · {report}")
 ' "$report_path"
+  python3 "$ROOT_DIR/Scripts/command_output.py" show-report "$report_path" 报告
 }
 
 if [[ "$ACTION" != fetch ]]; then load_worker_config; fi
 case "$ACTION" in
   list)
     keys >/dev/null
-    python3 -c 'import json,sys; rows=[x for x in json.load(open(sys.argv[1])) if x["name"].startswith("report:")]; rows.sort(key=lambda x:x["name"], reverse=True); print("\n".join(x["name"] + " " + json.dumps(x.get("metadata",{}), ensure_ascii=False) for x in rows) if len(rows) <= 1000 else f"报告键共 {len(rows)} 条 · {sys.argv[1]}")' "$OUTPUT_DIR/error-report-keys.json"
+    python3 - "$OUTPUT_DIR/error-report-keys.json" "$ROOT_DIR/Scripts" <<'PYKEYS'
+import json
+from pathlib import Path
+import sys
+sys.path.insert(0, sys.argv[2])
+from command_output import show_report_lines
+path = Path(sys.argv[1])
+rows = [item for item in json.loads(path.read_text()) if item['name'].startswith('report:')]
+rows.sort(key=lambda item: item['name'], reverse=True)
+show_report_lines((item['name'] + ' ' + json.dumps(item.get('metadata', {}), ensure_ascii=False) + '\n'
+    for item in rows), path, '报告键')
+PYKEYS
     ;;
   latest)
     key="$(latest_key)" || exit $?

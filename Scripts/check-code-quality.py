@@ -7,6 +7,7 @@ import json
 import subprocess
 import traceback
 import time
+from command_output import OUTPUT_LINE_LIMIT
 from code_quality_rules import (
     REPORT_PATH, ROOT, SCRIPT_ROOT, audit_wiring_findings, automatic_school_fetch_findings,
     explanatory_text_report, relative, repository_script_paths, script_findings, source_findings,
@@ -68,7 +69,7 @@ def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[s
     REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
     REPORT_PATH.write_text(report, encoding="utf-8")
     findings = errors
-    if len(findings) <= 1000:
+    if len(findings) <= OUTPUT_LINE_LIMIT:
         if findings:
             print("\n".join(findings))
     else:

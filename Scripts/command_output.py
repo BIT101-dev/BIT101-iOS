@@ -11,6 +11,8 @@ import time
 import signal
 from collections import deque
 
+OUTPUT_LINE_LIMIT = 40
+
 
 class BoundedLines:
     """Keep the initial diagnostics and the latest causes within one display budget."""
@@ -45,7 +47,7 @@ def useful_line(line):
     return "swift-frontend -frontend" not in line and not line.lstrip().startswith("builtin-SwiftDriver -- ")
 
 class FailureSummary:
-    def __init__(self, limit=40):
+    def __init__(self, limit=OUTPUT_LINE_LIMIT):
         self.errors, self.details = BoundedLines(limit), BoundedLines(limit)
         self.limit, self.count = limit, 0
 
@@ -60,9 +62,28 @@ class FailureSummary:
         return list(dict.fromkeys([*self.errors.lines(), *self.details.lines()]))[:self.limit]
 
 
+def show_report_lines(lines, path: Path, label: str) -> None:
+    """Show report excerpts within the shared terminal budget and retain its path."""
+    first, last = [], deque(maxlen=OUTPUT_LINE_LIMIT - OUTPUT_LINE_LIMIT // 2)
+    count = 0
+    for line in lines:
+        count += 1
+        if len(first) < OUTPUT_LINE_LIMIT // 2: first.append(line)
+        else: last.append(line)
+    shown = [*first, *last]
+    sys.stdout.writelines(shown)
+    if shown and not shown[-1].endswith('\n'): print()
+    if count > OUTPUT_LINE_LIMIT: print(f'[输出] {label} 共 {count} 行 · {path}')
+
+
+def show_report(path: Path, label: str) -> None:
+    with path.open() as report:
+        show_report_lines(report, path, label)
+
+
 def show_log(path: Path, failed: bool) -> None:
     summary = FailureSummary()
-    ordinary, count = BoundedLines(40), 0
+    ordinary, count = BoundedLines(OUTPUT_LINE_LIMIT), 0
     complete = failed and os.environ.get('GITHUB_ACTIONS') == 'true'
     with path.open() as log:
         for line in log:
@@ -73,7 +94,7 @@ def show_log(path: Path, failed: bool) -> None:
             else: ordinary.add(line)
     if complete: return
     sys.stdout.writelines(summary.lines() if failed else ordinary.lines())
-    if count > 40: print(f'[输出] {path.stem} 共 {count} 行 · {path}')
+    if count > OUTPUT_LINE_LIMIT: print(f'[输出] {path.stem} 共 {count} 行 · {path}')
 
 
 def run_command(arguments: list[str]) -> int:
@@ -83,7 +104,7 @@ def run_command(arguments: list[str]) -> int:
     started = time.monotonic()
     report_path.parent.mkdir(parents=True, exist_ok=True)
     process = subprocess.Popen(arguments[2:], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    display_limit = 40
+    display_limit = OUTPUT_LINE_LIMIT
     diagnostics = BoundedLines(display_limit)
     failures = FailureSummary(display_limit)
     diagnostic_count = 0
@@ -148,7 +169,9 @@ def run_command(arguments: list[str]) -> int:
 
 
 if __name__ == '__main__':
-    if sys.argv[1:2] == ['show-log']:
+    if sys.argv[1:2] == ['show-report']:
+        show_report(Path(sys.argv[2]), sys.argv[3])
+    elif sys.argv[1:2] == ['show-log']:
         show_log(Path(sys.argv[2]), sys.argv[3] == 'true')
     else:
         raise SystemExit(run_command(sys.argv[1:]))

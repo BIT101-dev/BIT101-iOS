@@ -177,6 +177,26 @@ node() { [[ "$INBOX_SELF_TEST_MODE" != cloudflare-config-failure ]] || return 22
         assert json.loads(ci_path.read_text())[0]["failedLog"] == complete
         assert run_fetch("success").returncode == 0
         assert json.loads(issue_path.read_text()) == json.loads(ci_path.read_text()) == []
+        rows = [{'name': f'report:{index:04}', 'metadata': {'value': index}} for index in range(1000)]
+        rows.append({'name': 'other:entry'})
+        keys_listing = fixture / 'error-report-keys.json'
+        listing = json.dumps(rows)
+        keys_listing.write_text(listing)
+        result = subprocess.run([sys.executable, '-c', heredoc_body(source, 'PYKEYS'), str(keys_listing), str(SCRIPT_ROOT)],
+            capture_output=True, text=True)
+        assert result.returncode == 0 and len(result.stdout.splitlines()) == 41, result.stderr
+        assert result.stdout.startswith('report:0999 ') and 'report:0000 ' in result.stdout
+        assert 'other:entry' not in result.stdout and keys_listing.read_text() == listing
+        network = (SCRIPT_ROOT / 'release-network-smoke.sh').read_text()
+        emit = re.search(r'(?ms)^emit_output\(\) \{.*?^\}', network)[0]
+        payload = ''.join(f'probe {index}\n' for index in range(1000)).rstrip('\n')
+        network_report = fixture / 'network-smoke-summary.txt'
+        result = subprocess.run(['zsh', '-c', 'ROOT_DIR=' + shlex.quote(str(ROOT)) + '\n' + emit
+            + '\nemit_output "$1" result "$2"', 'output-contract', str(network_report), payload],
+            capture_output=True, text=True)
+        assert result.returncode == 0 and len(result.stdout.splitlines()) == 41, result.stderr
+        assert 'probe 0\n' in result.stdout and 'probe 999\n' in result.stdout
+        assert network_report.read_text() == payload + '\n'
         orphan = fixture / '正式版/错误报告/report_orphan_附件'
         orphan.mkdir(parents=True, exist_ok=True)
         (orphan / 'image.png').write_bytes(b'image')

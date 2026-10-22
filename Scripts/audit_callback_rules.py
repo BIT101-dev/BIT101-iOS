@@ -57,7 +57,7 @@ def audit_callback_findings(source: str, *, support_source: str | None = None) -
         "worker_parse": ["find|/audit/Cloudflare|(|-name|node_modules|-o|-name|.wrangler|-o|-name|.git|)|-prune|-o|-type|f|-name|*.js|-print0", "node|--check|fixture.swift"],
         "dependency_audit": ["cd|/audit/Cloudflare/EmergencyUpdateWorker", "npm|audit|--audit-level=high"],
         "git_check": ["git|-C|/audit|diff|--check", "git|-C|/audit|diff|--cached|--check"],
-        "docs_check": ["cd|/audit", "python3|Scripts/check-docs.py|--self-test", "cd|/audit", "python3|Scripts/check-docs.py|--staged", "cd|/audit", "python3|Scripts/validate_versions.py|--compare-git-ref|base|--check-app-store"],
+        "docs_check": ["cd|/audit", "python3|Scripts/check-docs.py|--self-test", "cd|/audit", "python3|Scripts/validate_versions.py|--compare-git-ref|base|--check-app-store"],
         "bit101_checker_audit": ["python3|/audit/Scripts/check-file-lengths.py", "python3|/audit/Scripts/check-file-lengths.py|--staged", "python3|/audit/Scripts/validation_evidence.py|self-test", "python3|/audit/Scripts/check-code-quality.py|--combined|--self-test"],
         "module_boundary_audit": ["python3|/audit/Scripts/check-module-boundaries.py|--self-test"],
         "artifact_hygiene": ["python3|/audit/Scripts/validation_artifacts.py|/audit"],
@@ -96,8 +96,7 @@ xargs() {
         modes = ('0', '1') if callback in {'python_parse', 'docs_check', 'bit101_checker_audit', 'module_boundary_audit'} else ('1',)
         for enabled in modes:
             expected = complete if enabled == '1' else [call.removesuffix('|--self-test') for call in complete
-                if call not in {'python3|Scripts/check-docs.py|--self-test', 'python3|/audit/Scripts/validation_evidence.py|self-test'}]
-            if enabled == '0' and callback == 'docs_check': expected = expected[1:]
+                if call != 'python3|/audit/Scripts/validation_evidence.py|self-test']
             identities = tuple(sorted(audit_call_identity(call) for call in expected))
             if not valid_callback(definition[0], callback, identities, harness, enabled):
                 errors.append(f"Scripts/run-static-audit.sh: {callback} 需要执行所属命令并传播结果")
@@ -136,6 +135,8 @@ def self_test() -> None:
         if failed and ci: assert result.stdout == payload
         else: assert '[输出]' in result.stdout and len(result.stdout.splitlines()) <= 41
     assert not audit_callback_findings(source)
+    assert audit_callback_findings(source.replace('Scripts/check-docs.py "${docs_args[@]}"',
+        'Scripts/check-docs.py --staged "${docs_args[@]}"'))
     support = Path(__file__).with_name("script-support.sh").read_text()
     assert audit_callback_findings(source, support_source=support.replace("|| checker_status=1", "|| return 1"))
     reordered = source.replace('-frontend -parse -D DEBUG -D EXTENDED_AUTOMATION',

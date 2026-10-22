@@ -101,14 +101,15 @@ git_check() {
 }
 docs_check() {
   local version_args=()
+  local docs_args=()
   if [[ -n "${BIT101_VERSION_BASE_REF:-}" ]]; then
     version_args+=(--compare-git-ref "$BIT101_VERSION_BASE_REF")
   fi
   if [[ "${BIT101_RELEASE_CHECK:-false}" == "true" ]]; then
     version_args+=(--check-app-store)
   fi
-  if [[ "$BIT101_AUDIT_SELF_TESTS" == 1 ]]; then (cd "$ROOT_DIR" && python3 Scripts/check-docs.py --self-test) || return 1; fi
-  (cd "$ROOT_DIR" && python3 Scripts/check-docs.py --staged) || return 1
+  if [[ "$BIT101_AUDIT_SELF_TESTS" == 1 ]]; then docs_args+=(--self-test); fi
+  (cd "$ROOT_DIR" && python3 Scripts/check-docs.py "${docs_args[@]}") || return 1
   (cd "$ROOT_DIR" && python3 Scripts/validate_versions.py "${version_args[@]}")
 }
 

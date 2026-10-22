@@ -10,7 +10,7 @@ from contextlib import redirect_stdout
 from io import StringIO
 from types import SimpleNamespace
 from unittest.mock import patch
-from command_output import run_command
+from command_output import OUTPUT_LINE_LIMIT, run_command, show_report_lines
 
 SCRIPT_ROOT = Path(__file__).resolve().parent
 
@@ -35,6 +35,18 @@ def captured_command(lines, status=7, *, ci=False, executable='fixture'):
 
 def log_output_boundary_findings() -> list[str]:
     findings = []
+    for count in (0, 1, OUTPUT_LINE_LIMIT, OUTPUT_LINE_LIMIT + 1, 1000):
+        rows = [f'row {index}\n' for index in range(count)]
+        output = StringIO()
+        with redirect_stdout(output):
+            show_report_lines(iter(rows), Path('/report.json'), '报告')
+        shown = output.getvalue()
+        assert len(shown.splitlines()) <= OUTPUT_LINE_LIMIT + 1
+        if count <= OUTPUT_LINE_LIMIT: assert shown == ''.join(rows)
+        else: assert rows[0] in shown and rows[-1] in shown and '/report.json' in shown
+    output = StringIO()
+    with redirect_stdout(output): show_report_lines(iter(['final']), Path('/report.json'), '报告')
+    assert output.getvalue() == 'final\n'
     warning = "warning: 'CourseFeature' is missing a dependency on 'CommunityCore' because dependency scan of Swift module\n"
     output, raw = captured_command([warning], status=0, executable='xcodebuild')
     assert warning in raw and output.count('\n') == 1 and '[完成]' in output

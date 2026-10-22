@@ -867,8 +867,6 @@ def audit_wiring_findings(ROOT, scheme_inventory_findings, extension_dependency_
         "git-diff": "git_check", "docs": "docs_check", "checkers": "bit101_checker_audit"}
     if wiring != expected or len(group_names) != len(expected):
         errors.append("Scripts/run-static-audit.sh: 静态审计回调需要逐组接入完整契约")
-    if "check-docs.py" not in audit_source:
-        errors.append("Scripts/run-static-audit.sh: 未接入文档引用检查")
     if not re.search(r"(?m)^\s*bit101_run_audit_group\s+artifact-hygiene\s+artifact_hygiene(?:\s|$)", audit_source):
         errors.append("Scripts/run-static-audit.sh: 静态审计回调需要接入产物清理检查")
     if "npm audit --audit-level=high" not in audit_source:
