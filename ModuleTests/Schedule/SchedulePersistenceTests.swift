@@ -83,7 +83,10 @@ struct SchedulePersistenceTests {
         #expect(await store.readFailure(for: AppStorageSession(accountIdentifier: "other-account")) == nil)
         #expect(try files.readData(at: url) == bytes)
         #expect(await store.write(reset, accountIdentifier: account.accountStorageIdentifier,
-            legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) != nil)
+            legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) == nil)
+        #expect(try files.readData(at: url) == bytes)
+        #expect(await store.write(reset, accountIdentifier: account.accountStorageIdentifier,
+            legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .recovery, expectedUpdatedAt: nil) != nil)
         #expect(try files.readData(at: url) != bytes)
     }
 
@@ -306,7 +309,7 @@ struct SchedulePersistenceTests {
         #expect(SchedulePersistenceStore.decodeCache(try legacyEncoder.encode(initial)).cacheIfReadable?.updatedAt == Date(timeIntervalSince1970: 1_700_000_000))
     }
 
-    @Test(.timeLimit(.minutes(1))) func malformedAggregateSectionsResetAndKeepStorageAvailable() async throws {
+    @Test(.timeLimit(.minutes(1))) func malformedAggregateSectionsPreserveValidFieldsUntilRecoveryConfirmation() async throws {
         let files = ModuleScoreFiles()
         let persistence = store(files: files)
         let account = AppStorageSession(accountIdentifier: "malformed-sections")
@@ -314,9 +317,13 @@ struct SchedulePersistenceTests {
         for key in ["courses", "cachedCoursesByTerm", "ddlEvents", "customSchedules", "selectedClassroomSectionIDs", "timeTable"] {
             let bytes = try JSONSerialization.data(withJSONObject: ["primaryScheduleTitle": "retained", key: "malformed"])
             try files.writeData(bytes, to: url, options: [])
-            #expect(await persistence.load(for: account).cacheIfReadable?.isValidForPersistence == true)
-            #expect(await persistence.write(ScheduleCache(), accountIdentifier: account.accountStorageIdentifier,
-                legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) != nil)
+            let recovered = try #require(await persistence.load(for: account).cacheIfReadable)
+            #expect(recovered.isValidForPersistence && recovered.primaryScheduleTitle == "retained")
+            #expect(await persistence.write(recovered, accountIdentifier: account.accountStorageIdentifier,
+                legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) == nil)
+            #expect(try files.readData(at: url) == bytes)
+            #expect(await persistence.write(recovered, accountIdentifier: account.accountStorageIdentifier,
+                legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .recovery, expectedUpdatedAt: nil) != nil)
             #expect(try files.readData(at: url) != bytes)
         }
     }
@@ -333,9 +340,13 @@ struct SchedulePersistenceTests {
         for bytes in [try JSONEncoder().encode(cache), legacy] {
             #expect(SchedulePersistenceStore.decodeCache(bytes).isUnreadable)
             try files.writeData(bytes, to: url, options: [])
-            #expect(await repository.load(for: account).cacheIfReadable?.timeTable == TimeSlot.default)
-            #expect(await repository.write(ScheduleCache(), accountIdentifier: account.accountStorageIdentifier,
-                legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) != nil)
+            let recovered = try #require(await repository.load(for: account).cacheIfReadable)
+            #expect(recovered.timeTable == TimeSlot.default)
+            #expect(await repository.write(recovered, accountIdentifier: account.accountStorageIdentifier,
+                legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) == nil)
+            #expect(try files.readData(at: url) == bytes)
+            #expect(await repository.write(recovered, accountIdentifier: account.accountStorageIdentifier,
+                legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .recovery, expectedUpdatedAt: nil) != nil)
             #expect(try files.readData(at: url) != bytes)
         }
     }
@@ -422,11 +433,12 @@ struct SchedulePersistenceTests {
         #expect(repository.notice?.title == "日程保存失败")
     }
 
-    @Test(.timeLimit(.minutes(1))) func ddlSuccessWaitsForPersistence() async {
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func ddlSuccessWaitsForPersistence(deliversSources: Bool) async {
         let account = AppStorageSession(accountIdentifier: "ddl")
         let repository = ScheduleRepository(session: { account }, load: { _ in .missing }, save: { _, _, _ in throw CocoaError(.fileWriteNoPermission) })
         await repository.loadIfNeeded()
-        let viewModel = ScheduleDDLViewModel(service: DDLService(), repository: repository)
+        let viewModel = ScheduleDDLViewModel(service: DDLService(deliversSources: deliversSources), repository: repository)
         #expect(await viewModel.syncDDL() == false)
         #expect(viewModel.notice == nil)
         #expect(repository.notice?.title == "日程保存失败")
@@ -532,8 +544,11 @@ struct SchedulePersistenceTests {
     }
 
     private struct DDLService: ScheduleDDLServicing {
+        let deliversSources: Bool
         func syncDDLEvents(existingEvents: [DDLEventRecord], storedURL: String, schoolSMSCodeHandler: SchoolSMSCodeHandler?, onSource: DDLSyncSourceDelivery?) async throws -> DDLSyncPayload {
-            DDLSyncPayload(url: "https://example.invalid/calendar", events: [])
+            let payload = DDLSyncPayload(url: "https://example.invalid/calendar", events: [])
+            if deliversSources { try await onSource?(payload) }
+            return payload
         }
         func refreshLexueCalendarURL(schoolSMSCodeHandler: SchoolSMSCodeHandler?) async throws -> String { "https://example.invalid/calendar" }
     }

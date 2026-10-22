@@ -216,7 +216,7 @@ public actor SchedulePersistenceStore {
             for key in first + fields.keys.sorted().filter({ !first.contains($0) }) {
                 guard let value = fields[key] else { continue }
                 func accepts(_ value: Any) -> Bool {
-                    var candidate = base
+                    var candidate = accepted
                     candidate[key] = value
                     return decoded(candidate) != nil
                 }

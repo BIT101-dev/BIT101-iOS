@@ -205,12 +205,7 @@ public struct CampusMapScreen: View {
 
     /// 交给系统地图提供步行导航；App 内地图聚焦校园定位，转向播报由系统处理。
     private func openDirections(to place: CampusMapPlace) {
-        let placemark = MKPlacemark(coordinate: place.coordinate)
-        let destination = MKMapItem(placemark: placemark)
-        destination.name = place.name
-        destination.openInMaps(launchOptions: [
-            MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeWalking
-        ])
+        locationController.openDirections(to: place)
     }
 
     /// 聚焦到当前位置，必要时先触发授权流程。

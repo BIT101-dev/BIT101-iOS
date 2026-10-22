@@ -9,6 +9,39 @@ import Testing
 @MainActor
 struct ScheduleRecoveryTests {
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func damagedNeighborKeepsCustomSectionsThroughRecoveryConfirmation(structured: Bool) async throws {
+        let files = ModuleScoreFiles(), account = AppStorageSession(accountIdentifier: "custom-section-recovery")
+        let store = SchedulePersistenceStore(files: files, storageRoot: URL(fileURLWithPath: "/custom-section-recovery"),
+            userStateMatches: ScheduleCloudSyncState.matches)
+        var cache = ScheduleCache()
+        cache.currentTerm = "term"
+        cache.timeTable.append(TimeSlot(id: 14, start: "21:00", end: "21:45"))
+        let courses = try ScheduleCourseEditor.adding(.init(title: "课程", weekday: 1,
+            startSection: 14, endSection: 14, weeksText: "1"), to: [], term: cache.currentTerm, id: "late-course")
+        cache.courseData.store(.init(term: cache.currentTerm, firstDayString: "2026-09-07", courses: courses,
+            exams: [], updatedAt: .distantPast))
+        var root = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(cache)) as? [String: Any])
+        var course = try #require(root["courseData"] as? [String: Any])
+        course["primaryScheduleTitle"] = 7
+        if structured { root["courseData"] = course }
+        else {
+            course["termSchedulesByTerm"] = course.removeValue(forKey: "schedulesByTerm")
+            course["storedCourseScheduleParserVersion"] = 2
+            root = course
+        }
+        let bytes = try JSONSerialization.data(withJSONObject: root)
+        let url = store.cacheFileURL(for: account.accountStorageIdentifier)
+        try files.writeData(bytes, to: url, options: [])
+        let recovered = try #require(await store.load(for: account).cacheIfReadable)
+        #expect(recovered.timeTable == cache.timeTable && recovered.courses == courses)
+        #expect(files.storedData[url] == bytes)
+        #expect(await store.write(recovered, accountIdentifier: account.accountStorageIdentifier,
+            legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .recovery, expectedUpdatedAt: nil) != nil)
+        let restored = try #require(await store.load(for: account).cacheIfReadable)
+        #expect(restored.timeTable == cache.timeTable && restored.courses == courses)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func damagedFieldsKeepSchoolSchedulesAndCloudConsentUntilRecoveryConfirmation(wholeSyncBlock: Bool) async throws {
         let files = ModuleScoreFiles(), account = AppStorageSession(accountIdentifier: "schedule-field-recovery")
         let store = SchedulePersistenceStore(files: files, storageRoot: URL(fileURLWithPath: "/schedule-field-recovery"),

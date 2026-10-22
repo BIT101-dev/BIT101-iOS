@@ -5,7 +5,7 @@ from pathlib import Path
 import plistlib
 import shutil
 import subprocess
-from contextlib import nullcontext, redirect_stdout, redirect_stderr
+from contextlib import closing, nullcontext, redirect_stdout, redirect_stderr
 from io import StringIO
 from unittest.mock import Mock, patch
 
@@ -35,11 +35,10 @@ def development_workflow_self_test() -> None:
 
 def shared_source_facts(fixture: Path) -> None:
     import fcntl
+    import sqlite3
     from copy import deepcopy
     import swift_source_index as subject
-    cache = fixture / 'source-facts.json'
-    cache.write_text('{}')
-    subject._shared_facts.cache_clear()
+    cache = fixture / 'source-facts.sqlite'
     path = ROOT / 'Modules/CommunityCore/Sources/CommunityTextLimits.swift'
     source = path.read_text()
     with patch.dict(os.environ, BIT101_SOURCE_FACTS_CACHE=str(cache)), \
@@ -49,7 +48,8 @@ def shared_source_facts(fixture: Path) -> None:
         first['declarations'].append(first['declarations'][0])
         assert subject.swift_syntax_index_sources({str(path): source})[str(path)] == expected
         first = expected
-        subject._shared_facts.cache_clear()
+        with closing(sqlite3.connect(cache)) as database, database:
+            database.execute('INSERT INTO facts VALUES (?, ?)', ('unrequested.swift', 'invalid JSON'))
         relative = str(path.relative_to(ROOT))
         assert subject.swift_syntax_index_sources({relative: source})[relative] == first and parse.call_count == 1
         assert subject.swift_syntax_index_sources({relative: source + '\n'})[relative]['source'] == source + '\n'
@@ -70,11 +70,13 @@ print('done', flush=True)
 '''
         with cache.with_suffix('.lock').open('a') as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
-            cache.write_text('{')
+            with closing(sqlite3.connect(cache)) as database, database:
+                database.execute('UPDATE facts SET content = ? WHERE path = ?', ('{', str(path)))
             reader = subprocess.Popen([os.sys.executable, '-B', '-c', program], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             try:
                 assert reader.stdout.readline().strip() == 'locking'
-                cache.write_text(json.dumps({str(path): first}))
+                with closing(sqlite3.connect(cache)) as database, database:
+                    database.execute('UPDATE facts SET content = ? WHERE path = ?', (json.dumps(first), str(path)))
                 fcntl.flock(lock, fcntl.LOCK_UN)
                 output, error = reader.communicate(timeout=5)
                 assert reader.returncode == 0 and output.strip() == 'done', error
@@ -85,12 +87,9 @@ print('done', flush=True)
         base = ROOT / 'BIT101-iOSUITests/UIAutomationTestCase.swift'
         derived = ROOT / 'BIT101-iOSUITests/CommunityPublishingUITests.swift'
         derived_source = {str(derived): derived.read_text()}
-        subject._shared_facts.cache_clear()
         assert not subject.swift_syntax_index_sources(derived_source)[str(derived)]['tests']
-        subject._shared_facts.cache_clear()
         joined = subject.swift_syntax_index_sources(derived_source | {str(base): base.read_text()})
         assert joined[str(derived)]['tests']
-        subject._shared_facts.cache_clear()
         assert not subject.swift_syntax_index_sources(derived_source)[str(derived)]['tests']
 
 

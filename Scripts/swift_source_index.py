@@ -5,9 +5,10 @@ import fcntl
 import json
 import os
 import re
+import sqlite3
 import subprocess
 from functools import cache
-from copy import deepcopy
+from contextlib import closing
 from pathlib import Path
 from swift_type_index import canonical_type_scope, visible_variables, argument_parameter_bindings
 from validation_policy import SWIFT_SYNTAX_SOURCE_NAMES
@@ -142,18 +143,9 @@ def swift_syntax_index_sources(sources: dict[str, str]) -> dict[str, dict]:
                 and path.is_file() and path.read_bytes().decode('utf-8') == source:
             eligible[name] = str(path)
     if not eligible: return _index_sources(sources)
-    cache_path = Path(cache_name)
-    shared = _shared_facts(cache_name)
     requested = {path: sources[name] for name, path in eligible.items()}
-    if any(shared.get(path, {}).get('source') != source for path, source in requested.items()):
-        with cache_path.with_suffix('.lock').open('a') as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
-            shared.update(json.loads(cache_path.read_text()))
-            missing = {path: source for path, source in requested.items() if shared.get(path, {}).get('source') != source}
-            if missing:
-                shared.update(_index_sources(missing, resolve_tests=False))
-                cache_path.write_text(json.dumps(shared))
-    index = deepcopy({name: shared[path] for name, path in eligible.items()})
+    shared = _cached_facts(Path(cache_name), requested)
+    index = {name: shared[path] for name, path in eligible.items()}
     missing = {name: source for name, source in sources.items() if name not in eligible}
     if missing: index.update(_index_sources(missing, resolve_tests=False))
     _resolve_tests(index)
@@ -162,12 +154,25 @@ def swift_syntax_index_sources(sources: dict[str, str]) -> dict[str, dict]:
     return index
 
 
-@cache
-def _shared_facts(path: str) -> dict:
-    cache_path = Path(path)
+def _cached_facts(cache_path: Path, requested: dict[str, str]) -> dict:
+    """Decode private facts for the requested files from the shared audit database."""
     with cache_path.with_suffix('.lock').open('a') as lock:
-        fcntl.flock(lock, fcntl.LOCK_SH)
-        return json.loads(cache_path.read_text())
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        with closing(sqlite3.connect(cache_path)) as database, database:
+            database.execute('CREATE TABLE IF NOT EXISTS facts (path TEXT PRIMARY KEY, content TEXT)')
+            shared = {}
+            for path, source in requested.items():
+                row = database.execute('SELECT content FROM facts WHERE path = ?', (path,)).fetchone()
+                if row:
+                    facts = json.loads(row[0])
+                    if facts.get('source') == source: shared[path] = facts
+            missing = {path: source for path, source in requested.items() if path not in shared}
+            if missing:
+                parsed = _index_sources(missing, resolve_tests=False)
+                database.executemany('INSERT OR REPLACE INTO facts VALUES (?, ?)',
+                    ((path, json.dumps(facts)) for path, facts in parsed.items()))
+                shared.update(parsed)
+            return shared
 
 
 def _index_sources(sources: dict[str, str], *, resolve_tests: bool = True) -> dict[str, dict]:

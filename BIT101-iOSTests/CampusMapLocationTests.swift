@@ -47,6 +47,27 @@ private struct CampusMapLocationFixture: Decodable {
 
 @Suite("Campus map location matching")
 struct CampusMapLocationTests {
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    @MainActor func directionsHandoffRetainsDestinationAndOffersRetry(opened: Bool) throws {
+        let controller = CampusLocationController(manager: MapLocationManagerFixture())
+        let place = try #require(CampusMapPlaceCatalog.place(campusName: "良乡校区", classroom: "良乡体育馆篮球场"))
+        controller.openDirections(to: place) { destination, options in
+            #expect(destination.name == place.name)
+            #expect(destination.placemark.coordinate.latitude == place.coordinate.latitude)
+            #expect(destination.placemark.coordinate.longitude == place.coordinate.longitude)
+            #expect(options[MKLaunchOptionsDirectionsModeKey] as? String == MKLaunchOptionsDirectionsModeWalking)
+            return opened
+        }
+        if opened { #expect(controller.notice == nil) }
+        else {
+            let notice = try #require(controller.notice)
+            #expect(notice.message.contains("再次点按步行导航"))
+            #expect(!notice.allowsDiagnostics && !notice.showsRecoveryLinks)
+        }
+        controller.openDirections(to: place) { _, _ in true }
+        #expect(controller.notice == nil)
+    }
+
     @Test(arguments: [false, true])
     @MainActor func cameraRequestsRespectReducedMotion(reduced: Bool) throws {
         let map = MapViewLocationFixture(), coordinator = CampusNativeMapView.Coordinator()

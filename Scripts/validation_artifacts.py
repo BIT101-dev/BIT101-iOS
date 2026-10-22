@@ -18,7 +18,7 @@ fixed_children = {
         "swift-syntax-indexer", "swift-syntax-indexer-inputs.json", "swift-syntax-indexer.lock"},
     ".build/static-audit": {"artifact-hygiene.log", "audit.lock", "checkers.log", "dependency-audit.log", "docs.log",
         "git-diff.log", "module-boundary.log", "python-parse.log", "shell-parse.log", "swift-parse.log", "worker-parse.log",
-        "compilation-conditions.json", "compilation-conditions.lock", "source-facts.json", "source-facts.lock",
+        "compilation-conditions.json", "compilation-conditions.lock", "source-facts.sqlite", "source-facts.sqlite-journal", "source-facts.lock",
         "staged-content-self-test.lock", "staged-content-self-test", "evidence-media-probe", "evidence-media-probe-inputs.json",
         "evidence-media-probe.lock", "evidence-media.mp4"},
     ".build/extended-automation": derived_names | {".buildSystem_debug", ".buildSystem_release", ".lock", "CACHEDIR.TAG",

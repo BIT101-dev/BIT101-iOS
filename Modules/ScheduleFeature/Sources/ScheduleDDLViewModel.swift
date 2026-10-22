@@ -10,6 +10,8 @@ import ScheduleDomain
 import Combine
 import Foundation
 
+private nonisolated struct DDLPersistenceFailure: Error {}
+
 @MainActor
 public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer {
     private(set) var cache: ScheduleDDLState {
@@ -152,6 +154,8 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
                 )
             }
             return payload.warnings.isEmpty
+        } catch is DDLPersistenceFailure {
+            return false
         } catch ScheduleServiceError.schoolSecondFactorRequired {
             guard accountGeneration == generation else { return false }
             presentDDLSecondFactorNotice()
@@ -378,8 +382,7 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
         guard await persistAndWait(), accountGeneration == generation else {
             try Task.checkCancellation()
             guard accountGeneration == generation else { throw CancellationError() }
-            throw NSError(domain: "ScheduleRepository", code: 2, userInfo: [NSLocalizedDescriptionKey:
-                repository.notice?.message ?? "日程保存受阻，请重试同步。"])
+            throw DDLPersistenceFailure()
         }
     }
 

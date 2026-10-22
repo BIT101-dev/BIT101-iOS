@@ -133,12 +133,13 @@ def workflow_lock_boundary_findings() -> list[str]:
                                  stderr=subprocess.PIPE, text=True, env=environment)
         processes.append(first)
         if line(first) != "entered": raise ValueError("超时竞争测试取得锁")
-        second = subprocess.Popen(["zsh", str(worker)], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        second = subprocess.Popen([sys.executable, '-B', str(SCRIPT_ROOT / 'workflow_processes.py'),
+            str(fixture / 'device-workflow.lock'), 'BIT101_DEVICE_WORKFLOW_LOCK_HELD', str(worker)], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True, env=dict(other_checkout, BIT101_WORKFLOW_TIMEOUT_SECONDS="0.5"))
         processes.append(second)
-        output, _ = second.communicate(timeout=5)
+        output, error = second.communicate(timeout=5)
         if second.returncode != 124 or "[超时]" not in output or "entered" in output:
-            raise ValueError("竞争工作流沿等待预算结束")
+            raise ValueError(f"竞争工作流沿等待预算结束：{second.returncode} · {output.strip()} · {error.strip()}")
         with release.open("w") as stream: stream.write("done\n")
         first.communicate(timeout=5)
         for mode in ('startup', 'signal'):
