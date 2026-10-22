@@ -182,14 +182,17 @@ def report_test_results(arguments: list[str]) -> None:
 
 
 def report_metrics(metrics: Path) -> None:
-    from command_output import show_log
+    from command_output import FailureSummary
     prefixes = ('测试分组：', '结果：', '总计 ', '构建与运行耗时：', '统计范围：', '合计：', '用例耗时合计：')
     for line in metrics.read_text().splitlines():
         if line.startswith(prefixes): print(line)
     print(f'完整指标：{metrics}')
     failures = metrics.with_name('test-failures.txt')
     if failures.is_file() and failures.stat().st_size:
-        show_log(failures, True)
+        summary = FailureSummary()
+        with failures.open() as source:
+            for line in source: summary.add(line)
+        sys.stdout.writelines(summary.lines())
         print(f'完整失败记录：{failures}')
 
 

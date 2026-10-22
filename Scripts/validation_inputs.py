@@ -272,7 +272,7 @@ def includes_input(name: str, group: str) -> bool:
 
 def verification_dispatch(source: str) -> set[str]:
     branches = [body for body in re.findall(r'\bcase\s+"?\$group"?\s+in\b(.*?)\besac\b', source, re.DOTALL)
-        if re.search(r'\bverify_step\b', body)]
+        if re.search(r'\bbit101_verify_step\b', body)]
     if len(branches) != 1: raise ValueError('聚合验证需要唯一的逐组执行分派。')
     return {group for labels in re.findall(r'(?m)^\s*([a-zA-Z0-9_|-]+)\)', branches[0]) for group in labels.split('|')}
 
@@ -333,7 +333,7 @@ def self_test() -> None:
     for source in (dispatch, dispatch.replace('for group in', 'for  group in'),
             dispatch.replace('case "$group" in', 'case\t$group\tin')):
         assert verification_dispatch(source) == set(VERIFY_GROUPS)
-    assert verification_dispatch(dispatch.replace('audit) verify_step audit', 'obsolete) verify_step audit')) != set(VERIFY_GROUPS)
+    assert verification_dispatch(dispatch.replace('audit) bit101_verify_step audit', 'obsolete) bit101_verify_step audit')) != set(VERIFY_GROUPS)
     assert set(DEFAULT_VERIFY_GROUPS) <= set(VERIFY_GROUPS)
     for group in NETWORK_GROUPS:
         assert includes_input('Scripts/network_smoke_config.py', group), group

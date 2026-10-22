@@ -405,7 +405,7 @@ def run_self_test(subject) -> int:
             for body in ('true;', 'python3 /unrelated.py;', 'python3 "$ROOT_DIR/Scripts/check-module-boundaries.py"; true;'):
                 mutated = re.sub(r'(?m)^' + callback + r'\(\).*$', callback + '() { ' + body + ' }', audit_source)
                 assert audit_callback_findings(mutated)
-        for before, after in (('module_boundary_audit git_check', 'swift_parse git_check'), ('run_group artifact-hygiene artifact_hygiene', 'run_group artifact-hygiene swift_parse')):
+        for before, after in (('module_boundary_audit git_check', 'swift_parse git_check'), ('bit101_run_audit_group artifact-hygiene artifact_hygiene', 'bit101_run_audit_group artifact-hygiene swift_parse')):
 
             def mutated_read(path, *arguments, **keywords):
                 return audit_source.replace(before, after) if path == audit_path else original_read(path, *arguments, **keywords)

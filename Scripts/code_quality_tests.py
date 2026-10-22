@@ -822,8 +822,10 @@ fail_command
                 or f"school-inputs /audit/Scripts/validation_evidence.py record school-sms {school_status} full" not in result.stdout):
             findings.append("全量短信验收退出自测：两个验证范围维持各自结果与开始摘要")
     extended_source = (SCRIPT_ROOT / "run-extended-tests.sh").read_text()
-    for name in ("finish_verification", "finish_validation"):
-        finish = shell_function(name, extended_source)
+    from script_test_support import shell_function as shared_shell_function
+    for name in ("bit101_finish_verification", "finish_validation"):
+        finish = shared_shell_function(SCRIPT_ROOT / 'script-support.sh', name) if name == 'bit101_finish_verification' \
+            else shell_function(name, extended_source)
         registration = re.search(rf"(?m)^[ \t]*trap {name} [^\n]+(?:\n[ \t]*trap [^\n]+)*", extended_source)
         if registration is None:
             findings.append(f"测试退出自测需要 {name} 错误钩子")
@@ -848,7 +850,7 @@ python3() {{ return 0; }}
     for filename in ('run-extended-tests.sh', 'release-network-smoke.sh', 'run_icloud_cross_device_smoke.sh'):
         shell = (SCRIPT_ROOT / filename).read_text()
         calls = [line.strip() for line in shell.splitlines() if '"$ROOT_DIR/Scripts/build-install-device.sh"' in line]
-        expected = ['build-archive) verify_step build-archive "$ROOT_DIR/Scripts/build-install-device.sh" archive ;;'] if filename == 'run-extended-tests.sh' else []
+        expected = ['build-archive) bit101_verify_step build-archive "$ROOT_DIR/Scripts/build-install-device.sh" archive ;;'] if filename == 'run-extended-tests.sh' else []
         if calls != expected: findings.append(f"测试入口保留测试宿主，常规 App 装机沿独立步骤执行：{filename}")
     stage_source = (SCRIPT_ROOT / "icloud-smoke-support.sh").read_text()
     match = re.search(r"(?ms)^record_result\(\).*?<<'PY'\n(.*?)^PY$", stage_source)
