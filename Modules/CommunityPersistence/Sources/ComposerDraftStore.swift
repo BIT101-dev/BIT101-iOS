@@ -63,10 +63,15 @@ private nonisolated struct StoredDeveloperSuggestionDraft: Codable, StoredCompos
     }
 }
 
-public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, DeveloperSuggestionDraftStoring {
+private nonisolated struct StoredPaperDrafts: Codable, Sendable {
+    let schemaVersion: Int
+    var entries: [String: PaperComposerDraftSnapshot] = [:]
+}
+
+public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, DeveloperSuggestionDraftStoring, PaperComposerDraftStoring {
     private static let logger = Logger(subsystem: "BIT101", category: "ComposerDraft")
     private static let currentSchemaVersion = 1
-    private let storage = ComposerDraftStorage()
+    private static let storage = ComposerDraftStorage()
     private let files: any AppFileService
     private let applicationSupport: URL
     private let prepareImageData: @Sendable (Data) throws -> Data
@@ -82,18 +87,93 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
     }
 
     @MainActor
+    public func savePaper(_ snapshot: PaperComposerDraftSnapshot) async -> Bool {
+        guard storageOperations.begin() else { return false }
+        defer { storageOperations.finish() }
+        return await Self.storage.savePaper(store: self, snapshot, session: currentSession())
+    }
+
+    @MainActor
+    public func loadPaper(paperID: Int?) async -> ComposerDraftLoadResult<PaperComposerDraftSnapshot> {
+        guard storageOperations.begin() else { return .missing }
+        defer { storageOperations.finish() }
+        return await Self.storage.loadPaper(store: self, paperID: paperID, session: currentSession())
+    }
+
+    @MainActor
+    public func capturePaperCleanup(matching snapshot: PaperComposerDraftSnapshot?) async -> ComposerDraftCleanup {
+        guard let snapshot else { return { true } }
+        guard storageOperations.begin() else { return { false } }
+        defer { storageOperations.finish() }
+        let session = currentSession()
+        return { @MainActor in
+            guard self.storageOperations.begin() else { return false }
+            defer { self.storageOperations.finish() }
+            return await Self.storage.removePaper(store: self, paperID: snapshot.paperID, captured: snapshot, session: session)
+        }
+    }
+
+    private static func paperKey(_ id: Int?) -> String { id.map { "paper:\($0)" } ?? "new" }
+
+    private func readPaperDrafts(session: AppStorageSession) -> ComposerDraftLoadResult<StoredPaperDrafts> {
+        let url = currentFileURL(for: "paper.json", session: session)
+        do {
+            try files.setPrivateFileProtection(at: url)
+            let data = try files.readData(at: url, maximumBytes: ComposerDraftImagePolicy.maximumMetadataBytes)
+            let header = try JSONDecoder().decode(DraftSchemaHeader.self, from: data)
+            guard let version = header.schemaVersion else { return .unreadable }
+            guard version == Self.currentSchemaVersion else { return .unsupportedVersion(version) }
+            let archive = try JSONDecoder().decode(StoredPaperDrafts.self, from: data)
+            guard archive.entries.allSatisfy({ $0.key == Self.paperKey($0.value.paperID) }) else { return .unreadable }
+            return .loaded(archive)
+        } catch { return AppFileSystem.isMissingFile(error) ? .missing : .unreadable }
+    }
+
+    fileprivate func persistPaper(_ snapshot: PaperComposerDraftSnapshot, session: AppStorageSession) -> Bool {
+        let loaded = readPaperDrafts(session: session)
+        guard loaded.allowsWrite else { return false }
+        var archive = loaded.snapshot ?? StoredPaperDrafts(schemaVersion: Self.currentSchemaVersion)
+        archive.entries[Self.paperKey(snapshot.paperID)] = snapshot
+        do { try write(archive, to: currentFileURL(for: "paper.json", session: session)); return true }
+        catch { Self.logger.error("保存文章草稿失败：\(String(describing: error), privacy: .private)"); return false }
+    }
+
+    fileprivate func loadPaper(paperID: Int?, session: AppStorageSession) -> ComposerDraftLoadResult<PaperComposerDraftSnapshot> {
+        switch readPaperDrafts(session: session) {
+        case .missing: return .missing
+        case let .loaded(archive), let .recovered(archive, _):
+            return archive.entries[Self.paperKey(paperID)].map { .loaded($0) } ?? .missing
+        case .unreadable: return .unreadable
+        case let .unsupportedVersion(version): return .unsupportedVersion(version)
+        }
+    }
+
+    fileprivate func removePaper(paperID: Int?, captured: PaperComposerDraftSnapshot?, session: AppStorageSession) -> Bool {
+        guard let captured else { return true }
+        let loaded = readPaperDrafts(session: session)
+        guard loaded.allowsWrite else { return false }
+        guard var archive = loaded.snapshot, archive.entries[Self.paperKey(paperID)] == captured else { return true }
+        archive.entries.removeValue(forKey: Self.paperKey(paperID))
+        do {
+            if archive.entries.isEmpty { return removeFile(currentFileURL(for: "paper.json", session: session)) }
+            try write(archive, to: currentFileURL(for: "paper.json", session: session))
+            return true
+        } catch { Self.logger.error("清理文章草稿失败：\(String(describing: error), privacy: .private)"); return false }
+    }
+
+    @MainActor
     @discardableResult
     public func saveGallery(_ snapshot: GalleryComposerDraftSnapshot) async -> Bool {
         guard storageOperations.begin() else { return false }
         defer { storageOperations.finish() }
-        return await storage.saveGallery(store: self, snapshot, session: currentSession())
+        return await Self.storage.saveGallery(store: self, snapshot, session: currentSession())
     }
 
     @MainActor
     public func loadGallery() async -> ComposerDraftLoadResult<GalleryComposerDraftSnapshot> {
         guard storageOperations.begin() else { return .missing }
         defer { storageOperations.finish() }
-        return await storage.loadGallery(store: self, session: currentSession())
+        return await Self.storage.loadGallery(store: self, session: currentSession())
     }
 
     @discardableResult
@@ -125,14 +205,14 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
     public func saveSuggestion(_ snapshot: DeveloperSuggestionDraftSnapshot) async -> Bool {
         guard storageOperations.begin() else { return false }
         defer { storageOperations.finish() }
-        return await storage.saveSuggestion(store: self, snapshot, session: currentSession())
+        return await Self.storage.saveSuggestion(store: self, snapshot, session: currentSession())
     }
 
     @MainActor
     public func loadSuggestion() async -> ComposerDraftLoadResult<DeveloperSuggestionDraftSnapshot> {
         guard storageOperations.begin() else { return .missing }
         defer { storageOperations.finish() }
-        return await storage.loadSuggestion(store: self, session: currentSession())
+        return await Self.storage.loadSuggestion(store: self, session: currentSession())
     }
 
     @discardableResult
@@ -255,7 +335,7 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
     public func removeGallery() async -> Bool {
         guard storageOperations.begin() else { return false }
         defer { storageOperations.finish() }
-        return await storage.removeGallery(store: self, session: currentSession())
+        return await Self.storage.removeGallery(store: self, session: currentSession())
     }
 
     /// Capture cleanup for the saved revision owned by a submission.
@@ -274,11 +354,11 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
         guard storageOperations.begin() else { return { false } }
         defer { storageOperations.finish() }
         let session = currentSession()
-        let metadata = await storage.cleanupMetadata(store: self, filename: filename, session: session)
+        let metadata = await Self.storage.cleanupMetadata(store: self, filename: filename, session: session)
         return { @MainActor in
             guard self.storageOperations.begin() else { return false }
             defer { self.storageOperations.finish() }
-            return await self.storage.removeMatching(store: self, filename: filename, session: session, metadata: metadata)
+            return await Self.storage.removeMatching(store: self, filename: filename, session: session, metadata: metadata)
         }
     }
 
@@ -287,7 +367,7 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
     public func removeSuggestion() async -> Bool {
         guard storageOperations.begin() else { return false }
         defer { storageOperations.finish() }
-        return await storage.removeSuggestion(store: self, session: currentSession())
+        return await Self.storage.removeSuggestion(store: self, session: currentSession())
     }
 
     private func write<T: Encodable>(_ value: T, to fileURL: URL) throws {
@@ -438,6 +518,16 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
 private actor ComposerDraftStorage {
     private nonisolated let executor = StorageFileExecutor()
     nonisolated var unownedExecutor: UnownedSerialExecutor { executor.asUnownedSerialExecutor() }
+
+    func savePaper(store: ComposerDraftStore, _ snapshot: PaperComposerDraftSnapshot, session: AppStorageSession) -> Bool {
+        store.persistPaper(snapshot, session: session)
+    }
+    func loadPaper(store: ComposerDraftStore, paperID: Int?, session: AppStorageSession) -> ComposerDraftLoadResult<PaperComposerDraftSnapshot> {
+        store.loadPaper(paperID: paperID, session: session)
+    }
+    func removePaper(store: ComposerDraftStore, paperID: Int?, captured: PaperComposerDraftSnapshot?, session: AppStorageSession) -> Bool {
+        store.removePaper(paperID: paperID, captured: captured, session: session)
+    }
 
     func saveGallery(store: ComposerDraftStore, _ snapshot: GalleryComposerDraftSnapshot, session: AppStorageSession) -> Bool {
         store.persistGallery(snapshot, session: session)

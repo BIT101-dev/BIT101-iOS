@@ -147,13 +147,16 @@ nonisolated final class CommunityInteractionUITests: UIAutomationTestCase {
         cleaning.tapBriefly()
         tap("评论课程")
         app.buttons["发送"].assertDisabled("评分选择提示对应发送按钮禁用。")
-        for rating in ["0.5", "1.0", "1.5", "2.0", "2.5", "3.0", "3.5", "4.0", "4.5", "5.0"] {
-            tap("评分 \(rating) 星")
-        }
-        tap("评分 5.0 星")
-        assertUI(app.staticTexts["请选择评分"].appears(timeout: 5), "再次点击相同星级应回到评分选择提示。")
+        let ratingControl = app.steppers["ui.course-comment-composer-sheet.rating"]
+        assertUI(ratingControl.appears(timeout: 5), "课程评分应提供原生增减操作。")
+        let decreaseRating = ratingControl.buttons.element(boundBy: 0)
+        let increaseRating = ratingControl.buttons.element(boundBy: 1)
+        for _ in 0..<10 { increaseRating.tapBriefly() }
+        assertUI((ratingControl.value as? String)?.contains("5.0") == true, "评分增加应覆盖全部半星值。")
+        for _ in 0..<10 { decreaseRating.tapBriefly() }
+        assertUI(app.staticTexts["请选择评分"].appears(timeout: 5), "评分归零应恢复选择提示。")
         app.buttons["发送"].assertDisabled("清空评分后发送按钮回到禁用状态。")
-        tap("评分 3.5 星")
+        for _ in 0..<7 { increaseRating.tapBriefly() }
         toggle("匿名评论")
         replaceTextWithKeyboard("测试课程评价", in: app.textFields.firstMatch)
         let keyboardDone = app.buttons["keyboard.dismiss"]

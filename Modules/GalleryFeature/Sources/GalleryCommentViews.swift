@@ -138,10 +138,7 @@ private struct GalleryCommentRow: View {
     }
 
     private func commentAvatarURL(for comment: CommunityComment) -> URL? {
-        let rawURL = comment.user.avatar.lowUrl.isEmpty
-            ? comment.user.avatar.url
-            : comment.user.avatar.lowUrl
-        return URL(string: rawURL)
+        comment.user.avatar.thumbnailURL
     }
 
     @ViewBuilder

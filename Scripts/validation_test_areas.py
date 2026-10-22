@@ -129,7 +129,7 @@ TEST_AREA_SUITES = {
         "ExternalScheduleInfrastructureTests", "CommunityRecoveryCompositionTests", "FeatureCompositionTests", "GalleryContentFilterTests",
         "GalleryRecommendationPrefetchTests", "ICloudSmokeEvidenceTests", "ImageCacheDiskQuotaTests",
         "InfrastructureTests", "KeyboardAccessoryOwnershipTests", "MediaAvailabilityTests", "MediaDependencyTests", "MediaPresentationTests", "NetworkClientTests", "NetworkSmokeSMSPromptTests",
-        "PaperCommentPagingTests", "NetworkEvidenceProjectionTests", "NetworkSmokeCoverageTests", "NetworkSmokeExternalContentTests",
+        "PaperCommentPagingTests", "PaperContentRecoveryTests", "NetworkEvidenceProjectionTests", "NetworkSmokeCoverageTests", "NetworkSmokeExternalContentTests",
         "NetworkSmokeRegressionContractTests", "NetworkBusinessDiagnosticsTests", "TrustedTranscriptRecoveryTests",
         "MaintenancePerformanceTests",
         "PersistentBackupPreparationTests", "PreferenceCloudPayloadTests", "PreferenceMergeTests", "ReleaseNetworkSmokeLifecycleTests",

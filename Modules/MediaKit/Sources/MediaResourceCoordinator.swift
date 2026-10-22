@@ -143,11 +143,7 @@ final class MediaDisplayBudget {
     }
 
     nonisolated static func pixelBytes(_ image: UIImage) -> Int {
-        var seen = Set<ObjectIdentifier>()
-        return (image.images ?? [image]).reduce(0) { bytes, frame in
-            guard let pixels = frame.cgImage, seen.insert(ObjectIdentifier(pixels)).inserted else { return bytes }
-            return bytes + pixels.bytesPerRow * pixels.height
-        }
+        BoundedStillImageDecoder.decodedBytes(in: [image])
     }
 }
 

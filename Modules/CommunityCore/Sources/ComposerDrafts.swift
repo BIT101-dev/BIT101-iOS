@@ -117,6 +117,27 @@ public nonisolated struct DeveloperSuggestionDraftSnapshot: ComposerDraftSnapsho
 /// 清理操作捕获提交所属账号和草稿版本，异步执行语义由公共契约统一。
 public typealias ComposerDraftCleanup = @Sendable () async -> Bool
 
+public nonisolated struct PaperComposerDraftSnapshot: Codable, Equatable, Sendable {
+    public let paperID: Int?
+    public let baselineUpdatedAt: String?
+    public let title: String
+    public let intro: String
+    public let content: String
+    public let anonymous: Bool
+
+    public init(paperID: Int?, baselineUpdatedAt: String?, title: String, intro: String, content: String, anonymous: Bool) {
+        self.paperID = paperID; self.baselineUpdatedAt = baselineUpdatedAt
+        self.title = title; self.intro = intro; self.content = content; self.anonymous = anonymous
+    }
+}
+
+@MainActor
+public protocol PaperComposerDraftStoring: Sendable {
+    func savePaper(_ snapshot: PaperComposerDraftSnapshot) async -> Bool
+    func loadPaper(paperID: Int?) async -> ComposerDraftLoadResult<PaperComposerDraftSnapshot>
+    func capturePaperCleanup(matching snapshot: PaperComposerDraftSnapshot?) async -> ComposerDraftCleanup
+}
+
 /// 草稿读取结果保留源文件的恢复状态，保存沿同一结果判断写权限。
 public nonisolated enum ComposerDraftLoadResult<Snapshot: Sendable>: Sendable {
     case missing

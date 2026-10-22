@@ -618,6 +618,20 @@ actor RemoteImageCache {
 }
 
 public nonisolated enum BoundedStillImageDecoder {
+    public static func hasCompleteImage(in data: Data) -> Bool {
+        RemoteImageResourceLimits.completeImageSource(from: data) != nil
+    }
+
+    public static func decodedBytes(in images: [UIImage]) -> Int {
+        var seen = Set<ObjectIdentifier>()
+        return images.reduce(0) { bytes, image in
+            (image.images ?? [image]).reduce(bytes) { total, frame in
+                guard let pixels = frame.cgImage, seen.insert(ObjectIdentifier(pixels)).inserted else { return total }
+                return total + pixels.bytesPerRow * pixels.height
+            }
+        }
+    }
+
     public static func image(from data: Data, pointSize: CGFloat, displayScale: CGFloat) -> UIImage? {
         let pixels = pointSize * displayScale
         guard pointSize > 0, displayScale > 0, pixels >= 1, pixels < CGFloat(Int.max) else { return nil }

@@ -732,6 +732,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         school: Bool = false,
         media: Bool = false,
         longTags: Bool = false,
+        longText: Bool = false,
         mediaRecovery: Bool = false,
         botPaging: Bool = false,
         pagination: Bool = false,
@@ -817,6 +818,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         application.launchEnvironment["BIT101_UI_TEST_SCHOOL"] = school ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_MEDIA"] = media ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_LONG_TAGS"] = longTags ? "1" : "0"
+        application.launchEnvironment["BIT101_UI_TEST_LONG_TEXT"] = longText ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_MEDIA_RECOVERY"] = mediaRecovery ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_BOT_PAGING"] = botPaging ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_PAGINATION"] = pagination ? "1" : "0"

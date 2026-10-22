@@ -25,6 +25,7 @@ private final class MapViewLocationFixture: MKMapView {
     let position = MapUserLocationFixture()
     private(set) var centered: CLLocationCoordinate2D?
     private(set) var tracking: MKUserTrackingMode = .none
+    var cameraAnimations: [Bool] = []
     private var displayingLocation = false
     override var userLocation: MKUserLocation { position }
     override var showsUserLocation: Bool {
@@ -33,6 +34,7 @@ private final class MapViewLocationFixture: MKMapView {
     }
     override func setCenter(_ coordinate: CLLocationCoordinate2D, animated: Bool) { centered = coordinate }
     override func setUserTrackingMode(_ mode: MKUserTrackingMode, animated: Bool) { tracking = mode }
+    override func setCamera(_ camera: MKMapCamera, animated: Bool) { cameraAnimations.append(animated) }
 }
 
 private struct CampusMapLocationFixture: Decodable {
@@ -45,6 +47,18 @@ private struct CampusMapLocationFixture: Decodable {
 
 @Suite("Campus map location matching")
 struct CampusMapLocationTests {
+    @Test(arguments: [false, true])
+    @MainActor func cameraRequestsRespectReducedMotion(reduced: Bool) throws {
+        let map = MapViewLocationFixture(), coordinator = CampusNativeMapView.Coordinator()
+        let place = try #require(CampusMapPlaceCatalog.place(campusName: "良乡校区", classroom: "良乡体育馆篮球场"))
+        coordinator.reduceMotion = reduced
+        map.cameraAnimations = []
+        coordinator.focus(on: CampusPreset.liangxiang, in: map, animated: true)
+        coordinator.focus(on: place, in: map, animated: true)
+        coordinator.focus(on: CampusPreset.liangxiang, in: map, animated: false)
+        #expect(map.cameraAnimations == [!reduced, !reduced, false])
+    }
+
     @Test("Authorization changes preserve denied and revoked permission recovery")
     @MainActor func authorizationAndRevocation() throws {
         let manager = MapLocationManagerFixture()

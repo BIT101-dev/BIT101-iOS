@@ -141,7 +141,7 @@ public nonisolated struct PaperDetail: Decodable, Identifiable, Hashable, Sendab
     public var previewMetadata: PaperPreviewMetadata {
         PaperPreviewMetadata(
             authorName: anonymous ? AppUserPresentation.anonymousName : updateUser.nickname,
-            avatarURL: anonymous ? nil : updateUser.avatar.preferredRemoteURL,
+            avatarURL: anonymous ? nil : updateUser.avatar.thumbnailURL,
             isAnonymous: anonymous
         )
     }
@@ -162,24 +162,3 @@ struct PaperListState {
 }
 
 extension PaperListState: PagedItemsState {}
-
-extension CommunityImage {
-    /// 文章模块优先使用低清图地址，低清图地址为空时使用原图地址。
-    nonisolated var preferredRemoteURL: URL? {
-        makePreferredRemoteURL(lowURL: lowUrl, originalURL: url)
-    }
-}
-
-nonisolated func makePreferredRemoteURL(lowURL: String, originalURL: String) -> URL? {
-    validatedRemoteURL(from: lowURL) ?? validatedRemoteURL(from: originalURL)
-}
-
-nonisolated func validatedRemoteURL(from rawURL: String) -> URL? {
-    let trimmedURL = rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard let url = URL(string: trimmedURL),
-          let scheme = url.scheme?.lowercased(),
-          ["http", "https"].contains(scheme),
-          url.host != nil
-    else { return nil }
-    return url
-}

@@ -468,12 +468,7 @@ private nonisolated extension KeyedDecodingContainer {
 ///
 /// 列表页只需要区分“首屏加载中 / 已有内容 / 首屏失败”这几类状态，
 /// 细粒度的分页加载单独放在 `CoursePagedState` 里维护。
-enum CourseLoadStatus: Equatable {
-    case idle
-    case loading
-    case loaded
-    case failed(String)
-}
+typealias CourseLoadStatus = CommunityLoadStatus
 
 /// 课程列表分页状态。
 ///
@@ -496,9 +491,4 @@ extension CoursePagedState: PagedItemsState {}
 /// 课程详情加载状态。
 ///
 /// 课程详情页与评论列表是两条并行的数据流，因此详情本体单独维护自己的加载状态。
-enum CourseDetailLoadStatus: Equatable {
-    case idle
-    case loading
-    case loaded
-    case failed(String)
-}
+typealias CourseDetailLoadStatus = CommunityLoadStatus

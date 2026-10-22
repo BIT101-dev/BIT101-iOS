@@ -330,6 +330,7 @@ private struct TrustedTranscriptPage: View {
             // 页面从成绩页进入后立即申请可信成绩单，入口直接执行申请操作。
             await viewModel.applyIfNeeded()
         }
+        .onDisappear { viewModel.cancelSMSContinuation() }
         .sheet(
             item: Binding(
                 get: { viewModel.smsChallenge },

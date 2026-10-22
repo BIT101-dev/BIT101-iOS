@@ -31,10 +31,19 @@ final class TrustedTranscriptViewModel: ObservableObject {
     private var stagedImages: [Int: UIImage] = [:]
     private var stagedBytes: [Int: Int] = [:]
     private var retryRequested = false
+    private var smsContinuation: Task<Void, Never>?
 
     init(service: any TrustedTranscriptServicing, limits: TrustedTranscriptResourceLimits = .init()) {
         self.service = service
         self.limits = limits
+    }
+
+    deinit { smsContinuation?.cancel() }
+
+    func cancelSMSContinuation() { smsContinuation?.cancel() }
+
+    var decodedImageBytes: Int {
+        BoundedStillImageDecoder.decodedBytes(in: images + Array(stagedImages.values))
     }
 
     func applyIfNeeded() async {
@@ -106,11 +115,24 @@ final class TrustedTranscriptViewModel: ObservableObject {
         guard (4...8).contains(normalized.count) else { smsVerificationError = "请输入短信中的 4 至 8 位验证码。"; return }
         isSubmittingSMSCode = true
         smsVerificationError = nil
-        defer { isSubmittingSMSCode = false; isLoadingPages = false; stagedImages = [:]; stagedBytes = [:] }
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.continueAfterSMSCode(normalized, challenge: challenge)
+        }
+        smsContinuation = task
+        await withTaskCancellationHandler(operation: { await task.value }, onCancel: { task.cancel() })
+    }
+
+    private func continueAfterSMSCode(_ normalized: String, challenge: BITLoginAuthenticationChallenge) async {
+        defer {
+            isSubmittingSMSCode = false; isLoadingPages = false
+            stagedImages = [:]; stagedBytes = [:]; smsContinuation = nil
+        }
         do {
             authenticatedChallenge = try await service.submitTranscriptSMSCode(normalized, for: challenge)
             smsChallenge = nil
             report = nil
+            try Task.checkCancellation()
             isLoadingPages = true
             if images.isEmpty { state = .loading }
             try await loadImages(from: fetchPages())
@@ -163,10 +185,28 @@ final class TrustedTranscriptViewModel: ObservableObject {
         var sizes = sameReport ? encodedBytesByPage : stagedBytes
         var failure = result.failure
         let pending = result.pages.filter { retained[$0.number] == nil }
-        if !pending.isEmpty {
+        var remainingEncoded = max(0, limits.maximumEncodedBytes - sizes.values.reduce(0, +))
+        for page in pending {
+            guard page.data.count <= remainingEncoded else { throw HTTPClientError.responseTooLarge }
+            remainingEncoded -= page.data.count
+        }
+        let perPageBudget = limits.maximumDecodedBytes / result.expectedPageCount
+        for page in pending {
             do {
+                try Task.checkCancellation()
+                guard BoundedStillImageDecoder.hasCompleteImage(in: page.data) else { throw ScoreServiceError.invalidResponse }
+                let liveBytes = BoundedStillImageDecoder.decodedBytes(in: images + Array(retained.values))
+                if liveBytes > limits.maximumDecodedBytes - perPageBudget {
+                    if retained.isEmpty {
+                        images = []; pageNumbers = []; encodedBytesByPage = [:]
+                        expectedPageCount = result.expectedPageCount
+                        state = .loading
+                    } else {
+                        publishImages(retained, sizes: sizes, result: result, isPartial: true)
+                    }
+                }
                 let remaining = max(0, limits.maximumEncodedBytes - sizes.values.reduce(0, +))
-                let prepared = try await Self.prepareImages(.init(pages: pending, expectedPageCount: result.expectedPageCount),
+                let prepared = try await Self.prepareImages(.init(pages: [page], expectedPageCount: result.expectedPageCount),
                     limits: .init(maximumPageCount: limits.maximumPageCount, maximumEncodedBytes: remaining,
                                   maximumDecodedBytes: limits.maximumDecodedBytes))
                 try Task.checkCancellation()
@@ -174,7 +214,7 @@ final class TrustedTranscriptViewModel: ObservableObject {
                 sizes.merge(prepared.bytes) { _, new in new }
                 failure = failure ?? prepared.failure
             } catch {
-                if TaskCancellation.matches(error) || retained.isEmpty { throw error }
+                if TaskCancellation.matches(error) { throw error }
                 failure = failure ?? error
             }
         }
@@ -189,6 +229,11 @@ final class TrustedTranscriptViewModel: ObservableObject {
             state = .loaded
             return
         }
+        publishImages(retained, sizes: sizes, result: result, isPartial: isPartial, failure: failure)
+    }
+
+    private func publishImages(_ retained: [Int: UIImage], sizes: [Int: Int], result: TrustedTranscriptPages,
+                               isPartial: Bool, failure: (any Error)? = nil) {
         encodedBytesByPage = sizes
         pageNumbers = retained.keys.sorted()
         images = pageNumbers.compactMap { retained[$0] }

@@ -6,8 +6,8 @@ import MediaKit
 extension CommunityImage {
     public var previewImage: RemotePreviewImage {
         RemotePreviewImage(
-            thumbnailURL: URL(string: lowUrl.isEmpty ? url : lowUrl),
-            originalURL: URL(string: url.isEmpty ? lowUrl : url)
+            thumbnailURL: thumbnailURL,
+            originalURL: originalURL
         )
     }
 }
@@ -47,7 +47,7 @@ public struct CommunityPosterCard: View {
                     AppAvatarView(
                         imageURL: poster.anonymous
                             ? nil
-                            : URL(string: poster.user.avatar.lowUrl.isEmpty ? poster.user.avatar.url : poster.user.avatar.lowUrl),
+                            : poster.user.avatar.thumbnailURL,
                         anonymous: poster.anonymous
                     )
 
@@ -389,11 +389,11 @@ public struct CommunityImageThumbnail: View {
     }
 
     private var thumbnailURL: URL? {
-        URL(string: image.lowUrl.isEmpty ? image.url : image.lowUrl)
+        image.thumbnailURL
     }
 
     private var originalURL: URL? {
-        URL(string: image.url.isEmpty ? image.lowUrl : image.url)
+        image.originalURL
     }
 
     /// 动图必须读取原文件；服务端生成的 lowUrl 通常只是静态缩略图。
@@ -401,7 +401,7 @@ public struct CommunityImageThumbnail: View {
         guard image.isGIF else {
             return nil
         }
-        return URL(string: image.url.isEmpty ? image.lowUrl : image.url)
+        return image.originalURL
     }
 
 }

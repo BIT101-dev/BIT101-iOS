@@ -35,13 +35,13 @@ public struct PaperInlineImage: Identifiable, Hashable {
     public var asCommunityImage: CommunityImage {
         CommunityImage(
             mid: id,
-            url: validatedRemoteURL(from: url)?.absoluteString ?? "",
-            lowUrl: validatedRemoteURL(from: lowURL)?.absoluteString ?? ""
+            url: CommunityImage.remoteURL(url)?.absoluteString ?? "",
+            lowUrl: CommunityImage.remoteURL(lowURL)?.absoluteString ?? ""
         )
     }
 
     public var preferredRemoteURL: URL? {
-        makePreferredRemoteURL(lowURL: lowURL, originalURL: url)
+        asCommunityImage.thumbnailURL
     }
 }
 
@@ -149,39 +149,64 @@ public enum PaperEditorContentBuilder {
 @MainActor public enum PaperContentRenderer {
     /// 从详情接口返回的 Editor.js JSON 字符串中恢复正文块。
     public static func blocks(from raw: String) -> [PaperContentBlock] {
-        guard raw.utf8.count <= PaperContentResourceLimits.maximumBodyBytes else {
-            return [.requiresOriginal(id: "body-resource-limit")]
+        blockRenderers(from: raw).map { $0() }
+    }
+
+    /// 富文本逐块准备，将交互与任务取消交回主执行器。
+    public static func blocksForDisplay(from raw: String) async throws -> [PaperContentBlock] {
+        try Task.checkCancellation()
+        var blocks: [PaperContentBlock] = []
+        for render in blockRenderers(from: raw) {
+            await Task.yield()
+            try Task.checkCancellation()
+            blocks.append(render())
         }
+        try Task.checkCancellation()
+        return blocks
+    }
+
+    private static func blockRenderers(from raw: String) -> [() -> PaperContentBlock] {
+        guard raw.utf8.count <= PaperContentResourceLimits.maximumBodyBytes else {
+            return [{ .requiresOriginal(id: "body-resource-limit") }]
+        }
+        let object = try? JSONSerialization.jsonObject(with: Data(raw.utf8))
         guard
-            let data = raw.data(using: .utf8),
-            let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-            let rawBlocks = root["blocks"] as? [[String: Any]]
+            let root = object as? [String: Any],
+            let rawBlocks = root["blocks"] as? [Any]
         else {
             let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return [] }
-            guard trimmed.utf8.count <= PaperContentResourceLimits.maximumBlockBytes else {
-                return [.requiresOriginal(id: "text-resource-limit")]
+            let editorPrefix = trimmed.range(of: #"^\{\s*"(?:blocks|time|version)"\s*:"#, options: .regularExpression) != nil
+            guard object == nil && !editorPrefix else {
+                return [{ .requiresOriginal(id: "body-structure") }]
             }
-            return [.paragraph(id: "text", text: AttributedString(trimmed))]
+            guard trimmed.utf8.count <= PaperContentResourceLimits.maximumBlockBytes else {
+                return [{ .requiresOriginal(id: "text-resource-limit") }]
+            }
+            return [{ .paragraph(id: "text", text: AttributedString(trimmed)) }]
         }
 
         guard rawBlocks.count <= PaperContentResourceLimits.maximumBlocks else {
-            return [.requiresOriginal(id: "block-resource-limit")]
+            return [{ .requiresOriginal(id: "block-resource-limit") }]
         }
-        guard rawBlocks.reduce(0, { $0 + PaperContentResourceLimits.renderNodes(in: $1) })
+        let dictionaries = rawBlocks.map { $0 as? [String: Any] }
+        guard dictionaries.compactMap({ $0 }).reduce(0, { $0 + PaperContentResourceLimits.renderNodes(in: $1) })
             <= PaperContentResourceLimits.maximumRenderNodes else {
-            return [.requiresOriginal(id: "node-resource-limit")]
+            return [{ .requiresOriginal(id: "node-resource-limit") }]
         }
-        let identifiers = rawBlocks.compactMap { $0["id"] as? String }
+        let identifiers = dictionaries.compactMap { $0?["id"] as? String }
         let frequencies = Dictionary(identifiers.map { ($0, 1) }, uniquingKeysWith: { $0 + $1 })
-        return rawBlocks.enumerated().map { index, block in
-            var id = (block["id"] as? String) ?? ""
+        return dictionaries.enumerated().map { index, block in
+            var id = (block?["id"] as? String) ?? ""
             if id.isEmpty || frequencies[id, default: 0] > 1 {
                 id = "block-\(index)"
                 while frequencies[id] != nil { id = "_" + id }
             }
-            guard PaperContentResourceLimits.accepts(block) else { return .requiresOriginal(id: id) }
-            return makeBlock(from: block, id: id) ?? .requiresOriginal(id: id)
+            let identifier = id
+            return {
+                guard let block, PaperContentResourceLimits.accepts(block) else { return .requiresOriginal(id: identifier) }
+                return makeBlock(from: block, id: identifier) ?? .requiresOriginal(id: identifier)
+            }
         }
     }
 
@@ -255,7 +280,7 @@ public enum PaperEditorContentBuilder {
             guard let file = data["file"] as? [String: Any] else { return nil }
             let url = (file["url"] as? String) ?? ""
             let lowURL = (file["low_url"] as? String) ?? ""
-            guard makePreferredRemoteURL(lowURL: lowURL, originalURL: url) != nil else { return nil }
+            guard CommunityImage(mid: id, url: url, lowUrl: lowURL).thumbnailURL != nil else { return nil }
             let rawCaption = (data["caption"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let caption = rawCaption.isEmpty ? nil : attributedText(from: rawCaption)
             return .image(id: id, image: PaperInlineImage(id: id, url: url, lowURL: lowURL, caption: caption))

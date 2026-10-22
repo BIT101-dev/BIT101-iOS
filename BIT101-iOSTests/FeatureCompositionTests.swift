@@ -259,7 +259,7 @@ struct FeatureCompositionTests {
 
     private func dependencies(list: CourseList) -> CourseDependencies {
         let session = CommunitySession(httpClient: HTTPClient(transport: OfflineTransport(), observer: nil), baseURL: AppURL.required("https://example.invalid"), credentials: { CommunityCredentials(identity: CommunitySessionIdentity(accountIdentifier: "composition-test"), cookie: "fixture") }, refresh: { _ in })
-        return CourseDependencies(list: list, detail: CourseService(session: session), preferences: CommunityPreferences(snapshot: CommunityPreferenceSnapshot(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false), saveMakeupFilter: { _ in }), loadCourseCredits: { [] })
+        return CourseDependencies(list: list, detail: CourseService(session: session), preferences: CommunityPreferences(snapshot: CommunityPreferenceSnapshot(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false), saveMakeupFilter: { _ in }), networkPath: .init(), loadCourseCredits: { [] })
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -323,7 +323,7 @@ struct FeatureCompositionTests {
     private func paper(_ transport: TraceTransport) -> PaperDependencies {
         let service = PaperService(session: session(transport))
         return PaperDependencies(list: service, detail: service, composer: service,
-            networkPath: NetworkPathState(snapshot: NetworkPathSnapshot(status: .connected)))
+            drafts: ComposerDraftStore(files: PreferenceMemoryFiles(), applicationSupport: URL(fileURLWithPath: "/paper-draft"), session: { AppStorageSession(accountIdentifier: "paper") }, prepareImageData: { $0 }), networkPath: NetworkPathState(snapshot: NetworkPathSnapshot(status: .connected)))
     }
 
     private func mine(_ transport: TraceTransport) -> MineDependencies {
@@ -425,7 +425,7 @@ struct FeatureCompositionTests {
         let routes = TabRoute()
         let details = PaperService(session: session(TraceTransport()))
         let dependencies = PaperDependencies(list: service, detail: details, composer: details,
-            networkPath: NetworkPathState(snapshot: NetworkPathSnapshot(status: .connected)))
+            drafts: ComposerDraftStore(files: PreferenceMemoryFiles(), applicationSupport: URL(fileURLWithPath: "/paper-draft"), session: { AppStorageSession(accountIdentifier: "paper") }, prepareImageData: { $0 }), networkPath: NetworkPathState(snapshot: NetworkPathSnapshot(status: .connected)))
         try await host(PaperTabs(route: routes, dependencies: dependencies, media: media())) {
             try await waitForTestEvent { !(service.pending == nil || service.pages.count < 2) }
             routes.selection = 1

@@ -1,4 +1,5 @@
 import CommunityCore
+import TransportCore
 import Observation
 
 /// 课程页面消费列表、详情、课程偏好与学分查询。
@@ -8,6 +9,7 @@ public final class CourseDependencies {
     let list: any CourseListServicing
     let detail: any CourseDetailServicing
     let preferences: CommunityPreferences
+    let networkPath: NetworkPathState
     let loadCourseCredits: @MainActor () async -> [CommunityCourseCredit]
 
     public func makeListViewModel() -> CourseListViewModel {
@@ -22,11 +24,13 @@ public final class CourseDependencies {
         list: any CourseListServicing,
         detail: any CourseDetailServicing,
         preferences: CommunityPreferences,
+        networkPath: NetworkPathState,
         loadCourseCredits: @escaping @MainActor () async -> [CommunityCourseCredit]
     ) {
         self.list = list
         self.detail = detail
         self.preferences = preferences
+        self.networkPath = networkPath
         self.loadCourseCredits = loadCourseCredits
     }
 }

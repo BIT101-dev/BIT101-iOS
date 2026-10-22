@@ -139,7 +139,7 @@ final class AppCommunityDependencies {
         session: CommunitySession,
         checkLogin: @escaping () async throws -> Bool,
         messages: any GalleryMessageReadStoring,
-        drafts: any GalleryComposerDraftStoring & DeveloperSuggestionDraftStoring,
+        drafts: any GalleryComposerDraftStoring & DeveloperSuggestionDraftStoring & PaperComposerDraftStoring,
         submitSuggestion: @escaping (DeveloperSuggestionPayload) async throws -> Void,
         loadCourseCredits: @escaping @MainActor () async -> [CommunityCourseCredit],
         networkPath: NetworkPathState = AppNetworkPath.state,
@@ -170,9 +170,9 @@ final class AppCommunityDependencies {
             messages: messages, drafts: drafts, networkPath: networkPath
         )
         let courseService = CourseService(session: session)
-        course = CourseDependencies(list: courseService, detail: courseService, preferences: preferences, loadCourseCredits: loadCourseCredits)
+        course = CourseDependencies(list: courseService, detail: courseService, preferences: preferences, networkPath: networkPath, loadCourseCredits: loadCourseCredits)
         let paperService = PaperService(session: session)
-        paper = PaperDependencies(list: paperService, detail: paperService, composer: paperService, networkPath: networkPath)
+        paper = PaperDependencies(list: paperService, detail: paperService, composer: paperService, drafts: drafts, networkPath: networkPath)
         let mineService = MineService(session: session, preferences: { preferences.snapshot })
         mine = MineDependencies(
             overview: mineService, profile: mineService,

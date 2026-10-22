@@ -9,12 +9,14 @@ public final class PaperDependencies {
     let list: any PaperListServicing
     let detail: any PaperDetailServicing
     let composer: any PaperComposerServicing
+    let drafts: any PaperComposerDraftStoring
     let networkPath: NetworkPathState
 
-    public init(list: any PaperListServicing, detail: any PaperDetailServicing, composer: any PaperComposerServicing, networkPath: NetworkPathState) {
+    public init(list: any PaperListServicing, detail: any PaperDetailServicing, composer: any PaperComposerServicing, drafts: any PaperComposerDraftStoring, networkPath: NetworkPathState) {
         self.list = list
         self.detail = detail
         self.composer = composer
+        self.drafts = drafts
         self.networkPath = networkPath
     }
 }

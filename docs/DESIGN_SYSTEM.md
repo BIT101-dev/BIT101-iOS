@@ -68,6 +68,8 @@
 
 错误分类由客户端基础设施提供，恢复操作通过 `appDiagnosticRecoveryActions()` 注入 `AppFailureState`。业务页面负责内容、状态和操作绑定。
 
+课程半星评分使用原生 `Stepper` 增减并归零；地图桥接层按系统减弱动态效果设置执行相机动作。长文本的完整阅读采用原生文本布局、动态字体与选择能力。
+
 头像容器 `AppAvatarContainer` 接收已加载的 `Image`，远程图片展示和缓存由 `MediaKit` 适配。设计系统维护视图结构与视觉规则，业务依赖在 App 组装入口连接。
 
 ## 自适应

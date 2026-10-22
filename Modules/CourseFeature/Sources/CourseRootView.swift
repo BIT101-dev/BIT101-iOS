@@ -11,61 +11,36 @@ public struct CoursePageContent: View {
     private let media: MediaEnvironment
     private let profiles: CommunityProfileDestination
     @ObservedObject var viewModel: CourseListViewModel
+    @Environment(\.scenePhase) private var scenePhase
 
     public var body: some View {
         content.environment(dependencies)
     }
 
     private var content: some View {
-        Group {
-            switch viewModel.state.status {
-            case .idle where viewModel.state.items.isEmpty,
-                 .loading where viewModel.state.items.isEmpty:
-                AppLoadingState(title: viewModel.hasActiveSearch ? "正在搜索课程" : "正在加载课程")
-                    .background(AppDesignSystem.Palette.Background.grouped)
-
-            case let .failed(message) where viewModel.state.items.isEmpty:
-                AppFailureState(
-                    title: viewModel.hasActiveSearch ? "搜索失败" : "加载失败",
-                    systemImage: "books.vertical.circle",
-                    message: message,
-                    retryTitle: "重新加载",
-                    onRetry: {
-                        Task {
-                            await viewModel.refresh()
-                        }
-                    }
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(AppDesignSystem.Palette.Background.grouped)
-
-            default:
-                List {
-                    Section {
-                        CourseSearchRow(
-                            text: $viewModel.searchText,
-                            onSubmit: {
-                                Task {
-                                    await viewModel.submitSearch()
-                                }
-                            }
-                        )
-                    }
-
-                    Section {
-                        courseSection
-                    }
-                }
-                .accessibilityIdentifier("interaction.CoursePageContent.list")
-                .appGroupedListStyle()
-                .background(AppDesignSystem.Palette.Background.grouped)
+        List {
+            Section {
+                CourseSearchRow(text: $viewModel.searchText, onSubmit: {
+                    Task { await viewModel.submitSearch() }
+                })
+            }
+            Section {
+                courseSection
             }
         }
+        .accessibilityIdentifier("interaction.CoursePageContent.list")
+        .appGroupedListStyle()
         .task {
             await viewModel.bootstrapIfNeeded()
         }
         .onChange(of: viewModel.searchText) { oldValue, newValue in
             viewModel.clearSearchIfNeeded(from: oldValue, to: newValue)
+        }
+        .onChange(of: dependencies.networkPath.snapshot.status) { _, value in
+            if value == .connected { retryListIfNeeded() }
+        }
+        .onChange(of: scenePhase) { _, value in
+            if value == .active { retryListIfNeeded() }
         }
         .onDisappear { viewModel.cancelRefreshOperations() }
         .diagnosticAlert(item: $viewModel.alert)
@@ -75,6 +50,25 @@ public struct CoursePageContent: View {
     @ViewBuilder
     private var courseSection: some View {
         CommunityResultsContext(viewModel.displayedQueryDescription)
+        switch viewModel.state.status {
+        case .idle where viewModel.state.items.isEmpty, .loading where viewModel.state.items.isEmpty:
+            AppLoadingState(title: viewModel.hasActiveSearch ? "正在搜索课程" : "正在加载课程")
+        case let .failed(message) where viewModel.state.items.isEmpty:
+            AppFailureState(title: viewModel.hasActiveSearch ? "搜索失败" : "加载失败",
+                systemImage: "books.vertical.circle", message: message, retryTitle: "重新加载",
+                onRetry: { Task { await viewModel.refresh() } })
+        default:
+            courseResults
+        }
+    }
+
+    private func retryListIfNeeded() {
+        guard dependencies.networkPath.isReachable else { return }
+        viewModel.retryAfterConnectivityRecovery()
+    }
+
+    @ViewBuilder
+    private var courseResults: some View {
         if viewModel.state.items.isEmpty {
             if viewModel.hasActiveSearch {
                 AppEmptyState(

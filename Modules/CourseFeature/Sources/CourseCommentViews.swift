@@ -105,7 +105,7 @@ private struct CourseCommentRow: View {
             AppAvatarView(
                 imageURL: comment.anonymous
                     ? nil
-                    : URL(string: comment.user.avatar.lowUrl.isEmpty ? comment.user.avatar.url : comment.user.avatar.lowUrl),
+                    : comment.user.avatar.thumbnailURL,
                 size: isSubComment
                     ? AppDesignSystem.Size.Control.compact
                     : AppDesignSystem.Size.Avatar.standard,
@@ -179,62 +179,25 @@ struct CourseCommentComposerSheet: View {
                 CommunityCommentReviewSection(submission: submission, actions: review) { isSubmissionRequested = true }
                 if supportsCourseRating {
                     Section("评分") {
-                        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
-                            HStack(spacing: AppDesignSystem.Spacing.tiny) {
-                                ForEach(1 ... 5, id: \.self) { value in
-                                    ZStack {
+                        Stepper(value: $rating, in: 0...10) {
+                            VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tiny) {
+                                HStack(spacing: AppDesignSystem.Spacing.tiny) {
+                                    ForEach(1...5, id: \.self) { value in
                                         Image(systemName: starSymbol(for: value))
                                             .font(AppDesignSystem.Typography.title)
                                             .foregroundStyle(AppDesignSystem.Course.accent)
-                                            .frame(width: AppDesignSystem.Size.Control.compact, height: AppDesignSystem.Size.Control.compact)
                                             .accessibilityHidden(true)
-
-                                        HStack(spacing: AppDesignSystem.Spacing.none) {
-                                            Button {
-                                                setRating(for: value, isHalf: true)
-                                            } label: {
-                                                Color.clear
-                                                    .frame(
-                                                        width: AppDesignSystem.Size.Control.halfTouchTarget,
-                                                        height: AppDesignSystem.Size.Control.touchTarget
-                                                    )
-                                                    .contentShape(Rectangle())
-                                            }
-                                            .buttonStyle(.plain)
-                                            .accessibilityLabel(ratingAccessibilityLabel(for: value, isHalf: true))
-                                            .appInteractiveListRow()
-                                                .accessibilityIdentifier("ui.course-comment-composer-sheet.rating-half")
-
-                                            Button {
-                                                setRating(for: value, isHalf: false)
-                                            } label: {
-                                                Color.clear
-                                                    .frame(
-                                                        width: AppDesignSystem.Size.Control.halfTouchTarget,
-                                                        height: AppDesignSystem.Size.Control.touchTarget
-                                                    )
-                                                    .contentShape(Rectangle())
-                                            }
-                                            .buttonStyle(.plain)
-                                            .accessibilityLabel(ratingAccessibilityLabel(for: value, isHalf: false))
-                                            .appInteractiveListRow()
-                                                .accessibilityIdentifier("ui.course-comment-composer-sheet.rating-full")
-                                        }
-                                        .frame(
-                                            width: AppDesignSystem.Size.Control.touchTarget,
-                                            height: AppDesignSystem.Size.Control.touchTarget
-                                        )
                                     }
                                 }
-
-                                Spacer()
-
                                 Text(rating == 0 ? "请选择评分" : CourseRatingText.text(from: rating, empty: "请选择评分"))
                                     .font(AppDesignSystem.Typography.bodyEmphasis)
                                     .foregroundStyle(rating == 0 ? AppDesignSystem.Foreground.secondaryColor : AppDesignSystem.Course.accent)
                             }
-
                         }
+                        .frame(minHeight: AppDesignSystem.Size.Control.touchTarget)
+                        .accessibilityLabel("课程评分")
+                        .accessibilityValue(rating == 0 ? "请选择评分" : CourseRatingText.text(from: rating, empty: "请选择评分"))
+                        .accessibilityIdentifier("ui.course-comment-composer-sheet.rating")
                     }
                 }
             }
@@ -290,15 +253,6 @@ struct CourseCommentComposerSheet: View {
         return "star"
     }
 
-    private func setRating(for value: Int, isHalf: Bool) {
-        let nextRating = value * 2 - (isHalf ? 1 : 0)
-        rating = rating == nextRating ? 0 : nextRating
-    }
-
-    private func ratingAccessibilityLabel(for value: Int, isHalf: Bool) -> String {
-        let ratingValue = Double(value) - (isHalf ? 0.5 : 0)
-        return "评分 \(ratingValue.formatted(.number.precision(.fractionLength(1)))) 星"
-    }
 }
 
 #endif

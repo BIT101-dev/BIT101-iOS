@@ -368,9 +368,7 @@ public nonisolated struct GalleryMessageAvatar: Decodable, Hashable, Sendable {
     ///
     /// 消息列表头像尺寸较小，低清地址可以减少图片数据量。
     public var preferredURL: URL? {
-        let raw = lowUrl.isEmpty ? url : lowUrl
-        guard !raw.isEmpty else { return nil }
-        return URL(string: raw)
+        CommunityImage.remoteURL(lowUrl) ?? CommunityImage.remoteURL(url)
     }
 }
 

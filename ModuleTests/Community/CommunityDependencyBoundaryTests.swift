@@ -624,7 +624,7 @@ struct CommunityDependencyBoundaryTests {
     @Test(.timeLimit(.minutes(1))) func courseEvaluationFactoryUsesTheInjectedListService() async throws {
         let list = RecordingCourseList()
         let dependencies = CourseDependencies(
-            list: list, detail: CourseService(session: session), preferences: preferences, loadCourseCredits: { [] }
+            list: list, detail: CourseService(session: session), preferences: preferences, networkPath: .init(), loadCourseCredits: { [] }
         )
         let result = try await dependencies.makeEvaluationResolver().resolve(courseName: "高等数学", courseNumber: "MATH")
         #expect(result == nil)
@@ -737,7 +737,7 @@ struct CommunityDependencyBoundaryTests {
         let list = RecordingCourseList()
         let dependencies = CourseDependencies(
             list: list, detail: detail, preferences: preferences,
-            loadCourseCredits: { [CommunityCourseCredit(number: "MATH", name: "高等数学", credit: 3)] }
+            networkPath: .init(), loadCourseCredits: { [CommunityCourseCredit(number: "MATH", name: "高等数学", credit: 3)] }
         )
         let viewModel = dependencies.makeListViewModel()
         await viewModel.search(for: "高等数学")
@@ -754,7 +754,7 @@ struct CommunityDependencyBoundaryTests {
         let list = RecordingPaperList()
         let composer = RecordingPaperComposer()
         let dependencies = PaperDependencies(list: list, detail: detail, composer: composer,
-            networkPath: NetworkPathState(snapshot: NetworkPathSnapshot(status: .connected)))
+            drafts: ComposerDraftStore(files: ModuleScoreFiles(), applicationSupport: URL(fileURLWithPath: "/paper-draft"), session: { AppStorageSession(accountIdentifier: "paper") }, prepareImageData: { $0 }), networkPath: NetworkPathState(snapshot: NetworkPathSnapshot(status: .connected)))
         let viewModel = PaperListViewModel(service: dependencies.list)
         await viewModel.refresh()
         let id = try await dependencies.composer.createPaper(

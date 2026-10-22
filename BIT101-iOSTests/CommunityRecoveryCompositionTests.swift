@@ -1,6 +1,7 @@
 @testable import BIT101_iOS
 @testable import GalleryFeature
 @testable import PaperFeature
+@testable import CourseFeature
 @testable import TransportCore
 import ClientCore
 import StorageCore
@@ -18,6 +19,50 @@ import UIKit
 @MainActor
 @Suite(.serialized)
 struct CommunityRecoveryCompositionTests {
+    private final class CourseReads: CourseListServicing {
+        var queries: [String] = []
+        var offline = true
+        func fetchCourses(search: String, page: Int) async throws -> [CourseSummary] {
+            queries.append(search)
+            if offline { throw URLError(.notConnectedToInternet) }
+            return []
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func courseSearchStaysAvailableThroughFailureAndConnectedRecovery() async throws {
+        let path = NetworkPathState(snapshot: .init(status: .disconnected)), reads = CourseReads()
+        let preferences = CommunityPreferences(snapshot: .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false,
+            useWebView: false, hideMakeupOutliers: false), saveMakeupFilter: { _ in })
+        let dependencies = CourseDependencies(list: reads, detail: CourseService(session: session()), preferences: preferences,
+            networkPath: path, loadCourseCredits: { [] })
+        let model = dependencies.makeListViewModel()
+        model.searchText = "旧查询"
+        let (window, controller) = try window(NavigationStack {
+            CoursePageContent(viewModel: model, dependencies: dependencies, media: media(),
+                profiles: CommunityProfileDestination(profile: { _ in AnyView(Text("个人主页")) }))
+        })
+        defer { window.isHidden = true; window.rootViewController = nil }
+        try await waitForTestEvent { if case .failed = model.state.status { true } else { false } }
+        try await render()
+        func fields(_ view: UIView) -> [UITextField] {
+            var result = (view as? UITextField).map { [$0] } ?? []
+            for child in view.subviews { result.append(contentsOf: fields(child)) }
+            return result
+        }
+        #expect(fields(controller.view).contains { $0.text == "旧查询" })
+        path.update(snapshot: .init(status: .requiresConnection))
+        try await render()
+        #expect(reads.queries == ["旧查询"])
+        reads.offline = false
+        path.update(snapshot: .init(status: .connected))
+        try await waitForTestEvent { model.state.status == .loaded }
+        #expect(reads.queries == ["旧查询", "旧查询"])
+        model.searchText = "新查询"
+        await model.submitSearch()
+        #expect(reads.queries.last == "新查询")
+    }
+
     private final class PaperReads: PaperListServicing {
         var calls = 0, offline = true
         func fetchPapers(search: String?, order: PaperSortOrder, page: Int) async throws -> [PaperSummary] {
@@ -84,7 +129,7 @@ struct CommunityRecoveryCompositionTests {
     func paperRecoveryWaitsForTheConnectedTransitionAfterConnectionIsRequired() async throws {
         let path = NetworkPathState(snapshot: .init(status: .disconnected)), service = PaperReads()
         let details = PaperService(session: session())
-        let dependencies = PaperDependencies(list: service, detail: details, composer: details, networkPath: path)
+        let dependencies = PaperDependencies(list: service, detail: details, composer: details, drafts: ComposerDraftStore(files: PreferenceMemoryFiles(), applicationSupport: URL(fileURLWithPath: "/paper-draft"), session: { AppStorageSession(accountIdentifier: "paper") }, prepareImageData: { $0 }), networkPath: path)
         let (window, _) = try window(NavigationStack { PaperRootView(dependencies: dependencies, media: media()) })
         defer { window.isHidden = true; window.rootViewController = nil }
         try await waitForTestEvent { service.calls == 1 }

@@ -1,12 +1,6 @@
 import CommunityCore
 import TransportCore
 import DesignSystemKit
-//
-//  CourseViewModel.swift
-//  BIT101-iOS
-//
-//  Created by Codex on 2026-04-02.
-//
 
 import Combine
 import Foundation
@@ -58,6 +52,7 @@ public final class CourseListViewModel: ObservableObject {
     private func enqueueRefresh() -> Task<Void, Never> {
         cancelRefreshOperations()
         hasBootstrapped = true
+        alert = nil
         let generation = refreshGeneration
         let task = Task { [weak self] in
             guard let self, self.refreshGeneration == generation, !Task.isCancelled else { return }
@@ -111,6 +106,11 @@ public final class CourseListViewModel: ObservableObject {
     func refresh() async {
         let task = enqueueRefresh()
         await withTaskCancellationHandler(operation: { await task.value }, onCancel: { task.cancel() })
+    }
+
+    func retryAfterConnectivityRecovery() {
+        guard case .failed = state.status, state.items.isEmpty else { return }
+        enqueueRefresh()
     }
 
     private func performRefresh() async {

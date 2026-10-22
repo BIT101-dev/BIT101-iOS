@@ -1,18 +1,51 @@
 @testable import ScoreFeature
 import ScorePorts
 import ClientCore
+import MediaKit
 import Foundation
 import Testing
 import UIKit
 
 @MainActor
 struct TrustedTranscriptRecoveryTests {
+    private final class SMSService: TrustedTranscriptServicing {
+        let challenge = BITLoginAuthenticationChallenge(challengeID: "transcript", accessToken: "fixture",
+            status: "requires_sms", maskedPhone: nil, expiresIn: 60)
+        var downloading = false, cancelled = false
+        func fetchTrustedTranscriptPages(onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
+            throw ScoreServiceError.secondFactorRequired(challenge)
+        }
+        func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge, onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
+            downloading = true
+            do { try await Task.sleep(for: .seconds(60)) }
+            catch { cancelled = Task.isCancelled; throw error }
+            throw URLError(.timedOut)
+        }
+        func submitTranscriptSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { challenge }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func leavingThePageCancelsTheAuthenticatedDownloadAndKeepsSMSClosed() async throws {
+        let service = SMSService(), model = TrustedTranscriptViewModel(service: service)
+        await model.applyIfNeeded()
+        #expect(model.smsChallenge != nil)
+        let submission = Task { await model.submitSMSCode("123456") }
+        defer { submission.cancel(); model.cancelSMSContinuation() }
+        try await waitForTestEvent { service.downloading }
+        #expect(model.smsChallenge == nil && model.isLoadingPages)
+        model.cancelSMSContinuation()
+        await submission.value
+        #expect(service.cancelled && model.smsChallenge == nil)
+        #expect(!model.isLoadingPages && !model.isSubmittingSMSCode && model.state == .idle)
+    }
+
     private final class StreamingService: TrustedTranscriptServicing {
         let data: Data
         let damage: String
         var applications = 0
         var reads: [(Int, Int)] = []
         var hold = true
+        var holdPage = 2
         var pending: CheckedContinuation<Void, Never>?
         init(data: Data, damage: String) { self.data = data; self.damage = damage }
         func fetchTrustedTranscriptPages(onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
@@ -20,8 +53,8 @@ struct TrustedTranscriptRecoveryTests {
             let application = applications
             let report = TrustedTranscriptReport(pageCount: 3) { [self] number, _ in
                 reads.append((application, number))
+                if number == holdPage, hold { hold = false; await withCheckedContinuation { pending = $0 } }
                 if number == 2 {
-                    if hold { hold = false; await withCheckedContinuation { pending = $0 } }
                     try Task.checkCancellation()
                     if application == 1 {
                         if damage == "source" { throw TrustedTranscriptReport.Failure.invalidSource(URLError(.badServerResponse)) }
@@ -36,6 +69,29 @@ struct TrustedTranscriptRecoveryTests {
             try await fetchTrustedTranscriptPages(onPage: onPage)
         }
         func submitTranscriptSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { challenge }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func replacementReportsShareOneDecodedImageBudget() async throws {
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.preferredRange = .standard
+        let data = UIGraphicsImageRenderer(size: CGSize(width: 1_024, height: 1_024), format: format).pngData { _ in }
+        let service = StreamingService(data: data, damage: "decode")
+        service.hold = false
+        let budget = 3 * 256 * 256 * 4
+        let model = TrustedTranscriptViewModel(service: service, limits: .init(maximumDecodedBytes: budget))
+        await model.applyIfNeeded()
+        #expect(model.pageNumbers == [1, 3])
+        service.hold = true; service.holdPage = 3
+        model.prepareReapplication()
+        let loading = Task { await model.applyIfNeeded() }
+        defer { loading.cancel(); service.pending?.resume(); service.pending = nil }
+        try await waitForTestEvent { service.pending != nil }
+        #expect(model.decodedImageBytes <= budget)
+        #expect(model.pageNumbers == [1, 2])
+        #expect(model.state == .loaded)
+        service.pending?.resume(); service.pending = nil
+        await loading.value
+        #expect(model.decodedImageBytes <= budget && model.pageNumbers == [1, 2, 3])
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: ["source", "decode"])

@@ -107,9 +107,11 @@ struct CommunityCoreTests {
             #expect(full.utf8.count <= CommunityTextLimits.maximumDisplayBytes && full.hasSuffix("…"))
             #expect(String(data: Data(preview.utf8), encoding: .utf8) == preview)
             #expect(text.utf8.count > CommunityTextLimits.maximumDisplayBytes)
+            #expect(CommunityTextLimits.requiresFullReading(text))
         }
         let boundary = String(repeating: "A", count: CommunityTextLimits.maximumPreviewBytes)
         #expect(CommunityTextLimits.displayText(boundary, preview: true) == boundary)
+        #expect(!CommunityTextLimits.requiresFullReading(String(repeating: "A", count: CommunityTextLimits.maximumDisplayBytes)))
     }
 
     @Test(.timeLimit(.minutes(1))) func unreadCandidatesSurviveNewNotificationsManualReadsAndReload() async throws {

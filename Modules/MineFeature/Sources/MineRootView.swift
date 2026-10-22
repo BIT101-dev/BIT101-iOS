@@ -541,7 +541,7 @@ private struct MineUserListView: View {
                         } label: {
                             HStack(spacing: AppDesignSystem.Spacing.content) {
                                 AppAvatarView(
-                                    imageURL: URL(string: user.avatar.lowUrl.isEmpty ? user.avatar.url : user.avatar.lowUrl),
+                                    imageURL: user.avatar.thumbnailURL,
                                     size: AppDesignSystem.Size.Avatar.standard,
                                     tint: AppDesignSystem.Palette.Accent.primary
                                 )

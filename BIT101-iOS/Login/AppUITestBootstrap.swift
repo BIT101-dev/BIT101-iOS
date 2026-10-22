@@ -583,9 +583,14 @@ final class UITestHTTPTransport: HTTPTransport {
          "images": mediaEnabled ? posterImages : [], "like": likedObjects.contains("poster1"), "like_num": 1, "own": true,
          "plugins": "[]", "public": true, "tags": AppUITestBootstrap.environment["BIT101_UI_TEST_LONG_TAGS"] == "1"
             ? (1...8).map { "横向滚动标签\($0)" } : ["测试", "自动化"],
-         "text": "自动化测试话题正文", "title": "自动化测试话题", "user": user,
+         "text": readingText("自动化测试话题正文", ending: "长帖末尾"), "title": "自动化测试话题", "user": user,
          "subscription": subscriptions["poster1"] ?? 0]
         return base.merging(posterChanges) { _, new in new }
+    }
+
+    private func readingText(_ text: String, ending: String) -> String {
+        guard AppUITestBootstrap.environment["BIT101_UI_TEST_LONG_TEXT"] == "1" else { return text }
+        return text + String(repeating: "正文片段 ", count: 8_000) + ending
     }
 
     private func paginationItems(_ item: [String: Any], page: String, key: String, title: String) -> [[String: Any]] {
@@ -632,7 +637,7 @@ final class UITestHTTPTransport: HTTPTransport {
         replyUser["nickname"] = ""
         return ["id": id, "obj": "comment\(id)", "images": mediaEnabled ? [mediaImage] : [], "user": user, "anonymous": false,
          "create_time": timestamp, "update_time": timestamp, "like": likedObjects.contains("comment\(id)"), "like_num": likedObjects.contains("comment\(id)") ? 1 : 0,
-         "comment_num": 0, "own": true, "rate": 4, "reply_user": replyUser, "reply_obj": "", "text": text, "sub": []]
+         "comment_num": 0, "own": true, "rate": 4, "reply_user": replyUser, "reply_obj": "", "text": readingText(text, ending: "长评末尾"), "sub": []]
     }
 }
 

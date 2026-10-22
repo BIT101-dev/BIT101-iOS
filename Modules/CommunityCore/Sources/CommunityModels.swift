@@ -17,6 +17,16 @@ public nonisolated struct CommunityImage: Decodable, Identifiable, Hashable, Sen
     /// 图片资源的稳定标识。
     public var id: String { mid }
 
+    public var thumbnailURL: URL? { Self.remoteURL(lowUrl) ?? Self.remoteURL(url) }
+    public var originalURL: URL? { Self.remoteURL(url) ?? Self.remoteURL(lowUrl) }
+
+    public static func remoteURL(_ value: String) -> URL? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let result = URL(string: trimmed), let scheme = result.scheme?.lowercased(),
+              ["http", "https"].contains(scheme), result.host?.isEmpty == false else { return nil }
+        return result
+    }
+
     /// 识别服务端返回的 GIF 地址；查询参数中的扩展名也纳入判断。
     public var isGIF: Bool {
         [url, lowUrl].contains { value in

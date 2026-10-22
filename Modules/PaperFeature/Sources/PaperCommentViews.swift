@@ -100,7 +100,7 @@ private struct PaperCommentRow: View {
     private func commentBubble(_ comment: CommunityComment, isSubComment: Bool) -> some View {
         AppCommentBubble {
             AppAvatarView(
-                imageURL: comment.anonymous ? nil : comment.user.avatar.preferredRemoteURL,
+                imageURL: comment.anonymous ? nil : comment.user.avatar.thumbnailURL,
                 size: isSubComment
                     ? AppDesignSystem.Size.Control.compact
                     : AppDesignSystem.Size.Avatar.standard,

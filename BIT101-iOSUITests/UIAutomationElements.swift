@@ -469,6 +469,7 @@ final class UIElement: NSObject {
     var textFields: UIElementQuery { descendants(matching: .textField) }
     var secureTextFields: UIElementQuery { descendants(matching: .secureTextField) }
     var textViews: UIElementQuery { descendants(matching: .textView) }
+    var steppers: UIElementQuery { descendants(matching: .stepper) }
     var switches: UIElementQuery { descendants(matching: .switch) }
     var navigationBars: UIElementQuery { descendants(matching: .navigationBar) }
     var tabBars: UIElementQuery { descendants(matching: .tabBar) }

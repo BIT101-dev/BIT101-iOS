@@ -3,21 +3,23 @@ import CommunityUI
 import CommunityCore
 import CommunityTransport
 import DesignSystemKit
-//
-//  PaperComposerViews.swift
-//  BIT101-iOS
 import SwiftUI
 import Observation
 import TransportCore
+import os
 
 /// 文章发布与编辑页；富文本正文沿用原始块结构。
 struct PaperComposerView: View {
+    private static let logger = Logger(subsystem: "BIT101", category: "PaperComposer")
     @Environment(PaperDependencies.self) private var dependencies
     @Environment(\.dismiss) private var dismiss
     let onCreated: () -> Void
     @State private var model: PaperComposerViewModel
     @State private var submitTask: Task<Void, Never>?
     @State private var isConfirmingDiscard = false
+    @State private var pendingDraft: PaperComposerDraftSnapshot?
+    @State private var isConfirmingRestore = false
+    private var isBusy: Bool { model.isSubmitting || submitTask != nil }
 
     init(editingPaper: PaperDetail? = nil, initialContent: String, onCreated: @escaping () -> Void) {
         self.onCreated = onCreated
@@ -55,42 +57,84 @@ struct PaperComposerView: View {
                     .accessibilityIdentifier("ui.paper-composer-view.匿名发布")
             }
         }
-        .disabled(model.isSubmitting)
+        .disabled(isBusy)
         .scrollDismissesKeyboard(.immediately)
         .navigationTitle(model.editingPaper == nil ? "发布文章" : "编辑文章")
         .navigationBarTitleDisplayMode(.inline)
-        .navigationBarBackButtonHidden(model.hasUnsavedChanges || model.isSubmitting)
+        .navigationBarBackButtonHidden(model.hasUnsavedChanges || isBusy)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("取消") {
                     if model.hasUnsavedChanges { isConfirmingDiscard = true }
                     else { dismiss() }
                 }
-                    .disabled(model.isSubmitting)
+                    .disabled(isBusy)
                     .accessibilityIdentifier("ui.paper-composer-view.cancel")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("暂存", action: saveDraftAndDismiss)
+                    .disabled(isBusy || !model.hasUnsavedChanges)
+                    .accessibilityIdentifier("ui.paper-composer-view.save-draft")
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button(model.isSubmitting ? "保存中…" : model.editingPaper == nil ? "发布" : "保存") {
                     guard submitTask == nil else { return }
                     submitTask = Task {
                         defer { submitTask = nil }
+                        let cleanup = await dependencies.drafts.capturePaperCleanup(matching: model.restoredDraft)
                         if await model.submit(service: dependencies.composer), !Task.isCancelled {
+                            if await cleanup() == false { Self.logger.error("已发布文章的草稿清理受阻，原始草稿已保留。") }
+                            guard !Task.isCancelled else { return }
                             onCreated()
                             dismiss()
                         }
                     }
                 }
-                .disabled(model.isSubmitting)
+                .disabled(isBusy)
                 .accessibilityIdentifier("ui.paper-composer-view.submit")
             }
         }
-        .interactiveDismissDisabled(model.isSubmitting || model.hasUnsavedChanges)
+        .interactiveDismissDisabled(isBusy || model.hasUnsavedChanges)
         .confirmationDialog("放弃文章修改？", isPresented: $isConfirmingDiscard, titleVisibility: .visible) {
-            Button("放弃修改", role: .destructive) { dismiss() }
+            Button("暂存并离开", action: saveDraftAndDismiss)
+            Button("放弃修改", role: .destructive) {
+                guard submitTask == nil else { return }
+                submitTask = Task {
+                    defer { submitTask = nil }
+                    let cleanup = await dependencies.drafts.capturePaperCleanup(matching: model.restoredDraft)
+                    if await cleanup(), !Task.isCancelled { dismiss() }
+                    else if !Task.isCancelled { model.alert = .informational(title: "草稿清理遇到问题", message: "当前编辑内容已保留，请重试。") }
+                }
+            }
             Button("取消", role: .cancel) {}
+        }
+        .task {
+            let result = await dependencies.drafts.loadPaper(paperID: model.editingPaper?.id)
+            guard !Task.isCancelled else { return }
+            if let draft = result.snapshot { pendingDraft = draft; isConfirmingRestore = true }
+            else if !result.allowsWrite { model.alert = .informational(title: "草稿恢复需要处理", message: "原始草稿已保留，请检查本机存储与 App 版本后重试。") }
+        }
+        .alert("恢复文章草稿？", isPresented: $isConfirmingRestore) {
+            Button("恢复草稿") {
+                if let pendingDraft { model.restoreDraft(pendingDraft) }
+                pendingDraft = nil
+            }
+            Button("继续当前编辑", role: .cancel) { pendingDraft = nil }
         }
         .onDisappear { submitTask?.cancel() }
         .diagnosticAlert(item: $model.alert)
+    }
+
+    private func saveDraftAndDismiss() {
+        guard submitTask == nil else { return }
+        let snapshot = model.draftSnapshot
+        submitTask = Task {
+            defer { submitTask = nil }
+            let saved = await dependencies.drafts.savePaper(snapshot)
+            guard !Task.isCancelled else { return }
+            if saved { dismiss() }
+            else { model.alert = .informational(title: "文章暂存遇到问题", message: "当前编辑内容已保留，请稍后重试暂存。") }
+        }
     }
 }
 
@@ -101,6 +145,8 @@ final class PaperComposerViewModel {
     let canEditBody: Bool
     private let originalPlainContent: String
     private let initialContent: String
+    private var expectedUpdatedAt: String?
+    private(set) var restoredDraft: PaperComposerDraftSnapshot?
     var title: String
     var intro: String
     var content: String
@@ -114,6 +160,7 @@ final class PaperComposerViewModel {
         canEditBody = editingPaper.map { PaperEditorContentBuilder.canEditAsPlainText($0.content) } ?? true
         originalPlainContent = initialContent.trimmingCharacters(in: .whitespacesAndNewlines)
         self.initialContent = initialContent
+        expectedUpdatedAt = editingPaper?.updateTime
         title = editingPaper?.title ?? ""
         intro = editingPaper?.intro ?? ""
         content = initialContent
@@ -123,6 +170,18 @@ final class PaperComposerViewModel {
     var hasUnsavedChanges: Bool {
         title != (editingPaper?.title ?? "") || intro != (editingPaper?.intro ?? "")
             || content != initialContent || anonymous != (editingPaper?.anonymous ?? false)
+    }
+
+    var draftSnapshot: PaperComposerDraftSnapshot {
+        .init(paperID: editingPaper?.id, baselineUpdatedAt: expectedUpdatedAt, title: title,
+              intro: intro, content: content, anonymous: anonymous)
+    }
+
+    func restoreDraft(_ draft: PaperComposerDraftSnapshot) {
+        guard draft.paperID == editingPaper?.id else { return }
+        title = draft.title; intro = draft.intro; content = draft.content; anonymous = draft.anonymous
+        expectedUpdatedAt = draft.baselineUpdatedAt
+        restoredDraft = draft
     }
 
     func submit(service: any PaperComposerServicing) async -> Bool {
@@ -158,7 +217,7 @@ final class PaperComposerViewModel {
             if let editingPaper {
                 try await service.updatePaper(id: editingPaper.id, title: title, intro: intro,
                     content: serializedBody, anonymous: anonymous, publicEdit: editingPaper.publicEdit,
-                    lastUpdatedAt: editingPaper.updateTime)
+                    lastUpdatedAt: expectedUpdatedAt ?? editingPaper.updateTime)
             } else {
                 _ = try await service.createPaper(title: title, intro: intro, content: serializedBody,
                     anonymous: anonymous, publicEdit: true)

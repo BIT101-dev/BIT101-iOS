@@ -37,7 +37,6 @@ extension AppDesignSystem {
             public static let navigationIcon: CGFloat = 24
             public static let compact: CGFloat = 28
             public static let touchTarget: CGFloat = 44
-            public static let halfTouchTarget = touchTarget / 2
         }
         public enum Editor {
             public static let multilineMinimumHeight: CGFloat = 180

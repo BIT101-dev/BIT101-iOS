@@ -283,8 +283,9 @@ final class PaperDetailViewModel: ObservableObject {
         guard !hasBootstrapped else { return }
         hasBootstrapped = true
         if paper == nil, let cached = await service.cachedPaper(id: initialPaper.id), !Task.isCancelled {
-            handlePaperResult(.success(cached), previousStatus: .idle, likeRevisionAtStart: likeRevision)
+            await handlePaperResult(.success(cached), previousStatus: .idle, likeRevisionAtStart: likeRevision, generation: refreshGeneration)
         }
+        guard !Task.isCancelled else { hasBootstrapped = false; return }
         await refreshAll()
         if Task.isCancelled || paperStatus == .idle || commentState.status == .idle { hasBootstrapped = false }
     }
@@ -303,7 +304,7 @@ final class PaperDetailViewModel: ObservableObject {
         async let paperRefresh: Void = { @MainActor [self] in
             let result = await loadResult { [self] in try await service.fetchPaper(id: initialPaper.id) }
             guard refreshGeneration == generation else { return }
-            handlePaperResult(result, previousStatus: previousPaperStatus, likeRevisionAtStart: likeRevisionAtStart)
+            await handlePaperResult(result, previousStatus: previousPaperStatus, likeRevisionAtStart: likeRevisionAtStart, generation: generation)
         }()
         async let commentRefresh: Void = { @MainActor [self, commentOrder] in
             let result = await loadResult { [self] in try await service.fetchComments(paperID: initialPaper.id, order: commentOrder, page: nil) }
@@ -498,9 +499,20 @@ final class PaperDetailViewModel: ObservableObject {
         }
     }
 
-    private func handlePaperResult(_ result: Result<PaperDetail, Error>, previousStatus: CommunityLoadStatus, likeRevisionAtStart: Int) {
+    private func handlePaperResult(_ result: Result<PaperDetail, Error>, previousStatus: CommunityLoadStatus, likeRevisionAtStart: Int, generation: Int) async {
+        guard refreshGeneration == generation else { return }
         switch result {
         case let .success(paper):
+            let prepared: [PaperContentBlock]
+            do {
+                prepared = try await PaperContentRenderer.blocksForDisplay(from: paper.content)
+                try Task.checkCancellation()
+            }
+            catch {
+                await handlePaperResult(.failure(error), previousStatus: previousStatus, likeRevisionAtStart: likeRevisionAtStart, generation: generation)
+                return
+            }
+            guard refreshGeneration == generation else { return }
             likeResultNeedsReview = false
             if likeRevision != likeRevisionAtStart, let latestLikeResult {
                 self.paper = paper.updatingLike(latestLikeResult.like, likeNum: latestLikeResult.likeNum)
@@ -508,7 +520,7 @@ final class PaperDetailViewModel: ObservableObject {
                 self.paper = paper
                 latestLikeResult = nil
             }
-            contentBlocks = PaperContentRenderer.blocks(from: paper.content)
+            contentBlocks = prepared
             paperStatus = .loaded
         case let .failure(error):
             if TaskCancellation.matches(error) {

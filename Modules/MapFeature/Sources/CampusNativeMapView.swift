@@ -1,11 +1,5 @@
 #if os(iOS)
 import DesignSystemKit
-//
-//  CampusNativeMapView.swift
-//  BIT101-iOS
-//
-//  Created by Codex on 2026-08-12.
-//
 
 import CoreLocation
 import MapKit
@@ -35,6 +29,7 @@ struct MapFocusRequest: Equatable {
 ///
 /// 原生地图、相机定位和下一节课标记由该桥接层负责。
 struct CampusNativeMapView: UIViewRepresentable {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let focusRequest: MapFocusRequest
     let centerOnUserRequestID: UUID?
     let nextCourseTarget: UpcomingCourseMapTarget?
@@ -46,6 +41,7 @@ struct CampusNativeMapView: UIViewRepresentable {
     func makeCoordinator() -> Coordinator {
         let coordinator = Coordinator()
         coordinator.onLocationFailure = onLocationFailure
+        coordinator.reduceMotion = reduceMotion
         return coordinator
     }
 
@@ -77,6 +73,7 @@ struct CampusNativeMapView: UIViewRepresentable {
     /// 根据最新的 SwiftUI 状态同步地图相机和“回到我的位置”动作。
     func updateUIView(_ mapView: MKMapView, context: Context) {
         context.coordinator.onLocationFailure = onLocationFailure
+        context.coordinator.reduceMotion = reduceMotion
         if context.coordinator.lastMapConfigurationID != mapConfigurationID {
             mapView.preferredConfiguration = mapConfiguration
             context.coordinator.lastMapConfigurationID = mapConfigurationID
@@ -108,6 +105,7 @@ struct CampusNativeMapView: UIViewRepresentable {
         private var lastCourseTarget: UpcomingCourseMapTarget?
         private var lastRequestedLocationID: UUID?
         var onLocationFailure: ((Error) -> Void)?
+        var reduceMotion = false
         private weak var nextCourseAnnotation: CampusPlaceAnnotation?
         private var requestedLocationAnnotations: [CampusPlaceAnnotation] = []
 
@@ -165,14 +163,14 @@ struct CampusNativeMapView: UIViewRepresentable {
                 pitch: 0,
                 heading: 0
             )
-            mapView.setCamera(camera, animated: animated)
+            mapView.setCamera(camera, animated: animated && !reduceMotion)
         }
 
         func focus(on preset: CampusPreset, in mapView: MKMapView, animated: Bool) {
             pendingCenterOnUserRequestID = nil
             mapView.setUserTrackingMode(.none, animated: false)
             mapView.setCamera(MKMapCamera(lookingAtCenter: preset.coordinate,
-                fromDistance: preset.distance, pitch: 0, heading: 0), animated: animated)
+                fromDistance: preset.distance, pitch: 0, heading: 0), animated: animated && !reduceMotion)
         }
 
         /// 为下一节课和课程详情地点提供原生地图标记。

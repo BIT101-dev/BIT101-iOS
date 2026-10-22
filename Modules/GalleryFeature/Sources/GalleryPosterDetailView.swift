@@ -410,10 +410,7 @@ private struct GalleryPosterDetailViewScene: View {
 
     private var posterAvatarURL: URL? {
         guard !viewModel.poster.anonymous else { return nil }
-        let rawURL = viewModel.poster.user.avatar.lowUrl.isEmpty
-            ? viewModel.poster.user.avatar.url
-            : viewModel.poster.user.avatar.lowUrl
-        return URL(string: rawURL)
+        return viewModel.poster.user.avatar.thumbnailURL
     }
 
     /// 独立跳转域名使用稳定的 `/gallery/{id}` 路由；未安装 App 时由 Worker 转至网页。

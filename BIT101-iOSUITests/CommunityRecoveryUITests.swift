@@ -2,6 +2,32 @@ import XCTest
 
 nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
     @MainActor
+    @objc func testLongPostAndCommentKeepACompleteNativeReadingPath() {
+        app = configureApp(resetStorage: true, content: true, longText: true, initialTab: "gallery")
+        tap("自动化测试话题")
+        let readers = app.buttons.matching(identifier: "ui.community-linked-text.read-full")
+        reveal(readers.firstMatch, description: "长帖完整阅读入口")
+        readers.firstMatch.tapBriefly()
+        let content = app.textViews["community.full-text"]
+        assertUI(content.appears(timeout: 5), "全文应进入原生文本阅读视图。")
+        assertUI((content.value as? String)?.hasSuffix("长帖末尾") == true, "完整阅读应保留长帖末尾内容。")
+        content.tapBriefly()
+        content.swipeUp()
+        tap("完成")
+        reveal(app.buttons["回复"], description: "长评论操作")
+        guard let commentReader = readers.allElementsBoundByIndex.last(where: { $0.isHittable }) else {
+            assertUI(false, "长评论应提供完整阅读入口。")
+            return
+        }
+        commentReader.tapBriefly()
+        assertUI(content.appears(timeout: 5), "长评论应进入原生文本阅读视图。")
+        assertUI((content.value as? String)?.hasSuffix("长评末尾") == true, "完整阅读应保留长评论末尾内容。")
+        content.tapBriefly()
+        content.swipeUp()
+        tap("完成")
+    }
+
+    @MainActor
     @objc func testIdenticalFeedRefreshKeepsThePaginationPosition() {
         app = configureApp(resetStorage: true, content: true, media: true, pagination: true, initialTab: "gallery")
         tapHeader(app.segmentedControls.buttons["最新"])

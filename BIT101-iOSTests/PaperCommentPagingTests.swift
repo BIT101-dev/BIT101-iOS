@@ -311,3 +311,49 @@ extension GalleryRecommendationPrefetchTests {
     }
 
 }
+
+@MainActor
+struct PaperContentRecoveryTests {
+    @Test func restoredDraftKeepsItsOriginalEditVersion() {
+        let paper = PaperDetail(id: 1, title: "当前标题", intro: "", content: "正文", createTime: "", updateTime: "current-version",
+            updateUser: .placeholder(id: 1, nickname: "作者"), anonymous: false, likeNum: 0, commentNum: 0,
+            publicEdit: false, like: false, own: true)
+        let model = PaperComposerViewModel(editingPaper: paper, initialContent: "正文")
+        let draft = PaperComposerDraftSnapshot(paperID: 1, baselineUpdatedAt: "saved-version", title: "草稿标题",
+            intro: "草稿简介", content: "草稿正文", anonymous: true)
+        model.restoreDraft(draft)
+        #expect(model.draftSnapshot == draft && model.hasUnsavedChanges)
+    }
+
+    @Test(arguments: [#"{"blocks":null}"#, #"{"blocks":[null]}"#, #"{"blocks":"text"}"#, #"{"blocks":["#, "[1]"])
+    func malformedEditorDocumentsKeepTheOriginalReadingPath(raw: String) {
+        let blocks = PaperContentRenderer.blocks(from: raw)
+        #expect(blocks.count == 1)
+        if case .requiresOriginal = blocks[0] {} else { Issue.record("结构异常需要完整原文入口。") }
+    }
+
+    @Test func malformedBlocksKeepSurroundingReadableParagraphs() {
+        let raw = #"{"blocks":[{"type":"paragraph","data":{"text":"前文"}},null,{"type":"paragraph","data":{"text":"后文"}}]}"#
+        let blocks = PaperContentRenderer.blocks(from: raw)
+        #expect(PaperEditorContentBuilder.plainText(from: blocks) == "前文\n\n后文")
+        #expect(blocks.count == 3)
+        if case .requiresOriginal = blocks[1] {} else { Issue.record("损坏段落需要原文恢复。") }
+        #expect(PaperEditorContentBuilder.plainText(from: "普通正文") == "普通正文")
+        #expect(PaperEditorContentBuilder.plainText(from: "[公告] 原样正文") == "[公告] 原样正文")
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func longBodyPreparationServicesPendingMainActorWork() async throws {
+        let sourceBlocks = Array(repeating: ["type": "paragraph", "data": ["text": "<b>正文</b> <a href=\"https://example.com\">链接</a>"]] as [String: Any], count: 128)
+        let raw = String(decoding: try JSONSerialization.data(withJSONObject: ["blocks": sourceBlocks]), as: UTF8.self)
+        var serviced = false
+        let interaction = Task { serviced = true }
+        let blocks = try await PaperContentRenderer.blocksForDisplay(from: raw)
+        #expect(serviced && blocks.count == 128)
+        await interaction.value
+        let cancelled = Task { try await PaperContentRenderer.blocksForDisplay(from: raw) }
+        cancelled.cancel()
+        do { _ = try await cancelled.value; Issue.record("取消后应结束正文准备。") }
+        catch is CancellationError { #expect(cancelled.isCancelled) }
+    }
+}
