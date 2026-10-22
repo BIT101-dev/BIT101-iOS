@@ -49,7 +49,7 @@ def hook_documents_checked(source: str) -> bool:
     for line in source.splitlines():
         words = shlex.split(line, comments=True)
         if words[:1] == ['exec']: words = words[1:]
-        if words[:2] == ['python3', 'Scripts/check-docs.py'] and {'--all', '--staged'} <= set(words[2:]): return True
+        if words[:2] == ['python3', 'Scripts/check-docs.py'] and '--staged' in words[2:]: return True
     return False
 
 
@@ -493,7 +493,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
     if len(download) == 1 and not shard_steps.index(download[0]) < baseline < boot:
         errors.append('.github/workflows/ci.yml: UI 分组需要在宿主与基准读取完成后启动模拟器')
     cleanup = mapping(jobs.get('compiler-cache-cleanup'))
-    if cleanup.get('if') != "github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && (inputs.full_check || inputs.release_check)" \
+    if cleanup.get('if') != "${{ always() && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && (inputs.full_check || inputs.release_check) }}" \
             or mapping(cleanup.get('permissions')) != {'contents': 'read', 'actions': 'write'} \
             or cleanup.get('needs') != ['release-build', 'catalyst-tests', 'ios-ui-build', 'ios-test-shards', 'ios-app-tests'] \
             or not any(command_matches(str(step.get('run') or ""), 'python3 Scripts/ci_evidence.py cache-prune') for step in cleanup.get('steps', [])):
@@ -865,7 +865,7 @@ def audit_wiring_findings(ROOT, scheme_inventory_findings, extension_dependency_
         "git-diff": "git_check", "docs": "docs_check", "checkers": "checker_audit"}
     if wiring != expected or len(group_names) != len(expected):
         errors.append("Scripts/run-static-audit.sh: 静态审计回调需要逐组接入完整契约")
-    if "check-docs.py --all" not in audit_source:
+    if "check-docs.py" not in audit_source:
         errors.append("Scripts/run-static-audit.sh: 未接入文档引用检查")
     if not re.search(r"(?m)^\s*run_group\s+artifact-hygiene\s+artifact_hygiene(?:\s|$)", audit_source):
         errors.append("Scripts/run-static-audit.sh: 静态审计回调需要接入产物清理检查")

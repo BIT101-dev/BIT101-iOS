@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Archive feedback incrementally and maintain its local inventory."""
 import json
 import base64
@@ -48,13 +49,19 @@ def prune_archive(folder, days):
     folder = pathlib.Path(folder)
     deadline = time.time_ns() - days * 86_400 * 1_000_000_000
     removed = 0
+    removed_names = set()
     import shutil
     for name, item in refresh_archive_index(folder).items():
         if item['modified'] >= deadline: continue
         path = folder / name
         path.unlink()
+        removed_names.add(path.name)
         shutil.rmtree(path.parent / (path.stem + '_附件'), ignore_errors=True)
         removed += 1
+    processed_path = folder / 'report-keys.txt'
+    processed = set(processed_path.read_text().splitlines()) if processed_path.is_file() else set()
+    processed.update('pruned-file:' + name for name in removed_names)
+    processed_path.write_text('\n'.join(sorted(processed)) + ('\n' if processed else ''))
     refresh_archive_index(folder)
     print(f'本地归档已按 {days} 天保留范围清理：{removed} 份。')
 
@@ -117,6 +124,7 @@ def archive_reports(arguments):
     def cache_complete(item):
         key = item["name"]
         path = local_reports.get(key.replace(":", "_") + ".json")
+        if 'pruned-file:' + key.replace(':', '_') + '.json' in processed: return True
         if key not in processed or path is None: return False
         try:
             saved = json.loads(path.read_text())

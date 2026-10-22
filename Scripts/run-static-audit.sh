@@ -100,17 +100,7 @@ run_group() {
 }
 
 show_group_log() {
-  local log="$1"
-  local failed="$2"
-  if [[ "$failed" == true && "${GITHUB_ACTIONS:-false}" == true ]]; then
-    cat "$log"
-    return
-  fi
-  local line_count="$(wc -l < "$log")"
-  head -n 40 "$log"
-  if (( line_count > 40 )); then
-    echo "[输出] ${log:t:r} 共 $line_count 行 · $log"
-  fi
+  python3 "$ROOT_DIR/Scripts/command_output.py" show-log "$1" "$2"
 }
 
 swift_parse() {
@@ -149,7 +139,7 @@ docs_check() {
   if [[ "${BIT101_RELEASE_CHECK:-false}" == "true" ]]; then
     version_args+=(--check-app-store)
   fi
-  (cd "$ROOT_DIR" && python3 Scripts/check-docs.py --all --self-test) || return 1
+  (cd "$ROOT_DIR" && python3 Scripts/check-docs.py --self-test) || return 1
   (cd "$ROOT_DIR" && python3 Scripts/check-docs.py --staged) || return 1
   (cd "$ROOT_DIR" && python3 Scripts/validate_versions.py "${version_args[@]}")
 }

@@ -219,7 +219,6 @@ def staged_content_fixture() -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--all", action="store_true", help="display every finding")
     parser.add_argument("--staged", action="store_true", help="validate links against the complete Git index")
     parser.add_argument("--self-test", action="store_true", help="run link and staged-content regression cases")
     args = parser.parse_args()

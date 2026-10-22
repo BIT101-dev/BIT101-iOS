@@ -315,8 +315,11 @@ def prune_caches() -> None:
         run_id = row['workflow_run']['id']
         if not shared_host and run_id not in runs:
             runs[run_id] = json.loads(subprocess.check_output(['gh', 'api', f'repos/{repo}/actions/runs/{run_id}'], text=True))
-        if shared_host or row['name'] not in {'compilation-cache-' + flavor for flavor in CACHE_FLAVORS} \
-                or not trusted_cache_run(runs[run_id], repo) or row['name'] in retained:
+        if not shared_host and str(run_id) != os.getenv('GITHUB_RUN_ID') and runs[run_id].get('status') in {
+                'queued', 'in_progress', 'waiting', 'requested', 'pending'}: continue
+        flavor = row['name'].removeprefix('compilation-cache-')
+        if shared_host or flavor not in CACHE_FLAVORS or not trusted_cache_run(runs[run_id], repo) \
+                or row['name'] in retained or not cache_result_matches(repo, runs[run_id], flavor):
             deleted = subprocess.run(['gh', 'api', '-X', 'DELETE', f"repos/{repo}/actions/artifacts/{row['id']}"], capture_output=True, text=True)
             if deleted.returncode and '(HTTP 404)' not in deleted.stderr: deleted.check_returncode()
         else: retained.add(row['name'])
@@ -501,7 +504,7 @@ def cache_self_test() -> None:
         return json.dumps(dict(trusted, head_repository={'full_name': 'fork/repo'}) if command[-1].endswith('/2') else trusted)
     with patch.dict(os.environ, GITHUB_RUN_ID='1'), patch.object(module, 'repository', return_value='owner/repo'), \
             patch.object(module, 'api_pages', return_value=[{'artifacts': artifacts}]), \
-            patch.object(subprocess, 'check_output', side_effect=producer), \
+            patch.object(subprocess, 'check_output', side_effect=producer), patch.object(module, 'cache_result_matches', return_value=True), \
             patch.object(subprocess, 'run', return_value=SimpleNamespace(returncode=0)) as deleted:
         prune_caches()
         assert [call.args[0][-1] for call in deleted.call_args_list] == [f'repos/owner/repo/actions/artifacts/{index}' for index in (7, 6, 5, 1)]
@@ -510,7 +513,7 @@ def cache_self_test() -> None:
             return subprocess.CompletedProcess(command, code, '', error)
         with patch.object(module, 'repository', return_value='owner/repo'), \
                 patch.object(module, 'api_pages', return_value=[{'artifacts': artifacts}]), \
-                patch.object(subprocess, 'check_output', side_effect=producer), \
+                patch.object(subprocess, 'check_output', side_effect=producer), patch.object(module, 'cache_result_matches', return_value=True), \
                 patch.object(subprocess, 'run', side_effect=deleted_artifact):
             try: prune_caches()
             except subprocess.CalledProcessError as failure: assert failure.stderr == error and '(HTTP 404)' not in error

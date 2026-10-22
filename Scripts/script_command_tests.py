@@ -315,8 +315,8 @@ def script_command_boundary_findings() -> list[str]:
         assert result.returncode == status and '用法' in result.stdout + result.stderr
     from ci_wiring_rules import hook_documents_checked, active_script_markers
     from module_boundary_tests import build_cache_exit_self_test
-    assert hook_documents_checked('exec python3 Scripts/check-docs.py --all --staged')
-    for source in ('# exec python3 Scripts/check-docs.py --all --staged', 'echo "python3 Scripts/check-docs.py --all --staged"'):
+    assert hook_documents_checked('exec python3 Scripts/check-docs.py --staged')
+    for source in ('# exec python3 Scripts/check-docs.py --staged', 'echo "python3 Scripts/check-docs.py --staged"'):
         assert not hook_documents_checked(source)
     assert 'xccov' not in active_script_markers('# xccov\necho ready # xccov')
     "通过内存替身验证自动选机、操作分派、筛选合并及参数拒绝。"
@@ -554,11 +554,12 @@ xcrun() {
     export_source = export_source[:export_source.index('if [[ "${1:-}" == -h')]
     export_source = export_source.replace('  python3 "$ROOT_DIR/Scripts/test_results.py" report',
         '  exit 86\n  python3 "$ROOT_DIR/Scripts/test_results.py" report')
-    for arguments in (["report", "json"], ["diagnostics"], ["activities", "test"], ["screenshot", "test"]):
+    for arguments, locked in ((["report", "json"], False), (["diagnostics"], True), (["activities", "test"], False),
+                              (["screenshot", "test"], True), (["report", "Suite/test"], True)):
         result = subprocess.run(["zsh", "-c", export_source, str(SCRIPT_ROOT / "run-extended-tests.sh"), *arguments],
                                 env=dict(os.environ, BIT101_EXTENDED_TESTS_LOCK_HELD="1"), capture_output=True, text=True)
-        if result.returncode != 86 or result.stdout.count("WORKFLOW_LOCK") != 1:
-            findings.append(f"固定产物导出自测：{arguments[0]} 取得工作流锁")
+        if result.returncode != 86 or result.stdout.count("WORKFLOW_LOCK") != int(locked):
+            findings.append(f"结果读取与附件导出沿各自的锁范围执行：{arguments[0]}")
     for command, markers in ((["xcrun", "devicectl", "device", "process", "launch", "--help"], ["--terminate-existing", "<command-line-arguments>"]),
             (["xcrun", "devicectl", "device", "info", "processes", "--help"], ["--json-output"]),
             (['xcrun', 'xcresulttool', 'merge', '--help'], ['--output-path'])):

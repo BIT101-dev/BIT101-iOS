@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Share compiler caches and reclaim native storage through its owning tools."""
 import fcntl
 from contextlib import nullcontext
@@ -181,6 +182,10 @@ def run_cache(arguments: list[str]) -> None:
             result = subprocess.run(["zsh", "-c",
                 'ROOT_DIR="$1"; source "$ROOT_DIR/Scripts/script-support.sh"; shift; bit101_log_command "$@"',
                 "cache-build", str(root), *arguments])
+            if result.returncode == 0:
+                try: prune_native_storage(shared)
+                except (OSError, RuntimeError, AttributeError, subprocess.SubprocessError) as error:
+                    print(f'缓存回收待重试：{error}', file=sys.stderr)
             raise SystemExit(result.returncode if result.returncode >= 0 else 128 - result.returncode)
 
 

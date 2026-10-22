@@ -32,7 +32,10 @@ if [[ "${1:-}" == report || "${1:-}" == screenshot || "${1:-}" == activities || 
     screenshot) [[ $# -eq 2 || $# -eq 3 ]] || exit 64 ;;
     *) [[ $# -eq 2 ]] || { echo "请提供测试类/方法。" >&2; exit 64; } ;;
   esac
-  bit101_acquire_artifact_lock "$0" "$@"
+  case "$1:${2:-}" in
+    report:|report:json|report:coverage|report:performance|report:performance-run|report:performance-schema|activities:*) ;;
+    *) bit101_acquire_artifact_lock "$0" "$@" ;;
+  esac
   if [[ "$1" == report && $# -eq 1 && -f "$DERIVED_ROOT/test-metrics.txt" ]]; then
     cat "$DERIVED_ROOT/test-metrics.txt"
     if [[ -f "$DERIVED_ROOT/test-failures.txt" ]]; then cat "$DERIVED_ROOT/test-failures.txt"; fi

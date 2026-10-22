@@ -22,6 +22,9 @@ VALIDATION_SCRIPTS = {"validation_evidence.py", "validation_inputs.py", "validat
 VALIDATION_SCRIPTS.add("swift_type_index.py")
 VALIDATION_SCRIPTS.add("validation_simulator.py")
 VALIDATION_SCRIPTS.update({"validation_publication.py", "validation_compilation.py", "validation_performance.py", "network_capability_rules.py", "network_request_contracts.py"})
+AUDIT_IMPLEMENTATIONS = frozenset({'code_quality_rules.py', 'audit_callback_rules.py',
+    'ci_wiring_rules.py', 'check-module-boundaries.py', 'swift_source_index.py', 'swift_type_index.py',
+    'ui_source_facts.py'}) | frozenset(SWIFT_SYNTAX_SOURCE_NAMES)
 BUILD_SCRIPTS = {"script-support.sh", "build-install-device.sh", "ci_evidence.py", "validation_artifacts.py"}
 TEST_SCRIPTS = BUILD_SCRIPTS | VALIDATION_SCRIPTS | {"run-extended-tests.sh", "simulator-tests.sh"}
 INPUT_TRANSACTION_FILES = {'BIT101-iOSTests/Fixtures/campus-map-locations.lock', 'BIT101-iOSTests/Fixtures/campus-map-locations.incoming'}
@@ -187,10 +190,10 @@ def script_dependency_closure(seeds: frozenset[str], sources: dict[str, str]) ->
 
 
 @cache
-def script_inputs(seeds: frozenset[str]) -> set[str]:
+def script_inputs(seeds: frozenset[str], excluded: frozenset[str] = frozenset()) -> set[str]:
     root = Path(__file__).resolve().parent
     sources = {path.relative_to(root).as_posix(): path.read_text() for suffix in ('*.py', '*.sh') for path in root.rglob(suffix)}
-    return script_dependency_closure(seeds, sources)
+    return script_dependency_closure(seeds - excluded, {name: source for name, source in sources.items() if name not in excluded})
 
 
 def swift_module_imports(source: str) -> set[str]:
@@ -260,10 +263,11 @@ def includes_input(name: str, group: str) -> bool:
         scripts = BUILD_SCRIPTS | VALIDATION_SCRIPTS
     else:
         raise ValueError(f"需要登记验证组的输入范围：{group}")
+    excluded = AUDIT_IMPLEMENTATIONS if not build and host in NETWORK_GROUPS | {'icloud'} else frozenset()
     compiled_tests = (build or group == "network-smoke") and host in NETWORK_GROUPS | {"icloud"}
     return product or tests or name in SHARED_TEST_FILES and (host in APP_TEST_GROUPS or compiled_tests) \
         or name in PERFORMANCE_TEST_FILES and (host in APP_TEST_GROUPS | {"ui"} or compiled_tests) \
-        or root == "Scripts" and PurePosixPath(*path.parts[1:]).as_posix() in script_inputs(frozenset(scripts))
+        or root == "Scripts" and PurePosixPath(*path.parts[1:]).as_posix() in script_inputs(frozenset(scripts), excluded)
 
 
 def verification_dispatch(source: str) -> set[str]:
@@ -344,7 +348,14 @@ def self_test() -> None:
         assert includes_input("Modules/StorageCore/Sources/AppFileService.swift", group)
         for name in {"validation_inputs.py", "check-module-boundaries.py", "swift_type_index.py",
                 "network_request_contracts.py", "ui_source_facts.py", *SWIFT_SYNTAX_SOURCE_NAMES}:
-            assert includes_input("Scripts/" + name, group) == (group != "manual-device"), (name, group)
+            expected = group != 'manual-device' and not (group in NETWORK_GROUPS | {'icloud', 'network-smoke'} and name in AUDIT_IMPLEMENTATIONS)
+            assert includes_input("Scripts/" + name, group) == expected, (name, group)
+    for group in NETWORK_GROUPS | {'icloud'}:
+        for name in AUDIT_IMPLEMENTATIONS:
+            assert not includes_input('Scripts/' + name, group), (name, group)
+            assert includes_input('Scripts/' + name, 'audit')
+        for name in ('validation_policy.py', 'network_request_contracts.py', 'validation_inputs.py'):
+            assert includes_input('Scripts/' + name, group), (name, group)
     assert includes_input("ModuleTests/Sync/ScheduleSyncTests.swift", "modules")
     assert includes_input("BIT101-iOSTests/Fixtures/schedule-service-response.json", "modules")
     assert not includes_input("BIT101-iOS/ContentView.swift", "modules")

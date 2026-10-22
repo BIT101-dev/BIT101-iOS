@@ -49,6 +49,7 @@ def log_output_boundary_findings() -> list[str]:
     exported = diagnostic_bundle.parent / 'session.log'
     with patch.object(sys, 'argv', ['diagnostics', '/fixture/test-results.xcresult', '', 'diagnostics', str(SCRIPT_ROOT)]), \
             patch.object(Path, 'is_file', return_value=True), patch.object(Path, 'exists', lambda path: path == diagnostic_bundle.parent), \
+            patch('test_results.current_result_bundle', return_value=diagnostic_bundle), \
             patch.object(Path, 'is_dir', lambda path: path == diagnostic_bundle), \
             patch.object(Path, 'iterdir', return_value=[diagnostic_bundle, exported]), \
             patch.object(Path, 'unlink') as unlinked, patch.object(shutil, 'rmtree') as removed, \

@@ -387,7 +387,9 @@ def run_self_test(subject) -> int:
             for name in inputs:
                 before = {group: subject.source_digest(group, environment={}) for group in groups}
                 inputs[name] += b' changed facts'
-                assert all((subject.source_digest(group, environment={}) != before[group]) == (group != 'manual-device') for group in groups), name
+                sampling = subject.NETWORK_GROUPS | {'network-smoke', 'icloud', 'icloud-cleanup'}
+                assert all((subject.source_digest(group, environment={}) != before[group]) ==
+                    (group != 'manual-device' and group not in sampling) for group in groups), name
         def icloud_summary(value):
             return subject.smoke_summary('icloud', dict(validatedDomains=sorted(subject.ICLOUD_DOMAINS), cloudKitEnvironment='Production', runID='fixture', **value))
         test = {'passed': True, 'totalTests': 1, 'passedTests': 1, 'failedTests': 0, 'skippedTests': 0}

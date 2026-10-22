@@ -1,6 +1,7 @@
 """Exercise each static-audit delegate with successful and failing commands."""
 import re
 import subprocess
+import shlex
 
 
 def audit_call_identity(call: str) -> tuple:
@@ -52,7 +53,7 @@ def audit_callback_findings(source: str) -> list[str]:
         "worker_parse": ["find|/audit/Cloudflare|(|-name|node_modules|-o|-name|.wrangler|-o|-name|.git|)|-prune|-o|-type|f|-name|*.js|-print0", "node|--check|fixture.swift"],
         "dependency_audit": ["cd|/audit/Cloudflare/EmergencyUpdateWorker", "npm|audit|--audit-level=high"],
         "git_check": ["git|-C|/audit|diff|--check", "git|-C|/audit|diff|--cached|--check"],
-        "docs_check": ["cd|/audit", "python3|Scripts/check-docs.py|--all|--self-test", "cd|/audit", "python3|Scripts/check-docs.py|--staged", "cd|/audit", "python3|Scripts/validate_versions.py|--compare-git-ref|base|--check-app-store"],
+        "docs_check": ["cd|/audit", "python3|Scripts/check-docs.py|--self-test", "cd|/audit", "python3|Scripts/check-docs.py|--staged", "cd|/audit", "python3|Scripts/validate_versions.py|--compare-git-ref|base|--check-app-store"],
         "checker_audit": ["python3|/audit/Scripts/check-file-lengths.py", "python3|/audit/Scripts/check-file-lengths.py|--staged", "python3|/audit/Scripts/validation_evidence.py|self-test", "python3|/audit/Scripts/check-code-quality.py|--combined|--self-test"],
         "module_boundary_audit": ["python3|/audit/Scripts/check-module-boundaries.py|--self-test"],
         "artifact_hygiene": ["python3|/audit/Scripts/validation_artifacts.py|/audit"],
@@ -111,14 +112,15 @@ def self_test() -> None:
     source = Path(__file__).with_name("run-static-audit.sh").read_text()
     logger = re.search(r'(?ms)^show_group_log\(\) \{.*?^\}', source)[0]
     for count, failed, ci in ((1000, False, False), (1001, False, True), (1001, True, False), (1001, True, True)):
-        harness = f'wc() {{ print {count}; }}; head() {{ print diagnostics; }}; cat() {{ print full-diagnostics; }}; GITHUB_ACTIONS={str(ci).lower()};\n'
+        harness = 'ROOT_DIR=' + shlex.quote(str(Path(__file__).resolve().parents[1])) \
+            + f'; export GITHUB_ACTIONS={str(ci).lower()};\n'
+        payload = ''.join(f'diagnostic {index}\n' for index in range(count - 1)) + 'error: decisive cause\n'
         result = subprocess.run(['zsh', '-c', harness + logger + f'\nshow_group_log /dev/stdin {str(failed).lower()}'],
-            capture_output=True, text=True, input='')
-        assert result.returncode == 0
-        if failed and ci:
-            assert result.stdout == 'full-diagnostics\n'
-        else:
-            assert result.stdout.startswith('diagnostics\n') and ('[输出]' in result.stdout) == (count > 40)
+            capture_output=True, text=True, input=payload)
+        assert result.returncode == 0, result.stderr
+        assert 'diagnostic 0\n' in result.stdout and 'error: decisive cause\n' in result.stdout
+        if failed and ci: assert result.stdout == payload
+        else: assert '[输出]' in result.stdout and len(result.stdout.splitlines()) <= 41
     assert not audit_callback_findings(source)
     assert audit_callback_findings(source.replace('|| checker_status=1', '|| return 1'))
     reordered = source.replace('-frontend -parse -D DEBUG -D EXTENDED_AUTOMATION',

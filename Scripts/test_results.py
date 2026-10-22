@@ -10,6 +10,14 @@ def workflow_start(arguments: list[str]) -> None:
     print(time.monotonic())
 
 
+def current_result_bundle(bundle: Path) -> Path:
+    diagnostic = bundle.parent / 'diagnostics/test-results.xcresult'
+    def modified(path):
+        return max(item.stat().st_mtime_ns for item in (path, path / 'Info.plist', path / 'database.sqlite3', path / 'Staging') if item.exists())
+    available = [path for path in (bundle, diagnostic) if path.is_dir()]
+    return max(available, key=modified) if available else bundle
+
+
 def report_test_results(arguments: list[str]) -> None:
     cli_arguments = ["", *arguments]
     import json
@@ -31,9 +39,9 @@ def report_test_results(arguments: list[str]) -> None:
             else:
                 print(Path(sources[0]['coverage']).read_text())
             raise SystemExit(0)
-    diagnostics = bundle.parent / "diagnostics"
-    if cli_arguments[3] == "diagnostics" and (diagnostics / "test-results.xcresult").is_dir():
-        bundle = diagnostics / "test-results.xcresult"
+    result_root = bundle.parent
+    diagnostics = result_root / "diagnostics"
+    bundle = current_result_bundle(bundle)
     if cli_arguments[2] == "performance":
         sys.path.insert(0, cli_arguments[4])
         from validation_provenance import complete_group_row
@@ -52,7 +60,7 @@ def report_test_results(arguments: list[str]) -> None:
         sys.path.insert(0, cli_arguments[4])
         from validation_manual import PERFORMANCE_WORKLOADS
         from validation_evidence import test_summary, normalized_test_id
-        executed = {normalized_test_id(test) for test in test_summary((bundle.parent / "test-metrics.txt").read_text())['executedTests']}
+        executed = {normalized_test_id(test) for test in test_summary(metrics_path.read_text())['executedTests']}
         for name, (test, _) in PERFORMANCE_WORKLOADS.items():
             if test not in executed: continue
             value = json.loads(subprocess.check_output(['xcrun', 'xcresulttool', 'get', 'test-results', 'metrics',
@@ -83,7 +91,7 @@ def report_test_results(arguments: list[str]) -> None:
 
     if cli_arguments[2]:
         activities = json.loads(subprocess.check_output([
-            "xcrun", "xcresulttool", "get", "test-results", "activities", "--path", cli_arguments[1],
+            "xcrun", "xcresulttool", "get", "test-results", "activities", "--path", str(bundle),
             "--test-id", cli_arguments[2],
         ], text=True))
         if cli_arguments[3] == "activities":
@@ -121,32 +129,40 @@ def report_test_results(arguments: list[str]) -> None:
                 available = '\n'.join(f'{key} · {name}' for key, name in sorted(screenshots.items()))
                 raise SystemExit('请按当前测试的截图附件标识选择一张图片。' + ('\n' + available if available else '\n当前测试包含零张截图附件。'))
             subprocess.run(['xcrun', 'xcresulttool', 'export', 'object', '--legacy', '--type', 'file',
-                '--path', cli_arguments[1], '--id', identifiers[0], '--output-path', str(output)],
+                '--path', str(bundle), '--id', identifiers[0], '--output-path', str(output)],
                 check=True, stdout=subprocess.DEVNULL)
             print(output)
             raise SystemExit(0)
-        exported_identifiers = set()
-        def attachments(value):
+        selected = {}
+        def collect_attachments(value):
             if isinstance(value, dict):
-                names = ("失败时的界面元素树", "App UI hierarchy for", "Debug description for", "Crash Log ")
-                if str(value.get("name", "")).startswith(names):
-                    identifier = value.get("payloadId")
-                    if identifier:
-                        if identifier in exported_identifiers: return
-                        exported_identifiers.add(identifier)
-                        output = Path(cli_arguments[1]).parent / "failure-hierarchy.txt"
-                        subprocess.run(["xcrun", "xcresulttool", "export", "object", "--legacy", "--type", "file",
-                                        "--path", cli_arguments[1], "--id", identifier, "--output-path", str(output)], check=True,
-                                       stdout=subprocess.DEVNULL)
-                        print(output.read_text())
-                    else:
-                        print(json.dumps(value, ensure_ascii=False))
-                for child in value.values():
-                    attachments(child)
+                name, identifier = str(value.get('name', '')), value.get('payloadId')
+                if identifier and name.startswith(('失败时的界面元素树', 'App UI hierarchy for', 'Debug description for', 'Crash Log ')):
+                    selected.setdefault(identifier, name)
+                for child in value.values(): collect_attachments(child)
             elif isinstance(value, list):
-                for child in value:
-                    attachments(child)
-        attachments(activities)
+                for child in value: collect_attachments(child)
+        collect_attachments(activities)
+        output = result_root / 'failure-hierarchy.txt'
+        output.unlink(missing_ok=True)
+        if selected:
+            incoming = diagnostics / 'failure-hierarchy.txt'
+            diagnostics.mkdir(parents=True, exist_ok=True)
+            try:
+                with output.open('w') as combined:
+                    for identifier, name in selected.items():
+                        incoming.unlink(missing_ok=True)
+                        subprocess.run(['xcrun', 'xcresulttool', 'export', 'object', '--legacy', '--type', 'file',
+                            '--path', str(bundle), '--id', identifier, '--output-path', str(incoming)],
+                            check=True, stdout=subprocess.DEVNULL)
+                        title = f'=== {name} · {identifier} ===\n'
+                        combined.write(title); print(title, end='')
+                        with incoming.open() as attachment:
+                            for line in attachment:
+                                combined.write(line); print(line, end='')
+                        combined.write('\n'); print()
+            finally:
+                incoming.unlink(missing_ok=True)
         raise SystemExit(0)
 
     report_result_summary(str(bundle))
