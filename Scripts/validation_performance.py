@@ -173,6 +173,11 @@ def begin_selected_result_step(replacing_group: str | None = None) -> list[str]:
             return []
         with report_lock():
             report = json.loads(REPORT.read_text()) if REPORT.is_file() else {}
+        previous = report.get('groups', {}).get(replacing_group, {})
+        if replacing_group and any(row.get('resultBundleIdentity') == identity
+                for row in (previous, previous.get('lastFullRun', {}))):
+            begin_result_step(False)
+            return []
         for name, row in report.get('groups', {}).items():
             if name == replacing_group: continue
             full = complete_group_row(row)

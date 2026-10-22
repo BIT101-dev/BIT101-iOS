@@ -328,6 +328,7 @@ jobs:
             .build/extended-automation/test-metrics.txt
             .build/extended-automation/test-failures.txt
             .build/extended-automation/test-results.xcresult
+            .build/extended-automation/diagnostics/test-results.xcresult
 
   ios-ui-build:
     needs: [validation-plan]
@@ -409,6 +410,7 @@ jobs:
           include-hidden-files: true
           path: |
             .build/extended-automation/ui.log
+            .build/extended-automation/diagnostics/test-results.xcresult
 
   ios-test-shards:
     needs: [validation-plan, ios-ui-build]
@@ -486,6 +488,7 @@ jobs:
             .build/extended-automation/restore.log
             .build/extended-automation/test-metrics.txt
             .build/extended-automation/test-results.xcresult
+            .build/extended-automation/diagnostics/test-results.xcresult
             .build/screenshot.png
 
   ios-app-tests:
@@ -555,6 +558,7 @@ jobs:
             .build/extended-automation/restore.log
             .build/extended-automation/test-metrics.txt
             .build/extended-automation/test-results.xcresult
+            .build/extended-automation/diagnostics/test-results.xcresult
             .build/screenshot.png
       - name: Run complete formal runtime inventory
         if: ${{ fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
@@ -594,6 +598,7 @@ jobs:
             .build/extended-automation/restore.log
             .build/extended-automation/test-metrics.txt
             .build/extended-automation/test-results.xcresult
+            .build/extended-automation/diagnostics/test-results.xcresult
             .build/screenshot.png
 
   ios-tests:
@@ -663,6 +668,7 @@ jobs:
             .build/extended-automation/restore.log
             .build/extended-automation/test-metrics.txt
             .build/extended-automation/test-results.xcresult
+            .build/extended-automation/diagnostics/test-results.xcresult
             .build/screenshot.png
 
   physical-device:
@@ -722,6 +728,7 @@ jobs:
             .build/extended-automation/*.log
             .build/extended-automation/*.txt
             .build/extended-automation/test-results.xcresult
+            .build/extended-automation/diagnostics/test-results.xcresult
 
   release-acceptance:
     name: Release acceptance with bound device evidence
@@ -765,7 +772,7 @@ jobs:
   compiler-cache-cleanup:
     name: Keep one native compilation cache per group
     if: ${{ always() && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && (inputs.full_check || inputs.release_check) }}
-    needs: [release-build, catalyst-tests, ios-ui-build, ios-test-shards, ios-app-tests]
+    needs: [release-build, catalyst-tests, ios-ui-build, ios-test-shards, ios-app-tests, ios-tests]
     runs-on: xcode-27
     permissions:
       contents: read

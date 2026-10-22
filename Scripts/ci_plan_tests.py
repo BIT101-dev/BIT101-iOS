@@ -254,3 +254,15 @@ def wiring_self_test(subject) -> None:
             ('name: verified-result-modules', 'name: diagnostic-modules'),
             ('path: .build/extended-automation/ci-validation-result.json', 'path: other.json')):
         assert any('完整成功记录' in message for message in ci_wiring_findings(source.replace(original, replacement, 1)))
+    detached = source.replace('ios-app-tests, ios-tests]', 'ios-app-tests]', 1)
+    assert any('清理任务' in message for message in ci_wiring_findings(detached))
+    workflow = json.loads(subprocess.check_output(['ruby', '-ryaml', '-rjson', '-e',
+        'puts JSON.generate(YAML.safe_load(STDIN.read, aliases: true))'], input=source.replace('\non:', '\n"on":'), text=True))
+    for name in ('catalyst-tests', 'ios-ui-build', 'ios-test-shards', 'ios-app-tests', 'physical-device'):
+        changed = deepcopy(workflow)
+        for step in changed['jobs'][name]['steps']:
+            settings = step.get('with', {})
+            if 'path' in settings:
+                settings['path'] = '\n'.join(line for line in settings['path'].splitlines()
+                    if line != '.build/extended-automation/diagnostics/test-results.xcresult')
+        assert any('诊断' in message or '原始 XCTest' in message for message in ci_wiring_findings(json.dumps(changed))), name

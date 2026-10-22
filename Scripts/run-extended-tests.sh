@@ -245,7 +245,13 @@ if ! $BUILD_ONLY; then
       retained_result_groups=("${(@)retained_result_groups:#}")
     fi
   fi
-  rm -rf "$DERIVED_ROOT/diagnostics"
+  python3 - "$ROOT_DIR/Scripts" "$DERIVED_ROOT/diagnostics" <<'PYDIAGNOSTICS'
+from pathlib import Path
+import sys
+sys.path.insert(0, sys.argv[1])
+from validation_artifacts import clear_diagnostic_exports
+clear_diagnostic_exports(Path(sys.argv[2]))
+PYDIAGNOSTICS
   rm -f "$DERIVED_ROOT/test-metrics.txt" "$DERIVED_ROOT/test-failures.txt"
   if [[ "$MODE" == ui ]]; then : > "$DERIVED_ROOT/ui-tests.log"; fi
 fi

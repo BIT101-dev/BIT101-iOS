@@ -1,9 +1,8 @@
 """Compare coverage with versioned policy and combine complete Simulator shards."""
 from pathlib import Path
+from validation_policy import SIMULATOR_SHARDS, SIMULATOR_WORKERS
 
 COVERAGE_GROUPS = frozenset({'modules', 'all', 'ui', 'catalyst', 'catalyst-release-runtime'})
-SIMULATOR_SHARDS = {'all': 1, 'ui': 3, 'release-runtime': 1}
-SIMULATOR_WORKERS = {'app': 1, 'ui': 1, 'release-runtime': 1}
 SIMULATOR_KEYBOARD_TESTS = frozenset({
     'ServiceInteractionUITests/testManualUpdatePromptAllActionsAndCurrentVersion',
     'AccountRecoveryUITests/testFutureScheduleImportUpdateCancellationAndLink',

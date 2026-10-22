@@ -35,6 +35,9 @@ def captured_command(lines, status=7, *, ci=False, executable='fixture'):
 
 def log_output_boundary_findings() -> list[str]:
     findings = []
+    warning = "warning: 'CourseFeature' is missing a dependency on 'CommunityCore' because dependency scan of Swift module\n"
+    output, raw = captured_command([warning], status=0, executable='xcodebuild')
+    assert warning in raw and output.count('\n') == 1 and '[完成]' in output
     temporary_bundle = Path('/fixture/cache/ResultBundle_failure.xcresult')
     diagnostic_bundle = Path('/fixture/diagnostics/test-results.xcresult')
     for status in (0, 7):

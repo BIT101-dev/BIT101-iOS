@@ -43,6 +43,8 @@ DIAGNOSTIC_PATHS = {
 DIAGNOSTIC_PATHS['ios-test-shards'] = DIAGNOSTIC_PATHS['ios-tests']
 DIAGNOSTIC_PATHS['ios-app-tests'] = DIAGNOSTIC_PATHS['ios-tests']
 DIAGNOSTIC_PATHS['ios-ui-build'] = {'.build/extended-automation/ui.log'}
+for job, paths in DIAGNOSTIC_PATHS.items():
+    if job != 'static-audit': paths.add('.build/extended-automation/diagnostics/test-results.xcresult')
 
 
 def hook_documents_checked(source: str) -> bool:
@@ -495,7 +497,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
     cleanup = mapping(jobs.get('compiler-cache-cleanup'))
     if cleanup.get('if') != "${{ always() && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && (inputs.full_check || inputs.release_check) }}" \
             or mapping(cleanup.get('permissions')) != {'contents': 'read', 'actions': 'write'} \
-            or cleanup.get('needs') != ['release-build', 'catalyst-tests', 'ios-ui-build', 'ios-test-shards', 'ios-app-tests'] \
+            or cleanup.get('needs') != ['release-build', 'catalyst-tests', 'ios-ui-build', 'ios-test-shards', 'ios-app-tests', 'ios-tests'] \
             or not any(command_matches(str(step.get('run') or ""), 'python3 Scripts/ci_evidence.py cache-prune') for step in cleanup.get('steps', [])):
         errors.append('.github/workflows/ci.yml: 缓存替换需要 main 专用的清理任务')
     if any(mapping(job.get('permissions')).get('actions', 'read') != 'read' for name, job in jobs.items() if name != 'compiler-cache-cleanup'):
@@ -543,7 +545,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
             or mapping(diagnostics[0].get('with')).get('include-hidden-files') is not True \
             or set(mapping(diagnostics[0].get('with')).get('path', '').splitlines()) != {
                 '.build/extended-automation/*.log', '.build/extended-automation/*.txt',
-                '.build/extended-automation/test-results.xcresult'}:
+                '.build/extended-automation/test-results.xcresult', '.build/extended-automation/diagnostics/test-results.xcresult'}:
         errors.append('.github/workflows/ci.yml: 真机失败需要保存完整日志与原始 XCTest 附件')
     checkouts = [step for step in steps if isinstance(step, dict) and step.get('uses', '').startswith('actions/checkout@')]
     if len(checkouts) != 1 or mapping(checkouts[0].get('with')).get('clean') is not False:

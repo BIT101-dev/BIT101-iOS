@@ -86,7 +86,7 @@ def run_command(arguments: list[str]) -> int:
     display_limit = 40
     diagnostics = BoundedLines(display_limit)
     failures = FailureSummary(display_limit)
-    diagnostic_count = module_scan_count = 0
+    diagnostic_count = 0
     summary_count = summary_tests = 0
     summary = ""
     temporary_results = set()
@@ -109,7 +109,7 @@ def run_command(arguments: list[str]) -> int:
             failures.add(line)
             if "error:" in line or "warning:" in line or useful_line(line) and (line.lstrip().startswith("✘") or "failed" in line.lower()):
                 if re.match(r"warning: '.+' is missing a dependency on '.+' because dependency scan of Swift module", line):
-                    module_scan_count += 1
+                    continue
                 elif diagnostics.add(line):
                     diagnostic_count += 1
             if "Test run with" in line:
@@ -128,8 +128,6 @@ def run_command(arguments: list[str]) -> int:
             shutil.rmtree(path, ignore_errors=True)
     output = failures.lines() if exit_code else diagnostics.lines()
     output_count = failures.count if exit_code else diagnostic_count
-    if not exit_code and module_scan_count:
-        print(f"[提示] 编译器模块依赖扫描 · {module_scan_count} 条 · {report_path}")
     if exit_code and os.environ.get("GITHUB_ACTIONS") == "true":
         with report_path.open(encoding="utf-8") as report:
             for line in report:

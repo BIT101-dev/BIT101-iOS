@@ -805,6 +805,7 @@ def workflow_lock_boundary_findings() -> list[str]:
                          'modules|catalyst|catalyst-release-runtime) MODE="$1"; BUILD_ONLY=false; GENERIC_BUILD=false; SCRIPT_PATH="$0"; SCRIPT_ARGS=("$@"); acquire_test_lock ;; *)\n'
                          'ACTION=install; case "${1:-}" in artifact) ACTION=build ;; mac) ACTION=mac ;; esac\n'
                          + 'if [[ "$ACTION" == install' + dispatch + '\n;; esac\n'
+                         'if [[ "${1:-}" == startup ]]; then sleep 1; fi\n'
                          'if [[ "${1:-}" == signal || "${1:-}" == budget ]]; then\n'
                          '  trap \'print cleanup; if [[ "$1" == signal ]]; then read -r reply < "$ROOT_DIR/release"; fi; exit 143\' TERM\n'
                          'fi\nif [[ "${1:-}" == budget ]]; then print "deadline=$BIT101_WORKFLOW_DEADLINE"; fi\nprint entered\n'
@@ -899,17 +900,24 @@ def workflow_lock_boundary_findings() -> list[str]:
             raise ValueError("竞争工作流沿等待预算结束")
         with release.open("w") as stream: stream.write("done\n")
         first.communicate(timeout=5)
-        timed = subprocess.Popen(["zsh", str(worker), "signal"], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            text=True, env=dict(environment, BIT101_WORKFLOW_TIMEOUT_SECONDS="0.5"))
-        processes.append(timed)
-        if line(timed) != "entered": raise ValueError("执行超时测试取得锁")
-        if not line(timed).startswith("[超时]") or line(timed) != "cleanup":
-            raise ValueError("执行预算触发恢复清理")
-        with release.open("w") as stream: stream.write("done\n")
-        timed.communicate(timeout=5)
-        recovered = subprocess.run(["zsh", str(worker)], capture_output=True, text=True, env=environment, timeout=5)
-        if timed.returncode != 124 or recovered.returncode or recovered.stdout.strip() != "entered":
-            raise ValueError("超时恢复完成后释放全局与工作区锁")
+        for mode in ('startup', 'signal'):
+            timed = subprocess.Popen(["zsh", str(worker), mode], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True, env=dict(environment, BIT101_WORKFLOW_TIMEOUT_SECONDS="0.5"))
+            processes.append(timed)
+            timed_events = []
+            while event := line(timed):
+                if event not in {'entered', 'cleanup'} and not event.startswith('[超时]'):
+                    raise ValueError(f'执行预算需要已知的生命周期事件：{event}')
+                timed_events.append(event)
+                if event == 'cleanup':
+                    with release.open('w') as stream: stream.write('done\n')
+            timed.communicate(timeout=5)
+            if not any(event.startswith('[超时]') for event in timed_events) \
+                    or 'entered' in timed_events and ('cleanup' not in timed_events or mode == 'startup'):
+                raise ValueError('执行预算覆盖启动阶段，已启动工作流完成恢复清理')
+            recovered = subprocess.run(["zsh", str(worker)], capture_output=True, text=True, env=environment, timeout=5)
+            if timed.returncode != 124 or recovered.returncode or recovered.stdout.strip() != "entered":
+                raise ValueError("超时恢复完成后释放全局与工作区锁")
         first = subprocess.Popen(["zsh", str(worker), "hold"], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True, env=environment)
         processes.append(first)

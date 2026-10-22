@@ -1,10 +1,12 @@
 """Shared workflow registration and platform coverage policy."""
 import sys
 
-if sys.version_info < (3, 10):
-    raise SystemExit('维护工具需要 Python 3.10 及以上版本；请按 docs/SETUP.md 选择 Homebrew Python。')
+if sys.version_info < (3, 11):
+    raise SystemExit('维护工具需要 Python 3.11 及以上版本；请按 docs/SETUP.md 选择 Homebrew Python。')
 
 SWIFT_SYNTAX_SOURCE_NAMES = ("SwiftSyntaxIndexer.swift", "SwiftSyntaxFacts.swift")
+SIMULATOR_SHARDS = {'all': 1, 'ui': 3, 'release-runtime': 1}
+SIMULATOR_WORKERS = {'app': 1, 'ui': 1, 'release-runtime': 1}
 
 MAXIMUM_ATTACHMENT_BYTES = 32 * 1024 * 1024
 MAXIMUM_DECODED_MEDIA_BYTES = 48 * 1024 * 1024

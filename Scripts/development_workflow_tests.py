@@ -20,6 +20,7 @@ def development_workflow_self_test() -> None:
         cache_and_ui_products(fixture)
         incremental_archives(fixture)
         focused_result_retention(fixture)
+        full_result_batches(fixture)
         result_readers(fixture)
         archive_prune_then_fetch(fixture)
         cache_cleanup_after_failure()
@@ -148,6 +149,43 @@ def focused_result_retention(fixture: Path) -> None:
         assert (bundle / 'Info.plist').read_bytes() == b'full acceptance'
         assert (diagnostic / 'Info.plist').read_bytes() == b'interrupted current'
         assert 'selectedResult' not in json.loads(report.read_text())
+
+
+def full_result_batches(fixture: Path) -> None:
+    import validation_performance as subject
+    import validation_provenance as provenance
+    bundle = fixture / 'results/test-results.xcresult'
+    report = fixture / 'validation-evidence.json'
+    shutil.rmtree(bundle.parent)
+    report.write_text(json.dumps(dict(groups={})))
+    def create(path, content):
+        path.mkdir(parents=True, exist_ok=True)
+        (path / 'Info.plist').write_bytes(content)
+    def merge(command, **kwargs):
+        assert command[:3] == ['xcrun', 'xcresulttool', 'merge']
+        create(Path(command[4]), (Path(command[5]) / 'Info.plist').read_bytes() + (Path(command[6]) / 'Info.plist').read_bytes())
+        return subprocess.CompletedProcess(command, 0)
+    with patch.object(subject, 'BUNDLE', bundle), patch.object(subject, 'ROOT', fixture), \
+            patch.object(provenance, 'REPORT', report), patch.object(provenance, 'report_lock', side_effect=nullcontext), \
+            patch.object(provenance, 'source_digest', return_value='input'), patch.object(subject, 'environment_context', return_value={}), \
+            patch.object(subject.subprocess, 'run', side_effect=merge), patch.object(subject.subprocess, 'check_output', return_value=b'{}'), \
+            redirect_stderr(StringIO()):
+        for group in ('all', 'ui', 'all', 'ui', 'ui', 'all'):
+            retained = subject.begin_selected_result_step(replacing_group=group)
+            create(bundle, (group + '\n').encode())
+            current = json.loads(report.read_text())
+            current['groups'][group] = dict(scope='full', exitCode=0, summary=dict(passed=True), inputDigest='input',
+                environment={}, resultBundleIdentity=subject.bundle_identity(bundle))
+            report.write_text(json.dumps(current))
+            if retained: subject.retain_result_step([*retained, group])
+            runs = (bundle / 'Info.plist').read_text().splitlines()
+            assert len(runs) == len(set(runs)) <= 2
+            assert set(runs) == {*retained, group}
+        current = json.loads(report.read_text())
+        current['groups']['all'] = dict(scope='selected', exitCode=1, resultBundleIdentity='diagnostic', lastFullRun=current['groups']['all'])
+        report.write_text(json.dumps(current))
+        assert subject.begin_selected_result_step(replacing_group='all') == []
+        assert not bundle.exists()
 
 
 def result_readers(fixture: Path) -> None:

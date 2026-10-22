@@ -8,7 +8,7 @@ import fcntl
 import os
 from contextlib import ExitStack
 from functools import cache
-from validation_policy import SWIFT_SYNTAX_SOURCE_NAMES, NETWORK_CAPABILITIES
+from validation_policy import SWIFT_SYNTAX_SOURCE_NAMES, NETWORK_CAPABILITIES, SIMULATOR_SHARDS
 from validation_policy import APP_TEST_GROUPS, TEST_GROUPS, NETWORK_GROUPS, RELEASE_GROUPS, BUILD_HOSTS, VERIFY_GROUPS, DEFAULT_VERIFY_GROUPS
 
 NATIVE_PRODUCT_ROOTS = ("BIT101-iOS", "BIT101ScheduleWidgets", "BIT101Watch", "BIT101WatchWidgets")
@@ -40,8 +40,8 @@ CI_VALIDATION_GROUPS = {
     'app': (('all', 'release-runtime'),
         ('iOS Simulator app and formal runtime', 'iOS Simulator behavior and UI tests'),
         ('validation-ios-test-shards-app-0', 'validation-ios-app-tests')),
-    'ui': (('ui',), ('Build shared iOS UI test host', 'iOS Simulator behavior and UI tests', *(f'iOS Simulator ui ({index})' for index in range(3))),
-        tuple(f'validation-ios-test-shards-ui-{index}' for index in range(3))),
+    'ui': (('ui',), ('Build shared iOS UI test host', 'iOS Simulator behavior and UI tests', *(f'iOS Simulator ui ({index})' for index in range(SIMULATOR_SHARDS['ui']))),
+        tuple(f'validation-ios-test-shards-ui-{index}' for index in range(SIMULATOR_SHARDS['ui']))),
 }
 CI_VALIDATION_GROUPS = {group: (scopes, jobs, (*artifacts, CI_RESULT_ARTIFACTS[group]))
     for group, (scopes, jobs, artifacts) in CI_VALIDATION_GROUPS.items()}

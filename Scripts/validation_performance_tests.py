@@ -306,8 +306,8 @@ def selected_result_retention_self_test() -> None:
         from contextlib import redirect_stdout
         console = StringIO()
         with redirect_stdout(console): assert subject.main(['begin-full', 'ui']) == 0
-        assert console.getvalue().splitlines() == ['all']
-        begin.assert_called_once_with(True)
+        assert console.getvalue().strip() == ''
+        begin.assert_called_once_with(False)
     with patch.object(subject, 'retain_result_step') as retain:
         assert subject.main(['retain-selected', 'all', 'all', 'ui']) == 0
         retain.assert_called_once_with(['ui', 'all'])
