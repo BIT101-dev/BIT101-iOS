@@ -15,14 +15,31 @@ enum AppFileDirectories {
         return AppFileSystem.files
 #endif
     }()
-    @concurrent
+    private nonisolated static let persistentBackupPreparation = Task {
+        await migratePersistentBackupMetadata(files: files, defaultsDomain: defaultsDomain)
+    }
+
     static func preparePersistentBackups() async {
+        await persistentBackupPreparation.value
+    }
+
+    /// 历史文件迁移一次备份元数据，日常写入沿用文件服务的目录策略。
+    @concurrent
+    static func migratePersistentBackupMetadata(files: any AppFileService, defaultsDomain: String) async {
+        let defaults = Self.defaults(inDomain: defaultsDomain)
+        let key = "storage.persistent-backup-metadata.prepared"
+        guard !defaults.bool(forKey: key) else { return }
         let logger = Logger(subsystem: "BIT101", category: "PersistentBackup")
+        var completed = true
         for directory in [FileManager.SearchPathDirectory.libraryDirectory, .documentDirectory, .applicationSupportDirectory] {
             guard let url = files.directoryURL(directory), files.fileExists(at: url) else { continue }
             do { try files.setBackupExcluded(false, at: url, recursively: directory != .libraryDirectory) }
-            catch { logger.error("Persistent backup metadata awaits preparation: \(error.localizedDescription, privacy: .public)") }
+            catch {
+                completed = false
+                logger.error("Persistent backup metadata awaits preparation: \(error.localizedDescription, privacy: .public)")
+            }
         }
+        if completed { defaults.set(true, forKey: key) }
     }
 
     nonisolated static var defaultsDomain: String {

@@ -111,6 +111,18 @@ enum AppUITestBootstrap {
             if environment["BIT101_UI_TEST_BOT_PAGING"] == "1" {
                 AppSettingsStore.shared.updateGallerySettings(hideBotPosterInSearch: false)
             }
+            if environment["BIT101_UI_TEST_SCHEDULE_RECOVERY"] == "1" {
+                var cache = ScheduleCache()
+                cache.primaryScheduleTitle = "恢复课表"
+                guard var root = try JSONSerialization.jsonObject(with: JSONEncoder().encode(cache)) as? [String: Any],
+                      var course = root["courseData"] as? [String: Any] else { throw CocoaError(.coderInvalidValue) }
+                course["customSchedules"] = [7]
+                root["courseData"] = course
+                let url = AppFileDirectories.accountSupportFileURL(
+                    accountDirectoryName: AppFileDirectories.currentSession.accountStorageIdentifier, named: "schedule-cache.json")
+                try AppFileDirectories.files.createDirectory(at: url.deletingLastPathComponent())
+                try AppFileDirectories.files.writeData(JSONSerialization.data(withJSONObject: root), to: url, options: .atomic)
+            }
             if environment["BIT101_UI_TEST_MEDIA"] == "1" {
                 let image = ComposerImageDraftSnapshot(filename: "ui-image.png", previewData: mediaData, uploadData: mediaData)
                 let drafts = AppAccountStores.shared.composerDrafts

@@ -3,7 +3,7 @@ import ScheduleContracts
 
 public nonisolated enum ScheduleCacheLoadResult: Sendable {
     case loaded(ScheduleCache)
-    /// 有效部分供展示，本机编辑保存后提交新的完整快照。
+    /// 有效部分供展示，用户确认恢复后提交新的完整快照。
     case recovered(ScheduleCache)
     case missing
     case unreadable
@@ -13,7 +13,17 @@ public nonisolated enum ScheduleCacheLoadResult: Sendable {
         return false
     }
 
-    public var allowsWrite: Bool { !isUnreadable }
+    public var isRecovered: Bool {
+        if case .recovered = self { return true }
+        return false
+    }
+
+    public var allowsWrite: Bool {
+        switch self {
+        case .loaded, .missing: true
+        case .recovered, .unreadable: false
+        }
+    }
 
     public var cacheIfReadable: ScheduleCache? {
         switch self {
@@ -25,9 +35,11 @@ public nonisolated enum ScheduleCacheLoadResult: Sendable {
 }
 
 public nonisolated enum ScheduleCacheSaveSource: Sendable {
-    /// 本机编辑提交用户确认的日程状态。
+    /// 保存本机业务修改与自动元数据更新。
     case local
     case localWithoutCloudPush
+    /// 用户核对部分恢复结果后明确提交。
+    case recovery
     case cloud
     /// 记录已确认的云端基线，同时保留后续本地编辑的待上传状态。
     case cloudBaseline
@@ -88,7 +100,7 @@ public nonisolated struct ScheduleCache: Codable, Sendable {
         }
         courseData.schedulesByTerm = courseData.schedulesByTerm.mapValues { snapshot in
             TermScheduleSnapshot(term: snapshot.term, firstDayString: snapshot.firstDayString,
-                courses: unique(snapshot.courses), exams: snapshot.exams, updatedAt: snapshot.updatedAt)
+                courses: unique(snapshot.courses), exams: unique(snapshot.exams), updatedAt: snapshot.updatedAt)
         }
         courseData.manualCourseRulesByTerm = courseData.manualCourseRulesByTerm.mapValues { rules in
             unique(rules).map { rule in
@@ -156,7 +168,9 @@ public nonisolated struct ScheduleCache: Codable, Sendable {
             || Set(customSchedules.map(\.id)).count != customSchedules.count { return .customSchedules }
         if !ddlEvents.allSatisfy(\.hasValidRecord) || !hasUniqueIdentities(ddlEvents.map(\.id)) { return .ddlEvents }
         if !hasUniqueIdentities(sharedSchedules.map(\.id)) { return .sharedSchedules }
-        if !courseData.schedulesByTerm.values.allSatisfy({ $0.exams.allSatisfy(\.hasValidPlacement) }) { return .exams }
+        if !courseData.schedulesByTerm.values.allSatisfy({
+            $0.exams.allSatisfy(\.hasValidPlacement) && hasUniqueIdentities($0.exams.map(\.id))
+        }) { return .exams }
         return nil
     }
 

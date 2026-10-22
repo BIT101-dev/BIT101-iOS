@@ -8,6 +8,29 @@ final class ScheduleConflictUITests: UIAutomationTestCase {
     func testUseSyncedConflictContentPersists() { resolveConflict(keepingLocal: false) }
 
     @MainActor
+    func testRecoveredScheduleRequiresConfirmationAndPersistsSubsequentEdits() {
+        app = configureApp(resetStorage: true, scheduleRecovery: true, initialSettings: "calendar")
+        let nameRow = app.buttons["schedule.settings.primary-name"]
+        let retry = app.buttons["schedule.recovery.retry"], confirm = app.buttons["schedule.recovery.confirm"]
+        assertUI(confirm.appears(timeout: 5) && retry.exists, "恢复结果应提供核对、重试和确认入口。")
+        assertUI(!nameRow.isEnabled, "确认恢复结果后继续编辑日程。")
+        retry.tapBriefly()
+        assertUI(confirm.appears(timeout: 5) && !nameRow.isEnabled, "重试读取应保留待确认的恢复结果。")
+        confirm.tapBriefly()
+        assertUI(confirm.disappears(timeout: 5) && nameRow.isEnabled, "确认成功后应恢复编辑。")
+        reveal(nameRow)
+        nameRow.tapBriefly()
+        replaceText("确认课表", in: app.textFields["schedule.rename.name"])
+        dismissKeyboard()
+        tap("确定")
+        app = configureApp(resetStorage: false, restartProcess: true, initialSettings: "calendar")
+        let saved = app.buttons.matching(NSPredicate(format: "identifier == %@ AND label CONTAINS %@",
+            "schedule.settings.primary-name", "确认课表")).firstMatch
+        assertUI(saved.appears(timeout: 5), "冷启动应恢复确认后的编辑。")
+        assertUI(!app.buttons["schedule.recovery.confirm"].exists, "已保存的日程应直接进入常规编辑状态。")
+    }
+
+    @MainActor
     private func resolveConflict(keepingLocal: Bool) {
         app = configureApp(resetStorage: true, scheduleConflict: true, initialSettings: "calendar")
         let nameRow = app.buttons["schedule.settings.primary-name"]

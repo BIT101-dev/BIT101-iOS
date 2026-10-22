@@ -49,6 +49,7 @@ UIKit 控件沿构造类型、继承或别名进入源码清单，运行门禁�
 | `LoginAndScheduleUITests/testCalendarOfflineTermFailureAndCancellation` | 学期入口、学校离线提示、关闭失败提示和返回设置 |
 | `CalendarInteractionUITests/testCalendarReminderCloudSwitchesAndLeadTimePersistence` | 两类云开关、提醒确认取消 / 开启、阈值滚轮保存 / 取消、重新装载状态、当前及其他账号的云端偏好清理确认 / 取消 / 结果与同步暂停 |
 | `LoginAndScheduleUITests/testCalendarSettingsPickersTogglesAndRenamePersist` | 时间表非法输入、有效保存、取消保留、课表改名取消 |
+| `ScheduleConflictUITests/testRecoveredScheduleRequiresConfirmationAndPersistsSubsequentEdits` | 日程恢复核对、读取重试、明确确认、后续编辑与冷启动重载 |
 | `CalendarInteractionUITests/testSchoolTermsClassroomPickersRefreshAndDDLRefresh` | 学期下拉刷新 / 切换、日期滚轮取消、手动日期按首周周一保存 / 重新装载恢复 / 学校日期、校区 / 教学楼 / 教室刷新、订阅及学校 DDL 刷新 |
 | `CalendarInteractionUITests/testCustomScheduleEmptyTitleDetailsAndCalendarActions` | 日程详情、编辑保存、删除、新增取消 |
 | `CalendarInteractionUITests/testCustomScheduleEmptyTitleDetailsAndCalendarActions` | 空标题提示与草稿保留、地点 / 描述编辑、详情、单项日历导入 / 移除 |
@@ -316,6 +317,7 @@ SwiftSyntax 清点每个源码作用域的控件、输入、滚动和手势声�
 | `Modules/ScheduleFeature/Sources/ScheduleLinearCalendarViews.swift:LinearTimelineScrollView` | `{"UIPinchGestureRecognizer":1}` | `LoginAndScheduleUITests/testLinearScheduleTimelineScrollAndPinch` |
 | `Modules/ScheduleFeature/Sources/ScheduleRootView.swift:ScheduleRootView` | `{"AppSMSVerificationSheet":1,"DragGesture":1,"simultaneousGesture":1}` | `LoginAndScheduleUITests/testScheduleWeekButtonsAndSectionSwipes` |
 | `Modules/ScheduleFeature/Sources/ScheduleRootView.swift:SchedulePersistenceConflictView` | `{"Button":2}` | `ScheduleConflictUITests/testKeepLocalConflictContentPersists,ScheduleConflictUITests/testUseSyncedConflictContentPersists` |
+| `Modules/ScheduleFeature/Sources/ScheduleRootView.swift:ScheduleCacheRecoveryView` | `{"Button":2}` | `ScheduleConflictUITests/testRecoveredScheduleRequiresConfirmationAndPersistsSubsequentEdits` |
 | `Modules/ScheduleFeature/Sources/ScheduleSchoolVerification.swift:ScheduleSchoolVerification` | `{"AppSchoolSMSVerificationSheet":1}` | `ServiceInteractionUITests/testSchoolSSODDLVerificationCancelAndContinuation` |
 | `Modules/ScheduleFeature/Sources/ScheduleSettingsSheets.swift:CourseLiveActivityLeadMinutesPickerPage` | `{"Button":2,"Picker":1}` | `CalendarInteractionUITests/testCalendarReminderCloudSwitchesAndLeadTimePersistence` |
 | `Modules/ScheduleFeature/Sources/ScheduleSettingsSheets.swift:ScheduleExportCodeSheet` | `{"Button":3,"ScrollView":1,"ShareLink":1}` | `LoginAndScheduleUITests/testSharedScheduleCopyImportRenameCycleAndSwipeDelete,ScheduleNavigationUITests/testScheduleWeekStripScrollAndCourseLongPressShare` |

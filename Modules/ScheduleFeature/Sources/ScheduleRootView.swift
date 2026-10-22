@@ -135,6 +135,10 @@ public struct ScheduleRootView: View {
                 SchedulePersistenceConflictView(viewModel: viewModel)
                     .padding(AppDesignSystem.Spacing.content)
                     .background(AppDesignSystem.Palette.Background.grouped)
+            } else if viewModel.hasCacheReadFailure || viewModel.requiresRecoveryConfirmation {
+                ScheduleCacheRecoveryView(viewModel: viewModel)
+                    .padding(AppDesignSystem.Spacing.content)
+                    .background(AppDesignSystem.Palette.Background.grouped)
             }
         }
         .environmentObject(viewModel)
@@ -201,6 +205,30 @@ public struct ScheduleRootView: View {
         }
 
         self.requestedSection = nil
+    }
+}
+
+/// 页面与设置共用读取重试和部分恢复确认。
+public struct ScheduleCacheRecoveryView: View {
+    @ObservedObject private var viewModel: ScheduleViewModel
+
+    public init(viewModel: ScheduleViewModel) { self.viewModel = viewModel }
+
+    public var body: some View {
+        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
+            Text(viewModel.hasCacheReadFailure ? "日程读取受阻" : "日程已部分恢复")
+                .font(AppDesignSystem.Typography.title)
+            Text(viewModel.hasCacheReadFailure ? "原始数据已保留。请重试读取后继续编辑。" :
+                "可用日程继续展示。请核对恢复结果，确认后保存并继续编辑。")
+            Button("重试读取") { Task { await viewModel.retryCacheRead() } }
+                .accessibilityIdentifier("schedule.recovery.retry")
+            if viewModel.requiresRecoveryConfirmation && !viewModel.hasCacheReadFailure {
+                Button("确认恢复结果") { Task { await viewModel.confirmCacheRecovery() } }
+                    .accessibilityIdentifier("schedule.recovery.confirm")
+            }
+        }
+        .buttonStyle(.borderless)
+        .disabled(viewModel.isConfirmingRecovery)
     }
 }
 

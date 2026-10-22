@@ -96,6 +96,8 @@ nonisolated struct AppSettingsSyncPayload: Codable, Equatable, Sendable {
 final class AppSettingsStore: ObservableObject {
     private let saveSubject = PassthroughSubject<AppStorageSession, Never>()
     var localSaves: AnyPublisher<AppStorageSession, Never> { saveSubject.eraseToAnyPublisher() }
+    private let recoverySubject = PassthroughSubject<AppStorageSession, Never>()
+    var recoveries: AnyPublisher<AppStorageSession, Never> { recoverySubject.eraseToAnyPublisher() }
     static let shared = AppSettingsStore()
     /// 各账号设置快照在 `UserDefaults` 中使用的 key 前缀。
     nonisolated static let storageKeyPrefix = "app.settings.snapshot"
@@ -240,7 +242,7 @@ final class AppSettingsStore: ObservableObject {
         snapshotStore.remove()
         snapshotReadBlocked = false
         snapshot = AppSettingsSnapshot()
-        save(syncPreferences: true)
+        if save() { recoverySubject.send(session()) }
     }
 
     /// 应用来自 iCloud 的用户偏好，并保留当前设备的一次性提示状态。

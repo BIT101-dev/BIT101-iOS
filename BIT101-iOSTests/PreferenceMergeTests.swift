@@ -302,6 +302,85 @@ struct PreferenceMergeTests {
         #expect(try PreferenceFieldMerge.merging(local, sameVersion).payload == PreferenceFieldMerge.merging(sameVersion, local).payload)
     }
 
+    @Test(.timeLimit(.minutes(1)), arguments: [ExperimentalPreferenceSyncDomain.appSettings, .scoreFilters])
+    func explicitPreferenceRecoveryRebuildsOnlyItsAccountAndDomain(_ domain: ExperimentalPreferenceSyncDomain) async throws {
+        for record in [Data("broken".utf8), Data("{\"schemaVersion\":99,\"updatedAt\":100,\"payload\":{}}".utf8), "invalid type"] as [Any] {
+            let prefix = domain == .appSettings ? AppSettingsStore.storageKeyPrefix : "score.filter.preferences"
+            let value = try device("BIT101Tests.preference-merge.explicit-recovery",
+                localRecords: [.appSettings: record, .scoreFilters: record], rawSnapshots: [prefix: Data("broken snapshot".utf8)])
+            defer { value.defaults.removePersistentDomain(forName: value.domain) }
+            let other: ExperimentalPreferenceSyncDomain = domain == .appSettings ? .scoreFilters : .appSettings
+            let session = AppStorageSession(accountIdentifier: "merge-account")
+            let key = "experimental.preference-cloud-sync.local-envelope.\(session.accountStorageIdentifier).\(domain.rawValue)"
+            let otherKey = "experimental.preference-cloud-sync.local-envelope.\(session.accountStorageIdentifier).\(other.rawValue)"
+            let anotherAccountKey = "experimental.preference-cloud-sync.local-envelope.other-account.\(domain.rawValue)"
+            value.defaults.set(Data("other account".utf8), forKey: anotherAccountKey)
+            let otherCloud = Data("other domain".utf8)
+            value.cloud.set(otherCloud, forKey: value.record(other))
+            if domain == .appSettings { value.sync.settings.restoreAccountPreferences() }
+            else { value.sync.stores.scoreFilterPreferences.reset() }
+            let repaired = try #require(value.defaults.data(forKey: key))
+            if domain == .appSettings {
+                _ = try JSONDecoder().decode(ExperimentalPreferenceSyncEnvelope<AppSettingsSyncPayload>.self, from: repaired)
+                value.sync.settings.updateGallerySettings(useWebView: true)
+            } else {
+                _ = try JSONDecoder().decode(ExperimentalPreferenceSyncEnvelope<ScoreFilterPreferenceSnapshot>.self, from: repaired)
+                value.sync.stores.scoreFilterPreferences.save(selectedTerms: ["recovered"], selectedCourseTypes: [], sortIndex: .score, sortOrder: .ascending)
+            }
+            await value.sync.refreshFromCloudIfNeeded()?.value
+            let uploaded = try #require(value.cloud.data(forKey: value.record(domain)))
+            if domain == .appSettings {
+                #expect(try JSONDecoder().decode(ExperimentalPreferenceSyncEnvelope<AppSettingsSyncPayload>.self, from: uploaded).payload.galleryUseWebView)
+            } else {
+                #expect(try JSONDecoder().decode(ExperimentalPreferenceSyncEnvelope<ScoreFilterPreferenceSnapshot>.self, from: uploaded).payload.selectedTerms == ["recovered"])
+            }
+            if let bytes = record as? Data { #expect(value.defaults.data(forKey: otherKey) == bytes) }
+            else { #expect(value.defaults.string(forKey: otherKey) == record as? String) }
+            #expect(value.defaults.data(forKey: anotherAccountKey) == Data("other account".utf8))
+            #expect(value.cloud.data(forKey: value.record(other)) == otherCloud)
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true], ["malformed", "missingKey", "invalidType"])
+    func unreadableLegacyScoresKeepCurrentScoresAvailableAndRetainTheirRawRecord(encryptedCurrent: Bool, legacyDefect: String) async throws {
+        let value = try device("BIT101Tests.preference-merge.legacy-score-recovery")
+        defer { value.defaults.removePersistentDomain(forName: value.domain) }
+        let account = AppStorageSession(accountIdentifier: "merge-account").accountDirectoryName
+        let key = value.record(.scoreCache), legacyKey = key.replacingOccurrences(of: ".v2.", with: ".v1.")
+        let encryption = ScoreCacheSyncEncryption(defaults: value.defaults, credentials: value.cloud.keys)
+        let time = Date(timeIntervalSince1970: 300)
+        let rows = [ScoreRow(index: 0, headers: ["成绩"], values: ["95"])]
+        let payload = try JSONEncoder().encode(ExperimentalPreferenceSyncEnvelope(updatedAt: time,
+            payload: ScoreCacheSyncPayload(rows: rows, updatedAt: time, detailedUpdatedAt: nil)))
+        let legacy: Any
+        if legacyDefect == "missingKey" {
+            let oldEncryption = ScoreCacheSyncEncryption(defaults: value.defaults, credentials: PreferenceMemoryScoreKeys())
+            legacy = try oldEncryption.seal(payload, account: account)
+            value.defaults.removeObject(forKey: "experimental.preference-cloud-sync.score-key.\(account)")
+        } else { legacy = legacyDefect == "malformed" ? Data("broken".utf8) : "invalid type" }
+        value.cloud.set(legacy, forKey: legacyKey)
+        value.cloud.set(encryptedCurrent ? try encryption.seal(payload, account: account) : payload, forKey: key)
+        await value.sync.refreshFromCloudIfNeeded()?.value
+        #expect(try await value.sync.stores.scoreCache.syncPayload(for: nil)?.rows == rows)
+        #expect(value.sync.syncIssue?.contains("历史记录") == true)
+        #expect(ScoreCacheSyncEncryption.isEncrypted(try #require(value.cloud.data(forKey: key))))
+        let editedRows = [ScoreRow(index: 0, headers: ["成绩"], values: ["98"])]
+        #expect(await value.sync.stores.scoreCache.save(rows: editedRows, for: nil) != nil)
+        await value.sync.refreshFromCloudIfNeeded()?.value
+        let current = try await PreferenceCloudPayloadCodec.decode(ScoreCacheSyncPayload.self,
+            open: encryption.prepareOpen(#require(value.cloud.data(forKey: key)), account: account))
+        #expect(current.payload.rows == editedRows)
+        if let bytes = legacy as? Data { #expect(value.cloud.data(forKey: legacyKey) == bytes) }
+        else { #expect(value.cloud.dictionaryRepresentation[legacyKey] as? String == legacy as? String) }
+        let recoveredTime = Date().addingTimeInterval(100)
+        value.cloud.set(try JSONEncoder().encode(ExperimentalPreferenceSyncEnvelope(updatedAt: recoveredTime,
+            payload: ScoreCacheSyncPayload(rows: rows, updatedAt: recoveredTime, detailedUpdatedAt: nil))), forKey: legacyKey)
+        await value.sync.refreshFromCloudIfNeeded()?.value
+        #expect(value.cloud.data(forKey: legacyKey) == nil)
+        #expect(value.sync.syncIssue == nil)
+        #expect(try await value.sync.stores.scoreCache.syncPayload(for: nil)?.rows == rows)
+    }
+
     @Test(.timeLimit(.minutes(1))) func disabledEditsAndLegacyRemoteFieldsKeepTheirOwnership() async throws {
         let value = try device("BIT101Tests.preference-merge.disabled")
         defer { value.defaults.removePersistentDomain(forName: value.domain) }

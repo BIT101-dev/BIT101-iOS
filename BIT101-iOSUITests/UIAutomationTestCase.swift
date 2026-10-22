@@ -751,6 +751,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         update: String? = nil,
         schoolSMS: Bool = false,
         scheduleConflict: Bool = false,
+        scheduleRecovery: Bool = false,
         settingsRecovery: Bool = false,
         scoreRecovery: Bool = false,
         calendarHistoryRecovery: Bool = false,
@@ -803,6 +804,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         application.launchEnvironment["OS_ACTIVITY_MODE"] = "disable"
         application.launchEnvironment["BIT101_UI_TEST_CONTENT"] = content ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_SCHEDULE_CONFLICT"] = scheduleConflict ? "1" : "0"
+        application.launchEnvironment["BIT101_UI_TEST_SCHEDULE_RECOVERY"] = scheduleRecovery ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_SETTINGS_RECOVERY"] = settingsRecovery ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_SCORE_RECOVERY"] = scoreRecovery ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_CALENDAR_HISTORY_RECOVERY"] = calendarHistoryRecovery ? "1" : "0"

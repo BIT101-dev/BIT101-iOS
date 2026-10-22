@@ -9,6 +9,8 @@ public final class ScoreFilterPreferenceStore: ScoreFilterPreferencesStoring {
     public var changes: AnyPublisher<AppStorageSession, Never> { changeSubject.eraseToAnyPublisher() }
     private let saveSubject = PassthroughSubject<AppStorageSession, Never>()
     public var localSaves: AnyPublisher<AppStorageSession, Never> { saveSubject.eraseToAnyPublisher() }
+    private let recoverySubject = PassthroughSubject<AppStorageSession, Never>()
+    public var recoveries: AnyPublisher<AppStorageSession, Never> { recoverySubject.eraseToAnyPublisher() }
     private let session: () -> AppStorageSession
     private let store: AccountScopedCodableStore<ScoreFilterPreferenceSnapshot>
 
@@ -26,6 +28,7 @@ public final class ScoreFilterPreferenceStore: ScoreFilterPreferencesStoring {
 
     public func reset() {
         store.remove()
+        recoverySubject.send(session())
         changeSubject.send(session())
     }
 

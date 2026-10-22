@@ -25,7 +25,7 @@ struct AppScheduleCacheEffects: SchedulePlatformActions {
     let rebuildCalendarHistory: () async throws -> Int
 
     func didSave(session: AppStorageSession, source: ScheduleCacheSaveSource, cloudSyncEnabled: Bool) async {
-        guard source == .local, cloudSyncEnabled, session == currentSession() else { return }
+        guard source == .local || source == .recovery, cloudSyncEnabled, session == currentSession() else { return }
         let identity = currentIdentity()
         Task {
             guard session == currentSession(), identity == currentIdentity() else { return }

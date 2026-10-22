@@ -130,7 +130,7 @@ public actor SchedulePersistenceStore {
         return root
     }
 
-    /// 数据块按字段和记录恢复，原始字节由本机保存决策承接。
+    /// 数据块按字段和记录恢复，原始字节由用户的恢复确认承接。
     private nonisolated static func resetDamagedBlocks(_ data: Data) -> ScheduleCache? {
         guard let root = admittedRoot(data),
               let defaults = try? JSONSerialization.jsonObject(with: makeEncoder().encode(ScheduleCache())) as? [String: Any]
@@ -140,11 +140,54 @@ public actor SchedulePersistenceStore {
             guard let version = try? makeDecoder().decode(CacheVersion.self, from: data),
                   version.schemaVersion == ScheduleCache.schemaVersion else { return nil }
         }
+        let decoder = makeDecoder()
+        func value<Value: Decodable>(_ raw: Any?, as type: Value.Type) -> Value? {
+            guard let raw, let data = try? JSONSerialization.data(withJSONObject: raw, options: .fragmentsAllowed) else { return nil }
+            return try? decoder.decode(type, from: data)
+        }
+        func object<Value: Encodable>(_ value: Value) -> Any? {
+            guard let bytes = try? makeEncoder().encode(value) else { return nil }
+            return try? JSONSerialization.jsonObject(with: bytes, options: .fragmentsAllowed)
+        }
+        func records<Record: Decodable & Identifiable>(_ raw: Any?, as type: Record.Type,
+            valid: (Record) -> Bool) -> [Record] {
+            var ids: Set<Record.ID> = []
+            return (raw as? [Any] ?? []).compactMap { raw in
+                guard let record = value(raw, as: type), valid(record), ids.insert(record.id).inserted else { return nil }
+                return record
+            }
+        }
+        var course = structured ? root["courseData"] as? [String: Any] ?? [:] : root
+        let rawTable = value(course["timeTable"], as: [TimeSlot].self)
+        let table = rawTable.flatMap { TimeSlot.isValidTable($0) ? $0 : nil } ?? TimeSlot.default
+        func courses(_ raw: Any?) -> [CourseRecord] {
+            records(raw, as: CourseRecord.self, valid: { TimeSlot.supports([$0], in: table) })
+        }
+        for key in ["schedulesByTerm", "termSchedulesByTerm"] {
+            guard let entries = course[key] as? [String: Any] else { continue }
+            var snapshots: [String: TermScheduleSnapshot] = [:]
+            for (term, raw) in entries {
+                guard let fields = raw as? [String: Any] else { continue }
+                snapshots[term] = .init(term: term,
+                    firstDayString: value(fields["firstDayString"], as: String.self) ?? "",
+                    courses: courses(fields["courses"]),
+                    exams: records(fields["exams"], as: ExamRecord.self, valid: { $0.hasValidPlacement }),
+                    updatedAt: value(fields["updatedAt"], as: Date.self) ?? .distantPast)
+            }
+            course[key] = object(snapshots)
+        }
+        for key in ["cachedCoursesByTerm", "schoolCoursesByTerm"] {
+            if let entries = course[key] as? [String: Any] { course[key] = object(entries.mapValues(courses)) }
+        }
+        if course["courses"] != nil { course["courses"] = object(courses(course["courses"])) }
+        if course["exams"] != nil {
+            course["exams"] = object(records(course["exams"], as: ExamRecord.self, valid: { $0.hasValidPlacement }))
+        }
         func block(_ name: String) -> ScheduleCache? {
             var object: [String: Any]
             if structured {
                 object = defaults
-                object[name] = root[name]
+                object[name] = name == "courseData" ? course : root[name]
                 if name == "courseData", var course = object[name] as? [String: Any] {
                     for key in ["customSchedules", "sharedSchedules", "manualCourseRulesByTerm"] {
                         course[key] = (defaults[name] as? [String: Any])?[key]
@@ -156,7 +199,7 @@ public actor SchedulePersistenceStore {
                     object[name] = ddl
                 }
             } else {
-                object = root.filter { legacyBlockKeys[name, default: []].contains($0.key) }
+                object = (name == "courseData" ? course : root).filter { legacyBlockKeys[name, default: []].contains($0.key) }
                 if name == "ddlData" { object.removeValue(forKey: "ddlEvents") }
             }
             func decoded(_ fields: [String: Any]) -> ScheduleCache? {
@@ -167,46 +210,31 @@ public actor SchedulePersistenceStore {
             }
             guard let fields = structured ? object[name] as? [String: Any] : object else { return nil }
             if let result = decoded(fields) { return result }
-            var accepted = structured ? defaults[name] as? [String: Any] ?? [:] : [:]
+            let base = structured ? defaults[name] as? [String: Any] ?? [:] : [:]
+            var accepted = base
             let first = ["timeTable", "storedCourseScheduleParserVersion", "currentTerm", "firstDayString", "coursesUpdatedAt", "archivedTerms"]
             for key in first + fields.keys.sorted().filter({ !first.contains($0) }) {
                 guard let value = fields[key] else { continue }
                 func accepts(_ value: Any) -> Bool {
-                    var candidate = accepted
+                    var candidate = base
                     candidate[key] = value
                     return decoded(candidate) != nil
                 }
                 if accepts(value) { accepted[key] = value }
                 else if let entries = value as? [String: Any] {
                     var kept: [String: Any] = [:]
-                    for entry in entries.keys.sorted() {
-                        var candidate = kept
-                        candidate[entry] = entries[entry]
-                        if accepts(candidate) { kept = candidate }
-                    }
-                    if accepts(kept) { accepted[key] = kept }
+                    for (entry, value) in entries where accepts([entry: value]) { kept[entry] = value }
+                    accepted[key] = kept
                 } else if key != "timeTable", let values = value as? [Any] {
                     var kept: [Any] = []
-                    for entry in values where accepts(kept + [entry]) { kept.append(entry) }
-                    if accepts(kept) { accepted[key] = kept }
+                    for entry in values where accepts([entry]) { kept.append(entry) }
+                    accepted[key] = kept
                 }
             }
             return decoded(accepted)
         }
-        func records<Record: Decodable & Identifiable>(_ raw: Any?, as type: Record.Type,
-            valid: (Record) -> Bool) -> [Record] {
-            var ids: Set<Record.ID> = []
-            return (raw as? [Any] ?? []).compactMap { value in
-                guard let object = value as? [String: Any],
-                      let data = try? JSONSerialization.data(withJSONObject: object),
-                      let record = try? makeDecoder().decode(type, from: data), valid(record),
-                      ids.insert(record.id).inserted else { return nil }
-                return record
-            }
-        }
         var cache = ScheduleCache()
         cache.courseData = block("courseData")?.courseData ?? cache.courseData
-        let course = structured ? root["courseData"] as? [String: Any] ?? [:] : root
         cache.customSchedules = records(course["customSchedules"], as: CustomScheduleRecord.self, valid: { $0.hasValidPlacement })
         cache.sharedSchedules = records(course["sharedSchedules"], as: SharedScheduleRecord.self, valid: { record in
             var probe = ScheduleCache()
@@ -223,22 +251,42 @@ public actor SchedulePersistenceStore {
         let ddl = structured ? root["ddlData"] as? [String: Any] ?? [:] : root
         cache.ddlEvents = records(ddl["ddlEvents"], as: DDLEventRecord.self, valid: { $0.hasValidRecord })
         for (term, values) in (course["manualCourseRulesByTerm"] as? [String: Any] ?? [:]) {
-            var accepted: [ScheduleCourseRule] = []
             let candidates = records(values, as: ScheduleCourseRule.self, valid: { record in
-                var probe = cache
+                var probe = ScheduleCache()
+                probe.timeTable = cache.timeTable
                 probe.manualCourseRulesByTerm[term] = [record]
                 return probe.isValidForPersistence
             })
-            for record in candidates {
-                var probe = cache
-                probe.manualCourseRulesByTerm[term] = accepted + [record]
-                if probe.isValidForPersistence { accepted.append(record) }
-            }
-            cache.manualCourseRulesByTerm[term] = accepted
+            cache.manualCourseRulesByTerm[term] = recoveredRules(candidates,
+                schoolCourses: cache.courseData.archivedTerms.contains(term) ? [] : cache.courseData.schoolCourses(for: term),
+                timeTable: cache.timeTable)
         }
         if let rawDate = root["updatedAt"], let bytes = try? JSONSerialization.data(withJSONObject: rawDate, options: .fragmentsAllowed),
            let date = try? makeDecoder().decode(Date.self, from: bytes) { cache.updatedAt = date }
-        return cache
+        return cache.isValidForPersistence ? cache : nil
+    }
+
+    /// 逐条维护课程身份，隔离互相冲突的规则并保留其余记录。
+    private nonisolated static func recoveredRules(_ rules: [ScheduleCourseRule], schoolCourses: [CourseRecord],
+        timeTable: [TimeSlot]) -> [ScheduleCourseRule] {
+        let schoolBySource = Dictionary(grouping: schoolCourses, by: scheduleCourseSourceIdentity)
+        var projectedBySource = schoolBySource.mapValues { $0.map(\.id) }
+        var ids = Set(schoolCourses.map(\.id))
+        return rules.filter { rule in
+            let active = rule.isLocalAddition
+                || scheduleCourseSourceRecordsEqual(schoolBySource[rule.sourceIdentity] ?? [], rule.sourceCourses)
+            guard active else { return true }
+            guard TimeSlot.supports(rule.replacementCourses, in: timeTable) else { return false }
+            let removed = rule.isLocalAddition ? [] : projectedBySource[rule.sourceIdentity] ?? []
+            let replacementIDs = Set(rule.replacementCourses.map(\.id))
+            let removedIDs = Set(removed)
+            guard replacementIDs.allSatisfy({ !ids.contains($0) || removedIDs.contains($0) }) else { return false }
+            ids.subtract(removedIDs)
+            if !rule.isLocalAddition { projectedBySource[rule.sourceIdentity] = [] }
+            ids.formUnion(replacementIDs)
+            for course in rule.replacementCourses { projectedBySource[scheduleCourseSourceIdentity(course), default: []].append(course.id) }
+            return true
+        }
     }
 
     public nonisolated static func decodeCache(_ data: Data, onFailure: (String) -> Void = { _ in }) -> ScheduleCacheLoadResult {
@@ -322,8 +370,9 @@ public actor SchedulePersistenceStore {
         let url = cacheFileURL(for: accountIdentifier)
         let directory = url.deletingLastPathComponent()
         let currentResult = readCacheFile(at: url)
-        if case .recovered = currentResult, source != .local { return nil }
-        guard currentResult.allowsWrite else {
+        let confirmsRecovery = source == .recovery
+        var isRecovering = currentResult.isRecovered
+        guard currentResult.allowsWrite || (confirmsRecovery && currentResult.isRecovered) else {
             Self.logger.error("保留无法读取的课表缓存，跳过保存")
             return nil
         }
@@ -340,8 +389,8 @@ public actor SchedulePersistenceStore {
         {
             let legacyURL = cacheFileURL(for: legacyAccountIdentifier)
             let legacyResult = readCacheFile(at: legacyURL)
-            if case .recovered = legacyResult, source != .local { return nil }
-            guard legacyResult.allowsWrite else {
+            isRecovering = legacyResult.isRecovered
+            guard legacyResult.allowsWrite || (confirmsRecovery && legacyResult.isRecovered) else {
                 Self.logger.error("保留无法读取的旧版课表缓存，跳过保存")
                 return nil
             }
@@ -359,8 +408,9 @@ public actor SchedulePersistenceStore {
 
         do {
             var cache = cache
+            if confirmsRecovery, !isRecovering { return nil }
             if source == .cloud { cache.hasUnpushedCloudChanges = false }
-            if source == .local || source == .localWithoutCloudPush,
+            if source == .local || source == .localWithoutCloudPush || source == .recovery,
                let storedCache {
                 guard cache.cloudSyncBaselineAt == storedCache.cloudSyncBaselineAt,
                       cache.cloudSyncBaselineRecordTag == storedCache.cloudSyncBaselineRecordTag,
@@ -373,7 +423,7 @@ public actor SchedulePersistenceStore {
                 cache.syncData.cloudSyncBaselineUserState = storedCache.syncData.cloudSyncBaselineUserState
                 let userStateChanged = try !userStateMatches(cache, storedCache)
                 cache.hasUnpushedCloudChanges = storedCache.hasUnpushedCloudChanges
-                    || (cache.iCloudSyncEnabled && userStateChanged)
+                    || (cache.iCloudSyncEnabled && (confirmsRecovery || userStateChanged))
                 cache.updatedAt = ScheduleCacheTimestamp.next(
                     after: max(storedCache.updatedAt, storedCache.cloudSyncBaselineAt),
                     now: cache.updatedAt

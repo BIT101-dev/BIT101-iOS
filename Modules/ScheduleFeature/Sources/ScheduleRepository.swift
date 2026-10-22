@@ -12,6 +12,9 @@ public final class ScheduleRepository: ObservableObject {
     }
     @Published private(set) var isWritable = false
     @Published private(set) var isLoading = true
+    @Published private(set) var requiresRecoveryConfirmation = false
+    @Published private(set) var hasReadFailure = false
+    @Published private(set) var isConfirmingRecovery = false
     @Published var notice: ScheduleNotice?
     @Published private(set) var hasPersistenceConflict = false
     @Published private(set) var isResolvingPersistenceConflict = false
@@ -63,6 +66,9 @@ public final class ScheduleRepository: ObservableObject {
         accountGeneration &+= 1
         loadGeneration &+= 1
         hasLoaded = false
+        requiresRecoveryConfirmation = false
+        hasReadFailure = false
+        isConfirmingRecovery = false
         isWritable = false
         isLoading = true
         cache = ScheduleCache()
@@ -99,16 +105,18 @@ public final class ScheduleRepository: ObservableObject {
         case .loaded(let value), .recovered(let value):
             _ = await reconcile(with: value)
             guard !Task.isCancelled, generation == accountGeneration, account == session(), request == loadGeneration else { return false }
-            isWritable = true
-            if case .recovered = result {
-                notice = .informational(title: "日程已部分恢复", message: "可用日程继续展示。请核对内容，保存本机编辑后确认恢复结果。")
-            }
+            requiresRecoveryConfirmation = result.isRecovered
+            hasReadFailure = false
+            isWritable = !result.isRecovered
         case .missing:
             _ = await reconcile(with: ScheduleCache())
             guard !Task.isCancelled, generation == accountGeneration, account == session(), request == loadGeneration else { return false }
             isWritable = true
+            requiresRecoveryConfirmation = false
+            hasReadFailure = false
         case .unreadable:
-            isWritable = true
+            isWritable = false
+            hasReadFailure = true
         }
         hasLoaded = true
         return true
@@ -124,8 +132,18 @@ public final class ScheduleRepository: ObservableObject {
         guard acceptsEdits else {
             throw NSError(domain: "ScheduleRepository", code: 1, userInfo: [NSLocalizedDescriptionKey:
                 hasPersistenceConflict ? "请先选择需要保留的日程版本，再继续编辑。" :
-                    (isLoading ? "正在读取日程，请稍后重试。" : "请重新打开日程后继续编辑。")])
+                    (requiresRecoveryConfirmation ? "请先核对并确认日程恢复结果。" :
+                        (isLoading ? "正在读取日程，请稍后重试。" : "请重试读取日程后继续编辑。"))])
         }
+    }
+
+    func confirmRecovery() async {
+        guard requiresRecoveryConfirmation, !isConfirmingRecovery, persistenceTask == nil else { return }
+        let generation = accountGeneration
+        isConfirmingRecovery = true
+        loadGeneration &+= 1
+        defer { if generation == accountGeneration { isConfirmingRecovery = false } }
+        _ = await persistAndWait(source: .recovery)
     }
 
     @discardableResult
@@ -137,7 +155,9 @@ public final class ScheduleRepository: ObservableObject {
     }
 
     private func enqueuePersistence(source: ScheduleCacheSaveSource) -> Task<Bool, Never>? {
-        guard acceptsEdits else { return nil }
+        let confirmsRecovery = source == .recovery && requiresRecoveryConfirmation && !hasReadFailure
+            && !hasPersistenceConflict && ownerSession == session()
+        guard acceptsEdits || confirmsRecovery else { return nil }
         let account = ownerSession
         let generation = accountGeneration
         let snapshot = cache
@@ -158,6 +178,10 @@ public final class ScheduleRepository: ObservableObject {
                 self.loadedCache = snapshot
                 self.loadedRevision = localRevision
                 self.notice = nil
+                if confirmsRecovery {
+                    self.requiresRecoveryConfirmation = false
+                    self.isWritable = true
+                }
                 if self.persistenceGeneration == operation, self.reloadAfterPersistence {
                     self.reloadAfterPersistence = false
                     self.persistenceTask = nil
@@ -301,6 +325,9 @@ public final class ScheduleRepository: ObservableObject {
         $isWritable.removeDuplicates().dropFirst().map { _ in () }
             .merge(with: $isLoading.removeDuplicates().dropFirst().map { _ in () })
             .merge(with: $hasPersistenceConflict.removeDuplicates().dropFirst().map { _ in () })
+            .merge(with: $requiresRecoveryConfirmation.removeDuplicates().dropFirst().map { _ in () })
+            .merge(with: $hasReadFailure.removeDuplicates().dropFirst().map { _ in () })
+            .merge(with: $isConfirmingRecovery.removeDuplicates().dropFirst().map { _ in () })
             .eraseToAnyPublisher()
     }
 

@@ -291,25 +291,64 @@ struct ScheduleRepositoryBoundaryTests {
         #expect(repository.persistenceSnapshot.primaryScheduleTitle == "本机编辑")
     }
 
-    @Test(.timeLimit(.minutes(1))) func unreadableCacheKeepsTheVisibleScheduleAndEditingAvailable() async {
+    @Test(.timeLimit(.minutes(1))) func unreadableCacheKeepsVisibleDataAndResumesEditingAfterRetry() async {
         var savedCount = 0
-        var first = true
+        var result: ScheduleCacheLoadResult = .missing
         let repository = makeRepository(load: { _ in
-            if first { first = false; return .missing }
-            return .unreadable
+            result
         }, save: { _, _, _ in savedCount += 1 })
         await repository.loadIfNeeded()
         repository.courseState.primaryScheduleTitle = "保留内容"
+        result = .unreadable
         await repository.reload()
         repository.courseState.primaryScheduleTitle = "修改内容"
         _ = await repository.persistAndWait()
-        #expect(repository.persistenceSnapshot.primaryScheduleTitle == "修改内容")
-        #expect(repository.isWritable)
-        #expect(repository.notice == nil)
-        repository.notice = nil
+        #expect(repository.persistenceSnapshot.primaryScheduleTitle == "保留内容")
+        #expect(!repository.isWritable && repository.hasReadFailure)
+        #expect(throws: Error.self) { try repository.requireWritable() }
+        result = .loaded(repository.persistenceSnapshot)
         await repository.reload()
-        #expect(repository.notice == nil)
+        #expect(repository.isWritable && !repository.hasReadFailure)
+        repository.courseState.primaryScheduleTitle = "修改内容"
+        #expect(await repository.persistAndWait())
         #expect(savedCount == 1)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func recoveredCacheWaitsForConfirmationBeforeMetadataOrPreferencesCanSave() async throws {
+        var cache = ScheduleCache()
+        cache.primaryScheduleTitle = "恢复内容"
+        var savedSources: [ScheduleCacheSaveSource] = []
+        let repository = makeRepository(load: { _ in .recovered(cache) }, save: { _, source, _ in savedSources.append(source) })
+        await repository.loadIfNeeded()
+        let classrooms = ScheduleClassroomViewModel(service: ClockClassroomService(), repository: repository)
+        await classrooms.refreshClassroomPage()
+        repository.presentationPreferences.showSaturday = false
+        #expect(await repository.persistAndWait() == false)
+        #expect(repository.requiresRecoveryConfirmation && !repository.isWritable)
+        #expect(repository.persistenceSnapshot.showSaturday && savedSources.isEmpty)
+        await repository.confirmRecovery()
+        #expect(savedSources == [.recovery])
+        #expect(!repository.requiresRecoveryConfirmation && repository.isWritable)
+        repository.presentationPreferences.showSaturday = false
+        #expect(await repository.persistAndWait())
+        #expect(savedSources == [.recovery, .local])
+    }
+
+    @Test(.timeLimit(.minutes(1))) func aPendingRetryKeepsTheConfirmedRecoveryStateCurrent() async throws {
+        let loader = ModuleDeferredScheduleLoad()
+        var loads = 0
+        let repository = makeRepository(load: { account in
+            loads += 1
+            if loads == 1 { return .recovered(ScheduleCache()) }
+            return await loader.load(account)
+        }, save: { _, _, _ in })
+        await repository.loadIfNeeded()
+        let retry = Task { await repository.reload() }
+        try await loader.waitUntilStarted()
+        await repository.confirmRecovery()
+        loader.continuation?.resume(returning: .recovered(ScheduleCache()))
+        #expect(await retry.value == false)
+        #expect(repository.isWritable && !repository.requiresRecoveryConfirmation)
     }
 
     @Test(.timeLimit(.minutes(1))) func pendingInitialReadRetainsStoredDataAndFinishesLoading() async throws {

@@ -57,7 +57,7 @@ enum ScheduleCacheStore {
         isCurrent: @escaping @MainActor () -> Bool = { true }
     ) async -> Bool {
         var cacheToSave = cache
-        if source == .local || source == .localWithoutCloudPush {
+        if source == .local || source == .localWithoutCloudPush || source == .recovery {
             cacheToSave.updatedAt = ScheduleCacheTimestamp.next(
                 after: max(cache.updatedAt, cache.cloudSyncBaselineAt),
                 now: Date()
@@ -83,7 +83,7 @@ enum ScheduleCacheStore {
                 accountIdentifier: accountIdentifier,
                 legacyAccountIdentifier: legacyIdentifier,
                 source: source,
-                expectedUpdatedAt: expectedUpdatedAt
+                expectedUpdatedAt: source == .recovery ? cache.updatedAt : expectedUpdatedAt
             ) != nil
         })
         guard didWrite else { return false }

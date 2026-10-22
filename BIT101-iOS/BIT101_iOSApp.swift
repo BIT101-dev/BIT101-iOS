@@ -350,9 +350,9 @@ struct BIT101_iOSApp: App {
                     AppDeepLinkCoordinator.shared.receive(url)
                 }
                 .task {
-                    await AppFileDirectories.preparePersistentBackups()
                     lifecycle.start()
                     AppRestoreReadiness.initializedScene()
+                    await AppFileDirectories.preparePersistentBackups()
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
                     AppRestoreReadiness.recordIfReady()

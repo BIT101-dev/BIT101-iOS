@@ -37,14 +37,18 @@ struct ScheduleTimeTableTests {
         let store = SchedulePersistenceStore(files: files, storageRoot: URL(fileURLWithPath: "/block-reset"), userStateMatches: { _, _ in true })
         let url = store.cacheFileURL(for: account.accountStorageIdentifier)
         try files.writeData(bytes, to: url, options: .atomic)
-        let restored = try #require(await store.load(for: account).cacheIfReadable)
+        let result = await store.load(for: account)
+        if block == "json" {
+            #expect(result.isUnreadable)
+            #expect(try files.readData(at: url) == bytes)
+            return
+        }
+        let restored = try #require(result.cacheIfReadable)
         #expect(restored.isValidForPersistence)
-        #expect(restored.courses == (block == "course" || block == "json" ? [] : courses))
-        let rebuilt = try files.readData(at: url)
-        #expect(rebuilt != bytes)
-        #expect(SchedulePersistenceStore.decodeCache(rebuilt).cacheIfReadable?.courseData == restored.courseData)
+        #expect(restored.courses == (block == "course" ? [] : courses))
+        #expect(try files.readData(at: url) == bytes)
         #expect(await store.load(for: account).cacheIfReadable?.courseData == restored.courseData)
-        #expect(try files.readData(at: url) == rebuilt)
+        #expect(try files.readData(at: url) == bytes)
     }
 
     @Test(.timeLimit(.minutes(1))) func anUnselectedCachedTermAppearsWithoutFetchingCourses() async throws {
@@ -58,7 +62,7 @@ struct ScheduleTimeTableTests {
         try files.writeData(JSONEncoder().encode(cache), to: url, options: .atomic)
         let restored = try #require(await store.load(for: account).cacheIfReadable)
         #expect(restored.currentTerm == "term" && restored.courses == courses)
-        #expect(SchedulePersistenceStore.decodeCache(try files.readData(at: url)).cacheIfReadable?.currentTerm == "term")
+        #expect(SchedulePersistenceStore.decodeCache(try files.readData(at: url)).cacheIfReadable?.currentTerm == "")
     }
 
     @Test func touchingSectionEndpointsRoundTripThroughCacheAndShare() throws {
@@ -180,7 +184,7 @@ struct ScheduleTimeTableTests {
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: ["school", "manual", "shared"])
-    func incompatibleCachedCourseBlocksResetAndKeepEditingAvailable(source: String) async throws {
+    func incompatibleCachedCourseBlocksWaitForExplicitRecoveryBeforeEditing(source: String) async throws {
         let files = ModuleScoreFiles()
         let store = SchedulePersistenceStore(files: files, storageRoot: URL(fileURLWithPath: "/time-table"), userStateMatches: { _, _ in true })
         let account = AppStorageSession(accountIdentifier: "invalid-sections")
@@ -202,12 +206,17 @@ struct ScheduleTimeTableTests {
         }
         let bytes = try JSONEncoder().encode(cache), url = store.cacheFileURL(for: account.accountStorageIdentifier)
         try files.writeData(bytes, to: url, options: .atomic)
-        let repository = ScheduleRepository(session: { account }, load: { await store.load(for: $0) }, save: { _, _, _ in })
+        let repository = ScheduleRepository(session: { account }, load: { await store.load(for: $0) }, save: { cache, source, _ in
+            guard await store.write(cache, accountIdentifier: account.accountStorageIdentifier,
+                legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: source, expectedUpdatedAt: nil) != nil
+            else { throw CocoaError(.fileWriteUnknown) }
+        })
         await repository.loadIfNeeded()
-        #expect(repository.isWritable)
+        #expect(!repository.isWritable && repository.requiresRecoveryConfirmation)
         #expect(await store.load(for: account).cacheIfReadable?.isValidForPersistence == true)
-        #expect(await store.write(ScheduleCache(), accountIdentifier: account.accountStorageIdentifier,
-            legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) != nil)
+        #expect(try files.readData(at: url) == bytes)
+        await repository.confirmRecovery()
+        #expect(repository.isWritable && !repository.requiresRecoveryConfirmation)
         #expect(try files.readData(at: url) != bytes)
     }
 

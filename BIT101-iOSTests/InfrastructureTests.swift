@@ -421,6 +421,8 @@ nonisolated final class PreferenceMemoryFiles: AppFileService, Sendable {
         var revision: UInt64 = 0
         var reads: [URL: Int] = [:]
         var metadataScans = 0
+        var backupMetadataWrites = 0
+        var failsBackupMetadata = false
         var directories: Set<URL> = []
         var failsRemoval = false
         var failsWriting = false
@@ -506,7 +508,14 @@ nonisolated final class PreferenceMemoryFiles: AppFileService, Sendable {
         }
     }
     func setPrivateFileProtection(at url: URL) throws {}
-    func setBackupExcluded(_ excluded: Bool, at url: URL, recursively: Bool) throws {}
+    var backupMetadataWriteCount: Int { state.withLock { $0.backupMetadataWrites } }
+    func failBackupMetadata(_ failed: Bool) { state.withLock { $0.failsBackupMetadata = failed } }
+    func setBackupExcluded(_ excluded: Bool, at url: URL, recursively: Bool) throws {
+        try state.withLock {
+            $0.backupMetadataWrites += 1
+            if $0.failsBackupMetadata { throw CocoaError(.fileWriteNoPermission) }
+        }
+    }
     func beforeNextEnumeration(_ action: @escaping @Sendable () -> Void) {
         state.withLock { $0.nextEnumeration = action }
     }
