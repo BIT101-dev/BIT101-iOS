@@ -21,6 +21,8 @@ def development_workflow_self_test() -> None:
         incremental_archives(fixture)
         focused_result_retention(fixture)
         full_result_batches(fixture)
+        shared_source_facts(fixture)
+        audit_self_test_selection()
         result_readers(fixture)
         archive_prune_then_fetch(fixture)
         cache_cleanup_after_failure()
@@ -29,6 +31,78 @@ def development_workflow_self_test() -> None:
         immediate_audit_output(fixture)
     finally:
         shutil.rmtree(fixture, ignore_errors=True)
+
+
+def shared_source_facts(fixture: Path) -> None:
+    import fcntl
+    from copy import deepcopy
+    import swift_source_index as subject
+    cache = fixture / 'source-facts.json'
+    cache.write_text('{}')
+    subject._shared_facts.cache_clear()
+    path = ROOT / 'Modules/CommunityCore/Sources/CommunityTextLimits.swift'
+    source = path.read_text()
+    with patch.dict(os.environ, BIT101_SOURCE_FACTS_CACHE=str(cache)), \
+            patch.object(subject, '_run_swift_syntax_index', wraps=subject._run_swift_syntax_index) as parse:
+        first = subject.swift_syntax_index_sources({str(path): source})[str(path)]
+        expected = deepcopy(first)
+        first['declarations'].append(first['declarations'][0])
+        assert subject.swift_syntax_index_sources({str(path): source})[str(path)] == expected
+        first = expected
+        subject._shared_facts.cache_clear()
+        relative = str(path.relative_to(ROOT))
+        assert subject.swift_syntax_index_sources({relative: source})[relative] == first and parse.call_count == 1
+        assert subject.swift_syntax_index_sources({relative: source + '\n'})[relative]['source'] == source + '\n'
+        assert parse.call_count == 2
+        assert subject.swift_syntax_index_sources({relative: source})[relative] == first and parse.call_count == 2
+        program = f'''import fcntl,sys
+sys.path.insert(0, {str(ROOT / 'Scripts')!r})
+import swift_source_index as source
+original = fcntl.flock
+def observe(lock, operation):
+    print('locking', flush=True)
+    return original(lock, operation)
+fcntl.flock = observe
+def unexpected_parse(*args, **kwargs): raise AssertionError('shared facts')
+source._run_swift_syntax_index = unexpected_parse
+assert source.swift_syntax_index([source.Path({str(path)!r})])
+print('done', flush=True)
+'''
+        with cache.with_suffix('.lock').open('a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            cache.write_text('{')
+            reader = subprocess.Popen([os.sys.executable, '-B', '-c', program], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            try:
+                assert reader.stdout.readline().strip() == 'locking'
+                cache.write_text(json.dumps({str(path): first}))
+                fcntl.flock(lock, fcntl.LOCK_UN)
+                output, error = reader.communicate(timeout=5)
+                assert reader.returncode == 0 and output.strip() == 'done', error
+            finally:
+                fcntl.flock(lock, fcntl.LOCK_UN)
+                if reader.poll() is None: reader.kill()
+                reader.communicate(timeout=5)
+        base = ROOT / 'BIT101-iOSUITests/UIAutomationTestCase.swift'
+        derived = ROOT / 'BIT101-iOSUITests/CommunityPublishingUITests.swift'
+        derived_source = {str(derived): derived.read_text()}
+        subject._shared_facts.cache_clear()
+        assert not subject.swift_syntax_index_sources(derived_source)[str(derived)]['tests']
+        subject._shared_facts.cache_clear()
+        joined = subject.swift_syntax_index_sources(derived_source | {str(base): base.read_text()})
+        assert joined[str(derived)]['tests']
+        subject._shared_facts.cache_clear()
+        assert not subject.swift_syntax_index_sources(derived_source)[str(derived)]['tests']
+
+
+def audit_self_test_selection() -> None:
+    from script_test_support import shell_function
+    function = shell_function(ROOT / 'Scripts/script-support.sh', 'bit101_checker_audit')
+    for enabled in ('0', '1'):
+        script = f'ROOT_DIR=/fixture BIT101_AUDIT_SELF_TESTS={enabled}\npython3() {{ print -r -- "$*"; }}\n'
+        result = subprocess.run(['zsh', '-c', script + function + '\nbit101_checker_audit'], capture_output=True, text=True, check=True)
+        assert 'check-code-quality.py --combined' in result.stdout
+        assert ('validation_evidence.py self-test' in result.stdout) == (enabled == '1')
+        assert ('--combined --self-test' in result.stdout) == (enabled == '1')
 
 
 def cache_and_ui_products(fixture: Path) -> None:

@@ -241,12 +241,6 @@ def static_audit_cancellation_self_test() -> None:
     from time import monotonic
     source = (subject.ROOT / 'Scripts/run-static-audit.sh').read_text()
     finish = 'finish_audit() {' + source.split('finish_audit() {', 1)[1].split('\ntrap finish_audit EXIT', 1)[0]
-    stop = finish.split("<<'PYSTOP'\n", 1)[1].split('\nPYSTOP', 1)[0]
-    def signal_probe(pid, signum):
-        if signum == 0: raise PermissionError('completed process group')
-    with patch.object(sys, 'argv', ['stop', '123']), patch.object(os, 'killpg', side_effect=signal_probe) as send:
-        exec(compile(stop, 'audit-group-stop', 'exec'), {})
-        assert [call.args[1] for call in send.call_args_list] == [signal.SIGTERM, 0]
     for ignores_term in (False, True):
         worker = subprocess.Popen([sys.executable, '-c',
             'import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); print("ready", flush=True); time.sleep(60)'
@@ -254,10 +248,10 @@ def static_audit_cancellation_self_test() -> None:
             stdout=subprocess.PIPE, text=True, start_new_session=True)
         try:
             assert worker.stdout.readline().strip() == 'ready'
-            prefix = f'''ROOT_DIR=/fixture AUDIT_STARTED=$SECONDS
+            prefix = f'''ROOT_DIR={str(subject.ROOT)!r} AUDIT_STARTED=$SECONDS
 group_processes=({worker.pid} 0)
 python3() {{
-  if [[ "$1" == /fixture/Scripts/validation_evidence.py ]]; then print -r -- "RECORD $*"; return 0; fi
+  if [[ "$1" == "$ROOT_DIR/Scripts/validation_evidence.py" ]]; then print -r -- "RECORD $*"; return 0; fi
   command python3 "$@"
 }}
 '''

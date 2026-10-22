@@ -6,11 +6,11 @@ set -euo pipefail
 
 case "${1:-}" in
   --help|-h)
-    print -r -- "用法：Scripts/run-static-audit.sh"
+    print -r -- "用法：Scripts/run-static-audit.sh [--self-test]"
     print -r -- "运行 Swift、架构、界面、脚本、文档和依赖静态审计。"
     exit 0
     ;;
-  "") ;;
+  ""|--self-test) ;;
   prepare) [[ $# -eq 1 ]] || { print -u2 -- "用法：Scripts/run-static-audit.sh [--help]"; exit 64; } ;;
   *) print -u2 -- "用法：Scripts/run-static-audit.sh [--help]"; exit 64 ;;
 esac
@@ -25,7 +25,11 @@ if [[ "${1:-}" == prepare && $# -eq 1 ]]; then
   python3 "$ROOT_DIR/Scripts/validation_artifacts.py" "$ROOT_DIR"
   exit 0
 fi
-[[ $# -eq 0 ]] || exit 64
+[[ $# -eq 0 || ( $# -eq 1 && "$1" == --self-test ) ]] || exit 64
+export BIT101_AUDIT_SELF_TESTS=0
+if [[ "${1:-}" == --self-test || "${GITHUB_ACTIONS:-false}" == true || "${BIT101_RELEASE_CHECK:-false}" == true ]]; then
+  export BIT101_AUDIT_SELF_TESTS=1
+fi
 AUDIT_STARTED=$SECONDS
 group_processes=()
 BIT101_VALIDATION_STARTED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
@@ -33,31 +37,7 @@ export BIT101_VALIDATION_STARTED_AT
 finish_audit() {
   local audit_status=$?
   trap - EXIT INT TERM
-  python3 - "${group_processes[@]}" <<'PYSTOP'
-import os
-import signal
-import sys
-import time
-
-groups = {int(pid) for pid in sys.argv[1:] if int(pid) > 0}
-def send(signum):
-    for pid in tuple(groups):
-        try: os.killpg(pid, signum)
-        except ProcessLookupError: groups.discard(pid)
-        except PermissionError:
-            if signum: raise
-            groups.discard(pid)
-
-send(signal.SIGTERM)
-deadline = time.monotonic() + 5
-while groups:
-    send(0)
-    remaining = deadline - time.monotonic()
-    if remaining <= 0:
-        send(signal.SIGKILL)
-        break
-    if groups: time.sleep(min(0.1, remaining))
-PYSTOP
+  python3 "$ROOT_DIR/Scripts/workflow_processes.py" terminate-groups "${group_processes[@]}"
   for pid in "${group_processes[@]}"; do if (( pid > 0 )); then wait "$pid" 2>/dev/null || true; fi; done
   local record_status=0
   python3 "$ROOT_DIR/Scripts/validation_evidence.py" record audit "$audit_status" || record_status=$?
@@ -100,7 +80,11 @@ shell_parse() {
   python3 "$ROOT_DIR/Scripts/check-shell-syntax.py"
 }
 python_parse() {
-  python3 "$ROOT_DIR/Scripts/check-python-syntax.py" "$ROOT_DIR" --self-test
+  if [[ "$BIT101_AUDIT_SELF_TESTS" == 1 ]]; then
+    python3 "$ROOT_DIR/Scripts/check-python-syntax.py" "$ROOT_DIR" --self-test
+  else
+    python3 "$ROOT_DIR/Scripts/check-python-syntax.py" "$ROOT_DIR"
+  fi
 }
 worker_parse() {
   find "$ROOT_DIR/Cloudflare" \
@@ -123,32 +107,29 @@ docs_check() {
   if [[ "${BIT101_RELEASE_CHECK:-false}" == "true" ]]; then
     version_args+=(--check-app-store)
   fi
-  (cd "$ROOT_DIR" && python3 Scripts/check-docs.py --self-test) || return 1
+  if [[ "$BIT101_AUDIT_SELF_TESTS" == 1 ]]; then (cd "$ROOT_DIR" && python3 Scripts/check-docs.py --self-test) || return 1; fi
   (cd "$ROOT_DIR" && python3 Scripts/check-docs.py --staged) || return 1
   (cd "$ROOT_DIR" && python3 Scripts/validate_versions.py "${version_args[@]}")
 }
-checker_audit() {
-  local checker_status=0
-  python3 "$ROOT_DIR/Scripts/check-file-lengths.py" || checker_status=1
-  python3 "$ROOT_DIR/Scripts/check-file-lengths.py" --staged || checker_status=1
-  python3 "$ROOT_DIR/Scripts/validation_evidence.py" self-test &
-  local evidence_process=$!
-  python3 "$ROOT_DIR/Scripts/check-code-quality.py" --combined --self-test &
-  local quality_process=$!
-  wait "$evidence_process" || checker_status=1
-  wait "$quality_process" || checker_status=1
-  return "$checker_status"
+
+module_boundary_audit() {
+  if [[ "$BIT101_AUDIT_SELF_TESTS" == 1 ]]; then
+    python3 "$ROOT_DIR/Scripts/check-module-boundaries.py" --self-test
+  else
+    python3 "$ROOT_DIR/Scripts/check-module-boundaries.py"
+  fi
 }
-module_boundary_audit() { python3 "$ROOT_DIR/Scripts/check-module-boundaries.py" --self-test; }
 artifact_hygiene() { python3 "$ROOT_DIR/Scripts/validation_artifacts.py" "$ROOT_DIR"; }
 
 
 failed_groups=()
+export BIT101_SOURCE_FACTS_CACHE="$LOG_DIR/source-facts.json"
+printf '{}' > "$BIT101_SOURCE_FACTS_CACHE"
 if [[ "${BIT101_AUDIT_ARTIFACTS_PREPARED:-0}" != 1 ]]; then
   bit101_run_audit_group artifact-hygiene artifact_hygiene || failed_groups+=(artifact-hygiene)
 fi
 group_names=(swift-parse shell-parse python-parse worker-parse dependency-audit module-boundary git-diff docs checkers)
-group_commands=(swift_parse shell_parse python_parse worker_parse dependency_audit module_boundary_audit git_check docs_check checker_audit)
+group_commands=(swift_parse shell_parse python_parse worker_parse dependency_audit module_boundary_audit git_check docs_check bit101_checker_audit)
 for (( index = 1; index <= ${#group_names}; index++ )); do
   bit101_start_audit_group "$group_names[$index]" "$group_commands[$index]"
 done

@@ -1,11 +1,13 @@
 """Executable checks for workflow dispatch, cache ownership and audit rules."""
 from __future__ import annotations
-from script_command_tests import script_command_boundary_findings, workflow_lock_boundary_findings, device_discovery_boundary_findings, audit_lock_boundary_findings, restore_installation_boundary_findings
+from workflow_process_tests import workflow_lock_boundary_findings
+from script_command_tests import script_command_boundary_findings, device_discovery_boundary_findings, audit_lock_boundary_findings, restore_installation_boundary_findings
 from worker_contract_tests import worker_boundary_findings
 from report_inbox_tests import report_inbox_boundary_findings, community_recovery_self_test
 
 from pathlib import Path
 import json, os, re, subprocess, sys, shutil, signal
+import shlex
 from contextlib import nullcontext, redirect_stdout, redirect_stderr
 from io import BytesIO, StringIO
 from unittest.mock import Mock, patch
@@ -488,13 +490,19 @@ bit101_run_audit_group() {
 }
 bit101_start_audit_group() { bit101_run_audit_group "$1" "$2" & group_processes+=($!); }
 '''
-    for prepared in (0, 1):
-        aggregation = subprocess.run(["zsh", "-c", harness + wait_groups + f'\nBIT101_AUDIT_ARTIFACTS_PREPARED={prepared}\n' + tail], capture_output=True, text=True)
-        groups = re.findall(r"^RAN (.+)$", aggregation.stdout, re.MULTILINE)
-        if aggregation.returncode != 1 or len(set(groups)) != 10 - prepared \
-                or ('artifact-hygiene' in groups) != (prepared == 0) \
-                or set(aggregation.stderr.removeprefix('[失败汇总] ').strip().split(', ')) != {'shell-parse', 'docs'}:
-            findings.append("静态审计自测：产物准备、并行分组执行完整性与多个失败汇总")
+    fixture = ROOT / '.build/static-audit/workflow-lock-self-test'
+    fixture.mkdir(parents=True, exist_ok=True)
+    harness = harness.replace('LOG_DIR=/audit', 'LOG_DIR=' + shlex.quote(str(fixture)))
+    try:
+        for prepared in (0, 1):
+            aggregation = subprocess.run(["zsh", "-c", harness + wait_groups + f'\nBIT101_AUDIT_ARTIFACTS_PREPARED={prepared}\n' + tail], capture_output=True, text=True)
+            groups = re.findall(r"^RAN (.+)$", aggregation.stdout, re.MULTILINE)
+            if aggregation.returncode != 1 or len(set(groups)) != 10 - prepared \
+                    or ('artifact-hygiene' in groups) != (prepared == 0) \
+                    or set(aggregation.stderr.removeprefix('[失败汇总] ').strip().split(', ')) != {'shell-parse', 'docs'}:
+                findings.append("静态审计自测：产物准备、并行分组执行完整性与多个失败汇总")
+    finally:
+        shutil.rmtree(fixture)
     return findings
 
 

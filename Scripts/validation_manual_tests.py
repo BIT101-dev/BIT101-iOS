@@ -260,6 +260,7 @@ def manual_artifact_encoding_self_test() -> None:
 
 @patch('validation_provenance.source_digest', side_effect=lambda group='', *, environment=None: json.dumps([group, environment], sort_keys=True))
 def run_self_test(_source_identity) -> None:
+    manual_diagnostics_self_test()
     manual_artifact_encoding_self_test()
     application = Path('/identity/BIT101-iOS.app')
     info = {'CFBundleIdentifier': 'BIT101-dev.BIT101-iOS', 'CFBundleShortVersionString': '1.0',
@@ -689,6 +690,26 @@ def run_self_test(_source_identity) -> None:
         assert not evidence_content_complete('feedback-delivery', json.dumps(changed).encode())
     feedback['storageKey'] = 'smoke:temporary'
     assert not evidence_content_complete('feedback-delivery', json.dumps(feedback).encode())
+
+
+def manual_diagnostics_self_test() -> None:
+    from validation_manual import MANUAL_SCENARIOS, manual_structure, manual_evidence_problem, scenario_complete
+    for check in MANUAL_SCENARIOS:
+        assert set(manual_structure(check)['scenarios']) == MANUAL_SCENARIOS[check]
+    proof = json.loads(evidence_fixture('photos'))
+    name = next(iter(proof['scenarios']))
+    changed = copy.deepcopy(proof)
+    changed['scenarios'][name]['evidence'].pop('path')
+    assert f'scenarios.{name}.evidence.path' in manual_evidence_problem('photos', json.dumps(changed).encode())
+    changed = copy.deepcopy(proof)
+    changed['application'].pop('executableUUIDs')
+    assert 'application.executableUUIDs' in manual_evidence_problem('photos', json.dumps(changed).encode())
+    changed = copy.deepcopy(proof)
+    changed['scenarios'][name]['outcome'] = 'failed'
+    with patch('validation_manual.application_identity_complete', return_value=True):
+        assert f'scenarios.{name}:' in manual_evidence_problem('photos', json.dumps(changed).encode())
+    assert 'JSON' in manual_evidence_problem('photos', b'{')
+    assert not scenario_complete('photos', proof | {'schemaVersion': True})
 
 
 def image_resource_self_test() -> None:

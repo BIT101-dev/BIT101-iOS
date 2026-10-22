@@ -1,6 +1,7 @@
 #!/bin/zsh
 
 # 真机脚本共用设备快照，优先选择已连接设备，并提供同一设备的两种标识。
+export BIT101_SCRIPTS_DIR="${${(%):-%x}:A:h}"
 unset PYTHONOPTIMIZE
 if command -v brew >/dev/null 2>&1; then
   bit101_python_prefix="$(brew --prefix)/opt/python@3"
@@ -69,74 +70,7 @@ bit101_acquire_script_lock() {
   local workflow_flag="$2"
   shift 2
   if [[ "${${(P)workflow_flag}:-0}" != "1" ]]; then
-    exec python3 - "$workflow_lock" "$workflow_flag" "$@" <<'PYLOCK'
-import fcntl
-import math
-import os
-from pathlib import Path
-import signal
-import subprocess
-import sys
-import time
-
-lock_path = Path(sys.argv[1])
-lock_path.parent.mkdir(parents=True, exist_ok=True)
-with lock_path.open("a") as lock:
-    timeout = float(os.environ.get("BIT101_WORKFLOW_TIMEOUT_SECONDS", 45 * 60))
-    if not math.isfinite(timeout) or timeout <= 0:
-        raise SystemExit("工作流执行预算需要有限正数。")
-    deadline = float(os.environ.get("BIT101_WORKFLOW_DEADLINE", time.monotonic() + timeout))
-    if not math.isfinite(deadline): raise SystemExit("工作流截止时间需要有限值。")
-    announced = False
-    while True:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            break
-        except BlockingIOError:
-            if not announced:
-                print("[等待] 既有工作流正在使用固定产物与设备。", flush=True)
-                announced = True
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                print("[超时] 工作流锁等待已达到执行预算。", flush=True)
-                raise SystemExit(124)
-            time.sleep(min(0.1, remaining))
-    environment = dict(os.environ)
-    environment[sys.argv[2]] = "1"
-    environment["BIT101_WORKFLOW_DEADLINE"] = str(deadline)
-    script = Path(sys.argv[3])
-    command = ["zsh", "-c", script.read_text(), str(script), *sys.argv[4:]]
-    owns_process_group = not any(os.environ.get(flag) == "1"
-        for flag in ("BIT101_DEVICE_WORKFLOW_LOCK_HELD", "BIT101_EXTENDED_TESTS_LOCK_HELD"))
-    process = None
-    pending_signal = None
-    def interrupt(signum, _frame):
-        global pending_signal
-        if process is None:
-            pending_signal = signum
-            return
-        try:
-            if owns_process_group and process.poll() is None: os.killpg(process.pid, signum)
-        except ProcessLookupError:
-            pass
-    for signum in (signal.SIGINT, signal.SIGTERM):
-        signal.signal(signum, interrupt)
-    process = subprocess.Popen(command, env=environment, start_new_session=owns_process_group)
-    if pending_signal is not None and process.poll() is None:
-        if owns_process_group: interrupt(pending_signal, None)
-        else: process.send_signal(pending_signal)
-    try:
-        status = process.wait(timeout=max(0, deadline - time.monotonic())) if owns_process_group else process.wait()
-    except subprocess.TimeoutExpired:
-        print("[超时] 工作流已达到执行预算，正在恢复与结束。", flush=True)
-        os.killpg(process.pid if owns_process_group else os.getpgrp(), signal.SIGTERM)
-        try: process.wait(timeout=5 * 60)
-        except subprocess.TimeoutExpired:
-            os.killpg(process.pid if owns_process_group else os.getpgrp(), signal.SIGKILL)
-            process.wait()
-        raise SystemExit(124)
-    raise SystemExit(status if status >= 0 else 128 - status)
-PYLOCK
+    exec python3 "$BIT101_SCRIPTS_DIR/workflow_processes.py" "$workflow_lock" "$workflow_flag" "$@"
   fi
 }
 
@@ -407,13 +341,34 @@ bit101_wait_audit_groups() {
     for (( index = 1; index <= ${#group_processes}; index++ )); do
       pid=$group_processes[$index]
       if (( pid > 0 )) && ! kill -0 "$pid" 2>/dev/null; then
+        local group_status=0
+        wait "$pid" || group_status=$?
+        python3 "$ROOT_DIR/Scripts/workflow_processes.py" finish-group "$pid" || group_status=1
         group_processes[$index]=0
         (( remaining -= 1 )) || true
-        if wait "$pid"; then continue; fi
+        if (( group_status == 0 )); then continue; fi
         failed_groups+=("$group_names[$index]")
         if [[ "${BIT101_AUDIT_BACKGROUND:-0}" == 1 ]]; then return 0; fi
       fi
     done
     if (( remaining )); then sleep 1; fi
   done
+}
+
+bit101_checker_audit() {
+  local checker_status=0
+  python3 "$ROOT_DIR/Scripts/check-file-lengths.py" || checker_status=1
+  python3 "$ROOT_DIR/Scripts/check-file-lengths.py" --staged || checker_status=1
+  local evidence_process=
+  if [[ "$BIT101_AUDIT_SELF_TESTS" == 1 ]]; then
+    python3 "$ROOT_DIR/Scripts/validation_evidence.py" self-test &
+    evidence_process=$!
+    python3 "$ROOT_DIR/Scripts/check-code-quality.py" --combined --self-test &
+  else
+    python3 "$ROOT_DIR/Scripts/check-code-quality.py" --combined &
+  fi
+  local quality_process=$!
+  if [[ -n "$evidence_process" ]]; then wait "$evidence_process" || checker_status=1; fi
+  wait "$quality_process" || checker_status=1
+  return "$checker_status"
 }

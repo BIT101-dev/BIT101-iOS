@@ -258,7 +258,7 @@ def restore_cache(flavor: str) -> None:
             return
         try:
             restore_remote_cache(flavor)
-        except (subprocess.CalledProcessError, OSError, ValueError, KeyError, zipfile.BadZipFile) as error:
+        except (subprocess.SubprocessError, OSError, ValueError, KeyError, zipfile.BadZipFile) as error:
             print(f'编译缓存：沿当前源码重新编译（{type(error).__name__}）。')
 
 
@@ -327,71 +327,121 @@ def prune_caches() -> None:
 
 def download_cache_payload(repo: str, artifact_id: int, destination: Path) -> None:
     import io
-    import http.client
+    import time
     from concurrent.futures import ThreadPoolExecutor
     endpoint = f'repos/{repo}/actions/artifacts/{artifact_id}/zip'
-    probe = io.BytesIO(subprocess.check_output(['gh', 'api', '--allow-escape-sequences', '--include', '-H', 'Range: bytes=0-0', endpoint]))
-    status = probe.readline().split()
-    headers = http.client.parse_headers(probe)
-    size = re.fullmatch(r'bytes 0-0/([1-9][0-9]*)', headers.get('Content-Range', ''))
-    if len(status) < 2 or status[1] != b'206' or size is None or len(probe.read()) != 1:
-        raise ValueError('编译缓存响应需要包含完整的 HTTP 分段范围。')
-    length = int(size[1])
+    deadline = time.monotonic() + 5 * 60
+    length = stream_cache_range(endpoint, 0, 0, io.BytesIO(), deadline)
     count = min(os.cpu_count() or 1, length)
     with destination.open('wb') as output: output.truncate(length)
     def read_part(index):
         start, end = length * index // count, length * (index + 1) // count - 1
         with destination.open('r+b') as output:
             output.seek(start)
-            subprocess.run(['gh', 'api', '--allow-escape-sequences', '-H', f'Range: bytes={start}-{end}', endpoint],
-                stdout=output, stderr=subprocess.PIPE, check=True)
-            if output.tell() != end + 1: raise ValueError('编译缓存分段需要包含请求的全部字节。')
+            stream_cache_range(endpoint, start, end, output, deadline, total=length)
     with ThreadPoolExecutor() as pool:
         list(pool.map(read_part, range(count)))
 
 
+def stream_cache_range(endpoint: str, start: int, end: int, output, deadline: float, *, total: int | None = None) -> int:
+    import http.client
+    import shutil
+    import time
+    from threading import Timer
+    command = ['gh', 'api', '--allow-escape-sequences', '--include', '-H', f'Range: bytes={start}-{end}', endpoint]
+    with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as process:
+        timer = Timer(max(0, deadline - time.monotonic()), process.kill)
+        timer.start()
+        try:
+            status = process.stdout.readline(http.client._MAXLINE + 1).split()
+            if len(status) < 2 or status[1] != b'206': raise ValueError('编译缓存响应需要 HTTP 206。')
+            headers = http.client.parse_headers(process.stdout)
+            size = re.fullmatch(rf'bytes {start}-{end}/([1-9][0-9]*)', headers.get('Content-Range', ''))
+            if size is None or int(size[1]) <= end or total is not None and int(size[1]) != total:
+                raise ValueError('编译缓存响应需要匹配请求的分段范围。')
+            remaining = end - start + 1
+            while remaining:
+                block = process.stdout.read(min(shutil.COPY_BUFSIZE, remaining))
+                if not block: raise ValueError('编译缓存分段需要包含请求的全部字节。')
+                output.write(block)
+                remaining -= len(block)
+            if process.stdout.read(1): raise ValueError('编译缓存分段需要遵循请求的字节边界。')
+            process.wait(timeout=max(0, deadline - time.monotonic()))
+            if process.returncode: raise subprocess.CalledProcessError(process.returncode, command)
+            return int(size[1])
+        except http.client.HTTPException as error:
+            raise ValueError('编译缓存响应需要完整且有界的 HTTP 头。') from error
+        finally:
+            timer.cancel()
+            if process.poll() is None: process.kill()
+
+
 def cache_download_self_test() -> None:
+    import io
+    import time
     from unittest.mock import patch
     data = b'0123456789ab\x1b[31m'
-    probe = b'HTTP/2.0 206 Partial Content\r\nContent-Range: bytes 0-0/17\r\n\r\n0'
-    observed = []
     destination = ROOT / '.build/static-audit/cache-download-self-test'
     destination.parent.mkdir(parents=True, exist_ok=True)
+    observed = []
+    class Body(io.BytesIO):
+        reads = 0
+        def read(self, *args):
+            self.reads += 1
+            return super().read(*args)
+    class Probe:
+        returncode = 0
+        def __init__(self, raw): self.stdout = Body(raw)
+        def __enter__(self): return self
+        def __exit__(self, *args): self.stdout.close()
+        def poll(self): return self.returncode
+        def wait(self, **kwargs): return self.returncode
+        def kill(self): self.returncode = -9
     def response(command, **kwargs):
-        assert '--allow-escape-sequences' in command
-        assert command[-1] == 'repos/owner/repo/actions/artifacts/7/zip'
-        assert '--include' in command
-        return probe
-    def transfer(command, **kwargs):
-        assert kwargs['check'] and kwargs['stdout'].fileno() >= 0
-        assert '--allow-escape-sequences' in command
+        assert '--allow-escape-sequences' in command and '--include' in command
         assert command[-1] == 'repos/owner/repo/actions/artifacts/7/zip'
         match = re.fullmatch(r'Range: bytes=(\d+)-(\d+)', command[command.index('-H') + 1])
         start, end = map(int, match.groups())
         observed.append((start, end))
-        kwargs['stdout'].write(data[start:end + 1])
+        return Probe(f'HTTP/2.0 206 Partial Content\r\nContent-Range: bytes {start}-{end}/{len(data)}\r\n\r\n'.encode() + data[start:end + 1])
+    probe = b'HTTP/2.0 206 Partial Content\r\nContent-Range: bytes 0-0/17\r\n\r\n0'
     try:
         for cores in (1, 3, 32):
             observed.clear()
-            with patch.object(os, 'cpu_count', return_value=cores), patch.object(subprocess, 'check_output', side_effect=response), \
-                    patch.object(subprocess, 'run', side_effect=transfer):
+            with patch.object(os, 'cpu_count', return_value=cores), patch.object(subprocess, 'Popen', side_effect=response):
                 download_cache_payload('owner/repo', 7, destination)
                 assert destination.read_bytes() == data
+            assert observed.pop(0) == (0, 0)
             assert [offset for start, end in sorted(observed) for offset in range(start, end + 1)] == list(range(len(data)))
         for invalid in (probe.replace(b'206', b'200'), probe.replace(b'0-0/17', b'0-1/17'), probe[:-1]):
-            with patch.object(subprocess, 'check_output', return_value=invalid):
+            process = Probe(invalid)
+            with patch.object(subprocess, 'Popen', return_value=process):
                 try: download_cache_payload('owner/repo', 7, destination)
                 except ValueError: pass
                 else: raise AssertionError('分段协议需要有效状态、范围与完整数据。')
-        def truncated(command, **kwargs):
-            match = re.fullmatch(r'Range: bytes=(\d+)-(\d+)', command[command.index('-H') + 1])
-            start, end = map(int, match.groups())
-            kwargs['stdout'].write(data[start:end])
-        with patch.object(os, 'cpu_count', return_value=3), patch.object(subprocess, 'check_output', side_effect=response), \
-                patch.object(subprocess, 'run', side_effect=truncated):
-            try: download_cache_payload('owner/repo', 7, destination)
-            except ValueError: pass
-            else: raise AssertionError('缺少字节的分段需要结束恢复。')
+            if b'200' in invalid: assert process.stdout.reads == 0
+        for suffix in (b'', b'overflow'):
+            def invalid_segment(command, **kwargs):
+                process = response(command, **kwargs)
+                if len(observed) > 1:
+                    raw = process.stdout.getvalue()
+                    process.stdout = Body(raw[:-1] if not suffix else raw + suffix)
+                return process
+            observed.clear()
+            with patch.object(os, 'cpu_count', return_value=3), patch.object(subprocess, 'Popen', side_effect=invalid_segment):
+                try: download_cache_payload('owner/repo', 7, destination)
+                except ValueError: pass
+                else: raise AssertionError('分段需要按字节边界结束恢复。')
+            assert destination.stat().st_size == len(data)
+        original = subprocess.Popen
+        def stalled(command, **kwargs):
+            return original([sys.executable, '-c', f'import sys,time; sys.stdout.buffer.write({probe!r}); sys.stdout.flush(); time.sleep(60)'], **kwargs)
+        started = time.monotonic()
+        with patch.object(subprocess, 'Popen', side_effect=stalled):
+            try: stream_cache_range('fixture', 0, 0, io.BytesIO(), started + 0.2)
+            except subprocess.SubprocessError: pass
+            else: raise AssertionError('缓存下载需要在共享期限内结束。')
+        assert time.monotonic() - started < 5
     finally:
         destination.unlink(missing_ok=True)
 
@@ -403,7 +453,7 @@ def cache_self_test() -> None:
     from unittest.mock import patch
     module = sys.modules[__name__]
     cache_download_self_test()
-    for failure in (subprocess.CalledProcessError(1, ['gh', 'api']), OSError('cache unavailable'),
+    for failure in (subprocess.CalledProcessError(1, ['gh', 'api']), subprocess.TimeoutExpired(['gh', 'api'], 1), OSError('cache unavailable'),
             ValueError('invalid metadata'), KeyError('cache metadata'), zipfile.BadZipFile('truncated cache')):
         with patch.object(Path, 'mkdir'), patch.object(Path, 'open'), patch.object(Path, 'exists', return_value=False), \
                 patch('fcntl.flock'), patch.object(module, 'native_cache_available', return_value=False), patch.object(module, 'restore_remote_cache', side_effect=failure) as restore, \

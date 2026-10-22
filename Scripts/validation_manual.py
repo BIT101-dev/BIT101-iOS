@@ -44,6 +44,8 @@ INSTALLATION_ACTIONS = {
 }
 BASELINE_CHECKS = {'iOS': {'cold-start-session', 'offline-persistence', 'media-and-navigation'},
     'watchOS': {'snapshot-receive', 'timeline-render', 'clear-and-retry'}}
+CATALYST_ACTIONS = {'menu-actions': {'app-menu', 'window-menu'}, 'keyboard-navigation': {'tab', 'return', 'escape'},
+    'permission-dialogs': {'photos', 'calendar', 'notifications'}}
 PERFORMANCE_WORKLOADS = performance_workloads()
 MANUAL_SCENARIOS['performance-baseline'] = set(PERFORMANCE_WORKLOADS)
 MANUAL_DEVICE_CHECKS.add('performance-baseline')
@@ -57,6 +59,8 @@ def capture(operation: str, result: str, evidence: Path, check: str, outcome: st
     with evidence.open('rb') as stream: data = stream.read(MAXIMUM_ATTACHMENT_BYTES + 1)
     if len(data) > MAXIMUM_ATTACHMENT_BYTES: raise ValueError('人工附件需要控制在 32 MiB 以内。')
     if not (failed_evidence_complete(data) if outcome == "failed" else evidence_content_complete(check, data, observed_at=observed_at)):
+        if outcome == 'passed' and check in MANUAL_SCENARIOS:
+            raise ValueError(manual_evidence_problem(check, data))
         raise ValueError("验收附件需要有效影像、PDF 或所属专项的结构化证据")
     if check == 'performance-baseline' and outcome == 'passed':
         from validation_performance import validate_capture
@@ -184,36 +188,103 @@ def capability_observations_complete(check: str, scenario: str, observations) ->
 
 
 def scenario_complete(check: str, proof: dict) -> bool:
-    if not isinstance(proof, dict) or proof.get('schemaVersion') != 1 \
+    if not isinstance(proof, dict) or type(proof.get('schemaVersion')) is not int or proof.get('schemaVersion') != 1 \
             or not isinstance(proof.get('scenarios'), dict) or set(proof['scenarios']) != MANUAL_SCENARIOS[check]: return False
     platform = 'macCatalyst' if check == 'catalyst-desktop' else 'watchOS' if check == 'watch' else 'iOS'
     if check in APPLICATION_SCENARIOS and not application_identity_complete(proof, platform): return False
     if check == 'ipad-layout' and proof.get('deviceFamily') != 'iPad': return False
-    for name, row in proof['scenarios'].items():
-        if not isinstance(row, dict) or row.get('outcome') != 'passed' \
-                or not all(isinstance(row.get(key), str) and row[key].strip() for key in ('operation', 'result', 'capturedAt')) \
-                or not sampling_evidence_current({'startedAt': row['capturedAt'], 'finishedAt': row['capturedAt']}) \
-                or not isinstance(row.get('evidence'), dict) or not artifact_complete(row['evidence'], 'photos', media_only=True) \
-                or not capability_observations_complete(check, name, row.get('capabilities')): return False
-        if check == 'performance-baseline' and not performance_comparison_complete(name, row.get('measurement')): return False
-        if check == 'installation-paths' and not installation_path_complete(name, row, proof['application']): return False
-        if check == 'catalyst-desktop':
-            required = {'menu-actions': {'app-menu', 'window-menu'}, 'keyboard-navigation': {'tab', 'return', 'escape'},
-                'permission-dialogs': {'photos', 'calendar', 'notifications'}}.get(name)
-            if required and (not isinstance(row.get('actions'), dict) or set(row['actions']) != required
-                    or not all(isinstance(action, dict) and action.get('outcome') == 'passed'
-                        and all(isinstance(action.get(key), str) and action[key].strip() for key in ('operation', 'result'))
-                        for action in row['actions'].values())): return False
-        if check == 'ipad-layout' or check == 'catalyst-desktop' and name == 'window-resize':
-            size = row.get('windowSize', {})
-            if not isinstance(size, dict) or not all(type(size.get(axis)) is int and size[axis] > 0 for axis in ('width', 'height')): return False
-            if name == 'portrait' and size['width'] >= size['height']: return False
-            if name == 'landscape' and size['width'] <= size['height']: return False
-            if name == 'split-view' and (type(row.get('screenWidth')) is not int or size['width'] >= row['screenWidth']): return False
-            if name in {'resize', 'window-resize'} and (not isinstance(row.get('previousWindowSize'), dict)
-                    or not all(type(row['previousWindowSize'].get(axis)) is int and row['previousWindowSize'][axis] > 0 for axis in ('width', 'height'))
-                    or row['previousWindowSize'] == size): return False
+    return all(scenario_row_complete(check, name, row, proof) for name, row in proof['scenarios'].items())
+
+
+def scenario_row_complete(check: str, name: str, row, proof: dict) -> bool:
+    if not isinstance(row, dict) or row.get('outcome') != 'passed' \
+            or not all(isinstance(row.get(key), str) and row[key].strip() for key in ('operation', 'result', 'capturedAt')) \
+            or not sampling_evidence_current({'startedAt': row['capturedAt'], 'finishedAt': row['capturedAt']}) \
+            or not isinstance(row.get('evidence'), dict) or not artifact_complete(row['evidence'], 'photos', media_only=True) \
+            or not capability_observations_complete(check, name, row.get('capabilities')): return False
+    if check == 'performance-baseline' and not performance_comparison_complete(name, row.get('measurement')): return False
+    if check == 'installation-paths' and not installation_path_complete(name, row, proof['application']): return False
+    if check == 'catalyst-desktop':
+        required = CATALYST_ACTIONS.get(name)
+        if required and (not isinstance(row.get('actions'), dict) or set(row['actions']) != required
+                or not all(isinstance(action, dict) and action.get('outcome') == 'passed'
+                    and all(isinstance(action.get(key), str) and action[key].strip() for key in ('operation', 'result'))
+                    for action in row['actions'].values())): return False
+    if check == 'ipad-layout' or check == 'catalyst-desktop' and name == 'window-resize':
+        size = row.get('windowSize', {})
+        if not isinstance(size, dict) or not all(type(size.get(axis)) is int and size[axis] > 0 for axis in ('width', 'height')): return False
+        if name == 'portrait' and size['width'] >= size['height']: return False
+        if name == 'landscape' and size['width'] <= size['height']: return False
+        if name == 'split-view' and (type(row.get('screenWidth')) is not int or size['width'] >= row['screenWidth']): return False
+        if name in {'resize', 'window-resize'} and (not isinstance(row.get('previousWindowSize'), dict)
+                or not all(type(row['previousWindowSize'].get(axis)) is int and row['previousWindowSize'][axis] > 0 for axis in ('width', 'height'))
+                or row['previousWindowSize'] == size): return False
     return True
+
+
+def manual_structure(check: str) -> dict:
+    if check not in MANUAL_SCENARIOS: raise ValueError('场景结构查询需要已登记的场景专项。')
+    observation = {'outcome': 'passed', 'operation': '实际操作文本', 'result': '实际观察文本'}
+    structure = {'schemaVersion': '整数 1'}
+    if check in APPLICATION_SCENARIOS:
+        structure.update({key: '实际设备与分发应用的标识文本' for key in (
+            'platform', 'deviceIdentifier', 'deviceModel', 'systemVersion', 'systemBuild', 'inputDigest')})
+        structure['application'] = {key: '当前分发二进制的对应值' for key in (
+            'identifier', 'version', 'build', 'configuration', 'testHostMarkers', 'minimumOSVersion', 'executableUUIDs')}
+        structure['application'].update(configuration='Release', testHostMarkers=[],
+            executableUUIDs=[{'architecture': '实际体系结构', 'uuid': '实际可执行 UUID'}])
+        if check != 'catalyst-desktop': structure['application']['distributionChannel'] = 'testflight 或 app-store'
+    if check == 'ipad-layout': structure['deviceFamily'] = 'iPad'
+    scenarios = {}
+    for name in sorted(MANUAL_SCENARIOS[check]):
+        row = dict(observation, capturedAt='实际观察的 ISO 8601 时间', evidence={
+            'path': '原始影像或 PDF 路径', 'byteCount': '实际字节数，最大 32 MiB',
+            'dataBase64': '原始附件的 Base64；UTF-8 附件也可使用 dataUTF8'})
+        capabilities = manual_capabilities(check, name)
+        if capabilities: row['capabilities'] = {key: dict(observation) for key in sorted(capabilities)}
+        if check == 'performance-baseline': row['measurement'] = '所属性能场景的完整测量与基线对象'
+        if check == 'installation-paths':
+            row['actions'] = {key: dict(observation) for key in sorted(INSTALLATION_ACTIONS[name])}
+            if name == 'app-store-upgrade':
+                row['sourceApplication'] = {key: '升级前商店应用的对应值' for key in ('identifier', 'version', 'build', 'distributionChannel')}
+                row['appStoreLookup'] = {key: '对应商店记录值' for key in ('trackId', 'bundleId', 'version')}
+        actions = CATALYST_ACTIONS.get(name) if check == 'catalyst-desktop' else None
+        if actions: row['actions'] = {key: dict(observation) for key in sorted(actions)}
+        if check == 'ipad-layout' or check == 'catalyst-desktop' and name == 'window-resize':
+            row['windowSize'] = {'width': '正整数', 'height': '正整数'}
+            if name == 'split-view': row['screenWidth'] = '屏幕宽度正整数'
+            if name in {'resize', 'window-resize'}: row['previousWindowSize'] = {'width': '正整数', 'height': '正整数'}
+        scenarios[name] = row
+    structure['scenarios'] = scenarios
+    return structure
+
+
+def first_missing_field(value, structure: dict, prefix: str = '') -> str | None:
+    if not isinstance(value, dict): return prefix or '$'
+    for key, description in structure.items():
+        if key == 'dataBase64' and 'dataUTF8' in value: continue
+        path = prefix + '.' + key if prefix else key
+        if key not in value: return path
+        if isinstance(description, dict) and (missing := first_missing_field(value[key], description, path)):
+            return missing
+    return None
+
+
+def manual_evidence_problem(check: str, data: bytes) -> str:
+    try: proof = json.loads(data)
+    except (ValueError, UnicodeError) as error: return f'{check}: 附件需要场景 JSON；{error}'
+    if missing := first_missing_field(proof, manual_structure(check)):
+        return f'{missing}: 需要该字段；结构查询：python3 Scripts/validation_evidence.py manual-schema {check}'
+    if type(proof.get('schemaVersion')) is not int or proof['schemaVersion'] != 1: return 'schemaVersion: 需要整数 1。'
+    if set(proof['scenarios']) != MANUAL_SCENARIOS[check]: return f'scenarios: 需要精确覆盖 {check} 的登记场景。'
+    if check == 'ipad-layout' and proof.get('deviceFamily') != 'iPad': return 'deviceFamily: 需要 iPad。'
+    if check in APPLICATION_SCENARIOS:
+        platform = 'macCatalyst' if check == 'catalyst-desktop' else 'watchOS' if check == 'watch' else 'iOS'
+        if not application_identity_complete(proof, platform): return 'application: 需要对应当前输入、平台与分发二进制的实际标识。'
+    for name, row in proof['scenarios'].items():
+        if not scenario_row_complete(check, name, row, proof):
+            return f'scenarios.{name}: 需要通过的观察、有效时间、原始附件及所属专项记录。'
+    return f'{check}: 需要完整的场景验收记录。'
 
 
 def installation_path_complete(name: str, row: dict, application: dict) -> bool:

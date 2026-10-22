@@ -18,7 +18,7 @@ fixed_children = {
         "swift-syntax-indexer", "swift-syntax-indexer-inputs.json", "swift-syntax-indexer.lock"},
     ".build/static-audit": {"artifact-hygiene.log", "audit.lock", "checkers.log", "dependency-audit.log", "docs.log",
         "git-diff.log", "module-boundary.log", "python-parse.log", "shell-parse.log", "swift-parse.log", "worker-parse.log",
-        "compilation-conditions.json", "compilation-conditions.lock",
+        "compilation-conditions.json", "compilation-conditions.lock", "source-facts.json", "source-facts.lock",
         "staged-content-self-test.lock", "staged-content-self-test", "evidence-media-probe", "evidence-media-probe-inputs.json",
         "evidence-media-probe.lock", "evidence-media.mp4"},
     ".build/extended-automation": derived_names | {".buildSystem_debug", ".buildSystem_release", ".lock", "CACHEDIR.TAG",
@@ -39,7 +39,7 @@ fixed_children = {
 SELF_TEST_ARTIFACTS = frozenset({
     "network-configuration-self-test",
     "campus-fixture-self-test", "report-inbox-self-test", "report-write-self-test", "explanatory-self-test",
-    "cache-self-test", "cache-download-self-test", "development-workflow-self-test", "performance-results-self-test", "workflow-lock-self-test",
+    "cache-self-test", "cache-download-self-test", "development-workflow-self-test", "performance-results-self-test", "workflow-lock-self-test", "audit-cancellation-self-test",
     "row-color-self-test.swift", "source-digest-self-test.sh", "module-manifest-lock", "script-snapshot.sh",
 })
 

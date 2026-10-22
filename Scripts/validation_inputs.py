@@ -25,7 +25,7 @@ VALIDATION_SCRIPTS.update({"validation_publication.py", "validation_compilation.
 AUDIT_IMPLEMENTATIONS = frozenset({'code_quality_rules.py', 'audit_callback_rules.py',
     'ci_wiring_rules.py', 'check-module-boundaries.py', 'swift_source_index.py', 'swift_type_index.py',
     'ui_source_facts.py'}) | frozenset(SWIFT_SYNTAX_SOURCE_NAMES)
-BUILD_SCRIPTS = {"script-support.sh", "build-install-device.sh", "ci_evidence.py", "validation_artifacts.py"}
+BUILD_SCRIPTS = {"script-support.sh", "build-install-device.sh", "ci_evidence.py", "validation_artifacts.py", "workflow_processes.py"}
 TEST_SCRIPTS = BUILD_SCRIPTS | VALIDATION_SCRIPTS | {"run-extended-tests.sh", "simulator-tests.sh"}
 INPUT_TRANSACTION_FILES = {'BIT101-iOSTests/Fixtures/campus-map-locations.lock', 'BIT101-iOSTests/Fixtures/campus-map-locations.incoming'}
 WORKER_GENERATED_DIRECTORIES = frozenset({'node_modules', '.wrangler', '.git'})

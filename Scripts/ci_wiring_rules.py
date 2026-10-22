@@ -864,7 +864,7 @@ def audit_wiring_findings(ROOT, scheme_inventory_findings, extension_dependency_
     wiring = dict(zip(group_names, group_commands)) if len(group_names) == len(group_commands) else {}
     expected = {"swift-parse": "swift_parse", "shell-parse": "shell_parse", "python-parse": "python_parse",
         "worker-parse": "worker_parse", "dependency-audit": "dependency_audit", "module-boundary": "module_boundary_audit",
-        "git-diff": "git_check", "docs": "docs_check", "checkers": "checker_audit"}
+        "git-diff": "git_check", "docs": "docs_check", "checkers": "bit101_checker_audit"}
     if wiring != expected or len(group_names) != len(expected):
         errors.append("Scripts/run-static-audit.sh: 静态审计回调需要逐组接入完整契约")
     if "check-docs.py" not in audit_source:

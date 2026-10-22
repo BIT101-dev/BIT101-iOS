@@ -2,6 +2,8 @@
 import re
 import subprocess
 import shlex
+from functools import cache
+from pathlib import Path
 
 
 def audit_call_identity(call: str) -> tuple:
@@ -41,7 +43,9 @@ def audit_call_identity(call: str) -> tuple:
     return (command, tuple(positional), tuple(sorted(options)))
 
 
-def audit_callback_findings(source: str) -> list[str]:
+def audit_callback_findings(source: str, *, support_source: str | None = None) -> list[str]:
+    if support_source is None: support_source = Path(__file__).with_name("script-support.sh").read_text()
+    declarations_source = source + "\n" + support_source
     callbacks = {
         "swift_parse": [
             "find|/audit/Modules|/audit/BIT101-iOS|/audit/BIT101ScheduleWidgets|/audit/BIT101Watch|/audit/BIT101WatchWidgets|-type|f|-name|*.swift|-print0",
@@ -54,7 +58,7 @@ def audit_callback_findings(source: str) -> list[str]:
         "dependency_audit": ["cd|/audit/Cloudflare/EmergencyUpdateWorker", "npm|audit|--audit-level=high"],
         "git_check": ["git|-C|/audit|diff|--check", "git|-C|/audit|diff|--cached|--check"],
         "docs_check": ["cd|/audit", "python3|Scripts/check-docs.py|--self-test", "cd|/audit", "python3|Scripts/check-docs.py|--staged", "cd|/audit", "python3|Scripts/validate_versions.py|--compare-git-ref|base|--check-app-store"],
-        "checker_audit": ["python3|/audit/Scripts/check-file-lengths.py", "python3|/audit/Scripts/check-file-lengths.py|--staged", "python3|/audit/Scripts/validation_evidence.py|self-test", "python3|/audit/Scripts/check-code-quality.py|--combined|--self-test"],
+        "bit101_checker_audit": ["python3|/audit/Scripts/check-file-lengths.py", "python3|/audit/Scripts/check-file-lengths.py|--staged", "python3|/audit/Scripts/validation_evidence.py|self-test", "python3|/audit/Scripts/check-code-quality.py|--combined|--self-test"],
         "module_boundary_audit": ["python3|/audit/Scripts/check-module-boundaries.py|--self-test"],
         "artifact_hygiene": ["python3|/audit/Scripts/validation_artifacts.py|/audit"],
     }
@@ -83,28 +87,37 @@ xargs() {
 }
 '''
     errors = []
-    for callback, expected in callbacks.items():
-        declarations = re.findall(r"(?m)^[ \t]*(?:function[ \t]+)?" + callback + r"(?:[ \t]*\(\))?[ \t]*\{", source)
-        definition = re.search(r"(?ms)^[ \t]*(?:function[ \t]+)?" + callback + r"(?:[ \t]*\(\))?[ \t]*\{(?:[^\n]*\}|.*?^\})", source)
+    for callback, complete in callbacks.items():
+        declarations = re.findall(r"(?m)^[ \t]*(?:function[ \t]+)?" + callback + r"(?:[ \t]*\(\))?[ \t]*\{", declarations_source)
+        definition = re.search(r"(?ms)^[ \t]*(?:function[ \t]+)?" + callback + r"(?:[ \t]*\(\))?[ \t]*\{(?:[^\n]*\}|.*?^\})", declarations_source)
         if len(declarations) != 1 or definition is None:
             errors.append(f"Scripts/run-static-audit.sh: {callback} 需要唯一的审计委托声明")
             continue
-        expected = sorted(audit_call_identity(call) for call in expected)
-        failures = ['']
-        for failure in failures:
-            script = harness + "\nFAIL_CALL=" + "'" + failure.replace("'", "'\\''") + "'\n" + definition[0]
-            script += f"\n{callback}\n"
-            result = subprocess.run(["zsh", "-c", script], capture_output=True, text=True)
-            calls = result.stderr.splitlines()
-            # Pipelines may emit both delegates before a failure reaches the parent.
-            identities = [audit_call_identity(call) for call in calls]
-            valid = sorted(identities) == expected if not failure else failure in calls and all(call in expected for call in identities)
-            if callback == 'checker_audit': valid = valid and sorted(identities) == expected
-            if not valid or (result.returncode == 0) != (not failure):
+        modes = ('0', '1') if callback in {'python_parse', 'docs_check', 'bit101_checker_audit', 'module_boundary_audit'} else ('1',)
+        for enabled in modes:
+            expected = complete if enabled == '1' else [call.removesuffix('|--self-test') for call in complete
+                if call not in {'python3|Scripts/check-docs.py|--self-test', 'python3|/audit/Scripts/validation_evidence.py|self-test'}]
+            if enabled == '0' and callback == 'docs_check': expected = expected[1:]
+            identities = tuple(sorted(audit_call_identity(call) for call in expected))
+            if not valid_callback(definition[0], callback, identities, harness, enabled):
                 errors.append(f"Scripts/run-static-audit.sh: {callback} 需要执行所属命令并传播结果")
                 break
-            if not failure: failures.extend(dict.fromkeys(calls))
     return errors
+
+
+@cache
+def valid_callback(definition: str, callback: str, expected: tuple, harness: str, enabled: str) -> bool:
+    failures = ['']
+    for failure in failures:
+        script = harness + "\nBIT101_AUDIT_SELF_TESTS=" + enabled + "\nFAIL_CALL=" + shlex.quote(failure) + "\n" + definition
+        result = subprocess.run(["zsh", "-c", script + f"\n{callback}\n"], capture_output=True, text=True)
+        calls = result.stderr.splitlines()
+        identities = [audit_call_identity(call) for call in calls]
+        valid = tuple(sorted(identities)) == expected if not failure else failure in calls and all(call in expected for call in identities)
+        if callback == 'bit101_checker_audit': valid = valid and tuple(sorted(identities)) == expected
+        if not valid or (result.returncode == 0) != (not failure): return False
+        if not failure: failures.extend(dict.fromkeys(calls))
+    return True
 
 
 def self_test() -> None:
@@ -123,7 +136,8 @@ def self_test() -> None:
         if failed and ci: assert result.stdout == payload
         else: assert '[输出]' in result.stdout and len(result.stdout.splitlines()) <= 41
     assert not audit_callback_findings(source)
-    assert audit_callback_findings(source.replace('|| checker_status=1', '|| return 1'))
+    support = Path(__file__).with_name("script-support.sh").read_text()
+    assert audit_callback_findings(source, support_source=support.replace("|| checker_status=1", "|| return 1"))
     reordered = source.replace('-frontend -parse -D DEBUG -D EXTENDED_AUTOMATION',
         '-D EXTENDED_AUTOMATION -parse -D DEBUG -frontend').replace('diff --cached --check', 'diff --check --cached')
     assert not audit_callback_findings(reordered)
@@ -132,7 +146,11 @@ def self_test() -> None:
     traversal = re.sub(r'find ("\$ROOT_DIR/[^\n]+)\\\n\s*("\$ROOT_DIR/[^\n]+)\\\n\s*-type f -name \'\*\.swift\' -print0',
         r"rg --files --null --no-ignore --glob '*.swift' \1 \2", source)
     assert traversal != source and not audit_callback_findings(traversal)
-    for callback in ("checker_audit", "swift_parse", "worker_parse", "module_boundary_audit", "artifact_hygiene"):
+    for callback in ("bit101_checker_audit", "swift_parse", "worker_parse", "module_boundary_audit", "artifact_hygiene"):
         pattern = r"(?ms)^" + callback + r"\(\)\s*\{(?:[^\n]*\}|.*?^\})"
-        assert audit_callback_findings(re.sub(pattern, callback + "() { return 0; }", source))
-        assert audit_callback_findings(source + "\n" + callback + "() { return 0; }\n")
+        if callback == "bit101_checker_audit":
+            assert audit_callback_findings(source, support_source=re.sub(pattern, callback + "() { return 0; }", support))
+            assert audit_callback_findings(source, support_source=support + "\n" + callback + "() { return 0; }\n")
+        else:
+            assert audit_callback_findings(re.sub(pattern, callback + "() { return 0; }", source))
+            assert audit_callback_findings(source + "\n" + callback + "() { return 0; }\n")

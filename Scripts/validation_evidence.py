@@ -772,7 +772,7 @@ def recover_community_smoke(script: Path, directory: Path, run_id: str, original
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["digest", "record", "bind", "check", "check-group", "summary", "suites", "self-test", "manual", "verify-defaults", "runtime-suites", "conditions", "bind-merge", "check-merge", "baseline"])
+    parser.add_argument("action", choices=["digest", "record", "bind", "check", "check-group", "summary", "suites", "self-test", "manual", "manual-schema", "verify-defaults", "runtime-suites", "conditions", "bind-merge", "check-merge", "baseline"])
     parser.add_argument("group", nargs="?", default="")
     parser.add_argument("status", nargs="?", type=int, default=0)
     parser.add_argument("--operation", default="", help="实际执行操作")
@@ -783,6 +783,11 @@ def main() -> int:
     parser.add_argument("--recorded-environment", action="store_true", help="核对已绑定证据的记录环境和当前发布工具链")
     parser.add_argument("scope", nargs="?", default="full")
     args = parser.parse_args()
+    if args.action == 'manual-schema':
+        from validation_manual import manual_structure
+        try: print(json.dumps(manual_structure(args.group), ensure_ascii=False, indent=2))
+        except ValueError as error: parser.error(str(error))
+        return 0
     if args.action in {'record', 'bind', 'check', 'check-group', 'summary', 'manual', 'bind-merge', 'check-merge', 'baseline'}:
         from validation_environment import ci_commit_findings
         if os.getenv('GITHUB_SHA') or os.getenv('GITHUB_ACTIONS') == 'true':

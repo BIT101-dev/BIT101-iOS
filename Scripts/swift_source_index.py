@@ -7,6 +7,7 @@ import os
 import re
 import subprocess
 from functools import cache
+from copy import deepcopy
 from pathlib import Path
 from swift_type_index import canonical_type_scope, visible_variables, argument_parameter_bindings
 from validation_policy import SWIFT_SYNTAX_SOURCE_NAMES
@@ -50,7 +51,7 @@ def indexer_signature(compiler: Path, host_modules: Path, module_cache: Path, so
         'moduleCache': str(module_cache)}, sort_keys=True)
 
 
-def _run_swift_syntax_index(request: dict, *, regex_only: bool = False) -> dict[str, dict]:
+def _run_swift_syntax_index(request: dict, *, regex_only: bool = False, resolve_tests: bool = True) -> dict[str, dict]:
     request = dict(request, interactionNames=sorted(SWIFTUI_INTERACTION_KINDS | {"LabeledContent"}))
     swift_path = indexer_swift_path(tuple((name, os.environ.get(name, '')) for name in ('DEVELOPER_DIR', 'TOOLCHAINS', 'PATH')))
     host_modules = swift_path.parent.parent / "lib/swift/host"
@@ -107,6 +108,11 @@ def _run_swift_syntax_index(request: dict, *, regex_only: bool = False) -> dict[
     parse_failures = [path for path, facts in index.items() if facts["hasParseErrors"]]
     if parse_failures:
         raise RuntimeError("SwiftSyntax parse errors: " + ", ".join(parse_failures))
+    if resolve_tests: _resolve_tests(index)
+    return index
+
+
+def _resolve_tests(index: dict[str, dict]) -> None:
     from swift_type_index import SwiftTypeIndex
     types = SwiftTypeIndex(index)
     class_ids = {types.resolve(path, '.'.join(canonical_type_scope(declaration['scope'] + [declaration['name']])), aliases=False)
@@ -118,7 +124,6 @@ def _run_swift_syntax_index(request: dict, *, regex_only: bool = False) -> dict[
             and any(base.rsplit(".", 1)[-1] == "XCTestCase" for base in bases)}
         facts["tests"] = [test for test in facts["tests"] if test.get("isTestingTest")
                           or canonical_type_scope(test["scope"]) in test_classes]
-    return index
 
 
 def swift_syntax_index(files: list[Path]) -> dict[str, dict]:
@@ -126,13 +131,53 @@ def swift_syntax_index(files: list[Path]) -> dict[str, dict]:
 
 
 def swift_syntax_index_sources(sources: dict[str, str]) -> dict[str, dict]:
+    cache_name = os.environ.get('BIT101_SOURCE_FACTS_CACHE')
+    if not cache_name: return _index_sources(sources)
+    from validation_inputs import SWIFT_ROOTS
+    eligible = {}
+    for name, source in sources.items():
+        path = (ROOT / name).resolve()
+        parts = path.relative_to(ROOT).parts if path.is_relative_to(ROOT) else ()
+        if parts and parts[0] in SWIFT_ROOTS \
+                and path.is_file() and path.read_bytes().decode('utf-8') == source:
+            eligible[name] = str(path)
+    if not eligible: return _index_sources(sources)
+    cache_path = Path(cache_name)
+    shared = _shared_facts(cache_name)
+    requested = {path: sources[name] for name, path in eligible.items()}
+    if any(shared.get(path, {}).get('source') != source for path, source in requested.items()):
+        with cache_path.with_suffix('.lock').open('a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            shared.update(json.loads(cache_path.read_text()))
+            missing = {path: source for path, source in requested.items() if shared.get(path, {}).get('source') != source}
+            if missing:
+                shared.update(_index_sources(missing, resolve_tests=False))
+                cache_path.write_text(json.dumps(shared))
+    index = deepcopy({name: shared[path] for name, path in eligible.items()})
+    missing = {name: source for name, source in sources.items() if name not in eligible}
+    if missing: index.update(_index_sources(missing, resolve_tests=False))
+    _resolve_tests(index)
+    for name, source in sources.items():
+        REGEX_RANGES_BY_SOURCE[source] = character_regex_ranges(source, index[name]['regexRanges'])
+    return index
+
+
+@cache
+def _shared_facts(path: str) -> dict:
+    cache_path = Path(path)
+    with cache_path.with_suffix('.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_SH)
+        return json.loads(cache_path.read_text())
+
+
+def _index_sources(sources: dict[str, str], *, resolve_tests: bool = True) -> dict[str, dict]:
     index = _run_swift_syntax_index({
         "paths": [],
         "sources": [
             {"name": name, "source": source}
             for name, source in sources.items()
         ],
-    })
+    }, resolve_tests=resolve_tests)
     for name, source in sources.items():
         index[name]["source"] = source
         REGEX_RANGES_BY_SOURCE[source] = character_regex_ranges(source, index[name]["regexRanges"])
