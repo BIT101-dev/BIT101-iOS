@@ -68,6 +68,7 @@ private struct PaperRootViewScene: View {
 
             ScrollView {
                 LazyVStack(spacing: AppDesignSystem.Spacing.none) {
+                    CommunityResultsContext(viewModel.displayedQueryDescription)
                     switch viewModel.state.status {
                     case .idle where viewModel.state.items.isEmpty,
                          .loading where viewModel.state.items.isEmpty:

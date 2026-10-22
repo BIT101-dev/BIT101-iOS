@@ -94,6 +94,12 @@ final class GalleryViewModel: ObservableObject {
         _modify { objectWillChange.send(); yield &searchStorage }
     }
     private var pageSearchQuery: GallerySearchQuery?
+    var displayedQueryDescription: String? {
+        guard let pageSearchQuery,
+              pageSearchQuery.text != searchQuery.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                || pageSearchQuery.order != searchQuery.order else { return nil }
+        return "\(pageSearchQuery.text.isEmpty ? "全部话题" : "“\(pageSearchQuery.text)”的话题") · \(pageSearchQuery.order.title)"
+    }
     /// 是否展示搜索页。
     @Published var isShowingSearch = false
     /// 统一错误提示。

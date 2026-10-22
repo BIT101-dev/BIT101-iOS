@@ -19,6 +19,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     @Published var commentOrder: CommunityCommentOrder = .newest
     /// 点赞请求是否进行中，重复操作直接返回。
     @Published private(set) var isLikingPoster = false
+    @Published private(set) var hasKnownLikeState = false
     @Published private(set) var isSavingSubscription = false
     var subscriptionLevel: GallerySubscriptionLevel { poster.subscription ?? GallerySubscriptionLevel.none }
     private var subscriptionRevision = 0
@@ -51,10 +52,11 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     ///
     /// 详情页通常从帖子卡片进入，初始化时先用列表数据生成临时详情对象，
     /// 详情请求完成后替换为真实详情，页面首帧保留已有内容。
-    init(initialPoster: CommunityPoster, service: any GalleryPosterDetailServicing) {
+    init(initialPoster: CommunityPoster, initialDetail: GalleryPosterDetail? = nil, service: any GalleryPosterDetailServicing) {
         posterID = initialPoster.id
-        poster = GalleryPosterDetail(poster: initialPoster)
+        poster = initialDetail ?? GalleryPosterDetail(poster: initialPoster)
         self.service = service
+        if initialDetail != nil { posterStatus = .loaded; hasKnownLikeState = true }
     }
 
 
@@ -64,7 +66,8 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     func bootstrapIfNeeded() async {
         guard !hasBootstrapped else { return }
         hasBootstrapped = true
-        await refreshAll()
+        if posterStatus == .loaded { await refreshComments() }
+        else { await refreshAll() }
         if posterStatus == .idle || commentState.status == .idle { hasBootstrapped = false }
     }
 
@@ -181,6 +184,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     ///
     /// 帖子详情只维护一份当前详情模型，因此点赞成功后直接替换 `poster` 即可。
     func likePoster() async {
+        guard hasKnownLikeState else { return }
         guard !likeResultNeedsReview else {
             alert = AppAlert(title: "点赞结果待确认", message: CommunityToggleOutcomeUnknown.reviewMessage)
             return
@@ -351,6 +355,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     ) {
         switch result {
         case let .success(poster):
+            hasKnownLikeState = true
             likeResultNeedsReview = false
             let previousSubscription = self.poster.subscription
             if likeRevision != likeRevisionAtStart, let latestLikeResult {

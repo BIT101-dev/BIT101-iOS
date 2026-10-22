@@ -6,7 +6,7 @@ import Foundation
 import OSLog
 
 nonisolated enum GalleryMessageDestination: Hashable {
-    case poster(CommunityPoster)
+    case poster(GalleryPosterDetail)
     case paper(Int)
     case course(Int)
 }
@@ -356,7 +356,7 @@ final class GalleryMessageViewModel: ObservableObject {
             let poster = try await details.fetchPoster(id: resource.id)
             try Task.checkCancellation()
             guard generation == posterGeneration, session == readStore.currentSession else { return }
-            destination = .poster(poster.asPoster)
+            destination = .poster(poster)
         } catch {
             guard generation == posterGeneration, session == readStore.currentSession,
                   !Task.isCancelled, !TaskCancellation.matches(error) else { return }

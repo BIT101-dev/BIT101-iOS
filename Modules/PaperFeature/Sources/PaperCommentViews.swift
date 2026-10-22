@@ -19,6 +19,7 @@ struct PaperCommentsSection: View {
     let onSelectOrder: @MainActor (CommunityCommentOrder) -> Void
     let onReply: (PaperCommentReplyTarget) -> Void
     let onLikeComment: (CommunityComment) -> Void
+    let onOpenImage: (Int, [CommunityImage]) -> Void
     let onLoadMore: (CommunityComment?) -> Void
     let onRetry: () -> Void
 
@@ -53,7 +54,8 @@ struct PaperCommentsSection: View {
                                     comment: comment,
                                     likingCommentIDs: likingCommentIDs,
                                     onReply: onReply,
-                                    onLikeComment: onLikeComment
+                                    onLikeComment: onLikeComment,
+                                    onOpenImage: onOpenImage
                                 )
 
                                 if index != comments.count - 1 {
@@ -86,6 +88,7 @@ private struct PaperCommentRow: View {
     let likingCommentIDs: Set<Int>
     let onReply: (PaperCommentReplyTarget) -> Void
     let onLikeComment: (CommunityComment) -> Void
+    let onOpenImage: (Int, [CommunityImage]) -> Void
 
     var body: some View {
         AppCommentThread(comment: comment, subcomments: comment.flattenedReplies) { comment, isSubComment in
@@ -111,19 +114,7 @@ private struct PaperCommentRow: View {
                 onOpenProfile: nil
             )
 
-            if !comment.replyObj.isEmpty, comment.replyUser.id > 0 {
-                Text("回复 @\(comment.replyUser.nickname)：")
-                    .font(AppDesignSystem.Typography.captionEmphasis)
-                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
-            }
-
-            Text(CommunityTextLimits.displayText(comment.text))
-                .font(isSubComment
-                    ? AppDesignSystem.Typography.subheadline
-                    : AppDesignSystem.Typography.body)
-                .foregroundStyle(AppDesignSystem.Foreground.primary)
-                .lineSpacing(AppDesignSystem.Spacing.tiny)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            CommunityCommentBody(comment: comment, onOpenImage: onOpenImage)
 
             AppCommentActionBar(
                 likeCount: comment.likeNum,

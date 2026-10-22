@@ -114,9 +114,13 @@ struct CourseListViewModelTests {
         await model.refresh()
         model.searchText = "B"
         if failedRefresh { service.pages[0] = .failure(URLError(.timedOut)); await model.refresh() }
+        #expect(model.displayedQueryDescription == "“A”的课程")
         await model.loadMoreIfNeeded(currentCourse: first)
         #expect(service.requests.last?.search == "A" && service.requests.last?.page == 1)
         #expect(model.state.items == [first])
+        service.pages[0] = .success([first])
+        await model.refresh()
+        #expect(model.displayedQueryDescription == nil)
     }
 
     @Test("Cancellation is silent and returns the initial state to idle", .timeLimit(.minutes(1)))

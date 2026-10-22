@@ -74,6 +74,7 @@ public struct CoursePageContent: View {
 
     @ViewBuilder
     private var courseSection: some View {
+        CommunityResultsContext(viewModel.displayedQueryDescription)
         if viewModel.state.items.isEmpty {
             if viewModel.hasActiveSearch {
                 AppEmptyState(
@@ -115,63 +116,6 @@ public struct CoursePageContent: View {
         self.media = media
         self.profiles = profiles
         self.viewModel = viewModel
-    }
-}
-
-/// 日程、成绩和外部深链统一使用的课程解析流程。
-///
-/// 所有入口先通过同一个解析器确认课程，再进入同一个 `CourseDetailView`。
-struct CourseEvaluationRouteResolver {
-    private let listService: any CourseListServicing
-    private let detailService: any CourseDetailServicing
-
-    init(
-        listService: any CourseListServicing,
-        detailService: any CourseDetailServicing
-    ) {
-        self.listService = listService
-        self.detailService = detailService
-    }
-
-    func resolve(_ request: CourseNavigationRequest) async throws -> CourseNavigationRequest {
-        if request.preparedCourse != nil {
-            return request
-        }
-
-        if request.hasLookupIdentity {
-            let name = request.lookupCourseName ?? ""
-            let number = request.lookupCourseNumber ?? ""
-            let teacher = request.lookupTeacher ?? ""
-            guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                || !number.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            else {
-                throw CourseEvaluationError.missingIdentity
-            }
-            guard let lookup = try await CourseEvaluationResolver(service: listService).resolve(
-                courseName: name,
-                courseNumber: number,
-                teacher: teacher
-            ) else {
-                throw CourseEvaluationError.notFound
-            }
-            return CourseNavigationRequest(
-                courseID: lookup.selectedCourse.id,
-                lookupCourseName: name,
-                lookupCourseNumber: number,
-                lookupTeacher: teacher,
-                preparedCourse: lookup.selectedCourse,
-                searchQuery: lookup.searchQuery,
-                searchResults: lookup.searchResults
-            )
-        }
-
-        guard request.courseID > 0 else {
-            throw CourseEvaluationError.missingIdentity
-        }
-        return CourseNavigationRequest(
-            courseID: request.courseID,
-            preparedCourse: CourseSummary(detail: try await detailService.fetchCourse(id: request.courseID))
-        )
     }
 }
 
@@ -287,6 +231,7 @@ private struct CourseEvaluationScene: View {
     private let profiles: CommunityProfileDestination
     let request: CourseNavigationRequest
     @State private var course: CourseSummary?
+    @State private var preparedDetail: CourseDetail?
     @State private var errorMessage: String?
     @State private var expectedErrorMessage: String?
     @State private var expectedAlert: AppAlert?
@@ -294,7 +239,7 @@ private struct CourseEvaluationScene: View {
     var body: some View {
         Group {
             if let course {
-                CourseDetailView(dependencies: dependencies, media: media, profiles: profiles, initialCourse: course)
+                CourseDetailView(dependencies: dependencies, media: media, profiles: profiles, initialCourse: course, initialDetail: preparedDetail)
                     .id(course.id)
             } else if let expectedErrorMessage {
                 AppEmptyState(
@@ -335,6 +280,7 @@ private struct CourseEvaluationScene: View {
 
     private func resolve() async {
         course = nil
+        preparedDetail = nil
         errorMessage = nil
         expectedErrorMessage = nil
         expectedAlert = nil
@@ -346,6 +292,7 @@ private struct CourseEvaluationScene: View {
                 throw CourseEvaluationError.notFound
             }
             course = preparedCourse
+            preparedDetail = resolvedRequest.preparedDetail
         } catch let error as CourseEvaluationError {
             expectedErrorMessage = error.localizedDescription
             expectedAlert = AppAlert(title: "无法打开课程评价", message: error.localizedDescription)
@@ -359,20 +306,6 @@ private struct CourseEvaluationScene: View {
         self.media = media
         self.profiles = profiles
         self.request = request
-    }
-}
-
-private enum CourseEvaluationError: LocalizedError {
-    case missingIdentity
-    case notFound
-
-    var errorDescription: String? {
-        switch self {
-        case .missingIdentity:
-            return "课程记录缺少课程号和课程名。"
-        case .notFound:
-            return "学业课程中没有找到对应课程。"
-        }
     }
 }
 

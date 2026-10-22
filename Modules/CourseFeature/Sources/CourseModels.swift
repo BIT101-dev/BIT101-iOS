@@ -94,6 +94,7 @@ public struct CourseNavigationRequest: Identifiable, Hashable {
     public let lookupCourseNumber: String?
     public let lookupTeacher: String?
     public let preparedCourse: CourseSummary?
+    public let preparedDetail: CourseDetail?
     public let searchQuery: String?
     public let searchResults: [CourseSummary]?
 
@@ -115,6 +116,7 @@ public struct CourseNavigationRequest: Identifiable, Hashable {
         lookupCourseNumber: String? = nil,
         lookupTeacher: String? = nil,
         preparedCourse: CourseSummary? = nil,
+        preparedDetail: CourseDetail? = nil,
         searchQuery: String? = nil,
         searchResults: [CourseSummary]? = nil
     ) {
@@ -123,6 +125,7 @@ public struct CourseNavigationRequest: Identifiable, Hashable {
         self.lookupCourseNumber = lookupCourseNumber
         self.lookupTeacher = lookupTeacher
         self.preparedCourse = preparedCourse
+        self.preparedDetail = preparedDetail
         self.searchQuery = searchQuery
         self.searchResults = searchResults
     }
@@ -141,7 +144,7 @@ public struct CourseNavigationRequest: Identifiable, Hashable {
 /// 课程详情。
 ///
 /// 详情接口在课程基础信息外，还会返回当前用户的点赞状态。
-public nonisolated struct CourseDetail: Decodable, Equatable, Sendable {
+public nonisolated struct CourseDetail: Decodable, Hashable, Sendable {
     public let id: Int
     public let name: String
     public let number: String

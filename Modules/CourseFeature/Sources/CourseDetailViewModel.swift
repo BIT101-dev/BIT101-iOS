@@ -28,14 +28,18 @@ final class CourseDetailViewModel: ObservableObject {
     private var likeResultNeedsReview = false
     private var latestLikeResult: CommunityLikeResult?
     private var refreshGeneration = 0
+    private var commentRefreshGeneration = 0
     private var historyGeneration = 0
+    private var historyGradeNumber: String?
     private var cachedCourseCredits: [CommunityCourseCredit] = []
     private let loadCourseCredits: @MainActor () async -> [CommunityCourseCredit]
 
-    init(initialCourse: CourseSummary, service: any CourseDetailServicing, loadCourseCredits: @escaping @MainActor () async -> [CommunityCourseCredit]) {
+    init(initialCourse: CourseSummary, initialDetail: CourseDetail? = nil, service: any CourseDetailServicing, loadCourseCredits: @escaping @MainActor () async -> [CommunityCourseCredit]) {
         self.initialCourse = initialCourse
         self.service = service
         self.loadCourseCredits = loadCourseCredits
+        course = initialDetail
+        if initialDetail != nil { status = .loaded }
     }
 
     var resolvedName: String {
@@ -103,6 +107,7 @@ final class CourseDetailViewModel: ObservableObject {
     var isCourseLiked: Bool {
         course?.like ?? false
     }
+    var hasKnownLikeState: Bool { course != nil }
 
     var sharedMaterialsURL: URL? {
         courseExternalURL()
@@ -112,7 +117,8 @@ final class CourseDetailViewModel: ObservableObject {
         guard !hasBootstrapped else { return }
         hasBootstrapped = true
         cachedCourseCredits = await loadCourseCredits()
-        await refresh()
+        if course != nil { await refreshComments() }
+        else { await refresh() }
         if status == .idle || commentState.status == .idle { hasBootstrapped = false }
     }
 
@@ -120,7 +126,9 @@ final class CourseDetailViewModel: ObservableObject {
     func refresh() async {
         let likeRevisionAtStart = likeRevision
         refreshGeneration &+= 1
+        commentRefreshGeneration &+= 1
         let generation = refreshGeneration
+        let commentsGeneration = commentRefreshGeneration
         let hadCourse = course != nil
         let previousStatus = status
         let previousCommentState = commentState
@@ -136,15 +144,27 @@ final class CourseDetailViewModel: ObservableObject {
         }()
         async let commentRefresh: Void = { @MainActor [self] in
             let result = await loadResult { [self] in try await service.fetchComments(courseID: initialCourse.id, page: nil) }
-            guard refreshGeneration == generation else { return }
+            guard commentRefreshGeneration == commentsGeneration else { return }
             handleCommentRefreshResult(result, previousState: previousCommentState)
         }()
         _ = await (courseRefresh, commentRefresh)
     }
 
+    func refreshComments() async {
+        commentRefreshGeneration &+= 1
+        let generation = commentRefreshGeneration
+        let previousState = commentState
+        resetCommentStateForRefresh()
+        let result = await loadResult { [self] in
+            try await service.fetchComments(courseID: initialCourse.id, page: nil)
+        }
+        guard generation == commentRefreshGeneration else { return }
+        handleCommentRefreshResult(result, previousState: previousState)
+    }
+
     func loadMoreCommentsIfNeeded(currentComment: CommunityComment?) async {
         guard let currentComment else { return }
-        let generation = refreshGeneration
+        let generation = commentRefreshGeneration
         guard
             commentState.status == .loaded,
             !commentState.isLoadingMore,
@@ -157,7 +177,7 @@ final class CourseDetailViewModel: ObservableObject {
         let likeRevisionAtStart = commentState.likeRevision
         commentState.isLoadingMore = true
         defer {
-            if refreshGeneration == generation {
+            if commentRefreshGeneration == generation {
                 commentState.isLoadingMore = false
             }
         }
@@ -167,7 +187,7 @@ final class CourseDetailViewModel: ObservableObject {
             while true {
                 let comments = try await self.service.fetchComments(courseID: self.initialCourse.id, page: commentState.nextPage)
                 try Task.checkCancellation()
-                guard refreshGeneration == generation else { throw CancellationError() }
+                guard commentRefreshGeneration == generation else { throw CancellationError() }
                 try progress.record(comments.map(\.id), knownIDs: commentState.pagedItems.ids)
                 if comments.isEmpty || comments.contains(where: { !commentState.pagedItems.ids.contains($0.id) }) { return comments }
                 commentState.nextPage += 1
@@ -176,13 +196,13 @@ final class CourseDetailViewModel: ObservableObject {
 
         switch result {
         case let .success(comments):
-            guard refreshGeneration == generation else { return }
+            guard commentRefreshGeneration == generation else { return }
             commentState.confirmRead(in: comments)
             commentState.appendPage(commentState.applyingLocalChanges(to: comments, since: likeRevisionAtStart))
             commentState.canLoadMore = !comments.isEmpty
             commentState.paginationError = nil
         case let .failure(error):
-            guard refreshGeneration == generation else { return }
+            guard commentRefreshGeneration == generation else { return }
             if TaskCancellation.matches(error) { return }
             commentState.paginationError = error.localizedDescription
             alert = AppAlert(title: "加载更多评论失败", message: error.localizedDescription)
@@ -190,6 +210,10 @@ final class CourseDetailViewModel: ObservableObject {
     }
 
     func loadHistoryGradesIfNeeded() async {
+        if historyGradeNumber != resolvedNumber.trimmingCharacters(in: .whitespacesAndNewlines) {
+            await reloadHistoryGrades()
+            return
+        }
         switch historyGradeStatus {
         case .idle, .failed:
             break
@@ -203,6 +227,7 @@ final class CourseDetailViewModel: ObservableObject {
         historyGeneration &+= 1
         let generation = historyGeneration
         let number = resolvedNumber.trimmingCharacters(in: .whitespacesAndNewlines)
+        historyGradeNumber = number
         guard !number.isEmpty else {
             historyGradesAllowsDiagnostics = false
             historyGradeStatus = .failed("课程号为空，无法加载历史成绩。")
@@ -232,6 +257,7 @@ final class CourseDetailViewModel: ObservableObject {
     }
 
     func likeCourse() async {
+        guard hasKnownLikeState else { return }
         guard !likeResultNeedsReview else {
             alert = AppAlert(title: "点赞结果待确认", message: CommunityToggleOutcomeUnknown.reviewMessage)
             return
@@ -246,8 +272,6 @@ final class CourseDetailViewModel: ObservableObject {
             latestLikeResult = result
             if let course {
                 self.course = course.updatingLike(result.like, likeNum: result.likeNum)
-            } else {
-                self.course = fallbackCourseDetail(like: result.like, likeNum: result.likeNum)
             }
         } catch {
             if error is CommunityToggleOutcomeUnknown {
@@ -339,21 +363,6 @@ final class CourseDetailViewModel: ObservableObject {
     }
 
     /// 详情首屏还没回来时，点赞仍然需要一个最小可展示的详情快照承接状态。
-    private func fallbackCourseDetail(like: Bool, likeNum: Int) -> CourseDetail {
-        CourseDetail(
-            id: initialCourse.id,
-            name: initialCourse.name,
-            number: initialCourse.number,
-            credit: initialCourse.credit,
-            likeNum: likeNum,
-            commentNum: initialCourse.commentNum,
-            rate: initialCourse.rate,
-            teachersName: initialCourse.teachersName,
-            teachersNumber: initialCourse.teachersNumber,
-            like: like
-        )
-    }
-
     private func handleCourseResult(_ result: Result<CourseDetail, Error>, previousStatus: CourseDetailLoadStatus, likeRevisionAtStart: Int) {
         switch result {
         case let .success(course):

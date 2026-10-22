@@ -162,11 +162,7 @@ private struct GalleryCommentRow: View {
                 onOpenProfile: canOpenUserProfile(comment) ? { onOpenUser(comment.user) } : nil
             )
 
-            commentText(for: comment)
-
-            if !comment.images.isEmpty {
-                CommunityPosterImagesView(images: comment.images, onOpenImage: onOpenImage)
-            }
+            CommunityCommentBody(comment: comment, onOpenImage: onOpenImage)
 
             AppCommentActionBar(
                 likeCount: comment.likeNum,
@@ -202,21 +198,6 @@ private struct GalleryCommentRow: View {
     }
 
     /// 处理“回复某人”的前缀文本拼接。
-    @ViewBuilder
-    private func commentText(for comment: CommunityComment) -> some View {
-        if comment.replyUser.id != 0, !comment.replyUser.nickname.isEmpty {
-            CommunityLinkedText(comment.text, prefix: Text("回复 @\(comment.replyUser.nickname)：")
-                .foregroundStyle(AppDesignSystem.Foreground.secondary))
-            .font(AppDesignSystem.Typography.body)
-            .lineSpacing(AppDesignSystem.Comment.bodyLineSpacing)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        } else {
-            CommunityLinkedText(comment.text)
-                .font(AppDesignSystem.Typography.body)
-                .lineSpacing(AppDesignSystem.Comment.bodyLineSpacing)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
 }
 
 /// 评论发送弹层。
@@ -238,6 +219,9 @@ struct GalleryCommentComposerSheet: View {
     @State private var imagePreparer = ComposerImagePreparer()
     @State private var uploadedImages: [CommunityImage] = []
     @State private var isUploadingImages = false
+    private var hasDraftContent: Bool {
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || anonymous || !uploadedImages.isEmpty || isUploadingImages
+    }
     @State private var uploadError: String?
     @State private var imageViewer: ImagePreviewRequest?
     private var service: any GalleryImageUploading { dependencies.images }
@@ -275,14 +259,36 @@ struct GalleryCommentComposerSheet: View {
                     if let uploadError {
                         Text(uploadError)
                             .foregroundStyle(AppDesignSystem.Palette.Status.danger)
+                            .accessibilityIdentifier("comment.image-upload.error")
                     }
                     if !uploadedImages.isEmpty {
                         Text("已添加 \(uploadedImages.count) 张图片")
                             .font(AppDesignSystem.Typography.caption)
                             .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                        CommunityPosterImagesView(images: uploadedImages) { index, images in
-                            imageViewer = ImagePreviewRequest(remoteImages: images.map(\.previewImage), initialIndex: index)
+                        ScrollView(.horizontal) {
+                            HStack(spacing: AppDesignSystem.Spacing.regular) {
+                                ForEach(Array(uploadedImages.enumerated()), id: \.offset) { index, image in
+                                    Button {
+                                        imageViewer = ImagePreviewRequest(remoteImages: uploadedImages.map(\.previewImage), initialIndex: index)
+                                    } label: {
+                                        CommunityImageThumbnail(image: image, contentMode: .fill)
+                                            .frame(width: AppDesignSystem.Size.Media.draft, height: AppDesignSystem.Size.Media.draft)
+                                            .clipped()
+                                            .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
+                                    }
+                                    .buttonStyle(.plain)
+                                    .appInteractiveListRow()
+                                    .accessibilityLabel("预览第\(index + 1)张评论图片")
+                                    .overlay(alignment: .topTrailing) {
+                                        AppComposerImageRemoveButton(accessibilityLabel: "移除第\(index + 1)张评论图片") {
+                                            uploadedImages.remove(at: index)
+                                        }
+                                    }
+                                }
+                            }
                         }
+                        .disabled(isUploadingImages)
+                        .accessibilityIdentifier("interaction.GalleryCommentComposerSheet.images")
                     }
                 }
             }
@@ -301,6 +307,7 @@ struct GalleryCommentComposerSheet: View {
                     isSubmitting: isSubmitting || isSubmissionRequested,
                     submitTitle: "发送",
                     isSubmitDisabled: isUploadingImages,
+                    confirmDiscard: hasDraftContent,
                     onCancel: {
                         dismiss()
                     },
@@ -315,7 +322,7 @@ struct GalleryCommentComposerSheet: View {
             }
             .systemImagePreview(item: $imageViewer)
         }
-        .interactiveDismissDisabled(isSubmitting || isSubmissionRequested)
+        .interactiveDismissDisabled(hasDraftContent || isSubmitting || isSubmissionRequested)
     }
 
     private func upload(items: [PhotosPickerItem]) async {

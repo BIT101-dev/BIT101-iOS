@@ -165,7 +165,7 @@ struct GalleryMessagesView: View {
         .navigationDestination(item: $viewModel.destination) { destination in
             switch destination {
             case let .poster(poster):
-                GalleryPosterDetailView(dependencies: dependencies, media: media, profiles: profiles, poster: poster)
+                GalleryPosterDetailView(dependencies: dependencies, media: media, profiles: profiles, poster: poster.asPoster, initialDetail: poster)
             case let .paper(id): papers.detail(id)
             case let .course(id): courses.course(id)
             }

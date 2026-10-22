@@ -8,6 +8,54 @@ import TransportCore
 
 @MainActor
 struct CourseDetailTests {
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func courseLikeWaitsForTheCurrentUsersConfirmedState(readFails: Bool) async throws {
+        let service = Service(), gate = Gate(), viewModel = model(service)
+        service.detailResult = readFails ? .failure(URLError(.timedOut)) : .success(Self.detail.updatingLike(true, likeNum: 9))
+        service.firstDetailGate = gate
+        await viewModel.likeCourse()
+        #expect(!viewModel.hasKnownLikeState && service.likedObjects.isEmpty)
+        let loading = Task { await viewModel.refresh() }
+        defer { loading.cancel(); gate.resume() }
+        try await gate.waitForEntry()
+        await viewModel.likeCourse()
+        #expect(service.likedObjects.isEmpty)
+        gate.resume(); await loading.value
+        if readFails {
+            await viewModel.likeCourse()
+            #expect(!viewModel.hasKnownLikeState && service.likedObjects.isEmpty)
+            service.detailResult = .success(Self.detail.updatingLike(true, likeNum: 9))
+            await viewModel.refresh()
+        }
+        #expect(viewModel.hasKnownLikeState && viewModel.isCourseLiked && service.likedObjects.isEmpty)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func hydratedCourseStartsIndependentHistoryAndKeepsCommentRetryLocal() async throws {
+        let service = Service(), gate = Gate()
+        service.commentReadGate = gate
+        let resolved = try await CourseEvaluationRouteResolver(listService: service, detailService: service)
+            .resolve(CourseNavigationRequest(courseID: Self.detail.id))
+        let detail = try #require(resolved.preparedDetail)
+        let viewModel = CourseDetailViewModel(initialCourse: try #require(resolved.preparedCourse), initialDetail: detail,
+            service: service, loadCourseCredits: { [] })
+        let loading = Task { await viewModel.bootstrapIfNeeded() }
+        defer { loading.cancel(); gate.resume() }
+        try await gate.waitForEntry()
+        await viewModel.loadHistoryGradesIfNeeded()
+        #expect(service.detailCalls == 1 && service.historyNumbers == ["CS101"])
+        #expect(viewModel.historyGradeStatus == .loaded && viewModel.commentState.status == .loading)
+        gate.resume(); await loading.value
+        service.commentResult = .failure(URLError(.networkConnectionLost))
+        await viewModel.refreshComments()
+        #expect(viewModel.commentState.status != .loaded && service.detailCalls == 1)
+        service.commentResult = .success([Self.comment(8)])
+        await viewModel.refreshComments()
+        #expect(viewModel.commentState.items.map(\.id) == [8] && service.detailCalls == 1)
+        await viewModel.refresh()
+        #expect(service.detailCalls == 2)
+    }
+
     @Test(.timeLimit(.minutes(1))) func commentsAppearWhileCourseDetailsArePending() async throws {
         let service = Service(), gate = Gate()
         service.firstDetailGate = gate
@@ -90,12 +138,14 @@ struct CourseDetailTests {
         func resume() { pending?.resume(); pending = nil }
     }
 
-    private final class Service: CourseDetailServicing {
+    private final class Service: CourseDetailServicing, CourseListServicing {
+        func fetchCourses(search: String, page: Int) async throws -> [CourseSummary] { throw URLError(.unsupportedURL) }
         var detailResult: Result<CourseDetail, Error> = .success(CourseDetailTests.detail)
         var commentResult: Result<[CommunityComment], Error> = .success([])
         var historyResult: Result<[CourseHistoryGrade], Error> = .success([])
         var pages: [Int: [CommunityComment]] = [:]
         var detailCalls = 0
+        var historyNumbers: [String] = []
         var commentRequests: [Int?] = []
         var likedObjects: [String] = []
         var submitted: (String, String, String?, Int?, Bool, Int?)?
@@ -122,7 +172,10 @@ struct CourseDetailTests {
             if let gate = firstDetailGate { firstDetailGate = nil; await gate.pause() }
             return try captured.get()
         }
-        func fetchCourseHistories(number: String) async throws -> [CourseHistoryGrade] { try historyResult.get() }
+        func fetchCourseHistories(number: String) async throws -> [CourseHistoryGrade] {
+            historyNumbers.append(number)
+            return try historyResult.get()
+        }
         func fetchComments(courseID: Int, page: Int?) async throws -> [CommunityComment] {
             commentRequests.append(page)
             try await pauseIfRequested("comments")
@@ -306,8 +359,9 @@ struct CourseDetailTests {
         let service = Service()
         let detailGate = Gate()
         let likeGate = Gate()
-        service.firstDetailGate = detailGate
         let viewModel = model(service)
+        await viewModel.refresh()
+        service.firstDetailGate = detailGate
         var like: Task<Void, Never>?
         if likeStartsFirst {
             service.likeGate = likeGate

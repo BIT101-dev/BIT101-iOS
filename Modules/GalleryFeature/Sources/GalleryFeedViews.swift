@@ -20,7 +20,7 @@ struct GallerySubscriptionsView: View {
     @Environment(CommunityProfileDestination.self) private var profiles
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel: GallerySubscriptionsViewModel
-    @State private var selectedPoster: CommunityPoster?
+    @State private var selectedPoster: GalleryPosterDetail?
     @State private var openingID: Int?
     let onOpenResource: (String, Int) -> Void
 
@@ -50,7 +50,7 @@ struct GallerySubscriptionsView: View {
                         openingID = item.id
                         viewModel.pendingOperations.enqueue {
                             defer { openingID = nil }
-                            do { selectedPoster = try await dependencies.posterDetail.fetchPoster(id: resource.id).asPoster }
+                            do { selectedPoster = try await dependencies.posterDetail.fetchPoster(id: resource.id) }
                             catch {
                                 if !TaskCancellation.matches(error) {
                                     viewModel.alert = AppAlert(title: "无法打开话题", message: error.localizedDescription)
@@ -106,7 +106,7 @@ struct GallerySubscriptionsView: View {
         .onDisappear { viewModel.pendingOperations.cancel() }
         .diagnosticAlert(item: $viewModel.alert)
         .navigationDestination(item: $selectedPoster) { poster in
-            GalleryPosterDetailView(dependencies: dependencies, media: media, profiles: profiles, poster: poster,
+            GalleryPosterDetailView(dependencies: dependencies, media: media, profiles: profiles, poster: poster.asPoster, initialDetail: poster,
                 onUpdated: { viewModel.pendingOperations.enqueue { await viewModel.refresh() } },
                 onDeleted: { viewModel.pendingOperations.enqueue { await viewModel.refresh() } })
         }

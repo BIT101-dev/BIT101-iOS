@@ -66,7 +66,8 @@ final class UITestSceneConfiguration {
     }
 
     func replace(with environment: [String: String]) {
-        AppUITestBootstrap.releaseFeedback()
+        AppUITestBootstrap.releaseRequests()
+        AppUITestBootstrap.failingRequests.removeAll()
         values = environment
         revision += 1
     }
@@ -77,12 +78,22 @@ enum AppUITestBootstrap {
     nonisolated static let usesProductionComposition = ProcessInfo.processInfo.environment["BIT101_UI_TEST_PRODUCTION_COMPOSITION"] == "1"
     static var environment: [String: String] { UITestSceneConfiguration.shared.snapshot.environment }
     private static var injectedScheduleConflictScene: Int?
-    static var pendingFeedback: CheckedContinuation<Void, Never>?
+    static var pendingRequests: [String: [CheckedContinuation<Void, Never>]] = [:]
+    static var failingRequests: Set<String> = []
     static var recoveredSuggestionID: UUID?
 
-    static func releaseFeedback() {
-        pendingFeedback?.resume()
-        pendingFeedback = nil
+    static func holdRequest(_ key: String) async {
+        await withCheckedContinuation { pendingRequests[key, default: []].append($0) }
+    }
+
+    static func releaseRequest(_ key: String) {
+        pendingRequests.removeValue(forKey: key)?.forEach { $0.resume() }
+    }
+
+    static func releaseRequests() {
+        let requests = pendingRequests.values.flatMap { $0 }
+        pendingRequests.removeAll()
+        requests.forEach { $0.resume() }
     }
 
     static func prepareScheduleConflictIfRequested(cache: ScheduleCache, session: AppStorageSession) async throws {
@@ -283,7 +294,7 @@ final class UITestHTTPTransport: HTTPTransport {
                       (body["attachments"] as? [[String: Any]])?.count == 1 else { throw URLError(.badServerResponse) }
             }
             if AppUITestBootstrap.environment["BIT101_UI_TEST_FEEDBACK_HOLD"] == "1" {
-                await withCheckedContinuation { AppUITestBootstrap.pendingFeedback = $0 }
+                await AppUITestBootstrap.holdRequest("feedback")
             }
             if AppUITestBootstrap.environment["BIT101_UI_TEST_FEEDBACK_RESPONSE_LOST_ONCE"] == "1",
                failedPaths.insert("feedback").inserted {
@@ -307,6 +318,7 @@ final class UITestHTTPTransport: HTTPTransport {
             throw URLError(.notConnectedToInternet)
         }
         let path = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if AppUITestBootstrap.failingRequests.remove(path) != nil { throw URLError(.networkConnectionLost) }
         if AppUITestBootstrap.environment["BIT101_UI_TEST_REPORT_FAILURE_ONCE"] == "1",
            path == "manage/report_types", failedPaths.insert(path).inserted {
             throw URLError(.networkConnectionLost)
@@ -397,6 +409,12 @@ final class UITestHTTPTransport: HTTPTransport {
             if likedObjects.contains(object) { likedObjects.remove(object) } else { likedObjects.insert(object) }
             payload = ["like": likedObjects.contains(object), "like_num": likedObjects.contains(object) ? 2 : 1]
         case "reaction/comments":
+            if method == "GET", query.first(where: { $0.name == "obj" })?.value == "course1",
+               AppUITestBootstrap.environment["BIT101_UI_TEST_COURSE_COMMENT_RECOVERY"] == "1",
+               failedPaths.insert("course-comments").inserted {
+                await AppUITestBootstrap.holdRequest("course-comments")
+                throw URLError(.networkConnectionLost)
+            }
             if method == "POST" {
                 var comment = makeComment(id: comments.count + 2, text: body["text"] as? String ?? "测试回复")
                 comment["reply_obj"] = body["reply_obj"] ?? ""
@@ -592,6 +610,8 @@ final class UITestHTTPTransport: HTTPTransport {
     }
 
     private func makeComment(id: Int, text: String) -> [String: Any] {
+        let text = AppUITestBootstrap.environment["BIT101_UI_TEST_COMMENT_MEDIA_LINKS"] == "1" && id == 1
+            ? "https://example.com/comment" : text
         var replyUser = user
         replyUser["id"] = 0
         replyUser["nickname"] = ""

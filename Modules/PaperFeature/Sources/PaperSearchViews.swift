@@ -37,6 +37,7 @@ private struct PaperSearchScene: View {
     private var content: some View {
         ScrollView {
             LazyVStack(spacing: AppDesignSystem.Spacing.none) {
+                CommunityResultsContext(viewModel.displayedQueryDescription)
                 if viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     AppEmptyState(
                         title: "搜索文章",

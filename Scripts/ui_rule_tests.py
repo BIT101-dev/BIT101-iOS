@@ -817,19 +817,11 @@ struct VisualRuleSample: View {
             if pattern.pattern in uncovered_rules
         }
         findings.append("UI 检查器自测：AST 规则映射缺少样例：" + repr(examples))
-    reviewed_path = source_path("Modules/CourseFeature/Sources/CourseCommentViews.swift")
-    reviewed_source = "thumbnailButton(image: displayedImages[0], index: 0, width: 180)"
-    if not is_reviewed_fixed_geometry(
-        reviewed_path,
-        reviewed_source,
-        DIRECT_THUMBNAIL_GEOMETRY,
-        {"value": reviewed_source, "scope": ["CourseCommentImagesView"]},
-    ):
-        findings.append("UI 检查器自测：登记几何变体未精确命中")
+    reviewed_path = source_path("Modules/CommunityUI/Sources/CommunityPosterViews.swift")
     unregistered_source = "thumbnailButton(image: anotherImage, index: 1, width: 52)"
     if is_reviewed_fixed_geometry(
         reviewed_path,
-        reviewed_source + "\n" + unregistered_source,
+        unregistered_source,
         DIRECT_THUMBNAIL_GEOMETRY,
         {"value": unregistered_source},
     ):

@@ -37,14 +37,17 @@ public struct AppComposerToolbar: ToolbarContent {
     let submitTitle: String
     let submittingTitle: String
     let isSubmitDisabled: Bool
+    let confirmDiscard: Bool
     let onCancel: () -> Void
     let onSubmit: () -> Void
+    @State private var showsDiscardConfirmation = false
 
     public init(
         isSubmitting: Bool,
         submitTitle: String,
         submittingTitle: String = "发送中…",
         isSubmitDisabled: Bool = false,
+        confirmDiscard: Bool = false,
         onCancel: @escaping () -> Void,
         onSubmit: @escaping () -> Void
     ) {
@@ -52,15 +55,25 @@ public struct AppComposerToolbar: ToolbarContent {
         self.submitTitle = submitTitle
         self.submittingTitle = submittingTitle
         self.isSubmitDisabled = isSubmitDisabled
+        self.confirmDiscard = confirmDiscard
         self.onCancel = onCancel
         self.onSubmit = onSubmit
     }
 
     public var body: some ToolbarContent {
         ToolbarItem(placement: .cancellationAction) {
-            Button("取消", action: onCancel)
+            Button("取消") {
+                if confirmDiscard { showsDiscardConfirmation = true }
+                else { onCancel() }
+            }
                 .disabled(isSubmitting)
                 .accessibilityIdentifier("ui.app-composer-toolbar.cancel")
+                .alert("放弃当前输入？", isPresented: $showsDiscardConfirmation) {
+                    Button("继续编辑", role: .cancel) {}
+                    Button("放弃输入", role: .destructive, action: onCancel)
+                } message: {
+                    Text("当前输入会随编辑页关闭。")
+                }
         }
 
         ToolbarItem(placement: .confirmationAction) {
@@ -68,6 +81,28 @@ public struct AppComposerToolbar: ToolbarContent {
                 .disabled(isSubmitting || isSubmitDisabled)
                 .accessibilityIdentifier("ui.app-composer-toolbar.submit")
         }
+    }
+}
+public struct AppComposerImageRemoveButton: View {
+    private let label: String
+    private let onRemove: () -> Void
+
+    public init(accessibilityLabel: String = "移除图片", onRemove: @escaping () -> Void) {
+        label = accessibilityLabel
+        self.onRemove = onRemove
+    }
+
+    public var body: some View {
+        Button(action: onRemove) {
+            Image(systemName: "xmark.circle.fill")
+                .font(AppDesignSystem.Typography.title)
+                .foregroundStyle(AppDesignSystem.Palette.Media.foreground, AppDesignSystem.Palette.Media.controlOverlay)
+                .frame(minWidth: AppDesignSystem.Size.Control.touchTarget, minHeight: AppDesignSystem.Size.Control.touchTarget)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .accessibilityIdentifier("ui.app-composer-image-remove-button.remove")
     }
 }
 #endif

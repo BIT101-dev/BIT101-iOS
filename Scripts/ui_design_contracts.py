@@ -20,18 +20,6 @@ SWIFTUI_INTERACTION_KINDS = set(SWIFTUI_CONTROL_ACTIONS) | set(SWIFTUI_MODIFIER_
 
 FIXED_GEOMETRY_CONTRACTS = (
     (
-        "Modules/CourseFeature/Sources/CourseCommentViews.swift",
-        "thumbnailButton(image: displayedImages[0], index: 0, width: 180",
-    ),
-    (
-        "Modules/CourseFeature/Sources/CourseCommentViews.swift",
-        "thumbnailButton(image: image, index: index, width: nil, maxHeight: 150",
-    ),
-    (
-        "Modules/CourseFeature/Sources/CourseCommentViews.swift",
-        "thumbnailButton(image: image, index: index, width: nil, maxHeight: 78",
-    ),
-    (
         "Modules/GalleryFeature/Sources/GalleryComposerView.swift",
         "GridItem(.adaptive(minimum: 64)",
     ),
@@ -142,7 +130,6 @@ PAGE_THEME_CONTRACTS = (
 )
 
 VISUAL_CONTRACT_OWNERS = {
-    "Modules/CourseFeature/Sources/CourseCommentViews.swift": (("CourseCommentImagesView",), None),
     "Modules/GalleryFeature/Sources/GalleryComposerView.swift": (("GalleryComposerScene",), None),
     "Modules/CourseFeature/Sources/CourseHistoryGradesViews.swift": (("CourseHistoryGradesChart",), None),
     "Modules/CommunityUI/Sources/CommunityDesignSystem.swift": (("ComposerDraftImageCompressor",), "render"),

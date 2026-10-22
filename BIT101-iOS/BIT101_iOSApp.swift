@@ -484,13 +484,17 @@ final class UITestSceneState: ObservableObject {
                             reply(Data(UITestAccessibilityActions.keyboardState(returnTitle: environment["return-title"]).utf8))
                             return
                         }
-                        if environment["command"] == "feedback-state" {
-                            reply(Data((AppUITestBootstrap.pendingFeedback == nil ? "idle" : "pending").utf8))
-                            return
-                        }
-                        if environment["command"] == "release-feedback" {
-                            AppUITestBootstrap.releaseFeedback()
-                            reply(Data("released".utf8))
+                        if let command = environment["command"], ["request-state", "release-request", "fail-request"].contains(command) {
+                            guard let key = environment["key"], !key.isEmpty else { throw CocoaError(.coderInvalidValue) }
+                            if command == "fail-request" {
+                                AppUITestBootstrap.failingRequests.insert(key)
+                                reply(Data("queued".utf8))
+                            } else if command == "release-request" {
+                                AppUITestBootstrap.releaseRequest(key)
+                                reply(Data("released".utf8))
+                            } else {
+                                reply(Data((AppUITestBootstrap.pendingRequests[key] == nil ? "idle" : "pending").utf8))
+                            }
                             return
                         }
                         self.configure(environment)

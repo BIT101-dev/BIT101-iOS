@@ -22,9 +22,10 @@ public struct GalleryPosterDetailView: View {
         media: MediaEnvironment,
         profiles: CommunityProfileDestination,
         poster: CommunityPoster,
+        initialDetail: GalleryPosterDetail? = nil,
         onUpdated: (() -> Void)? = nil,
         onDeleted: (() -> Void)? = nil) {
-        scene = GalleryPosterDetailViewScene(dependencies: dependencies, media: media, profiles: profiles, poster: poster, onUpdated: onUpdated, onDeleted: onDeleted)
+        scene = GalleryPosterDetailViewScene(dependencies: dependencies, media: media, profiles: profiles, poster: poster, initialDetail: initialDetail, onUpdated: onUpdated, onDeleted: onDeleted)
         identity = [ObjectIdentifier(dependencies), ObjectIdentifier(media)]
         resourceID = poster.id
     }
@@ -62,6 +63,7 @@ private struct GalleryPosterDetailViewScene: View {
         media: MediaEnvironment,
         profiles: CommunityProfileDestination,
         poster: CommunityPoster,
+        initialDetail: GalleryPosterDetail?,
         onUpdated: (() -> Void)? = nil,
         onDeleted: (() -> Void)? = nil
     ) {
@@ -69,7 +71,7 @@ private struct GalleryPosterDetailViewScene: View {
         self.media = media
         _contentPreferences = ObservedObject(wrappedValue: dependencies.preferences)
         self.destinations = profiles
-        _viewModel = StateObject(wrappedValue: GalleryPosterDetailViewModel(initialPoster: poster, service: dependencies.posterDetail))
+        _viewModel = StateObject(wrappedValue: GalleryPosterDetailViewModel(initialPoster: poster, initialDetail: initialDetail, service: dependencies.posterDetail))
         self.onUpdated = onUpdated
         self.onDeleted = onDeleted
     }
@@ -113,14 +115,14 @@ private struct GalleryPosterDetailViewScene: View {
                             }
 
                             AppDetailCircleButton(
-                                accessibilityLabel: viewModel.poster.like ? "取消帖子点赞" : "点赞帖子"
+                                accessibilityLabel: viewModel.hasKnownLikeState ? (viewModel.poster.like ? "取消帖子点赞" : "点赞帖子") : "等待帖子点赞状态"
                             ) {
                                 viewModel.pendingOperations.enqueue {
                                     await viewModel.likePoster()
                                 }
                             } label: {
                                 Group {
-                                    if viewModel.isLikingPoster {
+                                    if viewModel.isLikingPoster || (!viewModel.hasKnownLikeState && (viewModel.posterStatus == .idle || viewModel.posterStatus == .loading)) {
                                         ProgressView()
                                             .controlSize(.small)
                                     } else {
@@ -130,7 +132,7 @@ private struct GalleryPosterDetailViewScene: View {
                                 }
                                 .foregroundStyle(viewModel.poster.like ? AppDesignSystem.Palette.Accent.primary : AppDesignSystem.Foreground.primaryColor)
                             }
-                            .disabled(viewModel.isLikingPoster)
+                            .disabled(viewModel.isLikingPoster || !viewModel.hasKnownLikeState)
                         }
                     }
                 }

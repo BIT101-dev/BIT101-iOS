@@ -390,20 +390,27 @@ struct GalleryRecommendationPrefetchTests {
         #expect((paper ? paperModel.commentState : galleryModel.commentState).status == (expected.contains("comments") ? .idle : .loaded))
         #expect(paper ? paperModel.alert == nil : galleryModel.alert == nil)
         service.suspendedRequestKeys = []
+        let previousDetailCalls = service.detailCalls
         let retry = Task { await refresh() }
-        try await service.waitForDetail()
-        service.finish()
+        if paper || expected.contains("body") {
+            try await service.waitForDetail()
+            service.finish()
+        }
         await retry.value
+        #expect(service.detailCalls == previousDetailCalls + (paper || expected.contains("body") ? 1 : 0))
         #expect((paper ? paperModel.paperStatus : galleryModel.posterStatus) == .loaded)
         #expect((paper ? paperModel.commentState : galleryModel.commentState).status == .loaded)
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [true, false], [true, false])
-    func detailReadsRetainSuccessfulLikesIncludingTheFirstPaperLoad(paper: Bool, likeStartsFirst: Bool) async throws {
+    func detailRefreshRetainsSuccessfulLikesAcrossRequestCompletionOrders(paper: Bool, likeStartsFirst: Bool) async throws {
         let poster = try makePoster(id: 1)
         let service = DetailSortingService(poster: poster)
         let gallery = GalleryPosterDetailViewModel(initialPoster: poster, service: service)
         let article = PaperDetailViewModel(initialPaper: PaperSummary(id: 1, title: "initial", intro: "", likeNum: 0, commentNum: 0, updateTime: ""), service: service)
+        service.pausesDetail = false
+        if paper { await article.refreshAll() } else { await gallery.refreshAll() }
+        service.pausesDetail = true
         var pendingLike: CheckedContinuation<Void, Never>?
         service.likeGate = { if likeStartsFirst { await withCheckedContinuation { pendingLike = $0 } } }
         func like() async { if paper { await article.likePaper() } else { await gallery.likePoster() } }
@@ -419,6 +426,38 @@ struct GalleryRecommendationPrefetchTests {
         #expect(paper ? article.paper?.like == true : gallery.poster.like)
         #expect(paper ? article.paper?.likeNum == 17 : gallery.poster.likeNum == 17)
         #expect(paper ? article.paper?.title == "loaded" : gallery.poster.id == 1)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func hydratedPosterKeepsTheResolvedDetailUntilExplicitRefresh() async throws {
+        let service = DetailSortingService(poster: try makePoster(id: 1))
+        let detail = service.poster.updatingLike(true, likeNum: 17)
+        service.pausesDetail = false
+        let model = GalleryPosterDetailViewModel(initialPoster: detail.asPoster, initialDetail: detail, service: service)
+        await model.bootstrapIfNeeded()
+        #expect(model.poster == detail && model.hasKnownLikeState && service.detailCalls == 0)
+        await model.refreshAll()
+        #expect(service.detailCalls == 1)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func initialDetailLikesWaitForTheCurrentUsersRead(paper: Bool) async throws {
+        let poster = try makePoster(id: 1)
+        let service = DetailSortingService(poster: poster)
+        service.poster = service.poster.updatingLike(true, likeNum: 17)
+        service.paperLiked = true
+        let gallery = GalleryPosterDetailViewModel(initialPoster: poster, service: service)
+        let article = PaperDetailViewModel(initialPaper: PaperSummary(id: 1, title: "initial", intro: "", likeNum: 0, commentNum: 0, updateTime: ""), service: service)
+        func like() async { if paper { await article.likePaper() } else { await gallery.likePoster() } }
+        await like()
+        #expect(service.likeCalls == 0 && !(paper ? article.hasKnownLikeState : gallery.hasKnownLikeState))
+        let loading = Task { if paper { await article.refreshAll() } else { await gallery.refreshAll() } }
+        defer { loading.cancel(); service.finish() }
+        try await service.waitForDetail()
+        await like()
+        #expect(service.likeCalls == 0)
+        service.finish(); await loading.value
+        #expect(paper ? article.isPaperLiked && article.hasKnownLikeState : gallery.poster.like && gallery.hasKnownLikeState)
     }
 
     @Test(.timeLimit(.minutes(1)))

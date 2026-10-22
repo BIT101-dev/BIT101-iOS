@@ -75,6 +75,10 @@ public final class CourseListViewModel: ObservableObject {
     var hasActiveSearch: Bool {
         !normalizedSearchText.isEmpty
     }
+    var displayedQueryDescription: String? {
+        guard let pageSearch, pageSearch != normalizedSearchText else { return nil }
+        return pageSearch.isEmpty ? "全部课程" : "“\(pageSearch)”的课程"
+    }
 
     /// 写入其他页面并行预取的课程搜索首屏。
     ///

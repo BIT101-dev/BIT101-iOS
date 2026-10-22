@@ -16,8 +16,8 @@ public struct CourseDetailView: View {
     private let identity: [ObjectIdentifier]
     private let resourceID: Int
 
-    public init(dependencies: CourseDependencies, media: MediaEnvironment, profiles: CommunityProfileDestination, initialCourse: CourseSummary) {
-        scene = CourseDetailViewScene(dependencies: dependencies, media: media, profiles: profiles, initialCourse: initialCourse)
+    public init(dependencies: CourseDependencies, media: MediaEnvironment, profiles: CommunityProfileDestination, initialCourse: CourseSummary, initialDetail: CourseDetail? = nil) {
+        scene = CourseDetailViewScene(dependencies: dependencies, media: media, profiles: profiles, initialCourse: initialCourse, initialDetail: initialDetail)
         identity = [ObjectIdentifier(dependencies), ObjectIdentifier(media)]
         resourceID = initialCourse.id
     }
@@ -29,6 +29,7 @@ public struct CourseDetailView: View {
 }
 
 private struct CourseDetailViewScene: View {
+    @Environment(\.appInteractionEvidence) private var interactionEvidence
     private let dependencies: CourseDependencies
     private let destinations: CommunityProfileDestination
     private let media: MediaEnvironment
@@ -46,13 +47,13 @@ private struct CourseDetailViewScene: View {
     @State private var imageViewer: ImagePreviewRequest?
     @State private var userRoute: UserRoute?
 
-    init(dependencies: CourseDependencies, media: MediaEnvironment, profiles: CommunityProfileDestination, initialCourse: CourseSummary) {
+    init(dependencies: CourseDependencies, media: MediaEnvironment, profiles: CommunityProfileDestination, initialCourse: CourseSummary, initialDetail: CourseDetail?) {
         self.dependencies = dependencies
         self.media = media
         self.destinations = profiles
         self.initialCourse = initialCourse
         _appSettings = ObservedObject(wrappedValue: dependencies.preferences)
-        _viewModel = StateObject(wrappedValue: CourseDetailViewModel(initialCourse: initialCourse, service: dependencies.detail, loadCourseCredits: dependencies.loadCourseCredits))
+        _viewModel = StateObject(wrappedValue: CourseDetailViewModel(initialCourse: initialCourse, initialDetail: initialDetail, service: dependencies.detail, loadCourseCredits: dependencies.loadCourseCredits))
     }
 
     var body: some View {
@@ -93,13 +94,18 @@ private struct CourseDetailViewScene: View {
                         viewModel.pendingOperations.enqueue {
                             await viewModel.loadMoreCommentsIfNeeded(currentComment: comment)
                         }
-                    }
+                    },
+                    onRetry: { viewModel.pendingOperations.enqueue { await viewModel.refreshComments() } }
                 )
             }
             .padding(.horizontal, AppDesignSystem.Spacing.section)
             .padding(.top, AppDesignSystem.Spacing.section)
         }
         .accessibilityIdentifier("interaction.CourseDetailViewScene.scroll")
+        .refreshable {
+            interactionEvidence?("interaction.CourseDetailViewScene.refreshable", "refresh")
+            await viewModel.refresh()
+        }
         .background(AppDesignSystem.Palette.Background.grouped)
         .navigationTitle("课程详情")
         .navigationBarTitleDisplayMode(.inline)
@@ -118,6 +124,8 @@ private struct CourseDetailViewScene: View {
         }
         .task {
             await viewModel.bootstrapIfNeeded()
+        }
+        .task(id: viewModel.resolvedNumber) {
             await viewModel.loadHistoryGradesIfNeeded()
         }
         .sheet(item: $composerTarget) { target in
@@ -153,14 +161,14 @@ private struct CourseDetailViewScene: View {
                     }
 
                     AppDetailCircleButton(
-                        accessibilityLabel: viewModel.isCourseLiked ? "取消课程点赞" : "点赞课程"
+                        accessibilityLabel: viewModel.hasKnownLikeState ? (viewModel.isCourseLiked ? "取消课程点赞" : "点赞课程") : "等待课程点赞状态"
                     ) {
                         viewModel.pendingOperations.enqueue {
                             await viewModel.likeCourse()
                         }
                     } label: {
                         Group {
-                            if viewModel.isLikingCourse {
+                            if viewModel.isLikingCourse || (!viewModel.hasKnownLikeState && (viewModel.status == .idle || viewModel.status == .loading)) {
                                 ProgressView()
                                     .controlSize(.small)
                             } else {
@@ -170,7 +178,7 @@ private struct CourseDetailViewScene: View {
                         }
                         .foregroundStyle(viewModel.isCourseLiked ? AppDesignSystem.Course.accent : AppDesignSystem.Foreground.primaryColor)
                     }
-                    .disabled(viewModel.isLikingCourse)
+                    .disabled(viewModel.isLikingCourse || !viewModel.hasKnownLikeState)
                 }
             }
 
@@ -204,6 +212,7 @@ private struct CourseDetailViewScene: View {
                     courseNumber: viewModel.resolvedNumber,
                     hidesMakeupOutliers: appSettings.hidesCourseHistoryMakeupOutliers
                 )
+                .accessibilityIdentifier("course.history.chart")
             }
             switch viewModel.historyGradeStatus {
             case .idle, .loading:

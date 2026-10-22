@@ -84,7 +84,7 @@ private struct GalleryRootViewScene: View {
     @Binding private var requestedPosterID: Int?
     @State private var selectedSurface: GallerySurface = .gallery
     @State private var isShowingNativePaperRoute = false
-    @State private var deepLinkedPoster: CommunityPoster?
+    @State private var deepLinkedPoster: GalleryPosterDetail?
     @State private var deepLinkAlert: AppAlert?
     private let posterService: any GalleryPosterDetailServicing
 
@@ -163,7 +163,7 @@ private struct GalleryRootViewScene: View {
             viewModel.contentPreferencesDidChange()
         }
         .navigationDestination(item: $deepLinkedPoster) { poster in
-            GalleryPosterDetailView(dependencies: dependencies, media: media, profiles: profiles, poster: poster)
+            GalleryPosterDetailView(dependencies: dependencies, media: media, profiles: profiles, poster: poster.asPoster, initialDetail: poster)
         }
         .diagnosticAlert(item: $deepLinkAlert)
         .toolbar(.hidden, for: .navigationBar)
@@ -207,7 +207,7 @@ private struct GalleryRootViewScene: View {
         selectedSurface = .gallery
         deepLinkAlert = nil
         do {
-            let poster = try await posterService.fetchPoster(id: posterID).asPoster
+            let poster = try await posterService.fetchPoster(id: posterID)
             guard !Task.isCancelled, requestedPosterID == posterID else { return }
             deepLinkedPoster = poster
         } catch {

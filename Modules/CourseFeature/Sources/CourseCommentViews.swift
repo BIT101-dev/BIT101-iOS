@@ -22,6 +22,7 @@ struct CourseCommentsSection: View {
     let onOpenImage: (Int, [CommunityImage]) -> Void
     let onOpenUser: (CommunityUser) -> Void
     let onLoadMore: (CommunityComment?) -> Void
+    let onRetry: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
@@ -35,7 +36,8 @@ struct CourseCommentsSection: View {
                 AppFailureState(
                     title: "加载评论失败",
                     systemImage: "bubble.right.fill",
-                    message: message
+                    message: message,
+                    onRetry: onRetry
                 )
 
             default:
@@ -124,11 +126,7 @@ private struct CourseCommentRow: View {
                     .foregroundStyle(AppDesignSystem.Course.accent)
             }
 
-            commentText(for: comment)
-
-            if !comment.images.isEmpty {
-                CourseCommentImagesView(images: comment.images, onOpenImage: onOpenImage)
-            }
+            CommunityCommentBody(comment: comment, onOpenImage: onOpenImage)
 
             AppCommentActionBar(
                 likeCount: comment.likeNum,
@@ -148,77 +146,9 @@ private struct CourseCommentRow: View {
         !comment.anonymous && comment.user.id > 0
     }
 
-    @ViewBuilder
-    private func commentText(for comment: CommunityComment) -> some View {
-        if comment.replyUser.id != 0, !comment.replyUser.nickname.isEmpty {
-            (
-                Text("回复 @\(comment.replyUser.nickname)：")
-                    .foregroundStyle(AppDesignSystem.Foreground.secondary) +
-                    Text(CommunityTextLimits.displayText(comment.text))
-                    .foregroundStyle(AppDesignSystem.Foreground.primary)
-            )
-            .font(AppDesignSystem.Typography.body)
-            .lineSpacing(AppDesignSystem.Comment.bodyLineSpacing)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        } else {
-            Text(CommunityTextLimits.displayText(comment.text))
-                .font(AppDesignSystem.Typography.body)
-                .foregroundStyle(AppDesignSystem.Foreground.primary)
-                .lineSpacing(AppDesignSystem.Comment.bodyLineSpacing)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
+
 }
 
-private struct CourseCommentImagesView: View {
-    let images: [CommunityImage]
-    let onOpenImage: (Int, [CommunityImage]) -> Void
-
-    var body: some View {
-        let displayedImages = Array(images.prefix(4))
-
-        if displayedImages.count == 1 {
-            thumbnailButton(image: displayedImages[0], index: 0, width: 180, maxHeight: 220, aspectRatio: 1)
-        } else if displayedImages.count == 2 {
-            HStack(spacing: AppDesignSystem.Spacing.regular) {
-                ForEach(Array(displayedImages.enumerated()), id: \.element.id) { index, image in
-                    thumbnailButton(image: image, index: index, width: nil, maxHeight: 150, aspectRatio: 1)
-                }
-            }
-        } else {
-            LazyVGrid(
-                columns: Array(
-                    repeating: GridItem(.flexible(), spacing: AppDesignSystem.Spacing.regular),
-                    count: displayedImages.count
-                ),
-                spacing: AppDesignSystem.Spacing.regular
-            ) {
-                ForEach(Array(displayedImages.enumerated()), id: \.element.id) { index, image in
-                    thumbnailButton(image: image, index: index, width: nil, maxHeight: 78, aspectRatio: 1)
-                }
-            }
-        }
-    }
-
-    private func thumbnailButton(image: CommunityImage, index: Int, width: CGFloat?, maxHeight: CGFloat?, aspectRatio: CGFloat) -> some View {
-        Button {
-            onOpenImage(index, images)
-        } label: {
-            CommunityImageThumbnail(
-                image: image,
-                width: width,
-                maxHeight: maxHeight,
-                aspectRatio: aspectRatio
-            )
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("查看评论图片，第\(index + 1)张，共\(images.count)张")
-    }
-}
-
-/// 课程评论输入表单。
-///
-/// 顶层课程评论提交 0.5 至 5 星评分；回复提交文本。
 struct CourseCommentComposerSheet: View {
     let target: CommunityCommentComposerTarget
     let isSubmitting: Bool
@@ -231,6 +161,9 @@ struct CourseCommentComposerSheet: View {
     @State private var isSubmissionRequested = false
     /// 评分状态使用后端 10 分制整数；奇数值表示半星。
     @State private var rating = 0
+    private var hasDraftContent: Bool {
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || anonymous || rating > 0
+    }
 
     var body: some View {
         let submission = CommunityCommentSubmission(objectID: target.objectID, text: text.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -321,6 +254,7 @@ struct CourseCommentComposerSheet: View {
                     isSubmitting: isSubmitting || isSubmissionRequested,
                     submitTitle: "发送",
                     isSubmitDisabled: supportsCourseRating && rating == 0,
+                    confirmDiscard: hasDraftContent,
                     onCancel: {
                         dismiss()
                     },
@@ -330,7 +264,7 @@ struct CourseCommentComposerSheet: View {
                 )
             }
         }
-        .interactiveDismissDisabled(isSubmitting || isSubmissionRequested)
+        .interactiveDismissDisabled(hasDraftContent || isSubmitting || isSubmissionRequested)
     }
 
     private var supportsCourseRating: Bool {

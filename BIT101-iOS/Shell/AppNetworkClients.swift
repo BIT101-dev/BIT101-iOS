@@ -251,7 +251,12 @@ enum AppMedia {
                                 previewStorage: MediaPreviewStorage,
                                 defaults: UserDefaults = AppFileDirectories.defaults,
                                 loadPickedImage: @escaping @Sendable (PhotosPickerItem) async throws -> Data? = {
-                                    try await $0.loadTransferable(type: PickedImageData.self)?.data
+                                    #if BIT101_UI_TESTING
+                                    if AppUITestBootstrap.environment["BIT101_UI_TEST_IMAGE_IMPORT_HOLD"] == "1" {
+                                        await AppUITestBootstrap.holdRequest("image-import")
+                                    }
+                                    #endif
+                                    return try await $0.loadTransferable(type: PickedImageData.self)?.data
                                 },
                                 imageHTTPClient: HTTPClient = .community,
                                 avatarHTTPClient: HTTPClient = .shared) -> MediaEnvironment {

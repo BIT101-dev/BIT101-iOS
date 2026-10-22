@@ -168,7 +168,7 @@ nonisolated final class CommunityInteractionUITests: UIAutomationTestCase {
         tap("点赞评论")
         assertUI(app.buttons["取消评论点赞"].appears(timeout: 5), "课程评论应支持点赞。")
         tap("取消评论点赞")
-        tap("查看评论图片，第1张，共1张")
+        tap("查看第1张图片")
         closeImagePreview()
         tap("回复")
         replaceText("课程回复内容", in: app.textFields.firstMatch)
@@ -326,7 +326,7 @@ nonisolated final class ServiceInteractionUITests: UIAutomationTestCase {
         replaceText("测试联系信息", in: app.textFields["联系方式"])
         dismissKeyboard()
         tap("提交")
-        assertUI(waitUntil(NSPredicate { _, _ in UITestControlClient.request(["command": "feedback-state"]) == "pending" }, on: app),
+        assertUI(waitUntil(NSPredicate { _, _ in UITestControlClient.request(["command": "request-state", "key": "feedback"]) == "pending" }, on: app),
             "建议请求应进入受控的等待状态。")
         app.textFields["建议内容"].assertDisabled("等待提交结果期间应保护建议正文。")
         app.textFields["联系方式"].assertDisabled("等待提交结果期间应保护联系方式。")
@@ -335,7 +335,7 @@ nonisolated final class ServiceInteractionUITests: UIAutomationTestCase {
         let page = app.navigationBars["向开发者提建议"]
         swipeSheetHeader(page)
         assertUI(page.exists && app.textFields["建议内容"].value as? String == "提交期间保留建议", "下滑应保留等待中的建议与结果上下文。")
-        assertUI(UITestControlClient.request(["command": "release-feedback"]) == "released", "传输夹具应完成原请求。")
+        assertUI(UITestControlClient.request(["command": "release-request", "key": "feedback"]) == "released", "传输夹具应完成原请求。")
         assertUI(page.disappears(timeout: 5), "提交成功应完成建议流程。")
     }
 
@@ -756,7 +756,7 @@ extension UIAutomationTestCase {
         let link = app.descendants(matching: .any)
             .matching(NSPredicate(format: "elementType IN %@ AND label CONTAINS %@", types, title)).firstMatch
         reveal(link, description: title)
-        link.tapBriefly()
+        link.tap()
     }
 
     @MainActor

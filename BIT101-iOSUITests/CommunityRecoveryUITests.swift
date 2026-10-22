@@ -66,6 +66,7 @@ nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
         closeAlertIfPresent()
         assertUI(app.textFields.firstMatch.value as? String == "人工核对评论", "取消再次发送应保留输入。")
         tap("取消")
+        tap("放弃输入")
         assertUI(textElement("人工核对评论").exists == false, "核对列表时应显示当前已确认的评论。")
         tap("评论文章")
         replaceText("人工核对评论", in: app.textFields.firstMatch)

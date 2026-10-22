@@ -34,6 +34,51 @@ extension AppDesignSystem {
     }
 }
 
+public struct CommunityResultsContext: View {
+    private let summary: String?
+    public init(_ summary: String?) { self.summary = summary }
+
+    public var body: some View {
+        if let summary {
+            Text("当前显示：\(summary)")
+                .font(AppDesignSystem.Typography.caption)
+                .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(AppDesignSystem.Spacing.content)
+                .accessibilityIdentifier("community.results-context")
+        }
+    }
+}
+
+/// 评论正文、回复前缀和图片在各资源详情中使用同一呈现。
+public struct CommunityCommentBody: View {
+    private let comment: CommunityComment
+    private let onOpenImage: (Int, [CommunityImage]) -> Void
+
+    public init(comment: CommunityComment, onOpenImage: @escaping (Int, [CommunityImage]) -> Void) {
+        self.comment = comment
+        self.onOpenImage = onOpenImage
+    }
+
+    public var body: some View {
+        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
+            CommunityLinkedText(comment.text, prefix: replyPrefix)
+                .font(AppDesignSystem.Typography.body)
+                .lineSpacing(AppDesignSystem.Comment.bodyLineSpacing)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if !comment.images.isEmpty {
+                CommunityPosterImagesView(images: comment.images, onOpenImage: onOpenImage)
+            }
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private var replyPrefix: Text {
+        if !comment.replyObj.isEmpty, comment.replyUser.id > 0, !comment.replyUser.nickname.isEmpty {
+            Text("回复 @\(comment.replyUser.nickname)：").foregroundStyle(AppDesignSystem.Foreground.secondary)
+        } else { Text("") }
+    }
+}
 #endif
 
 #if os(iOS)
@@ -88,14 +133,7 @@ public struct ComposerImageTile: View {
                 overlayContent
             }
 
-            Button(action: onRemove) {
-                Image(systemName: "xmark.circle.fill")
-                    .font(AppDesignSystem.Typography.title)
-                    .foregroundStyle(AppDesignSystem.Palette.Media.foreground, AppDesignSystem.Palette.Media.controlOverlay)
-            }
-            .padding(AppDesignSystem.Spacing.tiny)
-            .buttonStyle(.plain)
-            .accessibilityLabel("移除图片")
+            AppComposerImageRemoveButton(onRemove: onRemove)
         }
         .frame(width: AppDesignSystem.Size.Media.draft, height: AppDesignSystem.Size.Media.draft)
     }

@@ -575,6 +575,8 @@ struct DeveloperSuggestionPage: View {
         guard !isBusy, !submissionRecoveryFailed else { return false }
         isUpdatingDraft = true
         defer { isUpdatingDraft = false }
+        await imageTask?.value
+        guard !Task.isCancelled, !submissionRecoveryFailed else { return false }
         do { return await dependencies.drafts.saveSuggestion(try draftSnapshot()) }
         catch { return false }
     }

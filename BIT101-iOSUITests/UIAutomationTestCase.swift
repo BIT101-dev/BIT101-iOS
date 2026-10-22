@@ -751,6 +751,9 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         feedbackHold: Bool = false,
         suggestionRecovery: Bool = false,
         messageStorageRecovery: Bool = false,
+        courseCommentRecovery: Bool = false,
+        commentMediaLinks: Bool = false,
+        imageImportHold: Bool = false,
         update: String? = nil,
         schoolSMS: Bool = false,
         scheduleConflict: Bool = false,
@@ -832,6 +835,9 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         application.launchEnvironment["BIT101_UI_TEST_FEEDBACK_HOLD"] = feedbackHold ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_SUGGESTION_RECOVERY"] = suggestionRecovery ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_MESSAGE_STORAGE_RECOVERY"] = messageStorageRecovery ? "1" : "0"
+        application.launchEnvironment["BIT101_UI_TEST_COURSE_COMMENT_RECOVERY"] = courseCommentRecovery ? "1" : "0"
+        application.launchEnvironment["BIT101_UI_TEST_COMMENT_MEDIA_LINKS"] = commentMediaLinks ? "1" : "0"
+        application.launchEnvironment["BIT101_UI_TEST_IMAGE_IMPORT_HOLD"] = imageImportHold ? "1" : "0"
         if let update { application.launchEnvironment["BIT101_UI_TEST_UPDATE"] = update }
         application.launchEnvironment["BIT101_UI_TEST_SCHOOL_SMS"] = schoolSMS ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_RUN_ID"] = runIdentifier

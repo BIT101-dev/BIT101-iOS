@@ -36,21 +36,24 @@ struct GallerySearchView: View {
             }
         )
         .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
-            AppSearchBarContainer {
-                AppOrderedSearchBar(
-                    text: $viewModel.searchQuery.text,
-                    order: $viewModel.searchQuery.order,
-                    selectedOrderTitle: viewModel.searchQuery.order.title,
-                    onSubmit: triggerSearch,
-                    onClear: {
-                        viewModel.searchQuery.text = ""
-                        triggerSearch()
-                    }
-                ) {
-                    ForEach(GallerySearchOrder.allCases) { order in
-                        Text(order.title).tag(order)
+            VStack(spacing: AppDesignSystem.Spacing.none) {
+                AppSearchBarContainer {
+                    AppOrderedSearchBar(
+                        text: $viewModel.searchQuery.text,
+                        order: $viewModel.searchQuery.order,
+                        selectedOrderTitle: viewModel.searchQuery.order.title,
+                        onSubmit: triggerSearch,
+                        onClear: {
+                            viewModel.searchQuery.text = ""
+                            triggerSearch()
+                        }
+                    ) {
+                        ForEach(GallerySearchOrder.allCases) { order in
+                            Text(order.title).tag(order)
+                        }
                     }
                 }
+                CommunityResultsContext(viewModel.displayedQueryDescription)
             }
         }
         .task {

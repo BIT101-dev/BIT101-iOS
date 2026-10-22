@@ -189,6 +189,7 @@ struct PaperCommentComposerSheet: View {
     @State private var text = ""
     @State private var anonymous = false
     @State private var isSubmissionRequested = false
+    private var hasDraftContent: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || anonymous }
 
     var body: some View {
         let submission = CommunityCommentSubmission(objectID: target.objectID, text: text.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -214,7 +215,7 @@ struct PaperCommentComposerSheet: View {
         .appGroupedListStyle()
         .navigationTitle(target.title)
         .navigationBarTitleDisplayMode(.inline)
-        .interactiveDismissDisabled(isSubmitting || isSubmissionRequested)
+        .interactiveDismissDisabled(hasDraftContent || isSubmitting || isSubmissionRequested)
         .task(id: isSubmissionRequested) {
             guard isSubmissionRequested else { return }
             let submitted = await onSubmit(text, anonymous)
@@ -227,6 +228,7 @@ struct PaperCommentComposerSheet: View {
                 isSubmitting: isSubmitting || isSubmissionRequested,
                 submitTitle: "发布",
                 isSubmitDisabled: text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                confirmDiscard: hasDraftContent,
                 onCancel: {
                     dismiss()
                 },

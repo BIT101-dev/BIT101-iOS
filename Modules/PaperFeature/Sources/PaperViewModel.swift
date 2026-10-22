@@ -34,6 +34,10 @@ class PaperCollectionViewModel: ObservableObject {
     private let requiresSearchText: Bool
     private var hasBootstrapped = false
     private var pageQuery: (search: String?, order: PaperSortOrder)?
+    var displayedQueryDescription: String? {
+        guard let pageQuery, pageQuery.search != trimmedSearchText || pageQuery.order != selectedOrder else { return nil }
+        return "\(pageQuery.search.map { "“\($0)”的文章" } ?? "全部文章") · \(pageQuery.order.title)"
+    }
     private var previewLoadingIDs: Set<Int> = []
     @Published private(set) var refreshGeneration = 0
     private var refreshTask: Task<Void, Never>?
@@ -372,9 +376,11 @@ final class PaperDetailViewModel: ObservableObject {
     }
 
     var isPaperLiked: Bool { latestLikeResult?.like ?? paper?.like ?? false }
+    var hasKnownLikeState: Bool { paper != nil || latestLikeResult != nil }
     var resolvedLikeNum: Int { latestLikeResult?.likeNum ?? paper?.likeNum ?? initialPaper.likeNum }
 
     func likePaper() async {
+        guard hasKnownLikeState else { return }
         guard !likeResultNeedsReview else {
             alert = AppAlert(title: "点赞结果待确认", message: CommunityToggleOutcomeUnknown.reviewMessage)
             return

@@ -220,10 +220,13 @@ struct GalleryStateContractTests {
         service.failed = true
         await model.performSearch()
         #expect(model.searchState.posters == previous.posters && model.searchState.status == .loaded)
+        #expect(model.displayedQueryDescription == "“原查询”的话题 · 最新")
         #expect(model.searchState.nextPage == previous.nextPage && model.searchState.canLoadMore)
         service.failed = false
         await model.loadMoreSearchResultsIfNeeded(currentPoster: previous.posters.last)
         #expect(service.queryLog.last?.text == "原查询" && model.searchState.posters.map(\.id) == [1, 2])
+        await model.performSearch()
+        #expect(model.displayedQueryDescription == nil)
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])

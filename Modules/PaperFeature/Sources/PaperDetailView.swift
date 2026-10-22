@@ -83,12 +83,12 @@ private struct PaperDetailViewScene: View {
                             }
 
                             AppDetailCircleButton(
-                                accessibilityLabel: viewModel.isPaperLiked ? "取消文章点赞" : "点赞文章"
+                                accessibilityLabel: viewModel.hasKnownLikeState ? (viewModel.isPaperLiked ? "取消文章点赞" : "点赞文章") : "等待文章点赞状态"
                             ) {
                                 likePaper()
                             } label: {
                                 Group {
-                                    if viewModel.isLikingPaper {
+                                    if viewModel.isLikingPaper || (!viewModel.hasKnownLikeState && (viewModel.paperStatus == .idle || viewModel.paperStatus == .loading)) {
                                         ProgressView()
                                             .controlSize(.small)
                                     } else {
@@ -98,7 +98,7 @@ private struct PaperDetailViewScene: View {
                                 }
                                 .foregroundStyle(viewModel.isPaperLiked ? AppDesignSystem.Palette.Accent.primary : AppDesignSystem.Foreground.primaryColor)
                             }
-                            .disabled(viewModel.isLikingPaper)
+                            .disabled(viewModel.isLikingPaper || !viewModel.hasKnownLikeState)
                             .accessibilityIdentifier("paper.detail.header-like")
                         }
                     }
@@ -119,7 +119,7 @@ private struct PaperDetailViewScene: View {
                                 Image(systemName: isPaperLiked ? "hand.thumbsup.fill" : "hand.thumbsup")
                             }
 
-                            Text(isPaperLiked ? "已点赞" : "看完了，点个赞")
+                            Text(viewModel.hasKnownLikeState ? (isPaperLiked ? "已点赞" : "看完了，点个赞") : "点赞状态待获取")
                                 .font(AppDesignSystem.Typography.bodyEmphasis)
                         }
                         .foregroundStyle(isPaperLiked ? AppDesignSystem.Palette.Highlight.foreground : AppDesignSystem.Palette.Accent.primary)
@@ -131,8 +131,8 @@ private struct PaperDetailViewScene: View {
                         )
                     }
                     .buttonStyle(.plain)
-                    .disabled(viewModel.isLikingPaper)
-                    .accessibilityLabel(isPaperLiked ? "取消点赞" : "点赞文章")
+                    .disabled(viewModel.isLikingPaper || !viewModel.hasKnownLikeState)
+                    .accessibilityLabel(viewModel.hasKnownLikeState ? (isPaperLiked ? "取消点赞" : "点赞文章") : "等待文章点赞状态")
                     .accessibilityIdentifier("paper.detail.footer-like")
                     Spacer()
                 }
@@ -163,6 +163,9 @@ private struct PaperDetailViewScene: View {
                     },
                     onLikeComment: { comment in
                         viewModel.pendingOperations.enqueue { await viewModel.toggleCommentLike(comment) }
+                    },
+                    onOpenImage: { index, images in
+                        imageViewer = ImagePreviewRequest(remoteImages: images.map(\.previewImage), initialIndex: index)
                     },
                     onLoadMore: { comment in
                         viewModel.pendingOperations.enqueue {
