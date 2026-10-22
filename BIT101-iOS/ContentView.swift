@@ -44,7 +44,9 @@ struct ContentView: View {
         }
         .task {
             await loginViewModel.bootstrapIfNeeded()
-            AppRestoreReadiness.restoredSession(loginViewModel.screenState)
+        }
+        .onReceive(loginViewModel.$screenState) { state in
+            AppRestoreReadiness.restoredSession(state)
         }
         .diagnosticAlert(item: $loginViewModel.alert)
         .appDiagnosticRecoveryActions()

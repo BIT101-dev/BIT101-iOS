@@ -53,6 +53,9 @@ final class LoginStorage: SchoolCredentialsProviding {
     private var session = Session(studentID: "", password: "", fakeCookie: "")
     private var sessionReadError: (any Error)?
     var credentialReadIssue: String? { sessionReadError?.localizedDescription }
+    var hasResolvedSession: Bool {
+        sessionReadError == nil || defaults.object(forKey: DefaultsKey.revokedSession) != nil
+    }
     private let changeSubject = PassthroughSubject<CommunitySessionIdentity, Never>()
     var changes: AnyPublisher<CommunitySessionIdentity, Never> { changeSubject.eraseToAnyPublisher() }
     private let credentialsSubject = PassthroughSubject<CommunityCredentials, Never>()
@@ -292,6 +295,7 @@ final class LoginStorage: SchoolCredentialsProviding {
         do {
             let previousCredentials = communityCredentials
             let previousAccount = currentStudentID
+            let wasAwaitingRead = !hasResolvedSession
             session = try readSession()
             if defaults.object(forKey: DefaultsKey.revokedSession) != nil {
                 session.password = ""
@@ -299,7 +303,7 @@ final class LoginStorage: SchoolCredentialsProviding {
                 session.communityPasswordDigest = nil
             }
             sessionReadError = nil
-            if publishChange, previousAccount != currentStudentID {
+            if publishChange, previousAccount != currentStudentID || wasAwaitingRead {
                 sessionGeneration &+= 1
                 clearSchoolCookies()
                 notifyAccountChanged()

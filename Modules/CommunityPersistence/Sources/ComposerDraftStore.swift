@@ -7,7 +7,7 @@ private nonisolated struct StoredComposerDraftImage: Codable {
     let filename: String
 }
 
-private nonisolated protocol StoredComposerDraft: Decodable {
+private nonisolated protocol StoredComposerDraft: Codable {
     associatedtype Snapshot: ComposerDraftSnapshot
     var schemaVersion: Int { get }
     var assetRevision: String { get }
@@ -99,24 +99,8 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
 
     @discardableResult
     fileprivate func persistGallery(_ snapshot: GalleryComposerDraftSnapshot, session: AppStorageSession) -> Bool {
-        let fileURL = currentFileURL(for: "gallery.json", session: session)
-        let previous = readDraft(StoredGalleryComposerDraft.self, filename: "gallery.json", session: session)
-        guard previous.result.allowsWrite else { return false }
-        let previousRevision = previous.sourceURL == fileURL ? previous.assetRevision : nil
-        var newRevision: String?
-        do {
-            // 清理上次保存留下的版本后再创建新目录；清理失败时本轮写入停止，限制孤立版本数量。
-            try removeObsoleteAssetRevisions(
-                for: "gallery.json",
-                keeping: previousRevision,
-                session: session
-            )
-            let reuse = reusableAssetRevision(previous, at: fileURL, images: snapshot.images)
-            let (revision, images) = if let reuse {
-                (reuse, snapshot.images.map { StoredComposerDraftImage(filename: $0.filename) })
-            } else { try writeImages(snapshot.images, filename: "gallery.json", session: session) }
-            newRevision = reuse == nil ? revision : nil
-            let stored = StoredGalleryComposerDraft(
+        persist(snapshot, as: StoredGalleryComposerDraft.self, filename: "gallery.json", session: session) { revision, images in
+            StoredGalleryComposerDraft(
                 schemaVersion: Self.currentSchemaVersion,
                 assetRevision: revision,
                 title: snapshot.title,
@@ -128,15 +112,6 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
                 selectedClaimID: snapshot.selectedClaimID,
                 images: images
             )
-            try write(stored, to: fileURL)
-            removeMigratedSource(previous.sourceURL, filename: "gallery.json", session: session)
-            do { try removeObsoleteAssetRevisions(for: "gallery.json", keeping: revision, session: session) }
-            catch { Self.logger.error("清理发帖草稿资产遇到错误：\(String(describing: error), privacy: .private)") }
-            return true
-        } catch {
-            if let newRevision { removeAssets(for: "gallery.json", revision: newRevision, session: session) }
-            Self.logger.error("保存发帖草稿失败：\(String(describing: error), privacy: .public)")
-            return false
         }
     }
 
@@ -163,39 +138,42 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
 
     @discardableResult
     fileprivate func persistSuggestion(_ snapshot: DeveloperSuggestionDraftSnapshot, session: AppStorageSession) -> Bool {
-        let fileURL = currentFileURL(for: "suggestion.json", session: session)
-        let previous = readDraft(StoredDeveloperSuggestionDraft.self, filename: "suggestion.json", session: session)
+        persist(snapshot, as: StoredDeveloperSuggestionDraft.self, filename: "suggestion.json", session: session) { revision, images in
+            StoredDeveloperSuggestionDraft(
+                schemaVersion: Self.currentSchemaVersion, assetRevision: revision, text: snapshot.text,
+                contact: snapshot.contact, pendingSubmissionMetadata: snapshot.pendingSubmissionMetadata, images: images)
+        }
+    }
+
+    private func persist<Stored: StoredComposerDraft>(
+        _ snapshot: Stored.Snapshot, as type: Stored.Type, filename: String, session: AppStorageSession,
+        makeStored: (String, [StoredComposerDraftImage]) -> Stored
+    ) -> Bool {
+        let fileURL = currentFileURL(for: filename, session: session)
+        let previous = readDraft(type, filename: filename, session: session)
         guard previous.result.allowsWrite else { return false }
         let previousRevision = previous.sourceURL == fileURL ? previous.assetRevision : nil
         var newRevision: String?
         do {
             // 清理上次保存留下的版本后再创建新目录；清理失败时本轮写入停止，限制孤立版本数量。
             try removeObsoleteAssetRevisions(
-                for: "suggestion.json",
+                for: filename,
                 keeping: previousRevision,
                 session: session
             )
             let reuse = reusableAssetRevision(previous, at: fileURL, images: snapshot.images)
             let (revision, images) = if let reuse {
                 (reuse, snapshot.images.map { StoredComposerDraftImage(filename: $0.filename) })
-            } else { try writeImages(snapshot.images, filename: "suggestion.json", session: session) }
+            } else { try writeImages(snapshot.images, filename: filename, session: session) }
             newRevision = reuse == nil ? revision : nil
-            let stored = StoredDeveloperSuggestionDraft(
-                schemaVersion: Self.currentSchemaVersion,
-                assetRevision: revision,
-                text: snapshot.text,
-                contact: snapshot.contact,
-                pendingSubmissionMetadata: snapshot.pendingSubmissionMetadata,
-                images: images
-            )
-            try write(stored, to: fileURL)
-            removeMigratedSource(previous.sourceURL, filename: "suggestion.json", session: session)
-            do { try removeObsoleteAssetRevisions(for: "suggestion.json", keeping: revision, session: session) }
-            catch { Self.logger.error("清理建议草稿资产遇到错误：\(String(describing: error), privacy: .private)") }
+            try write(makeStored(revision, images), to: fileURL)
+            removeMigratedSource(previous.sourceURL, filename: filename, session: session)
+            do { try removeObsoleteAssetRevisions(for: filename, keeping: revision, session: session) }
+            catch { Self.logger.error("清理草稿资产遇到错误：\(String(describing: error), privacy: .private)") }
             return true
         } catch {
-            if let newRevision { removeAssets(for: "suggestion.json", revision: newRevision, session: session) }
-            Self.logger.error("保存建议草稿失败：\(String(describing: error), privacy: .public)")
+            if let newRevision { removeAssets(for: filename, revision: newRevision, session: session) }
+            Self.logger.error("保存草稿失败：\(String(describing: error), privacy: .public)")
             return false
         }
     }

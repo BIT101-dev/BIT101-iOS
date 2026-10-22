@@ -21,12 +21,14 @@ nonisolated struct ScheduleReminderSession: Equatable, Sendable {
 @MainActor
 struct ScheduleReminderContext {
     let currentSession: () -> ScheduleReminderSession
+    let isSessionResolved: () -> Bool
     let loadCache: (AppStorageSession) async -> ScheduleCacheLoadResult
 
     func loadCurrentCache() async throws -> (session: ScheduleReminderSession, cache: ScheduleCache) {
+        guard isSessionResolved() else { throw CocoaError(.fileReadNoPermission) }
         let session = currentSession()
         let result = await loadCache(session.storage)
-        guard currentSession() == session, !Task.isCancelled else { throw CancellationError() }
+        guard isSessionResolved(), currentSession() == session, !Task.isCancelled else { throw CancellationError() }
         guard let cache = result.cacheIfReadable else { throw CocoaError(.fileReadCorruptFile) }
         return (session, cache)
     }
@@ -115,14 +117,14 @@ final class ScheduleLiveActivityManager {
     ///
     /// 展示样式由 widget extension 负责。
     func refreshFromCurrentCache(trigger: String = "unspecified") async {
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, context.isSessionResolved() else { return }
         refreshRequestGeneration &+= 1
         let requestGeneration = refreshRequestGeneration
         refreshTask?.cancel()
         if let previousTask = refreshTask {
             await previousTask.value
         }
-        guard !Task.isCancelled, requestGeneration == refreshRequestGeneration else { return }
+        guard !Task.isCancelled, context.isSessionResolved(), requestGeneration == refreshRequestGeneration else { return }
 
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -137,6 +139,7 @@ final class ScheduleLiveActivityManager {
     }
 
     private func performRefreshFromCurrentCache(trigger: String) async {
+        guard context.isSessionResolved() else { return }
         logger.debug("refreshFromCurrentCache trigger=\(trigger, privacy: .public)")
 
         // 课表提醒依赖有效 fake-cookie 会话；账号凭据与课表缓存按各自持久化策略管理。
@@ -538,7 +541,7 @@ final class ScheduleLiveActivityManager {
     }
 
     private func isCurrentSession(_ session: ScheduleReminderSession) -> Bool {
-        context.currentSession() == session && session.signedIn
+        context.isSessionResolved() && context.currentSession() == session && session.signedIn
     }
 
     private static let debugDateFormatter: DateFormatter = {

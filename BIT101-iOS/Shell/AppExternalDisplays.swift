@@ -11,6 +11,7 @@ protocol AppExternalDisplayCoordinating {
 /// 生产平台适配集中维护 Watch、Widget 和提醒生命周期。
 struct AppExternalDisplayCoordinator: AppExternalDisplayCoordinating {
     let currentSession: () -> AppStorageSession
+    let isSessionResolved: () -> Bool
     let isSignedIn: () -> Bool
     let activateWatch: () -> Void
     let resetPresentation: () -> Void
@@ -24,9 +25,9 @@ struct AppExternalDisplayCoordinator: AppExternalDisplayCoordinating {
     func resetAccountPresentation() { resetPresentation() }
 
     func refresh(trigger: String, syncWidgetSnapshot: Bool, session: AppStorageSession) async {
-        guard !Task.isCancelled, session == currentSession() else { return }
+        guard !Task.isCancelled, isSessionResolved(), session == currentSession() else { return }
         if syncWidgetSnapshot { await exportWidget() }
-        guard !Task.isCancelled, session == currentSession() else { return }
+        guard !Task.isCancelled, isSessionResolved(), session == currentSession() else { return }
         guard isSignedIn() else {
             scheduleBackgroundRefresh(nil)
             await endActivities()
@@ -34,7 +35,7 @@ struct AppExternalDisplayCoordinator: AppExternalDisplayCoordinating {
         }
         let date: Date?
         do { date = try await nextReminderRefresh() } catch { return }
-        guard !Task.isCancelled, session == currentSession() else { return }
+        guard !Task.isCancelled, isSessionResolved(), session == currentSession() else { return }
         scheduleBackgroundRefresh(date)
         await refreshActivities(trigger)
     }

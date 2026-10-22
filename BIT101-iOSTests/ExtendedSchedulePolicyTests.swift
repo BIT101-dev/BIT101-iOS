@@ -173,21 +173,31 @@ struct ExtendedSchedulePolicyTests {
         #expect(try ScheduleExternalSnapshotCodec.decode(ScheduleExternalSnapshotCodec.encode(snapshot)).courses == snapshot.courses)
     }
 
-    @Test func delayedWatchSnapshotPreservesTheNewerFileDuringReadFailure() throws {
-        let files = PreferenceMemoryFiles()
-        let store = ScheduleExternalSnapshotStore(files: files, containerURL: files.temporaryDirectoryURL)
-        func value(_ revision: UInt64) -> ScheduleExternalSnapshot {
-            ScheduleExternalSnapshot(revision: revision, isLoggedIn: true, studentID: "watch-owner",
-                firstDayString: "", timeTable: [], courses: [])
-        }
-        try store.write(value(2))
-        files.setFailures(reading: true)
-        #expect(throws: CocoaError(.fileReadNoPermission)) { try store.writeIfNewer(value(1)) }
-        files.setFailures()
-        #expect(store.load()?.revision == 2)
-        #expect(throws: ScheduleExternalSnapshotStoreError.staleSnapshot) { try store.writeIfNewer(value(1)) }
-        #expect(try store.writeIfNewer(value(3)))
-        #expect(store.load()?.revision == 3)
+    @Test @MainActor
+    func externalDeadlineSummariesKeepCoursesAvailableWithMalformedSchoolFields() throws {
+        var cache = ScheduleCache()
+        cache.currentTerm = "term"
+        cache.courseData.store(TermScheduleSnapshot(term: "term", firstDayString: "2026-09-07",
+            courses: try ScheduleCourseEditor.adding(CourseDraft(title: "课程", weeksText: "1"), to: [], term: "term", id: "course"),
+            exams: [], updatedAt: .distantPast))
+        let oversized = String(repeating: "👨‍👩‍👧‍👦报告", count: 1_000)
+        cache.ddlEvents = [
+            .init(id: "blank", group: "lexue", title: " \n", text: "", dueAt: .distantFuture, done: false),
+            .init(id: "long", group: "eclass", title: oversized, text: oversized + "\n详情", dueAt: .distantFuture, done: false),
+            .init(id: String(repeating: "x", count: ScheduleExternalSnapshotCodec.maximumFieldBytes + 1), group: "eclass",
+                title: "课程作业", text: "", dueAt: .distantFuture, done: false),
+        ]
+        let deadlines = ScheduleWidgetExporter.makeDeadlines(cache: cache, isLoggedIn: true)
+        #expect(deadlines.map(\.id) == ["blank", "long"])
+        #expect(deadlines[0].title == "待办事项")
+        #expect(deadlines[1].title.hasSuffix("…") && deadlines[1].subtitle.hasSuffix("…"))
+        #expect(deadlines.allSatisfy { $0.hasValidRecord })
+        let base = try #require(ScheduleWidgetExporter.makeSnapshot(cache: cache, session: AppFileDirectories.currentSession))
+        let snapshot = ScheduleExternalSnapshot(isLoggedIn: true, studentID: base.studentID, firstDayString: base.firstDayString,
+            timeTable: base.timeTable, courses: base.courses, deadlines: deadlines)
+        let decoded = try ScheduleExternalSnapshotCodec.decode(ScheduleExternalSnapshotCodec.encode(snapshot))
+        #expect(decoded.courses.map(\.id) == ["course"] && decoded.deadlines == deadlines)
+        #expect(cache.ddlEvents[1].title == oversized)
     }
 
     @Test func delayedWatchDeliveryKeepsTheNewContentAndClearedMirror() throws {

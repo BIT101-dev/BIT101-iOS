@@ -98,12 +98,13 @@ enum ScheduleReminderBackgroundRefresh {
     /// 系统唤醒 app 后重新计算提醒，并预排下一次后台刷新。
     private static func handle(task: BGAppRefreshTask) {
         let operation = Task {
+            AppAccountSession.storage.retrySessionReadIfNeeded()
             let identity = AppAccountSession.storage.communityCredentials.identity
             var completed = false
             defer {
                 task.setTaskCompleted(success: completed)
             }
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, AppAccountSession.storage.hasResolvedSession else { return }
 
             let fakeCookie = AppAccountSession.storage.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !fakeCookie.isEmpty else {
@@ -114,7 +115,7 @@ enum ScheduleReminderBackgroundRefresh {
             }
 
             completed = await refreshIfCurrent(
-                isCurrent: { identity == AppAccountSession.storage.communityCredentials.identity },
+                isCurrent: { AppAccountSession.storage.hasResolvedSession && identity == AppAccountSession.storage.communityCredentials.identity },
                 nextBeginDate: { try await ScheduleLiveActivityManager.shared.preferredBackgroundRefreshBeginDate() },
                 schedule: { schedule(earliestBeginDate: $0) },
                 refresh: { await ScheduleLiveActivityManager.shared.refreshFromCurrentCache(trigger: "bg_app_refresh") })
@@ -219,6 +220,7 @@ struct BIT101_iOSApp: App {
             media: AppMedia.environment, localData: AppLocalDataComposition.appService(settings: settings, media: AppMedia.environment),
             externalDisplays: AppExternalDisplayCoordinator(
                 currentSession: stores.currentSession,
+                isSessionResolved: { AppAccountSession.storage.hasResolvedSession },
                 isSignedIn: { !AppAccountSession.storage.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty },
                 activateWatch: WatchScheduleSyncManager.shared.activateIfNeeded,
                 resetPresentation: AppErrorPresenter.shared.reset,

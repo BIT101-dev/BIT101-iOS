@@ -848,7 +848,20 @@ def workflow_lock_boundary_findings() -> list[str]:
                          'fi\nprint entered\n'
                          'case "${1:-}" in hold|signal|budget) read -r reply < "$ROOT_DIR/release" ;; esac\n')
         def line(process):
-            return process.stdout.readline().strip() if select.select([process.stdout], [], [], 5)[0] else "timeout"
+            value = bytearray()
+            deadline = time.monotonic() + 5
+            while (remaining := deadline - time.monotonic()) > 0:
+                if not select.select([process.stdout], [], [], remaining)[0]: return "timeout"
+                character = os.read(process.stdout.fileno(), 1)
+                if not character or character == b"\n": return value.decode().strip()
+                value.extend(character)
+            return "timeout"
+        burst = subprocess.Popen([sys.executable, '-c', 'print("one\\ntwo", flush=True); input()'],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        processes.append(burst)
+        if (line(burst), line(burst)) != ('one', 'two'):
+            raise ValueError('连续状态行按已到达的字节读取')
+        burst.communicate(input='done\n', timeout=5)
         first = subprocess.Popen(["zsh", str(worker), "hold"], stdin=subprocess.PIPE,
                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=environment)
         processes.append(first)
@@ -940,9 +953,14 @@ def workflow_lock_boundary_findings() -> list[str]:
     except (ValueError, OSError, subprocess.TimeoutExpired) as error:
         findings.append(f"工作流锁自测：{error}")
     finally:
-        for process in processes:
-            if process.poll() is None:
-                process.terminate()
-                process.communicate(timeout=5)
+        descriptor = os.open(release, os.O_RDWR | os.O_NONBLOCK) if release.exists() else None
+        try:
+            if descriptor is not None: os.write(descriptor, b'done\n' * (len(processes) * 2))
+            for process in processes:
+                if process.poll() is None:
+                    process.terminate()
+                    process.communicate(timeout=5)
+        finally:
+            if descriptor is not None: os.close(descriptor)
         shutil.rmtree(fixture, ignore_errors=True)
     return findings

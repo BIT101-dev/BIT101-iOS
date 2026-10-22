@@ -33,12 +33,27 @@ private final class ReminderNotificationCenterFixture: ScheduleReminderNotificat
 }
 
 extension ReminderContextTests {
+    @Test(.timeLimit(.minutes(1))) func pendingCredentialsPreserveNotificationsUntilTheSessionResolves() async {
+        let (center, session, _) = notificationFixture()
+        let original = center.pending.mapValues(\.content.title)
+        var resolved = false
+        let signedOut = ScheduleReminderSession(studentID: "", storage: session.storage, generation: 0, signedIn: false)
+        let context = ScheduleReminderContext(currentSession: { signedOut }, isSessionResolved: { resolved }, loadCache: { _ in .missing })
+        let manager = ScheduleLiveActivityManager(context: context, notificationCenter: center)
+        await manager.refreshFromCurrentCache()
+        #expect(center.pending.mapValues(\.content.title) == original)
+        await #expect(throws: CocoaError(.fileReadNoPermission)) { try await manager.preferredBackgroundRefreshBeginDate() }
+        resolved = true
+        await manager.refreshFromCurrentCache()
+        #expect(Set(center.pending.keys) == ["other"] && center.delivered == ["other"])
+    }
+
     @Test(.timeLimit(.minutes(1))) func unreadableCachePreservesNotificationsAndBackgroundScheduleUntilRecovery() async {
         let (center, session, _) = notificationFixture()
         let original = center.pending.mapValues(\.content.title)
         let delivered = center.delivered
         var result = ScheduleCacheLoadResult.unreadable
-        let context = ScheduleReminderContext(currentSession: { session }, loadCache: { _ in result })
+        let context = ScheduleReminderContext(currentSession: { session }, isSessionResolved: { true }, loadCache: { _ in result })
         let manager = ScheduleLiveActivityManager(context: context, notificationCenter: center)
         await manager.refreshFromCurrentCache()
         #expect(center.pending.mapValues(\.content.title) == original && center.delivered == delivered)
@@ -158,7 +173,7 @@ struct ReminderContextTests {
         let session = AppStorageSession(accountIdentifier: "reminder-read-failure")
         var unreadable = true
         var events: [String] = []
-        let adapter = AppExternalDisplayCoordinator(currentSession: { session }, isSignedIn: { true },
+        let adapter = AppExternalDisplayCoordinator(currentSession: { session }, isSessionResolved: { true }, isSignedIn: { true },
             activateWatch: {}, resetPresentation: {}, exportWidget: { events.append("widget") },
             nextReminderRefresh: {
                 if unreadable { throw CocoaError(.fileReadCorruptFile) }
@@ -250,7 +265,7 @@ struct ReminderContextTests {
         var current = ScheduleReminderSession(studentID: "A", storage: AppStorageSession(accountIdentifier: "A"), generation: 1, signedIn: true)
         let gate = AsyncStream<ScheduleCache>.makeStream()
         var entered = false
-        let context = ScheduleReminderContext(currentSession: { current }, loadCache: { captured in
+        let context = ScheduleReminderContext(currentSession: { current }, isSessionResolved: { true }, loadCache: { captured in
             #expect(captured.accountIdentifier == "A")
             entered = true
             var events = gate.stream.makeAsyncIterator()
@@ -267,7 +282,7 @@ struct ReminderContextTests {
 
     @Test(.timeLimit(.minutes(1))) func currentSnapshotUsesTheInjectedAccountPartition() async throws {
         let session = ScheduleReminderSession(studentID: "B", storage: AppStorageSession(accountIdentifier: "B"), generation: 1, signedIn: true)
-        let context = ScheduleReminderContext(currentSession: { session }, loadCache: { storage in
+        let context = ScheduleReminderContext(currentSession: { session }, isSessionResolved: { true }, loadCache: { storage in
             #expect(storage == session.storage)
             var cache = ScheduleCache()
             cache.primaryScheduleTitle = "injected reminder"

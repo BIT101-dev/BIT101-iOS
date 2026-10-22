@@ -191,8 +191,10 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
 
     /// 从共享仓库读取并编码当前快照。
     private func currentSnapshotDataIfAvailable(for studentID: String, isLoggedIn: Bool, knownRevision: UInt64 = 0) async -> Data? {
+        guard AppAccountSession.storage.hasResolvedSession else { return nil }
         guard let snapshot = await ScheduleExternalSnapshotWriteQueue.shared.snapshot(
-            for: studentID, isLoggedIn: isLoggedIn, knownRevision: knownRevision) else { return nil }
+            for: studentID, isLoggedIn: isLoggedIn, knownRevision: knownRevision),
+              AppAccountSession.storage.hasResolvedSession else { return nil }
         do {
             return try deliveryBuffer.accept(snapshot)
         } catch {
@@ -218,6 +220,7 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
     #if os(iOS)
     /// 将最新课表快照推送给已配对的 watch。
     func push(snapshot: ScheduleExternalSnapshot) {
+        guard AppAccountSession.storage.hasResolvedSession else { return }
         let studentID = AppAccountSession.storage.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard snapshot.studentID == AppStorageSession(accountIdentifier: studentID).accountStorageIdentifier else {
             return
@@ -236,6 +239,7 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
 
     /// 从当前共享快照重新推送一次。
     func pushCurrentSnapshotIfAvailable(knownRevision: UInt64 = 0) {
+        guard AppAccountSession.storage.hasResolvedSession else { return }
         activateIfNeeded()
         let session = WCSession.default
         let credentials = AppAccountSession.storage.communityCredentials
@@ -354,7 +358,7 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
         #if os(iOS)
         if activationState == .activated {
             Task { @MainActor in
-                guard let data = self.deliveryBuffer.pendingData else { return }
+                guard AppAccountSession.storage.hasResolvedSession, let data = self.deliveryBuffer.pendingData else { return }
                 let studentID = AppAccountSession.storage.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard WCSession.default.isPaired, Self.isSnapshotData(data, for: studentID) else {
                     self.deliveryBuffer.discardPending()
@@ -373,7 +377,7 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
     nonisolated func sessionReachabilityDidChange(_ session: WCSession) {
         Task { @MainActor in
             let session = WCSession.default
-            guard session.isReachable, session.activationState == .activated, session.isPaired,
+            guard AppAccountSession.storage.hasResolvedSession, session.isReachable, session.activationState == .activated, session.isPaired,
                   let data = self.deliveryBuffer.pendingData else { return }
             let studentID = AppAccountSession.storage.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
             guard Self.isSnapshotData(data, for: studentID) else { self.deliveryBuffer.discardPending(); return }

@@ -177,6 +177,7 @@ extension ScheduleLiveActivityManager {
                     storage: AppFileDirectories.currentSession, generation: storage.communityCredentials.identity.generation,
                     signedIn: !storage.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             },
+            isSessionResolved: { AppAccountSession.storage.hasResolvedSession },
             loadCache: { await ScheduleCacheStore.loadResultAsync(for: $0) }
         )
         #if canImport(ActivityKit) && !targetEnvironment(macCatalyst)

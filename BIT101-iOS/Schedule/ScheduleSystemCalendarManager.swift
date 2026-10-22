@@ -396,7 +396,7 @@ actor ScheduleSystemCalendarManager {
                 let existingEvents = Dictionary(
                     uniqueKeysWithValues: markerEvents.map { ($0.eventIdentifier, $0) }
                 ).values
-                let removedIdentifiers = Set(existingEvents.map(\.eventIdentifier))
+                let removedIdentifiers = Set(existingEvents.compactMap(\.eventIdentifier))
                 for event in existingEvents {
                     try eventStore.remove(event, span: .thisEvent, commit: false)
                 }
@@ -425,17 +425,14 @@ actor ScheduleSystemCalendarManager {
                 try Task.checkCancellation()
                 try eventStore.commit()
 
-                var batches = importedBatches.filter { $0.term != term }
-                let oldBatch = importedBatches.first(where: { $0.term == term })
-                batches.append(ImportedBatch(
+                let added = ImportedBatch(
                     term: term,
                     calendarIdentifier: calendar.calendarIdentifier,
-                    eventIdentifiers: (oldBatch?.eventIdentifiers ?? []).filter { !removedIdentifiers.contains($0) }
-                        + savedEvents.compactMap(\.eventIdentifier),
-                    startDate: min(oldBatch?.startDate ?? first.startDate, first.startDate.addingTimeInterval(-24 * 60 * 60)),
-                    endDate: max(oldBatch?.endDate ?? last.endDate, last.endDate.addingTimeInterval(24 * 60 * 60))
-                ))
-                saveBatches(batches)
+                    eventIdentifiers: savedEvents.compactMap(\.eventIdentifier),
+                    startDate: first.startDate.addingTimeInterval(-24 * 60 * 60),
+                    endDate: last.endDate.addingTimeInterval(24 * 60 * 60)
+                )
+                saveBatches(Self.mergingImport(added, into: importedBatches, removing: removedIdentifiers))
                 return savedEvents.count
             }
         } catch {
@@ -577,6 +574,29 @@ actor ScheduleSystemCalendarManager {
             return ImportedBatch(term: key.term, calendarIdentifier: key.calendarID,
                 eventIdentifiers: events.map(\.id), startDate: start, endDate: end)
         }
+    }
+
+    nonisolated static func mergingImport(
+        _ added: ImportedBatch, into batches: [ImportedBatch], removing removedIdentifiers: Set<String>
+    ) -> [ImportedBatch] {
+        var identifiers = added.eventIdentifiers
+        var start = added.startDate, end = added.endDate
+        var result: [ImportedBatch] = []
+        for batch in batches {
+            let remaining = batch.eventIdentifiers.filter { !removedIdentifiers.contains($0) }
+            guard !remaining.isEmpty else { continue }
+            if batch.term == added.term, batch.calendarIdentifier == added.calendarIdentifier {
+                identifiers.append(contentsOf: remaining)
+                start = min(start, batch.startDate)
+                end = max(end, batch.endDate)
+            } else {
+                result.append(ImportedBatch(term: batch.term, calendarIdentifier: batch.calendarIdentifier,
+                    eventIdentifiers: remaining, startDate: batch.startDate, endDate: batch.endDate))
+            }
+        }
+        result.append(ImportedBatch(term: added.term, calendarIdentifier: added.calendarIdentifier,
+            eventIdentifiers: identifiers, startDate: start, endDate: end))
+        return result
     }
 
     /// 账号清理等待当前同步事务及其本地批次写入完成。
@@ -757,32 +777,13 @@ actor ScheduleSystemCalendarManager {
     private func events(matchingMarkerIDs markerIDs: Set<String>, term: String? = nil, batches: [ImportedBatch]) -> [EKEvent] {
         guard !markerIDs.isEmpty else { return [] }
         let selection = ScheduleSystemCalendarEventMarker.Selection(markerIDs)
+        return events(forTerm: term, batches: batches).filter { selection.contains(markerID(from: $0)) }
+    }
+
+    private func events(forTerm term: String?, batches: [ImportedBatch]) -> [EKEvent] {
         var eventsByIdentifier: [String: EKEvent] = [:]
         for batch in batches {
             if let term, batch.term != term { continue }
-            for identifier in batch.eventIdentifiers {
-                guard let event = eventStore.event(withIdentifier: identifier),
-                      isBIT101Event(event, term: term),
-                      selection.contains(markerID(from: event))
-                else { continue }
-                eventsByIdentifier[identifier] = event
-            }
-        }
-
-        let lowerBound = ScheduleSharedDateCodec.calendar.date(byAdding: .year, value: -10, to: Date()) ?? .distantPast
-        let upperBound = ScheduleSharedDateCodec.calendar.date(byAdding: .year, value: 10, to: Date()) ?? .distantFuture
-        if let calendar = existingBIT101Calendar() {
-            for event in taggedEvents(calendars: [calendar], startDate: lowerBound, endDate: upperBound, term: term)
-                where selection.contains(markerID(from: event)) {
-                eventsByIdentifier[event.eventIdentifier] = event
-            }
-        }
-        return Array(eventsByIdentifier.values)
-    }
-
-    private func events(forTerm term: String, batches: [ImportedBatch]) -> [EKEvent] {
-        var eventsByIdentifier: [String: EKEvent] = [:]
-        for batch in batches where batch.term == term {
             for identifier in batch.eventIdentifiers {
                 if let event = eventStore.event(withIdentifier: identifier), isBIT101Event(event, term: term) {
                     eventsByIdentifier[identifier] = event

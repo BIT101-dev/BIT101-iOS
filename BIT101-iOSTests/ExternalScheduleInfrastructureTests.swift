@@ -179,6 +179,27 @@ struct ExternalScheduleInfrastructureTests {
         #expect(batch.eventIdentifiers == ["owned"] && batch.startDate == start && batch.endDate == finish)
     }
 
+    @Test func recoveredCalendarBatchesKeepMovedEventsAcrossIncrementalImports() throws {
+        typealias Manager = ScheduleSystemCalendarManager
+        let session = AppStorageSession(accountIdentifier: "calendar-owner")
+        let start = Date(timeIntervalSince1970: 100), end = Date(timeIntervalSince1970: 200)
+        let events = ["BIT101", "personal", "work"].map { calendar in
+            Manager.ImportHistoryEvent(id: calendar, calendarID: calendar,
+                url: ScheduleSystemCalendarEventMarker.url(id: calendar, term: "term", session: session), start: start, end: end)
+        }
+        let recovered = Manager.recoveredBatches(from: events, session: session)
+        let added = Manager.ImportedBatch(term: "term", calendarIdentifier: "BIT101", eventIdentifiers: ["new"],
+            startDate: start.addingTimeInterval(100), endDate: end.addingTimeInterval(100))
+        let merged = Manager.mergingImport(added, into: recovered, removing: [])
+        let persisted = try JSONDecoder().decode([Manager.ImportedBatch].self, from: JSONEncoder().encode(merged))
+        #expect(Set(persisted.flatMap(\.eventIdentifiers)) == ["BIT101", "personal", "work", "new"])
+        #expect(persisted.first { $0.calendarIdentifier == "personal" }?.eventIdentifiers == ["personal"])
+        let next = Manager.mergingImport(added, into: persisted, removing: ["BIT101", "personal", "new"])
+        #expect(Set(next.flatMap(\.eventIdentifiers)) == ["work", "new"])
+        #expect(next.first { $0.calendarIdentifier == "work" }?.eventIdentifiers == ["work"])
+        #expect(next.first { $0.calendarIdentifier == "BIT101" }?.startDate == added.startDate)
+    }
+
     @MainActor @Test func damagedDiskSnapshotsReachTheInvalidDisplayState() throws {
         let files = PreferenceMemoryFiles()
         let store = ScheduleExternalSnapshotStore(files: files, containerURL: URL(fileURLWithPath: "/external-display"))
@@ -224,255 +245,6 @@ struct ExternalScheduleInfrastructureTests {
     }
     #endif
 
-    @Test("Snapshot codec preserves the shared contract")
-    func snapshotCodecRoundTrip() throws {
-        let snapshot = makeSnapshot()
-        let data = try ScheduleExternalSnapshotCodec.encode(snapshot)
-
-        #expect(try ScheduleExternalSnapshotCodec.decode(data) == snapshot)
-    }
-
-    @Test func deadlineWidgetSnapshotRetainsDataAcrossStorageAndAccountRevisions() throws {
-        let deadline = ScheduleExternalDeadlineSnapshot(id: "manual", title: "报告", subtitle: "课程", sourceTitle: "自定义",
-            dueAt: Date(timeIntervalSince1970: 1_000_000))
-        let snapshot = ScheduleExternalSnapshot(revision: 2, isLoggedIn: true, studentID: "owner",
-            firstDayString: "", timeTable: [], courses: [], deadlines: [deadline], ddlAfterDay: 5)
-        let advanced = try #require(snapshot.replacingStudentID(with: "opaque-owner").advancingRevision(after: 10))
-        let decoded = try ScheduleExternalSnapshotCodec.decode(ScheduleExternalSnapshotCodec.encode(advanced))
-        #expect(decoded.deadlines == [deadline] && decoded.ddlAfterDay == 5)
-        #expect(decoded.studentID == "opaque-owner" && decoded.revision == 11)
-        var legacy = try #require(JSONSerialization.jsonObject(with: ScheduleExternalSnapshotCodec.encode(snapshot)) as? [String: Any])
-        legacy.removeValue(forKey: "deadlines")
-        legacy.removeValue(forKey: "ddlAfterDay")
-        let restored = try ScheduleExternalSnapshotCodec.decode(JSONSerialization.data(withJSONObject: legacy))
-        #expect(restored.deadlines.isEmpty && restored.ddlAfterDay == 3)
-        let files = PreferenceMemoryFiles()
-        let store = ScheduleExternalSnapshotStore(files: files, containerURL: files.temporaryDirectoryURL)
-        try store.write(snapshot)
-        #expect(store.load()?.deadlines == [deadline])
-        let cleared = ScheduleExternalSnapshot(revision: 3, isLoggedIn: false, studentID: "owner", firstDayString: "",
-            timeTable: [], courses: [])
-        #expect(try store.writeIfNewer(cleared))
-        #expect(ScheduleDeadlineResolver.resolvedSnapshot(from: store.load()).contentState == .loggedOut)
-        #expect(throws: ScheduleExternalSnapshotStoreError.staleSnapshot) { try store.writeIfNewer(snapshot) }
-    }
-
-    @Test func deadlineWidgetOrdersPendingItemsAndHonorsTheRetentionBoundaryWithoutCourses() {
-        let now = Date(timeIntervalSince1970: 1_000_000)
-        func deadline(_ id: String, _ offset: TimeInterval) -> ScheduleExternalDeadlineSnapshot {
-            .init(id: id, title: id, subtitle: "", sourceTitle: "自定义", dueAt: now.addingTimeInterval(offset))
-        }
-        let snapshot = ScheduleExternalSnapshot(isLoggedIn: true, studentID: "owner", firstDayString: "", timeTable: [], courses: [],
-            deadlines: [deadline("later", 3_600), deadline("b", -86_400), deadline("a", -86_400), deadline("expired", -86_401)], ddlAfterDay: 1)
-        let resolved = ScheduleDeadlineResolver.resolvedSnapshot(from: snapshot, now: now)
-        #expect(resolved.contentState == .ready && resolved.deadlines.map(\.id) == ["a", "b", "later"])
-        #expect(ScheduleDeadlineResolver.resolvedSnapshot(from: snapshot, now: now, limit: 1).deadlines.map(\.id) == ["a"])
-        #expect(ScheduleDeadlineResolver.resolvedSnapshot(from: snapshot, now: now, limit: 0).contentState == .rest)
-        #expect(ScheduleDeadlineResolver.resolvedSnapshot(from: snapshot, now: now.addingTimeInterval(2 * 86_400)).contentState == .rest)
-        #expect(ScheduleDeadlineResolver.resolvedSnapshot(from: nil).contentState == .missing)
-        let signedOut = ScheduleExternalSnapshot(isLoggedIn: false, studentID: "", firstDayString: "", timeTable: [], courses: [],
-            deadlines: snapshot.deadlines)
-        #expect(ScheduleDeadlineResolver.resolvedSnapshot(from: signedOut).deadlines.isEmpty)
-        #expect(ScheduleDeadlineResolver.resolvedSnapshot(from: signedOut).contentState == .loggedOut)
-    }
-
-    @Test func deadlineWidgetTimelineRefreshesAtDueTimeExpiryAndMidnight() throws {
-        let day = try #require(ScheduleSharedDateCodec.parseDate("2030-10-01"))
-        let now = try #require(ScheduleSharedDateCodec.combine(date: day, time: "12:00"))
-        let deadline = ScheduleExternalDeadlineSnapshot(id: "due", title: "报告", subtitle: "", sourceTitle: "课程中心",
-            dueAt: now.addingTimeInterval(300))
-        let snapshot = ScheduleExternalSnapshot(isLoggedIn: true, studentID: "owner", firstDayString: "", timeTable: [], courses: [],
-            deadlines: [deadline], ddlAfterDay: 0)
-        #expect(ScheduleDeadlineResolver.timelineEntries(from: snapshot, now: now).map(\.date)
-            == [now, deadline.dueAt, deadline.dueAt.addingTimeInterval(1), day.addingTimeInterval(86_400), now.addingTimeInterval(86_400)])
-        #expect(ScheduleDeadlineResolver.resolvedSnapshot(from: snapshot, now: deadline.dueAt).contentState == .ready)
-        #expect(ScheduleDeadlineResolver.resolvedSnapshot(from: snapshot, now: deadline.dueAt.addingTimeInterval(1)).contentState == .rest)
-        #expect(ScheduleDeadlineResolver.timelineEntries(from: nil, now: now).map(\.date)
-            == [now, day.addingTimeInterval(86_400), now.addingTimeInterval(86_400)])
-    }
-
-    @Test(arguments: ["blank-title", "blank-id", "duplicate-id", "oversized-subtitle", "invalid-retention", "invalid-date"])
-    func damagedDeadlineWidgetPayloadsPreserveTheSharedValidationBoundary(field: String) {
-        let deadline = ScheduleExternalDeadlineSnapshot(id: field == "blank-id" ? " " : "id", title: field == "blank-title" ? " " : "报告",
-            subtitle: field == "oversized-subtitle" ? String(repeating: "x", count: ScheduleExternalSnapshotCodec.maximumFieldBytes + 1) : "",
-            sourceTitle: "乐学", dueAt: Date(timeIntervalSince1970: field == "invalid-date" ? .infinity : 100))
-        let snapshot = ScheduleExternalSnapshot(isLoggedIn: true, studentID: "owner", firstDayString: "", timeTable: [], courses: [],
-            deadlines: field == "duplicate-id" ? [deadline, deadline] : [deadline], ddlAfterDay: field == "invalid-retention" ? 31 : 3)
-        #expect(throws: CocoaError.self) { try ScheduleExternalSnapshotCodec.encode(snapshot) }
-        #expect(ScheduleDeadlineResolver.resolvedSnapshot(from: snapshot).contentState == .invalid)
-    }
-
-    @Test("Watch transfer protocol recognizes requests and snapshots")
-    func watchTransferProtocol() throws {
-        let data = try ScheduleExternalSnapshotCodec.encode(makeSnapshot())
-        let context = WatchScheduleTransferProtocol.snapshotContext(data)
-
-        #expect(WatchScheduleTransferProtocol.knownRevision(from: WatchScheduleTransferProtocol.requestContext(knownRevision: 42)) == 42)
-        #expect(WatchScheduleTransferProtocol.requestsLatestSnapshot(WatchScheduleTransferProtocol.requestContext()))
-        #expect(WatchScheduleTransferProtocol.snapshotData(from: context) == data)
-        #expect(!WatchScheduleTransferProtocol.requestsLatestSnapshot(context))
-    }
-
-    @Test("Resolved snapshot states distinguish missing login invalid empty rest and ready")
-    func resolvedSnapshotStates() throws {
-        let firstDay = try #require(ScheduleSharedDateCodec.parseDate("2026-03-02"))
-        let beforeClass = try #require(ScheduleSharedDateCodec.combine(date: firstDay, time: "07:00"))
-        let afterClass = try #require(ScheduleSharedDateCodec.combine(date: firstDay, time: "10:00"))
-
-        #expect(ScheduleOccurrenceResolver.resolvedSnapshot(from: nil, now: beforeClass).contentState == .missing)
-        #expect(ScheduleOccurrenceResolver.resolvedSnapshot(
-            from: makeSnapshot(isLoggedIn: false),
-            now: beforeClass
-        ).contentState == .loggedOut)
-        #expect(ScheduleOccurrenceResolver.resolvedSnapshot(
-            from: makeSnapshot(firstDayString: "invalid-date"),
-            now: beforeClass
-        ).contentState == .invalid)
-        #expect(ScheduleOccurrenceResolver.resolvedSnapshot(
-            from: makeSnapshot(includeCourses: false, includeTimeTable: false),
-            now: beforeClass
-        ).contentState == .rest)
-        #expect(ScheduleOccurrenceResolver.resolvedSnapshot(
-            from: makeSnapshot(includeTimeTable: false),
-            now: beforeClass
-        ).contentState == .invalid)
-        #expect(ScheduleOccurrenceResolver.resolvedSnapshot(
-            from: makeSnapshot(),
-            now: afterClass
-        ).contentState == .rest)
-
-        let ready = ScheduleOccurrenceResolver.resolvedSnapshot(
-            from: makeSnapshot(),
-            now: beforeClass,
-            limit: 1
-        )
-        #expect(ready.contentState == .ready)
-        #expect(ready.upcomingOccurrences.count == 1)
-        #expect(ready.nextOccurrence?.title == "高等数学")
-    }
-
-    @Test("Timeline planner selects course transitions and midnight")
-    func timelineRefreshPlanning() throws {
-        let day = try #require(ScheduleSharedDateCodec.parseDate("2026-03-02"))
-        let start = try #require(ScheduleSharedDateCodec.combine(date: day, time: "08:00"))
-        let displayUntil = start.addingTimeInterval(5 * 60)
-        let occurrence = ScheduleExternalOccurrence(
-            id: "course-1",
-            title: "高等数学",
-            classroom: "理教201",
-            teacher: "张老师",
-            startDate: start,
-            endDate: start.addingTimeInterval(90 * 60),
-            displayUntilDate: displayUntil
-        )
-
-        let beforeClass = start.addingTimeInterval(-60 * 60)
-        #expect(ScheduleTimelineRefreshPlanner.nextRefreshDate(
-            for: [occurrence],
-            now: beforeClass,
-            includeDisplayUntilDates: true,
-            includeNextMidnight: false
-        ) == start)
-
-        for leadTime: TimeInterval in [1, 10, 29, 30] {
-            #expect(ScheduleTimelineRefreshPlanner.nextRefreshDate(for: [occurrence], now: start.addingTimeInterval(-leadTime),
-                includeDisplayUntilDates: false, includeNextMidnight: true) == start)
-        }
-        #expect(ScheduleTimelineRefreshPlanner.nextRefreshDate(for: [occurrence], now: displayUntil.addingTimeInterval(-10),
-            includeDisplayUntilDates: true, includeNextMidnight: false) == displayUntil)
-        let duringDisplayWindow = start.addingTimeInterval(60)
-        #expect(ScheduleTimelineRefreshPlanner.nextRefreshDate(
-            for: [occurrence],
-            now: duringDisplayWindow,
-            includeDisplayUntilDates: true,
-            includeNextMidnight: false
-        ) == displayUntil)
-
-        let lateEvening = try #require(ScheduleSharedDateCodec.combine(date: day, time: "23:50"))
-        let nextMidnight = ScheduleSharedDateCodec.calendar.date(
-            byAdding: .day,
-            value: 1,
-            to: ScheduleSharedDateCodec.calendar.startOfDay(for: lateEvening)
-        )?.addingTimeInterval(1)
-        #expect(ScheduleTimelineRefreshPlanner.nextRefreshDate(
-            for: [],
-            now: lateEvening,
-            includeDisplayUntilDates: false,
-            includeNextMidnight: true
-        ) == nextMidnight)
-        let midnight = try #require(nextMidnight)
-        #expect(ScheduleTimelineRefreshPlanner.nextRefreshDate(for: [], now: midnight.addingTimeInterval(-10),
-            includeDisplayUntilDates: false, includeNextMidnight: true) == midnight)
-    }
-
-    @Test(arguments: [true, false])
-    func futureTimelineIncludesClassTransitionsAndMidnight(phone: Bool) throws {
-        let base = makeSnapshot()
-        let course = try #require(base.courses.first)
-        let snapshot = ScheduleExternalSnapshot(generatedAt: base.generatedAt, isLoggedIn: base.isLoggedIn,
-            studentID: base.studentID, firstDayString: base.firstDayString, timeTable: base.timeTable,
-            courses: [ScheduleExternalCourseSnapshot(id: course.id, name: course.name, classroom: course.classroom,
-                teacher: course.teacher, weeks: [1, 2], weekday: course.weekday,
-                startSection: course.startSection, endSection: course.endSection)])
-        let day = try #require(ScheduleSharedDateCodec.parseDate(snapshot.firstDayString))
-        let now = try #require(ScheduleSharedDateCodec.combine(date: day, time: "07:00"))
-        let resolved = ScheduleOccurrenceResolver.resolvedSnapshot(from: snapshot, now: now)
-        let occurrence = try #require(resolved.nextOccurrence)
-        let cutoff = occurrence.startDate.addingTimeInterval(ScheduleOccurrenceResolver.defaultCurrentCourseDisplayDuration)
-        let midnight = try #require(ScheduleSharedDateCodec.calendar.date(byAdding: .day, value: 1, to: day))
-        let dates = ScheduleTimelineRefreshPlanner.timelineDates(for: resolved.upcomingOccurrences + resolved.upcomingOccurrences,
-            now: now, includeDisplayUntilDates: phone)
-        #expect(dates == dates.sorted() && Set(dates).count == dates.count)
-        #expect(dates.first == now && dates.last == now.addingTimeInterval(24 * 60 * 60))
-        #expect(dates.contains(occurrence.startDate) && dates.contains(midnight))
-        #expect(dates.contains(cutoff) == phone)
-        #expect(dates.contains(occurrence.endDate) == phone)
-        let store = ScheduleExternalSnapshotStore(files: PreferenceMemoryFiles(), containerURL: URL(fileURLWithPath: "/timeline-contract"))
-        try store.write(snapshot)
-        let timeline = ScheduleOccurrenceResolver.loadResolvedTimeline(store: store, now: now, includeDisplayUntilDates: phone, limit: 1)
-        #expect(timeline.map(\.date) == dates)
-        for entry in timeline {
-            let reference = ScheduleOccurrenceResolver.resolvedSnapshot(from: snapshot, now: entry.date, limit: 1)
-            #expect(entry.resolved.contentState == reference.contentState)
-            #expect(entry.resolved.upcomingOccurrences == reference.upcomingOccurrences)
-        }
-        let last = try #require(resolved.upcomingOccurrences.last)
-        #expect(last.displayUntilDate == last.endDate)
-        #expect(!dates.contains(last.startDate))
-        #expect(ScheduleOccurrenceResolver.resolvedSnapshot(from: snapshot, now: occurrence.startDate).nextOccurrence?.id == occurrence.id)
-        #expect(ScheduleOccurrenceResolver.resolvedSnapshot(from: snapshot, now: cutoff).nextOccurrence?.id != occurrence.id)
-        let empty = ScheduleTimelineRefreshPlanner.timelineDates(for: [], now: now, includeDisplayUntilDates: phone)
-        #expect(empty == [now, midnight, now.addingTimeInterval(24 * 60 * 60)])
-    }
-
-    private func makeSnapshot(
-        isLoggedIn: Bool = true,
-        includeCourses: Bool = true,
-        firstDayString: String = "2026-03-02",
-        includeTimeTable: Bool = true
-    ) -> ScheduleExternalSnapshot {
-        ScheduleExternalSnapshot(
-            generatedAt: Date(timeIntervalSince1970: 1_772_422_400),
-            isLoggedIn: isLoggedIn,
-            studentID: "1120260001",
-            firstDayString: firstDayString,
-            timeTable: includeTimeTable ? [
-                ScheduleExternalTimeSlotSnapshot(id: 1, start: "08:00", end: "09:30"),
-            ] : [],
-            courses: includeCourses ? [
-                ScheduleExternalCourseSnapshot(
-                    id: "course-1",
-                    name: "高等数学",
-                    classroom: "理科教学楼201",
-                    teacher: "张老师",
-                    weeks: [1],
-                    weekday: 1,
-                    startSection: 1,
-                    endSection: 1
-                ),
-            ] : []
-        )
-    }
 }
 
 @MainActor

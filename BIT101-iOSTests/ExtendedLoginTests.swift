@@ -355,6 +355,7 @@ struct LoginStorageTests {
         #expect(backend.readCount == reads)
         let reopened = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: {})
         #expect(reopened.credentialReadIssue != nil)
+        #expect(reopened.hasResolvedSession == false)
         #expect(throws: CocoaError.self) { try reopened.loadCredentials() }
         var recoveredOwners: [CommunitySessionIdentity] = []
         let subscription = reopened.changes.sink { recoveredOwners.append($0) }
@@ -362,6 +363,7 @@ struct LoginStorageTests {
         #expect(try reopened.loadCredentials()?.studentID == "A")
         #expect(reopened.communityCredentials.identity.accountIdentifier == "A")
         #expect(reopened.communityCredentials.cookie == owner.cookie && reopened.credentialReadIssue == nil)
+        #expect(reopened.hasResolvedSession)
         #expect(recoveredOwners == [.init(accountIdentifier: "A", generation: 1)])
         withExtendedLifetime(subscription) {}
     }
@@ -661,6 +663,33 @@ struct LoginStorageTests {
         #expect(reopened.currentStudentID == "B" && reopened.currentPassword == "password-B" && reopened.fakeCookie == "cookie-B")
     }
 
+    @Test(.timeLimit(.minutes(1))) func emptySessionRecoveryPublishesResolvedLogoutAfterReadFailure() async throws {
+        let domain = "BIT101Tests.login-storage.empty-recovery"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        defaults.set(true, forKey: "login.installationMarker")
+        let backend = Credentials()
+        backend.failsReads = true
+        let storage = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: {})
+        #expect(storage.hasResolvedSession == false)
+        var readiness: [Bool] = []
+        let observer = storage.changes.sink { _ in
+            readiness.append(AppRestoreReadiness.sessionIsReady(.signedOut, storage: storage))
+        }
+        backend.failsReads = false
+        storage.retrySessionReadIfNeeded()
+        #expect(storage.hasResolvedSession && storage.fakeCookie.isEmpty)
+        #expect(readiness == [true])
+        withExtendedLifetime(observer) {}
+        backend.failsReads = true
+        backend.failsWrites = true
+        let pending = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: {})
+        #expect(pending.hasResolvedSession == false)
+        pending.clearSession()
+        #expect(AppRestoreReadiness.sessionIsReady(.signedOut, storage: pending))
+    }
+
     @Test(.timeLimit(.minutes(1))) func foregroundAndProtectedDataRecoveryRestoreTheExistingLoginPresentation() async throws {
         let domain = "BIT101Tests.login-storage.lifecycle-recovery"
         let defaults = try #require(UserDefaults(suiteName: domain))
@@ -677,6 +706,9 @@ struct LoginStorageTests {
                 apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http)))
             await model.bootstrapIfNeeded()
             #expect(model.screenState == .signedOut && reopened.credentialReadIssue != nil)
+            var readiness: [Bool] = []
+            let observer = model.$screenState.sink { readiness.append(AppRestoreReadiness.sessionIsReady($0, storage: reopened)) }
+            #expect(readiness == [false])
             let delegate = AppDelegate()
             delegate.restoreLoginSession = { reopened.retrySessionReadIfNeeded() }
             backend.failsReads = false
@@ -684,6 +716,8 @@ struct LoginStorageTests {
             else { delegate.restoreLoginSession() }
             #expect(model.screenState == .signedIn(studentID: "A"))
             #expect(reopened.fakeCookie == "cookie-A" && reopened.credentialReadIssue == nil)
+            #expect(readiness == [false, true])
+            withExtendedLifetime(observer) {}
         }
     }
 }

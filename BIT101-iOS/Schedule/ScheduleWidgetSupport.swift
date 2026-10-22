@@ -51,6 +51,7 @@ enum ScheduleWidgetExporter {
     }
 
     static func syncFromCurrentCache(loadSnapshot: @MainActor () async -> ScheduleExternalSnapshot?) async {
+        guard AppAccountSession.storage.hasResolvedSession else { return }
         let session = AppFileDirectories.currentSession
         let generation = nextExportGeneration()
         let storedSnapshot = await loadSnapshot()
@@ -181,7 +182,7 @@ enum ScheduleWidgetExporter {
         cache: ScheduleCache,
         session: AppStorageSession
     ) -> ScheduleExternalSnapshot? {
-        guard session == AppFileDirectories.currentSession else { return nil }
+        guard AppAccountSession.storage.hasResolvedSession, session == AppFileDirectories.currentSession else { return nil }
         let isLoggedIn = !AppAccountSession.storage.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let clockRevision = UInt64(max(Date().timeIntervalSince1970 * 1_000_000, 0))
         let previousRevision = max(snapshotRevision, clockRevision)
@@ -220,11 +221,26 @@ enum ScheduleWidgetExporter {
 
     nonisolated static func makeDeadlines(cache: ScheduleCache, isLoggedIn: Bool) -> [ScheduleExternalDeadlineSnapshot] {
         guard isLoggedIn else { return [] }
-        return cache.ddlEvents.filter { !$0.done }.map {
-            ScheduleExternalDeadlineSnapshot(id: $0.id, title: $0.displayTitle,
-                subtitle: String($0.text.split(whereSeparator: \.isNewline).first ?? "").trimmingCharacters(in: .whitespaces),
-                sourceTitle: $0.sourceTitle, dueAt: $0.dueAt)
+        return cache.ddlEvents.filter { !$0.done }.compactMap { event in
+            let title = deadlineSummary(event.displayTitle.trimmingCharacters(in: .whitespacesAndNewlines))
+            let snapshot = ScheduleExternalDeadlineSnapshot(id: event.id, title: title.isEmpty ? "待办事项" : title,
+                subtitle: deadlineSummary(String(event.text.split(whereSeparator: \.isNewline).first ?? "").trimmingCharacters(in: .whitespaces)),
+                sourceTitle: event.sourceTitle, dueAt: event.dueAt)
+            return snapshot.hasValidRecord ? snapshot : nil
         }.sorted { $0.dueAt == $1.dueAt ? $0.id < $1.id : $0.dueAt < $1.dueAt }
+    }
+
+    private nonisolated static func deadlineSummary(_ text: String) -> String {
+        let budget = ScheduleExternalSnapshotCodec.maximumFieldBytes
+        guard text.utf8.count > budget else { return text }
+        var summary = "", bytes = "…".utf8.count
+        for character in text {
+            let count = String(character).utf8.count
+            guard bytes + count <= budget else { break }
+            summary.append(character)
+            bytes += count
+        }
+        return summary + "…"
     }
 
     private static func nextExportGeneration() -> UInt64 {
@@ -233,7 +249,7 @@ enum ScheduleWidgetExporter {
     }
 
     private static func isCurrent(session: AppStorageSession, generation: UInt64) -> Bool {
-        ScheduleSnapshotExportPolicy.isCurrent(
+        AppAccountSession.storage.hasResolvedSession && ScheduleSnapshotExportPolicy.isCurrent(
             capturedSession: session,
             currentSession: AppFileDirectories.currentSession,
             generation: generation,

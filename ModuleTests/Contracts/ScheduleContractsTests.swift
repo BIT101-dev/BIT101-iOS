@@ -40,6 +40,7 @@ struct ScheduleContractsTests {
         let resolved = ScheduleDeadlineResolver.resolvedSnapshot(from: snapshot, now: now)
         #expect(resolved.contentState == .ready && resolved.deadlines.map(\.id) == ["a", "b", "later"])
         #expect(ScheduleDeadlineResolver.resolvedSnapshot(from: snapshot, now: now, limit: 1).deadlines.map(\.id) == ["a"])
+        #expect(ScheduleDeadlineResolver.resolvedSnapshot(from: snapshot, now: now, limit: 0).contentState == .rest)
         #expect(ScheduleDeadlineResolver.resolvedSnapshot(from: snapshot, now: now.addingTimeInterval(2 * 86400)).contentState == .rest)
         #expect(ScheduleDeadlineResolver.resolvedSnapshot(from: nil).contentState == .missing)
         let signedOut = ScheduleExternalSnapshot(isLoggedIn: false, studentID: "", firstDayString: "", timeTable: [], courses: [], deadlines: snapshot.deadlines)
@@ -59,11 +60,11 @@ struct ScheduleContractsTests {
         #expect(ScheduleDeadlineResolver.timelineEntries(from: nil, now: now).map(\.date) == [now, day.addingTimeInterval(86400), now.addingTimeInterval(86400)])
     }
 
-    @Test(arguments: ["blank-title", "duplicate-id", "oversized-subtitle", "invalid-retention"])
+    @Test(arguments: ["blank-title", "blank-id", "duplicate-id", "oversized-subtitle", "invalid-retention", "invalid-date"])
     func invalidDeadlinePayloadsFailAtTheSharedBoundary(field: String) {
-        let deadline = ScheduleExternalDeadlineSnapshot(id: "id", title: field == "blank-title" ? " " : "报告",
+        let deadline = ScheduleExternalDeadlineSnapshot(id: field == "blank-id" ? " " : "id", title: field == "blank-title" ? " " : "报告",
             subtitle: field == "oversized-subtitle" ? String(repeating: "x", count: ScheduleExternalSnapshotCodec.maximumFieldBytes + 1) : "",
-            sourceTitle: "乐学", dueAt: Date(timeIntervalSince1970: 100))
+            sourceTitle: "乐学", dueAt: Date(timeIntervalSince1970: field == "invalid-date" ? .infinity : 100))
         let snapshot = ScheduleExternalSnapshot(isLoggedIn: true, studentID: "owner", firstDayString: "", timeTable: [], courses: [],
             deadlines: field == "duplicate-id" ? [deadline, deadline] : [deadline], ddlAfterDay: field == "invalid-retention" ? 31 : 3)
         #expect(throws: Error.self) { try ScheduleExternalSnapshotCodec.encode(snapshot) }

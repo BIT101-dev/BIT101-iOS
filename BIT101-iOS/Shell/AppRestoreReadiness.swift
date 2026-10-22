@@ -7,7 +7,7 @@ import OSLog
 @MainActor
 enum AppRestoreReadiness {
     private static var initialized = false
-    private static var sessionRecovered = false
+    private static var sessionState: LoginScreenState?
     private static var recorded = false
 
     static func initializedScene() {
@@ -16,13 +16,16 @@ enum AppRestoreReadiness {
     }
 
     static func restoredSession(_ state: LoginScreenState) {
-        let storage = AppAccountSession.storage
-        switch state {
-        case .signedOut: sessionRecovered = storage.fakeCookie.isEmpty
-        case let .signedIn(studentID): sessionRecovered = !storage.fakeCookie.isEmpty && studentID == storage.currentStudentID
-        }
-        sessionRecovered = sessionRecovered && storage.credentialReadIssue == nil
+        sessionState = state
         recordIfReady()
+    }
+
+    static func sessionIsReady(_ state: LoginScreenState, storage: LoginStorage) -> Bool {
+        guard storage.hasResolvedSession else { return false }
+        switch state {
+        case .signedOut: return storage.fakeCookie.isEmpty
+        case let .signedIn(studentID): return !storage.fakeCookie.isEmpty && studentID == storage.currentStudentID
+        }
     }
 
     static func recordIfReady() {
@@ -31,6 +34,7 @@ enum AppRestoreReadiness {
               UUID(uuidString: arguments[index + 1]) != nil else { return }
         let digest = Bundle.main.object(forInfoDictionaryKey: "BIT101RestoreInputDigest") as? String ?? ""
         let active = UIApplication.shared.applicationState == .active
+        let sessionRecovered = sessionState.map { sessionIsReady($0, storage: AppAccountSession.storage) } ?? false
         let digestValid = (UUID(uuidString: digest) != nil || digest.hasPrefix("git.")) && digest.utf8.allSatisfy {
             (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || [45, 46, 95].contains($0)
         }
