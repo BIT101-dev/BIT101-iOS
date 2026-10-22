@@ -296,7 +296,8 @@ struct ExternalScheduleWatchStatusTests {
         #expect(results == [2])
     }
 
-    @Test(.timeLimit(.minutes(1))) func unchangedBackgroundReceiptCompletesTheQueuedRefresh() async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func snapshotReceiptsReuseTheSingleStoreChangeRead(changed: Bool) async throws {
         let files = PreferenceMemoryFiles()
         let center = NotificationCenter()
         let store = ScheduleExternalSnapshotStore(files: files, containerURL: files.temporaryDirectoryURL, notificationCenter: center)
@@ -307,21 +308,37 @@ struct ExternalScheduleWatchStatusTests {
         let data = try ScheduleExternalSnapshotCodec.encode(snapshot)
         let manager = WatchScheduleSyncManager.shared
         let persistence = WatchSnapshotPersistence(store: store)
+        var seedWritten = false
+        let seed = center.publisher(for: .scheduleExternalSnapshotDidChange).sink { _ in
+            MainActor.assumeIsolated { seedWritten = true }
+        }
         #expect(await manager.persistSnapshotData(data, persistence: persistence, notificationCenter: center) == .success(.received))
+        try await waitForTestEvent { seedWritten }
+        seed.cancel()
+        var loads = 0
         let model = WatchScheduleStatusModel(dependencies: WatchScheduleStatusDependencies(
-            now: { now }, loadResolvedSnapshot: { now, _ in ScheduleOccurrenceResolver.loadResolvedSnapshot(store: store, now: now) },
+            now: { now }, loadResolvedSnapshot: { now, _ in
+                loads += 1
+                return ScheduleOccurrenceResolver.loadResolvedSnapshot(store: store, now: now)
+            },
             clearSnapshot: { true }, activateSync: {}, requestLatestSnapshot: { $0(.success(.requested)) }
         ))
-        let observation = center.publisher(for: WatchScheduleSyncManager.snapshotReceivedNotification).sink { _ in
+        await model.reload().value
+        let changes = center.publisher(for: .scheduleExternalSnapshotDidChange).sink { _ in
             MainActor.assumeIsolated { model.handleSnapshotDidChange() }
         }
-        defer { observation.cancel() }
+        let observation = center.publisher(for: WatchScheduleSyncManager.snapshotReceivedNotification).sink { _ in
+            MainActor.assumeIsolated { model.handleSnapshotReceived() }
+        }
+        defer { changes.cancel(); observation.cancel() }
         model.requestRefresh()
+        try await waitForTestEvent { loads == 2 }
         #expect(model.refreshState == .syncing)
-        #expect(await manager.persistSnapshotData(data, persistence: persistence, notificationCenter: center) == .success(.received))
-        #expect(model.refreshState == .succeeded)
-        try await waitForTestEvent { model.snapshot == snapshot }
-        #expect(model.snapshot == snapshot)
+        let incoming = changed ? ScheduleExternalSnapshot(generatedAt: now.addingTimeInterval(1), isLoggedIn: true,
+            studentID: snapshot.studentID, firstDayString: "", timeTable: [], courses: []) : snapshot
+        #expect(await manager.persistSnapshotData(try ScheduleExternalSnapshotCodec.encode(incoming), persistence: persistence, notificationCenter: center) == .success(.received))
+        try await waitForTestEvent { model.snapshot == incoming && model.refreshState == .succeeded }
+        #expect(loads == (changed ? 3 : 2))
         let stale = snapshot.replacingStudentID(with: "another-owner")
         model.requestRefresh()
         #expect(await manager.persistSnapshotData(try ScheduleExternalSnapshotCodec.encode(stale), persistence: persistence, notificationCenter: center) == .failure(.staleSnapshot))
@@ -400,7 +417,7 @@ struct ExternalScheduleWatchStatusTests {
         try await waitForTestEvent { model.refreshState == .waiting }
         #expect(model.refreshFeedbackText == "等待手机同步")
         #expect(model.isRefreshing == false)
-        if viaNotification { model.handleSnapshotDidChange() }
+        if viaNotification { model.handleSnapshotReceived() }
         else { callbacks[0](.success(.received)) }
         #expect(model.refreshState == .succeeded)
         callbacks[0](.failure(.transferFailed))

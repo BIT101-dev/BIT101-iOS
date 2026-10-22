@@ -16,14 +16,11 @@ struct WatchScheduleRootView: View {
         }
         .tabViewStyle(.page)
         .navigationTitle("课表")
-        .onAppear {
-            model.reload()
-        }
         .onReceive(NotificationCenter.default.publisher(for: .scheduleExternalSnapshotDidChange)) { _ in
             model.handleSnapshotDidChange()
         }
         .onReceive(NotificationCenter.default.publisher(for: WatchScheduleSyncManager.snapshotReceivedNotification)) { _ in
-            model.handleSnapshotDidChange()
+            model.handleSnapshotReceived()
         }
         .confirmationDialog("清除本地课表数据？", isPresented: $isShowingClearConfirmation, titleVisibility: .visible) {
             Button("清除", role: .destructive) {

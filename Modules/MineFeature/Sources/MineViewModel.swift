@@ -5,9 +5,7 @@ import CommunityCore
 import Combine
 import Foundation
 
-/// “我的”模块统一识别取消错误。
-///
-/// 页面切换、下拉刷新和任务复用都可能触发取消。统一识别 Swift Concurrency 与 URLSession 的取消信号。
+/// 主页与分页统一识别社区登录状态错误。
 private func isMineNotLoggedIn(_ error: Error) -> Bool {
     guard let serviceError = error as? MineServiceError else { return false }
     if case .notLoggedIn = serviceError { return true }
@@ -41,15 +39,15 @@ private func refreshMinePage<Item: Identifiable>(
         var state = previous
         state.isLoadingMore = false
         let hadItems = !previous.items.isEmpty || previous.status == .loaded
-        if TaskCancellation.matches(error) || isMineNotLoggedIn(error) {
+        if TaskCancellation.matches(error) {
             state.status = hadItems ? .loaded : .idle
             write(state)
-            if isMineNotLoggedIn(error) { onLogin() }
             return
         }
         state.status = hadItems ? .loaded : .failed(error.localizedDescription)
         if !hadItems { state.canLoadMore = false }
         write(state)
+        if isMineNotLoggedIn(error) { onLogin(); return }
         if hadItems { onAlert(AppAlert(title: failureTitle, message: error.localizedDescription)) }
     }
 }
@@ -87,7 +85,7 @@ private func loadMoreMinePage<Item: Identifiable>(
         state = read()
         state.nextPage = sourcePage
         state.isLoadingMore = false
-        if isMineNotLoggedIn(error) { onLogin() }
+        if isMineNotLoggedIn(error) { state.loadMoreError = error.localizedDescription; onLogin() }
         else if !TaskCancellation.matches(error) { state.loadMoreError = error.localizedDescription }
         write(state)
     }
@@ -191,6 +189,7 @@ final class MineViewModel: ObservableObject {
                 return
             }
             if isMineNotLoggedIn(error) {
+                profileStatus = hadUserInfo ? .loaded : .failed(error.localizedDescription)
                 requiresLogin = true
                 return
             }
@@ -346,6 +345,7 @@ final class UserProfileViewModel: ObservableObject {
                 return
             }
             if isMineNotLoggedIn(error) {
+                profileStatus = hadUserInfo ? .loaded : .failed(error.localizedDescription)
                 requiresLogin = true
                 return
             }

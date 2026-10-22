@@ -55,6 +55,26 @@ def report_inbox_boundary_findings() -> list[str]:
         assert attachment.read_bytes() == b"image" and next(fixture.glob("*/*/*_附件/*.bin")).read_bytes() == b"image"
         assert execute() == 0
         assert all((fixture / path).read_bytes() == data for path, data in saved.items())
+        archive = next(path for path in fixture.glob("*/*/report_*.json")
+            if json.loads(path.read_text()).get("report", {}).get("attachments"))
+        archived = json.loads(archive.read_text())
+        assert all("data" not in item and (archive.parent / item["localFile"]).is_file()
+            for item in archived["report"]["attachments"])
+        old_key = next(key for key in reports if key.endswith(":old"))
+        remote = reports.pop(old_key)
+        for item in archived["report"]["attachments"]:
+            item["data"] = "bmV3"
+            item.pop("fileModified"); item.pop("localFile")
+        archive.write_text(json.dumps(archived))
+        assert execute() == 0
+        assert json.loads(archive.read_text())["report"]["attachments"][0]["data"] == "bmV3"
+        for item in archived["report"]["attachments"]: item["data"] = "aW1hZ2U="
+        archive.write_text(json.dumps(archived))
+        assert execute() == 0
+        assert all("data" not in item for item in json.loads(archive.read_text())["report"]["attachments"])
+        compacted = archive.read_bytes()
+        assert execute() == 0 and archive.read_bytes() == compacted
+        reports[old_key] = remote
         next(fixture.glob("*/*/report_*.json")).unlink()
         assert execute() == 1 and len(calls) == 3
         assert all(arguments[3] == "get" for arguments in calls)

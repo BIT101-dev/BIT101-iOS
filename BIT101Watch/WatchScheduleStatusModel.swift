@@ -127,6 +127,7 @@ final class WatchScheduleStatusModel: ObservableObject {
         snapshotTask?.cancel()
         let load = dependencies.loadResolvedSnapshot
         let operation = Task { @MainActor [weak self] in
+            guard !Task.isCancelled else { return }
             let resolved = await load(now, Self.maxVisibleOccurrences)
             guard !Task.isCancelled, let self, self.snapshotGeneration == generation else { return }
             self.snapshot = resolved.snapshot
@@ -156,6 +157,10 @@ final class WatchScheduleStatusModel: ObservableObject {
 
     func handleSnapshotDidChange() {
         reload()
+        handleSnapshotReceived()
+    }
+
+    func handleSnapshotReceived() {
         guard acceptsRefreshResult else { return }
         finishRefresh(as: .succeeded)
     }
@@ -201,10 +206,9 @@ final class WatchScheduleStatusModel: ObservableObject {
             guard reportResult, let self, self.refreshGeneration == generation, self.acceptsRefreshResult else { return }
             switch result {
             case .success(.received):
-                self.reload()
-                self.finishRefresh(as: .succeeded)
+                self.handleSnapshotReceived()
             case .success(.requested):
-                self.reload()
+                break
             case .failure:
                 self.finishRefresh(as: .failed)
             }

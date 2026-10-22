@@ -278,6 +278,40 @@ def attachment_suffix(attachment):
     kind = attachment.get("contentType", "image/jpeg")
     return {"image/jpeg": ".jpg", "image/png": ".png", "image/heic": ".heic"}.get(kind, ".bin") if isinstance(kind, str) else ".bin"
 
+def attachment_file(report_path, index, attachment):
+    return report_path.parent / (report_path.stem + "_附件") / f"图片-{index:02d}{attachment_suffix(attachment)}"
+
+def attachment_reference(attachment, asset):
+    attributes = asset.stat()
+    return {key: value for key, value in attachment.items() if key != "data"} | {
+        "bytes": attributes.st_size, "fileModified": attributes.st_mtime_ns,
+        "localFile": asset.relative_to(asset.parent.parent).as_posix()}
+
+def compact_archived_report(path):
+    incoming = staging_dir / "report.json"
+    try:
+        saved = json.loads(path.read_text())
+        attachments = saved["report"].get("attachments", [])
+        if not isinstance(attachments, list): return
+        changed = False
+        for index, attachment in enumerate(attachments, 1):
+            if not isinstance(attachment, dict) or not isinstance(attachment.get("data"), str): continue
+            asset = attachment_file(path, index, attachment)
+            try:
+                data = base64.b64decode(attachment["data"], validate=True)
+                if asset.read_bytes() != data: continue
+                attachments[index - 1] = attachment_reference(attachment, asset)
+                changed = True
+            except (OSError, ValueError): continue
+        if changed:
+            incoming.write_text(json.dumps(saved, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            incoming.replace(path)
+    except (OSError, ValueError, KeyError, TypeError, AttributeError): pass
+    finally:
+        incoming.unlink(missing_ok=True)
+
+for path in local_reports.values(): compact_archived_report(path)
+
 def cache_complete(item):
     key = item["name"]
     path = local_reports.get(key.replace(":", "_") + ".json")
@@ -291,9 +325,12 @@ def cache_complete(item):
         attachments = saved["report"].get("attachments", [])
         if not isinstance(attachments, list) or saved.get("inboxAttachmentErrors"): return False
         for index, attachment in enumerate(attachments, 1):
-            asset = path.parent / (path.stem + "_附件") / f"图片-{index:02d}{attachment_suffix(attachment)}"
-            if asset.stat().st_size != attachment["bytes"]: return False
-            if asset.read_bytes() != base64.b64decode(attachment["data"], validate=True): return False
+            asset = attachment_file(path, index, attachment)
+            attributes = asset.stat()
+            if attributes.st_size != attachment["bytes"]: return False
+            if "data" in attachment:
+                if asset.read_bytes() != base64.b64decode(attachment["data"], validate=True): return False
+            elif attributes.st_mtime_ns != attachment["fileModified"]: return False
         return True
     except (OSError, ValueError, KeyError, TypeError, AttributeError): return False
 
@@ -346,9 +383,10 @@ def fetch(key):
                 attachment_errors += 1
                 continue
             extension = attachment_suffix(attachment)
-            (attachment_dir / f"图片-{index:02d}{extension}").write_bytes(data)
+            asset = attachment_dir / f"图片-{index:02d}{extension}"
+            asset.write_bytes(data)
             downloaded_attachments.append(
-                dict(attachment, bytes=len(data))
+                attachment_reference(attachment, asset)
             )
         report["attachments"] = downloaded_attachments
         item["report"] = report

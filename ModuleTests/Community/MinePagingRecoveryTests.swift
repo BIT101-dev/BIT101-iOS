@@ -6,25 +6,30 @@ import Testing
 
 @MainActor
 struct MinePagingRecoveryTests {
-    @Test(.timeLimit(.minutes(1)), arguments: ["mine-profile", "user-profile", "mine-posters", "user-posters", "followers", "followings"])
-    func initialFailurePublishesInlineRecoveryForEachOwnedScene(scene: String) async {
+    @Test(.timeLimit(.minutes(1)), arguments: ["mine-profile", "user-profile", "mine-posters", "user-posters", "followers", "followings"], [false, true])
+    func initialFailurePublishesInlineRecoveryForEachOwnedScene(scene: String, authenticationFailure: Bool) async {
         let service = PagingMineService()
-        service.profile = { throw URLError(.notConnectedToInternet) }
-        service.users = { _ in throw URLError(.notConnectedToInternet) }
-        service.posters = { _ in throw URLError(.notConnectedToInternet) }
+        let profileRequest = service.profile, userRequest = service.users, posterRequest = service.posters
+        let failure: any Error = authenticationFailure ? MineServiceError.notLoggedIn : URLError(.notConnectedToInternet)
+        service.profile = { throw failure }
+        service.users = { _ in throw failure }
+        service.posters = { _ in throw failure }
         let mine = MineViewModel(service: service)
         let profile = UserProfileViewModel(userID: 1, service: service)
-        let status: MineLoadStatus
-        switch scene {
-        case "mine-profile": await mine.refreshProfile(); status = mine.profileStatus
-        case "user-profile": await profile.refreshProfile(); status = profile.profileStatus
-        case "mine-posters": await mine.refreshPosters(); status = mine.posterState.status
-        case "user-posters": await profile.refreshPosters(); status = profile.posterState.status
-        case "followers": await mine.refreshFollowers(); status = mine.followerState.status
-        default: await mine.refreshFollowings(); status = mine.followingState.status
+        func refresh() async -> MineLoadStatus {
+            switch scene {
+            case "mine-profile": await mine.refreshProfile(); return mine.profileStatus
+            case "user-profile": await profile.refreshProfile(); return profile.profileStatus
+            case "mine-posters": await mine.refreshPosters(); return mine.posterState.status
+            case "user-posters": await profile.refreshPosters(); return profile.posterState.status
+            case "followers": await mine.refreshFollowers(); return mine.followerState.status
+            default: await mine.refreshFollowings(); return mine.followingState.status
+            }
         }
-        #expect(status == .failed(URLError(.notConnectedToInternet).localizedDescription))
+        #expect(await refresh() == .failed(failure.localizedDescription))
         #expect(mine.alert == nil && profile.alert == nil)
+        service.profile = profileRequest; service.users = userRequest; service.posters = posterRequest
+        #expect(await refresh() == .loaded)
     }
 
     private func user(_ id: Int) -> CommunityUser { .placeholder(id: id, nickname: "用户") }
@@ -351,6 +356,8 @@ struct MineLifecycleTests {
         await profile.bootstrapIfNeeded()
         #expect(profile.requiresLogin)
         #expect(profile.alert == nil)
+        #expect(profile.profileStatus == .failed(MineServiceError.notLoggedIn.localizedDescription))
+        #expect(profile.posterState.status == .failed(MineServiceError.notLoggedIn.localizedDescription))
     }
 
     @Test(.timeLimit(.minutes(1))) func independentAccountScenesKeepTheirRequestsAndContentsSeparate() async {
