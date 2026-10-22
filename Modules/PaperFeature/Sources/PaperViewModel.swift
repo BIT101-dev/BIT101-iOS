@@ -376,7 +376,8 @@ final class PaperDetailViewModel: ObservableObject {
     }
 
     var isPaperLiked: Bool { latestLikeResult?.like ?? paper?.like ?? false }
-    var hasKnownLikeState: Bool { paper != nil || latestLikeResult != nil }
+    var hasKnownLikeState: Bool { paper?.isViewerAuthenticated == true || latestLikeResult != nil }
+    var likeStateMessage: String { paper?.isViewerAuthenticated == false ? "社区认证后可点赞" : "点赞状态待获取" }
     var resolvedLikeNum: Int { latestLikeResult?.likeNum ?? paper?.likeNum ?? initialPaper.likeNum }
 
     func likePaper() async {
@@ -425,6 +426,7 @@ final class PaperDetailViewModel: ObservableObject {
     }
 
     func toggleCommentLike(_ comment: CommunityComment) async {
+        guard comment.isViewerAuthenticated else { return }
         guard !commentState.likesNeedingReview.contains(comment.id) else {
             alert = AppAlert(title: "点赞结果待确认", message: CommunityToggleOutcomeUnknown.reviewMessage)
             return

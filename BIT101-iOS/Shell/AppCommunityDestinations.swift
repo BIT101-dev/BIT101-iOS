@@ -50,7 +50,8 @@ final class AppCommunityDestinations {
             account: SettingsAccountDependencies(
                 service: SettingsNetworkService(session: dependencies.session, checkLogin: dependencies.checkLogin),
                 credentials: { dependencies.session.currentCredentials },
-                updateSchoolCredentials: dependencies.updateSchoolCredentials
+                updateSchoolCredentials: dependencies.updateSchoolCredentials,
+                restoreCommunitySession: dependencies.restoreCommunitySession
             ),
             networkDiagnosis: NetworkDiagnosisDependencies(
                 identity: { .init(community: dependencies.session.currentCredentials.identity, school: school.identity()) },
@@ -124,6 +125,7 @@ final class AppCommunityDependencies {
     let session: CommunitySession
     let checkLogin: () async throws -> Bool
     let updateSchoolCredentials: () async throws -> Void
+    let restoreCommunitySession: (String) async throws -> Void
     let networkPath: NetworkPathState
     let gallery: GalleryDependencies
     let course: CourseDependencies
@@ -141,12 +143,14 @@ final class AppCommunityDependencies {
         submitSuggestion: @escaping (DeveloperSuggestionPayload) async throws -> Void,
         loadCourseCredits: @escaping @MainActor () async -> [CommunityCourseCredit],
         networkPath: NetworkPathState = AppNetworkPath.state,
-        updateSchoolCredentials: @escaping () async throws -> Void = { throw LoginServiceError.schoolCredentialsRequired }
+        updateSchoolCredentials: @escaping () async throws -> Void = { throw LoginServiceError.schoolCredentialsRequired },
+        restoreCommunitySession: @escaping (String) async throws -> Void = { _ in throw CommunitySessionRestorationError.credentialsRejected }
     ) {
         self.settingsStore = settings
         self.session = session
         self.checkLogin = checkLogin
         self.updateSchoolCredentials = updateSchoolCredentials
+        self.restoreCommunitySession = restoreCommunitySession
         self.networkPath = networkPath
         let preferences = CommunityPreferences(
             snapshot: Self.snapshot(for: settings),
@@ -193,7 +197,8 @@ final class AppCommunityDependencies {
             settings: settings, session: .appSession(), checkLogin: { try await login.checkLogin() != nil },
             messages: stores.communityMessages, drafts: stores.composerDrafts,
             submitSuggestion: { try await FeedbackSubmissionClient.submit($0) }, loadCourseCredits: loadSchoolCourseCredits,
-            updateSchoolCredentials: { try await AppAccountSession.storage.updateSchoolCredentials() }
+            updateSchoolCredentials: { try await AppAccountSession.storage.updateSchoolCredentials() },
+            restoreCommunitySession: { try await LoginService().restoreCommunitySession(password: $0) }
         )
     }
 

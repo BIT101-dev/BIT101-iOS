@@ -15,14 +15,32 @@ struct PaperCommentPagingTests {
 
     private final class RevalidatingService: PaperDetailServicing {
         var pending: CheckedContinuation<PaperDetail, any Error>?
+        var likeRequests = 0
         func cachedPaper(id: Int) async -> PaperDetail? { PaperCommentPagingTests.revalidationPaper(id, title: "缓存正文") }
         func fetchPaper(id: Int) async throws -> PaperDetail { try await withCheckedThrowingContinuation { pending = $0 } }
         func fetchComments(paperID: Int, order: CommunityCommentOrder, page: Int?) async throws -> [CommunityComment] { [] }
-        func likePaper(id: Int) async throws -> CommunityLikeResult { throw URLError(.unsupportedURL) }
+        func likePaper(id: Int) async throws -> CommunityLikeResult { likeRequests += 1; throw URLError(.unsupportedURL) }
         func sendLike(objectID: String) async throws -> CommunityLikeResult { throw URLError(.unsupportedURL) }
         func createComment(objectID: String, text: String, replyObjectID: String?, replyUID: Int?, anonymous: Bool) async throws -> CommunityComment { throw URLError(.unsupportedURL) }
         func updatePaper(id: Int, title: String, intro: String, content: String, anonymous: Bool, publicEdit: Bool, lastUpdatedAt: String) async throws { throw URLError(.unsupportedURL) }
         func deletePaper(id: Int) async throws { throw URLError(.unsupportedURL) }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func publicArticleContentKeepsLikesPendingUntilAnAuthenticatedRead() async throws {
+        let service = RevalidatingService()
+        let model = PaperDetailViewModel(initialPaper: .init(id: 1, title: "文章", intro: "", likeNum: 0, commentNum: 0, updateTime: ""), service: service)
+        let loading = Task { await model.bootstrapIfNeeded() }
+        defer { loading.cancel(); service.pending?.resume(throwing: CancellationError()); service.pending = nil }
+        try await waitForTestEvent { service.pending != nil }
+        var detail = Self.revalidationPaper(1, title: "公开正文")
+        detail.isViewerAuthenticated = false
+        service.pending?.resume(returning: detail); service.pending = nil
+        await loading.value
+        #expect(model.paper?.content == "公开正文" && !model.hasKnownLikeState)
+        #expect(model.likeStateMessage == "社区认证后可点赞")
+        await model.likePaper()
+        #expect(service.likeRequests == 0)
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])

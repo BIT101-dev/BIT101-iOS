@@ -47,6 +47,7 @@ public nonisolated struct SchoolLoginContext: Sendable {
 public final class TeachingCenterSessionState {
     public let authenticationRecovery = SessionRefreshCoordinator<SchoolSessionIdentity>()
     public let preparationRecovery = SessionRefreshCoordinator<SchoolSessionIdentity>()
+    public let schoolSecondFactorRecovery = SessionRefreshCoordinator<SchoolSessionIdentity>()
     public private(set) var sessionRevision: UInt64 = 0
     private var owner: SchoolSessionIdentity?
     private var selectedCookieStorage: HTTPCookieStorage
@@ -67,12 +68,14 @@ public final class TeachingCenterSessionState {
         guard let owner, owner != identity else { return }
         authenticationRecovery.cancel()
         preparationRecovery.cancel()
+        schoolSecondFactorRecovery.cancel()
         invalidate()
     }
 
     public func replaceCookieStorage(with cookieStorage: HTTPCookieStorage) {
         authenticationRecovery.cancel()
         preparationRecovery.cancel()
+        schoolSecondFactorRecovery.cancel()
         owner = nil
         sessionRevision &+= 1
         selectedCookieStorage = cookieStorage

@@ -30,37 +30,6 @@ nonisolated private struct EmergencyUpdateSmokeEnvelope: Decodable {
     }
 }
 
-/// NetworkSmokeScope 表示发布前网络冒烟执行的范围。
-///
-/// NetworkSmokeScope 使用与脚本入口一致的名称和语义；采样宿主、测试入口和命令行脚本复用同一组探针。
-@MainActor
-private final class NetworkSmokeExecutionGate {
-    private var isRunning = false
-    private var waiting: [(UUID, CheckedContinuation<Bool, Never>)] = []
-
-    func acquire() async -> Bool {
-        guard !Task.isCancelled else { return false }
-        guard isRunning else { isRunning = true; return true }
-        let id = UUID()
-        return await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
-                if Task.isCancelled { continuation.resume(returning: false) }
-                else { waiting.append((id, continuation)) }
-            }
-        } onCancel: {
-            Task { @MainActor in
-                guard let index = self.waiting.firstIndex(where: { $0.0 == id }) else { return }
-                self.waiting.remove(at: index).1.resume(returning: false)
-            }
-        }
-    }
-
-    func release() {
-        if waiting.isEmpty { isRunning = false }
-        else { waiting.removeFirst().1.resume(returning: true) }
-    }
-}
-
 @MainActor
 final class ReleaseNetworkSmokeRunner {
     private static let executionGate = NetworkSmokeExecutionGate()
@@ -564,12 +533,18 @@ final class ReleaseNetworkSmokeRunner {
         }
         let nativeEclass = await probe(.eclassAuthentication, area: .ddl, scope: scope) {
             let service = try self.dependencies.makeEclassSchedule()
-            if let handler = self.schoolSMSHandler { return try await service.fetchEclassDDLEvents(schoolSMSCodeHandler: handler) }
-            return try await service.fetchEclassDDLEventsForPreflight()
+            let result: EclassDDLResult
+            if let handler = self.schoolSMSHandler { result = try await service.fetchEclassDDLEvents(schoolSMSCodeHandler: handler) }
+            else { result = try await service.fetchEclassDDLEventsForPreflight() }
+            if let failure = result.failure { throw failure }
+            return result
         }
         if let eclass = await probe(.eclassDDL, area: .ddl, scope: scope, operation: {
-            if let handler = self.schoolSMSHandler { return try await schedule.fetchEclassDDLEvents(schoolSMSCodeHandler: handler) }
-            return try await schedule.fetchEclassDDLEventsForPreflight()
+            let result: EclassDDLResult
+            if let handler = self.schoolSMSHandler { result = try await schedule.fetchEclassDDLEvents(schoolSMSCodeHandler: handler) }
+            else { result = try await schedule.fetchEclassDDLEventsForPreflight() }
+            if let failure = result.failure { throw failure }
+            return result
         }) {
             let now = Date()
             let cache = await dependencies.loadScheduleCache()

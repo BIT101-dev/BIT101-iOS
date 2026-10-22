@@ -33,22 +33,9 @@ extension ScheduleService {
         }
     }
 
-    /// 提交新版统一认证的短信验证码，并在认证成功后继续本次课表同步。
-    public func submitSMSCode(
-        _ code: String,
-        for challenge: BITLoginAuthenticationChallenge,
-        term: String? = nil
-    ) async throws -> CourseSyncPayload {
-        try await submitSMSCodeForTeachingCenterAuthentication(code, for: challenge)
-        return try await withPreparedTeachingCenterSession {
-            try await fetchCourseSyncPayload(term: term)
-        }
-    }
-
     /// 完成短信认证，由调用方继续处理课表操作。
     ///
-    /// 学期列表加载触发验证时使用此入口。认证成功后由 ViewModel 自动继续加载列表，
-    /// 课表继续使用用户已选学期。
+    /// 认证成功后由调用方清除短信挑战，再续接课表、学期列表或空教室请求。
     public func submitSMSCodeForTeachingCenterAuthentication(
         _ code: String,
         for challenge: BITLoginAuthenticationChallenge

@@ -135,32 +135,16 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
         do {
             try repository.requireWritable()
             try Task.checkCancellation()
+            var deliveredGroups: Set<String> = []
             let payload = try await service.syncDDLEvents(
-                existingEvents: cache.ddlEvents,
-                storedURL: cache.lexueCalendarURL,
-                schoolSMSCodeHandler: makeSchoolSMSCodeHandler(for: generation)
-            )
+                existingEvents: cache.ddlEvents, storedURL: cache.lexueCalendarURL,
+                schoolSMSCodeHandler: makeSchoolSMSCodeHandler(for: generation), onSource: { [self] update in
+                    try await applySyncPayload(update, generation: generation)
+                    deliveredGroups.formUnion(update.syncedGroups)
+                })
             try Task.checkCancellation()
             guard accountGeneration == generation else { return false }
-            cache.lexueCalendarURL = payload.url
-            for event in cache.ddlEvents where event.isSchoolSynced && (event.done || cache.lexueDDLCompletionByID[event.id] != nil) {
-                cache.lexueDDLCompletionByID[event.id] = event.done
-            }
-            let syncedEvents = payload.events.map { event in
-                var event = event
-                event.done = cache.lexueDDLCompletionByID[event.id] ?? event.done
-                if event.done { cache.lexueDDLCompletionByID[event.id] = true }
-                return event
-            }
-            cache.ddlEvents = ScheduleDDLEditor.mergingSyncedEvents(
-                syncedEvents,
-                into: cache.ddlEvents,
-                syncedGroups: payload.syncedGroups
-            )
-            cache.reconcileCompletionHistory(currentIDs: Set(payload.events.map(\.id)),
-                syncedGroups: payload.syncedGroups, now: Date())
-            cache.ddlUpdatedAt = Date()
-            guard await persistAndWait(), accountGeneration == generation else { return false }
+            if deliveredGroups.isEmpty { try await applySyncPayload(payload, generation: generation) }
             if showSuccessNotice {
                 notice = ScheduleNotice.informational(
                     title: payload.warnings.isEmpty ? "DDL 同步成功" : "DDL 部分更新",
@@ -305,15 +289,21 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
     }
 
     /// 修改 DDL 提前提醒窗口。
-    public func setDDLBeforeDay(_ value: Int) {
+    @discardableResult
+    public func setDDLBeforeDay(_ value: Int) -> Bool {
+        guard isCacheWritable else { return false }
         cache.ddlBeforeDay = min(max(value, 0), 30)
         persist()
+        return true
     }
 
     /// 修改 DDL 过期后仍保留显示的窗口。
-    public func setDDLAfterDay(_ value: Int) {
+    @discardableResult
+    public func setDDLAfterDay(_ value: Int) -> Bool {
+        guard isCacheWritable else { return false }
         cache.ddlAfterDay = min(max(value, 0), 30)
         persist()
+        return true
     }
 
     /// DDL 到期时间文案。
@@ -361,6 +351,36 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
         }
 
         return "green"
+    }
+
+    private func applySyncPayload(_ payload: DDLSyncPayload, generation: Int) async throws {
+        try Task.checkCancellation()
+        guard accountGeneration == generation else { throw CancellationError() }
+        try repository.requireWritable()
+        if payload.syncedGroups.contains("lexue") { cache.lexueCalendarURL = payload.url }
+        for event in cache.ddlEvents where event.isSchoolSynced && (event.done || cache.lexueDDLCompletionByID[event.id] != nil) {
+            cache.lexueDDLCompletionByID[event.id] = event.done
+        }
+        let syncedEvents = payload.events.map { event in
+            var event = event
+            event.done = cache.lexueDDLCompletionByID[event.id] ?? event.done
+            if event.done { cache.lexueDDLCompletionByID[event.id] = true }
+            return event
+        }
+        cache.ddlEvents = ScheduleDDLEditor.mergingSyncedEvents(
+            syncedEvents,
+            into: cache.ddlEvents,
+            syncedGroups: payload.syncedGroups
+        )
+        cache.reconcileCompletionHistory(currentIDs: Set(payload.events.map(\.id)),
+            syncedGroups: payload.syncedGroups, now: Date())
+        cache.ddlUpdatedAt = Date()
+        guard await persistAndWait(), accountGeneration == generation else {
+            try Task.checkCancellation()
+            guard accountGeneration == generation else { throw CancellationError() }
+            throw NSError(domain: "ScheduleRepository", code: 2, userInfo: [NSLocalizedDescriptionKey:
+                repository.notice?.message ?? "日程保存受阻，请重试同步。"])
+        }
     }
 
     private func presentDDLSecondFactorNotice() {

@@ -2,6 +2,8 @@ import ScoreInfrastructure
 import ScoreDomain
 import ScorePorts
 import ScheduleFeature
+import SchedulePorts
+import ScheduleDomain
 import ScheduleInfrastructure
 import ScheduleSync
 import ClientCore
@@ -197,14 +199,18 @@ struct BIT101_iOSApp: App {
                 return NetworkDiagnosisSchool(identity: { AppAccountSession.storage.schoolSessionIdentity },
                     currentTerm: service.fetchCurrentTermOnly,
                     syncCourses: { _ = try await service.syncCourses(term: $0) },
-                    ddl: { _ = try await service.syncDDLEvents(existingEvents: [], storedURL: "", schoolSMSCodeHandler: nil) })
+                    ddl: { try await service.syncDDLEvents(existingEvents: [], storedURL: "", schoolSMSCodeHandler: nil) })
             }
 #endif
             let service = ScheduleServiceFactory.make()
             return NetworkDiagnosisSchool(identity: { AppAccountSession.storage.schoolSessionIdentity },
                 currentTerm: service.fetchCurrentTermOnly,
                 syncCourses: { _ = try await service.syncCourses(term: $0) },
-                ddl: { _ = try await service.fetchEclassDDLEventsForPreflight() })
+                ddl: {
+                    let result = try await service.fetchEclassDDLEventsForPreflight()
+                    return DDLSyncPayload(url: "", events: result.events, syncedGroups: ["eclass"],
+                        warnings: result.failure.map { [$0.localizedDescription] } ?? [])
+                })
         }()
         return AppAccountLifecycle(
             scheduleViewModel: makeScheduleViewModel(),

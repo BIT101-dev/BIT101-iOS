@@ -14,6 +14,24 @@ import os
 @MainActor
 struct ScoreInfrastructureBoundaryTests {
     @Test(.timeLimit(.minutes(1)))
+    func transcriptDeadlineRetainsDeliveredPagesAndAllowsTheRemainingPagesToRetry() async throws {
+        var reads: [Int] = [], published: [Int] = []
+        @MainActor final class State { var hold = true }
+        let state = State()
+        let report = TrustedTranscriptReport(pageCount: 3, timeout: .seconds(1)) { number, _ in
+            reads.append(number)
+            if number == 2, state.hold { try await Task.sleep(for: .seconds(60)) }
+            return Data([1])
+        }
+        let partial = try await report.loadPages(maximumBytes: 3, onPage: { published += $0.pages.map(\.number) })
+        #expect(reads == [1, 2] && published == [1] && !report.isInvalid)
+        #expect(partial.pages.map(\.number) == [1] && (partial.failure as? URLError)?.code == .timedOut)
+        state.hold = false
+        let recovered = try await report.loadPages(excluding: [1], maximumBytes: 2)
+        #expect(recovered.pages.map(\.number) == [2, 3] && recovered.failure == nil)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func transcriptSourceInvalidationRetainsAndPublishesTheValidPages() async throws {
         var reads: [Int] = [], published: [Int] = []
         let report = TrustedTranscriptReport(pageCount: 3) { number, _ in
@@ -411,6 +429,7 @@ struct ScoreInfrastructureBoundaryTests {
         var imageRequests = 0
         var pageCount = 2
         var failingPage: String?
+        var rejectedPageStatus: Int?
         var paths: [String] = []
         var responseURL: (URL) -> URL = { $0 }
         init(pageBytes: Int) { self.pageBytes = pageBytes }
@@ -422,7 +441,12 @@ struct ScoreInfrastructureBoundaryTests {
         func data(for request: URLRequest) async throws -> (Data, URLResponse) {
             let url = try #require(request.url)
             paths.append(url.path)
-            if url.path == failingPage { throw URLError(.networkConnectionLost) }
+            if url.path == failingPage {
+                if let rejectedPageStatus {
+                    return (Data(), try #require(HTTPURLResponse(url: url, statusCode: rejectedPageStatus, httpVersion: nil, headerFields: nil)))
+                }
+                throw URLError(.networkConnectionLost)
+            }
             let data: Data
             if url.path.hasSuffix("/cookies") { data = Data(#"{"cookie_str":"SESSION=fixture"}"#.utf8) }
             else if url.path.hasSuffix("/Index") { data = Data((1...pageCount).map { "<img src=\"/cjd/Temp/\($0).png\">" }.joined().utf8) }
@@ -456,6 +480,20 @@ struct ScoreInfrastructureBoundaryTests {
         #expect(recovered.pages.map(\.number) == [2] && recovered.failure == nil)
         #expect(transport.paths.filter { $0.hasSuffix("/cookies") }.count == 1)
         #expect(transport.paths.filter { $0.hasSuffix("/sms") }.count == 1)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [401, 403, 404, 410])
+    func anExpiredTranscriptSourceStopsTheRemainingDownloads(status: Int) async throws {
+        let transport = TranscriptPages(pageBytes: 64)
+        transport.pageCount = 3
+        transport.failingPage = "/cjd/Temp/2.png"
+        transport.rejectedPageStatus = status
+        let client = HTTPClient(transport: transport, observer: nil)
+        let service = ScoreService(credentials: Credentials(), httpClient: client, sensitiveHTTPClient: client,
+            endpointBaseURL: AppURL.required("https://example.invalid"))
+        let partial = try await service.fetchTrustedTranscriptPages()
+        #expect(partial.pages.map(\.number) == [1] && partial.report?.isInvalid == true)
+        #expect(!transport.paths.contains("/cjd/Temp/3.png") && partial.failure != nil)
     }
 
     @Test func scoreDecodingRetainsTheMissingFieldPath() {

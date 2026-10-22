@@ -17,49 +17,6 @@ enum SchoolSMSDeliveryMode: Equatable {
 }
 
 extension ScheduleService {
-    /// 同步课程中心与乐学日程，首次同步自动发现乐学订阅地址。
-    public func syncDDLEvents(
-        existingEvents: [DDLEventRecord],
-        storedURL: String,
-        schoolSMSCodeHandler: SchoolSMSCodeHandler? = nil
-    ) async throws -> DDLSyncPayload {
-        let owner = credentials.schoolSessionIdentity
-        try validateAuthenticationOwner(owner)
-        var events: [DDLEventRecord] = []
-        var groups: Set<String> = []
-        var warnings: [String] = []
-        var calendarURL = storedURL
-        var firstError: Error?
-        do {
-            events = try await fetchEclassDDLEvents(schoolSMSCodeHandler: schoolSMSCodeHandler).events
-            try validateAuthenticationOwner(owner)
-            groups.insert("eclass")
-        } catch {
-            if TaskCancellation.matches(error) { throw error }
-            firstError = error
-            warnings.append("课程中心：\(error.localizedDescription)")
-        }
-        do {
-            let lexue = try await syncDDLEvents(existingEvents: existingEvents, storedURL: storedURL,
-                schoolSMSCodeHandler: schoolSMSCodeHandler, smsDeliveryMode: .send, owner: owner)
-            events.append(contentsOf: lexue.events)
-            calendarURL = lexue.url
-            groups.insert("lexue")
-        } catch {
-            if TaskCancellation.matches(error) { throw error }
-            firstError = firstError ?? error
-            warnings.append("乐学：\(error.localizedDescription)")
-        }
-        guard !groups.isEmpty else { throw firstError ?? ScheduleServiceError.invalidResponse }
-        let doneByID = Dictionary(existingEvents.map { ($0.id, $0.done) }, uniquingKeysWith: { first, _ in first })
-        events = events.map { event in
-            var event = event
-            event.done = doneByID[event.id] ?? event.done
-            return event
-        }
-        return DDLSyncPayload(url: calendarURL, events: events, syncedGroups: groups, warnings: warnings)
-    }
-
     /// 诊断网络链路时探测乐学 DDL，避免触发短信发送。
     public func syncDDLEventsForPreflight(
         existingEvents: [DDLEventRecord],
@@ -328,13 +285,20 @@ extension ScheduleService {
         owner: SchoolSessionIdentity
     ) async throws {
         try validateAuthenticationOwner(owner)
+        guard smsDeliveryMode == .send else { throw ScheduleServiceError.schoolSecondFactorRequired }
+        guard let handler else { throw ScheduleServiceError.schoolSecondFactorRequired }
+        teachingCenterState.selectOwner(owner)
+        try await teachingCenterState.schoolSecondFactorRecovery.refresh(identity: owner) {
+            try await self.completeSchoolSecondFactorBody(context, handler: handler, owner: owner)
+        }
+        try validateAuthenticationOwner(owner)
+    }
+
+    private func completeSchoolSecondFactorBody(
+        _ context: SchoolSecondFactorContext, handler: @escaping SchoolSMSCodeHandler, owner: SchoolSessionIdentity
+    ) async throws {
+        try validateAuthenticationOwner(owner)
         let studentID = credentials.currentStudentID
-        guard smsDeliveryMode == .send else {
-            throw ScheduleServiceError.schoolSecondFactorRequired
-        }
-        guard let handler else {
-            throw ScheduleServiceError.schoolSecondFactorRequired
-        }
         let phone = try await fetchSecondFactorPhone(userObjectID: context.userObjectID, owner: owner)
         try await sendSecondFactorCode(to: phone.phone, owner: owner)
         let code = try await handler(
@@ -365,7 +329,7 @@ extension ScheduleService {
 
         let (data, response) = try await sendRequest(request, owner: owner)
         let responseURL = response.url ?? context.formAction
-            guard crypto.isAcceptedSchoolLoginCompletion(
+        guard crypto.isAcceptedSchoolLoginCompletion(
             statusCode: response.statusCode,
             url: responseURL,
             schoolHost: schoolSSOBaseURL.host

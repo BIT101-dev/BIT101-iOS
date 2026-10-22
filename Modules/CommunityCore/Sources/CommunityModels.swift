@@ -149,7 +149,7 @@ public enum CommunityCommentOrder: String, CaseIterable, Identifiable {
 ///
 /// 顶层评论和子评论使用同一结构，`sub` 保存子评论树。
 public nonisolated struct CommunityComment: Decodable, Identifiable, Hashable, Sendable {
-    public init(id: Int, obj: String, images: [CommunityImage], user: CommunityUser, anonymous: Bool, createTime: String, updateTime: String, like: Bool, likeNum: Int, commentNum: Int, own: Bool, rate: Int, replyUser: CommunityUser, replyObj: String, text: String, sub: [CommunityComment]) {
+    public init(id: Int, obj: String, images: [CommunityImage], user: CommunityUser, anonymous: Bool, createTime: String, updateTime: String, like: Bool, likeNum: Int, commentNum: Int, own: Bool, rate: Int, replyUser: CommunityUser, replyObj: String, text: String, sub: [CommunityComment], isViewerAuthenticated: Bool = true) {
         self.id = id
         self.obj = obj
         self.images = images
@@ -166,8 +166,14 @@ public nonisolated struct CommunityComment: Decodable, Identifiable, Hashable, S
         self.replyObj = replyObj
         self.text = text
         self.sub = sub
+        self.isViewerAuthenticated = isViewerAuthenticated
     }
 
+    public var isViewerAuthenticated = true
+    private enum CodingKeys: String, CodingKey {
+        case id, obj, images, user, anonymous, createTime, updateTime, like, likeNum, commentNum
+        case own, rate, replyUser, replyObj, text, sub
+    }
     public let id: Int
     public let obj: String
     public let images: [CommunityImage]
@@ -184,6 +190,12 @@ public nonisolated struct CommunityComment: Decodable, Identifiable, Hashable, S
     public let replyObj: String
     public let text: String
     public let sub: [CommunityComment]
+
+    public func settingViewerAuthentication(_ isAuthenticated: Bool) -> CommunityComment {
+        var result = replacingSubComments(sub.map { $0.settingViewerAuthentication(isAuthenticated) })
+        result.isViewerAuthenticated = isAuthenticated
+        return result
+    }
 
     public static func validatesResponse(_ comments: [CommunityComment], for objectID: String) -> Bool {
         guard comments.allSatisfy({ $0.obj == objectID }) else { return false }
@@ -225,7 +237,8 @@ public nonisolated struct CommunityComment: Decodable, Identifiable, Hashable, S
             replyUser: replyUser,
             replyObj: replyObj,
             text: text,
-            sub: sub
+            sub: sub,
+            isViewerAuthenticated: isViewerAuthenticated
         )
     }
 
@@ -247,7 +260,8 @@ public nonisolated struct CommunityComment: Decodable, Identifiable, Hashable, S
             replyUser: replyUser,
             replyObj: replyObj,
             text: text,
-            sub: sub
+            sub: sub,
+            isViewerAuthenticated: isViewerAuthenticated
         )
     }
 }

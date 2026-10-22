@@ -6,6 +6,55 @@ import TransportCore
 
 @MainActor
 struct CommunitySessionIsolationTests {
+    @Test(.timeLimit(.minutes(1)), arguments: ["rejected", "timeout", "empty", "retry-rejected", "cancel", "account"])
+    func optionalReadsRecoverPublicContentWithinTheirOriginalAccount(scenario: String) async throws {
+        let credentials = Credentials()
+        var cookies: [String?] = []
+        let transport = Transport { request in
+            let cookie = request.value(forHTTPHeaderField: "fake-cookie")
+            cookies.append(cookie)
+            let (_, value) = try response(request, status: cookie == nil ? 200 : 401)
+            return (Data(#"{"id":1}"#.utf8), value)
+        }
+        let client = CommunityAPIClient<Failure>(httpClient: HTTPClient(transport: transport, observer: nil),
+            baseURL: AppURL.required("https://example.invalid"), errorDomain: "test", credentials: { credentials.snapshot },
+            refreshHandler: { _ in
+                switch scenario {
+                case "rejected": throw CommunitySessionRestorationError.credentialsRejected
+                case "timeout": throw URLError(.timedOut)
+                case "cancel": throw URLError(.cancelled)
+                case "account": credentials.identity = .init(accountIdentifier: "account-b")
+                case "empty": credentials.cookie = ""
+                default: credentials.cookie = "refreshed"
+                }
+            })
+        if ["cancel", "account"].contains(scenario) {
+            do { _ = try await client.requestData(path: "papers", authentication: .optional); Issue.record("Cancelled reads preserve their boundary") }
+            catch { #expect(TaskCancellation.matches(error)) }
+            #expect(cookies == ["cookie-a"])
+        } else {
+            let result: CommunityAPIResponse<Receipt> = try await client.response(path: "papers", authentication: .optional)
+            #expect(result.value.id == 1 && !result.isAuthenticated)
+            #expect(cookies == (scenario == "retry-rejected" ? ["cookie-a", "refreshed", nil] : ["cookie-a", nil]))
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [CommunityAuthentication.required, .optional])
+    func writesKeepTheirAuthenticationRequirementDuringCredentialRejection(authentication: CommunityAuthentication) async {
+        let credentials = Credentials()
+        var requests = 0
+        let transport = Transport { request in
+            requests += 1
+            #expect(request.value(forHTTPHeaderField: "fake-cookie") == "cookie-a")
+            return try response(request, status: 401)
+        }
+        let client = CommunityAPIClient<Failure>(httpClient: HTTPClient(transport: transport, observer: nil),
+            baseURL: AppURL.required("https://example.invalid"), errorDomain: "test", credentials: { credentials.snapshot },
+            refreshHandler: { _ in throw CommunitySessionRestorationError.credentialsRejected })
+        await #expect(throws: Failure.self) { try await client.requestVoid(path: "action", method: "POST", authentication: authentication) }
+        #expect(requests == 1)
+    }
+
     private nonisolated struct Receipt: Decodable, Sendable { let id: Int }
     private enum Failure: Error, CommunityAPIServiceError {
         case signedOut, invalidResponse

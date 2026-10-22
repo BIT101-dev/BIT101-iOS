@@ -798,7 +798,7 @@ def workflow_lock_boundary_findings() -> list[str]:
                          + 'if [[ "$ACTION" == install' + dispatch + '\n;; esac\n'
                          'if [[ "${1:-}" == signal || "${1:-}" == budget ]]; then\n'
                          '  trap \'print cleanup; if [[ "$1" == signal ]]; then read -r reply < "$ROOT_DIR/release"; fi; exit 143\' TERM\n'
-                         'fi\nprint entered\n'
+                         'fi\nif [[ "${1:-}" == budget ]]; then print "deadline=$BIT101_WORKFLOW_DEADLINE"; fi\nprint entered\n'
                          'case "${1:-}" in hold|signal|budget) read -r reply < "$ROOT_DIR/release" ;; esac\n')
         def line(process):
             value = bytearray()
@@ -905,16 +905,16 @@ def workflow_lock_boundary_findings() -> list[str]:
             text=True, env=environment)
         processes.append(first)
         if line(first) != "entered": raise ValueError("共享预算测试取得锁")
-        started = time.monotonic()
+        deadline = time.monotonic() + 2
         second = subprocess.Popen(["zsh", str(worker), "budget"], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            text=True, env=dict(environment, BIT101_WORKFLOW_TIMEOUT_SECONDS="1"))
+            text=True, env=dict(environment, BIT101_WORKFLOW_TIMEOUT_SECONDS="2", BIT101_WORKFLOW_DEADLINE=str(deadline)))
         processes.append(second)
         if not line(second).startswith("[等待]"): raise ValueError("共享预算测试进入排队")
         time.sleep(0.4)
         with release.open("w") as stream: stream.write("done\n")
         first.communicate(timeout=5)
         output, _ = second.communicate(timeout=5)
-        if second.returncode != 124 or "entered" not in output or "cleanup" not in output or time.monotonic() - started >= 1.3:
+        if second.returncode != 124 or "entered" not in output or "cleanup" not in output or f"deadline={deadline}" not in output:
             raise ValueError("等待与执行沿同一截止时间消费预算")
     except (ValueError, OSError, subprocess.TimeoutExpired) as error:
         findings.append(f"工作流锁自测：{error}")

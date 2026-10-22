@@ -353,7 +353,7 @@ public struct ScoreService {
             throw ScoreServiceError.queryFailed("学校未返回可识别的成绩单页面，请重新申请。")
         }
 
-        let session = TrustedTranscriptReport(pageCount: pageURLs.count) { [self, pageURLs] number, maximumBytes in
+        let session = TrustedTranscriptReport(pageCount: pageURLs.count, timeout: transcriptLimits.maximumWait) { [self, pageURLs] number, maximumBytes in
             let url = pageURLs[number - 1]
             var request = URLRequest(url: url)
             request.timeoutInterval = Self.requestTimeoutSeconds
@@ -361,6 +361,8 @@ public struct ScoreService {
             let response: HTTPResponse
             do {
                 response = try await ownedResponse(request, using: sensitiveHTTPClient, owner: owner, maximumBytes: maximumBytes)
+            } catch let HTTPClientError.unacceptableStatus(code, message) where [401, 403, 404, 410].contains(code) {
+                throw TrustedTranscriptReport.Failure.invalidSource(HTTPClientError.unacceptableStatus(code: code, message: message))
             } catch {
                 if TaskCancellation.matches(error) { throw CancellationError() }
                 throw error

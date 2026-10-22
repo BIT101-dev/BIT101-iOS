@@ -41,7 +41,7 @@ public nonisolated struct CourseSyncPayload: Sendable {
 /// 同步 DDL 后的组合结果。
 ///
 /// 携带事件、乐学订阅地址、已更新来源和部分失败信息。
-public struct DDLSyncPayload: Sendable {
+public nonisolated struct DDLSyncPayload: Sendable {
     public let url: String
     public let events: [DDLEventRecord]
     public let syncedGroups: Set<String>

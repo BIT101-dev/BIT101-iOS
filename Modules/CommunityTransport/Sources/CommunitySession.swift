@@ -22,8 +22,11 @@ public nonisolated struct CommunityCredentials: Equatable, Sendable {
     }
 }
 
-public enum CommunitySessionRestorationError: Error {
+public enum CommunitySessionRestorationError: LocalizedError {
     case credentialsRejected
+    public var errorDescription: String? {
+        "请在账号设置中重新认证社区账号。本机日程与成绩继续可用。"
+    }
 }
 
 /// 社区请求捕获身份快照，凭据更新保持在同一账号代际内。

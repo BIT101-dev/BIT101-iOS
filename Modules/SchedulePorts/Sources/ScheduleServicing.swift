@@ -5,11 +5,6 @@ import ClientCore
 public protocol ScheduleCourseServicing {
     func syncCourses(term: String?) async throws -> CourseSyncPayload
     func fetchAvailableTerms() async throws -> [String]
-    func submitSMSCode(
-        _ code: String,
-        for challenge: BITLoginAuthenticationChallenge,
-        term: String?
-    ) async throws -> CourseSyncPayload
     func submitSMSCodeForTeachingCenterAuthentication(
         _ code: String,
         for challenge: BITLoginAuthenticationChallenge
@@ -17,13 +12,23 @@ public protocol ScheduleCourseServicing {
     func fetchCurrentTermOnly() async throws -> String
 }
 
+public typealias DDLSyncSourceDelivery = @MainActor @Sendable (DDLSyncPayload) async throws -> Void
+
 public protocol ScheduleDDLServicing {
     func syncDDLEvents(
         existingEvents: [DDLEventRecord],
         storedURL: String,
-        schoolSMSCodeHandler: SchoolSMSCodeHandler?
+        schoolSMSCodeHandler: SchoolSMSCodeHandler?, onSource: DDLSyncSourceDelivery?
     ) async throws -> DDLSyncPayload
     func refreshLexueCalendarURL(schoolSMSCodeHandler: SchoolSMSCodeHandler?) async throws -> String
+}
+
+public extension ScheduleDDLServicing {
+    func syncDDLEvents(existingEvents: [DDLEventRecord], storedURL: String,
+        schoolSMSCodeHandler: SchoolSMSCodeHandler? = nil) async throws -> DDLSyncPayload {
+        try await syncDDLEvents(existingEvents: existingEvents, storedURL: storedURL,
+            schoolSMSCodeHandler: schoolSMSCodeHandler, onSource: nil)
+    }
 }
 
 public protocol ScheduleClassroomServicing {

@@ -446,6 +446,7 @@ public nonisolated struct DDLEventRecord: Codable, Identifiable, Hashable, Senda
     public var text: String
     public var dueAt: Date
     public var done: Bool
+    public var sourceCourseIDs: Set<Int>?
     public var isSchoolSynced: Bool { group == "lexue" || group == "eclass" }
     public var displayTitle: String {
         guard group == "lexue" else { return title }
@@ -468,13 +469,14 @@ public nonisolated struct DDLEventRecord: Codable, Identifiable, Hashable, Senda
         default: "自定义"
         }
     }
-    public init(id: String, group: String, title: String, text: String, dueAt: Date, done: Bool) {
+    public init(id: String, group: String, title: String, text: String, dueAt: Date, done: Bool, sourceCourseIDs: Set<Int>? = nil) {
         self.id = id
         self.group = group
         self.title = title
         self.text = text
         self.dueAt = dueAt
         self.done = done
+        self.sourceCourseIDs = sourceCourseIDs
     }
 }
 

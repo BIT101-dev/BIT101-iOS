@@ -20,6 +20,39 @@ import SwiftUI
 import CoreLocation
 @testable import BIT101_iOS
 nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
+    private struct DiagnosisTranscriptService: TrustedTranscriptServicing {
+        let transcriptServiceIdentity: AnyHashable = "diagnosis-transcript"
+        let result: TrustedTranscriptPages
+        func fetchTrustedTranscriptPages(onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages { result }
+        func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge, onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages { result }
+        func submitTranscriptSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { challenge }
+    }
+
+    @MainActor
+    func testNetworkDiagnosisDistinguishesCompletePartialAndInvalidTranscriptPages() async throws {
+        let identity = NetworkDiagnosisRunner.Identity(community: .init(accountIdentifier: "diagnosis"),
+            school: .init(accountIdentifier: "diagnosis", generation: 0))
+        let client = HTTPClient(transport: DiagnosticFailureTransport(), observer: nil)
+        let session = CommunitySession(httpClient: client, baseURL: AppURL.required("https://example.invalid"),
+            credentials: { .init(identity: identity.community, cookie: "fixture") }, refresh: { _ in })
+        let cases: [([Int], Int, Bool, String)] = [([1, 2, 3], 3, false, "通过"), ([1], 3, true, "部分可用"),
+            ([1, 1, 3], 3, false, "部分可用"), ([0, 2, 4], 3, false, "部分可用"), ([], 3, false, "失败"),
+            ([], 0, false, "失败"), ([1, 2, 3], 3, true, "部分可用")]
+        for (numbers, expected, fails, status) in cases {
+            let result = TrustedTranscriptPages(pages: numbers.map { .init(number: $0, data: Data([1])) },
+                expectedPageCount: expected, failure: fails ? URLError(.timedOut) : nil)
+            let dependencies = NetworkDiagnosisDependencies(identity: { identity },
+                path: NetworkConnectionDescription(networkPath: NetworkPathState(snapshot: .init(status: .disconnected))),
+                httpClient: client, gallery: GalleryService(session: session, preferences: { .init(hideBots: false,
+                    hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false) }),
+                paper: PaperService(session: session), school: .init(identity: { identity.school }, currentTerm: { "term" },
+                    syncCourses: { _ in }, ddl: { DDLSyncPayload(url: "", events: [], warnings: fails ? ["课程中心待恢复"] : []) }), transcript: DiagnosisTranscriptService(result: result))
+            let report = await NetworkDiagnosisRunner(dependencies: dependencies).run()
+            XCTAssertTrue(try XCTUnwrap(report?.results.last).hasPrefix("可信成绩单：" + status))
+            XCTAssertTrue(report?.results.contains { $0.hasPrefix("DDL 接口：" + (fails ? "部分可用" : "通过")) } == true)
+        }
+    }
+
     @MainActor
     func testFeedbackFitsWorkerMetadataAndRedactsPathIdentities() async throws {
         let encodedURL = "https://example.invalid/students/%32%30%32%36%31%32%33%34%35%36?note=%2532%2530%2532%2536%2531%2532%2533%2534%2535%2536#%2532%2530%2532%2536%2531%2532%2533%2534%2535%2536"
@@ -414,7 +447,7 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
                 path: NetworkConnectionDescription(networkPath: NetworkPathState(snapshot: .init(status: .disconnected))),
                 httpClient: client, gallery: GalleryService(session: session, preferences: { .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false) }),
                 paper: PaperService(session: session),
-                school: NetworkDiagnosisSchool(identity: { owner.school }, currentTerm: { "fixture" }, syncCourses: { _ in }, ddl: {}),
+                school: NetworkDiagnosisSchool(identity: { owner.school }, currentTerm: { "fixture" }, syncCourses: { _ in }, ddl: { DDLSyncPayload(url: "", events: []) }),
                 transcript: StubTrustedTranscriptService())
             let runner = NetworkDiagnosisRunner(dependencies: dependencies, diagnose: { step in
                 executed.insert(step)

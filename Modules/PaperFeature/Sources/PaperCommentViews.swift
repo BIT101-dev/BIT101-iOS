@@ -120,6 +120,7 @@ private struct PaperCommentRow: View {
                 likeCount: comment.likeNum,
                 isLiked: comment.like,
                 isLiking: likingCommentIDs.contains(comment.id),
+                isLikeEnabled: comment.isViewerAuthenticated,
                 onReply: {
                     onReply(.init(mainComment: self.comment, targetComment: comment))
                 },

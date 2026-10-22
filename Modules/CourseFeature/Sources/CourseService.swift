@@ -17,7 +17,7 @@ public enum CourseServiceError: LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .notLoggedIn:
-            return "当前登录状态无效，请重新登录后再查看课程。"
+            return CommunitySessionRestorationError.credentialsRejected.localizedDescription
         case .invalidResponse:
             return "服务器返回了无法识别的数据。"
         }

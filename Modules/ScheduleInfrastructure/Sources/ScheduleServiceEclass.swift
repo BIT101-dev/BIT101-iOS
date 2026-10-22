@@ -82,6 +82,15 @@ public nonisolated struct EclassDDLResult: Sendable {
     public let activityCount: Int
     public let activityTypes: [String: Int]
     public let homeworkWithoutDeadlineCount: Int
+    public let failedCourseIDs: Set<Int>
+    public let failure: (any Error)?
+
+    public init(events: [DDLEventRecord], courseCount: Int, activityCount: Int, activityTypes: [String: Int],
+                homeworkWithoutDeadlineCount: Int, failedCourseIDs: Set<Int> = [], failure: (any Error)? = nil) {
+        self.events = events; self.courseCount = courseCount; self.activityCount = activityCount
+        self.activityTypes = activityTypes; self.homeworkWithoutDeadlineCount = homeworkWithoutDeadlineCount
+        self.failedCourseIDs = failedCourseIDs; self.failure = failure
+    }
 }
 
 @MainActor
@@ -117,7 +126,7 @@ final class EclassSnapshotBudget {
 }
 
 extension ScheduleService {
-    /// 获取全部课程并验证每门课的活动，完整成功后交给仓库更新。
+    /// 各课程活动独立校验，完整课程与待恢复课程共同交给同步层合并。
     public func fetchEclassDDLEvents(schoolSMSCodeHandler: SchoolSMSCodeHandler? = nil) async throws -> EclassDDLResult {
         try await fetchEclassDDLEvents(schoolSMSCodeHandler: schoolSMSCodeHandler, smsDeliveryMode: .send)
     }
@@ -152,16 +161,7 @@ extension ScheduleService {
 
     func fetchEclassSnapshot(owner: SchoolSessionIdentity, budget: EclassSnapshotBudget = .init()) async throws -> EclassDDLResult {
         _ = try budget.remainingTimeout()
-        return try await withThrowingTaskGroup(of: EclassDDLResult.self) { group in
-            group.addTask { try await self.fetchEclassSnapshotBody(owner: owner, budget: budget) }
-            group.addTask {
-                try await budget.waitForDeadline()
-                throw URLError(.timedOut)
-            }
-            defer { group.cancelAll() }
-            guard let result = try await group.next() else { throw CancellationError() }
-            return result
-        }
+        return try await fetchEclassSnapshotBody(owner: owner, budget: budget)
     }
 
     private func fetchEclassSnapshotBody(owner: SchoolSessionIdentity, budget: EclassSnapshotBudget) async throws -> EclassDDLResult {
@@ -199,11 +199,19 @@ extension ScheduleService {
         }
 
         var results: [Int: EclassDDLResult] = [:]
-        let fetchActivities: @MainActor @Sendable (EclassCoursePage.Course) async throws -> (Int, EclassDDLResult) = { course in
-            let response: EclassActivityPage = try await self.eclassRequest(path: "/api/courses/\(course.id)/activities", owner: owner, budget: budget)
-            return (course.id, try await Self.mapEclassActivities(response, courseName: course.name))
+        var failedCourses: Set<Int> = []
+        var firstFailure: (any Error)?
+        let fetchActivities: @MainActor @Sendable (EclassCoursePage.Course) async throws -> (Int, Result<EclassDDLResult, any Error>) = { course in
+            do {
+                let response: EclassActivityPage = try await self.eclassRequest(path: "/api/courses/\(course.id)/activities", owner: owner, budget: budget)
+                return (course.id, .success(try await Self.mapEclassActivities(response, courseName: course.name, courseID: course.id)))
+            } catch {
+                if TaskCancellation.matches(error) { throw error }
+                if case ScheduleServiceError.eclassAuthenticationFailed = error { throw error }
+                return (course.id, .failure(error))
+            }
         }
-        try await withThrowingTaskGroup(of: (Int, EclassDDLResult).self) { group in
+        try await withThrowingTaskGroup(of: (Int, Result<EclassDDLResult, any Error>).self) { group in
             var remaining = courses.makeIterator()
             for _ in 0 ..< min(EclassSnapshotBudget.parallelRequests, courses.count) {
                 if let course = remaining.next() {
@@ -211,16 +219,19 @@ extension ScheduleService {
                 }
             }
             while let result = try await group.next() {
-                results[result.0] = result.1
-                _ = try budget.remainingTimeout()
+                switch result.1 {
+                case .success(let value): results[result.0] = value
+                case .failure(let error): failedCourses.insert(result.0); firstFailure = firstFailure ?? error
+                }
                 if let course = remaining.next() {
                     group.addTask { try await fetchActivities(course) }
                 }
             }
         }
-        let result = try await Self.combineEclassResults(courses.compactMap { results[$0.id] })
+        if results.isEmpty, let firstFailure { throw firstFailure }
+        let result = try await Self.combineEclassResults(courses.compactMap { results[$0.id] },
+            failedCourseIDs: failedCourses, failure: firstFailure)
         try validateAuthenticationOwner(owner)
-        _ = try budget.remainingTimeout()
         return result
     }
 
@@ -239,14 +250,17 @@ extension ScheduleService {
     }
 
     @concurrent
-    static func mapEclassActivities(_ response: EclassActivityPage, courseName: String) async throws -> EclassDDLResult {
+    static func mapEclassActivities(_ response: EclassActivityPage, courseName: String, courseID: Int? = nil) async throws -> EclassDDLResult {
         var events: [DDLEventRecord] = []
         var types: [String: Int] = [:]
         var withoutDeadline = 0
         for activity in response.activities {
             try Task.checkCancellation()
             types[activity.type ?? "unknown", default: 0] += 1
-            if let event = try activity.event(courseName: courseName) { events.append(event) }
+            if var event = try activity.event(courseName: courseName) {
+                event.sourceCourseIDs = courseID.map { [$0] }
+                events.append(event)
+            }
             else if activity.hasHomeworkFields, activity.type?.lowercased() != "material" { withoutDeadline += 1 }
         }
         return EclassDDLResult(events: events, courseCount: 1, activityCount: response.activities.count,
@@ -254,7 +268,7 @@ extension ScheduleService {
     }
 
     @concurrent
-    private static func combineEclassResults(_ results: [EclassDDLResult]) async throws -> EclassDDLResult {
+    private static func combineEclassResults(_ results: [EclassDDLResult], failedCourseIDs: Set<Int>, failure: (any Error)?) async throws -> EclassDDLResult {
         try Task.checkCancellation()
         var uniqueEvents: [String: DDLEventRecord] = [:]
         var activityCount = 0
@@ -269,6 +283,9 @@ extension ScheduleService {
                 if let previous = uniqueEvents[event.id] {
                     guard previous.title == event.title, previous.dueAt == event.dueAt, previous.done == event.done
                     else { throw ScheduleServiceError.invalidResponse }
+                    var merged = previous
+                    merged.sourceCourseIDs = (previous.sourceCourseIDs ?? []).union(event.sourceCourseIDs ?? [])
+                    uniqueEvents[event.id] = merged
                 } else { uniqueEvents[event.id] = event }
             }
         }
@@ -276,8 +293,8 @@ extension ScheduleService {
             $0.dueAt == $1.dueAt ? $0.id < $1.id : $0.dueAt < $1.dueAt
         }
         try Task.checkCancellation()
-        return EclassDDLResult(events: events, courseCount: results.count, activityCount: activityCount,
-                              activityTypes: types, homeworkWithoutDeadlineCount: withoutDeadline)
+        return EclassDDLResult(events: events, courseCount: results.count + failedCourseIDs.count, activityCount: activityCount,
+            activityTypes: types, homeworkWithoutDeadlineCount: withoutDeadline, failedCourseIDs: failedCourseIDs, failure: failure)
     }
 
     private func eclassRequest<Response: Decodable & Sendable>(path: String, page: Int? = nil, owner: SchoolSessionIdentity, budget: EclassSnapshotBudget) async throws -> Response {
@@ -291,7 +308,7 @@ extension ScheduleService {
                 "page": page, "page_size": 100, "fields": "id,name", "conditions": [String: String](),
             ])
         }
-        let (data, response) = try await sendRequest(request, owner: owner)
+        let (data, response) = try await eclassResponse(request, owner: owner, budget: budget)
         try budget.consume(data.count)
         let host = response.url?.host?.lowercased()
         if response.statusCode == 401 || response.statusCode == 403 || (300 ..< 400).contains(response.statusCode)
@@ -308,5 +325,15 @@ extension ScheduleService {
         try validateAuthenticationOwner(owner)
         _ = try budget.remainingTimeout()
         return result
+    }
+
+    private func eclassResponse(_ request: URLRequest, owner: SchoolSessionIdentity, budget: EclassSnapshotBudget) async throws -> (Data, HTTPURLResponse) {
+        try await withThrowingTaskGroup(of: (Data, HTTPURLResponse).self) { group in
+            group.addTask { try await self.sendRequest(request, owner: owner) }
+            group.addTask { try await budget.waitForDeadline(); throw URLError(.timedOut) }
+            defer { group.cancelAll() }
+            guard let response = try await group.next() else { throw CancellationError() }
+            return response
+        }
     }
 }

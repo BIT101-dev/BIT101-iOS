@@ -83,6 +83,12 @@ private enum CommunityCredentialRefreshContext {
     @TaskLocal static var isRestoring = false
 }
 
+/// 查看者认证来源随响应交付，供内容缓存与交互状态判断。
+public nonisolated struct CommunityAPIResponse<Value: Sendable>: Sendable {
+    public let value: Value
+    public let isAuthenticated: Bool
+}
+
 /// `CommunityAPIClient` 统一处理 BIT101 社区后端的认证、URL、HTTP 状态码和 JSON 边界。
 public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
     private let baseURL: URL
@@ -116,11 +122,29 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
         retryPolicy: CommunityRetryPolicy = .afterCredentialRefresh,
         validate: (@Sendable (Response) throws -> Void)? = nil
     ) async throws -> Response {
+        let result: CommunityAPIResponse<Response> = try await response(path: path, pathComponent: pathComponent,
+            queryItems: queryItems, method: method, body: body, contentType: contentType,
+            authentication: authentication, retryPolicy: retryPolicy, validate: validate)
+        return result.value
+    }
+
+    public func response<Response: Decodable & Sendable>(
+        path: String,
+        pathComponent: String? = nil,
+        queryItems: [URLQueryItem] = [],
+        method: String = "GET",
+        body: Data? = nil,
+        contentType: String? = nil,
+        authentication: CommunityAuthentication = .required,
+        retryPolicy: CommunityRetryPolicy = .afterCredentialRefresh,
+        validate: (@Sendable (Response) throws -> Void)? = nil
+    ) async throws -> CommunityAPIResponse<Response> {
         let identity = authentication == .none ? nil : credentials().identity
         return try await withMutationOutcome(path: path, method: method) {
-            let response = try await send(path: path, pathComponent: pathComponent,
+            let wire = try await send(path: path, pathComponent: pathComponent,
                 queryItems: queryItems, method: method, body: body, contentType: contentType,
                 authentication: authentication, retryPolicy: retryPolicy)
+            let response = wire.response
             let value: Response
             do {
                 value = try await Self.decodeResponse(Response.self, from: response.data)
@@ -135,7 +159,7 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
                         NSLocalizedDescriptionKey: failure.localizedDescription]) { _, value in value })
             }
             try validateIdentity(identity)
-            return value
+            return CommunityAPIResponse(value: value, isAuthenticated: wire.isAuthenticated)
         }
     }
 
@@ -191,7 +215,7 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
             contentType: contentType,
             authentication: authentication,
             retryPolicy: retryPolicy
-        ).data
+        ).response.data
     }
 
     public func requestVoid(
@@ -241,7 +265,7 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
         contentType: String?,
         authentication: CommunityAuthentication,
         retryPolicy: CommunityRetryPolicy
-    ) async throws -> HTTPResponse {
+    ) async throws -> (response: HTTPResponse, isAuthenticated: Bool) {
         var components = URLComponents(
             url: baseURL.appending(path: path),
             resolvingAgainstBaseURL: false
@@ -290,57 +314,8 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
         }
 
         do {
-            let response = try await httpClient.send(request)
-            do {
-                try validateResponse(response, request: request)
-                try validateIdentity(identity)
-            } catch { await response.reportValidationFailure(error); throw error }
-            return response
-        } catch let HTTPClientError.unacceptableStatus(code, _) where code == 401 && authentication != .none
-            && !observed.cookie.isEmpty && retryPolicy == .afterCredentialRefresh {
-            do {
-                try validateIdentity(identity)
-                try await CommunityCredentialRefreshContext.$isRestoring.withValue(true) { try await refreshHandler(observed) }
-            } catch CommunitySessionRestorationError.credentialsRejected {
-                try validateIdentity(identity)
-                throw Failure.communityNotLoggedIn
-            } catch {
-                if error is HTTPRequestNotSent { throw error }
-                try validateIdentity(identity)
-                throw error
-            }
-
-            try validateIdentity(identity)
-            let refreshedCookie = credentials().cookie
-            guard !refreshedCookie.isEmpty else {
-                throw Failure.communityNotLoggedIn
-            }
-            request.setValue(refreshedCookie, forHTTPHeaderField: "fake-cookie")
-
-            do {
-                let response = try await httpClient.send(request)
-                do {
-                    try validateResponse(response, request: request)
-                    try validateIdentity(identity)
-                } catch { await response.reportValidationFailure(error); throw error }
-                return response
-            } catch let HTTPClientError.unacceptableStatus(retryCode, retryMessage) {
-                try validateIdentity(identity)
-                if retryCode == 401 { throw Failure.communityNotLoggedIn }
-                if method == "GET", let failure = Failure.communityResourceFailure(path: path, message: retryMessage) { throw failure }
-                throw NSError(
-                    domain: errorDomain,
-                    code: retryCode,
-                    userInfo: [NSLocalizedDescriptionKey: retryMessage ?? "请求失败，HTTP 状态码 \(retryCode)。"]
-                )
-            } catch is HTTPClientError {
-                try validateIdentity(identity)
-                throw Failure.communityInvalidResponse
-            } catch {
-                if error is HTTPRequestNotSent { throw error }
-                try validateIdentity(identity)
-                throw error
-            }
+            return try await sendWithCredentialRecovery(request, observed: observed, identity: identity,
+                authentication: authentication, retryPolicy: retryPolicy)
         } catch let HTTPClientError.unacceptableStatus(code, message) {
             try validateIdentity(identity)
             if code == 401 { throw Failure.communityNotLoggedIn }
@@ -358,6 +333,54 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
             try validateIdentity(identity)
             throw error
         }
+    }
+
+    private func sendWithCredentialRecovery(_ request: URLRequest, observed: CommunityCredentials,
+        identity: CommunitySessionIdentity?, authentication: CommunityAuthentication,
+        retryPolicy: CommunityRetryPolicy) async throws -> (response: HTTPResponse, isAuthenticated: Bool) {
+        do { return try await sendResponse(request, identity: identity) }
+        catch let HTTPClientError.unacceptableStatus(code, _) where code == 401 && authentication != .none
+            && !observed.cookie.isEmpty && retryPolicy == .afterCredentialRefresh {
+            let allowsPublicRead = authentication == .optional && request.httpMethod == "GET"
+            do {
+                try validateIdentity(identity)
+                try await CommunityCredentialRefreshContext.$isRestoring.withValue(true) { try await refreshHandler(observed) }
+            } catch {
+                try validateIdentity(identity)
+                if TaskCancellation.matches(error) { throw error }
+                if allowsPublicRead { return try await sendPublicRead(request, identity: identity) }
+                if error is CommunitySessionRestorationError { throw Failure.communityNotLoggedIn }
+                throw error
+            }
+            try validateIdentity(identity)
+            let refreshedCookie = credentials().cookie
+            guard !refreshedCookie.isEmpty else {
+                if allowsPublicRead { return try await sendPublicRead(request, identity: identity) }
+                throw Failure.communityNotLoggedIn
+            }
+            var retry = request
+            retry.setValue(refreshedCookie, forHTTPHeaderField: "fake-cookie")
+            do { return try await sendResponse(retry, identity: identity) }
+            catch let HTTPClientError.unacceptableStatus(code, _) where code == 401 && allowsPublicRead {
+                return try await sendPublicRead(request, identity: identity)
+            }
+        }
+    }
+
+    private func sendPublicRead(_ request: URLRequest, identity: CommunitySessionIdentity?) async throws -> (response: HTTPResponse, isAuthenticated: Bool) {
+        try validateIdentity(identity)
+        var publicRequest = request
+        publicRequest.setValue(nil, forHTTPHeaderField: "fake-cookie")
+        return try await sendResponse(publicRequest, identity: identity)
+    }
+
+    private func sendResponse(_ request: URLRequest, identity: CommunitySessionIdentity?) async throws -> (response: HTTPResponse, isAuthenticated: Bool) {
+        let response = try await httpClient.send(request)
+        do {
+            try validateResponse(response, request: request)
+            try validateIdentity(identity)
+        } catch { await response.reportValidationFailure(error); throw error }
+        return (response, request.value(forHTTPHeaderField: "fake-cookie")?.isEmpty == false)
     }
 
     private func validateResponse(_ response: HTTPResponse, request: URLRequest) throws {

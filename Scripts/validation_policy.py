@@ -72,7 +72,7 @@ def workflow_conditions(group: str) -> tuple[str, ...]:
     return ()
 
 
-FORMAL_RUNTIME_SUITES = {"ReleaseRuntimeContractTests", "ExtendedLoginTests", "LoginStorageTests", "LoginBootstrapTests", "NetworkClientTests",
+FORMAL_RUNTIME_SUITES = {"ReleaseRuntimeContractTests", "CommunitySessionRecoveryTests", "ExtendedLoginTests", "LoginStorageTests", "LoginBootstrapTests", "NetworkClientTests",
     "FeatureCompositionTests", "ExperimentalPreferenceCloudSyncTests", "AppExternalDisplayTests", "ReminderContextTests", "ScheduleModuleBoundaryTests"}
 APP_COVERAGE_FLOOR = 35
 MODULE_COVERAGE_FLOORS = {
@@ -134,7 +134,8 @@ NETWORK_CAPABILITIES = {
                              'sendRegistrationEmail(studentID:String)': 'first-login',
                              'verifyRegistrationIdentity(studentID:String,password:String)': 'first-login',
                              'registerAccount(studentID:String,password:String,token:String,code:String,schoolPassword:String?)': 'first-login',
-                             'renewCommunitySession(observed:CommunityCredentials)': 'account-lifecycle'},
+                             'renewCommunitySession(observed:CommunityCredentials)': 'account-lifecycle',
+                             'restoreCommunitySession(password:String)': 'profile-writes'},
  'BIT101-iOS.SettingsNetworkService': {'fetchMyInfo()': 'profile-writes',
                                        'updateUser(nickname:String?,motto:String?,avatarMid:String?)': 'profile-writes',
                                        'uploadAvatar(data:Data,filename:String)': 'profile-writes',
@@ -195,14 +196,13 @@ NETWORK_CAPABILITIES = {
                                             'fetchEclassDDLEventsForPreflight()': 'network',
                                             'syncCourses(term:String?)': 'network',
                                             'fetchAvailableTerms()': 'network',
-                                            'submitSMSCode(:String,for:BITLoginAuthenticationChallenge,term:String?)': 'web-interactions',
-                                            'submitSMSCodeForTeachingCenterAuthentication(:String,for:BITLoginAuthenticationChallenge)': 'network',
+                                            'submitSMSCodeForTeachingCenterAuthentication(:String,for:BITLoginAuthenticationChallenge)': 'web-interactions',
                                             'fetchCurrentTermOnly()': 'network',
                                             'prepareTeachingCenterAccess()': 'network',
                                             'fetchCampuses()': 'network',
                                             'fetchBuildings(campusCode:String?)': 'network',
                                             'fetchClassrooms(buildingID:String,term:String,date:Date)': 'network',
-                                            'syncDDLEvents(existingEvents:[DDLEventRecord],storedURL:String,schoolSMSCodeHandler:SchoolSMSCodeHandler?)': 'web-interactions',
+                                            'syncDDLEvents(existingEvents:[DDLEventRecord],storedURL:String,schoolSMSCodeHandler:SchoolSMSCodeHandler?,onSource:DDLSyncSourceDelivery?)': 'web-interactions',
                                             'syncDDLEventsForPreflight(existingEvents:[DDLEventRecord],storedURL:String)': 'network',
                                             'refreshLexueCalendarURL(schoolSMSCodeHandler:SchoolSMSCodeHandler?)': 'web-interactions',
                                             'refreshLexueCalendarURLForPreflight()': 'network'},
@@ -234,7 +234,8 @@ MANUAL_CAPABILITY_SCENARIOS = {
     'sendRegistrationEmail(studentID:String)': 'new-account-registration',
     'verifyRegistrationIdentity(studentID:String,password:String)': 'new-account-registration',
     'registerAccount(studentID:String,password:String,token:String,code:String,schoolPassword:String?)': 'new-account-registration',
-    'renewCommunitySession(observed:CommunityCredentials)': 'refresh-credentials-a'},
+    'renewCommunitySession(observed:CommunityCredentials)': 'refresh-credentials-a',
+    'restoreCommunitySession(password:String)': 'community-reauthentication'},
  'BIT101-iOS.SettingsNetworkService': {'fetchMyInfo()': 'restore-profile',
     'updateUser(nickname:String?,motto:String?,avatarMid:String?)': 'nickname-save',
     'uploadAvatar(data:Data,filename:String)': 'avatar-bind', 'checkLogin()': 'sign-in-b'},
@@ -248,8 +249,8 @@ MANUAL_CAPABILITY_SCENARIOS = {
     'webView(:WKWebView,didFailProvisionalNavigation:WKNavigation?,withError:Error)': 'gallery-login',
     'webViewWebContentProcessDidTerminate(:WKWebView)': 'gallery-login'},
  'ScheduleInfrastructure.ScheduleService': {
-    'submitSMSCode(:String,for:BITLoginAuthenticationChallenge,term:String?)': 'school-sms',
-    'syncDDLEvents(existingEvents:[DDLEventRecord],storedURL:String,schoolSMSCodeHandler:SchoolSMSCodeHandler?)': 'school-calendar',
+    'submitSMSCodeForTeachingCenterAuthentication(:String,for:BITLoginAuthenticationChallenge)': 'school-sms',
+    'syncDDLEvents(existingEvents:[DDLEventRecord],storedURL:String,schoolSMSCodeHandler:SchoolSMSCodeHandler?,onSource:DDLSyncSourceDelivery?)': 'school-calendar',
     'refreshLexueCalendarURL(schoolSMSCodeHandler:SchoolSMSCodeHandler?)': 'school-calendar'},
 }
 

@@ -697,7 +697,6 @@ extension ReleaseNetworkSmokeLifecycleTests {
             return CourseSyncPayload(term: stage == "schedule-term-failure" ? "other-term" : term ?? "fixture-1", firstDayString: "2026-03-02", sourceFirstDayString: "2026-03-02",
                 normalizationOffset: 0, rawWeeksByCourse: courses.map(\.weeks), sourceDisplayWeeksByCourse: courses.map { _ in nil }, courses: courses, exams: exams)
         }
-        func submitSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge, term: String?) async throws -> CourseSyncPayload { try await syncCourses(term: term) }
         func submitSMSCodeForTeachingCenterAuthentication(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws { webvpnVerified = true }
         func prepareTeachingCenterAccess() async throws {}
         func fetchCampuses() async throws -> [CampusRecord] { [CampusRecord(id: "campus", name: "fixture", code: "campus")] }

@@ -127,18 +127,19 @@ final class ScheduleCourseSyncCoordinator: ObservableObject, ScheduleStateConsum
         smsVerificationError = nil
         await perform(phase: .submittingSMS(continuation, challenge)) { [self] request, account in
             do {
+                try await service.submitSMSCodeForTeachingCenterAuthentication(code, for: challenge)
+                guard accepts(request, account: account) else { return }
+                phase = .idle
                 switch continuation {
                 case .availableTerms, .classroomRefresh:
-                    try await service.submitSMSCodeForTeachingCenterAuthentication(code, for: challenge)
-                    guard accepts(request, account: account) else { return }
-                    phase = .idle
                     if continuation == .classroomRefresh {
                         await refreshClassrooms()
                     } else {
                         await loadAvailableTerms()
                     }
                 case let .courseSync(term):
-                    let payload = try await service.submitSMSCode(code, for: challenge, term: term)
+                    phase = .syncing(term: term)
+                    let payload = try await service.syncCourses(term: term)
                     guard accepts(request, account: account) else { return }
                     await applyPayload(payload)
                     guard accepts(request, account: account) else { return }

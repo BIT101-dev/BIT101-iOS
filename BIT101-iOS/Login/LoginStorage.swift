@@ -27,6 +27,7 @@ final class LoginStorage: SchoolCredentialsProviding {
         static let fakeCookie = "login.fakeCookie"
         static let installationMarker = "login.installationMarker"
         static let revokedSession = "login.session.revoked"
+        static let communityAuthenticationRequired = "login.communityAuthenticationRequired"
     }
 
     private enum KeychainAccount {
@@ -94,8 +95,19 @@ final class LoginStorage: SchoolCredentialsProviding {
 
     /// BIT101 自有登录态使用的 fake-cookie。
     var fakeCookie: String {
-        guard defaults.object(forKey: DefaultsKey.revokedSession) == nil else { return "" }
+        guard defaults.object(forKey: DefaultsKey.revokedSession) == nil,
+              !defaults.bool(forKey: DefaultsKey.communityAuthenticationRequired) else { return "" }
         return session.fakeCookie
+    }
+
+    /// 本机账号承接缓存和学校功能，社区认证状态独立维护。
+    var hasCachedSession: Bool {
+        defaults.object(forKey: DefaultsKey.revokedSession) == nil && !session.studentID.isEmpty && !session.fakeCookie.isEmpty
+    }
+
+    func requireCommunityAuthentication() {
+        defaults.set(true, forKey: DefaultsKey.communityAuthenticationRequired)
+        credentialsSubject.send(communityCredentials)
     }
 
     /// 当前本地保存的学号。
@@ -145,7 +157,7 @@ final class LoginStorage: SchoolCredentialsProviding {
     private func requestSchoolCredentials(force: Bool) async throws {
         try Task.checkCancellation()
         let owner = schoolSessionIdentity
-        guard !owner.accountIdentifier.isEmpty, !fakeCookie.isEmpty else { throw LoginServiceError.schoolCredentialsRequired }
+        guard !owner.accountIdentifier.isEmpty, hasCachedSession else { throw LoginServiceError.schoolCredentialsRequired }
         if !force, !currentPassword.isEmpty { return }
         try await schoolPasswordRequests.refresh(identity: owner) { [self] in
             let password = try await requestSchoolPassword(owner.accountIdentifier)
@@ -176,11 +188,12 @@ final class LoginStorage: SchoolCredentialsProviding {
             throw LoginServiceError.invalidServerResponse
         }
 
-        let accountChanged = currentStudentID != normalizedStudentID || self.fakeCookie.isEmpty
+        let accountChanged = currentStudentID != normalizedStudentID || !hasCachedSession
         try saveSession(Session(studentID: normalizedStudentID, password: password, fakeCookie: normalizedFakeCookie,
             communityPasswordDigest: digest))
         defaults.set(true, forKey: DefaultsKey.installationMarker)
         defaults.removeObject(forKey: DefaultsKey.revokedSession)
+        defaults.removeObject(forKey: DefaultsKey.communityAuthenticationRequired)
         defaults.removeObject(forKey: DefaultsKey.fakeCookie)
         retireLegacyCredentials()
         if accountChanged {
@@ -195,12 +208,13 @@ final class LoginStorage: SchoolCredentialsProviding {
 
     /// 清除当前会话和已保存密码，保留学号供下次输入。
     ///
-    /// 这是“退出登录并保留学号”的语义，适用于远端会话失效后快速回到未登录态。
+    /// 用户主动退出时清理认证信息，学号供下次输入。
     func clearSession() {
         schoolPasswordRequests.cancel()
         let studentID = currentStudentID
         let revoked = defaults.string(forKey: DefaultsKey.revokedSession) == "all" ? "all" : "logout"
         defaults.set(revoked, forKey: DefaultsKey.revokedSession)
+        defaults.removeObject(forKey: DefaultsKey.communityAuthenticationRequired)
         session = Session(studentID: studentID, password: "", fakeCookie: "")
         sessionGeneration &+= 1
         defaults.removeObject(forKey: DefaultsKey.fakeCookie)
@@ -247,6 +261,7 @@ final class LoginStorage: SchoolCredentialsProviding {
         session = Session(studentID: "", password: "", fakeCookie: "")
         sessionReadError = nil
         defaults.set("all", forKey: DefaultsKey.revokedSession)
+        defaults.removeObject(forKey: DefaultsKey.communityAuthenticationRequired)
         defaults.removeObject(forKey: DefaultsKey.fakeCookie)
         let didDeleteSession = credentials.delete(account: KeychainAccount.session)
         let didDeleteFakeCookie = credentials.delete(account: KeychainAccount.fakeCookie)

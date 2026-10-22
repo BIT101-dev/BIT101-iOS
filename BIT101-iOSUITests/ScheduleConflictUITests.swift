@@ -2,6 +2,31 @@ import XCTest
 
 final class ScheduleConflictUITests: UIAutomationTestCase {
     @MainActor
+    func testDDLSettingsResumeAfterCacheRecoveryConfirmation() {
+        app = configureApp(resetStorage: true, scheduleRecovery: true, initialSettings: "ddl")
+        let before = app.buttons["ui.ddl-settings-page.before-day"]
+        let after = app.buttons["ui.ddl-settings-page.after-day"]
+        let confirm = app.buttons["schedule.recovery.confirm"]
+        assertUI(confirm.appears(timeout: 5) && !before.isEnabled && !after.isEnabled,
+                 "DDL 显示设置应等待日程恢复确认。")
+        app.buttons["ddl.refresh"].assertDisabled("恢复确认前应保留学校日程。")
+        tap("schedule.recovery.retry")
+        assertUI(confirm.appears(timeout: 5) && !before.isEnabled, "读取重试应沿用恢复状态。")
+        confirm.tapBriefly()
+        assertUI(confirm.disappears(timeout: 5) && before.isEnabled && after.isEnabled, "确认后应恢复 DDL 设置。")
+        before.tapBriefly()
+        let wheel = app.pickerWheels.firstMatch
+        assertUI(wheel.appears(timeout: 5), "恢复后的天数设置应继续使用系统滚轮。")
+        wheel.adjust(toPickerWheelValue: "7 天")
+        tap("完成")
+        assertUI(wheel.disappears(timeout: 5), "保存后应关闭滚轮。")
+        app = configureApp(resetStorage: false, restartProcess: true, initialSettings: "ddl")
+        tap("变色天数")
+        assertUI(app.pickerWheels.firstMatch.value as? String == "7 天", "冷启动应恢复已确认的 DDL 设置。")
+        tap("取消")
+    }
+
+    @MainActor
     func testKeepLocalConflictContentPersists() { resolveConflict(keepingLocal: true) }
 
     @MainActor
@@ -43,10 +68,18 @@ final class ScheduleConflictUITests: UIAutomationTestCase {
         let synced = app.buttons["schedule.conflict.use-cloud"]
         assertUI(local.appears(timeout: 5) && synced.exists, "版本分歧应展示两种明确选择。")
         assertUI(!nameRow.isEnabled, "版本冲突期间课表编辑应等待版本选择。")
+        back()
+        openSettings("ddl")
+        let before = app.buttons["ui.ddl-settings-page.before-day"]
+        assertUI(local.appears(timeout: 5) && !before.isEnabled, "DDL 设置应共享日程版本选择。")
+        app.buttons["ui.ddl-settings-page.after-day"].assertDisabled("版本选择完成后可调整滞留天数。")
         let choice = keepingLocal ? local : synced
         reveal(choice)
         choice.tapBriefly()
         assertUI(local.disappears(timeout: 5), "版本选择应完成保存并关闭提示。")
+        assertUI(before.isEnabled, "版本选择应恢复 DDL 显示设置。")
+        back()
+        openSettings("calendar")
         assertUI(nameRow.isEnabled, "版本选择保存后应恢复编辑。")
         let title = keepingLocal ? "本机标题" : "同步标题"
         let selectedName = app.buttons.matching(NSPredicate(format: "identifier == %@ AND label CONTAINS %@",

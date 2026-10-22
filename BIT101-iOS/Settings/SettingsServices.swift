@@ -22,7 +22,7 @@ enum SettingsServiceError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .notLoggedIn:
-            return "当前登录状态无效。"
+            return CommunitySessionRestorationError.credentialsRejected.localizedDescription
         case .invalidResponse:
             return "服务器返回了无法识别的数据。"
         case .uploadFailed:
@@ -48,6 +48,7 @@ struct SettingsAccountDependencies {
     let service: any AccountSettingsServicing
     let credentials: () -> CommunityCredentials
     var updateSchoolCredentials: () async throws -> Void = { throw LoginServiceError.schoolCredentialsRequired }
+    var restoreCommunitySession: (String) async throws -> Void = { _ in throw CommunitySessionRestorationError.credentialsRejected }
     let profileMutation = AccountProfileMutation()
 
     func acceptsLoginCheck(_ isLoggedIn: Bool, for owner: CommunityCredentials) -> Bool {

@@ -83,7 +83,7 @@ private struct PaperDetailViewScene: View {
                             }
 
                             AppDetailCircleButton(
-                                accessibilityLabel: viewModel.hasKnownLikeState ? (viewModel.isPaperLiked ? "取消文章点赞" : "点赞文章") : "等待文章点赞状态"
+                                accessibilityLabel: viewModel.hasKnownLikeState ? (viewModel.isPaperLiked ? "取消文章点赞" : "点赞文章") : viewModel.likeStateMessage
                             ) {
                                 likePaper()
                             } label: {
@@ -119,7 +119,7 @@ private struct PaperDetailViewScene: View {
                                 Image(systemName: isPaperLiked ? "hand.thumbsup.fill" : "hand.thumbsup")
                             }
 
-                            Text(viewModel.hasKnownLikeState ? (isPaperLiked ? "已点赞" : "看完了，点个赞") : "点赞状态待获取")
+                            Text(viewModel.hasKnownLikeState ? (isPaperLiked ? "已点赞" : "看完了，点个赞") : viewModel.likeStateMessage)
                                 .font(AppDesignSystem.Typography.bodyEmphasis)
                         }
                         .foregroundStyle(isPaperLiked ? AppDesignSystem.Palette.Highlight.foreground : AppDesignSystem.Palette.Accent.primary)
@@ -132,7 +132,7 @@ private struct PaperDetailViewScene: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(viewModel.isLikingPaper || !viewModel.hasKnownLikeState)
-                    .accessibilityLabel(viewModel.hasKnownLikeState ? (isPaperLiked ? "取消点赞" : "点赞文章") : "等待文章点赞状态")
+                    .accessibilityLabel(viewModel.hasKnownLikeState ? (isPaperLiked ? "取消点赞" : "点赞文章") : viewModel.likeStateMessage)
                     .accessibilityIdentifier("paper.detail.footer-like")
                     Spacer()
                 }

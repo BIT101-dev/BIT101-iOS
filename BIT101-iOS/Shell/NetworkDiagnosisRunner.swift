@@ -1,4 +1,5 @@
 import SchedulePorts
+import ScheduleDomain
 import CommunityTransport
 import ClientCore
 import ScoreDomain
@@ -22,7 +23,7 @@ struct NetworkDiagnosisSchool {
     let identity: () -> SchoolSessionIdentity
     let currentTerm: () async throws -> String
     let syncCourses: (String) async throws -> Void
-    let ddl: () async throws -> Void
+    let ddl: () async throws -> DDLSyncPayload
 }
 
 @MainActor
@@ -158,11 +159,24 @@ final class NetworkDiagnosisRunner: ObservableObject {
                 try await dependencies.school.syncCourses(term)
                 detail = "通过"
             case .ddl:
-                try await dependencies.school.ddl()
-                detail = "通过"
+                let result = try await dependencies.school.ddl()
+                guard !result.syncedGroups.isEmpty else { throw ScheduleServiceError.invalidResponse }
+                detail = result.warnings.isEmpty ? "通过" : "部分可用，" + ErrorReportRedactor.sanitized(result.warnings.joined(separator: "；"))
             case .transcript:
-                _ = try await dependencies.transcript.fetchTrustedTranscriptPages()
-                detail = "通过"
+                let result = try await dependencies.transcript.fetchTrustedTranscriptPages()
+                let numbers = Set(result.pages.filter {
+                    !$0.data.isEmpty && $0.number > 0 && $0.number <= result.expectedPageCount
+                }.map(\.number))
+                let complete = result.expectedPageCount > 0 && numbers.count == result.expectedPageCount
+                    && result.pages.count == numbers.count
+                if complete, result.failure == nil { detail = "通过" }
+                else if numbers.isEmpty {
+                    throw result.failure ?? ScoreServiceError.invalidResponse
+                }
+                else {
+                    let message = result.failure.map { "，" + ErrorReportRedactor.sanitized($0.localizedDescription) } ?? ""
+                    detail = "部分可用，已读取 \(numbers.count) / \(result.expectedPageCount) 页\(message)"
+                }
             }
             return "\(step.title)：\(detail)"
         } catch ScheduleServiceError.secondFactorRequired,

@@ -429,7 +429,7 @@ struct ExperimentalPreferenceCloudSyncTests {
         return AppAccountLifecycle(scheduleViewModel: schedule, community: community, scoreService: OfflineScoreService(),
             transcriptService: OfflineScoreService(),
             diagnosisSchool: NetworkDiagnosisSchool(identity: { .init(accountIdentifier: account.session.accountIdentifier, generation: 0) },
-                currentTerm: { "fixture" }, syncCourses: { _ in }, ddl: {}), settings: sync.settings, stores: sync.stores, preferenceCloudSync: sync, accountChanges: account.changes.eraseToAnyPublisher(), currentIdentity: { account.identity },
+                currentTerm: { "fixture" }, syncCourses: { _ in }, ddl: { DDLSyncPayload(url: "", events: []) }), settings: sync.settings, stores: sync.stores, preferenceCloudSync: sync, accountChanges: account.changes.eraseToAnyPublisher(), currentIdentity: { account.identity },
             scheduleChanges: changes,
             scheduleCloudSync: ScheduleCloudSyncPresentation(currentAccount: { nil }, accountChanges: account.changes.eraseToAnyPublisher()),
             refreshScheduleCloud: refreshCloud,

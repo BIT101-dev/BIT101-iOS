@@ -38,9 +38,12 @@ struct EclassDDLSyncTests {
         let service = Service(payload: DDLSyncPayload(url: "", events: []))
         let model = ScheduleDDLViewModel(service: service, repository: repository)
         #expect(await model.syncDDL() == false && service.syncCalls == 0)
-        #expect(model.notice?.message.contains(loading ? "正在读取" : "读取受阻") == true)
+        let before = model.beforeDay, after = model.afterDay
+        #expect(!model.setDDLBeforeDay(before + 1) && !model.setDDLAfterDay(after + 1))
+        #expect(model.beforeDay == before && model.afterDay == after)
+        #expect(model.notice?.message.contains(loading ? "正在读取" : "重试读取") == true)
         await model.refreshLexueCalendarURL()
-        #expect(service.subscriptionCalls == 0 && model.notice?.message.contains(loading ? "正在读取" : "读取受阻") == true)
+        #expect(service.subscriptionCalls == 0 && model.notice?.message.contains(loading ? "正在读取" : "重试读取") == true)
     }
 
     @Test(.timeLimit(.minutes(1))) func cancelledDDLResponsesPreserveMemoryAndDisk() async {
@@ -246,7 +249,7 @@ struct EclassDDLSyncTests {
         var subscriptionCalls = 0
         var beforeReturn: (() -> Void)?
         init(payload: DDLSyncPayload) { self.payload = payload }
-        func syncDDLEvents(existingEvents: [DDLEventRecord], storedURL: String, schoolSMSCodeHandler: SchoolSMSCodeHandler?) async throws -> DDLSyncPayload {
+        func syncDDLEvents(existingEvents: [DDLEventRecord], storedURL: String, schoolSMSCodeHandler: SchoolSMSCodeHandler?, onSource: DDLSyncSourceDelivery?) async throws -> DDLSyncPayload {
             syncCalls += 1
             if let error { throw error }
             beforeReturn?()

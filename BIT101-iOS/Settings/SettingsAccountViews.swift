@@ -28,6 +28,8 @@ struct AccountSettingsPage: View {
     private var isBusy: Bool { profileMutation.isBusy }
     @State private var showNicknameEditor = false
     @State private var showMottoEditor = false
+    @State private var showCommunityPasswordEditor = false
+    @State private var communityPassword = ""
     @State private var nicknameText = ""
     @State private var mottoText = ""
     @State private var isShowingStudentID = false
@@ -108,6 +110,11 @@ struct AccountSettingsPage: View {
             }
 
             Section("登录状态") {
+                Button("重新认证社区账号") { showCommunityPasswordEditor = true }
+                    .accessibilityIdentifier("settings.account.community-authentication")
+                    .disabled(isBusy)
+                    .appInteractiveListRow()
+
                 Button("学校统一身份认证密码") {
                     profileMutation.start { await updateSchoolCredentials() }
                 }
@@ -173,6 +180,12 @@ struct AccountSettingsPage: View {
                 }
             )
         }
+        .sheet(isPresented: $showCommunityPasswordEditor, onDismiss: { communityPassword = "" }) {
+            SettingsTextEditSheet(title: "BIT101 密码", text: $communityPassword, isSecure: true,
+                canSubmit: !communityPassword.isEmpty, isSubmitting: isBusy) {
+                profileMutation.start { await restoreCommunitySession() }
+            }
+        }
         .diagnosticAlert(item: $alert)
         .onDisappear { profileMutation.cancel() }
     }
@@ -211,6 +224,21 @@ struct AccountSettingsPage: View {
         }
     }
 
+    private func restoreCommunitySession() async {
+        let owner = dependencies.credentials().identity
+        do {
+            try await dependencies.restoreCommunitySession(communityPassword)
+            guard !Task.isCancelled, dependencies.credentials().identity == owner else { return }
+            communityPassword = ""
+            showCommunityPasswordEditor = false
+            isLoggedIn = true
+            await loadProfile()
+        } catch {
+            guard !TaskCancellation.matches(error), dependencies.credentials().identity == owner else { return }
+            alert = AppAlert(title: "社区认证失败", message: error.localizedDescription)
+        }
+    }
+
     /// 用户操作触发一次显式登录状态检查。
     private func checkLogin() async {
         let credentials = dependencies.credentials()
@@ -224,7 +252,8 @@ struct AccountSettingsPage: View {
                 profile = nil
             }
         } catch {
-            guard shouldPresentError(error, for: credentials) else { return }
+            guard !TaskCancellation.matches(error), dependencies.credentials().identity == credentials.identity else { return }
+            if dependencies.credentials().cookie.isEmpty { isLoggedIn = false; profile = nil }
             alert = AppAlert(title: "检查失败", message: error.localizedDescription)
         }
     }
@@ -295,7 +324,7 @@ struct AccountSettingsPage: View {
 
     /// 页面在当前账号且请求未取消时展示请求错误。
     private func shouldPresentError(_ error: Error, for credentials: CommunityCredentials) -> Bool {
-        !TaskCancellation.matches(error) && isCurrentSession(credentials)
+        !TaskCancellation.matches(error) && dependencies.credentials().identity == credentials.identity
     }
 
     private func isCurrentSession(_ credentials: CommunityCredentials) -> Bool {

@@ -150,11 +150,13 @@ public nonisolated struct TrustedTranscriptResourceLimits: Sendable {
     public let maximumPageCount: Int
     public let maximumEncodedBytes: Int
     public let maximumDecodedBytes: Int
+    public let maximumWait: Duration
 
     public init(maximumPageCount: Int = 64, maximumEncodedBytes: Int = 32 * 1_024 * 1_024,
-                maximumDecodedBytes: Int = 48 * 1_024 * 1_024) {
+                maximumDecodedBytes: Int = 48 * 1_024 * 1_024, maximumWait: Duration = .seconds(90)) {
         self.maximumPageCount = maximumPageCount
         self.maximumEncodedBytes = maximumEncodedBytes
         self.maximumDecodedBytes = maximumDecodedBytes
+        self.maximumWait = maximumWait
     }
 }

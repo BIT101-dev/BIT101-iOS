@@ -615,12 +615,14 @@ struct SettingsDependencyOwnershipTests {
             credentials: { credentials }, refresh: { _ in })
         let effects = LocalDataActionsSpy()
         var validationCount = 0
+        var reauthenticationPassword: String?
         let dependencies = AppCommunityDependencies(settings: AppSettingsStore(defaults: firstDefaults, session: { account }),
             session: session, checkLogin: { validationCount += 1; return true },
             messages: GalleryMessageReadStore(files: PreferenceMemoryFiles(), storageRoot: URL(fileURLWithPath: "/preference-sync"), defaults: firstDefaults, session: { account }),
             drafts: ComposerDraftStore(files: PreferenceMemoryFiles(), applicationSupport: URL(fileURLWithPath: "/preference-sync"),
                 session: { account }, prepareImageData: ComposerDraftImageCompressor.compress),
-            submitSuggestion: { _ in }, loadCourseCredits: { [] }, networkPath: NetworkPathState(snapshot: .init(status: .disconnected)))
+            submitSuggestion: { _ in }, loadCourseCredits: { [] }, networkPath: NetworkPathState(snapshot: .init(status: .disconnected)),
+            restoreCommunitySession: { reauthenticationPassword = $0 })
         let repository = ScheduleRepository(session: { account }, load: { _ in .missing }, save: { _, _, _ in })
         let service = SemesterStartDateService()
         let schedule = ScheduleViewModel(service: service, repository: repository, ddlService: service, classroomService: service,
@@ -634,9 +636,11 @@ struct SettingsDependencyOwnershipTests {
             localData: AppLocalDataService(files: PreferenceMemoryFiles(), actions: effects.actions),
             school: NetworkDiagnosisSchool(identity: { .init(accountIdentifier: account.accountIdentifier, generation: 0) },
                 currentTerm: { schoolCalls.append("term"); return "fixture" },
-                syncCourses: { schoolCalls.append($0) }, ddl: { schoolCalls.append("ddl") }), transcript: transcript,
+                syncCourses: { schoolCalls.append($0) }, ddl: { schoolCalls.append("ddl"); return DDLSyncPayload(url: "", events: []) }), transcript: transcript,
             updates: updates, prompts: prompts)
         let selected = destinations.settingsDependencies
+        try await selected.account.restoreCommunitySession("community-fixture")
+        #expect(reauthenticationPassword == "community-fixture")
         #expect(selected.settings === dependencies.settingsStore)
         #expect(selected.updates === updates && selected.prompts === prompts)
         #expect(selected.schedule === schedule)

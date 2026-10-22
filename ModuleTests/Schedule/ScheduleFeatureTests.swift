@@ -11,6 +11,32 @@ import Testing
 
 @MainActor
 struct ScheduleFeatureTests {
+    @Test(.timeLimit(.minutes(1)), arguments: ["timeout", "unpublished", "parse"])
+    func aVerifiedCourseDownloadFailureReleasesItsConsumedChallenge(failure: String) async throws {
+        let repository = ScheduleRepository(session: { AppStorageSession(accountIdentifier: "verified-download") },
+            load: { _ in .missing }, save: { _, _, _ in })
+        await repository.loadIfNeeded()
+        let service = ModuleScheduleService()
+        service.challenge = BITLoginAuthenticationChallenge(challengeID: "verified", accessToken: "token",
+            status: "waiting_sms", maskedPhone: nil, expiresIn: 300)
+        let model = makeViewModel(repository: repository, actions: ModuleSchedulePlatformActions(), service: service)
+        await model.syncCourses(term: "term")
+        service.onSync = { term in
+            #expect(term == "term" && model.isSyncingCourses && model.smsChallenge == nil)
+            if failure == "timeout" { throw URLError(.timedOut) }
+            if failure == "unpublished" { throw ScheduleServiceError.schoolResponse("课表尚未发布") }
+            throw ScheduleServiceError.invalidResponse
+        }
+        await model.submitSMSCode("123456")
+        #expect(model.smsChallenge == nil && model.smsVerificationError == nil && !model.isSyncingCourses)
+        #expect(model.notice != nil && service.submittedCodes == ["123456"])
+        service.onSync = nil
+        service.payload = CourseSyncPayload(term: "term", firstDayString: "2026-09-07", sourceFirstDayString: "2026-09-07",
+            normalizationOffset: 0, rawWeeksByCourse: [], courses: [], exams: [])
+        await model.syncCourses(term: "term")
+        #expect(model.smsChallenge == nil && model.notice?.allowsDiagnostics == false && service.submittedCodes == ["123456"])
+    }
+
     private func editableCourse(_ id: String, weekday: Int, weeks: String, title: String = "同一课程",
         sections: [Int] = [1, 2], term: String = "term") throws -> CourseRecord {
         try #require(ScheduleCourseEditor.adding(CourseDraft(title: title, classroom: "文萃A101",
@@ -538,18 +564,17 @@ final class ModuleScheduleService: ScheduleServicing {
     func syncCourses(term: String?) async throws -> CourseSyncPayload {
         if let onSync { return try await onSync(term) }
         if let challenge { throw ScheduleServiceError.secondFactorRequired(challenge) }
-        throw CancellationError()
-    }
-    func fetchAvailableTerms() async throws -> [String] { termRequests += 1; return [] }
-    func submitSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge, term: String?) async throws -> CourseSyncPayload {
-        submittedCodes.append(code)
-        if let submissionError { throw submissionError }
         if let payload { return payload }
         throw CancellationError()
     }
-    func submitSMSCodeForTeachingCenterAuthentication(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws {}
+    func fetchAvailableTerms() async throws -> [String] { termRequests += 1; return [] }
+    func submitSMSCodeForTeachingCenterAuthentication(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws {
+        submittedCodes.append(code)
+        if let submissionError { throw submissionError }
+        self.challenge = nil
+    }
     func fetchCurrentTermOnly() async throws -> String { "test-term" }
-    func syncDDLEvents(existingEvents: [DDLEventRecord], storedURL: String, schoolSMSCodeHandler: SchoolSMSCodeHandler?) async throws -> DDLSyncPayload { throw CancellationError() }
+    func syncDDLEvents(existingEvents: [DDLEventRecord], storedURL: String, schoolSMSCodeHandler: SchoolSMSCodeHandler?, onSource: DDLSyncSourceDelivery?) async throws -> DDLSyncPayload { throw CancellationError() }
     func refreshLexueCalendarURL(schoolSMSCodeHandler: SchoolSMSCodeHandler?) async throws -> String { "" }
     func prepareTeachingCenterAccess() async throws {}
     func fetchCampuses() async throws -> [CampusRecord] { [] }

@@ -125,11 +125,11 @@ public struct ScheduleRootView: View {
         .scheduleSchoolVerification(viewModel: viewModel.ddl)
         .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
             if viewModel.hasPersistenceConflict {
-                SchedulePersistenceConflictView(viewModel: viewModel)
+                SchedulePersistenceConflictView(repository: viewModel.repository)
                     .padding(AppDesignSystem.Spacing.content)
                     .background(AppDesignSystem.Palette.Background.grouped)
             } else if viewModel.hasCacheReadFailure || viewModel.requiresRecoveryConfirmation {
-                ScheduleCacheRecoveryView(viewModel: viewModel)
+                ScheduleCacheRecoveryView(repository: viewModel.repository)
                     .padding(AppDesignSystem.Spacing.content)
                     .background(AppDesignSystem.Palette.Background.grouped)
             }
@@ -203,45 +203,45 @@ public struct ScheduleRootView: View {
 
 /// 页面与设置共用读取重试和部分恢复确认。
 public struct ScheduleCacheRecoveryView: View {
-    @ObservedObject private var viewModel: ScheduleViewModel
+    @ObservedObject private var repository: ScheduleRepository
 
-    public init(viewModel: ScheduleViewModel) { self.viewModel = viewModel }
+    public init(repository: ScheduleRepository) { self.repository = repository }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
-            Text(viewModel.hasCacheReadFailure ? "日程读取受阻" : "日程已部分恢复")
+            Text(repository.hasReadFailure ? "日程读取受阻" : "日程已部分恢复")
                 .font(AppDesignSystem.Typography.title)
-            Text(viewModel.hasCacheReadFailure ? "原始数据已保留。请重试读取后继续编辑。" :
+            Text(repository.hasReadFailure ? "原始数据已保留。请重试读取后继续编辑。" :
                 "可用日程继续展示。请核对恢复结果，确认后保存并继续编辑。")
-            Button("重试读取") { Task { await viewModel.retryCacheRead() } }
+            Button("重试读取") { Task { await repository.reload() } }
                 .accessibilityIdentifier("schedule.recovery.retry")
-            if viewModel.requiresRecoveryConfirmation && !viewModel.hasCacheReadFailure {
-                Button("确认恢复结果") { Task { await viewModel.confirmCacheRecovery() } }
+            if repository.requiresRecoveryConfirmation && !repository.hasReadFailure {
+                Button("确认恢复结果") { Task { await repository.confirmRecovery() } }
                     .accessibilityIdentifier("schedule.recovery.confirm")
             }
         }
         .buttonStyle(.borderless)
-        .disabled(viewModel.isConfirmingRecovery)
+        .disabled(repository.isConfirmingRecovery)
     }
 }
 
 /// 页面与设置共用版本选择，保留待处理编辑及独立同步修改。
 public struct SchedulePersistenceConflictView: View {
-    @ObservedObject private var viewModel: ScheduleViewModel
+    @ObservedObject private var repository: ScheduleRepository
 
-    public init(viewModel: ScheduleViewModel) { self.viewModel = viewModel }
+    public init(repository: ScheduleRepository) { self.repository = repository }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
             Text("日程版本发生变化").font(AppDesignSystem.Typography.title)
             Text("本机与同步版本修改了相同内容。独立修改将共同保留，请选择冲突内容的版本。")
-            Button("保留本机冲突内容") { Task { await viewModel.resolvePersistenceConflict(.keepLocal) } }
+            Button("保留本机冲突内容") { Task { await repository.resolvePersistenceConflict(.keepLocal) } }
                 .accessibilityIdentifier("schedule.conflict.keep-local")
-            Button("采用同步冲突内容") { Task { await viewModel.resolvePersistenceConflict(.useCloud) } }
+            Button("采用同步冲突内容") { Task { await repository.resolvePersistenceConflict(.useCloud) } }
                 .accessibilityIdentifier("schedule.conflict.use-cloud")
         }
         .buttonStyle(.borderless)
-        .disabled(viewModel.isResolvingPersistenceConflict)
+        .disabled(repository.isResolvingPersistenceConflict)
     }
 }
 

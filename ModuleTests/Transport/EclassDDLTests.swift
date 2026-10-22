@@ -11,6 +11,118 @@ import TransportCore
 
 @MainActor
 struct EclassDDLTests {
+    @Test(.timeLimit(.minutes(1)))
+    func parallelSchoolSourcesShareOneSMSChallengeAndSubmission() async throws {
+        @MainActor final class Gate { var pending: CheckedContinuation<String, Never>?; var calls = 0; var joined = false }
+        let gate = Gate()
+        let transport = EclassTransport { request in
+            if request.url?.path.hasSuffix("getPhoneNumberByUserId") == true {
+                return (200, #"{"code":200,"data":{"phone":"13800000000","maskTel":"138****0000"}}"#, nil)
+            }
+            return (200, #"{"code":200}"#, nil)
+        }
+        let service = service(transport)
+        let context = SchoolSecondFactorContext(execution: "flow", formAction: AppURL.required("https://sso.bit.edu.cn/gate/cas-success"), userObjectID: "user")
+        let handler: SchoolSMSCodeHandler = { _ in
+            gate.calls += 1
+            return await withCheckedContinuation { gate.pending = $0 }
+        }
+        let first = Task { try await service.completeSchoolSecondFactor(context, handler: handler, smsDeliveryMode: .send,
+            owner: Credentials().schoolSessionIdentity) }
+        defer { first.cancel(); gate.pending?.resume(returning: "123456"); gate.pending = nil }
+        try await waitForTestEvent { gate.pending != nil }
+        let second = Task {
+            gate.joined = true
+            try await service.completeSchoolSecondFactor(context, handler: handler, smsDeliveryMode: .send,
+                owner: Credentials().schoolSessionIdentity)
+        }
+        defer { second.cancel() }
+        try await waitForTestEvent { gate.joined }
+        #expect(gate.calls == 1)
+        gate.pending?.resume(returning: "123456"); gate.pending = nil
+        try await first.value; try await second.value
+        #expect(transport.requests.filter { $0.url?.path.hasSuffix("sendSmsCode") == true }.count == 1)
+        #expect(transport.requests.filter { $0.url?.path.hasSuffix("checkToken") == true }.count == 1)
+        #expect(transport.requests.filter { $0.url?.path == "/gate/cas-success" }.count == 1)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: ["http", "parse", "timeout"])
+    func partialCourseFailuresKeepTheirCacheAndUpdateTheHealthyCourses(failure: String) async throws {
+        @MainActor final class State { var failing = true }
+        let state = State()
+        let transport = EclassTransport { request in
+            switch request.url?.path {
+            case "/api/my-courses": return (200, #"{"courses":[{"id":1,"name":"第一门"},{"id":2,"name":"第二门"}],"pages":1}"#, nil)
+            case "/api/courses/1/activities": return (200, #"{"activities":[{"id":10,"title":"更新作业","submit_times":1,"end_time":"2030-10-01 23:59"}]}"#, nil)
+            case "/api/courses/2/activities":
+                guard state.failing else { return (200, #"{"activities":[]}"#, nil) }
+                if failure == "timeout" { throw URLError(.timedOut) }
+                if failure == "http" { return (503, "failure", nil) }
+                return (200, #"{"activities":[{"id":22,"submit_times":1,"end_time":"invalid"}]}"#, nil)
+            default: return (200, "BEGIN:VCALENDAR\nEND:VCALENDAR", nil)
+            }
+        }
+        func cached(_ id: String, course: Int?) -> DDLEventRecord {
+            .init(id: id, group: "eclass", title: "缓存作业", text: "", dueAt: .distantFuture, done: true,
+                sourceCourseIDs: course.map { [$0] })
+        }
+        var cache = ScheduleCache()
+        cache.lexueCalendarURL = "https://lexue.bit.edu.cn/calendar.ics"
+        cache.ddlEvents = [cached("eclass:11", course: 1), cached("eclass:22", course: 2),
+            cached("eclass:33", course: 3), cached("eclass:44", course: nil)]
+        var saved = cache
+        let repository = ScheduleRepository(session: { AppStorageSession(accountIdentifier: "partial-courses") },
+            load: { _ in .loaded(cache) }, save: { value, _, _ in saved = value })
+        await repository.loadIfNeeded()
+        let model = ScheduleDDLViewModel(service: service(transport), repository: repository)
+        #expect(await model.syncDDL() == false)
+        #expect(Set(saved.ddlEvents.map(\.id)) == ["eclass:10", "eclass:22", "eclass:44"])
+        #expect(saved.ddlEvents.first { $0.id == "eclass:22" }?.done == true)
+        #expect(saved.ddlEvents.first { $0.id == "eclass:10" }?.sourceCourseIDs == [1])
+        #expect(model.notice?.title == "DDL 部分更新")
+        let restored = try JSONDecoder().decode(ScheduleCache.self, from: JSONEncoder().encode(saved))
+        #expect(restored.ddlEvents == saved.ddlEvents)
+        state.failing = false
+        #expect(await model.syncDDL())
+        #expect(saved.ddlEvents.map(\.id) == ["eclass:10"])
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: ["eclass", "lexue"])
+    func eachDDLSourcePublishesWhileTheOtherSourceIsStillWaiting(heldSource: String) async throws {
+        @MainActor final class Gate { var pending: CheckedContinuation<Void, Never>?; var held = false }
+        let gate = Gate()
+        let transport = EclassTransport { request in
+            switch request.url?.path {
+            case "/api/my-courses": return (200, #"{"courses":[{"id":1,"name":"课"}],"pages":1}"#, nil)
+            case "/api/courses/1/activities": return (200, #"{"activities":[{"id":10,"title":"更新作业","submit_times":1,"end_time":"2030-10-01 23:59"}]}"#, nil)
+            default: return (200, "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:new-lexue\nSUMMARY:乐学更新\nDTSTART:20301002T100000Z\nEND:VEVENT\nEND:VCALENDAR", nil)
+            }
+        }
+        transport.beforeResponse = { request in
+            if request.url?.path == (heldSource == "eclass" ? "/api/my-courses" : "/calendar.ics"), !gate.held {
+                gate.held = true
+                await withCheckedContinuation { gate.pending = $0 }
+            }
+        }
+        var cache = ScheduleCache()
+        cache.lexueCalendarURL = "https://lexue.bit.edu.cn/calendar.ics"
+        cache.ddlEvents = [DDLEventRecord(id: "old-\(heldSource)", group: heldSource, title: "缓存作业", text: "", dueAt: .distantFuture, done: true)]
+        var saved = cache, saves = 0
+        let repository = ScheduleRepository(session: { AppStorageSession(accountIdentifier: "parallel-sources") },
+            load: { _ in .loaded(cache) }, save: { value, _, _ in saved = value; saves += 1 })
+        await repository.loadIfNeeded()
+        let model = ScheduleDDLViewModel(service: service(transport), repository: repository)
+        let work = Task { await model.syncDDL() }
+        defer { work.cancel(); gate.pending?.resume(); gate.pending = nil }
+        try await waitForTestEvent { gate.pending != nil && saves == 1 }
+        let immediateID = heldSource == "eclass" ? "new-lexue" : "eclass:10"
+        #expect(model.isSyncingDDL && saved.ddlEvents.contains { $0.id == immediateID })
+        #expect(saved.ddlEvents.contains { $0.id == "old-\(heldSource)" })
+        gate.pending?.resume(); gate.pending = nil
+        #expect(await work.value && saves == 2)
+        #expect(Set(saved.ddlEvents.map(\.id)) == ["new-lexue", "eclass:10"])
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func cancelledCalendarsRemoveEventsAndUnsupportedTasksRetainTheSource(unsupported: Bool) async throws {
         let calendar = unsupported
@@ -322,6 +434,7 @@ struct EclassDDLTests {
         #expect(result.courseCount == 2)
         #expect(result.activityCount == 2)
         #expect(result.events.count == 1)
+        #expect(result.events.first?.sourceCourseIDs == [1, 2])
         #expect(transport.requests.count == 4)
         #expect(transport.requests.allSatisfy { $0.url?.host == "zy-eclass.bit.edu.cn" })
     }
@@ -582,6 +695,7 @@ private final class EclassTransport: HTTPTransport {
     private var concurrentRequests = 0
     var delay: Duration = .zero
     var cancelledRequests = 0
+    var beforeResponse: ((URLRequest) async throws -> Void)?
     let handler: (URLRequest) throws -> (Int, String, String?)
     init(_ handler: @escaping (URLRequest) throws -> (Int, String, String?)) { self.handler = handler }
     func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
@@ -595,6 +709,7 @@ private final class EclassTransport: HTTPTransport {
         maximumConcurrentRequests = max(maximumConcurrentRequests, concurrentRequests)
         defer { concurrentRequests -= 1 }
         await Task.yield()
+        try await beforeResponse?(request)
         if delay > .zero {
             do { try await Task.sleep(for: delay) }
             catch is CancellationError { cancelledRequests += 1; throw CancellationError() }

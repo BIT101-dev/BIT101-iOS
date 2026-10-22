@@ -77,10 +77,11 @@ public struct AppCommentIdentityHeader: View {
 
 /// 评论区使用这个操作行展示回复和点赞操作。
 public struct AppCommentActionBar: View {
-    public init(likeCount: Int, isLiked: Bool, isLiking: Bool, onReply: @escaping () -> Void, onLike: @escaping () -> Void) {
+    public init(likeCount: Int, isLiked: Bool, isLiking: Bool, isLikeEnabled: Bool = true, onReply: @escaping () -> Void, onLike: @escaping () -> Void) {
         self.likeCount = likeCount
         self.isLiked = isLiked
         self.isLiking = isLiking
+        self.isLikeEnabled = isLikeEnabled
         self.onReply = onReply
         self.onLike = onLike
     }
@@ -88,6 +89,7 @@ public struct AppCommentActionBar: View {
     let likeCount: Int
     let isLiked: Bool
     let isLiking: Bool
+    let isLikeEnabled: Bool
     let onReply: () -> Void
     let onLike: () -> Void
 
@@ -119,7 +121,7 @@ public struct AppCommentActionBar: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .disabled(isLiking)
+            .disabled(isLiking || !isLikeEnabled)
             .accessibilityLabel(isLiked ? "取消评论点赞" : "点赞评论")
             .accessibilityValue("\(likeCount)")
                 .accessibilityIdentifier("ui.app-comment-action-bar.like")

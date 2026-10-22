@@ -70,7 +70,7 @@ final class LoginViewModel: ObservableObject {
 
     /// 首次进入时检查登录态，视图重建期间沿用已完成的检查状态。
     ///
-    /// 本地有会话时立即展示首屏；远端明确返回未登录时切到登录页。
+    /// 本地账号立即展示首屏；社区在线认证由账号设置独立恢复。
     func bootstrapIfNeeded() async {
         guard !hasBootstrapped else { return }
         hasBootstrapped = true

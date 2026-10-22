@@ -5,17 +5,26 @@ import SwiftUI
 
 public struct DDLSettingsPage: View {
     @ObservedObject private var viewModel: ScheduleDDLViewModel
+    @ObservedObject private var repository: ScheduleRepository
     @State private var pickerRoute: DDLSettingsNumberPickerRoute?
 
-    public init(viewModel: ScheduleDDLViewModel) { self.viewModel = viewModel }
+    public init(viewModel: ScheduleDDLViewModel) {
+        self.viewModel = viewModel
+        self.repository = viewModel.repository
+    }
 
     public var body: some View {
         List {
+            if repository.hasPersistenceConflict {
+                Section { SchedulePersistenceConflictView(repository: repository) }
+            } else if repository.hasReadFailure || repository.requiresRecoveryConfirmation {
+                Section { ScheduleCacheRecoveryView(repository: repository) }
+            }
             Section("课程中心") {
                 Button("刷新学校日程") {
                     Task { await viewModel.syncDDL() }
                 }
-                .disabled(viewModel.isSyncingDDL)
+                .disabled(viewModel.isSyncingDDL || !repository.acceptsEdits)
                 .accessibilityIdentifier("ddl.refresh")
                 .appInteractiveListRow()
             }
@@ -29,7 +38,7 @@ public struct DDLSettingsPage: View {
                     )
                 }
                 .buttonStyle(.plain)
-                .disabled(viewModel.isSyncingDDL)
+                .disabled(viewModel.isSyncingDDL || !repository.acceptsEdits)
                 .appInteractiveListRow()
                     .accessibilityIdentifier("ui.ddl-settings-page.refresh-subscription")
             }
@@ -59,6 +68,7 @@ public struct DDLSettingsPage: View {
                 .appInteractiveListRow()
                     .accessibilityIdentifier("ui.ddl-settings-page.after-day")
             }
+            .disabled(!repository.acceptsEdits)
         }
         .accessibilityIdentifier("interaction.DDLSettingsPage.list")
         .appGroupedListStyle()
@@ -69,14 +79,14 @@ public struct DDLSettingsPage: View {
             case .beforeDay:
                 DDLSettingsNumberPickerSheet(
                     title: "变色天数",
-                    initialValue: viewModel.beforeDay
+                    initialValue: viewModel.beforeDay, repository: repository
                 ) { value in
                     viewModel.setDDLBeforeDay(value)
                 }
             case .afterDay:
                 DDLSettingsNumberPickerSheet(
                     title: "滞留天数",
-                    initialValue: viewModel.afterDay
+                    initialValue: viewModel.afterDay, repository: repository
                 ) { value in
                     viewModel.setDDLAfterDay(value)
                 }
@@ -117,13 +127,15 @@ private struct DDLSettingsActionRow: View {
 /// DDL 设置页的数值选择弹窗。
 private struct DDLSettingsNumberPickerSheet: View {
     let title: String
-    let onSubmit: (Int) -> Void
+    let onSubmit: (Int) -> Bool
+    @ObservedObject private var repository: ScheduleRepository
 
     @Environment(\.dismiss) private var dismiss
     @State private var value: Int
 
-    init(title: String, initialValue: Int, onSubmit: @escaping (Int) -> Void) {
+    init(title: String, initialValue: Int, repository: ScheduleRepository, onSubmit: @escaping (Int) -> Bool) {
         self.title = title
+        self.repository = repository
         self.onSubmit = onSubmit
         _value = State(initialValue: initialValue)
     }
@@ -131,12 +143,18 @@ private struct DDLSettingsNumberPickerSheet: View {
     var body: some View {
         NavigationStack {
             VStack {
+                if repository.hasPersistenceConflict {
+                    SchedulePersistenceConflictView(repository: repository)
+                } else if repository.hasReadFailure || repository.requiresRecoveryConfirmation {
+                    ScheduleCacheRecoveryView(repository: repository)
+                }
                 Picker(title, selection: $value) {
                     ForEach(0 ... 30, id: \.self) { day in
                         Text("\(day) 天")
                             .tag(day)
                     }
                 }
+                .disabled(!repository.acceptsEdits)
                 .pickerStyle(.wheel)
                 .labelsHidden()
                 .accessibilityLabel(title)
@@ -154,9 +172,9 @@ private struct DDLSettingsNumberPickerSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("完成") {
-                        onSubmit(value)
-                        dismiss()
+                        if onSubmit(value) { dismiss() }
                     }
+                        .disabled(!repository.acceptsEdits)
                         .accessibilityIdentifier("ui.ddl-settings-number-picker-sheet.done")
                 }
             }

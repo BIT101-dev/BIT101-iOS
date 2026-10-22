@@ -14,7 +14,7 @@ public enum PaperServiceError: LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .notLoggedIn:
-            return "当前登录状态无效，请重新登录后再查看文章。"
+            return CommunitySessionRestorationError.credentialsRejected.localizedDescription
         case .invalidResponse:
             return "服务器返回了无法识别的数据。"
         case .missingPaper:
@@ -106,21 +106,24 @@ public struct PaperService {
     public func fetchPaper(id: Int) async throws -> PaperDetail {
         let credentials = session.currentCredentials
         return try await details.detail(id: id, credentials: credentials) {
-            guard self.session.currentCredentials.identity == credentials.identity else { throw CancellationError() }
-            return try await self.api.request(path: "papers/\(id)", authentication: .optional, validate: { detail in
-                guard id > 0, detail.id == id else { throw PaperServiceError.invalidResponse }
-            })
+            try await self.loadPaper(id: id, credentials: credentials)
         }
     }
 
     public func fetchPreviewMetadata(id: Int) async throws -> PaperPreviewMetadata {
         let credentials = session.currentCredentials
         return try await details.preview(id: id, credentials: credentials) {
-            guard self.session.currentCredentials.identity == credentials.identity else { throw CancellationError() }
-            return try await self.api.request(path: "papers/\(id)", authentication: .optional, validate: { detail in
-                guard id > 0, detail.id == id else { throw PaperServiceError.invalidResponse }
-            })
+            try await self.loadPaper(id: id, credentials: credentials)
         }
+    }
+
+    private func loadPaper(id: Int, credentials: CommunityCredentials) async throws -> PaperDetail {
+        guard session.currentCredentials.identity == credentials.identity else { throw CancellationError() }
+        let response: CommunityAPIResponse<PaperDetail> = try await api.response(path: "papers/\(id)", authentication: .optional,
+            validate: { detail in guard id > 0, detail.id == id else { throw PaperServiceError.invalidResponse } })
+        var detail = response.value
+        detail.isViewerAuthenticated = response.isAuthenticated
+        return detail
     }
 
     /// 拉取文章评论。
@@ -132,9 +135,11 @@ public struct PaperService {
         if let page {
             queryItems.append(URLQueryItem(name: "page", value: String(page)))
         }
-        return try await api.request(path: "reaction/comments", queryItems: queryItems, authentication: .optional, validate: { comments in
-            guard CommunityComment.validatesResponse(comments, for: "paper\(paperID)") else { throw PaperServiceError.invalidResponse }
-        })
+        let response: CommunityAPIResponse<[CommunityComment]> = try await api.response(path: "reaction/comments",
+            queryItems: queryItems, authentication: .optional, validate: { comments in
+                guard CommunityComment.validatesResponse(comments, for: "paper\(paperID)") else { throw PaperServiceError.invalidResponse }
+            })
+        return response.value.map { $0.settingViewerAuthentication(response.isAuthenticated) }
     }
 
     /// 点赞或取消点赞文章。

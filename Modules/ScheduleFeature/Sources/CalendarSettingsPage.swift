@@ -281,9 +281,9 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
     public var body: some View {
         List {
             if viewModel.hasPersistenceConflict {
-                Section { SchedulePersistenceConflictView(viewModel: viewModel) }
+                Section { SchedulePersistenceConflictView(repository: viewModel.repository) }
             } else if viewModel.hasCacheReadFailure || viewModel.requiresRecoveryConfirmation {
-                Section { ScheduleCacheRecoveryView(viewModel: viewModel) }
+                Section { ScheduleCacheRecoveryView(repository: viewModel.repository) }
             }
             dataSettingsSection
             scheduleNamesSection

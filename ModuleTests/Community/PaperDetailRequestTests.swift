@@ -6,6 +6,38 @@ import Testing
 
 @MainActor
 struct PaperDetailRequestTests {
+    @Test
+    func publicCommentThreadsPreserveTheirViewerStateThroughLocalUpdates() {
+        let user = CommunityUser.placeholder(id: 1, nickname: "作者")
+        func comment(_ id: Int, sub: [CommunityComment] = []) -> CommunityComment {
+            .init(id: id, obj: "paper1", images: [], user: user, anonymous: false, createTime: "", updateTime: "",
+                like: false, likeNum: 0, commentNum: sub.count, own: false, rate: 0, replyUser: user,
+                replyObj: "", text: "正文", sub: sub)
+        }
+        let guest = comment(1, sub: [comment(2, sub: [comment(3)])]).settingViewerAuthentication(false)
+        #expect(!guest.isViewerAuthenticated && guest.flattenedReplies.allSatisfy { !$0.isViewerAuthenticated })
+        #expect(!guest.replacingSubComments(guest.sub).isViewerAuthenticated)
+        #expect(!guest.updatingLike(true, likeNum: 1).isViewerAuthenticated)
+        let authenticated = guest.settingViewerAuthentication(true)
+        #expect(authenticated.isViewerAuthenticated && authenticated.flattenedReplies.allSatisfy(\.isViewerAuthenticated))
+        #expect(authenticated.flattenedReplies.map(\.text) == ["正文", "正文"])
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func publicRecoveryKeepsItsViewerStateOutsideTheAuthenticatedPreviewCache() async throws {
+        let store = PaperDetailRequestStore()
+        var publicDetail = Self.detail(1)
+        publicDetail.isViewerAuthenticated = false
+        let detail = publicDetail
+        _ = try await store.preview(id: 1, credentials: credentials) { detail }
+        #expect(store.cachedDetail(id: 1, credentials: credentials) == nil)
+        let guest = CommunityCredentials(identity: credentials.identity, cookie: "")
+        _ = try await store.preview(id: 1, credentials: guest) { detail }
+        let cached = try #require(store.cachedDetail(id: 1, credentials: guest))
+        #expect(cached.content == "正文" && !cached.isViewerAuthenticated)
+        #expect(!cached.updatingLike(true, likeNum: 1).isViewerAuthenticated)
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func foregroundDetailsPassQueuedPreviewsAndPromoteSharedRequests(upgrade: Bool) async throws {
         let store = PaperDetailRequestStore()

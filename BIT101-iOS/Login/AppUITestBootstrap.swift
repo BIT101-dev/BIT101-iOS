@@ -380,6 +380,7 @@ final class UITestHTTPTransport: HTTPTransport {
         let payload: Any
         switch path {
         case "user/check": payload = [:] as [String: String]
+        case "user/login": payload = ["fake_cookie": "ui-test-cookie"]
         case "posters/claims": payload = [["id": 1, "text": "日常"]]
         case "manage/report_types": payload = [["id": 1, "text": "其他"]]
         case "manage/reports": payload = [:] as [String: String]
@@ -688,12 +689,8 @@ final class UITestSchoolService: ScheduleServicing {
     }
     func fetchCurrentTermOnly() async throws -> String { try requireSchoolAvailability(); return "ui-test-term" }
     func prepareTeachingCenterAccess() async throws { try requireSchoolAvailability() }
-    func submitSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge, term: String?) async throws -> CourseSyncPayload {
-        try verify(code)
-        return try await syncCourses(term: term)
-    }
     func submitSMSCodeForTeachingCenterAuthentication(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws { try verify(code) }
-    func syncDDLEvents(existingEvents: [DDLEventRecord], storedURL: String, schoolSMSCodeHandler: SchoolSMSCodeHandler?) async throws -> DDLSyncPayload {
+    func syncDDLEvents(existingEvents: [DDLEventRecord], storedURL: String, schoolSMSCodeHandler: SchoolSMSCodeHandler?, onSource: DDLSyncSourceDelivery?) async throws -> DDLSyncPayload {
         try requireSchoolAvailability()
         if !authenticated, let schoolSMSCodeHandler {
             try verify(await schoolSMSCodeHandler(SchoolSMSCodeRequest(maskedPhone: "138****0000", purpose: "测试学校认证")))

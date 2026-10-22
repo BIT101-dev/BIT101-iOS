@@ -532,7 +532,7 @@ struct SchedulePersistenceTests {
     }
 
     private struct DDLService: ScheduleDDLServicing {
-        func syncDDLEvents(existingEvents: [DDLEventRecord], storedURL: String, schoolSMSCodeHandler: SchoolSMSCodeHandler?) async throws -> DDLSyncPayload {
+        func syncDDLEvents(existingEvents: [DDLEventRecord], storedURL: String, schoolSMSCodeHandler: SchoolSMSCodeHandler?, onSource: DDLSyncSourceDelivery?) async throws -> DDLSyncPayload {
             DDLSyncPayload(url: "https://example.invalid/calendar", events: [])
         }
         func refreshLexueCalendarURL(schoolSMSCodeHandler: SchoolSMSCodeHandler?) async throws -> String { "https://example.invalid/calendar" }

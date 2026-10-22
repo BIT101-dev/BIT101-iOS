@@ -38,8 +38,7 @@ struct LoginService {
     ///
     /// 该属性读取本地会话状态；远端有效性由后台异步校验。
     var hasCachedSession: Bool {
-        let fakeCookie = storage.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !fakeCookie.isEmpty && !savedStudentID.isEmpty
+        storage.hasCachedSession
     }
 
     /// 校验当前本地会话是否仍然有效。
@@ -48,16 +47,16 @@ struct LoginService {
     /// 负责确认 BIT101 自有会话并返回当前学号。学校 SSO 会话按需通过
     /// `restoreSchoolSessionIfNeeded()` 恢复。
     ///
-    /// 远端返回会话过期时共享社区凭据恢复，凭据明确遭拒时清除本地 session；网络错误沿调用链抛出，
+    /// 远端返回会话过期时共享社区凭据恢复，凭据遭拒时转入社区重新认证；错误沿调用链抛出，
     /// 本地数据继续支撑主 App、watch 和 widget 的当前登录展示。
     func checkLogin() async throws -> String? {
         let fakeCookie = storage.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !fakeCookie.isEmpty else {
+            if storage.hasCachedSession { throw CommunitySessionRestorationError.credentialsRejected }
             return nil
         }
 
-        // App 的全局登录态依赖 BIT101 自有 fake-cookie。
-        // 学校 SSO 服务课表、空教室等按需功能，App 进入流程以 BIT101 fake-cookie 校验为准。
+        // 社区在线会话独立校验，学校 SSO 由各学校功能按需恢复。
         let observed = storage.communityCredentials
         let bit101LoggedIn = try await apiClient.checkBIT101Login(fakeCookie: fakeCookie)
         try Task.checkCancellation()
@@ -65,8 +64,7 @@ struct LoginService {
               storage.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines) == fakeCookie
         else { throw CancellationError() }
         guard bit101LoggedIn else {
-            do { try await renewCommunitySession(observed: observed) }
-            catch CommunitySessionRestorationError.credentialsRejected { return nil }
+            try await renewCommunitySession(observed: observed)
             return savedStudentID
         }
 
@@ -172,10 +170,22 @@ struct LoginService {
             catch CommunitySessionRestorationError.credentialsRejected {
                 try Task.checkCancellation()
                 guard storage.communityCredentials == observed else { throw CancellationError() }
-                storage.clearSession()
+                storage.requireCommunityAuthentication()
                 throw CommunitySessionRestorationError.credentialsRejected
             }
         }
+    }
+
+    /// 社区重新认证保留同一账号的学校凭据与本机数据归属。
+    func restoreCommunitySession(password: String) async throws {
+        guard storage.hasCachedSession, !password.isEmpty else { throw LoginServiceError.invalidCredentials }
+        let identity = storage.communityCredentials.identity
+        let digest = LoginCrypto.md5Hex(password)
+        let response = try await apiClient.loginCommunity(studentID: identity.accountIdentifier, passwordDigest: digest)
+        try Task.checkCancellation()
+        guard storage.communityCredentials.identity == identity else { throw CancellationError() }
+        try storage.saveLoginState(studentID: identity.accountIdentifier, password: storage.currentPassword,
+            fakeCookie: response.fakeCookie, communityPasswordDigest: digest)
     }
 
     private func authenticateCommunitySession(expectedIdentity: CommunitySessionIdentity) async throws {

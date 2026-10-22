@@ -98,6 +98,11 @@ public struct PaperPreviewMetadata: Equatable, Hashable {
 ///
 /// 详情页会额外显示编辑者、正文块、点赞状态和所有者状态。
 public nonisolated struct PaperDetail: Decodable, Identifiable, Hashable, Sendable {
+    public var isViewerAuthenticated = true
+    private enum CodingKeys: String, CodingKey {
+        case id, title, intro, content, createTime, updateTime, updateUser, anonymous
+        case likeNum, commentNum, publicEdit, like, own
+    }
     public let id: Int
     public let title: String
     public let intro: String
@@ -115,6 +120,7 @@ public nonisolated struct PaperDetail: Decodable, Identifiable, Hashable, Sendab
     /// 返回替换点赞状态后的新详情对象。
     public func updatingLike(_ like: Bool, likeNum: Int) -> PaperDetail {
         PaperDetail(
+            isViewerAuthenticated: isViewerAuthenticated,
             id: id,
             title: title,
             intro: intro,

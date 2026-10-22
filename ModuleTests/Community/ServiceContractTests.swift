@@ -542,7 +542,7 @@ struct ServiceContractTests {
         #expect(try await service.fetchPapers(search: "文章", order: .newest, page: 0).first?.id == 17)
         let detail = try await service.fetchPaper(id: 17)
         _ = try await service.fetchComments(paperID: 17, order: .oldest, page: nil)
-        #expect(detail.own && detail.like && restores == 1)
+        #expect(detail.own && detail.like && detail.isViewerAuthenticated && restores == 1)
         #expect(transport.authenticationRequests.isEmpty)
         #expect(transport.requests.map { $0.value(forHTTPHeaderField: "fake-cookie") } == ["expired", "fresh", "fresh", "fresh"])
     }
@@ -566,7 +566,7 @@ struct ServiceContractTests {
     @Test(.timeLimit(.minutes(1))) func anonymousPaperReadKeepsItsPublicContract() async throws {
         let transport = Transport([(200, paperDetailBody(own: false))])
         let detail = try await PaperService(session: session(transport, cookie: "")).fetchPaper(id: 17)
-        #expect(!detail.own && !detail.like && transport.authenticationRequests.isEmpty)
+        #expect(!detail.own && !detail.like && !detail.isViewerAuthenticated && transport.authenticationRequests.isEmpty)
         #expect(transport.requests.first?.value(forHTTPHeaderField: "fake-cookie") == nil)
     }
 

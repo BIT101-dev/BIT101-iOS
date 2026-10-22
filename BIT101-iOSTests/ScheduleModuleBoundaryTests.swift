@@ -110,14 +110,11 @@ final class SemesterStartDateService: ScheduleServicing {
     func fetchCampuses() async throws -> [CampusRecord] { throw ScheduleServiceError.invalidResponse }
     func fetchBuildings(campusCode: String?) async throws -> [BuildingRecord] { throw ScheduleServiceError.invalidResponse }
     func fetchClassrooms(buildingID: String, term: String, date: Date) async throws -> [ClassroomRecord] { throw ScheduleServiceError.invalidResponse }
-    func submitSMSCode(
-        _ code: String, for challenge: BITLoginAuthenticationChallenge, term: String?
-    ) async throws -> CourseSyncPayload { throw ScheduleServiceError.invalidResponse }
     func submitSMSCodeForTeachingCenterAuthentication(
         _ code: String, for challenge: BITLoginAuthenticationChallenge
     ) async throws { throw ScheduleServiceError.invalidResponse }
     func syncDDLEvents(
-        existingEvents: [DDLEventRecord], storedURL: String, schoolSMSCodeHandler: SchoolSMSCodeHandler?
+        existingEvents: [DDLEventRecord], storedURL: String, schoolSMSCodeHandler: SchoolSMSCodeHandler?, onSource: DDLSyncSourceDelivery?
     ) async throws -> DDLSyncPayload { throw ScheduleServiceError.invalidResponse }
     func refreshLexueCalendarURL(schoolSMSCodeHandler: SchoolSMSCodeHandler?) async throws -> String {
         throw ScheduleServiceError.invalidResponse
