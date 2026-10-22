@@ -16,6 +16,7 @@ struct PaperComposerView: View {
     let onCreated: () -> Void
     @State private var model: PaperComposerViewModel
     @State private var submitTask: Task<Void, Never>?
+    @State private var isConfirmingDiscard = false
 
     init(editingPaper: PaperDetail? = nil, initialContent: String, onCreated: @escaping () -> Void) {
         self.onCreated = onCreated
@@ -59,7 +60,10 @@ struct PaperComposerView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("取消") { dismiss() }
+                Button("取消") {
+                    if model.hasUnsavedChanges { isConfirmingDiscard = true }
+                    else { dismiss() }
+                }
                     .disabled(model.isSubmitting)
                     .accessibilityIdentifier("ui.paper-composer-view.cancel")
             }
@@ -79,6 +83,10 @@ struct PaperComposerView: View {
             }
         }
         .interactiveDismissDisabled(model.isSubmitting || model.hasUnsavedChanges)
+        .confirmationDialog("放弃文章修改？", isPresented: $isConfirmingDiscard, titleVisibility: .visible) {
+            Button("放弃修改", role: .destructive) { dismiss() }
+            Button("取消", role: .cancel) {}
+        }
         .onDisappear { submitTask?.cancel() }
         .diagnosticAlert(item: $model.alert)
     }

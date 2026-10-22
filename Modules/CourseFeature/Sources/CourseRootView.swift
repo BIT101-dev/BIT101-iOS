@@ -104,8 +104,9 @@ public struct CoursePageContent: View {
                     .accessibilityIdentifier("ui.course-page-content.course")
             }
 
-            if viewModel.state.isLoadingMore {
-                AppInlineLoadingState()
+            CommunityPaginationFooter(isLoading: viewModel.state.isLoadingMore,
+                errorMessage: viewModel.state.paginationError) {
+                await viewModel.loadMoreIfNeeded(currentCourse: viewModel.state.items.last)
             }
         }
     }
@@ -176,7 +177,7 @@ struct CourseEvaluationRouteResolver {
 
 /// 日程和成绩共用的课程评价检索入口。
 ///
-/// 解析成功后进入后续路由，解析失败时在当前页面展示 alert。
+/// 解析成功后进入详情，检索失败时提供保留条件的课程搜索入口。
 public struct CourseEvaluationLink: View {
     private let scene: CourseEvaluationLinkScene
     private let dependencyID: ObjectIdentifier
@@ -199,6 +200,7 @@ private struct CourseEvaluationLinkScene: View {
     @State private var isResolving = false
     @State private var alert: AppAlert?
     @State private var diagnosticAlert: AppAlert?
+    @State private var canSearch = false
 
     init(
         dependencies: CourseDependencies,
@@ -211,27 +213,37 @@ private struct CourseEvaluationLinkScene: View {
     }
 
     var body: some View {
-        Button {
-            isResolving = true
-        } label: {
-            AppCourseEvaluationRow(isLoading: isResolving)
-        }
-        .buttonStyle(.plain)
-        .disabled(isResolving)
-        .task(id: isResolving) {
-            guard isResolving else { return }
-            await resolveAndNavigate()
-        }
-        .onDisappear { isResolving = false }
-        .alert(item: $alert) { alert in
-            Alert(
-                title: Text(alert.title),
-                message: Text(alert.message),
-                dismissButton: .default(Text("知道了"))
-            )
-        }
-        .diagnosticAlert(item: $diagnosticAlert)
+        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
+            Button {
+                isResolving = true
+            } label: {
+                AppCourseEvaluationRow(isLoading: isResolving)
+            }
+            .buttonStyle(.plain)
+            .disabled(isResolving)
+            .task(id: isResolving) {
+                guard isResolving else { return }
+                await resolveAndNavigate()
+            }
+            .onDisappear { isResolving = false }
+            .alert(item: $alert) { alert in
+                Alert(
+                    title: Text(alert.title),
+                    message: Text(alert.message),
+                    dismissButton: .default(Text("知道了"))
+                )
+            }
+            .diagnosticAlert(item: $diagnosticAlert)
             .accessibilityIdentifier("ui.course-evaluation-link.open")
+            if canSearch {
+                Button("搜索课程") {
+                    let name = request.lookupCourseName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    onResolved(.search(query: name.isEmpty ? (request.lookupCourseNumber ?? "") : name))
+                }
+                .appInteractiveListRow()
+                .accessibilityIdentifier("course.evaluation.search")
+            }
+        }
     }
 
     private func resolveAndNavigate() async {
@@ -243,6 +255,7 @@ private struct CourseEvaluationLinkScene: View {
             onResolved(resolved)
         } catch {
             if Task.isCancelled || TaskCancellation.matches(error) { return }
+            canSearch = request.hasLookupIdentity
             if error is CourseEvaluationError {
                 alert = AppAlert.userInput(title: "无法打开课程评价", message: error.localizedDescription)
             } else {

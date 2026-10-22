@@ -88,7 +88,7 @@ private struct ScoreRootScene: View {
             }
         }
         .toolbar(.hidden, for: .navigationBar)
-        .navigationDestination(item: $requestedCourse) { request in
+        .navigationDestination(item: detailRequest) { request in
             if let preparedCourse = request.preparedCourse {
                 CourseDetailView(dependencies: courses, media: destinations.media, profiles: destinations.profiles, initialCourse: preparedCourse)
                     .id(preparedCourse.id)
@@ -99,8 +99,18 @@ private struct ScoreRootScene: View {
         .task(id: requestedCourse?.id) {
             guard let requestedCourse else { return }
             selectedSurface = .course
-            prepareCourseSurface(requestedCourse)
+            if requestedCourse.isSearchRequest, let query = requestedCourse.searchQuery {
+                await courseViewModel.search(for: query)
+                if self.requestedCourse?.id == requestedCourse.id { self.requestedCourse = nil }
+            } else {
+                prepareCourseSurface(requestedCourse)
+            }
         }
+    }
+
+    private var detailRequest: Binding<CourseNavigationRequest?> {
+        Binding(get: { requestedCourse?.isSearchRequest == true ? nil : requestedCourse },
+            set: { requestedCourse = $0 })
     }
 
     /// 成绩记录缺少教师字段时，页面进入课程搜索页，由用户选择具体教师。

@@ -159,12 +159,7 @@ struct GalleryFeedView: View {
                             systemImage: "bubble.left.and.bubble.right",
                             message: feedIdentity == "search" ? "换个关键词试试。" : "当前分区还没有可展示的话题。"
                         )
-                        if feedState.canLoadMore, feedState.needsContinuation {
-                            if feedState.isLoadingMore { AppInlineLoadingState() }
-                            else {
-                                pageContinuation
-                            }
-                        }
+                        if feedState.canLoadMore { pageContinuation }
                     }
                 } else {
                     LazyVStack(spacing: AppDesignSystem.Spacing.none) {
@@ -192,11 +187,7 @@ struct GalleryFeedView: View {
                             }
                         }
 
-                        if feedState.isLoadingMore {
-                            AppInlineLoadingState()
-                        } else if feedState.canLoadMore, feedState.needsContinuation {
-                            pageContinuation
-                        }
+                        if feedState.canLoadMore { pageContinuation }
                     }
                     .scrollTargetLayout()
                 }
@@ -265,9 +256,8 @@ struct GalleryFeedView: View {
     ///
     /// 预取负责后台准备下一页；列表追加由末尾触发，滚动条比例和当前位置保持稳定。
     private var pageContinuation: some View {
-        Button("继续查找话题") { onLoadMore(visiblePosters.last) }
-            .buttonStyle(.bordered)
-            .accessibilityIdentifier("gallery.feed.continue")
+        CommunityPaginationFooter(isLoading: feedState.isLoadingMore, errorMessage: feedState.paginationError,
+            showsContinuation: feedState.needsContinuation) { onLoadMore(visiblePosters.last) }
     }
 
     /// 刷新完成后，把滚动位置尽量恢复到刷新前的顶部帖子。

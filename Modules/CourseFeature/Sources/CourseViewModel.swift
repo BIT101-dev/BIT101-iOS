@@ -19,6 +19,7 @@ private func isCourseRequestCancellation(_ error: Error) -> Bool {
 private extension CoursePagedState {
     /// 开始首屏刷新并重置分页游标。
     mutating func prepareForRefresh() {
+        paginationError = nil
         status = .loading
         resetPagination()
     }
@@ -187,6 +188,7 @@ public final class CourseListViewModel: ObservableObject {
                 guard refreshGeneration == generation else { return }
                 try progress.record(items.map(\.id), knownIDs: state.pagedItems.ids)
                 state.appendPage(items)
+                state.paginationError = nil
             } while state.canLoadMore && state.items.count == previousCount
         } catch {
             guard refreshGeneration == generation else { return }
@@ -194,6 +196,7 @@ public final class CourseListViewModel: ObservableObject {
                 return
             }
 
+            state.paginationError = error.localizedDescription
             alert = AppAlert(title: "加载更多失败", message: error.localizedDescription)
         }
     }

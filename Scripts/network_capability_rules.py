@@ -15,7 +15,7 @@ NETWORK_FOUNDATION_API = {
     'TransportCore.URLSessionTransport': {'deinit()', 'static make(configuration:URLSessionConfiguration,followsRedirects:Bool)'},
     'CommunityTransport.CommunitySession': {'client(errorDomain:String)'},
     'CommunityTransport.CommunityAPIClient': {
-        'request(path:String,pathComponent:String?,queryItems:[URLQueryItem],method:String,body:Data?,contentType:String?,authentication:CommunityAuthentication,retryPolicy:CommunityRetryPolicy)',
+        'request(path:String,pathComponent:String?,queryItems:[URLQueryItem],method:String,body:Data?,contentType:String?,authentication:CommunityAuthentication,retryPolicy:CommunityRetryPolicy,validate:(@Sendable(Response)throws->Void)?)',
         'requestData(path:String,queryItems:[URLQueryItem],method:String,body:Data?,contentType:String?,authentication:CommunityAuthentication,retryPolicy:CommunityRetryPolicy)',
         'requestVoid(path:String,method:String,body:Data?,contentType:String?,authentication:CommunityAuthentication,retryPolicy:CommunityRetryPolicy)'},
     'MediaKit.MediaEnvironment': {'retryFailedImages()', 'static normalizedCacheLimitMB(:Int)', 'endPreview(owner:UUID)',

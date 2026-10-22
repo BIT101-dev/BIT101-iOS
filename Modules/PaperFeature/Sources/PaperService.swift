@@ -169,7 +169,8 @@ public struct PaperService {
                     anonymous: anonymous,
                     imageMids: []
                 )
-            )
+            ),
+            validate: { guard $0.id > 0 else { throw PaperServiceError.invalidResponse } }
         )
     }
 
@@ -193,9 +194,9 @@ public struct PaperService {
                     anonymous: anonymous,
                     publicEdit: publicEdit
                 )
-            )
+            ),
+            validate: { guard $0.id > 0 else { throw PaperServiceError.invalidResponse } }
         )
-        guard response.id > 0 else { throw PaperServiceError.invalidResponse }
         return response.id
     }
 

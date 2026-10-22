@@ -22,7 +22,18 @@ public final class CommunityPosterDestination {
 @MainActor
 public struct CommunityPaperDestination {
     public let papers: (Binding<Int?>, @escaping () -> Void) -> AnyView
-    public init(papers: @escaping (Binding<Int?>, @escaping () -> Void) -> AnyView) { self.papers = papers }
+    public let detail: (Int) -> AnyView
+    public init(papers: @escaping (Binding<Int?>, @escaping () -> Void) -> AnyView,
+        detail: @escaping (Int) -> AnyView) {
+        self.papers = papers
+        self.detail = detail
+    }
+}
+
+@MainActor
+public struct CommunityCourseDestination {
+    public let course: (Int) -> AnyView
+    public init(course: @escaping (Int) -> AnyView) { self.course = course }
 }
 
 @MainActor

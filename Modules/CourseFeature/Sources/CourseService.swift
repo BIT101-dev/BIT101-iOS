@@ -122,7 +122,8 @@ public struct CourseService {
                     rate: rate,
                     imageMids: []
                 )
-            )
+            ),
+            validate: { guard $0.id > 0 else { throw CourseServiceError.invalidResponse } }
         )
     }
 

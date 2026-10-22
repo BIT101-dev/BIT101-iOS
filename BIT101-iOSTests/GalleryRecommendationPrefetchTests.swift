@@ -11,6 +11,30 @@ import TransportCore
 @Suite("Gallery recommendation prefetch")
 @MainActor
 struct GalleryRecommendationPrefetchTests {
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func confirmedCommentsAppearThroughTheFollowingRefreshFailure(paper: Bool) async throws {
+        let poster = try makePoster(id: 1)
+        let service = DetailSortingService(poster: poster)
+        let failure = URLError(.notConnectedToInternet)
+        service.detailError = failure
+        service.commentHandler = { _ in throw failure }
+        let user = CommunityUser.placeholder(id: 7, nickname: "作者")
+        service.commentCreation = {
+            CommunityComment(id: 2, obj: paper ? "paper1" : "poster1", images: [], user: user,
+                anonymous: false, createTime: "", updateTime: "", like: false, likeNum: 0, commentNum: 0,
+                own: true, rate: 0, replyUser: user, replyObj: "", text: "评论", sub: [])
+        }
+        let gallery = GalleryPosterDetailViewModel(initialPoster: poster, service: service)
+        let article = PaperDetailViewModel(initialPaper: PaperSummary(id: 1, title: "标题", intro: "",
+            likeNum: 0, commentNum: 0, updateTime: ""), service: service)
+        let submitted = paper
+            ? await article.submitComment(text: "评论", anonymous: false, target: .paper(paperID: 1))
+            : await gallery.submitComment(text: "评论", anonymous: false, target: .poster(posterID: 1))
+        #expect(submitted && (paper ? article.commentState.items : gallery.commentState.items).map(\.id) == [2])
+        try await waitForTestEvent { (paper ? article.alert?.title : gallery.alert?.title) == "加载评论失败" }
+        #expect((paper ? article.commentState.items : gallery.commentState.items).map(\.id) == [2])
+    }
+
     @Test(.timeLimit(.minutes(1))) func completedCommentsAppearWhilePosterDetailsArePending() async throws {
         let service = DetailSortingService(poster: try makePoster(id: 1))
         let model = GalleryPosterDetailViewModel(initialPoster: service.poster.asPoster, service: service)
@@ -219,15 +243,12 @@ struct GalleryRecommendationPrefetchTests {
                 createTime: "", updateTime: "", like: false, likeNum: 0, commentNum: 0, own: true,
                 rate: 0, replyUser: user, replyObj: "", text: "新的评论", sub: [])
         }
-        let reopenedGallery = GalleryPosterDetailViewModel(initialPoster: poster, service: service)
-        let reopenedArticle = PaperDetailViewModel(initialPaper: PaperSummary(id: 1, title: "标题", intro: "",
-            likeNum: 0, commentNum: 0, updateTime: ""), service: service)
         defer { service.finish() }
-        let refresh = Task { if paper { await reopenedArticle.refreshAll() } else { await reopenedGallery.refreshAll() } }
+        let refresh = Task { if paper { await article.refreshAll() } else { await gallery.refreshAll() } }
         try await service.waitForDetail(); service.finish(); await refresh.value
         let retry = Task {
-            if paper { return await reopenedArticle.submitComment(text: "新的评论", anonymous: false, target: .paper(paperID: 1)) }
-            return await reopenedGallery.submitComment(text: "新的评论", anonymous: false, target: .poster(posterID: 1))
+            if paper { return await article.submitComment(text: "新的评论", anonymous: false, target: .paper(paperID: 1)) }
+            return await gallery.submitComment(text: "新的评论", anonymous: false, target: .poster(posterID: 1))
         }
         try await service.waitForDetail(); service.finish()
         #expect(await retry.value)
@@ -434,9 +455,9 @@ struct GalleryRecommendationPrefetchTests {
     private final class FeedServiceStub: GalleryFeedServicing {
         private let batches: [Int: GalleryPageBatch<CommunityPoster>]
         private let requestLog = RequestLog()
-        private let beforeResponse: (@MainActor (Int) async -> Void)?
+        private let beforeResponse: (@MainActor (Int) async throws -> Void)?
 
-        init(batches: [Int: GalleryPageBatch<CommunityPoster>] = [:], beforeResponse: (@MainActor (Int) async -> Void)? = nil) {
+        init(batches: [Int: GalleryPageBatch<CommunityPoster>] = [:], beforeResponse: (@MainActor (Int) async throws -> Void)? = nil) {
             self.batches = batches
             self.beforeResponse = beforeResponse
         }
@@ -451,7 +472,7 @@ struct GalleryRecommendationPrefetchTests {
 
         func fetchRecommendPage(sourcePage: Int) async throws -> GalleryPageBatch<CommunityPoster> {
             await requestLog.append(sourcePage)
-            await beforeResponse?(sourcePage)
+            try await beforeResponse?(sourcePage)
             await Task.yield()
             guard let batch = batches[sourcePage] else {
                 throw URLError(.resourceUnavailable)
@@ -478,6 +499,19 @@ struct GalleryRecommendationPrefetchTests {
                 pages
             }
         }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func recoveredNetworkReplacesAFailedBackgroundPrefetch() async throws {
+        var requests = 0
+        let service = FeedServiceStub(batches: [0: .init(items: [], nextSourcePage: 1, canLoadMore: false)],
+            beforeResponse: { _ in
+                requests += 1
+                if requests == 1 { throw URLError(.notConnectedToInternet) }
+            })
+        let coordinator = GalleryRecommendPrefetchCoordinator(service: service)
+        await coordinator.start(from: 0).value
+        #expect(try await coordinator.takePage(for: 0).page == 0)
+        #expect(await service.requestedPages() == [0, 0])
     }
 
     @Test("A cancelled generation preserves the next generation's cached page", .timeLimit(.minutes(1)))

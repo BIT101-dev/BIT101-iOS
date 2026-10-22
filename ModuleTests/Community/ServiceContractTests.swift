@@ -452,7 +452,7 @@ struct ServiceContractTests {
         })
         for (cursor, ids) in [(nil as Int?, [90, 80]), (Int.max, [90, 80]), (80, [70, 60]), (60, [])] {
             let messages = try await service.fetchMessages(type: type, lastID: cursor)
-            #expect(messages.map(\.id) == ids && messages.compactMap(\.linkedPosterID) == ids)
+            #expect(messages.map(\.id) == ids && messages.compactMap { $0.linkedResource?.id } == ids)
             let request = try #require(transport.requests.last)
             #expect(request.url?.path == "/messages")
             var expected = ["type": type.rawValue]
@@ -528,15 +528,20 @@ struct ServiceContractTests {
         #expect(transport.requests.map { $0.value(forHTTPHeaderField: "fake-cookie") } == ["expired", "fresh", "fresh", "fresh"])
     }
 
-    @Test(.timeLimit(.minutes(1)), arguments: ["poster0", "poster-1", "posterXYZ", "poster999999999999999999999", "paper1", "course1", "comment1", "poster17"])
-    func messageLinksRequireAPositivePosterIdentity(link: String) throws {
+    @Test(.timeLimit(.minutes(1)), arguments: ["poster0", "poster-1", "posterXYZ", "poster999999999999999999999", "paper1", "course1", "comment1", "poster17", "poster01"])
+    func messageLinksRequireAPositiveResourceIdentity(link: String) throws {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         func message(object: String) throws -> GalleryMessage {
             try decoder.decode(GalleryMessage.self, from: Data("{\"from_user\":{},\"id\":9,\"link_obj\":\"\(link)\",\"obj\":\"\(object)\",\"text\":\"\",\"update_time\":\"\"}".utf8))
         }
-        #expect(try message(object: "").linkedPosterID == (link == "poster17" ? 17 : nil))
-        #expect(try message(object: "poster17").linkedPosterID == 17)
+        let targets: [String: (CommunityResourceReference.Kind, Int)] = [
+            "poster17": (.poster, 17), "poster01": (.poster, 1), "paper1": (.paper, 1), "course1": (.course, 1)]
+        let expected = targets[link]
+        let direct = try message(object: "").linkedResource
+        #expect(direct?.kind == expected?.0 && direct?.id == expected?.1)
+        let fallback = try message(object: "poster17").linkedResource
+        #expect(fallback?.kind == (expected?.0 ?? .poster) && fallback?.id == (expected?.1 ?? 17))
     }
 
     @Test(.timeLimit(.minutes(1))) func anonymousPaperReadKeepsItsPublicContract() async throws {
@@ -768,13 +773,33 @@ struct ServiceContractTests {
         let gallery = GalleryService(session: shared, preferences: {
             .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
         })
-        await #expect(throws: GalleryServiceError.self) {
+        await #expect(throws: CommunityCreateOutcomeUnknown.self) {
             try await gallery.createPoster(title: "标题", text: "正文", imageMids: [], anonymous: false,
                 tags: [], claimID: 0, isPublic: true)
         }
-        await #expect(throws: PaperServiceError.self) {
+        await #expect(throws: CommunityCreateOutcomeUnknown.self) {
             try await PaperService(session: shared).createPaper(title: "标题", intro: "摘要", content: "正文", anonymous: false)
         }
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [0, -1])
+    func commentCreationKeepsInvalidIdentifiersInsideTheUnknownOutcomeBoundary(id: Int) async throws {
+        let comment = #"{"id":\#(id),"obj":"poster1","images":[],"user":\#(user),"anonymous":false,"create_time":"","update_time":"","like":false,"like_num":0,"comment_num":0,"own":true,"rate":0,"reply_user":\#(user),"reply_obj":"","text":"评论","sub":[]}"#
+        let transport = Transport(Array(repeating: (200, comment), count: 3))
+        let shared = session(transport)
+        let gallery = GalleryService(session: shared, preferences: {
+            .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
+        })
+        await #expect(throws: CommunityCreateOutcomeUnknown.self) {
+            try await gallery.createComment(objectID: "poster1", text: "评论")
+        }
+        await #expect(throws: CommunityCreateOutcomeUnknown.self) {
+            try await PaperService(session: shared).createComment(objectID: "paper1", text: "评论")
+        }
+        await #expect(throws: CommunityCreateOutcomeUnknown.self) {
+            try await CourseService(session: shared).createComment(objectID: "course1", text: "评论")
+        }
+        #expect(transport.requests.count == 3)
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: ["", "   ", "fixture-image"])

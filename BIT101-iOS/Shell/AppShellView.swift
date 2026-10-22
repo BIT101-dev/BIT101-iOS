@@ -166,7 +166,7 @@ struct AppShellView: View {
                     case .gallery:
                         GalleryRootView(
                             dependencies: community.gallery, media: destinations.media,
-                            profiles: destinations.profiles, papers: destinations.papers,
+                            profiles: destinations.profiles, papers: destinations.papers, courses: destinations.courses,
                             requestedPaperID: $requestedPaperID,
                             requestedPosterID: $requestedPosterID
                         )

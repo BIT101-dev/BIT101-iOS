@@ -47,7 +47,7 @@ public enum CommunityRetryPolicy {
 
 public struct CommunityCreateOutcomeUnknown: LocalizedError, CustomNSError {
     public static let reviewMessage = "请求已发出，发布结果待确认。请关闭编辑页，刷新已发布内容并核对结果后再操作。"
-    public static let commentReviewMessage = "请求已发出，评论结果待确认。请重新进入详情页，刷新评论并核对结果后再发送。"
+    public static let commentReviewMessage = "这条评论的发送结果待确认。请先核对评论列表；当前可继续发送其他评论。"
     public static let reportReviewMessage = "举报请求已发出，提交结果待确认。请稍后关注处理结果。当前页面已暂停再次提交。"
     public let underlying: any Error
     public init(underlying: any Error) { self.underlying = underlying }
@@ -113,7 +113,8 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
         body: Data? = nil,
         contentType: String? = nil,
         authentication: CommunityAuthentication = .required,
-        retryPolicy: CommunityRetryPolicy = .afterCredentialRefresh
+        retryPolicy: CommunityRetryPolicy = .afterCredentialRefresh,
+        validate: (@Sendable (Response) throws -> Void)? = nil
     ) async throws -> Response {
         let identity = authentication == .none ? nil : credentials().identity
         return try await withMutationOutcome(path: path, method: method) {
@@ -123,6 +124,7 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
             let value: Response
             do {
                 value = try await Self.decodeResponse(Response.self, from: response.data)
+                try validate?(value)
             } catch {
                 if TaskCancellation.matches(error) { throw error }
                 await response.reportValidationFailure(error)

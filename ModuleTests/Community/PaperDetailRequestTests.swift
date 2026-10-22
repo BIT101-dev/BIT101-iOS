@@ -6,6 +6,47 @@ import Testing
 
 @MainActor
 struct PaperDetailRequestTests {
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func foregroundDetailsPassQueuedPreviewsAndPromoteSharedRequests(upgrade: Bool) async throws {
+        let store = PaperDetailRequestStore()
+        let (events, entered) = AsyncStream<Int>.makeStream()
+        defer { entered.finish() }
+        var pending: [Int: CheckedContinuation<PaperDetail, any Error>] = [:]
+        func load(_ id: Int) async throws -> PaperDetail {
+            try await withCheckedThrowingContinuation { pending[id] = $0; entered.yield(id) }
+        }
+        var previews = (1...4).map { id in
+            Task { try await store.preview(id: id, credentials: credentials) { try await load(id) } }
+        }
+        var starts = events.makeAsyncIterator()
+        for _ in 1...4 { _ = await starts.next() }
+        let (queuedEvents, queuedEntered) = AsyncStream<Void>.makeStream()
+        defer { queuedEntered.finish() }
+        for id in 5...6 {
+            previews.append(Task {
+                queuedEntered.yield(())
+                return try await store.preview(id: id, credentials: credentials) { try await load(id) }
+            })
+        }
+        var queued = queuedEvents.makeAsyncIterator()
+        _ = await queued.next(); _ = await queued.next()
+        let foregroundID = upgrade ? 6 : 7
+        let detail = Task {
+            queuedEntered.yield(())
+            return try await store.detail(id: foregroundID, credentials: credentials) { try await load(foregroundID) }
+        }
+        _ = await queued.next()
+        pending.removeValue(forKey: 1)?.resume(returning: Self.detail(1))
+        #expect(await starts.next() == foregroundID)
+        for id in [2, 3, 4, foregroundID] { pending.removeValue(forKey: id)?.resume(returning: Self.detail(id)) }
+        for _ in 0..<(upgrade ? 1 : 2) {
+            let id = try #require(await starts.next())
+            pending.removeValue(forKey: id)?.resume(returning: Self.detail(id))
+        }
+        for preview in previews { _ = try await preview.value }
+        #expect(try await detail.value.id == foregroundID)
+    }
+
     @Test(.timeLimit(.minutes(1))) func previewOwnershipSurvivesRenewalAndTracksSignedInState() async throws {
         let store = PaperDetailRequestStore()
         var loads = 0

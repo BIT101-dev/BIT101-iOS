@@ -15,6 +15,7 @@ struct CourseCommentsSection: View {
     let totalCommentCount: Int
     let status: CommunityLoadStatus
     let isLoadingMore: Bool
+    let paginationError: String?
     let likingCommentIDs: Set<Int>
     let onReply: (CourseCommentReplyTarget) -> Void
     let onLikeComment: (CommunityComment) -> Void
@@ -67,9 +68,8 @@ struct CourseCommentsSection: View {
                             }
                         }
 
-                        if isLoadingMore {
-                            AppInlineLoadingState()
-                        }
+                        CommunityPaginationFooter(isLoading: isLoadingMore,
+                            errorMessage: paginationError) { onLoadMore(comments.last) }
                     }
                     .appCommentSectionStyle()
                 }

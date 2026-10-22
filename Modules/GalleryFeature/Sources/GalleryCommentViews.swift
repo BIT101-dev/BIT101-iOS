@@ -20,6 +20,7 @@ struct GalleryPosterCommentsSection: View {
     let totalCommentCount: Int
     let status: CommunityLoadStatus
     let isLoadingMore: Bool
+    let paginationError: String?
     let canContinue: Bool
     let selectedOrder: CommunityCommentOrder
     let likingCommentIDs: Set<Int>
@@ -82,12 +83,8 @@ struct GalleryPosterCommentsSection: View {
                     }
                     .appCommentSectionStyle()
                 }
-                if isLoadingMore {
-                    AppInlineLoadingState()
-                } else if canContinue {
-                    Button("继续查找评论") { onLoadMore(comments.last) }
-                        .accessibilityIdentifier("ui.gallery-comments.continue")
-                }
+                CommunityPaginationFooter(isLoading: isLoadingMore, errorMessage: paginationError,
+                    showsContinuation: canContinue) { onLoadMore(comments.last) }
             }
         }
     }

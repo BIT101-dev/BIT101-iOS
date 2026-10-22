@@ -9,6 +9,12 @@ private func isGalleryMessageCancellation(_ error: Error) -> Bool {
     TaskCancellation.matches(error)
 }
 
+nonisolated enum GalleryMessageDestination: Hashable {
+    case poster(CommunityPoster)
+    case paper(Int)
+    case course(Int)
+}
+
 private enum GalleryMessagePersistenceError: LocalizedError {
     case unavailable
     case unreadable
@@ -37,7 +43,7 @@ final class GalleryMessageViewModel: ObservableObject {
     @Published private(set) var unreadCountsFailure: String?
     private static let logger = Logger(subsystem: "BIT101-dev.BIT101-iOS", category: "GalleryMessages")
     @Published var alert: AppAlert?
-    @Published var selectedPoster: CommunityPoster?
+    @Published var destination: GalleryMessageDestination?
     /// 用于强制触发依赖本地已读仓库的视图刷新。
     @Published private var localReadVersion = 0
 
@@ -299,13 +305,18 @@ final class GalleryMessageViewModel: ObservableObject {
         let generation = posterGeneration
         let session = readStore.currentSession
         await markMessageAsRead(message, in: type)
-        guard session == readStore.currentSession, !Task.isCancelled else { return }
-        guard let posterID = message.linkedPosterID else { return }
+        guard session == readStore.currentSession, generation == posterGeneration, !Task.isCancelled,
+              let resource = message.linkedResource else { return }
+        switch resource.kind {
+        case .paper: destination = .paper(resource.id); return
+        case .course: destination = .course(resource.id); return
+        case .poster: break
+        }
         do {
-            let poster = try await details.fetchPoster(id: posterID)
+            let poster = try await details.fetchPoster(id: resource.id)
             try Task.checkCancellation()
             guard generation == posterGeneration, session == readStore.currentSession else { return }
-            selectedPoster = poster.asPoster
+            destination = .poster(poster.asPoster)
         } catch {
             guard generation == posterGeneration, session == readStore.currentSession,
                   !Task.isCancelled, !TaskCancellation.matches(error) else { return }

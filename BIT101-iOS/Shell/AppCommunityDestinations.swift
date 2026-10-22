@@ -24,6 +24,7 @@ final class AppCommunityDestinations {
     let profiles: CommunityProfileDestination
     let posters: CommunityPosterDestination
     let papers: CommunityPaperDestination
+    let courses: CommunityCourseDestination
     let settings: CommunitySettingsDestinations
     let settingsDependencies: SettingsDependencies
 
@@ -31,9 +32,15 @@ final class AppCommunityDestinations {
         self.media = media
         profiles = Self.profiles(dependencies: dependencies, media: media)
         posters = Self.posters(dependencies: dependencies, media: media)
-        papers = CommunityPaperDestination { requestedID, onShowFeed in
+        papers = CommunityPaperDestination(papers: { requestedID, onShowFeed in
             AnyView(PaperRootView(dependencies: dependencies.paper, media: media,
                                  requestedPaperID: requestedID, onShowFeed: onShowFeed))
+        }, detail: { id in
+            AnyView(PaperDetailDestination(dependencies: dependencies.paper, media: media, paperID: id))
+        })
+        courses = CommunityCourseDestination { id in
+            AnyView(CourseEvaluationDestination(dependencies: dependencies.course, media: media,
+                profiles: Self.profiles(dependencies: dependencies, media: media), request: .init(courseID: id)))
         }
         let selectedSettings = SettingsDependencies(
             settings: dependencies.settingsStore, schedule: schedule,

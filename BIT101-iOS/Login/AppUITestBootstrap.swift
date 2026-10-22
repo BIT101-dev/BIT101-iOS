@@ -201,7 +201,7 @@ final class UITestHTTPTransport: HTTPTransport {
         if fixtureRevision != snapshot.revision {
             fixtureRevision = snapshot.revision
             likedObjects = []
-            subscriptions = [:]
+            subscriptions = AppUITestBootstrap.environment["BIT101_UI_TEST_RESOURCE_ROUTES"] == "1" ? ["course1": 1] : [:]
             comments = []
             createdPosters = []
             createdPapers = []
@@ -274,6 +274,16 @@ final class UITestHTTPTransport: HTTPTransport {
         }
         let body = (request.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) }) as? [String: Any] ?? [:]
         let method = request.httpMethod ?? "GET"
+        if AppUITestBootstrap.environment["BIT101_UI_TEST_PAGINATION_FAILURE_ONCE"] == "1", page == "1",
+           method == "GET", ["posters", "papers", "courses"].contains(path),
+           failedPaths.insert("page-" + path + (query.first { $0.name == "order" }?.value ?? "")).inserted {
+            throw URLError(.networkConnectionLost)
+        }
+        if AppUITestBootstrap.environment["BIT101_UI_TEST_COURSE_LOOKUP_FAILURE_ONCE"] == "1", path == "courses",
+           let search = query.first(where: { $0.name == "search" })?.value, !search.isEmpty,
+           failedPaths.insert("lookup-" + search).inserted {
+            throw URLError(.networkConnectionLost)
+        }
         let payload: Any
         switch path {
         case "user/check": payload = [:] as [String: String]
@@ -290,7 +300,7 @@ final class UITestHTTPTransport: HTTPTransport {
                 if failedPaths.insert(path).inserted { throw URLError(.networkConnectionLost) }
                 payload = page == "0" ? subscriptions.sorted { $0.key < $1.key }.filter { $0.value > 0 }.enumerated().map { index, item in
                     ["id": index + 1, "subscription_time": timestamp, "obj": item.key, "level": item.value,
-                        "text": "自动化测试话题"] as [String: Any]
+                        "text": item.key == "course1" ? "收藏课程" : "自动化测试话题"] as [String: Any]
                 } : []
             }
         case "upload/image":
@@ -302,10 +312,12 @@ final class UITestHTTPTransport: HTTPTransport {
         case "messages":
             let cursor = query.first(where: { $0.name == "last_id" })?.value.flatMap(Int.init)
             if cursor == nil || cursor == 0 { clearedMessageTypes.insert(query.first(where: { $0.name == "type" })?.value ?? "comment") }
-            payload = cursor.map { $0 > 0 && $0 <= 1 } == true ? [] : [[
-                "id": 1, "from_user": user, "link_obj": "poster1", "obj": "poster1",
-                "text": "自动化测试消息", "update_time": timestamp,
-            ]]
+            let resources = AppUITestBootstrap.environment["BIT101_UI_TEST_RESOURCE_ROUTES"] == "1"
+                ? [(2, "course1", "课程更新"), (1, "paper1", "文章更新")] : [(1, "poster1", "自动化测试消息")]
+            payload = resources.filter { cursor == nil || cursor == 0 || $0.0 < (cursor ?? 0) }.map { id, object, text in
+                ["id": id, "from_user": user, "link_obj": object, "obj": object,
+                    "text": text, "update_time": timestamp] as [String: Any]
+            }
         case "reaction/like":
             let object = body["obj"] as? String ?? "poster1"
             if likedObjects.contains(object) { likedObjects.remove(object) } else { likedObjects.insert(object) }
@@ -349,6 +361,8 @@ final class UITestHTTPTransport: HTTPTransport {
                     item["tags"] = sourcePage == 10 ? ["bot"] : ["测试"]
                     item["title"] = sourcePage == 10 ? "机器人分页话题" : "普通分页话题"
                     payload = sourcePage <= 10 ? [item] : []
+                } else if AppUITestBootstrap.environment["BIT101_UI_TEST_PAGINATION"] == "1" {
+                    payload = paginationItems(poster, page: page, key: "title", title: "分页话题")
                 } else {
                     payload = page == "0" ? ([poster] + createdPosters).filter { !deletedPosterIDs.contains($0["id"] as? Int ?? 0) } : []
                 }

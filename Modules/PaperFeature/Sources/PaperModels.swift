@@ -143,6 +143,7 @@ public nonisolated struct PaperDetail: Decodable, Identifiable, Hashable, Sendab
 
 /// 文章列表分页状态。
 struct PaperListState {
+    var paginationError: String?
     var pagedItems = CommunityPagedItems<PaperSummary>()
     var items: [PaperSummary] {
         get { pagedItems.items }

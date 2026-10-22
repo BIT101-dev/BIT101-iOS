@@ -29,10 +29,8 @@ public nonisolated struct GallerySubscription: Decodable, Identifiable, Hashable
     public let text: String
 
     public var resource: (kind: String, id: Int)? {
-        for kind in ["poster", "paper", "course"] where obj.hasPrefix(kind) {
-            if let id = Int(obj.dropFirst(kind.count)), id > 0 { return (kind, id) }
-        }
-        return nil
+        guard let resource = CommunityResourceReference(objectID: obj) else { return nil }
+        return (resource.kind.rawValue, resource.id)
     }
     public var resourceTitle: String {
         switch resource?.kind {
@@ -258,6 +256,7 @@ extension GalleryPosterDetail {
 ///
 /// 分页加载状态由 `GalleryFeedState.isLoadingMore` 管理。
 struct GalleryFeedState {
+    var paginationError: String?
     /// 当前已经加载到客户端的帖子列表。
     var pagedItems = CommunityPagedItems<CommunityPoster>()
     var posters: [CommunityPoster] {
@@ -320,9 +319,9 @@ extension GalleryMessageType {
     public func actionText(for message: GalleryMessage) -> String {
         switch self {
         case .comment:
-            return message.obj.hasPrefix("comment") ? "回复了你的评论" : "评论了你的帖子"
+            return message.obj.hasPrefix("comment") ? "回复了你的评论" : "评论了你的\(message.resourceTitle)"
         case .like:
-            return message.obj.hasPrefix("comment") ? "点赞了你的评论" : "点赞了你的帖子"
+            return message.obj.hasPrefix("comment") ? "点赞了你的评论" : "点赞了你的\(message.resourceTitle)"
         case .follow:
             return "关注了你"
         case .subscription:
@@ -466,7 +465,7 @@ public nonisolated struct GalleryMessageUnreadCounts: Decodable, Equatable, Send
 
 /// 单条消息模型。
 ///
-/// 消息数据通过 `obj/link_obj` 字段关联目标帖子。
+/// 消息数据通过 `obj/link_obj` 字段关联社区资源。
 public nonisolated struct GalleryMessage: Decodable, Identifiable, Hashable, Sendable {
     public let fromUser: GalleryMessageUser
     public let id: Int
@@ -475,15 +474,11 @@ public nonisolated struct GalleryMessage: Decodable, Identifiable, Hashable, Sen
     public let text: String
     public let updateTime: String
 
-    /// 解析消息指向的帖子 ID。
-    public var linkedPosterID: Int? {
-        Self.posterID(from: linkObj) ?? Self.posterID(from: obj)
+    public var linkedResource: CommunityResourceReference? {
+        CommunityResourceReference(objectID: linkObj) ?? CommunityResourceReference(objectID: obj)
     }
 
-    private static func posterID(from raw: String) -> Int? {
-        guard raw.hasPrefix("poster"), let id = Int(raw.dropFirst("poster".count)), id > 0 else { return nil }
-        return id
-    }
+    public var resourceTitle: String { linkedResource?.kind.title ?? "内容" }
 }
 
 /// 单个消息分类的列表状态。

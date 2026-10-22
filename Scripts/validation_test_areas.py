@@ -539,6 +539,9 @@ def network_capability_findings(index: dict) -> list[str]:
 
 CRITICAL_CONTRACTS = {
     "all": {
+        "已确认评论在刷新故障中持续展示": "GalleryRecommendationPrefetchTests/confirmedCommentsAppearThroughTheFollowingRefreshFailure",
+        "失败预取沿恢复后的网络重新请求": "GalleryRecommendationPrefetchTests/recoveredNetworkReplacesAFailedBackgroundPrefetch",
+        "文章读取直接保留业务请求": "FeatureCompositionTests/authenticatedPaperReadsKeepTheirBusinessRoutes",
         "成绩单补页持续展示已有页面": "TrustedTranscriptRecoveryTests/retriesKeepVisiblePagesAndLoadTheMissingPageFromTheSameReport",
         "成绩单来源替换保留完整结果": "TrustedTranscriptRecoveryTests/aPartialReplacementKeepsTheFullerCoherentReport",
         "缓存写入故障维持静态与动画图片": "MediaAvailabilityTests/cacheWriteFailureKeepsDownloadedImagesAvailable",

@@ -10,6 +10,47 @@ import os
 
 @MainActor
 struct CommunityCoreTests {
+    @Test func uncertainCommentsRetainTheirOwnSubmissionIdentityThroughARefresh() {
+        let first = CommunityCommentSubmission(objectID: "paper1", text: "评论", anonymous: false,
+            replyObjectID: nil, replyUID: nil)
+        let other = CommunityCommentSubmission(objectID: "paper1", text: "另一条评论", anonymous: false,
+            replyObjectID: nil, replyUID: nil)
+        var state = CommunityCommentState()
+        let previous = state
+        state.recordUncertainSubmission(first)
+        state.restoreAfterRefreshFailure(previous)
+        #expect(state.needsReview(first) && state.needsReview(other) == false)
+    }
+
+    @Test(arguments: [false, true])
+    func confirmedCommentsSurviveStaleReadsAndRefreshFailures(reply: Bool) {
+        let user = CommunityUser.placeholder(id: 1, nickname: "作者")
+        func comment(_ id: Int, sub: [CommunityComment] = []) -> CommunityComment {
+            CommunityComment(id: id, obj: "paper1", images: [], user: user, anonymous: false,
+                createTime: "", updateTime: "", like: false, likeNum: 0, commentNum: sub.count,
+                own: true, rate: 0, replyUser: user, replyObj: "", text: "评论\(id)", sub: sub)
+        }
+        let parent = comment(1), created = comment(2)
+        var state = CommunityCommentState()
+        state.applyFirstPage([parent])
+        let previous = state
+        state.recordCreated(created, replyingTo: reply ? parent : nil)
+        state.confirmRead(in: [])
+        state.applyFirstPage(state.applyingLocalChanges(to: [], since: 0))
+        state.restoreAfterRefreshFailure(previous, failureStatus: .failed("offline"))
+        let visible = state.items + state.items.flatMap(\.flattenedReplies)
+        #expect(visible.contains(where: { $0.id == created.id }) && state.status == .loaded)
+        let server = reply ? [comment(1, sub: [created])] : [created]
+        state.confirmRead(in: server)
+        state.applyFirstPage(state.applyingLocalChanges(to: server, since: 0))
+        #expect((state.items + state.items.flatMap(\.flattenedReplies)).filter { $0.id == created.id }.count == 1)
+        state.recordDeleted(created.id)
+        state.applyFirstPage(state.applyingLocalChanges(to: server, since: 0))
+        #expect((state.items + state.items.flatMap(\.flattenedReplies)).contains { $0.id == created.id } == false)
+        state.applyFirstPage(state.applyingLocalChanges(to: [], since: 0))
+        #expect(state.items.isEmpty)
+    }
+
     @Test(.timeLimit(.minutes(1))) func detailExitCancelsEveryOwnedRequestAndAllowsReentry() async throws {
         let tasks = CommunityDetailTasks()
         var started = 0, cancelled = 0
@@ -50,8 +91,8 @@ struct CommunityCoreTests {
         state.recordLike(.init(like: true, likeNum: 3), for: 4)
         #expect(state.items[0].flattenedReplies.first { $0.id == 4 }?.likeNum == 3)
         #expect(state.items[0].sub[1] == root.sub[1] && state.items[1] == comment(7))
-        #expect(state.applyingLikes(to: [root], since: state.likeRevision) == [root])
-        #expect(state.applyingLikes(to: [root], since: 0) == [state.items[0]])
+        #expect(state.applyingLocalChanges(to: [root], since: state.likeRevision) == [root])
+        #expect(state.applyingLocalChanges(to: [root], since: 0) == [state.items[0]])
     }
 
     @Test func displayBudgetsRetainValidMultibyteTextAndTheOriginal() {

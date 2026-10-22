@@ -568,6 +568,20 @@ struct CommunityDependencyBoundaryTests {
         #expect(model.alert?.title == "保存消息状态失败")
     }
 
+    @Test(.timeLimit(.minutes(1)), arguments: ["paper", "course"])
+    func messageNavigationKeepsTheResourceKind(kind: String) async throws {
+        let model = GalleryMessageViewModel(service: RecordingMessageService(), readStore: RecordingMessageReadStore())
+        let details = SuspendedMessageDetails()
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let message = try decoder.decode(GalleryMessage.self, from: Data(
+            "{\"id\":42,\"from_user\":{},\"link_obj\":\"\(kind)42\",\"obj\":\"\(kind)42\",\"text\":\"更新\",\"update_time\":\"\"}".utf8))
+        await model.openMessage(message, in: .comment, using: details)
+        #expect(model.destination == (kind == "paper" ? .paper(42) : .course(42)))
+        #expect(details.pending.isEmpty)
+        #expect(GalleryMessageType.comment.actionText(for: message) == (kind == "paper" ? "评论了你的文章" : "评论了你的课程"))
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: ["replacement", "cancel", "account", "error"])
     func messageNavigationKeepsTheLatestIntentAndReportsTheActualFailure(boundary: String) async throws {
         let store = RecordingMessageReadStore()
@@ -587,7 +601,9 @@ struct CommunityDependencyBoundaryTests {
         if boundary == "error" { details.pending.removeValue(forKey: 1)?.resume(throwing: failure) }
         else { details.pending.removeValue(forKey: 1)?.resume(returning: details.poster(1)) }
         await first.value
-        #expect(model.selectedPoster?.id == (boundary == "replacement" ? 2 : nil))
+        let resolvedID: Int?
+        if case let .poster(poster) = model.destination { resolvedID = poster.id } else { resolvedID = nil }
+        #expect(resolvedID == (boundary == "replacement" ? 2 : nil))
         #expect(model.alert?.message == (boundary == "error" ? failure.localizedDescription : nil))
     }
 

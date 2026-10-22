@@ -141,7 +141,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             start.press(forDuration: 0.01, thenDragTo: end, withVelocity: .fast, thenHoldForDuration: 0.1)
             if isVisible() { return }
         }
-        assertUI(false, "滚动后目标应可触达：\(description)。存在：\(element.exists)，窗口：\(app.windows.firstMatch.frame)。\(focusedAccessibilitySnapshot(app, matching: [description, "Button", "Alert"]))")
+        assertUI(false, "滚动后目标应可触达：\(description)。存在：\(element.exists)，窗口：\(app.windows.firstMatch.frame)。")
     }
 
     @MainActor
@@ -616,10 +616,9 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         line: UInt = #line
     ) {
         guard !condition() else { return }
-        var diagnostics = ""
         let application = app
         let state = application.state
-        diagnostics = "App 运行状态：\(state.rawValue)。"
+        let diagnostics = "App 运行状态：\(state.rawValue)。"
         if state == .runningForeground {
             capturedFailure = true
             let description = application.native.debugDescription
@@ -629,7 +628,6 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             let screenshot = XCTAttachment(screenshot: application.screenshot())
             screenshot.name = "失败时的界面截图"
             add(screenshot)
-            diagnostics += focusedAccessibilitySnapshot(description, matching: ["Alert", "NavigationBar", "TextField"])
         }
         XCTFail("\(message()) \(diagnostics)", file: file, line: line)
     }
@@ -729,6 +727,9 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         media: Bool = false,
         botPaging: Bool = false,
         pagination: Bool = false,
+        paginationFailureOnce: Bool = false,
+        courseLookupFailureOnce: Bool = false,
+        resourceRoutes: Bool = false,
         failureOnce: Bool = false,
         claimsFailureOnce: Bool = false,
         reportFailureOnce: Bool = false,
@@ -796,6 +797,9 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         application.launchEnvironment["BIT101_UI_TEST_MEDIA"] = media ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_BOT_PAGING"] = botPaging ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_PAGINATION"] = pagination ? "1" : "0"
+        application.launchEnvironment["BIT101_UI_TEST_PAGINATION_FAILURE_ONCE"] = paginationFailureOnce ? "1" : "0"
+        application.launchEnvironment["BIT101_UI_TEST_COURSE_LOOKUP_FAILURE_ONCE"] = courseLookupFailureOnce ? "1" : "0"
+        application.launchEnvironment["BIT101_UI_TEST_RESOURCE_ROUTES"] = resourceRoutes ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_FAILURE_ONCE"] = failureOnce ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_CLAIMS_FAILURE_ONCE"] = claimsFailureOnce ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_REPORT_FAILURE_ONCE"] = reportFailureOnce ? "1" : "0"

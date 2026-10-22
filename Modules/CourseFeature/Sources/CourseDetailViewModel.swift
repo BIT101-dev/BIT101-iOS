@@ -90,7 +90,6 @@ final class CourseDetailViewModel: ObservableObject {
     @Published private(set) var historyGradesAllowsDiagnostics = true
     @Published private(set) var likingCommentIDs: Set<Int> = []
     @Published private(set) var isSubmittingComment = false
-    private var commentResultNeedsReview = false
     @Published var alert: AppAlert?
 
     let initialCourse: CourseSummary
@@ -250,11 +249,14 @@ final class CourseDetailViewModel: ObservableObject {
         switch result {
         case let .success(comments):
             guard refreshGeneration == generation else { return }
-            commentState.confirmReadLikes(in: comments)
-            commentState.appendPage(commentState.applyingLikes(to: comments, since: likeRevisionAtStart))
+            commentState.confirmRead(in: comments)
+            commentState.appendPage(commentState.applyingLocalChanges(to: comments, since: likeRevisionAtStart))
+            commentState.canLoadMore = !comments.isEmpty
+            commentState.paginationError = nil
         case let .failure(error):
             guard refreshGeneration == generation else { return }
             if isCourseDetailCancellation(error) { return }
+            commentState.paginationError = error.localizedDescription
             alert = AppAlert(title: "加载更多评论失败", message: error.localizedDescription)
         }
     }
@@ -362,7 +364,9 @@ final class CourseDetailViewModel: ObservableObject {
             return false
         }
         guard !isSubmittingComment else { return false }
-        guard !commentResultNeedsReview else {
+        let submission = CommunityCommentSubmission(objectID: target.objectID, text: trimmed,
+            anonymous: anonymous, replyObjectID: target.replyObjectID, replyUID: target.replyUID, rate: rate)
+        guard !commentState.needsReview(submission) else {
             alert = AppAlert(title: "发送结果待确认", message: CommunityCreateOutcomeUnknown.commentReviewMessage)
             return false
         }
@@ -376,7 +380,7 @@ final class CourseDetailViewModel: ObservableObject {
 
         do {
             try Task.checkCancellation()
-            _ = try await service.createComment(
+            let created = try await service.createComment(
                 objectID: target.objectID,
                 text: trimmed,
                 replyObjectID: target.replyObjectID,
@@ -384,11 +388,14 @@ final class CourseDetailViewModel: ObservableObject {
                 anonymous: anonymous,
                 rate: rate
             )
-            await refresh()
+            let parent: CommunityComment?
+            if case let .comment(mainComment, _) = target { parent = mainComment } else { parent = nil }
+            commentState.recordCreated(created, replyingTo: parent)
+            pendingOperations.enqueue { [weak self] in await self?.refresh() }
             return true
         } catch {
             if error is CommunityCreateOutcomeUnknown {
-                commentResultNeedsReview = true
+                commentState.recordUncertainSubmission(submission)
                 alert = AppAlert(title: "发送结果待确认", message: CommunityCreateOutcomeUnknown.commentReviewMessage)
                 return false
             }
@@ -455,8 +462,10 @@ final class CourseDetailViewModel: ObservableObject {
     ) {
         switch result {
         case let .success(comments):
-            commentState.confirmReadLikes(in: comments)
-            commentState.applyFirstPage(commentState.applyingLikes(to: comments, since: previousState.likeRevision))
+            commentState.confirmRead(in: comments)
+            commentState.applyFirstPage(commentState.applyingLocalChanges(to: comments, since: previousState.likeRevision))
+            commentState.canLoadMore = !comments.isEmpty
+            commentState.paginationError = nil
             commentState.status = .loaded
         case let .failure(error):
             let cancelled = isCourseDetailCancellation(error)

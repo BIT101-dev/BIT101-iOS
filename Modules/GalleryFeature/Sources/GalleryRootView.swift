@@ -48,9 +48,10 @@ public struct GalleryRootView: View {
         media: MediaEnvironment,
         profiles: CommunityProfileDestination,
         papers: CommunityPaperDestination,
+        courses: CommunityCourseDestination,
         requestedPaperID: Binding<Int?> = .constant(nil),
         requestedPosterID: Binding<Int?> = .constant(nil)) {
-        scene = GalleryRootViewScene(dependencies: dependencies, media: media, profiles: profiles, papers: papers, requestedPaperID: requestedPaperID, requestedPosterID: requestedPosterID)
+        scene = GalleryRootViewScene(dependencies: dependencies, media: media, profiles: profiles, papers: papers, courses: courses, requestedPaperID: requestedPaperID, requestedPosterID: requestedPosterID)
         identity = [ObjectIdentifier(dependencies), ObjectIdentifier(media)]
     }
 
@@ -60,10 +61,10 @@ public struct GalleryRootView: View {
 }
 
 private struct GalleryRootViewScene: View {
-    @Environment(\.openURL) private var openURL
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let dependencies: GalleryDependencies
     private let destinations: CommunityPaperDestination
+    private let courses: CommunityCourseDestination
     private let profiles: CommunityProfileDestination
     private let media: MediaEnvironment
     @Environment(\.scenePhase) private var scenePhase
@@ -77,6 +78,8 @@ private struct GalleryRootViewScene: View {
     @State private var isShowingComposer = false
     @State private var isShowingMessages = false
     @State private var isShowingSubscriptions = false
+    @State private var selectedCourseID: Int?
+    @State private var unreadRefreshGeneration = 0
     @Binding private var requestedPaperID: Int?
     @Binding private var requestedPosterID: Int?
     @State private var selectedSurface: GallerySurface = .gallery
@@ -90,6 +93,7 @@ private struct GalleryRootViewScene: View {
         media: MediaEnvironment,
         profiles: CommunityProfileDestination,
         papers: CommunityPaperDestination,
+        courses: CommunityCourseDestination,
         requestedPaperID: Binding<Int?> = .constant(nil),
         requestedPosterID: Binding<Int?> = .constant(nil)
     ) {
@@ -99,6 +103,7 @@ private struct GalleryRootViewScene: View {
         self.media = media
         self.profiles = profiles
         self.destinations = papers
+        self.courses = courses
         self.posterService = dependencies.posterDetail
         _viewModel = StateObject(wrappedValue: GalleryViewModel(service: dependencies.feed))
         _messageViewModel = StateObject(wrappedValue: GalleryMessageViewModel(service: dependencies.messageService, readStore: dependencies.messages))
@@ -276,9 +281,10 @@ private struct GalleryRootViewScene: View {
             }
         }
         .task {
-            async let feedTask: Void = viewModel.bootstrapIfNeeded()
-            async let messageTask: Void = messageViewModel.refreshUnreadCounts()
-            _ = await (feedTask, messageTask)
+            await viewModel.bootstrapIfNeeded()
+        }
+        .task(id: unreadRefreshGeneration) {
+            await messageViewModel.refreshUnreadCounts()
         }
         .onChange(of: viewModel.selectedFeed) { _, newFeed in
             if viewModel.state(for: newFeed).status == .idle {
@@ -289,12 +295,14 @@ private struct GalleryRootViewScene: View {
             guard newValue, !oldValue else { return }
             media.retryFailedImages()
             viewModel.enqueueRetry(for: viewModel.selectedFeed)
+            unreadRefreshGeneration &+= 1
         }
         .onChange(of: scenePhase) { _, newPhase in
             guard newPhase == .active else { return }
             guard networkObserver.isReachable else { return }
             media.retryFailedImages()
             viewModel.enqueueRetry(for: viewModel.selectedFeed)
+            unreadRefreshGeneration &+= 1
         }
         .sheet(isPresented: $viewModel.isShowingSearch) {
             NavigationStack {
@@ -303,7 +311,7 @@ private struct GalleryRootViewScene: View {
         }
         .sheet(isPresented: $isShowingMessages) {
             NavigationStack {
-                GalleryMessagesView(viewModel: messageViewModel)
+                GalleryMessagesView(papers: destinations, courses: courses, viewModel: messageViewModel)
             }
             .presentationDragIndicator(.hidden)
         }
@@ -316,11 +324,13 @@ private struct GalleryRootViewScene: View {
                         selectedSurface = .paper
                         requestedPaperID = id
                     } else if kind == "course" {
-                        openURL(AppURL.required("https://bit101.cn/course/\(id)"))
+                        isShowingSubscriptions = false
+                        selectedCourseID = id
                     }
                 }
             }
         }
+        .navigationDestination(item: $selectedCourseID) { id in courses.course(id) }
         .sheet(isPresented: $isShowingComposer) {
             GalleryComposerView {
                 viewModel.enqueueNewestRefreshAfterComposer()

@@ -72,6 +72,7 @@ private struct CourseDetailViewScene: View {
                     totalCommentCount: viewModel.resolvedCommentNum,
                     status: viewModel.commentState.status,
                     isLoadingMore: viewModel.commentState.isLoadingMore,
+                    paginationError: viewModel.commentState.paginationError,
                     likingCommentIDs: viewModel.likingCommentIDs,
                     onReply: { target in
                         composerTarget = .comment(mainComment: target.mainComment, targetComment: target.targetComment)

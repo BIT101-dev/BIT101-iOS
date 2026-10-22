@@ -14,6 +14,8 @@ import DesignSystemKit
 import SwiftUI
 
 struct GalleryMessagesView: View {
+    let papers: CommunityPaperDestination
+    let courses: CommunityCourseDestination
     @Environment(\.appInteractionEvidence) private var interactionEvidence
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(GalleryDependencies.self) private var dependencies
@@ -64,7 +66,7 @@ struct GalleryMessagesView: View {
                                         type: type,
                                         message: message,
                                         isUnread: viewModel.isUnread(message, in: type),
-                                        onOpenPoster: {
+                                        onOpenResource: {
                                             requestedMessage = message
                                         }
                                     )
@@ -155,8 +157,13 @@ struct GalleryMessagesView: View {
             await viewModel.openMessage(message, in: viewModel.selectedType, using: dependencies.posterDetail)
             if requestedMessage == message { requestedMessage = nil }
         }
-        .navigationDestination(item: $viewModel.selectedPoster) { poster in
-            GalleryPosterDetailView(dependencies: dependencies, media: media, profiles: profiles, poster: poster)
+        .navigationDestination(item: $viewModel.destination) { destination in
+            switch destination {
+            case let .poster(poster):
+                GalleryPosterDetailView(dependencies: dependencies, media: media, profiles: profiles, poster: poster)
+            case let .paper(id): papers.detail(id)
+            case let .course(id): courses.course(id)
+            }
         }
         .diagnosticAlert(item: $viewModel.alert)
     }
@@ -217,10 +224,10 @@ private struct GalleryMessageRow: View {
     let type: GalleryMessageType
     let message: GalleryMessage
     let isUnread: Bool
-    let onOpenPoster: () -> Void
+    let onOpenResource: () -> Void
 
-    private var canOpenPoster: Bool {
-        message.linkedPosterID != nil
+    private var canOpenResource: Bool {
+        message.linkedResource != nil
     }
 
     var body: some View {
@@ -260,7 +267,7 @@ private struct GalleryMessageRow: View {
                 }
             }
 
-            if canOpenPoster {
+            if canOpenResource {
                 Image(systemName: "chevron.right")
                     .font(AppDesignSystem.Typography.captionEmphasis)
                     .foregroundStyle(AppDesignSystem.Foreground.tertiary)
@@ -273,11 +280,11 @@ private struct GalleryMessageRow: View {
         .background(isUnread ? AppDesignSystem.Palette.Accent.surface : AppDesignSystem.Palette.Background.system)
         .contentShape(Rectangle())
         .onTapGesture {
-            onOpenPoster()
+            onOpenResource()
         }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
-        .accessibilityHint(canOpenPoster ? "打开关联帖子" : "标记为已读")
+        .accessibilityHint(canOpenResource ? "打开关联\(message.resourceTitle)" : "标记为已读")
         .accessibilityIdentifier("gallery.message.\(message.id)")
     }
 }

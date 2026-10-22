@@ -353,13 +353,14 @@ struct FeatureCompositionTests {
         let surroundingTransport = TraceTransport()
         let selectedMedia = media()
         var routedIDs: [Int] = []
-        let paperRoute = CommunityPaperDestination { requestedID, onShowFeed in
+        let paperRoute = CommunityPaperDestination(papers: { requestedID, onShowFeed in
             if let id = requestedID.wrappedValue { routedIDs.append(id) }
             return AnyView(PaperRootView(dependencies: paper(paperTransport), media: selectedMedia,
                                         requestedPaperID: requestedID, onShowFeed: onShowFeed))
-        }
+        }, detail: { AnyView(Text("paper \($0)")) })
         let view = GalleryRootView(dependencies: gallery(galleryTransport), media: selectedMedia,
             profiles: CommunityProfileDestination { AnyView(Text("profile \($0)")) }, papers: paperRoute,
+            courses: CommunityCourseDestination { AnyView(Text("course \($0)")) },
             requestedPaperID: .constant(42))
             .environment(gallery(surroundingTransport)).environment(media())
         try await host(view) { try await paperTransport.waitForRequest() }
@@ -483,7 +484,7 @@ struct FeatureCompositionTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func authenticatedPaperReadsSendTheSmokePreflightAndBusinessRoutes() async throws {
+    func authenticatedPaperReadsKeepTheirBusinessRoutes() async throws {
         let transport = TraceTransport()
         transport.response = { request in
             switch request.url?.path {
@@ -498,7 +499,7 @@ struct FeatureCompositionTests {
         _ = try await service.fetchPaper(id: 17)
         _ = try await service.fetchComments(paperID: 17, order: .newest, page: 0)
         _ = try await service.fetchComments(paperID: 17, order: .newest, page: 1)
-        #expect(transport.requests.map { $0.url?.path } == ["/user/check", "/papers/17", "/user/check", "/reaction/comments", "/user/check", "/reaction/comments"])
+        #expect(transport.requests.map { $0.url?.path } == ["/papers/17", "/reaction/comments", "/reaction/comments"])
         let url = try #require(transport.requests.last?.url)
         let query = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems)
         #expect(Dictionary(uniqueKeysWithValues: query.map { ($0.name, $0.value ?? "") }) == ["obj": "paper17", "order": "new", "page": "1"])
@@ -609,9 +610,11 @@ struct FeatureCompositionTests {
         let first = TraceTransport(), second = TraceTransport()
         let selectedMedia = media()
         let profiles = CommunityProfileDestination { AnyView(Text("profile \($0)")) }
-        let papers = CommunityPaperDestination { _, _ in AnyView(Text("paper")) }
-        try await replace(GalleryRootView(dependencies: gallery(first), media: selectedMedia, profiles: profiles, papers: papers),
-            with: GalleryRootView(dependencies: gallery(second), media: selectedMedia, profiles: profiles, papers: papers),
+        let papers = CommunityPaperDestination(papers: { _, _ in AnyView(Text("paper")) },
+            detail: { AnyView(Text("paper \($0)")) })
+        let courses = CommunityCourseDestination { AnyView(Text("course \($0)")) }
+        try await replace(GalleryRootView(dependencies: gallery(first), media: selectedMedia, profiles: profiles, papers: papers, courses: courses),
+            with: GalleryRootView(dependencies: gallery(second), media: selectedMedia, profiles: profiles, papers: papers, courses: courses),
             firstTransport: first, secondTransport: second, initialRequests: 2)
     }
 

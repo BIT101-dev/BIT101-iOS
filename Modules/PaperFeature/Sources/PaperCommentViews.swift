@@ -13,6 +13,7 @@ struct PaperCommentsSection: View {
     let totalCommentCount: Int
     let status: CommunityLoadStatus
     let isLoadingMore: Bool
+    let paginationError: String?
     let selectedOrder: CommunityCommentOrder
     let likingCommentIDs: Set<Int>
     let onSelectOrder: @MainActor (CommunityCommentOrder) -> Void
@@ -65,9 +66,8 @@ struct PaperCommentsSection: View {
                             }
                         }
 
-                        if isLoadingMore {
-                            AppInlineLoadingState()
-                        }
+                        CommunityPaginationFooter(isLoading: isLoadingMore,
+                            errorMessage: paginationError) { onLoadMore(comments.last) }
                     }
                     .appCommentSectionStyle()
                 }

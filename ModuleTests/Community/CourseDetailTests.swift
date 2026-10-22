@@ -158,6 +158,19 @@ struct CourseDetailTests {
             loadCourseCredits: { [CommunityCourseCredit(number: "CS101", name: "操作系统", credit: 4)] })
     }
 
+    @Test(.timeLimit(.minutes(1))) func confirmedCommentAppearsThroughTheFollowingRefreshFailure() async throws {
+        let service = Service()
+        let failure = URLError(.notConnectedToInternet)
+        service.detailResult = .failure(failure)
+        service.commentResult = .failure(failure)
+        let viewModel = model(service)
+        #expect(await viewModel.submitComment(text: "评论", anonymous: false, rate: 6,
+            target: .course(courseID: 42)))
+        #expect(viewModel.commentState.items.count == 1 && viewModel.isSubmittingComment == false)
+        try await waitForTestEvent { viewModel.alert?.title == "加载评论失败" }
+        #expect(viewModel.commentState.items.count == 1 && viewModel.commentState.status == .loaded)
+    }
+
     @Test(.timeLimit(.minutes(1))) func uncertainCommentStopsAnotherSubmissionWhileItsResultNeedsReview() async {
         let service = Service()
         service.submissionError = CommunityCreateOutcomeUnknown(underlying: URLError(.networkConnectionLost))
@@ -169,9 +182,7 @@ struct CourseDetailTests {
         #expect(viewModel.alert?.message == CommunityCreateOutcomeUnknown.commentReviewMessage)
         await viewModel.refresh()
         #expect(await viewModel.submitComment(text: "评论", anonymous: false, rate: 6, target: .course(courseID: 42)) == false)
-        let reopened = model(service)
-        await reopened.refresh()
-        #expect(await reopened.submitComment(text: "新的评论", anonymous: false, rate: 6, target: .course(courseID: 42)))
+        #expect(await viewModel.submitComment(text: "新的评论", anonymous: false, rate: 6, target: .course(courseID: 42)))
         #expect(service.submissionCount == 2)
     }
 
@@ -194,6 +205,7 @@ struct CourseDetailTests {
         #expect(editor == "reopened" && viewModel.alert == nil && viewModel.isSubmittingComment == false)
         #expect(service.detailCalls == 0 && service.commentRequests.isEmpty)
         #expect(await viewModel.submitComment(text: "retry", anonymous: false, rate: 6, target: .course(courseID: 42)))
+        try await waitForTestEvent { service.detailCalls == 1 }
         #expect(service.submitted?.1 == "retry" && service.detailCalls == 1)
     }
 

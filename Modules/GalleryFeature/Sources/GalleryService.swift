@@ -381,9 +381,9 @@ public struct GalleryService {
                     claimID: claimID,
                     public: isPublic
                 )
-            )
+            ),
+            validate: { guard $0.id > 0 else { throw GalleryServiceError.invalidResponse } }
         )
-        guard response.id > 0 else { throw GalleryServiceError.invalidResponse }
         return response.id
     }
 
@@ -528,7 +528,8 @@ public struct GalleryService {
                     anonymous: anonymous,
                     imageMids: imageMids
                 )
-            )
+            ),
+            validate: { guard $0.id > 0 else { throw GalleryServiceError.invalidResponse } }
         )
     }
 

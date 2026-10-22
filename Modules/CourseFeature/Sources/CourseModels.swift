@@ -101,6 +101,14 @@ public struct CourseNavigationRequest: Identifiable, Hashable {
         lookupCourseName != nil || lookupCourseNumber != nil
     }
 
+    public var isSearchRequest: Bool {
+        courseID == 0 && !hasLookupIdentity && searchQuery?.isEmpty == false
+    }
+
+    public static func search(query: String) -> Self {
+        Self(courseID: 0, searchQuery: query)
+    }
+
     public init(
         courseID: Int,
         lookupCourseName: String? = nil,
@@ -468,6 +476,7 @@ enum CourseLoadStatus: Equatable {
 ///
 /// 这里把首屏状态和分页游标放在一起，避免视图层分别维护多组彼此耦合的布尔值。
 struct CoursePagedState {
+    var paginationError: String?
     var pagedItems = CommunityPagedItems<CourseSummary>()
     var items: [CourseSummary] {
         get { pagedItems.items }

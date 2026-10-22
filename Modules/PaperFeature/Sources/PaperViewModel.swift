@@ -13,6 +13,7 @@ private func normalizedPaperSearchText(_ text: String) -> String? {
 private extension PaperListState {
     /// 首屏请求开始前统一重置分页状态。
     mutating func prepareForRefresh() {
+        paginationError = nil
         status = .loading
         resetPagination()
     }
@@ -164,10 +165,12 @@ class PaperCollectionViewModel: ObservableObject {
                 guard refreshGeneration == generation else { return }
                 try progress.record(papers.map(\.id), knownIDs: state.pagedItems.ids)
                 state.appendPage(papers)
+                state.paginationError = nil
             } while state.canLoadMore && state.items.count == previousCount
         } catch {
             guard refreshGeneration == generation else { return }
             if TaskCancellation.matches(error) { return }
+            state.paginationError = error.localizedDescription
             alert = AppAlert(title: "加载更多失败", message: error.localizedDescription)
         }
     }
@@ -245,7 +248,6 @@ final class PaperDetailViewModel: ObservableObject {
     @Published private(set) var isDeletingPaper = false
     @Published private(set) var likingCommentIDs: Set<Int> = []
     @Published private(set) var isSubmittingComment = false
-    private var commentResultNeedsReview = false
     @Published var alert: AppAlert?
 
     let initialPaper: PaperSummary
@@ -337,11 +339,14 @@ final class PaperDetailViewModel: ObservableObject {
         switch result {
         case let .success(comments):
             guard commentRefreshGeneration == generation else { return }
-            commentState.confirmReadLikes(in: comments)
-            commentState.appendPage(commentState.applyingLikes(to: comments, since: likeRevisionAtStart))
+            commentState.confirmRead(in: comments)
+            commentState.appendPage(commentState.applyingLocalChanges(to: comments, since: likeRevisionAtStart))
+            commentState.canLoadMore = !comments.isEmpty
+            commentState.paginationError = nil
         case let .failure(error):
             guard commentRefreshGeneration == generation else { return }
             if TaskCancellation.matches(error) { return }
+            commentState.paginationError = error.localizedDescription
             alert = AppAlert(title: "加载更多失败", message: error.localizedDescription)
         }
     }
@@ -431,7 +436,9 @@ final class PaperDetailViewModel: ObservableObject {
             return false
         }
         guard !isSubmittingComment else { return false }
-        guard !commentResultNeedsReview else {
+        let submission = CommunityCommentSubmission(objectID: target.objectID, text: trimmed,
+            anonymous: anonymous, replyObjectID: target.replyObjectID, replyUID: target.replyUID)
+        guard !commentState.needsReview(submission) else {
             alert = AppAlert(title: "发送结果待确认", message: CommunityCreateOutcomeUnknown.commentReviewMessage)
             return false
         }
@@ -441,18 +448,21 @@ final class PaperDetailViewModel: ObservableObject {
 
         do {
             try Task.checkCancellation()
-            _ = try await service.createComment(
+            let created = try await service.createComment(
                 objectID: target.objectID,
                 text: trimmed,
                 replyObjectID: target.replyObjectID,
                 replyUID: target.replyUID,
                 anonymous: anonymous
             )
-            await refreshAll()
+            let parent: CommunityComment?
+            if case let .comment(mainComment, _) = target { parent = mainComment } else { parent = nil }
+            commentState.recordCreated(created, replyingTo: parent)
+            pendingOperations.enqueue { [weak self] in await self?.refreshAll() }
             return true
         } catch {
             if error is CommunityCreateOutcomeUnknown {
-                commentResultNeedsReview = true
+                commentState.recordUncertainSubmission(submission)
                 alert = AppAlert(title: "发送结果待确认", message: CommunityCreateOutcomeUnknown.commentReviewMessage)
                 return false
             }
@@ -497,9 +507,11 @@ final class PaperDetailViewModel: ObservableObject {
     ) {
         switch result {
         case let .success(comments):
-            commentState.confirmReadLikes(in: comments)
-            commentState.applyFirstPage(commentState.applyingLikes(to: comments, since: previousState.likeRevision))
             commentState.order = commentOrder
+            commentState.confirmRead(in: comments)
+            commentState.applyFirstPage(commentState.applyingLocalChanges(to: comments, since: previousState.likeRevision))
+            commentState.canLoadMore = !comments.isEmpty
+            commentState.paginationError = nil
             commentState.status = .loaded
         case let .failure(error):
             let cancelled = TaskCancellation.matches(error)

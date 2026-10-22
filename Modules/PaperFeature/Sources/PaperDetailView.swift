@@ -152,6 +152,7 @@ private struct PaperDetailViewScene: View {
                     totalCommentCount: viewModel.paper?.commentNum ?? initialPaper.commentNum,
                     status: viewModel.commentState.status,
                     isLoadingMore: viewModel.commentState.isLoadingMore,
+                    paginationError: viewModel.commentState.paginationError,
                     selectedOrder: viewModel.commentOrder,
                     likingCommentIDs: viewModel.likingCommentIDs,
                     onSelectOrder: { order in

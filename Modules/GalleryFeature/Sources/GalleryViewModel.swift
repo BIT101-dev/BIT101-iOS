@@ -292,6 +292,7 @@ final class GalleryViewModel: ObservableObject {
         }
         setState(for: feed) {
             $0.status = .loading
+            $0.paginationError = nil
             $0.isLoadingMore = false
             $0.canLoadMore = true
             $0.nextPage = 0
@@ -431,7 +432,7 @@ final class GalleryViewModel: ObservableObject {
                 setState(for: feed) { $0.isLoadingMore = false }
                 return
             }
-            setState(for: feed) { $0.isLoadingMore = false }
+            setState(for: feed) { $0.isLoadingMore = false; $0.paginationError = error.localizedDescription }
             alert = AppAlert(title: "加载更多失败", message: error.localizedDescription)
         }
     }
@@ -447,6 +448,7 @@ final class GalleryViewModel: ObservableObject {
         let query = searchQuery
         let previousState = searchState
         searchState.status = .loading
+        searchState.paginationError = nil
         searchState.isLoadingMore = false
 
         do {
@@ -511,6 +513,7 @@ final class GalleryViewModel: ObservableObject {
                 return
             }
             searchState.isLoadingMore = false
+            searchState.paginationError = error.localizedDescription
             alert = AppAlert(title: "加载更多失败", message: error.localizedDescription)
         }
     }
@@ -556,6 +559,7 @@ final class GalleryViewModel: ObservableObject {
     }
 
     private static func commit(_ batch: GalleryPageBatch<CommunityPoster>, into state: inout GalleryFeedState) {
+        state.paginationError = nil
         let count = state.posters.count
         state.appendUniqueItems(batch.items)
         state.nextPage = batch.nextSourcePage

@@ -103,7 +103,6 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     @Published private(set) var likingCommentIDs: Set<Int> = []
     /// 评论提交请求是否进行中。
     @Published private(set) var isSubmittingComment = false
-    private var commentResultNeedsReview = false
     @Published private(set) var deletingCommentIDs: Set<Int> = []
     /// 帖子删除请求是否进行中。
     @Published private(set) var isDeletingPoster = false
@@ -231,16 +230,18 @@ final class GalleryPosterDetailViewModel: ObservableObject {
         case let .success(batch):
             guard commentRefreshGeneration == generation else { return }
             commentState.needsContinuation = batch.canLoadMore && batch.items.allSatisfy { commentState.pagedItems.ids.contains($0.id) }
-            commentState.confirmReadLikes(in: batch.items)
-            commentState.appendPage(commentState.applyingLikes(to: batch.items, since: likeRevisionAtStart))
+            commentState.confirmRead(in: batch.items)
+            commentState.appendPage(commentState.applyingLocalChanges(to: batch.items, since: likeRevisionAtStart))
             commentState.nextPage = batch.nextSourcePage
             commentState.canLoadMore = batch.canLoadMore
+            commentState.paginationError = nil
         case let .failure(error):
             guard commentRefreshGeneration == generation else { return }
             if isCancellation(error) {
                 return
             }
             alert = AppAlert(title: "加载更多失败", message: error.localizedDescription)
+            commentState.paginationError = error.localizedDescription
         }
     }
 
@@ -326,7 +327,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
 
     /// 发送评论或回复。
     ///
-    /// 发送成功后直接整页刷新，确保帖子计数和评论树保持一致。
+    /// 发送确认后立即合并评论，关联计数沿页面任务刷新。
     func submitComment(
         text: String,
         anonymous: Bool,
@@ -339,7 +340,9 @@ final class GalleryPosterDetailViewModel: ObservableObject {
             return false
         }
         guard !isSubmittingComment else { return false }
-        guard !commentResultNeedsReview else {
+        let submission = CommunityCommentSubmission(objectID: target.objectID, text: trimmed,
+            anonymous: anonymous, replyObjectID: target.replyObjectID, replyUID: target.replyUID, imageMids: imageMids)
+        guard !commentState.needsReview(submission) else {
             alert = AppAlert(title: "发送结果待确认", message: CommunityCreateOutcomeUnknown.commentReviewMessage)
             return false
         }
@@ -349,7 +352,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
 
         do {
             try Task.checkCancellation()
-            _ = try await service.createComment(
+            let created = try await service.createComment(
                 objectID: target.objectID,
                 text: trimmed,
                 replyObjectID: target.replyObjectID,
@@ -357,11 +360,14 @@ final class GalleryPosterDetailViewModel: ObservableObject {
                 anonymous: anonymous,
                 imageMids: imageMids
             )
-            await refreshAll()
+            let parent: CommunityComment?
+            if case let .comment(mainComment, _) = target { parent = mainComment } else { parent = nil }
+            commentState.recordCreated(created, replyingTo: parent)
+            pendingOperations.enqueue { [weak self] in await self?.refreshAll() }
             return true
         } catch {
             if error is CommunityCreateOutcomeUnknown {
-                commentResultNeedsReview = true
+                commentState.recordUncertainSubmission(submission)
                 alert = AppAlert(title: "发送结果待确认", message: CommunityCreateOutcomeUnknown.commentReviewMessage)
                 return false
             }
@@ -378,7 +384,8 @@ final class GalleryPosterDetailViewModel: ObservableObject {
 
         do {
             try await service.deleteComment(id: comment.id)
-            await refreshAll()
+            commentState.recordDeleted(comment.id)
+            pendingOperations.enqueue { [weak self] in await self?.refreshAll() }
         } catch {
             if isCancellation(error) { return }
             alert = AppAlert(title: "删除评论失败", message: error.localizedDescription)
@@ -445,13 +452,14 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     ) {
         switch result {
         case let .success(batch):
-            commentState.confirmReadLikes(in: batch.items)
-            commentState.applyFirstPage(commentState.applyingLikes(to: batch.items, since: previousState.likeRevision))
             commentState.order = commentOrder
+            commentState.confirmRead(in: batch.items)
+            commentState.applyFirstPage(commentState.applyingLocalChanges(to: batch.items, since: previousState.likeRevision))
             commentState.nextPage = batch.nextSourcePage
             commentState.canLoadMore = batch.canLoadMore
             commentState.needsContinuation = batch.items.isEmpty && batch.canLoadMore
             commentState.status = .loaded
+            commentState.paginationError = nil
         case let .failure(error):
             let cancelled = isCancellation(error)
             commentState.restoreAfterRefreshFailure(previousState, failureStatus: cancelled ? nil : .failed(error.localizedDescription))
