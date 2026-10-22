@@ -23,6 +23,9 @@ struct AddCourseSheet: View {
 
     private let weekdays = Array(1 ... 7)
 
+    @State private var initialValue: CourseDraft?
+    private var hasChanges: Bool { initialValue.map { $0 != draft } ?? false }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -53,7 +56,10 @@ struct AddCourseSheet: View {
                     .appInteractiveListRow()
                         .accessibilityIdentifier("ui.add-course-sheet.星期")
 
-                    Picker("开始节次", selection: $draft.startSection) {
+                    Picker("开始节次", selection: Binding(get: { draft.startSection }, set: { value in
+                        draft.startSection = value
+                        draft.endSection = max(draft.endSection, value)
+                    })) {
                         ForEach(timeTable) { slot in
                             Text("第\(slot.id)节  \(slot.start)").tag(slot.id)
                         }
@@ -77,7 +83,7 @@ struct AddCourseSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("取消", action: onDismiss)
+                    AppCancelEditingButton(confirmDiscard: hasChanges, onCancel: onDismiss)
                         .accessibilityIdentifier("ui.add-course-sheet.cancel")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
@@ -86,6 +92,8 @@ struct AddCourseSheet: View {
                 }
             }
         }
+        .onAppear { if initialValue == nil { initialValue = draft } }
+        .interactiveDismissDisabled(hasChanges)
     }
 }
 
@@ -97,6 +105,9 @@ struct CourseArrangementEditorSheet: View {
     let mode: CourseArrangementEditorMode
     let onSubmit: () -> Void
     let onDismiss: () -> Void
+
+    @State private var initialValue: [CourseArrangementDraft]?
+    private var hasChanges: Bool { initialValue.map { $0 != arrangements } ?? false }
 
     var body: some View {
         NavigationStack {
@@ -172,7 +183,7 @@ struct CourseArrangementEditorSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("取消", action: onDismiss)
+                    AppCancelEditingButton(confirmDiscard: hasChanges, onCancel: onDismiss)
                         .accessibilityIdentifier("ui.course-arrangement-editor-sheet.cancel")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
@@ -181,6 +192,8 @@ struct CourseArrangementEditorSheet: View {
                 }
             }
         }
+        .onAppear { if initialValue == nil { initialValue = arrangements } }
+        .interactiveDismissDisabled(hasChanges)
     }
 
     private func weekSelectionBinding(
@@ -316,6 +329,9 @@ struct AddEditCustomScheduleSheet: View {
     let onSubmit: () -> Void
     let onDismiss: () -> Void
 
+    @State private var initialValue: CustomScheduleDraft?
+    private var hasChanges: Bool { initialValue.map { $0 != draft } ?? false }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -379,7 +395,7 @@ struct AddEditCustomScheduleSheet: View {
             }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("取消", action: onDismiss)
+                    AppCancelEditingButton(confirmDiscard: hasChanges, onCancel: onDismiss)
                         .accessibilityIdentifier("ui.add-edit-custom-schedule-sheet.cancel")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
@@ -388,6 +404,8 @@ struct AddEditCustomScheduleSheet: View {
                 }
             }
         }
+        .onAppear { if initialValue == nil { initialValue = draft } }
+        .interactiveDismissDisabled(hasChanges)
     }
 
     private func scheduleWeek(for date: Date, firstDay: Date) -> Int? {
@@ -410,6 +428,9 @@ public struct TimeTableEditorSheet: View {
     let onSubmit: () -> Void
     @Environment(\.dismiss) private var dismiss
 
+    @State private var initialValue: String?
+    private var hasChanges: Bool { initialValue.map { $0 != text } ?? false }
+
     public var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
@@ -427,7 +448,7 @@ public struct TimeTableEditorSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("取消") { dismiss() }
+                    AppCancelEditingButton(confirmDiscard: hasChanges) { dismiss() }
                         .accessibilityIdentifier("ui.time-table-editor-sheet.cancel")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
@@ -436,6 +457,8 @@ public struct TimeTableEditorSheet: View {
                 }
             }
         }
+        .onAppear { if initialValue == nil { initialValue = text } }
+        .interactiveDismissDisabled(hasChanges)
     }
 }
 

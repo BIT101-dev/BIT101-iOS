@@ -502,7 +502,7 @@ struct CourseScheduleCalendarView: View {
                     .frame(height: outsideHeight)
                     .background {
                         GeometryReader { geometry in
-                            Color.clear.preference(key: ScheduleHorizontalControlFramesKey.self,
+                            Color.clear.preference(key: AppHorizontalControlFramesKey.self,
                                 value: [geometry.frame(in: .global)])
                         }
                     }

@@ -21,7 +21,7 @@ NETWORK_FOUNDATION_API = {
     'MediaKit.MediaEnvironment': {'retryFailedImages()', 'static normalizedCacheLimitMB(:Int)', 'endPreview(owner:UUID)',
         'remotePreviewFile(for:URL,owner:UUID)', 'cachedRemotePreviewFile(for:URL,owner:UUID)',
         'usedBytes()', 'enforceCurrentLimit()', 'clearCaches()'},
-    'MediaKit.RemoteAnimatedImage.Coordinator': {'load(url:URL,into:UIImageView,media:MediaEnvironment,reduceMotion:Bool,retryGeneration:UInt64,budgetGeneration:UInt64,maximumPixelSize:Int?)'},
+    'MediaKit.RemoteAnimatedImage.Coordinator': {'load(url:URL,into:UIImageView,media:MediaEnvironment,reduceMotion:Bool,retryGeneration:UInt64,budgetGeneration:UInt64,maximumPixelSize:Int?,onPhaseChange:(@MainActor(RemoteAnimatedImagePhase)->Void)?)'},
     'MediaKit.ImageQuickLookPresenter': {'static dismantleUIViewController(:HostViewController,coordinator:Coordinator)'},
     'MediaKit.ImageQuickLookPresenter.Coordinator': {'receive(:ImagePreviewRequest?,from:HostViewController,media:MediaEnvironment)',
         'presentPendingIfPossible(from:HostViewController)', 'previewControllerDidDismiss(:QLPreviewController)', 'cancel()',

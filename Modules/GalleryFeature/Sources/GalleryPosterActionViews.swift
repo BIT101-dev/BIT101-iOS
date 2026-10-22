@@ -80,11 +80,12 @@ struct GalleryReportSheet: View {
                         .accessibilityIdentifier("ui.gallery-report-sheet.submit")
                 }
             }
+            .disabled(model.isSubmitting || model.resultNeedsReview)
             .navigationTitle(target.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { dismiss() }
+                    AppCancelEditingButton(confirmDiscard: model.hasChanges) { dismiss() }
                         .disabled(model.isSubmitting)
                         .accessibilityIdentifier("ui.gallery-report-sheet.cancel")
                 }
@@ -98,6 +99,7 @@ struct GalleryReportSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
+        .interactiveDismissDisabled(model.isSubmitting || model.hasChanges)
         .onDisappear { model.cancel() }
     }
 

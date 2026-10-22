@@ -231,9 +231,28 @@ public struct AppSearchBarContainer<Content: View>: View {
     }
 }
 
+public struct AppSelectionRow: View {
+    private let title: String
+    private let isSelected: Bool
+    public init(title: String, isSelected: Bool) { self.title = title; self.isSelected = isSelected }
+    public var body: some View {
+        HStack(spacing: AppDesignSystem.Spacing.regular) {
+            Text(title).foregroundStyle(.tint)
+            Spacer()
+            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(isSelected ? AppDesignSystem.Palette.Accent.primary : AppDesignSystem.Foreground.secondaryColor)
+                .accessibilityHidden(true)
+        }
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(isSelected ? "已选择" : "未选择")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
 /// AppMultiSelectionList 统一多选列表的行布局、选中图标、全选入口和完成按钮。
 public struct AppMultiSelectionList<Item: Hashable>: View {
-    public init(title: String, items: [Item], itemTitle: @escaping (Item) -> String, selectAllTitle: String?, showsCompletionButton: Bool, selectedItems: Binding<[Item]>, initialScrollItem: Item? = nil) {
+    public init(title: String, items: [Item], itemTitle: @escaping (Item) -> String, selectAllTitle: String?, showsCompletionButton: Bool, selectedItems: Binding<[Item]>, initialScrollItem: Item? = nil, onToggleAll: (() -> Void)? = nil) {
         self.title = title
         self.items = items
         self.itemTitle = itemTitle
@@ -241,6 +260,7 @@ public struct AppMultiSelectionList<Item: Hashable>: View {
         self.showsCompletionButton = showsCompletionButton
         _selectedItems = selectedItems
         self.initialScrollItem = initialScrollItem
+        self.onToggleAll = onToggleAll
     }
 
     let title: String
@@ -250,6 +270,7 @@ public struct AppMultiSelectionList<Item: Hashable>: View {
     let showsCompletionButton: Bool
     @Binding var selectedItems: [Item]
     let initialScrollItem: Item?
+    let onToggleAll: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
 
     public var body: some View {
@@ -258,31 +279,28 @@ public struct AppMultiSelectionList<Item: Hashable>: View {
             if selectAllTitle != nil {
                 Section {
                     Button(toggleAllTitle) { toggleAll() }
+                    .disabled(items.isEmpty)
+                    .accessibilityValue("已选 \(Set(selectedItems).intersection(Set(items)).count) 项，共 \(items.count) 项")
                     .appInteractiveListRow()
                         .accessibilityIdentifier("ui.app-multi-selection-list.toggle-all")
                 }
             }
 
             Section {
+                if items.isEmpty { Text("暂无可选项").foregroundStyle(AppDesignSystem.Foreground.secondary) }
                 ForEach(items, id: \.self) { item in
                     let isSelected = selectedItems.contains(item)
                     Button {
                         toggle(item)
                     } label: {
-                        HStack(spacing: AppDesignSystem.Spacing.regular) {
-                            Text(itemTitle(item))
-                                .foregroundStyle(.tint)
-                            Spacer()
-                            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(isSelected ? AppDesignSystem.Palette.Accent.primary : AppDesignSystem.Foreground.secondaryColor)
-                        }
-                        .contentShape(Rectangle())
+                        AppSelectionRow(title: itemTitle(item), isSelected: isSelected)
                     }
                     .buttonStyle(.plain)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(itemTitle(item))
                     .accessibilityValue(isSelected ? "已选择" : "未选择")
                     .accessibilityAddTraits(.isButton)
+                    .accessibilityAddTraits(isSelected ? .isSelected : [])
                     .appInteractiveListRow()
                         .accessibilityIdentifier("ui.app-multi-selection-list.item.\(String(reflecting: item))")
                     .id(item)
@@ -310,7 +328,8 @@ public struct AppMultiSelectionList<Item: Hashable>: View {
 
     private var toggleAllTitle: String {
         let availableItems = Set(items)
-        return availableItems.isSubset(of: Set(selectedItems)) ? "全不选" : (selectAllTitle ?? "全选")
+        let allSelected = !items.isEmpty && availableItems.isSubset(of: Set(selectedItems))
+        return allSelected ? "全不选" : (selectAllTitle ?? "全选")
     }
 
     private func toggle(_ item: Item) {
@@ -322,6 +341,7 @@ public struct AppMultiSelectionList<Item: Hashable>: View {
     }
 
     private func toggleAll() {
+        if let onToggleAll { onToggleAll(); return }
         let availableItems = Set(items)
         selectedItems = availableItems.isSubset(of: Set(selectedItems)) ? [] : items
     }
@@ -330,10 +350,19 @@ public struct AppMultiSelectionList<Item: Hashable>: View {
 
 #if os(iOS)
 
+/// 横向控件以全局坐标参与分区切换的命中排除。
+public struct AppHorizontalControlFramesKey: PreferenceKey {
+    public static var defaultValue: [CGRect] { [] }
+    public static func reduce(value: inout [CGRect], nextValue: () -> [CGRect]) {
+        value.append(contentsOf: nextValue())
+    }
+}
+
 /// 为 segmented 内容区提供一致的横向轻扫判定。
-public func makeHorizontalSwitchGesture(onStep: @escaping (Int) -> Void) -> some Gesture {
-    DragGesture(minimumDistance: 24, coordinateSpace: .local)
+public func makeHorizontalSwitchGesture(excluding controlFrames: [CGRect] = [], onStep: @escaping (Int) -> Void) -> some Gesture {
+    DragGesture(minimumDistance: 24, coordinateSpace: .global)
         .onEnded { value in
+            guard !controlFrames.contains(where: { $0.contains(value.startLocation) }) else { return }
             let horizontal = value.translation.width
             let vertical = value.translation.height
             let horizontalDistance = abs(horizontal)

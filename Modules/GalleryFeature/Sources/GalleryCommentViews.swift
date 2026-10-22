@@ -197,7 +197,6 @@ private struct GalleryCommentRow: View {
         !comment.anonymous && comment.user.id > 0
     }
 
-    /// 处理“回复某人”的前缀文本拼接。
 }
 
 /// 评论发送弹层。

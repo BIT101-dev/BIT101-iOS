@@ -440,6 +440,7 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         replaceText("10:00,10:45", in: editor)
         dismissKeyboard()
         tap("取消")
+        tap("放弃输入")
         tap("时间表")
         assertUI((editor.value as? String ?? "").contains("08:00"), "取消应保留已保存时间表。")
         tap("取消")
@@ -460,7 +461,7 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         let savedSwitches = Dictionary(uniqueKeysWithValues: ["显示周六", "显示周日", "显示考试安排"].map { ($0, toggle($0)) })
         let nameRow = app.buttons["schedule.settings.primary-name"]
         reveal(nameRow, description: "课表名称")
-        nameRow.tapVisibleCenter()
+        nameRow.native.tap()
         let name = app.textFields["schedule.rename.name"]
         assertUI(name.appears(timeout: 5), "重命名应展示输入框。")
         replaceText("测试课表名称", in: name)
@@ -572,6 +573,47 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
 }
 
 nonisolated final class ScheduleEditingUITests: UIAutomationTestCase {
+    @MainActor
+    func testScheduleEditorsProtectChangedInput() {
+        for (isDDL, title, input) in [(false, "添加自定义日程", "schedule.custom.title"), (true, "添加 DDL", "ddl.editor.title")] {
+            app = configureApp(resetStorage: true)
+            if isDDL {
+                tapHeader(app.segmentedControls.buttons["DDL"])
+                tap("添加待办")
+            } else {
+                tap("schedule.add-content")
+                tap("添加日程")
+            }
+            replaceText("待保留的编辑内容", in: app.textFields[input])
+            dismissKeyboard()
+            swipeSheetHeader(app.navigationBars[title])
+            assertUI(app.textFields[input].value as? String == "待保留的编辑内容", "下滑应保留日程编辑内容。")
+            tap("取消")
+            tap("继续编辑")
+            assertUI(app.textFields[input].value as? String == "待保留的编辑内容", "继续编辑应保持原有输入。")
+            tap("取消")
+            tap("放弃输入")
+            assertUI(app.navigationBars[title].disappears(timeout: 5), "确认放弃应关闭当前编辑页。")
+        }
+    }
+
+    @MainActor
+    func testCourseStartSectionKeepsItsEndValid() {
+        app = configureApp(resetStorage: true)
+        tap("schedule.add-content")
+        tap("添加课程")
+        replaceText("节次联动课程", in: app.textFields["课程名称"])
+        dismissKeyboard()
+        tap("开始节次")
+        tap("第5节")
+        swipeSheetHeader(app.navigationBars["添加课程"])
+        assertUI(app.textFields["课程名称"].value as? String == "节次联动课程", "课程编辑应保留已修改的节次与名称。")
+        tap("取消")
+        tap("继续编辑")
+        tap("确定")
+        assertUI(textElement("节次联动课程").appears(timeout: 5), "提高开始节次后应通过课程范围校验并保存。")
+    }
+
     @MainActor
     func testCourseEditorFieldsPickersSaveDetailAndDelete() {
         app = configureApp(resetStorage: true)

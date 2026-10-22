@@ -31,6 +31,32 @@ public struct AppCommentComposerContentSection<Content: View>: View {
     }
 }
 
+/// 编辑器通过显式放弃确认保护当前输入。
+public struct AppCancelEditingButton: View {
+    private let confirmDiscard: Bool
+    private let onCancel: () -> Void
+    @State private var showsDiscardConfirmation = false
+
+    public init(confirmDiscard: Bool = false, onCancel: @escaping () -> Void) {
+        self.confirmDiscard = confirmDiscard
+        self.onCancel = onCancel
+    }
+
+    public var body: some View {
+        Button("取消") {
+            if confirmDiscard { showsDiscardConfirmation = true }
+            else { onCancel() }
+        }
+        .accessibilityIdentifier("ui.app-cancel-editing-button.cancel")
+        .alert("放弃当前输入？", isPresented: $showsDiscardConfirmation) {
+            Button("继续编辑", role: .cancel) {}
+            Button("放弃输入", role: .destructive, action: onCancel)
+        } message: {
+            Text("当前输入会随编辑页关闭。")
+        }
+    }
+}
+
 /// 评论和建议编辑页共用工具栏；工具栏提供取消和提交入口。
 public struct AppComposerToolbar: ToolbarContent {
     let isSubmitting: Bool
@@ -40,7 +66,6 @@ public struct AppComposerToolbar: ToolbarContent {
     let confirmDiscard: Bool
     let onCancel: () -> Void
     let onSubmit: () -> Void
-    @State private var showsDiscardConfirmation = false
 
     public init(
         isSubmitting: Bool,
@@ -62,18 +87,9 @@ public struct AppComposerToolbar: ToolbarContent {
 
     public var body: some ToolbarContent {
         ToolbarItem(placement: .cancellationAction) {
-            Button("取消") {
-                if confirmDiscard { showsDiscardConfirmation = true }
-                else { onCancel() }
-            }
+            AppCancelEditingButton(confirmDiscard: confirmDiscard, onCancel: onCancel)
                 .disabled(isSubmitting)
                 .accessibilityIdentifier("ui.app-composer-toolbar.cancel")
-                .alert("放弃当前输入？", isPresented: $showsDiscardConfirmation) {
-                    Button("继续编辑", role: .cancel) {}
-                    Button("放弃输入", role: .destructive, action: onCancel)
-                } message: {
-                    Text("当前输入会随编辑页关闭。")
-                }
         }
 
         ToolbarItem(placement: .confirmationAction) {

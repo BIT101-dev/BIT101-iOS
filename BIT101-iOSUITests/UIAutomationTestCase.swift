@@ -543,20 +543,16 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             if range.contains(where: { $0 > 0 }) && !exerciseScrolling { continue }
             let checkIdentity = instance + ":" + range.map { String($0.rounded(.up)) }.joined(separator: ",")
             guard !checkedScrollContainers.contains(checkIdentity) else { continue }
+            guard let isCurrent = isCurrentContainer(scrollInstance) else { return }
+            if !isCurrent { continue }
             let parameters = ["scrollInstance": scrollInstance, "offsetX": String(offset[0]), "offsetY": String(offset[1])]
             if range.allSatisfy({ $0 == 0 }) {
                 let outcome = UITestControlClient.request(parameters.merging(["command": "scroll-check"]) { _, value in value })
-                if outcome == "target missing" {
-                    guard let isCurrent = isCurrentContainer(scrollInstance) else { return }
-                    if !isCurrent { continue }
-                }
                 XCTAssertEqual(outcome, "fit",
                     "完整显示的容器应核对内容边界：\(identifier)。")
             } else {
                 let element = app.descendants(matching: .any)[identifier]
                 guard element.exists else {
-                    guard let isCurrent = isCurrentContainer(scrollInstance) else { return }
-                    if !isCurrent { continue }
                     XCTFail("当前滚动容器应提供原生元素：\(identifier)。")
                     return
                 }
@@ -735,6 +731,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         nativeInteraction: Bool = true,
         school: Bool = false,
         media: Bool = false,
+        longTags: Bool = false,
         mediaRecovery: Bool = false,
         botPaging: Bool = false,
         pagination: Bool = false,
@@ -819,6 +816,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         application.launchEnvironment["BIT101_UI_TEST_ANIMATIONS"] = animations ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_SCHOOL"] = school ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_MEDIA"] = media ? "1" : "0"
+        application.launchEnvironment["BIT101_UI_TEST_LONG_TAGS"] = longTags ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_MEDIA_RECOVERY"] = mediaRecovery ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_BOT_PAGING"] = botPaging ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_PAGINATION"] = pagination ? "1" : "0"

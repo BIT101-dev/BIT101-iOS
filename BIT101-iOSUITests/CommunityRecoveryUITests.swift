@@ -2,6 +2,34 @@ import XCTest
 
 nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
     @MainActor
+    @objc func testIdenticalFeedRefreshKeepsThePaginationPosition() {
+        app = configureApp(resetStorage: true, content: true, media: true, pagination: true, initialTab: "gallery")
+        tapHeader(app.segmentedControls.buttons["最新"])
+        assertUI(textElement("分页话题 1").appears(timeout: 5), "信息流应提供稳定的首屏内容。")
+        assertUI(UITestControlClient.request(["command": "hold-request", "key": "posters"]) == "queued", "刷新请求应进入受控等待。")
+        defer { _ = UITestControlClient.request(["command": "release-request", "key": "posters"]) }
+        pullToRefresh()
+        assertUI(waitUntil(NSPredicate { _, _ in
+            UITestControlClient.request(["command": "request-state", "key": "posters"]) == "pending"
+        }, on: app), "下拉刷新应请求相同首屏。")
+        _ = UITestControlClient.request(["command": "release-request", "key": "posters"])
+        _ = UITestControlClient.request(["command": "hold-request", "key": "posters", "query.page": "1"])
+        for _ in 1...8 {
+            if UITestControlClient.request(["command": "request-state", "key": "posters"]) == "pending" { break }
+            app.swipeUp()
+        }
+        assertUI(UITestControlClient.request(["command": "request-state", "key": "posters"]) == "pending", "列表尾部应请求下一页。")
+        let loading = app.descendants(matching: .any).matching(identifier: "community.pagination.loading").firstMatch
+        reveal(loading, description: "分页进度")
+        _ = UITestControlClient.request(["command": "release-request", "key": "posters"])
+        assertUI(loading.disappears(timeout: 5), "下一页完成后应结束分页进度。")
+        assertUI(!textElement("分页话题 1").isHittable, "分页追加后应保持用户所在的列表尾部。")
+        let nextPage = textElement("分页话题 9")
+        reveal(nextPage, description: "追加的话题")
+        assertUI(nextPage.isHittable, "下一页应追加可用内容。")
+    }
+
+    @MainActor
     @objc func testMessageReadStorageRecoveryKeepsMessagesAvailable() {
         app = configureApp(resetStorage: true, content: true, messageStorageRecovery: true, initialTab: "gallery")
         tap("消息")
@@ -118,11 +146,16 @@ nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
 
     @MainActor
     @objc func testCommunityPaginationRetriesFromTheVisibleTail() {
-        for (tab, section, title) in [("home", "课程", "分页课程"), ("gallery", "文章", "分页文章"),
-            ("gallery", "最新", "分页话题")] {
+        for (tab, section, title, search) in [("home", "课程", "分页课程", false), ("gallery", "文章", "分页文章", false),
+            ("gallery", "最新", "分页话题", false), ("gallery", "文章", "分页文章", true)] {
             app = configureApp(resetStorage: true, content: true, pagination: true,
-                paginationFailureOnce: true, initialTab: tab)
+                paginationFailureOnce: !search, initialTab: tab)
             tapHeader(app.segmentedControls.buttons[section])
+            if search {
+                tap("搜索文章")
+                _ = UITestControlClient.request(["command": "fail-request", "key": "papers", "query.page": "1", "query.search": "分页文章"])
+                replaceText("分页文章\n", in: app.textFields.firstMatch)
+            }
             let retry = app.buttons["community.pagination.retry"]
             let failure = app.alerts["加载更多失败"]
             for _ in 1...8 {

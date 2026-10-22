@@ -79,18 +79,29 @@ enum AppUITestBootstrap {
     static var environment: [String: String] { UITestSceneConfiguration.shared.snapshot.environment }
     private static var injectedScheduleConflictScene: Int?
     static var pendingRequests: [String: [CheckedContinuation<Void, Never>]] = [:]
-    static var failingRequests: Set<String> = []
+    static var failingRequests: [String: [String: String]] = [:]
+    static var holdingRequests: [String: [String: String]] = [:]
     static var recoveredSuggestionID: UUID?
 
     static func holdRequest(_ key: String) async {
         await withCheckedContinuation { pendingRequests[key, default: []].append($0) }
     }
 
+    static func takeRequest(_ path: String, query: [URLQueryItem], from requests: inout [String: [String: String]]) -> Bool {
+        guard let conditions = requests[path], conditions.allSatisfy({ name, value in
+            query.contains(where: { $0.name == name && $0.value == value })
+        }) else { return false }
+        requests[path] = nil
+        return true
+    }
+
     static func releaseRequest(_ key: String) {
+        holdingRequests.removeValue(forKey: key)
         pendingRequests.removeValue(forKey: key)?.forEach { $0.resume() }
     }
 
     static func releaseRequests() {
+        holdingRequests.removeAll()
         let requests = pendingRequests.values.flatMap { $0 }
         pendingRequests.removeAll()
         requests.forEach { $0.resume() }
@@ -318,7 +329,9 @@ final class UITestHTTPTransport: HTTPTransport {
             throw URLError(.notConnectedToInternet)
         }
         let path = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        if AppUITestBootstrap.failingRequests.remove(path) != nil { throw URLError(.networkConnectionLost) }
+        let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        if AppUITestBootstrap.takeRequest(path, query: query, from: &AppUITestBootstrap.failingRequests) { throw URLError(.networkConnectionLost) }
+        if AppUITestBootstrap.takeRequest(path, query: query, from: &AppUITestBootstrap.holdingRequests) { await AppUITestBootstrap.holdRequest(path) }
         if AppUITestBootstrap.environment["BIT101_UI_TEST_REPORT_FAILURE_ONCE"] == "1",
            path == "manage/report_types", failedPaths.insert(path).inserted {
             throw URLError(.networkConnectionLost)
@@ -342,7 +355,6 @@ final class UITestHTTPTransport: HTTPTransport {
             }
             return (AppUITestBootstrap.mediaData, response)
         }
-        let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
         let requestedPage = query.first(where: { $0.name == "page" })?.value ?? "0"
         let repeatedPages = AppUITestBootstrap.environment["BIT101_UI_TEST_DUPLICATE_PAGES"] == "1"
         let page = repeatedPages ? String(max(0, (Int(requestedPage) ?? 0) - 1)) : requestedPage
@@ -568,7 +580,9 @@ final class UITestHTTPTransport: HTTPTransport {
         let base: [String: Any] = ["id": 1, "anonymous": false, "claim": ["id": 1, "text": "日常"], "comment_num": 1,
          "create_time": timestamp, "edit_time": timestamp, "update_time": timestamp,
          "images": mediaEnabled ? posterImages : [], "like": likedObjects.contains("poster1"), "like_num": 1, "own": true,
-         "plugins": "[]", "public": true, "tags": ["测试", "自动化"], "text": "自动化测试话题正文", "title": "自动化测试话题", "user": user,
+         "plugins": "[]", "public": true, "tags": AppUITestBootstrap.environment["BIT101_UI_TEST_LONG_TAGS"] == "1"
+            ? (1...8).map { "横向滚动标签\($0)" } : ["测试", "自动化"],
+         "text": "自动化测试话题正文", "title": "自动化测试话题", "user": user,
          "subscription": subscriptions["poster1"] ?? 0]
         return base.merging(posterChanges) { _, new in new }
     }

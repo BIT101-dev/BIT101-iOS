@@ -361,14 +361,14 @@ nonisolated final class ScoreInteractionUITests: UIAutomationTestCase {
             let item = app.buttons.matching(NSPredicate(format: "label == %@", option)).firstMatch
             assertUI(item.appears(timeout: 5), "筛选页应加载\(option)选项。")
             item.tapBriefly()
-            waitForValue("未选", of: item)
+            waitForValue("未选择", of: item)
             back()
             assertUI(app.navigationBars["\(route)筛选"].disappears(timeout: 5), "返回应关闭\(route)筛选页。")
             assertUI(app.staticTexts["当前筛选条件下暂无成绩。"].appears(timeout: 5), "取消单项选择应过滤成绩。")
             openScoreFilter(route)
             assertUI(item.appears(timeout: 5), "重新打开应恢复\(option)筛选项。")
             item.tapBriefly()
-            waitForValue("已选", of: item)
+            waitForValue("已选择", of: item)
             back()
             assertUI(app.navigationBars["\(route)筛选"].disappears(timeout: 5), "选择后返回应恢复成绩页。")
         }

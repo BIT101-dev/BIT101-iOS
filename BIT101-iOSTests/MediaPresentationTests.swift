@@ -66,6 +66,45 @@ struct MediaPresentationTests {
         window.makeKeyAndVisible()
         return window
     }
+    @Test(.timeLimit(.minutes(1)), arguments: ["transport", "decode"])
+    func animatedFailuresKeepTheStaticPreviewVisible(failure: String) async throws {
+        let helper = MediaDependencyTests(), transport = MediaDependencyTests.Images(bytes: try helper.png(width: 2))
+        let original = AppURL.required("https://example.invalid/original.gif")
+        let thumbnail = AppURL.required("https://example.invalid/thumbnail.png")
+        transport.blockedURL = original
+        if failure == "transport" { transport.failedURLs.insert(original) }
+        else { transport.responses[original] = Data("damaged".utf8) }
+        let media = helper.environment(files: PreferenceMemoryFiles(), previewFiles: PreferenceMemoryFiles(), transport: transport)
+        let host = UIHostingController(rootView: AnyView(RemoteAutoplayingImage(url: original, fallbackURL: thumbnail)
+            .frame(width: 40, height: 40).environment(media)))
+        let window = try window(host)
+        defer { transport.pending?.resume(); transport.pending = nil; window.isHidden = true; window.rootViewController = nil }
+        try await waitForTestEvent { transport.pending != nil && media.displayBudget.usedBytes > 0 }
+        #expect(await media.images.cachedFile(for: thumbnail) != nil)
+        transport.pending?.resume(); transport.pending = nil
+        try await waitForTestEvent(isolation: media.images) { $0.waitingConsumerCount == 0 }
+        #expect(media.displayBudget.usedBytes > 0 && transport.requests == 2)
+        host.rootView = AnyView(EmptyView())
+        try await waitForTestEvent { media.displayBudget.usedBytes == 0 }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func animatedCoordinatorPublishesLoadingAndReadyPhases() async throws {
+        let helper = MediaDependencyTests(), transport = MediaDependencyTests.Images(bytes: try helper.png(width: 2))
+        let url = AppURL.required("https://example.invalid/image.gif")
+        transport.blockedURL = url
+        let media = helper.environment(files: PreferenceMemoryFiles(), previewFiles: PreferenceMemoryFiles(), transport: transport)
+        let coordinator = RemoteAnimatedImage.Coordinator(media: media), imageView = UIImageView()
+        var phases: [RemoteAnimatedImagePhase] = []
+        defer { coordinator.cancel(imageView: imageView); transport.pending?.resume(); transport.pending = nil }
+        coordinator.load(url: url, into: imageView, media: media, onPhaseChange: { phases.append($0) })
+        try await waitForTestEvent { transport.pending != nil }
+        #expect(phases == [.loading] && imageView.image == nil)
+        transport.pending?.resume(); transport.pending = nil
+        try await waitForTestEvent { phases.last == .ready }
+        #expect(phases == [.loading, .ready] && imageView.image?.size.width == 2)
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: ["avatar", "still", "progressive"])
     func unrelatedBudgetReleasePreservesFailedImageRequestCount(kind: String) async throws {
         let helper = MediaDependencyTests(), transport = MediaDependencyTests.Images(bytes: try helper.png(width: 2))

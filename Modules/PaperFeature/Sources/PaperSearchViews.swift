@@ -95,8 +95,9 @@ private struct PaperSearchScene: View {
                                 }
                             }
 
-                            if viewModel.state.isLoadingMore {
-                                AppInlineLoadingState("正在加载更多")
+                            CommunityPaginationFooter(isLoading: viewModel.state.isLoadingMore,
+                                errorMessage: viewModel.state.paginationError) {
+                                await viewModel.loadMoreIfNeeded(currentPaper: viewModel.state.items.last)
                             }
                         }
                     }

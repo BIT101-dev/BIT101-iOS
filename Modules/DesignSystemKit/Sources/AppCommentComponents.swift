@@ -47,6 +47,8 @@ public struct AppCommentIdentityHeader: View {
             if let onOpenProfile {
                 Button(action: onOpenProfile) {
                     nicknameText
+                        .frame(minWidth: AppDesignSystem.Size.Control.touchTarget,
+                               minHeight: AppDesignSystem.Size.Control.touchTarget, alignment: .leading)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -95,7 +97,8 @@ public struct AppCommentActionBar: View {
                 Label("回复", systemImage: "arrowshape.turn.up.left")
                     .font(AppDesignSystem.Typography.captionEmphasis)
                     .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                    .frame(minHeight: AppDesignSystem.Size.Control.touchTarget)
+                    .frame(minWidth: AppDesignSystem.Size.Control.touchTarget, minHeight: AppDesignSystem.Size.Control.touchTarget)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
@@ -112,7 +115,8 @@ public struct AppCommentActionBar: View {
                     }
                 }
                 .foregroundStyle(isLiked ? AppDesignSystem.Palette.Accent.primary : AppDesignSystem.Foreground.secondaryColor)
-                .frame(minHeight: AppDesignSystem.Size.Control.touchTarget)
+                .frame(minWidth: AppDesignSystem.Size.Control.touchTarget, minHeight: AppDesignSystem.Size.Control.touchTarget)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(isLiking)

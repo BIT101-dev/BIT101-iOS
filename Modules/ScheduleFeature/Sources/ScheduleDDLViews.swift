@@ -287,6 +287,9 @@ private struct DDLEditSheet: View {
     let onSubmit: () -> Void
     let onDismiss: () -> Void
 
+    @State private var initialDraft: DDLDraft?
+    private var hasChanges: Bool { initialDraft.map { $0 != draft } ?? false }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -307,7 +310,7 @@ private struct DDLEditSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("取消", action: onDismiss)
+                    AppCancelEditingButton(confirmDiscard: hasChanges, onCancel: onDismiss)
                         .accessibilityIdentifier("ui.ddl-edit-sheet.cancel")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
@@ -316,6 +319,8 @@ private struct DDLEditSheet: View {
                 }
             }
         }
+        .onAppear { if initialDraft == nil { initialDraft = draft } }
+        .interactiveDismissDisabled(hasChanges)
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
     }

@@ -3,28 +3,7 @@ import ScoreDomain
 import DesignSystemKit
 import SwiftUI
 
-private struct ScoreSelectionRow: View {
-    let title: String
-    let isSelected: Bool
-
-    var body: some View {
-        HStack(spacing: AppDesignSystem.Spacing.regular) {
-            Text(title)
-                .font(AppDesignSystem.Typography.body)
-                .foregroundStyle(.tint)
-            Spacer()
-            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                .foregroundStyle(isSelected ? AppDesignSystem.Course.accent : AppDesignSystem.Foreground.secondaryColor)
-                .accessibilityHidden(true)
-        }
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
-        .accessibilityValue(isSelected ? "已选" : "未选")
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-    }
-}
-
-/// 学期和课程种类复用的多选筛选页。
+/// 学期和课程种类复用公共多选列表，筛选集合由成绩模型维护。
 struct ScoreFilterPage: View {
     let title: String
     let options: [String]
@@ -32,61 +11,11 @@ struct ScoreFilterPage: View {
     let onToggleAll: () -> Void
 
     var body: some View {
-        List {
-            Section {
-                Button(toggleAllTitle) {
-                    onToggleAll()
-                }
-                .disabled(options.isEmpty)
-                .accessibilityValue("已选 \(selectedValues.intersection(Set(options)).count) 项，共 \(options.count) 项")
-                .appInteractiveListRow()
-                    .accessibilityIdentifier("ui.score-filter-page.toggle-all")
-            }
-
-            Section {
-                if options.isEmpty {
-                    Text("暂无可筛选项")
-                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                } else {
-                    ForEach(options, id: \.self) { option in
-                        Button {
-                            toggle(option)
-                        } label: {
-                            ScoreSelectionRow(
-                                title: option,
-                                isSelected: selectedValues.contains(option)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .appInteractiveListRow()
-                            .accessibilityIdentifier("ui.score-filter-page.option.\(option)")
-                    }
-                }
-            }
-        }
-        .accessibilityIdentifier("interaction.ScoreFilterPage.list")
-        .appGroupedListStyle()
-        .appSelectionFeedback(trigger: selectedValues)
-        .navigationTitle(title)
-        .navigationBarTitleDisplayMode(.inline)
-    }
-
-    private func toggle(_ option: String) {
-        var next = selectedValues
-        if next.contains(option) {
-            next.remove(option)
-        } else {
-            next.insert(option)
-        }
-        selectedValues = next
-    }
-
-    private var toggleAllTitle: String {
-        allOptionsSelected ? "全不选" : "全选"
-    }
-
-    private var allOptionsSelected: Bool {
-        !options.isEmpty && Set(options).isSubset(of: selectedValues)
+        AppMultiSelectionList(title: title, items: options, itemTitle: { $0 }, selectAllTitle: "全选",
+            showsCompletionButton: false, selectedItems: Binding(
+                get: { options.filter { selectedValues.contains($0) } },
+                set: { selectedValues = Set($0) }
+            ), onToggleAll: onToggleAll)
     }
 }
 
@@ -103,7 +32,7 @@ struct ScoreSortPage: View {
                     Button {
                         sortIndex = index
                     } label: {
-                        ScoreSelectionRow(
+                        AppSelectionRow(
                             title: index.title,
                             isSelected: sortIndex == index
                         )

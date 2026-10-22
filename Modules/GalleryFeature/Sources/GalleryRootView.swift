@@ -80,6 +80,7 @@ private struct GalleryRootViewScene: View {
     @State private var isShowingSubscriptions = false
     @State private var selectedCourseID: Int?
     @State private var unreadRefreshGeneration = 0
+    @State private var horizontalControlFrames: [CGRect] = []
     @Binding private var requestedPaperID: Int?
     @Binding private var requestedPosterID: Int?
     @State private var selectedSurface: GallerySurface = .gallery
@@ -246,6 +247,7 @@ private struct GalleryRootViewScene: View {
                 }
             )
             .simultaneousGesture(feedSwitchGesture)
+            .onPreferenceChange(AppHorizontalControlFramesKey.self) { horizontalControlFrames = $0 }
             .accessibilityIdentifier("gallery.feed-surface")
 
             AppFloatingActionStack {
@@ -353,7 +355,7 @@ private struct GalleryRootViewScene: View {
     ///
     /// 当前布局使用底部全覆盖内容、顶部 segmented 和横向拖拽手势完成分区切换。
     private var feedSwitchGesture: some Gesture {
-        makeHorizontalSwitchGesture(onStep: switchFeed)
+        makeHorizontalSwitchGesture(excluding: horizontalControlFrames, onStep: switchFeed)
     }
 
     private var visibleFeeds: [GalleryFeedKind] {

@@ -82,7 +82,6 @@ public struct CommunityCommentBody: View {
 #endif
 
 #if os(iOS)
-import ImageIO
 import UIKit
 
 /// 发帖页图片缩略图条目。
@@ -93,6 +92,11 @@ import UIKit
 /// - 每种状态都提供删除操作
 public struct ComposerImageTile: View {
     @Environment(\.displayScale) private var displayScale
+    @State private var thumbnail: UIImage?
+    private struct ThumbnailIdentity: Equatable {
+        let data: Data
+        let scale: CGFloat
+    }
     let draft: ComposerImageDraft
     let onRetry: () -> Void
     let onRemove: () -> Void
@@ -116,8 +120,7 @@ public struct ComposerImageTile: View {
                 AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card)
                     .fill(AppDesignSystem.Palette.Background.secondaryGrouped)
 
-                if let image = BoundedStillImageDecoder.image(from: draft.previewData,
-                    pointSize: AppDesignSystem.Size.Media.draft, displayScale: displayScale) {
+                if let image = thumbnail {
                     Image(uiImage: image)
                         .resizable()
                         .scaledToFill()
@@ -136,6 +139,16 @@ public struct ComposerImageTile: View {
             AppComposerImageRemoveButton(onRemove: onRemove)
         }
         .frame(width: AppDesignSystem.Size.Media.draft, height: AppDesignSystem.Size.Media.draft)
+        .task(id: ThumbnailIdentity(data: draft.previewData, scale: displayScale)) {
+            let prepared = await Self.prepareThumbnail(draft.previewData, pointSize: AppDesignSystem.Size.Media.draft, scale: displayScale)
+            guard !Task.isCancelled else { return }
+            thumbnail = prepared
+        }
+    }
+
+    @concurrent
+    private nonisolated static func prepareThumbnail(_ data: Data, pointSize: CGFloat, scale: CGFloat) async -> UIImage? {
+        BoundedStillImageDecoder.image(from: data, pointSize: pointSize, displayScale: scale)
     }
 
     @ViewBuilder

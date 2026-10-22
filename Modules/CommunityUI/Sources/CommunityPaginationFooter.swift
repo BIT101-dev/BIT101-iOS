@@ -22,6 +22,7 @@ public struct CommunityPaginationFooter: View {
         VStack(spacing: AppDesignSystem.Spacing.regular) {
             if isLoading {
                 AppInlineLoadingState()
+                    .accessibilityIdentifier("community.pagination.loading")
             } else if errorMessage != nil || showsContinuation {
                 if let errorMessage {
                     Text(errorMessage)

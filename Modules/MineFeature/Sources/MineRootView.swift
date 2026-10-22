@@ -786,6 +786,8 @@ private struct MineStatButton: View {
             if let action {
                 Button(action: action) {
                     content
+                        .frame(minWidth: AppDesignSystem.Size.Control.touchTarget, minHeight: AppDesignSystem.Size.Control.touchTarget)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(title)

@@ -27,6 +27,12 @@ nonisolated final class CommunityEditingRecoveryUITests: UIAutomationTestCase {
     @objc func testCommentBodiesShareLinksImagesAndNativePreview() {
         for kind in ["poster", "course", "paper"] {
             openDetail(kind, mediaLinks: true)
+            let like = app.buttons.matching(NSPredicate(format: "label IN %@", ["点赞评论", "取消评论点赞"])).firstMatch
+            reveal(like, description: "评论操作")
+            assertUI(like.frame.width.rounded() >= 44 && like.frame.height.rounded() >= 44,
+                "评论点赞应提供完整触控区域：\(like.frame)。")
+            like.native.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
+            assertUI(app.buttons["取消评论点赞"].appears(timeout: 5), "触控区域边缘应执行评论点赞。")
             let image = app.buttons["查看第1张图片"]
             reveal(image, description: "评论图片")
             image.tapBriefly()
@@ -112,6 +118,83 @@ nonisolated final class CommunityEditingRecoveryUITests: UIAutomationTestCase {
         assertUI(app.buttons["移除图片"].appears(timeout: 5), "保存的草稿应包含已选择的图片。")
         tap("取消")
         tap("不保存")
+    }
+
+    @MainActor
+    @objc func testReportEditingAndSubmissionKeepTheirSheet() {
+        openDetail("poster")
+        func openReport() {
+            let comment = textElement("自动化测试评论")
+            reveal(comment, description: "举报目标评论")
+            comment.press(forDuration: 1)
+            tap("举报评论")
+        }
+        openReport()
+        replaceText("保留举报说明", in: app.textFields["gallery.report.reason"])
+        dismissKeyboard()
+        swipeSheetHeader(app.navigationBars["举报评论"])
+        assertUI(app.textFields["gallery.report.reason"].value as? String == "保留举报说明", "下滑应保留当前举报说明。")
+        tap("取消")
+        tap("继续编辑")
+        assertUI(app.textFields["gallery.report.reason"].value as? String == "保留举报说明", "继续编辑应保留举报载荷。")
+        tap("取消")
+        tap("放弃输入")
+        openReport()
+        replaceText("等待举报回执", in: app.textFields["gallery.report.reason"])
+        dismissKeyboard()
+        assertUI(UITestControlClient.request(["command": "hold-request", "key": "manage/reports"]) == "queued", "举报提交应进入受控等待。")
+        defer { _ = UITestControlClient.request(["command": "release-request", "key": "manage/reports"]) }
+        tap("提交举报")
+        waitForRequest("manage/reports")
+        swipeSheetHeader(app.navigationBars["举报评论"])
+        assertUI(app.textFields["gallery.report.reason"].exists, "提交期间应保持举报编辑页。")
+        assertUI(!app.textFields["gallery.report.reason"].isEnabled, "提交期间应保护已捕获的举报载荷。")
+        releaseRequest("manage/reports")
+        assertUI(app.alerts["举报已提交"].appears(timeout: 5), "回执应在原编辑页中完成确认。")
+        tap("知道了")
+    }
+
+    @MainActor
+    @objc func testContentControlsRemainAvailableAtAccessibilityTextSizes() {
+        for style in ["Light", "Dark"] {
+            app = configureApp(resetStorage: true, accessibilityTextSize: true, userInterfaceStyle: style,
+                content: true, media: true, longTags: true, initialTab: "home")
+            tapHeader(app.segmentedControls.buttons["课程"])
+            let course = textElement("自动化测试课程")
+            assertUI(course.appears(timeout: 5) && course.isHittable, "大字号课程列表应提供可读、可触达的课程卡片。")
+            tap("自动化测试课程")
+            let like = app.buttons.matching(identifier: "ui.app-comment-action-bar.like").firstMatch
+            reveal(like, description: "大字号评论操作")
+            assertUI(like.isHittable && like.frame.width.rounded() >= 44 && like.frame.height.rounded() >= 44,
+                "大字号评论操作应保持完整触控区域：\(like.frame)。")
+            let author = app.buttons.matching(NSPredicate(format: "label == %@", "自动化测试用户")).firstMatch
+            reveal(author, description: "大字号评论作者")
+            assertUI(author.frame.height.rounded() >= 44 && author.isHittable, "评论昵称应保持原生触控尺寸：\(author.frame)。")
+            author.tapBriefly()
+            assertUI(app.buttons["关注"].appears(timeout: 5), "昵称操作应进入含头像与统计的作者主页。")
+            back()
+            back()
+            app.tabBars.buttons["我的"].tapBriefly()
+            let followers = app.buttons.matching(NSPredicate(format: "identifier == %@ AND label == %@",
+                "ui.mine-stat-button.destination", "粉丝")).firstMatch
+            reveal(followers, description: "大字号主页统计")
+            assertUI(followers.isHittable && followers.frame.height.rounded() >= 44,
+                "头像统计区域应提供可触达的粉丝入口：\(followers.frame)。")
+            followers.tapBriefly()
+            assertUI(app.navigationBars["我的粉丝"].appears(timeout: 5), "大字号统计入口应打开对应列表。")
+            back()
+            app.tabBars.buttons["话廊"].tapBriefly()
+            tapHeader(app.segmentedControls.buttons["最新"])
+            let tags = app.scrollViews.matching(identifier: "interaction.CommunityPosterCard.scroll").firstMatch
+            reveal(tags, description: "大字号长标签")
+            tags.native.swipeLeft(velocity: .slow)
+            assertUI(app.segmentedControls.buttons["最新"].isSelected && app.segmentedControls.buttons["话题"].isSelected,
+                "横向标签滚动应保持当前信息流分区。")
+            let posterBody = app.descendants(matching: .any).matching(identifier: "community.poster.1").firstMatch
+            reveal(posterBody, description: "话题正文横滑区域")
+            posterBody.swipeLeft()
+            assertUI(!app.segmentedControls.buttons["最新"].isSelected, "标签区域外应继续支持分区切换。")
+        }
     }
 
     @MainActor

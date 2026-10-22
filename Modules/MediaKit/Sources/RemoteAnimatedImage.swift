@@ -125,6 +125,8 @@ actor RemoteAnimatedImageDecoder {
     }
 }
 
+enum RemoteAnimatedImagePhase { case loading, ready, failed }
+
 /// 使用 `UIImageView` 播放话廊中的 GIF 动图。
 ///
 /// SwiftUI 负责容器布局，GIF 原图由 UIKit 播放器处理。
@@ -137,19 +139,22 @@ struct RemoteAnimatedImage: UIViewRepresentable {
     let contentMode: ContentMode
     let cornerRadius: CGFloat
     let maximumPixelSize: Int?
+    let onPhaseChange: (@MainActor (RemoteAnimatedImagePhase) -> Void)?
 
     init(
         url: URL,
         isActive: Bool = true,
         contentMode: ContentMode = .fit,
         cornerRadius: CGFloat = AppDesignSystem.Spacing.none,
-        maximumPixelSize: Int? = nil
+        maximumPixelSize: Int? = nil,
+        onPhaseChange: (@MainActor (RemoteAnimatedImagePhase) -> Void)? = nil
     ) {
         self.url = url
         self.isActive = isActive
         self.contentMode = contentMode
         self.cornerRadius = cornerRadius
         self.maximumPixelSize = maximumPixelSize
+        self.onPhaseChange = onPhaseChange
     }
 
     func makeCoordinator() -> Coordinator {
@@ -172,7 +177,7 @@ struct RemoteAnimatedImage: UIViewRepresentable {
         if isActive, maximumPixelSize != 0 {
             context.coordinator.load(url: url, into: imageView, media: media, reduceMotion: reduceMotion,
                                      retryGeneration: media.imageRetryGeneration, budgetGeneration: media.displayBudget.releaseGeneration,
-                                     maximumPixelSize: maximumPixelSize)
+                                     maximumPixelSize: maximumPixelSize, onPhaseChange: onPhaseChange)
         } else {
             context.coordinator.cancel(imageView: imageView)
         }
@@ -196,7 +201,8 @@ struct RemoteAnimatedImage: UIViewRepresentable {
         private var task: Task<Void, Never>?
 
         func load(url: URL, into imageView: UIImageView, media: MediaEnvironment,
-                  reduceMotion: Bool = false, retryGeneration: UInt64 = 0, budgetGeneration: UInt64 = 0, maximumPixelSize: Int? = nil) {
+                  reduceMotion: Bool = false, retryGeneration: UInt64 = 0, budgetGeneration: UInt64 = 0, maximumPixelSize: Int? = nil,
+                  onPhaseChange: (@MainActor (RemoteAnimatedImagePhase) -> Void)? = nil) {
             let sameResource = currentURL == url && self.media === media && currentReduceMotion == reduceMotion
                 && currentPixelSize == maximumPixelSize
             if sameResource, imageView.image != nil { return }
@@ -216,7 +222,14 @@ struct RemoteAnimatedImage: UIViewRepresentable {
             displayed.clear()
 
             task = Task { [weak self, weak imageView, media] in
-                defer { if self?.requestGeneration == generation { self?.task = nil } }
+                var didLoadImage = false
+                defer {
+                    if self?.requestGeneration == generation {
+                        self?.task = nil
+                        if !Task.isCancelled, !didLoadImage { onPhaseChange?(.failed) }
+                    }
+                }
+                onPhaseChange?(.loading)
                 do {
                     let decoded = try await media.images.withSource(for: url) { @MainActor [media] source in
                         await media.animatedDecoder.image(from: source, reduceMotion: reduceMotion, maximumPixelSize: maximumPixelSize)
@@ -224,12 +237,13 @@ struct RemoteAnimatedImage: UIViewRepresentable {
                     guard !Task.isCancelled, self?.currentURL == url, self?.media === media, let decoded, let imageView else { return }
                     guard self?.displayed.set(decoded, budget: media.displayBudget) == true else { return }
                     imageView.image = decoded
+                    didLoadImage = true
+                    onPhaseChange?(.ready)
                     if decoded.images != nil {
                         imageView.startAnimating()
                     }
                 } catch {
                     guard !Task.isCancelled, self?.currentURL == url, self?.media === media else { return }
-                    // 动图失败时清除播放器状态，话廊继续浏览。
                     imageView?.stopAnimating()
                     imageView?.image = nil
                 }
@@ -254,27 +268,38 @@ struct RemoteAnimatedImage: UIViewRepresentable {
 public struct RemoteAutoplayingImage: View {
     @Environment(\.displayScale) private var displayScale
     let url: URL
+    let fallbackURL: URL?
     var contentMode: ContentMode = .fit
     var cornerRadius: CGFloat = AppDesignSystem.Spacing.none
     @State private var isActive = false
     @State private var pixelSize = 0
+    @State private var phase = RemoteAnimatedImagePhase.loading
 
     public var body: some View {
-        RemoteAnimatedImage(
-            url: url,
-            isActive: isActive,
-            contentMode: contentMode,
-            cornerRadius: cornerRadius,
-            maximumPixelSize: pixelSize
-        )
-            .onAppear { isActive = true }
-            .onDisappear { isActive = false }
-            .onGeometryChange(for: Int.self) { [scale = displayScale] geometry in
-                Int((max(geometry.size.width, geometry.size.height) * scale).rounded(.up))
-            } action: { pixelSize = $0 }
+        ZStack {
+            if isActive, phase != .ready {
+                RemoteCachedStillImage(url: fallbackURL ?? url, contentMode: contentMode)
+                    .clipShape(AppDesignSystem.roundedRectangle(cornerRadius))
+            }
+            RemoteAnimatedImage(
+                url: url,
+                isActive: isActive,
+                contentMode: contentMode,
+                cornerRadius: cornerRadius,
+                maximumPixelSize: pixelSize,
+                onPhaseChange: { phase = $0 }
+            )
+            if isActive, phase == .loading { ProgressView().controlSize(.small) }
+        }
+        .onAppear { isActive = true }
+        .onDisappear { isActive = false; phase = .loading }
+        .onGeometryChange(for: Int.self) { [scale = displayScale] geometry in
+            Int((max(geometry.size.width, geometry.size.height) * scale).rounded(.up))
+        } action: { pixelSize = $0 }
     }
-    public init(url: URL, contentMode: ContentMode = .fit, cornerRadius: CGFloat = AppDesignSystem.Spacing.none) {
+    public init(url: URL, fallbackURL: URL? = nil, contentMode: ContentMode = .fit, cornerRadius: CGFloat = AppDesignSystem.Spacing.none) {
         self.url = url
+        self.fallbackURL = fallbackURL
         self.contentMode = contentMode
         self.cornerRadius = cornerRadius
     }

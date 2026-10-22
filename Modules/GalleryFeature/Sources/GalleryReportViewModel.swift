@@ -9,6 +9,7 @@ final class GalleryReportViewModel {
     var reportTypes: [GalleryReportType] = []
     var selectedTypeID: Int?
     var text = ""
+    var hasChanges: Bool { !text.isEmpty || selectedTypeID != reportTypes.first?.id }
     private(set) var isLoading = true
     private(set) var isSubmitting = false
     private(set) var resultNeedsReview = false

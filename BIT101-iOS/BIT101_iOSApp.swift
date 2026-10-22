@@ -484,10 +484,15 @@ final class UITestSceneState: ObservableObject {
                             reply(Data(UITestAccessibilityActions.keyboardState(returnTitle: environment["return-title"]).utf8))
                             return
                         }
-                        if let command = environment["command"], ["request-state", "release-request", "fail-request"].contains(command) {
+                        if let command = environment["command"], ["request-state", "release-request", "fail-request", "hold-request"].contains(command) {
                             guard let key = environment["key"], !key.isEmpty else { throw CocoaError(.coderInvalidValue) }
-                            if command == "fail-request" {
-                                AppUITestBootstrap.failingRequests.insert(key)
+                            let query = Dictionary(uniqueKeysWithValues: environment.filter { $0.key.hasPrefix("query.") }
+                                .map { (String($0.key.dropFirst("query.".count)), $0.value) })
+                            if command == "hold-request" {
+                                AppUITestBootstrap.holdingRequests[key] = query
+                                reply(Data("queued".utf8))
+                            } else if command == "fail-request" {
+                                AppUITestBootstrap.failingRequests[key] = query
                                 reply(Data("queued".utf8))
                             } else if command == "release-request" {
                                 AppUITestBootstrap.releaseRequest(key)

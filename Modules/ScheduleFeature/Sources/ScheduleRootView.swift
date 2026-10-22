@@ -14,13 +14,6 @@ private struct ScheduleCurrentDateKey: EnvironmentKey {
     static var defaultValue: Date { .now }
 }
 
-struct ScheduleHorizontalControlFramesKey: PreferenceKey {
-    static var defaultValue: [CGRect] = []
-    static func reduce(value: inout [CGRect], nextValue: () -> [CGRect]) {
-        value.append(contentsOf: nextValue())
-    }
-}
-
 extension EnvironmentValues {
     var scheduleCurrentDate: Date {
         get { self[ScheduleCurrentDateKey.self] }
@@ -63,7 +56,7 @@ public struct ScheduleRootView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .contentShape(Rectangle())
-            .onPreferenceChange(ScheduleHorizontalControlFramesKey.self) { horizontalControlFrames = $0 }
+            .onPreferenceChange(AppHorizontalControlFramesKey.self) { horizontalControlFrames = $0 }
             .simultaneousGesture(
                 sectionSwitchGesture(
                     topDisabledY: proxy.frame(in: .global).minY + (viewModel.selectedSection == .courses

@@ -118,6 +118,11 @@ public struct CommunityPosterCard: View {
                         }
                     }
                     .accessibilityIdentifier("interaction.CommunityPosterCard.scroll")
+                    .background {
+                        GeometryReader { geometry in
+                            Color.clear.preference(key: AppHorizontalControlFramesKey.self, value: [geometry.frame(in: .global)])
+                        }
+                    }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
                     Spacer(minLength: AppDesignSystem.Spacing.tiny)
@@ -361,6 +366,7 @@ public struct CommunityImageThumbnail: View {
             if let animatedURL {
                 RemoteAutoplayingImage(
                     url: animatedURL,
+                    fallbackURL: thumbnailURL,
                     contentMode: contentMode,
                     cornerRadius: AppDesignSystem.Radius.card
                 )
