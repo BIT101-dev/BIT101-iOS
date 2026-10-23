@@ -200,7 +200,6 @@ private struct MineRootViewScene: View {
             } label: {
                 AppNavigationRowLabel(
                     title: route.title,
-                    systemImage: route.systemImage,
                     showsDisclosureIndicator: true
                 )
                 .contentShape(Rectangle())

@@ -22,27 +22,29 @@ public struct AppListSectionHeader: View {
     }
 }
 
-/// AppNavigationRowLabel 为设置入口等导航行提供图标、标题和可选披露标记。
+/// AppNavigationRowLabel 为导航行提供标题、可选图标和披露标记。
 public struct AppNavigationRowLabel: View {
-    public init(title: String, systemImage: String, showsDisclosureIndicator: Bool = false) {
+    public init(title: String, systemImage: String? = nil, showsDisclosureIndicator: Bool = false) {
         self.title = title
         self.systemImage = systemImage
         self.showsDisclosureIndicator = showsDisclosureIndicator
     }
 
     let title: String
-    let systemImage: String
+    let systemImage: String?
     var showsDisclosureIndicator = false
 
     public var body: some View {
         HStack(spacing: AppDesignSystem.Spacing.regular) {
-            Image(systemName: systemImage)
-                .frame(
-                    width: AppDesignSystem.Size.Control.navigationIcon,
-                    height: AppDesignSystem.Size.Control.navigationIcon
-                )
-                .foregroundStyle(.tint)
-                .accessibilityHidden(true)
+            if let systemImage {
+                Image(systemName: systemImage)
+                    .frame(
+                        width: AppDesignSystem.Size.Control.navigationIcon,
+                        height: AppDesignSystem.Size.Control.navigationIcon
+                    )
+                    .foregroundStyle(.tint)
+                    .accessibilityHidden(true)
+            }
 
             Text(title)
                 .font(AppDesignSystem.Typography.body)
