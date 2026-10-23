@@ -73,7 +73,7 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
     func updateUIViewController(_ controller: HostViewController, context: Context) {
         context.coordinator.onDismiss = { viewer = nil }
         context.coordinator.onFailure = { error in
-            presentAlert?(AppAlert(title: "图片预览失败", message: error.localizedDescription))
+            presentAlert?(AppAlert(title: "图片预览失败", error: error))
         }
         context.coordinator.receive(viewer, from: controller, media: media)
     }
@@ -111,6 +111,7 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
         private var failures: [Int: any Error] = [:]
         private var failureGenerations: [Int: UInt64] = [:]
         private var reportedFailures: Set<Int> = []
+        private let loadingIndicator = UIActivityIndicatorView(style: .medium)
         private lazy var retryButton: UIBarButtonItem = {
             let button = UIBarButtonItem(barButtonSystemItem: .refresh, target: self, action: #selector(retryCurrentImage))
             button.accessibilityIdentifier = "media.preview.retry"
@@ -132,7 +133,7 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
                 self.media = media
             }
             guard let request else {
-                if previewController == nil { cancel() }
+                cancel()
                 return
             }
             let retryGeneration = media.imageRetryGeneration
@@ -171,6 +172,8 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
                     let close = UIBarButtonItem(barButtonSystemItem: .done, target: self, action: #selector(closePreview))
                     close.accessibilityIdentifier = "media.preview.close"
                     controller.navigationItem.leftBarButtonItem = close
+                    loadingIndicator.accessibilityLabel = "正在加载图片"
+                    updateRetryButton()
                     previewNavigationController = navigation
                     let observedRequestID = request.id
                     selectionObservation = controller.observe(\.currentPreviewItemIndex, options: [.new]) { [weak self] _, change in
@@ -233,6 +236,7 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
             previewNavigationController = nil
             controller?.dataSource = nil
             controller?.delegate = nil
+            loadingIndicator.stopAnimating()
             presentation?.dismiss(animated: false)
             preparationTask = nil
             upgradeTask = nil
@@ -248,14 +252,14 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
             pendingCurrentRefresh = false
         }
 
-        /// 用户点击的图片先准备可读文件；其它图片使用缓存或占位，高清资源在预览展示后继续准备。
+        /// 首张优先使用缓存，其余资源在系统预览显示后下载。
         func prepareInitialItems(
             for request: ImagePreviewRequest,
             media: MediaEnvironment
         ) async throws -> (items: [MutableQuickLookItem], initialIndex: Int) {
             let count: Int
             let initialIndex: Int
-            let file: URL
+            let file: URL?
             switch request.source {
             case let .local(images):
                 guard !images.isEmpty else { throw QuickLookPreparationError.noImages }
@@ -273,15 +277,10 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
                 } else if let lowURL = image.thumbnailURL,
                           let cached = try await media.cachedRemotePreviewFile(for: lowURL, owner: request.id) {
                     file = cached
-                } else if let lowURL = image.thumbnailURL,
-                          let downloaded = try? await media.remotePreviewFile(for: lowURL, owner: request.id) {
-                    file = downloaded
-                } else if let highURL = image.originalURL {
-                    file = try await media.remotePreviewFile(for: highURL, owner: request.id)
-                } else { throw QuickLookPreparationError.unavailable }
+                } else { file = nil }
             }
             placeholderURL = nil
-            if count > 1 {
+            if count > 1 || file == nil {
                 do {
                     let placeholder = try await media.images.placeholderFile()
                     placeholderURL = try await media.previewFile(at: placeholder, owner: request.id)
@@ -291,7 +290,8 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
                 }
             }
             let prepared = (0..<count).map { index in
-                MutableQuickLookItem(url: index == initialIndex ? file : placeholderURL, title: "图片 \(index + 1)")
+                MutableQuickLookItem(url: index == initialIndex ? file ?? placeholderURL : placeholderURL,
+                    title: index == initialIndex && file != nil ? "图片 \(index + 1)" : "正在加载图片")
             }
             return (prepared, initialIndex)
         }
@@ -333,9 +333,10 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
                 requestID: request.id, media: media
             )
 
-            for index in remainingIndices {
+            for index in images.indices {
                 guard !Task.isCancelled, requestID == request.id, self.media === media else { return }
                 let image = images[index]
+                if index == initialIndex, image.originalURL == nil || image.originalURL == image.thumbnailURL { continue }
                 if items.indices.contains(index),
                    items[index].url == placeholderURL,
                    let lowURL = image.thumbnailURL {
@@ -424,6 +425,14 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
 
         private func updateRetryButton() {
             guard let controller = previewController else { return }
+            let index = controller.currentPreviewItemIndex
+            if items.indices.contains(index), items[index].url == placeholderURL, failures[index] == nil {
+                loadingIndicator.startAnimating()
+                controller.navigationItem.titleView = loadingIndicator
+            } else {
+                loadingIndicator.stopAnimating()
+                controller.navigationItem.titleView = nil
+            }
             var buttons = (controller.navigationItem.leftBarButtonItems ?? []).filter { $0 !== retryButton }
             if failures[controller.currentPreviewItemIndex] != nil {
                 retryButton.isEnabled = retryTask == nil

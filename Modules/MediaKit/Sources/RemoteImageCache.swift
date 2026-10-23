@@ -45,6 +45,10 @@ nonisolated enum ImageCacheDirectories {
         files.directoryURL(.cachesDirectory)?.appending(path: "BIT101ImageCache", directoryHint: .isDirectory)
             ?? files.temporaryDirectoryURL.appending(path: "BIT101ImageCache", directoryHint: .isDirectory)
     }
+
+    static func previews(using files: any AppFileService) -> URL {
+        files.temporaryDirectoryURL.appending(path: "BIT101Previews", directoryHint: .isDirectory)
+    }
 }
 
 /// Synchronizes active image-file registration with disk eviction.
@@ -252,6 +256,7 @@ actor ImageCacheDiskQuota {
         configuredDirectories ?? [
             ImageCacheDirectories.gallery(using: files),
             ImageCacheDirectories.avatars(using: files),
+            ImageCacheDirectories.previews(using: files),
         ]
     }
 
@@ -346,11 +351,6 @@ actor RemoteImageCache {
 
     func clearMemory() { transientImages.removeAllObjects() }
 
-    /// 返回已有缓存并刷新其 LRU 时间，不发起网络请求。
-    func cachedFile(for remoteURL: URL) async -> URL? {
-        await acquireCachedFile(for: remoteURL)?.url
-    }
-
     private func acquireCachedFile(for requestURL: URL) async -> RemoteImageLease? {
         let remoteURL = HTTPSURLUpgrade.upgradedURL(from: requestURL)
         let owner = generation
@@ -377,11 +377,6 @@ actor RemoteImageCache {
             return lease
         }
         return nil
-    }
-
-    /// 获取缓存文件；同一 URL 的并发请求会合并成一次下载。
-    func file(for remoteURL: URL) async throws -> URL {
-        try await acquireFile(for: remoteURL).url
     }
 
     func withFile<Value: Sendable>(for remoteURL: URL, operation: @Sendable (URL) async throws -> Value) async throws -> Value {
@@ -539,13 +534,13 @@ actor RemoteImageCache {
             return cachedURL
         }
         let data = try files.readData(at: cachedURL)
-        let directory = ImageCacheDirectories.gallery(using: previewFiles)
+        let directory = ImageCacheDirectories.previews(using: previewFiles)
         let name = "local-\(SHA256.hash(data: data).hexString).\(cachedURL.pathExtension)"
         let target = directory.appendingPathComponent(name)
         let materialize: @Sendable () throws -> Void = {
             try previewFiles.createDirectory(at: target.deletingLastPathComponent())
             if (try? previewFiles.readData(at: target)) != data {
-                try previewFiles.writeData(data, to: target, options: [.atomic])
+                try previewFiles.writeData(data, to: target, options: [.atomic, .completeFileProtection])
             }
             if target != cachedURL { try previewFiles.setModificationDate(Date(), at: target) }
         }
@@ -690,6 +685,8 @@ public nonisolated enum BoundedStillImageDecoder {
 ///
 /// ImageIO 在像素预算内生成显示位图，后台解码和内存缓存沿用同一预算。
 actor GalleryThumbnailDecoder {
+    private nonisolated let executor = StorageFileExecutor()
+    nonisolated var unownedExecutor: UnownedSerialExecutor { executor.asUnownedSerialExecutor() }
     private let files: any AppFileService
     func clear() { images.removeAllObjects() }
 

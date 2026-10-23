@@ -64,6 +64,8 @@ public final class MediaEnvironment {
     private let previewOwnership: PreviewFileOwnership
     private var temporaryPreviewFiles: [UUID: Set<URL>] = [:]
     @ObservationIgnored private var memoryWarningTask: Task<Void, Never>?
+    @ObservationIgnored private var connectionRecoveryTask: Task<Void, Never>?
+    @ObservationIgnored private var foregroundRecoveryTask: Task<Void, Never>?
     private nonisolated static let logger = Logger(subsystem: "BIT101", category: "PreviewFiles")
 
     public init(
@@ -72,7 +74,8 @@ public final class MediaEnvironment {
         defaults: UserDefaults,
         loadPickedImage: @escaping @Sendable (PhotosPickerItem) async throws -> Data?,
         imageHTTPClient: HTTPClient,
-        avatarHTTPClient: HTTPClient
+        avatarHTTPClient: HTTPClient,
+        networkPath: NetworkPathState? = nil
     ) {
         photoDataLoader = loadPickedImage
         let preferences = GalleryImageCachePreferences(defaults: defaults)
@@ -103,9 +106,28 @@ public final class MediaEnvironment {
                 await self?.releaseCachedImages()
             }
         }
+        if let networkPath {
+            let recoveries = networkPath.connectionRecoveries()
+            connectionRecoveryTask = Task { [weak self] in
+                for await _ in recoveries {
+                    guard !Task.isCancelled else { return }
+                    self?.retryFailedImages()
+                }
+            }
+            foregroundRecoveryTask = Task { [weak self] in
+                for await _ in NotificationCenter.default.notifications(named: UIApplication.didBecomeActiveNotification) {
+                    guard !Task.isCancelled else { return }
+                    if networkPath.isReachable { self?.retryFailedImages() }
+                }
+            }
+        }
     }
 
-    isolated deinit { memoryWarningTask?.cancel() }
+    isolated deinit {
+        memoryWarningTask?.cancel()
+        connectionRecoveryTask?.cancel()
+        foregroundRecoveryTask?.cancel()
+    }
 
     func releaseCachedImages() async {
         await images.clearMemory()
@@ -164,11 +186,11 @@ public final class MediaEnvironment {
     private static func materializeLocalPreview(data: Data, files: any AppFileService,
                                                ownership: PreviewFileOwnership, owner: UUID) async throws -> URL {
         try Task.checkCancellation()
-        let directory = ImageCacheDirectories.gallery(using: files)
+        let directory = ImageCacheDirectories.previews(using: files)
         let file = directory.appendingPathComponent("preview-local-\(SHA256.hash(data: data).hexString).png")
         try ownership.materializeAndPin(file, using: files, owner: owner) {
             try files.createDirectory(at: directory)
-            if !files.fileExists(at: file) { try files.writeData(data, to: file, options: [.atomic]) }
+            if !files.fileExists(at: file) { try files.writeData(data, to: file, options: [.atomic, .completeFileProtection]) }
         }
         return file
     }
@@ -184,11 +206,12 @@ public final class MediaEnvironment {
 
     @concurrent
     private static func removeReleasedLocalPreviews(files: any AppFileService, ownership: PreviewFileOwnership) async {
-        let directory = ImageCacheDirectories.gallery(using: files)
-        let children = (try? files.contentsOfDirectory(at: directory, options: [.skipsHiddenFiles])) ?? []
+        let temporary = (try? files.contentsOfDirectory(at: ImageCacheDirectories.previews(using: files), options: [.skipsHiddenFiles])) ?? []
+        let legacy = (try? files.contentsOfDirectory(at: ImageCacheDirectories.gallery(using: files), options: [.skipsHiddenFiles])) ?? []
+        let children = temporary + legacy.filter { $0.lastPathComponent.hasPrefix("preview-local-") || $0.lastPathComponent.hasPrefix("local-") }
         let logger = Self.logger
         ownership.withPaths { retained in
-            for file in children where file.lastPathComponent.hasPrefix("preview-local-") || file.lastPathComponent.hasPrefix("local-") {
+            for file in children {
                 guard !retained.contains(files.canonicalFileURL(file).path) else { continue }
                 do { try files.removeItem(at: file) }
                 catch { logger.error("Local preview cleanup failed: \(error.localizedDescription, privacy: .public)") }
@@ -244,14 +267,16 @@ public final class MediaEnvironment {
         if previewQuota !== cacheQuota { await previewQuota.enforce(force: true) }
     }
     public var cacheDirectories: Set<URL> {
-        Set([cacheFiles, previewFiles].flatMap { [ImageCacheDirectories.gallery(using: $0), ImageCacheDirectories.avatars(using: $0)] })
+        Set([cacheFiles, previewFiles].flatMap {
+            [ImageCacheDirectories.gallery(using: $0), ImageCacheDirectories.avatars(using: $0), ImageCacheDirectories.previews(using: $0)]
+        })
     }
 
     @discardableResult public func clearCaches() async -> Bool {
         downloads.clear()
         let imagesCleared = await images.clearAll()
         let avatarsCleared = await avatars.clearAll()
-        let previewsCleared = await previewQuota.clearDirectory(ImageCacheDirectories.gallery(using: previewFiles))
+        let previewsCleared = await previewQuota.clearDirectory(ImageCacheDirectories.previews(using: previewFiles))
         await stillDecoder.clear()
         await animatedDecoder.clear()
         return imagesCleared && avatarsCleared && previewsCleared

@@ -12,6 +12,7 @@ nonisolated struct AppErrorPresentation: Identifiable {
     let showsRecoveryLinks: Bool
     let schoolServiceURL: URL?
     let recoveryAction: AppRecoveryAction?
+    var underlyingError: (any Error)? = nil
 
     var allowsSchoolServiceLink: Bool { showsRecoveryLinks && schoolServiceURL != nil }
 
@@ -26,12 +27,14 @@ extension AppErrorPresentation: DiagnosticAlertPresentable {}
 
 extension AppErrorPresentation {
     init(alert: any DiagnosticAlertPresentable, schoolServiceURL: URL? = nil) {
-        if let issue = SchoolServiceIssue(title: alert.title, message: alert.message) {
+        if let issue = SchoolServiceIssue(error: alert.underlyingError) {
             self.init(title: issue.title, message: issue.message, allowsDiagnostics: false,
-                showsRecoveryLinks: true, schoolServiceURL: schoolServiceURL ?? issue.serviceURL, recoveryAction: nil)
+                showsRecoveryLinks: true, schoolServiceURL: schoolServiceURL ?? issue.serviceURL,
+                recoveryAction: nil, underlyingError: alert.underlyingError)
         } else {
             self.init(title: alert.title, message: alert.message, allowsDiagnostics: alert.allowsDiagnostics,
-                showsRecoveryLinks: alert.showsRecoveryLinks, schoolServiceURL: schoolServiceURL, recoveryAction: alert.recoveryAction)
+                showsRecoveryLinks: alert.showsRecoveryLinks, schoolServiceURL: schoolServiceURL,
+                recoveryAction: alert.recoveryAction, underlyingError: alert.underlyingError)
         }
     }
 }
@@ -332,8 +335,8 @@ extension View {
 #endif
             AppErrorPresenter.shared.present(alert)
         }
-            .environment(\.appFailureRecoveryActions) { title, message, allowsDiagnostics in
-            AnyView(DiagnosticRecoveryActions(title: title, message: message, allowsDiagnostics: allowsDiagnostics))
+            .environment(\.appFailureRecoveryActions) { title, message, allowsDiagnostics, error in
+            AnyView(DiagnosticRecoveryActions(title: title, message: message, allowsDiagnostics: allowsDiagnostics, underlyingError: error))
         }
     }
 }
@@ -342,18 +345,19 @@ struct DiagnosticRecoveryActions: View {
     let title: String
     let message: String
     let allowsDiagnostics: Bool
+    var underlyingError: (any Error)? = nil
     @State private var reportAlert: AppAlert?
     @State private var schoolServiceURL: URL?
 
     var presentation: AppErrorPresentation {
-        AppErrorPresentation(alert: AppAlert(title: title, message: message, allowsDiagnostics: allowsDiagnostics),
+        AppErrorPresentation(alert: AppAlert(title: title, message: message, allowsDiagnostics: allowsDiagnostics, underlyingError: underlyingError),
             schoolServiceURL: schoolServiceURL)
     }
 
     var body: some View {
         let presentation = presentation
         VStack(spacing: AppDesignSystem.Spacing.regular) {
-            if SchoolServiceIssue(title: title, message: message) != nil {
+            if SchoolServiceIssue(error: underlyingError) != nil {
                 Text(presentation.message)
                     .font(AppDesignSystem.Typography.footnote)
                     .foregroundStyle(AppDesignSystem.Foreground.secondary)
@@ -365,7 +369,7 @@ struct DiagnosticRecoveryActions: View {
             if presentation.allowsDiagnostics {
                 Link("查看是否有更新", destination: BIT101AppStore.url)
                 Button("向开发者分享错误信息") {
-                    reportAlert = AppAlert(title: title, message: message)
+                    reportAlert = AppAlert(title: title, message: message, underlyingError: underlyingError)
                 }
             }
         }

@@ -53,7 +53,7 @@ struct GallerySubscriptionsView: View {
                             do { selectedPoster = try await dependencies.posterDetail.fetchPoster(id: resource.id) }
                             catch {
                                 if !TaskCancellation.matches(error) {
-                                    viewModel.alert = AppAlert(title: "无法打开话题", message: error.localizedDescription)
+                                    viewModel.alert = AppAlert(title: "无法打开话题", error: error)
                                 }
                             }
                         }

@@ -22,6 +22,7 @@ final class TrustedTranscriptViewModel: ObservableObject {
     @Published private(set) var isSubmittingSMSCode = false
     @Published private(set) var isLoadingPages = false
     @Published private(set) var allowsDiagnostics = true
+    @Published private(set) var failureCause: (any Error)?
 
     private let service: any TrustedTranscriptServicing
     private let limits: TrustedTranscriptResourceLimits
@@ -71,6 +72,7 @@ final class TrustedTranscriptViewModel: ObservableObject {
         defer { isLoadingPages = false; stagedImages = [:]; stagedBytes = [:] }
         smsVerificationError = nil
         allowsDiagnostics = true
+        failureCause = nil
         if images.isEmpty { state = .loading }
         do { try await loadImages(from: fetchPages()) }
         catch ScoreServiceError.secondFactorRequired(let challenge) {
@@ -158,6 +160,7 @@ final class TrustedTranscriptViewModel: ObservableObject {
         smsChallenge = nil
         smsVerificationError = nil
         allowsDiagnostics = false
+        failureCause = nil
         if images.isEmpty { state = .failed("已取消短信验证，未申请可信成绩单。") }
         else { state = .loaded; deliveryWarning = "本次验证已取消，已加载的成绩单继续保留。" }
     }
@@ -169,6 +172,7 @@ final class TrustedTranscriptViewModel: ObservableObject {
         }
     }
     private func presentDeliveryFailure(_ error: any Error) {
+        failureCause = error
         if images.isEmpty { state = .failed(error.localizedDescription) }
         else { deliveryWarning = error.localizedDescription; state = .loaded }
     }

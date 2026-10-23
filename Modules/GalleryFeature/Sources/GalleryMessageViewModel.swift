@@ -361,7 +361,7 @@ final class GalleryMessageViewModel: ObservableObject {
         } catch {
             guard generation == posterGeneration, session == readStore.currentSession,
                   !Task.isCancelled, !TaskCancellation.matches(error) else { return }
-            alert = AppAlert(title: "打开消息失败", message: error.localizedDescription)
+            alert = AppAlert(title: "打开消息失败", error: error)
         }
     }
 
@@ -395,7 +395,7 @@ final class GalleryMessageViewModel: ObservableObject {
                 return
             }
             setState(for: type) { $0.isLoadingMore = false; $0.paginationError = error.localizedDescription }
-            alert = AppAlert(title: "加载更多失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载更多失败", error: error)
         }
     }
 

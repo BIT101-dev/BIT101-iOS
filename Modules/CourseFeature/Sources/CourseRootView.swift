@@ -197,7 +197,7 @@ private struct CourseEvaluationLinkScene: View {
             if error is CourseEvaluationError {
                 alert = AppAlert.userInput(title: "无法打开课程评价", message: error.localizedDescription)
             } else {
-                diagnosticAlert = AppAlert(title: "课程评价加载失败", message: error.localizedDescription)
+                diagnosticAlert = AppAlert(title: "课程评价加载失败", error: error)
             }
         }
     }
@@ -289,7 +289,7 @@ private struct CourseEvaluationScene: View {
             preparedDetail = resolvedRequest.preparedDetail
         } catch let error as CourseEvaluationError {
             expectedErrorMessage = error.localizedDescription
-            expectedAlert = AppAlert(title: "无法打开课程评价", message: error.localizedDescription)
+            expectedAlert = AppAlert(title: "无法打开课程评价", error: error)
         } catch {
             if TaskCancellation.matches(error) { return }
             errorMessage = error.localizedDescription

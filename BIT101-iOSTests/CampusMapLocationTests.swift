@@ -47,6 +47,22 @@ private struct CampusMapLocationFixture: Decodable {
 
 @Suite("Campus map location matching")
 struct CampusMapLocationTests {
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor func hiddenMapStopsLocationAndIgnoresLateUpdates() {
+        let map = MapViewLocationFixture(), coordinator = CampusNativeMapView.Coordinator(), request = UUID()
+        coordinator.updateLocation(in: map, active: true, requestID: request)
+        #expect(map.showsUserLocation && map.tracking == .follow)
+        coordinator.updateLocation(in: map, active: false, requestID: request)
+        #expect(!map.showsUserLocation && map.tracking == .none)
+        map.position.position = CLLocation(latitude: 39.9, longitude: 116.3)
+        coordinator.mapView(map, didUpdate: map.position)
+        #expect(map.centered == nil)
+        coordinator.updateLocation(in: map, active: true, requestID: request)
+        #expect(map.showsUserLocation && map.centered?.latitude == 39.9)
+        coordinator.updateLocation(in: map, active: true, requestID: nil)
+        #expect(!map.showsUserLocation)
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     @MainActor func directionsHandoffRetainsDestinationAndOffersRetry(opened: Bool) throws {
         let controller = CampusLocationController(manager: MapLocationManagerFixture())

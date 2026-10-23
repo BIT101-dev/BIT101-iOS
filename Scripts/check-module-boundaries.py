@@ -773,7 +773,7 @@ def native_target_errors(root: Path, package: dict, modules: set[str]) -> list[s
         if project['objects'][identifier].get('isa') == 'PBXFileReference' and not path.exists():
             errors.append(f'工程文件引用需要对应实际文件：{path.relative_to(root) if path.is_relative_to(root) else path}')
     inventory = {root / name for name in repository_input_names(root)
-        if Path(name).suffix == '.swift' and Path(name).parts[0] in SWIFT_ROOTS}
+        if Path(name).suffix == '.swift' and Path(name).parts[0] in SWIFT_ROOTS and (root / name).is_file()}
     compiled = set()
     for name, declared, sources in native_project_targets(project, root):
         compiled.update(sources)

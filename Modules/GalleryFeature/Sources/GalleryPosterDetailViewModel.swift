@@ -175,7 +175,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
             if TaskCancellation.matches(error) {
                 return
             }
-            alert = AppAlert(title: "加载更多失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载更多失败", error: error)
             commentState.paginationError = error.localizedDescription
         }
     }
@@ -215,7 +215,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
                 return
             }
             if TaskCancellation.matches(error) { return }
-            alert = AppAlert(title: "点赞失败", message: error.localizedDescription)
+            alert = AppAlert(title: "点赞失败", error: error)
         }
     }
 
@@ -229,7 +229,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
             poster = poster.updatingSubscription(level)
             return true
         } catch {
-            if !TaskCancellation.matches(error) { alert = AppAlert(title: "插眼设置失败", message: error.localizedDescription) }
+            if !TaskCancellation.matches(error) { alert = AppAlert(title: "插眼设置失败", error: error) }
             return false
         }
     }
@@ -257,7 +257,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
                 return
             }
             if TaskCancellation.matches(error) { return }
-            alert = AppAlert(title: "点赞失败", message: error.localizedDescription)
+            alert = AppAlert(title: "点赞失败", error: error)
         }
     }
 
@@ -313,7 +313,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
                 return false
             }
             if Task.isCancelled || TaskCancellation.matches(error) { return false }
-            alert = AppAlert(title: "发送失败", message: error.localizedDescription)
+            alert = AppAlert(title: "发送失败", error: error)
             return false
         }
     }
@@ -329,7 +329,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
             pendingOperations.enqueue { [weak self] in await self?.refreshAll() }
         } catch {
             if TaskCancellation.matches(error) { return }
-            alert = AppAlert(title: "删除评论失败", message: error.localizedDescription)
+            alert = AppAlert(title: "删除评论失败", error: error)
         }
     }
 
@@ -348,7 +348,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
             return true
         } catch {
             if TaskCancellation.matches(error) { return false }
-            alert = AppAlert(title: "删除失败", message: error.localizedDescription)
+            alert = AppAlert(title: "删除失败", error: error)
             return false
         }
     }
@@ -383,7 +383,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
                 return
             }
             posterStatus = hasKnownLikeState ? .loaded : .failed(error.localizedDescription)
-            alert = AppAlert(title: "加载帖子失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载帖子失败", error: error)
         }
     }
 
@@ -407,7 +407,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
             commentState.restoreAfterRefreshFailure(previousState, failureStatus: cancelled ? nil : .failed(error.localizedDescription))
             if !commentState.items.isEmpty { commentOrder = commentState.order }
             if cancelled { return }
-            alert = AppAlert(title: "加载评论失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载评论失败", error: error)
         }
     }
 

@@ -524,7 +524,7 @@ final class ErrorReportViewModel: ObservableObject {
     private let submissionAttempt = FeedbackSubmissionAttempt<ErrorReportPayload>()
     var isCurrentAccount: Bool { AppAccountSession.storage.schoolSessionIdentity == identity }
     var allowsSubmission: Bool {
-        alert.allowsDiagnostics && SchoolServiceIssue(title: alert.title, message: alert.message) == nil
+        alert.allowsDiagnostics && SchoolServiceIssue(error: alert.underlyingError) == nil
     }
 
     init(alert: any DiagnosticAlertPresentable,
@@ -546,7 +546,7 @@ final class ErrorReportViewModel: ObservableObject {
 
     func submit() async -> Bool {
         guard allowsSubmission else {
-            resultMessage = SchoolServiceIssue(title: alert.title, message: alert.message)?.message
+            resultMessage = SchoolServiceIssue(error: alert.underlyingError)?.message
                 ?? "请返回当前页面继续处理。"
             return false
         }

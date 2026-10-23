@@ -23,7 +23,7 @@
 | `Modules/DesignSystemKit/Sources/AppAvatarComponents.swift` | 纯头像容器、占位、裁切与无障碍 |
 | `Modules/DesignSystemKit/Sources/AppCommentComposerComponents.swift` | 评论和建议编辑结构 |
 | `Modules/DesignSystemKit/Sources/AppFeedComponents.swift` | 信息流行容器、分割线与课程评价行；课程令牌由 `AppDesignSystem.Course` 提供 |
-| `Modules/DesignSystemKit/Sources/AppDiagnosticComponents.swift` | 提示模型、恢复动作描述、诊断协议和注入式提示修饰器 |
+| `Modules/DesignSystemKit/Sources/AppDiagnosticComponents.swift` | 共享提示模型、原始错误上下文、恢复动作与注入式提示修饰器；日程和地图复用同一模型 |
 | `Modules/DesignSystemKit/Sources/AppFixedColumnComponents.swift` | 比例列数据行 |
 | `Modules/DesignSystemKit/Sources/AppHapticFeedback.swift` | 系统选择与操作触感修饰器 |
 | `Modules/DesignSystemKit/Sources/AppRefreshStatusComponents.swift` | 更新时间与刷新入口 |

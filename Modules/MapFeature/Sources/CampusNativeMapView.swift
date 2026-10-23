@@ -32,6 +32,7 @@ struct CampusNativeMapView: UIViewRepresentable {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let focusRequest: MapFocusRequest
     let centerOnUserRequestID: UUID?
+    let isActive: Bool
     let nextCourseTarget: UpcomingCourseMapTarget?
     let requestedLocation: CampusMapLocationRequest?
     let mapConfiguration: MKMapConfiguration
@@ -43,6 +44,11 @@ struct CampusNativeMapView: UIViewRepresentable {
         coordinator.onLocationFailure = onLocationFailure
         coordinator.reduceMotion = reduceMotion
         return coordinator
+    }
+
+    static func dismantleUIView(_ mapView: MKMapView, coordinator: Coordinator) {
+        coordinator.updateLocation(in: mapView, active: false, requestID: nil)
+        mapView.delegate = nil
     }
 
     /// 创建并初始化原生 `MKMapView`。
@@ -89,10 +95,7 @@ struct CampusNativeMapView: UIViewRepresentable {
         if requestedLocationChanged {
             context.coordinator.focus(on: requestedLocation?.places.first, in: mapView, animated: true)
         }
-        if context.coordinator.lastCenterOnUserRequestID != centerOnUserRequestID,
-           let centerOnUserRequestID {
-            context.coordinator.centerOnUser(in: mapView, requestID: centerOnUserRequestID)
-        }
+        context.coordinator.updateLocation(in: mapView, active: isActive, requestID: centerOnUserRequestID)
     }
 
     final class Coordinator: NSObject, MKMapViewDelegate {
@@ -206,7 +209,19 @@ struct CampusNativeMapView: UIViewRepresentable {
             return marker
         }
 
-        /// 如果当前位置已经可用，就直接居中；否则切到 follow 等待下一次定位回调。
+        /// 页面可见且场景活跃时处理定位请求，结束时释放地图定位资源。
+        func updateLocation(in mapView: MKMapView, active: Bool, requestID: UUID?) {
+            guard active, let requestID else {
+                mapView.setUserTrackingMode(.none, animated: false)
+                mapView.showsUserLocation = false
+                pendingCenterOnUserRequestID = nil
+                lastCenterOnUserRequestID = nil
+                return
+            }
+            if lastCenterOnUserRequestID != requestID { centerOnUser(in: mapView, requestID: requestID) }
+        }
+
+        /// 已有位置立即居中，其余请求等待下一次定位回调。
         func centerOnUser(in mapView: MKMapView, requestID: UUID) {
             lastCenterOnUserRequestID = requestID
             mapView.showsUserLocation = true

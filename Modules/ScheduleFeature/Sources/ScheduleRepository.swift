@@ -239,12 +239,12 @@ public final class ScheduleRepository: ObservableObject {
                         } catch {
                             if TaskCancellation.matches(error) { return false }
                             guard self.accountGeneration == generation, account == self.session() else { return false }
-                            self.notice = ScheduleNotice(title: "日程保存失败", message: error.localizedDescription)
+                            self.notice = ScheduleNotice(title: "日程保存失败", error: error)
                             return false
                         }
                     }
                 }
-                self.notice = ScheduleNotice(title: "日程保存失败", message: error.localizedDescription)
+                self.notice = ScheduleNotice(title: "日程保存失败", error: error)
                 return false
             }
         }
@@ -279,7 +279,7 @@ public final class ScheduleRepository: ObservableObject {
             return true
         } catch {
             guard !TaskCancellation.matches(error), account == session(), generation == accountGeneration else { return false }
-            notice = ScheduleNotice(title: "日程合并失败", message: error.localizedDescription)
+            notice = ScheduleNotice(title: "日程合并失败", error: error)
             return false
         }
     }

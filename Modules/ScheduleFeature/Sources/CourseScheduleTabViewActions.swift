@@ -95,7 +95,7 @@ extension CourseScheduleTabView {
                 )
             } catch {
                 guard !Task.isCancelled, viewModel.accountGeneration == generation else { return }
-                courseShareAlert = AppAlert(title: "导入日历失败", message: error.localizedDescription)
+                courseShareAlert = AppAlert(title: "导入日历失败", error: error)
             }
         }
     }
@@ -111,7 +111,7 @@ extension CourseScheduleTabView {
                 courseShareAlert = calendarMutationAlert(result)
             } catch {
                 guard !Task.isCancelled, viewModel.accountGeneration == generation else { return }
-                courseShareAlert = AppAlert(title: "移除日历失败", message: error.localizedDescription)
+                courseShareAlert = AppAlert(title: "移除日历失败", error: error)
             }
         }
     }
@@ -127,7 +127,7 @@ extension CourseScheduleTabView {
                 courseShareAlert = calendarMutationAlert(result)
             } catch {
                 guard !Task.isCancelled, viewModel.accountGeneration == generation else { return }
-                courseShareAlert = AppAlert(title: "移除日历失败", message: error.localizedDescription)
+                courseShareAlert = AppAlert(title: "移除日历失败", error: error)
             }
         }
     }
@@ -148,7 +148,7 @@ extension CourseScheduleTabView {
             } catch where TaskCancellation.matches(error) {
                 return
             } catch {
-                viewModel.notice = ScheduleNotice(title: "导出失败", message: error.localizedDescription)
+                viewModel.notice = ScheduleNotice(title: "导出失败", error: error)
             }
         }
     }
@@ -194,7 +194,7 @@ extension CourseScheduleTabView {
                 courseSharePresentation = CourseSharePresentation(url: resolution.url, subject: resolution.subject)
             } catch {
                 guard !Task.isCancelled, viewModel.accountGeneration == generation else { return }
-                courseShareAlert = AppAlert(title: "查找课程失败", message: error.localizedDescription)
+                courseShareAlert = AppAlert(title: "查找课程失败", error: error)
             }
         }
     }

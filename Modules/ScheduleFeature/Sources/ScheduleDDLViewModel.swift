@@ -166,13 +166,13 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
             case .schoolSMSCodeInvalid:
                 notice = ScheduleNotice.userInput(title: "验证码错误", message: error.localizedDescription)
             case .schoolSMSUnavailable:
-                notice = ScheduleNotice(title: "短信验证失败", message: error.localizedDescription)
+                notice = ScheduleNotice(title: "短信验证失败", error: error)
             default:
                 if showErrorNotice {
                     notice = schoolFailureNotice(
                         title: "DDL 同步失败",
                         message: error.localizedDescription,
-                        networkFailure: Self.isLikelySchoolTransportError(error)
+                        networkFailure: Self.isLikelySchoolTransportError(error), underlyingError: error
                     )
                 }
             }
@@ -184,7 +184,7 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
                 notice = schoolFailureNotice(
                     title: "DDL 同步失败",
                     message: error.localizedDescription,
-                    networkFailure: Self.isLikelySchoolTransportError(error)
+                    networkFailure: Self.isLikelySchoolTransportError(error), underlyingError: error
                 )
             }
             return false
@@ -233,12 +233,12 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
             case .schoolSMSCodeInvalid:
                 notice = ScheduleNotice.userInput(title: "验证码错误", message: error.localizedDescription)
             case .schoolSMSUnavailable:
-                notice = ScheduleNotice(title: "短信验证失败", message: error.localizedDescription)
+                notice = ScheduleNotice(title: "短信验证失败", error: error)
             default:
                 notice = schoolFailureNotice(
                     title: "订阅链接获取失败",
                     message: error.localizedDescription,
-                    networkFailure: Self.isLikelySchoolTransportError(error)
+                    networkFailure: Self.isLikelySchoolTransportError(error), underlyingError: error
                 )
             }
         } catch {
@@ -247,7 +247,7 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
             notice = schoolFailureNotice(
                 title: "订阅链接获取失败",
                 message: error.localizedDescription,
-                networkFailure: Self.isLikelySchoolTransportError(error)
+                networkFailure: Self.isLikelySchoolTransportError(error), underlyingError: error
             )
         }
     }

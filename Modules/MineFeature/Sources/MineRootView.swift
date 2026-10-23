@@ -761,7 +761,7 @@ private struct MinePosterListView: View {
             }
             await onRefresh()
         } catch {
-            alert = AppAlert(title: "删除失败", message: error.localizedDescription)
+            alert = AppAlert(title: "删除失败", error: error)
         }
     }
 }

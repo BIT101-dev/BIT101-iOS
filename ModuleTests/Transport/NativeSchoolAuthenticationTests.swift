@@ -58,6 +58,25 @@ struct NativeSchoolAuthenticationTests {
         #expect(transport.requests.last?.url?.query == "ticket=fixture")
     }
 
+    @Test(.timeLimit(.minutes(1))) func teachingCenterLandingUsesTheRequestedTimetableApplication() async throws {
+        let credentials = Credentials(), restorer = Restorer()
+        let cookies = try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)
+        let transport = Transport { request in
+            let url = try #require(request.url)
+            if url.host == "jxzxehall.bit.edu.cn" {
+                let service = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "service" }?.value
+                guard service?.contains("/wdkbby/") == true else { return (403, [:], "无权访问该资源") }
+                return (302, ["Location": try #require(service)], "")
+            }
+            return (200, [:], "timetable landing")
+        }
+        let authenticator = NativeSchoolAuthenticator(credentials: credentials, restorer: restorer,
+            client: HTTPClient(transport: transport, observer: nil), cookies: { cookies }, secondFactor: { _ in })
+        let session = try await authenticator.authenticate(.teachingCenter)
+        #expect(session.baseURL == SchoolServiceTarget.teachingCenter.baseURL)
+        #expect(transport.requests.count == 2)
+    }
+
     @Test(.timeLimit(.minutes(1))) func transcriptCookiesStayScopedToTheTranscriptPath() async throws {
         let credentials = Credentials(), restorer = Restorer()
         let cookies = try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)

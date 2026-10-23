@@ -60,13 +60,21 @@ public extension TrustedTranscriptServicing where Self: AnyObject {
     var transcriptServiceIdentity: AnyHashable { ObjectIdentifier(self) }
 }
 
-public enum ScoreServiceError: LocalizedError {
+public nonisolated enum ScoreServiceError: LocalizedError, SchoolServiceFailureProviding {
     case missingCredentials
     case invalidResponse
     case requestTimedOut
     case secondFactorRequired(BITLoginAuthenticationChallenge)
     case challengeInvalid(String)
     case queryFailed(String)
+
+    public var schoolServiceFailure: SchoolServiceFailure? {
+        switch self {
+        case .challengeInvalid(let message), .queryFailed(let message):
+            return SchoolServiceFailure.authenticationResponse(message)
+        default: return nil
+        }
+    }
 
     /// 页面文案和原始传输、解析原因通过标准错误链共同保留。
     public func caused(by error: any Error) -> NSError {

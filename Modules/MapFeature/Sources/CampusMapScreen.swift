@@ -73,6 +73,8 @@ public struct CampusMapScreen: View {
     @AppStorage(MapPreferenceKey.selectedCampus) private var selectedCampusID = CampusPreset.liangxiang.rawValue
     @AppStorage(MapPreferenceKey.displayMode) private var storedDisplayMode = CampusMapDisplayMode.standard.rawValue
     @StateObject private var locationController = CampusLocationController()
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var isVisible = false
     /// SwiftUI 发给地图桥接层的聚焦请求。
     @State private var focusRequest = MapFocusRequest(preset: .liangxiang, animated: false)
     /// “回到我的位置”动作的请求版本号。
@@ -98,6 +100,7 @@ public struct CampusMapScreen: View {
             CampusNativeMapView(
                 focusRequest: focusRequest,
                 centerOnUserRequestID: centerOnUserRequestID,
+                isActive: isVisible && scenePhase == .active,
                 nextCourseTarget: nextCourseTarget,
                 requestedLocation: activeRequestedLocation,
                 mapConfiguration: displayMode.configuration,
@@ -146,10 +149,16 @@ public struct CampusMapScreen: View {
         }
         .toolbar(.hidden, for: .navigationBar)
         .onAppear {
+            isVisible = true
             guard !hasRestoredStoredCampus else { return }
             hasRestoredStoredCampus = true
             focusOnNextCourseIfPossible(animated: false)
             consumeRequestedLocationIfNeeded()
+        }
+        .onDisappear {
+            isVisible = false
+            pendingCenterOnUserAfterAuthorization = false
+            centerOnUserRequestID = nil
         }
         .onChange(of: requestedLocation?.id) { _, _ in
             consumeRequestedLocationIfNeeded()

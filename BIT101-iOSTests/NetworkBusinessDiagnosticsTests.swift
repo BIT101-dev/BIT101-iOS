@@ -3,33 +3,49 @@ import Foundation
 import DesignSystemKit
 import ScoreDomain
 import ScoreInfrastructure
+import SchedulePorts
+import ScorePorts
 import Testing
 import TransportCore
 @testable import BIT101_iOS
 
 @MainActor
 struct NetworkBusinessDiagnosticsTests {
+    @Test func schoolAdaptersKeepTheirFailureIdentityThroughSharedAlerts() {
+        let failures: [(any Error, SchoolServiceFailure)] = [
+            (ScheduleServiceError.teachingCenterSessionExpired, .sessionExpired),
+            (ScheduleServiceError.schoolTransportFailure, .secureConnection),
+            (ScheduleServiceError.authenticationFailed("[status=401, risk=ustc-token]"), .authenticationRestricted),
+            (ScheduleServiceError.schoolResponse("对不起，无权访问该资源"), .accessDenied),
+            (ScoreServiceError.queryFailed("jxzxehall: 解析 service url 失败"), .authenticationChannel),
+            (NativeSchoolAuthenticationError.serviceUnavailable(503), .unavailable)
+        ]
+        for (error, expected) in failures {
+            #expect(SchoolServiceFailure.from(error) == expected)
+            let alert = AppAlert(title: "可调整的标题", error: error)
+            #expect(!AppErrorPresentation(alert: alert).allowsDiagnostics)
+            #expect(!ErrorReportViewModel(alert: alert).allowsSubmission)
+        }
+        #expect(SchoolServiceFailure.from(ScheduleServiceError.invalidResponse) == nil)
+        #expect(SchoolServiceFailure.from(ScoreServiceError.invalidResponse) == nil)
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func schoolServiceFailuresKeepTheirGuidanceAndBlockDeveloperReports() async throws {
-        for (title, message) in [
-            ("登录失败", "服务器响应异常（HTTP 500）：初始化WebVPN验证失败Orz"),
-            ("身份验证失败", "服务器响应异常（HTTP 500）：初始化WebVPN验证失败Orz"),
-            ("加载话廊失败", "服务器响应异常（HTTP 500）：初始化WebVPN验证失败Orz"),
-            ("课表同步失败", "认证信息无效。 [status=401, risk=ustc-token, flow=replaced]"),
-            ("学期列表加载失败", "您的会话已经过期，请重新登录"),
-            ("验证已失效", "jxzxehall: 解析 service url 失败"),
-            ("成绩查询失败", "jxzxehall: 解析 service url 失败"),
-            ("可信成绩单申请失败", "学校教务服务暂时无法恢复会话，请稍后重试。"),
-            ("课表同步失败", "学校教务服务返回“无权访问该资源”"),
-            ("学校服务连接失败", "学校统一认证服务暂时无法建立安全连接，请稍后重试。"),
-            ("课表同步失败", "学校教务服务暂时无法恢复会话，请稍后重试。")
+        for (title, failure) in [
+            ("登录失败", SchoolServiceFailure.authenticationChannel),
+            ("身份验证失败", .authenticationChannel), ("加载话廊失败", .authenticationChannel),
+            ("课表同步失败", .authenticationRestricted), ("学期列表加载失败", .sessionExpired),
+            ("验证已失效", .authenticationChannel), ("成绩查询失败", .authenticationChannel),
+            ("可信成绩单申请失败", .sessionExpired), ("课表同步失败", .accessDenied),
+            ("学校服务连接失败", .secureConnection), ("课表同步失败", .sessionExpired)
         ] {
-            let alert = AppAlert(title: title, message: message)
+            let alert = AppAlert(title: title, message: "可独立调整的页面文案", underlyingError: failure)
             let presentation = AppErrorPresentation(alert: alert)
-            let expectedTitle = message.contains("初始化WebVPN") ? "学校认证通道异常" : "学校服务异常"
+            let expectedTitle = failure == .authenticationChannel ? "学校认证通道异常" : "学校服务异常"
             #expect(presentation.title == expectedTitle && presentation.message.contains("学校"))
             #expect(!presentation.allowsDiagnostics && presentation.allowsSchoolServiceLink)
-            let inline = DiagnosticRecoveryActions(title: title, message: message, allowsDiagnostics: false).presentation
+            let inline = DiagnosticRecoveryActions(title: title, message: "页面错误提示", allowsDiagnostics: false, underlyingError: failure).presentation
             #expect(inline.title == expectedTitle && inline.allowsSchoolServiceLink && !inline.allowsDiagnostics)
             #expect(!presentation.message.contains("risk="))
             let page = try #require(URL(string: "https://jxzxehall.bit.edu.cn/fault"))
@@ -45,6 +61,7 @@ struct NetworkBusinessDiagnosticsTests {
         for (title, message) in [
             ("DDL 同步失败", "课表缓存读取受阻"), ("课表同步失败", "服务器返回了无法识别的数据"),
             ("加载话廊失败", "服务器响应异常（HTTP 500）：数据库错误Orz"), ("登录失败", "当前会话已过期"),
+            ("客户端数据读取失败", "学校会话暂时失效"),
             ("空教室同步失败", "查询教室失败")
         ] {
             let alert = AppAlert(title: title, message: message)
@@ -64,15 +81,30 @@ struct NetworkBusinessDiagnosticsTests {
     }
     private struct Transport: HTTPTransport {
         let body: String
+        var statusCode = 200
         func data(for request: URLRequest) async throws -> (Data, URLResponse) {
             let url = try #require(request.url)
-            return (Data(body.utf8), try #require(HTTPURLResponse(url: url, statusCode: 200,
+            return (Data(body.utf8), try #require(HTTPURLResponse(url: url, statusCode: statusCode,
                 httpVersion: nil, headerFields: nil)))
         }
         func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
             let result = try await data(for: request)
             if let maximumBytes, result.0.count > maximumBytes { throw HTTPClientError.responseTooLarge }
             return result
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func loginAdapterClassifiesItsSchoolProtocolResponseBeforePresentation() async throws {
+        let transport = Transport(body: #"{"msg":"初始化WebVPN验证失败Orz"}"#, statusCode: 500)
+        let client = HTTPClient(transport: transport, observer: nil)
+        let api = BIT101APIClient(httpClient: client, noRedirectHTTPClient: client)
+        do {
+            _ = try await api.webVPNVerifyInit(studentID: "fixture-owner")
+            Issue.record("Expected initialization failure")
+        } catch {
+            #expect(SchoolServiceFailure.from(error) == .authenticationChannel)
+            #expect(AppErrorPresentation(alert: AppAlert(title: "Changed title", error: error)).title == "学校认证通道异常")
         }
     }
 

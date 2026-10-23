@@ -4,7 +4,7 @@ import Foundation
 /// 日程同步过程中的统一错误。
 ///
 /// 该枚举承接 UI 展示所需的错误；接口差异和字段缺失在此归并为少量用户可理解的文案。
-public nonisolated enum ScheduleServiceError: LocalizedError {
+public nonisolated enum ScheduleServiceError: LocalizedError, SchoolServiceFailureProviding {
     case notLoggedIn
     case secondFactorRequired(BITLoginAuthenticationChallenge)
     case challengeInvalid(String)
@@ -20,6 +20,17 @@ public nonisolated enum ScheduleServiceError: LocalizedError {
     case invalidCalendarData
     case eclassAuthenticationFailed
     case schoolResponse(String)
+
+    public var schoolServiceFailure: SchoolServiceFailure? {
+        if isSchoolTransportFailure { return .secureConnection }
+        switch self {
+        case .teachingCenterSessionExpired: return .sessionExpired
+        case .authenticationFailed(let message), .challengeInvalid(let message):
+            return SchoolServiceFailure.authenticationResponse(message)
+        case .schoolResponse(let message): return SchoolServiceFailure.schoolResponse(message)
+        default: return nil
+        }
+    }
 
     /// 页面文案与原始解析原因共同进入标准 NSError 链路。
     public func caused(by error: any Error) -> NSError {

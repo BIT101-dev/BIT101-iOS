@@ -10,6 +10,8 @@ import UIKit
 /// 首页继续自动播放动图，下载后的逐帧 ImageIO 解码在独立 actor 中执行。
 /// 串行 actor 将快速滑过多个 GIF 的帧创建排队，有上限的内存缓存复用最近解码结果。
 actor RemoteAnimatedImageDecoder {
+    private nonisolated let executor = StorageFileExecutor()
+    nonisolated var unownedExecutor: UnownedSerialExecutor { executor.asUnownedSerialExecutor() }
     private let files: any AppFileService
     func clear() { images.removeAllObjects() }
     private let maximumDecodedBytes: Int

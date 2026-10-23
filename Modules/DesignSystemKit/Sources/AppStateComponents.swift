@@ -1,7 +1,7 @@
 #if os(iOS)
 import SwiftUI
 
-public typealias AppFailureRecoveryActionsBuilder = (String, String, Bool) -> AnyView
+public typealias AppFailureRecoveryActionsBuilder = (String, String, Bool, (any Error)?) -> AnyView
 
 private struct AppFailureRecoveryActionsKey: EnvironmentKey {
     static let defaultValue: AppFailureRecoveryActionsBuilder? = nil
@@ -89,6 +89,7 @@ public struct AppFailureState: View {
     let retryTitle: String
     let onRetry: (() -> Void)?
     let allowsDiagnostics: Bool
+    let underlyingError: (any Error)?
     @Environment(\.appFailureRecoveryActions) private var appFailureRecoveryActions
 
     public init(
@@ -97,6 +98,7 @@ public struct AppFailureState: View {
         message: String,
         retryTitle: String = "重试",
         allowsDiagnostics: Bool = true,
+        underlyingError: (any Error)? = nil,
         onRetry: (() -> Void)? = nil
     ) {
         self.title = title
@@ -105,6 +107,7 @@ public struct AppFailureState: View {
         self.retryTitle = retryTitle
         self.onRetry = onRetry
         self.allowsDiagnostics = allowsDiagnostics
+        self.underlyingError = underlyingError
     }
 
     public var body: some View {
@@ -118,7 +121,7 @@ public struct AppFailureState: View {
                     .accessibilityIdentifier("ui.app-failure-state.retry")
             }
             if let appFailureRecoveryActions {
-                appFailureRecoveryActions(title, message, allowsDiagnostics)
+                appFailureRecoveryActions(title, message, allowsDiagnostics, underlyingError)
             }
         }
         .buttonStyle(.borderless)

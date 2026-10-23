@@ -637,7 +637,7 @@ struct MediaDependencyTests {
             DispatchQueue.global().async {
                 ready.signal()
                 ownership.withPaths { retained in
-                    let children = (try? previewFiles.contentsOfDirectory(at: ImageCacheDirectories.gallery(using: previewFiles), options: [])) ?? []
+                    let children = (try? previewFiles.contentsOfDirectory(at: ImageCacheDirectories.previews(using: previewFiles), options: [])) ?? []
                     for file in children where !retained.contains(previewFiles.canonicalFileURL(file).path) {
                         do { try previewFiles.removeItem(at: file) }
                         catch { Issue.record(error) }
@@ -882,7 +882,7 @@ struct MediaDependencyTests {
         let selectedFile = try #require(prepared.items[63].url)
         #expect(UIImage(data: try files.readData(at: selectedFile))?.size.width == 64)
         #expect(prepared.items.dropLast().allSatisfy { $0.url != selectedFile })
-        let localFiles = try files.contentsOfDirectory(at: ImageCacheDirectories.gallery(using: files), options: [])
+        let localFiles = try files.contentsOfDirectory(at: ImageCacheDirectories.previews(using: files), options: [])
             .filter { $0.lastPathComponent.hasPrefix("preview-local-") }
         #expect(localFiles == [selectedFile])
         await media.endPreview(owner: request.id).value

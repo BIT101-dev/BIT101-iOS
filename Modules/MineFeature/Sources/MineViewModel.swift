@@ -40,7 +40,7 @@ private func refreshMinePage<Item: Identifiable>(
         state.status = hadItems ? .loaded : .failed(error.localizedDescription)
         if !hadItems { state.canLoadMore = false }
         write(state)
-        if hadItems { onAlert(AppAlert(title: failureTitle, message: error.localizedDescription)) }
+        if hadItems { onAlert(AppAlert(title: failureTitle, error: error)) }
     }
 }
 
@@ -179,7 +179,7 @@ final class MineViewModel: ObservableObject {
             }
             if hadUserInfo {
                 profileStatus = .loaded
-                alert = AppAlert(title: "刷新个人信息失败", message: error.localizedDescription)
+                alert = AppAlert(title: "刷新个人信息失败", error: error)
                 return
             }
 
@@ -324,7 +324,7 @@ final class UserProfileViewModel: ObservableObject {
             }
             if hadUserInfo {
                 profileStatus = .loaded
-                alert = AppAlert(title: "刷新主页失败", message: error.localizedDescription)
+                alert = AppAlert(title: "刷新主页失败", error: error)
                 return
             }
 
@@ -355,7 +355,7 @@ final class UserProfileViewModel: ObservableObject {
                 return
             }
             if TaskCancellation.matches(error) { return }
-            alert = AppAlert(title: userInfo.following ? "取消关注失败" : "关注失败", message: error.localizedDescription)
+            alert = AppAlert(title: userInfo.following ? "取消关注失败" : "关注失败", error: error)
         }
     }
 

@@ -485,7 +485,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
                     viewModel.notice = ScheduleNotice.userInput(title: failureTitle, message: calendarError.localizedDescription,
                         recoveryAction: calendarError.requiresCalendarSettings ? .openAppSettings : nil)
                 } else {
-                    viewModel.notice = ScheduleNotice(title: failureTitle, message: error.localizedDescription)
+                    viewModel.notice = ScheduleNotice(title: failureTitle, error: error)
                 }
             }
         }
@@ -537,7 +537,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
             } catch where TaskCancellation.matches(error) {
                 return
             } catch {
-                viewModel.notice = ScheduleNotice(title: "导出失败", message: error.localizedDescription)
+                viewModel.notice = ScheduleNotice(title: "导出失败", error: error)
             }
         }
     }

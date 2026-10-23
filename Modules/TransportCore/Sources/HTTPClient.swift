@@ -65,12 +65,21 @@ extension URLSession: HTTPTransport {
         let task = dataTask(with: request)
         task.delegate = transfer
         defer { task.cancel() }
-        let (data, response) = try await transfer.receive(task)
-        try Task.checkCancellation()
-        if let finalRequest = metrics.finalRequest(from: task.currentRequest) {
-            await HTTPRequestEvidenceContext.didReceiveFinalRequest?(finalRequest)
+        do {
+            let (data, response) = try await transfer.receive(task)
+            try Task.checkCancellation()
+            if let finalRequest = metrics.finalRequest(from: task.currentRequest) {
+                await HTTPRequestEvidenceContext.didReceiveFinalRequest?(finalRequest)
+            }
+            return (data, response)
+        } catch {
+            if let finalRequest = metrics.finalRequest(from: task.currentRequest) {
+                await HTTPRequestEvidenceContext.didReceiveFinalRequest?(finalRequest)
+            }
+            let (data, response) = transfer.partialResponse
+            await HTTPRequestEvidenceContext.didReceivePartialResponse?(data, response ?? task.response)
+            throw error
         }
-        return (data, response)
     }
 }
 
@@ -180,17 +189,24 @@ public struct HTTPClient {
         var receivedResponse: URLResponse?
         var finalRequest: URLRequest?
         let parent = HTTPRequestEvidenceContext.didReceiveFinalRequest
+        let parentPartial = HTTPRequestEvidenceContext.didReceivePartialResponse
         let result: HTTPResponse
         do {
             try Task.checkCancellation()
             HTTPRequestEvidenceContext.willStart?()
             let (data, response) = try await HTTPRequestEvidenceContext.$didReceive.withValue(nil) {
-                try await HTTPRequestEvidenceContext.$didReceiveFinalRequest.withValue({ value in
-                    finalRequest = value
-                    parent?(value)
+                try await HTTPRequestEvidenceContext.$didReceivePartialResponse.withValue({ data, response in
+                    receivedData = data
+                    receivedResponse = response
+                    parentPartial?(data, response)
                 }) {
-                    try await transport.data(for: request,
-                        maximumBytes: maximumBytes ?? HTTPResponseResourceLimits.maximumStructuredBytes)
+                    try await HTTPRequestEvidenceContext.$didReceiveFinalRequest.withValue({ value in
+                        finalRequest = value
+                        parent?(value)
+                    }) {
+                        try await transport.data(for: request,
+                            maximumBytes: maximumBytes ?? HTTPResponseResourceLimits.maximumStructuredBytes)
+                    }
                 }
             }
             receivedData = data

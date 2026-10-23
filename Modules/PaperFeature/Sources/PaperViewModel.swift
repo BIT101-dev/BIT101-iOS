@@ -152,7 +152,7 @@ class PaperCollectionViewModel: ObservableObject {
             state.isLoadingMore = false
             if previousState.items.isEmpty && !requiresSearchText { state.canLoadMore = false }
             let title = requiresSearchText ? "搜索文章失败" : previousState.items.isEmpty ? "加载文章失败" : "刷新文章失败"
-            alert = AppAlert(title: title, message: error.localizedDescription)
+            alert = AppAlert(title: title, error: error)
         }
     }
 
@@ -192,7 +192,7 @@ class PaperCollectionViewModel: ObservableObject {
             state.nextPage = sourcePage
             if TaskCancellation.matches(error) { return }
             state.paginationError = error.localizedDescription
-            alert = AppAlert(title: "加载更多失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载更多失败", error: error)
         }
     }
 
@@ -372,7 +372,7 @@ final class PaperDetailViewModel: ObservableObject {
             guard commentRefreshGeneration == generation else { return }
             if TaskCancellation.matches(error) { return }
             commentState.paginationError = error.localizedDescription
-            alert = AppAlert(title: "加载更多失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载更多失败", error: error)
         }
     }
 
@@ -413,7 +413,7 @@ final class PaperDetailViewModel: ObservableObject {
                 return
             }
             if TaskCancellation.matches(error) { return }
-            alert = AppAlert(title: "点赞失败", message: error.localizedDescription)
+            alert = AppAlert(title: "点赞失败", error: error)
         }
     }
 
@@ -428,7 +428,7 @@ final class PaperDetailViewModel: ObservableObject {
             return true
         } catch {
             if TaskCancellation.matches(error) { return false }
-            alert = AppAlert(title: "删除失败", message: error.localizedDescription)
+            alert = AppAlert(title: "删除失败", error: error)
             return false
         }
     }
@@ -454,7 +454,7 @@ final class PaperDetailViewModel: ObservableObject {
                 return
             }
             if TaskCancellation.matches(error) { return }
-            alert = AppAlert(title: "点赞失败", message: error.localizedDescription)
+            alert = AppAlert(title: "点赞失败", error: error)
         }
     }
 
@@ -501,7 +501,7 @@ final class PaperDetailViewModel: ObservableObject {
                 return false
             }
             if Task.isCancelled || TaskCancellation.matches(error) { return false }
-            alert = AppAlert(title: "发送失败", message: error.localizedDescription)
+            alert = AppAlert(title: "发送失败", error: error)
             return false
         }
     }
@@ -542,7 +542,7 @@ final class PaperDetailViewModel: ObservableObject {
                 return
             }
             paperStatus = .failed(error.localizedDescription)
-            alert = AppAlert(title: "加载文章失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载文章失败", error: error)
         }
     }
 
@@ -563,7 +563,7 @@ final class PaperDetailViewModel: ObservableObject {
             commentState.restoreAfterRefreshFailure(previousState, failureStatus: cancelled ? nil : .failed(error.localizedDescription))
             if !commentState.items.isEmpty { commentOrder = commentState.order }
             if cancelled { return }
-            alert = AppAlert(title: "加载评论失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载评论失败", error: error)
         }
     }
 

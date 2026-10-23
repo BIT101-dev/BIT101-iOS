@@ -34,6 +34,7 @@ public struct ScoreListPage: View {
                         message: message,
                         retryTitle: "重新查询",
                         allowsDiagnostics: viewModel.allowsDiagnostics,
+                        underlyingError: viewModel.failureCause,
                         onRetry: {
                             Task { await viewModel.refresh() }
                         }
@@ -269,6 +270,7 @@ private struct TrustedTranscriptPage: View {
                     systemImage: "exclamationmark.triangle",
                     message: message,
                     allowsDiagnostics: viewModel.allowsDiagnostics,
+                    underlyingError: viewModel.failureCause,
                     onRetry: {
                         viewModel.prepareRetry()
                         retryGeneration &+= 1
@@ -287,7 +289,7 @@ private struct TrustedTranscriptPage: View {
                             LazyVStack(spacing: AppDesignSystem.Spacing.content) {
                                 if let warning = viewModel.deliveryWarning {
                                     AppFailureState(title: "部分成绩单待恢复", systemImage: "doc.text", message: warning,
-                                        allowsDiagnostics: viewModel.allowsDiagnostics, onRetry: {
+                                        allowsDiagnostics: viewModel.allowsDiagnostics, underlyingError: viewModel.failureCause, onRetry: {
                                             viewModel.prepareRetry()
                                             retryGeneration &+= 1
                                         })

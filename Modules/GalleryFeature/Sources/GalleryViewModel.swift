@@ -48,7 +48,7 @@ final class GallerySubscriptionsViewModel: ObservableObject {
             guard generation == requestGeneration else { return }
             if TaskCancellation.matches(error) { status = items.isEmpty ? .idle : .loaded }
             else if items.isEmpty { status = .failed(error.localizedDescription) }
-            else { status = .loaded; alert = AppAlert(title: "刷新收藏失败", message: error.localizedDescription) }
+            else { status = .loaded; alert = AppAlert(title: "刷新收藏失败", error: error) }
         }
     }
 
@@ -77,7 +77,7 @@ final class GallerySubscriptionsViewModel: ObservableObject {
             }
         } catch {
             guard generation == requestGeneration, !TaskCancellation.matches(error) else { return }
-            alert = AppAlert(title: "加载收藏失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载收藏失败", error: error)
         }
     }
 }
@@ -369,7 +369,7 @@ final class GalleryViewModel: ObservableObject {
                 $0.canLoadMore = previousState.canLoadMore && (cancelled || !previousState.posters.isEmpty)
             }
             if cancelled { return }
-            alert = AppAlert(title: "加载话廊失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载话廊失败", error: error)
         }
     }
 
@@ -436,7 +436,7 @@ final class GalleryViewModel: ObservableObject {
                 return
             }
             setState(for: feed) { $0.isLoadingMore = false; $0.paginationError = error.localizedDescription }
-            alert = AppAlert(title: "加载更多失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载更多失败", error: error)
         }
     }
 
@@ -480,7 +480,7 @@ final class GalleryViewModel: ObservableObject {
             searchState.status = previousState.posters.isEmpty ? .failed(error.localizedDescription) : .loaded
             searchState.isLoadingMore = false
             if previousState.posters.isEmpty { searchState.canLoadMore = false }
-            alert = AppAlert(title: "搜索失败", message: error.localizedDescription)
+            alert = AppAlert(title: "搜索失败", error: error)
         }
     }
 
@@ -517,7 +517,7 @@ final class GalleryViewModel: ObservableObject {
             }
             searchState.isLoadingMore = false
             searchState.paginationError = error.localizedDescription
-            alert = AppAlert(title: "加载更多失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载更多失败", error: error)
         }
     }
 

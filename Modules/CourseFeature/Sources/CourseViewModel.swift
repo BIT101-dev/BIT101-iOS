@@ -155,13 +155,13 @@ public final class CourseListViewModel: ObservableObject {
 
             if hadCourses {
                 state.status = .loaded
-                alert = AppAlert(title: "刷新课程失败", message: error.localizedDescription)
+                alert = AppAlert(title: "刷新课程失败", error: error)
                 return
             }
 
             state.status = .failed(error.localizedDescription)
             state.canLoadMore = false
-            alert = AppAlert(title: "加载课程失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载课程失败", error: error)
         }
     }
 
@@ -204,7 +204,7 @@ public final class CourseListViewModel: ObservableObject {
             }
 
             state.paginationError = error.localizedDescription
-            alert = AppAlert(title: "加载更多失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载更多失败", error: error)
         }
     }
 

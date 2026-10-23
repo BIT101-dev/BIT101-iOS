@@ -37,4 +37,5 @@ public nonisolated enum HTTPRequestEvidenceContext {
     @TaskLocal public static var didReceive: (@MainActor @Sendable (URLRequest, HTTPResponse) async -> Void)?
     @TaskLocal public static var willStart: (@MainActor @Sendable () -> Void)?
     @TaskLocal public static var didReceiveFinalRequest: (@MainActor @Sendable (URLRequest) -> Void)?
+    @TaskLocal public static var didReceivePartialResponse: (@MainActor @Sendable (Data?, URLResponse?) -> Void)?
 }

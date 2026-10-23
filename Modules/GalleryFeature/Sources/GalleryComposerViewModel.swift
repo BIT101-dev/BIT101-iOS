@@ -332,11 +332,11 @@ final class GalleryComposerViewModel: ObservableObject {
             } catch {
                 if isCurrent(operation), error is CommunityCreateOutcomeUnknown {
                     createResultNeedsReview = true
-                    alert = AppAlert(title: "发布结果待确认", message: error.localizedDescription)
+                    alert = AppAlert(title: "发布结果待确认", error: error)
                     return false
                 }
                 if isCurrent(operation), !TaskCancellation.matches(error) {
-                    alert = AppAlert(title: "发布失败", message: error.localizedDescription)
+                    alert = AppAlert(title: "发布失败", error: error)
                 }
                 return false
             }

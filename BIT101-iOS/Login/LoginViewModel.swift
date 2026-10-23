@@ -153,7 +153,7 @@ final class LoginViewModel: ObservableObject {
                     message: error.localizedDescription
                 )
             } else {
-                alert = AppAlert(title: "登录失败", message: error.localizedDescription)
+                alert = AppAlert(title: "登录失败", error: error)
             }
             screenState = .signedOut
         }
@@ -238,7 +238,7 @@ final class AccountRegistrationViewModel: ObservableObject {
             }
         } catch {
             if revision == currentRevision && !TaskCancellation.matches(error) {
-                alert = AppAlert(title: "身份验证失败", message: error.localizedDescription)
+                alert = AppAlert(title: "身份验证失败", error: error)
             }
         }
     }
@@ -256,7 +256,7 @@ final class AccountRegistrationViewModel: ObservableObject {
             invalidateVerification()
         } catch {
             if !TaskCancellation.matches(error) {
-                alert = AppAlert(title: "注册或重置失败", message: error.localizedDescription)
+                alert = AppAlert(title: "注册或重置失败", error: error)
             }
         }
     }

@@ -18,6 +18,10 @@ nonisolated final class HTTPBoundedTransfer: NSObject, URLSessionDataDelegate {
         self.metrics = metrics
     }
 
+    var partialResponse: (Data?, URLResponse?) {
+        state.withLock { ($0.response == nil ? nil : $0.data, $0.response) }
+    }
+
     func receive(_ task: URLSessionDataTask) async throws -> (Data, URLResponse) {
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -41,8 +45,13 @@ nonisolated final class HTTPBoundedTransfer: NSObject, URLSessionDataDelegate {
             state.outcome = result
             let continuation = state.continuation
             state.continuation = nil
-            state.data = Data()
-            state.response = nil
+            switch result {
+            case .success:
+                state.data = Data()
+                state.response = nil
+            case .failure:
+                state.data = Data(state.data.prefix(HTTPResponseResourceLimits.maximumErrorBytes))
+            }
             return continuation
         }
         continuation?.resume(with: result)
@@ -50,6 +59,7 @@ nonisolated final class HTTPBoundedTransfer: NSObject, URLSessionDataDelegate {
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
                     completionHandler: @escaping @Sendable (URLSession.ResponseDisposition) -> Void) {
+        state.withLock { if $0.outcome == nil { $0.response = response } }
         guard response.expectedContentLength <= Int64(maximumBytes) else {
             complete(.failure(HTTPClientError.responseTooLarge))
             completionHandler(.cancel)
@@ -58,7 +68,6 @@ nonisolated final class HTTPBoundedTransfer: NSObject, URLSessionDataDelegate {
         }
         let active = state.withLock { state in
             guard state.outcome == nil else { return false }
-            state.response = response
             if response.expectedContentLength > 0 { state.data.reserveCapacity(Int(response.expectedContentLength)) }
             return true
         }
@@ -68,7 +77,11 @@ nonisolated final class HTTPBoundedTransfer: NSObject, URLSessionDataDelegate {
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         let tooLarge = state.withLock { state in
             guard state.outcome == nil else { return false }
-            guard data.count <= maximumBytes - state.data.count else { return true }
+            guard data.count <= maximumBytes - state.data.count else {
+                let remaining = min(maximumBytes, HTTPResponseResourceLimits.maximumErrorBytes) - state.data.count
+                if remaining > 0 { state.data.append(data.prefix(remaining)) }
+                return true
+            }
             state.data.append(data)
             return false
         }

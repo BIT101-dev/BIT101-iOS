@@ -28,6 +28,7 @@ public final class ScoreViewModel: ObservableObject {
     /// 当前选中的课程性质集合。
     @Published private(set) var selectedCourseTypes: Set<String> = []
     @Published private(set) var allowsDiagnostics = true
+    @Published private(set) var failureCause: (any Error)?
     /// 当前成绩列表排序索引。
     @Published private(set) var sortIndex: ScoreSortIndex = .courseName
     /// 当前成绩列表排序方向。
@@ -145,6 +146,7 @@ public final class ScoreViewModel: ObservableObject {
         availableCourseTypes = []
         selectedTerms = []
         selectedCourseTypes = []
+        failureCause = nil
         allowsDiagnostics = true
         pendingCourses = nil
         smsChallenge = nil
@@ -214,6 +216,7 @@ public final class ScoreViewModel: ObservableObject {
         smsChallenge = nil
         smsVerificationError = nil
         refreshPhase = .authenticating
+        failureCause = nil
         allowsDiagnostics = true
         syncStatusText = "同步简略成绩中"
         if !hadContent {
@@ -243,18 +246,19 @@ public final class ScoreViewModel: ObservableObject {
             state = hasContent ? .loaded : .loading
         } catch ScoreServiceError.challengeInvalid(let message) {
             guard isCurrent(session, generation: generation) else { return }
+            failureCause = ScoreServiceError.challengeInvalid(message)
             smsChallenge = nil
             smsVerificationError = nil
             if hasContent {
                 state = .loaded
                 if showErrors {
-                    alert = AppAlert.userInput(title: "验证已失效", message: message)
+                    alert = AppAlert.userInput(title: "验证已失效", message: message, underlyingError: failureCause)
                 }
             } else {
                 allowsDiagnostics = false
                 state = .failed(message)
                 if showErrors {
-                    alert = AppAlert.userInput(title: "验证已失效", message: message)
+                    alert = AppAlert.userInput(title: "验证已失效", message: message, underlyingError: failureCause)
                 }
             }
         } catch {
@@ -265,15 +269,16 @@ public final class ScoreViewModel: ObservableObject {
             }
 
             if error is ScorePersistenceError {
+                failureCause = error
                 state = rows.isEmpty ? .failed(error.localizedDescription) : .loaded
-                if showErrors { alert = AppAlert(title: "成绩保存失败", message: error.localizedDescription) }
+                if showErrors { alert = AppAlert(title: "成绩保存失败", error: error) }
                 return
             }
 
             if hasContent {
                 state = .loaded
                 if showErrors {
-                    alert = AppAlert(title: "成绩刷新失败", message: error.localizedDescription)
+                    alert = AppAlert(title: "成绩刷新失败", error: error)
                 }
                 return
             }
@@ -283,9 +288,10 @@ public final class ScoreViewModel: ObservableObject {
             availableCourseTypes = []
             selectedTerms = []
             selectedCourseTypes = []
+            failureCause = error
             state = .failed(error.localizedDescription)
             if showErrors {
-                alert = AppAlert(title: "成绩查询失败", message: error.localizedDescription)
+                alert = AppAlert(title: "成绩查询失败", error: error)
             }
         }
     }
@@ -335,13 +341,14 @@ public final class ScoreViewModel: ObservableObject {
             smsVerificationError = "请输入最新收到的短信验证码。"
         } catch ScoreServiceError.challengeInvalid(let message) {
             guard isCurrent(session, generation: generation) else { return }
+            failureCause = ScoreServiceError.challengeInvalid(message)
             smsChallenge = nil
             smsVerificationError = nil
             allowsDiagnostics = false
             if rows.isEmpty {
                 state = .failed(message)
             }
-            alert = AppAlert.userInput(title: "验证已失效", message: message)
+            alert = AppAlert.userInput(title: "验证已失效", message: message, underlyingError: failureCause)
         } catch {
             guard isCurrent(session, generation: generation) else { return }
             if TaskCancellation.matches(error) {
@@ -351,8 +358,9 @@ public final class ScoreViewModel: ObservableObject {
             if smsChallenge != nil {
                 smsVerificationError = error.localizedDescription
             } else {
+                failureCause = error
                 state = rows.isEmpty ? .failed(error.localizedDescription) : .loaded
-                alert = AppAlert(title: error is ScorePersistenceError ? "成绩保存失败" : "成绩查询失败", message: error.localizedDescription)
+                alert = AppAlert(title: error is ScorePersistenceError ? "成绩保存失败" : "成绩查询失败", error: error)
             }
         }
     }
@@ -666,8 +674,9 @@ public final class ScoreViewModel: ObservableObject {
         needsStorageRecovery = true
         if hasContent {
             state = .loaded
-            alert = AppAlert(title: "成绩缓存读取受阻", message: error.localizedDescription)
+            alert = AppAlert(title: "成绩缓存读取受阻", error: error)
         } else {
+            failureCause = error
             state = .failed(error.localizedDescription)
         }
     }

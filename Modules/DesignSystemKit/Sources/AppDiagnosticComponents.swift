@@ -9,6 +9,11 @@ public nonisolated protocol DiagnosticAlertPresentable: Identifiable {
     var allowsDiagnostics: Bool { get }
     var showsRecoveryLinks: Bool { get }
     var recoveryAction: AppRecoveryAction? { get }
+    var underlyingError: (any Error)? { get }
+}
+
+public extension DiagnosticAlertPresentable {
+    var underlyingError: (any Error)? { nil }
 }
 
 public nonisolated enum AppRecoveryAction: Equatable, Sendable {
@@ -28,26 +33,38 @@ public nonisolated struct AppAlert: DiagnosticAlertPresentable {
     public let message: String
     public let allowsDiagnostics: Bool
     public let showsRecoveryLinks: Bool
-    public var recoveryAction: AppRecoveryAction? { nil }
+    public let recoveryAction: AppRecoveryAction?
+    public let underlyingError: (any Error)?
 
     public init(
         title: String,
         message: String,
+        recoveryAction: AppRecoveryAction? = nil,
         allowsDiagnostics: Bool = true,
-        showsRecoveryLinks: Bool = true
+        showsRecoveryLinks: Bool = true,
+        underlyingError: (any Error)? = nil
     ) {
         self.title = title
         self.message = message
+        self.recoveryAction = recoveryAction
+        self.underlyingError = underlyingError
         self.allowsDiagnostics = allowsDiagnostics
         self.showsRecoveryLinks = allowsDiagnostics && showsRecoveryLinks
     }
 
-    public static func userInput(title: String, message: String) -> AppAlert {
+    public init(title: String, error: any Error) {
+        self.init(title: title, message: error.localizedDescription, underlyingError: error)
+    }
+
+    public static func userInput(title: String, message: String, recoveryAction: AppRecoveryAction? = nil,
+        underlyingError: (any Error)? = nil) -> AppAlert {
         AppAlert(
             title: title,
             message: message,
+            recoveryAction: recoveryAction,
             allowsDiagnostics: false,
-            showsRecoveryLinks: false
+            showsRecoveryLinks: false,
+            underlyingError: underlyingError
         )
     }
 

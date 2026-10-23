@@ -41,8 +41,12 @@ public protocol SchoolServiceAuthenticating {
     func authenticate(_ target: SchoolServiceTarget) async throws -> SchoolAuthenticatedSession
 }
 
-public enum NativeSchoolAuthenticationError: LocalizedError {
+public nonisolated enum NativeSchoolAuthenticationError: LocalizedError, SchoolServiceFailureProviding {
     case invalidResponse, serviceUnavailable(Int), additionalVerification
+    public var schoolServiceFailure: SchoolServiceFailure? {
+        guard case .serviceUnavailable(let status) = self else { return nil }
+        return status == 403 ? .accessDenied : (status >= 500 ? .unavailable : nil)
+    }
     public var errorDescription: String? {
         switch self {
         case .invalidResponse: "学校认证页面结构发生变化，请稍后重试。"
@@ -118,7 +122,7 @@ public final class NativeSchoolAuthenticator: SchoolServiceAuthenticating {
     private func entry(_ target: SchoolServiceTarget) -> URL {
         switch target {
         case .teachingCenter:
-            AppURL.required("https://jxzxehall.bit.edu.cn/auth-protocol-core/login?service=https%3A%2F%2Fjxzxehallapp.bit.edu.cn%2Fjwapp%2Fsys%2Fxsfacx%2F*default%2Findex.do")
+            AppURL.required("https://jxzxehall.bit.edu.cn/auth-protocol-core/login?service=https%3A%2F%2Fjxzxehallapp.bit.edu.cn%2Fjwapp%2Fsys%2Fwdkbby%2F*default%2Findex.do")
         case .grades:
             // service 标识参与学校票据校验，实际请求统一升级 HTTPS。
             AppURL.required("https://sso.bit.edu.cn/cas/login?service=http%3A%2F%2Fjwms.bit.edu.cn%2F")

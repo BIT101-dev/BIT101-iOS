@@ -7,9 +7,14 @@ import TransportCore
 import Foundation
 import ClientCore
 
-private struct LoginServerResponseError: LocalizedError {
+private nonisolated struct LoginServerResponseError: LocalizedError, SchoolServiceFailureProviding {
+    let schoolServiceFailure: SchoolServiceFailure?
     let statusCode: Int
     let message: String?
+
+    init(statusCode: Int, message: String?, schoolServiceFailure: SchoolServiceFailure? = nil) {
+        self.statusCode = statusCode; self.message = message; self.schoolServiceFailure = schoolServiceFailure
+    }
 
     var indicatesCredentialFailure: Bool {
         BIT101APIClient.isCredentialFailureMessage(message)
@@ -372,9 +377,12 @@ struct BIT101APIClient {
         let wire = try await sendObservedRequest(request, followRedirects: true, requiresBusinessEndpoint: true)
         let data = wire.data, response = wire.response
         guard (200 ..< 300).contains(response.statusCode) else {
+            let message = responseMessage(from: data)
             throw LoginServerResponseError(
                 statusCode: response.statusCode,
-                message: responseMessage(from: data)
+                message: message,
+                schoolServiceFailure: url.path == "/user/webvpn_verify_init"
+                    ? message.flatMap(SchoolServiceFailure.authenticationResponse) : nil
             )
         }
 

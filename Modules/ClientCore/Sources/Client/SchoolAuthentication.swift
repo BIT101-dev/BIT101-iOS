@@ -1,6 +1,60 @@
 import TransportCore
 import Foundation
 
+public nonisolated protocol SchoolServiceFailureProviding: Error {
+    var schoolServiceFailure: SchoolServiceFailure? { get }
+}
+
+/// 学校协议适配层保留错误来源，页面文案独立调整。
+public nonisolated enum SchoolServiceFailure: LocalizedError, Equatable, SchoolServiceFailureProviding {
+    case authenticationChannel, authenticationRestricted, sessionExpired, accessDenied, secureConnection, unavailable
+
+    public var schoolServiceFailure: Self? { self }
+
+    public static func from(_ error: (any Error)?) -> Self? {
+        guard let error else { return nil }
+        var result: Self?
+        _ = ErrorChain.contains(error) { candidate in
+            result = (candidate as? any SchoolServiceFailureProviding)?.schoolServiceFailure
+            return result != nil
+        }
+        return result
+    }
+
+    /// 这些标记来自学校与认证网关的响应协议。
+    public static func authenticationResponse(_ message: String) -> Self? {
+        let value = message.lowercased()
+        if value.contains("risk=ustc-token") { return .authenticationRestricted }
+        if value.contains("初始化webvpn验证失败") || value.contains("jxzxehall: 解析 service url 失败") {
+            return .authenticationChannel
+        }
+        return schoolResponse(message)
+    }
+
+    public static func schoolResponse(_ message: String) -> Self? {
+        if message.contains("无权访问该资源") { return .accessDenied }
+        if message.contains("会话已经过期") { return .sessionExpired }
+        return nil
+    }
+
+    public var errorDescription: String? {
+        switch self {
+        case .authenticationChannel:
+            "学校认证通道暂时无法完成请求。请稍后重试，也可通过学校官方入口核对服务状态。"
+        case .authenticationRestricted:
+            "学校统一认证拒绝了本次认证请求。请通过学校官方入口核对账号与验证要求，稍后重试。"
+        case .sessionExpired:
+            "学校教务服务会话暂时失效，请稍后重试，或通过学校官方入口处理。"
+        case .accessDenied:
+            "学校教务服务返回“无权访问该资源”。请通过学校官方入口核对，或联系学校服务渠道处理。"
+        case .secureConnection:
+            "学校统一认证服务的安全连接暂时受阻，请稍后重试，或通过学校官方入口处理。"
+        case .unavailable:
+            "学校服务暂时无法完成请求，请稍后重试，也可通过学校官方入口核对服务状态。"
+        }
+    }
+}
+
 public nonisolated struct BITLoginAuthenticationChallenge: Identifiable, Equatable, Sendable {
     public let challengeID: String
     public let accessToken: String

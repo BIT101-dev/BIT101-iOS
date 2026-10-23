@@ -41,6 +41,7 @@ public final class NetworkPathState {
     public private(set) var snapshot: NetworkPathSnapshot
     public var isReachable: Bool { snapshot.isReachable }
     private let monitor: NWPathMonitor?
+    private var recoveryContinuations: [UUID: AsyncStream<Void>.Continuation] = [:]
 
     public init() {
         snapshot = NetworkPathSnapshot(status: .checking)
@@ -62,11 +63,26 @@ public final class NetworkPathState {
     }
 
     func update(snapshot: NetworkPathSnapshot) {
+        let previous = self.snapshot.status
         self.snapshot = snapshot
+        if previous != .connected, snapshot.status == .connected {
+            for continuation in recoveryContinuations.values { continuation.yield(()) }
+        }
     }
 
-    deinit {
+    public func connectionRecoveries() -> AsyncStream<Void> {
+        let id = UUID()
+        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            recoveryContinuations[id] = continuation
+            continuation.onTermination = { [weak self] _ in
+                Task { @MainActor [weak self] in self?.recoveryContinuations[id] = nil }
+            }
+        }
+    }
+
+    isolated deinit {
         monitor?.cancel()
+        for continuation in recoveryContinuations.values { continuation.finish() }
     }
 
     private nonisolated static func snapshot(for path: NWPath) -> NetworkPathSnapshot {

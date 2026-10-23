@@ -136,7 +136,7 @@ TEST_AREA_SUITES = {
         "SchoolCookieIsolationTests", "ScoreCacheDiskRepositoryTests", "ScorePresentationTests",
         "SettingsDependencyOwnershipTests", "SuggestionDependencyTests", "UIInventoryIdentityTests",
     },
-    "login": {"CommunitySessionRecoveryTests", "ExtendedLoginTests", "LoginBootstrapTests", "LoginLogicTests", "LoginStorageTests", "SchoolCookieIsolationTests"},
+    "login": {"CommunitySessionRecoveryTests", "ExtendedLoginTests", "LoginBootstrapTests", "LoginLogicTests", "LoginStorageTests", "NativeLoginTests", "SchoolCookieIsolationTests"},
     "extensions": {"AppExternalDisplayTests", "ExternalScheduleInfrastructureTests", "ExternalScheduleWatchStatusTests"},
 }
 
@@ -833,10 +833,14 @@ def test_case_inventory(group: str) -> dict[str, int]:
                         for source in index.values() for entry in source['tests'] for argument in entry.get('arguments', [])
                         if re.fullmatch(r'[\w.]+\.allCases', argument)}
                     referenced_enum = re.compile(r'\b(?:' + '|'.join(map(re.escape, sorted(names))) + r')\b')
-                    enum_sources = {str(ROOT / name): active_swift_source((ROOT / name).read_text(), effective, path=name)
-                        for name in repository_input_names(ROOT) if name.endswith('.swift') and includes_input(name, effective)
-                        and referenced_enum.search((ROOT / name).read_text())
-                        and re.search(r'\benum\s+|\ballCases\b', (ROOT / name).read_text())}
+                    enum_sources = {}
+                    for name in repository_input_names(ROOT):
+                        if not name.endswith('.swift') or not includes_input(name, effective): continue
+                        path = ROOT / name
+                        try: source = path.read_text()
+                        except FileNotFoundError: continue
+                        if referenced_enum.search(source) and re.search(r'\benum\s+|\ballCases\b', source):
+                            enum_sources[str(path)] = active_swift_source(source, effective, path=name)
                     enum_index = swift_syntax_index_sources(enum_sources)
                 scope = match[1].split('.')
                 candidates = [(node, sum(case['scope'] == node['scope'] + [node['name']] for case in enum_facts['enumCases']))

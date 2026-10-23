@@ -205,7 +205,7 @@ final class CourseDetailViewModel: ObservableObject {
             guard commentRefreshGeneration == generation else { return }
             if TaskCancellation.matches(error) { return }
             commentState.paginationError = error.localizedDescription
-            alert = AppAlert(title: "加载更多评论失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载更多评论失败", error: error)
         }
     }
 
@@ -281,7 +281,7 @@ final class CourseDetailViewModel: ObservableObject {
                 return
             }
             if TaskCancellation.matches(error) { return }
-            alert = AppAlert(title: "点赞失败", message: error.localizedDescription)
+            alert = AppAlert(title: "点赞失败", error: error)
         }
     }
 
@@ -305,7 +305,7 @@ final class CourseDetailViewModel: ObservableObject {
                 return
             }
             if TaskCancellation.matches(error) { return }
-            alert = AppAlert(title: "点赞失败", message: error.localizedDescription)
+            alert = AppAlert(title: "点赞失败", error: error)
         }
     }
 
@@ -357,7 +357,7 @@ final class CourseDetailViewModel: ObservableObject {
                 return false
             }
             if Task.isCancelled || TaskCancellation.matches(error) { return false }
-            alert = AppAlert(title: "发送失败", message: error.localizedDescription)
+            alert = AppAlert(title: "发送失败", error: error)
             return false
         }
     }
@@ -389,12 +389,12 @@ final class CourseDetailViewModel: ObservableObject {
 
             if course != nil {
                 status = .loaded
-                alert = AppAlert(title: "刷新课程详情失败", message: error.localizedDescription)
+                alert = AppAlert(title: "刷新课程详情失败", error: error)
                 return
             }
 
             status = .failed(error.localizedDescription)
-            alert = AppAlert(title: "加载课程详情失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载课程详情失败", error: error)
         }
     }
 
@@ -413,7 +413,7 @@ final class CourseDetailViewModel: ObservableObject {
             let cancelled = TaskCancellation.matches(error)
             commentState.restoreAfterRefreshFailure(previousState, failureStatus: cancelled ? nil : .failed(error.localizedDescription))
             if cancelled { return }
-            alert = AppAlert(title: "加载评论失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载评论失败", error: error)
         }
     }
 

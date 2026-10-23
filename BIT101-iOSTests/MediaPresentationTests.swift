@@ -5,10 +5,15 @@ import Foundation
 import QuickLook
 import SwiftUI
 import Testing
-import TransportCore
+@testable import TransportCore
 import UIKit
 
 #if os(iOS)
+extension RemoteImageCache {
+    func file(for url: URL) async throws -> URL { try await withFile(for: url) { $0 } }
+    func cachedFile(for url: URL) async -> URL? { try? await withCachedFile(for: url) { $0 } }
+}
+
 extension MediaDependencyTests {
     final class Images: HTTPTransport {
         let bytes: Data
@@ -57,6 +62,62 @@ extension MediaDependencyTests {
 #if os(iOS)
 @MainActor @Suite(.serialized)
 struct MediaPresentationTests {
+    @Test(.timeLimit(.minutes(1)), arguments: ["avatar", "still", "progressive"], [false, true])
+    func mediaRecoversWithoutMountingACommunityPage(kind: String, foreground: Bool) async throws {
+        let helper = MediaDependencyTests(), files = PreferenceMemoryFiles()
+        let transport = MediaDependencyTests.Images(bytes: try helper.png(width: 2))
+        transport.failuresRemaining = 1
+        let path = NetworkPathState(snapshot: .init(status: foreground ? .requiresConnection : .disconnected))
+        let client = HTTPClient(transport: transport, observer: nil)
+        let media = AppMedia.makeEnvironment(files: files, previewStorage: MediaPreviewStorage(files: files),
+            imageHTTPClient: client, avatarHTTPClient: client, networkPath: path)
+        let url = AppURL.required("https://example.invalid/recovery.png")
+        let view: AnyView
+        switch kind {
+        case "avatar": view = AnyView(CachedRemoteImage(url: url, content: { $0.resizable() }, placeholder: { Color.clear }))
+        case "still": view = AnyView(RemoteCachedStillImage(url: url))
+        default: view = AnyView(RemoteProgressiveStillImage(thumbnailURL: url, originalURL: nil))
+        }
+        let host = UIHostingController(rootView: view.frame(width: 40, height: 40).environment(media))
+        let window = try window(host)
+        defer { window.isHidden = true; window.rootViewController = nil }
+        try await waitForTestEvent { transport.requests == 1 && media.downloads.waitingConsumerCount == 0 }
+        #expect(media.displayBudget.usedBytes == 0)
+        if foreground { NotificationCenter.default.post(name: UIApplication.didBecomeActiveNotification, object: nil) }
+        else { path.update(snapshot: .init(status: .connected)) }
+        try await waitForTestEvent { media.displayBudget.usedBytes > 0 }
+        #expect(transport.requests == 2 && media.imageRetryGeneration > 0)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func firstPreviewPresentsWhileDownloadsArePendingAndAvailableOriginalWins(blocksThumbnail: Bool) async throws {
+        let helper = MediaDependencyTests(), files = PreferenceMemoryFiles()
+        let bytes = try helper.png(width: 5), transport = MediaDependencyTests.Images(bytes: bytes)
+        let low = AppURL.required("https://example.invalid/low.png"), high = AppURL.required("https://example.invalid/high.png")
+        transport.blockedURL = blocksThumbnail ? low : high
+        if !blocksThumbnail { transport.failedURLs.insert(low) }
+        let media = helper.environment(files: files, previewFiles: files, transport: transport)
+        let host = ImageQuickLookPresenter.HostViewController(), window = try window(host), preview = PreviewController()
+        let coordinator = ImageQuickLookPresenter.Coordinator(media: media, makePreviewController: { preview })
+        defer {
+            coordinator.cancel(); transport.pending?.resume(); transport.pending = nil
+            window.isHidden = true; window.rootViewController = nil
+        }
+        coordinator.receive(ImagePreviewRequest(remoteImages: [.init(thumbnailURL: low, originalURL: high)], initialIndex: 0), from: host, media: media)
+        try await waitForTestEvent { transport.pending != nil && preview.viewIfLoaded?.window != nil && !preview.isBeingPresented }
+        if blocksThumbnail {
+            try await waitForTestEvent {
+                guard let file = preview.dataSource?.previewController(preview, previewItemAt: 0).previewItemURL else { return false }
+                return (try? files.readData(at: file)) == bytes
+            }
+        } else {
+            #expect((preview.navigationItem.titleView as? UIActivityIndicatorView)?.isAnimating == true)
+        }
+        #expect(transport.pending != nil)
+        coordinator.receive(nil, from: host, media: media)
+        try await waitForTestEvent { host.presentedViewController == nil }
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: ["avatar", "gallery"])
     func mediaRequestsUpgradeHTTPAndReuseTheSecureCache(source: String) async throws {
         let helper = MediaDependencyTests(), transport = MediaDependencyTests.Images(bytes: try helper.png(width: 5))
@@ -339,7 +400,7 @@ struct MediaPresentationTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func initialPreviewFailureReleasesTheRequestAndReportsTheError() async throws {
+    func initialPreviewFailureKeepsNativeRecoveryAndBindingCanCloseIt() async throws {
         let helper = MediaDependencyTests(), transport = MediaDependencyTests.Images(bytes: try helper.png(width: 2))
         transport.failuresRemaining = 1
         let media = helper.environment(files: PreferenceMemoryFiles(), previewFiles: PreferenceMemoryFiles(), transport: transport)
@@ -350,7 +411,9 @@ struct MediaPresentationTests {
         coordinator.onDismiss = { dismissed = true }; coordinator.onFailure = { _ in failed = true }
         coordinator.receive(ImagePreviewRequest(remoteImages: [.init(thumbnailURL: AppURL.required("https://example.invalid/failed.png"), originalURL: nil)], initialIndex: 0), from: host, media: media)
         try await waitForTestEvent { failed }
-        #expect(dismissed && host.presentedViewController == nil)
+        #expect(!dismissed && host.presentedViewController != nil)
+        coordinator.receive(nil, from: host, media: media)
+        try await waitForTestEvent { host.presentedViewController == nil }
     }
 }
 #endif

@@ -14,41 +14,7 @@ import TransportCore
 import Foundation
 
 /// 地图页提示弹窗模型。
-nonisolated struct MapNotice: DiagnosticAlertPresentable {
-    let id = UUID()
-    let title: String
-    let message: String
-    let recoveryAction: AppRecoveryAction?
-    let allowsDiagnostics: Bool
-    let showsRecoveryLinks: Bool
-
-    init(
-        title: String,
-        message: String,
-        recoveryAction: AppRecoveryAction? = nil,
-        allowsDiagnostics: Bool = true,
-        showsRecoveryLinks: Bool = true
-    ) {
-        self.title = title
-        self.message = message
-        self.recoveryAction = recoveryAction
-        self.allowsDiagnostics = allowsDiagnostics
-        self.showsRecoveryLinks = showsRecoveryLinks
-    }
-
-    static func userInput(
-        title: String,
-        message: String,
-        recoveryAction: AppRecoveryAction? = nil
-    ) -> MapNotice {
-        MapNotice(
-            title: title,
-            message: message,
-            recoveryAction: recoveryAction,
-            allowsDiagnostics: false
-        )
-    }
-}
+typealias MapNotice = AppAlert
 
 /// 地图页定位控制器。
 ///

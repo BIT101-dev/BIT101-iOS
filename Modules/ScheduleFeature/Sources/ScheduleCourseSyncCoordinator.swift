@@ -195,11 +195,12 @@ final class ScheduleCourseSyncCoordinator: ObservableObject, ScheduleStateConsum
         case let error as ScheduleServiceError where error.isSchoolTransportFailure:
             phase = .idle
             smsVerificationError = nil
-            notice = schoolFailureNotice(title: "学校服务连接失败", message: error.schoolTransportFailureMessage, networkFailure: true)
+            notice = schoolFailureNotice(title: "学校服务连接失败", message: error.schoolTransportFailureMessage,
+                networkFailure: true, underlyingError: error)
         case ScheduleServiceError.challengeInvalid(let message):
             phase = .idle
             smsVerificationError = nil
-            notice = .userInput(title: "验证已失效", message: message)
+            notice = .userInput(title: "验证已失效", message: message, underlyingError: error)
         case ScheduleServiceError.authenticationFailed(let message) where isSubmittingSMSCode:
             smsVerificationError = "认证服务处理失败，请点击取消后重新同步课表。\n\(message)"
         case let error as ScheduleServiceError where error.isUnpublishedCourseSchedule:
@@ -209,7 +210,7 @@ final class ScheduleCourseSyncCoordinator: ObservableObject, ScheduleStateConsum
                 smsVerificationError = error.localizedDescription
             } else {
                 notice = schoolFailureNotice(title: continuation == .availableTerms ? "学期列表加载失败" : "课表同步失败",
-                    message: error.localizedDescription, networkFailure: Self.isLikelySchoolTransportError(error))
+                    message: error.localizedDescription, networkFailure: Self.isLikelySchoolTransportError(error), underlyingError: error)
             }
         }
     }

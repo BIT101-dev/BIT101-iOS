@@ -546,7 +546,7 @@ struct DeveloperSuggestionPage: View {
             alert = nil
             dismiss()
         } catch {
-            alert = AppAlert(title: "提交失败", message: error.localizedDescription)
+            alert = AppAlert(title: "提交失败", error: error)
         }
     }
 

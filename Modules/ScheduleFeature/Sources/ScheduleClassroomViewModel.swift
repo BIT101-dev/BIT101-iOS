@@ -466,12 +466,13 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
                 notice = schoolFailureNotice(
                     title: "学校服务连接失败",
                     message: scheduleError.schoolTransportFailureMessage,
-                    networkFailure: true
+                    networkFailure: true,
+                    underlyingError: scheduleError
                 )
                 return
             }
             if case .challengeInvalid = scheduleError {
-                notice = ScheduleNotice.userInput(title: title, message: scheduleError.localizedDescription)
+                notice = ScheduleNotice.userInput(title: title, message: scheduleError.localizedDescription, underlyingError: scheduleError)
                 return
             }
         }
@@ -479,7 +480,8 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
         notice = schoolFailureNotice(
             title: title,
             message: error.localizedDescription,
-            networkFailure: Self.isLikelySchoolTransportError(error)
+            networkFailure: Self.isLikelySchoolTransportError(error),
+            underlyingError: error
         )
     }
 

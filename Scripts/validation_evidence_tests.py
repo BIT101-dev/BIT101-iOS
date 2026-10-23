@@ -240,6 +240,13 @@ def run_self_test(subject) -> int:
         all_suites = {test.split('/', 1)[0] for test in subject.test_inventory('all')}
         assert inventory_findings(all_suites) == []
         assert inventory_findings(all_suites | {'NewFeatureTests'})
+        import validation_inputs
+        names = validation_inputs.repository_input_names(subject.ROOT)
+        baseline_cases = subject.test_case_inventory('all')
+        subject.test_case_inventory.cache_clear()
+        with patch('validation_inputs.repository_input_names', return_value=[*names, 'BIT101-iOS/Removed.swift']):
+            assert subject.test_case_inventory('all') == baseline_cases
+        subject.test_case_inventory.cache_clear()
         for group in ('infrastructure', 'login'):
             assert any((test.startswith('SchoolCookieIsolationTests/') for test in subject.test_inventory(group)))
         with patch.object(sys, 'argv', ['validation_evidence.py', 'record', 'audit', '7']), patch.dict(os.environ, BIT101_VALIDATION_SOURCE_DIGEST='fixture-input'), patch(f'{module_name}.record', return_value=7) as recorder:

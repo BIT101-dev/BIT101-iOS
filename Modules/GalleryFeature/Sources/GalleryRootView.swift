@@ -217,7 +217,7 @@ private struct GalleryRootViewScene: View {
             deepLinkedPoster = poster
         } catch {
             guard !TaskCancellation.matches(error), requestedPosterID == posterID else { return }
-            deepLinkAlert = AppAlert(title: "无法打开话题", message: error.localizedDescription)
+            deepLinkAlert = AppAlert(title: "无法打开话题", error: error)
         }
         // 完成当前请求后消费链接，保持详情加载任务的生命周期。
         if requestedPosterID == posterID {
@@ -299,14 +299,12 @@ private struct GalleryRootViewScene: View {
         }
         .onChange(of: networkObserver.snapshot.status) { _, newValue in
             guard newValue == .connected else { return }
-            media.retryFailedImages()
             viewModel.enqueueRetry(for: viewModel.selectedFeed)
             unreadRefreshGeneration &+= 1
         }
         .onChange(of: scenePhase) { _, newPhase in
             guard newPhase == .active else { return }
             guard networkObserver.isReachable else { return }
-            media.retryFailedImages()
             viewModel.enqueueRetry(for: viewModel.selectedFeed)
             unreadRefreshGeneration &+= 1
         }

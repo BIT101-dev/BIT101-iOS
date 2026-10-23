@@ -190,7 +190,7 @@ struct AccountSettingsPage: View {
                 isLoggedIn = false
                 profile = nil
             }
-            alert = AppAlert(title: "加载失败", message: error.localizedDescription)
+            alert = AppAlert(title: "加载失败", error: error)
         }
     }
 
@@ -209,7 +209,7 @@ struct AccountSettingsPage: View {
         } catch {
             guard !TaskCancellation.matches(error), dependencies.credentials().identity == credentials.identity else { return }
             if dependencies.credentials().cookie.isEmpty { isLoggedIn = false; profile = nil }
-            alert = AppAlert(title: "检查失败", message: error.localizedDescription)
+            alert = AppAlert(title: "检查失败", error: error)
         }
     }
 
@@ -239,7 +239,7 @@ struct AccountSettingsPage: View {
             }
         } catch {
             guard shouldPresentError(error, for: credentials) else { return }
-            alert = AppAlert(title: "更新失败", message: error.localizedDescription)
+            alert = AppAlert(title: "更新失败", error: error)
         }
     }
 
@@ -273,7 +273,7 @@ struct AccountSettingsPage: View {
             }
         } catch {
             guard shouldPresentError(error, for: credentials) else { return }
-            alert = AppAlert(title: "头像更新失败", message: error.localizedDescription)
+            alert = AppAlert(title: "头像更新失败", error: error)
         }
     }
 

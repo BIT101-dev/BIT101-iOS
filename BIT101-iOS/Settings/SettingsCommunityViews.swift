@@ -344,7 +344,7 @@ struct AboutSettingsPage: View {
                 )
             }
         } catch {
-            alert = AppAlert(title: "检查更新失败", message: error.localizedDescription)
+            alert = AppAlert(title: "检查更新失败", error: error)
         }
     }
 

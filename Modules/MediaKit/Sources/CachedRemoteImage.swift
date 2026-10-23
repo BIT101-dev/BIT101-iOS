@@ -9,7 +9,7 @@ import TransportCore
 //  Created by Codex on 2026-03-29.
 //
 
-import Combine
+import Observation
 import SwiftUI
 import UIKit
 
@@ -37,8 +37,8 @@ public struct CachedRemoteImage<Content: View, Placeholder: View>: View {
     /// 加载前或失败时的占位内容。
     let placeholder: () -> Placeholder
 
-    /// 使用 `StateObject` 为单个视图实例保留加载状态，避免 `body` 重算时重复创建 loader。
-    @StateObject private var loader = CachedRemoteImageLoader()
+    /// 为单个视图实例保留加载状态。
+    @State private var loader = CachedRemoteImageLoader()
 
     /// 创建一个使用本地缓存的远程图片视图。
     public init(
@@ -140,37 +140,20 @@ public struct AppAvatarView: View {
     }
 }
 
-@MainActor
-final class CachedRemoteImageLoader: ObservableObject {
-    /// 当前用于显示的位图。
-    @Published private(set) var image: UIImage?
-    @Published private(set) var waitingForBudget = false
+@Observable @MainActor
+final class CachedRemoteImageLoader {
+    private let displayed = MediaDisplayedImage()
+    var image: UIImage? { displayed.image }
+    var waitingForBudget: Bool { displayed.waitingForBudget }
 
     /// 当前候选地址用于核对异步响应所属的视图资源。
     private var currentURLs: [URL] = []
     private weak var currentMedia: MediaEnvironment?
     private var currentPixelSize: Int?
-    private let displayOwner = UUID()
-    private var retainedBudget: MediaDisplayBudget?
-
-    deinit {
-        let budget = retainedBudget, owner = displayOwner
-        Task { @MainActor in budget?.release(owner: owner) }
-    }
-
-    func releaseDisplayImage() {
-        retainedBudget?.release(owner: displayOwner)
-        retainedBudget = nil
-        image = nil
-        waitingForBudget = false
-    }
+    func releaseDisplayImage() { displayed.clear() }
 
     private func display(_ value: UIImage, media: MediaEnvironment) {
-        guard media.displayBudget.retain(value, owner: displayOwner) else { waitingForBudget = true; return }
-        waitingForBudget = false
-        if retainedBudget !== media.displayBudget { retainedBudget?.release(owner: displayOwner) }
-        retainedBudget = media.displayBudget
-        image = value
+        displayed.set(value, budget: media.displayBudget)
     }
 
     /// 先读取本地缓存，缓存未命中时下载。URL 更新时清空当前图片状态。
@@ -215,6 +198,8 @@ final class CachedRemoteImageLoader: ObservableObject {
 }
 
 actor CachedRemoteImageStore {
+    private nonisolated let executor = StorageFileExecutor()
+    nonisolated var unownedExecutor: UnownedSerialExecutor { executor.asUnownedSerialExecutor() }
     /// 原始图片数据的内存缓存。
     private let memoryCache: NSCache<NSString, NSData> = {
         let cache = NSCache<NSString, NSData>()

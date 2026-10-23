@@ -1,5 +1,5 @@
 //
-//  UpcomingCourseMapResolver.swift
+//  UpcomingCourseMapTarget.swift
 //  BIT101-iOS
 //
 //  Created by Codex on 2026-08-12.

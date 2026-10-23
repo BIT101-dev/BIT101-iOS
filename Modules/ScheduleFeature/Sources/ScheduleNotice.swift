@@ -5,60 +5,24 @@ import TransportCore
 /// 日程页统一使用的提示模型。
 ///
 /// 日程模块的同步、保存和空教室查询动作通过这个提示模型向视图层传递错误。
-public nonisolated struct ScheduleNotice: DiagnosticAlertPresentable {
-    public let id = UUID()
-    public let title: String
-    public let message: String
-    public let recoveryAction: AppRecoveryAction?
-    public let allowsDiagnostics: Bool
-    public let showsRecoveryLinks: Bool
-
-    public init(
-        title: String,
-        message: String,
-        recoveryAction: AppRecoveryAction? = nil,
-        allowsDiagnostics: Bool = true,
-        showsRecoveryLinks: Bool = true
-    ) {
-        self.title = title
-        self.message = message
-        self.recoveryAction = recoveryAction
-        self.allowsDiagnostics = allowsDiagnostics
-        self.showsRecoveryLinks = showsRecoveryLinks
-    }
-
-    public static func userInput(
-        title: String,
-        message: String,
-        recoveryAction: AppRecoveryAction? = nil
-    ) -> ScheduleNotice {
-        ScheduleNotice(
-            title: title,
-            message: message,
-            recoveryAction: recoveryAction,
-            allowsDiagnostics: false
-        )
-    }
-
-    public static func informational(title: String, message: String) -> ScheduleNotice {
-        ScheduleNotice(title: title, message: message, allowsDiagnostics: false)
-    }
-}
+public typealias ScheduleNotice = AppAlert
 
 extension ScheduleStateConsumer {
     func schoolFailureNotice(
         title: String,
         message: String,
-        networkFailure: Bool = false
+        networkFailure: Bool = false,
+        underlyingError: (any Error)? = nil
     ) -> ScheduleNotice {
         guard networkFailure, virtualNetworkLikely() else {
-            return ScheduleNotice(title: title, message: message)
+            return ScheduleNotice(title: title, message: message, underlyingError: underlyingError)
         }
         return ScheduleNotice(
             title: title,
             message: "\(message)\n\n先关掉魔法试试。",
             allowsDiagnostics: false,
-            showsRecoveryLinks: false
+            showsRecoveryLinks: false,
+            underlyingError: underlyingError
         )
     }
 

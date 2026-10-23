@@ -249,7 +249,7 @@ nonisolated struct PickedImageData: Transferable {
 /// 媒体缓存与下载在应用入口共用同一配置。
 enum AppMedia {
     private static let previewStorage = MediaPreviewStorage(files: AppFileDirectories.files)
-    static let environment = makeEnvironment(previewStorage: previewStorage)
+    static let environment = makeEnvironment(previewStorage: previewStorage, networkPath: AppNetworkPath.state)
     static func makeEnvironment(files: (any AppFileService)? = nil,
                                 previewStorage: MediaPreviewStorage,
                                 defaults: UserDefaults = AppFileDirectories.defaults,
@@ -262,9 +262,11 @@ enum AppMedia {
                                     return try await $0.loadTransferable(type: PickedImageData.self)?.data
                                 },
                                 imageHTTPClient: HTTPClient = .community,
-                                avatarHTTPClient: HTTPClient = .shared) -> MediaEnvironment {
+                                avatarHTTPClient: HTTPClient = .shared,
+                                networkPath: NetworkPathState? = nil) -> MediaEnvironment {
         MediaEnvironment(files: files, previewStorage: previewStorage, defaults: defaults,
-                         loadPickedImage: loadPickedImage, imageHTTPClient: imageHTTPClient, avatarHTTPClient: avatarHTTPClient)
+                         loadPickedImage: loadPickedImage, imageHTTPClient: imageHTTPClient,
+                         avatarHTTPClient: avatarHTTPClient, networkPath: networkPath)
     }
 }
 
