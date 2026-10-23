@@ -162,6 +162,8 @@ public final class TeachingCenterSessionState {
             "jxzxehall.bit.edu.cn",
             "jxzxehallapp.bit.edu.cn",
             "jwms.bit.edu.cn",
+            "jwb.bit.edu.cn",
+            "login.bit.edu.cn",
             "lexue.bit.edu.cn",
             "zy-eclass.bit.edu.cn",
             "zy-identity.bit.edu.cn",

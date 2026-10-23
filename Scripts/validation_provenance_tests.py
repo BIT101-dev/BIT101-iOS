@@ -476,6 +476,7 @@ def network_trace_fixture(value: dict) -> dict:
 
 
 def network_route_identity_self_test() -> None:
+    native_school_request_contracts_self_test()
     community_recovery_contract_self_test()
     image_resource_self_test()
     from copy import deepcopy
@@ -854,3 +855,30 @@ def network_route_identity_self_test() -> None:
     assert complete('community.session', phases)
     for statuses in ((200, 200, 200), (401, 200, 200), (200, 401, 500), (200, 403, 200), (200, 401), (200, 401, 200, 200)):
         assert not complete('community.session', [dict(account, statusCode=status) for status in statuses])
+
+
+def native_school_request_contracts_self_test() -> None:
+    from network_request_contracts import complete
+    def request(path, *, host='jwms.bit.edu.cn', method='GET', status=200, body=(), query=None):
+        endpoint = 'https://' + host + path
+        return dict(endpoint=endpoint, finalEndpoint=endpoint, method=method, finalMethod=method,
+            statusCode=status, query=query or {}, finalQuery=query or {}, bodyParameterNames=list(body), finalBodyParameterNames=list(body))
+    landing = request('/jsxsd/framework/main.jsp')
+    grades = request('/jsxsd/kscj/cjcx_list', method='POST', body=('kksj', 'kcxz', 'kcmc', 'xsfs'))
+    detail = request('/jsxsd/kscj/cjpm_list.do', query={'id': '[REDACTED]'})
+    cas = request('/cas/login', host='sso.bit.edu.cn', status=302, query={'service': '[REDACTED]'})
+    assert complete('score.authentication', [cas, landing])
+    assert complete('score.brief', [grades])
+    assert complete('score.detail', [grades, detail])
+    for probe in ('score.brief', 'score.detail'):
+        assert not complete(probe, [dict(grades, bodyParameterNames=['xsfs'])])
+        assert not complete(probe, [dict(grades, finalBodyParameterNames=['xsfs'])])
+        assert not complete(probe, [dict(grades, statusCode=500)])
+        assert not complete(probe, [request('/jsxsd/kscj/cjcx_list', host='outside.invalid', method='POST', body=('kksj', 'kcxz', 'kcmc', 'xsfs'))])
+    assert not complete('score.detail', [detail])
+    entry = request('/cjd/Account/ExternalLogin', host='jwb.bit.edu.cn', status=302)
+    report = request('/cjd/ScoreReport2/Index', host='jwb.bit.edu.cn', query={'GPA': '1'})
+    page = request('/cjd/Temp/page.jpg', host='jwb.bit.edu.cn')
+    assert complete('score.transcript', [entry, cas, report, page])
+    assert not complete('score.transcript', [entry, cas, report, dict(page, statusCode=500)])
+    assert not complete('score.transcript', [entry, cas, dict(report, query={'GPA': '0'}), page])

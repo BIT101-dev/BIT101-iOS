@@ -19,6 +19,7 @@ struct StoredCredentials {
 enum LoginServiceError: LocalizedError {
     case invalidSchoolLoginPage
     case schoolLoginFailed
+    case schoolPasswordRejected
     case invalidCredentials
     case schoolCredentialsRequired
     case schoolCaptchaRequired
@@ -32,7 +33,7 @@ enum LoginServiceError: LocalizedError {
 
     var isCredentialFailure: Bool {
         switch self {
-        case .invalidCredentials, .schoolLoginFailed:
+        case .invalidCredentials, .schoolLoginFailed, .schoolPasswordRejected:
             return true
         default:
             return false
@@ -43,6 +44,8 @@ enum LoginServiceError: LocalizedError {
         switch self {
         case .invalidSchoolLoginPage:
             return "学校登录页结构发生变化，暂时无法完成登录。"
+        case .schoolPasswordRejected:
+            return "学校密码验证失败，请更新学校统一身份认证密码。"
         case .schoolLoginFailed:
             return "学校统一身份认证登录失败，请检查学号和密码。"
         case .invalidCredentials:

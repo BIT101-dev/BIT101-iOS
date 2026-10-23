@@ -33,6 +33,7 @@ NETWORK_FOUNDATION_API = {
         'file(for:URL)', 'withFile(for:URL,operation:@Sendable(URL)asyncthrows->Value)',
         'withSource(for:URL,operation:@Sendable(RemoteImageSource)asyncthrows->Value)'},
     'BIT101-iOS.AppScheduleSchoolSessionRestorer': {'restoreSchoolSessionIfNeeded()'},
+    'BIT101-iOS.AppNativeSchoolAuthentication': {'static make(state:TeachingCenterSessionState,productionPolicy:Bool)'},
 }
 NETWORK_TRANSPORT_TYPES = {'HTTPClient', 'HTTPTransport', 'URLSession', 'CommunityAPIClient', 'CommunitySession',
     'URLSessionTask', 'URLSessionDataTask', 'URLSessionUploadTask', 'URLSessionDownloadTask', 'URLSessionStreamTask',

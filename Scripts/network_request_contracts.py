@@ -212,6 +212,23 @@ CONTRACTS = {
 }
 
 
+JWB_HOST = r'(?:jwms|webvpn)\.bit\.edu\.cn'
+JWB_VPN = r'(?:/https?/[0-9a-f]+)?'
+NATIVE_SCORE_LIST = RequestContract(JWB_HOST, JWB_VPN + '/jsxsd/kscj/cjcx_list', 'POST',
+    body_parameters=frozenset({'kksj', 'kcxz', 'kcmc', 'xsfs'}),
+    required_body_parameters=frozenset({'kksj', 'kcxz', 'kcmc', 'xsfs'}))
+NATIVE_JWB_LANDING = RequestContract(JWB_HOST, JWB_VPN + r'/(?:jsxsd/(?:framework/main\.jsp|xk/LoginToXk))?',
+    resource_parameters=True)
+NATIVE_TRANSCRIPT_ENTRY = RequestContract(r'jwb\.bit\.edu\.cn', '/cjd/Account/ExternalLogin',
+    statuses=range(200, 400), resource_parameters=True)
+NATIVE_CONTRACTS = {
+    'score.authentication': [NATIVE_JWB_LANDING],
+    'score.brief': [NATIVE_SCORE_LIST],
+    'score.detail': [NATIVE_SCORE_LIST],
+    'score.transcript': [NATIVE_TRANSCRIPT_ENTRY, CONTRACTS['score.transcript'][-1]],
+}
+
+
 def contracts_for(probe: str, expected_parameters: dict | None = None) -> list[RequestContract]:
     if probe in CONTRACTS:
         contracts = CONTRACTS[probe]
@@ -237,7 +254,7 @@ def contracts_for(probe: str, expected_parameters: dict | None = None) -> list[R
 def auxiliary_contracts(probe: str, contracts: list[RequestContract], *, allow_sms: bool = False) -> list[RequestContract]:
     community_session = any(contract.host == re.escape(API) for contract in contracts)
     school_session = any(contract.host in {SCHOOL, r'zy-eclass\.bit\.edu\.cn', r'(?:lexue|webvpn)\.bit\.edu\.cn',
-        r'login\.bit101\.flwfdd\.xyz', r'jwb\.bit\.edu\.cn'} for contract in contracts)
+        r'login\.bit101\.flwfdd\.xyz', r'jwb\.bit\.edu\.cn', JWB_HOST} for contract in contracts)
     rows = []
     if probe in {'paper.list', 'paper.search', 'paper.detail', 'paper.comments', 'community.writes'} or probe.startswith('paper.list.'):
         rows.append(community('/user/check'))
@@ -254,7 +271,7 @@ def auxiliary_contracts(probe: str, contracts: list[RequestContract], *, allow_s
         rows.extend(RequestContract(r'sso\.bit\.edu\.cn', '/cas/login', method, statuses=range(200, 400),
             additional_parameters=frozenset({'service', 'renew', 'gateway', 'ticket', 'type'}),
             body_parameters=frozenset({'username', 'password', 'execution', 'croypto', 'captcha_payload',
-                'geolocation', 'captcha_code', '_eventId', 'trustDevice'}) if method == 'POST' else frozenset()) for method in ('GET', 'POST'))
+                'geolocation', 'captcha_code', '_eventId', 'trustDevice', 'risk_payload', 'targetSystem', 'siteId', 'riskEngine'}) if method == 'POST' else frozenset()) for method in ('GET', 'POST'))
         rows.append(RequestContract(r'sso\.bit\.edu\.cn', r'/gate/cas-success/?', statuses=(200, 401), additional_parameters=frozenset({'ticket'})))
     if probe in SCHOOL_SMS_PROBES['school_sso_second_factor']:
         rows.append(RequestContract(r'sso\.bit\.edu\.cn', '/cas/api/protected/sms/getPhoneNumberByUserId', 'POST'))
@@ -272,6 +289,21 @@ def auxiliary_contracts(probe: str, contracts: list[RequestContract], *, allow_s
                 body_parameters=frozenset({'code'}), required_body_parameters=frozenset({'code'})))
         rows.extend(CONTRACTS['schedule.teaching-center'])
         rows.extend(CONTRACTS['score.authentication'])
+        rows.extend([
+            RequestContract(r'jxzxehall\.bit\.edu\.cn', '/auth-protocol-core/login', statuses=range(200, 400), resource_parameters=True),
+            RequestContract(SCHOOL, VPN + r'/auth-protocol-core/login', statuses=range(200, 400), resource_parameters=True),
+            RequestContract(SCHOOL, VPN + r'/jwapp/sys/xsfacx/\*default/index\.do', statuses=range(200, 400), resource_parameters=True),
+            RequestContract(r'login\.bit\.edu\.cn', '/cas/login', statuses=range(200, 400), resource_parameters=True),
+            RequestContract(r'jwb\.bit\.edu\.cn', r'/cjd/(?:Account/ExternalLogin(?:Callback)?|signin-cas)?', statuses=range(200, 400), resource_parameters=True),
+            replace(NATIVE_JWB_LANDING, statuses=range(200, 400)),
+            RequestContract(r'webvpn\.bit\.edu\.cn', r'/(?:set-fingerprint|fingerprint|login)', statuses=range(200, 400), resource_parameters=True),
+            RequestContract(r'sso\.bit\.edu\.cn', '/ustc-rba-front/fp', 'POST', body_parameters=frozenset({
+                'fonts', 'deviceMemory', 'hardwareConcurrency', 'localgroupId', 'timezone', 'cpuClass', 'platform',
+                'language', 'screenResolution', 'fingerprint', 'cookieValue', 'userAgent', 'platformAuthenticator'})),
+        ])
+        if probe.startswith('score.'):
+            rows.extend([NATIVE_SCORE_LIST, RequestContract(JWB_HOST, JWB_VPN + r'/jsxsd/kscj/[^/]+\.do', resource_parameters=True)])
+            rows.extend(contract for name in NATIVE_CONTRACTS for contract in CONTRACTS[name])
     if probe in {'eclass.authentication', 'eclass.ddl'}:
         rows.extend([RequestContract(r'zy-eclass\.bit\.edu\.cn', '/user/index'),
             RequestContract(r'zy-eclass\.bit\.edu\.cn', r'/api/courses/[1-9]\d*/activities')])
@@ -330,9 +362,12 @@ def complete(probe: str, requests: list[dict], expected_parameters: dict | None 
             or not all(isinstance(value, str) and value for value in expected_parameters.values())): return False
     search_probe = 'excludedSearch' in selectors
     if search_probe and expected_parameters['search'] == expected_parameters['excludedSearch']: return False
-    contracts = contracts_for(probe, expected_parameters)
-    matched = bool(contracts) and requests_accounted_for(requests, contracts, auxiliary_contracts(probe, contracts, allow_sms=allow_sms)) \
-        and all(contract.complete(requests) for contract in contracts)
+    variants = [contracts_for(probe, expected_parameters)]
+    if probe in NATIVE_CONTRACTS: variants.append(NATIVE_CONTRACTS[probe])
+    contracts = next((candidate for candidate in variants if candidate
+        and requests_accounted_for(requests, candidate, auxiliary_contracts(probe, candidate, allow_sms=allow_sms))
+        and all(contract.complete(requests) for contract in candidate)), [])
+    matched = bool(contracts)
     if matched and selectors and not search_probe:
         matched = all(all((unquote(urlsplit(row[field]).path) if key == 'path' else row.get(query_field, {}).get(key)) == expected
             for key, expected in expected_parameters.items() for field, query_field in (('endpoint', 'query'), ('finalEndpoint', 'finalQuery')))

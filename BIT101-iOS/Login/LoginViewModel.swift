@@ -127,7 +127,7 @@ final class LoginViewModel: ObservableObject {
         }
 
         guard !password.isEmpty else {
-            alert = AppAlert.userInput(title: "密码不能为空", message: "请输入学校统一身份认证密码。")
+            alert = AppAlert.userInput(title: "密码不能为空", message: "请输入 BIT101 密码。")
             return
         }
 

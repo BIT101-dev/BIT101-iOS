@@ -96,7 +96,8 @@ enum NetworkSmokeProductionSession {
         return ScheduleService(credentials: AppAccountSession.storage, crypto: AppScheduleServiceCrypto(),
             schoolSessionRestorer: AppScheduleSchoolSessionRestorer { try await LoginService(storage: AppAccountSession.storage, apiClient: api).restoreSchoolSessionIfNeeded() },
             teachingCenterState: state, rawCourseResponseHandler: nil,
-            transport: NetworkSessionPool.productionTeachingCenter, observer: HTTPClient.appObserver)
+            transport: NetworkSessionPool.productionTeachingCenter, observer: HTTPClient.appObserver,
+            nativeAuthenticator: AppNativeSchoolAuthentication.make(state: state, productionPolicy: true))
     }
 }
 #endif

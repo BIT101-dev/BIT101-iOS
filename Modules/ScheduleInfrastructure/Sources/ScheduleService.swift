@@ -24,6 +24,7 @@ public struct ScheduleService {
     let schoolSessionRestorer: any SchoolSessionRestoring
     let teachingCenterState: TeachingCenterSessionState
     let rawCourseResponseHandler: ((Data) -> Void)?
+    let nativeAuthenticator: (any SchoolServiceAuthenticating)?
     let httpClient: HTTPClient
     static let authenticationWaitSeconds: TimeInterval = 90
     struct AuthenticationCredentials: Encodable {
@@ -49,8 +50,10 @@ public struct ScheduleService {
         teachingCenterState: TeachingCenterSessionState,
         rawCourseResponseHandler: ((Data) -> Void)? = nil,
         transport: any HTTPTransport,
-        observer: (any HTTPClientObserving & Sendable)? = nil
+        observer: (any HTTPClientObserving & Sendable)? = nil,
+        nativeAuthenticator: (any SchoolServiceAuthenticating)? = nil
     ) {
+        self.nativeAuthenticator = nativeAuthenticator
         self.credentials = credentials
         self.crypto = crypto
         self.schoolSessionRestorer = schoolSessionRestorer

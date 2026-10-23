@@ -71,6 +71,9 @@ extension ScheduleService {
     ) async throws -> T {
         try await credentials.prepareSchoolCredentials()
         teachingCenterState.selectOwner(credentials.schoolSessionIdentity)
+        if let nativeAuthenticator {
+            return try await withNativeTeachingCenterSession(nativeAuthenticator, operation: operation)
+        }
         let studentID = credentials.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
         if teachingCenterState.shouldPreferDirect(for: studentID) {
             return try await withDirectTeachingCenterSessionRetry(operation: operation)
@@ -104,6 +107,46 @@ extension ScheduleService {
                     "WebVPN 教学中心恢复失败：\(webVPNError.localizedDescription)；"
                         + "学校 SSO 直连恢复失败：\(error.localizedDescription)"
                 )
+            }
+        }
+    }
+
+    /// 本机 CAS 与 WebVPN 为首选，业务会话失效时恢复一次，再进入有界中转回退。
+    private func withNativeTeachingCenterSession<T>(_ authenticator: any SchoolServiceAuthenticating,
+        operation: () async throws -> T) async throws -> T {
+        let owner = credentials.schoolSessionIdentity
+        func authenticate() async throws {
+            try await teachingCenterState.authenticationRecovery.refresh(identity: owner) {
+                let session = try await authenticator.authenticate(.teachingCenter)
+                try validateAuthenticationOwner(owner)
+                guard session.owner == owner else { throw CancellationError() }
+                if session.baseURL.host == schoolBaseURL.host {
+                    teachingCenterState.markDirectPreferred(for: owner.accountIdentifier)
+                } else {
+                    teachingCenterState.markAuthenticated(for: owner.accountIdentifier)
+                }
+            }
+        }
+        do {
+            if !teachingCenterState.isPrepared(for: owner.accountIdentifier) { try await authenticate() }
+            do { return try await operation() }
+            catch where isTeachingCenterSessionFailure(error) {
+                teachingCenterState.invalidate()
+                try await authenticate()
+                return try await operation()
+            }
+        } catch {
+            try validateAuthenticationOwner(owner)
+            guard NativeSchoolAuthenticator.permitsFallback(error)
+                || shouldAttemptDirectTeachingCenterFallback(for: error) else { throw error }
+            let localError = error
+            teachingCenterState.invalidate()
+            do { return try await withWebVPNTeachingCenterSessionRetry(operation: operation) }
+            catch {
+                try validateAuthenticationOwner(owner)
+                if case ScheduleServiceError.secondFactorRequired = error { throw error }
+                throw ScheduleServiceError.authenticationFailed(
+                    "学校本机认证：\(localError.localizedDescription)；中转恢复：\(error.localizedDescription)")
             }
         }
     }

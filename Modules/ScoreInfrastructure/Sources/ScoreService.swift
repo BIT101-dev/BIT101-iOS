@@ -60,6 +60,8 @@ public struct ScoreService {
         let data: [[String]]
     }
 
+    private let nativeAuthenticator: (any SchoolServiceAuthenticating)?
+    private let nativeHTTPClient: HTTPClient
     private let credentials: any SchoolCredentialsProviding
     private let httpClient: HTTPClient
     private let sensitiveHTTPClient: HTTPClient
@@ -74,8 +76,12 @@ public struct ScoreService {
         httpClient: HTTPClient,
         sensitiveHTTPClient: HTTPClient,
         endpointBaseURL: URL,
-        transcriptLimits: TrustedTranscriptResourceLimits = .init()
+        transcriptLimits: TrustedTranscriptResourceLimits = .init(),
+        nativeAuthenticator: (any SchoolServiceAuthenticating)? = nil,
+        nativeHTTPClient: HTTPClient? = nil
     ) {
+        self.nativeAuthenticator = nativeAuthenticator
+        self.nativeHTTPClient = nativeHTTPClient ?? httpClient
         self.credentials = credentials
         self.httpClient = httpClient
         self.sensitiveHTTPClient = sensitiveHTTPClient
@@ -85,6 +91,23 @@ public struct ScoreService {
 
     /// 建立一次 JWB 会话，供简略成绩与详细成绩两个阶段复用。
     public func startScoreChallenge() async throws -> BITLoginAuthenticationChallenge {
+        if let nativeAuthenticator {
+            let owner = credentials.schoolSessionIdentity
+            do {
+                let session = try await nativeAuthenticator.authenticate(.grades)
+                try validateOwner(owner)
+                guard session.owner == owner else { throw CancellationError() }
+                return BITLoginAuthenticationChallenge(challengeID: "local-jwb", accessToken: "", status: "authenticated",
+                    maskedPhone: nil, expiresIn: 300, ownerIdentity: owner, nativeSession: session)
+            } catch {
+                try validateOwner(owner)
+                guard NativeSchoolAuthenticator.permitsFallback(error) else { throw error }
+            }
+        }
+        return try await startRemoteScoreChallenge()
+    }
+
+    private func startRemoteScoreChallenge() async throws -> BITLoginAuthenticationChallenge {
         try await credentials.prepareSchoolCredentials()
         let owner = credentials.schoolSessionIdentity
         let studentID = credentials.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -134,7 +157,20 @@ public struct ScoreService {
         detail: Bool,
         authenticatedBy challenge: BITLoginAuthenticationChallenge
     ) async throws -> [ScoreRow] {
-        try await finishAuthentication(challenge, detail: detail)
+        if let session = challenge.nativeSession {
+            let owner = try authenticationOwner(challenge)
+            guard session.owner == owner else { throw CancellationError() }
+            do {
+                return try await NativeSchoolScoreReader(client: nativeHTTPClient,
+                    validate: { try validateOwner(owner) }).fetch(detail: detail, session: session)
+            } catch {
+                try validateOwner(owner)
+                if TaskCancellation.matches(error) { throw error }
+                let fallback = try await startRemoteScoreChallenge()
+                return try await finishAuthentication(fallback, detail: detail)
+            }
+        }
+        return try await finishAuthentication(challenge, detail: detail)
     }
 
     /// 完成短信认证，并返回可继续查询简略及详细成绩的 challenge 状态。
@@ -154,6 +190,35 @@ public struct ScoreService {
 
     /// 向 bit-login 的 `jwb_cjd` 服务申请由学校实时生成的可信成绩单。
     public func fetchTrustedTranscriptPages(onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
+        if let nativeAuthenticator {
+            let owner = credentials.schoolSessionIdentity
+            let session: SchoolAuthenticatedSession
+            do {
+                session = try await nativeAuthenticator.authenticate(.transcript)
+                try validateOwner(owner)
+                guard session.owner == owner, session.baseURL == SchoolServiceTarget.transcript.baseURL else { throw CancellationError() }
+            } catch {
+                try validateOwner(owner)
+                guard NativeSchoolAuthenticator.permitsFallback(error) else { throw error }
+                return try await fetchRemoteTranscriptPages(onPage: onPage)
+            }
+            var delivered = false
+            let forward: TrustedTranscriptPageDelivery = { pages in
+                delivered = true
+                try await onPage?(pages)
+            }
+            do {
+                return try await downloadTranscriptPages(cookieString: session.cookieHeader, owner: owner, onPage: forward)
+            } catch {
+                try validateOwner(owner)
+                if TaskCancellation.matches(error) || delivered { throw error }
+                return try await fetchRemoteTranscriptPages(onPage: onPage)
+            }
+        }
+        return try await fetchRemoteTranscriptPages(onPage: onPage)
+    }
+
+    private func fetchRemoteTranscriptPages(onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
         try await credentials.prepareSchoolCredentials()
         let owner = credentials.schoolSessionIdentity
         let studentID = credentials.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)

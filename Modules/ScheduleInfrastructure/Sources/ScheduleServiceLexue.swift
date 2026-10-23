@@ -48,6 +48,9 @@ extension ScheduleService {
         var lastError: Error?
         for (index, baseURL) in lexueRouteBaseURLs(storedURL: storedURL).enumerated() {
             do {
+                if baseURL.host == webVPNLexueBaseURL.host, let nativeAuthenticator {
+                    _ = try await nativeAuthenticator.authenticate(.webVPN)
+                }
                 let finalURL = try await resolveLexueCalendarURL(
                     storedURL: index == 0 ? storedURL : "",
                     baseURL: baseURL,
@@ -116,6 +119,9 @@ extension ScheduleService {
         var lastError: Error?
         for baseURL in lexueRouteBaseURLs(storedURL: "") {
             do {
+                if baseURL.host == webVPNLexueBaseURL.host, let nativeAuthenticator {
+                    _ = try await nativeAuthenticator.authenticate(.webVPN)
+                }
                 return try await resolveLexueCalendarURL(
                     storedURL: "",
                     baseURL: baseURL,
@@ -242,14 +248,18 @@ extension ScheduleService {
     }
 
     private func lexueRouteBaseURLs(storedURL: String) -> [URL] {
-        if let storedHost = URL(string: storedURL)?.host?.lowercased(), storedHost == webVPNLexueBaseURL.host?.lowercased() {
-            return [webVPNLexueBaseURL, lexueBaseURL]
-        }
+        if nativeAuthenticator != nil { return [lexueBaseURL, webVPNLexueBaseURL] }
+        if URL(string: storedURL)?.host == webVPNLexueBaseURL.host { return [webVPNLexueBaseURL, lexueBaseURL] }
         let studentID = credentials.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let prefersDirect = teachingCenterState.shouldPreferDirect(for: studentID)
-        return prefersDirect
-            ? [lexueBaseURL, webVPNLexueBaseURL]
-            : [webVPNLexueBaseURL, lexueBaseURL]
+        return teachingCenterState.shouldPreferDirect(for: studentID)
+            ? [lexueBaseURL, webVPNLexueBaseURL] : [webVPNLexueBaseURL, lexueBaseURL]
+    }
+
+    /// 本机服务票据与学校功能共享同一套短信验证实现。
+    public func completeSchoolAuthentication(_ context: SchoolSecondFactorContext,
+        handler: @escaping SchoolSMSCodeHandler) async throws {
+        try await completeSchoolSecondFactor(context, handler: handler, smsDeliveryMode: .send,
+            owner: credentials.schoolSessionIdentity)
     }
 
     private func shouldRetryLexueRoute(after error: Error) -> Bool {

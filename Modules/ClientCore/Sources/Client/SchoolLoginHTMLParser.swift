@@ -23,6 +23,20 @@ public nonisolated enum SchoolLoginHTMLParser {
         )
     }
 
+    /// CAS flow 由 execution 承接，默认表单提交路径沿同源 login 解析。
+    public static func loginFormAction(html: String, documentURL: URL) -> URL? {
+        let action = attribute(in: html, pattern: #"<form\b[^>]*\saction\s*=\s*["']([^"']+)["'][^>]*>"#) ?? "login"
+        guard let url = URL(string: decodeHTML(action), relativeTo: documentURL)?.absoluteURL,
+              isSameSecureOrigin(url, as: documentURL) else { return nil }
+        return url
+    }
+
+    /// CAS 明确的密码拒绝码触发凭据更新；风控和页面异常沿原错误呈现。
+    public static func rejectsPassword(html: String) -> Bool {
+        guard let code = field(in: html, id: "login-error-code") else { return false }
+        return ["1030027", "1030031"].contains(code)
+    }
+
     /// 从学校 CAS 短信验证页提取继续提交所需的表单上下文。
     public static func parseSecondFactorPage(html: String, baseURL: URL, documentURL: URL? = nil) -> SchoolSecondFactorContext? {
         let hasSecondFactorMarker = html.range(

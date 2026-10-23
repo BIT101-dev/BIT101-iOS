@@ -1,0 +1,168 @@
+import ClientCore
+import Foundation
+import Testing
+import TransportCore
+@testable import BIT101_iOS
+
+@Suite(.serialized)
+struct NativeLoginTests {
+    private final class Credentials: LoginCredentialsStoring {
+        var values: [String: String] = [:]
+        func read(account: String) throws -> String { values[account] ?? "" }
+        func save(_ value: String, account: String) throws { values[account] = value }
+        func delete(account: String) -> Bool { values.removeValue(forKey: account); return true }
+    }
+    private final class Transport: HTTPTransport {
+        var requests: [URLRequest] = []
+        var loginRejections = 0
+        var serverFailure = false
+        var rejectSchoolPassword = false
+        var serviceTicket = false
+        func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
+            let result = try await data(for: request)
+            if let maximumBytes, result.0.count > maximumBytes { throw HTTPClientError.responseTooLarge }
+            return result
+        }
+        func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+            requests.append(request)
+            let url = try #require(request.url)
+            var status = 200
+            var headers: [String: String] = [:]
+            let text: String
+            switch url.path {
+            case "/user/login":
+                if serverFailure { status = 500; text = #"{"msg":"database unavailable"}"# }
+                else if loginRejections > 0 {
+                    loginRejections -= 1; status = 500; text = #"{"msg":"用户名或密码错误Orz"}"#
+                } else { text = #"{"fake_cookie":"direct-cookie"}"# }
+            case "/user/check": status = 401; text = ""
+            case "/user/webvpn_verify_init": text = #"{"captcha":"","cookie":"fixture","execution":"fixture","salt":"MTIzNDU2Nzg5MDEyMzQ1Ng=="}"#
+            case "/user/webvpn_verify": text = #"{"token":"proof","code":"proof-code"}"#
+            case "/user/register": text = #"{"fake_cookie":"proof-cookie"}"#
+            case "/cas/login":
+                if request.httpMethod == "POST", serviceTicket {
+                    status = 302; headers["Location"] = "https://webvpn.bit.edu.cn/login?cas_login=true&ticket=fixture"; text = ""
+                } else if request.httpMethod == "POST" {
+                    if rejectSchoolPassword { rejectSchoolPassword = false; text = "<p id='login-error-code'>1030027</p>" }
+                    else { text = "cas-success" }
+                } else { text = #"<p id="login-croypto">MTIzNDU2Nzg5MDEyMzQ1Ng==</p><p id="login-page-flowkey">flow</p>"# }
+            case "/ustc-rba-front/fp": text = #"{"responsetoken":"risk-token"}"#
+            default: throw URLError(.badURL)
+            }
+            return (Data(text.utf8), try #require(HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: headers)))
+        }
+    }
+
+    private func fixture(_ action: (LoginStorage, Transport, LoginService, Credentials, () -> Int) async throws -> Void) async throws {
+        let domain = "BIT101Tests.native-login"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let backend = Credentials(), transport = Transport()
+        var prompts = 0
+        let storage = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: {}, requestSchoolPassword: { _ in
+            prompts += 1; return "school-B"
+        })
+        let client = HTTPClient(transport: transport, observer: nil)
+        try await action(storage, transport, LoginService(storage: storage,
+            apiClient: BIT101APIClient(httpClient: client, noRedirectHTTPClient: client)), backend, { prompts })
+    }
+
+    @Test(.timeLimit(.minutes(1))) func directLoginKeepsSeparateSchoolPassword() async throws {
+        try await fixture { storage, transport, service, _, prompts in
+            try storage.saveLoginState(studentID: "owner", password: "school-B", fakeCookie: "old-cookie")
+            #expect(try await service.login(studentID: "owner", password: "community-A") == "owner")
+            #expect(storage.currentPassword == "school-B" && prompts() == 0)
+            #expect(try storage.loadCommunityPasswordDigest() == LoginCrypto.md5Hex("community-A"))
+            #expect(transport.requests.compactMap { $0.url?.path } == ["/user/login"])
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func firstCommunityLoginCollectsSchoolPasswordWhenSchoolFeatureStarts() async throws {
+        try await fixture { storage, transport, service, _, prompts in
+            _ = try await service.login(studentID: "owner", password: "community-A")
+            #expect(storage.hasCachedSession && storage.currentPassword.isEmpty && prompts() == 0)
+            #expect(try await service.restoreSchoolSessionIfNeeded() == "owner")
+            #expect(storage.currentPassword == "school-B" && prompts() == 1)
+            #expect(transport.requests.compactMap { $0.url?.path } == ["/user/login", "/cas/login", "/cas/login"])
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func mergedCredentialFailureUsesIdentityProofAndPreservesExisting101Password() async throws {
+        try await fixture { storage, transport, service, _, prompts in
+            transport.loginRejections = 2
+            #expect(try await service.login(studentID: "owner", password: "community-A") == "owner")
+            #expect(storage.fakeCookie == "proof-cookie" && storage.currentPassword == "school-B" && prompts() == 1)
+            #expect(try storage.loadCommunityPasswordDigest() == nil)
+            let request = try #require(transport.requests.first { $0.url?.path == "/user/register" })
+            let data = try #require(request.httpBody)
+            let body = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            #expect(body["login_mode"] as? Bool == true && body["password"] as? String == LoginCrypto.md5Hex("community-A"))
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func newAccountStoresValidatedCommunityDigestAfterIdentityProof() async throws {
+        try await fixture { storage, transport, service, _, prompts in
+            transport.loginRejections = 1
+            _ = try await service.login(studentID: "owner", password: "community-A")
+            #expect(storage.fakeCookie == "direct-cookie" && prompts() == 1)
+            #expect(try storage.loadCommunityPasswordDigest() == LoginCrypto.md5Hex("community-A"))
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func communityServerFailurePreservesExistingLocalAccountAndAvoidsSchoolDetour() async throws {
+        try await fixture { storage, transport, service, _, prompts in
+            try storage.saveLoginState(studentID: "owner", password: "school-B", fakeCookie: "cached-cookie")
+            transport.serverFailure = true
+            await #expect(throws: (any Error).self) { try await service.login(studentID: "owner", password: "community-A") }
+            #expect(storage.fakeCookie == "cached-cookie" && storage.hasCachedSession && prompts() == 0)
+            #expect(transport.requests.compactMap { $0.url?.path } == ["/user/login"])
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func legacyKeychainSessionMigratesCommunityCredentialThroughDirectLogin() async throws {
+        try await fixture { storage, transport, service, _, prompts in
+            try storage.saveLoginState(studentID: "owner", password: "legacy-password", fakeCookie: "old-cookie")
+            #expect(try await service.checkLogin() == "owner")
+            #expect(try storage.loadCommunityPasswordDigest() == LoginCrypto.md5Hex("legacy-password"))
+            #expect(storage.currentPassword == "legacy-password" && prompts() == 0)
+            #expect(transport.requests.compactMap { $0.url?.path } == ["/user/check", "/user/login"])
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func explicitSchoolPasswordRejectionRequestsOneReplacementAndKeepsCommunitySession() async throws {
+        try await fixture { storage, transport, service, _, prompts in
+            try storage.saveLoginState(studentID: "owner", password: "old-B", fakeCookie: "community-cookie",
+                communityPasswordDigest: LoginCrypto.md5Hex("community-A"))
+            transport.rejectSchoolPassword = true
+            #expect(try await service.restoreSchoolSessionIfNeeded() == "owner")
+            #expect(prompts() == 1 && storage.currentPassword == "school-B" && storage.fakeCookie == "community-cookie")
+            #expect(transport.requests.count == 4)
+            #expect(try storage.loadCommunityPasswordDigest() == LoginCrypto.md5Hex("community-A"))
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func localCASServiceSubmissionUsesSchoolPasswordAndTheCurrentRiskToken() async throws {
+        try await fixture { storage, transport, _, _, prompts in
+            try storage.saveLoginState(studentID: "owner", password: "school-B", fakeCookie: "community-cookie",
+                communityPasswordDigest: LoginCrypto.md5Hex("community-A"))
+            transport.serviceTicket = true
+            let client = HTTPClient(transport: transport, observer: nil)
+            let api = BIT101APIClient(httpClient: client, noRedirectHTTPClient: client)
+            let html = #"<p id="login-croypto">MTIzNDU2Nzg5MDEyMzQ1Ng==</p><p id="login-page-flowkey">flow</p><p id="riskSystemSwitch">USTC</p>"#
+            let cookies = try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)
+            let next = try await api.submitSchoolServiceLogin(url: AppURL.required("https://sso.bit.edu.cn/cas/login?service=fixture"),
+                html: html, storage: storage, cookieStorage: cookies)
+            #expect(next.host == "webvpn.bit.edu.cn" && prompts() == 0)
+            #expect(transport.requests.compactMap { $0.url?.path } == ["/ustc-rba-front/fp", "/cas/login"])
+            let post = try #require(transport.requests.last)
+            #expect(post.url?.query == nil)
+            let body = String(decoding: try #require(post.httpBody), as: UTF8.self)
+            let fields = URLComponents(string: "https://fixture.invalid?" + body)?.queryItems ?? []
+            #expect(fields.first { $0.name == "password" }?.value == (try LoginCrypto.encryptPassword("school-B", saltBase64: "MTIzNDU2Nzg5MDEyMzQ1Ng==")))
+            #expect(fields.first { $0.name == "riskEngine" }?.value == "true")
+            #expect(fields.first { $0.name == "risk_payload" }?.value?.isEmpty == false)
+            #expect(storage.fakeCookie == "community-cookie" && storage.currentPassword == "school-B")
+        }
+    }
+}

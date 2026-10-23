@@ -162,7 +162,8 @@ enum ScheduleServiceFactory {
             teachingCenterState: AppSchoolSession.teachingCenter,
             rawCourseResponseHandler: rawCourseResponseHandler,
             transport: transport ?? NetworkSessionPool.teachingCenter(state: AppSchoolSession.teachingCenter),
-            observer: HTTPClient.appObserver
+            observer: HTTPClient.appObserver,
+            nativeAuthenticator: transport == nil ? AppNativeSchoolAuthentication.shared : nil
         )
     }
 }

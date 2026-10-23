@@ -307,11 +307,11 @@ struct LoginStorageTests {
                 ? CommunitySession.appSession(storage: storage, httpClient: http).client(errorDomain: "fixture")
                 : CommunityAPIClient(storage: storage, httpClient: http, errorDomain: "fixture")
             try await client.requestVoid(path: "fixture-renewal", method: "GET")
-            let expected = ["/fixture-renewal", "/user/webvpn_verify_init", "/user/webvpn_verify", "/user/register", "/fixture-renewal"]
+            let expected = ["/fixture-renewal", "/user/login", "/fixture-renewal"]
             #expect(transport.paths == expected && storage.fakeCookie == "renewed-cookie")
             let records = await diagnostics.recent()
             #expect(records.compactMap { URL(string: $0.url)?.path } == expected)
-            #expect(records.map(\.statusCode) == [401, 200, 200, 200, 200])
+            #expect(records.map(\.statusCode) == [401, 200, 200])
             storage.clearSession()
             #expect(await diagnostics.recent().isEmpty)
         }
@@ -385,9 +385,9 @@ struct LoginStorageTests {
         let check = Task { try await service.checkLogin() }
         try await waitForTestEvent { !(transport.pending == nil) }
         transport.pending?.resume()
-        #expect(try await check.value == nil)
-        #expect(storage.communityCredentials.identity != owner && storage.fakeCookie.isEmpty)
-        #expect(model.screenState == .signedOut && model.password.isEmpty)
+        await #expect(throws: CommunitySessionRestorationError.self) { try await check.value }
+        #expect(storage.communityCredentials.identity == owner && storage.fakeCookie.isEmpty && storage.hasCachedSession)
+        #expect(model.screenState == .signedIn(studentID: "A") && model.password.isEmpty)
         try storage.saveLoginState(studentID: "B", password: "fixture", fakeCookie: "new-cookie")
         #expect(model.screenState == .signedIn(studentID: "B") && model.studentID == "B")
     }
@@ -727,6 +727,7 @@ extension LoginStorageTests {
     private final class RegistrationResponses: HTTPTransport {
         var requests: [(String, [String: Any])] = []
         var registerStatus = 200
+        var loginStatus = 200
         var captcha = ""
         var beforeResponse: (() async -> Void)?
         func data(for request: URLRequest) async throws -> (Data, URLResponse) {
@@ -741,11 +742,12 @@ extension LoginStorageTests {
                 body = #"{"salt":"AAAAAAAAAAAAAAAAAAAAAA==","cookie":"fixture","execution":"fixture","captcha":""}"#
                     .replacingOccurrences(of: #""captcha":"""#, with: #""captcha":"\#(captcha)""#)
             case "/user/webvpn_verify": body = #"{"token":"school-proof","code":"123456"}"#
-            case "/user/register", "/user/login": body = #"{"fake_cookie":"registered-cookie"}"#
+            case "/user/register": body = #"{"fake_cookie":"registered-cookie"}"#
+            case "/user/login": body = loginStatus == 200 ? #"{"fake_cookie":"registered-cookie"}"# : #"{"msg":"用户名或密码错误Orz"}"#
             default: throw URLError(.unsupportedURL)
             }
             return (Data(body.utf8), try #require(HTTPURLResponse(url: url,
-                statusCode: url.path == "/user/register" ? registerStatus : 200, httpVersion: nil, headerFields: nil)))
+                statusCode: url.path == "/user/register" ? registerStatus : url.path == "/user/login" ? loginStatus : 200, httpVersion: nil, headerFields: nil)))
         }
     }
 
@@ -754,8 +756,9 @@ extension LoginStorageTests {
         let domain = "BIT101Tests.school-captcha"
         let defaults = try #require(UserDefaults(suiteName: domain))
         defer { defaults.removePersistentDomain(forName: domain) }
-        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: {})
+        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: {}, requestSchoolPassword: { _ in "school-password" })
         let transport = RegistrationResponses(), http = HTTPClient(transport: transport, observer: nil)
+        transport.loginStatus = 500
         transport.captcha = "data:image/png;base64,fixture"
         let service = LoginService(storage: storage, apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http))
         for registration in [false, true] {
@@ -767,7 +770,7 @@ extension LoginStorageTests {
                 #expect(LoginServiceError.schoolCaptchaRequired.localizedDescription.contains("校园邮箱"))
             }
         }
-        #expect(transport.requests.map(\.0) == ["/user/webvpn_verify_init", "/user/webvpn_verify_init"])
+        #expect(transport.requests.map(\.0) == ["/user/login", "/user/webvpn_verify_init", "/user/webvpn_verify_init"])
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [RegistrationVerificationMethod.school, .email])
@@ -817,26 +820,21 @@ extension LoginStorageTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func schoolLoginUpdatesSchoolCredentialsAndPreservesTheCommunityPassword() async throws {
+    func communityLoginPreservesSchoolCredentialsAndTracksValidatedCommunityPasswords() async throws {
         let defaults = try #require(UserDefaults(suiteName: "BIT101Tests.community-password"))
         defer { defaults.removePersistentDomain(forName: "BIT101Tests.community-password") }
         let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: {})
-        let communityDigest = LoginCrypto.md5Hex("independent-community-password")
-        try storage.saveLoginState(studentID: "A", password: "old-school-password", fakeCookie: "old-cookie",
-            communityPasswordDigest: communityDigest)
+        try storage.saveLoginState(studentID: "A", password: "school-password", fakeCookie: "old-cookie",
+            communityPasswordDigest: LoginCrypto.md5Hex("old-community-password"))
         let transport = RegistrationResponses(), http = HTTPClient(transport: transport, observer: nil)
         let service = LoginService(storage: storage, apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http))
-        let model = LoginViewModel(service: service)
-        model.studentID = "A"; model.password = "school-password"
-        await model.login()
-        #expect(model.screenState == .signedIn(studentID: "A"))
+        _ = try await service.login(studentID: "A", password: "community-password")
         #expect(storage.currentPassword == "school-password")
-        #expect(try storage.loadCommunityPasswordDigest() == communityDigest)
+        #expect(try storage.loadCommunityPasswordDigest() == LoginCrypto.md5Hex("community-password"))
         _ = try await service.login(studentID: "B", password: "another-password")
-        #expect(storage.currentPassword == "another-password" && storage.currentStudentID == "B")
-        #expect(try storage.loadCommunityPasswordDigest() == nil)
-        #expect(transport.requests.map(\.0) == Array(repeating: ["/user/webvpn_verify_init", "/user/webvpn_verify", "/user/register"], count: 2).flatMap { $0 })
-        #expect(transport.requests.filter { $0.0 == "/user/register" }.allSatisfy { $0.1["login_mode"] as? Bool == true })
+        #expect(storage.currentPassword.isEmpty && storage.currentStudentID == "B")
+        #expect(try storage.loadCommunityPasswordDigest() == LoginCrypto.md5Hex("another-password"))
+        #expect(transport.requests.map(\.0) == ["/user/login", "/user/login"])
     }
 
     @Test(.timeLimit(.minutes(1)))

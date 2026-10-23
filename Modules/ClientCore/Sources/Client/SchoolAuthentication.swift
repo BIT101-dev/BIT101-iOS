@@ -9,6 +9,7 @@ public nonisolated struct BITLoginAuthenticationChallenge: Identifiable, Equatab
     public let expiresIn: Int?
     public let ownerIdentity: SchoolSessionIdentity?
     public let receivedAt: Date
+    public let nativeSession: SchoolAuthenticatedSession?
 
     public var id: String { challengeID }
 
@@ -24,7 +25,8 @@ public nonisolated struct BITLoginAuthenticationChallenge: Identifiable, Equatab
         maskedPhone: String?,
         expiresIn: Int?,
         receivedAt: Date = Date(),
-        ownerIdentity: SchoolSessionIdentity? = nil
+        ownerIdentity: SchoolSessionIdentity? = nil,
+        nativeSession: SchoolAuthenticatedSession? = nil
     ) {
         self.challengeID = challengeID
         self.accessToken = accessToken
@@ -33,6 +35,7 @@ public nonisolated struct BITLoginAuthenticationChallenge: Identifiable, Equatab
         self.expiresIn = expiresIn
         self.receivedAt = receivedAt
         self.ownerIdentity = ownerIdentity
+        self.nativeSession = nativeSession
     }
 }
 
@@ -145,7 +148,8 @@ public enum BITLoginChallengeSupport {
     public static func challenge(
         from payload: BITLoginChallengePayload,
         accessToken: String,
-        ownerIdentity: SchoolSessionIdentity? = nil
+        ownerIdentity: SchoolSessionIdentity? = nil,
+        nativeSession: SchoolAuthenticatedSession? = nil
     ) -> BITLoginAuthenticationChallenge {
         BITLoginAuthenticationChallenge(
             challengeID: payload.challengeID,

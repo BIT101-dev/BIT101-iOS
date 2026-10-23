@@ -183,6 +183,7 @@ struct BIT101APIClient {
         ) {
             throw LoginServiceError.schoolSMSRequired(context)
         }
+        if SchoolLoginHTMLParser.rejectsPassword(html: html) { throw LoginServiceError.schoolPasswordRejected }
         return SchoolLoginHTMLParser.parse(html: html).isLoggedIn
     }
 
@@ -388,7 +389,7 @@ struct BIT101APIClient {
     }
 
     /// 按重定向策略选择注入客户端，并统一做 HTTPS 升级。
-    private func sendRequest(_ request: URLRequest, followRedirects: Bool, requiresBusinessEndpoint: Bool = false) async throws -> (Data, HTTPURLResponse) {
+    func sendRequest(_ request: URLRequest, followRedirects: Bool, requiresBusinessEndpoint: Bool = false) async throws -> (Data, HTTPURLResponse) {
         let wire = try await sendObservedRequest(request, followRedirects: followRedirects, requiresBusinessEndpoint: requiresBusinessEndpoint)
         return (wire.data, wire.response)
     }
@@ -400,6 +401,9 @@ struct BIT101APIClient {
         if let url = request.url {
             var upgradedRequest = request
             upgradedRequest.url = HTTPSURLUpgrade.upgradedURL(from: url)
+            if url.host?.hasSuffix(".bit.edu.cn") == true {
+                upgradedRequest.setValue(Self.browserUserAgent, forHTTPHeaderField: "User-Agent")
+            }
             finalRequest = upgradedRequest
         } else {
             finalRequest = request

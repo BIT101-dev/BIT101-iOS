@@ -115,6 +115,8 @@ def coverage_registry_findings(modules: set[str], ui_modules: set[str] | None = 
 
 NETWORK_CAPABILITIES = {
  'MediaKit.MediaEnvironment': {'verifyRemoteImage(at:URL)': 'network'},
+ 'ClientCore.NativeSchoolAuthenticator': {'authenticate(:SchoolServiceTarget)': 'first-login'},
+ 'ScoreInfrastructure.NativeSchoolScoreReader': {'fetch(detail:Bool,session:SchoolAuthenticatedSession)': 'network'},
  'BIT101-iOS.BIT101APIClient': {
      'fetchSchoolLoginContext()': 'first-login',
      'loginSchool(studentID:String,password:String,salt:String,execution:String)': 'first-login',
@@ -196,6 +198,7 @@ NETWORK_CAPABILITIES = {
                                'deletePaper(id:Int)': 'community-writes'},
  'ScheduleInfrastructure.ScheduleService': {'fetchEclassDDLEvents(schoolSMSCodeHandler:SchoolSMSCodeHandler?)': 'network',
                                             'fetchEclassDDLEventsForPreflight()': 'network',
+                                            'completeSchoolAuthentication(:SchoolSecondFactorContext,handler:@escapingSchoolSMSCodeHandler)': 'web-interactions',
                                             'syncCourses(term:String?)': 'network',
                                             'fetchAvailableTerms()': 'network',
                                             'submitSMSCodeForTeachingCenterAuthentication(:String,for:BITLoginAuthenticationChallenge)': 'web-interactions',
@@ -218,6 +221,7 @@ NETWORK_CAPABILITIES = {
 
 
 MANUAL_CAPABILITY_SCENARIOS = {
+ 'ClientCore.NativeSchoolAuthenticator': {'authenticate(:SchoolServiceTarget)': 'registered-account'},
  'BIT101-iOS.BIT101APIClient': {
     'fetchSchoolLoginContext()': 'registered-account',
     'loginSchool(studentID:String,password:String,salt:String,execution:String)': 'registered-account',
@@ -251,6 +255,7 @@ MANUAL_CAPABILITY_SCENARIOS = {
     'webView(:WKWebView,didFailProvisionalNavigation:WKNavigation?,withError:Error)': 'gallery-login',
     'webViewWebContentProcessDidTerminate(:WKWebView)': 'gallery-login'},
  'ScheduleInfrastructure.ScheduleService': {
+    'completeSchoolAuthentication(:SchoolSecondFactorContext,handler:@escapingSchoolSMSCodeHandler)': 'school-sms',
     'submitSMSCodeForTeachingCenterAuthentication(:String,for:BITLoginAuthenticationChallenge)': 'school-sms',
     'syncDDLEvents(existingEvents:[DDLEventRecord],storedURL:String,schoolSMSCodeHandler:SchoolSMSCodeHandler?,onSource:DDLSyncSourceDelivery?)': 'school-calendar',
     'refreshLexueCalendarURL(schoolSMSCodeHandler:SchoolSMSCodeHandler?)': 'school-calendar'},

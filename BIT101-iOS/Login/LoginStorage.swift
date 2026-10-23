@@ -49,6 +49,7 @@ final class LoginStorage: SchoolCredentialsProviding {
     private let clearSchoolCookies: () -> Void
     private let requestSchoolPassword: @MainActor (String) async throws -> String
     private let schoolPasswordRequests = SessionRefreshCoordinator<SchoolSessionIdentity>()
+    let schoolSessionRecovery = SessionRefreshCoordinator<SchoolSessionIdentity>()
     let communityRefreshCoordinator = CommunitySessionRefreshCoordinator()
     private var sessionGeneration = 0
     private var session = Session(studentID: "", password: "", fakeCookie: "")
@@ -149,6 +150,14 @@ final class LoginStorage: SchoolCredentialsProviding {
         catch { Self.logger.error("Session credentials await a successful read") }
     }
 
+    /// 身份补充验证允许在建立首个社区会话前收集学校密码。
+    func schoolPasswordForIdentityVerification(studentID: String) async throws -> String {
+        if currentStudentID == studentID, !currentPassword.isEmpty { return currentPassword }
+        let password = try await requestSchoolPassword(studentID)
+        guard !password.isEmpty else { throw LoginServiceError.schoolCredentialsRequired }
+        return password
+    }
+
     func prepareSchoolCredentials() async throws { try await requestSchoolCredentials(force: false) }
 
     func updateSchoolCredentials() async throws { try await requestSchoolCredentials(force: true) }
@@ -197,6 +206,7 @@ final class LoginStorage: SchoolCredentialsProviding {
         defaults.removeObject(forKey: DefaultsKey.fakeCookie)
         retireLegacyCredentials()
         if accountChanged {
+            schoolSessionRecovery.cancel()
             schoolPasswordRequests.cancel()
             clearSchoolCookies()
             sessionGeneration &+= 1
@@ -210,6 +220,7 @@ final class LoginStorage: SchoolCredentialsProviding {
     ///
     /// 用户主动退出时清理认证信息，学号供下次输入。
     func clearSession() {
+        schoolSessionRecovery.cancel()
         schoolPasswordRequests.cancel()
         let studentID = currentStudentID
         let revoked = defaults.string(forKey: DefaultsKey.revokedSession) == "all" ? "all" : "logout"
@@ -257,6 +268,7 @@ final class LoginStorage: SchoolCredentialsProviding {
 
     @discardableResult
     private func clearPersistedLoginData() -> Bool {
+        schoolSessionRecovery.cancel()
         schoolPasswordRequests.cancel()
         session = Session(studentID: "", password: "", fakeCookie: "")
         sessionReadError = nil

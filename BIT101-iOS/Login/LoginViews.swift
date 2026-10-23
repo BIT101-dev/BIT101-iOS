@@ -121,14 +121,14 @@ private struct LoginFormView: View {
                         focusedField = .password
                     }
 
-                SecureField("", text: $viewModel.password, prompt: AppInputPrompt.text("学校统一身份认证密码"))
+                SecureField("", text: $viewModel.password, prompt: AppInputPrompt.text("BIT101 密码"))
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .textContentType(loginContentType(.password))
                     .submitLabel(.go)
                     .focused($focusedField, equals: .password)
                     .accessibilityLabel("密码")
-                    .accessibilityHint("输入学校统一身份认证密码，登录后用于学校功能")
+                    .accessibilityHint("输入 BIT101 密码，学校服务按需使用独立的学校密码")
                     .accessibilityIdentifier("login.password")
                     .onSubmit {
                     interactionEvidence?("interaction.LoginFormView.onSubmit.password", "submit")
@@ -225,7 +225,7 @@ private struct AccountRegistrationView: View {
                 .appSelectionFeedback(trigger: viewModel.method)
                 .appInteractiveListRow()
                 if viewModel.method == .school {
-                    SecureField("", text: $viewModel.schoolPassword, prompt: AppInputPrompt.text("学校统一身份认证密码"))
+                    SecureField("", text: $viewModel.schoolPassword, prompt: AppInputPrompt.text("BIT101 密码"))
                         .textContentType(loginContentType(.password))
                         .focused($focusedField, equals: .schoolPassword)
                         .accessibilityLabel("学校统一身份认证密码")

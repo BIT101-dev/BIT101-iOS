@@ -180,6 +180,7 @@ enum NetworkSessionPool {
             let configuration = URLSessionConfiguration.ephemeral
             configuration.httpCookieAcceptPolicy = .always
             configuration.httpCookieStorage = cookies
+            configuration.httpAdditionalHeaders = ["User-Agent": BIT101APIClient.browserUserAgent]
             return make(configuration: configuration, followsRedirects: followsRedirects, productionPolicy: productionPolicy)
         }
     }

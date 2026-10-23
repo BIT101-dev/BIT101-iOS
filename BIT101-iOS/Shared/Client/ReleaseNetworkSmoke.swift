@@ -699,20 +699,22 @@ final class ReleaseNetworkSmokeRunner {
     }
 
     static func freshScoreService() -> ScoreService {
-        ScoreService(authenticationHTTPClient: HTTPClient(transport: NetworkSessionPool.scoreAuthenticationTransport(
-            state: AppSchoolSession.isolatedState(), productionPolicy: true)))
+        let state = AppSchoolSession.isolatedState()
+        return ScoreService(authenticationHTTPClient: HTTPClient(transport: NetworkSessionPool.scoreAuthenticationTransport(
+            state: state, productionPolicy: true)), nativeAuthenticator: AppNativeSchoolAuthentication.make(state: state, productionPolicy: true),
+            schoolHTTPClient: HTTPClient(transport: NetworkSessionPool.schoolCASTransport(state: state, followsRedirects: true, productionPolicy: true)))
     }
 
     static func freshSchoolService(rawCourseResponseHandler: ((Data) -> Void)?) -> ScheduleService {
         let state = AppSchoolSession.isolatedState()
         let api = BIT101APIClient(
-            httpClient: HTTPClient(transport: NetworkSessionPool.schoolCASTransport(state: state, followsRedirects: true)),
-            noRedirectHTTPClient: HTTPClient(transport: NetworkSessionPool.schoolCASTransport(state: state, followsRedirects: false)))
+            httpClient: HTTPClient(transport: NetworkSessionPool.schoolCASTransport(state: state, followsRedirects: true, productionPolicy: true)),
+            noRedirectHTTPClient: HTTPClient(transport: NetworkSessionPool.schoolCASTransport(state: state, followsRedirects: false, productionPolicy: true)))
         let restorer = AppScheduleSchoolSessionRestorer { try await LoginService(storage: AppAccountSession.storage, apiClient: api).restoreSchoolSessionIfNeeded() }
         return ScheduleService(credentials: AppAccountSession.storage, crypto: AppScheduleServiceCrypto(),
             schoolSessionRestorer: restorer, teachingCenterState: state, rawCourseResponseHandler: rawCourseResponseHandler,
-            transport: NetworkSessionPool.teachingCenter(state: state),
-            observer: HTTPClient.appObserver)
+            transport: NetworkSessionPool.teachingCenter(state: state, productionPolicy: true),
+            observer: HTTPClient.appObserver, nativeAuthenticator: AppNativeSchoolAuthentication.make(state: state, productionPolicy: true))
     }
 
     private func probe<Value>(
