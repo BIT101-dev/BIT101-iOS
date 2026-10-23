@@ -136,9 +136,13 @@ extension ScheduleService {
         case ScheduleServiceError.authenticationFailed(let message),
              ScheduleServiceError.challengeInvalid(let message):
             let normalized = message.lowercased()
-            // bit-login service URL 解析故障时，改由本机学校 SSO 会话连接教学中心。
+            let replacedRiskFlow = normalized.contains("risk=ustc-token") && normalized.contains("flow=replaced")
+            // 认证通道流程被替换或 service URL 解析故障时，沿本机学校 SSO 恢复。
             return isTransientAuthenticationFailure(message)
                 || normalized.contains("解析 service url 失败")
+                || replacedRiskFlow
+        case ScheduleServiceError.teachingCenterSessionExpired:
+            return true
         case ScheduleServiceError.schoolTransportFailure:
             return true
         default:

@@ -8,6 +8,67 @@ import Testing
 
 @MainActor
 struct TeachingCenterAvailabilityTests {
+    private final class DirectRestorer: SchoolSessionRestoring {
+        private(set) var requests = 0
+        func restoreSchoolSessionIfNeeded() async throws -> String? {
+            requests += 1
+            return "teaching-owner"
+        }
+    }
+
+    private final class RouteTransport: HTTPTransport {
+        let rejectionStatus: Int
+        var authenticationRequests = 0
+        var vpnTermRequests = 0
+        var directTermRequests = 0
+        init(rejectionStatus: Int) { self.rejectionStatus = rejectionStatus }
+        func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+            let url = try #require(request.url)
+            var status = 200
+            let text: String
+            if url.path.hasSuffix("/jxzxehall/cookies") {
+                authenticationRequests += 1
+                if rejectionStatus == -1 {
+                    status = 202
+                    text = #"{"detail":{"challenge_id":"fixture","access_token":"fixture","status":"failed","error":"认证信息无效。 [status=401, risk=ustc-token, flow=replaced]"}}"#
+                } else { text = #"{"data":{"wengine_vpn_ticket":"ticket"}}"# }
+            } else if url.path.contains("getAppConfig") || url.path.hasSuffix("/i18n.do") {
+                text = "{}"
+            } else if url.host == "webvpn.bit.edu.cn" {
+                vpnTermRequests += 1
+                status = rejectionStatus
+                text = #"{"msg":"您的会话已经过期，请重新登录"}"#
+            } else {
+                directTermRequests += 1
+                text = #"{"datas":{"xnxqcx":{"rows":[{"DM":"term"}]}}}"#
+            }
+            return (Data(text.utf8), try #require(HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil)))
+        }
+        func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
+            let response = try await data(for: request)
+            if let maximumBytes, response.0.count > maximumBytes { throw HTTPClientError.responseTooLarge }
+            return response
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [200, 401, 403, -1])
+    func exhaustedWebVPNSessionRecoveryUsesAuthenticatedDirectRoute(status: Int) async throws {
+        let credentials = Credentials(), restorer = DirectRestorer(), transport = RouteTransport(rejectionStatus: status)
+        let state = TeachingCenterSessionState(cookieStorage: try #require(URLSessionConfiguration.ephemeral.httpCookieStorage))
+        defer { state.invalidate() }
+        let service = ScheduleService(credentials: credentials, crypto: Crypto(), schoolSessionRestorer: restorer,
+            teachingCenterState: state, transport: transport)
+        #expect(try await service.fetchAvailableTerms() == ["term"])
+        let authenticationRequests = status == -1 ? 1 : 3
+        #expect(transport.authenticationRequests == authenticationRequests && transport.vpnTermRequests == (status == -1 ? 0 : 3))
+        #expect(transport.directTermRequests == 1 && restorer.requests == 1)
+        #expect(state.shouldPreferDirect(for: credentials.currentStudentID))
+        #expect(try await service.fetchAvailableTerms() == ["term"])
+        #expect(transport.authenticationRequests == authenticationRequests && transport.directTermRequests == 2)
+        #expect(restorer.requests == 1)
+        #expect(credentials.currentPassword == "password")
+    }
+
     private final class Credentials: SchoolCredentialsProviding {
         var generation = 0
         let currentStudentID = "teaching-owner"
@@ -73,7 +134,8 @@ struct TeachingCenterAvailabilityTests {
         } catch let error as ScheduleServiceError {
             switch mode {
             case "unavailable":
-                guard case .teachingCenterSessionExpired = error else { Issue.record("持续失效应保留恢复结果"); return }
+                guard case .authenticationFailed(let message) = error else { Issue.record("持续失效应保留双路线恢复结果"); return }
+                #expect(message.contains("WebVPN 教学中心恢复失败") && message.contains("学校 SSO 直连恢复失败"))
             case "denied":
                 guard case .schoolResponse(let message) = error else { Issue.record("学校资源限制应保留业务来源"); return }
                 #expect(message.contains("无权访问该资源"))
