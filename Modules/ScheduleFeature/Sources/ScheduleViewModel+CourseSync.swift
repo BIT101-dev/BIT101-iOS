@@ -11,7 +11,7 @@ extension ScheduleViewModel {
 
     public func submitSMSCode(_ code: String) async {
         await courseSyncCoordinator.submitSMSCode(code, applyPayload: applyCourseSyncPayload,
-            refreshClassrooms: classroom.refreshClassroomPage)
+            refreshClassrooms: { [classroom] in await classroom.refreshClassroomPage() })
     }
 
     public func dismissSMSChallenge() { courseSyncCoordinator.dismissSMSChallenge() }

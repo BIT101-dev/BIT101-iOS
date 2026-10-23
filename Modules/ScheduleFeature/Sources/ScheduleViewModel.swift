@@ -287,7 +287,7 @@ public final class ScheduleViewModel: ObservableObject, ScheduleStateConsumer {
     func reloadFromDisk() async -> Bool {
         guard await repository.reload() else { return false }
         selectedCourseScheduleIndex = min(max(selectedCourseScheduleIndex, 0), max(courseSchedules.count - 1, 0))
-        classroom.restoreSelection()
+        classroom.restoreCachedState()
         return true
     }
 

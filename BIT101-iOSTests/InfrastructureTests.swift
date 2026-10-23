@@ -640,6 +640,12 @@ struct LoginBootstrapTests {
 @Suite("Shared infrastructure")
 struct InfrastructureTests {
     @Test(.timeLimit(.minutes(1))) func eventWaitEnforcesDeadlineCancellationAndActorIsolation() async throws {
+        @MainActor func callerCondition() -> Bool {
+            MainActor.assertIsolated()
+            return true
+        }
+        try await waitForTestEvent { callerCondition() }
+        try await waitForAsyncTestEvent { callerCondition() }
         await #expect(throws: URLError.self) { try await waitForTestEvent(timeout: .zero) { true } }
         await #expect(throws: URLError.self) { try await waitForTestEvent(timeout: .milliseconds(5)) { false } }
         await #expect(throws: URLError.self) { try await waitForAsyncTestEvent(timeout: .zero) { true } }

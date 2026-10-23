@@ -5,15 +5,15 @@ import Testing
 public func waitForTestEvent(
     timeout: Duration = .seconds(5),
     isolation: isolated (any Actor)? = #isolation,
-    _ condition: () throws -> Bool
+    _ condition: @isolated(any) () throws -> Bool
 ) async throws {
-    try await waitForAsyncTestEvent(timeout: timeout, isolation: isolation) { try condition() }
+    try await waitForAsyncTestEvent(timeout: timeout, isolation: isolation) { try await condition() }
 }
 
 public func waitForAsyncTestEvent(
     timeout: Duration = .seconds(5),
     isolation: isolated (any Actor)? = #isolation,
-    _ condition: () async throws -> Bool
+    _ condition: @isolated(any) () async throws -> Bool
 ) async throws {
     let clock = ContinuousClock()
     let deadline = clock.now.advanced(by: timeout)

@@ -168,7 +168,7 @@ public nonisolated struct ScheduleCache: Codable, Sendable {
     public var isValidForPersistence: Bool { invalidPersistenceField == nil }
 
     private enum ValidationField: String, CodingKey {
-        case timeTable, courses, customSchedules, ddlEvents, sharedSchedules, exams
+        case timeTable, courses, customSchedules, ddlEvents, sharedSchedules, exams, classroomData
     }
 
     private var invalidPersistenceField: ValidationField? {
@@ -181,6 +181,9 @@ public nonisolated struct ScheduleCache: Codable, Sendable {
         if !courseData.schedulesByTerm.values.allSatisfy({
             $0.exams.allSatisfy(\.hasValidPlacement) && hasUniqueIdentities($0.exams.map(\.id))
         }) { return .exams }
+        if classroomData.cachedClassroomQueriesByBuildingID?.contains(where: {
+            $0.key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !$0.value.isValid
+        }) == true { return .classroomData }
         return nil
     }
 
@@ -457,17 +460,6 @@ public nonisolated struct ScheduleDDLData: Codable, Equatable, Sendable {
     public var ddlUpdatedAt: Date? = nil
     public var ddlBeforeDay: Int = 7
     public var ddlAfterDay: Int = 3
-    public init() {}
-}
-
-public nonisolated struct ScheduleClassroomData: Codable, Equatable, Sendable {
-    public var selectedCampusName: String = ""
-    public var selectedCampusCode: String = ""
-    public var selectedBuildingID: String = ""
-    public var cachedClassroomCampuses: [CampusRecord] = []
-    public var cachedClassroomBuildingsByCampusCode: [String: [BuildingRecord]] = [:]
-    public var selectedClassroomSectionIDs: [Int] = []
-    public var isClassroomSectionFilterCustomized: Bool = false
     public init() {}
 }
 

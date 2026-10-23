@@ -462,7 +462,7 @@ extension ScheduleRepository {
 
     var classroomState: ScheduleClassroomState {
         get { ScheduleClassroomState(cache: cache) }
-        set { if acceptsEdits { cache.classroomData = newValue.data } }
+        set { if hasLoaded && ownerSession == session() { cache.classroomData = newValue.data } }
     }
 
     func resolveCurrentTerm(_ term: String) {

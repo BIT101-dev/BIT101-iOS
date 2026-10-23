@@ -16,6 +16,8 @@ struct NetworkBusinessDiagnosticsTests {
             ("课表同步失败", "认证信息无效。 [status=401, risk=ustc-token, flow=replaced]"),
             ("学期列表加载失败", "您的会话已经过期，请重新登录"),
             ("验证已失效", "jxzxehall: 解析 service url 失败"),
+            ("成绩查询失败", "jxzxehall: 解析 service url 失败"),
+            ("可信成绩单申请失败", "学校教务服务暂时无法恢复会话，请稍后重试。"),
             ("课表同步失败", "学校教务服务返回“无权访问该资源”"),
             ("学校服务连接失败", "学校统一认证服务暂时无法建立安全连接，请稍后重试。"),
             ("课表同步失败", "学校教务服务暂时无法恢复会话，请稍后重试。")
@@ -24,6 +26,8 @@ struct NetworkBusinessDiagnosticsTests {
             let presentation = AppErrorPresentation(alert: alert)
             #expect(presentation.title == "学校服务异常" && presentation.message.contains("学校"))
             #expect(!presentation.allowsDiagnostics && presentation.allowsSchoolServiceLink)
+            let inline = DiagnosticRecoveryActions(title: title, message: message, allowsDiagnostics: false).presentation
+            #expect(inline.title == "学校服务异常" && inline.allowsSchoolServiceLink && !inline.allowsDiagnostics)
             #expect(!presentation.message.contains("risk="))
             let page = try #require(URL(string: "https://jxzxehall.bit.edu.cn/fault"))
             #expect(AppErrorPresentation(alert: alert, schoolServiceURL: page).schoolServiceURL == page)
@@ -45,6 +49,8 @@ struct NetworkBusinessDiagnosticsTests {
             #expect(presentation.title == title && presentation.message == message && presentation.allowsDiagnostics)
             #expect(ErrorReportViewModel(alert: alert).allowsSubmission)
         }
+        let userInput = DiagnosticRecoveryActions(title: "需要短信验证", message: "请输入验证码。", allowsDiagnostics: false).presentation
+        #expect(!userInput.allowsDiagnostics && !userInput.allowsSchoolServiceLink)
     }
 
     private final class Credentials: LoginCredentialsStoring {

@@ -44,7 +44,12 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
 
     deinit { classroomTask?.cancel() }
 
-    func restoreSelection() { selectedBuildingID = cache.selectedBuildingID }
+    func restoreCachedState() {
+        selectedBuildingID = cache.selectedBuildingID
+        campuses = cache.cachedClassroomCampuses
+        buildings = cache.cachedClassroomBuildingsByCampusCode[cache.selectedCampusCode] ?? []
+        _ = restoreClassroomQuery()
+    }
 
     func reset() {
         classroomTask?.cancel()
@@ -95,7 +100,9 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
         if !buildings.isEmpty { resolveSelectedBuildingIfNeeded() }
         classroomRecords = []
         classroomQueryDate = nil
-        persist()
+        classroomLastUpdatedAt = nil
+        _ = restoreClassroomQuery()
+        persistClassroomState()
         return startClassroomRequest { model, requestID in
             try await model.loadBuildings(requestID: requestID)
             try await model.refreshClassrooms(requestID: requestID)
@@ -109,7 +116,9 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
         cache.selectedBuildingID = id
         classroomRecords = []
         classroomQueryDate = nil
-        persist()
+        classroomLastUpdatedAt = nil
+        _ = restoreClassroomQuery()
+        persistClassroomState()
         return startClassroomRequest { model, requestID in
             try await model.refreshClassrooms(requestID: requestID)
         }
@@ -119,7 +128,7 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
     func setSelectedClassroomSectionIDs(_ values: [Int]) {
         cache.selectedClassroomSectionIDs = ClassroomAvailabilityCalculator.normalizedSections(values, in: cache.timeTable)
         cache.isClassroomSectionFilterCustomized = true
-        persist()
+        persistClassroomState()
     }
 
     /// 刷新当前教学楼的空教室状态。
@@ -127,29 +136,21 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
     /// 如果当前学期编码还未知，会先补查学期，再请求教室占用。
     func refreshClassrooms() async {
         await startClassroomRequest { model, requestID in
-            try await model.refreshClassrooms(requestID: requestID)
+            try await model.refreshClassrooms(requestID: requestID, force: true)
         }.value
     }
 
     /// 当前教学楼的空教室状态刷新实现。
     ///
     /// 网络刷新入口先分配 `requestID`，UI 回写资格始终归属于最新请求。
-    private func refreshClassrooms(requestID: Int) async throws {
+    private func refreshClassrooms(requestID: Int, force: Bool = false) async throws {
         guard isCurrentClassroomRequest(requestID), !selectedBuildingID.isEmpty else { return }
         let buildingID = selectedBuildingID
         let queryDate = now()
-        var term = cache.currentTerm
-        if term.isEmpty {
-            term = try await withClassroomRequestTimeout { [self] in
-                try await service.fetchCurrentTermOnly()
-            }
-            guard isCurrentClassroomRequest(requestID) else { throw CancellationError() }
-            repository.resolveCurrentTerm(term)
-            persist()
-        }
-
-        guard isCurrentClassroomRequest(requestID), !selectedBuildingID.isEmpty else { return }
-
+        let cached = restoreClassroomQuery()
+        if !force, let cached,
+           ScheduleDateCodec.calendar.isDate(cached.attemptedAt, inSameDayAs: queryDate) { return }
+        var term = cache.currentTerm.trimmingCharacters(in: .whitespacesAndNewlines)
         isLoadingClassrooms = true
         defer {
             if isCurrentClassroomRequest(requestID) {
@@ -157,23 +158,71 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
             }
         }
 
-        let requestTerm = term
-        let records = try await withClassroomRequestTimeout { [service] in
-            try await service.fetchClassrooms(buildingID: buildingID, term: requestTerm, date: queryDate)
+        do {
+            if term.isEmpty {
+                term = try await withClassroomRequestTimeout { [self] in try await service.fetchCurrentTermOnly() }
+                guard isCurrentClassroomRequest(requestID) else { throw CancellationError() }
+                repository.resolveCurrentTerm(term)
+                persistClassroomState()
+            }
+            let requestTerm = term
+            let records = try await withClassroomRequestTimeout { [service] in
+                try await service.fetchClassrooms(buildingID: buildingID, term: requestTerm, date: queryDate)
+            }
+            guard isCurrentClassroomRequest(requestID) else { throw CancellationError() }
+            let updatedAt = now()
+            let entry = ClassroomQueryCache(term: term, queryDate: queryDate, attemptedAt: updatedAt,
+                updatedAt: updatedAt, records: records)
+            guard entry.isValid else { throw ScheduleServiceError.invalidResponse }
+            storeClassroomQuery(entry, buildingID: buildingID)
+            classroomRecords = records
+            classroomQueryDate = queryDate
+            classroomLastUpdatedAt = updatedAt
+        } catch {
+            if isCurrentClassroomRequest(requestID), !TaskCancellation.matches(error) {
+                var entry = cache.cachedClassroomQueriesByBuildingID?[buildingID]
+                    ?? ClassroomQueryCache(term: term, queryDate: queryDate, attemptedAt: now())
+                if entry.term != term { entry = ClassroomQueryCache(term: term, queryDate: queryDate, attemptedAt: now()) }
+                entry.attemptedAt = now()
+                storeClassroomQuery(entry, buildingID: buildingID)
+            }
+            throw error
         }
-        guard isCurrentClassroomRequest(requestID) else { throw CancellationError() }
+    }
 
-        classroomRecords = records
-        classroomQueryDate = queryDate
-        classroomLastUpdatedAt = now()
+    @discardableResult
+    private func restoreClassroomQuery() -> ClassroomQueryCache? {
+        let term = cache.currentTerm.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let entry = cache.cachedClassroomQueriesByBuildingID?[selectedBuildingID],
+              term.isEmpty || entry.term == term else {
+            classroomRecords = []; classroomQueryDate = nil; classroomLastUpdatedAt = nil
+            return nil
+        }
+        classroomRecords = entry.records ?? []
+        classroomQueryDate = entry.records == nil ? nil : entry.queryDate
+        classroomLastUpdatedAt = entry.updatedAt
+        return entry
+    }
+
+    private func storeClassroomQuery(_ entry: ClassroomQueryCache, buildingID: String) {
+        var queries = (cache.cachedClassroomQueriesByBuildingID ?? [:]).filter {
+            ScheduleDateCodec.calendar.isDate($0.value.attemptedAt, inSameDayAs: entry.attemptedAt)
+        }
+        queries[buildingID] = entry
+        cache.cachedClassroomQueriesByBuildingID = queries
+        persistClassroomState()
+    }
+
+    private func persistClassroomState() {
+        if repository.acceptsEdits { repository.persist() }
     }
 
     /// 供页面顶部刷新按钮使用的统一入口。
     ///
     /// 会先补齐校区/教学楼元数据，再刷新当前楼栋的空教室数据。
     /// ViewModel 持有请求任务，页面离开空教室分栏后请求继续执行。
-    func refreshClassroomPage() async {
-        startClassroomPageRefresh()
+    func refreshClassroomPage(force: Bool = true) async {
+        startClassroomPageRefresh(force: force)
         guard let task = classroomTask else { return }
         await task.value
     }
@@ -182,16 +231,28 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
     ///
     /// 分栏进入动作负责触发，网络任务由 ViewModel 持有；已有请求进行中时复用它，
     /// 让 DDL / 空教室快速切换保持同一请求状态。
-    func startClassroomPageRefresh() {
+    func startClassroomPageRefresh(force: Bool = false) {
         guard classroomTask == nil else { return }
+        restoreCachedState()
         applyCurrentClassroomSectionBlock()
+        let date = now()
+        let firstEntryToday = cache.classroomRefreshDay.map {
+            !ScheduleDateCodec.calendar.isDate($0, inSameDayAs: date)
+        } ?? true
+        if firstEntryToday {
+            cache.classroomRefreshDay = ScheduleDateCodec.calendar.startOfDay(for: date)
+            persistClassroomState()
+        }
+        if !force, !firstEntryToday,
+           campuses.isEmpty || cache.cachedClassroomBuildingsByCampusCode[cache.selectedCampusCode] == nil { return }
         startClassroomRequest { model, requestID in
-            if model.needsCompleteClassroomCampusCatalog || model.buildings.isEmpty {
+            if firstEntryToday || model.campuses.isEmpty
+                || model.cache.cachedClassroomBuildingsByCampusCode[model.cache.selectedCampusCode] == nil {
                 try await model.loadClassroomMeta(requestID: requestID)
             }
             try Task.checkCancellation()
             guard model.isCurrentClassroomRequest(requestID) else { return }
-            try await model.refreshClassrooms(requestID: requestID)
+            try await model.refreshClassrooms(requestID: requestID, force: force || firstEntryToday)
         }
     }
 
@@ -243,14 +304,19 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
         campuses = fetchedCampuses
         cache.cachedClassroomCampuses = fetchedCampuses
         resolveSelectedCampusIfNeeded()
-        persist()
+        persistClassroomState()
 
-        try await loadBuildings(requestID: requestID)
+        try await loadBuildings(requestID: requestID, force: true)
     }
 
     /// 根据当前校区加载教学楼，并优先精确匹配“最近下一节课”的楼宇。
-    private func loadBuildings(requestID: Int) async throws {
+    private func loadBuildings(requestID: Int, force: Bool = false) async throws {
         let campusCode = cache.selectedCampusCode.isEmpty ? nil : cache.selectedCampusCode
+        if !force, let campusCode, let stored = cache.cachedClassroomBuildingsByCampusCode[campusCode] {
+            buildings = stored
+            resolveSelectedBuildingIfNeeded()
+            return
+        }
         let fetchedBuildings = try await withClassroomRequestTimeout { [self] in
             try await service.fetchBuildings(campusCode: campusCode)
         }
@@ -266,12 +332,7 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
             cache.cachedClassroomBuildingsByCampusCode[cache.selectedCampusCode] = fetchedBuildings
         }
         resolveSelectedBuildingIfNeeded()
-        persist()
-    }
-
-    /// 目录只有一条校区记录时补取全校区清单，完善校区选择器数据。
-    private var needsCompleteClassroomCampusCatalog: Bool {
-        campuses.count <= 1
+        persistClassroomState()
     }
 
     /// 在校区列表变化后修正选中校区。
@@ -537,7 +598,7 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
         return ScheduleDateCodec.calendar.date(from: components)
     }
 
-    /// 用户主动刷新空教室时，按当前时间切换到对应的节次块筛选。
+    /// 进入或刷新空教室时，按当前时间切换到对应的节次块筛选。
     private func applyCurrentClassroomSectionBlock() {
         guard !cache.isClassroomSectionFilterCustomized else { return }
         let sectionIDs = ClassroomAvailabilityCalculator.sectionBlock(at: currentMinutes(), in: cache.timeTable)
@@ -546,6 +607,6 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
         let normalized = ClassroomAvailabilityCalculator.normalizedSections(sectionIDs, in: cache.timeTable)
         guard cache.selectedClassroomSectionIDs != normalized else { return }
         cache.selectedClassroomSectionIDs = normalized
-        persist()
+        persistClassroomState()
     }
 }

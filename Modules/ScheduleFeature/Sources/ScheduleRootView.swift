@@ -91,8 +91,7 @@ public struct ScheduleRootView: View {
         }
         .task(id: viewModel.selectedSection == .classroom && !viewModel.isLoadingCache) {
             guard viewModel.selectedSection == .classroom, !viewModel.isLoadingCache else { return }
-            // 进入空教室分栏表示用户发起明确查询；查询从这里开始加载，
-            // App 启动和回前台生命周期保持独立。
+            // 每个自然日首次进入更新学校数据，其余进入复用当天缓存。
             viewModel.classroom.startClassroomPageRefresh()
         }
         .onAppear {

@@ -332,8 +332,8 @@ extension View {
 #endif
             AppErrorPresenter.shared.present(alert)
         }
-            .environment(\.appFailureDiagnostics) { title, message in
-            AnyView(DiagnosticRecoveryActions(title: title, message: message))
+            .environment(\.appFailureRecoveryActions) { title, message, allowsDiagnostics in
+            AnyView(DiagnosticRecoveryActions(title: title, message: message, allowsDiagnostics: allowsDiagnostics))
         }
     }
 }
@@ -341,21 +341,36 @@ extension View {
 struct DiagnosticRecoveryActions: View {
     let title: String
     let message: String
+    let allowsDiagnostics: Bool
     @State private var reportAlert: AppAlert?
     @State private var schoolServiceURL: URL?
 
+    var presentation: AppErrorPresentation {
+        AppErrorPresentation(alert: AppAlert(title: title, message: message, allowsDiagnostics: allowsDiagnostics),
+            schoolServiceURL: schoolServiceURL)
+    }
+
     var body: some View {
+        let presentation = presentation
         VStack(spacing: AppDesignSystem.Spacing.regular) {
-            Link("查看是否有更新", destination: BIT101AppStore.url)
-            if let schoolServiceURL {
+            if presentation.title == "学校服务异常" {
+                Text(presentation.message)
+                    .font(AppDesignSystem.Typography.footnote)
+                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
+            }
+            if presentation.allowsSchoolServiceLink, let schoolServiceURL = presentation.schoolServiceURL {
                 Link("万一学校服务 g 了？", destination: schoolServiceURL)
                     .foregroundStyle(AppDesignSystem.Foreground.secondary)
             }
-            Button("向开发者分享错误信息") {
-                reportAlert = AppAlert(title: title, message: message)
+            if presentation.allowsDiagnostics {
+                Link("查看是否有更新", destination: BIT101AppStore.url)
+                Button("向开发者分享错误信息") {
+                    reportAlert = AppAlert(title: title, message: message)
+                }
             }
         }
         .task {
+            guard presentation.allowsDiagnostics || presentation.allowsSchoolServiceLink else { return }
             schoolServiceURL = await NetworkDiagnosticStore.shared.latestSchoolServicePageURL()
         }
         .sheet(item: $reportAlert) { AppErrorReportSheet(alert: $0) }

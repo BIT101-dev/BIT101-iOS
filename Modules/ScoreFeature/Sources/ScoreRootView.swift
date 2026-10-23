@@ -29,7 +29,7 @@ public struct ScoreListPage: View {
             case let .failed(message):
                 VStack {
                     AppFailureState(
-                        title: "加载失败",
+                        title: "成绩查询失败",
                         systemImage: "exclamationmark.triangle",
                         message: message,
                         retryTitle: "重新查询",
@@ -265,7 +265,7 @@ private struct TrustedTranscriptPage: View {
                 AppLoadingState(title: "正在向学校申请可信成绩单")
             case let .failed(message):
                 AppFailureState(
-                    title: "申请失败",
+                    title: "可信成绩单申请失败",
                     systemImage: "exclamationmark.triangle",
                     message: message,
                     allowsDiagnostics: viewModel.allowsDiagnostics,

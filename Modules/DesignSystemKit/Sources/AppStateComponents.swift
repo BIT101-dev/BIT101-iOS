@@ -1,16 +1,16 @@
 #if os(iOS)
 import SwiftUI
 
-public typealias AppFailureDiagnosticsBuilder = (String, String) -> AnyView
+public typealias AppFailureRecoveryActionsBuilder = (String, String, Bool) -> AnyView
 
-private struct AppFailureDiagnosticsKey: EnvironmentKey {
-    static let defaultValue: AppFailureDiagnosticsBuilder? = nil
+private struct AppFailureRecoveryActionsKey: EnvironmentKey {
+    static let defaultValue: AppFailureRecoveryActionsBuilder? = nil
 }
 
 extension EnvironmentValues {
-    public var appFailureDiagnostics: AppFailureDiagnosticsBuilder? {
-        get { self[AppFailureDiagnosticsKey.self] }
-        set { self[AppFailureDiagnosticsKey.self] = newValue }
+    public var appFailureRecoveryActions: AppFailureRecoveryActionsBuilder? {
+        get { self[AppFailureRecoveryActionsKey.self] }
+        set { self[AppFailureRecoveryActionsKey.self] = newValue }
     }
 }
 
@@ -81,7 +81,7 @@ public struct AppScrollStateContainer<Content: View>: View {
     }
 }
 
-/// AppFailureState 统一提供加载失败状态的图标、重试入口和诊断入口。
+/// AppFailureState 统一提供加载失败状态、重试与宿主恢复入口。
 public struct AppFailureState: View {
     let title: String
     let systemImage: String
@@ -89,7 +89,7 @@ public struct AppFailureState: View {
     let retryTitle: String
     let onRetry: (() -> Void)?
     let allowsDiagnostics: Bool
-    @Environment(\.appFailureDiagnostics) private var appFailureDiagnostics
+    @Environment(\.appFailureRecoveryActions) private var appFailureRecoveryActions
 
     public init(
         title: String,
@@ -117,8 +117,8 @@ public struct AppFailureState: View {
                 Button(retryTitle, action: onRetry)
                     .accessibilityIdentifier("ui.app-failure-state.retry")
             }
-            if allowsDiagnostics, let appFailureDiagnostics {
-                appFailureDiagnostics(title, message)
+            if let appFailureRecoveryActions {
+                appFailureRecoveryActions(title, message, allowsDiagnostics)
             }
         }
         .buttonStyle(.borderless)

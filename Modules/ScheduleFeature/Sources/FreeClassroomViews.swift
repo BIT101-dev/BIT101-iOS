@@ -5,7 +5,7 @@ import SwiftUI
 
 /// 空教室查询页。
 ///
-/// 页面引导用户按“选校区 -> 手动刷新教学楼 -> 再选楼”的顺序操作，减少无效点击。
+/// 校区与教学楼选择自动加载，当天结果支持本地节次筛选与手动刷新。
 struct FreeClassroomTabView: View {
     @Environment(\.scheduleCurrentDate) private var currentDate
     @ObservedObject var viewModel: ScheduleClassroomViewModel
@@ -28,7 +28,6 @@ struct FreeClassroomTabView: View {
 
     var body: some View {
         let availabilities = viewModel.classroomAvailabilities(at: currentDate)
-        let hasExpiredData = viewModel.hasExpiredClassroomData(at: currentDate)
         List {
             Section {
                 AppRefreshStatusRow(
@@ -89,9 +88,9 @@ struct FreeClassroomTabView: View {
                         title: "暂无空教室结果",
                         systemImage: "building.2.crop.circle",
                         message: emptyStateMessage,
-                        actionTitle: hasSectionFilter && !hasExpiredData ? "清除节次筛选" : "刷新空教室",
+                        actionTitle: canClearSectionFilter ? "清除节次筛选" : "刷新空教室",
                         onAction: {
-                            if hasSectionFilter && !hasExpiredData {
+                            if canClearSectionFilter {
                                 viewModel.setSelectedClassroomSectionIDs([])
                             } else {
                                 Task { await viewModel.refreshClassroomPage() }
@@ -141,9 +140,14 @@ struct FreeClassroomTabView: View {
         !viewModel.cache.selectedClassroomSectionIDs.isEmpty
     }
 
+    private var canClearSectionFilter: Bool {
+        hasSectionFilter && viewModel.classroomLastUpdatedAt != nil
+            && !viewModel.hasExpiredClassroomData(at: currentDate)
+    }
+
     private var emptyStateMessage: String {
         if viewModel.hasExpiredClassroomData(at: currentDate) { return "查询日期已变化，请刷新当前教学楼。" }
-        return hasSectionFilter ? "当前筛选条件下没有空教室。" : "先选定校区和教学楼，再刷新一次。"
+        return canClearSectionFilter ? "当前筛选条件下没有空教室。" : "先选定校区和教学楼，再刷新一次。"
     }
 
     private func isExactMatch(for classroom: ClassroomAvailability) -> Bool {
