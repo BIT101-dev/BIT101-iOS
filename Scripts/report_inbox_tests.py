@@ -12,7 +12,7 @@ def report_inbox_boundary_findings() -> list[str]:
     "验证反馈正文、附件、旧键和重复拉取的保存合同。"
 
     source = (SCRIPT_ROOT / "fetch-issues-and-reports.sh").read_text()
-    from report_inbox import archive_reports
+    from report_inbox import archive_reports, normalize_github_issues
     fixture = ROOT / ".build/static-audit/report-inbox-self-test"
     staging = fixture / ".incoming"
     keys_path, processed_path = fixture / "keys.json", fixture / "report-keys.txt"
@@ -41,6 +41,10 @@ def report_inbox_boundary_findings() -> list[str]:
     try:
         namespace_configuration_self_test(source, fixture)
         deletion_boundary_self_test(source, fixture)
+        issues_path = fixture / 'github-issues.json'
+        issues_path.write_text(json.dumps([[dict(number=1), dict(number=2, pull_request={})], [dict(number=3, pull_request=None)]]))
+        normalize_github_issues([str(issues_path)])
+        assert [item['number'] for item in json.loads(issues_path.read_text())] == [1, 3]
         assert execute() == 2
         saved = {path.relative_to(fixture): path.read_bytes() for path in fixture.glob("*/*/*") if path.is_file()}
         attachment = next(fixture.glob("*/*/*_附件/*.jpg"))
@@ -122,6 +126,7 @@ def report_inbox_boundary_findings() -> list[str]:
         fake_gh = tool_dir / "gh"
         fake_gh.write_text(r'''#!/bin/zsh
 if [[ "$1" == api ]]; then
+  if [[ " $* " == *" --slurp "* && " $* " == *" --jq "* ]]; then print -ru2 'incompatible flags'; exit 64; fi
   if [[ "$INBOX_SELF_TEST_MODE" == listing-failure ]]; then print partial; exit 17; fi
   print '[]'
 elif [[ "$2" == list ]]; then

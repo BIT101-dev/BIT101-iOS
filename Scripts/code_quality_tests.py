@@ -431,7 +431,7 @@ def script_output_boundary_findings() -> list[str]:
         with patch.object(sys, 'argv', ['report', '/result']), \
                 patch.object(subprocess, 'check_output', return_value=json.dumps(sample)) as read, redirect_stdout(visible):
             report_result_summary('/result')
-        expected = [f"{sample['result']} · {sample['passedTests']}/3 通过"]
+        expected = ['结果来源：/result', f"{sample['result']} · {sample['passedTests']}/3 通过"]
         if failures: expected.append('Suite/test: assertion')
         if visible.getvalue().splitlines() != expected or read.call_count != 1:
             findings.append('报告默认输出摘要与失败项，完整用例树沿 report json 读取。')

@@ -114,7 +114,7 @@ extension ScheduleService {
     ) async throws -> T {
         do {
             return try await operation()
-        } catch ScheduleServiceError.teachingCenterSessionExpired {
+        } catch where isTeachingCenterSessionFailure(error) {
             try await ensureSchoolSession()
             return try await operation()
         } catch {
@@ -157,7 +157,7 @@ extension ScheduleService {
             let revision = teachingCenterState.sessionRevision
             do {
                 return try await operation()
-            } catch ScheduleServiceError.teachingCenterSessionExpired {
+            } catch where isTeachingCenterSessionFailure(error) {
                 let studentID = credentials.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
                 if teachingCenterState.shouldPreferDirect(for: studentID) {
                     return try await withDirectTeachingCenterSessionRetry(operation: operation)
@@ -176,6 +176,14 @@ extension ScheduleService {
         }
 
         throw ScheduleServiceError.teachingCenterSessionExpired
+    }
+
+    private func isTeachingCenterSessionFailure(_ error: Error) -> Bool {
+        switch error {
+        case ScheduleServiceError.teachingCenterSessionExpired: true
+        case ScheduleServiceError.schoolResponse(let message): Self.isTeachingCenterSessionExpiryMessage(message)
+        default: false
+        }
     }
 
     /// 确保学校 SSO 会话仍然有效；过期时使用 Keychain 凭据静默恢复。

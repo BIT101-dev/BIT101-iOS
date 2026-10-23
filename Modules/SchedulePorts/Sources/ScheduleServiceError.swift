@@ -73,7 +73,7 @@ public nonisolated enum ScheduleServiceError: LocalizedError {
         case let .challengeInvalid(message):
             return message
         case .teachingCenterSessionExpired:
-            return "学校会话自动恢复失败，请稍后重试；无需退出 App 或重新登录。"
+            return "学校教务服务暂时无法恢复会话，请稍后重试。"
         case let .authenticationFailed(message):
             return message
         case .schoolTransportFailure:

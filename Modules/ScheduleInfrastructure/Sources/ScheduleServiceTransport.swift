@@ -44,9 +44,7 @@ extension ScheduleService {
             if path.contains("cxxszhxqkb.do") {
                 rawCourseResponseHandler?(data)
             }
-            if isTeachingCenterAuthenticationFailure(data: data, response: response) {
-                throw ScheduleServiceError.teachingCenterSessionExpired
-            }
+            try validateTeachingCenterResponse(data: data, response: response)
             guard (200 ..< 300).contains(response.statusCode) else {
                 throw httpError(response.statusCode)
             }
@@ -167,8 +165,15 @@ extension ScheduleService {
     private nonisolated static func businessMessageIndicatesFailure(_ message: String) -> Bool {
         let normalized = message.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let failureMarkers = ["失败", "不成功", "未成功", "错误", "异常", "未发布", "尚未发布", "无效", "不可用"]
-        return failureMarkers.contains(where: normalized.contains)
+        return isTeachingCenterSessionExpiryMessage(normalized) || normalized.contains("无权访问该资源")
+            || failureMarkers.contains(where: normalized.contains)
             || ["failed", "failure", "error", "invalid", "unavailable"].contains(where: normalized.contains)
+    }
+
+    nonisolated static func isTeachingCenterSessionExpiryMessage(_ message: String) -> Bool {
+        let value = message.lowercased()
+        return value.contains("会话") && (value.contains("过期") || value.contains("失效"))
+            || value.contains("session expired") || value.contains("invalid session")
     }
 
     private nonisolated static func businessMessageIndicatesSuccess(_ message: String) -> Bool {
@@ -236,11 +241,7 @@ extension ScheduleService {
     ) async throws -> (html: String, url: URL) {
         let wire = try await sendObservedRequest(request, owner: owner)
         return try await wire.validated { data, response in
-            if requiresTeachingCenterSession,
-               isTeachingCenterAuthenticationFailure(data: data, response: response)
-            {
-                throw ScheduleServiceError.teachingCenterSessionExpired
-            }
+            if requiresTeachingCenterSession { try validateTeachingCenterResponse(data: data, response: response) }
             guard (200 ..< 400).contains(response.statusCode) else {
                 throw httpError(response.statusCode)
             }
@@ -302,12 +303,16 @@ extension ScheduleService {
         return teachingCenterState.hasUsableSession(for: studentID) ? webVPNSchoolBaseURL : schoolBaseURL
     }
 
-    private func isTeachingCenterAuthenticationFailure(
+    private func validateTeachingCenterResponse(
         data: Data,
         response: HTTPURLResponse
-    ) -> Bool {
+    ) throws {
+        let html = String(decoding: data.prefix(16_384), as: UTF8.self).lowercased()
+        if (html.contains("<html") || html.contains("<!doctype html")), html.contains("无权访问该资源") {
+            throw ScheduleServiceError.schoolResponse("学校教务服务返回“无权访问该资源”，请通过学校官方入口处理。")
+        }
         if response.statusCode == 401 || response.statusCode == 403 {
-            return true
+            throw ScheduleServiceError.teachingCenterSessionExpired
         }
 
         if let url = response.url {
@@ -317,15 +322,15 @@ extension ScheduleService {
                 || path.contains("/cas/login")
                 || path.contains("/auth-protocol-core/login")
             {
-                return true
+                throw ScheduleServiceError.teachingCenterSessionExpired
             }
         }
         if let location = response.value(forHTTPHeaderField: "Location")?.lowercased(),
            location.contains("login") || location.contains("/cas/")
         {
-            return true
+            throw ScheduleServiceError.teachingCenterSessionExpired
         }
-        return looksLikeLoginHTML(data)
+        if looksLikeLoginHTML(data) { throw ScheduleServiceError.teachingCenterSessionExpired }
     }
 
     private func looksLikeLoginHTML(_ data: Data) -> Bool {

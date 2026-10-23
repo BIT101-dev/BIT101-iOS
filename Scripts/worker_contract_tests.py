@@ -81,6 +81,27 @@ export class QuotaFixture extends ReportQuota {
                          ...[{}, [null], [1], [[]]].map(diagnostics => ({ mode: "suggestion", comment: "fixture", diagnostics }))]) {
       assert.equal((await send(value)).status, 400);
     }
+    for (const [errorTitle, errorMessage] of [
+      ["登录失败", "服务器响应异常（HTTP 500）：初始化WebVPN验证失败Orz"],
+      ["课表同步失败", "认证信息无效。 [status=401, risk=ustc-token, flow=replaced]"],
+      ["学期列表加载失败", "您的会话已经过期，请重新登录"],
+      ["验证已失效", "jxzxehall: 解析 service url 失败"],
+      ["课表同步失败", "学校教务服务返回“无权访问该资源”"],
+      ["学校服务连接失败", "学校统一认证服务暂时无法建立安全连接，请稍后重试。"],
+      ["课表同步失败", "学校教务服务暂时无法恢复会话，请稍后重试。"]
+    ]) {
+      for (const mode of ["raw", "sanitized"]) {
+        const result = await send({ mode, errorTitle, errorMessage });
+        assert.equal(result.status, 422); assert.equal((await result.json()).error, "school_service_issue");
+      }
+    }
+    assert.equal((await (await mf.getKVNamespace("ERROR_REPORTS")).list({ prefix: "report:" })).keys.length, 0);
+    for (const [errorTitle, errorMessage] of [["DDL 同步失败", "课表缓存读取受阻"],
+      ["课表同步失败", "服务器返回了无法识别的数据"], ["加载话廊失败", "初始化WebVPN验证失败Orz"],
+      ["登录失败", "当前会话已过期"]]) {
+      const result = await send({ mode: "raw", errorTitle, errorMessage, attachments: [{ data: "==" }] });
+      assert.equal(result.status, 400); assert.equal((await result.json()).error, "invalid_attachment");
+    }
     for (const contentType of [[], {}, 5]) {
       assert.equal((await send({ mode: "suggestion", comment: "fixture", attachments: [{ data: "QQ==", contentType }] })).status, 400);
     }

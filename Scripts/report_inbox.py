@@ -16,6 +16,13 @@ def report_filename(key):
     return key.replace(':', '_') + '.json'
 
 
+def normalize_github_issues(arguments):
+    path = pathlib.Path(arguments[0])
+    pages = json.loads(path.read_text())
+    issues = [item for page in pages for item in page if item.get('pull_request') is None]
+    path.write_text(json.dumps(issues, ensure_ascii=False) + '\n')
+
+
 def refresh_archive_index(folder, compact=None):
     folder = pathlib.Path(folder)
     index_path = folder / 'archive-index.json'
@@ -300,4 +307,5 @@ if __name__ == '__main__':
     if action == 'archive': archive_reports(arguments)
     elif action == 'summary': publish_summary(arguments)
     elif action == 'prune': prune_archive(arguments[0], int(arguments[1]))
-    else: raise SystemExit('反馈归档操作需要 archive、summary 或 prune。')
+    elif action == 'issues': normalize_github_issues(arguments)
+    else: raise SystemExit('反馈归档操作需要 archive、summary、prune 或 issues。')

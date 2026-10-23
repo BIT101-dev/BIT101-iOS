@@ -13,7 +13,7 @@ nonisolated struct AppErrorPresentation: Identifiable {
     let schoolServiceURL: URL?
     let recoveryAction: AppRecoveryAction?
 
-    var allowsSchoolServiceLink: Bool { allowsDiagnostics && schoolServiceURL != nil }
+    var allowsSchoolServiceLink: Bool { showsRecoveryLinks && schoolServiceURL != nil }
 
     static var versionText: String {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
@@ -23,6 +23,18 @@ nonisolated struct AppErrorPresentation: Identifiable {
 }
 
 extension AppErrorPresentation: DiagnosticAlertPresentable {}
+
+extension AppErrorPresentation {
+    init(alert: any DiagnosticAlertPresentable, schoolServiceURL: URL? = nil) {
+        if let issue = SchoolServiceIssue(title: alert.title, message: alert.message) {
+            self.init(title: "学校服务异常", message: issue.message, allowsDiagnostics: false,
+                showsRecoveryLinks: true, schoolServiceURL: schoolServiceURL ?? issue.serviceURL, recoveryAction: nil)
+        } else {
+            self.init(title: alert.title, message: alert.message, allowsDiagnostics: alert.allowsDiagnostics,
+                showsRecoveryLinks: alert.showsRecoveryLinks, schoolServiceURL: schoolServiceURL, recoveryAction: alert.recoveryAction)
+        }
+    }
+}
 
 /// 统一从当前最顶层 UIViewController 呈现原生 Alert，让 Alert 在 Sheet 之上显示。
 @MainActor
@@ -76,28 +88,22 @@ final class AppErrorPresenter {
 
     func present(_ alert: any DiagnosticAlertPresentable) {
         let generation = presentationGeneration
-        if !alert.allowsDiagnostics {
-            queue.append(localPresentation(for: alert))
+        let presentation = AppErrorPresentation(alert: alert)
+        if !presentation.allowsDiagnostics && !presentation.allowsSchoolServiceLink {
+            queue.append(presentation)
             presentNextIfPossible()
             return
         }
         Task { @MainActor [weak self] in
             let schoolServiceURL = await NetworkDiagnosticStore.shared.latestSchoolServicePageURL()
             guard let self, self.presentationGeneration == generation else { return }
-            queue.append(AppErrorPresentation(
-                title: alert.title,
-                message: alert.message,
-                allowsDiagnostics: alert.allowsDiagnostics,
-                showsRecoveryLinks: alert.showsRecoveryLinks,
-                schoolServiceURL: schoolServiceURL,
-                recoveryAction: alert.recoveryAction
-            ))
+            queue.append(AppErrorPresentation(alert: alert, schoolServiceURL: schoolServiceURL))
             presentNextIfPossible()
         }
     }
 
     func presentAndWait(_ alert: any DiagnosticAlertPresentable) async {
-        let presentation = localPresentation(for: alert)
+        let presentation = AppErrorPresentation(alert: alert)
         let presentationID = presentation.id
         let waiterID = UUID()
         await withTaskCancellationHandler {
@@ -140,17 +146,6 @@ final class AppErrorPresenter {
             dismissalWaiters[presentationID] = waiters
         }
         waiter.continuation.resume()
-    }
-
-    private func localPresentation(for alert: any DiagnosticAlertPresentable) -> AppErrorPresentation {
-        AppErrorPresentation(
-            title: alert.title,
-            message: alert.message,
-            allowsDiagnostics: alert.allowsDiagnostics,
-            showsRecoveryLinks: alert.showsRecoveryLinks,
-            schoolServiceURL: nil,
-            recoveryAction: alert.recoveryAction
-        )
     }
 
     private func presentNextIfPossible() {
@@ -202,14 +197,12 @@ final class AppErrorPresenter {
             controller.addAction(UIAlertAction(title: "向开发者分享错误信息", style: .default) { [weak self] _ in
                 self?.presentReportSheet(for: item)
             })
-            if item.showsRecoveryLinks, item.allowsSchoolServiceLink {
-                controller.addAction(UIAlertAction(title: "万一学校服务 g 了？", style: .default) { [weak self] _ in
-                    if let schoolServiceURL = item.schoolServiceURL {
-                        UIApplication.shared.open(schoolServiceURL)
-                    }
-                    self?.finishAlert()
-                })
-            }
+        }
+        if item.showsRecoveryLinks, item.allowsSchoolServiceLink {
+            controller.addAction(UIAlertAction(title: "万一学校服务 g 了？", style: .default) { [weak self] _ in
+                if let schoolServiceURL = item.schoolServiceURL { UIApplication.shared.open(schoolServiceURL) }
+                self?.finishAlert()
+            })
         }
         let dismissAction = UIAlertAction(title: "知道了", style: .cancel) { [weak self] _ in
             self?.finishAlert()
@@ -452,7 +445,7 @@ private struct AppErrorReportSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button(viewModel.isSubmitting ? "提交中" : "提交") {
                         requestSubmission()
-                    }.disabled(viewModel.isSubmitting)
+                    }.disabled(viewModel.isSubmitting || !viewModel.allowsSubmission)
                         .accessibilityIdentifier("ui.app-error-report-sheet.submit")
                 }
             }

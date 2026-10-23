@@ -182,8 +182,8 @@ CI_STATE=success
 
 if gh api \
   "repos/$REPO/issues?state=open&per_page=100" --paginate --slurp \
-  --jq '[.[][] | select(.pull_request == null)]' \
-  > "$STAGING_DIR/github-issues.json"; then
+  > "$STAGING_DIR/github-issues.json" \
+  && python3 "$ROOT_DIR/Scripts/report_inbox.py" issues "$STAGING_DIR/github-issues.json"; then
   mv "$STAGING_DIR/github-issues.json" "$OUTPUT_DIR/github-issues.json"
 else
   echo "GitHub Issues 拉取失败，保留缓存并继续拉取其余报告。" >&2

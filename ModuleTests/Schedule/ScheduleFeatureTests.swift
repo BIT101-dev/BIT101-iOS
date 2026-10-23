@@ -11,6 +11,38 @@ import Testing
 
 @MainActor
 struct ScheduleFeatureTests {
+    @Test(.timeLimit(.minutes(1)), arguments: ["session", "authentication", "denied"])
+    func schoolOutagesPreserveCachedCoursesAndLocalEditing(failure: String) async throws {
+        let course = try editableCourse("cached", weekday: 1, weeks: "1-2", title: "已保存课程")
+        var cache = ScheduleCache()
+        cache.currentTerm = "term"
+        cache.courseData.store(TermScheduleSnapshot(term: "term", firstDayString: "2026-09-07",
+            courses: [course], exams: [], updatedAt: Date()))
+        var saved: [ScheduleCache] = []
+        let repository = ScheduleRepository(session: { AppStorageSession(accountIdentifier: "school-outage") },
+            load: { _ in .loaded(cache) }, save: { value, _, _ in saved.append(value) })
+        await repository.loadIfNeeded()
+        let service = ModuleScheduleService()
+        service.onSync = { _ in
+            switch failure {
+            case "session": throw ScheduleServiceError.teachingCenterSessionExpired
+            case "authentication": throw ScheduleServiceError.authenticationFailed("认证信息无效。 [risk=ustc-token, flow=replaced]")
+            default: throw ScheduleServiceError.schoolResponse("学校教务服务返回“无权访问该资源”")
+            }
+        }
+        let model = makeViewModel(repository: repository, actions: ModuleSchedulePlatformActions(), service: service)
+        let previousWrites = saved.count
+        await model.syncSelectedTerm()
+        #expect(model.courseState.currentTerm == "term" && model.courseState.courses.map(\.id) == [course.id])
+        #expect(model.notice != nil && !model.isSyncingCourses && saved.count == previousWrites)
+        var arrangements = model.courseArrangementDrafts(forCourseID: course.id)
+        #expect(arrangements.count == 1)
+        arrangements[0].draft.teacher = "本地调整教师"
+        try model.updateCourseArrangements(arrangements)
+        #expect(await repository.persistAndWait())
+        #expect(model.courseState.courses.first?.teacher == "本地调整教师" && saved.count > previousWrites)
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: ["timeout", "unpublished", "parse"])
     func aVerifiedCourseDownloadFailureReleasesItsConsumedChallenge(failure: String) async throws {
         let repository = ScheduleRepository(session: { AppStorageSession(accountIdentifier: "verified-download") },

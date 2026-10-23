@@ -1,5 +1,6 @@
 import ClientCore
 import Foundation
+import DesignSystemKit
 import ScoreDomain
 import ScoreInfrastructure
 import Testing
@@ -8,6 +9,44 @@ import TransportCore
 
 @MainActor
 struct NetworkBusinessDiagnosticsTests {
+    @Test(.timeLimit(.minutes(1)))
+    func schoolServiceFailuresKeepTheirGuidanceAndBlockDeveloperReports() async throws {
+        for (title, message) in [
+            ("登录失败", "服务器响应异常（HTTP 500）：初始化WebVPN验证失败Orz"),
+            ("课表同步失败", "认证信息无效。 [status=401, risk=ustc-token, flow=replaced]"),
+            ("学期列表加载失败", "您的会话已经过期，请重新登录"),
+            ("验证已失效", "jxzxehall: 解析 service url 失败"),
+            ("课表同步失败", "学校教务服务返回“无权访问该资源”"),
+            ("学校服务连接失败", "学校统一认证服务暂时无法建立安全连接，请稍后重试。"),
+            ("课表同步失败", "学校教务服务暂时无法恢复会话，请稍后重试。")
+        ] {
+            let alert = AppAlert(title: title, message: message)
+            let presentation = AppErrorPresentation(alert: alert)
+            #expect(presentation.title == "学校服务异常" && presentation.message.contains("学校"))
+            #expect(!presentation.allowsDiagnostics && presentation.allowsSchoolServiceLink)
+            #expect(!presentation.message.contains("risk="))
+            let page = try #require(URL(string: "https://jxzxehall.bit.edu.cn/fault"))
+            #expect(AppErrorPresentation(alert: alert, schoolServiceURL: page).schoolServiceURL == page)
+            var submitted = false
+            let model = ErrorReportViewModel(alert: alert, submitReport: { _ in submitted = true })
+            #expect(!model.allowsSubmission)
+            #expect(!(await model.submit()) && !submitted)
+        }
+    }
+
+    @Test func clientAndUnclassifiedFailuresKeepDeveloperReports() {
+        for (title, message) in [
+            ("DDL 同步失败", "课表缓存读取受阻"), ("课表同步失败", "服务器返回了无法识别的数据"),
+            ("加载话廊失败", "初始化WebVPN验证失败Orz"), ("登录失败", "当前会话已过期"),
+            ("空教室同步失败", "查询教室失败")
+        ] {
+            let alert = AppAlert(title: title, message: message)
+            let presentation = AppErrorPresentation(alert: alert)
+            #expect(presentation.title == title && presentation.message == message && presentation.allowsDiagnostics)
+            #expect(ErrorReportViewModel(alert: alert).allowsSubmission)
+        }
+    }
+
     private final class Credentials: LoginCredentialsStoring {
         var values: [String: String] = [:]
         func read(account: String) -> String { values[account] ?? "" }

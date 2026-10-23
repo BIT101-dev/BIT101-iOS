@@ -523,6 +523,9 @@ final class ErrorReportViewModel: ObservableObject {
     private let submitReport: @MainActor (ErrorReportPayload) async throws -> Void
     private let submissionAttempt = FeedbackSubmissionAttempt<ErrorReportPayload>()
     var isCurrentAccount: Bool { AppAccountSession.storage.schoolSessionIdentity == identity }
+    var allowsSubmission: Bool {
+        alert.allowsDiagnostics && SchoolServiceIssue(title: alert.title, message: alert.message) == nil
+    }
 
     init(alert: any DiagnosticAlertPresentable,
          submitReport: @escaping @MainActor (ErrorReportPayload) async throws -> Void = { try await FeedbackSubmissionClient.submit($0) }) {
@@ -536,11 +539,17 @@ final class ErrorReportViewModel: ObservableObject {
     }
 
     func load() async {
+        guard allowsSubmission else { return }
         let current = await NetworkDiagnosticStore.shared.recent()
         diagnostics = AppAccountSession.storage.schoolSessionIdentity == identity ? current : []
     }
 
     func submit() async -> Bool {
+        guard allowsSubmission else {
+            resultMessage = SchoolServiceIssue(title: alert.title, message: alert.message)?.message
+                ?? "请返回当前页面继续处理。"
+            return false
+        }
         guard AppAccountSession.storage.schoolSessionIdentity == identity else {
             diagnostics = []
             resultMessage = "账号已更新，请重新打开反馈页面。"
