@@ -43,33 +43,14 @@ public nonisolated enum ClassroomAvailabilityCalculator {
     ) -> ClassroomAvailability {
         let busy = Set(record.busyTimeCodes)
         let freeSections = timeTable.map(\.id).filter { !busy.contains($0) }
-        let nextBusyStart = timeTable
-            .filter { busy.contains($0.id) && $0.startMinutes >= nowMinutes }
-            .map(\.startMinutes)
-            .min()
-        let currentBusySlot = timeTable.first {
+        let isFreeNow = !timeTable.contains {
             busy.contains($0.id) && $0.startMinutes <= nowMinutes && nowMinutes < $0.endMinutes
-        }
-
-        let isFreeNow: Bool
-        let statusText: String
-        if let currentBusySlot {
-            isFreeNow = false
-            let nextFree = nextFreeStart(in: timeTable, busy: busy, after: currentBusySlot.endMinutes)
-            statusText = "\(TimeSlot.formatMinutes(nextFree)) 后空闲"
-        } else if let nextBusyStart {
-            isFreeNow = true
-            statusText = "空闲到 \(TimeSlot.formatMinutes(nextBusyStart))"
-        } else {
-            isFreeNow = true
-            statusText = "空闲到明天"
         }
 
         return ClassroomAvailability(
             id: record.id,
             name: record.name,
             prettyFreeTimes: sectionsText(freeSections),
-            statusText: statusText,
             isFreeNow: isFreeNow,
             freeSections: freeSections
         )
@@ -97,16 +78,6 @@ public nonisolated enum ClassroomAvailabilityCalculator {
             guard let first = group.first, let last = group.last else { return "" }
             return group.count == 1 ? "\(first)" : "\(first)~\(last)"
         }.joined(separator: ", ")
-    }
-
-    public static func matchedSectionsText(
-        freeSections: [Int],
-        selectedSections: [Int],
-        timeTable: [TimeSlot]
-    ) -> String {
-        let selected = normalizedSections(selectedSections, in: timeTable)
-        guard !selected.isEmpty else { return "" }
-        return sectionsText(freeSections.filter(Set(selected).contains))
     }
 
     public static func sectionMatch(
@@ -160,19 +131,6 @@ public nonisolated enum ClassroomAvailabilityCalculator {
         guard let digit = normalized.firstIndex(where: \.isNumber) else { return [normalized] }
         let prefix = String(normalized[..<digit])
         return prefix.isEmpty ? [normalized] : [normalized, prefix]
-    }
-
-    private static func nextFreeStart(
-        in timeTable: [TimeSlot],
-        busy: Set<Int>,
-        after minutes: Int
-    ) -> Int {
-        var freeStart = minutes
-        for slot in timeTable.filter({ busy.contains($0.id) }).sorted(by: { $0.startMinutes < $1.startMinutes }) {
-            guard slot.startMinutes <= freeStart else { break }
-            freeStart = max(freeStart, slot.endMinutes)
-        }
-        return freeStart
     }
 
 }

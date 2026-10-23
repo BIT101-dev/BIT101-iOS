@@ -32,6 +32,7 @@ public nonisolated struct ScheduleClassroomData: Codable, Equatable, Sendable {
     public var selectedClassroomSectionIDs: [Int] = []
     public var isClassroomSectionFilterCustomized: Bool = false
     public var classroomRefreshDay: Date?
+    public var classroomBuildingRefreshDaysByCampusCode: [String: Date]?
     public var cachedClassroomQueriesByBuildingID: [String: ClassroomQueryCache]?
     public init() {}
 }

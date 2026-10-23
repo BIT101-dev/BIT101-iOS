@@ -124,7 +124,7 @@ struct ClassroomCacheTests {
         #expect(service.queries == ["a1", "a1", "a1"] && model.classroomLastUpdatedAt == now)
         await model.selectCampus(code: "b")?.value
         await model.selectCampus(code: "a")?.value
-        #expect(service.queries == ["a1", "a1", "a1", "b1"] && service.buildingQueries == ["a", "b"])
+        #expect(service.queries == ["a1", "a1", "a1", "b1"] && service.buildingQueries == ["a", "a", "a", "b"])
         #expect(model.classroomAvailabilities.map(\.id) == ["a1-room"])
     }
 
@@ -158,6 +158,28 @@ struct ClassroomCacheTests {
         #expect(restored.classroomData == expected.classroomData)
         #expect(restored.classroomData.classroomRefreshDay == nil)
         #expect(restored.classroomData.cachedClassroomQueriesByBuildingID == nil)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func eachCampusRefreshesItsDirectoryDailyAndManualRefreshReloadsIt() async throws {
+        var now = try #require(ScheduleDateCodec.parseDate("2026-09-07")).addingTimeInterval(7 * 3600)
+        let initial = initialCache(), service = Service()
+        let repository = ScheduleRepository(session: { .init(accountIdentifier: "campus-directories") },
+            load: { _ in .loaded(initial) }, save: { _, _, _ in })
+        await repository.loadIfNeeded()
+        let model = ScheduleClassroomViewModel(service: service, repository: repository, now: { now })
+        await model.refreshClassroomPage(force: false)
+        await model.selectCampus(code: "b")?.value
+        await model.selectCampus(code: "a")?.value
+        now = now.addingTimeInterval(24 * 3600)
+        service.buildingSuffix = "2"
+        await model.refreshClassroomPage(force: false)
+        await model.selectCampus(code: "b")?.value
+        #expect(service.buildingQueries == ["a", "b", "a", "b"])
+        #expect(model.selectedBuildingID == "b2" && model.classroomAvailabilities.map(\.id) == ["b2-room"])
+        service.buildingSuffix = "3"
+        await model.refreshClassroomPage()
+        #expect(service.buildingQueries == ["a", "b", "a", "b", "b"])
+        #expect(model.selectedBuildingID == "b3" && model.classroomAvailabilities.map(\.id) == ["b3-room"])
     }
 
     @Test(.timeLimit(.minutes(1))) func damagedClassroomQueryPreservesPersonalSchedulesAndOtherBuildings() async throws {

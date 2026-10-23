@@ -245,13 +245,17 @@ extension ScheduleViewModel {
         }
     }
 
+    var courseArrangementBuildings: [BuildingRecord] {
+        var names: Set<String> = []
+        return courseState.cachedClassroomBuildingsByCampusCode.keys.sorted()
+            .flatMap { courseState.cachedClassroomBuildingsByCampusCode[$0] ?? [] }
+            .filter { !$0.name.isEmpty && names.insert($0.name).inserted }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
     private func classroomParts(for classroom: String) -> (buildingName: String, roomNumber: String) {
         let trimmed = classroom.trimmingCharacters(in: .whitespacesAndNewlines)
-        let buildings = (self.classroom.buildings + courseState.cachedClassroomBuildingsByCampusCode.values.flatMap { $0 })
-            .reduce(into: [String]()) { names, building in
-                guard !names.contains(building.name) else { return }
-                names.append(building.name)
-            }
+        let buildings = courseArrangementBuildings.map(\.name)
             .sorted { $0.count > $1.count }
         guard let building = buildings.first(where: { trimmed.hasPrefix($0) }) else {
             return ("", trimmed)

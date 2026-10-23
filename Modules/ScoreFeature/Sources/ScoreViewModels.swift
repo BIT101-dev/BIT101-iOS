@@ -692,8 +692,9 @@ public final class ScoreViewModel: ObservableObject {
     private func updateFilterOptions() {
         availableTerms = uniqueFilterValues(from: rows.map(\.term) + Array(cachedCoursesByTerm.keys).sorted())
         let courseTypes = rows.map(\.courseType)
+        let scheduleTypes = cachedCoursesByTerm.keys.sorted().flatMap { cachedCoursesByTerm[$0] ?? [] }.map(\.type)
         availableCourseTypes = courseTypes.contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-            ? uniqueFilterValues(from: courseTypes) : []
+            ? uniqueFilterValues(from: courseTypes + scheduleTypes) : []
     }
 
     /// 刷新可选项后，同步修正当前筛选集合。

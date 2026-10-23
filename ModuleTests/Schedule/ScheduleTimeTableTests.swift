@@ -9,6 +9,24 @@ import Testing
 
 @MainActor
 struct ScheduleTimeTableTests {
+    @Test func sharingScheduledCoursesKeepsPendingCoursesInTheLocalCache() throws {
+        let scheduled = try #require(ScheduleCourseEditor.adding(CourseDraft(title: "已排课程", weeksText: "1"),
+            to: [], term: "term", id: "scheduled").first)
+        var object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(scheduled)) as? [String: Any])
+        object["id"] = "pending"; object["name"] = "待排课程"; object["weeks"] = [] as [Int]
+        for field in ["weekday", "startSection", "endSection"] { object[field] = 0 }
+        let pending = try JSONDecoder().decode(CourseRecord.self, from: JSONSerialization.data(withJSONObject: object))
+        var cache = ScheduleCache()
+        cache.currentTerm = "term"
+        cache.courseData.store(.init(term: "term", firstDayString: "2026-09-07", courses: [scheduled, pending], exams: [], updatedAt: .distantPast))
+        let code = try ScheduleShareCodeCodec.encodeLatest(cache: cache)
+        let restored = try ScheduleShareCodeCodec.decode(code, using: cache)
+        #expect(restored.courses.map(\.name) == [scheduled.name])
+        #expect(cache.courses == [scheduled, pending])
+        let malformed = scheduled.replacingWeeks([])
+        #expect(throws: ScheduleShareCodeError.self) { try ScheduleShareCodeCodec.encodeLatest(courses: [scheduled, malformed]) }
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: [false, true], ["ddl", "custom", "shared", "rules", "presentation", "course", "json"])
     func damagedBlocksResetWhileHealthyCoursesStayAvailableOffline(legacy: Bool, block: String) async throws {
         let courses = try ScheduleCourseEditor.adding(CourseDraft(title: "已有课表", weekday: 1, weeksText: "1-4"),

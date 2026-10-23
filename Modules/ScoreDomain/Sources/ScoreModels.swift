@@ -118,7 +118,7 @@ public nonisolated enum ScoreRowComparison {
 
     public static func retainingDetailedFields(_ briefRows: [ScoreRow], from cachedRows: [ScoreRow]) -> [ScoreRow] {
         guard !briefRows.isEmpty else { return briefRows }
-        let keys = comparableKeys(from: briefRows).union(["开课学期"])
+        let keys = comparableKeys(from: briefRows)
         let cached = Dictionary(grouping: cachedRows) { signatures(for: [$0], keys: keys)[0] }
         return briefRows.map { row in
             let signature = signatures(for: [row], keys: keys)[0]

@@ -66,8 +66,9 @@ extension ScheduleViewModel {
         try await platformActions.rebuildSystemCalendarImportHistory()
     }
 
-    /// 把周次快速重置到当前周。
-    func resetToCurrentWeek() {
+    /// 从小组件入口显示主课表的当前周。
+    func showCurrentPrimarySchedule() {
+        selectedCourseScheduleIndex = 0
         selectedWeek = resolvedAutomaticWeek()
     }
 

@@ -246,7 +246,7 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
         if !force, !firstEntryToday,
            campuses.isEmpty || cache.cachedClassroomBuildingsByCampusCode[cache.selectedCampusCode] == nil { return }
         startClassroomRequest { model, requestID in
-            if firstEntryToday || model.campuses.isEmpty
+            if force || firstEntryToday || model.campuses.isEmpty
                 || model.cache.cachedClassroomBuildingsByCampusCode[model.cache.selectedCampusCode] == nil {
                 try await model.loadClassroomMeta(requestID: requestID)
             }
@@ -312,10 +312,19 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
     /// 根据当前校区加载教学楼，并优先精确匹配“最近下一节课”的楼宇。
     private func loadBuildings(requestID: Int, force: Bool = false) async throws {
         let campusCode = cache.selectedCampusCode.isEmpty ? nil : cache.selectedCampusCode
-        if !force, let campusCode, let stored = cache.cachedClassroomBuildingsByCampusCode[campusCode] {
+        let date = now()
+        if !force, let campusCode, let stored = cache.cachedClassroomBuildingsByCampusCode[campusCode],
+           let refreshed = cache.classroomBuildingRefreshDaysByCampusCode?[campusCode],
+           ScheduleDateCodec.calendar.isDate(refreshed, inSameDayAs: date) {
             buildings = stored
             resolveSelectedBuildingIfNeeded()
             return
+        }
+        if let campusCode {
+            var refreshDays = cache.classroomBuildingRefreshDaysByCampusCode ?? [:]
+            refreshDays[campusCode] = ScheduleDateCodec.calendar.startOfDay(for: date)
+            cache.classroomBuildingRefreshDaysByCampusCode = refreshDays
+            persistClassroomState()
         }
         let fetchedBuildings = try await withClassroomRequestTimeout { [self] in
             try await service.fetchBuildings(campusCode: campusCode)
@@ -402,23 +411,6 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
             in: cache.timeTable
         )
         return selected.isEmpty ? "当前空闲" : ClassroomAvailabilityCalculator.sectionsText(selected)
-    }
-
-    /// 当前是否处于“当前空闲”模式。
-    var isCurrentFreeClassroomMode: Bool {
-        ClassroomAvailabilityCalculator.normalizedSections(
-            cache.selectedClassroomSectionIDs,
-            in: cache.timeTable
-        ).isEmpty
-    }
-
-    /// 计算某间教室与当前筛选节次的命中摘要。
-    func classroomMatchedSectionsText(for availability: ClassroomAvailability) -> String {
-        ClassroomAvailabilityCalculator.matchedSectionsText(
-            freeSections: availability.freeSections,
-            selectedSections: cache.selectedClassroomSectionIDs,
-            timeTable: cache.timeTable
-        )
     }
 
     /// 当前时间在一天中的分钟偏移。

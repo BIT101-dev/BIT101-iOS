@@ -189,6 +189,9 @@ public struct ScheduleExportCodeSheet: View {
     public var body: some View {
         NavigationStack {
             VStack(spacing: AppDesignSystem.Spacing.section) {
+                Text("课表编码包含已排课程。")
+                    .font(AppDesignSystem.Typography.footnote)
+                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
                 ScrollView {
                     Text(code)
                         .font(AppDesignSystem.Typography.footnote.monospacedDigit())

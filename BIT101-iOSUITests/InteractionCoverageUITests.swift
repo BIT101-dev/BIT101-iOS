@@ -224,7 +224,7 @@ nonisolated final class CalendarInteractionUITests: UIAutomationTestCase {
         tap("学校测试课程")
         tap("调这门课")
         assertUI(app.navigationBars["调这门课"].appears(timeout: 5), "整门调整入口应打开对应课程编辑页。")
-        replaceText("303", in: app.textFields["房间号"])
+        replaceText("303", in: app.textFields["地点"])
         dismissKeyboard()
         tap("确定")
         tap("取消")

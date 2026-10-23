@@ -192,7 +192,7 @@ public struct ScheduleRootView: View {
                 // 从小组件、锁屏组件或灵动岛回到课表时，发一个“回首页”信号，
                 // 让课表分栏按正常 dismiss 路径收起当前 sheet。
                 courseTabResetSignal &+= 1
-                viewModel.resetToCurrentWeek()
+                viewModel.showCurrentPrimarySchedule()
             }
         }
 

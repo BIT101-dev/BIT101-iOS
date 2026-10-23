@@ -11,6 +11,72 @@ import Testing
 
 @MainActor
 struct ScheduleFeatureTests {
+    @Test(.timeLimit(.minutes(1)))
+    func courseArrangementLocationsRemainIndependentOfTheClassroomSelection() async throws {
+        let course = try editableCourse("location", weekday: 1, weeks: "1")
+        var cache = ScheduleCache()
+        cache.currentTerm = "term"
+        cache.selectedCampusCode = "B"
+        cache.selectedBuildingID = "B"
+        for code in ["A", "B"] {
+            cache.cachedClassroomBuildingsByCampusCode[code] = [.init(id: code, name: "文萃" + code,
+                buildingCode: code, campusName: code, campusCode: code)]
+        }
+        cache.courseData.store(.init(term: "term", firstDayString: "2026-09-07", courses: [course], exams: [], updatedAt: .distantPast))
+        let repository = ScheduleRepository(session: { .init(accountIdentifier: "course-location") },
+            load: { _ in .loaded(cache) }, save: { _, _, _ in })
+        await repository.loadIfNeeded()
+        let model = makeViewModel(repository: repository, actions: ModuleSchedulePlatformActions(), service: ModuleScheduleService())
+        model.classroom.restoreCachedState()
+        #expect(model.classroom.buildings.map(\.name) == ["文萃B"])
+        #expect(model.courseArrangementBuildings.map(\.name) == ["文萃A", "文萃B"])
+        var arrangements = model.courseArrangementDrafts(forCourseID: course.id)
+        #expect(arrangements.first?.draft.buildingName == "文萃A" && arrangements.first?.draft.roomNumber == "101")
+        arrangements[0].draft.buildingName = "文萃B"
+        arrangements[0].draft.roomNumber = "202"
+        try model.updateCourseArrangements(arrangements)
+        #expect(model.courseState.courses.first?.classroom == "文萃B 202")
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func widgetNavigationRestoresPrimaryScheduleAndCurrentWeek() async throws {
+        let today = ScheduleDateCodec.calendar.startOfDay(for: Date())
+        let firstDay = ScheduleDateCodec.formatDate(today)
+        var cache = ScheduleCache()
+        cache.currentTerm = "term"
+        cache.courseData.store(.init(term: "term", firstDayString: firstDay, courses: [], exams: [], updatedAt: today))
+        cache.sharedSchedules = [.init(id: "shared", title: "分享课表", payload: .init(currentTerm: "shared",
+            firstDayString: ScheduleDateCodec.formatDate(today.addingTimeInterval(-7 * 24 * 3600)), timeTable: cache.timeTable, courses: []))]
+        let repository = ScheduleRepository(session: { .init(accountIdentifier: "widget-navigation") },
+            load: { _ in .loaded(cache) }, save: { _, _, _ in })
+        await repository.loadIfNeeded()
+        let model = makeViewModel(repository: repository, actions: ModuleSchedulePlatformActions(), service: ModuleScheduleService())
+        model.selectedCourseScheduleIndex = 1
+        model.selectedWeek = 10
+        model.showCurrentPrimarySchedule()
+        #expect(model.selectedCourseScheduleIndex == 0 && model.activeCourseSchedule.currentTerm == "term")
+        #expect(model.selectedWeek == model.resolvedAutomaticWeek(for: today))
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func calendarNavigationOpensAnotherCachedTermOffline(recovered: Bool) async throws {
+        let course = try editableCourse("target", weekday: 1, weeks: "2", term: "A")
+        var cache = ScheduleCache()
+        cache.currentTerm = "B"
+        for term in ["A", "B"] {
+            cache.courseData.store(.init(term: term, firstDayString: "2026-09-07", courses: term == "A" ? [course] : [],
+                exams: [], updatedAt: Date()))
+        }
+        let repository = ScheduleRepository(session: { .init(accountIdentifier: "calendar-navigation") },
+            load: { _ in recovered ? .recovered(cache) : .loaded(cache) }, save: { _, _, _ in })
+        await repository.loadIfNeeded()
+        let model = makeViewModel(repository: repository, actions: ModuleSchedulePlatformActions(), service: ModuleScheduleService())
+        let target = model.selectSystemCalendarTarget(.init(markerID: ScheduleSystemCalendarMarkerID.course(course.id, week: 2), term: "A"))
+        guard case let .course(found, week) = target else { Issue.record("日历应定位已缓存学期的课程"); return }
+        #expect(found == course && week == 2 && model.courseState.currentTerm == "A")
+        #expect(model.selectedCourseScheduleIndex == 0 && model.courseState.termSchedulesByTerm["B"] != nil)
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: ["session", "authentication", "denied"])
     func schoolOutagesPreserveCachedCoursesAndLocalEditing(failure: String) async throws {
         let course = try editableCourse("cached", weekday: 1, weeks: "1-2", title: "已保存课程")

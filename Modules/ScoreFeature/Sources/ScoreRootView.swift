@@ -129,7 +129,7 @@ public struct ScoreListPage: View {
                     }
 
                     Section("统计") {
-                        LabeledContent("已出分", value: "\(summary.selectedCourseCount)")
+                        LabeledContent("参与加权", value: "\(summary.selectedCourseCount)")
                         if let pendingCourseCount = viewModel.pendingCourseCount {
                             LabeledContent("未出分", value: "\(pendingCourseCount)")
                         }

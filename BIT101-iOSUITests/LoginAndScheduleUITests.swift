@@ -495,8 +495,9 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
 
 
     @MainActor
-    func testSharedScheduleCopyImportRenameCycleAndSwipeDelete() {
+    func testSharedScheduleCopyImportRenameCycleAndSwipeDelete() throws {
         app = configureApp(resetStorage: true, initialSettings: "calendar")
+        defer { Self.endSharedSession() }
         tap("分享课表")
         assertUI(app.alerts["当前课表为空"].appears(timeout: 5), "空课表分享应先提示确认。")
         app.alerts["当前课表为空"].buttons["确定"].tapBriefly()
@@ -529,6 +530,13 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         assertUI(waitUntil(NSPredicate(format: "label == %@", "课表"), on: app.segmentedControls.buttons.element(boundBy: 0), timeout: 5), "向上滑动应从分享课表循环到主课表。")
         app.swipeDown()
         assertUI(waitUntil(NSPredicate(format: "label == %@", "测试分享课表"), on: app.segmentedControls.buttons.element(boundBy: 0), timeout: 5), "向下滑动应恢复分享课表。")
+        let application = try XCTUnwrap(app.native as? XCUIApplication)
+        application.launchEnvironment["BIT101_UI_TEST_RESET_STORAGE"] = "0"
+        application.launchEnvironment["BIT101_UI_TEST_SETTINGS"] = nil
+        application.open(try XCTUnwrap(URL(string: "bit101://schedule/courses")))
+        UITestSnapshotReader.invalidate()
+        assertUI(waitUntil(NSPredicate(format: "label == %@", "课表"), on: app.segmentedControls.buttons.element(boundBy: 0), timeout: 5),
+                 "自己的课表小组件应从分享分身返回主课表。")
         openSettings("calendar")
         reveal(shared, description: "分享课表名称")
         checkScrollContainers()
@@ -659,7 +667,7 @@ nonisolated final class ScheduleEditingUITests: UIAutomationTestCase {
         restoredCourse.tapBriefly()
         tap("调这门课")
         assertUI(app.navigationBars["调这门课"].appears(timeout: 5), "调课应打开安排编辑器。")
-        assertUI(app.textFields["房间号"].exists, "调课应支持地点编辑。")
+        assertUI(app.textFields["地点"].exists, "教学楼目录尚待加载时应保留完整地点编辑。")
         tap("取消")
         assertUI(app.navigationBars["调这门课"].disappears(timeout: 5), "取消应关闭调课编辑器。")
         app.buttons["删除这门课"].press(forDuration: 0.01)

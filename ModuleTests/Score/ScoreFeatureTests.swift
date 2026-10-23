@@ -62,12 +62,14 @@ struct ScoreFeatureTests {
         #expect(ScoreRowComparison.rowsMatch(cache.snapshot.rows ?? [], fresh))
     }
 
-    @Test(.timeLimit(.minutes(1))) func detailedFailurePersistsMatchedDetailsAlongsideNewCourses() async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func detailedFailurePersistsMatchedDetailsAlongsideNewCourses(includesTerm: Bool) async throws {
         let headers = ["课程编号", "课程名称", "成绩", "学分", "开课学期", "平均分", "本人成绩在班级中占"]
         let original = ScoreRow(index: 0, headers: headers, values: ["MATH", "数学", "90", "4", "term", "82.5", "1/20"])
         let service = ScoreServiceSpy()
-        service.briefRowsOverride = [ScoreRow(index: 0, headers: Array(headers.prefix(5)), values: ["MATH", "数学", "90", "4", "term"]),
-            ScoreRow(index: 1, headers: Array(headers.prefix(5)), values: ["NEW", "新课程", "85", "2", "term"])]
+        let count = includesTerm ? 5 : 4
+        service.briefRowsOverride = [ScoreRow(index: 0, headers: Array(headers.prefix(count)), values: Array(["MATH", "数学", "90", "4", "term"].prefix(count))),
+            ScoreRow(index: 1, headers: Array(headers.prefix(count)), values: Array(["NEW", "新课程", "85", "2", "term"].prefix(count)))]
         service.detailedError = URLError(.notConnectedToInternet)
         let (model, cache) = try makeViewModel(service: service)
         defer { clearPreferences() }
@@ -78,6 +80,11 @@ struct ScoreFeatureTests {
         #expect(saved.rows?.count == 2 && saved.detailedUpdatedAt == nil)
         #expect(saved.rows?.first?.averageScore == "82.5" && saved.rows?.first?.classRank == "1/20")
         #expect(ScoreRowComparison.rowsMatch(model.rows, saved.rows ?? []))
+        if !includesTerm {
+            let otherTerm = ScoreRow(index: 1, headers: headers, values: ["MATH", "数学", "90", "4", "other", "70", "2/20"])
+            let ambiguous = ScoreRowComparison.retainingDetailedFields([try #require(service.briefRowsOverride?.first)], from: [original, otherTerm])
+            #expect(ambiguous.first?.averageScore == "" && ambiguous.first?.term == "")
+        }
     }
 
     @Test(.timeLimit(.minutes(1))) func detailedFilterFieldsPreserveTheInitialAllSelection() async throws {
@@ -317,7 +324,7 @@ struct ScoreFeatureTests {
         #expect(model.visibleRows.count == 3)
         #expect(model.summary.selectedCourseCount == 3 && model.summary.weightedAverageScore == 80)
         #expect(Set(model.availableTerms) == ["A", "未分类"])
-        #expect(Set(model.availableCourseTypes) == ["必修", "未分类"])
+        #expect(Set(model.availableCourseTypes) == ["必修", "选修", "未分类"])
         model.setSelectedTerms(["未分类"])
         #expect(model.visibleRows.map(\.courseName) == ["缺少学期"])
         model.toggleAllTerms()
@@ -378,7 +385,7 @@ struct ScoreFeatureTests {
         }
         let cache = ScoreCacheStore(files: ModuleScoreFiles(), storageRoot: URL(fileURLWithPath: "/pending-types"),
             defaults: defaults, session: { session })
-        let rows = ["必修", "选修", ""].enumerated().map { index, type in
+        let rows = ["必修"].enumerated().map { index, type in
             ScoreRow(index: index, headers: ["课程名称", "成绩", "开课学期", "课程性质"],
                 values: ["已出分\(index)", "90", "A", type])
         }

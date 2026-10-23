@@ -126,16 +126,23 @@ struct CourseArrangementEditorSheet: View {
 
                     Section {
                         Picker("楼宇", selection: $arrangement.draft.buildingName) {
-                            ForEach(buildings) { building in
-                                Text(building.name).tag(building.name)
+                            Text("自定地点").tag("")
+                            if !arrangement.original.buildingName.isEmpty,
+                               !buildings.contains(where: { $0.name == arrangement.original.buildingName }) {
+                                Text(arrangement.original.buildingName).tag(arrangement.original.buildingName)
+                            }
+                            ForEach(buildings.map(\.name), id: \.self) { name in
+                                Text(name).tag(name)
                             }
                         }
                         .appSelectionFeedback(trigger: arrangement.draft.buildingName)
                         .appInteractiveListRow()
                         HStack(spacing: AppDesignSystem.Spacing.regular) {
-                            Text("房间号")
+                            Text(arrangement.draft.buildingName.isEmpty ? "地点" : "房间号")
                             Spacer()
-                            TextField("", text: $arrangement.draft.roomNumber, prompt: AppInputPrompt.text("房间号"))
+                            TextField("", text: $arrangement.draft.roomNumber,
+                                prompt: AppInputPrompt.text(arrangement.draft.buildingName.isEmpty ? "地点" : "房间号"))
+                                .accessibilityIdentifier("schedule.course-arrangement.location.\(arrangement.id)")
                                 .multilineTextAlignment(.trailing)
                                 .textFieldStyle(.plain)
                                 .foregroundStyle(AppDesignSystem.Palette.Accent.primary)

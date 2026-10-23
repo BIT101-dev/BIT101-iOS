@@ -524,8 +524,10 @@ public nonisolated enum ScheduleShareCodeCodec {
     }
 
     public static func encodeLatest(courses: [CourseRecord]) throws -> String {
-        try validateCourses(courses)
-        let payload = ScheduleExportCompactPayloadV3(courses: courses)
+        guard courses.count <= maximumCourseCount else { throw ScheduleShareCodeError.invalidFormat }
+        let scheduledCourses = courses.filter { !($0.hasValidPlacement && $0.weeks.isEmpty) }
+        try validateCourses(scheduledCourses)
+        let payload = ScheduleExportCompactPayloadV3(courses: scheduledCourses)
         let jsonData = try JSONEncoder().encode(payload)
         guard jsonData.count <= maximumDecodedBytes else { throw ScheduleShareCodeError.invalidFormat }
         let compressedData: Data

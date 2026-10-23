@@ -470,6 +470,14 @@ extension ScheduleRepository {
         cache.currentTerm = term
     }
 
+    /// 本地日历跳转沿所属账号的完整快照切换展示，存储恢复期间保留内存浏览能力。
+    func selectCachedCourseTerm(_ term: String) {
+        guard hasLoaded, ownerSession == session(), cache.currentTerm != term,
+              cache.courseData.schedulesByTerm[term] != nil else { return }
+        cache.currentTerm = term
+        if acceptsEdits { persist(source: .localWithoutCloudPush) }
+    }
+
     func updateCourses(previousCourses: [CourseRecord], currentCourses: [CourseRecord]) {
         guard acceptsEdits else { return }
         ScheduleCourseEditor.updateCacheForManualCourseChange(

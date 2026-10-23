@@ -12,8 +12,8 @@ struct ClassroomAvailabilityCalculatorTests {
         TimeSlot(id: 3, start: "09:55", end: "10:40"),
     ]
 
-    @Test("A free room reports the next busy start")
-    func reportsFreeUntilNextClass() {
+    @Test("A free room lists its available sections")
+    func listsFreeSections() {
         let record = ClassroomRecord(id: "a", name: "101", busyTimeCodes: [2])
         let item = ClassroomAvailabilityCalculator.availability(
             for: record,
@@ -22,13 +22,12 @@ struct ClassroomAvailabilityCalculatorTests {
         )
 
         #expect(item.isFreeNow)
-        #expect(item.statusText == "空闲到 08:50")
         #expect(item.freeSections == [1, 3])
         #expect(item.prettyFreeTimes == "1, 3")
     }
 
-    @Test("A busy room becomes free when the occupied class ends")
-    func reportsNextFreeSlot() {
+    @Test("Occupied sections use an exclusive ending boundary")
+    func usesExclusiveClassEndBoundary() {
         let record = ClassroomRecord(id: "a", name: "101", busyTimeCodes: [1, 2])
         let item = ClassroomAvailabilityCalculator.availability(
             for: record,
@@ -37,7 +36,8 @@ struct ClassroomAvailabilityCalculatorTests {
         )
 
         #expect(!item.isFreeNow)
-        #expect(item.statusText == "09:35 后空闲")
+        #expect(ClassroomAvailabilityCalculator.availability(for: record, timeTable: timeTable,
+            nowMinutes: 9 * 60 + 35).isFreeNow)
     }
 
     @Test("A break between occupied classes is free")
@@ -45,8 +45,7 @@ struct ClassroomAvailabilityCalculatorTests {
         let record = ClassroomRecord(id: "a", name: "101", busyTimeCodes: [1, 2])
         let busy = ClassroomAvailabilityCalculator.availability(for: record, timeTable: timeTable, nowMinutes: 8 * 60 + 30)
         let free = ClassroomAvailabilityCalculator.availability(for: record, timeTable: timeTable, nowMinutes: 8 * 60 + 45)
-        #expect(!busy.isFreeNow && busy.statusText == "08:45 后空闲")
-        #expect(free.isFreeNow && free.statusText == "空闲到 08:50")
+        #expect(!busy.isFreeNow && free.isFreeNow)
     }
 
     @Test("Touching and overlapping occupied intervals stay busy until their final endpoint")
@@ -57,15 +56,7 @@ struct ClassroomAvailabilityCalculatorTests {
         let record = ClassroomRecord(id: "a", name: "101", busyTimeCodes: [1, 2, 3])
         let busy = ClassroomAvailabilityCalculator.availability(for: record, timeTable: slots, nowMinutes: 8 * 60 + 30)
         let free = ClassroomAvailabilityCalculator.availability(for: record, timeTable: slots, nowMinutes: 9 * 60 + 45)
-        #expect(!busy.isFreeNow && busy.statusText == "09:45 后空闲")
-        #expect(free.isFreeNow && free.statusText == "空闲到明天")
-    }
-
-    @Test("The final occupied class reports its ending time")
-    func reportsFinalOccupiedClassEnd() {
-        let record = ClassroomRecord(id: "a", name: "101", busyTimeCodes: [1, 2, 3])
-        let item = ClassroomAvailabilityCalculator.availability(for: record, timeTable: timeTable, nowMinutes: 10 * 60)
-        #expect(!item.isFreeNow && item.statusText == "10:40 后空闲")
+        #expect(!busy.isFreeNow && free.isFreeNow)
     }
 
     @Test("Filters retain rooms free in any selected section")

@@ -18,18 +18,6 @@ private func normalizeDisplayedCourseTitle(_ value: String) -> String {
     ScheduleDisplayNormalizer.normalizeCourseTitle(value)
 }
 
-private func parseScheduleEntryMinutes(_ value: String) -> Int? {
-    let parts = value.split(separator: ":", omittingEmptySubsequences: false)
-    guard
-        parts.count == 2,
-        let hour = Int(parts[0]),
-        let minute = Int(parts[1]),
-        (0 ... 23).contains(hour) || (hour == 24 && minute == 0),
-        (0 ... 59).contains(minute)
-    else { return nil }
-    return hour * 60 + minute
-}
-
 extension CourseScheduleTabView {
     var scheduleEntries: [ScheduleCalendarEntry] {
         guard let firstDay = activeSchedule.firstDay else {
@@ -72,8 +60,8 @@ extension CourseScheduleTabView {
         guard let examDate = ScheduleDateCodec.parseDate(exam.dateString) else { return nil }
         let weekday = ScheduleDateCodec.weekdayIndex(from: examDate)
         guard
-            let startMinutes = parseScheduleEntryMinutes(exam.beginTime),
-            let endMinutes = parseScheduleEntryMinutes(exam.endTime)
+            let startMinutes = TimeSlot.validMinutes(exam.beginTime),
+            let endMinutes = TimeSlot.validMinutes(exam.endTime)
         else { return nil }
         let startSection = convertTimeToSection(timeText: exam.beginTime, timeTable: activeSchedule.timeTable)
         let endSection = convertTimeToSection(timeText: exam.endTime, timeTable: activeSchedule.timeTable)
@@ -106,8 +94,8 @@ extension CourseScheduleTabView {
         guard let date = ScheduleDateCodec.parseDate(dateString) else { return nil }
         let weekday = ScheduleDateCodec.weekdayIndex(from: date)
         guard
-            let startMinutes = parseScheduleEntryMinutes(schedule.beginTime),
-            let endMinutes = parseScheduleEntryMinutes(schedule.endTime)
+            let startMinutes = TimeSlot.validMinutes(schedule.beginTime),
+            let endMinutes = TimeSlot.validMinutes(schedule.endTime)
         else { return nil }
         let startSection = convertTimeToSection(timeText: schedule.beginTime, timeTable: activeSchedule.timeTable)
         let endSection = convertTimeToSection(timeText: schedule.endTime, timeTable: activeSchedule.timeTable)
@@ -265,11 +253,6 @@ extension CourseScheduleTabView {
             kind: .course,
             backgroundLayers: entries.flatMap(\.backgroundLayers)
         )
-    }
-
-    func unique(_ values: [String]) -> [String] {
-        var seen = Set<String>()
-        return values.filter { seen.insert($0).inserted }
     }
 
     func courseGroupCenter(_ group: [CourseRecord]) -> CGFloat {

@@ -619,14 +619,12 @@ public nonisolated struct ClassroomAvailability: Identifiable, Hashable, Sendabl
     public let id: String
     public let name: String
     public let prettyFreeTimes: String
-    public let statusText: String
     public let isFreeNow: Bool
     public let freeSections: [Int]
-    public init(id: String, name: String, prettyFreeTimes: String, statusText: String, isFreeNow: Bool, freeSections: [Int]) {
+    public init(id: String, name: String, prettyFreeTimes: String, isFreeNow: Bool, freeSections: [Int]) {
         self.id = id
         self.name = name
         self.prettyFreeTimes = prettyFreeTimes
-        self.statusText = statusText
         self.isFreeNow = isFreeNow
         self.freeSections = freeSections
     }

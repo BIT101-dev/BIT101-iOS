@@ -30,15 +30,25 @@ nonisolated enum ScheduleSystemCalendarTarget {
     }
 }
 
+extension ScheduleViewModel {
+    func selectSystemCalendarTarget(_ request: ScheduleSystemCalendarNavigationRequest) -> ScheduleSystemCalendarTarget? {
+        repository.selectCachedCourseTerm(request.term)
+        for (index, variant) in courseSchedules.enumerated() where variant.currentTerm == request.term {
+            guard let target = ScheduleSystemCalendarTarget.resolve(markerID: request.markerID, courses: variant.courses,
+                exams: variant.exams, customSchedules: variant.customSchedules) else { continue }
+            selectedCourseScheduleIndex = index
+            return target
+        }
+        return nil
+    }
+}
+
 #if os(iOS)
 extension CourseScheduleTabView {
     func consumeSystemCalendarRequest() {
         guard let request = viewModel.requestedSystemCalendarEvent else { return }
         defer { viewModel.requestedSystemCalendarEvent = nil }
-        for (index, variant) in viewModel.courseSchedules.enumerated() where variant.currentTerm == request.term {
-            guard let target = ScheduleSystemCalendarTarget.resolve(markerID: request.markerID, courses: variant.courses,
-                exams: variant.exams, customSchedules: variant.customSchedules) else { continue }
-            viewModel.selectedCourseScheduleIndex = index
+        if let target = viewModel.selectSystemCalendarTarget(request) {
             switch target {
             case let .course(course, week):
                 viewModel.selectedWeek = week

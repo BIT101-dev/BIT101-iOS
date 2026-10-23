@@ -290,9 +290,7 @@ struct CourseScheduleTabView: View {
                 allowsCustomScheduleMutation: supportsEditingDisplayedSchedule,
                 destinations: destinations,
                 timeTable: viewModel.courseState.timeTable,
-                buildings: viewModel.classroom.buildings.isEmpty
-                    ? viewModel.courseState.cachedClassroomBuildingsByCampusCode.values.flatMap { $0 }
-                    : viewModel.classroom.buildings,
+                buildings: viewModel.courseArrangementBuildings,
                 courseArrangementDraftsForCourse: { courseID in
                     viewModel.courseArrangementDrafts(forCourseID: courseID)
                 },
