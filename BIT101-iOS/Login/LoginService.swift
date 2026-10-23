@@ -153,6 +153,7 @@ struct LoginService {
         do {
             response = try await apiClient.loginCommunity(studentID: account, passwordDigest: digest)
             validatedDigest = digest
+            if schoolPassword.isEmpty { schoolPassword = password }
         } catch LoginServiceError.invalidCredentials {
             // 服务端共用账号缺失与密码错误响应，学校证明交由 login_mode 保留已有密码。
             schoolPassword = try await storage.schoolPasswordForIdentityVerification(studentID: account)
@@ -198,7 +199,8 @@ struct LoginService {
         let response = try await apiClient.register(password: digest, token: token, code: code, loginMode: false)
         try Task.checkCancellation()
         guard storage.communityCredentials.identity == identity else { throw CancellationError() }
-        let savedSchoolPassword = schoolPassword ?? (storage.currentStudentID == studentID ? storage.currentPassword : "")
+        let existingSchoolPassword = storage.currentStudentID == studentID ? storage.currentPassword : ""
+        let savedSchoolPassword = schoolPassword ?? (existingSchoolPassword.isEmpty ? password : existingSchoolPassword)
         try storage.saveLoginState(studentID: studentID, password: savedSchoolPassword, fakeCookie: response.fakeCookie,
             communityPasswordDigest: digest)
     }

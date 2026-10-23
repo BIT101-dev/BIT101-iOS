@@ -78,13 +78,25 @@ struct NativeLoginTests {
         }
     }
 
-    @Test(.timeLimit(.minutes(1))) func firstCommunityLoginCollectsSchoolPasswordWhenSchoolFeatureStarts() async throws {
+    @Test(.timeLimit(.minutes(1))) func matchingPasswordsAuthenticateSchoolServicesWithoutPrompting() async throws {
         try await fixture { storage, transport, service, _, prompts in
             _ = try await service.login(studentID: "owner", password: "community-A")
-            #expect(storage.hasCachedSession && storage.currentPassword.isEmpty && prompts() == 0)
+            #expect(storage.hasCachedSession && storage.currentPassword == "community-A" && prompts() == 0)
+            #expect(try await service.restoreSchoolSessionIfNeeded() == "owner")
+            #expect(storage.currentPassword == "community-A" && prompts() == 0)
+            #expect(transport.requests.compactMap { $0.url?.path } == ["/user/login", "/cas/login", "/cas/login"])
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func differentPasswordsAskForSchoolPasswordAfterExplicitRejection() async throws {
+        try await fixture { storage, transport, service, _, prompts in
+            _ = try await service.login(studentID: "owner", password: "community-A")
+            transport.rejectSchoolPassword = true
             #expect(try await service.restoreSchoolSessionIfNeeded() == "owner")
             #expect(storage.currentPassword == "school-B" && prompts() == 1)
-            #expect(transport.requests.compactMap { $0.url?.path } == ["/user/login", "/cas/login", "/cas/login"])
+            #expect(storage.fakeCookie == "direct-cookie")
+            #expect(try storage.loadCommunityPasswordDigest() == LoginCrypto.md5Hex("community-A"))
+            #expect(transport.requests.compactMap { $0.url?.path } == ["/user/login", "/cas/login", "/cas/login", "/cas/login", "/cas/login"])
         }
     }
 
