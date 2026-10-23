@@ -82,9 +82,10 @@ final class AppCommunityDestinations {
     }
 
     private static func posters(dependencies: AppCommunityDependencies, media: MediaEnvironment) -> CommunityPosterDestination {
-        CommunityPosterDestination { poster, onDeleted in
+        CommunityPosterDestination { request in
             AnyView(GalleryPosterDetailView(dependencies: dependencies.gallery, media: media,
-                profiles: Self.profiles(dependencies: dependencies, media: media), poster: poster, onDeleted: onDeleted))
+                profiles: Self.profiles(dependencies: dependencies, media: media), poster: request.poster,
+                onUpdated: request.onUpdated, onDeleted: request.onDeleted))
         }
     }
 }

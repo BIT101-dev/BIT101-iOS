@@ -68,6 +68,19 @@ public struct CommunityCommentState {
     public mutating func acknowledgeSubmissionReview(_ submission: CommunityCommentSubmission) {
         uncertainSubmissions.remove(submission)
     }
+
+    /// 内容筛选同步作用于可见评论与本地创建记录，交互确认继续沿所属详情保留。
+    public mutating func filterContent(_ transform: ([CommunityComment]) -> [CommunityComment]) {
+        items = transform(items)
+        confirmedCreations = confirmedCreations.compactMap { creation in
+            guard let comment = transform([creation.comment]).first else { return nil }
+            if let parent = creation.parent {
+                guard let visibleParent = transform([parent]).first else { return nil }
+                return .init(comment: comment, parent: visibleParent)
+            }
+            return .init(comment: comment, parent: nil)
+        }
+    }
     public private(set) var likeRevision = 0
     private var likeResults: [Int: (revision: Int, result: CommunityLikeResult)] = [:]
     public private(set) var likesNeedingReview: Set<Int> = []

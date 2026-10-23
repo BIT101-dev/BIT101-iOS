@@ -98,7 +98,7 @@ struct GallerySubscriptionsView: View {
                 Button("完成") { dismiss() }.accessibilityIdentifier("gallery.subscriptions.done")
             }
         }
-        .task { await viewModel.refresh() }
+        .task { await viewModel.bootstrapIfNeeded() }
         .refreshable {
             interactionEvidence?("interaction.GallerySubscriptionsView.refreshable", "refresh")
             await viewModel.refresh()

@@ -37,6 +37,7 @@ public struct GalleryPosterDetailView: View {
 }
 
 private struct GalleryPosterDetailViewScene: View {
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.appInteractionEvidence) private var interactionEvidence
     private let dependencies: GalleryDependencies
     private let destinations: CommunityProfileDestination
@@ -57,6 +58,8 @@ private struct GalleryPosterDetailViewScene: View {
     @State private var isShowingEditor = false
     let onUpdated: (() -> Void)?
     let onDeleted: (() -> Void)?
+
+    private var commentFilter: GalleryCommentFilter { .init(preferences: contentPreferences.snapshot) }
 
     init(
         dependencies: GalleryDependencies,
@@ -259,6 +262,9 @@ private struct GalleryPosterDetailViewScene: View {
                         viewModel.pendingOperations.enqueue {
                             await viewModel.loadMoreCommentsIfNeeded(currentComment: comment)
                         }
+                    },
+                    onRetry: {
+                        viewModel.pendingOperations.enqueue { await viewModel.refreshComments() }
                     }
                 )
             }
@@ -329,8 +335,8 @@ private struct GalleryPosterDetailViewScene: View {
                 )
             }
         }
-        .task(id: contentPreferences.snapshot) {
-            await viewModel.refreshForContentPreferences()
+        .task(id: commentFilter) {
+            await viewModel.loadContent(filter: commentFilter)
         }
         .systemImagePreview(item: $imageViewer)
         .sheet(isPresented: $isShowingEditor) {
@@ -344,6 +350,7 @@ private struct GalleryPosterDetailViewScene: View {
         }
         .sheet(item: $composerTarget) { target in
             GalleryCommentComposerSheet(
+                dependencies: dependencies,
                 target: target,
                 isSubmitting: viewModel.isSubmittingComment,
                 review: viewModel.commentReview
@@ -354,6 +361,12 @@ private struct GalleryPosterDetailViewScene: View {
         }
         .sheet(item: $reportTarget) { target in
             GalleryReportSheet(target: target, service: dependencies.reporting) {}
+        }
+        .onChange(of: dependencies.networkPath.snapshot.status) { _, value in
+            if value == .connected { enqueueRecovery() }
+        }
+        .onChange(of: scenePhase) { _, value in
+            if value == .active { enqueueRecovery() }
         }
         .onDisappear { viewModel.pendingOperations.cancel() }
         .diagnosticAlert(item: $viewModel.alert)
@@ -375,6 +388,13 @@ private struct GalleryPosterDetailViewScene: View {
                 .accessibilityIdentifier("ui.gallery-poster-detail-view-scene.delete")
         } message: { poster in
             Text("确定删除“\(poster.title.isEmpty ? "未命名帖子" : poster.title)”吗？删除后无法恢复。")
+        }
+    }
+
+    private func enqueueRecovery() {
+        viewModel.pendingOperations.enqueue {
+            guard dependencies.networkPath.isReachable else { return }
+            await viewModel.retryFailedContentIfNeeded()
         }
     }
 

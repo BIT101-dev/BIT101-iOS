@@ -35,6 +35,11 @@ public nonisolated struct ComposerImageDraft: Identifiable, Sendable {
         guard case .uploaded(let image) = status else { return nil }
         return image
     }
+
+    public var isUploading: Bool {
+        if case .uploading = status { return true }
+        return false
+    }
 }
 
 public nonisolated enum ComposerDraftImagePolicy {

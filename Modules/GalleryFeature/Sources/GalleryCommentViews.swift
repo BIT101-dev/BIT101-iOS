@@ -32,6 +32,7 @@ struct GalleryPosterCommentsSection: View {
     let onOpenImage: (Int, [CommunityImage]) -> Void
     let onOpenUser: (CommunityUser) -> Void
     let onLoadMore: (CommunityComment?) -> Void
+    let onRetry: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
@@ -46,7 +47,8 @@ struct GalleryPosterCommentsSection: View {
                 AppFailureState(
                     title: "加载评论失败",
                     systemImage: "bubble.right.fill",
-                    message: message
+                    message: message,
+                    onRetry: onRetry
                 )
             default:
                 if comments.isEmpty {
@@ -201,7 +203,6 @@ private struct GalleryCommentRow: View {
 /// 评论输入放在独立 sheet 中，避免与 tab bar、抽屉详情和键盘安全区发生布局冲突。
 struct GalleryCommentComposerSheet: View {
     @Environment(MediaEnvironment.self) private var media
-    @Environment(GalleryDependencies.self) private var dependencies
     let target: CommunityCommentComposerTarget
     let isSubmitting: Bool
     let review: CommunityCommentReviewActions
@@ -212,20 +213,27 @@ struct GalleryCommentComposerSheet: View {
     @State private var anonymous = false
     @State private var isSubmissionRequested = false
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
-    @State private var imagePreparer = ComposerImagePreparer()
-    @State private var uploadedImages: [CommunityImage] = []
-    @State private var isUploadingImages = false
+    @StateObject private var imageUploads: ComposerImageUploads
+    private var uploadedImages: [CommunityImage] { imageUploads.uploadedImages }
+    private var isUploadingImages: Bool { imageUploads.isAddingImages || imageUploads.hasUploadingImages }
     private var hasDraftContent: Bool {
-        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || anonymous || !uploadedImages.isEmpty || isUploadingImages
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || anonymous || !imageUploads.drafts.isEmpty || isUploadingImages
     }
-    @State private var uploadError: String?
     @State private var imageViewer: ImagePreviewRequest?
-    private var service: any GalleryImageUploading { dependencies.images }
+
+    init(dependencies: GalleryDependencies, target: CommunityCommentComposerTarget, isSubmitting: Bool,
+        review: CommunityCommentReviewActions, onSubmit: @escaping (String, Bool, [CommunityImage]) async -> Bool) {
+        self.target = target; self.isSubmitting = isSubmitting; self.review = review; self.onSubmit = onSubmit
+        let owner = dependencies.currentIdentity(), preparer = ComposerImagePreparer()
+        _imageUploads = StateObject(wrappedValue: ComposerImageUploads(
+            upload: { try await dependencies.images.uploadImage(data: $0, filename: $1) },
+            prepare: { try await preparer.prepare($0) }, isCurrentSession: { dependencies.currentIdentity() == owner }))
+    }
 
     var body: some View {
         let submission = CommunityCommentSubmission(objectID: target.objectID, text: text.trimmingCharacters(in: .whitespacesAndNewlines),
             anonymous: anonymous, replyObjectID: target.replyObjectID, replyUID: target.replyUID, imageMids: uploadedImages.map(\.mid))
-        let uploadedImageCount = uploadedImages.count
+        let imageCount = imageUploads.drafts.count
         NavigationStack {
             Form {
                 AppCommentComposerContentSection(anonymous: $anonymous) {
@@ -239,51 +247,40 @@ struct GalleryCommentComposerSheet: View {
                 Section("图片") {
                     PhotosPicker(
                         selection: $selectedPhotoItems,
-                        maxSelectionCount: max(1, 9 - uploadedImages.count),
+                        maxSelectionCount: max(1, ComposerDraftImagePolicy.maximumImageCount - imageCount),
                         matching: .images
                     ) {
-                        Text(uploadedImageCount >= 9 ? "已达到图片上限" : "添加图片")
+                        Text(imageCount >= ComposerDraftImagePolicy.maximumImageCount ? "已达到图片上限" : "添加图片")
                     }
-                    .disabled(isSubmitting || isUploadingImages || uploadedImages.count >= 9)
+                    .disabled(isSubmitting || isUploadingImages || imageCount >= ComposerDraftImagePolicy.maximumImageCount)
                     .accessibilityLabel("添加评论图片")
-                    .accessibilityValue("\(uploadedImages.count) 张")
+                    .accessibilityValue("\(imageCount) 张")
                     .appInteractiveListRow()
 
                     if isUploadingImages {
                         AppInlineLoadingState("上传中")
                     }
-                    if let uploadError {
+                    if let uploadError = imageUploads.errorMessage {
                         Text(uploadError)
                             .foregroundStyle(AppDesignSystem.Palette.Status.danger)
                             .accessibilityIdentifier("comment.image-upload.error")
                     }
-                    if !uploadedImages.isEmpty {
-                        Text("已添加 \(uploadedImages.count) 张图片")
+                    if imageCount > 0 {
+                        Text("已添加 \(imageCount) 张图片")
                             .font(AppDesignSystem.Typography.caption)
                             .foregroundStyle(AppDesignSystem.Foreground.secondary)
                         ScrollView(.horizontal) {
                             HStack(spacing: AppDesignSystem.Spacing.regular) {
-                                ForEach(Array(uploadedImages.enumerated()), id: \.offset) { index, image in
-                                    Button {
-                                        imageViewer = ImagePreviewRequest(remoteImages: uploadedImages.map(\.previewImage), initialIndex: index)
-                                    } label: {
-                                        CommunityImageThumbnail(image: image, contentMode: .fill)
-                                            .frame(width: AppDesignSystem.Size.Media.draft, height: AppDesignSystem.Size.Media.draft)
-                                            .clipped()
-                                            .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
-                                    }
-                                    .buttonStyle(.plain)
-                                    .appInteractiveListRow()
-                                    .accessibilityLabel("预览第\(index + 1)张评论图片")
-                                    .overlay(alignment: .topTrailing) {
-                                        AppComposerImageRemoveButton(accessibilityLabel: "移除第\(index + 1)张评论图片") {
-                                            uploadedImages.remove(at: index)
-                                        }
-                                    }
+                                ForEach(Array(imageUploads.drafts.enumerated()), id: \.element.id) { index, draft in
+                                    ComposerImageTile(draft: draft,
+                                        onRetry: { Task { await imageUploads.retry(id: draft.id) } },
+                                        onRemove: { imageUploads.remove(id: draft.id) },
+                                        onOpen: { openImage(id: draft.id) },
+                                        previewAccessibilityLabel: "预览第\(index + 1)张评论图片",
+                                        removeAccessibilityLabel: "移除第\(index + 1)张评论图片")
                                 }
                             }
                         }
-                        .disabled(isUploadingImages)
                         .accessibilityIdentifier("interaction.GalleryCommentComposerSheet.images")
                     }
                 }
@@ -302,7 +299,7 @@ struct GalleryCommentComposerSheet: View {
                 AppComposerToolbar(
                     isSubmitting: isSubmitting || isSubmissionRequested,
                     submitTitle: "发送",
-                    isSubmitDisabled: isUploadingImages,
+                    isSubmitDisabled: !imageUploads.isReadyToSubmit,
                     confirmDiscard: hasDraftContent,
                     onCancel: {
                         dismiss()
@@ -314,34 +311,22 @@ struct GalleryCommentComposerSheet: View {
             }
             .task(id: selectedPhotoItems) {
                 guard !selectedPhotoItems.isEmpty else { return }
-                await upload(items: selectedPhotoItems)
+                let selected = selectedPhotoItems
+                await imageUploads.addImages(from: selected.map { item in
+                    { try await media.loadBoundedImageData(from: item) }
+                })
+                selectedPhotoItems = []
             }
             .systemImagePreview(item: $imageViewer)
+            .onDisappear { imageUploads.cancel() }
         }
         .interactiveDismissDisabled(hasDraftContent || isSubmitting || isSubmissionRequested)
     }
 
-    private func upload(items: [PhotosPickerItem]) async {
-        isUploadingImages = true
-        uploadError = nil
-        defer {
-            isUploadingImages = false
-            selectedPhotoItems = []
-        }
-        for item in items {
-            guard !Task.isCancelled, uploadedImages.count < 9 else { return }
-            do {
-                guard let data = try await media.loadBoundedImageData(from: item) else { continue }
-                guard !Task.isCancelled else { return }
-                let prepared = try await imagePreparer.prepare(data)
-                guard !Task.isCancelled else { return }
-                let image = try await service.uploadImage(data: prepared, filename: "comment.jpg")
-                uploadedImages.append(image)
-            } catch {
-                if TaskCancellation.matches(error) { return }
-                uploadError = error.localizedDescription
-            }
-        }
+    private func openImage(id: UUID) {
+        guard let index = imageUploads.drafts.firstIndex(where: { $0.id == id }) else { return }
+        let images = imageUploads.drafts.compactMap { UIImage(data: $0.previewData) }
+        imageViewer = ImagePreviewRequest(localImages: images, initialIndex: index)
     }
 }
 

@@ -1,12 +1,79 @@
 import BIT101TestSupport
 import CommunityCore
 import CommunityTransport
+import CommunityUI
 import Foundation
 @testable import GalleryFeature
 import Testing
 
 @MainActor
 struct ComposerLifecycleTests {
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func restoredClaimSurvivesEitherCatalogueLoadingOrder(loadFirst: Bool) async {
+        let service = Service(), drafts = Drafts()
+        service.claims = [.init(id: 0, text: "无声明")]
+        drafts.result = .loaded(.init(title: "草稿", text: "正文", selectedTags: [], customTags: [],
+            anonymous: false, isPublic: true, selectedClaimID: 99, images: []))
+        let viewModel = model(service, drafts: drafts)
+        if loadFirst { await viewModel.loadClaimsIfNeeded() }
+        await viewModel.restoreDraft()
+        if !loadFirst { await viewModel.loadClaimsIfNeeded() }
+        #expect(viewModel.selectedClaimID == 99 && viewModel.draftSnapshot.selectedClaimID == 99)
+        #expect(viewModel.claims.contains { $0.id == 99 })
+    }
+
+    @Test(.timeLimit(.minutes(1))) func commentImageDraftsRetainFailedBytesAndRetryWithinTheirSession() async {
+        let service = Service(), identity = Identity(), owner = CommunitySessionIdentity(accountIdentifier: "composer-A", generation: 1)
+        service.uploadFailures = 1
+        let images = ComposerImageUploads(upload: { try await service.uploadImage(data: $0, filename: $1) },
+            prepare: { $0 }, isCurrentSession: { identity.current == owner })
+        await images.addImages(from: [{ Data([7]) }])
+        #expect(images.drafts.first?.previewData == Data([7]) && !images.isReadyToSubmit)
+        #expect(images.uploadedImages.isEmpty)
+        if let id = images.drafts.first?.id { await images.retry(id: id) }
+        #expect(images.isReadyToSubmit && images.uploadedImages.first?.mid == "image-2")
+        identity.current = .init(accountIdentifier: "composer-B", generation: 2)
+        await images.addImages(from: [{ Data([8]) }])
+        #expect(images.drafts.count == 1 && service.uploads.count == 2)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func savingDuringImageImportRetainsTheWholeSelection(pausePreparation: Bool) async throws {
+        let preparation = Gate(), upload = Gate(), drafts = Drafts(), service = Service()
+        service.uploadGate = upload
+        var first = true
+        let viewModel = model(service, drafts: drafts, prepare: { data in
+            if pausePreparation && first { first = false; await preparation.pause() }
+            return data
+        })
+        let adding = Task { await viewModel.addImages(from: [{ Data([7]) }, { Data([8]) }]) }
+        defer { adding.cancel(); viewModel.cancelPendingOperations(); preparation.resume(); upload.resume() }
+        if pausePreparation { try await preparation.waitUntilPaused() }
+        else { try await upload.waitUntilPaused() }
+        #expect(viewModel.hasDraftContent)
+        let saving = Task { await viewModel.saveDraft() }
+        if pausePreparation {
+            await Task.yield()
+            #expect(drafts.saveCount == 0)
+            preparation.resume()
+        }
+        #expect(await saving.value)
+        #expect(drafts.result.snapshot?.images.map(\.previewData) == [Data([7]), Data([8])])
+        viewModel.cancelPendingOperations()
+        preparation.resume(); upload.resume()
+        await adding.value
+    }
+
+    @Test(.timeLimit(.minutes(1))) func editingKeepsAnExistingClaimOutsideTheCurrentCatalogue() async {
+        let service = Service()
+        service.claims = [.init(id: 0, text: "无声明")]
+        let original = poster()
+        let viewModel = model(service, editing: original)
+        await viewModel.loadClaimsIfNeeded()
+        #expect(viewModel.selectedClaimID == original.claim.id && !viewModel.hasUnsavedEdits)
+        #expect(viewModel.claims.contains { $0.id == original.claim.id && $0.text == original.claim.text })
+    }
+
     private final class Gate {
         private var pending: CheckedContinuation<Void, Never>?
         func pause() async {

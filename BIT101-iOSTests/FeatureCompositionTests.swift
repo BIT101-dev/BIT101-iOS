@@ -509,7 +509,7 @@ struct FeatureCompositionTests {
     func mineAndProfileRootsOwnTheirServiceAndPosterCapabilities() async throws {
         let selected = TraceTransport()
         let surrounding = TraceTransport()
-        let poster = CommunityPosterDestination { _, _ in AnyView(Text("poster")) }
+        let poster = CommunityPosterDestination { _ in AnyView(Text("poster")) }
         let settings = CommunitySettingsDestinations(settingsEntries: [], settings: { _ in AnyView(Text("settings")) },
                                                     suggestion: { AnyView(Text("suggestion")) })
         try await host(MineRootView(dependencies: mine(selected), media: media(), posters: poster, settings: settings,

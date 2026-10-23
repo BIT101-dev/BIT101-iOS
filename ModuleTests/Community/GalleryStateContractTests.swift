@@ -1,6 +1,7 @@
 import BIT101TestSupport
 import CommunityCore
 import CommunityTransport
+import CommunityUI
 import Foundation
 import os
 import Testing
@@ -9,6 +10,48 @@ import Testing
 
 @MainActor
 struct GalleryStateContractTests {
+    @Test(.timeLimit(.minutes(1))) func detailReappearancePreservesCommentsAndWriteReview() async {
+        let service = SubscriptionDetails()
+        let user = CommunityUser.placeholder(id: 7, nickname: "用户")
+        service.comments = [.init(id: 1, obj: "poster1", images: [], user: user, anonymous: false,
+            createTime: "", updateTime: "", like: false, likeNum: 0, commentNum: 0, own: false, rate: 0,
+            replyUser: user, replyObj: "", text: "已加载评论", sub: [])]
+        let model = GalleryPosterDetailViewModel(initialPoster: listPoster(1), service: service)
+        var preferences = CommunityPreferenceSnapshot(hideBots: false, hiddenUserIDs: [], hideAnonymous: false,
+            useWebView: false, hideMakeupOutliers: false)
+        await model.loadContent(filter: .init(preferences: preferences))
+        service.creationFailure = CommunityCreateOutcomeUnknown(underlying: URLError(.networkConnectionLost))
+        let target = CommunityCommentComposerTarget.poster(posterID: 1)
+        #expect(await model.submitComment(text: "待确认评论", anonymous: false, target: target) == false)
+        let submission = CommunityCommentSubmission(objectID: "poster1", text: "待确认评论", anonymous: false,
+            replyObjectID: nil, replyUID: nil)
+        #expect(model.commentReview.needsReview(submission))
+        service.commentFailure = URLError(.notConnectedToInternet)
+        let requests = service.commentRequests
+        preferences.galleryUseWebView = true
+        await model.loadContent(filter: .init(preferences: preferences))
+        #expect(model.commentState.items.map(\.id) == [1] && model.commentReview.needsReview(submission))
+        #expect(service.commentRequests == requests)
+        preferences.galleryHiddenUserIDs = [7]
+        await model.loadContent(filter: .init(preferences: preferences))
+        #expect(model.commentState.items.isEmpty && model.commentReview.needsReview(submission))
+        service.commentFailure = nil
+        service.comments = []
+        let posterRequests = service.posterRequests
+        await model.retryFailedContentIfNeeded()
+        #expect(model.commentState.status == .loaded && service.posterRequests == posterRequests)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func returningToSubscriptionsPreservesTheLoadedPages() async {
+        let service = Subscriptions()
+        service.pages = [0: [subscription(1)], 1: [subscription(2)]]
+        let model = GallerySubscriptionsViewModel(service: service)
+        await model.bootstrapIfNeeded()
+        await model.loadMore()
+        await model.bootstrapIfNeeded()
+        #expect(service.requests == [0, 1] && model.items.map(\.id) == [1, 2])
+    }
+
     private final class Subscriptions: GallerySubscriptionServicing {
         var pages: [Int: [GallerySubscription]] = [:]
         var failedPage: Int?
@@ -33,7 +76,13 @@ struct GalleryStateContractTests {
         var readGate: ListRequestGate<GalleryPosterDetail>?
         var writes = 0
         var readFailure: (any Error)?
+        var comments: [CommunityComment] = []
+        var commentFailure: (any Error)?
+        var creationFailure: any Error = URLError(.unsupportedURL)
+        var commentRequests = 0
+        var posterRequests = 0
         func fetchPoster(id: Int) async throws -> GalleryPosterDetail {
+            posterRequests += 1
             if let readFailure { throw readFailure }
             if let readGate { return try await readGate.request() }
             return poster
@@ -45,10 +94,12 @@ struct GalleryStateContractTests {
             poster = poster.updatingSubscription(level)
         }
         func fetchComments(objectID: String, order: CommunityCommentOrder, page: Int?) async throws -> GalleryPageBatch<CommunityComment> {
-            .init(items: [], nextSourcePage: 0, canLoadMore: false)
+            commentRequests += 1
+            if let commentFailure { throw commentFailure }
+            return .init(items: comments, nextSourcePage: 0, canLoadMore: false)
         }
         func like(objectID: String) async throws -> CommunityLikeResult { throw URLError(.unsupportedURL) }
-        func createComment(objectID: String, text: String, replyObjectID: String?, replyUID: Int?, anonymous: Bool, imageMids: [String]) async throws -> CommunityComment { throw URLError(.unsupportedURL) }
+        func createComment(objectID: String, text: String, replyObjectID: String?, replyUID: Int?, anonymous: Bool, imageMids: [String]) async throws -> CommunityComment { throw creationFailure }
         func deleteComment(id: Int) async throws { throw URLError(.unsupportedURL) }
         func deletePoster(id: Int) async throws { throw URLError(.unsupportedURL) }
     }

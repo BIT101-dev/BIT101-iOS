@@ -100,43 +100,44 @@ public struct ComposerImageTile: View {
     let draft: ComposerImageDraft
     let onRetry: () -> Void
     let onRemove: () -> Void
+    let onOpen: (() -> Void)?
+    let previewAccessibilityLabel: String
+    let removeAccessibilityLabel: String
     let showsPreparedSuccessIndicator: Bool
 
     public init(
         draft: ComposerImageDraft,
         onRetry: @escaping () -> Void,
         onRemove: @escaping () -> Void,
-        showsPreparedSuccessIndicator: Bool = true
+        onOpen: (() -> Void)? = nil,
+        showsPreparedSuccessIndicator: Bool = true,
+        previewAccessibilityLabel: String = "预览所选图片",
+        removeAccessibilityLabel: String = "移除图片"
     ) {
         self.draft = draft
         self.onRetry = onRetry
         self.onRemove = onRemove
+        self.onOpen = onOpen
         self.showsPreparedSuccessIndicator = showsPreparedSuccessIndicator
+        self.previewAccessibilityLabel = previewAccessibilityLabel
+        self.removeAccessibilityLabel = removeAccessibilityLabel
     }
 
     public var body: some View {
         ZStack(alignment: .topTrailing) {
-            ZStack {
-                AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card)
-                    .fill(AppDesignSystem.Palette.Background.secondaryGrouped)
-
-                if let image = thumbnail {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                } else {
-                    Image(systemName: "photo")
-                        .font(AppDesignSystem.Typography.title)
-                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                }
+            Group {
+                if let onOpen {
+                    Button(action: onOpen) { thumbnailContent }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(previewAccessibilityLabel)
+                        .accessibilityIdentifier("composer.image.preview.\(draft.id)")
+                } else { thumbnailContent }
             }
-            .frame(width: AppDesignSystem.Size.Media.draft, height: AppDesignSystem.Size.Media.draft)
-            .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
             .overlay(alignment: .bottom) {
                 overlayContent
             }
 
-            AppComposerImageRemoveButton(onRemove: onRemove)
+            AppComposerImageRemoveButton(accessibilityLabel: removeAccessibilityLabel, onRemove: onRemove)
         }
         .frame(width: AppDesignSystem.Size.Media.draft, height: AppDesignSystem.Size.Media.draft)
         .task(id: ThumbnailIdentity(data: draft.previewData, scale: displayScale)) {
@@ -144,6 +145,25 @@ public struct ComposerImageTile: View {
             guard !Task.isCancelled else { return }
             thumbnail = prepared
         }
+    }
+
+    private var thumbnailContent: some View {
+        ZStack {
+            AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card)
+                .fill(AppDesignSystem.Palette.Background.secondaryGrouped)
+
+            if let image = thumbnail {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                Image(systemName: "photo")
+                    .font(AppDesignSystem.Typography.title)
+                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
+            }
+        }
+        .frame(width: AppDesignSystem.Size.Media.draft, height: AppDesignSystem.Size.Media.draft)
+        .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
     }
 
     @concurrent

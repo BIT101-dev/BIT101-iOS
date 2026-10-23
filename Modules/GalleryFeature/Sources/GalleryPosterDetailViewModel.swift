@@ -42,6 +42,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     private var refreshGeneration = 0
     private var commentRefreshGeneration = 0
     private var hasBootstrapped = false
+    private var contentFilter: GalleryCommentFilter?
     /// 当前详情页对应的帖子对象 ID 字符串。
     ///
     /// 评论和帖子点赞接口都使用同一套 `poster{id}` 语义，由这个属性统一生成，
@@ -112,10 +113,18 @@ final class GalleryPosterDetailViewModel: ObservableObject {
         handleCommentRefreshResult(result, previousState: previousState)
     }
 
-    func refreshForContentPreferences() async {
-        commentState = CommunityCommentState()
+    func loadContent(filter: GalleryCommentFilter) async {
+        let changed = contentFilter != nil && contentFilter != filter
+        contentFilter = filter
+        guard changed else { await bootstrapIfNeeded(); return }
+        commentState.filterContent(filter.apply)
         if posterStatus == .loaded { await refreshComments() }
         else { await refreshAll() }
+    }
+
+    func retryFailedContentIfNeeded() async {
+        if case .failed = posterStatus { await refreshAll() }
+        else if case .failed = commentState.status { await refreshComments() }
     }
 
     /// 当滚动到尾部附近时触发评论分页。

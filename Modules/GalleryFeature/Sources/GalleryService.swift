@@ -56,7 +56,7 @@ extension GalleryServiceError: CommunityAPIServiceError {
     }
 }
 
-enum GalleryContentFilter {
+nonisolated enum GalleryContentFilter {
     static func shouldHideComment(
         authorID: Int,
         replyTargetID: Int,
@@ -67,6 +67,24 @@ enum GalleryContentFilter {
         hiddenUserIDs.contains(authorID)
             || hiddenUserIDs.contains(replyTargetID)
             || (hideAnonymousContent && isAnonymous)
+    }
+}
+
+nonisolated struct GalleryCommentFilter: Equatable, Sendable {
+    let hiddenUserIDs: Set<Int>
+    let hideAnonymous: Bool
+
+    @MainActor init(preferences: CommunityPreferenceSnapshot) {
+        hiddenUserIDs = Set(preferences.galleryHiddenUserIDs)
+        hideAnonymous = preferences.galleryHideAnonymousContent
+    }
+
+    func apply(_ comments: [CommunityComment]) -> [CommunityComment] {
+        comments.compactMap { comment in
+            guard !GalleryContentFilter.shouldHideComment(authorID: comment.user.id, replyTargetID: comment.replyUser.id,
+                isAnonymous: comment.anonymous, hiddenUserIDs: hiddenUserIDs, hideAnonymousContent: hideAnonymous) else { return nil }
+            return comment.replacingSubComments(apply(comment.sub))
+        }
     }
 }
 
@@ -292,24 +310,8 @@ public struct GalleryService {
     }
 
     private func applyGalleryFilters(_ comments: [CommunityComment]) async -> [CommunityComment] {
-        let settings = await MainActor.run {
-            preferences()
-        }
-        let hiddenIDs = Set(settings.galleryHiddenUserIDs)
-        let hideAnonymousContent = settings.galleryHideAnonymousContent
-
-        func filter(_ comment: CommunityComment) -> CommunityComment? {
-            guard !GalleryContentFilter.shouldHideComment(
-                authorID: comment.user.id,
-                replyTargetID: comment.replyUser.id,
-                isAnonymous: comment.anonymous,
-                hiddenUserIDs: hiddenIDs,
-                hideAnonymousContent: hideAnonymousContent
-            ) else { return nil }
-            return comment.replacingSubComments(comment.sub.compactMap(filter))
-        }
-
-        return comments.compactMap(filter)
+        let filter = await MainActor.run { GalleryCommentFilter(preferences: preferences()) }
+        return filter.apply(comments)
     }
 
     private func shouldHideBotPosters() async -> Bool {

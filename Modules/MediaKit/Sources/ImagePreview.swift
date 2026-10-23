@@ -488,6 +488,10 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
         /// 不接收触摸的画面快照，让低清到高清更接近一次轻微交叉渐变。
         private func refreshCurrentPreviewItemSmoothly() {
             guard let controller = previewController else { return }
+            guard AppDesignSystem.Motion.transition(reduceMotion: UIAccessibility.isReduceMotionEnabled) != nil else {
+                controller.refreshCurrentPreviewItem()
+                return
+            }
             guard let snapshot = controller.view.snapshotView(afterScreenUpdates: false) else {
                 controller.refreshCurrentPreviewItem()
                 return

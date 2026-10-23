@@ -15,8 +15,18 @@ public final class CommunityProfileDestination {
 @MainActor
 @Observable
 public final class CommunityPosterDestination {
-    public let poster: (CommunityPoster, (() -> Void)?) -> AnyView
-    public init(poster: @escaping (CommunityPoster, (() -> Void)?) -> AnyView) { self.poster = poster }
+    public let poster: (CommunityPosterRequest) -> AnyView
+    public init(poster: @escaping (CommunityPosterRequest) -> AnyView) { self.poster = poster }
+}
+
+public struct CommunityPosterRequest {
+    public let poster: CommunityPoster
+    public let onUpdated: (() -> Void)?
+    public let onDeleted: (() -> Void)?
+
+    public init(poster: CommunityPoster, onUpdated: (() -> Void)? = nil, onDeleted: (() -> Void)? = nil) {
+        self.poster = poster; self.onUpdated = onUpdated; self.onDeleted = onDeleted
+    }
 }
 
 @MainActor

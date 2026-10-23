@@ -1,6 +1,7 @@
 import Combine
 import CommunityCore
 import CommunityTransport
+import CommunityUI
 import DesignSystemKit
 import Foundation
 import OSLog
@@ -23,10 +24,11 @@ final class GalleryComposerViewModel: ObservableObject {
     @Published var anonymous: Bool
     @Published var isPublic: Bool
     @Published var selectedClaimID: Int
-    @Published private(set) var imageDrafts: [ComposerImageDraft] = []
+    let imageUploads: ComposerImageUploads
+    var imageDrafts: [ComposerImageDraft] { imageUploads.drafts }
     @Published private(set) var existingImages: [CommunityImage]
     @Published private(set) var claims = [CommunityClaim(id: 0, text: "无声明")]
-    @Published private(set) var isAddingImages = false
+    var isAddingImages: Bool { imageUploads.isAddingImages }
     @Published private(set) var isLoadingClaims = false
     @Published private(set) var claimsLoadError: String?
     @Published private(set) var isSubmitting = false
@@ -37,7 +39,6 @@ final class GalleryComposerViewModel: ObservableObject {
     let editingPoster: GalleryPosterDetail?
 
     private let service: any GalleryComposerServicing
-    private let images: any GalleryImageUploading
     private let drafts: any GalleryComposerDraftStoring
     private let currentIdentity: () -> CommunitySessionIdentity
     private let owner: CommunitySessionIdentity
@@ -45,8 +46,9 @@ final class GalleryComposerViewModel: ObservableObject {
     private var generation = 0
     private var didCheckDraft = false
     private var didLoadClaims = false
-    private var imageBatchTask: Task<Void, Never>?
-    private var uploads: [UUID: Task<Void, Never>] = [:]
+    private var retainedClaim: CommunityClaim?
+    private var imageObservation: AnyCancellable?
+    private var imageErrorObservation: AnyCancellable?
     private var submissionTask: Task<Bool, Never>?
     private var createResultNeedsReview = false
     private var didPublish = false
@@ -56,8 +58,14 @@ final class GalleryComposerViewModel: ObservableObject {
          images: any GalleryImageUploading, drafts: any GalleryComposerDraftStoring,
          currentIdentity: @escaping () -> CommunitySessionIdentity, prepareImageData: @escaping (Data) async -> Data?) {
         self.editingPoster = editingPoster
+        retainedClaim = editingPoster?.claim
         self.service = service
-        self.images = images
+        let imageOwner = currentIdentity()
+        imageUploads = ComposerImageUploads(upload: { try await images.uploadImage(data: $0, filename: $1) },
+            prepare: { data in
+                guard let prepared = await prepareImageData(data) else { throw GalleryServiceError.uploadFailed }
+                return prepared
+            }, isCurrentSession: { currentIdentity() == imageOwner })
         self.drafts = drafts
         self.currentIdentity = currentIdentity
         self.owner = currentIdentity()
@@ -69,29 +77,24 @@ final class GalleryComposerViewModel: ObservableObject {
         isPublic = editingPoster?.public ?? true
         selectedClaimID = editingPoster?.claim.id ?? 0
         existingImages = editingPoster?.images ?? []
+        imageObservation = imageUploads.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }
+        imageErrorObservation = imageUploads.$errorMessage.compactMap { $0 }.sink { [weak self] message in
+            self?.alert = AppAlert(title: "图片添加失败", message: message)
+        }
     }
 
     deinit {
-        imageBatchTask?.cancel()
-        for task in uploads.values { task.cancel() }
         submissionTask?.cancel()
         savingTask?.cancel()
     }
 
     func cancelPendingOperations() {
         generation &+= 1
-        imageBatchTask?.cancel()
-        imageBatchTask = nil
-        for task in uploads.values { task.cancel() }
-        uploads.removeAll()
+        imageUploads.cancel()
         submissionTask?.cancel()
         submissionTask = nil
         savingTask?.cancel()
         savingTask = nil
-        for index in imageDrafts.indices where imageDrafts[index].isUploading {
-            imageDrafts[index].status = .failed("上传已暂停，请重试。")
-        }
-        isAddingImages = false
         isSubmitting = false
         isSavingDraft = false
         isDiscardingDraft = false
@@ -107,7 +110,7 @@ final class GalleryComposerViewModel: ObservableObject {
         !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || !selectedTags.isEmpty || !customTagDrafts.isEmpty || !imageDrafts.isEmpty
-            || anonymous || !isPublic || selectedClaimID != 0
+            || anonymous || !isPublic || selectedClaimID != 0 || isAddingImages
     }
 
     var hasUnsavedEdits: Bool {
@@ -167,7 +170,11 @@ final class GalleryComposerViewModel: ObservableObject {
         anonymous = draft.anonymous
         isPublic = draft.isPublic
         selectedClaimID = draft.selectedClaimID
-        imageDrafts = restored
+        let savedClaim = claims.first { $0.id == draft.selectedClaimID }
+            ?? CommunityClaim(id: draft.selectedClaimID, text: "已保存的声明")
+        retainedClaim = savedClaim
+        if !claims.contains(where: { $0.id == savedClaim.id }) { claims.append(savedClaim) }
+        imageUploads.restore(restored)
     }
 
     private func presentRecovery(_ result: ComposerDraftLoadResult<GalleryComposerDraftSnapshot>) {
@@ -192,9 +199,11 @@ final class GalleryComposerViewModel: ObservableObject {
     func saveDraft() async -> Bool {
         let operation = generation
         guard editingPoster == nil, !isBusy, !didPublish, isCurrent(operation) else { return false }
-        let snapshot = draftSnapshot
         isSavingDraft = true
         let task = Task { [self] in
+            await imageUploads.waitForImport()
+            guard isCurrent(operation) else { return false }
+            let snapshot = draftSnapshot
             let saved = await drafts.saveGallery(snapshot)
             guard isCurrent(operation) else { return false }
             if !saved {
@@ -225,6 +234,9 @@ final class GalleryComposerViewModel: ObservableObject {
             claimsLoadError = nil
             if !fetched.isEmpty {
                 claims = fetched.sorted { $0.id < $1.id }
+                if let retainedClaim, !claims.contains(where: { $0.id == retainedClaim.id }) {
+                    claims.append(retainedClaim)
+                }
                 if !claims.contains(where: { $0.id == selectedClaimID }) { selectedClaimID = claims.first?.id ?? 0 }
             }
         } catch {
@@ -253,60 +265,16 @@ final class GalleryComposerViewModel: ObservableObject {
     func removeCustomTagDraft(id: GalleryCustomTagDraft.ID) { customTagDrafts.removeAll { $0.id == id } }
     func removeExistingImage(id: CommunityImage.ID) { existingImages.removeAll { $0.id == id } }
 
-    func removeImageDraft(id: ComposerImageDraft.ID) {
-        uploads.removeValue(forKey: id)?.cancel()
-        imageDrafts.removeAll { $0.id == id }
-    }
+    func removeImageDraft(id: ComposerImageDraft.ID) { imageUploads.remove(id: id) }
 
     func addImages(from sources: [@MainActor () async throws -> Data?]) async {
-        let operation = generation
-        guard imageBatchTask == nil, !isBusy, isCurrent(operation) else { return }
-        isAddingImages = true
-        let task = Task { [self] in
-            let remaining = max(0, Self.maximumImageCount - existingImages.count - imageDrafts.count)
-            for source in sources.prefix(remaining) {
-                guard isCurrent(operation) else { return }
-                do {
-                    let sourceData = try await source()
-                    guard isCurrent(operation) else { return }
-                    guard let data = sourceData else { throw GalleryServiceError.uploadFailed }
-                    let prepared = await prepareImageData(data)
-                    guard isCurrent(operation) else { return }
-                    guard let prepared else { throw GalleryServiceError.uploadFailed }
-                    let draft = ComposerImageDraft(previewData: prepared, filename: "poster-\(UUID().uuidString).jpg", uploadData: prepared)
-                    imageDrafts.append(draft)
-                    await retryImageUpload(id: draft.id)
-                } catch {
-                    guard isCurrent(operation), !TaskCancellation.matches(error) else { return }
-                    alert = AppAlert(title: "图片添加失败", message: error.localizedDescription)
-                }
-            }
-        }
-        imageBatchTask = task
-        defer { if generation == operation { imageBatchTask = nil; isAddingImages = false } }
-        await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
+        guard !isBusy, isCurrent(generation) else { return }
+        await imageUploads.addImages(from: sources, existingImageCount: existingImages.count)
     }
 
     func retryImageUpload(id: ComposerImageDraft.ID) async {
-        let operation = generation
-        guard uploads[id] == nil, !isBusy, isCurrent(operation),
-              let index = imageDrafts.firstIndex(where: { $0.id == id }) else { return }
-        let draft = imageDrafts[index]
-        imageDrafts[index].status = .uploading
-        let task = Task { [self] in
-            let status: ComposerImageDraft.Status
-            do {
-                status = .uploaded(try await images.uploadImage(data: draft.uploadData ?? draft.previewData, filename: draft.filename))
-            } catch {
-                guard !TaskCancellation.matches(error) else { return }
-                status = .failed(error.localizedDescription)
-            }
-            guard isCurrent(operation), let index = imageDrafts.firstIndex(where: { $0.id == id }) else { return }
-            imageDrafts[index].status = status
-        }
-        uploads[id] = task
-        defer { if generation == operation { uploads[id] = nil } }
-        await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
+        guard !isBusy, isCurrent(generation) else { return }
+        await imageUploads.retry(id: id)
     }
 
     var submitTitle: String {
@@ -376,12 +344,5 @@ final class GalleryComposerViewModel: ObservableObject {
         defer { if generation == operation { submissionTask = nil; isSubmitting = false } }
         let submitted = await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
         return submitted && isCurrent(operation)
-    }
-}
-
-private nonisolated extension ComposerImageDraft {
-    var isUploading: Bool {
-        if case .uploading = status { return true }
-        return false
     }
 }

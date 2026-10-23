@@ -34,7 +34,7 @@ struct CommunitySessionRecoveryTests {
         let dependencies = MineDependencies(overview: service, profile: service, deletePoster: { _ in })
         let media = AppMedia.makeEnvironment(files: PreferenceMemoryFiles(), previewStorage: MediaPreviewStorage(files: PreferenceMemoryFiles()),
             imageHTTPClient: http, avatarHTTPClient: http)
-        let poster = CommunityPosterDestination { _, _ in AnyView(Text("poster")) }
+        let poster = CommunityPosterDestination { _ in AnyView(Text("poster")) }
         let settings = CommunitySettingsDestinations(settingsEntries: [], settings: { _ in AnyView(Text("settings")) }, suggestion: { AnyView(Text("suggestion")) })
         let view: AnyView = profile
             ? AnyView(UserProfileRootView(dependencies: dependencies, media: media, posters: poster, userID: 42))

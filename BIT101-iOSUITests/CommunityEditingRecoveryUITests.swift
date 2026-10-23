@@ -2,6 +2,20 @@ import XCTest
 
 nonisolated final class CommunityEditingRecoveryUITests: UIAutomationTestCase {
     @MainActor
+    @objc func testPosterCommentsRetryInPlaceAfterInitialFailure() {
+        app = configureApp(resetStorage: true, content: true, initialTab: "gallery")
+        assertUI(textElement("自动化测试话题").appears(timeout: 5), "话廊应先展示话题入口。")
+        assertUI(UITestControlClient.request(["command": "fail-request", "key": "reaction/comments"]) == "queued",
+                 "场景应准备评论首屏读取故障。")
+        tap("自动化测试话题")
+        assertUI(app.alerts["加载评论失败"].appears(timeout: 5), "评论故障应保留话题正文并呈现提示。")
+        closeAlertIfPresent()
+        tap("ui.app-failure-state.retry")
+        assertUI(textElement("自动化测试评论").appears(timeout: 5), "评论区域重试应恢复内容。")
+        assertUI(app.navigationBars["帖子详情"].exists, "恢复过程应保留当前话题详情。")
+    }
+
+    @MainActor
     @objc func testCommentEditorsProtectInputUntilConfirmedDiscard() {
         for kind in ["poster", "course", "paper"] {
             openDetail(kind)
@@ -84,10 +98,11 @@ nonisolated final class CommunityEditingRecoveryUITests: UIAutomationTestCase {
         dismissKeyboard()
         tap("添加评论图片")
         selectFirstPhoto()
-        assertUI(app.descendants(matching: .any)["comment.image-upload.error"].appears(timeout: 10), "首次上传故障应保留评论正文和图片入口。")
-        tap("添加评论图片")
-        selectFirstPhoto()
-        assertUI(textElement("已添加 1 张图片").appears(timeout: 10), "再次选择应完成图片上传。")
+        let retry = app.buttons["重试"]
+        assertUI(retry.appears(timeout: 10), "上传故障应保留原选图并提供重试。")
+        assertUI(textElement("已添加 1 张图片").exists, "失败图片应继续留在附件列表。")
+        retry.tapBriefly()
+        assertUI(textElement("已上传").appears(timeout: 10), "重试应直接完成原选图上传。")
         tap("预览第1张评论图片")
         closeImagePreview()
         tap("移除第1张评论图片")

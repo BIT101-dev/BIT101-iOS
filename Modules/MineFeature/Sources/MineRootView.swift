@@ -293,7 +293,8 @@ private struct UserProfileRootViewScene: View {
         }
         .sheet(item: $selectedPoster) { poster in
             NavigationStack {
-                destinations.poster(poster, nil)
+                destinations.poster(.init(poster: poster,
+                    onUpdated: { isPosterRetryRequested = true }, onDeleted: { isPosterRetryRequested = true }))
             }
             .presentationDetents([.large])
             .presentationDragIndicator(.hidden)
@@ -703,13 +704,14 @@ private struct MinePosterListView: View {
         .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $selectedPoster) { poster in
             NavigationStack {
-                destinations.poster(
-                    poster,
-                    {
+                destinations.poster(.init(
+                    poster: poster,
+                    onUpdated: { isRefreshRequested = true },
+                    onDeleted: {
                         deletedPosterIDs.insert(poster.id)
                         isRefreshRequested = true
                     }
-                )
+                ))
             }
             .presentationDetents([.large])
             .presentationDragIndicator(.hidden)

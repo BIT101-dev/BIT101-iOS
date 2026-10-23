@@ -25,6 +25,11 @@ final class GallerySubscriptionsViewModel: ObservableObject {
 
     init(service: any GallerySubscriptionServicing) { self.service = service }
 
+    func bootstrapIfNeeded() async {
+        guard status == .idle else { return }
+        await refresh()
+    }
+
     func refresh() async {
         generation &+= 1
         let requestGeneration = generation
