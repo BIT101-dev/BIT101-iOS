@@ -42,6 +42,8 @@ Scripts/build-install-device.sh mac
 
 默认命令完成真机 Release 构建、安装与启动；`build` 编译 App、Widget、Watch App 和 Watch Widget；`archive` 使用工程正式归档配置，保存 dSYM。常规 App 使用正式业务组装与空工作流条件。Catalyst 安装到 `~/Applications/BIT101-iOS.app`，复制和原子交换在固定事务路径完成。
 
+装机就绪采样覆盖写入 `.build/extended-automation/restore.log`，包含设备复制、App 身份、初始化、会话恢复与进程状态。超时展示最后一次采样的原因和日志路径。
+
 归档覆盖 `build/DeviceInstall/BIT101-iOS.xcarchive`，已有签名归档可用于升级安装：
 
 ```sh
@@ -265,6 +267,8 @@ python3 Scripts/validation_evidence.py manual 检查项 \
 ### 原始结果与批次
 
 同类日志、截图和报告覆盖固定路径。`test-metrics.txt` 保存构建与运行耗时、逐例结果、最慢用例、进程及交互统计。`report json` 和 `report coverage` 沿当前批次读取模块事件及模块覆盖率，或原生结果包。报告按指标和结果包的完成顺序选择当前来源；新构建结果优先于旧测试指标，构建诊断沿所属结果包呈现。
+
+模块测试失败时同样生成当前批次指标，`report` 与 `report json` 呈现本次失败和模块日志；事件采集失败会说明原因。模块覆盖率沿成功执行生成。
 
 原生结果保存到固定结果包，中断时恢复前序结果。相邻完整测试组共同汇总，同组再次完整执行时开启新批次；`verify` 从首组开始组织完整验收批次。定向复验保留相同输入和环境下的完整结果，发布验收核对采样时效。性能采样按所属输入和工作负载复用。
 

@@ -18,7 +18,7 @@ def diagnostic_path_list(steps: list, upload: dict) -> str:
     producer = producers[0]
     if producer.get('run') != 'python3 Scripts/ci_diagnostics.py' \
             or producer.get('if') != upload.get('if') or steps.index(producer) >= steps.index(upload) \
-            or producer.get('env', {}).get('BIT101_CI_CANCELLED') != '${{ cancelled() }}' \
+            or producer.get('env', {}).get('BIT101_CI_CANCELLED') != "${{ job.status == 'cancelled' }}" \
             or producer.get('continue-on-error', False) is not False:
         return ''
     return producer.get('env', {}).get('BIT101_DIAGNOSTIC_PATHS', '')

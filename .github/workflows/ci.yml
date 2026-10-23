@@ -133,7 +133,7 @@ jobs:
         id: diagnostics
         if: ${{ always() }}
         env:
-          BIT101_CI_CANCELLED: ${{ cancelled() }}
+          BIT101_CI_CANCELLED: ${{ job.status == 'cancelled' }}
           BIT101_DIAGNOSTIC_PATHS: |
             .build/static-audit/*.log
             .build/compiler-cache/swift-syntax-indexer
@@ -229,7 +229,7 @@ jobs:
         id: diagnostics
         if: ${{ always() && fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
         env:
-          BIT101_CI_CANCELLED: ${{ cancelled() }}
+          BIT101_CI_CANCELLED: ${{ job.status == 'cancelled' }}
           BIT101_DIAGNOSTIC_PATHS: |
             .build/extended-automation/build-network-smoke.log
             .build/extended-automation/build-icloud-smoke.log
@@ -330,7 +330,7 @@ jobs:
         id: diagnostics
         if: ${{ always() && fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
         env:
-          BIT101_CI_CANCELLED: ${{ cancelled() }}
+          BIT101_CI_CANCELLED: ${{ job.status == 'cancelled' }}
           BIT101_DIAGNOSTIC_PATHS: |
             .build/extended-automation/catalyst.log
             .build/extended-automation/catalyst-release-runtime.log
@@ -422,7 +422,7 @@ jobs:
         id: diagnostics
         if: ${{ always() && fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
         env:
-          BIT101_CI_CANCELLED: ${{ cancelled() }}
+          BIT101_CI_CANCELLED: ${{ job.status == 'cancelled' }}
           BIT101_DIAGNOSTIC_PATHS: |
             .build/extended-automation/ui.log
             .build/extended-automation/diagnostics/test-results.xcresult
@@ -499,7 +499,7 @@ jobs:
         id: diagnostics
         if: ${{ always() && fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
         env:
-          BIT101_CI_CANCELLED: ${{ cancelled() }}
+          BIT101_CI_CANCELLED: ${{ job.status == 'cancelled' }}
           BIT101_DIAGNOSTIC_PATHS: |
             .build/extended-automation/simulator.log
             .build/extended-automation/all.log
@@ -575,7 +575,7 @@ jobs:
         id: app-diagnostics
         if: ${{ always() && fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
         env:
-          BIT101_CI_CANCELLED: ${{ cancelled() }}
+          BIT101_CI_CANCELLED: ${{ job.status == 'cancelled' }}
           BIT101_DIAGNOSTIC_PATHS: |
             .build/extended-automation/simulator.log
             .build/extended-automation/all.log
@@ -622,7 +622,7 @@ jobs:
         id: diagnostics
         if: ${{ always() && fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
         env:
-          BIT101_CI_CANCELLED: ${{ cancelled() }}
+          BIT101_CI_CANCELLED: ${{ job.status == 'cancelled' }}
           BIT101_DIAGNOSTIC_PATHS: |
             .build/extended-automation/simulator.log
             .build/extended-automation/all.log
@@ -698,7 +698,7 @@ jobs:
         id: diagnostics
         if: ${{ always() }}
         env:
-          BIT101_CI_CANCELLED: ${{ cancelled() }}
+          BIT101_CI_CANCELLED: ${{ job.status == 'cancelled' }}
           BIT101_DIAGNOSTIC_PATHS: |
             .build/extended-automation/simulator.log
             .build/extended-automation/all.log
@@ -769,7 +769,7 @@ jobs:
         id: diagnostics
         if: always()
         env:
-          BIT101_CI_CANCELLED: ${{ cancelled() }}
+          BIT101_CI_CANCELLED: ${{ job.status == 'cancelled' }}
           BIT101_DIAGNOSTIC_PATHS: |
             .build/extended-automation/*.log
             .build/extended-automation/*.txt

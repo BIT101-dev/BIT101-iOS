@@ -7,6 +7,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PROJECT="$ROOT_DIR/BIT101-iOS.xcodeproj"
 DERIVED_DATA="$ROOT_DIR/build/DeviceInstall"
+RESTORE_LOG="$ROOT_DIR/.build/extended-automation/restore.log"
 source "$ROOT_DIR/Scripts/script-support.sh"
 
 ACTION="${1:-install}"
@@ -138,15 +139,17 @@ if [[ "$ACTION" == mac ]]; then
   mkdir -p "$HOME/Applications"
   bit101_install_mac_app "$APP_PATH" "$INSTALL_PATH"
   open -n "$INSTALL_PATH" --args --restore-run-id "$MAC_RUN_ID"
+  mkdir -p "${RESTORE_LOG:h}"
   mac_deadline=$(( SECONDS + 60 ))
   while (( SECONDS < mac_deadline )); do
-    if python3 "$ROOT_DIR/Scripts/validation_restore.py" mac-ready "$INSTALL_PATH" "$MAC_READINESS" "$MAC_RUN_ID" "$MAC_INPUT_DIGEST"; then
+    if python3 "$ROOT_DIR/Scripts/validation_restore.py" mac-ready "$INSTALL_PATH" "$MAC_READINESS" "$MAC_RUN_ID" "$MAC_INPUT_DIGEST" > "$RESTORE_LOG" 2>&1; then
       echo "Catalyst 初始化与活跃进程已确认：$INSTALL_PATH"
       exit 0
     fi
     sleep 1
   done
-  echo "Catalyst 就绪验收超时，请检查启动与登录恢复状态。" >&2
+  echo "Catalyst 就绪验收超时 · $RESTORE_LOG" >&2
+  python3 "$ROOT_DIR/Scripts/command_output.py" show-log "$RESTORE_LOG" true >&2
   exit 1
 fi
 
@@ -205,18 +208,21 @@ xcrun devicectl device process launch \
   --device "$BIT101_DEVICETCL_DEVICE_ID" --terminate-existing \
   BIT101-dev.BIT101-iOS -- --restore-run-id "$BIT101_VALIDATION_RUN_ID" >/dev/null
 restore_deadline=$(( SECONDS + 60 ))
+mkdir -p "${RESTORE_LOG:h}"
 while (( SECONDS < restore_deadline )); do
   if xcrun devicectl device copy from --device "$BIT101_DEVICETCL_DEVICE_ID" \
       --domain-type appDataContainer --domain-identifier BIT101-dev.BIT101-iOS \
-      --source Documents/restore-readiness.json --destination "$DERIVED_DATA/restore-readiness.json" >/dev/null 2>&1; then
-    xcrun devicectl device info processes --device "$BIT101_DEVICETCL_DEVICE_ID" \
-      --quiet --json-output "$DERIVED_DATA/restore-process.json" >/dev/null
-    if python3 "$ROOT_DIR/Scripts/validation_restore.py" "$BIT101_VALIDATION_RUN_ID" "$BIT101_VALIDATION_SOURCE_DIGEST"; then
-      echo "iOS Release 初始化与活跃进程已确认：$BIT101_DEVICE_NAME"
-      exit 0
+      --source Documents/restore-readiness.json --destination "$DERIVED_DATA/restore-readiness.json" > "$RESTORE_LOG" 2>&1; then
+    if xcrun devicectl device info processes --device "$BIT101_DEVICETCL_DEVICE_ID" \
+        --quiet --json-output "$DERIVED_DATA/restore-process.json" >> "$RESTORE_LOG" 2>&1; then
+      if python3 "$ROOT_DIR/Scripts/validation_restore.py" "$BIT101_VALIDATION_RUN_ID" "$BIT101_VALIDATION_SOURCE_DIGEST" >> "$RESTORE_LOG" 2>&1; then
+        echo "iOS Release 初始化与活跃进程已确认：$BIT101_DEVICE_NAME"
+        exit 0
+      fi
     fi
   fi
   sleep 1
 done
-echo "正式 App 就绪验收超时；请检查 build/DeviceInstall 的构建、就绪与进程证据。" >&2
+echo "正式 App 就绪验收超时 · $RESTORE_LOG" >&2
+python3 "$ROOT_DIR/Scripts/command_output.py" show-log "$RESTORE_LOG" true >&2
 exit 1

@@ -86,18 +86,30 @@ def summary(run_id: str, digest: str) -> dict:
     info = plistlib.loads(info_path.read_bytes())
     proof = dict(proof, kind='restore', startedAt=proof.get('readyAt'), finishedAt=proof.get('readyAt'),
         processAlive=owned_process_alive(proof, processes))
-    proof['passed'] = complete(proof) and matches_app(proof, info, run_id, digest)
+    proof['identityMatches'] = matches_app(proof, info, run_id, digest)
+    proof['passed'] = complete(proof) and proof['identityMatches']
     return proof
 
 
-def mac_ready(app: Path, proof_path: Path, run_id: str, digest: str) -> bool:
+def readiness_diagnostic(proof: dict) -> None:
+    import sys
+    state = dict(App身份=proof.get('identityMatches'), 就绪身份=valid_identity(proof), 初始化=proof.get('initialized'),
+        会话恢复=proof.get('sessionRecovered'), 活跃=proof.get('active'), 进程存活=proof.get('processAlive'),
+        进程编号=proof.get('processIdentifier'), 采样有效=sampling_evidence_current(proof))
+    print('App 就绪状态：' + json.dumps(state, ensure_ascii=False), file=sys.stderr)
+
+
+def mac_ready(app: Path, proof_path: Path, run_id: str, digest: str, *, diagnose: bool = False) -> bool:
     proof = json.loads(proof_path.read_text())
     info = plistlib.loads((app / 'Contents/Info.plist').read_bytes())
     process = subprocess.run(['/bin/ps', '-p', str(proof['processIdentifier']), '-o', 'comm='],
         capture_output=True, text=True, check=False)
     proof = dict(proof, kind='restore', startedAt=proof.get('readyAt'), finishedAt=proof.get('readyAt'),
         processAlive=process.returncode == 0 and process.stdout.strip() == str(app / 'Contents/MacOS/BIT101-iOS'))
-    return complete(proof) and matches_app(proof, info, run_id, digest)
+    proof['identityMatches'] = matches_app(proof, info, run_id, digest)
+    passed = complete(proof) and proof['identityMatches']
+    if diagnose and not passed: readiness_diagnostic(proof)
+    return passed
 
 
 def verify_simulator() -> int:
@@ -435,8 +447,10 @@ if __name__ == '__main__':
             invalidate()
             sys.exit(0)
         if sys.argv[1:2] == ['mac-ready']:
-            sys.exit(0 if mac_ready(Path(sys.argv[2]), Path(sys.argv[3]), *sys.argv[4:]) else 1)
+            sys.exit(0 if mac_ready(Path(sys.argv[2]), Path(sys.argv[3]), *sys.argv[4:], diagnose=True) else 1)
         result = summary(*sys.argv[1:])
+        if not result['passed']: readiness_diagnostic(result)
         sys.exit(0 if result['passed'] else 1)
-    except (OSError, ValueError, KeyError, TypeError):
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        print(f'App 就绪采样失败：{type(error).__name__}：{error}', file=sys.stderr)
         sys.exit(1)

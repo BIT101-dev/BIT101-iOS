@@ -43,9 +43,10 @@ def report_test_results(arguments: list[str]) -> None:
             if line.startswith('结果来源：')]
         if len(sources) == 1 and sources[0]['family'] == 'modules':
             if cli_arguments[2] == 'json':
-                from validation_evidence import module_event_summary
-                print(json.dumps(module_event_summary((bundle.parent / 'module-events.jsonl').read_text()), ensure_ascii=False))
+                print(json.dumps(module_result(result_root / 'module-events.jsonl', sources[0].get('exitCode', 0)), ensure_ascii=False))
             else:
+                if not sources[0].get('coverage'):
+                    raise SystemExit(f'当前模块执行失败，覆盖率随成功运行生成。完整日志：{result_root / "modules.log"}')
                 print(Path(sources[0]['coverage']).read_text())
             raise SystemExit(0)
     diagnostics = result_root / "diagnostics"
@@ -188,7 +189,7 @@ def report_test_results(arguments: list[str]) -> None:
 
 def report_metrics(metrics: Path) -> None:
     from command_output import FailureSummary
-    prefixes = ('测试分组：', '结果：', '总计 ', '构建与运行耗时：', '统计范围：', '合计：', '用例耗时合计：')
+    prefixes = ('测试分组：', '结果：', '总计 ', '构建与运行耗时：', '统计范围：', '合计：', '用例耗时合计：', '完整日志：')
     for line in metrics.read_text().splitlines():
         if line.startswith(prefixes): print(line)
     print(f'完整指标：{metrics}')
@@ -516,6 +517,15 @@ def record_native_metrics(arguments: list[str]) -> None:
 
 
 
+def module_result(events: Path, status: int) -> dict:
+    from validation_evidence import module_event_summary
+    try: result = module_event_summary(events.read_text())
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        if status == 0: raise
+        return dict(passed=False, exitCode=status, diagnostic=f'模块事件读取失败：{error}')
+    return dict(result, passed=result['failedTests'] == 0 and status == 0, exitCode=status)
+
+
 def export_module_metrics(arguments: list[str]) -> None:
     cli_arguments = ["", *arguments]
     import json
@@ -524,11 +534,27 @@ def export_module_metrics(arguments: list[str]) -> None:
     import subprocess
     import sys
 
-    coverage_path, report_path, root_path = map(Path, cli_arguments[1:])
+    coverage_path, report_path, root_path = map(Path, cli_arguments[1:4])
+    status = int(cli_arguments[4]) if len(cli_arguments) > 4 else 0
     sys.path.insert(0, str(root_path / 'Scripts'))
-    from validation_evidence import module_event_summary
     from validation_inputs import module_coverage_executables
-    tests = module_event_summary((report_path.parent / "module-events.jsonl").read_text())
+    tests = module_result(report_path.parent / "module-events.jsonl", status)
+    if status:
+        from command_output import FailureSummary
+        log = report_path.parent / 'modules.log'
+        details = FailureSummary()
+        if log.is_file():
+            with log.open() as source:
+                for line in source: details.add(line)
+        if diagnostic := tests.get('diagnostic'): details.add(diagnostic + '\n')
+        report_path.with_name('test-failures.txt').write_text(''.join(details.lines()))
+        rows = ['# 模块测试指标', '结果来源：' + json.dumps(dict(family='modules', exitCode=status, coverage=None)),
+            f'结果：Failed · 进程状态 {status}', '完整日志：' + str(log),
+            '验证输入：' + os.environ['BIT101_VALIDATION_SOURCE_DIGEST'], '验证运行：' + os.environ['BIT101_VALIDATION_RUN_ID']]
+        if 'totalTests' in tests:
+            rows.append(f"总计 {tests['totalTests']}；通过 {tests['passedTests']}；失败 {tests['failedTests']}；跳过 {tests['skippedTests']}")
+        report_path.write_text('\n'.join(rows) + '\n')
+        return
     test_count = tests['passedTests']
     executed = tests['executedTests']
     products = coverage_path.parent.parent

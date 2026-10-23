@@ -249,6 +249,9 @@ def wiring_self_test(subject) -> None:
     from ci_wiring_rules import ci_wiring_findings
     source = (subject.ROOT / '.github/workflows/ci.yml').read_text()
     assert not ci_wiring_findings(source)
+    invalid_status = source.replace("BIT101_CI_CANCELLED: ${{ job.status == 'cancelled' }}",
+        'BIT101_CI_CANCELLED: ${{ cancelled() }}', 1)
+    assert any('诊断上传' in message for message in ci_wiring_findings(invalid_status))
     for original, replacement in (
             ('python3 Scripts/ci_evidence.py export-result modules', 'echo modules'),
             ('name: verified-result-modules', 'name: diagnostic-modules'),

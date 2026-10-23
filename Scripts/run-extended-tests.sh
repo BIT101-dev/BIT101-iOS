@@ -14,7 +14,7 @@ if [[ "${1:-}" == simulator ]]; then
   exec zsh "$ROOT_DIR/Scripts/simulator-tests.sh" "${@:2}"
 fi
 if [[ "${1:-}" == cache ]]; then
-  [[ $# -eq 1 ]] || exit 64
+  [[ $# -eq 1 ]] || { echo "用法：Scripts/run-extended-tests.sh cache" >&2; exit 64; }
   bit101_acquire_artifact_lock "$0" "$@"
   bit101_build_cache --maintenance
   exit 0
@@ -26,10 +26,10 @@ if [[ "${1:-}" == performance ]]; then
 fi
 if [[ "${1:-}" == report || "${1:-}" == screenshot || "${1:-}" == activities || "${1:-}" == diagnostics ]]; then
   case "$1" in
-    report) [[ $# -le 2 ]] || exit 64 ;;
-    diagnostics) [[ $# -eq 1 ]] || exit 64 ;;
-    activities) [[ $# -eq 2 || ( $# -eq 3 && "$3" == json ) ]] || exit 64 ;;
-    screenshot) [[ $# -eq 2 || $# -eq 3 ]] || exit 64 ;;
+    report) [[ $# -le 2 ]] || { echo "用法：Scripts/run-extended-tests.sh report [json|coverage|测试类/方法]" >&2; exit 64; } ;;
+    diagnostics) [[ $# -eq 1 ]] || { echo "用法：Scripts/run-extended-tests.sh diagnostics" >&2; exit 64; } ;;
+    activities) [[ $# -eq 2 || ( $# -eq 3 && "$3" == json ) ]] || { echo "用法：Scripts/run-extended-tests.sh activities 测试类/方法 [json]" >&2; exit 64; } ;;
+    screenshot) [[ $# -eq 2 || $# -eq 3 ]] || { echo "用法：Scripts/run-extended-tests.sh screenshot 测试类/方法 [附件标识]" >&2; exit 64; } ;;
     *) [[ $# -eq 2 ]] || { echo "请提供测试类/方法。" >&2; exit 64; } ;;
   esac
   case "$1:${2:-}" in
@@ -217,6 +217,9 @@ finish_validation() {
   local validation_status=$?
   trap - EXIT ZERR INT TERM
   export BIT101_VALIDATION_ELAPSED_SECONDS="$(( SECONDS - WORKFLOW_STARTED_SECONDS ))"
+  if [[ "$validation_group" == modules && "$BUILD_ONLY" == false ]] && (( validation_status )); then
+    python3 "$ROOT_DIR/Scripts/test_results.py" module-metrics "" "$DERIVED_ROOT/test-metrics.txt" "$ROOT_DIR" "$validation_status" || true
+  fi
   if ! $BUILD_ONLY; then
     local workflow_seconds=$(( SECONDS - WORKFLOW_STARTED_SECONDS ))
     if [[ -f "$DERIVED_ROOT/test-metrics.txt" ]]; then

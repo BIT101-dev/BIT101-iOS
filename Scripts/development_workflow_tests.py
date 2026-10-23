@@ -30,6 +30,7 @@ def development_workflow_self_test() -> None:
         changed_staged_scripts(fixture)
         immediate_audit_output(fixture)
         ci_diagnostic_selection(fixture)
+        readiness_diagnostics(fixture)
     finally:
         shutil.rmtree(fixture, ignore_errors=True)
 
@@ -159,6 +160,60 @@ def ci_diagnostic_selection(fixture: Path) -> None:
             subject.main()
         assert output.read_text() == 'paths<<BIT101_DIAGNOSTIC_PATHS\n' + expected + '\nBIT101_DIAGNOSTIC_PATHS\n'
         assert (fixture / subject.REPORT).exists() == (cancelled == 'true')
+
+
+def readiness_diagnostics(fixture: Path) -> None:
+    import shlex
+    import sys
+    from textwrap import dedent
+    import validation_restore as subject
+    missing = fixture / 'missing-readiness.json'
+    result = subprocess.run([sys.executable, str(ROOT / 'Scripts/validation_restore.py'), 'mac-ready',
+        '/fixture/App.app', str(missing), 'run', 'source'], capture_output=True, text=True)
+    assert result.returncode == 1 and 'FileNotFoundError' in result.stderr and str(missing) in result.stderr
+    ready = dict(schemaVersion=1, runID='fixture', initialized=False, sessionRecovered=False, active=False,
+        processIdentifier=1, readyAt='2000-01-01T00:00:00Z')
+    with patch.object(Path, 'read_text', return_value=json.dumps(ready)), \
+            patch.object(Path, 'read_bytes', return_value=plistlib.dumps({})), \
+            patch.object(subject.subprocess, 'run', return_value=Mock(returncode=1, stdout='')), \
+            redirect_stderr(diagnostic := StringIO()):
+        assert not subject.mac_ready(Path('/fixture/App.app'), missing, 'run', 'source', diagnose=True)
+    state = json.loads(diagnostic.getvalue().split('：', 1)[1])
+    assert state['App身份'] is False and state['初始化'] is False and state['进程存活'] is False and state['采样有效'] is False
+    source = (ROOT / 'Scripts/build-install-device.sh').read_text()
+    device = source[source.index('restore_deadline='):]
+    mac = dedent(source[source.index('  mac_deadline='):source.index('\nfi\n\nBUILD_OVERRIDES=')])
+    log = fixture / 'restore.log'
+    for platform, block, failures in [('device', device, ('copy', 'process', 'probe', 'success')),
+            ('mac', mac, ('probe', 'success'))]:
+        for failure in failures:
+            log.write_text('old readiness failure')
+            harness = f'''set -euo pipefail
+ROOT_DIR={shlex.quote(str(ROOT))} RESTORE_LOG={shlex.quote(str(log))} DERIVED_DATA={shlex.quote(str(fixture))}
+BIT101_DEVICETCL_DEVICE_ID=fixture BIT101_VALIDATION_RUN_ID=fixture BIT101_VALIDATION_SOURCE_DIGEST=fixture BIT101_DEVICE_NAME=fixture
+INSTALL_PATH=/fixture/App.app MAC_READINESS=/fixture/proof MAC_RUN_ID=fixture MAC_INPUT_DIGEST=fixture
+failure={shlex.quote(failure)}
+xcrun() {{
+  if [[ "$failure" == copy && "$*" == *'copy from'* ]]; then print -u2 'fixture copy failed'; return 1; fi
+  if [[ "$failure" == process && "$*" == *'info processes'* ]]; then print -u2 'fixture process sample failed'; return 1; fi
+  return 0
+}}
+python3() {{
+  if [[ "$1" == */validation_restore.py ]]; then
+    if [[ "$failure" == probe ]]; then print -u2 'fixture initialization pending'; return 1; fi
+    return 0
+  fi
+  command python3 "$@"
+}}
+sleep() {{ SECONDS=$(( SECONDS + 60 )); }}
+'''
+            result = subprocess.run(['zsh', '-c', harness + block], capture_output=True, text=True)
+            assert result.returncode == (0 if failure == 'success' else 1), (platform, failure, result.stderr)
+            assert 'old readiness failure' not in log.read_text()
+            if failure == 'success': assert result.stderr == ''
+            else:
+                expected = {'copy': 'fixture copy failed', 'process': 'fixture process sample failed', 'probe': 'fixture initialization pending'}[failure]
+                assert expected in result.stderr and str(log) in result.stderr, (platform, failure, result.stderr)
 
 
 def cache_and_ui_products(fixture: Path) -> None:
