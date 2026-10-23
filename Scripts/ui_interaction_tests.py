@@ -333,7 +333,7 @@ def checker_report_boundary_findings() -> list[str]:
             report.write_text('previous report')
         audit = (ROOT / 'Scripts/run-static-audit.sh').read_text()
         cleanup = audit.split("trap 'exit 143' TERM\n", 1)[1].split('\nSWIFT_FRONTEND=', 1)[0]
-        result = subprocess.run(['zsh', '-c', 'ROOT_DIR="$1"\nLOG_DIR="$ROOT_DIR/.build/static-audit"\n' + cleanup,
+        result = subprocess.run(['zsh', '-c', 'ROOT_DIR="$1"\nLOG_DIR="$ROOT_DIR/.build/static-audit"\ngroup_names=(checkers)\n' + cleanup,
                                  'checker-report-cleanup', str(fixture)], capture_output=True, text=True, timeout=5)
         assert result.returncode == 0, result.stderr
         assert [report for report in reports if report.exists()] == [], '审计启动需要清理固定报告'

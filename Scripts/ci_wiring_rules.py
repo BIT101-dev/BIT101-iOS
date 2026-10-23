@@ -8,6 +8,7 @@ import shlex
 from functools import cache
 from audit_callback_rules import audit_callback_findings
 from validation_policy import workflow_timeout_seconds
+from ci_diagnostics import diagnostic_path_list
 
 CI_RUNNER = "xcode-27"
 CI_RELEASE_CONTEXT = "startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' && inputs.release_check"
@@ -22,7 +23,7 @@ CI_EXECUTION = '${{ ' + CI_EXECUTE + ' }}'
 CI_NATIVE_EXECUTION = '${{ (' + CI_NATIVE_CONTEXT + ') && ' + CI_EXECUTE + ' }}'
 CI_NATIVE_REUSE = '${{ (' + CI_NATIVE_CONTEXT + ') && !' + CI_EXECUTE + ' }}'
 CI_STATIC_EXECUTION = '${{ !(' + CI_NATIVE_CONTEXT + ') || !' + CI_EXECUTE + ' }}'
-CI_DIAGNOSTICS = '${{ !cancelled() && ' + CI_EXECUTE + ' }}'
+CI_DIAGNOSTICS = '${{ always() && ' + CI_EXECUTE + ' }}'
 DIAGNOSTIC_PATHS = {
     'static-audit': {'.build/static-audit/*.log', '.build/code-quality-report.txt', '.build/ui-consistency-report.txt',
         '.build/compiler-cache/swift-syntax-indexer', '.build/compiler-cache/swift-syntax-indexer-inputs.json',
@@ -217,9 +218,9 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
         if name in DIAGNOSTIC_PATHS:
             uploads = [step for step in mapping(job).get('steps', []) if isinstance(step, dict)
                 and str(step.get('uses', '')).startswith('actions/upload-artifact@') and step_has_role(step, 'Preserve validation diagnostics')]
-            if len(uploads) != 1 or set(mapping(uploads[0].get('with')).get('path', '').splitlines()) != DIAGNOSTIC_PATHS[name]:
+            if len(uploads) != 1 or set(diagnostic_path_list(mapping(job).get('steps', []), uploads[0]).splitlines()) != DIAGNOSTIC_PATHS[name]:
                 errors.append(f'.github/workflows/ci.yml: {name} 的诊断上传需要采用所属任务的文件清单，人工附件保留在本地')
-            diagnostic_condition = CI_DIAGNOSTICS if name in CI_PLANNED_GROUPS else '${{ !cancelled() }}'
+            diagnostic_condition = CI_DIAGNOSTICS if name in CI_PLANNED_GROUPS else '${{ always() }}'
             if len(uploads) != 1 or uploads[0].get('if') != diagnostic_condition \
                     or mapping(uploads[0].get('with')).get('compression-level') != 0 \
                     or mapping(uploads[0].get('with')).get('include-hidden-files') is not True \
@@ -274,7 +275,8 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
             conditions = {CI_EXECUTION} if planned else set()
             if job is jobs.get('static-audit'):
                 conditions.update({CI_NATIVE_EXECUTION, CI_NATIVE_REUSE, CI_STATIC_EXECUTION, CI_NATIVE_CONTEXT})
-            if include_always: conditions.update({'always()', '${{ !cancelled() }}', CI_DIAGNOSTICS})
+            if include_always: conditions.update({'always()', '${{ always() }}', '${{ !cancelled() }}',
+                '${{ !cancelled() && ' + CI_EXECUTE + ' }}', CI_DIAGNOSTICS})
             if planned and mapping(job.get('env')).get('BIT101_CI_GROUP') != 'modules' \
                     and not step_has_role(step, 'Show toolchain') and step.get('if') not in conditions: continue
             if "if" in step and step['if'] not in conditions \
@@ -411,7 +413,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
             or not str(app_upload[0].get('uses', '')).startswith('actions/upload-artifact@') \
             or any(mapping(app_upload[0].get('with')).get(key) != value for key, value in {
                 'name': 'validation-ios-test-shards-app-0', 'compression-level': 0, 'include-hidden-files': True, 'overwrite': True}.items()) \
-            or set(mapping(app_upload[0].get('with')).get('path', '').splitlines()) != DIAGNOSTIC_PATHS['ios-app-tests']:
+            or set(diagnostic_path_list(app_steps, app_upload[0]).splitlines()) != DIAGNOSTIC_PATHS['ios-app-tests']:
         errors.append('.github/workflows/ci.yml: 同设备正式组装前需要顺序执行 App 库存并保留原始诊断上传')
     for job, groups in (('static-audit', ('audit', 'modules')),
             ('release-build', ('build-archive', 'network', 'icloud')),
@@ -543,7 +545,7 @@ def ci_wiring_findings(workflow_source: str) -> list[str]:
             or not diagnostics[0].get('uses', '').startswith('actions/upload-artifact@') \
             or mapping(diagnostics[0].get('with')).get('compression-level') != 0 \
             or mapping(diagnostics[0].get('with')).get('include-hidden-files') is not True \
-            or set(mapping(diagnostics[0].get('with')).get('path', '').splitlines()) != {
+            or set(diagnostic_path_list(steps, diagnostics[0]).splitlines()) != {
                 '.build/extended-automation/*.log', '.build/extended-automation/*.txt',
                 '.build/extended-automation/test-results.xcresult', '.build/extended-automation/diagnostics/test-results.xcresult'}:
         errors.append('.github/workflows/ci.yml: 真机失败需要保存完整日志与原始 XCTest 附件')
@@ -706,7 +708,7 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
                 for changed in mutations if not ci_wiring_findings(changed)]
     for name in DIAGNOSTIC_PATHS:
         for required_path in DIAGNOSTIC_PATHS[name]:
-            omitted = re.sub(rf'(?s)(  {name}:.*?- name: Preserve validation diagnostics.*?          path: \|\n)(.*?)(?=\n  [a-z]|\Z)',
+            omitted = re.sub(rf'(?s)(  {name}:.*?- name: Select validation diagnostics.*?          BIT101_DIAGNOSTIC_PATHS: \|\n)(.*?)(?=\n  [a-z]|\Z)',
                 lambda match: match[1] + match[2].replace('            ' + required_path + '\n', ''), workflow_source, count=1)
             if not any('诊断上传' in item for item in ci_wiring_findings(omitted)):
                 findings.append(f'代码质量规则边界自检失败：{name} 的必要诊断文件')
@@ -717,7 +719,7 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
         private_paths = {'.build/extended-automation/validation-evidence.json', '.build/extended-automation/**',
             '.build/extended-automation/test-results.xcresult'} - DIAGNOSTIC_PATHS[name]
         for private_path in sorted(private_paths):
-            exposed = re.sub(rf'(?s)(  {name}:.*?      - name: Preserve validation diagnostics.*?          path: \|\n)',
+            exposed = re.sub(rf'(?s)(  {name}:.*?      - name: Select validation diagnostics.*?          BIT101_DIAGNOSTIC_PATHS: \|\n)',
                 lambda match: match[1] + '            ' + private_path + '\n', workflow_source, count=1)
             if not any('诊断上传' in item for item in ci_wiring_findings(exposed)):
                 findings.append(f'代码质量规则边界自检失败：{name} 的历史附件隔离')
@@ -738,7 +740,7 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
             marker = '宿主与基准读取完成后' if name == 'ios-test-shards' else '缓存与基准请求后'
             assert any(marker in row for row in ci_wiring_findings(source.replace(block, reordered, 1))), (name, anchor)
     app_block = re.search(r'(?ms)^  ios-app-tests:\n.*?(?=^  [\w-]+:|\Z)', source)[0]
-    upload = app_block[app_block.index('      - name: Preserve App validation diagnostics'):app_block.index('      - name: Run complete formal runtime inventory')]
+    upload = app_block[app_block.index('      - name: Select validation diagnostics'):app_block.index('      - name: Run complete formal runtime inventory')]
     for replacement in ('', upload.replace('validation-ios-test-shards-app-0', 'validation-unused'),
             upload.replace('compression-level: 0', 'compression-level: 6'),
             upload.replace('            .build/extended-automation/test-results.xcresult\n', '')):

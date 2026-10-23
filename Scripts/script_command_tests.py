@@ -280,7 +280,7 @@ def audit_cancellation_findings() -> list[str]:
     (fixture / 'Scripts').symlink_to(SCRIPT_ROOT, target_is_directory=True)
     harness = 'LOG_DIR=' + shlex.quote(str(fixture)) + '''
 exec 3>&1
-ROOT_DIR=/fixture SWIFT_FRONTEND=frontend AUDIT_STARTED=$SECONDS group_processes=()
+ROOT_DIR=/fixture SWIFT_FRONTEND=frontend AUDIT_STARTED=$SECONDS group_processes=() group_names=() full_audit=1
 python3() { if [[ "$1" == "$ROOT_DIR/Scripts/validation_evidence.py" ]]; then return 0; fi; command python3 "$@"; }
 bit101_show_audit_log() { :; }
 blocked_task() { python3 -c 'import os, time; print(os.getpid(), os.getpgrp(), flush=True); time.sleep(60)' >&3; }
@@ -362,7 +362,7 @@ with patch.object(Path, 'read_text', read):
     audit_exit = 'finish_audit() {' + audit_source.split('finish_audit() {', 1)[1].split('\nSWIFT_FRONTEND=', 1)[0]
     for action, expected, recording in (('exit 0', 0, 0), ('exit 7', 7, 0), ('kill -s INT $$', 130, 0),
                                        ('kill -s TERM $$', 143, 0), ('exit 0', 9, 9), ('exit 7', 7, 9)):
-        harness = f'''ROOT_DIR=/fixture AUDIT_STARTED=$SECONDS group_processes=()
+        harness = f'''ROOT_DIR=/fixture AUDIT_STARTED=$SECONDS group_processes=() group_names=() full_audit=1
 python3() {{ print -r -- "RECORD $*"; return {recording}; }}
 '''
         result = subprocess.run(['zsh', '-c', harness + audit_exit + '\n' + action], capture_output=True, text=True)

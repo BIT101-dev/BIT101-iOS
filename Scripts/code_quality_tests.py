@@ -14,8 +14,10 @@ from unittest.mock import Mock, patch
 from swift_source_index import swift_syntax_index_sources
 from ui_rule_tests import explanatory_text_boundary_findings, school_lifecycle_boundary_findings
 
+from code_quality_call_tests import cross_file_view_request_self_test
+
 from code_quality_rules import (
-    ROOT, SCRIPT_ROOT, swift_files, ast_has_view_request, ci_trigger_shell_self_test, cross_file_view_request_self_test,
+    ROOT, SCRIPT_ROOT, swift_files, ast_has_view_request, ci_trigger_shell_self_test,
     cancellation_findings, asynchronous_test_wait_findings, client_source_findings, extension_dependency_findings, mask_literals_and_comments,
     view_transport_findings, discarded_file_write_findings, file_write_calls,
     owner_has_call, uses_application_support_storage, view_request_matches, source_findings,
@@ -469,7 +471,8 @@ bit101_run_logged /log build xcodebuild build-for-testing
     tail = audit[audit.index("failed_groups=()"):]
     from script_test_support import shell_function
     wait_groups = shell_function(SCRIPT_ROOT / 'script-support.sh', 'bit101_wait_audit_groups')
-    harness = r'''
+    selection = audit[audit.index('set -euo pipefail'):audit.index('\nROOT_DIR=')]
+    harness = selection + r'''
 set -euo pipefail
 LOG_DIR=/audit
 ROOT_DIR=/audit

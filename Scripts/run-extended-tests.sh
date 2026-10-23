@@ -51,7 +51,9 @@ if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
   echo "Scripts/run-extended-tests.sh cache               整理共享构建缓存"
   echo "分组：release-runtime、catalyst-release-runtime、schedule、infrastructure、login、extensions、catalyst；组后可直接填写测试类/方法。"
   echo "宿主：release、release-runtime、ui、network-smoke、icloud-smoke、modules、catalyst、catalyst-release-runtime。"
-  echo "专项：verify [--sms] [分组]...；diagnostics；report|screenshot|activities 测试类/方法。"
+  echo "专项：verify [--sms] [分组]... 聚合已授权专项；默认含真机、线上社区写入、iCloud 往返和归档。"
+  echo "日常定向回归示例：verify audit modules；专项可单独执行 verify network、verify community-writes、verify icloud。"
+  echo "诊断：diagnostics；report|screenshot|activities 测试类/方法。"
   echo "附件：activities '测试类/方法()' [json]；screenshot '测试类/方法()' [附件标识]。"
   exit 0
 fi
@@ -109,6 +111,7 @@ if [[ "$MODE" == "verify" ]]; then
   if (( ${#verification_groups[@]} == 0 )); then
     verification_groups=("${(@f)$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" verify-defaults)}")
   fi
+  print -r -- "[验证分组] ${(j:, :)verification_groups}"
   verification_needs_device=false
   for group in "${verification_groups[@]}"; do
     case "$group" in
@@ -213,6 +216,7 @@ typeset -a retained_result_groups=()
 finish_validation() {
   local validation_status=$?
   trap - EXIT ZERR INT TERM
+  export BIT101_VALIDATION_ELAPSED_SECONDS="$(( SECONDS - WORKFLOW_STARTED_SECONDS ))"
   if ! $BUILD_ONLY; then
     local workflow_seconds=$(( SECONDS - WORKFLOW_STARTED_SECONDS ))
     if [[ -f "$DERIVED_ROOT/test-metrics.txt" ]]; then

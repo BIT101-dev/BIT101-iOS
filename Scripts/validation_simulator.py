@@ -10,6 +10,7 @@ METADATA_PREFIX = '模拟器记录：'
 
 def result_metadata(group: str, scope: str, commit: str, device: str, coverage_lines=None) -> dict:
     from validation_environment import environment_context, toolchain_identity
+    from validation_provenance import workflow_elapsed_seconds
     context = environment_context('build-release')
     inventory = json.loads(subprocess.check_output(['xcrun', 'simctl', 'list', '--json'], text=True))
     runtime_id = next(name for name, devices in inventory['devices'].items()
@@ -20,6 +21,7 @@ def result_metadata(group: str, scope: str, commit: str, device: str, coverage_l
         run=os.getenv('GITHUB_RUN_ID', '')), scope=scope, environment=dict(host=context['host'],
         toolchain=toolchain_identity(context), platform=dict(systemVersion=runtime['version'], systemBuild=runtime['buildversion'])))
     if coverage_lines is not None: value['coverageLines'] = coverage_lines
+    if (seconds := workflow_elapsed_seconds()) is not None: value['durationSeconds'] = seconds
     return value
 
 

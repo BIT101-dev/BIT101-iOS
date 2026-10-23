@@ -12,6 +12,7 @@ import signal
 
 
 def prune_native_storage(shared: Path) -> None:
+    # v<格式>.<代际> 的主代与上游代共享引用关系，交由原生工具沿父目录回收。
     for store in (shared / 'CompilationCache.noindex').iterdir():
         if store.is_dir() and any(store.glob('v*')):
             subprocess.run(['xcrun', 'llvm-cas', '--cas=' + str(store), '--prune'], check=True,

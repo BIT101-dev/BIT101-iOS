@@ -50,6 +50,12 @@ def log_output_boundary_findings() -> list[str]:
     warning = "warning: 'CourseFeature' is missing a dependency on 'CommunityCore' because dependency scan of Swift module\n"
     output, raw = captured_command([warning], status=0, executable='xcodebuild')
     assert warning in raw and output.count('\n') == 1 and '[完成]' in output
+    for line in (warning, '[1/2] error: fixture compiler failure\n', '[12/20] warning: fixture dependency issue\n'):
+        output, raw = captured_command([line], status=7, executable='xcodebuild')
+        assert line in output and line in raw
+        with patch.object(Path, 'open', return_value=RetainedLog(line)), redirect_stdout(output := StringIO()):
+            show_log(Path('/fixture/compiler.log'), True)
+        assert line in output.getvalue()
     temporary_bundle = Path('/fixture/cache/ResultBundle_failure.xcresult')
     diagnostic_bundle = Path('/fixture/diagnostics/test-results.xcresult')
     for status in (0, 7):

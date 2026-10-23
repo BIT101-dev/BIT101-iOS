@@ -33,10 +33,10 @@ class BoundedLines:
 
 def useful_line(line):
     if not line.strip(): return False
+    if line.startswith('[') and line[1:2].isdigit() and re.search(r'error:|warning:|fatal:|failed', line, re.IGNORECASE): return True
     if re.match(r"^\s*t =\s*(?:[\d.]+s|nans)\s", line) and not re.search(r"error:|failed", line, re.IGNORECASE): return False
     if line.startswith(("UI control inventory: ", "UI query metrics: ", "UI input replace: ",
                        "UI scene preparation: ", "UI automation App process: ", "UI persistence App restart: ")): return False
-    if re.match(r"warning: '.+' is missing a dependency on '.+' because dependency scan of Swift module", line): return False
     if line.startswith(("Test case ", "Test Case ")) and re.search(r"\bpassed(?: on | \(|$)", line): return False
     if line.startswith(("◇ ", "✔ ")): return False
     if line.startswith(("Test case ", "Test suite ", "Test Case ", "Test Suite ")) and "failed" not in line.lower(): return False

@@ -248,7 +248,7 @@ def static_audit_cancellation_self_test() -> None:
             stdout=subprocess.PIPE, text=True, start_new_session=True)
         try:
             assert worker.stdout.readline().strip() == 'ready'
-            prefix = f'''ROOT_DIR={str(subject.ROOT)!r} AUDIT_STARTED=$SECONDS
+            prefix = f'''ROOT_DIR={str(subject.ROOT)!r} AUDIT_STARTED=$SECONDS full_audit=1
 group_processes=({worker.pid} 0)
 python3() {{
   if [[ "$1" == "$ROOT_DIR/Scripts/validation_evidence.py" ]]; then print -r -- "RECORD $*"; return 0; fi

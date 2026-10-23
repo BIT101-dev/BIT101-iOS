@@ -4,16 +4,49 @@ if [[ -z "${ZSH_EXECUTION_STRING:-}" ]]; then
 fi
 set -euo pipefail
 
-case "${1:-}" in
+group_names=(swift-parse shell-parse python-parse worker-parse dependency-audit module-boundary git-diff docs checkers)
+group_commands=(swift_parse shell_parse python_parse worker_parse dependency_audit module_boundary_audit git_check docs_check bit101_checker_audit)
+requested_groups=()
+self_tests_requested=0
+for argument in "$@"; do
+  case "$argument" in
   --help|-h)
-    print -r -- "用法：Scripts/run-static-audit.sh [--self-test]"
+    print -r -- "用法：Scripts/run-static-audit.sh [--self-test] [分组...]"
     print -r -- "运行 Swift、架构、界面、脚本、文档和依赖静态审计。"
+    print -r -- "分组：${(j:, :)group_names}, artifact-hygiene"
+    print -r -- "默认记录完整审计；显式分组执行定向检查，例如 docs、python-parse、dependency-audit。"
     exit 0
     ;;
-  ""|--self-test) ;;
+  --self-test) self_tests_requested=1 ;;
   prepare) [[ $# -eq 1 ]] || { print -u2 -- "用法：Scripts/run-static-audit.sh [--help]"; exit 64; } ;;
-  *) print -u2 -- "用法：Scripts/run-static-audit.sh [--help]"; exit 64 ;;
-esac
+  *)
+    if (( ${group_names[(Ie)$argument]} == 0 )) && [[ "$argument" != artifact-hygiene ]]; then
+      print -u2 -- "用法：Scripts/run-static-audit.sh [--self-test] [分组...]；分组见 --help。"
+      exit 64
+    fi
+    if (( ${requested_groups[(Ie)$argument]} == 0 )); then requested_groups+=("$argument"); fi
+    ;;
+  esac
+done
+full_audit=1
+if (( ${#requested_groups} )); then full_audit=0; fi
+if (( ! full_audit )) && [[ "${GITHUB_ACTIONS:-false}" == true || "${BIT101_RELEASE_CHECK:-false}" == true ]]; then
+  print -u2 -- "CI 与发布验收采用默认完整静态审计入口。"
+  exit 64
+fi
+run_artifacts=$full_audit
+if (( ${requested_groups[(Ie)artifact-hygiene]} )); then run_artifacts=1; fi
+if (( ! full_audit )); then
+  selected_names=() selected_commands=()
+  for (( index = 1; index <= ${#group_names}; index++ )); do
+    selected_group="$group_names[$index]"
+    if (( ${requested_groups[(Ie)$selected_group]} )); then
+      selected_names+=("$group_names[$index]")
+      selected_commands+=("$group_commands[$index]")
+    fi
+  done
+  group_names=("${selected_names[@]}") group_commands=("${selected_commands[@]}")
+fi
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT_DIR/Scripts/script-support.sh"
@@ -25,9 +58,8 @@ if [[ "${1:-}" == prepare && $# -eq 1 ]]; then
   python3 "$ROOT_DIR/Scripts/validation_artifacts.py" "$ROOT_DIR"
   exit 0
 fi
-[[ $# -eq 0 || ( $# -eq 1 && "$1" == --self-test ) ]] || exit 64
 export BIT101_AUDIT_SELF_TESTS=0
-if [[ "${1:-}" == --self-test || "${GITHUB_ACTIONS:-false}" == true || "${BIT101_RELEASE_CHECK:-false}" == true ]]; then
+if (( self_tests_requested )) || [[ "${GITHUB_ACTIONS:-false}" == true || "${BIT101_RELEASE_CHECK:-false}" == true ]]; then
   export BIT101_AUDIT_SELF_TESTS=1
 fi
 AUDIT_STARTED=$SECONDS
@@ -40,31 +72,47 @@ finish_audit() {
   python3 "$ROOT_DIR/Scripts/workflow_processes.py" terminate-groups "${group_processes[@]}"
   for pid in "${group_processes[@]}"; do if (( pid > 0 )); then wait "$pid" 2>/dev/null || true; fi; done
   local record_status=0
-  python3 "$ROOT_DIR/Scripts/validation_evidence.py" record audit "$audit_status" || record_status=$?
+  if (( full_audit )); then
+    export BIT101_VALIDATION_ELAPSED_SECONDS="$(( SECONDS - AUDIT_STARTED ))"
+    python3 "$ROOT_DIR/Scripts/validation_evidence.py" record audit "$audit_status" || record_status=$?
+  fi
   if (( audit_status == 0 )); then audit_status=$record_status; fi
-  if (( audit_status == 0 )); then echo "静态审计通过 · 10 组 · $(( SECONDS - AUDIT_STARTED )) 秒"; fi
+  if (( audit_status == 0 )); then
+    if (( full_audit )); then echo "静态审计通过 · 10 组 · $(( SECONDS - AUDIT_STARTED )) 秒"
+    else echo "定向静态审计通过 · ${(j:, :)requested_groups} · $(( SECONDS - AUDIT_STARTED )) 秒"; fi
+  fi
   exit "$audit_status"
 }
 trap finish_audit EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-rm -f "$ROOT_DIR/.build/"{code-quality-report,ui-consistency-report,explanatory-text-report}.txt
-
-SWIFT_FRONTEND="$(xcrun --find swift-frontend 2>/dev/null || true)"
-if [[ -z "$SWIFT_FRONTEND" || ! -x "$SWIFT_FRONTEND" ]]; then
-  echo "[失败] 找不到可用的 swift-frontend；请检查当前 Xcode 工具链" >&2
-  exit 1
+if (( ${group_names[(Ie)checkers]} )); then
+  rm -f "$ROOT_DIR/.build/"{code-quality-report,ui-consistency-report,explanatory-text-report}.txt
 fi
-if [[ "${BIT101_AUDIT_ARTIFACTS_PREPARED:-0}" != 1 ]]; then
+
+SWIFT_FRONTEND=""
+if (( full_audit || ${group_names[(Ie)swift-parse]} || ${group_names[(Ie)module-boundary]} || ${group_names[(Ie)checkers]} )); then
+  SWIFT_FRONTEND="$(xcrun --find swift-frontend 2>/dev/null || true)"
+  if [[ -z "$SWIFT_FRONTEND" || ! -x "$SWIFT_FRONTEND" ]]; then
+    echo "[失败] 找不到可用的 swift-frontend；请检查当前 Xcode 工具链" >&2
+    exit 1
+  fi
+fi
+if (( full_audit )) && [[ "${BIT101_AUDIT_ARTIFACTS_PREPARED:-0}" != 1 ]]; then
   python3 "$ROOT_DIR/Scripts/validation_performance.py" recover-batch
 fi
-BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest audit)"
-BIT101_VALIDATION_RUN_ID="$(uuidgen)"
-export BIT101_VALIDATION_SOURCE_DIGEST BIT101_VALIDATION_RUN_ID
+if (( full_audit )); then
+  BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest audit)"
+  BIT101_VALIDATION_RUN_ID="$(uuidgen)"
+  export BIT101_VALIDATION_SOURCE_DIGEST BIT101_VALIDATION_RUN_ID
+fi
 
 mkdir -p "$LOG_DIR"
-rm -f "$LOG_DIR"/*.log(N)
+if (( full_audit )); then rm -f "$LOG_DIR"/*.log(N)
+else
+  for name in "${group_names[@]}"; do rm -f "$LOG_DIR/$name.log"; done
+fi
 
 
 swift_parse() {
@@ -126,11 +174,9 @@ artifact_hygiene() { python3 "$ROOT_DIR/Scripts/validation_artifacts.py" "$ROOT_
 failed_groups=()
 export BIT101_SOURCE_FACTS_CACHE="$LOG_DIR/source-facts.sqlite"
 rm -f "$LOG_DIR/source-facts.json"
-if [[ "${BIT101_AUDIT_ARTIFACTS_PREPARED:-0}" != 1 ]]; then
+if (( run_artifacts )) && [[ "${BIT101_AUDIT_ARTIFACTS_PREPARED:-0}" != 1 ]]; then
   bit101_run_audit_group artifact-hygiene artifact_hygiene || failed_groups+=(artifact-hygiene)
 fi
-group_names=(swift-parse shell-parse python-parse worker-parse dependency-audit module-boundary git-diff docs checkers)
-group_commands=(swift_parse shell_parse python_parse worker_parse dependency_audit module_boundary_audit git_check docs_check bit101_checker_audit)
 for (( index = 1; index <= ${#group_names}; index++ )); do
   bit101_start_audit_group "$group_names[$index]" "$group_commands[$index]"
 done

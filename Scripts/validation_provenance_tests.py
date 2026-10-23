@@ -109,6 +109,7 @@ def probe_identity_self_test(subject) -> None:
 
 
 def run_self_test(recorder) -> None:
+    worker_cli_diagnostics_self_test()
     sampled_module_inputs_self_test()
     worker_deployment_self_test(network_trace_fixture)
     module = sys.modules[recorder.__module__]
@@ -136,9 +137,11 @@ def run_self_test(recorder) -> None:
                 patch.object(module.subprocess, "check_output", return_value="head"), \
                 patch("validation_performance.bundle_identity", return_value="a" * 64), patch("validation_performance.current_commit", return_value="head"), \
                 patch("validation_performance.extract_measurements", return_value={"records": {}}), \
-                patch.dict(os.environ, BIT101_VALIDATION_RUN_ID=run_id, BIT101_VALIDATION_STARTED_AT=utc_now().isoformat()), redirect_stderr(StringIO()):
+                patch.dict(os.environ, BIT101_VALIDATION_RUN_ID=run_id, BIT101_VALIDATION_STARTED_AT=utc_now().isoformat(),
+                    BIT101_VALIDATION_ELAPSED_SECONDS='12.5'), redirect_stderr(StringIO()):
             assert recorder(group, 0, "full", start) == expected, (group, artifact)
             assert saved.call_args.args[0]["groups"][group]["exitCode"] == expected
+            assert saved.call_args.args[0]['groups'][group]['durationSeconds'] == 12.5
             if group in {"all", "ui"} and expected == 0:
                 assert saved.call_args.args[0]["groups"][group]["resultBundleIdentity"] == "a" * 64
                 assert saved.call_args.args[0]["groups"][group]["sourceCommit"] == "head"
@@ -882,3 +885,20 @@ def native_school_request_contracts_self_test() -> None:
     assert complete('score.transcript', [entry, cas, report, page])
     assert not complete('score.transcript', [entry, cas, report, dict(page, statusCode=500)])
     assert not complete('score.transcript', [entry, cas, dict(report, query={'GPA': '0'}), page])
+
+
+def worker_cli_diagnostics_self_test() -> None:
+    from validation_provenance import worker_cli_json, workflow_elapsed_seconds, WORKER_LOG
+    result = subprocess.CompletedProcess([], 1, '', 'ERROR: fixture authentication requires a configured credential\n')
+    with patch.object(subprocess, 'run', return_value=result):
+        try: worker_cli_json('ErrorReportWorker', 'deployments', 'status')
+        except ValueError as error:
+            assert 'fixture authentication' in str(error) and str(WORKER_LOG) in str(error)
+        else: raise AssertionError('CLI failure needs its actionable diagnostic')
+    for value, expected in [('0', 0), ('12.5', 12.5), ('nan', None), ('-1', None)]:
+        with patch.dict(os.environ, BIT101_VALIDATION_ELAPSED_SECONDS=value):
+            if expected is None:
+                try: workflow_elapsed_seconds()
+                except ValueError: pass
+                else: raise AssertionError('Workflow timing requires finite nonnegative seconds')
+            else: assert workflow_elapsed_seconds() == expected

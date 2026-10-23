@@ -12,10 +12,10 @@ import time
 SCRIPT = str(Path(__file__).absolute())
 
 
-def active_members(groups: set[int], *, workers_only: bool = False) -> set[int]:
-    if not groups: return set()
+def active_member_states(groups: set[int], *, workers_only: bool = False) -> dict[int, str]:
+    if not groups: return {}
     snapshot = subprocess.check_output(['ps', '-ww', '-axo', 'pid=,pgid=,stat=,args='], text=True, start_new_session=True)
-    members = set()
+    members = {}
     for line in snapshot.splitlines():
         fields = line.split(None, 3)
         if len(fields) < 4: continue
@@ -25,8 +25,12 @@ def active_members(groups: set[int], *, workers_only: bool = False) -> set[int]:
         program, _, arguments = fields[3].partition(' ')
         supervisor = Path(program).name.lower().startswith('python') and arguments.lstrip().removeprefix('-B ').startswith(SCRIPT + ' ')
         if workers_only and (pid == os.getpid() or supervisor): continue
-        members.add(pid)
+        members[pid] = fields[2]
     return members
+
+
+def active_members(groups: set[int], *, workers_only: bool = False) -> set[int]:
+    return set(active_member_states(groups, workers_only=workers_only))
 
 
 def signal_groups(groups: set[int], signum: int) -> None:
@@ -41,7 +45,14 @@ def stop_groups(groups: set[int], *, grace_seconds: float = 5, workers_only: boo
     signal_groups(groups, signum)
     deadline = time.monotonic() + grace_seconds
     forced = False
+    announced = False
     while active_members(groups, workers_only=workers_only):
+        if forced and not announced:
+            states = active_member_states(groups, workers_only=workers_only)
+            if states:
+                print('[等待] 强制结束后仍有进程；保留工作流锁，等待系统完成回收：'
+                    + ', '.join(f'{pid} ({state})' for pid, state in sorted(states.items())), file=sys.stderr, flush=True)
+                announced = True
         if not forced and time.monotonic() >= deadline:
             signal_groups(groups, signal.SIGKILL)
             forced = True

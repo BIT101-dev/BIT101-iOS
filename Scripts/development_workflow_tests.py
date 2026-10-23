@@ -29,6 +29,7 @@ def development_workflow_self_test() -> None:
         audit_failure_summary(fixture)
         changed_staged_scripts(fixture)
         immediate_audit_output(fixture)
+        ci_diagnostic_selection(fixture)
     finally:
         shutil.rmtree(fixture, ignore_errors=True)
 
@@ -120,6 +121,44 @@ def audit_self_test_selection() -> None:
         assert 'check-code-quality.py --combined' in result.stdout
         assert ('validation_evidence.py self-test' in result.stdout) == (enabled == '1')
         assert ('--combined --self-test' in result.stdout) == (enabled == '1')
+    source = (ROOT / 'Scripts/run-static-audit.sh').read_text()
+    parser = source[source.index('set -euo pipefail'):source.index('\nROOT_DIR=')]
+    for arguments, expected in [([], '1:9:9:0'), (['docs', 'python-parse', 'docs'], '0:2:2:0'),
+            (['artifact-hygiene'], '0:0:0:0'), (['--self-test', 'docs'], '0:1:1:1')]:
+        result = subprocess.run(['zsh', '-c', parser + '\nprint -r -- "$full_audit:${#group_names}:${#group_commands}:$self_tests_requested"',
+            'audit-selection', *arguments], env=dict(os.environ, GITHUB_ACTIONS='false', BIT101_RELEASE_CHECK='false'),
+            capture_output=True, text=True, check=True)
+        assert result.stdout.strip() == expected, result.stdout
+    for arguments, environment in [(['unknown-group'], {}), (['prepare', 'docs'], {}),
+            (['docs'], {'GITHUB_ACTIONS': 'true'}), (['docs'], {'BIT101_RELEASE_CHECK': 'true'})]:
+        result = subprocess.run(['zsh', str(ROOT / 'Scripts/run-static-audit.sh'), *arguments],
+            env=dict(os.environ, **environment), capture_output=True, text=True)
+        assert result.returncode == 64, (arguments, result.stdout, result.stderr)
+
+
+def ci_diagnostic_selection(fixture: Path) -> None:
+    import ci_diagnostics as subject
+    log = fixture / 'compiler.log'
+    log.write_text('[1/2] error: fixture compiler failure\n' + 'progress\n' * 200)
+    private = fixture / 'private.txt'
+    private.write_text('fixture private attachment')
+    bundle = fixture / 'test-results.xcresult'
+    bundle.mkdir()
+    (bundle / 'data.txt').write_text('fixture binary bundle')
+    excerpt = subject.cancellation_excerpt('compiler.log\ntest-results.xcresult', root=fixture)
+    assert 'fixture compiler failure' in excerpt
+    assert 'fixture private attachment' not in excerpt and 'fixture binary bundle' not in excerpt
+    log.write_text('error: ' + 'x' * (subject.BYTE_LIMIT * 2))
+    assert len(subject.cancellation_excerpt('compiler.log', root=fixture).encode()) <= subject.BYTE_LIMIT
+    for cancelled, expected in [('true', subject.REPORT), ('false', 'compiler.log\ntest-results.xcresult')]:
+        output = fixture / 'workflow-output'
+        output.write_text('')
+        with patch.object(subject, 'ROOT', fixture), patch.dict(os.environ,
+                BIT101_DIAGNOSTIC_PATHS='compiler.log\ntest-results.xcresult', BIT101_CI_CANCELLED=cancelled,
+                GITHUB_OUTPUT=str(output)):
+            subject.main()
+        assert output.read_text() == 'paths<<BIT101_DIAGNOSTIC_PATHS\n' + expected + '\nBIT101_DIAGNOSTIC_PATHS\n'
+        assert (fixture / subject.REPORT).exists() == (cancelled == 'true')
 
 
 def cache_and_ui_products(fixture: Path) -> None:

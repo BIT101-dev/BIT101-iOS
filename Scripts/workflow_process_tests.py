@@ -11,6 +11,7 @@ import sys
 import time
 from contextlib import redirect_stderr
 from io import StringIO
+from unittest.mock import patch
 
 SCRIPT_ROOT = Path(__file__).resolve().parent
 ROOT = SCRIPT_ROOT.parent
@@ -18,6 +19,14 @@ ROOT = SCRIPT_ROOT.parent
 
 def workflow_lock_boundary_findings() -> list[str]:
     "验证竞争工作流排队及父子流程锁复用。"
+    import workflow_processes as subject
+    with patch.object(subject, 'active_members', side_effect=[{123}, {123}, {123}, {123}, set()]), \
+            patch.object(subject, 'active_member_states', return_value={123: 'U'}), \
+            patch.object(subject, 'signal_groups') as signals, patch.object(subject.time, 'monotonic', return_value=0), \
+            patch.object(subject.time, 'sleep'), redirect_stderr(output := StringIO()):
+        subject.stop_groups({123}, grace_seconds=0)
+        assert [call.args[1] for call in signals.call_args_list] == [signal.SIGTERM, signal.SIGKILL]
+        assert output.getvalue().count('123 (U)') == 1 and '保留工作流锁' in output.getvalue()
     import select
     import shlex
     import time

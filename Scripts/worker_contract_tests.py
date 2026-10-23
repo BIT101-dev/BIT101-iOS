@@ -824,7 +824,7 @@ def worker_deployment_self_test(network_trace_fixture) -> None:
         assert subject.worker_cli_json(folder, 'deployments', 'status') == {'id': 'deployment'}
         assert run.call_args.args[0][1:4] == ['deployments', 'status', '--json']
         assert run.call_args.kwargs['env']['WRANGLER_LOG_PATH'] == str(subject.WORKER_LOG)
-    with patch.object(subject.subprocess, 'run', return_value=SimpleNamespace(returncode=1, stdout='')):
+    with patch.object(subject.subprocess, 'run', return_value=SimpleNamespace(returncode=1, stdout='', stderr='fixture authentication failed')):
         try: subject.worker_cli_json(folder, 'deployments', 'status')
         except ValueError: pass
         else: raise AssertionError('认证失败需要传播读取失败。')

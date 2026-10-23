@@ -624,6 +624,9 @@ def record(group: str, status: int, scope: str, started_digest: str) -> int:
         print("验证期间输入变更，请按当前输入重新执行该组。", file=sys.stderr)
     row = {"exitCode": status, "scope": scope, "inputDigest": input_digest, "runID": run_id,
            "recordedAt": utc_now().isoformat(), "environment": environment_context(group)}
+    from validation_provenance import workflow_elapsed_seconds
+    if (seconds := workflow_elapsed_seconds()) is not None:
+        row['durationSeconds'] = seconds
     if status == 0 and not complete_environment(group, row["environment"]):
         status = row["exitCode"] = 1
         print(f"{group} 需要完整执行环境身份。", file=sys.stderr)
@@ -917,7 +920,7 @@ def inspect_report(args) -> int:
         if args.action == "bind":
             report["releaseCommit"] = commit
             write_report(report)
-    rows = ["| 验证组 | 范围 | 结果 | 用例 / 探针 | 覆盖率模块 |", "| --- | --- | --- | ---: | ---: |"]
+    rows = ["| 验证组 | 范围 | 结果 | 用例 / 探针 | 覆盖率模块 | 耗时 / 秒 |", "| --- | --- | --- | ---: | ---: | ---: |"]
     from validation_coverage import policy_findings
     from validation_provenance import group_evidence_current
     for name, row in sorted(report.get("groups", {}).items()):
@@ -931,7 +934,8 @@ def inspect_report(args) -> int:
         environment = row.get("environment", {}) if args.recorded_environment else None
         current = row.get("inputDigest") == source_digest(name, environment=environment) and group_evidence_current(name, row)
         label = "待复验" if not current else ("定向通过" if row.get("scope") == "selected" else "通过") if passed else "待处理"
-        rows.append(f"| {name} | {row.get('scope', '?')} | {label} | {count} | {len(result.get('coverage', {}))} |")
+        duration = row.get('durationSeconds', '?')
+        rows.append(f"| {name} | {row.get('scope', '?')} | {label} | {count} | {len(result.get('coverage', {}))} | {duration} |")
     if report.get("releaseCommit"):
         rows.append(f"\n发布提交：{report['releaseCommit']}")
     text = "\n".join(rows)

@@ -3,6 +3,7 @@ if [[ -z "${ZSH_EXECUTION_STRING:-}" ]]; then
   exec zsh -c "$(<"$0")" "$0" "$@"
 fi
 set -euo pipefail
+SIMULATOR_STARTED_SECONDS=$SECONDS
 [[ "${BIT101_SIMULATOR_AUTHORIZED:-0}" == 1 ]] || { echo "模拟器流程需要用户显式授权及 BIT101_SIMULATOR_AUTHORIZED=1。" >&2; exit 64; }
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT_DIR/Scripts/script-support.sh"
@@ -303,7 +304,7 @@ else
   -xctestrun "$plan" -derivedDataPath "$DERIVED_ROOT" -destination "$destination" -resultBundlePath "$result" \
   "${parallel_arguments[@]}" -test-timeouts-enabled YES -collect-test-diagnostics never -enableCodeCoverage YES "${only_testing[@]}" || test_status=$?
 fi
-python3 - "$result" "$DERIVED_ROOT/test-metrics.txt" "$ROOT_DIR/Scripts" "$EXPECTED_TESTS" "$test_status" "$mode" "$SIMULATOR_DEVICE" "$configuration" "$TEST_SCOPE" "$SIMULATOR_WORKERS" <<'PYRESULT'
+BIT101_VALIDATION_ELAPSED_SECONDS="$(( SECONDS - SIMULATOR_STARTED_SECONDS ))" python3 - "$result" "$DERIVED_ROOT/test-metrics.txt" "$ROOT_DIR/Scripts" "$EXPECTED_TESTS" "$test_status" "$mode" "$SIMULATOR_DEVICE" "$configuration" "$TEST_SCOPE" "$SIMULATOR_WORKERS" <<'PYRESULT'
 import json
 from pathlib import Path
 import subprocess

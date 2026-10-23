@@ -261,8 +261,8 @@ def wiring_self_test(subject) -> None:
     for name in ('catalyst-tests', 'ios-ui-build', 'ios-test-shards', 'ios-app-tests', 'physical-device'):
         changed = deepcopy(workflow)
         for step in changed['jobs'][name]['steps']:
-            settings = step.get('with', {})
-            if 'path' in settings:
-                settings['path'] = '\n'.join(line for line in settings['path'].splitlines()
+            settings = step.get('env', {})
+            if 'BIT101_DIAGNOSTIC_PATHS' in settings:
+                settings['BIT101_DIAGNOSTIC_PATHS'] = '\n'.join(line for line in settings['BIT101_DIAGNOSTIC_PATHS'].splitlines()
                     if line != '.build/extended-automation/diagnostics/test-results.xcresult')
         assert any('诊断' in message or '原始 XCTest' in message for message in ci_wiring_findings(json.dumps(changed))), name

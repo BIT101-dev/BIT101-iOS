@@ -5,6 +5,7 @@ import re
 import base64
 import json
 import os
+import math
 from pathlib import Path
 import subprocess
 import uuid
@@ -28,6 +29,14 @@ WORKER_SOURCE_PREFIX = 'bit101-source-git:'
 _REPORT_THREAD_LOCK = threading.RLock()
 _REPORT_LOCK_DEPTH: dict[Path, int] = {}
 _REPORT_INPUTS: dict[Path, dict] = {}
+
+
+def workflow_elapsed_seconds() -> float | None:
+    value = os.getenv('BIT101_VALIDATION_ELAPSED_SECONDS')
+    if value is None: return None
+    seconds = float(value)
+    if not math.isfinite(seconds) or seconds < 0: raise ValueError('工作流耗时需要有限非负秒数。')
+    return seconds
 
 
 def worker_input_name(folder: str, name: str) -> bool:
@@ -92,7 +101,12 @@ def worker_cli_json(folder: str, *arguments: str) -> dict:
         env=worker_environment(),
         capture_output=True, text=True, timeout=60)
     if result.returncode:
-        raise ValueError(f'{folder} 部署身份读取失败；请核对 Wrangler 认证与线上部署。')
+        from command_output import FailureSummary
+        details = FailureSummary()
+        for line in result.stderr.splitlines(keepends=True): details.add(line)
+        message = ''.join(details.lines()).strip()
+        raise ValueError(f'{folder} 部署身份读取失败（Wrangler {result.returncode}）。'
+            + (f'\n{message}' if message else '') + f'\n完整诊断：{WORKER_LOG}')
     return json.loads(result.stdout)
 
 
