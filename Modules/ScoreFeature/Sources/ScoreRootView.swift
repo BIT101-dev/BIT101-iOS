@@ -38,6 +38,7 @@ public struct ScoreListPage: View {
                             Task { await viewModel.refresh() }
                         }
                     )
+                    .disabled(viewModel.isRecoveringStorage)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     if viewModel.needsStorageRecovery {
                         storageRecoveryButton.padding(AppDesignSystem.Spacing.section)
@@ -48,8 +49,8 @@ public struct ScoreListPage: View {
                 List {
                     Section {
                         AppRefreshStatusRow(
-                            isRefreshing: viewModel.isSyncing,
-                            refreshingText: viewModel.syncStatusText,
+                            isRefreshing: viewModel.isSyncing || viewModel.isRecoveringStorage,
+                            refreshingText: viewModel.isRecoveringStorage ? "正在恢复成绩存储" : viewModel.syncStatusText,
                             lastUpdatedText: viewModel.lastUpdatedText,
                             actionTitle: viewModel.rows.isEmpty ? "查询成绩" : "刷新",
                             onRefresh: {

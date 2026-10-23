@@ -131,6 +131,7 @@ public final class ScoreViewModel: ObservableObject {
         isSynchronizingScoreFields = false
         recoverySession = nil
         isStorageRecoveryPresented = false
+        isRecoveringStorage = false
         needsStorageRecovery = false
         accountGeneration &+= 1
         presentationGeneration &+= 1
@@ -203,7 +204,7 @@ public final class ScoreViewModel: ObservableObject {
     ///
     /// 页面已有内容时在原列表上刷新数据。
     func refresh(showErrors: Bool = true) async {
-        guard !isRefreshing, !isSubmittingSMSCode, smsChallenge == nil else { return }
+        guard !isRefreshing, !isSubmittingSMSCode, smsChallenge == nil, !isRecoveringStorage else { return }
         alert = nil
         presentationGeneration &+= 1
 
@@ -819,11 +820,13 @@ public final class ScoreViewModel: ObservableObject {
         recoverySession = nil
         isStorageRecoveryPresented = false
         let generation = accountGeneration
+        presentationGeneration &+= 1
+        let presentation = presentationGeneration
         let availableRows = rows
         isRecoveringStorage = true
-        defer { isRecoveringStorage = false }
+        defer { if isCurrent(session, generation: generation) { isRecoveringStorage = false } }
         let saved = await cacheStore.recover(rows: availableRows, for: session)
-        guard isCurrent(session, generation: generation) else { return }
+        guard isCurrent(session, generation: generation), presentation == presentationGeneration else { return }
         guard let saved else {
             alert = AppAlert(title: "成绩存储恢复受阻", message: "原始缓存已保留，请稍后重试。")
             return

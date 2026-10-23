@@ -417,7 +417,6 @@ def asynchronous_wait_self_test(wait_path) -> None:
     assert asynchronous_test_wait_findings(wait_path, source, facts) == []
     support = ROOT / 'ModuleTests/Support/FileServiceContract.swift'
     source = support.read_text()
-    assert '_ condition: () throws -> Bool' in source and '_ condition: () async' not in source
     facts = swift_syntax_index_sources({str(support): source})[str(support)]
     if asynchronous_test_wait_findings(support, source, facts):
         findings.append('异步事件等待自测：共享等待实现沿行为回归验收')

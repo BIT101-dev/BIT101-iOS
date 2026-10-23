@@ -642,13 +642,24 @@ struct InfrastructureTests {
     @Test(.timeLimit(.minutes(1))) func eventWaitEnforcesDeadlineCancellationAndActorIsolation() async throws {
         await #expect(throws: URLError.self) { try await waitForTestEvent(timeout: .zero) { true } }
         await #expect(throws: URLError.self) { try await waitForTestEvent(timeout: .milliseconds(5)) { false } }
+        await #expect(throws: URLError.self) { try await waitForAsyncTestEvent(timeout: .zero) { true } }
+        await #expect(throws: URLError.self) {
+            try await waitForAsyncTestEvent(timeout: .milliseconds(5)) { await Task.yield(); return false }
+        }
         let cancelled = Task {
             withUnsafeCurrentTask { $0?.cancel() }
             try await waitForTestEvent { false }
         }
         await #expect(throws: CancellationError.self) { try await cancelled.value }
+        let cancelledAsync = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            try await waitForAsyncTestEvent { true }
+        }
+        await #expect(throws: CancellationError.self) { try await cancelledAsync.value }
         actor State { var complete = true }
-        try await waitForTestEvent(isolation: State()) { $0.complete }
+        let state = State()
+        try await waitForTestEvent(isolation: state) { $0.complete }
+        try await waitForAsyncTestEvent { await state.complete }
     }
 
     @Test("File backends share directory, recursive cleanup and failure contracts")

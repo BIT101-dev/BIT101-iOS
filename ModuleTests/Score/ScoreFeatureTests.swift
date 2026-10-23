@@ -16,6 +16,52 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct ScoreFeatureTests {
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func storageRecoverySerializesRefreshAndKeepsLatestRows(resetAccount: Bool) async throws {
+        let headers = ["课程编号", "课程名称", "成绩", "学分", "开课学期"]
+        let previous = [ScoreRow(index: 0, headers: headers, values: ["old", "旧成绩", "60", "4", "term"])]
+        let fresh = [ScoreRow(index: 0, headers: headers, values: ["new", "新成绩", "95", "4", "term"])]
+        let cache = SuspendedSnapshotCache(rows: previous)
+        cache.suspendRecovery = true
+        let service = ScoreServiceSpy(detailedRows: fresh)
+        service.briefRowsOverride = fresh
+        let domain = "BIT101ModulesTests.score-recovery-refresh"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let account = ScoreCacheSessionHolder(session: AppStorageSession(accountIdentifier: "recovery-refresh"))
+        let model = ScoreViewModel(service: service, cacheStore: cache,
+            preferenceStore: ScoreFilterPreferenceStore(defaults: defaults, session: { account.session }),
+            currentScoreCacheSession: { account.session }, scheduleCoursesChanges: Empty().eraseToAnyPublisher(),
+            loadScheduleCourses: { _ in [:] })
+        await model.restoreCachedDataIfNeeded()
+        #expect(ScoreRowComparison.rowsMatch(model.rows, previous))
+        model.requestStorageRecovery()
+        let recovery = Task { await model.recoverStorage() }
+        defer {
+            recovery.cancel()
+            cache.pendingRecovery?.resume(returning: nil)
+            cache.pendingRecovery = nil
+        }
+        try await waitForTestEvent { cache.pendingRecovery != nil }
+        await model.refresh()
+        #expect(service.requestedDetailValues.isEmpty)
+        #expect(ScoreRowComparison.rowsMatch(model.rows, previous))
+        if resetAccount {
+            account.session = AppStorageSession(accountIdentifier: "current-account")
+            model.resetForCurrentAccount()
+            #expect(!model.isRecoveringStorage)
+        }
+        cache.pendingRecovery?.resume(returning: Date(timeIntervalSince1970: 200))
+        cache.pendingRecovery = nil
+        await recovery.value
+        if resetAccount { #expect(model.rows.isEmpty) }
+        else { #expect(ScoreRowComparison.rowsMatch(model.rows, cache.snapshot.rows ?? [])) }
+        await model.refresh()
+        #expect(ScoreRowComparison.rowsMatch(model.rows, fresh))
+        #expect(ScoreRowComparison.rowsMatch(cache.snapshot.rows ?? [], fresh))
+    }
+
     @Test(.timeLimit(.minutes(1))) func detailedFailurePersistsMatchedDetailsAlongsideNewCourses() async throws {
         let headers = ["课程编号", "课程名称", "成绩", "学分", "开课学期", "平均分", "本人成绩在班级中占"]
         let original = ScoreRow(index: 0, headers: headers, values: ["MATH", "数学", "90", "4", "term", "82.5", "1/20"])
@@ -525,7 +571,13 @@ struct ScoreFeatureTests {
     }
 
     private final class SuspendedSnapshotCache: ScoreCaching {
-        func recover(rows: [ScoreRow], for session: AppStorageSession) async -> Date? { nil }
+        var suspendRecovery = false
+        var pendingRecovery: CheckedContinuation<Date?, Never>?
+        func recover(rows: [ScoreRow], for session: AppStorageSession) async -> Date? {
+            guard suspendRecovery else { return nil }
+            suspendRecovery = false
+            return await withCheckedContinuation { pendingRecovery = $0 }
+        }
         let events = PassthroughSubject<AppStorageSession, Never>()
         var changes: AnyPublisher<AppStorageSession, Never> { events.eraseToAnyPublisher() }
         var snapshot: ScoreCacheSnapshot
