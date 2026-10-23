@@ -2,6 +2,7 @@
 import CommunityUI
 import MediaKit
 import CommunityCore
+import TransportCore
 import DesignSystemKit
 //
 //  MineRootView.swift
@@ -244,6 +245,7 @@ private struct UserProfileRootViewScene: View {
     @State private var imageViewer: ImagePreviewRequest?
     @State private var isProfileRetryRequested = false
     @State private var isPosterRetryRequested = false
+    @State private var pendingOperations = CommunityDetailTasks()
 
     init(dependencies: MineDependencies, media: MediaEnvironment, posters: CommunityPosterDestination, userID: Int) {
         self.dependencies = dependencies
@@ -300,6 +302,7 @@ private struct UserProfileRootViewScene: View {
         }
         .systemImagePreview(item: $imageViewer)
         .diagnosticAlert(item: $viewModel.alert)
+        .onDisappear { pendingOperations.cancel() }
     }
 
     @ViewBuilder
@@ -326,7 +329,7 @@ private struct UserProfileRootViewScene: View {
                         imageViewer = ImagePreviewRequest(remoteImages: [info.user.avatar.previewImage], initialIndex: 0)
                     },
                     onFollow: {
-                        Task { await viewModel.followUser() }
+                        pendingOperations.enqueue { await viewModel.followUser() }
                     },
                     isFollowRequestInFlight: viewModel.isFollowingUser
                 )
@@ -375,7 +378,7 @@ private struct UserProfileRootViewScene: View {
 
                 if let message = viewModel.posterState.loadMoreError {
                     AppFailureState(title: "加载更多失败", systemImage: "arrow.clockwise", message: message,
-                        onRetry: { Task { await viewModel.loadMorePostersIfNeeded(currentPoster: visiblePosters.last) } })
+                        onRetry: { pendingOperations.enqueue { await viewModel.loadMorePostersIfNeeded(currentPoster: visiblePosters.last) } })
                 }
                 if viewModel.posterState.isLoadingMore {
                     AppInlineLoadingState()
@@ -520,6 +523,7 @@ private struct MineUserListView: View {
     let onLoadMore: (CommunityUser?) async -> Void
     let onOpenUser: (CommunityUser) -> Void
     @State private var isRefreshRequested = false
+    @State private var pendingOperations = CommunityDetailTasks()
 
     var body: some View {
         Group {
@@ -580,7 +584,7 @@ private struct MineUserListView: View {
 
                     if let loadMoreError {
                         AppFailureState(title: "加载更多失败", systemImage: "arrow.clockwise", message: loadMoreError,
-                            onRetry: { Task { await onLoadMore(users.last) } })
+                            onRetry: { pendingOperations.enqueue { await onLoadMore(users.last) } })
                     }
                     if isLoadingMore {
                         AppInlineLoadingState()
@@ -604,6 +608,7 @@ private struct MineUserListView: View {
         }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
+        .onDisappear { pendingOperations.cancel() }
     }
 
     private var isInitialLoading: Bool {
@@ -632,7 +637,9 @@ private struct MinePosterListView: View {
     @State private var deletingPoster: CommunityPoster?
     @State private var alert: AppAlert?
     @State private var deletedPosterIDs: Set<Int> = []
+    @State private var deletingPosterIDs: Set<Int> = []
     @State private var isRefreshRequested = false
+    @State private var pendingOperations = CommunityDetailTasks()
 
     /// 当前真正可展示的帖子列表。
     ///
@@ -678,7 +685,7 @@ private struct MinePosterListView: View {
 
                         if let loadMoreError {
                             AppFailureState(title: "加载更多失败", systemImage: "arrow.clockwise", message: loadMoreError,
-                                onRetry: { Task { await onLoadMore(visiblePosters.last) } })
+                                onRetry: { pendingOperations.enqueue { await onLoadMore(visiblePosters.last) } })
                         }
                         if isLoadingMore {
                             AppInlineLoadingState()
@@ -731,16 +738,18 @@ private struct MinePosterListView: View {
             }
                 .accessibilityIdentifier("ui.mine-poster-list-view.cancel")
             Button("删除", role: .destructive) {
-                Task {
+                deletingPoster = nil
+                pendingOperations.enqueue {
                     await deletePoster(poster)
-                    deletingPoster = nil
                 }
             }
+            .disabled(deletingPosterIDs.contains(poster.id))
                 .accessibilityIdentifier("ui.mine-poster-list-view.delete")
         } message: { poster in
             Text("确定删除“\(poster.title.isEmpty ? "未命名帖子" : poster.title)”吗？删除后无法恢复。")
         }
         .diagnosticAlert(item: $alert)
+        .onDisappear { pendingOperations.cancel() }
     }
 
     private var isInitialLoading: Bool {
@@ -753,14 +762,18 @@ private struct MinePosterListView: View {
 
     /// 删除帖子后先本地移除，再请求上层刷新列表。
     private func deletePoster(_ poster: CommunityPoster) async {
+        guard !deletedPosterIDs.contains(poster.id), deletingPosterIDs.insert(poster.id).inserted else { return }
+        defer { deletingPosterIDs.remove(poster.id) }
         do {
             try await dependencies.deletePoster(poster.id)
             deletedPosterIDs.insert(poster.id)
             if selectedPoster?.id == poster.id {
                 selectedPoster = nil
             }
+            guard !Task.isCancelled else { return }
             await onRefresh()
         } catch {
+            if TaskCancellation.matches(error) { return }
             alert = AppAlert(title: "删除失败", error: error)
         }
     }

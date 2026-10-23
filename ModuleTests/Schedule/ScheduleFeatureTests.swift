@@ -11,6 +11,29 @@ import Testing
 
 @MainActor
 struct ScheduleFeatureTests {
+    @Test("Time slots clamp negative formatting values")
+    func timeSlotFormatting() {
+        #expect(TimeSlot.parseMinutes("08:30") == 510)
+        #expect(TimeSlot.formatMinutes(-1) == "00:00")
+        #expect(TimeSlot.formatMinutes(510) == "08:30")
+    }
+
+    @Test("DDL editor toggles completion and preserves missing ID")
+    func ddlCompletionState() {
+        let event = DDLEventRecord(
+            id: "event",
+            group: "main",
+            title: "任务",
+            text: "说明",
+            dueAt: Date(timeIntervalSince1970: 100),
+            done: false
+        )
+
+        let toggled = ScheduleDDLEditor.togglingDone(id: event.id, in: [event])
+        #expect(toggled.first?.done == true)
+        #expect(ScheduleDDLEditor.togglingDone(id: "missing", in: toggled) == toggled)
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func courseArrangementLocationsRemainIndependentOfTheClassroomSelection() async throws {
         let course = try editableCourse("location", weekday: 1, weeks: "1")

@@ -6,7 +6,6 @@ import DesignSystemKit
 //  ScheduleEditorViews.swift
 //  BIT101-iOS
 //
-//  Split from ScheduleRootView.swift.
 //
 
 import SwiftUI

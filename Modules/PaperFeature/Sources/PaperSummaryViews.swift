@@ -7,7 +7,6 @@ import DesignSystemKit
 //  PaperSummaryViews.swift
 //  BIT101-iOS
 //
-//  PaperSummaryCard moved from PaperRootView.swift.
 //
 
 import SwiftUI

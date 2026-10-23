@@ -239,7 +239,11 @@ selection_plan="$(python3 - "$ROOT_DIR/Scripts" "$mode" "$TEST_SCOPE" "${selecti
 import json, os, sys
 sys.path.insert(0, sys.argv[1])
 from validation_evidence import simulator_test_selection
-expected, selectors = simulator_test_selection(sys.argv[2], sys.argv[3], sys.argv[4:], os.getenv('BIT101_CI_SHARD'))
+try:
+    expected, selectors = simulator_test_selection(sys.argv[2], sys.argv[3], sys.argv[4:], os.getenv('BIT101_CI_SHARD'))
+except ValueError as error:
+    print(error, file=sys.stderr)
+    raise SystemExit(64)
 print(json.dumps(expected))
 print('\n'.join(selectors))
 PYSELECT

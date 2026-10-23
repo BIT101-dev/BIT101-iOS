@@ -463,11 +463,12 @@ private struct PaperContentBlockView: View {
                 }
             }
         case let .image(_, image):
+            let resource = image.asCommunityImage
             Button {
                 onOpenImage(image)
             } label: {
                 VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
-                    RemoteCachedStillImage(url: image.preferredRemoteURL)
+                    RemoteCachedStillImage(url: resource.thumbnailURL, fallbackURL: resource.originalURL)
                     .frame(maxWidth: .infinity, minHeight: AppDesignSystem.Size.Media.draft)
                     .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
 
@@ -542,7 +543,13 @@ private struct PaperRichTextView: UIViewRepresentable {
     func updateUIView(_ uiView: UITextView, context: Context) {
         context.coordinator.openURL = openURL
         context.coordinator.interactionEvidence = interactionEvidence
-        uiView.attributedText = normalizedAttributedText()
+        let baseFont = UIFont.preferredFont(forTextStyle: textStyle, compatibleWith: uiView.traitCollection)
+        let coordinator = context.coordinator
+        guard coordinator.renderedText != text || coordinator.renderedFont != baseFont || coordinator.renderedColor != textColor else { return }
+        coordinator.renderedText = text
+        coordinator.renderedFont = baseFont
+        coordinator.renderedColor = textColor
+        uiView.attributedText = normalizedAttributedText(baseFont: baseFont)
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
@@ -552,11 +559,10 @@ private struct PaperRichTextView: UIViewRepresentable {
         return CGSize(width: width, height: fittingSize.height)
     }
 
-    private func normalizedAttributedText() -> NSAttributedString {
+    private func normalizedAttributedText(baseFont: UIFont) -> NSAttributedString {
         let source = NSAttributedString(text)
         let mutable = NSMutableAttributedString(attributedString: source)
         let fullRange = NSRange(location: 0, length: mutable.length)
-        let baseFont = UIFont.preferredFont(forTextStyle: textStyle)
 
         mutable.removeAttribute(.foregroundColor, range: fullRange)
         mutable.removeAttribute(.backgroundColor, range: fullRange)
@@ -586,6 +592,9 @@ private struct PaperRichTextView: UIViewRepresentable {
     final class Coordinator: NSObject, UITextViewDelegate {
         var openURL: OpenURLAction
         var interactionEvidence: ((String, String) -> Void)?
+        var renderedText: AttributedString?
+        var renderedFont: UIFont?
+        var renderedColor: UIColor?
 
         init(openURL: OpenURLAction, interactionEvidence: ((String, String) -> Void)?) {
             self.openURL = openURL

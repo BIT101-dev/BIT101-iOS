@@ -104,6 +104,7 @@ private struct CommunityFullTextView: UIViewRepresentable {
     func makeUIView(context: Context) -> UITextView {
         let view = UITextView(usingTextLayoutManager: true)
         view.isEditable = false
+        view.dataDetectorTypes = [.link]
         view.font = .preferredFont(forTextStyle: .body)
         view.adjustsFontForContentSizeCategory = true
         view.accessibilityIdentifier = "community.full-text"

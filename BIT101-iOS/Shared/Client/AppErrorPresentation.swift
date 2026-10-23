@@ -16,6 +16,17 @@ nonisolated struct AppErrorPresentation: Identifiable {
 
     var allowsSchoolServiceLink: Bool { showsRecoveryLinks && schoolServiceURL != nil }
 
+    func sharesFailure(with other: Self) -> Bool {
+        guard message == other.message, allowsDiagnostics == other.allowsDiagnostics,
+              showsRecoveryLinks == other.showsRecoveryLinks, schoolServiceURL == other.schoolServiceURL,
+              recoveryAction == other.recoveryAction else { return false }
+        if let cause = underlyingError, let otherCause = other.underlyingError {
+            let error = cause as NSError, otherError = otherCause as NSError
+            return error.domain == otherError.domain && error.code == otherError.code
+        }
+        return title == other.title
+    }
+
     static var versionText: String {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
@@ -33,7 +44,7 @@ extension AppErrorPresentation {
                 recoveryAction: nil, underlyingError: alert.underlyingError)
         } else {
             self.init(title: alert.title, message: alert.message, allowsDiagnostics: alert.allowsDiagnostics,
-                showsRecoveryLinks: alert.showsRecoveryLinks, schoolServiceURL: schoolServiceURL,
+                showsRecoveryLinks: alert.showsRecoveryLinks, schoolServiceURL: nil,
                 recoveryAction: alert.recoveryAction, underlyingError: alert.underlyingError)
         }
     }
@@ -50,7 +61,8 @@ final class AppErrorPresenter {
     static let shared = AppErrorPresenter()
     private var queue: [AppErrorPresentation] = []
     private var isPresenting = false
-    private var activePresentationID: UUID?
+    private var activePresentation: AppErrorPresentation?
+    private var activePresentationID: UUID? { activePresentation?.id }
     private weak var activeAlertController: UIAlertController?
     private var dismissalWaiters: [UUID: [DismissalWaiter]] = [:]
     private var reportDelegate: ReportPresentationDelegate?
@@ -78,7 +90,7 @@ final class AppErrorPresenter {
         reportController = nil
         reportDelegate = nil
         isPresenting = false
-        activePresentationID = nil
+        activePresentation = nil
         activeAlertController = nil
         let waiters = dismissalWaiters.values.flatMap { $0 }
         dismissalWaiters.removeAll()
@@ -92,17 +104,23 @@ final class AppErrorPresenter {
     func present(_ alert: any DiagnosticAlertPresentable) {
         let generation = presentationGeneration
         let presentation = AppErrorPresentation(alert: alert)
-        if !presentation.allowsDiagnostics && !presentation.allowsSchoolServiceLink {
-            queue.append(presentation)
-            presentNextIfPossible()
+        if !presentation.allowsSchoolServiceLink {
+            enqueue(presentation)
             return
         }
         Task { @MainActor [weak self] in
             let schoolServiceURL = await NetworkDiagnosticStore.shared.latestSchoolServicePageURL()
             guard let self, self.presentationGeneration == generation else { return }
-            queue.append(AppErrorPresentation(alert: alert, schoolServiceURL: schoolServiceURL))
-            presentNextIfPossible()
+            enqueue(AppErrorPresentation(alert: alert, schoolServiceURL: schoolServiceURL))
         }
+    }
+
+    private func enqueue(_ presentation: AppErrorPresentation) {
+        if let activePresentation, dismissalWaiters[activePresentation.id] == nil,
+           activePresentation.sharesFailure(with: presentation) { return }
+        guard !queue.contains(where: { dismissalWaiters[$0.id] == nil && $0.sharesFailure(with: presentation) }) else { return }
+        queue.append(presentation)
+        presentNextIfPossible()
     }
 
     func presentAndWait(_ alert: any DiagnosticAlertPresentable) async {
@@ -164,7 +182,7 @@ final class AppErrorPresenter {
         retryTask = nil
         isPresenting = true
         let item = queue.removeFirst()
-        activePresentationID = item.id
+        activePresentation = item
         let message = item.allowsDiagnostics
             ? "\(item.message)\n\n版本 \(AppErrorPresentation.versionText)"
             : item.message
@@ -257,7 +275,7 @@ final class AppErrorPresenter {
             presentNextIfPossible()
             return
         }
-        activePresentationID = nil
+        activePresentation = nil
         activeAlertController = nil
         isPresenting = false
         let waiters = dismissalWaiters.removeValue(forKey: presentationID) ?? []

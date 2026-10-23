@@ -276,7 +276,10 @@ final class UserProfileViewModel: ObservableObject {
     ///
     /// 他人主页的首屏内容由资料和帖子组成，资料与帖子请求在 `refreshAll()` 中并发执行。
     func bootstrapIfNeeded() async {
-        guard !hasBootstrapped else { return }
+        guard !hasBootstrapped else {
+            if followResultNeedsReview { await refreshProfile() }
+            return
+        }
         hasBootstrapped = true
         await refreshAll()
         if profileStatus == .idle || posterState.status == .idle { hasBootstrapped = false }
@@ -350,7 +353,9 @@ final class UserProfileViewModel: ObservableObject {
         } catch {
             if error is CommunityToggleOutcomeUnknown {
                 followResultNeedsReview = true
+                guard !Task.isCancelled else { return }
                 await refreshProfile()
+                guard !Task.isCancelled else { return }
                 if followResultNeedsReview { alert = AppAlert(title: "关注结果待确认", message: CommunityToggleOutcomeUnknown.reviewMessage) }
                 return
             }

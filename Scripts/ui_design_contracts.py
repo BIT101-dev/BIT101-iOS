@@ -28,7 +28,7 @@ FIXED_GEOMETRY_CONTRACTS = (
         "StrokeStyle(lineWidth: 2, dash: [5, 4])",
     ),
     (
-        "Modules/CommunityUI/Sources/CommunityDesignSystem.swift",
+        "Modules/MediaKit/Sources/ImageDataCompressor.swift",
         "width: max(1, width * scale)",
     ),
     (
@@ -132,7 +132,7 @@ PAGE_THEME_CONTRACTS = (
 VISUAL_CONTRACT_OWNERS = {
     "Modules/GalleryFeature/Sources/GalleryComposerView.swift": (("GalleryComposerScene",), None),
     "Modules/CourseFeature/Sources/CourseHistoryGradesViews.swift": (("CourseHistoryGradesChart",), None),
-    "Modules/CommunityUI/Sources/CommunityDesignSystem.swift": (("ComposerDraftImageCompressor",), "render"),
+    "Modules/MediaKit/Sources/ImageDataCompressor.swift": (("ImageDataCompressor",), "render"),
     "Modules/ScheduleFeature/Sources/ScheduleLinearCalendarViews.swift": (("LinearScheduleCalendarView",), None),
     "Modules/ScheduleFeature/Sources/ScheduleCourseCardViews.swift": (("ScheduleCardTextView", "AdaptiveCardTextView"), "fittingFont"),
     "Modules/MapFeature/Sources/CampusMapScreen.swift": (("AppDesignSystem", "Map"), "tabAccent"),

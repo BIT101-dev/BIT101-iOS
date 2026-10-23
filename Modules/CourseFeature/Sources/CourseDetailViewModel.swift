@@ -362,7 +362,7 @@ final class CourseDetailViewModel: ObservableObject {
         }
     }
 
-    /// 详情首屏还没回来时，点赞仍然需要一个最小可展示的详情快照承接状态。
+    /// 首屏详情与已确认的点赞结果共同更新当前课程状态。
     private func handleCourseResult(_ result: Result<CourseDetail, Error>, previousStatus: CourseDetailLoadStatus, likeRevisionAtStart: Int) {
         switch result {
         case let .success(course):

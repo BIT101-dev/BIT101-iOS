@@ -1,5 +1,6 @@
 import BIT101TestSupport
 import CommunityCore
+import CommunityTransport
 import Foundation
 @testable import MineFeature
 import Testing
@@ -391,6 +392,38 @@ struct MineLifecycleTests {
         await pending.value
         #expect(model.userInfo == nil)
         #expect(model.profileStatus == .idle)
+        #expect(model.alert == nil)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func cancelledFollowReconcilesOnTheNextVisit(cancelDuringReconciliation: Bool) async throws {
+        let service = PagingMineService()
+        let model = UserProfileViewModel(userID: 1, service: service)
+        await model.bootstrapIfNeeded()
+        let confirmed = MineUserInfo(user: listUser(1), followingNum: 2, followerNum: 4,
+            following: true, follower: false, own: false)
+        let gate = ListRequestGate<Bool>()
+        service.profile = {
+            if cancelDuringReconciliation { _ = try await gate.request() }
+            return confirmed
+        }
+        service.follow = {
+            if !cancelDuringReconciliation { _ = try await gate.request() }
+            throw CommunityToggleOutcomeUnknown(underlying: CancellationError())
+        }
+        let operations = CommunityDetailTasks()
+        defer { operations.cancel(); gate.finish(true) }
+        let pending = operations.enqueue { await model.followUser() }
+        try await gate.waitUntilRequested()
+        operations.cancel()
+        gate.finish(true)
+        await pending.value
+        #expect(model.alert == nil && !model.isFollowingUser && model.userInfo?.following == false)
+        let expectedRequests = cancelDuringReconciliation ? 2 : 1
+        #expect(service.profileRequests == expectedRequests)
+        service.profile = { confirmed }
+        await model.bootstrapIfNeeded()
+        #expect(service.profileRequests == expectedRequests + 1 && model.userInfo?.following == true)
         #expect(model.alert == nil)
     }
 

@@ -65,8 +65,10 @@ struct NetworkBusinessDiagnosticsTests {
             ("空教室同步失败", "查询教室失败")
         ] {
             let alert = AppAlert(title: title, message: message)
-            let presentation = AppErrorPresentation(alert: alert)
+            let recentSchoolPage = AppURL.required("https://jxzxehall.bit.edu.cn/fault")
+            let presentation = AppErrorPresentation(alert: alert, schoolServiceURL: recentSchoolPage)
             #expect(presentation.title == title && presentation.message == message && presentation.allowsDiagnostics)
+            #expect(!presentation.allowsSchoolServiceLink && presentation.schoolServiceURL == nil)
             #expect(ErrorReportViewModel(alert: alert).allowsSubmission)
         }
         let userInput = DiagnosticRecoveryActions(title: "需要短信验证", message: "请输入验证码。", allowsDiagnostics: false).presentation

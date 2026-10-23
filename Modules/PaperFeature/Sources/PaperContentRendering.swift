@@ -40,9 +40,6 @@ public struct PaperInlineImage: Identifiable, Hashable {
         )
     }
 
-    public var preferredRemoteURL: URL? {
-        asCommunityImage.thumbnailURL
-    }
 }
 
 /// 文章编辑器正文序列化辅助。

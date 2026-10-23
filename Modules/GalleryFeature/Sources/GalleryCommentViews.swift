@@ -8,7 +8,6 @@ import DesignSystemKit
 //  GalleryCommentViews.swift
 //  BIT101-iOS
 //
-//  Split from GalleryRootView.swift.
 //
 
 import SwiftUI

@@ -124,6 +124,8 @@ private struct GalleryComposerScene: View {
                                     Image(systemName: "minus.circle.fill")
                                         .foregroundStyle(AppDesignSystem.Foreground.secondary)
                                         .font(AppDesignSystem.Typography.title)
+                                        .frame(minWidth: AppDesignSystem.Size.Control.touchTarget, minHeight: AppDesignSystem.Size.Control.touchTarget)
+                                        .contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
                                 .accessibilityLabel("删除标签")
@@ -189,16 +191,9 @@ private struct GalleryComposerScene: View {
                                         )
                                         .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
 
-                                    Button {
+                                    AppComposerImageRemoveButton(accessibilityLabel: "移除原有图片") {
                                         viewModel.removeExistingImage(id: image.id)
-                                    } label: {
-                                        Image(systemName: "xmark.circle.fill")
-                                            .font(AppDesignSystem.Typography.title)
-                                            .foregroundStyle(AppDesignSystem.Palette.Media.foreground, AppDesignSystem.Palette.Media.controlOverlay)
                                     }
-                                    .padding(AppDesignSystem.Spacing.tiny)
-                                    .buttonStyle(.plain)
-                                    .accessibilityLabel("移除原有图片")
                                     .appInteractiveListRow()
                                 }
                                 .frame(

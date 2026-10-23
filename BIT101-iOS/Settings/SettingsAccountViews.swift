@@ -9,7 +9,6 @@ import DesignSystemKit
 //  SettingsAccountViews.swift
 //  BIT101-iOS
 //
-//  Split from SettingsRootView.swift.
 //
 
 import PhotosUI

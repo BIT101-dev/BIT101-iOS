@@ -205,7 +205,7 @@ struct ServiceContractTests {
         #expect(!GalleryWebRequestFactory.isTrustedPage(nil))
     }
 
-    private final class Transport: HTTPTransport {
+    final class Transport: HTTPTransport {
         var requests: [URLRequest] = []
         var authenticationRequests: [URLRequest] = []
         var failure: (any Error)?
@@ -340,31 +340,6 @@ struct ServiceContractTests {
             anonymous: false, tags: [], claimID: 0, isPublic: true)
         let body = try #require(transport.requests.first?.httpBody)
         #expect((try JSONSerialization.jsonObject(with: body) as? [String: Any])?["plugins"] as? String == plugins)
-    }
-
-    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
-    func reportTransportCancellationPreservesItsClassification(urlError: Bool) async {
-        let transport = Transport([])
-        transport.failure = urlError ? URLError(.cancelled) : CancellationError()
-        let service = GalleryService(session: session(transport), preferences: {
-            .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
-        })
-        do {
-            try await service.report(objectID: "poster1", typeID: 42, text: "说明")
-            Issue.record("Cancelled report should release its caller")
-        } catch { #expect(TaskCancellation.matches(error)) }
-    }
-
-    @Test(.timeLimit(.minutes(1)), arguments: [400, 503, 0])
-    func reportCreationDistinguishesRejectionFromAnUnknownOutcome(status: Int) async {
-        let transport = Transport([(status, "")])
-        if status == 0 { transport.failure = URLError(.networkConnectionLost) }
-        let service = GalleryService(session: session(transport), preferences: {
-            .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
-        })
-        do { try await service.report(objectID: "poster1", typeID: 42, text: "说明"); Issue.record("需要呈现传输结果") }
-        catch { #expect((error is CommunityCreateOutcomeUnknown) == (status != 400)) }
-        #expect(transport.requests.count == 1)
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: ["feed", "search", "comments"])
@@ -519,7 +494,7 @@ struct ServiceContractTests {
         }
     }
 
-    private func session(_ transport: Transport, cookie: String = "fixture-cookie", observer: (any HTTPClientObserving)? = nil) -> CommunitySession {
+    func session(_ transport: Transport, cookie: String = "fixture-cookie", observer: (any HTTPClientObserving)? = nil) -> CommunitySession {
         CommunitySession(httpClient: HTTPClient(transport: transport, observer: observer), baseURL: AppURL.required("https://example.invalid"),
             credentials: { .init(identity: .init(accountIdentifier: "contracts"), cookie: cookie) }, refresh: { _ in })
     }

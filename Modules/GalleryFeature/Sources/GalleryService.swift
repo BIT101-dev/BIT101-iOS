@@ -28,7 +28,6 @@ public enum GalleryServiceError: LocalizedError {
     case invalidResponse
     case missingPoster
     case uploadFailed
-    case reportFailed
 
     /// 给 UI 直接展示的错误文案。
     public var errorDescription: String? {
@@ -41,8 +40,6 @@ public enum GalleryServiceError: LocalizedError {
             return "帖子已删除或暂时无法访问。"
         case .uploadFailed:
             return "图片上传失败。"
-        case .reportFailed:
-            return "举报提交失败。"
         }
     }
 }
@@ -322,7 +319,7 @@ public struct GalleryService {
 
     /// 获取可选的帖子 claim 列表。
     ///
-    /// claim 会驱动发帖页里的“声明”选择器，因此它属于一个低频但必须成功的基础数据。
+    /// claim 驱动发帖页的声明选项；编辑器保留默认声明并提供加载重试。
     public func fetchClaims() async throws -> [CommunityClaim] {
         try await api.request(path: "posters/claims")
     }
@@ -341,21 +338,17 @@ public struct GalleryService {
     /// 图片上传返回服务端资源对象；发帖请求通过 `image_mids` 引用该资源。
     public func uploadImage(data: Data, filename: String = "poster.jpg") async throws -> CommunityImage {
         let multipart = MultipartFormData.jpegFile(data: data, filename: filename)
-        do {
-            return try await api.request(
-                path: "upload/image",
-                method: "POST",
-                body: multipart.body,
-                contentType: multipart.contentType,
-                validate: { image in
-                    guard !image.mid.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                        throw GalleryServiceError.invalidResponse
-                    }
+        return try await api.request(
+            path: "upload/image",
+            method: "POST",
+            body: multipart.body,
+            contentType: multipart.contentType,
+            validate: { image in
+                guard !image.mid.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    throw GalleryServiceError.invalidResponse
                 }
-            )
-        } catch let error as NSError where error.domain == "BIT101.Gallery" && error.code >= 400 {
-            throw GalleryServiceError.uploadFailed
-        }
+            }
+        )
     }
 
     /// 发送帖子创建请求。
@@ -443,20 +436,11 @@ public struct GalleryService {
 
     /// 提交帖子或评论举报。
     public func report(objectID: String, typeID: Int, text: String) async throws {
-        do {
-            try await api.requestVoid(
-                path: "manage/reports",
-                method: "POST",
-                body: try api.encode(ReportRequest(obj: objectID, text: text, typeID: typeID))
-            )
-        } catch let error as CommunityCreateOutcomeUnknown {
-            throw error
-        } catch let error as GalleryServiceError {
-            throw error
-        } catch {
-            if TaskCancellation.matches(error) { throw error }
-            throw GalleryServiceError.reportFailed
-        }
+        try await api.requestVoid(
+            path: "manage/reports",
+            method: "POST",
+            body: try api.encode(ReportRequest(obj: objectID, text: text, typeID: typeID))
+        )
     }
 
     /// 拉取帖子或评论对象下的评论列表。

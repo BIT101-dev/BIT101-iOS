@@ -653,6 +653,7 @@ bit101_run_logged() { print BUILD; return 79; }
         path = SCRIPT_ROOT / filename
         source = path.read_text().replace('source "$ROOT_DIR/Scripts/script-support.sh"',
                                          f"source {shlex.quote(str(support))}\n" + frame)
+        source = re.sub(r'(?:>>|>) "\$RESTORE_LOG" 2>&1', '>&2', source)
         stop = "exit 86" if expected == 86 else "return 0"
         source = source.replace(frame, frame + f'\nbit101_run_logged() {{ print -r -- "BUILD $*"; print -r -- "ARGUMENTS ${{(qqq)@}}"; {stop}; }}\n' + '\npython3() { if [[ "$*" == *"validation_performance.py"* ]]; then return 0; fi; if [[ "$*" == *"validation_provenance.py worker-snapshot"* ]]; then print "{}"; return 0; fi; if [[ "$*" == *"validation_restore.py"* ]]; then print -ru2 RESTORE_PROBE; return 0; fi; if [[ "$*" == *"/signing.entitlements"* || "$*" == *"/icloud-cross-device-smoke/report.json"* ]]; then return 0; fi; if [[ "$*" == *"validation_evidence.py digest"* ]]; then case "$3" in all|release-runtime|ui|schedule|infrastructure|login|extensions|network|ddl|school-sms|community-writes|community-cleanup|icloud|icloud-cleanup|restore) [[ "${BIT101_XCODE_DEVICE_ID:-}" == udid ]] || return 78 ;; esac; print self-test-inputs; return 0; fi; command python3 "$@"; }\n')
         source = re.sub(r"(?ms)^ui_test_plan\(\) \{\n.*?^\}$",

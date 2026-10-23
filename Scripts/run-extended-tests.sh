@@ -422,7 +422,7 @@ case "$MODE" in
     run_tests ExtendedSchedulePolicyTests "$CONDITIONS"
     ;;
   infrastructure)
-    run_tests ExtendedInfrastructureTests "$CONDITIONS"
+    run_tests NetworkDiagnosticSupportTests "$CONDITIONS"
     ;;
   login)
     run_tests ExtendedLoginTests "$CONDITIONS"

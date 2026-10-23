@@ -280,7 +280,7 @@ public struct RemoteAutoplayingImage: View {
     public var body: some View {
         ZStack {
             if isActive, phase != .ready {
-                RemoteCachedStillImage(url: fallbackURL ?? url, contentMode: contentMode)
+                RemoteCachedStillImage(url: fallbackURL ?? url, fallbackURL: url, contentMode: contentMode)
                     .clipShape(AppDesignSystem.roundedRectangle(cornerRadius))
             }
             RemoteAnimatedImage(

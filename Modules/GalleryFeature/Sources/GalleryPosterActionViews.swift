@@ -6,7 +6,6 @@ import DesignSystemKit
 //  GalleryPosterActionViews.swift
 //  BIT101-iOS
 //
-//  Split from GalleryRootView.swift.
 //
 
 import SwiftUI

@@ -246,18 +246,23 @@ extension NetworkClientTests {
             await withCheckedContinuation { pending.append($0) }
         })
         defer { presenter.reset(); pending.forEach { $0.resume() } }
-        let alert = AppAlert(title: "排队提示", message: "等待前台", allowsDiagnostics: false, showsRecoveryLinks: false)
+        let cause = URLError(.notConnectedToInternet)
+        let alert = AppAlert(title: "排队提示", message: cause.localizedDescription, allowsDiagnostics: false,
+            showsRecoveryLinks: false, underlyingError: cause)
         for _ in 0..<3 { presenter.present(alert) }
+        presenter.present(AppAlert(title: "另一区域加载失败", message: cause.localizedDescription, allowsDiagnostics: false,
+            showsRecoveryLinks: false, underlyingError: cause))
+        presenter.present(AppAlert(title: "另一个提示", message: "另一项操作", allowsDiagnostics: false, showsRecoveryLinks: false))
         try await waitForTestEvent { retries > 0 }
-        #expect(checks == 3 && retries == 1 && pending.count == 1)
+        #expect(checks == 2 && retries == 1 && pending.count == 1)
         pending.removeFirst().resume()
         try await waitForTestEvent { retries > 1 }
-        #expect(checks == 4 && retries == 2 && pending.count == 1)
+        #expect(checks == 3 && retries == 2 && pending.count == 1)
         let retry = try #require(presenter.retryTask)
         presenter.reset()
         pending.removeFirst().resume()
         await retry.value
-        #expect(checks == 5 && retries == 2)
+        #expect(checks == 4 && retries == 2)
     }
 
     @Test(.timeLimit(.minutes(1)))
