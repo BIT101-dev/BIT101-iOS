@@ -135,6 +135,7 @@ public nonisolated struct PaperComposerDraftSnapshot: Codable, Equatable, Sendab
 public protocol PaperComposerDraftStoring: Sendable {
     func savePaper(_ snapshot: PaperComposerDraftSnapshot) async -> Bool
     func loadPaper(paperID: Int?) async -> ComposerDraftLoadResult<PaperComposerDraftSnapshot>
+    func capturePaperRecovery() async -> ComposerDraftCleanup
     func capturePaperCleanup(matching snapshot: PaperComposerDraftSnapshot?) async -> ComposerDraftCleanup
 }
 

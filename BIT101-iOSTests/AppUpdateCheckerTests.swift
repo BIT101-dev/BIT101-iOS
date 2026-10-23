@@ -373,7 +373,7 @@ struct AppUpdateCheckerTests {
         let gate = Task { @MainActor in
             await coordinator.enqueueAndWait(prompt)
         }
-        await Task.yield()
+        try await waitForTestEvent { coordinator.activePrompt?.id == "network-gate" }
         #expect(coordinator.activePrompt?.id == "network-gate")
         #expect(!gate.isCancelled)
 

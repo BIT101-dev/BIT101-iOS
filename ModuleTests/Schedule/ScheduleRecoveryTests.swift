@@ -8,6 +8,98 @@ import Testing
 
 @MainActor
 struct ScheduleRecoveryTests {
+    @Test(.timeLimit(.minutes(1))) func rebuildConfirmationExpiresWhenTheAccountChanges() async {
+        var account = AppStorageSession(accountIdentifier: "first")
+        var saves = 0
+        let repository = ScheduleRepository(session: { account }, load: { _ in .damaged }, save: { _, _, _ in saves += 1 })
+        await repository.loadIfNeeded()
+        let generation = repository.accountGeneration
+        account = AppStorageSession(accountIdentifier: "second")
+        repository.resetForCurrentAccount()
+        await repository.loadIfNeeded()
+        await repository.rebuildCache(expectedGeneration: generation)
+        #expect(saves == 0 && repository.hasReadFailure && repository.canRebuildCache)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func newerScheduleFormatsPreserveTheOriginalDuringRebuildRequests() async throws {
+        let files = ModuleScoreFiles(), account = AppStorageSession(accountIdentifier: "future-rebuild")
+        let store = SchedulePersistenceStore(files: files, storageRoot: URL(fileURLWithPath: "/future-rebuild"),
+            userStateMatches: ScheduleCloudSyncState.matches)
+        let url = store.cacheFileURL(for: account.accountStorageIdentifier)
+        let bytes = Data(#"{"schemaVersion":2,"courseData":{}}"#.utf8)
+        try files.writeData(bytes, to: url, options: [])
+        let result = await store.load(for: account)
+        #expect(result.isUnreadable && !result.isDamaged)
+        #expect(await store.write(ScheduleCache(), accountIdentifier: account.accountStorageIdentifier,
+            legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .rebuild, expectedUpdatedAt: nil) == nil)
+        #expect(files.storedData[url] == bytes)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func confirmedRootRebuildKeepsCurrentMemoryAndOtherAccounts(legacy: Bool) async throws {
+        let files = ModuleScoreFiles(), account = AppStorageSession(accountIdentifier: "root-rebuild")
+        let store = SchedulePersistenceStore(files: files, storageRoot: URL(fileURLWithPath: "/root-rebuild"),
+            userStateMatches: ScheduleCloudSyncState.matches)
+        var initial = ScheduleCache()
+        initial.primaryScheduleTitle = "保留的日程"
+        initial.hasUnpushedCloudChanges = false
+        let current = store.cacheFileURL(for: account.accountStorageIdentifier)
+        let other = store.cacheFileURL(for: AppStorageSession(accountIdentifier: "other").accountStorageIdentifier)
+        let valid = try JSONEncoder().encode(initial)
+        try files.writeData(valid, to: current, options: [])
+        try files.writeData(valid, to: other, options: [])
+        let repository = ScheduleRepository(session: { account }, load: { await store.load(for: $0) }, save: { cache, source, _ in
+            guard await store.write(cache, accountIdentifier: account.accountStorageIdentifier,
+                legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: source,
+                expectedUpdatedAt: cache.updatedAt) != nil else { throw CocoaError(.fileWriteUnknown) }
+        })
+        await repository.loadIfNeeded()
+        let damagedURL = legacy ? store.cacheFileURL(for: account.legacyAccountDirectoryNameForMigration) : current
+        if legacy { try files.removeItem(at: current) }
+        let damaged = Data("{".utf8)
+        try files.writeData(damaged, to: damagedURL, options: [])
+        await repository.reload()
+        #expect(repository.hasReadFailure && repository.canRebuildCache && !repository.isWritable)
+        #expect(files.storedData[damagedURL] == damaged)
+        await repository.rebuildCache(expectedGeneration: repository.accountGeneration)
+        #expect(repository.isWritable && !repository.hasReadFailure && !repository.canRebuildCache)
+        let restored = try #require(await store.load(for: account).cacheIfReadable)
+        #expect(restored.primaryScheduleTitle == initial.primaryScheduleTitle && !restored.hasUnpushedCloudChanges)
+        #expect(files.storedData[other] == valid)
+        if legacy { #expect(files.storedData[damagedURL] == nil) }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func rebuildPreservesAFileThatBecameReadableBeforeConfirmation() async throws {
+        let files = ModuleScoreFiles(), account = AppStorageSession(accountIdentifier: "rebuild-version")
+        let store = SchedulePersistenceStore(files: files, storageRoot: URL(fileURLWithPath: "/rebuild-version"),
+            userStateMatches: ScheduleCloudSyncState.matches)
+        let url = store.cacheFileURL(for: account.accountStorageIdentifier)
+        try files.writeData(Data("{".utf8), to: url, options: [])
+        let repository = ScheduleRepository(session: { account }, load: { await store.load(for: $0) }, save: { cache, source, _ in
+            guard await store.write(cache, accountIdentifier: account.accountStorageIdentifier,
+                legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: source,
+                expectedUpdatedAt: cache.updatedAt) != nil else { throw CocoaError(.fileWriteUnknown) }
+        })
+        await repository.loadIfNeeded()
+        var newer = ScheduleCache()
+        newer.primaryScheduleTitle = "新版本"
+        let bytes = try JSONEncoder().encode(newer)
+        try files.writeData(bytes, to: url, options: [])
+        await repository.rebuildCache(expectedGeneration: repository.accountGeneration)
+        #expect(files.storedData[url] == bytes && repository.hasReadFailure)
+        await repository.reload()
+        #expect(repository.isWritable && repository.courseState.primaryScheduleTitle == "新版本")
+    }
+
+    @Test(.timeLimit(.minutes(1))) func transientReadFailuresKeepTheRetryPath() async {
+        var saves = 0
+        let repository = ScheduleRepository(session: { AppStorageSession(accountIdentifier: "file-access") },
+            load: { _ in .unreadable }, save: { _, _, _ in saves += 1 })
+        await repository.loadIfNeeded()
+        await repository.rebuildCache(expectedGeneration: repository.accountGeneration)
+        #expect(repository.hasReadFailure && !repository.canRebuildCache && saves == 0)
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func damagedNeighborKeepsCustomSectionsThroughRecoveryConfirmation(structured: Bool) async throws {
         let files = ModuleScoreFiles(), account = AppStorageSession(accountIdentifier: "custom-section-recovery")

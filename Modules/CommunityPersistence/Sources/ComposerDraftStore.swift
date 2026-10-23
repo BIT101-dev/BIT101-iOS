@@ -63,10 +63,7 @@ private nonisolated struct StoredDeveloperSuggestionDraft: Codable, StoredCompos
     }
 }
 
-private nonisolated struct StoredPaperDrafts: Codable, Sendable {
-    let schemaVersion: Int
-    var entries: [String: PaperComposerDraftSnapshot] = [:]
-}
+private typealias StoredPaperDrafts = [String: Data]
 
 public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, DeveloperSuggestionDraftStoring, PaperComposerDraftStoring {
     private static let logger = Logger(subsystem: "BIT101", category: "ComposerDraft")
@@ -101,6 +98,16 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
     }
 
     @MainActor
+    public func capturePaperRecovery() async -> ComposerDraftCleanup {
+        let session = currentSession()
+        return { @MainActor in
+            guard self.currentSession() == session, self.storageOperations.begin() else { return false }
+            defer { self.storageOperations.finish() }
+            return await Self.storage.recoverPaperDrafts(store: self, session: session)
+        }
+    }
+
+    @MainActor
     public func capturePaperCleanup(matching snapshot: PaperComposerDraftSnapshot?) async -> ComposerDraftCleanup {
         guard let snapshot else { return { true } }
         guard storageOperations.begin() else { return { false } }
@@ -115,6 +122,24 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
 
     private static func paperKey(_ id: Int?) -> String { id.map { "paper:\($0)" } ?? "new" }
 
+    private static func paperSnapshot(_ data: Data, key: String) -> PaperComposerDraftSnapshot? {
+        guard let snapshot = try? JSONDecoder().decode(PaperComposerDraftSnapshot.self, from: data),
+              key == paperKey(snapshot.paperID) else { return nil }
+        return snapshot
+    }
+
+    private func paperEntries(_ data: Data) throws -> StoredPaperDrafts {
+        guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let entries = root["entries"] as? [String: Any] else { throw CocoaError(.coderReadCorrupt) }
+        return try entries.mapValues { try JSONSerialization.data(withJSONObject: $0, options: .fragmentsAllowed) }
+    }
+
+    private func writePaperDrafts(_ entries: StoredPaperDrafts, to url: URL) throws {
+        let values = try entries.mapValues { try JSONSerialization.jsonObject(with: $0, options: .fragmentsAllowed) }
+        let data = try JSONSerialization.data(withJSONObject: ["schemaVersion": Self.currentSchemaVersion, "entries": values])
+        try writeData(data, to: url)
+    }
+
     private func readPaperDrafts(session: AppStorageSession) -> ComposerDraftLoadResult<StoredPaperDrafts> {
         let url = currentFileURL(for: "paper.json", session: session)
         do {
@@ -123,18 +148,21 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
             let header = try JSONDecoder().decode(DraftSchemaHeader.self, from: data)
             guard let version = header.schemaVersion else { return .unreadable }
             guard version == Self.currentSchemaVersion else { return .unsupportedVersion(version) }
-            let archive = try JSONDecoder().decode(StoredPaperDrafts.self, from: data)
-            guard archive.entries.allSatisfy({ $0.key == Self.paperKey($0.value.paperID) }) else { return .unreadable }
-            return .loaded(archive)
+            return .loaded(try paperEntries(data))
         } catch { return AppFileSystem.isMissingFile(error) ? .missing : .unreadable }
     }
 
     fileprivate func persistPaper(_ snapshot: PaperComposerDraftSnapshot, session: AppStorageSession) -> Bool {
         let loaded = readPaperDrafts(session: session)
         guard loaded.allowsWrite else { return false }
-        var archive = loaded.snapshot ?? StoredPaperDrafts(schemaVersion: Self.currentSchemaVersion)
-        archive.entries[Self.paperKey(snapshot.paperID)] = snapshot
-        do { try write(archive, to: currentFileURL(for: "paper.json", session: session)); return true }
+        var archive = loaded.snapshot ?? [:]
+        let key = Self.paperKey(snapshot.paperID)
+        if let current = archive[key], Self.paperSnapshot(current, key: key) == nil { return false }
+        do {
+            archive[key] = try JSONEncoder().encode(snapshot)
+            try writePaperDrafts(archive, to: currentFileURL(for: "paper.json", session: session))
+            return true
+        }
         catch { Self.logger.error("保存文章草稿失败：\(String(describing: error), privacy: .private)"); return false }
     }
 
@@ -142,9 +170,31 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
         switch readPaperDrafts(session: session) {
         case .missing: return .missing
         case let .loaded(archive), let .recovered(archive, _):
-            return archive.entries[Self.paperKey(paperID)].map { .loaded($0) } ?? .missing
+            let key = Self.paperKey(paperID)
+            guard let data = archive[key] else { return .missing }
+            guard let snapshot = Self.paperSnapshot(data, key: key) else { return .unreadable }
+            return .loaded(snapshot)
         case .unreadable: return .unreadable
         case let .unsupportedVersion(version): return .unsupportedVersion(version)
+        }
+    }
+
+    fileprivate func recoverPaperDrafts(session: AppStorageSession) -> Bool {
+        let url = currentFileURL(for: "paper.json", session: session)
+        do {
+            try files.setPrivateFileProtection(at: url)
+            let data = try files.readData(at: url, maximumBytes: ComposerDraftImagePolicy.maximumMetadataBytes)
+            let version = (try? JSONDecoder().decode(DraftSchemaHeader.self, from: data))?.schemaVersion
+            if let version, version != Self.currentSchemaVersion { return false }
+            let parsed = try? paperEntries(data)
+            let readable = (parsed ?? [:]).filter { Self.paperSnapshot($0.value, key: $0.key) != nil }
+            if let parsed, version == Self.currentSchemaVersion, readable.count == parsed.count { return true }
+            try writePaperDrafts(readable, to: url)
+            return true
+        } catch {
+            if AppFileSystem.isMissingFile(error) { return true }
+            Self.logger.error("恢复文章草稿失败：\(String(describing: error), privacy: .private)")
+            return false
         }
     }
 
@@ -152,11 +202,14 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
         guard let captured else { return true }
         let loaded = readPaperDrafts(session: session)
         guard loaded.allowsWrite else { return false }
-        guard var archive = loaded.snapshot, archive.entries[Self.paperKey(paperID)] == captured else { return true }
-        archive.entries.removeValue(forKey: Self.paperKey(paperID))
+        let key = Self.paperKey(paperID)
+        guard var archive = loaded.snapshot, let data = archive[key] else { return true }
+        guard let current = Self.paperSnapshot(data, key: key) else { return false }
+        guard current == captured else { return true }
+        archive.removeValue(forKey: key)
         do {
-            if archive.entries.isEmpty { return removeFile(currentFileURL(for: "paper.json", session: session)) }
-            try write(archive, to: currentFileURL(for: "paper.json", session: session))
+            if archive.isEmpty { return removeFile(currentFileURL(for: "paper.json", session: session)) }
+            try writePaperDrafts(archive, to: currentFileURL(for: "paper.json", session: session))
             return true
         } catch { Self.logger.error("清理文章草稿失败：\(String(describing: error), privacy: .private)"); return false }
     }
@@ -371,8 +424,11 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
     }
 
     private func write<T: Encodable>(_ value: T, to fileURL: URL) throws {
+        try writeData(JSONEncoder().encode(value), to: fileURL)
+    }
+
+    private func writeData(_ data: Data, to fileURL: URL) throws {
         try files.createDirectory(at: fileURL.deletingLastPathComponent())
-        let data = try JSONEncoder().encode(value)
         guard data.count <= ComposerDraftImagePolicy.maximumMetadataBytes else { throw CocoaError(.fileWriteOutOfSpace) }
         try files.writeData(
             data,
@@ -524,6 +580,9 @@ private actor ComposerDraftStorage {
     }
     func loadPaper(store: ComposerDraftStore, paperID: Int?, session: AppStorageSession) -> ComposerDraftLoadResult<PaperComposerDraftSnapshot> {
         store.loadPaper(paperID: paperID, session: session)
+    }
+    func recoverPaperDrafts(store: ComposerDraftStore, session: AppStorageSession) -> Bool {
+        store.recoverPaperDrafts(session: session)
     }
     func removePaper(store: ComposerDraftStore, paperID: Int?, captured: PaperComposerDraftSnapshot?, session: AppStorageSession) -> Bool {
         store.removePaper(paperID: paperID, captured: captured, session: session)

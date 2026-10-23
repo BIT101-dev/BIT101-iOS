@@ -140,11 +140,14 @@ enum AppUITestBootstrap {
             _ = try await UITestLoginService().login(studentID: account, password: "ui-test-password")
             recoveredSuggestionID = nil
             if environment["BIT101_UI_TEST_MESSAGE_STORAGE_RECOVERY"] == "1" {
-                let url = AppFileDirectories.accountSupportFileURL(
-                    accountDirectoryName: AppFileDirectories.currentSession.accountStorageIdentifier, named: "message-read-snapshot.json")
-                try AppFileDirectories.files.createDirectory(at: url.deletingLastPathComponent())
-                try AppFileDirectories.files.writeData(Data("{damaged".utf8), to: url, options: .atomic)
+                try prepareDamagedAccountFile("message-read-snapshot.json")
                 AppAccountStores.shared.communityMessages.invalidateSnapshot()
+            }
+            if environment["BIT101_UI_TEST_SCHEDULE_ROOT_DAMAGE"] == "1" {
+                try prepareDamagedAccountFile("schedule-cache.json")
+            }
+            if environment["BIT101_UI_TEST_PAPER_DRAFT_RECOVERY"] == "1" {
+                try prepareDamagedAccountFile("composer-paper.json")
             }
             if environment["BIT101_UI_TEST_SUGGESTION_RECOVERY"] == "1" {
                 try await prepareRecoveredSuggestion()
@@ -176,6 +179,13 @@ enum AppUITestBootstrap {
         } catch {
             preconditionFailure("UI test session preparation failed: \(error)")
         }
+    }
+
+    private static func prepareDamagedAccountFile(_ name: String) throws {
+        let url = AppFileDirectories.accountSupportFileURL(
+            accountDirectoryName: AppFileDirectories.currentSession.accountStorageIdentifier, named: name)
+        try AppFileDirectories.files.createDirectory(at: url.deletingLastPathComponent())
+        try AppFileDirectories.files.writeData(Data("{damaged".utf8), to: url, options: .atomic)
     }
 
     static func prepareForLaunch() {

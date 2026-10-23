@@ -2,6 +2,29 @@ import XCTest
 
 final class ScheduleConflictUITests: UIAutomationTestCase {
     @MainActor
+    func testDamagedRootRebuildRequiresConfirmationAndRestoresEditing() {
+        app = configureApp(resetStorage: true, scheduleRootDamage: true, initialSettings: "calendar")
+        let nameRow = app.buttons["schedule.settings.primary-name"]
+        let rebuild = app.buttons["schedule.recovery.rebuild"]
+        assertUI(rebuild.appears(timeout: 5) && !nameRow.isEnabled, "损坏的根文件应提供所属日程域的确认重建入口。")
+        rebuild.tapBriefly()
+        tap("schedule.recovery.rebuild.cancel")
+        assertUI(rebuild.exists && !nameRow.isEnabled, "取消确认后应保留原文件与读取状态。")
+        rebuild.tapBriefly()
+        tap("schedule.recovery.rebuild.confirm")
+        assertUI(rebuild.disappears(timeout: 5) && nameRow.isEnabled, "确认重建后应恢复日程编辑。")
+        reveal(nameRow)
+        nameRow.tapBriefly()
+        replaceText("重建课表", in: app.textFields["schedule.rename.name"])
+        dismissKeyboard()
+        tap("确定")
+        app = configureApp(resetStorage: false, restartProcess: true, initialSettings: "calendar")
+        let saved = app.buttons.matching(NSPredicate(format: "identifier == %@ AND label CONTAINS %@",
+            "schedule.settings.primary-name", "重建课表")).firstMatch
+        assertUI(saved.appears(timeout: 5), "冷启动应恢复重建后的编辑。")
+    }
+
+    @MainActor
     func testDDLSettingsResumeAfterCacheRecoveryConfirmation() {
         app = configureApp(resetStorage: true, scheduleRecovery: true, initialSettings: "ddl")
         let before = app.buttons["ui.ddl-settings-page.before-day"]

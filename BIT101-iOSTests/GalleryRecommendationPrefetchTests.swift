@@ -614,13 +614,10 @@ struct GalleryRecommendationPrefetchTests {
     }
 
     private func waitUntil(_ condition: () async -> Bool) async -> Bool {
-        for _ in 0..<100 {
-            if await condition() {
-                return true
-            }
-            await Task.yield()
-        }
-        return await condition()
+        do {
+            try await waitForAsyncTestEvent { await condition() }
+            return true
+        } catch { return false }
     }
 
     private func makePoster(id: Int) throws -> CommunityPoster {

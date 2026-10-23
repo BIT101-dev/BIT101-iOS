@@ -50,6 +50,7 @@ UIKit 控件沿构造类型、继承或别名进入源码清单，运行门禁�
 | `CalendarInteractionUITests/testCalendarReminderCloudSwitchesAndLeadTimePersistence` | 两类云开关、提醒确认取消 / 开启、阈值滚轮保存 / 取消、重新装载状态、当前及其他账号的云端偏好清理确认 / 取消 / 结果与同步暂停 |
 | `LoginAndScheduleUITests/testCalendarSettingsPickersTogglesAndRenamePersist` | 时间表非法输入、有效保存、取消保留、课表改名取消 |
 | `ScheduleConflictUITests/testRecoveredScheduleRequiresConfirmationAndPersistsSubsequentEdits` | 日程恢复核对、读取重试、明确确认、后续编辑与冷启动重载 |
+| `ScheduleConflictUITests/testDamagedRootRebuildRequiresConfirmationAndRestoresEditing` | 损坏根文件的所属日程重建、取消 / 确认、编辑恢复与冷启动重载 |
 | `ScheduleConflictUITests/testDDLSettingsResumeAfterCacheRecoveryConfirmation` | DDL 设置恢复核对、读取重试、编辑状态、确认后的滚轮保存与冷启动重载 |
 | `CalendarInteractionUITests/testSchoolTermsClassroomPickersRefreshAndDDLRefresh` | 学期下拉刷新 / 切换、日期滚轮取消、手动日期按首周周一保存 / 重新装载恢复 / 学校日期、校区 / 教学楼 / 教室刷新、订阅及学校 DDL 刷新 |
 | `CalendarInteractionUITests/testCustomScheduleEmptyTitleDetailsAndCalendarActions` | 日程详情、编辑保存、删除、新增取消 |
@@ -115,6 +116,7 @@ UIKit 控件沿构造类型、继承或别名进入源码清单，运行门禁�
 | `InteractionCoverageUITests/testGalleryFeedAndSurfaceSwipesMessagesAndSearchResultRoutes` | 文章搜索 / 清除、搜索结果及详情路由 |
 | `CommunityInteractionUITests/testPaperImagePreviewCommentsSortAndShare` | 顶部及页尾点赞 / 取消、文章评论回复、评论取消 |
 | `CommunityPublishingUITests/testPaperPublishEditCommentAndDelete` | 编辑器字段、空发布校验、匿名发布、编辑取消 |
+| `CommunityPublishingUITests/testDamagedPaperDraftStorageRecoversAndKeepsCurrentInput` | 草稿存储恢复取消 / 确认、当前输入保留、恢复后暂存及再次读取 |
 | `CommunityInteractionUITests/testPaperImagePreviewCommentsSortAndShare` | 正文链接、正文图片预览、页尾点赞及顶部同步、评论排序绑定、文章分享、评论取消 |
 | `InteractionCoverageUITests/testGalleryFeedAndSurfaceSwipesMessagesAndSearchResultRoutes` | 话题及文章搜索排序、搜索刷新、文章列表双向排序横滑 |
 | `InteractionCoverageUITests/testGalleryFeedAndSurfaceSwipesMessagesAndSearchResultRoutes` | 话题 / 文章列表及详情、消息、文章搜索下拉刷新；竖向刷新保留分类；首尾分类向外横滑在话题 / 文章之间切换、隐藏机器人开关与顶部分栏同步、隐藏当前机器人分栏后回到推荐 |
@@ -310,7 +312,7 @@ SwiftSyntax 清点每个源码作用域的控件、输入、滚动和手势声�
 | `Modules/PaperFeature/Sources/PaperCommentViews.swift:PaperCommentRow` | `{"AppCommentActionBar":1,"AppCommentIdentityHeader":1}` | `CommunityInteractionUITests/testPaperImagePreviewCommentsSortAndShare,InteractionCoverageUITests/testGalleryFeedAndSurfaceSwipesMessagesAndSearchResultRoutes` |
 | `Modules/PaperFeature/Sources/PaperCommentViews.swift:PaperCommentsSection` | `{"AppFailureState":1,"CommunityCommentSortPicker":1,"CommunityPaginationFooter":1}` | `CommunityInteractionUITests/testPaperImagePreviewCommentsSortAndShare,InteractionCoverageUITests/testGalleryFeedAndSurfaceSwipesMessagesAndSearchResultRoutes` |
 | `Modules/PaperFeature/Sources/PaperComposerViews.swift:PaperCommentComposerSheet` | `{"AppCommentComposerContentSection":1,"CommunityCommentReviewSection":1,"List":1,"TextField":1}` | `CommunityPublishingUITests/testPaperPublishEditCommentAndDelete,CommunityRecoveryUITests/testCommentReviewContinuesTheConfirmedSubmission,CommunityEditingRecoveryUITests/testCommentEditorsProtectInputUntilConfirmedDiscard` |
-| `Modules/PaperFeature/Sources/PaperComposerViews.swift:PaperComposerView` | `{"Button":8,"TextField":3,"Toggle":1}` | `CommunityPublishingUITests/testPaperPublishEditCommentAndDelete` |
+| `Modules/PaperFeature/Sources/PaperComposerViews.swift:PaperComposerView` | `{"Button":11,"TextField":3,"Toggle":1}` | `CommunityPublishingUITests/testPaperPublishEditCommentAndDelete,CommunityPublishingUITests/testDamagedPaperDraftStorageRecoversAndKeepsCurrentInput` |
 | `Modules/PaperFeature/Sources/PaperDetailView.swift:PaperContentBlockView` | `{"Button":1}` | `CommunityInteractionUITests/testPaperImagePreviewCommentsSortAndShare` |
 | `Modules/PaperFeature/Sources/PaperDetailView.swift:PaperDetailViewScene` | `{"AppDetailCircleButton":2,"AppDetailShareLink":1,"AppFailureState":1,"Button":5,"Link":1,"Menu":1,"ScrollView":1,"refreshable":1}` | `CommunityInteractionUITests/testPaperImagePreviewCommentsSortAndShare,InteractionCoverageUITests/testGalleryFeedAndSurfaceSwipesMessagesAndSearchResultRoutes,CommunityPublishingUITests/testPaperPublishEditCommentAndDelete` |
 | `Modules/PaperFeature/Sources/PaperDetailView.swift:PaperRichTextView` | `{"UITextView":1}` | `CommunityInteractionUITests/testPaperImagePreviewCommentsSortAndShare` |
@@ -345,7 +347,7 @@ SwiftSyntax 清点每个源码作用域的控件、输入、滚动和手势声�
 | `Modules/ScheduleFeature/Sources/ScheduleLinearCalendarViews.swift:LinearTimelineScrollView` | `{"UIPinchGestureRecognizer":1}` | `LoginAndScheduleUITests/testLinearScheduleTimelineScrollAndPinch` |
 | `Modules/ScheduleFeature/Sources/ScheduleRootView.swift:ScheduleRootView` | `{"AppSMSVerificationSheet":1,"DragGesture":1,"simultaneousGesture":1}` | `LoginAndScheduleUITests/testScheduleWeekButtonsAndSectionSwipes` |
 | `Modules/ScheduleFeature/Sources/ScheduleRootView.swift:SchedulePersistenceConflictView` | `{"Button":2}` | `ScheduleConflictUITests/testKeepLocalConflictContentPersists,ScheduleConflictUITests/testUseSyncedConflictContentPersists` |
-| `Modules/ScheduleFeature/Sources/ScheduleRootView.swift:ScheduleCacheRecoveryView` | `{"Button":2}` | `ScheduleConflictUITests/testRecoveredScheduleRequiresConfirmationAndPersistsSubsequentEdits,ScheduleConflictUITests/testDDLSettingsResumeAfterCacheRecoveryConfirmation` |
+| `Modules/ScheduleFeature/Sources/ScheduleRootView.swift:ScheduleCacheRecoveryView` | `{"Button":5}` | `ScheduleConflictUITests/testRecoveredScheduleRequiresConfirmationAndPersistsSubsequentEdits,ScheduleConflictUITests/testDDLSettingsResumeAfterCacheRecoveryConfirmation,ScheduleConflictUITests/testDamagedRootRebuildRequiresConfirmationAndRestoresEditing` |
 | `Modules/ScheduleFeature/Sources/ScheduleSchoolVerification.swift:ScheduleSchoolVerification` | `{"AppSchoolSMSVerificationSheet":1}` | `ServiceInteractionUITests/testSchoolSSODDLVerificationCancelAndContinuation` |
 | `Modules/ScheduleFeature/Sources/ScheduleSettingsSheets.swift:CourseLiveActivityLeadMinutesPickerPage` | `{"Button":2,"Picker":1}` | `CalendarInteractionUITests/testCalendarReminderCloudSwitchesAndLeadTimePersistence` |
 | `Modules/ScheduleFeature/Sources/ScheduleSettingsSheets.swift:ScheduleExportCodeSheet` | `{"Button":3,"ScrollView":1,"ShareLink":1}` | `LoginAndScheduleUITests/testSharedScheduleCopyImportRenameCycleAndSwipeDelete,ScheduleNavigationUITests/testScheduleWeekStripScrollAndCourseLongPressShare` |

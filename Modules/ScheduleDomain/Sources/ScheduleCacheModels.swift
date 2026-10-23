@@ -5,11 +5,19 @@ public nonisolated enum ScheduleCacheLoadResult: Sendable {
     case loaded(ScheduleCache)
     /// 有效部分供展示，用户确认恢复后提交新的完整快照。
     case recovered(ScheduleCache)
+    case damaged
     case missing
     case unreadable
 
     public var isUnreadable: Bool {
-        if case .unreadable = self { return true }
+        switch self {
+        case .damaged, .unreadable: true
+        case .loaded, .recovered, .missing: false
+        }
+    }
+
+    public var isDamaged: Bool {
+        if case .damaged = self { return true }
         return false
     }
 
@@ -21,7 +29,7 @@ public nonisolated enum ScheduleCacheLoadResult: Sendable {
     public var allowsWrite: Bool {
         switch self {
         case .loaded, .missing: true
-        case .recovered, .unreadable: false
+        case .recovered, .damaged, .unreadable: false
         }
     }
 
@@ -29,7 +37,7 @@ public nonisolated enum ScheduleCacheLoadResult: Sendable {
         switch self {
         case .loaded(let cache), .recovered(let cache): return cache
         case .missing: return ScheduleCache()
-        case .unreadable: return nil
+        case .damaged, .unreadable: return nil
         }
     }
 }
@@ -40,6 +48,8 @@ public nonisolated enum ScheduleCacheSaveSource: Sendable {
     case localWithoutCloudPush
     /// 用户核对部分恢复结果后明确提交。
     case recovery
+    /// 用户确认以当前可用日程重建损坏文件。
+    case rebuild
     case cloud
     /// 记录已确认的云端基线，同时保留后续本地编辑的待上传状态。
     case cloudBaseline

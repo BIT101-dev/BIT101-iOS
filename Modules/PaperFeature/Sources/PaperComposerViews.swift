@@ -19,6 +19,9 @@ struct PaperComposerView: View {
     @State private var isConfirmingDiscard = false
     @State private var pendingDraft: PaperComposerDraftSnapshot?
     @State private var isConfirmingRestore = false
+    @State private var needsDraftRecovery = false
+    @State private var isConfirmingDraftRecovery = false
+    @State private var draftRecovery: ComposerDraftCleanup?
     private var isBusy: Bool { model.isSubmitting || submitTask != nil }
 
     init(editingPaper: PaperDetail? = nil, initialContent: String, onCreated: @escaping () -> Void) {
@@ -72,9 +75,15 @@ struct PaperComposerView: View {
                     .accessibilityIdentifier("ui.paper-composer-view.cancel")
             }
             ToolbarItem(placement: .topBarTrailing) {
-                Button("暂存", action: saveDraftAndDismiss)
-                    .disabled(isBusy || !model.hasUnsavedChanges)
-                    .accessibilityIdentifier("ui.paper-composer-view.save-draft")
+                if needsDraftRecovery {
+                    Button("恢复草稿存储") { isConfirmingDraftRecovery = true }
+                        .disabled(isBusy)
+                        .accessibilityIdentifier("paper.draft.recovery")
+                } else {
+                    Button("暂存", action: saveDraftAndDismiss)
+                        .disabled(isBusy || !model.hasUnsavedChanges)
+                        .accessibilityIdentifier("ui.paper-composer-view.save-draft")
+                }
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button(model.isSubmitting ? "保存中…" : model.editingPaper == nil ? "发布" : "保存") {
@@ -83,10 +92,9 @@ struct PaperComposerView: View {
                         defer { submitTask = nil }
                         let cleanup = await dependencies.drafts.capturePaperCleanup(matching: model.restoredDraft)
                         if await model.submit(service: dependencies.composer), !Task.isCancelled {
-                            if await cleanup() == false { Self.logger.error("已发布文章的草稿清理受阻，原始草稿已保留。") }
-                            guard !Task.isCancelled else { return }
                             onCreated()
                             dismiss()
+                            if await cleanup() == false { Self.logger.error("已发布文章的草稿清理受阻，原始草稿已保留。") }
                         }
                     }
                 }
@@ -108,12 +116,7 @@ struct PaperComposerView: View {
             }
             Button("取消", role: .cancel) {}
         }
-        .task {
-            let result = await dependencies.drafts.loadPaper(paperID: model.editingPaper?.id)
-            guard !Task.isCancelled else { return }
-            if let draft = result.snapshot { pendingDraft = draft; isConfirmingRestore = true }
-            else if !result.allowsWrite { model.alert = .informational(title: "草稿恢复需要处理", message: "原始草稿已保留，请检查本机存储与 App 版本后重试。") }
-        }
+        .task { await loadDraft() }
         .alert("恢复文章草稿？", isPresented: $isConfirmingRestore) {
             Button("恢复草稿") {
                 if let pendingDraft { model.restoreDraft(pendingDraft) }
@@ -121,8 +124,43 @@ struct PaperComposerView: View {
             }
             Button("继续当前编辑", role: .cancel) { pendingDraft = nil }
         }
+        .alert("恢复文章草稿存储？", isPresented: $isConfirmingDraftRecovery) {
+            Button("恢复", role: .destructive, action: recoverDraftStorage)
+                .accessibilityIdentifier("paper.draft.recovery.confirm")
+            Button("继续当前编辑", role: .cancel) {}
+                .accessibilityIdentifier("paper.draft.recovery.cancel")
+        } message: {
+            Text("可读取的文章草稿将保留，损坏条目和其余原文件内容会清除。当前编辑内容保留。")
+        }
         .onDisappear { submitTask?.cancel() }
         .diagnosticAlert(item: $model.alert)
+    }
+
+    private func loadDraft() async {
+        let recovery = await dependencies.drafts.capturePaperRecovery()
+        let result = await dependencies.drafts.loadPaper(paperID: model.editingPaper?.id)
+        guard !Task.isCancelled else { return }
+        if let draft = result.snapshot { pendingDraft = draft; isConfirmingRestore = true }
+        else if case .unreadable = result {
+            draftRecovery = recovery
+            needsDraftRecovery = true
+            isConfirmingDraftRecovery = true
+        }
+        else if !result.allowsWrite {
+            model.alert = .informational(title: "草稿版本需要更新", message: "原始草稿已保留，请使用支持当前草稿格式的 App 版本后重试恢复。")
+        }
+    }
+
+    private func recoverDraftStorage() {
+        guard submitTask == nil, let recovery = draftRecovery else { return }
+        submitTask = Task {
+            defer { submitTask = nil }
+            guard !Task.isCancelled else { return }
+            let recovered = await recovery()
+            guard !Task.isCancelled else { return }
+            if recovered { needsDraftRecovery = false; await loadDraft() }
+            else { model.alert = .informational(title: "草稿恢复遇到问题", message: "原始草稿和当前编辑内容已保留，请检查本机存储与 App 版本后重试。") }
+        }
     }
 
     private func saveDraftAndDismiss() {

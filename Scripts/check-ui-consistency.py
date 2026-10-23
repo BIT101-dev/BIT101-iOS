@@ -4,6 +4,7 @@ import sys
 sys.dont_write_bytecode = True
 import re
 import subprocess
+from command_output import OUTPUT_LINE_LIMIT
 from ui_rules import (
     DERIVED_DESIGN_TOKEN, DESIGN_SYSTEM, DESIGN_SYSTEM_SOURCES, DIRECT_FLOATING_MATERIAL,
     DIRECT_GRID_ITEM_GEOMETRY, DIRECT_GROUPED_LIST_STYLE, DIRECT_INPUT_PLACEHOLDER,
@@ -183,7 +184,7 @@ def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[s
         report = "\n".join(lines)
         REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
         REPORT_PATH.write_text(report + "\n", encoding="utf-8")
-        if len(lines) <= 1000:
+        if len(lines) <= OUTPUT_LINE_LIMIT:
             print(report)
         else:
             print(f"UI 检查结果共 {len(lines)} 行 · {REPORT_PATH.relative_to(ROOT)}")

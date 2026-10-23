@@ -87,7 +87,7 @@ enum ScheduleWidgetExporter {
             await export(cache: cache, session: session, generation: generation)
         case .missing:
             await export(cache: ScheduleCache(), session: session, generation: generation)
-        case .unreadable:
+        case .damaged, .unreadable:
             // 保留同账号已发布快照，账号切换沿用身份重置后的快照。
             break
         }

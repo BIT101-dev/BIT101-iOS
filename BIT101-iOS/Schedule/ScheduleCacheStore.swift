@@ -57,12 +57,12 @@ enum ScheduleCacheStore {
         isCurrent: @escaping @MainActor () -> Bool = { true }
     ) async -> Bool {
         var cacheToSave = cache
-        if source == .local || source == .localWithoutCloudPush || source == .recovery {
+        if source == .local || source == .localWithoutCloudPush || source == .recovery || source == .rebuild {
             cacheToSave.updatedAt = ScheduleCacheTimestamp.next(
                 after: max(cache.updatedAt, cache.cloudSyncBaselineAt),
                 now: Date()
             )
-            if cacheToSave.iCloudSyncEnabled {
+            if cacheToSave.iCloudSyncEnabled && source != .rebuild {
                 cacheToSave.hasUnpushedCloudChanges = true
             }
         }

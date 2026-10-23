@@ -14,6 +14,7 @@ public final class ScheduleRepository: ObservableObject {
     @Published private(set) var isLoading = true
     @Published private(set) var requiresRecoveryConfirmation = false
     @Published private(set) var hasReadFailure = false
+    @Published private(set) var canRebuildCache = false
     @Published private(set) var isConfirmingRecovery = false
     @Published var notice: ScheduleNotice?
     @Published private(set) var hasPersistenceConflict = false
@@ -68,6 +69,7 @@ public final class ScheduleRepository: ObservableObject {
         hasLoaded = false
         requiresRecoveryConfirmation = false
         hasReadFailure = false
+        canRebuildCache = false
         isConfirmingRecovery = false
         isWritable = false
         isLoading = true
@@ -107,6 +109,7 @@ public final class ScheduleRepository: ObservableObject {
             guard !Task.isCancelled, generation == accountGeneration, account == session(), request == loadGeneration else { return false }
             requiresRecoveryConfirmation = result.isRecovered
             hasReadFailure = false
+            canRebuildCache = false
             isWritable = !result.isRecovered
         case .missing:
             _ = await reconcile(with: ScheduleCache())
@@ -114,9 +117,12 @@ public final class ScheduleRepository: ObservableObject {
             isWritable = true
             requiresRecoveryConfirmation = false
             hasReadFailure = false
-        case .unreadable:
+            canRebuildCache = false
+        case .damaged, .unreadable:
             isWritable = false
             hasReadFailure = true
+            requiresRecoveryConfirmation = false
+            canRebuildCache = result.isDamaged
         }
         hasLoaded = true
         return true
@@ -146,6 +152,16 @@ public final class ScheduleRepository: ObservableObject {
         _ = await persistAndWait(source: .recovery)
     }
 
+    func rebuildCache(expectedGeneration: Int) async {
+        guard expectedGeneration == accountGeneration, canRebuildCache, hasReadFailure,
+              !isConfirmingRecovery, persistenceTask == nil else { return }
+        let generation = accountGeneration
+        isConfirmingRecovery = true
+        loadGeneration &+= 1
+        defer { if generation == accountGeneration { isConfirmingRecovery = false } }
+        _ = await persistAndWait(source: .rebuild)
+    }
+
     @discardableResult
     func persistAndWait(source: ScheduleCacheSaveSource = .local) async -> Bool {
         guard !Task.isCancelled else { return false }
@@ -155,7 +171,8 @@ public final class ScheduleRepository: ObservableObject {
     }
 
     private func enqueuePersistence(source: ScheduleCacheSaveSource) -> Task<Bool, Never>? {
-        let confirmsRecovery = source == .recovery && requiresRecoveryConfirmation && !hasReadFailure
+        let confirmsRecovery = ((source == .recovery && requiresRecoveryConfirmation && !hasReadFailure)
+            || (source == .rebuild && canRebuildCache && hasReadFailure))
             && !hasPersistenceConflict && ownerSession == session()
         guard acceptsEdits || confirmsRecovery else { return nil }
         let account = ownerSession
@@ -180,6 +197,8 @@ public final class ScheduleRepository: ObservableObject {
                 self.notice = nil
                 if confirmsRecovery {
                     self.requiresRecoveryConfirmation = false
+                    self.hasReadFailure = false
+                    self.canRebuildCache = false
                     self.isWritable = true
                 }
                 if self.persistenceGeneration == operation, self.reloadAfterPersistence {

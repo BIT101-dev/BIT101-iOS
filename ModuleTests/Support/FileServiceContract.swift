@@ -7,11 +7,19 @@ public func waitForTestEvent(
     isolation: isolated (any Actor)? = #isolation,
     _ condition: () throws -> Bool
 ) async throws {
+    try await waitForAsyncTestEvent(timeout: timeout, isolation: isolation) { try condition() }
+}
+
+public func waitForAsyncTestEvent(
+    timeout: Duration = .seconds(5),
+    isolation: isolated (any Actor)? = #isolation,
+    _ condition: () async throws -> Bool
+) async throws {
     let clock = ContinuousClock()
     let deadline = clock.now.advanced(by: timeout)
     while true {
         try Task.checkCancellation()
-        let complete = try condition()
+        let complete = try await condition()
         if clock.now >= deadline { throw URLError(.timedOut) }
         if complete { return }
         try await clock.sleep(for: .milliseconds(1))

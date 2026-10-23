@@ -204,6 +204,8 @@ public struct ScheduleRootView: View {
 /// 页面与设置共用读取重试和部分恢复确认。
 public struct ScheduleCacheRecoveryView: View {
     @ObservedObject private var repository: ScheduleRepository
+    @State private var isConfirmingRebuild = false
+    @State private var rebuildGeneration = 0
 
     public init(repository: ScheduleRepository) { self.repository = repository }
 
@@ -211,10 +213,17 @@ public struct ScheduleCacheRecoveryView: View {
         VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
             Text(repository.hasReadFailure ? "日程读取受阻" : "日程已部分恢复")
                 .font(AppDesignSystem.Typography.title)
-            Text(repository.hasReadFailure ? "原始数据已保留。请重试读取后继续编辑。" :
+            Text(repository.hasReadFailure ? "原始数据已保留。请检查文件访问与 App 版本，再重试读取。" :
                 "可用日程继续展示。请核对恢复结果，确认后保存并继续编辑。")
             Button("重试读取") { Task { await repository.reload() } }
                 .accessibilityIdentifier("schedule.recovery.retry")
+            if repository.canRebuildCache {
+                Button("重建日程缓存", role: .destructive) {
+                    rebuildGeneration = repository.accountGeneration
+                    isConfirmingRebuild = true
+                }
+                    .accessibilityIdentifier("schedule.recovery.rebuild")
+            }
             if repository.requiresRecoveryConfirmation && !repository.hasReadFailure {
                 Button("确认恢复结果") { Task { await repository.confirmRecovery() } }
                     .accessibilityIdentifier("schedule.recovery.confirm")
@@ -222,6 +231,17 @@ public struct ScheduleCacheRecoveryView: View {
         }
         .buttonStyle(.borderless)
         .disabled(repository.isConfirmingRecovery)
+        .alert("重建日程缓存？", isPresented: $isConfirmingRebuild) {
+            Button("重建", role: .destructive) {
+                let generation = rebuildGeneration
+                Task { await repository.rebuildCache(expectedGeneration: generation) }
+            }
+                .accessibilityIdentifier("schedule.recovery.rebuild.confirm")
+            Button("取消", role: .cancel) {}
+                .accessibilityIdentifier("schedule.recovery.rebuild.cancel")
+        } message: {
+            Text("将以当前可用日程覆盖该账号的损坏缓存，原文件内容会清除。学校日程可重新同步。")
+        }
     }
 }
 

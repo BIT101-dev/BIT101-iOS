@@ -77,7 +77,7 @@ public actor SchedulePersistenceStore {
         let currentURL = cacheFileURL(for: accountIdentifier)
         let currentResult = readCacheFile(at: currentURL)
         switch currentResult {
-        case .loaded, .recovered, .unreadable:
+        case .loaded, .recovered, .damaged, .unreadable:
             return currentResult
         case .missing:
             break
@@ -102,7 +102,11 @@ public actor SchedulePersistenceStore {
                 Self.logger.error("课表缓存重建：\(failure.summary, privacy: .public)")
             }
             let recovered = result.isUnreadable
-            guard var cache = result.cacheIfReadable ?? Self.resetDamagedBlocks(data) else { return .unreadable }
+            guard var cache = result.cacheIfReadable ?? Self.resetDamagedBlocks(data) else {
+                if let version = try? Self.makeDecoder().decode(CacheVersion.self, from: data),
+                   version.schemaVersion > ScheduleCache.schemaVersion { return .unreadable }
+                return .damaged
+            }
             if cache.currentTerm.isEmpty, let snapshot = cache.termSchedulesByTerm.values
                 .filter({ $0.hasDisplayableData && $0.firstDay != nil })
                 .sorted(by: { $0.updatedAt == $1.updatedAt ? $0.term > $1.term : $0.updatedAt > $1.updatedAt }).first {
@@ -371,8 +375,11 @@ public actor SchedulePersistenceStore {
         let directory = url.deletingLastPathComponent()
         let currentResult = readCacheFile(at: url)
         let confirmsRecovery = source == .recovery
+        let confirmsRebuild = source == .rebuild
         var isRecovering = currentResult.isRecovered
-        guard currentResult.allowsWrite || (confirmsRecovery && currentResult.isRecovered) else {
+        var isRebuilding = currentResult.isDamaged
+        guard currentResult.allowsWrite || (confirmsRecovery && currentResult.isRecovered)
+                || (confirmsRebuild && currentResult.isDamaged) else {
             Self.logger.error("保留无法读取的课表缓存，跳过保存")
             return nil
         }
@@ -382,7 +389,7 @@ public actor SchedulePersistenceStore {
         case .loaded(let currentCache), .recovered(let currentCache):
             storedUpdatedAt = currentCache.updatedAt
             storedCache = currentCache
-        case .missing, .unreadable: break
+        case .missing, .damaged, .unreadable: break
         }
         if case .missing = currentResult,
            legacyAccountIdentifier != accountIdentifier
@@ -390,7 +397,9 @@ public actor SchedulePersistenceStore {
             let legacyURL = cacheFileURL(for: legacyAccountIdentifier)
             let legacyResult = readCacheFile(at: legacyURL)
             isRecovering = legacyResult.isRecovered
-            guard legacyResult.allowsWrite || (confirmsRecovery && legacyResult.isRecovered) else {
+            isRebuilding = legacyResult.isDamaged
+            guard legacyResult.allowsWrite || (confirmsRecovery && legacyResult.isRecovered)
+                    || (confirmsRebuild && legacyResult.isDamaged) else {
                 Self.logger.error("保留无法读取的旧版课表缓存，跳过保存")
                 return nil
             }
@@ -398,10 +407,10 @@ public actor SchedulePersistenceStore {
             case .loaded(let legacyCache), .recovered(let legacyCache):
                 storedUpdatedAt = legacyCache.updatedAt
                 storedCache = legacyCache
-            case .missing, .unreadable: break
+            case .missing, .damaged, .unreadable: break
             }
         }
-        if let expectedUpdatedAt, expectedUpdatedAt != storedUpdatedAt {
+        if let expectedUpdatedAt, !confirmsRebuild, expectedUpdatedAt != storedUpdatedAt {
             Self.logger.debug("缓存写入跳过，磁盘版本已变化")
             return nil
         }
@@ -409,6 +418,7 @@ public actor SchedulePersistenceStore {
         do {
             var cache = cache
             if confirmsRecovery, !isRecovering { return nil }
+            if confirmsRebuild, !isRebuilding { return nil }
             if source == .cloud { cache.hasUnpushedCloudChanges = false }
             if source == .local || source == .localWithoutCloudPush || source == .recovery,
                let storedCache {
@@ -439,7 +449,8 @@ public actor SchedulePersistenceStore {
             )
             removeMigratedCacheIfPossible(
                 accountIdentifier: accountIdentifier,
-                legacyAccountIdentifier: legacyAccountIdentifier
+                legacyAccountIdentifier: legacyAccountIdentifier,
+                includingDamaged: confirmsRebuild
             )
             return cache
         } catch {
@@ -473,13 +484,20 @@ public actor SchedulePersistenceStore {
 
     private func removeMigratedCacheIfPossible(
         accountIdentifier: String,
-        legacyAccountIdentifier: String
+        legacyAccountIdentifier: String,
+        includingDamaged: Bool = false
     ) {
         guard accountIdentifier != legacyAccountIdentifier else { return }
         let legacyURL = cacheFileURL(for: legacyAccountIdentifier)
-        guard case .loaded = readCacheFile(at: legacyURL) else { return }
+        let result = readCacheFile(at: legacyURL)
+        switch result {
+        case .loaded: break
+        case .damaged where includingDamaged: break
+        default: return
+        }
         do {
             try files.removeItem(at: legacyURL)
+            if lastReadFailure?.url == legacyURL { lastReadFailure = nil }
             let directory = legacyURL.deletingLastPathComponent()
             if (try? files.contentsOfDirectory(at: directory, options: []).isEmpty) == true {
                 try files.removeItem(at: directory)

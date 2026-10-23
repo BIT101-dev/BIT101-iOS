@@ -2,6 +2,30 @@ import XCTest
 
 nonisolated final class CommunityPublishingUITests: UIAutomationTestCase {
     @MainActor
+    func testDamagedPaperDraftStorageRecoversAndKeepsCurrentInput() {
+        app = configureApp(resetStorage: true, content: true, paperDraftRecovery: true, initialTab: "gallery")
+        tapHeader(app.segmentedControls.buttons["文章"])
+        tap("发布文章")
+        assertUI(app.alerts["恢复文章草稿存储？"].appears(timeout: 5), "损坏的文章草稿应提供确认恢复入口。")
+        tap("paper.draft.recovery.cancel")
+        for (title, text) in [("标题", "恢复中的文章"), ("简介", "保留简介"), ("正文", "保留当前正文")] {
+            replaceText(text, in: app.textFields[title])
+        }
+        dismissKeyboard()
+        tap("paper.draft.recovery")
+        tap("paper.draft.recovery.confirm")
+        assertUI(app.buttons["ui.paper-composer-view.save-draft"].appears(timeout: 5), "恢复后应继续提供暂存。")
+        assertUI(app.textFields["标题"].value as? String == "恢复中的文章", "恢复存储应保留当前输入。")
+        tap("暂存")
+        tap("发布文章")
+        assertUI(app.alerts["恢复文章草稿？"].appears(timeout: 5), "重建后的文章存储应支持再次恢复。")
+        tap("恢复草稿")
+        assertUI(app.textFields["正文"].value as? String == "保留当前正文", "重新进入后应恢复暂存正文。")
+        tap("取消")
+        tap("放弃修改")
+    }
+
+    @MainActor
     func testGallerySettingsValidationTogglesAndPersistence() {
         app = configureApp(resetStorage: true)
         openSettings("gallery")
