@@ -60,6 +60,7 @@ def report_inbox_boundary_findings() -> list[str]:
         archive.write_text(json.dumps(archived))
         assert execute() == 0
         assert json.loads(archive.read_text())["report"]["attachments"][0]["data"] == "bmV3"
+        assert old_key in processed_path.read_text(), '本地保留的归档继续保留处理记录'
         for item in archived["report"]["attachments"]: item["data"] = "aW1hZ2U="
         archive.write_text(json.dumps(archived))
         assert execute() == 0

@@ -313,10 +313,23 @@ def result_readers(fixture: Path) -> None:
         report_test_results([str(bundle), '', 'report', str(ROOT / 'Scripts'), ''])
     assert '结果：Failed' in console.getvalue() and str(metrics) in console.getvalue()
     assert 'raw inventory' not in console.getvalue() and len(console.getvalue().splitlines()) < 50
-    create(bundle, 30)
+    metrics.write_text(metrics.read_text() + '\n结果来源：' + json.dumps(dict(family='modules', coverage='old-coverage.json')))
+    modified = metrics.stat().st_mtime_ns + 1
+    create(diagnostic, modified)
+    for mode in ('', 'json', 'coverage'):
+        with patch.object(subprocess, 'check_output', side_effect=read), redirect_stdout(console := StringIO()):
+            try: report_test_results([str(bundle), mode, 'report', str(ROOT / 'Scripts'), ''])
+            except SystemExit as status: assert status.code == 0
+        assert 'Failed' in console.getvalue() and str(metrics) not in console.getvalue(), '当前结果包优先于旧指标'
+    with patch.object(subprocess, 'check_output', side_effect=subprocess.CalledProcessError(1, 'summary')), redirect_stdout(console := StringIO()):
+        try: report_test_results([str(bundle), '', 'report', str(ROOT / 'Scripts'), ''])
+        except SystemExit as status: assert str(diagnostic) in str(status) and 'diagnostics' in str(status)
+        else: raise AssertionError('编译结果沿当前诊断入口呈现')
+    assert str(metrics) not in console.getvalue()
+    create(bundle, modified + 1)
     assert current_result_bundle(bundle) == bundle
     (bundle / 'Staging').mkdir()
-    os.utime(bundle / 'Staging', ns=(40, 40)); os.utime(bundle, ns=(40, 40))
+    os.utime(bundle / 'Staging', ns=(modified + 2, modified + 2)); os.utime(bundle, ns=(modified + 2, modified + 2))
     assert current_result_bundle(bundle) == bundle
 
 
@@ -339,6 +352,11 @@ def archive_prune_then_fetch(fixture: Path) -> None:
         archive_reports(arguments)
     assert download.call_count == 1 and not archived.exists()
     assert 'pruned-file:report_old.json' in processed.read_text()
+    processed.write_text(processed.read_text() + 'report:expired\npruned-file:report_expired.json\n')
+    keys.write_text('[]')
+    with patch.object(subprocess, 'run', side_effect=response) as download, redirect_stdout(StringIO()):
+        archive_reports(arguments)
+    assert processed.read_text() == '' and not download.called, '远端过期且本地已清理的处理键随抓取回收'
 
 
 def cache_cleanup_after_failure() -> None:

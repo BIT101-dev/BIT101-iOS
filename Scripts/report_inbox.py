@@ -12,6 +12,10 @@ from command_output import show_report
 import time
 
 
+def report_filename(key):
+    return key.replace(':', '_') + '.json'
+
+
 def refresh_archive_index(folder, compact=None):
     folder = pathlib.Path(folder)
     index_path = folder / 'archive-index.json'
@@ -83,6 +87,11 @@ def archive_reports(arguments):
         if line.strip()
     } if processed_path.exists() else set()
     local_reports = {path.name: path for path in output_dir.glob("*/*/report_*.json")}
+    remote_keys = {item['name'] for item in items if item.get('name', '').startswith('report:')}
+    remote_files = {report_filename(key) for key in remote_keys}
+    processed = {key for key in processed if (
+        key.removeprefix('pruned-file:') in remote_files if key.startswith('pruned-file:')
+        else key in remote_keys or report_filename(key) in local_reports)}
 
     def attachment_suffix(attachment):
         kind = attachment.get("contentType", "image/jpeg")
@@ -124,8 +133,8 @@ def archive_reports(arguments):
 
     def cache_complete(item):
         key = item["name"]
-        path = local_reports.get(key.replace(":", "_") + ".json")
-        if 'pruned-file:' + key.replace(':', '_') + '.json' in processed: return True
+        path = local_reports.get(report_filename(key))
+        if 'pruned-file:' + report_filename(key) in processed: return True
         if key not in processed or path is None: return False
         try:
             saved = json.loads(path.read_text())
@@ -158,7 +167,7 @@ def archive_reports(arguments):
             capture_output=True,
             text=True,
         )
-        filename = key.replace(":", "_") + ".json"
+        filename = report_filename(key)
         if result.returncode:
             detail = result.stderr.strip()
             print(f"读取报告失败：{key}{f'：{detail}' if detail else ''}", file=sys.stderr)
@@ -227,8 +236,9 @@ def archive_reports(arguments):
             destination = output_dir / path.relative_to(staging_dir)
             destination.parent.mkdir(parents=True, exist_ok=True)
             os.replace(path, destination)
+    processed = processed.union(completed) - incomplete
     processed_path.write_text(
-        "\n".join(sorted(processed.union(completed) - incomplete)) + ("\n" if processed or completed else ""),
+        "\n".join(sorted(processed)) + ("\n" if processed else ""),
         encoding="utf-8",
     )
     refresh_archive_index(output_dir)

@@ -10,12 +10,14 @@ def workflow_start(arguments: list[str]) -> None:
     print(time.monotonic())
 
 
+def result_bundle_modified(bundle: Path) -> int:
+    return max(item.stat().st_mtime_ns for item in (bundle, bundle / 'Info.plist', bundle / 'database.sqlite3', bundle / 'Staging') if item.exists())
+
+
 def current_result_bundle(bundle: Path) -> Path:
     diagnostic = bundle.parent / 'diagnostics/test-results.xcresult'
-    def modified(path):
-        return max(item.stat().st_mtime_ns for item in (path, path / 'Info.plist', path / 'database.sqlite3', path / 'Staging') if item.exists())
     available = [path for path in (bundle, diagnostic) if path.is_dir()]
-    return max(available, key=modified) if available else bundle
+    return max(available, key=result_bundle_modified) if available else bundle
 
 
 def report_test_results(arguments: list[str]) -> None:
@@ -28,11 +30,15 @@ def report_test_results(arguments: list[str]) -> None:
     bundle = Path(cli_arguments[1])
     sys.path.insert(0, cli_arguments[4])
     from validation_performance import result_bundle_complete
-    metrics_path = bundle.parent / 'test-metrics.txt'
-    if cli_arguments[3] == 'report' and not cli_arguments[2] and metrics_path.is_file():
+    result_root = bundle.parent
+    metrics_path = result_root / 'test-metrics.txt'
+    bundle = current_result_bundle(bundle)
+    metrics_current = cli_arguments[3] == 'report' and metrics_path.is_file() and (
+        not bundle.is_dir() or metrics_path.stat().st_mtime_ns >= result_bundle_modified(bundle))
+    if cli_arguments[3] == 'report' and not cli_arguments[2] and metrics_current:
         report_metrics(metrics_path)
         return
-    if cli_arguments[3] == 'report' and cli_arguments[2] in {'json', 'coverage'} and metrics_path.is_file():
+    if cli_arguments[3] == 'report' and cli_arguments[2] in {'json', 'coverage'} and metrics_current:
         sources = [json.loads(line.removeprefix('结果来源：')) for line in metrics_path.read_text().splitlines()
             if line.startswith('结果来源：')]
         if len(sources) == 1 and sources[0]['family'] == 'modules':
@@ -42,9 +48,7 @@ def report_test_results(arguments: list[str]) -> None:
             else:
                 print(Path(sources[0]['coverage']).read_text())
             raise SystemExit(0)
-    result_root = bundle.parent
     diagnostics = result_root / "diagnostics"
-    bundle = current_result_bundle(bundle)
     if cli_arguments[2] == "performance":
         sys.path.insert(0, cli_arguments[4])
         from validation_provenance import complete_group_row
@@ -198,9 +202,13 @@ def report_metrics(metrics: Path) -> None:
 
 def report_result_summary(bundle: str) -> None:
     import json, subprocess
-    summary = json.loads(subprocess.check_output([
-        "xcrun", "xcresulttool", "get", "test-results", "summary", "--path", bundle,
-    ], text=True))
+    print(f'结果来源：{bundle}')
+    try:
+        summary = json.loads(subprocess.check_output([
+            "xcrun", "xcresulttool", "get", "test-results", "summary", "--path", bundle,
+        ], text=True, stderr=subprocess.PIPE))
+    except subprocess.CalledProcessError:
+        raise SystemExit(f'当前结果包：{bundle}；测试摘要读取受阻，请执行 diagnostics 查看详细记录。') from None
     print(f"{summary.get('result', '?')} · {summary.get('passedTests', 0)}/{summary.get('totalTestCount', 0)} 通过")
     for failure in summary.get("testFailures", []):
         message = str(failure.get("failureText", "?")).splitlines()[0][:240]

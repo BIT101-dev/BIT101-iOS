@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Hold workflow locks through process-group cancellation and recovery."""
+"""Hold workflow locks until their process group finishes."""
 import fcntl
 import math
 import os
@@ -48,10 +48,10 @@ def stop_groups(groups: set[int], *, grace_seconds: float = 5, workers_only: boo
         time.sleep(0.1)
 
 
-def finish_audit_group(group: int, *, grace_seconds: float = 5) -> bool:
+def finish_process_group(group: int, *, grace_seconds: float = 5) -> bool:
     if not active_members({group}): return True
     stop_groups({group}, grace_seconds=grace_seconds)
-    print('[失败] 审计 worker 结束后遗留进程，已完成回收。', file=sys.stderr)
+    print('[失败] 前台任务结束后遗留进程，已完成回收。', file=sys.stderr)
     return False
 
 
@@ -63,6 +63,7 @@ def supervise(command: list[str], environment: dict, *, owns_process_group: bool
         interrupted = signum
     previous = {signum: signal.signal(signum, interrupt) for signum in (signal.SIGINT, signal.SIGTERM)}
     process = None
+    finished = False
     try:
         process = subprocess.Popen(command, env=environment, start_new_session=owns_process_group)
         while True:
@@ -73,17 +74,23 @@ def supervise(command: list[str], environment: dict, *, owns_process_group: bool
                 stop_groups({group}, grace_seconds=grace_seconds, workers_only=not owns_process_group,
                     signum=interrupted or signal.SIGTERM)
                 process.wait()
+                finished = True
                 return 124 if expired else 128 + interrupted
             try:
                 status = process.wait(timeout=0.1)
             except subprocess.TimeoutExpired:
                 continue
             if interrupted is not None or owns_process_group and clock() >= deadline: continue
-            return status if status >= 0 else 128 - status
+            status = status if status >= 0 else 128 - status
+            if owns_process_group and not finish_process_group(process.pid, grace_seconds=grace_seconds):
+                status = status or 1
+            finished = True
+            return status
     finally:
-        if interrupted is not None and process is not None:
+        if process is not None and not finished:
             stop_groups({process.pid if owns_process_group else os.getpgrp()}, grace_seconds=grace_seconds,
-                workers_only=not owns_process_group, signum=interrupted)
+                workers_only=not owns_process_group, signum=interrupted or signal.SIGTERM)
+            process.wait()
         for signum, handler in previous.items(): signal.signal(signum, handler)
 
 
@@ -92,7 +99,7 @@ def main(arguments: list[str]) -> int:
         stop_groups({int(value) for value in arguments[1:] if int(value) > 0})
         return 0
     if len(arguments) == 2 and arguments[0] == 'finish-group':
-        return 0 if finish_audit_group(int(arguments[1])) else 1
+        return 0 if finish_process_group(int(arguments[1])) else 1
     lock_path, flag, script_path, *parameters = arguments
     lock_path = Path(lock_path)
     lock_path.parent.mkdir(parents=True, exist_ok=True)

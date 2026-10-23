@@ -193,12 +193,37 @@ def workflow_lock_boundary_findings() -> list[str]:
 
 
 def process_group_boundary_findings(fixture: Path, read_line) -> list[str]:
-    from workflow_processes import active_members, finish_audit_group
+    from workflow_processes import active_members, finish_process_group
     worker = fixture / 'worker.sh'
     artifact = fixture / '.build/extended-automation.lock'
     device = fixture / 'device-workflow.lock'
     stubborn = 'import os,signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); print(os.getpid(), flush=True); time.sleep(60)'
     child_command = shlex.join([sys.executable, '-c', stubborn])
+    for exit_status, expected in ((0, 1), (7, 7)):
+        command = [sys.executable, '-c', 'import os,subprocess,sys; child = subprocess.Popen('
+            + repr([sys.executable, '-c', stubborn]) + ', stdout=subprocess.PIPE, text=True); '
+            + 'ready = child.stdout.readline().strip(); print(os.getpgrp(), ready, flush=True); '
+            + f'sys.exit({exit_status})']
+        program = f'''import fcntl,os,sys,time
+sys.path.insert(0, {str(SCRIPT_ROOT)!r})
+from workflow_processes import supervise
+with open({str(artifact)!r}, 'a') as lock:
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    raise SystemExit(supervise({command!r}, dict(os.environ), owns_process_group=True, deadline=time.monotonic()+5, grace_seconds=0.2))
+'''
+        controller = subprocess.Popen([sys.executable, '-c', program], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        group = None
+        try:
+            group, descendant = map(int, read_line(controller).split())
+            controller.wait(timeout=5)
+            assert not active_members({group}), '自然退出与失败退出均在释放锁前回收后台工作'
+            assert controller.returncode == expected, (exit_status, controller.returncode)
+        finally:
+            if group is not None:
+                try: os.killpg(group, signal.SIGKILL)
+                except ProcessLookupError: pass
+            if controller.poll() is None: controller.kill()
+            controller.communicate(timeout=5)
     worker.write_text("trap 'exit 0' TERM\n" + child_command + ' &\nwait\n')
     program = f'''import fcntl, os, select, sys
 sys.path.insert(0, {str(SCRIPT_ROOT)!r})
@@ -208,12 +233,15 @@ with open({str(artifact)!r}, 'a') as lock:
     environment = dict(os.environ, BIT101_EXTENDED_TESTS_LOCK_HELD='1')
     environment.pop('BIT101_DEVICE_WORKFLOW_LOCK_HELD', None)
     command = [sys.executable, {str(SCRIPT_ROOT / 'workflow_processes.py')!r}, {str(device)!r}, 'BIT101_DEVICE_WORKFLOW_LOCK_HELD', {str(worker)!r}]
-    clock = lambda: 2.0 if select.select([int(sys.argv[1])], [], [], 0)[0] else 0.0
+    def clock():
+        ready = select.select([int(sys.argv[1])], [], [], 0)[0]
+        if ready and sys.argv[2] == 'exception': raise RuntimeError('supervisor fixture failure')
+        return 2.0 if ready else 0.0
     raise SystemExit(supervise(command, environment, owns_process_group=True, deadline=1.0, grace_seconds=0.2, clock=clock))
 '''
-    for mode, expected in (('timeout', 124), ('signal', 143)):
+    for mode, expected in (('timeout', 124), ('signal', 143), ('exception', 1)):
         control, trigger = os.pipe()
-        controller = subprocess.Popen([sys.executable, '-c', program, str(control)], pass_fds=(control,),
+        controller = subprocess.Popen([sys.executable, '-c', program, str(control), mode], pass_fds=(control,),
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         os.close(control)
         group = None
@@ -221,7 +249,7 @@ with open({str(artifact)!r}, 'a') as lock:
             descendant = int(read_line(controller))
             group = os.getpgid(descendant)
             assert group not in active_members({group}, workers_only=True)
-            if mode == 'timeout': os.write(trigger, b'expire')
+            if mode in ('timeout', 'exception'): os.write(trigger, b'expire')
             else: controller.terminate()
             deadline = time.monotonic() + 5
             while controller.poll() is None and time.monotonic() < deadline:
@@ -246,7 +274,7 @@ with open({str(artifact)!r}, 'a') as lock:
     try:
         assert int(read_line(leader)) > 0
         leader.wait(timeout=5)
-        with redirect_stderr(StringIO()): assert not finish_audit_group(leader.pid, grace_seconds=0.2)
+        with redirect_stderr(StringIO()): assert not finish_process_group(leader.pid, grace_seconds=0.2)
         assert not active_members({leader.pid})
     finally:
         try: os.killpg(leader.pid, signal.SIGKILL)
