@@ -137,6 +137,7 @@ public protocol HTTPClientObserving {
     func willSend(_ request: URLRequest) async throws
     func didFinish(
         request: URLRequest,
+        finalRequest: URLRequest?,
         data: Data?,
         response: URLResponse?,
         error: Error?,
@@ -212,19 +213,19 @@ public struct HTTPClient {
             result = HTTPResponse(data: data, response: httpResponse, finalRequest: finalRequest)
         } catch {
             await observer?.didFinish(
-                request: request, data: receivedData, response: receivedResponse, error: error,
+                request: request, finalRequest: finalRequest, data: receivedData, response: receivedResponse, error: error,
                 elapsed: Date().timeIntervalSince(startedAt)
             )
             throw error
         }
         await observer?.didFinish(
-            request: request, data: result.data, response: result.response, error: nil,
+            request: request, finalRequest: result.finalRequest, data: result.data, response: result.response, error: nil,
             elapsed: Date().timeIntervalSince(startedAt)
         )
         try Task.checkCancellation()
         guard let observer else { return result }
         return result.observingValidation { error in
-            await observer.didFinish(request: request, data: result.data, response: result.response,
+            await observer.didFinish(request: request, finalRequest: result.finalRequest, data: result.data, response: result.response,
                 error: error, elapsed: Date().timeIntervalSince(startedAt))
         }
     }

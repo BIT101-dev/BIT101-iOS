@@ -289,6 +289,19 @@ export default class extends WorkerEntrypoint {
     diagnostics: [{ statusCode: { toString: null }, elapsedMilliseconds: { toString: null }, method: { toString: null } }] };
   assert.doesNotThrow(() => reportEmailSubject("fixture", malformedLegacy));
   assert.doesNotThrow(() => reportEmailBody("fixture", "fixture", malformedLegacy));
+  const initialURL = "https://sso.bit.edu.cn/cas/login?ticket=INITIAL_SECRET";
+  const finalURL = "https://jxzxehall.bit.edu.cn/fault?token=FINAL_SECRET";
+  for (const finalMethod of ["GET", undefined]) {
+    const message = reportEmailBody("fixture", "fixture", forceRedact({ diagnostics: [
+      { method: "POST", url: initialURL, finalURL, finalMethod, statusCode: 503 }
+    ] }));
+    assert(message.includes("POST https://sso.bit.edu.cn/cas/login"));
+    assert(message.includes(`→ ${finalMethod || "?"} https://jxzxehall.bit.edu.cn/fault`));
+    assert(!message.includes("INITIAL_SECRET") && !message.includes("FINAL_SECRET"));
+  }
+  assert(!reportEmailBody("fixture", "fixture", { diagnostics: [
+    { method: "GET", url: initialURL, finalURL: initialURL, finalMethod: "GET", statusCode: 503 }
+  ] }).includes("→"));
   let saved = 0, sent = 0, offline = true, failStatusWrite = false, failJobWrite = false, failInitialWrite, alarmAt, duringSend;
   let failAcceptanceWrite, failAcceptanceState = false, failAcceptanceAlarm = false, failExpiryAlarm = false, failInitialJobWrite;
   const emails = [];

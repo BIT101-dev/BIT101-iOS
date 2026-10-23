@@ -14,7 +14,7 @@ struct ServiceContractTests {
     private final class ResponseObserver: HTTPClientObserving {
         var failures = 0
         func willSend(_ request: URLRequest) async throws {}
-        func didFinish(request: URLRequest, data: Data?, response: URLResponse?, error: (any Error)?, elapsed: TimeInterval) async {
+        func didFinish(request: URLRequest, finalRequest: URLRequest?, data: Data?, response: URLResponse?, error: (any Error)?, elapsed: TimeInterval) async {
             if error != nil { failures += 1 }
         }
     }

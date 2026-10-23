@@ -28,6 +28,56 @@ struct NetworkBusinessDiagnosticsTests {
         }
     }
 
+    private struct RedirectTransport: HTTPTransport {
+        let destination: URL
+        let statusCode: Int
+        let capturesFinalRequest: Bool
+        func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+            var redirected = URLRequest(url: destination)
+            redirected.httpMethod = "GET"
+            if capturesFinalRequest { HTTPRequestEvidenceContext.didReceiveFinalRequest?(redirected) }
+            return (Data(#"{"required":7}"#.utf8), try #require(HTTPURLResponse(url: destination,
+                statusCode: statusCode, httpVersion: nil, headerFields: nil)))
+        }
+        func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
+            try await data(for: request)
+        }
+    }
+
+    @Test(.serialized, .timeLimit(.minutes(1)), arguments: [false, true], [false, true])
+    func redirectedFailuresKeepBothRequestsAndRecoverTheFinalPage(parsingFailure: Bool, capturesFinalRequest: Bool) async throws {
+        let domain = "BIT101Tests.redirect-diagnostics"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: {})
+        let diagnostics = NetworkDiagnosticStore(currentIdentity: { storage.schoolSessionIdentity })
+        let initial = try #require(URL(string: "https://sso.bit.edu.cn/cas/login?ticket=initial-token"))
+        let destination = try #require(URL(string: "https://jxzxehall.bit.edu.cn/fault?token=redirect-token"))
+        let http = HTTPClient(transport: RedirectTransport(destination: destination, statusCode: parsingFailure ? 200 : 503,
+            capturesFinalRequest: capturesFinalRequest),
+            networkWarningCenter: nil, storage: storage, diagnostics: diagnostics)
+        var request = URLRequest(url: initial)
+        request.httpMethod = "POST"
+        do {
+            let response = try await http.send(request)
+            let _: [String: String] = try await response.validated { data, _ in
+                try JSONDecoder().decode([String: String].self, from: data)
+            }
+            Issue.record("重定向后的错误应传播至调用者")
+        } catch {
+            #expect(parsingFailure ? error is DecodingError : error is HTTPClientError)
+        }
+        let records = await diagnostics.recent()
+        let record = try #require(records.first)
+        #expect(records.count == 1 && record.error != nil)
+        #expect(record.method == "POST" && record.url == initial.absoluteString)
+        let facts = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(record)) as? [String: Any])
+        #expect(facts["finalMethod"] as? String == (capturesFinalRequest ? "GET" : nil))
+        #expect(facts["finalURL"] as? String == destination.absoluteString)
+        #expect(await diagnostics.latestSchoolServicePageURL()?.absoluteString == "https://jxzxehall.bit.edu.cn/fault")
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func loginParsingFailureKeepsItsFieldPathInTheRequestDiagnostic() async throws {
         let domain = "BIT101Tests.login-business-diagnostics"

@@ -365,7 +365,8 @@ nonisolated struct ErrorReportPayload: FeedbackSubmissionPayload {
                 }
                 return NetworkDiagnosticRecord(id: record.id, occurredAt: record.occurredAt, method: record.method,
                     url: record.url, statusCode: record.statusCode, elapsedMilliseconds: record.elapsedMilliseconds,
-                    error: record.error, responseHeaders: record.responseHeaders, responseBody: body)
+                    error: record.error, responseHeaders: record.responseHeaders, responseBody: body,
+                    finalURL: record.finalURL, finalMethod: record.finalMethod)
             }
         }
         return bounded
@@ -385,7 +386,10 @@ nonisolated struct ErrorReportPayload: FeedbackSubmissionPayload {
                     : ErrorReportRedactor.forced(record.url, credentials: credentials),
                 statusCode: record.statusCode, elapsedMilliseconds: record.elapsedMilliseconds,
                 error: record.error.map(redact), responseHeaders: sanitized ? [:] : ErrorReportRedactor.redactHeaders(record.responseHeaders, credentials: credentials),
-                responseBody: sanitized ? nil : record.responseBody.map { ErrorReportRedactor.forced($0, credentials: credentials) })
+                responseBody: sanitized ? nil : record.responseBody.map { ErrorReportRedactor.forced($0, credentials: credentials) },
+                finalURL: record.finalURL.map { sanitized
+                    ? ErrorReportRedactor.sanitizedURL($0, credentials: credentials, studentID: studentID)
+                    : ErrorReportRedactor.forced($0, credentials: credentials) }, finalMethod: record.finalMethod)
         }
         return try Self(requestID: requestID, mode: mode, isDevelopmentBuild: isDevelopmentBuild,
             comment: comment.map(redact), contact: contact.map { ErrorReportRedactor.forced($0, credentials: credentials) },

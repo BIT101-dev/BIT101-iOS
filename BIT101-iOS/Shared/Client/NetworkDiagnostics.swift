@@ -178,6 +178,16 @@ nonisolated struct NetworkDiagnosticRecord: Codable, Identifiable, Equatable, Se
     let error: String?
     let responseHeaders: [String: String]
     let responseBody: String?
+    let finalURL: String?
+    let finalMethod: String?
+
+    init(id: UUID, occurredAt: Date, method: String, url: String, statusCode: Int?, elapsedMilliseconds: Int,
+         error: String?, responseHeaders: [String: String], responseBody: String?, finalURL: String? = nil, finalMethod: String? = nil) {
+        self.id = id; self.occurredAt = occurredAt; self.method = method; self.url = url
+        self.statusCode = statusCode; self.elapsedMilliseconds = elapsedMilliseconds; self.error = error
+        self.responseHeaders = responseHeaders; self.responseBody = responseBody
+        self.finalURL = finalURL; self.finalMethod = finalMethod
+    }
 }
 
 actor NetworkDiagnosticStore {
@@ -190,7 +200,8 @@ actor NetworkDiagnosticStore {
         self.currentIdentity = currentIdentity
     }
 
-    func record(owner: SchoolSessionIdentity, id: UUID = UUID(), request: URLRequest, data: Data?, response: URLResponse?, error: Error?, elapsed: TimeInterval) async {
+    func record(owner: SchoolSessionIdentity, id: UUID = UUID(), request: URLRequest, finalRequest: URLRequest? = nil,
+                data: Data?, response: URLResponse?, error: Error?, elapsed: TimeInterval) async {
         guard owner == (await currentIdentity()) else { return }
         guard request.url?.host?.lowercased() != "feedback.aihelpme.dev" else { return }
         records.removeAll { $0.owner != owner }
@@ -207,7 +218,10 @@ actor NetworkDiagnosticStore {
             guard let text else { return "[非文本响应，\(data.count) 字节]" }
             return text + (truncated ? "\n[响应正文已按诊断大小限制截取]" : "")
         }
-        let diagnosticError = error.map(Self.failureDescription) ?? Self.authenticationFailure(in: data, url: request.url)
+        let finalURL = response?.url ?? finalRequest?.url
+        let finalMethod = finalRequest.map { $0.httpMethod ?? "GET" }
+            ?? (finalURL != nil && finalURL == request.url ? request.httpMethod ?? "GET" : nil)
+        let diagnosticError = error.map(Self.failureDescription) ?? Self.authenticationFailure(in: data, url: finalURL ?? request.url)
         let failed = (http?.statusCode ?? 200) >= 400
             || (error.map { !TaskCancellation.matches($0) } ?? (diagnosticError != nil))
         let index = records.firstIndex { $0.record.id == id }
@@ -216,7 +230,7 @@ actor NetworkDiagnosticStore {
             url: request.url?.absoluteString ?? "", statusCode: http?.statusCode,
             elapsedMilliseconds: Int(elapsed * 1_000),
             error: diagnosticError,
-            responseHeaders: headers, responseBody: body
+            responseHeaders: headers, responseBody: body, finalURL: finalURL?.absoluteString, finalMethod: finalMethod
         )
         if let index { records[index] = (owner, record, failed) }
         else { records.append((owner, record, failed)) }
@@ -282,7 +296,7 @@ actor NetworkDiagnosticStore {
                 || record.responseBody?.localizedCaseInsensitiveContains("certificate") == true
             let failed = record.error != nil || (record.statusCode ?? 200) >= 400 || bodyIndicatesFailure
             guard failed else { continue }
-            guard let url = URL(string: record.url),
+            guard let url = URL(string: record.finalURL ?? record.url),
                   let host = url.host?.lowercased(),
                   schoolHosts.contains(host)
             else { continue }

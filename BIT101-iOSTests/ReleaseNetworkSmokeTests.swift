@@ -147,7 +147,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
         func willSend(_ request: URLRequest) async throws {
             if reject { throw URLError(.notConnectedToInternet) }
         }
-        func didFinish(request: URLRequest, data: Data?, response: URLResponse?, error: (any Error)?, elapsed: TimeInterval) async {}
+        func didFinish(request: URLRequest, finalRequest: URLRequest?, data: Data?, response: URLResponse?, error: (any Error)?, elapsed: TimeInterval) async {}
     }
     private func correctedSchedulePayload(courses: [CourseRecord]? = nil, date: String = "2026-11-09") throws -> CourseSyncPayload {
         let rows: [[String: Any]] = (1...2).map { index in

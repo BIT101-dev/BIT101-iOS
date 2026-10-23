@@ -20,7 +20,7 @@ struct HTTPResponseValidationTests {
     private final class Observer: HTTPClientObserving {
         var errors: [(any Error)?] = []
         func willSend(_ request: URLRequest) async throws {}
-        func didFinish(request: URLRequest, data: Data?, response: URLResponse?, error: (any Error)?, elapsed: TimeInterval) async {
+        func didFinish(request: URLRequest, finalRequest: URLRequest?, data: Data?, response: URLResponse?, error: (any Error)?, elapsed: TimeInterval) async {
             errors.append(error)
         }
     }

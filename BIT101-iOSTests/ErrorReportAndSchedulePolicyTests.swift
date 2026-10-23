@@ -67,7 +67,8 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
                 NetworkDiagnosticRecord(id: UUID(), occurredAt: Date(), method: "GET",
                     url: "https://example.invalid/students/" + (index % 2 == 0 ? "2026123456" : "%32%30%32%36%31%32%33%34%35%36") + "?student=2026123456",
                     statusCode: 500, elapsedMilliseconds: 1, error: encodedURL,
-                    responseHeaders: Dictionary(uniqueKeysWithValues: sensitiveHeaders.map { ($0, "TEST_ONLY_SECRET") } + [("Content-Type", "text/plain")]), responseBody: body)
+                    responseHeaders: Dictionary(uniqueKeysWithValues: sensitiveHeaders.map { ($0, "TEST_ONLY_SECRET") } + [("Content-Type", "text/plain")]), responseBody: body,
+                    finalURL: encodedURL + "&token=TEST_ONLY_SECRET", finalMethod: "GET")
             }
             let submittedSuccessfully = await model.submit()
             XCTAssertTrue(submittedSuccessfully)
@@ -86,6 +87,10 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
             for record in payload.diagnostics {
                 let path = try XCTUnwrap(URLComponents(string: record.url)).path
                 XCTAssertEqual(path.contains("2026123456"), raw)
+                let finalURL = try XCTUnwrap(record.finalURL)
+                XCTAssertEqual(try XCTUnwrap(URLComponents(string: finalURL)).path.contains("2026123456"), raw)
+                XCTAssertFalse(finalURL.contains("TEST_ONLY_SECRET"))
+                XCTAssertEqual(record.finalMethod, "GET")
                 if raw {
                     XCTAssertEqual(record.responseHeaders["Content-Type"], "text/plain")
                     for key in sensitiveHeaders { XCTAssertEqual(record.responseHeaders[key], "[REDACTED]") }

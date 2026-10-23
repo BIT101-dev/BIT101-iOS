@@ -337,6 +337,7 @@ private final class RecordingObserver: HTTPClientObserving {
 
     func didFinish(
         request: URLRequest,
+        finalRequest: URLRequest?,
         data: Data?,
         response: URLResponse?,
         error: Error?,
@@ -814,14 +815,14 @@ extension ScheduleInfrastructureTests {
         var completions: [Int] = []
         func forRequest() -> any HTTPClientObserving { RequestObserver(factory: self, generation: generation) }
         func willSend(_ request: URLRequest) async throws {}
-        func didFinish(request: URLRequest, data: Data?, response: URLResponse?, error: Error?, elapsed: TimeInterval) async {
+        func didFinish(request: URLRequest, finalRequest: URLRequest?, data: Data?, response: URLResponse?, error: Error?, elapsed: TimeInterval) async {
             completions.append(-1)
         }
         private struct RequestObserver: HTTPClientObserving {
             let factory: RequestObserverFactory
             let generation: Int
             func willSend(_ request: URLRequest) async throws {}
-            func didFinish(request: URLRequest, data: Data?, response: URLResponse?, error: Error?, elapsed: TimeInterval) async {
+            func didFinish(request: URLRequest, finalRequest: URLRequest?, data: Data?, response: URLResponse?, error: Error?, elapsed: TimeInterval) async {
                 factory.completions.append(generation)
             }
         }

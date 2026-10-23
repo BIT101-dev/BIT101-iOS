@@ -29,6 +29,7 @@ private struct AppHTTPClientObserver: HTTPClientObserving, Sendable {
 
     func didFinish(
         request: URLRequest,
+        finalRequest: URLRequest?,
         data: Data?,
         response: URLResponse?,
         error: Error?,
@@ -36,7 +37,8 @@ private struct AppHTTPClientObserver: HTTPClientObserving, Sendable {
     ) async {
         guard let identity else { return }
         await diagnostics.record(
-            owner: identity, id: requestID, request: request, data: data, response: response, error: error, elapsed: elapsed
+            owner: identity, id: requestID, request: request, finalRequest: finalRequest,
+            data: data, response: response, error: error, elapsed: elapsed
         )
     }
 }

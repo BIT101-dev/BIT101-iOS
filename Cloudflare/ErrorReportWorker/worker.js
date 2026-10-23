@@ -264,7 +264,9 @@ function reportEmailBody(id, receivedAt, report) {
       const status = record.statusCode == null ? "无状态码" : `HTTP ${emailLine(record.statusCode)}`;
       const elapsed = record.elapsedMilliseconds == null ? "" : ` ${emailLine(record.elapsedMilliseconds)}ms`;
       const error = record.error ? ` · ${emailLine(record.error)}` : "";
-      lines.push(`- ${emailLine(record.method || "?")} ${emailText(record.url, 500)} · ${status}${elapsed}${error}`);
+      const redirect = record.finalURL && (record.finalURL !== record.url || (record.finalMethod && record.finalMethod !== record.method))
+        ? ` → ${emailLine(record.finalMethod || "?")} ${emailText(record.finalURL, 500)}` : "";
+      lines.push(`- ${emailLine(record.method || "?")} ${emailText(record.url, 500)}${redirect} · ${status}${elapsed}${error}`);
     }
   }
 

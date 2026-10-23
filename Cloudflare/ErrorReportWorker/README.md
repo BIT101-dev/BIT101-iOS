@@ -26,7 +26,7 @@ UTC 日配额由 SQLite Durable Object 在事务内预留，正式报告与网�
 
 ## 邮件投递
 
-Worker 收到新报告后会向已验证的维护者邮箱发送结构化提醒，邮件主题区分“错误报告”和“用户建议”，正文包含标题、用户补充、联系方式、版本、设备、系统、网络、诊断数量、状态码统计和最近失败请求；邮件保留报告编号与 KV 查看键，图片附件继续留在 KV 中。邮件正文使用 Worker 脱敏后的报告字段，避免发送完整原始响应和图片。运行时收件地址由 `wrangler.jsonc` 的 `REPORT_EMAIL_RECIPIENT` 变量提供，`REPORT_EMAIL` binding 限制同一地址，审计核对二者一致；修改配置后需先在 Cloudflare Email Routing 中验证，再重新部署 Worker。
+Worker 收到新报告后会向已验证的维护者邮箱发送结构化提醒，邮件主题区分“错误报告”和“用户建议”，正文包含标题、用户补充、联系方式、版本、设备、系统、网络、诊断数量、状态码统计和最近失败请求，重定向请求同时呈现初始与最终地址及方法；邮件保留报告编号与 KV 查看键，图片附件继续留在 KV 中。邮件正文使用 Worker 脱敏后的报告字段，避免发送完整原始响应和图片。运行时收件地址由 `wrangler.jsonc` 的 `REPORT_EMAIL_RECIPIENT` 变量提供，`REPORT_EMAIL` binding 限制同一地址，审计核对二者一致；修改配置后需先在 Cloudflare Email Routing 中验证，再重新部署 Worker。
 
 每个报告的紧凑受理及投递任务由 `ReportEmailDelivery` Durable Object 保存，任务保留报告编号、内容摘要、首次 KV 键与过期清理 alarm。正文写入前先登记近期 alarm，受理状态保存完成后继续投递；正文保存后受理确认中断时，alarm 读取已保存正文并完成受理与投递。存储故障返回可重试的错误，重试沿已保存的任务定位写入，同一 201 回执还会修复缺失的投递 alarm。历史客户端的正文写入失败通过任务删除入口取消投递并清理该报告键。alarm 读取已受理且已脱敏的正文发送提醒。平台默认指数退避允许六次重试，耗尽后沿持久化失败计数重新排程，退避间隔上限为一小时，持续到报告保留期结束。投递状态保存为 `pending` 或 `sent`，发送前保存尝试次数，发送后保存消息标识与更新时间，并写回报告及列表元数据。提醒采用至少一次投递：发送成功与 `sent` 保存之间发生存储失败或进程退出时，重试可能产生重复邮件。邮件主题和 `X-BIT101-Report-ID` 头携带稳定报告编号，处理提醒时按编号归并；完整反馈以 KV 中同一报告键为准。已保存的 `sent` 状态在 KV 更新重试时复用，KV 持续故障同样沿保留期重新排程。alarm 的重试语义沿 [Cloudflare 文档](https://developers.cloudflare.com/durable-objects/api/alarms/) 维护；邮件头沿 [Email Service 合同](https://developers.cloudflare.com/email-service/reference/headers/) 设置。任务与状态在报告保留期结束时清理，任务保存报告定位信息，正文和图片继续由同一 KV 记录承载。
 
