@@ -130,7 +130,7 @@ final class GalleryComposerViewModel: ObservableObject {
         GalleryComposerDraftSnapshot(title: title, text: text, selectedTags: selectedTags,
             customTags: customTagDrafts.map(\.text), anonymous: anonymous, isPublic: isPublic,
             selectedClaimID: selectedClaimID, images: imageDrafts.map {
-                .init(filename: $0.filename, previewData: $0.previewData, uploadData: $0.uploadData)
+                .init(filename: $0.filename, previewData: $0.previewData, uploadData: $0.uploadData, uploadedImage: $0.uploadedImage)
             })
     }
 
@@ -158,10 +158,11 @@ final class GalleryComposerViewModel: ObservableObject {
         for image in draft.images {
             let uploadData: Data?
             if let data = image.uploadData { uploadData = data }
-            else { uploadData = await prepareImageData(image.previewData) }
+            else if image.uploadedImage == nil { uploadData = await prepareImageData(image.previewData) }
+            else { uploadData = nil }
             guard isCurrent(operation) else { return }
             restored.append(ComposerImageDraft(previewData: image.previewData, filename: image.filename,
-                uploadData: uploadData, status: .failed("需要重新上传")))
+                uploadData: uploadData, status: image.uploadedImage.map(ComposerImageDraft.Status.uploaded) ?? .failed("需要重新上传")))
         }
         title = draft.title
         text = draft.text

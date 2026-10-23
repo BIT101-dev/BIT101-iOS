@@ -329,7 +329,7 @@ private struct GalleryMessageAvatarView: View {
                 systemImage: type == .system ? "bell.fill" : "person.fill"
             )
         } else {
-            AppAvatarView(imageURL: user.avatar.preferredURL)
+            AppAvatarView(imageURL: user.avatar.preferredURL, fallbackImageURL: user.avatar.originalURL)
         }
     }
 }

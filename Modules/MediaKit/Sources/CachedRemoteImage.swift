@@ -1,6 +1,7 @@
 #if os(iOS)
 import StorageCore
 import DesignSystemKit
+import TransportCore
 //
 //  CachedRemoteImage.swift
 //  BIT101-iOS
@@ -30,6 +31,7 @@ public struct CachedRemoteImage<Content: View, Placeholder: View>: View {
     @State private var budgetRetryGeneration: UInt64 = 0
     /// 需要加载的远程资源地址；为空时直接展示占位内容。
     let url: URL?
+    let fallbackURL: URL?
     /// 成功加载后的渲染闭包，由调用方决定裁剪、圆角、缩放等样式。
     let content: (Image) -> Content
     /// 加载前或失败时的占位内容。
@@ -41,10 +43,12 @@ public struct CachedRemoteImage<Content: View, Placeholder: View>: View {
     /// 创建一个使用本地缓存的远程图片视图。
     public init(
         url: URL?,
+        fallbackURL: URL? = nil,
         @ViewBuilder content: @escaping (Image) -> Content,
         @ViewBuilder placeholder: @escaping () -> Placeholder
     ) {
         self.url = url
+        self.fallbackURL = fallbackURL
         self.content = content
         self.placeholder = placeholder
     }
@@ -61,10 +65,10 @@ public struct CachedRemoteImage<Content: View, Placeholder: View>: View {
         .onGeometryChange(for: Int.self) { [scale = displayScale] geometry in
             Int((max(geometry.size.width, geometry.size.height) * scale).rounded(.up))
         } action: { pixelSize = $0 }
-        .task(id: MediaImageLoadIdentity(urls: [url], environment: ObjectIdentifier(media),
+        .task(id: MediaImageLoadIdentity(urls: [url, fallbackURL], environment: ObjectIdentifier(media),
             retryGeneration: media.imageRetryGeneration, budgetRetryGeneration: budgetRetryGeneration, pixelSize: pixelSize)) {
             guard pixelSize > 0 else { return }
-            await loader.load(url: url, media: media, maximumPixelSize: pixelSize)
+            await loader.load(url: url, fallbackURL: fallbackURL, media: media, maximumPixelSize: pixelSize)
         }
         .onChange(of: media.displayBudget.releaseGeneration) { if loader.waitingForBudget { budgetRetryGeneration &+= 1 } }
         .onDisappear { loader.releaseDisplayImage() }
@@ -74,6 +78,7 @@ public struct CachedRemoteImage<Content: View, Placeholder: View>: View {
 /// 主 App 的远程头像适配器；远程加载属于 App 层，头像容器保持在设计系统层。
 public struct AppAvatarView: View {
     let imageURL: URL?
+    let fallbackImageURL: URL?
     let size: CGFloat
     let tint: Color
     let systemImage: String
@@ -82,6 +87,7 @@ public struct AppAvatarView: View {
 
     public init(
         imageURL: URL?,
+        fallbackImageURL: URL? = nil,
         size: CGFloat = AppDesignSystem.Size.Avatar.standard,
         tint: Color = AppDesignSystem.Palette.Accent.primary,
         systemImage: String = "person.fill",
@@ -89,6 +95,7 @@ public struct AppAvatarView: View {
         anonymous: Bool = false
     ) {
         self.imageURL = imageURL
+        self.fallbackImageURL = fallbackImageURL
         self.size = size
         self.tint = tint
         self.systemImage = systemImage
@@ -97,7 +104,7 @@ public struct AppAvatarView: View {
     }
 
     public var body: some View {
-        CachedRemoteImage(url: imageURL) { image in
+        CachedRemoteImage(url: imageURL, fallbackURL: fallbackImageURL) { image in
             AppAvatarContainer(
                 image: image,
                 size: size,
@@ -139,8 +146,8 @@ final class CachedRemoteImageLoader: ObservableObject {
     @Published private(set) var image: UIImage?
     @Published private(set) var waitingForBudget = false
 
-    /// 当前加载任务对应的 URL，用于校验网络响应是否仍属于当前视图。
-    private var currentURL: URL?
+    /// 当前候选地址用于核对异步响应所属的视图资源。
+    private var currentURLs: [URL] = []
     private weak var currentMedia: MediaEnvironment?
     private var currentPixelSize: Int?
     private let displayOwner = UUID()
@@ -167,38 +174,42 @@ final class CachedRemoteImageLoader: ObservableObject {
     }
 
     /// 先读取本地缓存，缓存未命中时下载。URL 更新时清空当前图片状态。
-    func load(url: URL?, media: MediaEnvironment, maximumPixelSize: Int? = nil) async {
-        if currentURL == url, currentMedia === media, currentPixelSize == maximumPixelSize, image != nil {
+    func load(url: URL?, fallbackURL: URL? = nil, media: MediaEnvironment, maximumPixelSize: Int? = nil) async {
+        let urls = mediaImageURLs([url, fallbackURL])
+        if currentURLs == urls, currentMedia === media, currentPixelSize == maximumPixelSize, image != nil {
             return
         }
 
         currentMedia = media
-        currentURL = url
+        currentURLs = urls
         currentPixelSize = maximumPixelSize
         releaseDisplayImage()
 
-        guard let url else { return }
-
         let generation = await media.avatars.cacheGeneration
-        if let cachedImage = await media.avatars.image(for: url, maximumPixelSize: maximumPixelSize) {
-            guard !Task.isCancelled, currentURL == url, currentMedia === media, currentPixelSize == maximumPixelSize, await media.avatars.cacheGeneration == generation else { return }
-            display(cachedImage, media: media)
-            return
+        func isCurrent() async -> Bool {
+            let cacheGeneration = await media.avatars.cacheGeneration
+            return !Task.isCancelled && currentURLs == urls && currentMedia === media
+                && currentPixelSize == maximumPixelSize && cacheGeneration == generation
         }
-
-        do {
-            let response = try await media.downloads.response(for: url, source: .avatar)
-            let data = response.data
-            guard !Task.isCancelled, currentURL == url, currentMedia === media, currentPixelSize == maximumPixelSize, await media.avatars.cacheGeneration == generation else { return }
-            guard let downloadedImage = await media.avatars.storeAndDecode(data, for: url, generation: generation, maximumPixelSize: maximumPixelSize) else {
+        for url in urls.reversed() {
+            if let cachedImage = await media.avatars.image(for: url, maximumPixelSize: maximumPixelSize) {
+                guard await isCurrent() else { return }
+                display(cachedImage, media: media)
                 return
             }
-            guard !Task.isCancelled, currentURL == url, currentMedia === media, currentPixelSize == maximumPixelSize, await media.avatars.cacheGeneration == generation else { return }
-            display(downloadedImage, media: media)
-        } catch {
-            guard !Task.isCancelled, currentURL == url, currentMedia === media, currentPixelSize == maximumPixelSize, await media.avatars.cacheGeneration == generation else { return }
-            // 加载失败时保留占位内容。
-            image = nil
+        }
+        for url in urls {
+            do {
+                let response = try await media.downloads.response(for: url, source: .avatar)
+                guard await isCurrent() else { return }
+                guard let downloadedImage = await media.avatars.storeAndDecode(response.data, for: url,
+                    generation: generation, maximumPixelSize: maximumPixelSize) else { continue }
+                guard await isCurrent() else { return }
+                display(downloadedImage, media: media)
+                return
+            } catch {
+                guard await isCurrent(), !TaskCancellation.matches(error) else { return }
+            }
         }
     }
 }

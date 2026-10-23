@@ -3,7 +3,7 @@ import Foundation
 /// 图片资源。
 ///
 /// 后端同时返回原图和低清图。列表优先使用低清图，大图浏览使用原图。
-public nonisolated struct CommunityImage: Decodable, Identifiable, Hashable, Sendable {
+public nonisolated struct CommunityImage: Codable, Identifiable, Hashable, Sendable {
     public init(mid: String, url: String, lowUrl: String) {
         self.mid = mid
         self.url = url

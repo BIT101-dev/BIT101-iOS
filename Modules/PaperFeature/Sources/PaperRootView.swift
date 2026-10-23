@@ -108,7 +108,7 @@ private struct PaperRootViewScene: View {
                                     .accessibilityAddTraits(.isButton)
                                     .accessibilityHint("打开文章详情")
                                 }
-                                .task(id: viewModel.refreshGeneration) {
+                                .task(id: viewModel.previewGeneration) {
                                     await viewModel.loadPreviewMetadataIfNeeded(for: paper)
                                 }
                                 .task(id: viewModel.state.status == .loaded ? viewModel.state.nextPage : nil) {

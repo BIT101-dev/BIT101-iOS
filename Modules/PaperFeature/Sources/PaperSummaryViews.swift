@@ -28,6 +28,7 @@ struct PaperSummaryCard: View {
             HStack(spacing: AppDesignSystem.Spacing.regular) {
                 AppAvatarView(
                     imageURL: previewMetadata?.avatarURL,
+                    fallbackImageURL: previewMetadata?.avatarFallbackURL,
                     tint: AppDesignSystem.Palette.Status.neutral,
                     anonymous: previewMetadata?.isAnonymous == true
                 )

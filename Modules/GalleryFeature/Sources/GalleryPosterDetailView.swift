@@ -400,7 +400,9 @@ private struct GalleryPosterDetailViewScene: View {
 
     private var authorSummary: some View {
         HStack(spacing: AppDesignSystem.Spacing.content) {
-            AppAvatarView(imageURL: posterAvatarURL, anonymous: viewModel.poster.anonymous)
+            AppAvatarView(imageURL: viewModel.poster.anonymous ? nil : viewModel.poster.user.avatar.thumbnailURL,
+                fallbackImageURL: viewModel.poster.anonymous ? nil : viewModel.poster.user.avatar.originalURL,
+                anonymous: viewModel.poster.anonymous)
 
             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tiny) {
                 Text(posterDisplayName)
@@ -426,11 +428,6 @@ private struct GalleryPosterDetailViewScene: View {
 
     private var posterDisplayName: String {
         viewModel.poster.anonymous ? AppUserPresentation.anonymousName : viewModel.poster.user.nickname
-    }
-
-    private var posterAvatarURL: URL? {
-        guard !viewModel.poster.anonymous else { return nil }
-        return viewModel.poster.user.avatar.thumbnailURL
     }
 
     /// 独立跳转域名使用稳定的 `/gallery/{id}` 路由；未安装 App 时由 Worker 转至网页。

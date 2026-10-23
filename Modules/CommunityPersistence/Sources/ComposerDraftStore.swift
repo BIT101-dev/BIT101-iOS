@@ -5,6 +5,7 @@ import OSLog
 
 private nonisolated struct StoredComposerDraftImage: Codable {
     let filename: String
+    let uploadedImage: CommunityImage?
 }
 
 private nonisolated protocol StoredComposerDraft: Codable {
@@ -295,7 +296,7 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
             )
             let reuse = reusableAssetRevision(previous, at: fileURL, images: snapshot.images)
             let (revision, images) = if let reuse {
-                (reuse, snapshot.images.map { StoredComposerDraftImage(filename: $0.filename) })
+                (reuse, snapshot.images.map { StoredComposerDraftImage(filename: $0.filename, uploadedImage: $0.uploadedImage) })
             } else { try writeImages(snapshot.images, filename: filename, session: session) }
             newRevision = reuse == nil ? revision : nil
             try write(makeStored(revision, images), to: fileURL)
@@ -462,7 +463,7 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
                     to: directory.appending(path: "image-\(index).jpg"),
                     options: AppFileSystem.protectedDataWritingOptions
                 )
-                return StoredComposerDraftImage(filename: image.filename)
+                return StoredComposerDraftImage(filename: image.filename, uploadedImage: image.uploadedImage)
             }
             return (revision, references)
         } catch {
@@ -494,7 +495,8 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
                 else { throw CocoaError(.fileReadCorruptFile) }
                 try files.setPrivateFileProtection(at: fileURL)
                 let data = try files.readData(at: fileURL, maximumBytes: ComposerDraftImagePolicy.maximumBytes)
-                images.append(ComposerImageDraftSnapshot(filename: reference.filename, previewData: data, uploadData: data))
+                images.append(ComposerImageDraftSnapshot(filename: reference.filename, previewData: data,
+                    uploadData: data, uploadedImage: reference.uploadedImage))
             } catch {
                 Self.logger.error("草稿图片读取受阻：\(String(describing: error), privacy: .public)")
             }

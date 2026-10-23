@@ -8,6 +8,48 @@ import Testing
 
 @MainActor
 struct ComposerLifecycleTests {
+    @Test(.timeLimit(.minutes(1))) func restoringAnUploadedDraftReusesItsRemoteImage() async throws {
+        let service = Service(), drafts = Drafts()
+        let original = model(service, drafts: drafts)
+        original.title = "图片草稿"
+        original.text = "正文"
+        await original.addImages(from: [{ Data([7]) }])
+        let uploaded = try #require(original.imageDrafts.first?.uploadedImage)
+        #expect(await original.saveDraft())
+        original.cancelPendingOperations()
+        let restored = model(service, drafts: drafts, prepare: { _ in nil })
+        await restored.restoreDraft()
+        #expect(restored.imageDrafts.first?.uploadedImage == uploaded)
+        #expect(restored.draftSnapshot.images.first?.uploadedImage == uploaded)
+        #expect(!restored.hasUploadingImages && service.uploads.count == 1)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: ["task", "transport", "caller"])
+    func cancelledImageUploadsRetainBytesAndOfferRetry(kind: String) async throws {
+        let gate = Gate()
+        let recovery = UploadRecovery()
+        let uploaded = CommunityImage(mid: "uploaded", url: "https://example.invalid/image.jpg", lowUrl: "")
+        let images = ComposerImageUploads(upload: { _, _ in
+            if recovery.retrying { return uploaded }
+            if kind == "caller" { await gate.pause(); try Task.checkCancellation() }
+            if kind == "transport" { throw URLError(.cancelled) }
+            throw CancellationError()
+        }, prepare: { $0 }, isCurrentSession: { true })
+        let adding = Task { await images.addImages(from: [{ Data([7]) }]) }
+        if kind == "caller" {
+            try await gate.waitUntilPaused()
+            adding.cancel()
+            gate.resume()
+        }
+        await adding.value
+        let draft = try #require(images.drafts.first)
+        #expect(draft.previewData == Data([7]) && !images.hasUploadingImages && !images.isReadyToSubmit)
+        if case .failed = draft.status {} else { Issue.record("取消后应提供重试") }
+        recovery.retrying = true
+        await images.retry(id: draft.id)
+        #expect(images.isReadyToSubmit && images.uploadedImages == [uploaded])
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func restoredClaimSurvivesEitherCatalogueLoadingOrder(loadFirst: Bool) async {
         let service = Service(), drafts = Drafts()
@@ -73,6 +115,8 @@ struct ComposerLifecycleTests {
         #expect(viewModel.selectedClaimID == original.claim.id && !viewModel.hasUnsavedEdits)
         #expect(viewModel.claims.contains { $0.id == original.claim.id && $0.text == original.claim.text })
     }
+
+    private final class UploadRecovery { var retrying = false }
 
     private final class Gate {
         private var pending: CheckedContinuation<Void, Never>?

@@ -48,6 +48,7 @@ public struct CommunityPosterCard: View {
                         imageURL: poster.anonymous
                             ? nil
                             : poster.user.avatar.thumbnailURL,
+                        fallbackImageURL: poster.anonymous ? nil : poster.user.avatar.originalURL,
                         anonymous: poster.anonymous
                     )
 
@@ -381,6 +382,7 @@ public struct CommunityImageThumbnail: View {
             } else {
                 RemoteCachedStillImage(
                     url: thumbnailURL,
+                    fallbackURL: originalURL,
                     contentMode: contentMode,
                     onAspectRatioResolved: onAspectRatioResolved
                 )

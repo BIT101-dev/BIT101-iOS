@@ -1,13 +1,10 @@
 #if os(iOS)
 import StorageCore
 import TransportCore
-import DesignSystemKit
 import CryptoKit
 import Foundation
 import os
 import ImageIO
-import OSLog
-import SwiftUI
 import UniformTypeIdentifiers
 import UIKit
 
@@ -335,7 +332,7 @@ actor RemoteImageCache {
          download: (@Sendable (URL) async throws -> HTTPResponse)? = nil) {
         self.files = files
         self.quota = quota
-        self.download = download ?? { try await httpClient.send(URLRequest(url: $0), maximumBytes: RemoteImageResourceLimits.maximumEncodedBytes) }
+        self.download = download ?? { try await httpClient.send(URLRequest(url: HTTPSURLUpgrade.upgradedURL(from: $0)), maximumBytes: RemoteImageResourceLimits.maximumEncodedBytes) }
         directory = ImageCacheDirectories.gallery(using: files)
         Task { await self.removeLegacyFiles() }
     }
@@ -354,7 +351,8 @@ actor RemoteImageCache {
         await acquireCachedFile(for: remoteURL)?.url
     }
 
-    private func acquireCachedFile(for remoteURL: URL) async -> RemoteImageLease? {
+    private func acquireCachedFile(for requestURL: URL) async -> RemoteImageLease? {
+        let remoteURL = HTTPSURLUpgrade.upgradedURL(from: requestURL)
         let owner = generation
         let prefix = filePrefix(for: remoteURL)
         for extensionName in supportedExtensions {
@@ -407,6 +405,21 @@ actor RemoteImageCache {
         return try await operation(lease.source)
     }
 
+    func withCachedSource<Value: Sendable>(for remoteURL: URL, operation: @Sendable (RemoteImageSource) async throws -> Value) async throws -> Value? {
+        guard let lease = await acquireCachedResource(for: remoteURL) else { return nil }
+        defer { withExtendedLifetime(lease) {} }
+        try Task.checkCancellation()
+        return try await operation(lease.source)
+    }
+
+    private func acquireCachedResource(for remoteURL: URL) async -> RemoteImageLease? {
+        let owner = generation
+        if let cached = await acquireCachedFile(for: remoteURL) { return cached }
+        guard owner == generation, !Task.isCancelled else { return nil }
+        let key = HTTPSURLUpgrade.upgradedURL(from: remoteURL) as NSURL
+        return transientImages.object(forKey: key).map { RemoteImageLease(memory: $0) }
+    }
+
     private func write(_ data: Data, to target: URL, owner: UUID) async throws {
         try quota.beginFileUse(target, owner: owner) { [files, directory] in
             try files.createDirectory(at: directory)
@@ -430,15 +443,15 @@ actor RemoteImageCache {
         return try RemoteImageLease(url: lease.url, files: files, quota: quota)
     }
 
-    private func acquireResource(for remoteURL: URL) async throws -> RemoteImageLease {
+    private func acquireResource(for requestURL: URL) async throws -> RemoteImageLease {
+        let remoteURL = HTTPSURLUpgrade.upgradedURL(from: requestURL)
         try Task.checkCancellation()
         let owner = generation
-        if let cached = await acquireCachedFile(for: remoteURL) {
+        if let cached = await acquireCachedResource(for: remoteURL) {
             return cached
         }
         try Task.checkCancellation()
         guard owner == generation else { throw CancellationError() }
-        if let memory = transientImages.object(forKey: remoteURL as NSURL) { return RemoteImageLease(memory: memory) }
 
         let requestKey = remoteURL.absoluteString
         let waiter = UUID()
@@ -720,159 +733,6 @@ actor GalleryThumbnailDecoder {
               let pixels = decoded.cgImage else { return nil }
         images.setObject(decoded, forKey: key, cost: pixels.bytesPerRow * pixels.height)
         return decoded
-    }
-}
-
-/// 静态话廊缩略图视图，确保首页显示过的低清图进入统一持久缓存。
-public struct RemoteCachedStillImage: View {
-    @Environment(MediaEnvironment.self) private var media
-    @Environment(\.displayScale) private var displayScale
-    @State private var pixelSize = 0
-    @State private var budgetRetryGeneration: UInt64 = 0
-    let url: URL?
-    var contentMode: ContentMode = .fit
-    var onAspectRatioResolved: ((CGFloat) -> Void)? = nil
-    @State private var displayed = MediaDisplayedImage()
-    private var image: UIImage? { displayed.image }
-    @State private var currentResource: MediaImageLoadIdentity?
-
-    public var body: some View {
-        Group {
-            if let image {
-                Image(uiImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: contentMode)
-            } else {
-                AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card)
-                    .fill(AppDesignSystem.Palette.Accent.surface)
-                    .overlay {
-                        Image(systemName: "photo")
-                            .foregroundStyle(AppDesignSystem.Palette.Accent.primary)
-                    }
-            }
-        }
-        .onGeometryChange(for: Int.self) { [scale = displayScale] geometry in
-            Int((max(geometry.size.width, geometry.size.height) * scale).rounded(.up))
-        } action: { pixelSize = $0 }
-        .task(id: MediaImageLoadIdentity(urls: [url], environment: ObjectIdentifier(media), retryGeneration: media.imageRetryGeneration, budgetRetryGeneration: budgetRetryGeneration, pixelSize: pixelSize)) {
-            let resource = MediaImageLoadIdentity(urls: [url], environment: ObjectIdentifier(media), pixelSize: pixelSize)
-            if currentResource != resource { displayed.clear(); currentResource = resource }
-            guard pixelSize > 0 else { return }
-            guard image == nil else { return }
-            guard let url else { return }
-            do {
-                let decoded = try await media.images.withSource(for: url) { @MainActor [media, pixelSize] source in
-                    await media.stillDecoder.image(from: source, maximumPixelSize: pixelSize)
-                }
-                guard !Task.isCancelled else { return }
-                if let decoded { displayed.set(decoded, budget: media.displayBudget) }
-                if let decoded, decoded.size.height > 0 {
-                    onAspectRatioResolved?(decoded.size.width / decoded.size.height)
-                }
-            } catch {
-                guard !Task.isCancelled else { return }
-                // 缩略图失败时显示占位内容。
-                displayed.clear()
-            }
-        }
-        .onChange(of: media.displayBudget.releaseGeneration) { if displayed.waitingForBudget { budgetRetryGeneration &+= 1 } }
-        .onDisappear { displayed.clear() }
-    }
-    public init(url: URL?, contentMode: ContentMode = .fit, onAspectRatioResolved: ((CGFloat) -> Void)? = nil) {
-        self.url = url
-        self.contentMode = contentMode
-        self.onAspectRatioResolved = onAspectRatioResolved
-    }
-}
-
-/// 详情页图片先显示低清缓存，再在同一视图中替换为原图。
-public struct RemoteProgressiveStillImage: View {
-    @Environment(MediaEnvironment.self) private var media
-    @Environment(\.displayScale) private var displayScale
-    @State private var pixelSize = 0
-    @State private var budgetRetryGeneration: UInt64 = 0
-    @State private var hasOriginalImage = false
-    private static let logger = Logger(subsystem: "BIT101", category: "CommunityImage")
-    let thumbnailURL: URL?
-    let originalURL: URL?
-    var contentMode: ContentMode = .fit
-    var onAspectRatioResolved: ((CGFloat) -> Void)? = nil
-    @State private var displayed = MediaDisplayedImage()
-    private var image: UIImage? { displayed.image }
-    @State private var currentResource: MediaImageLoadIdentity?
-
-    public var body: some View {
-        Group {
-            if let image {
-                Image(uiImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: contentMode)
-            } else {
-                AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card)
-                    .fill(AppDesignSystem.Palette.Accent.surface)
-                    .overlay {
-                        Image(systemName: "photo")
-                            .foregroundStyle(AppDesignSystem.Palette.Accent.primary)
-                    }
-            }
-        }
-        .onGeometryChange(for: Int.self) { [scale = displayScale] geometry in
-            Int((max(geometry.size.width, geometry.size.height) * scale).rounded(.up))
-        } action: { pixelSize = $0 }
-        .task(id: MediaImageLoadIdentity(urls: [thumbnailURL, originalURL], environment: ObjectIdentifier(media), retryGeneration: media.imageRetryGeneration, budgetRetryGeneration: budgetRetryGeneration, pixelSize: pixelSize)) {
-            let resource = MediaImageLoadIdentity(urls: [thumbnailURL, originalURL], environment: ObjectIdentifier(media), pixelSize: pixelSize)
-            if currentResource != resource { displayed.clear(); hasOriginalImage = false; currentResource = resource }
-            guard pixelSize > 0 else { return }
-            if image == nil { await loadThumbnail() }
-            guard !Task.isCancelled else { return }
-            if !hasOriginalImage { await loadOriginal() }
-        }
-        .onChange(of: media.displayBudget.releaseGeneration) { if displayed.waitingForBudget { budgetRetryGeneration &+= 1 } }
-        .onDisappear { displayed.clear(); hasOriginalImage = false }
-    }
-
-    private func loadThumbnail() async {
-        guard let thumbnailURL else { return }
-        do {
-            let decoded = try await media.images.withSource(for: thumbnailURL) { @MainActor [media, pixelSize] source in
-                await media.stillDecoder.image(from: source, maximumPixelSize: pixelSize)
-            }
-            guard !Task.isCancelled else { return }
-            if let decoded { displayed.set(decoded, budget: media.displayBudget) }
-            reportRatio(decoded)
-        } catch {
-            guard !Task.isCancelled else { return }
-            displayed.clear()
-        }
-    }
-
-    private func loadOriginal() async {
-        guard let originalURL,
-              originalURL != thumbnailURL
-        else { return }
-        do {
-            let decoded = try await media.images.withSource(for: originalURL) { @MainActor [media, pixelSize] source in
-                await media.stillDecoder.image(from: source, maximumPixelSize: pixelSize)
-            }
-            guard !Task.isCancelled, let decoded else { return }
-            hasOriginalImage = displayed.set(decoded, budget: media.displayBudget)
-            reportRatio(decoded)
-        } catch {
-            guard !Task.isCancelled else { return }
-            // 详情页保留已经显示的低清图，原图失败时继续提供可读内容。
-            Self.logger.debug("详情原图加载失败：\(error.localizedDescription, privacy: .public)")
-        }
-    }
-
-    private func reportRatio(_ image: UIImage?) {
-        guard let image, image.size.height > 0 else { return }
-        onAspectRatioResolved?(image.size.width / image.size.height)
-    }
-    public init(thumbnailURL: URL?, originalURL: URL?, contentMode: ContentMode = .fit, onAspectRatioResolved: ((CGFloat) -> Void)? = nil) {
-        self.thumbnailURL = thumbnailURL
-        self.originalURL = originalURL
-        self.contentMode = contentMode
-        self.onAspectRatioResolved = onAspectRatioResolved
     }
 }
 

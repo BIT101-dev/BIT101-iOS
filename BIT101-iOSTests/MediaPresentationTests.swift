@@ -13,6 +13,7 @@ extension MediaDependencyTests {
     final class Images: HTTPTransport {
         let bytes: Data
         private(set) var requests = 0
+        private(set) var requestedURLs: [URL] = []
         var failuresRemaining = 0
         var failedURLs = Set<URL>()
         var responses: [URL: Data] = [:]
@@ -25,6 +26,7 @@ extension MediaDependencyTests {
             requests += 1
             if failuresRemaining > 0 { failuresRemaining -= 1; throw URLError(.notConnectedToInternet) }
             let url = try #require(request.url)
+            requestedURLs.append(url)
             if url == blockedURL { await withCheckedContinuation { pending = $0 } }
             if failedURLs.contains(url) { throw URLError(.notConnectedToInternet) }
             let response = corruptResponsesRemaining > 0 ? corruptResponseData : responses[url] ?? bytes
@@ -55,6 +57,72 @@ extension MediaDependencyTests {
 #if os(iOS)
 @MainActor @Suite(.serialized)
 struct MediaPresentationTests {
+    @Test(.timeLimit(.minutes(1)), arguments: ["avatar", "gallery"])
+    func mediaRequestsUpgradeHTTPAndReuseTheSecureCache(source: String) async throws {
+        let helper = MediaDependencyTests(), transport = MediaDependencyTests.Images(bytes: try helper.png(width: 5))
+        let files = PreferenceMemoryFiles()
+        let media = helper.environment(files: files, previewFiles: files, transport: transport)
+        let insecure = AppURL.required("http://example.invalid:80/image.png?size=small")
+        let secure = AppURL.required("https://example.invalid/image.png?size=small")
+        if source == "avatar" {
+            let first = CachedRemoteImageLoader(), second = CachedRemoteImageLoader()
+            await first.load(url: insecure, media: media)
+            await second.load(url: secure, media: media)
+            #expect(first.image != nil && second.image != nil)
+            first.releaseDisplayImage(); second.releaseDisplayImage()
+        } else {
+            let first = try await media.images.file(for: insecure)
+            let second = try await media.images.file(for: secure)
+            #expect(first == second)
+        }
+        #expect(transport.requestedURLs == [secure])
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: ["avatar", "list", "detail"], ["transport", "decode"])
+    func lowQualityFailuresRecoverUsingTheOriginal(kind: String, failure: String) async throws {
+        let helper = MediaDependencyTests(), transport = MediaDependencyTests.Images(bytes: try helper.png(width: 5))
+        let files = PreferenceMemoryFiles()
+        let media = helper.environment(files: files, previewFiles: files, transport: transport)
+        let low = AppURL.required("https://example.invalid/low.png"), high = AppURL.required("https://example.invalid/high.png")
+        if failure == "transport" { transport.failedURLs.insert(low) }
+        else { transport.responses[low] = Data("damaged".utf8) }
+        if kind == "avatar" {
+            let loader = CachedRemoteImageLoader()
+            await loader.load(url: low, fallbackURL: high, media: media)
+            #expect(loader.image?.size.width == 5)
+            loader.releaseDisplayImage()
+        } else {
+            let loader = RemoteStillImageLoader()
+            await loader.load(thumbnailURL: low, originalURL: high, loadsOriginal: kind == "detail", media: media, pixelSize: 40)
+            #expect(loader.image?.size.width == 5)
+            loader.clear()
+        }
+        #expect(transport.requestedURLs == [low, high])
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: ["avatar", "list", "detail"], [false, true])
+    func cachedOriginalDisplaysBeforeAStalledThumbnail(kind: String, writeFailure: Bool) async throws {
+        let helper = MediaDependencyTests(), transport = MediaDependencyTests.Images(bytes: try helper.png(width: 5))
+        let files = PreferenceMemoryFiles()
+        files.setFailures(writing: writeFailure)
+        let media = helper.environment(files: files, previewFiles: files, transport: transport)
+        let low = AppURL.required("https://example.invalid/low.png"), high = AppURL.required("https://example.invalid/high.png")
+        let avatar = CachedRemoteImageLoader(), still = RemoteStillImageLoader()
+        if kind == "avatar" { await avatar.load(url: high, media: media); avatar.releaseDisplayImage() }
+        else { _ = try await media.images.withSource(for: high) { _ in true } }
+        transport.blockedURL = low
+        let loading = Task {
+            if kind == "avatar" { await avatar.load(url: low, fallbackURL: high, media: media) }
+            else { await still.load(thumbnailURL: low, originalURL: high, loadsOriginal: kind == "detail", media: media, pixelSize: 40) }
+        }
+        defer { loading.cancel(); transport.pending?.resume(); transport.pending = nil; avatar.releaseDisplayImage(); still.clear() }
+        try await waitForTestEvent { avatar.image != nil || still.image != nil || transport.pending != nil }
+        #expect((avatar.image ?? still.image)?.size.width == 5)
+        #expect(transport.requestedURLs == [high])
+        transport.pending?.resume(); transport.pending = nil
+        await loading.value
+    }
+
     private final class PreviewController: QLPreviewController {
         var refreshes = 0
         override func refreshCurrentPreviewItem() { refreshes += 1; super.refreshCurrentPreviewItem() }

@@ -397,6 +397,7 @@ private struct PaperHeaderSummary: View {
         HStack(spacing: AppDesignSystem.Spacing.regular) {
             AppAvatarView(
                 imageURL: paper?.anonymous == true ? nil : paper?.updateUser.avatar.thumbnailURL,
+                fallbackImageURL: paper?.anonymous == true ? nil : paper?.updateUser.avatar.originalURL,
                 size: AppDesignSystem.Size.Avatar.standard,
                 tint: AppDesignSystem.Palette.Status.neutral,
                 anonymous: paper?.anonymous == true

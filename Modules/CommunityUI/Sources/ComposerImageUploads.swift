@@ -108,10 +108,10 @@ public final class ComposerImageUploads: ObservableObject {
                 try Task.checkCancellation()
                 status = .uploaded(try await upload(draft.uploadData ?? draft.previewData, draft.filename))
             } catch {
-                guard !TaskCancellation.matches(error) else { return }
-                status = .failed(error.localizedDescription)
+                status = .failed(TaskCancellation.matches(error) ? "上传已暂停，请重试。" : error.localizedDescription)
             }
-            guard let self, self.isCurrent(operation), let index = self.drafts.firstIndex(where: { $0.id == id }) else { return }
+            guard let self, self.generation == operation, self.isCurrentSession(),
+                  let index = self.drafts.firstIndex(where: { $0.id == id }) else { return }
             self.drafts[index].status = status
         }
         uploads[id] = task

@@ -4,6 +4,15 @@ import Observation
 import TransportCore
 import UIKit
 
+nonisolated func mediaImageURLs(_ values: [URL?]) -> [URL] {
+    var result: [URL] = []
+    for value in values.compactMap({ $0 }) {
+        let url = HTTPSURLUpgrade.upgradedURL(from: value)
+        if !result.contains(url) { result.append(url) }
+    }
+    return result
+}
+
 /// 头像和话廊共享传输名额；同一来源和 URL 的消费者共用在途响应。
 @MainActor
 final class MediaDownloadCoordinator {
@@ -29,7 +38,7 @@ final class MediaDownloadCoordinator {
 
     func response(for url: URL, source: Source) async throws -> HTTPResponse {
         try Task.checkCancellation()
-        let key = Key(url: url, source: source)
+        let key = Key(url: HTTPSURLUpgrade.upgradedURL(from: url), source: source)
         let waiter = UUID()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in

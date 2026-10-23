@@ -101,6 +101,7 @@ private struct PaperCommentRow: View {
         AppCommentBubble {
             AppAvatarView(
                 imageURL: comment.anonymous ? nil : comment.user.avatar.thumbnailURL,
+                fallbackImageURL: comment.anonymous ? nil : comment.user.avatar.originalURL,
                 size: isSubComment
                     ? AppDesignSystem.Size.Control.compact
                     : AppDesignSystem.Size.Avatar.standard,

@@ -370,6 +370,10 @@ public nonisolated struct GalleryMessageAvatar: Decodable, Hashable, Sendable {
     public var preferredURL: URL? {
         CommunityImage.remoteURL(lowUrl) ?? CommunityImage.remoteURL(url)
     }
+
+    public var originalURL: URL? {
+        CommunityImage.remoteURL(url) ?? CommunityImage.remoteURL(lowUrl)
+    }
 }
 
 /// 消息发送者。

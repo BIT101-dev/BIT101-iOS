@@ -88,10 +88,16 @@ public nonisolated struct PaperSummary: Decodable, Identifiable, Hashable, Senda
 ///
 /// 文章列表接口本身不返回作者信息。
 /// 列表页按需补拉单篇文章详情，并从详情字段构建作者摘要供视图层展示。
-public struct PaperPreviewMetadata: Equatable, Hashable {
+public nonisolated struct PaperPreviewMetadata: Equatable, Hashable, Sendable {
     public let authorName: String
     public let avatarURL: URL?
+    public let avatarFallbackURL: URL?
     public let isAnonymous: Bool
+
+    public init(authorName: String, avatarURL: URL?, isAnonymous: Bool, avatarFallbackURL: URL? = nil) {
+        self.authorName = authorName; self.avatarURL = avatarURL
+        self.isAnonymous = isAnonymous; self.avatarFallbackURL = avatarFallbackURL
+    }
 }
 
 /// 文章详情模型。
@@ -142,7 +148,8 @@ public nonisolated struct PaperDetail: Decodable, Identifiable, Hashable, Sendab
         PaperPreviewMetadata(
             authorName: anonymous ? AppUserPresentation.anonymousName : updateUser.nickname,
             avatarURL: anonymous ? nil : updateUser.avatar.thumbnailURL,
-            isAnonymous: anonymous
+            isAnonymous: anonymous,
+            avatarFallbackURL: anonymous ? nil : updateUser.avatar.originalURL
         )
     }
 }

@@ -61,7 +61,8 @@ struct AccountSettingsPage: View {
                             isShowingPhotoPicker = true
                         } label: {
                             AppAvatarView(
-                                imageURL: URL(string: profile.user.avatar.url),
+                                imageURL: profile.user.avatar.thumbnailURL,
+                                fallbackImageURL: profile.user.avatar.originalURL,
                                 size: AppDesignSystem.Size.Avatar.standard,
                                 tint: AppDesignSystem.Palette.Accent.primary
                             )

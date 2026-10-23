@@ -493,7 +493,8 @@ private struct MineProfileCard: View {
 
     private var profileAvatar: some View {
         AppAvatarView(
-            imageURL: URL(string: info.user.avatar.url),
+            imageURL: info.user.avatar.thumbnailURL,
+            fallbackImageURL: info.user.avatar.originalURL,
             size: AppDesignSystem.Size.Avatar.profile,
             tint: AppDesignSystem.Palette.Accent.primary
         )
@@ -543,6 +544,7 @@ private struct MineUserListView: View {
                             HStack(spacing: AppDesignSystem.Spacing.content) {
                                 AppAvatarView(
                                     imageURL: user.avatar.thumbnailURL,
+                                    fallbackImageURL: user.avatar.originalURL,
                                     size: AppDesignSystem.Size.Avatar.standard,
                                     tint: AppDesignSystem.Palette.Accent.primary
                                 )

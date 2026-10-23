@@ -106,6 +106,7 @@ private struct CourseCommentRow: View {
                 imageURL: comment.anonymous
                     ? nil
                     : comment.user.avatar.thumbnailURL,
+                fallbackImageURL: comment.anonymous ? nil : comment.user.avatar.originalURL,
                 size: isSubComment
                     ? AppDesignSystem.Size.Control.compact
                     : AppDesignSystem.Size.Avatar.standard,

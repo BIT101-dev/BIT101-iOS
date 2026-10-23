@@ -10,8 +10,36 @@ import Testing
 
 @Suite("Paper search state machine")
 struct PaperSearchViewModelTests {
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true]) @MainActor
+    func refreshingKeepsDisplayedAuthorsUntilTheNewFirstPageArrives(search: Bool) async throws {
+        let paper = PaperSummary(id: 1, title: "fixture", intro: "", likeNum: 0, commentNum: 0, updateTime: "")
+        let service = ServiceStub(result: .success([paper]))
+        let model: PaperCollectionViewModel = search ? PaperSearchViewModel(service: service) : PaperListViewModel(service: service)
+        model.searchText = "fixture"
+        service.metadata = { _ in
+            return PaperDetail(id: 1, title: "fixture", intro: "", content: "", createTime: "", updateTime: "",
+                updateUser: listUser(1), anonymous: false, likeNum: 0, commentNum: 0, publicEdit: true, like: false, own: true)
+        }
+        await model.refresh()
+        await model.loadPreviewMetadataIfNeeded(for: paper)
+        let author = try #require(model.previewMetadata(for: paper.id))
+        let gate = ListRequestGate<[PaperSummary]>()
+        service.fetch = { try await gate.request() }
+        let refreshing = Task { await model.refresh() }
+        try await gate.waitUntilRequested()
+        #expect(model.previewMetadata(for: paper.id) == author)
+        await model.loadPreviewMetadataIfNeeded(for: paper)
+        #expect(service.metadataRequests == 1)
+        gate.finish([paper])
+        await refreshing.value
+        #expect(model.previewMetadata(for: paper.id) == nil)
+        await model.loadPreviewMetadataIfNeeded(for: paper)
+        #expect(service.metadataRequests == 2)
+    }
+
     private final class ServiceStub: PaperListServicing {
         private(set) var requests: [(search: String?, order: PaperSortOrder, page: Int)] = []
+        private(set) var metadataRequests = 0
         var result: Result<[PaperSummary], Error>
         var fetch: (() async throws -> [PaperSummary])?
         var metadata: (Int) async throws -> PaperDetail = { _ in throw URLError(.unsupportedURL) }
@@ -27,7 +55,10 @@ struct PaperSearchViewModelTests {
         func fetchPaper(id: Int) async throws -> PaperDetail {
             try await metadata(id)
         }
-        func fetchPreviewMetadata(id: Int) async throws -> PaperPreviewMetadata { try await fetchPaper(id: id).previewMetadata }
+        func fetchPreviewMetadata(id: Int) async throws -> PaperPreviewMetadata {
+            metadataRequests += 1
+            return try await fetchPaper(id: id).previewMetadata
+        }
     }
 
     @Test(.timeLimit(.minutes(1))) @MainActor
@@ -107,6 +138,7 @@ struct PaperSearchViewModelTests {
         await earlier.value
         #expect(preview()?.isAnonymous == true)
         #expect(preview()?.avatarURL == nil)
+        #expect(preview()?.avatarFallbackURL == nil)
         #expect(preview()?.authorName == edited.previewMetadata.authorName)
         #expect(search ? results.previewFailedIDs.isEmpty : list.previewFailedIDs.isEmpty)
         if search { results.reset(); #expect(preview() == nil) }

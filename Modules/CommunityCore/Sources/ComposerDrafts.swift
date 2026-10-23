@@ -53,10 +53,12 @@ public nonisolated struct ComposerImageDraftSnapshot: Codable, Equatable, Sendab
     public let filename: String
     public let previewData: Data
     public let uploadData: Data?
-    public init(filename: String, previewData: Data, uploadData: Data?) {
+    public let uploadedImage: CommunityImage?
+    public init(filename: String, previewData: Data, uploadData: Data?, uploadedImage: CommunityImage? = nil) {
         self.filename = filename
         self.previewData = previewData
         self.uploadData = uploadData
+        self.uploadedImage = uploadedImage
     }
 }
 

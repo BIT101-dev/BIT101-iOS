@@ -40,6 +40,7 @@ class PaperCollectionViewModel: ObservableObject {
     }
     private var previewLoadingIDs: Set<Int> = []
     @Published private(set) var refreshGeneration = 0
+    @Published private(set) var previewGeneration = 0
     private var refreshTask: Task<Void, Never>?
     private var refreshPreviousState: (state: PaperListState, metadata: [Int: PaperPreviewMetadata], failures: Set<Int>)?
 
@@ -99,10 +100,13 @@ class PaperCollectionViewModel: ObservableObject {
         let previousMetadata = previewMetadataByPaperID
         let previousFailures = previewFailedIDs
         refreshPreviousState = (previousState, previousMetadata, previousFailures)
-        previewMetadataByPaperID = [:]
-        previewFailedIDs = []
         previewLoadingIDs = []
-        defer { if refreshGeneration == generation { refreshPreviousState = nil } }
+        defer {
+            if refreshGeneration == generation {
+                refreshPreviousState = nil
+                previewGeneration &+= 1
+            }
+        }
         if requiresSearchText || state.items.isEmpty {
             state.prepareForRefresh()
         } else {
@@ -120,6 +124,9 @@ class PaperCollectionViewModel: ObservableObject {
             )
             try Task.checkCancellation()
             guard refreshGeneration == generation else { return }
+            previewMetadataByPaperID = [:]
+            previewFailedIDs = []
+            previewLoadingIDs = []
             state.applyFirstPage(papers)
             pageQuery = query
             state.status = .loaded
@@ -191,6 +198,7 @@ class PaperCollectionViewModel: ObservableObject {
 
     /// 文章作者信息由详情接口提供；文章行展示前请求详情，并将成功返回的作者预览信息缓存在内存中。
     func loadPreviewMetadataIfNeeded(for paper: PaperSummary) async {
+        guard state.status == .loaded else { return }
         guard previewMetadataByPaperID[paper.id] == nil else { return }
         guard !previewLoadingIDs.contains(paper.id) else { return }
         let generation = refreshGeneration
@@ -237,7 +245,6 @@ final class PaperListViewModel: PaperCollectionViewModel {
 @MainActor
 /// 搜索页持有独立集合，空查询沿搜索语义清空结果。
 final class PaperSearchViewModel: PaperCollectionViewModel {
-    var searchGeneration: Int { refreshGeneration }
 
     init(service: any PaperListServicing) {
         super.init(service: service, requiresSearchText: true)

@@ -139,15 +139,12 @@ private struct GalleryCommentRow: View {
         }
     }
 
-    private func commentAvatarURL(for comment: CommunityComment) -> URL? {
-        comment.user.avatar.thumbnailURL
-    }
-
     @ViewBuilder
     private func commentBubble(_ comment: CommunityComment, isSubComment: Bool) -> some View {
         AppCommentBubble {
             AppAvatarView(
-                imageURL: comment.anonymous ? nil : commentAvatarURL(for: comment),
+                imageURL: comment.anonymous ? nil : comment.user.avatar.thumbnailURL,
+                fallbackImageURL: comment.anonymous ? nil : comment.user.avatar.originalURL,
                 size: isSubComment
                     ? AppDesignSystem.Size.Control.compact
                     : AppDesignSystem.Size.Avatar.standard,
