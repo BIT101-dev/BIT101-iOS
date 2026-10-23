@@ -83,6 +83,9 @@ export class QuotaFixture extends ReportQuota {
     }
     for (const [errorTitle, errorMessage] of [
       ["登录失败", "服务器响应异常（HTTP 500）：初始化WebVPN验证失败Orz"],
+      ["身份验证失败", "服务器响应异常（HTTP 500）：初始化WebVPN验证失败Orz"],
+      ["加载话廊失败", "服务器响应异常（HTTP 500）：初始化WebVPN验证失败Orz"],
+      ["学校认证通道异常", "101 的学校认证通道暂时无法连接 WebVPN。"],
       ["课表同步失败", "认证信息无效。 [status=401, risk=ustc-token, flow=replaced]"],
       ["学期列表加载失败", "您的会话已经过期，请重新登录"],
       ["验证已失效", "jxzxehall: 解析 service url 失败"],
@@ -97,7 +100,7 @@ export class QuotaFixture extends ReportQuota {
     }
     assert.equal((await (await mf.getKVNamespace("ERROR_REPORTS")).list({ prefix: "report:" })).keys.length, 0);
     for (const [errorTitle, errorMessage] of [["DDL 同步失败", "课表缓存读取受阻"],
-      ["课表同步失败", "服务器返回了无法识别的数据"], ["加载话廊失败", "初始化WebVPN验证失败Orz"],
+      ["课表同步失败", "服务器返回了无法识别的数据"], ["加载话廊失败", "服务器响应异常（HTTP 500）：数据库错误Orz"],
       ["登录失败", "当前会话已过期"]]) {
       const result = await send({ mode: "raw", errorTitle, errorMessage, attachments: [{ data: "==" }] });
       assert.equal(result.status, 400); assert.equal((await result.json()).error, "invalid_attachment");

@@ -19,8 +19,6 @@
 
 包级测试使用 macOS 原生宿主，集中维护共享快照编解码、排序、时间线与文件仓库合同；iOS 行为、系统权限、真实设备交互和跨端能力按所属平台验收。各入口的 `--help` 提供完整参数。网络、短信、线上写入、iCloud 和模拟器按会话授权执行。
 
-编译验收覆盖完整产品输入。网络与 iCloud 的已完成采样沿生产能力及其模块依赖绑定，壳层组装、资源、manifest 和所属脚本共同参与输入；独立模块的改动按实际依赖决定专项复验。静态审计实现沿审计流程验收，网络与 iCloud 业务采样绑定采集实现及协议合同，现有请求与响应继续接受当前规则校验。完整行为组与 UI 组沿同一固定结果路径事务合并，各组保留自己的原始执行身份与性能采样。定向回归保留有效完整验收包，并覆盖 `diagnostics/test-results.xcresult` 中的当前诊断；完整验收继续使用 `test-results.xcresult`。报告、活动记录与截图按原始结果的写入时间选择当前包，元素树与崩溃日志汇集到同一份带来源说明的诊断文本。覆盖率按平台的实际可执行源码验收，账号切换、取消、存储故障和内容恢复由关键合同逐例检查。
-
 ## 执行环境与数据边界
 
 - 使用 Xcode 27.x。`Scripts/build-install-device.sh toolchain` 显示当前工具链；`DEVELOPER_DIR` 和 `TOOLCHAINS` 选择由项目脚本传递给 Apple 工具。
@@ -123,7 +121,7 @@ python3 Scripts/check-python-syntax.py .
 python3 Scripts/check-docs.py
 ```
 
-本地默认入口执行工作区当前内容的全部静态规则，提交钩子检查暂存区内容。修改检查器或验证协议后，使用 `--self-test` 同时验收规则自身的回归合同；CI 和发布检查自动执行完整自测。并行检查按文件从当前批次的共享数据库读取 SwiftSyntax 原始事实，各次请求持有独立对象。源码内容相同时复用解析结果，测试继承按每次请求的文件集合重新解析，别名展开等变换内容继续独立解析。
+本地默认入口执行工作区当前内容的全部静态规则，提交钩子检查暂存区内容。修改检查器或验证协议后，使用 `--self-test` 同时验收规则自身的回归合同；CI 和发布检查自动执行完整自测。解析结果按[静态事实缓存](#静态事实缓存)规则复用。
 
 依赖安全检查可独立执行 `(cd Cloudflare/EmergencyUpdateWorker && npm audit --audit-level=high)`。统一审计将该组结果保存到独立依赖日志。完整静态审计汇总各组状态；离线开发沿对应语法、架构与文档入口执行定向检查，完整验收获取当前依赖安全结果。
 
@@ -134,6 +132,36 @@ python3 Scripts/check-docs.py
 仓库维护文件上限为 1000 行。提交钩子沿完整暂存内容检查长度和文档引用；Python 与嵌入 Python 的语法及名称检查覆盖变更脚本，Python 依赖图沿暂存模块核对。检查入口变更触发完整脚本库存检查。工作树检查用于日常开发。文档随永久接口与流程维护，脚本内部解析细节沿对应源码和回归样例维护。检查器自身回归通过 `--self-test` 在统一审计中执行；日常检查与提交钩子验收当前输入。
 
 独立检查组并行运行，固定日志由审计锁协调。退出时回收所属工作进程并保留原始退出状态；终端显示失败组和有效诊断，完整日志继续保存在固定路径。
+
+## 固定产物与结果读取
+
+| 类别 | 固定路径 |
+| --- | --- |
+| 公共编译缓存 | `.build/compiler-cache/` |
+| 测试构建、日志与指标 | `.build/extended-automation/` |
+| 原始测试结果 | `.build/extended-automation/test-results.xcresult` |
+| 验证报告 | `.build/extended-automation/validation-evidence.json` |
+| 设备截图 | `.build/screenshot.png` |
+| 网络 Smoke | `.build/release-network-smoke/report/release-network-smoke.json` |
+| 社区验收配置 | `.build/release-network-smoke/community-configuration.json` |
+| iCloud Smoke | `.build/icloud-cross-device-smoke/report.json` |
+
+```sh
+Scripts/run-extended-tests.sh report
+Scripts/run-extended-tests.sh report json
+Scripts/run-extended-tests.sh report coverage
+Scripts/run-extended-tests.sh report '测试类/方法()'
+Scripts/run-extended-tests.sh activities '测试类/方法()'
+Scripts/run-extended-tests.sh screenshot '测试类/方法()'
+Scripts/run-extended-tests.sh diagnostics
+Scripts/run-extended-tests.sh cache
+```
+
+默认 `report` 显示结果、耗时摘要、完整指标与失败记录路径。排查单个失败时，传入 `测试类/方法()` 读取附件数量和文本路径。
+
+`activities` 读取原始操作记录；`screenshot` 列出当前用例的截图标识，指定标识后导出一张截图。`diagnostics` 导出当前失败包，排查完成后清理导出副本并保留原始结果。
+
+同类日志、截图和报告覆盖固定路径。本地与 CI 的失败摘要共用去重及首尾输出预算，完整诊断沿日志路径和 CI 产物读取。缓存占用与维护通过 `cache` 入口查看，资源复用规则集中在[公共缓存与工作流资源](#公共缓存与工作流资源)。
 
 ## 网络与 iCloud Smoke
 
@@ -182,44 +210,6 @@ iPhone 与 Catalyst 使用同一 Apple ID，并可访问 KVS、CloudKit Producti
 
 完整验收核对两端版本、实际业务载荷、冲突与清理结果。手机离线时先完成 Mac 恢复，再沿原设备身份继续手机清理；报告保留待恢复状态。双端清理观察对端删除，独立清理记录各自的提交范围。测试完成后保留采样现场，相关回归通过后统一恢复常规 App。
 
-## 固定产物与结果读取
-
-| 类别 | 固定路径 |
-| --- | --- |
-| 公共编译缓存 | `.build/compiler-cache/` |
-| 测试构建、日志与指标 | `.build/extended-automation/` |
-| 原始测试结果 | `.build/extended-automation/test-results.xcresult` |
-| 验证报告 | `.build/extended-automation/validation-evidence.json` |
-| 设备截图 | `.build/screenshot.png` |
-| 网络 Smoke | `.build/release-network-smoke/report/release-network-smoke.json` |
-| 社区验收配置 | `.build/release-network-smoke/community-configuration.json` |
-| iCloud Smoke | `.build/icloud-cross-device-smoke/report.json` |
-
-```sh
-Scripts/run-extended-tests.sh report
-Scripts/run-extended-tests.sh report json
-Scripts/run-extended-tests.sh report coverage
-Scripts/run-extended-tests.sh report '测试类/方法()'
-Scripts/run-extended-tests.sh activities '测试类/方法()'
-Scripts/run-extended-tests.sh screenshot '测试类/方法()'
-Scripts/run-extended-tests.sh diagnostics
-Scripts/run-extended-tests.sh cache
-```
-
-同类日志、截图和报告覆盖固定路径。`test-metrics.txt` 保存构建与运行耗时、逐例结果、最慢用例、进程及交互统计。`report json` 和 `report coverage` 沿当前批次读取模块事件及模块覆盖率，或原生结果包。报告按指标和结果包的完成顺序选择当前来源；新构建结果优先于旧测试指标，构建诊断沿所属结果包呈现。默认 `report` 显示结果与耗时摘要，并给出完整指标和失败记录路径；指定用例后汇总附件数量与文本路径。`activities` 读取原始操作记录；`screenshot` 在多张附件时列出可选标识，指定标识后导出一张截图。`diagnostics` 导出当前失败包，排查完成后清理导出副本并保留原始结果。
-
-缓存维护保留增量编译所需文件，共享 SDK、模块、原生 CompilationCache 和索引。CompilationCache 容量采用工具链默认策略，成功构建后执行原生回收；显式缓存维护展示占用统计，并按构建依赖保留所需模块。远端缓存按来源提交与工具链选择，恢复失败后沿当前源码编译。缓存与诊断保持原始形式，CI 产物使用零压缩传输。
-
-工作流先取得工作副本产物锁，再取得用户级共享资源锁。模块与 Catalyst 测试的固定系统偏好沿共享锁串行验收；聚合流程继承锁、设备及总时钟。网络采样和反馈读取采用通用终端输出预算，长报告显示首尾内容及完整报告路径。
-
-超时和取消沿整个工作流进程组回收后台工作，设备及产物锁覆盖恢复与回收过程。工作流自然或失败退出时，所属进程组的遗留工作完成回收并登记失败；监督器异常退出沿同一回收路径处理。审计 worker 提前结束时同样核对所属进程组。远端缓存按 HTTP 分段流式接收，状态、范围及长度在所属分段中校验，整次下载共用五分钟期限。
-
-原生结果保存到固定结果包，中断时恢复前序结果。相邻完整测试组共同汇总，同组再次完整执行时开启新批次；`verify` 从首组开始组织完整验收批次。定向复验保留相同输入和环境下的完整结果，发布验收核对采样时效。性能采样按所属输入和工作负载复用。
-
-输入变化、相关失败或证据过期时，所属完整组进入重新验收。模块测试及诊断整理保留当前原始失败包，新的结果生产流程覆盖所属诊断。CI 汇总完成后清理远端缓存，并上传构建失败的原始诊断包。
-
-本地验证直接比较所属文件内容、执行权限和环境，相同内容在提交前后沿用身份。共享证据以稳定的匿名身份交换本机路径与设备标识。已提交输入按 Git 第一父提交链读取相关差异，合并提交纳入相对第一父提交的改动；所属组与 Worker 共用这一身份口径，范围外改动保留相关结果。公开发布回执核对已提交输入和工具链。大型文件等维护候选保存在固定代码质量报告中，按需打开审阅。
-
 ## CI 与覆盖率
 
 日常 PR、main 推送与默认手动工作流执行完整静态审计。该范围由项目维护策略确定。语义编译和原生行为在本地定向回归、手动完整验收及发布工作流执行。
@@ -235,7 +225,9 @@ gh run rerun 运行编号 --failed
 
 托管任务采用工作流登记的 Apple 工具链镜像；真机任务沿专用自托管 Mac 与 iPhone 执行。外部 PR 的运行器准入和审批由仓库及组织设置管理。维护者审查外部 PR 时，使用 GitHub 实际 merge 提交创建 `review-validation` 分支，并填写 `review_pr`；提交与目标分支变化后重新验收。
 
-版本标签和 `release_check` 按所属验证组复用成功结果和公共缓存；`full_check` 在当次执行全部组。候选从 main 分支的手动验收历史分页读取，各组通过完整验收后生成独立结果记录，复用时核对来源提交、运行、输入差异、实际 Xcode、编译器、SDK 和宿主系统。App 与 UI 结果同时核对 iOS 模拟器的系统版本与构建号，并以完成库存及覆盖率归集的结果为依据。App 行为、正式组装与 UI 原始结果分别归集，模拟器成功记录沿独立字段保存。UI 宿主构建一次后按当前 `.xctestrun` 的产品引用传输，并按库存分片，归集时核对全部用例、参数实例、来源提交、实际设备和合并覆盖率。性能目标为完整工作流 30 分钟以内，计时包含准备、编译、缓存传输、测试、恢复和汇总；单个阶段的超时预算属于执行上限。
+版本标签和 `release_check` 按所属验证组复用成功结果和公共缓存；`full_check` 在当次执行全部组。
+
+性能目标为完整工作流 30 分钟以内，计时包含准备、编译、缓存传输、测试、恢复和汇总；单个阶段的超时预算属于执行上限。
 
 [验证策略](../Scripts/validation_policy.py)维护 macOS、iOS、App 及 UI 的版本化行覆盖门槛，目标提交门槛参与合并验收。行覆盖、实际状态断言和控件交互分别提供各自证据。关键失败、账号变化、取消和恢复路径按 [状态合同库存](../Scripts/validation_test_areas.py)维护；新增行为同步补充对应回归。平台数据沿各自的实际编译范围解释。
 
@@ -259,3 +251,41 @@ python3 Scripts/validation_evidence.py manual 检查项 \
 性能采样使用 [性能负载](../BIT101-iOSTests/PerformanceWorkloads.json)和原始 XCTest 指标，比较同设备、系统、工具链及生产配置下的耗时与内存。完整行为和 UI 运行后，通过 `Scripts/run-extended-tests.sh performance baseline 批准人` 保存批准基线，后续候选使用 `performance current`；迁移工作区使用 `python3 Scripts/ci_evidence.py import-baseline CI运行编号`。
 
 提交全部改动后，`python3 Scripts/validation_evidence.py bind` 绑定完整本地证据，`python3 Scripts/validation_evidence.py check` 核对当前输入、环境、结果和提交。发布回执通过 `python3 Scripts/ci_evidence.py publish v公开版本号` 生成固定 `release-receipt.json` 附件，沿发布授权上传。公开回执保存必要的版本、提交、执行状态及采样身份，完整设备、邮件和影像证据沿本地报告审阅。
+
+## 验证输入与结果协议
+
+### 输入与结果复用
+
+编译验收覆盖完整产品输入。网络与 iCloud 的已完成采样沿生产能力及其模块依赖绑定，壳层组装、资源、manifest 和所属脚本共同参与输入；独立模块的改动按实际依赖决定专项复验。静态审计实现沿审计流程验收，网络与 iCloud 业务采样绑定采集实现及协议合同，现有请求与响应继续接受当前规则校验。完整行为组与 UI 组沿同一固定结果路径事务合并，各组保留自己的原始执行身份与性能采样。定向回归保留有效完整验收包，并覆盖 `diagnostics/test-results.xcresult` 中的当前诊断；完整验收继续使用 `test-results.xcresult`。报告、活动记录与截图按原始结果的写入时间选择当前包，元素树与崩溃日志汇集到同一份带来源说明的诊断文本。覆盖率按平台的实际可执行源码验收，账号切换、取消、存储故障和内容恢复由关键合同逐例检查。
+
+本地验证直接比较所属文件内容、执行权限和环境，相同内容在提交前后沿用身份。共享证据以稳定的匿名身份交换本机路径与设备标识。已提交输入按 Git 第一父提交链读取相关差异，合并提交纳入相对第一父提交的改动；所属组与 Worker 共用这一身份口径，范围外改动保留相关结果。公开发布回执核对已提交输入和工具链。大型文件等维护候选保存在固定代码质量报告中，按需打开审阅。
+
+### 原始结果与批次
+
+同类日志、截图和报告覆盖固定路径。`test-metrics.txt` 保存构建与运行耗时、逐例结果、最慢用例、进程及交互统计。`report json` 和 `report coverage` 沿当前批次读取模块事件及模块覆盖率，或原生结果包。报告按指标和结果包的完成顺序选择当前来源；新构建结果优先于旧测试指标，构建诊断沿所属结果包呈现。
+
+原生结果保存到固定结果包，中断时恢复前序结果。相邻完整测试组共同汇总，同组再次完整执行时开启新批次；`verify` 从首组开始组织完整验收批次。定向复验保留相同输入和环境下的完整结果，发布验收核对采样时效。性能采样按所属输入和工作负载复用。
+
+输入变化、相关失败或证据过期时，所属完整组进入重新验收。模块测试及诊断整理保留当前原始失败包，新的结果生产流程覆盖所属诊断。CI 汇总完成后清理远端缓存，并上传构建失败的原始诊断包。
+
+### 公共缓存与工作流资源
+
+缓存维护保留增量编译所需文件，共享 SDK、模块、原生 CompilationCache 和索引。CompilationCache 容量采用工具链默认策略，成功构建后执行原生回收；显式缓存维护展示占用统计，并按构建依赖保留所需模块。远端缓存按来源提交与工具链选择，恢复失败后沿当前源码编译。缓存与诊断保持原始形式，CI 产物使用零压缩传输。
+
+工作流先取得工作副本产物锁，再取得用户级共享资源锁。模块与 Catalyst 测试的固定系统偏好沿共享锁串行验收；聚合流程继承锁、设备及总时钟。网络采样和反馈读取采用通用终端输出预算，长报告显示首尾内容及完整报告路径。
+
+超时和取消沿整个工作流进程组回收后台工作，设备及产物锁覆盖恢复与回收过程。工作流自然或失败退出时，所属进程组的遗留工作完成回收并登记失败；监督器异常退出沿同一回收路径处理。审计 worker 提前结束时同样核对所属进程组。远端缓存按 HTTP 分段流式接收，状态、范围及长度在所属分段中校验，整次下载共用五分钟期限。
+
+### 静态事实缓存
+
+SwiftSyntax 原始事实保存在固定 SQLite 数据库中，跨审计复用。索引器源码、工具链和交互规则共同决定缓存版本；版本变化后重建事实，源码按实际内容更新，已删除文件的条目同步回收。
+
+并行检查按文件读取事实，各次请求持有独立对象。测试继承按当前请求的文件集合解析，别名展开等变换内容独立解析。
+
+### CI 结果归集
+
+候选从 main 分支的手动验收历史分页读取，各组通过完整验收后生成独立结果记录，复用时核对来源提交、运行、输入差异、实际 Xcode、编译器、SDK 和宿主系统。
+
+App 与 UI 结果同时核对 iOS 模拟器的系统版本与构建号，并以完成库存及覆盖率归集的结果为依据。App 行为、正式组装与 UI 原始结果分别归集，模拟器成功记录沿独立字段保存。
+
+UI 宿主构建一次后按当前 `.xctestrun` 的产品引用传输，并按库存分片，归集时核对全部用例、参数实例、来源提交、实际设备和合并覆盖率。

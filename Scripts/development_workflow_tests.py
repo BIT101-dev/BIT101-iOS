@@ -52,6 +52,8 @@ def shared_source_facts(fixture: Path) -> None:
             database.execute('INSERT INTO facts VALUES (?, ?)', ('unrequested.swift', 'invalid JSON'))
         relative = str(path.relative_to(ROOT))
         assert subject.swift_syntax_index_sources({relative: source})[relative] == first and parse.call_count == 1
+        with closing(sqlite3.connect(cache)) as database:
+            assert database.execute("SELECT path FROM facts WHERE path = 'unrequested.swift'").fetchone() is None
         assert subject.swift_syntax_index_sources({relative: source + '\n'})[relative]['source'] == source + '\n'
         assert parse.call_count == 2
         assert subject.swift_syntax_index_sources({relative: source})[relative] == first and parse.call_count == 2
@@ -88,6 +90,22 @@ print('done', flush=True)
         derived = ROOT / 'BIT101-iOSUITests/CommunityPublishingUITests.swift'
         derived_source = {str(derived): derived.read_text()}
         assert not subject.swift_syntax_index_sources(derived_source)[str(derived)]['tests']
+
+        calls = parse.call_count
+        with patch.object(subject, 'source_facts_signature', return_value='changed indexer'):
+            assert subject.swift_syntax_index_sources({relative: source})[relative] == expected
+            assert subject.swift_syntax_index_sources({relative: source})[relative] == expected
+            assert parse.call_count == calls + 1
+        assert subject.swift_syntax_index_sources({relative: source})[relative] == expected
+        assert parse.call_count == calls + 2
+        read_bytes = Path.read_bytes
+        changed = source + '\n'
+        with patch.object(Path, 'read_bytes', lambda file: changed.encode() if file == path else read_bytes(file)):
+            assert subject.swift_syntax_index_sources({relative: changed})[relative]['source'] == changed
+            assert subject.swift_syntax_index_sources({relative: changed})[relative]['source'] == changed
+            assert parse.call_count == calls + 3
+        assert subject.swift_syntax_index_sources({relative: source})[relative] == expected
+        assert parse.call_count == calls + 4
         joined = subject.swift_syntax_index_sources(derived_source | {str(base): base.read_text()})
         assert joined[str(derived)]['tests']
         assert not subject.swift_syntax_index_sources(derived_source)[str(derived)]['tests']

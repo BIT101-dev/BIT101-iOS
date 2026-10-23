@@ -10,7 +10,7 @@ from contextlib import redirect_stdout
 from io import StringIO
 from types import SimpleNamespace
 from unittest.mock import patch
-from command_output import OUTPUT_LINE_LIMIT, run_command, show_report_lines
+from command_output import OUTPUT_LINE_LIMIT, run_command, show_log, show_report_lines
 
 SCRIPT_ROOT = Path(__file__).resolve().parent
 
@@ -29,7 +29,7 @@ def captured_command(lines, status=7, *, ci=False, executable='fixture'):
     with patch.object(Path, 'open', open_log), patch.object(Path, 'mkdir'), \
             patch.object(subprocess, 'Popen', return_value=child), \
             patch.dict(os.environ, GITHUB_ACTIONS='true' if ci else 'false'), redirect_stdout(output):
-        assert run_command(['/dev/null', 'fixture', executable]) == status
+        assert run_command(['/dev/null', 'fixture', executable]) == (status if status >= 0 else 128 - status)
     return output.getvalue(), saved.getvalue()
 
 
@@ -95,7 +95,18 @@ def log_output_boundary_findings() -> list[str]:
     lines = [*(f'error: retained {index}\n' for index in range(100)), 'UI control inventory: {}\n']
     output, raw = captured_command(lines, ci=True)
     assert 'error: retained 0\n' in output and 'error: retained 99\n' in output
+    assert len(output.splitlines()) <= OUTPUT_LINE_LIMIT + 2
     assert 'UI control inventory:' not in output and 'UI control inventory:' in raw
+    repeated = ['error: repeated cause\n'] * 200
+    for ci in (False, True):
+        output, raw = captured_command(repeated, ci=ci)
+        assert output.count('error: repeated cause\n') == 1 and raw.count('error: repeated cause\n') == 200
+        assert '/dev/null' in output and len(output.splitlines()) <= OUTPUT_LINE_LIMIT + 2
+        with patch.object(Path, 'open', return_value=RetainedLog(''.join(repeated))), \
+                patch.dict(os.environ, GITHUB_ACTIONS='true' if ci else 'false'), redirect_stdout(shown := StringIO()):
+            show_log(Path('/fixture/failure.log'), True)
+        assert shown.getvalue().count('error: repeated cause\n') == 1
+        assert '/fixture/failure.log' in shown.getvalue() and len(shown.getvalue().splitlines()) <= OUTPUT_LINE_LIMIT + 1
     output, _ = captured_command(['error: image-retry-failed\n', *('    t = 1.0s Checking existence of retry button\n' for _ in range(100))])
     assert 'error: image-retry-failed' in output and 'Checking existence' not in output
     for prefix in ('progress', 'warning:', 'error:'):

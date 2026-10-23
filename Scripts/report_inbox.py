@@ -6,7 +6,7 @@ import pathlib
 import os
 import subprocess
 import sys
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from command_output import show_report
 
 import time
@@ -178,7 +178,7 @@ def archive_reports(arguments):
         if result.returncode:
             detail = result.stderr.strip()
             print(f"读取报告失败：{key}{f'：{detail}' if detail else ''}", file=sys.stderr)
-            return key, False
+            return key, False, None
         try:
             item = json.loads(result.stdout)
             report = item["report"]
@@ -186,7 +186,7 @@ def archive_reports(arguments):
                 raise ValueError("report 需要对象结构")
         except (json.JSONDecodeError, KeyError, TypeError, ValueError):
             print(f"报告 JSON 解析失败：{key}", file=sys.stderr)
-            return key, False
+            return key, False, None
         category = "用户建议" if report.get("mode") == "suggestion" else "错误报告"
         development = report.get("isDevelopmentBuild")
         source = "开发版" if development is True else "正式版" if development is False else "来源未知"
@@ -229,25 +229,39 @@ def archive_reports(arguments):
                 result_text = result.stdout
         destination = category_dir / filename
         destination.write_text(result_text, encoding="utf-8")
-        return key, attachment_errors == 0
+        return key, attachment_errors == 0, destination
 
-    completed = set()
+    def save_processed():
+        incoming = staging_dir / 'report-keys.txt'
+        incoming.write_text("\n".join(sorted(processed)) + ("\n" if processed else ""), encoding="utf-8")
+        incoming.replace(processed_path)
+
+    downloaded_reports = 0
     incomplete = set()
     with ThreadPoolExecutor(max_workers=4) as executor:
-        for key, complete in executor.map(fetch, keys_to_fetch):
-            (completed if complete else incomplete).add(key)
-
-    downloaded_reports = sum(1 for _ in staging_dir.glob("*/*/report_*.json"))
-    for path in staging_dir.rglob("*"):
-        if path.is_file():
-            destination = output_dir / path.relative_to(staging_dir)
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            os.replace(path, destination)
-    processed = processed.union(completed) - incomplete
-    processed_path.write_text(
-        "\n".join(sorted(processed)) + ("\n" if processed else ""),
-        encoding="utf-8",
-    )
+        futures = {executor.submit(fetch, key): key for key in keys_to_fetch}
+        for future in as_completed(futures):
+            key, complete = futures[future], False
+            try:
+                key, complete, report_path = future.result()
+                if report_path is not None:
+                    assets = report_path.parent / (report_path.stem + '_附件')
+                    for path in [*assets.glob('*'), report_path]:
+                        destination = output_dir / path.relative_to(staging_dir)
+                        destination.parent.mkdir(parents=True, exist_ok=True)
+                        os.replace(path, destination)
+                    downloaded_reports += 1
+            except OSError as error:
+                complete = False
+                print(f"报告读取或归档失败：{key}：{error}", file=sys.stderr)
+            if complete: processed.add(key)
+            else: processed.discard(key); incomplete.add(key)
+            try: save_processed()
+            except OSError as error:
+                processed.discard(key)
+                incomplete.add(key)
+                print(f"报告处理记录保存失败：{key}：{error}", file=sys.stderr)
+    if not keys_to_fetch: save_processed()
     refresh_archive_index(output_dir)
     print(downloaded_reports)
     if incomplete:

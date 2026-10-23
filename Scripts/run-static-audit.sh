@@ -125,7 +125,7 @@ artifact_hygiene() { python3 "$ROOT_DIR/Scripts/validation_artifacts.py" "$ROOT_
 
 failed_groups=()
 export BIT101_SOURCE_FACTS_CACHE="$LOG_DIR/source-facts.sqlite"
-rm -f "$LOG_DIR/source-facts.json" "$BIT101_SOURCE_FACTS_CACHE" "${BIT101_SOURCE_FACTS_CACHE}-journal"
+rm -f "$LOG_DIR/source-facts.json"
 if [[ "${BIT101_AUDIT_ARTIFACTS_PREPARED:-0}" != 1 ]]; then
   bit101_run_audit_group artifact-hygiene artifact_hygiene || failed_groups+=(artifact-hygiene)
 fi

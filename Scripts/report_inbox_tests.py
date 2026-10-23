@@ -39,6 +39,7 @@ def report_inbox_boundary_findings() -> list[str]:
             archive_reports(sys.argv[1:])
         return int(output.getvalue())
     try:
+        archive_io_failure_self_test(fixture)
         namespace_configuration_self_test(source, fixture)
         deletion_boundary_self_test(source, fixture)
         issues_path = fixture / 'github-issues.json'
@@ -219,6 +220,57 @@ node() { [[ "$INBOX_SELF_TEST_MODE" != cloudflare-config-failure ]] || return 22
     finally:
         shutil.rmtree(fixture, ignore_errors=True)
     return findings
+
+
+def archive_io_failure_self_test(fixture: Path) -> None:
+    from report_inbox import archive_reports
+    root = fixture / 'io-failure'
+    write_text, write_bytes, replace = Path.write_text, Path.write_bytes, os.replace
+    try:
+        for failure in ('spawn', 'body', 'attachment', 'commit', 'processed'):
+            shutil.rmtree(root, ignore_errors=True)
+            staging = root / '.incoming'
+            staging.mkdir(parents=True)
+            keys, processed = root / 'keys.json', root / 'report-keys.txt'
+            keys.write_text(json.dumps([{'name': 'report:good'}, {'name': 'report:bad'}]))
+            calls = []
+            def fetch(arguments, **_):
+                key = arguments[4]
+                calls.append(key)
+                if key == 'report:bad' and failure == 'spawn': raise FileNotFoundError('wrangler unavailable')
+                report = {'comment': key, 'attachments': [{'data': 'aW1hZ2U=', 'contentType': 'image/png'}]}
+                return subprocess.CompletedProcess(arguments, 0, json.dumps({'report': report}), '')
+            def text(path, *args, **kwargs):
+                if path.name == 'report_bad.json' and failure == 'body': raise OSError('report write failed')
+                if path.name == 'report-keys.txt' and failure == 'processed' and 'report:bad' in args[0]:
+                    raise OSError('processed keys write failed')
+                return write_text(path, *args, **kwargs)
+            def data(path, *args, **kwargs):
+                if 'report_bad_附件' in path.parts and failure == 'attachment': raise OSError('attachment write failed')
+                return write_bytes(path, *args, **kwargs)
+            def commit(source, destination, *args, **kwargs):
+                if Path(source).name == 'report_bad.json' and failure == 'commit': raise OSError('archive move failed')
+                return replace(source, destination, *args, **kwargs)
+            arguments = [str(keys), str(staging), '/worker', 'namespace', str(processed)]
+            with patch.object(subprocess, 'run', fetch), patch.object(Path, 'write_text', text), \
+                    patch.object(Path, 'write_bytes', data), patch.object(os, 'replace', commit), \
+                    redirect_stdout(output := StringIO()), redirect_stderr(StringIO()):
+                try: archive_reports(arguments)
+                except SystemExit as error: assert error.code == 1
+                else: raise AssertionError('单项异常需要返回部分失败')
+            archive = root / '来源未知/错误报告/report_good.json'
+            shutil.rmtree(staging)
+            assert archive.is_file() and json.loads(archive.read_text())['report']['comment'] == 'report:good'
+            assert processed.read_text().splitlines() == ['report:good']
+            assert int(output.getvalue()) == (2 if failure == 'processed' else 1)
+            calls.clear()
+            failure = ''
+            staging.mkdir()
+            with patch.object(subprocess, 'run', fetch), redirect_stdout(output := StringIO()):
+                archive_reports(arguments)
+            assert calls == ['report:bad'] and int(output.getvalue()) == 1
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
 
 
 def namespace_configuration_self_test(source: str, fixture: Path) -> None:

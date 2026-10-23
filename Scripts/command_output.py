@@ -85,15 +85,11 @@ def show_report(path: Path, label: str) -> None:
 def show_log(path: Path, failed: bool) -> None:
     summary = FailureSummary()
     ordinary, count = BoundedLines(OUTPUT_LINE_LIMIT), 0
-    complete = failed and os.environ.get('GITHUB_ACTIONS') == 'true'
     with path.open() as log:
         for line in log:
             count += 1
-            if complete:
-                if useful_line(line): sys.stdout.write(line)
-            elif failed: summary.add(line)
+            if failed: summary.add(line)
             else: ordinary.add(line)
-    if complete: return
     sys.stdout.writelines(summary.lines() if failed else ordinary.lines())
     if count > OUTPUT_LINE_LIMIT: print(f'[输出] {path.stem} 共 {count} 行 · {path}')
 
@@ -150,14 +146,8 @@ def run_command(arguments: list[str]) -> int:
             shutil.rmtree(path, ignore_errors=True)
     output = failures.lines() if exit_code else diagnostics.lines()
     output_count = failures.count if exit_code else diagnostic_count
-    if exit_code and os.environ.get("GITHUB_ACTIONS") == "true":
-        with report_path.open(encoding="utf-8") as report:
-            for line in report:
-                if useful_line(line): sys.stdout.write(line)
-    elif output_count <= display_limit:
-        sys.stdout.writelines(output)
-    else:
-        sys.stdout.writelines(output)
+    sys.stdout.writelines(output)
+    if output_count > display_limit:
         print(f"[输出] {label} 共 {output_count} 行诊断 · {report_path}")
     if not exit_code and summary_count:
         if summary_count == 1:

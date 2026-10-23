@@ -27,7 +27,7 @@ extension AppErrorPresentation: DiagnosticAlertPresentable {}
 extension AppErrorPresentation {
     init(alert: any DiagnosticAlertPresentable, schoolServiceURL: URL? = nil) {
         if let issue = SchoolServiceIssue(title: alert.title, message: alert.message) {
-            self.init(title: "学校服务异常", message: issue.message, allowsDiagnostics: false,
+            self.init(title: issue.title, message: issue.message, allowsDiagnostics: false,
                 showsRecoveryLinks: true, schoolServiceURL: schoolServiceURL ?? issue.serviceURL, recoveryAction: nil)
         } else {
             self.init(title: alert.title, message: alert.message, allowsDiagnostics: alert.allowsDiagnostics,
@@ -353,7 +353,7 @@ struct DiagnosticRecoveryActions: View {
     var body: some View {
         let presentation = presentation
         VStack(spacing: AppDesignSystem.Spacing.regular) {
-            if presentation.title == "学校服务异常" {
+            if SchoolServiceIssue(title: title, message: message) != nil {
                 Text(presentation.message)
                     .font(AppDesignSystem.Typography.footnote)
                     .foregroundStyle(AppDesignSystem.Foreground.secondary)

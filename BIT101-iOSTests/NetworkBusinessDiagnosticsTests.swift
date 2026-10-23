@@ -13,6 +13,8 @@ struct NetworkBusinessDiagnosticsTests {
     func schoolServiceFailuresKeepTheirGuidanceAndBlockDeveloperReports() async throws {
         for (title, message) in [
             ("登录失败", "服务器响应异常（HTTP 500）：初始化WebVPN验证失败Orz"),
+            ("身份验证失败", "服务器响应异常（HTTP 500）：初始化WebVPN验证失败Orz"),
+            ("加载话廊失败", "服务器响应异常（HTTP 500）：初始化WebVPN验证失败Orz"),
             ("课表同步失败", "认证信息无效。 [status=401, risk=ustc-token, flow=replaced]"),
             ("学期列表加载失败", "您的会话已经过期，请重新登录"),
             ("验证已失效", "jxzxehall: 解析 service url 失败"),
@@ -24,10 +26,11 @@ struct NetworkBusinessDiagnosticsTests {
         ] {
             let alert = AppAlert(title: title, message: message)
             let presentation = AppErrorPresentation(alert: alert)
-            #expect(presentation.title == "学校服务异常" && presentation.message.contains("学校"))
+            let expectedTitle = message.contains("初始化WebVPN") ? "学校认证通道异常" : "学校服务异常"
+            #expect(presentation.title == expectedTitle && presentation.message.contains("学校"))
             #expect(!presentation.allowsDiagnostics && presentation.allowsSchoolServiceLink)
             let inline = DiagnosticRecoveryActions(title: title, message: message, allowsDiagnostics: false).presentation
-            #expect(inline.title == "学校服务异常" && inline.allowsSchoolServiceLink && !inline.allowsDiagnostics)
+            #expect(inline.title == expectedTitle && inline.allowsSchoolServiceLink && !inline.allowsDiagnostics)
             #expect(!presentation.message.contains("risk="))
             let page = try #require(URL(string: "https://jxzxehall.bit.edu.cn/fault"))
             #expect(AppErrorPresentation(alert: alert, schoolServiceURL: page).schoolServiceURL == page)
@@ -41,7 +44,7 @@ struct NetworkBusinessDiagnosticsTests {
     @Test func clientAndUnclassifiedFailuresKeepDeveloperReports() {
         for (title, message) in [
             ("DDL 同步失败", "课表缓存读取受阻"), ("课表同步失败", "服务器返回了无法识别的数据"),
-            ("加载话廊失败", "初始化WebVPN验证失败Orz"), ("登录失败", "当前会话已过期"),
+            ("加载话廊失败", "服务器响应异常（HTTP 500）：数据库错误Orz"), ("登录失败", "当前会话已过期"),
             ("空教室同步失败", "查询教室失败")
         ] {
             let alert = AppAlert(title: title, message: message)

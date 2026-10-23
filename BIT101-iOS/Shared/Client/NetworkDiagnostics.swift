@@ -191,19 +191,29 @@ nonisolated struct NetworkDiagnosticRecord: Codable, Identifiable, Equatable, Se
 }
 
 nonisolated struct SchoolServiceIssue: Sendable {
+    let title: String
     let message: String
     let serviceURL = AppURL.required("https://sso.bit.edu.cn/cas/login")
 
     init?(title: String, message: String) {
-        if title == "学校服务异常" { self.message = message; return }
-        let schoolOperation = ["课表", "学期", "空教室", "成绩", "DDL", "学校"].contains(where: title.contains)
-        guard schoolOperation || ["登录失败", "验证已失效"].contains(title) else { return nil }
+        if ["学校服务异常", "学校认证通道异常"].contains(title) {
+            self.title = title; self.message = message; return
+        }
         let value = message.lowercased()
+        if value.contains("初始化webvpn验证失败") {
+            self.title = "学校认证通道异常"
+            self.message = "101 的学校认证通道暂时无法连接 WebVPN。请稍后重试，也可通过学校官方入口核对服务状态。"
+            return
+        }
+        self.title = "学校服务异常"
+        let schoolOperation = ["课表", "学期", "空教室", "成绩", "DDL", "学校"].contains(where: title.contains)
+        guard schoolOperation || ["登录失败", "身份验证失败", "验证已失效"].contains(title) else { return nil }
         if value.contains("无权访问该资源") {
             self.message = "学校教务服务返回“无权访问该资源”。请通过学校官方入口核对，或联系学校服务渠道处理。"
-        } else if value.contains("初始化webvpn验证失败") || value.contains("jxzxehall: 解析 service url 失败")
-                    || value.contains("risk=ustc-token") {
-            self.message = "学校登录服务暂时无法完成认证，请稍后重试。可通过学校官方入口核对服务状态。"
+        } else if value.contains("jxzxehall: 解析 service url 失败") {
+            self.message = "学校认证通道暂时无法取得教务服务入口。请稍后重试，也可通过学校官方入口核对服务状态。"
+        } else if value.contains("risk=ustc-token") {
+            self.message = "学校统一认证拒绝了本次认证请求。请通过学校官方入口核对账号与验证要求，稍后重试。"
         } else if value.contains("学校统一认证服务暂时无法建立安全连接") {
             self.message = "学校统一认证服务的安全连接暂时受阻，请稍后重试，或通过学校官方入口处理。"
         } else if schoolOperation && (value.contains("学校会话自动恢复失败")

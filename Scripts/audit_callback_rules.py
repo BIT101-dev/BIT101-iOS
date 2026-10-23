@@ -132,8 +132,7 @@ def self_test() -> None:
             capture_output=True, text=True, input=payload)
         assert result.returncode == 0, result.stderr
         assert 'diagnostic 0\n' in result.stdout and 'error: decisive cause\n' in result.stdout
-        if failed and ci: assert result.stdout == payload
-        else: assert '[输出]' in result.stdout and len(result.stdout.splitlines()) <= 41
+        assert '[输出]' in result.stdout and len(result.stdout.splitlines()) <= 41
     assert not audit_callback_findings(source)
     assert audit_callback_findings(source.replace('Scripts/check-docs.py "${docs_args[@]}"',
         'Scripts/check-docs.py --staged "${docs_args[@]}"'))

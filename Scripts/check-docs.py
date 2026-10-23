@@ -45,6 +45,7 @@ def heading_anchors(source: str) -> set[str]:
         if not atx and not (setext and line.strip()): continue
         label = atx[1] if atx else line.strip()
         label = re.sub(r"\[([^]]+)\]\([^)]*\)", r"\1", label)
+        label = re.sub(r'(?<![\w\\])(_{1,3})(?=\S)(.+?)(?<=\S)(?<!\\)\1(?!\w)', r'\2', label)
         label = re.sub(r"<[^>]+>|[`*~]", "", label).lower()
         slug = ''.join(char for char in label if unicodedata.category(char)[0] in {'L', 'N', 'M'} or char in ' _-').replace(' ', '-')
         duplicate = counts.get(slug, 0)
@@ -61,7 +62,7 @@ def link_targets(source: str) -> tuple[list[str], list[str]]:
     def destination(value):
         value = value.lstrip()
         if value.startswith('<'): return value[1:value.index('>')] if '>' in value else value
-        return re.split(r'\s+["\']', value, maxsplit=1)[0].strip()
+        return re.split(r'\s', value, maxsplit=1)[0]
     definition_pattern = r'^ {0,3}\[([^]\n]+)\]:\s*(.+)$'
     for match in re.finditer(definition_pattern, source, re.MULTILINE):
         definitions.setdefault(reference(match[1]), destination(match[2]))
@@ -82,10 +83,16 @@ def link_targets(source: str) -> tuple[list[str], list[str]]:
         label = source[start + 1:end - 1]
         cursor = end
         if source[end:end + 1] == '(':
-            depth, close = 1, end + 1
+            depth, close, quote, angle = 1, end + 1, None, False
             while close < len(source) and depth:
                 if source[close] == '\\': close += 2; continue
-                if source[close] == '(': depth += 1
+                if quote:
+                    if source[close] == quote: quote = None
+                elif angle:
+                    if source[close] == '>': angle = False
+                elif source[close] in ('"', "'") and depth == 1 and source[close - 1].isspace(): quote = source[close]
+                elif source[close] == '<' and not source[end + 1:close].strip(): angle = True
+                elif source[close] == '(': depth += 1
                 elif source[close] == ')': depth -= 1
                 close += 1
             if depth: continue
@@ -142,6 +149,13 @@ def link_self_test() -> None:
     for source in ('[bad](#missing)', '[bad](docs/Help.md#missing)', '[bad][missing]', '[bad](missing.md)', '[bad][details]\n[details]: docs/Help.md#missing'):
         assert document_findings('README.md', dict(documents, **{'README.md': source}), set(documents))
     assert link_targets('[nested [label]](file(with).md)')[0] == ['file(with).md']
+    for title in ('"a ( note"', "'a ) note'", '(a note)'):
+        source = f'[link](missing.md {title})'
+        assert document_findings('README.md', dict(documents, **{'README.md': source}), set(documents))
+        source = source.replace('missing.md', 'docs/Help.md')
+        assert not document_findings('README.md', dict(documents, **{'README.md': source}), set(documents))
+    assert link_targets('[link](<missing(.md> "a ) note")')[0] == ['missing(.md']
+    assert link_targets("[link](author's.md)")[0] == ["author's.md"]
     for length in range(1, 5):
         prefix = '正文 ' + '`' * length + ' [broken](Missing.md) '
         assert link_targets(prefix + '`' * (length + 1))[0] == ['Missing.md']
@@ -161,6 +175,8 @@ def link_self_test() -> None:
     source = '[anchor](#gone)\n<a id="gone"></a>'
     assert not document_findings('README.md', {'README.md': source}, {'README.md'})
     assert 'guide-code' in heading_anchors('# Guide `code`')
+    source = '# _Emphasis_\n# __Strong__\n# value_name\n# \\_literal\\_\n[one](#emphasis) [two](#strong) [three](#value_name) [four](#_literal_)'
+    assert not document_findings('README.md', {'README.md': source}, {'README.md'})
 
 
 def staged_self_test() -> None:

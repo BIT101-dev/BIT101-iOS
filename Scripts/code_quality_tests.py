@@ -376,37 +376,24 @@ struct Handler { var value: String!; func read() -> String { value }; func catch
     return findings
 
 
-def script_output_boundary_findings() -> list[str]:
+def command_logging_boundary_findings() -> list[str]:
     """通过内存命令输出验证阈值、完整留档及进程状态。"""
     from types import SimpleNamespace
 
-    from command_output import run_command
+    from command_output import OUTPUT_LINE_LIMIT, run_command
+    from script_output_tests import captured_command
     findings: list[str] = []
-    for status, count, ci in ((0, 10, False), (7, 40, False), (7, 41, False),
-                              (-15, 1, False), (0, 41, True), (7, 41, True)):
+    for status, count, ci in ((0, 10, False), (7, OUTPUT_LINE_LIMIT, False), (7, OUTPUT_LINE_LIMIT + 1, False),
+                              (-15, 1, False), (0, OUTPUT_LINE_LIMIT + 1, True), (7, OUTPUT_LINE_LIMIT + 1, True)):
         lines = [f"error: diagnostic {index}\n" for index in range(count)]
-        process = SimpleNamespace(stdout=iter(lines), wait=lambda: status)
-        visible, log = StringIO(), StringIO()
-        def open_log(path, mode='r', **kwargs):
-            if mode != 'w': log.seek(0)
-            return nullcontext(log)
-        with patch.object(sys, "argv", ["logger", "/audit/build.log", "logger", "fake"]), \
-             patch.object(subprocess, "Popen", return_value=process), \
-             patch.object(Path, "mkdir"), patch.object(Path, "open", open_log), \
-             patch.dict(os.environ, {"GITHUB_ACTIONS": "true" if ci else "false"}), \
-             redirect_stdout(visible):
-            expected = status if status >= 0 else 128 - status
-            if run_command(sys.argv[1:]) != expected:
-                findings.append("日志自测：进程退出状态传递")
-        output = visible.getvalue()
-        if log.getvalue() != "".join(lines):
+        output, log = captured_command(lines, status=status, ci=ci)
+        if log != "".join(lines):
             findings.append("日志自测：完整输出留档")
-        show_details = count <= 40 or (ci and status != 0)
-        if ("[输出]" in output) == show_details:
-            findings.append("日志自测：本地展示阈值与 CI 失败诊断")
-        expected_lines = count if ci and status != 0 else min(count, 40)
+        if ("[输出]" in output) != (count > OUTPUT_LINE_LIMIT):
+            findings.append("日志自测：统一展示阈值与完整日志路径")
+        expected_lines = min(count, OUTPUT_LINE_LIMIT)
         if sum(line.startswith("error:") for line in output.splitlines()) != expected_lines:
-            findings.append("日志自测：首批诊断与 CI 完整诊断展示")
+            findings.append("日志自测：首尾错误与共享输出预算")
     for ci in (True, False):
         visible, log = StringIO(), StringIO()
         case = "Test Case '-[UITests testAction]' passed (1.234 seconds).\n"
@@ -422,6 +409,11 @@ def script_output_boundary_findings() -> list[str]:
             assert run_command(sys.argv[1:]) == 0
         if log.getvalue() != "    t = 0.10s Press button\n" + case:
             findings.append('日志自测：原生用例进度即时展示，完整操作记录沿固定日志保留')
+    return findings
+
+
+def script_output_boundary_findings() -> list[str]:
+    findings = command_logging_boundary_findings()
     script = (SCRIPT_ROOT / "run-extended-tests.sh").read_text()
     from test_results import report_result_summary, record_native_metrics
     for failures in ([], [{'testIdentifierString': 'Suite/test', 'failureText': 'assertion'}]):

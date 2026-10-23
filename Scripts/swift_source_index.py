@@ -52,6 +52,15 @@ def indexer_signature(compiler: Path, host_modules: Path, module_cache: Path, so
         'moduleCache': str(module_cache)}, sort_keys=True)
 
 
+@cache
+def source_facts_signature() -> str:
+    swift = indexer_swift_path(tuple((name, os.environ.get(name, '')) for name in ('DEVELOPER_DIR', 'TOOLCHAINS', 'PATH')))
+    sources = [ROOT / 'Scripts' / name for name in SWIFT_SYNTAX_SOURCE_NAMES] + [Path(__file__)]
+    signature = indexer_signature(swift.with_name('swiftc'), swift.parent.parent / 'lib/swift/host',
+        ROOT / '.build/compiler-cache/ModuleCache.noindex', tuple((str(path), path.read_text()) for path in sources))
+    return json.dumps({'indexer': signature, 'interactionNames': sorted(SWIFTUI_INTERACTION_KINDS | {'LabeledContent'})}, sort_keys=True)
+
+
 def _run_swift_syntax_index(request: dict, *, regex_only: bool = False, resolve_tests: bool = True) -> dict[str, dict]:
     request = dict(request, interactionNames=sorted(SWIFTUI_INTERACTION_KINDS | {"LabeledContent"}))
     swift_path = indexer_swift_path(tuple((name, os.environ.get(name, '')) for name in ('DEVELOPER_DIR', 'TOOLCHAINS', 'PATH')))
@@ -160,6 +169,14 @@ def _cached_facts(cache_path: Path, requested: dict[str, str]) -> dict:
         fcntl.flock(lock, fcntl.LOCK_EX)
         with closing(sqlite3.connect(cache_path)) as database, database:
             database.execute('CREATE TABLE IF NOT EXISTS facts (path TEXT PRIMARY KEY, content TEXT)')
+            database.execute('CREATE TABLE IF NOT EXISTS metadata (name TEXT PRIMARY KEY, value TEXT NOT NULL)')
+            signature = source_facts_signature()
+            previous = database.execute("SELECT value FROM metadata WHERE name = 'indexer'").fetchone()
+            if previous is None or previous[0] != signature:
+                database.execute('DELETE FROM facts')
+                database.execute("INSERT OR REPLACE INTO metadata VALUES ('indexer', ?)", (signature,))
+            obsolete = [(path,) for path, in database.execute('SELECT path FROM facts') if not Path(path).is_file()]
+            database.executemany('DELETE FROM facts WHERE path = ?', obsolete)
             shared = {}
             for path, source in requested.items():
                 row = database.execute('SELECT content FROM facts WHERE path = ?', (path,)).fetchone()
