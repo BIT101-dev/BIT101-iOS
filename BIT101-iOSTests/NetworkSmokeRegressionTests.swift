@@ -1,9 +1,14 @@
 import Foundation
 import CommunityCore
 import CommunityTransport
-import GalleryFeature
+@testable import GalleryFeature
 @testable import PaperFeature
 import TransportCore
+import ClientCore
+import ScorePorts
+import Combine
+import UIKit
+import WebKit
 @testable import BIT101_iOS
 
 #if RELEASE_NETWORK_SMOKE
@@ -23,6 +28,57 @@ nonisolated final class NetworkSmokeRegressionTests: XCTestCase {
             } catch { XCTFail("请求证据应完成编码：\(error.localizedDescription)。") }
         }
         return try await collector.perform(operation, required: true, expectedParameters: [:])
+    }
+
+    @MainActor func testCurrentAccountGrades() async throws {
+        let service = ReleaseNetworkSmokeRunner.freshScoreService()
+        let challenge = try await capture(.scoreAuthentication) { try await service.startScoreChallenge() }
+        let brief = try await capture(.scoreBrief) { try await service.fetchScores(detail: false, authenticatedBy: challenge) }
+        XCTAssertFalse(brief.isEmpty)
+        let detail = try await capture(.scoreDetail) { try await service.fetchScores(detail: true, authenticatedBy: challenge) }
+        XCTAssertEqual(brief.count, detail.count)
+        XCTAssertTrue(detail.contains { !$0.averageScore.isEmpty })
+    }
+
+    @MainActor func testGalleryWebLoadsCurrentAccount() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let controller = UIViewController()
+        let window = UIWindow(windowScene: scene)
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        controller.view = webView
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer { webView.stopLoading(); window.isHidden = true; window.rootViewController = nil }
+        let storage = AppAccountSession.storage
+        XCTAssertFalse(storage.fakeCookie.isEmpty)
+        let coordinator = GalleryWebCoordinator(credentials: .init(cookie: { storage.fakeCookie },
+            changes: storage.credentialsChanges.map { _ in () }.eraseToAnyPublisher()), openExternal: { _ in })
+        webView.navigationDelegate = coordinator
+        coordinator.start(in: webView, url: AppURL.required("https://bit101.cn/gallery"))
+        var state: [String: Any] = [:]
+        let deadline = ContinuousClock.now.advanced(by: .seconds(40))
+        repeat {
+            try await Task.sleep(for: .milliseconds(200))
+            state = (try? await webView.evaluateJavaScript("""
+                (() => ({ ready: document.readyState, text: (document.body?.innerText || '').slice(0, 1500),
+                    appChildren: document.querySelector('#app')?.children.length || 0,
+                    hasCredential: Boolean(JSON.parse(localStorage.getItem('store') || '{}').fake_cookie) }))()
+                """)) as? [String: Any] ?? [:]
+            let text = state["text"] as? String ?? ""
+            if text.contains("话廊网页加载失败") { break }
+            if !webView.isLoading, state["ready"] as? String == "complete", (state["appChildren"] as? Int ?? 0) > 0,
+               state["hasCredential"] as? Bool == true, text.count > 30 { break }
+        } while ContinuousClock.now < deadline
+        let evidence = XCTAttachment(string: "url=\(webView.url?.host ?? "")\nstate=\(state)")
+        evidence.name = "gallery.web.runtime"; evidence.lifetime = .keepAlways; add(evidence)
+        let snapshot = try await webView.takeSnapshot(configuration: nil)
+        let screenshot = XCTAttachment(image: snapshot)
+        screenshot.name = "gallery.web.screen"; screenshot.lifetime = .keepAlways; add(screenshot)
+        XCTAssertFalse((state["text"] as? String ?? "").contains("话廊网页加载失败"))
+        XCTAssertGreaterThan(state["appChildren"] as? Int ?? 0, 0)
+        XCTAssertTrue(state["hasCredential"] as? Bool == true)
     }
 
     @MainActor func testFeedbackRecoveryReceipt() async throws {
@@ -79,6 +135,26 @@ import Testing
 @Suite("Network smoke regression contracts")
 @MainActor
 struct NetworkSmokeRegressionContractTests {
+    private final class BootstrapWebView: WKWebView {
+        override func load(_ request: URLRequest) -> WKNavigation? {
+            loadHTMLString("<script>window.initialCredential = JSON.parse(localStorage.getItem('store') || '{}').fake_cookie || '';</script><body>fixture</body>", baseURL: request.url)
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func galleryWebBootstrapsCredentialsBeforePageScripts() async throws {
+        let cookie = "fixture-community-session"
+        let coordinator = GalleryWebCoordinator(credentials: .init(cookie: { cookie }, changes: Empty().eraseToAnyPublisher()), openExternal: { _ in })
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        let webView = BootstrapWebView(frame: .zero, configuration: configuration)
+        webView.navigationDelegate = coordinator
+        coordinator.start(in: webView, url: AppURL.required("https://bit101.cn/gallery"))
+        try await waitForAsyncTestEvent {
+            (try? await webView.evaluateJavaScript("window.initialCredential")) as? String == cookie
+        }
+        #expect(webView.configuration.userContentController.userScripts.count == 1)
+    }
+
     @Test(arguments: PaperSortOrder.allCases)
     func paperSmokeChecksRankTimezonesAndTies(order: PaperSortOrder) throws {
         let first = PaperSummary(id: 1, title: "", intro: "", likeNum: 2, commentNum: 3, updateTime: "2026-01-02T00:00:00Z")

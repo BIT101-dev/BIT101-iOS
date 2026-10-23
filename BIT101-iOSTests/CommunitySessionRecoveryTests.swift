@@ -64,7 +64,7 @@ struct CommunitySessionRecoveryTests {
         let login = LoginService(storage: storage, apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http))
         var pending: CheckedContinuation<Void, Never>?
         transport.beforeRenew = { await withCheckedContinuation { pending = $0 } }
-        let work = Task { try await login.restoreCommunitySession(password: "community-A") }
+        let work = Task { try await login.login(studentID: "A", password: "community-A") }
         defer { work.cancel(); pending?.resume(); pending = nil }
         try await waitForTestEvent { pending != nil }
         if interruption == "switch" { try storage.saveLoginState(studentID: "B", password: "school-B", fakeCookie: "cookie-B") }
@@ -199,7 +199,7 @@ struct CommunitySessionRecoveryTests {
         let model = LoginViewModel(service: login), owner = reopened.communityCredentials.identity
         await model.bootstrapIfNeeded()
         #expect(model.screenState == .signedIn(studentID: "A"))
-        try await login.restoreCommunitySession(password: "community-password")
+        _ = try await login.login(studentID: "A", password: "community-password")
         #expect(reopened.communityCredentials.identity == owner && reopened.fakeCookie == "renewed-cookie")
         #expect(reopened.currentPassword == "school-password" && schoolClears == 0)
         let restored = LoginStorage(defaults: defaults, credentials: credentials, clearSchoolCookies: { schoolClears += 1 })

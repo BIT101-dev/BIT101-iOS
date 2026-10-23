@@ -80,9 +80,6 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
             ))
             .appSelectionFeedback(trigger: viewModel.settingsSnapshot.iCloudSyncEnabled)
             .appInteractiveListRow()
-            Text("同步手动调课、放假、个人日程、分享课表、DDL 状态和日程偏好。课程、考试与乐学 DDL 正文由本机刷新。")
-                .font(AppDesignSystem.Typography.footnote)
-                .foregroundStyle(AppDesignSystem.Foreground.secondary)
             preferenceSyncControls
         } header: {
             AppListSectionHeader("iCloud 同步")
@@ -99,7 +96,6 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
                         .foregroundStyle(.tint)
                 } label: {
                     Text("当前学期")
-                        .foregroundStyle(.tint)
                 }
             }
             .appInteractiveListRow()
@@ -201,7 +197,6 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
                 }
             } label: {
                 Text("时间轴")
-                    .foregroundStyle(.tint)
             }
             .appSelectionFeedback(trigger: storedCalendarAxisMode)
             .appInteractiveListRow()
@@ -215,7 +210,6 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
                 }
             } label: {
                 Text("课程显示方式")
-                    .foregroundStyle(.tint)
             }
             .appSelectionFeedback(trigger: viewModel.settingsSnapshot.scheduleDisplayMode)
             .appInteractiveListRow()
@@ -228,7 +222,6 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
                 }
             } label: {
                 Text("显示内容")
-                    .foregroundStyle(.tint)
             }
             .appSelectionFeedback(trigger: viewModel.settingsSnapshot.scheduleCardContentMode)
             .appInteractiveListRow()
@@ -259,10 +252,9 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
             } label: {
                 HStack(spacing: AppDesignSystem.Spacing.regular) {
                     Text("提前显示阈值")
-                        .foregroundStyle(.tint)
                     Spacer()
                     Text("\(normalizedLeadMinutes) 分钟")
-                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                        .foregroundStyle(.tint)
                 }
                 .contentShape(Rectangle())
             }

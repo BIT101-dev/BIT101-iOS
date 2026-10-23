@@ -412,12 +412,9 @@ private struct AppErrorReportSheet: View {
                     modeExplanation
                 } header: {
                     AppListSectionHeader("选择提交内容")
-                } footer: {
+                }
+                Section("本次错误") {
                     VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
-                        Text("本次错误")
-                            .font(AppDesignSystem.Typography.title)
-                            .foregroundStyle(AppDesignSystem.Foreground.primary)
-                            .textCase(nil)
                         Text(viewModel.alert.title)
                             .font(AppDesignSystem.Typography.title)
                             .foregroundStyle(AppDesignSystem.Foreground.primary)

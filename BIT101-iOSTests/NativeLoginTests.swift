@@ -17,6 +17,7 @@ struct NativeLoginTests {
         var loginRejections = 0
         var serverFailure = false
         var rejectSchoolPassword = false
+        var rejectedSchoolStatus = 200
         var serviceTicket = false
         func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
             let result = try await data(for: request)
@@ -43,7 +44,7 @@ struct NativeLoginTests {
                 if request.httpMethod == "POST", serviceTicket {
                     status = 302; headers["Location"] = "https://webvpn.bit.edu.cn/login?cas_login=true&ticket=fixture"; text = ""
                 } else if request.httpMethod == "POST" {
-                    if rejectSchoolPassword { rejectSchoolPassword = false; text = "<p id='login-error-code'>1030027</p>" }
+                    if rejectSchoolPassword { rejectSchoolPassword = false; status = rejectedSchoolStatus; text = "<p id='login-error-code'>1030027</p>" }
                     else { text = "cas-success" }
                 } else { text = #"<p id="login-croypto">MTIzNDU2Nzg5MDEyMzQ1Ng==</p><p id="login-page-flowkey">flow</p>"# }
             case "/ustc-rba-front/fp": text = #"{"responsetoken":"risk-token"}"#
@@ -88,10 +89,11 @@ struct NativeLoginTests {
         }
     }
 
-    @Test(.timeLimit(.minutes(1))) func differentPasswordsAskForSchoolPasswordAfterExplicitRejection() async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: [200, 401, 403]) func differentPasswordsAskForSchoolPasswordAfterExplicitRejection(status: Int) async throws {
         try await fixture { storage, transport, service, _, prompts in
             _ = try await service.login(studentID: "owner", password: "community-A")
             transport.rejectSchoolPassword = true
+            transport.rejectedSchoolStatus = status
             #expect(try await service.restoreSchoolSessionIfNeeded() == "owner")
             #expect(storage.currentPassword == "school-B" && prompts() == 1)
             #expect(storage.fakeCookie == "direct-cookie")

@@ -17,7 +17,7 @@ MANUAL_DEVICE_CHECKS = {"system-autofill", "photos", "calendar-permissions", "no
 MANUAL_SCENARIOS = {
     'first-login': {'registered-account', 'new-account-registration'},
     'installation-paths': {'clean-install', 'app-store-upgrade'},
-    'profile-writes': {'nickname-save', 'avatar-bind', 'restore-profile', 'community-reauthentication'},
+    'profile-writes': {'nickname-save', 'avatar-bind', 'restore-profile'},
     'gallery-report': {'submit-and-confirm'},
     'message-read': {'first-open', 'interrupted-paging', 'local-save-failure'},
     'account-lifecycle': {'sign-in-a', 'refresh-credentials-a', 'sign-out-a', 'sign-in-b', 'restore-a'},

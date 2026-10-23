@@ -843,7 +843,7 @@ struct VisualRuleSample: View {
     row_source = r'''
 import SwiftUI
 struct NeutralTitle: View {
-    var body: some View { Text("标题").foregroundStyle(AppDesignSystem.Foreground.primary) }
+    var body: some View { Text("标题").foregroundStyle(.tint) }
 }
 struct RowColors: View {
     var body: some View {
@@ -851,12 +851,12 @@ struct RowColors: View {
             Section { ScrollView { Text("容器内容") } }
             Picker("时间轴", selection: $axis) { Text("线性").tag(0) }
             Toggle("开关", isOn: $enabled).appInteractiveListRow()
-            Button {} label: { Text("标题").foregroundStyle(.primary) }.appInteractiveListRow()
+            Button {} label: { Text("标题").foregroundStyle(.tint) }.appInteractiveListRow()
             Button("删除", role: .destructive) {}.appInteractiveListRow()
             Button("删除正确", role: .destructive) {}.appInteractiveListRow(isDestructive: true)
             NavigationLink(destination: Text("目标")) { NeutralTitle() }.appInteractiveListRow()
             Button("伪造") { print(".appInteractiveListRow()") }
-            Button("覆盖颜色") {}.appInteractiveListRow().foregroundStyle(.primary)
+            Button("覆盖颜色") {}.appInteractiveListRow().foregroundStyle(.tint)
             Button("系统填充按钮") {}.buttonStyle(.borderedProminent)
             Button("冲突填充按钮") {}.buttonStyle(.borderedProminent).appInteractiveListRow()
             Button {} label: { LabeledContent("左侧") { Text("右侧").foregroundStyle(.secondary) } }.appInteractiveListRow()
@@ -875,8 +875,8 @@ struct RowColors: View {
     row_path = ROOT / ".build/static-audit/row-color-self-test.swift"
     row_syntax = swift_syntax_index_sources({str(row_path): row_source})
     row_findings = interactive_list_row_findings(row_path, row_syntax[str(row_path)], row_syntax)
-    if len(row_findings) != 8:
-        findings.append(f"UI 检查器自测：列表标题、颜色覆盖、删除警示色、子组件、计算属性、填充按钮及字符串边界应报告 8 项，实际 {len(row_findings)} 项")
+    if len(row_findings) != 11:
+        findings.append(f"UI 检查器自测：列表标题、颜色覆盖、删除警示色、子组件、右侧值、计算属性、填充按钮及字符串边界应报告 11 项，实际 {len(row_findings)} 项")
     return findings
 
 

@@ -36,7 +36,7 @@ nonisolated enum NativeSchoolScoreParser {
                let numeric = ["优秀": "95", "良好": "85", "中等": "75", "及格": "65", "不及格": "0"][values[index]] {
                 values[index] = numeric
             }
-            let path = captures(#"\bJsMod\s*\(\s*['"]([^'"]+)['"]"#, in: raw.last ?? "").first.map(decode)
+            let path = captures(#"['"](/jsxsd/kscj/cjfx[^'"]*)['"]"#, in: decode(row)).first
             records.append(Record(values: values, detailPath: path))
         }
         return Table(headers: headers, records: records)

@@ -81,7 +81,7 @@ struct GallerySettingsPage: View {
                         Spacer()
                         if networkDiagnosis.isRunning {
                             Text("\(networkDiagnosis.completedCount)/\(networkDiagnosis.totalCount)")
-                                .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                                .foregroundStyle(.tint)
                         }
                     }
                 }
@@ -97,8 +97,6 @@ struct GallerySettingsPage: View {
                 }
             } header: {
                 AppListSectionHeader("网络诊断")
-            } footer: {
-                Text("诊断会查询学校服务，并申请和下载完整可信成绩单。")
             }
 
             Section {

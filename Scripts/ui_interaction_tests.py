@@ -382,6 +382,7 @@ def checker_report_boundary_findings() -> list[str]:
 
 
 def visual_contract_boundary_findings() -> list[str]:
+    list_semantics_boundary_self_test()
     from ui_rules import visual_contract_present, rendered_component_counts
     marker = 'StrokeStyle(lineWidth: 2, dash: [5, 4])'
     contract = 'Modules/CourseFeature/Sources/CourseHistoryGradesViews.swift'
@@ -415,3 +416,24 @@ def visual_contract_boundary_findings() -> list[str]:
     custom = ROOT / 'Modules/CourseFeature/Sources/Operators.swift'
     assert visual_contract_present(contract, marker, {moved: source.replace('if false', 'if 1 == 2'), custom: 'struct Bool {}'})
     return []
+
+
+def list_semantics_boundary_self_test() -> None:
+    from swift_source_index import swift_syntax_index_sources
+    from ui_rules import list_semantics_findings
+    path = ROOT / '.build/static-audit/list-semantics-self-test.swift'
+    cases = [
+        ('struct Sample: View { var body: some View { List { Section("标题") { Text("正文") } } } }', 0),
+        ('struct Sample: View { var body: some View { List { Section { Text("正文") } footer: { Text("说明") } } } }', 1),
+        ('struct Sample: View { var body: some View { List { Section(header: Text("标题"), footer: hint) { Text("正文") } } } }', 1),
+        ('struct AppListSectionHeader: View { var body: some View { Text(title) } }', 0),
+        ('struct AppListSectionHeader: View { var body: some View { Text(title).font(AppDesignSystem.Typography.footnote) } }', 1),
+        ('struct AppListSectionHeader: View { var body: some View { Text(title).foregroundStyle(.secondary) } }', 1),
+        ('struct Row: View { var body: some View { Image(systemName: "chevron.right").foregroundStyle(.tint) } }', 1),
+        ('struct Row: View { var body: some View { Image(systemName: "chevron.right").foregroundStyle(.secondary) } }', 0),
+        ('struct AppRefreshStatusRow: View { var body: some View { Button("刷新") {}.font(AppDesignSystem.Typography.body); Text(trailingText).font(AppDesignSystem.Typography.body) } }', 0),
+        ('struct AppRefreshStatusRow: View { var body: some View { Button("刷新") {}.font(AppDesignSystem.Typography.body); Text(trailingText).font(AppDesignSystem.Typography.footnote) } }', 1),
+    ]
+    for source, expected in cases:
+        syntax = swift_syntax_index_sources({str(path): source})
+        assert len(list_semantics_findings(syntax)) == expected, source

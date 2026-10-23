@@ -37,7 +37,6 @@ public struct ScheduleTermPickerPage: View {
                         } label: {
                             HStack(spacing: AppDesignSystem.Spacing.regular) {
                                 Text(term)
-                                    .foregroundStyle(.tint)
                                 Spacer()
                                 if viewModel.isSyncingCourses, viewModel.syncingTerm == term {
                                     ProgressView()

@@ -48,7 +48,7 @@ struct LoginService {
     /// 负责确认 BIT101 自有会话并返回当前学号。学校 SSO 会话按需通过
     /// `restoreSchoolSessionIfNeeded()` 恢复。
     ///
-    /// 远端返回会话过期时共享社区凭据恢复，凭据遭拒时转入社区重新认证；错误沿调用链抛出，
+    /// 远端返回会话过期时共享社区凭据恢复，凭据遭拒时标记社区登录待更新；错误沿调用链抛出，
     /// 本地数据继续支撑主 App、watch 和 widget 的当前登录展示。
     func checkLogin() async throws -> String? {
         let fakeCookie = storage.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -216,18 +216,6 @@ struct LoginService {
                 throw CommunitySessionRestorationError.credentialsRejected
             }
         }
-    }
-
-    /// 社区重新认证保留同一账号的学校凭据与本机数据归属。
-    func restoreCommunitySession(password: String) async throws {
-        guard storage.hasCachedSession, !password.isEmpty else { throw LoginServiceError.invalidCredentials }
-        let identity = storage.communityCredentials.identity
-        let digest = LoginCrypto.md5Hex(password)
-        let response = try await apiClient.loginCommunity(studentID: identity.accountIdentifier, passwordDigest: digest)
-        try Task.checkCancellation()
-        guard storage.communityCredentials.identity == identity else { throw CancellationError() }
-        try storage.saveLoginState(studentID: identity.accountIdentifier, password: storage.currentPassword,
-            fakeCookie: response.fakeCookie, communityPasswordDigest: digest)
     }
 
     private func authenticateCommunitySession(expectedIdentity: CommunitySessionIdentity) async throws {

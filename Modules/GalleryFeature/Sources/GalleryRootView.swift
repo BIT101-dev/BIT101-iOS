@@ -157,6 +157,10 @@ private struct GalleryRootViewScene: View {
             viewModel.releaseInactiveFeeds()
         }
         .onChange(of: appSettings.snapshot) { previous, settings in
+            if previous.galleryUseWebView != settings.galleryUseWebView {
+                isShowingNativePaperRoute = false
+                selectedSurface = .gallery
+            }
             guard previous.galleryHideBotPosterInSearch != settings.galleryHideBotPosterInSearch
                 || previous.galleryHiddenUserIDs != settings.galleryHiddenUserIDs
                 || previous.galleryHideAnonymousContent != settings.galleryHideAnonymousContent else { return }
@@ -396,8 +400,12 @@ final class GalleryWebCoordinator: NSObject, WKNavigationDelegate {
     private var credentialsSubscription: AnyCancellable?
     private var isShowingFailure = false
     private var credentialGeneration = 0
+    private var bootstrapCookie: String?
+    private var credentialsUpdateInFlight = false
 
     func start(in webView: WKWebView, url: URL) {
+        do { try configureBootstrap(in: webView, cookie: credentials.cookie()) }
+        catch { showLoadFailure(in: webView, error: error); return }
         credentialsSubscription = credentials.changes.sink { [weak self, weak webView] _ in
             guard let webView else { return }
             self?.synchronizeCredentials(in: webView)
@@ -430,35 +438,51 @@ final class GalleryWebCoordinator: NSObject, WKNavigationDelegate {
         synchronizeCredentials(in: webView)
     }
 
-    func synchronizeCredentials(in webView: WKWebView) {
-        guard !isShowingFailure, !webView.isLoading, GalleryWebRequestFactory.isTrustedPage(webView.url) else { return }
-        let fakeCookie = credentials.cookie()
-        let encodedCookie: String
-        do { encodedCookie = String(decoding: try JSONEncoder().encode(fakeCookie), as: UTF8.self) }
-        catch { showLoadFailure(in: webView, error: error); return }
-        credentialGeneration &+= 1
-        let generation = credentialGeneration
-        let script = """
+    private func configureBootstrap(in webView: WKWebView, cookie: String) throws {
+        guard bootstrapCookie != cookie else { return }
+        let script = try Self.credentialScript(cookie)
+        let controller = webView.configuration.userContentController
+        controller.removeAllUserScripts()
+        controller.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        bootstrapCookie = cookie
+    }
+
+    private static func credentialScript(_ cookie: String) throws -> String {
+        let encoded = String(decoding: try JSONEncoder().encode(cookie), as: UTF8.self)
+        return """
         (() => {
-            if (location.origin !== 'https://bit101.cn') return;
-            const current = localStorage.getItem('store');
+            if (location.origin !== 'https://bit101.cn') return false;
             let store = {};
             try {
-                const parsed = current ? JSON.parse(current) : {};
-                if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-                    store = parsed;
-                }
+                const parsed = JSON.parse(localStorage.getItem('store') || '{}');
+                if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) store = parsed;
             } catch (_) {}
-            if (store.fake_cookie === \(encodedCookie)) return false;
-            store.fake_cookie = \(encodedCookie);
+            if (store.fake_cookie === \(encoded)) return false;
+            store.fake_cookie = \(encoded);
             localStorage.setItem('store', JSON.stringify(store));
             return true;
         })();
         """
+    }
+
+    func synchronizeCredentials(in webView: WKWebView) {
+        guard !isShowingFailure else { return }
+        let fakeCookie = credentials.cookie()
+        let script: String
+        do {
+            try configureBootstrap(in: webView, cookie: fakeCookie)
+            script = try Self.credentialScript(fakeCookie)
+        } catch { showLoadFailure(in: webView, error: error); return }
+        guard !credentialsUpdateInFlight, !webView.isLoading, GalleryWebRequestFactory.isTrustedPage(webView.url) else { return }
+        credentialsUpdateInFlight = true
+        credentialGeneration &+= 1
+        let generation = credentialGeneration
         webView.evaluateJavaScript(script) { [weak self, weak webView] result, error in
-            guard let self, let webView, self.credentialGeneration == generation,
-                  self.credentials.cookie() == fakeCookie, !self.isShowingFailure,
+            guard let self, let webView else { return }
+            self.credentialsUpdateInFlight = false
+            guard self.credentialGeneration == generation, !self.isShowingFailure,
                   GalleryWebRequestFactory.isTrustedPage(webView.url) else { return }
+            if self.credentials.cookie() != fakeCookie { self.synchronizeCredentials(in: webView); return }
             if let error { self.showLoadFailure(in: webView, error: error) }
             else if result as? Bool == true { webView.reload() }
         }

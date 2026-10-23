@@ -56,9 +56,9 @@
 ## 公共组件
 
 - **容器**：`AppCard` 表达标准、紧凑、分组背景变体；`appGroupedListStyle()` 统一列表内容边距与 section 间距。普通列表行与 DDL 卡片沿用系统默认行边距；更新时间组件通过 `appListRowInsets()` 容纳 44 点点击区域、上下各 4 点边距及动态字体内容。原生 UI 公共断言核对访问到的更新时间行，专项验收覆盖四个数据页及辅助功能大字体。
-- **交互列表文字**：List、Form 和 Section 内的按钮、导航、Picker、Toggle、DatePicker、Link 与照片选择入口接入 `appInteractiveListRow()`，左侧标题使用页面主题色。删除入口传入 `isDestructive: true` 使用警示色；行内值和说明文字按各自语义着色。自定义标题组件同样遵循此约定。`check-ui-consistency.py` 基于 SwiftSyntax 检查控件自身样式和标题组件的前景色，并自测时间轴 Picker、删除入口、嵌套组件及字符串边界。
+- **交互列表文字**：List、Form 和 Section 内的按钮、导航、Picker、Toggle、DatePicker、Link 与照片选择入口接入 `appInteractiveListRow()`，左侧标题沿系统主文字色，右侧值使用页面主题色；SF Symbol 沿所属系统语义颜色。删除入口传入 `isDestructive: true` 使用警示色；行内值和说明文字按各自语义着色。自定义标题组件同样遵循此约定。`check-ui-consistency.py` 基于 SwiftSyntax 检查控件自身样式和标题组件的前景色，并自测时间轴 Picker、删除入口、嵌套组件及字符串边界。
 - **操作**：`AppDetailShareLink` 使用系统自适应标签，在菜单中展示动作名称与图标，在工具栏中沿系统样式展示；`AppDetailCircleButton`、`AppFloatingActionButton` 与 `AppFloatingActionStack` 统一触控区域、材质和布局。
-- **输入与标题**：`AppInputPrompt` 使用正文与系统 placeholder 颜色；`AppListSectionHeader` 使用强调脚注与次级颜色；原生 `Section("标题")` 使用系统样式。
+- **输入与标题**：`AppInputPrompt` 使用正文与系统 placeholder 颜色；`AppListSectionHeader` 与原生 `Section("标题")` 共同继承系统分组标题样式。列表分组通过正文承载实际内容，Section footer 解释文案由静态检查阻断。更新时间行的刷新操作和只读标记共同使用正文字号。
 - **内容控制**：顶部 segmented、排序搜索栏和设置导航行共享公共组件。
 - **内容展示**：头像、标签、信息流分割线、比例数据行和刷新状态行各有公共实现。
 - **评论**：`AppCommentThread` 组合身份、气泡、操作栏与回复；`AppComposerToolbar` 统一取消与提交。

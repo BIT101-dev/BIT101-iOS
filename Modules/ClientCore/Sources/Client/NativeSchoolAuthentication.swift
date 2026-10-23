@@ -128,7 +128,6 @@ public final class NativeSchoolAuthenticator: SchoolServiceAuthenticating {
     }
 
     private func establishWebVPN(owner: SchoolSessionIdentity) async throws {
-        if hasWebVPNTicket { return }
         var parts = URLComponents()
         parts.scheme = "https"; parts.host = "webvpn.bit.edu.cn"; parts.path = "/set-fingerprint"
         parts.queryItems = [URLQueryItem(name: "fingerprint", value: fingerprint)]
@@ -147,7 +146,8 @@ public final class NativeSchoolAuthenticator: SchoolServiceAuthenticating {
 
     private var hasWebVPNTicket: Bool {
         (cookies().cookies(for: SchoolServiceTarget.webVPN.baseURL) ?? []).contains(where: {
-            $0.name == "wengine_vpn_ticket" && ($0.expiresDate.map { $0 > Date() } ?? true)
+            ["wengine_vpn_ticket", "wengine_vpn_ticketwebvpn_bit_edu_cn"].contains($0.name)
+                && ($0.expiresDate.map { $0 > Date() } ?? true)
         })
     }
 
@@ -250,7 +250,7 @@ public final class NativeSchoolAuthenticator: SchoolServiceAuthenticating {
             default: return true
             }
         }
-        return error is URLError || error is HTTPClientError
+        return ErrorChain.contains(error) { $0 is URLError || $0 is HTTPClientError }
     }
 }
 

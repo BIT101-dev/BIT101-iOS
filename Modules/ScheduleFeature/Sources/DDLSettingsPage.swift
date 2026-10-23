@@ -111,13 +111,12 @@ private struct DDLSettingsActionRow: View {
     var body: some View {
         HStack(spacing: AppDesignSystem.Spacing.content) {
             Text(title)
-                .foregroundStyle(AppDesignSystem.Palette.Accent.primary)
 
             Spacer(minLength: AppDesignSystem.Spacing.none)
 
             if let value {
                 Text(value)
-                    .foregroundStyle(AppDesignSystem.Palette.Accent.primary)
+                    .foregroundStyle(.tint)
             }
         }
         .contentShape(Rectangle())

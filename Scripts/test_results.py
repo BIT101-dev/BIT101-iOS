@@ -150,7 +150,8 @@ def report_test_results(arguments: list[str]) -> None:
         def collect_attachments(value):
             if isinstance(value, dict):
                 name, identifier = str(value.get('name', '')), value.get('payloadId')
-                if identifier and name.startswith(('失败时的界面元素树', 'App UI hierarchy for', 'Debug description for', 'Crash Log ')):
+                if identifier and (name.startswith(('失败时的界面元素树', 'App UI hierarchy for', 'Debug description for', 'Crash Log ', 'score_'))
+                    or name.startswith('gallery_') and name.endswith('.web.runtime')):
                     selected.setdefault(identifier, name)
                 for child in value.values(): collect_attachments(child)
             elif isinstance(value, list):
@@ -176,10 +177,10 @@ def report_test_results(arguments: list[str]) -> None:
                         combined.write('\n')
             finally:
                 incoming.unlink(missing_ok=True)
-            print(f'失败附件：{len(selected)} 份 · {bundle}')
+            print(f'诊断附件：{len(selected)} 份 · {bundle}')
             print(output)
         else:
-            print(f'当前用例包含零份元素树或崩溃附件 · {bundle}')
+            print(f'当前用例包含零份文本诊断附件 · {bundle}')
         raise SystemExit(0)
 
     report_result_summary(str(bundle))
@@ -498,7 +499,7 @@ def record_native_metrics(arguments: list[str]) -> None:
         validate_community_write_test_output(Path(result_bundle), set(executed))
     lines.append("已执行用例：" + json.dumps(sorted(set(executed)), ensure_ascii=False))
     from validation_evidence import native_case_summary
-    lines.append("测试实例：" + json.dumps(native_case_summary(test_tree, mode if mode in {'ui', 'catalyst', 'catalyst-release-runtime', 'release-runtime'} else 'all', device_identifier=device_id), ensure_ascii=False))
+    lines.append("测试实例：" + json.dumps(native_case_summary(test_tree, mode if mode in {'ui', 'catalyst', 'catalyst-release-runtime', 'release-runtime', 'network-smoke'} else 'all', device_identifier=device_id), ensure_ascii=False))
     if durations:
         lines += ["", "## 用例耗时", f"用例耗时合计：{sum(item[0] for item in durations):.1f} 秒", *[
             f"- {name}: {duration}" for _, name, duration in sorted(durations, reverse=True)[:10]

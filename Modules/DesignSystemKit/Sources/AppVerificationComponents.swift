@@ -171,6 +171,9 @@ public struct AppSMSVerificationSheet: View {
         NavigationStack {
             Form {
                 Section {
+                    if let maskedPhone, !maskedPhone.isEmpty {
+                        LabeledContent("手机号", value: maskedPhone)
+                    }
                     VerificationCodeField(
                         code: $code,
                         isFocused: $isCodeFieldFocused,
@@ -179,8 +182,6 @@ public struct AppSMSVerificationSheet: View {
                     .disabled(submissionInProgress)
                 } header: {
                     AppListSectionHeader("输入验证码")
-                } footer: {
-                    Text(verificationHint)
                 }
 
                 if let errorMessage, !errorMessage.isEmpty {
@@ -235,13 +236,6 @@ public struct AppSMSVerificationSheet: View {
             defer { isSubmitInFlight = false }
             await onSubmit(submittedCode)
         }
-    }
-
-    private var verificationHint: String {
-        if let maskedPhone, !maskedPhone.isEmpty {
-            return "学校统一身份认证要求二次验证，验证码已发送至 \(maskedPhone)。点击键盘上方建议或粘贴完整验证码后自动验证。"
-        }
-        return "学校统一身份认证要求二次验证，验证码已发送至绑定手机。点击键盘上方建议或粘贴完整验证码后自动验证。"
     }
 }
 

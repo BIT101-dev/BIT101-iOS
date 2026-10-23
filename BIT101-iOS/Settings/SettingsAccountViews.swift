@@ -28,8 +28,6 @@ struct AccountSettingsPage: View {
     private var isBusy: Bool { profileMutation.isBusy }
     @State private var showNicknameEditor = false
     @State private var showMottoEditor = false
-    @State private var showCommunityPasswordEditor = false
-    @State private var communityPassword = ""
     @State private var nicknameText = ""
     @State private var mottoText = ""
     @State private var isShowingStudentID = false
@@ -55,7 +53,6 @@ struct AccountSettingsPage: View {
                 Section("个人信息") {
                     HStack(spacing: AppDesignSystem.Spacing.regular) {
                         Text("头像")
-                            .foregroundStyle(.tint)
                         Spacer()
                         Button {
                             isShowingPhotoPicker = true
@@ -111,18 +108,6 @@ struct AccountSettingsPage: View {
             }
 
             Section("登录状态") {
-                Button("重新认证社区账号") { showCommunityPasswordEditor = true }
-                    .accessibilityIdentifier("settings.account.community-authentication")
-                    .disabled(isBusy)
-                    .appInteractiveListRow()
-
-                Button("学校统一身份认证密码") {
-                    profileMutation.start { await updateSchoolCredentials() }
-                }
-                .accessibilityIdentifier("settings.account.school-password")
-                .disabled(isBusy)
-                .appInteractiveListRow()
-
                 Button {
                     profileMutation.start { await checkLogin() }
                 } label: {
@@ -134,7 +119,7 @@ struct AccountSettingsPage: View {
                                 .accessibilityLabel("正在检查登录状态")
                         } else {
                             Text(isLoggedIn ? "已登录" : "未登录")
-                                .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                                .foregroundStyle(.tint)
                         }
                     }
                 }
@@ -181,12 +166,6 @@ struct AccountSettingsPage: View {
                 }
             )
         }
-        .sheet(isPresented: $showCommunityPasswordEditor, onDismiss: { communityPassword = "" }) {
-            SettingsTextEditSheet(title: "BIT101 密码", text: $communityPassword, isSecure: true,
-                canSubmit: !communityPassword.isEmpty, isSubmitting: isBusy) {
-                profileMutation.start { await restoreCommunitySession() }
-            }
-        }
         .diagnosticAlert(item: $alert)
         .onDisappear { profileMutation.cancel() }
     }
@@ -212,31 +191,6 @@ struct AccountSettingsPage: View {
                 profile = nil
             }
             alert = AppAlert(title: "加载失败", message: error.localizedDescription)
-        }
-    }
-
-    private func updateSchoolCredentials() async {
-        do {
-            try await dependencies.updateSchoolCredentials()
-            alert = .userInput(title: "学校密码已保存", message: "学校功能将使用新密码继续认证。")
-        } catch {
-            guard !TaskCancellation.matches(error) else { return }
-            alert = AppAlert(title: "学校密码保存失败", message: error.localizedDescription)
-        }
-    }
-
-    private func restoreCommunitySession() async {
-        let owner = dependencies.credentials().identity
-        do {
-            try await dependencies.restoreCommunitySession(communityPassword)
-            guard !Task.isCancelled, dependencies.credentials().identity == owner else { return }
-            communityPassword = ""
-            showCommunityPasswordEditor = false
-            isLoggedIn = true
-            await loadProfile()
-        } catch {
-            guard !TaskCancellation.matches(error), dependencies.credentials().identity == owner else { return }
-            alert = AppAlert(title: "社区认证失败", message: error.localizedDescription)
         }
     }
 
@@ -351,10 +305,10 @@ private struct SettingsSensitiveValueRow: View {
                 Spacer()
                 if isRevealed {
                     Text(value)
-                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                        .foregroundStyle(.tint)
                 } else {
                     Text(value)
-                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                        .foregroundStyle(.tint)
                         .blur(radius: AppDesignSystem.Size.Effect.blurRadius)
                         .padding(.horizontal, AppDesignSystem.Spacing.tiny)
                         .padding(.vertical, AppDesignSystem.Spacing.micro)

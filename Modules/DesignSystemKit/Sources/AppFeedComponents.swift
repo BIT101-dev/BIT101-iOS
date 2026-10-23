@@ -39,7 +39,6 @@ public struct AppCourseEvaluationRow: View {
     public var body: some View {
         HStack(spacing: AppDesignSystem.Spacing.regular) {
             Text("查看课程评价")
-                .foregroundStyle(AppDesignSystem.Course.accent)
 
             Spacer(minLength: AppDesignSystem.Spacing.none)
             if isLoading {

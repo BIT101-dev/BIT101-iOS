@@ -17,6 +17,7 @@ import TransportCore
 import SwiftUI
 import Testing
 import UIKit
+import WebKit
 import Combine
 import ClientCore
 import ScoreDomain
@@ -366,6 +367,36 @@ struct FeatureCompositionTests {
         try await host(view) { try await paperTransport.waitForRequest() }
         #expect(routedIDs.contains(42))
         #expect(surroundingTransport.requests.isEmpty)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func galleryWebPreferenceTakesEffectAfterNativePaperRoute() async throws {
+        let dependencies = gallery(TraceTransport())
+        var paperAppearances = 0
+        let papers = CommunityPaperDestination(papers: { _, _ in
+            AnyView(Text("paper").onAppear { paperAppearances += 1 })
+        }, detail: { _ in AnyView(Text("paper")) })
+        let view = GalleryRootView(dependencies: dependencies, media: media(),
+            profiles: CommunityProfileDestination { _ in AnyView(Text("profile")) }, papers: papers,
+            courses: CommunityCourseDestination { _ in AnyView(Text("course")) }, requestedPaperID: .constant(42))
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene), controller = UIHostingController(rootView: NavigationStack { view })
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        func webViews(in view: UIView) -> [WKWebView] {
+            (view as? WKWebView).map { [$0] } ?? view.subviews.flatMap { webViews(in: $0) }
+        }
+        try await waitForTestEvent { paperAppearances > 0 }
+        #expect(webViews(in: controller.view).isEmpty)
+        var snapshot = dependencies.preferences.snapshot
+        snapshot.galleryUseWebView = true
+        dependencies.preferences.apply(snapshot)
+        try await waitForTestEvent { webViews(in: controller.view).count == 1 }
+        webViews(in: controller.view).forEach { $0.stopLoading() }
+        snapshot.galleryUseWebView = false
+        dependencies.preferences.apply(snapshot)
+        try await waitForTestEvent { webViews(in: controller.view).isEmpty }
     }
 
     @Test(.timeLimit(.minutes(1)))

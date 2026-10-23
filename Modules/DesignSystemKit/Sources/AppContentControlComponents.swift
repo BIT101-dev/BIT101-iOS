@@ -19,8 +19,6 @@ public struct AppListSectionHeader: View {
 
     public var body: some View {
         Text(title)
-            .font(AppDesignSystem.Typography.footnoteEmphasis)
-            .foregroundStyle(AppDesignSystem.Foreground.secondary)
     }
 }
 
@@ -47,8 +45,8 @@ public struct AppNavigationRowLabel: View {
                 .accessibilityHidden(true)
 
             Text(title)
-                .font(AppDesignSystem.Typography.title)
-                .foregroundStyle(.tint)
+                .font(AppDesignSystem.Typography.body)
+                .foregroundStyle(AppDesignSystem.Foreground.primary)
 
             Spacer()
 
@@ -237,7 +235,7 @@ public struct AppSelectionRow: View {
     public init(title: String, isSelected: Bool) { self.title = title; self.isSelected = isSelected }
     public var body: some View {
         HStack(spacing: AppDesignSystem.Spacing.regular) {
-            Text(title).foregroundStyle(.tint)
+            Text(title)
             Spacer()
             Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                 .foregroundStyle(isSelected ? AppDesignSystem.Palette.Accent.primary : AppDesignSystem.Foreground.secondaryColor)

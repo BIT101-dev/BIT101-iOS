@@ -34,6 +34,14 @@ struct NativeSchoolAuthenticationTests {
         }
     }
 
+    @Test func FoundationTransportErrorsPermitSchoolRouteRecovery() {
+        let failure = NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotFindHost,
+            userInfo: [NSLocalizedDescriptionKey: "fixture DNS failure"])
+        #expect(NativeSchoolAuthenticator.permitsFallback(failure))
+        #expect(NativeSchoolAuthenticator.permitsFallback(HTTPRequestNotSent(underlying: failure)))
+        #expect(!NativeSchoolAuthenticator.permitsFallback(HTTPRequestNotSent(underlying: URLError(.cancelled))))
+    }
+
     @Test(.timeLimit(.minutes(1))) func localTicketsFollowSchoolRedirectsWithHTTPSUpgrade() async throws {
         let credentials = Credentials(), restorer = Restorer()
         let cookies = try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)
@@ -93,7 +101,8 @@ struct NativeSchoolAuthenticationTests {
             == ["1030027", "1030031"].contains(code))
     }
 
-    @Test(.timeLimit(.minutes(1))) func localWebVPNRegistersFingerprintBeforeServiceTicketCallback() async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: ["wengine_vpn_ticket", "wengine_vpn_ticketwebvpn_bit_edu_cn"])
+    func localWebVPNRegistersFingerprintBeforeServiceTicketCallback(cookieName: String) async throws {
         let credentials = Credentials(), restorer = Restorer()
         let cookies = try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)
         let transport = Transport { request in
@@ -103,13 +112,13 @@ struct NativeSchoolAuthenticationTests {
                 return (302, ["Location": "https://webvpn.bit.edu.cn/login?cas_login=true&ticket=fixture"], "")
             }
             cookies.setCookie(try #require(HTTPCookie(properties: [.domain: "webvpn.bit.edu.cn", .path: "/",
-                .name: "wengine_vpn_ticket", .value: "fixture", .secure: "TRUE"])))
+                .name: cookieName, .value: "fixture", .secure: "TRUE"])))
             return (200, [:], "VPN landing")
         }
         let authenticator = NativeSchoolAuthenticator(credentials: credentials, restorer: restorer,
             client: HTTPClient(transport: transport, observer: nil), cookies: { cookies }, secondFactor: { _ in })
         let session = try await authenticator.authenticate(.webVPN)
-        #expect(session.cookieHeader.contains("wengine_vpn_ticket=fixture"))
+        #expect(session.cookieHeader.contains("\(cookieName)=fixture"))
         #expect(transport.requests.compactMap { $0.url?.path } == ["/set-fingerprint", "/cas/login", "/login"])
         let casURL = try #require(transport.requests[1].url)
         #expect(URLComponents(url: casURL, resolvingAgainstBaseURL: false)?.queryItems?.first?.value == "https://webvpn.bit.edu.cn/login?cas_login=true")
@@ -159,7 +168,7 @@ struct NativeSchoolAuthenticationTests {
         let cookies = try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)
         let transport = Transport { request in
             let url = try #require(request.url)
-            if url.host == "jxzxehall.bit.edu.cn" { throw URLError(.cannotFindHost) }
+            if url.host == "jxzxehall.bit.edu.cn" { throw HTTPRequestNotSent(underlying: URLError(.cannotFindHost)) }
             if url.path == "/set-fingerprint" { return (302, ["Location": "/login"], "") }
             if url.host == "sso.bit.edu.cn" { return (302, ["Location": "https://webvpn.bit.edu.cn/login?ticket=fixture"], "") }
             if url.path == "/login" {

@@ -50,7 +50,6 @@ struct ScoreSortPage: View {
                     HStack(spacing: AppDesignSystem.Spacing.regular) {
                         Text(sortOrder.title)
                             .font(AppDesignSystem.Typography.subheadline)
-                            .foregroundStyle(.tint)
                         Spacer()
                         Text("切换")
                             .font(AppDesignSystem.Typography.subheadline)

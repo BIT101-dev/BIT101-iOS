@@ -213,8 +213,6 @@ private struct AccountRegistrationView: View {
                     .focused($focusedField, equals: .confirmation)
                     .accessibilityLabel("确认密码")
                     .accessibilityIdentifier("registration.confirmation")
-            } footer: {
-                Text("设置至少 8 位的 BIT101 密码，用于网页端登录。已有账号完成验证后将重置密码。")
             }
 
             Section {
@@ -225,7 +223,7 @@ private struct AccountRegistrationView: View {
                 .appSelectionFeedback(trigger: viewModel.method)
                 .appInteractiveListRow()
                 if viewModel.method == .school {
-                    SecureField("", text: $viewModel.schoolPassword, prompt: AppInputPrompt.text("BIT101 密码"))
+                    SecureField("", text: $viewModel.schoolPassword, prompt: AppInputPrompt.text("学校统一身份认证密码"))
                         .textContentType(loginContentType(.password))
                         .focused($focusedField, equals: .schoolPassword)
                         .accessibilityLabel("学校统一身份认证密码")
@@ -254,10 +252,6 @@ private struct AccountRegistrationView: View {
                     }
                 }
                 if viewModel.isVerifying { AppInlineLoadingState("正在验证") }
-            } footer: {
-                if viewModel.method == .email {
-                    Text("验证码将发送至 \(viewModel.account)@bit.edu.cn。首次使用学校功能时填写学校统一身份认证密码。")
-                }
             }
 
             Section {

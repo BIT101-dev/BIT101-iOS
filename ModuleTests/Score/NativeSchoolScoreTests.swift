@@ -8,7 +8,7 @@ import TransportCore
 
 @MainActor
 struct NativeSchoolScoreTests {
-    private static let grades = #"<table id="dataList"><tr><th>课程编号</th><th>课程名称</th><th>成绩</th><th>学分</th><th>操作栏</th></tr><tr><td>CS1</td><td>数学 &amp; 计算</td><td><a onclick="JsMod('/jsxsd/kscj/pscj_list.do')">优秀</a></td><td>3</td><td><a onclick="JsMod('/jsxsd/kscj/detail?id=1')">详情</a></td></tr></table>"#
+    private static let grades = #"<table id="dataList"><tr><th>课程编号</th><th>课程名称</th><th>成绩</th><th>学分</th><th>操作栏</th></tr><tr><td>CS1</td><td>数学 &amp; 计算</td><td><a onclick="JsMod('/jsxsd/kscj/pscj_list.do')">优秀</a></td><td>3</td><td><a onclick="JsMod('/jsxsd/kscj/cjfx?id=1')">详情</a></td></tr></table>"#
     private static let detail = #"<table id="dataList"></table><table id="dataList"><tr><td>班级人数：30</td><td>专业人数：60</td><td>学习人数：90</td><td>平均分：85</td><td>最高分：100</td><td>该课程所有教学班成绩录入完毕：是</td></tr></table><table id="dataList"><tr><td>本人成绩：95</td><td>本人成绩在班级中占：前10%</td><td>本人成绩在专业中占：前20%</td><td>本人成绩在所有学生中占：前30%</td></tr></table>"#
     private final class Credentials: SchoolCredentialsProviding {
         var generation = 0
@@ -41,7 +41,7 @@ struct NativeSchoolScoreTests {
             let body: String
             switch url.path {
             case "/jsxsd/kscj/cjcx_list": body = malformedNative ? "<html>service unavailable</html>" : NativeSchoolScoreTests.grades
-            case "/jsxsd/kscj/detail": body = NativeSchoolScoreTests.detail
+            case "/jsxsd/kscj/cjfx": body = NativeSchoolScoreTests.detail
             case "/api/auth/start": body = #"{"challenge_id":"remote","access_token":"token","status":"authenticated"}"#
             case "/api/jwb/bit101/score": body = #"{"msg":"查询成功","data":[["课程编号","课程名称","成绩","学分"],["CS1","remote","90","3"]]}"#
             case "/api/jwb/cjd/cookies": body = #"{"cookie_str":"remote=fixture"}"#
@@ -66,11 +66,20 @@ struct NativeSchoolScoreTests {
         let brief = try await service.fetchScores(detail: false, authenticatedBy: challenge)
         let detailed = try await service.fetchScores(detail: true, authenticatedBy: challenge)
         #expect(brief.count == 1 && detailed.count == 1)
+        #expect(detailed.first?.averageScore == "85" && detailed.first?.classRank == "前10%")
         #expect(authenticator.targets == [.grades])
         #expect(transport.requests.count == 3 && transport.requests.allSatisfy { $0.url?.host == "jwms.bit.edu.cn" })
         let parsed = try NativeSchoolScoreParser.parse(Self.grades)
         #expect(parsed.records.first?.values[1] == "数学 & 计算" && parsed.records.first?.values[2] == "95")
         #expect(try NativeSchoolScoreParser.detail(Self.detail) == ["60", "90", "85", "95", "30", "100", "是", "前10%", "前20%", "前30%"])
+    }
+
+    @Test func detailLinksFollowTheirResourceAcrossColumnsAndHTMLEntities() throws {
+        let html = Self.grades.replacingOccurrences(of: "<td>3</td>", with:
+            #"<td><a onclick="open(&quot;/jsxsd/kscj/cjfx?id=1&amp;term=2&quot;)">3</a></td>"#)
+            .replacingOccurrences(of: #"<a onclick="JsMod('/jsxsd/kscj/cjfx?id=1')">详情</a>"#, with: "")
+        let table = try NativeSchoolScoreParser.parse(html)
+        #expect(table.records.first?.detailPath == "/jsxsd/kscj/cjfx?id=1&term=2")
     }
 
     @Test(.timeLimit(.minutes(1))) func localProtocolFailureUsesOneRemoteChallenge() async throws {

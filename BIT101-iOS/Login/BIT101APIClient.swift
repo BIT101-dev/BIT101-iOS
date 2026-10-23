@@ -168,6 +168,9 @@ struct BIT101APIClient {
             return try await finishSchoolLoginRedirectChain(from: location, relativeTo: requestURL)
         }
 
+        if SchoolLoginHTMLParser.rejectsPassword(html: String(decoding: data, as: UTF8.self)) {
+            throw LoginServiceError.schoolPasswordRejected
+        }
         guard (200 ..< 300).contains(response.statusCode) else {
             throw errorForStatusCode(response.statusCode)
         }

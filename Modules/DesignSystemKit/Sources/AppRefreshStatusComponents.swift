@@ -51,13 +51,14 @@ public struct AppRefreshStatusRow: View {
                     feedbackToken &+= 1
                     onRefresh()
                 }
+                .font(AppDesignSystem.Typography.body)
                 .frame(minHeight: AppDesignSystem.Size.Control.touchTarget)
                 .accessibilityIdentifier(actionAccessibilityIdentifier ?? "app.refresh-status.action")
                 .disabled(isRefreshing)
                 .appImpactFeedback(trigger: feedbackToken)
             } else if let trailingText {
                 Text(trailingText)
-                    .font(AppDesignSystem.Typography.subheadline)
+                    .font(AppDesignSystem.Typography.body)
                     .foregroundStyle(AppDesignSystem.Foreground.primary)
             }
         }

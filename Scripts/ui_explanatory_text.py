@@ -8,18 +8,12 @@ def write_report(root: Path) -> None:
     report = root / ".build/explanatory-text-report.txt"
     # 用户确认的文案进入白名单，其余候选写入固定报告。
     APPROVED_TEXTS = {
-        "使用学校统一身份认证账号密码登录。若未注册过 BIT101 账号，将自动完成注册；密码仅会经不可逆加密后传输。",
-        "本 App 尚处在开发中，不保证所有功能始终可用；如遇到问题，请联系 systemd@linux.do。开发者不对使用过程中造成的损失负责。",
-        "本 App 为了完成 Apple 的合规性审查，加入了一些风味元素，功能与安卓版有所差异。",
         "换个关键词试试。",
         "请稍候",
         "先选定校区和教学楼，再刷新一次。",
         "先获取乐学日程，或手动添加一条。",
         "点击右上角的加号可以先新增一个。",
         "请调整学期或种类筛选条件。",
-    }
-    APPROVED_DYNAMIC = {
-        ("Modules/DesignSystemKit/Sources/AppVerificationComponents.swift", "verificationHint"),
     }
 
 
@@ -33,8 +27,7 @@ def write_report(root: Path) -> None:
         relative_path = path.relative_to(root).as_posix()
 
         def approved(expression: str) -> bool:
-            return expression == 'nil' or expression.startswith('"') and expression[1:-1] in APPROVED_TEXTS \
-                or (relative_path, expression) in APPROVED_DYNAMIC
+            return expression == 'nil' or expression.startswith('"') and expression[1:-1] in APPROVED_TEXTS
 
         for call in facts['invocations']:
             name = call['calledExpression'].removeprefix('SwiftUI.')

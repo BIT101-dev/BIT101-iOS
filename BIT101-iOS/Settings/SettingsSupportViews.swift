@@ -6,8 +6,6 @@ struct SettingsTextEditSheet: View {
     let title: String
     @Binding var text: String
     var axis: Axis = .horizontal
-    var isSecure = false
-    var canSubmit = true
     let isSubmitting: Bool
     let onSubmit: () -> Void
     @Environment(\.dismiss) private var dismiss
@@ -15,22 +13,11 @@ struct SettingsTextEditSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Group {
-                    if isSecure {
-                        SecureField("", text: $text, prompt: AppInputPrompt.text(title))
-                            .accessibilityLabel(title)
-                            .accessibilityIdentifier("ui.settings-text-edit-sheet.password")
-                            .textContentType(.password)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                    } else {
-                        TextField("", text: $text, prompt: AppInputPrompt.text(title), axis: axis)
-                            .accessibilityLabel(title)
-                            .accessibilityIdentifier("ui.settings-text-edit-sheet.input")
-                            .lineLimit(axis == .vertical ? 4 : 1, reservesSpace: axis == .vertical)
-                    }
-                }
-                .disabled(isSubmitting)
+                TextField("", text: $text, prompt: AppInputPrompt.text(title), axis: axis)
+                    .accessibilityLabel(title)
+                    .accessibilityIdentifier("ui.settings-text-edit-sheet.input")
+                    .lineLimit(axis == .vertical ? 4 : 1, reservesSpace: axis == .vertical)
+                    .disabled(isSubmitting)
             }
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
@@ -43,7 +30,7 @@ struct SettingsTextEditSheet: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("确定", action: onSubmit)
                         .accessibilityIdentifier("ui.settings-text-edit-sheet.confirm")
-                        .disabled(isSubmitting || !canSubmit)
+                        .disabled(isSubmitting)
                 }
             }
         }
