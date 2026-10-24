@@ -193,3 +193,62 @@ public protocol DeveloperSuggestionDraftStoring: Sendable {
     @discardableResult func removeSuggestion() async -> Bool
     func captureSuggestionCleanup() async -> ComposerDraftCleanup
 }
+
+public nonisolated enum ComposerPublicationKind: String, Codable, CaseIterable, Sendable {
+    case gallery, paper
+}
+
+public nonisolated enum ComposerPublicationContent: Codable, Equatable, Sendable {
+    case gallery(title: String, text: String, imageMids: [String], anonymous: Bool, tags: [String], claimID: Int, isPublic: Bool)
+    case paper(title: String, intro: String, content: String, anonymous: Bool)
+
+    public var kind: ComposerPublicationKind {
+        switch self {
+        case .gallery: .gallery
+        case .paper: .paper
+        }
+    }
+    public var title: String {
+        switch self {
+        case .gallery(let title, _, _, _, _, _, _), .paper(let title, _, _, _): title
+        }
+    }
+}
+
+public nonisolated struct ComposerPublicationAttempt: Codable, Equatable, Sendable {
+    public let id: UUID
+    public let accountStorageIdentifier: String
+    public let content: ComposerPublicationContent
+
+    public init(accountStorageIdentifier: String, content: ComposerPublicationContent) {
+        id = UUID()
+        self.accountStorageIdentifier = accountStorageIdentifier
+        self.content = content
+    }
+}
+
+public nonisolated enum ComposerPublicationStart: Sendable {
+    case started(ComposerPublicationAttempt)
+    case pending(ComposerPublicationAttempt)
+}
+
+@MainActor
+public protocol ComposerPublicationStoring: Sendable {
+    func loadPublication(kind: ComposerPublicationKind, owner: String) async throws -> ComposerPublicationAttempt?
+    func beginPublication(_ content: ComposerPublicationContent, owner: String) async throws -> ComposerPublicationStart
+    func finishPublication(_ expected: ComposerPublicationAttempt) async throws -> Bool
+    func resetPublicationsAfterReview(owner: String) async throws
+}
+
+public nonisolated enum ComposerPublicationReviewState: Sendable {
+    case ready
+    case pending(ComposerPublicationAttempt)
+    case requiresRecovery
+
+    public var needsReview: Bool {
+        switch self {
+        case .ready: false
+        case .pending, .requiresRecovery: true
+        }
+    }
+}

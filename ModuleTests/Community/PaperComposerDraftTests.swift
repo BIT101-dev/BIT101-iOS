@@ -7,6 +7,104 @@ import Testing
 
 @MainActor
 struct PaperComposerDraftTests {
+    @Test(.timeLimit(.minutes(1))) func publicationOwnerUsesItsAccountWithinANamespacedStore() async throws {
+        let files = ModuleScoreFiles()
+        let namespace = AppStorageSession(accountIdentifier: "namespace.A")
+        let drafts = ComposerDraftStore(files: files, applicationSupport: URL(fileURLWithPath: "/paper-draft"),
+            session: { namespace }, prepareImageData: { $0 }, publicationOwner: { "A" })
+        let content = ComposerPublicationContent.paper(title: "标题", intro: "简介", content: "正文", anonymous: false)
+        guard case let .started(attempt) = try await drafts.beginPublication(content, owner: "A") else {
+            Issue.record("所属账号应可建立发布记录。"); return
+        }
+        #expect(attempt.accountStorageIdentifier == namespace.accountStorageIdentifier)
+        #expect(try await drafts.loadPublication(kind: .paper, owner: "A") == attempt)
+        await #expect(throws: CancellationError.self) { try await drafts.beginPublication(content, owner: "B") }
+        #expect(try await drafts.finishPublication(attempt))
+    }
+
+    @Test(.timeLimit(.minutes(1))) func publicationAttemptsPreserveDraftsAndAccountOwnership() async throws {
+        let files = ModuleScoreFiles(), account = Account()
+        let drafts = store(files, session: { account.session })
+        let existing = snapshot(content: "保留的草稿")
+        #expect(await drafts.savePaper(existing))
+        let content = ComposerPublicationContent.paper(title: "发布标题", intro: "简介", content: "发布正文", anonymous: false)
+        guard case let .started(first) = try await drafts.beginPublication(content, owner: "A") else {
+            Issue.record("首次发布应建立事务记录。"); return
+        }
+        let reopened = store(files, session: { account.session })
+        #expect(try await reopened.loadPublication(kind: .paper, owner: "A") == first)
+        #expect((await reopened.loadPaper(paperID: nil)).snapshot == existing)
+        guard case let .pending(pending) = try await reopened.beginPublication(content, owner: "A") else {
+            Issue.record("已有发布应恢复待核对记录。"); return
+        }
+        #expect(pending == first)
+        account.session = AppStorageSession(accountIdentifier: "B")
+        #expect(try await reopened.loadPublication(kind: .paper, owner: "B") == nil)
+        guard case let .started(second) = try await reopened.beginPublication(content, owner: "B") else {
+            Issue.record("当前账号应持有独立发布记录。"); return
+        }
+        #expect(try await drafts.finishPublication(first))
+        #expect(try await reopened.loadPublication(kind: .paper, owner: "B") == second)
+        account.session = AppStorageSession(accountIdentifier: "A")
+        #expect((await drafts.loadPaper(paperID: nil)).snapshot == existing)
+        #expect(try await drafts.loadPublication(kind: .paper, owner: "A") == nil)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func concurrentEditorsShareOnePendingPublication() async throws {
+        let files = ModuleScoreFiles()
+        let first = store(files, session: { .init(accountIdentifier: "A") })
+        let second = store(files, session: { .init(accountIdentifier: "A") })
+        let content = ComposerPublicationContent.paper(title: "标题", intro: "简介", content: "正文", anonymous: false)
+        async let one = first.beginPublication(content, owner: "A")
+        async let two = second.beginPublication(content, owner: "A")
+        let results = try await [one, two]
+        var attempts: [ComposerPublicationAttempt] = []
+        var starts = 0
+        for result in results {
+            switch result {
+            case let .started(attempt): starts += 1; attempts.append(attempt)
+            case let .pending(attempt): attempts.append(attempt)
+            }
+        }
+        #expect(starts == 1 && attempts[0] == attempts[1])
+        #expect(try await first.finishPublication(attempts[0]))
+        guard case let .started(next) = try await second.beginPublication(content, owner: "A") else {
+            Issue.record("已结束事务后应支持新的发布。"); return
+        }
+        #expect(try await first.finishPublication(attempts[0]) == false)
+        #expect(try await second.loadPublication(kind: .paper, owner: "A") == next)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func publicationRecoveryPreservesDraftsAndExtensions() async throws {
+        let files = ModuleScoreFiles(), drafts = store(files, session: { .init(accountIdentifier: "A") })
+        let existing = snapshot(content: "原有草稿")
+        #expect(await drafts.savePaper(existing))
+        let content = ComposerPublicationContent.paper(title: "标题", intro: "简介", content: "正文", anonymous: false)
+        guard case let .started(attempt) = try await drafts.beginPublication(content, owner: "A") else {
+            Issue.record("首次发布应建立事务记录。"); return
+        }
+        let url = try #require(files.storedData.keys.first { $0.lastPathComponent == "composer-publications.json" })
+        var document = try #require(JSONSerialization.jsonObject(with: files.readData(at: url)) as? [String: Any])
+        document["futureSetting"] = ["enabled": true]
+        var entries = try #require(document["attempts"] as? [String: Any])
+        entries["futureKind"] = ["value": "保留的扩展记录"]
+        document["attempts"] = entries
+        try files.writeData(JSONSerialization.data(withJSONObject: document), to: url, options: [])
+        #expect(try await drafts.finishPublication(attempt))
+        let preserved = try #require(JSONSerialization.jsonObject(with: files.readData(at: url)) as? [String: Any])
+        #expect((preserved["futureSetting"] as? [String: Bool])?["enabled"] == true)
+        #expect((preserved["attempts"] as? [String: Any])?["futureKind"] != nil)
+        let damaged = Data("{".utf8)
+        try files.writeData(damaged, to: url, options: [])
+        do {
+            _ = try await drafts.beginPublication(content, owner: "A")
+            Issue.record("损坏记录应等待显式核对。")
+        } catch { #expect(try files.readData(at: url) == damaged) }
+        try await drafts.resetPublicationsAfterReview(owner: "A")
+        #expect(files.storedData[url] == nil)
+        #expect((await drafts.loadPaper(paperID: nil)).snapshot == existing)
+    }
+
     @Test(.timeLimit(.minutes(1))) func capturedRecoveryPreservesALaterAccountsArchive() async throws {
         let files = ModuleScoreFiles(), account = Account()
         let drafts = store(files, session: { account.session })

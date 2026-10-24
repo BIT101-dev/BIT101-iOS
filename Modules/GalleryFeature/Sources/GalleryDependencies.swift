@@ -30,7 +30,7 @@ public final class GalleryDependencies {
     let images: any GalleryImageUploading
     let preferences: CommunityPreferences
     let messages: any GalleryMessageReadStoring
-    let drafts: any GalleryComposerDraftStoring
+    let drafts: any GalleryComposerDraftStoring & ComposerPublicationStoring
     let networkPath: NetworkPathState
 
     public init(
@@ -45,7 +45,7 @@ public final class GalleryDependencies {
         images: any GalleryImageUploading,
         preferences: CommunityPreferences,
         messages: any GalleryMessageReadStoring,
-        drafts: any GalleryComposerDraftStoring,
+        drafts: any GalleryComposerDraftStoring & ComposerPublicationStoring,
         networkPath: NetworkPathState
     ) {
         self.webCredentials = webCredentials

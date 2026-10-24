@@ -466,6 +466,8 @@ final class UITestHTTPTransport: HTTPTransport {
                 poster["anonymous"] = body["anonymous"]
                 poster["public"] = body["public"]
                 createdPosters.append(poster)
+                if AppUITestBootstrap.environment["BIT101_UI_TEST_PUBLICATION_OUTCOME_UNKNOWN_ONCE"] == "1",
+                   failedPaths.insert("poster-outcome").inserted { throw URLError(.networkConnectionLost) }
                 payload = ["id": id]
             } else {
                 if AppUITestBootstrap.environment["BIT101_UI_TEST_BOT_PAGING"] == "1",
@@ -493,6 +495,8 @@ final class UITestHTTPTransport: HTTPTransport {
                 paper["intro"] = body["intro"]
                 paper["content"] = body["content"]
                 createdPapers.append(paper)
+                if AppUITestBootstrap.environment["BIT101_UI_TEST_PUBLICATION_OUTCOME_UNKNOWN_ONCE"] == "1",
+                   failedPaths.insert("paper-outcome").inserted { throw URLError(.networkConnectionLost) }
                 payload = ["id": id]
             } else if AppUITestBootstrap.environment["BIT101_UI_TEST_PAGINATION"] == "1" {
                 payload = paginationItems(paper, page: page, key: "title", title: "分页文章")

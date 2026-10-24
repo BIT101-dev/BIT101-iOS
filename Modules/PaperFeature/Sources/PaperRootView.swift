@@ -166,7 +166,7 @@ private struct PaperRootViewScene: View {
         }
         .sheet(isPresented: $isShowingComposer) {
             NavigationStack {
-                PaperComposerView(initialContent: "") {
+                PaperComposerView(initialContent: "", currentIdentity: dependencies.currentIdentity) {
                     handleComposerCreated()
                 }
             }

@@ -33,7 +33,7 @@ struct AppAccountStores {
         composerDrafts: ComposerDraftStore(
             files: AppFileDirectories.files, applicationSupport: AppFileDirectories.applicationSupport,
             session: { AppFileDirectories.currentSession }, prepareImageData: ComposerDraftImageCompressor.compress,
-            storageOperations: storageOperations
+            storageOperations: storageOperations, publicationOwner: { AppAccountSession.storage.currentStudentID }
         ),
         scoreCache: ScoreCacheStore(
             files: AppFileDirectories.files,

@@ -66,22 +66,127 @@ private nonisolated struct StoredDeveloperSuggestionDraft: Codable, StoredCompos
 
 private typealias StoredPaperDrafts = [String: Data]
 
-public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, DeveloperSuggestionDraftStoring, PaperComposerDraftStoring {
+public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, DeveloperSuggestionDraftStoring, PaperComposerDraftStoring, ComposerPublicationStoring {
     private static let logger = Logger(subsystem: "BIT101", category: "ComposerDraft")
     private static let currentSchemaVersion = 1
+    private static let publicationSchemaVersion = 1
     private static let storage = ComposerDraftStorage()
     private let files: any AppFileService
     private let applicationSupport: URL
     private let prepareImageData: @Sendable (Data) throws -> Data
     private let currentSession: @MainActor @Sendable () -> AppStorageSession
+    private let currentPublicationOwner: @MainActor @Sendable () -> String
     private let storageOperations: StorageOperationTracker
 
-    public init(files: any AppFileService, applicationSupport: URL, session: @escaping @MainActor @Sendable () -> AppStorageSession, prepareImageData: @escaping @Sendable (Data) throws -> Data, storageOperations: StorageOperationTracker = StorageOperationTracker()) {
+    public init(files: any AppFileService, applicationSupport: URL, session: @escaping @MainActor @Sendable () -> AppStorageSession, prepareImageData: @escaping @Sendable (Data) throws -> Data, storageOperations: StorageOperationTracker = StorageOperationTracker(), publicationOwner: (@MainActor @Sendable () -> String)? = nil) {
         self.prepareImageData = prepareImageData
         self.files = files
         self.applicationSupport = applicationSupport
         self.currentSession = session
+        self.currentPublicationOwner = publicationOwner ?? { session().accountIdentifier }
         self.storageOperations = storageOperations
+    }
+
+    @MainActor
+    private func publicationSession(owner: String) throws -> AppStorageSession {
+        let session = currentSession()
+        guard currentPublicationOwner() == owner.trimmingCharacters(in: .whitespacesAndNewlines) else { throw CancellationError() }
+        return session
+    }
+
+    @MainActor
+    public func loadPublication(kind: ComposerPublicationKind, owner: String) async throws -> ComposerPublicationAttempt? {
+        guard storageOperations.begin() else { throw CancellationError() }
+        defer { storageOperations.finish() }
+        return try await Self.storage.loadPublication(store: self, kind: kind, session: publicationSession(owner: owner))
+    }
+
+    @MainActor
+    public func beginPublication(_ content: ComposerPublicationContent, owner: String) async throws -> ComposerPublicationStart {
+        guard storageOperations.begin() else { throw CancellationError() }
+        defer { storageOperations.finish() }
+        return try await Self.storage.beginPublication(store: self, content: content, session: publicationSession(owner: owner))
+    }
+
+    @MainActor
+    public func finishPublication(_ expected: ComposerPublicationAttempt) async throws -> Bool {
+        guard storageOperations.begin() else { throw CancellationError() }
+        defer { storageOperations.finish() }
+        return try await Self.storage.finishPublication(store: self, expected: expected)
+    }
+
+    @MainActor
+    public func resetPublicationsAfterReview(owner: String) async throws {
+        guard storageOperations.begin() else { throw CancellationError() }
+        defer { storageOperations.finish() }
+        try await Self.storage.resetPublications(store: self, session: publicationSession(owner: owner))
+    }
+
+    private var publicationMaximumBytes: Int { ComposerDraftImagePolicy.maximumMetadataBytes * ComposerPublicationKind.allCases.count }
+
+    private func publicationDocument(session: AppStorageSession) throws -> (fields: [String: Any], attempts: [String: Any]) {
+        do {
+            let data = try files.readData(at: currentFileURL(for: "publications.json", session: session), maximumBytes: publicationMaximumBytes)
+            let header = try JSONDecoder().decode(DraftSchemaHeader.self, from: data)
+            guard header.schemaVersion == Self.publicationSchemaVersion,
+                  let document = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let attempts = document["attempts"] as? [String: Any] else { throw CocoaError(.fileReadCorruptFile) }
+            return (document, attempts)
+        } catch {
+            if AppFileSystem.isMissingFile(error) { return (["schemaVersion": Self.publicationSchemaVersion], [:]) }
+            throw error
+        }
+    }
+
+    private func publication(in entries: [String: Any], kind: ComposerPublicationKind, session: AppStorageSession) throws -> ComposerPublicationAttempt? {
+        guard let entry = entries[kind.rawValue] else { return nil }
+        guard let value = entry as? [String: Any] else { throw CocoaError(.fileReadCorruptFile) }
+        let result = try JSONDecoder().decode(ComposerPublicationAttempt.self, from: JSONSerialization.data(withJSONObject: value))
+        guard result.content.kind == kind, result.accountStorageIdentifier == session.accountStorageIdentifier else { throw CocoaError(.fileReadCorruptFile) }
+        return result
+    }
+
+    private func writePublications(_ fields: [String: Any], attempts: [String: Any], session: AppStorageSession) throws {
+        var document = fields
+        document["attempts"] = attempts
+        let data = try JSONSerialization.data(withJSONObject: document)
+        guard data.count <= publicationMaximumBytes else { throw CocoaError(.fileWriteOutOfSpace) }
+        let url = currentFileURL(for: "publications.json", session: session)
+        try files.createDirectory(at: url.deletingLastPathComponent())
+        try files.writeData(data, to: url, options: AppFileSystem.protectedDataWritingOptions)
+    }
+
+    fileprivate func loadPublication(kind: ComposerPublicationKind, session: AppStorageSession) throws -> ComposerPublicationAttempt? {
+        let document = try publicationDocument(session: session)
+        return try publication(in: document.attempts, kind: kind, session: session)
+    }
+
+    fileprivate func beginPublication(_ content: ComposerPublicationContent, session: AppStorageSession) throws -> ComposerPublicationStart {
+        let document = try publicationDocument(session: session)
+        if let pending = try publication(in: document.attempts, kind: content.kind, session: session) { return .pending(pending) }
+        let attempt = ComposerPublicationAttempt(accountStorageIdentifier: session.accountStorageIdentifier, content: content)
+        var entries = document.attempts
+        entries[content.kind.rawValue] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(attempt))
+        try writePublications(document.fields, attempts: entries, session: session)
+        return .started(attempt)
+    }
+
+    fileprivate func removePublication(_ expected: ComposerPublicationAttempt) throws -> Bool {
+        let session = AppStorageSession(accountIdentifier: expected.accountStorageIdentifier)
+        let document = try publicationDocument(session: session)
+        guard let current = try publication(in: document.attempts, kind: expected.content.kind, session: session) else { return true }
+        guard current == expected else { return false }
+        var entries = document.attempts
+        entries.removeValue(forKey: expected.content.kind.rawValue)
+        if entries.isEmpty && Set(document.fields.keys) == ["schemaVersion", "attempts"] {
+            try files.removeItem(at: currentFileURL(for: "publications.json", session: session))
+        } else { try writePublications(document.fields, attempts: entries, session: session) }
+        return true
+    }
+
+    fileprivate func resetPublications(session: AppStorageSession) throws {
+        do { try files.removeItem(at: currentFileURL(for: "publications.json", session: session)) }
+        catch { if !AppFileSystem.isMissingFile(error) { throw error } }
     }
 
     @MainActor
@@ -576,6 +681,19 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
 private actor ComposerDraftStorage {
     private nonisolated let executor = StorageFileExecutor()
     nonisolated var unownedExecutor: UnownedSerialExecutor { executor.asUnownedSerialExecutor() }
+
+    func loadPublication(store: ComposerDraftStore, kind: ComposerPublicationKind, session: AppStorageSession) throws -> ComposerPublicationAttempt? {
+        try store.loadPublication(kind: kind, session: session)
+    }
+    func beginPublication(store: ComposerDraftStore, content: ComposerPublicationContent, session: AppStorageSession) throws -> ComposerPublicationStart {
+        try store.beginPublication(content, session: session)
+    }
+    func finishPublication(store: ComposerDraftStore, expected: ComposerPublicationAttempt) throws -> Bool {
+        try store.removePublication(expected)
+    }
+    func resetPublications(store: ComposerDraftStore, session: AppStorageSession) throws {
+        try store.resetPublications(session: session)
+    }
 
     func savePaper(store: ComposerDraftStore, _ snapshot: PaperComposerDraftSnapshot, session: AppStorageSession) -> Bool {
         store.persistPaper(snapshot, session: session)

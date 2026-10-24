@@ -739,6 +739,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         duplicatePages: Bool = false,
         messagePagingFailureOnce: Bool = false,
         commentOutcomeUnknownOnce: Bool = false,
+        publicationOutcomeUnknownOnce: Bool = false,
         paginationFailureOnce: Bool = false,
         courseLookupFailureOnce: Bool = false,
         resourceRoutes: Bool = false,
@@ -829,6 +830,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         application.launchEnvironment["BIT101_UI_TEST_DUPLICATE_PAGES"] = duplicatePages ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_MESSAGE_PAGING_FAILURE_ONCE"] = messagePagingFailureOnce ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_COMMENT_OUTCOME_UNKNOWN_ONCE"] = commentOutcomeUnknownOnce ? "1" : "0"
+        application.launchEnvironment["BIT101_UI_TEST_PUBLICATION_OUTCOME_UNKNOWN_ONCE"] = publicationOutcomeUnknownOnce ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_PAGINATION_FAILURE_ONCE"] = paginationFailureOnce ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_COURSE_LOOKUP_FAILURE_ONCE"] = courseLookupFailureOnce ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_RESOURCE_ROUTES"] = resourceRoutes ? "1" : "0"

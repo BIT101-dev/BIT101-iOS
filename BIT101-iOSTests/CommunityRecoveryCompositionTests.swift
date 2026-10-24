@@ -128,8 +128,9 @@ struct CommunityRecoveryCompositionTests {
     @Test(.timeLimit(.minutes(1)))
     func paperRecoveryWaitsForTheConnectedTransitionAfterConnectionIsRequired() async throws {
         let path = NetworkPathState(snapshot: .init(status: .disconnected)), service = PaperReads()
-        let details = PaperService(session: session())
-        let dependencies = PaperDependencies(list: service, detail: details, composer: details, drafts: ComposerDraftStore(files: PreferenceMemoryFiles(), applicationSupport: URL(fileURLWithPath: "/paper-draft"), session: { AppStorageSession(accountIdentifier: "paper") }, prepareImageData: { $0 }), networkPath: path)
+        let paperSession = session()
+        let details = PaperService(session: paperSession)
+        let dependencies = PaperDependencies(list: service, detail: details, composer: details, drafts: ComposerDraftStore(files: PreferenceMemoryFiles(), applicationSupport: URL(fileURLWithPath: "/paper-draft"), session: { AppStorageSession(accountIdentifier: "composition-recovery") }, prepareImageData: { $0 }), networkPath: path, currentIdentity: { paperSession.currentCredentials.identity })
         let (window, _) = try window(NavigationStack { PaperRootView(dependencies: dependencies, media: media()) })
         defer { window.isHidden = true; window.rootViewController = nil }
         try await waitForTestEvent { service.calls == 1 }

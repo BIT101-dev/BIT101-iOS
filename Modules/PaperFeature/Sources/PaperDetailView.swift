@@ -237,7 +237,8 @@ private struct PaperDetailViewScene: View {
         .navigationDestination(item: $editingPaper) { paper in
             PaperComposerView(
                 editingPaper: paper,
-                initialContent: PaperEditorContentBuilder.plainText(from: viewModel.contentBlocks)
+                initialContent: PaperEditorContentBuilder.plainText(from: viewModel.contentBlocks),
+                currentIdentity: dependencies.currentIdentity
             ) {
                 onChanged()
                 viewModel.pendingOperations.enqueue { await viewModel.refreshAll() }

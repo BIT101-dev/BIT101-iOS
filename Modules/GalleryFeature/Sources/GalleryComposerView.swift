@@ -229,6 +229,9 @@ private struct GalleryComposerScene: View {
                             .foregroundStyle(AppDesignSystem.Foreground.secondary)
                     }
                 }
+                CommunityPublicationReviewSection(state: viewModel.publicationReview) {
+                    Task { await viewModel.acknowledgePublicationReview() }
+                }
             }
             .disabled(viewModel.isBusy || viewModel.hasPublishedContent)
             .navigationTitle(editingPoster == nil ? "发布帖子" : "编辑帖子")
@@ -244,7 +247,7 @@ private struct GalleryComposerScene: View {
                             if await viewModel.submit() { onCreated(); dismiss() }
                         }
                     }
-                    .disabled(viewModel.isBusy)
+                    .disabled(viewModel.isBusy || viewModel.publicationReview.needsReview)
                         .accessibilityIdentifier("ui.gallery-composer-scene.submit")
                 }
             }

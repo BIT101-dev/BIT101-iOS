@@ -2,6 +2,47 @@ import XCTest
 
 nonisolated final class CommunityPublishingUITests: UIAutomationTestCase {
     @MainActor
+    func testGalleryPublicationReviewSurvivesRestartAndDraftRestore() {
+        publicationReviewSurvivesRestart(paper: false)
+    }
+
+    @MainActor
+    func testPaperPublicationReviewSurvivesRestartAndDraftRestore() {
+        publicationReviewSurvivesRestart(paper: true)
+    }
+
+    @MainActor
+    private func publicationReviewSurvivesRestart(paper: Bool) {
+        app = configureApp(resetStorage: true, content: true, publicationOutcomeUnknownOnce: true, initialTab: "gallery")
+        if paper { tapHeader(app.segmentedControls.buttons["文章"]) }
+        tap(paper ? "发布文章" : "发布话题")
+        let title = paper ? "核对后的文章" : "核对后的话题"
+        replaceText(title, in: app.textFields["标题"])
+        if paper { replaceText("保留简介", in: app.textFields["简介"]) }
+        replaceText("保留发布内容", in: app.textFields["正文"])
+        dismissKeyboard()
+        if !paper { tap("活动"); tap("聊天") }
+        tap("发布")
+        assertUI(app.alerts["发布结果待确认"].appears(timeout: 5), "回执丢失应要求核对发布结果。")
+        closeAlertIfPresent()
+        tap("取消")
+        tap(paper ? "暂存并离开" : "保存草稿")
+        app = configureApp(resetStorage: false, restartProcess: true, content: true, initialTab: "gallery")
+        if paper { tapHeader(app.segmentedControls.buttons["文章"]) }
+        tap(paper ? "发布文章" : "发布话题")
+        tap(paper ? "恢复草稿" : "加载草稿")
+        assertUI(app.textFields["标题"].value as? String == title, "重新启动应保留原有草稿。")
+        let submit = app.buttons[paper ? "ui.paper-composer-view.submit" : "ui.gallery-composer-scene.submit"]
+        submit.assertDisabled("待确认的发布应等待用户核对。")
+        let review = app.buttons["community.publication.review"]
+        reveal(review, description: "核对发布结果")
+        review.tapBriefly()
+        assertUI(waitUntil(NSPredicate(format: "enabled == true"), on: submit, timeout: 5), "用户确认后应允许再次发布。")
+        submit.tapBriefly()
+        assertUI(textElement(title).appears(timeout: 5), "确认后的发布应更新列表。")
+    }
+
+    @MainActor
     func testDamagedPaperDraftStorageRecoversAndKeepsCurrentInput() {
         app = configureApp(resetStorage: true, content: true, paperDraftRecovery: true, initialTab: "gallery")
         tapHeader(app.segmentedControls.buttons["文章"])

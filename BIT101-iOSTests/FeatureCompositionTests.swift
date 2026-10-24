@@ -322,9 +322,10 @@ struct FeatureCompositionTests {
     }
 
     private func paper(_ transport: TraceTransport) -> PaperDependencies {
-        let service = PaperService(session: session(transport))
+        let paperSession = session(transport)
+        let service = PaperService(session: paperSession)
         return PaperDependencies(list: service, detail: service, composer: service,
-            drafts: ComposerDraftStore(files: PreferenceMemoryFiles(), applicationSupport: URL(fileURLWithPath: "/paper-draft"), session: { AppStorageSession(accountIdentifier: "paper") }, prepareImageData: { $0 }), networkPath: NetworkPathState(snapshot: NetworkPathSnapshot(status: .connected)))
+            drafts: ComposerDraftStore(files: PreferenceMemoryFiles(), applicationSupport: URL(fileURLWithPath: "/paper-draft"), session: { AppStorageSession(accountIdentifier: "composition") }, prepareImageData: { $0 }), networkPath: NetworkPathState(snapshot: NetworkPathSnapshot(status: .connected)), currentIdentity: { paperSession.currentCredentials.identity })
     }
 
     private func mine(_ transport: TraceTransport) -> MineDependencies {
@@ -454,9 +455,10 @@ struct FeatureCompositionTests {
             service.pending = nil
         }
         let routes = TabRoute()
-        let details = PaperService(session: session(TraceTransport()))
+        let paperSession = session(TraceTransport())
+        let details = PaperService(session: paperSession)
         let dependencies = PaperDependencies(list: service, detail: details, composer: details,
-            drafts: ComposerDraftStore(files: PreferenceMemoryFiles(), applicationSupport: URL(fileURLWithPath: "/paper-draft"), session: { AppStorageSession(accountIdentifier: "paper") }, prepareImageData: { $0 }), networkPath: NetworkPathState(snapshot: NetworkPathSnapshot(status: .connected)))
+            drafts: ComposerDraftStore(files: PreferenceMemoryFiles(), applicationSupport: URL(fileURLWithPath: "/paper-draft"), session: { AppStorageSession(accountIdentifier: "composition") }, prepareImageData: { $0 }), networkPath: NetworkPathState(snapshot: NetworkPathSnapshot(status: .connected)), currentIdentity: { paperSession.currentCredentials.identity })
         try await host(PaperTabs(route: routes, dependencies: dependencies, media: media())) {
             try await waitForTestEvent { !(service.pending == nil || service.pages.count < 2) }
             routes.selection = 1

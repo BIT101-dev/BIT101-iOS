@@ -6,6 +6,38 @@ import Testing
 import TransportCore
 
 @MainActor
+private func paperComposer(editingPaper: PaperDetail?, initialContent: String,
+                           currentIdentity: @escaping () -> CommunitySessionIdentity = { .init(accountIdentifier: "paper") }) -> PaperComposerViewModel {
+    PaperComposerViewModel(editingPaper: editingPaper, initialContent: initialContent, currentIdentity: currentIdentity)
+}
+
+@MainActor
+private final class PublicationDrafts: PaperComposerDraftStoring, ComposerPublicationStoring {
+    var draft: PaperComposerDraftSnapshot?
+    var attempts: [String: ComposerPublicationAttempt] = [:]
+    var pending: CheckedContinuation<Void, Never>?
+    var suspend = false
+    func savePaper(_ snapshot: PaperComposerDraftSnapshot) async -> Bool { draft = snapshot; return true }
+    func loadPaper(paperID: Int?) async -> ComposerDraftLoadResult<PaperComposerDraftSnapshot> { draft.map { .loaded($0) } ?? .missing }
+    func capturePaperRecovery() async -> ComposerDraftCleanup { { true } }
+    func capturePaperCleanup(matching snapshot: PaperComposerDraftSnapshot?) async -> ComposerDraftCleanup { { true } }
+    func loadPublication(kind: ComposerPublicationKind, owner: String) async throws -> ComposerPublicationAttempt? { attempts[owner] }
+    func beginPublication(_ content: ComposerPublicationContent, owner: String) async throws -> ComposerPublicationStart {
+        if let attempt = attempts[owner] { return .pending(attempt) }
+        let attempt = ComposerPublicationAttempt(accountStorageIdentifier: owner, content: content)
+        attempts[owner] = attempt
+        if suspend { await withCheckedContinuation { pending = $0 } }
+        return .started(attempt)
+    }
+    func finishPublication(_ expected: ComposerPublicationAttempt) async throws -> Bool {
+        guard attempts[expected.accountStorageIdentifier] == expected else { return false }
+        attempts[expected.accountStorageIdentifier] = nil
+        return true
+    }
+    func resetPublicationsAfterReview(owner: String) async throws { attempts[owner] = nil }
+}
+
+@MainActor
 struct PaperCommentPagingTests {
     private static func revalidationPaper(_ id: Int, title: String) -> PaperDetail {
         PaperDetail(id: id, title: title, intro: "", content: title, createTime: "", updateTime: "",
@@ -153,7 +185,7 @@ extension GalleryRecommendationPrefetchTests {
 
     @Test func composerTracksUnsavedChangesAgainstInitialValues() {
         for paper in [nil, editingPaper("正文")] {
-            let model = PaperComposerViewModel(editingPaper: paper, initialContent: "正文")
+            let model = paperComposer(editingPaper: paper, initialContent: "正文")
             #expect(!model.hasUnsavedChanges)
             for field in [\PaperComposerViewModel.title, \.intro, \.content] {
                 let original = model[keyPath: field]
@@ -197,14 +229,25 @@ extension GalleryRecommendationPrefetchTests {
     }
 
     @Test(.timeLimit(.minutes(1))) func uncertainPaperCreationStopsAnotherSubmission() async {
-        let service = PaperSavingService()
+        let service = PaperSavingService(), drafts = PublicationDrafts()
         service.unknownResult = true
-        let model = PaperComposerViewModel(editingPaper: nil, initialContent: "正文")
+        let model = paperComposer(editingPaper: nil, initialContent: "正文")
         model.title = "标题"; model.intro = "简介"
-        #expect(await model.submit(service: service) == false)
+        #expect(await model.submit(service: service, drafts: drafts) == false)
         service.unknownResult = false
-        #expect(await model.submit(service: service) == false)
+        #expect(await model.submit(service: service, drafts: drafts) == false)
         #expect(service.bodies.count == 1 && model.alert?.title == "发布结果待确认" && !model.isSubmitting)
+        #expect(await drafts.savePaper(model.draftSnapshot))
+        let reopened = paperComposer(editingPaper: nil, initialContent: "")
+        if let draft = await drafts.loadPaper(paperID: nil).snapshot { reopened.restoreDraft(draft) }
+        await reopened.refreshPublicationReview(drafts: drafts)
+        #expect(reopened.publicationReview.needsReview)
+        #expect(await reopened.submit(service: service, drafts: drafts) == false)
+        #expect(service.bodies.count == 1)
+        await reopened.acknowledgePublicationReview(drafts: drafts)
+        #expect(!reopened.publicationReview.needsReview)
+        #expect(await reopened.submit(service: service, drafts: drafts))
+        #expect(service.bodies.count == 2)
     }
 
     @Test @MainActor func articleRenderingNormalizesDuplicateEmptyAndMissingBlockIdentities() throws {
@@ -225,12 +268,12 @@ extension GalleryRecommendationPrefetchTests {
         #"{"blocks":[{"type":"paragraph","data":{"text":"正文"},"tunes":{"alignment":"center"}}]}"#
     ])
     func metadataEditingPreservesFormattedImageAndExtendedBlocks(raw: String) async {
-        let service = PaperSavingService()
-        let model = PaperComposerViewModel(editingPaper: editingPaper(raw), initialContent: PaperEditorContentBuilder.plainText(from: raw))
+        let service = PaperSavingService(), drafts = PublicationDrafts()
+        let model = paperComposer(editingPaper: editingPaper(raw), initialContent: PaperEditorContentBuilder.plainText(from: raw))
         #expect(model.canEditBody == false)
         model.title = "新标题"
         model.content = "修改正文"
-        #expect(await model.submit(service: service))
+        #expect(await model.submit(service: service, drafts: drafts))
         #expect(service.bodies == [raw])
         #expect(service.versions == ["2026-10-01T08:00:00Z"])
     }
@@ -251,26 +294,26 @@ extension GalleryRecommendationPrefetchTests {
         default:
             raw = String(repeating: "x", count: PaperContentResourceLimits.maximumBlockBytes + 1)
         }
-        let service = PaperSavingService()
-        let model = PaperComposerViewModel(editingPaper: editingPaper(raw),
+        let service = PaperSavingService(), drafts = PublicationDrafts()
+        let model = paperComposer(editingPaper: editingPaper(raw),
             initialContent: PaperEditorContentBuilder.plainText(from: raw))
         #expect(model.canEditBody == false)
         model.title = "新标题"
         model.content = "修改剩余正文"
-        #expect(await model.submit(service: service))
+        #expect(await model.submit(service: service, drafts: drafts))
         #expect(service.bodies == [raw])
         #expect(service.versions == ["2026-10-01T08:00:00Z"])
     }
 
     @Test(.timeLimit(.minutes(1))) func plainBodyEditsRoundTripEscapedTextAndKeepUntouchedSource() async {
         let raw = PaperEditorContentBuilder.editorJSON(from: "正文 <内容>\n第二行")
-        let service = PaperSavingService()
-        let model = PaperComposerViewModel(editingPaper: editingPaper(raw), initialContent: PaperEditorContentBuilder.plainText(from: raw))
+        let service = PaperSavingService(), drafts = PublicationDrafts()
+        let model = paperComposer(editingPaper: editingPaper(raw), initialContent: PaperEditorContentBuilder.plainText(from: raw))
         #expect(model.canEditBody)
-        #expect(await model.submit(service: service))
+        #expect(await model.submit(service: service, drafts: drafts))
         #expect(service.bodies == [raw])
         model.content = "新正文 <内容>\n第二行\n\n下一段"
-        #expect(await model.submit(service: service))
+        #expect(await model.submit(service: service, drafts: drafts))
         #expect(PaperEditorContentBuilder.plainText(from: service.bodies[1]) == model.content)
     }
 
@@ -280,34 +323,58 @@ extension GalleryRecommendationPrefetchTests {
             Array(repeating: "正文", count: PaperContentResourceLimits.maximumBlocks + 1).joined(separator: "\n\n"),
             String(repeating: "&", count: PaperContentResourceLimits.maximumBlockBytes / 2)]
         for body in bodies {
-            let service = PaperSavingService()
-            let model = PaperComposerViewModel(editingPaper: editing ? editingPaper("正文") : nil, initialContent: editing ? "正文" : "")
+            let service = PaperSavingService(), drafts = PublicationDrafts()
+            let model = paperComposer(editingPaper: editing ? editingPaper("正文") : nil, initialContent: editing ? "正文" : "")
             model.title = "标题"; model.intro = "简介"; model.content = body
-            #expect(await model.submit(service: service) == false)
+            #expect(await model.submit(service: service, drafts: drafts) == false)
             #expect(service.bodies.isEmpty && model.alert != nil && !model.isSubmitting)
         }
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
-    func paperSubmissionCancellationEndsItsLifecycleAndAllowsAReopenedComposer(editing: Bool) async throws {
-        let service = PaperSavingService()
+    func paperSubmissionCancellationRestoresItsPublicationReview(editing: Bool) async throws {
+        let service = PaperSavingService(), drafts = PublicationDrafts()
         service.suspend = true
-        let model = PaperComposerViewModel(editingPaper: editing ? editingPaper("正文") : nil, initialContent: "正文")
+        let model = paperComposer(editingPaper: editing ? editingPaper("正文") : nil, initialContent: "正文")
         model.title = "标题"; model.intro = "简介"
-        let task = Task { await model.submit(service: service) }
+        let task = Task { await model.submit(service: service, drafts: drafts) }
         try await waitForTestEvent { !(service.pending == nil) }
         #expect(model.isSubmitting)
-        #expect(await model.submit(service: service) == false)
+        #expect(await model.submit(service: service, drafts: drafts) == false)
         task.cancel()
         service.pending?.resume()
         #expect(await task.value == false)
         #expect(model.isSubmitting == false && model.alert == nil)
         #expect(service.bodies.count == 1)
         service.suspend = false
-        let reopened = PaperComposerViewModel(editingPaper: nil, initialContent: "正文")
+        let reopened = paperComposer(editingPaper: nil, initialContent: "正文")
         reopened.title = "标题"; reopened.intro = "简介"
-        #expect(await reopened.submit(service: service))
+        await reopened.refreshPublicationReview(drafts: drafts)
+        #expect(reopened.publicationReview.needsReview == !editing)
+        if !editing {
+            #expect(await reopened.submit(service: service, drafts: drafts) == false)
+            #expect(service.bodies.count == 1)
+            await reopened.acknowledgePublicationReview(drafts: drafts)
+        }
+        #expect(await reopened.submit(service: service, drafts: drafts))
         #expect(service.bodies.count == 2)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func paperAccountChangeBeforeSendingReleasesItsUnsentAttempt() async throws {
+        let service = PaperSavingService(), drafts = PublicationDrafts()
+        var identity = CommunitySessionIdentity(accountIdentifier: "paper-A")
+        let model = paperComposer(editingPaper: nil, initialContent: "正文", currentIdentity: { identity })
+        model.title = "标题"; model.intro = "简介"
+        drafts.suspend = true
+        let submission = Task { await model.submit(service: service, drafts: drafts) }
+        defer { submission.cancel(); drafts.pending?.resume(); drafts.pending = nil }
+        try await waitForTestEvent { drafts.pending != nil }
+        identity = .init(accountIdentifier: "paper-B")
+        drafts.pending?.resume(); drafts.pending = nil
+        #expect(await submission.value == false)
+        #expect(service.bodies.isEmpty && drafts.attempts.isEmpty)
+        #expect(model.alert == nil && !model.isSubmitting)
+        #expect(await model.submit(service: service, drafts: drafts) == false)
     }
 
 }
@@ -318,7 +385,7 @@ struct PaperContentRecoveryTests {
         let paper = PaperDetail(id: 1, title: "当前标题", intro: "", content: "正文", createTime: "", updateTime: "current-version",
             updateUser: .placeholder(id: 1, nickname: "作者"), anonymous: false, likeNum: 0, commentNum: 0,
             publicEdit: false, like: false, own: true)
-        let model = PaperComposerViewModel(editingPaper: paper, initialContent: "正文")
+        let model = paperComposer(editingPaper: paper, initialContent: "正文")
         let draft = PaperComposerDraftSnapshot(paperID: 1, baselineUpdatedAt: "saved-version", title: "草稿标题",
             intro: "草稿简介", content: "草稿正文", anonymous: true)
         model.restoreDraft(draft)

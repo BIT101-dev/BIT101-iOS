@@ -133,7 +133,23 @@ struct ComposerLifecycleTests {
         var current = CommunitySessionIdentity(accountIdentifier: "composer-A", generation: 1)
     }
 
-    private final class Drafts: GalleryComposerDraftStoring {
+    private final class Drafts: GalleryComposerDraftStoring, ComposerPublicationStoring {
+        private var publications: [String: [String: ComposerPublicationAttempt]] = [:]
+        func loadPublication(kind: ComposerPublicationKind, owner: String) async throws -> ComposerPublicationAttempt? { publications[owner]?[kind.rawValue] }
+        func beginPublication(_ content: ComposerPublicationContent, owner: String) async throws -> ComposerPublicationStart {
+            if let current = publications[owner]?[content.kind.rawValue] { return .pending(current) }
+            let attempt = ComposerPublicationAttempt(accountStorageIdentifier: owner, content: content)
+            publications[owner, default: [:]][content.kind.rawValue] = attempt
+            return .started(attempt)
+        }
+        func finishPublication(_ expected: ComposerPublicationAttempt) async throws -> Bool {
+            let owner = expected.accountStorageIdentifier, kind = expected.content.kind.rawValue
+            guard let current = publications[owner]?[kind] else { return true }
+            guard current == expected else { return false }
+            publications[owner]?[kind] = nil
+            return true
+        }
+        func resetPublicationsAfterReview(owner: String) async throws { publications[owner] = nil }
         var result: ComposerDraftLoadResult<GalleryComposerDraftSnapshot> = .missing
         var loadCount = 0
         var saveCount = 0
@@ -470,6 +486,11 @@ struct ComposerLifecycleTests {
         #expect(await viewModel.submit() == false)
         #expect(service.submissions.count == 1 && drafts.cleanupCount == 0)
         #expect(viewModel.alert?.title == "发布结果待确认" && !viewModel.isSubmitting)
+        #expect(await viewModel.saveDraft())
+        let reopened = model(service, drafts: drafts)
+        await reopened.restoreDraft()
+        #expect(await reopened.submit() == false)
+        #expect(service.submissions.count == 1)
     }
 
     @Test(.timeLimit(.minutes(1))) func imageFailuresAreRetryableAndTheLimitIncludesExistingImages() async {

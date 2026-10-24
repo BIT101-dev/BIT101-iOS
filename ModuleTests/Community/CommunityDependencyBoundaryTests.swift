@@ -754,7 +754,7 @@ struct CommunityDependencyBoundaryTests {
         let list = RecordingPaperList()
         let composer = RecordingPaperComposer()
         let dependencies = PaperDependencies(list: list, detail: detail, composer: composer,
-            drafts: ComposerDraftStore(files: ModuleScoreFiles(), applicationSupport: URL(fileURLWithPath: "/paper-draft"), session: { AppStorageSession(accountIdentifier: "paper") }, prepareImageData: { $0 }), networkPath: NetworkPathState(snapshot: NetworkPathSnapshot(status: .connected)))
+            drafts: ComposerDraftStore(files: ModuleScoreFiles(), applicationSupport: URL(fileURLWithPath: "/paper-draft"), session: { AppStorageSession(accountIdentifier: "test-account") }, prepareImageData: { $0 }), networkPath: NetworkPathState(snapshot: NetworkPathSnapshot(status: .connected)), currentIdentity: { self.session.currentCredentials.identity })
         let viewModel = PaperListViewModel(service: dependencies.list)
         await viewModel.refresh()
         let id = try await dependencies.composer.createPaper(
