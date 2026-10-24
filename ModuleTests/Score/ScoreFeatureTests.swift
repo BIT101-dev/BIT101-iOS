@@ -95,7 +95,7 @@ struct ScoreFeatureTests {
         let (model, _) = try makeViewModel(service: service)
         defer { clearPreferences() }
         await model.refresh()
-        #expect(model.selectedTerms == ["term"])
+        #expect(model.selectedTerms == ["term"] && model.selectedCourseTypes == ["必修"])
         #expect(model.visibleRows.count == 1)
         await model.restoreCachedDataIfNeeded()
         #expect(model.visibleRows.count == 1)
@@ -311,27 +311,31 @@ struct ScoreFeatureTests {
         let rows = [
             ScoreRow(index: 0, headers: headers, values: ["已分类课程", "90", "2", "A", "必修"]),
             ScoreRow(index: 1, headers: headers, values: ["缺少性质", "80", "2", "A", " \n"]),
-            ScoreRow(index: 2, headers: headers, values: ["缺少学期", "70", "2", "", "必修"])
+            ScoreRow(index: 2, headers: headers, values: ["缺少学期", "70", "2", "", "选修"])
         ]
         #expect(await cache.saveDetailed(rows: rows) != nil)
         let model = ScoreViewModel(service: ScoreServiceSpy(), cacheStore: cache,
             preferenceStore: ScoreFilterPreferenceStore(defaults: defaults, session: { session }),
             currentScoreCacheSession: { session }, scheduleCoursesChanges: Empty().eraseToAnyPublisher(),
             loadScheduleCourses: { _ in ["A": [ScoreCourseSummary(id: "schedule-only-type", term: "A",
-                name: "课表课程", number: "schedule-only", type: "选修", teacher: "", classroom: "", campus: "",
+                name: "课表课程", number: "schedule-only", type: "课表独有分类", teacher: "", classroom: "", campus: "",
                 description: "", creditText: "", scheduleText: "", weeksText: "", hourText: "")]] })
         await model.restoreCachedDataIfNeeded()
         #expect(model.visibleRows.count == 3)
         #expect(model.summary.selectedCourseCount == 3 && model.summary.weightedAverageScore == 80)
-        #expect(Set(model.availableTerms) == ["A", "未知学期"])
-        model.setSelectedTerms(["未知学期"])
+        #expect(Set(model.availableTerms) == ["A", "未分类"])
+        #expect(Set(model.availableCourseTypes) == ["必修", "选修"])
+        model.setSelectedTerms(["未分类"])
         #expect(model.visibleRows.map(\.courseName) == ["缺少学期"])
         model.toggleAllTerms()
+        model.setSelectedCourseTypes(["必修"])
+        #expect(model.visibleRows.map(\.courseName) == ["已分类课程"])
+        model.toggleAllCourseTypes()
         #expect(model.visibleRows.count == 3)
     }
 
-    @Test(.timeLimit(.minutes(1)), arguments: [false, true], ["missing", "", " \n", "必修", "选修"])
-    func scoresAndPendingCoursesIgnoreStoredCourseTypeSelections(restorePreference: Bool, field: String) async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true], ["missing", "", " \n"])
+    func scoresWithoutCourseTypesIgnoreScheduleCategories(restorePreference: Bool, field: String) async throws {
         let domain = "BIT101ModulesTests.score.without-types"
         let defaults = try #require(UserDefaults(suiteName: domain))
         defaults.removePersistentDomain(forName: domain)
@@ -358,8 +362,10 @@ struct ScoreFeatureTests {
             currentScoreCacheSession: { session }, scheduleCoursesChanges: Empty().eraseToAnyPublisher(),
             loadScheduleCourses: { _ in ["A": courses] })
         await model.restoreCachedDataIfNeeded()
-        #expect(model.visibleRows == rows)
+        #expect(model.availableCourseTypes.isEmpty && model.visibleRows == rows)
         #expect(model.summary.selectedCourseCount == 1 && model.pendingCourseCount == 3)
+        model.setSelectedCourseTypes(["必修"])
+        #expect(model.visibleRows == rows && model.pendingCourseCount == 3)
         model.setSortIndex(.score)
         #expect(preferences.load()?.sortIndex == ScoreSortIndex.score.rawValue)
         preferences.applySynced(.init(selectedTerms: ["A"], selectedCourseTypes: ["选修"]))
@@ -367,38 +373,54 @@ struct ScoreFeatureTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func pendingCoursesFollowLocalAndSyncedTermFilters() async throws {
+    func pendingCoursesFollowLocalAndSyncedCourseTypeFilters() async throws {
         let domain = "BIT101ModulesTests.score.pending-types"
         let defaults = try #require(UserDefaults(suiteName: domain))
         defaults.removePersistentDomain(forName: domain)
         defer { defaults.removePersistentDomain(forName: domain) }
         let session = AppStorageSession(accountIdentifier: "pending-types")
         let preferences = ScoreFilterPreferenceStore(defaults: defaults, session: { session })
-        let courses = ["必修", "选修", ""].map { type in
+        let courses = ["通识教育", "专业教育", "必修", "选修", ""].map { type in
             ScoreCourseSummary(id: type, term: "A", name: "待出分\(type)", number: type, type: type,
                 teacher: "", classroom: "", campus: "", description: "", creditText: "",
                 scheduleText: "", weeksText: "", hourText: "")
         }
         let cache = ScoreCacheStore(files: ModuleScoreFiles(), storageRoot: URL(fileURLWithPath: "/pending-types"),
             defaults: defaults, session: { session })
-        let rows = ["必修"].enumerated().map { index, type in
+        let rows = ["通识教育", "专业教育", ""].enumerated().map { index, type in
             ScoreRow(index: index, headers: ["课程名称", "成绩", "开课学期", "课程性质"],
                 values: ["已出分\(index)", "90", "A", type])
         }
         #expect(await cache.saveDetailed(rows: rows) != nil)
-        let model = ScoreViewModel(service: ScoreServiceSpy(), cacheStore: cache,
+        #expect(preferences.save(selectedTerms: ["A"], selectedCourseTypes: ["必修"],
+            sortIndex: .courseName, sortOrder: .ascending))
+        let service = ScoreServiceSpy(detailedRows: [rows[2]])
+        service.briefRowsOverride = [rows[2]]
+        let model = ScoreViewModel(service: service, cacheStore: cache,
             preferenceStore: preferences, currentScoreCacheSession: { session },
             scheduleCoursesChanges: Empty().eraseToAnyPublisher(), loadScheduleCourses: { _ in ["A": courses] })
         await model.restoreCachedDataIfNeeded()
-        #expect(model.pendingCourseCount == 3)
-        model.toggleAllTerms()
-        #expect(model.filteredRows.isEmpty && model.pendingCourseCount == nil)
-        model.toggleAllTerms()
-        #expect(model.filteredRows == rows && model.pendingCourseCount == 3)
+        #expect(model.pendingCourseCount == 5 && model.visibleRows.count == 3 && service.requestedDetailValues.isEmpty)
+        #expect(Set(model.availableCourseTypes) == ["通识教育", "专业教育"])
+        model.setSelectedCourseTypes(["通识教育"])
+        #expect(model.pendingCourses?.map(\.type) == ["通识教育"])
+        #expect(model.visibleRows.map(\.courseType) == ["通识教育"])
+        model.toggleAllCourseTypes()
+        #expect(model.pendingCourseCount == 5 && model.visibleRows.count == 3 && service.requestedDetailValues.isEmpty)
+        model.toggleAllCourseTypes()
+        #expect(model.pendingCourseCount == 0 && model.visibleRows.isEmpty)
+        preferences.applySynced(.init(selectedTerms: ["A"], selectedCourseTypes: ["专业教育"]))
+        #expect(model.pendingCourses?.map(\.type) == ["专业教育"])
+        #expect(model.visibleRows.map(\.courseType) == ["专业教育"])
+        for type in ["选修", "必修", "未分类"] {
+            preferences.applySynced(.init(selectedTerms: ["缓存外学期"], selectedCourseTypes: [type]))
+            #expect(model.pendingCourseCount == 5 && model.visibleRows.count == 3 && service.requestedDetailValues.isEmpty)
+        }
         preferences.applySynced(.init(selectedTerms: ["A"], selectedCourseTypes: []))
-        #expect(model.filteredRows == rows && model.pendingCourseCount == 3)
-        preferences.applySynced(.init(selectedTerms: [], selectedCourseTypes: ["必修"]))
-        #expect(model.filteredRows.isEmpty && model.pendingCourseCount == nil)
+        #expect(model.pendingCourseCount == 0 && model.visibleRows.isEmpty)
+        await model.refresh()
+        #expect(model.availableCourseTypes.isEmpty && model.visibleRows == [rows[2]])
+        #expect(model.pendingCourseCount == 5)
     }
 
     @Test(.timeLimit(.minutes(1))) func localSaveSubscriptionsFanOutAndCancelByOwner() async throws {

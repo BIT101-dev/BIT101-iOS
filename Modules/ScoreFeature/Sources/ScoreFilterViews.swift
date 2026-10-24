@@ -3,7 +3,7 @@ import ScoreDomain
 import DesignSystemKit
 import SwiftUI
 
-/// 学期筛选使用公共多选列表，筛选集合由成绩模型维护。
+/// 学期和课程种类复用公共多选列表，筛选集合由成绩模型维护。
 struct ScoreFilterPage: View {
     let title: String
     let options: [String]

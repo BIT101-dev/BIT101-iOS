@@ -29,7 +29,7 @@ struct UITestScoreService: ScoreListServicing, TrustedTranscriptServicing {
             ScoreRow(
                 index: 1,
                 headers: ["课程编号", "课程名称", "开课学期", "成绩", "学分", "课程性质"],
-                values: ["UI-001", "自动化测试课程", "ui-test-term", "92", "3", "必修"]
+                values: ["UI-001", "自动化测试课程", "ui-test-term", "92", "3", "专业教育"]
             ),
         ]
     }

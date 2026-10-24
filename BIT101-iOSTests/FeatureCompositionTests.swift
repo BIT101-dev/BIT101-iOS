@@ -148,7 +148,7 @@ struct FeatureCompositionTests {
         var changes: AnyPublisher<AppStorageSession, Never> { Empty().eraseToAnyPublisher() }
         var loads = 0
         var rows = [ScoreRow(index: 0, headers: ["课程名称", "成绩", "开课学期", "课程性质"],
-            values: ["composition-score", "90", "fixture", "必修"])]
+            values: ["composition-score", "90", "fixture", "专业教育"])]
         func loadSnapshot(for session: AppStorageSession?) async -> ScoreCacheSnapshot? {
             loads += 1
             return ScoreCacheSnapshot(rows: rows, updatedAt: Date(), detailedUpdatedAt: Date())
@@ -190,14 +190,15 @@ struct FeatureCompositionTests {
             loadScheduleCourses: { _ in ["fixture": [course]] })
         await model.restoreCachedDataIfNeeded()
         model.setSortIndex(.score)
-        #expect(model.selectedTerms == ["fixture"] && preferences.load() == nil)
+        #expect(model.selectedTerms == ["fixture"] && model.availableCourseTypes.isEmpty)
+        #expect(model.selectedCourseTypes.isEmpty && preferences.load() == nil)
         cache.rows = rows
         await model.applySyncedScoreCacheIfAvailable()
-        #expect(model.filteredRows == rows)
+        #expect(model.filteredRows == rows && model.selectedCourseTypes == ["专业教育"])
         #expect(preferences.load()?.sortIndex == ScoreSortIndex.score.rawValue)
-        model.toggleAllTerms()
+        model.toggleAllCourseTypes()
         await model.applySyncedScoreCacheIfAvailable()
-        #expect(model.filteredRows.isEmpty && preferences.load()?.selectedTerms == [])
+        #expect(model.filteredRows.isEmpty && preferences.load()?.selectedCourseTypes == [])
     }
 
     @Test(.timeLimit(.minutes(1)))
