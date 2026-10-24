@@ -31,6 +31,7 @@ def development_workflow_self_test() -> None:
         immediate_audit_output(fixture)
         ci_diagnostic_selection(fixture)
         readiness_diagnostics(fixture)
+        mac_process_identity(fixture)
     finally:
         shutil.rmtree(fixture, ignore_errors=True)
 
@@ -160,6 +161,25 @@ def ci_diagnostic_selection(fixture: Path) -> None:
             subject.main()
         assert output.read_text() == 'paths<<BIT101_DIAGNOSTIC_PATHS\n' + expected + '\nBIT101_DIAGNOSTIC_PATHS\n'
         assert (fixture / subject.REPORT).exists() == (cancelled == 'true')
+
+
+def mac_process_identity(fixture: Path) -> None:
+    import sys
+    app = fixture / 'Mac App [fixture].app'
+    executable = app / 'Contents/MacOS/BIT101-iOS'
+    executable.parent.mkdir(parents=True)
+    shutil.copyfile('/bin/sleep', executable)
+    executable.chmod(0o755)
+    owned = subprocess.Popen([str(executable), '60'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    decoy = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)', str(executable)],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        result = subprocess.run([sys.executable, str(ROOT / 'Scripts/validation_restore.py'), 'mac-pids', str(app)],
+            capture_output=True, text=True, check=True)
+        assert list(map(int, result.stdout.split())) == [owned.pid] and not result.stderr
+    finally:
+        owned.terminate(); decoy.terminate()
+        owned.wait(timeout=5); decoy.wait(timeout=5)
 
 
 def readiness_diagnostics(fixture: Path) -> None:

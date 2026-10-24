@@ -124,7 +124,7 @@ if [[ "$ACTION" == mac ]]; then
 
   APP_PATH="$DERIVED_DATA/Build/Products/Release-maccatalyst/BIT101-iOS.app"
   INSTALL_PATH="$HOME/Applications/BIT101-iOS.app"
-  RUNNING_APP_PIDS=($(pgrep -f "^${INSTALL_PATH}/Contents/MacOS/BIT101-iOS$" || true))
+  RUNNING_APP_PIDS=($(python3 "$ROOT_DIR/Scripts/validation_restore.py" mac-pids "$INSTALL_PATH"))
   for APP_PID in "${RUNNING_APP_PIDS[@]}"; do
     kill -TERM "$APP_PID"
     for ((attempt = 0; attempt < 50; attempt++)); do

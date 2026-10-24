@@ -99,6 +99,16 @@ def readiness_diagnostic(proof: dict) -> None:
     print('App 就绪状态：' + json.dumps(state, ensure_ascii=False), file=sys.stderr)
 
 
+def mac_app_pids(app: Path) -> list[int]:
+    expected = str(app / 'Contents/MacOS/BIT101-iOS')
+    processes = subprocess.check_output(['/bin/ps', '-ww', '-axo', 'pid=,comm='], text=True)
+    result = []
+    for line in processes.splitlines():
+        pid, _, executable = line.lstrip().partition(' ')
+        if executable.strip() == expected: result.append(int(pid))
+    return result
+
+
 def mac_ready(app: Path, proof_path: Path, run_id: str, digest: str, *, diagnose: bool = False) -> bool:
     proof = json.loads(proof_path.read_text())
     info = plistlib.loads((app / 'Contents/Info.plist').read_bytes())
@@ -446,11 +456,14 @@ if __name__ == '__main__':
         if sys.argv[1:] == ['invalidate']:
             invalidate()
             sys.exit(0)
+        if sys.argv[1:2] == ['mac-pids']:
+            sys.stdout.write(''.join(f'{pid}\n' for pid in mac_app_pids(Path(sys.argv[2]))))
+            sys.exit(0)
         if sys.argv[1:2] == ['mac-ready']:
             sys.exit(0 if mac_ready(Path(sys.argv[2]), Path(sys.argv[3]), *sys.argv[4:], diagnose=True) else 1)
         result = summary(*sys.argv[1:])
         if not result['passed']: readiness_diagnostic(result)
         sys.exit(0 if result['passed'] else 1)
-    except (OSError, ValueError, KeyError, TypeError) as error:
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
         print(f'App 就绪采样失败：{type(error).__name__}：{error}', file=sys.stderr)
         sys.exit(1)
