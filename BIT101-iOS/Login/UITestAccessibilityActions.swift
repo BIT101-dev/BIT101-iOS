@@ -154,7 +154,7 @@ enum UITestAccessibilityActions {
         ])
     }
 
-    static func previewPage() throws -> Data {
+    static func previewPage(details: Bool = false) throws -> Data {
         func find(in controller: UIViewController) -> QLPreviewController? {
             if let preview = controller as? QLPreviewController, preview.viewIfLoaded?.window != nil { return preview }
             if let presented = controller.presentedViewController, let preview = find(in: presented) { return preview }
@@ -167,9 +167,22 @@ enum UITestAccessibilityActions {
             throw NSError(domain: "BIT101.UITest", code: 2,
                 userInfo: [NSLocalizedDescriptionKey: "预览分页采样需要当前展示的系统预览器。"])
         }
-        return try JSONSerialization.data(withJSONObject: [
+        var result: [String: Any] = [
             "index": preview.currentPreviewItemIndex, "count": source.numberOfPreviewItems(in: preview)
-        ])
+        ]
+        if details {
+            result["items"] = (0..<source.numberOfPreviewItems(in: preview)).map { index -> [String: Any] in
+                let item = source.previewController(preview, previewItemAt: index)
+                guard let url = item.previewItemURL else { return ["index": index, "readable": false] }
+                return ["index": index, "extension": url.pathExtension,
+                    "readable": FileManager.default.isReadableFile(atPath: url.path),
+                    "imageDecodable": UIImage(contentsOfFile: url.path) != nil,
+                    "canPreview": QLPreviewController.canPreview(item)]
+            }
+            func viewTypes(_ view: UIView) -> [String] { [String(describing: type(of: view))] + view.subviews.flatMap(viewTypes) }
+            result["viewTypes"] = viewTypes(preview.view)
+        }
+        return try JSONSerialization.data(withJSONObject: result)
     }
 
     static func scroll(_ parameters: [String: String]) throws -> Data {

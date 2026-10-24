@@ -416,7 +416,7 @@ final class UITestSceneState: ObservableObject {
                             return
                         }
                         if environment["command"] == "preview-page" {
-                            reply(try UITestAccessibilityActions.previewPage())
+                            reply(try UITestAccessibilityActions.previewPage(details: environment["details"] == "1"))
                             return
                         }
                         if environment["command"] == "identity" {

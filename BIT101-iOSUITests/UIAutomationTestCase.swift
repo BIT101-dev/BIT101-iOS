@@ -36,6 +36,10 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             let screenshot = XCTAttachment(screenshot: foreground.screenshot())
             screenshot.name = "失败时的界面截图"
             add(screenshot)
+            if app.native.descendants(matching: .any)["QLPreviewControllerView"].exists,
+               let details = UITestControlClient.request(["command": "preview-page", "details": "1"]) {
+                print("UI preview diagnostics: \(details)")
+            }
         }
         Self.captureControlInventory()
         UITestSnapshotReader.printTimingSummary()
@@ -58,38 +62,6 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         let button = app.buttons["第\(week)周"]
         if button.isSelected { return }
         assertUI(waitUntil(NSPredicate(format: "selected == true"), on: button, timeout: 5), "周次选择应更新为第 \(week) 周。")
-    }
-
-    @MainActor
-    func tap(_ title: String) {
-        let response = title == "取消" ? nil
-            : UITestControlClient.request(["command": "resolve", "label": title], timeout: 5)
-        if let response, let target = try? JSONDecoder().decode([String: String].self, from: Data(response.utf8)) {
-            let identifier = target["identifier"] ?? ""
-            let label = target["label"] ?? ""
-            let predicate = identifier.isEmpty
-                ? (label == title ? NSPredicate(format: "label == %@", title) : NSPredicate(format: "label CONTAINS %@", title))
-                : NSPredicate(format: "identifier == %@ AND label CONTAINS %@", identifier, title)
-            let button = app.buttons.matching(predicate).firstMatch
-            button.tapBriefly { self.reveal(button, description: title) }
-            return
-        }
-        let exact = app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", title, title))
-        let exactExists = exact.firstMatch.exists
-        let matches = exactExists ? exact : app.buttons.matching(NSPredicate(format: "label CONTAINS %@", title))
-        let button = matches.firstMatch
-        if exactExists || button.exists {
-            if UIElement.usesNativeInteraction ? button.native.isHittable : button.isHittable {
-                button.tapBriefly()
-                return
-            }
-            if let visible = matches.allElementsBoundByIndex.first(where: { UIElement.usesNativeInteraction ? $0.native.isHittable : $0.isHittable }) {
-                visible.press(forDuration: 0.01)
-                return
-            }
-        }
-        reveal(button, description: title)
-        button.press(forDuration: 0.01)
     }
 
     @MainActor

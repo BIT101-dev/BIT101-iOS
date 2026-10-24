@@ -177,7 +177,9 @@ nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
             app = configureApp(resetStorage: true, content: true, pagination: true, initialTab: "mine")
             if !search {
                 let path = tab == "home" ? "courses" : section == "文章" ? "papers" : "posters"
-                _ = UITestControlClient.request(["command": "fail-request", "key": path, "query.page": "1"])
+                var failure = ["command": "fail-request", "key": path, "query.page": "1"]
+                if path == "posters" { failure["query.order"] = "new" }
+                _ = UITestControlClient.request(failure)
             }
             app.tabBars.buttons[tab == "home" ? "成绩" : "话廊"].tapBriefly()
             tapHeader(app.segmentedControls.buttons[section])

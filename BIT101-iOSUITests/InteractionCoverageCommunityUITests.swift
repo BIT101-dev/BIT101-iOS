@@ -586,6 +586,7 @@ nonisolated final class ScheduleNavigationUITests: UIAutomationTestCase {
         replaceText("取消的待办修改", in: app.textFields["ddl.editor.title"])
         dismissKeyboard()
         tap("取消")
+        app.alerts["放弃当前输入？"].buttons["放弃输入"].tapBriefly()
         assertUI(textElement("带详情的待办").appears(timeout: 5), "取消待办编辑应保留原记录。")
         todo.tapBriefly()
         tap("编辑")

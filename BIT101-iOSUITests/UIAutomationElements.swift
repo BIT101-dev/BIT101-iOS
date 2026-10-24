@@ -594,3 +594,46 @@ extension XCUIElementSnapshot {
         return nil
     }
 }
+
+@MainActor
+extension UIAutomationTestCase {
+    @MainActor
+    func tap(_ title: String) {
+        let response = title == "取消" ? nil
+            : UITestControlClient.request(["command": "resolve", "label": title], timeout: 5)
+        if let response, let target = try? JSONDecoder().decode([String: String].self, from: Data(response.utf8)) {
+            let identifier = target["identifier"] ?? ""
+            let label = target["label"] ?? ""
+            let predicate = identifier.isEmpty
+                ? (label == title ? NSPredicate(format: "label == %@", title) : NSPredicate(format: "label CONTAINS %@", title))
+                : NSPredicate(format: "identifier == %@ AND label CONTAINS %@", identifier, title)
+            let button = app.buttons.matching(predicate).firstMatch
+            if button.exists {
+                button.tapBriefly { self.reveal(button, description: title) }
+                return
+            }
+        }
+        let exact = app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", title, title))
+        let exactExists = exact.firstMatch.exists
+        let matches = exactExists ? exact : app.buttons.matching(NSPredicate(format: "label CONTAINS %@", title))
+        let button = matches.firstMatch
+        if exactExists || button.exists {
+            if UIElement.usesNativeInteraction ? button.native.isHittable : button.isHittable {
+                button.tapBriefly()
+                return
+            }
+            if let visible = matches.allElementsBoundByIndex.first(where: { UIElement.usesNativeInteraction ? $0.native.isHittable : $0.isHittable }) {
+                visible.press(forDuration: 0.01)
+                return
+            }
+        }
+        let cardTitle = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "community.poster.card."))
+            .containing(.staticText, identifier: title).firstMatch.staticTexts[title]
+        if cardTitle.exists {
+            cardTitle.tapBriefly { self.reveal(cardTitle, description: title) }
+            return
+        }
+        reveal(button, description: title)
+        button.press(forDuration: 0.01)
+    }
+}
