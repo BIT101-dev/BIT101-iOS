@@ -54,9 +54,12 @@ if not available: raise SystemExit('iOS 模拟器运行时安装完成后需要�
 runtime = max(available, key=lambda row: tuple(map(int, row['version'].split('.'))))
 hosted = os.getenv('GITHUB_ACTIONS') == 'true'
 if hosted:
-    phones = [row for row in runtime['supportedDeviceTypes'] if re.fullmatch(r'iPhone \d+', row['name'])]
-    if not phones: raise SystemExit('CI 完整验收需要标准数字型号 iPhone 设备类型。')
-    phone = max(phones, key=lambda row: int(row['name'].split()[-1]))
+    candidates = [(platform, row) for platform in available for row in platform['supportedDeviceTypes']
+        if re.match(r'iPhone \d+(?: |$)', row['name'])]
+    if not candidates: raise SystemExit('CI 完整验收需要数字型号 iPhone；运行时设备类型：' + ', '.join(
+        f"{platform['version']}: {row['name']}" for platform in available for row in platform['supportedDeviceTypes']))
+    runtime, phone = max(candidates, key=lambda pair: (tuple(map(int, pair[0]['version'].split('.'))),
+        int(pair[1]['name'].split()[1]), -len(pair[1]['name'])))
 owned = json.loads(path.read_text()) if path.is_file() else None
 device = next((row for rows in data['devices'].values() for row in rows
     if owned and row['udid'] == owned['identifier']), None)
@@ -90,6 +93,7 @@ PYDEVICE
 )"; then
   :
 else
+  bit101_show_audit_log "$DERIVED_ROOT/simulator.log" true
   echo "模拟器准备失败：$DERIVED_ROOT/simulator.log" >&2
   exit 1
 fi

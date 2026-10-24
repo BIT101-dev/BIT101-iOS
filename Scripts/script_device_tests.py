@@ -69,17 +69,21 @@ def simulator_identity_boundary_findings() -> list[str]:
     path = Path('/fixture/simulator-device.json')
     runtime = {'identifier': 'com.apple.CoreSimulator.SimRuntime.iOS-27-0', 'version': '27.0', 'isAvailable': True,
         'supportedDeviceTypes': [{'name': 'iPhone Duo', 'identifier': 'adaptive-type'},
-            {'name': 'iPhone 16', 'identifier': 'older-type'}, {'name': 'iPhone 17', 'identifier': 'phone-type'}]}
+            {'name': 'iPhone 16', 'identifier': 'older-type'}, {'name': 'iPhone 17 Pro Max', 'identifier': 'larger-type'},
+            {'name': 'iPhone 17 Pro', 'identifier': 'phone-type'}]}
     for ci, state in [(False, 'valid'), (False, 'deleted'), (False, 'unavailable'),
                       (False, 'manifest-missing'), (False, 'empty'), (True, 'valid'), (True, 'deleted'),
                       (True, 'unavailable'), (True, 'empty'), (True, 'adaptive')]:
         old = {'udid': 'old', 'name': 'BIT101', 'isAvailable': state in {'valid', 'adaptive'}, 'state': 'Booted',
             'deviceTypeIdentifier': 'adaptive-type' if state == 'adaptive' else 'phone-type'}
-        reusable = {'udid': 'ready', 'name': 'iPhone 17' if ci else 'BIT101', 'isAvailable': True,
+        reusable = {'udid': 'ready', 'name': 'iPhone 17 Pro' if ci else 'BIT101', 'isAvailable': True,
             'state': 'Booted', 'deviceTypeIdentifier': 'phone-type'}
         adaptive = {'udid': 'first', 'name': 'iPhone Duo', 'isAvailable': True, 'state': 'Booted', 'deviceTypeIdentifier': 'adaptive-type'}
         devices = ([adaptive] if ci else []) + ([] if state == 'empty' else [reusable] + ([old] if state in {'valid', 'unavailable', 'adaptive'} else []))
-        data = {'runtimes': [runtime], 'devices': {runtime['identifier']: devices}}
+        adaptive_runtime = dict(runtime, identifier='com.apple.CoreSimulator.SimRuntime.iOS-27-1', version='27.1',
+            supportedDeviceTypes=[{'name': 'iPhone Duo', 'identifier': 'adaptive-type'}])
+        data = {'runtimes': [runtime] + ([adaptive_runtime] if ci else []),
+            'devices': {runtime['identifier']: devices, adaptive_runtime['identifier']: [adaptive]}}
         saved, commands = [], []
         def output(command, **kwargs):
             if command[:4] == ['xcrun', 'simctl', 'list', '--json']: return json.dumps(data)
