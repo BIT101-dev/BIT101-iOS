@@ -94,8 +94,6 @@ public struct CommunityPosterCard: View {
                     .lineLimit(poster.images.count <= 2 ? 4 : 3)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .contentShape(Rectangle())
-            .onTapGesture(perform: onOpenPoster)
             .accessibilityIdentifier("community.poster.\(poster.id)")
 
             if !poster.images.isEmpty {
@@ -137,6 +135,10 @@ public struct CommunityPosterCard: View {
             .foregroundStyle(AppDesignSystem.Foreground.secondary)
         }
         .appFeedCardStyle()
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onOpenPoster)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("community.poster.card.\(poster.id)")
         .accessibilityAddTraits(.isButton)
     }
 

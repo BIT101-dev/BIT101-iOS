@@ -339,8 +339,9 @@ def script_command_boundary_findings() -> list[str]:
     assert any('ONLY_ACTIVE_ARCH=YES' in finding for finding in test_build_argument_findings(shlex.join(metadata_arguments), testing_device=True))
 
     findings = result_retention_boundary_findings() + audit_cancellation_findings() + build_cache_exit_self_test()
-    from script_output_tests import log_output_boundary_findings
+    from script_output_tests import log_output_boundary_findings, combined_audit_order_findings
     findings += log_output_boundary_findings()
+    findings += combined_audit_order_findings()
     from test_results_tests import test_result_boundary_findings
     findings += test_result_boundary_findings()
     isolated_digest = '''from pathlib import Path
@@ -405,9 +406,11 @@ python3() {{ print -r -- "RECORD $*"; return {recording}; }}
     support = SCRIPT_ROOT / "script-support.sh"
     icloud_source = (SCRIPT_ROOT / 'run_icloud_cross_device_smoke.sh').read_text()
     recovery = 'finish_smoke() {' + icloud_source.split('finish_smoke() {', 1)[1].split('\ntrap finish_smoke', 1)[0]
-    for original, phone_status, mac_status in ((0, 0, 0), (7, 0, 0), (0, 9, 0), (0, 0, 9), (7, 9, 9)):
+    for original, phone_status, mac_status, attempted in ((0, 0, 0, False), (7, 0, 0, False),
+            (0, 9, 0, False), (0, 0, 9, False), (7, 9, 9, False), (7, 9, 9, True)):
         stub = f'''ROOT_DIR=/fixture SUMMARY_PATH=/fixture/report CLEANUP_ONLY=false validation_group=icloud PHONE_AVAILABLE=true
 PHONE_TEST_PID= PHONE_TESTS_STARTED=true PHONE_CLEANED_UP=false MAC_TESTS_STARTED=true MAC_CLEANED_UP=false
+PHONE_CLEANUP_ATTEMPTED={str(attempted).lower()} MAC_CLEANUP_ATTEMPTED={str(attempted).lower()}
 run_phone_test() {{ print PHONE; return {phone_status}; }}
 run_mac_cleanup() {{ print MAC; return {mac_status}; }}
 python3() {{ :; }}
@@ -416,7 +419,7 @@ report_result() {{ :; }}
         result = subprocess.run(['zsh', '-c', stub + recovery + '\ntrap finish_smoke EXIT\nexit "$1"',
             'icloud-recovery-test', str(original)], capture_output=True, text=True)
         if result.returncode != (original or int(bool(phone_status or mac_status))) \
-                or result.stdout.splitlines().count('PHONE') != 1 or result.stdout.splitlines().count('MAC') != 1:
+                or result.stdout.splitlines().count('PHONE') != int(not attempted) or result.stdout.splitlines().count('MAC') != int(not attempted):
             findings.append('iCloud 恢复自测：双端清理独立执行并保留原始失败状态')
     availability = icloud_source.split('PHONE_AVAILABLE=true\n', 1)[1].split('BIT101_VALIDATION_RUN_ID=', 1)[0]
     cleanup_entry = 'cleanup_status=0\n' + icloud_source.split('cleanup_status=0\n', 1)[1].split(
@@ -428,11 +431,12 @@ report_result() {{ :; }}
 ROOT_DIR=/fixture DERIVED_ROOT=/fixture SUMMARY_PATH=/fixture/report RESULT_BUNDLE=/fixture/result
 CLEANUP_ONLY=true validation_group=icloud PHONE_AVAILABLE=true CLEANUP_DEVICE_ID=phone-a DEVICE_ID=phone-a
 PHONE_TEST_PID= PHONE_TESTS_STARTED=false PHONE_CLEANED_UP=false MAC_TESTS_STARTED=false MAC_CLEANED_UP=false
+PHONE_CLEANUP_ATTEMPTED=false MAC_CLEANUP_ATTEMPTED=false
 common_args=() TEST_CLASS=Fixture
 bit101_require_device() {{ [[ "$1" == phone-a ]] || exit 81; return {phone}; }}
 bit101_run_logged() {{ print BUILD; return {build}; }}
-run_phone_test() {{ print PHONE; return {test}; }}
-run_mac_cleanup() {{ print MAC; return {mac}; }}
+run_phone_test() {{ PHONE_CLEANUP_ATTEMPTED=true; print PHONE; return {test}; }}
+run_mac_cleanup() {{ MAC_CLEANUP_ATTEMPTED=true; print MAC; return {mac}; }}
 python3() {{ :; }}
 report_result() {{ :; }}
 '''
@@ -440,7 +444,8 @@ report_result() {{ :; }}
             '\ntrap finish_smoke EXIT ZERR\n' + cleanup_entry],
             capture_output=True, text=True)
         rows = result.stdout.splitlines()
-        if result.returncode != expected or 'MAC' not in rows \
+        if result.returncode != expected or rows.count('MAC') != 1 \
+                or rows.count('PHONE') != int(not phone and not build) \
                 or 'RESTORE' in rows or phone and any(marker in rows for marker in ('BUILD', 'PHONE')) \
                 or not phone and ('BUILD' not in rows or rows.index('MAC') > rows.index('BUILD')) \
                 or not phone and not build and 'PHONE' not in rows:
@@ -449,7 +454,8 @@ report_result() {{ :; }}
     passed = dict(exitCode=0, totalTestCount=1, passedTests=1, failedTests=0, skippedTests=0)
     prior_stages = [dict(passed, stage=stage) for stage in ('testPhoneRoundTrip', 'testMacReceiveAndRestore')]
     for overrides, expected in (({}, ''), ({'macCleanup': dict(passed, exitCode=1)}, 'cleanup'),
-            ({'cleanup': dict(passed, exitCode=1)}, 'cleanup'), ({'stages': prior_stages[:1]}, 'cleanup')):
+            ({'cleanup': dict(passed, exitCode=1)}, 'cleanup'), ({'stages': prior_stages[:1]}, 'cleanup'),
+            ({'stages': [], 'testsStarted': False}, ''), ({'stages': [], 'testsStarted': True}, 'cleanup')):
         output = StringIO()
         with patch.object(sys, 'argv', ['pending-cleanup', '/fixture']), \
                 patch.object(Path, 'read_text', return_value=json.dumps(dict({'stages': prior_stages}, **overrides))), redirect_stdout(output):

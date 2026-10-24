@@ -147,7 +147,6 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
         }
     }
     @MainActor private var phoneSchedule: ScheduleSmokeStore?
-    @MainActor private var propagationDeadline: Date?
 
     @MainActor
     private final class ScheduleSmokeStore {
@@ -214,7 +213,7 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
             headers: ["课程名称", "成绩", "课程性质", "学分", "学期"],
             values: ["功能验收", "95", "选修", "1", "验收学期"])],
             updatedAt: timestamp, detailedUpdatedAt: timestamp)
-        try await restoreLocalAndCloudState()
+        try await restoreLocalAndCloudState(deleteCloudRecord: false)
         let schedule = try await ScheduleSmokeStore(session: smokeSession)
         try await schedule.replaceCache(scheduleFixture(stage: "phone"), source: .cloudBaseline)
         await schedule.manager.pushLatestLocalCacheIfNeeded()
@@ -486,7 +485,7 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
     /// 清理独立验收账号的云端载荷、协调标记与本机偏好。
     @MainActor
     func testCleanup() async throws {
-        try await restoreLocalAndCloudState()
+        try await restoreLocalAndCloudState(deleteCloudRecord: false)
     }
 
     @MainActor
@@ -504,7 +503,7 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
     }
 
     @MainActor
-    private func restoreLocalAndCloudState() async throws {
+    private func restoreLocalAndCloudState(deleteCloudRecord: Bool = true) async throws {
         let account = try smokeSession.accountDirectoryName
         for domain in ExperimentalPreferenceSyncDomain.allCases {
             cloud.removeObject(forKey: "preference-sync.v2.\(account).\(domain.rawValue)")
@@ -512,6 +511,7 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
         try removeCoordination(account: account)
         clearLocalSmokePreferences()
         try clearLocalSmokeFiles()
+        guard deleteCloudRecord else { return }
         let name = try ScheduleCloudAccount(studentID: smokeSession.accountIdentifier, session: smokeSession, generation: 1).recordName
         do {
             _ = try await CKContainer.default().privateCloudDatabase.deleteRecord(withID: CKRecord.ID(recordName: name))
@@ -564,11 +564,10 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
 
     @MainActor
     private func waitUntil(condition: @escaping @MainActor () async -> Bool) async -> Bool {
-        if propagationDeadline == nil {
-            propagationDeadline = Date().addingTimeInterval(300)
-            guard cloud.synchronize() else { XCTFail("iCloud KVS 同步请求失败"); return false }
-        }
-        let deadline = propagationDeadline ?? Date()
+        let started = Date()
+        defer { print("ICLOUD_SMOKE_WAIT elapsed=\(Date().timeIntervalSince(started))") }
+        guard cloud.synchronize() else { XCTFail("iCloud KVS 同步请求失败"); return false }
+        let deadline = started.addingTimeInterval(300)
         let (events, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
         let observer = NotificationCenter.default.addObserver(
             forName: NSUbiquitousKeyValueStore.didChangeExternallyNotification, object: cloud, queue: .main

@@ -376,8 +376,10 @@ def asynchronous_test_wait_findings(path: Path, source: str, facts: dict) -> lis
             line = source.encode()[:function['start']].count(b'\n') + 1
             findings.append(f'{name}:{line}: 异步事件观察沿共享 waitForTestEvent 核对取消与期限')
     asynchronous = {row['start'] for row in facts.get('functionRanges', []) if row.get('isAsync')}
+    masked = mask_literals_and_comments(source)
+    source_bytes = source.encode()
     suite_limits = [call['scope'] for call in facts.get('invocations', []) if call['calledExpression'] == '.timeLimit'
-        and re.search(r'@(?:Testing\.)?Suite\s*\([^{}]*$', mask_literals_and_comments(source.encode()[:call['start']].decode()))]
+        and re.search(r'@(?:Testing\.)?Suite\s*\([^{}]*$', masked[:len(source_bytes[:call['start']].decode())])]
     for function in facts.get('functions', []):
         if function['start'] not in tests or function['start'] not in asynchronous: continue
         attributes = re.split(r'\bfunc\b', mask_literals_and_comments(function['value']), maxsplit=1)[0]

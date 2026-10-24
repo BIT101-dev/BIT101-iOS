@@ -256,7 +256,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         let response = field.insertText(text)
         if response == "native" {
             field.press(forDuration: 0.01)
-            assertUI(app.keyboards.firstMatch.appears(timeout: 5), "输入控件应完成系统键盘焦点切换。")
+            assertUI(app.buttons["keyboard.dismiss"].appears(timeout: 5), "输入控件应完成键盘附件安装。")
             guard let current = try? field.snapshot() else {
                 assertUI(false, "输入字段应提供当前布局。")
                 return
@@ -276,7 +276,8 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     func fillVerificationCode(_ text: String, in field: UIElement) {
         assertUI(field.appears(timeout: 5), "验证码输入应等待字段出现。")
         field.press(forDuration: 0.01)
-        assertUI(app.keyboards.firstMatch.appears(timeout: 5), "完整验证码输入应等待系统键盘就绪。")
+        assertUI(app.buttons["keyboard.dismiss"].appears(timeout: 5)
+            && UITestControlClient.request(["command": "keyboard-state"]) == "active", "验证码输入应取得键盘焦点。")
         enterText(text, in: field)
     }
 
@@ -338,7 +339,8 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             assertUI(waitUntil(NSPredicate(format: "hittable == true"), on: done, timeout: 5),
                      "键盘完成按钮应进入可触达状态。")
             done.tap()
-            assertUI(app.keyboards.firstMatch.disappears(timeout: 5), "原生完成按钮应关闭系统键盘。")
+            assertUI(waitUntil(NSPredicate { _, _ in UITestControlClient.request(["command": "keyboard-state"]) == "hidden" },
+                on: app, timeout: 5), "原生完成按钮应关闭当前键盘。")
             return
         }
         let started = ProcessInfo.processInfo.systemUptime
@@ -666,7 +668,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     }
 
     @MainActor
-    func assertInteractiveLabelIsColored(_ title: String) {
+    func assertInteractiveLabelUsesPrimaryColor(_ title: String) {
         let label = app.staticTexts[title]
         assertUI(label.appears(timeout: 5), "交互行应展示左侧标题：\(title)")
         guard let screenshot = app.screenshot().image.cgImage else {
@@ -698,7 +700,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
                 return max(channels[0], max(channels[1], channels[2])) - min(channels[0], min(channels[1], channels[2])) > 50
             }.count
         }
-        assertUI(colored >= 10, "\(title)的左侧字形应包含页面主题色或警示色，当前彩色像素：\(colored)。")
+        assertUI(colored < 10, "\(title)的左侧字形应使用系统主文字色，当前彩色像素：\(colored)。")
     }
 
     @MainActor
@@ -731,6 +733,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         nativeInteraction: Bool = true,
         school: Bool = false,
         media: Bool = false,
+        portraitMedia: Bool = false,
         longTags: Bool = false,
         longText: Bool = false,
         mediaRecovery: Bool = false,
@@ -822,6 +825,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         application.launchEnvironment["BIT101_UI_TEST_ANIMATIONS"] = animations ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_SCHOOL"] = school ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_MEDIA"] = media ? "1" : "0"
+        application.launchEnvironment["BIT101_UI_TEST_PORTRAIT_MEDIA"] = portraitMedia ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_LONG_TAGS"] = longTags ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_LONG_TEXT"] = longText ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_MEDIA_RECOVERY"] = mediaRecovery ? "1" : "0"

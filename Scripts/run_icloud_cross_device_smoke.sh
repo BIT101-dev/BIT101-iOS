@@ -82,7 +82,7 @@ mac = next((row for row in report.get("stages", []) if row.get("stage") == "test
 def successful(row):
     return row.get("exitCode") == 0 and row.get("totalTestCount") == row.get("passedTests") == 1 \
         and row.get("failedTests", 0) == row.get("skippedTests", 0) == 0
-cleared = successful(report.get("cleanup", phone)) and successful(report.get("macCleanup", mac))
+cleared = report.get("testsStarted") is False or successful(report.get("cleanup", phone)) and successful(report.get("macCleanup", mac))
 print("" if cleared else "cleanup")
 PY
 )"
@@ -156,7 +156,7 @@ with report_lock(path=path):
         report.pop('cleanupFinishedAt', None)
     else:
         report = {"runID": sys.argv[2], "phoneDeviceIdentifier": sys.argv[3],
-            "startedAt": datetime.now(timezone.utc).isoformat(), "stages": []}
+            "startedAt": datetime.now(timezone.utc).isoformat(), "stages": [], "testsStarted": False}
     write_report(report, path=path)
 PY
 
@@ -172,23 +172,26 @@ source "$ROOT_DIR/Scripts/icloud-smoke-support.sh"
 
 PHONE_TESTS_STARTED=false
 PHONE_CLEANED_UP=false
+PHONE_CLEANUP_ATTEMPTED=false
 PHONE_TEST_PID=""
 MAC_TESTS_STARTED=false
 MAC_CLEANED_UP=false
+MAC_CLEANUP_ATTEMPTED=false
 finish_smoke() {
   local smoke_status=$?
-  trap - EXIT ZERR INT TERM
+  trap - EXIT ZERR
+  trap '' INT TERM
   if [[ -n "$PHONE_TEST_PID" ]]; then
     kill -TERM "$PHONE_TEST_PID" 2>/dev/null || true
     wait "$PHONE_TEST_PID" 2>/dev/null || true
   fi
-  if $PHONE_TESTS_STARTED && ! $PHONE_CLEANED_UP; then
+  if $PHONE_TESTS_STARTED && ! $PHONE_CLEANED_UP && ! $PHONE_CLEANUP_ATTEMPTED; then
     echo "[恢复] 实验开关与 Smoke 协调数据"
     if ! run_phone_test testCleanup; then
       if (( smoke_status == 0 )); then smoke_status=1; fi
     fi
   fi
-  if $MAC_TESTS_STARTED && ! $MAC_CLEANED_UP; then
+  if $MAC_TESTS_STARTED && ! $MAC_CLEANED_UP && ! $MAC_CLEANUP_ATTEMPTED; then
     echo "[恢复] Mac 本地验收数据与密钥"
     if ! run_mac_cleanup; then
       if (( smoke_status == 0 )); then smoke_status=1; fi
@@ -267,6 +270,17 @@ for host, platform in (("Phone", "iphoneos"), ("Mac", "maccatalyst")):
         raise SystemExit(f"{host} 验收宿主需要 CloudKit Production 签名环境")
 PY
 echo "[同步] 真机与 Mac 宿主并行验证成绩 KVS 与课表 CloudKit"
+PYTHONPATH="$ROOT_DIR/Scripts${PYTHONPATH:+:$PYTHONPATH}" python3 - "$SUMMARY_PATH" <<'PYSTARTED'
+import json
+from pathlib import Path
+import sys
+from validation_evidence import report_lock, write_report
+path = Path(sys.argv[1])
+with report_lock(path=path):
+    report = json.loads(path.read_text())
+    report['testsStarted'] = True
+    write_report(report, path=path)
+PYSTARTED
 PHONE_TESTS_STARTED=true
 (
   trap - EXIT ZERR INT TERM

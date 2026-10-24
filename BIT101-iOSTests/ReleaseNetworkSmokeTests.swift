@@ -890,6 +890,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
         func submitScoreSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { throw ScoreServiceError.invalidResponse }
         func fetchTrustedTranscriptPages(onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
             if stage == "sampleGap" { throw NetworkSmokePaging.SamplingError.insufficientSample("维护样本需要补齐") }
+            if stage == "nativeBlocked" { throw ScheduleServiceError.schoolSecondFactorRequired }
             if stage == "invalid" { return .init([]) }
             throw ScoreServiceError.secondFactorRequired(BITLoginAuthenticationChallenge(challengeID: "fixture", accessToken: "fixture",
                 status: "sms_required", maskedPhone: "***", expiresIn: 60))
@@ -902,7 +903,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
         func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge, onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages { .init([image]) }
     }
 
-    @Test("Transcript orchestration records authentication, cancellation and SMS continuation", .timeLimit(.minutes(1)), arguments: ["blocked", "invalid", "cancelled", "smsSuccess", "smsFailure", "sampleGap"])
+    @Test("Transcript orchestration records authentication, cancellation and SMS continuation", .timeLimit(.minutes(1)), arguments: ["blocked", "nativeBlocked", "invalid", "cancelled", "smsSuccess", "smsFailure", "sampleGap"])
     func transcriptOrchestration(stage: String) async throws {
         let image = try #require(UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1)).image { $0.fill(CGRect(x: 0, y: 0, width: 1, height: 1)) }.pngData())
         let scores = Scores(stage: stage, image: image)
@@ -917,9 +918,9 @@ struct ReleaseNetworkSmokeLifecycleTests {
             schoolSMSCodeHandler: ["cancelled", "smsSuccess", "smsFailure"].contains(stage) ? handler : nil)
         #expect(report.executedProbes == NetworkSmokeScope.transcript.requiredProbes)
         #expect(report.passed == ["smsSuccess", "sampleGap"].contains(stage))
-        #expect(report.coverageComplete == (["blocked", "invalid", "smsSuccess"].contains(stage)))
+        #expect(report.coverageComplete == (["blocked", "nativeBlocked", "invalid", "smsSuccess"].contains(stage)))
         #expect(report.verifiedSMSProbes.map(\.purpose) == (stage == "smsSuccess" ? ["jwb_cjd"] : []))
-        #expect(report.authenticationBlockers.count == (stage == "blocked" ? 1 : 0))
+        #expect(report.authenticationBlockers.count == (["blocked", "nativeBlocked"].contains(stage) ? 1 : 0))
         #expect(scores.submissions == (["smsSuccess", "smsFailure"].contains(stage) ? 1 : 0))
         #expect(stored?.passed == report.passed)
         if stage == "sampleGap" { #expect(report.failures.isEmpty && report.coverageGaps.contains { $0.hasPrefix("score.transcript（") }) }

@@ -95,6 +95,7 @@ PY
 
 run_phone_test() {
   local method="$1"
+  if [[ "$method" == testCleanup ]]; then PHONE_CLEANUP_ATTEMPTED=true; fi
   local log="$DERIVED_ROOT/$method.log"
   local result_args=()
   local test_status=0
@@ -112,6 +113,7 @@ run_phone_test() {
 }
 
 run_mac_cleanup() {
+  MAC_CLEANUP_ATTEMPTED=true
   local log="$DERIVED_ROOT/mac-cleanup.log"
   local test_status=0
   python3 - "$DERIVED_ROOT/Mac/Logs/Test" <<'PYCLEANLOGS'

@@ -1,6 +1,7 @@
 import ClientCore
 import Foundation
 import ScheduleInfrastructure
+import SchedulePorts
 import TransportCore
 import UIKit
 
@@ -12,6 +13,9 @@ struct SchoolIdentityVerification {
 /// 学校功能共用本机 Cookie 容器、CAS 凭据和短信续接。
 enum AppNativeSchoolAuthentication {
     static let shared = make()
+#if RELEASE_NETWORK_SMOKE
+    static var smokeSMSCodeHandler: SchoolSMSCodeHandler?
+#endif
 
     static func make(state: TeachingCenterSessionState = AppSchoolSession.teachingCenter,
         productionPolicy: Bool = false) -> NativeSchoolAuthenticator {
@@ -69,9 +73,12 @@ enum AppNativeSchoolAuthentication {
             schoolSessionRestorer: restorer, teachingCenterState: state,
             transport: smsTransport, observer: HTTPClient.appObserver)
         let secondFactor: (SchoolSecondFactorContext) async throws -> Void = { context in
-            try await smsService.completeSchoolAuthentication(context, acceptingServiceTicket: acceptingServiceTicket) {
-                try await SchoolSMSPrompt.shared.requestCode($0)
-            }
+#if RELEASE_NETWORK_SMOKE
+            guard let handler = Self.smokeSMSCodeHandler else { throw ScheduleServiceError.schoolSecondFactorRequired }
+#else
+            let handler: SchoolSMSCodeHandler = { try await SchoolSMSPrompt.shared.requestCode($0) }
+#endif
+            try await smsService.completeSchoolAuthentication(context, acceptingServiceTicket: acceptingServiceTicket, handler: handler)
         }
         return NativeSchoolAuthenticator(credentials: credentials, restorer: restorer,
             client: client, cookies: { state.cookieStorage }, secondFactor: secondFactor,

@@ -87,7 +87,7 @@ def _run_swift_syntax_index(request: dict, *, regex_only: bool = False, resolve_
             sdk = subprocess.check_output(["xcrun", "--sdk", "macosx", "--show-sdk-path"], text=True).strip()
             environment = dict(os.environ, CLANG_MODULE_CACHE_PATH=str(module_cache))
             with (compiler_cache / "cache.lock").open("a") as compilation_lock:
-                fcntl.flock(compilation_lock, fcntl.LOCK_EX)
+                fcntl.flock(compilation_lock, fcntl.LOCK_SH)
                 compilation = subprocess.run([
                     str(compiler), "-target", f"{os.uname().machine}-apple-macosx14.0", "-sdk", sdk,
                     "-j", str(os.cpu_count() or 1),

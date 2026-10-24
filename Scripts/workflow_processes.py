@@ -39,6 +39,17 @@ def signal_groups(groups: set[int], signum: int) -> None:
         except ProcessLookupError: pass
 
 
+def descendant_groups(root: int) -> set[int]:
+    snapshot = subprocess.check_output(['ps', '-axo', 'pid=,ppid=,pgid='], text=True)
+    rows = [tuple(map(int, line.split())) for line in snapshot.splitlines() if line.strip()]
+    descendants = {root}
+    while True:
+        expanded = descendants | {pid for pid, parent, _ in rows if parent in descendants}
+        if expanded == descendants: break
+        descendants = expanded
+    return {group for pid, _, group in rows if pid in descendants}
+
+
 def stop_groups(groups: set[int], *, grace_seconds: float = 5, workers_only: bool = False,
                 signum: int = signal.SIGTERM) -> None:
     if not active_members(groups, workers_only=workers_only): return
@@ -82,7 +93,9 @@ def supervise(command: list[str], environment: dict, *, owns_process_group: bool
             if interrupted is not None or expired:
                 if expired: print('[超时] 工作流已达到执行预算，正在恢复与结束。', flush=True)
                 group = process.pid if owns_process_group else os.getpgrp()
-                stop_groups({group}, grace_seconds=grace_seconds, workers_only=not owns_process_group,
+                children = descendant_groups(process.pid) - {group}
+                signal_groups(children, signal.SIGTERM)
+                stop_groups({group} | children, grace_seconds=grace_seconds, workers_only=not owns_process_group,
                     signum=interrupted or signal.SIGTERM)
                 process.wait()
                 finished = True
@@ -99,7 +112,10 @@ def supervise(command: list[str], environment: dict, *, owns_process_group: bool
             return status
     finally:
         if process is not None and not finished:
-            stop_groups({process.pid if owns_process_group else os.getpgrp()}, grace_seconds=grace_seconds,
+            group = process.pid if owns_process_group else os.getpgrp()
+            children = descendant_groups(process.pid) - {group}
+            signal_groups(children, signal.SIGTERM)
+            stop_groups({group} | children, grace_seconds=grace_seconds,
                 workers_only=not owns_process_group, signum=interrupted or signal.SIGTERM)
             process.wait()
         for signum, handler in previous.items(): signal.signal(signum, handler)

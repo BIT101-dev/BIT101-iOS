@@ -200,7 +200,7 @@ def compilation_condition(condition: str, group: str, *, language_mode: str | No
         module_cache.mkdir(parents=True, exist_ok=True)
         source = f'#if {condition}\n#error("BIT101_CONDITION_TRUE")\n#else\n#error("BIT101_CONDITION_FALSE")\n#endif\n'
         with (module_cache.parent / "cache.lock").open("a") as compiler_lock:
-            fcntl.flock(compiler_lock, fcntl.LOCK_EX)
+            fcntl.flock(compiler_lock, fcntl.LOCK_SH)
             result = subprocess.run([compiler, "-typecheck", "-swift-version", language_mode, "-target", target, "-sdk", sdk,
                 "-module-cache-path", str(module_cache), *frameworks, *[flag for value in sorted(enabled) for flag in ("-D", value)], "-"],
                 input=source, capture_output=True, text=True)

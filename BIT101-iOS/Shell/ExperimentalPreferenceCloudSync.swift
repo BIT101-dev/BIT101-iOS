@@ -166,8 +166,8 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
         stores.communityMessages.localSaves.sink { [weak self] in self?.localValueDidChange(in: .galleryMessageRead, for: $0) }.store(in: &saveSubscriptions)
 
         let accountChanges = notificationCenter.publisher(for: NSUbiquitousKeyValueStore.didChangeExternallyNotification)
-            .filter { notification in
-                (notification.object as AnyObject?) === cloudStore
+            .filter { @Sendable [cloudIdentity = ObjectIdentifier(cloudStore)] notification in
+                notification.object.map { ObjectIdentifier($0 as AnyObject) } == cloudIdentity
                     && (notification.userInfo?[NSUbiquitousKeyValueStoreChangeReasonKey] as? NSNumber)?.intValue == NSUbiquitousKeyValueStoreAccountChange
             }
         accountChanges.merge(with: notificationCenter.publisher(for: .CKAccountChanged))

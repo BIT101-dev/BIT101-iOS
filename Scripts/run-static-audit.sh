@@ -68,7 +68,8 @@ BIT101_VALIDATION_STARTED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 export BIT101_VALIDATION_STARTED_AT
 finish_audit() {
   local audit_status=$?
-  trap - EXIT INT TERM
+  trap - EXIT
+  trap '' INT TERM
   python3 "$ROOT_DIR/Scripts/workflow_processes.py" terminate-groups "${group_processes[@]}"
   for pid in "${group_processes[@]}"; do if (( pid > 0 )); then wait "$pid" 2>/dev/null || true; fi; done
   local record_status=0

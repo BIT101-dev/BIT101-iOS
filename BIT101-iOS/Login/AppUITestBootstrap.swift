@@ -238,9 +238,10 @@ extension AppUITestBootstrap {
     }
 
     static var mediaData: Data {
-        UIGraphicsImageRenderer(size: CGSize(width: 80, height: 80)).pngData { context in
+        let size = CGSize(width: 80, height: environment["BIT101_UI_TEST_PORTRAIT_MEDIA"] == "1" ? 160 : 80)
+        return UIGraphicsImageRenderer(size: size).pngData { context in
             UIColor.systemBlue.setFill()
-            context.fill(CGRect(x: 0, y: 0, width: 80, height: 80))
+            context.fill(CGRect(origin: .zero, size: size))
         }
     }
 }
@@ -663,7 +664,9 @@ extension UITestHTTPTransport {
             "low_url": "https://bit101.flwfdd.xyz/ui-images/preview-missing.png"]]
     }
     private var mediaImage: [String: Any] {
-        ["mid": "ui-image", "url": "https://bit101.flwfdd.xyz/ui-images/image.png", "low_url": "https://bit101.flwfdd.xyz/ui-images/image.png"]
+        let name = AppUITestBootstrap.environment["BIT101_UI_TEST_PORTRAIT_MEDIA"] == "1" ? "portrait" : "image"
+        let url = "https://bit101.flwfdd.xyz/ui-images/\(name).png"
+        return ["mid": "ui-image", "url": url, "low_url": url]
     }
 }
 

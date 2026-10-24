@@ -353,7 +353,7 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
     func testLinearScheduleTimelineScrollAndPinch() {
         app = configureApp(resetStorage: true)
         openSettings("calendar")
-        assertInteractiveLabelIsColored("时间轴")
+        assertInteractiveLabelUsesPrimaryColor("时间轴")
         choose("时间轴", option: "线性")
         back()
         app.tabBars.buttons["日程"].tapBriefly()

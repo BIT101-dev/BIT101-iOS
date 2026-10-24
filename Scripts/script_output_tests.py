@@ -173,3 +173,34 @@ bit101_verify_step all child
         assert bool(result.returncode) == bool(audit_status), result.stderr
         assert ('NEXT_PHASE' in result.stdout) == (audit_status == 0)
     return findings
+
+
+def combined_audit_order_findings() -> list[str]:
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('combined_audit_entry', SCRIPT_ROOT / 'check-code-quality.py')
+    entry = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(entry)
+    findings = []
+    for ui_status, quality_status, boundary in ((1, 0, []), (0, 1, []), (0, 0, []), (0, 0, ['boundary failure'])):
+        calls = []
+        def record(name, result):
+            calls.append(name)
+            return result
+        ui = SimpleNamespace(main=lambda _: record('ui', ui_status),
+            **{name: lambda: record('self-ui', []) for name in ('ast_marker_boundary_findings', 'source_boundary_findings',
+                'map_theme_color_contract_findings', 'interaction_inventory_boundary_findings')})
+        ui_spec = SimpleNamespace(name='combined_audit_ui_fixture', loader=SimpleNamespace(exec_module=lambda _: None))
+        with patch.object(entry, 'swift_files', return_value=[]), patch.object(entry, 'swift_syntax_index', return_value={}), \
+                patch.object(entry, 'main', side_effect=lambda _: record('quality', quality_status)), \
+                patch.object(entry, 'explanatory_text_report', side_effect=lambda: record('report', None)), \
+                patch.object(entry.importlib.util, 'spec_from_file_location', return_value=ui_spec), \
+                patch.object(entry.importlib.util, 'module_from_spec', return_value=ui), \
+                patch.dict(sys.modules, {'code_quality_tests': SimpleNamespace(
+                    checker_boundary_findings=lambda: record('self-quality', boundary))}), \
+                patch.object(sys, 'argv', ['audit', '--combined', '--self-test']), redirect_stdout(StringIO()):
+            result = entry.combined_main()
+        expected_self_tests = ui_status == quality_status == 0
+        if result != int(bool(ui_status or quality_status or boundary)) or calls[:3] != ['ui', 'quality', 'report'] \
+                or ('self-quality' in calls) != expected_self_tests or calls.count('self-ui') != (4 if expected_self_tests else 0):
+            findings.append('组合审计应先报告源码结果，源码通过后完整运行检查器自测并传播失败。')
+    return findings

@@ -174,8 +174,12 @@ nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
     @objc func testCommunityPaginationRetriesFromTheVisibleTail() {
         for (tab, section, title, search) in [("home", "课程", "分页课程", false), ("gallery", "文章", "分页文章", false),
             ("gallery", "最新", "分页话题", false), ("gallery", "文章", "分页文章", true)] {
-            app = configureApp(resetStorage: true, content: true, pagination: true,
-                paginationFailureOnce: !search, initialTab: tab)
+            app = configureApp(resetStorage: true, content: true, pagination: true, initialTab: "mine")
+            if !search {
+                let path = tab == "home" ? "courses" : section == "文章" ? "papers" : "posters"
+                _ = UITestControlClient.request(["command": "fail-request", "key": path, "query.page": "1"])
+            }
+            app.tabBars.buttons[tab == "home" ? "成绩" : "话廊"].tapBriefly()
             tapHeader(app.segmentedControls.buttons[section])
             if search {
                 tap("搜索文章")

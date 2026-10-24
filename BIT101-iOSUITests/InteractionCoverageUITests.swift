@@ -312,6 +312,8 @@ nonisolated final class CalendarInteractionUITests: UIAutomationTestCase {
         replaceText("取消的日程修改", in: app.textFields["schedule.custom.title"])
         dismissKeyboard()
         tap("取消")
+        app.alerts["放弃当前输入？"].buttons["放弃输入"].tapBriefly()
+        assertUI(app.navigationBars["修改自定义日程"].disappears(timeout: 5), "放弃修改应关闭编辑器。")
         assertUI(!textElement("取消的日程修改").exists, "取消编辑应保留已保存日程。")
         assertUI(textElement("详细测试日程").exists, "取消应恢复原日程标题。")
         tap("自定义日程，详细测试日程")

@@ -2,6 +2,24 @@ import XCTest
 
 nonisolated final class CommunityEditingRecoveryUITests: UIAutomationTestCase {
     @MainActor
+    @objc func testPosterImageWhitespaceOpensDetailsAndImageKeepsPreview() {
+        app = configureApp(resetStorage: true, content: true, media: true, portraitMedia: true, initialTab: "gallery")
+        let image = app.buttons["查看第1张图片"]
+        assertUI(image.appears(timeout: 5), "话题卡片应展示图片。")
+        let imageFrame = image.frame
+        let rightEdge = app.frame.maxX - 16
+        assertUI(imageFrame.maxX < rightEdge - 10, "单图右侧应保留可点击空白。")
+        app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: rightEdge, dy: imageFrame.midY)).tapBriefly()
+        assertUI(app.navigationBars["帖子详情"].appears(timeout: 5), "图片右侧空白应打开帖子详情。")
+        back()
+        image.tapBriefly()
+        assertUI(waitForImagePreview(visible: true, timeout: 15), "图片点击应打开原生图片预览。")
+        closeImagePreview()
+        assertUI(!app.navigationBars["帖子详情"].exists, "看图结束应返回原话题列表。")
+    }
+
+    @MainActor
     @objc func testPosterCommentsRetryInPlaceAfterInitialFailure() {
         app = configureApp(resetStorage: true, content: true, initialTab: "gallery")
         assertUI(textElement("自动化测试话题").appears(timeout: 5), "话廊应先展示话题入口。")

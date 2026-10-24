@@ -107,7 +107,12 @@ def combined_main() -> int:
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     indexed = time.monotonic()
-    test_rules = "--self-test" in sys.argv
+    ui_status = module.main(syntax_index)
+    ui_checked = time.monotonic()
+    quality_status = main(syntax_index)
+    explanatory_text_report()
+    quality_checked = time.monotonic()
+    test_rules = "--self-test" in sys.argv and ui_status == quality_status == 0
     quality_boundaries = self_test_findings(checker_boundary_findings) if test_rules else []
     ui_boundaries = [finding for checker in (
         module.ast_marker_boundary_findings, module.source_boundary_findings,
@@ -115,15 +120,10 @@ def combined_main() -> int:
     ) for finding in self_test_findings(checker)] if test_rules else []
     if quality_boundaries or ui_boundaries:
         print('\n'.join(quality_boundaries + ui_boundaries))
-        return 1
     tested = time.monotonic()
-    ui_status = module.main(syntax_index, ui_boundaries)
-    ui_checked = time.monotonic()
-    quality_status = main(syntax_index, quality_boundaries)
-    explanatory_text_report()
-    print(f'审计耗时：索引 {indexed - started:.1f} 秒 · 规则自测 {tested - indexed:.1f} 秒 · '
-        f'UI {ui_checked - tested:.1f} 秒 · 代码 {time.monotonic() - ui_checked:.1f} 秒')
-    return int(ui_status != 0 or quality_status != 0)
+    print(f'审计耗时：索引 {indexed - started:.1f} 秒 · UI {ui_checked - indexed:.1f} 秒 · '
+        f'代码 {quality_checked - ui_checked:.1f} 秒 · 规则自测 {tested - quality_checked:.1f} 秒')
+    return int(ui_status != 0 or quality_status != 0 or bool(quality_boundaries or ui_boundaries))
 
 
 if __name__ == "__main__":

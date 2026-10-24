@@ -125,7 +125,7 @@ python3 Scripts/check-python-syntax.py .
 python3 Scripts/check-docs.py
 ```
 
-本地默认入口执行工作区当前内容的全部静态规则，提交钩子检查暂存区内容。修改检查器或验证协议后，使用 `--self-test` 同时验收规则自身的回归合同；CI 和发布检查自动执行完整自测。解析结果按[静态事实缓存](#静态事实缓存)规则复用。
+本地默认入口执行工作区当前内容的全部静态规则，提交钩子检查暂存区内容。组合审计先报告当前源码的检查结果，源码通过后执行检查器自测。修改检查器或验证协议后，使用 `--self-test` 同时验收规则自身的回归合同；CI 和发布检查自动执行完整自测。解析结果按[静态事实缓存](#静态事实缓存)规则复用。
 
 依赖安全检查可独立执行 `(cd Cloudflare/EmergencyUpdateWorker && npm audit --audit-level=high)`。统一审计将该组结果保存到独立依赖日志。完整静态审计汇总各组状态；离线开发沿对应语法、架构与文档入口执行定向检查，完整验收获取当前依赖安全结果。
 
@@ -171,6 +171,8 @@ Scripts/run-extended-tests.sh cache
 
 ### 网络读取与学校认证
 
+自动网络采样遇到学校 CAS 短信验证时返回认证阻塞。`--sms` 使用统一的短信续接回调，并在控制台输出等待验证码的用途，方便人工接续。
+
 ```sh
 Scripts/release-network-smoke.sh prepare
 Scripts/release-network-smoke.sh bit101
@@ -203,6 +205,8 @@ Scripts/release-network-smoke.sh community-cleanup
 异常、中断或响应丢失时保留恢复记录，沿 `community-cleanup` 继续确认和清理。各对象独立保存进度，账号变化后按身份边界处理。长期待确认的服务端尝试由维护者提供对应请求已结束的凭据，再通过 `BIT101_COMMUNITY_RECOVERY_CONFIRMATION` 提交恢复确认。恢复字段及验收逻辑见 [社区写入恢复](../BIT101-iOS/Shared/Client/CommunityWriteSmokeJournal.swift)。
 
 ### iCloud 双端
+
+完整往返核对手机与 Mac 的真实云端读写及删除传播。中断后的恢复由 Mac 确认云端记录删除，手机清理本机验收文件、钥匙串和 KVS 状态；每次恢复在各端执行一次，并保留失败结果供后续恢复。
 
 ```sh
 Scripts/run_icloud_cross_device_smoke.sh
@@ -237,7 +241,7 @@ gh run rerun 运行编号 --failed
 
 ## 发布与人工专项
 
-获得对应专项授权后，`Scripts/run-extended-tests.sh verify` 聚合自动组，包含真机、社区线上写入、iCloud 往返和正式归档。入口在执行前显示实际分组；可显式选择分组，例如 `verify audit modules`、`verify all ui`。最终发布同时核对网络、学校短信、社区写入、iCloud、正式归档、设备恢复及人工专项。核心设备与外部采样采用 24 小时有效期。
+获得对应专项授权后，`Scripts/run-extended-tests.sh verify` 聚合自动组，包含真机、社区线上写入、iCloud 往返和正式归档。入口在执行前显示实际分组；可显式选择分组，例如 `verify audit modules`、`verify all ui`。`--self-test` 为审计附加检查器回归，`--sms` 启用学校短信专项，两个选项可以组合。最终发布同时核对网络、学校短信、社区写入、iCloud、正式归档、设备恢复及人工专项。核心设备与外部采样采用 24 小时有效期。
 
 人工专项覆盖最低系统、分发签名、首次登录、安装路径、系统自动填充、照片、日历、定位、通知、外部交接、网页、Widget、Watch、消息、资料写入、举报、iPad 布局和反馈送达。每项保存实际操作、观察结果、通过或失败状态、观察时间和原始附件。`manual-schema` 按场景专项输出字段说明、附件编码、能力观察和动作结构；缺失字段显示完整路径，专项合同失败时标明所属场景。[人工证据合同](../Scripts/validation_manual.py)维护具体校验规则。发布证据核对当前分发二进制、归档与可执行 UUID，整包输入共同约束实际安装产物的验收身份。
 
@@ -277,6 +281,10 @@ python3 Scripts/validation_evidence.py manual 检查项 \
 ### 公共缓存与工作流资源
 
 缓存维护保留增量编译所需文件，共享 SDK、模块、原生 CompilationCache 和索引。CompilationCache 容量采用工具链默认策略，成功构建后执行原生回收；显式缓存维护展示占用统计，并按构建依赖保留所需模块。远端缓存按来源提交与工具链选择，恢复失败后沿当前源码编译。缓存与诊断保持原始形式，CI 产物使用零压缩传输。
+
+构建与静态条件求值共享编译缓存的读锁，缓存目录迁移和回收持有写锁。中断工作流时先归集子进程所属的进程组，完成后台任务清理后释放工作流锁。
+
+App 与扩展沿 Release 编译配置验收，XCTest 和 UI 测试包采用增量编译，定向修复复用其他测试文件的编译产物。
 
 工作流先取得工作副本产物锁，再取得用户级共享资源锁。模块与 Catalyst 测试的固定系统偏好沿共享锁串行验收；聚合流程继承锁、设备及总时钟。网络采样和反馈读取采用通用终端输出预算，长报告显示首尾内容及完整报告路径。
 

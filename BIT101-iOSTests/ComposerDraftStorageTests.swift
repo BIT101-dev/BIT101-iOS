@@ -29,7 +29,7 @@ import XCTest
 @Suite("Composer draft storage")
 struct ComposerDraftStorageTests {
     @MainActor
-    @Test func articleDraftsAndPendingPublicationsSurviveRecreationAndScopedCleanup() async throws {
+    @Test(.timeLimit(.minutes(1))) func articleDraftsAndPendingPublicationsSurviveRecreationAndScopedCleanup() async throws {
         let files = PreferenceMemoryFiles(), owner = AppStorageSession(accountIdentifier: "draft-runtime")
         func store() -> ComposerDraftStore {
             .init(files: files, applicationSupport: URL(fileURLWithPath: "/draft-runtime"),

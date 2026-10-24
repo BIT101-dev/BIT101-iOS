@@ -63,6 +63,7 @@ struct DDLScheduleTabView: View {
                                     else { selectedEvent = event }
                                 }
                             )
+                            .appListRowInsets()
                         }
                     }
                 }

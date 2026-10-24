@@ -17,7 +17,8 @@ struct GalleryRecommendationPrefetchTests {
         let service = DetailSortingService(poster: poster)
         let failure = URLError(.notConnectedToInternet)
         service.detailError = failure
-        service.commentHandler = { _ in throw failure }
+        var commentRefreshFailed = false
+        service.commentHandler = { _ in commentRefreshFailed = true; throw failure }
         let user = CommunityUser.placeholder(id: 7, nickname: "作者")
         service.commentCreation = {
             CommunityComment(id: 2, obj: paper ? "paper1" : "poster1", images: [], user: user,
@@ -31,7 +32,10 @@ struct GalleryRecommendationPrefetchTests {
             ? await article.submitComment(text: "评论", anonymous: false, target: .paper(paperID: 1))
             : await gallery.submitComment(text: "评论", anonymous: false, target: .poster(posterID: 1))
         #expect(submitted && (paper ? article.commentState.items : gallery.commentState.items).map(\.id) == [2])
-        try await waitForTestEvent { (paper ? article.alert?.title : gallery.alert?.title) == "加载评论失败" }
+        try await waitForTestEvent {
+            commentRefreshFailed && (paper ? article.commentState.status : gallery.commentState.status) == .loaded
+        }
+        #expect((paper ? article.alert : gallery.alert) != nil)
         #expect((paper ? article.commentState.items : gallery.commentState.items).map(\.id) == [2])
     }
 

@@ -180,10 +180,12 @@ def run_cache(arguments: list[str]) -> None:
             after = occupied_kib()
             print(f"缓存整理：{before / 1048576:.2f} → {after / 1048576:.2f} GiB；释放 {(before - after) / 1048576:.2f} GiB")
         else:
+            fcntl.flock(lock, fcntl.LOCK_SH)
             result = subprocess.run(["zsh", "-c",
                 'ROOT_DIR="$1"; source "$ROOT_DIR/Scripts/script-support.sh"; shift; bit101_log_command "$@"',
                 "cache-build", str(root), *arguments])
             if result.returncode == 0:
+                fcntl.flock(lock, fcntl.LOCK_EX)
                 try: prune_native_storage(shared)
                 except (OSError, RuntimeError, AttributeError, subprocess.SubprocessError) as error:
                     print(f'缓存回收待重试：{error}', file=sys.stderr)

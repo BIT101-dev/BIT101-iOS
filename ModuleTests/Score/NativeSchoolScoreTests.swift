@@ -25,7 +25,7 @@ struct NativeSchoolScoreTests {
         }
     }
 
-    @Test func transcriptConveniencesPreserveAuthenticationPageNumbersAndServiceIdentity() async throws {
+    @Test(.timeLimit(.minutes(1))) func transcriptConveniencesPreserveAuthenticationPageNumbersAndServiceIdentity() async throws {
         let first = TranscriptPort(), second = TranscriptPort()
         let challenge = BITLoginAuthenticationChallenge(challengeID: "fixture", accessToken: "token",
             status: "ready", maskedPhone: nil, expiresIn: nil)
@@ -37,7 +37,7 @@ struct NativeSchoolScoreTests {
         #expect(first.transcriptServiceIdentity != second.transcriptServiceIdentity)
     }
 
-    @Test func transcriptCapacityRetainsDeliveredPagesAndRejectsInvalidReports() async throws {
+    @Test(.timeLimit(.minutes(1))) func transcriptCapacityRetainsDeliveredPagesAndRejectsInvalidReports() async throws {
         let invalid = TrustedTranscriptReport(pageCount: 0) { _, _ in Data([1]) }
         await #expect(throws: ScoreServiceError.self) { try await invalid.loadPages(maximumBytes: 1) }
         let report = TrustedTranscriptReport(pageCount: 2) { number, _ in Data([UInt8(number)]) }

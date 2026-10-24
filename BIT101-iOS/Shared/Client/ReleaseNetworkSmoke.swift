@@ -102,6 +102,7 @@ final class ReleaseNetworkSmokeRunner {
         if let handler = schoolSMSCodeHandler {
             schoolSMSHandler = { [weak self] request in
                 self?.requestedSMSPurposes.append(request.purpose)
+                print("NETWORK_SMOKE_SMS_REQUIRED purpose=\(request.purpose)")
                 let code = try await handler(request)
                 self?.smsSubmissions += 1
                 self?.submittedSMSPurposes.append(request.purpose)
@@ -110,6 +111,10 @@ final class ReleaseNetworkSmokeRunner {
         } else {
             schoolSMSHandler = nil
         }
+#if RELEASE_NETWORK_SMOKE
+        AppNativeSchoolAuthentication.smokeSMSCodeHandler = schoolSMSHandler
+        defer { AppNativeSchoolAuthentication.smokeSMSCodeHandler = nil }
+#endif
         defer { schoolSMSHandler = nil; schoolSMSSchedule = nil }
         if capture == .communityFixtures { return await NetworkSmokeProductionSession.prepareReport(runID: runID, dependencies: dependencies) }
 

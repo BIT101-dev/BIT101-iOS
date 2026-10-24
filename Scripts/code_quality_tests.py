@@ -476,6 +476,7 @@ bit101_run_logged /log build xcodebuild build-for-testing
 set -euo pipefail
 LOG_DIR=/audit
 ROOT_DIR=/audit
+unset BIT101_AUDIT_BACKGROUND
 AUDIT_STARTED=$SECONDS
 python3() { return 0; }
 bit101_run_audit_group() {
@@ -788,6 +789,7 @@ bit101_invalidate_restore() { :; }
 set -euo pipefail
 PHONE_TESTS_STARTED=true PHONE_CLEANED_UP=false PHONE_TEST_PID=""
 MAC_TESTS_STARTED=false MAC_CLEANED_UP=false CLEANUP_ONLY=false
+PHONE_CLEANUP_ATTEMPTED=false MAC_CLEANUP_ATTEMPTED=false
 SUMMARY_PATH=/smoke/report.json validation_group=icloud ROOT_DIR=/audit
 run_phone_test() {{ print cleanup; return {cleanup_status}; }}
 report_result() {{ print report; }}

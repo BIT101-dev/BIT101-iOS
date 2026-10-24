@@ -358,7 +358,7 @@ def checker_report_boundary_findings() -> list[str]:
         module.source_boundary_findings = lambda: visited.append('source') or []
         module.map_theme_color_contract_findings = lambda: visited.append('theme') or []
         module.interaction_inventory_boundary_findings = lambda: visited.append('interactions') or []
-        module.main = lambda syntax, findings: write_report(1, findings)
+        module.main = lambda syntax: write_report(1, [])
         ui_spec = SimpleNamespace(name=module.__name__, loader=SimpleNamespace(exec_module=lambda loaded: None))
         with patch.dict(sys.modules), patch.object(subject, 'swift_files', return_value=[]), \
                 patch.object(subject, 'swift_syntax_index', return_value={}), \
@@ -366,14 +366,14 @@ def checker_report_boundary_findings() -> list[str]:
                 patch.object(sys, 'argv', ['check-code-quality.py', '--combined', '--self-test']), \
                 patch.object(subject.importlib.util, 'spec_from_file_location', return_value=ui_spec), \
                 patch.object(subject.importlib.util, 'module_from_spec', return_value=module), \
-                patch.object(subject, 'main', side_effect=lambda syntax, findings: write_report(0, findings)), \
+                patch.object(subject, 'main', side_effect=lambda syntax: write_report(0, [])), \
                 patch.object(subject, 'explanatory_text_report', side_effect=lambda: write_report(2, ['current source'])), \
                 redirect_stdout(output := StringIO()):
             assert subject.combined_main() == 1, '自测失败需要保留失败状态'
-        assert visited == ['source', 'theme', 'interactions'], '自测失败后立即返回诊断'
+        assert visited == [names[1], names[0], names[2], 'source', 'theme', 'interactions'], '工作区报告先完成，规则自测随后输出诊断'
         for probe in ('quality_probe', 'ui_probe'):
             assert probe in output.getvalue() and 'ui_interaction_tests.py:' in output.getvalue(), '诊断需要记录失败组与位置'
-        assert [report for report in reports if report.exists()] == [], '失败时沿已清理报告和当前诊断验收'
+        assert [report.read_text() for report in reports] == ['', '', 'current source'], '规则自测失败时保留当前工作区报告'
     except (AssertionError, OSError, subprocess.TimeoutExpired) as error:
         return [f'组合检查报告自测：{error}']
     finally:

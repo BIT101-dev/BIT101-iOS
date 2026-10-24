@@ -203,7 +203,8 @@ bit101_check_verification_audit() {
 
 bit101_finish_verification() {
   local verification_status=$?
-  trap - EXIT ZERR INT TERM
+  trap - EXIT ZERR
+  trap '' INT TERM
   if [[ -n "$verification_audit_pid" ]]; then
     local audit_status=0
     wait "$verification_audit_pid" || audit_status=$?
@@ -219,7 +220,8 @@ bit101_verify_step() {
   shift
   bit101_check_verification_audit || return $?
   if [[ "$label" == audit && "${BIT101_AUDIT_BACKGROUND:-0}" != 1 ]]; then
-    "$@" prepare || return $?
+    local audit_command="$1"
+    "$audit_command" prepare || return $?
     (trap - EXIT ZERR INT TERM; BIT101_AUDIT_BACKGROUND=1 BIT101_AUDIT_ARTIFACTS_PREPARED=1 bit101_verify_step "$label" "$@") &
     verification_audit_pid=$!
     return 0
@@ -240,6 +242,7 @@ bit101_verify_step() {
       ;;
   esac
   BIT101_VALIDATION_RESULT_BATCH_HELD=1 "$@" || step_status=$?
+  if (( step_status == 130 || step_status == 143 )); then exit "$step_status"; fi
   if $result_step; then
     completed_result_groups+=("$label")
     python3 "$ROOT_DIR/Scripts/validation_performance.py" retain-batch "${completed_result_groups[@]}" || step_status=$?

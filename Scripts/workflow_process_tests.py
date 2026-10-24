@@ -20,6 +20,8 @@ ROOT = SCRIPT_ROOT.parent
 def workflow_lock_boundary_findings() -> list[str]:
     "验证竞争工作流排队及父子流程锁复用。"
     import workflow_processes as subject
+    with patch.object(subject.subprocess, 'check_output', return_value='10 1 10\n11 10 11\n12 11 11\n20 1 20\n'):
+        assert subject.descendant_groups(10) == {10, 11}
     with patch.object(subject, 'active_members', side_effect=[{123}, {123}, {123}, {123}, set()]), \
             patch.object(subject, 'active_member_states', return_value={123: 'U'}), \
             patch.object(subject, 'signal_groups') as signals, patch.object(subject.time, 'monotonic', return_value=0), \
@@ -248,7 +250,10 @@ with open({str(artifact)!r}, 'a') as lock:
         return 2.0 if ready else 0.0
     raise SystemExit(supervise(command, environment, owns_process_group=True, deadline=1.0, grace_seconds=0.2, clock=clock))
 '''
-    for mode, expected in (('timeout', 124), ('signal', 143), ('exception', 1)):
+    for mode, expected in (('timeout', 124), ('signal', 143), ('foreign-interrupt', 130), ('exception', 1)):
+        isolated = shlex.join([sys.executable, '-c', 'import subprocess; child = subprocess.Popen('
+            + repr([sys.executable, '-c', stubborn]) + ', start_new_session=True); child.wait()'])
+        worker.write_text("trap 'exit 0' TERM\n" + (isolated if mode == 'foreign-interrupt' else child_command) + ' &\nwait\n')
         control, trigger = os.pipe()
         controller = subprocess.Popen([sys.executable, '-c', program, str(control), mode], pass_fds=(control,),
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -257,9 +262,10 @@ with open({str(artifact)!r}, 'a') as lock:
         try:
             descendant = int(read_line(controller))
             group = os.getpgid(descendant)
-            assert group not in active_members({group}, workers_only=True)
+            if mode == 'foreign-interrupt': assert descendant in active_members({group})
+            else: assert group not in active_members({group}, workers_only=True)
             if mode in ('timeout', 'exception'): os.write(trigger, b'expire')
-            else: controller.terminate()
+            else: controller.send_signal(signal.SIGINT if mode == 'foreign-interrupt' else signal.SIGTERM)
             deadline = time.monotonic() + 5
             while controller.poll() is None and time.monotonic() < deadline:
                 for path in (artifact, device):

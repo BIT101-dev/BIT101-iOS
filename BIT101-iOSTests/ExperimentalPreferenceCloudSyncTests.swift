@@ -133,12 +133,12 @@ struct ExperimentalPreferenceCloudSyncTests {
 
     private func context(domain: String? = nil, files: PreferenceMemoryFiles = PreferenceMemoryFiles(),
         scoreCache: (any ScoreCacheSynchronizing)? = nil,
+        notificationCenter center: NotificationCenter = NotificationCenter(),
         synchronizedDomains: Set<ExperimentalPreferenceSyncDomain> = Set(ExperimentalPreferenceSyncDomain.allCases)) throws -> (ExperimentalPreferenceCloudSync, UserDefaults, MemoryCloud, Account) {
         let domain = domain ?? preferenceDomain
         let defaults = try #require(UserDefaults(suiteName: domain))
         defaults.removePersistentDomain(forName: domain)
         let account = Account()
-        let center = NotificationCenter()
         let root = URL(fileURLWithPath: "/preference-sync")
         let settings = AppSettingsStore(defaults: defaults, session: { account.session })
         let stores = AppAccountStores(
@@ -156,6 +156,18 @@ struct ExperimentalPreferenceCloudSyncTests {
             synchronizedDomains: synchronizedDomains, notificationCenter: center
         )
         return (sync, defaults, cloud, account)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func cloudNotificationsCanArriveOnBackgroundThreads() async throws {
+        let center = NotificationCenter()
+        let (sync, defaults, _, _) = try context(notificationCenter: center)
+        defer { defaults.removePersistentDomain(forName: preferenceDomain) }
+        await Task.detached {
+            center.post(name: NSUbiquitousKeyValueStore.didChangeExternallyNotification, object: nil,
+                userInfo: [NSUbiquitousKeyValueStoreChangeReasonKey: NSUbiquitousKeyValueStoreServerChange])
+        }.value
+        #expect(sync.isEnabled)
+        #expect(sync.settings.galleryHiddenUserIDs.isEmpty)
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true]) func unreadableScoresReportTheRecoveryReasonAndResumeTheirCloudDomain(applyFailure: Bool) async throws {
