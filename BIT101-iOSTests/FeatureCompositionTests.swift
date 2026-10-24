@@ -67,7 +67,7 @@ struct FeatureCompositionTests {
         media.cacheLimitMB = 1
         let scans = files.metadataScanCount
         await media.enforceCurrentLimit()
-        #expect(files.metadataScanCount == scans + 2)
+        #expect(files.metadataScanCount == scans + media.cacheDirectories.count)
     }
 
     private final class StreamingMessages: GalleryMessageServicing {

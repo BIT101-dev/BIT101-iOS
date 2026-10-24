@@ -388,6 +388,8 @@ struct ReleaseNetworkSmokeLifecycleTests {
             await #expect(throws: (any Error).self) { try await operations.read(kind, 1) }
         }
         await #expect(throws: (any Error).self) { try await operations.comments("poster1", nil) }
+        try await operations.deleteComment(1)
+        route.status = 500
         await #expect(throws: (any Error).self) { try await operations.deleteComment(1) }
         route.knownContent = true
         for status in [400, 404, 500] {

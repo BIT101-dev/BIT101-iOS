@@ -710,11 +710,15 @@ nonisolated final class ScheduleEditingUITests: UIAutomationTestCase {
         assertUI(eclass.appears(timeout: 5), "DDL 页应展示课程中心作业。")
         let ddlCell = app.native.cells.containing(.staticText, identifier: "课程中心测试作业").firstMatch
         let leadingInset = try renderedLeadingTextInset(eclass.native, in: ddlCell)
+        let refreshText = app.native.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "更新时间")).firstMatch
+        let refreshCell = app.native.cells.containing(.staticText, identifier: refreshText.label).firstMatch
+        XCTAssertEqual(leadingInset, try renderedLeadingTextInset(refreshText, in: refreshCell), accuracy: 1,
+            "DDL 卡片与普通列表应沿用相同的系统默认行边距。")
         assertUI(app.staticTexts["乐学测试日程"].exists, "DDL 页应展示乐学日程。")
         XCTAssertEqual(app.staticTexts["ddl.preview.lexue-ui"].label, "测试课程\n测试说明\n补充说明",
             "列表预览应按有效文本行排列课程名和作业说明。")
-        let course = app.native.staticTexts["ddl.preview.eclass:ui"].firstMatch
-        for id in ["eclass:ui", "lexue-ui"] {
+        let course = app.native.staticTexts["ddl.preview.eclass:23"].firstMatch
+        for id in ["eclass:23", "lexue-ui"] {
             let date = app.native.staticTexts["ddl.due.\(id)"].firstMatch
             let source = app.native.staticTexts["ddl.source.\(id)"].firstMatch
             XCTAssertEqual(date.frame.minY, source.frame.minY, accuracy: 0.5, "日期和来源应沿同一行展示。")
@@ -730,22 +734,20 @@ nonisolated final class ScheduleEditingUITests: UIAutomationTestCase {
         screenshot.name = "界面截图"
         screenshot.lifetime = .keepAlways
         add(screenshot)
-        let completion = app.buttons["ddl.done.eclass:ui"]
+        let completion = app.buttons["ddl.done.eclass:23"]
         assertUI(completion.exists, "课程中心作业应提供完成状态操作。")
         completion.tapBriefly()
         assertUI(completion.value as? String == "已完成", "点击后应保存完成状态。")
+        assertUI((UITestControlClient.request(["command": "consume-opened-url"]) ?? "").isEmpty,
+                 "完成按钮应独立修改待办状态。")
         eclass.tapBriefly()
-        assertUI(app.navigationBars["DDL 详情"].appears(timeout: 5), "课程中心作业应打开详情。")
-        let detailTitle = app.native.staticTexts["课程中心测试作业"].firstMatch
-        let detailCell = app.native.cells.containing(.staticText, identifier: "课程中心测试作业").firstMatch
-        XCTAssertEqual(leadingInset, try renderedLeadingTextInset(detailTitle, in: detailCell), accuracy: 1,
-            "DDL 卡片与普通列表应沿用相同的系统默认行边距。")
-        assertUI(app.staticTexts["课程中心"].exists, "详情应显示中文来源。")
-        assertUI(!app.buttons["编辑"].exists && !app.buttons["删除"].exists, "学校作业应按同步来源展示。")
-        tapHeader(app.buttons["取消"])
+        assertOpenedURL("https://zy-eclass.bit.edu.cn/course/42/learning-activity/full-screen#/23")
+        let lexue = app.descendants(matching: .any)["ddl.event.lexue-ui"]
+        assertUI(lexue.performAccessibilityAction(named: "在浏览器打开"), "学校日程应提供打开浏览器的 VoiceOver 动作。")
+        assertOpenedURL("https://lexue.bit.edu.cn/calendar/view.php?view=day&time=")
         app = configureApp(resetStorage: false, restartProcess: true)
         tapHeader(app.segmentedControls.buttons["DDL"])
-        let restored = app.buttons["ddl.done.eclass:ui"]
+        let restored = app.buttons["ddl.done.eclass:23"]
         assertUI(restored.appears(timeout: 5), "重新启动后应恢复课程中心作业。")
         assertUI(restored.value as? String == "已完成", "重新启动后应恢复完成状态。")
     }

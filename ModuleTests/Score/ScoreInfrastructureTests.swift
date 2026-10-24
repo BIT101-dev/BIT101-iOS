@@ -263,6 +263,12 @@ struct ScoreInfrastructureBoundaryTests {
         }
         #expect(ScoreServiceError.challengeInvalid("认证上下文已变化").errorDescription == "认证上下文已变化")
         #expect(ScoreServiceError.queryFailed("课程查询失败").errorDescription == "课程查询失败")
+        #expect(ScoreServiceError.queryFailed("会话已经过期").schoolServiceFailure == .sessionExpired)
+        #expect(ScoreServiceError.challengeInvalid("无权访问该资源").schoolServiceFailure == .accessDenied)
+        #expect(ScoreServiceError.invalidResponse.schoolServiceFailure == nil)
+        let wrapped = ScoreServiceError.queryFailed("课程查询失败").caused(by: URLError(.networkConnectionLost))
+        #expect(wrapped.localizedDescription == "课程查询失败")
+        #expect((wrapped.userInfo[NSUnderlyingErrorKey] as? URLError)?.code == .networkConnectionLost)
         #expect(ScoreCacheReadError.unavailable.errorDescription?.contains("清理") == true)
         #expect(ScoreCacheWriteError.failed.errorDescription?.contains("原始记录已保留") == true)
     }

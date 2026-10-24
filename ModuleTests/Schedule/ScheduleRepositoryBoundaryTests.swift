@@ -352,21 +352,24 @@ struct ScheduleRepositoryBoundaryTests {
         #expect(repository.persistenceSnapshot.primaryScheduleTitle == "本机编辑")
     }
 
-    @Test(.timeLimit(.minutes(1))) func unreadableCacheKeepsVisibleDataAndResumesEditingAfterRetry() async {
+    @Test(.timeLimit(.minutes(1))) func unreadableCacheKeepsVisibleEditsAndResumesSavingAfterRetry() async throws {
         var savedCount = 0
         var result: ScheduleCacheLoadResult = .missing
         let repository = makeRepository(load: { _ in
             result
-        }, save: { _, _, _ in savedCount += 1 })
+        }, save: { _, _, _ in
+            guard !result.isUnreadable else { throw CocoaError(.fileReadNoPermission) }
+            savedCount += 1
+        })
         await repository.loadIfNeeded()
         repository.courseState.primaryScheduleTitle = "保留内容"
         result = .unreadable
         await repository.reload()
         repository.courseState.primaryScheduleTitle = "修改内容"
-        _ = await repository.persistAndWait()
-        #expect(repository.persistenceSnapshot.primaryScheduleTitle == "保留内容")
-        #expect(!repository.isWritable && repository.hasReadFailure)
-        #expect(throws: Error.self) { try repository.requireWritable() }
+        #expect(await repository.persistAndWait() == false)
+        #expect(repository.persistenceSnapshot.primaryScheduleTitle == "修改内容")
+        #expect(repository.acceptsEdits && repository.hasReadFailure)
+        try repository.requireWritable()
         result = .loaded(repository.persistenceSnapshot)
         await repository.reload()
         #expect(repository.isWritable && !repository.hasReadFailure)

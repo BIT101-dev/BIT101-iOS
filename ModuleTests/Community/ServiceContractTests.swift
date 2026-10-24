@@ -138,15 +138,6 @@ struct ServiceContractTests {
 
     private func assertSmokeContract(probe: String, requests: [(URLRequest, HTTPResponse)], selectors: [String: String] = [:]) async throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["python3", "-B", root.appendingPathComponent("Scripts/network_request_contracts.py").path]
-        let input = Pipe(), errors = Pipe()
-        process.standardInput = input
-        process.standardError = errors
-        let (completion, finished) = AsyncStream<Void>.makeStream()
-        process.terminationHandler = { _ in finished.yield(()); finished.finish() }
-        try process.run()
         let rows = try requests.map { request, response in
             let metadata = HTTPRequestEvidence(request: request, response: response.response, finalRequest: response.finalRequest)
             var row = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(metadata)) as? [String: Any])
@@ -168,11 +159,27 @@ struct ServiceContractTests {
             if response.data == Data("[]".utf8) { row["responseMinimumID"] = "0" }
             return row
         }
-        try input.fileHandleForWriting.write(contentsOf: JSONSerialization.data(withJSONObject: ["probe": probe, "requests": rows, "expectedParameters": selectors]))
+        let payload = try JSONSerialization.data(withJSONObject: ["probe": probe, "requests": rows, "expectedParameters": selectors])
+        let result = try await Self.runSmokeContract(payload, script: root.appendingPathComponent("Scripts/network_request_contracts.py"))
+        #expect(result.status == 0, Comment(rawValue: result.error))
+    }
+
+    @concurrent
+    private static func runSmokeContract(_ payload: Data, script: URL) async throws -> (status: Int32, error: String) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["python3", "-B", script.path]
+        let input = Pipe(), errors = Pipe()
+        process.standardInput = input
+        process.standardError = errors
+        let (completion, finished) = AsyncStream<Void>.makeStream()
+        process.terminationHandler = { _ in finished.yield(()); finished.finish() }
+        try process.run()
+        try input.fileHandleForWriting.write(contentsOf: payload)
         try input.fileHandleForWriting.close()
         var iterator = completion.makeAsyncIterator()
         _ = await iterator.next()
-        #expect(process.terminationStatus == 0, Comment(rawValue: String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)))
+        return (process.terminationStatus, String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self))
     }
 #endif
 

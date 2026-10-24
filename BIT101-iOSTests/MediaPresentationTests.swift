@@ -380,7 +380,11 @@ struct MediaPresentationTests {
         defer { coordinator.cancel(); window.isHidden = true; window.rootViewController = nil }
         let request = ImagePreviewRequest(remoteImages: [.init(thumbnailURL: AppURL.required("https://example.invalid/low.png"), originalURL: high)], initialIndex: 0)
         coordinator.receive(request, from: host, media: media)
-        try await waitForTestEvent { preview.navigationItem.leftBarButtonItems?.contains { $0.accessibilityIdentifier == "media.preview.retry" } == true }
+        try await waitForTestEvent {
+            guard preview.navigationItem.leftBarButtonItems?.contains(where: { $0.accessibilityIdentifier == "media.preview.retry" }) == true,
+                  let file = preview.dataSource?.previewController(preview, previewItemAt: 0).previewItemURL else { return false }
+            return (try? files.readData(at: file)) == transport.bytes
+        }
         let low = try #require(preview.dataSource?.previewController(preview, previewItemAt: 0).previewItemURL)
         #expect(try files.readData(at: low) == transport.bytes)
         #expect(preview.dataSource?.previewController(preview, previewItemAt: 0).previewItemTitle == "图片 1")

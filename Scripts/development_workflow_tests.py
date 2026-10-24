@@ -170,6 +170,8 @@ def mac_process_identity(fixture: Path) -> None:
     executable.parent.mkdir(parents=True)
     shutil.copyfile('/bin/sleep', executable)
     executable.chmod(0o755)
+    subprocess.run(['/usr/bin/codesign', '--force', '--sign', '-', str(executable)],
+        capture_output=True, check=True)
     owned = subprocess.Popen([str(executable), '60'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     decoy = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)', str(executable)],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

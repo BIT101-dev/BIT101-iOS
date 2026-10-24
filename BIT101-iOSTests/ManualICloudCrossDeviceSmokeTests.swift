@@ -182,7 +182,7 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
             switch await repository.load(for: session) {
             case .loaded(let saved): cache = saved
             case .missing: try await replaceCache(cache, source: .cloudBaseline, expected: nil)
-            case .unreadable: throw CocoaError(.fileReadCorruptFile)
+            case .recovered, .damaged, .unreadable: throw CocoaError(.fileReadCorruptFile)
             }
         }
 

@@ -34,6 +34,25 @@ struct ScheduleFeatureTests {
         #expect(ScheduleDDLEditor.togglingDone(id: "missing", in: toggled) == toggled)
     }
 
+    @Test func ddlBrowserDestinationsUseStoredSchoolMetadata() throws {
+        let due = Date(timeIntervalSince1970: 1_800_000_000.75)
+        let lexue = DDLEventRecord(id: "42@lexue.bit.edu.cn", group: "lexue", title: "作业", text: "", dueAt: due, done: false)
+        #expect(lexue.browserURL?.absoluteString == "https://lexue.bit.edu.cn/calendar/view.php?view=day&time=1800000000")
+        let eclass = DDLEventRecord(id: "eclass:23", group: "eclass", title: "作业", text: "", dueAt: due,
+            done: false, sourceCourseIDs: [42, 99])
+        #expect(eclass.browserURL?.absoluteString == "https://zy-eclass.bit.edu.cn/course/42/learning-activity/full-screen#/23")
+        let restored = try JSONDecoder().decode(DDLEventRecord.self, from: JSONEncoder().encode(eclass))
+        #expect(restored.browserURL == eclass.browserURL)
+        var legacy = eclass
+        legacy.sourceCourseIDs = nil
+        #expect(legacy.browserURL?.absoluteString == "https://zy-eclass.bit.edu.cn/user/index")
+        legacy.group = "main"
+        #expect(legacy.browserURL == nil)
+        var invalid = lexue
+        invalid.dueAt = Date(timeIntervalSince1970: .greatestFiniteMagnitude)
+        #expect(invalid.browserURL == nil)
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func courseArrangementLocationsRemainIndependentOfTheClassroomSelection() async throws {
         let course = try editableCourse("location", weekday: 1, weeks: "1")

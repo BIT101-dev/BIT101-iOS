@@ -99,7 +99,10 @@ struct AppShellView: View {
     @Environment(AppCommunityDestinations.self) private var destinations
     private static let startupNoticeTitle = "\(AppSettingsStore.currentStartupNoticeVersion) 版本更新"
     private static let startupNoticeBody = """
-    修复了登录问题。
+    优化学校服务认证与成绩查询。
+    优化课表缓存恢复、刷新与显示。
+    DDL 支持跳转学校网页，文章保留排序和浏览位置。
+    优化界面样式与操作体验。
     """
     private static let linuxDoThanksTitle = "特别鸣谢 LINUX DO"
     private static let linuxDoThanksBody = "特别感谢 LINUX DO（L站）以及佬友们。这个 App 的诞生，离不开他们提供的免费 tokens 与无私的支持。L站倡导“真诚、友善、团结、专业，共建你我引以为荣之社区。”某种意义上，BIT101 也是在这样的氛围里，被一点点推出来的。"

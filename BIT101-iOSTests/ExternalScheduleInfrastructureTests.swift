@@ -14,6 +14,59 @@ import os
 @MainActor
 @Suite("Watch and Widget shared runtime contracts")
 struct ExternalScheduleInfrastructureTests {
+    @Test func sharedDeadlineTimelineAdvancesItsWindowAndTransfersTheCompleteSnapshot() throws {
+        let now = try #require(ScheduleSharedDateCodec.parseDate("2026-10-24"))
+        let deadlines = (1...5).map { number in
+            ScheduleExternalDeadlineSnapshot(id: "ddl-\(number)", title: "作业 \(number)", subtitle: "课程",
+                sourceTitle: "乐学", dueAt: now.addingTimeInterval(Double(number * 60)))
+        }
+        func snapshot(_ values: [ScheduleExternalDeadlineSnapshot], loggedIn: Bool = true) -> ScheduleExternalSnapshot {
+            .init(generatedAt: now, revision: 4, isLoggedIn: loggedIn, studentID: "widget-owner", firstDayString: "",
+                timeTable: [], courses: [], customSchedules: [.init(id: "event", title: "个人日程", subtitle: "地点",
+                    dateStrings: ["2026-10-24"], beginTime: "08:00", endTime: "09:00")], deadlines: values, ddlAfterDay: 0)
+        }
+        let encoded = try ScheduleExternalSnapshotCodec.encode(snapshot(deadlines))
+        let restored = try ScheduleExternalSnapshotCodec.decode(encoded)
+        #expect(restored == snapshot(deadlines))
+        let entries = ScheduleDeadlineResolver.timelineEntries(from: restored, now: now)
+        #expect(entries.first?.resolved.deadlines.map(\.id) == Array(deadlines.prefix(4)).map(\.id))
+        #expect(entries.last?.date == now.addingTimeInterval(61))
+        #expect(entries.last?.resolved.deadlines.map(\.id) == Array(deadlines.suffix(4)).map(\.id))
+        #expect(ScheduleDeadlineResolver.resolvedSnapshot(from: nil, now: now).contentState == .missing)
+        #expect(ScheduleDeadlineResolver.resolvedSnapshot(from: snapshot([], loggedIn: false), now: now).contentState == .loggedOut)
+        #expect(ScheduleDeadlineResolver.resolvedSnapshot(from: snapshot([]), now: now).contentState == .rest)
+        #expect(ScheduleDeadlineResolver.resolvedSnapshot(from: snapshot([deadlines[0], deadlines[0]]), now: now).contentState == .invalid)
+        let transfer = WatchScheduleTransferProtocol.snapshotContext(encoded)
+        #expect(WatchScheduleTransferProtocol.snapshotData(from: transfer) == encoded)
+        let request = WatchScheduleTransferProtocol.requestContext(knownRevision: restored.revision)
+        #expect(WatchScheduleTransferProtocol.requestsLatestSnapshot(request))
+        #expect(WatchScheduleTransferProtocol.knownRevision(from: request) == restored.revision)
+        #expect(WatchScheduleTransferProtocol.knownRevision(from: transfer) == nil)
+    }
+
+    @Test func externalCoursePresentationAndRefreshUseTheSameSchoolDates() throws {
+        let day = try #require(ScheduleSharedDateCodec.parseDate("2026-10-24"))
+        let now = try #require(ScheduleSharedDateCodec.combine(date: day, time: "08:00"))
+        let labels = ["今天", "明天", "后天", "大后天", "10月28日"]
+        for (offset, label) in labels.enumerated() {
+            let start = now.addingTimeInterval(Double(offset * 86_400))
+            let occurrence = ScheduleExternalOccurrence(id: "course", title: "课程", classroom: "文萃楼I101", teacher: "教师",
+                startDate: start, endDate: start.addingTimeInterval(3_600), displayUntilDate: start.addingTimeInterval(3_600))
+            #expect(occurrence.relativeDayText(referenceDate: now) == label)
+            #expect(occurrence.rangeText == "08:00-09:00")
+            #expect(occurrence.countdownTargetDate(at: start) == occurrence.displayUntilDate)
+            #expect(occurrence.countdownTargetDate(at: start.addingTimeInterval(-1)) == start)
+            if offset == 0 {
+                #expect(ScheduleTimelineRefreshPlanner.nextRefreshDate(for: [occurrence], now: now,
+                    includeDisplayUntilDates: true, includeNextMidnight: true) == occurrence.displayUntilDate)
+            }
+        }
+        #expect(ScheduleTimelineRefreshPlanner.nextRefreshDate(for: [], now: now,
+            includeDisplayUntilDates: false, includeNextMidnight: false) == now.addingTimeInterval(1_800))
+        #expect(ScheduleDisplayNormalizer.courseCardClassroomText("文萃楼I101") == "文萃I\n101")
+        #expect(ScheduleDisplayNormalizer.courseCardClassroomText("") == "")
+    }
+
     @Test func foregroundRecoveryRequestsTheSnapshotAfterAnInitialTransferFailure() {
         var requests = 0
         let model = WatchScheduleStatusModel(dependencies: WatchScheduleStatusDependencies(

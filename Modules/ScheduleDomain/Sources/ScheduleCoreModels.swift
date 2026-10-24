@@ -469,6 +469,22 @@ public nonisolated struct DDLEventRecord: Codable, Identifiable, Hashable, Senda
         default: "自定义"
         }
     }
+    /// 学校记录沿已有标识打开作业或对应日期的日历。
+    public var browserURL: URL? {
+        switch group {
+        case "lexue":
+            guard let timestamp = Int(exactly: dueAt.timeIntervalSince1970.rounded(.down)) else { return nil }
+            return URL(string: "https://lexue.bit.edu.cn/calendar/view.php?view=day&time=\(timestamp)")
+        case "eclass":
+            if id.hasPrefix("eclass:"), let activityID = Int(id.dropFirst("eclass:".count)), activityID > 0,
+               let courseID = sourceCourseIDs?.filter({ $0 > 0 }).min() {
+                return URL(string: "https://zy-eclass.bit.edu.cn/course/\(courseID)/learning-activity/full-screen#/\(activityID)")
+            }
+            return URL(string: "https://zy-eclass.bit.edu.cn/user/index")
+        default:
+            return nil
+        }
+    }
     public init(id: String, group: String, title: String, text: String, dueAt: Date, done: Bool, sourceCourseIDs: Set<Int>? = nil) {
         self.id = id
         self.group = group

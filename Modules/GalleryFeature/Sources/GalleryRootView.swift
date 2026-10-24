@@ -116,28 +116,31 @@ private struct GalleryRootViewScene: View {
     }
 
     private var content: some View {
-        Group {
-            if appSettings.galleryUseWebView && !isShowingNativePaperRoute {
-                GalleryWebContentView()
-            } else {
-                switch selectedSurface {
-                case .gallery:
-                    galleryContent
-                case .paper:
-                    destinations.papers(
-                        $requestedPaperID,
-                        { selectedSurface = .gallery }
-                    )
-                }
-            }
-        }
-        .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
+        VStack(spacing: AppDesignSystem.Spacing.none) {
             if !appSettings.galleryUseWebView {
                 AppTopSegmentedPicker(title: "话廊内容", selection: $selectedSurface) {
                     ForEach(GallerySurface.allCases) { surface in
                         Text(surface.title).tag(surface)
                     }
                 }
+            }
+            if appSettings.galleryUseWebView && !isShowingNativePaperRoute {
+                GalleryWebContentView()
+            } else {
+                TabView(selection: $selectedSurface) {
+                    galleryContent
+                        .tag(GallerySurface.gallery)
+                        .tabItem { Text(GallerySurface.gallery.title) }
+                        .toolbar(.hidden, for: .tabBar)
+                    destinations.papers(
+                        $requestedPaperID,
+                        { selectedSurface = .gallery }
+                    )
+                    .tag(GallerySurface.paper)
+                    .tabItem { Text(GallerySurface.paper.title) }
+                    .toolbar(.hidden, for: .tabBar)
+                }
+                .accessibilityIdentifier("gallery.surfaces")
             }
         }
         .task(id: requestedPaperID) {

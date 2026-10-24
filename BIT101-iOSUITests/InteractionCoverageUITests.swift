@@ -152,9 +152,9 @@ nonisolated final class CalendarInteractionUITests: UIAutomationTestCase {
         tapHeader(app.segmentedControls.buttons["DDL"])
         let assignment = app.staticTexts["课程中心测试作业"]
         reveal(assignment)
-        assignment.tapBriefly()
         assertUI(textElement("刷新后的学校详情").appears(timeout: 5), "学校刷新应更新详情正文。")
-        tap("取消")
+        assignment.tapBriefly()
+        assertOpenedURL("https://zy-eclass.bit.edu.cn/course/42/learning-activity/full-screen#/23")
 
         app = configureApp(resetStorage: false)
         tapHeader(app.segmentedControls.buttons["空教室"])
@@ -603,6 +603,32 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         assertUI(textElement("机器人分页话题").exists == false, "首批续页保持空状态和继续入口。")
         continuation.tapBriefly()
         assertUI(textElement("机器人分页话题").appears(timeout: 5), "继续查询应展示后续源页中的机器人帖子。")
+    }
+
+    @MainActor
+    @objc func testPaperSortSurvivesSwitchingToTopicsAndBack() {
+        app = configureApp(resetStorage: true, content: true, pagination: true, initialTab: "gallery")
+        tapHeader(app.segmentedControls.buttons["文章"])
+        assertUI(app.segmentedControls.buttons["文章"].isSelected, "顶部选择应切换至文章分区。")
+        assertUI(app.segmentedControls.buttons.matching(NSPredicate(format: "label == %@", "最新")).count == 1,
+                 "文章页面应展示当前分区的排序控件。")
+        assertUI(app.tabBars.buttons["日程"].isHittable, "分区容器应保留 App 底部导航。")
+        for title in ["高赞", "热评"] {
+            tapHeader(app.segmentedControls.buttons[title])
+            assertUI(app.segmentedControls.buttons[title].isSelected, "文章应选中\(title)。")
+            let article = textElement("分页文章 10")
+            reveal(article)
+            let position = article.frame.minY
+            tapHeader(app.segmentedControls.buttons["话题"])
+            tapHeader(app.segmentedControls.buttons["文章"])
+            assertUI(app.segmentedControls.buttons[title].isSelected, "返回文章应保留\(title)排序。")
+            assertUI(article.isHittable, "返回文章应保留当前阅读条目。")
+            assertUI(abs(article.frame.minY - position) < 2, "返回文章应保留滚动位置。")
+        }
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "界面截图"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
     }
 
     @MainActor

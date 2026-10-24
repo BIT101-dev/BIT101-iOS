@@ -14,6 +14,7 @@ import SwiftUI
 /// DDL 页使用 `appGroupedListStyle()`，与成绩和空教室保持一致。
 struct DDLScheduleTabView: View {
     @Environment(\.scheduleCurrentDate) private var currentDate
+    @Environment(\.openURL) private var openURL
     @ObservedObject var viewModel: ScheduleDDLViewModel
     @State private var selectedEvent: DDLEventRecord?
     @State private var draft = DDLDraft()
@@ -57,7 +58,10 @@ struct DDLScheduleTabView: View {
                                 tint: color(for: event),
                                 isEditable: viewModel.isCacheWritable,
                                 onToggleDone: { viewModel.toggleDDLDone(event) },
-                                onOpenDetail: { selectedEvent = event }
+                                onOpen: {
+                                    if let url = event.browserURL { openURL(url) }
+                                    else { selectedEvent = event }
+                                }
                             )
                         }
                     }
@@ -147,7 +151,7 @@ private struct DDLEventRow: View {
     let tint: Color
     let isEditable: Bool
     let onToggleDone: () -> Void
-    let onOpenDetail: () -> Void
+    let onOpen: () -> Void
 
     var body: some View {
         HStack(alignment: .top, spacing: AppDesignSystem.Spacing.content) {
@@ -196,11 +200,11 @@ private struct DDLEventRow: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
-        .onTapGesture(perform: onOpenDetail)
+        .onTapGesture(perform: onOpen)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("ddl.event.\(event.id)")
-        .accessibilityAction(named: "打开详情") {
-            onOpenDetail()
+        .accessibilityAction(named: event.browserURL == nil ? "打开详情" : "在浏览器打开") {
+            onOpen()
         }
     }
 

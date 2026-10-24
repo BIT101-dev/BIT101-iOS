@@ -96,8 +96,9 @@ struct UITestLoginService: LoginServicing, AccountRegistrationServicing {
             if let fixture = AppUITestBootstrap.environment["BIT101_UI_TEST_DDL_FIXTURE"] {
                 let now = Date()
                 if fixture == "overdue" { cache.ddlAfterDay = 0 }
-                cache.ddlEvents = [DDLEventRecord(id: "eclass:ui", group: "eclass", title: "课程中心测试作业",
-                    text: "测试课程", dueAt: now.addingTimeInterval(fixture == "overdue" ? -24 * 3600 : 24 * 3600), done: false)]
+                cache.ddlEvents = [DDLEventRecord(id: "eclass:23", group: "eclass", title: "课程中心测试作业",
+                    text: "测试课程", dueAt: now.addingTimeInterval(fixture == "overdue" ? -24 * 3600 : 24 * 3600), done: false,
+                    sourceCourseIDs: [42])]
                 if fixture == "sources" {
                     cache.ddlEvents.append(DDLEventRecord(id: "lexue-ui", group: "lexue", title: "乐学测试日程",
                         text: "测试课程\n\n 测试说明 \n\n补充说明", dueAt: now.addingTimeInterval(48 * 3600), done: false))

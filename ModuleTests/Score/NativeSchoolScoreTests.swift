@@ -8,6 +8,45 @@ import TransportCore
 
 @MainActor
 struct NativeSchoolScoreTests {
+    private final class TranscriptPort: TrustedTranscriptServicing {
+        var challenge: BITLoginAuthenticationChallenge?
+        var hadDelivery = false
+        func fetchTrustedTranscriptPages(onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
+            hadDelivery = onPage != nil
+            return .init([Data([1]), Data([2])])
+        }
+        func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge,
+            onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
+            self.challenge = challenge
+            return try await fetchTrustedTranscriptPages(onPage: onPage)
+        }
+        func submitTranscriptSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge {
+            challenge
+        }
+    }
+
+    @Test func transcriptConveniencesPreserveAuthenticationPageNumbersAndServiceIdentity() async throws {
+        let first = TranscriptPort(), second = TranscriptPort()
+        let challenge = BITLoginAuthenticationChallenge(challengeID: "fixture", accessToken: "token",
+            status: "ready", maskedPhone: nil, expiresIn: nil)
+        let pages = try await first.fetchTrustedTranscriptPages(authenticatedBy: challenge)
+        #expect(first.challenge == challenge && !first.hadDelivery)
+        #expect(pages.pages.map(\.number) == [1, 2] && pages.expectedPageCount == 2)
+        #expect(pages.pages.map(\.data) == [Data([1]), Data([2])])
+        #expect(first.transcriptServiceIdentity == first.transcriptServiceIdentity)
+        #expect(first.transcriptServiceIdentity != second.transcriptServiceIdentity)
+    }
+
+    @Test func transcriptCapacityRetainsDeliveredPagesAndRejectsInvalidReports() async throws {
+        let invalid = TrustedTranscriptReport(pageCount: 0) { _, _ in Data([1]) }
+        await #expect(throws: ScoreServiceError.self) { try await invalid.loadPages(maximumBytes: 1) }
+        let report = TrustedTranscriptReport(pageCount: 2) { number, _ in Data([UInt8(number)]) }
+        let partial = try await report.loadPages(maximumBytes: 1)
+        #expect(partial.pages.map(\.number) == [1] && partial.failure != nil && !report.isInvalid)
+        let remaining = try await report.loadPages(excluding: [1], maximumBytes: 1)
+        #expect(remaining.pages.map(\.number) == [2] && remaining.failure == nil)
+    }
+
     private static let grades = #"<table id="dataList"><tr><th>课程编号</th><th>课程名称</th><th>成绩</th><th>学分</th><th>操作栏</th></tr><tr><td>CS1</td><td>数学 &amp; 计算</td><td><a onclick="JsMod('/jsxsd/kscj/pscj_list.do')">优秀</a></td><td>3</td><td><a onclick="JsMod('/jsxsd/kscj/cjfx?id=1')">详情</a></td></tr></table>"#
     private static let detail = #"<table id="dataList"></table><table id="dataList"><tr><td>班级人数：30</td><td>专业人数：60</td><td>学习人数：90</td><td>平均分：85</td><td>最高分：100</td><td>该课程所有教学班成绩录入完毕：是</td></tr></table><table id="dataList"><tr><td>本人成绩：95</td><td>本人成绩在班级中占：前10%</td><td>本人成绩在专业中占：前20%</td><td>本人成绩在所有学生中占：前30%</td></tr></table>"#
     private final class Credentials: SchoolCredentialsProviding {

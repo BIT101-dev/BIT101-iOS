@@ -118,11 +118,14 @@ public final class ScheduleRepository: ObservableObject {
             requiresRecoveryConfirmation = false
             hasReadFailure = false
             canRebuildCache = false
-        case .damaged, .unreadable:
+        case .damaged:
             isWritable = false
             hasReadFailure = true
             requiresRecoveryConfirmation = false
-            canRebuildCache = result.isDamaged
+            canRebuildCache = true
+        case .unreadable:
+            hasReadFailure = true
+            canRebuildCache = false
         }
         hasLoaded = true
         return true
@@ -195,6 +198,8 @@ public final class ScheduleRepository: ObservableObject {
                 self.loadedCache = snapshot
                 self.loadedRevision = localRevision
                 self.notice = nil
+                self.hasReadFailure = false
+                self.canRebuildCache = false
                 if confirmsRecovery {
                     self.requiresRecoveryConfirmation = false
                     self.hasReadFailure = false

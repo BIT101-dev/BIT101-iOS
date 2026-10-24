@@ -8,6 +8,28 @@ import Testing
 
 @MainActor
 struct ComposerLifecycleTests {
+    @Test(.timeLimit(.minutes(1))) func cancellingARetriedLegacyImageRetainsItsPreviewBytes() async throws {
+        let gate = Gate()
+        var received = Data()
+        let images = ComposerImageUploads(upload: { data, _ in
+            received = data
+            await gate.pause()
+            try Task.checkCancellation()
+            return .init(mid: "unexpected", url: "", lowUrl: "")
+        }, prepare: { $0 }, isCurrentSession: { true })
+        let draft = ComposerImageDraft(previewData: Data([7]), filename: "legacy.jpg", status: .failed("重试"))
+        images.restore([draft])
+        let retry = Task { await images.retry(id: draft.id) }
+        defer { retry.cancel(); gate.resume() }
+        try await gate.waitUntilPaused()
+        #expect(received == draft.previewData)
+        retry.cancel()
+        gate.resume()
+        await retry.value
+        #expect(images.drafts.first?.previewData == draft.previewData && !images.isReadyToSubmit)
+        #expect(!images.hasUploadingImages && images.uploadedImages.isEmpty)
+    }
+
     @Test(.timeLimit(.minutes(1))) func restoringAnUploadedDraftReusesItsRemoteImage() async throws {
         let service = Service(), drafts = Drafts()
         let original = model(service, drafts: drafts)

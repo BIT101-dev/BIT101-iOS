@@ -528,8 +528,8 @@ xcrun() {
     for arguments in (['verify', 'modules', 'network'], ['verify', 'all', 'community-writes']):
         harness = 'set -euo pipefail\nROOT_DIR=' + shlex.quote(str(SCRIPT_ROOT.parent)) + '\nshift\n' + block + '\nprint READY'
         result = subprocess.run(['zsh', '-c', harness, 'configuration-order', *arguments], capture_output=True, text=True,
-            env=dict(os.environ, BIT101_NETWORK_SMOKE_FIXTURES='', BIT101_NETWORK_SMOKE_CAPTURE='none',
-                BIT101_COMMUNITY_RECOVERY_CONFIRMATION=''))
+            env=dict(os.environ, BIT101_COMMUNITY_SMOKE_ACCOUNT='1', BIT101_NETWORK_SMOKE_FIXTURES='{}',
+                BIT101_NETWORK_SMOKE_CAPTURE='none', BIT101_COMMUNITY_RECOVERY_CONFIRMATION=''))
         assert result.returncode == 64 and 'READY' not in result.stdout, '聚合配置失败在编译及设备恢复前返回'
     for capture in ('rawCourseResponse', 'scheduleCache'):
         for scope in ('all', 'school', 'schedule', 'bit101', 'ddl', 'transcript', 'community-writes', 'community-cleanup'):

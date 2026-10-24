@@ -715,8 +715,8 @@ final class UITestSchoolService: ScheduleServicing {
             try verify(await schoolSMSCodeHandler(SchoolSMSCodeRequest(maskedPhone: "138****0000", purpose: "测试学校认证")))
         }
         return DDLSyncPayload(url: "https://lexue.bit.edu.cn/ui-test.ics", events: [
-            DDLEventRecord(id: "eclass:ui", group: "eclass", title: "课程中心测试作业", text: "刷新后的学校详情",
-                dueAt: Date().addingTimeInterval(86400), done: false)
+            DDLEventRecord(id: "eclass:23", group: "eclass", title: "课程中心测试作业", text: "刷新后的学校详情",
+                dueAt: Date().addingTimeInterval(86400), done: false, sourceCourseIDs: [42])
         ], syncedGroups: ["eclass", "lexue"])
     }
     func refreshLexueCalendarURL(schoolSMSCodeHandler: SchoolSMSCodeHandler?) async throws -> String {
