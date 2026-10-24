@@ -115,7 +115,6 @@ def run_simulator_ui(plan: Path, derived: Path, device: str, workers: int, selec
             '-derivedDataPath', str(derived), '-destination', 'platform=iOS Simulator,id=' + device,
             '-resultBundlePath', str(result), *arguments, '-test-timeouts-enabled', 'YES', '-collect-test-diagnostics', 'never', '-enableCodeCoverage', 'YES', *tests])
         status = status or completed.returncode
-        if completed.returncode: capture_preview_diagnostics(device, derived)
         if not result_bundle_complete(result) or completed.returncode and index + 1 < len(batches): return status or 1
         if index + 1 < len(batches):
             result.rename(keyboard_result)
@@ -239,14 +238,12 @@ def self_test(evidence) -> None:
             patch('shutil.rmtree'), patch('shutil.copyfile') as copied, \
             patch('subprocess.run', side_effect=[SimpleNamespace(returncode=0), SimpleNamespace(returncode=7)]) as executed, \
             patch('validation_performance.result_bundle_complete', return_value=True), \
-            patch('validation_coverage.capture_preview_diagnostics') as diagnosed, \
             patch('validation_performance.merge_result_bundles') as merged:
         assert run_simulator_ui(Path('/fixture/plan'), Path('/fixture'), 'device', 3, selections) == 7
         assert [plistlib.loads(call.args[0])['TestConfigurations'][0]['TestTargets'][0]['ParallelizationEnabled']
             for call in written.call_args_list] == [False, True]
         assert [call.args[0][call.args[0].index('-parallel-testing-enabled') + 1] for call in executed.call_args_list] == ['NO', 'YES']
         assert renamed.call_count == copied.call_count == merged.call_count == 1
-        diagnosed.assert_called_once_with('device', Path('/fixture'))
         assert [[arg for arg in call.args[0] if arg.startswith('-only-testing:')] for call in executed.call_args_list] == [rows for rows, _ in batches]
     assert workflow_timeout_seconds(('network', 'community-writes')) == 95 * 60
     assert workflow_timeout_seconds(('all', 'all')) == 50 * 60

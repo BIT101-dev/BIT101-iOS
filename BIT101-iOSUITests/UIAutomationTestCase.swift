@@ -36,10 +36,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             let screenshot = XCTAttachment(screenshot: foreground.screenshot())
             screenshot.name = "失败时的界面截图"
             add(screenshot)
-            if app.native.descendants(matching: .any)["QLPreviewControllerView"].exists,
-               let details = UITestControlClient.request(["command": "preview-page", "details": "1"]) {
-                print("UI preview diagnostics: \(details)")
-            }
+            capturePreviewDiagnostics()
         }
         Self.captureControlInventory()
         UITestSnapshotReader.printTimingSummary()
@@ -283,6 +280,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             if nextKeyboard.exists { nextKeyboard.tapBriefly() }
             assertUI(keyboard.appears(timeout: 5), "文本输入应使用系统键盘。")
         }
+        dismissKeyboardIntroduction()
         assertUI(app.buttons["keyboard.dismiss"].appears(timeout: 5), "系统输入应等待键盘附件完成安装。")
         if !empty {
             let selected = UITestControlClient.request(["command": "select-input"])
@@ -306,6 +304,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     func dismissKeyboard() {
         guard UITestControlClient.request(["command": "keyboard-state"]) != "hidden" else { return }
         if UIElement.usesNativeInteraction {
+            dismissKeyboardIntroduction()
             let done = app.buttons["keyboard.dismiss"]
             assertUI(done.appears(timeout: 5), "系统键盘应呈现完成按钮。")
             assertUI(waitUntil(NSPredicate(format: "hittable == true"), on: done, timeout: 5),
@@ -326,6 +325,17 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         assertUI(waitUntil(NSPredicate { _, _ in UITestControlClient.request(["command": "keyboard-state"]) == "hidden" }, on: app),
                  "完成输入后键盘应收起。")
         print(String(format: "UI keyboard finish: %.3f", ProcessInfo.processInfo.systemUptime - started))
+    }
+
+    @MainActor
+    private func dismissKeyboardIntroduction() {
+        let introduction = app.native.otherElements["UIContinuousPathIntroductionView"]
+        guard introduction.exists else { return }
+        let proceed = introduction.buttons.firstMatch
+        assertUI(proceed.waitForExistence(timeout: 5), "系统键盘介绍应提供继续操作。")
+        proceed.tap()
+        UITestSnapshotReader.invalidate()
+        assertUI(UIElement(introduction).disappears(timeout: 5), "继续后应恢复系统键盘。")
     }
 
     @MainActor
@@ -608,8 +618,15 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             let screenshot = XCTAttachment(screenshot: application.screenshot())
             screenshot.name = "失败时的界面截图"
             add(screenshot)
+            capturePreviewDiagnostics()
         }
         XCTFail("\(message()) \(diagnostics)", file: file, line: line)
+    }
+
+    @MainActor private func capturePreviewDiagnostics() {
+        guard app.native.descendants(matching: .any)["QLPreviewControllerView"].exists,
+              let details = UITestControlClient.request(["command": "preview-page", "details": "1"]) else { return }
+        print("UI preview diagnostics: \(details)")
     }
 
     @MainActor

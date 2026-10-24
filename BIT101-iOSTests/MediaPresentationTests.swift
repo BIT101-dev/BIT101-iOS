@@ -105,6 +105,7 @@ struct MediaPresentationTests {
         }
         coordinator.receive(ImagePreviewRequest(remoteImages: [.init(thumbnailURL: low, originalURL: high)], initialIndex: 0), from: host, media: media)
         try await waitForTestEvent { transport.pending != nil && preview.viewIfLoaded?.window != nil && !preview.isBeingPresented }
+        #expect(host.presentedViewController === preview)
         if blocksThumbnail {
             try await waitForTestEvent {
                 guard let file = preview.dataSource?.previewController(preview, previewItemAt: 0).previewItemURL else { return false }
@@ -276,8 +277,12 @@ struct MediaPresentationTests {
         let oldURL = preview.dataSource?.previewController(preview, previewItemAt: 1).previewItemURL
         let item = try #require(preview.dataSource?.previewController(preview, previewItemAt: 1) as? MutableQuickLookItem)
         #expect(await Task.detached { item.previewItemURL }.value == oldURL)
+        let refreshes = preview.refreshes
         transport.pending?.resume(); transport.pending = nil
-        try await waitForTestEvent { preview.refreshes > 0 }
+        try await waitForTestEvent {
+            guard let url = item.previewItemURL else { return false }
+            return preview.refreshes > refreshes && url != oldURL
+        }
         #expect(preview.dataSource?.previewController(preview, previewItemAt: 1).previewItemURL != oldURL)
         #expect(await Task.detached { item.previewItemURL }.value == item.url)
     }

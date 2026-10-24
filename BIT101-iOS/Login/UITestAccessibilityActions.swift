@@ -16,6 +16,7 @@ nonisolated enum UITestScrollGeometry {
 #endif
 
 #if BIT101_UI_TESTING
+import StorageCore
 import Foundation
 import UIKit
 import MapKit
@@ -174,9 +175,10 @@ enum UITestAccessibilityActions {
             result["items"] = (0..<source.numberOfPreviewItems(in: preview)).map { index -> [String: Any] in
                 let item = source.previewController(preview, previewItemAt: index)
                 guard let url = item.previewItemURL else { return ["index": index, "readable": false] }
+                let data = try? AppFileDirectories.files.readData(at: url)
                 return ["index": index, "extension": url.pathExtension,
-                    "readable": FileManager.default.isReadableFile(atPath: url.path),
-                    "imageDecodable": UIImage(contentsOfFile: url.path) != nil,
+                    "readable": data != nil,
+                    "imageDecodable": data.flatMap { UIImage(data: $0) } != nil,
                     "canPreview": QLPreviewController.canPreview(item)]
             }
             func viewTypes(_ view: UIView) -> [String] { [String(describing: type(of: view))] + view.subviews.flatMap(viewTypes) }

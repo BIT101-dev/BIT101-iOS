@@ -320,6 +320,15 @@ else
   -xctestrun "$plan" -derivedDataPath "$DERIVED_ROOT" -destination "$destination" -resultBundlePath "$result" \
   "${parallel_arguments[@]}" -test-timeouts-enabled YES -collect-test-diagnostics never -enableCodeCoverage YES "${only_testing[@]}" || test_status=$?
 fi
+if [[ "$mode" == ui && "$test_status" -ne 0 ]]; then
+  python3 - "$ROOT_DIR/Scripts" "$SIMULATOR_DEVICE" "$DERIVED_ROOT" <<'PYPREVIEWDIAGNOSTICS'
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from validation_coverage import capture_preview_diagnostics
+capture_preview_diagnostics(sys.argv[2], Path(sys.argv[3]))
+PYPREVIEWDIAGNOSTICS
+fi
 BIT101_VALIDATION_ELAPSED_SECONDS="$(( SECONDS - SIMULATOR_STARTED_SECONDS ))" python3 - "$result" "$DERIVED_ROOT/test-metrics.txt" "$ROOT_DIR/Scripts" "$EXPECTED_TESTS" "$test_status" "$mode" "$SIMULATOR_DEVICE" "$configuration" "$TEST_SCOPE" "$SIMULATOR_WORKERS" <<'PYRESULT'
 import json
 from pathlib import Path

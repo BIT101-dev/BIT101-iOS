@@ -14,18 +14,18 @@ SCRIPT = str(Path(__file__).absolute())
 
 def active_member_states(groups: set[int], *, workers_only: bool = False) -> dict[int, str]:
     if not groups: return {}
-    snapshot = subprocess.check_output(['ps', '-ww', '-axo', 'pid=,pgid=,stat=,args='], text=True, start_new_session=True)
+    snapshot = subprocess.check_output(['ps', '-ww', '-axo', 'uid=,pid=,pgid=,stat=,args='], text=True, start_new_session=True)
     members = {}
     for line in snapshot.splitlines():
-        fields = line.split(None, 3)
-        if len(fields) < 4: continue
-        try: pid, group = map(int, fields[:2])
+        fields = line.split(None, 4)
+        if len(fields) < 5: continue
+        try: owner, pid, group = map(int, fields[:3])
         except ValueError: continue
-        if group not in groups or fields[2].startswith('Z'): continue
-        program, _, arguments = fields[3].partition(' ')
+        if owner != os.getuid() or group not in groups or fields[3].startswith('Z'): continue
+        program, _, arguments = fields[4].partition(' ')
         supervisor = Path(program).name.lower().startswith('python') and arguments.lstrip().removeprefix('-B ').startswith(SCRIPT + ' ')
         if workers_only and (pid == os.getpid() or supervisor): continue
-        members[pid] = fields[2]
+        members[pid] = fields[3]
     return members
 
 
@@ -35,19 +35,22 @@ def active_members(groups: set[int], *, workers_only: bool = False) -> set[int]:
 
 def signal_groups(groups: set[int], signum: int) -> None:
     for group in groups:
+        if not active_members({group}): continue
         try: os.killpg(group, signum)
         except ProcessLookupError: pass
+        except PermissionError:
+            if active_members({group}): raise
 
 
 def descendant_groups(root: int) -> set[int]:
-    snapshot = subprocess.check_output(['ps', '-axo', 'pid=,ppid=,pgid='], text=True)
+    snapshot = subprocess.check_output(['ps', '-axo', 'uid=,pid=,ppid=,pgid='], text=True)
     rows = [tuple(map(int, line.split())) for line in snapshot.splitlines() if line.strip()]
     descendants = {root}
     while True:
-        expanded = descendants | {pid for pid, parent, _ in rows if parent in descendants}
+        expanded = descendants | {pid for _, pid, parent, _ in rows if parent in descendants}
         if expanded == descendants: break
         descendants = expanded
-    return {group for pid, _, group in rows if pid in descendants}
+    return {group for owner, pid, _, group in rows if owner == os.getuid() and pid in descendants}
 
 
 def stop_groups(groups: set[int], *, grace_seconds: float = 5, workers_only: bool = False,

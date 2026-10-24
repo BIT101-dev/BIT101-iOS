@@ -116,8 +116,9 @@ nonisolated final class CommunityEditingRecoveryUITests: UIAutomationTestCase {
         dismissKeyboard()
         tap("添加评论图片")
         selectFirstPhoto()
+        assertUI(textElement("已添加 1 张图片").appears(timeout: 30), "系统照片导入完成后应将图片加入附件列表。")
         let retry = app.buttons["重试"]
-        assertUI(retry.appears(timeout: 10), "上传故障应保留原选图并提供重试。")
+        assertUI(retry.appears(timeout: 5), "上传故障应保留原选图并提供重试。")
         assertUI(textElement("已添加 1 张图片").exists, "失败图片应继续留在附件列表。")
         retry.tapBriefly()
         assertUI(textElement("已上传").appears(timeout: 10), "重试应直接完成原选图上传。")

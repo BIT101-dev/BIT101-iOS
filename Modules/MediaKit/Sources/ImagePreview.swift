@@ -119,7 +119,6 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
             return button
         }()
         private var previewController: QLPreviewController?
-        private var previewNavigationController: UINavigationController?
         private var placeholderURL: URL?
         private var items: [MutableQuickLookItem] = []
         private var isPreviewPresentationComplete = false
@@ -167,21 +166,19 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
                     controller.delegate = self
                     controller.currentPreviewItemIndex = prepared.initialIndex
                     previewController = controller
-                    let navigation = UINavigationController(rootViewController: controller)
-                    navigation.modalPresentationStyle = .fullScreen
+                    controller.modalPresentationStyle = .fullScreen
                     let close = UIBarButtonItem(barButtonSystemItem: .done, target: self, action: #selector(closePreview))
                     close.accessibilityIdentifier = "media.preview.close"
                     controller.navigationItem.leftBarButtonItem = close
                     loadingIndicator.accessibilityLabel = "正在加载图片"
                     updateRetryButton()
-                    previewNavigationController = navigation
                     let observedRequestID = request.id
                     selectionObservation = controller.observe(\.currentPreviewItemIndex, options: [.new]) { [weak self] _, change in
                         guard let index = change.newValue else { return }
                         Task { @MainActor [weak self] in self?.selectionDidChange(index, requestID: observedRequestID) }
                     }
                     isPreviewPresentationComplete = false
-                    host.present(navigation, animated: true) { [weak self, weak controller] in
+                    host.present(controller, animated: true) { [weak self, weak controller] in
                         guard let self, let controller, self.previewController === controller, self.media === media else { return }
                         isPreviewPresentationComplete = true
                         if pendingCurrentRefresh {
@@ -231,13 +228,11 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
             selectionObservation = nil
             if let requestID { media.endPreview(owner: requestID) }
             let controller = previewController
-            let presentation: UIViewController? = previewNavigationController ?? controller
             previewController = nil
-            previewNavigationController = nil
             controller?.dataSource = nil
             controller?.delegate = nil
             loadingIndicator.stopAnimating()
-            presentation?.dismiss(animated: false)
+            controller?.dismiss(animated: false)
             preparationTask = nil
             upgradeTask = nil
             retryTask = nil
