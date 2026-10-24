@@ -31,6 +31,7 @@ if SIMULATOR_DEVICE="$(python3 - "$DERIVED_ROOT/simulator-device.json" "$operati
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -50,22 +51,29 @@ if not available:
     data = inventory()
     available = runtimes(data)
 if not available: raise SystemExit('iOS 模拟器运行时安装完成后需要出现在系统库存。')
+runtime = max(available, key=lambda row: tuple(map(int, row['version'].split('.'))))
+hosted = os.getenv('GITHUB_ACTIONS') == 'true'
+if hosted:
+    phones = [row for row in runtime['supportedDeviceTypes'] if re.fullmatch(r'iPhone \d+', row['name'])]
+    if not phones: raise SystemExit('CI 完整验收需要标准数字型号 iPhone 设备类型。')
+    phone = max(phones, key=lambda row: int(row['name'].split()[-1]))
 owned = json.loads(path.read_text()) if path.is_file() else None
 device = next((row for rows in data['devices'].values() for row in rows
     if owned and row['udid'] == owned['identifier']), None)
+if hosted and device and (device.get('deviceTypeIdentifier') != phone['identifier'] or owned.get('runtime') != runtime['identifier']):
+    device = None
 if device and device.get('isAvailable'):
     identifier = owned['identifier']
 else:
     if device and device.get('name') == 'BIT101':
         subprocess.run(['xcrun', 'simctl', 'delete', device['udid']], check=True, stdout=sys.stderr, stderr=sys.stderr)
-    runtime = max(available, key=lambda row: tuple(map(int, row['version'].split('.'))))
     reusable = [row for row in data['devices'].get(runtime['identifier'], []) if row.get('isAvailable')
-        and (row['name'].startswith('iPhone') if os.getenv('GITHUB_ACTIONS') == 'true' else row['name'] == 'BIT101')]
+        and (row.get('deviceTypeIdentifier') == phone['identifier'] if hosted else row['name'] == 'BIT101')]
     if reusable:
         device = min(reusable, key=lambda row: (row['state'] != 'Booted', row['udid']))
         identifier = device['udid']
     else:
-        phone = next(row for row in runtime['supportedDeviceTypes'] if row['name'].startswith('iPhone'))
+        if not hosted: phone = next(row for row in runtime['supportedDeviceTypes'] if row['name'].startswith('iPhone'))
         identifier = subprocess.check_output(['xcrun', 'simctl', 'create', 'BIT101', phone['identifier'], runtime['identifier']], text=True).strip()
         device = {'state': 'Shutdown'}
     path.write_text(json.dumps({'identifier': identifier, 'runtime': runtime['identifier']}) + '\n')

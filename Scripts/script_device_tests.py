@@ -68,17 +68,24 @@ def simulator_identity_boundary_findings() -> list[str]:
     program = heredoc_body(source, 'PYDEVICE')
     path = Path('/fixture/simulator-device.json')
     runtime = {'identifier': 'com.apple.CoreSimulator.SimRuntime.iOS-27-0', 'version': '27.0', 'isAvailable': True,
-        'supportedDeviceTypes': [{'name': 'iPhone', 'identifier': 'phone-type'}]}
+        'supportedDeviceTypes': [{'name': 'iPhone Duo', 'identifier': 'adaptive-type'},
+            {'name': 'iPhone 16', 'identifier': 'older-type'}, {'name': 'iPhone 17', 'identifier': 'phone-type'}]}
     for ci, state in [(False, 'valid'), (False, 'deleted'), (False, 'unavailable'),
-                      (False, 'manifest-missing'), (False, 'empty'), (True, 'deleted'), (True, 'unavailable'), (True, 'empty')]:
-        old = {'udid': 'old', 'name': 'BIT101', 'isAvailable': state == 'valid', 'state': 'Booted'}
-        reusable = {'udid': 'ready', 'name': 'iPhone' if ci else 'BIT101', 'isAvailable': True, 'state': 'Booted'}
-        devices = [] if state == 'empty' else [reusable] + ([old] if state in {'valid', 'unavailable'} else [])
+                      (False, 'manifest-missing'), (False, 'empty'), (True, 'valid'), (True, 'deleted'),
+                      (True, 'unavailable'), (True, 'empty'), (True, 'adaptive')]:
+        old = {'udid': 'old', 'name': 'BIT101', 'isAvailable': state in {'valid', 'adaptive'}, 'state': 'Booted',
+            'deviceTypeIdentifier': 'adaptive-type' if state == 'adaptive' else 'phone-type'}
+        reusable = {'udid': 'ready', 'name': 'iPhone 17' if ci else 'BIT101', 'isAvailable': True,
+            'state': 'Booted', 'deviceTypeIdentifier': 'phone-type'}
+        adaptive = {'udid': 'first', 'name': 'iPhone Duo', 'isAvailable': True, 'state': 'Booted', 'deviceTypeIdentifier': 'adaptive-type'}
+        devices = ([adaptive] if ci else []) + ([] if state == 'empty' else [reusable] + ([old] if state in {'valid', 'unavailable', 'adaptive'} else []))
         data = {'runtimes': [runtime], 'devices': {runtime['identifier']: devices}}
         saved, commands = [], []
         def output(command, **kwargs):
             if command[:4] == ['xcrun', 'simctl', 'list', '--json']: return json.dumps(data)
-            if command[:3] == ['xcrun', 'simctl', 'create']: return 'created'
+            if command[:3] == ['xcrun', 'simctl', 'create']:
+                if ci: assert command[4:] == ['phone-type', runtime['identifier']]
+                return 'created'
             raise AssertionError(command)
         def run(command, **kwargs):
             commands.append(command)
@@ -95,6 +102,7 @@ def simulator_identity_boundary_findings() -> list[str]:
         assert console.getvalue().strip() == expected, (ci, state)
         assert saved == ([] if state == 'valid' else [{'identifier': expected, 'runtime': runtime['identifier']}]), (ci, state)
         assert (['xcrun', 'simctl', 'delete', 'old'] in commands) == (state == 'unavailable'), (ci, state)
+        if state == 'empty': assert saved and ['xcrun', 'simctl', 'boot', 'created'] in commands
     return []
 
 
