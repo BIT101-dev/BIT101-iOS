@@ -245,7 +245,7 @@ def signature_function(signature: str, scope: list[str]) -> dict:
             start = position + 1
     values.append(arguments[start:])
     return {'name': name, 'scope': scope, 'isStatic': static, 'returnType': returned or None, 'returnOverload': bool(returned),
-        'parameters': [dict(label=label, type=kind, hasDefault=False, variadic=False)
+        'parameters': [dict(label=label, name=label, type=kind, hasDefault=False, variadic=False)
         for value in values if value for label, kind in [value.split(':', 1)]]}
 
 
