@@ -93,22 +93,7 @@ public struct ScoreListPage: View {
                         }
                         .appInteractiveListRow()
 
-                        if !viewModel.availableCourseTypes.isEmpty {
-                            NavigationLink {
-                                ScoreFilterPage(
-                                    title: "种类筛选",
-                                    options: viewModel.availableCourseTypes,
-                                    selectedValues: Binding(
-                                        get: { viewModel.selectedCourseTypes },
-                                        set: { viewModel.setSelectedCourseTypes($0) }
-                                    ),
-                                    onToggleAll: viewModel.toggleAllCourseTypes
-                                )
-                            } label: {
-                                LabeledContent("种类", value: selectionDescription(selected: viewModel.selectedCourseTypes, all: viewModel.availableCourseTypes))
-                            }
-                            .appInteractiveListRow()
-                        }
+                        // 成绩页按学期筛选；“选修、必修、未分类”等课程性质分类入口须经用户明确授权后添加。
 
                         NavigationLink {
                             ScoreSortPage(
@@ -367,22 +352,19 @@ private struct ScoreListRowCard: View {
     let termText: String
     let scoreText: String
     let averageScoreText: String
-    let courseTypeText: String
 
     private init(
         courseName: String,
         creditText: String,
         termText: String,
         scoreText: String,
-        averageScoreText: String,
-        courseTypeText: String
+        averageScoreText: String
     ) {
         self.courseName = courseName
         self.creditText = creditText
         self.termText = termText
         self.scoreText = scoreText
         self.averageScoreText = averageScoreText
-        self.courseTypeText = courseTypeText
     }
 
     init(row: ScoreRow) {
@@ -390,28 +372,24 @@ private struct ScoreListRowCard: View {
         let credit = Self.trimmed(row.creditText)
         let term = Self.trimmed(row.term)
         let score = Self.trimmed(row.score)
-        let courseType = Self.trimmed(row.courseType)
         self.init(
             courseName: courseName.isEmpty ? "未命名课程" : courseName,
             creditText: credit.isEmpty ? "-" : "\(credit)学分",
             termText: term.isEmpty ? "-" : term,
             scoreText: score.isEmpty ? "-" : score,
-            averageScoreText: formatScoreText(row.averageScore),
-            courseTypeText: courseType.isEmpty ? "-" : courseType
+            averageScoreText: formatScoreText(row.averageScore)
         )
     }
 
     init(course: ScoreCourseSummary) {
         let courseName = Self.trimmed(course.name)
         let term = Self.trimmed(course.term)
-        let courseType = Self.trimmed(course.type)
         self.init(
             courseName: courseName.isEmpty ? "未命名课程" : courseName,
             creditText: course.creditText != "-" ? "\(course.creditText)学分" : "-",
             termText: term.isEmpty ? "-" : term,
             scoreText: "-",
-            averageScoreText: "-",
-            courseTypeText: courseType.isEmpty ? "-" : courseType
+            averageScoreText: "-"
         )
     }
 
@@ -446,22 +424,15 @@ private struct ScoreListRowCard: View {
                 items: [
                     AppFixedColumnItem(
                         text: "成绩 \(scoreText)",
-                        ratio: 0.25,
+                        ratio: 0.5,
                         font: AppDesignSystem.Typography.subheadlineEmphasis,
                         color: AppDesignSystem.Foreground.primaryColor
                     ),
                     AppFixedColumnItem(
                         text: "均分 \(averageScoreText)",
-                        ratio: 0.45,
+                        ratio: 0.5,
                         font: AppDesignSystem.Typography.subheadlineEmphasis,
                         color: AppDesignSystem.Foreground.primaryColor,
-                    ),
-                    AppFixedColumnItem(
-                        text: courseTypeText,
-                        ratio: 0.3,
-                        font: AppDesignSystem.Typography.caption,
-                        color: AppDesignSystem.Foreground.secondaryColor,
-                        alignment: .trailing
                     ),
                 ],
                 height: AppDesignSystem.Size.CompactRow.secondaryHeight
@@ -473,7 +444,7 @@ private struct ScoreListRowCard: View {
     }
 
     private var accessibilitySummary: String {
-        "\(courseName)，\(creditText)，\(termText)，成绩 \(scoreText)，均分 \(averageScoreText)，\(courseTypeText)"
+        "\(courseName)，\(creditText)，\(termText)，成绩 \(scoreText)，均分 \(averageScoreText)"
     }
 
     private static func trimmed(_ value: String) -> String {

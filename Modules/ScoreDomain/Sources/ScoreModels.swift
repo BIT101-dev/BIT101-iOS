@@ -292,7 +292,6 @@ public nonisolated enum ScoreSortIndex: String, CaseIterable, Identifiable, Send
     case averageScore
     case credit
     case term
-    case courseType
 
     public var id: String { rawValue }
 
@@ -303,7 +302,6 @@ public nonisolated enum ScoreSortIndex: String, CaseIterable, Identifiable, Send
         case .averageScore: "均分"
         case .credit: "学分"
         case .term: "学期"
-        case .courseType: "种类"
         }
     }
 
@@ -314,7 +312,6 @@ public nonisolated enum ScoreSortIndex: String, CaseIterable, Identifiable, Send
         case .averageScore: numericComparableValue(from: row.averageScore) == nil
         case .credit: numericComparableValue(from: row.creditText) == nil
         case .term: normalizedText(row.term).isEmpty
-        case .courseType: normalizedText(row.courseType).isEmpty
         }
     }
 
@@ -330,8 +327,6 @@ public nonisolated enum ScoreSortIndex: String, CaseIterable, Identifiable, Send
             compareNumbers(numericComparableValue(from: lhs.creditText), numericComparableValue(from: rhs.creditText))
         case .term:
             normalizedText(lhs.term).localizedStandardCompare(normalizedText(rhs.term))
-        case .courseType:
-            normalizedText(lhs.courseType).localizedStandardCompare(normalizedText(rhs.courseType))
         }
     }
 

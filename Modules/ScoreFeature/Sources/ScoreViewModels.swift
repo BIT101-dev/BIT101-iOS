@@ -21,12 +21,8 @@ public final class ScoreViewModel: ObservableObject {
     @Published private(set) var state: ScoreLoadState = .idle
     /// 当前可选学期列表。
     @Published private(set) var availableTerms: [String] = []
-    /// 当前可选课程性质列表。
-    @Published private(set) var availableCourseTypes: [String] = []
     /// 当前选中的学期集合。
     @Published private(set) var selectedTerms: Set<String> = []
-    /// 当前选中的课程性质集合。
-    @Published private(set) var selectedCourseTypes: Set<String> = []
     @Published private(set) var allowsDiagnostics = true
     @Published private(set) var failureCause: (any Error)?
     /// 当前成绩列表排序索引。
@@ -75,7 +71,6 @@ public final class ScoreViewModel: ObservableObject {
     private var cancelActiveRequest: (() -> Void)?
     private var didRestoreCachedRows = false
     private var didInitializeTermSelection = false
-    private var didInitializeCourseTypeSelection = false
     private var isSynchronizingScoreFields = false
     /// 初始化时读取一次已持久化的筛选快照。
     private let cacheStore: any ScoreCaching
@@ -143,9 +138,7 @@ public final class ScoreViewModel: ObservableObject {
         rows = []
         state = .idle
         availableTerms = []
-        availableCourseTypes = []
         selectedTerms = []
-        selectedCourseTypes = []
         failureCause = nil
         allowsDiagnostics = true
         pendingCourses = nil
@@ -157,7 +150,6 @@ public final class ScoreViewModel: ObservableObject {
         lastUpdatedAt = nil
         didRestoreCachedRows = false
         didInitializeTermSelection = false
-        didInitializeCourseTypeSelection = false
         cachedCoursesByTerm = [:]
         preferenceSnapshot = preferenceStore.load()
         restoreSortPreferences()
@@ -195,9 +187,9 @@ public final class ScoreViewModel: ObservableObject {
         guard isCurrent(session, generation: generation), readGeneration == scheduleReadGeneration else { return }
         cachedCoursesByTerm = courses
         if state != .idle {
-            let previousTerms = Set(availableTerms), previousTypes = Set(availableCourseTypes)
+            let previousTerms = Set(availableTerms)
             updateFilterOptions()
-            synchronizeFilters(previousTerms: previousTerms, previousTypes: previousTypes)
+            synchronizeFilters(previousTerms: previousTerms)
             pendingCourses = calculatePendingCourses()
         }
     }
@@ -285,9 +277,7 @@ public final class ScoreViewModel: ObservableObject {
 
             rows = []
             availableTerms = []
-            availableCourseTypes = []
             selectedTerms = []
-            selectedCourseTypes = []
             failureCause = error
             state = .failed(error.localizedDescription)
             if showErrors {
@@ -466,11 +456,7 @@ public final class ScoreViewModel: ObservableObject {
     ///
     /// 成绩列表和统计摘要均基于这份过滤结果，全量 `rows` 作为原始数据源。
     var filteredRows: [ScoreRow] {
-        rows.filter { row in
-            let matchesTerm = selectedTerms.contains(normalizedFilterValue(row.term))
-            let matchesType = availableCourseTypes.isEmpty || selectedCourseTypes.contains(normalizedFilterValue(row.courseType))
-            return matchesTerm && matchesType
-        }
+        rows.filter { selectedTerms.contains(normalizedTerm($0.term)) }
     }
 
     /// 当前筛选与排序条件下实际展示的成绩。
@@ -516,34 +502,32 @@ public final class ScoreViewModel: ObservableObject {
         let cachedCoursesByTerm = self.cachedCoursesByTerm.reduce(
             into: [String: [ScoreCourseSummary]]()
         ) { result, entry in
-            let normalizedTerm = normalizedFilterValue(entry.key)
+            let normalizedTerm = normalizedTerm(entry.key)
             guard !normalizedTerm.isEmpty else { return }
             result[normalizedTerm, default: []].append(contentsOf: entry.value)
         }
         let coveredTerms = scoreTerms.filter { cachedCoursesByTerm[$0] != nil }
         guard coveredTerms.count == scoreTerms.count else { return nil }
-        guard availableCourseTypes.isEmpty || !selectedCourseTypes.isEmpty else { return [] }
 
         let scoredNumbers = Set(rows.compactMap { row -> String? in
             let number = normalizedCourseIdentity(row.courseNumber)
-            let term = normalizedFilterValue(row.term)
+            let term = normalizedTerm(row.term)
             return number.isEmpty || term.isEmpty ? nil : "\(term)|\(number)"
         })
         let scoredNames = Set(rows.compactMap { row -> String? in
             let name = normalizedCourseIdentity(row.courseName)
-            let term = normalizedFilterValue(row.term)
+            let term = normalizedTerm(row.term)
             return name.isEmpty || term.isEmpty ? nil : "\(term)|\(name)"
         })
         let scoredNamesWithoutNumbers = Set(rows.compactMap { row -> String? in
             let name = normalizedCourseIdentity(row.courseName)
-            let term = normalizedFilterValue(row.term)
+            let term = normalizedTerm(row.term)
             return normalizedCourseIdentity(row.courseNumber).isEmpty && !name.isEmpty && !term.isEmpty ? "\(term)|\(name)" : nil
         })
         var pendingByIdentity: [String: ScoreCourseSummary] = [:]
 
         for term in coveredTerms {
             for course in cachedCoursesByTerm[term] ?? [] {
-                guard availableCourseTypes.isEmpty || selectedCourseTypes.contains(normalizedFilterValue(course.type)) else { continue }
                 let number = normalizedCourseIdentity(course.number)
                 let name = normalizedCourseIdentity(course.name)
                 let hasScore = (!number.isEmpty && scoredNumbers.contains("\(term)|\(number)"))
@@ -581,25 +565,10 @@ public final class ScoreViewModel: ObservableObject {
         persistFilterPreferences()
     }
 
-    /// 更新课程性质筛选结果，并保留现有选项中的有效值。
-    func setSelectedCourseTypes(_ values: Set<String>) {
-        selectedCourseTypes = values.intersection(Set(availableCourseTypes))
-        pendingCourses = calculatePendingCourses()
-        persistFilterPreferences()
-    }
-
     /// 在“全选学期”和“全不选学期”之间切换。
     func toggleAllTerms() {
         let allTerms = Set(availableTerms)
         selectedTerms = selectedTerms == allTerms ? [] : allTerms
-        pendingCourses = calculatePendingCourses()
-        persistFilterPreferences()
-    }
-
-    /// 在“全选课程性质”和“全不选课程性质”之间切换。
-    func toggleAllCourseTypes() {
-        let allCourseTypes = Set(availableCourseTypes)
-        selectedCourseTypes = selectedCourseTypes == allCourseTypes ? [] : allCourseTypes
         pendingCourses = calculatePendingCourses()
         persistFilterPreferences()
     }
@@ -691,29 +660,23 @@ public final class ScoreViewModel: ObservableObject {
     private func applyRows(_ newRows: [ScoreRow]) {
         presentationGeneration &+= 1
         rows = newRows
-        let previousTerms = Set(availableTerms), previousTypes = Set(availableCourseTypes)
+        let previousTerms = Set(availableTerms)
         updateFilterOptions()
-        synchronizeFilters(previousTerms: previousTerms, previousTypes: previousTypes)
+        synchronizeFilters(previousTerms: previousTerms)
         pendingCourses = calculatePendingCourses()
         state = .loaded
     }
 
     private func updateFilterOptions() {
-        availableTerms = uniqueFilterValues(from: rows.map(\.term) + Array(cachedCoursesByTerm.keys).sorted())
-        let courseTypes = rows.map(\.courseType)
-        let scheduleTypes = cachedCoursesByTerm.keys.sorted().flatMap { cachedCoursesByTerm[$0] ?? [] }.map(\.type)
-        availableCourseTypes = courseTypes.contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-            ? uniqueFilterValues(from: courseTypes + scheduleTypes) : []
+        availableTerms = uniqueTerms(from: rows.map(\.term) + Array(cachedCoursesByTerm.keys).sorted())
     }
 
     /// 刷新可选项后，同步修正当前筛选集合。
     ///
     /// 首次进入时恢复本地偏好；后续刷新时把当前筛选限制在现有选项范围内。
-    private func synchronizeFilters(previousTerms: Set<String>, previousTypes: Set<String>) {
+    private func synchronizeFilters(previousTerms: Set<String>) {
         let originalTerms = selectedTerms
-        let previousCourseTypes = selectedCourseTypes
         let termSet = Set(availableTerms)
-        let typeSet = Set(availableCourseTypes)
 
         if !didInitializeTermSelection, !termSet.isEmpty {
             if let persistedTerms = preferenceSnapshot?.selectedTerms {
@@ -726,18 +689,7 @@ public final class ScoreViewModel: ObservableObject {
             selectedTerms = !previousTerms.isEmpty && selectedTerms == previousTerms ? termSet : selectedTerms.intersection(termSet)
         }
 
-        if !didInitializeCourseTypeSelection, !typeSet.isEmpty {
-            if let persistedCourseTypes = preferenceSnapshot?.selectedCourseTypes {
-                selectedCourseTypes = Set(persistedCourseTypes).intersection(typeSet)
-            } else {
-                selectedCourseTypes = typeSet
-            }
-            didInitializeCourseTypeSelection = true
-        } else if didInitializeCourseTypeSelection, !typeSet.isEmpty {
-            selectedCourseTypes = !previousTypes.isEmpty && selectedCourseTypes == previousTypes ? typeSet : selectedCourseTypes.intersection(typeSet)
-        }
-
-        if originalTerms != selectedTerms || previousCourseTypes != selectedCourseTypes {
+        if originalTerms != selectedTerms || (preferenceSnapshot == nil && !rows.isEmpty) {
             persistFilterPreferences()
         }
     }
@@ -752,9 +704,6 @@ public final class ScoreViewModel: ObservableObject {
         if didInitializeTermSelection {
             selectedTerms = Set(preferenceSnapshot.selectedTerms).intersection(Set(availableTerms))
         }
-        if didInitializeCourseTypeSelection {
-            selectedCourseTypes = Set(preferenceSnapshot.selectedCourseTypes).intersection(Set(availableCourseTypes))
-        }
         pendingCourses = calculatePendingCourses()
     }
 
@@ -763,12 +712,12 @@ public final class ScoreViewModel: ObservableObject {
         sortOrder = preferenceSnapshot?.sortOrder.flatMap(ScoreSortOrder.init(rawValue:)) ?? .ascending
     }
 
-    /// 提取筛选项并保留原始出现顺序，缺失字段归入“未分类”。
-    private func uniqueFilterValues(from source: [String]) -> [String] {
+    /// 提取学期并保留原始出现顺序，缺失字段显示为“未知学期”。
+    private func uniqueTerms(from source: [String]) -> [String] {
         var seen = Set<String>()
         var values: [String] = []
         for item in source {
-            let trimmed = normalizedFilterValue(item)
+            let trimmed = normalizedTerm(item)
             guard !seen.contains(trimmed) else { continue }
             seen.insert(trimmed)
             values.append(trimmed)
@@ -783,9 +732,9 @@ public final class ScoreViewModel: ObservableObject {
             .lowercased()
     }
 
-    private func normalizedFilterValue(_ value: String) -> String {
+    private func normalizedTerm(_ value: String) -> String {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "未分类" : trimmed
+        return trimmed.isEmpty ? "未知学期" : trimmed
     }
 
     /// 保存当前筛选结果到本地偏好。
@@ -793,10 +742,10 @@ public final class ScoreViewModel: ObservableObject {
         guard !isSynchronizingScoreFields else { return }
         if preferenceStore.hasUnreadableSnapshot { needsStorageRecovery = true; return }
         guard preferenceSnapshot != nil
-                || (didInitializeTermSelection && (didInitializeCourseTypeSelection || !rows.isEmpty)) else { return }
+                || (didInitializeTermSelection && !rows.isEmpty) else { return }
         let saved = preferenceStore.save(
             selectedTerms: didInitializeTermSelection ? selectedTerms : Set(preferenceSnapshot?.selectedTerms ?? []),
-            selectedCourseTypes: didInitializeCourseTypeSelection ? selectedCourseTypes : Set(preferenceSnapshot?.selectedCourseTypes ?? []),
+            selectedCourseTypes: Set(preferenceSnapshot?.selectedCourseTypes ?? []),
             sortIndex: sortIndex,
             sortOrder: sortOrder
         )
@@ -844,7 +793,6 @@ public final class ScoreViewModel: ObservableObject {
         preferenceStore.reset()
         preferenceSnapshot = nil
         didInitializeTermSelection = false
-        didInitializeCourseTypeSelection = false
         restoreSortPreferences()
         needsStorageRecovery = false
         lastUpdatedAt = saved

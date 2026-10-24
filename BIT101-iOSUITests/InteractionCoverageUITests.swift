@@ -350,30 +350,28 @@ nonisolated final class ScoreInteractionUITests: UIAutomationTestCase {
                  "自动验证错误后应恢复手动重试。")
         fillVerificationCode("１２٣٤５６", in: app.textFields["verification.code"])
         assertUI(textElement("自动化测试课程").appears(timeout: 5), "替换完整验证码应自动验证并加载成绩。")
-        for (route, option) in [("学期", "ui-test-term"), ("种类", "必修")] {
-            openScoreFilter(route)
-            if route == "学期" {
-                tap("全不选")
-                assertUI(app.buttons["全选"].exists, "公共筛选页批量清空应恢复全选操作。")
-                tap("全选")
-            }
-            let item = app.buttons.matching(NSPredicate(format: "label == %@", option)).firstMatch
-            assertUI(item.appears(timeout: 5), "筛选页应加载\(option)选项。")
-            item.tapBriefly()
-            waitForValue("未选择", of: item)
-            back()
-            assertUI(app.navigationBars["\(route)筛选"].disappears(timeout: 5), "返回应关闭\(route)筛选页。")
-            assertUI(app.staticTexts["当前筛选条件下暂无成绩。"].appears(timeout: 5), "取消单项选择应过滤成绩。")
-            openScoreFilter(route)
-            assertUI(item.appears(timeout: 5), "重新打开应恢复\(option)筛选项。")
-            item.tapBriefly()
-            waitForValue("已选择", of: item)
-            back()
-            assertUI(app.navigationBars["\(route)筛选"].disappears(timeout: 5), "选择后返回应恢复成绩页。")
-        }
+        let route = "学期"
+        let option = "ui-test-term"
+        openScoreFilter(route)
+        tap("全不选")
+        assertUI(app.buttons["全选"].exists, "公共筛选页批量清空应恢复全选操作。")
+        tap("全选")
+        let item = app.buttons.matching(NSPredicate(format: "label == %@", option)).firstMatch
+        assertUI(item.appears(timeout: 5), "筛选页应加载\(option)选项。")
+        item.tapBriefly()
+        waitForValue("未选择", of: item)
+        back()
+        assertUI(app.navigationBars["\(route)筛选"].disappears(timeout: 5), "返回应关闭\(route)筛选页。")
+        assertUI(app.staticTexts["当前筛选条件下暂无成绩。"].appears(timeout: 5), "取消单项选择应过滤成绩。")
+        openScoreFilter(route)
+        assertUI(item.appears(timeout: 5), "重新打开应恢复\(option)筛选项。")
+        item.tapBriefly()
+        waitForValue("已选择", of: item)
+        back()
+        assertUI(app.navigationBars["\(route)筛选"].disappears(timeout: 5), "选择后返回应恢复成绩页。")
         app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "排序")).firstMatch.tapBriefly()
         assertUI(app.navigationBars["成绩排序"].appears(timeout: 5), "排序入口应完成页面导航。")
-        for title in ["名称", "成绩", "均分", "学分", "学期", "种类"] {
+        for title in ["名称", "成绩", "均分", "学分", "学期"] {
             let index = app.collectionViews.buttons.matching(NSPredicate(format: "label == %@", title)).firstMatch
             reveal(index, description: title)
             index.tapBriefly()

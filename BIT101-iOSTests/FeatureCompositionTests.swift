@@ -190,15 +190,14 @@ struct FeatureCompositionTests {
             loadScheduleCourses: { _ in ["fixture": [course]] })
         await model.restoreCachedDataIfNeeded()
         model.setSortIndex(.score)
-        #expect(model.selectedTerms == ["fixture"] && model.availableCourseTypes.isEmpty)
-        #expect(model.selectedCourseTypes.isEmpty && preferences.load() == nil)
+        #expect(model.selectedTerms == ["fixture"] && preferences.load() == nil)
         cache.rows = rows
         await model.applySyncedScoreCacheIfAvailable()
-        #expect(model.filteredRows == rows && model.selectedCourseTypes == ["必修"])
+        #expect(model.filteredRows == rows)
         #expect(preferences.load()?.sortIndex == ScoreSortIndex.score.rawValue)
-        model.toggleAllCourseTypes()
+        model.toggleAllTerms()
         await model.applySyncedScoreCacheIfAvailable()
-        #expect(model.filteredRows.isEmpty && preferences.load()?.selectedCourseTypes == [])
+        #expect(model.filteredRows.isEmpty && preferences.load()?.selectedTerms == [])
     }
 
     @Test(.timeLimit(.minutes(1)))

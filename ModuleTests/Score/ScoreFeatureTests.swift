@@ -95,7 +95,7 @@ struct ScoreFeatureTests {
         let (model, _) = try makeViewModel(service: service)
         defer { clearPreferences() }
         await model.refresh()
-        #expect(model.selectedTerms == ["term"] && model.selectedCourseTypes == ["必修"])
+        #expect(model.selectedTerms == ["term"])
         #expect(model.visibleRows.count == 1)
         await model.restoreCachedDataIfNeeded()
         #expect(model.visibleRows.count == 1)
@@ -323,17 +323,15 @@ struct ScoreFeatureTests {
         await model.restoreCachedDataIfNeeded()
         #expect(model.visibleRows.count == 3)
         #expect(model.summary.selectedCourseCount == 3 && model.summary.weightedAverageScore == 80)
-        #expect(Set(model.availableTerms) == ["A", "未分类"])
-        #expect(Set(model.availableCourseTypes) == ["必修", "选修", "未分类"])
-        model.setSelectedTerms(["未分类"])
+        #expect(Set(model.availableTerms) == ["A", "未知学期"])
+        model.setSelectedTerms(["未知学期"])
         #expect(model.visibleRows.map(\.courseName) == ["缺少学期"])
         model.toggleAllTerms()
-        model.setSelectedCourseTypes(["未分类"])
-        #expect(model.visibleRows.map(\.courseName) == ["缺少性质"])
+        #expect(model.visibleRows.count == 3)
     }
 
-    @Test(.timeLimit(.minutes(1)), arguments: [false, true], ["missing", "", " \n"])
-    func scoresWithoutCourseTypesIgnoreScheduleCategories(restorePreference: Bool, field: String) async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true], ["missing", "", " \n", "必修", "选修"])
+    func scoresAndPendingCoursesIgnoreStoredCourseTypeSelections(restorePreference: Bool, field: String) async throws {
         let domain = "BIT101ModulesTests.score.without-types"
         let defaults = try #require(UserDefaults(suiteName: domain))
         defaults.removePersistentDomain(forName: domain)
@@ -360,10 +358,8 @@ struct ScoreFeatureTests {
             currentScoreCacheSession: { session }, scheduleCoursesChanges: Empty().eraseToAnyPublisher(),
             loadScheduleCourses: { _ in ["A": courses] })
         await model.restoreCachedDataIfNeeded()
-        #expect(model.availableCourseTypes.isEmpty && model.visibleRows == rows)
+        #expect(model.visibleRows == rows)
         #expect(model.summary.selectedCourseCount == 1 && model.pendingCourseCount == 3)
-        model.setSelectedCourseTypes(["必修"])
-        #expect(model.visibleRows == rows && model.pendingCourseCount == 3)
         model.setSortIndex(.score)
         #expect(preferences.load()?.sortIndex == ScoreSortIndex.score.rawValue)
         preferences.applySynced(.init(selectedTerms: ["A"], selectedCourseTypes: ["选修"]))
@@ -371,7 +367,7 @@ struct ScoreFeatureTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func pendingCoursesFollowLocalAndSyncedCourseTypeFilters() async throws {
+    func pendingCoursesFollowLocalAndSyncedTermFilters() async throws {
         let domain = "BIT101ModulesTests.score.pending-types"
         let defaults = try #require(UserDefaults(suiteName: domain))
         defaults.removePersistentDomain(forName: domain)
@@ -394,15 +390,15 @@ struct ScoreFeatureTests {
             preferenceStore: preferences, currentScoreCacheSession: { session },
             scheduleCoursesChanges: Empty().eraseToAnyPublisher(), loadScheduleCourses: { _ in ["A": courses] })
         await model.restoreCachedDataIfNeeded()
-        #expect(model.pendingCourseCount == 3 && Set(model.availableCourseTypes) == ["必修", "选修", "未分类"])
-        model.setSelectedCourseTypes(["必修"])
-        #expect(model.pendingCourses?.map(\.type) == ["必修"])
-        model.toggleAllCourseTypes()
         #expect(model.pendingCourseCount == 3)
-        model.toggleAllCourseTypes()
-        #expect(model.pendingCourseCount == 0)
-        preferences.applySynced(.init(selectedTerms: ["A"], selectedCourseTypes: ["选修"]))
-        #expect(model.pendingCourses?.map(\.type) == ["选修"])
+        model.toggleAllTerms()
+        #expect(model.filteredRows.isEmpty && model.pendingCourseCount == nil)
+        model.toggleAllTerms()
+        #expect(model.filteredRows == rows && model.pendingCourseCount == 3)
+        preferences.applySynced(.init(selectedTerms: ["A"], selectedCourseTypes: []))
+        #expect(model.filteredRows == rows && model.pendingCourseCount == 3)
+        preferences.applySynced(.init(selectedTerms: [], selectedCourseTypes: ["必修"]))
+        #expect(model.filteredRows.isEmpty && model.pendingCourseCount == nil)
     }
 
     @Test(.timeLimit(.minutes(1))) func localSaveSubscriptionsFanOutAndCancelByOwner() async throws {

@@ -910,7 +910,7 @@ struct ScorePublicContractTests {
         let first = ScoreRow(index: 0, headers: headers, values: [" A ", "85", "80", "1", "A", "A"])
         let second = ScoreRow(index: 1, headers: headers, values: ["B", "95", "90", "4", "B", "B"])
         let empty = ScoreRow(index: 2, headers: [], values: [])
-        #expect(ScoreSortIndex.allCases.map(\.title) == ["名称", "成绩", "均分", "学分", "学期", "种类"])
+        #expect(ScoreSortIndex.allCases.map(\.title) == ["名称", "成绩", "均分", "学分", "学期"])
         for field in ScoreSortIndex.allCases {
             #expect(field.id == field.rawValue)
             #expect(field.compare(first, second) == .orderedAscending)

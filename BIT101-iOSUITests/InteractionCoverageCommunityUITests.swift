@@ -211,8 +211,7 @@ nonisolated final class CommunityInteractionUITests: UIAutomationTestCase {
     @objc func testExternalLinksFromAboutAndCourseResources() {
         app = configureApp(resetStorage: true, content: true, initialSettings: "about")
         for (entry, url) in [("项目仓库", "github.com/BIT101-dev/BIT101-iOS"), ("QQ交流群", "jq.qq.com"),
-                             ("邮箱", "mailto:systemd@linux.do"), ("ICP备案", "beian.miit.gov.cn"),
-                             ("如果你也想加入", "mailto:systemd@linux.do")] {
+                             ("邮箱", "mailto:systemd@linux.do"), ("ICP备案", "beian.miit.gov.cn")] {
             tapLink(entry)
             assertOpenedURL(url)
         }
