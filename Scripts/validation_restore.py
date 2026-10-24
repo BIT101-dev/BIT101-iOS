@@ -296,8 +296,10 @@ def simulator_startup_findings(source: str) -> list[str]:
     except ValueError:
         return ['模拟器启动自测：设备、系统与 App 初始化入口应提供完整脚本正文。']
     device_program = programs['PYDEVICE']
-    inventory = {'runtimes': [{'isAvailable': True, 'identifier': 'com.apple.CoreSimulator.SimRuntime.iOS-27'}],
-        'devices': {'runtime': [{'udid': 'device', 'isAvailable': True, 'state': 'Shutdown'}]}}
+    runtime = 'com.apple.CoreSimulator.SimRuntime.iOS-27'
+    inventory = {'runtimes': [{'isAvailable': True, 'identifier': runtime, 'version': '27.0',
+        'supportedDeviceTypes': [{'name': 'iPhone 17 Pro', 'identifier': 'phone'}]}],
+        'devices': {runtime: [{'udid': 'device', 'isAvailable': True, 'state': 'Shutdown', 'deviceTypeIdentifier': 'phone'}]}}
     findings = []
     for hosted in ('true', 'false'):
         for operation in ('prepare', 'prepare-restore', 'build-ui', 'app', 'release-runtime', 'ui'):
@@ -307,7 +309,7 @@ def simulator_startup_findings(source: str) -> list[str]:
                     patch.object(subprocess, 'check_output', return_value=json.dumps(inventory)), \
                     patch.object(subprocess, 'run', side_effect=lambda command, **kwargs: commands.append(command)), \
                     patch.object(Path, 'is_file', return_value=True), \
-                    patch.object(Path, 'read_text', return_value=json.dumps({'identifier': 'device'})), redirect_stdout(StringIO()):
+                    patch.object(Path, 'read_text', return_value=json.dumps({'identifier': 'device', 'runtime': runtime})), redirect_stdout(StringIO()):
                 try: exec(compile(device_program, '<simulator-device>', 'exec'), {})
                 except SystemExit as error:
                     if error.code not in (None, 0): raise
@@ -316,11 +318,10 @@ def simulator_startup_findings(source: str) -> list[str]:
                 ['xcrun', 'simctl', 'bootstatus', 'device', '-b'], ['open', '-a', '/fixture/Xcode.app/Contents/Applications/DeviceHub.app']]
             if commands != expected:
                 findings.append('模拟器启动自测：托管准备请求启动，完整系统与本机初始化沿实际执行核对')
-    runtime = 'com.apple.CoreSimulator.SimRuntime.iOS-27'
     stock = {'runtimes': [{'isAvailable': True, 'identifier': runtime, 'version': '27.0',
-        'supportedDeviceTypes': [{'name': 'iPhone', 'identifier': 'phone'}]}], 'devices': {runtime: [
-            {'udid': 'shutdown', 'name': 'iPhone', 'isAvailable': True, 'state': 'Shutdown'},
-            {'udid': 'booted', 'name': 'iPhone', 'isAvailable': True, 'state': 'Booted'}]}}
+        'supportedDeviceTypes': [{'name': 'iPhone 17 Pro', 'identifier': 'phone'}]}], 'devices': {runtime: [
+            {'udid': 'shutdown', 'name': 'iPhone 17 Pro', 'isAvailable': True, 'state': 'Shutdown', 'deviceTypeIdentifier': 'phone'},
+            {'udid': 'booted', 'name': 'iPhone 17 Pro', 'isAvailable': True, 'state': 'Booted', 'deviceTypeIdentifier': 'phone'}]}}
     for hosted, expected in (('true', 'booted'), ('false', 'created')):
         def command_output(command, **kwargs):
             return json.dumps(stock) if command[2] == 'list' else 'created'
