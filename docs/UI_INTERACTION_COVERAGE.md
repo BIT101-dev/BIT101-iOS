@@ -61,7 +61,7 @@ UIKit 控件沿构造类型、继承或别名进入源码清单，运行门禁�
 | `CalendarInteractionUITests/testCourseAndExamSystemCalendarActions` | 单节及整门编辑模式、楼宇 / 房间号、周次 / 星期 / 节次多选、保存结果、单节删除确认 / 取消 |
 | `CalendarInteractionUITests/testCourseAndExamSystemCalendarActions` | 单节 / 整门 / 考试日历导入与移除、重复移除结果、整学期导入及删除确认 |
 | `CalendarInteractionUITests/testCalendarImportHistoryRecoveryKeepsImportAvailable` | 导入索引受损提示、重建确认 / 取消、重建结果与恢复后的学期导入 |
-| `CommunityRecoveryUITests/testLaterPreviewPageRecoversThroughTheNativeRetryButton` | Quick Look 后续页故障、原生工具栏重试、原位恢复与关闭 |
+| `CommunityRecoveryUITests/testLaterPreviewPageRecoversThroughTheNativeRetryButton` | Quick Look 后续页故障、原生重试控件、原位恢复与关闭 |
 | `ServiceInteractionUITests/testSchoolSMSCourseSyncValidationCancelAndContinuation` | 学校课表刷新、短信取消、验证继续和课程保存 |
 | `LoginAndScheduleUITests/testSharedScheduleCopyImportRenameCycleAndSwipeDelete` | 分享编码复制、剪贴板粘贴、导入、改名、课表上下滑循环、分享课表左滑删除 |
 | `ScheduleEditingUITests/testLongPressOpensScheduleContextMenuAndImportSheet` | 空白区长按、导入菜单、输入 Sheet |
@@ -304,7 +304,7 @@ SwiftSyntax 清点每个源码作用域的控件、输入、滚动和手势声�
 | `Modules/GalleryFeature/Sources/GallerySearchView.swift:GallerySearchView` | `{"AppOrderedSearchBar":1,"Button":1}` | `InteractionCoverageUITests/testGalleryFeedAndSurfaceSwipesMessagesAndSearchResultRoutes,InteractionCoverageUITests/testCommunityCommentLikesRepliesSortsAndPhotoPicker` |
 | `Modules/MapFeature/Sources/CampusMapScreen.swift:CampusMapScreen` | `{"AppFloatingActionButton":3}` | `LoginAndScheduleUITests/testMapCampusLayerPanAndZoomPersist,ScheduleEditingUITests/testCourseEditorFieldsPickersSaveDetailAndDelete` |
 | `Modules/MapFeature/Sources/CampusMapScreen.swift:FloatingMapLabelButton` | `{"Button":1}` | `LoginAndScheduleUITests/testMapCampusLayerPanAndZoomPersist` |
-| `Modules/MediaKit/Sources/ImagePreview.swift:ImageQuickLookPresenter.Coordinator` | `{"UIBarButtonItem":2}` | `CommunityRecoveryUITests/testLaterPreviewPageRecoversThroughTheNativeRetryButton` |
+| `Modules/MediaKit/Sources/ImagePreview.swift:ImageQuickLookPresenter.Coordinator` | `{"UIButton":1}` | `CommunityRecoveryUITests/testLaterPreviewPageRecoversThroughTheNativeRetryButton` |
 | `Modules/MineFeature/Sources/MineRootView.swift:MinePosterListView` | `{"AppEmptyState":1,"AppFailureState":2,"Button":2,"CommunityPosterCard":1,"ScrollView":1,"refreshable":1}` | `MineInteractionUITests/testMinePublicProfileFollowAndPostDeletion` |
 | `Modules/MineFeature/Sources/MineRootView.swift:MineProfileCard` | `{"Button":2}` | `MineInteractionUITests/testMinePublicProfileFollowAndPostDeletion` |
 | `Modules/MineFeature/Sources/MineRootView.swift:MineRootViewScene` | `{"AppFailureState":1,"Button":1,"List":1,"refreshable":1}` | `MineInteractionUITests/testMinePublicProfileFollowAndPostDeletion,InteractionCoverageUITests/testAccountProfileSaveLoginCheckAndLogout` |

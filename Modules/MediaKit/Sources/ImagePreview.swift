@@ -112,10 +112,15 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
         private var failureGenerations: [Int: UInt64] = [:]
         private var reportedFailures: Set<Int> = []
         private let loadingIndicator = UIActivityIndicatorView(style: .medium)
-        private lazy var retryButton: UIBarButtonItem = {
-            let button = UIBarButtonItem(barButtonSystemItem: .refresh, target: self, action: #selector(retryCurrentImage))
+        private lazy var retryButton: UIButton = {
+            var configuration = UIButton.Configuration.tinted()
+            configuration.title = "重新加载图片"
+            configuration.cornerStyle = .capsule
+            let button = UIButton(configuration: configuration)
+            button.addTarget(self, action: #selector(retryCurrentImage), for: .touchUpInside)
             button.accessibilityIdentifier = "media.preview.retry"
-            button.accessibilityLabel = "重新加载图片"
+            button.isHidden = true
+            button.translatesAutoresizingMaskIntoConstraints = false
             return button
         }()
         private var previewController: QLPreviewController?
@@ -167,9 +172,13 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
                     controller.currentPreviewItemIndex = prepared.initialIndex
                     previewController = controller
                     controller.modalPresentationStyle = .fullScreen
-                    let close = UIBarButtonItem(barButtonSystemItem: .done, target: self, action: #selector(closePreview))
-                    close.accessibilityIdentifier = "media.preview.close"
-                    controller.navigationItem.leftBarButtonItem = close
+                    controller.view.addSubview(retryButton)
+                    NSLayoutConstraint.activate([
+                        retryButton.centerXAnchor.constraint(equalTo: controller.view.safeAreaLayoutGuide.centerXAnchor),
+                        retryButton.bottomAnchor.constraint(equalTo: controller.view.safeAreaLayoutGuide.bottomAnchor,
+                            constant: -AppDesignSystem.Spacing.regular),
+                        retryButton.heightAnchor.constraint(greaterThanOrEqualToConstant: AppDesignSystem.Size.Control.touchTarget)
+                    ])
                     loadingIndicator.accessibilityLabel = "正在加载图片"
                     updateRetryButton()
                     let observedRequestID = request.id
@@ -232,6 +241,8 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
             controller?.dataSource = nil
             controller?.delegate = nil
             loadingIndicator.stopAnimating()
+            retryButton.removeFromSuperview()
+            retryButton.isHidden = true
             controller?.dismiss(animated: false)
             preparationTask = nil
             upgradeTask = nil
@@ -428,17 +439,9 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
                 loadingIndicator.stopAnimating()
                 controller.navigationItem.titleView = nil
             }
-            var buttons = (controller.navigationItem.leftBarButtonItems ?? []).filter { $0 !== retryButton }
-            if failures[controller.currentPreviewItemIndex] != nil {
-                retryButton.isEnabled = retryTask == nil
-                buttons.append(retryButton)
-            }
-            controller.navigationItem.leftBarButtonItems = buttons
-        }
-
-        @objc private func closePreview() {
-            onDismiss?()
-            cancel()
+            retryButton.isHidden = failures[controller.currentPreviewItemIndex] == nil
+            retryButton.isEnabled = retryTask == nil
+            if !retryButton.isHidden { controller.view.bringSubviewToFront(retryButton) }
         }
 
         @objc private func retryCurrentImage() {

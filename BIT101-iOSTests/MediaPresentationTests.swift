@@ -62,6 +62,11 @@ extension MediaDependencyTests {
 #if os(iOS)
 @MainActor @Suite(.serialized)
 struct MediaPresentationTests {
+    private func retryButton(in preview: QLPreviewController) -> UIButton? {
+        preview.view.subviews.compactMap { $0 as? UIButton }
+            .first { $0.accessibilityIdentifier == "media.preview.retry" }
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: ["avatar", "still", "progressive"], [false, true])
     func mediaRecoversWithoutMountingACommunityPage(kind: String, foreground: Bool) async throws {
         let helper = MediaDependencyTests(), files = PreferenceMemoryFiles()
@@ -327,19 +332,19 @@ struct MediaPresentationTests {
         #expect(failures == 0)
         preview.currentPreviewItemIndex = 1
         try await waitForTestEvent { failures == 1 }
-        let button = try #require(preview.navigationItem.leftBarButtonItems?.first { $0.accessibilityIdentifier == "media.preview.retry" })
+        let button = try #require(retryButton(in: preview))
         #expect(button.isEnabled)
         transport.failedURLs = []
         if networkRetry {
             media.retryFailedImages()
             coordinator.receive(request, from: host, media: media)
         } else {
-            let action = try #require(button.action)
-            #expect(UIApplication.shared.sendAction(action, to: button.target, from: button, for: nil))
+            #expect(!button.isHidden)
+            button.sendActions(for: .touchUpInside)
         }
         try await waitForTestEvent { preview.dataSource?.previewController(preview, previewItemAt: 1).previewItemURL != nil }
         #expect(preview.dataSource?.previewController(preview, previewItemAt: 1).previewItemTitle == "图片 2")
-        #expect(preview.navigationItem.leftBarButtonItems?.contains { $0.accessibilityIdentifier == "media.preview.retry" } == false)
+        #expect(retryButton(in: preview)?.isHidden == true)
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -386,7 +391,7 @@ struct MediaPresentationTests {
         let request = ImagePreviewRequest(remoteImages: [.init(thumbnailURL: AppURL.required("https://example.invalid/low.png"), originalURL: high)], initialIndex: 0)
         coordinator.receive(request, from: host, media: media)
         try await waitForTestEvent {
-            guard preview.navigationItem.leftBarButtonItems?.contains(where: { $0.accessibilityIdentifier == "media.preview.retry" }) == true,
+            guard retryButton(in: preview)?.isHidden == false,
                   let file = preview.dataSource?.previewController(preview, previewItemAt: 0).previewItemURL else { return false }
             return (try? files.readData(at: file)) == transport.bytes
         }
@@ -398,13 +403,14 @@ struct MediaPresentationTests {
             media.retryFailedImages()
             coordinator.receive(request, from: host, media: media)
         } else {
-            let button = try #require(preview.navigationItem.leftBarButtonItems?.first { $0.accessibilityIdentifier == "media.preview.retry" })
-            #expect(UIApplication.shared.sendAction(try #require(button.action), to: button.target, from: button, for: nil))
+            let button = try #require(retryButton(in: preview))
+            #expect(!button.isHidden)
+            button.sendActions(for: .touchUpInside)
         }
         try await waitForTestEvent {
             guard let file = preview.dataSource?.previewController(preview, previewItemAt: 0).previewItemURL else { return false }
             return (try? files.readData(at: file)) == highBytes &&
-                preview.navigationItem.leftBarButtonItems?.contains { $0.accessibilityIdentifier == "media.preview.retry" } == false
+                retryButton(in: preview)?.isHidden == true
         }
     }
 
