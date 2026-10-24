@@ -11,6 +11,31 @@ import TransportCore
 
 @MainActor
 struct EclassDDLTests {
+    @Test(.timeLimit(.minutes(1)), arguments: [
+        ("phone", 403), ("phone", 503), ("send", 403), ("send", 503),
+        ("verify", 403), ("verify", 503), ("login", 403), ("login", 503), ("login", 200)])
+    func schoolSMSServiceFailuresPreserveTheirSource(fixture: (String, Int)) async throws {
+        let (failedStage, status) = fixture
+        let transport = EclassTransport { request in
+            let path = try #require(request.url?.path)
+            let stage = path.contains("getPhoneNumber") ? "phone" : path.contains("sendSmsCode") ? "send"
+                : path.contains("checkToken") ? "verify" : "login"
+            if stage == failedStage {
+                return (status, status == 200 ? "对不起，无权访问该资源" : #"{"code":500,"message":"upstream unavailable"}"#, nil)
+            }
+            return (200, stage == "phone" ? #"{"code":200,"data":{"phone":"13800000000","maskTel":"138****0000"}}"# : #"{"code":200}"#, nil)
+        }
+        let state = TeachingCenterSessionState(cookieStorage: try #require(URLSessionConfiguration.ephemeral.httpCookieStorage))
+        let service = service(transport, state: state)
+        let context = SchoolSecondFactorContext(execution: "flow", formAction: AppURL.required("https://sso.bit.edu.cn/cas/login"), userObjectID: "user")
+        do {
+            try await service.completeSchoolAuthentication(context) { _ in "123456" }
+            Issue.record("学校短信服务故障应保留来源。")
+        } catch {
+            #expect(SchoolServiceFailure.from(error) == (status == 503 ? .unavailable : .accessDenied))
+        }
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: [(true, true), (false, true), (true, false)])
     func identitySMSCompletionRequiresTheDeclaredTicketCallback(fixture: (Bool, Bool)) async throws {
         let (validCallback, acceptingTicket) = fixture

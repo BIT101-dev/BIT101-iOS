@@ -27,7 +27,8 @@ public nonisolated enum ScheduleServiceError: LocalizedError, SchoolServiceFailu
         case .teachingCenterSessionExpired: return .sessionExpired
         case .authenticationFailed(let message), .challengeInvalid(let message):
             return SchoolServiceFailure.authenticationResponse(message)
-        case .schoolResponse(let message): return SchoolServiceFailure.schoolResponse(message)
+        case .schoolResponse(let message), .schoolSMSUnavailable(let message), .schoolSMSCodeInvalid(let message):
+            return SchoolServiceFailure.schoolResponse(message)
         default: return nil
         }
     }

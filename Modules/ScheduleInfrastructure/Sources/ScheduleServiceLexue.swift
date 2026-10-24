@@ -343,6 +343,7 @@ extension ScheduleService {
 
         let (data, response) = try await sendRequest(request, owner: owner)
         let responseURL = response.url ?? context.formAction
+        if let failure = SchoolServiceFailure.schoolResponse(String(decoding: data, as: UTF8.self)) { throw failure }
         let issuedServiceTicket = acceptingServiceTicket && (300..<400).contains(response.statusCode)
             && responseURL.host == schoolSSOBaseURL.host && responseURL == context.formAction
             && response.value(forHTTPHeaderField: "Location").flatMap { URL(string: $0, relativeTo: responseURL)?.absoluteURL }
@@ -352,9 +353,8 @@ extension ScheduleService {
             url: responseURL,
             schoolHost: schoolSSOBaseURL.host
         ) else {
-            throw ScheduleServiceError.schoolSMSUnavailable(
-                "学校短信验证请求失败，HTTP 状态码 \(response.statusCode)。"
-            )
+            throw schoolSMSRequestFailure(.schoolSMSUnavailable("学校短信验证请求失败，HTTP 状态码 \(response.statusCode)。"),
+                status: response.statusCode)
         }
         if SchoolLoginHTMLParser.parseSecondFactorPage(
             html: String(decoding: data, as: UTF8.self),
@@ -383,7 +383,7 @@ extension ScheduleService {
 
         let (data, response) = try await sendRequest(request, owner: owner)
         guard (200 ..< 300).contains(response.statusCode) else {
-            throw ScheduleServiceError.schoolSMSUnavailable("无法获取短信验证手机号。")
+            throw schoolSMSRequestFailure(.schoolSMSUnavailable("无法获取短信验证手机号。"), status: response.statusCode)
         }
         let decrypted = try crypto.decryptSchoolURLCryptoResponse(data, aesKey: encrypted.aesKey)
         guard let value = try phonePayload(from: decrypted, aesKey: encrypted.aesKey) else {
@@ -488,7 +488,7 @@ extension ScheduleService {
         ])
         let (data, response) = try await sendRequest(request, owner: owner)
         guard (200 ..< 300).contains(response.statusCode) else {
-            throw ScheduleServiceError.schoolSMSUnavailable("短信验证码发送失败。")
+            throw schoolSMSRequestFailure(.schoolSMSUnavailable("短信验证码发送失败。"), status: response.statusCode)
         }
         let code = responseCode(from: data)
         let message = responseMessage(from: data)
@@ -517,7 +517,8 @@ extension ScheduleService {
         ])
         let (data, response) = try await sendRequest(request, owner: owner)
         guard (200 ..< 300).contains(response.statusCode) else {
-            throw ScheduleServiceError.schoolSMSCodeInvalid(responseMessage(from: data) ?? "短信验证码错误或已失效，请重新发起验证。")
+            throw schoolSMSRequestFailure(.schoolSMSCodeInvalid(responseMessage(from: data) ?? "短信验证码错误或已失效，请重新发起验证。"),
+                status: response.statusCode)
         }
         guard responseCode(from: data) == 200 else {
             throw ScheduleServiceError.schoolSMSCodeInvalid(responseMessage(from: data) ?? "短信验证码错误或已失效，请重新发起验证。")
@@ -529,6 +530,13 @@ extension ScheduleService {
         if let number = root["code"] as? NSNumber { return number.intValue }
         if let string = root["code"] as? String { return Int(string) }
         return nil
+    }
+
+    private func schoolSMSRequestFailure(_ error: ScheduleServiceError, status: Int) -> any Error {
+        if status == 403 || status >= 500 {
+            return error.caused(by: NativeSchoolAuthenticationError.serviceUnavailable(status))
+        }
+        return error
     }
 
     private func responseMessage(from data: Data) -> String? {

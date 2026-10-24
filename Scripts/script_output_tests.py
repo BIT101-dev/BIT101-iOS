@@ -35,6 +35,12 @@ def captured_command(lines, status=7, *, ci=False, executable='fixture'):
 
 def log_output_boundary_findings() -> list[str]:
     findings = []
+    def arriving_diagnostics():
+        yield 'error: early compiler failure\n'
+        assert 'error: early compiler failure' in sys.stdout.getvalue()
+        yield 'warning: following diagnostic\n'
+    output, raw = captured_command(arriving_diagnostics())
+    assert output.count('error: early compiler failure') == 1 and 'warning: following diagnostic' in raw
     for count in (0, 1, OUTPUT_LINE_LIMIT, OUTPUT_LINE_LIMIT + 1, 1000):
         rows = [f'row {index}\n' for index in range(count)]
         output = StringIO()

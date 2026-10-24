@@ -105,6 +105,7 @@ def run_command(arguments: list[str]) -> int:
     diagnostics = BoundedLines(display_limit)
     failures = FailureSummary(display_limit)
     diagnostic_count = 0
+    streamed = set()
     summary_count = summary_tests = 0
     summary = ""
     temporary_results = set()
@@ -130,6 +131,9 @@ def run_command(arguments: list[str]) -> int:
                     continue
                 elif diagnostics.add(line):
                     diagnostic_count += 1
+                    if len(streamed) < display_limit // 2:
+                        print(line, end='', flush=True)
+                        streamed.add(line)
             if "Test run with" in line:
                 summary = line.strip()
                 summary_count += 1
@@ -146,7 +150,7 @@ def run_command(arguments: list[str]) -> int:
             shutil.rmtree(path, ignore_errors=True)
     output = failures.lines() if exit_code else diagnostics.lines()
     output_count = failures.count if exit_code else diagnostic_count
-    sys.stdout.writelines(output)
+    sys.stdout.writelines([line for line in output if line not in streamed][:display_limit - len(streamed)])
     if output_count > display_limit:
         print(f"[输出] {label} 共 {output_count} 行诊断 · {report_path}")
     if not exit_code and summary_count:
