@@ -87,6 +87,22 @@ public final class NativeSchoolAuthenticator: SchoolServiceAuthenticating {
         }
     }
 
+    public func verifyIdentity() async throws {
+        let owner = credentials.schoolSessionIdentity
+        try await authenticationQueue.perform {
+            let landing = try await self.follow(self.webVPNLoginURL, owner: owner, stopAtIdentityTicket: true)
+            guard Self.isIdentityServiceTicket(landing) else { throw NativeSchoolAuthenticationError.invalidResponse }
+        }
+    }
+
+    public nonisolated static func isIdentityServiceTicket(_ url: URL) -> Bool {
+        guard isSchoolURL(url), url.host == "webvpn.bit.edu.cn", url.path == "/login", url.fragment == nil,
+              let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems else { return false }
+        let tickets = query.filter { $0.name == "ticket" }
+        return tickets.count == 1 && tickets[0].value?.isEmpty == false
+            && query.filter { $0.name == "cas_login" }.map(\.value) == ["true"]
+    }
+
     private func authenticate(_ target: SchoolServiceTarget, owner: SchoolSessionIdentity) async throws -> SchoolAuthenticatedSession {
         try validate(owner)
         do {
@@ -140,12 +156,12 @@ public final class NativeSchoolAuthenticator: SchoolServiceAuthenticating {
         let wire = try await client.send(URLRequest(url: fingerprintURL), accepting: 200 ..< 400)
         try validate(owner)
         guard wire.response.url == parts.url else { throw NativeSchoolAuthenticationError.invalidResponse }
-        var cas = URLComponents()
-        cas.scheme = "https"; cas.host = "sso.bit.edu.cn"; cas.path = "/cas/login"
-        cas.queryItems = [URLQueryItem(name: "service", value: "https://webvpn.bit.edu.cn/login?cas_login=true")]
-        guard let serviceURL = cas.url else { throw NativeSchoolAuthenticationError.invalidResponse }
-        _ = try await follow(serviceURL, owner: owner)
+        _ = try await follow(webVPNLoginURL, owner: owner)
         guard hasWebVPNTicket else { throw NativeSchoolAuthenticationError.invalidResponse }
+    }
+
+    private var webVPNLoginURL: URL {
+        AppURL.required("https://sso.bit.edu.cn/cas/login?service=https%3A%2F%2Fwebvpn.bit.edu.cn%2Flogin%3Fcas_login%3Dtrue")
     }
 
     private var hasWebVPNTicket: Bool {
@@ -155,7 +171,8 @@ public final class NativeSchoolAuthenticator: SchoolServiceAuthenticating {
         })
     }
 
-    private func follow(_ start: URL, owner: SchoolSessionIdentity, throughWebVPN: Bool = false) async throws -> URL {
+    private func follow(_ start: URL, owner: SchoolSessionIdentity, throughWebVPN: Bool = false,
+                        stopAtIdentityTicket: Bool = false) async throws -> URL {
         var next = start
         var completedSecondFactor = false
         var submittedPassword = false
@@ -163,6 +180,13 @@ public final class NativeSchoolAuthenticator: SchoolServiceAuthenticating {
             try validate(owner)
             if throughWebVPN { next = vpnURL(next) }
             guard Self.isSchoolURL(next) else { throw NativeSchoolAuthenticationError.invalidResponse }
+            if stopAtIdentityTicket {
+                if Self.isIdentityServiceTicket(next) {
+                    guard submittedPassword else { throw NativeSchoolAuthenticationError.invalidResponse }
+                    return next
+                }
+                guard next.host == "sso.bit.edu.cn" else { throw NativeSchoolAuthenticationError.invalidResponse }
+            }
             var request = URLRequest(url: next)
             request.timeoutInterval = 25
             let wire = try await client.send(request, accepting: 100 ..< 600)
@@ -179,6 +203,7 @@ public final class NativeSchoolAuthenticator: SchoolServiceAuthenticating {
                 throw NativeSchoolAuthenticationError.serviceUnavailable(wire.response.statusCode)
             }
             let html = String(decoding: wire.data, as: UTF8.self)
+            if let failure = SchoolServiceFailure.schoolResponse(html) { throw failure }
             if let context = SchoolLoginHTMLParser.parseSecondFactorPage(html: html,
                 baseURL: AppURL.required("https://sso.bit.edu.cn"), documentURL: next) {
                 guard !completedSecondFactor else { throw NativeSchoolAuthenticationError.additionalVerification }

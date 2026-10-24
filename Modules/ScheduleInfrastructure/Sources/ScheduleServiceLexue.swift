@@ -257,9 +257,10 @@ extension ScheduleService {
 
     /// 本机服务票据与学校功能共享同一套短信验证实现。
     public func completeSchoolAuthentication(_ context: SchoolSecondFactorContext,
+        acceptingServiceTicket: Bool = false,
         handler: @escaping SchoolSMSCodeHandler) async throws {
         try await completeSchoolSecondFactor(context, handler: handler, smsDeliveryMode: .send,
-            owner: credentials.schoolSessionIdentity)
+            owner: credentials.schoolSessionIdentity, acceptingServiceTicket: acceptingServiceTicket)
     }
 
     private func shouldRetryLexueRoute(after error: Error) -> Bool {
@@ -292,20 +293,23 @@ extension ScheduleService {
         _ context: SchoolSecondFactorContext,
         handler: SchoolSMSCodeHandler?,
         smsDeliveryMode: SchoolSMSDeliveryMode,
-        owner: SchoolSessionIdentity
+        owner: SchoolSessionIdentity,
+        acceptingServiceTicket: Bool = false
     ) async throws {
         try validateAuthenticationOwner(owner)
         guard smsDeliveryMode == .send else { throw ScheduleServiceError.schoolSecondFactorRequired }
         guard let handler else { throw ScheduleServiceError.schoolSecondFactorRequired }
         teachingCenterState.selectOwner(owner)
         try await teachingCenterState.schoolSecondFactorRecovery.refresh(identity: owner) {
-            try await self.completeSchoolSecondFactorBody(context, handler: handler, owner: owner)
+            try await self.completeSchoolSecondFactorBody(context, handler: handler, owner: owner,
+                acceptingServiceTicket: acceptingServiceTicket)
         }
         try validateAuthenticationOwner(owner)
     }
 
     private func completeSchoolSecondFactorBody(
-        _ context: SchoolSecondFactorContext, handler: @escaping SchoolSMSCodeHandler, owner: SchoolSessionIdentity
+        _ context: SchoolSecondFactorContext, handler: @escaping SchoolSMSCodeHandler, owner: SchoolSessionIdentity,
+        acceptingServiceTicket: Bool
     ) async throws {
         try validateAuthenticationOwner(owner)
         let studentID = credentials.currentStudentID
@@ -339,7 +343,11 @@ extension ScheduleService {
 
         let (data, response) = try await sendRequest(request, owner: owner)
         let responseURL = response.url ?? context.formAction
-        guard crypto.isAcceptedSchoolLoginCompletion(
+        let issuedServiceTicket = acceptingServiceTicket && (300..<400).contains(response.statusCode)
+            && responseURL.host == schoolSSOBaseURL.host && responseURL == context.formAction
+            && response.value(forHTTPHeaderField: "Location").flatMap { URL(string: $0, relativeTo: responseURL)?.absoluteURL }
+                .map(NativeSchoolAuthenticator.isIdentityServiceTicket) == true
+        guard issuedServiceTicket || crypto.isAcceptedSchoolLoginCompletion(
             statusCode: response.statusCode,
             url: responseURL,
             schoolHost: schoolSSOBaseURL.host

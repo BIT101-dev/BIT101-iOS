@@ -11,6 +11,31 @@ import TransportCore
 
 @MainActor
 struct EclassDDLTests {
+    @Test(.timeLimit(.minutes(1)), arguments: [(true, true), (false, true), (true, false)])
+    func identitySMSCompletionRequiresTheDeclaredTicketCallback(fixture: (Bool, Bool)) async throws {
+        let (validCallback, acceptingTicket) = fixture
+        let transport = EclassTransport { request in
+            if request.url?.path.hasSuffix("getPhoneNumberByUserId") == true {
+                return (200, #"{"code":200,"data":{"phone":"13800000000","maskTel":"138****0000"}}"#, nil)
+            }
+            return (request.url?.path == "/cas/login" ? 302 : 200, #"{"code":200}"#, nil)
+        }
+        transport.responseHeaders["Location"] = validCallback
+            ? "https://webvpn.bit.edu.cn/login?cas_login=true&ticket=fixture" : "https://outside.invalid/login?ticket=fixture"
+        let state = TeachingCenterSessionState(cookieStorage: try #require(URLSessionConfiguration.ephemeral.httpCookieStorage))
+        let service = service(transport, state: state)
+        let context = SchoolSecondFactorContext(execution: "flow", formAction: AppURL.required("https://sso.bit.edu.cn/cas/login"), userObjectID: "user")
+        if validCallback && acceptingTicket {
+            try await service.completeSchoolAuthentication(context, acceptingServiceTicket: acceptingTicket) { _ in "123456" }
+        } else {
+            await #expect(throws: ScheduleServiceError.self) {
+                try await service.completeSchoolAuthentication(context, acceptingServiceTicket: acceptingTicket) { _ in "123456" }
+            }
+        }
+        #expect(transport.requests.count == 4)
+        #expect(transport.requests.allSatisfy { $0.url?.host == "sso.bit.edu.cn" })
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func parallelSchoolSourcesShareOneSMSChallengeAndSubmission() async throws {
         @MainActor final class Gate { var pending: CheckedContinuation<String, Never>?; var calls = 0; var joined = false }
@@ -691,6 +716,7 @@ struct EclassDDLTests {
 @MainActor
 private final class EclassTransport: HTTPTransport {
     var requests: [URLRequest] = []
+    var responseHeaders: [String: String] = [:]
     var maximumConcurrentRequests = 0
     private var concurrentRequests = 0
     var delay: Duration = .zero
@@ -717,7 +743,7 @@ private final class EclassTransport: HTTPTransport {
         let (status, json, redirectedURL) = try handler(request)
         let url = try #require(redirectedURL.flatMap { URL(string: $0) } ?? request.url)
         let response = try #require(HTTPURLResponse(url: url, statusCode: status, httpVersion: nil,
-            headerFields: ["Content-Type": json.hasPrefix("<") ? "text/html" : "application/json"]))
+            headerFields: responseHeaders.merging(["Content-Type": json.hasPrefix("<") ? "text/html" : "application/json"]) { _, value in value }))
         return (Data(json.utf8), response)
     }
 }

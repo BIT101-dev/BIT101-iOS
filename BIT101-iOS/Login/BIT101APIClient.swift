@@ -326,6 +326,13 @@ struct BIT101APIClient {
         }
     }
 
+    static func permitsIndependentSchoolLogin(after error: Error) -> Bool {
+        if TaskCancellation.matches(error) { return false }
+        if error is LoginServerResponseError { return true }
+        if let error = error as? LoginServiceError, case .invalidServerResponse = error { return true }
+        return ErrorChain.contains(error) { ($0 as NSError).domain == NSURLErrorDomain || $0 is HTTPClientError }
+    }
+
     /// 登录模式保留已有密码，注册或重置模式保存用户设置的密码。
     func register(password: String, token: String, code: String, loginMode: Bool = true) async throws -> RegisterResponse {
         try await sendJSONRequest(

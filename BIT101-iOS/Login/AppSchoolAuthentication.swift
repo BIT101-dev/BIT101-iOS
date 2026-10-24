@@ -4,6 +4,11 @@ import ScheduleInfrastructure
 import TransportCore
 import UIKit
 
+struct SchoolIdentityVerification {
+    let studentID: String
+    let activateSession: () -> Void
+}
+
 /// 学校功能共用本机 Cookie 容器、CAS 凭据和短信续接。
 enum AppNativeSchoolAuthentication {
     static let shared = make()
@@ -23,20 +28,57 @@ enum AppNativeSchoolAuthentication {
                 }
             }
         })
-        let smsService = ScheduleService(credentials: AppAccountSession.storage, crypto: AppScheduleServiceCrypto(),
+        return authenticator(state: state, credentials: AppAccountSession.storage, restorer: restorer, api: api,
+            client: HTTPClient(transport: manual), smsTransport: NetworkSessionPool.teachingCenter(state: state, productionPolicy: productionPolicy),
+            acceptingServiceTicket: false, updateCredentials: { try await AppAccountSession.storage.updateSchoolCredentials() })
+    }
+
+    static func verifyIdentity(studentID: String, password: String) async throws -> SchoolIdentityVerification {
+        let state = AppSchoolSession.isolatedState()
+        return try await verifyIdentity(studentID: studentID, password: password, state: state,
+            transport: NetworkSessionPool.schoolCASTransport(state: state, followsRedirects: false), activateSession: { cookies in
+                for cookie in cookies { AppSchoolSession.teachingCenter.cookieStorage.setCookie(cookie) }
+            })
+    }
+
+    static func verifyIdentity(studentID: String, password: String, state: TeachingCenterSessionState,
+        transport: any HTTPTransport, activateSession: @escaping ([HTTPCookie]) -> Void) async throws -> SchoolIdentityVerification {
+        let credentials = IdentityCredentials(currentStudentID: studentID, currentPassword: password)
+        let client = HTTPClient(transport: transport)
+        let api = BIT101APIClient(httpClient: client, noRedirectHTTPClient: client)
+        let restorer = AppScheduleSchoolSessionRestorer(restore: { throw NativeSchoolAuthenticationError.additionalVerification })
+        let authentication = authenticator(state: state, credentials: credentials, restorer: restorer, api: api,
+            client: client, smsTransport: transport, acceptingServiceTicket: true,
+            updateCredentials: { throw LoginServiceError.schoolPasswordRejected })
+        try await authentication.verifyIdentity()
+        let cookies = state.cookieStorage.cookies(for: AppURL.required("https://sso.bit.edu.cn")) ?? []
+        return SchoolIdentityVerification(studentID: studentID, activateSession: { activateSession(cookies) })
+    }
+
+    private struct IdentityCredentials: SchoolCredentialsProviding {
+        let currentStudentID: String
+        let currentPassword: String
+        var schoolSessionIdentity: SchoolSessionIdentity { .init(accountIdentifier: currentStudentID, generation: 0) }
+    }
+
+    private static func authenticator(state: TeachingCenterSessionState, credentials: any SchoolCredentialsProviding,
+        restorer: AppScheduleSchoolSessionRestorer, api: BIT101APIClient, client: HTTPClient,
+        smsTransport: any HTTPTransport, acceptingServiceTicket: Bool,
+        updateCredentials: @escaping () async throws -> Void) -> NativeSchoolAuthenticator {
+        let smsService = ScheduleService(credentials: credentials, crypto: AppScheduleServiceCrypto(),
             schoolSessionRestorer: restorer, teachingCenterState: state,
-            transport: NetworkSessionPool.teachingCenter(state: state, productionPolicy: productionPolicy), observer: HTTPClient.appObserver)
+            transport: smsTransport, observer: HTTPClient.appObserver)
         let secondFactor: (SchoolSecondFactorContext) async throws -> Void = { context in
-            try await smsService.completeSchoolAuthentication(context) {
+            try await smsService.completeSchoolAuthentication(context, acceptingServiceTicket: acceptingServiceTicket) {
                 try await SchoolSMSPrompt.shared.requestCode($0)
             }
         }
-        return NativeSchoolAuthenticator(credentials: AppAccountSession.storage, restorer: restorer,
-            client: HTTPClient(transport: manual), cookies: { state.cookieStorage }, secondFactor: secondFactor,
+        return NativeSchoolAuthenticator(credentials: credentials, restorer: restorer,
+            client: client, cookies: { state.cookieStorage }, secondFactor: secondFactor,
             serviceLogin: { url, html in
                 do {
-                    return try await api.submitSchoolServiceLogin(url: url, html: html, storage: AppAccountSession.storage,
-                        cookieStorage: state.cookieStorage)
+                    return try await api.submitSchoolServiceLogin(url: url, html: html, credentials: credentials,
+                        cookieStorage: state.cookieStorage, updateCredentials: updateCredentials)
                 } catch LoginServiceError.schoolSMSRequired(let context) {
                     try await secondFactor(context)
                     return url

@@ -7,6 +7,41 @@ import ScheduleInfrastructure
 
 @MainActor
 struct NativeSchoolAuthenticationTests {
+    @Test(.timeLimit(.minutes(1))) func identityVerificationStopsAtTheIssuedTicket() async throws {
+        let credentials = Credentials(), restorer = Restorer()
+        let cookies = try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)
+        let transport = Transport { request in
+            #expect(request.url?.host == "sso.bit.edu.cn")
+            return (200, [:], #"<span id="login-croypto">salt</span><span id="login-page-flowkey">flow</span>"#)
+        }
+        var passwordSubmissions = 0
+        let authenticator = NativeSchoolAuthenticator(credentials: credentials, restorer: restorer,
+            client: HTTPClient(transport: transport, observer: nil), cookies: { cookies }, secondFactor: { _ in },
+            serviceLogin: { _, _ in
+                passwordSubmissions += 1
+                return AppURL.required("https://webvpn.bit.edu.cn/login?cas_login=true&ticket=fixture")
+            })
+        try await authenticator.verifyIdentity()
+        #expect(passwordSubmissions == 1 && restorer.calls == 0 && transport.requests.count == 1)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func identityVerificationRequiresAnExplicitCredentialSubmission() async throws {
+        let credentials = Credentials(), restorer = Restorer()
+        let cookies = try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)
+        let transport = Transport { _ in (302, ["Location": "https://webvpn.bit.edu.cn/login?cas_login=true&ticket=old"], "") }
+        let authenticator = NativeSchoolAuthenticator(credentials: credentials, restorer: restorer,
+            client: HTTPClient(transport: transport, observer: nil), cookies: { cookies }, secondFactor: { _ in })
+        await #expect(throws: NativeSchoolAuthenticationError.self) { try await authenticator.verifyIdentity() }
+        #expect(restorer.calls == 0 && transport.requests.count == 1)
+    }
+
+    @Test(arguments: ["http://webvpn.bit.edu.cn/login?cas_login=true&ticket=a", "https://webvpn.bit.edu.cn/login?ticket=a",
+        "https://webvpn.bit.edu.cn/login?cas_login=true&ticket=a&ticket=b", "https://webvpn.bit.edu.cn/login?cas_login=true&ticket=",
+        "https://webvpn.bit.edu.cn/login?cas_login=true&ticket=a#fragment", "https://sso.bit.edu.cn/cas/login?cas_login=true&ticket=a"])
+    func identityTicketsRequireTheDeclaredServiceCallback(address: String) {
+        #expect(!NativeSchoolAuthenticator.isIdentityServiceTicket(AppURL.required(address)))
+    }
+
     private final class Credentials: SchoolCredentialsProviding {
         var generation = 0
         let currentStudentID = "owner"

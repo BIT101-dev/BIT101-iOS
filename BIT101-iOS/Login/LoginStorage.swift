@@ -42,6 +42,7 @@ final class LoginStorage: SchoolCredentialsProviding {
         var password: String
         var fakeCookie: String
         var communityPasswordDigest: String? = nil
+        var schoolIdentityVerified: Bool? = nil
     }
 
     private let defaults: UserDefaults
@@ -103,8 +104,11 @@ final class LoginStorage: SchoolCredentialsProviding {
 
     /// 本机账号承接缓存和学校功能，社区认证状态独立维护。
     var hasCachedSession: Bool {
-        defaults.object(forKey: DefaultsKey.revokedSession) == nil && !session.studentID.isEmpty && !session.fakeCookie.isEmpty
+        defaults.object(forKey: DefaultsKey.revokedSession) == nil && !session.studentID.isEmpty
+            && (!session.fakeCookie.isEmpty || session.schoolIdentityVerified == true)
     }
+
+    var hasVerifiedSchoolIdentity: Bool { hasCachedSession && session.schoolIdentityVerified == true }
 
     func requireCommunityAuthentication() {
         defaults.set(true, forKey: DefaultsKey.communityAuthenticationRequired)
@@ -197,9 +201,19 @@ final class LoginStorage: SchoolCredentialsProviding {
             throw LoginServiceError.invalidServerResponse
         }
 
-        let accountChanged = currentStudentID != normalizedStudentID || !hasCachedSession
-        try saveSession(Session(studentID: normalizedStudentID, password: password, fakeCookie: normalizedFakeCookie,
+        try activateSession(Session(studentID: normalizedStudentID, password: password, fakeCookie: normalizedFakeCookie,
             communityPasswordDigest: digest))
+    }
+
+    func saveSchoolLoginState(studentID: String, password: String) throws {
+        let account = studentID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !account.isEmpty, !password.isEmpty else { throw LoginServiceError.invalidCredentials }
+        try activateSession(Session(studentID: account, password: password, fakeCookie: "", schoolIdentityVerified: true))
+    }
+
+    private func activateSession(_ value: Session) throws {
+        let accountChanged = currentStudentID != value.studentID || !hasCachedSession
+        try saveSession(value)
         defaults.set(true, forKey: DefaultsKey.installationMarker)
         defaults.removeObject(forKey: DefaultsKey.revokedSession)
         defaults.removeObject(forKey: DefaultsKey.communityAuthenticationRequired)
@@ -328,6 +342,7 @@ final class LoginStorage: SchoolCredentialsProviding {
                 session.password = ""
                 session.fakeCookie = ""
                 session.communityPasswordDigest = nil
+                session.schoolIdentityVerified = nil
             }
             sessionReadError = nil
             if publishChange, previousAccount != currentStudentID || wasAwaitingRead {

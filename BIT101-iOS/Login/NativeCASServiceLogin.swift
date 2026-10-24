@@ -6,22 +6,29 @@ import TransportCore
 extension BIT101APIClient {
     /// 部分 CAS service 要求重新提交学校密码，并携带本次页面的风控令牌。
     func submitSchoolServiceLogin(url: URL, html: String, storage: LoginStorage, cookieStorage: HTTPCookieStorage? = nil) async throws -> URL {
-        let cookies = cookieStorage ?? AppSchoolSession.teachingCenter.cookieStorage
-        let owner = storage.schoolSessionIdentity
+        try await submitSchoolServiceLogin(url: url, html: html, credentials: storage,
+            cookieStorage: cookieStorage ?? AppSchoolSession.teachingCenter.cookieStorage,
+            updateCredentials: { try await storage.updateSchoolCredentials() })
+    }
+
+    func submitSchoolServiceLogin(url: URL, html: String, credentials: any SchoolCredentialsProviding,
+        cookieStorage cookies: HTTPCookieStorage,
+        updateCredentials: () async throws -> Void = { throw LoginServiceError.schoolPasswordRejected }) async throws -> URL {
+        let owner = credentials.schoolSessionIdentity
         var html = html
         for attempt in 0 ... 1 {
             try Task.checkCancellation()
-            guard storage.schoolSessionIdentity == owner else { throw CancellationError() }
+            guard credentials.schoolSessionIdentity == owner else { throw CancellationError() }
             let context = SchoolLoginHTMLParser.parse(html: html)
             guard let salt = context.salt, let execution = context.execution else { throw LoginServiceError.invalidSchoolLoginPage }
-            var fields = [("username", storage.currentStudentID),
-                ("password", try LoginCrypto.encryptPassword(storage.currentPassword, saltBase64: salt)),
+            var fields = [("username", credentials.currentStudentID),
+                ("password", try LoginCrypto.encryptPassword(credentials.currentPassword, saltBase64: salt)),
                 ("execution", execution), ("croypto", salt), ("captcha_payload", try LoginCrypto.encryptPassword("{}", saltBase64: salt)),
                 ("type", "UsernamePassword"), ("geolocation", ""), ("captcha_code", ""), ("_eventId", "submit")]
             if Self.casField("riskSystemSwitch", in: html) == "USTC" {
                 let token = try await schoolRiskToken(referer: url, cookies: cookies)
                 try Task.checkCancellation()
-                guard storage.schoolSessionIdentity == owner else { throw CancellationError() }
+                guard credentials.schoolSessionIdentity == owner else { throw CancellationError() }
                 let group = cookies.cookies?.first { $0.name == "riskSystemGroupId" && $0.domain.hasSuffix("bit.edu.cn") }?.value ?? ""
                 let payload = try JSONSerialization.data(withJSONObject: ["token": token, "groupId": group])
                 fields += [("risk_payload", try LoginCrypto.encryptPassword(String(decoding: payload, as: UTF8.self), saltBase64: salt)),
@@ -39,20 +46,25 @@ extension BIT101APIClient {
             request.httpBody = HTTPFormEncoding.body(fields)
             let (data, response) = try await sendRequest(request, followRedirects: false)
             try Task.checkCancellation()
-            guard storage.schoolSessionIdentity == owner else { throw CancellationError() }
+            guard credentials.schoolSessionIdentity == owner else { throw CancellationError() }
+            guard response.url == action else { throw NativeSchoolAuthenticationError.invalidResponse }
             if (300 ..< 400).contains(response.statusCode), let location = response.value(forHTTPHeaderField: "Location"),
                let next = HTTPSURLUpgrade.resolvedURL(from: location, relativeTo: action) { return next }
             let responseHTML = String(decoding: data, as: UTF8.self)
+            if let failure = SchoolServiceFailure.schoolResponse(responseHTML) { throw failure }
             if let secondFactor = SchoolLoginHTMLParser.parseSecondFactorPage(html: responseHTML,
                 baseURL: AppURL.required("https://sso.bit.edu.cn"), documentURL: url) {
                 throw LoginServiceError.schoolSMSRequired(secondFactor)
             }
             if SchoolLoginHTMLParser.rejectsPassword(html: responseHTML) {
                 guard attempt == 0 else { throw LoginServiceError.schoolPasswordRejected }
-                try await storage.updateSchoolCredentials()
+                try await updateCredentials()
                 let (fresh, _) = try await sendRequest(URLRequest(url: url), followRedirects: false)
                 html = String(decoding: fresh, as: UTF8.self)
                 continue
+            }
+            if response.statusCode == 403 || response.statusCode >= 500 {
+                throw NativeSchoolAuthenticationError.serviceUnavailable(response.statusCode)
             }
             throw NativeSchoolAuthenticationError.invalidResponse
         }
@@ -69,7 +81,6 @@ extension BIT101APIClient {
                 cookies.setCookie(cookie)
             }
         }
-        // 摘要字段属于学校风控认证协议，与代码及产物校验相互独立。
         let values = ["[\"Arial\",\"Helvetica Neue\",\"PingFang SC\",\"Times New Roman\"]", "16", "10",
             "\"Asia/Shanghai\"", "\"not available\"", "\"MacIntel\"", "\"zh-CN\"", "[956,1470]"]
         let group = cookies.cookies(for: base)?.first { $0.name == "riskSystemGroupId" }?.value ?? ""
