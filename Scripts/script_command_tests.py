@@ -9,6 +9,7 @@ import subprocess
 import sys
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
+from itertools import product
 from unittest.mock import Mock, patch
 from pathlib import Path
 from script_device_tests import device_discovery_boundary_findings
@@ -43,14 +44,15 @@ def result_retention_boundary_findings() -> list[str]:
     from script_test_support import shell_function
     step = shell_function(SCRIPT_ROOT / 'script-support.sh', 'bit101_check_verification_audit') + '\n' + shell_function(SCRIPT_ROOT / 'script-support.sh', 'bit101_verify_step')
     findings = []
-    for child_status, retain_status, begin_status in ((0, 0, 0), (7, 0, 0), (0, 9, 0), (0, 0, 5)):
+    for retained, statuses in product(('', 'catalyst'), ((0, 0, 0), (7, 0, 0), (0, 9, 0), (0, 0, 5))):
+        child_status, retain_status, begin_status = statuses
         harness = f'''set -euo pipefail
 ROOT_DIR=/fixture
 completed_result_groups=()
 child() {{ print -r -- "CHILD $*"; return {child_status}; }}
 python3() {{
-  print -r -- "PY $*"
-  if [[ "$2" == begin-batch ]]; then return {begin_status}; fi
+  print -ru2 -- "PY $*"
+  if [[ "$2" == begin-full ]]; then print -r -- '{retained}'; return {begin_status}; fi
   if [[ "$2" == retain-batch ]]; then return {retain_status}; fi
   return 0
 }}
@@ -58,14 +60,15 @@ python3() {{
         result = subprocess.run(['zsh', '-c', harness + step + '\nbit101_verify_step all child all\nbit101_verify_step ui child ui'],
             text=True, capture_output=True)
         expected = begin_status or int(bool(child_status or retain_status))
-        output = result.stdout
-        if result.returncode != expected or 'begin-batch first' not in output:
+        output = result.stdout + result.stderr
+        groups = f'{retained} all'.strip()
+        if result.returncode != expected or 'begin-full all' not in output:
             findings.append('结果保留自测：准备与执行失败沿聚合流程传播')
         if begin_status:
             if 'CHILD' in output: findings.append('结果保留自测：准备成功后执行测试')
-        elif 'retain-batch all' not in output:
+        elif f'retain-batch {groups}' not in output:
             findings.append('结果保留自测：测试成功与失败均保留实际结果')
-        if expected == 0 and ('begin-batch append' not in output or 'retain-batch all ui' not in output):
+        if expected == 0 and ('begin-batch append' not in output or f'retain-batch {groups} ui' not in output):
             findings.append('结果保留自测：后续测试组合并本次全部结果')
     for current in (True, False):
         harness = f'''set -euo pipefail

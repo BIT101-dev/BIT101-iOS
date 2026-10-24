@@ -236,9 +236,12 @@ bit101_verify_step() {
   case "$label" in
     all|release-runtime|ui|catalyst|catalyst-release-runtime)
       result_step=true
-      local retention=first
-      if (( ${#completed_result_groups[@]} > 0 )); then retention=append; fi
-      python3 "$ROOT_DIR/Scripts/validation_performance.py" begin-batch "$retention" || return $?
+      if (( ${#completed_result_groups[@]} == 0 )); then
+        completed_result_groups=("${(@f)$(python3 "$ROOT_DIR/Scripts/validation_performance.py" begin-full "$label")}") || return $?
+        completed_result_groups=("${(@)completed_result_groups:#}")
+      else
+        python3 "$ROOT_DIR/Scripts/validation_performance.py" begin-batch append || return $?
+      fi
       ;;
   esac
   BIT101_VALIDATION_RESULT_BATCH_HELD=1 "$@" || step_status=$?
