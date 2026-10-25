@@ -856,7 +856,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
             #expect(services.observed.isSuperset(of: ["gallery-follow", "gallery-hot", "gallery-newest"]))
             #expect(report.executedProbes.contains("gallery.following") && report.executedProbes.contains("gallery.hot"))
         }
-        #expect(report.passed == (!stage.hasSuffix("failure") || stage == "missing-fixtures-failure"), "\(stage): \(report.failures)")
+        #expect(report.passed == (!stage.hasSuffix("failure") || stage == "missing-fixtures-failure" || stage.hasPrefix("report-types-")), "\(stage): \(report.failures)")
         if stage == "all-success" || stage == "maintained-fixtures-success" {
             #expect(services.observed.isSuperset(of: ["course-search-COURSE-0", "course-search-COURSE-1", "paper-search-fixture-0", "paper-search-fixture-1"]))
             #expect(report.executedProbes.contains("course.search") && report.executedProbes.contains("paper.search"))
@@ -864,10 +864,13 @@ extension ReleaseNetworkSmokeLifecycleTests {
         if stage.contains("search-target-failure") || stage.contains("search-ignored-failure") { #expect(report.failures.contains { $0.contains(stage.hasPrefix("course-") ? "course.search" : stage.hasPrefix("gallery-") ? "gallery.search" : "paper.search") }) }
         if stage == "course-search-later-success" { #expect(services.observed.contains("course-search-COURSE-2")) }
         if stage.hasPrefix("poster-") { #expect(report.failures.contains { $0.contains("gallery.search") }) }
-        if stage == "report-types-empty-gap" { #expect(report.passed && !report.coverageComplete && report.coverageGaps.contains { $0.contains("community.report-types") }) }
-        else if stage.hasPrefix("report-types-") { #expect(report.failures.count == 1 && report.failures[0].contains("community.report-types")) }
+        if stage.hasPrefix("report-types-") {
+            let exempted = Set(["community.report-types", "message.follow", "message.system"])
+            #expect(report.coverageComplete && Set(report.exemptedProbes.keys) == exempted)
+            #expect(exempted.isDisjoint(with: report.executedProbes) && exempted.isDisjoint(with: report.requestEvidence.map(\.probe)))
+        }
         if stage == "course-comment-ranking-failure" { #expect(report.failures.contains { $0.contains("course.comments") }) }
-        if stage.hasPrefix("message-account-") { #expect(report.failures.count == GalleryMessageType.allCases.count && !services.observed.contains("message-read")) }
+        if stage.hasPrefix("message-account-") { #expect(report.failures.count == 3 && !services.observed.contains("message-read")) }
         if stage == "course-history-statistics-failure" { #expect(report.failures.contains { $0.contains("course.history") }) }
         if stage == "maintained-fixtures-success" {
             #expect(services.observed.isSuperset(of: GallerySearchOrder.allCases.map { "gallery-search-\($0.rawValue)" }))

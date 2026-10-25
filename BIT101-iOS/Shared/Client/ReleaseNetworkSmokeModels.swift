@@ -58,6 +58,15 @@ enum NetworkSmokeScope: String, Codable, CaseIterable, Sendable {
         NetworkSmokeArea.allCases.filter(includes).flatMap(\.requiredProbes)
     }
 
+    var exemptedProbes: [String: String] {
+        guard includes(.bit101) else { return [:] }
+        return [
+            "community.report-types": "验收豁免：举报类型由外部服务端配置。",
+            "message.follow": "验收豁免：关注通知依赖其他账号触发。",
+            "message.system": "验收豁免：系统通知发送需要管理员权限。",
+        ]
+    }
+
     var requiredSMSPurposes: Set<String> {
         switch self {
         case .all, .school: ["jwb", "jwb_cjd", "webvpn", "school_sso_second_factor"]
@@ -275,7 +284,6 @@ enum NetworkSmokeArea: CaseIterable, Hashable, Sendable {
                 .galleryBots,
                 .galleryClaims,
                 .gallerySubscriptions,
-                .reportTypes,
                 .productionSession,
                 .gallerySearch,
                 .messageUnread,
@@ -300,8 +308,10 @@ enum NetworkSmokeArea: CaseIterable, Hashable, Sendable {
                 .appStoreUpdate,
                 .emergencyUpdate,
                 .feedbackRecovery,
-            ] + GalleryMessageType.allCases.map(NetworkSmokeProbe.message)
-                + PaperSortOrder.allCases.map(NetworkSmokeProbe.paperSort)
+                .messageComment,
+                .messageLike,
+                .messageSubscription,
+            ] + PaperSortOrder.allCases.map(NetworkSmokeProbe.paperSort)
         case .schedule:
             [
                 .currentTerm,
@@ -413,6 +423,7 @@ struct ReleaseNetworkSmokeReport: Codable {
     var currentTerm: String? = nil
     var validatedTerm: String? = nil
     var requestEvidence: [NetworkSmokeRequestEvidence] = []
+    var exemptedProbes: [String: String] = [:]
     var requestEvidenceRequired = true
     var probeLabels = Dictionary(uniqueKeysWithValues: NetworkSmokeProbe.allCases.map { ($0.rawValue, $0.displayName) })
 
@@ -429,7 +440,7 @@ struct ReleaseNetworkSmokeReport: Codable {
     }
 
     var summaryLine: String {
-        "NETWORK_SMOKE_SUMMARY run_id=\(runID) scope=\(scope.rawValue) passed=\(passed) coverage_complete=\(coverageComplete) failures=\(failures.count) auth_blocked=\(authenticationBlockers.count) executed=\(executedProbes.count) skipped=\(skippedProbes.count) sms_coverage=\(schoolSMSCoverage) elapsed=\(Self.duration(elapsed))"
+        "NETWORK_SMOKE_SUMMARY run_id=\(runID) scope=\(scope.rawValue) passed=\(passed) coverage_complete=\(coverageComplete) failures=\(failures.count) auth_blocked=\(authenticationBlockers.count) executed=\(executedProbes.count) skipped=\(skippedProbes.count) exempted=\(exemptedProbes.count) sms_coverage=\(schoolSMSCoverage) elapsed=\(Self.duration(elapsed))"
     }
 
     var failureMessage: String {

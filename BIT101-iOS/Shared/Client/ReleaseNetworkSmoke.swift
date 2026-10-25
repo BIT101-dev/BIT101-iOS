@@ -671,6 +671,7 @@ final class ReleaseNetworkSmokeRunner {
         report.currentTerm = currentScheduleTerm
         report.validatedTerm = validatedScheduleTerm
         report.requestEvidence = requestEvidence
+        report.exemptedProbes = scope.exemptedProbes
         report.requestEvidenceRequired = dependencies.requiresRequestEvidence
         return ReleaseNetworkSmokeReportStore.complete(report, writer: dependencies.writeReport)
     }
@@ -729,7 +730,7 @@ final class ReleaseNetworkSmokeRunner {
         expectedParameters: [String: String] = [:],
         operation: () async throws -> Value
     ) async -> Value? {
-        guard scope.includes(area) else { return nil }
+        guard scope.includes(area), area.probeKinds.contains(kind) else { return nil }
         let name = kind.rawValue
         guard communitySessionAvailable || scope == .communityCleanup || !kind.requiresCommunitySession else {
             recordSkip(name, "社区登录探针已失败", area: area, scope: scope)

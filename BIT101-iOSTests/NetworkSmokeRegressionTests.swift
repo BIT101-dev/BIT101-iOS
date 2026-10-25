@@ -87,18 +87,6 @@ nonisolated final class NetworkSmokeRegressionTests: XCTestCase {
         }
     }
 
-    @MainActor func testReportTypesReadAndEmptyCoverage() async throws {
-        let types = try await capture(.reportTypes) {
-            try await ReleaseNetworkSmokeDependencies().makeGallery().fetchReportTypes()
-        }
-        if types.isEmpty {
-            XCTAssertThrowsError(try NetworkSmokePaging.checkedReportTypes(types)) { error in
-                XCTAssertTrue(error is NetworkSmokePaging.SamplingError)
-            }
-            print("NETWORK_SMOKE_SKIP name=community.report-types reason=举报类型列表为空，选项交互覆盖缺口保留。")
-        } else { _ = try NetworkSmokePaging.checkedReportTypes(types) }
-    }
-
     @MainActor func testHotFeedSecondPage() async throws {
         try await capture(.galleryHot) {
             let gallery = ReleaseNetworkSmokeDependencies().makeGallery()
