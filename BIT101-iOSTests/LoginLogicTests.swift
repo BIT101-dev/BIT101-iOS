@@ -348,20 +348,35 @@ extension LoginLogicTests {
         }
     }
 
-    @Test(.timeLimit(.minutes(1)))
-    func schoolPasswordPromptUsesSecureInputAndDismissesOnCancellation() async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func schoolAuthenticationPromptsWaitForExistingAlertsAndClearCancelledInput(sms: Bool) async throws {
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)
         let controller = UIViewController()
         window.rootViewController = controller
         window.makeKeyAndVisible()
         defer { window.isHidden = true }
-        let prompt = SchoolPasswordPrompt(presenter: { controller })
-        let pending = Task { try await prompt.requestPassword(studentID: "A") }
-        try await waitForTestEvent { controller.presentedViewController is UIAlertController }
+        let existing = UIAlertController(title: "现有提示", message: nil, preferredStyle: .alert)
+        controller.present(existing, animated: false)
+        var inspectedExisting = false
+        let presenter: @MainActor () -> UIViewController? = {
+            let presented = controller.presentedViewController
+            let top = presented?.isBeingDismissed == false ? (presented ?? controller) : controller
+            if top === existing { inspectedExisting = true }
+            return top
+        }
+        let password = SchoolPasswordPrompt(presenter: presenter), code = SchoolSMSPrompt(presenter: presenter)
+        let pending = Task {
+            if sms { return try await code.requestCode(.init(maskedPhone: "123****4567", purpose: "fixture")) }
+            return try await password.requestPassword(studentID: "A")
+        }
+        try await waitForTestEvent { inspectedExisting }
+        #expect(controller.presentedViewController === existing)
+        existing.dismiss(animated: true)
+        try await waitForTestEvent { controller.presentedViewController is UIAlertController && controller.presentedViewController !== existing }
         let alert = try #require(controller.presentedViewController as? UIAlertController)
         let field = try #require(alert.textFields?.first)
-        #expect(field.isSecureTextEntry && field.accessibilityIdentifier == "school.credentials.password")
+        #expect(field.isSecureTextEntry == !sms && field.accessibilityIdentifier == (sms ? "school.sms.code" : "school.credentials.password"))
         #expect(alert.preferredAction?.isEnabled == false)
         field.text = "school-password"
         field.sendActions(for: .editingChanged)

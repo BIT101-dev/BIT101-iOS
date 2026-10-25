@@ -56,7 +56,7 @@ enum ScheduleWidgetExporter {
         let generation = nextExportGeneration()
         let storedSnapshot = await loadSnapshot()
         guard isCurrent(session: session, generation: generation) else { return }
-        let isLoggedIn = !AppAccountSession.storage.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let isLoggedIn = AppAccountSession.storage.hasCachedSession
         if ScheduleSnapshotExportPolicy.requiresAccountReset(snapshot: storedSnapshot, session: session, isLoggedIn: isLoggedIn) {
             lastPublishedContent = nil
             guard let emptySnapshot = makeSnapshot(cache: ScheduleCache(), session: session) else { return }
@@ -183,7 +183,7 @@ enum ScheduleWidgetExporter {
         session: AppStorageSession
     ) -> ScheduleExternalSnapshot? {
         guard AppAccountSession.storage.hasResolvedSession, session == AppFileDirectories.currentSession else { return nil }
-        let isLoggedIn = !AppAccountSession.storage.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let isLoggedIn = AppAccountSession.storage.hasCachedSession
         let clockRevision = UInt64(max(Date().timeIntervalSince1970 * 1_000_000, 0))
         let previousRevision = max(snapshotRevision, clockRevision)
         guard previousRevision < UInt64.max else { return nil }

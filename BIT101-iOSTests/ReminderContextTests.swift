@@ -1,4 +1,5 @@
 import Foundation
+import BackgroundTasks
 import Combine
 import CommunityTransport
 import ScheduleSync
@@ -169,6 +170,22 @@ extension ReminderContextTests {
 
 @MainActor
 struct ReminderContextTests {
+    @Test(arguments: ["replace", "failure", "clear"])
+    func backgroundPlanReplacementPreservesThePreviousPlanWhenSubmissionFails(operation: String) {
+        let previous = Date(timeIntervalSince1970: 100), replacement = Date(timeIntervalSince1970: 200)
+        var pending: Date? = previous
+        var events: [String] = []
+        let success = ScheduleReminderBackgroundRefresh.schedule(earliestBeginDate: operation == "clear" ? nil : replacement,
+            submit: { request in
+                events.append("submit")
+                if operation == "failure" { throw BGTaskScheduler.Error(.unavailable) }
+                pending = request.earliestBeginDate
+            }, cancel: { events.append("cancel"); pending = nil })
+        #expect(success == (operation != "failure"))
+        #expect(events == [operation == "clear" ? "cancel" : "submit"])
+        #expect(pending == (operation == "failure" ? previous : operation == "replace" ? replacement : nil))
+    }
+
     @Test(.timeLimit(.minutes(1))) func unreadableReminderStatePreservesTheExternalDisplaySchedule() async {
         let session = AppStorageSession(accountIdentifier: "reminder-read-failure")
         var unreadable = true

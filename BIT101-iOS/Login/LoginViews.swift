@@ -20,13 +20,11 @@ final class SchoolPasswordPrompt {
 
     func requestPassword(studentID: String) async throws -> String {
         try Task.checkCancellation()
-        while let controller = presenter(), controller is UIAlertController || controller.isBeingDismissed {
-            try await Task.sleep(for: .milliseconds(300))
-        }
+        let controller = try await AppErrorPresenter.availableViewController(using: presenter)
         let id = UUID()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                guard active == nil, let controller = presenter() else {
+                guard active == nil, let controller else {
                     continuation.resume(throwing: LoginServiceError.schoolCredentialsRequired)
                     return
                 }

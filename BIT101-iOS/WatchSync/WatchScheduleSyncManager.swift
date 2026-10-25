@@ -244,7 +244,7 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
         let session = WCSession.default
         let credentials = AppAccountSession.storage.communityCredentials
         let studentID = AppAccountSession.storage.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let isLoggedIn = !AppAccountSession.storage.fakeCookie.isEmpty
+        let isLoggedIn = AppAccountSession.storage.hasCachedSession
         Task {
             guard let data = await self.currentSnapshotDataIfAvailable(for: studentID, isLoggedIn: isLoggedIn, knownRevision: knownRevision),
                   credentials == AppAccountSession.storage.communityCredentials else { return }
@@ -410,7 +410,7 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
                 let credentials = AppAccountSession.storage.communityCredentials
                 let studentID = AppAccountSession.storage.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
                 let data = await self.currentSnapshotDataIfAvailable(for: studentID,
-                    isLoggedIn: !AppAccountSession.storage.fakeCookie.isEmpty, knownRevision: knownRevision)
+                    isLoggedIn: AppAccountSession.storage.hasCachedSession, knownRevision: knownRevision)
                 guard credentials == AppAccountSession.storage.communityCredentials else { reply.send(nil); return }
                 if let data { self.updateApplicationContext(withSnapshotData: data, session: WCSession.default) }
                 reply.send(data)

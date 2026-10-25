@@ -78,15 +78,16 @@ enum ScheduleReminderBackgroundRefresh {
     ///
     /// 同一 identifier 的新请求会替换先前提交的请求。
     @discardableResult
-    static func schedule(earliestBeginDate: Date?) -> Bool {
-        BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: identifier)
-        guard let earliestBeginDate else { return true }
+    static func schedule(earliestBeginDate: Date?,
+        submit: (BGAppRefreshTaskRequest) throws -> Void = { try BGTaskScheduler.shared.submit($0) },
+        cancel: () -> Void = { BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: ScheduleReminderBackgroundRefresh.identifier) }) -> Bool {
+        guard let earliestBeginDate else { cancel(); return true }
 
         let request = BGAppRefreshTaskRequest(identifier: identifier)
         request.earliestBeginDate = earliestBeginDate
 
         do {
-            try BGTaskScheduler.shared.submit(request)
+            try submit(request)
             return true
         } catch {
             let failure = error as NSError
@@ -108,8 +109,7 @@ enum ScheduleReminderBackgroundRefresh {
             }
             guard !Task.isCancelled, AppAccountSession.storage.hasResolvedSession else { return }
 
-            let fakeCookie = AppAccountSession.storage.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !fakeCookie.isEmpty else {
+            guard AppAccountSession.storage.hasCachedSession else {
                 schedule(earliestBeginDate: nil)
                 await ScheduleLiveActivityManager.shared.endAllActivities()
                 completed = !Task.isCancelled && identity == AppAccountSession.storage.communityCredentials.identity
@@ -227,7 +227,7 @@ struct BIT101_iOSApp: App {
             externalDisplays: AppExternalDisplayCoordinator(
                 currentSession: stores.currentSession,
                 isSessionResolved: { AppAccountSession.storage.hasResolvedSession },
-                isSignedIn: { !AppAccountSession.storage.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty },
+                isSignedIn: { AppAccountSession.storage.hasCachedSession },
                 activateWatch: WatchScheduleSyncManager.shared.activateIfNeeded,
                 resetPresentation: AppErrorPresenter.shared.reset,
                 exportWidget: ScheduleWidgetExporter.syncFromCurrentCache,

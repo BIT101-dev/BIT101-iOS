@@ -23,8 +23,8 @@ enum AppRestoreReadiness {
     static func sessionIsReady(_ state: LoginScreenState, storage: LoginStorage) -> Bool {
         guard storage.hasResolvedSession else { return false }
         switch state {
-        case .signedOut: return storage.fakeCookie.isEmpty
-        case let .signedIn(studentID): return !storage.fakeCookie.isEmpty && studentID == storage.currentStudentID
+        case .signedOut: return !storage.hasCachedSession
+        case let .signedIn(studentID): return storage.hasCachedSession && studentID == storage.currentStudentID
         }
     }
 

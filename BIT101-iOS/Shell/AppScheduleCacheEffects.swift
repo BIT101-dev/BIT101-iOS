@@ -176,7 +176,7 @@ extension ScheduleLiveActivityManager {
                 let storage = AppAccountSession.storage
                 return ScheduleReminderSession(studentID: storage.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines),
                     storage: AppFileDirectories.currentSession, generation: storage.communityCredentials.identity.generation,
-                    signedIn: !storage.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    signedIn: storage.hasCachedSession)
             },
             isSessionResolved: { AppAccountSession.storage.hasResolvedSession },
             loadCache: { await ScheduleCacheStore.loadResultAsync(for: $0) }

@@ -312,6 +312,15 @@ final class AppErrorPresenter {
         }
     }
 
+    static func availableViewController(using presenter: @MainActor () -> UIViewController?) async throws -> UIViewController? {
+        try Task.checkCancellation()
+        while let controller = presenter() {
+            if !(controller is UIAlertController), !controller.isBeingDismissed, controller.presentedViewController == nil { return controller }
+            try await Task.sleep(for: .milliseconds(300))
+        }
+        return nil
+    }
+
     static func topViewController() -> UIViewController? {
         let scenes = UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }

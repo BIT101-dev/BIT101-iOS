@@ -98,14 +98,20 @@ enum AppNativeSchoolAuthentication {
 @MainActor
 final class SchoolSMSPrompt {
     static let shared = SchoolSMSPrompt()
+    private let presenter: @MainActor () -> UIViewController?
     private var active: (id: UUID, alert: UIAlertController, continuation: CheckedContinuation<String, Error>)?
+
+    init(presenter: @escaping @MainActor () -> UIViewController? = AppErrorPresenter.topViewController) {
+        self.presenter = presenter
+    }
 
     func requestCode(_ request: SchoolSMSCodeRequest) async throws -> String {
         try Task.checkCancellation()
-        let id = request.id
+        let controller = try await AppErrorPresenter.availableViewController(using: presenter)
+        let id = UUID()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                guard active == nil, let controller = AppErrorPresenter.topViewController() else {
+                guard active == nil, let controller else {
                     continuation.resume(throwing: NativeSchoolAuthenticationError.additionalVerification)
                     return
                 }

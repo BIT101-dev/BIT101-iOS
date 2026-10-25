@@ -174,6 +174,8 @@ struct NativeLoginTests {
             let model = LoginViewModel(service: reopenedService)
             await model.bootstrapIfNeeded()
             #expect(model.screenState == .signedIn(studentID: "owner"))
+            #expect(AppRestoreReadiness.sessionIsReady(model.screenState, storage: reopened))
+            #expect(!AppRestoreReadiness.sessionIsReady(.signedOut, storage: reopened))
             transport.serverFailure = false; transport.registrationFailure = false
             #expect(try await reopenedService.checkLogin() == "owner")
             #expect(reopened.fakeCookie == "direct-cookie" && !reopened.hasVerifiedSchoolIdentity)

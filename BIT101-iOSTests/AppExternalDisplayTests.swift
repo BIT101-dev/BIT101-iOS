@@ -1,10 +1,35 @@
 import Foundation
+import ScheduleDomain
+import ScheduleContracts
 import StorageCore
 import Testing
 @testable import BIT101_iOS
 
 @MainActor
 struct AppExternalDisplayTests {
+    @Test(arguments: [false, true])
+    func localSchoolSessionsKeepExtensionsAvailableDuringCommunityAuthenticationRecovery(communityExpired: Bool) throws {
+        let storage = AppAccountSession.storage
+        defer { _ = storage.clearAllLocalData() }
+        if communityExpired {
+            try storage.saveLoginState(studentID: "external-school", password: "fixture", fakeCookie: "fixture")
+            storage.requireCommunityAuthentication()
+        } else { try storage.saveSchoolLoginState(studentID: "external-school", password: "fixture") }
+        var cache = ScheduleCache()
+        cache.ddlEvents = [.init(id: "school", group: "lexue", title: "学校作业", text: "", dueAt: .distantFuture, done: false)]
+        let snapshot = try #require(ScheduleWidgetExporter.makeSnapshot(cache: cache, session: AppFileDirectories.currentSession))
+        #expect(storage.fakeCookie.isEmpty && snapshot.isLoggedIn && snapshot.deadlines.map(\.id) == ["school"])
+        #expect(ScheduleDeadlineResolver.resolvedSnapshot(from: snapshot).contentState == .ready)
+        #expect(AppRestoreReadiness.sessionIsReady(.signedIn(studentID: "external-school"), storage: storage))
+        #expect(!AppRestoreReadiness.sessionIsReady(.signedOut, storage: storage))
+        storage.clearSession()
+        let loggedOut = try #require(ScheduleWidgetExporter.makeSnapshot(cache: cache, session: AppFileDirectories.currentSession))
+        #expect(!loggedOut.isLoggedIn && loggedOut.deadlines.isEmpty)
+        #expect(ScheduleDeadlineResolver.resolvedSnapshot(from: loggedOut).contentState == .loggedOut)
+        #expect(AppRestoreReadiness.sessionIsReady(.signedOut, storage: storage))
+        #expect(!AppRestoreReadiness.sessionIsReady(.signedIn(studentID: "external-school"), storage: storage))
+    }
+
     private final class Context {
         var session = AppStorageSession(accountIdentifier: "selected-display")
         var signedIn = true
