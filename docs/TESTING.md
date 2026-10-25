@@ -229,7 +229,7 @@ gh workflow run ci.yml --ref main -f full_check=true
 gh run rerun 运行编号 --failed
 ```
 
-手动 `full_check` 执行模块、Release 归档、App 行为、正式组装、全部 UI 与 Catalyst。版本标签和 `release_check` 进一步执行专用真机 Job 与发布回执验收；手动发布同时填写 `validation_tag`。新增提交自动取消同分支常规旧运行，发布流程保留设备恢复时间。
+手动 `full_check` 按 [CI 工作流](../.github/workflows/ci.yml)执行登记的模块、编译与行为验证。UI 交互沿本地验收入口执行，发布所需的真机、线上服务与跨端证据由对应专项提供。版本标签和 `release_check` 核对发布回执，手动发布同时填写 `validation_tag`。新增提交自动取消同分支常规旧运行，发布流程保留设备恢复时间。
 
 操作者选择 `full_check`、`release_check` 或发布标签时，授权对应 GitHub 运行器准备并执行工作流中的模拟器范围。开发代理执行本机模拟器流程时，沿当前会话的明确授权设置入口标记。
 

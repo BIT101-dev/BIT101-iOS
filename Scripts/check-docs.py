@@ -213,9 +213,14 @@ def staged_content_fixture() -> None:
         assert findings(staged=True, root=fixture)
         scripts = fixture / 'Scripts'
         scripts.mkdir()
+        shared = scripts / 'shared.py'
+        shared.write_text('other_file_value = 1\n')
+        subprocess.run(['git', 'add', str(shared)], cwd=fixture, check=True, capture_output=True)
         checker = ROOT / 'Scripts/check-python-syntax.py'
         for name, invalid, valid in [('fixture.py', 'if True\n', 'pass\n'),
-                ('fixture.sh', "python3 -c 'if True'\n", "python3 -c 'pass'\n")]:
+                ('fixture.sh', "python3 -c 'if True'\n", "python3 -c 'pass'\n"),
+                ('names.py', 'print(other_file_value)\n', 'pass\n'),
+                ('names.sh', "python3 -c 'print(other_file_value)'\n", "python3 -c 'pass'\n")]:
             source = scripts / name
             def validate(staged):
                 return subprocess.run([sys.executable, str(checker), str(fixture), *(['--staged'] if staged else [])],

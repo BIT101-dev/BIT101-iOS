@@ -683,7 +683,7 @@ def current(results: str) -> None:
     if not isinstance(jobs, dict) or {name: job.get('result') if isinstance(job, dict) else None
             for name, job in jobs.items()} != expected:
         raise ValueError('CI 验收需要静态审计通过，并按所选范围核对完整验收任务状态。')
-    print('完整编译、行为与 UI 验收通过。' if native else '静态审计验收通过。')
+    print('编译、模块与行为验收通过。' if native else '静态审计验收通过。')
 
 
 def version_tag(tag: str) -> None:
@@ -812,8 +812,9 @@ def _self_test() -> None:
     for native, results in (('false', static_results), ('true', full_results)):
         with patch.dict(os.environ, GITHUB_SHA=commit, GITHUB_ACTIONS='false', BIT101_NATIVE_CHECK=native), \
                 patch.object(subprocess, 'check_output', return_value=commit), patch.object(module, 'api_pages') as api, \
-                patch.object(sys, 'stdout', StringIO()):
+                patch.object(sys, 'stdout', StringIO()) as output:
             current(json.dumps(results))
+            assert ('UI' in output.getvalue()) == (native == 'true' and 'ui-tests' in REQUIRED_JOBS)
             api.assert_not_called()
             rejected = [[], {}, results | {'extra': {'result': 'success'}},
                 {name: job for name, job in results.items() if name != 'static-audit'}]

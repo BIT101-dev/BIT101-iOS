@@ -4,6 +4,30 @@ from swift_source_index import ROOT, swift_syntax_index_sources, declaration_con
 from swift_type_index import SwiftTypeIndex
 
 
+def recursive_network_reachability_self_test():
+    from network_capability_rules import business_methods
+    for names in [('first', 'second'), ('second', 'first')]:
+        for enabled in ('true', 'false'):
+            entries = '\n'.join('public func ' + name + '() async throws { try await ' +
+                ('helperA' if name == 'first' else 'helperB') + '() }' for name in names)
+            source = '''import Foundation
+                public struct ReachabilityService {
+                    ENTRIES
+                    public func quiet() async throws { if false { try await request() } }
+                    private func helperA() async throws {
+                        if Bool.random() { try await helperB() }
+                        try await request()
+                    }
+                    private func helperB() async throws { if Bool.random() { try await helperA() } }
+                    private func request() async throws {
+                        if ENABLED { _ = try await URLSession.shared.data(from: URL(string: "https://example.invalid")!) }
+                    }
+                }'''.replace('ENTRIES', entries).replace('ENABLED', enabled)
+            index = swift_syntax_index_sources({'Modules/NewForumFeature/Sources/ReachabilityService.swift': source})
+            methods = business_methods(index).get('NewForumFeature.ReachabilityService', [])
+            assert {function['name'] for _, function in methods} == (set(names) if enabled == 'true' else set()), (names, enabled, methods)
+
+
 def contextual_overload_self_test():
     from network_capability_rules import matching_api_calls, execution_index, call_can_execute
     cases = [

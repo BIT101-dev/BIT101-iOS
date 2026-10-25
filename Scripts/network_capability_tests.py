@@ -3,8 +3,8 @@ from validation_test_areas import (MANUAL_CAPABILITY_SCENARIOS, NETWORK_CAPABILI
     network_capability_findings, reachable_smoke_calls, smoke_receiver_resolver)
 
 def network_capability_self_test() -> None:
-    from swift_type_index_tests import stored_network_callback_self_test, dynamic_network_callback_self_test, callable_object_network_self_test
-    for check in (stored_network_callback_self_test, dynamic_network_callback_self_test, callable_object_network_self_test): check()
+    from swift_type_index_tests import stored_network_callback_self_test, dynamic_network_callback_self_test, callable_object_network_self_test, recursive_network_reachability_self_test
+    for check in (stored_network_callback_self_test, dynamic_network_callback_self_test, callable_object_network_self_test, recursive_network_reachability_self_test): check()
     from unittest.mock import patch
     from validation_compilation import compilation_condition
     assert compilation_condition('RELEASE_NETWORK_SMOKE', 'network')

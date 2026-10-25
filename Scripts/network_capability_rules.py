@@ -309,6 +309,7 @@ def stored_callback_bindings(index: dict, types) -> dict:
 def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
     from swift_type_index import callable_effect_index
     index = execution_index(callable_effect_index(index))
+    can_execute = snapshot_execution_checker()
     from validation_inputs import NATIVE_PRODUCT_ROOTS, NATIVE_TEST_ROOTS
     test_roots = {'ModuleTests', *NATIVE_TEST_ROOTS}
     from validation_compilation import active_network_source, active_swift_source
@@ -380,7 +381,7 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
                     for node in facts.get('bindings', [])) for branch in facts.get('controlFlow', []))
         if call.get('referenceTarget'):
             uses = [invocation for invocation in facts.get('invocations', [])
-                if active(source_path, invocation) and call_can_execute(facts, invocation)
+                if active(source_path, invocation) and can_execute(facts, invocation)
                 and any(node['start'] == call['start'] for node in visible_callable_ranges(
                     facts, invocation.get('calledExpression', ''), invocation))]
             return not uses or any(position >= len(invocation.get('arguments', []))
@@ -507,7 +508,7 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
             target = owner(source_path, call['scope'])
         else: target = resolve_receiver(dict(call, path=source_path))
         return [(path, closure) for path, closure, constructor in stored_callbacks.get((target, name), [])
-            if active(path, constructor) and call_can_execute(index[path], constructor)]
+            if active(path, constructor) and can_execute(index[path], constructor)]
     for source_path, source_facts in index.items():
         executed_bodies[source_path] = set()
     while True:
@@ -516,7 +517,7 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
             names = {parameter['name'] for parameter in function['parameters'] if '->' in parameter['type']}
             for call in index[source_path].get('invocations', []):
                 if not function.get('bodyStart', function['start']) <= call['start'] < function['end'] \
-                        or not active(source_path, call) or not call_can_execute(index[source_path], call) \
+                        or not active(source_path, call) or not can_execute(index[source_path], call) \
                         or not executes(source_path, function, call): continue
                 expression = call.get('calledExpression', '')
                 if expression in names:
@@ -533,17 +534,17 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
                         eager_parameters.update((source_path, function['start'], name) for name in references & names)
         for source_path, source_facts in index.items():
             for call in source_facts.get('invocations', []):
-                if active(source_path, call) and call_can_execute(source_facts, call) and all(
+                if active(source_path, call) and can_execute(source_facts, call) and all(
                         closure['start'] in executed_bodies[source_path] for closure in source_facts.get('callableRanges', []) + source_facts.get('inlineClosureRanges', [])
                         if closure['start'] <= call['start'] < closure['end']):
                     executed_bodies[source_path].update(start for start, _ in callback_body_ranges(
                         source_facts, call, standard_callbacks(source_path, call)))
                     executed_bodies[source_path].update(closure['start'] for closure in
                         visible_callable_ranges(source_facts, call['calledExpression'], call))
-                if not active(source_path, call) or not call_can_execute(source_facts, call) or not all(
+                if not active(source_path, call) or not can_execute(source_facts, call) or not all(
                         closure['start'] in executed_bodies[source_path] for closure in source_facts.get('callableRanges', []) + source_facts.get('inlineClosureRanges', [])
                         if closure['start'] <= call['start'] < closure['end']): continue
-                if call_can_execute(source_facts, call):
+                if can_execute(source_facts, call):
                     for target_path, closure in stored_targets(source_path, call):
                         executed_bodies[target_path].add(closure['start'])
                 for target_path, function in callback_targets(source_path, call):
@@ -552,11 +553,18 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
                             if (target_path, function['start'], parameter.get('name')) in eager_parameters}
                         executed_bodies[source_path].update(start for start, _ in callback_body_ranges(source_facts, call, positions))
         if previous == (len(eager_parameters), sum(map(len, executed_bodies.values()))): break
-    result = {}
+    result, request_results = {}, {}
     for path, facts in index.items():
         module = compilation_unit(path)
         if test_roots.intersection(Path(path).parts): continue
         def contains_request(function, source_path=path, seen=None):
+            key = (source_path, function['start'], function['end'], function.get('bodyStart'),
+                function.get('isExplicitInitializer'), tuple(function.get('scope', [])))
+            if key in request_results: return request_results[key]
+            found = scan_requests(function, source_path, seen)
+            if found or seen is None: request_results[key] = found
+            return found
+        def scan_requests(function, source_path, seen):
             if seen is None: seen = set()
             key = (source_path, function['start'])
             if key in seen: return False
@@ -569,7 +577,7 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
             task_bodies = executed_bodies[source_path]
             for call in transport_calls(source_facts):
                 if not (function.get('bodyStart') or function['start']) <= call['start'] < function['end'] \
-                        or not active(source_path, call) or not call_can_execute(source_facts, call): continue
+                        or not active(source_path, call) or not can_execute(source_facts, call): continue
                 target = resolve_receiver(dict(call, path=source_path))
                 method = transport_method(call.get('calledExpression', ''))
                 executes = all(closure['start'] in task_bodies for closure in closures

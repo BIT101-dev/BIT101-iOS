@@ -121,9 +121,15 @@ def repository_input_names(root: Path) -> list[str]:
 
 
 def repository_script_paths(root: Path, suffixes: set[str]) -> list[Path]:
-    paths = {path for directory in ('Scripts', 'Cloudflare', '.githooks') for path in (root / directory).rglob('*')
-             if (path.suffix in suffixes or directory == '.githooks' and not path.suffix and '.sh' in suffixes)
-             and path.is_file() and not is_worker_generated(PurePosixPath(path.relative_to(root)))}
+    paths = set()
+    for directory in ('Scripts', 'Cloudflare', '.githooks'):
+        for parent, children, files in os.walk(root / directory):
+            if directory == 'Cloudflare':
+                children[:] = [name for name in children if name not in WORKER_GENERATED_DIRECTORIES]
+            for name in files:
+                path = Path(parent) / name
+                if (path.suffix in suffixes or directory == '.githooks' and not path.suffix and '.sh' in suffixes) and path.is_file():
+                    paths.add(path)
     return sorted(paths)
 
 
@@ -299,12 +305,23 @@ def self_test() -> None:
         'pkg/entry.py', 'pkg/helper.py', 'pkg/sibling.py'}
     nested = root / 'Scripts/nested/check.py'
     shell = root / 'Cloudflare/Worker/Scripts/publish.sh'
-    dependency = root / 'Cloudflare/Worker/node_modules/helper.py'
     generated = [root / f'Cloudflare/Worker/.wrangler/tmp/helper{suffix}' for suffix in ('.py', '.sh', '.js')]
     hook = root / '.githooks/pre-push'
     hook_python, hook_shell = root / '.githooks/helpers/check.py', root / '.githooks/helpers/check.sh'
-    inventory = {'Scripts': [nested], 'Cloudflare': [shell, dependency, *generated], '.githooks': [hook, hook_python, hook_shell]}
-    with patch.object(Path, 'rglob', lambda path, pattern: iter(inventory[path.name])), \
+    def walk_fixture(path):
+        if path.name == 'Scripts':
+            yield path, ['nested'], []
+            yield nested.parent, [], [nested.name]
+        elif path.name == 'Cloudflare':
+            yield path, ['Worker'], []
+            children = ['Scripts', 'node_modules', '.wrangler', '.git']
+            yield shell.parent.parent, children, []
+            assert children == ['Scripts']
+            yield shell.parent, [], [shell.name]
+        else:
+            yield path, ['helpers'], [hook.name]
+            yield hook_python.parent, [], [hook_python.name, hook_shell.name]
+    with patch.object(os, 'walk', walk_fixture), \
             patch.object(Path, 'is_file', return_value=True):
         assert repository_script_paths(root, {'.py'}) == [hook_python, nested]
         assert repository_script_paths(root, {'.sh'}) == [hook_shell, hook, shell]

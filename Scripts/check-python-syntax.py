@@ -45,17 +45,25 @@ else:
     script_sources = {path.relative_to(root).as_posix(): path.read_text(encoding='utf-8')
         for path in repository_script_paths(root, {'.py', '.sh'})}
 
-def checked_python(source, path):
+RUFF_ARGUMENTS = ['ruff', 'check', '--isolated', '--no-cache', '--select', 'F403,F405,F811,F821,F841',
+    '--output-format', 'concise']
+
+
+def run_ruff(arguments, source=None):
+    return subprocess.run([*RUFF_ARGUMENTS, *arguments], input=source, capture_output=True, text=True)
+
+
+def checked_python(source, path, *, lint=True):
     compile(source, str(path), 'exec')
     if Path(path).name == 'validation_provenance.py' and any(
             isinstance(node, ast.Import) and any(alias.name in {'hashlib', 'hmac'} for alias in node.names)
             or isinstance(node, ast.ImportFrom) and node.module in {'hashlib', 'hmac'}
             for node in ast.walk(ast.parse(source))):
         raise SyntaxError(f'{path}: 一致性验收沿直接内容比较和原生身份执行。')
-    filename = str(path) if str(path).endswith('.py') else str(path) + '.py'
-    result = subprocess.run(['ruff', 'check', '--isolated', '--no-cache', '--select', 'F403,F405,F811,F821,F841',
-        '--output-format', 'concise', '--stdin-filename', filename, '-'], input=source, capture_output=True, text=True)
-    if result.returncode: raise SyntaxError(f'{path}:\n{result.stdout or result.stderr}')
+    if lint:
+        filename = str(path) if str(path).endswith('.py') else str(path) + '.py'
+        result = run_ruff(['--stdin-filename', filename, '-'], source)
+        if result.returncode: raise SyntaxError(f'{path}:\n{result.stdout or result.stderr}')
 
 def command_words(prefix, *, first=False):
     lexer = shlex.shlex(prefix, posix=True, punctuation_chars=';|&()')
@@ -382,10 +390,16 @@ if args.self_test:
             if 'undefined_detector_name' in source: assert 'F405' in str(error)
         else: raise AssertionError('Python 名称审计需要显式导入及确定的名称来源')
 
+python_paths = []
 for name, source in script_sources.items():
     if syntax_targets is not None and name not in syntax_targets: continue
-    if name.endswith('.py'): checked_python(source, root / name)
+    if name.endswith('.py'):
+        checked_python(source, root / name, lint=args.staged)
+        if not args.staged: python_paths.append(str(root / name))
     else: compile_embedded_python(source, root / name)
+if python_paths:
+    result = run_ruff(['--', *python_paths])
+    if result.returncode: raise SyntaxError(result.stdout or result.stderr)
 
 
 def import_cycles(sources, directory=''):
