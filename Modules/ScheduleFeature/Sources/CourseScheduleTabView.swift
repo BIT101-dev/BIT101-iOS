@@ -540,13 +540,7 @@ private struct ScheduleTabBarOverlapReader: UIViewRepresentable {
 
             let contentFrame = convert(bounds, to: window)
             let tabBarFrame = tabBar.convert(tabBar.bounds, to: window)
-            guard tabBarFrame.minY >= contentFrame.minY,
-                  tabBarFrame.minY < contentFrame.maxY,
-                  tabBarFrame.maxX > contentFrame.minX,
-                  tabBarFrame.minX < contentFrame.maxX
-            else { return 0 }
-
-            return max(contentFrame.maxY - tabBarFrame.minY, 0)
+            return ScheduleTabBarGeometry.bottomOverlap(content: contentFrame, tabBar: tabBarFrame)
         }
 
         private func findTabBarController(in controller: UIViewController?) -> UITabBarController? {

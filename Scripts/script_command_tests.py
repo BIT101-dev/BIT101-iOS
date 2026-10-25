@@ -140,7 +140,8 @@ execute_test() {
         observed = [line for line in result.stdout.splitlines() if line in {'CLEAR', 'INSTALL', 'EXECUTE', 'RESULT'}]
         if result.returncode != expected or observed != events:
             findings.append(f'安装恢复生命周期自测：{context.strip()} {expected}，实际 {result.returncode} {result.stdout.strip()}')
-    program = (SCRIPT_ROOT / 'script-support.sh').read_text().split("<<'PYMACINSTALL'\n", 1)[1].split('\nPYMACINSTALL', 1)[0]
+    from script_test_support import heredoc_body
+    program = heredoc_body((SCRIPT_ROOT / 'script-support.sh').read_text(), 'PYMACINSTALL')
     fixture = ROOT / '.build/static-audit/workflow-lock-self-test'
     try:
         for stage in ('copy-failure', 'swap-failure', 'replace', 'first-install'):

@@ -102,8 +102,20 @@ public nonisolated enum ScheduleCalendarAxisMode: String, CaseIterable, Identifi
     }
 }
 
-/// 线性时间轴的缩放与滚动几何模型。
 #if os(iOS)
+enum ScheduleTabBarGeometry {
+    static func bottomOverlap(content: CGRect, tabBar: CGRect) -> CGFloat {
+        guard tabBar.width > tabBar.height,
+              tabBar.minY >= content.minY,
+              tabBar.minY < content.maxY,
+              tabBar.maxX > content.minX,
+              tabBar.minX < content.maxX
+        else { return 0 }
+        return max(content.maxY - tabBar.minY, 0)
+    }
+}
+
+/// 线性时间轴的缩放与滚动几何模型。
 struct ScheduleTimelineViewport: Equatable {
     static var minimumScale: CGFloat { AppDesignSystem.Schedule.timelineMinimumScale }
     static var maximumScale: CGFloat { AppDesignSystem.Schedule.timelineMaximumScale }

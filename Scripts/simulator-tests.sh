@@ -41,18 +41,28 @@ if os.getenv('GITHUB_ACTIONS') == 'true' and operation in {'app', 'release-runti
     raise SystemExit(0)
 def inventory(): return json.loads(subprocess.check_output(['xcrun', 'simctl', 'list', '--json'], text=True))
 def runtimes(data): return [row for row in data['runtimes'] if row.get('isAvailable') and '.iOS-' in row['identifier']]
+hosted = os.getenv('GITHUB_ACTIONS') == 'true'
+requested_type = '' if hosted else os.getenv('BIT101_SIMULATOR_DEVICE_TYPE', '')
+def matching_types(platforms):
+    return [(platform, row) for platform in platforms for row in platform['supportedDeviceTypes']
+        if requested_type in {row['name'], row['identifier']}]
 data = inventory()
+if requested_type and not any(requested_type in {row['name'], row['identifier']} for row in data['devicetypes']):
+    raise SystemExit('Xcode 设备库存需要包含指定类型：' + requested_type)
 available = runtimes(data)
 if operation == 'info':
     print('可用 iOS 模拟器运行时：' + ', '.join(row['version'] for row in available))
     raise SystemExit(0)
-if not available:
+if not available or requested_type and not matching_types(available):
     subprocess.run(['xcodebuild', '-downloadPlatform', 'iOS'], check=True, stdout=sys.stderr, stderr=sys.stderr)
     data = inventory()
     available = runtimes(data)
 if not available: raise SystemExit('iOS 模拟器运行时安装完成后需要出现在系统库存。')
 runtime = max(available, key=lambda row: tuple(map(int, row['version'].split('.'))))
-hosted = os.getenv('GITHUB_ACTIONS') == 'true'
+if requested_type:
+    candidates = matching_types(available)
+    if not candidates: raise SystemExit('可用 iOS 运行时需要支持指定设备类型：' + requested_type)
+    runtime, phone = max(candidates, key=lambda pair: tuple(map(int, pair[0]['version'].split('.'))))
 if hosted:
     candidates = [(platform, row) for platform in available for row in platform['supportedDeviceTypes']
         if re.match(r'iPhone \d+(?: |$)', row['name'])]
@@ -63,7 +73,9 @@ if hosted:
 owned = json.loads(path.read_text()) if path.is_file() else None
 device = next((row for rows in data['devices'].values() for row in rows
     if owned and row['udid'] == owned['identifier']), None)
-if hosted and device and (device.get('deviceTypeIdentifier') != phone['identifier'] or owned.get('runtime') != runtime['identifier']):
+if (hosted or requested_type) and device and (device.get('deviceTypeIdentifier') != phone['identifier'] or owned.get('runtime') != runtime['identifier']):
+    if not hosted and device.get('name') == 'BIT101':
+        subprocess.run(['xcrun', 'simctl', 'delete', device['udid']], check=True, stdout=sys.stderr, stderr=sys.stderr)
     device = None
 if device and device.get('isAvailable'):
     identifier = owned['identifier']
@@ -71,12 +83,12 @@ else:
     if device and device.get('name') == 'BIT101':
         subprocess.run(['xcrun', 'simctl', 'delete', device['udid']], check=True, stdout=sys.stderr, stderr=sys.stderr)
     reusable = [row for row in data['devices'].get(runtime['identifier'], []) if row.get('isAvailable')
-        and (row.get('deviceTypeIdentifier') == phone['identifier'] if hosted else row['name'] == 'BIT101')]
+        and (row.get('deviceTypeIdentifier') == phone['identifier'] if hosted or requested_type else row['name'] == 'BIT101')]
     if reusable:
         device = min(reusable, key=lambda row: (row['state'] != 'Booted', row['udid']))
         identifier = device['udid']
     else:
-        if not hosted: phone = next(row for row in runtime['supportedDeviceTypes'] if row['name'].startswith('iPhone'))
+        if not hosted and not requested_type: phone = next(row for row in runtime['supportedDeviceTypes'] if row['name'].startswith('iPhone'))
         identifier = subprocess.check_output(['xcrun', 'simctl', 'create', 'BIT101', phone['identifier'], runtime['identifier']], text=True).strip()
         device = {'state': 'Shutdown'}
     path.write_text(json.dumps({'identifier': identifier, 'runtime': runtime['identifier']}) + '\n')

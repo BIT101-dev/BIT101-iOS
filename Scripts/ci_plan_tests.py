@@ -1,5 +1,8 @@
 """Regression contracts for CI validation plans and portable result records."""
+import argparse
 import json
+import shutil
+import sys
 import os
 import subprocess
 from pathlib import Path
@@ -284,3 +287,155 @@ def wiring_self_test(subject) -> None:
                 settings['BIT101_DIAGNOSTIC_PATHS'] = '\n'.join(line for line in settings['BIT101_DIAGNOSTIC_PATHS'].splitlines()
                     if line != '.build/extended-automation/diagnostics/test-results.xcresult')
         assert any('诊断' in message or '原始 XCTest' in message for message in ci_wiring_findings(json.dumps(changed))), name
+
+
+def acceptance_self_test(subject) -> None:
+    from io import StringIO
+    from unittest.mock import patch
+    module = subject
+    root = Path('/fixture')
+    metrics = root / '.build/extended-automation/test-metrics.txt'
+    preserved = {root / '.build/compiler-cache/swift-syntax-indexer',
+        root / '.build/extended-automation/modules.log',
+        root / '.build/extended-automation/test-results.retained.xcresult'}
+    files = preserved | {metrics, root / '.build/extended-automation/simulator.log'}
+    def download(command, **kwargs):
+        assert command[:4] == ['gh', 'run', 'download', '7']
+        assert command[6:] == ['--dir', str(root)]
+        assert metrics not in files
+        assert root / '.build/extended-automation/simulator.log' not in files
+        assert preserved <= files
+        files.update({metrics, root / '.build/extended-automation/simulator.log'})
+    with patch.object(module, 'ROOT', root), \
+            patch.object(Path, 'unlink', lambda path, **kwargs: files.discard(path)), \
+            patch.object(shutil, 'rmtree') as clear, \
+            patch.object(subprocess, 'run', side_effect=download) as command:
+        for operation, index in (('app', 0), ('ui', 0), ('ui', 1)):
+            module.download_simulator_shard('7', operation, index)
+            assert command.call_args.args[0][5] == f'validation-ios-test-shards-{operation}-{index}'
+            clear.assert_called_with(root / '.build/extended-automation/test-results.xcresult', ignore_errors=True)
+    commit = 'a' * 40
+    from contextlib import nullcontext
+    retained = {'releaseCommit': commit, 'coveragePolicy': {'all': {'Feature': 70}},
+        'groups': {name: {'inputDigest': 'retained-' + name} for name in ('network', 'icloud', 'manual-device', 'build-archive', 'audit', 'catalyst', 'all')}}
+    policy_source = 'APP_COVERAGE_FLOOR = 60\nMODULE_COVERAGE_FLOORS = {"Feature": 80}\nIOS_MODULE_COVERAGE_FLOORS = {"Feature": 70}\n'
+    for cached in ({}, retained):
+        with patch.object(subprocess, 'check_output') as git, patch('validation_provenance.report_lock', side_effect=nullcontext), \
+                patch('validation_provenance.write_report') as save, patch.object(Path, 'is_file', return_value=True), \
+                patch.object(Path, 'read_text', return_value=json.dumps(cached)):
+            module.baseline('')
+            assert save.call_args.args[0] == cached | {'coverageBaseCommit': '', 'coveragePolicy': {}}
+            git.assert_not_called()
+            import validation_evidence
+            from contextlib import redirect_stderr
+            from io import StringIO
+            with patch.object(Path, 'read_text', return_value=json.dumps(save.call_args.args[0])):
+                assert validation_evidence.inspect_report(argparse.Namespace(action='baseline', group='')) == 0
+            with patch.object(Path, 'read_text', return_value=json.dumps(retained)), redirect_stderr(StringIO()):
+                assert validation_evidence.inspect_report(argparse.Namespace(action='baseline', group='')) == 1
+    with patch.object(subprocess, 'check_output', return_value=policy_source) as git, \
+            patch('validation_provenance.report_lock', side_effect=nullcontext), patch('validation_provenance.write_report') as save, \
+            patch.object(Path, 'is_file', return_value=False), patch.object(module, 'api_pages') as api:
+        module.baseline(commit)
+        git.assert_called_once_with(['git', 'show', f'{commit}:Scripts/validation_policy.py'], cwd=module.ROOT, text=True)
+        assert save.call_args.args[0] == {'coverageBaseCommit': commit, 'coveragePolicy': {'modules': {'Feature': 80}, 'all': {'Feature': 70, 'BIT101-iOS.app': 60}}}
+        api.assert_not_called()
+    full_results = {name: {'result': 'success'} for name in module.REQUIRED_JOBS}
+    static_results = {name: {'result': 'success' if name == 'static-audit' else 'skipped'} for name in module.REQUIRED_JOBS}
+    for native, results in (('false', static_results), ('true', full_results)):
+        with patch.dict(os.environ, GITHUB_SHA=commit, GITHUB_ACTIONS='false', BIT101_NATIVE_CHECK=native), \
+                patch.object(subprocess, 'check_output', return_value=commit), patch.object(module, 'api_pages') as api, \
+                patch.object(sys, 'stdout', StringIO()) as output:
+            module.current(json.dumps(results))
+            assert ('UI' in output.getvalue()) == (native == 'true' and 'ui-tests' in module.REQUIRED_JOBS)
+            api.assert_not_called()
+            rejected = [[], {}, results | {'extra': {'result': 'success'}},
+                {name: job for name, job in results.items() if name != 'static-audit'}]
+            for name in module.REQUIRED_JOBS:
+                rejected.extend(results | {name: {'result': state}} for state in
+                    ('success', 'skipped', 'failure', 'cancelled', None) if state != results[name]['result'])
+            for states in rejected:
+                try: module.current(json.dumps(states))
+                except ValueError: pass
+                else: raise AssertionError('静态与完整验收需要分别核对每项任务的执行状态')
+    for source in ('MODULE_COVERAGE_FLOORS = {}', policy_source.replace('60', '101'), policy_source.replace('60', 'True'),
+                   policy_source.replace('80', '101'), policy_source.replace('80', 'True'),
+                   policy_source.replace('{"Feature": 80}', 'execute()')):
+        with patch.object(subprocess, 'check_output', return_value=source), patch('validation_provenance.write_report') as save:
+            try: module.baseline(commit)
+            except ValueError: pass
+            else: raise AssertionError('目标提交需要有效的版本化阈值')
+            save.assert_not_called()
+    for pull, accepted in (({'state': 'open', 'merge_commit_sha': commit, 'base': {'sha': 'b' * 40}}, True),
+            ({'state': 'closed', 'merge_commit_sha': commit}, False),
+            ({'state': 'open', 'merge_commit_sha': 'c' * 40}, False)):
+        with patch.object(module, 'repository', return_value='owner/repo'), \
+                patch.object(module, 'api_pages', return_value=[pull]), patch.object(subprocess, 'check_output', return_value=commit):
+            try: result = module.review_pr(12)
+            except ValueError: assert not accepted
+            else: assert accepted and result == 'b' * 40
+    with patch.dict(os.environ, GITHUB_SHA=commit), patch.object(subprocess, 'check_output', return_value='b' * 40):
+        try: module.current(json.dumps(full_results))
+        except ValueError: pass
+        else: raise AssertionError('CI 需要验收事件提交')
+    for changed in (b'', b' M Scripts/ci_evidence.py\0'):
+        with patch.dict(os.environ, GITHUB_SHA=commit, GITHUB_ACTIONS='true', BIT101_NATIVE_CHECK='true'), \
+                patch.object(subprocess, 'check_output', side_effect=[commit, changed]), patch.object(sys, 'stdout', StringIO()):
+            try: module.current(json.dumps(full_results))
+            except ValueError: assert changed
+            else: assert not changed
+    with patch.object(module, 'version_tag'), patch.object(module, 'repository', return_value='owner/repo'), \
+            patch.object(Path, 'mkdir'), patch.object(subprocess, 'run') as command, \
+            patch.object(Path, 'read_text', return_value='{}'), patch.object(Path, 'write_text'), patch.object(Path, 'unlink'), \
+            patch.object(module, 'release_receipt', return_value={'schemaVersion': 1}), \
+            patch('validation_evidence.inspect_report', return_value=0), patch('validation_provenance.report_lock'):
+        module.release('v1.0', publish=True)
+        assert command.call_args.args[0][:4] == ['gh', 'release', 'upload', 'v1.0']
+        assert command.call_args.args[0][4] == str(module.RECEIPT)
+        module.release('v1.0')
+        assert command.call_args.args[0][:4] == ['gh', 'release', 'download', 'v1.0']
+        assert module.RECEIPT.name in command.call_args.args[0]
+    for target, accepted in (('commit', True), ('other', False)):
+        with patch.object(module, 'extract_versions', return_value=('1.0.0', 1)), \
+                patch.object(Path, 'read_text', return_value='project'), \
+                patch.object(subprocess, 'check_output', side_effect=[target, 'commit']):
+            try: module.version_tag('v1.0.0')
+            except ValueError: assert not accepted
+            else: assert accepted
+    for tag in ('v1.0', 'v2.0.0', 'refs/tags/v1.0.0'):
+        with patch.object(module, 'extract_versions', return_value=('1.0.0', 1)), \
+                patch.object(Path, 'read_text', return_value='project'), patch.object(subprocess, 'check_output') as git:
+            try: module.version_tag(tag)
+            except ValueError: pass
+            else: raise AssertionError('发布回执标签需要对应工程完整版本')
+            git.assert_not_called()
+    with patch.object(module, 'version_tag'), patch.object(subprocess, 'run') as upload, \
+            patch('validation_evidence.inspect_report', return_value=1), patch('validation_provenance.report_lock'):
+        try: module.release('v1.0', publish=True)
+        except ValueError: pass
+        else: raise AssertionError('完整验收失败需要终止证据上传')
+        upload.assert_not_called()
+    for arguments, operation, expected in (
+        (['baseline', commit], 'baseline', ((commit,), {})),
+        (['current', '--results', json.dumps(full_results)], 'current', ((json.dumps(full_results),), {})),
+        (['review-pr', '12'], 'review_pr', ((12,), {})),
+        (['release', 'v1.0'], 'release', (('v1.0',), {'publish': False})),
+        (['publish', 'v1.0'], 'release', (('v1.0',), {'publish': True})),
+        (['check-release'], 'check_release', ((), {})),
+        (['export-core'], 'export_core', ((), {})),
+        (['export-result', 'modules'], 'export_validation_result', (('modules',), {})),
+        (['simulator-merge'], 'merge_simulator_ci', ((), {})),
+        (['import-baseline', '7'], 'import_baseline', ((7,), {})),
+        (['cache-restore', 'simulator-app'], 'restore_cache', (('simulator-app',), {})),
+        (['cache-export', 'simulator-app'], 'export_cache', (('simulator-app',), {})),
+        (['cache-prune'], 'prune_caches', ((), {})),
+        (['plan'], 'validation_plan', ((), {})),
+        (['reuse', 'ui'], 'reuse_validation', (('ui',), {})),
+    ):
+        with patch.object(sys, 'argv', ['ci_evidence.py', *arguments]), patch.object(module, operation, return_value='b' * 40) as execute, \
+                patch.object(sys, 'stdout', StringIO()) as output:
+            assert module.main() == 0
+            if operation == 'review_pr': assert output.getvalue() == 'b' * 40 + '\n'
+            assert (execute.call_args.args, execute.call_args.kwargs) == expected
+            execute.side_effect = ValueError('验收证据需要有效输入')
+            with patch.object(sys, 'stderr', StringIO()): assert module.main() == 1

@@ -258,7 +258,7 @@ sleep() {{ SECONDS=$(( SECONDS + 60 )); }}
 def cache_and_ui_products(fixture: Path) -> None:
     import ctypes
     from ci_evidence import native_cache_available
-    from compiler_cache import prune_native_storage
+    from validation_artifacts import prune_native_storage
     from test_results import ui_host_product_paths
     cache = fixture / 'cache'
     native = cache / 'CompilationCache.noindex'
@@ -284,11 +284,22 @@ def cache_and_ui_products(fixture: Path) -> None:
     assert data.read_bytes() == b'active compilation records'
     from compiler_cache import run_cache
     with patch.object(subprocess, 'run', return_value=subprocess.CompletedProcess([], 0)), \
-            patch('compiler_cache.prune_native_storage', side_effect=OSError('cache busy')) as automatic, \
-            redirect_stderr(output := StringIO()):
+            patch('validation_artifacts.prune_native_storage') as automatic:
         try: run_cache([str(fixture), 'build.log', 'build', 'xcodebuild', 'build'])
         except SystemExit as status: assert status.code == 0
-    assert automatic.called and '缓存回收待重试' in output.getvalue()
+    automatic.assert_not_called()
+    from validation_artifacts import main as audit_artifacts
+    import fcntl
+    def locked_prune(shared):
+        with (shared / 'cache.lock').open('a') as other:
+            try: fcntl.flock(other, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            except BlockingIOError: pass
+            else: raise AssertionError('原生回收持有缓存写锁。')
+        raise OSError('cache busy')
+    with patch('validation_artifacts.prune_native_storage', side_effect=locked_prune) as automatic, redirect_stderr(output := StringIO()):
+        audit_artifacts(fixture)
+    automatic.assert_called_once_with(fixture / '.build/compiler-cache')
+    assert '缓存回收待重试' in output.getvalue()
     products = fixture / 'products'; products.mkdir()
     app = products / 'Release-iphonesimulator/App.app'
     runner = products / 'Release-iphonesimulator/Runner.app'

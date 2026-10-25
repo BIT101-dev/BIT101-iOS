@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 import CoreGraphics
 import Network
 import os
@@ -298,6 +299,31 @@ nonisolated final class ScheduleLayoutUITests: UIAutomationTestCase {
         XCTAssertTrue(alert.disappears(timeout: 5))
         XCTAssertFalse(alert.native.exists)
     }
+
+    @MainActor
+    func testScheduleKeepsWeekAndControlsAcrossWindowRotation() {
+        app = configureApp(resetStorage: true, school: true)
+        let device = XCUIDevice.shared
+        defer { device.orientation = .portrait }
+        app.buttons["第3周"].tapBriefly()
+        assertSelectedWeek(3)
+        for orientation in [UIDeviceOrientation.landscapeLeft, .landscapeRight, .portrait] {
+            device.orientation = orientation
+            UITestSnapshotReader.invalidate()
+            assertSelectedWeek(3)
+            let calendar = app.descendants(matching: .any).matching(identifier: "schedule.variant-surface").firstMatch
+            assertUI(calendar.appears(timeout: 10), "窗口旋转后课表保持可见。")
+            let window = app.windows.firstMatch.frame
+            let add = app.buttons["schedule.add-content"]
+            assertUI(calendar.frame.height > add.frame.height && window.intersects(calendar.frame), "窗口旋转后课表保留可用的内容区域。")
+            assertUI(add.exists && add.native.isHittable, "窗口旋转后课表操作入口保持可触达。")
+            for title in ["日程", "地图", "成绩", "话廊", "我的"] {
+                let tab = app.tabBars.buttons[title]
+                assertUI(tab.exists && tab.native.isHittable, "窗口旋转后主导航保持可触达：\(title)。")
+            }
+        }
+    }
+
 
 }
 

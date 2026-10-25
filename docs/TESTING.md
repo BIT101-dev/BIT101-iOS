@@ -113,6 +113,8 @@ BIT101_SIMULATOR_AUTHORIZED=1 Scripts/run-extended-tests.sh simulator verify
 
 入口复用唯一项目设备、公共缓存和固定结果目录，并准备所选 Xcode 所需的官方运行时。`app`、`release-runtime`、`ui` 省略筛选时执行各自完整库存；`verify` 聚合模块、iOS 行为、正式组装、UI、静态审计、结果合并、覆盖率及常规 App 恢复。Catalyst、归档、线上服务与实体设备验收分别由所属流程承接。
 
+适配特定设备时，通过 `BIT101_SIMULATOR_DEVICE_TYPE='iPhone Duo' Scripts/run-extended-tests.sh simulator prepare` 选择设备类型；该配置接受 Xcode 库存中的名称或标识，准备对应的官方运行时，并沿固定设备记录复用后续测试与恢复。Duo 布局沿 [Apple 适配指南](https://developer.apple.com/iphone-duo/prepare/)核对内外屏、旋转、折叠切换和非对称安全区；Device Hub 负责切换姿态，课表旋转合同验收选中周次、主导航和内容操作区。
+
 `simulator build-ui` 构建共享 UI 宿主；`simulator merge` 归集 CI 分片。测试结束后恢复常规 Release；`simulator restore` 支持独立恢复，`simulator inspect` 读取安装身份与实际屏幕。恢复结果核对进程、会话和活跃场景。
 
 ## 静态审计
@@ -282,7 +284,7 @@ python3 Scripts/validation_evidence.py manual 检查项 \
 
 ### 公共缓存与工作流资源
 
-缓存维护保留增量编译所需文件，共享 SDK、模块、原生 CompilationCache 和索引。CompilationCache 容量采用工具链默认策略，成功构建后执行原生回收；显式缓存维护展示占用统计，并按构建依赖保留所需模块。远端缓存按来源提交与工具链选择，恢复失败后沿当前源码编译。缓存与诊断保持原始形式，CI 产物使用零压缩传输。
+缓存维护保留增量编译所需文件，共享 SDK、模块、原生 CompilationCache 和索引。CompilationCache 容量采用工具链默认策略，完整静态审计的产物准备阶段集中执行原生回收；显式缓存维护展示占用统计，并按构建依赖保留所需模块。远端缓存按来源提交与工具链选择，恢复失败后沿当前源码编译。缓存与诊断保持原始形式，CI 产物使用零压缩传输。
 
 构建与静态条件求值共享编译缓存的读锁，缓存目录迁移和回收持有写锁。中断工作流时先归集当前用户的子进程所属的进程组，完成后台任务清理后释放工作流锁。
 

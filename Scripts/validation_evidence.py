@@ -613,8 +613,10 @@ def release_findings(report: dict, digest: str, *, recorded_environment: bool = 
 
 
 def record(group: str, status: int, scope: str, started_digest: str) -> int:
-    digest = source_digest()
-    input_digest = source_digest(group)
+    from validation_provenance import source_snapshot
+    with source_snapshot():
+        digest = source_digest()
+        input_digest = source_digest(group)
     run_id = os.getenv("BIT101_VALIDATION_RUN_ID", "")
     if status == 0 and (not started_digest or not run_id):
         status = 1

@@ -5,6 +5,7 @@ import fcntl
 import os
 import shutil
 import sys
+import subprocess
 from contextlib import contextmanager, ExitStack
 from validation_policy import TEST_GROUPS, BUILD_HOSTS
 
@@ -143,6 +144,41 @@ def recover_self_test_artifacts(root: Path) -> None:
         elif path.is_dir(): shutil.rmtree(path)
 
 
+def prune_native_storage(shared: Path) -> None:
+    # v<格式>.<代际> 的主代与上游代共享引用关系，交由原生工具沿父目录回收。
+    compilation = shared / 'CompilationCache.noindex'
+    for store in compilation.iterdir() if compilation.is_dir() else ():
+        if store.is_dir() and any(store.glob('v*')):
+            subprocess.run(['xcrun', 'llvm-cas', '--cas=' + str(store), '--prune'], check=True,
+                stdout=subprocess.DEVNULL)
+    index = shared / 'Index.noindex/DataStore'
+    if index.is_dir():
+        import ctypes
+        compiler = Path(subprocess.check_output(['xcrun', '--find', 'swiftc'], text=True).strip())
+        library = ctypes.CDLL(str(compiler.parent.parent / 'lib/libIndexStore.dylib'))
+        library.indexstore_store_create.argtypes = [ctypes.c_char_p, ctypes.POINTER(ctypes.c_void_p)]
+        library.indexstore_store_create.restype = ctypes.c_void_p
+        library.indexstore_store_dispose.argtypes = [ctypes.c_void_p]
+        library.indexstore_store_dispose.restype = None
+        library.indexstore_store_purge_stale_data.argtypes = [ctypes.c_void_p]
+        library.indexstore_store_purge_stale_data.restype = None
+        error = ctypes.c_void_p()
+        store = library.indexstore_store_create(os.fsencode(index), ctypes.byref(error))
+        if not store: raise RuntimeError('索引缓存需要可读取的原生存储。')
+        try: library.indexstore_store_purge_stale_data(store)
+        finally: library.indexstore_store_dispose(store)
+
+
+def maintain_native_storage(shared: Path) -> None:
+    if not shared.is_dir(): return
+    with (shared / 'cache.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try: prune_native_storage(shared)
+        except (OSError, RuntimeError, AttributeError, subprocess.SubprocessError) as error:
+            print(f'缓存回收待重试：{error}', file=sys.stderr)
+
+
+
 def main(root: Path) -> None:
     recover_self_test_artifacts(root)
     for name in ("swift-syntax-indexer", "swift-syntax-indexer-inputs.json", "swift-syntax-indexer.lock"):
@@ -207,6 +243,7 @@ def main(root: Path) -> None:
         print("[失败] 产物目录不符合固定路径规则：")
         print("\n".join(violations))
         raise SystemExit(1)
+    maintain_native_storage(shared)
 
 
 if __name__ == "__main__":

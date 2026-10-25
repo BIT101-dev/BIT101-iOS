@@ -13,6 +13,7 @@ import fcntl
 from functools import cache
 import threading
 from contextlib import contextmanager
+from contextvars import ContextVar
 from validation_inputs import includes_input, repository_input_names, is_worker_generated
 from validation_environment import environment_context, exchange_identity
 from urllib.parse import urlsplit
@@ -29,6 +30,7 @@ WORKER_SOURCE_PREFIX = 'bit101-source-git:'
 _REPORT_THREAD_LOCK = threading.RLock()
 _REPORT_LOCK_DEPTH: dict[Path, int] = {}
 _REPORT_INPUTS: dict[Path, dict] = {}
+_SOURCE_SNAPSHOT: ContextVar[dict | None] = ContextVar('validation_source_snapshot', default=None)
 
 
 def workflow_elapsed_seconds() -> float | None:
@@ -379,15 +381,31 @@ def normalized_test_id(identifier: str) -> str:
 
 
 
+@contextmanager
+def source_snapshot():
+    if _SOURCE_SNAPSHOT.get() is not None:
+        yield
+        return
+    token = _SOURCE_SNAPSHOT.set({})
+    try: yield
+    finally: _SOURCE_SNAPSHOT.reset(token)
+
+
 def source_digest(group: str = "", *, environment: dict | None = None) -> str:
-    names = repository_input_names(ROOT)
+    snapshot = _SOURCE_SNAPSHOT.get()
+    if snapshot is None: snapshot = {}
+    if 'files' not in snapshot:
+        names = repository_input_names(ROOT)
+        files = {}
+        for name in sorted(set(names) - {""}):
+            path = ROOT / name
+            if path.is_file() and (not group or _SOURCE_SNAPSHOT.get() is not None or includes_input(name, group)):
+                files[name] = {'executable': bool(path.stat().st_mode & 0o111),
+                    'content': base64.b64encode(path.read_bytes()).decode('ascii')}
+        snapshot.update(names=names, files=files)
+    names = snapshot['names']
+    files = {name: value for name, value in snapshot['files'].items() if includes_input(name, group)}
     context = _source_context(group, environment)
-    files = {}
-    for name in sorted(set(names) - {""}):
-        path = ROOT / name
-        if path.is_file() and includes_input(name, group):
-            files[name] = {'executable': bool(path.stat().st_mode & 0o111),
-                'content': base64.b64encode(path.read_bytes()).decode('ascii')}
     return _local_source_identity(group, files, context, current_inputs=set(names),
         committed_identity=_clean_source_identity(group, context))
 

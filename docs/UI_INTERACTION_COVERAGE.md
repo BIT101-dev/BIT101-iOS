@@ -42,6 +42,7 @@ UIKit 控件沿构造类型、继承或别名进入源码清单，运行门禁�
 | `CalendarInteractionUITests/testCustomScheduleEmptyTitleDetailsAndCalendarActions` | 添加日程、保存、重新装载恢复 |
 | `ScheduleEditingUITests/testCustomSchedulesAreIsolatedBetweenAccounts` | 退出、改账号登录、账号日程隔离 |
 | `LoginAndScheduleUITests/testScheduleWeekButtonsAndSectionSwipes` | 上 / 下一周、指定周、课表 / DDL / 空教室横滑与点击 |
+| `ScheduleLayoutUITests/testScheduleKeepsWeekAndControlsAcrossWindowRotation` | 横竖屏切换保留周次、课表内容、操作入口及主导航 |
 | `LoginAndScheduleUITests/testScheduleDayHolidayAndTransferConfirmationCancellation` | 每日表头、放假 / 调休选择、确认取消、窗口取消 |
 | `ScheduleNavigationUITests/testHolidayAndTransferConfirmedMutations` | 放假确认、调休日期控件、调休确认、原日期和目标日期课程变更 |
 | `LoginAndScheduleUITests/testLinearScheduleTimelineScrollAndPinch` | 线性时间轴上下滚动、双指放大 / 缩小、缩放值更新及画布左边界对齐 |

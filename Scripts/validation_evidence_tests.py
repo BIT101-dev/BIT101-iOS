@@ -123,6 +123,8 @@ def run_self_test(subject) -> int:
     from validation_policy import workflow_budget_self_test
     workflow_budget_self_test()
     network_route_identity_self_test()
+    from validation_provenance_tests import source_snapshot_self_test
+    source_snapshot_self_test()
     request_body_shape_self_test()
     module_name = subject.__name__
     original_is_file = Path.is_file

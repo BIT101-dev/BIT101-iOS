@@ -34,6 +34,33 @@ def sampled_module_inputs_self_test() -> None:
     assert includes_input('Modules/CommunityUI/Sources/CommunityViews.swift', 'build-icloud-smoke')
 
 
+def source_snapshot_self_test() -> None:
+    from types import SimpleNamespace
+    import validation_provenance as subject
+    inputs = {'Package.swift': b'product', 'README.md': b'documentation'}
+    reads = []
+    def read(path):
+        name = path.relative_to(subject.ROOT).as_posix()
+        reads.append(name)
+        return inputs[name]
+    def identity(group, files, context, **kwargs):
+        return json.dumps(files, sort_keys=True)
+    with patch.object(subject, 'repository_input_names', return_value=list(inputs)) as inventory, \
+            patch.object(Path, 'is_file', return_value=True), patch.object(Path, 'read_bytes', read), \
+            patch.object(Path, 'stat', return_value=SimpleNamespace(st_mode=0o644)), \
+            patch.object(subject, '_clean_source_identity', return_value=None), patch.object(subject, '_local_source_identity', side_effect=identity):
+        with subject.source_snapshot():
+            full = subject.source_digest()
+            with subject.source_snapshot():
+                group = subject.source_digest('modules', environment={})
+            assert set(json.loads(full)) == set(inputs) and set(json.loads(group)) == {'Package.swift'}
+            inputs['Package.swift'] = b'changed product'
+            assert subject.source_digest('modules', environment={}) == group
+        assert inventory.call_count == 1 and sorted(reads) == sorted(inputs)
+        assert subject.source_digest('modules', environment={}) != group
+        assert inventory.call_count == 2 and reads[-1] == 'Package.swift'
+
+
 def test_identity_self_test() -> None:
     import validation_test_areas as subject
     root = subject.ROOT / 'ModuleTests'

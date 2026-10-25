@@ -107,6 +107,57 @@ def simulator_identity_boundary_findings() -> list[str]:
         assert saved == ([] if state == 'valid' else [{'identifier': expected, 'runtime': runtime['identifier']}]), (ci, state)
         assert (['xcrun', 'simctl', 'delete', 'old'] in commands) == (state == 'unavailable'), (ci, state)
         if state == 'empty': assert saved and ['xcrun', 'simctl', 'boot', 'created'] in commands
+    return simulator_requested_type_boundary_findings(program)
+
+
+def simulator_requested_type_boundary_findings(program: str) -> list[str]:
+    from contextlib import redirect_stdout
+    from io import StringIO
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    import os
+    import sys
+    path = Path('/fixture/simulator-device.json')
+    phone = {'name': 'iPhone 17', 'identifier': 'phone-type'}
+    duo = {'name': 'iPhone Duo', 'identifier': 'duo-type'}
+    runtime = {'identifier': 'com.apple.CoreSimulator.SimRuntime.iOS-27-0', 'version': '27.0',
+        'isAvailable': True, 'supportedDeviceTypes': [phone]}
+    compatible = dict(runtime, identifier='com.apple.CoreSimulator.SimRuntime.iOS-27-1', version='27.1', supportedDeviceTypes=[duo])
+    old = dict(udid='old', name='BIT101', state='Booted', isAvailable=True, deviceTypeIdentifier='phone-type')
+    ready = dict(old, udid='duo', name='Existing Duo', deviceTypeIdentifier='duo-type')
+    for requested, present, owned_duo, reuse in [('iPhone Duo', True, False, True), ('duo-type', True, True, True),
+            ('iPhone Duo', False, False, False), ('Unknown phone', True, False, False)]:
+        def inventory(include):
+            return dict(devicetypes=[phone, duo], runtimes=[runtime] + ([compatible] if include else []),
+                devices={runtime['identifier']: [old], compatible['identifier']: [ready] if reuse else []})
+        commands, saved = [], []
+        inventories = iter([inventory(present), inventory(True)])
+        def output(command, **kwargs):
+            commands.append(command)
+            if command[:4] == ['xcrun', 'simctl', 'list', '--json']: return json.dumps(next(inventories))
+            if command[:3] == ['xcrun', 'simctl', 'create']:
+                assert command[4:] == ['duo-type', compatible['identifier']]
+                return 'created'
+            raise AssertionError(command)
+        def run(command, **kwargs):
+            commands.append(command)
+            return SimpleNamespace(returncode=0)
+        owned = {'identifier': 'duo' if owned_duo else 'old', 'runtime': compatible['identifier'] if owned_duo else runtime['identifier']}
+        with patch.object(sys, 'argv', ['device', str(path), 'prepare']), \
+                patch.dict(os.environ, GITHUB_ACTIONS='false', DEVELOPER_DIR='/Xcode/Contents/Developer', BIT101_SIMULATOR_DEVICE_TYPE=requested), \
+                patch.object(Path, 'is_file', return_value=True), patch.object(Path, 'read_text', return_value=json.dumps(owned)), \
+                patch.object(Path, 'write_text', side_effect=lambda text: saved.append(json.loads(text))), \
+                patch.object(subprocess, 'check_output', side_effect=output), patch.object(subprocess, 'run', side_effect=run), redirect_stdout(StringIO()) as console:
+            try: exec(compile(program, 'requested-device-type', 'exec'), {})
+            except SystemExit as error:
+                assert requested == 'Unknown phone' and 'Unknown phone' in str(error)
+                assert len(commands) == 1
+                continue
+        expected = 'duo' if reuse else 'created'
+        assert console.getvalue().strip() == expected
+        assert saved == ([] if owned_duo else [{'identifier': expected, 'runtime': compatible['identifier']}])
+        assert (['xcodebuild', '-downloadPlatform', 'iOS'] in commands) == (not present)
+        assert (['xcrun', 'simctl', 'delete', 'old'] in commands) == (not owned_duo)
     return []
 
 

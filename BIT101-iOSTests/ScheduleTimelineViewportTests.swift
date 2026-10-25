@@ -5,6 +5,21 @@ import Testing
 
 @Suite("Schedule linear timeline viewport")
 struct ScheduleTimelineViewportTests {
+    @Test("Tab bars reserve the intersecting bottom edge across window sizes")
+    func tabBarsReserveTheBottomEdge() {
+        for content in [CGRect(x: 0, y: 90, width: 390, height: 690),
+                        CGRect(x: 80, y: 40, width: 700, height: 450)] {
+            let bottom = CGRect(x: content.minX + 20, y: content.maxY - 70, width: content.width - 40, height: 50)
+            #expect(ScheduleTabBarGeometry.bottomOverlap(content: content, tabBar: bottom) == 70)
+            for bar in [CGRect(x: content.minX - 20, y: content.minY + 20, width: 60, height: content.height - 40),
+                        CGRect(x: content.maxX - 40, y: content.minY + 20, width: 60, height: content.height - 40),
+                        bottom.offsetBy(dx: content.width, dy: 0), bottom.offsetBy(dx: -content.width, dy: 0),
+                        bottom.offsetBy(dx: 0, dy: 70), bottom.offsetBy(dx: 0, dy: -content.height)] {
+                #expect(ScheduleTabBarGeometry.bottomOverlap(content: content, tabBar: bar) == 0)
+            }
+        }
+    }
+
     @Test("Initial position centers the current time")
     func initialPositionCentersCurrentTime() {
         let viewport = ScheduleTimelineViewport.initial(
