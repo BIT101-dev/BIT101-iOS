@@ -125,6 +125,7 @@ struct SourceInput: Decodable { let name: String; let source: String }
 struct Input: Decodable { let paths: [String]; let sources: [SourceInput]?; let interactionNames: [String] }
 
 struct FileFacts: Encodable {
+    let source: String
     let hasParseErrors: Bool
     let imports: [String]
     let identifiers: [String]
@@ -133,7 +134,7 @@ struct FileFacts: Encodable {
     let regexRanges: [ScopedRangeFact]
     let declarations: [DeclarationFact]
     let enumCases: [EnumCaseFact]
-    let calls: [ScopedFact]
+    let calls: [Int]
     let invocations: [ScopedFact]
     let functions: [ScopedFact]
     let tests: [ScopedFact]
@@ -183,8 +184,34 @@ struct EnumCaseFact: Encodable {
     let scope: [String]
 }
 
+enum FactText: Encodable {
+    case literal(String)
+    case sourceRange(Int, Int)
+
+    init(_ node: some SyntaxProtocol, source: [UInt8]) {
+        self.init(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset, source: source)
+    }
+
+    init(_ value: String, start: Int, source: [UInt8]) {
+        let end = start + value.utf8.count
+        let reference = "{\"$source\":[\(start),\(end)]}"
+        if reference.utf8.count < value.utf8.count + 2, end <= source.count,
+           source[start..<end].elementsEqual(value.utf8) {
+            self = .sourceRange(start, end)
+        } else { self = .literal(value) }
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .literal(let value): try container.encode(value)
+        case .sourceRange(let start, let end): try container.encode(["$source": [start, end]])
+        }
+    }
+}
+
 struct ScopedFact: Encodable {
-    let value: String
+    let value: FactText
     let scope: [String]
     let start: Int
     let lexicalScope: [Int]
@@ -205,7 +232,7 @@ struct ScopedFact: Encodable {
     var argumentRanges: [[Int]]? = nil
     var isTestingTest: Bool? = nil
     var testCaseCount: Int? = nil
-    var receiverCall: String? = nil
+    var receiverCall: FactText? = nil
     var receiverElementCount: Int? = nil
     var closureArguments: [[Int]]? = nil
     var trailingClosureLabels: [String]? = nil
@@ -252,18 +279,18 @@ struct FeedbackModifierFact: Encodable {
 
 struct AccessibilityControlFact: Encodable {
     let name: String
-    let invocation: String
-    let label: String
+    let invocation: FactText
+    let label: FactText
     let hasTextTitle: Bool
     let scope: [String]
     let start: Int
     let labelStart: Int
     let labelEnd: Int
     let containers: [String]
-    let expression: String
+    let expression: FactText
     let modifiers: String
-    let callback: String
-    let carrierInvocation: String
+    let callback: FactText
+    let carrierInvocation: FactText
 }
 
 struct AlertModifierFact: Encodable {

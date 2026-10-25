@@ -118,8 +118,31 @@ def _run_swift_syntax_index(request: dict, *, regex_only: bool = False, resolve_
     parse_failures = [path for path, facts in index.items() if facts["hasParseErrors"]]
     if parse_failures:
         raise RuntimeError("SwiftSyntax parse errors: " + ", ".join(parse_failures))
-    if resolve_tests: _resolve_tests(index)
+    if resolve_tests:
+        index = _materialize_facts(index)
+        _resolve_tests(index)
     return index
+
+
+def _materialize_facts(index: dict[str, dict]) -> dict[str, dict]:
+    result = {}
+    for path, facts in index.items():
+        source = facts['source'].encode()
+        @cache
+        def text(start, end):
+            return source[start:end].decode()
+        def decode(value):
+            if isinstance(value, list): return [decode(item) for item in value]
+            if isinstance(value, dict):
+                if set(value) == {'$source'}: return text(*value['$source'])
+                return {key: decode(item) for key, item in value.items()}
+            return value
+        decoded = decode(facts)
+        decoded['calls'] = [dict(value=call['calledExpression'], scope=list(call['scope']), start=call['start'],
+            lexicalScope=list(call['lexicalScope']), **({'receiverCall': call['receiverCall']} if 'receiverCall' in call else {}))
+            for position in decoded['calls'] for call in [decoded['invocations'][position]]]
+        result[path] = decoded
+    return result
 
 
 def _resolve_tests(index: dict[str, dict]) -> None:
@@ -157,6 +180,7 @@ def swift_syntax_index_sources(sources: dict[str, str]) -> dict[str, dict]:
     index = {name: shared[path] for name, path in eligible.items()}
     missing = {name: source for name, source in sources.items() if name not in eligible}
     if missing: index.update(_index_sources(missing, resolve_tests=False))
+    index = _materialize_facts(index)
     _resolve_tests(index)
     for name, source in sources.items():
         REGEX_RANGES_BY_SOURCE[source] = character_regex_ranges(source, index[name]['regexRanges'])
@@ -172,6 +196,7 @@ def _cached_facts(cache_path: Path, requested: dict[str, str]) -> dict:
             database.execute('CREATE TABLE IF NOT EXISTS metadata (name TEXT PRIMARY KEY, value TEXT NOT NULL)')
             signature = source_facts_signature()
             previous = database.execute("SELECT value FROM metadata WHERE name = 'indexer'").fetchone()
+            reclaim = previous is not None and previous[0] != signature
             if previous is None or previous[0] != signature:
                 database.execute('DELETE FROM facts')
                 database.execute("INSERT OR REPLACE INTO metadata VALUES ('indexer', ?)", (signature,))
@@ -187,8 +212,11 @@ def _cached_facts(cache_path: Path, requested: dict[str, str]) -> dict:
             if missing:
                 parsed = _index_sources(missing, resolve_tests=False)
                 database.executemany('INSERT OR REPLACE INTO facts VALUES (?, ?)',
-                    ((path, json.dumps(facts)) for path, facts in parsed.items()))
+                    ((path, json.dumps(facts, ensure_ascii=False, separators=(',', ':'))) for path, facts in parsed.items()))
                 shared.update(parsed)
+            if reclaim:
+                database.commit()
+                database.execute('VACUUM')
             return shared
 
 

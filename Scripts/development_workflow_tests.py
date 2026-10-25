@@ -48,9 +48,15 @@ def shared_source_facts(fixture: Path) -> None:
             patch.object(subject, '_run_swift_syntax_index', wraps=subject._run_swift_syntax_index) as parse:
         first = subject.swift_syntax_index_sources({str(path): source})[str(path)]
         expected = deepcopy(first)
+        original_scope = list(first['invocations'][0]['scope'])
+        first['calls'][0]['scope'].append('ChangedCall')
+        assert first['invocations'][0]['scope'] == original_scope
         first['declarations'].append(first['declarations'][0])
         assert subject.swift_syntax_index_sources({str(path): source})[str(path)] == expected
         first = expected
+        with closing(sqlite3.connect(cache)) as database:
+            stored = database.execute('SELECT content FROM facts WHERE path = ?', (str(path),)).fetchone()[0]
+        assert all(type(position) is int for position in json.loads(stored)['calls']) and '$source' in stored
         with closing(sqlite3.connect(cache)) as database, database:
             database.execute('INSERT INTO facts VALUES (?, ?)', ('unrequested.swift', 'invalid JSON'))
         relative = str(path.relative_to(ROOT))
@@ -81,7 +87,7 @@ print('done', flush=True)
             try:
                 assert reader.stdout.readline().strip() == 'locking'
                 with closing(sqlite3.connect(cache)) as database, database:
-                    database.execute('UPDATE facts SET content = ? WHERE path = ?', (json.dumps(first), str(path)))
+                    database.execute('UPDATE facts SET content = ? WHERE path = ?', (stored, str(path)))
                 fcntl.flock(lock, fcntl.LOCK_UN)
                 output, error = reader.communicate(timeout=5)
                 assert reader.returncode == 0 and output.strip() == 'done', error
@@ -112,6 +118,17 @@ print('done', flush=True)
         joined = subject.swift_syntax_index_sources(derived_source | {str(base): base.read_text()})
         assert joined[str(derived)]['tests']
         assert not subject.swift_syntax_index_sources(derived_source)[str(derived)]['tests']
+
+
+    source = '''struct Access {
+        subscript(index: Int) -> Int { index }
+        func `subscript`(_ index: Int) -> Int { index }
+        func read() { _ = self[0]; _ = self.`subscript`(1); print("中文") }
+    }'''
+    facts = subject.swift_syntax_index_sources({'call-kind-fixture.swift': source})['call-kind-fixture.swift']
+    assert len([call for call in facts['calls'] if call['value'] == 'self.subscript']) == 1
+    assert len([call for call in facts['invocations'] if call['calledExpression'] == 'self.subscript']) == 2
+    assert facts['source'] == source and any(row['value'] == '中文' for row in facts['stringSegments'])
 
 
 def audit_self_test_selection() -> None:

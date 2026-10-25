@@ -4,9 +4,10 @@ import SwiftParser
 import SwiftOperators
 final class FactVisitor: SyntaxVisitor {
     var interactionNames: Set<String> = []
+    var sourceBytes: [UInt8] = []
     private(set) var declarations: [DeclarationFact] = []
     private(set) var enumCases: [EnumCaseFact] = []
-    private(set) var calls: [ScopedFact] = []
+    private(set) var calls: [Int] = []
     private(set) var invocations: [ScopedFact] = []
     private(set) var functions: [ScopedFact] = []
     private(set) var tests: [ScopedFact] = []
@@ -105,7 +106,7 @@ final class FactVisitor: SyntaxVisitor {
         }
     }
     private func fact(_ value: String, start: Int) -> ScopedFact {
-        ScopedFact(value: value, scope: scope, start: start, lexicalScope: lexicalScope)
+        ScopedFact(value: FactText(value, start: start, source: sourceBytes), scope: scope, start: start, lexicalScope: lexicalScope)
     }
     private func controlFlowFact(_ node: some SyntaxProtocol) -> ScopedFact {
         var item = fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset)
@@ -374,10 +375,8 @@ final class FactVisitor: SyntaxVisitor {
     override func visit(_ node: FunctionCallExprSyntax) -> SyntaxVisitorContinueKind {
         let calledExpression = node.calledExpression.tokens(viewMode: .sourceAccurate)
             .filter { $0.tokenKind != .postfixQuestionMark }.map(\.text).joined()
-        var call = fact(calledExpression, start: node.calledExpression.positionAfterSkippingLeadingTrivia.utf8Offset)
-        call.receiverCall = node.calledExpression.as(MemberAccessExprSyntax.self)?.base?
-            .as(FunctionCallExprSyntax.self)?.calledExpression.trimmedDescription
-        calls.append(call)
+        let receiver = node.calledExpression.as(MemberAccessExprSyntax.self)?.base?.as(FunctionCallExprSyntax.self)?.calledExpression
+        let receiverCall = receiver.map { FactText($0, source: sourceBytes) }
         var invocation = fact(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset)
         invocation.calledExpression = calledExpression
         var expression = Syntax(node)
@@ -397,7 +396,7 @@ final class FactVisitor: SyntaxVisitor {
                 parent = current.parent
             }
         }
-        invocation.receiverCall = call.receiverCall
+        invocation.receiverCall = receiverCall
         invocation.receiverElementCount = unwrappedExpression(node.calledExpression.as(MemberAccessExprSyntax.self)?.base)?.as(ArrayExprSyntax.self)?.elements.count
         invocation.argumentLabels = node.arguments.map { $0.label?.text ?? "" }
         invocation.arguments = node.arguments.map { $0.expression.trimmedDescription }
@@ -422,6 +421,7 @@ final class FactVisitor: SyntaxVisitor {
             invocation.closureArguments?.append([node.arguments.count + index + 1,
                 argument.closure.positionAfterSkippingLeadingTrivia.utf8Offset, argument.closure.endPositionBeforeTrailingTrivia.utf8Offset])
         }
+        calls.append(invocations.count)
         invocations.append(invocation)
         let calledName = calledExpression.split(separator: ".").last.map(String.init) ?? calledExpression
         if ["task", "onAppear", "onDisappear", "onReceive", "onChange", "onPreferenceChange", "onGeometryChange"].contains(calledName) {
@@ -531,18 +531,18 @@ final class FactVisitor: SyntaxVisitor {
             }
             let control = AccessibilityControlFact(
                 name: calledName,
-                invocation: node.trimmedDescription,
-                label: labelSyntax?.trimmedDescription ?? "",
+                invocation: FactText(node, source: sourceBytes),
+                label: labelSyntax.map { FactText($0, source: sourceBytes) } ?? .literal(""),
                 hasTextTitle: titleArgument != nil,
                 scope: scope,
                 start: node.positionAfterSkippingLeadingTrivia.utf8Offset,
                 labelStart: labelSyntax?.positionAfterSkippingLeadingTrivia.utf8Offset ?? -1,
                 labelEnd: labelSyntax?.endPositionBeforeTrailingTrivia.utf8Offset ?? -1,
                 containers: listContainers,
-                expression: styledExpression.trimmedDescription,
+                expression: FactText(styledExpression, source: sourceBytes),
                 modifiers: modifiers.joined(),
-                callback: node.trailingClosure?.trimmedDescription ?? "",
-                carrierInvocation: carrier.trimmedDescription
+                callback: node.trailingClosure.map { FactText($0, source: sourceBytes) } ?? .literal(""),
+                carrierInvocation: FactText(carrier, source: sourceBytes)
             )
             if interactionNames.contains(calledName) { accessibilityControls.append(control) }
             else { accessibilityControlCandidates.append(control) }
@@ -658,7 +658,7 @@ final class FactVisitor: SyntaxVisitor {
            sequence.elements.dropFirst().first?.is(AssignmentExprSyntax.self) == true {
             member.isAssignmentTarget = true
         }
-        member.receiverCall = node.base?.as(FunctionCallExprSyntax.self)?.calledExpression.trimmedDescription
+        member.receiverCall = (node.base?.as(FunctionCallExprSyntax.self)?.calledExpression).map { FactText($0, source: sourceBytes) }
         members.append(member)
         return .visitChildren
     }
@@ -699,7 +699,7 @@ final class FactVisitor: SyntaxVisitor {
         return .visitChildren
     }
     override func visit(_ node: ForStmtSyntax) -> SyntaxVisitorContinueKind {
-        var binding = ScopedFact(value: node.pattern.trimmedDescription + " in " + node.sequence.trimmedDescription,
+        var binding = ScopedFact(value: .literal(node.pattern.trimmedDescription + " in " + node.sequence.trimmedDescription),
             scope: scope, start: node.pattern.positionAfterSkippingLeadingTrivia.utf8Offset,
             lexicalScope: lexicalScope + [node.body.positionAfterSkippingLeadingTrivia.utf8Offset])
         binding.bindingName = node.pattern.as(IdentifierPatternSyntax.self)?.identifier.text
@@ -734,7 +734,7 @@ final class FactVisitor: SyntaxVisitor {
             } else if let branch = ancestor.as(GuardStmtSyntax.self) {
                 bounds = [branch.endPositionBeforeTrailingTrivia.utf8Offset, Int.max]
             } else { parent = ancestor.parent; continue }
-            bindings.append(ScopedFact(value: node.identifier.text, scope: scope,
+            bindings.append(ScopedFact(value: .literal(node.identifier.text), scope: scope,
                 start: node.positionAfterSkippingLeadingTrivia.utf8Offset, lexicalScope: visible,
                 bindingName: node.identifier.text, visibilityRange: bounds))
             break
@@ -934,12 +934,14 @@ enum SwiftSyntaxIndexer {
             let tree = EscapedIdentifierNormalizer(viewMode: .sourceAccurate).rewrite(Parser.parse(source: source))
             let visitor = FactVisitor(viewMode: .sourceAccurate)
             visitor.interactionNames = Set(input.interactionNames)
+            visitor.sourceBytes = Array(source.utf8)
             visitor.walk(tree)
             let identifiers = tree.tokens(viewMode: .sourceAccurate).compactMap { token -> String? in
                 if case .identifier(let name) = token.tokenKind { return name }
                 return nil
             }
             output[key] = FileFacts(
+                source: source,
                 hasParseErrors: tree.hasError,
                 imports: visitor.imports,
                 identifiers: identifiers,
