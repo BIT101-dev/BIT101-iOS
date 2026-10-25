@@ -433,6 +433,15 @@ def _clean_source_identity(group: str, context: dict) -> str | None:
     if any(name and includes_input(name, group) for name in changed): return None
     commit = _last_input_commit('HEAD', lambda name: includes_input(name, group))
     if commit is None: return None
+    for entry in git('ls-files', '-v', '--stage', '-z').split('\0'):
+        if not entry: continue
+        metadata, name = entry.split('\t', 1)
+        flag, mode, _, _ = metadata.split()
+        if (flag.islower() or flag.upper() == 'S') and includes_input(name, group):
+            path = ROOT / name
+            if not path.is_file() or bool(path.stat().st_mode & 0o111) != bool(int(mode, 8) & 0o111) \
+                    or path.read_bytes() != subprocess.check_output(['git', 'show', 'HEAD:' + name], cwd=ROOT):
+                return None
     environment = base64.urlsafe_b64encode(json.dumps([group, context], sort_keys=True).encode()).decode().rstrip('=')
     return f'git.{commit}.{environment}'
 

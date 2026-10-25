@@ -125,15 +125,15 @@ def committed_source_identity_self_test() -> None:
     import validation_provenance as provenance
     commit = b'a' * 40
     history = b'commit:' + b'b' * 40 + b'\0\nREADME.md\0\0commit:' + commit + b'\0\nModules/Feature/Sources/Removed.swift\0'
-    with patch.object(provenance.subprocess, 'check_output', side_effect=[b'', b'', history]) as git:
+    with patch.object(provenance.subprocess, 'check_output', side_effect=[b'', b'', history, b'']) as git:
         identity = provenance._clean_source_identity('manual-device', {'compiler': 'fixture'})
         assert identity.startswith('git.' + commit.decode() + '.')
-        assert git.call_args.args[0] == ['git', 'log', '--first-parent', '--diff-merges=first-parent', '--no-renames',
+        assert git.call_args_list[-2].args[0] == ['git', 'log', '--first-parent', '--diff-merges=first-parent', '--no-renames',
             '--format=commit:%H', '--name-only', '-z', 'HEAD']
     for tracked, untracked in ((b'Modules/Feature/Sources/File.swift\0', b''), (b'', b'Modules/Feature/Sources/File.swift\0')):
         with patch.object(provenance.subprocess, 'check_output', side_effect=[tracked, untracked]):
             assert provenance._clean_source_identity('manual-device', {}) is None
-    with patch.object(provenance.subprocess, 'check_output', side_effect=[b'README.md\0', b'', history]):
+    with patch.object(provenance.subprocess, 'check_output', side_effect=[b'README.md\0', b'', history, b'']):
         assert provenance._clean_source_identity('manual-device', {}).startswith('git.' + commit.decode() + '.')
 
 
@@ -184,6 +184,17 @@ def merged_source_identity_self_test() -> None:
             git('commit', '-qm', 'documentation')
             assert provenance._clean_source_identity('modules', {}) == identity
             assert provenance.worker_source_revision('ErrorReportWorker') == merged
+            for flag in ('assume-unchanged', 'skip-worktree'):
+                git('update-index', '--' + flag, swift + 'First.swift')
+                assert provenance._clean_source_identity('modules', {}) == identity
+                store(swift + 'First.swift', 'hidden local edit')
+                assert provenance._clean_source_identity('modules', {}) is None
+                store(swift + 'First.swift', 'main')
+                path = fixture / (swift + 'First.swift')
+                path.chmod(0o755)
+                assert provenance._clean_source_identity('modules', {}) is None
+                path.chmod(0o644)
+                git('update-index', '--no-' + flag, swift + 'First.swift')
     finally:
         provenance._committed_worker_revision.cache_clear()
         shutil.rmtree(fixture)

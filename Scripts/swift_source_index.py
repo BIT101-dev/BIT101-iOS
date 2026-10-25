@@ -18,6 +18,7 @@ if not __debug__:
     raise RuntimeError("验证自测需要 Python 默认优化级别；请使用 python3 -E 执行入口。")
 
 ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_FACTS_CACHE = ROOT / '.build/static-audit/source-facts.sqlite'
 REGEX_RANGES_BY_SOURCE: dict[str, dict[int, int]] = {}
 
 
@@ -164,7 +165,7 @@ def swift_syntax_index(files: list[Path]) -> dict[str, dict]:
 
 
 def swift_syntax_index_sources(sources: dict[str, str]) -> dict[str, dict]:
-    cache_name = os.environ.get('BIT101_SOURCE_FACTS_CACHE')
+    cache_name = os.environ.get('BIT101_SOURCE_FACTS_CACHE', str(DEFAULT_FACTS_CACHE))
     if not cache_name: return _index_sources(sources)
     from validation_inputs import SWIFT_ROOTS
     eligible = {}
@@ -189,6 +190,7 @@ def swift_syntax_index_sources(sources: dict[str, str]) -> dict[str, dict]:
 
 def _cached_facts(cache_path: Path, requested: dict[str, str]) -> dict:
     """Decode private facts for the requested files from the shared audit database."""
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
     with cache_path.with_suffix('.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         with closing(sqlite3.connect(cache_path)) as database, database:
