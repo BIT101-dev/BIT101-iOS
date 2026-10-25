@@ -342,8 +342,9 @@ struct Handler { var value: String!; func read() -> String { value }; func catch
     assert ci_wiring_findings(workflow_source.replace("compression-level: 0", "compression-level: 6"))
     assert ci_wiring_findings(workflow_source.replace("    tags: ['v*']\n", ""))
     assert ci_wiring_findings(workflow_source.replace("run: python3 Scripts/ci_evidence.py check-release", "run: echo skipped"))
-    assert ci_wiring_findings(workflow_source.replace("run: python3 Scripts/ci_evidence.py export-core", "run: true"))
-    assert ci_wiring_findings(workflow_source.replace("verify modules all release-runtime ui", "verify modules all ui"))
+    assert ci_wiring_findings(workflow_source.replace("run: python3 Scripts/ci_evidence.py export-result ios", "run: true"))
+    assert any('禁止执行 UITest' in message for message in ci_wiring_findings(
+        workflow_source.replace('Scripts/run-extended-tests.sh simulator app', 'Scripts/run-extended-tests.sh simulator ui')))
     for event in ("pull_request", "push"):
         for filtering in ("paths", "paths-ignore"):
             assert ci_wiring_findings(workflow_source.replace(event + ":\n", event + f":\n    {filtering}: ['docs/**']\n", 1))
