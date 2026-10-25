@@ -18,6 +18,16 @@ public protocol ScoreListServicing {
 
 public typealias TrustedTranscriptPageDelivery = @MainActor @Sendable (TrustedTranscriptPages) async throws -> Void
 
+public nonisolated struct PartialScoreResult: LocalizedError, CustomNSError {
+    public let rows: [ScoreRow]
+    public let failure: any Error
+    public init(rows: [ScoreRow], failure: any Error) { self.rows = rows; self.failure = failure }
+    public var errorDescription: String? { "部分课程详情暂时无法读取，已保留可用成绩。" }
+    public var errorUserInfo: [String: Any] {
+        [NSUnderlyingErrorKey: failure, NSLocalizedDescriptionKey: errorDescription ?? ""]
+    }
+}
+
 public protocol TrustedTranscriptServicing {
     var transcriptServiceIdentity: AnyHashable { get }
     func fetchTrustedTranscriptPages(onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages

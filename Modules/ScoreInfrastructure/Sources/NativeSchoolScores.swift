@@ -6,6 +6,18 @@ import TransportCore
 
 /// 教务系统 HTML 表格协议；列名参与校验，字段扩展沿学校表头保留。
 nonisolated enum NativeSchoolScoreParser {
+    @concurrent static func parse(_ data: Data) async throws -> Table {
+        guard let html = String(data: data, encoding: .utf8) else { throw ScoreServiceError.invalidResponse }
+        if let failure = SchoolServiceFailure.schoolResponse(html) { throw failure }
+        return try parse(html)
+    }
+
+    @concurrent static func detail(_ data: Data) async throws -> [String] {
+        guard let html = String(data: data, encoding: .utf8) else { throw ScoreServiceError.invalidResponse }
+        if let failure = SchoolServiceFailure.schoolResponse(html) { throw failure }
+        return try detail(html)
+    }
+
     struct Record: Sendable {
         var values: [String]
         let detailPath: String?
@@ -35,6 +47,9 @@ nonisolated enum NativeSchoolScoreParser {
             if let index = headers.firstIndex(of: "成绩"),
                let numeric = ["优秀": "95", "良好": "85", "中等": "75", "及格": "65", "不及格": "0"][values[index]] {
                 values[index] = numeric
+            }
+            guard ScoreRow(index: records.count, headers: headers, values: values).hasValidCourseIdentity else {
+                throw ScoreServiceError.invalidResponse
             }
             let path = captures(#"['"](/jsxsd/kscj/cjfx[^'"]*)['"]"#, in: decode(row)).first
             records.append(Record(values: values, detailPath: path))
@@ -96,9 +111,28 @@ nonisolated enum NativeSchoolScoreParser {
     }
 }
 
+final class NativeSchoolScoreQuery {
+    let challenge: BITLoginAuthenticationChallenge
+    var table: NativeSchoolScoreParser.Table?
+    var remoteChallenge: BITLoginAuthenticationChallenge?
+    init(_ challenge: BITLoginAuthenticationChallenge) { self.challenge = challenge }
+}
+
+final class NativeSchoolScoreQueries {
+    private var current: NativeSchoolScoreQuery?
+    func query(for challenge: BITLoginAuthenticationChallenge) -> NativeSchoolScoreQuery {
+        if let current, current.challenge == challenge { return current }
+        let query = NativeSchoolScoreQuery(challenge)
+        current = query
+        return query
+    }
+}
+
 struct NativeSchoolScoreReader {
     let client: HTTPClient
     let validate: () throws -> Void
+    let query: NativeSchoolScoreQuery
+    let deadline: ContinuousClock.Instant
 
     func fetch(detail: Bool, session: SchoolAuthenticatedSession) async throws -> [ScoreRow] {
         let url = try resource("/jsxsd/kscj/cjcx_list", base: session.baseURL)
@@ -109,35 +143,62 @@ struct NativeSchoolScoreReader {
         guard let host = url.host else { throw ScoreServiceError.invalidResponse }
         request.setValue("https://" + host, forHTTPHeaderField: "Origin")
         request.httpBody = HTTPFormEncoding.body([("kksj", ""), ("kcxz", ""), ("kcmc", ""), ("xsfs", "all")])
-        let table = try NativeSchoolScoreParser.parse(await html(request))
-        let headers = table.headers + (detail ? NativeSchoolScoreParser.detailHeaders : [])
+        let table: NativeSchoolScoreParser.Table
+        if let cached = query.table { table = cached }
+        else {
+            table = try await decoded(request, using: NativeSchoolScoreParser.parse)
+            query.table = table
+        }
+        defer { if detail { query.table = nil } }
         var rows: [ScoreRow] = []
+        var failure: (any Error)?
         for (index, record) in table.records.enumerated() {
             try validate()
             var values = record.values
+            var headers = table.headers
             if detail {
                 if let path = record.detailPath {
-                    let request = URLRequest(url: try resource(path, base: session.baseURL))
-                    values += try NativeSchoolScoreParser.detail(await html(request))
-                } else { values += Array(repeating: "", count: NativeSchoolScoreParser.detailHeaders.count) }
+                    do {
+                        let request = URLRequest(url: try resource(path, base: session.baseURL))
+                        values += try await decoded(request, using: NativeSchoolScoreParser.detail)
+                        headers += NativeSchoolScoreParser.detailHeaders
+                    } catch {
+                        try validate()
+                        if TaskCancellation.matches(error) { throw error }
+                        if failure == nil || SchoolServiceFailure.from(error) != nil { failure = error }
+                    }
+                } else {
+                    headers += NativeSchoolScoreParser.detailHeaders
+                    values += Array(repeating: "", count: NativeSchoolScoreParser.detailHeaders.count)
+                }
             }
             let row = ScoreRow(index: index, headers: headers, values: values)
-            guard row.hasValidCourseIdentity else { throw ScoreServiceError.invalidResponse }
             rows.append(row)
         }
         try validate()
+        if let failure { throw PartialScoreResult(rows: rows, failure: failure) }
         return rows
     }
 
-    private func html(_ original: URLRequest) async throws -> String {
+    private func decoded<Value: Sendable>(_ original: URLRequest, using decode: (Data) async throws -> Value) async throws -> Value {
         try validate()
         var request = original
-        request.timeoutInterval = 25
-        let response = try await client.send(request)
+        let remaining = ContinuousClock.now.duration(to: deadline).components
+        let seconds = Double(remaining.seconds) + Double(remaining.attoseconds) / 1e18
+        guard seconds > 0 else { throw URLError(.timedOut) }
+        request.timeoutInterval = min(25, seconds)
+        let response: HTTPResponse
+        do { response = try await client.send(request) }
+        catch let HTTPClientError.unacceptableStatus(code, _) where code == 403 || code >= 500 {
+            throw NativeSchoolAuthenticationError.serviceUnavailable(code)
+        }
         try validate()
-        guard response.response.url == request.url else { throw ScoreServiceError.invalidResponse }
-        guard let html = String(data: response.data, encoding: .utf8) else { throw ScoreServiceError.invalidResponse }
-        return html
+        let value = try await response.validated { data, http in
+            guard http.url == request.url else { throw ScoreServiceError.invalidResponse }
+            return try await decode(data)
+        }
+        try validate()
+        return value
     }
 
     private func resource(_ path: String, base: URL) throws -> URL {

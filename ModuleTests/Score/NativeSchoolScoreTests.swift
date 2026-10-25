@@ -1,10 +1,14 @@
 import ClientCore
+import Combine
+import BIT101TestSupport
 import Foundation
 import ScoreDomain
 import ScorePorts
 @testable import ScoreInfrastructure
 import Testing
 import TransportCore
+import StorageCore
+@testable import ScoreFeature
 
 @MainActor
 struct NativeSchoolScoreTests {
@@ -69,6 +73,12 @@ struct NativeSchoolScoreTests {
     private final class Transport: HTTPTransport {
         var requests: [URLRequest] = []
         var malformedNative = false
+        var nativeBody: String?
+        var nativeStatus = 200
+        var failedDetails: Set<String> = []
+        var restrictedDetails: Set<String> = []
+        var pauseDetails = false
+        var detailsEntered = false
         func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
             let result = try await data(for: request)
             if let maximumBytes, result.0.count > maximumBytes { throw HTTPClientError.responseTooLarge }
@@ -79,8 +89,13 @@ struct NativeSchoolScoreTests {
             let url = try #require(request.url)
             let body: String
             switch url.path {
-            case "/jsxsd/kscj/cjcx_list": body = malformedNative ? "<html>service unavailable</html>" : NativeSchoolScoreTests.grades
-            case "/jsxsd/kscj/cjfx": body = NativeSchoolScoreTests.detail
+            case "/jsxsd/kscj/cjcx_list": body = nativeBody ?? (malformedNative ? "<html>service unavailable</html>" : NativeSchoolScoreTests.grades)
+            case "/jsxsd/kscj/cjfx":
+                detailsEntered = true
+                if pauseDetails { try await Task.sleep(for: .seconds(60)) }
+                let id = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "id" })?.value ?? ""
+                body = restrictedDetails.contains(id) ? "<html>对不起，无权访问该资源</html>"
+                    : failedDetails.contains(id) ? "<html>changed detail protocol</html>" : NativeSchoolScoreTests.detail
             case "/api/auth/start": body = #"{"challenge_id":"remote","access_token":"token","status":"authenticated"}"#
             case "/api/jwb/bit101/score": body = #"{"msg":"查询成功","data":[["课程编号","课程名称","成绩","学分"],["CS1","remote","90","3"]]}"#
             case "/api/jwb/cjd/cookies": body = #"{"cookie_str":"remote=fixture"}"#
@@ -88,11 +103,19 @@ struct NativeSchoolScoreTests {
             case "/cjd/Temp/page.png": body = "page-data"
             default: throw URLError(.badURL)
             }
-            return (Data(body.utf8), try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)))
+            return (Data(body.utf8), try #require(HTTPURLResponse(url: url, statusCode: url.host == "jwms.bit.edu.cn" ? nativeStatus : 200, httpVersion: nil, headerFields: nil)))
         }
     }
-    private func service(_ credentials: Credentials, _ transport: Transport, _ authenticator: Authenticator) -> ScoreService {
-        let client = HTTPClient(transport: transport, observer: nil)
+    private final class Observer: HTTPClientObserving {
+        var validationFailures: [(String, Int)] = []
+        func willSend(_ request: URLRequest) async throws {}
+        func didFinish(request: URLRequest, finalRequest: URLRequest?, data: Data?, response: URLResponse?, error: Error?, elapsed: TimeInterval) async {
+            if error != nil, let status = (response as? HTTPURLResponse)?.statusCode { validationFailures.append((request.url?.path ?? "", status)) }
+        }
+    }
+    private func service(_ credentials: Credentials, _ transport: Transport, _ authenticator: Authenticator,
+        observer: (any HTTPClientObserving)? = nil) -> ScoreService {
+        let client = HTTPClient(transport: transport, observer: observer)
         return ScoreService(credentials: credentials, httpClient: client, sensitiveHTTPClient: client,
             endpointBaseURL: AppURL.required("https://relay.invalid"), nativeAuthenticator: authenticator, nativeHTTPClient: client)
     }
@@ -107,7 +130,7 @@ struct NativeSchoolScoreTests {
         #expect(brief.count == 1 && detailed.count == 1)
         #expect(detailed.first?.averageScore == "85" && detailed.first?.classRank == "前10%")
         #expect(authenticator.targets == [.grades])
-        #expect(transport.requests.count == 3 && transport.requests.allSatisfy { $0.url?.host == "jwms.bit.edu.cn" })
+        #expect(transport.requests.count == 2 && transport.requests.allSatisfy { $0.url?.host == "jwms.bit.edu.cn" })
         let parsed = try NativeSchoolScoreParser.parse(Self.grades)
         #expect(parsed.records.first?.values[1] == "数学 & 计算" && parsed.records.first?.values[2] == "95")
         #expect(try NativeSchoolScoreParser.detail(Self.detail) == ["60", "90", "85", "95", "30", "100", "是", "前10%", "前20%", "前30%"])
@@ -125,10 +148,13 @@ struct NativeSchoolScoreTests {
         let credentials = Credentials(), transport = Transport()
         transport.malformedNative = true
         let authenticator = Authenticator(credentials.schoolSessionIdentity)
-        let service = service(credentials, transport, authenticator)
+        let observer = Observer()
+        let service = service(credentials, transport, authenticator, observer: observer)
         let challenge = try await service.startScoreChallenge()
         #expect(try await service.fetchScores(detail: false, authenticatedBy: challenge).count == 1)
-        #expect(transport.requests.compactMap { $0.url?.path } == ["/jsxsd/kscj/cjcx_list", "/api/auth/start", "/api/jwb/bit101/score"])
+        #expect(try await service.fetchScores(detail: true, authenticatedBy: challenge).count == 1)
+        #expect(transport.requests.compactMap { $0.url?.path } == ["/jsxsd/kscj/cjcx_list", "/api/auth/start", "/api/jwb/bit101/score", "/api/jwb/bit101/score"])
+        #expect(observer.validationFailures.count == 1 && observer.validationFailures.first?.0 == "/jsxsd/kscj/cjcx_list" && observer.validationFailures.first?.1 == 200)
     }
 
     @Test(.timeLimit(.minutes(1))) func transcriptUsesLocalSchoolCookiesAndExistingDownloads() async throws {
@@ -137,6 +163,81 @@ struct NativeSchoolScoreTests {
         let pages = try await service(credentials, transport, authenticator).fetchTrustedTranscriptPages()
         #expect(pages.pages.count == 1 && authenticator.targets == [.transcript])
         #expect(transport.requests.allSatisfy { $0.url?.host == "jwb.bit.edu.cn" && $0.value(forHTTPHeaderField: "Cookie") == "report=fixture" })
+    }
+
+    @Test(.serialized, .timeLimit(.minutes(1)), arguments: [false, true])
+    func partialDetailsKeepFreshFieldsAndMatchingCachedFields(strictFailure: Bool) async throws {
+        let credentials = Credentials(), transport = Transport(), observer = Observer()
+        let extra = (2...3).map { number in
+            "<tr><td>CS\(number)</td><td>课程\(number)</td><td>85</td><td>3</td><td><a href='/jsxsd/kscj/cjfx?id=\(number)'>详情</a></td></tr>"
+        }.joined()
+        transport.nativeBody = Self.grades.replacingOccurrences(of: "</table>", with: extra + "</table>")
+        transport.failedDetails = ["2"]
+        if strictFailure { transport.restrictedDetails = ["3"] }
+        let service = service(credentials, transport, Authenticator(credentials.schoolSessionIdentity), observer: observer)
+        let domain = "BIT101ModulesTests.native-score"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let session = AppStorageSession(accountIdentifier: "native-score")
+        let cache = ScoreCacheStore(files: ModuleScoreFiles(), storageRoot: URL(fileURLWithPath: "/native-score"), defaults: defaults, session: { session })
+        let old = ScoreRow(index: 1, headers: ["课程编号", "课程名称", "成绩", "学分", "操作栏", "平均分"],
+            values: ["CS2", "课程2", "85", "3", "详情", "70"])
+        #expect(await cache.saveDetailed(rows: [old]) != nil)
+        let model = ScoreViewModel(service: service, cacheStore: cache,
+            preferenceStore: ScoreFilterPreferenceStore(defaults: defaults, session: { session }), currentScoreCacheSession: { session },
+            scheduleCoursesChanges: Empty().eraseToAnyPublisher(), loadScheduleCourses: { _ in [:] })
+        await model.restoreCachedDataIfNeeded(); await model.refresh()
+        #expect(model.state == .loaded && model.alert != nil)
+        let expected = ["85", "70", strictFailure ? "" : "85"]
+        #expect(model.rows.map(\.averageScore) == expected)
+        #expect(SchoolServiceFailure.from(model.alert?.underlyingError) == (strictFailure ? .accessDenied : nil))
+        let saved = try #require(await cache.loadSnapshot())
+        #expect(saved.rows?.map(\.averageScore) == expected && saved.detailedUpdatedAt == nil)
+        #expect(transport.requests.count == 4 && transport.requests.allSatisfy { $0.url?.host == "jwms.bit.edu.cn" })
+        #expect(observer.validationFailures.count == (strictFailure ? 2 : 1) && observer.validationFailures.first?.1 == 200)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func schoolFailuresKeepTheirOriginAndSkipTheRelay(httpFailure: Bool) async throws {
+        let credentials = Credentials(), transport = Transport(), observer = Observer()
+        transport.nativeBody = "<html>对不起，无权访问该资源</html>"
+        if httpFailure { transport.nativeStatus = 503 }
+        let service = service(credentials, transport, Authenticator(credentials.schoolSessionIdentity), observer: observer)
+        let challenge = try await service.startScoreChallenge()
+        do { _ = try await service.fetchScores(detail: false, authenticatedBy: challenge); Issue.record("学校访问限制需要呈现学校来源。") }
+        catch {
+            let expected: SchoolServiceFailure = httpFailure ? .unavailable : .accessDenied
+            #expect(SchoolServiceFailure.from(error) == expected)
+            #expect(SchoolServiceFailure.from(PartialScoreResult(rows: [], failure: error)) == expected)
+        }
+        #expect(transport.requests.count == 1 && observer.validationFailures.first?.1 == (httpFailure ? 503 : 200))
+    }
+
+    @Test(.timeLimit(.minutes(1))) func cancellationStopsRemainingDetailsAndKeepsTheRelayIdle() async throws {
+        let credentials = Credentials(), transport = Transport()
+        transport.pauseDetails = true
+        let service = service(credentials, transport, Authenticator(credentials.schoolSessionIdentity))
+        let challenge = try await service.startScoreChallenge()
+        _ = try await service.fetchScores(detail: false, authenticatedBy: challenge)
+        let pending = Task { try await service.fetchScores(detail: true, authenticatedBy: challenge) }
+        defer { pending.cancel() }
+        try await waitForTestEvent { transport.detailsEntered }
+        pending.cancel()
+        await #expect(throws: CancellationError.self) { try await pending.value }
+        #expect(transport.requests.count == 2 && transport.requests.allSatisfy { $0.url?.host == "jwms.bit.edu.cn" })
+    }
+
+    @Test(.timeLimit(.minutes(1))) func anExpiredDetailBudgetKeepsTheSummaryAndStartsZeroRequests() async throws {
+        let credentials = Credentials(), transport = Transport()
+        let session = SchoolAuthenticatedSession(baseURL: SchoolServiceTarget.grades.baseURL, cookieHeader: "", owner: credentials.schoolSessionIdentity)
+        let challenge = BITLoginAuthenticationChallenge(challengeID: "budget", accessToken: "", status: "authenticated", maskedPhone: nil, expiresIn: nil, nativeSession: session)
+        let query = NativeSchoolScoreQuery(challenge)
+        query.table = try NativeSchoolScoreParser.parse(Self.grades)
+        let reader = NativeSchoolScoreReader(client: HTTPClient(transport: transport, observer: nil), validate: {}, query: query, deadline: .now)
+        do { _ = try await reader.fetch(detail: true, session: session); Issue.record("详情预算结束需要保留部分结果。") }
+        catch let partial as PartialScoreResult { #expect(partial.rows.count == 1 && (partial.failure as? URLError)?.code == .timedOut) }
+        #expect(transport.requests.isEmpty)
     }
 
     @Test(.timeLimit(.minutes(1))) func nativeCancellationKeepsRelayIdle() async throws {

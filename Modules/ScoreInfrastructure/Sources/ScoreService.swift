@@ -62,6 +62,7 @@ public struct ScoreService {
 
     private let nativeAuthenticator: (any SchoolServiceAuthenticating)?
     private let nativeHTTPClient: HTTPClient
+    private let nativeQueries = NativeSchoolScoreQueries()
     private let credentials: any SchoolCredentialsProviding
     private let httpClient: HTTPClient
     private let sensitiveHTTPClient: HTTPClient
@@ -160,13 +161,20 @@ public struct ScoreService {
         if let session = challenge.nativeSession {
             let owner = try authenticationOwner(challenge)
             guard session.owner == owner else { throw CancellationError() }
+            let query = nativeQueries.query(for: challenge)
+            if let remote = query.remoteChallenge, !remote.isExpired {
+                return try await finishAuthentication(remote, detail: detail)
+            }
             do {
                 return try await NativeSchoolScoreReader(client: nativeHTTPClient,
-                    validate: { try validateOwner(owner) }).fetch(detail: detail, session: session)
+                    validate: { try validateOwner(owner) }, query: query,
+                    deadline: .now.advanced(by: .seconds(detail ? Self.authenticationWaitSeconds : Self.requestTimeoutSeconds)))
+                    .fetch(detail: detail, session: session)
             } catch {
                 try validateOwner(owner)
-                if TaskCancellation.matches(error) { throw error }
+                if TaskCancellation.matches(error) || error is PartialScoreResult || SchoolServiceFailure.from(error) != nil { throw error }
                 let fallback = try await startRemoteScoreChallenge()
+                query.remoteChallenge = fallback
                 return try await finishAuthentication(fallback, detail: detail)
             }
         }
