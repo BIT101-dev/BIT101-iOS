@@ -418,7 +418,7 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
             if let request = activeRequest, case let .remote(images) = request.source, items.indices.contains(index) {
                 _ = originalUpgrade(for: images[index], at: index, requestID: request.id, media: media)
             }
-            guard isPreviewPresentationComplete, let error = failures[index] else { updateRetryButton(); return }
+            guard isPreviewPresentationComplete, retryTask == nil, let error = failures[index] else { updateRetryButton(); return }
             if failureGenerations[index] != media.imageRetryGeneration {
                 retryCurrentImage()
                 return
@@ -451,7 +451,10 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
             retryTask = Task { [weak self, media] in
                 guard let self else { return }
                 defer {
-                    if requestID == request.id { retryTask = nil; updateRetryButton() }
+                    if requestID == request.id {
+                        retryTask = nil
+                        selectionDidChange(previewController?.currentPreviewItemIndex ?? -1, requestID: request.id)
+                    }
                 }
                 do {
                     let file: URL

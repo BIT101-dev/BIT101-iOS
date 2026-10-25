@@ -345,6 +345,7 @@ struct MediaPresentationTests {
         try await waitForTestEvent { preview.dataSource?.previewController(preview, previewItemAt: 1).previewItemURL != nil }
         #expect(preview.dataSource?.previewController(preview, previewItemAt: 1).previewItemTitle == "图片 2")
         #expect(retryButton(in: preview)?.isHidden == true)
+        #expect(failures == 1)
     }
 
     @Test(.timeLimit(.minutes(1)))
