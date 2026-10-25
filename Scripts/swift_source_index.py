@@ -132,11 +132,10 @@ def _materialize_facts(index: dict[str, dict]) -> dict[str, dict]:
         def text(start, end):
             return source[start:end].decode()
         def decode(value):
-            if isinstance(value, list):
-                for position, item in enumerate(value): value[position] = decode(item)
+            if isinstance(value, list): return [decode(item) for item in value]
             if isinstance(value, dict):
                 if set(value) == {'$source'}: return text(*value['$source'])
-                for key, item in value.items(): value[key] = decode(item)
+                return {key: decode(item) for key, item in value.items()}
             return value
         decoded = decode(facts)
         decoded['calls'] = [dict(value=call['calledExpression'], scope=list(call['scope']), start=call['start'],

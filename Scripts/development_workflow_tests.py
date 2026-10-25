@@ -61,6 +61,10 @@ def shared_source_facts(fixture: Path) -> None:
             database.execute('INSERT INTO facts VALUES (?, ?)', ('unrequested.swift', 'invalid JSON'))
         relative = str(path.relative_to(ROOT))
         assert subject.swift_syntax_index_sources({relative: source})[relative] == first and parse.call_count == 1
+        aliases = subject.swift_syntax_index_sources({str(path): source, relative: source})
+        assert aliases[str(path)] == aliases[relative] == first
+        aliases[str(path)]['calls'][0]['scope'].append('ChangedAlias')
+        assert aliases[relative] == first
         with closing(sqlite3.connect(cache)) as database:
             assert database.execute("SELECT path FROM facts WHERE path = 'unrequested.swift'").fetchone() is None
         assert subject.swift_syntax_index_sources({relative: source + '\n'})[relative]['source'] == source + '\n'
