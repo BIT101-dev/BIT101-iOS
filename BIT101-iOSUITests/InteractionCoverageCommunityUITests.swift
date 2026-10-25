@@ -377,6 +377,8 @@ nonisolated final class ServiceInteractionUITests: UIAutomationTestCase {
         fillVerificationCode("123456", in: field)
         assertUI(app.buttons["schedule.add-content"].appears(timeout: 5), "验证成功应继续课表刷新。")
         assertUI(textElement("学校测试课程").exists, "继续同步应保存学校课程。")
+        assertUI(app.alerts["课表已是最新"].appears(timeout: 5), "刷新完成后应展示课表核对结果。")
+        closeAlertIfPresent()
     }
 
     @MainActor
@@ -394,7 +396,6 @@ nonisolated final class ServiceInteractionUITests: UIAutomationTestCase {
         assertUI(success.disappears(timeout: 5), "确认同步结果应关闭成功提示。")
         assertUI(textElement("课程中心测试作业").appears(timeout: 5), "SSO 验证成功应恢复学校日程请求。")
     }
-
 }
 
 nonisolated final class ScheduleNavigationUITests: UIAutomationTestCase {

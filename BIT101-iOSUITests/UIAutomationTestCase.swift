@@ -51,6 +51,10 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             XCTFail("所属 App 进程应返回完整交互库存。")
             return
         }
+        if let snapshot = try? JSONSerialization.jsonObject(with: Data(coverage.utf8)) as? [String: Any],
+           let process = snapshot["processIdentifier"] as? Int {
+            print("UI automation App process: \(process)")
+        }
         print("UI control inventory: \(coverage)")
     }
 
@@ -307,9 +311,12 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             dismissKeyboardIntroduction()
             let done = app.buttons["keyboard.dismiss"]
             assertUI(done.appears(timeout: 5), "系统键盘应呈现完成按钮。")
-            assertUI(waitUntil(NSPredicate(format: "hittable == true"), on: done, timeout: 5),
-                     "键盘完成按钮应进入可触达状态。")
-            done.tap()
+            let keyboard = app.native.keyboards.firstMatch
+            let positioned = NSPredicate { _, _ in
+                keyboard.exists && done.native.isHittable && done.native.frame.maxY <= keyboard.frame.minY
+            }
+            assertUI(waitUntil(positioned, on: done, timeout: 5), "键盘完成按钮应就位于系统键盘上方。")
+            done.tapBriefly()
             assertUI(waitUntil(NSPredicate { _, _ in UITestControlClient.request(["command": "keyboard-state"]) == "hidden" },
                 on: app, timeout: 5), "原生完成按钮应关闭当前键盘。")
             return

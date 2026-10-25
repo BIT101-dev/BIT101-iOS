@@ -142,7 +142,9 @@ nonisolated final class ScheduleLayoutUITests: UIAutomationTestCase {
         let topGap = status.frame.minY - segmented.frame.maxY
         let bottomGap = app.native.tabBars.firstMatch.frame.minY - calendar.frame.maxY
         assertUI(layoutSettled, "课表上下间隙应保持一致：顶部 \(topGap)，底部 \(bottomGap)，更新时间行 \(status.frame)，课表 \(calendar.frame)，顶部栏 \(segmented.frame)，底部栏 \(tabBar.frame)。")
-        tap("第3周")
+        tap("下一周")
+        tap("下一周")
+        assertSelectedWeek(3)
         app.buttons["schedule.add-content"].tapBriefly()
         tap("添加课程")
         app.buttons["schedule.course.weeks"].tapBriefly()
