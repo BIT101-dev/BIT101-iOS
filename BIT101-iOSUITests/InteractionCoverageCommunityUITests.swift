@@ -710,7 +710,7 @@ nonisolated final class AccountRegistrationUITests: UIAutomationTestCase {
     @MainActor
     func testRegistrationResetAndCommunityPasswordLogin() throws {
         for method in ["统一身份认证", "校园邮箱"] {
-            app = configureApp(resetStorage: true, account: nil, nativeInteraction: true)
+            app = configureApp(resetStorage: true, account: nil, animations: true, nativeInteraction: true)
             app.buttons["login.register"].tapBriefly()
             let submit = app.buttons["registration.submit"]
             submit.assertDisabled("注册需要完整密码及身份验证。")
@@ -742,7 +742,7 @@ nonisolated final class AccountRegistrationUITests: UIAutomationTestCase {
             submit.tapBriefly()
             assertUI(app.tabBars.buttons["日程"].appears(timeout: 10), "注册或重置成功应进入已登录页面。")
         }
-        app = configureApp(resetStorage: true, account: nil, nativeInteraction: true)
+        app = configureApp(resetStorage: true, account: nil, animations: true, nativeInteraction: true)
         app.buttons["login.register"].tapBriefly()
         back()
         replaceTextWithKeyboard("1120260001", in: app.textFields["login.student-id"])
