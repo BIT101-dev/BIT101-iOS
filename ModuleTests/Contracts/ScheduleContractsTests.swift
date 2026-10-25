@@ -459,6 +459,30 @@ struct ScheduleContractsTests {
             includeDisplayUntilDates: true, limit: 0).allSatisfy { $0.resolved.upcomingOccurrences.isEmpty })
     }
 
+    @Test func largeSharedSnapshotKeepsLimitedOccurrenceOrder() throws {
+        let base = makeSnapshot()
+        let courses = (0..<ScheduleExternalSnapshotCodec.maximumCourseCount).map { index in
+            ScheduleExternalCourseSnapshot(id: String(index), name: "课程", classroom: "", teacher: "",
+                weeks: Array(1...10), weekday: 1, startSection: 1, endSection: 1)
+        }
+        let snapshot = ScheduleExternalSnapshot(generatedAt: base.generatedAt, isLoggedIn: true,
+            studentID: base.studentID, firstDayString: base.firstDayString, timeTable: base.timeTable, courses: courses)
+        let encoded = try ScheduleExternalSnapshotCodec.encode(snapshot)
+        #expect(encoded.count <= ScheduleExternalSnapshotCodec.maximumEncodedBytes)
+        let firstDay = try #require(ScheduleSharedDateCodec.parseDate(snapshot.firstDayString))
+        let first = try #require(ScheduleSharedDateCodec.combine(date: firstDay, time: "07:00"))
+        let last = try #require(ScheduleSharedDateCodec.calendar.date(byAdding: .day, value: 9 * 7, to: first))
+        let clock = ContinuousClock()
+        for now in [first, last] {
+            let start = clock.now
+            let complete = ScheduleOccurrenceResolver.resolvedSnapshot(from: snapshot, now: now)
+            let limited = ScheduleOccurrenceResolver.resolvedSnapshot(from: snapshot, now: now, limit: 50)
+            #expect(limited.upcomingOccurrences.count == 50)
+            #expect(limited.upcomingOccurrences == Array(complete.upcomingOccurrences.prefix(50)))
+            print("[性能] 共享课表 \(courses.count) 门课程 · \(encoded.count) 字节 · \(start.duration(to: clock.now))")
+        }
+    }
+
     private func makeSnapshot() -> ScheduleExternalSnapshot {
         ScheduleExternalSnapshot(
             generatedAt: Date(timeIntervalSince1970: 1_790_553_600),

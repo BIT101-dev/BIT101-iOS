@@ -68,6 +68,7 @@ final class WatchScheduleStatusModel: ObservableObject {
     @Published private(set) var contentState: ScheduleExternalContentState = .missing
     @Published private(set) var nextOccurrence: ScheduleExternalOccurrence?
     @Published private(set) var upcomingOccurrences: [ScheduleExternalOccurrence] = []
+    @Published private(set) var isUsingCachedSnapshot = false
     @Published private(set) var refreshState: WatchScheduleRefreshState = .idle
     @Published private(set) var referenceDate: Date
 
@@ -119,21 +120,37 @@ final class WatchScheduleStatusModel: ObservableObject {
     }
 
     @discardableResult
-    func reload(now: Date? = nil) -> Task<Void, Never> {
+    func reload(now: Date? = nil, preserveLoadedSnapshot: Bool = true) -> Task<Void, Never> {
         let now = now ?? dependencies.now()
         referenceDate = now
         snapshotGeneration &+= 1
         let generation = snapshotGeneration
         snapshotTask?.cancel()
         let load = dependencies.loadResolvedSnapshot
+        let limit = Self.maxVisibleOccurrences
         let operation = Task { @MainActor [weak self] in
             guard !Task.isCancelled else { return }
-            let resolved = await load(now, Self.maxVisibleOccurrences)
+            var resolved = await load(now, limit)
             guard !Task.isCancelled, let self, self.snapshotGeneration == generation else { return }
+            var usingCachedSnapshot = false
+            if preserveLoadedSnapshot, let cached = self.snapshot, cached.isLoggedIn,
+               self.contentState == .ready || self.contentState == .rest,
+               resolved.contentState == .unavailable || resolved.contentState == .invalid,
+               resolved.snapshot == nil || resolved.snapshot?.studentID == cached.studentID {
+                let resolution = Task.detached {
+                    ScheduleOccurrenceResolver.resolvedSnapshot(from: cached, now: now, limit: limit)
+                }
+                resolved = await withTaskCancellationHandler {
+                    await resolution.value
+                } onCancel: { resolution.cancel() }
+                guard !Task.isCancelled, self.snapshotGeneration == generation else { return }
+                usingCachedSnapshot = true
+            }
             self.snapshot = resolved.snapshot
             self.contentState = resolved.contentState
             self.nextOccurrence = resolved.nextOccurrence
             self.upcomingOccurrences = resolved.upcomingOccurrences
+            self.isUsingCachedSnapshot = usingCachedSnapshot
             self.snapshotTask = nil
         }
         snapshotTask = operation
@@ -156,7 +173,7 @@ final class WatchScheduleStatusModel: ObservableObject {
     }
 
     func handleSnapshotDidChange() {
-        reload()
+        reload(preserveLoadedSnapshot: false)
         handleSnapshotReceived()
     }
 
@@ -190,6 +207,7 @@ final class WatchScheduleStatusModel: ObservableObject {
             self.contentState = .missing
             self.nextOccurrence = nil
             self.upcomingOccurrences = []
+            self.isUsingCachedSnapshot = false
         }
         snapshotTask = task
         return task

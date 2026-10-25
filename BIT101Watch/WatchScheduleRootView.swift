@@ -142,6 +142,13 @@ struct WatchScheduleRootView: View {
                 )
             }
         }
+        .safeAreaInset(edge: .top) {
+            if model.isUsingCachedSnapshot {
+                Text("课表读取失败，正在显示缓存")
+                    .font(AppDesignSystem.Typography.caption)
+                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
+            }
+        }
     }
 
     private var actionsPage: some View {

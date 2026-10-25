@@ -483,6 +483,56 @@ struct ExternalScheduleWatchStatusTests {
         #expect(model.refreshState == .idle)
     }
 
+    @Test(.timeLimit(.minutes(1)), arguments: [ScheduleExternalContentState.unavailable, .invalid])
+    func transientReadFailuresKeepLoadedCoursesAndAdvanceTime(failure: ScheduleExternalContentState) async throws {
+        let day = try #require(ScheduleSharedDateCodec.parseDate("2026-10-24"))
+        let morning = try #require(ScheduleSharedDateCodec.combine(date: day, time: "08:00"))
+        let later = try #require(ScheduleSharedDateCodec.combine(date: day, time: "10:30"))
+        let end = try #require(ScheduleSharedDateCodec.combine(date: day, time: "13:00"))
+        let snapshot = ScheduleExternalSnapshot(generatedAt: morning, isLoggedIn: true,
+            studentID: "watch-owner", firstDayString: "", timeTable: [], courses: [], customSchedules: [
+                .init(id: "first", title: "第一节", subtitle: "", dateStrings: ["2026-10-24"], beginTime: "09:00", endTime: "10:00"),
+                .init(id: "second", title: "第二节", subtitle: "", dateStrings: ["2026-10-24"], beginTime: "11:00", endTime: "12:00")])
+        var reading = ScheduleOccurrenceResolver.resolvedSnapshot(from: snapshot, now: morning)
+        let model = WatchScheduleStatusModel(dependencies: WatchScheduleStatusDependencies(
+            now: { morning }, loadResolvedSnapshot: { _, _ in reading },
+            clearSnapshot: { true }, activateSync: {}, requestLatestSnapshot: { _ in }))
+        await model.reload(now: morning).value
+        #expect(model.nextOccurrence?.title == "第一节")
+        reading = .init(snapshot: nil, upcomingOccurrences: [], contentState: failure)
+        await model.reload(now: later).value
+        #expect(model.snapshot == snapshot)
+        #expect(model.contentState == .ready)
+        #expect(model.nextOccurrence?.title == "第二节")
+        #expect(model.isUsingCachedSnapshot)
+        await model.reload(now: end).value
+        #expect(model.snapshot == snapshot && model.contentState == .rest && model.nextOccurrence == nil)
+        reading = ScheduleOccurrenceResolver.resolvedSnapshot(from: nil, now: end)
+        await model.reload(now: end).value
+        reading = .init(snapshot: nil, upcomingOccurrences: [], contentState: failure)
+        await model.reload(now: end).value
+        #expect(model.snapshot == nil && model.contentState == failure)
+        #expect(model.isUsingCachedSnapshot == false)
+        let replacement = snapshot.replacingStudentID(with: "second-owner")
+        reading = ScheduleOccurrenceResolver.resolvedSnapshot(from: replacement, now: morning)
+        await model.reload(now: morning).value
+        reading = .init(snapshot: nil, upcomingOccurrences: [], contentState: failure)
+        await model.reload(now: later).value
+        #expect(model.snapshot?.studentID == "second-owner")
+        model.handleSnapshotDidChange()
+        try await waitForTestEvent { model.snapshot == nil }
+        #expect(model.isUsingCachedSnapshot == false)
+        reading = ScheduleOccurrenceResolver.resolvedSnapshot(from: snapshot, now: morning)
+        await model.reload(now: morning).value
+        reading = ScheduleOccurrenceResolver.resolvedSnapshot(from: ScheduleExternalSnapshot(isLoggedIn: false,
+            studentID: "", firstDayString: "", timeTable: [], courses: []), now: later)
+        await model.reload(now: later).value
+        #expect(model.contentState == .loggedOut && model.nextOccurrence == nil)
+        reading = .init(snapshot: nil, upcomingOccurrences: [], contentState: failure)
+        await model.reload(now: later).value
+        #expect(model.snapshot == nil && model.contentState == failure && model.isUsingCachedSnapshot == false)
+    }
+
     @Test(.timeLimit(.minutes(1))) func failedClearingPreservesTheStoredSnapshotAndReportsTheResult() async throws {
         let now = Date()
         let snapshot = ScheduleExternalSnapshot(generatedAt: now, isLoggedIn: true,

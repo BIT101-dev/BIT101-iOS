@@ -113,6 +113,11 @@ def self_test(ci, context: dict, platform: dict, environment_fixture) -> None:
                 artifacts[artifact] = files[metrics], current_tree
         for suffix in ('.retained.xcresult', '.incoming.xcresult'):
             bundles[bundle.with_suffix(suffix)] = tree('all', ['StaleFixture/testOldResult'])
+        with patch('validation_environment.ci_commit_findings', return_value=['fixture commit mismatch']):
+            try: ci.merge_simulator_ci()
+            except ValueError: pass
+            else: raise AssertionError('CI 合并需要先核对来源提交。')
+        assert all(bundle.with_suffix(suffix) in bundles for suffix in ('.retained.xcresult', '.incoming.xcresult'))
         ci.merge_simulator_ci()
         assert all(bundle.with_suffix(suffix) not in bundles for suffix in ('.retained.xcresult', '.incoming.xcresult'))
         merged = json.loads(files[report])

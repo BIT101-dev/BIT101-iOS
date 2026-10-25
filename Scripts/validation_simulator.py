@@ -70,8 +70,6 @@ def merge_ci_results(ci) -> None:
     root = ci.ROOT / '.build/extended-automation'
     bundle = root / 'test-results.xcresult'
     retained, incoming = bundle.with_suffix('.retained.xcresult'), bundle.with_suffix('.incoming.xcresult')
-    shutil.rmtree(retained, ignore_errors=True)
-    shutil.rmtree(incoming, ignore_errors=True)
     commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ci.ROOT, text=True).strip()
     if errors := ci_commit_findings(commit): raise ValueError('\n'.join(errors))
     policy = json.loads(ci.REPORT.read_text()).get('coveragePolicy', {})
@@ -81,6 +79,8 @@ def merge_ci_results(ci) -> None:
         '--dir', str(ci.ROOT / '.build')], check=True, capture_output=True, text=True)
     indexer = ci.ROOT / '.build/compiler-cache/swift-syntax-indexer'
     indexer.chmod(indexer.stat().st_mode | 0o100)
+    shutil.rmtree(retained, ignore_errors=True)
+    shutil.rmtree(incoming, ignore_errors=True)
     records, metrics = {}, []
     for group in ('all', 'release-runtime'):
         name = 'ui' if group == 'ui' else 'app'

@@ -235,7 +235,7 @@ gh run rerun 运行编号 --failed
 
 操作者选择 `full_check`、`release_check` 或发布标签时，授权对应 GitHub 运行器准备并执行工作流中的模拟器范围。开发代理执行本机模拟器流程时，沿当前会话的明确授权设置入口标记。
 
-托管任务采用工作流登记的 Apple 工具链镜像；真机任务沿专用自托管 Mac 与 iPhone 执行。外部 PR 的运行器准入和审批由仓库及组织设置管理。维护者审查外部 PR 时，使用 GitHub 实际 merge 提交创建 `review-validation` 分支，并填写 `review_pr`；提交与目标分支变化后重新验收。
+托管任务采用工作流登记的 Apple 工具链镜像；真机验收通过本地 Mac 与已连接的 iPhone 执行。外部 PR 的运行器准入和审批由仓库及组织设置管理。维护者审查外部 PR 时，使用 GitHub 实际 merge 提交创建 `review-validation` 分支，并填写 `review_pr`；提交与目标分支变化后重新验收。
 
 版本标签和 `release_check` 按所属验证组复用成功结果和公共缓存；`full_check` 在当次执行全部组。
 
