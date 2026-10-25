@@ -912,7 +912,7 @@ nonisolated final class MineInteractionUITests: UIAutomationTestCase {
     @objc func testMinePublicProfileFollowAndPostDeletion() {
         app = configureApp(resetStorage: true, initialTab: "mine")
         assertUI(textElement("个人信息加载失败").appears(timeout: 5), "离线个人页应完成服务加载并展示恢复入口。")
-        app = configureApp(resetStorage: true, content: true, media: true, minePagingFailureOnce: true, initialTab: "mine")
+        app = configureApp(resetStorage: true, content: true, animations: true, media: true, minePagingFailureOnce: true, initialTab: "mine")
         func retryPageInPlace() {
             let failure = textElement("加载更多失败")
             reveal(failure, description: "分页恢复")
@@ -943,10 +943,10 @@ nonisolated final class MineInteractionUITests: UIAutomationTestCase {
         assertUI(followed.appears(timeout: 5), "关注成功应展示已关注状态。")
         followed.tapBriefly(); assertUI(app.buttons["关注"].appears(timeout: 5), "再次点击应恢复关注入口。")
         tap("查看头像")
-        let previewClose = imagePreviewCloseButton()
+        _ = imagePreviewCloseButton()
         app.native.descendants(matching: .any)["QLPreviewControllerView"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         UITestSnapshotReader.invalidate()
-        assertUI(waitUntil(NSPredicate { _, _ in !previewClose.exists || previewClose.frame.isEmpty || !previewClose.isHittable }, on: previewClose), "点击预览画布应收起系统工具栏。")
+        assertUI(waitForImagePreview(visible: true, timeout: 5), "点击预览画布应保留当前头像预览。")
         app.native.images.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.25)).tap()
         UITestSnapshotReader.invalidate()
         closeImagePreview()

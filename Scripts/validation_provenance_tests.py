@@ -873,6 +873,19 @@ def native_school_request_contracts_self_test() -> None:
     assert complete('score.authentication', [cas, landing])
     assert complete('score.brief', [grades])
     assert complete('score.detail', [grades, detail])
+    session_redirect = request('/http/abcdef/;jsessionid=fixture-session', host='webvpn.bit.edu.cn', status=302)
+    assert complete('score.authentication', [session_redirect, landing])
+    assert not complete('score.authentication', [session_redirect])
+    analysis = request('/http/abcdef/jsxsd/kscj/cjfx', host='webvpn.bit.edu.cn', query={'kch': '[REDACTED]'})
+    assert complete('score.detail', [grades, analysis])
+    assert not complete('score.detail', [analysis])
+    for probe in ('school.session', 'schedule.teaching-center'):
+        trace = network_trace_fixture({'requiredProbes': [probe]})['requestEvidence'][0]
+        callbacks = [request('/auth-protocol-core/loginSuccess', host='jxzxehall.bit.edu.cn', status=302),
+            request('/jwapp/sys/wdkbby/*default/index.do', host='jxzxehallapp.bit.edu.cn', status=302),
+            request('/jwapp/sys/wdkbby/*default/index.do', host='jxzxehallapp.bit.edu.cn')]
+        assert complete(probe, trace['requests'] + callbacks, trace['expectedParameters'])
+        assert not complete(probe, trace['requests'] + [dict(callbacks[0], finalEndpoint='https://outside.invalid/callback')], trace['expectedParameters'])
     for probe in ('score.brief', 'score.detail'):
         assert not complete(probe, [dict(grades, bodyParameterNames=['xsfs'])])
         assert not complete(probe, [dict(grades, finalBodyParameterNames=['xsfs'])])

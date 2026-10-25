@@ -12,7 +12,7 @@ import time
 SCRIPT = str(Path(__file__).absolute())
 
 
-def active_member_states(groups: set[int], *, workers_only: bool = False) -> dict[int, str]:
+def group_members(groups: set[int]) -> dict[int, tuple[str, bool]]:
     if not groups: return {}
     snapshot = subprocess.check_output(['ps', '-ww', '-axo', 'uid=,pid=,pgid=,stat=,args='], text=True, start_new_session=True)
     members = {}
@@ -24,22 +24,35 @@ def active_member_states(groups: set[int], *, workers_only: bool = False) -> dic
         if owner != os.getuid() or group not in groups or fields[3].startswith('Z'): continue
         program, _, arguments = fields[4].partition(' ')
         supervisor = Path(program).name.lower().startswith('python') and arguments.lstrip().removeprefix('-B ').startswith(SCRIPT + ' ')
-        if workers_only and (pid == os.getpid() or supervisor): continue
-        members[pid] = fields[3]
+        members[pid] = (fields[3], supervisor)
     return members
+
+
+def active_member_states(groups: set[int], *, workers_only: bool = False) -> dict[int, str]:
+    return {pid: state for pid, (state, supervisor) in group_members(groups).items()
+        if not workers_only or pid != os.getpid() and not supervisor}
 
 
 def active_members(groups: set[int], *, workers_only: bool = False) -> set[int]:
     return set(active_member_states(groups, workers_only=workers_only))
 
 
-def signal_groups(groups: set[int], signum: int) -> None:
-    for group in groups:
-        if not active_members({group}): continue
-        try: os.killpg(group, signum)
+def signal_groups(groups: set[int], signum: int, *, workers_only: bool = False) -> None:
+    members = group_members(groups)
+    workers = {pid for pid, (_, supervisor) in members.items() if pid != os.getpid() and not supervisor}
+    supervisors = {pid for pid, (_, supervisor) in members.items() if pid != os.getpid() and supervisor}
+    # 锁持有者先接收退出请求并归集子进程；强制回收先结束工作进程。
+    if workers_only:
+        targets = workers
+    elif signum == signal.SIGKILL:
+        targets = workers or supervisors
+    else:
+        targets = supervisors or workers
+    for pid in targets:
+        try: os.kill(pid, signum)
         except ProcessLookupError: pass
         except PermissionError:
-            if active_members({group}): raise
+            if pid in active_members(groups): raise
 
 
 def descendant_groups(root: int) -> set[int]:
@@ -56,7 +69,7 @@ def descendant_groups(root: int) -> set[int]:
 def stop_groups(groups: set[int], *, grace_seconds: float = 5, workers_only: bool = False,
                 signum: int = signal.SIGTERM) -> None:
     if not active_members(groups, workers_only=workers_only): return
-    signal_groups(groups, signum)
+    signal_groups(groups, signum, workers_only=workers_only)
     deadline = time.monotonic() + grace_seconds
     forced = False
     announced = False
@@ -68,7 +81,7 @@ def stop_groups(groups: set[int], *, grace_seconds: float = 5, workers_only: boo
                     + ', '.join(f'{pid} ({state})' for pid, state in sorted(states.items())), file=sys.stderr, flush=True)
                 announced = True
         if not forced and time.monotonic() >= deadline:
-            signal_groups(groups, signal.SIGKILL)
+            signal_groups(groups, signal.SIGKILL, workers_only=workers_only)
             forced = True
         time.sleep(0.1)
 

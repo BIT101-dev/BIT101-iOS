@@ -217,7 +217,7 @@ JWB_VPN = r'(?:/https?/[0-9a-f]+)?'
 NATIVE_SCORE_LIST = RequestContract(JWB_HOST, JWB_VPN + '/jsxsd/kscj/cjcx_list', 'POST',
     body_parameters=frozenset({'kksj', 'kcxz', 'kcmc', 'xsfs'}),
     required_body_parameters=frozenset({'kksj', 'kcxz', 'kcmc', 'xsfs'}))
-NATIVE_JWB_LANDING = RequestContract(JWB_HOST, JWB_VPN + r'/(?:jsxsd/(?:framework/main\.jsp|xk/LoginToXk))?',
+NATIVE_JWB_LANDING = RequestContract(JWB_HOST, JWB_VPN + r'/(?:;jsessionid=[A-Za-z0-9_-]+|jsxsd/(?:framework/main\.jsp|xk/LoginToXk))?',
     resource_parameters=True)
 NATIVE_TRANSCRIPT_ENTRY = RequestContract(r'jwb\.bit\.edu\.cn', '/cjd/Account/ExternalLogin',
     statuses=range(200, 400), resource_parameters=True)
@@ -291,8 +291,10 @@ def auxiliary_contracts(probe: str, contracts: list[RequestContract], *, allow_s
         rows.extend(CONTRACTS['score.authentication'])
         rows.extend([
             RequestContract(r'jxzxehall\.bit\.edu\.cn', '/auth-protocol-core/login', statuses=range(200, 400), resource_parameters=True),
+            RequestContract(r'jxzxehall\.bit\.edu\.cn', '/auth-protocol-core/loginSuccess', statuses=range(200, 400), resource_parameters=True),
             RequestContract(SCHOOL, VPN + r'/auth-protocol-core/login', statuses=range(200, 400), resource_parameters=True),
             RequestContract(SCHOOL, VPN + r'/jwapp/sys/xsfacx/\*default/index\.do', statuses=range(200, 400), resource_parameters=True),
+            RequestContract(SCHOOL, VPN + r'/jwapp/sys/wdkbby/\*default/index\.do', statuses=range(200, 400), resource_parameters=True),
             RequestContract(r'login\.bit\.edu\.cn', '/cas/login', statuses=range(200, 400), resource_parameters=True),
             RequestContract(r'jwb\.bit\.edu\.cn', r'/cjd/(?:Account/ExternalLogin(?:Callback)?|signin-cas)?', statuses=range(200, 400), resource_parameters=True),
             replace(NATIVE_JWB_LANDING, statuses=range(200, 400)),
@@ -302,7 +304,7 @@ def auxiliary_contracts(probe: str, contracts: list[RequestContract], *, allow_s
                 'language', 'screenResolution', 'fingerprint', 'cookieValue', 'userAgent', 'platformAuthenticator'})),
         ])
         if probe.startswith('score.'):
-            rows.extend([NATIVE_SCORE_LIST, RequestContract(JWB_HOST, JWB_VPN + r'/jsxsd/kscj/[^/]+\.do', resource_parameters=True)])
+            rows.extend([NATIVE_SCORE_LIST, RequestContract(JWB_HOST, JWB_VPN + r'/jsxsd/kscj/(?:[^/]+\.do|cjfx)', resource_parameters=True)])
             rows.extend(contract for name in NATIVE_CONTRACTS for contract in CONTRACTS[name])
     if probe in {'eclass.authentication', 'eclass.ddl'}:
         rows.extend([RequestContract(r'zy-eclass\.bit\.edu\.cn', '/user/index'),

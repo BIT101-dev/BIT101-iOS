@@ -66,6 +66,15 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     }
 
     @MainActor
+    func waitForImagePreview(visible: Bool, timeout: TimeInterval) -> Bool {
+        waitUntil(NSPredicate { _, _ in
+            guard let snapshot = try? self.app.native.snapshot() else { return false }
+            let preview = snapshot.firstSnapshot { $0.identifier == "QLPreviewControllerView" && !$0.frame.isEmpty }
+            return (preview != nil) == visible
+        }, on: app, timeout: timeout)
+    }
+
+    @MainActor
     @discardableResult
     func dismissNotificationBanner() -> XCUIApplication.State {
         var state = app.state
@@ -313,7 +322,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             assertUI(done.appears(timeout: 5), "系统键盘应呈现完成按钮。")
             let keyboard = app.native.keyboards.firstMatch
             let positioned = NSPredicate { _, _ in
-                keyboard.exists && done.native.isHittable && done.native.frame.maxY <= keyboard.frame.minY
+                done.native.isHittable && (!keyboard.exists || done.native.frame.maxY <= keyboard.frame.minY)
             }
             assertUI(waitUntil(positioned, on: done, timeout: 5), "键盘完成按钮应就位于系统键盘上方。")
             done.tapVisibleCenter()

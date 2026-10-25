@@ -26,10 +26,11 @@ def workflow_lock_boundary_findings() -> list[str]:
     with patch.object(subject.os, 'getuid', return_value=501), patch.object(subject.subprocess, 'check_output',
             return_value='501 10 10 S /fixture/worker\n0 13 13 S /System/daemon\n0 15 10 S /System/helper\n501 16 10 Z /fixture/finished\n'):
         assert subject.active_member_states({10, 13}) == {10: 'S'}
-    with patch.object(subject, 'active_members', side_effect=lambda groups: {10} if groups == {10} else set()), \
-            patch.object(subject.os, 'killpg') as killed:
-        subject.signal_groups({10, 13}, signal.SIGTERM)
-        killed.assert_called_once_with(10, signal.SIGTERM)
+    for signum, workers_only, expected in ((signal.SIGTERM, False, 11), (signal.SIGTERM, True, 10), (signal.SIGKILL, False, 10)):
+        with patch.object(subject, 'group_members', return_value={10: ('S', False), 11: ('S', True)}), \
+                patch.object(subject.os, 'kill') as killed:
+            subject.signal_groups({10}, signum, workers_only=workers_only)
+            killed.assert_called_once_with(expected, signum)
     with patch.object(subject, 'active_members', side_effect=[{123}, {123}, {123}, {123}, set()]), \
             patch.object(subject, 'active_member_states', return_value={123: 'U'}), \
             patch.object(subject, 'signal_groups') as signals, patch.object(subject.time, 'monotonic', return_value=0), \
