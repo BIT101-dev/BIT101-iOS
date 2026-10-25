@@ -278,6 +278,7 @@ def artifact_lock_self_test(module) -> None:
         with patch.object(sys, 'argv', ['validation_artifacts.py', str(module.ROOT)]), \
                 patch.dict(os.environ, BIT101_EXTENDED_TESTS_LOCK_HELD='1'), \
                 patch.object(Path, 'exists', lambda path: bool(names) and path == diagnostics), \
+                patch.object(Path, 'is_dir', return_value=False), \
                 patch.object(Path, 'iterdir', lambda path: iter(diagnostics / name for name in tuple(retained)) if path == diagnostics else iter(())), \
                 patch.object(Path, 'unlink', lambda path, **kwargs: retained.discard(path.name)), \
                 patch.object(Path, 'open', return_value=nullcontext(BytesIO())), \
