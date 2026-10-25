@@ -189,7 +189,7 @@ Scripts/release-network-smoke.sh all sms
 
 报告分别记录服务健康、必需探针、认证、请求合同和样本覆盖。空业务结果保持其真实语义；完整验收继续核对所属探针需要的样本，覆盖缺口以状态码 2 呈现。独立探针继续归集结果。端点、方法、参数、实体与分页合同沿 [网络请求合同](../Scripts/network_request_contracts.py)及实际响应验收。
 
-实网验收豁免 `community.report-types`、`message.follow`、`message.system`：对应样本依赖外部服务端配置、其他账号关注行为及管理员权限。报告通过 `exemptedProbes` 单独记录原因；必需探针清单按其余项目验收。点赞和评论消息分页继续要求当前账号的两页真实历史，公开帖子评论与订阅消息各自独立验收。
+实网验收豁免 `community.report-types`、`message.follow`、`message.system`、`message.like`、`message.comment`：对应样本依赖外部服务端配置、管理员权限及其他账号互动。报告通过 `exemptedProbes` 单独记录原因；必需探针清单按其余项目验收。消息列表真实跨页由订阅消息验收，公开帖子评论分页独立验收。
 
 外部后端由对应维护者处理，iOS 保存脱敏请求与响应证据，并验收协议适配、错误呈现和恢复行为。失败探针可通过 `Scripts/run-extended-tests.sh network-smoke NetworkSmokeRegressionTests` 执行受控回归。
 

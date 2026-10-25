@@ -64,6 +64,8 @@ enum NetworkSmokeScope: String, Codable, CaseIterable, Sendable {
             "community.report-types": "验收豁免：举报类型由外部服务端配置。",
             "message.follow": "验收豁免：关注通知依赖其他账号触发。",
             "message.system": "验收豁免：系统通知发送需要管理员权限。",
+            "message.like": "验收豁免：真实跨页样本依赖其他账号的点赞互动。",
+            "message.comment": "验收豁免：真实跨页样本依赖其他账号的评论互动。",
         ]
     }
 
@@ -308,8 +310,6 @@ enum NetworkSmokeArea: CaseIterable, Hashable, Sendable {
                 .appStoreUpdate,
                 .emergencyUpdate,
                 .feedbackRecovery,
-                .messageComment,
-                .messageLike,
                 .messageSubscription,
             ] + PaperSortOrder.allCases.map(NetworkSmokeProbe.paperSort)
         case .schedule:

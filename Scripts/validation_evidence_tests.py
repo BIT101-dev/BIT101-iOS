@@ -944,8 +944,8 @@ def network_scope_boolean_self_test(subject) -> None:
     path = subject.ROOT / 'BIT101-iOS/Shared/Client/ReleaseNetworkSmokeModels.swift'
     source, read = path.read_text(), Path.read_text
     baseline = {scope: subject.network_inventory(scope) for scope in ('all', 'bit101', 'school', 'transcript', 'schedule', 'ddl', 'community-writes', 'community-cleanup')}
-    assert len(baseline['all']) == 62 and {'course.search', 'paper.search', 'gallery.subscriptions', 'message.subscription'} <= baseline['all']
-    assert baseline['all'].isdisjoint({'community.writes', 'community.report-types', 'message.follow', 'message.system'})
+    assert len(baseline['all']) == 60 and {'course.search', 'paper.search', 'gallery.subscriptions', 'message.subscription'} <= baseline['all']
+    assert baseline['all'].isdisjoint({'community.writes', 'community.report-types', 'message.follow', 'message.system', 'message.like', 'message.comment'})
     fixtures = [('all', 'area != .communityWrites', baseline['all']),
         ('all', '!(area == .communityWrites)', baseline['all']),
         ('all', 'area != .communityWrites && (area == .authentication || area != .authentication)', baseline['all']),

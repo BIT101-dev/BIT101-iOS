@@ -865,12 +865,12 @@ extension ReleaseNetworkSmokeLifecycleTests {
         if stage == "course-search-later-success" { #expect(services.observed.contains("course-search-COURSE-2")) }
         if stage.hasPrefix("poster-") { #expect(report.failures.contains { $0.contains("gallery.search") }) }
         if stage.hasPrefix("report-types-") {
-            let exempted = Set(["community.report-types", "message.follow", "message.system"])
+            let exempted = Set(["community.report-types", "message.follow", "message.system", "message.like", "message.comment"])
             #expect(report.coverageComplete && Set(report.exemptedProbes.keys) == exempted)
             #expect(exempted.isDisjoint(with: report.executedProbes) && exempted.isDisjoint(with: report.requestEvidence.map(\.probe)))
         }
         if stage == "course-comment-ranking-failure" { #expect(report.failures.contains { $0.contains("course.comments") }) }
-        if stage.hasPrefix("message-account-") { #expect(report.failures.count == 3 && !services.observed.contains("message-read")) }
+        if stage.hasPrefix("message-account-") { #expect(report.failures.count == 1 && !services.observed.contains("message-read")) }
         if stage == "course-history-statistics-failure" { #expect(report.failures.contains { $0.contains("course.history") }) }
         if stage == "maintained-fixtures-success" {
             #expect(services.observed.isSuperset(of: GallerySearchOrder.allCases.map { "gallery-search-\($0.rawValue)" }))
