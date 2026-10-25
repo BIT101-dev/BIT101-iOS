@@ -264,10 +264,21 @@ def wiring_self_test(subject) -> None:
     assert any('清理任务' in message for message in ci_wiring_findings(detached))
     workflow = json.loads(subprocess.check_output(['ruby', '-ryaml', '-rjson', '-e',
         'puts JSON.generate(YAML.safe_load(STDIN.read, aliases: true))'], input=source.replace('\non:', '\n"on":'), text=True))
+    for job in ('release-build', 'catalyst-tests', 'ios-app-tests'):
+        for role in ('Prepare native compilation cache', 'Preserve native compilation cache'):
+            changed = deepcopy(workflow)
+            step = next(step for step in changed['jobs'][job]['steps'] if step.get('name') == role)
+            step.pop('continue-on-error')
+            assert any('独立于验证结果' in message for message in ci_wiring_findings(json.dumps(changed)))
+        changed = deepcopy(workflow)
+        save = next(step for step in changed['jobs'][job]['steps'] if step.get('name') == 'Preserve native compilation cache')
+        save['if'] = save['if'].replace("steps.native-cache.outcome == 'success' && ", '')
+        assert any('缓存发布' in message for message in ci_wiring_findings(json.dumps(changed)))
     for command in ('Scripts/run-extended-tests.sh ui', 'Scripts/run-extended-tests.sh verify all ui',
             'Scripts/run-extended-tests.sh verify', 'Scripts/run-extended-tests.sh verify --self-test',
             'Scripts/run-extended-tests.sh simulator ui', 'Scripts/run-extended-tests.sh simulator verify',
             'Scripts/run-extended-tests.sh simulator build-ui',
+            'Scripts/run-extended-tests.sh simulator preview',
             'xcodebuild test -scheme BIT101-iOS-UIAutomation',
             'xcodebuild test -only-testing:BIT101-iOSUITests'):
         changed = deepcopy(workflow)

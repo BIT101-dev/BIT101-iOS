@@ -208,11 +208,13 @@ jobs:
           include-hidden-files: true
 
       - name: Prepare native compilation cache
+        id: native-cache
+        continue-on-error: true
         if: ${{ (github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) && fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
         run: python3 Scripts/ci_evidence.py cache-export "release-build"
       - name: Preserve native compilation cache
         continue-on-error: true
-        if: ${{ (github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) && fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
+        if: ${{ steps.native-cache.outcome == 'success' && (github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) && fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: compilation-cache-release-build
@@ -309,11 +311,13 @@ jobs:
           include-hidden-files: true
 
       - name: Prepare native compilation cache
+        id: native-cache
+        continue-on-error: true
         if: ${{ (github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) && fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
         run: python3 Scripts/ci_evidence.py cache-export "catalyst-tests"
       - name: Preserve native compilation cache
         continue-on-error: true
-        if: ${{ (github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) && fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
+        if: ${{ steps.native-cache.outcome == 'success' && (github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) && fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: compilation-cache-catalyst-tests
@@ -427,11 +431,13 @@ jobs:
         if: ${{ fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
         run: Scripts/run-extended-tests.sh simulator release-runtime
       - name: Prepare native compilation cache
+        id: native-cache
+        continue-on-error: true
         if: ${{ (github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) && fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
         run: python3 Scripts/ci_evidence.py cache-export "simulator-app"
       - name: Preserve native compilation cache
         continue-on-error: true
-        if: ${{ (github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) && fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
+        if: ${{ steps.native-cache.outcome == 'success' && (github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) && fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: compilation-cache-simulator-app

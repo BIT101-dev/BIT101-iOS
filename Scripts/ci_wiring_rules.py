@@ -126,7 +126,7 @@ def ci_ui_execution_findings(jobs: dict) -> list[str]:
         return [value] if isinstance(value, str) else []
     for name, job in jobs.items():
         if not isinstance(job, dict): continue
-        forbidden = any(value in {'ui', 'build-ui'} for value in values(job))
+        forbidden = any(value in {'ui', 'build-ui', 'preview'} for value in values(job))
         for step in job.get('steps', []):
             if not isinstance(step, dict): continue
             for line in str(step.get('run', '')).replace('\\\n', ' ').splitlines():
@@ -135,7 +135,7 @@ def ci_ui_execution_findings(jobs: dict) -> list[str]:
                 for index, word in enumerate(words):
                     if word.endswith('run-extended-tests.sh'):
                         arguments = words[index + 1:]
-                        forbidden |= any(value in {'ui', 'build-ui'} for value in arguments)
+                        forbidden |= any(value in {'ui', 'build-ui', 'preview'} for value in arguments)
                         forbidden |= arguments[:1] == ['verify'] and not any(not value.startswith('-') for value in arguments[1:])
                         forbidden |= arguments[:2] == ['simulator', 'verify']
                     if word.endswith('xcodebuild'):
@@ -435,6 +435,7 @@ def ci_wiring_findings(workflow_source: str, *, ui_only: bool = False) -> list[s
         prepare = [step for step in steps if step_has_role(step, 'Prepare native compilation cache')]
         save = [step for step in steps if step_has_role(step, 'Preserve native compilation cache')]
         condition = '${{ (' + cache_condition.removeprefix('${{ ') + ') && ' + CI_EXECUTE + ' }}'
+        save_condition = "${{ steps.native-cache.outcome == 'success' && " + condition.removeprefix('${{ ')
         if len(restore) != 1 or not command_matches(str(restore[0].get('run') or ""), f'python3 Scripts/ci_evidence.py cache-restore "{flavor}"') \
                 or restore[0].get('if') != CI_EXECUTION or mapping(restore[0].get('env')).get('GH_TOKEN') != '${{ github.token }}':
             errors.append(f'.github/workflows/ci.yml: {name} 需要实际恢复所属原生编译缓存')
@@ -448,15 +449,16 @@ def ci_wiring_findings(workflow_source: str, *, ui_only: bool = False) -> list[s
                 errors.append(f'.github/workflows/ci.yml: {name} 需要完成缓存与基准请求后启动完整模拟器，再执行测试库存')
         if len(prepare) != 1 or prepare[0].get('if') != condition \
                 or not command_matches(str(prepare[0].get('run') or ""), f'python3 Scripts/ci_evidence.py cache-export "{flavor}"') \
-                or len(save) != 1 or save[0].get('if') != condition:
+                or prepare[0].get('id') != 'native-cache' \
+                or len(save) != 1 or save[0].get('if') != save_condition:
             errors.append(f'.github/workflows/ci.yml: {name} 的缓存发布需要来自 main 运行及唯一生产者')
         if len(save) == 1 and any(mapping(save[0].get('with')).get(key) != value for key, value in {
                 'name': 'compilation-cache-' + flavor, 'compression-level': 0, 'overwrite': True,
                 'include-hidden-files': True, 'if-no-files-found': 'error',
                 'path': '.build/compiler-cache/CompilationCache.noindex\n.build/compiler-cache/compilation-cache.json\n.build/compiler-cache/swift-syntax-indexer\n.build/compiler-cache/swift-syntax-indexer-inputs.json\n'}.items()):
             errors.append(f'.github/workflows/ci.yml: {name} 需要沿固定目录零压缩保存原生缓存')
-        if len(save) == 1 and save[0].get('continue-on-error') is not True:
-            errors.append(f'.github/workflows/ci.yml: {name} 的缓存上传需要独立于验证结果')
+        if any(step.get('continue-on-error') is not True for step in prepare + save):
+            errors.append(f'.github/workflows/ci.yml: {name} 的缓存准备与上传需要独立于验证结果')
     cleanup = mapping(jobs.get('compiler-cache-cleanup'))
     if cleanup.get('if') != "${{ always() && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && (inputs.full_check || inputs.release_check) }}" \
             or mapping(cleanup.get('permissions')) != {'contents': 'read', 'actions': 'write'} \

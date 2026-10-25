@@ -170,6 +170,14 @@ def audit_self_test_selection() -> None:
         assert ('--combined --self-test' in result.stdout) == (enabled == '1')
     source = (ROOT / 'Scripts/run-static-audit.sh').read_text()
     parser = source[source.index('set -euo pipefail'):source.index('\nROOT_DIR=')]
+    lock_selection = source[source.index('if (( run_artifacts ||'):source.index('bit101_acquire_script_lock "$ROOT_DIR/.build/static-audit/audit.lock"')]
+    for arguments, expected in [([], True), (['docs', 'python-parse'], False), (['--self-test', 'docs'], False),
+            (['shell-parse', 'worker-parse', 'dependency-audit', 'git-diff'], False),
+            (['swift-parse'], True), (['module-boundary'], True), (['checkers'], True), (['artifact-hygiene'], True)]:
+        result = subprocess.run(['zsh', '-c', parser + '\nbit101_acquire_artifact_lock() { print acquired; }\n' + lock_selection,
+            'audit-lock-selection', *arguments], env=dict(os.environ, GITHUB_ACTIONS='false', BIT101_RELEASE_CHECK='false'),
+            capture_output=True, text=True, check=True)
+        assert ('acquired' in result.stdout) == expected, (arguments, result.stdout)
     for arguments, expected in [([], '1:9:9:0'), (['docs', 'python-parse', 'docs'], '0:2:2:0'),
             (['artifact-hygiene'], '0:0:0:0'), (['--self-test', 'docs'], '0:1:1:1')]:
         result = subprocess.run(['zsh', '-c', parser + '\nprint -r -- "$full_audit:${#group_names}:${#group_commands}:$self_tests_requested"',

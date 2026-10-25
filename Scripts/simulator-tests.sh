@@ -9,7 +9,11 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT_DIR/Scripts/script-support.sh"
 operation="${1:-info}"
 shift $(( $# > 0 ? 1 : 0 ))
-case "$operation" in info|prepare|prepare-restore|restore|inspect|merge|verify|build-ui) [[ $# -eq 0 ]] || exit 64;; app|release-runtime|ui) ;; *) exit 64;; esac
+case "$operation" in info|prepare|prepare-restore|restore|inspect|merge|verify|build-ui|preview) [[ $# -eq 0 ]] || exit 64;; app|release-runtime|ui) ;; *) exit 64;; esac
+if [[ "$operation" == preview && "${GITHUB_ACTIONS:-false}" == true ]]; then
+  echo "界面预览使用本地授权设备。" >&2
+  exit 64
+fi
 SIMULATOR_WORKERS="${BIT101_SIMULATOR_WORKERS:-1}"
 [[ "$SIMULATOR_WORKERS" == <1-> ]] || { echo "模拟器工作进程数需要为正整数。" >&2; exit 64; }
 TEST_SCOPE=selected
@@ -110,7 +114,7 @@ else
   exit 1
 fi
 echo "[完成] 模拟器设备选择 · $(( SECONDS - simulator_device_started )) 秒"
-if [[ "$operation" == build-ui ]]; then
+if [[ "$operation" == build-ui || "$operation" == preview ]]; then
   bit101_run_logged "$DERIVED_ROOT/ui.log" "UI 宿主库存" python3 - "$ROOT_DIR/Scripts" <<'PYINVENTORY'
 import sys
 sys.path.insert(0, sys.argv[1])
@@ -123,6 +127,18 @@ PYINVENTORY
     -destination "platform=iOS Simulator,id=$SIMULATOR_DEVICE" ONLY_ACTIVE_ARCH=YES \
     "BIT101_WORKFLOW_CONDITIONS=$conditions" ENABLE_TESTABILITY=YES -enableCodeCoverage YES ENABLE_CODE_COVERAGE=YES \
     SWIFT_TREAT_WARNINGS_AS_ERRORS=YES GCC_TREAT_WARNINGS_AS_ERRORS=YES CODE_SIGN_IDENTITY=-
+  if [[ "$operation" == preview ]]; then
+    bit101_invalidate_restore
+    bit101_run_logged "$DERIVED_ROOT/ui.log" "界面预览安装" xcrun simctl install "$SIMULATOR_DEVICE" \
+      "$DERIVED_ROOT/Build/Products/Release-iphonesimulator/BIT101-iOS.app"
+    SIMCTL_CHILD_BIT101_UI_TESTING=1 SIMCTL_CHILD_BIT101_UI_TEST_RUN_ID=ui \
+      SIMCTL_CHILD_BIT101_UI_TEST_RESET_STORAGE=1 SIMCTL_CHILD_BIT101_UI_TEST_ACCOUNT=ui-test-student \
+      SIMCTL_CHILD_BIT101_UI_TEST_CONTENT=1 SIMCTL_CHILD_BIT101_UI_TEST_SCHOOL=1 \
+      SIMCTL_CHILD_BIT101_UI_TEST_TAB=schedule SIMCTL_CHILD_BIT101_UI_TEST_CONTROL_PORT=0 \
+      bit101_run_logged "$DERIVED_ROOT/ui.log" "界面预览启动" xcrun simctl launch --terminate-running-process \
+      "$SIMULATOR_DEVICE" BIT101-dev.BIT101-iOS --ui-testing -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN
+    echo "样例界面已打开；完成观察后执行 simulator restore。"
+  fi
   exit 0
 fi
 if [[ "$operation" == info ]]; then print -r -- "$SIMULATOR_DEVICE"; exit 0; fi

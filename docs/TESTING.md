@@ -115,7 +115,7 @@ BIT101_SIMULATOR_AUTHORIZED=1 Scripts/run-extended-tests.sh simulator verify
 
 适配特定设备时，通过 `BIT101_SIMULATOR_DEVICE_TYPE='iPhone Duo' Scripts/run-extended-tests.sh simulator prepare` 选择设备类型；该配置接受 Xcode 库存中的名称或标识，准备对应的官方运行时，并沿固定设备记录复用后续测试与恢复。Duo 布局沿 [Apple 适配指南](https://developer.apple.com/iphone-duo/prepare/)核对内外屏、旋转、折叠切换和非对称安全区；Device Hub 负责切换姿态，课表旋转合同验收选中周次、主导航和内容操作区。
 
-`simulator build-ui` 构建共享 UI 宿主；`simulator merge` 归集 CI 分片。测试结束后恢复常规 Release；`simulator restore` 支持独立恢复，`simulator inspect` 读取安装身份与实际屏幕。恢复结果核对进程、会话和活跃场景。
+`simulator build-ui` 构建共享 UI 宿主；本地 `simulator preview` 构建并打开隔离样例界面，供 Device Hub 中持续观察姿态与布局；`simulator merge` 归集 CI 分片。测试结束后恢复常规 Release；预览结束后执行 `simulator restore`，`simulator inspect` 读取安装身份与实际屏幕。恢复结果核对进程、会话和活跃场景。
 
 ## 静态审计
 
@@ -137,7 +137,7 @@ python3 Scripts/check-docs.py
 
 仓库维护文件上限为 1000 行。提交钩子沿完整暂存内容检查长度和文档引用；Python 与嵌入 Python 的语法及名称检查覆盖变更脚本，Python 依赖图沿暂存模块核对。检查入口变更触发完整脚本库存检查。工作树检查用于日常开发。文档随永久接口与流程维护，脚本内部解析细节沿对应源码和回归样例维护。检查器自身回归通过 `--self-test` 在统一审计中执行；日常检查与提交钩子验收当前输入。
 
-独立检查组并行运行，固定日志由审计锁协调。退出时回收所属工作进程并保留原始退出状态；终端显示失败组和有效诊断，完整日志继续保存在固定路径。
+独立检查组并行运行，固定日志由审计锁协调。语法、脚本、文档和依赖的定向检查沿各自资源执行；Swift 编译工具、模块检查、组合规则和产物维护共同取得编译产物锁。退出时回收所属工作进程并保留原始退出状态；终端显示失败组和有效诊断，完整日志继续保存在固定路径。
 
 ## 固定产物与结果读取
 

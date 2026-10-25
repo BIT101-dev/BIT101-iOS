@@ -589,7 +589,7 @@ def check_registered_visual_contracts(errors: list[str]) -> None:
     syntax = syntax_index()
     for relative_path, marker in contracts:
         if not visual_contract_present(relative_path, marker, sources, syntax):
-            errors.append(f"{'.'.join(VISUAL_CONTRACT_OWNERS[relative_path][0])}: 视觉契约需要对应所属渲染或实现表达式（{marker}）")
+            errors.append(f"{relative_path}:1: {'.'.join(VISUAL_CONTRACT_OWNERS[relative_path][0])}: 视觉契约需要对应所属渲染或实现表达式（{marker}）")
 
 
 def is_reviewed_fixed_geometry(

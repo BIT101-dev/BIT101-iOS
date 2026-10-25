@@ -50,7 +50,9 @@ fi
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT_DIR/Scripts/script-support.sh"
-bit101_acquire_artifact_lock "$0" "$@"
+if (( run_artifacts || ${group_names[(Ie)swift-parse]} || ${group_names[(Ie)module-boundary]} || ${group_names[(Ie)checkers]} )); then
+  bit101_acquire_artifact_lock "$0" "$@"
+fi
 bit101_acquire_script_lock "$ROOT_DIR/.build/static-audit/audit.lock" BIT101_STATIC_AUDIT_LOCK_HELD "$0" "$@"
 LOG_DIR="$ROOT_DIR/.build/static-audit"
 if [[ "${1:-}" == prepare && $# -eq 1 ]]; then

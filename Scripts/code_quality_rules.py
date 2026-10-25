@@ -822,7 +822,9 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
         allowed = set().union(*(operations for (owner, entry), operations in exceptions.items() if owner in call["scope"] and entry == name))
         routes = [reason for key, _ in targets(call) for operation, reason in reasons.get(key, {}).items() if operation not in allowed]
         if restricted(call) and name not in allowed or routes:
-            errors.append(f"{'/'.join(call['scope'])}: 生命周期业务拉取需要明确用户操作：{call['value']}" + (" → " + " → ".join(routes[0]) if routes else ""))
+            path = reference_paths[id(call)]
+            line = syntax_index[path]['source'].encode().count(b'\n', 0, call['start']) + 1
+            errors.append(f"{path}:{line}: {'/'.join(call['scope'])}: 生命周期业务拉取需要明确用户操作：{call['value']}" + (" → " + " → ".join(routes[0]) if routes else ""))
 
     return list(dict.fromkeys(errors))
 

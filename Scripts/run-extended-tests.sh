@@ -6,7 +6,7 @@ set -euo pipefail
 if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
   echo "Scripts/run-extended-tests.sh                    自动选机、运行完整行为测试"
   echo "Scripts/run-extended-tests.sh modules            本机模块测试"
-  echo "Scripts/run-extended-tests.sh simulator info|prepare|build-ui|restore|inspect|app|release-runtime|ui|merge [用例]  授权后的模拟器验收及 CI 分片汇总"
+  echo "Scripts/run-extended-tests.sh simulator info|prepare|build-ui|preview|restore|inspect|app|release-runtime|ui|merge [用例]  授权后的模拟器验收及 CI 分片汇总"
   echo "Scripts/run-extended-tests.sh release-runtime    正式编译条件下的真机组装合同"
   echo "Scripts/run-extended-tests.sh catalyst-release-runtime  正式编译条件下的 Catalyst 组装合同"
   echo "Scripts/run-extended-tests.sh ui [用例关键词]...  真机 UI 测试，多个筛选合并执行"
