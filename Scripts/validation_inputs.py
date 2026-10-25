@@ -8,7 +8,7 @@ import fcntl
 import os
 from contextlib import ExitStack
 from functools import cache
-from validation_policy import SWIFT_SYNTAX_SOURCE_NAMES, NETWORK_CAPABILITIES, SIMULATOR_SHARDS
+from validation_policy import SWIFT_SYNTAX_SOURCE_NAMES, NETWORK_CAPABILITIES
 from validation_policy import APP_TEST_GROUPS, TEST_GROUPS, NETWORK_GROUPS, RELEASE_GROUPS, BUILD_HOSTS, VERIFY_GROUPS, DEFAULT_VERIFY_GROUPS
 
 NATIVE_PRODUCT_ROOTS = ("BIT101-iOS", "BIT101ScheduleWidgets", "BIT101Watch", "BIT101WatchWidgets")
@@ -29,8 +29,8 @@ BUILD_SCRIPTS = {"script-support.sh", "build-install-device.sh", "ci_evidence.py
 TEST_SCRIPTS = BUILD_SCRIPTS | VALIDATION_SCRIPTS | {"run-extended-tests.sh", "simulator-tests.sh"}
 INPUT_TRANSACTION_FILES = {'BIT101-iOSTests/Fixtures/campus-map-locations.lock', 'BIT101-iOSTests/Fixtures/campus-map-locations.incoming'}
 WORKER_GENERATED_DIRECTORIES = frozenset({'node_modules', '.wrangler', '.git'})
-CI_RESULT_ARTIFACTS = {group: 'verified-result-' + ('ios' if group in {'app', 'ui'} else group)
-    for group in ('modules', 'release', 'catalyst', 'app', 'ui')}
+CI_RESULT_ARTIFACTS = {group: 'verified-result-' + ('ios' if group == 'app' else group)
+    for group in ('modules', 'release', 'catalyst', 'app')}
 CI_VALIDATION_GROUPS = {
     'modules': (('modules',), ('Static audit (Apple toolchain)',), ('validation-static-audit',)),
     'release': (('build-archive', 'build-network-smoke', 'build-icloud-smoke'),
@@ -38,10 +38,9 @@ CI_VALIDATION_GROUPS = {
     'catalyst': (('catalyst', 'catalyst-release-runtime'),
         ('Mac Catalyst behavior tests',), ('validation-catalyst-tests',)),
     'app': (('all', 'release-runtime'),
-        ('iOS Simulator app and formal runtime', 'iOS Simulator behavior and UI tests'),
+        ('iOS Simulator app and formal runtime', 'iOS Simulator behavior tests'),
         ('validation-ios-test-shards-app-0', 'validation-ios-app-tests')),
-    'ui': (('ui',), ('Build shared iOS UI test host', 'iOS Simulator behavior and UI tests', *(f'iOS Simulator ui ({index})' for index in range(SIMULATOR_SHARDS['ui']))),
-        tuple(f'validation-ios-test-shards-ui-{index}' for index in range(SIMULATOR_SHARDS['ui']))),
+
 }
 CI_VALIDATION_GROUPS = {group: (scopes, jobs, (*artifacts, CI_RESULT_ARTIFACTS[group]))
     for group, (scopes, jobs, artifacts) in CI_VALIDATION_GROUPS.items()}

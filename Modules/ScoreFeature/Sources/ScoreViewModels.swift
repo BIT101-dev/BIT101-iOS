@@ -15,14 +15,13 @@ private nonisolated enum ScorePersistenceError: LocalizedError {
 /// 管理完整成绩查询、缓存恢复、筛选同步、统计汇总和错误提示。
 @MainActor
 public final class ScoreViewModel: ObservableObject {
-    // 按用户要求，种类筛选由实际成绩中的非空课程性质动态生成；引入课表分类或占位分类须取得用户明确授权。
     /// 全量成绩数据。
     @Published private(set) var rows: [ScoreRow] = []
     /// 页面加载状态。
     @Published private(set) var state: ScoreLoadState = .idle
     /// 当前可选学期列表。
     @Published private(set) var availableTerms: [String] = []
-    /// 当前可选课程性质列表。
+    /// 按实际成绩动态生成的课程性质列表。
     @Published private(set) var availableCourseTypes: [String] = []
     /// 当前选中的学期集合。
     @Published private(set) var selectedTerms: Set<String> = []

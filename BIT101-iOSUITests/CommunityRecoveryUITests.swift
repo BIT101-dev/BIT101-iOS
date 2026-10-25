@@ -146,6 +146,8 @@ nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
         closeAlertIfPresent()
         let retry = UIElement(app.native).buttons["media.preview.retry"]
         assertUI(retry.appears(timeout: 10), "后续页加载失败应提供原生重试按钮。")
+        assertUI(UITestControlClient.request(["command": "release-request", "key": "media-recovery"]) == "released",
+                 "原生重试前应恢复图片传输。")
         retry.tapBriefly()
         assertUI(retry.disappears(timeout: 10), "重试成功后应恢复图片并收起重试按钮。")
         assertUI(waitForImagePreview(visible: true, timeout: 5), "恢复图片应保留系统预览。")

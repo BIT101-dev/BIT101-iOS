@@ -6,6 +6,7 @@ import Network
 import UIKit
 import PhotosUI
 import QuickLook
+import MediaKit
 import ClientCore
 import ScheduleDomain
 import SchedulePorts
@@ -137,6 +138,10 @@ enum AppUITestBootstrap {
         guard environment["BIT101_UI_TEST_RESET_STORAGE"] == "1",
               let account = environment["BIT101_UI_TEST_ACCOUNT"], !account.isEmpty else { return }
         do {
+            if environment["BIT101_UI_TEST_MEDIA_RECOVERY"] == "1" {
+                guard await AppMedia.environment.clearCaches() else { throw CocoaError(.fileWriteUnknown) }
+                holdingRequests["media-recovery"] = [:]
+            }
             _ = try await UITestLoginService().login(studentID: account, password: "ui-test-password")
             recoveredSuggestionID = nil
             if environment["BIT101_UI_TEST_MESSAGE_STORAGE_RECOVERY"] == "1" {
@@ -358,7 +363,7 @@ final class UITestHTTPTransport: HTTPTransport {
         if path.hasPrefix("ui-images/") {
             if AppUITestBootstrap.environment["BIT101_UI_TEST_MEDIA_RECOVERY"] == "1",
                path == "ui-images/preview-missing.png" ||
-                (path == "ui-images/preview-recovery.png" && failedPaths.insert(path).inserted) {
+                (path == "ui-images/preview-recovery.png" && AppUITestBootstrap.holdingRequests["media-recovery"] != nil) {
                 throw URLError(.notConnectedToInternet)
             }
             guard let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "image/png"]) else {

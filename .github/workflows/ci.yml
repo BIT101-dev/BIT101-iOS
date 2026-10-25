@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       full_check:
-        description: Run full compilation, module, behavior and UI validation
+        description: Run full compilation, module and behavior validation
         required: false
         default: false
         type: boolean
@@ -348,179 +348,6 @@ jobs:
           compression-level: 0
           include-hidden-files: true
           path: ${{ steps.diagnostics.outputs.paths }}
-  ios-ui-build:
-    needs: [validation-plan]
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' && (inputs.full_check || inputs.release_check)
-    name: Build shared iOS UI test host
-    runs-on: xcode-27
-    timeout-minutes: 105
-    env:
-      BIT101_CI_PLAN: ${{ needs.validation-plan.outputs.plan }}
-      BIT101_CI_GROUP: ui
-      BIT101_SIMULATOR_AUTHORIZED: '1'
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0
-          clean: false
-      - name: Verify maintainer review commit
-        id: review
-        if: github.event_name == 'workflow_dispatch' && inputs.review_pr > 0
-        env:
-          GH_TOKEN: ${{ github.token }}
-          BIT101_REVIEW_PR: ${{ inputs.review_pr }}
-        run: |
-          base_sha="$(python3 Scripts/ci_evidence.py review-pr "$BIT101_REVIEW_PR")"
-          printf 'base_sha=%s\n' "$base_sha" >> "$GITHUB_OUTPUT"
-      - name: Show toolchain
-        run: Scripts/build-install-device.sh toolchain
-      - name: Reuse compatible successful validation
-        if: ${{ !fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
-        run: python3 Scripts/ci_evidence.py reuse "$BIT101_CI_GROUP"
-      - name: Restore native compilation cache
-        if: ${{ fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python3 Scripts/ci_evidence.py cache-restore "simulator-ui"
-      - name: Build complete UI test host
-        if: ${{ fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
-        run: Scripts/run-extended-tests.sh simulator build-ui
-      - name: Select current UI host products
-        id: ui-host
-        if: ${{ fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
-        run: python3 Scripts/test_results.py ui-host-paths .build/extended-automation/Build/Products
-      - name: Preserve shared UI test host
-        if: ${{ fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          overwrite: true
-          name: ui-test-host
-          compression-level: 0
-          include-hidden-files: true
-          if-no-files-found: error
-          retention-days: 1
-          path: ${{ steps.ui-host.outputs.paths }}
-      - name: Prepare native compilation cache
-        if: ${{ (github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) && fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
-        run: python3 Scripts/ci_evidence.py cache-export "simulator-ui"
-      - name: Preserve native compilation cache
-        continue-on-error: true
-        if: ${{ (github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) && fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: compilation-cache-simulator-ui
-          compression-level: 0
-          overwrite: true
-          include-hidden-files: true
-          if-no-files-found: error
-          path: |
-            .build/compiler-cache/CompilationCache.noindex
-            .build/compiler-cache/compilation-cache.json
-            .build/compiler-cache/swift-syntax-indexer
-            .build/compiler-cache/swift-syntax-indexer-inputs.json
-      - name: Select validation diagnostics
-        id: diagnostics
-        if: ${{ always() && fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
-        env:
-          BIT101_CI_CANCELLED: ${{ job.status == 'cancelled' }}
-          BIT101_DIAGNOSTIC_PATHS: |
-            .build/extended-automation/ui.log
-            .build/extended-automation/diagnostics/test-results.xcresult
-        run: python3 Scripts/ci_diagnostics.py
-      - name: Preserve validation diagnostics
-        if: ${{ always() && fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          overwrite: true
-          name: validation-${{ github.job }}
-          compression-level: 0
-          include-hidden-files: true
-          path: ${{ steps.diagnostics.outputs.paths }}
-  ios-test-shards:
-    needs: [validation-plan, ios-ui-build]
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' && (inputs.full_check || inputs.release_check)
-    name: iOS Simulator ${{ matrix.mode }} (${{ matrix.shard }})
-    runs-on: xcode-27
-    timeout-minutes: 105
-    strategy:
-      fail-fast: false
-      max-parallel: 3
-      matrix:
-        include:
-          - {mode: ui, shard: 0, count: 3, workers: 1}
-          - {mode: ui, shard: 1, count: 3, workers: 1}
-          - {mode: ui, shard: 2, count: 3, workers: 1}
-    env:
-      BIT101_CI_PLAN: ${{ needs.validation-plan.outputs.plan }}
-      BIT101_CI_GROUP: ui
-      BIT101_SIMULATOR_AUTHORIZED: '1'
-      BIT101_REUSE_UI_HOST: '1'
-      BIT101_CI_SHARD: ${{ matrix.shard }}/${{ matrix.count }}
-      BIT101_SIMULATOR_WORKERS: ${{ matrix.workers }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0
-          clean: false
-      - name: Verify maintainer review commit
-        id: review
-        if: github.event_name == 'workflow_dispatch' && inputs.review_pr > 0
-        env:
-          GH_TOKEN: ${{ github.token }}
-          BIT101_REVIEW_PR: ${{ inputs.review_pr }}
-        run: |
-          base_sha="$(python3 Scripts/ci_evidence.py review-pr "$BIT101_REVIEW_PR")"
-          printf 'base_sha=%s\n' "$base_sha" >> "$GITHUB_OUTPUT"
-      - name: Show toolchain
-        run: Scripts/build-install-device.sh toolchain
-      - name: Reuse compatible successful validation
-        if: ${{ !fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
-        run: python3 Scripts/ci_evidence.py reuse "$BIT101_CI_GROUP"
-      - name: Restore shared UI test host
-        if: ${{ fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh run download "$GITHUB_RUN_ID" --name ui-test-host --dir .build
-      - name: Load target branch coverage baseline
-        if: ${{ fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          BIT101_BASE_COMMIT: ${{ github.event.pull_request.base.sha || steps.review.outputs.base_sha }}
-        run: |
-          python3 Scripts/ci_evidence.py baseline "$BIT101_BASE_COMMIT"
-          python3 Scripts/validation_evidence.py baseline "$BIT101_BASE_COMMIT"
-      - name: Prepare full iOS Simulator
-        if: ${{ fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
-        run: Scripts/run-extended-tests.sh simulator prepare
-      - name: Run assigned complete Simulator inventory
-        if: ${{ fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
-        run: Scripts/run-extended-tests.sh simulator "${{ matrix.mode }}"
-      - name: Select validation diagnostics
-        id: diagnostics
-        if: ${{ always() && fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
-        env:
-          BIT101_CI_CANCELLED: ${{ job.status == 'cancelled' }}
-          BIT101_DIAGNOSTIC_PATHS: |
-            .build/extended-automation/simulator.log
-            .build/extended-automation/all.log
-            .build/extended-automation/release-runtime.log
-            .build/extended-automation/ui.log
-            build/DeviceInstall/build.log
-            .build/extended-automation/restore.log
-            .build/extended-automation/test-metrics.txt
-            .build/extended-automation/test-results.xcresult
-            .build/extended-automation/diagnostics/test-results.xcresult
-            .build/screenshot.png
-        run: python3 Scripts/ci_diagnostics.py
-      - name: Preserve validation diagnostics
-        if: ${{ always() && fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          overwrite: true
-          name: validation-${{ github.job }}-${{ matrix.mode }}-${{ matrix.shard }}
-          compression-level: 0
-          include-hidden-files: true
-          path: ${{ steps.diagnostics.outputs.paths }}
   ios-app-tests:
     needs: [validation-plan]
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' && (inputs.full_check || inputs.release_check)
@@ -580,7 +407,6 @@ jobs:
             .build/extended-automation/simulator.log
             .build/extended-automation/all.log
             .build/extended-automation/release-runtime.log
-            .build/extended-automation/ui.log
             build/DeviceInstall/build.log
             .build/extended-automation/restore.log
             .build/extended-automation/test-metrics.txt
@@ -627,7 +453,6 @@ jobs:
             .build/extended-automation/simulator.log
             .build/extended-automation/all.log
             .build/extended-automation/release-runtime.log
-            .build/extended-automation/ui.log
             build/DeviceInstall/build.log
             .build/extended-automation/restore.log
             .build/extended-automation/test-metrics.txt
@@ -645,10 +470,10 @@ jobs:
           include-hidden-files: true
           path: ${{ steps.diagnostics.outputs.paths }}
   ios-tests:
-    name: iOS Simulator behavior and UI tests
+    name: iOS Simulator behavior tests
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' && (inputs.full_check || inputs.release_check)
     runs-on: xcode-27
-    needs: [validation-plan, static-audit, ios-test-shards, ios-app-tests]
+    needs: [validation-plan, static-audit, ios-app-tests]
     timeout-minutes: 15
     env:
       BIT101_CI_PLAN: ${{ needs.validation-plan.outputs.plan }}
@@ -681,10 +506,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: Scripts/run-extended-tests.sh simulator merge
       - name: Export validated result
-        if: ${{ fromJSON(env.BIT101_CI_PLAN).jobs.app.execute || fromJSON(env.BIT101_CI_PLAN).jobs.ui.execute }}
+        if: ${{ fromJSON(env.BIT101_CI_PLAN).jobs.app.execute }}
         run: python3 Scripts/ci_evidence.py export-result ios
       - name: Publish validated result
-        if: ${{ fromJSON(env.BIT101_CI_PLAN).jobs.app.execute || fromJSON(env.BIT101_CI_PLAN).jobs.ui.execute }}
+        if: ${{ fromJSON(env.BIT101_CI_PLAN).jobs.app.execute }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: verified-result-ios
@@ -703,7 +528,6 @@ jobs:
             .build/extended-automation/simulator.log
             .build/extended-automation/all.log
             .build/extended-automation/release-runtime.log
-            .build/extended-automation/ui.log
             build/DeviceInstall/build.log
             .build/extended-automation/restore.log
             .build/extended-automation/test-metrics.txt
@@ -720,76 +544,10 @@ jobs:
           compression-level: 0
           include-hidden-files: true
           path: ${{ steps.diagnostics.outputs.paths }}
-  physical-device:
-    name: Physical-device behavior and UI acceptance
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' && inputs.release_check
-    runs-on: [self-hosted, macOS, bit101-xcode-27, bit101-device]
-    timeout-minutes: 240
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0
-          clean: false
-      - name: Verify maintainer review commit
-        id: review
-        if: github.event_name == 'workflow_dispatch' && inputs.review_pr > 0
-        env:
-          GH_TOKEN: ${{ github.token }}
-          BIT101_REVIEW_PR: ${{ inputs.review_pr }}
-        run: |
-          base_sha="$(python3 Scripts/ci_evidence.py review-pr "$BIT101_REVIEW_PR")"
-          printf 'base_sha=%s\n' "$base_sha" >> "$GITHUB_OUTPUT"
-      - name: Load target branch coverage baseline
-        env:
-          GH_TOKEN: ${{ github.token }}
-          BIT101_BASE_COMMIT: ${{ github.event.pull_request.base.sha || steps.review.outputs.base_sha }}
-        run: |
-          python3 Scripts/ci_evidence.py baseline "$BIT101_BASE_COMMIT"
-          python3 Scripts/validation_evidence.py baseline "$BIT101_BASE_COMMIT"
-      - name: Run physical-device acceptance
-        run: Scripts/run-extended-tests.sh verify modules all release-runtime ui
-      - name: Install Release app after successful acceptance
-        run: Scripts/build-install-device.sh
-      - name: Bind core validation evidence
-        run: python3 Scripts/validation_evidence.py bind-merge
-      - name: Export core CI evidence
-        if: always()
-        run: python3 Scripts/ci_evidence.py export-core
-      - name: Publish core validation evidence
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: validation-evidence
-          path: .build/extended-automation/core-validation-evidence.json
-          compression-level: 0
-          overwrite: true
-          if-no-files-found: error
-          include-hidden-files: true
-      - name: Select validation diagnostics
-        id: diagnostics
-        if: always()
-        env:
-          BIT101_CI_CANCELLED: ${{ job.status == 'cancelled' }}
-          BIT101_DIAGNOSTIC_PATHS: |
-            .build/extended-automation/*.log
-            .build/extended-automation/*.txt
-            .build/extended-automation/test-results.xcresult
-            .build/extended-automation/diagnostics/test-results.xcresult
-        run: python3 Scripts/ci_diagnostics.py
-      - name: Preserve validation diagnostics
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          overwrite: true
-          name: validation-${{ github.job }}
-          compression-level: 0
-          include-hidden-files: true
-          path: ${{ steps.diagnostics.outputs.paths }}
-
   release-acceptance:
     name: Release acceptance with bound device evidence
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' && inputs.release_check
-    needs: [static-audit, release-build, catalyst-tests, ios-tests, physical-device]
+    needs: [static-audit, release-build, catalyst-tests, ios-tests]
     runs-on: xcode-27
     timeout-minutes: 10
     steps:
@@ -828,7 +586,7 @@ jobs:
   compiler-cache-cleanup:
     name: Keep one native compilation cache per group
     if: ${{ always() && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && (inputs.full_check || inputs.release_check) }}
-    needs: [release-build, catalyst-tests, ios-ui-build, ios-test-shards, ios-app-tests, ios-tests]
+    needs: [release-build, catalyst-tests, ios-app-tests, ios-tests]
     runs-on: xcode-27
     permissions:
       contents: read

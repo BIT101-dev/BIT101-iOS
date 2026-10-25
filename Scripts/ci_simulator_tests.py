@@ -20,15 +20,14 @@ def self_test(ci, context: dict, platform: dict, environment_fixture) -> None:
     work = root / '.build/extended-automation'
     report, metrics, bundle = work / 'validation-evidence.json', work / 'test-metrics.txt', work / 'test-results.xcresult'
     result_file = work / 'ci-validation-result.json'
-    inventory = {'all': ['AppFixture/testBehavior'], 'release-runtime': ['RuntimeFixture/testComposition'],
-        'ui': [f'UIFixture/testJourney{index}' for index in range(3)]}
+    inventory = {'all': ['AppFixture/testBehavior'], 'release-runtime': ['RuntimeFixture/testComposition']}
     cases = {name: 1 for names in inventory.values() for name in names}
     lines = {f'Modules/{name}/Sources/fixture.swift': {'covered': [1], 'executable': [1]}
         for name in IOS_MODULE_COVERAGE_FLOORS}
     runtime = dict(identifier='com.apple.CoreSimulator.SimRuntime.iOS-27-0', isAvailable=True,
         version=platform['systemVersion'], buildversion=platform['systemBuild'])
     simulator = dict(runtimes=[runtime], devices={runtime['identifier']: [{'udid': 'device'}]})
-    plan = dict(commit=commit, run=run, jobs={name: dict(execute=True) for name in ('modules', 'release', 'catalyst', 'app', 'ui')})
+    plan = dict(commit=commit, run=run, jobs={name: dict(execute=True) for name in ('modules', 'release', 'catalyst', 'app')})
     files, bundles, artifacts = {report: json.dumps({'coveragePolicy': {}})}, {}, {}
     current_tree = {}
 
@@ -100,7 +99,7 @@ def self_test(ci, context: dict, platform: dict, environment_fixture) -> None:
             patch.dict(os.environ, GITHUB_RUN_ID=run), redirect_stdout(StringIO())]
     with ExitStack() as stack:
         for context in patches: stack.enter_context(context)
-        for group, count in (('all', 1), ('release-runtime', 1), ('ui', 3)):
+        for group, count in (('all', 1), ('release-runtime', 1)):
             for index in range(count):
                 expected = selected(group, index, count)
                 current_tree = tree(group, expected)
@@ -117,10 +116,10 @@ def self_test(ci, context: dict, platform: dict, environment_fixture) -> None:
         assert 'groups' not in merged and set(merged['simulatorResults']) == set(inventory)
         ci.export_validation_result('ios')
         result = json.loads(files[result_file])
-        assert result['commit'] == commit and result['run'] == run and set(result['groups']) == {'app', 'ui'}
+        assert result['commit'] == commit and result['run'] == run and set(result['groups']) == {'app'}
         assert result['groups']['app']['environment']['platform'] == platform
         for scope, field, value in (('release-runtime', 'identity', {}), ('all', 'environment', {}),
-                ('ui', 'summary', {})):
+                ('all', 'summary', {})):
             invalid = deepcopy(merged)
             invalid['simulatorResults'][scope][field] = value
             files[report] = json.dumps(invalid)
@@ -135,8 +134,9 @@ def self_test(ci, context: dict, platform: dict, environment_fixture) -> None:
         else: raise AssertionError('导出继续核对合并覆盖率。')
         files[report] = json.dumps(merged)
         plan['jobs']['app']['execute'] = False
-        ci.export_validation_result('ios')
-        assert set(json.loads(files[result_file])['groups']) == {'ui'}
+        try: ci.export_validation_result('ios')
+        except ValueError: pass
+        else: raise AssertionError('完整通过的当前分组生成成功记录。')
         plan['jobs']['app']['execute'] = True
         artifacts['validation-ios-app-tests'] = (files[metrics], tree('release-runtime', inventory['release-runtime']))
         try: ci.merge_simulator_ci()

@@ -51,7 +51,7 @@ def validated_scope(group: str, record: dict, commit: str, run: str, policy: dic
 def result_rows(report: dict, plan: dict, commit: str, run: str, matches) -> dict:
     from validation_inputs import CI_VALIDATION_GROUPS
     rows = {}
-    for name in ('app', 'ui'):
+    for name in ('app',):
         if not plan['jobs'][name]['execute']: continue
         scopes = CI_VALIDATION_GROUPS[name][0]
         environments = [validated_scope(scope, report.get('simulatorResults', {}).get(scope), commit, run,
@@ -80,7 +80,7 @@ def merge_ci_results(ci) -> None:
     indexer = ci.ROOT / '.build/compiler-cache/swift-syntax-indexer'
     indexer.chmod(indexer.stat().st_mode | 0o100)
     records, metrics = {}, []
-    for group in ('all', 'release-runtime', 'ui'):
+    for group in ('all', 'release-runtime'):
         name = 'ui' if group == 'ui' else 'app'
         source = plan[name]
         source_run, source_commit = (run, commit) if source['execute'] else (source['run'], source['commit'])

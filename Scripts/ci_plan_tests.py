@@ -16,14 +16,14 @@ PLATFORM = CONTEXT['device']
 
 
 def environment_fixture(group):
-    return deepcopy(ENVIRONMENT | ({'runtimes': [PLATFORM]} if group in {'app', 'ui'} else {}))
+    return deepcopy(ENVIRONMENT | ({'runtimes': [PLATFORM]} if group == 'app' else {}))
 
 
 def result_fixture(candidate):
     from validation_inputs import CI_VALIDATION_GROUPS
     return dict(schemaVersion=1, commit=candidate['head_sha'], run=str(candidate['id']), groups={
         group: dict(passed=True, scopes=list(scopes), environment=deepcopy(ENVIRONMENT | (
-            {'platform': PLATFORM} if group in {'app', 'ui'} else {})))
+            {'platform': PLATFORM} if group == 'app' else {})))
         for group, (scopes, _, _) in CI_VALIDATION_GROUPS.items()})
 
 
@@ -53,10 +53,10 @@ def plan_self_test(subject) -> None:
         'jobs': [{'name': name, 'conclusion': 'success'} for _, names, _ in CI_VALIDATION_GROUPS.values() for name in names],
         'artifacts': [{'name': name, 'expired': False} for _, _, names in CI_VALIDATION_GROUPS.values() for name in names]}
     for names, required in (([], set()), (['README.md'], set()),
-            (['BIT101-iOSUITests/InteractionCoverageCommunityUITests.swift'], {'ui'}),
+            (['BIT101-iOSUITests/InteractionCoverageCommunityUITests.swift'], set()),
             (['BIT101-iOSTests/AccountTests.swift'], {'release', 'app', 'catalyst'}),
-            (['BIT101-iOSTests/PerformanceWorkloads.json'], {'release', 'app', 'catalyst', 'ui'}),
-            (['BIT101-iOS/Feature.swift'], {'release', 'app', 'catalyst', 'ui'}),
+            (['BIT101-iOSTests/PerformanceWorkloads.json'], {'release', 'app', 'catalyst'}),
+            (['BIT101-iOS/Feature.swift'], {'release', 'app', 'catalyst'}),
             (['Modules/Feature/Sources/Feature.swift'], set(CI_VALIDATION_GROUPS)),
             (['.github/workflows/ci.yml'], set(CI_VALIDATION_GROUPS)),
             (['Scripts/simulator-tests.sh'], set(CI_VALIDATION_GROUPS))):
@@ -65,29 +65,29 @@ def plan_self_test(subject) -> None:
         assert all(row['run'] == '7' and row['commit'] == 'b' * 40 for row in plan['jobs'].values() if not row['execute'])
     for conclusion in ('failure', 'timed_out', 'action_required', 'cancelled', 'skipped', None):
         failed = deepcopy(candidate)
-        next(job for job in failed['jobs'] if job['name'] == 'iOS Simulator ui (1)')['conclusion'] = conclusion
+        next(job for job in failed['jobs'] if job['name'] == 'iOS Simulator app and formal runtime')['conclusion'] = conclusion
         older = candidate | {'id': 6}
         plan = select_validation_plan(commit, '8', [failed, older], lambda _: [])
-        assert not plan['jobs']['app']['execute']
+        assert not plan['jobs']['catalyst']['execute']
         if conclusion in ('failure', 'timed_out', 'action_required'):
-            assert plan['jobs']['ui']['execute']
+            assert plan['jobs']['app']['execute']
         else:
-            assert not plan['jobs']['ui']['execute'] and plan['jobs']['ui']['run'] == '6'
+            assert not plan['jobs']['app']['execute'] and plan['jobs']['app']['run'] == '6'
             failed['head_sha'] = 'c' * 40
             plan = select_validation_plan(commit, '8', [failed, older],
                 lambda source: ['BIT101-iOS/Feature.swift'] if source == failed['head_sha'] else [])
-            assert plan['jobs']['ui']['run'] == '6'
+            assert plan['jobs']['app']['run'] == '6'
             plan = select_validation_plan(commit, '8', [failed, older], lambda _: ['BIT101-iOS/Feature.swift'])
-            assert plan['jobs']['ui']['execute']
+            assert plan['jobs']['app']['execute']
             plan = select_validation_plan(commit, '8', [failed], lambda _: [])
-            assert plan['jobs']['ui']['execute']
+            assert plan['jobs']['app']['execute']
     absent = deepcopy(candidate)
-    absent['jobs'] = [job for job in absent['jobs'] if job['name'] != 'iOS Simulator ui (1)']
-    assert select_validation_plan(commit, '8', [absent, older], lambda _: [])['jobs']['ui']['run'] == '6'
+    absent['jobs'] = [job for job in absent['jobs'] if job['name'] != 'iOS Simulator app and formal runtime']
+    assert select_validation_plan(commit, '8', [absent, older], lambda _: [])['jobs']['app']['run'] == '6'
     missing = deepcopy(candidate)
     next(row for row in missing['artifacts'] if row['name'] == 'validation-ios-test-shards-app-0')['expired'] = True
     plan = select_validation_plan(commit, '8', [missing], lambda _: [])
-    assert plan['jobs']['app']['execute'] and not plan['jobs']['ui']['execute']
+    assert plan['jobs']['app']['execute'] and not plan['jobs']['catalyst']['execute']
     plan = select_validation_plan(commit, '8', [missing, candidate | {'id': 6}], lambda _: [])
     assert plan['jobs']['app']['run'] == '6'
     def unused():
@@ -126,7 +126,7 @@ def plan_self_test(subject) -> None:
             else: raise AssertionError('来源计划需要匹配当前运行与全部验证组。')
     for key, value in (('execute', 'false'), ('commit', 'invalid'), ('run', '0')):
         malformed = deepcopy(valid)
-        malformed['jobs']['ui'][key] = value
+        malformed['jobs']['app'][key] = value
         with patch.dict(os.environ, GITHUB_SHA=commit, GITHUB_RUN_ID='8', BIT101_CI_PLAN=json.dumps(malformed)):
             try: read_validation_plan()
             except ValueError: pass
@@ -158,14 +158,14 @@ def result_self_test(subject) -> None:
         assert selected(candidate | {'_result': result})['modules']['execute']
     for field in ('host', 'platform'):
         result = result_fixture(candidate)
-        result['groups']['ui']['environment'][field] = {'changed': True}
+        result['groups']['app']['environment'][field] = {'changed': True}
         plan = selected(candidate | {'_result': result})
-        assert plan['ui']['execute'] and not plan['app']['execute']
+        assert plan['app']['execute'] and not plan['catalyst']['execute']
     incomplete = deepcopy(candidate)
-    next(job for job in incomplete['jobs'] if job['name'] == 'iOS Simulator behavior and UI tests')['conclusion'] = 'failure'
-    incomplete['jobs'] = [job for job in incomplete['jobs'] if job['name'] != 'iOS Simulator behavior and UI tests'] + [
-        dict(name='iOS Simulator behavior and UI tests', conclusion='failure')]
-    assert selected(incomplete)['app']['execute'] and selected(incomplete)['ui']['execute']
+    next(job for job in incomplete['jobs'] if job['name'] == 'iOS Simulator behavior tests')['conclusion'] = 'failure'
+    incomplete['jobs'] = [job for job in incomplete['jobs'] if job['name'] != 'iOS Simulator behavior tests'] + [
+        dict(name='iOS Simulator behavior tests', conclusion='failure')]
+    assert selected(incomplete)['app']['execute']
     from contextlib import redirect_stdout
     from io import StringIO
     plan = subject.select_validation_plan('a' * 40, '8', [candidate], lambda _: [])
@@ -206,7 +206,7 @@ def export_self_test(subject) -> None:
                 patch('validation_evidence.group_complete', return_value=True), patch.dict(os.environ, GITHUB_RUN_ID='8'):
             subject.export_validation_result(group)
             result = json.loads(saved.call_args.args[0])
-            assert set(result['groups']) == ({'app', 'ui'} if group == 'ios' else {group})
+            assert set(result['groups']) == ({'app'} if group == 'ios' else {group})
             assert result['commit'] == 'a' * 40 and result['run'] == '8'
             with patch('validation_evidence.group_complete', return_value=False):
                 try: subject.export_validation_result(group)
@@ -261,7 +261,22 @@ def wiring_self_test(subject) -> None:
     assert any('清理任务' in message for message in ci_wiring_findings(detached))
     workflow = json.loads(subprocess.check_output(['ruby', '-ryaml', '-rjson', '-e',
         'puts JSON.generate(YAML.safe_load(STDIN.read, aliases: true))'], input=source.replace('\non:', '\n"on":'), text=True))
-    for name in ('catalyst-tests', 'ios-ui-build', 'ios-test-shards', 'ios-app-tests', 'physical-device'):
+    for command in ('Scripts/run-extended-tests.sh ui', 'Scripts/run-extended-tests.sh verify all ui',
+            'Scripts/run-extended-tests.sh verify', 'Scripts/run-extended-tests.sh verify --self-test',
+            'Scripts/run-extended-tests.sh simulator ui', 'Scripts/run-extended-tests.sh simulator verify',
+            'Scripts/run-extended-tests.sh simulator build-ui',
+            'xcodebuild test -scheme BIT101-iOS-UIAutomation',
+            'xcodebuild test -only-testing:BIT101-iOSUITests'):
+        changed = deepcopy(workflow)
+        changed['jobs']['extra-validation'] = {'if': False, 'runs-on': 'xcode-27', 'steps': [{'run': command}]}
+        assert any('禁止执行 UITest' in message for message in ci_wiring_findings(json.dumps(changed))), command
+        assert any('禁止执行 UITest' in message for message in ci_wiring_findings(
+            json.dumps({'jobs': {'extra-validation': changed['jobs']['extra-validation']}}), ui_only=True)), command
+    changed = deepcopy(workflow)
+    changed['jobs']['extra-validation'] = {'strategy': {'matrix': {'mode': ['ui']}},
+        'steps': [{'run': 'Scripts/run-extended-tests.sh simulator "${{ matrix.mode }}"'}]}
+    assert any('禁止执行 UITest' in message for message in ci_wiring_findings(json.dumps(changed)))
+    for name in ('catalyst-tests', 'ios-app-tests'):
         changed = deepcopy(workflow)
         for step in changed['jobs'][name]['steps']:
             settings = step.get('env', {})

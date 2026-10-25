@@ -31,7 +31,7 @@ BUILD_HOSTS = {"release", "release-runtime", "ui", "network-smoke", "icloud-smok
 VERIFY_GROUPS = ("modules", "all", "release-runtime", "catalyst", "catalyst-release-runtime", "ui", "network", "community-writes", "ddl", "icloud", "build-archive", "audit")
 DEFAULT_VERIFY_GROUPS = tuple(group for group in VERIFY_GROUPS if group != "ddl")
 REVIEW_JOB_NAMES = {'Static audit (Apple toolchain)', 'Release app and extension builds',
-    'Mac Catalyst behavior tests', 'iOS Simulator behavior and UI tests'}
+    'Mac Catalyst behavior tests', 'iOS Simulator behavior tests'}
 
 
 def workflow_timeout_seconds(groups: tuple[str, ...]) -> int:

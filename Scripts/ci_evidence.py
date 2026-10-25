@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 REPORT = ROOT / '.build/extended-automation/validation-evidence.json'
 ARTIFACT = 'validation-evidence'
 REQUIRED_JOBS = {'validation-plan', 'static-audit', 'release-build', 'catalyst-tests', 'ios-tests'}
-CACHE_FLAVORS = {'release-build', 'catalyst-tests', 'simulator-app', 'simulator-ui'}
+CACHE_FLAVORS = {'release-build', 'catalyst-tests', 'simulator-app'}
 CACHE_ROOT = ROOT / '.build/compiler-cache'
 CACHE_STORE = 'CompilationCache.noindex'
 CACHE_METADATA = 'compilation-cache.json'
@@ -32,7 +32,7 @@ def ci_validation_environment(group: str) -> dict:
     from validation_environment import environment_context, toolchain_identity
     context = environment_context('modules' if group == 'modules' else 'build-release')
     identity = dict(host=context['host'], toolchain=toolchain_identity(context))
-    if group in {'app', 'ui'}:
+    if group == 'app':
         data = json.loads(subprocess.check_output(['xcrun', 'simctl', 'list', 'runtimes', '--json'], text=True))
         identity['runtimes'] = [{'systemVersion': row['version'], 'systemBuild': row['buildversion']}
             for row in data['runtimes'] if row.get('isAvailable') and '.iOS-' in row['identifier']]
@@ -44,7 +44,7 @@ def result_environment_matches(group: str, environment: dict) -> bool:
     runtimes = current.pop('runtimes', [])
     recorded = dict(environment)
     platform = recorded.pop('platform', None)
-    return recorded == current and (platform in runtimes if group in {'app', 'ui'} else platform is None)
+    return recorded == current and (platform in runtimes if group == 'app' else platform is None)
 
 
 def validation_result(candidate: dict, group: str) -> dict | None:
@@ -286,7 +286,7 @@ def restore_remote_cache(flavor: str) -> None:
 
 def cache_result_matches(repo: str, run: dict, flavor: str) -> bool:
     from validation_inputs import CI_RESULT_ARTIFACTS
-    group = {'release-build': 'release', 'catalyst-tests': 'catalyst', 'simulator-app': 'app', 'simulator-ui': 'ui'}[flavor]
+    group = {'release-build': 'release', 'catalyst-tests': 'catalyst', 'simulator-app': 'app'}[flavor]
     artifact_name = CI_RESULT_ARTIFACTS[group]
     artifact = next((row for page in api_pages(f'repos/{repo}/actions/runs/{run["id"]}/artifacts')
         for row in page['artifacts'] if row['name'] == artifact_name and not row.get('expired')), None)
@@ -458,18 +458,18 @@ def cache_self_test() -> None:
         with patch.object(Path, 'mkdir'), patch.object(Path, 'open'), patch.object(Path, 'exists', return_value=False), \
                 patch('fcntl.flock'), patch.object(module, 'native_cache_available', return_value=False), patch.object(module, 'restore_remote_cache', side_effect=failure) as restore, \
                 redirect_stdout(io.StringIO()) as output:
-            restore_cache('simulator-ui')
-            restore.assert_called_once_with('simulator-ui')
+            restore_cache('simulator-app')
+            restore.assert_called_once_with('simulator-app')
             assert '沿当前源码重新编译' in output.getvalue()
     with patch.object(Path, 'mkdir'), patch.object(Path, 'open'), patch.object(Path, 'exists', return_value=True), \
             patch('fcntl.flock'), patch.object(module, 'native_cache_available', return_value=True), patch.object(module, 'restore_remote_cache') as restore, redirect_stdout(io.StringIO()):
-        restore_cache('simulator-ui')
+        restore_cache('simulator-app')
         restore.assert_not_called()
     identity = {'toolchain': 'compiler', 'architecture': 'arm64'}
     def payload(name=CACHE_STORE + '/data', *, context=identity, link=False, tools=False):
         buffer = io.BytesIO()
         with zipfile.ZipFile(buffer, 'w', compression=zipfile.ZIP_STORED) as archive:
-            archive.writestr(CACHE_METADATA, json.dumps(dict(identity=context, flavor='simulator-ui')))
+            archive.writestr(CACHE_METADATA, json.dumps(dict(identity=context, flavor='simulator-app')))
             entry = zipfile.ZipInfo(name)
             if link: entry.external_attr = 0o120777 << 16
             archive.writestr(entry, b'compiled')
@@ -481,29 +481,29 @@ def cache_self_test() -> None:
     with patch.object(module, 'cache_identity', return_value=identity), patch.object(Path, 'mkdir'), \
             patch.object(Path, 'open'), patch.object(Path, 'chmod') as permissions, \
             patch.object(shutil, 'copyfileobj', side_effect=lambda source, target: transferred.append(source.read())) as copied:
-        assert restore_cache_payload(payload(), 'simulator-ui')
+        assert restore_cache_payload(payload(), 'simulator-app')
         assert transferred == [b'compiled']
-        assert restore_cache_payload(payload(tools=True), 'simulator-ui')
+        assert restore_cache_payload(payload(tools=True), 'simulator-app')
         assert transferred[1:] == [b'compiled', *(name.encode() for name in sorted(CACHE_TOOLS))]
         permissions.assert_called_once_with(0o755)
         copied.reset_mock()
-        assert not restore_cache_payload(payload(context={}), 'simulator-ui')
-        assert not restore_cache_payload(payload(), 'simulator-app')
+        assert not restore_cache_payload(payload(context={}), 'simulator-app')
+        assert not restore_cache_payload(payload(), 'catalyst-tests')
         copied.assert_not_called()
     with patch.object(module, 'cache_identity', return_value=identity), patch.object(Path, 'is_dir', return_value=True), \
             patch.object(Path, 'write_text') as saved, redirect_stdout(io.StringIO()):
-        export_cache('simulator-ui')
-        assert json.loads(saved.call_args.args[0]) == dict(identity=identity, flavor='simulator-ui')
+        export_cache('simulator-app')
+        assert json.loads(saved.call_args.args[0]) == dict(identity=identity, flavor='simulator-app')
         for name, link in [('../escape', False), ('/escape', False), (CACHE_STORE + '/../escape', False),
                            (CACHE_STORE, False), (CACHE_STORE + '/link', True),
                            ('swift-syntax-indexer', False), ('swift-syntax-indexer/escape', False)]:
-            try: restore_cache_payload(payload(name, link=link), 'simulator-ui')
+            try: restore_cache_payload(payload(name, link=link), 'simulator-app')
             except ValueError: pass
             else: raise AssertionError(name)
         copied.assert_not_called()
     trusted = dict(event='push', head_branch='main', head_repository={'full_name': 'owner/repo'},
         path='.github/workflows/ci.yml', head_sha='a' * 40, id=1)
-    artifact = dict(id=1, name='compilation-cache-simulator-ui', expired=False, workflow_run={'id': 1})
+    artifact = dict(id=1, name='compilation-cache-simulator-app', expired=False, workflow_run={'id': 1})
     for change, ancestor, accepted in [({}, 0, True), ({'event': 'workflow_dispatch'}, 0, True), ({'event': 'pull_request'}, 0, False),
             ({'head_branch': 'feature'}, 0, False), ({'head_repository': None}, 0, False), ({'head_repository': {'full_name': 'fork/repo'}}, 0, False),
             ({'path': 'other.yml'}, 0, False), ({'head_sha': 'invalid'}, 0, False), ({}, 1, False)]:
@@ -517,7 +517,7 @@ def cache_self_test() -> None:
                 patch.object(module, 'cache_result_matches', return_value=True), \
                 patch.object(subprocess, 'run', return_value=SimpleNamespace(returncode=ancestor)), \
                 patch.object(module, 'restore_cache_payload', return_value=True) as restored, redirect_stdout(io.StringIO()):
-            restore_cache('simulator-ui')
+            restore_cache('simulator-app')
             assert restored.called == downloaded.called == accepted, (change, ancestor)
     with patch.object(module, 'repository', return_value='owner/repo'), \
             patch.object(module, 'api_pages', return_value=[{'artifacts': [artifact, dict(artifact, id=2)]}]), \
@@ -526,28 +526,28 @@ def cache_self_test() -> None:
             patch.object(module, 'download_cache_payload') as downloaded, patch.object(Path, 'unlink') as cleanup, \
             patch.object(module, 'cache_result_matches', side_effect=[False, True]), \
             patch.object(module, 'restore_cache_payload', return_value=True) as restored, redirect_stdout(io.StringIO()):
-        restore_remote_cache('simulator-ui')
+        restore_remote_cache('simulator-app')
         assert [call.args[1] for call in downloaded.call_args_list] == [1]
         assert restored.call_count == cleanup.call_count == 1
     result = {'schemaVersion': 1, 'commit': trusted['head_sha'], 'run': '1',
-        'groups': {'ui': {'passed': True, 'environment': {'toolchain': identity['toolchain'], 'host': {'architecture': identity['architecture']}}}}}
+        'groups': {'app': {'passed': True, 'environment': {'toolchain': identity['toolchain'], 'host': {'architecture': identity['architecture']}}}}}
     for fault in ('none', 'toolchain', 'architecture', 'commit', 'run', 'failed', 'missing'):
         import copy
         changed = copy.deepcopy(result)
         if fault in {'toolchain', 'architecture'}:
-            environment = changed['groups']['ui']['environment']
+            environment = changed['groups']['app']['environment']
             if fault == 'toolchain': environment['toolchain'] = {}
             else: environment['host']['architecture'] = 'other'
         elif fault in {'commit', 'run'}: changed[fault] = 'other'
-        elif fault == 'failed': changed['groups']['ui']['passed'] = False
+        elif fault == 'failed': changed['groups']['app']['passed'] = False
         with patch.object(module, 'api_pages', return_value=[{'artifacts': [{'id': 2, 'name': 'verified-result-ios', 'expired': False}]}]), \
                 patch.object(module, 'read_validation_result', return_value=None if fault == 'missing' else changed), \
                 patch.object(module, 'cache_identity', return_value=identity):
-            assert cache_result_matches('owner/repo', trusted, 'simulator-ui') == (fault == 'none'), fault
+            assert cache_result_matches('owner/repo', trusted, 'simulator-app') == (fault == 'none'), fault
     artifacts = [dict(id=index, name=name, expired=False, workflow_run={'id': 1}) for index, name in [
-        (1, 'compilation-cache-simulator-ui'), (2, 'validation-evidence'), (3, 'compilation-cache-simulator-ui'),
-        (4, 'compilation-cache-simulator-app')]]
-    artifacts.append(dict(id=5, name='compilation-cache-simulator-ui', expired=False, workflow_run={'id': 2}))
+        (1, 'compilation-cache-simulator-app'), (2, 'validation-evidence'), (3, 'compilation-cache-simulator-app'),
+        (4, 'compilation-cache-catalyst-tests')]]
+    artifacts.append(dict(id=5, name='compilation-cache-simulator-app', expired=False, workflow_run={'id': 2}))
     artifacts.append(dict(id=6, name='compilation-cache-unused', expired=False, workflow_run={'id': 1}))
     artifacts.extend(dict(id=index, name='ui-test-host', expired=False, workflow_run={'id': run}) for index, run in ((7, 1), (8, 2)))
     def producer(command, **kwargs):
@@ -892,8 +892,8 @@ def _self_test() -> None:
         (['export-result', 'modules'], 'export_validation_result', (('modules',), {})),
         (['simulator-merge'], 'merge_simulator_ci', ((), {})),
         (['import-baseline', '7'], 'import_baseline', ((7,), {})),
-        (['cache-restore', 'simulator-ui'], 'restore_cache', (('simulator-ui',), {})),
-        (['cache-export', 'simulator-ui'], 'export_cache', (('simulator-ui',), {})),
+        (['cache-restore', 'simulator-app'], 'restore_cache', (('simulator-app',), {})),
+        (['cache-export', 'simulator-app'], 'export_cache', (('simulator-app',), {})),
         (['cache-prune'], 'prune_caches', ((), {})),
         (['plan'], 'validation_plan', ((), {})),
         (['reuse', 'ui'], 'reuse_validation', (('ui',), {})),
