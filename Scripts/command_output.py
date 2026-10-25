@@ -14,14 +14,29 @@ from collections import deque
 OUTPUT_LINE_LIMIT = 40
 
 
+def character_limit() -> int:
+    return OUTPUT_LINE_LIMIT * shutil.get_terminal_size().columns
+
+
+def bounded_text(value: str, limit: int) -> tuple[str, bool]:
+    if len(value) <= limit: return value, False
+    head = (limit - 1) // 2
+    tail = limit - head - 1
+    return value[:head] + '…' + (value[-tail:] if tail else ''), True
+
+
 class BoundedLines:
     """Keep the initial diagnostics and the latest causes within one display budget."""
     def __init__(self, limit: int):
         self.head = []
         self.tail = deque(maxlen=limit - limit // 2)
         self.head_limit = limit // 2
+        self.character_limit = character_limit()
+        self.truncated = False
 
     def add(self, line: str) -> bool:
+        line, truncated = bounded_text(line, self.character_limit)
+        self.truncated |= truncated
         if line in self.head or line in self.tail: return False
         if len(self.head) < self.head_limit: self.head.append(line)
         else: self.tail.append(line)
@@ -62,19 +77,27 @@ class FailureSummary:
     def lines(self):
         return list(dict.fromkeys([*self.errors.lines(), *self.details.lines()]))[:self.limit]
 
+    @property
+    def truncated(self):
+        return self.errors.truncated or self.details.truncated
+
 
 def show_report_lines(lines, path: Path, label: str) -> None:
     """Show report excerpts within the shared terminal budget and retain its path."""
     first, last = [], deque(maxlen=OUTPUT_LINE_LIMIT - OUTPUT_LINE_LIMIT // 2)
     count = 0
+    limit, truncated = character_limit(), False
     for line in lines:
         count += 1
+        line, clipped = bounded_text(line, limit)
+        truncated |= clipped
         if len(first) < OUTPUT_LINE_LIMIT // 2: first.append(line)
         else: last.append(line)
     shown = [*first, *last]
-    sys.stdout.writelines(shown)
-    if shown and not shown[-1].endswith('\n'): print()
-    if count > OUTPUT_LINE_LIMIT: print(f'[输出] {label} 共 {count} 行 · {path}')
+    rendered, clipped = bounded_text(''.join(shown), limit)
+    sys.stdout.write(rendered)
+    if rendered and not rendered.endswith('\n'): print()
+    if count > OUTPUT_LINE_LIMIT or truncated or clipped: print(f'[输出] {label} 共 {count} 行 · {path}')
 
 
 def show_report(path: Path, label: str) -> None:
@@ -90,8 +113,11 @@ def show_log(path: Path, failed: bool) -> None:
             count += 1
             if failed: summary.add(line)
             else: ordinary.add(line)
-    sys.stdout.writelines(summary.lines() if failed else ordinary.lines())
-    if count > OUTPUT_LINE_LIMIT: print(f'[输出] {path.stem} 共 {count} 行 · {path}')
+    selected = summary if failed else ordinary
+    rendered, clipped = bounded_text(''.join(selected.lines()), character_limit())
+    sys.stdout.write(rendered)
+    if rendered and not rendered.endswith('\n'): print()
+    if count > OUTPUT_LINE_LIMIT or selected.truncated or clipped: print(f'[输出] {path.stem} 共 {count} 行 · {path}')
 
 
 def run_command(arguments: list[str]) -> int:
@@ -106,6 +132,7 @@ def run_command(arguments: list[str]) -> int:
     failures = FailureSummary(display_limit)
     diagnostic_count = 0
     streamed = set()
+    streamed_characters = 0
     summary_count = summary_tests = 0
     summary = ""
     temporary_results = set()
@@ -128,11 +155,13 @@ def run_command(arguments: list[str]) -> int:
                     continue
                 elif diagnostics.add(line):
                     diagnostic_count += 1
-                    if len(streamed) < display_limit // 2:
+                    if len(streamed) < display_limit // 2 and streamed_characters + len(line) <= diagnostics.character_limit // 2:
                         print(line, end='', flush=True)
                         streamed.add(line)
+                        streamed_characters += len(line)
             if "Test run with" in line:
-                summary = line.strip()
+                summary, clipped = bounded_text(line.strip(), diagnostics.character_limit)
+                diagnostics.truncated |= clipped
                 summary_count += 1
                 summary_tests += int(re.search(r"Test run with (\d+) tests?", line)[1])
     exit_code = process.wait()
@@ -147,8 +176,11 @@ def run_command(arguments: list[str]) -> int:
             shutil.rmtree(path, ignore_errors=True)
     output = failures.lines() if exit_code else diagnostics.lines()
     output_count = failures.count if exit_code else diagnostic_count
-    sys.stdout.writelines([line for line in output if line not in streamed][:display_limit - len(streamed)])
-    if output_count > display_limit:
+    pending_lines = [line for line in output if line not in streamed][:display_limit - len(streamed)]
+    rendered, clipped = bounded_text(''.join(pending_lines), diagnostics.character_limit - streamed_characters)
+    sys.stdout.write(rendered)
+    if rendered and not rendered.endswith('\n'): print()
+    if output_count > display_limit or clipped or (failures if exit_code else diagnostics).truncated:
         print(f"[输出] {label} 共 {output_count} 行诊断 · {report_path}")
     if not exit_code and summary_count:
         if summary_count == 1:

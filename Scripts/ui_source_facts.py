@@ -77,15 +77,6 @@ def mask_literals_and_comments(source: str) -> str:
     return swift_code(source)
 
 
-def is_view_source(path: Path, code: str) -> bool:
-    if path.name.endswith(("View.swift", "Views.swift", "Screen.swift", "Screens.swift")):
-        return True
-    return re.search(
-        r"\b(?:struct|class|enum)\s+[A-Za-z_][A-Za-z0-9_]*\s*:[^{\n]*\bView\b",
-        code,
-    ) is not None
-
-
 @cache
 def swift_files() -> list[Path]:
     from swift_source_index import repository_swift_files

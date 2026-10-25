@@ -316,6 +316,10 @@ blocked_task() { python3 -c 'import os, time; print(os.getpid(), os.getpgrp(), f
     shutil.rmtree(fixture)
     return findings
 def script_command_boundary_findings() -> list[str]:
+    for name in ('run-extended-tests.sh', 'run_icloud_cross_device_smoke.sh'):
+        result = subprocess.run(['/bin/zsh', str(SCRIPT_ROOT / name), '--help'], capture_output=True, text=True,
+            env=dict(os.environ, PATH='/usr/bin:/bin'))
+        assert result.returncode == 0 and result.stdout and not result.stderr, (name, result.stderr)
     from test_results import module_filter
     selected = StringIO()
     with redirect_stdout(selected): module_filter(['Suite', 'Other/name()'])
@@ -570,7 +574,6 @@ xcrun() {
             env=dict(os.environ, BIT101_NETWORK_SMOKE_TERM=term, BIT101_NETWORK_SMOKE_FIXTURES=json.dumps(valid_fixture), BIT101_COMMUNITY_SMOKE_ACCOUNT='1'))
         if result.returncode or result.stdout.splitlines()[-1:] != [expected]:
             findings.append('网络学期自测：覆盖学期采样沿定向范围登记')
-    export_source = export_source[:export_source.index('if [[ "${1:-}" == -h')]
     export_source = export_source.replace('  python3 "$ROOT_DIR/Scripts/test_results.py" report',
         '  exit 86\n  python3 "$ROOT_DIR/Scripts/test_results.py" report')
     for arguments, locked in ((["report", "json"], False), (["diagnostics"], True), (["activities", "test"], False),

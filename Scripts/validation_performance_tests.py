@@ -125,16 +125,23 @@ def committed_source_identity_self_test() -> None:
     import validation_provenance as provenance
     commit = b'a' * 40
     history = b'commit:' + b'b' * 40 + b'\0\nREADME.md\0\0commit:' + commit + b'\0\nModules/Feature/Sources/Removed.swift\0'
-    with patch.object(provenance.subprocess, 'check_output', side_effect=[b'', b'', history, b'']) as git:
+    provenance._input_history.cache_clear()
+    with patch.object(provenance.subprocess, 'check_output', side_effect=[b'', b'', commit, history, b'']) as git:
         identity = provenance._clean_source_identity('manual-device', {'compiler': 'fixture'})
         assert identity.startswith('git.' + commit.decode() + '.')
         assert git.call_args_list[-2].args[0] == ['git', 'log', '--first-parent', '--diff-merges=first-parent', '--no-renames',
-            '--format=commit:%H', '--name-only', '-z', 'HEAD']
+            '--format=commit:%H', '--name-only', '-z', commit.decode()]
     for tracked, untracked in ((b'Modules/Feature/Sources/File.swift\0', b''), (b'', b'Modules/Feature/Sources/File.swift\0')):
         with patch.object(provenance.subprocess, 'check_output', side_effect=[tracked, untracked]):
             assert provenance._clean_source_identity('manual-device', {}) is None
-    with patch.object(provenance.subprocess, 'check_output', side_effect=[b'README.md\0', b'', history, b'']):
+    provenance._input_history.cache_clear()
+    with patch.object(provenance.subprocess, 'check_output', side_effect=[b'README.md\0', b'', commit, history, b'']):
         assert provenance._clean_source_identity('manual-device', {}).startswith('git.' + commit.decode() + '.')
+    provenance._input_history.cache_clear()
+    with patch.object(provenance.subprocess, 'check_output', return_value=history) as git:
+        assert provenance._input_history(Path('/fixture'), commit.decode(), ()) == provenance._input_history(Path('/fixture'), commit.decode(), ())
+        assert git.call_count == 1
+    provenance._input_history.cache_clear()
 
 
 def merged_source_identity_self_test() -> None:

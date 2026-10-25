@@ -120,7 +120,11 @@ def run_cache(arguments: list[str]) -> None:
                                 for symbols in parent.rglob("*.dSYM"):
                                     bundled = any(path.suffix in (".app", ".appex", ".framework", ".xctest")
                                                   for path in symbols.relative_to(parent).parents)
-                                    if symbols.is_dir() and not bundled:
+                                    product_name = symbols.name.removesuffix('.dSYM')
+                                    has_product = (symbols.parent / product_name).exists() or any(
+                                        (app / nested / product_name).exists()
+                                        for app in symbols.parent.glob('*.app') for nested in ('PlugIns', 'Frameworks'))
+                                    if symbols.is_dir() and not bundled and not has_product:
                                         shutil.rmtree(symbols)
                 for diagnostic in (derived / 'Logs/Test').glob('*'):
                     if diagnostic.name == 'test-results.xcresult': continue

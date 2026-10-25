@@ -593,7 +593,7 @@ def foundation_collection_self_test(service_boundary_errors) -> None:
                 f'_ = {kind}(contentsOf: url)', f'_ = Foundation.{kind}.init(contentsOfFile: file)',
                 f'_ = Foundation.{kind}.self.init(contentsOf: url)',
                 'let value = Collection(contentsOf: url)', f'let value: {kind}? = .init(contentsOf: url)',
-                f'_ = value.write(to: url)', f'_ = value.write(toFile: file, atomically: true)',
+                '_ = value.write(to: url)', '_ = value.write(toFile: file, atomically: true)',
                 'let write = value.write(to:atomically:)',
                 f'let read: (URL) -> {kind}? = {kind}.init(contentsOf:)'):
             source = (f'import Foundation; typealias Collection = Foundation.{kind}; public struct Store {{ '
@@ -610,12 +610,12 @@ def foundation_collection_self_test(service_boundary_errors) -> None:
                 assert bool(business_methods(swift_syntax_index_sources({reader_path: source}))) == expected, (kind, body, guard)
         for body in (f'_ = {kind}(contentsOfFile: file)',
                 f'let read: (URL) -> {kind}? = {kind}.init(contentsOf:)',
-                f'_ = value.write(to: url)'):
-            source = (f'import Foundation; public struct LocalAppFileService {{ public func fetch(_ url: URL, '
+                '_ = value.write(to: url)'):
+            source = ('import Foundation; public struct LocalAppFileService { public func fetch(_ url: URL, '
                 + f'file: String, value: {kind}) {{ {body} }} }}')
             assert business_methods(swift_syntax_index_sources({reader_path: source})) == {}, (kind, body)
         for calls, expected in (('read(url)', False), ('read(other)', True), ('read(url); read(other)', True)):
-            source = (f'import Foundation; public struct LocalAppFileService {{ public func fetch(_ url: URL, other: URL) {{ '
+            source = ('import Foundation; public struct LocalAppFileService { public func fetch(_ url: URL, other: URL) { '
                 + f'let read: (URL) -> {kind}? = {kind}.init(contentsOf:); guard url.isFileURL else {{ return }}; {calls} }} }}')
             assert bool(business_methods(swift_syntax_index_sources({reader_path: source}))) == expected, (kind, calls)
         source = (f'struct {kind} {{ init(contentsOf url: URL) {{}}; func write(to url: URL) {{}} }}; '

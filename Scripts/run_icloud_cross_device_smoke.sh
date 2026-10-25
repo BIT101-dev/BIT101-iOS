@@ -3,6 +3,18 @@ if [[ -z "${ZSH_EXECUTION_STRING:-}" ]]; then
   exec zsh -c "$(<"$0")" "$0" "$@"
 fi
 set -euo pipefail
+if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
+  echo "Scripts/run_icloud_cross_device_smoke.sh          自动选机、验证 iPhone 与 Mac 双向同步"
+  echo "Scripts/run_icloud_cross_device_smoke.sh report   读取报告"
+  echo "Scripts/run_icloud_cross_device_smoke.sh cleanup  清理测试状态"
+  exit 0
+fi
+
+[[ $# -le 1 ]] || { echo "操作：report、cleanup；直接运行双向同步验证。" >&2; exit 64; }
+case "${1:-}" in
+  report|cleanup|"") ;;
+  *) echo "操作：report、cleanup；直接运行双向同步验证。" >&2; exit 64 ;;
+esac
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT_DIR/Scripts/script-support.sh"
@@ -15,12 +27,7 @@ SUMMARY_PATH="$DERIVED_ROOT/report.json"
 RUN_ID="$(uuidgen)"
 export TEST_RUNNER_BIT101_ICLOUD_SMOKE_RUN_ID="$RUN_ID"
 
-if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
-  echo "Scripts/run_icloud_cross_device_smoke.sh          自动选机、验证 iPhone 与 Mac 双向同步"
-  echo "Scripts/run_icloud_cross_device_smoke.sh report   读取报告"
-  echo "Scripts/run_icloud_cross_device_smoke.sh cleanup  清理测试状态"
-  exit 0
-fi
+
 
 report_result() {
   python3 - "$1" <<'PYREPORT'
@@ -53,11 +60,7 @@ for row in rows:
 PYREPORT
 }
 
-[[ $# -le 1 ]] || { echo "操作：report、cleanup；直接运行双向同步验证。" >&2; exit 64; }
-case "${1:-}" in
-  report|cleanup|"") ;;
-  *) echo "操作：report、cleanup；直接运行双向同步验证。" >&2; exit 64 ;;
-esac
+
 if [[ "${1:-}" == report ]]; then
   report_result "$SUMMARY_PATH"
   exit $?

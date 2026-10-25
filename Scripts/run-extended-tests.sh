@@ -3,6 +3,24 @@ if [[ -z "${ZSH_EXECUTION_STRING:-}" ]]; then
   exec zsh -c "$(<"$0")" "$0" "$@"
 fi
 set -euo pipefail
+if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
+  echo "Scripts/run-extended-tests.sh                    自动选机、运行完整行为测试"
+  echo "Scripts/run-extended-tests.sh modules            本机模块测试"
+  echo "Scripts/run-extended-tests.sh simulator info|prepare|build-ui|restore|inspect|app|release-runtime|ui|merge [用例]  授权后的模拟器验收及 CI 分片汇总"
+  echo "Scripts/run-extended-tests.sh release-runtime    正式编译条件下的真机组装合同"
+  echo "Scripts/run-extended-tests.sh catalyst-release-runtime  正式编译条件下的 Catalyst 组装合同"
+  echo "Scripts/run-extended-tests.sh ui [用例关键词]...  真机 UI 测试，多个筛选合并执行"
+  echo "Scripts/run-extended-tests.sh build [宿主]        编译测试宿主，默认 release"
+  echo "Scripts/run-extended-tests.sh report [json|coverage] 读取测试结果、用例树或覆盖率"
+  echo "Scripts/run-extended-tests.sh cache               整理共享构建缓存"
+  echo "分组：release-runtime、catalyst-release-runtime、schedule、infrastructure、login、extensions、catalyst；组后可直接填写测试类/方法。"
+  echo "宿主：release、release-runtime、ui、network-smoke、icloud-smoke、modules、catalyst、catalyst-release-runtime。"
+  echo "专项：verify [--sms] [--self-test] [分组]... 聚合已授权专项；默认含真机、线上社区写入、iCloud 往返和归档。"
+  echo "日常定向回归示例：verify audit modules；专项可单独执行 verify network、verify community-writes、verify icloud。"
+  echo "诊断：diagnostics；report|screenshot|activities 测试类/方法。"
+  echo "附件：activities '测试类/方法()' [json]；screenshot '测试类/方法()' [附件标识]。"
+  exit 0
+fi
 WORKFLOW_STARTED_SECONDS=$SECONDS
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -39,24 +57,7 @@ if [[ "${1:-}" == report || "${1:-}" == screenshot || "${1:-}" == activities || 
   python3 "$ROOT_DIR/Scripts/test_results.py" report "$DERIVED_ROOT/test-results.xcresult" "${2:-}" "$1" "$ROOT_DIR/Scripts" "${3:-}"
   exit 0
 fi
-if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
-  echo "Scripts/run-extended-tests.sh                    自动选机、运行完整行为测试"
-  echo "Scripts/run-extended-tests.sh modules            本机模块测试"
-  echo "Scripts/run-extended-tests.sh simulator info|prepare|build-ui|restore|inspect|app|release-runtime|ui|merge [用例]  授权后的模拟器验收及 CI 分片汇总"
-  echo "Scripts/run-extended-tests.sh release-runtime    正式编译条件下的真机组装合同"
-  echo "Scripts/run-extended-tests.sh catalyst-release-runtime  正式编译条件下的 Catalyst 组装合同"
-  echo "Scripts/run-extended-tests.sh ui [用例关键词]...  真机 UI 测试，多个筛选合并执行"
-  echo "Scripts/run-extended-tests.sh build [宿主]        编译测试宿主，默认 release"
-  echo "Scripts/run-extended-tests.sh report [json|coverage] 读取测试结果、用例树或覆盖率"
-  echo "Scripts/run-extended-tests.sh cache               整理共享构建缓存"
-  echo "分组：release-runtime、catalyst-release-runtime、schedule、infrastructure、login、extensions、catalyst；组后可直接填写测试类/方法。"
-  echo "宿主：release、release-runtime、ui、network-smoke、icloud-smoke、modules、catalyst、catalyst-release-runtime。"
-  echo "专项：verify [--sms] [--self-test] [分组]... 聚合已授权专项；默认含真机、线上社区写入、iCloud 往返和归档。"
-  echo "日常定向回归示例：verify audit modules；专项可单独执行 verify network、verify community-writes、verify icloud。"
-  echo "诊断：diagnostics；report|screenshot|activities 测试类/方法。"
-  echo "附件：activities '测试类/方法()' [json]；screenshot '测试类/方法()' [附件标识]。"
-  exit 0
-fi
+
 SCRIPT_PATH="$0"
 SCRIPT_ARGS=("$@")
 acquire_test_lock() {

@@ -600,6 +600,12 @@ def build_cache_boundary_findings() -> list[str]:
         symbols = products / "Release-iphoneos/product.dSYM"
         symbols.mkdir()
         (symbols / "debug-info").write_bytes(content)
+        orphan_symbols = products / 'Release-iphoneos/orphan.dSYM'
+        orphan_symbols.mkdir()
+        test_symbols = products / 'Release-iphoneos/tests.xctest.dSYM'
+        test_symbols.mkdir()
+        (test_symbols / 'debug-info').write_bytes(content)
+        (products / 'Release-iphoneos/Runner.app/PlugIns/tests.xctest').mkdir(parents=True)
         bundled_symbols = products / "Release-iphoneos/Runner.app/PlugIns/tests.xctest.dSYM/debug-info"
         bundled_symbols.parent.mkdir(parents=True)
         bundled_symbols.write_bytes(content)
@@ -635,8 +641,9 @@ def build_cache_boundary_findings() -> list[str]:
             findings.append("缓存自测：保留模拟器平台的隐式模块")
         if any((shared / name / f"{name}.pcm").read_bytes() != content for name in ("phone", "mac", "unreadable")):
             findings.append("缓存自测：保留真机、Mac 及平台归属待核对的模块")
-        if any(path.exists() for path in obsolete_paths) or obsolete_cloud_log.exists() or diagnostic_export.exists() or symbols.exists():
+        if any(path.exists() for path in obsolete_paths) or obsolete_cloud_log.exists() or diagnostic_export.exists() or orphan_symbols.exists():
             findings.append("缓存自测：清理诊断与冗余符号产物")
+        assert (symbols / 'debug-info').read_bytes() == content and (test_symbols / 'debug-info').read_bytes() == content
         assert (diagnostic_result / 'Info.plist').read_text() == 'retain failure diagnostics'
         if not (products / "Release-iphonesimulator").exists():
             findings.append("缓存自测：保留模拟器增量产物")

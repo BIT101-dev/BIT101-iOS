@@ -10,7 +10,7 @@ from pathlib import Path
 import subprocess
 import uuid
 import fcntl
-from functools import cache
+from functools import cache, lru_cache
 import threading
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -80,11 +80,17 @@ def _committed_worker_revision(folder: str, revision: str, inputs: tuple[tuple[s
     raise ValueError('Worker 源码需要可读取的 Git 提交身份。')
 
 
-def _last_input_commit(revision: str, includes, paths=()) -> str | None:
+@lru_cache()
+def _input_history(root: Path, revision: str, paths: tuple[str, ...]) -> tuple[str, ...]:
     history = subprocess.check_output(['git', 'log', '--first-parent', '--diff-merges=first-parent', '--no-renames',
-        '--format=commit:%H', '--name-only', '-z', revision, *(['--', *paths] if paths else [])], cwd=ROOT, stderr=subprocess.PIPE)
+        '--format=commit:%H', '--name-only', '-z', revision, *(['--', *paths] if paths else [])], cwd=root, stderr=subprocess.PIPE)
+    return tuple(history.decode().split('\0'))
+
+
+def _last_input_commit(revision: str, includes, paths=()) -> str | None:
+    revision = subprocess.check_output(['git', 'rev-parse', revision], cwd=ROOT, stderr=subprocess.PIPE).decode().strip()
     source_revision = None
-    for entry in history.decode().split('\0'):
+    for entry in _input_history(ROOT, revision, tuple(paths)):
         value = entry.lstrip('\n')
         if re.fullmatch(r'commit:(?:[0-9a-f]{40}|[0-9a-f]{64})', value): source_revision = value.removeprefix('commit:')
         elif value and includes(value):

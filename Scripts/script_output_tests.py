@@ -53,6 +53,17 @@ def log_output_boundary_findings() -> list[str]:
     output = StringIO()
     with redirect_stdout(output): show_report_lines(iter(['final']), Path('/report.json'), '报告')
     assert output.getvalue() == 'final\n'
+    from command_output import character_limit
+    large = 'error: 开始' + 'x' * 1_048_576 + '结束\n'
+    with redirect_stdout(output := StringIO()): show_report_lines(iter([large]), Path('/report.json'), '报告')
+    assert len(output.getvalue()) < character_limit() + 200
+    assert '开始' in output.getvalue() and '结束' in output.getvalue() and '/report.json' in output.getvalue()
+    for failed in (True, False):
+        with patch.object(Path, 'open', return_value=RetainedLog(large)), redirect_stdout(output := StringIO()):
+            show_log(Path('/fixture/compiler.log'), failed)
+        assert len(output.getvalue()) < character_limit() + 200 and '结束' in output.getvalue()
+    output, raw = captured_command([large])
+    assert raw == large and len(output) < character_limit() + 200 and '开始' in output and '结束' in output
     warning = "warning: 'CourseFeature' is missing a dependency on 'CommunityCore' because dependency scan of Swift module\n"
     output, raw = captured_command([warning], status=0, executable='xcodebuild')
     assert warning in raw and output.count('\n') == 1 and '[完成]' in output

@@ -266,7 +266,6 @@ def ui_host_paths(arguments: list[str]) -> None:
 
 def ui_test_plan(arguments: list[str]) -> None:
     cli_arguments = ["", *arguments]
-    import sys
     from pathlib import Path
 
     products = Path(cli_arguments[1])
@@ -281,7 +280,6 @@ def report_test_failures(arguments: list[str]) -> None:
     cli_arguments = ["", *arguments]
     import json
     import subprocess
-    import sys
 
     result = subprocess.run(
         ["xcrun", "xcresulttool", "get", "test-results", "summary", "--path", cli_arguments[1]],

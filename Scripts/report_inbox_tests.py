@@ -386,10 +386,10 @@ def community_recovery_self_test() -> list[str]:
     cleanup_environment = {"host": {"system": "fixture"}, "developer": "/fixture", "xcode": {"version": "fixture"},
         "compiler": {"modified": 1, "size": 100, "version": "a" * 64}, "sdks": {"fixture": {"Version": "1"}}, "device": {
         "identifier": "fixture-phone", "systemVersion": "fixture-os", "systemBuild": "fixture-build"}}
-    with patch(f"validation_evidence.source_digest", return_value="source"), patch(f"validation_evidence.network_inventory", return_value={"community.login"}), \
-            patch(f"validation_evidence.environment_context", return_value=cleanup_environment), \
+    with patch("validation_evidence.source_digest", return_value="source"), patch("validation_evidence.network_inventory", return_value={"community.login"}), \
+            patch("validation_evidence.environment_context", return_value=cleanup_environment), \
             patch.dict(os.environ, BIT101_VALIDATION_RUN_ID="fixture-run"), \
-            patch(f"validation_evidence.report_lock", side_effect=nullcontext), patch(f"validation_evidence.write_report") as saved, \
+            patch("validation_evidence.report_lock", side_effect=nullcontext), patch("validation_evidence.write_report") as saved, \
             patch.object(Path, "is_file", return_value=True), patch.object(Path, "read_text", side_effect=[json.dumps(cleanup), json.dumps(previous)]), \
             patch.object(subprocess, "check_output", return_value="head"), redirect_stderr(StringIO()):
         result = record("community-cleanup", 0, "full", "source")

@@ -1,6 +1,5 @@
 """Produce a public release receipt and a separate core CI exchange payload."""
 import json
-import re
 from pathlib import Path
 from validation_environment import environment_context, toolchain_identity, exchange_identity
 from validation_policy import RELEASE_GROUPS, CORE_GROUPS
