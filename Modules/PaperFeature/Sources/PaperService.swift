@@ -92,7 +92,7 @@ public struct PaperService {
             queryItems.append(URLQueryItem(name: "order", value: orderValue))
         }
         let papers: [PaperSummary] = try await api.request(path: "papers", queryItems: queryItems, authentication: .optional)
-        if page == 0 { details.invalidate() }
+        if page == 0 { details.invalidate(ids: Set(papers.map(\.id))) }
         return papers
     }
 

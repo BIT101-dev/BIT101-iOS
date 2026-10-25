@@ -255,9 +255,11 @@ public final class GalleryMessageReadStore: GalleryMessageReadStoring {
             let ids = includingUnread ? ids + (snapshot.latestIDsByType[type.rawValue] ?? []) : ids
             let seen = Set(snapshot.seenIDsByType[type.rawValue] ?? [])
             let floor = snapshot.retainedFromIDByType[type.rawValue] ?? Int.min
-            guard ids.contains(where: { $0 >= floor && !seen.contains($0) }) else { return nil }
+            let boundary = includingUnread ? max(floor, ids.max() ?? floor) : floor
+            guard boundary > floor || ids.contains(where: { $0 >= floor && !seen.contains($0) }) else { return nil }
             var result = snapshot
             result.seenIDsByType[type.rawValue] = Array(seen.union(ids))
+            if includingUnread { result.retainedFromIDByType[type.rawValue] = boundary }
             return result
         }
     }

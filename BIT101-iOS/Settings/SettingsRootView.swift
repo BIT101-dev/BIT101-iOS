@@ -640,50 +640,28 @@ struct DeveloperSuggestionPage: View {
         let drafts = imageDrafts.filter { $0.status.isCompressing }
         guard !drafts.isEmpty else { return }
 
-        let results = await compressImageDrafts(drafts)
-        guard !Task.isCancelled else { return }
-        applyCompressionResults(results, showsFailureAlert: false)
+        await compressImageDrafts(drafts, showsFailureAlert: false)
     }
 
     private func compressImageDrafts(
-        _ drafts: [ComposerImageDraft]
-    ) async -> [(ComposerImageDraft.ID, Data?)] {
-        var results: [(ComposerImageDraft.ID, Data?)] = []
-        var completedCount = 0
+        _ drafts: [ComposerImageDraft], showsFailureAlert: Bool
+    ) async {
+        var failed = false
         for draft in drafts {
             let data = try? await imagePreparer.prepare(draft.previewData)
-            guard !Task.isCancelled else { return results }
-            results.append((draft.id, data))
-            completedCount += 1
-            let progress = Int((Double(completedCount) / Double(drafts.count) * 100).rounded())
-            imageDrafts = imageDrafts.map { draft in
-                guard draft.status.isCompressing else { return draft }
-                var updated = draft
-                updated.progress = progress
+            guard !Task.isCancelled else { return }
+            if data == nil { failed = true }
+            imageDrafts = imageDrafts.map { current in
+                guard current.id == draft.id else { return current }
+                var updated = current
+                if let data {
+                    updated.previewData = data
+                    updated.uploadData = data
+                    updated.progress = 100
+                    updated.status = .prepared
+                } else { updated.status = .failed("图片无法处理") }
                 return updated
             }
-        }
-        return results
-    }
-
-    private func applyCompressionResults(
-        _ results: [(ComposerImageDraft.ID, Data?)],
-        showsFailureAlert: Bool
-    ) {
-        var failed = false
-        imageDrafts = imageDrafts.map { draft in
-            guard let result = results.first(where: { $0.0 == draft.id }) else { return draft }
-            guard let data = result.1 else {
-                failed = true
-                var failedDraft = draft
-                failedDraft.status = .failed("图片无法处理")
-                return failedDraft
-            }
-            var preparedDraft = draft
-            preparedDraft.previewData = data
-            preparedDraft.uploadData = data
-            preparedDraft.status = .prepared
-            return preparedDraft
         }
 
         if showsFailureAlert && failed {
@@ -748,9 +726,7 @@ struct DeveloperSuggestionPage: View {
         imageDrafts = imageDrafts.map { $0.id == id ? retryingDraft : $0 }
 
         startImageTask {
-            let results = await compressImageDrafts([retryingDraft])
-            guard !Task.isCancelled else { return }
-            applyCompressionResults(results, showsFailureAlert: true)
+            await compressImageDrafts([retryingDraft], showsFailureAlert: true)
         }
     }
 }

@@ -1,4 +1,5 @@
 import CommunityCore
+import BIT101TestSupport
 import CommunityTransport
 import Foundation
 import Testing
@@ -6,6 +7,37 @@ import Testing
 
 @MainActor
 struct PaperDetailRequestTests {
+    @Test(.timeLimit(.minutes(1))) func foregroundReadingStartsWhilePreviewsWaitForNetwork() async throws {
+        let store = PaperDetailRequestStore()
+        let gates = (0...4).map { _ in ListRequestGate<PaperDetail>() }
+        let (submissions, submitted) = AsyncStream<Void>.makeStream()
+        defer { submitted.finish() }
+        let previews = (1...4).map { id in
+            Task {
+                submitted.yield(())
+                return try await store.preview(id: id, credentials: credentials) { try await gates[id].request() }
+            }
+        }
+        defer { for preview in previews { preview.cancel() } }
+        var iterator = submissions.makeAsyncIterator()
+        for _ in previews { _ = await iterator.next() }
+        var started = false
+        let reading = Task {
+            try await store.detail(id: 5, credentials: credentials) {
+                started = true
+                return Self.detail(5)
+            }
+        }
+        defer { reading.cancel() }
+        try await waitForTestEvent { started }
+        #expect(try await reading.value.id == 5)
+        for id in 1...4 {
+            try await gates[id].waitUntilRequested()
+            gates[id].finish(Self.detail(id))
+        }
+        for preview in previews { _ = try await preview.value }
+    }
+
     @Test
     func publicCommentThreadsPreserveTheirViewerStateThroughLocalUpdates() {
         let user = CommunityUser.placeholder(id: 1, nickname: "作者")
@@ -47,14 +79,14 @@ struct PaperDetailRequestTests {
         func load(_ id: Int) async throws -> PaperDetail {
             try await withCheckedThrowingContinuation { pending[id] = $0; entered.yield(id) }
         }
-        var previews = (1...4).map { id in
+        var previews = (1...3).map { id in
             Task { try await store.preview(id: id, credentials: credentials) { try await load(id) } }
         }
         var starts = events.makeAsyncIterator()
-        for _ in 1...4 { _ = await starts.next() }
+        for _ in 1...3 { _ = await starts.next() }
         let (queuedEvents, queuedEntered) = AsyncStream<Void>.makeStream()
         defer { queuedEntered.finish() }
-        for id in 5...6 {
+        for id in 4...5 {
             previews.append(Task {
                 queuedEntered.yield(())
                 return try await store.preview(id: id, credentials: credentials) { try await load(id) }
@@ -62,15 +94,14 @@ struct PaperDetailRequestTests {
         }
         var queued = queuedEvents.makeAsyncIterator()
         _ = await queued.next(); _ = await queued.next()
-        let foregroundID = upgrade ? 6 : 7
+        let foregroundID = upgrade ? 5 : 6
         let detail = Task {
             queuedEntered.yield(())
             return try await store.detail(id: foregroundID, credentials: credentials) { try await load(foregroundID) }
         }
         _ = await queued.next()
-        pending.removeValue(forKey: 1)?.resume(returning: Self.detail(1))
         #expect(await starts.next() == foregroundID)
-        for id in [2, 3, 4, foregroundID] { pending.removeValue(forKey: id)?.resume(returning: Self.detail(id)) }
+        for id in [1, 2, 3, foregroundID] { pending.removeValue(forKey: id)?.resume(returning: Self.detail(id)) }
         for _ in 0..<(upgrade ? 1 : 2) {
             let id = try #require(await starts.next())
             pending.removeValue(forKey: id)?.resume(returning: Self.detail(id))
@@ -120,7 +151,7 @@ struct PaperDetailRequestTests {
         #expect(loads == 2)
     }
 
-    @Test(.timeLimit(.minutes(1))) func previewRequestsShareFourSlotsAndQueuedCancellation() async throws {
+    @Test(.timeLimit(.minutes(1))) func previewRequestsReserveReadingCapacityAndCancelQueuedWork() async throws {
         let store = PaperDetailRequestStore()
         let (events, entered) = AsyncStream<Int>.makeStream()
         defer { entered.finish() }
@@ -136,25 +167,25 @@ struct PaperDetailRequestTests {
                 entered.yield(id)
             }
         }
-        var tasks = (1...4).map { id in Task { try await store.preview(id: id, credentials: credentials) { try await load(id) } } }
+        var tasks = (1...3).map { id in Task { try await store.preview(id: id, credentials: credentials) { try await load(id) } } }
         var starts = events.makeAsyncIterator()
-        for _ in 0..<4 { _ = await starts.next() }
+        for _ in 0..<3 { _ = await starts.next() }
         let (queuedEvents, queuedEntered) = AsyncStream<Int>.makeStream()
         defer { queuedEntered.finish() }
-        let fifth = Task { queuedEntered.yield(5); return try await store.preview(id: 5, credentials: credentials) { try await load(5) } }
-        let cancelled = Task { queuedEntered.yield(6); return try await store.preview(id: 6, credentials: credentials) { try await load(6) } }
+        let queuedPreview = Task { queuedEntered.yield(4); return try await store.preview(id: 4, credentials: credentials) { try await load(4) } }
+        let cancelled = Task { queuedEntered.yield(5); return try await store.preview(id: 5, credentials: credentials) { try await load(5) } }
         var queued = queuedEvents.makeAsyncIterator()
         _ = await queued.next(); _ = await queued.next()
         cancelled.cancel()
         do { _ = try await cancelled.value; Issue.record("排队消费者需要沿取消结束") }
         catch is CancellationError { #expect(cancelled.isCancelled) }
-        #expect(completions.count == 4 && peak == 4)
+        #expect(completions.count == 3 && peak == 3)
         completions.removeValue(forKey: 1)?.resume(returning: Self.detail(1))
-        #expect(await starts.next() == 5)
-        for id in 2...5 { completions.removeValue(forKey: id)?.resume(returning: Self.detail(id)) }
-        tasks.append(fifth)
+        #expect(await starts.next() == 4)
+        for id in 2...4 { completions.removeValue(forKey: id)?.resume(returning: Self.detail(id)) }
+        tasks.append(queuedPreview)
         for task in tasks { _ = try await task.value }
-        #expect(active == 0 && peak == 4 && completions.isEmpty)
+        #expect(active == 0 && peak == 3 && completions.isEmpty)
     }
 
     @Test(.timeLimit(.minutes(1))) func coalescedConsumersKeepIndependentCancellation() async throws {
@@ -198,7 +229,7 @@ struct PaperDetailRequestTests {
         #expect(try await store.detail(id: 1, credentials: other, load: load).title == "版本6")
     }
 
-    @Test(.timeLimit(.minutes(1))) func refreshEpochKeepsFreshWorkSeparateFromAnOlderPreview() async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true]) func refreshEpochKeepsFreshWorkSeparateFromAnOlderPreview(scoped: Bool) async throws {
         let store = PaperDetailRequestStore()
         let (events, entered) = AsyncStream<Void>.makeStream()
         defer { entered.finish() }
@@ -208,7 +239,9 @@ struct PaperDetailRequestTests {
         } }
         var starts = events.makeAsyncIterator()
         _ = await starts.next()
-        store.invalidate()
+        _ = try await store.preview(id: 2, credentials: credentials) { Self.detail(2) }
+        store.invalidate(ids: scoped ? [1] : nil)
+        #expect((store.cachedDetail(id: 2, credentials: credentials) != nil) == scoped)
         _ = try await store.preview(id: 1, credentials: credentials) { Self.detail(1, title: "新版本") }
         oldCompletion?.resume(returning: Self.detail(1, title: "旧版本"))
         _ = try await old.value

@@ -17,6 +17,8 @@ struct GalleryMessageAvailabilityTests {
         var cursors: [Int?] = []
         var beforeAcknowledgement: (() -> Void)?
         var acknowledgementFails = false
+        var delayHistory = false
+        var pendingHistory: CheckedContinuation<Void, Never>?
 
         func fetchMessageUnreadCounts() async throws -> GalleryMessageUnreadCounts {
             if let failure { throw failure }
@@ -27,6 +29,7 @@ struct GalleryMessageAvailabilityTests {
         func fetchMessages(type: GalleryMessageType, lastID: Int?) async throws -> [GalleryMessage] {
             cursors.append(lastID)
             if lastID == 42, pageFails { throw URLError(.notConnectedToInternet) }
+            if lastID == 42, delayHistory { await withCheckedContinuation { pendingHistory = $0 } }
             if lastID == 41 { return [] }
             if lastID == nil {
                 if acknowledgementFails { throw URLError(.networkConnectionLost) }
@@ -38,6 +41,64 @@ struct GalleryMessageAvailabilityTests {
             return try decoder.decode([GalleryMessage].self, from: Data(
                 #"[{"from_user":{},"id":\#(id),"link_obj":"","obj":"","text":"首屏正文","update_time":""}]"#.utf8))
         }
+    }
+
+    @Test(.serialized, .timeLimit(.minutes(1)), arguments: [false, true])
+    func readingDuringUnreadRecoveryPreservesHistoryAndReadIntent(markAll: Bool) async throws {
+        let domain = "BIT101Tests.message-active-recovery"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let account = AppStorageSession(accountIdentifier: domain)
+        let files = ModuleScoreFiles(), root = URL(fileURLWithPath: "/message-active-recovery")
+        let store = GalleryMessageReadStore(files: files, storageRoot: root,
+            defaults: defaults, session: { account })
+        let service = DeferredSummaryService()
+        service.delay = false; service.unread = 2
+        let model = GalleryMessageViewModel(service: service, readStore: store)
+        await model.refreshUnreadCounts()
+        if markAll { service.delayHistory = true } else { service.delay = true }
+        let refresh = Task { await model.refreshSelectedType() }
+        try await waitForTestEvent { markAll ? service.pendingHistory != nil : service.pending != nil }
+        if markAll {
+            await model.markCurrentTypeAsRead()
+            service.delayHistory = false
+            service.pendingHistory?.resume(); service.pendingHistory = nil
+        } else {
+            #expect(model.state(for: .comment).isLoadingMore == false)
+            await model.loadMoreIfNeeded(for: .comment, currentMessage: model.state(for: .comment).items.last)
+            #expect(model.state(for: .comment).items.map(\.id) == [42, 41])
+            service.delay = false
+            service.pending?.resume(returning: .init(comment: 2)); service.pending = nil
+        }
+        await refresh.value
+        if markAll {
+            #expect(store.unreadCount(for: .comment) == 0 && !store.isUnread(id: 41, for: .comment))
+            let reopened = GalleryMessageReadStore(files: files, storageRoot: root, defaults: defaults, session: { account })
+            #expect(await reopened.prepareSnapshot())
+            #expect(!reopened.isUnread(id: 41, for: .comment) && !reopened.isUnread(id: 42, for: .comment))
+            #expect(await store.replaceLatestIDs([43], unreadCount: 1, for: .comment))
+            #expect(store.isUnread(id: 43, for: .comment))
+        } else {
+            #expect(model.state(for: .comment).items.map(\.id) == [42, 41])
+        }
+    }
+
+    @Test(.serialized, .timeLimit(.minutes(1)), arguments: ["{}", "{\"schemaVersion\":999,\"latestIDsByType\":{},\"seenIDsByType\":{}}"])
+    func invalidMessageDocumentsStayIntactUntilRecovery(document: String) async throws {
+        let domain = "BIT101Tests.message-document-contract"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let account = AppStorageSession(accountIdentifier: domain)
+        let root = URL(fileURLWithPath: "/message-document-contract"), files = ModuleScoreFiles()
+        let path = root.appending(path: account.accountStorageIdentifier).appending(path: "message-read-snapshot.json")
+        let original = Data(document.utf8)
+        try files.writeData(original, to: path, options: [])
+        let store = GalleryMessageReadStore(files: files, storageRoot: root, defaults: defaults, session: { account })
+        #expect(await store.prepareSnapshot() == false && store.hasUnreadableSnapshot)
+        #expect(await store.markSeen(ids: [42], for: .comment) == false)
+        #expect(files.storedData[path].map { String(decoding: $0, as: UTF8.self) } == document)
     }
 
     @Test(.serialized, .timeLimit(.minutes(1)), arguments: ["summary", "acknowledgement"])

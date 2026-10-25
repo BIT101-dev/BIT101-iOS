@@ -37,6 +37,8 @@ public nonisolated enum GalleryMessageType: String, CaseIterable, Identifiable, 
 ///
 /// 服务端提供分类未读数，客户端按账号保存逐条消息的“伪新消息”状态。
 public nonisolated struct GalleryMessageReadSnapshot: Codable, Equatable, Sendable {
+    public static let currentSchemaVersion = 1
+    public let schemaVersion: Int
     public static let maximumHistoryIDsPerType = 1_024
     public static let maximumSnapshotBytes = 16 * 1_024 * 1_024
     public static let maximumUnreadIDsPerType = maximumSnapshotBytes / (String(Int.max).utf8.count + 1)
@@ -45,16 +47,20 @@ public nonisolated struct GalleryMessageReadSnapshot: Codable, Equatable, Sendab
     public var retainedFromIDByType: [String: Int] = [:]
     public var pendingUnreadAfterIDByType: [String: Int] = [:]
 
-    public init() {}
+    public init() { schemaVersion = Self.currentSchemaVersion }
 
-    private enum CodingKeys: String, CodingKey { case latestIDsByType, seenIDsByType, retainedFromIDByType, pendingUnreadAfterIDByType }
+    private enum CodingKeys: String, CodingKey { case schemaVersion, latestIDsByType, seenIDsByType, retainedFromIDByType, pendingUnreadAfterIDByType }
 
     public init(from decoder: any Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
-        latestIDsByType = try values.decodeIfPresent([String: [Int]].self, forKey: .latestIDsByType) ?? [:]
-        seenIDsByType = try values.decodeIfPresent([String: [Int]].self, forKey: .seenIDsByType) ?? [:]
-        retainedFromIDByType = try values.decodeIfPresent([String: Int].self, forKey: .retainedFromIDByType) ?? [:]
-        pendingUnreadAfterIDByType = try values.decodeIfPresent([String: Int].self, forKey: .pendingUnreadAfterIDByType) ?? [:]
+        schemaVersion = values.contains(.schemaVersion) ? try values.decode(Int.self, forKey: .schemaVersion) : Self.currentSchemaVersion
+        guard schemaVersion == Self.currentSchemaVersion else {
+            throw DecodingError.dataCorruptedError(forKey: .schemaVersion, in: values, debugDescription: "消息快照需要受支持的格式版本。")
+        }
+        latestIDsByType = try values.decode([String: [Int]].self, forKey: .latestIDsByType)
+        seenIDsByType = try values.decode([String: [Int]].self, forKey: .seenIDsByType)
+        retainedFromIDByType = values.contains(.retainedFromIDByType) ? try values.decode([String: Int].self, forKey: .retainedFromIDByType) : [:]
+        pendingUnreadAfterIDByType = values.contains(.pendingUnreadAfterIDByType) ? try values.decode([String: Int].self, forKey: .pendingUnreadAfterIDByType) : [:]
     }
 
     /// 各分类保留最近的已读 ID；保留边界之前的消息归为历史已读。

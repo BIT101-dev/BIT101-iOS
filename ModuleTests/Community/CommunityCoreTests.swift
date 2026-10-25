@@ -247,6 +247,8 @@ struct CommunityCoreTests {
             from: Data(#"{"latestIDsByType":{"comment":[1]},"seenIDsByType":{"comment":[1]}}"#.utf8))
         #expect(legacy.retainedFromIDByType.isEmpty)
         #expect(legacy.seenIDsByType["comment"] == [1])
+        let document = try JSONSerialization.jsonObject(with: JSONEncoder().encode(legacy)) as? [String: Any]
+        #expect(document?["schemaVersion"] as? Int == GalleryMessageReadSnapshot.currentSchemaVersion)
         #expect(await store.replaceLatestIDs([10_002, 10_003], unreadCount: 2, for: .comment))
         var remote = GalleryMessageReadSnapshot()
         remote.retainedFromIDByType["comment"] = 10_003

@@ -184,7 +184,6 @@ final class GalleryMessageViewModel: ObservableObject {
         guard refreshingTypes.insert(type).inserted else { return }
         defer {
             refreshingTypes.remove(type)
-            setState(for: type) { $0.isLoadingMore = false }
             completedRefreshGenerations[type] = listGenerations[type]
         }
         let previousState = state(for: type)
@@ -199,13 +198,15 @@ final class GalleryMessageViewModel: ObservableObject {
             guard listGenerations[type] == generation, session == readStore.currentSession else { throw CancellationError() }
             guard ContinuousClock.now < deadline else { throw GalleryMessagePersistenceError.recoveryLimit }
         }
+        var hasPresentedFirstPage = false
         func show(_ messages: [GalleryMessage]) {
-            var page = GalleryMessageListState()
-            page.applyFirstCursorPage(messages)
+            var page = hasPresentedFirstPage ? state(for: type) : GalleryMessageListState()
+            if page.items.isEmpty { page.applyFirstCursorPage(messages) }
+            else { page.items = (messages + page.items).sorted { $0.id > $1.id } }
             page.paginationError = nil
             page.status = .loaded
-            page.isLoadingMore = true
             listStates[type] = page
+            hasPresentedFirstPage = true
         }
         setState(for: type) { $0.status = .loading; $0.isLoadingMore = false }
         do {
@@ -272,6 +273,7 @@ final class GalleryMessageViewModel: ObservableObject {
                 listStates[type] = previousState
                 setState(for: type) {
                     $0.status = previousState.items.isEmpty ? (cancelled ? .idle : .failed(error.localizedDescription)) : .loaded
+                    $0.isLoadingMore = false
                 }
             }
             pendingRecoveryTypes.insert(type)

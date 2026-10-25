@@ -472,7 +472,7 @@ struct CommunityDependencyBoundaryTests {
         try await waitForTestEvent { pending != nil }
         #expect(model.state(for: .comment).status == .loaded)
         #expect(model.state(for: .comment).items.map(\.id) == [6, 5])
-        #expect(model.state(for: .comment).isLoadingMore && service.unread == 5)
+        #expect(!model.state(for: .comment).isLoadingMore && service.unread == 5)
         service.beforeLaterPage = nil
         pending?.resume()
         await refresh.value

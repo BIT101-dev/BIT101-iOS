@@ -111,19 +111,20 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             print("UI scroll reveal")
             return
         }
-        let frame = interactionScrollFrame() ?? app.frame
+        guard let frame = app.scrollGestureFrame(in: interactionScrollFrame() ?? app.frame) else { return }
         let origin = app.coordinate(withNormalizedOffset: .zero)
+        let verticalX = frame.minX + frame.width * 0.03
         for attempt in 0..<16 {
             let target = element.exists ? element.frame : CGRect.null
             let horizontal = !target.isNull && (target.maxX <= window.minX || target.minX >= window.maxX)
             let upward = target.isNull ? attempt < 8 : target.minY >= window.midY
-            let start = origin.withOffset(CGVector(dx: horizontal ? frame.midX : frame.minX + frame.width * 0.03, dy: frame.midY))
-            let end = origin.withOffset(CGVector(dx: horizontal ? frame.minX + frame.width * (target.minX >= window.maxX ? 0.1 : 0.9) : frame.minX + frame.width * 0.03,
+            let start = origin.withOffset(CGVector(dx: horizontal ? frame.midX : verticalX, dy: frame.midY))
+            let end = origin.withOffset(CGVector(dx: horizontal ? frame.minX + frame.width * (target.minX >= window.maxX ? 0.1 : 0.9) : verticalX,
                                                 dy: horizontal ? frame.midY : frame.minY + frame.height * (upward ? 0.1 : 0.9)))
             start.press(forDuration: 0.01, thenDragTo: end, withVelocity: .fast, thenHoldForDuration: 0.1)
             if isVisible() { return }
         }
-        assertUI(false, "滚动后目标应可触达：\(description)。存在：\(element.exists)，窗口：\(app.windows.firstMatch.frame)。")
+        assertUI(false, "滚动后目标应可触达：\(description)。存在：\(element.exists)，原生：\(element.native.exists ? "\(element.native.frame) · 可触达 \(element.native.isHittable)" : "缺失")，窗口：\(app.windows.firstMatch.frame)，滚动区：\(frame)。")
     }
 
     @MainActor
@@ -323,13 +324,13 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             let keyboard = app.native.keyboards.firstMatch
             let positioned = NSPredicate { _, _ in
                 let surface = keyboard.exists ? keyboard : self.app.native.otherElements["inputView"].firstMatch
-                guard surface.exists else { return false }
-                let frame = surface.frame
-                return !frame.isEmpty && self.app.native.frame.contains(frame)
-                    && done.native.isHittable && done.native.frame.maxY <= frame.minY
+                let bounds = self.app.native.frame
+                let frame = surface.exists ? surface.frame.intersection(bounds) : .null
+                return done.native.isHittable && bounds.contains(done.native.frame)
+                    && (frame.isNull || frame.isEmpty || done.native.frame.maxY <= frame.minY)
             }
-            assertUI(waitUntil(positioned, on: done, timeout: 5), "键盘完成按钮应就位于系统键盘上方。")
-            done.tapVisibleCenter()
+            assertUI(waitUntil(positioned, on: done, timeout: 5), "完成按钮应保持可操作，并适应系统键盘与硬件键盘附件。")
+            done.tapBriefly()
             assertUI(waitUntil(NSPredicate { _, _ in UITestControlClient.request(["command": "keyboard-state"]) == "hidden" },
                 on: app, timeout: 5), "原生完成按钮应关闭当前键盘。")
             return

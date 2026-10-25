@@ -149,6 +149,7 @@ nonisolated final class CommunityEditingRecoveryUITests: UIAutomationTestCase {
         openSettings("suggestion")
         tap("加载草稿")
         assertUI(app.textFields["建议内容"].value as? String == "等待图片导入的建议", "重新装载应恢复建议文字。")
+        reveal(app.buttons["移除图片"], description: "建议草稿图片")
         assertUI(app.buttons["移除图片"].appears(timeout: 5), "保存的草稿应包含已选择的图片。")
         tap("取消")
         tap("不保存")

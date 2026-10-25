@@ -486,6 +486,10 @@ final class UITestSceneState: ObservableObject {
                             UITestAccessibilityActions.openedExternalURL = nil
                             return
                         }
+                        if environment["command"] == "safe-area" {
+                            reply(try UITestAccessibilityActions.safeAreaFrame())
+                            return
+                        }
                         if environment["command"] == "keyboard-state" {
                             reply(Data(UITestAccessibilityActions.keyboardState(returnTitle: environment["return-title"]).utf8))
                             return

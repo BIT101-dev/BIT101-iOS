@@ -293,29 +293,15 @@ final class UIElement: NSObject {
         native.press(forDuration: duration)
         recordInteraction(identity, action: duration < 0.1 ? "tap" : "press")
     }
-    func tapVisibleCenter() {
-        Self.beforeNativeTap?()
-        guard let application = UITestSnapshotReader.application else {
-            XCTFail("坐标触摸应绑定当前 App 窗口。")
-            return
+    func scrollGestureFrame(in bounds: CGRect) -> CGRect? {
+        guard let response = UITestControlClient.request(["command": "safe-area"]),
+              let safeArea = try? JSONDecoder().decode(CGRect.self, from: Data(response.utf8)) else {
+            XCTFail("滚动定位应读取当前窗口的系统安全区。")
+            return nil
         }
-        UITestSnapshotReader.invalidate()
-        guard let snapshot = try? application.snapshot() else {
-            XCTFail("坐标触摸应读取完整的原生界面快照。")
-            return
-        }
-        UITestSnapshotReader.retain(snapshot)
-        let bounds = native.frame
-        guard !bounds.isEmpty, snapshot.frame.contains(bounds) else {
-            XCTFail("坐标触摸应位于可见窗口内：\(bounds)。")
-            return
-        }
-        let identity = interactionIdentity
-        let origin = snapshot.frame.origin
-        application.coordinate(withNormalizedOffset: .zero)
-            .withOffset(CGVector(dx: bounds.midX - origin.x, dy: bounds.midY - origin.y)).tap()
-        recordInteraction(identity, action: "tap")
-        UITestSnapshotReader.invalidate()
+        let visible = bounds.intersection(safeArea)
+        XCTAssertFalse(visible.isEmpty, "滚动区域应与窗口安全区相交。")
+        return visible.isEmpty ? nil : visible
     }
     func swipeLeft() { performGesture("swipe") { native.swipeLeft() } }
     func swipeRight() { performGesture("swipe") { native.swipeRight() } }
@@ -608,7 +594,7 @@ extension UIAutomationTestCase {
             let label = target["label"] ?? ""
             let predicate = identifier.isEmpty
                 ? (label == title ? NSPredicate(format: "label == %@", title) : NSPredicate(format: "label CONTAINS %@", title))
-                : NSPredicate(format: "identifier == %@ AND label CONTAINS %@", identifier, title)
+                : NSPredicate(format: "identifier == %@ AND label CONTAINS %@", identifier, label)
             let button = app.buttons.matching(predicate).firstMatch
             if button.exists {
                 button.tapBriefly { self.reveal(button, description: title) }
@@ -617,7 +603,7 @@ extension UIAutomationTestCase {
         }
         let exact = app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", title, title))
         let exactExists = exact.firstMatch.exists
-        let matches = exactExists ? exact : app.buttons.matching(NSPredicate(format: "label CONTAINS %@", title))
+        let matches = exactExists ? exact : app.buttons.matching(NSPredicate(format: "identifier == %@ OR label CONTAINS %@", title, title))
         let button = matches.firstMatch
         if exactExists || button.exists {
             if UIElement.usesNativeInteraction ? button.native.isHittable : button.isHittable {

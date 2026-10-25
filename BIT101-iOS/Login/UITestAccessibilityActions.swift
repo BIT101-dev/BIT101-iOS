@@ -596,6 +596,14 @@ enum UITestAccessibilityActions {
             .lazy.compactMap(find).first
     }
 
+    static func safeAreaFrame() throws -> Data {
+        guard let window = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene })
+            .filter({ $0.activationState == .foregroundActive }).flatMap(\.windows).first(where: \.isKeyWindow),
+              let scene = window.windowScene else { throw CocoaError(.coderInvalidValue) }
+        let frame = window.convert(window.safeAreaLayoutGuide.layoutFrame, to: scene.screen.coordinateSpace)
+        return try JSONEncoder().encode(frame)
+    }
+
     static func keyboardState(returnTitle: String? = nil) -> String {
         if let returnTitle {
             for window in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).flatMap(\.windows) {
