@@ -196,10 +196,21 @@ enum UITestAccessibilityActions {
         if parameters["command"] == "scroll-inventory" {
             return try JSONSerialization.data(withJSONObject: elements.compactMap { element -> [String: Any]? in
                 guard let scroll = element.object as? UIScrollView, scroll.isScrollEnabled,
-                      let window = scroll.window, scroll.convert(scroll.bounds, to: window).intersects(window.bounds)
+                      let window = scroll.window, let scene = window.windowScene,
+                      scroll.convert(scroll.bounds, to: window).intersects(window.bounds)
                 else { return nil }
                 var values = element.attributes
                 values["scrollInstance"] = String(describing: ObjectIdentifier(scroll))
+                values["hasRefreshControl"] = scroll.refreshControl != nil
+                values["refreshing"] = scroll.refreshControl?.isRefreshing ?? false
+                values["bounces"] = scroll.bounces
+                values["alwaysBounceVertical"] = scroll.alwaysBounceVertical
+                let viewport = scroll.convert(scroll.bounds.inset(by: scroll.adjustedContentInset), to: window)
+                    .intersection(window.safeAreaLayoutGuide.layoutFrame)
+                if !viewport.isEmpty {
+                    let visible = window.convert(viewport, to: scene.screen.coordinateSpace)
+                    values["viewport"] = [Double(visible.minX), Double(visible.minY), Double(visible.width), Double(visible.height)]
+                }
                 let scale = Double(window.screen.scale)
                 func distance(_ points: CGFloat) -> Double {
                     UITestScrollGeometry.visibleDistance(Double(points), scale: scale)

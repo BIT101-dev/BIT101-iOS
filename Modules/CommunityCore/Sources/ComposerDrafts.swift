@@ -141,6 +141,7 @@ public nonisolated struct PaperComposerDraftSnapshot: Codable, Equatable, Sendab
 @MainActor
 public protocol PaperComposerDraftStoring: Sendable {
     func savePaper(_ snapshot: PaperComposerDraftSnapshot) async -> Bool
+    func loadPaperDrafts() async -> ComposerDraftLoadResult<[PaperComposerDraftSnapshot]>
     func loadPaper(paperID: Int?) async -> ComposerDraftLoadResult<PaperComposerDraftSnapshot>
     func capturePaperRecovery() async -> ComposerDraftCleanup
     func capturePaperCleanup(matching snapshot: PaperComposerDraftSnapshot?) async -> ComposerDraftCleanup
@@ -244,6 +245,10 @@ public nonisolated enum ComposerPublicationReviewState: Sendable {
     case ready
     case pending(ComposerPublicationAttempt)
     case requiresRecovery
+
+    public var searchTitle: String {
+        if case .pending(let attempt) = self { attempt.content.title } else { "" }
+    }
 
     public var needsReview: Bool {
         switch self {

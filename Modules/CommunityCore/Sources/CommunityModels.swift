@@ -14,6 +14,14 @@ public nonisolated struct CommunityImage: Codable, Identifiable, Hashable, Senda
     public let url: String
     public let lowUrl: String
 
+    private enum CodingKeys: String, CodingKey { case mid, url, lowUrl }
+    public init(from decoder: Decoder) throws {
+        let fields = try decoder.container(keyedBy: CodingKeys.self)
+        mid = try fields.decode(String.self, forKey: .mid)
+        url = (try? fields.decode(String.self, forKey: .url)) ?? ""
+        lowUrl = (try? fields.decode(String.self, forKey: .lowUrl)) ?? ""
+    }
+
     /// 图片资源的稳定标识。
     public var id: String { mid }
 
@@ -59,6 +67,17 @@ public nonisolated struct CommunityIdentity: Decodable, Hashable, Sendable {
     public let createTime: String
     public let updateTime: String
     public let deleteTime: String?
+
+    private enum CodingKeys: String, CodingKey { case id, color, text, createTime, updateTime, deleteTime }
+    public init(from decoder: Decoder) throws {
+        let fields = try decoder.container(keyedBy: CodingKeys.self)
+        id = try fields.decode(Int.self, forKey: .id)
+        color = (try? fields.decode(String.self, forKey: .color)) ?? ""
+        text = (try? fields.decode(String.self, forKey: .text)) ?? ""
+        createTime = (try? fields.decode(String.self, forKey: .createTime)) ?? ""
+        updateTime = (try? fields.decode(String.self, forKey: .updateTime)) ?? ""
+        deleteTime = try? fields.decode(String.self, forKey: .deleteTime)
+    }
 }
 
 /// 社区用户摘要。
@@ -80,6 +99,17 @@ public nonisolated struct CommunityUser: Decodable, Identifiable, Hashable, Send
     public let avatar: CommunityImage
     public let motto: String
     public let identity: CommunityIdentity
+
+    private enum CodingKeys: String, CodingKey { case id, createTime, nickname, avatar, motto, identity }
+    public init(from decoder: Decoder) throws {
+        let fields = try decoder.container(keyedBy: CodingKeys.self)
+        id = try fields.decode(Int.self, forKey: .id)
+        createTime = (try? fields.decode(String.self, forKey: .createTime)) ?? ""
+        nickname = (try? fields.decode(String.self, forKey: .nickname)) ?? "未命名用户"
+        avatar = (try? fields.decode(CommunityImage.self, forKey: .avatar)) ?? .placeholder
+        motto = (try? fields.decode(String.self, forKey: .motto)) ?? ""
+        identity = (try? fields.decode(CommunityIdentity.self, forKey: .identity)) ?? .placeholder
+    }
 }
 
 /// 帖子所属 claim。
@@ -297,20 +327,16 @@ public enum CommunityLoadStatus: Equatable {
     case failed(String)
 }
 
-/// 单个 feed 的状态快照。
-///
-/// 列表、加载状态和分页信息按 feed 键统一存放。
-
 private extension CommunityImage {
     /// 返回占位 UI 使用的空图片模型。
-    static var placeholder: CommunityImage {
+    nonisolated static var placeholder: CommunityImage {
         CommunityImage(mid: "", url: "", lowUrl: "")
     }
 }
 
 private extension CommunityIdentity {
     /// 返回占位用户使用的空身份模型。
-    static var placeholder: CommunityIdentity {
+    nonisolated static var placeholder: CommunityIdentity {
         CommunityIdentity(id: 0, color: "#FF9500", text: "", createTime: "", updateTime: "", deleteTime: nil)
     }
 }

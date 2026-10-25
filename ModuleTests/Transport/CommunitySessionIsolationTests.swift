@@ -6,6 +6,67 @@ import TransportCore
 
 @MainActor
 struct CommunitySessionIsolationTests {
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func publicReadingContinuesWhileOwnedCredentialRecoveryWaits(privateOnly: Bool) async throws {
+        let credentials = Credentials(), coordinator = CommunitySessionRefreshCoordinator(), gate = RestoreGate()
+        var cookies: [String?] = []
+        var finished = false
+        func restore(_ observed: CommunityCredentials) async throws {
+            try await coordinator.refresh(observed: observed, current: { credentials.snapshot }) {
+                await gate.restore()
+                try Task.checkCancellation()
+                credentials.cookie = "fresh"
+            }
+        }
+        let transport = Transport { request in
+            let cookie = request.value(forHTTPHeaderField: "fake-cookie")
+            cookies.append(cookie)
+            let status = cookie == "fresh" || (cookie == nil && !privateOnly) ? 200 : 401
+            let (_, value) = try response(request, status: status)
+            return (Data(#"{"id":1}"#.utf8), value)
+        }
+        let client = CommunityAPIClient<Failure>(httpClient: HTTPClient(transport: transport, observer: nil),
+            baseURL: AppURL.required("https://example.invalid"), errorDomain: "test", credentials: { credentials.snapshot },
+            refreshHandler: restore, backgroundRefresh: { observed in
+                coordinator.start(observed: observed) { defer { finished = true }; try await restore(observed) }
+            })
+        let reading = Task { try await client.response(path: "papers", authentication: .optional) as CommunityAPIResponse<Receipt> }
+        defer { reading.cancel(); coordinator.cancel(); gate.finish() }
+        try await gate.waitUntilStarted()
+        if !privateOnly {
+            let first = try await reading.value
+            #expect(first.value.id == 1 && !first.isAuthenticated && !finished)
+            let second: CommunityAPIResponse<Receipt> = try await client.response(path: "papers", authentication: .optional)
+            #expect(!second.isAuthenticated && gate.calls == 1)
+        }
+        gate.finish()
+        try await waitForTestEvent { finished }
+        #expect(credentials.cookie == "fresh")
+        let result = try await reading.value
+        #expect(result.isAuthenticated == privateOnly)
+        let authenticated: CommunityAPIResponse<Receipt> = try await client.response(path: "papers", authentication: .optional)
+        #expect(authenticated.isAuthenticated && cookies.last == "fresh")
+    }
+
+    @Test(.timeLimit(.minutes(1))) func ownedBackgroundRecoveryEndsWhenItsSessionIsCancelled() async throws {
+        let credentials = Credentials(), coordinator = CommunitySessionRefreshCoordinator(), gate = RestoreGate()
+        var finished = false
+        coordinator.start(observed: credentials.snapshot) {
+            defer { finished = true }
+            try await coordinator.refresh(observed: credentials.snapshot, current: { credentials.snapshot }) {
+                await gate.restore()
+                try Task.checkCancellation()
+                credentials.cookie = "late"
+            }
+        }
+        defer { coordinator.cancel(); gate.finish() }
+        try await gate.waitUntilStarted()
+        coordinator.cancel()
+        try await waitForTestEvent { finished }
+        gate.finish()
+        #expect(credentials.cookie == "cookie-a")
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: ["rejected", "timeout", "empty", "retry-rejected", "cancel", "account"])
     func optionalReadsRecoverPublicContentWithinTheirOriginalAccount(scenario: String) async throws {
         let credentials = Credentials()

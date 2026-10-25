@@ -18,6 +18,7 @@ private final class PublicationDrafts: PaperComposerDraftStoring, ComposerPublic
     var pending: CheckedContinuation<Void, Never>?
     var suspend = false
     func savePaper(_ snapshot: PaperComposerDraftSnapshot) async -> Bool { draft = snapshot; return true }
+    func loadPaperDrafts() async -> ComposerDraftLoadResult<[PaperComposerDraftSnapshot]> { .loaded(draft.map { [$0] } ?? []) }
     func loadPaper(paperID: Int?) async -> ComposerDraftLoadResult<PaperComposerDraftSnapshot> { draft.map { .loaded($0) } ?? .missing }
     func capturePaperRecovery() async -> ComposerDraftCleanup { { true } }
     func capturePaperCleanup(matching snapshot: PaperComposerDraftSnapshot?) async -> ComposerDraftCleanup { { true } }
@@ -207,6 +208,7 @@ extension GalleryRecommendationPrefetchTests {
         var pending: CheckedContinuation<Void, Never>?
         var suspend = false
         var unknownResult = false
+        var conflict: PaperDetail?
         private func save(_ content: String) async {
             bodies.append(content)
             if suspend { await withCheckedContinuation { pending = $0 } }
@@ -218,6 +220,7 @@ extension GalleryRecommendationPrefetchTests {
         }
         func updatePaper(id: Int, title: String, intro: String, content: String, anonymous: Bool, publicEdit: Bool, lastUpdatedAt: String) async throws {
             versions.append(lastUpdatedAt)
+            if let conflict { throw PaperEditConflict(latest: conflict) }
             await save(content)
         }
     }
@@ -226,6 +229,24 @@ extension GalleryRecommendationPrefetchTests {
         PaperDetail(id: 1, title: "标题", intro: "简介", content: content, createTime: "", updateTime: "2026-10-01T08:00:00Z",
             updateUser: .placeholder(id: 7, nickname: "用户"), anonymous: false, likeNum: 0, commentNum: 0,
             publicEdit: true, like: false, own: true)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func editConflictsPreserveLocalInputUntilTheVersionIsExplicitlyConfirmed() async {
+        let original = editingPaper("原始正文"), service = PaperSavingService(), drafts = PublicationDrafts()
+        let latest = PaperDetail(id: 1, title: "远端标题", intro: "远端简介", content: "远端正文", createTime: "",
+            updateTime: "2026-10-02T08:00:00Z", updateUser: original.updateUser, anonymous: false,
+            likeNum: 0, commentNum: 0, publicEdit: false, like: false, own: true)
+        service.conflict = latest
+        let model = paperComposer(editingPaper: original, initialContent: "原始正文")
+        model.title = "本地标题"; model.intro = "本地简介"; model.content = "本地正文"
+        #expect(await model.submit(service: service, drafts: drafts) == false)
+        #expect(model.conflictingPaper == latest && model.content == "本地正文" && model.title == "本地标题")
+        #expect(await model.submit(service: service, drafts: drafts) == false && service.versions.count == 1)
+        model.confirmEditVersion()
+        service.conflict = nil
+        #expect(model.draftSnapshot.baselineUpdatedAt == latest.updateTime)
+        #expect(await model.submit(service: service, drafts: drafts))
+        #expect(service.versions == [original.updateTime, latest.updateTime])
     }
 
     @Test(.timeLimit(.minutes(1))) func uncertainPaperCreationStopsAnotherSubmission() async {

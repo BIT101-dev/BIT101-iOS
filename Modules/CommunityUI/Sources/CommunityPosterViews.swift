@@ -59,14 +59,7 @@ public struct CommunityPosterCard: View {
                                 .foregroundStyle(AppDesignSystem.Foreground.primary)
                                 .lineLimit(1)
 
-                            if !poster.anonymous, !poster.user.identity.text.isEmpty {
-                                Text(poster.user.identity.text)
-                                    .font(AppDesignSystem.Typography.captionEmphasis)
-                                    .padding(.horizontal, AppDesignSystem.Spacing.tiny)
-                                    .padding(.vertical, AppDesignSystem.Spacing.micro)
-                                    .background(identityColor.opacity(AppDesignSystem.Community.identitySurfaceOpacity), in: Capsule())
-                                    .foregroundStyle(identityColor)
-                            }
+                            if !poster.anonymous { CommunityIdentityBadge(poster.user.identity) }
                         }
 
                         if !poster.anonymous, !poster.user.motto.isEmpty {
@@ -142,9 +135,6 @@ public struct CommunityPosterCard: View {
         .accessibilityAddTraits(.isButton)
     }
 
-    private var identityColor: Color {
-        Color(hex: poster.user.identity.color) ?? AppDesignSystem.Palette.Accent.primary
-    }
 
     /// 把后端时间文本转成相对时间文案。
     private func relativeTimeText(_ string: String) -> String {

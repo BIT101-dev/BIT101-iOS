@@ -197,6 +197,13 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
     }
 
     @MainActor
+    public func loadPaperDrafts() async -> ComposerDraftLoadResult<[PaperComposerDraftSnapshot]> {
+        guard storageOperations.begin() else { return .missing }
+        defer { storageOperations.finish() }
+        return await Self.storage.loadPaperDrafts(store: self, session: currentSession())
+    }
+
+    @MainActor
     public func loadPaper(paperID: Int?) async -> ComposerDraftLoadResult<PaperComposerDraftSnapshot> {
         guard storageOperations.begin() else { return .missing }
         defer { storageOperations.finish() }
@@ -270,6 +277,16 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring, 
             return true
         }
         catch { Self.logger.error("保存文章草稿失败：\(String(describing: error), privacy: .private)"); return false }
+    }
+
+    fileprivate func loadPaperDrafts(session: AppStorageSession) -> ComposerDraftLoadResult<[PaperComposerDraftSnapshot]> {
+        switch readPaperDrafts(session: session) {
+        case .missing: return .missing
+        case .loaded(let entries), .recovered(let entries, _):
+            return .loaded(entries.sorted { $0.key < $1.key }.compactMap { Self.paperSnapshot($0.value, key: $0.key) })
+        case .unreadable: return .unreadable
+        case .unsupportedVersion(let version): return .unsupportedVersion(version)
+        }
     }
 
     fileprivate func loadPaper(paperID: Int?, session: AppStorageSession) -> ComposerDraftLoadResult<PaperComposerDraftSnapshot> {
@@ -700,6 +717,9 @@ private actor ComposerDraftStorage {
     }
     func loadPaper(store: ComposerDraftStore, paperID: Int?, session: AppStorageSession) -> ComposerDraftLoadResult<PaperComposerDraftSnapshot> {
         store.loadPaper(paperID: paperID, session: session)
+    }
+    func loadPaperDrafts(store: ComposerDraftStore, session: AppStorageSession) -> ComposerDraftLoadResult<[PaperComposerDraftSnapshot]> {
+        store.loadPaperDrafts(session: session)
     }
     func recoverPaperDrafts(store: ComposerDraftStore, session: AppStorageSession) -> Bool {
         store.recoverPaperDrafts(session: session)

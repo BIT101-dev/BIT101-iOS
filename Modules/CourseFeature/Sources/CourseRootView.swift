@@ -7,6 +7,7 @@ import SwiftUI
 
 /// 课程页具体内容，供独立页面和“成绩 / 课程”合并页使用。
 public struct CoursePageContent: View {
+    @Environment(\.appInteractionEvidence) private var interactionEvidence
     private let dependencies: CourseDependencies
     private let media: MediaEnvironment
     private let profiles: CommunityProfileDestination
@@ -30,6 +31,10 @@ public struct CoursePageContent: View {
         }
         .accessibilityIdentifier("interaction.CoursePageContent.list")
         .appGroupedListStyle()
+        .refreshable {
+            interactionEvidence?("interaction.CoursePageContent.refreshable", "refresh")
+            await viewModel.refresh()
+        }
         .task {
             await viewModel.bootstrapIfNeeded()
         }

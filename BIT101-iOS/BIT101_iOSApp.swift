@@ -499,6 +499,7 @@ final class UITestSceneState: ObservableObject {
                             let query = Dictionary(uniqueKeysWithValues: environment.filter { $0.key.hasPrefix("query.") }
                                 .map { (String($0.key.dropFirst("query.".count)), $0.value) })
                             if command == "hold-request" {
+                                AppUITestBootstrap.completedRequests.remove(key)
                                 AppUITestBootstrap.holdingRequests[key] = query
                                 reply(Data("queued".utf8))
                             } else if command == "fail-request" {
@@ -508,7 +509,10 @@ final class UITestSceneState: ObservableObject {
                                 AppUITestBootstrap.releaseRequest(key)
                                 reply(Data("released".utf8))
                             } else {
-                                reply(Data((AppUITestBootstrap.pendingRequests[key] == nil ? "idle" : "pending").utf8))
+                                let state = AppUITestBootstrap.pendingRequests[key] != nil ? "pending"
+                                    : AppUITestBootstrap.holdingRequests[key] != nil ? "queued"
+                                    : AppUITestBootstrap.completedRequests.contains(key) ? "completed" : "idle"
+                                reply(Data(state.utf8))
                             }
                             return
                         }

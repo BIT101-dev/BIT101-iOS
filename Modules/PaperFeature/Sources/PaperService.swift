@@ -4,6 +4,7 @@ import CommunityCore
 //  PaperService.swift
 //  BIT101-iOS
 import Foundation
+import TransportCore
 
 /// 文章模块网络层错误。
 public enum PaperServiceError: LocalizedError {
@@ -30,6 +31,12 @@ extension PaperServiceError: CommunityAPIServiceError {
         let parts = path.split(separator: "/")
         return parts.count == 2 && parts[0] == "papers" && Int(parts[1]) != nil && message == "文章不存在Orz" ? .missingPaper : nil
     }
+}
+
+public nonisolated struct PaperEditConflict: LocalizedError {
+    public let latest: PaperDetail
+    public init(latest: PaperDetail) { self.latest = latest }
+    public var errorDescription: String? { "文章已有更新。当前编辑内容已保留，请核对最新文章并确认覆盖。" }
 }
 
 /// 文章模块网络层。
@@ -220,9 +227,10 @@ public struct PaperService {
         publicEdit: Bool = true,
         lastUpdatedAt: String
     ) async throws {
-        defer { details.invalidate() }
+        defer { details.invalidate(ids: [id]) }
         guard let version = AppDateText.date(from: lastUpdatedAt) else { throw PaperServiceError.invalidResponse }
-        try await api.requestVoid(
+        let identity = session.currentCredentials.identity
+        do { try await api.requestVoid(
             path: "papers/\(id)",
             method: "PUT",
             body: try api.encode(
@@ -235,7 +243,25 @@ public struct PaperService {
                     lastTime: version.timeIntervalSince1970
                 )
             )
-        )
+        ) } catch {
+            let failure = error
+            if TaskCancellation.matches(error) || error is HTTPRequestNotSent { throw error }
+            guard session.currentCredentials.identity == identity else { throw CancellationError() }
+            details.invalidate(ids: [id])
+            let latest: PaperDetail
+            do { latest = try await fetchPaper(id: id) }
+            catch {
+                if TaskCancellation.matches(error) { throw error }
+                throw failure
+            }
+            try Task.checkCancellation()
+            guard session.currentCredentials.identity == identity else { throw CancellationError() }
+            if latest.title == title, latest.intro == intro, latest.content == content,
+               latest.anonymous == anonymous, latest.publicEdit == publicEdit { return }
+            guard let latestVersion = AppDateText.date(from: latest.updateTime) else { throw PaperServiceError.invalidResponse }
+            if latestVersion != version { throw PaperEditConflict(latest: latest) }
+            throw failure
+        }
     }
 
     public func deletePaper(id: Int) async throws {

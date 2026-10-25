@@ -586,6 +586,43 @@ extension XCUIElementSnapshot {
 @MainActor
 extension UIAutomationTestCase {
     @MainActor
+    func openSettings(_ route: String) {
+        let mine = app.mainTab("我的")
+        if !mine.isSelected {
+            mine.tapBriefly()
+            assertUI(waitUntil(NSPredicate(format: "selected == true"), on: mine), "设置入口应先切换到个人页。")
+        }
+        let entry = app.buttons["settings.route.\(route)"]
+        reveal(entry)
+        entry.tapBriefly()
+    }
+
+    @MainActor
+    func back() {
+        guard let state = try? app.snapshot(),
+              let bar = state.snapshots(matching: .navigationBar).last(where: { !$0.frame.isEmpty && state.frame.intersects($0.frame) }) else {
+            assertUI(false, "返回操作应使用当前可见的导航栏。")
+            return
+        }
+        let button = UIElement(app.native.buttons["BackButton"].exists ? app.native.buttons["BackButton"]
+            : app.native.navigationBars[bar.identifier].buttons.firstMatch)
+        assertUI(button.isHittable, "当前导航栏的返回按钮应可交互。")
+        button.tapBriefly()
+    }
+
+    @MainActor
+    func waitForRequest(_ key: String) {
+        assertUI(waitUntil(NSPredicate { _, _ in
+            UITestControlClient.request(["command": "request-state", "key": key]) == "pending"
+        }, on: app), "请求应进入受控等待状态：\(key)。滚动状态：\(UITestControlClient.request(["command": "scroll-inventory"]) ?? "缺失")。")
+    }
+
+    @MainActor
+    func releaseRequest(_ key: String) {
+        assertUI(UITestControlClient.request(["command": "release-request", "key": key]) == "released", "场景应释放原请求。")
+    }
+
+    @MainActor
     func tap(_ title: String) {
         let response = title == "取消" ? nil
             : UITestControlClient.request(["command": "resolve", "label": title], timeout: 5)

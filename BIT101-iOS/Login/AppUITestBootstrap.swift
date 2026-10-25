@@ -82,6 +82,7 @@ enum AppUITestBootstrap {
     static var pendingRequests: [String: [CheckedContinuation<Void, Never>]] = [:]
     static var failingRequests: [String: [String: String]] = [:]
     static var holdingRequests: [String: [String: String]] = [:]
+    static var completedRequests: Set<String> = []
     static var recoveredSuggestionID: UUID?
 
     static func holdRequest(_ key: String) async {
@@ -103,6 +104,7 @@ enum AppUITestBootstrap {
 
     static func releaseRequests() {
         holdingRequests.removeAll()
+        completedRequests.removeAll()
         let requests = pendingRequests.values.flatMap { $0 }
         pendingRequests.removeAll()
         requests.forEach { $0.resume() }
@@ -553,6 +555,13 @@ final class UITestHTTPTransport: HTTPTransport {
                     }
                     payload = createdPosters.first(where: { $0["id"] as? Int == id }) ?? poster
                 } else {
+                    if method == "PUT", AppUITestBootstrap.environment["BIT101_UI_TEST_PAPER_EDIT_CONFLICT_ONCE"] == "1",
+                       failedPaths.insert("paper-edit-conflict").inserted,
+                       let index = createdPapers.firstIndex(where: { $0["id"] as? Int == id }) {
+                        createdPapers[index]["title"] = "远端更新的文章"
+                        createdPapers[index]["update_time"] = "2026-10-26T00:00:00Z"
+                        return try jsonResponse(["message": "文章已有更新"], url: url, statusCode: 409)
+                    }
                     if method == "PUT", let index = createdPapers.firstIndex(where: { $0["id"] as? Int == id }) {
                         for (key, value) in body { createdPapers[index][key] = value }
                     }

@@ -220,6 +220,7 @@ final class LoginStorage: SchoolCredentialsProviding {
         defaults.removeObject(forKey: DefaultsKey.fakeCookie)
         retireLegacyCredentials()
         if accountChanged {
+            communityRefreshCoordinator.cancel()
             schoolSessionRecovery.cancel()
             schoolPasswordRequests.cancel()
             clearSchoolCookies()
@@ -234,6 +235,7 @@ final class LoginStorage: SchoolCredentialsProviding {
     ///
     /// 用户主动退出时清理认证信息，学号供下次输入。
     func clearSession() {
+        communityRefreshCoordinator.cancel()
         schoolSessionRecovery.cancel()
         schoolPasswordRequests.cancel()
         let studentID = currentStudentID
@@ -282,6 +284,7 @@ final class LoginStorage: SchoolCredentialsProviding {
 
     @discardableResult
     private func clearPersistedLoginData() -> Bool {
+        communityRefreshCoordinator.cancel()
         schoolSessionRecovery.cancel()
         schoolPasswordRequests.cancel()
         session = Session(studentID: "", password: "", fakeCookie: "")

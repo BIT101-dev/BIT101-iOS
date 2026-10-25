@@ -11,8 +11,8 @@ import SwiftUI
 struct PaperSearchView: View {
     private let scene: PaperSearchScene
     private let identity: [ObjectIdentifier]
-    init(dependencies: PaperDependencies, media: MediaEnvironment) {
-        scene = PaperSearchScene(dependencies: dependencies, media: media)
+    init(dependencies: PaperDependencies, media: MediaEnvironment, initialQuery: String = "") {
+        scene = PaperSearchScene(dependencies: dependencies, media: media, initialQuery: initialQuery)
         identity = [ObjectIdentifier(dependencies), ObjectIdentifier(media)]
     }
     var body: some View { scene.id(identity) }
@@ -25,10 +25,12 @@ private struct PaperSearchScene: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel: PaperSearchViewModel
 
-    init(dependencies: PaperDependencies, media: MediaEnvironment) {
+    init(dependencies: PaperDependencies, media: MediaEnvironment, initialQuery: String) {
         self.dependencies = dependencies
         self.media = media
-        _viewModel = StateObject(wrappedValue: PaperSearchViewModel(service: dependencies.list))
+        let model = PaperSearchViewModel(service: dependencies.list)
+        model.searchText = initialQuery
+        _viewModel = StateObject(wrappedValue: model)
     }
     @State private var selectedPaper: PaperSummary?
 
@@ -110,7 +112,7 @@ private struct PaperSearchScene: View {
         .refreshable {
                     interactionEvidence?("interaction.PaperSearchScene.refreshable", "refresh")
 
-            await viewModel.performSearch()
+            await viewModel.enqueueSearch().value
         }
         .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
             AppSearchBarContainer {
@@ -142,6 +144,9 @@ private struct PaperSearchScene: View {
             viewModel.enqueueSearch()
         }
         .onDisappear { viewModel.cancelSearchOperations() }
+        .task {
+            if viewModel.state.status == .idle, !viewModel.searchText.isEmpty { await viewModel.performSearch() }
+        }
         .navigationTitle("搜索")
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(item: $selectedPaper) { paper in

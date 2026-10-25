@@ -20,7 +20,7 @@ extension CommunityAPIClient {
             credentials: { storage.communityCredentials },
             refreshHandler: { observed in
                 try await login.renewCommunitySession(observed: observed)
-            }
+            }, backgroundRefresh: { login.startCommunitySessionRecovery(observed: $0) }
         )
     }
 }
@@ -37,7 +37,8 @@ extension CommunitySession {
             refresh: { observed in
                 try await login.renewCommunitySession(observed: observed)
             },
-            credentialsChanges: storage.credentialsChanges
+            credentialsChanges: storage.credentialsChanges,
+            backgroundRefresh: { login.startCommunitySessionRecovery(observed: $0) }
         )
     }
 }

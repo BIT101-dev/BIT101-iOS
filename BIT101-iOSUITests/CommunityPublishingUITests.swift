@@ -34,9 +34,17 @@ nonisolated final class CommunityPublishingUITests: UIAutomationTestCase {
         assertUI(app.textFields["标题"].value as? String == title, "重新启动应保留原有草稿。")
         let submit = app.buttons[paper ? "ui.paper-composer-view.submit" : "ui.gallery-composer-scene.submit"]
         submit.assertDisabled("待确认的发布应等待用户核对。")
+        tap("community.publication.review-content")
+        assertUI(app.navigationBars["搜索"].appears(timeout: 5), "核对入口应直接打开原生搜索。")
+        assertUI(app.textFields.firstMatch.value as? String == title, "核对应带入待确认发布的标题。")
+        tap(paper ? "ui.paper-search-scene.cancel" : "ui.gallery-search-view.cancel")
+        reveal(app.textFields["标题"], description: "返回核对后的标题", searchFromTop: true)
+        assertUI(app.textFields["标题"].value as? String == title, "返回核对后应保留当前编辑内容。")
         let review = app.buttons["community.publication.review"]
         reveal(review, description: "核对发布结果")
         review.tapBriefly()
+        assertUI(review.disappears(timeout: 5), "确认后应结束待核对状态。")
+        reveal(submit, description: "核对后的发布入口", searchFromTop: true)
         assertUI(waitUntil(NSPredicate(format: "enabled == true"), on: submit, timeout: 5), "用户确认后应允许再次发布。")
         submit.tapBriefly()
         assertUI(textElement(title).appears(timeout: 5), "确认后的发布应更新列表。")
@@ -176,7 +184,7 @@ nonisolated final class CommunityPublishingUITests: UIAutomationTestCase {
 
     @MainActor
     func testPaperPublishEditCommentAndDelete() {
-        app = configureApp(resetStorage: true, content: true, animations: true, initialTab: "gallery")
+        app = configureApp(resetStorage: true, content: true, animations: true, paperEditConflictOnce: true, initialTab: "gallery")
         tapHeader(app.segmentedControls.buttons["文章"])
         tap("发布文章")
         let paperComposer = app.navigationBars["发布文章"]
@@ -209,6 +217,18 @@ nonisolated final class CommunityPublishingUITests: UIAutomationTestCase {
         tap("恢复草稿")
         assertUI(app.textFields["标题"].value as? String == "测试发布文章", "恢复后应保留文章标题。")
         assertUI(app.textFields["正文"].value as? String == "文章发布测试正文", "恢复后应保留文章正文。")
+        tap("paper.drafts.manage")
+        assertUI(app.navigationBars["文章草稿"].appears(timeout: 5), "草稿管理应展示当前账号的文章草稿。")
+        checkScrollContainers()
+        tap("删除草稿")
+        dismissSystemPopover(UIElement(app.native.sheets.firstMatch))
+        assertUI(app.buttons["paper.drafts.delete"].exists, "取消删除应保留文章草稿。")
+        tap("paper.drafts.delete")
+        UIElement(app.native.sheets.buttons["删除草稿"]).tapBriefly()
+        assertUI(textElement("暂无文章草稿").appears(timeout: 5), "确认删除后应更新草稿列表。")
+        tap("完成")
+        reveal(app.textFields["标题"], description: "草稿管理后的标题", searchFromTop: true)
+        assertUI(app.textFields["标题"].value as? String == "测试发布文章", "草稿管理应保留当前编辑输入。")
         tap("发布")
         assertUI(waitUntil(NSPredicate(format: "exists == false"), on: paperComposer, timeout: 5), "文章发布后应关闭编辑窗口。")
         let paper = textElement("测试发布文章")
@@ -234,6 +254,17 @@ nonisolated final class CommunityPublishingUITests: UIAutomationTestCase {
         replaceText("测试修改文章", in: app.textFields["标题"])
         dismissKeyboard()
         tap("保存")
+        assertUI(app.alerts["文章已有更新"].appears(timeout: 5), "版本冲突应保留编辑内容并提示核对。")
+        closeAlertIfPresent()
+        tap("paper.edit.review-latest")
+        assertUI(textElement("远端更新的文章").appears(timeout: 5), "核对入口应展示最新文章。")
+        back()
+        reveal(app.textFields["标题"], description: "核对更新后的标题", searchFromTop: true)
+        assertUI(app.textFields["标题"].value as? String == "测试修改文章", "查看最新文章后应保留本地标题。")
+        tap("paper.edit.confirm-version")
+        let save = app.buttons["ui.paper-composer-view.submit"]
+        reveal(save, description: "确认版本后的保存入口", searchFromTop: true)
+        save.tapBriefly()
         assertUI(waitUntil(NSPredicate(format: "exists == false"), on: editor, timeout: 5), "保存文章应返回详情。")
         assertUI(textElement("测试修改文章").appears(timeout: 5), "保存应更新文章详情。")
         assertUI(app.textViews.matching(NSPredicate(format: "value CONTAINS %@", "文章发布测试正文")).firstMatch.native.exists,

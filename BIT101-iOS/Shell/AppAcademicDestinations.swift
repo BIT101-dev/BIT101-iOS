@@ -61,24 +61,25 @@ private struct ScoreRootScene: View {
     }
 
     var body: some View {
-        ZStack {
-            switch selectedSurface {
-            case .score:
-                ScoreListPage(
-                    viewModel: scoreViewModel,
-                    transcriptService: transcriptService,
-                    onSearchCourse: openCourseSearch
-                )
-                    .simultaneousGesture(surfaceSwitchGesture)
-                    .accessibilityIdentifier("home.score-surface")
-                    .transition(.opacity)
-            case .course:
-                CoursePageContent(viewModel: courseViewModel, dependencies: courses, media: destinations.media, profiles: destinations.profiles)
-                    .simultaneousGesture(surfaceSwitchGesture)
-                    .accessibilityIdentifier("home.course-surface")
-                    .transition(.opacity)
-            }
+        TabView(selection: $selectedSurface) {
+            ScoreListPage(
+                viewModel: scoreViewModel,
+                transcriptService: transcriptService,
+                onSearchCourse: openCourseSearch
+            )
+                .simultaneousGesture(surfaceSwitchGesture)
+                .accessibilityIdentifier("home.score-surface")
+                .tag(ScoreSurface.score)
+                .tabItem { Text(ScoreSurface.score.title) }
+                .toolbar(.hidden, for: .tabBar)
+            CoursePageContent(viewModel: courseViewModel, dependencies: courses, media: destinations.media, profiles: destinations.profiles)
+                .simultaneousGesture(surfaceSwitchGesture)
+                .accessibilityIdentifier("home.course-surface")
+                .tag(ScoreSurface.course)
+                .tabItem { Text(ScoreSurface.course.title) }
+                .toolbar(.hidden, for: .tabBar)
         }
+        .accessibilityIdentifier("academic.surfaces")
         .animation(AppDesignSystem.Motion.transition(reduceMotion: reduceMotion), value: selectedSurface)
         .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
             AppTopSegmentedPicker(title: "成绩内容", selection: surfaceSelection) {

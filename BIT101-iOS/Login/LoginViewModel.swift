@@ -42,7 +42,7 @@ final class LoginViewModel: ObservableObject {
 
     /// 用持久化的本地状态初始化登录表单与首屏。
     ///
-    /// 如果本地已有 fake-cookie，先乐观进入主界面，远端校验放到后台完成。
+    /// 本机已有账号时进入主界面，远端校验在后台继续推进。
     init(service: (any LoginServicing)? = nil) {
         let service = service ?? LoginService.appRuntimeService()
         self.service = service

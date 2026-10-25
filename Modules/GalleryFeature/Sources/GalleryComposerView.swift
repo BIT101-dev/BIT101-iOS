@@ -25,6 +25,7 @@ struct GalleryComposerView: View {
 }
 
 private struct GalleryComposerScene: View {
+    private let dependencies: GalleryDependencies
     @Environment(MediaEnvironment.self) private var media
     @StateObject private var viewModel: GalleryComposerViewModel
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
@@ -36,6 +37,7 @@ private struct GalleryComposerScene: View {
     let onCreated: () -> Void
 
     init(dependencies: GalleryDependencies, editingPoster: GalleryPosterDetail?, onCreated: @escaping () -> Void) {
+        self.dependencies = dependencies
         self.editingPoster = editingPoster
         self.onCreated = onCreated
         let imagePreparer = ComposerImagePreparer()
@@ -229,7 +231,8 @@ private struct GalleryComposerScene: View {
                             .foregroundStyle(AppDesignSystem.Foreground.secondary)
                     }
                 }
-                CommunityPublicationReviewSection(state: viewModel.publicationReview) {
+                CommunityPublicationReviewSection(state: viewModel.publicationReview,
+                    destination: AnyView(GalleryPublicationReviewView(service: dependencies.feed, query: viewModel.publicationReview.searchTitle))) {
                     Task { await viewModel.acknowledgePublicationReview() }
                 }
             }

@@ -2,6 +2,7 @@
 import CommunityUI
 import CommunityCore
 import CommunityTransport
+import MediaKit
 import DesignSystemKit
 import SwiftUI
 import Observation
@@ -11,6 +12,7 @@ import os
 /// 文章发布与编辑页；富文本正文沿用原始块结构。
 struct PaperComposerView: View {
     @Environment(PaperDependencies.self) private var dependencies
+    @Environment(MediaEnvironment.self) private var media
     @Environment(\.dismiss) private var dismiss
     let onCreated: () -> Void
     @State private var model: PaperComposerViewModel
@@ -21,6 +23,8 @@ struct PaperComposerView: View {
     @State private var needsDraftRecovery = false
     @State private var isConfirmingDraftRecovery = false
     @State private var draftRecovery: ComposerDraftCleanup?
+    @State private var isManagingDrafts = false
+    @State private var didLoadDraft = false
     private var isBusy: Bool { model.isSubmitting || submitTask != nil }
 
     init(editingPaper: PaperDetail? = nil, initialContent: String,
@@ -60,12 +64,34 @@ struct PaperComposerView: View {
                     .appInteractiveListRow()
                     .accessibilityIdentifier("ui.paper-composer-view.匿名发布")
             }
-            CommunityPublicationReviewSection(state: model.publicationReview) {
+            CommunityPublicationReviewSection(state: model.publicationReview,
+                destination: AnyView(PaperSearchView(dependencies: dependencies, media: media, initialQuery: model.publicationReview.searchTitle))) {
                 guard submitTask == nil else { return }
                 submitTask = Task {
                     defer { submitTask = nil }
                     await model.acknowledgePublicationReview(drafts: dependencies.drafts)
                 }
+            }
+            if let latest = model.conflictingPaper {
+                Section("核对文章更新") {
+                    Text("当前编辑内容已保留。确认覆盖后，保存会提交当前标题、简介、正文和匿名设置。")
+                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                    NavigationLink("查看最新文章") {
+                        PaperDetailView(dependencies: dependencies, media: media,
+                            initialPaper: .init(id: latest.id, title: latest.title, intro: latest.intro,
+                                likeNum: latest.likeNum, commentNum: latest.commentNum, updateTime: latest.updateTime), onChanged: {})
+                    }
+                    .appInteractiveListRow()
+                    .accessibilityIdentifier("paper.edit.review-latest")
+                    Button("使用当前内容覆盖此版本") { model.confirmEditVersion() }
+                        .appInteractiveListRow()
+                        .accessibilityIdentifier("paper.edit.confirm-version")
+                }
+            }
+            Section("文章草稿") {
+                Button("管理文章草稿") { isManagingDrafts = true }
+                    .appInteractiveListRow()
+                    .accessibilityIdentifier("paper.drafts.manage")
             }
         }
         .disabled(isBusy)
@@ -104,7 +130,7 @@ struct PaperComposerView: View {
                         }
                     }
                 }
-                .disabled(isBusy || model.publicationReview.needsReview)
+                .disabled(isBusy || model.publicationReview.needsReview || model.conflictingPaper != nil)
                 .accessibilityIdentifier("ui.paper-composer-view.submit")
             }
         }
@@ -122,9 +148,13 @@ struct PaperComposerView: View {
                     else if model.isCurrentOwner { model.alert = .informational(title: "草稿清理遇到问题", message: "当前编辑内容已保留，请重试。") }
                 }
             }
-            Button("取消", role: .cancel) {}
+            Button("取消", role: .cancel) {}.accessibilityIdentifier("paper.editor.cancel-discard")
         }
-        .task { await loadDraft() }
+        .task {
+            guard !didLoadDraft else { return }
+            await loadDraft()
+            if model.isCurrentOwner { didLoadDraft = true }
+        }
         .alert("恢复文章草稿？", isPresented: $isConfirmingRestore) {
             Button("恢复草稿") {
                 if let pendingDraft { model.restoreDraft(pendingDraft) }
@@ -141,6 +171,9 @@ struct PaperComposerView: View {
             Text("可读取的文章草稿将保留，损坏条目和其余原文件内容会清除。当前编辑内容保留。")
         }
         .onDisappear { submitTask?.cancel() }
+        .sheet(isPresented: $isManagingDrafts) {
+            NavigationStack { PaperDraftsView(isCurrentOwner: { model.isCurrentOwner }) }
+        }
         .diagnosticAlert(item: $model.alert)
     }
 
@@ -183,8 +216,73 @@ struct PaperComposerView: View {
             let saved = await dependencies.drafts.savePaper(snapshot)
             guard model.isCurrentOwner else { return }
             if saved { dismiss() }
-            else { model.alert = .informational(title: "文章暂存遇到问题", message: "当前编辑内容已保留，请稍后重试暂存。") }
+            else { model.alert = .informational(title: "文章暂存遇到问题", message: "当前编辑内容已保留。请核对已保存的文章草稿与本机可用空间，再重试暂存。") }
         }
+    }
+}
+
+private struct PaperDraftsView: View {
+    @Environment(PaperDependencies.self) private var dependencies
+    @Environment(\.dismiss) private var dismiss
+    let isCurrentOwner: () -> Bool
+    @State private var drafts: [PaperComposerDraftSnapshot] = []
+    @State private var selectedDraft: PaperComposerDraftSnapshot?
+    @State private var operation: Task<Void, Never>?
+    @State private var alert: AppAlert?
+    @State private var isLoading = true
+
+    var body: some View {
+        List {
+            if isLoading { AppInlineLoadingState("正在读取草稿") }
+            else if drafts.isEmpty { Text("暂无文章草稿") }
+            ForEach(drafts, id: \.paperID) { draft in
+                VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tiny) {
+                    Text(draft.title.isEmpty ? "未命名文章" : draft.title)
+                    Text(draft.intro).font(AppDesignSystem.Typography.caption)
+                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                    Button("删除草稿", role: .destructive) { selectedDraft = draft }
+                        .disabled(operation != nil)
+                        .appInteractiveListRow(isDestructive: true)
+                        .accessibilityIdentifier("paper.drafts.delete")
+                }
+            }
+        }
+        .accessibilityIdentifier("paper.drafts.list")
+        .appGroupedListStyle()
+        .navigationTitle("文章草稿")
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button("完成") { dismiss() }.accessibilityIdentifier("paper.drafts.done")
+            }
+        }
+        .confirmationDialog("删除此文章草稿？", isPresented: Binding(get: { selectedDraft != nil }, set: { if !$0 { selectedDraft = nil } }), titleVisibility: .visible) {
+            Button("删除草稿", role: .destructive) {
+                guard operation == nil, let draft = selectedDraft else { return }
+                operation = Task {
+                    defer { operation = nil }
+                    guard isCurrentOwner() else { return }
+                    let cleanup = await dependencies.drafts.capturePaperCleanup(matching: draft)
+                    guard isCurrentOwner() else { return }
+                    let removed = await cleanup()
+                    guard isCurrentOwner() else { return }
+                    if removed { await loadDrafts() }
+                    else { alert = .informational(title: "草稿清理遇到问题", message: "原始草稿和当前编辑内容已保留，请重试。") }
+                }
+            }
+            Button("取消", role: .cancel) {}.accessibilityIdentifier("paper.drafts.cancel-delete")
+        } message: { Text("当前编辑内容会保留。") }
+        .task { await loadDrafts() }
+        .onDisappear { operation?.cancel() }
+        .diagnosticAlert(item: $alert)
+    }
+
+    private func loadDrafts() async {
+        guard isCurrentOwner() else { return }
+        let result = await dependencies.drafts.loadPaperDrafts()
+        guard isCurrentOwner() else { return }
+        isLoading = false
+        if result.allowsWrite { drafts = result.snapshot ?? [] }
+        else { alert = .informational(title: "草稿读取遇到问题", message: "原始草稿已保留，请检查本机存储与 App 版本后重试。") }
     }
 }
 
@@ -197,6 +295,8 @@ final class PaperComposerViewModel {
     private let originalPlainContent: String
     private let initialContent: String
     private var expectedUpdatedAt: String?
+    private var expectedPublicEdit: Bool
+    private(set) var conflictingPaper: PaperDetail?
     private(set) var restoredDraft: PaperComposerDraftSnapshot?
     var title: String
     var intro: String
@@ -216,6 +316,7 @@ final class PaperComposerViewModel {
         originalPlainContent = initialContent.trimmingCharacters(in: .whitespacesAndNewlines)
         self.initialContent = initialContent
         expectedUpdatedAt = editingPaper?.updateTime
+        expectedPublicEdit = editingPaper?.publicEdit ?? true
         title = editingPaper?.title ?? ""
         intro = editingPaper?.intro ?? ""
         content = initialContent
@@ -240,6 +341,13 @@ final class PaperComposerViewModel {
     }
 
     var isCurrentOwner: Bool { owner == currentIdentity() && !Task.isCancelled }
+
+    func confirmEditVersion() {
+        guard isCurrentOwner, !isSubmitting, let latest = conflictingPaper else { return }
+        expectedUpdatedAt = latest.updateTime
+        expectedPublicEdit = latest.publicEdit
+        conflictingPaper = nil
+    }
 
     func refreshPublicationReview(drafts: any ComposerPublicationStoring) async {
         guard editingPaper == nil, isCurrentOwner else { return }
@@ -274,7 +382,7 @@ final class PaperComposerViewModel {
 
     func submit(service: any PaperComposerServicing,
                 drafts: any PaperComposerDraftStoring & ComposerPublicationStoring) async -> Bool {
-        guard !isSubmitting, isCurrentOwner else { return false }
+        guard !isSubmitting, isCurrentOwner, conflictingPaper == nil else { return false }
         guard !publicationReview.needsReview else {
             alert = AppAlert(title: "发布结果待确认", message: CommunityCreateOutcomeUnknown.reviewMessage)
             return false
@@ -309,7 +417,7 @@ final class PaperComposerViewModel {
         do {
             if let editingPaper {
                 try await service.updatePaper(id: editingPaper.id, title: title, intro: intro,
-                    content: serializedBody, anonymous: anonymous, publicEdit: editingPaper.publicEdit,
+                    content: serializedBody, anonymous: anonymous, publicEdit: expectedPublicEdit,
                     lastUpdatedAt: expectedUpdatedAt ?? editingPaper.updateTime)
             } else {
                 let started = try await drafts.beginPublication(.paper(title: title, intro: intro,
@@ -340,6 +448,11 @@ final class PaperComposerViewModel {
             return isCurrentOwner
         } catch {
             guard isCurrentOwner else { return false }
+            if let conflict = error as? PaperEditConflict {
+                conflictingPaper = conflict.latest
+                alert = .informational(title: "文章已有更新", message: conflict.localizedDescription)
+                return false
+            }
             if error is CommunityCreateOutcomeUnknown {
                 alert = AppAlert(title: "发布结果待确认", error: error)
                 return false

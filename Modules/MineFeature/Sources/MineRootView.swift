@@ -457,11 +457,7 @@ private struct MineProfileCard: View {
                 Text(info.user.nickname)
                     .font(AppDesignSystem.Typography.titleEmphasis)
 
-                if !info.user.identity.text.isEmpty {
-                    Text(info.user.identity.text)
-                        .font(AppDesignSystem.Typography.captionEmphasis)
-                        .foregroundStyle(identityColor)
-                }
+                CommunityIdentityBadge(info.user.identity)
             }
 
             Spacer().frame(height: AppDesignSystem.Spacing.tiny)
@@ -503,9 +499,6 @@ private struct MineProfileCard: View {
         .contentShape(Circle())
     }
 
-    private var identityColor: Color {
-        Color(hex: info.user.identity.color) ?? .secondary
-    }
 }
 
 /// 粉丝 / 关注 列表页。
@@ -557,11 +550,7 @@ private struct MineUserListView: View {
                                         Text(user.nickname)
                                             .font(AppDesignSystem.Typography.title)
 
-                                        if !user.identity.text.isEmpty {
-                                            Text(user.identity.text)
-                                                .font(AppDesignSystem.Typography.captionEmphasis)
-                                                .foregroundStyle(Color(hex: user.identity.color) ?? AppDesignSystem.Palette.Status.info)
-                                        }
+                                        CommunityIdentityBadge(user.identity)
                                     }
 
                                     Text("UID：\(user.id)")

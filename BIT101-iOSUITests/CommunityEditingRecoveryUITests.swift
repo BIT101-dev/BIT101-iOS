@@ -242,18 +242,6 @@ nonisolated final class CommunityEditingRecoveryUITests: UIAutomationTestCase {
     }
 
     @MainActor
-    private func waitForRequest(_ key: String) {
-        assertUI(waitUntil(NSPredicate { _, _ in
-            UITestControlClient.request(["command": "request-state", "key": key]) == "pending"
-        }, on: app), "请求应进入受控等待状态。")
-    }
-
-    @MainActor
-    private func releaseRequest(_ key: String) {
-        assertUI(UITestControlClient.request(["command": "release-request", "key": key]) == "released", "场景应释放原请求。")
-    }
-
-    @MainActor
     private func selectFirstPhoto() {
         let platform = UIElement(app.native)
         let photos = platform.buttons.matching(NSPredicate(format: "label IN %@", ["照片", "Photos"])).firstMatch

@@ -100,7 +100,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     }
 
     @MainActor
-    func reveal(_ element: UIElement, description: String = "交互控件") {
+    func reveal(_ element: UIElement, description: String = "交互控件", searchFromTop: Bool = false) {
         let window = app.windows.firstMatch.frame
         func isVisible() -> Bool {
             guard element.exists, element.isHittable else { return false }
@@ -117,7 +117,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         for attempt in 0..<16 {
             let target = element.exists ? element.frame : CGRect.null
             let horizontal = !target.isNull && (target.maxX <= window.minX || target.minX >= window.maxX)
-            let upward = target.isNull ? attempt < 8 : target.minY >= window.midY
+            let upward = target.isNull ? (attempt < 8) != searchFromTop : target.minY >= window.midY
             let start = origin.withOffset(CGVector(dx: horizontal ? frame.midX : verticalX, dy: frame.midY))
             let end = origin.withOffset(CGVector(dx: horizontal ? frame.minX + frame.width * (target.minX >= window.maxX ? 0.1 : 0.9) : verticalX,
                                                 dy: horizontal ? frame.midY : frame.minY + frame.height * (upward ? 0.1 : 0.9)))
@@ -145,30 +145,6 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             if predicate.evaluate(with: element) { return true }
         } while Date() < deadline
         return false
-    }
-
-    @MainActor
-    func openSettings(_ route: String) {
-        let mine = app.mainTab("我的")
-        if !mine.isSelected {
-            mine.tapBriefly()
-            assertUI(waitUntil(NSPredicate(format: "selected == true"), on: mine), "设置入口应先切换到个人页。")
-        }
-        let entry = app.buttons["settings.route.\(route)"]
-        reveal(entry)
-        entry.tapBriefly()
-    }
-
-    @MainActor
-    func back() {
-        guard let state = try? app.snapshot(),
-              let bar = state.snapshots(matching: .navigationBar).last(where: { !$0.frame.isEmpty && state.frame.intersects($0.frame) }) else {
-            assertUI(false, "返回操作应使用当前可见的导航栏。")
-            return
-        }
-        let button = app.navigationBars[bar.identifier].buttons.firstMatch
-        assertUI(button.isHittable, "当前导航栏的返回按钮应可交互。")
-        button.tapBriefly()
     }
 
     @MainActor
@@ -226,6 +202,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             replaceTextWithKeyboard(text, in: field)
             return
         }
+        if UIElement.usesNativeInteraction { reveal(field, description: "输入字段") }
         assertUI(field.appears(timeout: 5), "输入操作应等待字段出现。")
         if UIElement.usesNativeInteraction { field.tapBriefly() }
         enterText(text, in: field)
@@ -753,6 +730,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         messagePagingFailureOnce: Bool = false,
         commentOutcomeUnknownOnce: Bool = false,
         publicationOutcomeUnknownOnce: Bool = false,
+        paperEditConflictOnce: Bool = false,
         paginationFailureOnce: Bool = false,
         courseLookupFailureOnce: Bool = false,
         resourceRoutes: Bool = false,
@@ -845,6 +823,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         application.launchEnvironment["BIT101_UI_TEST_MESSAGE_PAGING_FAILURE_ONCE"] = messagePagingFailureOnce ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_COMMENT_OUTCOME_UNKNOWN_ONCE"] = commentOutcomeUnknownOnce ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_PUBLICATION_OUTCOME_UNKNOWN_ONCE"] = publicationOutcomeUnknownOnce ? "1" : "0"
+        application.launchEnvironment["BIT101_UI_TEST_PAPER_EDIT_CONFLICT_ONCE"] = paperEditConflictOnce ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_PAGINATION_FAILURE_ONCE"] = paginationFailureOnce ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_COURSE_LOOKUP_FAILURE_ONCE"] = courseLookupFailureOnce ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_RESOURCE_ROUTES"] = resourceRoutes ? "1" : "0"

@@ -10,6 +10,16 @@ import DesignSystemKit
 
 import SwiftUI
 
+struct GalleryPublicationReviewView: View {
+    @StateObject private var viewModel: GalleryViewModel
+    init(service: any GalleryFeedServicing, query: String) {
+        let model = GalleryViewModel(service: service)
+        model.searchQuery.text = query
+        _viewModel = StateObject(wrappedValue: model)
+    }
+    var body: some View { GallerySearchView(viewModel: viewModel) }
+}
+
 struct GallerySearchView: View {
     @ObservedObject var viewModel: GalleryViewModel
     @Environment(\.dismiss) private var dismiss

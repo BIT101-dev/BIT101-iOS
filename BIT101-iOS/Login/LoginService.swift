@@ -237,6 +237,10 @@ struct LoginService {
     }
 
     /// 认证恢复在保存前核对账号归属，网络和取消错误沿原语义返回。
+    func startCommunitySessionRecovery(observed: CommunityCredentials) {
+        storage.communityRefreshCoordinator.start(observed: observed) { try await renewCommunitySession(observed: observed) }
+    }
+
     func renewCommunitySession(observed: CommunityCredentials) async throws {
         try await storage.communityRefreshCoordinator.refresh(observed: observed, current: { storage.communityCredentials }) {
             do { try await authenticateCommunitySession(expectedIdentity: observed.identity) }

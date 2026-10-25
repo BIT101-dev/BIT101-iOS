@@ -7,6 +7,22 @@ import Testing
 
 @MainActor
 struct PaperComposerDraftTests {
+    @Test(.timeLimit(.minutes(1))) func draftCapacityCanBeRecoveredWithinTheOwningAccount() async throws {
+        let files = ModuleScoreFiles(), account = Account()
+        let owned = store(files, session: { account.session })
+        let content = String(repeating: "x", count: ComposerDraftImagePolicy.maximumMetadataBytes / 4)
+        for id in 1...3 { #expect(await owned.savePaper(snapshot(id, content: content))) }
+        #expect(await owned.savePaper(snapshot(4, content: content)) == false)
+        let entries = try #require((await owned.loadPaperDrafts()).snapshot)
+        #expect(entries.map(\.paperID) == [1, 2, 3])
+        let cleanup = await owned.capturePaperCleanup(matching: entries[0])
+        #expect(await cleanup())
+        #expect(await owned.savePaper(snapshot(4, content: content)))
+        #expect((await owned.loadPaperDrafts()).snapshot?.map(\.paperID) == [2, 3, 4])
+        account.session = AppStorageSession(accountIdentifier: "B")
+        #expect((await owned.loadPaperDrafts()).snapshot == nil)
+    }
+
     @Test(.timeLimit(.minutes(1))) func publicationOwnerUsesItsAccountWithinANamespacedStore() async throws {
         let files = ModuleScoreFiles()
         let namespace = AppStorageSession(accountIdentifier: "namespace.A")

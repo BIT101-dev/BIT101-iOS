@@ -33,10 +33,12 @@ public struct CommunityCommentReviewSection: View {
 
 public struct CommunityPublicationReviewSection: View {
     private let state: ComposerPublicationReviewState
+    private let destination: AnyView
     private let onAcknowledge: () -> Void
 
-    public init(state: ComposerPublicationReviewState, onAcknowledge: @escaping () -> Void) {
+    public init(state: ComposerPublicationReviewState, destination: AnyView, onAcknowledge: @escaping () -> Void) {
         self.state = state
+        self.destination = destination
         self.onAcknowledge = onAcknowledge
     }
 
@@ -46,6 +48,9 @@ public struct CommunityPublicationReviewSection: View {
                 Text(message)
                     .font(AppDesignSystem.Typography.caption)
                     .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                NavigationLink("核对已发布内容", destination: destination)
+                    .appInteractiveListRow()
+                    .accessibilityIdentifier("community.publication.review-content")
                 Button("已核对，允许发布", action: onAcknowledge)
                     .appInteractiveListRow()
                     .accessibilityIdentifier("community.publication.review")
@@ -56,8 +61,8 @@ public struct CommunityPublicationReviewSection: View {
     private var message: String {
         switch state {
         case .ready: ""
-        case .pending(let attempt): "《\(attempt.content.title)》的发布结果待确认。请先查看自己的帖子或文章，再决定是否继续发布。"
-        case .requiresRecovery: "本机发布记录读取遇到问题。请先核对当前账号的帖子与文章，确认后重建发布记录。编辑内容和草稿会保留。"
+        case .pending(let attempt): "《\(attempt.content.title)》的发布结果待确认。请打开搜索，核对作者与内容后再决定是否继续发布。当前编辑内容会保留。"
+        case .requiresRecovery: "本机发布记录读取遇到问题。请先搜索并核对当前账号已发布的内容，确认后重建发布记录。编辑内容和草稿会保留。"
         }
     }
 }

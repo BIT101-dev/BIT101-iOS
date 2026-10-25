@@ -95,6 +95,7 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
     private let httpClient: HTTPClient
     private let credentials: () -> CommunityCredentials
     private let refreshHandler: (CommunityCredentials) async throws -> Void
+    private let backgroundRefresh: ((CommunityCredentials) -> Void)?
     private let errorDomain: String
 
     public init(
@@ -102,13 +103,15 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
         baseURL: URL,
         errorDomain: String,
         credentials: @escaping () -> CommunityCredentials,
-        refreshHandler: @escaping (CommunityCredentials) async throws -> Void = { _ in }
+        refreshHandler: @escaping (CommunityCredentials) async throws -> Void = { _ in },
+        backgroundRefresh: ((CommunityCredentials) -> Void)? = nil
     ) {
         self.httpClient = httpClient
         self.baseURL = baseURL
         self.errorDomain = errorDomain
         self.credentials = credentials
         self.refreshHandler = refreshHandler
+        self.backgroundRefresh = backgroundRefresh
     }
 
     public func request<Response: Decodable & Sendable>(
@@ -342,26 +345,37 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
         catch let HTTPClientError.unacceptableStatus(code, _) where code == 401 && authentication != .none
             && !observed.cookie.isEmpty && retryPolicy == .afterCredentialRefresh {
             let allowsPublicRead = authentication == .optional && request.httpMethod == "GET"
+            var attemptedPublicRead = false
+            if allowsPublicRead, let backgroundRefresh {
+                try validateIdentity(identity)
+                CommunityCredentialRefreshContext.$isRestoring.withValue(true) { backgroundRefresh(observed) }
+                attemptedPublicRead = true
+                do { return try await sendPublicRead(request, identity: identity) }
+                catch {
+                    try validateIdentity(identity)
+                    if TaskCancellation.matches(error) { throw error }
+                }
+            }
             do {
                 try validateIdentity(identity)
                 try await CommunityCredentialRefreshContext.$isRestoring.withValue(true) { try await refreshHandler(observed) }
             } catch {
                 try validateIdentity(identity)
                 if TaskCancellation.matches(error) { throw error }
-                if allowsPublicRead { return try await sendPublicRead(request, identity: identity) }
+                if allowsPublicRead && !attemptedPublicRead { return try await sendPublicRead(request, identity: identity) }
                 if error is CommunitySessionRestorationError { throw Failure.communityNotLoggedIn }
                 throw error
             }
             try validateIdentity(identity)
             let refreshedCookie = credentials().cookie
             guard !refreshedCookie.isEmpty else {
-                if allowsPublicRead { return try await sendPublicRead(request, identity: identity) }
+                if allowsPublicRead && !attemptedPublicRead { return try await sendPublicRead(request, identity: identity) }
                 throw Failure.communityNotLoggedIn
             }
             var retry = request
             retry.setValue(refreshedCookie, forHTTPHeaderField: "fake-cookie")
             do { return try await sendResponse(retry, identity: identity) }
-            catch let HTTPClientError.unacceptableStatus(code, _) where code == 401 && allowsPublicRead {
+            catch let HTTPClientError.unacceptableStatus(code, _) where code == 401 && allowsPublicRead && !attemptedPublicRead {
                 return try await sendPublicRead(request, identity: identity)
             }
         }

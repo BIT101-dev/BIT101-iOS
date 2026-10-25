@@ -274,9 +274,11 @@ struct LoginStorageTests {
 
     private final class RenewalResponses: HTTPTransport {
         var paths: [String] = []
+        var beforeLoginResponse: (() async -> Void)?
         func data(for request: URLRequest) async throws -> (Data, URLResponse) {
             let url = try #require(request.url)
             paths.append(url.path)
+            if url.path == "/user/login" { await beforeLoginResponse?() }
             let body: String
             switch url.path {
             case "/user/login": body = #"{"fake_cookie":"renewed-cookie"}"#
@@ -315,6 +317,31 @@ struct LoginStorageTests {
             storage.clearSession()
             #expect(await diagnostics.recent().isEmpty)
         }
+    }
+
+    @Test(.serialized, .timeLimit(.minutes(1)), arguments: [false, true])
+    func optionalCommunityReadsRecoverThroughBothApplicationFactories(sessionFactory: Bool) async throws {
+        let domain = "BIT101Tests.optional-community-recovery"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: {})
+        try storage.saveLoginState(studentID: "fixture-account", password: "fixture-password", fakeCookie: "old-cookie",
+            communityPasswordDigest: "fixture-digest")
+        let transport = RenewalResponses()
+        var pending: CheckedContinuation<Void, Never>?
+        transport.beforeLoginResponse = { await withCheckedContinuation { pending = $0 } }
+        defer { storage.clearSession(); pending?.resume() }
+        let http = HTTPClient(transport: transport, observer: nil)
+        let client: CommunityAPIClient<RefreshFailure> = sessionFactory
+            ? CommunitySession.appSession(storage: storage, httpClient: http).client(errorDomain: "fixture")
+            : CommunityAPIClient(storage: storage, httpClient: http, errorDomain: "fixture")
+        _ = try await client.requestData(path: "fixture-renewal", authentication: .optional)
+        try await waitForTestEvent { pending != nil }
+        #expect(storage.fakeCookie == "old-cookie" && transport.paths.filter { $0 == "/fixture-renewal" }.count == 2)
+        pending?.resume(); pending = nil
+        try await waitForTestEvent { storage.fakeCookie == "renewed-cookie" }
+        #expect(transport.paths.filter { $0 == "/user/login" }.count == 1)
     }
 
     private final class SuspendedCookieCheck: HTTPTransport {

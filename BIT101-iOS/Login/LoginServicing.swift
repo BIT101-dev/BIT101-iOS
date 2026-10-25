@@ -125,6 +125,11 @@ struct UITestLoginService: LoginServicing, AccountRegistrationServicing {
     }
 
     func registerAccount(studentID: String, password: String, token: String, code: String, schoolPassword: String?) async throws {
+        defer { AppUITestBootstrap.completedRequests.insert("registration-submit") }
+        if AppUITestBootstrap.holdingRequests["registration-submit"] != nil {
+            await AppUITestBootstrap.holdRequest("registration-submit")
+        }
+        try Task.checkCancellation()
         guard code == "123456" else { throw LoginServiceError.invalidServerResponse }
         _ = try await login(studentID: studentID, password: schoolPassword ?? password)
         try AppAccountSession.storage.saveLoginState(studentID: studentID, password: schoolPassword ?? "",

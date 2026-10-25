@@ -1,6 +1,51 @@
 import XCTest
 
+nonisolated final class AuthenticationLifecycleUITests: UIAutomationTestCase {
+    @MainActor
+    @objc func testLeavingRegistrationCancelsThePendingLoginActivation() {
+        app = configureApp(resetStorage: true, account: nil)
+        app.buttons["login.register"].tapBriefly()
+        replaceTextWithKeyboard("1120260001", in: app.textFields["registration.student-id"])
+        replaceTextWithKeyboard("community-password", in: app.secureTextFields["registration.password"])
+        replaceTextWithKeyboard("community-password", in: app.secureTextFields["registration.confirmation"])
+        replaceTextWithKeyboard("school-password", in: app.secureTextFields["registration.school-password"])
+        dismissKeyboard()
+        let verify = app.buttons["registration.verify"]
+        reveal(verify)
+        verify.tapBriefly()
+        reveal(app.buttons["registration.submit"])
+        _ = UITestControlClient.request(["command": "hold-request", "key": "registration-submit"])
+        app.buttons["registration.submit"].tapBriefly()
+        waitForRequest("registration-submit")
+        back()
+        releaseRequest("registration-submit")
+        assertUI(waitUntil(NSPredicate { _, _ in
+            UITestControlClient.request(["command": "request-state", "key": "registration-submit"]) == "completed"
+        }, on: app), "已退出注册页面的响应应完成取消处理。")
+        assertUI(app.textFields["login.student-id"].exists, "注册页面退出后应保留登录表单。")
+        assertUI(!app.mainTab("日程").exists, "已退出的注册提交应结束自身的登录激活。")
+    }
+}
+
 nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
+    @MainActor
+    @objc func testPaperSearchRefreshKeepsItsQueryAndUsesTheOwnedRequest() {
+        app = configureApp(resetStorage: true, content: true, pagination: true, initialTab: "gallery")
+        tapHeader(app.segmentedControls.buttons["文章"])
+        tap("搜索文章")
+        assertUI(app.navigationBars["搜索"].appears(timeout: 5), "搜索入口应打开原生搜索页面。")
+        replaceText("分页文章\n", in: app.textFields.firstMatch)
+        dismissKeyboard()
+        assertUI(textElement("分页文章 1").appears(timeout: 5), "搜索应先展示当前查询的结果。")
+        _ = UITestControlClient.request(["command": "hold-request", "key": "papers", "query.page": "0", "query.search": "分页文章"])
+        pullToRefresh()
+        assertUI(app.navigationBars["搜索"].exists, "下拉刷新应保留搜索页面。")
+        waitForRequest("papers")
+        releaseRequest("papers")
+        assertUI(app.textFields.firstMatch.value as? String == "分页文章", "刷新应保留搜索条件。")
+        assertUI(textElement("分页文章 1").appears(timeout: 5), "刷新后应继续展示当前查询。")
+    }
+
     @MainActor
     @objc func testLongPostAndCommentKeepACompleteNativeReadingPath() {
         app = configureApp(resetStorage: true, content: true, longText: true, initialTab: "gallery")
@@ -218,5 +263,42 @@ nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
         assertUI(app.segmentedControls.buttons["课程"].appears(timeout: 5), "恢复入口应进入原生课程搜索。")
         assertUI(app.textFields["在这里搜索课程哦"].value as? String == "学校测试课程", "搜索应保留原课程名称。")
         assertUI(textElement("学校测试课程").appears(timeout: 5), "恢复后的搜索应展示可选择的课程。")
+    }
+}
+
+extension CommunityInteractionUITests {
+    @MainActor
+    @objc func testStableRowsPaginateAgainAfterRefreshingTheSameResults() {
+        for (tab, section, title) in [("home", "课程", "分页课程"), ("gallery", "文章", "分页文章")] {
+            app = configureApp(resetStorage: true, content: true, pagination: true, initialTab: tab)
+            tapHeader(app.segmentedControls.buttons[section])
+            let first = app.staticTexts["\(title) 1"]
+            let secondPage = app.staticTexts["\(title) 9"]
+            assertUI(first.appears(timeout: 5), "首屏应展示稳定身份的分页夹具。")
+            reveal(secondPage, description: "首轮第二页")
+            assertUI(secondPage.isHittable, "首轮滚动应加载第二页。")
+            if tab == "home" {
+                let readingY = secondPage.frame.minY
+                tapHeader(app.segmentedControls.buttons["成绩"])
+                tapHeader(app.segmentedControls.buttons["课程"])
+                assertUI(secondPage.isHittable && abs(secondPage.frame.minY - readingY) < 1, "切换成绩与课程应保留课程阅读位置。")
+            }
+            let request = tab == "home" ? "courses" : "papers"
+            _ = UITestControlClient.request(["command": "hold-request", "key": request, "query.page": "0"])
+            for _ in 0..<8 {
+                if first.exists && first.isHittable { break }
+                pullToRefresh()
+            }
+            assertUI(first.isHittable, "刷新前应回到首屏。")
+            for _ in 0..<3 {
+                if UITestControlClient.request(["command": "request-state", "key": request]) == "pending" { break }
+                pullToRefresh()
+            }
+            waitForRequest(request)
+            releaseRequest(request)
+            assertUI(first.appears(timeout: 5), "刷新应保留相同的首屏对象。")
+            reveal(secondPage, description: "刷新后第二页")
+            assertUI(secondPage.isHittable, "刷新相同结果后应继续加载第二页。")
+        }
     }
 }

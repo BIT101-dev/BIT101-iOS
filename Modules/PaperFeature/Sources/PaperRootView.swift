@@ -128,7 +128,7 @@ private struct PaperRootViewScene: View {
             .refreshable {
                     interactionEvidence?("interaction.PaperRootViewScene.refreshable", "refresh")
 
-                await viewModel.refresh()
+                await viewModel.enqueueRefresh().value
             }
             .simultaneousGesture(sortSwitchGesture)
             .accessibilityIdentifier("paper.sort-surface")

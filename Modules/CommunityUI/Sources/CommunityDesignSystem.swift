@@ -5,6 +5,23 @@ import Foundation
 import DesignSystemKit
 import SwiftUI
 
+public struct CommunityIdentityBadge: View {
+    private let identity: CommunityIdentity
+    public init(_ identity: CommunityIdentity) { self.identity = identity }
+
+    public var body: some View {
+        if !identity.text.isEmpty {
+            let color = Color(hex: identity.color) ?? AppDesignSystem.Palette.Accent.primary
+            Text(identity.text)
+                .font(AppDesignSystem.Typography.captionEmphasis)
+                .padding(.horizontal, AppDesignSystem.Spacing.tiny)
+                .padding(.vertical, AppDesignSystem.Spacing.micro)
+                .background(color.opacity(AppDesignSystem.Community.identitySurfaceOpacity), in: Capsule())
+                .foregroundStyle(color)
+        }
+    }
+}
+
 /// 话题和文章共用评论排序入口及全部排序选项。
 public struct CommunityCommentSortPicker: View {
     @Binding private var order: CommunityCommentOrder

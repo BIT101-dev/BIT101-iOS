@@ -3,10 +3,43 @@ import BIT101TestSupport
 import CommunityTransport
 import Foundation
 import Testing
+import TransportCore
 @testable import PaperFeature
 
 @MainActor
 struct PaperDetailRequestTests {
+    @Test(.timeLimit(.minutes(1)), arguments: ["saved", "conflict", "unchanged"])
+    func failedEditsReconcileTheirActualRemoteResult(scenario: String) async throws {
+        let transport = EditRecoveryTransport(scenario: scenario)
+        let session = CommunitySession(httpClient: HTTPClient(transport: transport, observer: nil),
+            baseURL: AppURL.required("https://example.invalid"), credentials: { self.credentials }, refresh: { _ in })
+        do {
+            try await PaperService(session: session).updatePaper(id: 1, title: "本地标题", intro: "简介",
+                content: "正文", anonymous: false, publicEdit: true, lastUpdatedAt: "2026-10-01T08:00:00Z")
+            #expect(scenario == "saved")
+        } catch let conflict as PaperEditConflict {
+            #expect(scenario == "conflict" && conflict.latest.title == "远端标题")
+        } catch { #expect(scenario == "unchanged" && (error as? URLError)?.code == .networkConnectionLost) }
+        #expect(transport.methods == ["PUT", "GET"])
+    }
+
+    private final class EditRecoveryTransport: HTTPTransport {
+        let scenario: String
+        var methods: [String] = []
+        init(scenario: String) { self.scenario = scenario }
+        func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) { try await data(for: request) }
+        func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+            methods.append(request.httpMethod ?? "")
+            if request.httpMethod == "PUT" { throw URLError(.networkConnectionLost) }
+            let body: [String: Any] = ["id": 1, "title": scenario == "saved" ? "本地标题" : "远端标题",
+                "intro": "简介", "content": "正文", "create_time": "", "update_time": scenario == "unchanged" ? "2026-10-01T08:00:00Z" : "2026-10-02T08:00:00Z",
+                "update_user": ["id": 7], "anonymous": false, "public_edit": true, "like_num": 0, "comment_num": 0, "like": false, "own": true]
+            let url = try #require(request.url)
+            return (try JSONSerialization.data(withJSONObject: body),
+                try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)))
+        }
+    }
+
     @Test(.timeLimit(.minutes(1))) func foregroundReadingStartsWhilePreviewsWaitForNetwork() async throws {
         let store = PaperDetailRequestStore()
         let gates = (0...4).map { _ in ListRequestGate<PaperDetail>() }

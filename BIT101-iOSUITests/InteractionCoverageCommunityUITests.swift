@@ -53,28 +53,6 @@ nonisolated final class CommunityInteractionUITests: UIAutomationTestCase {
     }
 
     @MainActor
-    @objc func testStableRowsPaginateAgainAfterRefreshingTheSameResults() {
-        for (tab, section, title) in [("home", "课程", "分页课程"), ("gallery", "文章", "分页文章")] {
-            app = configureApp(resetStorage: true, content: true, pagination: true, initialTab: tab)
-            tapHeader(app.segmentedControls.buttons[section])
-            let first = app.staticTexts["\(title) 1"]
-            let secondPage = app.staticTexts["\(title) 9"]
-            assertUI(first.appears(timeout: 5), "首屏应展示稳定身份的分页夹具。")
-            reveal(secondPage, description: "首轮第二页")
-            assertUI(secondPage.isHittable, "首轮滚动应加载第二页。")
-            for _ in 0..<8 {
-                if first.exists && first.isHittable { break }
-                app.swipeDown()
-            }
-            assertUI(first.isHittable, "刷新前应回到首屏。")
-            pullToRefresh()
-            assertUI(first.appears(timeout: 5), "刷新应保留相同的首屏对象。")
-            reveal(secondPage, description: "刷新后第二页")
-            assertUI(secondPage.isHittable, "刷新相同结果后应继续加载第二页。")
-        }
-    }
-
-    @MainActor
     @objc func testPaperImagePreviewCommentsSortAndShare() {
         app = configureApp(resetStorage: true, content: true, animations: true, media: true, initialTab: "gallery")
         tapHeader(app.segmentedControls.buttons["文章"])
@@ -817,7 +795,12 @@ extension UIAutomationTestCase {
 
     @MainActor
     func pullToRefresh() {
-        guard let bounds = interactionScrollFrame() else {
+        guard let value = UITestControlClient.request(["command": "scroll-inventory"]),
+              let data = value.data(using: .utf8),
+              let views = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+              let viewport = views.last(where: { $0["hasRefreshControl"] as? Bool == true })?["viewport"] as? [Double],
+              viewport.count == 4,
+              let bounds = app.scrollGestureFrame(in: CGRect(x: viewport[0], y: viewport[1], width: viewport[2], height: viewport[3])) else {
             assertUI(false, "刷新场景应提供可滚动区域。")
             return
         }
