@@ -495,7 +495,7 @@ def archive_prune_then_fetch(fixture: Path) -> None:
 
 def cache_cleanup_after_failure() -> None:
     import ci_evidence as subject
-    artifacts = [dict(id=i, name='compilation-cache-simulator-ui', expired=False, workflow_run=dict(id=i)) for i in (1, 2, 3)]
+    artifacts = [dict(id=i, name='compilation-cache-simulator-app', expired=False, workflow_run=dict(id=i)) for i in (1, 2, 3)]
     def run(command, **kwargs):
         identity = int(command[-1].rsplit('/', 1)[-1])
         return json.dumps(dict(id=identity, event='workflow_dispatch', head_branch='main',
