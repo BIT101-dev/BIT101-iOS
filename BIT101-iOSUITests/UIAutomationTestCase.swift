@@ -33,7 +33,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             let hierarchy = XCTAttachment(string: foreground.debugDescription)
             hierarchy.name = "失败时的界面元素树"
             add(hierarchy)
-            let screenshot = XCTAttachment(screenshot: foreground.screenshot())
+            let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
             screenshot.name = "失败时的界面截图"
             add(screenshot)
             capturePreviewDiagnostics()
@@ -322,7 +322,11 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             assertUI(done.appears(timeout: 5), "系统键盘应呈现完成按钮。")
             let keyboard = app.native.keyboards.firstMatch
             let positioned = NSPredicate { _, _ in
-                done.native.isHittable && (!keyboard.exists || done.native.frame.maxY <= keyboard.frame.minY)
+                let surface = keyboard.exists ? keyboard : self.app.native.otherElements["inputView"].firstMatch
+                guard surface.exists else { return false }
+                let frame = surface.frame
+                return !frame.isEmpty && self.app.native.frame.contains(frame)
+                    && done.native.isHittable && done.native.frame.maxY <= frame.minY
             }
             assertUI(waitUntil(positioned, on: done, timeout: 5), "键盘完成按钮应就位于系统键盘上方。")
             done.tapVisibleCenter()
@@ -631,7 +635,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             let hierarchy = XCTAttachment(string: description)
             hierarchy.name = "失败时的界面元素树"
             add(hierarchy)
-            let screenshot = XCTAttachment(screenshot: application.screenshot())
+            let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
             screenshot.name = "失败时的界面截图"
             add(screenshot)
             capturePreviewDiagnostics()
