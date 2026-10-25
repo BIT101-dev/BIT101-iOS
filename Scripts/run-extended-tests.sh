@@ -13,6 +13,7 @@ if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
   echo "Scripts/run-extended-tests.sh build [宿主]        编译测试宿主，默认 release"
   echo "Scripts/run-extended-tests.sh report [json|coverage] 读取测试结果、用例树或覆盖率"
   echo "Scripts/run-extended-tests.sh cache               整理共享构建缓存"
+  echo "性能：performance baseline 批准人；performance current；report performance-schema。"
   echo "分组：release-runtime、catalyst-release-runtime、schedule、infrastructure、login、extensions、catalyst；组后可直接填写测试类/方法。"
   echo "宿主：release、release-runtime、ui、network-smoke、icloud-smoke、modules、catalyst、catalyst-release-runtime。"
   echo "专项：verify [--sms] [--self-test] [分组]... 聚合已授权专项；默认含真机、线上社区写入、iCloud 往返和归档。"

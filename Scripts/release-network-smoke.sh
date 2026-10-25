@@ -231,7 +231,17 @@ console_process=$!
 echo "[探针] 执行 $SMOKE_SCOPE"
 DEADLINE=$(( SECONDS + 1800 ))
 REPORT_READY=false
+typeset -A shown_smoke_progress=()
+show_smoke_progress() {
+  local line
+  while IFS= read -r line; do
+    [[ -n "${shown_smoke_progress[$line]-}" ]] && continue
+    shown_smoke_progress[$line]=1
+    print -r -- "$line"
+  done < <(rg --only-matching 'NETWORK_SMOKE_(START|SMS_REQUIRED|PASS|FAIL|AUTH_BLOCKED) .+' "$CONSOLE_LOG" || true)
+}
 while (( SECONDS < DEADLINE )); do
+  show_smoke_progress
   if rg -q "NETWORK_SMOKE_REPORT_WRITE_FAIL run_id=$RUN_ID" "$CONSOLE_LOG"; then
     echo "网络 Smoke 报告写入失败 · $CONSOLE_LOG" >&2
     exit 1

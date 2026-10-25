@@ -33,9 +33,9 @@ def source_identity_registry_self_test() -> None:
         assert _local_source_identity('modules', {}, {}, current_inputs=set(files)) != executable
         assert state['groups']['audit']['exitCode'] == 0
         assert state['sourceInputs']['files'] == {}
-        from validation_publication import core_exchange
+        from validation_environment import exchange_identity
         transferred = _local_source_identity('modules', files, {}, current_inputs=set(files))
-        shared = core_exchange(state)
+        shared = exchange_identity(state)
         state.clear()
         state.update(shared)
         assert _local_source_identity('modules', files, {}, current_inputs=set(files)) == transferred
@@ -118,7 +118,7 @@ def run_self_test() -> None:
     selected_result_retention_self_test()
     batch_retention_self_test(raw, test)
     merge_regression_self_test()
-    baseline_migration_self_test()
+    baseline_approval_self_test()
 
 
 def committed_source_identity_self_test() -> None:
@@ -440,10 +440,8 @@ def result_replacement_self_test() -> None:
         assert not subject.result_bundle_findings({'groups': rows | {'all': selected}})
 
 
-def baseline_migration_self_test() -> None:
+def baseline_approval_self_test() -> None:
     import json
-    from contextlib import nullcontext
-    import ci_evidence
     from validation_manual_tests import evidence_fixture
     scenarios = json.loads(evidence_fixture('performance-baseline'))['scenarios']
     proof = {'schemaVersion': 1, 'records': {name: row['measurement']['baseline'] for name, row in scenarios.items()}}
@@ -452,32 +450,7 @@ def baseline_migration_self_test() -> None:
         changed = deepcopy(proof)
         changed['records'][next(iter(changed['records']))][field] = value
         assert not subject.approved_baseline_complete(changed)
-    assert subject.approved_baseline_complete(__import__('validation_publication').core_exchange({'performanceBaseline': proof, 'groups': {}})['performanceBaseline'])
-    metadata = {'path': '.github/workflows/ci.yml', 'status': 'completed', 'conclusion': 'success', 'head_repository': {'full_name': 'owner/repo'}}
-    retained = {'mergeCommit': 'candidate', 'sourceDigest': 'candidate', 'groups': {'all': {'inputDigest': 'candidate'}}}
-    for fault in ('none', 'foreign', 'failed', 'workflow', 'approval'):
-        incoming = deepcopy(proof)
-        run = deepcopy(metadata)
-        if fault == 'foreign': run['head_repository']['full_name'] = 'fork/repo'
-        if fault == 'failed': run['conclusion'] = 'failure'
-        if fault == 'workflow': run['path'] = '.github/workflows/other.yml'
-        if fault == 'approval': incoming['records'][next(iter(incoming['records']))]['approvedBy'] = ''
-        with patch.object(ci_evidence, 'repository', return_value='owner/repo'), patch.object(ci_evidence, 'api_pages', return_value=[run]), \
-                patch.object(ci_evidence, 'download_core', return_value={'performanceBaseline': incoming, 'groups': {'all': {'inputDigest': 'old'}}}), \
-                patch('validation_provenance.report_lock', side_effect=nullcontext), patch('validation_provenance.write_report') as save, \
-                patch.object(Path, 'is_file', return_value=True), patch.object(Path, 'read_text', autospec=True,
-                    side_effect=lambda path: json.dumps(retained if path == ci_evidence.REPORT else {'schemaVersion': 1, 'current': 'retained'})), \
-                patch.object(Path, 'write_text') as measurements:
-            try: ci_evidence.import_baseline(7)
-            except ValueError: assert fault != 'none'
-            else:
-                assert fault == 'none'
-                assert save.call_args.args[0] == {key: value for key, value in retained.items() if key != 'mergeCommit'} | {'performanceBaseline': proof}
-                assert save.call_args_list[0].kwargs == {'path': subject.MEASUREMENTS}
-                assert save.call_args_list[0].args[0]['current'] == 'retained'
-                measurements.assert_not_called()
-            if fault != 'none':
-                save.assert_not_called(); measurements.assert_not_called()
+    assert subject.approved_baseline_complete(__import__('validation_environment').exchange_identity({'performanceBaseline': proof, 'groups': {}})['performanceBaseline'])
 
 
 def producing_run_capture_self_test() -> None:
@@ -511,8 +484,8 @@ def producing_run_capture_self_test() -> None:
             patch('validation_provenance.source_digest', return_value='digest'), \
             patch.object(subject.subprocess, 'check_output', side_effect=AssertionError('后续宿主沿固定结果包继续运行')):
         assert subject.capture_current() == {'schemaVersion': 1, 'records': combined}
-        from validation_publication import core_exchange
-        shared = core_exchange({'groups': rows})
+        from validation_environment import exchange_identity
+        shared = exchange_identity({'groups': rows})
         with patch.object(Path, 'read_text', return_value=json.dumps(shared)):
             assert subject.capture_current()['records'] == shared['groups']['all']['performance']['records'] | shared['groups']['ui']['performance']['records']
         for group in rows:
@@ -810,8 +783,8 @@ def merge_regression_self_test() -> None:
                 assert all(subject.record_complete(record, current=True) for record in row['performance']['records'].values())
         with patch('validation_provenance.source_digest', return_value='changed input'):
             assert not subject.record_complete(report['groups']['all']['performance']['records']['pagination'], current=True)
-    from validation_publication import core_exchange
-    shared = core_exchange(report)
+    from validation_environment import exchange_identity
+    shared = exchange_identity(report)
     assert not subject.merge_findings(shared)
     assert not subject.merge_findings(report | {'performanceBaseline': shared['performanceBaseline']})
     assert shared['groups']['all']['performance']['records']['pagination']['execution']['inputDigest'] \

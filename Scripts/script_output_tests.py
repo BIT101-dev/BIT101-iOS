@@ -35,6 +35,17 @@ def captured_command(lines, status=7, *, ci=False, executable='fixture'):
 
 def log_output_boundary_findings() -> list[str]:
     findings = []
+    script = (SCRIPT_ROOT / 'release-network-smoke.sh').read_text()
+    function = 'show_smoke_progress() {' + script.split('show_smoke_progress() {', 1)[1].split('\n}', 1)[0] + '\n}'
+    stages = ['NETWORK_SMOKE_START name=school.session', 'NETWORK_SMOKE_SMS_REQUIRED purpose=成绩查询',
+        'NETWORK_SMOKE_PASS name=school.session elapsed=1', 'NETWORK_SMOKE_FAIL [score] fixture',
+        'NETWORK_SMOKE_AUTH_BLOCKED [score] fixture']
+    fixture = 'system noise\n' + '\n'.join('timestamp ' + stage for stage in stages) + '\n'
+    command = 'set -euo pipefail\ntypeset -A shown_smoke_progress=()\nCONSOLE_LOG=/dev/stdin\n' \
+        + 'rg() { command rg "$@" <<< "$SMOKE_FIXTURE"; }\n' + function + '\nshow_smoke_progress\nshow_smoke_progress\n'
+    output = subprocess.run(['zsh', '-c', command], env=os.environ | {'SMOKE_FIXTURE': fixture},
+        check=True, capture_output=True, text=True).stdout
+    assert output.splitlines() == stages
     def arriving_diagnostics():
         yield 'error: early compiler failure\n'
         assert 'error: early compiler failure' in sys.stdout.getvalue()

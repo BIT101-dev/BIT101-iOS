@@ -66,7 +66,7 @@ def workflow_lock_boundary_findings() -> list[str]:
                          'modules|catalyst|catalyst-release-runtime) MODE="$1"; BUILD_ONLY=false; GENERIC_BUILD=false; SCRIPT_PATH="$0"; SCRIPT_ARGS=("$@"); acquire_test_lock ;; *)\n'
                          'ACTION=install; case "${1:-}" in artifact) ACTION=build ;; mac) ACTION=mac ;; esac\n'
                          + 'if [[ "$ACTION" == install' + dispatch + '\n;; esac\n'
-                         'if [[ "${1:-}" == startup ]]; then sleep 1; fi\n'
+                         'if [[ "${1:-}" == startup ]]; then read -r reply < "$ROOT_DIR/release"; fi\n'
                          'if [[ "${1:-}" == signal || "${1:-}" == budget ]]; then\n'
                          '  trap \'print cleanup; if [[ "$1" == signal ]]; then read -r reply < "$ROOT_DIR/release"; fi; exit 143\' TERM\n'
                          'fi\nif [[ "${1:-}" == budget ]]; then print "deadline=$BIT101_WORKFLOW_DEADLINE"; fi\nprint entered\n'

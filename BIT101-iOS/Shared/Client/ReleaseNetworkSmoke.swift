@@ -129,6 +129,7 @@ final class ReleaseNetworkSmokeRunner {
 
         if scope.includes(.authentication) {
             executedProbes.append("community.login")
+            print("NETWORK_SMOKE_START name=community.login")
             let loginStartedAt = Date()
             do {
                 let loginResult = try await captureNetworkRequests("community.login", required: true) {
@@ -737,6 +738,7 @@ final class ReleaseNetworkSmokeRunner {
             return nil
         }
         executedProbes.append(name)
+        print("NETWORK_SMOKE_START name=\(name) label=\(kind.displayName)")
         let startedAt = Date()
         let smsStart = submittedSMSPurposes.count
         do {

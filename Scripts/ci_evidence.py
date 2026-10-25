@@ -12,12 +12,11 @@ import zipfile
 from types import SimpleNamespace
 from pathlib import Path
 from functools import cache
-from validation_publication import RECEIPT, CORE_REPORT, release_receipt, receipt_findings, core_exchange
+from validation_publication import RECEIPT, release_receipt, receipt_findings
 from validate_versions import PROJECT_PATH, extract_versions, validate_release_tag
 
 ROOT = Path(__file__).resolve().parents[1]
 REPORT = ROOT / '.build/extended-automation/validation-evidence.json'
-ARTIFACT = 'validation-evidence'
 REQUIRED_JOBS = {'validation-plan', 'static-audit', 'release-build', 'catalyst-tests', 'ios-tests'}
 CACHE_FLAVORS = {'release-build', 'catalyst-tests', 'simulator-app'}
 CACHE_ROOT = ROOT / '.build/compiler-cache'
@@ -545,7 +544,7 @@ def cache_self_test() -> None:
                 patch.object(module, 'cache_identity', return_value=identity):
             assert cache_result_matches('owner/repo', trusted, 'simulator-app') == (fault == 'none'), fault
     artifacts = [dict(id=index, name=name, expired=False, workflow_run={'id': 1}) for index, name in [
-        (1, 'compilation-cache-simulator-app'), (2, 'validation-evidence'), (3, 'compilation-cache-simulator-app'),
+        (1, 'compilation-cache-simulator-app'), (2, 'validation-static-audit'), (3, 'compilation-cache-simulator-app'),
         (4, 'compilation-cache-catalyst-tests')]]
     artifacts.append(dict(id=5, name='compilation-cache-simulator-app', expired=False, workflow_run={'id': 2}))
     artifacts.append(dict(id=6, name='compilation-cache-unused', expired=False, workflow_run={'id': 1}))
@@ -579,43 +578,6 @@ def repository() -> str:
 
 def api_pages(endpoint: str) -> list[dict]:
     return json.loads(subprocess.check_output(['gh', 'api', '--paginate', '--slurp', endpoint], cwd=ROOT, text=True))
-
-
-def download_core(run: int, repo: str) -> dict:
-    if type(run) is not int or run <= 0: raise ValueError('证据需要所属工作流运行。')
-    REPORT.parent.mkdir(parents=True, exist_ok=True)
-    CORE_REPORT.unlink(missing_ok=True)
-    subprocess.run(['gh', 'run', 'download', str(run), '--repo', repo, '--name', ARTIFACT, '--dir', str(REPORT.parent)],
-        cwd=ROOT, capture_output=True, text=True, check=True)
-    return core_exchange(json.loads(CORE_REPORT.read_text()))
-
-
-def import_baseline(run: int) -> None:
-    if type(run) is not int or run <= 0: raise ValueError('基线迁移需要所属 CI 运行编号。')
-    repo = repository()
-    metadata = api_pages(f'repos/{repo}/actions/runs/{run}')[0]
-    if metadata.get('path') != '.github/workflows/ci.yml' or metadata.get('status') != 'completed' \
-            or metadata.get('conclusion') != 'success' or metadata.get('head_repository', {}).get('full_name') != repo:
-        raise ValueError('基线迁移需要本仓库成功完成的 CI 工作流。')
-    from validation_provenance import report_lock, write_report
-    from validation_performance import approved_baseline_complete, MEASUREMENTS
-    from validation_inputs import performance_workloads
-    with report_lock():
-        proof = download_core(run, repo).get('performanceBaseline', {})
-        if not approved_baseline_complete(proof): raise ValueError(f'基线迁移需要 {len(performance_workloads())} 个场景的完整原始采样与批准记录。')
-        report = json.loads(REPORT.read_text()) if REPORT.is_file() else {}
-        stored = json.loads(MEASUREMENTS.read_text()) if MEASUREMENTS.is_file() else {'schemaVersion': 1}
-        stored['baseline'] = proof
-        write_report(stored, path=MEASUREMENTS)
-        report['performanceBaseline'] = proof
-        report.pop('mergeCommit', None)
-        write_report(report)
-
-
-def export_core() -> None:
-    from validation_provenance import report_lock
-    with report_lock():
-        CORE_REPORT.write_text(json.dumps(core_exchange(json.loads(REPORT.read_text())), ensure_ascii=False, indent=2) + '\n')
 
 
 def check_release() -> None:
@@ -759,7 +721,7 @@ def validation_plan_self_test() -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('baseline', 'current', 'review-pr', 'release', 'publish', 'check-release', 'export-core', 'export-result', 'import-baseline', 'simulator-merge', 'cache-restore', 'cache-export', 'cache-prune', 'plan', 'reuse'))
+    parser.add_argument('action', choices=('baseline', 'current', 'review-pr', 'release', 'publish', 'check-release', 'export-result', 'simulator-merge', 'cache-restore', 'cache-export', 'cache-prune', 'plan', 'reuse'))
     parser.add_argument('identity', nargs='?', default='')
     parser.add_argument('--results', default='')
     args = parser.parse_args()
@@ -768,10 +730,8 @@ def main() -> int:
         elif args.action == 'current': current(args.results)
         elif args.action == 'review-pr': print(review_pr(int(args.identity)))
         elif args.action == 'check-release': check_release()
-        elif args.action == 'export-core': export_core()
         elif args.action == 'export-result': export_validation_result(args.identity)
         elif args.action == 'simulator-merge': merge_simulator_ci()
-        elif args.action == 'import-baseline': import_baseline(int(args.identity))
         elif args.action == 'cache-restore': restore_cache(args.identity)
         elif args.action == 'cache-export': export_cache(args.identity)
         elif args.action == 'cache-prune': prune_caches()

@@ -262,7 +262,7 @@ python3 Scripts/validation_evidence.py manual 检查项 \
 
 分发验收先执行 `Scripts/build-install-device.sh archive-signed`，再通过 Xcode 的 App Store 导出流程取得最终 `.app`，运行 `python3 Scripts/validate_distribution.py 导出应用路径`。签名、描述文件、团队、版本、平台、最低系统、扩展归属、权益和最终隐私清单共同形成 `build/DeviceInstall/distribution-signing.json`，并登记到 `distribution-signing` 人工专项。发布上传同时向 App Store Connect 交付当前归档中的 App 与各扩展 dSYM，沿 [Apple 的符号上传说明](https://developer.apple.com/documentation/xcode/building-your-app-to-include-debugging-information)操作；在对应版本的处理结果中确认符号接收，将平台回执登记为该专项的证据。固定归档路径在下一次归档时覆盖，后续商店崩溃报告沿该版本已上传的符号解析。
 
-性能采样使用 [性能负载](../BIT101-iOSTests/PerformanceWorkloads.json)和原始 XCTest 指标，比较同设备、系统、工具链及生产配置下的耗时与内存。完整行为和 UI 运行后，通过 `Scripts/run-extended-tests.sh performance baseline 批准人` 保存批准基线，后续候选使用 `performance current`；迁移工作区使用 `python3 Scripts/ci_evidence.py import-baseline CI运行编号`。
+性能采样使用 [性能负载](../BIT101-iOSTests/PerformanceWorkloads.json)和原始 XCTest 指标，比较同设备、系统、工具链及生产配置下的耗时与内存。完整行为和 UI 运行后，通过 `Scripts/run-extended-tests.sh performance baseline 批准人` 保存批准基线，后续候选使用 `performance current`。
 
 提交全部改动后，`python3 Scripts/validation_evidence.py bind` 绑定完整本地证据，`python3 Scripts/validation_evidence.py check` 核对当前输入、环境、结果和提交。发布回执通过 `python3 Scripts/ci_evidence.py publish v公开版本号` 生成固定 `release-receipt.json` 附件，沿发布授权上传。公开回执保存必要的版本、提交、执行状态及采样身份，完整设备、邮件和影像证据沿本地报告审阅。
 

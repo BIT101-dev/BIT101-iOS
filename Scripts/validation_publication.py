@@ -1,13 +1,12 @@
-"""Produce a public release receipt and a separate core CI exchange payload."""
+"""Produce and validate the public release receipt."""
 import json
 from pathlib import Path
-from validation_environment import environment_context, toolchain_identity, exchange_identity
+from validation_environment import environment_context, toolchain_identity
 from validation_policy import RELEASE_GROUPS, CORE_GROUPS
 from validation_provenance import group_evidence_current, complete_group_row
 
 ROOT = Path(__file__).resolve().parents[1]
 RECEIPT = ROOT / '.build/extended-automation/release-receipt.json'
-CORE_REPORT = ROOT / '.build/extended-automation/core-validation-evidence.json'
 
 
 def release_receipt(report: dict, tag: str, digest) -> dict:
@@ -50,17 +49,6 @@ def receipt_findings(receipt: dict, tag: str, commit: str, digest) -> list[str]:
     return errors
 
 
-def core_exchange(report: dict) -> dict:
-    payload = {key: value for key, value in report.items() if key in {
-        'mergeCommit', 'testedCommit', 'sourceDigest', 'performanceBaseline', 'coverageBaseCommit', 'coveragePolicy'}} | {
-        'groups': {name: complete_group_row(row) for name, row in report.get('groups', {}).items() if name in CORE_GROUPS | {'modules'}}}
-    if inputs := report.get('sourceInputs'):
-        groups = {name: row for name, row in inputs['groups'].items() if name in CORE_GROUPS | {'modules', ''}}
-        names = {name for row in groups.values() for name in row['snapshot']['files']}
-        payload['sourceInputs'] = {'groups': groups, 'files': {name: row for name, row in inputs['files'].items() if name in names}}
-    return exchange_identity(payload)
-
-
 def self_test() -> None:
     from unittest.mock import patch
     from validation_provenance import utc_now
@@ -96,25 +84,3 @@ def self_test() -> None:
                 if recorded is None: changed['groups'][group].pop('recordedAt')
                 else: changed['groups'][group]['recordedAt'] = recorded
                 assert receipt_findings(changed, 'v1.0', 'commit', digest), (group, recorded)
-    core = core_exchange(report | {'mergeCommit': 'commit', 'performanceBaseline': {'records': {'fixture': 'approved'}},
-        'coverageBaseCommit': 'base', 'coveragePolicy': {'all': {'GalleryFeature': 50}}})
-    assert core['mergeCommit'] == 'commit' and set(core['groups']) == CORE_GROUPS | {'modules'}
-    assert core['performanceBaseline'] == {'records': {'fixture': 'approved'}}
-    assert core['coverageBaseCommit'] == 'base' and core['coveragePolicy'] == {'all': {'GalleryFeature': 50}}
-    assert 'manual-device' not in core['groups'] and 'private' not in core
-    context = {'developer': '/Users/fixture/Xcode', 'compiler': {'path': '/Users/fixture/compiler', 'version': 'a' * 64},
-        'device': {'identifier': 'fixture-udid', 'model': 'iPhone', 'systemVersion': '27', 'systemBuild': 'fixture-build'},
-        'sdks': {'iPhoneOS': {'path': '/Users/fixture/sdk', 'Version': '27'}}}
-    original = {'groups': {'all': {'environment': context, 'performance': {
-        'execution': {'environment': context}, 'environment': {'deviceIdentifier': 'fixture-udid'},
-        'xcresultMetrics': [{'testRuns': [{'device': {'deviceId': 'fixture-udid', 'deviceName': 'Owner phone'}}]}]}}}}
-    shared = core_exchange(original)
-    assert all(value not in json.dumps(shared) for value in ('/Users/fixture', 'fixture-udid', 'Owner phone'))
-    assert core_exchange(shared) == shared and original['groups']['all']['environment'] == context
-    performance = shared['groups']['all']['performance']
-    identity = shared['groups']['all']['environment']['device']['identifier']
-    assert identity == performance['environment']['deviceIdentifier'] == performance['xcresultMetrics'][0]['testRuns'][0]['device']['deviceId']
-    from validation_provenance import source_digest
-    with patch('validation_provenance.repository_input_names', return_value=[]):
-        assert source_digest('all', environment=context) == source_digest('all', environment=shared['groups']['all']['environment'])
-        assert source_digest('all', environment=context) != source_digest('all', environment=context | {'device': context['device'] | {'identifier': 'other'}})
