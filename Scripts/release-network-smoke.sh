@@ -238,7 +238,7 @@ show_smoke_progress() {
     [[ -n "${shown_smoke_progress[$line]-}" ]] && continue
     shown_smoke_progress[$line]=1
     print -r -- "$line"
-  done < <(rg --only-matching 'NETWORK_SMOKE_(START|SMS_REQUIRED|PASS|FAIL|AUTH_BLOCKED) .+' "$CONSOLE_LOG" || true)
+  done < <(awk 'match($0, /NETWORK_SMOKE_(START|SMS_REQUIRED|PASS|FAIL|AUTH_BLOCKED) .+/) { print substr($0, RSTART, RLENGTH) }' "$CONSOLE_LOG")
 }
 while (( SECONDS < DEADLINE )); do
   show_smoke_progress

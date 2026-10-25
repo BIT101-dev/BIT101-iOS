@@ -42,10 +42,11 @@ def log_output_boundary_findings() -> list[str]:
         'NETWORK_SMOKE_AUTH_BLOCKED [score] fixture']
     fixture = 'system noise\n' + '\n'.join('timestamp ' + stage for stage in stages) + '\n'
     command = 'set -euo pipefail\ntypeset -A shown_smoke_progress=()\nCONSOLE_LOG=/dev/stdin\n' \
-        + 'rg() { command rg "$@" <<< "$SMOKE_FIXTURE"; }\n' + function + '\nshow_smoke_progress\nshow_smoke_progress\n'
-    output = subprocess.run(['zsh', '-c', command], env=os.environ | {'SMOKE_FIXTURE': fixture},
-        check=True, capture_output=True, text=True).stdout
-    assert output.splitlines() == stages
+        + 'awk() { command awk "$@" <<< "$SMOKE_FIXTURE"; }\n' + function + '\nshow_smoke_progress\nshow_smoke_progress\n'
+    result = subprocess.run(['zsh', '-c', command], env=os.environ | {'SMOKE_FIXTURE': fixture, 'PATH': '/usr/bin:/bin'},
+        check=True, capture_output=True, text=True)
+    output = result.stdout
+    assert output.splitlines() == stages, f'Smoke 进度需要匹配已到达阶段：{output!r} · {result.stderr!r}'
     def arriving_diagnostics():
         yield 'error: early compiler failure\n'
         assert 'error: early compiler failure' in sys.stdout.getvalue()
