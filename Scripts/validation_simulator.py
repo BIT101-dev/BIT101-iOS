@@ -70,6 +70,8 @@ def merge_ci_results(ci) -> None:
     root = ci.ROOT / '.build/extended-automation'
     bundle = root / 'test-results.xcresult'
     retained, incoming = bundle.with_suffix('.retained.xcresult'), bundle.with_suffix('.incoming.xcresult')
+    shutil.rmtree(retained, ignore_errors=True)
+    shutil.rmtree(incoming, ignore_errors=True)
     commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ci.ROOT, text=True).strip()
     if errors := ci_commit_findings(commit): raise ValueError('\n'.join(errors))
     policy = json.loads(ci.REPORT.read_text()).get('coveragePolicy', {})
@@ -109,8 +111,12 @@ def merge_ci_results(ci) -> None:
                 raise ValueError('每个模拟器结果需要完整执行分配的测试及实例。')
             if group != 'release-runtime': line_shards.append(metadata['coverageLines'])
             if retained.exists():
-                subprocess.run(['xcrun', 'xcresulttool', 'merge', '--output-path', str(incoming), str(retained), str(bundle)],
-                    check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+                try:
+                    subprocess.run(['xcrun', 'xcresulttool', 'merge', '--output-path', str(incoming), str(retained), str(bundle)],
+                        check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+                except BaseException:
+                    shutil.rmtree(incoming, ignore_errors=True)
+                    raise
                 shutil.rmtree(retained)
                 shutil.rmtree(bundle)
                 shutil.move(str(incoming), str(bundle))

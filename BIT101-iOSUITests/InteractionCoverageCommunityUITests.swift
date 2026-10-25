@@ -43,12 +43,12 @@ nonisolated final class CommunityInteractionUITests: UIAutomationTestCase {
         openSettings("gallery")
         replaceText("1\n", in: app.textFields["屏蔽用户 UID（逗号分隔）"])
         back()
-        app.tabBars.buttons["话廊"].tapBriefly()
+        app.mainTab("话廊").tapBriefly()
         assertUI(textElement("暂无话题").appears(timeout: 5), "屏蔽作者后已加载的列表应更新过滤状态。")
         openSettings("gallery")
         replaceText("\n", in: app.textFields["屏蔽用户 UID（逗号分隔）"])
         back()
-        app.tabBars.buttons["话廊"].tapBriefly()
+        app.mainTab("话廊").tapBriefly()
         assertUI(textElement("自动化测试话题").appears(timeout: 5), "解除屏蔽后应重新加载被过滤的话题。")
     }
 
@@ -216,7 +216,7 @@ nonisolated final class CommunityInteractionUITests: UIAutomationTestCase {
             assertOpenedURL(url)
         }
         back()
-        app.tabBars.buttons["成绩"].tapBriefly()
+        app.mainTab("成绩").tapBriefly()
         tapHeader(app.segmentedControls.buttons["课程"])
         tap("自动化测试课程")
         tap("共享资料")
@@ -269,7 +269,7 @@ nonisolated final class ServiceInteractionUITests: UIAutomationTestCase {
         tap("确认提交")
         assertUI(textElement("提交失败").appears(timeout: 10), "离线报告应保留失败结果。")
         tap("取消")
-        assertUI(app.tabBars.buttons["话廊"].exists, "取消报告应返回话廊。")
+        assertUI(app.mainTab("话廊").exists, "取消报告应返回话廊。")
     }
 
     @MainActor
@@ -280,7 +280,7 @@ nonisolated final class ServiceInteractionUITests: UIAutomationTestCase {
         closeAlertIfPresent()
         tap("重新加载")
         assertUI(textElement("自动化测试课程").appears(timeout: 5), "课程重试应恢复加载结果。")
-        app.tabBars.buttons["话廊"].tapBriefly()
+        app.mainTab("话廊").tapBriefly()
         assertUI(app.alerts["加载话廊失败"].appears(timeout: 5), "首次话廊失败应展示错误提示。")
         closeAlertIfPresent()
         tap("重试")
@@ -479,7 +479,7 @@ nonisolated final class ScheduleNavigationUITests: UIAutomationTestCase {
         app = configureApp(resetStorage: true, content: true, school: true)
         tap("学校测试课程")
         tap("查看上课地点")
-        assertUI(waitUntil(NSPredicate(format: "selected == true"), on: app.tabBars.buttons["地图"]), "课程地点应切换至地图。")
+        assertUI(waitUntil(NSPredicate(format: "selected == true"), on: app.mainTab("地图")), "课程地点应切换至地图。")
         let location = app.buttons["定位到我的位置"]
         location.tapBriefly()
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
@@ -526,7 +526,7 @@ nonisolated final class ScheduleNavigationUITests: UIAutomationTestCase {
         assertUI(app.navigationBars["课程详情"].appears(timeout: 5), "学校课程评价入口应打开匹配课程。")
         assertUI(textElement("学校测试课程").exists, "匹配后的课程详情应保留学校课程身份。")
         back()
-        app.tabBars.buttons["话廊"].tapBriefly()
+        app.mainTab("话廊").tapBriefly()
         tap("自动化测试话题")
         tap("自动化测试用户")
         assertUI(app.buttons["关注"].appears(timeout: 5), "帖子作者应打开公开主页。")
@@ -552,7 +552,7 @@ nonisolated final class ScheduleNavigationUITests: UIAutomationTestCase {
         app.alerts["导入分享课表提示"].buttons["取消"].tapBriefly()
         assertUI(!app.textViews["schedule.import.code"].exists, "取消导入说明应保留设置页。")
         back()
-        app.tabBars.buttons["日程"].tapBriefly()
+        app.mainTab("日程").tapBriefly()
         app.buttons["schedule.add-content"].tapBriefly()
         tap("添加日程")
         let sheet = app.navigationBars["添加自定义日程"]
@@ -639,7 +639,7 @@ nonisolated final class AccountRecoveryUITests: UIAutomationTestCase {
         app = configureApp(resetStorage: true, content: true, initialSettings: "gallery")
         let value = toggle("使用网页话廊")
         back()
-        app.tabBars.buttons["话廊"].tapBriefly()
+        app.mainTab("话廊").tapBriefly()
         let web = app.webViews.firstMatch
         assertUI(web.appears(timeout: 10), "网页设置应打开 WebKit 页面。")
         web.swipeUp()
@@ -650,7 +650,7 @@ nonisolated final class AccountRecoveryUITests: UIAutomationTestCase {
         waitForValue(value, of: control)
         toggle("使用网页话廊")
         back()
-        app.tabBars.buttons["话廊"].tapBriefly()
+        app.mainTab("话廊").tapBriefly()
         assertUI(app.buttons["发布话题"].appears(timeout: 5), "切回原生设置应恢复话题发布入口。")
         assertUI(textElement("自动化测试话题").appears(timeout: 5), "原生列表应加载测试帖子。")
     }
@@ -700,7 +700,7 @@ nonisolated final class AccountRecoveryUITests: UIAutomationTestCase {
         let submit = app.buttons["login.submit"]
         assertUI(submit.isEnabled, "完整填写凭据应启用登录按钮。")
         submit.tapBriefly()
-        assertUI(app.tabBars.buttons["日程"].appears(timeout: 10), "点击登录按钮应进入主界面。")
+        assertUI(app.mainTab("日程").appears(timeout: 10), "点击登录按钮应进入主界面。")
     }
 
 
@@ -740,7 +740,7 @@ nonisolated final class AccountRegistrationUITests: UIAutomationTestCase {
             let screenshot = XCTAttachment(screenshot: app.native.screenshot())
             screenshot.name = "界面截图"; screenshot.lifetime = .keepAlways; add(screenshot)
             submit.tapBriefly()
-            assertUI(app.tabBars.buttons["日程"].appears(timeout: 10), "注册或重置成功应进入已登录页面。")
+            assertUI(app.mainTab("日程").appears(timeout: 10), "注册或重置成功应进入已登录页面。")
         }
         app = configureApp(resetStorage: true, account: nil, animations: true, nativeInteraction: true)
         app.buttons["login.register"].tapBriefly()
@@ -749,7 +749,7 @@ nonisolated final class AccountRegistrationUITests: UIAutomationTestCase {
         replaceTextWithKeyboard("community-password", in: app.secureTextFields["login.password"])
         dismissKeyboard()
         app.buttons["login.submit"].tapBriefly()
-        assertUI(app.tabBars.buttons["日程"].appears(timeout: 10), "BIT101 密码登录应进入已登录页面。")
+        assertUI(app.mainTab("日程").appears(timeout: 10), "BIT101 密码登录应进入已登录页面。")
     }
 }
 

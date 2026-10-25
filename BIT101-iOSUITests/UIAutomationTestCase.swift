@@ -148,7 +148,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
 
     @MainActor
     func openSettings(_ route: String) {
-        let mine = app.tabBars.buttons["我的"]
+        let mine = app.mainTab("我的")
         if !mine.isSelected {
             mine.tapBriefly()
             assertUI(waitUntil(NSPredicate(format: "selected == true"), on: mine), "设置入口应先切换到个人页。")
@@ -410,7 +410,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         assertUI(window.exists, "辅助功能大字号应展示主窗口。")
         let windowFrame = window.frame
         for identifier in ["日程", "地图", "成绩", "话廊", "我的"] {
-            let tab = app.tabBars.buttons[identifier]
+            let tab = app.mainTab(identifier)
             assertUI(tab.appears(timeout: 10), "辅助功能大字号下主 Tab 应可见：\(identifier)")
             tab.tapBriefly()
             guard let state = try? tab.snapshot() else {
@@ -476,10 +476,10 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         submit.tapBriefly()
         dismissCredentialSavePrompt(in: application)
         assertUI(
-            application.tabBars.buttons["日程"].appears(timeout: 10),
+            application.mainTab("日程").appears(timeout: 10),
             "登录后应进入日程页。"
         )
-        let scheduleTab = application.tabBars.buttons["日程"]
+        let scheduleTab = application.mainTab("日程")
         if !scheduleTab.isSelected { scheduleTab.tapBriefly() }
         let scheduleReady = application.descendants(matching: .any)
             .matching(identifier: "schedule.blank-context-menu")
@@ -915,7 +915,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
                 assertUI(false, "初始分区应使用已登记路由：\(initialTab)。")
                 return app
             }
-            initialElement = app.tabBars.buttons[title]
+            initialElement = app.mainTab(title)
             checksSelectedTab = true
         }
         let marker = app.descendants(matching: .any).matching(identifier: "ui-test.scene").firstMatch

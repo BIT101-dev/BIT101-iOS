@@ -81,9 +81,10 @@ if [[ "$SMOKE_CAPTURE" == scheduleCache || "$SMOKE_CAPTURE" == rawCourseResponse
     || { echo "课表采样使用 all、school 或 schedule 范围。" >&2; exit 64; }
 fi
 if ! $PREPARE_ONLY && [[ "$SMOKE_SCOPE" == all || "$SMOKE_SCOPE" == bit101 || "$SMOKE_SCOPE" == community-writes ]]; then
-  CONFIGURATION=("${(@f)$(python3 "$ROOT_DIR/Scripts/network_smoke_config.py" load "$COMMUNITY_CONFIGURATION" "$SMOKE_ACCOUNT" "$SMOKE_FIXTURES")}") || exit $?
+  CONFIGURATION=("${(@f)$(python3 "$ROOT_DIR/Scripts/network_smoke_config.py" load "$COMMUNITY_CONFIGURATION" "$SMOKE_ACCOUNT" "$SMOKE_FIXTURES" "${BIT101_COMMUNITY_FOLLOW_TARGET:-}")}") || exit $?
   SMOKE_ACCOUNT="${CONFIGURATION[1]}"
   SMOKE_FIXTURES="${CONFIGURATION[2]}"
+  BIT101_COMMUNITY_FOLLOW_TARGET="${CONFIGURATION[3]:-}"
 elif [[ -n "$SMOKE_FIXTURES" ]]; then
   python3 "$ROOT_DIR/Scripts/network_smoke_config.py" fixtures "$SMOKE_FIXTURES" || exit $?
 fi

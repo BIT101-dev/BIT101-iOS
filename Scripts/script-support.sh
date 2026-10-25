@@ -126,7 +126,7 @@ selected = []
 for keyword in sys.argv[2:]:
     name = keyword.removesuffix("()").casefold()
     matches = [test for test in tests if name and (
-        name == test.casefold() or name == test.split("/", 1)[0].casefold()
+        name == test.casefold() or name in test.split("/", 1)[0].casefold()
         or name in test.split("/", 1)[1].casefold()
     )]
     if not matches:

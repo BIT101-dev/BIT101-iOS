@@ -291,9 +291,22 @@ def deletion_boundary_self_test(source: str, fixture: Path) -> None:
     from urllib.error import HTTPError
     block = heredoc_body(source, "PYDELETE")
     key = 'report:received:00000000-0000-4000-8000-000000000001'
-    path = fixture / 'delete-authorization.json'
-    fixture.mkdir(parents=True, exist_ok=True)
+    from report_inbox import refresh_archive_index, report_filename
+    folder = fixture / 'deletion'
+    path = folder / 'delete-authorization.json'
+    archive = folder / '正式版/错误报告' / report_filename(key)
+    assets = archive.parent / (archive.stem + '_附件')
+    other = archive.parent / report_filename('report:other')
+    processed = folder / 'report-keys.txt'
     for outcome in ('success', 'unavailable', 'delayed', 'expired'):
+        archive.parent.mkdir(parents=True, exist_ok=True)
+        archive.write_text('{"report":{"comment":"target"}}')
+        assets.mkdir(exist_ok=True); (assets / '图片-01.jpg').write_bytes(b'private image')
+        other.write_text('{"report":{"comment":"other"}}')
+        processed.write_text(key + '\nreport:other\npruned-file:' + report_filename(key) + '\n')
+        (folder / 'error-report.json').write_bytes(archive.read_bytes())
+        (folder / 'summary.txt').write_text('cached summary')
+        refresh_archive_index(folder)
         commands = []
         clock, attempts = [0], [0]
         def run(arguments, **options):
@@ -324,6 +337,13 @@ def deletion_boundary_self_test(source: str, fixture: Path) -> None:
         assert attempts[0] == (3 if outcome == 'delayed' else 10 if outcome == 'expired' else 1)
         assert len(commands) == 2 and commands[-1][3] == 'delete' and commands[-1][4] == commands[0][4]
         assert not path.exists()
+        deleted = outcome in {'success', 'delayed'}
+        assert archive.exists() != deleted and assets.exists() != deleted
+        assert (key in processed.read_text()) != deleted
+        assert (folder / 'error-report.json').exists() != deleted
+        assert (archive.relative_to(folder).as_posix() in json.loads((folder / 'archive-index.json').read_text())) != deleted
+        assert other.read_text() == '{"report":{"comment":"other"}}' and 'report:other' in processed.read_text()
+    shutil.rmtree(folder)
 
 
 def community_recovery_self_test() -> list[str]:

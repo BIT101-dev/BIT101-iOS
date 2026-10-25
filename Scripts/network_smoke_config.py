@@ -23,7 +23,14 @@ def fixtures(value) -> dict:
     return value
 
 
-def load(path: Path, explicit_account: str = '', explicit_fixtures: str = '') -> dict:
+def configuration(account, objects, target=None) -> dict:
+    account = account_identifier(account)
+    target = account_identifier(target) if target not in (None, '') else None
+    if target == account: raise ValueError('关注验收需要当前账号以外的已关注用户。')
+    return {'schemaVersion': 1, 'accountID': account, 'fixtures': fixtures(objects), 'followTarget': target}
+
+
+def load(path: Path, explicit_account: str = '', explicit_fixtures: str = '', explicit_target: str = '') -> dict:
     stored = None
     if not explicit_account or not explicit_fixtures:
         try: stored = json.loads(path.read_text())
@@ -33,8 +40,9 @@ def load(path: Path, explicit_account: str = '', explicit_fixtures: str = '') ->
             raise ValueError('社区验收配置需要重新执行 prepare。')
         if explicit_account and not explicit_fixtures and account_identifier(explicit_account) != stored.get('accountID'):
             raise ValueError('当前指定账号与已准备配置发生变化，请重新执行 prepare 或提供该账号的完整维护对象。')
-    return {'schemaVersion': 1, 'accountID': account_identifier(explicit_account or stored.get('accountID')),
-        'fixtures': fixtures(json.loads(explicit_fixtures) if explicit_fixtures else stored.get('fixtures'))}
+    return configuration(explicit_account or stored.get('accountID'),
+        json.loads(explicit_fixtures) if explicit_fixtures else stored.get('fixtures'),
+        explicit_target or (stored.get('followTarget') if stored else None))
 
 
 def capture(report_path: Path, path: Path) -> dict:
@@ -42,10 +50,10 @@ def capture(report_path: Path, path: Path) -> dict:
     value = report.get('communityConfiguration')
     if report.get('passed') is not True or not isinstance(value, dict):
         raise ValueError('\n'.join(report.get('failures', [])) or '社区验收配置采样待完成。')
-    configuration = {'schemaVersion': 1, 'accountID': account_identifier(value.get('accountID')), 'fixtures': fixtures(value.get('fixtures'))}
+    prepared = configuration(value.get('accountID'), value.get('fixtures'), value.get('followTarget'))
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(configuration, ensure_ascii=False) + '\n')
-    return configuration
+    path.write_text(json.dumps(prepared, ensure_ascii=False) + '\n')
+    return prepared
 
 
 def main() -> int:
@@ -55,6 +63,7 @@ def main() -> int:
     resolve.add_argument('path', type=Path)
     resolve.add_argument('account')
     resolve.add_argument('fixtures')
+    resolve.add_argument('follow_target', nargs='?', default='')
     prepare = commands.add_parser('capture')
     prepare.add_argument('report', type=Path)
     prepare.add_argument('path', type=Path)
@@ -63,9 +72,10 @@ def main() -> int:
     args = parser.parse_args()
     try:
         if args.action == 'load':
-            value = load(args.path, args.account, args.fixtures)
+            value = load(args.path, args.account, args.fixtures, args.follow_target)
             print(value['accountID'])
             print(json.dumps(value['fixtures'], ensure_ascii=False))
+            print(value['followTarget'] or '')
         elif args.action == 'capture':
             value = capture(args.report, args.path)
             print(f'社区验收配置：账号 {value["accountID"]} · {args.path}')

@@ -164,7 +164,7 @@ def swift_syntax_index(files: list[Path]) -> dict[str, dict]:
     return swift_syntax_index_sources({str(path): path.read_bytes().decode("utf-8") for path in files})
 
 
-def swift_syntax_index_sources(sources: dict[str, str]) -> dict[str, dict]:
+def swift_syntax_index_sources(sources: dict[str, str], *, cache_transformed_sources: bool = False) -> dict[str, dict]:
     cache_name = os.environ.get('BIT101_SOURCE_FACTS_CACHE', str(DEFAULT_FACTS_CACHE))
     if not cache_name: return _index_sources(sources)
     from validation_inputs import SWIFT_ROOTS
@@ -173,7 +173,7 @@ def swift_syntax_index_sources(sources: dict[str, str]) -> dict[str, dict]:
         path = (ROOT / name).resolve()
         parts = path.relative_to(ROOT).parts if path.is_relative_to(ROOT) else ()
         if parts and parts[0] in SWIFT_ROOTS \
-                and path.is_file() and path.read_bytes().decode('utf-8') == source:
+                and path.is_file() and (cache_transformed_sources or path.read_bytes().decode('utf-8') == source):
             eligible[name] = str(path)
     if not eligible: return _index_sources(sources)
     requested = {path: sources[name] for name, path in eligible.items()}
@@ -193,33 +193,43 @@ def _cached_facts(cache_path: Path, requested: dict[str, str]) -> dict:
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     with cache_path.with_suffix('.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        with closing(sqlite3.connect(cache_path)) as database, database:
-            database.execute('CREATE TABLE IF NOT EXISTS facts (path TEXT PRIMARY KEY, content TEXT)')
-            database.execute('CREATE TABLE IF NOT EXISTS metadata (name TEXT PRIMARY KEY, value TEXT NOT NULL)')
-            signature = source_facts_signature()
-            previous = database.execute("SELECT value FROM metadata WHERE name = 'indexer'").fetchone()
-            reclaim = previous is not None and previous[0] != signature
-            if previous is None or previous[0] != signature:
-                database.execute('DELETE FROM facts')
-                database.execute("INSERT OR REPLACE INTO metadata VALUES ('indexer', ?)", (signature,))
-            obsolete = [(path,) for path, in database.execute('SELECT path FROM facts') if not Path(path).is_file()]
-            database.executemany('DELETE FROM facts WHERE path = ?', obsolete)
-            shared = {}
-            for path, source in requested.items():
-                row = database.execute('SELECT content FROM facts WHERE path = ?', (path,)).fetchone()
-                if row:
-                    facts = json.loads(row[0])
-                    if facts.get('source') == source: shared[path] = facts
-            missing = {path: source for path, source in requested.items() if path not in shared}
-            if missing:
-                parsed = _index_sources(missing, resolve_tests=False)
-                database.executemany('INSERT OR REPLACE INTO facts VALUES (?, ?)',
-                    ((path, json.dumps(facts, ensure_ascii=False, separators=(',', ':'))) for path, facts in parsed.items()))
-                shared.update(parsed)
-            if reclaim:
-                database.commit()
-                database.execute('VACUUM')
-            return shared
+        try: return _read_cached_facts(cache_path, requested)
+        except sqlite3.DatabaseError as error:
+            if error.sqlite_errorcode not in {sqlite3.SQLITE_CORRUPT, sqlite3.SQLITE_NOTADB}: raise
+            cache_path.unlink()
+            Path(str(cache_path) + '-journal').unlink(missing_ok=True)
+            return _read_cached_facts(cache_path, requested)
+
+
+def _read_cached_facts(cache_path: Path, requested: dict[str, str]) -> dict:
+    with closing(sqlite3.connect(cache_path)) as database, database:
+        database.execute('CREATE TABLE IF NOT EXISTS facts (path TEXT PRIMARY KEY, content TEXT)')
+        database.execute('CREATE TABLE IF NOT EXISTS metadata (name TEXT PRIMARY KEY, value TEXT NOT NULL)')
+        signature = source_facts_signature()
+        previous = database.execute("SELECT value FROM metadata WHERE name = 'indexer'").fetchone()
+        reclaim = previous is not None and previous[0] != signature
+        if previous is None or previous[0] != signature:
+            database.execute('DELETE FROM facts')
+            database.execute("INSERT OR REPLACE INTO metadata VALUES ('indexer', ?)", (signature,))
+        obsolete = [(path,) for path, in database.execute('SELECT path FROM facts') if not Path(path).is_file()]
+        database.executemany('DELETE FROM facts WHERE path = ?', obsolete)
+        shared = {}
+        for path, source in requested.items():
+            row = database.execute('SELECT content FROM facts WHERE path = ?', (path,)).fetchone()
+            if row:
+                try: facts = json.loads(row[0])
+                except json.JSONDecodeError: continue
+                if isinstance(facts, dict) and facts.get('source') == source: shared[path] = facts
+        missing = {path: source for path, source in requested.items() if path not in shared}
+        if missing:
+            parsed = _index_sources(missing, resolve_tests=False)
+            database.executemany('INSERT OR REPLACE INTO facts VALUES (?, ?)',
+                ((path, json.dumps(facts, ensure_ascii=False, separators=(',', ':'))) for path, facts in parsed.items()))
+            shared.update(parsed)
+        if reclaim:
+            database.commit()
+            database.execute('VACUUM')
+        return shared
 
 
 def _index_sources(sources: dict[str, str], *, resolve_tests: bool = True) -> dict[str, dict]:

@@ -111,7 +111,10 @@ def self_test(ci, context: dict, platform: dict, environment_fixture) -> None:
                 assert METADATA_PREFIX in files[metrics]
                 artifact = 'validation-ios-app-tests' if group == 'release-runtime' else f'validation-ios-test-shards-{"app" if group == "all" else group}-{index}'
                 artifacts[artifact] = files[metrics], current_tree
+        for suffix in ('.retained.xcresult', '.incoming.xcresult'):
+            bundles[bundle.with_suffix(suffix)] = tree('all', ['StaleFixture/testOldResult'])
         ci.merge_simulator_ci()
+        assert all(bundle.with_suffix(suffix) not in bundles for suffix in ('.retained.xcresult', '.incoming.xcresult'))
         merged = json.loads(files[report])
         assert 'groups' not in merged and set(merged['simulatorResults']) == set(inventory)
         ci.export_validation_result('ios')

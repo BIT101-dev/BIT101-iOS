@@ -126,6 +126,27 @@ print('done', flush=True)
         assert joined[str(derived)]['tests']
         assert not subject.swift_syntax_index_sources(derived_source)[str(derived)]['tests']
 
+        transformed = source + '\n'
+        calls = parse.call_count
+        for _ in range(2):
+            assert subject.swift_syntax_index_sources({relative: transformed}, cache_transformed_sources=True)[relative]['source'] == transformed
+        assert parse.call_count == calls + 1
+        assert subject.swift_syntax_index_sources({relative: source}, cache_transformed_sources=True)[relative] == expected
+        assert parse.call_count == calls + 2
+        cache.write_bytes(b'invalid SQLite cache')
+        assert subject.swift_syntax_index_sources({relative: source})[relative] == expected
+        with closing(sqlite3.connect(cache)) as database, database:
+            database.execute('UPDATE facts SET content = ? WHERE path = ?', ('{', str(path)))
+        assert subject.swift_syntax_index_sources({relative: source})[relative] == expected
+        retained = cache.read_bytes()
+        failure = sqlite3.OperationalError('read-only cache')
+        failure.sqlite_errorcode = sqlite3.SQLITE_READONLY
+        with patch.object(sqlite3, 'connect', side_effect=failure):
+            try: subject.swift_syntax_index_sources({relative: source})
+            except sqlite3.OperationalError: pass
+            else: raise AssertionError('缓存存储权限故障需要保留诊断。')
+        assert cache.read_bytes() == retained
+
 
     source = '''struct Access {
         subscript(index: Int) -> Int { index }

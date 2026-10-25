@@ -208,7 +208,7 @@ nonisolated final class CommunityEditingRecoveryUITests: UIAutomationTestCase {
             assertUI(app.buttons["关注"].appears(timeout: 5), "昵称操作应进入含头像与统计的作者主页。")
             back()
             back()
-            app.tabBars.buttons["我的"].tapBriefly()
+            app.mainTab("我的").tapBriefly()
             let followers = app.buttons.matching(NSPredicate(format: "identifier == %@ AND label == %@",
                 "ui.mine-stat-button.destination", "粉丝")).firstMatch
             reveal(followers, description: "大字号主页统计")
@@ -217,7 +217,7 @@ nonisolated final class CommunityEditingRecoveryUITests: UIAutomationTestCase {
             followers.tapBriefly()
             assertUI(app.navigationBars["我的粉丝"].appears(timeout: 5), "大字号统计入口应打开对应列表。")
             back()
-            app.tabBars.buttons["话廊"].tapBriefly()
+            app.mainTab("话廊").tapBriefly()
             tapHeader(app.segmentedControls.buttons["最新"])
             let tags = app.scrollViews.matching(identifier: "interaction.CommunityPosterCard.scroll").firstMatch
             reveal(tags, description: "大字号长标签")

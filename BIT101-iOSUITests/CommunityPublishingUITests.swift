@@ -102,7 +102,7 @@ nonisolated final class CommunityPublishingUITests: UIAutomationTestCase {
         tap("删除所有文稿与数据")
         assertUI(app.alerts.firstMatch.appears(timeout: 5), "重置应要求确认。")
         app.alerts.buttons["取消"].tapBriefly()
-        assertUI(app.tabBars.buttons["我的"].exists, "取消重置应保留当前会话。")
+        assertUI(app.mainTab("我的").exists, "取消重置应保留当前会话。")
     }
 
 

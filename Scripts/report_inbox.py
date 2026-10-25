@@ -12,6 +12,25 @@ from command_output import show_report
 import time
 
 
+def delete_local_report(folder, key):
+    import shutil
+    folder = pathlib.Path(folder)
+    filename = report_filename(key)
+    for parent in (folder, folder / '.incoming'):
+        for path in parent.glob('*/*/report_*.json'):
+            if path.name == filename:
+                path.unlink()
+                shutil.rmtree(path.parent / (path.stem + '_附件'), ignore_errors=True)
+    processed_path = folder / 'report-keys.txt'
+    if processed_path.is_file():
+        retained = [line for line in processed_path.read_text().splitlines() if line not in {key, 'pruned-file:' + filename}]
+        processed_path.write_text('\n'.join(retained) + ('\n' if retained else ''))
+    for path in (folder / 'error-report.json', folder / '.incoming/report.json',
+                 folder / 'error-report-keys.json', folder / 'summary.txt'):
+        path.unlink(missing_ok=True)
+    refresh_archive_index(folder)
+
+
 def report_filename(key):
     return key.replace(':', '_') + '.json'
 

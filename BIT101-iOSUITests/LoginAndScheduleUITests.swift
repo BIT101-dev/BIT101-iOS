@@ -94,7 +94,7 @@ nonisolated final class ScheduleLayoutUITests: UIAutomationTestCase {
             var samples: [(page: String, cell: CGRect, text: CGRect, action: CGRect)] = []
             for page in ["课表", "DDL", "空教室", "成绩"] {
                 if page == "成绩" {
-                    app.native.tabBars.buttons[page].tap()
+                    app.mainTab(page).native.tap()
                 } else {
                     app.native.segmentedControls.buttons[page].tap()
                 }
@@ -311,14 +311,14 @@ nonisolated final class ScheduleLayoutUITests: UIAutomationTestCase {
             device.orientation = orientation
             UITestSnapshotReader.invalidate()
             assertSelectedWeek(3)
-            let calendar = app.descendants(matching: .any).matching(identifier: "schedule.variant-surface").firstMatch
+            let calendar = app.buttons["schedule.blank-context-menu"]
             assertUI(calendar.appears(timeout: 10), "窗口旋转后课表保持可见。")
             let window = app.windows.firstMatch.frame
             let add = app.buttons["schedule.add-content"]
             assertUI(calendar.frame.height > add.frame.height && window.intersects(calendar.frame), "窗口旋转后课表保留可用的内容区域。")
             assertUI(add.exists && add.native.isHittable, "窗口旋转后课表操作入口保持可触达。")
             for title in ["日程", "地图", "成绩", "话廊", "我的"] {
-                let tab = app.tabBars.buttons[title]
+                let tab = app.mainTab(title)
                 assertUI(tab.exists && tab.native.isHittable, "窗口旋转后主导航保持可触达：\(title)。")
             }
         }
@@ -384,7 +384,7 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         assertInteractiveLabelUsesPrimaryColor("时间轴")
         choose("时间轴", option: "线性")
         back()
-        app.tabBars.buttons["日程"].tapBriefly()
+        app.mainTab("日程").tapBriefly()
         let timeline = app.scrollViews["schedule.linear.timeline"]
         assertUI(timeline.appears(timeout: 5), "线性模式应提供可缩放的时间轴。")
         let canvas = app.buttons["schedule.blank-context-menu"]
@@ -551,7 +551,7 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         tap("确定")
         assertUI(waitUntil(NSPredicate(format: "label CONTAINS %@", "测试分享课表"), on: shared, timeout: 5), "保存应更新分享课表名称。")
         back()
-        app.tabBars.buttons["日程"].tapBriefly()
+        app.mainTab("日程").tapBriefly()
         let sharedSegment = app.segmentedControls.buttons["测试分享课表"]
         assertUI(sharedSegment.appears(timeout: 5), "导入和改名应增加课表分栏。")
         app.swipeUp()
@@ -679,17 +679,17 @@ nonisolated final class ScheduleEditingUITests: UIAutomationTestCase {
         assertUI(course.appears(timeout: 5), "单周课程应显示在第3周。")
         tap("第1周")
         assertUI(course.appears(timeout: 5), "返回第1周应恢复课程。")
-        app.tabBars.buttons["地图"].tapBriefly()
+        app.mainTab("地图").tapBriefly()
         app.buttons["切换到珠海校区"].tapBriefly()
         app = configureApp(resetStorage: false, restartProcess: true)
         assertUI(textElement("测试补录课程").appears(timeout: 5), "重启应先恢复含线上课程的课表。")
-        app.tabBars.buttons["地图"].tapBriefly()
+        app.mainTab("地图").tapBriefly()
         assertUI(app.buttons["切换到珠海校区"].appears(timeout: 5), "地图应恢复已选校区。")
         let camera = UITestControlClient.request(["command": "map-camera"])
             .flatMap { $0.data(using: .utf8) }.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
         XCTAssertEqual(camera?["latitude"] as? Double ?? 0, 22.359413, accuracy: 0.01,
                        "下一节课校区未知时，相机应与持久化的珠海选中状态一致。")
-        app.tabBars.buttons["日程"].tapBriefly()
+        app.mainTab("日程").tapBriefly()
         let restoredCourse = textElement("测试补录课程")
         assertUI(restoredCourse.appears(timeout: 5), "返回日程应恢复补录课程。")
         restoredCourse.tapBriefly()
@@ -817,7 +817,7 @@ nonisolated final class ScheduleEditingUITests: UIAutomationTestCase {
         app = configureApp(resetStorage: true, account: "ui-test-account-a", content: true)
         addCustomSchedule("A 账户专属日程", in: app)
 
-        app.tabBars.buttons["我的"].tapBriefly()
+        app.mainTab("我的").tapBriefly()
         let accountRoute = app.buttons["settings.route.account"]
         assertUI(accountRoute.appears(timeout: 10), "我的页面应展示账号设置入口。")
         accountRoute.tapBriefly()

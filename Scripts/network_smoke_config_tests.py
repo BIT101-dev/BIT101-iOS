@@ -35,6 +35,11 @@ def network_configuration_boundary_findings() -> list[str]:
             assert result.returncode == 0 and not result.stdout, result.stderr
         assert preflight('community-writes').returncode == 64
         assert preflight('community-writes', BIT101_COMMUNITY_FOLLOW_TARGET='9').returncode == 0
+        report.write_text(json.dumps({'passed': True, 'communityConfiguration': {'accountID': 42, 'fixtures': values, 'followTarget': 9}}))
+        assert capture(report, configuration)['followTarget'] == 9
+        assert preflight('community-writes').returncode == 0
+        assert load(configuration, explicit_target='10')['followTarget'] == 10
+        assert preflight('community-writes', BIT101_COMMUNITY_FOLLOW_TARGET='42').returncode == 64
         assert preflight('bit101', BIT101_COMMUNITY_SMOKE_ACCOUNT='43').returncode == 64
         assert preflight('bit101', BIT101_COMMUNITY_SMOKE_ACCOUNT='43', BIT101_NETWORK_SMOKE_FIXTURES=json.dumps(values)).returncode == 0
         saved = configuration.read_bytes()

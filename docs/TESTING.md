@@ -185,7 +185,7 @@ Scripts/release-network-smoke.sh all sms
 
 读取范围为 `all`、`bit101`、`school`、`transcript`、`schedule`、`ddl`。宿主使用授权账号的正式会话与业务服务，并按探针强制远端读取。学校范围执行对应认证；短信模式在设备面板完成服务端提出的 challenge，随后验证原业务继续。指定学期的 `BIT101_NETWORK_SMOKE_TERM` 形成定向结果。
 
-`prepare` 从当前会话及列表采集专用账号和维护对象，保存到 `.build/release-network-smoke/community-configuration.json`。后续 `all`、`bit101`、`community-writes` 自动读取这份配置，宿主在执行社区操作前核对当前账号。配置与采样报告分别维护，连续采样沿用已准备对象。
+`prepare` 从当前会话及列表采集专用账号、维护对象和已关注目标，保存到 `.build/release-network-smoke/community-configuration.json`。后续 `all`、`bit101`、`community-writes` 自动读取这份配置，宿主在执行社区操作前核对当前账号。环境变量可显式指定账号、维护对象和关注目标。配置与采样报告分别维护，连续采样沿用已准备对象。
 
 也可通过 `BIT101_COMMUNITY_SMOKE_ACCOUNT` 和 `BIT101_NETWORK_SMOKE_FIXTURES` 显式指定账号及包含 `posterID`、`courseID`、`courseNumber`、`paperID` 的维护对象。对象需提供对应文本、图片、评论、搜索与分页样本。消息读取会影响服务端未读数，使用具备历史分页样本的专用账号。
 

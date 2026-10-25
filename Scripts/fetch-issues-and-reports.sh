@@ -163,6 +163,9 @@ try:
 finally:
     run('delete', grant_key, check=False)
     path.unlink(missing_ok=True)
+sys.path.insert(0, str(Path(directory).parents[1] / 'Scripts'))
+from report_inbox import delete_local_report
+delete_local_report(path.parent, key)
 print('报告已删除：' + key)
 PYDELETE
     ;;

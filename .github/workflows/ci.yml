@@ -246,7 +246,7 @@ jobs:
           include-hidden-files: true
           path: ${{ steps.diagnostics.outputs.paths }}
   catalyst-tests:
-    needs: [validation-plan, release-build, static-audit]
+    needs: [validation-plan]
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' && (inputs.full_check || inputs.release_check)
     name: Mac Catalyst behavior tests
     runs-on: xcode-27

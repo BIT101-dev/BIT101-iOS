@@ -472,7 +472,9 @@ final class UIElement: NSObject {
     var steppers: UIElementQuery { descendants(matching: .stepper) }
     var switches: UIElementQuery { descendants(matching: .switch) }
     var navigationBars: UIElementQuery { descendants(matching: .navigationBar) }
-    var tabBars: UIElementQuery { descendants(matching: .tabBar) }
+    func mainTab(_ title: String) -> UIElement {
+        buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label == %@", "app.tab.", title)).firstMatch
+    }
     var segmentedControls: UIElementQuery { descendants(matching: .segmentedControl) }
     var collectionViews: UIElementQuery { descendants(matching: .collectionView) }
     var scrollViews: UIElementQuery { descendants(matching: .scrollView) }

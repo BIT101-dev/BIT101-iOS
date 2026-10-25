@@ -403,7 +403,7 @@ def command_logging_boundary_findings() -> list[str]:
         def native_output():
             yield "    t = 0.10s Press button\n"
             yield case
-            assert ("[用例]" in visible.getvalue()) == ci
+            assert '[用例]' not in visible.getvalue()
         process = SimpleNamespace(stdout=native_output(), wait=lambda: 0)
         with patch.object(sys, 'argv', ['logger', '/audit/ui.log', '模拟器测试', 'xcodebuild']), \
                 patch.object(subprocess, 'Popen', return_value=process), patch.object(Path, 'mkdir'), \

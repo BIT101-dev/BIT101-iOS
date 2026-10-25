@@ -183,7 +183,7 @@ nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
                 if path == "posters" { failure["query.order"] = "new" }
                 _ = UITestControlClient.request(failure)
             }
-            app.tabBars.buttons[tab == "home" ? "成绩" : "话廊"].tapBriefly()
+            app.mainTab(tab == "home" ? "成绩" : "话廊").tapBriefly()
             tapHeader(app.segmentedControls.buttons[section])
             if search {
                 tap("搜索文章")

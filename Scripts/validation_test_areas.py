@@ -772,7 +772,7 @@ public final class Observer {
 
 @lru_cache
 def indexed_test_sources(sources: tuple[tuple[str, str], ...]) -> dict:
-    return swift_syntax_index_sources(dict(sources))
+    return swift_syntax_index_sources(dict(sources), cache_transformed_sources=True)
 
 
 def raw_test_selectors(group: str) -> dict[str, str]:

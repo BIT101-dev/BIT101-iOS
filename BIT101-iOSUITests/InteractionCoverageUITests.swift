@@ -132,7 +132,7 @@ nonisolated final class CalendarInteractionUITests: UIAutomationTestCase {
         tap("使用学校日期")
         tap("完成")
         back()
-        app.tabBars.buttons["日程"].tapBriefly()
+        app.mainTab("日程").tapBriefly()
         tapHeader(app.segmentedControls.buttons["空教室"])
         assertUI(textElement("A101").appears(timeout: 10), "学校响应应展示空教室。")
         choose("校区", option: "中关村校区")
@@ -148,7 +148,7 @@ nonisolated final class CalendarInteractionUITests: UIAutomationTestCase {
         assertUI(app.alerts["DDL 同步成功"].appears(timeout: 5), "刷新学校日程应展示同步结果。")
         closeAlertIfPresent()
         back()
-        app.tabBars.buttons["日程"].tapBriefly()
+        app.mainTab("日程").tapBriefly()
         tapHeader(app.segmentedControls.buttons["DDL"])
         let assignment = app.staticTexts["课程中心测试作业"]
         reveal(assignment)
@@ -274,7 +274,7 @@ nonisolated final class CalendarInteractionUITests: UIAutomationTestCase {
         app = configureApp(resetStorage: true, initialSettings: "calendar")
         choose("时间轴", option: "线性")
         back()
-        app.tabBars.buttons["日程"].tapBriefly()
+        app.mainTab("日程").tapBriefly()
         app.buttons["schedule.add-content"].tapBriefly()
         tap("添加日程")
         tap("确定")
@@ -518,7 +518,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         reveal(control)
         waitForValue(value, of: control)
         back()
-        app.tabBars.buttons["日程"].tapBriefly()
+        app.mainTab("日程").tapBriefly()
         assertUI(textElement("设置恢复保留日程").appears(timeout: 5), "恢复设置后应保留登录账号与原日程。")
     }
 
@@ -614,7 +614,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         assertUI(app.segmentedControls.buttons["文章"].isSelected, "顶部选择应切换至文章分区。")
         assertUI(app.segmentedControls.buttons.matching(NSPredicate(format: "label == %@", "最新")).count == 1,
                  "文章页面应展示当前分区的排序控件。")
-        assertUI(app.tabBars.buttons["日程"].isHittable, "分区容器应保留 App 底部导航。")
+        assertUI(app.mainTab("日程").isHittable, "分区容器应保留 App 底部导航。")
         for title in ["高赞", "热评"] {
             tapHeader(app.segmentedControls.buttons[title])
             assertUI(app.segmentedControls.buttons[title].isSelected, "文章应选中\(title)。")
@@ -640,7 +640,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         openSettings("gallery")
         _ = toggle("隐藏机器人帖子")
         back()
-        app.tabBars.buttons["话廊"].tapBriefly()
+        app.mainTab("话廊").tapBriefly()
         for title in ["关注", "最新", "最热", "机器人", "推荐"] {
             tapHeader(app.segmentedControls.buttons[title])
             assertUI(app.segmentedControls.buttons[title].isSelected, "话题分类应选中：\(title)。")
@@ -649,7 +649,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         openSettings("gallery")
         _ = toggle("隐藏机器人帖子")
         back()
-        app.tabBars.buttons["话廊"].tapBriefly()
+        app.mainTab("话廊").tapBriefly()
         assertUI(!app.segmentedControls.buttons["机器人"].exists && app.segmentedControls.buttons["推荐"].isSelected,
                  "隐藏当前机器人分栏应选中推荐。")
         pullToRefresh()

@@ -326,8 +326,7 @@ def ci_wiring_findings(workflow_source: str, *, ui_only: bool = False) -> list[s
         if name not in {'ios-tests', 'ios-app-tests'} and not any(command_matches(command, "python3 Scripts/validation_evidence.py summary --recorded-environment")
                 for command, _ in run_commands(job, include_always=True)):
             errors.append(f".github/workflows/ci.yml: {name} 的证据汇总需要采用记录环境")
-        expected_dependencies = ['validation-plan', *{'ios-tests': ['static-audit', 'ios-app-tests'],
-            'catalyst-tests': ['release-build', 'static-audit']}.get(name, [])]
+        expected_dependencies = ['validation-plan', *{'ios-tests': ['static-audit', 'ios-app-tests']}.get(name, [])]
         if job.get('needs', []) != expected_dependencies:
             errors.append(f'.github/workflows/ci.yml: {name} 需要按独立执行与最终汇总的依赖图运行')
     static_commands = commands.get("static-audit", [])
@@ -719,8 +718,8 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
     for job in ('release-build', 'ios-app-tests'):
         serialized = re.sub(r'(?m)(^  ' + job + r':\n)(?:    needs:.*\n)?', r'\1    needs: static-audit\n', workflow_source, count=1)
         assert any('依赖图' in item for item in ci_wiring_findings(serialized))
-    for dependency in ('', '    needs: release-build\n', '    needs: static-audit\n'):
-        changed = workflow_source.replace('  catalyst-tests:\n    needs: [validation-plan, release-build, static-audit]\n', '  catalyst-tests:\n' + dependency)
+    for dependency in ('', '    needs: release-build\n', '    needs: static-audit\n', '    needs: [validation-plan, release-build, static-audit]\n'):
+        changed = workflow_source.replace('  catalyst-tests:\n    needs: [validation-plan]\n', '  catalyst-tests:\n' + dependency)
         assert any('依赖图' in row for row in ci_wiring_findings(changed))
     for dependency in ('    needs: release-build\n', '    needs: static-audit\n'):
         changed = workflow_source.replace('  ios-app-tests:\n    needs: [validation-plan]\n', '  ios-app-tests:\n' + dependency)

@@ -113,9 +113,6 @@ def run_command(arguments: list[str]) -> int:
         for line in process.stdout:
             report.write(line)
             report.flush()
-            if label == "模拟器测试" and os.environ.get("GITHUB_ACTIONS") == "true" \
-                    and re.match(r"Test Case .+ (?:passed|failed) \([\d.]+ seconds\)\.", line):
-                print("[用例] " + line.strip(), flush=True)
             if arguments[2] == "xcodebuild":
                 match = re.search(r"Writing error result bundle to (.+\.xcresult)\s*$", line)
                 if match:
