@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 
 def test_result_boundary_findings() -> list[str]:
+    failure_summary_self_test()
     from test_results import report_test_results
     root = Path('/fixture/extended-automation')
     scripts = str(Path(__file__).parent)
@@ -59,6 +60,33 @@ def test_result_boundary_findings() -> list[str]:
                 exported.assert_not_called(); replaced.assert_not_called(); cleared.assert_not_called()
     module_failure_report_self_test()
     return []
+
+
+def failure_summary_self_test() -> None:
+    from command_output import OUTPUT_LINE_LIMIT, character_limit
+    from test_results import report_result_summary, report_test_failures
+    for message in ('', None, '\n \n', 'assertion\ndetails'):
+        failures = [dict(testIdentifierString='Suite/test', failureText=message)]
+        sample = dict(result='Failed', passedTests=0, totalTestCount=1, testFailures=failures)
+        for report in (report_result_summary, lambda bundle: report_test_failures([bundle])):
+            visible = StringIO()
+            with patch.object(subprocess, 'check_output', return_value=json.dumps(sample)), \
+                    patch.object(subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, json.dumps(sample), '')), \
+                    redirect_stdout(visible):
+                report('/result')
+            assert 'Suite/test' in visible.getvalue()
+            assert ('assertion' if message == 'assertion\ndetails' else '测试失败') in visible.getvalue()
+    for message in ('assertion', 'error: ' + 'x' * character_limit()):
+        sample['testFailures'] = [dict(testIdentifierString=f'Suite/test{index}', failureText=message) for index in range(100)]
+        for report in (report_result_summary, lambda bundle: report_test_failures([bundle])):
+            visible = StringIO()
+            with patch.object(subprocess, 'check_output', return_value=json.dumps(sample)), \
+                    patch.object(subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, json.dumps(sample), '')), \
+                    redirect_stdout(visible):
+                report('/result')
+            assert len(visible.getvalue().splitlines()) <= OUTPUT_LINE_LIMIT + 1
+            assert 'Suite/test0' in visible.getvalue() and 'Suite/test99' in visible.getvalue()
+            assert '[输出]' in visible.getvalue() and '/result' in visible.getvalue()
 
 
 def module_failure_report_self_test() -> None:

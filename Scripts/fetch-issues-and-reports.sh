@@ -197,12 +197,11 @@ fi
 
 if gh run list \
   --repo "$REPO" \
-  --status failure \
   --limit 20 \
-  --json databaseId,workflowName,displayTitle,status,conclusion,event,headBranch,headSha,createdAt,updatedAt,url \
+  --json databaseId,workflowDatabaseId,workflowName,displayTitle,status,conclusion,event,headBranch,headSha,createdAt,updatedAt,url \
   > "$CI_RUNS_PATH"; then
 
-if python3 - "$CI_RUNS_PATH" "$CI_REPORT_PATH" "$REPO" <<'PY'
+if python3 - "$CI_RUNS_PATH" "$CI_REPORT_PATH" "$REPO" "$ROOT_DIR/Scripts" <<'PY'
 import json
 import pathlib
 import subprocess
@@ -212,7 +211,9 @@ from concurrent.futures import ThreadPoolExecutor
 runs_path = pathlib.Path(sys.argv[1])
 output_path = pathlib.Path(sys.argv[2])
 repo = sys.argv[3]
-runs = json.loads(runs_path.read_text(encoding="utf-8"))
+sys.path.insert(0, sys.argv[4])
+from report_inbox import latest_failed_ci_runs
+runs = latest_failed_ci_runs(json.loads(runs_path.read_text(encoding="utf-8")))
 try:
     previous = json.loads(output_path.read_text(encoding="utf-8"))
 except (FileNotFoundError, json.JSONDecodeError):

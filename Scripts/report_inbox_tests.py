@@ -12,7 +12,13 @@ def report_inbox_boundary_findings() -> list[str]:
     "验证反馈正文、附件、旧键和重复拉取的保存合同。"
 
     source = (SCRIPT_ROOT / "fetch-issues-and-reports.sh").read_text()
-    from report_inbox import archive_reports, normalize_github_issues
+    from report_inbox import archive_reports, normalize_github_issues, latest_failed_ci_runs
+    def run(number, workflow=1, branch='main', event='push', conclusion='failure', status='completed'):
+        return dict(databaseId=number, workflowDatabaseId=workflow, headBranch=branch, event=event, conclusion=conclusion, status=status)
+    runs = [run(10, workflow=3, conclusion='timed_out'), run(9, status='in_progress', conclusion=''), run(8, conclusion='success'),
+        run(7, event='workflow_dispatch'), run(6, branch='feature'), run(5, workflow=2), run(4), run(3)]
+    assert [item['databaseId'] for item in latest_failed_ci_runs(runs)] == [10, 7, 6, 5]
+    assert latest_failed_ci_runs([run(2, status='in_progress'), run(1)])[0]['databaseId'] == 1
     fixture = ROOT / ".build/static-audit/report-inbox-self-test"
     staging = fixture / ".incoming"
     keys_path, processed_path = fixture / "keys.json", fixture / "report-keys.txt"
@@ -133,7 +139,7 @@ if [[ "$1" == api ]]; then
 elif [[ "$2" == list ]]; then
   if [[ "$INBOX_SELF_TEST_MODE" == listing-failure ]]; then print partial; exit 18; fi
   if [[ "$INBOX_SELF_TEST_MODE" == log-failure || "$INBOX_SELF_TEST_MODE" == log-success ]]; then
-    print '[{"databaseId":1,"updatedAt":"new","headSha":"head"}]'
+    print '[{"databaseId":1,"workflowDatabaseId":1,"event":"push","headBranch":"main","status":"completed","conclusion":"failure","updatedAt":"new","headSha":"head"}]'
   else print '[]'; fi
 elif [[ "$2" == view ]]; then
   if [[ "$INBOX_SELF_TEST_MODE" == log-success ]]; then

@@ -334,6 +334,9 @@ struct Handler { var value: String!; func read() -> String { value }; func catch
     upload = re.search(r"actions/upload-artifact@[0-9a-f]{40}", workflow_source)[0]
     renamed_steps = re.sub(r'(?m)^(\s+- name:).*$', r'\1 Descriptive workflow label', workflow_source)
     assert not ci_wiring_findings(renamed_steps)
+    reordered = workflow_source.replace('[validation-plan, static-audit, ios-app-tests]', '[ios-app-tests, validation-plan, static-audit]')
+    assert reordered != workflow_source and not ci_wiring_findings(reordered)
+    assert not ci_wiring_findings(workflow_source.replace('needs: [validation-plan]', 'needs: validation-plan'))
     spaced = workflow_source.replace('run: python3 Scripts/ci_evidence.py reuse ', 'run: python3  "Scripts/ci_evidence.py"   reuse ')
     assert not ci_wiring_findings(spaced)
     assert not ci_wiring_findings(workflow_source.replace(upload, "actions/upload-artifact@" + "a" * 40))

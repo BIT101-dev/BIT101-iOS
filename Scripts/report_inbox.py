@@ -35,6 +35,18 @@ def report_filename(key):
     return key.replace(':', '_') + '.json'
 
 
+def latest_failed_ci_runs(runs):
+    """Select the newest completed run per workflow, branch and event from GitHub's ordered list."""
+    seen, failures = set(), []
+    for run in runs:
+        if run['status'] != 'completed': continue
+        key = (run['workflowDatabaseId'], run['headBranch'], run['event'])
+        if key in seen: continue
+        seen.add(key)
+        if run['conclusion'] in {'failure', 'timed_out', 'startup_failure', 'action_required'}: failures.append(run)
+    return failures
+
+
 def normalize_github_issues(arguments):
     path = pathlib.Path(arguments[0])
     pages = json.loads(path.read_text())

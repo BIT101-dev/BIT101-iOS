@@ -202,19 +202,25 @@ def report_metrics(metrics: Path) -> None:
         print(f'完整失败记录：{failures}')
 
 
+def failure_text(failure: dict) -> str:
+    return str(failure.get('failureText') or '测试失败').strip() or '测试失败'
+
+
 def report_result_summary(bundle: str) -> None:
     import json, subprocess
-    print(f'结果来源：{bundle}')
+    from command_output import show_report_lines
     try:
         summary = json.loads(subprocess.check_output([
             "xcrun", "xcresulttool", "get", "test-results", "summary", "--path", bundle,
         ], text=True, stderr=subprocess.PIPE))
     except subprocess.CalledProcessError:
         raise SystemExit(f'当前结果包：{bundle}；测试摘要读取受阻，请执行 diagnostics 查看详细记录。') from None
-    print(f"{summary.get('result', '?')} · {summary.get('passedTests', 0)}/{summary.get('totalTestCount', 0)} 通过")
-    for failure in summary.get("testFailures", []):
-        message = str(failure.get("failureText", "?")).splitlines()[0][:240]
-        print(f"{failure.get('testIdentifierString', '?')}: {message}")
+    def lines():
+        yield f'结果来源：{bundle}\n'
+        yield f"{summary.get('result', '?')} · {summary.get('passedTests', 0)}/{summary.get('totalTestCount', 0)} 通过\n"
+        for failure in summary.get('testFailures') or []:
+            yield f"{failure.get('testIdentifierString', '?')}: {failure_text(failure).splitlines()[0][:240]}\n"
+    show_report_lines(lines(), Path(bundle), '测试摘要')
 
 
 
@@ -280,6 +286,7 @@ def report_test_failures(arguments: list[str]) -> None:
     cli_arguments = ["", *arguments]
     import json
     import subprocess
+    from command_output import show_report_lines
 
     result = subprocess.run(
         ["xcrun", "xcresulttool", "get", "test-results", "summary", "--path", cli_arguments[1]],
@@ -290,19 +297,21 @@ def report_test_failures(arguments: list[str]) -> None:
         summary = json.loads(result.stdout)
         failures = summary.get("testFailures", [])
         if failures:
-            if all("Not authorized for performing UI testing actions" in failure.get("failureText", "") for failure in failures):
+            if all("Not authorized for performing UI testing actions" in failure_text(failure) for failure in failures):
                 print("真机 UI 自动化授权状态失效；检查手机解锁状态及屏幕提示。")
                 print("本批交互用例待验证；详细错误保存在固定 XCTest 结果包。")
                 raise SystemExit(0)
             grouped = {}
             for failure in failures:
-                grouped.setdefault(failure.get("failureText", "测试失败"), []).append(failure.get("testIdentifierString", "?"))
-            for message, tests in grouped.items():
-                print(f"{message.splitlines()[0][:240]} · {len(tests)} 个用例")
-                for test in tests:
-                    print(f"  {test}")
-                if "enabling automation mode" in message:
-                    print("iOS 自动化初始化超时；检查真机连接与屏幕提示，出现 Enable UI Automation 时完成设备验证后重试。")
+                grouped.setdefault(failure_text(failure), []).append(failure.get("testIdentifierString", "?"))
+            def lines():
+                for message, tests in grouped.items():
+                    yield f"{message.splitlines()[0][:240]} · {len(tests)} 个用例\n"
+                    for test in tests:
+                        yield f"  {test}\n"
+                    if "enabling automation mode" in message:
+                        yield "iOS 自动化初始化超时；检查真机连接与屏幕提示，出现 Enable UI Automation 时完成设备验证后重试。\n"
+            show_report_lines(lines(), Path(cli_arguments[1]), '测试失败摘要')
 
 
 def record_native_metrics(arguments: list[str]) -> None:

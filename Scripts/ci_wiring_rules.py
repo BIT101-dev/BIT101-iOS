@@ -327,7 +327,10 @@ def ci_wiring_findings(workflow_source: str, *, ui_only: bool = False) -> list[s
                 for command, _ in run_commands(job, include_always=True)):
             errors.append(f".github/workflows/ci.yml: {name} 的证据汇总需要采用记录环境")
         expected_dependencies = ['validation-plan', *{'ios-tests': ['static-audit', 'ios-app-tests']}.get(name, [])]
-        if job.get('needs', []) != expected_dependencies:
+        dependencies = job.get('needs', [])
+        if isinstance(dependencies, str): dependencies = [dependencies]
+        if not isinstance(dependencies, list) or any(not isinstance(value, str) for value in dependencies) \
+                or set(dependencies) != set(expected_dependencies):
             errors.append(f'.github/workflows/ci.yml: {name} 需要按独立执行与最终汇总的依赖图运行')
     static_commands = commands.get("static-audit", [])
     audit_index = next((index for index, (command, _) in enumerate(static_commands) if command_matches(command, "Scripts/run-extended-tests.sh verify audit modules")), -1)
