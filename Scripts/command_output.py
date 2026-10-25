@@ -135,6 +135,8 @@ def run_command(arguments: list[str]) -> int:
     streamed_characters = 0
     summary_count = summary_tests = 0
     summary = ""
+    dependency_warning_count = 0
+    dependency_example = ""
     temporary_results = set()
     with report_path.open("w", encoding="utf-8") as report:
         for line in process.stdout:
@@ -151,7 +153,9 @@ def run_command(arguments: list[str]) -> int:
                 continue
             failures.add(line)
             if "error:" in line or "warning:" in line or useful_line(line) and (line.lstrip().startswith("✘") or "failed" in line.lower()):
-                if re.match(r"warning: '.+' is missing a dependency on '.+' because dependency scan of Swift module", line):
+                if dependency := re.match(r"warning: '(.+)' is missing a dependency on '(.+)' because dependency scan of Swift module", line):
+                    dependency_warning_count += 1
+                    if not dependency_example: dependency_example = f'{dependency[1]} → {dependency[2]}'
                     continue
                 elif diagnostics.add(line):
                     diagnostic_count += 1
@@ -174,6 +178,9 @@ def run_command(arguments: list[str]) -> int:
             print(f"[诊断] 构建失败结果包 · {destination}")
         else:
             shutil.rmtree(path, ignore_errors=True)
+    if dependency_warning_count and not exit_code:
+        diagnostics.add(f'[依赖扫描] {dependency_warning_count} 条提示 · {dependency_example} · 完整日志：{report_path}\n')
+        diagnostic_count += 1
     output = failures.lines() if exit_code else diagnostics.lines()
     output_count = failures.count if exit_code else diagnostic_count
     pending_lines = [line for line in output if line not in streamed][:display_limit - len(streamed)]

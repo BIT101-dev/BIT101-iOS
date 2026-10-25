@@ -66,7 +66,10 @@ def log_output_boundary_findings() -> list[str]:
     assert raw == large and len(output) < character_limit() + 200 and '开始' in output and '结束' in output
     warning = "warning: 'CourseFeature' is missing a dependency on 'CommunityCore' because dependency scan of Swift module\n"
     output, raw = captured_command([warning], status=0, executable='xcodebuild')
-    assert warning in raw and output.count('\n') == 1 and '[完成]' in output
+    assert warning in raw and output.count('\n') == 2 and '[完成]' in output
+    assert '[依赖扫描] 1 条提示' in output and 'CourseFeature → CommunityCore' in output and '/dev/null' in output
+    output, raw = captured_command([warning] * 1000, status=0, executable='xcodebuild')
+    assert raw == warning * 1000 and output.count('\n') == 2 and '[依赖扫描] 1000 条提示' in output
     for line in (warning, '[1/2] error: fixture compiler failure\n', '[12/20] warning: fixture dependency issue\n'):
         output, raw = captured_command([line], status=7, executable='xcodebuild')
         assert line in output and line in raw
