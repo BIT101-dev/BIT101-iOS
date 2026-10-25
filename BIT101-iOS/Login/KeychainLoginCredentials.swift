@@ -17,15 +17,6 @@ final class KeychainLoginCredentials: LoginCredentialsStoring {
         synchronizable ? kSecAttrAccessibleAfterFirstUnlock : kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
     }
 
-    @discardableResult
-    func deleteAll() -> Bool {
-        Self.keychainDeleteSucceeded(status: SecItemDelete([
-            kSecClass as String: kSecClassGenericPassword,
-                kSecAttrService as String: service,
-                kSecAttrSynchronizable as String: synchronizable,
-        ] as CFDictionary))
-    }
-
     func save(_ value: String, account: String) throws {
         let data = Data(value.utf8)
         let query = baseQuery(account: account)

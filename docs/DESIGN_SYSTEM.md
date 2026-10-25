@@ -33,7 +33,7 @@
 | `Modules/DesignSystemKit/Sources/AppVerificationComponents.swift` | 数据无关的短信验证码输入面板 |
 | `Modules/ScheduleFeature/Sources/ScheduleDesignSystem.swift` | 课表网格、周次栏、时间轴、课程块颜色与模块强调色 |
 | `Modules/GalleryFeature/Sources/GalleryDesignSystem.swift` | 话廊消息标记与模块强调色 |
-| `Modules/CommunityUI/Sources/CommunityDesignSystem.swift` | 社区卡片令牌、公共图片编辑条目与图片压缩 |
+| `Modules/CommunityUI/Sources/CommunityDesignSystem.swift` | 社区卡片令牌与公共图片编辑条目 |
 | `Modules/MapFeature/Sources/CampusMapScreen.swift` | 地图模块强调色令牌 |
 | `Modules/DesignSystemKit/Sources/ExternalDesignSystem.swift` | 主 App、Widget、Watch、Live Activity 共用 SwiftUI 字体、尺寸与缩放 |
 

@@ -247,7 +247,7 @@ struct ScoreFeatureTests {
             service.detailedError = nil
             await model.refresh()
             #expect(model.state == .loaded && model.alert == nil)
-            #expect(await cache.loadRows(for: session) == model.rows)
+            #expect(try await cache.loadSnapshot(for: session)?.rows == model.rows)
         }
     }
 

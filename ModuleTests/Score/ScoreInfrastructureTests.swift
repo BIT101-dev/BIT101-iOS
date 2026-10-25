@@ -97,8 +97,8 @@ struct ScoreInfrastructureBoundaryTests {
         #expect(await first.save(rows: firstRows) != nil)
         #expect(try await second.loadSnapshot() == nil)
         #expect(await second.save(rows: secondRows) != nil)
-        #expect(await first.loadRows() == firstRows)
-        #expect(await second.loadRows() == secondRows)
+        #expect(try await first.loadSnapshot()?.rows == firstRows)
+        #expect(try await second.loadSnapshot()?.rows == secondRows)
         #expect(firstFiles.storedData.count == 1 && secondFiles.storedData.count == 1)
     }
 
@@ -148,7 +148,7 @@ struct ScoreInfrastructureBoundaryTests {
         try await waitForTestEvent { entered.withLock { $0 } }
         task.cancel(); gate.signal()
         #expect(await task.value == nil)
-        #expect(await cache.loadRows() == rows)
+        #expect(try await cache.loadSnapshot()?.rows == rows)
         #expect(saves == [session] && changes == [session])
     }
 
@@ -239,7 +239,7 @@ struct ScoreInfrastructureBoundaryTests {
         #expect(await cache.save(rows: []) != nil)
         #expect(files.readCount(at: legacy) - previousReads == (oversized ? 0 : 1))
         #expect(files.storedData[legacy] == (oversized ? data : nil))
-        #expect(await cache.loadRows() == [])
+        #expect(try await cache.loadSnapshot()?.rows == [])
     }
 
     @Test(.timeLimit(.minutes(1))) func oversizedScoreWritesPreserveThePreviouslyCommittedSnapshot() async throws {
@@ -253,7 +253,7 @@ struct ScoreInfrastructureBoundaryTests {
         #expect(await cache.save(rows: rows) != nil)
         let oversized = [ScoreRow(index: 0, headers: ["正文"], values: [String(repeating: "a", count: ScoreCacheStore.maximumCacheBytes)])]
         #expect(await cache.save(rows: oversized) == nil)
-        #expect(await cache.loadRows() == rows)
+        #expect(try await cache.loadSnapshot()?.rows == rows)
     }
     @Test func serviceFailuresProvidePresentationDetails() {
         let challenge = BITLoginAuthenticationChallenge(challengeID: "fixture", accessToken: "token",
@@ -627,7 +627,7 @@ struct ScoreInfrastructureBoundaryTests {
             defaults: defaults, session: { session })
         #expect(try await cache.syncPayload() == .init(rows: rows, updatedAt: date, detailedUpdatedAt: date))
         #expect(defaults.object(forKey: session.legacyKey("score.detail.cache")) == nil)
-        #expect(await cache.loadRows() == rows)
+        #expect(try await cache.loadSnapshot()?.rows == rows)
     }
 
     @Test(.timeLimit(.minutes(1))) func cloudApplyComparesTheCompleteLocalSnapshotInsideTheRepository() async throws {
@@ -692,7 +692,7 @@ struct ScoreInfrastructureBoundaryTests {
             detailedUpdatedAt: detailed ? timestamp : nil)
         #expect(try await cache.applySynced(empty, replacing: initial))
         #expect(try await cache.syncPayload() == empty)
-        #expect(await cache.loadRows() == [])
+        #expect(try await cache.loadSnapshot()?.rows == [])
     }
 
     @Test(.timeLimit(.minutes(1))) func scoreDiskFormatPreservesAdditionalFieldsAndClearsReplacedDetailMetadata() async throws {

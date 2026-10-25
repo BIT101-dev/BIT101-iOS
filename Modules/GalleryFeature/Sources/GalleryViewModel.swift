@@ -14,7 +14,8 @@ import Foundation
 @MainActor
 final class GallerySubscriptionsViewModel: ObservableObject {
     let pendingOperations = CommunityDetailTasks()
-    @Published private(set) var items: [GallerySubscription] = []
+    @Published private var pagedItems = CommunityPagedItems<GallerySubscription>()
+    var items: [GallerySubscription] { pagedItems.items }
     @Published private(set) var status: CommunityLoadStatus = .idle
     @Published private(set) var isLoadingMore = false
     @Published private(set) var canLoadMore = true
@@ -39,8 +40,7 @@ final class GallerySubscriptionsViewModel: ObservableObject {
             let result = try await service.fetchSubscriptions(page: 0)
             guard generation == requestGeneration else { return }
             try Task.checkCancellation()
-            var ids = Set<Int>()
-            items = result.filter { ids.insert($0.id).inserted }
+            pagedItems.replace(with: result)
             nextPage = 1
             canLoadMore = !result.isEmpty
             status = .loaded
@@ -57,26 +57,18 @@ final class GallerySubscriptionsViewModel: ObservableObject {
         let requestGeneration = generation
         isLoadingMore = true
         defer { if generation == requestGeneration { isLoadingMore = false } }
+        var request = CommunityPageRequest<Int>(sourcePage: nextPage)
         do {
-            var progress = CommunityPageProgress<Int>()
-            while true {
-                let result = try await service.fetchSubscriptions(page: nextPage)
-                guard generation == requestGeneration else { return }
-                try Task.checkCancellation()
-                let known = Set(items.map(\.id))
-                try progress.record(result.map(\.id), knownIDs: known)
-                var ids = known
-                let added = result.filter { ids.insert($0.id).inserted }
-                if result.isEmpty || !added.isEmpty {
-                    items.append(contentsOf: added)
-                    nextPage += 1
-                    canLoadMore = !result.isEmpty
-                    return
-                }
-                nextPage += 1
-            }
+            guard let result = try await request.next(isCurrent: { self.generation == requestGeneration },
+                knownIDs: { self.pagedItems.ids },
+                fetch: { try await self.service.fetchSubscriptions(page: $0) }) else { return }
+            pagedItems.append(result)
+            nextPage = request.sourcePage + 1
+            canLoadMore = !result.isEmpty
         } catch {
-            guard generation == requestGeneration, !TaskCancellation.matches(error) else { return }
+            guard generation == requestGeneration else { return }
+            nextPage = request.sourcePage
+            guard !TaskCancellation.matches(error) else { return }
             alert = AppAlert(title: "加载收藏失败", error: error)
         }
     }

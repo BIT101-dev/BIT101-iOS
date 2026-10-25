@@ -95,8 +95,7 @@ struct ScheduleSyncTests {
         phone.cache.currentTerm = "term"
         phone.cache.courseData.store(snapshot)
         let moved = try wholeCourse
-            ? ScheduleCourseEditor.updatingArrangement(id: source[0].id,
-                with: CourseDraft(title: "原课程", weekday: 3, weeksText: "1-4"), in: source)
+            ? ScheduleCourseEditor.updatingArrangements([(source[0].id, CourseDraft(title: "原课程", weekday: 3, weeksText: "1-4"))], in: source)
             : ScheduleCourseEditor.transferring(courses: source,
                 fromWeek: 1, fromWeekday: 1, toWeek: 1, toWeekday: 3)
         ScheduleCourseEditor.updateCacheForManualCourseChange(in: &phone.cache,

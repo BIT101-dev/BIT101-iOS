@@ -291,14 +291,6 @@ public nonisolated enum ScheduleCourseEditor {
         )]
     }
 
-    public static func updatingArrangement(
-        id: String,
-        with draft: CourseDraft,
-        in courses: [CourseRecord]
-    ) throws -> [CourseRecord] {
-        try updatingArrangements([(id, draft)], in: courses)
-    }
-
     public static func updatingArrangements(
         _ arrangements: [(id: String, draft: CourseDraft)],
         in courses: [CourseRecord]

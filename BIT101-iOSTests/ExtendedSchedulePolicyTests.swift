@@ -653,10 +653,7 @@ struct ExtendedSchedulePolicyTests {
         draft.startSection = 3
         draft.endSection = 4
 
-        let result = try ScheduleCourseEditor.updatingArrangement(
-            id: firstPart.id,
-            with: draft,
-            in: [firstPart, secondPart]
+        let result = try ScheduleCourseEditor.updatingArrangements([(firstPart.id, draft)], in: [firstPart, secondPart]
         )
 
         #expect(result.count == 1)
@@ -686,10 +683,7 @@ struct ExtendedSchedulePolicyTests {
         var draft = CourseDraft(title: "软件工程导论", weeksText: "1-3")
         draft.weekday = 6
 
-        let result = try ScheduleCourseEditor.updatingArrangement(
-            id: monday.id,
-            with: draft,
-            in: [monday, thursday, friday]
+        let result = try ScheduleCourseEditor.updatingArrangements([(monday.id, draft)], in: [monday, thursday, friday]
         )
 
         #expect(result.count == 3)
@@ -705,10 +699,7 @@ struct ExtendedSchedulePolicyTests {
         var draft = CourseDraft(title: "软件工程导论", weeksText: "1-2")
         draft.classroom = "文萃楼F405"
 
-        let result = try ScheduleCourseEditor.updatingArrangement(
-            id: literary.id,
-            with: draft,
-            in: [literary, comprehensive]
+        let result = try ScheduleCourseEditor.updatingArrangements([(literary.id, draft)], in: [literary, comprehensive]
         )
 
         #expect(result.first(where: { $0.id == literary.id })?.classroom == "文萃楼F405")

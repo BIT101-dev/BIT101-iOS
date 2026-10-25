@@ -847,11 +847,6 @@ final class ReleaseNetworkSmokeRunner {
         }
     }
 
-    private func fetchDataCount(urlString: String) async throws -> Int {
-        guard let url = URL(string: urlString) else { throw URLError(.badURL) }
-        return try await fetch(url).count
-    }
-
     private func fetchImageCount(urlString: String) async throws -> Int {
         guard let url = URL(string: urlString) else { throw URLError(.badURL) }
         return try await dependencies.imageProbe(url)

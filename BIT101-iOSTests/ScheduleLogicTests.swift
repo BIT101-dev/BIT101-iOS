@@ -455,8 +455,7 @@ struct CourseScheduleRowParserTests {
         cache.currentTerm = "term"
         cache.courseData.store(TermScheduleSnapshot(term: "term", firstDayString: "2026-09-07",
             courses: [stale], exams: [], updatedAt: .distantPast))
-        let replacement = try ScheduleCourseEditor.updatingArrangement(id: stale.id,
-            with: CourseDraft(title: "手动调课", weekday: 2, startSection: 6, endSection: 9, weeksText: even ? "2,4" : "1,3"), in: [stale])
+        let replacement = try ScheduleCourseEditor.updatingArrangements([(stale.id, CourseDraft(title: "手动调课", weekday: 2, startSection: 6, endSection: 9, weeksText: even ? "2,4" : "1,3"))], in: [stale])
         ScheduleCourseEditor.updateCacheForManualCourseChange(in: &cache, previousCourses: [stale], currentCourses: replacement)
         let restored = try JSONDecoder().decode(ScheduleCache.self, from: JSONEncoder().encode(cache))
         #expect(restored.courseData.schoolCourses(for: "term").first?.weeks == expected)

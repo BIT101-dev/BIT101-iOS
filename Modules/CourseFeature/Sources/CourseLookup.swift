@@ -62,19 +62,6 @@ nonisolated enum CourseLookupMatcher {
         return sameIdentity.first
     }
 
-    static func numberMatch(
-        courseNumber: String,
-        teacher: String = "",
-        candidates: [CourseSummary]
-    ) -> CourseSummary? {
-        bestMatch(
-            courseNumber: courseNumber,
-            courseName: "",
-            teacher: teacher,
-            candidates: candidates
-        )
-    }
-
     static func exactMatch(courseNumber: String, courseName: String, teacher: String,
         candidates: [CourseSummary]) -> CourseSummary? {
         let number = normalizedIdentifier(courseNumber), name = normalizedText(courseName)
@@ -85,19 +72,6 @@ nonisolated enum CourseLookupMatcher {
                 normalizedIdentifier($0.number) == number && normalizedText($0.name) == name
                     && (teachers.isEmpty || teacherNames($0.teachersName) == teachers)
             })
-    }
-
-    static func nameMatch(
-        courseName: String,
-        teacher: String,
-        candidates: [CourseSummary]
-    ) -> CourseSummary? {
-        bestMatch(
-            courseNumber: "",
-            courseName: courseName,
-            teacher: teacher,
-            candidates: candidates
-        )
     }
 
     private static func matchingTeacher(_ expected: String, candidates: [CourseSummary]) -> CourseSummary? {

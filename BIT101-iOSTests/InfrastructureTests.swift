@@ -93,24 +93,6 @@ struct InfrastructureTests {
         #expect(AppSettingsStore.currentStartupNoticeVersion == version)
     }
 
-    private nonisolated struct TestItem: Identifiable, Equatable {
-        let id: Int
-    }
-
-    private struct TestPagedState: PagedItemsState {
-        var pagedItems = CommunityPagedItems<TestItem>()
-        var nextPage = 0
-        var isLoadingMore = false
-        var canLoadMore = true
-    }
-
-    private struct TestCursorState: CursorPagedItemsState {
-        var pagedItems = CommunityPagedItems<TestItem>()
-        var nextCursor: Int?
-        var isLoadingMore = false
-        var canLoadMore = true
-    }
-
     @Test("Cancellation signals are normalized")
     func cancellationSignalsAreNormalized() {
         #expect(TaskCancellation.matches(CancellationError()))
@@ -198,49 +180,4 @@ struct InfrastructureTests {
         #expect(!KeychainLoginCredentials.keychainDeleteSucceeded(status: errSecNotAvailable))
     }
 
-    @Test("Paged state advances and stops on an empty page")
-    func pagedStateAdvancesAndStops() {
-        var state = TestPagedState()
-
-        state.applyFirstPage([TestItem(id: 1), TestItem(id: 2)])
-        #expect(state.nextPage == 1)
-        #expect(state.shouldLoadMore(currentID: 2))
-
-        state.isLoadingMore = true
-        #expect(!state.shouldLoadMore(currentID: 2))
-
-        state.appendPage([])
-        #expect(state.nextPage == 2)
-        #expect(!state.canLoadMore)
-
-        state.resetPagination()
-        #expect(state.items.isEmpty)
-        #expect(state.nextPage == 0)
-        #expect(state.canLoadMore)
-    }
-
-    @Test("Cursor state preserves backend cursor semantics")
-    func cursorStateAdvancesAndStops() {
-        var state = TestCursorState()
-
-        state.applyFirstCursorPage([TestItem(id: 10), TestItem(id: 9)])
-        #expect(state.nextCursor == 9)
-        #expect(state.shouldLoadMore(currentID: 9))
-
-        state.appendCursorPage([TestItem(id: 9), TestItem(id: 8), TestItem(id: 8)])
-        #expect(state.items.map(\.id) == [10, 9, 8])
-        #expect(state.nextCursor == 8)
-
-        state.appendCursorPage([TestItem(id: 8)])
-        #expect(state.items.map(\.id) == [10, 9, 8])
-        #expect(!state.canLoadMore)
-        state.appendCursorPage([])
-        #expect(state.nextCursor == 8)
-        #expect(!state.canLoadMore)
-
-        state.resetCursorPagination()
-        #expect(state.items.isEmpty)
-        #expect(state.nextCursor == nil)
-        #expect(state.canLoadMore)
-    }
 }

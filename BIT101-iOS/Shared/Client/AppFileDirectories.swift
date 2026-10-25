@@ -156,10 +156,6 @@ enum AppFileDirectories {
             .appending(path: filename)
     }
 
-    nonisolated static func cacheDirectoryURL(named directory: String) -> URL? {
-        files.directoryURL(.cachesDirectory)?.appending(path: directory, directoryHint: .isDirectory)
-    }
-
     nonisolated static func documentFileURL(named filename: String) -> URL? {
         guard let directory = files.directoryURL(.documentDirectory) else { return nil }
         return directory.appending(path: filename)

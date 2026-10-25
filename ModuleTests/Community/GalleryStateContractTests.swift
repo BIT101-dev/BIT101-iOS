@@ -451,6 +451,19 @@ struct GalleryStateContractTests {
         #expect(state.items.map(\.id) == [1, 2])
     }
 
+    @Test func pageStateAdvancesAndStopsOnEmptyPages() {
+        struct Item: Identifiable { let id: Int }
+        var state = MinePagedState<Item>()
+        state.applyFirstPage([Item(id: 1), Item(id: 2)])
+        #expect(state.nextPage == 1 && state.shouldLoadMore(currentID: 2))
+        state.isLoadingMore = true
+        #expect(!state.shouldLoadMore(currentID: 2))
+        state.appendPage([])
+        #expect(state.nextPage == 2 && !state.canLoadMore && !state.isLoadingMore)
+        state.resetPagination()
+        #expect(state.items.isEmpty && state.nextPage == 0 && state.canLoadMore)
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func largePaginationKeepsAnIncrementalIndexAndStableOrder() {
         let reads = OSAllocatedUnfairLock(initialState: 0)

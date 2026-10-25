@@ -168,28 +168,19 @@ class PaperCollectionViewModel: ObservableObject {
             }
         }
 
-        var sourcePage = state.nextPage
+        var request = CommunityPageRequest<Int>(sourcePage: state.nextPage)
         do {
-            var progress = CommunityPageProgress<Int>()
-            while true {
-                try Task.checkCancellation()
-                let papers = try await service.fetchPapers(search: query.search, order: query.order, page: sourcePage)
-                try Task.checkCancellation()
-                guard refreshGeneration == generation else { return }
-                try progress.record(papers.map(\.id), knownIDs: state.pagedItems.ids)
-                if papers.isEmpty || papers.contains(where: { !state.pagedItems.ids.contains($0.id) }) {
-                    var updated = state
-                    updated.nextPage = sourcePage
-                    updated.appendPage(papers)
-                    updated.paginationError = nil
-                    state = updated
-                    return
-                }
-                sourcePage += 1
-            }
+            guard let papers = try await request.next(isCurrent: { self.refreshGeneration == generation },
+                knownIDs: { self.state.pagedItems.ids },
+                fetch: { try await self.service.fetchPapers(search: query.search, order: query.order, page: $0) }) else { return }
+            var updated = state
+            updated.nextPage = request.sourcePage
+            updated.appendPage(papers)
+            updated.paginationError = nil
+            state = updated
         } catch {
             guard refreshGeneration == generation else { return }
-            state.nextPage = sourcePage
+            state.nextPage = request.sourcePage
             if TaskCancellation.matches(error) { return }
             state.paginationError = error.localizedDescription
             alert = AppAlert(title: "加载更多失败", error: error)

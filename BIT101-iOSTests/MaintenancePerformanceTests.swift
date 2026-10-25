@@ -735,8 +735,7 @@ nonisolated final class MaintenancePerformanceTests: XCTestCase {
                 to: [], term: "performance", id: "course-\(index)").first)
         }
         let selected = try workload.value("editedIndex", as: Int.self)
-        let edited = try ScheduleCourseEditor.updatingArrangement(id: original[selected].id,
-            with: CourseDraft(title: original[selected].name, weekday: 2, weeksText: "1-20"), in: original)
+        let edited = try ScheduleCourseEditor.updatingArrangements([(original[selected].id, CourseDraft(title: original[selected].name, weekday: 2, weeksText: "1-20"))], in: original)
         let replacement = try XCTUnwrap(edited.last)
         measure(metrics: [XCTClockMetric(), XCTMemoryMetric()]) {
             let rules = ScheduleCourseEditor.updatingRules(existing: [], baselineCourses: original,

@@ -108,10 +108,6 @@ public final class ScoreCacheStore: ScoreCacheSynchronizing {
         }
     }
 
-    public func loadRows(for session: AppStorageSession? = nil) async -> [ScoreRow]? {
-        try? await loadSnapshot(for: session)?.rows
-    }
-
     public func recover(rows: [ScoreRow], for session: AppStorageSession) async -> Date? {
         guard !Task.isCancelled, storageOperations.begin() else { return nil }
         defer { storageOperations.finish() }

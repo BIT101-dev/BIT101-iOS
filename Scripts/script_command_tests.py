@@ -174,7 +174,9 @@ def audit_lock_boundary_findings() -> list[str]:
     environment = dict(os.environ)
     for name in ('BIT101_EXTENDED_TESTS_LOCK_HELD', 'BIT101_STATIC_AUDIT_LOCK_HELD', 'BIT101_WORKFLOW_DEADLINE'):
         environment.pop(name, None)
-    shell = 'ROOT_DIR=' + (SCRIPT_ROOT / 'run-static-audit.sh').read_text().split('ROOT_DIR=', 1)[1].split('LOG_DIR=', 1)[0]
+    source = (SCRIPT_ROOT / 'run-static-audit.sh').read_text()
+    parser = source[source.index('set -euo pipefail'):source.index('\nROOT_DIR=')]
+    shell = 'ROOT_DIR=' + source.split('ROOT_DIR=', 1)[1].split('LOG_DIR=', 1)[0]
     shell = re.sub(r'(?m)^ROOT_DIR=.*$', 'ROOT_DIR=' + shlex.quote(str(fixture)), shell)
     shell = shell.replace('source "$ROOT_DIR/Scripts/script-support.sh"', 'source ' + shlex.quote(str(SCRIPT_ROOT / 'script-support.sh')))
     manifest = f'''import ast, fcntl, os, runpy, sys
@@ -208,7 +210,8 @@ print('entered', flush=True)
         fixture.mkdir(parents=True)
         (fixture / 'Scripts').symlink_to(SCRIPT_ROOT, target_is_directory=True)
         (fixture / '.build/static-audit').mkdir(parents=True)
-        worker.write_text('if [[ "$1" == direct ]]; then exec ' + command + ' direct; fi\n' + shell + '\n' + command + ' shell\n')
+        worker.write_text('if [[ "$1" == direct ]]; then exec ' + command + ' direct; fi\nshift\n' + parser + '\n' + shell
+            + '\nif (( ${group_names[(Ie)module-boundary]} )); then ' + command + ' shell; else print entered; fi\n')
         for mode in ('shell', 'direct'):
             with (fixture / '.build/extended-automation.lock').open('a') as artifact:
                 fcntl.flock(artifact, fcntl.LOCK_EX)
@@ -224,6 +227,10 @@ print('entered', flush=True)
                 inherited = subprocess.run(['zsh', str(worker), 'shell'], capture_output=True, text=True, timeout=5,
                     env=dict(environment, BIT101_EXTENDED_TESTS_LOCK_HELD='1'))
                 if inherited.returncode or inherited.stdout.strip() != 'entered': raise ValueError(inherited.stderr)
+                focused = subprocess.run(['zsh', str(worker), 'shell', '--self-test', 'docs', 'python-parse'],
+                    capture_output=True, text=True, timeout=5,
+                    env=dict(environment, GITHUB_ACTIONS='false', BIT101_RELEASE_CHECK='false'))
+                if focused.returncode or focused.stdout.strip() != 'entered': raise ValueError(focused.stderr)
                 fcntl.flock(artifact, fcntl.LOCK_UN)
             output, error = standalone.communicate(timeout=5)
             if standalone.returncode or output.strip() != 'entered': raise ValueError(error)

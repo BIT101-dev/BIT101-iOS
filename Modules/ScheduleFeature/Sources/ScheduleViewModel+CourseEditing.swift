@@ -119,13 +119,6 @@ extension ScheduleViewModel {
         persist()
     }
 
-    /// 调整当前周这一节课。
-    ///
-    /// 从课程周次中拆出当前周，生成独立课程记录，并保留其余周次安排。
-    func updateCourseOccurrence(id: String, week: Int, draft: CourseDraft) throws {
-        try updateCourseOccurrences(id: id, weeks: [week], draft: draft)
-    }
-
     /// 调整当前选中的多周课节，保留原安排中的其它周次。
     func updateCourseOccurrences(id: String, weeks: [Int], draft: CourseDraft) throws {
         try repository.requireWritable()

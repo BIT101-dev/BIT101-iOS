@@ -844,8 +844,7 @@ struct ScheduleSchemaAndEditingTests {
 
     @Test func pendingCloudCourseRulesSurviveUntilTheSchoolSnapshotArrives() throws {
         let original = try course()
-        let replacement = try ScheduleCourseEditor.updatingArrangement(id: original.id,
-            with: CourseDraft(title: "云端调课", weekday: 3, weeksText: "1-4"), in: [original])
+        let replacement = try ScheduleCourseEditor.updatingArrangements([(original.id, CourseDraft(title: "云端调课", weekday: 3, weeksText: "1-4"))], in: [original])
         var cache = ScheduleCache()
         cache.currentTerm = original.term
         cache.courseData.setRules([ScheduleCourseRule(sourceIdentity: scheduleCourseSourceIdentity(original),
@@ -865,8 +864,7 @@ struct ScheduleSchemaAndEditingTests {
     func cloudAdjustmentSurvivesAnOlderSchoolSnapshotAndDiskRecovery(format: String) throws {
         let old = try course(weekday: 1)
         let incoming = try course(weekday: 2)
-        let replacement = try ScheduleCourseEditor.updatingArrangement(id: incoming.id,
-            with: CourseDraft(title: "云端调课", weekday: 3, weeksText: "1-4"), in: [incoming])
+        let replacement = try ScheduleCourseEditor.updatingArrangements([(incoming.id, CourseDraft(title: "云端调课", weekday: 3, weeksText: "1-4"))], in: [incoming])
         let rule = ScheduleCourseRule(sourceIdentity: scheduleCourseSourceIdentity(incoming),
             sourceCourses: [incoming], replacementCourses: replacement)
         var cache = ScheduleCache()
@@ -897,8 +895,7 @@ struct ScheduleSchemaAndEditingTests {
         var cache = ScheduleCache()
         cache.currentTerm = original.term
         cache.courseData.store(snapshot([original]))
-        let moved = try ScheduleCourseEditor.updatingArrangement(id: original.id,
-            with: CourseDraft(title: "修改课程", weekday: 2, weeksText: "1-4"), in: cache.courses)
+        let moved = try ScheduleCourseEditor.updatingArrangements([(original.id, CourseDraft(title: "修改课程", weekday: 2, weeksText: "1-4"))], in: cache.courses)
         let withAddition = try ScheduleCourseEditor.adding(CourseDraft(title: "个人课程", weekday: 4, weeksText: "1"),
             to: moved, term: original.term, id: "local")
         ScheduleCourseEditor.updateCacheForManualCourseChange(in: &cache, previousCourses: cache.courses, currentCourses: withAddition)

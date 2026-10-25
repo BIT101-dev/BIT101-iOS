@@ -202,8 +202,7 @@ public enum BITLoginChallengeSupport {
     public static func challenge(
         from payload: BITLoginChallengePayload,
         accessToken: String,
-        ownerIdentity: SchoolSessionIdentity? = nil,
-        nativeSession: SchoolAuthenticatedSession? = nil
+        ownerIdentity: SchoolSessionIdentity? = nil
     ) -> BITLoginAuthenticationChallenge {
         BITLoginAuthenticationChallenge(
             challengeID: payload.challengeID,
@@ -213,18 +212,6 @@ public enum BITLoginChallengeSupport {
             expiresIn: payload.expiresIn,
             ownerIdentity: ownerIdentity
         )
-    }
-
-    private nonisolated static func firstNonEmptyString(
-        in object: [String: Any],
-        keys: [String]
-    ) -> String? {
-        for key in keys {
-            if let value = object[key] as? String, !value.isEmpty {
-                return value
-            }
-        }
-        return nil
     }
 
     public nonisolated static func errorMessage(from data: Data) -> String? {

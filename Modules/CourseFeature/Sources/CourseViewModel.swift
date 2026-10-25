@@ -177,28 +177,19 @@ public final class CourseListViewModel: ObservableObject {
             }
         }
 
-        var sourcePage = state.nextPage
+        var request = CommunityPageRequest<Int>(sourcePage: state.nextPage)
         do {
-            var progress = CommunityPageProgress<Int>()
-            while true {
-                try Task.checkCancellation()
-                let items = try await service.fetchCourses(search: search, page: sourcePage)
-                try Task.checkCancellation()
-                guard refreshGeneration == generation else { return }
-                try progress.record(items.map(\.id), knownIDs: state.pagedItems.ids)
-                if items.isEmpty || items.contains(where: { !state.pagedItems.ids.contains($0.id) }) {
-                    var updated = state
-                    updated.nextPage = sourcePage
-                    updated.appendPage(items)
-                    updated.paginationError = nil
-                    state = updated
-                    return
-                }
-                sourcePage += 1
-            }
+            guard let items = try await request.next(isCurrent: { self.refreshGeneration == generation },
+                knownIDs: { self.state.pagedItems.ids },
+                fetch: { try await self.service.fetchCourses(search: search, page: $0) }) else { return }
+            var updated = state
+            updated.nextPage = request.sourcePage
+            updated.appendPage(items)
+            updated.paginationError = nil
+            state = updated
         } catch {
             guard refreshGeneration == generation else { return }
-            state.nextPage = sourcePage
+            state.nextPage = request.sourcePage
             if TaskCancellation.matches(error) {
                 return
             }

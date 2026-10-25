@@ -703,8 +703,9 @@ struct CourseLookupMatcherTests {
     func matchesCourseNumber() {
         let expected = makeSummary(id: 1, name: "高等数学", number: "MATH-1001", teacher: "张老师")
         let other = makeSummary(id: 2, name: "高等数学", number: "MATH-1002", teacher: "张老师")
-        #expect(CourseLookupMatcher.numberMatch(
+        #expect(CourseLookupMatcher.bestMatch(
             courseNumber: " math 1001 ",
+            courseName: "", teacher: "",
             candidates: [other, expected]
         )?.id == expected.id)
     }
@@ -739,12 +740,14 @@ struct CourseLookupMatcherTests {
     func disambiguatesByTeacher() {
         let first = makeSummary(id: 1, name: "大学物理", number: "PHY-1", teacher: "张老师")
         let second = makeSummary(id: 2, name: "大学物理", number: "PHY-2", teacher: "李老师")
-        #expect(CourseLookupMatcher.nameMatch(
+        #expect(CourseLookupMatcher.bestMatch(
+            courseNumber: "",
             courseName: "大学 物理",
             teacher: "李老师",
             candidates: [first, second]
         )?.id == second.id)
-        #expect(CourseLookupMatcher.nameMatch(
+        #expect(CourseLookupMatcher.bestMatch(
+            courseNumber: "",
             courseName: "大学物理",
             teacher: "",
             candidates: [first, second]
@@ -755,8 +758,9 @@ struct CourseLookupMatcherTests {
     func disambiguatesSameNumberByTeacher() {
         let first = makeSummary(id: 1, name: "线性代数", number: "MATH-1", teacher: "张老师")
         let second = makeSummary(id: 2, name: "线性代数", number: "MATH-1", teacher: "李老师、王老师")
-        #expect(CourseLookupMatcher.numberMatch(
+        #expect(CourseLookupMatcher.bestMatch(
             courseNumber: "MATH-1",
+            courseName: "",
             teacher: "李老师",
             candidates: [first, second]
         )?.id == second.id)

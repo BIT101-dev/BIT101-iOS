@@ -94,8 +94,6 @@ public final class ScheduleViewModel: ObservableObject, ScheduleStateConsumer {
     public var hasCacheReadFailure: Bool { repository.hasReadFailure }
     public var isConfirmingRecovery: Bool { repository.isConfirmingRecovery }
 
-    public func retryCacheRead() async { _ = await repository.reload() }
-    public func confirmCacheRecovery() async { await repository.confirmRecovery() }
     public var hasPersistenceConflict: Bool { repository.hasPersistenceConflict }
     public var isResolvingPersistenceConflict: Bool { repository.isResolvingPersistenceConflict }
 

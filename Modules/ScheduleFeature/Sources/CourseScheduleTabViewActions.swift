@@ -6,10 +6,6 @@ import TransportCore
 import SwiftUI
 
 extension CourseScheduleTabView {
-    /// 收起课表分栏当前打开的抽屉。
-    ///
-    /// 这里保留当前分栏实例，直接走各个 sheet 的正常关闭路径；系统复用原生下滑关闭动画，
-    /// 关闭过程保持连续。
     func cancelPendingActions() {
         calendarMutationTask?.cancel()
         courseShareTask?.cancel()
@@ -40,12 +36,6 @@ extension CourseScheduleTabView {
         let lowerBound = min(-12, min(viewModel.selectedWeek, courseWeeks.min() ?? -12))
         let upperBound = max(20, max(viewModel.selectedWeek, courseWeeks.max() ?? 20))
         return Array(lowerBound ... upperBound).filter { $0 != 0 }
-    }
-
-    func preferredCourseWeek(from weeks: [Int]) -> Int {
-        weeks.contains(viewModel.selectedWeek)
-            ? viewModel.selectedWeek
-            : (weeks.first ?? viewModel.selectedWeek)
     }
 
     func presentSaveError(_ error: Error) {

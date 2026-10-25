@@ -18,6 +18,30 @@ public struct CommunityPageProgress<ID: Hashable> {
     }
 }
 
+public struct CommunityPageRequest<ID: Hashable> {
+    public private(set) var sourcePage: Int
+
+    public init(sourcePage: Int) { self.sourcePage = sourcePage }
+
+    @MainActor
+    public mutating func next<Item: Identifiable>(
+        isCurrent: () -> Bool, knownIDs: () -> Set<ID>,
+        fetch: (Int) async throws -> [Item]
+    ) async throws -> [Item]? where Item.ID == ID {
+        var progress = CommunityPageProgress<ID>()
+        while true {
+            try Task.checkCancellation()
+            let items = try await fetch(sourcePage)
+            try Task.checkCancellation()
+            guard isCurrent() else { return nil }
+            let known = knownIDs()
+            try progress.record(items.map(\.id), knownIDs: known)
+            if items.isEmpty || items.contains(where: { !known.contains($0.id) }) { return items }
+            sourcePage += 1
+        }
+    }
+}
+
 /// 分页追加沿增量标识索引去重，整体替换时重建索引。
 public nonisolated struct CommunityPagedItems<Item: Identifiable> {
     public private(set) var items: [Item] = []
