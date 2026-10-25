@@ -38,6 +38,9 @@ nonisolated final class CommunityEditingRecoveryUITests: UIAutomationTestCase {
         for kind in ["poster", "course", "paper"] {
             openDetail(kind)
             tap(kind == "poster" ? "评论帖子" : kind == "course" ? "评论课程" : "评论文章")
+            let submit = app.buttons[kind == "paper" ? "发布" : "发送"]
+            assertUI(submit.appears(timeout: 5), "评论编辑应展示提交操作。")
+            submit.assertDisabled("空评论等待正文或可用图片。")
             let content = "保留\(kind)评论输入"
             replaceText(content, in: app.textFields.firstMatch)
             dismissKeyboard()

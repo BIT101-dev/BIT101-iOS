@@ -5,7 +5,7 @@ import DesignSystemKit
 import Combine
 import Foundation
 
-/// 识别课程请求的任务取消状态，切页或重复刷新时跳过失败提示。
+/// 首屏刷新沿课程分页状态执行重置。
 private extension CoursePagedState {
     /// 开始首屏刷新并重置分页游标。
     mutating func prepareForRefresh() {

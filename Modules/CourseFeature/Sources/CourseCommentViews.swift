@@ -217,7 +217,7 @@ struct CourseCommentComposerSheet: View {
                 AppComposerToolbar(
                     isSubmitting: isSubmitting || isSubmissionRequested,
                     submitTitle: "发送",
-                    isSubmitDisabled: supportsCourseRating && rating == 0,
+                    isSubmitDisabled: text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (supportsCourseRating && rating == 0),
                     confirmDiscard: hasDraftContent,
                     onCancel: {
                         dismiss()

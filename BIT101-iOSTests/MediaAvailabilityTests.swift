@@ -9,6 +9,22 @@ import os
 
 @MainActor
 struct MediaAvailabilityTests {
+    @Test(.timeLimit(.minutes(1)))
+    func closingPreviewsReusesTheQuotaInventory() async throws {
+        let helper = MediaDependencyTests(), files = PreferenceMemoryFiles()
+        let media = helper.environment(files: files, previewFiles: files, transport: MediaDependencyTests.Images(bytes: Data()))
+        await media.enforceCurrentLimit()
+        let scans = files.metadataScanCount
+        for _ in 0..<3 {
+            let owner = UUID()
+            media.beginPreview(owner: owner)
+            let file = try await media.localPreviewFile(data: helper.png(width: 2), owner: owner)
+            await media.endPreview(owner: owner).value
+            #expect(!files.fileExists(at: file))
+        }
+        #expect(files.metadataScanCount == scans)
+    }
+
     @Test(arguments: [8, 16, 32])
     func decodedMemoryBudgetIncludesComponentDepthAndPaddedRows(bits: Int) throws {
         let rowBytes = 64, height = 2

@@ -11,6 +11,30 @@ import Testing
 @Suite("Paper search state machine")
 struct PaperSearchViewModelTests {
     @Test(.timeLimit(.minutes(1)), arguments: [false, true]) @MainActor
+    func refreshReusesAuthorsUntilTheArticleVersionChanges(search: Bool) async throws {
+        let paper = PaperSummary(id: 1, title: "fixture", intro: "", likeNum: 0, commentNum: 0, updateTime: "version-a")
+        let service = ServiceStub(result: .success([paper]))
+        let model: PaperCollectionViewModel = search ? PaperSearchViewModel(service: service) : PaperListViewModel(service: service)
+        model.searchText = "fixture"
+        service.metadata = { _ in
+            PaperDetail(id: 1, title: "fixture", intro: "", content: "", createTime: "", updateTime: "version-a",
+                updateUser: listUser(1), anonymous: false, likeNum: 0, commentNum: 0, publicEdit: true, like: false, own: true)
+        }
+        await model.refresh(); await model.loadPreviewMetadataIfNeeded(for: paper)
+        let author = try #require(model.previewMetadata(for: paper.id))
+        await model.refresh(); await model.loadPreviewMetadataIfNeeded(for: paper)
+        #expect(model.previewMetadata(for: paper.id) == author && service.metadataRequests == 1)
+        service.result = .failure(URLError(.timedOut))
+        await model.refresh()
+        #expect(model.previewMetadata(for: paper.id) == author)
+        service.result = .success([.init(id: 1, title: "fixture", intro: "", likeNum: 0, commentNum: 0, updateTime: "version-b")])
+        await model.refresh()
+        #expect(model.previewMetadata(for: paper.id) == nil)
+        await model.loadPreviewMetadataIfNeeded(for: paper)
+        #expect(service.metadataRequests == 2)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true]) @MainActor
     func refreshingKeepsDisplayedAuthorsUntilTheNewFirstPageArrives(search: Bool) async throws {
         let paper = PaperSummary(id: 1, title: "fixture", intro: "", likeNum: 0, commentNum: 0, updateTime: "")
         let service = ServiceStub(result: .success([paper]))

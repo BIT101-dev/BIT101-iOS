@@ -208,6 +208,17 @@ actor ImageCacheDiskQuota {
         prune(limitMB: limitMB, protecting: protectedURLs)
     }
 
+    func didReleaseFiles(_ urls: Set<URL>) async {
+        for url in urls {
+            let key = files.canonicalFileURL(url)
+            if !files.fileExists(at: key) { inventoryBytes -= Int64(inventory.removeValue(forKey: key)?.size ?? 0) }
+        }
+        if Date().timeIntervalSince(lastPruneDate) >= pruneInterval { await enforce(); return }
+        let limitMB = await cacheLimitMB()
+        guard limitMB > 0 else { return }
+        prune(limitMB: limitMB, protecting: [])
+    }
+
     /// 写入时更新所属条目；全目录扫描沿现有周期及显式清理执行。
     func didWrite(_ url: URL) async {
         let limitMB = await cacheLimitMB()
@@ -569,7 +580,7 @@ actor RemoteImageCache {
 
     /// 当前本地图片缓存实际占用的磁盘空间。
     ///
-    /// 统计话廊图片与头像目录；URLCache 维持独立。
+    /// 统计话廊图片、头像与预览目录；URLCache 维持独立。
     func usedBytes() async -> Int64 {
         await quota.usedBytes()
     }

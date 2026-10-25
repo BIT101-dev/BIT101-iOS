@@ -31,6 +31,7 @@ final class TrustedTranscriptViewModel: ObservableObject {
     private var encodedBytesByPage: [Int: Int] = [:]
     private var stagedImages: [Int: UIImage] = [:]
     private var stagedBytes: [Int: Int] = [:]
+    private var stagedReport: TrustedTranscriptReport?
     private var retryRequested = false
     private var smsContinuation: Task<Void, Never>?
 
@@ -62,6 +63,7 @@ final class TrustedTranscriptViewModel: ObservableObject {
     func prepareReapplication() {
         guard !isLoadingPages, !isSubmittingSMSCode else { return }
         report = nil
+        stagedReport = nil; stagedImages = [:]; stagedBytes = [:]
         retryRequested = true
         if case .failed = state { state = .idle }
     }
@@ -69,7 +71,10 @@ final class TrustedTranscriptViewModel: ObservableObject {
     func apply() async {
         guard !Task.isCancelled, state != .loading, !isLoadingPages, !isSubmittingSMSCode, smsChallenge == nil else { return }
         isLoadingPages = true
-        defer { isLoadingPages = false; stagedImages = [:]; stagedBytes = [:] }
+        defer {
+            isLoadingPages = false
+            if stagedReport == nil { stagedImages = [:]; stagedBytes = [:] }
+        }
         smsVerificationError = nil
         allowsDiagnostics = true
         failureCause = nil
@@ -91,19 +96,23 @@ final class TrustedTranscriptViewModel: ObservableObject {
     }
 
     private func fetchPages() async throws -> TrustedTranscriptPages {
-        stagedImages = [:]; stagedBytes = [:]
         let onPage: TrustedTranscriptPageDelivery = { [self] result in
             try await loadImages(from: result, isPartial: true)
         }
         if report?.isInvalid == true { report = nil }
-        if let report {
-            let remaining = limits.maximumEncodedBytes - encodedBytesByPage.values.reduce(0, +)
-            let result = try await report.loadPages(excluding: Set(pageNumbers), maximumBytes: max(0, remaining), onPage: onPage)
+        if stagedReport?.isInvalid == true { stagedReport = nil; stagedImages = [:]; stagedBytes = [:] }
+        if let source = stagedReport ?? report {
+            let completed = stagedReport == nil ? Set(pageNumbers) : Set(stagedImages.keys)
+            let sizes = stagedReport == nil ? encodedBytesByPage : stagedBytes
+            let remaining = limits.maximumEncodedBytes - sizes.values.reduce(0, +)
+            let result = try await source.loadPages(excluding: completed, maximumBytes: max(0, remaining), onPage: onPage)
             if result.pages.isEmpty, let error = result.failure,
                case let HTTPClientError.unacceptableStatus(code, _) = error, [401, 403, 404].contains(code) {
                 self.report = nil
+                stagedReport = nil; stagedImages = [:]; stagedBytes = [:]
             } else { return result }
         }
+        stagedImages = [:]; stagedBytes = [:]
         if let challenge = authenticatedChallenge, !challenge.isExpired {
             return try await service.fetchTrustedTranscriptPages(authenticatedBy: challenge, onPage: onPage)
         }
@@ -167,6 +176,10 @@ final class TrustedTranscriptViewModel: ObservableObject {
 
     private func finishCancellation() {
         state = images.isEmpty ? .idle : .loaded
+        if let stagedReport, !stagedImages.isEmpty {
+            deliveryWarning = "新成绩单已加载 \(stagedImages.count) / \(stagedReport.pageCount) 页，可继续补全。当前成绩单继续保留。"
+            return
+        }
         if !images.isEmpty, images.count < expectedPageCount {
             deliveryWarning = "已加载 \(images.count) / \(expectedPageCount) 页，可继续补全。"
         }
@@ -223,7 +236,7 @@ final class TrustedTranscriptViewModel: ObservableObject {
             }
         }
         try Task.checkCancellation()
-        if !sameReport { stagedImages = retained; stagedBytes = sizes }
+        if !sameReport { stagedImages = retained; stagedBytes = sizes; stagedReport = result.report }
         if retained.isEmpty {
             if let failure { throw failure }
             throw ScoreServiceError.invalidResponse
@@ -243,6 +256,7 @@ final class TrustedTranscriptViewModel: ObservableObject {
         images = pageNumbers.compactMap { retained[$0] }
         expectedPageCount = result.expectedPageCount
         report = result.report
+        stagedReport = nil; stagedImages = [:]; stagedBytes = [:]
         deliveryWarning = isPartial || images.count == expectedPageCount ? nil
             : "已加载 \(images.count) / \(expectedPageCount) 页。\n" + (failure?.localizedDescription ?? "部分页面待恢复。")
         state = .loaded

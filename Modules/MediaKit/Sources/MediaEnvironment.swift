@@ -156,7 +156,8 @@ public final class MediaEnvironment {
         return Task {
             await cleanup.value
             for file in released.subtracting(retained) { await Self.removePreviewFile(file, files: files, ownership: ownership) }
-            await enforceCurrentLimit()
+            await cacheQuota.didReleaseFiles(cacheSharesPreviewStorage ? released : [])
+            if previewQuota !== cacheQuota { await previewQuota.didReleaseFiles(released) }
         }
     }
 

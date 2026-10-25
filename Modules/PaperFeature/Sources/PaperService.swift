@@ -98,8 +98,13 @@ public struct PaperService {
         if let orderValue = order.requestValue {
             queryItems.append(URLQueryItem(name: "order", value: orderValue))
         }
-        let papers: [PaperSummary] = try await api.request(path: "papers", queryItems: queryItems, authentication: .optional)
-        if page == 0 { details.invalidate(ids: Set(papers.map(\.id))) }
+        let papers: [PaperSummary] = try await api.request(path: "papers", queryItems: queryItems, authentication: .optional,
+            validate: { papers in
+                guard papers.allSatisfy({ $0.id > 0 && $0.likeNum >= 0 && $0.commentNum >= 0 }) else {
+                    throw PaperServiceError.invalidResponse
+                }
+            })
+        if page == 0 { details.invalidateChangedPapers(papers) }
         return papers
     }
 

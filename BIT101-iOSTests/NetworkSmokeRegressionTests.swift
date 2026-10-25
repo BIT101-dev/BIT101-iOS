@@ -124,8 +124,44 @@ import Testing
 @MainActor
 struct NetworkSmokeRegressionContractTests {
     private final class BootstrapWebView: WKWebView {
+        var request: URLRequest?
         override func load(_ request: URLRequest) -> WKNavigation? {
-            loadHTMLString("<script>window.initialCredential = JSON.parse(localStorage.getItem('store') || '{}').fake_cookie || '';</script><body>fixture</body>", baseURL: request.url)
+            self.request = request
+            return loadHTMLString("<script>window.initialCredential = JSON.parse(localStorage.getItem('store') || '{}').fake_cookie || '';</script><body>fixture</body>", baseURL: request.url)
+        }
+    }
+
+    @Test(.serialized, .timeLimit(.minutes(1)), arguments: ["navigation", "credentials"])
+    func galleryWebFailuresPreserveTheDocumentAndRetryTheFailedURL(path: String) async throws {
+        let coordinator = GalleryWebCoordinator(credentials: .init(cookie: { "fixture" }, changes: Empty().eraseToAnyPublisher()), openExternal: { _ in })
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        let webView = BootstrapWebView(frame: CGRect(x: 0, y: 0, width: 320, height: 480), configuration: configuration)
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene), presenter = UIViewController()
+        presenter.view = webView; window.rootViewController = presenter; window.makeKeyAndVisible()
+        defer { presenter.dismiss(animated: false); window.isHidden = true; window.rootViewController = nil }
+        webView.navigationDelegate = coordinator
+        let current = AppURL.required("https://bit101.cn/gallery/1")
+        let failed = AppURL.required("https://bit101.cn/gallery/2?source=reading")
+        webView.loadHTMLString("<script>localStorage.setItem('store', JSON.stringify({fake_cookie:'fixture'}))</script><body style='height:3000px'><input id='editor' value='保留内容'></body>", baseURL: current)
+        try await waitForAsyncTestEvent { (try? await webView.evaluateJavaScript("document.getElementById('editor')?.value")) as? String == "保留内容" }
+        _ = try await webView.evaluateJavaScript("window.scrollTo(0, 200); localStorage.setItem('store', JSON.stringify({fake_cookie:'fixture'}))")
+        coordinator.webView(webView, didFinish: nil)
+        let offset = try await webView.evaluateJavaScript("window.scrollY") as? Double
+        if path == "credentials" {
+            _ = try await webView.evaluateJavaScript("Storage.prototype.setItem = () => { throw new Error('fixture'); }; localStorage.clear()")
+            coordinator.synchronizeCredentials(in: webView)
+        } else {
+            coordinator.webView(webView, didFailProvisionalNavigation: nil,
+                withError: URLError(.notConnectedToInternet, userInfo: [NSURLErrorFailingURLErrorKey: failed]))
+        }
+        try await waitForTestEvent { presenter.presentedViewController is UIAlertController }
+        #expect(try await webView.evaluateJavaScript("document.getElementById('editor')?.value") as? String == "保留内容")
+        #expect(try await webView.evaluateJavaScript("window.scrollY") as? Double == offset)
+        if path == "navigation" {
+            coordinator.retryLastFailure(in: webView)
+            #expect(webView.request?.url == failed)
         }
     }
 

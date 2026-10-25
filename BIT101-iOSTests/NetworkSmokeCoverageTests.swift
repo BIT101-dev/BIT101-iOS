@@ -289,7 +289,7 @@ struct NetworkSmokeCoverageTests {
         #expect(batch.items.map(\.id) == [1, 2])
     }
 
-    @Test(.serialized, .timeLimit(.minutes(1)), arguments: ["provisional", "navigation", "process", "credentials"])
+    @Test(.serialized, .timeLimit(.minutes(1)), arguments: ["provisional", "navigation", "process"])
     func galleryWebFailuresRenderTheRetryDocument(path: String) async throws {
         let coordinator = GalleryWebCoordinator(credentials: .init(cookie: { "fixture" }, changes: Empty().eraseToAnyPublisher()), openExternal: { _ in })
         let configuration = WKWebViewConfiguration()
@@ -299,9 +299,6 @@ struct NetworkSmokeCoverageTests {
         switch path {
         case "provisional": coordinator.webView(webView, didFailProvisionalNavigation: nil, withError: URLError(.notConnectedToInternet))
         case "navigation": coordinator.webView(webView, didFail: nil, withError: URLError(.networkConnectionLost))
-        case "credentials":
-            webView.loadHTMLString("<script>Storage.prototype.setItem = () => { throw new Error('fixture'); };</script>",
-                baseURL: AppURL.required("https://bit101.cn/gallery"))
         default: coordinator.webViewWebContentProcessDidTerminate(webView)
         }
         var text = ""

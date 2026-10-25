@@ -295,7 +295,7 @@ struct GalleryCommentComposerSheet: View {
                 AppComposerToolbar(
                     isSubmitting: isSubmitting || isSubmissionRequested,
                     submitTitle: "发送",
-                    isSubmitDisabled: !imageUploads.isReadyToSubmit,
+                    isSubmitDisabled: !imageUploads.isReadyToSubmit || (text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && uploadedImages.isEmpty),
                     confirmDiscard: hasDraftContent,
                     onCancel: {
                         dismiss()

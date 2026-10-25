@@ -124,7 +124,9 @@ class PaperCollectionViewModel: ObservableObject {
             )
             try Task.checkCancellation()
             guard refreshGeneration == generation else { return }
-            previewMetadataByPaperID = [:]
+            let previousVersions = Dictionary(uniqueKeysWithValues: previousState.items.map { ($0.id, $0.updateTime) })
+            let unchanged = Set(papers.filter { !$0.updateTime.isEmpty && previousVersions[$0.id] == $0.updateTime }.map(\.id))
+            previewMetadataByPaperID = previousMetadata.filter { unchanged.contains($0.key) }
             previewFailedIDs = []
             previewLoadingIDs = []
             state.applyFirstPage(papers)

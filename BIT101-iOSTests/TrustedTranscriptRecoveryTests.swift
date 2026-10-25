@@ -8,6 +8,39 @@ import UIKit
 
 @MainActor
 struct TrustedTranscriptRecoveryTests {
+    private final class ReplacementService: TrustedTranscriptServicing {
+        let data = UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2)).pngData { _ in }
+        var applications = 0
+        var reads: [Int] = []
+        var failed = false
+        func fetchTrustedTranscriptPages(onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
+            applications += 1
+            if applications == 1 { return .init(pages: (1...3).map { .init(number: $0, data: data) }, expectedPageCount: 3) }
+            let source = TrustedTranscriptReport(pageCount: 3) { [self] number, _ in
+                reads.append(number)
+                if number == 2, !failed { failed = true; throw URLError(.networkConnectionLost) }
+                return data
+            }
+            return try await source.loadPages(maximumBytes: data.count * 3, onPage: onPage)
+        }
+        func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge, onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
+            try await fetchTrustedTranscriptPages(onPage: onPage)
+        }
+        func submitTranscriptSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { challenge }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func replacementRetriesKeepDownloadedProgressWhileTheCompleteReportRemainsVisible() async throws {
+        let service = ReplacementService(), model = TrustedTranscriptViewModel(service: service)
+        await model.applyIfNeeded()
+        let original = model.images
+        model.prepareReapplication(); await model.applyIfNeeded()
+        #expect(model.images.elementsEqual(original, by: { $0 === $1 }) && model.deliveryWarning != nil)
+        model.prepareRetry(); await model.applyIfNeeded()
+        #expect(model.pageNumbers == [1, 2, 3] && model.deliveryWarning == nil)
+        #expect(service.applications == 2 && service.reads == [1, 2, 3, 2])
+    }
+
     private final class SMSService: TrustedTranscriptServicing {
         let challenge = BITLoginAuthenticationChallenge(challengeID: "transcript", accessToken: "fixture",
             status: "requires_sms", maskedPhone: nil, expiresIn: 60)

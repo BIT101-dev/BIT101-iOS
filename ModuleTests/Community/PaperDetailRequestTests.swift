@@ -8,6 +8,19 @@ import TransportCore
 
 @MainActor
 struct PaperDetailRequestTests {
+    @Test(.timeLimit(.minutes(1)), arguments: ["same", "changed", "unknown"])
+    func firstPageVersionsControlPreviewReuse(version: String) async throws {
+        let store = PaperDetailRequestStore()
+        let value = Self.detail(1, updateTime: "2026-10-01T08:00:00Z")
+        var loads = 0
+        func load() async throws -> PaperDetail { loads += 1; return value }
+        _ = try await store.preview(id: 1, credentials: credentials, load: load)
+        let time = version == "same" ? value.updateTime : version == "changed" ? "2026-10-02T08:00:00Z" : ""
+        store.invalidateChangedPapers([.init(id: 1, title: "文章", intro: "", likeNum: 0, commentNum: 0, updateTime: time)])
+        _ = try await store.preview(id: 1, credentials: credentials, load: load)
+        #expect(loads == (version == "same" ? 1 : 2))
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: ["saved", "conflict", "unchanged"])
     func failedEditsReconcileTheirActualRemoteResult(scenario: String) async throws {
         let transport = EditRecoveryTransport(scenario: scenario)
@@ -161,8 +174,8 @@ struct PaperDetailRequestTests {
 
     private let credentials = CommunityCredentials(identity: .init(accountIdentifier: "paper-preview"), cookie: "fixture")
 
-    private static func detail(_ id: Int, title: String = "文章") -> PaperDetail {
-        PaperDetail(id: id, title: title, intro: "", content: "正文", createTime: "", updateTime: "",
+    private static func detail(_ id: Int, title: String = "文章", updateTime: String = "") -> PaperDetail {
+        PaperDetail(id: id, title: title, intro: "", content: "正文", createTime: "", updateTime: updateTime,
             updateUser: .placeholder(id: 1, nickname: "作者"), anonymous: false, likeNum: 0, commentNum: 0,
             publicEdit: false, like: false, own: true)
     }

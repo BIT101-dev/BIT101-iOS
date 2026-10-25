@@ -403,8 +403,13 @@ final class GalleryWebCoordinator: NSObject, WKNavigationDelegate {
     private var credentialGeneration = 0
     private var bootstrapCookie: String?
     private var credentialsUpdateInFlight = false
+    private var failedCredentialCookie: String?
+    private var hasLoadedDocument = false
+    private var retryURL = AppURL.required("https://bit101.cn/gallery")
+    private weak var recoveryAlert: UIAlertController?
 
     func start(in webView: WKWebView, url: URL) {
+        retryURL = url
         do { try configureBootstrap(in: webView, cookie: credentials.cookie()) }
         catch { showLoadFailure(in: webView, error: error); return }
         credentialsSubscription = credentials.changes.sink { [weak self, weak webView] _ in
@@ -416,6 +421,8 @@ final class GalleryWebCoordinator: NSObject, WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
         if isShowingFailure, navigationAction.request.url?.absoluteString == "about:blank" { return .allow }
+        if navigationAction.targetFrame?.isMainFrame != false,
+           let url = navigationAction.request.url, GalleryWebRequestFactory.isTrustedPage(url) { retryURL = url }
         if navigationAction.navigationType == .linkActivated,
            GalleryWebRequestFactory.isTrustedPage(navigationAction.request.url) { isShowingFailure = false }
         guard navigationAction.targetFrame?.isMainFrame != false,
@@ -436,6 +443,7 @@ final class GalleryWebCoordinator: NSObject, WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
+        if !isShowingFailure, GalleryWebRequestFactory.isTrustedPage(webView.url) { hasLoadedDocument = true }
         synchronizeCredentials(in: webView)
     }
 
@@ -469,6 +477,7 @@ final class GalleryWebCoordinator: NSObject, WKNavigationDelegate {
     func synchronizeCredentials(in webView: WKWebView) {
         guard !isShowingFailure else { return }
         let fakeCookie = credentials.cookie()
+        guard failedCredentialCookie != fakeCookie else { return }
         let script: String
         do {
             try configureBootstrap(in: webView, cookie: fakeCookie)
@@ -484,7 +493,7 @@ final class GalleryWebCoordinator: NSObject, WKNavigationDelegate {
             guard self.credentialGeneration == generation, !self.isShowingFailure,
                   GalleryWebRequestFactory.isTrustedPage(webView.url) else { return }
             if self.credentials.cookie() != fakeCookie { self.synchronizeCredentials(in: webView); return }
-            if let error { self.showLoadFailure(in: webView, error: error) }
+            if let error { self.failedCredentialCookie = fakeCookie; self.showLoadFailure(in: webView, error: error) }
             else if result as? Bool == true { webView.reload() }
         }
     }
@@ -502,17 +511,43 @@ final class GalleryWebCoordinator: NSObject, WKNavigationDelegate {
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        hasLoadedDocument = false
         showLoadFailure(in: webView, error: URLError(.networkConnectionLost))
+    }
+
+    func retryLastFailure(in webView: WKWebView) {
+        isShowingFailure = false
+        failedCredentialCookie = nil
+        webView.load(GalleryWebRequestFactory.request(for: retryURL))
     }
 
     private func showLoadFailure(in webView: WKWebView, error: Error) {
         let failure = error as NSError
         guard !(failure.domain == NSURLErrorDomain && failure.code == NSURLErrorCancelled) else { return }
         Self.logger.error("Web view failed: domain=\(failure.domain, privacy: .public) code=\(failure.code)")
+        if let url = failure.userInfo[NSURLErrorFailingURLErrorKey] as? URL,
+           GalleryWebRequestFactory.isTrustedPage(url) { retryURL = url }
+        if hasLoadedDocument {
+            guard recoveryAlert == nil else { return }
+            var responder: UIResponder? = webView
+            while let current = responder, !(current is UIViewController) { responder = current.next }
+            guard let presenter = responder as? UIViewController, presenter.presentedViewController == nil else { return }
+            let alert = UIAlertController(title: "话廊网页加载失败", message: error.localizedDescription, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "继续阅读", style: .cancel))
+            alert.addAction(UIAlertAction(title: "重新加载", style: .default) { [weak self, weak webView] _ in
+                guard let webView else { return }
+                self?.retryLastFailure(in: webView)
+            })
+            recoveryAlert = alert
+            presenter.present(alert, animated: true)
+            return
+        }
         isShowingFailure = true
         let padding = Int(AppDesignSystem.Spacing.section)
+        let target = retryURL.absoluteString.replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "\"", with: "&quot;").replacingOccurrences(of: "<", with: "&lt;")
         webView.loadHTMLString(
-            "<body style=\"font: \(AppDesignSystem.Typography.webBodyCSS); padding: \(padding)px;\">话廊网页加载失败。<p><a href=\"https://bit101.cn/gallery\">重新加载</a></p></body>",
+            "<body style=\"font: \(AppDesignSystem.Typography.webBodyCSS); padding: \(padding)px;\">话廊网页加载失败。<p><a href=\"\(target)\">重新加载</a></p></body>",
             baseURL: nil
         )
     }

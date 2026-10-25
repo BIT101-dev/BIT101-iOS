@@ -56,7 +56,11 @@ public struct CourseService {
             queryItems.insert(URLQueryItem(name: "search", value: keyword), at: 0)
         }
 
-        return try await api.request(path: "courses", queryItems: queryItems)
+        return try await api.request(path: "courses", queryItems: queryItems, validate: { courses in
+            guard courses.allSatisfy({ $0.id > 0 && $0.likeNum >= 0 && $0.commentNum >= 0 && (0...10).contains($0.rate) }) else {
+                throw CourseServiceError.invalidResponse
+            }
+        })
     }
 
     /// 拉取单门课程详情。
