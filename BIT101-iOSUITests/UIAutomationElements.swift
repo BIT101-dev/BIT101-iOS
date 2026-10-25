@@ -305,7 +305,7 @@ final class UIElement: NSObject {
             return
         }
         UITestSnapshotReader.retain(snapshot)
-        let bounds = frame
+        let bounds = native.frame
         guard !bounds.isEmpty, snapshot.frame.contains(bounds) else {
             XCTFail("坐标触摸应位于可见窗口内：\(bounds)。")
             return

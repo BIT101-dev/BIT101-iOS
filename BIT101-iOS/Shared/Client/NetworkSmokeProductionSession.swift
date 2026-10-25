@@ -24,10 +24,27 @@ enum NetworkSmokeProductionSession {
             let following = try await mine.fetchFollowings(page: 0)
             guard let target = following.first(where: { $0.id > 0 && $0.id != account.user.id })
             else { throw configurationError("关注验收需要一个已关注的用户") }
-            let feed = try await dependencies.makeGallery().fetchFeed(kind: .newest, page: nil)
-            guard let poster = feed.items.sorted(by: { $0.commentNum > $1.commentNum })
-                .first(where: { $0.id > 0 && !NetworkSmokePaging.imageURLs(in: $0.images).isEmpty })
-            else { throw configurationError("帖子验收需要带有效图片的对象") }
+            let gallery = dependencies.makeGallery()
+            var selectedPoster: CommunityPoster?
+            var checkedPosters = Set<Int>()
+            for kind in [GalleryFeedKind.hot, .newest] where selectedPoster == nil {
+                let feed = try await gallery.fetchFeed(kind: kind, page: nil)
+                for candidate in feed.items.sorted(by: { $0.commentNum > $1.commentNum })
+                    where candidate.id > 0 && candidate.commentNum > 1 && checkedPosters.insert(candidate.id).inserted
+                        && !NetworkSmokePaging.imageURLs(in: candidate.images).isEmpty {
+                    do {
+                        for order in CommunityCommentOrder.allCases {
+                            _ = try await NetworkSmokePaging.commentBatch(for: "poster\(candidate.id)", order: order,
+                                currentIdentity: dependencies.communityIdentity) {
+                                try await gallery.fetchComments(objectID: "poster\(candidate.id)", order: order, page: $0 == 0 ? nil : $0)
+                            }
+                        }
+                        selectedPoster = candidate
+                        break
+                    } catch is NetworkSmokePaging.SamplingError { continue }
+                }
+            }
+            guard let poster = selectedPoster else { throw configurationError("帖子验收需要带图片和评论排序差异的对象") }
             let courses = dependencies.makeCourses()
             let courseRows = try await courses.fetchCourses(search: "", page: 0)
             var selectedCourse: (id: Int, number: String)?

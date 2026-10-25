@@ -946,7 +946,9 @@ nonisolated final class MineInteractionUITests: UIAutomationTestCase {
         let previewClose = imagePreviewCloseButton()
         app.native.descendants(matching: .any)["QLPreviewControllerView"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         UITestSnapshotReader.invalidate()
-        assertUI(waitUntil(NSPredicate(format: "hittable == false"), on: previewClose), "点击预览画布应收起系统工具栏。")
+        assertUI(waitUntil(NSPredicate { _, _ in !previewClose.exists || previewClose.frame.isEmpty || !previewClose.isHittable }, on: previewClose), "点击预览画布应收起系统工具栏。")
+        app.native.images.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.25)).tap()
+        UITestSnapshotReader.invalidate()
         closeImagePreview()
         for route in ["粉丝", "关注", "帖子"] {
             assertUI(textElement(route).exists, "公开主页应显示\(route)统计。")

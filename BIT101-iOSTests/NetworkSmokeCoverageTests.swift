@@ -716,6 +716,12 @@ struct NetworkSmokeCoverageTests {
             return .init(items: [], nextSourcePage: page == 0 ? 4 : 5, canLoadMore: page == 0, sourceIDs: [page + 1])
         }
         #expect(first.items.isEmpty && pages == [0, 4])
+        pages = []
+        let populated: GalleryPageBatch<CommunityUser> = try await NetworkSmokePaging.batch(requiresContent: true, currentIdentity: smokeIdentity) { page in
+            pages.append(page)
+            return .init(items: page == 8 ? [user(1)] : [], nextSourcePage: page + 4, canLoadMore: true, sourceIDs: [page + 1])
+        }
+        #expect(populated.items.map(\.id) == [1] && pages == [0, 4, 8])
         await #expect(throws: URLError.self) {
             let _: GalleryPageBatch<CommunityUser> = try await NetworkSmokePaging.batch(currentIdentity: smokeIdentity) { page in
                 .init(items: [user(1)], nextSourcePage: 1, canLoadMore: true)

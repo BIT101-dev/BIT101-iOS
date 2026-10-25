@@ -982,10 +982,7 @@ extension UIAutomationTestCase {
         let platform = UIElement(app.native)
         assertUI(waitForImagePreview(visible: true, timeout: 30), "图片交互应进入系统 Quick Look。")
         let done = platform.buttons.matching(NSPredicate(format: "label IN %@", ["完成", "Done", "关闭", "Close"])).firstMatch
-        if done.isHittable { return done }
-        app.native.descendants(matching: .any)["QLPreviewControllerView"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-        UITestSnapshotReader.invalidate()
-        assertUI(waitUntil(NSPredicate(format: "hittable == true"), on: done, timeout: 10), "点击预览画布应显示关闭控件。")
+        assertUI(waitUntil(NSPredicate { _, _ in done.exists && !done.frame.isEmpty && done.isHittable }, on: done, timeout: 10), "系统预览应完成关闭控件布局。")
         return done
     }
 

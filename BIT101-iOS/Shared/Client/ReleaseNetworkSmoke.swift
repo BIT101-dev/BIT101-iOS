@@ -258,7 +258,7 @@ final class ReleaseNetworkSmokeRunner {
             { _ = await self.probe(.galleryHot, area: .bit101, scope: scope) { try await NetworkSmokePaging.batch(currentIdentity: self.dependencies.communityIdentity) { try await gallery.fetchFeed(kind: .hot, page: $0 == 0 ? nil : $0) } } },
             { _ = await self.probe(.galleryRecommend, area: .bit101, scope: scope) { try await NetworkSmokePaging.batch(currentIdentity: self.dependencies.communityIdentity) { try await gallery.fetchRecommendPage(sourcePage: $0) } } },
             { _ = await self.probe(.galleryBots, area: .bit101, scope: scope) {
-                let sampled = try await NetworkSmokePaging.batch(currentIdentity: self.dependencies.communityIdentity) {
+                let sampled = try await NetworkSmokePaging.batch(requiresContent: true, currentIdentity: self.dependencies.communityIdentity) {
                     let batch = try await gallery.fetchBotFeed(startPage: $0)
                     try NetworkSmokePaging.checkBotPosters(batch.items)
                     return batch

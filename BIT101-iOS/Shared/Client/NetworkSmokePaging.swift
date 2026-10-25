@@ -239,7 +239,7 @@ enum NetworkSmokePaging {
         else { throw URLError(.cannotParseResponse) }
     }
 
-    static func batch<Value: Identifiable>(matchingID: Int? = nil, currentIdentity: () -> CommunitySessionIdentity, load: (Int) async throws -> GalleryPageBatch<Value>) async throws -> GalleryPageBatch<Value> where Value.ID == Int {
+    static func batch<Value: Identifiable>(matchingID: Int? = nil, requiresContent: Bool = false, currentIdentity: () -> CommunitySessionIdentity, load: (Int) async throws -> GalleryPageBatch<Value>) async throws -> GalleryPageBatch<Value> where Value.ID == Int {
         let identity = currentIdentity()
         let first = try await load(0)
         try checkIdentity(identity, current: currentIdentity())
@@ -265,7 +265,7 @@ enum NetworkSmokePaging {
             sampled.append(next.items)
             sourceIDs.formUnion(next.sourceIDs)
             try checkSampleBudget(page: page, items: sourceIDs.count)
-            if !next.canLoadMore || advances && (matchingID.map { sampled.ids.contains($0) } ?? true) {
+            if !next.canLoadMore || advances && (!requiresContent || !sampled.items.isEmpty) && (matchingID.map { sampled.ids.contains($0) } ?? true) {
                 return .init(items: sampled.items, nextSourcePage: next.nextSourcePage,
                     canLoadMore: next.canLoadMore, sourceIDs: sourceIDs.sorted())
             }

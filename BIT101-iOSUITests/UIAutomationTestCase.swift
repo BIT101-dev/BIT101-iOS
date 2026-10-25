@@ -316,7 +316,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
                 keyboard.exists && done.native.isHittable && done.native.frame.maxY <= keyboard.frame.minY
             }
             assertUI(waitUntil(positioned, on: done, timeout: 5), "键盘完成按钮应就位于系统键盘上方。")
-            done.tapBriefly()
+            done.tapVisibleCenter()
             assertUI(waitUntil(NSPredicate { _, _ in UITestControlClient.request(["command": "keyboard-state"]) == "hidden" },
                 on: app, timeout: 5), "原生完成按钮应关闭当前键盘。")
             return
